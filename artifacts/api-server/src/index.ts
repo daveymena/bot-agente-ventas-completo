@@ -1,19 +1,13 @@
 import app from "./app";
 import { logger } from "./lib/logger";
 
-const rawPort = process.env["PORT"];
+let port = Number(process.env["PORT"] || "3002");
 const host = process.env["HOST"] || "0.0.0.0";
 
-if (!rawPort) {
-  throw new Error(
-    "PORT environment variable is required but was not provided.",
-  );
-}
-
-const port = Number(rawPort);
-
+// Fallback if parsing fails (e.g. if it's a shell string like ${PORT:-3002})
 if (Number.isNaN(port) || port <= 0) {
-  throw new Error(`Invalid PORT value: "${rawPort}"`);
+  logger.warn({ rawPort: process.env["PORT"] }, "Invalid PORT in env, falling back to 3002");
+  port = 3002;
 }
 
 app.listen(port, host, (err) => {
