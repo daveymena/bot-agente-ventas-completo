@@ -15,12 +15,18 @@ RUN apt-get update && apt-get install -y \
 
 # Copiar archivos de configuración del monorepo
 COPY pnpm-lock.yaml pnpm-workspace.yaml package.json .npmrc ./
-COPY lib ./lib
+
+# Copiar package.json de todos los paquetes para optimizar cache de pnpm install
 COPY artifacts/api-server/package.json ./artifacts/api-server/
 COPY artifacts/ventas-pro/package.json ./artifacts/ventas-pro/
-COPY artifacts/api-zod/package.json ./artifacts/api-zod/
-COPY artifacts/api-spec/package.json ./artifacts/api-spec/
-COPY artifacts/api-client-react/package.json ./artifacts/api-client-react/
+COPY lib/api-zod/package.json ./lib/api-zod/
+COPY lib/api-spec/package.json ./lib/api-spec/
+COPY lib/api-client-react/package.json ./lib/api-client-react/
+COPY lib/db/package.json ./lib/db/
+COPY lib/integrations-openai-ai-server/package.json ./lib/integrations-openai-ai-server/
+COPY lib/integrations-openai-ai-react/package.json ./lib/integrations-openai-ai-react/
+COPY lib/integrations/openai_ai_integrations/package.json ./lib/integrations/openai_ai_integrations/
+COPY scripts/package.json ./scripts/
 
 # Instalar dependencias
 RUN pnpm install --frozen-lockfile
