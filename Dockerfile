@@ -27,6 +27,8 @@ COPY lib/integrations-openai-ai-server/package.json ./lib/integrations-openai-ai
 COPY lib/integrations-openai-ai-react/package.json ./lib/integrations-openai-ai-react/
 COPY scripts/package.json ./scripts/
 
+# Forzar desarrollo para instalar devDependencies y evitar problemas de @types/node
+ENV NODE_ENV=development
 # Instalar dependencias
 RUN pnpm install --frozen-lockfile
 
