@@ -61,10 +61,14 @@ COPY --from=base /app/lib /app/lib
 # Crear carpetas de persistencia para EasyPanel
 RUN mkdir -p /app/data && chmod 777 /app/data
 
-# Variables de entorno críticas
+# Variables de entorno y argumentos de construcción
+ARG DATABASE_URL
+ENV DATABASE_URL=$DATABASE_URL
 ENV NODE_ENV=production
 ENV PORT=3002
-ENV DATABASE_URL="file:/app/data/tecnovariedades.db"
+
+# Crear carpeta para sesiones de WhatsApp (persistencia)
+RUN mkdir -p /app/data && chmod 777 /app/data
 
 EXPOSE 3002
 
