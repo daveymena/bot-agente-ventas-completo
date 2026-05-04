@@ -13,6 +13,7 @@ import { format, parseISO } from "date-fns";
 import { es } from "date-fns/locale";
 import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
+import { SaasStatusBanner } from "@/components/saas-status-banner";
 
 function MetricCard({ title, value, icon: Icon, description, className = "" }: { title: string, value: string | number, icon: any, description?: string, className?: string }) {
   return (
@@ -51,6 +52,9 @@ export default function Dashboard() {
   return (
     <Layout>
       <div className="flex flex-col gap-8 animate-enter">
+        
+        {/* SaaS Status Banner */}
+        <SaasStatusBanner />
         
         {/* Hero Section */}
         <div className="flex flex-col md:flex-row gap-6 md:items-end justify-between bg-card/40 border p-6 md:p-8 rounded-3xl relative overflow-hidden shadow-sm">

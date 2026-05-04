@@ -46,8 +46,8 @@ router.post("/register", async (req, res, next) => {
       passwordHash,
       slug,
       brandName,
-      status: "active",
-      plan: "basic",
+      status: "trial", // Iniciar con trial
+      plan: "starter", // Plan starter por defecto
       agentName: "Sofía",
       agentPersonality: "professional",
       settings: {
@@ -57,10 +57,10 @@ router.post("/register", async (req, res, next) => {
         autoRespond: true
       },
       limits: {
-        maxConversations: 1000,
-        maxProducts: 100,
+        maxConversations: 100,
+        maxProducts: 50,
         maxAgents: 1,
-        maxMonthlyMessages: 5000,
+        maxMonthlyMessages: 1000,
         apiCallsPerMinute: 60
       }
     }).returning();
@@ -127,12 +127,31 @@ router.get("/me", async (req, res, next) => {
       return res.status(401).json({ error: "Session invalid" });
     }
 
+    // Calcular días restantes si es trial
+    let trialDaysRemaining = null;
+    if (tenant.status === "trial") {
+      const trialDays = 7; // Free plan trial days
+      const createdAt = new Date(tenant.createdAt);
+      const trialExpiry = new Date(
+        createdAt.getTime() + trialDays * 24 * 60 * 60 * 1000
+      );
+      const now = new Date();
+      trialDaysRemaining = Math.max(
+        0,
+        Math.ceil((trialExpiry.getTime() - now.getTime()) / (1000 * 60 * 60 * 24))
+      );
+    }
+
     return res.json({ 
       tenant: { 
         id: tenant.id, 
         name: tenant.name, 
         email: tenant.email,
-        slug: tenant.slug 
+        slug: tenant.slug,
+        plan: tenant.plan,
+        status: tenant.status,
+        trialDaysRemaining,
+        createdAt: tenant.createdAt,
       } 
     });
   } catch (e) {

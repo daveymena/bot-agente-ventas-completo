@@ -27,6 +27,7 @@ export function AppSidebar() {
     { label: "WhatsApp", href: "/whatsapp", icon: Phone },
     { label: "Arquitecto IA", href: "/code-agent", icon: Wand2 },
     { label: "Configuración", href: "/settings", icon: Settings },
+    { label: "Planes", href: "/pricing", icon: Badge },
   ];
 
   const { data: wsStatus } = useGetWhatsAppStatus({

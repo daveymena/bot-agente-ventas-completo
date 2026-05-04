@@ -14,6 +14,7 @@ import WhatsAppConnection from "@/pages/whatsapp";
 import Settings from "@/pages/settings";
 import CodeAgent from "@/pages/code-agent";
 import AuthPage from "@/pages/auth";
+import PricingPage from "@/pages/pricing";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -51,6 +52,7 @@ function Router() {
       <Route path="/whatsapp" component={WhatsAppConnection} />
       <Route path="/settings" component={Settings} />
       <Route path="/code-agent" component={CodeAgent} />
+      <Route path="/pricing" component={PricingPage} />
       <Route path="/auth" component={AuthPage} />
       <Route component={NotFound} />
     </Switch>
