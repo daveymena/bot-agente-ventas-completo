@@ -1,4 +1,4 @@
-import express, { type Express } from "express";
+import express, { type Express, type Request, type Response, type NextFunction } from "express";
 import path from "path";
 import { fileURLToPath } from "url";
 import cors from "cors";
@@ -63,39 +63,78 @@ const frontendPath = path.resolve(__dirname, "../../ventas-pro/dist/public");
 
 app.use(express.static(frontendPath));
 
-// Resolución de tenant multi-inquilino - SOLO para rutas de API
-app.use("/api", resolveTenant());
+// Rutas públicas que no requieren validación de SaaS
+const publicRoutes = [
+  "/health",
+  "/ready",
+  "/pricing",
+  "/auth/register",
+  "/auth/login",
+  "/auth/logout",
+];
 
-// Validar SaaS plan para todas las rutas de API (excepto health, pricing, y auth públicas)
-app.use("/api", (req, res, next) => {
-  // Excluir rutas que no requieren validación de SaaS
-  const excludedRoutes = [
-    "/api/health",
-    "/api/ready",
-    "/api/pricing",
-    "/api/auth/register",
-    "/api/auth/login",
-    "/api/auth/logout",
-  ];
-  
-  if (excludedRoutes.some(route => req.path.startsWith(route))) {
+const isPublicRoute = (path: string) => publicRoutes.some(route => path.startsWith(route));
+
+// Middleware para resolver tenant SOLO en rutas protegidas
+const resolveTenantMiddleware = (req: Request, res: Response, next: NextFunction) => {
+  const isPublic = isPublicRoute(req.path);
+  console.log(`[resolveTenant] Path: ${req.path}, isPublic: ${isPublic}`);
+  if (isPublic) {
     return next();
   }
+  resolveTenant()(req, res, next);
+};
 
-  // Validar SaaS plan para el resto de rutas (incluyendo /api/auth/me)
+// Middleware para validar SaaS SOLO en rutas protegidas
+const validateSaasMiddleware = (req: Request, res: Response, next: NextFunction) => {
+  if (isPublicRoute(req.path)) {
+    return next();
+  }
   validateSaasPlan()(req, res, next);
-});
+};
 
-// Validar límites de uso
-app.use("/api", validateUsageLimits());
+// Middleware para validar límites SOLO en rutas protegidas
+const validateLimitsMiddleware = (req: Request, res: Response, next: NextFunction) => {
+  if (isPublicRoute(req.path)) {
+    return next();
+  }
+  validateUsageLimits()(req, res, next);
+};
+
+// Aplicar middlewares en orden correcto
+app.use("/api", resolveTenantMiddleware);
+app.use("/api", validateSaasMiddleware);
+app.use("/api", validateLimitsMiddleware);
 
 // Validar límites de características específicas
-app.use("/api/products", validateFeatureLimits("products"));
-app.use("/api/agents", validateFeatureLimits("agents"));
-app.use("/api/conversations", validateFeatureLimits("conversations"));
+app.use("/api/products", (req, res, next) => {
+  if (isPublicRoute(req.path)) {
+    return next();
+  }
+  validateFeatureLimits("products")(req, res, next);
+});
+
+app.use("/api/agents", (req, res, next) => {
+  if (isPublicRoute(req.path)) {
+    return next();
+  }
+  validateFeatureLimits("agents")(req, res, next);
+});
+
+app.use("/api/conversations", (req, res, next) => {
+  if (isPublicRoute(req.path)) {
+    return next();
+  }
+  validateFeatureLimits("conversations")(req, res, next);
+});
 
 // Validar límites de mensajes
-app.use("/api/messages", validateMessageLimit());
+app.use("/api/messages", (req, res, next) => {
+  if (isPublicRoute(req.path)) {
+    return next();
+  }
+  validateMessageLimit()(req, res, next);
+});
 
 app.use("/api", router);
 
