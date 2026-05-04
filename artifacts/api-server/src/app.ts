@@ -5,6 +5,7 @@ import cors from "cors";
 import cookieParser from "cookie-parser";
 import pinoHttp from "pino-http";
 import router from "./routes";
+import healthRouter from "./health";
 import { logger } from "./lib/logger";
 import { resolveTenant } from "./lib/tenantManager";
 import { whatsapp } from "./lib/whatsapp";
@@ -45,6 +46,9 @@ app.use(cors());
 app.use(cookieParser());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+// Health check endpoints (sin autenticación)
+app.use("/api", healthRouter);
 
 // Servir frontend en producción
 const __filename = fileURLToPath(import.meta.url);

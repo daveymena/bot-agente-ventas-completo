@@ -1,0 +1,115 @@
+# EasyPanel Configuration for Sofía AI Sales Bot
+# This file helps EasyPanel understand how to deploy and manage the application
+
+version: "1.0"
+
+services:
+  api-server:
+    name: "Sofía API Server"
+    description: "WhatsApp AI Sales Bot Backend"
+    
+    # Build configuration
+    build:
+      dockerfile: ./Dockerfile
+      context: .
+    
+    # Port configuration
+    ports:
+      - "3002:3002"
+    
+    # Environment variables
+    environment:
+      NODE_ENV: production
+      PORT: 3002
+      HOST: 0.0.0.0
+      LOG_LEVEL: info
+    
+    # Health check
+    healthCheck:
+      path: /api/health
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      startPeriod: 5s
+    
+    # Resource limits
+    resources:
+      limits:
+        cpus: "2"
+        memory: "2G"
+      requests:
+        cpus: "0.5"
+        memory: "512M"
+    
+    # Restart policy
+    restart:
+      policy: always
+      maxRetries: 5
+    
+    # Volumes (if needed for persistence)
+    volumes:
+      - ./data:/app/data
+
+  # Optional: PostgreSQL Database
+  postgres:
+    name: "PostgreSQL Database"
+    image: "postgres:16-alpine"
+    environment:
+      POSTGRES_DB: tecnovariedades-db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
+  # Optional: Ollama for local AI
+  ollama:
+    name: "Ollama AI Engine"
+    image: "ollama/ollama:latest"
+    environment:
+      OLLAMA_HOST: "0.0.0.0:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    ports:
+      - "11434:11434"
+
+volumes:
+  postgres_data:
+  ollama_data:
+
+# Deployment instructions
+deployment:
+  preDeployment:
+    - "pnpm install --frozen-lockfile"
+    - "pnpm --filter @workspace/api-server run build"
+    - "pnpm --filter @workspace/ventas-pro run build"
+  
+  postDeployment:
+    - "echo 'Deployment completed successfully'"
+  
+  # Database migrations (if needed)
+  migrations:
+    - "pnpm --filter @workspace/db run migrate"
+
+# Monitoring
+monitoring:
+  metrics:
+    - cpu
+    - memory
+    - disk
+    - network
+  
+  logs:
+    - /app/logs
+    - stdout
+    - stderr
+
+# Backup configuration
+backup:
+  enabled: true
+  schedule: "0 2 * * *"  # Daily at 2 AM
+  retention: 7  # Keep 7 days of backups
+  targets:
+    - postgres_data
+    - ./data
