@@ -42,6 +42,40 @@ export default function Settings() {
 
   const [keywordInput, setKeywordInput] = useState("");
 
+  const [deviceFlow, setDeviceFlow] = useState({
+    active: false,
+    userCode: "",
+    deviceCode: "",
+    verificationUri: "",
+    status: "idle"
+  });
+
+  // Polling for Copilot token
+  useEffect(() => {
+    let interval: any;
+    if (deviceFlow.active && deviceFlow.status === "pending") {
+      interval = setInterval(async () => {
+        try {
+          const res = await fetch("/api/settings/copilot-device-token", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ device_code: deviceFlow.deviceCode })
+          });
+          const data = await res.json();
+          if (data.success && data.token) {
+            setFormData(prev => ({ ...prev, githubToken: data.token }));
+            setDeviceFlow(prev => ({ ...prev, active: false, status: "success" }));
+            toast.success("¡Cuenta de GitHub vinculada exitosamente!");
+            clearInterval(interval);
+          }
+        } catch (e) {
+          console.error("Polling error", e);
+        }
+      }, 5000);
+    }
+    return () => clearInterval(interval);
+  }, [deviceFlow.active, deviceFlow.status, deviceFlow.deviceCode]);
+
   useEffect(() => {
     if (settings) {
       setFormData({
@@ -315,55 +349,134 @@ export default function Settings() {
                   </div>
 
                   {formData.aiProvider === "github" && (
-                    <div className="space-y-4 animate-in fade-in slide-in-from-left-4">
-                      <div className="space-y-2">
-                        <div className="flex justify-between items-center">
-                          <Label className="text-muted-foreground font-semibold uppercase tracking-wider text-[10px]">GitHub Token (Opcional si está en .env)</Label>
-                          <a href="https://github.com/settings/tokens" target="_blank" rel="noreferrer" className="text-[10px] text-primary hover:underline font-bold">GENERAR TOKEN ↗</a>
+                    <div className="space-y-6 animate-in fade-in slide-in-from-left-4">
+                      {/* Opción 1: Token Directo */}
+                      <div className="p-5 rounded-2xl border border-primary/20 bg-primary/5 space-y-4">
+                        <div className="flex items-center gap-3">
+                          <div className="p-2 bg-primary/20 rounded-lg text-primary">
+                            <ShieldCheck className="h-5 w-5" />
+                          </div>
+                          <div>
+                            <h4 className="text-sm font-bold">Conexión rápida con tu token</h4>
+                            <p className="text-[10px] text-muted-foreground uppercase font-semibold">Usa el Personal Access Token (PAT) que ya tienes.</p>
+                          </div>
                         </div>
-                        <Input 
-                          type="password"
-                          value={formData.githubToken || ""} 
-                          onChange={e => setFormData({...formData, githubToken: e.target.value})} 
-                          placeholder="ghp_..."
-                          className="bg-muted/30"
-                        />
-                      </div>
-                      <Button 
-                        variant="secondary" 
-                        size="sm" 
-                        className="w-full bg-primary/10 hover:bg-primary/20 text-primary border-primary/20"
-                        onClick={async () => {
-                          if (!formData.githubToken) return toast.error("Ingresa un PAT de GitHub primero");
-                          const loadingToast = toast.loading("Verificando acceso a Copilot...");
-                          try {
-                            const res = await fetch("/api/settings/copilot-token", {
-                              method: "POST",
-                              headers: { "Content-Type": "application/json" },
-                              body: JSON.stringify({ githubToken: formData.githubToken })
-                            });
-                            const data = await res.json();
-                            if (data.success) {
-                              toast.success("¡Token verificado! Copilot está listo.", { id: loadingToast });
-                              window.open("https://github.com/login/select-account", "_blank");
-                            } else {
-                              toast.error(data.error || "Error de verificación", { id: loadingToast });
+                        <div className="space-y-2">
+                          <Input 
+                            type="password"
+                            value={formData.githubToken || ""} 
+                            onChange={e => setFormData({...formData, githubToken: e.target.value})} 
+                            placeholder="ghp_..."
+                            className="bg-background/50 border-primary/10"
+                          />
+                        </div>
+                        <Button 
+                          variant="default" 
+                          className="w-full bg-primary hover:bg-primary/90 text-white font-bold h-11 rounded-xl"
+                          onClick={async () => {
+                            if (!formData.githubToken) return toast.error("Ingresa un Token de GitHub primero");
+                            const loadingToast = toast.loading("Verificando token...");
+                            try {
+                              const res = await fetch("/api/settings/copilot-token", {
+                                method: "POST",
+                                headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify({ githubToken: formData.githubToken })
+                              });
+                              const data = await res.json();
+                              if (data.success) {
+                                toast.success("¡Token verificado correctamente!", { id: loadingToast });
+                              } else {
+                                toast.error(data.error || "Token inválido", { id: loadingToast });
+                              }
+                            } catch (e) {
+                              toast.error("Error de conexión", { id: loadingToast });
                             }
-                          } catch (e) {
-                            toast.error("Error de red", { id: loadingToast });
-                          }
-                        }}
-                      >
-                        Verificar y Vincular Copilot
-                      </Button>
-                      <a 
-                        href="https://github.com/settings/connections"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="block text-center text-sm text-muted-foreground hover:text-primary underline"
-                      >
-                        ¿Vincular otro correo de GitHub?
-                      </a>
+                          }}
+                        >
+                          <Plus className="h-4 w-4 mr-2" /> Conectar con mi token de GitHub
+                        </Button>
+                      </div>
+
+                      {/* Opción 2: Código de Dispositivo (NUEVO) */}
+                      <div className="p-5 rounded-2xl border border-white/5 bg-muted/20 space-y-4">
+                        <div className="flex items-center gap-3">
+                          <div className="p-2 bg-muted rounded-lg text-muted-foreground">
+                            <Terminal className="h-5 w-5" />
+                          </div>
+                          <div>
+                            <h4 className="text-sm font-bold">Autorización por código (alternativo)</h4>
+                            <p className="text-[10px] text-muted-foreground uppercase font-semibold">Genera un código, visita GitHub y autoriza manualmente.</p>
+                          </div>
+                        </div>
+
+                        {!deviceFlow.active ? (
+                          <>
+                            <div className="grid grid-cols-4 gap-2">
+                              {["gpt-4o", "gpt-4o-mini", "claude-3.5-sonnet", "o1", "o3-mini"].map(m => (
+                                <Badge key={m} variant="secondary" className="justify-center text-[9px] py-1 bg-background/50 border-white/5">{m}</Badge>
+                              ))}
+                            </div>
+                            <Button 
+                              variant="outline" 
+                              className="w-full h-11 rounded-xl border-white/10 hover:bg-white/5 font-bold"
+                              onClick={async () => {
+                                const loadingToast = toast.loading("Solicitando código a GitHub...");
+                                try {
+                                  const res = await fetch("/api/settings/copilot-device-code", { method: "POST" });
+                                  const data = await res.json();
+                                  if (data.user_code) {
+                                    setDeviceFlow({
+                                      active: true,
+                                      userCode: data.user_code,
+                                      deviceCode: data.device_code,
+                                      verificationUri: data.verification_uri,
+                                      status: "pending"
+                                    });
+                                    toast.success("Código generado. Por favor autoriza en GitHub.", { id: loadingToast });
+                                  } else {
+                                    toast.error("No se pudo generar el código", { id: loadingToast });
+                                  }
+                                } catch (e) {
+                                  toast.error("Error de red", { id: loadingToast });
+                                }
+                              }}
+                            >
+                              <SettingsIcon className="h-4 w-4 mr-2" /> Iniciar con código de autorización
+                            </Button>
+                          </>
+                        ) : (
+                          <div className="space-y-4 animate-in zoom-in-95 duration-200">
+                            <p className="text-xs text-center">Visita <a href={deviceFlow.verificationUri} target="_blank" rel="noreferrer" className="text-green-500 underline font-bold">este enlace</a> e introduce el código para conectar tu cuenta.</p>
+                            <div className="flex items-center gap-2">
+                              <div className="flex-1 bg-black/40 border border-white/10 rounded-xl p-4 text-center tracking-[0.5em] font-mono text-xl font-bold">
+                                {deviceFlow.userCode}
+                              </div>
+                              <Button 
+                                variant="outline" 
+                                size="icon" 
+                                className="h-14 w-14 rounded-xl"
+                                onClick={() => {
+                                  navigator.clipboard.writeText(deviceFlow.userCode);
+                                  toast.success("Código copiado");
+                                }}
+                              >
+                                <Save className="h-5 w-5" />
+                              </Button>
+                            </div>
+                            <div className="flex justify-between items-center text-[10px]">
+                              <div className="flex items-center gap-2 text-green-500">
+                                <div className="h-2 w-2 rounded-full bg-green-500 animate-pulse" />
+                                Esperando autorización...
+                              </div>
+                              <div className="flex gap-4">
+                                <button onClick={() => window.open(deviceFlow.verificationUri, "_blank")} className="hover:underline font-bold">Abrir GitHub ↗</button>
+                                <button onClick={() => setDeviceFlow({ ...deviceFlow, active: false })} className="text-muted-foreground hover:text-foreground">Cancelar</button>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
                       <div className="space-y-2">
                         <Label className="text-muted-foreground font-semibold uppercase tracking-wider text-[10px]">Modelo de GitHub</Label>
                         <Input 
@@ -402,17 +515,17 @@ export default function Settings() {
 
                 <div className="bg-muted/20 rounded-2xl p-5 border border-dashed flex flex-col justify-center gap-3">
                   <h4 className="font-bold text-sm flex items-center gap-2">
-                    <ShieldCheck className="h-4 w-4 text-green-500" /> Nota sobre Seguridad
+                    <ShieldCheck className="h-4 w-4 text-green-500" /> Nota sobre Suscripción
                   </h4>
                   <p className="text-xs text-muted-foreground leading-relaxed">
-                    Si dejas los campos de Token o URL vacíos, el sistema usará los valores predeterminados configurados en el archivo <code className="bg-muted px-1 rounded">.env</code> del servidor.
+                    Requiere suscripción activa a GitHub Copilot. Los modelos de Claude y Gemini estarán disponibles según tu plan.
                   </p>
                   <div className="mt-2 p-3 bg-primary/5 rounded-xl border border-primary/10">
                     <p className="text-[10px] text-primary font-bold uppercase mb-1">Capacidades Activas</p>
                     <ul className="text-[10px] space-y-1 text-muted-foreground">
+                      <li>• GPT-4o y Claude 3.5 Sonnet soportados</li>
                       <li>• Razonamiento por etapas habilitado</li>
                       <li>• Memoria de corto y mediano plazo activa</li>
-                      <li>• Soporte para tarjetas visuales [CARD]</li>
                     </ul>
                   </div>
                 </div>

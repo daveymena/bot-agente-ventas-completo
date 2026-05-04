@@ -37,34 +37,34 @@ router.get("/", async (req: TenantRequest, res, next) => {
 // Create a product for the current tenant
 router.post("/", async (req: TenantRequest, res, next) => {
   try {
-    const tenantId = req.tenant?.id;
-    if (!tenantId) return res.status(401).json({ message: "Tenant not resolved" });
+     const tenantId = req.tenant?.id;
+     if (!tenantId) return res.status(401).json({ message: "Tenant not resolved" });
 
-    if (req.body.price !== undefined) {
-      req.body.price = String(req.body.price);
-    }
-    const body = CreateProductBody.parse(req.body);
-    const [created] = await db
-      .insert(products)
-      .values({
-        tenantId,
-        name: body.name,
-        description: body.description,
-        price: String(body.price ?? 0),
-        currency: body.currency ?? "USD",
-        sku: body.sku ?? null,
-        categoryId: body.categoryId ?? null,
-        category: body.category ?? null,
-        kind: body.kind ?? "digital",
-        imageUrl: body.imageUrl ?? null,
-        highlight: body.highlight ?? null,
-        features: body.features ?? [],
-        isActive: body.isActive ?? true,
-        paymentLink: (body as any).paymentLink ?? null,
-        deliveryLink: (body as any).deliveryLink ?? null,
-      })
-      .returning();
-    return res.json(serialize(created!));
+     if (req.body.price !== undefined) {
+       req.body.price = String(req.body.price);
+     }
+     const body = CreateProductBody.parse(req.body);
+     const [created] = await db
+       .insert(products)
+       .values({
+         tenantId,
+         name: body.name || "Producto",
+         description: body.description || "",
+         price: String(body.price ?? 0),
+         currency: body.currency ?? "USD",
+         sku: (body as any).sku ?? null,
+         categoryId: (body as any).categoryId ?? null,
+         category: null,
+         kind: body.kind ?? "digital",
+         imageUrl: (body as any).imageUrl ?? null,
+         highlight: (body as any).highlight ?? null,
+         features: (body as any).features ?? [],
+         isActive: (body as any).isActive ?? true,
+         paymentLink: (body as any).paymentLink ?? null,
+         deliveryLink: (body as any).deliveryLink ?? null,
+       })
+       .returning();
+     return res.json(serialize(created!));
   } catch (e) {
     return next(e);
   }

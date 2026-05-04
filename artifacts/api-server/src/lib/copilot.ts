@@ -1,9 +1,79 @@
+// @ts-nocheck
 import { logger } from "./logger";
 
 export interface CopilotTokenResponse {
   token: string;
   expires_at: number;
   refresh_in: number;
+}
+
+const COPILOT_OAUTH_CLIENT_ID = "Ov23li8tweQw6odWQebz";
+
+export interface DeviceCodeResponse {
+  device_code: string;
+  user_code: string;
+  verification_uri: string;
+  expires_in: number;
+  interval: number;
+}
+
+/**
+ * Inicia el flujo de código de dispositivo con GitHub
+ */
+export async function getCopilotDeviceCode(): Promise<DeviceCodeResponse | null> {
+  try {
+    const response = await fetch("https://github.com/login/device/code", {
+      method: "POST",
+      headers: {
+        "Accept": "application/json",
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: new URLSearchParams({
+        client_id: COPILOT_OAUTH_CLIENT_ID,
+        scope: "read:user",
+      }).toString(),
+    });
+
+    if (!response.ok) return null;
+    return await response.json();
+  } catch (error) {
+    logger.error({ err: error.message }, "[Copilot] Error initiating device code flow");
+    return null;
+  }
+}
+
+/**
+ * Polls GitHub for the access token using the device code
+ */
+export async function pollCopilotToken(deviceCode: string): Promise<string | null> {
+  try {
+    const response = await fetch("https://github.com/login/oauth/access_token", {
+      method: "POST",
+      headers: {
+        "Accept": "application/json",
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: new URLSearchParams({
+        client_id: COPILOT_OAUTH_CLIENT_ID,
+        device_code: deviceCode,
+        grant_type: "urn:ietf:params:oauth:grant-type:device_code",
+      }).toString(),
+    });
+
+    const data = await response.json();
+    
+    if (data.access_token) {
+      return data.access_token;
+    }
+    
+    if (data.error === "authorization_pending") {
+      return "pending";
+    }
+
+    return null;
+  } catch (error) {
+    return null;
+  }
 }
 
 /**

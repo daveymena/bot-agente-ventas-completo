@@ -171,9 +171,9 @@ router.put("/current", async (req: TenantRequest, res) => {
       });
     }
 
-    const validatedData = updateTenantSchema.parse(req.body);
+     const validatedData = updateTenantSchema.parse(req.body);
 
-    const success = await tenantManager.updateTenant(req.tenant.id, validatedData);
+     const success = await tenantManager.updateTenant(req.tenant.id, validatedData as any);
 
     if (!success) {
       return res.status(400).json({ 

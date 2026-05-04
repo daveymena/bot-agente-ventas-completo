@@ -1,4 +1,5 @@
-import { Switch, Route, Router as WouterRouter } from "wouter";
+import { useEffect, useState } from "react";
+import { Switch, Route, Router as WouterRouter, useLocation } from "wouter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -56,12 +57,61 @@ function Router() {
   );
 }
 
+function AppContent() {
+  const [, setLocation] = useLocation();
+  const [isChecking, setIsChecking] = useState(true);
+
+  useEffect(() => {
+    // Verificar sesión al cargar la app
+    const checkSession = async () => {
+      try {
+        const response = await fetch("/api/auth/me", {
+          credentials: "include",
+        });
+
+        if (!response.ok) {
+          // No hay sesión, redirigir a login
+          console.log("📍 No hay sesión. Redirigiendo a /auth");
+          setLocation("/auth");
+        } else {
+          // Hay sesión, permitir navegación normal
+          console.log("✅ Sesión válida");
+          // Si está en /auth, redirigir al dashboard
+          if (window.location.pathname === "/auth") {
+            setLocation("/");
+          }
+        }
+      } catch (error) {
+        console.error("❌ Error verificando sesión:", error);
+        setLocation("/auth");
+      } finally {
+        setIsChecking(false);
+      }
+    };
+
+    checkSession();
+  }, [setLocation]);
+
+  if (isChecking) {
+    return (
+      <div className="flex items-center justify-center h-screen bg-gray-50">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4"></div>
+          <p className="text-gray-600">Verificando sesión...</p>
+        </div>
+      </div>
+    );
+  }
+
+  return <Router />;
+}
+
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
         <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
-          <Router />
+          <AppContent />
         </WouterRouter>
         <Toaster />
       </TooltipProvider>

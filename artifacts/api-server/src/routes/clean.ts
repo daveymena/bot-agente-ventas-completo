@@ -40,13 +40,13 @@ router.post("/deep-clean", async (req, res) => {
 
     logger.info("[Clean] Limpieza y reparación completada con éxito.");
 
-    res.json({ 
+    return res.json({ 
       success: true, 
       message: "Base de datos de interacciones reseteada completamente. Los productos han sido preservados." 
     });
   } catch (e: any) {
     logger.error(e, "[Clean] Error en Deep Clean");
-    res.status(500).json({ error: e.message });
+    return res.status(500).json({ error: e.message });
   }
 });
 

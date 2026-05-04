@@ -129,7 +129,26 @@ router.post("/:id/messages", conversationRateLimit, aiCostTracker, async (req, r
         logger.warn({ err }, "Send to WhatsApp failed (message persisted)");
       }
     }
-    return res.json(SendMessageResponse.parse(serializeMessage(msg!)));
+
+    // ✨ NEW: Si es mensaje del cliente, obtener respuesta del agente automáticamente
+    let agentReply = null;
+    if (body.asHuman === true && convo.status === "ai") {
+      try {
+        agentReply = await runAgentReply(id);
+        logger.debug({ conversationId: id, hasReply: !!agentReply }, "[Agent] Auto-reply generated");
+      } catch (err) {
+        logger.warn({ err, conversationId: id }, "[Agent] Failed to generate auto-reply");
+      }
+    }
+
+    return res.json({
+      ...SendMessageResponse.parse(serializeMessage(msg!)),
+      agentReply: agentReply ? {
+        content: agentReply.content,
+        stage: agentReply.stage,
+        parts: agentReply.parts
+      } : null
+    });
   } catch (e) {
     return next(e);
   }

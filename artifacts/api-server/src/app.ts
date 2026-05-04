@@ -14,6 +14,12 @@ whatsapp.start().catch(err => {
   logger.error({ err }, "[WhatsApp] Failed to auto-start bot on boot");
 });
 
+// Auto-start AI Processor (Orchestrator) on boot
+import { getAgentOrchestrator } from "./lib/services/agent-orchestrator";
+const orchestrator = getAgentOrchestrator();
+orchestrator.configureTenant("1", { enabled: true, processingIntervalMs: 1500 });
+logger.info("[AgentOrchestrator] AI processing auto-started for default tenant");
+
 const app: Express = express();
 
 app.use(
@@ -40,17 +46,17 @@ app.use(cookieParser());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Resolución de tenant multi-inquilino
-app.use(resolveTenant());
-
-app.use("/api", router);
-
 // Servir frontend en producción
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const frontendPath = path.resolve(__dirname, "../../ventas-pro/dist");
+const frontendPath = path.resolve(__dirname, "../../ventas-pro/dist/public");
 
 app.use(express.static(frontendPath));
+
+// Resolución de tenant multi-inquilino - SOLO para rutas de API
+app.use("/api", resolveTenant());
+
+app.use("/api", router);
 
 app.use((req, res, next) => {
   if (req.path.startsWith("/api")) {

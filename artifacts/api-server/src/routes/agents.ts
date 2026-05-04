@@ -27,16 +27,25 @@ router.get("/", async (_req, res, next) => {
 router.post("/", async (req, res, next) => {
   try {
     const body = CreateAgentBody.parse(req.body);
-    const [created] = await db
-      .insert(agents)
-      .values({ ...body, isActive: body.isActive ?? false })
-      .returning();
-    if (created && body.isActive) {
-      await db
-        .update(agents)
-        .set({ isActive: false })
-        .where(and(eq(agents.isActive, true), ne(agents.id, created.id)));
-    }
+     const [created] = await db
+       .insert(agents)
+       .values({ 
+         name: body.name,
+         role: body.personality || "sales_agent",
+         tone: body.personality || "professional",
+         language: "es",
+         model: "gpt-4o-mini",
+         systemPrompt: body.systemPrompt || "Eres un agente de ventas profesional",
+         stages: [],
+         isActive: (body as any).isActive ?? false 
+       })
+       .returning();
+     if (created && (body as any).isActive) {
+       await db
+         .update(agents)
+         .set({ isActive: false })
+         .where(and(eq(agents.isActive, true), ne(agents.id, created.id)));
+     }
     return res.json(serialize(created!));
   } catch (e) {
     return next(e);
@@ -56,17 +65,17 @@ router.get("/:id", async (req, res, next) => {
 
 router.patch("/:id", async (req, res, next) => {
   try {
-    const { id } = UpdateAgentParams.parse(req.params);
-    const body = UpdateAgentBody.parse(req.body);
-    const [updated] = await db
-      .update(agents)
-      .set(body)
-      .where(eq(agents.id, id))
-      .returning();
-    if (!updated) return res.status(404).json({ message: "Agente no encontrado" });
-    if (body.isActive) {
-      await db
-        .update(agents)
+     const { id } = UpdateAgentParams.parse(req.params);
+     const body = UpdateAgentBody.parse(req.body);
+     const [updated] = await db
+       .update(agents)
+       .set(body as any)
+       .where(eq(agents.id, id))
+       .returning();
+     if (!updated) return res.status(404).json({ message: "Agente no encontrado" });
+     if ((body as any).isActive) {
+       await db
+         .update(agents)
         .set({ isActive: false })
         .where(and(eq(agents.isActive, true), ne(agents.id, id)));
     }

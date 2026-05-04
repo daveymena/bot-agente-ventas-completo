@@ -111,4 +111,33 @@ router.post("/logout", (req, res) => {
   return res.json({ ok: true });
 });
 
+// GET CURRENT SESSION
+router.get("/me", async (req, res, next) => {
+  try {
+    const tenantId = req.cookies?.tenant_id;
+    
+    if (!tenantId) {
+      return res.status(401).json({ error: "No session found" });
+    }
+
+    const [tenant] = await db.select().from(tenants).where(eq(tenants.id, Number(tenantId))).limit(1);
+    
+    if (!tenant) {
+      res.clearCookie("tenant_id");
+      return res.status(401).json({ error: "Session invalid" });
+    }
+
+    return res.json({ 
+      tenant: { 
+        id: tenant.id, 
+        name: tenant.name, 
+        email: tenant.email,
+        slug: tenant.slug 
+      } 
+    });
+  } catch (e) {
+    return next(e);
+  }
+});
+
 export default router;

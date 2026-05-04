@@ -30,7 +30,7 @@ COPY scripts/package.json ./scripts/
 # Forzar desarrollo para instalar devDependencies y evitar problemas de @types/node
 ENV NODE_ENV=development
 # Instalar dependencias
-RUN pnpm install --frozen-lockfile
+RUN pnpm install --no-frozen-lockfile
 
 # Copiar el resto del código
 COPY . .
@@ -38,20 +38,37 @@ COPY . .
 # Construir todo el proyecto (Backend + Frontend)
 RUN pnpm run build
 
-# Etapa final para ejecución ligera
+# Etapa final para ejecución ligera y estable
 FROM node:20-slim
 
 WORKDIR /app
 RUN corepack enable
 
-# Copiar solo lo necesario desde el build
-COPY --from=base /app /app
+# Instalar dependencias mínimas para producción (SQLite3 y Sharp)
+RUN apt-get update && apt-get install -y \
+    python3 \
+    make \
+    g++ \
+    sqlite3 \
+    && rm -rf /var/lib/apt/lists/*
 
-# Variables de entorno por defecto
+# Copiar solo lo necesario desde el build para reducir tamaño y fallos
+COPY --from=base /app/package.json /app/pnpm-lock.yaml /app/pnpm-workspace.yaml /app/
+COPY --from=base /app/node_modules /app/node_modules
+COPY --from=base /app/artifacts/api-server/dist /app/artifacts/api-server/dist
+COPY --from=base /app/artifacts/api-server/package.json /app/artifacts/api-server/
+COPY --from=base /app/artifacts/ventas-pro/dist /app/artifacts/ventas-pro/dist
+COPY --from=base /app/lib /app/lib
+
+# Crear carpetas de persistencia para EasyPanel
+RUN mkdir -p /app/data && chmod 777 /app/data
+
+# Variables de entorno críticas
 ENV NODE_ENV=production
 ENV PORT=3002
+ENV DATABASE_URL="file:/app/data/tecnovariedades.db"
 
 EXPOSE 3002
 
-# Comando de arranque: Inicia el API Server (que ahora también sirve el Frontend)
+# Comando de arranque optimizado
 CMD ["pnpm", "--filter", "@workspace/api-server", "run", "start"]

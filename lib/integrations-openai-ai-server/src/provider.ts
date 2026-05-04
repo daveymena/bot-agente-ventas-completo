@@ -75,12 +75,12 @@ export function getProviderConfigFromSettings(settings: {
   }
 
   if (provider === "nvidia") {
-    const token = process.env.NVIDIA_API_KEY;
+    const token = settings.nvidiaApiKey || process.env.NVIDIA_API_KEY;
     if (!token) return null;
     return {
       baseUrl: "https://integrate.api.nvidia.com/v1",
       apiKey: token,
-      model: process.env.NVIDIA_MODEL || "moonshot/kimi-2.6",
+      model: settings.nvidiaModel || process.env.NVIDIA_MODEL || "meta/llama-3.1-70b-instruct",
     };
   }
 
@@ -88,7 +88,7 @@ export function getProviderConfigFromSettings(settings: {
     const url = settings.ollamaUrl || process.env.OLLAMA_LOCAL_URL;
     if (!url) return null;
     return {
-      baseUrl: url + "/v1",
+      baseUrl: url + (url.endsWith("/v1") ? "" : "/v1"),
       apiKey: "ollama",
       model: settings.ollamaModel || process.env.OLLAMA_LOCAL_MODEL || "hermes3:8b",
     };

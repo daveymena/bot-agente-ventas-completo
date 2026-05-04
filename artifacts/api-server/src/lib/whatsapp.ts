@@ -24,6 +24,8 @@ import {
   proto
 } from "@whiskeysockets/baileys";
 import { trackWhatsAppCost } from "../middleware/rateLimiting";
+import { getMessageQueue } from "./message-queue";
+import { getMessageHandler } from "./services/message-handler";
 
 // Función de diagnóstico para mensajes problemáticos
 function diagnoseMessage(msgObj: any): { 
@@ -136,61 +138,52 @@ function getProductImage(name: string): string {
 function buildProductCaption(p: typeof products.$inferSelect, categoryName: string | null, dynamicLinks?: any) {
   const lines: string[] = [];
   
-  let meta: any = {};
-  try { meta = JSON.parse(p.metadata || "{}"); } catch(e) {}
-
   const nameUpper = p.name.toUpperCase();
   const mainEmoji = nameUpper.includes("PIANO") ? "🎹" : 
                     nameUpper.includes("GUITARRA") ? "🎸" : 
                     nameUpper.includes("CANTO") ? "🎤" : 
                     nameUpper.includes("EXCEL") ? "📊" : "💎";
 
-  lines.push(`✨ ${mainEmoji} *EXPERIENCIA ELITE: ${nameUpper}*`);
+  lines.push(`✨ ${mainEmoji} *${nameUpper}*`);
   lines.push("━━━━━━━━━━━━━━━━━━━━━━━");
-  lines.push("");
-  lines.push(`🚀 *ANÁLISIS DE VALOR:*`);
-  lines.push(`Este programa ha sido curado para transformar tu habilidad de forma exponencial. No es solo un curso, es la llave a tu nueva maestría técnica.`);
-  lines.push("");
   
-  lines.push(`💎 *BENEFICIOS EXCLUSIVOS:*`);
-  const features = (p.features ?? []);
-  if (features.length >= 3) {
-    for (const f of features) lines.push(`✅ ${f}`);
-  } else {
-    lines.push(`✅ ${meta.classes || "280+"} Lecciones en Ultra HD`);
-    lines.push(`✅ PDFs y partituras de alta fidelidad`);
-    lines.push(`✅ Acceso vitalicio garantizado`);
-    lines.push(`✅ Soporte personalizado TecnoVariedades`);
+  if (p.description) {
+    lines.push("");
+    lines.push(`${p.description}`);
+  }
+
+  const features = (p.features as string[]) || [];
+  if (features.length > 0) {
+    lines.push("");
+    lines.push(`🚀 *LO QUE INCLUYE:*`);
+    for (const f of features) {
+      if (f.trim()) lines.push(`✅ ${f.trim()}`);
+    }
   }
   
   lines.push("");
-  lines.push(`💰 *INVERSIÓN ÚNICA:*`);
+  lines.push(`💰 *INVERSIÓN:*`);
   lines.push(`*${formatPriceForWa(Number(p.price), p.currency)}*`);
   lines.push("━━━━━━━━━━━━━━━━━━━━━━━");
-  lines.push("");
 
   if (dynamicLinks) {
-    lines.push(`💳 *GESTIÓN DE PAGO SEGURO:*`);
     lines.push("");
+    lines.push(`💳 *MÉTODOS DE PAGO:*`);
     if (dynamicLinks.mercadopago && (dynamicLinks.mercadopago.shortUrl || dynamicLinks.mercadopago.url)) {
-      lines.push(`🔹 *Tarjeta / PSE (Colombia):*`);
+      lines.push(`🔹 *MercadoPago / PSE:*`);
       lines.push(`${dynamicLinks.mercadopago.shortUrl || dynamicLinks.mercadopago.url}`);
-      lines.push("");
     }
     if (dynamicLinks.paypal && (dynamicLinks.paypal.shortUrl || dynamicLinks.paypal.url)) {
-      lines.push(`🔹 *PayPal / Crédito (Global):*`);
+      lines.push(`🔹 *PayPal (Global):*`);
       lines.push(`${dynamicLinks.paypal.shortUrl || dynamicLinks.paypal.url}`);
-      lines.push("");
     }
     if (dynamicLinks.transfer && dynamicLinks.transfer.options && dynamicLinks.transfer.options[0]) {
-      lines.push(`🔹 *Transferencia Directa:*`);
-      lines.push(`📍 *Nequi/Daviplata:* ${dynamicLinks.transfer.options[0].number}`);
-      lines.push(`👤 *Titular:* ${dynamicLinks.transfer.options[0].name}`);
-      lines.push("");
+      lines.push(`🔹 *Transferencia:* ${dynamicLinks.transfer.options[0].number} (${dynamicLinks.transfer.options[0].name})`);
     }
   }
 
-  lines.push(`_¿Deseas que procedamos con tu inscripción ahora o tienes alguna inquietud sobre el plan de estudio?_`);
+  lines.push("");
+  lines.push(`_¿Deseas activar tu acceso ahora o tienes alguna pregunta específica?_`);
   
   return lines.join("\n");
 }
@@ -569,19 +562,28 @@ export class WhatsAppManager {
             }
             
             console.log("✅ Texto extraído:", text.substring(0, 50));
-            await this.handleIncoming(phone, pushName, text.trim(), originalJid);
+            
+            // Extraer messageId y timestamp del mensaje
+            const messageId = msg.key.id || `msg_${Date.now()}`;
+            const msgTimestamp = msg.messageTimestamp 
+              ? (typeof msg.messageTimestamp === 'number' ? msg.messageTimestamp : parseInt(msg.messageTimestamp?.toString() || '0'))
+              : Math.floor(Date.now() / 1000);
+            
+            await this.handleIncoming(phone, pushName, text.trim(), originalJid, messageId, msgTimestamp);
           }
         } catch (e) {
           logger.error({ err: e }, "Error processing incoming message");
         }
       });
-      this.starting = false;
-    } catch (e: any) {
-      this.starting = false;
-      this.state = "error";
-      logger.error({ err: e }, "Failed to start WhatsApp");
-    }
-  }
+       this.starting = false;
+       return this.getStatus();
+     } catch (e: any) {
+       this.starting = false;
+       this.state = "error";
+       logger.error({ err: e }, "Failed to start WhatsApp");
+       return this.getStatus();
+     }
+   }
 
   async sendText(phone: string, text: string, originalJid?: string) {
     if (!this.sock || this.state !== "connected") throw new Error("WhatsApp no conectado");
@@ -592,20 +594,19 @@ export class WhatsAppManager {
     await this.sock.sendMessage(targetJid, { text });
     
     // GUARDAR EN BD PARA EL DASHBOARD
-    try {
-      const [convo] = await db.select().from(conversations).where(eq(conversations.contactPhone, phone)).limit(1);
-      if (convo) {
-        await db.insert(messages).values({
-          conversationId: convo.id,
-          role: "agent",
-          content: text,
-          status: "sent"
-        });
-        console.log(`💾 [WA-SAVE] Mensaje de texto de IA guardado en BD para convo ${convo.id}`);
-      }
-    } catch (e) {
-      console.log("⚠️ Error guardando mensaje saliente en BD:", e);
-    }
+     try {
+       const [convo] = await db.select().from(conversations).where(eq(conversations.contactPhone, phone)).limit(1);
+       if (convo) {
+         await db.insert(messages).values({
+           conversationId: convo.id,
+           role: "agent",
+           content: text
+         });
+         console.log(`💾 [WA-SAVE] Mensaje de texto de IA guardado en BD para convo ${convo.id}`);
+       }
+     } catch (e) {
+       console.log("⚠️ Error guardando mensaje saliente en BD:", e);
+     }
     
     trackWhatsAppCost(this.currentTenant.id.toString());
   }
@@ -622,21 +623,20 @@ export class WhatsAppManager {
       await this.sock.sendMessage(jid, { image: { url: imageUrl }, caption });
     }
 
-    // GUARDAR EN BD PARA EL DASHBOARD
-    try {
-      const [convo] = await db.select().from(conversations).where(eq(conversations.contactPhone, phone)).limit(1);
-      if (convo) {
-        await db.insert(messages).values({
-          conversationId: convo.id,
-          role: "agent",
-          content: caption || `[Imagen]: ${imageUrl}`,
-          status: "sent"
-        });
-        console.log(`💾 [WA-SAVE] Imagen de IA guardada en BD para convo ${convo.id}`);
-      }
-    } catch (e) {
-      console.log("⚠️ Error guardando imagen saliente en BD:", e);
-    }
+     // GUARDAR EN BD PARA EL DASHBOARD
+     try {
+       const [convo] = await db.select().from(conversations).where(eq(conversations.contactPhone, phone)).limit(1);
+       if (convo) {
+         await db.insert(messages).values({
+           conversationId: convo.id,
+           role: "agent",
+           content: caption || `[Imagen]: ${imageUrl}`
+         });
+         console.log(`💾 [WA-SAVE] Imagen de IA guardada en BD para convo ${convo.id}`);
+       }
+     } catch (e) {
+       console.log("⚠️ Error guardando imagen saliente en BD:", e);
+     }
 
     trackWhatsAppCost(this.currentTenant.id.toString());
   }
@@ -651,11 +651,11 @@ export class WhatsAppManager {
     
     console.log(`🃏 [WA-PARTS] Tarjetas a procesar: ${cardIds.length} - IDs: [${cardIds.join(', ')}] - ${timestamp}`);
     
-    if (cardIds.length) {
-      const rows = await db.select().from(products).where(inArray(products.id, cardIds));
-      cardCache = new Map(rows.map((r) => [r.id, r]));
-      console.log(`📦 [WA-PARTS] Productos cargados: ${rows.length}/${cardIds.length} - ${timestamp}`);
-    }
+     if (cardIds.length) {
+       const rows = await db.select().from(products).where(inArray(products.id, cardIds.filter((id): id is number => id !== undefined)));
+       cardCache = new Map(rows.map((r) => [r.id, r]));
+       console.log(`📦 [WA-PARTS] Productos cargados: ${rows.length}/${cardIds.length} - ${timestamp}`);
+     }
 
     for (let i = 0; i < parts.length; i++) {
       const part = parts[i];
@@ -665,12 +665,12 @@ export class WhatsAppManager {
         console.log(`💬 [WA-TEXT] Enviando texto: "${part.content?.substring(0, 50)}..." - ${timestamp}`);
         await this.sendText(phone, part.content || "", originalJid);
         console.log(`✅ [WA-TEXT] Texto enviado exitosamente - ${timestamp}`);
-      } else {
-        const product = cardCache.get(part.productId);
-        if (!product) {
-          console.log(`⚠️ [WA-CARD] Producto no encontrado para ID: ${part.productId} - ${timestamp}`);
-          continue;
-        }
+       } else {
+         const product = cardCache.get(part.productId!);
+         if (!product) {
+           console.log(`⚠️ [WA-CARD] Producto no encontrado para ID: ${part.productId} - ${timestamp}`);
+           continue;
+         }
         
         console.log(`🃏 [WA-CARD] Enviando tarjeta de producto: ${product.name} (ID: ${part.productId}) - ${timestamp}`);
         
@@ -693,53 +693,35 @@ export class WhatsAppManager {
     console.log(`🏁 [WA-PARTS] Envío de partes completado - Total: ${parts.length} partes procesadas - ${timestamp}`);
   }
 
-  private async handleIncoming(phone: string, pushName: string, text: string, originalJid?: string) {
-    const timestamp = new Date().toISOString();
-    console.log(`🔔 [WA-INCOMING] handleIncoming iniciado - Teléfono: ${phone}, Nombre: ${pushName}, Mensaje: "${text.substring(0, 50)}" - ${timestamp}`);
+  private async handleIncoming(phone: string, pushName: string, text: string, originalJid?: string, messageId?: string, timestamp?: number) {
+    const timestampStr = new Date().toISOString();
+    
+    if (!this.currentTenant) {
+      console.log(`⚠️ [WA-SKIP] No hay tenant configurado`);
+      return;
+    }
+
+    console.log(`🔔 [WA-INCOMING] Mensaje recibido - Teléfono: ${phone}, Tenant: ${this.currentTenant.id} - ${timestampStr}`);
     
     try {
-      let convo = (await db.select().from(conversations).where(eq(conversations.contactPhone, phone)).limit(1))[0];
+      // Usar MessageHandler para encolar el mensaje (desacoplado de IA)
+      const messageHandler = getMessageHandler();
       
-      if (!convo) {
-        console.log(`🆕 [WA-NEW] Creando nueva conversación para: ${phone} (${pushName}) - ${timestamp}`);
-        const [lead] = await db.insert(leads).values(addTenantToInsert({ name: pushName, phone, stage: "new", value: "0", source: "whatsapp" }, this.currentTenant.id)).returning();
-        const [created] = await db.insert(conversations).values(addTenantToInsert({ contactName: pushName, contactPhone: phone, status: "ai", currentStage: "greeting", leadId: lead?.id, unreadCount: 0 }, this.currentTenant.id)).returning();
-        convo = created!;
-        console.log(`📝 [WA-NEW] Nueva conversación creada exitosamente - ID: ${convo.id}, Lead ID: ${lead?.id} - ${timestamp}`);
-      } else {
-        console.log(`📱 [WA-EXISTING] Conversación existente encontrada - ID: ${convo.id}, Estado: ${convo.status}, Etapa: ${convo.currentStage} - ${timestamp}`);
-      }
+      await messageHandler.handleIncomingMessage({
+        tenantId: this.currentTenant.id.toString(),
+        remoteJid: originalJid || `${phone}@s.whatsapp.net`,
+        fromMe: false,
+        messageId: messageId || `msg_${Date.now()}`,
+        body: text,
+        timestamp: timestamp ? new Date(timestamp * 1000) : new Date(),
+        pushName: pushName,
+      });
 
-      console.log(`💾 [WA-SAVE] Guardando mensaje en BD - Conversación: ${convo.id} - ${timestamp}`);
-      await db.insert(messages).values({ conversationId: convo.id, role: "customer", content: text, stage: convo.currentStage });
-      await db.update(conversations).set({ lastMessage: text, lastMessageAt: new Date() }).where(eq(conversations.id, convo.id));
-
-      console.log(`📩 [WA-SAVED] Mensaje guardado exitosamente - "${text.substring(0, 30)}" | Conversación ID: ${convo.id} | Estado: ${convo.status} - ${timestamp}`);
-
-      if (convo.status === "ai") {
-        console.log(`🤖 [WA-AI] Estado es AI, ejecutando runAgentReply para conversación ${convo.id} - ${timestamp}`);
-        try {
-          console.log(`🔄 [WA-AI] Llamando runAgentReply(${convo.id}) - ${timestamp}`);
-          const reply = await runAgentReply(convo.id);
-          console.log(`📥 [WA-AI] runAgentReply completada - Respuesta: ${reply ? "SÍ" : "NO"}, Partes: ${reply?.parts?.length || 0} - ${timestamp}`);
-          
-          if (reply) {
-            console.log(`📤 [WA-SEND] Enviando respuesta con ${reply.parts?.length || 0} partes a ${phone} - ${timestamp}`);
-            await this.sendAgentParts(phone, pushName, reply.parts, originalJid);
-            console.log(`✅ [WA-SEND] Respuesta enviada exitosamente a ${phone} - ${timestamp}`);
-          } else {
-            console.log(`⚠️ [WA-WARNING] runAgentReply devolvió null para conversación ${convo.id} - ${timestamp}`);
-          }
-        } catch (err: any) {
-          console.error(`❌ [WA-ERROR] Error en runAgentReply para conversación ${convo.id}: ${err.message || err} - ${timestamp}`);
-          console.error(`🔍 [WA-ERROR] Stack trace:`, err.stack);
-        }
-      } else {
-        console.log(`⏭️ [WA-SKIP] Estado es "${convo.status}", no se responde automáticamente - ${timestamp}`);
-      }
+      console.log(`✅ [WA-QUEUED] Mensaje encolado para procesamiento por AgentOrchestrator - ${timestampStr}`);
+      
     } catch (err: any) {
-      console.error(`💥 [WA-CRITICAL] Error crítico en handleIncoming para ${phone}: ${err.message || err} - ${timestamp}`);
-      console.error(`🔍 [WA-CRITICAL] Stack trace:`, err.stack);
+      console.error(`💥 [WA-ERROR] Error encolando mensaje para ${phone}: ${err.message || err} - ${timestampStr}`);
+      console.error(`🔍 [WA-ERROR] Stack trace:`, err.stack);
     }
   }
 }

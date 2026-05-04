@@ -67,10 +67,13 @@ class HealthMonitor {
   }
 
   private startHealthChecks() {
-    // Check health every 5 minutes
+    // Realizar primer chequeo inmediato
+    this.performHealthChecks();
+    
+    // Check health every 2 minutes
     this.checkInterval = setInterval(() => {
       this.performHealthChecks();
-    }, 5 * 60 * 1000);
+    }, 2 * 60 * 1000);
   }
 
   private async performHealthChecks() {
@@ -91,8 +94,17 @@ class HealthMonitor {
       const startTime = Date.now();
       try {
         // Simple health check - attempt to get provider config
-        const { getProviderConfig } = await import("@workspace/integrations-openai-ai-server");
-        const config = getProviderConfig(provider);
+        const { getProviderConfig, getProviderConfigFromSettings } = await import("@workspace/integrations-openai-ai-server");
+        let config = getProviderConfig(provider);
+        
+        // Si no está en env vars, buscar en la base de datos
+        if (!config) {
+          const { settings } = await import("@workspace/db");
+          const [dbSettings] = await db.select().from(settings).limit(1);
+          if (dbSettings) {
+            config = getProviderConfigFromSettings(dbSettings);
+          }
+        }
         
         if (config) {
           const responseTime = Date.now() - startTime;

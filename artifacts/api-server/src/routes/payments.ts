@@ -162,7 +162,7 @@ router.get("/analytics", async (req: TenantRequest, res) => {
  */
 router.get("/services/:service", async (req: TenantRequest, res) => {
   try {
-    const { service } = req.params;
+    const service = Array.isArray(req.params.service) ? req.params.service[0] : req.params.service;
     
     if (!['mercadopago', 'paypal', 'nequi'].includes(service)) {
       return res.status(400).json({ 

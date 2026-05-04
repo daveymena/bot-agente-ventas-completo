@@ -56,6 +56,45 @@ router.post("/copilot-token", async (req, res, next) => {
   }
 });
 
+router.post("/copilot-device-code", async (_req, res, next) => {
+  try {
+    console.log("🚀 [BACKEND] Recibida solicitud para generar código de dispositivo Copilot");
+    const { getCopilotDeviceCode } = await import("../lib/copilot");
+    const data = await getCopilotDeviceCode();
+    if (!data) {
+      console.error("❌ [BACKEND] Error: getCopilotDeviceCode devolvió null");
+      return res.status(500).json({ error: "Error al generar código de dispositivo" });
+    }
+    console.log("✅ [BACKEND] Código generado con éxito:", data.user_code);
+    return res.json(data);
+  } catch (e) {
+    console.error("💥 [BACKEND] Error crítico en copilot-device-code:", e);
+    return next(e);
+  }
+});
+
+router.post("/copilot-device-token", async (req, res, next) => {
+  try {
+    const { device_code } = req.body;
+    if (!device_code) return res.status(400).json({ error: "device_code requerido" });
+    
+    const { pollCopilotToken } = await import("../lib/copilot");
+    const token = await pollCopilotToken(device_code);
+    
+    if (token === "pending") {
+      return res.json({ success: false, status: "pending" });
+    }
+    
+    if (token) {
+      return res.json({ success: true, token });
+    }
+    
+    return res.status(400).json({ error: "Error al obtener token" });
+  } catch (e) {
+    return next(e);
+  }
+});
+
 async function getOrCreate() {
   const [row] = await db.select().from(settings).limit(1);
   if (row) return row;

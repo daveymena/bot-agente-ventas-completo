@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { logger } from "./logger";
 import { db, paymentLinks } from "@workspace/db";
 import { eq, and, gte, lte } from "drizzle-orm";

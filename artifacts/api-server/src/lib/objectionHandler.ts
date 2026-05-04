@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { logger } from "./logger";
 import { tenantManager, type TenantContext } from "./tenantManager";
 

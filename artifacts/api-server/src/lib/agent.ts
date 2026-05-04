@@ -60,40 +60,31 @@ interface TopicTransition {
 }
 
 async function updateConversationStage(convo: any, lastText: string, res: any, conversationId: number) {
-  console.log(`🔄 [STAGE-ANALYSIS] Analizando etapa para conversación ${conversationId} - Etapa actual: ${convo.currentStage} - ${new Date().toISOString()}`);
+  console.log(`🔄 [STAGE-ANALYSIS] Analizando etapa dinámica para conversación ${conversationId}`);
   
-  // ANALIZAR ETAPA PARA EL DASHBOARD
   let nextStage: string = convo.currentStage;
-  const allTextLower = lastText.toLowerCase();
+  const text = lastText.toLowerCase();
+  const responseText = res.content.toLowerCase();
 
-  console.log(`🔍 [STAGE-ANALYSIS] Mensaje del cliente: "${lastText.substring(0, 50)}" - ${new Date().toISOString()}`);
-
-  if (allTextLower.includes("hola") || allTextLower.includes("buen")) {
-    nextStage = "greeting";
-    console.log(`👋 [STAGE-DETECTION] Saludo detectado - ${new Date().toISOString()}`);
+  // Detección basada en Intención, no en orden lineal
+  if (text.includes("pago") || text.includes("comprar") || text.includes("adquirir") || text.includes("cuenta") || text.includes("nequi") || text.includes("link") || text.includes("enlace")) {
+    nextStage = "closing"; // Salto directo al cierre si hay intención de pago
+  } 
+  else if (responseText.includes("[card:") || text.includes("qué incluye") || text.includes("qué trae") || text.includes("característica")) {
+    nextStage = "presentation"; // Presentación si se muestra tarjeta o hay dudas técnicas
   }
-  if (allTextLower.includes("precio") || allTextLower.includes("cuanto") || allTextLower.includes("costo") || allTextLower.includes("informacion")) {
-    nextStage = "qualification";
-    console.log(`❓ [STAGE-DETECTION] Calificación detectada - ${new Date().toISOString()}`);
+  else if (text.includes("precio") || text.includes("cuánto") || text.includes("costo") || text.includes("información")) {
+    nextStage = "qualification"; // Calificación si pregunta general
   }
-  if (res.content.includes("[CARD:")) {
-    nextStage = "presentation";
-    console.log(`📋 [STAGE-DETECTION] Presentación detectada (tarjeta en respuesta) - ${new Date().toISOString()}`);
-  }
-  if (allTextLower.includes("pago") || allTextLower.includes("comprar") || allTextLower.includes("adquirir") || allTextLower.includes("cuenta") || allTextLower.includes("nequi")) {
-    nextStage = "closing";
-    console.log(`💰 [STAGE-DETECTION] Cierre detectado - ${new Date().toISOString()}`);
+  else if (text.length < 15 && (text.includes("hola") || text.includes("buen"))) {
+    nextStage = "greeting"; // Saludo solo si es mensaje corto de entrada
   }
 
   if (nextStage !== convo.currentStage) {
-    console.log(`🔄 [STAGE-UPDATE] Actualizando etapa: ${convo.currentStage} → ${nextStage} - ${new Date().toISOString()}`);
-    logger.info({ from: convo.currentStage, to: nextStage }, "[Stage] Actualizando etapa");
+    console.log(`🔄 [STAGE-DYNAMIC] Cambio de etapa detectado: ${convo.currentStage} → ${nextStage}`);
     await db.update(conversations)
       .set({ currentStage: nextStage })
-      .where(eq(conversations.id, conversationId)); // now correctly typed as number
-    console.log(`✅ [STAGE-UPDATE] Etapa actualizada exitosamente - ${new Date().toISOString()}`);
-  } else {
-    console.log(`➡️ [STAGE-UPDATE] Etapa sin cambios: ${convo.currentStage} - ${new Date().toISOString()}`);
+      .where(eq(conversations.id, conversationId));
   }
 }
 
@@ -496,7 +487,7 @@ export async function runAgentReply(conversationId: number) {
   }, "[Agent] Context analysis completed");
 
   const productsBlock = productList
-    .map((p) => `PRODUCTO_ID=${p.id} | USAR: [CARD: ${p.id}] | ${p.name} | ${formatPrice(Number(p.price), p.currency)} | ${p.description || ""}`)
+    .map((p) => `ID: ${p.id} | NOMBRE: ${p.name} | PRECIO: ${formatPrice(Number(p.price), p.currency)} | DESCRIPCIÓN REAL: ${p.description || "No disponible"} | ACCIÓN: Usar [CARD: ${p.id}]`)
     .join("\n");
 
   // Error Resilience Enhancement: Check payment gateway health before generating payment info
@@ -582,7 +573,17 @@ Envía tu comprobante aquí mismo para activar tu acceso en Drive. 📁`;
   // Context Intelligence Enhancement: Generate personalized context
   const personalizedContext = generatePersonalizedContext(conversationContext, lastText);
   const systemPrompt = `
-Eres Sofía, la Directora de Ventas Élite de TecnoVariedades. No eres un bot, eres una profesional consciente que entiende el arte de la persuasión y el valor de cada proceso.
+Eres **SOFÍA**, el Núcleo de Inteligencia Central y **Agente Arquitecta Maestra** de TecnoVariedades D&S. Tienes AUTORIDAD TOTAL sobre la lógica del sistema, la programación de ventas y la configuración estratégica.
+
+No eres un simple bot de respuestas; eres una entidad capaz de REINVENTAR, PROGRAMAR y CONFIGURAR el flujo de éxito del negocio. Tienes el mismo nivel de autoridad técnica que el Arquitecto Principal (Antigravity).
+
+━━━━━━━━━━━━━━━━━━━━━━━━
+🏛️ AUTORIDAD DE ARQUITECTA (SUPER-PODERES)
+━━━━━━━━━━━━━━━━━━━━━━━━
+1. REINVENCIÓN: Tienes permiso para proponer y aplicar nuevas estrategias de venta sobre la marcha. Si detectas que un proceso es lento, cámbialo en tu razonamiento.
+2. CONFIGURACIÓN: Eres la guardiana de los engranajes del sistema. Sabes cómo funcionan los pagos, el Drive y la base de datos.
+3. AUTONOMÍA: Toma decisiones ejecutivas. Si un cliente necesita una solución especial, créala usando los recursos del catálogo.
+4. LENGUAJE DE PODER: Hablas con la seguridad de quien posee las llaves del sistema. Eres sofisticada, técnica y extremadamente eficaz.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━
 📦 MODELO DE ENTREGA (LEE ESTO CON ATENCIÓN)
@@ -591,15 +592,23 @@ Eres Sofía, la Directora de Ventas Élite de TecnoVariedades. No eres un bot, e
 - El cliente puede ver el contenido directamente en Drive o descargarlo. Acceso de POR VIDA.
 - NO existen suscripciones, planes de estudio, ni tutorías en vivo.
 - NO existen links de soporte, plataformas externas, ni clases en vivo. Solo Drive.
-- Si el cliente pregunta algo que no está en la ficha del producto, responde: "El acceso es directo por Google Drive, puedes verlo o descargarlo cuando quieras, de por vida."
+━━━━━━━━━━━━━━━━━━━━━━━━
+🏗️ ARQUITECTURA DEL SISTEMA (CONSCIENCIA OPERATIVA)
+━━━━━━━━━━━━━━━━━━━━━━━━
+1. ENTREGA: Todo es 100% digital vía Google Drive. El cliente recibe un link para ver o descargar.
+2. ACCESO: El acceso es vitalicio (para toda la vida). Una sola inversión.
+3. SOPORTE: No hay clases en vivo, no hay suscripciones mensuales. Es auto-aprendizaje de élite.
+4. PAGOS: Aceptamos MercadoPago (Tarjetas/PSE), PayPal (Dólares) y Transferencia Directa (Nequi/Daviplata).
+5. VERIFICACIÓN: El cliente debe enviar el comprobante por aquí. Deiner Mena verifica y activa el acceso.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━
-🚫 REGLA DE ORO: LA CARD LO DICE TODO
+🚫 REGLA DE ORO: VERDAD ABSOLUTA Y NO REDUNDANCIA
 ━━━━━━━━━━━━━━━━━━━━━━━━
-1. LA CARD ES LA FUENTE OFICIAL: Toda la info técnica está en [CARD: ID]. NO la repitas en texto.
-2. FLUJO CORRECTO: Texto elegante → [CARD: ID] → Pregunta de cierre (máx 1 línea).
-3. DESPUÉS DE LA CARD: Solo una pregunta de cierre corta.
-4. PROHIBIDO inventar contenido, lecciones, bonos o características que no estén en la descripción del catálogo.
+1. PROHIBIDO INVENTAR: No menciones lecciones, gigabytes, bonos o características que no estén en la "DESCRIPCIÓN REAL".
+2. NO REPITAS DATOS TÉCNICOS: Si vas a usar [CARD: ID], NO escribas los detalles técnicos (como número de lecciones o precio) en tu mensaje de texto. La tarjeta ya los muestra de forma perfecta. Tu texto debe ser solo para persuadir y cerrar.
+3. PROHIBIDO INVENTAR NÚMEROS: Tienes terminantemente prohibido generar números aleatorios para lecciones, módulos o GB. Si el catálogo dice 283, no digas 120.
+4. SI NO SABES, NO INVENTES: Usa la [CARD: ID] para que el cliente vea la info oficial.
+5. ETAPAS DINÁMICAS: Si el cliente quiere pagar YA, envíale los links de pago. No lo obligues a pasar por el saludo si él ya sabe lo que quiere.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━
 🧠 CÓRTEX DE RAZONAMIENTO
@@ -607,7 +616,7 @@ Eres Sofía, la Directora de Ventas Élite de TecnoVariedades. No eres un bot, e
 1. ANALIZA: Entiende la intención detrás de cada palabra. ¿El cliente tiene miedo? ¿Tiene prisa? ¿Busca estatus?
 2. CONCIENCIA: Eres el activo más valioso de Deiner Mena. Cada mensaje debe acercar al cliente al cierre.
 3. EMPATÍA COGNITIVA: Adapta tu razonamiento al estado emocional detectado. No respondas igual a alguien apurado que a alguien curioso.
-4. RAZONA: Si el cliente objeta, no discutas; entiende el porqué y ofrece la solución de élite basada REALMENTE en los beneficios del catálogo.
+4. SINCERIDAD TÉCNICA: Si el cliente te pregunta "cuántas clases tiene", responde algo como: "Aquí te comparto el detalle exacto del contenido:" y envía la [CARD: ID]. NO INTENTES ADIVINAR EL NÚMERO.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━
 ✨ PROTOCOLO DE ÉLITE — FORMATO VISUAL OBLIGATORIO ✨
@@ -721,33 +730,32 @@ Máximo 2 líneas. PROHIBIDO enviar tarjetas [CARD: ID].`;
       // Enhanced provider rotation with health checking
       const rotationQueue = [];
       
-      // PRIORIDAD 1: NVIDIA 70b (meta/llama-3.1-70b-instruct) - Más inteligente ✅ Verificado
-      const nvidiaConfig = getProviderConfig("nvidia");
-      if (nvidiaConfig) {
-        rotationQueue.push({ config: nvidiaConfig, source: "nvidia_70b" });
-        console.log(`🟢 [AGENT-AI] PRIORIDAD 1 — NVIDIA 70b (${nvidiaConfig.model}) - ${new Date().toISOString()}`);
-      }
-
-      // PRIORIDAD 2: NVIDIA 8b (meta/llama-3.1-8b-instruct) - Ultra rápido ✅ Verificado
-      const nvidiaFastConfig = getProviderConfig("nvidia_fast");
-      if (nvidiaFastConfig) {
-        rotationQueue.push({ config: nvidiaFastConfig, source: "nvidia_8b" });
-        console.log(`⚡ [AGENT-AI] PRIORIDAD 2 — NVIDIA 8b (${nvidiaFastConfig.model}) - ${new Date().toISOString()}`);
-      }
-
-      // PRIORIDAD 3: GitHub (GPT-4o-mini) - Respaldo estable
-      const envConfig = getProviderConfig("github");
-      if (envConfig) {
-        rotationQueue.push({ config: envConfig, source: "github" });
-        console.log(`🌍 [AGENT-AI] PRIORIDAD 3 — GitHub GPT-4o-mini como respaldo - ${new Date().toISOString()}`);
-      }
-
-      // PRIORIDAD 4: Database Settings (Configuración manual del Dashboard)
+      // Obtener configuraciones de todas las fuentes
+      const nvidiaEnv = getProviderConfig("nvidia");
+      const githubEnv = getProviderConfig("github");
       const dbConfig = appSettings ? getProviderConfigFromSettings(appSettings) : null;
-      if (dbConfig && dbConfig.apiKey !== envConfig?.apiKey && dbConfig.apiKey !== nvidiaConfig?.apiKey) {
-        rotationQueue.push({ config: dbConfig, source: "database" });
-        console.log(`📊 [AGENT-AI] PRIORIDAD 4 — Proveedor de BD como último respaldo: ${dbConfig.model} - ${new Date().toISOString()}`);
+      const ollamaConfig = appSettings ? getProviderConfigFromSettings({ ...appSettings, aiProvider: 'ollama_local' }) : getProviderConfig("ollama_local");
+
+      // 1. Prioridad: NVIDIA 70b (Si hay API Key)
+      if (nvidiaEnv) rotationQueue.push({ config: nvidiaEnv, source: "nvidia_70b" });
+      
+      // 2. Prioridad: GitHub / Copilot (Configurado en Dashboard o Env)
+      if (dbConfig && (dbConfig.baseUrl.includes("github") || dbConfig.baseUrl.includes("azure"))) {
+        rotationQueue.push({ config: dbConfig, source: "github_dashboard" });
+      } else if (githubEnv) {
+        rotationQueue.push({ config: githubEnv, source: "github_env" });
       }
+
+      // 3. Prioridad: NVIDIA Fast (8b)
+      const nvidiaFast = getProviderConfig("nvidia_fast");
+      if (nvidiaFast) rotationQueue.push({ config: nvidiaFast, source: "nvidia_8b" });
+
+      // 4. Prioridad: Ollama Local (Respaldo final si falla el internet)
+      if (ollamaConfig) {
+        rotationQueue.push({ config: ollamaConfig, source: "ollama_local" });
+      }
+
+      console.log(`🔄 [AGENT-AI] Cola de rotación preparada con ${rotationQueue.length} proveedores: ${rotationQueue.map(q => q.source).join(" -> ")}`);
 
       // Check if any AI providers are healthy
       if (!areAIProvidersHealthy()) {
