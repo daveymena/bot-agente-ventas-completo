@@ -20,7 +20,14 @@ export function getProviderConfig(provider: string): AIProviderConfig | null {
       return {
         baseUrl: "https://integrate.api.nvidia.com/v1",
         apiKey: process.env.NVIDIA_API_KEY,
-        model: process.env.NVIDIA_MODEL || "meta/llama-3.3-70b-instruct",
+        model: process.env.NVIDIA_MODEL || "meta/llama-3.1-70b-instruct",
+      };
+    case "nvidia_fast":
+      if (!process.env.NVIDIA_API_KEY) return null;
+      return {
+        baseUrl: "https://integrate.api.nvidia.com/v1",
+        apiKey: process.env.NVIDIA_API_KEY,
+        model: process.env.NVIDIA_MODEL_FAST || "meta/llama-3.1-8b-instruct",
       };
     case "github_claude":
       if (!process.env.GITHUB_TOKEN) return null;
@@ -73,7 +80,7 @@ export function getProviderConfigFromSettings(settings: {
     return {
       baseUrl: "https://integrate.api.nvidia.com/v1",
       apiKey: token,
-      model: process.env.NVIDIA_MODEL || "meta/llama-3.3-70b-instruct",
+      model: process.env.NVIDIA_MODEL || "moonshot/kimi-2.6",
     };
   }
 
@@ -95,5 +102,7 @@ export function createAIClient(config: AIProviderConfig): OpenAI {
     apiKey: config.apiKey,
     baseURL: config.baseUrl,
     dangerouslyAllowBrowser: true,
+    timeout: 60000, // 60 segundos de timeout para evitar que se quede pegado
+    maxRetries: 1,
   });
 }
