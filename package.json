@@ -9,7 +9,9 @@
     "typecheck:libs": "tsc --build",
     "typecheck": "pnpm run typecheck:libs && pnpm -r --filter \"./artifacts/**\" --filter \"./scripts\" --if-present run typecheck"
   },
-  "private": true,
+  "dependencies": {
+    "@types/node": "^20.11.0"
+  },
   "devDependencies": {
     "@rollup/rollup-win32-x64-msvc": "^4.60.2",
     "@tailwindcss/oxide-win32-x64-msvc": "^4.2.4",
