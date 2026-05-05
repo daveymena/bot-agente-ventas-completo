@@ -7,10 +7,12 @@ import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
 import { Rocket, Mail, Lock, Store, User, ArrowRight, ShieldCheck } from "lucide-react";
+import { useSession } from "@/App";
 
 export default function AuthPage() {
   const [, setLocation] = useLocation();
   const [isLoading, setIsLoading] = useState(false);
+  const { refreshSession } = useSession();
 
   const [loginData, setLoginData] = useState({ email: "", password: "" });
   const [registerData, setRegisterData] = useState({
@@ -34,26 +36,19 @@ export default function AuthPage() {
       });
       
       console.log("📊 Response status:", res.status);
-      console.log("📊 Response headers:", res.headers);
       
       const data = await res.json();
       console.log("📊 Response data:", data);
       
       if (res.ok) {
-        console.log("✅ Login exitoso. Guardando sesión...");
-        // Guardar sesión en localStorage
-        localStorage.setItem("tenant", JSON.stringify(data.tenant));
-        
-        // Verificar que la cookie se guardó
-        console.log("🍪 Verificando cookies después del login...");
-        const meRes = await fetch("/api/auth/me", {
-          credentials: "include"
-        });
-        console.log("🍪 /auth/me status:", meRes.status);
-        
+        console.log("✅ Login exitoso. Refrescando sesión...");
         toast.success("¡Bienvenido de nuevo! 🚀");
-        // Pequeño delay para asegurar que la cookie se guarde
-        setTimeout(() => setLocation("/"), 100);
+        
+        // Refrescar la sesión para actualizar el contexto
+        await refreshSession();
+        
+        // Redirigir al dashboard
+        setLocation("/");
       } else {
         toast.error(data.error || "Credenciales incorrectas");
       }
