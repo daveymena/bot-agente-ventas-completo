@@ -1,6 +1,7 @@
 import { db, tenants, agents } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import crypto from "crypto";
+import { getAllTemplates } from "./lib/agent-templates";
 
 function hashPassword(password: string) {
   return crypto.createHash("sha256").update(password).digest("hex");
@@ -109,6 +110,46 @@ async function setup() {
   console.log("✨ ¡CONFIGURACIÓN COMPLETADA! ✨");
   console.log(`📧 Email: ${email}`);
   console.log(`🔑 Pass: ${password}`);
+  
+  // 3. Crear los 10 agentes desde templates
+  console.log("\n🤖 Creando agentes desde templates...");
+  const templates = getAllTemplates();
+  let created = 0;
+  let skipped = 0;
+  
+  for (const template of templates) {
+    // Verificar si ya existe
+    const [existing] = await db
+      .select()
+      .from(agents)
+      .where(eq(agents.name, template.name))
+      .limit(1);
+    
+    if (existing) {
+      console.log(`⏭️  ${template.avatar} ${template.name} ya existe`);
+      skipped++;
+      continue;
+    }
+    
+    // Crear el agente
+    await db.insert(agents).values({
+      tenantId,
+      name: template.name,
+      role: template.role,
+      tone: template.tone,
+      language: "es",
+      model: "gpt-4o-mini",
+      systemPrompt: template.systemPrompt,
+      stages: template.stages,
+      isActive: template.name === "Sofía", // Solo Sofía activa por defecto
+    });
+    
+    console.log(`✅ ${template.avatar} ${template.name} creado`);
+    created++;
+  }
+  
+  console.log(`\n🎉 Agentes: ${created} creados, ${skipped} ya existían`);
+  
   process.exit(0);
 }
 

@@ -13,6 +13,9 @@ import { resolveTenant } from "./lib/tenantManager";
 import { validateSaasPlan, validateUsageLimits } from "./middleware/saasValidation";
 import { validateFeatureLimits, validateMessageLimit } from "./middleware/featureLimits";
 import { whatsapp } from "./lib/whatsapp";
+import { getAllTemplates } from "./lib/agent-templates";
+import { agents } from "@workspace/db";
+import { eq } from "drizzle-orm";
 
 // Auto-start WhatsApp bot on boot
 whatsapp.start().catch(err => {
@@ -24,6 +27,34 @@ import { getAgentOrchestrator } from "./lib/services/agent-orchestrator";
 const orchestrator = getAgentOrchestrator();
 orchestrator.configureTenant("1", { enabled: true, processingIntervalMs: 1500 });
 logger.info("[AgentOrchestrator] AI processing auto-started for default tenant");
+
+// Auto-seed agents if they don't exist
+(async () => {
+  try {
+    const existingAgents = await db.select().from(agents).limit(1);
+    if (existingAgents.length === 0) {
+      console.log("🤖 No hay agentes, creando desde templates...");
+      const templates = getAllTemplates();
+      for (const template of templates) {
+        await db.insert(agents).values({
+          tenantId: 1,
+          name: template.name,
+          role: template.role,
+          tone: template.tone,
+          language: "es",
+          model: "gpt-4o-mini",
+          systemPrompt: template.systemPrompt,
+          stages: template.stages,
+          isActive: template.name === "Sofía",
+        });
+        console.log(`✅ ${template.avatar} ${template.name} creado`);
+      }
+      console.log("🎉 Agentes creados exitosamente");
+    }
+  } catch (error) {
+    console.error("❌ Error creando agentes:", error);
+  }
+})();
 
 const app: Express = express();
 
