@@ -76,5 +76,8 @@ ENV PORT=3002
 
 EXPOSE 3002
 
+# Instalar dependencias antes de ejecutar
+RUN pnpm install --prod=true
+
 # Comando de arranque optimizado
 CMD ["pnpm", "--filter", "@workspace/api-server", "run", "start"]
