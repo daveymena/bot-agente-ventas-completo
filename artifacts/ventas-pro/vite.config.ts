@@ -6,7 +6,8 @@ import runtimeErrorOverlay from "@replit/vite-plugin-runtime-error-modal";
 
 const rawPort = process.env.PORT;
 const port = Number(rawPort) || 5173;
-const basePath = process.env.BASE_PATH || "";
+// En producción, usar rutas absolutas desde la raíz
+const basePath = process.env.BASE_PATH || (process.env.NODE_ENV === "production" ? "/" : "");
 
 export default defineConfig({
   base: basePath,
