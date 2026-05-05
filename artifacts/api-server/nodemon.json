@@ -1,0 +1,7 @@
+{
+  "watch": ["src"],
+  "ext": "ts,js,json",
+  "ignore": ["src/**/*.spec.ts", "src/**/*.test.ts"],
+  "exec": "pnpm run build && pnpm run start",
+  "delay": 1000
+}
