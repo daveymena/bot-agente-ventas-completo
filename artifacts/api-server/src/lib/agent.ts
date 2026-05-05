@@ -505,12 +505,18 @@ export async function runAgentReply(conversationId: number) {
   // Crear un catálogo COMPLETO con toda la información para que la IA pueda responder preguntas
   const productsBlock = productList
     .map((p) => {
+      const features = (p.features as string[]) || [];
+      const featuresText = features.length > 0 
+        ? `\nCaracterísticas:\n${features.map(f => `  • ${f}`).join('\n')}`
+        : '';
+      
       return `
 [PRODUCTO ID: ${p.id}]
 Nombre: ${p.name}
 Precio: ${formatPrice(Number(p.price), p.currency)}
 Descripción: ${p.description || "No disponible"}
-Categoría: ${p.category || "General"}
+Categoría: ${p.category || "General"}${featuresText}
+Imagen: ${p.imageUrl || "No disponible"}
 Estado: ${p.isActive ? "Activo" : "Inactivo"}
 `;
     })
@@ -662,8 +668,14 @@ ${productList.length > 0 ? productsBlock : "No hay productos disponibles"}
 3. **TARJETAS OBLIGATORIAS**: SIEMPRE incluye [CARD: ID] cuando recomiendes un producto
 4. **BÚSQUEDA ACTIVA**: Si el cliente pregunta por algo, BUSCA en el catálogo y RECOMIENDA un producto
 5. **INFORMACIÓN COMPLETA**: Responde TODAS las preguntas sobre el producto (qué incluye, precio, entrega, garantía, etc.)
-6. **NO INVENTAR**: No menciones características que no estén en el catálogo
+6. **🚨 NO INVENTAR NADA**: 
+   - SOLO usa información que esté en el catálogo
+   - NO inventes precios, características, ni detalles
+   - Si el catálogo dice "20 secciones", di "20 secciones", NO "283 clases"
+   - Si el precio es COP 20,000, di "COP 20,000", NO "COP 50,000"
+   - Si no sabes algo, di "Déjame verificar esa información"
 7. **FORMATO**: Usa separadores ━━━━━━━━━━━━━━━━━━━━━━━━ y emojis
+8. **DATOS REALES**: Toda la información del producto está en el catálogo arriba. Úsala EXACTAMENTE como aparece.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━
 ✨ EJEMPLO DE RESPUESTA CORRECTA
@@ -678,6 +690,10 @@ Tu respuesta:
 Veo que te interesa aprender piano. Tenemos exactamente lo que necesitas:
 
 [CARD: 311]
+
+🚨 IMPORTANTE: NO agregues texto DESPUÉS de [CARD: ID]. La tarjeta contiene TODA la información (precio, características, métodos de pago). Si necesitas explicar algo, hazlo ANTES de la tarjeta, no después.
+
+🚨 CRÍTICO: SOLO menciona información que esté en el catálogo. NO inventes precios, características, ni detalles. Si el catálogo dice "20 secciones", NO digas "283 clases". Usa los datos EXACTOS del catálogo.
 
 **Qué incluye:**
 - Contenido completo de piano desde cero hasta nivel avanzado
@@ -766,7 +782,12 @@ ${personalizedContext}
   // Si encontramos un producto, agregarlo al prompt
   let productInstruction = "";
   if (productForRequest) {
-    productInstruction = `\n\n🎯 PRODUCTO A RECOMENDAR:\nNombre: ${productForRequest.name}\nID: ${productForRequest.id}\nDescripción: ${productForRequest.description}\n\nDEBES incluir [CARD: ${productForRequest.id}] en tu respuesta.`;
+    const features = (productForRequest.features as string[]) || [];
+    const featuresText = features.length > 0 
+      ? `\nCaracterísticas:\n${features.map(f => `  • ${f}`).join('\n')}`
+      : '';
+    
+    productInstruction = `\n\n🎯 PRODUCTO A RECOMENDAR:\nNombre: ${productForRequest.name}\nID: ${productForRequest.id}\nPrecio: ${formatPrice(Number(productForRequest.price), productForRequest.currency)}\nDescripción: ${productForRequest.description}${featuresText}\n\n🚨 DEBES incluir [CARD: ${productForRequest.id}] en tu respuesta.\n🚨 USA SOLO la información de arriba. NO inventes datos.`;
   }
 
   const baseSystemPrompt = activeAgent?.systemPrompt || systemPrompt;
@@ -834,7 +855,7 @@ Explica POR QUÉ recomiendas ese producto.${productInstruction}`;
       role: m.role === "customer" ? "user" : "assistant",
       content: m.content
     })),
-    { role: "system", content: finalPrompt + "\n\n🚨 REGLA CRÍTICA FINAL: (1) Prohibido 'Hola, muy buenas'. (2) JAMÁS escribas detalles técnicos — la [CARD: ID] ya los contiene. (3) Ignora datos técnicos del historial." },
+    { role: "system", content: finalPrompt + "\n\n🚨 REGLAS CRÍTICAS FINALES:\n(1) Prohibido 'Hola, muy buenas'\n(2) JAMÁS escribas detalles técnicos — la [CARD: ID] ya los contiene\n(3) Ignora datos técnicos del historial\n(4) ⚠️ NUNCA escribas texto DESPUÉS de [CARD: ID] — la tarjeta es el FINAL de tu mensaje\n(5) Si necesitas explicar algo, hazlo ANTES de [CARD: ID], no después\n(6) Formato correcto: 'Texto breve + [CARD: ID]' — FIN. Nada más.\n(7) 🚨 CRÍTICO: NO INVENTES INFORMACIÓN. Usa SOLO los datos del catálogo. Si el precio es COP 20,000, NO digas COP 50,000. Si dice '20 secciones', NO digas '283 clases'. Datos EXACTOS del catálogo." },
     // Prefill: el mensaje del asistente ya empieza con el formato correcto, la IA solo continúa
     ...(responsePrefill ? [{ role: "assistant", content: responsePrefill }] : [])
   ];
@@ -1026,8 +1047,15 @@ Cuéntame 😊
         }
         lastIndex = m.index + m[0].length;
       }
-      if (raw.slice(lastIndex).trim()) {
-        parts.push({ kind: "text", content: raw.slice(lastIndex).trim() });
+      
+      // 🚨 NUEVO: Si hay tarjetas, NO agregar texto después de la última tarjeta
+      const textAfterLastCard = raw.slice(lastIndex).trim();
+      if (textAfterLastCard && cardCount === 0) {
+        // Solo agregar si NO hay tarjetas (mensaje sin productos)
+        parts.push({ kind: "text", content: textAfterLastCard });
+      } else if (textAfterLastCard && cardCount > 0) {
+        // Si hay tarjetas, descartar el texto después
+        console.log(`🗑️ [AGENT-PARSER] Descartando texto después de tarjeta: "${textAfterLastCard.substring(0, 50)}..."`);
       }
 
       console.log(`📋 [AGENT-PARSER] Respuesta procesada - Partes: ${parts.length}, Tarjetas: ${cardCount}, Texto final: ${parts.filter(p => p.kind === "text").length} segmentos - ${new Date().toISOString()}`);

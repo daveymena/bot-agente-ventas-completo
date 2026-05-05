@@ -142,48 +142,70 @@ function buildProductCaption(p: typeof products.$inferSelect, categoryName: stri
   const mainEmoji = nameUpper.includes("PIANO") ? "🎹" : 
                     nameUpper.includes("GUITARRA") ? "🎸" : 
                     nameUpper.includes("CANTO") ? "🎤" : 
-                    nameUpper.includes("EXCEL") ? "📊" : "💎";
+                    nameUpper.includes("EXCEL") ? "📊" : 
+                    nameUpper.includes("IDIOMA") ? "🌍" : 
+                    nameUpper.includes("FRANCÉS") || nameUpper.includes("FRANCES") ? "🇫🇷" :
+                    nameUpper.includes("ALEMÁN") || nameUpper.includes("ALEMAN") ? "🇩🇪" :
+                    nameUpper.includes("ITALIANO") ? "🇮🇹" :
+                    nameUpper.includes("PORTUGUÉS") || nameUpper.includes("PORTUGUES") ? "🇵🇹" :
+                    nameUpper.includes("JAPONÉS") || nameUpper.includes("JAPONES") ? "🇯🇵" :
+                    nameUpper.includes("INGLÉS") || nameUpper.includes("INGLES") ? "🇬🇧" : "💎";
 
-  lines.push(`✨ ${mainEmoji} *${nameUpper}*`);
+  // Título con emoji y separador
+  lines.push(`*${mainEmoji} ${nameUpper}*`);
   lines.push("━━━━━━━━━━━━━━━━━━━━━━━");
+  lines.push("");
   
+  // Descripción
   if (p.description) {
+    lines.push(p.description);
     lines.push("");
-    lines.push(`${p.description}`);
   }
 
+  // Features
   const features = (p.features as string[]) || [];
   if (features.length > 0) {
-    lines.push("");
     lines.push(`🚀 *LO QUE INCLUYE:*`);
     for (const f of features) {
       if (f.trim()) lines.push(`✅ ${f.trim()}`);
     }
+    lines.push("");
   }
   
-  lines.push("");
+  // Precio
   lines.push(`💰 *INVERSIÓN:*`);
   lines.push(`*${formatPriceForWa(Number(p.price), p.currency)}*`);
+  lines.push("");
   lines.push("━━━━━━━━━━━━━━━━━━━━━━━");
 
+  // Métodos de pago
   if (dynamicLinks) {
     lines.push("");
     lines.push(`💳 *MÉTODOS DE PAGO:*`);
+    lines.push("");
+    
     if (dynamicLinks.mercadopago && (dynamicLinks.mercadopago.shortUrl || dynamicLinks.mercadopago.url)) {
       lines.push(`🔹 *MercadoPago / PSE:*`);
       lines.push(`${dynamicLinks.mercadopago.shortUrl || dynamicLinks.mercadopago.url}`);
+      lines.push("");
     }
+    
     if (dynamicLinks.paypal && (dynamicLinks.paypal.shortUrl || dynamicLinks.paypal.url)) {
       lines.push(`🔹 *PayPal (Global):*`);
       lines.push(`${dynamicLinks.paypal.shortUrl || dynamicLinks.paypal.url}`);
+      lines.push("");
     }
+    
     if (dynamicLinks.transfer && dynamicLinks.transfer.options && dynamicLinks.transfer.options[0]) {
       lines.push(`🔹 *Transferencia:* ${dynamicLinks.transfer.options[0].number} (${dynamicLinks.transfer.options[0].name})`);
+      lines.push("");
     }
   }
 
+  // Llamado a la acción con emoji
+  lines.push("━━━━━━━━━━━━━━━━━━━━━━━");
   lines.push("");
-  lines.push(`_¿Deseas activar tu acceso ahora o tienes alguna pregunta específica?_`);
+  lines.push(`✨ _¿Deseas activar tu acceso ahora o tienes alguna pregunta específica?_`);
   
   return lines.join("\n");
 }

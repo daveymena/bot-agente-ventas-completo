@@ -9,7 +9,8 @@ import {
   Settings,
   Terminal,
   Badge,
-  Wand2
+  Wand2,
+  Palette
 } from "lucide-react";
 import { Sidebar, SidebarContent, SidebarHeader, SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarProvider, SidebarTrigger, SidebarGroup, SidebarGroupContent } from "./ui/sidebar";
 import { Badge as UiBadge } from "@/components/ui/badge";
@@ -26,6 +27,7 @@ export function AppSidebar() {
     { label: "Productos", href: "/products", icon: Package },
     { label: "WhatsApp", href: "/whatsapp", icon: Phone },
     { label: "Arquitecto IA", href: "/code-agent", icon: Wand2 },
+    { label: "Personalización", href: "/branding", icon: Palette },
     { label: "Configuración", href: "/settings", icon: Settings },
     { label: "Planes", href: "/pricing", icon: Badge },
   ];
@@ -115,7 +117,7 @@ export function AppSidebar() {
 export function Layout({ children }: { children: React.ReactNode }) {
   return (
     <SidebarProvider>
-      <div className="flex min-h-screen w-full bg-background relative overflow-hidden text-foreground">
+      <div className="flex min-h-screen w-full bg-background relative overflow-x-hidden text-foreground">
         {/* Mesh Gradient Background */}
         <div className="pointer-events-none fixed inset-0 z-0">
           <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] rounded-full bg-primary/5 blur-[120px]" />
@@ -124,15 +126,15 @@ export function Layout({ children }: { children: React.ReactNode }) {
         
         <AppSidebar />
         <div className="flex flex-1 flex-col w-full min-w-0 relative z-10 transition-all duration-300">
-          <header className="flex h-[72px] items-center gap-4 border-b bg-background/60 backdrop-blur-3xl px-4 md:px-6 sticky top-0 z-20 supports-[backdrop-filter]:bg-background/40">
-            <SidebarTrigger className="hover:bg-primary/10 rounded-xl w-10 h-10 flex items-center justify-center transition-all text-primary" />
-            <div className="flex-1" />
+          <header className="flex h-[60px] sm:h-[72px] items-center gap-4 border-b bg-background/60 backdrop-blur-3xl px-3 sm:px-4 md:px-6 sticky top-0 z-20 supports-[backdrop-filter]:bg-background/40">
+            <SidebarTrigger className="hover:bg-primary/10 rounded-xl w-9 h-9 sm:w-10 sm:h-10 flex items-center justify-center transition-all text-primary shrink-0" />
+            <div className="flex-1 min-w-0" />
             <div className="flex items-center gap-2">
-              <UiBadge variant="outline" className="bg-primary/5 text-primary border-primary/20 hidden sm:flex">V1.5 PREMIUM</UiBadge>
+              <UiBadge variant="outline" className="bg-primary/5 text-primary border-primary/20 hidden sm:flex text-xs">V1.5 PREMIUM</UiBadge>
             </div>
           </header>
-          <main className="flex-1 p-4 md:p-8 overflow-y-auto animate-enter scroll-smooth">
-            <div className="max-w-7xl mx-auto pb-20 md:pb-8">
+          <main className="flex-1 p-3 sm:p-4 md:p-8 overflow-y-auto overflow-x-hidden animate-enter scroll-smooth">
+            <div className="max-w-7xl mx-auto pb-20 md:pb-8 w-full">
               {children}
             </div>
           </main>

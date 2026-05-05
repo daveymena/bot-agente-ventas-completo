@@ -14,7 +14,7 @@ import { validateSaasPlan, validateUsageLimits } from "./middleware/saasValidati
 import { validateFeatureLimits, validateMessageLimit } from "./middleware/featureLimits";
 import { whatsapp } from "./lib/whatsapp";
 import { getAllTemplates } from "./lib/agent-templates";
-import { agents } from "@workspace/db";
+import { db, agents } from "@workspace/db";
 import { eq } from "drizzle-orm";
 
 // Auto-start WhatsApp bot on boot
@@ -164,6 +164,11 @@ const publicRoutes = [
   "/auth/login",
   "/auth/logout",
   "/auth/me", // ¡IMPORTANTE! Permitir verificación de sesión sin validación SaaS
+  "/auth/send-verification-code",
+  "/auth/verify-email",
+  "/auth/request-password-reset",
+  "/auth/verify-reset-code",
+  "/auth/reset-password",
   "/whatsapp/test-ia", // Endpoint de prueba para testing
 ];
 

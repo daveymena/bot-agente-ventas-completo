@@ -16,6 +16,7 @@ import Settings from "@/pages/settings";
 import CodeAgent from "@/pages/code-agent";
 import AuthPage from "@/pages/auth";
 import PricingPage from "@/pages/pricing";
+import Branding from "@/pages/branding";
 
 // Context para la sesión
 interface SessionContextType {
@@ -73,6 +74,7 @@ function Router() {
       <Route path="/settings" component={Settings} />
       <Route path="/code-agent" component={CodeAgent} />
       <Route path="/pricing" component={PricingPage} />
+      <Route path="/branding" component={Branding} />
       <Route path="/auth" component={AuthPage} />
       <Route component={NotFound} />
     </Switch>
