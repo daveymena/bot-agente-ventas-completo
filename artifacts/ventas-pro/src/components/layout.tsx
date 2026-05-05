@@ -41,16 +41,12 @@ export function AppSidebar() {
       <div className="absolute inset-0 bg-gradient-to-b from-primary/5 via-transparent to-accent/5 pointer-events-none" />
       <SidebarHeader className="flex h-[80px] items-center border-b border-white/5 px-6 relative z-10">
         <Link href="/" className="flex items-center gap-3 font-bold text-xl text-foreground transition-all duration-300 hover:scale-[1.02] group">
-          {/* Premium Logo */}
-          <div className="relative flex items-center justify-center w-10 h-10 rounded-xl overflow-hidden border border-white/10 shadow-lg group-hover:border-orange-500/50 transition-all duration-300">
-            <div className="absolute inset-0 bg-gradient-to-br from-orange-500 to-yellow-500 opacity-20 group-hover:opacity-40 transition-opacity" />
-            <div className="absolute -inset-1 bg-gradient-to-r from-orange-500 to-yellow-500 rounded-xl blur opacity-0 group-hover:opacity-30 transition-opacity" />
-            <span className="text-xl font-black bg-gradient-to-br from-orange-400 to-yellow-500 bg-clip-text text-transparent relative z-10">V</span>
-          </div>
-          <div className="flex flex-col">
-            <span className="tracking-tight font-extrabold bg-gradient-to-br from-white via-white to-white/50 bg-clip-text text-transparent group-hover:from-orange-400 group-hover:to-yellow-500 transition-all duration-500">VentasPro</span>
-            <span className="text-[9px] font-bold text-muted-foreground uppercase tracking-[0.25em]">IA Engine</span>
-          </div>
+          {/* Logo SVG */}
+          <img 
+            src="/logo.svg" 
+            alt="VentasPro Logo" 
+            className="h-10 w-auto transition-all duration-300 group-hover:brightness-110"
+          />
         </Link>
       </SidebarHeader>
       <SidebarContent className="px-3 py-4">

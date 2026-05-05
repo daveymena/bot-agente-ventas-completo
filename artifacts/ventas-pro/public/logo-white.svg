@@ -1,0 +1,23 @@
+<svg width="200" height="50" viewBox="0 0 200 50" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Icono -->
+  <g transform="translate(5, 5)">
+    <!-- Fondo del icono -->
+    <rect width="40" height="40" rx="8" fill="white" opacity="0.15"/>
+    
+    <!-- Burbujas de chat -->
+    <path d="M 10 15 Q 10 12, 13 12 L 25 12 Q 28 12, 28 15 L 28 22 Q 28 25, 25 25 L 16 25 L 12 28 L 12 25 Q 10 25, 10 22 Z" 
+          fill="white" opacity="0.95"/>
+    <path d="M 15 28 Q 15 26, 17 26 L 28 26 Q 30 26, 30 28 L 30 32 Q 30 34, 28 34 L 22 34 L 18 37 L 18 34 Q 15 34, 15 32 Z" 
+          fill="white" opacity="0.8"/>
+    
+    <!-- Puntos -->
+    <circle cx="16" cy="18.5" r="1.5" fill="#6366f1"/>
+    <circle cx="20" cy="18.5" r="1.5" fill="#6366f1"/>
+    <circle cx="24" cy="18.5" r="1.5" fill="#6366f1"/>
+  </g>
+  
+  <!-- Texto "VentasPro" en blanco -->
+  <text x="55" y="32" font-family="Inter, system-ui, sans-serif" font-size="20" font-weight="700" fill="white">
+    Ventas<tspan fill="#a5b4fc">Pro</tspan>
+  </text>
+</svg>

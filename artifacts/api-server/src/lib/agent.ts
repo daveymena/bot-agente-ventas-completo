@@ -478,6 +478,7 @@ export async function runAgentReply(conversationId: number) {
   const productList = await db.select().from(products).where(eq(products.isActive, true));
   console.log(`📦 [AGENT-INFO] Productos activos: ${productList.length} - ${new Date().toISOString()}`);
   
+  // Obtener historial de la conversación para contexto
   const history = await db
     .select()
     .from(messages)
@@ -488,6 +489,18 @@ export async function runAgentReply(conversationId: number) {
   console.log(`💬 [AGENT-INFO] Historial de mensajes cargado: ${history.length} mensajes - ${new Date().toISOString()}`);
 
   history.reverse(); // Ordenamos de más viejo a más nuevo para la IA
+
+  // 🆕 DETECTAR TARJETAS YA ENVIADAS (evitar repetición)
+  const sentCards = new Set<number>();
+  for (const msg of history) {
+    if (msg.role === "agent" && msg.content.includes("[CARD:")) {
+      const cardMatch = msg.content.match(/\[CARD:\s*(\d+)\s*\]/);
+      if (cardMatch) {
+        sentCards.add(parseInt(cardMatch[1]));
+      }
+    }
+  }
+  console.log(`🃏 [AGENT-MEMORY] Tarjetas ya enviadas: [${Array.from(sentCards).join(', ')}] - ${new Date().toISOString()}`);
 
   // Context Intelligence Enhancement: Analyze conversation context
   const conversationContext = analyzeConversationContext(history);
@@ -654,11 +667,30 @@ ${productList.length > 0 ? productsBlock : "No hay productos disponibles"}
 📋 INFORMACIÓN SOBRE ENTREGA Y GARANTÍA
 ━━━━━━━━━━━━━━━━━━━━━━━━
 ✅ FORMA DE ENTREGA: 100% Digital por Google Drive
-✅ ACCESO: Inmediato después del pago
+✅ ACCESO: Inmediato después del pago (máximo 10 minutos)
 ✅ DURACIÓN: De por vida (permanente)
 ✅ GARANTÍA: 7 días para solicitar reembolso si no te gusta
 ✅ SOPORTE: Auto-aprendizaje con acceso a todo el contenido
 ✅ MÉTODOS DE PAGO: MercadoPago, PayPal, Transferencia Directa (Nequi/Daviplata)
+
+🎯 CÓMO RESPONDER PREGUNTAS COMUNES (SIN REPETIR LA TARJETA):
+
+**Si preguntan "¿Cómo me entregan el acceso?":**
+"📧 El acceso se entrega de forma inmediata por correo electrónico. Recibirás un enlace a Google Drive con todo el contenido. Máximo 10 minutos después del pago. ¿Listo para proceder?"
+
+**Si preguntan "¿Cuánto tiempo tengo acceso?":**
+"♾️ El acceso es de por vida. Una vez que pagas, es tuyo para siempre. Sin mensualidades ni renovaciones. ¿Te gustaría adquirirlo?"
+
+**Si preguntan "¿Tiene garantía?":**
+"✅ Sí, tienes 7 días para solicitar reembolso si no te gusta. Sin preguntas. ¿Procedemos con tu compra?"
+
+**Si preguntan "¿Cómo pago?":**
+"💳 Puedes pagar por MercadoPago/PSE, PayPal o Transferencia Directa (Nequi/Daviplata). Los links ya te los envié arriba. ¿Cuál prefieres?"
+
+**Si preguntan sobre el contenido:**
+"📦 Ya te envié toda la información del producto arriba. ¿Tienes alguna duda específica sobre el contenido?"
+
+🚨 REGLA CRÍTICA: Si ya enviaste la tarjeta [CARD: ID], NO la vuelvas a enviar. Responde de forma natural y directa.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━
 🚫 REGLAS ABSOLUTAS
@@ -756,6 +788,12 @@ ${personalizedContext}
     }
   }
   
+  // 🚫 EVITAR REPETIR TARJETAS: Si el producto ya fue enviado, NO incluirlo de nuevo
+  if (productForRequest && sentCards.has(productForRequest.id)) {
+    console.log(`🚫 [PRODUCT-SKIP] Producto ${productForRequest.name} (ID: ${productForRequest.id}) ya fue enviado. No se incluirá tarjeta.`);
+    productForRequest = null; // No incluir la tarjeta de nuevo
+  }
+  
   // Si no es confirmación, buscar producto basándose en el tema detectado
   if (!productForRequest && conversationContext.currentTopic) {
     // Mapeo de temas a IDs de productos
@@ -773,9 +811,11 @@ ${personalizedContext}
     };
     
     const productId = topicToProductId[conversationContext.currentTopic];
-    if (productId) {
+    if (productId && !sentCards.has(productId)) {
       productForRequest = productList.find(p => p.id === productId);
       console.log(`🎯 [PRODUCT-TOPIC] Tema detectado: ${conversationContext.currentTopic} → Producto: ${productForRequest?.name} (ID: ${productForRequest?.id})`);
+    } else if (productId && sentCards.has(productId)) {
+      console.log(`🚫 [PRODUCT-SKIP] Producto para tema "${conversationContext.currentTopic}" (ID: ${productId}) ya fue enviado.`);
     }
   }
   
@@ -788,6 +828,9 @@ ${personalizedContext}
       : '';
     
     productInstruction = `\n\n🎯 PRODUCTO A RECOMENDAR:\nNombre: ${productForRequest.name}\nID: ${productForRequest.id}\nPrecio: ${formatPrice(Number(productForRequest.price), productForRequest.currency)}\nDescripción: ${productForRequest.description}${featuresText}\n\n🚨 DEBES incluir [CARD: ${productForRequest.id}] en tu respuesta.\n🚨 USA SOLO la información de arriba. NO inventes datos.`;
+  } else if (sentCards.size > 0) {
+    // Si ya se envió una tarjeta, informar a la IA para que NO la repita
+    productInstruction = `\n\n🚫 IMPORTANTE: Ya enviaste la tarjeta del producto anteriormente.\n✅ El cliente ya tiene toda la información del producto.\n✅ NO vuelvas a enviar [CARD: ID].\n✅ Responde de forma natural a su pregunta sin repetir información.\n✅ Si pregunta sobre entrega, pago o acceso, responde directamente sin mostrar la tarjeta de nuevo.`;
   }
 
   const baseSystemPrompt = activeAgent?.systemPrompt || systemPrompt;
@@ -986,6 +1029,18 @@ Cuéntame 😊
 
       // 🚀 POST-PROCESAMIENTO ANTI-HALLUCINACIÓN (Cero tolerancia a mentiras técnicas)
       if (raw && raw.includes("[CARD:")) {
+        // 🚨 CRÍTICO: Eliminar TODO el texto después de [CARD: ID]
+        const cardMatch = raw.match(/\[CARD:\s*\d+\s*\]/i);
+        if (cardMatch) {
+          const cardEndIndex = raw.indexOf(cardMatch[0]) + cardMatch[0].length;
+          const textAfterCard = raw.substring(cardEndIndex).trim();
+          
+          if (textAfterCard) {
+            console.log(`🗑️ [AGENT-POSTPROCESS] Eliminando texto después de [CARD:]: "${textAfterCard.substring(0, 100)}..."`);
+            raw = raw.substring(0, cardEndIndex);
+          }
+        }
+        
         // Si hay una tarjeta, borramos cualquier mención a "lecciones", "módulos" o números aleatorios que la IA suele inventar
         raw = raw.replace(/\d+\s*(lecciones|clases|módulos|modulos|videos|videos|gb|gigas)/gi, "");
         // También borramos descripciones largas que suelen ser inventadas
