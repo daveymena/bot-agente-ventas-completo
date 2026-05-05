@@ -56,14 +56,16 @@ RUN apt-get update && apt-get install -y \
 # Copiar archivos de configuración
 COPY pnpm-lock.yaml pnpm-workspace.yaml package.json .npmrc ./
 
-# Copiar node_modules del builder (ya tiene todas las dependencias)
-COPY --from=base /app/node_modules /app/node_modules
-
-# Copiar código compilado desde el builder
-COPY --from=base /app/artifacts/api-server/dist /app/artifacts/api-server/dist
-COPY --from=base /app/artifacts/api-server/package.json /app/artifacts/api-server/
-COPY --from=base /app/artifacts/ventas-pro/dist /app/artifacts/ventas-pro/dist
-COPY --from=base /app/lib /app/lib
+# Copiar package.json de todos los paquetes para pnpm workspace
+COPY artifacts/api-server/package.json ./artifacts/api-server/
+COPY artifacts/ventas-pro/package.json ./artifacts/ventas-pro/
+COPY lib/api-zod/package.json ./lib/api-zod/
+COPY lib/api-spec/package.json ./lib/api-spec/
+COPY lib/api-client-react/package.json ./lib/api-client-react/
+COPY lib/db/package.json ./lib/db/
+COPY lib/integrations-openai-ai-server/package.json ./lib/integrations-openai-ai-server/
+COPY lib/integrations-openai-ai-react/package.json ./lib/integrations-openai-ai-react/
+COPY scripts/package.json ./scripts/
 
 # Crear carpetas de persistencia para EasyPanel
 RUN mkdir -p /app/data && chmod 777 /app/data
@@ -76,9 +78,15 @@ ENV PORT=3002
 
 EXPOSE 3002
 
-# Instalar dependencias antes de ejecutar (con CI=true para evitar prompts)
+# Instalar TODAS las dependencias de producción del workspace completo
+# Esto incluye protobufjs y otras deps transitivas de baileys
 ENV CI=true
-RUN pnpm install --prod=true
+RUN pnpm install --prod=false --no-frozen-lockfile
+
+# Copiar código compilado desde el builder
+COPY --from=base /app/artifacts/api-server/dist /app/artifacts/api-server/dist
+COPY --from=base /app/artifacts/ventas-pro/dist /app/artifacts/ventas-pro/dist
+COPY --from=base /app/lib /app/lib
 
 # Comando de arranque optimizado
 CMD ["pnpm", "--filter", "@workspace/api-server", "run", "start"]
