@@ -1,6 +1,7 @@
 import express, { type Express, type Request, type Response, type NextFunction } from "express";
 import path from "path";
 import { fileURLToPath } from "url";
+import { existsSync, readdirSync } from "fs";
 import cors from "cors";
 import cookieParser from "cookie-parser";
 import pinoHttp from "pino-http";
@@ -83,7 +84,19 @@ const frontendPath = process.env.NODE_ENV === "production"
   ? path.resolve("/app/artifacts/ventas-pro/dist/public")
   : path.resolve(__dirname, "../../ventas-pro/dist/public");
 
+console.log(`[Frontend] NODE_ENV: ${process.env.NODE_ENV}`);
+console.log(`[Frontend] __dirname: ${__dirname}`);
 console.log(`[Frontend] Serving static files from: ${frontendPath}`);
+
+// Verificar que el directorio existe
+if (existsSync(frontendPath)) {
+  console.log(`[Frontend] ✅ Directory exists`);
+  const files = readdirSync(frontendPath);
+  console.log(`[Frontend] Files in directory: ${files.join(", ")}`);
+} else {
+  console.error(`[Frontend] ❌ Directory does NOT exist: ${frontendPath}`);
+}
+
 app.use(express.static(frontendPath));
 
 // Rutas públicas que no requieren validación de SaaS
@@ -179,7 +192,14 @@ app.use((req, res, next) => {
   if (req.path.startsWith("/api")) {
     return next();
   }
-  res.sendFile(path.join(frontendPath, "index.html"));
+  console.log(`[Frontend] Serving index.html for path: ${req.path}`);
+  const indexPath = path.join(frontendPath, "index.html");
+  if (existsSync(indexPath)) {
+    res.sendFile(indexPath);
+  } else {
+    console.error(`[Frontend] ❌ index.html not found at: ${indexPath}`);
+    res.status(404).send("Frontend not found");
+  }
 });
 
 export default app;
