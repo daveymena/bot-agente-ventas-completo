@@ -76,8 +76,14 @@ app.use("/api/pricing", pricingRouter);
 // Servir frontend en producción
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const frontendPath = path.resolve(__dirname, "../../ventas-pro/dist/public");
 
+// En producción (Docker), usar path absoluto desde /app
+// En desarrollo, usar path relativo
+const frontendPath = process.env.NODE_ENV === "production"
+  ? path.resolve("/app/artifacts/ventas-pro/dist/public")
+  : path.resolve(__dirname, "../../ventas-pro/dist/public");
+
+console.log(`[Frontend] Serving static files from: ${frontendPath}`);
 app.use(express.static(frontendPath));
 
 // Rutas públicas que no requieren validación de SaaS
