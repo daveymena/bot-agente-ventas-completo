@@ -38,7 +38,19 @@ RUN apt-get update && apt-get install -y \
 
 ---
 
-### 3. ✅ Análisis Semántico Implementado
+### 3. ✅ Mockup-Sandbox Excluido del Build
+**Problema:** `mockup-sandbox` causaba errores de TypeScript en vite.config.ts  
+**Solución:** Excluir `@workspace/mockup-sandbox` del build en Docker
+
+```dockerfile
+RUN pnpm -r --filter "!@workspace/mockup-sandbox" --if-present run build
+```
+
+**Commit:** `f38e4f3`
+
+---
+
+### 4. ✅ Análisis Semántico Implementado
 **Archivo:** `artifacts/api-server/src/lib/semantic-analyzer.ts`
 
 **Características:**
@@ -51,7 +63,7 @@ RUN apt-get update && apt-get install -y \
 
 ---
 
-### 4. ✅ Flujo de Conversación Mejorado
+### 5. ✅ Flujo de Conversación Mejorado
 **Archivo:** `artifacts/api-server/src/lib/conversation-flow.ts`
 
 **Características:**
@@ -65,7 +77,7 @@ RUN apt-get update && apt-get install -y \
 
 ---
 
-### 5. ✅ Documentación Completa
+### 6. ✅ Documentación Completa
 **Archivos Creados:**
 - `BOT_IMPROVEMENTS.md` - Plan de mejoras del bot
 - `BOT_TESTING_GUIDE.md` - Guía de testing con 30+ casos de prueba
@@ -96,6 +108,8 @@ RUN apt-get update && apt-get install -y \
 
 | Commit | Mensaje | Cambios |
 |--------|---------|---------|
+| `f38e4f3` | fix: Excluir mockup-sandbox del build en Docker | Dockerfile |
+| `e559108` | docs: Agregar estado de despliegue y resumen de cambios | DEPLOYMENT_STATUS.md |
 | `58c9e20` | fix: Agregar git y openssh-client al Dockerfile | Dockerfile |
 | `e20638a` | feat: Agregar análisis semántico y flujo de conversación | semantic-analyzer.ts, conversation-flow.ts |
 | `491e197` | docs: Agregar guía completa de testing del bot | BOT_TESTING_GUIDE.md |
