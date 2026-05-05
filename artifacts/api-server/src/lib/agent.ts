@@ -451,7 +451,23 @@ export async function runAgentReply(conversationId: number) {
   }
   console.log(`📱 [AGENT-INFO] Conversación encontrada: ${convo.contactPhone}, Estado: ${convo.status}, Etapa: ${convo.currentStage} - ${new Date().toISOString()}`);
 
-  const [activeAgent] = await db.select().from(agents).where(eq(agents.isActive, true)).limit(1);
+  // Obtener el último mensaje del cliente para el routing
+  const lastCustomerMessage = await db
+    .select()
+    .from(messages)
+    .where(and(
+      eq(messages.conversationId, conversationId),
+      eq(messages.role, "customer")
+    ))
+    .orderBy(desc(messages.createdAt))
+    .limit(1);
+  
+  const lastMessageText = lastCustomerMessage[0]?.content || "";
+  
+  // Usar el Agent Router para seleccionar el mejor agente
+  const { getActiveAgent } = await import("./agent-router");
+  const activeAgent = await getActiveAgent(lastMessageText, conversationId, convo.tenantId);
+  
   if (!activeAgent) {
     console.log(`❌ [AGENT-ERROR] No hay agente activo configurado - ${new Date().toISOString()}`);
     return null;
