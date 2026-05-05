@@ -36,9 +36,8 @@ RUN pnpm install --no-frozen-lockfile --prod=false
 COPY . .
 
 # Construir solo los proyectos necesarios (Backend + Frontend)
-# Excluir mockup-sandbox que no es necesario para producción
-# Usar -r para recursivo pero excluir mockup-sandbox
-RUN pnpm -r --filter "!@workspace/mockup-sandbox" --if-present run build
+# Saltarse typecheck y build solo lo necesario
+RUN pnpm --filter "@workspace/api-server" --filter "@workspace/ventas-pro" --filter "@workspace/db" --filter "@workspace/api-zod" --filter "@workspace/api-spec" --filter "@workspace/api-client-react" --filter "@workspace/integrations-openai-ai-server" --filter "@workspace/integrations-openai-ai-react" run build
 
 # Etapa final para ejecución ligera y estable
 FROM node:20-slim
