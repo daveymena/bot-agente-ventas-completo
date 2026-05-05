@@ -41,9 +41,11 @@ router.post("/disconnect", async (_req, res, next) => {
 router.post("/test-ia", async (req, res, next) => {
   try {
     const msg = req.body?.message || "Hola, qué productos tienen?";
+    const tenantId = 1; // Tenant por defecto para testing
     
     // Crear conversación test
     const [convo] = await db.insert(conversations).values({
+      tenantId,
       contactName: "Test",
       contactPhone: "test-ia",
       status: "ai",
