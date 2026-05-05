@@ -76,7 +76,8 @@ ENV PORT=3002
 
 EXPOSE 3002
 
-# Instalar dependencias antes de ejecutar
+# Instalar dependencias antes de ejecutar (con CI=true para evitar prompts)
+ENV CI=true
 RUN pnpm install --prod=true
 
 # Comando de arranque optimizado
