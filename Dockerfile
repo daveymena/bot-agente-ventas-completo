@@ -56,19 +56,8 @@ RUN apt-get update && apt-get install -y \
 # Copiar archivos de configuración
 COPY pnpm-lock.yaml pnpm-workspace.yaml package.json .npmrc ./
 
-# Copiar package.json de todos los paquetes
-COPY artifacts/api-server/package.json ./artifacts/api-server/
-COPY artifacts/ventas-pro/package.json ./artifacts/ventas-pro/
-COPY lib/api-zod/package.json ./lib/api-zod/
-COPY lib/api-spec/package.json ./lib/api-spec/
-COPY lib/api-client-react/package.json ./lib/api-client-react/
-COPY lib/db/package.json ./lib/db/
-COPY lib/integrations-openai-ai-server/package.json ./lib/integrations-openai-ai-server/
-COPY lib/integrations-openai-ai-react/package.json ./lib/integrations-openai-ai-react/
-COPY scripts/package.json ./scripts/
-
-# Instalar solo dependencias de producción
-RUN pnpm install --prod=true --no-frozen-lockfile
+# Copiar node_modules del builder (ya tiene todas las dependencias)
+COPY --from=base /app/node_modules /app/node_modules
 
 # Copiar código compilado desde el builder
 COPY --from=base /app/artifacts/api-server/dist /app/artifacts/api-server/dist
