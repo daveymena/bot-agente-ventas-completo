@@ -1,0 +1,39 @@
+<svg width="160" height="40" viewBox="0 0 160 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Logo ultra simple y elegante -->
+  <defs>
+    <linearGradient id="simpleGradient" x1="0" y1="0" x2="30" y2="30">
+      <stop offset="0%" stop-color="#6366f1"/>
+      <stop offset="100%" stop-color="#8b5cf6"/>
+    </linearGradient>
+  </defs>
+  
+  <!-- Icono: V estilizada con checkmark -->
+  <g transform="translate(0, 5)">
+    <!-- V con gradiente -->
+    <path d="M 5 5 L 15 25 L 25 5" 
+          stroke="url(#simpleGradient)" 
+          stroke-width="3.5" 
+          stroke-linecap="round" 
+          stroke-linejoin="round" 
+          fill="none"/>
+    
+    <!-- Checkmark pequeño integrado -->
+    <circle cx="15" cy="25" r="5" fill="url(#simpleGradient)"/>
+    <path d="M 12 25 L 14 27 L 18 23" 
+          stroke="white" 
+          stroke-width="1.5" 
+          stroke-linecap="round" 
+          stroke-linejoin="round" 
+          fill="none"/>
+  </g>
+  
+  <!-- Texto limpio -->
+  <text x="38" y="27" 
+        font-family="'Inter', system-ui, sans-serif" 
+        font-size="20" 
+        font-weight="700" 
+        letter-spacing="-0.5"
+        fill="#1e293b">
+    Ventas<tspan fill="#6366f1">Pro</tspan>
+  </text>
+</svg>

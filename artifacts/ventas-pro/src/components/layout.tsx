@@ -40,11 +40,11 @@ export function AppSidebar() {
     <Sidebar className="border-r border-white/10 shadow-[8px_0_32px_rgba(0,0,0,0.1)] dark:shadow-[8px_0_32px_rgba(0,0,0,0.4)] bg-background/60 backdrop-blur-3xl supports-[backdrop-filter]:bg-background/40">
       <div className="absolute inset-0 bg-gradient-to-b from-primary/5 via-transparent to-accent/5 pointer-events-none" />
       <SidebarHeader className="flex h-[80px] items-center border-b border-white/5 px-6 relative z-10">
-        <Link href="/" className="flex items-center gap-3 font-bold text-xl text-foreground transition-all duration-300 hover:scale-[1.02] group">
-          {/* Logo SVG */}
+        <Link href="/" className="flex items-center transition-all duration-300 hover:scale-[1.02] group">
+          {/* Logo minimalista profesional */}
           <img 
-            src="/logo.svg" 
-            alt="VentasPro Logo" 
+            src="/logo-minimal.svg" 
+            alt="VentasPro" 
             className="h-10 w-auto transition-all duration-300 group-hover:brightness-110"
           />
         </Link>
