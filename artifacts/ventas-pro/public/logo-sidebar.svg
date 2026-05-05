@@ -1,0 +1,30 @@
+<svg width="170" height="42" viewBox="0 0 170 42" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Logo optimizado para sidebar oscuro -->
+  <defs>
+    <linearGradient id="sidebarGrad" x1="0" y1="0" x2="32" y2="32">
+      <stop offset="0%" stop-color="#6366f1"/>
+      <stop offset="100%" stop-color="#8b5cf6"/>
+    </linearGradient>
+  </defs>
+  
+  <!-- Icono: Círculo con V -->
+  <circle cx="16" cy="21" r="16" fill="url(#sidebarGrad)"/>
+  
+  <!-- V blanca dentro del círculo -->
+  <path d="M 10 13 L 16 25 L 22 13" 
+        stroke="white" 
+        stroke-width="2.5" 
+        stroke-linecap="round" 
+        stroke-linejoin="round" 
+        fill="none"/>
+  
+  <!-- Texto en BLANCO para fondo oscuro -->
+  <text x="40" y="28" 
+        font-family="'Inter', -apple-system, system-ui, sans-serif" 
+        font-size="21" 
+        font-weight="700" 
+        letter-spacing="-0.3"
+        fill="white">
+    Ventas<tspan fill="#a5b4fc">Pro</tspan>
+  </text>
+</svg>

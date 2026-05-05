@@ -41,9 +41,9 @@ export function AppSidebar() {
       <div className="absolute inset-0 bg-gradient-to-b from-primary/5 via-transparent to-accent/5 pointer-events-none" />
       <SidebarHeader className="flex h-[80px] items-center border-b border-white/5 px-6 relative z-10">
         <Link href="/" className="flex items-center transition-all duration-300 hover:scale-[1.02] group">
-          {/* Logo minimalista profesional */}
+          {/* Logo optimizado para sidebar oscuro */}
           <img 
-            src="/logo-minimal.svg" 
+            src="/logo-sidebar.svg" 
             alt="VentasPro" 
             className="h-10 w-auto transition-all duration-300 group-hover:brightness-110"
           />

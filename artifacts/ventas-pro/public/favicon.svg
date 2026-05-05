@@ -1,28 +1,20 @@
 <svg width="180" height="180" viewBox="0 0 180 180" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <!-- Fondo con gradiente moderno -->
+  <!-- Favicon limpio y profesional -->
   <defs>
-    <linearGradient id="bgGradient" x1="0" y1="0" x2="180" y2="180" gradientUnits="userSpaceOnUse">
+    <linearGradient id="faviconGrad" x1="0" y1="0" x2="180" y2="180">
       <stop offset="0%" stop-color="#6366f1"/>
       <stop offset="100%" stop-color="#8b5cf6"/>
     </linearGradient>
   </defs>
   
-  <!-- Fondo redondeado -->
-  <rect width="180" height="180" rx="40" fill="url(#bgGradient)"/>
+  <!-- Fondo con gradiente -->
+  <rect width="180" height="180" rx="40" fill="url(#faviconGrad)"/>
   
-  <!-- Icono de mensaje con checkmark (más grande y centrado) -->
-  <g transform="translate(40, 50)">
-    <!-- Burbuja de mensaje -->
-    <path d="M 10 20 L 90 20 C 95 20 100 25 100 30 L 100 70 C 100 75 95 80 90 80 L 30 80 L 10 100 L 10 80 C 5 80 0 75 0 70 L 0 30 C 0 25 5 20 10 20 Z" 
-          fill="white" 
-          opacity="0.95"/>
-    
-    <!-- Checkmark grande -->
-    <path d="M 25 50 L 42 67 L 75 35" 
-          stroke="#6366f1" 
-          stroke-width="8" 
-          stroke-linecap="round" 
-          stroke-linejoin="round" 
-          fill="none"/>
-  </g>
+  <!-- V grande y centrada -->
+  <path d="M 50 60 L 90 140 L 130 60" 
+        stroke="white" 
+        stroke-width="16" 
+        stroke-linecap="round" 
+        stroke-linejoin="round" 
+        fill="none"/>
 </svg>
