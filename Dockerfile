@@ -11,6 +11,8 @@ RUN apt-get update && apt-get install -y \
     python3 \
     make \
     g++ \
+    git \
+    openssh-client \
     && rm -rf /var/lib/apt/lists/*
 
 # Copiar archivos de configuración del monorepo
