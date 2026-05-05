@@ -81,6 +81,15 @@ function Router() {
 
 function AppContent() {
   const { tenant, isLoading, isAuthenticated, logout, refreshSession } = useAuth();
+  const [location, setLocation] = useLocation();
+
+  useEffect(() => {
+    // Redirigir a /auth si no está autenticado y no está ya en /auth o /pricing
+    if (!isLoading && !isAuthenticated && location !== "/auth" && location !== "/pricing") {
+      console.log("🔒 No autenticado, redirigiendo a /auth...");
+      setLocation("/auth");
+    }
+  }, [isLoading, isAuthenticated, location, setLocation]);
 
   if (isLoading) {
     return (
