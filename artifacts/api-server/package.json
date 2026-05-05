@@ -10,7 +10,8 @@
     "start": "node --enable-source-maps ./dist/index.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "setup": "tsx src/setup-user.ts",
-    "diagnose": "node check-frontend.js"
+    "diagnose": "node check-frontend.js",
+    "reset:conversations": "tsx scripts/reset-conversations.ts"
   },
   "dependencies": {
     "@types/node": "catalog:",
