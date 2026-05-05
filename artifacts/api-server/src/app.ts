@@ -124,8 +124,33 @@ if (existsSync(frontendPath)) {
   console.log(`[Frontend] ✅ Directory exists`);
   const files = readdirSync(frontendPath);
   console.log(`[Frontend] Files in directory: ${files.join(", ")}`);
+  
+  // Verificar index.html específicamente
+  const indexPath = path.join(frontendPath, "index.html");
+  if (existsSync(indexPath)) {
+    console.log(`[Frontend] ✅ index.html found`);
+  } else {
+    console.error(`[Frontend] ❌ index.html NOT FOUND at: ${indexPath}`);
+  }
 } else {
   console.error(`[Frontend] ❌ Directory does NOT exist: ${frontendPath}`);
+  console.error(`[Frontend] 💡 Trying alternative paths...`);
+  
+  // Intentar paths alternativos
+  const alternatives = [
+    path.resolve(__dirname, "../../ventas-pro/dist/public"),
+    path.resolve("/app/artifacts/ventas-pro/dist/public"),
+    path.resolve(process.cwd(), "artifacts/ventas-pro/dist/public"),
+  ];
+  
+  for (const alt of alternatives) {
+    if (existsSync(alt)) {
+      console.log(`[Frontend] ✅ Found alternative path: ${alt}`);
+      break;
+    } else {
+      console.log(`[Frontend] ❌ Not found: ${alt}`);
+    }
+  }
 }
 
 app.use(express.static(frontendPath));
