@@ -35,8 +35,10 @@ RUN pnpm install --no-frozen-lockfile --prod=false
 # Copiar el resto del código
 COPY . .
 
-# Construir todo el proyecto (Backend + Frontend)
-RUN pnpm run build
+# Construir solo los proyectos necesarios (Backend + Frontend)
+# Excluir mockup-sandbox que no es necesario para producción
+# Usar -r para recursivo pero excluir mockup-sandbox
+RUN pnpm -r --filter "!@workspace/mockup-sandbox" --if-present run build
 
 # Etapa final para ejecución ligera y estable
 FROM node:20-slim
