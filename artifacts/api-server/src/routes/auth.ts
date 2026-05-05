@@ -92,14 +92,28 @@ router.post("/login", async (req, res, next) => {
 
     console.log(`✅ Login exitoso: ${email} (ID: ${tenant.id})`);
 
-    // Set cookie (Simple session for now)
-    res.cookie("tenant_id", tenant.id, { 
+    // Set cookie (Sesión persistente de 30 días)
+    res.cookie("tenant_id", tenant.id.toString(), { 
       httpOnly: true, 
-      secure: process.env.NODE_ENV === "production",
-      maxAge: 30 * 24 * 60 * 60 * 1000 // 30 days
+      secure: false, // Cambiado a false para que funcione en localhost sin HTTPS
+      sameSite: "lax", // Permite que la cookie se envíe entre el puerto 5173 y 3002
+      maxAge: 30 * 24 * 60 * 60 * 1000, // 30 días
+      path: "/" // Asegurar que la cookie está disponible en toda la aplicación
     });
 
-    return res.json({ message: "Login exitoso", tenant: { id: tenant.id, name: tenant.name, slug: tenant.slug } });
+    console.log(`🍪 Cookie establecida: tenant_id=${tenant.id}`);
+
+    return res.json({ 
+      message: "Login exitoso", 
+      tenant: { 
+        id: tenant.id, 
+        name: tenant.name, 
+        slug: tenant.slug,
+        email: tenant.email,
+        plan: tenant.plan,
+        status: tenant.status
+      } 
+    });
   } catch (e) {
     return next(e);
   }
@@ -107,7 +121,8 @@ router.post("/login", async (req, res, next) => {
 
 // LOGOUT
 router.post("/logout", (req, res) => {
-  res.clearCookie("tenant_id");
+  res.clearCookie("tenant_id", { path: "/" });
+  console.log(`🚪 Logout exitoso`);
   return res.json({ ok: true });
 });
 
@@ -116,16 +131,22 @@ router.get("/me", async (req, res, next) => {
   try {
     const tenantId = req.cookies?.tenant_id;
     
+    console.log(`🔍 Verificando sesión. Cookie tenant_id: ${tenantId}`);
+    
     if (!tenantId) {
+      console.log(`❌ No hay cookie de sesión`);
       return res.status(401).json({ error: "No session found" });
     }
 
     const [tenant] = await db.select().from(tenants).where(eq(tenants.id, Number(tenantId))).limit(1);
     
     if (!tenant) {
-      res.clearCookie("tenant_id");
+      console.log(`❌ Tenant no encontrado para ID: ${tenantId}`);
+      res.clearCookie("tenant_id", { path: "/" });
       return res.status(401).json({ error: "Session invalid" });
     }
+
+    console.log(`✅ Sesión válida para tenant: ${tenant.name} (ID: ${tenant.id})`);
 
     // Calcular días restantes si es trial
     let trialDaysRemaining = null;
@@ -140,6 +161,24 @@ router.get("/me", async (req, res, next) => {
         0,
         Math.ceil((trialExpiry.getTime() - now.getTime()) / (1000 * 60 * 60 * 24))
       );
+    }
+
+    // EXCEPCIÓN VIP: Usuario administrador con acceso gratuito de por vida
+    const isVIP = tenant.email === "daveymena16@gmail.com";
+
+    if (isVIP) {
+      return res.json({ 
+        tenant: { 
+          id: tenant.id, 
+          name: tenant.name, 
+          email: tenant.email,
+          slug: tenant.slug,
+          plan: "enterprise",
+          status: "active",
+          trialDaysRemaining: 9999,
+          createdAt: tenant.createdAt,
+        } 
+      });
     }
 
     return res.json({ 

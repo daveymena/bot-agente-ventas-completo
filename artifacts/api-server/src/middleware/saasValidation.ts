@@ -21,6 +21,7 @@ export const SAAS_PLANS = {
     maxProducts: 50,
     maxAgents: 1,
     features: ["Advanced AI", "WhatsApp Integration", "Analytics", "Email Support"],
+    trialDays: 30, // Aumentado a 30 días para evitar bloqueos prematuros
   },
   professional: {
     name: "Professional",
@@ -37,6 +38,7 @@ export const SAAS_PLANS = {
       "Custom Branding",
       "API Access",
     ],
+    trialDays: 30,
   },
   enterprise: {
     name: "Enterprise",
@@ -55,6 +57,7 @@ export const SAAS_PLANS = {
       "Dedicated Account Manager",
       "Custom Integrations",
     ],
+    trialDays: 365,
   },
 };
 
@@ -70,16 +73,31 @@ export function validateSaasPlan() {
         return res.status(401).json({ error: "No tenant found" });
       }
 
-      // Verificar que el tenant tiene un plan válido
-      const plan = tenant.plan as SaasPlan;
+      // Normalizar el plan a minúsculas para evitar errores de mayúsculas
+      const rawPlan = (tenant.plan || "free").toString().toLowerCase();
+      const plan = rawPlan as SaasPlan;
+      
+      // EXCEPCIÓN VIP: Usuario administrador con acceso gratuito de por vida
+      const isVIP = tenant.email === "daveymena16@gmail.com";
+      
+      if (isVIP) {
+        // Forzamos estado activo y saltamos validaciones de expiración
+        (req as any).saas = {
+          plan: "enterprise", // Le damos el nivel más alto internamente
+          planDetails: SAAS_PLANS.enterprise,
+          isTrialExpired: false,
+        };
+        return next();
+      }
+
       if (!SAAS_PLANS[plan]) {
         logger.warn(
-          { tenantId: tenant.id, plan },
+          { tenantId: tenant.id, plan: rawPlan },
           "Invalid SaaS plan detected"
         );
         return res.status(403).json({
           error: "Invalid subscription plan",
-          message: "Please upgrade your plan to continue",
+          message: `El plan '${rawPlan}' no es reconocido por el sistema.`,
           action: "upgrade_plan",
         });
       }
@@ -92,14 +110,14 @@ export function validateSaasPlan() {
         );
         return res.status(403).json({
           error: "Account suspended",
-          message: "Your account has been suspended. Please contact support.",
+          message: "Tu cuenta ha sido suspendida. Por favor contacta a soporte.",
           action: "contact_support",
         });
       }
 
       // Verificar si es trial y si ha expirado
       if (tenant.status === "trial") {
-        const trialDays = SAAS_PLANS[plan].trialDays;
+        const trialDays = SAAS_PLANS[plan].trialDays || 30;
         const createdAt = new Date(tenant.createdAt);
         const trialExpiry = new Date(createdAt.getTime() + trialDays * 24 * 60 * 60 * 1000);
 
@@ -110,7 +128,7 @@ export function validateSaasPlan() {
           );
           return res.status(403).json({
             error: "Trial expired",
-            message: "Your trial period has expired. Please upgrade to continue.",
+            message: "Tu periodo de prueba ha expirado. Por favor actualiza tu plan.",
             action: "upgrade_plan",
             trialExpiry: trialExpiry.toISOString(),
           });

@@ -36,23 +36,23 @@ const DEFAULT_RETRY_CONFIG: RetryConfig = {
 // Professional fallback responses for different scenarios
 const FALLBACK_RESPONSES = {
   greeting: {
-    content: "¡Hola! 😊 Te habla Sofía, asesora de la tienda. Estoy aquí para ayudarte con cualquier consulta sobre nuestros productos. ¿En qué puedo asistirte hoy?",
+    content: "━━━━━━━━━━━━━━━━━━━━━━━━\n👋 *¡HOLA! BIENVENIDO/A*\n\nEs un placer saludarte. Soy Sofía, tu asesora de élite en *TecnoVariedades D&S*. 😊\n\n¿En qué puedo ayudarte a brillar hoy? 🎓✨\n━━━━━━━━━━━━━━━━━━━━━━━━",
     stage: "greeting"
   },
   product_inquiry: {
-    content: "Gracias por tu interés en nuestros productos. En este momento estoy procesando tu consulta. Te responderé en breve con toda la información que necesitas. 😊",
+    content: "━━━━━━━━━━━━━━━━━━━━━━━━\n🎓 *ANÁLISIS DE TU CONSULTA*\n\nExcelente elección. Estoy consultando los detalles técnicos de ese pack para darte la información más precisa. 🎹✨\n\n¿Tienes alguna duda específica mientras preparo los detalles? 🚀\n━━━━━━━━━━━━━━━━━━━━━━━━",
     stage: "conversacion"
   },
   payment_inquiry: {
-    content: "Perfecto, te ayudo con la información de pago. Permíteme un momento para preparar todos los detalles y opciones disponibles para ti. 💳",
+    content: "━━━━━━━━━━━━━━━━━━━━━━━━\n💳 *GESTIÓN DE PAGO*\n\nPerfecto, estoy preparando tus enlaces de acceso seguro y las opciones de transferencia. 🔒\n\nDame un instante para confirmar que todo esté listo para tu activación inmediata. ⏳\n━━━━━━━━━━━━━━━━━━━━━━━━",
     stage: "conversacion"
   },
   general: {
-    content: "Gracias por contactarnos. Estoy procesando tu mensaje y te responderé en un momento con la información que necesitas. Aprecio tu paciencia. 😊",
+    content: "━━━━━━━━━━━━━━━━━━━━━━━━\n✨ *ASESORÍA EN PROCESO*\n\nMuchas gracias por tu mensaje. Estoy analizando tu solicitud para darte una respuesta a la altura de lo que buscas. 😊\n\n¡Un momento, por favor! ⏳\n━━━━━━━━━━━━━━━━━━━━━━━━",
     stage: "conversacion"
   },
   technical_issue: {
-    content: "Disculpa las molestias. Estoy experimentando una dificultad técnica temporal, pero ya estoy trabajando en solucionarlo. Te responderé muy pronto. Gracias por tu comprensión. 🙏",
+    content: "━━━━━━━━━━━━━━━━━━━━━━━━\n🛠️ *OPTIMIZACIÓN DEL SISTEMA*\n\nMil disculpas. Estoy realizando un ajuste rápido en mis sistemas para atenderte mejor. ⚙️\n\nEscríbeme de nuevo en un minuto y estaré al 100% para ti. ¡Gracias por tu paciencia! 🙏\n━━━━━━━━━━━━━━━━━━━━━━━━",
     stage: "conversacion"
   }
 };

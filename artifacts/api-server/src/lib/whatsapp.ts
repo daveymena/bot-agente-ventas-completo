@@ -657,37 +657,48 @@ export class WhatsAppManager {
        console.log(`📦 [WA-PARTS] Productos cargados: ${rows.length}/${cardIds.length} - ${timestamp}`);
      }
 
+    let pendingText = "";
+    
     for (let i = 0; i < parts.length; i++) {
       const part = parts[i];
-      console.log(`📨 [WA-PARTS] Procesando parte ${i + 1}/${parts.length} - Tipo: ${part.kind} - ${timestamp}`);
       
       if (part.kind === "text") {
-        console.log(`💬 [WA-TEXT] Enviando texto: "${part.content?.substring(0, 50)}..." - ${timestamp}`);
-        await this.sendText(phone, part.content || "", originalJid);
-        console.log(`✅ [WA-TEXT] Texto enviado exitosamente - ${timestamp}`);
-       } else {
-         const product = cardCache.get(part.productId!);
-         if (!product) {
-           console.log(`⚠️ [WA-CARD] Producto no encontrado para ID: ${part.productId} - ${timestamp}`);
-           continue;
-         }
-        
-        console.log(`🃏 [WA-CARD] Enviando tarjeta de producto: ${product.name} (ID: ${part.productId}) - ${timestamp}`);
+        // En lugar de enviar el texto de inmediato, lo guardamos para unirlo a la tarjeta
+        pendingText += (pendingText ? "\n\n" : "") + (part.content || "");
+      } else if (part.kind === "card") {
+        const product = cardCache.get(part.productId!);
+        if (!product) continue;
         
         try {
           const dynamicLinks = await pg.getAllLinks(product, { phone, name: pushName });
-          console.log(`🔗 [WA-CARD] Enlaces generados - MercadoPago: ${!!dynamicLinks.mercadopago?.url}, PayPal: ${!!dynamicLinks.paypal?.url}, Transfer: ${dynamicLinks.transfer.options.length} - ${timestamp}`);
+          const baseCaption = buildProductCaption(product, null, dynamicLinks);
           
-          const caption = buildProductCaption(product, null, dynamicLinks);
+          // UNIFICACIÓN: El texto previo y posterior se une a la tarjeta
+          let finalCaption = baseCaption;
+          if (pendingText) {
+            // Si el texto pendiente ya contiene separadores, lo ponemos arriba
+            if (pendingText.includes("━━")) {
+              finalCaption = pendingText + "\n\n" + baseCaption;
+            } else {
+              finalCaption = baseCaption + "\n\n" + pendingText;
+            }
+            pendingText = ""; // Limpiamos para la siguiente parte
+          }
+
           const imageToUse = product.imageUrl || getProductImage(product.name || "");
-          
-          console.log(`🖼️ [WA-CARD] Enviando imagen con caption - URL: ${imageToUse?.substring(0, 50)}..., Caption: ${caption.length} caracteres - ${timestamp}`);
-          await this.sendImage(phone, imageToUse, caption, originalJid);
-          console.log(`✅ [WA-CARD] Tarjeta enviada exitosamente para ${product.name} - ${timestamp}`);
+          await this.sendImage(phone, imageToUse, finalCaption, originalJid);
         } catch (err: any) {
-          console.log(`❌ [WA-CARD] Error enviando tarjeta para ${product.name}: ${err.message} - ${timestamp}`);
+          console.log(`❌ Error enviando tarjeta unificada: ${err.message}`);
+          // Si falla la imagen, enviamos el texto acumulado al menos
+          if (pendingText) await this.sendText(phone, pendingText, originalJid);
+          pendingText = "";
         }
       }
+    }
+
+    // Si quedó texto sin una tarjeta (ej. un saludo final), lo enviamos al final
+    if (pendingText.trim()) {
+      await this.sendText(phone, pendingText.trim(), originalJid);
     }
     
     console.log(`🏁 [WA-PARTS] Envío de partes completado - Total: ${parts.length} partes procesadas - ${timestamp}`);

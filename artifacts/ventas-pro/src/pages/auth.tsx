@@ -25,19 +25,40 @@ export default function AuthPage() {
     e.preventDefault();
     setIsLoading(true);
     try {
+      console.log("🔐 Enviando login request...");
       const res = await fetch("/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "include", // Importante: incluir cookies
         body: JSON.stringify(loginData)
       });
+      
+      console.log("📊 Response status:", res.status);
+      console.log("📊 Response headers:", res.headers);
+      
       const data = await res.json();
+      console.log("📊 Response data:", data);
+      
       if (res.ok) {
+        console.log("✅ Login exitoso. Guardando sesión...");
+        // Guardar sesión en localStorage
+        localStorage.setItem("tenant", JSON.stringify(data.tenant));
+        
+        // Verificar que la cookie se guardó
+        console.log("🍪 Verificando cookies después del login...");
+        const meRes = await fetch("/api/auth/me", {
+          credentials: "include"
+        });
+        console.log("🍪 /auth/me status:", meRes.status);
+        
         toast.success("¡Bienvenido de nuevo! 🚀");
-        setLocation("/");
+        // Pequeño delay para asegurar que la cookie se guarde
+        setTimeout(() => setLocation("/"), 100);
       } else {
         toast.error(data.error || "Credenciales incorrectas");
       }
     } catch (err) {
+      console.error("❌ Error en login:", err);
       toast.error("Error conectando con el servidor");
     } finally {
       setIsLoading(false);

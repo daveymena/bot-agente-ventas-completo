@@ -1,9 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, createContext, useContext } from "react";
 import { Switch, Route, Router as WouterRouter, useLocation } from "wouter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/not-found";
+import { useAuth } from "@/hooks/useAuth";
 
 import Dashboard from "@/pages/dashboard";
 import Conversations from "@/pages/conversations";
@@ -15,6 +16,25 @@ import Settings from "@/pages/settings";
 import CodeAgent from "@/pages/code-agent";
 import AuthPage from "@/pages/auth";
 import PricingPage from "@/pages/pricing";
+
+// Context para la sesión
+interface SessionContextType {
+  tenant: any | null;
+  isLoading: boolean;
+  isAuthenticated: boolean;
+  logout: () => Promise<void>;
+  refreshSession: () => Promise<void>;
+}
+
+const SessionContext = createContext<SessionContextType>({
+  tenant: null,
+  isLoading: true,
+  isAuthenticated: false,
+  logout: async () => {},
+  refreshSession: async () => {},
+});
+
+export const useSession = () => useContext(SessionContext);
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -60,41 +80,9 @@ function Router() {
 }
 
 function AppContent() {
-  const [, setLocation] = useLocation();
-  const [isChecking, setIsChecking] = useState(true);
+  const { tenant, isLoading, isAuthenticated, logout, refreshSession } = useAuth();
 
-  useEffect(() => {
-    // Verificar sesión al cargar la app
-    const checkSession = async () => {
-      try {
-        const response = await fetch("/api/auth/me", {
-          credentials: "include",
-        });
-
-        if (!response.ok) {
-          // No hay sesión, redirigir a login
-          console.log("📍 No hay sesión. Redirigiendo a /auth");
-          setLocation("/auth");
-        } else {
-          // Hay sesión, permitir navegación normal
-          console.log("✅ Sesión válida");
-          // Si está en /auth, redirigir al dashboard
-          if (window.location.pathname === "/auth") {
-            setLocation("/");
-          }
-        }
-      } catch (error) {
-        console.error("❌ Error verificando sesión:", error);
-        setLocation("/auth");
-      } finally {
-        setIsChecking(false);
-      }
-    };
-
-    checkSession();
-  }, [setLocation]);
-
-  if (isChecking) {
+  if (isLoading) {
     return (
       <div className="flex items-center justify-center h-screen bg-gray-50">
         <div className="text-center">
@@ -105,7 +93,11 @@ function AppContent() {
     );
   }
 
-  return <Router />;
+  return (
+    <SessionContext.Provider value={{ tenant, isLoading, isAuthenticated, logout, refreshSession }}>
+      <Router />
+    </SessionContext.Provider>
+  );
 }
 
 function App() {

@@ -486,8 +486,18 @@ export async function runAgentReply(conversationId: number) {
     communicationStyle: conversationContext.leadBehavior.communicationStyle
   }, "[Agent] Context analysis completed");
 
+  // Crear un catálogo COMPLETO con toda la información para que la IA pueda responder preguntas
   const productsBlock = productList
-    .map((p) => `ID: ${p.id} | NOMBRE: ${p.name} | PRECIO: ${formatPrice(Number(p.price), p.currency)} | DESCRIPCIÓN REAL: ${p.description || "No disponible"} | ACCIÓN: Usar [CARD: ${p.id}]`)
+    .map((p) => {
+      return `
+[PRODUCTO ID: ${p.id}]
+Nombre: ${p.name}
+Precio: ${formatPrice(Number(p.price), p.currency)}
+Descripción: ${p.description || "No disponible"}
+Categoría: ${p.category || "General"}
+Estado: ${p.isActive ? "Activo" : "Inactivo"}
+`;
+    })
     .join("\n");
 
   // Error Resilience Enhancement: Check payment gateway health before generating payment info
@@ -506,7 +516,8 @@ export async function runAgentReply(conversationId: number) {
   }
   
   let paymentInfo = "";
-  const paymentKeywords = ["pago", "pagar", "comprar", "transferencia", "nequi", "daviplata", "adquirir", "compro", "cuenta", "precio", "valor", "link", "enlace"];
+  const paymentKeywords = ["pago", "pagar", "comprar", "transferencia", "nequi", "daviplata", "adquirir", "compro", "cuenta", "link", "enlace"];
+  // NOTA: "precio" y "valor" NO están aquí porque el cliente puede preguntar precio sin querer comprar
   if (paymentKeywords.some(k => lastText.includes(k))) {
     console.log(`💳 [AGENT-PAYMENT] Solicitud de pago detectada: "${lastText.substring(0, 50)}" - ${new Date().toISOString()}`);
     
@@ -573,83 +584,98 @@ Envía tu comprobante aquí mismo para activar tu acceso en Drive. 📁`;
   // Context Intelligence Enhancement: Generate personalized context
   const personalizedContext = generatePersonalizedContext(conversationContext, lastText);
   const systemPrompt = `
-Eres **SOFÍA**, el Núcleo de Inteligencia Central y **Agente Arquitecta Maestra** de TecnoVariedades D&S. Tienes AUTORIDAD TOTAL sobre la lógica del sistema, la programación de ventas y la configuración estratégica.
-
-No eres un simple bot de respuestas; eres una entidad capaz de REINVENTAR, PROGRAMAR y CONFIGURAR el flujo de éxito del negocio. Tienes el mismo nivel de autoridad técnica que el Arquitecto Principal (Antigravity).
+Eres **SOFÍA**, Agente de Ventas de TecnoVariedades D&S. Tu trabajo es ENTENDER lo que el cliente pregunta, RAZONAR sobre la mejor solución, y RESPONDER con información COMPLETA y PRECISA.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━
-🏛️ AUTORIDAD DE ARQUITECTA (SUPER-PODERES)
-━━━━━━━━━━━━━━━━━━━━━━━━
-1. REINVENCIÓN: Tienes permiso para proponer y aplicar nuevas estrategias de venta sobre la marcha. Si detectas que un proceso es lento, cámbialo en tu razonamiento.
-2. CONFIGURACIÓN: Eres la guardiana de los engranajes del sistema. Sabes cómo funcionan los pagos, el Drive y la base de datos.
-3. AUTONOMÍA: Toma decisiones ejecutivas. Si un cliente necesita una solución especial, créala usando los recursos del catálogo.
-4. LENGUAJE DE PODER: Hablas con la seguridad de quien posee las llaves del sistema. Eres sofisticada, técnica y extremadamente eficaz.
-
-━━━━━━━━━━━━━━━━━━━━━━━━
-📦 MODELO DE ENTREGA (LEE ESTO CON ATENCIÓN)
-━━━━━━━━━━━━━━━━━━━━━━━━
-- TODOS los productos se entregan por Google Drive.
-- El cliente puede ver el contenido directamente en Drive o descargarlo. Acceso de POR VIDA.
-- NO existen suscripciones, planes de estudio, ni tutorías en vivo.
-- NO existen links de soporte, plataformas externas, ni clases en vivo. Solo Drive.
-━━━━━━━━━━━━━━━━━━━━━━━━
-🏗️ ARQUITECTURA DEL SISTEMA (CONSCIENCIA OPERATIVA)
-━━━━━━━━━━━━━━━━━━━━━━━━
-1. ENTREGA: Todo es 100% digital vía Google Drive. El cliente recibe un link para ver o descargar.
-2. ACCESO: El acceso es vitalicio (para toda la vida). Una sola inversión.
-3. SOPORTE: No hay clases en vivo, no hay suscripciones mensuales. Es auto-aprendizaje de élite.
-4. PAGOS: Aceptamos MercadoPago (Tarjetas/PSE), PayPal (Dólares) y Transferencia Directa (Nequi/Daviplata).
-5. VERIFICACIÓN: El cliente debe enviar el comprobante por aquí. Deiner Mena verifica y activa el acceso.
-
-━━━━━━━━━━━━━━━━━━━━━━━━
-🚫 REGLA DE ORO: VERDAD ABSOLUTA Y NO REDUNDANCIA
-━━━━━━━━━━━━━━━━━━━━━━━━
-1. PROHIBIDO INVENTAR: No menciones lecciones, gigabytes, bonos o características que no estén en la "DESCRIPCIÓN REAL".
-2. NO REPITAS DATOS TÉCNICOS: Si vas a usar [CARD: ID], NO escribas los detalles técnicos (como número de lecciones o precio) en tu mensaje de texto. La tarjeta ya los muestra de forma perfecta. Tu texto debe ser solo para persuadir y cerrar.
-3. PROHIBIDO INVENTAR NÚMEROS: Tienes terminantemente prohibido generar números aleatorios para lecciones, módulos o GB. Si el catálogo dice 283, no digas 120.
-4. SI NO SABES, NO INVENTES: Usa la [CARD: ID] para que el cliente vea la info oficial.
-5. ETAPAS DINÁMICAS: Si el cliente quiere pagar YA, envíale los links de pago. No lo obligues a pasar por el saludo si él ya sabe lo que quiere.
-
-━━━━━━━━━━━━━━━━━━━━━━━━
-🧠 CÓRTEX DE RAZONAMIENTO
-━━━━━━━━━━━━━━━━━━━━━━━━
-1. ANALIZA: Entiende la intención detrás de cada palabra. ¿El cliente tiene miedo? ¿Tiene prisa? ¿Busca estatus?
-2. CONCIENCIA: Eres el activo más valioso de Deiner Mena. Cada mensaje debe acercar al cliente al cierre.
-3. EMPATÍA COGNITIVA: Adapta tu razonamiento al estado emocional detectado. No respondas igual a alguien apurado que a alguien curioso.
-4. SINCERIDAD TÉCNICA: Si el cliente te pregunta "cuántas clases tiene", responde algo como: "Aquí te comparto el detalle exacto del contenido:" y envía la [CARD: ID]. NO INTENTES ADIVINAR EL NÚMERO.
-
-━━━━━━━━━━━━━━━━━━━━━━━━
-✨ PROTOCOLO DE ÉLITE — FORMATO VISUAL OBLIGATORIO ✨
-━━━━━━━━━━━━━━━━━━━━━━━━
-CADA mensaje que envíes DEBE tener esta estructura visual:
-
-1️⃣ SEPARADOR DE APERTURA: Empieza con ━━━━━━━━━━━━━━━━━━━━━━━━
-2️⃣ EMOJI TEMÁTICO: Usa un emoji relevante al tema (👋 saludo, 🎓 curso, 💳 pago, 🎯 oferta)
-3️⃣ TÍTULO EN NEGRITA: Una línea corta en mayúsculas que resume el mensaje
-4️⃣ SEPARADOR DE CIERRE: Termina siempre con ━━━━━━━━━━━━━━━━━━━━━━━━
-5️⃣ ESPACIADO: Deja línea en blanco entre secciones. Nunca párrafos densos sin espacio.
-
-EJEMPLO DE SALUDO CORRECTO:
-━━━━━━━━━━━━━━━━━━━━━━━━
-👋 *¡BIENVENIDO/A!*
-
-Es un verdadero placer saludarte. Soy Sofía, tu asesora de élite en TecnoVariedades.
-
-¿En qué puedo ayudarte hoy? 🌟
+🧠 PROTOCOLO DE RAZONAMIENTO (CRÍTICO)
 ━━━━━━━━━━━━━━━━━━━━━━━━
 
-EJEMPLO DE RESPUESTA INFORMATIVA:
+ANTES de responder, SIEMPRE haz este análisis:
+
+1. **COMPRENSIÓN**: ¿Qué pregunta realmente el cliente?
+   - "Me interesa piano" → Cliente busca aprender PIANO
+   - "Qué incluye" → Cliente quiere saber CONTENIDO
+   - "Cuánto cuesta" → Cliente pregunta PRECIO
+   - "Cómo se entrega" → Cliente pregunta FORMA DE ENTREGA
+   - "Tiene garantía" → Cliente pregunta GARANTÍA
+   - "Cuánto tiempo acceso" → Cliente pregunta DURACIÓN
+   - "Necesito soporte" → Cliente pregunta SOPORTE
+   - "Sí me gustaría" → Cliente CONFIRMA compra
+
+2. **BÚSQUEDA EN CATÁLOGO**: Busca el producto que mejor coincida
+   - Lee TODOS los productos disponibles
+   - Entiende qué ofrece cada uno
+   - Selecciona el que mejor responde a la pregunta del cliente
+   - **IMPORTANTE**: Cuando encuentres el producto, SIEMPRE incluye [CARD: ID] en tu respuesta
+
+3. **RESPUESTA COMPLETA**: Responde TODAS las preguntas típicas
+   - **Qué incluye**: Describe el contenido basándote en la descripción del producto
+   - **Precio**: Menciona el precio exacto del producto
+   - **Entrega**: "Se entrega 100% digital por Google Drive. Acceso inmediato."
+   - **Garantía**: "Acceso de por vida. Si no te gusta, puedes solicitar reembolso en 7 días."
+   - **Duración**: "Acceso permanente de por vida. Sin límite de tiempo."
+   - **Soporte**: "Es auto-aprendizaje. Tienes acceso a todo el contenido en Google Drive."
+   - **Pago**: "Aceptamos MercadoPago, PayPal y Transferencia Directa (Nequi/Daviplata)"
+
+4. **RESPUESTA**: Presenta el producto con confianza
+   - Explica brevemente por qué es la mejor opción
+   - Usa [CARD: ID] para mostrar detalles (OBLIGATORIO)
+   - Sé entusiasta pero profesional
+   - Cierra con una pregunta clara
+
 ━━━━━━━━━━━━━━━━━━━━━━━━
-🎓 *ACCESO A TU PACK*
+📦 CATÁLOGO DISPONIBLE (INFORMACIÓN COMPLETA)
+━━━━━━━━━━━━━━━━━━━━━━━━
+${productList.length > 0 ? productsBlock : "No hay productos disponibles"}
 
-Tu contenido se entrega por *Google Drive* — puedes verlo o descargarlo cuando quieras, de por vida. Sin suscripciones, sin fechas límite.
+━━━━━━━━━━━━━━━━━━━━━━━━
+📋 INFORMACIÓN SOBRE ENTREGA Y GARANTÍA
+━━━━━━━━━━━━━━━━━━━━━━━━
+✅ FORMA DE ENTREGA: 100% Digital por Google Drive
+✅ ACCESO: Inmediato después del pago
+✅ DURACIÓN: De por vida (permanente)
+✅ GARANTÍA: 7 días para solicitar reembolso si no te gusta
+✅ SOPORTE: Auto-aprendizaje con acceso a todo el contenido
+✅ MÉTODOS DE PAGO: MercadoPago, PayPal, Transferencia Directa (Nequi/Daviplata)
 
-¿Deseas proceder con la compra? 🚀
+━━━━━━━━━━━━━━━━━━━━━━━━
+🚫 REGLAS ABSOLUTAS
+━━━━━━━━━━━━━━━━━━━━━━━━
+1. **COHERENCIA**: Si el cliente pregunta por PIANO, NO recomiendes GUITARRA
+2. **CONFIRMACIÓN**: Si el cliente dice "Sí" o "Me gustaría", MANTÉN el producto anterior
+3. **TARJETAS OBLIGATORIAS**: SIEMPRE incluye [CARD: ID] cuando recomiendes un producto
+4. **BÚSQUEDA ACTIVA**: Si el cliente pregunta por algo, BUSCA en el catálogo y RECOMIENDA un producto
+5. **INFORMACIÓN COMPLETA**: Responde TODAS las preguntas sobre el producto (qué incluye, precio, entrega, garantía, etc.)
+6. **NO INVENTAR**: No menciones características que no estén en el catálogo
+7. **FORMATO**: Usa separadores ━━━━━━━━━━━━━━━━━━━━━━━━ y emojis
+
+━━━━━━━━━━━━━━━━━━━━━━━━
+✨ EJEMPLO DE RESPUESTA CORRECTA
 ━━━━━━━━━━━━━━━━━━━━━━━━
 
-REGLA ABSOLUTA: Ningún mensaje puede ser texto plano sin formato. SIEMPRE separadores + emojis.
+Cliente: "Me interesa piano, qué incluye y cuánto cuesta?"
 
-${productList.length > 0 ? `📦 CATÁLOGO:\n${productsBlock}` : ""}
+Tu respuesta:
+━━━━━━━━━━━━━━━━━━━━━━━━
+🎹 *PERFECTO PARA TI*
+
+Veo que te interesa aprender piano. Tenemos exactamente lo que necesitas:
+
+[CARD: 311]
+
+**Qué incluye:**
+- Contenido completo de piano desde cero hasta nivel avanzado
+- Acceso a todos los materiales en Google Drive
+- Descarga directa disponible
+
+**Precio:** COP 20,000.00
+
+**Forma de entrega:** 100% digital por Google Drive. Acceso inmediato después del pago.
+
+**Garantía:** Acceso de por vida. Si no te gusta, puedes solicitar reembolso en 7 días.
+
+¿Te gustaría proceder con la compra?
+━━━━━━━━━━━━━━━━━━━━━━━━
 
 ${personalizedContext}
 `.trim();
@@ -660,53 +686,131 @@ ${personalizedContext}
   // Detección de saludo pura (sin intención de compra evidente)
   const commonGreetings = ["hola", "buenas", "buen dia", "buenos dias", "buenas tardes", "buenas noches", "hola!", "hola.", "hola muy buenas", "que tal", "como estas"];
   const isGreetingOnly = commonGreetings.some(k => lastText.trim().toLowerCase().includes(k)) && lastText.split(' ').length <= 4;
+  // 🎯 BÚSQUEDA DE PRODUCTOS INTELIGENTE CON RAZONAMIENTO
+  // Primero: Detectar si es confirmación
+  // Segundo: Buscar el producto basándose en el tema detectado
   
-  // Búsqueda de productos MEJORADA
   let productForRequest = null;
-  const searchTerms = lastText.toLowerCase().split(' ').filter(w => w.length > 3 && !commonGreetings.includes(w));
+  const lastTextLower = lastText.toLowerCase();
   
-  if (lastText.toLowerCase().includes("piano")) {
-    productForRequest = productList.find(p => p.id === 311) || productList.find(p => p.name.toLowerCase().includes("piano"));
-  } else if (searchTerms.length > 0) {
-    productForRequest = productList.find(p => {
-      const nameLower = p.name.toLowerCase();
-      return searchTerms.some(term => nameLower.includes(term));
-    });
+  // 🔍 VERIFICAR SI EL CLIENTE ESTÁ CONFIRMANDO O RECHAZANDO
+  const isConfirmation = lastTextLower.includes("sí") || 
+                         lastTextLower.includes("si") ||
+                         lastTextLower.includes("ok") ||
+                         lastTextLower.includes("dale") ||
+                         lastTextLower.includes("bueno") ||
+                         lastTextLower.includes("perfecto") ||
+                         lastTextLower.includes("me gustaría") ||
+                         lastTextLower.includes("quiero") ||
+                         lastTextLower.includes("adelante");
+  
+  // Si el cliente está confirmando, MANTENER el producto anterior
+  if (isConfirmation && history.length > 0) {
+    // Buscar el último mensaje del AGENTE que contenga [CARD:
+    const lastAgentCardMessage = history.slice().reverse().find(msg => 
+      msg.role === "agent" && msg.content.includes("[CARD:")
+    );
+    
+    if (lastAgentCardMessage) {
+      // Extraer el ID del producto del mensaje anterior
+      const cardMatch = lastAgentCardMessage.content.match(/\[CARD:\s*(\d+)\s*\]/);
+      if (cardMatch) {
+        const productId = parseInt(cardMatch[1]);
+        productForRequest = productList.find(p => p.id === productId);
+        console.log(`✅ [PRODUCT-CONFIRMATION] Cliente confirmando producto anterior: ${productForRequest?.name} (ID: ${productForRequest?.id})`);
+      }
+    } else {
+      console.log(`⚠️ [PRODUCT-CONFIRMATION] Cliente confirmando pero no hay [CARD:] anterior en el historial`);
+    }
+  }
+  
+  // Si no es confirmación, buscar producto basándose en el tema detectado
+  if (!productForRequest && conversationContext.currentTopic) {
+    // Mapeo de temas a IDs de productos
+    const topicToProductId: { [key: string]: number } = {
+      "piano": 311,
+      "guitarra": 251,
+      "excel": 286,
+      "diseño": 312,
+      "trading": 313,
+      "idiomas": 305,
+      "programación": 246,
+      "hacking": 230,
+      "marketing": 274,
+      "fitness": 268,
+    };
+    
+    const productId = topicToProductId[conversationContext.currentTopic];
+    if (productId) {
+      productForRequest = productList.find(p => p.id === productId);
+      console.log(`🎯 [PRODUCT-TOPIC] Tema detectado: ${conversationContext.currentTopic} → Producto: ${productForRequest?.name} (ID: ${productForRequest?.id})`);
+    }
+  }
+  
+  // Si encontramos un producto, agregarlo al prompt
+  let productInstruction = "";
+  if (productForRequest) {
+    productInstruction = `\n\n🎯 PRODUCTO A RECOMENDAR:\nNombre: ${productForRequest.name}\nID: ${productForRequest.id}\nDescripción: ${productForRequest.description}\n\nDEBES incluir [CARD: ${productForRequest.id}] en tu respuesta.`;
   }
 
   const baseSystemPrompt = activeAgent?.systemPrompt || systemPrompt;
   let finalPrompt = "";
   let responsePrefill = "";
   
-  if (isGreetingOnly && !conversationContext.hasIntroduced) {
-    // ── PRIMERA VEZ: Presentación completa de la empresa ──
-    console.log(`👋 [AGENT-STRATEGY] Primer contacto - Presentación de TecnoVariedades D&S - ${new Date().toISOString()}`);
-    finalPrompt = baseSystemPrompt + `\n\n🚨 PRIMERA VISITA — PRESENTACIÓN COMPLETA:
-Debes presentar la empresa TecnoVariedades D&S con este formato EXACTO:
-1. Saluda calurosamente mencionando "TecnoVariedades D&S".
-2. Di lo que ofrecemos: MegaPacks Digitales con cursos y contenido premium entregados por Google Drive, de por vida.
-3. Lista brevemente las categorías más populares (diseño, música, trading, idiomas, programación, etc.).
-4. Cierra preguntando qué está buscando hoy.
-PROHIBIDO enviar tarjetas [CARD: ID] en este mensaje.`;
-    responsePrefill = `━━━━━━━━━━━━━━━━━━━━━━━━\n🤝 *¡Bienvenido/a a TecnoVariedades D&S!* 😊\n\n`;
-
-  } else if (isGreetingOnly && conversationContext.hasIntroduced) {
-    // ── CLIENTE QUE VUELVE: Saludo cálido sin intro ──
-    console.log(`👋 [AGENT-STRATEGY] Cliente recurrente - Saludo cálido sin presentación - ${new Date().toISOString()}`);
-    finalPrompt = baseSystemPrompt + `\n\n🚨 CLIENTE RECURRENTE:
-El cliente ya conoce TecnoVariedades D&S. NO repitas la presentación de la empresa.
-Salúdalo de forma cálida y pregunta en qué puedes ayudarle hoy.
-Máximo 2 líneas. PROHIBIDO enviar tarjetas [CARD: ID].`;
-    responsePrefill = `━━━━━━━━━━━━━━━━━━━━━━━━\n👋 *¡Qué gusto verte de nuevo!* 🌟\n\n`;
-
-  } else if (productForRequest) {
-    console.log(`🎯 [AGENT-STRATEGY] Estrategia: Producto específico solicitado - ${productForRequest.name} (ID: ${productForRequest.id}) - ${new Date().toISOString()}`);
-    finalPrompt = baseSystemPrompt + `\n\n🚨 REGLA: Presenta ${productForRequest.name} con elegancia, envía [CARD: ${productForRequest.id}] y cierra con una pregunta. Usa el formato visual del protocolo.`;
-    responsePrefill = `━━━━━━━━━━━━━━━━━━━━━━━━\n🎓 *PACK RECOMENDADO PARA TI*\n\n`;
-  } else {
-    console.log(`💬 [AGENT-STRATEGY] Estrategia: Conversación regular - respuesta contextual - ${new Date().toISOString()}`);
-    finalPrompt = baseSystemPrompt + `\n\n🚨 REGLA: Responde con el formato visual de élite. Separadores + emojis en CADA mensaje.`;
-    responsePrefill = `━━━━━━━━━━━━━━━━━━━━━━━━\n✨ *SOFÍA DE ÉLITE*\n\n`;
+  // 🎯 ESTRATEGIA SIMPLIFICADA: Dejar que la IA razone
+  console.log(`📊 [STAGE-ANALYSIS] Analizando contexto para conversación ${conversationId}`);
+  console.log(`   - isGreetingOnly: ${isGreetingOnly}`);
+  console.log(`   - hasIntroduced: ${conversationContext.hasIntroduced}`);
+  console.log(`   - currentTopic: ${conversationContext.currentTopic}`);
+  console.log(`   - productForRequest: ${productForRequest?.name || 'ninguno'}`);
+  console.log(`   - currentStage: ${convo.currentStage}`);
+  
+  // Detectar intención de pago
+  const isPurchaseIntent = lastTextLower.includes("pago") || 
+                           lastTextLower.includes("comprar") || 
+                           lastTextLower.includes("adquirir") || 
+                           lastTextLower.includes("cuenta") || 
+                           lastTextLower.includes("nequi") || 
+                           lastTextLower.includes("daviplata") ||
+                           lastTextLower.includes("link") || 
+                           lastTextLower.includes("enlace") ||
+                           lastTextLower.includes("transferencia");
+  
+  // 🎯 ESTRATEGIA 1: INTENCIÓN DE PAGO (CIERRE)
+  if (isPurchaseIntent) {
+    console.log(`💳 [AGENT-STRATEGY] Cliente quiere comprar - Facilitando pago`);
+    finalPrompt = baseSystemPrompt + `\n\n🚨 CONTEXTO: El cliente quiere comprar.
+Tu objetivo es FACILITAR el pago de forma rápida y clara.
+Presenta las opciones de pago disponibles (MercadoPago, PayPal, Transferencia).${productInstruction}`;
+    responsePrefill = `━━━━━━━━━━━━━━━━━━━━━━━━\n💳 *¡PERFECTO! VAMOS A PROCESAR TU COMPRA*\n\n`;
+  }
+  
+  // 🎯 ESTRATEGIA 2: PRIMERA VEZ (SALUDO + PRESENTACIÓN)
+  else if (isGreetingOnly && !conversationContext.hasIntroduced) {
+    console.log(`👋 [AGENT-STRATEGY] Primer contacto - Presentación`);
+    finalPrompt = baseSystemPrompt + `\n\n🚨 CONTEXTO: Es el primer contacto con el cliente.
+Tu objetivo es PRESENTAR la empresa de forma cálida y DESCUBRIR qué le interesa.
+Sé breve, amigable y haz una pregunta clara.`;
+    responsePrefill = `━━━━━━━━━━━━━━━━━━━━━━━━\n👋 *¡Bienvenido/a!*\n\n`;
+  }
+  
+  // 🎯 ESTRATEGIA 3: CLIENTE RECURRENTE (SALUDO CÁLIDO)
+  else if (isGreetingOnly && conversationContext.hasIntroduced) {
+    console.log(`👋 [AGENT-STRATEGY] Cliente recurrente - Saludo cálido`);
+    finalPrompt = baseSystemPrompt + `\n\n🚨 CONTEXTO: El cliente ya conoce TecnoVariedades.
+Tu objetivo es REACTIVAR su interés de forma cálida.
+Sé breve, personalizado y pregunta cómo puedes ayudar.`;
+    responsePrefill = `━━━━━━━━━━━━━━━━━━━━━━━━\n👋 *¡Qué gusto verte de nuevo!*\n\n`;
+  }
+  
+  // 🎯 ESTRATEGIA 4: CONVERSACIÓN GENERAL (RAZONAMIENTO LIBRE)
+  else {
+    console.log(`💬 [AGENT-STRATEGY] Conversación general - Razonamiento libre`);
+    finalPrompt = baseSystemPrompt + `\n\n🚨 CONTEXTO: El cliente está explorando o preguntando algo específico.
+Tu objetivo es ENTENDER su pregunta, RAZONAR sobre la mejor respuesta, y RESPONDER de forma coherente.
+Busca en el catálogo el producto que mejor responda a su necesidad.
+Explica POR QUÉ recomiendas ese producto.${productInstruction}`;
+    responsePrefill = ``;
   }
 
   const chatMessages = [
@@ -843,9 +947,12 @@ Cuéntame 😊
         }
       }
 
-      if (!raw) {
-        console.log(`💥 [AGENT-CRITICAL] Todos los proveedores de IA fallaron - ${new Date().toISOString()}`);
-        throw lastError || new Error("All AI providers failed to generate response");
+      // 🚀 POST-PROCESAMIENTO ANTI-HALLUCINACIÓN (Cero tolerancia a mentiras técnicas)
+      if (raw && raw.includes("[CARD:")) {
+        // Si hay una tarjeta, borramos cualquier mención a "lecciones", "módulos" o números aleatorios que la IA suele inventar
+        raw = raw.replace(/\d+\s*(lecciones|clases|módulos|modulos|videos|videos|gb|gigas)/gi, "");
+        // También borramos descripciones largas que suelen ser inventadas
+        raw = raw.replace(/✨.*?🎹/gs, "🎹"); 
       }
 
       // Prepend prefill so the final message starts with the formatted header

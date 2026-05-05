@@ -45,10 +45,27 @@ app.use(
     },
   }),
 );
-app.use(cors());
+app.use(
+  cors({
+    origin: ["http://localhost:5173", "http://127.0.0.1:5173", "http://0.0.0.0:5173"],
+    credentials: true, // ¡CRÍTICO! Esto permite que las cookies de sesión se guarden y envíen
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
+    exposedHeaders: ["Set-Cookie"],
+  }),
+);
 app.use(cookieParser());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+// Middleware de debugging para cookies
+app.use((req, res, next) => {
+  console.log(`[COOKIES] Path: ${req.path}`);
+  console.log(`[COOKIES] All cookies: ${JSON.stringify(req.cookies)}`);
+  console.log(`[COOKIES] tenant_id: ${req.cookies?.tenant_id}`);
+  console.log(`[COOKIES] Headers: ${JSON.stringify(req.headers.cookie)}`);
+  next();
+});
 
 // Health check endpoints (sin autenticación)
 app.use("/api", healthRouter);
@@ -71,15 +88,17 @@ const publicRoutes = [
   "/auth/register",
   "/auth/login",
   "/auth/logout",
+  "/auth/me", // ¡IMPORTANTE! Permitir verificación de sesión sin validación SaaS
+  "/whatsapp/test-ia", // Endpoint de prueba para testing
 ];
 
 const isPublicRoute = (path: string) => publicRoutes.some(route => path.startsWith(route));
 
 // Middleware para resolver tenant SOLO en rutas protegidas
 const resolveTenantMiddleware = (req: Request, res: Response, next: NextFunction) => {
-  const isPublic = isPublicRoute(req.path);
-  console.log(`[resolveTenant] Path: ${req.path}, isPublic: ${isPublic}`);
-  if (isPublic) {
+  console.log(`[resolveTenant] Path: ${req.path}, Cookies: ${JSON.stringify(req.cookies)}`);
+  
+  if (isPublicRoute(req.path)) {
     return next();
   }
   resolveTenant()(req, res, next);
@@ -87,9 +106,21 @@ const resolveTenantMiddleware = (req: Request, res: Response, next: NextFunction
 
 // Middleware para validar SaaS SOLO en rutas protegidas
 const validateSaasMiddleware = (req: Request, res: Response, next: NextFunction) => {
+  // Permitir rutas públicas sin validación
   if (isPublicRoute(req.path)) {
+    console.log(`[validateSaaS] Ruta pública permitida: ${req.path}`);
     return next();
   }
+  
+  const tenant = (req as any).tenant;
+  if (!tenant) {
+    console.log(`[validateSaaS] No tenant found for path: ${req.path}`);
+    return res.status(401).json({ error: "No tenant found" });
+  }
+  
+  const plan = tenant.plan;
+  console.log(`[validateSaaS] Validating plan: "${plan}" for tenant ${tenant.id}`);
+  
   validateSaasPlan()(req, res, next);
 };
 
