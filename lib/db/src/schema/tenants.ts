@@ -44,6 +44,17 @@ export const tenants = pgTable("tenants", {
     paypal?: { clientId: string; clientSecret: string; mode: "sandbox" | "live"; enabled: boolean };
     transfer?: { enabled: boolean; accounts: Array<{ type: string; number: string; name: string }> };
   }>(),
+  woocommerceIntegration: jsonb("woocommerce_integration").$type<{
+    enabled: boolean;
+    storeUrl: string;
+    consumerKey: string;
+    consumerSecret: string;
+    syncProducts: boolean;
+    autoCreateOrders: boolean;
+    syncInterval: number; // minutos
+    lastSync?: string;
+    webhookSecret?: string;
+  }>(),
   limits: jsonb("limits").$type<{
     maxConversations: number;
     maxProducts: number;

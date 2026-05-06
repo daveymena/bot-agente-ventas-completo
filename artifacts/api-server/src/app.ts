@@ -8,6 +8,7 @@ import pinoHttp from "pino-http";
 import router from "./routes";
 import healthRouter from "./health";
 import pricingRouter from "./routes/pricing";
+import woocommerceRouter from "./routes/woocommerce";
 import { logger } from "./lib/logger";
 import { resolveTenant } from "./lib/tenantManager";
 import { validateSaasPlan, validateUsageLimits } from "./middleware/saasValidation";
@@ -247,6 +248,7 @@ app.use("/api/messages", (req, res, next) => {
   validateMessageLimit()(req, res, next);
 });
 
+app.use("/api/woocommerce", woocommerceRouter);
 app.use("/api", router);
 
 app.use((req, res, next) => {

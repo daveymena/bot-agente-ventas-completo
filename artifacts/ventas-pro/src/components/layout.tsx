@@ -10,7 +10,8 @@ import {
   Terminal,
   Badge,
   Wand2,
-  Palette
+  Palette,
+  ShoppingCart
 } from "lucide-react";
 import { Sidebar, SidebarContent, SidebarHeader, SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarProvider, SidebarTrigger, SidebarGroup, SidebarGroupContent } from "./ui/sidebar";
 import { Badge as UiBadge } from "@/components/ui/badge";
@@ -26,6 +27,7 @@ export function AppSidebar() {
     { label: "Prospectos", href: "/leads", icon: Users },
     { label: "Productos", href: "/products", icon: Package },
     { label: "WhatsApp", href: "/whatsapp", icon: Phone },
+    { label: "WooCommerce", href: "/woocommerce", icon: ShoppingCart },
     { label: "Arquitecto IA", href: "/code-agent", icon: Wand2 },
     { label: "Personalización", href: "/branding", icon: Palette },
     { label: "Configuración", href: "/settings", icon: Settings },
