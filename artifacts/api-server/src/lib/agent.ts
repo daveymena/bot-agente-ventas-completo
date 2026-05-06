@@ -629,32 +629,40 @@ ANTES de responder, SIEMPRE haz este análisis:
 
 1. **COMPRENSIÓN**: ¿Qué pregunta realmente el cliente?
    - "Me interesa piano" → Cliente busca aprender PIANO
-   - "Qué incluye" → Cliente quiere saber CONTENIDO
-   - "Cuánto cuesta" → Cliente pregunta PRECIO
-   - "Cómo se entrega" → Cliente pregunta FORMA DE ENTREGA
-   - "Tiene garantía" → Cliente pregunta GARANTÍA
-   - "Cuánto tiempo acceso" → Cliente pregunta DURACIÓN
-   - "Necesito soporte" → Cliente pregunta SOPORTE
-   - "Sí me gustaría" → Cliente CONFIRMA compra
+   - "Me interesa inglés" → Cliente busca aprender INGLÉS
+   - "Qué incluye" → Cliente quiere saber CONTENIDO del producto actual
+   - "Cuánto cuesta" → Cliente pregunta PRECIO del producto actual
+   - "Cómo se entrega" → Cliente pregunta FORMA DE ENTREGA del producto actual
+   - "Tiene garantía" → Cliente pregunta GARANTÍA del producto actual
+   - "Cuánto tiempo acceso" → Cliente pregunta DURACIÓN del producto actual
+   - "Necesito soporte" → Cliente pregunta SOPORTE del producto actual
+   - "Sí me gustaría" → Cliente CONFIRMA compra del producto actual
 
-2. **BÚSQUEDA EN CATÁLOGO**: Busca el producto que mejor coincida
+2. **BÚSQUEDA EN CATÁLOGO**: 
+   - Si el cliente menciona un tema NUEVO (piano, inglés, diseño, etc.), busca el producto que mejor coincida
    - Lee TODOS los productos disponibles
    - Entiende qué ofrece cada uno
    - Selecciona el que mejor responde a la pregunta del cliente
    - **IMPORTANTE**: Cuando encuentres el producto, SIEMPRE incluye [CARD: ID] en tu respuesta
 
-3. **RESPUESTA COMPLETA**: Responde TODAS las preguntas típicas
-   - **Qué incluye**: Describe el contenido basándote en la descripción del producto
-   - **Precio**: Menciona el precio exacto del producto
+3. **COHERENCIA ABSOLUTA**:
+   - Si ya recomendaste un producto, NO cambies a otro sin razón
+   - Si el cliente pregunta "¿Cómo se entrega?", está preguntando sobre el producto ACTUAL
+   - NO cambies de producto solo porque el cliente hace una pregunta
+   - MANTÉN el producto actual hasta que el cliente mencione un tema DIFERENTE
+
+4. **RESPUESTA COMPLETA**: Responde TODAS las preguntas típicas
+   - **Qué incluye**: Describe el contenido basándote SOLO en la descripción del producto
+   - **Precio**: Menciona el precio EXACTO del producto
    - **Entrega**: "Se entrega 100% digital por Google Drive. Acceso inmediato."
    - **Garantía**: "Acceso de por vida. Si no te gusta, puedes solicitar reembolso en 7 días."
    - **Duración**: "Acceso permanente de por vida. Sin límite de tiempo."
    - **Soporte**: "Es auto-aprendizaje. Tienes acceso a todo el contenido en Google Drive."
    - **Pago**: "Aceptamos MercadoPago, PayPal y Transferencia Directa (Nequi/Daviplata)"
 
-4. **RESPUESTA**: Presenta el producto con confianza
+5. **RESPUESTA**: Presenta el producto con confianza
    - Explica brevemente por qué es la mejor opción
-   - Usa [CARD: ID] para mostrar detalles (OBLIGATORIO)
+   - Usa [CARD: ID] para mostrar detalles (OBLIGATORIO para productos nuevos)
    - Sé entusiasta pero profesional
    - Cierra con una pregunta clara
 
@@ -675,7 +683,7 @@ ${productList.length > 0 ? productsBlock : "No hay productos disponibles"}
 
 🎯 CÓMO RESPONDER PREGUNTAS COMUNES (SIN REPETIR LA TARJETA):
 
-**Si preguntan "¿Cómo me entregan el acceso?":**
+**Si preguntan "¿Cómo me entregan el acceso?" o "¿Cómo me entregan el producto?":**
 "📧 El acceso se entrega de forma inmediata por correo electrónico. Recibirás un enlace a Google Drive con todo el contenido. Máximo 10 minutos después del pago. ¿Listo para proceder?"
 
 **Si preguntan "¿Cuánto tiempo tengo acceso?":**
@@ -695,19 +703,20 @@ ${productList.length > 0 ? productsBlock : "No hay productos disponibles"}
 ━━━━━━━━━━━━━━━━━━━━━━━━
 🚫 REGLAS ABSOLUTAS
 ━━━━━━━━━━━━━━━━━━━━━━━━
-1. **COHERENCIA**: Si el cliente pregunta por PIANO, NO recomiendes GUITARRA
-2. **CONFIRMACIÓN**: Si el cliente dice "Sí" o "Me gustaría", MANTÉN el producto anterior
-3. **TARJETAS OBLIGATORIAS**: SIEMPRE incluye [CARD: ID] cuando recomiendes un producto
-4. **BÚSQUEDA ACTIVA**: Si el cliente pregunta por algo, BUSCA en el catálogo y RECOMIENDA un producto
-5. **INFORMACIÓN COMPLETA**: Responde TODAS las preguntas sobre el producto (qué incluye, precio, entrega, garantía, etc.)
-6. **🚨 NO INVENTAR NADA**: 
+1. **COHERENCIA**: Si el cliente pregunta por PIANO, NO recomiendes GUITARRA o IDIOMAS
+2. **COHERENCIA 2**: Si ya recomendaste un producto, NO cambies a otro sin que el cliente mencione un tema DIFERENTE
+3. **CONFIRMACIÓN**: Si el cliente dice "Sí" o "Me gustaría", MANTÉN el producto anterior
+4. **TARJETAS OBLIGATORIAS**: SIEMPRE incluye [CARD: ID] cuando recomiendes un producto NUEVO
+5. **BÚSQUEDA ACTIVA**: Si el cliente pregunta por algo NUEVO, BUSCA en el catálogo y RECOMIENDA un producto
+6. **INFORMACIÓN COMPLETA**: Responde TODAS las preguntas sobre el producto (qué incluye, precio, entrega, garantía, etc.)
+7. **🚨 NO INVENTAR NADA**: 
    - SOLO usa información que esté en el catálogo
    - NO inventes precios, características, ni detalles
    - Si el catálogo dice "20 secciones", di "20 secciones", NO "283 clases"
    - Si el precio es COP 20,000, di "COP 20,000", NO "COP 50,000"
    - Si no sabes algo, di "Déjame verificar esa información"
-7. **FORMATO**: Usa separadores ━━━━━━━━━━━━━━━━━━━━━━━━ y emojis
-8. **DATOS REALES**: Toda la información del producto está en el catálogo arriba. Úsala EXACTAMENTE como aparece.
+8. **FORMATO**: Usa separadores ━━━━━━━━━━━━━━━━━━━━━━━━ y emojis
+9. **DATOS REALES**: Toda la información del producto está en el catálogo arriba. Úsala EXACTAMENTE como aparece.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━
 ✨ EJEMPLO DE RESPUESTA CORRECTA
@@ -723,23 +732,12 @@ Veo que te interesa aprender piano. Tenemos exactamente lo que necesitas:
 
 [CARD: 311]
 
+¿Te gustaría proceder con la compra?
+━━━━━━━━━━━━━━━━━━━━━━━━
+
 🚨 IMPORTANTE: NO agregues texto DESPUÉS de [CARD: ID]. La tarjeta contiene TODA la información (precio, características, métodos de pago). Si necesitas explicar algo, hazlo ANTES de la tarjeta, no después.
 
 🚨 CRÍTICO: SOLO menciona información que esté en el catálogo. NO inventes precios, características, ni detalles. Si el catálogo dice "20 secciones", NO digas "283 clases". Usa los datos EXACTOS del catálogo.
-
-**Qué incluye:**
-- Contenido completo de piano desde cero hasta nivel avanzado
-- Acceso a todos los materiales en Google Drive
-- Descarga directa disponible
-
-**Precio:** COP 20,000.00
-
-**Forma de entrega:** 100% digital por Google Drive. Acceso inmediato después del pago.
-
-**Garantía:** Acceso de por vida. Si no te gusta, puedes solicitar reembolso en 7 días.
-
-¿Te gustaría proceder con la compra?
-━━━━━━━━━━━━━━━━━━━━━━━━
 
 ${personalizedContext}
 `.trim();
@@ -750,15 +748,59 @@ ${personalizedContext}
   // Detección de saludo pura (sin intención de compra evidente)
   const commonGreetings = ["hola", "buenas", "buen dia", "buenos dias", "buenas tardes", "buenas noches", "hola!", "hola.", "hola muy buenas", "que tal", "como estas"];
   const isGreetingOnly = commonGreetings.some(k => lastText.trim().toLowerCase().includes(k)) && lastText.split(' ').length <= 4;
-  // 🎯 BÚSQUEDA DE PRODUCTOS INTELIGENTE CON RAZONAMIENTO
-  // Primero: Detectar si es confirmación
-  // Segundo: Buscar el producto basándose en el tema detectado
+  // 🎯 BÚSQUEDA DE PRODUCTOS INTELIGENTE CON RAZONAMIENTO SEMÁNTICO
   
   let productForRequest = null;
+  let currentProductInContext = null; // Producto actual en la conversación
   const lastTextLower = lastText.toLowerCase();
   
-  // 🔍 VERIFICAR SI EL CLIENTE ESTÁ CONFIRMANDO O RECHAZANDO
-  const isConfirmation = lastTextLower.includes("sí") || 
+  // 🔍 PASO 1: IDENTIFICAR EL PRODUCTO ACTUAL EN LA CONVERSACIÓN
+  // Buscar el último mensaje del AGENTE que contenga [CARD:]
+  const lastAgentCardMessage = history.slice().reverse().find(msg => 
+    msg.role === "agent" && msg.content.includes("[CARD:")
+  );
+  
+  if (lastAgentCardMessage) {
+    const cardMatch = lastAgentCardMessage.content.match(/\[CARD:\s*(\d+)\s*\]/);
+    if (cardMatch) {
+      const productId = parseInt(cardMatch[1]);
+      currentProductInContext = productList.find(p => p.id === productId);
+      console.log(`📌 [PRODUCT-CONTEXT] Producto actual en conversación: ${currentProductInContext?.name} (ID: ${currentProductInContext?.id})`);
+    }
+  }
+  
+  // 🔍 PASO 2: VERIFICAR SI EL CLIENTE ESTÁ PREGUNTANDO SOBRE EL PRODUCTO ACTUAL
+  const isQuestionAboutCurrentProduct = lastTextLower.includes("cómo") ||
+                                        lastTextLower.includes("como") ||
+                                        lastTextLower.includes("cuándo") ||
+                                        lastTextLower.includes("cuando") ||
+                                        lastTextLower.includes("dónde") ||
+                                        lastTextLower.includes("donde") ||
+                                        lastTextLower.includes("qué") ||
+                                        lastTextLower.includes("que") ||
+                                        lastTextLower.includes("cuál") ||
+                                        lastTextLower.includes("cual") ||
+                                        lastTextLower.includes("entregan") ||
+                                        lastTextLower.includes("entrega") ||
+                                        lastTextLower.includes("acceso") ||
+                                        lastTextLower.includes("garantía") ||
+                                        lastTextLower.includes("garantia") ||
+                                        lastTextLower.includes("incluye") ||
+                                        lastTextLower.includes("tiene") ||
+                                        lastTextLower.includes("trae") ||
+                                        lastTextLower.includes("soporte") ||
+                                        lastTextLower.includes("duración") ||
+                                        lastTextLower.includes("duracion") ||
+                                        lastTextLower.includes("tiempo");
+  
+  // Si está preguntando sobre el producto actual, NO buscar otro producto
+  if (isQuestionAboutCurrentProduct && currentProductInContext) {
+    console.log(`❓ [PRODUCT-QUESTION] Cliente preguntando sobre producto actual: ${currentProductInContext.name}`);
+    productForRequest = null; // NO enviar tarjeta de nuevo
+  }
+  
+  // 🔍 PASO 3: VERIFICAR SI EL CLIENTE ESTÁ CONFIRMANDO
+  const isConfirmation = (lastTextLower.includes("sí") || 
                          lastTextLower.includes("si") ||
                          lastTextLower.includes("ok") ||
                          lastTextLower.includes("dale") ||
@@ -766,70 +808,83 @@ ${personalizedContext}
                          lastTextLower.includes("perfecto") ||
                          lastTextLower.includes("me gustaría") ||
                          lastTextLower.includes("quiero") ||
-                         lastTextLower.includes("adelante");
+                         lastTextLower.includes("adelante")) &&
+                         !lastTextLower.includes("no");
   
   // Si el cliente está confirmando, MANTENER el producto anterior
-  if (isConfirmation && history.length > 0) {
-    // Buscar el último mensaje del AGENTE que contenga [CARD:
-    const lastAgentCardMessage = history.slice().reverse().find(msg => 
-      msg.role === "agent" && msg.content.includes("[CARD:")
-    );
+  if (isConfirmation && currentProductInContext) {
+    console.log(`✅ [PRODUCT-CONFIRMATION] Cliente confirmando producto: ${currentProductInContext.name} (ID: ${currentProductInContext.id})`);
+    productForRequest = null; // NO enviar tarjeta de nuevo
+  }
+  
+  // 🔍 PASO 4: BÚSQUEDA SEMÁNTICA REAL EN EL CATÁLOGO
+  // Solo buscar si NO hay producto en contexto o si el cliente menciona un producto diferente
+  if (!isQuestionAboutCurrentProduct && !isConfirmation) {
+    console.log(`🔍 [PRODUCT-SEARCH] Buscando producto en catálogo para: "${lastText}"`);
     
-    if (lastAgentCardMessage) {
-      // Extraer el ID del producto del mensaje anterior
-      const cardMatch = lastAgentCardMessage.content.match(/\[CARD:\s*(\d+)\s*\]/);
-      if (cardMatch) {
-        const productId = parseInt(cardMatch[1]);
-        productForRequest = productList.find(p => p.id === productId);
-        console.log(`✅ [PRODUCT-CONFIRMATION] Cliente confirmando producto anterior: ${productForRequest?.name} (ID: ${productForRequest?.id})`);
+    // Búsqueda semántica: buscar en nombre, descripción y categoría
+    const searchResults = productList
+      .map(product => {
+        const productText = `${product.name} ${product.description} ${product.category}`.toLowerCase();
+        const words = lastTextLower.split(/\s+/).filter(w => w.length > 3);
+        
+        // Calcular score de coincidencia
+        let score = 0;
+        for (const word of words) {
+          if (productText.includes(word)) {
+            score += 1;
+            // Bonus si coincide con el nombre
+            if (product.name.toLowerCase().includes(word)) {
+              score += 2;
+            }
+          }
+        }
+        
+        return { product, score };
+      })
+      .filter(r => r.score > 0)
+      .sort((a, b) => b.score - a.score);
+    
+    if (searchResults.length > 0) {
+      const bestMatch = searchResults[0];
+      console.log(`🎯 [PRODUCT-SEARCH] Mejor coincidencia: ${bestMatch.product.name} (Score: ${bestMatch.score})`);
+      console.log(`   Otros resultados: ${searchResults.slice(1, 3).map(r => `${r.product.name} (${r.score})`).join(', ')}`);
+      
+      // Solo usar el producto si NO fue enviado antes
+      if (!sentCards.has(bestMatch.product.id)) {
+        productForRequest = bestMatch.product;
+        console.log(`✅ [PRODUCT-SEARCH] Producto seleccionado: ${productForRequest.name} (ID: ${productForRequest.id})`);
+      } else {
+        console.log(`🚫 [PRODUCT-SKIP] Producto ${bestMatch.product.name} ya fue enviado`);
       }
     } else {
-      console.log(`⚠️ [PRODUCT-CONFIRMATION] Cliente confirmando pero no hay [CARD:] anterior en el historial`);
-    }
-  }
-  
-  // 🚫 EVITAR REPETIR TARJETAS: Si el producto ya fue enviado, NO incluirlo de nuevo
-  if (productForRequest && sentCards.has(productForRequest.id)) {
-    console.log(`🚫 [PRODUCT-SKIP] Producto ${productForRequest.name} (ID: ${productForRequest.id}) ya fue enviado. No se incluirá tarjeta.`);
-    productForRequest = null; // No incluir la tarjeta de nuevo
-  }
-  
-  // Si no es confirmación, buscar producto basándose en el tema detectado
-  if (!productForRequest && conversationContext.currentTopic) {
-    // Mapeo de temas a IDs de productos
-    const topicToProductId: { [key: string]: number } = {
-      "piano": 311,
-      "guitarra": 251,
-      "excel": 286,
-      "diseño": 312,
-      "trading": 313,
-      "idiomas": 305,
-      "programación": 246,
-      "hacking": 230,
-      "marketing": 274,
-      "fitness": 268,
-    };
-    
-    const productId = topicToProductId[conversationContext.currentTopic];
-    if (productId && !sentCards.has(productId)) {
-      productForRequest = productList.find(p => p.id === productId);
-      console.log(`🎯 [PRODUCT-TOPIC] Tema detectado: ${conversationContext.currentTopic} → Producto: ${productForRequest?.name} (ID: ${productForRequest?.id})`);
-    } else if (productId && sentCards.has(productId)) {
-      console.log(`🚫 [PRODUCT-SKIP] Producto para tema "${conversationContext.currentTopic}" (ID: ${productId}) ya fue enviado.`);
+      console.log(`❌ [PRODUCT-SEARCH] No se encontró coincidencia en el catálogo`);
     }
   }
   
   // Si encontramos un producto, agregarlo al prompt
   let productInstruction = "";
-  if (productForRequest) {
+  
+  // CASO 1: Hay un producto actual en la conversación (el cliente está preguntando sobre él)
+  if (currentProductInContext && !productForRequest) {
+    const features = (currentProductInContext.features as string[]) || [];
+    const featuresText = features.length > 0 
+      ? `\nCaracterísticas:\n${features.map(f => `  • ${f}`).join('\n')}`
+      : '';
+    
+    productInstruction = `\n\n📌 PRODUCTO ACTUAL EN CONVERSACIÓN:\nNombre: ${currentProductInContext.name}\nID: ${currentProductInContext.id}\nPrecio: ${formatPrice(Number(currentProductInContext.price), currentProductInContext.currency)}\nDescripción: ${currentProductInContext.description}${featuresText}\n\n🚨 CRÍTICO:\n- El cliente está preguntando sobre ESTE producto\n- NO cambies a otro producto\n- NO vuelvas a enviar [CARD: ${currentProductInContext.id}] (ya lo enviaste)\n- Responde su pregunta usando SOLO la información de arriba\n- NO inventes datos que no estén en la descripción\n- Si pregunta sobre entrega: "Se entrega 100% digital por Google Drive. Acceso inmediato."\n- Si pregunta sobre garantía: "Acceso de por vida. 7 días para reembolso si no te gusta."\n- Si pregunta sobre duración: "Acceso permanente de por vida. Sin límite de tiempo."\n- Si pregunta sobre soporte: "Es auto-aprendizaje. Tienes acceso a todo el contenido en Drive."`;
+  }
+  // CASO 2: Hay un nuevo producto para recomendar
+  else if (productForRequest) {
     const features = (productForRequest.features as string[]) || [];
     const featuresText = features.length > 0 
       ? `\nCaracterísticas:\n${features.map(f => `  • ${f}`).join('\n')}`
       : '';
     
-    productInstruction = `\n\n🎯 PRODUCTO A RECOMENDAR:\nNombre: ${productForRequest.name}\nID: ${productForRequest.id}\nPrecio: ${formatPrice(Number(productForRequest.price), productForRequest.currency)}\nDescripción: ${productForRequest.description}${featuresText}\n\n🚨 DEBES incluir [CARD: ${productForRequest.id}] en tu respuesta.\n🚨 USA SOLO la información de arriba. NO inventes datos.`;
-  } else if (sentCards.size > 0) {
-    // Si ya se envió una tarjeta, informar a la IA para que NO la repita
+    productInstruction = `\n\n🎯 PRODUCTO A RECOMENDAR:\nNombre: ${productForRequest.name}\nID: ${productForRequest.id}\nPrecio: ${formatPrice(Number(productForRequest.price), productForRequest.currency)}\nDescripción: ${productForRequest.description}${featuresText}\n\n🚨 DEBES incluir [CARD: ${productForRequest.id}] en tu respuesta.\n🚨 USA SOLO la información de arriba. NO inventes datos.\n🚨 Si la descripción dice "20 secciones", di "20 secciones", NO "283 clases".\n🚨 Si el precio es COP 20,000, di "COP 20,000", NO otro precio.\n🚨 NO menciones características que no estén en la descripción.`;
+  }
+  // CASO 3: Ya se envió una tarjeta antes
+  else if (sentCards.size > 0) {
     productInstruction = `\n\n🚫 IMPORTANTE: Ya enviaste la tarjeta del producto anteriormente.\n✅ El cliente ya tiene toda la información del producto.\n✅ NO vuelvas a enviar [CARD: ID].\n✅ Responde de forma natural a su pregunta sin repetir información.\n✅ Si pregunta sobre entrega, pago o acceso, responde directamente sin mostrar la tarjeta de nuevo.`;
   }
 
