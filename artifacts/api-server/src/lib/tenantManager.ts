@@ -465,10 +465,29 @@ export class TenantManager {
 // Singleton instance
 export const tenantManager = new TenantManager();
 
+// Routes that are always public — no session required
+const PUBLIC_PATHS = [
+  "/api/healthz",
+  "/api/auth/login",
+  "/api/auth/register",
+  "/api/auth/logout",
+  "/api/webhooks",
+  "/api/p/",          // payment redirect pages
+];
+
+function isPublicPath(path: string): boolean {
+  return PUBLIC_PATHS.some(p => path === p || path.startsWith(p));
+}
+
 // Middleware for tenant resolution
 export function resolveTenant() {
   return async (req: TenantRequest, res: Response, next: NextFunction) => {
     try {
+      // Always allow public paths through without session
+      if (isPublicPath(req.path)) {
+        return next();
+      }
+
       let tenant: TenantContext | null = null;
 
       // Method 1: Check for tenant slug in headers (for API calls)
@@ -502,17 +521,6 @@ export function resolveTenant() {
         if (tenantId) {
           tenant = await tenantManager.getTenantById(Number(tenantId));
         }
-      }
-
-      // EXCEPCIÓN TOTAL: No bloquear rutas de autenticación, login o registro
-      const isAuthPath = req.path.includes("/auth") || 
-                         req.path.includes("/login") || 
-                         req.path.includes("/register") ||
-                         req.path === "/api/auth/login" ||
-                         req.path === "/api/auth/register";
-
-      if (isAuthPath) {
-        return next();
       }
 
       // Method 5: Reject if no tenant resolved
