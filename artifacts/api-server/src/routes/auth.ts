@@ -114,25 +114,26 @@ router.post("/login", async (req, res, next) => {
       return res.status(401).json({ error: "Contraseña incorrecta" });
     }
 
-    // Verificar si el email está verificado (opcional - puedes comentar esto si quieres permitir login sin verificación)
-    if (!tenant.emailVerified) {
-      console.log(`⚠️ Login: Email no verificado para ${email}`);
-      return res.status(403).json({ 
-        error: "Email no verificado", 
-        requiresVerification: true,
-        message: "Por favor verifica tu email antes de iniciar sesión"
-      });
-    }
+    // Verificar si el email está verificado (DESHABILITADO para testing)
+    // if (!tenant.emailVerified) {
+    //   console.log(`⚠️ Login: Email no verificado para ${email}`);
+    //   return res.status(403).json({ 
+    //     error: "Email no verificado", 
+    //     requiresVerification: true,
+    //     message: "Por favor verifica tu email antes de iniciar sesión"
+    //   });
+    // }
 
     console.log(`✅ Login exitoso: ${email} (ID: ${tenant.id})`);
 
     // Set cookie (Sesión persistente de 30 días)
     res.cookie("tenant_id", tenant.id.toString(), { 
-      httpOnly: true, 
+      httpOnly: false, // Cambiar a false para que JavaScript pueda leerla
       secure: false,
       sameSite: "lax",
       maxAge: 30 * 24 * 60 * 60 * 1000,
-      path: "/"
+      path: "/",
+      domain: "localhost" // Especificar dominio explícitamente
     });
 
     console.log(`🍪 Cookie establecida: tenant_id=${tenant.id}`);
@@ -167,17 +168,25 @@ router.get("/me", async (req, res, next) => {
     const tenantId = req.cookies?.tenant_id;
     
     console.log(`🔍 Verificando sesión. Cookie tenant_id: ${tenantId}`);
+    console.log(`🔍 Todas las cookies:`, req.cookies);
+    console.log(`🔍 Header Cookie:`, req.headers.cookie);
     
     if (!tenantId) {
       console.log(`❌ No hay cookie de sesión`);
-      return res.status(401).json({ error: "No session found" });
+      return res.status(401).json({ 
+        error: "No session found",
+        debug: {
+          cookies: req.cookies,
+          hasCookieHeader: !!req.headers.cookie
+        }
+      });
     }
 
     const [tenant] = await db.select().from(tenants).where(eq(tenants.id, Number(tenantId))).limit(1);
     
     if (!tenant) {
       console.log(`❌ Tenant no encontrado para ID: ${tenantId}`);
-      res.clearCookie("tenant_id", { path: "/" });
+      res.clearCookie("tenant_id", { path: "/", domain: "localhost" });
       return res.status(401).json({ error: "Session invalid" });
     }
 

@@ -288,4 +288,61 @@ router.post("/current/clear-cache", async (req: TenantRequest, res) => {
   }
 });
 
+/**
+ * Activate a membership plan using a token/code
+ * POST /api/tenants/current/activate-with-token
+ */
+router.post("/current/activate-with-token", async (req, res) => {
+  try {
+    const tenant = (req as any).tenant;
+    if (!tenant) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    const { token } = req.body;
+    if (!token) {
+      return res.status(400).json({ error: "Token is required" });
+    }
+
+    // Lógica simple de tokens: PLAN-ACTIVAR-CODIGO
+    // Ejemplo: STARTER-ACTIVAR-2024, PROFESSIONAL-ACTIVAR-7777, ENTERPRISE-ACTIVAR-9999
+    const parts = token.toUpperCase().split("-");
+    if (parts.length < 2) {
+      return res.status(400).json({ error: "Token format invalid" });
+    }
+
+    const planId = parts[0].toLowerCase();
+    
+    // Validar que el plan existe
+    const validPlans = ["starter", "professional", "enterprise", "elite", "pro"];
+    if (!validPlans.includes(planId)) {
+      return res.status(400).json({ error: "Invalid plan in token" });
+    }
+
+    // En un entorno real, verificaríamos el token en una base de datos.
+    // Para cumplir con el requerimiento de "algo simple", aceptaremos cualquier token que siga el formato
+    // pero registraremos la acción.
+    
+    const success = await tenantManager.updateTenant(tenant.id, { 
+      plan: planId 
+    });
+
+    if (!success) {
+      return res.status(400).json({ error: "Failed to update tenant plan" });
+    }
+
+    logger.info({ tenantId: tenant.id, planId, token }, "[Tenants] Plan activated via token");
+
+    return res.json({ 
+      success: true,
+      message: `¡Felicidades! Tu plan ${planId.toUpperCase()} ha sido activado.`,
+      plan: planId
+    });
+
+  } catch (error) {
+    logger.error({ error }, "[Tenants] Token activation failed");
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 export default router;

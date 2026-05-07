@@ -57,6 +57,7 @@ export interface TenantContext {
     secondary: string;
     accent: string;
   };
+  plan: string;
 }
 
 export interface TenantRequest extends Request {
@@ -167,7 +168,8 @@ export class TenantManager {
         settings: tenant.settings || DEFAULT_TENANT.settings,
         paymentMethods: tenant.paymentMethods || DEFAULT_TENANT.paymentMethods,
         limits: tenant.limits || DEFAULT_TENANT.limits,
-        brandColors: tenant.brandColors || DEFAULT_TENANT.brandColors
+        brandColors: tenant.brandColors || DEFAULT_TENANT.brandColors,
+        plan: tenant.plan || "basic"
       };
 
       // Cache the result
@@ -219,7 +221,8 @@ export class TenantManager {
         settings: tenant.settings || DEFAULT_TENANT.settings,
         paymentMethods: tenant.paymentMethods || DEFAULT_TENANT.paymentMethods,
         limits: tenant.limits || DEFAULT_TENANT.limits,
-        brandColors: tenant.brandColors || DEFAULT_TENANT.brandColors
+        brandColors: tenant.brandColors || DEFAULT_TENANT.brandColors,
+        plan: tenant.plan || "basic"
       };
 
       // Cache the result

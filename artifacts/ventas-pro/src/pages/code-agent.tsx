@@ -28,12 +28,17 @@ export default function AgentArchitect() {
   const [messages, setMessages] = useState<Message[]>([
     { 
       role: "assistant", 
-      content: "👋 ¡Hola! Soy tu Arquitecto de Agentes. Mi trabajo es dar vida a tus ideas.\n\n¿Qué tipo de vendedor necesitas hoy? Cuéntame su personalidad y objetivos, y yo configuraré su cerebro y reglas de venta por ti." 
+      content: "👋 ¡Hola! Soy tu **Arquitecta de Agentes con IA Avanzada**.\n\n🧠 Puedo configurar:\n• Personalidad y tono\n• Manejo inteligente de objeciones\n• Estrategias de cierre\n• Análisis contextual\n• Reglas de negocio\n• Límites y restricciones\n\n¿Qué tipo de vendedor necesitas? Cuéntame su personalidad, objetivos y estrategias." 
     }
   ]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [currentAgent, setCurrentAgent] = useState<any>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    fetchCurrentAgent();
+  }, []);
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -43,6 +48,18 @@ export default function AgentArchitect() {
       }
     }
   }, [messages]);
+
+  const fetchCurrentAgent = async () => {
+    try {
+      const response = await fetch("/api/code-agent/current");
+      const data = await response.json();
+      if (data.exists) {
+        setCurrentAgent(data);
+      }
+    } catch (error) {
+      console.error("Error fetching current agent:", error);
+    }
+  };
 
   const handleSend = async () => {
     if (!input.trim() || isLoading) return;
@@ -72,6 +89,10 @@ export default function AgentArchitect() {
         }]);
         if (data.configApplied) {
           toast.success("¡Agente actualizado con éxito! 🚀");
+          fetchCurrentAgent(); // Refresh agent info
+        }
+        if (data.advancedFeaturesEnabled) {
+          toast.success("✨ Características avanzadas activadas");
         }
       } else {
         toast.error(data.error || "Error al diseñar el agente");
@@ -175,6 +196,68 @@ export default function AgentArchitect() {
 
           {/* Sidebar / Quick Actions */}
           <div className="hidden lg:flex flex-col gap-4">
+            {/* Current Agent Status */}
+            {currentAgent?.exists && (
+              <Card className="glass-panel border-none shadow-lg overflow-hidden">
+                <div className="p-4 bg-emerald-500/5 border-b border-emerald-500/10">
+                  <h3 className="text-xs font-black uppercase tracking-widest text-emerald-600 flex items-center gap-2">
+                    <CheckCircle2 className="h-3.5 w-3.5" /> Agente Activo
+                  </h3>
+                </div>
+                <CardContent className="p-4 space-y-3">
+                  <div>
+                    <p className="text-xs text-muted-foreground">Nombre</p>
+                    <p className="text-sm font-bold">{currentAgent.agent.name}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">Rol</p>
+                    <p className="text-xs">{currentAgent.agent.role}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">Tono</p>
+                    <p className="text-xs">{currentAgent.agent.tone}</p>
+                  </div>
+                  <div className="pt-2 border-t border-border/50">
+                    <p className="text-xs font-semibold mb-2">Características Avanzadas:</p>
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2 text-[10px]">
+                        {currentAgent.advancedFeatures.hasObjectionHandling ? (
+                          <CheckCircle2 className="h-3 w-3 text-emerald-500" />
+                        ) : (
+                          <div className="h-3 w-3 rounded-full border border-muted-foreground/30" />
+                        )}
+                        <span>Manejo de Objeciones</span>
+                      </div>
+                      <div className="flex items-center gap-2 text-[10px]">
+                        {currentAgent.advancedFeatures.hasClosingStrategies ? (
+                          <CheckCircle2 className="h-3 w-3 text-emerald-500" />
+                        ) : (
+                          <div className="h-3 w-3 rounded-full border border-muted-foreground/30" />
+                        )}
+                        <span>Estrategias de Cierre</span>
+                      </div>
+                      <div className="flex items-center gap-2 text-[10px]">
+                        {currentAgent.advancedFeatures.hasBusinessRules ? (
+                          <CheckCircle2 className="h-3 w-3 text-emerald-500" />
+                        ) : (
+                          <div className="h-3 w-3 rounded-full border border-muted-foreground/30" />
+                        )}
+                        <span>Reglas de Negocio</span>
+                      </div>
+                      <div className="flex items-center gap-2 text-[10px]">
+                        {currentAgent.advancedFeatures.hasRestrictions ? (
+                          <CheckCircle2 className="h-3 w-3 text-emerald-500" />
+                        ) : (
+                          <div className="h-3 w-3 rounded-full border border-muted-foreground/30" />
+                        )}
+                        <span>Restricciones</span>
+                      </div>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
             <Card className="glass-panel border-none shadow-lg overflow-hidden">
               <div className="p-4 bg-primary/5 border-b border-primary/10">
                 <h3 className="text-xs font-black uppercase tracking-widest text-primary flex items-center gap-2">
@@ -183,25 +266,32 @@ export default function AgentArchitect() {
               </div>
               <CardContent className="p-3 space-y-2">
                 <button 
-                  onClick={() => setInput("Crea un vendedor de elite, directo y persuasivo para packs digitales.")}
+                  onClick={() => setInput("Crea un vendedor de elite, directo y persuasivo para packs digitales. Debe manejar objeciones de precio con estrategias de valor.")}
                   className="w-full text-left p-3 rounded-xl text-xs font-medium hover:bg-primary/10 hover:text-primary transition-all flex items-start gap-2 group bg-muted/30"
                 >
                   <MessageSquarePlus className="h-3.5 w-3.5 shrink-0 text-muted-foreground group-hover:text-primary" />
                   Vendedor de Élite
                 </button>
                 <button 
-                  onClick={() => setInput("Diseña un agente muy amigable, con emojis, que actúe como un amigo experto.")}
+                  onClick={() => setInput("Diseña un agente muy amigable, con emojis, que actúe como un amigo experto. Debe usar estrategias consultivas y educativas.")}
                   className="w-full text-left p-3 rounded-xl text-xs font-medium hover:bg-primary/10 hover:text-primary transition-all flex items-start gap-2 group bg-muted/30"
                 >
                   <MessageSquarePlus className="h-3.5 w-3.5 shrink-0 text-muted-foreground group-hover:text-primary" />
                   Asistente Amistoso
                 </button>
                 <button 
-                  onClick={() => setInput("Crea un bot formal y serio especializado en consultoría premium.")}
+                  onClick={() => setInput("Crea un bot formal y serio especializado en consultoría premium. Debe detectar urgencia y usar cierres directos.")}
                   className="w-full text-left p-3 rounded-xl text-xs font-medium hover:bg-primary/10 hover:text-primary transition-all flex items-start gap-2 group bg-muted/30"
                 >
                   <MessageSquarePlus className="h-3.5 w-3.5 shrink-0 text-muted-foreground group-hover:text-primary" />
                   Consultor Formal
+                </button>
+                <button 
+                  onClick={() => setInput("Configura el agente para ser experto en manejo de objeciones. Debe tener respuestas específicas para precio, tiempo, confianza y necesidad.")}
+                  className="w-full text-left p-3 rounded-xl text-xs font-medium hover:bg-primary/10 hover:text-primary transition-all flex items-start gap-2 group bg-muted/30"
+                >
+                  <MessageSquarePlus className="h-3.5 w-3.5 shrink-0 text-muted-foreground group-hover:text-primary" />
+                  Experto en Objeciones
                 </button>
               </CardContent>
             </Card>
@@ -211,9 +301,9 @@ export default function AgentArchitect() {
                 <Cpu className="h-8 w-8 text-muted-foreground/30" />
               </div>
               <div className="space-y-1">
-                <p className="text-sm font-bold">Sin Código</p>
+                <p className="text-sm font-bold">IA Avanzada</p>
                 <p className="text-[11px] text-muted-foreground leading-relaxed">
-                  No necesitas programar. Solo cuéntale tus metas al Arquitecto.
+                  Configura personalidad, objeciones, cierres y más sin código.
                 </p>
               </div>
             </div>

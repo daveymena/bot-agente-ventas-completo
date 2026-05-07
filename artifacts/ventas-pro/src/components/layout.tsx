@@ -11,11 +11,14 @@ import {
   Badge,
   Wand2,
   Palette,
-  ShoppingCart
+  ShoppingCart,
+  Eye
 } from "lucide-react";
 import { Sidebar, SidebarContent, SidebarHeader, SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarProvider, SidebarTrigger, SidebarGroup, SidebarGroupContent } from "./ui/sidebar";
 import { Badge as UiBadge } from "@/components/ui/badge";
 import { useGetWhatsAppStatus, getGetWhatsAppStatusQueryKey } from "@workspace/api-client-react";
+import { useSaasStatus } from "@/hooks/useSaasStatus";
+import { Star, Zap } from "lucide-react";
 
 export function AppSidebar() {
   const [location] = useLocation();
@@ -29,6 +32,7 @@ export function AppSidebar() {
     { label: "WhatsApp", href: "/whatsapp", icon: Phone },
     { label: "WooCommerce", href: "/woocommerce", icon: ShoppingCart },
     { label: "Arquitecto IA", href: "/code-agent", icon: Wand2 },
+    { label: "Arquitecto Visual", href: "/architect", icon: Eye },
     { label: "Personalización", href: "/branding", icon: Palette },
     { label: "Configuración", href: "/settings", icon: Settings },
     { label: "Planes", href: "/pricing", icon: Badge },
@@ -37,6 +41,10 @@ export function AppSidebar() {
   const { data: wsStatus } = useGetWhatsAppStatus({
     query: { refetchInterval: 5000, queryKey: getGetWhatsAppStatusQueryKey() }
   });
+
+  const { saasStatus } = useSaasStatus();
+  const currentPlan = saasStatus?.plan;
+  const isPremium = currentPlan && currentPlan !== 'free' && currentPlan !== 'basic';
 
   return (
     <Sidebar className="border-r border-white/10 shadow-[8px_0_32px_rgba(0,0,0,0.1)] dark:shadow-[8px_0_32px_rgba(0,0,0,0.4)] bg-background/60 backdrop-blur-3xl supports-[backdrop-filter]:bg-background/40">
@@ -50,6 +58,11 @@ export function AppSidebar() {
             className="h-10 w-auto transition-all duration-300 group-hover:brightness-110"
           />
         </Link>
+        {isPremium && (
+          <UiBadge className="ml-2 bg-gradient-to-r from-amber-400 to-orange-600 border-none text-[10px] font-black tracking-tighter animate-pulse shadow-[0_0_15px_rgba(245,158,11,0.5)]">
+            PREMIUM
+          </UiBadge>
+        )}
       </SidebarHeader>
       <SidebarContent className="px-3 py-4">
         <SidebarGroup>

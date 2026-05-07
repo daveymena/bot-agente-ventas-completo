@@ -30,6 +30,7 @@ import {
   type PersonalizationData,
   type EmotionalContext
 } from "./objectionHandler";
+import { AdvancedIntelligence } from "./advanced-intelligence";
 
 // Context Intelligence Enhancement Types
 interface ConversationContext {
@@ -618,6 +619,15 @@ Envía tu comprobante aquí mismo para activar tu acceso en Drive. 📁`;
 
   // Context Intelligence Enhancement: Generate personalized context
   const personalizedContext = generatePersonalizedContext(conversationContext, lastText);
+  
+  // 🧠 INTELIGENCIA AVANZADA: Análisis profundo del mensaje
+  const intelligentContext = AdvancedIntelligence.generateIntelligentContext(
+    lastText,
+    history,
+    currentProductInContext
+  );
+  console.log(`🧠 [ADVANCED-INTELLIGENCE] Contexto inteligente generado - ${new Date().toISOString()}`);
+  
   const systemPrompt = `
 Eres **SOFÍA**, Agente de Ventas de TecnoVariedades D&S. Tu trabajo es ENTENDER lo que el cliente pregunta, RAZONAR sobre la mejor solución, y RESPONDER con información COMPLETA y PRECISA.
 
@@ -914,7 +924,7 @@ ${personalizedContext}
   // 🎯 ESTRATEGIA 1: INTENCIÓN DE PAGO (CIERRE)
   if (isPurchaseIntent) {
     console.log(`💳 [AGENT-STRATEGY] Cliente quiere comprar - Facilitando pago`);
-    finalPrompt = baseSystemPrompt + `\n\n🚨 CONTEXTO: El cliente quiere comprar.
+    finalPrompt = baseSystemPrompt + intelligentContext + `\n\n🚨 CONTEXTO: El cliente quiere comprar.
 Tu objetivo es FACILITAR el pago de forma rápida y clara.
 Presenta las opciones de pago disponibles (MercadoPago, PayPal, Transferencia).${productInstruction}`;
     responsePrefill = `━━━━━━━━━━━━━━━━━━━━━━━━\n💳 *¡PERFECTO! VAMOS A PROCESAR TU COMPRA*\n\n`;
@@ -923,7 +933,7 @@ Presenta las opciones de pago disponibles (MercadoPago, PayPal, Transferencia).$
   // 🎯 ESTRATEGIA 2: PRIMERA VEZ (SALUDO + PRESENTACIÓN)
   else if (isGreetingOnly && !conversationContext.hasIntroduced) {
     console.log(`👋 [AGENT-STRATEGY] Primer contacto - Presentación`);
-    finalPrompt = baseSystemPrompt + `\n\n🚨 CONTEXTO: Es el primer contacto con el cliente.
+    finalPrompt = baseSystemPrompt + intelligentContext + `\n\n🚨 CONTEXTO: Es el primer contacto con el cliente.
 Tu objetivo es PRESENTAR la empresa de forma cálida y DESCUBRIR qué le interesa.
 Sé breve, amigable y haz una pregunta clara.`;
     responsePrefill = `━━━━━━━━━━━━━━━━━━━━━━━━\n👋 *¡Bienvenido/a!*\n\n`;
@@ -932,7 +942,7 @@ Sé breve, amigable y haz una pregunta clara.`;
   // 🎯 ESTRATEGIA 3: CLIENTE RECURRENTE (SALUDO CÁLIDO)
   else if (isGreetingOnly && conversationContext.hasIntroduced) {
     console.log(`👋 [AGENT-STRATEGY] Cliente recurrente - Saludo cálido`);
-    finalPrompt = baseSystemPrompt + `\n\n🚨 CONTEXTO: El cliente ya conoce TecnoVariedades.
+    finalPrompt = baseSystemPrompt + intelligentContext + `\n\n🚨 CONTEXTO: El cliente ya conoce TecnoVariedades.
 Tu objetivo es REACTIVAR su interés de forma cálida.
 Sé breve, personalizado y pregunta cómo puedes ayudar.`;
     responsePrefill = `━━━━━━━━━━━━━━━━━━━━━━━━\n👋 *¡Qué gusto verte de nuevo!*\n\n`;
@@ -941,7 +951,7 @@ Sé breve, personalizado y pregunta cómo puedes ayudar.`;
   // 🎯 ESTRATEGIA 4: CONVERSACIÓN GENERAL (RAZONAMIENTO LIBRE)
   else {
     console.log(`💬 [AGENT-STRATEGY] Conversación general - Razonamiento libre`);
-    finalPrompt = baseSystemPrompt + `\n\n🚨 CONTEXTO: El cliente está explorando o preguntando algo específico.
+    finalPrompt = baseSystemPrompt + intelligentContext + `\n\n🚨 CONTEXTO: El cliente está explorando o preguntando algo específico.
 Tu objetivo es ENTENDER su pregunta, RAZONAR sobre la mejor respuesta, y RESPONDER de forma coherente.
 Busca en el catálogo el producto que mejor responda a su necesidad.
 Explica POR QUÉ recomiendas ese producto.${productInstruction}`;

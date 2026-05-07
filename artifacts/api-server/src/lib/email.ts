@@ -349,6 +349,189 @@ export async function sendPasswordResetEmail(
 }
 
 /**
+ * Envía un token de activación de suscripción
+ */
+export async function sendActivationTokenEmail(
+  email: string,
+  token: string,
+  plan: string,
+  name: string
+): Promise<boolean> {
+  try {
+    logger.info({ email, plan }, "[Email] 📧 Enviando token de activación de suscripción...");
+    
+    const activationUrl = `${process.env.APP_URL || "https://tecnovariedades.easypanel.host"}/activate?token=${token}`;
+    
+    const mailOptions = {
+      from: `"VentasPro" <${process.env.SMTP_USER}>`,
+      to: email,
+      subject: `🎉 ¡Pago Confirmado! Activa tu Plan ${plan}`,
+      html: `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="UTF-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <style>
+            body {
+              font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+              background-color: #f5f5f5;
+              margin: 0;
+              padding: 0;
+            }
+            .container {
+              max-width: 600px;
+              margin: 40px auto;
+              background: white;
+              border-radius: 16px;
+              overflow: hidden;
+              box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+            }
+            .header {
+              background: linear-gradient(135deg, #10b981 0%, #34d399 100%);
+              padding: 40px 30px;
+              text-align: center;
+            }
+            .header h1 {
+              color: white;
+              margin: 0;
+              font-size: 28px;
+              font-weight: 700;
+            }
+            .content {
+              padding: 40px 30px;
+            }
+            .greeting {
+              font-size: 18px;
+              color: #1f2937;
+              margin-bottom: 20px;
+            }
+            .message {
+              font-size: 16px;
+              color: #4b5563;
+              line-height: 1.6;
+              margin-bottom: 30px;
+            }
+            .token-container {
+              background: linear-gradient(135deg, #d1fae5 0%, #a7f3d0 100%);
+              border: 2px dashed #10b981;
+              border-radius: 12px;
+              padding: 30px;
+              text-align: center;
+              margin: 30px 0;
+            }
+            .token {
+              font-size: 32px;
+              font-weight: 800;
+              color: #065f46;
+              letter-spacing: 4px;
+              font-family: 'Courier New', monospace;
+              word-break: break-all;
+            }
+            .token-label {
+              font-size: 14px;
+              color: #065f46;
+              margin-top: 10px;
+              font-weight: 600;
+            }
+            .button {
+              display: inline-block;
+              background: linear-gradient(135deg, #10b981 0%, #34d399 100%);
+              color: white;
+              padding: 16px 40px;
+              border-radius: 8px;
+              text-decoration: none;
+              font-weight: 600;
+              margin: 20px 0;
+              font-size: 16px;
+            }
+            .button:hover {
+              background: linear-gradient(135deg, #059669 0%, #10b981 100%);
+            }
+            .info-box {
+              background: #f0fdf4;
+              border-left: 4px solid #10b981;
+              padding: 15px;
+              margin: 20px 0;
+              border-radius: 8px;
+            }
+            .info-text {
+              font-size: 14px;
+              color: #065f46;
+              margin: 0;
+            }
+            .footer {
+              background: #f9fafb;
+              padding: 30px;
+              text-align: center;
+              border-top: 1px solid #e5e7eb;
+            }
+            .footer-text {
+              font-size: 14px;
+              color: #6b7280;
+              margin: 5px 0;
+            }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <div class="header">
+              <h1>🎉 ¡Pago Confirmado!</h1>
+            </div>
+            <div class="content">
+              <p class="greeting">¡Hola ${name}! 👋</p>
+              <p class="message">
+                ¡Excelente noticia! Tu pago ha sido procesado exitosamente. 
+                Ahora solo falta un paso para activar tu <strong>Plan ${plan}</strong>.
+              </p>
+              
+              <div class="token-container">
+                <div class="token">${token}</div>
+                <div class="token-label">TOKEN DE ACTIVACIÓN</div>
+              </div>
+              
+              <div style="text-align: center;">
+                <a href="${activationUrl}" class="button">
+                  ✨ Activar Mi Cuenta Ahora
+                </a>
+              </div>
+              
+              <p class="message">
+                También puedes copiar el token de arriba e ingresarlo manualmente en la página de activación.
+              </p>
+              
+              <div class="info-box">
+                <p class="info-text">
+                  ℹ️ <strong>¿Qué incluye tu plan ${plan}?</strong><br>
+                  Una vez activado, tendrás acceso completo a todas las funcionalidades de tu plan.
+                </p>
+              </div>
+              
+              <p class="message" style="font-size: 14px; color: #6b7280;">
+                Si tienes alguna pregunta o necesitas ayuda, no dudes en contactarnos.
+              </p>
+            </div>
+            <div class="footer">
+              <p class="footer-text">© 2026 VentasPro - Plataforma de Ventas con IA</p>
+              <p class="footer-text">Este es un email automático, por favor no respondas.</p>
+            </div>
+          </div>
+        </body>
+        </html>
+      `,
+    };
+
+    const result = await transporter.sendMail(mailOptions);
+    logger.info({ email, messageId: result.messageId }, "[Email] ✅ Token de activación enviado exitosamente");
+    return true;
+  } catch (error) {
+    logger.error({ error, email }, "[Email] ❌ Error enviando token de activación");
+    console.error("[Email] Error completo:", error);
+    return false;
+  }
+}
+
+/**
  * Verifica la configuración del servicio de email
  */
 export async function verifyEmailService(): Promise<boolean> {

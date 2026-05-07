@@ -10,3 +10,4 @@ export * from "./settings";
 export * from "./whatsapp";
 export * from "./paymentLinks";
 export * from "./follow_ups";
+export * from "./subscriptions";

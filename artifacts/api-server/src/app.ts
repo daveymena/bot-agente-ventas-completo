@@ -9,6 +9,8 @@ import router from "./routes";
 import healthRouter from "./health";
 import pricingRouter from "./routes/pricing";
 import woocommerceRouter from "./routes/woocommerce";
+import subscriptionWebhooksRouter from "./routes/subscription-webhooks";
+import activationRouter from "./routes/activation";
 import { logger } from "./lib/logger";
 import { resolveTenant } from "./lib/tenantManager";
 import { validateSaasPlan, validateUsageLimits } from "./middleware/saasValidation";
@@ -80,10 +82,10 @@ app.use(
 );
 app.use(
   cors({
-    origin: ["http://localhost:5173", "http://127.0.0.1:5173", "http://0.0.0.0:5173"],
-    credentials: true, // ¡CRÍTICO! Esto permite que las cookies de sesión se guarden y envíen
-    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization"],
+    origin: ["http://localhost:5173", "http://127.0.0.1:5173", "http://0.0.0.0:5173", "http://localhost:3002"],
+    credentials: true,
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
+    allowedHeaders: ["Content-Type", "Authorization", "Cookie"],
     exposedHeaders: ["Set-Cookie"],
   }),
 );
@@ -96,7 +98,11 @@ app.use((req, res, next) => {
   console.log(`[COOKIES] Path: ${req.path}`);
   console.log(`[COOKIES] All cookies: ${JSON.stringify(req.cookies)}`);
   console.log(`[COOKIES] tenant_id: ${req.cookies?.tenant_id}`);
-  console.log(`[COOKIES] Headers: ${JSON.stringify(req.headers.cookie)}`);
+  console.log(`[COOKIES] Headers Cookie: ${req.headers.cookie}`);
+  
+  // Agregar header para debugging
+  res.setHeader('X-Debug-Cookies', JSON.stringify(req.cookies));
+  
   next();
 });
 
@@ -160,7 +166,6 @@ app.use(express.static(frontendPath));
 const publicRoutes = [
   "/health",
   "/ready",
-  "/pricing",
   "/auth/register",
   "/auth/login",
   "/auth/logout",
@@ -171,17 +176,36 @@ const publicRoutes = [
   "/auth/verify-reset-code",
   "/auth/reset-password",
   "/whatsapp/test-ia", // Endpoint de prueba para testing
+  "/webhooks/subscription", // Webhooks de suscripciones
+  "/activation", // Endpoints de activación de cuenta
 ];
 
-const isPublicRoute = (path: string) => publicRoutes.some(route => path.startsWith(route));
+const isPublicRoute = (path: string) => {
+  // Rutas de pricing públicas (solo GET)
+  if (path === "/pricing" && !path.includes("/upgrade") && !path.includes("/subscription")) {
+    return true;
+  }
+  
+  // Permitir GET /api/pricing/:plan (detalles de un plan específico)
+  if (path.match(/^\/pricing\/[^\/]+$/) && !path.includes("/upgrade") && !path.includes("/subscription")) {
+    return true;
+  }
+  
+  // Todas las demás rutas de pricing requieren autenticación
+  return publicRoutes.some(route => path.startsWith(route));
+};
 
 // Middleware para resolver tenant SOLO en rutas protegidas
 const resolveTenantMiddleware = (req: Request, res: Response, next: NextFunction) => {
-  console.log(`[resolveTenant] Path: ${req.path}, Cookies: ${JSON.stringify(req.cookies)}`);
+  const isPublic = isPublicRoute(req.path);
+  console.log(`[resolveTenant] Path: ${req.path}, IsPublic: ${isPublic}, Cookies: ${JSON.stringify(req.cookies)}`);
   
-  if (isPublicRoute(req.path)) {
+  if (isPublic) {
+    console.log(`[resolveTenant] Ruta pública, saltando resolución de tenant`);
     return next();
   }
+  
+  console.log(`[resolveTenant] Ruta protegida, resolviendo tenant...`);
   resolveTenant()(req, res, next);
 };
 
@@ -249,6 +273,8 @@ app.use("/api/messages", (req, res, next) => {
 });
 
 app.use("/api/woocommerce", woocommerceRouter);
+app.use("/api/webhooks/subscription", subscriptionWebhooksRouter);
+app.use("/api/activation", activationRouter);
 app.use("/api", router);
 
 app.use((req, res, next) => {

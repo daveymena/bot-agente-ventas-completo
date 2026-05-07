@@ -53,7 +53,16 @@ export default defineConfig({
       "/api": {
         target: process.env.VITE_API_URL || "http://localhost:3002",
         changeOrigin: true,
-        credentials: true, // Permitir cookies en el proxy
+        secure: false,
+        ws: true,
+        configure: (proxy, _options) => {
+          proxy.on('proxyReq', (proxyReq, req, _res) => {
+            // Asegurar que las cookies se envíen
+            if (req.headers.cookie) {
+              proxyReq.setHeader('cookie', req.headers.cookie);
+            }
+          });
+        },
       },
     },
   },

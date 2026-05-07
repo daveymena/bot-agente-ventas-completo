@@ -14,10 +14,14 @@ import Products from "@/pages/products";
 import WhatsAppConnection from "@/pages/whatsapp";
 import Settings from "@/pages/settings";
 import CodeAgent from "@/pages/code-agent";
+import CodeAgentVisual from "@/pages/code-agent-visual";
 import AuthPage from "@/pages/auth";
 import PricingPage from "@/pages/pricing";
 import Branding from "@/pages/branding";
 import WooCommercePage from "@/pages/woocommerce";
+import SubscriptionSuccessPage from "@/pages/subscription-success";
+import SubscriptionFailurePage from "@/pages/subscription-failure";
+import ActivatePage from "@/pages/activate";
 
 // Context para la sesión
 interface SessionContextType {
@@ -74,9 +78,13 @@ function Router() {
       <Route path="/whatsapp" component={WhatsAppConnection} />
       <Route path="/settings" component={Settings} />
       <Route path="/code-agent" component={CodeAgent} />
+      <Route path="/architect" component={CodeAgentVisual} />
       <Route path="/pricing" component={PricingPage} />
       <Route path="/branding" component={Branding} />
       <Route path="/woocommerce" component={WooCommercePage} />
+      <Route path="/subscription-success" component={SubscriptionSuccessPage} />
+      <Route path="/subscription-failure" component={SubscriptionFailurePage} />
+      <Route path="/activate" component={ActivatePage} />
       <Route path="/auth" component={AuthPage} />
       <Route component={NotFound} />
     </Switch>
