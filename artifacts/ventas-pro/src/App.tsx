@@ -16,6 +16,7 @@ import AuthPage from "@/pages/auth";
 import Billing from "@/pages/billing";
 import WooCommercePage from "@/pages/woocommerce";
 import NichesPage from "@/pages/niches";
+import StorePage from "@/pages/store";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -56,6 +57,7 @@ function Router() {
       <Route path="/billing" component={Billing} />
       <Route path="/woocommerce" component={WooCommercePage} />
       <Route path="/niches" component={NichesPage} />
+      <Route path="/store" component={StorePage} />
       <Route path="/auth" component={AuthPage} />
       <Route component={NotFound} />
     </Switch>

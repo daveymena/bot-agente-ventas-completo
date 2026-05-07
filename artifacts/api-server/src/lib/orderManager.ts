@@ -1,6 +1,10 @@
 import { eq, and, desc } from "drizzle-orm";
-import { db, woocommerceStores, wooOrders } from "@workspace/db";
+import { db, woocommerceStores, wooOrders, notifications, tenants } from "@workspace/db";
 import { logger } from "./logger";
+import {
+  sendEscalationAlert,
+  sendNewOrderNotification,
+} from "./emailService";
 
 export interface OrderItem {
   productId: number;
@@ -22,6 +26,25 @@ export interface CreateOrderParams {
   paymentId?: string;
   deliveryAddress?: string;
   notes?: string;
+}
+
+async function getTenantEmail(tenantId: number): Promise<string | null> {
+  const [tenant] = await db.select({ email: tenants.email }).from(tenants).where(eq(tenants.id, tenantId)).limit(1);
+  return tenant?.email ?? null;
+}
+
+async function createNotification(tenantId: number, type: string, title: string, message: string, metadata: Record<string, unknown> = {}) {
+  try {
+    await db.insert(notifications).values({
+      tenantId,
+      type,
+      title,
+      message,
+      metadata: JSON.stringify(metadata),
+    });
+  } catch (err) {
+    logger.warn({ err, tenantId, type }, "[Notification] Failed to create notification");
+  }
 }
 
 export async function createLocalOrder(params: CreateOrderParams) {
@@ -52,10 +75,32 @@ export async function createLocalOrder(params: CreateOrderParams) {
     .returning();
 
   logger.info({ orderId: order.id, tenantId: params.tenantId, storeId: store?.id }, "[OrderManager] Local order created");
+
+  // Notifications and email (non-blocking)
+  Promise.allSettled([
+    createNotification(params.tenantId, "order", `Nuevo pedido #${order.id}`,
+      `${params.contactName || "Cliente"} realizó un pedido por ${params.currency ?? "COP"} ${Number(params.total).toLocaleString("es-CO")}`,
+      { orderId: order.id, contactPhone: params.contactPhone }),
+    getTenantEmail(params.tenantId).then(adminEmail => {
+      if (!adminEmail) return;
+      return sendNewOrderNotification({
+        adminEmail,
+        tenantName: `Tenant #${params.tenantId}`,
+        contactName: params.contactName,
+        contactPhone: params.contactPhone,
+        items: params.items.map(i => ({ name: i.name, qty: i.qty, price: i.price })),
+        total: params.total.toString(),
+        currency: params.currency ?? "COP",
+        paymentMethod: params.paymentMethod,
+        orderId: order.id,
+      });
+    }),
+  ]).catch(() => {});
+
   return { order, store: store ?? null };
 }
 
-export async function escalateToAdmin(conversationId: number, tenantId: number, reason: string) {
+export async function escalateToAdmin(conversationId: number, tenantId: number, reason: string, contactName?: string, contactPhone?: string) {
   await db.insert(wooOrders).values({
     tenantId,
     conversationId,
@@ -66,6 +111,24 @@ export async function escalateToAdmin(conversationId: number, tenantId: number, 
     escalationReason: reason,
   });
   logger.info({ conversationId, tenantId, reason }, "[OrderManager] Conversation escalated to admin");
+
+  // Notifications and email (non-blocking)
+  Promise.allSettled([
+    createNotification(tenantId, "escalation", `Escalación urgente — ${contactName || "Cliente"}`,
+      `Motivo: ${reason}. El cliente ${contactName || "desconocido"} requiere atención humana.`,
+      { conversationId, contactPhone, reason }),
+    getTenantEmail(tenantId).then(adminEmail => {
+      if (!adminEmail) return;
+      return sendEscalationAlert({
+        adminEmail,
+        tenantName: `Tenant #${tenantId}`,
+        contactName,
+        contactPhone,
+        reason,
+        conversationId,
+      });
+    }),
+  ]).catch(() => {});
 }
 
 export async function pushOrderToWooCommerce(orderId: number, tenantId: number): Promise<{ wooOrderId?: number; error?: string }> {

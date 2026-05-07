@@ -22,6 +22,8 @@ import authRouter from "./auth";
 import subscriptionsRouter from "./subscriptions";
 import woocommerceRouter from "./woocommerce";
 import nichesRouter from "./niches";
+import notificationsRouter from "./notifications";
+import storeRouter from "./store";
 
 const router: IRouter = Router();
 
@@ -47,6 +49,8 @@ router.use("/auth", authRouter);
 router.use("/subscriptions", subscriptionsRouter);
 router.use("/woocommerce", woocommerceRouter);
 router.use("/niches", nichesRouter);
+router.use("/notifications", notificationsRouter);
+router.use("/store", storeRouter);
 
 router.use((err: unknown, req: Request, res: Response, _next: NextFunction) => {
   if (err instanceof ZodError) {

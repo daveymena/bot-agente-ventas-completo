@@ -12,3 +12,4 @@ export * from "./paymentLinks";
 export * from "./follow_ups";
 export * from "./subscriptions";
 export * from "./woocommerce";
+export * from "./notifications";
