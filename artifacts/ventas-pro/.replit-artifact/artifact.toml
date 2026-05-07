@@ -1,0 +1,31 @@
+kind = "web"
+previewPath = "/"
+title = "VentasPro - Dashboard Sofía"
+version = "1.0.0"
+id = "artifacts/ventas-pro"
+router = "path"
+
+[[integratedSkills]]
+name = "react-vite"
+version = "1.0.0"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 23665
+
+[services.development]
+run = "pnpm --filter @workspace/ventas-pro run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/ventas-pro", "run", "build" ]
+publicDir = "artifacts/ventas-pro/dist/public"
+serve = "static"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "23665"
+BASE_PATH = "/"

@@ -1,22 +1,27 @@
 openapi: 3.1.0
 info:
-  # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: VentasPro - API specification
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
-    description: Health operations
+  - name: dashboard
+  - name: conversations
+  - name: agents
+  - name: leads
+  - name: products
+  - name: categories
+  - name: whatsapp
+  - name: settings
 paths:
   /healthz:
     get:
       operationId: healthCheck
       tags: [health]
       summary: Health check
-      description: Returns server health status
       responses:
         "200":
           description: Healthy
@@ -24,6 +29,608 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  /dashboard/summary:
+    get:
+      operationId: getDashboardSummary
+      tags: [dashboard]
+      summary: Dashboard summary metrics
+      responses:
+        "200":
+          description: Summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DashboardSummary"
+
+  /dashboard/activity:
+    get:
+      operationId: getRecentActivity
+      tags: [dashboard]
+      summary: Recent activity feed
+      responses:
+        "200":
+          description: Activity list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ActivityEvent"
+
+  /dashboard/funnel:
+    get:
+      operationId: getFunnel
+      tags: [dashboard]
+      summary: Lead conversion funnel
+      responses:
+        "200":
+          description: Funnel stages
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/FunnelStage"
+
+  /dashboard/messages-timeline:
+    get:
+      operationId: getMessagesTimeline
+      tags: [dashboard]
+      summary: Messages count by day
+      responses:
+        "200":
+          description: Timeline
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TimelinePoint"
+
+  /conversations:
+    get:
+      operationId: listConversations
+      tags: [conversations]
+      summary: List conversations
+      parameters:
+        - name: search
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Conversations
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ConversationSummary"
+
+  /conversations/{id}:
+    get:
+      operationId: getConversation
+      tags: [conversations]
+      summary: Get conversation by id
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Conversation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Conversation"
+    patch:
+      operationId: updateConversation
+      tags: [conversations]
+      summary: Update conversation
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateConversationBody"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Conversation"
+
+  /conversations/{id}/messages:
+    get:
+      operationId: listMessages
+      tags: [conversations]
+      summary: List messages in a conversation
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Messages
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Message"
+    post:
+      operationId: sendMessage
+      tags: [conversations]
+      summary: Send a message
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SendMessageBody"
+      responses:
+        "200":
+          description: Sent
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Message"
+
+  /conversations/{id}/handoff:
+    post:
+      operationId: handoffConversation
+      tags: [conversations]
+      summary: Handoff to human or AI
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/HandoffBody"
+      responses:
+        "200":
+          description: Handed off
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Conversation"
+
+  /agents:
+    get:
+      operationId: listAgents
+      tags: [agents]
+      summary: List agents
+      responses:
+        "200":
+          description: Agents
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Agent"
+    post:
+      operationId: createAgent
+      tags: [agents]
+      summary: Create agent
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateAgentBody"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Agent"
+
+  /agents/{id}:
+    patch:
+      operationId: updateAgent
+      tags: [agents]
+      summary: Update agent
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateAgentBody"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Agent"
+    delete:
+      operationId: deleteAgent
+      tags: [agents]
+      summary: Delete agent
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeleteResult"
+
+  /agents/{id}/activate:
+    post:
+      operationId: activateAgent
+      tags: [agents]
+      summary: Activate agent
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Activated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Agent"
+
+  /leads:
+    get:
+      operationId: listLeads
+      tags: [leads]
+      summary: List leads
+      parameters:
+        - name: stage
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/LeadStage"
+        - name: search
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Leads
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Lead"
+    post:
+      operationId: createLead
+      tags: [leads]
+      summary: Create lead
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateLeadBody"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Lead"
+
+  /leads/{id}:
+    patch:
+      operationId: updateLead
+      tags: [leads]
+      summary: Update lead
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateLeadBody"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Lead"
+    delete:
+      operationId: deleteLead
+      tags: [leads]
+      summary: Delete lead
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeleteResult"
+
+  /products:
+    get:
+      operationId: listProducts
+      tags: [products]
+      summary: List products
+      parameters:
+        - name: categoryId
+          in: query
+          required: false
+          schema:
+            type: integer
+        - name: kind
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/ProductKind"
+      responses:
+        "200":
+          description: Products
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Product"
+    post:
+      operationId: createProduct
+      tags: [products]
+      summary: Create product
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateProductBody"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Product"
+
+  /products/{id}:
+    patch:
+      operationId: updateProduct
+      tags: [products]
+      summary: Update product
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateProductBody"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Product"
+    delete:
+      operationId: deleteProduct
+      tags: [products]
+      summary: Delete product
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeleteResult"
+
+  /categories:
+    get:
+      operationId: listCategories
+      tags: [categories]
+      summary: List categories
+      responses:
+        "200":
+          description: Categories
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Category"
+    post:
+      operationId: createCategory
+      tags: [categories]
+      summary: Create category
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateCategoryBody"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Category"
+
+  /categories/{id}:
+    patch:
+      operationId: updateCategory
+      tags: [categories]
+      summary: Update category
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateCategoryBody"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Category"
+    delete:
+      operationId: deleteCategory
+      tags: [categories]
+      summary: Delete category
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeleteResult"
+
+  /whatsapp/status:
+    get:
+      operationId: getWhatsAppStatus
+      tags: [whatsapp]
+      summary: Get WhatsApp connection status
+      responses:
+        "200":
+          description: Status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WhatsAppStatus"
+
+  /whatsapp/connect:
+    post:
+      operationId: connectWhatsApp
+      tags: [whatsapp]
+      summary: Connect WhatsApp
+      responses:
+        "200":
+          description: QR or connected
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WhatsAppStatus"
+
+  /whatsapp/disconnect:
+    post:
+      operationId: disconnectWhatsApp
+      tags: [whatsapp]
+      summary: Disconnect WhatsApp
+      responses:
+        "200":
+          description: Disconnected
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WhatsAppStatus"
+
+  /settings:
+    get:
+      operationId: getSettings
+      tags: [settings]
+      summary: Get settings
+      responses:
+        "200":
+          description: Settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Settings"
+    patch:
+      operationId: updateSettings
+      tags: [settings]
+      summary: Update settings
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateSettingsBody"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Settings"
+
 components:
   schemas:
     HealthStatus:
@@ -31,6 +638,536 @@ components:
       properties:
         status:
           type: string
-      required:
-        - status
+      required: [status]
 
+    DeleteResult:
+      type: object
+      properties:
+        success:
+          type: boolean
+      required: [success]
+
+    DashboardSummary:
+      type: object
+      properties:
+        totalLeads:
+          type: integer
+        activeConversations:
+          type: integer
+        conversionRate:
+          type: number
+        totalRevenue:
+          type: number
+        avgResponseTime:
+          type: number
+        messagesLast24h:
+          type: integer
+        newLeadsToday:
+          type: integer
+        closedDeals:
+          type: integer
+      required: [totalLeads, activeConversations, conversionRate, totalRevenue, avgResponseTime, messagesLast24h, newLeadsToday, closedDeals]
+
+    ActivityEvent:
+      type: object
+      properties:
+        id:
+          type: integer
+        type:
+          type: string
+        description:
+          type: string
+        createdAt:
+          type: string
+        metadata:
+          type: string
+          nullable: true
+      required: [id, type, description, createdAt]
+
+    FunnelStage:
+      type: object
+      properties:
+        stage:
+          type: string
+        count:
+          type: integer
+        percentage:
+          type: number
+      required: [stage, count, percentage]
+
+    TimelinePoint:
+      type: object
+      properties:
+        date:
+          type: string
+        messages:
+          type: integer
+        conversations:
+          type: integer
+      required: [date, messages, conversations]
+
+    LeadStage:
+      type: string
+      enum: [new, contacted, qualified, proposal, won, lost]
+
+    ProductKind:
+      type: string
+      enum: [digital, physical, service]
+
+    ConversationSummary:
+      type: object
+      properties:
+        id:
+          type: integer
+        contactName:
+          type: string
+        contactPhone:
+          type: string
+        status:
+          type: string
+        currentStage:
+          type: string
+          nullable: true
+        lastMessage:
+          type: string
+          nullable: true
+        lastMessageAt:
+          type: string
+          nullable: true
+        unreadCount:
+          type: integer
+        avatarColor:
+          type: string
+      required: [id, contactName, contactPhone, status, unreadCount, avatarColor]
+
+    Conversation:
+      type: object
+      properties:
+        id:
+          type: integer
+        contactName:
+          type: string
+        contactPhone:
+          type: string
+        status:
+          type: string
+        currentStage:
+          type: string
+          nullable: true
+        lastMessage:
+          type: string
+          nullable: true
+        lastMessageAt:
+          type: string
+          nullable: true
+        unreadCount:
+          type: integer
+        avatarColor:
+          type: string
+        createdAt:
+          type: string
+      required: [id, contactName, contactPhone, status, unreadCount, avatarColor, createdAt]
+
+    UpdateConversationBody:
+      type: object
+      properties:
+        status:
+          type: string
+        currentStage:
+          type: string
+
+    Message:
+      type: object
+      properties:
+        id:
+          type: integer
+        conversationId:
+          type: integer
+        role:
+          type: string
+          enum: [customer, agent, human]
+        content:
+          type: string
+        stage:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+      required: [id, conversationId, role, content, createdAt]
+
+    SendMessageBody:
+      type: object
+      properties:
+        content:
+          type: string
+        asHuman:
+          type: boolean
+      required: [content]
+
+    HandoffBody:
+      type: object
+      properties:
+        target:
+          type: string
+          enum: [human, ai]
+      required: [target]
+
+    Agent:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        personality:
+          type: string
+          nullable: true
+        systemPrompt:
+          type: string
+          nullable: true
+        isActive:
+          type: boolean
+        stages:
+          nullable: true
+        createdAt:
+          type: string
+      required: [id, name, isActive, createdAt]
+
+    CreateAgentBody:
+      type: object
+      properties:
+        name:
+          type: string
+        personality:
+          type: string
+        systemPrompt:
+          type: string
+        stages:
+          type: array
+          items:
+            type: object
+            properties:
+              key:
+                type: string
+              label:
+                type: string
+              instructions:
+                type: string
+            required: [key, label]
+      required: [name]
+
+    UpdateAgentBody:
+      type: object
+      properties:
+        name:
+          type: string
+        personality:
+          type: string
+        systemPrompt:
+          type: string
+        isActive:
+          type: boolean
+        stages:
+          type: array
+          items:
+            type: object
+            properties:
+              key:
+                type: string
+              label:
+                type: string
+              instructions:
+                type: string
+            required: [key, label]
+
+    Lead:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        phone:
+          type: string
+          nullable: true
+        email:
+          type: string
+          nullable: true
+        stage:
+          $ref: "#/components/schemas/LeadStage"
+        notes:
+          type: string
+          nullable: true
+        score:
+          type: integer
+          nullable: true
+        tags:
+          nullable: true
+        createdAt:
+          type: string
+      required: [id, name, stage, createdAt]
+
+    CreateLeadBody:
+      type: object
+      properties:
+        name:
+          type: string
+        phone:
+          type: string
+        email:
+          type: string
+        stage:
+          $ref: "#/components/schemas/LeadStage"
+        notes:
+          type: string
+      required: [name]
+
+    UpdateLeadBody:
+      type: object
+      properties:
+        name:
+          type: string
+        phone:
+          type: string
+        email:
+          type: string
+        stage:
+          $ref: "#/components/schemas/LeadStage"
+        notes:
+          type: string
+        score:
+          type: integer
+
+    Product:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        description:
+          type: string
+          nullable: true
+        price:
+          type: string
+        currency:
+          type: string
+        kind:
+          $ref: "#/components/schemas/ProductKind"
+        categoryId:
+          type: integer
+          nullable: true
+        imageUrl:
+          type: string
+          nullable: true
+        paymentLink:
+          type: string
+          nullable: true
+        deliveryLink:
+          type: string
+          nullable: true
+        highlight:
+          type: string
+          nullable: true
+        features:
+          nullable: true
+        metadata:
+          type: string
+          nullable: true
+        isActive:
+          type: boolean
+        createdAt:
+          type: string
+      required: [id, name, price, currency, kind, isActive, createdAt]
+
+    CreateProductBody:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        price:
+          type: string
+        currency:
+          type: string
+        kind:
+          $ref: "#/components/schemas/ProductKind"
+        categoryId:
+          type: integer
+        imageUrl:
+          type: string
+        paymentLink:
+          type: string
+        deliveryLink:
+          type: string
+        highlight:
+          type: string
+        features:
+          type: array
+          items:
+            type: string
+        metadata:
+          type: string
+      required: [name, price, currency, kind]
+
+    UpdateProductBody:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        price:
+          type: string
+        currency:
+          type: string
+        kind:
+          $ref: "#/components/schemas/ProductKind"
+        categoryId:
+          type: integer
+        imageUrl:
+          type: string
+        paymentLink:
+          type: string
+        deliveryLink:
+          type: string
+        highlight:
+          type: string
+        features:
+          type: array
+          items:
+            type: string
+        metadata:
+          type: string
+        isActive:
+          type: boolean
+
+    Category:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        description:
+          type: string
+          nullable: true
+        emoji:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+      required: [id, name, createdAt]
+
+    CreateCategoryBody:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        emoji:
+          type: string
+      required: [name]
+
+    UpdateCategoryBody:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        emoji:
+          type: string
+
+    WhatsAppStatus:
+      type: object
+      properties:
+        state:
+          type: string
+          enum: [disconnected, connecting, qr, connected]
+        qrCode:
+          type: string
+          nullable: true
+        phone:
+          type: string
+          nullable: true
+        connectedAt:
+          type: string
+          nullable: true
+      required: [state]
+
+    Settings:
+      type: object
+      properties:
+        businessName:
+          type: string
+          nullable: true
+        businessDescription:
+          type: string
+          nullable: true
+        timezone:
+          type: string
+          nullable: true
+        workingHoursStart:
+          type: string
+          nullable: true
+        workingHoursEnd:
+          type: string
+          nullable: true
+        autoReplyEnabled:
+          type: boolean
+        offHoursMessage:
+          type: string
+          nullable: true
+        escalationKeywords:
+          nullable: true
+        aiProvider:
+          type: string
+          nullable: true
+        githubToken:
+          type: string
+          nullable: true
+        githubModel:
+          type: string
+          nullable: true
+        ollamaUrl:
+          type: string
+          nullable: true
+        ollamaModel:
+          type: string
+          nullable: true
+      required: [autoReplyEnabled]
+
+    UpdateSettingsBody:
+      type: object
+      properties:
+        businessName:
+          type: string
+        businessDescription:
+          type: string
+        timezone:
+          type: string
+        workingHoursStart:
+          type: string
+        workingHoursEnd:
+          type: string
+        autoReplyEnabled:
+          type: boolean
+        offHoursMessage:
+          type: string
+        escalationKeywords:
+          type: array
+          items:
+            type: string
+        aiProvider:
+          type: string
+        githubToken:
+          type: string
+        githubModel:
+          type: string
+        ollamaUrl:
+          type: string
+        ollamaModel:
+          type: string
