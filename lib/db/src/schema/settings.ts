@@ -38,9 +38,6 @@ export const settings = pgTable("settings", {
     .$type<string[]>()
     .notNull()
     .default(["github", "groq", "deepseek"]),
-  // Dropi Integration
-  dropiToken: text("dropi_token"),
-  dropiStoreId: text("dropi_store_id"),
 });
 
 export type Settings = typeof settings.$inferSelect;

@@ -20,7 +20,6 @@ import WooCommercePage from "@/pages/woocommerce";
 import NichesPage from "@/pages/niches";
 import StorePage from "@/pages/store";
 import AIProvidersPage from "@/pages/ai-providers";
-import DropiPage from "@/pages/dropi";
 import { PageTransition } from "@/components/PageTransition";
 
 const queryClient = new QueryClient({
@@ -68,7 +67,6 @@ function AnimatedRouter() {
           <Route path="/niches" component={NichesPage} />
           <Route path="/store" component={StorePage} />
           <Route path="/ai-providers" component={AIProvidersPage} />
-          <Route path="/dropi" component={DropiPage} />
           <Route path="/auth" component={AuthPage} />
           <Route component={NotFound} />
         </Switch>

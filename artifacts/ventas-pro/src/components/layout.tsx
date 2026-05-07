@@ -164,7 +164,6 @@ export function AppSidebar() {
     { label: "WhatsApp", href: "/whatsapp", icon: Phone },
     { label: "Arquitecto IA", href: "/code-agent", icon: Wand2 },
     { label: "Motores de IA", href: "/ai-providers", icon: Brain },
-    { label: "Dropi", href: "/dropi", icon: Package },
     { label: "WooCommerce", href: "/woocommerce", icon: ShoppingCart },
     { label: "Nichos Drop", href: "/niches", icon: TrendingUp },
     { label: "Facturación", href: "/billing", icon: CreditCard },
