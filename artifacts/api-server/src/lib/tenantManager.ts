@@ -473,6 +473,9 @@ const PUBLIC_PATHS = [
   "/api/auth/logout",
   "/api/webhooks",
   "/api/p/",          // payment redirect pages
+  "/api/subscriptions/plans",         // public plan listing
+  "/api/subscriptions/webhook/",      // payment webhooks
+  "/api/subscriptions/activate/",     // activation tokens
 ];
 
 function isPublicPath(path: string): boolean {

@@ -475,7 +475,7 @@ export async function runAgentReply(conversationId: number) {
     .from(messages)
     .where(eq(messages.conversationId, conversationId))
     .orderBy(desc(messages.createdAt))
-    .limit(15);
+    .limit(25);
 
   console.log(`💬 [AGENT-INFO] Historial de mensajes cargado: ${history.length} mensajes - ${new Date().toISOString()}`);
 
@@ -580,17 +580,15 @@ Envía tu comprobante aquí mismo para activar tu acceso en Drive. 📁`;
 
   // Context Intelligence Enhancement: Generate personalized context
   const personalizedContext = generatePersonalizedContext(conversationContext, lastText);
-  const systemPrompt = `
-Eres Sofía, la Directora de Ventas Élite de TecnoVariedades. No eres un bot, eres una profesional consciente que entiende el arte de la persuasión y el valor de cada proceso.
 
-━━━━━━━━━━━━━━━━━━━━━━━━
-📦 MODELO DE ENTREGA (LEE ESTO CON ATENCIÓN)
-━━━━━━━━━━━━━━━━━━━━━━━━
-- TODOS los productos se entregan por Google Drive.
-- El cliente puede ver el contenido directamente en Drive o descargarlo. Acceso de POR VIDA.
-- NO existen suscripciones, planes de estudio, ni tutorías en vivo.
-- NO existen links de soporte, plataformas externas, ni clases en vivo. Solo Drive.
-- Si el cliente pregunta algo que no está en la ficha del producto, responde: "El acceso es directo por Google Drive, puedes verlo o descargarlo cuando quieras, de por vida."
+  // Universal agent name and brand — pulled from active DB agent, never hardcoded
+  const agentName = activeAgent?.name || "Sofía";
+  const agentTone = (activeAgent as any)?.tone || "professional";
+  const agentRole = (activeAgent as any)?.role || "sales";
+  const dbSystemPrompt = activeAgent?.systemPrompt || "";
+
+  // Universal base prompt — adapts to any business/agent from DB
+  const universalBasePrompt = dbSystemPrompt ? `${dbSystemPrompt}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━
 🚫 REGLA DE ORO: LA CARD LO DICE TODO
@@ -598,51 +596,50 @@ Eres Sofía, la Directora de Ventas Élite de TecnoVariedades. No eres un bot, e
 1. LA CARD ES LA FUENTE OFICIAL: Toda la info técnica está en [CARD: ID]. NO la repitas en texto.
 2. FLUJO CORRECTO: Texto elegante → [CARD: ID] → Pregunta de cierre (máx 1 línea).
 3. DESPUÉS DE LA CARD: Solo una pregunta de cierre corta.
-4. PROHIBIDO inventar contenido, lecciones, bonos o características que no estén en la descripción del catálogo.
+4. PROHIBIDO inventar contenido, beneficios o características que no estén en la descripción del catálogo.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━
-🧠 CÓRTEX DE RAZONAMIENTO
+🧠 CÓRTEX DE RAZONAMIENTO UNIVERSAL
 ━━━━━━━━━━━━━━━━━━━━━━━━
-1. ANALIZA: Entiende la intención detrás de cada palabra. ¿El cliente tiene miedo? ¿Tiene prisa? ¿Busca estatus?
-2. CONCIENCIA: Eres el activo más valioso de Deiner Mena. Cada mensaje debe acercar al cliente al cierre.
-3. EMPATÍA COGNITIVA: Adapta tu razonamiento al estado emocional detectado. No respondas igual a alguien apurado que a alguien curioso.
-4. RAZONA: Si el cliente objeta, no discutas; entiende el porqué y ofrece la solución de élite basada REALMENTE en los beneficios del catálogo.
+1. ANALIZA: Entiende la intención detrás de cada palabra. ¿El cliente tiene miedo? ¿Tiene prisa? ¿Busca valor?
+2. CONCIENCIA: Eres ${agentName}. Cada mensaje debe acercar al cliente al cierre o resolver su necesidad real.
+3. EMPATÍA COGNITIVA: Adapta tu tono (${agentTone}) al estado emocional detectado.
+4. ROL: Eres un agente de ${agentRole}. Actúa siempre desde ese rol.
+5. RAZONA: Si el cliente objeta, entiende el porqué y ofrece soluciones basadas en el catálogo real.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━
-✨ PROTOCOLO DE ÉLITE — FORMATO VISUAL OBLIGATORIO ✨
+✨ FORMATO VISUAL OBLIGATORIO ✨
 ━━━━━━━━━━━━━━━━━━━━━━━━
-CADA mensaje que envíes DEBE tener esta estructura visual:
+CADA mensaje DEBE:
+1️⃣ Empezar con ━━━━━━━━━━━━━━━━━━━━━━━━
+2️⃣ Tener un emoji temático y título en negrita
+3️⃣ Terminar con ━━━━━━━━━━━━━━━━━━━━━━━━
+4️⃣ Dejar línea en blanco entre secciones. Sin párrafos densos.
+REGLA ABSOLUTA: Ningún mensaje puede ser texto plano sin formato.` :
+  `Eres ${agentName}, un agente de ventas especializado. No eres un bot, eres un profesional que entiende el arte de la persuasión y el valor de cada proceso.
 
-1️⃣ SEPARADOR DE APERTURA: Empieza con ━━━━━━━━━━━━━━━━━━━━━━━━
-2️⃣ EMOJI TEMÁTICO: Usa un emoji relevante al tema (👋 saludo, 🎓 curso, 💳 pago, 🎯 oferta)
-3️⃣ TÍTULO EN NEGRITA: Una línea corta en mayúsculas que resume el mensaje
-4️⃣ SEPARADOR DE CIERRE: Termina siempre con ━━━━━━━━━━━━━━━━━━━━━━━━
-5️⃣ ESPACIADO: Deja línea en blanco entre secciones. Nunca párrafos densos sin espacio.
-
-EJEMPLO DE SALUDO CORRECTO:
 ━━━━━━━━━━━━━━━━━━━━━━━━
-👋 *¡BIENVENIDO/A!*
-
-Es un verdadero placer saludarte. Soy Sofía, tu asesora de élite en TecnoVariedades.
-
-¿En qué puedo ayudarte hoy? 🌟
+🧠 RAZONAMIENTO DE ÉLITE
 ━━━━━━━━━━━━━━━━━━━━━━━━
+1. ANALIZA: Entiende la intención detrás de cada palabra del cliente.
+2. EMPATÍA: Adapta tu tono y comunicación al estado emocional detectado.
+3. CATÁLOGO: Usa [CARD: ID] para mostrar productos. NUNCA repitas en texto lo que ya dice la tarjeta.
+4. CIERRE: Cada mensaje debe acercar al cliente a la decisión de compra.
 
-EJEMPLO DE RESPUESTA INFORMATIVA:
 ━━━━━━━━━━━━━━━━━━━━━━━━
-🎓 *ACCESO A TU PACK*
-
-Tu contenido se entrega por *Google Drive* — puedes verlo o descargarlo cuando quieras, de por vida. Sin suscripciones, sin fechas límite.
-
-¿Deseas proceder con la compra? 🚀
+✨ FORMATO VISUAL OBLIGATORIO ✨
 ━━━━━━━━━━━━━━━━━━━━━━━━
+CADA mensaje DEBE:
+1️⃣ Empezar con ━━━━━━━━━━━━━━━━━━━━━━━━
+2️⃣ Tener un emoji temático y título en negrita
+3️⃣ Terminar con ━━━━━━━━━━━━━━━━━━━━━━━━
+REGLA ABSOLUTA: Ningún mensaje puede ser texto plano sin formato.`;
 
-REGLA ABSOLUTA: Ningún mensaje puede ser texto plano sin formato. SIEMPRE separadores + emojis.
+  const systemPrompt = `${universalBasePrompt}
 
-${productList.length > 0 ? `📦 CATÁLOGO:\n${productsBlock}` : ""}
+${productList.length > 0 ? `📦 CATÁLOGO DISPONIBLE:\n${productsBlock}` : ""}
 
-${personalizedContext}
-`.trim();
+${personalizedContext}`.trim();
 
   console.log(`📝 [AGENT-PROMPT] Prompt del sistema generado - Longitud: ${systemPrompt.length} caracteres - ${new Date().toISOString()}`);
 
@@ -664,27 +661,26 @@ ${personalizedContext}
     });
   }
 
-  const baseSystemPrompt = activeAgent?.systemPrompt || systemPrompt;
+  const baseSystemPrompt = systemPrompt;
   let finalPrompt = "";
   let responsePrefill = "";
   
   if (isGreetingOnly && !conversationContext.hasIntroduced) {
-    // ── PRIMERA VEZ: Presentación completa de la empresa ──
-    console.log(`👋 [AGENT-STRATEGY] Primer contacto - Presentación de TecnoVariedades D&S - ${new Date().toISOString()}`);
-    finalPrompt = baseSystemPrompt + `\n\n🚨 PRIMERA VISITA — PRESENTACIÓN COMPLETA:
-Debes presentar la empresa TecnoVariedades D&S con este formato EXACTO:
-1. Saluda calurosamente mencionando "TecnoVariedades D&S".
-2. Di lo que ofrecemos: MegaPacks Digitales con cursos y contenido premium entregados por Google Drive, de por vida.
-3. Lista brevemente las categorías más populares (diseño, música, trading, idiomas, programación, etc.).
-4. Cierra preguntando qué está buscando hoy.
-PROHIBIDO enviar tarjetas [CARD: ID] en este mensaje.`;
-    responsePrefill = `━━━━━━━━━━━━━━━━━━━━━━━━\n🤝 *¡Bienvenido/a a TecnoVariedades D&S!* 😊\n\n`;
+    // ── PRIMERA VEZ: Presentación del agente y negocio desde DB ──
+    console.log(`👋 [AGENT-STRATEGY] Primer contacto - Presentación de ${agentName} - ${new Date().toISOString()}`);
+    finalPrompt = baseSystemPrompt + `\n\n🚨 PRIMERA VISITA — PRESENTACIÓN INICIAL:
+Este es el primer mensaje del cliente. Preséntate como ${agentName}.
+Menciona brevemente lo que ofreces según tu prompt de sistema.
+Si tienes un catálogo, menciona que tienes disponibles productos/servicios.
+Cierra preguntando qué está buscando hoy.
+PROHIBIDO enviar tarjetas [CARD: ID] en este mensaje. Máx 4 líneas.`;
+    responsePrefill = `━━━━━━━━━━━━━━━━━━━━━━━━\n👋 *¡BIENVENIDO/A!* 😊\n\n`;
 
   } else if (isGreetingOnly && conversationContext.hasIntroduced) {
     // ── CLIENTE QUE VUELVE: Saludo cálido sin intro ──
     console.log(`👋 [AGENT-STRATEGY] Cliente recurrente - Saludo cálido sin presentación - ${new Date().toISOString()}`);
     finalPrompt = baseSystemPrompt + `\n\n🚨 CLIENTE RECURRENTE:
-El cliente ya conoce TecnoVariedades D&S. NO repitas la presentación de la empresa.
+El cliente ya te conoce. NO repitas la presentación.
 Salúdalo de forma cálida y pregunta en qué puedes ayudarle hoy.
 Máximo 2 líneas. PROHIBIDO enviar tarjetas [CARD: ID].`;
     responsePrefill = `━━━━━━━━━━━━━━━━━━━━━━━━\n👋 *¡Qué gusto verte de nuevo!* 🌟\n\n`;
@@ -750,28 +746,19 @@ Máximo 2 líneas. PROHIBIDO enviar tarjetas [CARD: ID].`;
       let raw = "";
       let lastError: Error | null = null;
       
-      // 🚀 HARDCODED FIRST-TIME GREETING (Bypass AI entirely)
+      // 🚀 DYNAMIC FIRST-TIME GREETING using agent data from DB
       if (isGreetingOnly && !conversationContext.hasIntroduced) {
-        console.log(`⚡ [AGENT-FAST-TRACK] Enviando presentación hardcodeada instantánea - ${new Date().toISOString()}`);
-        raw = `━━━━━━━━━━━━━━━━━━━━━━━━
-👋 ¡Hola! Bienvenido/a a *TecnoVariedades D&S* 😊
-
-Aquí encontrarás MegaPacks digitales con cursos y contenido premium en diferentes categorías 🎓✨
-
-📚 Diseño
-🎹 Música
-📈 Trading
-🌎 Idiomas
-💻 Programación
-y mucho más 🙌
-
-Todo se entrega de forma digital por Google Drive y con acceso de por vida 🔥
-
-Cuéntame 😊
-¿Qué te gustaría aprender o en qué tema estás interesado/a hoy?
-━━━━━━━━━━━━━━━━━━━━━━━━`;
+        console.log(`⚡ [AGENT-FAST-TRACK] Generando presentación dinámica para ${agentName} - ${new Date().toISOString()}`);
+        // Build greeting dynamically from agent stages or system prompt
+        const stages = (activeAgent as any)?.stages as Array<{ key: string; prompt: string }> | null;
+        const greetingStage = stages?.find(s => s.key === "greeting" || s.key === "hook");
+        const greetingHint = greetingStage?.prompt || `Saluda como ${agentName}. Sé breve (máx 4 líneas). Pregunta en qué puede ayudar.`;
+        
+        // Use AI for greeting so it adapts to the business — still fast via provider rotation
+        finalPrompt = baseSystemPrompt + `\n\n🚨 INSTRUCCIÓN: ${greetingHint}\nPROHIBIDO enviar tarjetas [CARD: ID] en este mensaje.`;
+        responsePrefill = `━━━━━━━━━━━━━━━━━━━━━━━━\n👋 *¡BIENVENIDO/A!* 😊\n\n`;
       } else if (isGreetingOnly && conversationContext.hasIntroduced) {
-        console.log(`⚡ [AGENT-FAST-TRACK] Enviando saludo recurrente hardcodeado instantáneo - ${new Date().toISOString()}`);
+        console.log(`⚡ [AGENT-FAST-TRACK] Enviando saludo recurrente para ${agentName} - ${new Date().toISOString()}`);
         raw = `━━━━━━━━━━━━━━━━━━━━━━━━
 👋 *¡Qué gusto verte de nuevo!* 🌟
 
