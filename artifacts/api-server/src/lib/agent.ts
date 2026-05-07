@@ -9,7 +9,7 @@ import {
   leads,
   settings as settingsTable,
 } from "@workspace/db";
-import { getProviderConfig, getProviderConfigFromSettings, createAIClient } from "@workspace/integrations-openai-ai-server";
+import { getProviderConfig, getProviderConfigFromDb, createAIClient, type ProviderDbConfig } from "@workspace/integrations-openai-ai-server";
 import { logger } from "./logger";
 import { PaymentGateway } from "./payments";
 import { 
@@ -863,45 +863,36 @@ ${personalizedContext}`.trim();
   const result = await executeWithFallback(
     async () => {
       console.log(`🔄 [AGENT-AI] Iniciando rotación de proveedores de IA - ${new Date().toISOString()}`);
-      // Enhanced provider rotation with health checking
-      const rotationQueue = [];
-      
-      // PRIORITY 1: Replit AI Proxy (OpenAI-compatible, no external key needed)
-      const replitConfig = getProviderConfig("replit");
-      if (replitConfig) {
-        rotationQueue.push({ config: replitConfig, source: "replit" });
-        console.log(`🚀 [AGENT-AI] Replit AI (${replitConfig.model}) como proveedor principal - ${new Date().toISOString()}`);
-      }
+      const rotationQueue: Array<{ config: ReturnType<typeof getProviderConfig> extends null ? never : NonNullable<ReturnType<typeof getProviderConfig>>; source: string }> = [];
 
-      // PRIORITY 2: GitHub (GPT-4o-mini) - requiere token válido
-      const envConfig = getProviderConfig("github");
-      if (envConfig && envConfig.apiKey !== replitConfig?.apiKey) {
-        rotationQueue.push({ config: envConfig, source: "environment" });
-        console.log(`🌍 [AGENT-AI] GitHub (${envConfig.model}) como respaldo - ${new Date().toISOString()}`);
-      }
-
-      // PRIORITY 3: Database Settings (Configuración manual del Dashboard)
-      const dbConfig = appSettings ? getProviderConfigFromSettings(appSettings) : null;
-      if (dbConfig && dbConfig.apiKey !== replitConfig?.apiKey && dbConfig.apiKey !== envConfig?.apiKey) {
-        rotationQueue.push({ config: dbConfig, source: "database" });
-        console.log(`📊 [AGENT-AI] Proveedor de BD agregado como respaldo: ${dbConfig.model} - ${new Date().toISOString()}`);
-      }
-
-      // PRIORITY 4: NVIDIA (llama-3.1-70b) — necesita NVIDIA_API_KEY
-      const nvidiaConfig = getProviderConfig("nvidia");
-      if (nvidiaConfig && nvidiaConfig.apiKey !== replitConfig?.apiKey && nvidiaConfig.apiKey !== envConfig?.apiKey) {
-        rotationQueue.push({ config: nvidiaConfig, source: "nvidia" });
-        console.log(`🟢 [AGENT-AI] NVIDIA (${nvidiaConfig.model}) en rotación - ${new Date().toISOString()}`);
-      }
-
-      // PRIORITY 5: Ollama EasyPanel — funciona sin key externa
-      const ollamaConfig = getProviderConfig("ollama_local");
-      if (ollamaConfig) {
-        const alreadyQueued = rotationQueue.some(q => q.config.baseUrl === ollamaConfig.baseUrl);
+      function addToQueue(config: ReturnType<typeof getProviderConfig>, source: string) {
+        if (!config) return;
+        const alreadyQueued = rotationQueue.some(
+          q => q.config.baseUrl === config.baseUrl && q.config.model === config.model
+        );
         if (!alreadyQueued) {
-          rotationQueue.push({ config: ollamaConfig, source: "ollama" });
-          console.log(`🦙 [AGENT-AI] Ollama (${ollamaConfig.model}) como último fallback - ${new Date().toISOString()}`);
+          rotationQueue.push({ config, source });
+          console.log(`✅ [AGENT-AI] [${source}] ${config.model} añadido a rotación - ${new Date().toISOString()}`);
         }
+      }
+
+      // PRIORITY 1: Replit AI Proxy — solo disponible en desarrollo Replit
+      addToQueue(getProviderConfig("replit"), "replit");
+
+      // PRIORITY 2-N: Cadena configurada en el Dashboard (primaryProvider + fallbacks)
+      const dbProviders = (appSettings?.aiProvidersConfig as Record<string, ProviderDbConfig>) || {};
+      const primaryFromDb = appSettings?.aiProvider || "github";
+      const fallbacksFromDb = (appSettings?.aiProviderFallbacks as string[]) || [];
+      const dbChain = [primaryFromDb, ...fallbacksFromDb];
+
+      for (const provId of dbChain) {
+        addToQueue(getProviderConfigFromDb(provId, dbProviders), `db:${provId}`);
+      }
+
+      // EXTRA: Proveedores de env que no estén ya en la cola (seguro de último recurso)
+      const envFallbacks = ["github", "nvidia", "ollama_cloud", "ollama_local"];
+      for (const provId of envFallbacks) {
+        addToQueue(getProviderConfig(provId), `env:${provId}`);
       }
 
       // Check if any AI providers are healthy

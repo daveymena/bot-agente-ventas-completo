@@ -73,6 +73,7 @@ PAYPAL_CLIENT_ID = "BAAtdQwVN8LvIoRstmHZWlo2ndcJBP8dFZdXLc8HJGdYUXstriO6mO0GJMZi
 PAYPAL_CLIENT_SECRET = "EP5jZdzbUuHva4I8ERnbNYSHQ_BNe0niXQe91Bvf33Kl88nRKY-ivRx0_PGERS72JbjQSiMr63y9lEEL"
 SMTP_PASS = "uccj yqpq vqlt vcie"
 GITHUB_TOKEN = "GITHUB_PERSONAL_ACCESS_TOKEN"
+OLLAMA_CLOUD_URL = "https://tecnovariedades-ollama.er7iaf.easypanel.host"
 
 [nix]
 channel = "stable-25_05"

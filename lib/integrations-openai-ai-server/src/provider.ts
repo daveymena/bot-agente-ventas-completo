@@ -15,46 +15,48 @@ export interface ProviderDbConfig {
 
 // All supported providers with their OpenAI-compatible endpoints
 export const PROVIDER_BASE_URLS: Record<string, string> = {
-  replit:      "", // dynamic — from AI_INTEGRATIONS_OPENAI_BASE_URL
-  github:      "https://models.inference.ai.azure.com",
-  openai:      "https://api.openai.com/v1",
-  anthropic:   "https://api.anthropic.com/v1",
-  gemini:      "https://generativelanguage.googleapis.com/v1beta/openai",
-  groq:        "https://api.groq.com/openai/v1",
-  mistral:     "https://api.mistral.ai/v1",
-  deepseek:    "https://api.deepseek.com/v1",
-  openrouter:  "https://openrouter.ai/api/v1",
-  together:    "https://api.together.xyz/v1",
-  nvidia:      "https://integrate.api.nvidia.com/v1",
-  ollama_local: "", // dynamic
+  replit:       "", // dynamic — from AI_INTEGRATIONS_OPENAI_BASE_URL
+  github:       "https://models.inference.ai.azure.com",
+  openai:       "https://api.openai.com/v1",
+  anthropic:    "https://api.anthropic.com/v1",
+  gemini:       "https://generativelanguage.googleapis.com/v1beta/openai",
+  groq:         "https://api.groq.com/openai/v1",
+  mistral:      "https://api.mistral.ai/v1",
+  deepseek:     "https://api.deepseek.com/v1",
+  openrouter:   "https://openrouter.ai/api/v1",
+  together:     "https://api.together.xyz/v1",
+  nvidia:       "https://integrate.api.nvidia.com/v1",
+  ollama_local: "", // dynamic — from OLLAMA_LOCAL_URL env or DB url field
+  ollama_cloud: "", // dynamic — from OLLAMA_CLOUD_URL env or DB url field
 };
 
 export const PROVIDER_DEFAULT_MODELS: Record<string, string> = {
-  github:      "gpt-4o-mini",
-  openai:      "gpt-4o-mini",
-  anthropic:   "claude-3-5-haiku-20241022",
-  gemini:      "gemini-1.5-flash",
-  groq:        "llama-3.1-8b-instant",
-  mistral:     "mistral-small-latest",
-  deepseek:    "deepseek-chat",
-  openrouter:  "openai/gpt-4o-mini",
-  together:    "meta-llama/Llama-3-8b-chat-hf",
-  nvidia:      "meta/llama-3.3-70b-instruct",
-  ollama_local: "hermes3:8b",
+  github:       "gpt-4o-mini",
+  openai:       "gpt-4o-mini",
+  anthropic:    "claude-3-5-haiku-20241022",
+  gemini:       "gemini-1.5-flash",
+  groq:         "llama-3.1-8b-instant",
+  mistral:      "mistral-small-latest",
+  deepseek:     "deepseek-chat",
+  openrouter:   "openai/gpt-4o-mini",
+  together:     "meta-llama/Llama-3-8b-chat-hf",
+  nvidia:       "meta/llama-3.1-70b-instruct",
+  ollama_local: "llama3.2:3b",
+  ollama_cloud: "gpt-oss:20b-cloud",
 };
 
 export const PROVIDER_ENV_KEYS: Record<string, string> = {
-  replit:      "AI_INTEGRATIONS_OPENAI_API_KEY",
-  github:      "GITHUB_TOKEN",
-  openai:      "OPENAI_API_KEY",
-  anthropic:   "ANTHROPIC_API_KEY",
-  gemini:      "GEMINI_API_KEY",
-  groq:        "GROQ_API_KEY",
-  mistral:     "MISTRAL_API_KEY",
-  deepseek:    "DEEPSEEK_API_KEY",
-  openrouter:  "OPENROUTER_API_KEY",
-  together:    "TOGETHER_API_KEY",
-  nvidia:      "NVIDIA_API_KEY",
+  replit:       "AI_INTEGRATIONS_OPENAI_API_KEY",
+  github:       "GITHUB_TOKEN",
+  openai:       "OPENAI_API_KEY",
+  anthropic:    "ANTHROPIC_API_KEY",
+  gemini:       "GEMINI_API_KEY",
+  groq:         "GROQ_API_KEY",
+  mistral:      "MISTRAL_API_KEY",
+  deepseek:     "DEEPSEEK_API_KEY",
+  openrouter:   "OPENROUTER_API_KEY",
+  together:     "TOGETHER_API_KEY",
+  nvidia:       "NVIDIA_API_KEY",
 };
 
 // Resolve the GitHub token from env — GITHUB_TOKEN may contain a placeholder literal;
@@ -100,7 +102,16 @@ export function getProviderConfig(provider: string): AIProviderConfig | null {
     return {
       baseUrl: url + "/v1",
       apiKey: "ollama",
-      model: process.env.OLLAMA_LOCAL_MODEL || "hermes3:8b",
+      model: process.env.OLLAMA_LOCAL_MODEL || "llama3.2:3b",
+    };
+  }
+  if (provider === "ollama_cloud") {
+    const url = process.env.OLLAMA_CLOUD_URL || process.env.OLLAMA_LOCAL_URL;
+    if (!url) return null;
+    return {
+      baseUrl: url + "/v1",
+      apiKey: "ollama",
+      model: process.env.OLLAMA_CLOUD_MODEL || "gpt-oss:20b-cloud",
     };
   }
 
@@ -129,13 +140,19 @@ export function getProviderConfigFromDb(
 ): AIProviderConfig | null {
   const cfg = dbProviders[provider];
 
-  if (provider === "ollama_local") {
-    const url = cfg?.url || process.env.OLLAMA_LOCAL_URL;
+  if (provider === "ollama_local" || provider === "ollama_cloud") {
+    const defaultEnvUrl = provider === "ollama_cloud"
+      ? (process.env.OLLAMA_CLOUD_URL || process.env.OLLAMA_LOCAL_URL)
+      : process.env.OLLAMA_LOCAL_URL;
+    const url = cfg?.url || defaultEnvUrl;
     if (!url) return null;
+    const defaultModel = provider === "ollama_cloud"
+      ? (process.env.OLLAMA_CLOUD_MODEL || "gpt-oss:20b-cloud")
+      : (process.env.OLLAMA_LOCAL_MODEL || "llama3.2:3b");
     return {
       baseUrl: url + "/v1",
       apiKey: "ollama",
-      model: cfg?.model || process.env.OLLAMA_LOCAL_MODEL || "hermes3:8b",
+      model: cfg?.model || defaultModel,
     };
   }
 

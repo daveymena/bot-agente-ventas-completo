@@ -18,7 +18,7 @@ const router = Router();
 const ALL_PROVIDERS = [
   "github", "openai", "anthropic", "gemini",
   "groq", "mistral", "deepseek", "openrouter",
-  "together", "nvidia", "ollama_local",
+  "together", "nvidia", "ollama_local", "ollama_cloud",
 ];
 
 async function getOrCreateSettings() {
@@ -41,15 +41,31 @@ router.get("/", async (_req, res, next) => {
       const envKey = PROVIDER_ENV_KEYS[id];
       const hasEnvKey = !!(envKey && process.env[envKey]);
       const hasDbKey = !!(cfg.apiKey && cfg.apiKey.length > 4);
-      const configured = hasEnvKey || hasDbKey;
+
+      // Ollama providers are configured if they have a URL (DB or env) — no API key needed
+      const isOllama = id === "ollama_local" || id === "ollama_cloud";
+      const ollamaUrl = cfg.url || (id === "ollama_cloud"
+        ? (process.env.OLLAMA_CLOUD_URL || process.env.OLLAMA_LOCAL_URL)
+        : process.env.OLLAMA_LOCAL_URL);
+      const hasOllamaUrl = isOllama && !!ollamaUrl;
+
+      const configured = hasEnvKey || hasDbKey || hasOllamaUrl;
+      const effectiveUrl = cfg.url || (isOllama ? ollamaUrl || "" : "");
+
       return {
         id,
-        model: cfg.model || process.env[`${id.toUpperCase()}_MODEL`] || PROVIDER_DEFAULT_MODELS[id] || "gpt-4o-mini",
+        model: cfg.model
+          || (id === "ollama_cloud" ? process.env.OLLAMA_CLOUD_MODEL : undefined)
+          || (id === "ollama_local" ? process.env.OLLAMA_LOCAL_MODEL : undefined)
+          || process.env[`${id.toUpperCase()}_MODEL`]
+          || PROVIDER_DEFAULT_MODELS[id]
+          || "gpt-4o-mini",
         enabled: cfg.enabled !== false && configured,
         configured,
-        keySource: hasDbKey ? "db" : hasEnvKey ? "env" : "none",
-        apiKeyMasked: hasDbKey ? cfg.apiKey!.slice(0, 6) + "••••••••••••" : hasEnvKey ? "(desde .env)" : "",
-        url: cfg.url || "",
+        keySource: hasDbKey ? "db" : (hasEnvKey || hasOllamaUrl) ? "env" : "none",
+        apiKeyMasked: hasDbKey ? cfg.apiKey!.slice(0, 6) + "••••••••••••"
+          : hasOllamaUrl ? "(URL desde .env)" : hasEnvKey ? "(desde .env)" : "",
+        url: effectiveUrl,
       };
     });
 

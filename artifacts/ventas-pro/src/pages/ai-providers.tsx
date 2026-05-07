@@ -14,18 +14,25 @@ import {
 
 const PROVIDER_META: Record<string, {
   name: string; emoji: string; color: string; description: string;
-  freeNote?: string; docsUrl: string;
+  freeNote?: string; docsUrl: string; hasUrl?: boolean;
   models: Array<{ id: string; label: string; note?: string }>;
 }> = {
   github: {
     name: "GitHub Models", emoji: "🐙", color: "bg-gray-500/10 border-gray-500/20 text-gray-300",
-    description: "Acceso gratuito a GPT-4o, Claude y Llama via GitHub. Configura el GITHUB_TOKEN en .env.",
-    freeNote: "Gratis con GitHub", docsUrl: "https://github.com/marketplace/models",
+    description: "Acceso gratuito a GPT-4o, Claude, Llama y más via GitHub. Solo necesitas un GitHub Token.",
+    freeNote: "Gratis con GitHub", docsUrl: "https://github.com/settings/tokens/new?description=VentasPro-Models&scopes=",
     models: [
       { id: "gpt-4o-mini", label: "GPT-4o Mini", note: "Rápido y económico" },
       { id: "gpt-4o", label: "GPT-4o", note: "Más capaz" },
+      { id: "claude-sonnet-4-5", label: "Claude Sonnet 4.5", note: "Excelente para ventas" },
       { id: "Meta-Llama-3.1-70B-Instruct", label: "Llama 3.1 70B" },
+      { id: "Meta-Llama-3.1-405B-Instruct", label: "Llama 3.1 405B", note: "El más potente" },
+      { id: "Meta-Llama-3.3-70B-Instruct", label: "Llama 3.3 70B" },
       { id: "Mistral-large-2407", label: "Mistral Large" },
+      { id: "Mistral-small", label: "Mistral Small" },
+      { id: "Phi-3.5-MoE-instruct", label: "Phi 3.5 MoE", note: "Ligero y rápido" },
+      { id: "AI21-Jamba-1.5-Large", label: "Jamba 1.5 Large" },
+      { id: "Cohere-command-r-plus-08-2024", label: "Cohere Command R+" },
     ],
   },
   openai: {
@@ -36,27 +43,32 @@ const PROVIDER_META: Record<string, {
       { id: "gpt-4o-mini", label: "GPT-4o Mini", note: "Económico y rápido" },
       { id: "gpt-4o", label: "GPT-4o", note: "Mejor calidad" },
       { id: "gpt-4-turbo", label: "GPT-4 Turbo" },
+      { id: "gpt-4.1-mini", label: "GPT-4.1 Mini", note: "Más reciente" },
       { id: "gpt-3.5-turbo", label: "GPT-3.5 Turbo", note: "El más barato" },
+      { id: "o1-mini", label: "o1 Mini", note: "Razonamiento" },
     ],
   },
   anthropic: {
     name: "Anthropic Claude", emoji: "🧠", color: "bg-orange-500/10 border-orange-500/20 text-orange-300",
-    description: "Claude 3.5 y Claude Haiku — excelente para redacción, análisis y conversaciones largas.",
+    description: "Claude — excelente para redacción, ventas y conversaciones largas.",
     docsUrl: "https://console.anthropic.com/",
     models: [
       { id: "claude-3-5-haiku-20241022", label: "Claude 3.5 Haiku", note: "Rápido y económico" },
       { id: "claude-3-5-sonnet-20241022", label: "Claude 3.5 Sonnet", note: "Balance calidad/precio" },
       { id: "claude-opus-4-5", label: "Claude Opus 4.5", note: "Máxima calidad" },
+      { id: "claude-sonnet-4-5", label: "Claude Sonnet 4.5", note: "Nuevo 2025" },
     ],
   },
   gemini: {
     name: "Google Gemini", emoji: "💎", color: "bg-blue-500/10 border-blue-500/20 text-blue-300",
-    description: "Gemini 1.5 Flash y Pro de Google. Muy rápido, contexto masivo de 1M tokens.",
+    description: "Gemini de Google. Muy rápido, contexto masivo de 1M tokens.",
     docsUrl: "https://aistudio.google.com/app/apikey",
     models: [
-      { id: "gemini-1.5-flash", label: "Gemini 1.5 Flash", note: "Ultrarrápido, gratis" },
+      { id: "gemini-1.5-flash", label: "Gemini 1.5 Flash", note: "Ultrarrápido" },
+      { id: "gemini-1.5-flash-8b", label: "Gemini 1.5 Flash 8B", note: "El más barato" },
       { id: "gemini-1.5-pro", label: "Gemini 1.5 Pro", note: "1M tokens contexto" },
       { id: "gemini-2.0-flash", label: "Gemini 2.0 Flash", note: "Más reciente" },
+      { id: "gemini-2.0-flash-lite", label: "Gemini 2.0 Flash Lite", note: "Económico 2025" },
     ],
   },
   groq: {
@@ -65,9 +77,13 @@ const PROVIDER_META: Record<string, {
     freeNote: "Tier gratis disponible", docsUrl: "https://console.groq.com/keys",
     models: [
       { id: "llama-3.1-8b-instant", label: "Llama 3.1 8B Instant", note: "El más rápido" },
+      { id: "llama-3.2-3b-preview", label: "Llama 3.2 3B", note: "Ultraligero" },
       { id: "llama-3.3-70b-versatile", label: "Llama 3.3 70B Versatile", note: "Más capaz" },
+      { id: "llama3-8b-8192", label: "Llama 3 8B" },
+      { id: "llama3-70b-8192", label: "Llama 3 70B" },
       { id: "mixtral-8x7b-32768", label: "Mixtral 8x7B" },
       { id: "gemma2-9b-it", label: "Gemma 2 9B" },
+      { id: "deepseek-r1-distill-llama-70b", label: "DeepSeek R1 Distill 70B", note: "Razonamiento" },
     ],
   },
   mistral: {
@@ -76,8 +92,11 @@ const PROVIDER_META: Record<string, {
     docsUrl: "https://console.mistral.ai/api-keys/",
     models: [
       { id: "mistral-small-latest", label: "Mistral Small", note: "Precio/calidad ideal" },
-      { id: "mistral-large-latest", label: "Mistral Large" },
+      { id: "mistral-medium-latest", label: "Mistral Medium" },
+      { id: "mistral-large-latest", label: "Mistral Large", note: "Máxima calidad" },
       { id: "open-mixtral-8x7b", label: "Mixtral 8x7B", note: "Open source" },
+      { id: "open-mixtral-8x22b", label: "Mixtral 8x22B" },
+      { id: "codestral-latest", label: "Codestral", note: "Para código" },
     ],
   },
   deepseek: {
@@ -95,36 +114,72 @@ const PROVIDER_META: Record<string, {
     docsUrl: "https://openrouter.ai/keys",
     models: [
       { id: "openai/gpt-4o-mini", label: "OpenAI GPT-4o Mini" },
+      { id: "openai/gpt-4o", label: "OpenAI GPT-4o" },
       { id: "anthropic/claude-3.5-sonnet", label: "Claude 3.5 Sonnet" },
       { id: "meta-llama/llama-3.1-8b-instruct:free", label: "Llama 3.1 8B (Gratis)" },
+      { id: "meta-llama/llama-3.3-70b-instruct:free", label: "Llama 3.3 70B (Gratis)" },
       { id: "google/gemini-flash-1.5", label: "Gemini Flash 1.5" },
       { id: "mistralai/mistral-7b-instruct:free", label: "Mistral 7B (Gratis)" },
+      { id: "deepseek/deepseek-r1:free", label: "DeepSeek R1 (Gratis)" },
+      { id: "qwen/qwen-2.5-72b-instruct:free", label: "Qwen 2.5 72B (Gratis)" },
     ],
   },
   nvidia: {
     name: "NVIDIA NIM", emoji: "🎮", color: "bg-green-600/10 border-green-600/20 text-green-400",
-    description: "Modelos optimizados en GPU de NVIDIA — Llama 3 y Mistral a alta velocidad.",
-    docsUrl: "https://build.nvidia.com/",
+    description: "Modelos optimizados en GPU de NVIDIA — Llama, Mistral, Qwen y DeepSeek a alta velocidad.",
+    docsUrl: "https://build.nvidia.com/settings/api-keys",
     models: [
-      { id: "meta/llama-3.3-70b-instruct", label: "Llama 3.3 70B" },
+      { id: "meta/llama-3.1-8b-instruct", label: "Llama 3.1 8B", note: "Rápido y ligero" },
+      { id: "meta/llama-3.1-70b-instruct", label: "Llama 3.1 70B", note: "Recomendado" },
+      { id: "meta/llama-3.3-70b-instruct", label: "Llama 3.3 70B", note: "Más reciente" },
+      { id: "meta/llama-3.1-405b-instruct", label: "Llama 3.1 405B", note: "El más potente" },
+      { id: "nvidia/llama-3.1-nemotron-70b-instruct", label: "Nemotron 70B", note: "NVIDIA optimizado" },
+      { id: "mistralai/mistral-7b-instruct-v0.3", label: "Mistral 7B" },
+      { id: "mistralai/mixtral-8x7b-instruct-v0.1", label: "Mixtral 8x7B" },
       { id: "mistralai/mixtral-8x22b-instruct-v0.1", label: "Mixtral 8x22B" },
+      { id: "qwen/qwen2.5-72b-instruct", label: "Qwen 2.5 72B" },
+      { id: "deepseek-ai/deepseek-r1", label: "DeepSeek R1", note: "Razonamiento" },
+      { id: "google/gemma-3-27b-it", label: "Gemma 3 27B" },
     ],
   },
   ollama_local: {
-    name: "Ollama (Local)", emoji: "🏠", color: "bg-slate-500/10 border-slate-500/20 text-slate-300",
-    description: "Corre modelos 100% locales en tu servidor. Privacidad total, sin costo por token.",
-    docsUrl: "https://ollama.ai/",
+    name: "Ollama Local", emoji: "🏠", color: "bg-slate-500/10 border-slate-500/20 text-slate-300",
+    description: "Modelos 100% locales en tu propio servidor. Privacidad total, sin costo por token.",
+    freeNote: "Sin costo por token", docsUrl: "https://ollama.ai/", hasUrl: true,
     models: [
-      { id: "hermes3:8b", label: "Hermes 3 8B" },
-      { id: "llama3.1", label: "Llama 3.1 8B" },
-      { id: "mistral", label: "Mistral 7B" },
-      { id: "deepseek-r1:7b", label: "DeepSeek R1 7B" },
+      { id: "llama3.2:3b", label: "Llama 3.2 3B", note: "Ligero y rápido" },
+      { id: "llama3.2:1b", label: "Llama 3.2 1B", note: "Ultraligero" },
+      { id: "llama3.1:8b", label: "Llama 3.1 8B" },
+      { id: "llama3.1:70b", label: "Llama 3.1 70B" },
+      { id: "mistral:7b", label: "Mistral 7B" },
+      { id: "mistral-nemo", label: "Mistral Nemo 12B" },
+      { id: "deepseek-r1:7b", label: "DeepSeek R1 7B", note: "Razonamiento" },
+      { id: "deepseek-r1:14b", label: "DeepSeek R1 14B" },
       { id: "qwen2.5:7b", label: "Qwen 2.5 7B" },
+      { id: "qwen2.5:14b", label: "Qwen 2.5 14B" },
+      { id: "gemma3:4b", label: "Gemma 3 4B" },
+      { id: "gemma3:12b", label: "Gemma 3 12B" },
+      { id: "phi4:14b", label: "Phi-4 14B" },
+      { id: "phi4-mini:3.8b", label: "Phi-4 Mini 3.8B", note: "Rápido" },
+      { id: "hermes3:8b", label: "Hermes 3 8B" },
+    ],
+  },
+  ollama_cloud: {
+    name: "Ollama Cloud (EasyPanel)", emoji: "☁️", color: "bg-sky-500/10 border-sky-500/20 text-sky-300",
+    description: "Modelos cloud potentes vía tu instancia Ollama de EasyPanel. Requiere suscripción Ollama Pro.",
+    freeNote: "Requiere Ollama Pro", docsUrl: "https://ollama.com/", hasUrl: true,
+    models: [
+      { id: "gpt-oss:20b-cloud", label: "GPT-OSS 20B", note: "Recomendado" },
+      { id: "gpt-oss:120b-cloud", label: "GPT-OSS 120B", note: "Más potente" },
+      { id: "deepseek-v3.1:671b-cloud", label: "DeepSeek V3.1 671B", note: "Enorme" },
+      { id: "qwen3-coder:480b-cloud", label: "Qwen3 Coder 480B", note: "Para código" },
+      { id: "qwen3.5:cloud", label: "Qwen 3.5 Cloud" },
+      { id: "minimax-m2.7:cloud", label: "MiniMax M2.7" },
     ],
   },
 };
 
-const ORDER = ["github", "openai", "anthropic", "gemini", "groq", "mistral", "deepseek", "openrouter", "nvidia", "ollama_local"];
+const ORDER = ["github", "openai", "anthropic", "gemini", "groq", "mistral", "deepseek", "openrouter", "nvidia", "ollama_local", "ollama_cloud"];
 
 interface ProviderStatus {
   id: string; model: string; enabled: boolean; configured: boolean;
@@ -415,9 +470,11 @@ export default function AIProvidersPage() {
                       </Select>
 
                       {/* API Key or URL input */}
-                      {id === "ollama_local" ? (
+                      {meta.hasUrl ? (
                         <Input
-                          placeholder="URL de Ollama (ej: http://localhost:11434)"
+                          placeholder={id === "ollama_cloud"
+                            ? "URL Ollama Cloud (ej: https://mi-ollama.easypanel.host)"
+                            : "URL Ollama Local (ej: http://localhost:11434)"}
                           value={urls[id] || ""}
                           onChange={e => setUrls(prev => ({ ...prev, [id]: e.target.value }))}
                           className="h-8 text-xs border-white/10 bg-background/50 font-mono"
