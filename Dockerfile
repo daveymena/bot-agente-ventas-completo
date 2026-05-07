@@ -1,4 +1,4 @@
-FROM node:20-slim AS base
+FROM node:22-slim AS base
 
 ENV PNPM_HOME="/pnpm"
 ENV PATH="$PNPM_HOME:$PATH"
@@ -29,7 +29,7 @@ COPY lib/integrations/openai_ai_integrations/package.json ./lib/integrations/ope
 COPY scripts/package.json ./scripts/
 
 # Instalar dependencias
-RUN pnpm install --frozen-lockfile
+RUN pnpm install --frozen-lockfile --no-optional
 
 # Copiar el resto del código
 COPY . .
@@ -38,7 +38,7 @@ COPY . .
 RUN pnpm run build
 
 # Etapa final para ejecución ligera
-FROM node:20-slim
+FROM node:22-slim
 
 WORKDIR /app
 RUN corepack enable
