@@ -197,16 +197,33 @@ export default function DropiPage() {
               </div>
             ) : (
               <div className="space-y-4">
-                <div className="p-3 rounded-lg bg-yellow-500/5 border border-yellow-500/20">
-                  <p className="text-xs text-yellow-400 flex items-start gap-2">
-                    <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
-                    <span>
-                      Para obtener tu token de Dropi, ingresa a{" "}
-                      <a href="https://app.dropi.co" target="_blank" rel="noreferrer"
-                        className="underline hover:text-yellow-300">app.dropi.co</a>
-                      {" "}→ Configuración → API Token
-                    </span>
+                <div className="p-4 rounded-lg bg-yellow-500/5 border border-yellow-500/20 space-y-3">
+                  <p className="text-xs font-semibold text-yellow-300 flex items-center gap-2">
+                    <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                    ¿Cómo obtener tu token de acceso de Dropi?
                   </p>
+                  <ol className="text-xs text-yellow-200/80 space-y-2 list-none">
+                    <li className="flex gap-2">
+                      <span className="w-5 h-5 rounded-full bg-yellow-500/20 text-yellow-300 flex items-center justify-center shrink-0 text-[10px] font-bold">1</span>
+                      <span>Abre <a href="https://app.dropi.co" target="_blank" rel="noreferrer" className="underline hover:text-yellow-100">app.dropi.co</a> en tu navegador e inicia sesión con tu cuenta Dropi</span>
+                    </li>
+                    <li className="flex gap-2">
+                      <span className="w-5 h-5 rounded-full bg-yellow-500/20 text-yellow-300 flex items-center justify-center shrink-0 text-[10px] font-bold">2</span>
+                      <span>Presiona <kbd className="px-1 py-0.5 bg-black/30 rounded text-[10px] font-mono">F12</kbd> para abrir las Herramientas de Desarrollador</span>
+                    </li>
+                    <li className="flex gap-2">
+                      <span className="w-5 h-5 rounded-full bg-yellow-500/20 text-yellow-300 flex items-center justify-center shrink-0 text-[10px] font-bold">3</span>
+                      <span>Ve a la pestaña <strong>Application</strong> (o Aplicación) → <strong>Local Storage</strong> → <code className="text-[10px] bg-black/30 px-1 rounded">https://app.dropi.co</code></span>
+                    </li>
+                    <li className="flex gap-2">
+                      <span className="w-5 h-5 rounded-full bg-yellow-500/20 text-yellow-300 flex items-center justify-center shrink-0 text-[10px] font-bold">4</span>
+                      <span>Busca la clave <code className="text-[10px] bg-black/30 px-1 rounded">token</code> o <code className="text-[10px] bg-black/30 px-1 rounded">access_token</code> — copia su valor (empieza con <code className="text-[10px] bg-black/30 px-1 rounded">eyJ...</code>)</span>
+                    </li>
+                    <li className="flex gap-2">
+                      <span className="w-5 h-5 rounded-full bg-yellow-500/20 text-yellow-300 flex items-center justify-center shrink-0 text-[10px] font-bold">5</span>
+                      <span>Pega ese token aquí abajo. <strong>Nota:</strong> el token de integración WooCommerce no funciona — necesitas el token de sesión de tu cuenta</span>
+                    </li>
+                  </ol>
                 </div>
                 <div className="flex gap-2">
                   <div className="relative flex-1">

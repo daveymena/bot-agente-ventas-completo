@@ -66,10 +66,28 @@ router.post("/connect", async (req, res, next) => {
     const { token } = z.object({ token: z.string().min(10) }).parse(req.body);
     const s = await getOrCreateSettings();
 
+    // Detect WooCommerce integration token (wrong type)
+    try {
+      const payload = JSON.parse(Buffer.from(token.split(".")[1]!, "base64").toString());
+      if (payload.aud === "WOOCOMMERCE" || payload.token_type === "INTEGRATIONS") {
+        return res.status(400).json({
+          ok: false,
+          error: "WRONG_TOKEN_TYPE",
+          message: "Este es un token de integración WooCommerce, no el token de acceso general de Dropi. Necesitas copiar tu token de sesión desde el navegador.",
+        });
+      }
+    } catch {
+      // Not a JWT or can't decode — proceed normally
+    }
+
     // Test the token against Dropi
     const result = await dropiRequest("/api/shops/store", "GET", token);
     if (!result.ok) {
-      return res.status(400).json({ ok: false, error: result.error || "Token inválido" });
+      const msg = result.error || "Token inválido";
+      const hint = msg.includes("not issued to this api")
+        ? "WRONG_TOKEN_TYPE"
+        : undefined;
+      return res.status(400).json({ ok: false, error: hint || msg, message: msg });
     }
 
     const storeId = result.data?.objects?.[0]?.id || result.data?.id || null;
