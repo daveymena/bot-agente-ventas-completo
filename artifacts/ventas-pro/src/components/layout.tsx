@@ -10,7 +10,9 @@ import {
   Terminal,
   Badge,
   Wand2,
-  CreditCard
+  CreditCard,
+  ShoppingCart,
+  TrendingUp
 } from "lucide-react";
 import { Sidebar, SidebarContent, SidebarHeader, SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarProvider, SidebarTrigger, SidebarGroup, SidebarGroupContent } from "./ui/sidebar";
 import { Badge as UiBadge } from "@/components/ui/badge";
@@ -27,6 +29,8 @@ export function AppSidebar() {
     { label: "Productos", href: "/products", icon: Package },
     { label: "WhatsApp", href: "/whatsapp", icon: Phone },
     { label: "Arquitecto IA", href: "/code-agent", icon: Wand2 },
+    { label: "WooCommerce", href: "/woocommerce", icon: ShoppingCart },
+    { label: "Nichos Drop", href: "/niches", icon: TrendingUp },
     { label: "Facturación", href: "/billing", icon: CreditCard },
     { label: "Configuración", href: "/settings", icon: Settings },
   ];

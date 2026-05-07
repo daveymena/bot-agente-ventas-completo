@@ -11,3 +11,4 @@ export * from "./whatsapp";
 export * from "./paymentLinks";
 export * from "./follow_ups";
 export * from "./subscriptions";
+export * from "./woocommerce";

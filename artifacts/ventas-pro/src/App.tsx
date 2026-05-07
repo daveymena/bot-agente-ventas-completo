@@ -14,6 +14,8 @@ import Settings from "@/pages/settings";
 import CodeAgent from "@/pages/code-agent";
 import AuthPage from "@/pages/auth";
 import Billing from "@/pages/billing";
+import WooCommercePage from "@/pages/woocommerce";
+import NichesPage from "@/pages/niches";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -52,6 +54,8 @@ function Router() {
       <Route path="/settings" component={Settings} />
       <Route path="/code-agent" component={CodeAgent} />
       <Route path="/billing" component={Billing} />
+      <Route path="/woocommerce" component={WooCommercePage} />
+      <Route path="/niches" component={NichesPage} />
       <Route path="/auth" component={AuthPage} />
       <Route component={NotFound} />
     </Switch>
