@@ -53,8 +53,9 @@ Dashboard para gestionar un bot de ventas por WhatsApp con:
 
 ## User preferences
 
-- Usuario admin: deinermena25@gmail.com / Dvd6715320
-- Tenant slug: tecnovariedades
+- Usuario admin EasyPanel: daveymena16@gmail.com / 6715320Dvd (tenant slug: sofia-premium)
+- Usuario admin Replit DB (dev vacía): deinermena25@gmail.com / Dvd6715320 (tenant slug: tecnovariedades)
+- BD activa: EXTERNAL_DATABASE_URL → EasyPanel (79.143.187.160:5432/tecnovariedades-db)
 - Moneda: COP (Colombia)
 - Zona horaria: America/Bogota
 - Número de transferencia: 3136174267 (Deiner Mena)
