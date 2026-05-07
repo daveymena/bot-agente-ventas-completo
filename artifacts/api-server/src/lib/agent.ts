@@ -98,15 +98,52 @@ async function updateConversationStage(convo: any, lastText: string, res: any, c
 
 function formatPrice(price: number, currency: string) {
   try {
-    return new Intl.NumberFormat("es-MX", {
+    const curr = currency || "COP";
+    const locale = curr === "COP" ? "es-CO" : curr === "USD" ? "en-US" : "es-CO";
+    return new Intl.NumberFormat(locale, {
       style: "currency",
-      currency: currency || "USD",
-      maximumFractionDigits: 2,
+      currency: curr,
+      maximumFractionDigits: curr === "COP" ? 0 : 2,
     }).format(price);
   } catch {
-    return `${currency} ${price.toFixed(2)}`;
+    return `${currency || "COP"} ${price.toLocaleString("es-CO")}`;
   }
 }
+
+// ── LOCAL QUICK RESPONSES ──────────────────────────────────────────────────
+// Patterns that do NOT need AI — instant, no latency, predictable
+const LOCAL_PATTERNS: Array<{
+  match: (text: string) => boolean;
+  response: (agentName: string) => string;
+}> = [
+  {
+    match: t => /^(ok|okay|de acuerdo|entendido|perfecto|listo|bueno|claro|vale|si|sí|sip|dale|okey)[\s!.]*$/.test(t.trim()),
+    response: name => `━━━━━━━━━━━━━━━━━━━━━━━━\n👍 *Perfecto* — con gusto te ayudo.\n\n¿Hay algo más en lo que pueda asistirte?\n━━━━━━━━━━━━━━━━━━━━━━━━`,
+  },
+  {
+    match: t => /^(gracias|muchas gracias|thank you|thanks|mil gracias|gracias!)[\s!.]*$/.test(t.trim()),
+    response: name => `━━━━━━━━━━━━━━━━━━━━━━━━\n🙏 *¡Con mucho gusto!*\n\nSiempre a tu disposición. 😊\n¿Puedo ayudarte con algo más?\n━━━━━━━━━━━━━━━━━━━━━━━━`,
+  },
+  {
+    match: t => /^(jaja|jeje|jajaja|😂|🤣|haha|lol)[\s!.]*$/.test(t.trim()),
+    response: _name => `━━━━━━━━━━━━━━━━━━━━━━━━\n😄 *¡Me alegra que estés de buen humor!*\n\n¿En qué te puedo ayudar hoy?\n━━━━━━━━━━━━━━━━━━━━━━━━`,
+  },
+  {
+    match: t => /(ya pagu[eé]|ya transfer[ií]|ya env[ií][eé]|comprobante|pago realizado|ya hice el pago)/i.test(t),
+    response: _name => `━━━━━━━━━━━━━━━━━━━━━━━━\n✅ *¡Pago recibido!*\n\nGracias por enviarlo. 🎉\nUn asesor revisará y confirmará tu acceso en breve.\n\n¿Tienes alguna otra consulta?\n━━━━━━━━━━━━━━━━━━━━━━━━`,
+  },
+];
+
+function tryLocalResponse(text: string, agentName: string): string | null {
+  const clean = text.trim().toLowerCase();
+  for (const pattern of LOCAL_PATTERNS) {
+    if (pattern.match(clean)) {
+      return pattern.response(agentName);
+    }
+  }
+  return null;
+}
+// ────────────────────────────────────────────────────────────────────────────
 
 // Context Intelligence Enhancement Functions
 
@@ -561,17 +598,34 @@ export async function runAgentReply(conversationId: number) {
 
   const pg = new PaymentGateway();
   const lastCustomerMsg = [...history].reverse().find(m => m.role === "customer");
-  const lastText = lastCustomerMsg?.content.toLowerCase() || "";
-  
+  const lastText = lastCustomerMsg?.content || "";
+
+  // ── LOCAL FAST-TRACK: skip AI for simple predictable messages ─────────────
+  const agentNameEarly = (activeAgent as any)?.name || "Sofía";
+  const localReply = tryLocalResponse(lastText, agentNameEarly);
+  if (localReply) {
+    logger.info({ conversationId, pattern: "local_shortcut" }, "[Agent] Local response — no AI call needed");
+    updateConversationStage(convo, lastText, { content: localReply }, conversationId).catch(() => {});
+    return {
+      content: localReply,
+      stage: "conversacion",
+      parts: [{ kind: "text", content: localReply }],
+      cardProductIds: [],
+    };
+  }
+  // ────────────────────────────────────────────────────────────────────────────
+
+  const lastTextLower = lastText.toLowerCase();
+
   // ── DYNAMIC PRODUCT SEARCH — must happen before payment section ──────────
   // Universal: searches the tenant's own catalog, no hardcoded IDs or names
   const commonGreetingsEarly = ["hola", "buenas", "buen dia", "buenos dias", "buenas tardes", "buenas noches", "hola!", "hola.", "que tal", "como estas", "hi", "hey"];
-  const searchTermsEarly = lastText.toLowerCase()
+  const searchTermsEarly = lastTextLower
     .split(/[\s,]+/)
     .filter(w => w.length > 3 && !commonGreetingsEarly.includes(w));
 
   let productForRequest = searchTermsEarly.length > 0
-    ? (productList.find(p => lastText.includes(p.name.toLowerCase()))
+    ? (productList.find(p => lastTextLower.includes(p.name.toLowerCase()))
         || productList.find(p => {
           const nameLower = p.name.toLowerCase();
           return searchTermsEarly.some(term => nameLower.includes(term));
@@ -580,9 +634,8 @@ export async function runAgentReply(conversationId: number) {
   // ────────────────────────────────────────────────────────────────────────
 
   // Context Intelligence Enhancement: Detect topic transitions (tenant-aware)
-  const topicTransition = detectTopicTransition(history.slice(0, -1), lastText, dynamicKeywordMap);
+  const topicTransition = detectTopicTransition(history.slice(0, -1), lastTextLower, dynamicKeywordMap);
   if (topicTransition) {
-    console.log(`🔄 [AGENT-TRANSITION] Cambio de tema: ${topicTransition.from || 'ninguno'} → ${topicTransition.to} - ${new Date().toISOString()}`);
     logger.info({ conversationId, transition: topicTransition }, "[Agent] Topic transition detected");
   }
   
@@ -590,11 +643,11 @@ export async function runAgentReply(conversationId: number) {
   // Detects payment intent and generates links for the identified product
   let paymentInfo = "";
   const paymentKeywords = ["pago", "pagar", "comprar", "transferencia", "nequi", "daviplata", "adquirir", "compro", "cuenta", "precio", "valor", "link", "enlace", "pay", "purchase"];
-  if (paymentKeywords.some(k => lastText.includes(k))) {
-    console.log(`💳 [AGENT-PAYMENT] Solicitud de pago detectada: "${lastText.substring(0, 50)}" - ${new Date().toISOString()}`);
+  if (paymentKeywords.some(k => lastTextLower.includes(k))) {
+    logger.info({ conversationId, text: lastText.substring(0, 50) }, "[Agent] Payment intent detected");
     
     // Priority: 1) exact name in message, 2) product from context, 3) ask for clarification
-    let paymentProduct = productList.find(p => lastText.includes(p.name.toLowerCase()))
+    let paymentProduct = productList.find(p => lastTextLower.includes(p.name.toLowerCase()))
       || productForRequest
       || (conversationContext.currentTopic
           ? productList.find(p => p.name.toLowerCase().includes(conversationContext.currentTopic!.toLowerCase()) && conversationContext.currentTopic!.length > 4)
@@ -639,7 +692,7 @@ export async function runAgentReply(conversationId: number) {
   // ────────────────────────────────────────────────────────────────────────
 
   // Context Intelligence Enhancement: Generate personalized context
-  const personalizedContext = generatePersonalizedContext(conversationContext, lastText);
+  const personalizedContext = generatePersonalizedContext(conversationContext, lastTextLower);
 
   // Universal agent name and brand — pulled from active DB agent, never hardcoded
   const agentName = activeAgent?.name || "Sofía";
@@ -701,11 +754,9 @@ ${productList.length > 0 ? `📦 CATÁLOGO DISPONIBLE:\n${productsBlock}` : ""}
 
 ${personalizedContext}`.trim();
 
-  console.log(`📝 [AGENT-PROMPT] Prompt del sistema generado - Longitud: ${systemPrompt.length} caracteres - ${new Date().toISOString()}`);
-
   // ── GREETING DETECTION ─────────────────────────────────────────────────
   const commonGreetings = commonGreetingsEarly; // reuse already-defined list
-  const isGreetingOnly = commonGreetings.some(k => lastText.trim().toLowerCase().includes(k)) && lastText.split(' ').length <= 5;
+  const isGreetingOnly = commonGreetings.some(k => lastTextLower.trim().includes(k)) && lastTextLower.split(' ').length <= 5;
 
   // ── STAGE-AWARE PROMPTING from agent.stages in DB ─────────────────────
   // Map conversation current stage → agent's configured stage prompt
