@@ -887,11 +887,21 @@ ${personalizedContext}`.trim();
         console.log(`📊 [AGENT-AI] Proveedor de BD agregado como respaldo: ${dbConfig.model} - ${new Date().toISOString()}`);
       }
 
-      // PRIORITY 4: NVIDIA (Reserva pesada, puede ser lento)
+      // PRIORITY 4: NVIDIA (llama-3.1-70b) — necesita NVIDIA_API_KEY
       const nvidiaConfig = getProviderConfig("nvidia");
       if (nvidiaConfig && nvidiaConfig.apiKey !== replitConfig?.apiKey && nvidiaConfig.apiKey !== envConfig?.apiKey) {
         rotationQueue.push({ config: nvidiaConfig, source: "nvidia" });
-        console.log(`🟢 [AGENT-AI] Proveedor NVIDIA como última opción: ${nvidiaConfig.model} - ${new Date().toISOString()}`);
+        console.log(`🟢 [AGENT-AI] NVIDIA (${nvidiaConfig.model}) en rotación - ${new Date().toISOString()}`);
+      }
+
+      // PRIORITY 5: Ollama EasyPanel — funciona sin key externa
+      const ollamaConfig = getProviderConfig("ollama_local");
+      if (ollamaConfig) {
+        const alreadyQueued = rotationQueue.some(q => q.config.baseUrl === ollamaConfig.baseUrl);
+        if (!alreadyQueued) {
+          rotationQueue.push({ config: ollamaConfig, source: "ollama" });
+          console.log(`🦙 [AGENT-AI] Ollama (${ollamaConfig.model}) como último fallback - ${new Date().toISOString()}`);
+        }
       }
 
       // Check if any AI providers are healthy
