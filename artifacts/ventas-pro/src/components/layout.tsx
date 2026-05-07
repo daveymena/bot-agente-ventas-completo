@@ -20,7 +20,8 @@ import {
   ShieldAlert,
   ShoppingBag,
   Banknote,
-  User2
+  User2,
+  Brain
 } from "lucide-react";
 import { Sidebar, SidebarContent, SidebarHeader, SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarProvider, SidebarTrigger, SidebarGroup, SidebarGroupContent } from "./ui/sidebar";
 import { Badge as UiBadge } from "@/components/ui/badge";
@@ -162,6 +163,7 @@ export function AppSidebar() {
     { label: "Tienda Virtual", href: "/store", icon: Store },
     { label: "WhatsApp", href: "/whatsapp", icon: Phone },
     { label: "Arquitecto IA", href: "/code-agent", icon: Wand2 },
+    { label: "Motores de IA", href: "/ai-providers", icon: Brain },
     { label: "WooCommerce", href: "/woocommerce", icon: ShoppingCart },
     { label: "Nichos Drop", href: "/niches", icon: TrendingUp },
     { label: "Facturación", href: "/billing", icon: CreditCard },

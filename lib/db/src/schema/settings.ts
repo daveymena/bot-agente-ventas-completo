@@ -1,5 +1,12 @@
 import { boolean, jsonb, pgTable, serial, text } from "drizzle-orm/pg-core";
 
+export type AiProviderEntry = {
+  apiKey?: string;
+  model?: string;
+  enabled?: boolean;
+  url?: string;
+};
+
 export const settings = pgTable("settings", {
   id: serial("id").primaryKey(),
   businessName: text("business_name").notNull().default("Mi Negocio"),
@@ -23,6 +30,14 @@ export const settings = pgTable("settings", {
   githubModel: text("github_model").notNull().default("gpt-4o-mini"),
   ollamaUrl: text("ollama_url"),
   ollamaModel: text("ollama_model").notNull().default("hermes3:8b"),
+  aiProvidersConfig: jsonb("ai_providers_config")
+    .$type<Record<string, AiProviderEntry>>()
+    .notNull()
+    .default({}),
+  aiProviderFallbacks: jsonb("ai_provider_fallbacks")
+    .$type<string[]>()
+    .notNull()
+    .default(["github", "groq", "deepseek"]),
 });
 
 export type Settings = typeof settings.$inferSelect;
