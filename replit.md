@@ -16,7 +16,7 @@ Bot de ventas inteligente con WhatsApp integrado, agente IA (Sofía), pagos Merc
 - pnpm workspaces, Node.js 24, TypeScript 5.9
 - API: Express 5
 - DB: PostgreSQL + Drizzle ORM (Replit managed en dev, EasyPanel en prod)
-- IA: GitHub Models (GPT-4o-mini) + Ollama fallback (hermes3:8b)
+- IA: Replit AI Proxy (gpt-5-mini, principal) → GitHub Models (fallback) → Ollama EasyPanel (fallback)
 - WhatsApp: @whiskeysockets/baileys
 - Pagos: MercadoPago + PayPal + Transferencia
 - Frontend: React + Vite + TailwindCSS + shadcn/ui
@@ -37,7 +37,7 @@ Bot de ventas inteligente con WhatsApp integrado, agente IA (Sofía), pagos Merc
 
 - Multi-tenant desde el inicio: cada tenant tiene su propio agente, productos y conversaciones
 - WhatsApp auto-arranca en boot; QR se genera en `/api/whatsapp/connect`
-- IA con fallback: GitHub Models → Ollama local (hermes3:8b en EasyPanel)
+- IA con fallback: Replit AI Proxy (gpt-5-mini) → GitHub Models → Ollama EasyPanel
 - Pagos sin redirect en WhatsApp: links directos de MercadoPago y PayPal
 - Cookie-based auth con `tenant_id` httpOnly
 
@@ -62,7 +62,10 @@ Dashboard para gestionar un bot de ventas por WhatsApp con:
 
 ## Gotchas
 
-- `GITHUB_TOKEN` en el .env tenía valor placeholder — reemplazar con token real de GitHub
+- `GITHUB_TOKEN` = placeholder ("GITHUB_PERSONAL_ACCESS_TOKEN"), token real en `GITHUB_PERSONAL_ACCESS_TOKEN` pero revocado (401). El código resuelve automáticamente via `resolveGithubToken()`. Para volver a usar GitHub Models: actualiza el secret `GITHUB_TOKEN` con un nuevo PAT real.
+- `AI_INTEGRATIONS_OPENAI_BASE_URL` y `AI_INTEGRATIONS_OPENAI_API_KEY` → Replit AI proxy (activo, proveedor principal). Cargado automáticamente en dev por Replit.
+- Ollama en EasyPanel usa modelos `:cloud` que requieren suscripción de pago — no disponibles sin upgrade.
+- Agente activo en EasyPanel DB: **Luna (ID:5)** (tenant_id=1). Asistente de Soporte (ID:3) desactivado.
 - `DATABASE_URL` en Replit apunta a la DB gestionada por Replit (para dev); la DB de EasyPanel es para producción
 - WhatsApp requiere escanear QR cada vez que se reinicia sin sesión guardada
 - El tenant_id se resuelve por cookie httpOnly — el frontend debe hacer login primero

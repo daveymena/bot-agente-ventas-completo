@@ -15,6 +15,7 @@ export interface ProviderDbConfig {
 
 // All supported providers with their OpenAI-compatible endpoints
 export const PROVIDER_BASE_URLS: Record<string, string> = {
+  replit:      "", // dynamic — from AI_INTEGRATIONS_OPENAI_BASE_URL
   github:      "https://models.inference.ai.azure.com",
   openai:      "https://api.openai.com/v1",
   anthropic:   "https://api.anthropic.com/v1",
@@ -43,6 +44,7 @@ export const PROVIDER_DEFAULT_MODELS: Record<string, string> = {
 };
 
 export const PROVIDER_ENV_KEYS: Record<string, string> = {
+  replit:      "AI_INTEGRATIONS_OPENAI_API_KEY",
   github:      "GITHUB_TOKEN",
   openai:      "OPENAI_API_KEY",
   anthropic:   "ANTHROPIC_API_KEY",
@@ -55,14 +57,41 @@ export const PROVIDER_ENV_KEYS: Record<string, string> = {
   nvidia:      "NVIDIA_API_KEY",
 };
 
+// Resolve the GitHub token from env — GITHUB_TOKEN may contain a placeholder literal;
+// fall back to GITHUB_PERSONAL_ACCESS_TOKEN which holds the real token.
+function resolveGithubToken(): string | undefined {
+  const t = process.env.GITHUB_TOKEN;
+  // If the value looks like a placeholder (not starting with "ghp_", "github_pat_", or "gho_"),
+  // prefer GITHUB_PERSONAL_ACCESS_TOKEN instead.
+  if (t && (t.startsWith("ghp_") || t.startsWith("github_pat_") || t.startsWith("gho_"))) {
+    return t;
+  }
+  const pat = process.env.GITHUB_PERSONAL_ACCESS_TOKEN;
+  if (pat && (pat.startsWith("ghp_") || pat.startsWith("github_pat_") || pat.startsWith("gho_"))) {
+    return pat;
+  }
+  return t || pat; // last resort: return whatever is set
+}
+
 export function getProviderConfig(provider: string): AIProviderConfig | null {
   // Handle legacy specific providers
   if (provider === "github_claude") {
-    if (!process.env.GITHUB_TOKEN) return null;
+    const apiKey = resolveGithubToken();
+    if (!apiKey) return null;
     return {
       baseUrl: PROVIDER_BASE_URLS.github,
-      apiKey: process.env.GITHUB_TOKEN,
+      apiKey,
       model: process.env.GITHUB_MODEL_CLAUDE || "Claude-3.5-Sonnet",
+    };
+  }
+  if (provider === "replit") {
+    const url = process.env.AI_INTEGRATIONS_OPENAI_BASE_URL;
+    const apiKey = process.env.AI_INTEGRATIONS_OPENAI_API_KEY;
+    if (!url || !apiKey) return null;
+    return {
+      baseUrl: url,
+      apiKey,
+      model: process.env.REPLIT_AI_MODEL || "gpt-5-mini",
     };
   }
   if (provider === "ollama_local") {
@@ -79,7 +108,8 @@ export function getProviderConfig(provider: string): AIProviderConfig | null {
   const baseUrl = PROVIDER_BASE_URLS[provider];
   if (!envKey || !baseUrl) return null;
 
-  const apiKey = process.env[envKey];
+  // For github provider, use the smart resolver that handles placeholder values
+  const apiKey = provider === "github" ? resolveGithubToken() : process.env[envKey];
   if (!apiKey) return null;
 
   return {
@@ -158,7 +188,8 @@ export function getProviderConfigFromSettings(settings: {
   const dbProviders = (settings.aiProvidersConfig as Record<string, ProviderDbConfig>) || {};
 
   if (provider === "github") {
-    const token = settings.githubToken || process.env.GITHUB_TOKEN;
+    // Prefer DB-stored token; fall back to the env resolver (handles placeholders)
+    const token = (settings.githubToken && settings.githubToken.trim()) ? settings.githubToken.trim() : resolveGithubToken();
     if (!token) return getProviderConfigFromDb("groq", dbProviders) || getProviderConfigFromDb("deepseek", dbProviders) || null;
     return {
       baseUrl: PROVIDER_BASE_URLS.github,

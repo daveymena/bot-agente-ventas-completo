@@ -34,28 +34,34 @@ const DEFAULT_RETRY_CONFIG: RetryConfig = {
 };
 
 // Professional fallback responses for different scenarios
-const FALLBACK_RESPONSES = {
-  greeting: {
-    content: "¡Hola! 😊 Te habla Sofía, asesora de la tienda. Estoy aquí para ayudarte con cualquier consulta sobre nuestros productos. ¿En qué puedo asistirte hoy?",
-    stage: "greeting"
-  },
-  product_inquiry: {
-    content: "Gracias por tu interés en nuestros productos. En este momento estoy procesando tu consulta. Te responderé en breve con toda la información que necesitas. 😊",
-    stage: "conversacion"
-  },
-  payment_inquiry: {
-    content: "Perfecto, te ayudo con la información de pago. Permíteme un momento para preparar todos los detalles y opciones disponibles para ti. 💳",
-    stage: "conversacion"
-  },
-  general: {
-    content: "Gracias por contactarnos. Estoy procesando tu mensaje y te responderé en un momento con la información que necesitas. Aprecio tu paciencia. 😊",
-    stage: "conversacion"
-  },
-  technical_issue: {
-    content: "Disculpa las molestias. Estoy experimentando una dificultad técnica temporal, pero ya estoy trabajando en solucionarlo. Te responderé muy pronto. Gracias por tu comprensión. 🙏",
-    stage: "conversacion"
-  }
-};
+// agentName is injected dynamically — never hardcoded
+function buildFallbackResponses(agentName: string = "tu asesora") {
+  return {
+    greeting: {
+      content: `━━━━━━━━━━━━━━━━━━━━━━━━\n👋 *¡Hola!* 😊\n━━━━━━━━━━━━━━━━━━━━━━━━\n\nBienvenido/a. Soy *${agentName}* y estoy aquí para ayudarte. 🌟\n\n¿En qué puedo asistirte hoy?\n\n━━━━━━━━━━━━━━━━━━━━━━━━`,
+      stage: "greeting"
+    },
+    product_inquiry: {
+      content: `━━━━━━━━━━━━━━━━━━━━━━━━\n✨ *Consultando catálogo...*\n━━━━━━━━━━━━━━━━━━━━━━━━\n\nGracias por tu interés. Estoy verificando la información sobre ese producto para darte los mejores detalles. 📦\n\nEn un momento te respondo. 😊`,
+      stage: "conversacion"
+    },
+    payment_inquiry: {
+      content: `━━━━━━━━━━━━━━━━━━━━━━━━\n💳 *Preparando opciones de pago*\n━━━━━━━━━━━━━━━━━━━━━━━━\n\nPerfecto, te ayudo con el proceso de pago. Dame un instante para preparar todos los detalles y opciones disponibles para ti. ⏳`,
+      stage: "conversacion"
+    },
+    general: {
+      content: `━━━━━━━━━━━━━━━━━━━━━━━━\n💬 *Un momento...*\n━━━━━━━━━━━━━━━━━━━━━━━━\n\nGracias por escribirnos. Estoy procesando tu mensaje y te responderé enseguida. Aprecio tu paciencia. 😊`,
+      stage: "conversacion"
+    },
+    technical_issue: {
+      content: `━━━━━━━━━━━━━━━━━━━━━━━━\n🔧 *Procesando...*\n━━━━━━━━━━━━━━━━━━━━━━━━\n\nDisculpa el retraso. Estoy verificando tu solicitud y te responderé muy pronto. Gracias por tu comprensión. 🙏`,
+      stage: "conversacion"
+    }
+  };
+}
+
+// Keep backward compat alias with default name
+const FALLBACK_RESPONSES = buildFallbackResponses();
 
 // Health monitoring for external services
 class HealthMonitor {
@@ -225,11 +231,12 @@ export async function retryWithBackoff<T>(
 }
 
 // Determine appropriate fallback response based on context
-export function determineFallbackResponse(lastMessage: string, conversationContext?: any): FallbackResponse {
+export function determineFallbackResponse(lastMessage: string, conversationContext?: any, agentName?: string): FallbackResponse {
   const text = lastMessage.toLowerCase();
+  const responses = agentName ? buildFallbackResponses(agentName) : FALLBACK_RESPONSES;
   
   // Analyze message content to determine best fallback
-  let responseKey: keyof typeof FALLBACK_RESPONSES = "general";
+  let responseKey: keyof ReturnType<typeof buildFallbackResponses> = "general";
   
   if (["hola", "buenas", "buen dia", "buenos dias", "buenas tardes"].some(k => text.includes(k))) {
     responseKey = "greeting";
@@ -239,7 +246,7 @@ export function determineFallbackResponse(lastMessage: string, conversationConte
     responseKey = "product_inquiry";
   }
   
-  const response = FALLBACK_RESPONSES[responseKey];
+  const response = responses[responseKey];
   
   return {
     content: response.content,

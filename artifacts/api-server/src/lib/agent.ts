@@ -689,6 +689,33 @@ export async function runAgentReply(conversationId: number) {
       paymentInfo = `\n━━━━━━━━━━━━━━━━━━━━━━━━\n💳 Para enviarte el enlace de pago correcto, ¿me confirmas cuál producto o servicio te interesa?\n━━━━━━━━━━━━━━━━━━━━━━━━`;
     }
   }
+  // ── PAYMENT FAST-TRACK: when we have real links, return immediately ──────
+  // This avoids the AI giving a vague "preparing your link..." response
+  if (paymentInfo && paymentInfo.includes("━━━") && !paymentInfo.includes("⏳") && !paymentInfo.includes("me confirmas")) {
+    const productCard = productForRequest
+      || (conversationContext.currentTopic
+          ? productList.find(p => p.name.toLowerCase().includes(conversationContext.currentTopic!.toLowerCase()) && conversationContext.currentTopic!.length > 4)
+          : null)
+      || productList.find(p => {
+          const lastTextWords = lastTextLower.split(/[\s,]+/).filter(w => w.length > 3);
+          return lastTextWords.some(term => p.name.toLowerCase().includes(term));
+        });
+    
+    const parts: any[] = [];
+    if (productCard) {
+      parts.push({ kind: "card", productId: productCard.id });
+    }
+    parts.push({ kind: "text", content: paymentInfo.trim() });
+    
+    console.log(`💳 [AGENT-PAYMENT-FAST] Devolviendo links de pago directo para ${productCard?.name || "producto"} - ${new Date().toISOString()}`);
+    updateConversationStage(convo, lastText, { content: paymentInfo }, conversationId).catch(() => {});
+    return {
+      content: paymentInfo.trim(),
+      stage: "cierre",
+      parts,
+      cardProductIds: productCard ? [productCard.id] : [],
+    };
+  }
   // ────────────────────────────────────────────────────────────────────────
 
   // Context Intelligence Enhancement: Generate personalized context
@@ -748,10 +775,23 @@ CADA mensaje DEBE:
 3️⃣ Terminar con ━━━━━━━━━━━━━━━━━━━━━━━━
 REGLA ABSOLUTA: Ningún mensaje puede ser texto plano sin formato.`;
 
+  // ── CONVERSATION MEMORY BLOCK ──────────────────────────────────────────
+  const interactionSummary = conversationContext.interactionCount > 1
+    ? `\n\n🧠 MEMORIA DE CONVERSACIÓN (${conversationContext.interactionCount} interacciones):
+- Estado: ${conversationContext.hasIntroduced ? "✅ Ya te presentaste" : "🆕 Primera vez"}
+- Tema actual: ${conversationContext.currentTopic ? `"${conversationContext.currentTopic}"` : "Sin tema específico"}
+${conversationContext.previousTopics.length > 0 ? `- Temas anteriores: ${conversationContext.previousTopics.slice(-3).join(", ")}` : ""}
+- Nivel de interés: ${conversationContext.leadBehavior.interestLevel === 'high' ? '🔥 ALTO — empuja hacia el cierre' : conversationContext.leadBehavior.interestLevel === 'medium' ? '⚡ MEDIO — genera más valor' : '🌱 INICIAL — despierta curiosidad'}
+- Estilo detectado: ${conversationContext.leadBehavior.communicationStyle}
+${conversationContext.leadBehavior.priceInquiries > 0 ? `- Preguntas de precio: ${conversationContext.leadBehavior.priceInquiries} veces` : ""}
+${paymentInfo ? "- ⚠️ CLIENTE CON INTENCIÓN DE PAGO — prioriza la conversión" : ""}
+INSTRUCCIÓN: Usa esta memoria para NO repetir lo que ya discutiste y llevar la conversación hacia adelante.`
+    : "";
+
   const systemPrompt = `${universalBasePrompt}
 
 ${productList.length > 0 ? `📦 CATÁLOGO DISPONIBLE:\n${productsBlock}` : ""}
-
+${interactionSummary}
 ${personalizedContext}`.trim();
 
   // ── GREETING DETECTION ─────────────────────────────────────────────────
@@ -826,25 +866,32 @@ ${personalizedContext}`.trim();
       // Enhanced provider rotation with health checking
       const rotationQueue = [];
       
-      // PRIORITY 1: GitHub (GPT-4o-mini) - Ultra rápido y estable
-      const envConfig = getProviderConfig("github");
-      if (envConfig) {
-        rotationQueue.push({ config: envConfig, source: "environment" });
-        console.log(`🌍 [AGENT-AI] Priorizando GitHub (GPT-4o-mini): ${envConfig.model} - ${new Date().toISOString()}`);
+      // PRIORITY 1: Replit AI Proxy (OpenAI-compatible, no external key needed)
+      const replitConfig = getProviderConfig("replit");
+      if (replitConfig) {
+        rotationQueue.push({ config: replitConfig, source: "replit" });
+        console.log(`🚀 [AGENT-AI] Replit AI (${replitConfig.model}) como proveedor principal - ${new Date().toISOString()}`);
       }
 
-      // PRIORITY 2: Database Settings (Configuración manual del Dashboard)
+      // PRIORITY 2: GitHub (GPT-4o-mini) - requiere token válido
+      const envConfig = getProviderConfig("github");
+      if (envConfig && envConfig.apiKey !== replitConfig?.apiKey) {
+        rotationQueue.push({ config: envConfig, source: "environment" });
+        console.log(`🌍 [AGENT-AI] GitHub (${envConfig.model}) como respaldo - ${new Date().toISOString()}`);
+      }
+
+      // PRIORITY 3: Database Settings (Configuración manual del Dashboard)
       const dbConfig = appSettings ? getProviderConfigFromSettings(appSettings) : null;
-      if (dbConfig && dbConfig.apiKey !== envConfig?.apiKey) {
+      if (dbConfig && dbConfig.apiKey !== replitConfig?.apiKey && dbConfig.apiKey !== envConfig?.apiKey) {
         rotationQueue.push({ config: dbConfig, source: "database" });
         console.log(`📊 [AGENT-AI] Proveedor de BD agregado como respaldo: ${dbConfig.model} - ${new Date().toISOString()}`);
       }
 
-      // PRIORITY 3: NVIDIA (Reserva pesada, puede ser lento)
+      // PRIORITY 4: NVIDIA (Reserva pesada, puede ser lento)
       const nvidiaConfig = getProviderConfig("nvidia");
-      if (nvidiaConfig && nvidiaConfig.apiKey !== envConfig?.apiKey) {
+      if (nvidiaConfig && nvidiaConfig.apiKey !== replitConfig?.apiKey && nvidiaConfig.apiKey !== envConfig?.apiKey) {
         rotationQueue.push({ config: nvidiaConfig, source: "nvidia" });
-        console.log(`🟢 [AGENT-AI] Proveedor NVIDIA agregado como última opción: ${nvidiaConfig.model} - ${new Date().toISOString()}`);
+        console.log(`🟢 [AGENT-AI] Proveedor NVIDIA como última opción: ${nvidiaConfig.model} - ${new Date().toISOString()}`);
       }
 
       // Check if any AI providers are healthy
@@ -856,18 +903,20 @@ ${personalizedContext}`.trim();
       let raw = "";
       let lastError: Error | null = null;
       
-      // 🚀 DYNAMIC FIRST-TIME GREETING using agent data from DB
+      // 🚀 DYNAMIC FIRST-TIME GREETING: update finalPrompt so AI personalizes it
       if (isGreetingOnly && !conversationContext.hasIntroduced) {
-        console.log(`⚡ [AGENT-FAST-TRACK] Generando presentación dinámica para ${agentName} - ${new Date().toISOString()}`);
-        // Build greeting dynamically from agent stages or system prompt
+        console.log(`⚡ [AGENT-FAST-TRACK] Preparando presentación dinámica para ${agentName} - ${new Date().toISOString()}`);
         const stages = (activeAgent as any)?.stages as Array<{ key: string; prompt: string }> | null;
         const greetingStage = stages?.find(s => s.key === "greeting" || s.key === "hook");
         const greetingHint = greetingStage?.prompt || `Saluda como ${agentName}. Sé breve (máx 4 líneas). Pregunta en qué puede ayudar.`;
-        
-        // Use AI for greeting so it adapts to the business — still fast via provider rotation
         finalPrompt = baseSystemPrompt + `\n\n🚨 INSTRUCCIÓN: ${greetingHint}\nPROHIBIDO enviar tarjetas [CARD: ID] en este mensaje.`;
         responsePrefill = `━━━━━━━━━━━━━━━━━━━━━━━━\n👋 *¡BIENVENIDO/A!* 😊\n\n`;
+        // Update chatMessages to use the new finalPrompt
+        if (chatMessages.length > 0 && chatMessages[0].role === "system") {
+          (chatMessages[0] as any).content = finalPrompt;
+        }
       } else if (isGreetingOnly && conversationContext.hasIntroduced) {
+        // Recurring greeting — no AI needed, deliver immediately
         console.log(`⚡ [AGENT-FAST-TRACK] Enviando saludo recurrente para ${agentName} - ${new Date().toISOString()}`);
         raw = `━━━━━━━━━━━━━━━━━━━━━━━━
 👋 *¡Qué gusto verte de nuevo!* 🌟
@@ -875,52 +924,42 @@ ${personalizedContext}`.trim();
 ¡Hola! Es un verdadero placer saludarte nuevamente. 😊
 ¿En qué te puedo ayudar el día de hoy?
 ━━━━━━━━━━━━━━━━━━━━━━━━`;
-      } else {
+      }
+
+      // Call AI for all cases except recurring greetings (raw already set)
+      if (!raw) {
         for (const { config, source } of rotationQueue) {
           try {
             console.log(`🎯 [AGENT-AI] Intentando proveedor: ${source} (${config.model}) - ${new Date().toISOString()}`);
-            logger.debug({ 
-              conversationId, 
-              provider: source, 
-              model: config.model 
-            }, "[Agent] Attempting AI provider");
+            logger.debug({ conversationId, provider: source, model: config.model }, "[Agent] Attempting AI provider");
           
-          const client = createAIClient(config);
-          const completion = await retryWithBackoff(
-            () => client.chat.completions.create({
-              model: config.model,
-              messages: chatMessages as any,
-              temperature: 0.7,
-              presence_penalty: 0.6, // Evita repeticiones
-            }),
-            { maxRetries: 1, baseDelay: 500 }, // Quick retries for each provider
-            `AI_completion_${source}_conversation_${conversationId}`
-          );
+            const client = createAIClient(config);
+            // Replit AI proxy (gpt-5-mini, o-series) only supports default temperature=1
+            const supportsTemperature = source !== "replit";
+            const completion = await retryWithBackoff(
+              () => client.chat.completions.create({
+                model: config.model,
+                messages: chatMessages as any,
+                ...(supportsTemperature ? { temperature: 0.7, presence_penalty: 0.6 } : {}),
+              }),
+              { maxRetries: 1, baseDelay: 500 },
+              `AI_completion_${source}_conversation_${conversationId}`
+            );
           
-          raw = completion.choices[0]?.message?.content?.trim() ?? "";
-          if (raw) {
-            console.log(`✅ [AGENT-AI] Respuesta generada exitosamente con ${source} - Longitud: ${raw.length} caracteres - ${new Date().toISOString()}`);
-            logger.info({ 
-              conversationId,
-              provider: source,
-              response: raw.slice(0, 100),
-              contextApplied: {
-                hasIntroduced: conversationContext.hasIntroduced,
-                topicTransition: topicTransition?.to,
-                interestLevel: conversationContext.leadBehavior.interestLevel
-              }
-            }, "[Agent] Context-aware response generated successfully");
-            break;
+            raw = completion.choices[0]?.message?.content?.trim() ?? "";
+            if (raw) {
+              console.log(`✅ [AGENT-AI] Respuesta generada exitosamente con ${source} - Longitud: ${raw.length} - ${new Date().toISOString()}`);
+              logger.info({ 
+                conversationId, provider: source, response: raw.slice(0, 100),
+                contextApplied: { hasIntroduced: conversationContext.hasIntroduced, topicTransition: topicTransition?.to, interestLevel: conversationContext.leadBehavior.interestLevel }
+              }, "[Agent] Context-aware response generated successfully");
+              break;
+            }
+          } catch (err) {
+            lastError = err instanceof Error ? err : new Error(String(err));
+            console.log(`❌ [AGENT-ERROR] Proveedor ${source} falló: ${lastError.message} - ${new Date().toISOString()}`);
+            logger.warn({ conversationId, provider: source, error: lastError.message }, "[Agent] Provider failed, trying next");
           }
-        } catch (err) {
-          lastError = err instanceof Error ? err : new Error(String(err));
-          console.log(`❌ [AGENT-ERROR] Proveedor ${source} falló: ${lastError.message} - ${new Date().toISOString()}`);
-          logger.warn({ 
-            conversationId, 
-            provider: source, 
-            error: lastError.message 
-          }, "[Agent] Provider failed, trying next");
-        }
         }
       }
 
@@ -1004,7 +1043,7 @@ ${personalizedContext}`.trim();
       // Fallback response when all AI providers fail
       console.log(`🆘 [AGENT-FALLBACK] Usando respuesta de emergencia - ${new Date().toISOString()}`);
       logger.warn({ conversationId }, "[Agent] All AI providers failed, using intelligent fallback");
-      return determineFallbackResponse(lastText, conversationContext);
+      return determineFallbackResponse(lastText, conversationContext, activeAgent?.name || undefined);
     },
     {
       conversationId,

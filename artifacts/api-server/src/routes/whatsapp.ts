@@ -3,6 +3,7 @@ import { GetWhatsAppStatusResponse } from "@workspace/api-zod";
 import { whatsapp } from "../lib/whatsapp";
 import { runAgentReply } from "../lib/agent";
 import { db, conversations, messages } from "@workspace/db";
+import { type TenantRequest } from "../lib/tenantManager";
 import { existsSync, rmSync } from "node:fs";
 import path from "node:path";
 
@@ -38,16 +39,19 @@ router.post("/disconnect", async (_req, res, next) => {
 });
 
 // Test IA - crear conversación y obtener respuesta
-router.post("/test-ia", async (req, res, next) => {
+router.post("/test-ia", async (req: TenantRequest, res, next) => {
   try {
     const msg = req.body?.message || "Hola, qué productos tienen?";
+    const testPhone = req.body?.phone || "test-ia";
+    const tenantId = req.tenant?.id ?? null;
     
-    // Crear conversación test
+    // Crear conversación test con tenantId del usuario autenticado
     const [convo] = await db.insert(conversations).values({
       contactName: "Test",
-      contactPhone: "test-ia",
+      contactPhone: testPhone,
       status: "ai",
-      currentStage: "greeting"
+      currentStage: "greeting",
+      ...(tenantId ? { tenantId } : {})
     }).returning();
     
     // Guardar mensaje

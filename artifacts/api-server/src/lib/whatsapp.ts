@@ -98,14 +98,38 @@ import { processMessageForLeadScoring } from "./leadScoring";
 
 function formatPriceForWa(price: number, currency: string) {
   try {
-    return new Intl.NumberFormat("es-MX", {
+    const curr = currency || "COP";
+    const locale = curr === "COP" ? "es-CO" : curr === "USD" ? "en-US" : "es-CO";
+    return new Intl.NumberFormat(locale, {
       style: "currency",
-      currency: currency || "USD",
-      maximumFractionDigits: 2,
+      currency: curr,
+      maximumFractionDigits: curr === "COP" ? 0 : 2,
     }).format(price);
   } catch {
-    return `${currency} ${price.toFixed(2)}`;
+    return `${currency || "COP"} ${price.toLocaleString("es-CO")}`;
   }
+}
+
+// Dynamic emoji selector based on product name / category
+function getProductEmoji(name: string): string {
+  const n = name.toLowerCase();
+  if (n.includes("piano") || n.includes("teclado")) return "🎹";
+  if (n.includes("guitarra") || n.includes("bajo")) return "🎸";
+  if (n.includes("canto") || n.includes("voz") || n.includes("vocal")) return "🎤";
+  if (n.includes("batería") || n.includes("percusion")) return "🥁";
+  if (n.includes("música") || n.includes("musica") || n.includes("audio") || n.includes("produccion")) return "🎵";
+  if (n.includes("excel") || n.includes("office") || n.includes("datos")) return "📊";
+  if (n.includes("diseño") || n.includes("photoshop") || n.includes("illustrator") || n.includes("canva")) return "🎨";
+  if (n.includes("trading") || n.includes("bolsa") || n.includes("cripto") || n.includes("finanzas")) return "📈";
+  if (n.includes("marketing") || n.includes("redes") || n.includes("publicidad") || n.includes("instagram") || n.includes("tiktok")) return "📱";
+  if (n.includes("programacion") || n.includes("código") || n.includes("python") || n.includes("web") || n.includes("react")) return "💻";
+  if (n.includes("idioma") || n.includes("ingles") || n.includes("inglés") || n.includes("francés") || n.includes("aleman")) return "🌍";
+  if (n.includes("fitness") || n.includes("gym") || n.includes("deporte") || n.includes("yoga")) return "💪";
+  if (n.includes("cocina") || n.includes("gastronomia") || n.includes("receta")) return "👨‍🍳";
+  if (n.includes("fotografia") || n.includes("fotografía") || n.includes("camara") || n.includes("video")) return "📸";
+  if (n.includes("pack") || n.includes("mega") || n.includes("bundle") || n.includes("combo")) return "💎";
+  if (n.includes("curso") || n.includes("course")) return "🎓";
+  return "✨";
 }
 
 function getProductImage(name: string): string {
@@ -137,60 +161,75 @@ function buildProductCaption(p: typeof products.$inferSelect, categoryName: stri
   const lines: string[] = [];
   
   let meta: any = {};
-  try { meta = JSON.parse(p.metadata || "{}"); } catch(e) {}
+  try { meta = JSON.parse(p.metadata || "{}"); } catch(_e) {}
 
   const nameUpper = p.name.toUpperCase();
-  const mainEmoji = nameUpper.includes("PIANO") ? "🎹" : 
-                    nameUpper.includes("GUITARRA") ? "🎸" : 
-                    nameUpper.includes("CANTO") ? "🎤" : 
-                    nameUpper.includes("EXCEL") ? "📊" : "💎";
+  const emoji = getProductEmoji(p.name);
+  const features = (p.features ?? []) as string[];
+  const price = formatPriceForWa(Number(p.price), p.currency || "COP");
 
-  lines.push(`✨ ${mainEmoji} *EXPERIENCIA ELITE: ${nameUpper}*`);
+  // ── HEADER ──
+  lines.push(`${emoji} *${nameUpper}*`);
   lines.push("━━━━━━━━━━━━━━━━━━━━━━━");
   lines.push("");
-  lines.push(`🚀 *ANÁLISIS DE VALOR:*`);
-  lines.push(`Este programa ha sido curado para transformar tu habilidad de forma exponencial. No es solo un curso, es la llave a tu nueva maestría técnica.`);
-  lines.push("");
-  
-  lines.push(`💎 *BENEFICIOS EXCLUSIVOS:*`);
-  const features = (p.features ?? []);
-  if (features.length >= 3) {
+
+  // ── DESCRIPTION ──
+  if (p.description) {
+    lines.push(`📝 *Descripción:*`);
+    lines.push(p.description);
+    lines.push("");
+  }
+
+  // ── FEATURES ──
+  if (features.length > 0) {
+    lines.push(`💎 *¿Qué incluye?*`);
     for (const f of features) lines.push(`✅ ${f}`);
   } else {
-    lines.push(`✅ ${meta.classes || "280+"} Lecciones en Ultra HD`);
-    lines.push(`✅ PDFs y partituras de alta fidelidad`);
-    lines.push(`✅ Acceso vitalicio garantizado`);
-    lines.push(`✅ Soporte personalizado TecnoVariedades`);
+    // Fallback from metadata
+    const classCount = meta.classes ? `🎬 ${meta.classes} clases` : null;
+    const sectionCount = meta.sections ? `📖 ${meta.sections} secciones` : null;
+    const duration = meta.duration ? `⏱️ ${meta.duration}` : null;
+    const extras = [classCount, sectionCount, duration].filter(Boolean);
+    if (extras.length > 0) {
+      lines.push(`💎 *Contenido:*`);
+      for (const e of extras) lines.push(`✅ ${e}`);
+    }
+    lines.push(`✅ Acceso de por vida`);
+    lines.push(`✅ Descarga directa`);
+    lines.push(`✅ Soporte incluido`);
   }
-  
+
   lines.push("");
-  lines.push(`💰 *INVERSIÓN ÚNICA:*`);
-  lines.push(`*${formatPriceForWa(Number(p.price), p.currency)}*`);
+  lines.push(`💰 *Precio:* *${price}*`);
   lines.push("━━━━━━━━━━━━━━━━━━━━━━━");
   lines.push("");
 
+  // ── PAYMENT METHODS ──
   if (dynamicLinks) {
-    lines.push(`💳 *GESTIÓN DE PAGO SEGURO:*`);
-    lines.push("");
-    if (dynamicLinks.mercadopago && (dynamicLinks.mercadopago.shortUrl || dynamicLinks.mercadopago.url)) {
-      lines.push(`🔹 *Tarjeta / PSE (Colombia):*`);
-      lines.push(`${dynamicLinks.mercadopago.shortUrl || dynamicLinks.mercadopago.url}`);
+    const hasAnyPayment = (dynamicLinks.mercadopago?.url) || (dynamicLinks.paypal?.url) || (dynamicLinks.transfer?.options?.[0]);
+    if (hasAnyPayment) {
+      lines.push(`💳 *Opciones de pago:*`);
       lines.push("");
-    }
-    if (dynamicLinks.paypal && (dynamicLinks.paypal.shortUrl || dynamicLinks.paypal.url)) {
-      lines.push(`🔹 *PayPal / Crédito (Global):*`);
-      lines.push(`${dynamicLinks.paypal.shortUrl || dynamicLinks.paypal.url}`);
-      lines.push("");
-    }
-    if (dynamicLinks.transfer && dynamicLinks.transfer.options && dynamicLinks.transfer.options[0]) {
-      lines.push(`🔹 *Transferencia Directa:*`);
-      lines.push(`📍 *Nequi/Daviplata:* ${dynamicLinks.transfer.options[0].number}`);
-      lines.push(`👤 *Titular:* ${dynamicLinks.transfer.options[0].name}`);
-      lines.push("");
+      if (dynamicLinks.transfer?.options?.[0]) {
+        lines.push(`🔹 *Nequi / Daviplata:*`);
+        lines.push(`📍 ${dynamicLinks.transfer.options[0].number}`);
+        lines.push(`👤 ${dynamicLinks.transfer.options[0].name}`);
+        lines.push("");
+      }
+      if (dynamicLinks.mercadopago?.url) {
+        lines.push(`🔹 *Tarjeta / PSE (MercadoPago):*`);
+        lines.push(dynamicLinks.mercadopago.shortUrl || dynamicLinks.mercadopago.url);
+        lines.push("");
+      }
+      if (dynamicLinks.paypal?.url) {
+        lines.push(`🔹 *PayPal (USD):*`);
+        lines.push(dynamicLinks.paypal.shortUrl || dynamicLinks.paypal.url);
+        lines.push("");
+      }
     }
   }
 
-  lines.push(`_¿Deseas que procedamos con tu inscripción ahora o tienes alguna inquietud sobre el plan de estudio?_`);
+  lines.push(`_¿Te gustaría adquirirlo? Envía tu comprobante aquí para activar tu acceso inmediato. 🚀_`);
   
   return lines.join("\n");
 }
