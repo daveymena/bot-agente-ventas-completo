@@ -94,7 +94,7 @@ function NavBar({ setLoc }: { setLoc: (p: string) => void }) {
           </div>
 
           {/* Desktop links */}
-          <div style={{ display: "flex", gap: 32, alignItems: "center" }} className="hidden md:flex">
+          <div className="hidden md:flex" style={{ gap: 32, alignItems: "center" }}>
             {["#features","#pricing","#testimonials","#faq"].map((h, i) => (
               <a key={h} href={h} style={{ color: "rgba(255,255,255,0.65)", fontSize: 14, fontWeight: 500, textDecoration: "none", transition: "color 0.2s" }}
                 onMouseEnter={e => (e.currentTarget.style.color = "white")}
@@ -105,7 +105,7 @@ function NavBar({ setLoc }: { setLoc: (p: string) => void }) {
           </div>
 
           {/* CTA */}
-          <div style={{ display: "flex", gap: 10, alignItems: "center" }} className="hidden md:flex">
+          <div className="hidden md:flex" style={{ gap: 10, alignItems: "center" }}>
             <button onClick={() => setLoc("/auth")} style={{ color: "rgba(255,255,255,0.7)", fontWeight: 600, fontSize: 14, background: "none", border: "none", cursor: "pointer", padding: "8px 16px" }}
               onMouseEnter={e => (e.currentTarget.style.color = "white")}
               onMouseLeave={e => (e.currentTarget.style.color = "rgba(255,255,255,0.7)")}>
