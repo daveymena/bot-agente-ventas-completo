@@ -111,24 +111,26 @@ function formatPrice(price: number, currency: string) {
 // Context Intelligence Enhancement Functions
 
 /**
- * Analyzes conversation history to build context intelligence
+ * Analyzes conversation history to build context intelligence.
+ * Accepts dynamic product keyword map for tenant-aware topic detection.
  */
-function analyzeConversationContext(history: any[]): ConversationContext {
+function analyzeConversationContext(history: any[], productKeywords: Record<string, string[]> = {}): ConversationContext {
   const agentMessages = history.filter(m => m.role === "assistant");
   const customerMessages = history.filter(m => m.role === "customer");
   
-  // Check if agent has already introduced itself
-  const hasIntroduced = agentMessages.some(m => 
-    m.content.toLowerCase().includes("sofía") || 
-    m.content.toLowerCase().includes("te habla") ||
-    m.content.toLowerCase().includes("asesora")
-  );
+  // Check if agent has already introduced itself (generic check — looks for a greeting pattern)
+  const hasIntroduced = agentMessages.length > 0 && agentMessages.some(m => {
+    const c = m.content.toLowerCase();
+    return c.includes("bienvenido") || c.includes("hola") || c.includes("buenas") || 
+           c.includes("soy ") || c.includes("te habla") || c.includes("asesor") ||
+           c.length > 30; // Any substantive agent response counts as introduced
+  });
 
   // Analyze lead behavior patterns
   const leadBehavior = analyzeLeadBehaviorPattern(customerMessages);
   
-  // Detect current and previous topics
-  const topicAnalysis = analyzeTopicProgression(history);
+  // Detect current and previous topics using tenant's actual catalog keywords
+  const topicAnalysis = analyzeTopicProgression(history, productKeywords);
   
   return {
     hasIntroduced,
@@ -181,9 +183,8 @@ function analyzeLeadBehaviorPattern(customerMessages: any[]): LeadBehaviorPatter
     decisionCapacity = 'low';
   }
 
-  // Extract preferred products mentioned
-  const productKeywords = ["piano", "guitarra", "excel", "diseño", "trading", "idiomas", "hacking"];
-  const preferredProducts = productKeywords.filter(k => allText.includes(k));
+  // Preferred products: detected generically from high-interest signals (tenant-agnostic)
+  const preferredProducts: string[] = [];
 
   // Detect objection patterns
   const objectionKeywords = ["caro", "costoso", "mucho dinero", "no tengo", "presupuesto"];
@@ -302,31 +303,47 @@ function analyzeEmotionalIntelligence(message: string): EmotionalContext {
 }
 
 /**
- * Analyzes topic progression and transitions in conversation
+ * Builds a dynamic keyword map from the tenant's actual product catalog.
+ * Each product name generates keyword variants so topic detection works
+ * for ANY business — not just TecnoVariedades.
  */
-function analyzeTopicProgression(history: any[]): { currentTopic: string | null, previousTopics: string[] } {
-  const productKeywords = {
-    "piano": ["piano", "teclado", "música", "musica"],
-    "guitarra": ["guitarra", "música", "musica"],
-    "excel": ["excel", "office", "hoja de calculo"],
-    "diseño": ["diseño", "photoshop", "illustrator", "canva"],
-    "trading": ["trading", "forex", "bolsa", "inversiones"],
-    "idiomas": ["idiomas", "inglés", "ingles", "francés", "alemán"],
-    "hacking": ["hacking", "ciberseguridad", "seguridad"],
-    "marketing": ["marketing", "seo", "redes sociales"],
-    "fitness": ["fitness", "gimnasio", "ejercicio"],
-    "programación": ["programación", "programacion", "codigo", "python"]
-  };
+function buildDynamicKeywordMap(productList: { id: number; name: string; description?: string | null }[]): Record<string, string[]> {
+  const map: Record<string, string[]> = {};
+  for (const p of productList) {
+    const nameLower = p.name.toLowerCase();
+    const words = nameLower
+      .replace(/[^\wáéíóúüñ ]/gi, " ")
+      .split(" ")
+      .filter(w => w.length > 3);
+    if (words.length === 0) continue;
+    // Key = first meaningful word (or full name if short)
+    const key = words[0];
+    if (!map[key]) map[key] = [];
+    // Add all words and the full name as keywords
+    map[key].push(...words, nameLower);
+    // Also add significant words from description
+    if (p.description) {
+      const descWords = p.description.toLowerCase().split(" ").filter(w => w.length > 4).slice(0, 5);
+      map[key].push(...descWords);
+    }
+    map[key] = [...new Set(map[key])];
+  }
+  return map;
+}
 
+/**
+ * Analyzes topic progression and transitions in conversation.
+ * Accepts a dynamic keyword map built from the tenant's product catalog.
+ */
+function analyzeTopicProgression(history: any[], productKeywords: Record<string, string[]>): { currentTopic: string | null, previousTopics: string[] } {
   const topics: string[] = [];
   
-  // Analyze each message for topic mentions
   for (const message of history) {
     const text = message.content.toLowerCase();
     for (const [topic, keywords] of Object.entries(productKeywords)) {
       if (keywords.some(keyword => text.includes(keyword))) {
         topics.push(topic);
-        break; // Only count one topic per message
+        break;
       }
     }
   }
@@ -339,19 +356,19 @@ function analyzeTopicProgression(history: any[]): { currentTopic: string | null,
 }
 
 /**
- * Detects topic transitions between messages
+ * Detects topic transitions between messages using tenant's catalog keywords.
  */
-function detectTopicTransition(history: any[], currentMessage: string): TopicTransition | null {
+function detectTopicTransition(history: any[], currentMessage: string, productKeywords: Record<string, string[]>): TopicTransition | null {
   if (history.length === 0) return null;
 
-  const topicAnalysis = analyzeTopicProgression([...history, { content: currentMessage, role: "customer" }]);
-  const previousAnalysis = analyzeTopicProgression(history);
+  const topicAnalysis = analyzeTopicProgression([...history, { content: currentMessage, role: "customer" }], productKeywords);
+  const previousAnalysis = analyzeTopicProgression(history, productKeywords);
 
   if (topicAnalysis.currentTopic !== previousAnalysis.currentTopic) {
     return {
       from: previousAnalysis.currentTopic,
       to: topicAnalysis.currentTopic || "general",
-      confidence: 0.8 // Simple confidence score
+      confidence: 0.8,
     };
   }
 
@@ -459,17 +476,58 @@ export async function runAgentReply(conversationId: number) {
   }
   console.log(`📱 [AGENT-INFO] Conversación encontrada: ${convo.contactPhone}, Estado: ${convo.status}, Etapa: ${convo.currentStage} - ${new Date().toISOString()}`);
 
-  const [activeAgent] = await db.select().from(agents).where(eq(agents.isActive, true)).limit(1);
+  const tenantId = convo.tenantId;
+
+  // ── MULTI-TENANT AGENT RESOLUTION ──────────────────────────────────────
+  // Priority: 1) Agent explicitly assigned to this conversation
+  //           2) Active agent for this tenant
+  //           3) Any active agent (global fallback — should not happen in prod)
+  let activeAgent = null;
+
+  if (convo.agentId) {
+    const [assigned] = await db.select().from(agents).where(eq(agents.id, convo.agentId)).limit(1);
+    if (assigned) {
+      activeAgent = assigned;
+      console.log(`🤖 [AGENT-INFO] Usando agente asignado a la conversación: ${assigned.name} (ID: ${assigned.id})`);
+    }
+  }
+
+  if (!activeAgent && tenantId) {
+    const [tenantAgent] = await db.select().from(agents)
+      .where(and(eq(agents.isActive, true), eq(agents.tenantId, tenantId)))
+      .orderBy(desc(agents.id))
+      .limit(1);
+    if (tenantAgent) {
+      activeAgent = tenantAgent;
+      console.log(`🤖 [AGENT-INFO] Usando agente activo del tenant ${tenantId}: ${tenantAgent.name} (ID: ${tenantAgent.id})`);
+    }
+  }
+
   if (!activeAgent) {
-    console.log(`❌ [AGENT-ERROR] No hay agente activo configurado - ${new Date().toISOString()}`);
+    // Fallback: any active agent (handles legacy rows without tenant_id)
+    const [fallbackAgent] = await db.select().from(agents).where(eq(agents.isActive, true)).limit(1);
+    if (fallbackAgent) {
+      activeAgent = fallbackAgent;
+      console.log(`⚠️ [AGENT-WARN] Fallback global: ${fallbackAgent.name} (sin tenant) - ${new Date().toISOString()}`);
+    }
+  }
+
+  if (!activeAgent) {
+    console.log(`❌ [AGENT-ERROR] No hay agente configurado para tenant ${tenantId} - ${new Date().toISOString()}`);
     return null;
   }
-  console.log(`🤖 [AGENT-INFO] Agente activo: ${activeAgent.name} - ${new Date().toISOString()}`);
+  // ────────────────────────────────────────────────────────────────────────
 
   const [appSettings] = await db.select().from(settingsTable).limit(1);
-  const productList = await db.select().from(products).where(eq(products.isActive, true));
-  console.log(`📦 [AGENT-INFO] Productos activos: ${productList.length} - ${new Date().toISOString()}`);
-  
+
+  // ── MULTI-TENANT PRODUCT CATALOG ────────────────────────────────────────
+  const productFilter = tenantId
+    ? and(eq(products.isActive, true), eq(products.tenantId, tenantId))
+    : eq(products.isActive, true);
+  const productList = await db.select().from(products).where(productFilter);
+  console.log(`📦 [AGENT-INFO] Productos del tenant ${tenantId}: ${productList.length} - ${new Date().toISOString()}`);
+  // ────────────────────────────────────────────────────────────────────────
+
   const history = await db
     .select()
     .from(messages)
@@ -481,8 +539,11 @@ export async function runAgentReply(conversationId: number) {
 
   history.reverse(); // Ordenamos de más viejo a más nuevo para la IA
 
-  // Context Intelligence Enhancement: Analyze conversation context
-  const conversationContext = analyzeConversationContext(history);
+  // Build dynamic keyword map from tenant's actual product catalog
+  const dynamicKeywordMap = buildDynamicKeywordMap(productList);
+
+  // Context Intelligence Enhancement: Analyze conversation context with tenant catalog
+  const conversationContext = analyzeConversationContext(history, dynamicKeywordMap);
   console.log(`🧠 [AGENT-ANALYSIS] Contexto analizado - Presentado: ${conversationContext.hasIntroduced}, Tema: ${conversationContext.currentTopic}, Interés: ${conversationContext.leadBehavior.interestLevel}, Estilo: ${conversationContext.leadBehavior.communicationStyle} - ${new Date().toISOString()}`);
   
   logger.info({ 
@@ -498,85 +559,84 @@ export async function runAgentReply(conversationId: number) {
     .map((p) => `PRODUCTO_ID=${p.id} | USAR: [CARD: ${p.id}] | ${p.name} | ${formatPrice(Number(p.price), p.currency)} | ${p.description || ""}`)
     .join("\n");
 
-  // Error Resilience Enhancement: Check payment gateway health before generating payment info
   const pg = new PaymentGateway();
   const lastCustomerMsg = [...history].reverse().find(m => m.role === "customer");
   const lastText = lastCustomerMsg?.content.toLowerCase() || "";
   
-  // Context Intelligence Enhancement: Detect topic transitions
-  const topicTransition = detectTopicTransition(history.slice(0, -1), lastText);
+  // ── DYNAMIC PRODUCT SEARCH — must happen before payment section ──────────
+  // Universal: searches the tenant's own catalog, no hardcoded IDs or names
+  const commonGreetingsEarly = ["hola", "buenas", "buen dia", "buenos dias", "buenas tardes", "buenas noches", "hola!", "hola.", "que tal", "como estas", "hi", "hey"];
+  const searchTermsEarly = lastText.toLowerCase()
+    .split(/[\s,]+/)
+    .filter(w => w.length > 3 && !commonGreetingsEarly.includes(w));
+
+  let productForRequest = searchTermsEarly.length > 0
+    ? (productList.find(p => lastText.includes(p.name.toLowerCase()))
+        || productList.find(p => {
+          const nameLower = p.name.toLowerCase();
+          return searchTermsEarly.some(term => nameLower.includes(term));
+        }))
+    : null;
+  // ────────────────────────────────────────────────────────────────────────
+
+  // Context Intelligence Enhancement: Detect topic transitions (tenant-aware)
+  const topicTransition = detectTopicTransition(history.slice(0, -1), lastText, dynamicKeywordMap);
   if (topicTransition) {
-    console.log(`🔄 [AGENT-TRANSITION] Cambio de tema detectado: ${topicTransition.from || 'ninguno'} → ${topicTransition.to} (confianza: ${topicTransition.confidence}) - ${new Date().toISOString()}`);
-    logger.info({ 
-      conversationId, 
-      transition: topicTransition 
-    }, "[Agent] Topic transition detected");
+    console.log(`🔄 [AGENT-TRANSITION] Cambio de tema: ${topicTransition.from || 'ninguno'} → ${topicTransition.to} - ${new Date().toISOString()}`);
+    logger.info({ conversationId, transition: topicTransition }, "[Agent] Topic transition detected");
   }
   
+  // ── PAYMENT LINK GENERATION ─────────────────────────────────────────────
+  // Detects payment intent and generates links for the identified product
   let paymentInfo = "";
-  const paymentKeywords = ["pago", "pagar", "comprar", "transferencia", "nequi", "daviplata", "adquirir", "compro", "cuenta", "precio", "valor", "link", "enlace"];
+  const paymentKeywords = ["pago", "pagar", "comprar", "transferencia", "nequi", "daviplata", "adquirir", "compro", "cuenta", "precio", "valor", "link", "enlace", "pay", "purchase"];
   if (paymentKeywords.some(k => lastText.includes(k))) {
     console.log(`💳 [AGENT-PAYMENT] Solicitud de pago detectada: "${lastText.substring(0, 50)}" - ${new Date().toISOString()}`);
     
-    // PRIORIDAD DE RESOLUCIÓN DEL PRODUCTO (anti cross-product bug):
-    // 1. Nombre exacto mencionado en el mensaje actual
-    // 2. ID explícito que el cliente haya pedido (productForRequest)
-    // 3. Tema actual de la conversación — solo si hay coincidencia fuerte
-    // 4. Si no hay certeza: NO generar link, pedir aclaración
-    let paymentProduct = productList.find(p => lastText.includes(p.name.toLowerCase()));
-    
-    if (!paymentProduct && productForRequest) {
-      paymentProduct = productForRequest;
-      console.log(`🎯 [AGENT-PAYMENT] Usando producto de la solicitud actual: ${paymentProduct.name} (ID: ${paymentProduct.id})`);
-    }
-    
-    if (!paymentProduct && conversationContext.currentTopic) {
-      // Solo match fuerte: el nombre completo del producto debe contener el tema
-      const topic = conversationContext.currentTopic.toLowerCase();
-      paymentProduct = productList.find(p => p.name.toLowerCase().includes(topic) && topic.length > 4);
-      if (paymentProduct) console.log(`🧠 [AGENT-PAYMENT] Usando producto del contexto (match fuerte): ${paymentProduct.name} (ID: ${paymentProduct.id})`);
-    }
+    // Priority: 1) exact name in message, 2) product from context, 3) ask for clarification
+    let paymentProduct = productList.find(p => lastText.includes(p.name.toLowerCase()))
+      || productForRequest
+      || (conversationContext.currentTopic
+          ? productList.find(p => p.name.toLowerCase().includes(conversationContext.currentTopic!.toLowerCase()) && conversationContext.currentTopic!.length > 4)
+          : null);
 
     if (paymentProduct) {
-      console.log(`✅ [AGENT-PAYMENT] Producto CONFIRMADO para pago: ${paymentProduct.name} (ID: ${paymentProduct.id}) - ${new Date().toISOString()}`);
+      console.log(`✅ [AGENT-PAYMENT] Producto para pago: ${paymentProduct.name} (ID: ${paymentProduct.id}) - ${new Date().toISOString()}`);
       try {
-        const paymentServicesHealthy = arePaymentServicesHealthy();
-        if (!paymentServicesHealthy) {
-          paymentInfo = `\n━━━━━━━━━━━━━━━━━━━━━━━━\n💳 *OPCIONES DE PAGO — ${paymentProduct.name}*\n━━━━━━━━━━━━━━━━━━━━━━━━\nEstoy actualizando los enlaces. Te los envío en un segundo. ⏳`;
+        if (!arePaymentServicesHealthy()) {
+          paymentInfo = `\n━━━━━━━━━━━━━━━━━━━━━━━━\n💳 *PAGO — ${paymentProduct.name}*\n━━━━━━━━━━━━━━━━━━━━━━━━\nEstoy generando tu enlace de pago. Te lo envío en un momento. ⏳`;
         } else {
-          // PayPal se genera dinámicamente (caduca), MercadoPago es estático por producto
           const links = await retryWithBackoff(
             () => pg.getAllLinks(paymentProduct!, { phone: convo.contactPhone, name: convo.contactName }),
             { maxRetries: 2, baseDelay: 1000 },
-            `payment_links_product_${paymentProduct!.id}_conv_${conversationId}`
+            `payment_links_${paymentProduct!.id}_${conversationId}`
           );
-          console.log(`🔗 [AGENT-PAYMENT] Links generados para ${paymentProduct.name} — MP: ${!!links.mercadopago?.url}, PayPal: ${!!links.paypal?.url}`);
+          console.log(`🔗 [AGENT-PAYMENT] Links para ${paymentProduct.name} — MP: ${!!links.mercadopago?.url}, PayPal: ${!!links.paypal?.url}`);
           
-          paymentInfo = `
-━━━━━━━━━━━━━━━━━━━━━━━━
-💳 *PAGO — ${paymentProduct.name}*
-━━━━━━━━━━━━━━━━━━━━━━━━
-📍 *Nequi / Daviplata:* ${links.transfer.options[0]?.number || "No disponible"}
-👤 *Titular:* ${links.transfer.options[0]?.name || ""}
-
-🔸 *Tarjeta / PSE (MercadoPago):*
-${links.mercadopago?.url || "No disponible"}
-
-🔸 *PayPal (USD):*
-${links.paypal?.url || "No disponible"}
-━━━━━━━━━━━━━━━━━━━━━━━━
-Envía tu comprobante aquí mismo para activar tu acceso en Drive. 📁`;
+          // Build payment block — only shows methods that are configured
+          const paymentLines: string[] = [];
+          if (links.transfer?.options?.[0]?.number) {
+            paymentLines.push(`📍 *Transferencia (Nequi/Daviplata):* ${links.transfer.options[0].number}`);
+            paymentLines.push(`👤 *Titular:* ${links.transfer.options[0].name || ""}`);
+          }
+          if (links.mercadopago?.url) {
+            paymentLines.push(`\n🔸 *Tarjeta / PSE (MercadoPago):*\n${links.mercadopago.url}`);
+          }
+          if (links.paypal?.url) {
+            paymentLines.push(`\n🔸 *PayPal (USD):*\n${links.paypal.url}`);
+          }
+          
+          paymentInfo = `\n━━━━━━━━━━━━━━━━━━━━━━━━\n💳 *PAGO — ${paymentProduct.name}*\n━━━━━━━━━━━━━━━━━━━━━━━━\n${paymentLines.join("\n")}\n━━━━━━━━━━━━━━━━━━━━━━━━\nEnvía tu comprobante de pago aquí mismo para confirmar tu acceso. ✅`;
         }
       } catch (error) {
-        console.error(`❌ [AGENT-PAYMENT] Error generando links para ${paymentProduct.name}:`, error);
-        paymentInfo = `\n💳 Estoy preparando tu link de pago para *${paymentProduct.name}*. Dame un instante. ⏳`;
+        console.error(`❌ [AGENT-PAYMENT] Error generando links:`, error);
+        paymentInfo = `\n💳 Estoy preparando tu enlace de pago para *${paymentProduct.name}*. Dame un instante. ⏳`;
       }
     } else {
-      // Sin producto identificado — NO generar link incorrecto
-      console.log(`⚠️ [AGENT-PAYMENT] No se pudo identificar el producto. Solicitando aclaración al cliente.`);
-      paymentInfo = `\n━━━━━━━━━━━━━━━━━━━━━━━━\n💳 Para enviarte el link de pago correcto, ¿me confirmas cuál pack te interesa adquirir hoy?\n━━━━━━━━━━━━━━━━━━━━━━━━`;
+      paymentInfo = `\n━━━━━━━━━━━━━━━━━━━━━━━━\n💳 Para enviarte el enlace de pago correcto, ¿me confirmas cuál producto o servicio te interesa?\n━━━━━━━━━━━━━━━━━━━━━━━━`;
     }
   }
+  // ────────────────────────────────────────────────────────────────────────
 
   // Context Intelligence Enhancement: Generate personalized context
   const personalizedContext = generatePersonalizedContext(conversationContext, lastText);
@@ -643,56 +703,53 @@ ${personalizedContext}`.trim();
 
   console.log(`📝 [AGENT-PROMPT] Prompt del sistema generado - Longitud: ${systemPrompt.length} caracteres - ${new Date().toISOString()}`);
 
-  // Context Intelligence Enhancement: Enhanced greeting detection and context-aware prompting
-  // Detección de saludo pura (sin intención de compra evidente)
-  const commonGreetings = ["hola", "buenas", "buen dia", "buenos dias", "buenas tardes", "buenas noches", "hola!", "hola.", "hola muy buenas", "que tal", "como estas"];
-  const isGreetingOnly = commonGreetings.some(k => lastText.trim().toLowerCase().includes(k)) && lastText.split(' ').length <= 4;
-  
-  // Búsqueda de productos MEJORADA
-  let productForRequest = null;
-  const searchTerms = lastText.toLowerCase().split(' ').filter(w => w.length > 3 && !commonGreetings.includes(w));
-  
-  if (lastText.toLowerCase().includes("piano")) {
-    productForRequest = productList.find(p => p.id === 311) || productList.find(p => p.name.toLowerCase().includes("piano"));
-  } else if (searchTerms.length > 0) {
-    productForRequest = productList.find(p => {
-      const nameLower = p.name.toLowerCase();
-      return searchTerms.some(term => nameLower.includes(term));
-    });
-  }
+  // ── GREETING DETECTION ─────────────────────────────────────────────────
+  const commonGreetings = commonGreetingsEarly; // reuse already-defined list
+  const isGreetingOnly = commonGreetings.some(k => lastText.trim().toLowerCase().includes(k)) && lastText.split(' ').length <= 5;
+
+  // ── STAGE-AWARE PROMPTING from agent.stages in DB ─────────────────────
+  // Map conversation current stage → agent's configured stage prompt
+  const currentStage = convo.currentStage || "greeting";
+  const agentStages = (activeAgent as any).stages as Array<{ key: string; name: string; prompt: string }> | null;
+  const matchingStage = agentStages?.find(s =>
+    s.key === currentStage ||
+    s.key.toLowerCase().includes(currentStage.toLowerCase()) ||
+    currentStage.toLowerCase().includes(s.key.toLowerCase())
+  );
+  const stageInstruction = matchingStage
+    ? `\n\n📍 INSTRUCCIÓN DE ETAPA (${matchingStage.name.toUpperCase()}): ${matchingStage.prompt}`
+    : "";
 
   const baseSystemPrompt = systemPrompt;
   let finalPrompt = "";
   let responsePrefill = "";
-  
+
   if (isGreetingOnly && !conversationContext.hasIntroduced) {
-    // ── PRIMERA VEZ: Presentación del agente y negocio desde DB ──
-    console.log(`👋 [AGENT-STRATEGY] Primer contacto - Presentación de ${agentName} - ${new Date().toISOString()}`);
-    finalPrompt = baseSystemPrompt + `\n\n🚨 PRIMERA VISITA — PRESENTACIÓN INICIAL:
-Este es el primer mensaje del cliente. Preséntate como ${agentName}.
-Menciona brevemente lo que ofreces según tu prompt de sistema.
-Si tienes un catálogo, menciona que tienes disponibles productos/servicios.
-Cierra preguntando qué está buscando hoy.
-PROHIBIDO enviar tarjetas [CARD: ID] en este mensaje. Máx 4 líneas.`;
+    // ── PRIMERA VEZ: Presentación adaptada al negocio del tenant ──────────
+    console.log(`👋 [AGENT-STRATEGY] Primer contacto - Presentación de ${agentName} (tenant ${tenantId}) - ${new Date().toISOString()}`);
+    const greetingStage = agentStages?.find(s => s.key === "greeting" || s.key === "hook" || s.key === "bienvenida");
+    const greetingInstruction = greetingStage?.prompt
+      || `Preséntate como ${agentName}. Menciona qué ofreces según tu perfil. Pregunta en qué puedes ayudar. Máx 4 líneas. Sin tarjetas [CARD].`;
+    finalPrompt = baseSystemPrompt + `\n\n🚨 PRIMERA VISITA: ${greetingInstruction}\nPROHIBIDO enviar tarjetas [CARD: ID] en este mensaje.`;
     responsePrefill = `━━━━━━━━━━━━━━━━━━━━━━━━\n👋 *¡BIENVENIDO/A!* 😊\n\n`;
 
   } else if (isGreetingOnly && conversationContext.hasIntroduced) {
-    // ── CLIENTE QUE VUELVE: Saludo cálido sin intro ──
-    console.log(`👋 [AGENT-STRATEGY] Cliente recurrente - Saludo cálido sin presentación - ${new Date().toISOString()}`);
-    finalPrompt = baseSystemPrompt + `\n\n🚨 CLIENTE RECURRENTE:
-El cliente ya te conoce. NO repitas la presentación.
-Salúdalo de forma cálida y pregunta en qué puedes ayudarle hoy.
-Máximo 2 líneas. PROHIBIDO enviar tarjetas [CARD: ID].`;
+    // ── CLIENTE RECURRENTE ─────────────────────────────────────────────────
+    console.log(`👋 [AGENT-STRATEGY] Cliente recurrente - Saludo sin presentación - ${new Date().toISOString()}`);
+    finalPrompt = baseSystemPrompt + `\n\n🚨 CLIENTE RECURRENTE: Ya te conoce. Saluda con calidez y pregunta en qué puedes ayudar. Máx 2 líneas. Sin tarjetas [CARD].`;
     responsePrefill = `━━━━━━━━━━━━━━━━━━━━━━━━\n👋 *¡Qué gusto verte de nuevo!* 🌟\n\n`;
 
   } else if (productForRequest) {
-    console.log(`🎯 [AGENT-STRATEGY] Estrategia: Producto específico solicitado - ${productForRequest.name} (ID: ${productForRequest.id}) - ${new Date().toISOString()}`);
-    finalPrompt = baseSystemPrompt + `\n\n🚨 REGLA: Presenta ${productForRequest.name} con elegancia, envía [CARD: ${productForRequest.id}] y cierra con una pregunta. Usa el formato visual del protocolo.`;
-    responsePrefill = `━━━━━━━━━━━━━━━━━━━━━━━━\n🎓 *PACK RECOMENDADO PARA TI*\n\n`;
+    // ── PRODUCTO IDENTIFICADO ──────────────────────────────────────────────
+    console.log(`🎯 [AGENT-STRATEGY] Producto identificado: ${productForRequest.name} (ID: ${productForRequest.id}) - ${new Date().toISOString()}`);
+    finalPrompt = baseSystemPrompt + stageInstruction + `\n\n🚨 ACCIÓN: Presenta "${productForRequest.name}" con entusiasmo. Envía [CARD: ${productForRequest.id}] en línea sola. Cierra con UNA pregunta de cierre.`;
+    responsePrefill = `━━━━━━━━━━━━━━━━━━━━━━━━\n✨ *PARA TI*\n\n`;
+
   } else {
-    console.log(`💬 [AGENT-STRATEGY] Estrategia: Conversación regular - respuesta contextual - ${new Date().toISOString()}`);
-    finalPrompt = baseSystemPrompt + `\n\n🚨 REGLA: Responde con el formato visual de élite. Separadores + emojis en CADA mensaje.`;
-    responsePrefill = `━━━━━━━━━━━━━━━━━━━━━━━━\n✨ *SOFÍA DE ÉLITE*\n\n`;
+    // ── CONVERSACIÓN REGULAR ──────────────────────────────────────────────
+    console.log(`💬 [AGENT-STRATEGY] Conversación regular, etapa: ${currentStage} - ${new Date().toISOString()}`);
+    finalPrompt = baseSystemPrompt + stageInstruction + `\n\n🚨 REGLA: Responde con formato visual (separadores + emojis). Rol: ${agentRole}. Tono: ${agentTone}.`;
+    responsePrefill = `━━━━━━━━━━━━━━━━━━━━━━━━\n💬 *${agentName.toUpperCase()}*\n\n`;
   }
 
   const chatMessages = [
@@ -700,8 +757,10 @@ Máximo 2 líneas. PROHIBIDO enviar tarjetas [CARD: ID].`;
       role: m.role === "customer" ? "user" : "assistant",
       content: m.content
     })),
-    { role: "system", content: finalPrompt + "\n\n🚨 REGLA CRÍTICA FINAL: (1) Prohibido 'Hola, muy buenas'. (2) JAMÁS escribas detalles técnicos — la [CARD: ID] ya los contiene. (3) Ignora datos técnicos del historial." },
-    // Prefill: el mensaje del asistente ya empieza con el formato correcto, la IA solo continúa
+    {
+      role: "system",
+      content: finalPrompt + `\n\n🚨 REGLA FINAL: (1) Sin saludos repetidos si ya te presentaste. (2) NUNCA repitas texto técnico que ya está en [CARD: ID]. (3) Adapta tu respuesta al rol "${agentRole}" y tono "${agentTone}".`
+    },
     ...(responsePrefill ? [{ role: "assistant", content: responsePrefill }] : [])
   ];
 
