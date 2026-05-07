@@ -6,25 +6,28 @@
   --color-bg: var(--slide-bg);
   --color-text: var(--slide-text);
   --color-muted: var(--slide-muted);
+  --color-surface: var(--slide-surface);
+  --color-border: var(--slide-border);
+  --color-purple: var(--slide-purple);
   --font-display: var(--font-display-family);
   --font-body: var(--font-body-family);
 }
 
 :root {
-  /* Replace these with brand colors */
-  --slide-primary: #4f46e5;
-  --slide-accent: #06b6d4;
-  --slide-bg: #f8fafc;
-  --slide-text: #0f172a;
-  --slide-muted: #64748b;
-  --font-display-family: "Inter", system-ui, sans-serif;
-  --font-body-family: "Inter", system-ui, sans-serif;
-  color-scheme: light;
+  --slide-primary: #ff6b2b;
+  --slide-accent: #22c55e;
+  --slide-bg: #0b0d17;
+  --slide-text: #ffffff;
+  --slide-muted: rgba(255, 255, 255, 0.5);
+  --slide-surface: rgba(255, 255, 255, 0.04);
+  --slide-border: rgba(255, 255, 255, 0.08);
+  --slide-purple: #a855f7;
+  --font-display-family: "Syne", sans-serif;
+  --font-body-family: "DM Sans", sans-serif;
+  color-scheme: dark;
 }
 
-html,
-body,
-#root {
+html, body, #root {
   width: 100%;
   height: 100%;
   margin: 0;

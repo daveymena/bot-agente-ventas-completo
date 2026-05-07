@@ -1,1 +1,74 @@
-[]
+[
+  {
+    "id": "vp-slide-001-title",
+    "position": 1,
+    "filepath": "src/pages/slides/Slide1.tsx",
+    "title": "Portada",
+    "description": "VentasPro — Tu vendedor trabaja 24/7",
+    "speakerNotes": ""
+  },
+  {
+    "id": "vp-slide-002-market",
+    "position": 2,
+    "filepath": "src/pages/slides/Slide2.tsx",
+    "title": "El Contexto",
+    "description": "93% de colombianos usa WhatsApp. El problema de atención manual.",
+    "speakerNotes": ""
+  },
+  {
+    "id": "vp-slide-003-solution",
+    "position": 3,
+    "filepath": "src/pages/slides/Slide3.tsx",
+    "title": "La Solución",
+    "description": "Presentamos a Sofía — agente IA de ventas.",
+    "speakerNotes": ""
+  },
+  {
+    "id": "vp-slide-004-howto",
+    "position": 4,
+    "filepath": "src/pages/slides/Slide4.tsx",
+    "title": "Cómo Funciona",
+    "description": "3 pasos: Conecta, Configura, Vende.",
+    "speakerNotes": ""
+  },
+  {
+    "id": "vp-slide-005-features",
+    "position": 5,
+    "filepath": "src/pages/slides/Slide5.tsx",
+    "title": "Funciones",
+    "description": "WhatsApp, IA, Pagos, Catálogo, Dashboard, Embudo.",
+    "speakerNotes": ""
+  },
+  {
+    "id": "vp-slide-006-results",
+    "position": 6,
+    "filepath": "src/pages/slides/Slide6.tsx",
+    "title": "Resultados",
+    "description": "3x ventas · 24/7 · 10 min setup · $0 para empezar.",
+    "speakerNotes": ""
+  },
+  {
+    "id": "vp-slide-007-pricing",
+    "position": 7,
+    "filepath": "src/pages/slides/Slide7.tsx",
+    "title": "Precios",
+    "description": "Básico $29 · Profesional $79 · Empresarial $199.",
+    "speakerNotes": ""
+  },
+  {
+    "id": "vp-slide-008-testimonials",
+    "position": 8,
+    "filepath": "src/pages/slides/Slide8.tsx",
+    "title": "Clientes",
+    "description": "Testimoniales de Carlos Medina y Laura Torres.",
+    "speakerNotes": ""
+  },
+  {
+    "id": "vp-slide-009-cta",
+    "position": 9,
+    "filepath": "src/pages/slides/Slide9.tsx",
+    "title": "Empieza Hoy",
+    "description": "CTA — 7 días gratis, sin tarjeta de crédito.",
+    "speakerNotes": ""
+  }
+]
