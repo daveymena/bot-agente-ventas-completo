@@ -25,6 +25,7 @@ import nichesRouter from "./niches";
 import notificationsRouter from "./notifications";
 import storeRouter from "./store";
 import aiProvidersRouter from "./ai-providers";
+import dropiRouter from "./dropi";
 
 const router: IRouter = Router();
 
@@ -53,6 +54,7 @@ router.use("/niches", nichesRouter);
 router.use("/notifications", notificationsRouter);
 router.use("/store", storeRouter);
 router.use("/ai-providers", aiProvidersRouter);
+router.use("/dropi", dropiRouter);
 
 router.use((err: unknown, req: Request, res: Response, _next: NextFunction) => {
   if (err instanceof ZodError) {

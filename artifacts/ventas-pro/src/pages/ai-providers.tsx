@@ -106,6 +106,29 @@ const PROVIDER_META: Record<string, {
     models: [
       { id: "deepseek-chat", label: "DeepSeek V3 Chat", note: "El más barato" },
       { id: "deepseek-reasoner", label: "DeepSeek R1 Reasoner", note: "Razonamiento profundo" },
+      { id: "deepseek-r1-distill-qwen-32b", label: "DeepSeek R1 Distill Qwen 32B" },
+      { id: "deepseek-r1-distill-llama-70b", label: "DeepSeek R1 Distill Llama 70B" },
+      { id: "deepseek-v2.5", label: "DeepSeek V2.5" },
+      { id: "deepseek-coder", label: "DeepSeek Coder", note: "Para código" },
+    ],
+  },
+  together: {
+    name: "Together AI", emoji: "🤝", color: "bg-indigo-500/10 border-indigo-500/20 text-indigo-300",
+    description: "Plataforma con 100+ modelos open source. Llama, Mixtral, Qwen y más a precios muy bajos.",
+    freeNote: "Muy económico", docsUrl: "https://api.together.xyz/settings/api-keys",
+    models: [
+      { id: "meta-llama/Llama-3.3-70B-Instruct-Turbo", label: "Llama 3.3 70B Turbo", note: "Rápido y potente" },
+      { id: "meta-llama/Llama-3.1-8B-Instruct-Turbo", label: "Llama 3.1 8B Turbo", note: "Económico" },
+      { id: "meta-llama/Llama-3.1-70B-Instruct-Turbo", label: "Llama 3.1 70B Turbo" },
+      { id: "meta-llama/Llama-3.1-405B-Instruct-Turbo", label: "Llama 3.1 405B Turbo", note: "El más potente" },
+      { id: "mistralai/Mixtral-8x7B-Instruct-v0.1", label: "Mixtral 8x7B" },
+      { id: "mistralai/Mixtral-8x22B-Instruct-v0.1", label: "Mixtral 8x22B" },
+      { id: "Qwen/Qwen2.5-72B-Instruct-Turbo", label: "Qwen 2.5 72B Turbo" },
+      { id: "Qwen/QwQ-32B-Preview", label: "Qwen QwQ 32B", note: "Razonamiento" },
+      { id: "deepseek-ai/DeepSeek-V3", label: "DeepSeek V3" },
+      { id: "deepseek-ai/DeepSeek-R1", label: "DeepSeek R1", note: "Razonamiento" },
+      { id: "google/gemma-2-27b-it", label: "Gemma 2 27B" },
+      { id: "microsoft/WizardLM-2-8x22B", label: "WizardLM 2 8x22B" },
     ],
   },
   openrouter: {
@@ -179,7 +202,7 @@ const PROVIDER_META: Record<string, {
   },
 };
 
-const ORDER = ["github", "openai", "anthropic", "gemini", "groq", "mistral", "deepseek", "openrouter", "nvidia", "ollama_local", "ollama_cloud"];
+const ORDER = ["github", "openai", "anthropic", "gemini", "groq", "mistral", "deepseek", "together", "openrouter", "nvidia", "ollama_local", "ollama_cloud"];
 
 interface ProviderStatus {
   id: string; model: string; enabled: boolean; configured: boolean;

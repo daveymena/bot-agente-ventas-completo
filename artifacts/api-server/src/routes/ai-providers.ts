@@ -17,8 +17,8 @@ const router = Router();
 
 const ALL_PROVIDERS = [
   "github", "openai", "anthropic", "gemini",
-  "groq", "mistral", "deepseek", "openrouter",
-  "together", "nvidia", "ollama_local", "ollama_cloud",
+  "groq", "mistral", "deepseek", "together", "openrouter",
+  "nvidia", "ollama_local", "ollama_cloud",
 ];
 
 async function getOrCreateSettings() {
