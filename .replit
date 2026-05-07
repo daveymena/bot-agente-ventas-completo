@@ -30,3 +30,32 @@ externalPort = 80
 [[ports]]
 localPort = 23665
 externalPort = 3000
+
+[userenv]
+
+[userenv.shared]
+NODE_ENV = "production"
+HOST = "0.0.0.0"
+HERMES_URL = "http://localhost:5000"
+GITHUB_MODEL = "gpt-4o-mini"
+GITHUB_MODEL_CLAUDE = "claude-sonnet-4-5"
+NVIDIA_MODEL = "meta/llama-3.1-70b-instruct"
+AI_FALLBACK_ORDER = "nvidia,github,ollama"
+AI_FALLBACK_ENABLED = "true"
+OLLAMA_LOCAL_URL = "http://localhost:11434"
+OLLAMA_LOCAL_MODEL = "hermes3:8b"
+TRANSFER_NUMBER = "3136174267"
+TRANSFER_NAME = "Deiner Mena"
+PAYPAL_MODE = "live"
+SMTP_HOST = "smtp.gmail.com"
+SMTP_PORT = "587"
+SMTP_USER = "deinermena25@gmail.com"
+EMAIL_FROM = "deinermena25@gmail.com"
+EMAIL_TO = "daveymena16@gmail.com"
+TYPING_DELAY_MIN = "800"
+TYPING_DELAY_MAX = "2000"
+READ_RECEIPT_DELAY = "500"
+HUMAN_PAUSE_MIN = "1000"
+HUMAN_PAUSE_MAX = "3000"
+GIT_BRANCH = "main"
+LOG_LEVEL = "info"
