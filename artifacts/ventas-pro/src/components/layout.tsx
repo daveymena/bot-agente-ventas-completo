@@ -155,7 +155,7 @@ export function AppSidebar() {
   const [location] = useLocation();
 
   const navItems = [
-    { label: "Panel", href: "/", icon: LayoutDashboard },
+    { label: "Panel", href: "/dashboard", icon: LayoutDashboard },
     { label: "Conversaciones", href: "/conversations", icon: MessageSquare },
     { label: "Agentes IA", href: "/agents", icon: Bot },
     { label: "Prospectos", href: "/leads", icon: Users },

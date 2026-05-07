@@ -6,11 +6,12 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
-import { Rocket, Mail, Lock, Store, User, ArrowRight, ShieldCheck } from "lucide-react";
+import { Rocket, Mail, Lock, Store, User, ArrowRight, ShieldCheck, ArrowLeft } from "lucide-react";
 
 export default function AuthPage() {
   const [, setLocation] = useLocation();
   const [isLoading, setIsLoading] = useState(false);
+  const defaultTab = new URLSearchParams(window.location.search).get("tab") === "register" ? "register" : "login";
 
   const [loginData, setLoginData] = useState({ email: "", password: "" });
   const [registerData, setRegisterData] = useState({
@@ -33,7 +34,7 @@ export default function AuthPage() {
       const data = await res.json();
       if (res.ok) {
         toast.success("¡Bienvenido de nuevo! 🚀");
-        setLocation("/");
+        setLocation("/dashboard");
       } else {
         toast.error(data.error || "Credenciales incorrectas");
       }
@@ -55,8 +56,8 @@ export default function AuthPage() {
       });
       const data = await res.json();
       if (res.ok) {
-        toast.success("¡Cuenta creada exitosamente! Ahora inicia sesión.");
-        // Switch to login tab could be added here
+        toast.success("¡Cuenta creada! Inicia sesión para entrar. 🎉");
+        setLocation("/auth");
       } else {
         toast.error(data.error || "Error en el registro");
       }
@@ -70,17 +71,28 @@ export default function AuthPage() {
   return (
     <div className="min-h-screen w-full flex items-center justify-center bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-primary/20 via-background to-background p-4">
       <div className="absolute inset-0 bg-grid-white/[0.02] -z-10" />
-      
+
+      {/* Back to landing */}
+      <button
+        onClick={() => setLocation("/")}
+        className="absolute top-4 left-4 flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors px-3 py-2 rounded-xl hover:bg-white/5">
+        <ArrowLeft className="h-4 w-4" />
+        Volver al inicio
+      </button>
+
       <div className="w-full max-w-[450px] animate-enter">
         <div className="flex flex-col items-center mb-8">
           <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-primary to-accent flex items-center justify-center shadow-xl shadow-primary/20 mb-4">
             <Rocket className="text-white h-8 w-8" />
           </div>
-          <h1 className="text-3xl font-bold tracking-tight">Sofía AI Sales</h1>
-          <p className="text-muted-foreground mt-2">La plataforma de ventas autónoma de élite</p>
+          <h1 className="text-3xl font-bold tracking-tight">VentasPro</h1>
+          <p className="text-muted-foreground mt-2">Automatiza tus ventas por WhatsApp con IA</p>
+          <div className="mt-3 px-4 py-1.5 rounded-full bg-green-500/10 border border-green-500/30 text-green-400 text-xs font-bold">
+            🎁 7 días de prueba gratis — sin tarjeta
+          </div>
         </div>
 
-        <Tabs defaultValue="login" className="w-full">
+        <Tabs defaultValue={defaultTab} className="w-full">
           <TabsList className="grid w-full grid-cols-2 mb-6 glass-panel p-1">
             <TabsTrigger value="login" className="rounded-lg">Iniciar Sesión</TabsTrigger>
             <TabsTrigger value="register" className="rounded-lg">Crear Cuenta</TabsTrigger>

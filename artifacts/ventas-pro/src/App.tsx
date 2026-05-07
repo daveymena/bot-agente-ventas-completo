@@ -4,6 +4,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/not-found";
 
+import LandingPage from "@/pages/landing";
 import Dashboard from "@/pages/dashboard";
 import Conversations from "@/pages/conversations";
 import Agents from "@/pages/agents";
@@ -27,17 +28,16 @@ const queryClient = new QueryClient({
       staleTime: 5000,
       onError: (error: any) => {
         const status = error?.status || error?.response?.status;
-        if (status === 401 && window.location.pathname !== "/auth") {
-          console.log("🔒 Sesión expirada o inválida. Redirigiendo a Auth...");
-          window.location.href = "/auth";
+        if (status === 401 && window.location.pathname !== "/auth" && window.location.pathname !== "/") {
+          window.location.href = "/";
         }
       },
     },
     mutations: {
       onError: (error: any) => {
         const status = error?.status || error?.response?.status;
-        if (status === 401 && window.location.pathname !== "/auth") {
-          window.location.href = "/auth";
+        if (status === 401 && window.location.pathname !== "/auth" && window.location.pathname !== "/") {
+          window.location.href = "/";
         }
       },
     },
@@ -47,7 +47,8 @@ const queryClient = new QueryClient({
 function Router() {
   return (
     <Switch>
-      <Route path="/" component={Dashboard} />
+      <Route path="/" component={LandingPage} />
+      <Route path="/dashboard" component={Dashboard} />
       <Route path="/conversations" component={Conversations} />
       <Route path="/agents" component={Agents} />
       <Route path="/leads" component={Leads} />
