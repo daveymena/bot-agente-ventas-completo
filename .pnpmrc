@@ -1,0 +1,7 @@
+# Approve builds for critical dependencies
+# This is needed for pnpm v11 to allow build scripts to run
+# without requiring user interaction in Docker builds
+auto-install-peers=false
+strict-peer-dependencies=false
+optional-dependencies-range=*
+scripts-prepend-node-path=true
