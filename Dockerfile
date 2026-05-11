@@ -28,7 +28,7 @@ COPY lib/integrations-openai-ai-react/package.json ./lib/integrations-openai-ai-
 COPY scripts/package.json ./scripts/
 
 # Instalar dependencias
-RUN pnpm install --frozen-lockfile --no-optional
+RUN pnpm install --frozen-lockfile --no-optional --allow-scripts=all
 
 # Copiar el resto del código
 COPY . .
