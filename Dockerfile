@@ -25,7 +25,6 @@ COPY lib/api-client-react/package.json ./lib/api-client-react/
 COPY lib/db/package.json ./lib/db/
 COPY lib/integrations-openai-ai-server/package.json ./lib/integrations-openai-ai-server/
 COPY lib/integrations-openai-ai-react/package.json ./lib/integrations-openai-ai-react/
-COPY lib/integrations/openai_ai_integrations/package.json ./lib/integrations/openai_ai_integrations/
 COPY scripts/package.json ./scripts/
 
 # Instalar dependencias
