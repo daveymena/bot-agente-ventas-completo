@@ -116,51 +116,51 @@ app.use("/api/pricing", pricingRouter);
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// En producción (Docker), usar path absoluto desde /app
-// En desarrollo, usar path relativo
-const frontendPath = process.env.NODE_ENV === "production"
-  ? path.resolve("/app/artifacts/ventas-pro/dist/public")
-  : path.resolve(__dirname, "../../ventas-pro/dist/public");
-
-console.log(`[Frontend] NODE_ENV: ${process.env.NODE_ENV}`);
-console.log(`[Frontend] __dirname: ${__dirname}`);
-console.log(`[Frontend] Serving static files from: ${frontendPath}`);
-
-// Verificar que el directorio existe
-if (existsSync(frontendPath)) {
-  console.log(`[Frontend] ✅ Directory exists`);
-  const files = readdirSync(frontendPath);
-  console.log(`[Frontend] Files in directory: ${files.join(", ")}`);
-  
-  // Verificar index.html específicamente
-  const indexPath = path.join(frontendPath, "index.html");
-  if (existsSync(indexPath)) {
-    console.log(`[Frontend] ✅ index.html found`);
-  } else {
-    console.error(`[Frontend] ❌ index.html NOT FOUND at: ${indexPath}`);
-  }
-} else {
-  console.error(`[Frontend] ❌ Directory does NOT exist: ${frontendPath}`);
-  console.error(`[Frontend] 💡 Trying alternative paths...`);
-  
-  // Intentar paths alternativos
-  const alternatives = [
-    path.resolve(__dirname, "../../ventas-pro/dist/public"),
+// Función para encontrar el path correcto del frontend
+function findFrontendPath(): string {
+  const candidates = [
+    // Producción (Docker)
     path.resolve("/app/artifacts/ventas-pro/dist/public"),
+    // Desarrollo
+    path.resolve(__dirname, "../../ventas-pro/dist/public"),
+    // Alternativa desde cwd
     path.resolve(process.cwd(), "artifacts/ventas-pro/dist/public"),
   ];
-  
-  for (const alt of alternatives) {
-    if (existsSync(alt)) {
-      console.log(`[Frontend] ✅ Found alternative path: ${alt}`);
-      break;
+
+  console.log(`[Frontend] NODE_ENV: ${process.env.NODE_ENV}`);
+  console.log(`[Frontend] __dirname: ${__dirname}`);
+  console.log(`[Frontend] process.cwd(): ${process.cwd()}`);
+  console.log(`[Frontend] Buscando frontend en paths candidatos...`);
+
+  for (const candidate of candidates) {
+    console.log(`[Frontend] Probando: ${candidate}`);
+    if (existsSync(candidate)) {
+      const indexPath = path.join(candidate, "index.html");
+      if (existsSync(indexPath)) {
+        console.log(`[Frontend] ✅ Frontend encontrado en: ${candidate}`);
+        const files = readdirSync(candidate);
+        console.log(`[Frontend] Archivos: ${files.join(", ")}`);
+        return candidate;
+      } else {
+        console.log(`[Frontend] ⚠️ Directorio existe pero falta index.html`);
+      }
     } else {
-      console.log(`[Frontend] ❌ Not found: ${alt}`);
+      console.log(`[Frontend] ❌ No existe: ${candidate}`);
     }
   }
+
+  throw new Error("❌ No se pudo encontrar el directorio del frontend compilado");
 }
 
-app.use(express.static(frontendPath));
+const frontendPath = findFrontendPath();
+
+// Servir archivos estáticos con configuración optimizada
+app.use(express.static(frontendPath, {
+  maxAge: process.env.NODE_ENV === "production" ? "1d" : 0,
+  etag: true,
+  lastModified: true,
+  index: false, // No servir index.html automáticamente, lo haremos manualmente
+}));
 
 // Rutas públicas que no requieren validación de SaaS
 const publicRoutes = [
@@ -278,16 +278,47 @@ app.use("/api/activation", activationRouter);
 app.use("/api", router);
 
 app.use((req, res, next) => {
+  // Solo manejar rutas que NO son API
   if (req.path.startsWith("/api")) {
     return next();
   }
+  
   console.log(`[Frontend] Serving index.html for path: ${req.path}`);
   const indexPath = path.join(frontendPath, "index.html");
+  
   if (existsSync(indexPath)) {
+    // Configurar headers para SPA
+    res.setHeader("Content-Type", "text/html");
+    res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
     res.sendFile(indexPath);
   } else {
     console.error(`[Frontend] ❌ index.html not found at: ${indexPath}`);
-    res.status(404).send("Frontend not found");
+    res.status(500).send(`
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>Error - Frontend no disponible</title>
+          <style>
+            body { font-family: system-ui; padding: 2rem; max-width: 600px; margin: 0 auto; }
+            h1 { color: #dc2626; }
+            pre { background: #f3f4f6; padding: 1rem; border-radius: 0.5rem; overflow-x: auto; }
+          </style>
+        </head>
+        <body>
+          <h1>❌ Frontend no disponible</h1>
+          <p>El frontend no se pudo cargar. Información de debug:</p>
+          <pre>
+Frontend Path: ${frontendPath}
+Index Path: ${indexPath}
+Exists: ${existsSync(indexPath)}
+NODE_ENV: ${process.env.NODE_ENV}
+__dirname: ${__dirname}
+process.cwd(): ${process.cwd()}
+          </pre>
+          <p>Por favor, verifica que el frontend se haya compilado correctamente.</p>
+        </body>
+      </html>
+    `);
   }
 });
 

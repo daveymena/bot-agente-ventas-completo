@@ -39,6 +39,16 @@ COPY . .
 # Saltarse typecheck y build solo lo necesario
 RUN pnpm --filter "@workspace/api-server" --filter "@workspace/ventas-pro" --filter "@workspace/db" --filter "@workspace/api-zod" --filter "@workspace/api-spec" --filter "@workspace/api-client-react" --filter "@workspace/integrations-openai-ai-server" --filter "@workspace/integrations-openai-ai-react" run build
 
+# Verificar que el frontend se construyó correctamente
+RUN echo "🔍 Verificando build del frontend..." && \
+    ls -la /app/artifacts/ventas-pro/dist/public/ && \
+    if [ ! -f /app/artifacts/ventas-pro/dist/public/index.html ]; then \
+        echo "❌ ERROR: index.html no encontrado"; \
+        exit 1; \
+    else \
+        echo "✅ Frontend construido correctamente"; \
+    fi
+
 # Etapa final para ejecución ligera y estable
 FROM node:20-slim
 
@@ -56,6 +66,16 @@ RUN apt-get update && apt-get install -y \
 # Copiar TODO el workspace del builder (incluye node_modules con symlinks correctos)
 COPY --from=base /app /app
 
+# Verificar nuevamente en la imagen final
+RUN echo "🔍 Verificando frontend en imagen final..." && \
+    ls -la /app/artifacts/ventas-pro/dist/public/ && \
+    if [ ! -f /app/artifacts/ventas-pro/dist/public/index.html ]; then \
+        echo "❌ ERROR: index.html no encontrado en imagen final"; \
+        exit 1; \
+    else \
+        echo "✅ Frontend disponible en imagen final"; \
+    fi
+
 # Crear carpetas de persistencia para EasyPanel
 RUN mkdir -p /app/data && chmod 777 /app/data
 
@@ -64,7 +84,7 @@ ARG DATABASE_URL
 ENV DATABASE_URL=$DATABASE_URL
 ENV NODE_ENV=production
 ENV PORT=3002
-# Force rebuild: 2026-05-05
+# Force rebuild: 2026-05-12
 
 EXPOSE 3002
 
