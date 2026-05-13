@@ -25,16 +25,20 @@ WORKDIR /app
 # Instalar pnpm
 RUN npm install -g pnpm
 
-# Copiar solo lo necesario del builder
-COPY --from=builder /app/artifacts/api-server/dist ./dist
+# Copiar archivos de configuración primero
 COPY --from=builder /app/artifacts/api-server/package.json ./
-COPY --from=builder /app/artifacts/ventas-pro/dist/public ./public
 
 # Instalar solo dependencias de producción
 RUN pnpm install --prod --frozen-lockfile
 
-# Copiar el frontend
-COPY --from=builder /app/artifacts/ventas-pro/dist/public ./public
+# Copiar el backend compilado
+COPY --from=builder /app/artifacts/api-server/dist ./dist
+
+# Crear la estructura de directorios para el frontend
+RUN mkdir -p /app/artifacts/ventas-pro/dist/public
+
+# Copiar el frontend compilado a la ubicación correcta
+COPY --from=builder /app/artifacts/ventas-pro/dist/public /app/artifacts/ventas-pro/dist/public
 
 # Exponer puerto
 EXPOSE 3002

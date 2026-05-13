@@ -2,19 +2,17 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import path from "path";
-import runtimeErrorOverlay from "@replit/vite-plugin-runtime-error-modal";
 
 const rawPort = process.env.PORT;
 const port = Number(rawPort) || 5173;
-// En producción, usar rutas absolutas desde la raíz
-const basePath = process.env.BASE_PATH || (process.env.NODE_ENV === "production" ? "/" : "");
+// En producción, siempre usar rutas absolutas desde la raíz
+const basePath = process.env.NODE_ENV === "production" ? "/" : (process.env.BASE_PATH || "");
 
 export default defineConfig({
   base: basePath,
   plugins: [
     react(),
     tailwindcss(),
-    runtimeErrorOverlay(),
     ...(process.env.NODE_ENV !== "production" &&
     process.env.REPL_ID !== undefined
       ? [
