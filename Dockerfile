@@ -1,4 +1,4 @@
-FROM node:20-slim AS base
+FROM node:22-slim AS base
 
 ENV PNPM_HOME="/pnpm"
 ENV PATH="$PNPM_HOME:$PATH"
@@ -50,7 +50,7 @@ RUN echo "🔍 Verificando build del frontend..." && \
     fi
 
 # Etapa final para ejecución ligera y estable
-FROM node:20-slim
+FROM node:22-slim
 
 WORKDIR /app
 RUN corepack enable

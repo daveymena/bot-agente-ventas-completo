@@ -1,5 +1,5 @@
 # Build stage
-FROM node:20-alpine AS builder
+FROM node:22-alpine AS builder
 
 WORKDIR /app
 
@@ -18,7 +18,7 @@ RUN pnpm --filter @workspace/api-server run build
 RUN pnpm --filter @workspace/ventas-pro run build
 
 # Production stage
-FROM node:20-alpine
+FROM node:22-alpine
 
 WORKDIR /app
 
