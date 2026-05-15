@@ -14,6 +14,7 @@ import { getProviderConfig, getProviderConfigFromSettings, createAIClient } from
 import { logger } from "./logger";
 import { PaymentGateway } from "./payments";
 import { 
+  healthMonitor,
   executeWithFallback, 
   determineFallbackResponse, 
   retryWithBackoff,
@@ -978,7 +979,6 @@ Explica POR QUÉ recomiendas ese producto.${productInstruction}`;
       console.log(`🔄 [AGENT-AI] Iniciando rotación de proveedores de IA - ${new Date().toISOString()}`);
       // Enhanced provider rotation with health checking - PRIORIDAD PROFESIONAL CON CIRCUIT BREAKER
       const rotationQueue = [];
-      const { healthMonitor } = await import("./fallbackSystem");
       
       // Obtener configuraciones de todas las fuentes
       const copilotEnv = getProviderConfig("github_copilot_internal");
@@ -1068,7 +1068,7 @@ Cuéntame 😊
               model: config.model 
             }, "[Agent] Attempting AI provider");
           
-          if (config.baseUrl === "https://api.githubcopilot.com") {
+          if (config.baseUrl === "https://api.githubcopilot.com" && !config.apiKey.startsWith("eyJ")) {
             const { getCopilotSessionToken } = await import("./copilot");
             const session = await getCopilotSessionToken(config.apiKey);
             if (session) {
