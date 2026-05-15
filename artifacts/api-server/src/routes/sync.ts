@@ -49,4 +49,44 @@ router.post("/push", async (req, res) => {
   }
 });
 
+router.post("/pull", async (req, res) => {
+  try {
+    logger.info("[Sync] Iniciando proceso de GIT PULL (Update)...");
+
+    const execute = (cmd: string, args: string[]) => {
+      return new Promise<{ code: number; stdout: string; stderr: string }>((resolve) => {
+        const proc = spawn(cmd, args, { shell: true, cwd: process.cwd() });
+        let stdout = "";
+        let stderr = "";
+        proc.stdout.on("data", (d) => stdout += d.toString());
+        proc.stderr.on("data", (d) => stderr += d.toString());
+        proc.on("close", (code) => resolve({ code: code || 0, stdout, stderr }));
+      });
+    };
+
+    // 1. Git Fetch
+    await execute("git", ["fetch", "--all"]);
+    
+    // 2. Git Reset (to sync exactly with main)
+    const pull = await execute("git", ["reset", "--hard", "origin/main"]);
+
+    if (pull.code === 0) {
+      res.json({ 
+        success: true, 
+        message: "Sistema actualizado correctamente desde GitHub.",
+        details: pull.stdout 
+      });
+    } else {
+      res.status(500).json({ 
+        success: false, 
+        message: "Error al actualizar desde GitHub.",
+        error: pull.stderr
+      });
+    }
+  } catch (e: any) {
+    logger.error(e, "[Sync] Error en Git Pull");
+    res.status(500).json({ error: e.message });
+  }
+});
+
 export default router;

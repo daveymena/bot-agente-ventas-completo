@@ -115,6 +115,8 @@ function serialize(row: typeof settings.$inferSelect) {
     aiProvider: row.aiProvider,
     githubToken: row.githubToken,
     githubModel: row.githubModel,
+    nvidiaApiKey: row.nvidiaApiKey,
+    nvidiaModel: row.nvidiaModel,
     ollamaUrl: row.ollamaUrl,
     ollamaModel: row.ollamaModel,
   };
