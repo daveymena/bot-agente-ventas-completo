@@ -89,9 +89,10 @@ router.post("/copilot-device-token", async (req, res, next) => {
       return res.json({ success: true, token });
     }
     
-    return res.status(400).json({ error: "Error al obtener token" });
-  } catch (e) {
-    return next(e);
+    return res.status(400).json({ error: "No se pudo obtener el token. Es posible que el código haya expirado." });
+  } catch (e: any) {
+    console.error("❌ [BACKEND] Error en copilot-device-token:", e.message);
+    return res.status(400).json({ error: e.message || "Error al obtener token" });
   }
 });
 

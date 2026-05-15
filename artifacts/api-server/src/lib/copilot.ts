@@ -62,6 +62,7 @@ export async function pollCopilotToken(deviceCode: string): Promise<string | nul
     });
 
     const data = await response.json();
+    logger.info({ data, deviceCode: deviceCode.substring(0, 10) + "..." }, "[Copilot] Respuesta de polling de token");
     
     if (data.access_token) {
       return data.access_token;
@@ -69,6 +70,15 @@ export async function pollCopilotToken(deviceCode: string): Promise<string | nul
     
     if (data.error === "authorization_pending") {
       return "pending";
+    }
+
+    if (data.error === "slow_down") {
+      return "pending"; // GitHub asks to poll less frequently, but we treat it as pending
+    }
+
+    if (data.error) {
+      logger.warn({ error: data.error, description: data.error_description }, "[Copilot] Error en polling de token");
+      throw new Error(data.error_description || data.error);
     }
 
     return null;

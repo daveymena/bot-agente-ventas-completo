@@ -69,6 +69,11 @@ export default function Settings() {
             setDeviceFlow(prev => ({ ...prev, active: false, status: "success" }));
             toast.success("¡Cuenta de GitHub vinculada exitosamente!");
             clearInterval(interval);
+          } else if (!data.success && data.status !== "pending") {
+            // Un error real ocurrió (ej: expiró o fue denegado)
+            setDeviceFlow(prev => ({ ...prev, active: false, status: "error" }));
+            toast.error(data.error || "La autorización falló o expiró.");
+            clearInterval(interval);
           }
         } catch (e) {
           console.error("Polling error", e);
