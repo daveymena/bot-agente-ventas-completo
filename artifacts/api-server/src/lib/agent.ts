@@ -980,26 +980,33 @@ Explica POR QUÉ recomiendas ese producto.${productInstruction}`;
       const rotationQueue = [];
       
       // Obtener configuraciones de todas las fuentes
+      const copilotEnv = getProviderConfig("github_copilot_internal");
       const nvidiaEnv = getProviderConfig("nvidia");
       const githubEnv = getProviderConfig("github");
       const dbConfig = appSettings ? getProviderConfigFromSettings(appSettings) : null;
       const ollamaConfig = appSettings ? getProviderConfigFromSettings({ ...appSettings, aiProvider: 'ollama_local' }) : getProviderConfig("ollama_local");
 
-      // 1. Prioridad: NVIDIA 70b (Si hay API Key)
+      // 🎯 1. PRINCIPAL: GitHub Copilot Internal (JWT Token)
+      if (copilotEnv) {
+        console.log(`🌟 [AGENT-AI] Seleccionando Copilot Internal como PROVEEDOR PRINCIPAL`);
+        rotationQueue.push({ config: copilotEnv, source: "copilot_internal" });
+      }
+      
+      // 🥈 2. SECUNDARIO: NVIDIA 70b (Si hay API Key)
       if (nvidiaEnv) rotationQueue.push({ config: nvidiaEnv, source: "nvidia_70b" });
       
-      // 2. Prioridad: GitHub / Copilot (Configurado en Dashboard o Env)
+      // 🥉 3. TERCERO: GitHub / Copilot (Configurado en Dashboard o Env)
       if (dbConfig && (dbConfig.baseUrl.includes("github") || dbConfig.baseUrl.includes("azure"))) {
         rotationQueue.push({ config: dbConfig, source: "github_dashboard" });
       } else if (githubEnv) {
         rotationQueue.push({ config: githubEnv, source: "github_env" });
       }
 
-      // 3. Prioridad: NVIDIA Fast (8b)
+      // 4. Prioridad: NVIDIA Fast (8b)
       const nvidiaFast = getProviderConfig("nvidia_fast");
       if (nvidiaFast) rotationQueue.push({ config: nvidiaFast, source: "nvidia_8b" });
 
-      // 4. Prioridad: Ollama Local (Respaldo final si falla el internet)
+      // 5. Prioridad: Ollama Local (Respaldo final si falla el internet)
       if (ollamaConfig) {
         rotationQueue.push({ config: ollamaConfig, source: "ollama_local" });
       }

@@ -10,10 +10,11 @@ export interface AIProviderConfig {
 export function getProviderConfig(provider: string): AIProviderConfig | null {
   switch (provider) {
     case "github_copilot_internal":
-      if (!process.env.GITHUB_TOKEN) return null;
+      const copilotToken = process.env.GITHUB_COPILOT_TOKEN || process.env.GITHUB_TOKEN;
+      if (!copilotToken) return null;
       return {
         baseUrl: "https://api.githubcopilot.com",
-        apiKey: process.env.GITHUB_TOKEN, // Note: This should be the copilot session token, we'll assume it's fetched properly
+        apiKey: copilotToken,
         model: process.env.GITHUB_MODEL || "gpt-4o",
         defaultHeaders: {
           "Editor-Version": "vscode/1.96.0",
@@ -23,10 +24,11 @@ export function getProviderConfig(provider: string): AIProviderConfig | null {
         }
       };
     case "github":
-      if (!process.env.GITHUB_TOKEN) return null;
+      const ghToken = process.env.GITHUB_TOKEN;
+      if (!ghToken) return null;
       return {
         baseUrl: "https://models.inference.ai.azure.com",
-        apiKey: process.env.GITHUB_TOKEN,
+        apiKey: ghToken,
         model: process.env.GITHUB_MODEL || "gpt-4o-mini",
       };
     case "nvidia":
@@ -44,16 +46,17 @@ export function getProviderConfig(provider: string): AIProviderConfig | null {
         model: process.env.NVIDIA_MODEL_FAST || "meta/llama-3.1-8b-instruct",
       };
     case "github_claude":
-      if (!process.env.GITHUB_TOKEN) return null;
+      const ghcToken = process.env.GITHUB_TOKEN;
+      if (!ghcToken) return null;
       return {
         baseUrl: "https://models.inference.ai.azure.com",
-        apiKey: process.env.GITHUB_TOKEN,
+        apiKey: ghcToken,
         model: process.env.GITHUB_MODEL_CLAUDE || "Claude-3.5-Sonnet",
       };
     case "ollama_local":
       if (!process.env.OLLAMA_LOCAL_URL) return null;
       return {
-        baseUrl: process.env.OLLAMA_LOCAL_URL + "/v1",
+        baseUrl: process.env.OLLAMA_LOCAL_URL + (process.env.OLLAMA_LOCAL_URL.endsWith("/v1") ? "" : "/v1"),
         apiKey: "ollama",
         model: process.env.OLLAMA_LOCAL_MODEL || "hermes3:8b",
       };
@@ -81,11 +84,11 @@ export function getProviderConfigFromSettings(settings: {
   const provider = settings.aiProvider || "github";
 
   if (provider === "github_copilot_internal") {
-    const token = settings.githubToken || process.env.GITHUB_TOKEN;
+    const token = settings.githubToken || process.env.GITHUB_COPILOT_TOKEN || process.env.GITHUB_TOKEN;
     if (!token) return null;
     return {
       baseUrl: "https://api.githubcopilot.com",
-      apiKey: token, // This needs to be the Copilot Session Token
+      apiKey: token,
       model: settings.githubModel || process.env.GITHUB_MODEL || "gpt-4o",
       defaultHeaders: {
         "Editor-Version": "vscode/1.96.0",
