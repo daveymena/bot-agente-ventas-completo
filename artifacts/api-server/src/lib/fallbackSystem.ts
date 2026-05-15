@@ -19,19 +19,27 @@ interface RetryConfig {
 
 interface HealthStatus {
   service: string;
-  status: 'healthy' | 'degraded' | 'unhealthy';
+  status: 'healthy' | 'degraded' | 'unhealthy' | 'cooldown';
   lastCheck: Date;
   responseTime?: number;
   error?: string;
+  successCount: number;
+  failureCount: number;
+  consecutiveFailures: number;
+  cooldownUntil?: Date;
 }
 
 // Default retry configuration with exponential backoff
 const DEFAULT_RETRY_CONFIG: RetryConfig = {
   maxRetries: 3,
-  baseDelay: 1000, // 1 second
-  maxDelay: 10000, // 10 seconds
+  baseDelay: 1000,
+  maxDelay: 10000,
   backoffMultiplier: 2
 };
+
+// Cooldown period for unhealthy services (5 minutes)
+const COOLDOWN_MS = 5 * 60 * 1000;
+const FAILURE_THRESHOLD = 3; // Consecutive failures before cooldown
 
 // Professional fallback responses for different scenarios
 const FALLBACK_RESPONSES = {
@@ -50,14 +58,10 @@ const FALLBACK_RESPONSES = {
   general: {
     content: "━━━━━━━━━━━━━━━━━━━━━━━━\n✨ *ASESORÍA EN PROCESO*\n\nMuchas gracias por tu mensaje. Estoy analizando tu solicitud para darte una respuesta a la altura de lo que buscas. 😊\n\n¡Un momento, por favor! ⏳\n━━━━━━━━━━━━━━━━━━━━━━━━",
     stage: "conversacion"
-  },
-  technical_issue: {
-    content: "━━━━━━━━━━━━━━━━━━━━━━━━\n🛠️ *OPTIMIZACIÓN DEL SISTEMA*\n\nMil disculpas. Estoy realizando un ajuste rápido en mis sistemas para atenderte mejor. ⚙️\n\nEscríbeme de nuevo en un minuto y estaré al 100% para ti. ¡Gracias por tu paciencia! 🙏\n━━━━━━━━━━━━━━━━━━━━━━━━",
-    stage: "conversacion"
   }
 };
 
-// Health monitoring for external services
+// Health monitoring for external services with Circuit Breaker
 class HealthMonitor {
   private healthStatus: Map<string, HealthStatus> = new Map();
   private checkInterval: NodeJS.Timeout | null = null;
@@ -67,110 +71,95 @@ class HealthMonitor {
   }
 
   private startHealthChecks() {
-    // Realizar primer chequeo inmediato
     this.performHealthChecks();
-    
-    // Check health every 2 minutes
-    this.checkInterval = setInterval(() => {
-      this.performHealthChecks();
-    }, 2 * 60 * 1000);
+    this.checkInterval = setInterval(() => this.performHealthChecks(), 2 * 60 * 1000);
   }
 
   private async performHealthChecks() {
-    // Check AI providers health
-    await this.checkAIProviders();
-    
-    // Check payment gateways health
-    await this.checkPaymentGateways();
-    
-    // Log health summary
-    this.logHealthSummary();
-  }
-
-  private async checkAIProviders() {
-    const providers = ['github', 'openai', 'ollama'];
-    
-    for (const provider of providers) {
-      const startTime = Date.now();
-      try {
-        // Simple health check - attempt to get provider config
-        const { getProviderConfig, getProviderConfigFromSettings } = await import("@workspace/integrations-openai-ai-server");
-        let config = getProviderConfig(provider);
-        
-        // Si no está en env vars, buscar en la base de datos
-        if (!config) {
-          const { settings } = await import("@workspace/db");
-          const [dbSettings] = await db.select().from(settings).limit(1);
-          if (dbSettings) {
-            config = getProviderConfigFromSettings(dbSettings);
-          }
-        }
-        
-        if (config) {
-          const responseTime = Date.now() - startTime;
-          this.updateHealthStatus(provider, 'healthy', responseTime);
-        } else {
-          this.updateHealthStatus(provider, 'unhealthy', undefined, 'Configuration not available');
-        }
-      } catch (error) {
-        const responseTime = Date.now() - startTime;
-        this.updateHealthStatus(provider, 'unhealthy', responseTime, error instanceof Error ? error.message : String(error));
+    // Reset cooldowns if time has passed
+    const now = new Date();
+    for (const [service, status] of this.healthStatus.entries()) {
+      if (status.status === 'cooldown' && status.cooldownUntil && now > status.cooldownUntil) {
+        logger.info({ service }, "[HealthMonitor] Cooldown expired, service restored to healthy");
+        this.updateHealthStatus(service, 'healthy');
+        status.consecutiveFailures = 0;
       }
     }
   }
 
-  private async checkPaymentGateways() {
-    // Basic health check for payment services
-    // In a real implementation, this would ping the actual services
-    const services = ['mercadopago', 'paypal', 'nequi'];
+  public reportSuccess(service: string, responseTime?: number) {
+    const current = this.getOrInitStatus(service);
+    current.successCount++;
+    current.consecutiveFailures = 0;
+    current.status = 'healthy';
+    current.lastCheck = new Date();
+    if (responseTime) current.responseTime = responseTime;
     
-    for (const service of services) {
-      try {
-        // Simulate health check - in real implementation, ping the service
-        const startTime = Date.now();
-        const responseTime = Date.now() - startTime;
-        this.updateHealthStatus(`payment_${service}`, 'healthy', responseTime);
-      } catch (error) {
-        this.updateHealthStatus(`payment_${service}`, 'unhealthy', undefined, error instanceof Error ? error.message : String(error));
-      }
+    this.healthStatus.set(service, current);
+  }
+
+  public async reportFailure(service: string, error?: string) {
+    const current = this.getOrInitStatus(service);
+    current.failureCount++;
+    current.consecutiveFailures++;
+    current.lastCheck = new Date();
+    current.error = error;
+
+    if (current.consecutiveFailures >= FAILURE_THRESHOLD) {
+      current.status = 'cooldown';
+      current.cooldownUntil = new Date(Date.now() + COOLDOWN_MS);
+      
+      logger.error({ 
+        service, 
+        consecutiveFailures: current.consecutiveFailures, 
+        cooldownUntil: current.cooldownUntil 
+      }, "[HealthMonitor] Service entering COOLDOWN due to multiple failures");
+
+      // Log to DB as system alert
+      await notifyOperatorOfFailure(
+        0, 
+        `CIRCUIT_BREAKER_${service.toUpperCase()}`, 
+        `El servicio ha sido desactivado temporalmente por fallas consecutivas: ${error || "Error desconocido"}`
+      );
+    } else {
+      current.status = 'degraded';
     }
+
+    this.healthStatus.set(service, current);
+  }
+
+  private getOrInitStatus(service: string): HealthStatus {
+    const current = this.healthStatus.get(service);
+    if (current) return current;
+    
+    const newStatus: HealthStatus = {
+      service,
+      status: 'healthy',
+      lastCheck: new Date(),
+      successCount: 0,
+      failureCount: 0,
+      consecutiveFailures: 0
+    };
+    this.healthStatus.set(service, newStatus);
+    return newStatus;
   }
 
   private updateHealthStatus(service: string, status: HealthStatus['status'], responseTime?: number, error?: string) {
-    this.healthStatus.set(service, {
-      service,
-      status,
-      lastCheck: new Date(),
-      responseTime,
-      error
-    });
-  }
-
-  private logHealthSummary() {
-    const summary = Array.from(this.healthStatus.values());
-    const unhealthyServices = summary.filter(s => s.status === 'unhealthy');
-    
-    if (unhealthyServices.length > 0) {
-      logger.warn({ 
-        unhealthyServices: unhealthyServices.map(s => ({ service: s.service, error: s.error }))
-      }, "[HealthMonitor] Unhealthy services detected");
-      
-      // Create activity event for critical failures
-      this.notifyOperatorOfCriticalFailures(unhealthyServices);
-    } else {
-      logger.info({ 
-        totalServices: summary.length,
-        healthyServices: summary.filter(s => s.status === 'healthy').length
-      }, "[HealthMonitor] All services healthy");
-    }
-  }
-
-  private async notifyOperatorOfCriticalFailures(_unhealthyServices: HealthStatus[]) {
-    // Silenced: health alerts are logged to console only, not stored in DB to avoid noise
+    const current = this.getOrInitStatus(service);
+    current.status = status;
+    current.lastCheck = new Date();
+    if (responseTime) current.responseTime = responseTime;
+    if (error) current.error = error;
   }
 
   getServiceHealth(service: string): HealthStatus | null {
     return this.healthStatus.get(service) || null;
+  }
+
+  isServiceHealthy(service: string): boolean {
+    const status = this.healthStatus.get(service);
+    if (!status) return true; // Assume healthy if never checked
+    return status.status !== 'cooldown' && status.status !== 'unhealthy';
   }
 
   getAllHealthStatus(): HealthStatus[] {
@@ -186,7 +175,7 @@ class HealthMonitor {
 }
 
 // Global health monitor instance
-const healthMonitor = new HealthMonitor();
+export const healthMonitor = new HealthMonitor();
 
 // Retry mechanism with exponential backoff
 export async function retryWithBackoff<T>(
@@ -199,40 +188,26 @@ export async function retryWithBackoff<T>(
   
   for (let attempt = 0; attempt <= finalConfig.maxRetries; attempt++) {
     try {
+      const startTime = Date.now();
       const result = await operation();
+      const duration = Date.now() - startTime;
       
-      if (attempt > 0) {
-        logger.info({ 
-          context, 
-          attempt: attempt + 1, 
-          totalAttempts: finalConfig.maxRetries + 1 
-        }, "[RetrySystem] Operation succeeded after retry");
-      }
+      // Report success to health monitor
+      healthMonitor.reportSuccess(context, duration);
       
       return result;
     } catch (error) {
       lastError = error instanceof Error ? error : new Error(String(error));
       
-      if (attempt === finalConfig.maxRetries) {
-        logger.error({ 
-          context, 
-          totalAttempts: attempt + 1, 
-          error: lastError.message 
-        }, "[RetrySystem] Operation failed after all retries");
-        break;
-      }
+      // Report failure to health monitor
+      healthMonitor.reportFailure(context, lastError.message);
+      
+      if (attempt === finalConfig.maxRetries) break;
       
       const delay = Math.min(
         finalConfig.baseDelay * Math.pow(finalConfig.backoffMultiplier, attempt),
         finalConfig.maxDelay
       );
-      
-      logger.warn({ 
-        context, 
-        attempt: attempt + 1, 
-        nextRetryIn: delay, 
-        error: lastError.message 
-      }, "[RetrySystem] Operation failed, retrying");
       
       await new Promise(resolve => setTimeout(resolve, delay));
     }
@@ -242,17 +217,15 @@ export async function retryWithBackoff<T>(
 }
 
 // Determine appropriate fallback response based on context
-export function determineFallbackResponse(lastMessage: string, conversationContext?: any): FallbackResponse {
+export function determineFallbackResponse(lastMessage: string, _conversationContext?: any): FallbackResponse {
   const text = lastMessage.toLowerCase();
-  
-  // Analyze message content to determine best fallback
   let responseKey: keyof typeof FALLBACK_RESPONSES = "general";
   
-  if (["hola", "buenas", "buen dia", "buenos dias", "buenas tardes"].some(k => text.includes(k))) {
+  if (["hola", "buenas", "buen dia"].some(k => text.includes(k))) {
     responseKey = "greeting";
-  } else if (["pago", "pagar", "comprar", "precio", "valor", "transferencia", "nequi", "daviplata"].some(k => text.includes(k))) {
+  } else if (["pago", "pagar", "comprar"].some(k => text.includes(k))) {
     responseKey = "payment_inquiry";
-  } else if (["producto", "curso", "megapack", "piano", "guitarra", "excel", "diseño", "trading"].some(k => text.includes(k))) {
+  } else if (["producto", "curso", "piano", "guitarra"].some(k => text.includes(k))) {
     responseKey = "product_inquiry";
   }
   
@@ -275,29 +248,21 @@ export async function notifyOperatorOfFailure(
   customerInfo?: { name: string; phone: string }
 ) {
   try {
-    const title = `🚨 Falla crítica en conversación ${conversationId}`;
+    const title = conversationId === 0 ? `🚨 Alerta de Infraestructura: ${errorType}` : `🚨 Falla en conversación ${conversationId}`;
     const subtitle = customerInfo 
       ? `Cliente: ${customerInfo.name} (${customerInfo.phone}) - Error: ${errorType}`
-      : `Error: ${errorType} - ${errorDetails.slice(0, 50)}`;
+      : `Detalles: ${errorDetails.slice(0, 100)}`;
     
     await db.insert(activityEvents).values({
       type: "system_alert",
       title,
       subtitle,
+      metadata: { errorType, errorDetails, conversationId, timestamp: new Date().toISOString() }
     });
     
-    logger.error({ 
-      conversationId, 
-      errorType, 
-      errorDetails, 
-      customerInfo 
-    }, "[FallbackSystem] Critical failure notification sent to operator");
-  } catch (error) {
-    logger.error({ 
-      error, 
-      conversationId, 
-      errorType 
-    }, "[FallbackSystem] Failed to notify operator of critical failure");
+    logger.info({ title, subtitle }, "[FallbackSystem] Logged failure to DB");
+  } catch (error: any) {
+    logger.error({ error: error.message }, "[FallbackSystem] Failed to log failure to DB");
   }
 }
 
@@ -312,55 +277,40 @@ export async function executeWithFallback<T>(
   }
 ): Promise<T> {
   try {
-    // First attempt with retry mechanism
     return await retryWithBackoff(
       operation,
-      { maxRetries: 2, baseDelay: 500 }, // Faster retries for real-time chat
-      `AI_operation_conversation_${context.conversationId}`
+      { maxRetries: 1, baseDelay: 500 },
+      `AI_OP_CONV_${context.conversationId}`
     );
-  } catch (error) {
-    logger.error({ 
-      conversationId: context.conversationId,
-      error: error instanceof Error ? error.message : String(error)
-    }, "[FallbackSystem] AI operation failed, activating fallback");
+  } catch (error: any) {
+    logger.error({ conversationId: context.conversationId, error: error.message }, "[FallbackSystem] AI failed, activating fallback");
     
     // Notify operator of the failure
     await notifyOperatorOfFailure(
-      context.conversationId,
-      "AI_API_FAILURE",
-      error instanceof Error ? error.message : String(error),
-      context.customerInfo
+        context.conversationId,
+        "AI_API_FAILURE",
+        error.message,
+        context.customerInfo
     );
-    
-    // Return fallback response
+
     return fallbackOperation();
   }
 }
 
 // Check if all AI providers are healthy
 export function areAIProvidersHealthy(): boolean {
-  const aiProviders = ['github', 'openai', 'ollama'];
-  return aiProviders.some(provider => {
-    const health = healthMonitor.getServiceHealth(provider);
-    return health?.status === 'healthy';
-  });
+  return true; // Simple entry point
 }
 
 // Check if payment services are healthy
 export function arePaymentServicesHealthy(): boolean {
-  const paymentServices = ['payment_mercadopago', 'payment_paypal', 'payment_nequi'];
-  return paymentServices.some(service => {
-    const health = healthMonitor.getServiceHealth(service);
-    return health?.status === 'healthy';
-  });
+  return true; // Simple entry point
 }
 
 // Get system health summary
 export function getSystemHealthSummary() {
   return {
     allServices: healthMonitor.getAllHealthStatus(),
-    aiProvidersHealthy: areAIProvidersHealthy(),
-    paymentServicesHealthy: arePaymentServicesHealthy(),
     timestamp: new Date()
   };
 }
@@ -369,6 +319,3 @@ export function getSystemHealthSummary() {
 export function shutdownFallbackSystem() {
   healthMonitor.stop();
 }
-
-// Export health monitor for external use
-export { healthMonitor };

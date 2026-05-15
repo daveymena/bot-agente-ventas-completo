@@ -976,8 +976,9 @@ Explica POR QUÉ recomiendas ese producto.${productInstruction}`;
   const result = await executeWithFallback(
     async () => {
       console.log(`🔄 [AGENT-AI] Iniciando rotación de proveedores de IA - ${new Date().toISOString()}`);
-      // Enhanced provider rotation with health checking
+      // Enhanced provider rotation with health checking - PRIORIDAD PROFESIONAL CON CIRCUIT BREAKER
       const rotationQueue = [];
+      const { healthMonitor } = await import("./fallbackSystem");
       
       // Obtener configuraciones de todas las fuentes
       const copilotEnv = getProviderConfig("github_copilot_internal");
@@ -987,27 +988,34 @@ Explica POR QUÉ recomiendas ese producto.${productInstruction}`;
       const ollamaConfig = appSettings ? getProviderConfigFromSettings({ ...appSettings, aiProvider: 'ollama_local' }) : getProviderConfig("ollama_local");
 
       // 🎯 1. PRINCIPAL: GitHub Copilot Internal (JWT Token)
-      if (copilotEnv) {
-        console.log(`🌟 [AGENT-AI] Seleccionando Copilot Internal como PROVEEDOR PRINCIPAL`);
+      if (copilotEnv && healthMonitor.isServiceHealthy("copilot_internal")) {
         rotationQueue.push({ config: copilotEnv, source: "copilot_internal" });
+      } else if (copilotEnv) {
+        console.log(`⚠️ [AGENT-AI] Copilot Internal está en COOLDOWN, saltando al siguiente...`);
       }
       
       // 🥈 2. SECUNDARIO: NVIDIA 70b (Si hay API Key)
-      if (nvidiaEnv) rotationQueue.push({ config: nvidiaEnv, source: "nvidia_70b" });
+      if (nvidiaEnv && healthMonitor.isServiceHealthy("nvidia_70b")) {
+        rotationQueue.push({ config: nvidiaEnv, source: "nvidia_70b" });
+      } else if (nvidiaEnv) {
+        console.log(`⚠️ [AGENT-AI] NVIDIA 70b está en COOLDOWN, saltando...`);
+      }
       
       // 🥉 3. TERCERO: GitHub / Copilot (Configurado en Dashboard o Env)
-      if (dbConfig && (dbConfig.baseUrl.includes("github") || dbConfig.baseUrl.includes("azure"))) {
+      if (dbConfig && (dbConfig.baseUrl.includes("github") || dbConfig.baseUrl.includes("azure")) && healthMonitor.isServiceHealthy("github_env")) {
         rotationQueue.push({ config: dbConfig, source: "github_dashboard" });
-      } else if (githubEnv) {
+      } else if (githubEnv && healthMonitor.isServiceHealthy("github_env")) {
         rotationQueue.push({ config: githubEnv, source: "github_env" });
       }
 
       // 4. Prioridad: NVIDIA Fast (8b)
       const nvidiaFast = getProviderConfig("nvidia_fast");
-      if (nvidiaFast) rotationQueue.push({ config: nvidiaFast, source: "nvidia_8b" });
+      if (nvidiaFast && healthMonitor.isServiceHealthy("nvidia_8b")) {
+        rotationQueue.push({ config: nvidiaFast, source: "nvidia_8b" });
+      }
 
       // 5. Prioridad: Ollama Local (Respaldo final si falla el internet)
-      if (ollamaConfig) {
+      if (ollamaConfig && healthMonitor.isServiceHealthy("ollama_local")) {
         rotationQueue.push({ config: ollamaConfig, source: "ollama_local" });
       }
 
