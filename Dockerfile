@@ -35,7 +35,8 @@ ENV PNPM_CONFIG_BLOCK_EXOTIC_SUBDEPS=false
 
 # Forzar instalación completa para el build (ignorar NODE_ENV=production de EasyPanel)
 RUN pnpm config set block-exotic-subdeps false && \
-    pnpm install --no-frozen-lockfile --prod=false
+    pnpm config set ignore-scripts false && \
+    pnpm install --no-frozen-lockfile --prod=false --ignore-scripts=false
 
 # Copiar el resto del código
 COPY . .
