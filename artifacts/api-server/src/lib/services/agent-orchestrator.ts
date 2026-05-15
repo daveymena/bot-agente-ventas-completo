@@ -153,7 +153,8 @@ export class AgentOrchestrator {
 
     } catch (error) {
       logger.error({
-        error,
+        error: error instanceof Error ? { message: error.message, stack: error.stack } : error,
+        errorString: String(error),
         queueId: message.id,
         tenantId: message.tenantId,
       }, '[AgentOrchestrator] Failed to process message');

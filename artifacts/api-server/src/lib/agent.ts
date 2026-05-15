@@ -1021,6 +1021,11 @@ Explica POR QUÉ recomiendas ese producto.${productInstruction}`;
 
       console.log(`🔄 [AGENT-AI] Cola de rotación preparada con ${rotationQueue.length} proveedores: ${rotationQueue.map(q => q.source).join(" -> ")}`);
 
+      if (rotationQueue.length === 0) {
+        console.error("❌ [AGENT-ERROR] No hay proveedores de IA configurados o saludables");
+        throw new Error("No hay proveedores de IA disponibles en este momento");
+      }
+
       // Check if any AI providers are healthy
       if (!areAIProvidersHealthy()) {
         console.log(`⚠️ [AGENT-WARNING] Todos los proveedores de IA parecen no saludables, intentando de todos modos - ${new Date().toISOString()}`);
@@ -1078,7 +1083,9 @@ Cuéntame 😊
             }
           }
 
-          const client = createAIClient(config);
+            console.log(`🔧 [AGENT-AI] Creando cliente para ${source}...`);
+            const client = createAIClient(config);
+            console.log(`📡 [AGENT-AI] Enviando petición a ${source} (${config.model})...`);
           const completion = await retryWithBackoff(
             () => client.chat.completions.create({
               model: config.model,
