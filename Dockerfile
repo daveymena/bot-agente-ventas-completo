@@ -29,8 +29,13 @@ COPY lib/integrations-openai-ai-server/package.json ./lib/integrations-openai-ai
 COPY lib/integrations-openai-ai-react/package.json ./lib/integrations-openai-ai-react/
 COPY scripts/package.json ./scripts/
 
+# Desactivar explícitamente el bloqueo de dependencias exóticas (Git) para pnpm v11
+ENV NPM_CONFIG_BLOCK_EXOTIC_SUBDEPS=false
+ENV PNPM_CONFIG_BLOCK_EXOTIC_SUBDEPS=false
+
 # Forzar instalación completa para el build (ignorar NODE_ENV=production de EasyPanel)
-RUN pnpm install --no-frozen-lockfile --prod=false
+RUN pnpm config set block-exotic-subdeps false && \
+    pnpm install --no-frozen-lockfile --prod=false
 
 # Copiar el resto del código
 COPY . .
