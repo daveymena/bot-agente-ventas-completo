@@ -559,6 +559,8 @@ export const GetSettingsResponse = zod.object({
   aiProvider: zod.string().nullish(),
   githubToken: zod.string().nullish(),
   githubModel: zod.string().nullish(),
+  nvidiaApiKey: zod.string().nullish(),
+  nvidiaModel: zod.string().nullish(),
   ollamaUrl: zod.string().nullish(),
   ollamaModel: zod.string().nullish(),
 });
@@ -578,6 +580,8 @@ export const UpdateSettingsBody = zod.object({
   aiProvider: zod.string().optional(),
   githubToken: zod.string().optional(),
   githubModel: zod.string().optional(),
+  nvidiaApiKey: zod.string().optional(),
+  nvidiaModel: zod.string().optional(),
   ollamaUrl: zod.string().optional(),
   ollamaModel: zod.string().optional(),
 });
@@ -594,6 +598,8 @@ export const UpdateSettingsResponse = zod.object({
   aiProvider: zod.string().nullish(),
   githubToken: zod.string().nullish(),
   githubModel: zod.string().nullish(),
+  nvidiaApiKey: zod.string().nullish(),
+  nvidiaModel: zod.string().nullish(),
   ollamaUrl: zod.string().nullish(),
   ollamaModel: zod.string().nullish(),
 });
