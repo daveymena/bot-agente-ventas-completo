@@ -2,7 +2,8 @@ FROM node:22-slim AS base
 
 ENV PNPM_HOME="/pnpm"
 ENV PATH="$PNPM_HOME:$PATH"
-RUN corepack enable
+# Enable corepack and install pnpm 9 (Versión estable previa que no bloquea Baileys)
+RUN corepack enable && corepack prepare pnpm@9.15.9 --activate
 
 WORKDIR /app
 
@@ -29,20 +30,13 @@ COPY lib/integrations-openai-ai-server/package.json ./lib/integrations-openai-ai
 COPY lib/integrations-openai-ai-react/package.json ./lib/integrations-openai-ai-react/
 COPY scripts/package.json ./scripts/
 
-# Desactivar explícitamente el bloqueo de dependencias exóticas (Git) para pnpm v11
-ENV NPM_CONFIG_BLOCK_EXOTIC_SUBDEPS=false
-ENV PNPM_CONFIG_BLOCK_EXOTIC_SUBDEPS=false
-
-# Forzar instalación completa para el build (ignorar NODE_ENV=production de EasyPanel)
-RUN pnpm config set block-exotic-subdeps false && \
-    pnpm config set ignore-scripts false && \
-    pnpm install --no-frozen-lockfile --prod=false --ignore-scripts=false
+# Limpiar flags de pnpm v11 y usar instalación estándar de v9
+RUN pnpm install --no-frozen-lockfile --prod=false
 
 # Copiar el resto del código
 COPY . .
 
 # Construir solo los proyectos necesarios (Backend + Frontend)
-# Saltarse typecheck y build solo lo necesario
 RUN pnpm --filter "@workspace/api-server" --filter "@workspace/ventas-pro" --filter "@workspace/db" --filter "@workspace/api-zod" --filter "@workspace/api-spec" --filter "@workspace/api-client-react" --filter "@workspace/integrations-openai-ai-server" --filter "@workspace/integrations-openai-ai-react" run build
 
 # Verificar que el frontend se construyó correctamente
@@ -59,7 +53,8 @@ RUN echo "🔍 Verificando build del frontend..." && \
 FROM node:22-slim
 
 WORKDIR /app
-RUN corepack enable
+# Asegurar pnpm 9 también en la etapa final
+RUN corepack enable && corepack prepare pnpm@9.15.9 --activate
 
 # Instalar dependencias mínimas para producción
 RUN apt-get update && apt-get install -y \
@@ -69,18 +64,8 @@ RUN apt-get update && apt-get install -y \
     sqlite3 \
     && rm -rf /var/lib/apt/lists/*
 
-# Copiar TODO el workspace del builder (incluye node_modules con symlinks correctos)
+# Copiar TODO el workspace del builder
 COPY --from=base /app /app
-
-# Verificar nuevamente en la imagen final
-RUN echo "🔍 Verificando frontend en imagen final..." && \
-    ls -la /app/artifacts/ventas-pro/dist/public/ && \
-    if [ ! -f /app/artifacts/ventas-pro/dist/public/index.html ]; then \
-        echo "❌ ERROR: index.html no encontrado en imagen final"; \
-        exit 1; \
-    else \
-        echo "✅ Frontend disponible en imagen final"; \
-    fi
 
 # Crear carpetas de persistencia para EasyPanel
 RUN mkdir -p /app/data && chmod 777 /app/data
@@ -90,7 +75,7 @@ ARG DATABASE_URL
 ENV DATABASE_URL=$DATABASE_URL
 ENV NODE_ENV=production
 ENV PORT=3002
-# Force rebuild: 2026-05-15
+# Force rebuild: 2026-05-15 (v9 fallback)
 
 EXPOSE 3002
 
