@@ -82,12 +82,9 @@ router.post("/reset-session", async (_req, res, next) => {
     // 1. Disconnect cleanly if connected
     await whatsapp.stop();
 
-    // 2. Delete the auth folder — same path as whatsapp.ts (dist/../.baileys-auth)
-    const authDir = path.resolve(
-      path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1')),
-      "..",
-      ".baileys-auth"
-    );    if (existsSync(authDir)) {
+    // 2. Delete the auth folder — always relative to cwd
+    const authDir = path.resolve(process.cwd(), ".baileys-auth");
+    if (existsSync(authDir)) {
       rmSync(authDir, { recursive: true, force: true });
     }
 

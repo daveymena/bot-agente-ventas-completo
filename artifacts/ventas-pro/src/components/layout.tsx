@@ -144,8 +144,8 @@ export function Layout({ children }: { children: React.ReactNode }) {
               <UiBadge variant="outline" className="bg-primary/5 text-primary border-primary/20 hidden sm:flex text-xs">V1.5 PREMIUM</UiBadge>
             </div>
           </header>
-          <main className="flex-1 p-3 sm:p-4 md:p-8 overflow-y-auto overflow-x-hidden animate-enter scroll-smooth">
-            <div className="max-w-7xl mx-auto pb-20 md:pb-8 w-full">
+          <main className="flex-1 p-3 sm:p-4 md:p-8 overflow-y-auto overflow-x-hidden animate-enter scroll-smooth flex flex-col h-full">
+            <div className="max-w-7xl mx-auto pb-8 md:pb-4 w-full flex-1 flex flex-col min-h-0">
               {children}
             </div>
           </main>

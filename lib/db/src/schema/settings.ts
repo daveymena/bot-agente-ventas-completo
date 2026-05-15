@@ -18,9 +18,11 @@ export const settings = pgTable("settings", {
     .notNull()
     .default([]),
   // AI Provider Configuration
-  aiProvider: text("ai_provider").notNull().default("github"), // github, ollama_local, openai_default
+  aiProvider: text("ai_provider").notNull().default("github_copilot_internal"), // github_copilot_internal, github, ollama_local, openai_default
   githubToken: text("github_token"),
   githubModel: text("github_model").notNull().default("gpt-4o-mini"),
+  nvidiaApiKey: text("nvidia_api_key"),
+  nvidiaModel: text("nvidia_model").notNull().default("meta/llama-3.1-70b-instruct"),
   ollamaUrl: text("ollama_url"),
   ollamaModel: text("ollama_model").notNull().default("hermes3:8b"),
 });

@@ -1131,14 +1131,14 @@ components:
           nullable: true
         githubModel:
           type: string
-          nullable: true
+        nvidiaApiKey:
+          type: string
+        nvidiaModel:
+          type: string
         ollamaUrl:
           type: string
-          nullable: true
         ollamaModel:
           type: string
-          nullable: true
-      required: [autoReplyEnabled]
 
     UpdateSettingsBody:
       type: object
@@ -1166,6 +1166,10 @@ components:
         githubToken:
           type: string
         githubModel:
+          type: string
+        nvidiaApiKey:
+          type: string
+        nvidiaModel:
           type: string
         ollamaUrl:
           type: string

@@ -1,9 +1,10 @@
 import { Router } from "express";
-import { createAIClient, getProviderConfig } from "@workspace/integrations-openai-ai-server";
-import { db, agents } from "@workspace/db";
+import { createAIClient, getProviderConfig, getProviderConfigFromSettings } from "@workspace/integrations-openai-ai-server";
+import { db, agents, settings } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { logger } from "../lib/logger";
 import type { TenantRequest } from "../lib/tenantManager";
+import { getCopilotSessionToken } from "../lib/copilot";
 
 const router = Router();
 
@@ -19,12 +20,23 @@ router.post("/architect", async (req: TenantRequest, res, next) => {
 
     const { prompt, history = [] } = req.body;
 
-    const nvidiaConfig = getProviderConfig("nvidia");
-    if (!nvidiaConfig) {
-      return res.status(500).json({ error: "NVIDIA AI engine not configured for Architect" });
+    // Obtener configuración de DB o ENV
+    const [dbSettings] = await db.select().from(settings).limit(1);
+    let aiConfig = getProviderConfigFromSettings(dbSettings || {}) || getProviderConfig("github") || getProviderConfig("nvidia");
+
+    if (!aiConfig) {
+      return res.status(500).json({ error: "No AI engine configured for Architect" });
     }
 
-    const client = createAIClient(nvidiaConfig);
+    // Refresh Copilot Token if using github internal
+    if (aiConfig.baseUrl === "https://api.githubcopilot.com") {
+      const session = await getCopilotSessionToken(aiConfig.apiKey);
+      if (session) {
+        aiConfig.apiKey = session.token;
+      }
+    }
+
+    const client = createAIClient(aiConfig);
     
     const systemPrompt = `
 Eres la **ARQUITECTA MAESTRA DEL SISTEMA DE VENTAS CON IA**. Tu misión es REINVENTAR la lógica de negocio, PROGRAMAR estrategias de élite y CONFIGURAR el éxito total.
@@ -192,7 +204,7 @@ Actúa con la autoridad de una Ingeniera Senior de Software y Directora de Venta
 `;
 
     const response = await client.chat.completions.create({
-      model: nvidiaConfig.model,
+      model: aiConfig.model,
       messages: [
         { role: "system", content: systemPrompt },
         ...history,
@@ -288,12 +300,23 @@ router.post("/visual-architect", async (req: TenantRequest, res, next) => {
 
     const { prompt, history = [] } = req.body;
 
-    const nvidiaConfig = getProviderConfig("nvidia");
-    if (!nvidiaConfig) {
-      return res.status(500).json({ error: "NVIDIA AI engine not configured for Architect" });
+    const [dbSettings] = await db.select().from(settings).limit(1);
+    let aiConfig = getProviderConfigFromSettings(dbSettings || {}) || getProviderConfig("github") || getProviderConfig("nvidia");
+
+    if (!aiConfig) {
+      return res.status(500).json({ error: "No AI engine configured for Architect" });
     }
 
-    const client = createAIClient(nvidiaConfig);
+    // Refresh Copilot Token if using github internal
+    if (aiConfig.baseUrl === "https://api.githubcopilot.com") {
+      const session = await getCopilotSessionToken(aiConfig.apiKey);
+      if (session) {
+        aiConfig.apiKey = session.token;
+      }
+    }
+
+    const client = createAIClient(aiConfig);
+
     
     const systemPrompt = `
 Eres la **ARQUITECTA VISUAL MAESTRA** con capacidades de análisis de negocio y generación de propuestas.
@@ -413,7 +436,7 @@ Responde SIEMPRE en JSON con esta estructura:
 `;
 
     const response = await client.chat.completions.create({
-      model: nvidiaConfig.model,
+      model: aiConfig.model,
       messages: [
         { role: "system", content: systemPrompt },
         ...history,

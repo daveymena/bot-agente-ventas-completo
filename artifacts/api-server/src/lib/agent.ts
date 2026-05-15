@@ -1053,6 +1053,16 @@ Cuéntame 😊
               model: config.model 
             }, "[Agent] Attempting AI provider");
           
+          if (config.baseUrl === "https://api.githubcopilot.com") {
+            const { getCopilotSessionToken } = await import("./copilot");
+            const session = await getCopilotSessionToken(config.apiKey);
+            if (session) {
+              config.apiKey = session.token;
+            } else {
+              throw new Error("No se pudo obtener token de sesión interno de Copilot");
+            }
+          }
+
           const client = createAIClient(config);
           const completion = await retryWithBackoff(
             () => client.chat.completions.create({

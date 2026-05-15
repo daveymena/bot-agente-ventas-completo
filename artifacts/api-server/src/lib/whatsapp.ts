@@ -220,10 +220,8 @@ export type WhatsAppPublicStatus = {
   lastError: string | null;
 };
 
-// AUTH_DIR: always relative to this source file's location (artifacts/api-server/)
-// Using import.meta.url ensures it works regardless of cwd
-const _moduleDir = path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1'));
-const AUTH_DIR = path.resolve(_moduleDir, "..", ".baileys-auth");
+// AUTH_DIR: use process.cwd() to ensure consistency when running from the package root
+const AUTH_DIR = path.resolve(process.cwd(), ".baileys-auth");
 
 export class WhatsAppManager {
   private state: WAState = "disconnected";
@@ -245,16 +243,17 @@ export class WhatsAppManager {
   }
 
   getStatus(): WhatsAppPublicStatus & { qrCode: string | null; phone: string | null; phoneNumber: string | null } {
-    return {
+    const status = {
       state: this.state,
       qrCode: this.qrDataUrl,
       phone: this.phoneNumber,
       phoneNumber: this.phoneNumber,
       connectedAt: this.connectedAt,
       lastError: this.lastError,
-      // Keep original field names for internal consistency
       qrDataUrl: this.qrDataUrl,
-    } as any;
+    };
+    logger.debug({ state: this.state, hasQr: !!this.qrDataUrl }, "[WhatsApp] Getting status");
+    return status as any;
   }
 
   isConnected() {
@@ -299,24 +298,38 @@ export class WhatsAppManager {
   async start() {
     if (this.starting) return this.getStatus();
     if (this.state === "connected" || this.state === "qr") return this.getStatus();
+    if (this.sock) {
+      logger.info("[WhatsApp] Socket already exists, skipping start");
+      return this.getStatus();
+    }
     
     this.starting = true;
     this.state = "connecting";
 
     try {
-      if (!existsSync(AUTH_DIR)) mkdirSync(AUTH_DIR, { recursive: true });
+      logger.info({ authDir: AUTH_DIR }, "[WhatsApp] Starting connection...");
+      if (!existsSync(AUTH_DIR)) {
+        logger.info("[WhatsApp] Creating auth directory");
+        mkdirSync(AUTH_DIR, { recursive: true });
+      }
 
       const baileys = await import("@whiskeysockets/baileys");
       const makeWASocket = (baileys as any).default ?? (baileys as any).makeWASocket;
       const { useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion } = baileys as any;
 
+      logger.info("[WhatsApp] Initializing auth state...");
       const { state: authState, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
+      
       let version: any = undefined;
       try {
         const v = await fetchLatestBaileysVersion();
         version = v.version;
-      } catch (e) {}
+        logger.info({ version }, "[WhatsApp] Baileys version fetched");
+      } catch (e) {
+        logger.warn("[WhatsApp] Could not fetch latest version, using default");
+      }
 
+      logger.info("[WhatsApp] Creating socket...");
       const sock = makeWASocket({
         auth: authState,
         version,
@@ -333,9 +346,13 @@ export class WhatsAppManager {
         const { connection, lastDisconnect, qr } = update;
         
         if (qr) {
-          this.qrDataUrl = await QRCode.toDataURL(qr, { width: 320, margin: 1 });
-          this.state = "qr";
-          logger.info("[WhatsApp] QR code generated");
+          try {
+            this.qrDataUrl = await QRCode.toDataURL(qr, { width: 320, margin: 1 });
+            this.state = "qr";
+            logger.info({ qrLength: qr.length }, "[WhatsApp] QR code generated and converted to DataURL");
+          } catch (qrErr) {
+            logger.error({ err: qrErr }, "[WhatsApp] Failed to generate QR DataURL");
+          }
         }
         
         if (connection === "open") {

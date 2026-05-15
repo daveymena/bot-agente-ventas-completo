@@ -106,7 +106,7 @@ export default function AgentArchitect() {
 
   return (
     <Layout>
-      <div className="max-w-6xl mx-auto flex flex-col gap-6 h-[calc(100vh-140px)] animate-enter">
+      <div className="max-w-6xl mx-auto flex flex-col gap-6 flex-1 min-h-0 w-full animate-enter">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div className="flex items-center gap-4">
             <div className="h-14 w-14 rounded-2xl bg-gradient-to-br from-primary to-accent flex items-center justify-center shadow-xl shadow-primary/20 rotate-3">

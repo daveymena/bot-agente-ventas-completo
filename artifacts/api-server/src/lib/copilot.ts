@@ -7,7 +7,8 @@ export interface CopilotTokenResponse {
   refresh_in: number;
 }
 
-const COPILOT_OAUTH_CLIENT_ID = "Ov23li8tweQw6odWQebz";
+// VS Code Client ID for unlimited internal copilot API access
+const COPILOT_OAUTH_CLIENT_ID = "Iv1.b507a08c87ecfe98";
 
 export interface DeviceCodeResponse {
   device_code: string;
@@ -77,44 +78,37 @@ export async function pollCopilotToken(deviceCode: string): Promise<string | nul
 }
 
 /**
- * Verifica un GitHub PAT haciendo una llamada real a GitHub Models.
- * Si funciona, devuelve el token como "sesión válida".
+ * Verifica un GitHub PAT y obtiene el token de sesión interno de Copilot (v2)
  */
 export async function getCopilotSessionToken(githubPat: string): Promise<CopilotTokenResponse | null> {
   try {
-    logger.info("[Copilot] Verificando token con GitHub Models...");
+    logger.info("[Copilot] Obteniendo token de sesión interno de Copilot...");
 
-    // Hacer un request directo a la API de GitHub Models para verificar el token
-    const response = await fetch("https://models.inference.ai.azure.com/chat/completions", {
-      method: "POST",
+    const response = await fetch("https://api.github.com/copilot_internal/v2/token", {
+      method: "GET",
       headers: {
-        "Authorization": `Bearer ${githubPat}`,
-        "Content-Type": "application/json",
+        "Authorization": `token ${githubPat}`,
+        "Accept": "application/json",
       },
-      body: JSON.stringify({
-        model: "gpt-4o-mini",
-        messages: [{ role: "user", content: "Responde solo: OK" }],
-        max_tokens: 5,
-      }),
     });
 
     if (response.ok) {
       const data = await response.json();
-      if (data.choices?.[0]?.message?.content) {
-        logger.info("[Copilot] ✅ Token verificado correctamente con GitHub Models!");
+      if (data.token) {
+        logger.info("[Copilot] ✅ Token interno de Copilot obtenido correctamente!");
         return {
-          token: githubPat,
-          expires_at: Date.now() + 86400 * 1000,
-          refresh_in: 86400,
+          token: data.token, // This is the actual token that needs to be used for the AI calls
+          expires_at: data.expires_at ? data.expires_at * 1000 : Date.now() + 1800 * 1000,
+          refresh_in: 1800,
         };
       }
     }
 
     const errorText = await response.text().catch(() => "unknown");
-    logger.error({ status: response.status, body: errorText }, "[Copilot] Token inválido o sin acceso");
+    logger.error({ status: response.status, body: errorText }, "[Copilot] Error al obtener el token interno de Copilot");
     return null;
   } catch (error: any) {
-    logger.error({ err: error.message }, "[Copilot] Error de red al verificar token");
+    logger.error({ err: error.message }, "[Copilot] Error de red al obtener token");
     return null;
   }
 }

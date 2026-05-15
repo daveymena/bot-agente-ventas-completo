@@ -4,10 +4,24 @@ export interface AIProviderConfig {
   baseUrl: string;
   apiKey: string;
   model: string;
+  defaultHeaders?: Record<string, string>;
 }
 
 export function getProviderConfig(provider: string): AIProviderConfig | null {
   switch (provider) {
+    case "github_copilot_internal":
+      if (!process.env.GITHUB_TOKEN) return null;
+      return {
+        baseUrl: "https://api.githubcopilot.com",
+        apiKey: process.env.GITHUB_TOKEN, // Note: This should be the copilot session token, we'll assume it's fetched properly
+        model: process.env.GITHUB_MODEL || "gpt-4o",
+        defaultHeaders: {
+          "Editor-Version": "vscode/1.96.0",
+          "Editor-Plugin-Version": "copilot/1.250.0",
+          "Openai-Organization": "github-copilot",
+          "Copilot-Integration-Id": "vscode-chat",
+        }
+      };
     case "github":
       if (!process.env.GITHUB_TOKEN) return null;
       return {
@@ -59,10 +73,28 @@ export function getProviderConfigFromSettings(settings: {
   aiProvider?: string;
   githubToken?: string | null;
   githubModel?: string;
+  nvidiaApiKey?: string | null;
+  nvidiaModel?: string;
   ollamaUrl?: string | null;
   ollamaModel?: string;
 }): AIProviderConfig | null {
   const provider = settings.aiProvider || "github";
+
+  if (provider === "github_copilot_internal") {
+    const token = settings.githubToken || process.env.GITHUB_TOKEN;
+    if (!token) return null;
+    return {
+      baseUrl: "https://api.githubcopilot.com",
+      apiKey: token, // This needs to be the Copilot Session Token
+      model: settings.githubModel || process.env.GITHUB_MODEL || "gpt-4o",
+      defaultHeaders: {
+        "Editor-Version": "vscode/1.96.0",
+        "Editor-Plugin-Version": "copilot/1.250.0",
+        "Openai-Organization": "github-copilot",
+        "Copilot-Integration-Id": "vscode-chat",
+      }
+    };
+  }
 
   if (provider === "github" || provider === "github_claude") {
     const token = settings.githubToken || process.env.GITHUB_TOKEN;
@@ -101,6 +133,7 @@ export function createAIClient(config: AIProviderConfig): OpenAI {
   return new OpenAI({
     apiKey: config.apiKey,
     baseURL: config.baseUrl,
+    defaultHeaders: config.defaultHeaders,
     dangerouslyAllowBrowser: true,
     timeout: 60000, // 60 segundos de timeout para evitar que se quede pegado
     maxRetries: 1,

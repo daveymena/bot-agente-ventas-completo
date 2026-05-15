@@ -33,9 +33,11 @@ export default function Settings() {
     autoReplyEnabled: false,
     offHoursMessage: "",
     escalationKeywords: [] as string[],
-    aiProvider: "github" as "github" | "ollama_local" | "openai_default",
+    aiProvider: "github" as "github" | "github_copilot_internal" | "ollama_local" | "openai_default" | "nvidia",
     githubToken: "",
     githubModel: "gpt-4o-mini",
+    nvidiaApiKey: "",
+    nvidiaModel: "meta/llama-3.1-70b-instruct",
     ollamaUrl: "",
     ollamaModel: "hermes3:8b"
   });
@@ -90,6 +92,8 @@ export default function Settings() {
         aiProvider: (settings as any).aiProvider || "github",
         githubToken: (settings as any).githubToken || "",
         githubModel: (settings as any).githubModel || "gpt-4o-mini",
+        nvidiaApiKey: (settings as any).nvidiaApiKey || "",
+        nvidiaModel: (settings as any).nvidiaModel || "meta/llama-3.1-70b-instruct",
         ollamaUrl: (settings as any).ollamaUrl || "",
         ollamaModel: (settings as any).ollamaModel || "hermes3:8b"
       });
@@ -342,13 +346,15 @@ export default function Settings() {
                       onChange={e => setFormData({...formData, aiProvider: e.target.value as any})}
                       className="w-full h-10 rounded-xl border border-input bg-muted/30 px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
                     >
-                      <option value="github">GitHub Models (Copilot)</option>
+                      <option value="github_copilot_internal">GitHub Copilot Internal (VS Code Flow)</option>
+                      <option value="github">GitHub Models (Azure)</option>
+                      <option value="nvidia">NVIDIA NIM (High Performance)</option>
                       <option value="ollama_local">Ollama (Local)</option>
                       <option value="openai_default">OpenAI Direct</option>
                     </select>
                   </div>
-
-                  {formData.aiProvider === "github" && (
+                  {/* Configuración GitHub Copilot */}
+                  {(formData.aiProvider === "github" || formData.aiProvider === "github_copilot_internal") && (
                     <div className="space-y-6 animate-in fade-in slide-in-from-left-4">
                       {/* Opción 1: Token Directo */}
                       <div className="p-5 rounded-2xl border border-primary/20 bg-primary/5 space-y-4">
@@ -485,6 +491,41 @@ export default function Settings() {
                           placeholder="gpt-4o-mini"
                           className="bg-muted/30 font-mono"
                         />
+                      </div>
+                    </div>
+                  )}
+
+                  {formData.aiProvider === "nvidia" && (
+                    <div className="space-y-4 animate-in fade-in slide-in-from-left-4">
+                      <div className="p-5 rounded-2xl border border-primary/20 bg-primary/5 space-y-4">
+                        <div className="flex items-center gap-3">
+                          <div className="p-2 bg-primary/20 rounded-lg text-primary">
+                            <ShieldCheck className="h-5 w-5" />
+                          </div>
+                          <div>
+                            <h4 className="text-sm font-bold">NVIDIA NIM Configuration</h4>
+                            <p className="text-[10px] text-muted-foreground uppercase font-semibold">Usa modelos de alto rendimiento como Llama 3.1 70B.</p>
+                          </div>
+                        </div>
+                        <div className="space-y-2">
+                          <Label className="text-muted-foreground font-semibold uppercase tracking-wider text-[10px]">API Key</Label>
+                          <Input 
+                            type="password"
+                            value={formData.nvidiaApiKey || ""} 
+                            onChange={e => setFormData({...formData, nvidiaApiKey: e.target.value})} 
+                            placeholder="nvapi-..."
+                            className="bg-background/50 border-primary/10"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label className="text-muted-foreground font-semibold uppercase tracking-wider text-[10px]">Modelo</Label>
+                          <Input 
+                            value={formData.nvidiaModel} 
+                            onChange={e => setFormData({...formData, nvidiaModel: e.target.value})} 
+                            placeholder="meta/llama-3.1-70b-instruct"
+                            className="bg-muted/30 font-mono"
+                          />
+                        </div>
                       </div>
                     </div>
                   )}

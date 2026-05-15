@@ -18,6 +18,8 @@ export interface Settings {
   aiProvider?: string | null;
   githubToken?: string | null;
   githubModel?: string | null;
+  nvidiaApiKey?: string | null;
+  nvidiaModel?: string | null;
   ollamaUrl?: string | null;
   ollamaModel?: string | null;
 }
