@@ -345,4 +345,107 @@ router.post("/current/activate-with-token", async (req, res) => {
   }
 });
 
-export default router;
+// ── ADMIN ENDPOINTS ────────────────────────────────────────────────────────────
+
+/**
+ * Admin: List all tenants with usage stats
+ * GET /api/tenants/admin/list
+ */
+router.get("/admin/list", async (req: TenantRequest, res) => {
+  try {
+    // Only VIP admin can access
+    if (!req.tenant || req.tenant.email !== "daveymena16@gmail.com") {
+      return res.status(403).json({ error: "Acceso solo para administrador" });
+    }
+
+    const { db, tenants: tenantsTable, conversations, products } = await import("@workspace/db");
+    const { sql, eq } = await import("drizzle-orm");
+
+    const allTenants = await db.select().from(tenantsTable).orderBy(tenantsTable.createdAt);
+
+    // Enrich with usage counts
+    const enriched = await Promise.all(allTenants.map(async (t) => {
+      const [convCount] = await db.select({ count: sql<number>`count(*)` })
+        .from(conversations).where(eq(conversations.tenantId, t.id));
+      const [prodCount] = await db.select({ count: sql<number>`count(*)` })
+        .from(products).where(eq(products.tenantId, t.id));
+
+      return {
+        id: t.id,
+        name: t.name,
+        email: t.email,
+        brandName: t.brandName,
+        slug: t.slug,
+        plan: t.plan || "free",
+        status: t.status || "inactive",
+        createdAt: t.createdAt,
+        conversationCount: Number(convCount?.count || 0),
+        productCount: Number(prodCount?.count || 0),
+      };
+    }));
+
+    return res.json({ tenants: enriched });
+  } catch (error) {
+    logger.error({ error }, "[Tenants Admin] List failed");
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+/**
+ * Admin: Perform action on a tenant
+ * POST /api/tenants/admin/:id/action
+ */
+router.post("/admin/:id/action", async (req: TenantRequest, res) => {
+  try {
+    if (!req.tenant || req.tenant.email !== "daveymena16@gmail.com") {
+      return res.status(403).json({ error: "Acceso solo para administrador" });
+    }
+
+    const tenantId = parseInt(req.params.id);
+    const { action } = req.body;
+
+    const { db, tenants: tenantsTable } = await import("@workspace/db");
+    const { eq } = await import("drizzle-orm");
+
+    let update: any = { updatedAt: new Date() };
+    let message = "";
+
+    switch (action) {
+      case "activate":
+        update.status = "active";
+        message = "Tenant activado correctamente";
+        break;
+      case "suspend":
+        update.status = "suspended";
+        message = "Tenant suspendido";
+        break;
+      case "upgrade_enterprise":
+        update.plan = "enterprise";
+        update.status = "active";
+        message = "Tenant actualizado a Enterprise";
+        break;
+      case "downgrade_free":
+        update.plan = "free";
+        message = "Tenant movido a Free";
+        break;
+      case "delete":
+        await db.delete(tenantsTable).where(eq(tenantsTable.id, tenantId));
+        return res.json({ success: true, message: "Tenant eliminado" });
+      default:
+        return res.status(400).json({ error: "Acción no reconocida" });
+    }
+
+    await db.update(tenantsTable).set(update).where(eq(tenantsTable.id, tenantId));
+    // Clear cache
+    tenantManager.clearCache();
+
+    logger.info({ adminId: req.tenant.id, targetId: tenantId, action }, "[Tenants Admin] Action performed");
+    return res.json({ success: true, message });
+
+  } catch (error) {
+    logger.error({ error }, "[Tenants Admin] Action failed");
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+export default router;

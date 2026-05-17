@@ -1,39 +1,42 @@
-import dotenv from 'dotenv';
-import { createAIClient, getProviderConfig } from './artifacts/api-server/src/lib/integrations-openai-ai-server/src/provider.ts';
-import { healthMonitor } from './artifacts/api-server/src/lib/fallbackSystem.ts';
+import { createAIClient, getProviderConfig, getProviderConfigFromSettings } from "../lib/integrations-openai-ai-server/src/index.ts";
+import dotenv from "dotenv";
+import path from "path";
+import { fileURLToPath } from "url";
 
-dotenv.config();
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
-async function testAI() {
-  console.log("🚀 Iniciando prueba de IA local...");
+dotenv.config({ path: path.resolve(__dirname, "../artifacts/api-server/.env") });
+
+async function testArchitect() {
+  console.log("🚀 Testing AI Architect...");
   
-  const copilotToken = process.env.GITHUB_COPILOT_TOKEN;
-  console.log("Token Copilot detectado:", copilotToken ? copilotToken.substring(0, 20) + "..." : "NO");
-
-  const config = {
-    apiKey: copilotToken,
-    baseUrl: "https://api.githubcopilot.com",
-    model: "gpt-4o"
-  };
-
+  const aiConfig = getProviderConfig("nvidia") || getProviderConfig("github");
+  
+  if (!aiConfig) {
+    console.error("❌ No AI configuration found in environment variables.");
+    process.exit(1);
+  }
+  
+  console.log(`📡 Using provider: ${aiConfig.baseUrl}, Model: ${aiConfig.model}`);
+  
   try {
-    console.log("🔧 Creando cliente...");
-    const client = createAIClient(config);
-    
-    console.log("📡 Enviando mensaje de prueba...");
-    const completion = await client.chat.completions.create({
-      model: config.model,
-      messages: [{ role: "user", content: "Hola, ¿quién eres?" }],
+    const client = createAIClient(aiConfig);
+    const response = await client.chat.completions.create({
+      model: aiConfig.model,
+      messages: [
+        { role: "system", content: "You are a helpful assistant. Respond in JSON format with a 'reply' field." },
+        { role: "user", content: "Hola, ¿quién eres?" }
+      ],
+      response_format: { type: "json_object" }
     });
-
-    console.log("✅ RESPUESTA RECIBIDA:", completion.choices[0].message.content);
+    
+    console.log("✅ Response received:");
+    console.log(response.choices[0].message.content);
   } catch (error) {
-    console.error("❌ ERROR EN LA PRUEBA:", error);
-    if (error.response) {
-      console.error("Status:", error.response.status);
-      console.error("Body:", await error.response.text());
-    }
+    console.error("💥 Error during AI call:");
+    console.error(error);
   }
 }
 
-testAI();
+testArchitect();

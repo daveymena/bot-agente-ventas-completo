@@ -161,7 +161,7 @@ async function scoreAgents(
 /**
  * Determina el tipo de agente basado en su rol y nombre
  */
-function getAgentType(role: string, name: string): string {
+export function getAgentType(role: string, name: string): string {
   const roleLower = role.toLowerCase();
   const nameLower = name.toLowerCase();
 

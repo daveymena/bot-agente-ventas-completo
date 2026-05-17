@@ -522,7 +522,8 @@ export class PaymentGateway {
 
     try {
       // Create PayPal payment using their API for dynamic links
-      const amountUSD = Number(product.price || 0) / 4000; // Convert COP to USD
+      const exchangeRate = Number(process.env.PAYPAL_EXCHANGE_RATE) || 4300; 
+      const amountUSD = Number(product.price || 0) / exchangeRate; // Convert COP to USD dynamically
       
       // Get PayPal access token with timeout
       const authResponse = await fetch(`https://api-m.paypal.com/v1/oauth2/token`, {

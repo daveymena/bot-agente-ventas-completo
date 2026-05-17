@@ -22,7 +22,7 @@ router.post("/architect", async (req: TenantRequest, res, next) => {
 
     // Obtener configuración de DB o ENV
     const [dbSettings] = await db.select().from(settings).limit(1);
-    let aiConfig = getProviderConfigFromSettings(dbSettings || {}) || getProviderConfig("github") || getProviderConfig("nvidia");
+    let aiConfig = getProviderConfigFromSettings(dbSettings || {}) || getProviderConfig("nvidia") || getProviderConfig("github");
 
     if (!aiConfig) {
       return res.status(500).json({ error: "No AI engine configured for Architect" });
@@ -30,11 +30,30 @@ router.post("/architect", async (req: TenantRequest, res, next) => {
 
     // Refresh Copilot Token if using github internal
     if (aiConfig.baseUrl === "https://api.githubcopilot.com") {
-      const session = await getCopilotSessionToken(aiConfig.apiKey);
-      if (session) {
-        aiConfig.apiKey = session.token;
+      const now = new Date();
+      const expiresAt = dbSettings?.copilotSessionExpiresAt ? new Date(dbSettings.copilotSessionExpiresAt) : null;
+      
+      // Si tenemos un token válido en cache, usarlo
+      if (dbSettings?.copilotSessionToken && expiresAt && expiresAt > now) {
+        logger.info("[Copilot] Usando token de sesión cacheado.");
+        aiConfig.apiKey = dbSettings.copilotSessionToken;
+      } else {
+        // Si no, pedir uno nuevo
+        logger.info("[Copilot] Token de sesión expirado o no encontrado. Obteniendo uno nuevo...");
+        const session = await getCopilotSessionToken(aiConfig.apiKey);
+        if (session) {
+          aiConfig.apiKey = session.token;
+          // Guardar en cache
+          await db.update(settings)
+            .set({ 
+              copilotSessionToken: session.token,
+              copilotSessionExpiresAt: new Date(session.expires_at).toISOString()
+            })
+            .where(eq(settings.id, dbSettings!.id));
+        }
       }
     }
+
 
     const client = createAIClient(aiConfig);
     
@@ -208,13 +227,15 @@ Actúa con la autoridad de una Ingeniera Senior de Software y Directora de Venta
       messages: [
         { role: "system", content: systemPrompt },
         ...history,
-        { role: "user", content: prompt }
+        { role: "user", content: `Mensaje del usuario: "${prompt}"\n\nRECORDATORIO CRÍTICO: Eres la Arquitecta experta (una consultora de IA). NO eres el bot de ventas. TU OBJETIVO: Conversar con el usuario, entender sus necesidades y hacer preguntas si falta información. Usa el campo "reply" del JSON para charlar con el usuario. Si tienes suficiente información, genera la "config". RESPONDE SIEMPRE EN FORMATO JSON ESTRICTO.` }
       ],
       temperature: 0.7,
       response_format: { type: "json_object" }
     });
 
-    const result = JSON.parse(response.choices[0]?.message?.content || "{}");
+    let rawContent = response.choices[0]?.message?.content || "{}";
+    rawContent = rawContent.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
+    const result = JSON.parse(rawContent);
 
     if (result.config) {
       // Find existing agent for this tenant
@@ -301,7 +322,7 @@ router.post("/visual-architect", async (req: TenantRequest, res, next) => {
     const { prompt, history = [] } = req.body;
 
     const [dbSettings] = await db.select().from(settings).limit(1);
-    let aiConfig = getProviderConfigFromSettings(dbSettings || {}) || getProviderConfig("github") || getProviderConfig("nvidia");
+    let aiConfig = getProviderConfigFromSettings(dbSettings || {}) || getProviderConfig("nvidia") || getProviderConfig("github");
 
     if (!aiConfig) {
       return res.status(500).json({ error: "No AI engine configured for Architect" });
@@ -309,11 +330,30 @@ router.post("/visual-architect", async (req: TenantRequest, res, next) => {
 
     // Refresh Copilot Token if using github internal
     if (aiConfig.baseUrl === "https://api.githubcopilot.com") {
-      const session = await getCopilotSessionToken(aiConfig.apiKey);
-      if (session) {
-        aiConfig.apiKey = session.token;
+      const now = new Date();
+      const expiresAt = dbSettings?.copilotSessionExpiresAt ? new Date(dbSettings.copilotSessionExpiresAt) : null;
+      
+      // Si tenemos un token válido en cache, usarlo
+      if (dbSettings?.copilotSessionToken && expiresAt && expiresAt > now) {
+        logger.info("[Copilot] Usando token de sesión cacheado.");
+        aiConfig.apiKey = dbSettings.copilotSessionToken;
+      } else {
+        // Si no, pedir uno nuevo
+        logger.info("[Copilot] Token de sesión expirado o no encontrado. Obteniendo uno nuevo...");
+        const session = await getCopilotSessionToken(aiConfig.apiKey);
+        if (session) {
+          aiConfig.apiKey = session.token;
+          // Guardar en cache
+          await db.update(settings)
+            .set({ 
+              copilotSessionToken: session.token,
+              copilotSessionExpiresAt: new Date(session.expires_at).toISOString()
+            })
+            .where(eq(settings.id, dbSettings!.id));
+        }
       }
     }
+
 
     const client = createAIClient(aiConfig);
 
@@ -440,13 +480,15 @@ Responde SIEMPRE en JSON con esta estructura:
       messages: [
         { role: "system", content: systemPrompt },
         ...history,
-        { role: "user", content: prompt }
+        { role: "user", content: `Mensaje del usuario: "${prompt}"\n\nRECORDATORIO CRÍTICO: Eres la Arquitecta Visual (una consultora experta). NO eres el bot de ventas. TU OBJETIVO: Conversar con el usuario para entender qué bot necesita crear. Usa el campo "reply" del JSON para responderle, hacerle preguntas y asesorarlo. Cuando tengas información suficiente o propongas algo, llena también los campos de preview y configuración. RESPONDE SIEMPRE EN FORMATO JSON ESTRICTO.` }
       ],
       temperature: 0.8,
       response_format: { type: "json_object" }
     });
 
-    const result = JSON.parse(response.choices[0]?.message?.content || "{}");
+    let rawContent = response.choices[0]?.message?.content || "{}";
+    rawContent = rawContent.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
+    const result = JSON.parse(rawContent);
 
     // Si hay config completo, guardarlo
     let configApplied = false;

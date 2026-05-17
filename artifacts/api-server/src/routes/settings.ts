@@ -46,6 +46,16 @@ router.post("/copilot-token", async (req, res, next) => {
       return res.status(401).json({ error: "Token inválido. Verifica tu PAT e intenta de nuevo." });
     }
 
+    // Guardar en DB
+    const currentSettings = await getOrCreate();
+    await db.update(settings)
+      .set({ 
+        githubToken,
+        copilotSessionToken: sessionToken.token,
+        copilotSessionExpiresAt: new Date(sessionToken.expires_at).toISOString()
+      })
+      .where(eq(settings.id, currentSettings.id));
+
     return res.json({ 
       success: true, 
       token: sessionToken.token,
@@ -78,7 +88,7 @@ router.post("/copilot-device-token", async (req, res, next) => {
     const { device_code } = req.body;
     if (!device_code) return res.status(400).json({ error: "device_code requerido" });
     
-    const { pollCopilotToken } = await import("../lib/copilot");
+    const { pollCopilotToken, getCopilotSessionToken } = await import("../lib/copilot");
     const token = await pollCopilotToken(device_code);
     
     if (token === "pending") {
@@ -86,7 +96,21 @@ router.post("/copilot-device-token", async (req, res, next) => {
     }
     
     if (token) {
-      return res.json({ success: true, token });
+      // Intentar obtener el token de sesión interno inmediatamente
+      const session = await getCopilotSessionToken(token);
+      
+      // 🚨 GUARDAR EN DB
+      const currentSettings = await getOrCreate();
+      await db.update(settings)
+        .set({ 
+          githubToken: token,
+          copilotSessionToken: session?.token || null,
+          copilotSessionExpiresAt: session ? new Date(session.expires_at).toISOString() : null
+        })
+        .where(eq(settings.id, currentSettings.id));
+      
+      console.log("✅ [BACKEND] Nuevo token de GitHub Copilot guardado y Dashboard notificado.");
+      return res.json({ success: true, token, session_token: session?.token });
     }
     
     return res.status(400).json({ error: "No se pudo obtener el token. Es posible que el código haya expirado." });
@@ -116,6 +140,8 @@ function serialize(row: typeof settings.$inferSelect) {
     aiProvider: row.aiProvider,
     githubToken: row.githubToken,
     githubModel: row.githubModel,
+    copilotSessionToken: row.copilotSessionToken,
+    copilotSessionExpiresAt: row.copilotSessionExpiresAt,
     nvidiaApiKey: row.nvidiaApiKey,
     nvidiaModel: row.nvidiaModel,
     ollamaUrl: row.ollamaUrl,

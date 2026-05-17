@@ -91,14 +91,28 @@ export async function pollCopilotToken(deviceCode: string): Promise<string | nul
  * Verifica un GitHub PAT y obtiene el token de sesión interno de Copilot (v2)
  */
 export async function getCopilotSessionToken(githubPat: string): Promise<CopilotTokenResponse | null> {
+  if (!githubPat) return null;
+  
   try {
     logger.info("[Copilot] Obteniendo token de sesión interno de Copilot...");
+
+    // Si el token ya es un token de sesión (empieza con tid_), no necesitamos intercambiarlo
+    // Pero GitHub PAT usualmente empieza con ghp_ o github_pat_
+    if (githubPat.startsWith("tid_")) {
+      logger.info("[Copilot] El token ya parece ser un token de sesión interno.");
+      return {
+        token: githubPat,
+        expires_at: Date.now() + 1800 * 1000,
+        refresh_in: 1800,
+      };
+    }
 
     const response = await fetch("https://api.github.com/copilot_internal/v2/token", {
       method: "GET",
       headers: {
         "Authorization": `token ${githubPat}`,
         "Accept": "application/json",
+        "User-Agent": "VentasPro-Agent/1.0.0",
       },
     });
 
@@ -107,18 +121,25 @@ export async function getCopilotSessionToken(githubPat: string): Promise<Copilot
       if (data.token) {
         logger.info("[Copilot] ✅ Token interno de Copilot obtenido correctamente!");
         return {
-          token: data.token, // This is the actual token that needs to be used for the AI calls
+          token: data.token,
+          // data.expires_at is in seconds
           expires_at: data.expires_at ? data.expires_at * 1000 : Date.now() + 1800 * 1000,
-          refresh_in: 1800,
+          refresh_in: data.refresh_in || 1800,
         };
       }
     }
 
     const errorText = await response.text().catch(() => "unknown");
     logger.error({ status: response.status, body: errorText }, "[Copilot] Error al obtener el token interno de Copilot");
+    
+    // Si el error es 401, el PAT es inválido
+    if (response.status === 401) {
+      return null;
+    }
+
     return null;
   } catch (error: any) {
     logger.error({ err: error.message }, "[Copilot] Error de red al obtener token");
     return null;
   }
-}
+}

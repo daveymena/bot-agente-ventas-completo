@@ -82,6 +82,9 @@ export const ListConversationsResponseItem = zod.object({
   lastMessageAt: zod.string().nullish(),
   unreadCount: zod.number(),
   avatarColor: zod.string(),
+  agentId: zod.number().nullish(),
+  leadId: zod.number().nullish(),
+  createdAt: zod.string(),
 });
 export const ListConversationsResponse = zod.array(
   ListConversationsResponseItem,
@@ -104,6 +107,8 @@ export const GetConversationResponse = zod.object({
   lastMessageAt: zod.string().nullish(),
   unreadCount: zod.number(),
   avatarColor: zod.string(),
+  agentId: zod.number().nullish(),
+  leadId: zod.number().nullish(),
   createdAt: zod.string(),
 });
 
@@ -129,6 +134,8 @@ export const UpdateConversationResponse = zod.object({
   lastMessageAt: zod.string().nullish(),
   unreadCount: zod.number(),
   avatarColor: zod.string(),
+  agentId: zod.number().nullish(),
+  leadId: zod.number().nullish(),
   createdAt: zod.string(),
 });
 
@@ -303,9 +310,9 @@ export const ListLeadsResponseItem = zod.object({
   phone: zod.string().nullish(),
   email: zod.string().nullish(),
   stage: zod.enum(["new", "contacted", "qualified", "proposal", "won", "lost"]),
+  value: zod.number(),
   notes: zod.string().nullish(),
-  score: zod.number().nullish(),
-  tags: zod.unknown().nullish(),
+  source: zod.string().nullish(),
   createdAt: zod.string(),
 });
 export const ListLeadsResponse = zod.array(ListLeadsResponseItem);
@@ -347,9 +354,9 @@ export const UpdateLeadResponse = zod.object({
   phone: zod.string().nullish(),
   email: zod.string().nullish(),
   stage: zod.enum(["new", "contacted", "qualified", "proposal", "won", "lost"]),
+  value: zod.number(),
   notes: zod.string().nullish(),
-  score: zod.number().nullish(),
-  tags: zod.unknown().nullish(),
+  source: zod.string().nullish(),
   createdAt: zod.string(),
 });
 
@@ -468,7 +475,8 @@ export const ListCategoriesResponseItem = zod.object({
   id: zod.number(),
   name: zod.string(),
   description: zod.string().nullish(),
-  emoji: zod.string().nullish(),
+  icon: zod.string().nullish(),
+  color: zod.string(),
   createdAt: zod.string(),
 });
 export const ListCategoriesResponse = zod.array(ListCategoriesResponseItem);
@@ -499,7 +507,8 @@ export const UpdateCategoryResponse = zod.object({
   id: zod.number(),
   name: zod.string(),
   description: zod.string().nullish(),
-  emoji: zod.string().nullish(),
+  icon: zod.string().nullish(),
+  color: zod.string(),
   createdAt: zod.string(),
 });
 
@@ -518,7 +527,7 @@ export const DeleteCategoryResponse = zod.object({
  * @summary Get WhatsApp connection status
  */
 export const GetWhatsAppStatusResponse = zod.object({
-  state: zod.enum(["disconnected", "connecting", "qr", "connected"]),
+  state: zod.enum(["disconnected", "connecting", "qr", "connected", "error"]),
   qrCode: zod.string().nullish(),
   phone: zod.string().nullish(),
   connectedAt: zod.string().nullish(),
@@ -528,7 +537,7 @@ export const GetWhatsAppStatusResponse = zod.object({
  * @summary Connect WhatsApp
  */
 export const ConnectWhatsAppResponse = zod.object({
-  state: zod.enum(["disconnected", "connecting", "qr", "connected"]),
+  state: zod.enum(["disconnected", "connecting", "qr", "connected", "error"]),
   qrCode: zod.string().nullish(),
   phone: zod.string().nullish(),
   connectedAt: zod.string().nullish(),
@@ -538,7 +547,7 @@ export const ConnectWhatsAppResponse = zod.object({
  * @summary Disconnect WhatsApp
  */
 export const DisconnectWhatsAppResponse = zod.object({
-  state: zod.enum(["disconnected", "connecting", "qr", "connected"]),
+  state: zod.enum(["disconnected", "connecting", "qr", "connected", "error"]),
   qrCode: zod.string().nullish(),
   phone: zod.string().nullish(),
   connectedAt: zod.string().nullish(),
@@ -559,6 +568,8 @@ export const GetSettingsResponse = zod.object({
   aiProvider: zod.string().nullish(),
   githubToken: zod.string().nullish(),
   githubModel: zod.string().nullish(),
+  copilotSessionToken: zod.string().nullish(),
+  copilotSessionExpiresAt: zod.string().nullish(),
   nvidiaApiKey: zod.string().nullish(),
   nvidiaModel: zod.string().nullish(),
   ollamaUrl: zod.string().nullish(),
@@ -580,6 +591,8 @@ export const UpdateSettingsBody = zod.object({
   aiProvider: zod.string().optional(),
   githubToken: zod.string().optional(),
   githubModel: zod.string().optional(),
+  copilotSessionToken: zod.string().optional(),
+  copilotSessionExpiresAt: zod.string().optional(),
   nvidiaApiKey: zod.string().optional(),
   nvidiaModel: zod.string().optional(),
   ollamaUrl: zod.string().optional(),
@@ -598,6 +611,8 @@ export const UpdateSettingsResponse = zod.object({
   aiProvider: zod.string().nullish(),
   githubToken: zod.string().nullish(),
   githubModel: zod.string().nullish(),
+  copilotSessionToken: zod.string().nullish(),
+  copilotSessionExpiresAt: zod.string().nullish(),
   nvidiaApiKey: zod.string().nullish(),
   nvidiaModel: zod.string().nullish(),
   ollamaUrl: zod.string().nullish(),

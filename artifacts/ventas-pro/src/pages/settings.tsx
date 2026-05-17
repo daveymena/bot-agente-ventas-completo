@@ -36,6 +36,8 @@ export default function Settings() {
     aiProvider: "github" as "github" | "github_copilot_internal" | "ollama_local" | "openai_default" | "nvidia",
     githubToken: "",
     githubModel: "gpt-4o-mini",
+    copilotSessionToken: "",
+    copilotSessionExpiresAt: "",
     nvidiaApiKey: "",
     nvidiaModel: "meta/llama-3.1-70b-instruct",
     ollamaUrl: "",
@@ -97,6 +99,8 @@ export default function Settings() {
         aiProvider: (settings as any).aiProvider || "github",
         githubToken: (settings as any).githubToken || "",
         githubModel: (settings as any).githubModel || "gpt-4o-mini",
+        copilotSessionToken: (settings as any).copilotSessionToken || "",
+        copilotSessionExpiresAt: (settings as any).copilotSessionExpiresAt || "",
         nvidiaApiKey: (settings as any).nvidiaApiKey || "",
         nvidiaModel: (settings as any).nvidiaModel || "meta/llama-3.1-70b-instruct",
         ollamaUrl: (settings as any).ollamaUrl || "",
@@ -358,6 +362,65 @@ export default function Settings() {
                       <option value="openai_default">OpenAI Direct</option>
                     </select>
                   </div>
+
+                  {/* AI Connection Status */}
+                  <div className="flex items-center gap-2 p-3 bg-muted/20 rounded-xl border border-white/5">
+                    {(() => {
+                      if (formData.aiProvider === "github_copilot_internal") {
+                        const isActive = formData.copilotSessionToken && new Date(formData.copilotSessionExpiresAt) > new Date();
+                        const isExpired = formData.copilotSessionToken && !isActive;
+                        return (
+                          <>
+                            <div className={`h-2 w-2 rounded-full ${isActive ? 'bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.5)]' : isExpired ? 'bg-yellow-500' : 'bg-red-500'}`} />
+                            <span className="text-[10px] font-bold uppercase tracking-wider">
+                              {isActive ? `Sesión Copilot Activa (Expira: ${new Date(formData.copilotSessionExpiresAt).toLocaleTimeString()})` 
+                                : isExpired ? 'Sesión Copilot Expirada (Se renovará al usar)' 
+                                : 'Copilot Sin Conexión (Requiere Auth)'}
+                            </span>
+                          </>
+                        );
+                      } else if (formData.aiProvider === "github") {
+                        const hasToken = !!formData.githubToken;
+                        return (
+                          <>
+                            <div className={`h-2 w-2 rounded-full ${hasToken ? 'bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.5)]' : 'bg-red-500'}`} />
+                            <span className="text-[10px] font-bold uppercase tracking-wider">
+                              {hasToken ? 'Conectado a GitHub Models' : 'Sin Conexión (Falta Token)'}
+                            </span>
+                          </>
+                        );
+                      } else if (formData.aiProvider === "nvidia") {
+                        const hasToken = !!formData.nvidiaApiKey;
+                        return (
+                          <>
+                            <div className={`h-2 w-2 rounded-full ${hasToken ? 'bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.5)]' : 'bg-red-500'}`} />
+                            <span className="text-[10px] font-bold uppercase tracking-wider">
+                              {hasToken ? 'Conectado a NVIDIA NIM' : 'Sin Conexión (Falta API Key)'}
+                            </span>
+                          </>
+                        );
+                      } else if (formData.aiProvider === "ollama_local") {
+                        const hasUrl = !!formData.ollamaUrl;
+                        return (
+                          <>
+                            <div className={`h-2 w-2 rounded-full ${hasUrl ? 'bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.5)]' : 'bg-red-500'}`} />
+                            <span className="text-[10px] font-bold uppercase tracking-wider">
+                              {hasUrl ? 'Configurado para Ollama Local' : 'Falta URL de Ollama'}
+                            </span>
+                          </>
+                        );
+                      } else {
+                        return (
+                          <>
+                            <div className="h-2 w-2 rounded-full bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.5)]" />
+                            <span className="text-[10px] font-bold uppercase tracking-wider">
+                              Conectado (OpenAI Default)
+                            </span>
+                          </>
+                        );
+                      }
+                    })()}
+                  </div>
                   {/* Configuración GitHub Copilot */}
                   {(formData.aiProvider === "github" || formData.aiProvider === "github_copilot_internal") && (
                     <div className="space-y-6 animate-in fade-in slide-in-from-left-4">
@@ -409,84 +472,124 @@ export default function Settings() {
                       </div>
 
                       {/* Opción 2: Código de Dispositivo (NUEVO) */}
-                      <div className="p-5 rounded-2xl border border-white/5 bg-muted/20 space-y-4">
-                        <div className="flex items-center gap-3">
-                          <div className="p-2 bg-muted rounded-lg text-muted-foreground">
-                            <Terminal className="h-5 w-5" />
-                          </div>
-                          <div>
-                            <h4 className="text-sm font-bold">Autorización por código (alternativo)</h4>
-                            <p className="text-[10px] text-muted-foreground uppercase font-semibold">Genera un código, visita GitHub y autoriza manualmente.</p>
-                          </div>
+                      <div className="p-6 rounded-3xl border border-white/10 bg-black/20 backdrop-blur-md shadow-2xl relative overflow-hidden group">
+                        <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
+                          <Terminal className="h-20 w-20" />
                         </div>
-
-                        {!deviceFlow.active ? (
-                          <>
-                            <div className="grid grid-cols-4 gap-2">
-                              {["gpt-4o", "gpt-4o-mini", "claude-3.5-sonnet", "o1", "o3-mini"].map(m => (
-                                <Badge key={m} variant="secondary" className="justify-center text-[9px] py-1 bg-background/50 border-white/5">{m}</Badge>
-                              ))}
+                        
+                        <div className="relative z-10 space-y-6">
+                          <div className="flex items-start gap-4">
+                            <div className="p-3 bg-gradient-to-br from-primary/20 to-accent/20 rounded-2xl text-primary border border-primary/20">
+                              <Terminal className="h-6 w-6" />
                             </div>
-                            <Button 
-                              variant="outline" 
-                              className="w-full h-11 rounded-xl border-white/10 hover:bg-white/5 font-bold"
-                              onClick={async () => {
-                                const loadingToast = toast.loading("Solicitando código a GitHub...");
-                                try {
-                                  const res = await fetch("/api/settings/copilot-device-code", { method: "POST" });
-                                  const data = await res.json();
-                                  if (data.user_code) {
-                                    setDeviceFlow({
-                                      active: true,
-                                      userCode: data.user_code,
-                                      deviceCode: data.device_code,
-                                      verificationUri: data.verification_uri,
-                                      status: "pending"
-                                    });
-                                    toast.success("Código generado. Por favor autoriza en GitHub.", { id: loadingToast });
-                                  } else {
-                                    toast.error("No se pudo generar el código", { id: loadingToast });
-                                  }
-                                } catch (e) {
-                                  toast.error("Error de red", { id: loadingToast });
-                                }
-                              }}
-                            >
-                              <SettingsIcon className="h-4 w-4 mr-2" /> Iniciar con código de autorización
-                            </Button>
-                          </>
-                        ) : (
-                          <div className="space-y-4 animate-in zoom-in-95 duration-200">
-                            <p className="text-xs text-center">Visita <a href={deviceFlow.verificationUri} target="_blank" rel="noreferrer" className="text-green-500 underline font-bold">este enlace</a> e introduce el código para conectar tu cuenta.</p>
-                            <div className="flex items-center gap-2">
-                              <div className="flex-1 bg-black/40 border border-white/10 rounded-xl p-4 text-center tracking-[0.5em] font-mono text-xl font-bold">
-                                {deviceFlow.userCode}
+                            <div>
+                              <h4 className="text-lg font-bold tracking-tight">Autorización Inteligente</h4>
+                              <p className="text-xs text-muted-foreground max-w-[250px]">Vincula tu cuenta de GitHub sin necesidad de crear un PAT manualmente.</p>
+                            </div>
+                          </div>
+
+                          {!deviceFlow.active ? (
+                            <div className="space-y-6 animate-in fade-in duration-500">
+                              <div className="grid grid-cols-5 gap-2">
+                                {["GPT-4o", "Claude 3.5", "o1", "o3", "Llama 3"].map(m => (
+                                  <div key={m} className="flex flex-col items-center gap-1">
+                                    <div className="w-full h-1 bg-gradient-to-r from-transparent via-primary/30 to-transparent rounded-full" />
+                                    <span className="text-[8px] font-bold text-muted-foreground uppercase">{m}</span>
+                                  </div>
+                                ))}
                               </div>
+                              
                               <Button 
                                 variant="outline" 
-                                size="icon" 
-                                className="h-14 w-14 rounded-xl"
-                                onClick={() => {
-                                  navigator.clipboard.writeText(deviceFlow.userCode);
-                                  toast.success("Código copiado");
+                                className="w-full h-14 rounded-2xl border-primary/30 hover:border-primary/60 hover:bg-primary/5 font-bold text-sm transition-all shadow-lg hover:shadow-primary/10"
+                                onClick={async () => {
+                                  const loadingToast = toast.loading("Conectando con GitHub Auth Service...");
+                                  try {
+                                    const res = await fetch("/api/settings/copilot-device-code", { method: "POST" });
+                                    const data = await res.json();
+                                    if (data.user_code) {
+                                      setDeviceFlow({
+                                        active: true,
+                                        userCode: data.user_code,
+                                        deviceCode: data.device_code,
+                                        verificationUri: data.verification_uri,
+                                        status: "pending"
+                                      });
+                                      toast.success("¡Código listo! Sigue las instrucciones.", { id: loadingToast });
+                                    } else {
+                                      toast.error("GitHub no respondió correctamente.", { id: loadingToast });
+                                    }
+                                  } catch (e) {
+                                    toast.error("Error de conexión con el servidor", { id: loadingToast });
+                                  }
                                 }}
                               >
-                                <Save className="h-5 w-5" />
+                                <Plus className="h-5 w-5 mr-3 text-primary animate-pulse" /> Generar Código de Vinculación
                               </Button>
                             </div>
-                            <div className="flex justify-between items-center text-[10px]">
-                              <div className="flex items-center gap-2 text-green-500">
-                                <div className="h-2 w-2 rounded-full bg-green-500 animate-pulse" />
-                                Esperando autorización...
+                          ) : (
+                            <div className="space-y-6 animate-in zoom-in-95 duration-300">
+                              <div className="space-y-2">
+                                <p className="text-[10px] font-bold text-primary uppercase tracking-widest text-center">Paso 1: Entra en GitHub</p>
+                                <p className="text-xs text-center text-muted-foreground">
+                                  Visita <a href={deviceFlow.verificationUri} target="_blank" rel="noreferrer" className="text-primary hover:text-primary/80 underline font-bold decoration-2 underline-offset-4">github.com/login/device</a>
+                                </p>
                               </div>
-                              <div className="flex gap-4">
-                                <button onClick={() => window.open(deviceFlow.verificationUri, "_blank")} className="hover:underline font-bold">Abrir GitHub ↗</button>
-                                <button onClick={() => setDeviceFlow({ ...deviceFlow, active: false })} className="text-muted-foreground hover:text-foreground">Cancelar</button>
+
+                              <div className="space-y-3">
+                                <p className="text-[10px] font-bold text-primary uppercase tracking-widest text-center">Paso 2: Ingresa este código</p>
+                                <div className="flex items-center gap-3">
+                                  <div 
+                                    className="flex-1 bg-black/60 border-2 border-primary/30 rounded-2xl p-5 text-center tracking-[0.3em] font-mono text-3xl font-black text-white shadow-inner cursor-pointer hover:border-primary/60 transition-colors"
+                                    onClick={() => {
+                                      navigator.clipboard.writeText(deviceFlow.userCode);
+                                      toast.success("¡Código copiado al portapapeles!");
+                                    }}
+                                  >
+                                    {deviceFlow.userCode}
+                                  </div>
+                                  <Button 
+                                    variant="outline" 
+                                    size="icon" 
+                                    className="h-[76px] w-14 rounded-2xl border-white/10 bg-white/5 hover:bg-white/10"
+                                    onClick={() => {
+                                      navigator.clipboard.writeText(deviceFlow.userCode);
+                                      toast.success("¡Código copiado!");
+                                    }}
+                                  >
+                                    <Save className="h-5 w-5" />
+                                  </Button>
+                                </div>
+                              </div>
+
+                              <div className="p-4 bg-primary/5 rounded-2xl border border-primary/10 flex items-center justify-between">
+                                <div className="flex items-center gap-3">
+                                  <div className="relative">
+                                    <div className="h-3 w-3 rounded-full bg-primary animate-ping absolute" />
+                                    <div className="h-3 w-3 rounded-full bg-primary relative" />
+                                  </div>
+                                  <span className="text-[10px] font-bold uppercase tracking-tight">Sincronizando con GitHub...</span>
+                                </div>
+                                <div className="flex gap-4">
+                                  <button 
+                                    onClick={() => window.open(deviceFlow.verificationUri, "_blank")} 
+                                    className="text-[10px] font-black uppercase text-primary hover:underline"
+                                  >
+                                    Abrir Web ↗
+                                  </button>
+                                  <button 
+                                    onClick={() => setDeviceFlow({ ...deviceFlow, active: false })} 
+                                    className="text-[10px] font-black uppercase text-muted-foreground hover:text-foreground"
+                                  >
+                                    Cancelar
+                                  </button>
+                                </div>
                               </div>
                             </div>
-                          </div>
-                        )}
+                          )}
+                        </div>
                       </div>
+
 
                       <div className="space-y-2">
                         <Label className="text-muted-foreground font-semibold uppercase tracking-wider text-[10px]">Modelo de GitHub</Label>

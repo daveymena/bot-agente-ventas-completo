@@ -738,7 +738,15 @@ components:
           type: integer
         avatarColor:
           type: string
-      required: [id, contactName, contactPhone, status, unreadCount, avatarColor]
+        agentId:
+          type: integer
+          nullable: true
+        leadId:
+          type: integer
+          nullable: true
+        createdAt:
+          type: string
+      required: [id, contactName, contactPhone, status, unreadCount, avatarColor, createdAt]
 
     Conversation:
       type: object
@@ -764,6 +772,12 @@ components:
           type: integer
         avatarColor:
           type: string
+        agentId:
+          type: integer
+          nullable: true
+        leadId:
+          type: integer
+          nullable: true
         createdAt:
           type: string
       required: [id, contactName, contactPhone, status, unreadCount, avatarColor, createdAt]
@@ -895,13 +909,13 @@ components:
           nullable: true
         stage:
           $ref: "#/components/schemas/LeadStage"
+        value:
+          type: number
         notes:
           type: string
           nullable: true
-        score:
-          type: integer
-          nullable: true
-        tags:
+        source:
+          type: string
           nullable: true
         createdAt:
           type: string
@@ -1053,9 +1067,11 @@ components:
         description:
           type: string
           nullable: true
-        emoji:
+        icon:
           type: string
           nullable: true
+        color:
+          type: string
         createdAt:
           type: string
       required: [id, name, createdAt]
@@ -1086,7 +1102,7 @@ components:
       properties:
         state:
           type: string
-          enum: [disconnected, connecting, qr, connected]
+          enum: [disconnected, connecting, qr, connected, error]
         qrCode:
           type: string
           nullable: true
@@ -1131,6 +1147,12 @@ components:
           nullable: true
         githubModel:
           type: string
+        copilotSessionToken:
+          type: string
+          nullable: true
+        copilotSessionExpiresAt:
+          type: string
+          nullable: true
         nvidiaApiKey:
           type: string
         nvidiaModel:
@@ -1166,6 +1188,10 @@ components:
         githubToken:
           type: string
         githubModel:
+          type: string
+        copilotSessionToken:
+          type: string
+        copilotSessionExpiresAt:
           type: string
         nvidiaApiKey:
           type: string

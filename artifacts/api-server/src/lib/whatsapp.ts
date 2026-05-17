@@ -24,8 +24,6 @@ import {
   proto
 } from "@whiskeysockets/baileys";
 import { trackWhatsAppCost } from "../middleware/rateLimiting";
-import { getMessageQueue } from "./message-queue";
-import { getMessageHandler } from "./services/message-handler";
 
 // Función de diagnóstico para mensajes problemáticos
 function diagnoseMessage(msgObj: any): { 
@@ -138,74 +136,61 @@ function getProductImage(name: string): string {
 function buildProductCaption(p: typeof products.$inferSelect, categoryName: string | null, dynamicLinks?: any) {
   const lines: string[] = [];
   
+  let meta: any = {};
+  try { meta = JSON.parse(p.metadata || "{}"); } catch(e) {}
+
   const nameUpper = p.name.toUpperCase();
   const mainEmoji = nameUpper.includes("PIANO") ? "🎹" : 
                     nameUpper.includes("GUITARRA") ? "🎸" : 
                     nameUpper.includes("CANTO") ? "🎤" : 
-                    nameUpper.includes("EXCEL") ? "📊" : 
-                    nameUpper.includes("IDIOMA") ? "🌍" : 
-                    nameUpper.includes("FRANCÉS") || nameUpper.includes("FRANCES") ? "🇫🇷" :
-                    nameUpper.includes("ALEMÁN") || nameUpper.includes("ALEMAN") ? "🇩🇪" :
-                    nameUpper.includes("ITALIANO") ? "🇮🇹" :
-                    nameUpper.includes("PORTUGUÉS") || nameUpper.includes("PORTUGUES") ? "🇵🇹" :
-                    nameUpper.includes("JAPONÉS") || nameUpper.includes("JAPONES") ? "🇯🇵" :
-                    nameUpper.includes("INGLÉS") || nameUpper.includes("INGLES") ? "🇬🇧" : "💎";
+                    nameUpper.includes("EXCEL") ? "📊" : "💻";
 
-  // Título con emoji y separador
-  lines.push(`*${mainEmoji} ${nameUpper}*`);
+  lines.push(`✨ ${mainEmoji} *PROGRAMA PROFESIONAL: ${nameUpper}*`);
   lines.push("━━━━━━━━━━━━━━━━━━━━━━━");
   lines.push("");
+  lines.push(`*RESUMEN DEL PROGRAMA:*`);
+  lines.push(`Formación estructurada para llevar tus habilidades al siguiente nivel con metodología probada y práctica.`);
+  lines.push("");
   
-  // Descripción
-  if (p.description) {
-    lines.push(p.description);
-    lines.push("");
-  }
-
-  // Features
-  const features = (p.features as string[]) || [];
-  if (features.length > 0) {
-    lines.push(`🚀 *LO QUE INCLUYE:*`);
-    for (const f of features) {
-      if (f.trim()) lines.push(`✅ ${f.trim()}`);
-    }
-    lines.push("");
+  lines.push(`*BENEFICIOS INCLUIDOS:*`);
+  const features = (p.features ?? []);
+  if (features.length >= 3) {
+    for (const f of features) lines.push(`✅ ${f}`);
+  } else {
+    lines.push(`✅ ${meta.classes || "Contenido completo"} en Alta Definición`);
+    lines.push(`✅ Material de apoyo y recursos descargables`);
+    lines.push(`✅ Acceso inmediato y de por vida`);
+    lines.push(`✅ Soporte garantizado TecnoVariedades`);
   }
   
-  // Precio
-  lines.push(`💰 *INVERSIÓN:*`);
+  lines.push("");
+  lines.push(`💰 *PRECIO ESPECIAL:*`);
   lines.push(`*${formatPriceForWa(Number(p.price), p.currency)}*`);
-  lines.push("");
   lines.push("━━━━━━━━━━━━━━━━━━━━━━━");
+  lines.push("");
 
-  // Métodos de pago
   if (dynamicLinks) {
+    lines.push(`💳 *ENLACES DE PAGO SEGURO:*`);
     lines.push("");
-    lines.push(`💳 *MÉTODOS DE PAGO:*`);
-    lines.push("");
-    
-    if (dynamicLinks.mercadopago && (dynamicLinks.mercadopago.shortUrl || dynamicLinks.mercadopago.url)) {
-      lines.push(`🔹 *MercadoPago / PSE:*`);
-      lines.push(`${dynamicLinks.mercadopago.shortUrl || dynamicLinks.mercadopago.url}`);
+    if (dynamicLinks.mercadopago && (dynamicLinks.mercadopago.url || dynamicLinks.mercadopago.shortUrl)) {
+      lines.push(`🔹 *Tarjeta de Crédito / PSE (Colombia):*`);
+      lines.push(`${dynamicLinks.mercadopago.url || dynamicLinks.mercadopago.shortUrl}`);
       lines.push("");
     }
-    
-    if (dynamicLinks.paypal && (dynamicLinks.paypal.shortUrl || dynamicLinks.paypal.url)) {
-      lines.push(`🔹 *PayPal (Global):*`);
-      lines.push(`${dynamicLinks.paypal.shortUrl || dynamicLinks.paypal.url}`);
+    if (dynamicLinks.paypal && (dynamicLinks.paypal.url || dynamicLinks.paypal.shortUrl)) {
+      lines.push(`🔹 *PayPal (Internacional):*`);
+      lines.push(`${dynamicLinks.paypal.url || dynamicLinks.paypal.shortUrl}`);
       lines.push("");
     }
-    
     if (dynamicLinks.transfer && dynamicLinks.transfer.options && dynamicLinks.transfer.options[0]) {
-      lines.push(`🔹 *Transferencia:* ${dynamicLinks.transfer.options[0].number} (${dynamicLinks.transfer.options[0].name})`);
+      lines.push(`🔹 *Transferencia Directa:*`);
+      lines.push(`📍 *Nequi/Daviplata:* ${dynamicLinks.transfer.options[0].number}`);
+      lines.push(`👤 *Titular:* ${dynamicLinks.transfer.options[0].name}`);
       lines.push("");
     }
   }
 
-  // Llamado a la acción con emoji
-  lines.push("━━━━━━━━━━━━━━━━━━━━━━━");
-  lines.push("");
-  lines.push(`✨ _¿Deseas activar tu acceso ahora o tienes alguna pregunta específica?_`);
+  lines.push(`_¿Deseas confirmar tu compra ahora o tienes alguna pregunta adicional?_`);
   
   return lines.join("\n");
 }
@@ -220,8 +205,10 @@ export type WhatsAppPublicStatus = {
   lastError: string | null;
 };
 
-// AUTH_DIR: use process.cwd() to ensure consistency when running from the package root
-const AUTH_DIR = path.resolve(process.cwd(), ".baileys-auth");
+// AUTH_DIR: always relative to this source file's location (artifacts/api-server/)
+// Using import.meta.url ensures it works regardless of cwd
+const _moduleDir = path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1'));
+const AUTH_DIR = path.resolve(_moduleDir, "..", ".baileys-auth");
 
 export class WhatsAppManager {
   private state: WAState = "disconnected";
@@ -243,17 +230,16 @@ export class WhatsAppManager {
   }
 
   getStatus(): WhatsAppPublicStatus & { qrCode: string | null; phone: string | null; phoneNumber: string | null } {
-    const status = {
+    return {
       state: this.state,
       qrCode: this.qrDataUrl,
       phone: this.phoneNumber,
       phoneNumber: this.phoneNumber,
       connectedAt: this.connectedAt,
       lastError: this.lastError,
+      // Keep original field names for internal consistency
       qrDataUrl: this.qrDataUrl,
-    };
-    logger.debug({ state: this.state, hasQr: !!this.qrDataUrl }, "[WhatsApp] Getting status");
-    return status as any;
+    } as any;
   }
 
   isConnected() {
@@ -298,38 +284,24 @@ export class WhatsAppManager {
   async start() {
     if (this.starting) return this.getStatus();
     if (this.state === "connected" || this.state === "qr") return this.getStatus();
-    if (this.sock) {
-      logger.info("[WhatsApp] Socket already exists, skipping start");
-      return this.getStatus();
-    }
     
     this.starting = true;
     this.state = "connecting";
 
     try {
-      logger.info({ authDir: AUTH_DIR }, "[WhatsApp] Starting connection...");
-      if (!existsSync(AUTH_DIR)) {
-        logger.info("[WhatsApp] Creating auth directory");
-        mkdirSync(AUTH_DIR, { recursive: true });
-      }
+      if (!existsSync(AUTH_DIR)) mkdirSync(AUTH_DIR, { recursive: true });
 
       const baileys = await import("@whiskeysockets/baileys");
       const makeWASocket = (baileys as any).default ?? (baileys as any).makeWASocket;
       const { useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion } = baileys as any;
 
-      logger.info("[WhatsApp] Initializing auth state...");
       const { state: authState, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
-      
       let version: any = undefined;
       try {
         const v = await fetchLatestBaileysVersion();
         version = v.version;
-        logger.info({ version }, "[WhatsApp] Baileys version fetched");
-      } catch (e) {
-        logger.warn("[WhatsApp] Could not fetch latest version, using default");
-      }
+      } catch (e) {}
 
-      logger.info("[WhatsApp] Creating socket...");
       const sock = makeWASocket({
         auth: authState,
         version,
@@ -346,13 +318,9 @@ export class WhatsAppManager {
         const { connection, lastDisconnect, qr } = update;
         
         if (qr) {
-          try {
-            this.qrDataUrl = await QRCode.toDataURL(qr, { width: 320, margin: 1 });
-            this.state = "qr";
-            logger.info({ qrLength: qr.length }, "[WhatsApp] QR code generated and converted to DataURL");
-          } catch (qrErr) {
-            logger.error({ err: qrErr }, "[WhatsApp] Failed to generate QR DataURL");
-          }
+          this.qrDataUrl = await QRCode.toDataURL(qr, { width: 320, margin: 1 });
+          this.state = "qr";
+          logger.info("[WhatsApp] QR code generated");
         }
         
         if (connection === "open") {
@@ -601,14 +569,7 @@ export class WhatsAppManager {
             }
             
             console.log("✅ Texto extraído:", text.substring(0, 50));
-            
-            // Extraer messageId y timestamp del mensaje
-            const messageId = msg.key.id || `msg_${Date.now()}`;
-            const msgTimestamp = msg.messageTimestamp 
-              ? (typeof msg.messageTimestamp === 'number' ? msg.messageTimestamp : parseInt(msg.messageTimestamp?.toString() || '0'))
-              : Math.floor(Date.now() / 1000);
-            
-            await this.handleIncoming(phone, pushName, text.trim(), originalJid, messageId, msgTimestamp);
+            await this.handleIncoming(phone, pushName, text.trim(), originalJid);
           }
         } catch (e) {
           logger.error({ err: e }, "Error processing incoming message");
@@ -696,82 +657,89 @@ export class WhatsAppManager {
        console.log(`📦 [WA-PARTS] Productos cargados: ${rows.length}/${cardIds.length} - ${timestamp}`);
      }
 
-    let pendingText = "";
-    
     for (let i = 0; i < parts.length; i++) {
       const part = parts[i];
+      console.log(`📨 [WA-PARTS] Procesando parte ${i + 1}/${parts.length} - Tipo: ${part.kind} - ${timestamp}`);
       
       if (part.kind === "text") {
-        // En lugar de enviar el texto de inmediato, lo guardamos para unirlo a la tarjeta
-        pendingText += (pendingText ? "\n\n" : "") + (part.content || "");
-      } else if (part.kind === "card") {
-        const product = cardCache.get(part.productId!);
-        if (!product) continue;
+        console.log(`💬 [WA-TEXT] Enviando texto: "${part.content?.substring(0, 50)}..." - ${timestamp}`);
+        await this.sendText(phone, part.content || "", originalJid);
+        console.log(`✅ [WA-TEXT] Texto enviado exitosamente - ${timestamp}`);
+       } else {
+         const product = cardCache.get(part.productId!);
+         if (!product) {
+           console.log(`⚠️ [WA-CARD] Producto no encontrado para ID: ${part.productId} - ${timestamp}`);
+           continue;
+         }
+        
+        console.log(`🃏 [WA-CARD] Enviando tarjeta de producto: ${product.name} (ID: ${part.productId}) - ${timestamp}`);
         
         try {
           const dynamicLinks = await pg.getAllLinks(product, { phone, name: pushName });
-          const baseCaption = buildProductCaption(product, null, dynamicLinks);
+          console.log(`🔗 [WA-CARD] Enlaces generados - MercadoPago: ${!!dynamicLinks.mercadopago?.url}, PayPal: ${!!dynamicLinks.paypal?.url}, Transfer: ${dynamicLinks.transfer.options.length} - ${timestamp}`);
           
-          // UNIFICACIÓN: El texto previo y posterior se une a la tarjeta
-          let finalCaption = baseCaption;
-          if (pendingText) {
-            // Si el texto pendiente ya contiene separadores, lo ponemos arriba
-            if (pendingText.includes("━━")) {
-              finalCaption = pendingText + "\n\n" + baseCaption;
-            } else {
-              finalCaption = baseCaption + "\n\n" + pendingText;
-            }
-            pendingText = ""; // Limpiamos para la siguiente parte
-          }
-
+          const caption = buildProductCaption(product, null, dynamicLinks);
           const imageToUse = product.imageUrl || getProductImage(product.name || "");
-          await this.sendImage(phone, imageToUse, finalCaption, originalJid);
+          
+          console.log(`🖼️ [WA-CARD] Enviando imagen con caption - URL: ${imageToUse?.substring(0, 50)}..., Caption: ${caption.length} caracteres - ${timestamp}`);
+          await this.sendImage(phone, imageToUse, caption, originalJid);
+          console.log(`✅ [WA-CARD] Tarjeta enviada exitosamente para ${product.name} - ${timestamp}`);
         } catch (err: any) {
-          console.log(`❌ Error enviando tarjeta unificada: ${err.message}`);
-          // Si falla la imagen, enviamos el texto acumulado al menos
-          if (pendingText) await this.sendText(phone, pendingText, originalJid);
-          pendingText = "";
+          console.log(`❌ [WA-CARD] Error enviando tarjeta para ${product.name}: ${err.message} - ${timestamp}`);
         }
       }
-    }
-
-    // Si quedó texto sin una tarjeta (ej. un saludo final), lo enviamos al final
-    if (pendingText.trim()) {
-      await this.sendText(phone, pendingText.trim(), originalJid);
     }
     
     console.log(`🏁 [WA-PARTS] Envío de partes completado - Total: ${parts.length} partes procesadas - ${timestamp}`);
   }
 
-  private async handleIncoming(phone: string, pushName: string, text: string, originalJid?: string, messageId?: string, timestamp?: number) {
-    const timestampStr = new Date().toISOString();
-    
-    if (!this.currentTenant) {
-      console.log(`⚠️ [WA-SKIP] No hay tenant configurado`);
-      return;
-    }
-
-    console.log(`🔔 [WA-INCOMING] Mensaje recibido - Teléfono: ${phone}, Tenant: ${this.currentTenant.id} - ${timestampStr}`);
+  private async handleIncoming(phone: string, pushName: string, text: string, originalJid?: string) {
+    const timestamp = new Date().toISOString();
+    console.log(`🔔 [WA-INCOMING] handleIncoming iniciado - Teléfono: ${phone}, Nombre: ${pushName}, Mensaje: "${text.substring(0, 50)}" - ${timestamp}`);
     
     try {
-      // Usar MessageHandler para encolar el mensaje (desacoplado de IA)
-      const messageHandler = getMessageHandler();
+      let convo = (await db.select().from(conversations).where(eq(conversations.contactPhone, phone)).limit(1))[0];
       
-      await messageHandler.handleIncomingMessage({
-        tenantId: this.currentTenant.id.toString(),
-        remoteJid: originalJid || `${phone}@s.whatsapp.net`,
-        fromMe: false,
-        messageId: messageId || `msg_${Date.now()}`,
-        body: text,
-        timestamp: timestamp ? new Date(timestamp * 1000) : new Date(),
-        pushName: pushName,
-      });
+      if (!convo) {
+        console.log(`🆕 [WA-NEW] Creando nueva conversación para: ${phone} (${pushName}) - ${timestamp}`);
+        const [lead] = await db.insert(leads).values(addTenantToInsert({ name: pushName, phone, stage: "new", value: "0", source: "whatsapp" }, this.currentTenant.id)).returning();
+        const [created] = await db.insert(conversations).values(addTenantToInsert({ contactName: pushName, contactPhone: phone, status: "ai", currentStage: "greeting", leadId: lead?.id, unreadCount: 0 }, this.currentTenant.id)).returning();
+        convo = created!;
+        console.log(`📝 [WA-NEW] Nueva conversación creada exitosamente - ID: ${convo.id}, Lead ID: ${lead?.id} - ${timestamp}`);
+      } else {
+        console.log(`📱 [WA-EXISTING] Conversación existente encontrada - ID: ${convo.id}, Estado: ${convo.status}, Etapa: ${convo.currentStage} - ${timestamp}`);
+      }
 
-      console.log(`✅ [WA-QUEUED] Mensaje encolado para procesamiento por AgentOrchestrator - ${timestampStr}`);
-      
+      console.log(`💾 [WA-SAVE] Guardando mensaje en BD - Conversación: ${convo.id} - ${timestamp}`);
+      await db.insert(messages).values({ conversationId: convo.id, role: "customer", content: text, stage: convo.currentStage });
+      await db.update(conversations).set({ lastMessage: text, lastMessageAt: new Date() }).where(eq(conversations.id, convo.id));
+
+      console.log(`📩 [WA-SAVED] Mensaje guardado exitosamente - "${text.substring(0, 30)}" | Conversación ID: ${convo.id} | Estado: ${convo.status} - ${timestamp}`);
+
+      if (convo.status === "ai") {
+        console.log(`🤖 [WA-AI] Estado es AI, ejecutando runAgentReply para conversación ${convo.id} - ${timestamp}`);
+        try {
+          console.log(`🔄 [WA-AI] Llamando runAgentReply(${convo.id}) - ${timestamp}`);
+          const reply = await runAgentReply(convo.id);
+          console.log(`📥 [WA-AI] runAgentReply completada - Respuesta: ${reply ? "SÍ" : "NO"}, Partes: ${reply?.parts?.length || 0} - ${timestamp}`);
+          
+          if (reply) {
+            console.log(`📤 [WA-SEND] Enviando respuesta con ${reply.parts?.length || 0} partes a ${phone} - ${timestamp}`);
+            await this.sendAgentParts(phone, pushName, reply.parts, originalJid);
+            console.log(`✅ [WA-SEND] Respuesta enviada exitosamente a ${phone} - ${timestamp}`);
+          } else {
+            console.log(`⚠️ [WA-WARNING] runAgentReply devolvió null para conversación ${convo.id} - ${timestamp}`);
+          }
+        } catch (err: any) {
+          console.error(`❌ [WA-ERROR] Error en runAgentReply para conversación ${convo.id}: ${err.message || err} - ${timestamp}`);
+          console.error(`🔍 [WA-ERROR] Stack trace:`, err.stack);
+        }
+      } else {
+        console.log(`⏭️ [WA-SKIP] Estado es "${convo.status}", no se responde automáticamente - ${timestamp}`);
+      }
     } catch (err: any) {
-      console.error(`💥 [WA-ERROR] Error encolando mensaje para ${phone}: ${err.message || err} - ${timestampStr}`);
-      console.error(`🔍 [WA-ERROR] Stack trace:`, err.stack);
+      console.error(`💥 [WA-CRITICAL] Error crítico en handleIncoming para ${phone}: ${err.message || err} - ${timestamp}`);
+      console.error(`🔍 [WA-CRITICAL] Stack trace:`, err.stack);
     }
   }
 }

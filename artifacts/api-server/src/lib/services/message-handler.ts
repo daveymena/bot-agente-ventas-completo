@@ -12,7 +12,7 @@
 import { getMessageQueue, QueuedMessage } from '../message-queue';
 import { db } from "@workspace/db";
 import { messages, conversations, leads } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import { addTenantToInsert, type TenantContext } from '../tenantManager';
 import { logger } from '../logger';
 
@@ -74,13 +74,20 @@ export class MessageHandler {
 
     try {
       // 1. Obtener o crear conversación
-      const phone = params.remoteJid.split('@')[0];
-      let convo = (await db.select().from(conversations).where(eq(conversations.contactPhone, phone)).limit(1))[0];
+      // Limpiar el teléfono para evitar duplicados por formato (ej: +57 vs 57)
+      const phone = params.remoteJid.split('@')[0].replace(/\D/g, ''); 
+      const tenantIdNum = parseInt(params.tenantId);
+      
+      let convo = (await db.select().from(conversations)
+        .where(and(
+          eq(conversations.contactPhone, phone),
+          eq(conversations.tenantId, tenantIdNum)
+        ))
+        .limit(1))[0];
       
       if (!convo) {
         // Crear nueva conversación y lead si no existe
         const pushName = params.pushName || phone;
-        const tenantIdNum = parseInt(params.tenantId);
         
         const [lead] = await db.insert(leads).values(addTenantToInsert({ 
           name: pushName, 
@@ -100,7 +107,7 @@ export class MessageHandler {
         }, tenantIdNum)).returning();
         
         convo = created!;
-        logger.info(`[MessageHandler] New conversation created: ${convo.id}`);
+        logger.info(`[MessageHandler] New conversation created: ${convo.id} for phone ${phone}`);
       }
 
       // 2. Guardar mensaje en base de datos

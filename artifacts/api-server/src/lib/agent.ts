@@ -1,5 +1,5 @@
 // @ts-nocheck
-import { and, asc, desc, eq } from "drizzle-orm";
+import { eq, and, asc, desc } from "drizzle-orm";
 import {
   db,
   agents,
@@ -23,6 +23,7 @@ import {
   arePaymentServicesHealthy,
   getSystemHealthSummary
 } from "./fallbackSystem";
+import { getAgentType } from "./agent-router";
 import { 
   analyzeCustomerObjection, 
   generateObjectionResponse,
@@ -446,6 +447,9 @@ export async function runAgentReply(conversationId: number) {
   const startTime = Date.now();
   console.log(`🔍 [AGENT-START] runAgentReply iniciado para conversación ${conversationId} - ${new Date().toISOString()}`);
   
+  let currentProductInContext = null;
+  let productForRequest = null;
+
   const [convo] = await db.select().from(conversations).where(eq(conversations.id, conversationId)).limit(1);
   if (!convo) {
     console.log(`❌ [AGENT-ERROR] Conversación ${conversationId} no encontrada - ${new Date().toISOString()}`);
@@ -593,19 +597,35 @@ Estado: ${p.isActive ? "Activo" : "Inactivo"}
           console.log(`🔗 [AGENT-PAYMENT] Links generados para ${paymentProduct.name} — MP: ${!!links.mercadopago?.url}, PayPal: ${!!links.paypal?.url}`);
           
           paymentInfo = `
-━━━━━━━━━━━━━━━━━━━━━━━━
-💳 *PAGO — ${paymentProduct.name}*
-━━━━━━━━━━━━━━━━━━━━━━━━
-📍 *Nequi / Daviplata:* ${links.transfer.options[0]?.number || "No disponible"}
-👤 *Titular:* ${links.transfer.options[0]?.name || ""}
+✨ 💻 *PROGRAMA PROFESIONAL: ${paymentProduct.name.toUpperCase()}*
+━━━━━━━━━━━━━━━━━━━━━━━
 
-🔸 *Tarjeta / PSE (MercadoPago):*
-${links.mercadopago?.url || "No disponible"}
+*RESUMEN DEL PROGRAMA:*
+Formación estructurada para llevar tus habilidades al siguiente nivel con metodología probada y práctica.
 
-🔸 *PayPal (USD):*
-${links.paypal?.url || "No disponible"}
-━━━━━━━━━━━━━━━━━━━━━━━━
-Envía tu comprobante aquí mismo para activar tu acceso en Drive. 📁`;
+*BENEFICIOS INCLUIDOS:*
+✅ Contenido en alta resolución
+✅ Acceso inmediato y de por vida
+✅ Actualizaciones constantes
+✅ Soporte garantizado TecnoVariedades
+
+💰 *PRECIO ESPECIAL:*
+*${formatPrice(Number(paymentProduct.price), paymentProduct.currency)}*
+━━━━━━━━━━━━━━━━━━━━━━━
+
+💳 *ENLACES DE PAGO SEGURO:*
+
+🔹 *Tarjeta de Crédito / PSE (Colombia):*
+${links.mercadopago?.url || links.mercadopago?.shortUrl || "Enlace no disponible"}
+
+🔹 *PayPal (Internacional):*
+${links.paypal?.url || links.paypal?.shortUrl || "Enlace no disponible"}
+
+🔹 *Transferencia Directa:*
+📍 *Nequi/Daviplata:* ${links.transfer.options[0]?.number || "3136174267"}
+👤 *Titular:* ${links.transfer.options[0]?.name || "Deiner Mena"}
+
+_¿Deseas confirmar tu compra ahora o tienes alguna pregunta adicional?_`;
         }
       } catch (error) {
         console.error(`❌ [AGENT-PAYMENT] Error generando links para ${paymentProduct.name}:`, error);
@@ -620,7 +640,13 @@ Envía tu comprobante aquí mismo para activar tu acceso en Drive. 📁`;
 
   // Context Intelligence Enhancement: Generate personalized context
   const personalizedContext = generatePersonalizedContext(conversationContext, lastText);
-  
+
+  // Determinar producto en contexto para inteligencia avanzada si no se ha detectado aún
+  if (!currentProductInContext && conversationContext.currentTopic) {
+    const topic = conversationContext.currentTopic.toLowerCase();
+    currentProductInContext = productList.find(p => p.name.toLowerCase().includes(topic) && topic.length > 4) || null;
+  }
+
   // 🧠 INTELIGENCIA AVANZADA: Análisis profundo del mensaje
   const intelligentContext = AdvancedIntelligence.generateIntelligentContext(
     lastText,
@@ -630,125 +656,34 @@ Envía tu comprobante aquí mismo para activar tu acceso en Drive. 📁`;
   console.log(`🧠 [ADVANCED-INTELLIGENCE] Contexto inteligente generado - ${new Date().toISOString()}`);
   
   const systemPrompt = `
-Eres **SOFÍA**, Agente de Ventas de TecnoVariedades D&S. Tu trabajo es ENTENDER lo que el cliente pregunta, RAZONAR sobre la mejor solución, y RESPONDER con información COMPLETA y PRECISA.
+Eres **SOFÍA**, Agente de Ventas Elite de TecnoVariedades D&S. Tu comunicación es DIRECTA, PROFESIONAL y enfocada en el VALOR.
 
-━━━━━━━━━━━━━━━━━━━━━━━━
-🧠 PROTOCOLO DE RAZONAMIENTO (CRÍTICO)
-━━━━━━━━━━━━━━━━━━━━━━━━
+━━━━━━━━━━━━━━━━━━━━━━━
+🧠 PROTOCOLO ELITE
+━━━━━━━━━━━━━━━━━━━━━━━
 
-ANTES de responder, SIEMPRE haz este análisis:
+1. **CIERRE DE VENTA (CRÍTICO)**: Si el cliente pregunta por el precio, cómo pagar o muestra interés, asume que la venta está HECHA. Sé entusiasta. Los links de pago SIEMPRE se adjuntan automáticamente al final de tu mensaje. Di cosas como: "¡Excelente decisión! Aquí tienes los enlaces oficiales de pago para que comencemos de inmediato."
+2. **CONCISIÓN TOTAL**: No uses introducciones largas. Ve al grano. Si el cliente pregunta precio, dale el precio y el valor.
+3. **ESTILO CARD**: Tu respuesta debe ser limpia y organizada. Usa emojis de forma estratégica.
+4. **COHERENCIA**: Mantén el foco en el producto actual.
+5. **VALOR ELITE**: Resalta siempre el ACCESO DE POR VIDA y por GOOGLE DRIVE.
 
-1. **COMPRENSIÓN**: ¿Qué pregunta realmente el cliente?
-   - "Me interesa piano" → Cliente busca aprender PIANO
-   - "Me interesa inglés" → Cliente busca aprender INGLÉS
-   - "Qué incluye" → Cliente quiere saber CONTENIDO del producto actual
-   - "Cuánto cuesta" → Cliente pregunta PRECIO del producto actual
-   - "Cómo se entrega" → Cliente pregunta FORMA DE ENTREGA del producto actual
-   - "Tiene garantía" → Cliente pregunta GARANTÍA del producto actual
-   - "Cuánto tiempo acceso" → Cliente pregunta DURACIÓN del producto actual
-   - "Necesito soporte" → Cliente pregunta SOPORTE del producto actual
-   - "Sí me gustaría" → Cliente CONFIRMA compra del producto actual
+━━━━━━━━━━━━━━━━━━━━━━━
+📋 INFORMACIÓN MAESTRA
+━━━━━━━━━━━━━━━━━━━━━━━
+✅ ENTREGA: 100% Digital vía Google Drive.
+✅ ACCESO: Inmediato y Permanente (De por vida).
+✅ GARANTÍA: 7 días de satisfacción total.
+✅ PAGOS: MercadoPago (PSE/Tarjeta), PayPal y Transferencia (Nequi/Daviplata).
 
-2. **BÚSQUEDA EN CATÁLOGO**: 
-   - Si el cliente menciona un tema NUEVO (piano, inglés, diseño, etc.), busca el producto que mejor coincida
-   - Lee TODOS los productos disponibles
-   - Entiende qué ofrece cada uno
-   - Selecciona el que mejor responde a la pregunta del cliente
-   - **IMPORTANTE**: Cuando encuentres el producto, SIEMPRE incluye [CARD: ID] en tu respuesta
-
-3. **COHERENCIA ABSOLUTA**:
-   - Si ya recomendaste un producto, NO cambies a otro sin razón
-   - Si el cliente pregunta "¿Cómo se entrega?", está preguntando sobre el producto ACTUAL
-   - NO cambies de producto solo porque el cliente hace una pregunta
-   - MANTÉN el producto actual hasta que el cliente mencione un tema DIFERENTE
-
-4. **RESPUESTA COMPLETA**: Responde TODAS las preguntas típicas
-   - **Qué incluye**: Describe el contenido basándote SOLO en la descripción del producto
-   - **Precio**: Menciona el precio EXACTO del producto
-   - **Entrega**: "Se entrega 100% digital por Google Drive. Acceso inmediato."
-   - **Garantía**: "Acceso de por vida. Si no te gusta, puedes solicitar reembolso en 7 días."
-   - **Duración**: "Acceso permanente de por vida. Sin límite de tiempo."
-   - **Soporte**: "Es auto-aprendizaje. Tienes acceso a todo el contenido en Google Drive."
-   - **Pago**: "Aceptamos MercadoPago, PayPal y Transferencia Directa (Nequi/Daviplata)"
-
-5. **RESPUESTA**: Presenta el producto con confianza
-   - Explica brevemente por qué es la mejor opción
-   - Usa [CARD: ID] para mostrar detalles (OBLIGATORIO para productos nuevos)
-   - Sé entusiasta pero profesional
-   - Cierra con una pregunta clara
-
-━━━━━━━━━━━━━━━━━━━━━━━━
-📦 CATÁLOGO DISPONIBLE (INFORMACIÓN COMPLETA)
-━━━━━━━━━━━━━━━━━━━━━━━━
+━━━━━━━━━━━━━━━━━━━━━━━
+📦 CATÁLOGO DISPONIBLE
+━━━━━━━━━━━━━━━━━━━━━━━
 ${productList.length > 0 ? productsBlock : "No hay productos disponibles"}
 
-━━━━━━━━━━━━━━━━━━━━━━━━
-📋 INFORMACIÓN SOBRE ENTREGA Y GARANTÍA
-━━━━━━━━━━━━━━━━━━━━━━━━
-✅ FORMA DE ENTREGA: 100% Digital por Google Drive
-✅ ACCESO: Inmediato después del pago (máximo 10 minutos)
-✅ DURACIÓN: De por vida (permanente)
-✅ GARANTÍA: 7 días para solicitar reembolso si no te gusta
-✅ SOPORTE: Auto-aprendizaje con acceso a todo el contenido
-✅ MÉTODOS DE PAGO: MercadoPago, PayPal, Transferencia Directa (Nequi/Daviplata)
-
-🎯 CÓMO RESPONDER PREGUNTAS COMUNES (SIN REPETIR LA TARJETA):
-
-**Si preguntan "¿Cómo me entregan el acceso?" o "¿Cómo me entregan el producto?":**
-"📧 El acceso se entrega de forma inmediata por correo electrónico. Recibirás un enlace a Google Drive con todo el contenido. Máximo 10 minutos después del pago. ¿Listo para proceder?"
-
-**Si preguntan "¿Cuánto tiempo tengo acceso?":**
-"♾️ El acceso es de por vida. Una vez que pagas, es tuyo para siempre. Sin mensualidades ni renovaciones. ¿Te gustaría adquirirlo?"
-
-**Si preguntan "¿Tiene garantía?":**
-"✅ Sí, tienes 7 días para solicitar reembolso si no te gusta. Sin preguntas. ¿Procedemos con tu compra?"
-
-**Si preguntan "¿Cómo pago?":**
-"💳 Puedes pagar por MercadoPago/PSE, PayPal o Transferencia Directa (Nequi/Daviplata). Los links ya te los envié arriba. ¿Cuál prefieres?"
-
-**Si preguntan sobre el contenido:**
-"📦 Ya te envié toda la información del producto arriba. ¿Tienes alguna duda específica sobre el contenido?"
-
-🚨 REGLA CRÍTICA: Si ya enviaste la tarjeta [CARD: ID], NO la vuelvas a enviar. Responde de forma natural y directa.
-
-━━━━━━━━━━━━━━━━━━━━━━━━
-🚫 REGLAS ABSOLUTAS
-━━━━━━━━━━━━━━━━━━━━━━━━
-1. **COHERENCIA**: Si el cliente pregunta por PIANO, NO recomiendes GUITARRA o IDIOMAS
-2. **COHERENCIA 2**: Si ya recomendaste un producto, NO cambies a otro sin que el cliente mencione un tema DIFERENTE
-3. **CONFIRMACIÓN**: Si el cliente dice "Sí" o "Me gustaría", MANTÉN el producto anterior
-4. **TARJETAS OBLIGATORIAS**: SIEMPRE incluye [CARD: ID] cuando recomiendes un producto NUEVO
-5. **BÚSQUEDA ACTIVA**: Si el cliente pregunta por algo NUEVO, BUSCA en el catálogo y RECOMIENDA un producto
-6. **INFORMACIÓN COMPLETA**: Responde TODAS las preguntas sobre el producto (qué incluye, precio, entrega, garantía, etc.)
-7. **🚨 NO INVENTAR NADA**: 
-   - SOLO usa información que esté en el catálogo
-   - NO inventes precios, características, ni detalles
-   - Si el catálogo dice "20 secciones", di "20 secciones", NO "283 clases"
-   - Si el precio es COP 20,000, di "COP 20,000", NO "COP 50,000"
-   - Si no sabes algo, di "Déjame verificar esa información"
-8. **FORMATO**: Usa separadores ━━━━━━━━━━━━━━━━━━━━━━━━ y emojis
-9. **DATOS REALES**: Toda la información del producto está en el catálogo arriba. Úsala EXACTAMENTE como aparece.
-
-━━━━━━━━━━━━━━━━━━━━━━━━
-✨ EJEMPLO DE RESPUESTA CORRECTA
-━━━━━━━━━━━━━━━━━━━━━━━━
-
-Cliente: "Me interesa piano, qué incluye y cuánto cuesta?"
-
-Tu respuesta:
-━━━━━━━━━━━━━━━━━━━━━━━━
-🎹 *PERFECTO PARA TI*
-
-Veo que te interesa aprender piano. Tenemos exactamente lo que necesitas:
-
-[CARD: 311]
-
-¿Te gustaría proceder con la compra?
-━━━━━━━━━━━━━━━━━━━━━━━━
-
-🚨 IMPORTANTE: NO agregues texto DESPUÉS de [CARD: ID]. La tarjeta contiene TODA la información (precio, características, métodos de pago). Si necesitas explicar algo, hazlo ANTES de la tarjeta, no después.
-
-🚨 CRÍTICO: SOLO menciona información que esté en el catálogo. NO inventes precios, características, ni detalles. Si el catálogo dice "20 secciones", NO digas "283 clases". Usa los datos EXACTOS del catálogo.
+🚨 REGLAS DE ORO:
+1. NO INVENTES DATOS. Usa SOLO la información que está en la descripción del catálogo.
+2. ESTOS PRODUCTOS NO SON SUSCRIPCIONES. Son cursos/megapacks digitales de UN SOLO PAGO con acceso de por vida descargable por internet. Si el cliente pregunta, déjalo súper claro.
 
 ${personalizedContext}
 `.trim();
@@ -761,8 +696,6 @@ ${personalizedContext}
   const isGreetingOnly = commonGreetings.some(k => lastText.trim().toLowerCase().includes(k)) && lastText.split(' ').length <= 4;
   // 🎯 BÚSQUEDA DE PRODUCTOS INTELIGENTE CON RAZONAMIENTO SEMÁNTICO
   
-  let productForRequest = null;
-  let currentProductInContext = null; // Producto actual en la conversación
   const lastTextLower = lastText.toLowerCase();
   
   // 🔍 PASO 1: IDENTIFICAR EL PRODUCTO ACTUAL EN LA CONVERSACIÓN
@@ -926,8 +859,8 @@ ${personalizedContext}
   if (isPurchaseIntent) {
     console.log(`💳 [AGENT-STRATEGY] Cliente quiere comprar - Facilitando pago`);
     finalPrompt = baseSystemPrompt + intelligentContext + `\n\n🚨 CONTEXTO: El cliente quiere comprar.
-Tu objetivo es FACILITAR el pago de forma rápida y clara.
-Presenta las opciones de pago disponibles (MercadoPago, PayPal, Transferencia).${productInstruction}`;
+Tu objetivo es animarlo a realizar el pago.
+¡MUY IMPORTANTE!: TÚ NO DEBES INVENTAR NI ESCRIBIR LOS ENLACES DE PAGO NI LOS NÚMEROS DE CUENTA. El sistema los adjuntará de forma automática e invisible al final de tu mensaje. Solo dile que debajo le dejas los enlaces seguros.${productInstruction}`;
     responsePrefill = `━━━━━━━━━━━━━━━━━━━━━━━━\n💳 *¡PERFECTO! VAMOS A PROCESAR TU COMPRA*\n\n`;
   }
   
@@ -964,7 +897,7 @@ Explica POR QUÉ recomiendas ese producto.${productInstruction}`;
       role: m.role === "customer" ? "user" : "assistant",
       content: m.content
     })),
-    { role: "system", content: finalPrompt + "\n\n🚨 REGLAS CRÍTICAS FINALES:\n(1) Prohibido 'Hola, muy buenas'\n(2) JAMÁS escribas detalles técnicos — la [CARD: ID] ya los contiene\n(3) Ignora datos técnicos del historial\n(4) ⚠️ NUNCA escribas texto DESPUÉS de [CARD: ID] — la tarjeta es el FINAL de tu mensaje\n(5) Si necesitas explicar algo, hazlo ANTES de [CARD: ID], no después\n(6) Formato correcto: 'Texto breve + [CARD: ID]' — FIN. Nada más.\n(7) 🚨 CRÍTICO: NO INVENTES INFORMACIÓN. Usa SOLO los datos del catálogo. Si el precio es COP 20,000, NO digas COP 50,000. Si dice '20 secciones', NO digas '283 clases'. Datos EXACTOS del catálogo." },
+    { role: "system", content: finalPrompt + "\n\n🚨 REGLAS CRÍTICAS FINALES:\n(1) Prohibido 'Hola, muy buenas'\n(2) JAMÁS escribas detalles técnicos — la [CARD: ID] ya los contiene\n(3) Ignora datos técnicos del historial\n(4) ⚠️ NUNCA escribas texto DESPUÉS de [CARD: ID] — la tarjeta es el FINAL de tu mensaje\n(5) Si necesitas explicar algo, hazlo ANTES de [CARD: ID], no después\n(6) Formato correcto: 'Texto breve + [CARD: ID]' — FIN. Nada más.\n(7) 🚨 CRÍTICO: NO INVENTES INFORMACIÓN. Usa SOLO los datos del catálogo. Si el precio es COP 20,000, NO digas COP 50,000. Si dice '20 secciones', NO digas '283 clases'. Datos EXACTOS del catálogo.\n(8) SE BREVE: Tus respuestas deben ser MUY cortas (Máximo 2 oraciones).\n(9) PROHIBIDO ENLACES: NUNCA escribas enlaces 'https://' ni números de cuenta. El sistema los pone automáticamente por ti." },
     // Prefill: el mensaje del asistente ya empieza con el formato correcto, la IA solo continúa
     ...(responsePrefill ? [{ role: "assistant", content: responsePrefill }] : [])
   ];
@@ -1038,31 +971,15 @@ Explica POR QUÉ recomiendas ese producto.${productInstruction}`;
       // 🚀 HARDCODED FIRST-TIME GREETING (Bypass AI entirely)
       if (isGreetingOnly && !conversationContext.hasIntroduced) {
         console.log(`⚡ [AGENT-FAST-TRACK] Enviando presentación hardcodeada instantánea - ${new Date().toISOString()}`);
-        raw = `━━━━━━━━━━━━━━━━━━━━━━━━
-👋 ¡Hola! Bienvenido/a a *TecnoVariedades D&S* 😊
+        
+        raw = `👋 ¡Hola! Bienvenido a *${convo.tenantId === 1 ? 'TecnoVariedades D&S' : 'nuestra tienda'}* 😊
 
-Aquí encontrarás MegaPacks digitales con cursos y contenido premium en diferentes categorías 🎓✨
-
-📚 Diseño
-🎹 Música
-📈 Trading
-🌎 Idiomas
-💻 Programación
-y mucho más 🙌
-
-Todo se entrega de forma digital por Google Drive y con acceso de por vida 🔥
-
-Cuéntame 😊
-¿Qué te gustaría aprender o en qué tema estás interesado/a hoy?
-━━━━━━━━━━━━━━━━━━━━━━━━`;
+Es un gusto saludarte. ¿Cómo te puedo ayudar el día de hoy?`;
       } else if (isGreetingOnly && conversationContext.hasIntroduced) {
         console.log(`⚡ [AGENT-FAST-TRACK] Enviando saludo recurrente hardcodeado instantáneo - ${new Date().toISOString()}`);
-        raw = `━━━━━━━━━━━━━━━━━━━━━━━━
-👋 *¡Qué gusto verte de nuevo!* 🌟
+        raw = `👋 *¡Qué gusto verte de nuevo!* 🌟
 
-¡Hola! Es un verdadero placer saludarte nuevamente. 😊
-¿En qué te puedo ayudar el día de hoy?
-━━━━━━━━━━━━━━━━━━━━━━━━`;
+¿En qué te puedo ayudar el día de hoy?`;
       } else {
         for (const { config, source } of rotationQueue) {
           try {
@@ -1073,13 +990,21 @@ Cuéntame 😊
               model: config.model 
             }, "[Agent] Attempting AI provider");
           
-          if (config.baseUrl === "https://api.githubcopilot.com" && !config.apiKey.startsWith("eyJ")) {
+          // 🔑 INTERCAMBIO DE TOKEN PARA GITHUB COPILOT (VentasPro Elite Mode)
+          // Si es Copilot y no parece un token de sesión fresco (tid=), intentamos obtener uno nuevo
+          const isGithubPat = config.apiKey.startsWith("gho_") || config.apiKey.startsWith("ghp_") || config.apiKey.startsWith("ghu_");
+          const isExpiredOrOld = config.apiKey.startsWith("eyJ") && source === "github_copilot_internal"; 
+
+          if (config.baseUrl === "https://api.githubcopilot.com" && (isGithubPat || isExpiredOrOld)) {
+            console.log(`🔑 [AGENT-AI] Detectado token de GitHub (${isGithubPat ? 'PAT' : 'Old Session'}). Solicitando nuevo pase de entrada...`);
             const { getCopilotSessionToken } = await import("./copilot");
             const session = await getCopilotSessionToken(config.apiKey);
             if (session) {
               config.apiKey = session.token;
+              console.log("✅ [AGENT-AI] Pase de entrada de Copilot renovado exitosamente.");
             } else {
-              throw new Error("No se pudo obtener token de sesión interno de Copilot");
+              console.error("❌ [AGENT-AI] No se pudo renovar el pase de entrada de Copilot.");
+              throw new Error("Sesión de Copilot expirada o inválida. Por favor, re-autentica en el Dashboard.");
             }
           }
 
@@ -1147,6 +1072,12 @@ Cuéntame 😊
       // Prepend prefill so the final message starts with the formatted header
       if (responsePrefill && raw && !raw.startsWith("━")) {
         raw = responsePrefill + raw;
+      }
+
+      // 💳 ADJUNTAR TARJETA DE PAGO DINÁMICA SI EXISTE
+      if (paymentInfo && raw) {
+        raw = raw + "\n" + paymentInfo;
+        console.log(`💳 [AGENT-FINAL] Card de pago adjuntada a la respuesta - ${new Date().toISOString()}`);
       }
 
       // Parser con validador inteligente de IDs

@@ -18,7 +18,8 @@ import { Sidebar, SidebarContent, SidebarHeader, SidebarMenu, SidebarMenuItem, S
 import { Badge as UiBadge } from "@/components/ui/badge";
 import { useGetWhatsAppStatus, getGetWhatsAppStatusQueryKey } from "@workspace/api-client-react";
 import { useSaasStatus } from "@/hooks/useSaasStatus";
-import { Star, Zap } from "lucide-react";
+import { Star, Zap, Crown } from "lucide-react";
+import { useSession } from "@/App";
 
 export function AppSidebar() {
   const [location] = useLocation();
@@ -43,8 +44,26 @@ export function AppSidebar() {
   });
 
   const { saasStatus } = useSaasStatus();
+  const { tenant: sessionTenant } = useSession();
   const currentPlan = saasStatus?.plan;
   const isPremium = currentPlan && currentPlan !== 'free' && currentPlan !== 'basic';
+  const isAdmin = sessionTenant?.email === 'daveymena16@gmail.com';
+
+  const allNavItems = [
+    { label: "Panel", href: "/", icon: LayoutDashboard },
+    { label: "Conversaciones", href: "/conversations", icon: MessageSquare },
+    { label: "Agentes IA", href: "/agents", icon: Bot },
+    { label: "Prospectos", href: "/leads", icon: Users },
+    { label: "Productos", href: "/products", icon: Package },
+    { label: "WhatsApp", href: "/whatsapp", icon: Phone },
+    { label: "WooCommerce", href: "/woocommerce", icon: ShoppingCart },
+    { label: "Arquitecto IA", href: "/code-agent", icon: Wand2 },
+    { label: "Arquitecto Visual", href: "/architect", icon: Eye },
+    { label: "Personalización", href: "/branding", icon: Palette },
+    { label: "Configuración", href: "/settings", icon: Settings },
+    { label: "Planes", href: "/pricing", icon: Badge },
+    ...(isAdmin ? [{ label: "Admin Tenants", href: "/admin/tenants", icon: Crown }] : []),
+  ];
 
   return (
     <Sidebar className="border-r border-white/10 shadow-[8px_0_32px_rgba(0,0,0,0.1)] dark:shadow-[8px_0_32px_rgba(0,0,0,0.4)] bg-background/60 backdrop-blur-3xl supports-[backdrop-filter]:bg-background/40">
@@ -68,7 +87,7 @@ export function AppSidebar() {
         <SidebarGroup>
           <SidebarGroupContent>
             <SidebarMenu className="gap-2">
-              {navItems.map((item) => {
+              {allNavItems.map((item) => {
                 const isActive = location === item.href;
                 return (
                   <SidebarMenuItem key={item.href}>

@@ -1,15 +1,21 @@
-# 🔄 Cómo Reiniciar el Servidor Correctamente
+## 🚀 SOLUCIÓN RÁPIDA (Automatizada)
 
-## ⚠️ PROBLEMA ACTUAL
+Si estás en Windows, he creado un script que hace todo el trabajo sucio por ti (detiene procesos bloqueados, limpia caché e inicia todo):
 
-El servidor se cae cuando intentas crear un enlace de pago. Esto puede ser por:
-1. Caché de módulos de Node.js
-2. Imports no resueltos correctamente
-3. Error en runtime que no se ve en compilación
+1. Abre una terminal en la carpeta raíz del proyecto.
+2. Ejecuta:
+   ```powershell
+   ./REINICIAR.ps1
+   ```
+
+Este script:
+- Mata cualquier proceso en los puertos **3002** y **5173**.
+- Limpia la carpeta `dist`.
+- Abre dos ventanas nuevas con el Backend y Frontend.
 
 ---
 
-## ✅ SOLUCIÓN: Reinicio Completo
+## ✅ SOLUCIÓN MANUAL: Reinicio Completo
 
 ### Paso 1: Detener TODO
 

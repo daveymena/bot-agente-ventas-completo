@@ -132,8 +132,49 @@ export default function AgentArchitectVisual() {
   };
 
   const handleQuickProposal = async (businessType: string) => {
-    setInput(`Analiza mi negocio de ${businessType} y proponme el agente ideal con ejemplos visuales`);
-    setTimeout(() => handleSend(), 100);
+    const promptText = `Analiza mi negocio de ${businessType} y proponme el agente ideal con ejemplos visuales`;
+    setInput(promptText);
+    
+    // Simulate send without relying on state
+    setMessages(prev => [...prev, { role: "user", content: promptText }]);
+    setIsLoading(true);
+    
+    try {
+      const response = await fetch("/api/code-agent/visual-architect", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ 
+          prompt: promptText,
+          history: messages.map(m => ({ role: m.role, content: m.content }))
+        })
+      });
+
+      const data = await response.json();
+      
+      if (response.ok) {
+        setMessages(prev => [...prev, { 
+          role: "assistant", 
+          content: data.reply || "He procesado tu solicitud.",
+          isConfigApplied: data.configApplied 
+        }]);
+
+        if (data.agentPreview) {
+          setAgentPreview(data.agentPreview);
+          setActiveTab("preview");
+          toast.success("✨ Vista previa generada");
+        }
+        if (data.businessProfile) setBusinessProfile(data.businessProfile);
+        if (data.simulation) setSimulationMessages(data.simulation);
+        if (data.configApplied) toast.success("¡Agente actualizado con éxito! 🚀");
+      } else {
+        toast.error(data.error || "Error al diseñar el agente");
+      }
+    } catch (error) {
+      toast.error("Error de conexión con el Arquitecto");
+    } finally {
+      setIsLoading(false);
+      setInput("");
+    }
   };
 
   const handleApplyConfig = async () => {
@@ -381,7 +422,7 @@ export default function AgentArchitectVisual() {
                   <CardContent>
                     <ScrollArea className="h-[400px]">
                       <div className="space-y-4">
-                        {agentPreview.sampleResponses.map((response, i) => (
+                        {(agentPreview.sampleResponses || []).map((response, i) => (
                           <div key={i} className="p-4 bg-muted/50 rounded-xl border border-border/50">
                             <p className="text-sm leading-relaxed">{response}</p>
                           </div>
@@ -406,7 +447,7 @@ export default function AgentArchitectVisual() {
               <CardContent className="flex-1 overflow-hidden">
                 <ScrollArea className="h-full">
                   <div className="space-y-4 max-w-3xl mx-auto">
-                    {simulationMessages.map((msg, i) => (
+                    {(Array.isArray(simulationMessages) ? simulationMessages : []).map((msg, i) => (
                       <div key={i} className={`flex gap-3 ${msg.role === 'client' ? 'flex-row-reverse' : ''}`}>
                         <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${
                           msg.role === 'client' 
@@ -439,10 +480,10 @@ export default function AgentArchitectVisual() {
                     <CardTitle className="text-sm">Manejo de Objeciones</CardTitle>
                   </CardHeader>
                   <CardContent className="space-y-3">
-                    {Object.entries(agentPreview.objectionHandling).map(([key, value]) => (
+                    {Object.entries(agentPreview.objectionHandling || {}).map(([key, value]) => (
                       <div key={key} className="p-3 bg-muted/30 rounded-lg">
                         <p className="text-xs font-semibold text-purple-600 mb-1 uppercase">{key}</p>
-                        <p className="text-sm">{value}</p>
+                        <p className="text-sm">{value as string}</p>
                       </div>
                     ))}
                   </CardContent>
@@ -453,7 +494,7 @@ export default function AgentArchitectVisual() {
                     <CardTitle className="text-sm">Estrategias de Cierre</CardTitle>
                   </CardHeader>
                   <CardContent className="space-y-2">
-                    {agentPreview.closingStrategies.map((strategy, i) => (
+                    {(agentPreview.closingStrategies || []).map((strategy, i) => (
                       <div key={i} className="p-3 bg-muted/30 rounded-lg flex items-start gap-2">
                         <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0 mt-0.5" />
                         <p className="text-sm">{strategy}</p>
@@ -467,10 +508,10 @@ export default function AgentArchitectVisual() {
                     <CardTitle className="text-sm">Reglas de Negocio</CardTitle>
                   </CardHeader>
                   <CardContent className="grid md:grid-cols-2 gap-3">
-                    {Object.entries(agentPreview.businessRules).map(([key, value]) => (
+                    {Object.entries(agentPreview.businessRules || {}).map(([key, value]) => (
                       <div key={key} className="p-3 bg-muted/30 rounded-lg">
                         <p className="text-xs font-semibold text-muted-foreground mb-1 uppercase">{key}</p>
-                        <p className="text-sm">{value}</p>
+                        <p className="text-sm">{value as string}</p>
                       </div>
                     ))}
                   </CardContent>

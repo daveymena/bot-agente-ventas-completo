@@ -1,10 +1,11 @@
 import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
+import { Layout } from "@/components/layout";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Check, X, CreditCard, DollarSign } from "lucide-react";
-import { useToast } from "@/hooks/use-toast";
+import { Check, CreditCard, DollarSign, ArrowRight, Star, Zap, ShieldCheck, Mail } from "lucide-react";
+import { toast } from "sonner";
 import {
   Select,
   SelectContent,
@@ -38,7 +39,6 @@ interface Plan {
 
 export default function PricingPage() {
   const [, setLocation] = useLocation();
-  const { toast } = useToast();
   const [plans, setPlans] = useState<Plan[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedPlan, setSelectedPlan] = useState<string | null>(null);
@@ -73,20 +73,14 @@ export default function PricingPage() {
 
   const handleUpgrade = async (planId: string) => {
     if (planId === "free") {
-      toast({
-        title: "Plan Gratuito",
-        description: "Ya tienes acceso al plan gratuito",
-      });
+      toast.info("Ya tienes acceso al plan gratuito");
       return;
     }
-
-    // Mostrar diálogo para solicitar email
     setSelectedPlan(planId);
     setShowEmailDialog(true);
   };
 
   const handleEmailSubmit = async () => {
-    // Validar email
     if (!email || !validateEmail(email)) {
       setEmailError("Por favor ingresa un email válido");
       return;
@@ -97,9 +91,6 @@ export default function PricingPage() {
     setProcessingPayment(true);
 
     try {
-      setProcessingPayment(true);
-
-      // Flujo de pago real SIN autenticación
       const response = await fetch("/api/pricing/upgrade", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -107,7 +98,7 @@ export default function PricingPage() {
           newPlan: selectedPlan,
           billingCycle,
           paymentMethod,
-          email, // Enviar email en el body
+          email,
         }),
       });
 
@@ -118,24 +109,13 @@ export default function PricingPage() {
       }
 
       if (data.paymentUrl) {
-        toast({
-          title: "Redirigiendo al pago",
-          description: `Serás redirigido a ${paymentMethod === "mercadopago" ? "MercadoPago" : "PayPal"}. Después del pago recibirás un token de activación por email.`,
-          duration: 5000,
-        });
-        
-        // Redirigir al enlace de pago
+        toast.success(`Redirigiendo a ${paymentMethod === "mercadopago" ? "MercadoPago" : "PayPal"}...`);
         setTimeout(() => {
           window.location.href = data.paymentUrl;
         }, 2000);
       }
     } catch (error: any) {
-      console.error("Error upgrading plan:", error);
-      toast({
-        title: "Error",
-        description: error.message || "No se pudo procesar el pago. Intenta nuevamente.",
-        variant: "destructive",
-      });
+      toast.error(error.message || "No se pudo procesar el pago");
       setProcessingPayment(false);
       setSelectedPlan(null);
     }
@@ -143,10 +123,13 @@ export default function PricingPage() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-screen">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4"></div>
-          <p className="text-gray-600">Cargando planes...</p>
+      <div className="flex items-center justify-center min-h-screen bg-background">
+        <div className="text-center space-y-4">
+          <div className="relative">
+            <div className="absolute inset-0 bg-primary/20 blur-xl rounded-full" />
+            <Zap className="h-12 w-12 text-primary animate-pulse relative z-10" />
+          </div>
+          <p className="text-muted-foreground font-medium animate-pulse">Cargando planes de élite...</p>
         </div>
       </div>
     );
@@ -155,236 +138,261 @@ export default function PricingPage() {
   const currentPlanId = saasStatus?.plan;
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 py-12 px-4">
-      <div className="max-w-7xl mx-auto">
-        {/* Header */}
-        <div className="text-center mb-12">
-          <h1 className="text-4xl font-bold tracking-tight mb-4">Planes de Sofía AI Sales</h1>
-          <p className="text-xl text-gray-600 mb-6">
-            Elige el plan perfecto para tu negocio
-          </p>
+    <Layout>
+      <div className="relative overflow-hidden">
+        {/* Background Pattern */}
+        <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] rounded-full bg-primary/5 blur-[120px] pointer-events-none" />
+        <div className="absolute bottom-[-10%] right-[-5%] w-[30%] h-[40%] rounded-full bg-accent/5 blur-[100px] pointer-events-none" />
 
-          {/* Billing Cycle Toggle */}
-          <div className="flex items-center justify-center gap-4 mb-4">
-            <Button
-              variant={billingCycle === "monthly" ? "default" : "outline"}
-              onClick={() => setBillingCycle("monthly")}
-            >
-              Mensual
-            </Button>
-            <Button
-              variant={billingCycle === "annual" ? "default" : "outline"}
-              onClick={() => setBillingCycle("annual")}
-            >
-              Anual <Badge className="ml-2 bg-green-500">-20%</Badge>
-            </Button>
+        <div className="max-w-7xl mx-auto relative z-10">
+          {/* Header */}
+          <div className="text-center mb-16 animate-enter">
+            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-primary/10 text-primary border border-primary/20 text-xs font-bold uppercase tracking-widest mb-6">
+              <Star className="h-3 w-3 fill-primary" /> Membresías Elite
+            </div>
+            <h1 className="text-4xl md:text-5xl font-black tracking-tight mb-6 bg-gradient-to-br from-foreground via-foreground to-foreground/70 bg-clip-text text-transparent">
+              Escala tu Negocio con IA
+            </h1>
+            <p className="text-lg text-muted-foreground max-w-2xl mx-auto mb-10 leading-relaxed">
+              Elige la potencia de fuego que tu departamento de ventas necesita. Sin contratos, cancela cuando quieras.
+            </p>
+
+            <div className="flex flex-col items-center gap-8">
+              {/* Billing Cycle Toggle */}
+              <div className="flex p-1 bg-muted/30 backdrop-blur-xl border border-white/5 rounded-2xl shadow-xl">
+                <button
+                  onClick={() => setBillingCycle("monthly")}
+                  className={`px-8 py-3 rounded-xl text-sm font-bold transition-all duration-300 ${billingCycle === "monthly" ? "bg-white text-black shadow-lg" : "text-muted-foreground hover:text-foreground"}`}
+                >
+                  Mensual
+                </button>
+                <button
+                  onClick={() => setBillingCycle("annual")}
+                  className={`px-8 py-3 rounded-xl text-sm font-bold transition-all duration-300 flex items-center gap-2 ${billingCycle === "annual" ? "bg-white text-black shadow-lg" : "text-muted-foreground hover:text-foreground"}`}
+                >
+                  Anual <Badge className="bg-green-500 text-white border-none text-[10px] font-black px-1.5 py-0">AHORRA 20%</Badge>
+                </button>
+              </div>
+
+              {/* Payment Method Selection */}
+              <div className="flex items-center gap-4 p-2 bg-background/40 backdrop-blur-md rounded-2xl border border-white/5">
+                <span className="text-xs font-bold text-muted-foreground uppercase tracking-widest pl-4">Método:</span>
+                <Select value={paymentMethod} onValueChange={(value: any) => setPaymentMethod(value)}>
+                  <SelectTrigger className="w-[180px] bg-transparent border-none focus:ring-0 font-bold">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent className="glass-panel border-white/10">
+                    <SelectItem value="mercadopago" className="focus:bg-primary/10">
+                      <div className="flex items-center gap-2">
+                        <CreditCard className="h-4 w-4 text-primary" />
+                        MercadoPago
+                      </div>
+                    </SelectItem>
+                    <SelectItem value="paypal" className="focus:bg-primary/10">
+                      <div className="flex items-center gap-2">
+                        <DollarSign className="h-4 w-4 text-primary" />
+                        PayPal
+                      </div>
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
           </div>
 
-          {/* Payment Method Selection */}
-          <div className="flex items-center justify-center gap-4">
-            <span className="text-sm text-gray-600">Método de pago:</span>
-            <Select value={paymentMethod} onValueChange={(value: any) => setPaymentMethod(value)}>
-              <SelectTrigger className="w-[200px]">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="mercadopago">
-                  <div className="flex items-center gap-2">
-                    <CreditCard className="h-4 w-4" />
-                    MercadoPago
-                  </div>
-                </SelectItem>
-                <SelectItem value="paypal">
-                  <div className="flex items-center gap-2">
-                    <DollarSign className="h-4 w-4" />
-                    PayPal
-                  </div>
-                </SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-        </div>
-
-        {/* Plans Grid */}
-        <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6 mb-12">
-          {plans.map((plan) => (
-            <Card
-              key={plan.id}
-              className={`relative flex flex-col transition-all ${
-                plan.id === currentPlanId ? "ring-2 ring-primary shadow-lg" : ""
-              }`}
-            >
-              {plan.id === currentPlanId && (
-                <Badge className="absolute -top-3 right-4 bg-primary text-white">
-                  Plan Actual
-                </Badge>
-              )}
-              {plan.trialDays && plan.id !== currentPlanId && (
-                <Badge className="absolute -top-3 left-4 bg-green-500">
-                  {plan.trialDays} días gratis
-                </Badge>
-              )}
-
-              <CardHeader>
-                <CardTitle className="text-2xl">{plan.name}</CardTitle>
-                <CardDescription>
-                  <span className="text-3xl font-bold text-foreground">
-                    ${billingCycle === "annual" ? (plan.price * 12 * 0.8 / 12).toFixed(0) : plan.price}
-                  </span>
-                  <span className="text-gray-600">/mes</span>
-                  {billingCycle === "annual" && (
-                    <div className="text-sm text-green-600 mt-1">
-                      ${(plan.price * 12 * 0.8).toFixed(0)}/año (ahorras ${(plan.price * 12 * 0.2).toFixed(0)})
+          {/* Plans Grid */}
+          <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6 mb-20">
+            {plans.map((plan, idx) => {
+              const isPopular = plan.id === 'starter';
+              const isCurrent = plan.id === currentPlanId;
+              
+              return (
+                <div
+                  key={plan.id}
+                  className={`group relative flex flex-col transition-all duration-500 hover:-translate-y-2 border-0 shadow-2xl overflow-hidden glass-panel rounded-3xl ${
+                    isCurrent ? 'ring-2 ring-primary bg-primary/5' : ''
+                  } ${isPopular ? 'scale-105 z-10' : ''} animate-enter`}
+                  style={{ animationDelay: `${idx * 100}ms` }}
+                >
+                  {isPopular && (
+                    <div className="absolute top-0 right-0">
+                      <div className="bg-primary text-white text-[10px] font-black px-8 py-1 rotate-45 translate-x-6 translate-y-2 shadow-lg">
+                        POPULAR
+                      </div>
                     </div>
                   )}
-                </CardDescription>
-              </CardHeader>
-
-              <CardContent className="flex-1">
-                <ul className="space-y-3">
-                  <li className="flex items-center gap-2">
-                    <Check className="h-5 w-5 text-green-500" />
-                    <span>{plan.monthlyMessages.toLocaleString()} mensajes/mes</span>
-                  </li>
-                  <li className="flex items-center gap-2">
-                    <Check className="h-5 w-5 text-green-500" />
-                    <span>{plan.maxConversations.toLocaleString()} conversaciones</span>
-                  </li>
-                  <li className="flex items-center gap-2">
-                    <Check className="h-5 w-5 text-green-500" />
-                    <span>{plan.maxProducts.toLocaleString()} productos</span>
-                  </li>
-                  <li className="flex items-center gap-2">
-                    <Check className="h-5 w-5 text-green-500" />
-                    <span>{plan.maxAgents} agente(s) IA</span>
-                  </li>
-
-                  <div className="pt-4 border-t">
-                    <p className="text-sm font-semibold mb-2">Características:</p>
-                    {plan.features.map((feature, idx) => (
-                      <div key={idx} className="flex items-center gap-2 text-sm mb-1">
-                        <Check className="h-4 w-4 text-green-500" />
-                        <span>{feature}</span>
-                      </div>
-                    ))}
-                  </div>
-                </ul>
-              </CardContent>
-
-              <CardFooter>
-                <Button
-                  className="w-full"
-                  onClick={() => handleUpgrade(plan.id)}
-                  disabled={processingPayment || selectedPlan === plan.id}
-                >
-                  {processingPayment && selectedPlan === plan.id ? (
-                    <>
-                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-                      Procesando...
-                    </>
-                  ) : plan.price === 0 ? (
-                    "Comenzar Gratis"
-                  ) : (
-                    `Actualizar con ${paymentMethod === "mercadopago" ? "MercadoPago" : "PayPal"}`
+                  
+                  {isCurrent && (
+                    <div className="absolute top-4 left-4">
+                      <Badge className="bg-primary text-white border-none shadow-lg shadow-primary/20">Tu Plan Actual</Badge>
+                    </div>
                   )}
-                </Button>
-              </CardFooter>
-            </Card>
-          ))}
-        </div>
 
-        {/* FAQ */}
-        <div className="max-w-3xl mx-auto">
-          <h2 className="text-2xl font-bold mb-6 text-center">Preguntas Frecuentes</h2>
-          <div className="space-y-4">
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-lg">¿Puedo cambiar de plan en cualquier momento?</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-gray-600">
-                  Sí, puedes cambiar de plan en cualquier momento. Los cambios se aplicarán en tu próximo ciclo de facturación.
-                </p>
-              </CardContent>
-            </Card>
+                  <div className="pt-10 pb-6 text-center border-b border-white/5 px-6">
+                    <h3 className="text-2xl font-black mb-2">{plan.name}</h3>
+                    <div className="flex items-baseline justify-center gap-1">
+                      <span className="text-4xl font-black tabular-nums">
+                        ${billingCycle === "annual" ? (plan.price * 12 * 0.8 / 12).toFixed(0) : plan.price}
+                      </span>
+                      <span className="text-muted-foreground font-medium">/mes</span>
+                    </div>
+                    {billingCycle === "annual" && plan.price > 0 && (
+                      <div className="text-[10px] font-bold text-green-500 mt-2 uppercase tracking-widest bg-green-500/10 py-1 px-3 rounded-full mx-auto w-fit">
+                        Facturado anualmente
+                      </div>
+                    )}
+                  </div>
 
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-lg">¿Hay contrato a largo plazo?</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-gray-600">
-                  No, todos nuestros planes son mes a mes. Puedes cancelar en cualquier momento sin penalización.
-                </p>
-              </CardContent>
-            </Card>
+                  <div className="flex-1 py-8 px-6 space-y-6">
+                    <div className="space-y-3">
+                      <div className="flex items-center gap-3">
+                        <div className="p-1.5 bg-primary/10 rounded-lg text-primary shrink-0"><Zap className="h-4 w-4" /></div>
+                        <span className="text-sm font-semibold">{plan.monthlyMessages.toLocaleString()} mensajes/mes</span>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <div className="p-1.5 bg-primary/10 rounded-lg text-primary shrink-0"><Check className="h-4 w-4" /></div>
+                        <span className="text-sm font-semibold">{plan.maxConversations.toLocaleString()} conversaciones</span>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <div className="p-1.5 bg-primary/10 rounded-lg text-primary shrink-0"><Check className="h-4 w-4" /></div>
+                        <span className="text-sm font-semibold">{plan.maxAgents} agentes IA</span>
+                      </div>
+                    </div>
 
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-lg">¿Qué incluye el período de prueba?</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-gray-600">
-                  El período de prueba incluye acceso completo al plan Starter durante 7 días. Sin necesidad de tarjeta de crédito.
-                </p>
-              </CardContent>
-            </Card>
+                    <div className="pt-6 border-t border-white/5 space-y-3">
+                      {plan.features.map((feature, idx) => (
+                        <div key={idx} className="flex items-start gap-3 text-xs text-muted-foreground group-hover:text-foreground transition-colors">
+                          <Check className="h-3.5 w-3.5 text-primary mt-0.5 shrink-0" />
+                          <span className="leading-tight">{feature}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="p-6 pt-0">
+                    <Button
+                      className={`w-full h-14 rounded-2xl font-bold text-base transition-all duration-300 ${
+                        isCurrent 
+                          ? 'bg-muted text-muted-foreground cursor-default' 
+                          : 'bg-gradient-to-r from-primary to-accent hover:opacity-90 shadow-lg shadow-primary/20 group-hover:scale-[1.02]'
+                      }`}
+                      onClick={() => !isCurrent && handleUpgrade(plan.id)}
+                      disabled={processingPayment || isCurrent}
+                    >
+                      {processingPayment && selectedPlan === plan.id ? (
+                        <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white" />
+                      ) : isCurrent ? (
+                        "Plan Activo"
+                      ) : plan.price === 0 ? (
+                        "Empezar Ahora"
+                      ) : (
+                        <div className="flex items-center gap-2">
+                          Actualizar <ArrowRight className="h-4 w-4" />
+                        </div>
+                      )}
+                    </Button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* FAQ Section */}
+          <div className="max-w-4xl mx-auto animate-enter">
+            <div className="text-center mb-12">
+              <h2 className="text-3xl font-black mb-4">¿Tienes preguntas?</h2>
+              <p className="text-muted-foreground">Todo lo que necesitas saber sobre nuestras suscripciones.</p>
+            </div>
+            
+            <div className="grid gap-4 md:grid-cols-2">
+              {[
+                { q: "¿Puedo cambiar de plan?", a: "Sí, puedes subir o bajar de categoría en cualquier momento. Los cambios se prorratean automáticamente." },
+                { q: "¿Hay cargos ocultos?", a: "No. Lo que ves es lo que pagas. No hay costos por configuración ni permanencia mínima." },
+                { q: "¿Qué pasa si excedo los mensajes?", a: "Tus agentes dejarán de responder hasta el próximo ciclo o hasta que subas de plan. Te avisaremos al 80%." },
+                { q: "¿Es seguro mi pago?", a: "Absolutamente. Usamos MercadoPago y PayPal para procesar pagos de forma segura y encriptada." }
+              ].map((faq, i) => (
+                <div key={i} className="glass-panel border-white/5 p-6 hover:bg-white/5 transition-colors cursor-default rounded-3xl">
+                  <h3 className="font-bold mb-2 flex items-center gap-2 text-primary">
+                     <Zap className="h-3.5 w-3.5" /> {faq.q}
+                  </h3>
+                  <p className="text-sm text-muted-foreground leading-relaxed">{faq.a}</p>
+                </div>
+              ))}
+            </div>
+            
+            <div className="mt-16 p-8 rounded-[3rem] glass-panel border-white/10 text-center relative overflow-hidden group">
+              <div className="absolute inset-0 bg-gradient-to-r from-primary/10 via-transparent to-accent/10 opacity-50 pointer-events-none" />
+              <h3 className="text-2xl font-black mb-4 relative z-10">¿Necesitas un plan personalizado?</h3>
+              <p className="text-muted-foreground mb-8 relative z-10">Si eres una gran empresa con necesidades masivas, nuestro equipo puede diseñar una solución a medida para ti.</p>
+              <Button variant="outline" className="h-12 px-8 rounded-xl relative z-10 hover:bg-white/10 transition-all">Contactar con Ventas</Button>
+            </div>
           </div>
         </div>
-      </div>
 
-      {/* Diálogo para solicitar email */}
-      <Dialog open={showEmailDialog} onOpenChange={setShowEmailDialog}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Ingresa tu email</DialogTitle>
-            <DialogDescription>
-              Necesitamos tu email para enviarte el token de activación después del pago.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="grid gap-4 py-4">
-            <div className="grid gap-2">
-              <Label htmlFor="email">Email</Label>
-              <Input
-                id="email"
-                type="email"
-                placeholder="tu@email.com"
-                value={email}
-                onChange={(e) => {
-                  setEmail(e.target.value);
+        {/* Activation Dialog */}
+        <Dialog open={showEmailDialog} onOpenChange={setShowEmailDialog}>
+          <DialogContent className="glass-panel border-white/20 p-0 overflow-hidden max-w-md">
+            <div className="bg-gradient-to-br from-primary/20 to-accent/20 p-8 text-center border-b border-white/10">
+              <div className="w-16 h-16 bg-background rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-xl border border-white/10">
+                <Mail className="h-8 w-8 text-primary" />
+              </div>
+              <DialogTitle className="text-2xl font-black mb-2">Finalizar Pedido</DialogTitle>
+              <DialogDescription className="text-muted-foreground font-medium">
+                Ingresa tu email para recibir tu token de activación tras el pago.
+              </DialogDescription>
+            </div>
+            
+            <div className="p-8 space-y-6">
+              <div className="space-y-2">
+                <Label htmlFor="email" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Email de Facturación</Label>
+                <Input
+                  id="email"
+                  type="email"
+                  placeholder="ejemplo@correo.com"
+                  value={email}
+                  onChange={(e) => {
+                    setEmail(e.target.value);
+                    setEmailError("");
+                  }}
+                  className={`h-12 bg-muted/20 border-white/10 rounded-xl px-4 ${emailError ? "border-red-500 focus-visible:ring-red-500" : ""}`}
+                />
+                {emailError && (
+                  <p className="text-xs text-red-500 font-bold mt-1">{emailError}</p>
+                )}
+              </div>
+
+              <div className="p-4 bg-primary/5 rounded-2xl border border-primary/10 flex gap-4 items-start">
+                <ShieldCheck className="h-5 w-5 text-primary mt-0.5 shrink-0" />
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  <strong className="text-foreground">Importante:</strong> Se enviará un <span className="text-primary font-bold">Token de Activación</span> a este email inmediatamente después de completar el pago en {paymentMethod}.
+                </p>
+              </div>
+            </div>
+            
+            <DialogFooter className="p-8 pt-0 flex gap-3">
+              <Button
+                variant="ghost"
+                className="flex-1 h-12 rounded-xl font-bold"
+                onClick={() => {
+                  setShowEmailDialog(false);
+                  setSelectedPlan(null);
+                  setEmail("");
                   setEmailError("");
                 }}
-                className={emailError ? "border-red-500" : ""}
-              />
-              {emailError && (
-                <p className="text-sm text-red-500">{emailError}</p>
-              )}
-            </div>
-            <div className="bg-blue-50 border-l-4 border-blue-400 p-3 rounded">
-              <p className="text-sm text-blue-700">
-                📧 Después de completar el pago, recibirás un <strong>token de activación</strong> en este email.
-                Usa ese token para activar tu cuenta y acceder a tu plan.
-              </p>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => {
-                setShowEmailDialog(false);
-                setSelectedPlan(null);
-                setEmail("");
-                setEmailError("");
-              }}
-            >
-              Cancelar
-            </Button>
-            <Button onClick={handleEmailSubmit} disabled={!email}>
-              Continuar al Pago
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </div>
+              >
+                Cancelar
+              </Button>
+              <Button 
+                className="flex-1 h-12 rounded-xl bg-primary hover:bg-primary/90 font-bold shadow-lg shadow-primary/20"
+                onClick={handleEmailSubmit}
+                disabled={!email || processingPayment}
+              >
+                {processingPayment ? <div className="animate-spin h-4 w-4 border-b-2 border-white rounded-full" /> : "Ir al Pago"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      </div>
+    </Layout>
   );
 }

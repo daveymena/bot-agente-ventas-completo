@@ -21,6 +21,8 @@ export const settings = pgTable("settings", {
   aiProvider: text("ai_provider").notNull().default("github_copilot_internal"), // github_copilot_internal, github, ollama_local, openai_default
   githubToken: text("github_token"),
   githubModel: text("github_model").notNull().default("gpt-4o-mini"),
+  copilotSessionToken: text("copilot_session_token"),
+  copilotSessionExpiresAt: text("copilot_session_expires_at"),
   nvidiaApiKey: text("nvidia_api_key"),
   nvidiaModel: text("nvidia_model").notNull().default("meta/llama-3.1-70b-instruct"),
   ollamaUrl: text("ollama_url"),

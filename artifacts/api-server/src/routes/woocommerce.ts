@@ -13,7 +13,7 @@ const router = Router();
  */
 router.get("/config", async (req, res) => {
   try {
-    const tenantId = req.tenantId;
+    const tenantId = req.tenant?.id;
 
     const [tenant] = await db
       .select()
@@ -60,7 +60,7 @@ router.get("/config", async (req, res) => {
  */
 router.put("/config", async (req, res) => {
   try {
-    const tenantId = req.tenantId;
+    const tenantId = req.tenant?.id;
     const {
       enabled,
       storeUrl,
@@ -132,7 +132,7 @@ router.put("/config", async (req, res) => {
  */
 router.post("/test-connection", async (req, res) => {
   try {
-    const tenantId = req.tenantId;
+    const tenantId = req.tenant?.id;
 
     const wooService = await getWooCommerceService(tenantId);
 
@@ -166,7 +166,7 @@ router.post("/test-connection", async (req, res) => {
  */
 router.post("/sync-products", async (req, res) => {
   try {
-    const tenantId = req.tenantId;
+    const tenantId = req.tenant?.id;
 
     const wooService = await getWooCommerceService(tenantId);
 
@@ -200,7 +200,7 @@ router.post("/sync-products", async (req, res) => {
  */
 router.get("/products", async (req, res) => {
   try {
-    const tenantId = req.tenantId;
+    const tenantId = req.tenant?.id;
     const { page = 1, per_page = 20 } = req.query;
 
     const wooService = await getWooCommerceService(tenantId);
@@ -237,7 +237,7 @@ router.get("/products", async (req, res) => {
  */
 router.post("/create-order", async (req, res) => {
   try {
-    const tenantId = req.tenantId;
+    const tenantId = req.tenant?.id;
     const { productId, customerName, customerEmail, customerPhone, quantity, paymentMethod } =
       req.body;
 

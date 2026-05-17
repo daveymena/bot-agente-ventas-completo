@@ -22,6 +22,8 @@ import WooCommercePage from "@/pages/woocommerce";
 import SubscriptionSuccessPage from "@/pages/subscription-success";
 import SubscriptionFailurePage from "@/pages/subscription-failure";
 import ActivatePage from "@/pages/activate";
+import OnboardingPage from "@/pages/onboarding";
+import AdminTenantsPage from "@/pages/admin-tenants";
 
 // Context para la sesión
 interface SessionContextType {
@@ -85,6 +87,8 @@ function Router() {
       <Route path="/subscription-success" component={SubscriptionSuccessPage} />
       <Route path="/subscription-failure" component={SubscriptionFailurePage} />
       <Route path="/activate" component={ActivatePage} />
+      <Route path="/onboarding" component={OnboardingPage} />
+      <Route path="/admin/tenants" component={AdminTenantsPage} />
       <Route path="/auth" component={AuthPage} />
       <Route component={NotFound} />
     </Switch>
@@ -97,7 +101,7 @@ function AppContent() {
 
   useEffect(() => {
     // Redirigir a /auth si no está autenticado y no está ya en /auth o /pricing
-    if (!isLoading && !isAuthenticated && location !== "/auth" && location !== "/pricing") {
+    if (!isLoading && !isAuthenticated && location !== "/auth" && location !== "/pricing" && location !== "/onboarding") {
       console.log("🔒 No autenticado, redirigiendo a /auth...");
       setLocation("/auth");
     }

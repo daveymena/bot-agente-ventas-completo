@@ -60,6 +60,23 @@ export function getProviderConfig(provider: string): AIProviderConfig | null {
         apiKey: "ollama",
         model: process.env.OLLAMA_LOCAL_MODEL || "hermes3:8b",
       };
+    case "bridge_local":
+      // Puente local (LMArenaBridge / G4F) corriendo en localhost
+      if (!process.env.BRIDGE_LOCAL_URL) return null;
+      return {
+        baseUrl: process.env.BRIDGE_LOCAL_URL,
+        apiKey: process.env.BRIDGE_LOCAL_API_KEY || "no-key",
+        model: process.env.BRIDGE_LOCAL_MODEL || "gpt-4o-mini",
+      };
+    case "github_haiku":
+      // Claude Haiku 4.5 via GitHub Models — GRATUITO y desbloqueado
+      const ghHaikuToken = process.env.GITHUB_TOKEN;
+      if (!ghHaikuToken) return null;
+      return {
+        baseUrl: "https://models.inference.ai.azure.com",
+        apiKey: ghHaikuToken,
+        model: "claude-haiku-4-5",
+      };
     case "openai_default":
       if (!process.env.AI_INTEGRATIONS_OPENAI_BASE_URL || !process.env.AI_INTEGRATIONS_OPENAI_API_KEY) return null;
       return {
