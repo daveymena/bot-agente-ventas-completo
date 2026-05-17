@@ -13,7 +13,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Save, X, Plus, Settings as SettingsIcon, ShieldCheck, Terminal } from "lucide-react";
+import { Save, X, Plus, Settings as SettingsIcon, ShieldCheck, Terminal, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 
 export default function Settings() {
