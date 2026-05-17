@@ -37,7 +37,8 @@ RUN pnpm install --no-frozen-lockfile --prod=false
 COPY . .
 
 # Construir solo los proyectos necesarios (Backend + Frontend)
-RUN pnpm --filter "@workspace/api-server" --filter "@workspace/ventas-pro" --filter "@workspace/db" --filter "@workspace/api-zod" --filter "@workspace/api-spec" --filter "@workspace/api-client-react" --filter "@workspace/integrations-openai-ai-server" --filter "@workspace/integrations-openai-ai-react" run build
+# Nota: integrations-openai-ai-server y integrations-openai-ai-react son libs TypeScript inline, no tienen script build propio
+RUN pnpm --filter "@workspace/api-server" --filter "@workspace/ventas-pro" --filter "@workspace/db" --filter "@workspace/api-zod" --filter "@workspace/api-spec" --filter "@workspace/api-client-react" run build
 
 # Verificar que el frontend se construyó correctamente
 RUN echo "🔍 Verificando build del frontend..." && \
