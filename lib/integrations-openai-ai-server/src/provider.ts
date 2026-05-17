@@ -112,7 +112,7 @@ export function getProviderConfigFromSettings(settings: {
     return {
       baseUrl: process.env.OPENCODE_API_URL || "https://tecnovariedades-provedor-ia.er7iaf.easypanel.host/v1",
       apiKey: process.env.OPENCODE_API_KEY || "dummy",
-      model: settings.githubModel || process.env.OPENCODE_MODEL || "opencode/deepseek-v4-flash-free",
+      model: process.env.OPENCODE_MODEL || "opencode/deepseek-v4-flash-free",
     };
   }
 
