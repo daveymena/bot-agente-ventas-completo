@@ -1043,6 +1043,13 @@ Es un gusto saludarte. ¿Cómo te puedo ayudar el día de hoy?`;
           raw = completion.choices[0]?.message?.content?.trim() ?? "";
           if (raw) {
             console.log(`✅ [AGENT-AI] Respuesta generada exitosamente con ${source} - Longitud: ${raw.length} caracteres - ${new Date().toISOString()}`);
+            
+            // 🛡️ GARANTÍA DE TARJETA VISUAL: Si el sistema decidió recomendar un producto y el modelo olvidó la etiqueta, la inyectamos nosotros
+            if (productForRequest && !raw.toLowerCase().includes("[card:")) {
+              console.log(`🔧 [AGENT-POSTPROCESS] El modelo olvidó incluir la tarjeta. Agregándola automáticamente: [CARD: ${productForRequest.id}]`);
+              raw = raw.trim() + `\n\n[CARD: ${productForRequest.id}]`;
+            }
+
             logger.info({ 
               conversationId,
               provider: source,

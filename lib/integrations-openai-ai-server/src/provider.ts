@@ -11,9 +11,9 @@ export function getProviderConfig(provider: string): AIProviderConfig | null {
   switch (provider) {
     case "opencode":
       return {
-        baseUrl: "http://localhost:8000/v1",
-        apiKey: "dummy",
-        model: "deepseek-v4-flash",
+        baseUrl: process.env.OPENCODE_API_URL || "https://tecnovariedades-provedor-ia.er7iaf.easypanel.host/v1",
+        apiKey: process.env.OPENCODE_API_KEY || "dummy",
+        model: process.env.OPENCODE_MODEL || "opencode/deepseek-v4-flash-free",
       };
     case "github_copilot_internal":
       const copilotToken = process.env.GITHUB_COPILOT_TOKEN || process.env.GITHUB_TOKEN;
@@ -104,13 +104,15 @@ export function getProviderConfigFromSettings(settings: {
   ollamaUrl?: string | null;
   ollamaModel?: string;
 }): AIProviderConfig | null {
-  const provider = settings.aiProvider || "github";
+  // Si no hay proveedor configurado en DB, retornar null para que el caller use su propio fallback
+  const provider = settings.aiProvider;
+  if (!provider) return null;
 
   if (provider === "opencode") {
     return {
-      baseUrl: "http://localhost:8000/v1",
-      apiKey: "dummy",
-      model: settings.githubModel || "deepseek-v4-flash",
+      baseUrl: process.env.OPENCODE_API_URL || "https://tecnovariedades-provedor-ia.er7iaf.easypanel.host/v1",
+      apiKey: process.env.OPENCODE_API_KEY || "dummy",
+      model: settings.githubModel || process.env.OPENCODE_MODEL || "opencode/deepseek-v4-flash-free",
     };
   }
 
@@ -160,7 +162,8 @@ export function getProviderConfigFromSettings(settings: {
     };
   }
 
-  return getProviderConfig("openai_default");
+  // Proveedor desconocido o no soportado
+  return null;
 }
 
 export function createAIClient(config: AIProviderConfig): OpenAI {

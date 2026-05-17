@@ -21,12 +21,18 @@ router.post("/architect", async (req: TenantRequest, res, next) => {
     const { prompt, history = [] } = req.body;
 
     // Obtener configuración de DB o ENV
+    // Prioridad: DB settings -> OpenCode (EasyPanel) -> NVIDIA -> GitHub
     const [dbSettings] = await db.select().from(settings).limit(1);
-    let aiConfig = getProviderConfigFromSettings(dbSettings || {}) || getProviderConfig("nvidia") || getProviderConfig("github");
+    let aiConfig = getProviderConfigFromSettings(dbSettings || {}) 
+      || getProviderConfig("opencode")
+      || getProviderConfig("nvidia") 
+      || getProviderConfig("github");
 
     if (!aiConfig) {
       return res.status(500).json({ error: "No AI engine configured for Architect" });
     }
+
+    logger.info({ provider: aiConfig.baseUrl, model: aiConfig.model }, "[Architect] Using AI provider");
 
     // Refresh Copilot Token if using github internal
     if (aiConfig.baseUrl === "https://api.githubcopilot.com") {
@@ -322,11 +328,16 @@ router.post("/visual-architect", async (req: TenantRequest, res, next) => {
     const { prompt, history = [] } = req.body;
 
     const [dbSettings] = await db.select().from(settings).limit(1);
-    let aiConfig = getProviderConfigFromSettings(dbSettings || {}) || getProviderConfig("nvidia") || getProviderConfig("github");
+    let aiConfig = getProviderConfigFromSettings(dbSettings || {})
+      || getProviderConfig("opencode")
+      || getProviderConfig("nvidia")
+      || getProviderConfig("github");
 
     if (!aiConfig) {
-      return res.status(500).json({ error: "No AI engine configured for Architect" });
+      return res.status(500).json({ error: "No AI engine configured for Visual Architect" });
     }
+
+    logger.info({ provider: aiConfig.baseUrl, model: aiConfig.model }, "[Visual Architect] Using AI provider");
 
     // Refresh Copilot Token if using github internal
     if (aiConfig.baseUrl === "https://api.githubcopilot.com") {
