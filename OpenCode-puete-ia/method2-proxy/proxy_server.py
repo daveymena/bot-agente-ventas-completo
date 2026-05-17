@@ -311,6 +311,7 @@ def index():
 
 
 def main():
+    global OPENCODE_SERVER_URL, proxy
     parser = argparse.ArgumentParser(description='OpenCode Proxy Server')
     parser.add_argument('--port', type=int, default=8000, help='Puerto del servidor')
     parser.add_argument('--host', default='0.0.0.0', help='Host del servidor')
@@ -319,7 +320,6 @@ def main():
     
     args = parser.parse_args()
     
-    global OPENCODE_SERVER_URL, proxy
     OPENCODE_SERVER_URL = args.opencode_url
     proxy = OpenCodeProxy(OPENCODE_SERVER_URL)
     
