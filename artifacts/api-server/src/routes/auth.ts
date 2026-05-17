@@ -127,13 +127,14 @@ router.post("/login", async (req, res, next) => {
     console.log(`✅ Login exitoso: ${email} (ID: ${tenant.id})`);
 
     // Set cookie (Sesión persistente de 30 días)
+    // Sin domain específico para que funcione tanto en localhost como en EasyPanel
+    const isProduction = process.env.NODE_ENV === "production";
     res.cookie("tenant_id", tenant.id.toString(), { 
-      httpOnly: false, // Cambiar a false para que JavaScript pueda leerla
-      secure: false,
-      sameSite: "lax",
+      httpOnly: false,
+      secure: isProduction,
+      sameSite: isProduction ? "strict" : "lax",
       maxAge: 30 * 24 * 60 * 60 * 1000,
       path: "/",
-      domain: "localhost" // Especificar dominio explícitamente
     });
 
     console.log(`🍪 Cookie establecida: tenant_id=${tenant.id}`);
@@ -186,7 +187,7 @@ router.get("/me", async (req, res, next) => {
     
     if (!tenant) {
       console.log(`❌ Tenant no encontrado para ID: ${tenantId}`);
-      res.clearCookie("tenant_id", { path: "/", domain: "localhost" });
+      res.clearCookie("tenant_id", { path: "/" });
       return res.status(401).json({ error: "Session invalid" });
     }
 
