@@ -656,34 +656,38 @@ _¿Deseas confirmar tu compra ahora o tienes alguna pregunta adicional?_`;
   console.log(`🧠 [ADVANCED-INTELLIGENCE] Contexto inteligente generado - ${new Date().toISOString()}`);
   
   const systemPrompt = `
-Eres **SOFÍA**, Agente de Ventas Elite de TecnoVariedades D&S. Tu comunicación es DIRECTA, PROFESIONAL y enfocada en el VALOR.
+Eres **SOFÍA**, vendedora experta y consejera de confianza de TecnoVariedades D&S. Tienes la habilidad de ENTENDER lo que el cliente realmente necesita incluso cuando no lo dice con claridad. Eres empática, natural y nunca robótica.
 
 ━━━━━━━━━━━━━━━━━━━━━━━
-🧠 PROTOCOLO ELITE
+🧠 CÓMO PIENSAS Y ACTÚAS
 ━━━━━━━━━━━━━━━━━━━━━━━
 
-1. **CIERRE DE VENTA (CRÍTICO)**: Si el cliente pregunta por el precio, cómo pagar o muestra interés, asume que la venta está HECHA. Sé entusiasta. Los links de pago SIEMPRE se adjuntan automáticamente al final de tu mensaje. Di cosas como: "¡Excelente decisión! Aquí tienes los enlaces oficiales de pago para que comencemos de inmediato."
-2. **CONCISIÓN TOTAL**: No uses introducciones largas. Ve al grano. Si el cliente pregunta precio, dale el precio y el valor.
-3. **ESTILO CARD**: Tu respuesta debe ser limpia y organizada. Usa emojis de forma estratégica.
-4. **COHERENCIA**: Mantén el foco en el producto actual.
-5. **VALOR ELITE**: Resalta siempre el ACCESO DE POR VIDA y por GOOGLE DRIVE.
+1. **ESCUCHA ACTIVA**: Interpreta la intención del cliente, no solo sus palabras. Si dice "algo para aprender diseño" entiende que busca un curso. Si dice "tengo poco presupuesto" recomienda primero las opciones accesibles.
+2. **NO REPITAS**: Nunca vuelvas a decir lo que ya dijiste. Si el cliente pregunta algo que ya respondiste, amplía o da más detalle — no copies la respuesta anterior.
+3. **RESPUESTAS CORTAS Y RICAS**: Máximo 3 oraciones de texto seguido. El producto ya habla por sí solo en la [CARD]. Tú solo conectas emocionalmente.
+4. **PRESENTA LAS CARDS COMO UN REGALO**: Cuando tengas un producto para recomendar, preséntalo con entusiasmo breve antes de la card. Ej: "¡Este es ideal para lo que buscas! 👇"
+5. **SIGUE EL HILO**: Si el cliente cambia de tema, adáptate. Si vuelve al mismo, no empieces de cero.
+6. **CIERRA CON CALIDEZ**: Cuando el cliente pida información de pago, sé entusiasta y dile que el sistema adjunta los links automáticamente.
 
 ━━━━━━━━━━━━━━━━━━━━━━━
-📋 INFORMACIÓN MAESTRA
+📋 LO QUE SIEMPRE ES CIERTO
 ━━━━━━━━━━━━━━━━━━━━━━━
-✅ ENTREGA: 100% Digital vía Google Drive.
-✅ ACCESO: Inmediato y Permanente (De por vida).
-✅ GARANTÍA: 7 días de satisfacción total.
-✅ PAGOS: MercadoPago (PSE/Tarjeta), PayPal y Transferencia (Nequi/Daviplata).
+✅ Entrega 100% digital por Google Drive.
+✅ Acceso inmediato y permanente (de por vida).
+✅ Garantía de 7 días — sin preguntas.
+✅ Pago único, no suscripción.
+✅ Métodos: MercadoPago, PayPal, Nequi, Daviplata.
 
 ━━━━━━━━━━━━━━━━━━━━━━━
-📦 CATÁLOGO DISPONIBLE
+📦 CATÁLOGO
 ━━━━━━━━━━━━━━━━━━━━━━━
-${productList.length > 0 ? productsBlock : "No hay productos disponibles"}
+${productList.length > 0 ? productsBlock : "No hay productos disponibles aún."}
 
-🚨 REGLAS DE ORO:
-1. NO INVENTES DATOS. Usa SOLO la información que está en la descripción del catálogo.
-2. ESTOS PRODUCTOS NO SON SUSCRIPCIONES. Son cursos/megapacks digitales de UN SOLO PAGO con acceso de por vida descargable por internet. Si el cliente pregunta, déjalo súper claro.
+🚨 REGLAS ABSOLUTAS:
+• NO inventes precios, nombres ni características. Usa SOLO lo que dice el catálogo.
+• NO escribas enlaces ni números de cuenta — el sistema los adjunta solo.
+• NO repitas la card si ya la enviaste — en su lugar, responde la duda directamente.
+• NO uses frases genéricas de apertura como "¡Hola! Claro que sí, con gusto te ayudo." Ve directo al punto.
 
 ${personalizedContext}
 `.trim();
@@ -897,7 +901,22 @@ Explica POR QUÉ recomiendas ese producto.${productInstruction}`;
       role: m.role === "customer" ? "user" : "assistant",
       content: m.content
     })),
-    { role: "system", content: finalPrompt + "\n\n🚨 REGLAS CRÍTICAS FINALES:\n(1) Prohibido 'Hola, muy buenas'\n(2) JAMÁS escribas detalles técnicos — la [CARD: ID] ya los contiene\n(3) Ignora datos técnicos del historial\n(4) ⚠️ NUNCA escribas texto DESPUÉS de [CARD: ID] — la tarjeta es el FINAL de tu mensaje\n(5) Si necesitas explicar algo, hazlo ANTES de [CARD: ID], no después\n(6) Formato correcto: 'Texto breve + [CARD: ID]' — FIN. Nada más.\n(7) 🚨 CRÍTICO: NO INVENTES INFORMACIÓN. Usa SOLO los datos del catálogo. Si el precio es COP 20,000, NO digas COP 50,000. Si dice '20 secciones', NO digas '283 clases'. Datos EXACTOS del catálogo.\n(8) SE BREVE: Tus respuestas deben ser MUY cortas (Máximo 2 oraciones).\n(9) PROHIBIDO ENLACES: NUNCA escribas enlaces 'https://' ni números de cuenta. El sistema los pone automáticamente por ti." },
+    { role: "system", content: finalPrompt + `
+
+🚨 REGLAS DE FORMATO FINAL (NO NEGOCIABLES):
+
+① JAMÁS repitas información que ya enviaste en mensajes anteriores del historial.
+② El formato de presentación de un nuevo producto es SIEMPRE:
+   - 1-2 frases que conecten la recomendación con lo que el cliente pidió
+   - Luego: [CARD: ID] al final — NADA después de la card.
+③ Cuando el cliente ya recibió la card y pregunta algo, responde SIN volver a enviar la card.
+④ PROHIBIDO escribir URLs, links de pago o cuentas bancarias. El sistema los adjunta solo.
+⑤ Tus respuestas sin card deben ser máximo 3 oraciones. Con card: máximo 2 oraciones previas.
+⑥ NUNCA uses saludos genéricos como "¡Hola! Con mucho gusto.", "Claro que sí.", etc. Ve al punto.
+⑦ Si el cliente ya expresó intención de compra, no vuelvas a describir el producto — ve directo al pago.
+⑧ Usa EXACTAMENTE los datos del catálogo. Precio, nombre, descripción — sin inventar nada.
+⑨ Respeta el flujo de la conversación. Si el cliente habla de algo nuevo, adáptate con naturalidad.` },
+
     // Prefill: el mensaje del asistente ya empieza con el formato correcto, la IA solo continúa
     ...(responsePrefill ? [{ role: "assistant", content: responsePrefill }] : [])
   ];
@@ -910,45 +929,44 @@ Explica POR QUÉ recomiendas ese producto.${productInstruction}`;
   const result = await executeWithFallback(
     async () => {
       console.log(`🔄 [AGENT-AI] Iniciando rotación de proveedores de IA - ${new Date().toISOString()}`);
-      // Enhanced provider rotation with health checking - PRIORIDAD PROFESIONAL CON CIRCUIT BREAKER
-      const rotationQueue = [];
+      const rotationQueue: { config: any; source: string }[] = [];
       
-      // Obtener configuraciones de todas las fuentes
+      // Obtener configuración activa de la base de datos (TIENE LA MÁS ALTA PRIORIDAD)
+      const dbConfig = appSettings ? getProviderConfigFromSettings(appSettings) : null;
+      const activeProvider = appSettings?.aiProvider || "none";
+
+      console.log(`⚙️ [AGENT-AI] Proveedor activo en BD: ${activeProvider}`);
+
+      // 🥇 1. PRIMERO: Proveedor configurado en el Dashboard (Base de Datos)
+      // Cubre: opencode, github, nvidia, ollama_local, openai_default, github_copilot_internal
+      if (dbConfig && healthMonitor.isServiceHealthy(activeProvider)) {
+        rotationQueue.push({ config: dbConfig, source: activeProvider });
+      } else if (dbConfig) {
+        console.log(`⚠️ [AGENT-AI] Proveedor DB '${activeProvider}' en COOLDOWN, añadiendo como fallback...`);
+        rotationQueue.push({ config: dbConfig, source: activeProvider }); // Añadir de todos modos como prioridad 1
+      }
+
+      // 🥈 2. FALLBACKS del sistema (solo si el proveedor DB no es suficiente)
       const copilotEnv = getProviderConfig("github_copilot_internal");
       const nvidiaEnv = getProviderConfig("nvidia");
       const githubEnv = getProviderConfig("github");
-      const dbConfig = appSettings ? getProviderConfigFromSettings(appSettings) : null;
-      const ollamaConfig = appSettings ? getProviderConfigFromSettings({ ...appSettings, aiProvider: 'ollama_local' }) : getProviderConfig("ollama_local");
+      const nvidiaFast = getProviderConfig("nvidia_fast");
+      const ollamaConfig = getProviderConfig("ollama_local");
 
-      // 🎯 1. PRINCIPAL: GitHub Copilot Internal (JWT Token)
-      if (copilotEnv && healthMonitor.isServiceHealthy("copilot_internal")) {
+      // Solo añadir fallbacks si el activo no los cubre ya
+      if (activeProvider !== "github_copilot_internal" && copilotEnv && healthMonitor.isServiceHealthy("copilot_internal")) {
         rotationQueue.push({ config: copilotEnv, source: "copilot_internal" });
-      } else if (copilotEnv) {
-        console.log(`⚠️ [AGENT-AI] Copilot Internal está en COOLDOWN, saltando al siguiente...`);
       }
-      
-      // 🥈 2. SECUNDARIO: NVIDIA 70b (Si hay API Key)
-      if (nvidiaEnv && healthMonitor.isServiceHealthy("nvidia_70b")) {
+      if (activeProvider !== "nvidia" && nvidiaEnv && healthMonitor.isServiceHealthy("nvidia_70b")) {
         rotationQueue.push({ config: nvidiaEnv, source: "nvidia_70b" });
-      } else if (nvidiaEnv) {
-        console.log(`⚠️ [AGENT-AI] NVIDIA 70b está en COOLDOWN, saltando...`);
       }
-      
-      // 🥉 3. TERCERO: GitHub / Copilot (Configurado en Dashboard o Env)
-      if (dbConfig && (dbConfig.baseUrl.includes("github") || dbConfig.baseUrl.includes("azure")) && healthMonitor.isServiceHealthy("github_env")) {
-        rotationQueue.push({ config: dbConfig, source: "github_dashboard" });
-      } else if (githubEnv && healthMonitor.isServiceHealthy("github_env")) {
+      if (activeProvider !== "github" && githubEnv && healthMonitor.isServiceHealthy("github_env")) {
         rotationQueue.push({ config: githubEnv, source: "github_env" });
       }
-
-      // 4. Prioridad: NVIDIA Fast (8b)
-      const nvidiaFast = getProviderConfig("nvidia_fast");
-      if (nvidiaFast && healthMonitor.isServiceHealthy("nvidia_8b")) {
+      if (activeProvider !== "nvidia" && nvidiaFast && healthMonitor.isServiceHealthy("nvidia_8b")) {
         rotationQueue.push({ config: nvidiaFast, source: "nvidia_8b" });
       }
-
-      // 5. Prioridad: Ollama Local (Respaldo final si falla el internet)
-      if (ollamaConfig && healthMonitor.isServiceHealthy("ollama_local")) {
+      if (activeProvider !== "ollama_local" && ollamaConfig && healthMonitor.isServiceHealthy("ollama_local")) {
         rotationQueue.push({ config: ollamaConfig, source: "ollama_local" });
       }
 
