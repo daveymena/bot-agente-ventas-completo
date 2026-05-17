@@ -248,22 +248,50 @@ def completions():
 @app.route('/v1/models', methods=['GET'])
 def list_models():
     """Lista modelos disponibles"""
+    now = int(time.time())
     return jsonify({
         "object": "list",
         "data": [
             {
                 "id": "deepseek-v4-flash",
                 "object": "model",
-                "created": int(time.time()),
+                "created": now,
                 "owned_by": "opencode-zen",
                 "permission": [],
                 "root": "deepseek-v4-flash",
                 "parent": None
             },
             {
+                "id": "qwen3.6-plus-free",
+                "object": "model",
+                "created": now,
+                "owned_by": "opencode-zen",
+                "permission": [],
+                "root": "qwen3.6-plus-free",
+                "parent": None
+            },
+            {
+                "id": "minimax-m2.5-free",
+                "object": "model",
+                "created": now,
+                "owned_by": "opencode-zen",
+                "permission": [],
+                "root": "minimax-m2.5-free",
+                "parent": None
+            },
+            {
+                "id": "nemotron-3-super-free",
+                "object": "model",
+                "created": now,
+                "owned_by": "opencode-zen",
+                "permission": [],
+                "root": "nemotron-3-super-free",
+                "parent": None
+            },
+            {
                 "id": DEFAULT_MODEL,
                 "object": "model",
-                "created": int(time.time()),
+                "created": now,
                 "owned_by": "opencode-zen",
                 "permission": [],
                 "root": DEFAULT_MODEL,
