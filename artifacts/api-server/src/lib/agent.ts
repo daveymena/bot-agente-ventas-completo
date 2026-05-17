@@ -763,6 +763,8 @@ ${personalizedContext}
   const allCategories = await db.select().from(productCategories);
   const categoryMap = new Map(allCategories.map(c => [c.id, c.name.toLowerCase()]));
 
+  // Palabras genéricas que NO deben usarse para elegir producto (son preguntas sobre entrega/acceso)
+  const genericProductWords = new Set(["entrega","entregan","acceso","garantia","garantía","soporte","descarga","drive","google","duracion","duración","tiempo","incluye","tiene","trae","precio","valor","cuanto","cuánto","cual","cuál","pago","pagar","link","enlace","nequi","daviplata","transfiere","transferencia","comprar","adquirir","quiero","necesito","funciona","clases","lecciones","modulos","horas","video","hora"]);
   const stopWords = ["el","la","los","las","lo","de","del","un","una","que","por","para","con","me","se","es","en","y","e","a","su","le","no","te","le","les","nos","os","lo","al","este","esta"];
   const normalizeText = (t: string) => t.toLowerCase()
     .replace(/mega pack/g, 'megapack')
@@ -770,7 +772,10 @@ ${personalizedContext}
     .replace(/\s+/g, ' ')
     .trim();
   const normalizedQuery = normalizeText(lastText);
-  const queryWords = normalizedQuery.split(/\s+/).filter((w: string) => w.length > 2 && !stopWords.includes(w));
+  const allWords = normalizedQuery.split(/\s+/).filter((w: string) => w.length > 2 && !stopWords.includes(w));
+  // Separar palabras clave de producto vs palabras genéricas (entrega, acceso, garantía, etc.)
+  const productKeywords = allWords.filter((w: string) => !genericProductWords.has(w));
+  const queryWords = productKeywords.length > 0 ? productKeywords : allWords;
 
   // Detectar si el usuario menciona una categoría
   const mentionedCategories: string[] = [];
@@ -849,10 +854,22 @@ ${personalizedContext}
 
   // 🧠 LÓGICA DE DECISIÓN DEL CONTEXTO DE PRODUCTO
   if (bestMatch && currentProductInContext && bestMatch.product.id !== currentProductInContext.id) {
-    // 💡 El cliente cambió de tema y preguntó por un PRODUCTO NUEVO
-    console.log(`🔄 [PRODUCT-SWITCH] Cliente cambió de ${currentProductInContext.name} a ${bestMatch.product.name}`);
-    if (!sentCards.has(bestMatch.product.id)) {
+    // 💡 Posible cambio de producto — verificar si es una pregunta genérica o un cambio real
+    const alreadySentCurrentCard = sentCards.has(currentProductInContext.id);
+    const isGenericQuestion = hasQuestionWords && alreadySentCurrentCard;
+    const isStrongMatch = bestMatch.score > 10; // Solo cambios con alta confianza
+
+    if (isGenericQuestion) {
+      // El cliente ya recibió la card y está preguntando algo, NO cambiar producto
+      console.log(`🔄 [PRODUCT-NO-SWITCH] Cliente pregunta, se mantiene: ${currentProductInContext.name} (match: ${bestMatch.product.name} score ${bestMatch.score})`);
+      productForRequest = null;
+    } else if (isStrongMatch && !sentCards.has(bestMatch.product.id)) {
+      // Cambio real a producto diferente con alta confianza
+      console.log(`🔄 [PRODUCT-SWITCH] Cambio confirmado: ${currentProductInContext.name} → ${bestMatch.product.name} (score: ${bestMatch.score})`);
       productForRequest = bestMatch.product;
+    } else {
+      console.log(`🔄 [PRODUCT-NO-SWITCH] Match débil, se mantiene: ${currentProductInContext.name}`);
+      productForRequest = null;
     }
   } else if (isConfirmation && currentProductInContext) {
     // 💡 Confirmando el producto actual
