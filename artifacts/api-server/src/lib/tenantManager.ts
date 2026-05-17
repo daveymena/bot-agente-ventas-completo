@@ -102,12 +102,12 @@ const DEFAULT_TENANT: TenantContext = {
         {
           type: "Nequi",
           number: process.env.TRANSFER_NUMBER || "3136174267",
-          name: process.env.TRANSFER_NAME || "Deiner Mena"
+          name: process.env.TRANSFER_NAME || "Duvier Mena"
         },
         {
           type: "Daviplata", 
           number: process.env.TRANSFER_NUMBER || "3136174267",
-          name: process.env.TRANSFER_NAME || "Deiner Mena"
+          name: process.env.TRANSFER_NAME || "Duvier Mena"
         }
       ]
     }

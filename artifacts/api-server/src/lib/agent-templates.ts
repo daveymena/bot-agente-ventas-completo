@@ -9,7 +9,7 @@ export interface AgentTemplate {
 }
 
 const BRAND = "TecnoVariedades";
-const OWNER = "Deiner Mena";
+const OWNER = "Duvier Mena";
 const NEQUI = process.env.TRANSFER_NUMBER || "3136174267";
 
 export const AGENT_TEMPLATES: AgentTemplate[] = [

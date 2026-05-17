@@ -130,6 +130,22 @@ function getProductImage(name: string): string {
     if (nameLower.includes(key)) return url;
   }
 
+  // Try category-based fallback
+  const categoryImages: Record<string, string> = {
+    "música": "https://images.unsplash.com/photo-1511379938547-c1f69419868d?w=800",
+    "musica": "https://images.unsplash.com/photo-1511379938547-c1f69419868d?w=800",
+    "tecnología": "https://images.unsplash.com/photo-1518770660439-4636190af475?w=800",
+    "tecnologia": "https://images.unsplash.com/photo-1518770660439-4636190af475?w=800",
+    "negocios": "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=800",
+    "salud": "https://images.unsplash.com/photo-1544367567-0f2fcb009e0b?w=800",
+    "fitness": "https://images.unsplash.com/photo-1517836357463-d25dfeac3438?w=800",
+    "idiomas": "https://images.unsplash.com/photo-1456513080510-7bf3a84b82f8?w=800",
+  };
+
+  for (const [key, url] of Object.entries(categoryImages)) {
+    if (nameLower.includes(key)) return url;
+  }
+
   return genericImage;
 }
 
@@ -148,19 +164,17 @@ function buildProductCaption(p: typeof products.$inferSelect, categoryName: stri
   lines.push(`✨ ${mainEmoji} *PROGRAMA PROFESIONAL: ${nameUpper}*`);
   lines.push("━━━━━━━━━━━━━━━━━━━━━━━");
   lines.push("");
-  lines.push(`*RESUMEN DEL PROGRAMA:*`);
-  lines.push(`Formación estructurada para llevar tus habilidades al siguiente nivel con metodología probada y práctica.`);
+  lines.push(`*DESCRIPCIÓN:*`);
+  lines.push(`${p.description || 'Formación estructurada para llevar tus habilidades al siguiente nivel con metodología probada y práctica.'}`);
   lines.push("");
   
   lines.push(`*BENEFICIOS INCLUIDOS:*`);
   const features = (p.features ?? []);
-  if (features.length >= 3) {
+  if (features.length > 0) {
     for (const f of features) lines.push(`✅ ${f}`);
   } else {
     lines.push(`✅ ${meta.classes || "Contenido completo"} en Alta Definición`);
-    lines.push(`✅ Material de apoyo y recursos descargables`);
     lines.push(`✅ Acceso inmediato y de por vida`);
-    lines.push(`✅ Soporte garantizado TecnoVariedades`);
   }
   
   lines.push("");

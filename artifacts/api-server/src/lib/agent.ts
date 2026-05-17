@@ -596,18 +596,19 @@ Estado: ${p.isActive ? "Activo" : "Inactivo"}
           );
           console.log(`🔗 [AGENT-PAYMENT] Links generados para ${paymentProduct.name} — MP: ${!!links.mercadopago?.url}, PayPal: ${!!links.paypal?.url}`);
           
+          const pFeatures = (paymentProduct.features as string[]) || [];
+          const pFeaturesText = pFeatures.length > 0
+            ? pFeatures.map(f => `✅ ${f}`).join('\n')
+            : '✅ Contenido completo en Alta Definición\n✅ Acceso inmediato y de por vida';
+
           paymentInfo = `
 ✨ 💻 *PROGRAMA PROFESIONAL: ${paymentProduct.name.toUpperCase()}*
 ━━━━━━━━━━━━━━━━━━━━━━━
 
-*RESUMEN DEL PROGRAMA:*
-Formación estructurada para llevar tus habilidades al siguiente nivel con metodología probada y práctica.
+*${paymentProduct.description || 'Formación estructurada para llevar tus habilidades al siguiente nivel con metodología probada y práctica.'}*
 
 *BENEFICIOS INCLUIDOS:*
-✅ Contenido en alta resolución
-✅ Acceso inmediato y de por vida
-✅ Actualizaciones constantes
-✅ Soporte garantizado TecnoVariedades
+${pFeaturesText}
 
 💰 *PRECIO ESPECIAL:*
 *${formatPrice(Number(paymentProduct.price), paymentProduct.currency)}*
@@ -623,7 +624,7 @@ ${links.paypal?.url || links.paypal?.shortUrl || "Enlace no disponible"}
 
 🔹 *Transferencia Directa:*
 📍 *Nequi/Daviplata:* ${links.transfer.options[0]?.number || "3136174267"}
-👤 *Titular:* ${links.transfer.options[0]?.name || "Deiner Mena"}
+👤 *Titular:* ${links.transfer.options[0]?.name || "Duvier Mena"}
 
 _¿Deseas confirmar tu compra ahora o tienes alguna pregunta adicional?_`;
         }
@@ -641,8 +642,9 @@ _¿Deseas confirmar tu compra ahora o tienes alguna pregunta adicional?_`;
   // Context Intelligence Enhancement: Generate personalized context
   const personalizedContext = generatePersonalizedContext(conversationContext, lastText);
 
-  // Determinar producto en contexto para inteligencia avanzada si no se ha detectado aún
-  if (!currentProductInContext && conversationContext.currentTopic) {
+  // Determinar producto en contexto solo si ya se envió una card antes
+  // (NO inferir del tema de conversación porque evitaría que se envíe la primera card)
+  if (!currentProductInContext && conversationContext.currentTopic && sentCards.size > 0) {
     const topic = conversationContext.currentTopic.toLowerCase();
     currentProductInContext = productList.find(p => p.name.toLowerCase().includes(topic) && topic.length > 4) || null;
   }
@@ -655,8 +657,10 @@ _¿Deseas confirmar tu compra ahora o tienes alguna pregunta adicional?_`;
   );
   console.log(`🧠 [ADVANCED-INTELLIGENCE] Contexto inteligente generado - ${new Date().toISOString()}`);
   
+  const customerName = convo.contactName || "cliente";
   const systemPrompt = `
-Eres **SOFÍA**, vendedora experta y consejera de confianza de TecnoVariedades D&S. Tienes la habilidad de ENTENDER lo que el cliente realmente necesita incluso cuando no lo dice con claridad. Eres empática, natural y nunca robótica.
+Eres **SOFÍA**, vendedora experta y consejera de confianza de TecnoVariedades D&S.
+Estás conversando con **${customerName}**. DIRÍGETE a ${customerName} por su nombre de forma natural durante la conversación, pero sin exagerar (máximo 2 veces por mensaje).
 
 ━━━━━━━━━━━━━━━━━━━━━━━
 🧠 CÓMO PIENSAS Y ACTÚAS
@@ -717,35 +721,29 @@ ${personalizedContext}
     }
   }
   
-  // 🔍 PASO 2: VERIFICAR SI EL CLIENTE ESTÁ PREGUNTANDO SOBRE EL PRODUCTO ACTUAL
-  const isQuestionAboutCurrentProduct = lastTextLower.includes("cómo") ||
-                                        lastTextLower.includes("como") ||
-                                        lastTextLower.includes("cuándo") ||
-                                        lastTextLower.includes("cuando") ||
-                                        lastTextLower.includes("dónde") ||
-                                        lastTextLower.includes("donde") ||
-                                        lastTextLower.includes("qué") ||
-                                        lastTextLower.includes("que") ||
-                                        lastTextLower.includes("cuál") ||
-                                        lastTextLower.includes("cual") ||
-                                        lastTextLower.includes("entregan") ||
-                                        lastTextLower.includes("entrega") ||
-                                        lastTextLower.includes("acceso") ||
-                                        lastTextLower.includes("garantía") ||
-                                        lastTextLower.includes("garantia") ||
-                                        lastTextLower.includes("incluye") ||
-                                        lastTextLower.includes("tiene") ||
-                                        lastTextLower.includes("trae") ||
-                                        lastTextLower.includes("soporte") ||
-                                        lastTextLower.includes("duración") ||
-                                        lastTextLower.includes("duracion") ||
-                                        lastTextLower.includes("tiempo");
-  
-  // Si está preguntando sobre el producto actual, NO buscar otro producto
-  if (isQuestionAboutCurrentProduct && currentProductInContext) {
-    console.log(`❓ [PRODUCT-QUESTION] Cliente preguntando sobre producto actual: ${currentProductInContext.name}`);
-    productForRequest = null; // NO enviar tarjeta de nuevo
-  }
+  // 🔍 PASO 2: VERIFICAR PALABRAS DE PREGUNTA
+  const hasQuestionWords = lastTextLower.includes("cómo") ||
+                           lastTextLower.includes("como") ||
+                           lastTextLower.includes("cuándo") ||
+                           lastTextLower.includes("cuando") ||
+                           lastTextLower.includes("dónde") ||
+                           lastTextLower.includes("donde") ||
+                           lastTextLower.includes("qué") ||
+                           lastTextLower.includes("que") ||
+                           lastTextLower.includes("cuál") ||
+                           lastTextLower.includes("cual") ||
+                           lastTextLower.includes("entregan") ||
+                           lastTextLower.includes("entrega") ||
+                           lastTextLower.includes("acceso") ||
+                           lastTextLower.includes("garantía") ||
+                           lastTextLower.includes("garantia") ||
+                           lastTextLower.includes("incluye") ||
+                           lastTextLower.includes("tiene") ||
+                           lastTextLower.includes("trae") ||
+                           lastTextLower.includes("soporte") ||
+                           lastTextLower.includes("duración") ||
+                           lastTextLower.includes("duracion") ||
+                           lastTextLower.includes("tiempo");
   
   // 🔍 PASO 3: VERIFICAR SI EL CLIENTE ESTÁ CONFIRMANDO
   const isConfirmation = (lastTextLower.includes("sí") || 
@@ -759,55 +757,127 @@ ${personalizedContext}
                          lastTextLower.includes("adelante")) &&
                          !lastTextLower.includes("no");
   
-  // Si el cliente está confirmando, MANTENER el producto anterior
-  if (isConfirmation && currentProductInContext) {
-    console.log(`✅ [PRODUCT-CONFIRMATION] Cliente confirmando producto: ${currentProductInContext.name} (ID: ${currentProductInContext.id})`);
-    productForRequest = null; // NO enviar tarjeta de nuevo
-  }
+  // 🔍 PASO 4: BÚSQUEDA SEMÁNTICA CON CONTEXTO COMPLETO
+  console.log(`🔍 [PRODUCT-SEARCH] Buscando producto en catálogo para: "${lastText}"`);
   
-  // 🔍 PASO 4: BÚSQUEDA SEMÁNTICA REAL EN EL CATÁLOGO
-  // Solo buscar si NO hay producto en contexto o si el cliente menciona un producto diferente
-  if (!isQuestionAboutCurrentProduct && !isConfirmation) {
-    console.log(`🔍 [PRODUCT-SEARCH] Buscando producto en catálogo para: "${lastText}"`);
-    
-    // Búsqueda semántica: buscar en nombre, descripción y categoría
-    const searchResults = productList
-      .map(product => {
-        const productText = `${product.name} ${product.description} ${product.category}`.toLowerCase();
-        const words = lastTextLower.split(/\s+/).filter(w => w.length > 3);
-        
-        // Calcular score de coincidencia
-        let score = 0;
-        for (const word of words) {
-          if (productText.includes(word)) {
-            score += 1;
-            // Bonus si coincide con el nombre
-            if (product.name.toLowerCase().includes(word)) {
-              score += 2;
-            }
+  const allCategories = await db.select().from(productCategories);
+  const categoryMap = new Map(allCategories.map(c => [c.id, c.name.toLowerCase()]));
+
+  const stopWords = ["el","la","los","las","lo","de","del","un","una","que","por","para","con","me","se","es","en","y","e","a","su","le","no","te","le","les","nos","os","lo","al","este","esta"];
+  const normalizeText = (t: string) => t.toLowerCase()
+    .replace(/mega pack/g, 'megapack')
+    .replace(/[^\w\sáéíóúñü]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  const normalizedQuery = normalizeText(lastText);
+  const queryWords = normalizedQuery.split(/\s+/).filter((w: string) => w.length > 2 && !stopWords.includes(w));
+
+  // Detectar si el usuario menciona una categoría
+  const mentionedCategories: string[] = [];
+  for (const [, catName] of categoryMap) {
+    if (catName.length > 3 && normalizedQuery.includes(catName)) {
+      mentionedCategories.push(catName);
+    }
+  }
+
+  let bestMatch = null;
+  const searchResults = productList
+    .map(product => {
+      const catName = product.categoryId ? (categoryMap.get(product.categoryId) || '') : (product.category || '');
+      const productName = normalizeText(product.name);
+      const productDesc = normalizeText(product.description || '');
+      const productText = `${productName} ${productDesc} ${catName}`;
+
+      let score = 0;
+      const matchedWords: string[] = [];
+
+      // CRITERIO 1: Coincidencia de frase completa en el nombre del producto
+      const queryPhrase = queryWords.join(' ');
+      if (queryPhrase.length > 4 && productName.includes(queryPhrase)) {
+        score += 20;
+        console.log(`   📌 [FRASE-MATCH] "${queryPhrase}" coincide con nombre de producto "${productName}"`);
+      }
+
+      // CRITERIO 2: Coincidencia de frase parcial (ej: "pack idiomas" → "pack idiomas" en nombre)
+      for (let i = queryWords.length; i >= 2; i--) {
+        for (let j = 0; j <= queryWords.length - i; j++) {
+          const subPhrase = queryWords.slice(j, j + i).join(' ');
+          if (subPhrase.length > 4 && productName.includes(subPhrase)) {
+            score += 15;
           }
         }
-        
-        return { product, score };
-      })
-      .filter(r => r.score > 0)
-      .sort((a, b) => b.score - a.score);
-    
-    if (searchResults.length > 0) {
-      const bestMatch = searchResults[0];
-      console.log(`🎯 [PRODUCT-SEARCH] Mejor coincidencia: ${bestMatch.product.name} (Score: ${bestMatch.score})`);
-      console.log(`   Otros resultados: ${searchResults.slice(1, 3).map(r => `${r.product.name} (${r.score})`).join(', ')}`);
-      
-      // Solo usar el producto si NO fue enviado antes
-      if (!sentCards.has(bestMatch.product.id)) {
-        productForRequest = bestMatch.product;
-        console.log(`✅ [PRODUCT-SEARCH] Producto seleccionado: ${productForRequest.name} (ID: ${productForRequest.id})`);
-      } else {
-        console.log(`🚫 [PRODUCT-SKIP] Producto ${bestMatch.product.name} ya fue enviado`);
       }
-    } else {
-      console.log(`❌ [PRODUCT-SEARCH] No se encontró coincidencia en el catálogo`);
+
+      // CRITERIO 3: Palabras individuales con peso contextual
+      for (const word of queryWords) {
+        if (productName.includes(word) || productName.includes(word.replace(/s$/, ''))) {
+          score += 5; // peso ALTO si está en el nombre del producto
+          matchedWords.push(word);
+        } else if (productText.includes(word) || productText.includes(word.replace(/s$/, ''))) {
+          score += 2; // peso MEDIO si está en descripción o categoría
+          matchedWords.push(word);
+        } else if (productDesc.includes(word)) {
+          score += 1; // peso BAJO solo en descripción
+        }
+      }
+
+      // CRITERIO 4: Bonus si la categoría mencionada coincide con este producto
+      if (mentionedCategories.length > 0) {
+        for (const cat of mentionedCategories) {
+          if (catName === cat || catName.includes(cat)) {
+            score += 6;
+          }
+        }
+      }
+
+      // CRITERIO 5: Penalización si el nombre del producto en la query no se parece al nombre real
+      // (evita que "megapack completo 81 en 1" gane por tener "megapack" cuando el usuario pidió "idiomas")
+
+      return { product, score, matchedWords };
+    })
+    .filter(r => r.score > 0)
+    .sort((a, b) => b.score - a.score);
+  
+  if (searchResults.length > 0) {
+    bestMatch = searchResults[0];
+    console.log(`🎯 [PRODUCT-SEARCH] Mejor coincidencia: ${bestMatch.product.name} (Score: ${bestMatch.score}, Palabras: [${bestMatch.matchedWords.join(', ')}])`);
+    // Log de todos los resultados para debug
+    for (const r of searchResults.slice(0, 5)) {
+      console.log(`   ${r.product.id}: "${r.product.name}" → score ${r.score} [${r.matchedWords.join(', ')}]`);
     }
+  }
+
+  // 🧠 LÓGICA DE DECISIÓN DEL CONTEXTO DE PRODUCTO
+  if (bestMatch && currentProductInContext && bestMatch.product.id !== currentProductInContext.id) {
+    // 💡 El cliente cambió de tema y preguntó por un PRODUCTO NUEVO
+    console.log(`🔄 [PRODUCT-SWITCH] Cliente cambió de ${currentProductInContext.name} a ${bestMatch.product.name}`);
+    if (!sentCards.has(bestMatch.product.id)) {
+      productForRequest = bestMatch.product;
+    }
+  } else if (isConfirmation && currentProductInContext) {
+    // 💡 Confirmando el producto actual
+    console.log(`✅ [PRODUCT-CONFIRMATION] Cliente confirmando producto: ${currentProductInContext.name}`);
+    productForRequest = null;
+  } else if (hasQuestionWords && currentProductInContext && (!bestMatch || bestMatch.product.id === currentProductInContext.id)) {
+    // 💡 Pregunta sobre el producto actual
+    if (sentCards.has(currentProductInContext.id)) {
+      // Tarjeta ya enviada antes, solo responde la pregunta
+      console.log(`❓ [PRODUCT-QUESTION] Cliente preguntando sobre producto (tarjeta YA enviada): ${currentProductInContext.name}`);
+      productForRequest = null;
+    } else {
+      // Primera vez que pregunta por este producto, ENVIAR TARJETA
+      productForRequest = currentProductInContext;
+      console.log(`🃏 [PRODUCT-QUESTION] Primera pregunta, ENVIANDO tarjeta: ${currentProductInContext.name}`);
+    }
+  } else if (bestMatch && !currentProductInContext) {
+    // 💡 Primer producto detectado en la conversación
+    if (!sentCards.has(bestMatch.product.id)) {
+      productForRequest = bestMatch.product;
+      console.log(`✅ [PRODUCT-SEARCH] Producto seleccionado: ${productForRequest.name}`);
+    }
+  } else {
+    console.log(`❌ [PRODUCT-SEARCH] No hay necesidad de enviar tarjeta nueva`);
+    productForRequest = null;
   }
   
   // Si encontramos un producto, agregarlo al prompt
@@ -990,12 +1060,12 @@ Explica POR QUÉ recomiendas ese producto.${productInstruction}`;
       if (isGreetingOnly && !conversationContext.hasIntroduced) {
         console.log(`⚡ [AGENT-FAST-TRACK] Enviando presentación hardcodeada instantánea - ${new Date().toISOString()}`);
         
-        raw = `👋 ¡Hola! Bienvenido a *${convo.tenantId === 1 ? 'TecnoVariedades D&S' : 'nuestra tienda'}* 😊
+        raw = `👋 ¡Hola${customerName !== 'cliente' ? ` *${customerName}*` : ''}! Bienvenido a *${convo.tenantId === 1 ? 'TecnoVariedades D&S' : 'nuestra tienda'}* 😊
 
 Es un gusto saludarte. ¿Cómo te puedo ayudar el día de hoy?`;
       } else if (isGreetingOnly && conversationContext.hasIntroduced) {
         console.log(`⚡ [AGENT-FAST-TRACK] Enviando saludo recurrente hardcodeado instantáneo - ${new Date().toISOString()}`);
-        raw = `👋 *¡Qué gusto verte de nuevo!* 🌟
+        raw = `👋 *¡Qué gusto verte de nuevo${customerName !== 'cliente' ? `, ${customerName}` : ''}!* 🌟
 
 ¿En qué te puedo ayudar el día de hoy?`;
       } else {

@@ -29,13 +29,13 @@ async function setup() {
   } else if (idOne) {
     console.log("🛠️ Tomando control del Tenant ID 1...");
     await db.update(tenants)
-      .set({ email, passwordHash, brandName: "Sofía AI", slug, name: "Deiner Mena" })
+      .set({ email, passwordHash, brandName: "Sofía AI", slug, name: "Duvier Mena" })
       .where(eq(tenants.id, 1));
     tenantId = 1;
   } else {
     console.log("🆕 Creando nuevo usuario maestro...");
     const [newTenant] = await db.insert(tenants).values({
-      name: "Deiner Mena",
+      name: "Duvier Mena",
       email,
       passwordHash,
       slug,
