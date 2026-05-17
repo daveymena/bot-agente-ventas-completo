@@ -9,6 +9,12 @@ export interface AIProviderConfig {
 
 export function getProviderConfig(provider: string): AIProviderConfig | null {
   switch (provider) {
+    case "opencode":
+      return {
+        baseUrl: "http://localhost:8000/v1",
+        apiKey: "dummy",
+        model: "deepseek-v4-flash",
+      };
     case "github_copilot_internal":
       const copilotToken = process.env.GITHUB_COPILOT_TOKEN || process.env.GITHUB_TOKEN;
       if (!copilotToken) return null;
@@ -99,6 +105,14 @@ export function getProviderConfigFromSettings(settings: {
   ollamaModel?: string;
 }): AIProviderConfig | null {
   const provider = settings.aiProvider || "github";
+
+  if (provider === "opencode") {
+    return {
+      baseUrl: "http://localhost:8000/v1",
+      apiKey: "dummy",
+      model: settings.githubModel || "deepseek-v4-flash",
+    };
+  }
 
   if (provider === "github_copilot_internal") {
     const token = settings.githubToken || process.env.GITHUB_COPILOT_TOKEN || process.env.GITHUB_TOKEN;

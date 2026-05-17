@@ -355,6 +355,7 @@ export default function Settings() {
                       onChange={e => setFormData({...formData, aiProvider: e.target.value as any})}
                       className="w-full h-10 rounded-xl border border-input bg-muted/30 px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
                     >
+                      <option value="opencode">OpenCode Zen (Gratis - DeepSeek/Qwen)</option>
                       <option value="github_copilot_internal">GitHub Copilot Internal (VS Code Flow)</option>
                       <option value="github">GitHub Models (Azure)</option>
                       <option value="nvidia">NVIDIA NIM (High Performance)</option>
@@ -366,7 +367,16 @@ export default function Settings() {
                   {/* AI Connection Status */}
                   <div className="flex items-center gap-2 p-3 bg-muted/20 rounded-xl border border-white/5">
                     {(() => {
-                      if (formData.aiProvider === "github_copilot_internal") {
+                      if (formData.aiProvider === "opencode") {
+                        return (
+                          <>
+                            <div className="h-2 w-2 rounded-full bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.5)]" />
+                            <span className="text-[10px] font-bold uppercase tracking-wider text-green-400">
+                              Puente OpenCode Local Activo (Puerto 8000)
+                            </span>
+                          </>
+                        );
+                      } else if (formData.aiProvider === "github_copilot_internal") {
                         const isActive = formData.copilotSessionToken && new Date(formData.copilotSessionExpiresAt) > new Date();
                         const isExpired = formData.copilotSessionToken && !isActive;
                         return (
@@ -657,6 +667,38 @@ export default function Settings() {
                           placeholder="llama3.1"
                           className="bg-muted/30 font-mono"
                         />
+                      </div>
+                    </div>
+                  )}
+
+                  {formData.aiProvider === "opencode" && (
+                    <div className="space-y-4 animate-in fade-in slide-in-from-left-4">
+                      <div className="p-5 rounded-2xl border border-primary/20 bg-primary/5 space-y-3">
+                        <div className="flex items-center gap-3">
+                          <div className="p-2 bg-primary/20 rounded-lg text-primary">
+                            <Sparkles className="h-5 w-5 animate-pulse" />
+                          </div>
+                          <div>
+                            <h4 className="text-sm font-bold">OpenCode Zen (Gratuito)</h4>
+                            <p className="text-[10px] text-muted-foreground uppercase font-semibold">Usa modelos ilimitados y gratuitos de OpenCode.</p>
+                          </div>
+                        </div>
+                        <div className="text-xs text-muted-foreground leading-relaxed pt-2">
+                          Para usar esta opción, asegúrate de iniciar el puente ejecutando:
+                          <code className="block bg-black/40 p-2 rounded-lg font-mono text-[10px] mt-2 text-primary border border-primary/20">
+                            .\INICIAR_OPENCODE.ps1
+                          </code>
+                        </div>
+                      </div>
+                      <div className="space-y-2">
+                        <Label className="text-muted-foreground font-semibold uppercase tracking-wider text-[10px]">Modelo Seleccionado</Label>
+                        <Input 
+                          value={formData.githubModel || "deepseek-v4-flash"} 
+                          onChange={e => setFormData({...formData, githubModel: e.target.value})} 
+                          placeholder="deepseek-v4-flash"
+                          className="bg-muted/30 font-mono"
+                        />
+                        <p className="text-[9px] text-muted-foreground">Modelos soportados: <code className="text-primary">deepseek-v4-flash</code>, <code className="text-primary">qwen3.6-plus-free</code>, <code className="text-primary">minimax-m2.5-free</code>, <code className="text-primary">nemotron-3-super-free</code></p>
                       </div>
                     </div>
                   )}
