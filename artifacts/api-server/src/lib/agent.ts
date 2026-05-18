@@ -501,7 +501,7 @@ export async function runAgentReply(conversationId: number) {
   const lastText = lastCustomerMsg?.content.toLowerCase() || "";
   
   const commonGreetings = ["hola", "buenas", "buen dia", "buenos dias", "buenas tardes", "buenas noches", "hola!", "hola.", "hola muy buenas", "que tal", "como estas", "ola", "saludos"];
-  const isGreetingOnly = commonGreetings.some(k => lastText.trim().toLowerCase().includes(k)) && lastText.split(' ').length <= 4;
+  const isGreetingOnly = commonGreetings.some(k => lastText.trim().toLowerCase().includes(k)) && lastText.split(' ').length <= 8;
 
   let isNewSession = false;
   if (history.length >= 2) {
@@ -791,8 +791,8 @@ ${personalizedContext}
   const allCategories = await db.select().from(productCategories);
   const categoryMap = new Map(allCategories.map(c => [c.id, c.name.toLowerCase()]));
 
-  // Palabras genéricas que NO deben usarse para elegir producto (son preguntas sobre entrega/acceso)
-  const genericProductWords = new Set(["entrega","entregan","acceso","garantia","garantía","soporte","descarga","drive","google","duracion","duración","tiempo","incluye","tiene","trae","precio","valor","cuanto","cuánto","cual","cuál","pago","pagar","link","enlace","nequi","daviplata","transfiere","transferencia","comprar","adquirir","quiero","necesito","funciona","clases","lecciones","modulos","horas","video","hora"]);
+  // Palabras genéricas que NO deben usarse para elegir producto (son preguntas sobre entrega/acceso o saludos)
+  const genericProductWords = new Set(["entrega","entregan","acceso","garantia","garantía","soporte","descarga","drive","google","duracion","duración","tiempo","incluye","tiene","trae","precio","valor","cuanto","cuánto","cual","cuál","pago","pagar","link","enlace","nequi","daviplata","transfiere","transferencia","comprar","adquirir","quiero","necesito","funciona","clases","lecciones","modulos","horas","video","hora","cómo","como","están","estan","estado","estas","estás"]);
   const stopWords = ["el","la","los","las","lo","de","del","un","una","que","por","para","con","me","se","es","en","y","e","a","su","le","no","te","le","les","nos","os","lo","al","este","esta"];
   const normalizeText = (t: string) => t.toLowerCase()
     .replace(/mega pack/g, 'megapack')
