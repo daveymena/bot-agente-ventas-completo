@@ -3,6 +3,8 @@
  * Comprende la intención real detrás de las preguntas, no solo palabras clave
  */
 
+import { PAYMENT_KEYWORDS } from "./agent";
+
 export interface QuestionIntent {
   category: 'product' | 'price' | 'delivery' | 'warranty' | 'payment' | 'availability' | 'general';
   subcategory?: string;
@@ -62,7 +64,7 @@ export function analyzeQuestionIntent(question: string): QuestionIntent {
       ]
     },
     payment: {
-      keywords: ['pago', 'tarjeta', 'crédito', 'débito', 'transferencia', 'efectivo', 'cuotas', 'financiamiento', 'aceptan'],
+      keywords: PAYMENT_KEYWORDS, // ✅ Usando CONSTANTE UNIFICADA
       patterns: [
         /qué.*formas.*pago|pago.*formas|aceptan/i,
         /puedo.*pagar.*cuotas|cuotas|financiamiento/i,

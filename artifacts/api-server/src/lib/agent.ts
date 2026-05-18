@@ -23,6 +23,13 @@ import {
   arePaymentServicesHealthy,
   getSystemHealthSummary
 } from "./fallbackSystem";
+import { 
+  isPaymentConfirmation, 
+  isPaymentMethodQuestion, 
+  isProductDetailsQuestion,
+  getPaymentMethodResponse,
+  getConfirmationResponse
+} from "./payment-confirmation";
 import { getAgentType } from "./agent-router";
 import { 
   analyzeCustomerObjection, 
@@ -34,6 +41,85 @@ import {
 } from "./objectionHandler";
 import { AdvancedIntelligence } from "./advanced-intelligence";
 
+// ============================================================
+// 🎯 UNIFIED KEYWORD CONSTANTS - SINGLE SOURCE OF TRUTH
+// ============================================================
+// ⚠️ IMPORTANTE: Esta es la ÚNICA definición de keywords en todo el sistema
+// Evita duplicación de lógica y mantiene consistencia en la detección de intenciones
+
+export const PAYMENT_KEYWORDS = [
+  // Compra / Adquisición
+  'pago', 'pagar', 'comprar', 'adquirir', 'compro', 'comprare',
+  // Métodos de pago
+  'nequi', 'daviplata', 'transferencia', 'transferir',
+  // Consultas sobre pago
+  'cuenta', 'link', 'enlace', 'precio', 'cuánto', 'costo', 'vale',
+  // Confirmación de compra
+  'confirmo', 'confirmar', 'procedo', 'adelante', 'vamos', 'dale'
+];
+
+export const OBJECTION_KEYWORDS = [
+  'caro', 'costoso', 'mucho', 'pensarlo', 'después', 'luego',
+  'no sé', 'duda', 'inseguro', 'desconfío', 'estafa', 'funciona',
+  'garantía', 'devolución', 'reembolso', 'no tengo', 'sin dinero'
+];
+
+export const URGENCY_KEYWORDS = [
+  'rápido', 'urgente', 'ya', 'ahora', 'hoy', 'inmediato',
+  'cuanto antes', 'pronto', 'necesito ya'
+];
+
+export const LEAVING_KEYWORDS = [
+  'adiós', 'chao', 'gracias', 'luego', 'después', 'no gracias',
+  'no me interesa', 'no quiero', 'déjame', 'molestando'
+];
+
+// Interest level indicators for lead behavior analysis
+export const HIGH_INTEREST_KEYWORDS = [
+  'necesito', 'urgente', 'cuando', 'precio', 'comprar', 'adquirir'
+];
+
+export const MEDIUM_INTEREST_KEYWORDS = [
+  'interesa', 'información', 'detalles', 'características'
+];
+
+export const LOW_INTEREST_KEYWORDS = [
+  'hola', 'buenas', 'que tal'
+];
+
+// Decision capacity indicators
+export const HIGH_DECISION_KEYWORDS = [
+  'compro', 'quiero', 'necesito', 'decidido'
+];
+
+export const LOW_DECISION_KEYWORDS = [
+  'tal vez', 'no se', 'pensando', 'viendo'
+];
+
+// Helper functions for intent detection
+
+export function hasPaymentIntent(text: string): boolean {
+  const lowerText = text.toLowerCase();
+  return PAYMENT_KEYWORDS.some(k => lowerText.includes(k));
+}
+
+export function hasObjectionIntent(text: string): boolean {
+  const lowerText = text.toLowerCase();
+  return OBJECTION_KEYWORDS.some(k => lowerText.includes(k));
+}
+
+export function hasUrgencyIntent(text: string): boolean {
+  const lowerText = text.toLowerCase();
+  return URGENCY_KEYWORDS.some(k => lowerText.includes(k));
+}
+
+export function hasLeavingIntent(text: string): boolean {
+  const lowerText = text.toLowerCase();
+  return LEAVING_KEYWORDS.some(k => lowerText.includes(k));
+}
+
+// ============================================================
+
 // Context Intelligence Enhancement Types
 interface ConversationContext {
   hasIntroduced: boolean;
@@ -42,6 +128,9 @@ interface ConversationContext {
   leadBehavior: LeadBehaviorPattern;
   interactionCount: number;
   lastInteractionTime: Date | null;
+  // ✅ Nuevo: Rastrear tarjetas enviadas para evitar repetición
+  cardsSentFor: Set<number>; // IDs de productos cuya tarjeta ya fue enviada
+  lastCardSentAt: Date | null;
 }
 
 interface LeadBehaviorPattern {
@@ -144,35 +233,26 @@ function analyzeLeadBehaviorPattern(customerMessages: any[]): LeadBehaviorPatter
   const lastMessage = customerMessages[customerMessages.length - 1]?.content || "";
   
   // Interest level indicators
-  const highInterestKeywords = ["necesito", "urgente", "cuando", "precio", "comprar", "adquirir"];
-  const mediumInterestKeywords = ["interesa", "información", "detalles", "características"];
-  const lowInterestKeywords = ["hola", "buenas", "que tal"];
-  
   let interestLevel: 'low' | 'medium' | 'high' = 'low';
-  if (highInterestKeywords.some(k => allText.includes(k))) {
+  if (HIGH_INTEREST_KEYWORDS.some(k => allText.includes(k))) {
     interestLevel = 'high';
-  } else if (mediumInterestKeywords.some(k => allText.includes(k))) {
+  } else if (MEDIUM_INTEREST_KEYWORDS.some(k => allText.includes(k))) {
     interestLevel = 'medium';
   }
 
-  // Count price inquiries
-  const priceKeywords = ["precio", "costo", "valor", "cuanto", "pago", "pagar"];
-  const priceInquiries = priceKeywords.reduce((count, keyword) => 
+  // Count price inquiries - ✅ Usando CONSTANTE UNIFICADA
+  const priceInquiries = PAYMENT_KEYWORDS.reduce((count, keyword) => 
     count + (allText.match(new RegExp(keyword, 'g')) || []).length, 0
   );
 
-  // Detect urgency indicators
-  const urgencyKeywords = ["urgente", "rapido", "ya", "ahora", "inmediato", "pronto"];
-  const urgencyIndicators = urgencyKeywords.filter(k => allText.includes(k));
+  // Detect urgency indicators - ✅ Usando CONSTANTE UNIFICADA
+  const urgencyIndicators = URGENCY_KEYWORDS.filter(k => allText.includes(k));
 
-  // Decision capacity indicators
-  const highDecisionKeywords = ["compro", "quiero", "necesito", "decidido"];
-  const lowDecisionKeywords = ["tal vez", "no se", "pensando", "viendo"];
-  
+  // Decision capacity indicators - ✅ Usando CONSTANTES UNIFICADAS
   let decisionCapacity: 'low' | 'medium' | 'high' = 'medium';
-  if (highDecisionKeywords.some(k => allText.includes(k))) {
+  if (HIGH_DECISION_KEYWORDS.some(k => allText.includes(k))) {
     decisionCapacity = 'high';
-  } else if (lowDecisionKeywords.some(k => allText.includes(k))) {
+  } else if (LOW_DECISION_KEYWORDS.some(k => allText.includes(k))) {
     decisionCapacity = 'low';
   }
 
@@ -180,9 +260,8 @@ function analyzeLeadBehaviorPattern(customerMessages: any[]): LeadBehaviorPatter
   const productKeywords = ["piano", "guitarra", "excel", "diseño", "trading", "idiomas", "hacking"];
   const preferredProducts = productKeywords.filter(k => allText.includes(k));
 
-  // Detect objection patterns
-  const objectionKeywords = ["caro", "costoso", "mucho dinero", "no tengo", "presupuesto"];
-  const objectionPatterns = objectionKeywords.filter(k => allText.includes(k));
+  // Detect objection patterns - ✅ Usando CONSTANTE UNIFICADA
+  const objectionPatterns = OBJECTION_KEYWORDS.filter(k => allText.includes(k));
 
   // Advanced Intelligence: Analyze communication style
   const communicationStyle = analyzeCommunicationStyle(allText, customerMessages);
@@ -571,11 +650,11 @@ Estado: ${p.isActive ? "Activo" : "Inactivo"}
       transition: topicTransition 
     }, "[Agent] Topic transition detected");
   }
-  
+   
   let paymentInfo = "";
-  const paymentKeywords = ["pago", "pagar", "comprar", "transferencia", "nequi", "daviplata", "adquirir", "compro", "cuenta", "link", "enlace"];
+  // ✅ Usando CONSTANTE UNIFICADA desde el inicio del archivo
   // NOTA: "precio" y "valor" NO están aquí porque el cliente puede preguntar precio sin querer comprar
-  if (paymentKeywords.some(k => lastText.includes(k))) {
+  if (hasPaymentIntent(lastText)) {
     console.log(`💳 [AGENT-PAYMENT] Solicitud de pago detectada: "${lastText.substring(0, 50)}" - ${new Date().toISOString()}`);
     
     // PRIORIDAD DE RESOLUCIÓN DEL PRODUCTO (anti cross-product bug):
@@ -599,59 +678,21 @@ Estado: ${p.isActive ? "Activo" : "Inactivo"}
 
     if (paymentProduct) {
       console.log(`✅ [AGENT-PAYMENT] Producto CONFIRMADO para pago: ${paymentProduct.name} (ID: ${paymentProduct.id}) - ${new Date().toISOString()}`);
+      // ❌ COMENTADO: La generación de links y paymentInfo ocurría aquí y se duplicaba en whatsapp.ts
+      // Los enlaces de pago se generan UNA SOLA VEZ en whatsapp.ts:buildProductCaption()
+      // Esto evita:
+      // 1. Llamadas múltiples a pg.getAllLinks()
+      // 2. Información de pago duplicada en la respuesta
+      // 3. Mensajes inconsistentes al cliente
+      
       try {
-        const paymentServicesHealthy = arePaymentServicesHealthy();
-        if (!paymentServicesHealthy) {
-          paymentInfo = `\n━━━━━━━━━━━━━━━━━━━━━━━━\n💳 *OPCIONES DE PAGO — ${paymentProduct.name}*\n━━━━━━━━━━━━━━━━━━━━━━━━\nEstoy actualizando los enlaces. Te los envío en un segundo. ⏳`;
-        } else {
-          // PayPal se genera dinámicamente (caduca), MercadoPago es estático por producto
-          const links = await retryWithBackoff(
-            () => pg.getAllLinks(paymentProduct!, { phone: convo.contactPhone, name: convo.contactName }),
-            { maxRetries: 2, baseDelay: 1000 },
-            `payment_links_product_${paymentProduct!.id}_conv_${conversationId}`
-          );
-          console.log(`🔗 [AGENT-PAYMENT] Links generados para ${paymentProduct.name} — MP: ${!!links.mercadopago?.url}, PayPal: ${!!links.paypal?.url}`);
-          
-          const pFeatures = (paymentProduct.features as string[]) || [];
-          const pFeaturesText = pFeatures.length > 0
-            ? pFeatures.map(f => `✅ ${f}`).join('\n')
-            : '✅ Contenido completo en Alta Definición\n✅ Acceso inmediato y de por vida';
-
-          paymentInfo = `
-✨ 💻 *PROGRAMA PROFESIONAL: ${paymentProduct.name.toUpperCase()}*
-━━━━━━━━━━━━━━━━━━━━━━━
-
-*${paymentProduct.description || 'Formación estructurada para llevar tus habilidades al siguiente nivel con metodología probada y práctica.'}*
-
-*BENEFICIOS INCLUIDOS:*
-${pFeaturesText}
-
-💰 *PRECIO ESPECIAL:*
-*${formatPrice(Number(paymentProduct.price), paymentProduct.currency)}*
-━━━━━━━━━━━━━━━━━━━━━━━
-
-💳 *ENLACES DE PAGO SEGURO:*
-
-🔹 *Tarjeta de Crédito / PSE (Colombia):*
-${links.mercadopago?.url || links.mercadopago?.shortUrl || "Enlace no disponible"}
-
-🔹 *PayPal (Internacional):*
-${links.paypal?.url || links.paypal?.shortUrl || "Enlace no disponible"}
-
-🔹 *Transferencia Directa:*
-📍 *Nequi/Daviplata:* ${links.transfer.options[0]?.number || "3136174267"}
-👤 *Titular:* ${links.transfer.options[0]?.name || "Duvier Mena"}
-
-_¿Deseas confirmar tu compra ahora o tienes alguna pregunta adicional?_`;
-        }
+        // Vacio: whatsapp.ts se encargará de todo
       } catch (error) {
-        console.error(`❌ [AGENT-PAYMENT] Error generando links para ${paymentProduct.name}:`, error);
-        paymentInfo = `\n💳 Estoy preparando tu link de pago para *${paymentProduct.name}*. Dame un instante. ⏳`;
+        console.error(`❌ [AGENT-PAYMENT] Error procesando producto ${paymentProduct.name}:`, error);
       }
     } else {
       // Sin producto identificado — NO generar link incorrecto
       console.log(`⚠️ [AGENT-PAYMENT] No se pudo identificar el producto. Solicitando aclaración al cliente.`);
-      paymentInfo = `\n━━━━━━━━━━━━━━━━━━━━━━━━\n💳 Para enviarte el link de pago correcto, ¿me confirmas cuál pack te interesa adquirir hoy?\n━━━━━━━━━━━━━━━━━━━━━━━━`;
     }
   }
 
@@ -964,19 +1005,57 @@ ${personalizedContext}
   console.log(`   - productForRequest: ${productForRequest?.name || 'ninguno'}`);
   console.log(`   - currentStage: ${convo.currentStage}`);
   
-  // Detectar intención de pago
-  const isPurchaseIntent = lastTextLower.includes("pago") || 
-                           lastTextLower.includes("comprar") || 
-                           lastTextLower.includes("adquirir") || 
-                           lastTextLower.includes("cuenta") || 
-                           lastTextLower.includes("nequi") || 
-                           lastTextLower.includes("daviplata") ||
-                           lastTextLower.includes("link") || 
-                           lastTextLower.includes("enlace") ||
-                           lastTextLower.includes("transferencia");
+  // Detectar intención de pago - ✅ Usando HELPER UNIFICADO
+  const isPurchaseIntent = hasPaymentIntent(lastText);
   
+  // 🎯 ESTRATEGIA 0: PREGUNTAS POST-TARJETA (Información puntual sin repetición)
+  let isPostCardQuestion = false;
+  let postCardResponse = "";
+  
+  if (sentCards.size > 0 && isPurchaseIntent) {
+    // Cliente preguntó algo relacionado con pago, pero ya vio la tarjeta
+    if (isPaymentConfirmation(lastText, history.length, sentCards, currentProductInContext?.id)) {
+      // Es confirmación de compra - enviar a empresa
+      console.log(`✅ [AGENT-STRATEGY] Confirmación de compra detectada`);
+      isPostCardQuestion = true;
+      postCardResponse = getConfirmationResponse(
+        currentProductInContext?.name || "Producto",
+        { 
+          email: process.env.COMPANY_EMAIL || "info@empresa.com",
+          phone: process.env.COMPANY_PHONE || "+57 123 456 7890"
+        }
+      );
+    } else if (isPaymentMethodQuestion(lastText, sentCards)) {
+      // Solo pregunta sobre método de pago
+      console.log(`💳 [AGENT-STRATEGY] Pregunta sobre método de pago`);
+      isPostCardQuestion = true;
+      postCardResponse = getPaymentMethodResponse([
+        "💳 Tarjeta de crédito/débito",
+        "📱 Nequi/Daviplata",
+        "🏦 Transferencia bancaria"
+      ]);
+    } else if (isProductDetailsQuestion(lastText, sentCards, currentProductInContext?.id)) {
+      // Pregunta sobre detalles del producto
+      console.log(`📋 [AGENT-STRATEGY] Pregunta sobre detalles del producto`);
+      isPostCardQuestion = false; // Dejar que la IA responda naturalmente
+    }
+  }
+  
+  // Si es pregunta post-tarjeta, usar respuesta rápida
+  if (isPostCardQuestion) {
+    console.log(`💬 [AGENT-STRATEGY] Respondiendo pregunta post-tarjeta sin repetir información`);
+    finalPrompt = baseSystemPrompt + `
+
+🚨 CONTEXTO: El cliente ya vio la información del producto. Solo está pidiendo un tipo de información específica.
+Tu tarea: Responder SOLO con la información que pide, SIN repetir detalles del producto ya mostrado.
+Sé conciso y amable.
+
+RESPUESTA PREDEFINIDA:
+${postCardResponse}`;
+    responsePrefill = postCardResponse.split('\n')[0];
+  }
   // 🎯 ESTRATEGIA 1: INTENCIÓN DE PAGO (CIERRE)
-  if (isPurchaseIntent) {
+  else if (isPurchaseIntent) {
     console.log(`💳 [AGENT-STRATEGY] Cliente quiere comprar - Facilitando pago`);
     finalPrompt = baseSystemPrompt + intelligentContext + `\n\n🚨 CONTEXTO: El cliente quiere comprar.
 Tu objetivo es animarlo a realizar el pago con entusiasmo genuino.
@@ -1002,6 +1081,31 @@ Sé breve, usa emojis, y termina con una pregunta abierta.
 Tu objetivo es REACTIVAR su interés de forma muy cálida pero breve.
 Salúdalo por su nombre natural, sé muy breve y pregúntale en qué puedes colaborarle hoy.
 🚨 REGLA DE ORO DE NO-ATOSIGAMIENTO: Actúa como si no supieras de qué producto se habló antes (hazte el loco). NO le insistas con ningún producto ni menciones compras previas a menos que él lo haga explícitamente. Espera pacientemente a que vuelva a preguntar antes de dar información técnica o enlaces.`;
+    responsePrefill = ``;
+  }
+  
+  // 🎯 ESTRATEGIA 3.5: MANEJO DE OBJECIONES (Antes de razonamiento libre)
+  else if (hasObjectionIntent(lastText) && sentCards.size > 0) {
+    console.log(`🛡️ [AGENT-STRATEGY] Objeción detectada - Manejando objeción`);
+    const objectionAnalysis = conversationContext.leadBehavior.objectionAnalysis;
+    let objectionContext = "";
+    
+    if (objectionAnalysis) {
+      objectionContext = `
+
+🎯 ANÁLISIS DE OBJECIÓN:
+• Tipo: ${objectionAnalysis.type}
+• Confianza: ${Math.round(objectionAnalysis.confidence * 100)}%
+• Sentimiento: ${objectionAnalysis.sentiment}
+• Estrategia: ${objectionAnalysis.strategy}
+
+Tu tarea: Responder a la objeción de forma EMPÁTICA, ESPECÍFICA y COHERENTE.
+${objectionAnalysis.suggestedResponse ? `Sugerencia: ${objectionAnalysis.suggestedResponse}` : ""}`;
+    }
+    
+    finalPrompt = baseSystemPrompt + intelligentContext + `\n\n🚨 CONTEXTO: El cliente tiene una objeción sobre el producto.
+Tu objetivo es VALIDAR su preocupación, ENTENDER la raíz del problema, y ofrecer una SOLUCIÓN ESPECÍFICA.
+NO ignores la objeción. NO presiones. SÍ escucha con empatía.${objectionContext}${productInstruction}`;
     responsePrefill = ``;
   }
   
@@ -1078,11 +1182,11 @@ Explica POR QUÉ recomiendas ese producto.${productInstruction}`;
       const ollamaConfig = getProviderConfig("ollama_local");
 
       // Solo añadir fallbacks si el activo no los cubre ya
-      if (activeProvider !== "github_copilot_internal" && copilotEnv && healthMonitor.isServiceHealthy("copilot_internal")) {
-        rotationQueue.push({ config: copilotEnv, source: "copilot_internal" });
-      }
       if (activeProvider !== "nvidia" && nvidiaEnv && healthMonitor.isServiceHealthy("nvidia_70b")) {
         rotationQueue.push({ config: nvidiaEnv, source: "nvidia_70b" });
+      }
+      if (activeProvider !== "github_copilot_internal" && copilotEnv && healthMonitor.isServiceHealthy("copilot_internal")) {
+        rotationQueue.push({ config: copilotEnv, source: "copilot_internal" });
       }
       if (activeProvider !== "github" && githubEnv && healthMonitor.isServiceHealthy("github_env")) {
         rotationQueue.push({ config: githubEnv, source: "github_env" });
@@ -1248,17 +1352,10 @@ Dime, ¿qué tipo de contenido estás buscando? 😊`;
         raw = responsePrefill + raw;
       }
 
-      // 💳 ADJUNTAR TARJETA DE PAGO DINÁMICA SI EXISTE (ANTES de la card, para que el parser NO la descarte)
-      if (paymentInfo && raw) {
-        const cardPos = raw.indexOf("[CARD:");
-        if (cardPos !== -1) {
-          raw = raw.substring(0, cardPos) + paymentInfo + "\n\n" + raw.substring(cardPos);
-          console.log(`💳 [AGENT-FINAL] Info de pago insertada antes de [CARD:] - ${new Date().toISOString()}`);
-        } else {
-          raw = raw + "\n" + paymentInfo;
-          console.log(`💳 [AGENT-FINAL] Info de pago adjuntada al final - ${new Date().toISOString()}`);
-        }
-      }
+      // ❌ ELIMINADO: Duplicación de información de pago
+      // paymentInfo ya es procesada por whatsapp.ts en buildProductCaption()
+      // Injecting here caused duplicate payment information to be sent to the client
+      // See: https://github.com/anomalyco/opencode - issue with payment duplication
 
       // Parser con validador inteligente de IDs
 

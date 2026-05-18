@@ -1,5 +1,6 @@
 import { logger } from "./logger";
 import { db, activityEvents } from "@workspace/db";
+import { PAYMENT_KEYWORDS, LOW_INTEREST_KEYWORDS, PAYMENT_KEYWORDS as PRODUCT_KEYWORDS } from "./agent";
 
 // Error Resilience System Types
 interface FallbackResponse {
@@ -221,9 +222,9 @@ export function determineFallbackResponse(lastMessage: string, _conversationCont
   const text = lastMessage.toLowerCase();
   let responseKey: keyof typeof FALLBACK_RESPONSES = "general";
   
-  if (["hola", "buenas", "buen dia"].some(k => text.includes(k))) {
+  if (LOW_INTEREST_KEYWORDS.some(k => text.includes(k))) {
     responseKey = "greeting";
-  } else if (["pago", "pagar", "comprar"].some(k => text.includes(k))) {
+  } else if (PAYMENT_KEYWORDS.some(k => text.includes(k))) {
     responseKey = "payment_inquiry";
   } else if (["producto", "curso", "piano", "guitarra"].some(k => text.includes(k))) {
     responseKey = "product_inquiry";

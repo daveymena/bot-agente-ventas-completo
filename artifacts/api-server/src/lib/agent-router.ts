@@ -1,6 +1,7 @@
 import { db, agents, conversations, messages } from "@workspace/db";
 import { eq, and } from "drizzle-orm";
 import { logger } from "./logger";
+import { PAYMENT_KEYWORDS, URGENCY_KEYWORDS } from "./agent";
 
 /**
  * Agent Router - Selecciona el agente más apropiado según el contexto
