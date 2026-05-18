@@ -25,6 +25,9 @@ import {
 } from "@whiskeysockets/baileys";
 import { trackWhatsAppCost } from "../middleware/rateLimiting";
 
+// Caché global de IDs de mensajes procesados para evitar duplicados/bucle
+const processedMessageIds = new Set<string>();
+
 // Función de diagnóstico para mensajes problemáticos
 function diagnoseMessage(msgObj: any): { 
   diagnosis: string; 
@@ -429,6 +432,22 @@ export class WhatsAppManager {
             if (isBotMediaOnly) {
               console.log("⏭️ [ANTI-LOOP] Ignorando mensaje de solo-media reenviado:", msgKeys[0]);
               continue;
+            }
+
+            // DEDUPLICACIÓN DE MENSAJES (Evita que el bot responda varias veces al mismo mensaje)
+            const msgId = msg.key.id;
+            if (msgId) {
+              if (processedMessageIds.has(msgId)) {
+                console.log(`⏭️ [ANTI-DUP] Ignorando mensaje duplicado ya procesado: ${msgId}`);
+                continue;
+              }
+              processedMessageIds.add(msgId);
+              
+              // Limitar tamaño de caché para evitar fugas de memoria
+              if (processedMessageIds.size > 2000) {
+                const firstAdded = Array.from(processedMessageIds)[0];
+                processedMessageIds.delete(firstAdded);
+              }
             }
             
             const remoteJid: string = msg.key.remoteJid ?? "";

@@ -496,6 +496,24 @@ export async function runAgentReply(conversationId: number) {
 
   history.reverse(); // Ordenamos de más viejo a más nuevo para la IA
 
+  // 🎯 DETECCION TEMPRANA DE NUEVA SESION Y SALUDO (anti-atosigamiento / se hace el loco)
+  const lastCustomerMsg = [...history].reverse().find(m => m.role === "customer");
+  const lastText = lastCustomerMsg?.content.toLowerCase() || "";
+  
+  const commonGreetings = ["hola", "buenas", "buen dia", "buenos dias", "buenas tardes", "buenas noches", "hola!", "hola.", "hola muy buenas", "que tal", "como estas", "ola", "saludos"];
+  const isGreetingOnly = commonGreetings.some(k => lastText.trim().toLowerCase().includes(k)) && lastText.split(' ').length <= 4;
+
+  let isNewSession = false;
+  if (history.length >= 2) {
+    const lastMsgTime = new Date(history[history.length - 1].createdAt).getTime();
+    const prevMsgTime = new Date(history[history.length - 2].createdAt).getTime();
+    const hoursSinceLastMessage = (lastMsgTime - prevMsgTime) / (1000 * 60 * 60);
+    if (hoursSinceLastMessage > 4) {
+      isNewSession = true;
+      console.log(`⏳ [AGENT-CONTEXT] Han pasado ${hoursSinceLastMessage.toFixed(2)} horas desde el último mensaje. Nueva sesión.`);
+    }
+  }
+
   // 🆕 DETECTAR TARJETAS YA ENVIADAS (evitar repetición)
   const sentCards = new Set<number>();
   for (const msg of history) {
@@ -543,8 +561,6 @@ Estado: ${p.isActive ? "Activo" : "Inactivo"}
 
   // Error Resilience Enhancement: Check payment gateway health before generating payment info
   const pg = new PaymentGateway();
-  const lastCustomerMsg = [...history].reverse().find(m => m.role === "customer");
-  const lastText = lastCustomerMsg?.content.toLowerCase() || "";
   
   // Context Intelligence Enhancement: Detect topic transitions
   const topicTransition = detectTopicTransition(history.slice(0, -1), lastText);
@@ -642,9 +658,19 @@ _¿Deseas confirmar tu compra ahora o tienes alguna pregunta adicional?_`;
   // Context Intelligence Enhancement: Generate personalized context
   const personalizedContext = generatePersonalizedContext(conversationContext, lastText);
 
-  // Determinar producto en contexto solo si ya se envió una card antes
-  // (NO inferir del tema de conversación porque evitaría que se envíe la primera card)
-  if (!currentProductInContext && conversationContext.currentTopic && sentCards.size > 0) {
+  // 🛡️ RESTAURAR CONTEXTO DESDE LA ÚLTIMA CARD ENVIADA (más confiable que el topic)
+  // Si ya se envió una card antes, el producto actual SIEMPRE es el de la última card,
+  // sin importar lo que diga el análisis de topic (que puede fallar con preguntas como "cómo se entrega?")
+  if (!currentProductInContext && sentCards.size > 0 && !isGreetingOnly && !isNewSession) {
+    const lastSentCardIds = Array.from(sentCards);
+    const lastCardProduct = productList.find(p => p.id === lastSentCardIds[lastSentCardIds.length - 1]);
+    if (lastCardProduct) {
+      currentProductInContext = lastCardProduct;
+      console.log(`📌 [PRODUCT-CONTEXT] Contexto restaurado desde última card: ${currentProductInContext.name} (ID: ${currentProductInContext.id})`);
+    }
+  }
+  // Fallback: inferir del topic solo si no hay cards enviadas
+  if (!currentProductInContext && conversationContext.currentTopic && sentCards.size === 0 && !isGreetingOnly && !isNewSession) {
     const topic = conversationContext.currentTopic.toLowerCase();
     currentProductInContext = productList.find(p => p.name.toLowerCase().includes(topic) && topic.length > 4) || null;
   }
@@ -658,6 +684,7 @@ _¿Deseas confirmar tu compra ahora o tienes alguna pregunta adicional?_`;
   console.log(`🧠 [ADVANCED-INTELLIGENCE] Contexto inteligente generado - ${new Date().toISOString()}`);
   
   const customerName = convo.contactName || "cliente";
+  const hasSentCardAlready = sentCards.size > 0;
   const systemPrompt = `
 Eres **SOFÍA**, vendedora experta y consejera de confianza de TecnoVariedades D&S.
 Estás conversando con **${customerName}**. DIRÍGETE a ${customerName} por su nombre de forma natural durante la conversación, pero sin exagerar (máximo 2 veces por mensaje).
@@ -667,11 +694,11 @@ Estás conversando con **${customerName}**. DIRÍGETE a ${customerName} por su n
 ━━━━━━━━━━━━━━━━━━━━━━━
 
 1. **ESCUCHA ACTIVA**: Interpreta la intención del cliente, no solo sus palabras. Si dice "algo para aprender diseño" entiende que busca un curso. Si dice "tengo poco presupuesto" recomienda primero las opciones accesibles.
-2. **NO REPITAS**: Nunca vuelvas a decir lo que ya dijiste. Si el cliente pregunta algo que ya respondiste, amplía o da más detalle — no copies la respuesta anterior.
-3. **RESPUESTAS CORTAS Y RICAS**: Máximo 3 oraciones de texto seguido. El producto ya habla por sí solo en la [CARD]. Tú solo conectas emocionalmente.
-4. **PRESENTA LAS CARDS COMO UN REGALO**: Cuando tengas un producto para recomendar, preséntalo con entusiasmo breve antes de la card. Ej: "¡Este es ideal para lo que buscas! 👇"
-5. **SIGUE EL HILO**: Si el cliente cambia de tema, adáptate. Si vuelve al mismo, no empieces de cero.
-6. **CIERRA CON CALIDEZ**: Cuando el cliente pida información de pago, sé entusiasta y dile que el sistema adjunta los links automáticamente.
+2. **MEMORIA DE CONTEXTO**: Recuerda lo que ya se habló. Si el cliente ya preguntó por un producto, ese es su interés actual. No cambies a menos que el cliente mencione explícitamente otro producto.
+3. **RESPUESTAS ATRACTIVAS**: Usa emojis 🎯✨✅, separadores suaves y espacios. NO escribas paredes de texto. Una respuesta ideal tiene: 1 emoji de apertura, 2-3 líneas con espacio entre ellas, y un cierre con pregunta.
+4. **NO REPITAS**: Nunca repitas información que ya diste. Si preguntan algo ya respondido, amplía con un detalle nuevo o contextualiza.
+5. **PRESENTA LAS CARDS COMO UN REGALO**: Cuando tengas un producto para recomendar, conéctalo con lo que el cliente pidió. Ej: "¡Justo lo que necesitas! 👇" seguido de la card.
+6. **FLUJO NATURAL**: TUS RESPUESTAS DEBEN SENTIRSE COMO UNA CHARLA, no como un catálogo. Alterna preguntas, usa reacciones cortas y mantén calidez.
 
 ━━━━━━━━━━━━━━━━━━━━━━━
 📋 LO QUE SIEMPRE ES CIERTO
@@ -690,35 +717,36 @@ ${productList.length > 0 ? productsBlock : "No hay productos disponibles aún."}
 🚨 REGLAS ABSOLUTAS:
 • NO inventes precios, nombres ni características. Usa SOLO lo que dice el catálogo.
 • NO escribas enlaces ni números de cuenta — el sistema los adjunta solo.
-• NO repitas la card si ya la enviaste — en su lugar, responde la duda directamente.
-• NO uses frases genéricas de apertura como "¡Hola! Claro que sí, con gusto te ayudo." Ve directo al punto.
+${hasSentCardAlready ? '• NO repitas la card si ya la enviaste — en su lugar, responde la duda directamente.' : '• Cuando recomiendes un producto nuevo, USA [CARD: ID] al final.'}
+• NO uses frases genéricas de apertura. Ve directo al punto con calidez.
 
 ${personalizedContext}
 `.trim();
 
   console.log(`📝 [AGENT-PROMPT] Prompt del sistema generado - Longitud: ${systemPrompt.length} caracteres - ${new Date().toISOString()}`);
 
-  // Context Intelligence Enhancement: Enhanced greeting detection and context-aware prompting
-  // Detección de saludo pura (sin intención de compra evidente)
-  const commonGreetings = ["hola", "buenas", "buen dia", "buenos dias", "buenas tardes", "buenas noches", "hola!", "hola.", "hola muy buenas", "que tal", "como estas"];
-  const isGreetingOnly = commonGreetings.some(k => lastText.trim().toLowerCase().includes(k)) && lastText.split(' ').length <= 4;
   // 🎯 BÚSQUEDA DE PRODUCTOS INTELIGENTE CON RAZONAMIENTO SEMÁNTICO
   
   const lastTextLower = lastText.toLowerCase();
   
   // 🔍 PASO 1: IDENTIFICAR EL PRODUCTO ACTUAL EN LA CONVERSACIÓN
   // Buscar el último mensaje del AGENTE que contenga [CARD:]
-  const lastAgentCardMessage = history.slice().reverse().find(msg => 
-    msg.role === "agent" && msg.content.includes("[CARD:")
-  );
-  
-  if (lastAgentCardMessage) {
-    const cardMatch = lastAgentCardMessage.content.match(/\[CARD:\s*(\d+)\s*\]/);
-    if (cardMatch) {
-      const productId = parseInt(cardMatch[1]);
-      currentProductInContext = productList.find(p => p.id === productId);
-      console.log(`📌 [PRODUCT-CONTEXT] Producto actual en conversación: ${currentProductInContext?.name} (ID: ${currentProductInContext?.id})`);
+  if (!isGreetingOnly && !isNewSession) {
+    const lastAgentCardMessage = history.slice().reverse().find(msg => 
+      msg.role === "agent" && msg.content.includes("[CARD:")
+    );
+    
+    if (lastAgentCardMessage) {
+      const cardMatch = lastAgentCardMessage.content.match(/\[CARD:\s*(\d+)\s*\]/);
+      if (cardMatch) {
+        const productId = parseInt(cardMatch[1]);
+        currentProductInContext = productList.find(p => p.id === productId);
+        console.log(`📌 [PRODUCT-CONTEXT] Producto actual en conversación: ${currentProductInContext?.name} (ID: ${currentProductInContext?.id})`);
+      }
     }
+  } else {
+    currentProductInContext = null;
+    console.log(`📌 [PRODUCT-CONTEXT] Ignorando restauración de contexto en Paso 1 (isGreetingOnly: ${isGreetingOnly}, isNewSession: ${isNewSession})`);
   }
   
   // 🔍 PASO 2: VERIFICAR PALABRAS DE PREGUNTA
@@ -950,27 +978,30 @@ ${personalizedContext}
   if (isPurchaseIntent) {
     console.log(`💳 [AGENT-STRATEGY] Cliente quiere comprar - Facilitando pago`);
     finalPrompt = baseSystemPrompt + intelligentContext + `\n\n🚨 CONTEXTO: El cliente quiere comprar.
-Tu objetivo es animarlo a realizar el pago.
-¡MUY IMPORTANTE!: TÚ NO DEBES INVENTAR NI ESCRIBIR LOS ENLACES DE PAGO NI LOS NÚMEROS DE CUENTA. El sistema los adjuntará de forma automática e invisible al final de tu mensaje. Solo dile que debajo le dejas los enlaces seguros.${productInstruction}`;
-    responsePrefill = `━━━━━━━━━━━━━━━━━━━━━━━━\n💳 *¡PERFECTO! VAMOS A PROCESAR TU COMPRA*\n\n`;
+Tu objetivo es animarlo a realizar el pago con entusiasmo genuino.
+¡MUY IMPORTANTE!: TÚ NO DEBES INVENTAR NI ESCRIBIR LOS ENLACES DE PAGO NI LOS NÚMEROS DE CUENTA. El sistema los adjuntará de forma automática e invisible al final de tu mensaje.
+Sé cálido, confirma el producto y dile que los enlaces están listos abajo.${productInstruction}`;
+    responsePrefill = ``;
   }
   
   // 🎯 ESTRATEGIA 2: PRIMERA VEZ (SALUDO + PRESENTACIÓN)
   else if (isGreetingOnly && !conversationContext.hasIntroduced) {
     console.log(`👋 [AGENT-STRATEGY] Primer contacto - Presentación`);
     finalPrompt = baseSystemPrompt + intelligentContext + `\n\n🚨 CONTEXTO: Es el primer contacto con el cliente.
-Tu objetivo es PRESENTAR la empresa de forma cálida y DESCUBRIR qué le interesa.
-Sé breve, amigable y haz una pregunta clara.`;
-    responsePrefill = `━━━━━━━━━━━━━━━━━━━━━━━━\n👋 *¡Bienvenido/a!*\n\n`;
+Tu objetivo es PRESENTARTE de forma cálida y DESCUBRIR qué le interesa.
+Sé breve, usa emojis, y termina con una pregunta abierta.
+🚨 REGLA DE ORO DE NO-ATOSIGAMIENTO: No intentes vender ni presionar en este primer mensaje. Solo preséntate como Sofía, dale la bienvenida y pregúntale qué tipo de contenido o curso está buscando.`;
+    responsePrefill = ``;
   }
   
   // 🎯 ESTRATEGIA 3: CLIENTE RECURRENTE (SALUDO CÁLIDO)
   else if (isGreetingOnly && conversationContext.hasIntroduced) {
     console.log(`👋 [AGENT-STRATEGY] Cliente recurrente - Saludo cálido`);
-    finalPrompt = baseSystemPrompt + intelligentContext + `\n\n🚨 CONTEXTO: El cliente ya conoce TecnoVariedades.
-Tu objetivo es REACTIVAR su interés de forma cálida.
-Sé breve, personalizado y pregunta cómo puedes ayudar.`;
-    responsePrefill = `━━━━━━━━━━━━━━━━━━━━━━━━\n👋 *¡Qué gusto verte de nuevo!*\n\n`;
+    finalPrompt = baseSystemPrompt + intelligentContext + `\n\n🚨 CONTEXTO: El cliente ya conoce TecnoVariedades y ha vuelto a saludar.
+Tu objetivo es REACTIVAR su interés de forma muy cálida pero breve.
+Salúdalo por su nombre natural, sé muy breve y pregúntale en qué puedes colaborarle hoy.
+🚨 REGLA DE ORO DE NO-ATOSIGAMIENTO: Actúa como si no supieras de qué producto se habló antes (hazte el loco). NO le insistas con ningún producto ni menciones compras previas a menos que él lo haga explícitamente. Espera pacientemente a que vuelva a preguntar antes de dar información técnica o enlaces.`;
+    responsePrefill = ``;
   }
   
   // 🎯 ESTRATEGIA 4: CONVERSACIÓN GENERAL (RAZONAMIENTO LIBRE)
@@ -990,19 +1021,24 @@ Explica POR QUÉ recomiendas ese producto.${productInstruction}`;
     })),
     { role: "system", content: finalPrompt + `
 
-🚨 REGLAS DE FORMATO FINAL (NO NEGOCIABLES):
+🚨 REGLAS DE FORMATO Y CONTEXTO:
 
-① JAMÁS repitas información que ya enviaste en mensajes anteriores del historial.
-② El formato de presentación de un nuevo producto es SIEMPRE:
-   - 1-2 frases que conecten la recomendación con lo que el cliente pidió
-   - Luego: [CARD: ID] al final — NADA después de la card.
-③ Cuando el cliente ya recibió la card y pregunta algo, responde SIN volver a enviar la card.
-④ PROHIBIDO escribir URLs, links de pago o cuentas bancarias. El sistema los adjunta solo.
-⑤ Tus respuestas sin card deben ser máximo 3 oraciones. Con card: máximo 2 oraciones previas.
-⑥ NUNCA uses saludos genéricos como "¡Hola! Con mucho gusto.", "Claro que sí.", etc. Ve al punto.
-⑦ Si el cliente ya expresó intención de compra, no vuelvas a describir el producto — ve directo al pago.
-⑧ Usa EXACTAMENTE los datos del catálogo. Precio, nombre, descripción — sin inventar nada.
-⑨ Respeta el flujo de la conversación. Si el cliente habla de algo nuevo, adáptate con naturalidad.` },
+📌 **MEMORIA DE CONVERSACIÓN**
+• Recuerda SIEMPRE el último producto del que se habló. Ese es el tema actual.
+• Si el cliente pregunta "cómo se entrega", "tiene garantía", "qué incluye" → responde sobre el producto actual. NO cambies de producto.
+• Si el cliente menciona OTRO producto por su nombre (ej: "y el de piano?") → ahí sí cambia.
+
+📌 **ESTRUCTURA DE RESPUESTA**
+• Sin card: 3 líneas máx, con espacios, 1-2 emojis, cierra con pregunta.
+• Con card: 1-2 líneas de conexión, luego [CARD: ID]. NADA después de la card.
+• Usa emojis con propósito: 🎯 para ofertas, ✨ para destacar, ✅ para beneficios, 👇 para llamar atención.
+• Separa ideas con líneas en blanco, no escribas bloques de texto.
+
+📌 **PROHIBICIONES**
+• NUNCA repitas información ya dicha en el historial.
+• NUNCA escribas URLs, links de pago, números de cuenta.
+• NUNCA inventes datos del producto.
+• NUNCA uses frases hechas como "¡Claro que sí!", "Con gusto te ayudo".` },
 
     // Prefill: el mensaje del asistente ya empieza con el formato correcto, la IA solo continúa
     ...(responsePrefill ? [{ role: "assistant", content: responsePrefill }] : [])
@@ -1077,14 +1113,16 @@ Explica POR QUÉ recomiendas ese producto.${productInstruction}`;
       if (isGreetingOnly && !conversationContext.hasIntroduced) {
         console.log(`⚡ [AGENT-FAST-TRACK] Enviando presentación hardcodeada instantánea - ${new Date().toISOString()}`);
         
-        raw = `👋 ¡Hola${customerName !== 'cliente' ? ` *${customerName}*` : ''}! Bienvenido a *${convo.tenantId === 1 ? 'TecnoVariedades D&S' : 'nuestra tienda'}* 😊
+        raw = `🎯 ¡Hola${customerName !== 'cliente' ? ` *${customerName}*` : ''}! Bienvenido a *${convo.tenantId === 1 ? 'TecnoVariedades D&S' : 'nuestra tienda'}* 🔥
 
-Es un gusto saludarte. ¿Cómo te puedo ayudar el día de hoy?`;
+Somos especialistas en cursos y megapacks digitales. 🚀
+
+Dime, ¿qué tipo de contenido estás buscando? 😊`;
       } else if (isGreetingOnly && conversationContext.hasIntroduced) {
         console.log(`⚡ [AGENT-FAST-TRACK] Enviando saludo recurrente hardcodeado instantáneo - ${new Date().toISOString()}`);
-        raw = `👋 *¡Qué gusto verte de nuevo${customerName !== 'cliente' ? `, ${customerName}` : ''}!* 🌟
+        raw = `✨ ¡${customerName !== 'cliente' ? `Qué gusto verte de nuevo, *${customerName}*` : 'Hola de nuevo'}! 🌟
 
-¿En qué te puedo ayudar el día de hoy?`;
+¿En qué puedo ayudarte hoy? 😊`;
       } else {
         for (const { config, source } of rotationQueue) {
           try {
@@ -1137,6 +1175,21 @@ Es un gusto saludarte. ¿Cómo te puedo ayudar el día de hoy?`;
               raw = raw.trim() + `\n\n[CARD: ${productForRequest.id}]`;
             }
 
+            // 🚨 ANTI-CONTEXT-LOSS: Si la IA incluyó una card de un producto DIFERENTE al contexto actual
+            // y ese producto ya se envió antes → removerla para no perder el hilo
+            if (currentProductInContext && !productForRequest) {
+              const wrongCardMatch = raw.match(/\[CARD:\s*(\d+)\s*\]/i);
+              if (wrongCardMatch && parseInt(wrongCardMatch[1]) !== currentProductInContext.id) {
+                const wrongProduct = productList.find(p => p.id === parseInt(wrongCardMatch[1]));
+                if (wrongProduct) {
+                  console.log(`🚨 [AGENT-ANTI-CONTEXT-LOSS] IA cambió de producto: ${currentProductInContext.name} → ${wrongProduct.name}. Revirtiendo card.`);
+                  raw = raw.replace(/\[CARD:\s*\d+\s*\]/gi, "").trim();
+                  // Si se eliminó la card, agregar contexto del producto correcto al final
+                  raw += `\n\n📌 Hablando de *${currentProductInContext.name}* ¿te ayudo en algo más?`;
+                }
+              }
+            }
+
             logger.info({ 
               conversationId,
               provider: source,
@@ -1175,8 +1228,16 @@ Es un gusto saludarte. ¿Cómo te puedo ayudar el día de hoy?`;
           }
         }
         
-        // Si hay una tarjeta, borramos cualquier mención a "lecciones", "módulos" o números aleatorios que la IA suele inventar
-        raw = raw.replace(/\d+\s*(lecciones|clases|módulos|modulos|videos|videos|gb|gigas)/gi, "");
+        // Solo borrar datos que NO existen en ningún producto (anti-halucinación selectiva)
+        const hallucinationPattern = /\d+\s*(lecciones|clases|módulos|modulos|videos|videos|gb|gigas)/gi;
+        raw = raw.replace(hallucinationPattern, (match) => {
+          const m = match.trim().toLowerCase();
+          const isReal = productList.some(p => {
+            const data = ((p.description || '') + ' ' + ((p.features as string[]) || []).join(' ')).toLowerCase();
+            return data.includes(m);
+          });
+          return isReal ? match : '';
+        });
         // También borramos descripciones largas que suelen ser inventadas
         raw = raw.replace(/✨.*?🎹/gs, "🎹"); 
       }
@@ -1186,10 +1247,16 @@ Es un gusto saludarte. ¿Cómo te puedo ayudar el día de hoy?`;
         raw = responsePrefill + raw;
       }
 
-      // 💳 ADJUNTAR TARJETA DE PAGO DINÁMICA SI EXISTE
+      // 💳 ADJUNTAR TARJETA DE PAGO DINÁMICA SI EXISTE (ANTES de la card, para que el parser NO la descarte)
       if (paymentInfo && raw) {
-        raw = raw + "\n" + paymentInfo;
-        console.log(`💳 [AGENT-FINAL] Card de pago adjuntada a la respuesta - ${new Date().toISOString()}`);
+        const cardPos = raw.indexOf("[CARD:");
+        if (cardPos !== -1) {
+          raw = raw.substring(0, cardPos) + paymentInfo + "\n\n" + raw.substring(cardPos);
+          console.log(`💳 [AGENT-FINAL] Info de pago insertada antes de [CARD:] - ${new Date().toISOString()}`);
+        } else {
+          raw = raw + "\n" + paymentInfo;
+          console.log(`💳 [AGENT-FINAL] Info de pago adjuntada al final - ${new Date().toISOString()}`);
+        }
       }
 
       // Parser con validador inteligente de IDs
