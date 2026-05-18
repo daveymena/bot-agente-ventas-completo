@@ -800,7 +800,8 @@ ${personalizedContext}
     .replace(/\s+/g, ' ')
     .trim();
   const normalizedQuery = normalizeText(lastText);
-  const allWords = normalizedQuery.split(/\s+/).filter((w: string) => w.length > 2 && !stopWords.includes(w));
+  // Mantener números de cualquier longitud (ej: '9', '60') para identificar packs exactos
+  const allWords = normalizedQuery.split(/\s+/).filter((w: string) => (w.length > 2 || /^\d+$/.test(w)) && !stopWords.includes(w));
   // Separar palabras clave de producto vs palabras genéricas (entrega, acceso, garantía, etc.)
   const productKeywords = allWords.filter((w: string) => !genericProductWords.has(w));
   const queryWords = productKeywords.length > 0 ? productKeywords : allWords;
