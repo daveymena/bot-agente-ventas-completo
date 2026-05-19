@@ -36,6 +36,7 @@ export type EmotionalState =
 export type ResponseStrategy =
   | "hardcoded_greeting"     // Saludo hardcodeado (rápido, consistente)
   | "hardcoded_detail"       // Detalle hardcodeado (entrega, garantía, etc.)
+  | "human_handoff"          // Cliente pide humano — respuesta directa
   | "ai_product_discovery"   // IA busca y recomienda producto
   | "ai_product_details"     // IA responde sobre producto ya mostrado
   | "ai_payment_close"       // IA facilita el cierre con links
@@ -269,6 +270,14 @@ function selectStrategy(
     return {
       strategy: "ai_payment_close",
       reason: "Cliente confirma — IA facilita el pago",
+    };
+  }
+
+  // ── DESVÍO A HUMANO ───────────────────────────────────────────────────────
+  if (intent === "human_handoff") {
+    return {
+      strategy: "human_handoff",
+      reason: "Cliente quiere hablar con un humano — respuesta directa sin IA",
     };
   }
 

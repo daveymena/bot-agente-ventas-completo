@@ -184,8 +184,10 @@ export function validateConversationCoherence(
     const lastIntent = analyzeQuestionIntent(context.previousQuestions[context.previousQuestions.length - 1]);
     
     if (lastIntent.category !== intent.category && intent.confidence > 0.8) {
-      // Cambio de categoría significativo
-      if (context.stage === 'details' && intent.category === 'greeting') {
+      // Cambio de categoría significativo — detectar saludo recurrente por texto directo
+      const newQ = newQuestion.toLowerCase().trim();
+      const looksLikeGreeting = /^(hola|buenas|buen día|buenos dias|buenas tardes|buenas noches|hey|hi|hello|saludos|que tal)/.test(newQ);
+      if (context.stage === 'details' && looksLikeGreeting) {
         return {
           isCoherent: false,
           warning: 'Cliente volvió a saludar - posible desconexión'

@@ -90,7 +90,7 @@ export class AgentOrchestrator {
 
     const config = this.configs.get(message.tenantId);
     // Fuerza bruta: Permitir tenant 1 siempre
-    const isEnabled = message.tenantId === "1" || message.tenantId === 1 || !!config?.enabled;
+    const isEnabled = message.tenantId === "1" || message.tenantId === "0" || !!config?.enabled;
 
     if (!isEnabled) {
       logger.warn(`[AgentOrchestrator] Tenant ${message.tenantId} not enabled`);
@@ -166,7 +166,7 @@ export class AgentOrchestrator {
   /**
    * Obtiene o crea una conversación para un mensaje
    */
-  private async getOrCreateConversation(tenantId: string, phone: string): Promise<{ id: number; currentStage: string | null } | null> {
+  private async getOrCreateConversation(tenantId: string, phone: string): Promise<{ id: number; currentStage: string | null; contactName: string; contactPhone: string } | null> {
     try {
       // Buscar conversación existente
       const existing = await db.select().from(conversations).where(eq(conversations.contactPhone, phone)).limit(1);

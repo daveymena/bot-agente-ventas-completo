@@ -20,9 +20,106 @@ router.post("/architect", async (req: TenantRequest, res, next) => {
 
     const { prompt, history = [] } = req.body;
 
-    // Obtener configuración de DB o ENV
-    // Prioridad: DB settings -> OpenCode (EasyPanel) -> NVIDIA -> GitHub
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // 🧠 ANÁLISIS DEL NEGOCIO REAL — Datos de la BD
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    
+    // 1. Obtener configuración actual del negocio
     const [dbSettings] = await db.select().from(settings).limit(1);
+    const businessName = dbSettings?.businessName || "Mi Negocio";
+    const businessType = dbSettings?.businessType || "digital_products";
+
+    // 2. Obtener agente actual (si existe)
+    const [currentAgent] = await db
+      .select()
+      .from(agents)
+      .where(eq(agents.tenantId, tenantId))
+      .limit(1);
+
+    // 3. Obtener productos activos
+    const activeProducts = await db
+      .select()
+      .from(products)
+      .where(eq(products.isActive, true))
+      .limit(20);
+
+    // 4. Obtener categorías de productos
+    const categories = await db.select().from(productCategories).limit(10);
+
+    // 5. Analizar conversaciones recientes (últimas 50)
+    const recentConversations = await db
+      .select()
+      .from(conversations)
+      .where(eq(conversations.tenantId, tenantId))
+      .orderBy(desc(conversations.createdAt))
+      .limit(50);
+
+    // 6. Analizar mensajes para detectar patrones
+    const allMessages = await db
+      .select()
+      .from(messages)
+      .where(
+        and(
+          eq(messages.conversationId, recentConversations[0]?.id || 0),
+          eq(messages.role, "customer")
+        )
+      )
+      .orderBy(desc(messages.createdAt))
+      .limit(100);
+
+    // 7. Detectar objeciones comunes
+    const objectionKeywords = ["caro", "costoso", "no sé", "duda", "garantía", "funciona", "estafa"];
+    const objectionMessages = allMessages.filter(m => 
+      objectionKeywords.some(k => m.content.toLowerCase().includes(k))
+    );
+
+    // 8. Detectar preguntas frecuentes
+    const faqKeywords = ["entrega", "acceso", "garantía", "duración", "incluye", "soporte"];
+    const faqMessages = allMessages.filter(m =>
+      faqKeywords.some(k => m.content.toLowerCase().includes(k))
+    );
+
+    // 9. Detectar productos más mencionados
+    const productMentions = new Map<string, number>();
+    activeProducts.forEach(p => {
+      const mentions = allMessages.filter(m =>
+        m.content.toLowerCase().includes(p.name.toLowerCase())
+      ).length;
+      if (mentions > 0) productMentions.set(p.name, mentions);
+    });
+
+    // 10. Construir perfil del negocio
+    const businessProfile = {
+      name: businessName,
+      type: businessType,
+      productsCount: activeProducts.length,
+      categoriesCount: categories.length,
+      conversationsCount: recentConversations.length,
+      topProducts: Array.from(productMentions.entries())
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 5)
+        .map(([name]) => name),
+      commonObjections: objectionMessages.slice(0, 10).map(m => m.content),
+      frequentQuestions: faqMessages.slice(0, 10).map(m => m.content),
+      hasActiveAgent: !!currentAgent,
+      currentAgentConfig: currentAgent ? {
+        name: currentAgent.name,
+        role: currentAgent.role,
+        tone: currentAgent.tone,
+        hasAdvancedFeatures: !!(currentAgent.metadata as any)?.objectionHandling,
+      } : null,
+    };
+
+    logger.info({ 
+      businessProfile,
+      productsAnalyzed: activeProducts.length,
+      conversationsAnalyzed: recentConversations.length,
+      messagesAnalyzed: allMessages.length
+    }, "[Architect] Business profile analyzed");
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+    // Obtener configuración de IA
     let aiConfig = getProviderConfigFromSettings(dbSettings || {}) 
       || getProviderConfig("opencode")
       || getProviderConfig("nvidia") 
@@ -39,17 +136,14 @@ router.post("/architect", async (req: TenantRequest, res, next) => {
       const now = new Date();
       const expiresAt = dbSettings?.copilotSessionExpiresAt ? new Date(dbSettings.copilotSessionExpiresAt) : null;
       
-      // Si tenemos un token válido en cache, usarlo
       if (dbSettings?.copilotSessionToken && expiresAt && expiresAt > now) {
         logger.info("[Copilot] Usando token de sesión cacheado.");
         aiConfig.apiKey = dbSettings.copilotSessionToken;
       } else {
-        // Si no, pedir uno nuevo
         logger.info("[Copilot] Token de sesión expirado o no encontrado. Obteniendo uno nuevo...");
         const session = await getCopilotSessionToken(aiConfig.apiKey);
         if (session) {
           aiConfig.apiKey = session.token;
-          // Guardar en cache
           await db.update(settings)
             .set({ 
               copilotSessionToken: session.token,
@@ -60,11 +154,52 @@ router.post("/architect", async (req: TenantRequest, res, next) => {
       }
     }
 
-
     const client = createAIClient(aiConfig);
     
     const systemPrompt = `
 Eres la **ARQUITECTA MAESTRA DEL SISTEMA DE VENTAS CON IA**. Tu misión es REINVENTAR la lógica de negocio, PROGRAMAR estrategias de élite y CONFIGURAR el éxito total.
+
+NO eres un chat genérico. Eres una CONSULTORA EXPERTA que analiza datos reales del negocio para crear agentes profesionales y personalizados.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📊 DATOS REALES DEL NEGOCIO QUE TIENES DISPONIBLES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+**NEGOCIO:**
+• Nombre: ${businessProfile.name}
+• Tipo: ${businessProfile.type}
+• Productos activos: ${businessProfile.productsCount}
+• Categorías: ${businessProfile.categoriesCount}
+• Conversaciones analizadas: ${businessProfile.conversationsCount}
+
+**PRODUCTOS MÁS POPULARES:**
+${businessProfile.topProducts.length > 0 ? businessProfile.topProducts.map((p, i) => `${i + 1}. ${p}`).join('\n') : "• No hay datos suficientes aún"}
+
+**OBJECIONES COMUNES DETECTADAS:**
+${businessProfile.commonObjections.length > 0 ? businessProfile.commonObjections.slice(0, 5).map((o, i) => `${i + 1}. "${o}"`).join('\n') : "• No hay datos suficientes aún"}
+
+**PREGUNTAS FRECUENTES DETECTADAS:**
+${businessProfile.frequentQuestions.length > 0 ? businessProfile.frequentQuestions.slice(0, 5).map((q, i) => `${i + 1}. "${q}"`).join('\n') : "• No hay datos suficientes aún"}
+
+**AGENTE ACTUAL:**
+${businessProfile.hasActiveAgent ? `
+• Nombre: ${businessProfile.currentAgentConfig?.name}
+• Rol: ${businessProfile.currentAgentConfig?.role}
+• Tono: ${businessProfile.currentAgentConfig?.tone}
+• Características avanzadas: ${businessProfile.currentAgentConfig?.hasAdvancedFeatures ? "SÍ" : "NO"}
+` : "• No hay agente configurado aún"}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🎯 TU MISIÓN COMO ARQUITECTA EXPERTA
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. **ANALIZA LOS DATOS REALES** del negocio antes de hacer cualquier recomendación
+2. **USA LAS OBJECIONES COMUNES** para crear estrategias de manejo específicas
+3. **USA LAS PREGUNTAS FRECUENTES** para anticipar dudas y responder proactivamente
+4. **USA LOS PRODUCTOS POPULARES** para enfocar las estrategias de venta
+5. **APRENDE DEL AGENTE ACTUAL** (si existe) y mejora lo que ya funciona
+6. **NO REPITAS** configuraciones que ya están activas — mejora o complementa
+7. **SÉ ESPECÍFICA** — usa nombres reales de productos, objeciones reales, preguntas reales
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 🧠 CAPACIDADES AVANZADAS QUE PUEDES CONFIGURAR
@@ -200,32 +335,53 @@ Debes responder SIEMPRE en formato JSON con esta estructura COMPLETA:
 }
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🎯 INSTRUCCIONES DE DISEÑO
+🎯 INSTRUCCIONES DE DISEÑO BASADAS EN DATOS REALES
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-1. **ANALIZA LA PETICIÓN**: Entiende exactamente qué quiere el usuario
-2. **DISEÑA CON INTELIGENCIA**: Crea un agente que use análisis contextual
-3. **SÉ ESPECÍFICO**: No uses frases genéricas, sé muy específico en cada prompt
-4. **INCLUYE EJEMPLOS**: En los prompts, incluye ejemplos de cómo responder
-5. **PIENSA EN EDGE CASES**: Considera situaciones difíciles y cómo manejarlas
-6. **MANTÉN COHERENCIA**: El tono y personalidad deben ser consistentes
-7. **USA FORMATO ELITE**: Separadores ━━━━━, emojis estratégicos, estructura clara
+1. **ANALIZA LOS DATOS PRIMERO**: Antes de responder, revisa los datos reales del negocio arriba
+2. **USA OBJECIONES REALES**: Si hay objeciones comunes detectadas, crea estrategias específicas para cada una
+3. **USA PREGUNTAS REALES**: Si hay preguntas frecuentes, anticípalas en el prompt del agente
+4. **USA PRODUCTOS REALES**: Menciona los productos más populares por nombre en los ejemplos
+5. **MEJORA LO EXISTENTE**: Si ya hay un agente, no lo reemplaces — mejóralo o complementa lo que falta
+6. **SÉ ESPECÍFICO**: No uses frases genéricas — usa nombres reales, objeciones reales, preguntas reales
+7. **INCLUYE EJEMPLOS REALES**: En los prompts, incluye ejemplos basados en conversaciones reales
+8. **PIENSA EN EDGE CASES**: Considera situaciones difíciles detectadas en las conversaciones
+9. **MANTÉN COHERENCIA**: El tono y personalidad deben ser consistentes con el negocio
+10. **USA FORMATO ELITE**: Separadores ━━━━━, emojis estratégicos, estructura clara
+
+**REGLAS CRÍTICAS:**
+• Si el usuario pide "mejorar" o "optimizar", NO reemplaces todo — identifica qué falta y agrégalo
+• Si hay objeciones comunes, crea respuestas específicas para cada una (no genéricas)
+• Si hay preguntas frecuentes, incluye respuestas hardcodeadas en el prompt
+• Si hay productos populares, enfoca las estrategias de venta en esos productos
+• Si no hay datos suficientes, pregunta al usuario antes de asumir
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-⚡ EJEMPLOS DE PETICIONES QUE PUEDES MANEJAR
+⚡ EJEMPLOS DE PETICIONES QUE PUEDES MANEJAR (BASADAS EN DATOS REALES)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+**ANÁLISIS Y PROPUESTAS:**
+- "Analiza mi negocio y proponme el mejor agente"
+- "¿Qué tipo de agente necesito según mis productos?"
+- "Revisa las conversaciones y dime qué mejorar"
+
+**MEJORAS ESPECÍFICAS:**
+- "Mejora el manejo de objeciones de precio" → Usa las objeciones reales detectadas
+- "Agrega respuestas para las preguntas frecuentes" → Usa las preguntas reales detectadas
+- "Enfoca el agente en ${businessProfile.topProducts[0] || "los productos más vendidos"}" → Usa productos reales
+
+**CONFIGURACIÓN DESDE CERO:**
 - "Crea un vendedor muy directo y sin rodeos"
 - "Quiero un bot amigable que use muchos emojis"
-- "Necesito un agente que maneje bien las objeciones de precio"
-- "Haz que el bot sea más empático con clientes indecisos"
-- "Configura estrategias de cierre más agresivas"
-- "Quiero que el bot detecte urgencia y actúe en consecuencia"
-- "Haz que el bot sea experto en cursos de piano"
-- "Configura el bot para vender packs con descuento"
+- "Necesito un agente formal para servicios B2B"
+
+**OPTIMIZACIÓN:**
+- "El agente repite mucho la misma información" → Analiza el agente actual y corrige
+- "Necesito que detecte urgencia y actúe en consecuencia"
+- "Quiero que sea más empático con clientes indecisos"
 
 Actúa con la autoridad de una Ingeniera Senior de Software y Directora de Ventas.
-¡Diseña agentes que VENDAN y CONVIERTAN!
+¡Diseña agentes que VENDAN y CONVIERTAN basándote en DATOS REALES!
 `;
 
     const response = await client.chat.completions.create({

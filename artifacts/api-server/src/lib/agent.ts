@@ -709,6 +709,34 @@ ${hasSentCardAlready ? "• NO repitas la card si ya la enviaste — responde la
     }
   }
 
+  // ── 11c. DESVÍO A HUMANO (respuesta hardcodeada) ─
+  if (brain.strategy === "human_handoff") {
+    console.log(`⚡ [FAST-TRACK] Respuesta hardcodeada para human_handoff - ${ts()}`);
+    const hardcoded = tryHardcodedAnswer(
+      lastText,
+      decision.productToShow?.name || memory.currentProductName,
+      voice
+    );
+    if (hardcoded && hardcoded.intent === "human_handoff") {
+      const raw = hardcoded.response;
+      await saveAgentMessage(conversationId, raw, "human_handoff", {
+        intent: "human_handoff",
+        isHardcoded: true,
+      });
+      await persistStage(conversationId, "human_handoff");
+      const totalTime = Date.now() - startTime;
+      console.log(`🏁 [AGENT-END] Completado en ${totalTime}ms (hardcoded human_handoff) - ${ts()}`);
+      return {
+        content: raw,
+        stage: "human_handoff",
+        parts: [{ kind: "text", content: raw }],
+        cardProductIds: [],
+      };
+    }
+    // Si no coincide con un patrón de human_handoff, caer en IA general
+    console.log(`🧠 [BRAIN] No se encontró patrón de human_handoff, usando IA general`);
+  }
+
   // ── 11c. RUTA IA — construir prompt final con cerebro + contexto del motor ─
   const finalPrompt = buildFinalPrompt(systemPrompt, brain, voice) + `\n\n${engineContextBlock}`;
 
@@ -962,6 +990,7 @@ ${hasSentCardAlready ? "• NO repitas la card si ya la enviaste — responde la
       };
 
       await saveAgentMessage(conversationId, raw, decision.stage, agentMeta);
+      await persistStage(conversationId, decision.stage);
 
       // ── 11c. PROCESAR CONFIRMACIÓN DE PAGO ───────────────────────────────────
       // Si el cliente acaba de confirmar la compra y hay producto en contexto,
@@ -973,6 +1002,14 @@ ${hasSentCardAlready ? "• NO repitas la card si ya la enviaste — responde la
           const pPrice = decision.productToShow.price;
           const [customer] = await db.select().from(conversations)
             .where(eq(conversations.id, conversationId)).limit(1);
+
+          // Intentar obtener email del lead asociado
+          let customerEmail = 'sin_email';
+          if (customer?.leadId) {
+            const [leadRecord] = await db.select({ email: leads.email }).from(leads).where(eq(leads.id, customer.leadId)).limit(1);
+            if (leadRecord?.email) customerEmail = leadRecord.email;
+          }
+
           await processPurchaseConfirmation({
             conversationId,
             productId: pId,
@@ -980,7 +1017,7 @@ ${hasSentCardAlready ? "• NO repitas la card si ya la enviaste — responde la
             price: pPrice,
             paymentMethod: memory.paymentMethod || 'no_especificado',
             customerId: customer?.contactPhone || 'desconocido',
-            customerEmail: customer?.contactName || 'sin_email',
+            customerEmail,
             customerPhone: customer?.contactPhone || 'sin_telefono',
             timestamp: new Date(),
           });

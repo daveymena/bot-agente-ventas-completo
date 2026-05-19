@@ -258,9 +258,8 @@ export async function notifyOperatorOfFailure(
       type: "system_alert",
       title,
       subtitle,
-      metadata: { errorType, errorDetails, conversationId, timestamp: new Date().toISOString() }
     });
-    
+
     logger.info({ title, subtitle }, "[FallbackSystem] Logged failure to DB");
   } catch (error: any) {
     logger.error({ error: error.message }, "[FallbackSystem] Failed to log failure to DB");

@@ -30,6 +30,7 @@ export type Intent =
   | "payment_intent" // Quiere pagar / pide links / métodos de pago
   | "objection"      // Objeción de precio, desconfianza, etc.
   | "confirmation"   // Confirma compra o acción
+  | "human_handoff"  // Pide hablar con un humano / asesor personal
   | "leaving"        // Se despide o pierde interés
   | "general";       // Cualquier otra cosa
 
@@ -134,6 +135,20 @@ const LEAVING_PATTERNS = [
   "molestando", "bye", "hasta pronto"
 ];
 
+// Patrones que activan el desvío a humano
+const HUMAN_HANDOFF_PATTERNS = [
+  "habla con humano", "hablar con humano", "quiero hablar con humano",
+  "habla con una persona", "hablar con una persona",
+  "necesito un asesor", "quiero un asesor",
+  "atender un humano", "atención humana", "atencion humana",
+  "persona real", "no eres un robot",
+  "no me entiendes", "ya te dije que no me entiendes",
+  "no me resuelve", "no me ayudas",
+  "mejor con una persona", "prefiero hablar con una persona",
+  "transfiere", "transfiereme", "conecta con un asesor",
+  "soporte humano", "ayuda humana",
+];
+
 // Palabras que NO identifican un producto (son preguntas genéricas)
 const GENERIC_WORDS = new Set([
   "entrega", "entregan", "acceso", "garantia", "garantía", "soporte",
@@ -196,7 +211,7 @@ const SUPPORT_PATTERNS = [
 export interface HardcodedAnswer {
   matched: boolean;
   response: string;
-  intent: "details_query";
+  intent: "details_query" | "human_handoff";
 }
 
 export function tryHardcodedAnswer(
@@ -259,6 +274,15 @@ export function tryHardcodedAnswer(
       matched: true,
       intent: "details_query",
       response: `${emoji("benefit", "💬")} ${prod} es *auto-aprendizaje* a tu ritmo.\n\nTienes acceso a todo el contenido en ${deliveryMethod} cuando quieras. Para dudas adicionales puedes escribirnos aquí directamente. ${emoji("benefit", "✅")}\n\n${emoji("question", "🤔")} ¿Algo más?`,
+    };
+  }
+
+  // Desvío a humano: respuesta directa sin IA
+  if (HUMAN_HANDOFF_PATTERNS.some(p => t.includes(p))) {
+    return {
+      matched: true,
+      intent: "human_handoff",
+      response: `${emoji("benefit", "👤")} Claro, te conecto con un asesor humano en unos momentos.\n\nMientras tanto, te invito a seguir planteando tus dudas por aquí. Un miembro de nuestro equipo te atenderá personalmente lo antes posible. ${emoji("benefit", "✅")}`,
     };
   }
 
@@ -352,6 +376,9 @@ export function detectIntent(text: string): Intent {
 
   // Despedida
   if (LEAVING_PATTERNS.some(p => t.includes(p))) return "leaving";
+
+  // Desvío a humano
+  if (HUMAN_HANDOFF_PATTERNS.some(p => t.includes(p))) return "human_handoff";
 
   // Confirmación
   if (CONFIRMATION_PATTERNS.some(p => t.includes(p)) && !t.includes("no ")) return "confirmation";
