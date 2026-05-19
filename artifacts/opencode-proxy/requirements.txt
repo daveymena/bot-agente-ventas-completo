@@ -1,0 +1,20 @@
+# Dependencias para OpenCode Bridge - Optimizado para velocidad
+
+# Cliente HTTP
+requests>=2.31.0
+flask>=3.0.0
+flask-cors>=4.0.0
+flask-limiter>=3.5.0
+flask-compress>=1.14  # Compresión automática
+gunicorn>=21.2.0
+gevent>=23.9.1
+
+# Utilidades
+python-dotenv>=1.0.0
+
+# Testing (opcional)
+pytest>=7.4.0
+pytest-asyncio>=0.21.0
+
+# Cache y optimización
+cachetools>=5.3.0  # Cache avanzado

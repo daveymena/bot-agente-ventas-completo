@@ -6,6 +6,19 @@
 2. **Repositorio Git** - GitHub, GitLab o similar
 3. **Variables de Entorno** - Configuradas en EasyPanel
 
+## Arquitectura
+
+El sistema consta de **3 servicios** que se despliegan juntos en EasyPanel:
+
+| Servicio | Puerto | Descripción |
+|----------|--------|-------------|
+| `api-server` | 3002 | Bot de WhatsApp + API REST (Node.js) |
+| `opencode-proxy` | 5000 | Proxy local de OpenCode AI (Python/Flask) |
+| `postgres` | 5432 | Base de datos PostgreSQL |
+
+El bot usa `opencode-proxy` como proveedor IA principal (http://opencode-proxy:5000/v1),
+con NVIDIA y GitHub Models como fallback.
+
 ## Pasos de Despliegue
 
 ### 1. Preparar el Repositorio
@@ -26,39 +39,87 @@ git push origin main
 - Conecta tu repositorio Git
 
 #### 2.2 Configurar Build
-- **Dockerfile**: `./Dockerfile`
-- **Build Context**: `.`
+- **Dockerfile**: `./artifacts/Dockerfile` (api-server) o `./artifacts/opencode-proxy/Dockerfile` (opencode-proxy)
+- **Build Context**: `.` (raíz del repositorio — `easypanel.yml` está en la raíz)
 - **Build Args**: (dejar vacío)
 
 #### 2.3 Configurar Variables de Entorno
 
-En EasyPanel, agrega estas variables:
+Cada servicio tiene su propio conjunto de variables.
 
-```
+**Servicio `api-server`** — pega el contenido de `artifacts/api-server/.env.easypanel` (o crea las variables una por una en el panel):
+
+```env
 NODE_ENV=production
 PORT=3002
 HOST=0.0.0.0
 LOG_LEVEL=info
 
 # Base de Datos
-DATABASE_URL=postgres://user:password@postgres-service:5432/tecnovariedades-db
+DATABASE_URL=postgres://postgres:${DB_PASSWORD}@postgres:5432/tecnovariedades-db?sslmode=disable
 
-# AI Services
-GITHUB_TOKEN=ghp_xxxxx
+# AI — OpenCode local (proxy interno)
+OPENCODE_API_URL=http://opencode-proxy:5000/v1
+OPENCODE_MODEL=opencode/deepseek-v4-flash-free
+OPENCODE_API_KEY=sk-y8Fg5Ccoox-lVH0O8s1qzHaD6b6zrNNVExAxx_pcNZE
+
+# AI Fallbacks
 NVIDIA_API_KEY=nvapi-xxxxx
+AI_FALLBACK_ORDER=opencode,nvidia,github,ollama_local
+GITHUB_TOKEN=ghp_xxxxx
+AI_FALLBACK_ENABLED=true
 OLLAMA_LOCAL_URL=http://ollama:11434
+OLLAMA_LOCAL_MODEL=hermes3:8b
 
 # Pagos
+TRANSFER_NUMBER=3136174267
+TRANSFER_NAME=Deiner Mena
 MERCADO_PAGO_PUBLIC_KEY=APP_USR-xxxxx
 MERCADO_PAGO_ACCESS_TOKEN=APP_USR-xxxxx
 PAYPAL_CLIENT_ID=xxxxx
 PAYPAL_CLIENT_SECRET=xxxxx
+PAYPAL_MODE=live
 
 # Email
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
 SMTP_USER=tu-email@gmail.com
 SMTP_PASS=tu-app-password
 EMAIL_FROM=tu-email@gmail.com
 EMAIL_TO=destino@gmail.com
+
+# Anti-ban
+TYPING_DELAY_MIN=800
+TYPING_DELAY_MAX=2000
+HUMAN_PAUSE_MIN=1000
+HUMAN_PAUSE_MAX=3000
+
+# Git
+GIT_BRANCH=main
+```
+
+**Servicio `opencode-proxy`** — pega el contenido de `artifacts/opencode-proxy/.env.easypanel`:
+
+```env
+PORT=5000
+LOG_LEVEL=INFO
+OPENCODE_ZEN_API_KEY=sk-REEMPLAZA_CON_TU_CLAVE_ZEN
+OPENCODE_ZEN_BASE_URL=https://opencode.ai/zen/v1
+DEFAULT_MODEL=opencode/deepseek-v4-flash-free
+MAX_TIMEOUT=180
+GUNICORN_WORKERS=2
+GUNICORN_WORKER_CLASS=gevent
+GUNICORN_TIMEOUT=240
+API_KEY=sk-y8Fg5Ccoox-lVH0O8s1qzHaD6b6zrNNVExAxx_pcNZE
+RATE_LIMIT_PER_MINUTE=60
+CORS_ORIGINS=*
+```
+
+**Servicio `postgres`**:
+```env
+POSTGRES_DB=tecnovariedades-db
+POSTGRES_USER=postgres
+POSTGRES_PASSWORD=${DB_PASSWORD}
 ```
 
 #### 2.4 Configurar Puertos

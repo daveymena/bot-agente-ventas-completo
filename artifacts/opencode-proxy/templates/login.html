@@ -1,0 +1,581 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OpenCode AI — Acceso</title>
+    <meta name="description" content="Accede a modelos de inteligencia artificial gratuitos con OpenCode AI">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-primary: #0a0b14;
+            --bg-secondary: #111827;
+            --bg-card: rgba(255,255,255,0.04);
+            --bg-card-hover: rgba(255,255,255,0.07);
+            --border: rgba(255,255,255,0.08);
+            --border-focus: rgba(139,92,246,0.6);
+            --accent: #8b5cf6;
+            --accent-light: #a78bfa;
+            --accent-glow: rgba(139,92,246,0.25);
+            --text-primary: #f1f5f9;
+            --text-secondary: #94a3b8;
+            --text-muted: #64748b;
+            --success: #10b981;
+            --error: #ef4444;
+            --warning: #f59e0b;
+            --gradient-1: #8b5cf6;
+            --gradient-2: #06b6d4;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Inter', -apple-system, sans-serif;
+            background: var(--bg-primary);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+            position: relative;
+        }
+
+        /* Animated background */
+        .bg-orbs {
+            position: fixed;
+            inset: 0;
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        .orb {
+            position: absolute;
+            border-radius: 50%;
+            filter: blur(80px);
+            opacity: 0.15;
+            animation: float 8s ease-in-out infinite;
+        }
+
+        .orb-1 {
+            width: 500px; height: 500px;
+            background: radial-gradient(circle, #8b5cf6, transparent);
+            top: -150px; left: -100px;
+            animation-delay: 0s;
+        }
+
+        .orb-2 {
+            width: 400px; height: 400px;
+            background: radial-gradient(circle, #06b6d4, transparent);
+            bottom: -100px; right: -80px;
+            animation-delay: -3s;
+        }
+
+        .orb-3 {
+            width: 300px; height: 300px;
+            background: radial-gradient(circle, #ec4899, transparent);
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            animation-delay: -5s;
+        }
+
+        @keyframes float {
+            0%, 100% { transform: translateY(0) scale(1); }
+            50% { transform: translateY(-30px) scale(1.05); }
+        }
+
+        .grid-overlay {
+            position: fixed;
+            inset: 0;
+            background-image:
+                linear-gradient(rgba(255,255,255,0.02) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(255,255,255,0.02) 1px, transparent 1px);
+            background-size: 60px 60px;
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        /* Main card */
+        .card-wrapper {
+            position: relative;
+            z-index: 1;
+            width: 100%;
+            max-width: 420px;
+            padding: 20px;
+        }
+
+        .logo-section {
+            text-align: center;
+            margin-bottom: 32px;
+        }
+
+        .logo-icon {
+            width: 64px;
+            height: 64px;
+            background: linear-gradient(135deg, #8b5cf6, #06b6d4);
+            border-radius: 18px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 28px;
+            margin-bottom: 16px;
+            box-shadow: 0 0 40px rgba(139,92,246,0.4);
+            animation: pulse-logo 3s ease-in-out infinite;
+        }
+
+        @keyframes pulse-logo {
+            0%, 100% { box-shadow: 0 0 40px rgba(139,92,246,0.4); }
+            50% { box-shadow: 0 0 60px rgba(139,92,246,0.6); }
+        }
+
+        .logo-title {
+            font-size: 26px;
+            font-weight: 700;
+            color: var(--text-primary);
+            letter-spacing: -0.5px;
+        }
+
+        .logo-title span {
+            background: linear-gradient(135deg, #8b5cf6, #06b6d4);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .logo-subtitle {
+            font-size: 14px;
+            color: var(--text-muted);
+            margin-top: 6px;
+        }
+
+        .card {
+            background: rgba(255,255,255,0.04);
+            backdrop-filter: blur(20px);
+            border: 1px solid var(--border);
+            border-radius: 20px;
+            padding: 32px;
+            box-shadow:
+                0 0 0 1px rgba(255,255,255,0.02) inset,
+                0 32px 64px rgba(0,0,0,0.4);
+        }
+
+        /* Tabs */
+        .tabs {
+            display: flex;
+            background: rgba(0,0,0,0.3);
+            border-radius: 12px;
+            padding: 4px;
+            margin-bottom: 28px;
+            border: 1px solid var(--border);
+        }
+
+        .tab-btn {
+            flex: 1;
+            background: transparent;
+            border: none;
+            padding: 10px 16px;
+            color: var(--text-muted);
+            cursor: pointer;
+            font-weight: 500;
+            font-size: 14px;
+            font-family: 'Inter', sans-serif;
+            border-radius: 9px;
+            transition: all 0.3s ease;
+            letter-spacing: 0.01em;
+        }
+
+        .tab-btn.active {
+            background: linear-gradient(135deg, rgba(139,92,246,0.3), rgba(6,182,212,0.2));
+            color: var(--text-primary);
+            box-shadow: 0 2px 12px rgba(139,92,246,0.2);
+        }
+
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+
+        /* Form elements */
+        .form-group { margin-bottom: 18px; }
+
+        label {
+            display: block;
+            color: var(--text-secondary);
+            font-weight: 500;
+            margin-bottom: 8px;
+            font-size: 13px;
+            letter-spacing: 0.02em;
+        }
+
+        .input-wrap {
+            position: relative;
+        }
+
+        .input-icon {
+            position: absolute;
+            left: 14px;
+            top: 50%;
+            transform: translateY(-50%);
+            font-size: 16px;
+            opacity: 0.5;
+        }
+
+        input {
+            width: 100%;
+            padding: 12px 14px 12px 42px;
+            background: rgba(0,0,0,0.3);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            font-size: 14px;
+            font-family: 'Inter', sans-serif;
+            color: var(--text-primary);
+            transition: all 0.3s ease;
+        }
+
+        input::placeholder { color: var(--text-muted); }
+
+        input:focus {
+            outline: none;
+            border-color: var(--border-focus);
+            background: rgba(139,92,246,0.06);
+            box-shadow: 0 0 0 3px rgba(139,92,246,0.1);
+        }
+
+        .btn-primary {
+            width: 100%;
+            padding: 13px;
+            background: linear-gradient(135deg, #8b5cf6, #7c3aed);
+            color: white;
+            border: none;
+            border-radius: 12px;
+            font-size: 15px;
+            font-weight: 600;
+            font-family: 'Inter', sans-serif;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            letter-spacing: 0.01em;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .btn-primary::before {
+            content: '';
+            position: absolute;
+            top: 0; left: -100%;
+            width: 100%; height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.15), transparent);
+            transition: left 0.5s ease;
+        }
+
+        .btn-primary:hover::before { left: 100%; }
+
+        .btn-primary:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 8px 25px rgba(139,92,246,0.4);
+        }
+
+        .btn-primary:active { transform: translateY(0); }
+
+        .btn-primary:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        /* Spinner */
+        .spinner {
+            display: inline-block;
+            width: 16px; height: 16px;
+            border: 2px solid rgba(255,255,255,0.3);
+            border-top-color: white;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            vertical-align: middle;
+            margin-right: 8px;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* Alerts */
+        .alert {
+            padding: 12px 16px;
+            border-radius: 10px;
+            font-size: 13px;
+            margin-bottom: 18px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            animation: slideIn 0.3s ease;
+        }
+
+        @keyframes slideIn {
+            from { opacity: 0; transform: translateY(-8px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .alert-error {
+            background: rgba(239,68,68,0.12);
+            border: 1px solid rgba(239,68,68,0.25);
+            color: #fca5a5;
+        }
+
+        .alert-success {
+            background: rgba(16,185,129,0.12);
+            border: 1px solid rgba(16,185,129,0.25);
+            color: #6ee7b7;
+        }
+
+        .alert-info {
+            background: rgba(139,92,246,0.12);
+            border: 1px solid rgba(139,92,246,0.25);
+            color: #c4b5fd;
+        }
+
+        /* Features list */
+        .features {
+            display: flex;
+            gap: 8px;
+            justify-content: center;
+            margin-top: 24px;
+            flex-wrap: wrap;
+        }
+
+        .feature-badge {
+            background: rgba(255,255,255,0.05);
+            border: 1px solid var(--border);
+            border-radius: 20px;
+            padding: 5px 12px;
+            font-size: 12px;
+            color: var(--text-muted);
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .feature-badge .dot {
+            width: 6px; height: 6px;
+            background: var(--success);
+            border-radius: 50%;
+            animation: blink 2s infinite;
+        }
+
+        @keyframes blink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.4; }
+        }
+
+        .divider {
+            height: 1px;
+            background: var(--border);
+            margin: 24px 0;
+        }
+
+        .footnote {
+            text-align: center;
+            font-size: 12px;
+            color: var(--text-muted);
+            line-height: 1.6;
+        }
+    </style>
+</head>
+<body>
+    <div class="bg-orbs">
+        <div class="orb orb-1"></div>
+        <div class="orb orb-2"></div>
+        <div class="orb orb-3"></div>
+    </div>
+    <div class="grid-overlay"></div>
+
+    <div class="card-wrapper">
+        <div class="logo-section">
+            <div class="logo-icon">⚡</div>
+            <h1 class="logo-title">OpenCode <span>AI</span></h1>
+            <p class="logo-subtitle">Modelos de IA gratuitos, listos para usar</p>
+        </div>
+
+        <div class="card">
+            <div class="tabs">
+                <button id="tab-login-btn" class="tab-btn active" onclick="switchTab('login')">Iniciar Sesión</button>
+                <button id="tab-register-btn" class="tab-btn" onclick="switchTab('register')">Crear Cuenta</button>
+            </div>
+
+            <!-- Login Tab -->
+            <div id="login" class="tab-content active">
+                <div id="loginAlert"></div>
+                <form id="loginForm" onsubmit="handleLogin(event)">
+                    <div class="form-group">
+                        <label>Usuario</label>
+                        <div class="input-wrap">
+                            <span class="input-icon">👤</span>
+                            <input type="text" id="loginUsername" placeholder="Tu nombre de usuario" required autocomplete="username">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>Contraseña</label>
+                        <div class="input-wrap">
+                            <span class="input-icon">🔒</span>
+                            <input type="password" id="loginPassword" placeholder="Tu contraseña" required autocomplete="current-password">
+                        </div>
+                    </div>
+                    <button type="submit" id="loginBtn" class="btn-primary">Iniciar Sesión</button>
+                </form>
+            </div>
+
+            <!-- Register Tab -->
+            <div id="register" class="tab-content">
+                <div id="registerAlert"></div>
+                <form id="registerForm" onsubmit="handleRegister(event)">
+                    <div class="form-group">
+                        <label>Usuario</label>
+                        <div class="input-wrap">
+                            <span class="input-icon">👤</span>
+                            <input type="text" id="registerUsername" placeholder="Elige un usuario" required autocomplete="username">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>Email <span style="color:var(--text-muted);font-weight:400">(opcional)</span></label>
+                        <div class="input-wrap">
+                            <span class="input-icon">✉️</span>
+                            <input type="email" id="registerEmail" placeholder="tu@email.com" autocomplete="email">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>Contraseña</label>
+                        <div class="input-wrap">
+                            <span class="input-icon">🔒</span>
+                            <input type="password" id="registerPassword" placeholder="Mínimo 6 caracteres" required autocomplete="new-password">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>Confirmar Contraseña</label>
+                        <div class="input-wrap">
+                            <span class="input-icon">🔑</span>
+                            <input type="password" id="registerPasswordConfirm" placeholder="Repite tu contraseña" required autocomplete="new-password">
+                        </div>
+                    </div>
+                    <button type="submit" id="registerBtn" class="btn-primary">Crear Cuenta Gratis</button>
+                </form>
+            </div>
+
+            <div class="divider"></div>
+
+            <div class="features">
+                <div class="feature-badge"><span class="dot"></span> DeepSeek V4</div>
+                <div class="feature-badge"><span class="dot"></span> Qwen 3.6+</div>
+                <div class="feature-badge"><span class="dot"></span> Nemotron</div>
+            </div>
+        </div>
+
+        <p class="footnote" style="margin-top:20px;">
+            Al continuar, aceptas el uso responsable de los modelos de IA disponibles.
+        </p>
+    </div>
+
+    <script>
+        const API_BASE = window.location.origin;
+
+        function switchTab(tab) {
+            document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+            document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
+            document.getElementById(tab).classList.add('active');
+            document.getElementById(`tab-${tab}-btn`).classList.add('active');
+        }
+
+        function showAlert(containerId, type, message) {
+            const icons = { error: '⚠️', success: '✅', info: 'ℹ️' };
+            document.getElementById(containerId).innerHTML = `
+                <div class="alert alert-${type}">
+                    <span>${icons[type]}</span>
+                    <span>${message}</span>
+                </div>
+            `;
+        }
+
+        async function handleLogin(e) {
+            e.preventDefault();
+            const username = document.getElementById('loginUsername').value.trim();
+            const password = document.getElementById('loginPassword').value;
+            const btn = document.getElementById('loginBtn');
+            document.getElementById('loginAlert').innerHTML = '';
+
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner"></span> Verificando...';
+
+            try {
+                const res = await fetch(`${API_BASE}/api/auth/login`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, password })
+                });
+                const data = await res.json();
+
+                if (data.success) {
+                    showAlert('loginAlert', 'success', 'Acceso concedido. Redirigiendo al dashboard...');
+                    localStorage.setItem('api_key', data.api_key);
+                    localStorage.setItem('username', username);
+                    setTimeout(() => { window.location.href = '/dashboard'; }, 900);
+                } else {
+                    showAlert('loginAlert', 'error', data.error || 'Credenciales incorrectas');
+                    btn.disabled = false;
+                    btn.innerHTML = 'Iniciar Sesión';
+                }
+            } catch (err) {
+                showAlert('loginAlert', 'error', `Error de conexión: ${err.message}`);
+                btn.disabled = false;
+                btn.innerHTML = 'Iniciar Sesión';
+            }
+        }
+
+        async function handleRegister(e) {
+            e.preventDefault();
+            const username = document.getElementById('registerUsername').value.trim();
+            const email = document.getElementById('registerEmail').value.trim();
+            const password = document.getElementById('registerPassword').value;
+            const passwordConfirm = document.getElementById('registerPasswordConfirm').value;
+            const btn = document.getElementById('registerBtn');
+            document.getElementById('registerAlert').innerHTML = '';
+
+            if (password !== passwordConfirm) {
+                return showAlert('registerAlert', 'error', 'Las contraseñas no coinciden');
+            }
+            if (password.length < 6) {
+                return showAlert('registerAlert', 'error', 'La contraseña debe tener al menos 6 caracteres');
+            }
+
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner"></span> Creando cuenta...';
+
+            try {
+                const res = await fetch(`${API_BASE}/api/auth/register`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, email, password })
+                });
+                const data = await res.json();
+
+                if (data.success) {
+                    showAlert('registerAlert', 'success', '¡Cuenta creada! Inicia sesión para continuar.');
+                    document.getElementById('registerForm').reset();
+                    setTimeout(() => switchTab('login'), 1800);
+                } else {
+                    showAlert('registerAlert', 'error', data.error || 'Error al crear la cuenta');
+                    btn.disabled = false;
+                    btn.innerHTML = 'Crear Cuenta Gratis';
+                }
+            } catch (err) {
+                showAlert('registerAlert', 'error', `Error de conexión: ${err.message}`);
+                btn.disabled = false;
+                btn.innerHTML = 'Crear Cuenta Gratis';
+            }
+        }
+
+        // Auto-redirect if already logged in
+        window.addEventListener('load', () => {
+            if (localStorage.getItem('api_key')) {
+                window.location.href = '/dashboard';
+            }
+        });
+    </script>
+</body>
+</html>
