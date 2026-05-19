@@ -7,10 +7,10 @@ WORKDIR /app
 RUN npm install -g pnpm
 
 # Copiar archivos de configuración
-COPY pnpm-workspace.yaml pnpm-lock.yaml ./
+COPY pnpm-workspace.yaml pnpm-lock.yaml .npmrc ./
 COPY . .
 
-# Instalar dependencias
+# Instalar dependencias (incluye workspace packages)
 RUN pnpm install --frozen-lockfile
 
 # Build del proyecto
@@ -22,23 +22,18 @@ FROM node:22-alpine
 
 WORKDIR /app
 
-# Instalar pnpm
-RUN npm install -g pnpm
+# Copiar node_modules completo (incluye .pnpm virtual store + symlinks)
+# Necesario porque pnpm workspaces usan symlinks que deben preservarse
+COPY --from=builder /app/node_modules /app/node_modules
 
-# Copiar archivos de configuración primero
-COPY --from=builder /app/artifacts/api-server/package.json ./
+# Copiar workspace packages (necesarios para las symlinks de pnpm)
+COPY --from=builder /app/artifacts/ /app/artifacts/
+COPY --from=builder /app/lib/ /app/lib/
+COPY --from=builder /app/scripts/ /app/scripts/
 
-# Instalar solo dependencias de producción
-RUN pnpm install --prod --frozen-lockfile
-
-# Copiar el backend compilado
-COPY --from=builder /app/artifacts/api-server/dist ./dist
-
-# Crear la estructura de directorios para el frontend
-RUN mkdir -p /app/artifacts/ventas-pro/dist/public
-
-# Copiar el frontend compilado a la ubicación correcta
-COPY --from=builder /app/artifacts/ventas-pro/dist/public /app/artifacts/ventas-pro/dist/public
+# Copiar config de workspace (necesario para resolución de symlinks)
+COPY --from=builder /app/pnpm-lock.yaml /app/pnpm-workspace.yaml /app/package.json /app/
+COPY --from=builder /app/.npmrc /app/
 
 # Exponer puerto
 EXPOSE 3002
@@ -48,4 +43,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
   CMD node -e "require('http').get('http://localhost:3002/api/health', (r) => {if (r.statusCode !== 200) throw new Error(r.statusCode)})"
 
 # Iniciar servidor
-CMD ["node", "--enable-source-maps", "./dist/index.mjs"]
+CMD ["node", "--enable-source-maps", "./artifacts/api-server/dist/index.mjs"]
