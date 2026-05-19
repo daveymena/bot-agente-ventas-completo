@@ -962,7 +962,47 @@ ${hasSentCardAlready ? "• NO repitas la card si ya la enviaste — responde la
       };
 
       await saveAgentMessage(conversationId, raw, decision.stage, agentMeta);
-      await persistStage(conversationId, decision.stage);
+
+      // ── 11c. PROCESAR CONFIRMACIÓN DE PAGO ───────────────────────────────────
+      // Si el cliente acaba de confirmar la compra y hay producto en contexto,
+      // registramos el pago como pendiente y enviamos notificación a la empresa.
+      if (decision.intent === "confirmation" && decision.productToShow) {
+        try {
+          const pId = decision.productToShow.id;
+          const pName = decision.productToShow.name;
+          const pPrice = decision.productToShow.price;
+          const [customer] = await db.select().from(conversations)
+            .where(eq(conversations.id, conversationId)).limit(1);
+          await processPurchaseConfirmation({
+            conversationId,
+            productId: pId,
+            productName: pName,
+            price: pPrice,
+            paymentMethod: memory.paymentMethod || 'no_especificado',
+            customerId: customer?.contactPhone || 'desconocido',
+            customerEmail: customer?.contactName || 'sin_email',
+            customerPhone: customer?.contactPhone || 'sin_telefono',
+            timestamp: new Date(),
+          });
+          // Marcar conversación como estado pagado
+          await db.update(conversations)
+            .set({ paymentStatus: 'pending', paymentMethod: memory.paymentMethod || null, paymentAmount: pPrice })
+            .where(eq(conversations.id, conversationId));
+        } catch (e) {
+          console.log(`⚠️ No se pudo procesar confirmación de pago: ${(e as Error).message}`);
+        }
+      }
+
+      // Persistir productos en el contexto de la conversación
+      // El sistema actualiza lastMessage de todas formas
+      await db.update(conversations)
+        .set({
+          lastMessage: raw.substring(0, 200),
+          lastMessageAt: new Date(),
+          currentProductId: agentMeta.productId ?? null,
+          currentProductName: agentMeta.productName ?? null,
+        })
+        .where(eq(conversations.id, conversationId));
 
       const totalTime = Date.now() - startTime;
       console.log(`🏁 [AGENT-END] Completado en ${totalTime}ms proveedor:${usedProvider} - ${ts()}`);

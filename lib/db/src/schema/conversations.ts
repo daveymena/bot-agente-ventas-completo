@@ -1,4 +1,4 @@
-import { integer, pgTable, serial, text, timestamp } from "drizzle-orm/pg-core";
+import { integer, numeric, pgTable, serial, text, timestamp } from "drizzle-orm/pg-core";
 import { agents } from "./agents";
 import { leads } from "./leads";
 import { tenants } from "./tenants";
@@ -16,6 +16,13 @@ export const conversations = pgTable("conversations", {
   currentStage: text("current_stage"),
   agentId: integer("agent_id").references(() => agents.id, { onDelete: "set null" }),
   leadId: integer("lead_id").references(() => leads.id, { onDelete: "set null" }),
+
+  // ── Estado de pago ──────────────────────────────────────────────────────────
+  paymentStatus: text("payment_status"),           // pending | confirmed | rejected | refunded
+  paymentMethod: text("payment_method"),           // nequi | daviplata | transferencia | mercadopago | paypal
+  paymentAmount: numeric("payment_amount", { precision: 12, scale: 2 }),
+  paidAt: timestamp("paid_at", { withTimezone: true }),
+
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 });
 

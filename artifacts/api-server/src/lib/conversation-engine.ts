@@ -64,6 +64,12 @@ export interface ConversationMemory {
   messageCount: number;          // Total de mensajes del cliente
   isNewSession: boolean;         // Han pasado >4h desde el último mensaje
   sessionStartedAt: Date | null;
+
+  // ── Estado de pago ─────────────────────────────────────────────────────────
+  paymentStatus: string | null;  // pending | confirmed | rejected | refunded
+  paymentMethod: string | null;  // nequi | daviplata | transferencia | mercadopago | paypal
+  paymentAmount: number | null;
+  paidAt: Date | null;
 }
 
 export interface EngineDecision {
@@ -75,6 +81,13 @@ export interface EngineDecision {
   isRepeatGreeting: boolean;
   contextBlock: string;          // Bloque de contexto para inyectar en el prompt
   debugReason: string;           // Razón legible de la decisión (para logs)
+  searchReasoning: string | null; // Razonamiento de la búsqueda de producto (para prompt)
+  productSearchFailed: boolean;  // Si no se encontró un producto adecuado
+
+  // ── Estado de pago ─────────────────────────────────────────────────────────
+  paymentStatus: string | null;  // Estado de pago detectado/actualizado
+  paymentMethod: string | null;
+  paymentAmount: number | null;
 }
 
 // ─── Constantes de detección ───────────────────────────────────────────────────
@@ -131,7 +144,9 @@ const GENERIC_WORDS = new Set([
   "quiero", "necesito", "funciona", "clases", "lecciones", "modulos",
   "horas", "video", "hora", "cómo", "como", "están", "estan",
   "estado", "estas", "estás", "información", "informacion", "info",
-  "detalles", "más", "mas", "saber", "conocer", "ver"
+  "detalles", "más", "mas", "saber", "conocer", "ver",
+  "interesa", "interes", "interesado", "interesada",
+  "busco", "buscando", "buscas",
 ]);
 
 const STOP_WORDS = new Set([
@@ -392,7 +407,23 @@ export async function loadConversationMemory(conversationId: number): Promise<Co
     if (cardMatch) {
       const pid = parseInt(cardMatch[1]);
       sentProductIds.add(pid);
-      currentProductId = pid;
+      // Actualizar ID si no lo teníamos o si es más reciente
+      if (currentProductId === null || meta?.cardSent) {
+        currentProductId = pid;
+      }
+      // Si no tenemos nombre de producto aún, buscarlo en la BD
+      if (currentProductName === null) {
+        try {
+          const [productRow] = await db
+            .select({ name: products.name })
+            .from(products)
+            .where(eq(products.id, pid))
+            .limit(1);
+          currentProductName = productRow?.name || null;
+        } catch {
+          // Silencioso: si falla la búsqueda, queda null
+        }
+      }
     }
   }
 
@@ -424,6 +455,12 @@ export async function loadConversationMemory(conversationId: number): Promise<Co
     messageCount: customerMessages.length,
     isNewSession,
     sessionStartedAt: history[0] ? new Date(history[0].createdAt) : null,
+
+    // Estado de pago desde BD
+    paymentStatus: convo?.paymentStatus || null,
+    paymentMethod: convo?.paymentMethod || null,
+    paymentAmount: convo?.paymentAmount ? Number(convo.paymentAmount) : null,
+    paidAt: convo?.paidAt ? new Date(convo.paidAt) : null,
   };
 }
 
@@ -443,64 +480,240 @@ function mapStage(raw: string): Stage {
 
 // ─── Búsqueda semántica de producto ───────────────────────────────────────────
 
+// Palabras genéricas que por sí solas NO definen un producto
+const GENERIC_HEADERS = new Set([
+  "megapack", "mega", "pack", "curso", "programa", "master", "pack",
+  "combo", "duo", "trio", "kit", "box", "serie", "coleccion",
+  "paquete", "curso intensivo", "curso completo",
+]);
+
 function normalizeText(t: string): string {
   return t.toLowerCase()
     .replace(/mega\s*pack/g, "megapack")
+    .replace(/reparaci[oó]n/g, "reparacion")
+    .replace(/celulares?\b/g, "celular")
+    .replace(/mascotas?\b/g, "mascota")
+    .replace(/tel[eé]fono/g, "telefono")
+    .replace(/hogar/g, "casa")
+    .replace(/cocina/g, "cocina")
+    .replace(/ba[oñ]o/g, "bano")
+    .replace(/decoraci[oó]n/g, "decoracion")
     .replace(/[^\w\sáéíóúñü]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
 }
 
+/**
+ * Razona lógicamente qué producto corresponde a lo que el usuario pide.
+ * No usa puntos arbitrarios: clasifica en niveles de coincidencia y elige el más veraz.
+ *
+ * Lógica de razonamiento:
+ *  1. Coincidencia EXACTA de frase del usuario en el nombre del producto → Nivel 4 (máximo)
+ *  2. Coincidencia de palabras ESPECÍFICAS (no genéricas) en nombre del producto → Nivel 3
+ *  3. Coincidencia en CATEGORÍA + al menos una palabra específica en nombre/descripción → Nivel 3
+ *  4. Coincidencia de palabras ESPECÍFICAS solo en descripción → Nivel 2
+ *  5. Solo palabras genéricas como "megapack" o "curso" → Nivel 1 (insuficiente, se descarta)
+ *
+ * Si un producto obtiene Nivel 1, se descarta directamente.
+ * Si varios productos obtienen el mismo nivel, gana el de nombre más similar a la consulta.
+ *
+ * Si ningún producto alcanza Nivel 2 o más, devuelve null → no hay un producto verdadero.
+ */
 export async function findBestProductMatch(
   text: string,
   productList: Array<{ id: number; name: string; description: string | null; category: string | null; categoryId: number | null }>,
   categoryMap: Map<number, string>
-): Promise<{ product: typeof productList[0]; score: number } | null> {
+): Promise<{ product: typeof productList[0]; score: number; reasoning: string } | null> {
+  const reasoning: string[] = [];
   const normalized = normalizeText(text);
   const allWords = normalized.split(/\s+/).filter(w =>
     (w.length > 2 || /^\d+$/.test(w)) && !STOP_WORDS.has(w)
   );
-  const queryWords = allWords.filter(w => !GENERIC_WORDS.has(w));
-  const effectiveWords = queryWords.length > 0 ? queryWords : allWords;
 
-  if (effectiveWords.length === 0) return null;
+  // Separar: palabras específicas vs genéricas
+  const genericWords = allWords.filter(w => GENERIC_HEADERS.has(w));
+  const specificWords = allWords.filter(w => !GENERIC_HEADERS.has(w) && !GENERIC_WORDS.has(w) && !STOP_WORDS.has(w));
 
-  const results = productList.map(product => {
-    const catName = product.categoryId
-      ? (categoryMap.get(product.categoryId) || "")
-      : (product.category || "");
-    const productName = normalizeText(product.name);
-    const productDesc = normalizeText(product.description || "");
-    const productText = `${productName} ${productDesc} ${catName}`;
+  // Razonamiento: categorías a las que apunta la consulta
+  const targetCategories: string[] = [];
+  const categoryHints: Record<string, string[]> = {
+    // ← Quién busca qué → devuelve estas categorías como keywords
+    "reparacion": ["reparacion", "reparación", "celular", "telefono", "móvil", "movil", "electronica"],
+    "celular": ["reparacion", "reparación", "celular", "telefono", "móvil", "movil", "electronica"],
+    "telefono": ["reparacion", "reparación", "celular", "telefono", "electronica"],
+    "electronica": ["reparacion", "reparación", "electronica", "tecnologia"],
+    "tecnologia": ["tecnologia", "electronica", "informatica"],
+    "diseno": ["diseno", "diseño", "grafico", "photoshop", "illustrator", "adobe"],
+    "marketing": ["marketing", "redes", "seo", "publicidad", "ventas", "negocios"],
+    "idiomas": ["idiomas", "ingles", "francés", "aleman", "portugués"],
+    "ingles": ["idiomas", "ingles", "inglés"],
+    "frances": ["idiomas", "frances", "francés"],
+    "trading": ["trading", "forex", "bolsa", "inversiones", "acciones"],
+    "programacion": ["programacion", "programación", "codigo", "python", "desarrollo", "web"],
+    "web": ["programacion", "programación", "web", "desarrollo", "html", "css", "react"],
+    "hogar": ["hogar", "cocina", "bano", "limpieza", "decoracion", "decoración", "mascota"],
+    "cocina": ["cocina", "hogar", "cocinar", "utensilios"],
+    "decoracion": ["decoracion", "decoración", "hogar", "muebles", "casa"],
+    "mascota": ["mascota", "hogar", "perro", "gato", "animales"],
+    "fitness": ["fitness", "gimnasio", "ejercicio", "salud", "deporte"],
+    "gimnasio": ["fitness", "gimnasio", "ejercicio", "pesas", "entrenamiento"],
+    "excel": ["excel", "office", "hoja", "calculo"],
+    "powerpoint": ["powerpoint", "office", "presentaciones", "diapositivas"],
+    "word": ["word", "office", "documentos", "texto"],
+    "piano": ["piano", "teclado", "musica", "música"],
+    "guitarra": ["guitarra", "musica", "música"],
+  };
 
-    let score = 0;
+  // ── MAPEO INVERSO DE CATEGORÍAS (BD → hints) ─────────────
+  // La BD puede tener categorías llamadas "megapacks" o "cursos",
+  // pero el buscador inteligente debe asociar nombres de BD reales a conceptos canónicos.
+  const categoryAlias: Record<string, string[]> = {
+    // Categorías de BD que causan productos relevantes → keywords canónicas
+    "megapacks": ["electronica", "tecnologia", "diseno", "marketing", "idiomas", "fitness",
+                  "programacion", "hogar", "cocina", "decoracion", "mascota", "trading",
+                  "excel", "guitarra", "piano", "word", "powerpoint", "reparacion", "celular"],
+    "cursos":   ["electronica", "tecnologia", "diseno", "marketing", "idiomas", "fitness",
+                  "programacion", "hogar"],
+    "suscripciones": ["electronica", "tecnologia", "diseno", "marketing", "idiomas", "fitness",
+                  "programacion", "trading"],
+    "servicios": ["electronica", "tecnologia", "diseno", "marketing", "programacion"],
+  };
 
-    // Frase completa en nombre
-    const phrase = effectiveWords.join(" ");
-    if (phrase.length > 4 && productName.includes(phrase)) score += 20;
+  // Construir el buscador directo: BD → conceptos (case-insensitive)
+  const categoryAliasLower: Record<string, string[]> = {};
+  for (const [key, vals] of Object.entries(categoryAlias)) {
+    categoryAliasLower[key.toLowerCase()] = vals;
+  }
 
-    // Sub-frases
-    for (let i = effectiveWords.length; i >= 2; i--) {
-      for (let j = 0; j <= effectiveWords.length - i; j++) {
-        const sub = effectiveWords.slice(j, j + i).join(" ");
-        if (sub.length > 4 && productName.includes(sub)) score += 15;
+  // Detectar categorías sugeridas por las palabras de la consulta
+  for (const word of specificWords) {
+    if (categoryHints[word]) {
+      targetCategories.push(...categoryHints[word]);
+    }
+  }
+
+  // Construir un set de conceptos objetivo (palabras clave que tiene la consulta, normalizadas)
+  const targetConceptSet = new Set(targetCategories.map(c => normalizeText(c)));
+
+  // Si no hay palabras específicas que generen categoría, no hay forma de buscar
+  if (specificWords.length === 0) {
+    reasoning.push("❌ La consulta solo contiene palabras genéricas (ej: 'megapack', 'curso'). No se puede determinar qué producto busca.");
+    return null;
+  }
+
+  // Evaluar cada producto con razonamiento lógico
+  const evaluations: Array<{
+    product: typeof productList[0];
+    level: number;        // 1 = insuficiente, 2 = débil, 3 = bueno, 4 = exacto
+    matchDetail: string;
+    categoryHit: boolean;
+  }> = [];
+
+  for (const p of productList) {
+    const catName = p.categoryId
+      ? (categoryMap.get(p.categoryId) || "")
+      : (p.category || "");
+    const productName = normalizeText(p.name);
+    const productDesc = normalizeText(p.description || "");
+    const combined = `${productName} ${productDesc} ${catName}`;
+
+    let level = 0;
+    let matchDetail = "";
+
+    // Nivel 4: La frase completa de la consulta aparece en el NOMBRE del producto
+    {
+      const fullPhrase = specificWords.join(" ");
+      if (productName.includes(fullPhrase)) {
+        level = 4;
+        matchDetail = `frase exacta "${fullPhrase}" en el nombre`;
       }
     }
 
-    // Palabras individuales
-    for (const word of effectiveWords) {
-      const stem = word.replace(/s$/, "");
-      if (productName.includes(word) || productName.includes(stem)) {
-        score += 5;
-      } else if (productText.includes(word) || productText.includes(stem)) {
-        score += 2;
+    // Nivel 3: Coincidencia directa de palabras específicas en el NOMBRE
+    if (level < 3) {
+      const nameHits = specificWords.filter(w => productName.includes(w));
+      if (nameHits.length >= Math.max(1, Math.ceil(specificWords.length * 0.4))) {
+        level = 3;
+        matchDetail = `${nameHits.length}/${specificWords.length} palabras específicas en el nombre: ${nameHits.join(", ")}`;
       }
     }
 
-    return { product, score };
-  }).filter(r => r.score > 0).sort((a, b) => b.score - a.score);
+    // Nivel 3: CATEGORÍA coincide + alguna palabra específica en nombre o descripción
+    if (level < 3 && catName) {
+      const catKeywords = categoryHints[catName] || [catName];
+      const categoryMatch = specificWords.some(w =>
+        catKeywords.some(ck => normalizeText(ck).includes(w) || w.includes(normalizeText(ck)))
+      );
+      if (categoryMatch) {
+        const contentHits = specificWords.filter(w => combined.includes(w));
+        if (contentHits.length > 0) {
+          level = 3;
+          matchDetail = `categoría "${catName}" detectada + coincidencia en contenido: ${contentHits.join(", ")}`;
+        }
+      }
+    }
 
-  return results[0] || null;
+    // Nivel 2: Coincidencia de palabras específicas solo en DESCRIPCIÓN
+    if (level < 2) {
+      const descHits = specificWords.filter(w => productDesc.includes(w));
+      if (descHits.length >= Math.max(1, Math.ceil(specificWords.length * 0.5))) {
+        level = 2;
+        matchDetail = `${descHits.length}/${specificWords.length} palabras en descripción: ${descHits.join(", ")}`;
+      }
+    }
+
+    // Nivel 1 (insuficiente): Solo una palabra genérica o muy pocas coincidencias
+    if (level === 0) {
+      const anyHit = allWords.filter(w => combined.includes(w));
+      if (anyHit.length > 0) {
+        level = 1;
+        matchDetail = `solo coincidencia genérica: ${anyHit.join(", ")}`;
+      }
+    }
+
+    // Nivel 2 (búsqueda expandida de categoría):
+    // Las palabras específicas de la consulta coinciden EXACTAMENTE con alias de la
+    // categoría del producto — sin substrings ni coincidencias parciales.
+    // Esto permite buscar "reparación de celulares" y encontrar productos de la categoría
+    // "electronica" (cuyos alias incluyen "reparacion" y "celular"), pero NO permite que
+    // "curso de inglés" devuelva productos de electrónica, mecánica, etc.
+    if (level === 0 && specificWords.length > 0 && catName) {
+      const normalizedAliases = [...(categoryAliasLower[catName] || [])].map(s => normalizeText(s));
+      // Coincidencia exacta: alias contiene la palabra de la consulta (no al revés)
+      const exactAliasHits = specificWords.filter(w => normalizedAliases.some(a => a.includes(w)));
+      if (exactAliasHits.length >= Math.max(1, Math.ceil(specificWords.length * 0.4))) {
+        level = 2;
+        matchDetail = `búsqueda expandida por categoría "${catName}": alias=[${exactAliasHits.join(",")}]`;
+      }
+    }
+
+    evaluations.push({ product: p, level, matchDetail, categoryHit: level >= 3 && catName !== "" });
+  }
+
+  // Filtrar: descartar nivel 1 (insuficiente)
+  const valid = evaluations.filter(e => e.level >= 2);
+
+  if (valid.length === 0) {
+    reasoning.push("❌ Ningún producto alcanza el criterio mínimo de coincidencia (nivel 2).");
+    reasoning.push(`   Productos revisados: ${productList.length}.`);
+    reasoning.push("   Respuesta: informar que no se encontró el producto buscado y listar productos similares.");
+    return null;
+  }
+
+  // Ordenar por nivel descendente, luego por cantidad de palabras específicas coincidentes en el nombre
+  valid.sort((a, b) => {
+    if (b.level !== a.level) return b.level - a.level;
+    const aNameHits = specificWords.filter(w => normalizeText(a.product.name).includes(w)).length;
+    const bNameHits = specificWords.filter(w => normalizeText(b.product.name).includes(w)).length;
+    return bNameHits - aNameHits;
+  });
+
+  const best = valid[0];
+  reasoning.push(`✅ Producto seleccionado: "${best.product.name}" (nivel ${best.level})`);
+  reasoning.push(`   Razón: ${best.matchDetail}`);
+  if (best.categoryHit) reasoning.push("   Coincidencia de categoría confirmada.");
+
+  return { product: best.product, score: best.level * 25, reasoning: reasoning.join("\n") };
 }
 
 // ─── Motor de decisión principal ──────────────────────────────────────────────
@@ -526,11 +739,13 @@ export async function computeDecision(
   } else if (intent === "product_query") {
     stage = memory.currentProductId ? "presentation" : "discovery";
   } else if (intent === "details_query") {
-    stage = memory.currentProductId ? "details" : "discovery";
+    // Si no hay producto en contexto, mantenerse en discovery pero con la conducta de details
+    // para activar hardcoded answers o preguntar por el producto
+    stage = memory.currentProductId ? "details" : "details";
   } else if (intent === "confirmation") {
     stage = "closing";
   } else if (intent === "leaving") {
-    stage = memory.currentStage; // No cambiar etapa al despedirse
+    stage = memory.currentStage;
   }
 
   // ── Decidir si saludar ──────────────────────────────────────────────────────
@@ -540,12 +755,17 @@ export async function computeDecision(
   // ── Decidir qué producto mostrar ────────────────────────────────────────────
   let productToShow: EngineDecision["productToShow"] = null;
   let shouldSendCard = false;
+  let productSearchFailed = false;
+  let searchReasoning: string | null = null;
 
   if (!shouldGreet && intent !== "leaving") {
     // Buscar producto mencionado en el mensaje actual
     const match = await findBestProductMatch(incomingText, productList, categoryMap);
 
-    if (match && match.score >= 5) {
+    // Razonamiento de búsqueda (para inyectar en el prompt)
+    searchReasoning = match?.reasoning || null;
+
+    if (match && match.score >= 50) {
       const p: any = match.product;
       const alreadySent = memory.sentProductIds.has(p.id);
 
@@ -587,24 +807,33 @@ export async function computeDecision(
         shouldSendCard = false;
       }
     } else if (memory.currentProductId) {
-      // Sin match nuevo → mantener producto actual en contexto
-      const currentProduct = productList.find(p2 => p2.id === memory.currentProductId);
-      if (currentProduct) {
-        productToShow = {
-          id: currentProduct.id,
-          name: currentProduct.name,
-          price: Number(currentProduct.price),
-          currency: currentProduct.currency || "COP",
-          description: currentProduct.description || "",
-          features: (currentProduct.features as string[]) || [],
-        };
+      // Sin match nuevo y con producto en contexto: mantenerlo SOLO si no es una búsqueda de producto nuevo
+      // Si la intención es 'product_query' (cliente pide algo nuevo) y no hay match, marcar como fallo
+      if (intent === "product_query") {
+        productSearchFailed = true;
+      } else {
+        // Detalles, objeción, etc. sobre el producto existente → mantener contexto
+        const currentProduct = productList.find(p2 => p2.id === memory.currentProductId);
+        if (currentProduct) {
+          productToShow = {
+            id: currentProduct.id,
+            name: currentProduct.name,
+            price: Number(currentProduct.price),
+            currency: currentProduct.currency || "COP",
+            description: currentProduct.description || "",
+            features: (currentProduct.features as string[]) || [],
+          };
+        }
+        shouldSendCard = false;
       }
-      shouldSendCard = false;
+    } else {
+      // No hay match y no hay producto en contexto
+      productSearchFailed = true;
     }
   }
 
   // ── Construir bloque de contexto para el prompt ─────────────────────────────
-  const contextBlock = buildContextBlock(memory, intent, stage, productToShow, shouldSendCard);
+  const contextBlock = buildContextBlock(memory, intent, stage, productToShow, shouldSendCard, searchReasoning, productSearchFailed);
 
   // ── Razón de la decisión (para logs) ────────────────────────────────────────
   const debugReason = [
@@ -627,6 +856,11 @@ export async function computeDecision(
     isRepeatGreeting,
     contextBlock,
     debugReason,
+    searchReasoning,
+    productSearchFailed,
+    paymentStatus: memory.paymentStatus,
+    paymentMethod: memory.paymentMethod,
+    paymentAmount: memory.paymentAmount,
   };
 }
 
@@ -637,7 +871,9 @@ function buildContextBlock(
   intent: Intent,
   stage: Stage,
   product: EngineDecision["productToShow"],
-  shouldSendCard: boolean
+  shouldSendCard: boolean,
+  searchReasoning?: string | null,
+  productSearchFailed?: boolean
 ): string {
   const lines: string[] = [];
 
@@ -652,7 +888,38 @@ function buildContextBlock(
   lines.push(`• Nueva sesión (>4h): ${memory.isNewSession ? "SÍ" : "NO"}`);
 
   if (memory.sentProductIds.size > 0) {
-    lines.push(`• Productos ya mostrados: [${Array.from(memory.sentProductIds).join(", ")}]`);
+    lines.push(`• Productos ya mostrados: [${Array.from(memory.sentProductIds).join(",")}]`);
+  }
+
+  // Si la búsqueda de producto no encontró nada coherente
+  if (productSearchFailed) {
+    lines.push(`\n🔍 RESULTADO DE BÚSQUEDA EN CATÁLOGO:`);
+    lines.push(`No se identificó un producto que coincida fielmente con lo que pide el cliente.`);
+    lines.push(`El cliente está buscando algo que NO existe en el catálogo actual.`);
+    if (searchReasoning) {
+      lines.push(`\n📋 RAZONAMIENTO DE LA BÚSQUEDA:`);
+      searchReasoning.split("\n").forEach(r => lines.push(`  ${r}`));
+    }
+    lines.push(`\n✅ TU ACCIÓN:`);
+    lines.push(`1. Dile la VERDAD: el producto que busca no está disponible.`);
+    lines.push(`2. Menciona brevemente qué productos SÍ tienes más similares si los hay.`);
+    lines.push(`3. Pregúntale si le interesa alguno de los productos existentes.`);
+    lines.push(`4. Sé honesto y directo, no inventes productos ni des información falsa.`);
+    lines.push(`5. NUNCA muestres una tarjeta de un producto que no tiene que ver con lo que busca.`);
+  }
+
+  // ── Estado de pago de la conversación ───────────────────────────────────────
+  if (memory.paymentStatus || memory.paymentMethod) {
+    lines.push(`\n\n━━━━━━━━━━━━━━━━━━━━━━━`);
+    lines.push(`💰 ESTADO DE PAGO`);
+    lines.push(`━━━━━━━━━━━━━━━━━━━━━━━`);
+    lines.push(`• Estado: ${memory.paymentStatus || 'sin estado registrado'}`);
+    lines.push(`• Método: ${memory.paymentMethod || 'sin método registrado'}`);
+    lines.push(`• Monto: ${memory.paymentAmount ? formatPrice(memory.paymentAmount, 'COP') : 'sin monto registrado'}`);
+    lines.push(`• Pagado el: ${memory.paidAt ? memory.paidAt.toLocaleString('es-CO') : 'pendiente'}`);
+    if (memory.paymentStatus === 'confirmed') {
+      lines.push(`\n✅ El pago ESTÁ CONFIRMADO. Informa al cliente que su acceso está listo.`);
+    }
   }
 
   // ── Reglas según intención ─────────────────────────────────────────────────
@@ -677,7 +944,13 @@ function buildContextBlock(
       break;
 
     case "product_query":
-      if (shouldSendCard && product) {
+      if (productSearchFailed) {
+        lines.push(`• ADVERTENCIA: La búsqueda en el catálogo NO encontró un producto que coincida con lo que el cliente pide.`);
+        lines.push(`• ADMITE HONESTAMENTE que lo que busca no está disponible en este momento.`);
+        lines.push(`• NO inventes productos. NO muestres tarjetas. NO des detalles de productos inexistentes.`);
+        lines.push(`• Si hay productos similares, menciona SOLO los que estén listados abajo en el catálogo.`);
+        lines.push(`• Termina preguntando si le interesa alguno de los productos disponibles.`);
+      } else if (shouldSendCard && product) {
         lines.push(`• El cliente pregunta por "${product.name}". Muestra la tarjeta con [CARD: ${product.id}].`);
         lines.push(`• Antes de la card, escribe UNA sola línea de conexión (ej: "¡Justo lo que buscas! 👇").`);
         lines.push(`• NADA después de [CARD: ${product.id}].`);
@@ -698,7 +971,9 @@ function buildContextBlock(
         lines.push(`• NO envíes la tarjeta de nuevo.`);
       } else {
         lines.push(`• El cliente pregunta detalles pero no hay producto en contexto.`);
-        lines.push(`• Pregúntale sobre qué producto quiere información.`);
+        lines.push(`• PROHIBIDO inventar información de productos.`);
+        lines.push(`• Pregúntale sobre qué producto quiere información específica.`);
+        lines.push(`• NO menciones precios, garantías ni características de productos que no estén en el bloque de PRODUCTO EN CONTEXTO.`);
       }
       break;
 

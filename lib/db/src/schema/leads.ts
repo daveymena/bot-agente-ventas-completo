@@ -11,6 +11,11 @@ export const leads = pgTable("leads", {
   value: numeric("value", { precision: 12, scale: 2 }).notNull().default("0"),
   notes: text("notes"),
   source: text("source"),
+
+  // ── Estado de pago ─────────────────────────────────────────────────────────
+  paymentStatus: text("payment_status"),         // pending | confirmed | rejected
+  lifetimeValue: numeric("lifetime_value", { precision: 12, scale: 2 }).default("0"),
+
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 });
 

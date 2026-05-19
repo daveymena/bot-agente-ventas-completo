@@ -3,7 +3,7 @@
  * Maneja envíos a WhatsApp, email y almacenamiento en BD
  */
 
-import { db, paymentConfirmations } from "@workspace/db";
+import { db, payments } from "@workspace/db";
 import { logger } from "./logger";
 
 export interface CompanyNotification {
@@ -224,24 +224,34 @@ async function sendEmailNotification(
 /**
  * Almacena la confirmación en la BD para registro y análisis
  */
-async function storeConfirmationInDatabase(notification: CompanyNotification): Promise<void> {
+  async function storeConfirmationInDatabase(notification: CompanyNotification): Promise<void> {
   try {
-    // Asumir que existe tabla 'paymentConfirmations' en la BD
-    // await db.insert(paymentConfirmations).values({
-    //   conversationId: notification.conversationId,
-    //   customerEmail: notification.customerEmail,
-    //   customerPhone: notification.customerPhone,
-    //   productId: notification.productId,
-    //   productName: notification.productName,
-    //   price: notification.price,
-    //   paymentMethod: notification.paymentMethod,
-    //   timestamp: notification.timestamp,
-    //   status: 'pending_approval'
-    // });
+    const amountStr = String(notification.price);
+    const methodKey = notification.paymentMethod.toLowerCase().replace(/[^a-z]/g, '');
+    const methodMap: Record<string, string> = {
+      nequi: 'nequi', daviplata: 'daviplata', transferencia: 'transferencia',
+      paypal: 'paypal', mercadopago: 'mercadopago', efectivo: 'efectivo',
+    };
+    const method = methodMap[methodKey] || 'otro';
 
-    logger.info({ notification }, "✅ Confirmación almacenada en BD");
+    await db.insert(payments).values({
+      conversationId: notification.conversationId,
+      productId: notification.productId,
+      amount: amountStr,
+      currency: 'COP',
+      method,
+      status: 'pending',
+      paymentStatus: 'pending',
+      payerName: notification.customerName,
+      payerEmail: notification.customerEmail,
+      payerPhone: notification.customerPhone,
+      verificationSource: 'self_declared',
+      notes: `Confirmacion de compra recibida por ${notification.paymentMethod}`,
+    });
+
+    logger.info({ notification }, "Confirmacion almacenada en BD como pago pendiente");
   } catch (error) {
-    logger.error({ error }, "❌ Error al almacenar en BD");
+    logger.error({ error }, "Error al almacenar en BD");
   }
 }
 
