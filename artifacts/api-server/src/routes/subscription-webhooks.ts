@@ -105,12 +105,12 @@ router.post("/mercadopago", async (req, res) => {
         },
       });
 
-      const payment = await paymentResponse.json();
+      const payment = (await paymentResponse.json()) as any;
 
       logger.info({ payment }, "[Webhook] MercadoPago payment details");
 
       // Extraer subscription ID del external_reference
-      const externalReference = payment.external_reference;
+      const externalReference = (payment as Record<string, any>).external_reference;
       if (!externalReference || !externalReference.startsWith("subscription_")) {
         logger.warn({ externalReference }, "[Webhook] Invalid external reference");
         return res.status(200).json({ received: true });
@@ -269,7 +269,7 @@ router.post("/paypal/capture", async (req, res) => {
       body: "grant_type=client_credentials",
     });
 
-    const authData = await authResponse.json();
+    const authData = (await authResponse.json()) as { access_token: string };
 
     // Capturar el pago
     const captureResponse = await fetch(`https://api-m.paypal.com/v2/checkout/orders/${orderId}/capture`, {
@@ -280,16 +280,16 @@ router.post("/paypal/capture", async (req, res) => {
       },
     });
 
-    const captureData = await captureResponse.json();
+    const captureData = (await captureResponse.json()) as any;
 
-    if (captureData.status === "COMPLETED") {
+    if ((captureData as Record<string, any>).status === "COMPLETED") {
       // Activar suscripción
-      const capture = captureData.purchase_units[0].payments.captures[0];
+      const capture = (captureData as Record<string, any>).purchase_units[0].payments.captures[0];
       await SubscriptionPaymentService.activateSubscription(subscriptionId, {
         paymentId: capture.id,
-        payerEmail: captureData.payer?.email_address,
-        payerName: captureData.payer?.name?.given_name + " " + captureData.payer?.name?.surname,
-        payerId: captureData.payer?.payer_id,
+        payerEmail: (captureData as Record<string, any>).payer?.email_address,
+        payerName: (captureData as Record<string, any>).payer?.name?.given_name + " " + (captureData as Record<string, any>).payer?.name?.surname,
+        payerId: (captureData as Record<string, any>).payer?.payer_id,
         amount: capture.amount.value,
         currency: capture.amount.currency_code,
         status: "approved",
@@ -299,7 +299,7 @@ router.post("/paypal/capture", async (req, res) => {
 
       res.json({ success: true, captureData });
     } else {
-      logger.warn({ subscriptionId, orderId, status: captureData.status }, "[Webhook] PayPal capture failed");
+      logger.warn({ subscriptionId, orderId, status: (captureData as Record<string, any>).status }, "[Webhook] PayPal capture failed");
       res.status(400).json({ error: "Payment capture failed", details: captureData });
     }
   } catch (error) {

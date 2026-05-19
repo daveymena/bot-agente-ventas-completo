@@ -226,8 +226,13 @@ class OpenCodeCLI:
     def chat_conversation(self, messages: List[Dict[str, str]], timeout: int = 120) -> str:
         context_parts = []
         for msg in messages[:-1]:
-            role = "Usuario" if msg["role"] == "user" else "Asistente"
-            context_parts.append(f"{role}: {msg['content']}")
+            role = msg.get("role", "user")
+            if role == "system":
+                context_parts.append(f"[Instrucciones]\n{msg['content']}")
+            elif role == "assistant":
+                context_parts.append(f"Asistente: {msg['content']}")
+            else:
+                context_parts.append(f"Usuario: {msg['content']}")
         last_message = messages[-1]["content"]
         if context_parts:
             full_message = "\n".join(context_parts) + f"\n\nUsuario: {last_message}"
