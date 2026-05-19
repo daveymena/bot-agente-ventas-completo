@@ -23,6 +23,21 @@ import {
   arePaymentServicesHealthy,
   getSystemHealthSummary
 } from "./fallbackSystem";
+import {
+  loadConversationMemory,
+  computeDecision,
+  saveAgentMessage,
+  persistStage,
+  buildChatHistory,
+  detectIntent,
+  tryHardcodedAnswer,
+  sanitizeResponse,
+  detectHardcodedIntent,
+  hasHardcodedAnswerBeenGiven,
+  type Stage,
+} from "./conversation-engine";
+import { getBrandVoice, formatWithBrandVoice } from "./brand-voice";
+import { analyzeBrain, buildFinalPrompt } from "./response-brain";
 import { 
   isPaymentConfirmation, 
   isPaymentMethodQuestion, 
@@ -202,11 +217,8 @@ function analyzeConversationContext(history: any[]): ConversationContext {
   const customerMessages = history.filter(m => m.role === "customer");
   
   // Check if agent has already introduced itself
-  const hasIntroduced = agentMessages.some(m => 
-    m.content.toLowerCase().includes("sofía") || 
-    m.content.toLowerCase().includes("te habla") ||
-    m.content.toLowerCase().includes("asesora")
-  );
+  // Detectamos si ya hubo al menos UN mensaje del agente (cualquier saludo cuenta como presentación)
+  const hasIntroduced = agentMessages.length > 0;
 
   // Analyze lead behavior patterns
   const leadBehavior = analyzeLeadBehaviorPattern(customerMessages);
@@ -442,7 +454,7 @@ function generatePersonalizedContext(context: ConversationContext, lastMessage: 
 
   // Introduction context
   if (hasIntroduced) {
-    personalizedInstructions += "\nCONTEXTO DE PRESENTACIÓN: Ya te presentaste como Sofía anteriormente. NO te presentes de nuevo.\n";
+    personalizedInstructions += "\nCONTEXTO DE PRESENTACIÓN: Ya saludaste al cliente anteriormente. NO vuelvas a decir 'Hola', '¡Hola!', 'Buenos días' ni ningún saludo de apertura. Ve DIRECTO al punto.\n";
   }
 
   // Topic transition context
@@ -524,938 +536,399 @@ IMPORTANTE: Usa esta información para responder de manera empática y estratég
 
 export async function runAgentReply(conversationId: number) {
   const startTime = Date.now();
-  console.log(`🔍 [AGENT-START] runAgentReply iniciado para conversación ${conversationId} - ${new Date().toISOString()}`);
-  
-  let currentProductInContext = null;
-  let productForRequest = null;
+  const ts = () => new Date().toISOString();
+  console.log(`🔍 [AGENT-START] runAgentReply iniciado para conversación ${conversationId} - ${ts()}`);
 
+  // ── 1. Cargar conversación ────────────────────────────────────────────────
   const [convo] = await db.select().from(conversations).where(eq(conversations.id, conversationId)).limit(1);
   if (!convo) {
-    console.log(`❌ [AGENT-ERROR] Conversación ${conversationId} no encontrada - ${new Date().toISOString()}`);
+    console.log(`❌ [AGENT-ERROR] Conversación ${conversationId} no encontrada - ${ts()}`);
     return null;
   }
-  console.log(`📱 [AGENT-INFO] Conversación encontrada: ${convo.contactPhone}, Estado: ${convo.status}, Etapa: ${convo.currentStage} - ${new Date().toISOString()}`);
 
-  // Obtener el último mensaje del cliente para el routing
-  const lastCustomerMessage = await db
-    .select()
-    .from(messages)
-    .where(and(
-      eq(messages.conversationId, conversationId),
-      eq(messages.role, "customer")
-    ))
-    .orderBy(desc(messages.createdAt))
-    .limit(1);
-  
-  const lastMessageText = lastCustomerMessage[0]?.content || "";
-  
-  // Usar el Agent Router para seleccionar el mejor agente
+  // ── 2. Cargar memoria estructurada desde BD (fuente única de verdad) ──────
+  const memory = await loadConversationMemory(conversationId);
+  const lastText = memory.lastCustomerMessage;
+  const customerName = convo.contactName || "cliente";
+
+  console.log(`🧠 [ENGINE] Memoria cargada - hasGreeted:${memory.hasGreeted} stage:${memory.currentStage} product:${memory.currentProductName || "none"} sentCards:[${Array.from(memory.sentProductIds).join(",")}] isNewSession:${memory.isNewSession} - ${ts()}`);
+
+  // ── 3. Seleccionar agente activo ──────────────────────────────────────────
   const { getActiveAgent } = await import("./agent-router");
-  const activeAgent = await getActiveAgent(lastMessageText, conversationId, convo.tenantId);
-  
+  const activeAgent = await getActiveAgent(lastText, conversationId, convo.tenantId);
   if (!activeAgent) {
-    console.log(`❌ [AGENT-ERROR] No hay agente activo configurado - ${new Date().toISOString()}`);
+    console.log(`❌ [AGENT-ERROR] No hay agente activo configurado - ${ts()}`);
     return null;
   }
-  console.log(`🤖 [AGENT-INFO] Agente activo: ${activeAgent.name} - ${new Date().toISOString()}`);
+  console.log(`🤖 [AGENT-INFO] Agente activo: ${activeAgent.name} - ${ts()}`);
 
+  // ── 4. Cargar productos y categorías ─────────────────────────────────────
   const [appSettings] = await db.select().from(settingsTable).limit(1);
   const productList = await db.select().from(products).where(eq(products.isActive, true));
-  console.log(`📦 [AGENT-INFO] Productos activos: ${productList.length} - ${new Date().toISOString()}`);
-  
-  // Obtener historial de la conversación para contexto
-  const history = await db
-    .select()
-    .from(messages)
-    .where(eq(messages.conversationId, conversationId))
-    .orderBy(desc(messages.createdAt))
-    .limit(15);
+  const allCategories = await db.select().from(productCategories);
+  const categoryMap = new Map(allCategories.map(c => [c.id, c.name.toLowerCase()]));
+  console.log(`📦 [AGENT-INFO] Productos activos: ${productList.length} - ${ts()}`);
 
-  console.log(`💬 [AGENT-INFO] Historial de mensajes cargado: ${history.length} mensajes - ${new Date().toISOString()}`);
+  // ── 5. Motor de decisión ──────────────────────────────────────────────────
+  const decision = await computeDecision(memory, lastText, productList, categoryMap);
+  console.log(`🎯 [ENGINE-DECISION] ${decision.debugReason} - ${ts()}`);
 
-  history.reverse(); // Ordenamos de más viejo a más nuevo para la IA
-
-  // 🎯 DETECCION TEMPRANA DE NUEVA SESION Y SALUDO (anti-atosigamiento / se hace el loco)
-  const lastCustomerMsg = [...history].reverse().find(m => m.role === "customer");
-  const lastText = lastCustomerMsg?.content.toLowerCase() || "";
-  
-  const commonGreetings = ["hola", "buenas", "buen dia", "buenos dias", "buenas tardes", "buenas noches", "hola!", "hola.", "hola muy buenas", "que tal", "como estas", "ola", "saludos"];
-  const isGreetingOnly = commonGreetings.some(k => lastText.trim().toLowerCase().includes(k)) && lastText.split(' ').length <= 8;
-
-  let isNewSession = false;
-  if (history.length >= 2) {
-    const lastMsgTime = new Date(history[history.length - 1].createdAt).getTime();
-    const prevMsgTime = new Date(history[history.length - 2].createdAt).getTime();
-    const hoursSinceLastMessage = (lastMsgTime - prevMsgTime) / (1000 * 60 * 60);
-    if (hoursSinceLastMessage > 4) {
-      isNewSession = true;
-      console.log(`⏳ [AGENT-CONTEXT] Han pasado ${hoursSinceLastMessage.toFixed(2)} horas desde el último mensaje. Nueva sesión.`);
-    }
-  }
-
-  // 🆕 DETECTAR TARJETAS YA ENVIADAS (evitar repetición)
-  const sentCards = new Set<number>();
-  for (const msg of history) {
-    if (msg.role === "agent" && msg.content.includes("[CARD:")) {
-      const cardMatch = msg.content.match(/\[CARD:\s*(\d+)\s*\]/);
-      if (cardMatch) {
-        sentCards.add(parseInt(cardMatch[1]));
-      }
-    }
-  }
-  console.log(`🃏 [AGENT-MEMORY] Tarjetas ya enviadas: [${Array.from(sentCards).join(', ')}] - ${new Date().toISOString()}`);
-
-  // Context Intelligence Enhancement: Analyze conversation context
-  const conversationContext = analyzeConversationContext(history);
-  console.log(`🧠 [AGENT-ANALYSIS] Contexto analizado - Presentado: ${conversationContext.hasIntroduced}, Tema: ${conversationContext.currentTopic}, Interés: ${conversationContext.leadBehavior.interestLevel}, Estilo: ${conversationContext.leadBehavior.communicationStyle} - ${new Date().toISOString()}`);
-  
-  logger.info({ 
-    conversationId, 
-    hasIntroduced: conversationContext.hasIntroduced,
-    currentTopic: conversationContext.currentTopic,
-    interestLevel: conversationContext.leadBehavior.interestLevel,
-    emotionalState: conversationContext.leadBehavior.emotionalState.sentiment,
-    communicationStyle: conversationContext.leadBehavior.communicationStyle
-  }, "[Agent] Context analysis completed");
-
-  // Crear un catálogo COMPLETO con toda la información para que la IA pueda responder preguntas
-  const productsBlock = productList
-    .map((p) => {
-      const features = (p.features as string[]) || [];
-      const featuresText = features.length > 0 
-        ? `\nCaracterísticas:\n${features.map(f => `  • ${f}`).join('\n')}`
-        : '';
-      
-      return `
-[PRODUCTO ID: ${p.id}]
-Nombre: ${p.name}
-Precio: ${formatPrice(Number(p.price), p.currency)}
-Descripción: ${p.description || "No disponible"}
-Categoría: ${p.category || "General"}${featuresText}
-Imagen: ${p.imageUrl || "No disponible"}
-Estado: ${p.isActive ? "Activo" : "Inactivo"}
-`;
-    })
-    .join("\n");
-
-  // Error Resilience Enhancement: Check payment gateway health before generating payment info
-  const pg = new PaymentGateway();
-  
-  // Context Intelligence Enhancement: Detect topic transitions
-  const topicTransition = detectTopicTransition(history.slice(0, -1), lastText);
-  if (topicTransition) {
-    console.log(`🔄 [AGENT-TRANSITION] Cambio de tema detectado: ${topicTransition.from || 'ninguno'} → ${topicTransition.to} (confianza: ${topicTransition.confidence}) - ${new Date().toISOString()}`);
-    logger.info({ 
-      conversationId, 
-      transition: topicTransition 
-    }, "[Agent] Topic transition detected");
-  }
-   
-  let paymentInfo = "";
-  // ✅ Usando CONSTANTE UNIFICADA desde el inicio del archivo
-  // NOTA: "precio" y "valor" NO están aquí porque el cliente puede preguntar precio sin querer comprar
-  if (hasPaymentIntent(lastText)) {
-    console.log(`💳 [AGENT-PAYMENT] Solicitud de pago detectada: "${lastText.substring(0, 50)}" - ${new Date().toISOString()}`);
-    
-    // PRIORIDAD DE RESOLUCIÓN DEL PRODUCTO (anti cross-product bug):
-    // 1. Nombre exacto mencionado en el mensaje actual
-    // 2. ID explícito que el cliente haya pedido (productForRequest)
-    // 3. Tema actual de la conversación — solo si hay coincidencia fuerte
-    // 4. Si no hay certeza: NO generar link, pedir aclaración
-    let paymentProduct = productList.find(p => lastText.includes(p.name.toLowerCase()));
-    
-    if (!paymentProduct && productForRequest) {
-      paymentProduct = productForRequest;
-      console.log(`🎯 [AGENT-PAYMENT] Usando producto de la solicitud actual: ${paymentProduct.name} (ID: ${paymentProduct.id})`);
-    }
-    
-    if (!paymentProduct && conversationContext.currentTopic) {
-      // Solo match fuerte: el nombre completo del producto debe contener el tema
-      const topic = conversationContext.currentTopic.toLowerCase();
-      paymentProduct = productList.find(p => p.name.toLowerCase().includes(topic) && topic.length > 4);
-      if (paymentProduct) console.log(`🧠 [AGENT-PAYMENT] Usando producto del contexto (match fuerte): ${paymentProduct.name} (ID: ${paymentProduct.id})`);
-    }
-
-    if (paymentProduct) {
-      console.log(`✅ [AGENT-PAYMENT] Producto CONFIRMADO para pago: ${paymentProduct.name} (ID: ${paymentProduct.id}) - ${new Date().toISOString()}`);
-      // ❌ COMENTADO: La generación de links y paymentInfo ocurría aquí y se duplicaba en whatsapp.ts
-      // Los enlaces de pago se generan UNA SOLA VEZ en whatsapp.ts:buildProductCaption()
-      // Esto evita:
-      // 1. Llamadas múltiples a pg.getAllLinks()
-      // 2. Información de pago duplicada en la respuesta
-      // 3. Mensajes inconsistentes al cliente
-      
-      try {
-        // Vacio: whatsapp.ts se encargará de todo
-      } catch (error) {
-        console.error(`❌ [AGENT-PAYMENT] Error procesando producto ${paymentProduct.name}:`, error);
-      }
-    } else {
-      // Sin producto identificado — NO generar link incorrecto
-      console.log(`⚠️ [AGENT-PAYMENT] No se pudo identificar el producto. Solicitando aclaración al cliente.`);
-    }
-  }
-
-  // Context Intelligence Enhancement: Generate personalized context
-  const personalizedContext = generatePersonalizedContext(conversationContext, lastText);
-
-  // 🛡️ RESTAURAR CONTEXTO DESDE LA ÚLTIMA CARD ENVIADA (más confiable que el topic)
-  // Si ya se envió una card antes, el producto actual SIEMPRE es el de la última card,
-  // sin importar lo que diga el análisis de topic (que puede fallar con preguntas como "cómo se entrega?")
-  if (!currentProductInContext && sentCards.size > 0 && !isGreetingOnly && !isNewSession) {
-    const lastSentCardIds = Array.from(sentCards);
-    const lastCardProduct = productList.find(p => p.id === lastSentCardIds[lastSentCardIds.length - 1]);
-    if (lastCardProduct) {
-      currentProductInContext = lastCardProduct;
-      console.log(`📌 [PRODUCT-CONTEXT] Contexto restaurado desde última card: ${currentProductInContext.name} (ID: ${currentProductInContext.id})`);
-    }
-  }
-  // Fallback: inferir del topic solo si no hay cards enviadas
-  if (!currentProductInContext && conversationContext.currentTopic && sentCards.size === 0 && !isGreetingOnly && !isNewSession) {
-    const topic = conversationContext.currentTopic.toLowerCase();
-    currentProductInContext = productList.find(p => p.name.toLowerCase().includes(topic) && topic.length > 4) || null;
-  }
-
-  // 🧠 INTELIGENCIA AVANZADA: Análisis profundo del mensaje
-  const intelligentContext = AdvancedIntelligence.generateIntelligentContext(
-    lastText,
-    history,
-    currentProductInContext
+  // ── 6. Obtener la voz del negocio (ANTES de cualquier respuesta) ─────────
+  const voice = getBrandVoice(
+    activeAgent.metadata as Record<string, any> | null,
+    appSettings ? { businessName: appSettings.businessName } : null
   );
-  console.log(`🧠 [ADVANCED-INTELLIGENCE] Contexto inteligente generado - ${new Date().toISOString()}`);
-  
-  const customerName = convo.contactName || "cliente";
-  const hasSentCardAlready = sentCards.size > 0;
-  const systemPrompt = `
-Eres **SOFÍA**, vendedora experta y consejera de confianza de TecnoVariedades D&S.
-Estás conversando con **${customerName}**. DIRÍGETE a ${customerName} por su nombre de forma natural durante la conversación, pero sin exagerar (máximo 2 veces por mensaje).
+
+  // ── 7. CEREBRO DE RAZONAMIENTO: analiza ANTES de cualquier camino ────────
+  // El cerebro detecta emoción, elige estrategia, define prohibiciones y requisitos.
+  // El cerebro tiene la AUTORIDAD TOTAL para decidir si usar fast-track o IA.
+  const hcIntent = decision.intent === "details_query" ? detectHardcodedIntent(lastText) : null;
+  const hardcodedYaDado = hcIntent ? hasHardcodedAnswerBeenGiven(memory, hcIntent) : false;
+  const brain = analyzeBrain(
+    lastText,
+    decision.intent,
+    memory,
+    voice,
+    decision.productToShow?.name || memory.currentProductName,
+    hardcodedYaDado
+  );
+  console.log(`🧠 [BRAIN] estado:${brain.emotionalState} estrategia:${brain.strategy} — ${brain.strategyReason} - ${ts()}`);
+
+  // ── 8. Construir catálogo para el prompt ──────────────────────────────────
+  const productsBlock = productList.map(p => {
+    const features = (p.features as string[]) || [];
+    return `[PRODUCTO ID: ${p.id}] ${p.name} | Precio: ${formatPrice(Number(p.price), p.currency)} | ${p.description || ""}${features.length ? " | " + features.join(", ") : ""}`;
+  }).join("\n");
+
+  // ── 9. Construir prompt base del sistema ──────────────────────────────────
+  const hasSentCardAlready = memory.sentProductIds.size > 0;
+
+  const systemPrompt = (activeAgent.systemPrompt || `Eres **${voice.agentName}**, ${voice.agentRole} de ${voice.businessName}.
+Estás conversando con **${customerName}**.
 
 ━━━━━━━━━━━━━━━━━━━━━━━
 🧠 CÓMO PIENSAS Y ACTÚAS
 ━━━━━━━━━━━━━━━━━━━━━━━
-
-1. **ESCUCHA ACTIVA**: Interpreta la intención del cliente, no solo sus palabras. Si dice "algo para aprender diseño" entiende que busca un curso. Si dice "tengo poco presupuesto" recomienda primero las opciones accesibles.
-2. **MEMORIA DE CONTEXTO**: Recuerda lo que ya se habló. Si el cliente ya preguntó por un producto, ese es su interés actual. No cambies a menos que el cliente mencione explícitamente otro producto.
-3. **RESPUESTAS ATRACTIVAS**: Usa emojis 🎯✨✅, separadores suaves y espacios. NO escribas paredes de texto. Una respuesta ideal tiene: 1 emoji de apertura, 2-3 líneas con espacio entre ellas, y un cierre con pregunta.
-4. **NO REPITAS**: Nunca repitas información que ya diste. Si preguntan algo ya respondido, amplía con un detalle nuevo o contextualiza.
-5. **PRESENTA LAS CARDS COMO UN REGALO**: Cuando tengas un producto para recomendar, conéctalo con lo que el cliente pidió. Ej: "¡Justo lo que necesitas! 👇" seguido de la card.
-6. **FLUJO NATURAL**: TUS RESPUESTAS DEBEN SENTIRSE COMO UNA CHARLA, no como un catálogo. Alterna preguntas, usa reacciones cortas y mantén calidez.
+1. ESCUCHA ACTIVA: Interpreta la intención real del cliente.
+2. MEMORIA: Recuerda todo lo que ya se habló. No repitas información.
+3. RESPUESTAS CORTAS: Máx 3 líneas + emoji. Sin paredes de texto.
+4. NO REPITAS: Si ya diste info, amplía con algo nuevo.
+5. FLUJO NATURAL: Charla, no catálogo.
 
 ━━━━━━━━━━━━━━━━━━━━━━━
-📋 LO QUE SIEMPRE ES CIERTO
+📋 INFORMACIÓN DEL NEGOCIO
 ━━━━━━━━━━━━━━━━━━━━━━━
-✅ Entrega 100% digital por Google Drive.
-✅ Acceso inmediato y permanente (de por vida).
-✅ Garantía de 7 días — sin preguntas.
-✅ Pago único, no suscripción.
-✅ Métodos: MercadoPago, PayPal, Nequi, Daviplata.
+✅ Entrega: ${voice.deliveryInfo.details}
+✅ Acceso: ${voice.accessInfo.description}
+✅ Garantía: ${voice.guaranteeInfo.description}
 
 ━━━━━━━━━━━━━━━━━━━━━━━
-📦 CATÁLOGO
+📦 CATÁLOGO COMPLETO
 ━━━━━━━━━━━━━━━━━━━━━━━
-${productList.length > 0 ? productsBlock : "No hay productos disponibles aún."}
+${productList.length > 0 ? productsBlock : "No hay productos disponibles."}
 
 🚨 REGLAS ABSOLUTAS:
-• NO inventes precios, nombres ni características. Usa SOLO lo que dice el catálogo.
-• NO escribas enlaces ni números de cuenta — el sistema los adjunta solo.
-${hasSentCardAlready ? '• NO repitas la card si ya la enviaste — en su lugar, responde la duda directamente.' : '• Cuando recomiendes un producto nuevo, USA [CARD: ID] al final.'}
-• NO uses frases genéricas de apertura. Ve directo al punto con calidez.
+• NO inventes precios, nombres ni características.
+• NO escribas URLs ni números de cuenta — el sistema los adjunta.
+${hasSentCardAlready ? "• NO repitas la card si ya la enviaste — responde la duda directamente." : "• Cuando recomiendes un producto nuevo, USA [CARD: ID] al final."}
+• NO uses frases genéricas de apertura.`).trim();
 
-${personalizedContext}
-`.trim();
+  // ── 10. INTEGRAR contexto del motor DENTRO del cerebro ────────────────────
+  // El bloque de contexto del motor (engineContext) se inyecta como contexto adicional
+  // para que el prompt final tenga TODA la información disponible
+  const engineContextBlock = `${decision.contextBlock}\n\n${AdvancedIntelligence.generateIntelligentContext(
+    lastText,
+    memory.history,
+    decision.productToShow ? productList.find(p => p.id === decision.productToShow!.id) : null
+  )}`;
 
-  console.log(`📝 [AGENT-PROMPT] Prompt del sistema generado - Longitud: ${systemPrompt.length} caracteres - ${new Date().toISOString()}`);
+  // ── 11. ATENDER SEGÚN ESTRATEGIA DEL CEREBRO ─────────────────────────────
 
-  // 🎯 BÚSQUEDA DE PRODUCTOS INTELIGENTE CON RAZONAMIENTO SEMÁNTICO
-  
-  const lastTextLower = lastText.toLowerCase();
-  
-  // 🔍 PASO 1: IDENTIFICAR EL PRODUCTO ACTUAL EN LA CONVERSACIÓN
-  // Buscar el último mensaje del AGENTE que contenga [CARD:]
-  if (!isGreetingOnly && !isNewSession) {
-    const lastAgentCardMessage = history.slice().reverse().find(msg => 
-      msg.role === "agent" && msg.content.includes("[CARD:")
+  // ── 11a. SALUDO (si el cerebro decidió hardcoded_greeting) ────────────────
+  if (brain.strategy === "hardcoded_greeting") {
+    if (!memory.hasGreeted) {
+      console.log(`⚡ [FAST-TRACK] Primer saludo hardcodeado - ${ts()}`);
+      const greetingRaw = voice.phrases.greeting_new.replace(/\{name\}/g, customerName);
+      const raw = customerName !== "cliente"
+        ? `${voice.emojis.greeting} ¡Hola *${customerName}*! ${greetingRaw.replace(/^.*?Bienvenido\/?\w*/i, "").trim()}`
+        : greetingRaw;
+
+      await saveAgentMessage(conversationId, raw, "greeting", { intent: "greeting", isHardcoded: true });
+      await persistStage(conversationId, "greeting");
+      const totalTime = Date.now() - startTime;
+      console.log(`🏁 [AGENT-END] Completado en ${totalTime}ms - ${ts()}`);
+      return { content: raw, stage: "greeting", parts: [{ kind: "text", content: raw }], cardProductIds: [] };
+    }
+
+    // Saludo de retorno — adaptado al estado emocional
+    console.log(`⚡ [FAST-TRACK] Saludo de retorno hardcodeado - ${ts()}`);
+    const emocion = brain.emotionalState;
+    const pre = emocion === "excited" ? `${voice.emojis.success} ¡Qué alegría verte de nuevo, *${customerName}*! 🔥`
+              : emocion === "frustrated" ? `${voice.emojis.guarantee} Hola de nuevo, *${customerName}*. Veamos cómo resolverlo 🤝`
+              : `${voice.emojis.success} ¡Qué gusto verte de nuevo, *${customerName}*! 🌟`;
+    const raw = `${pre}\n\n${voice.phrases.greeting_return.replace(/^(¡Qué gusto verte de nuevo!|Bienvenido)/i, "").trim() || "¿En qué puedo ayudarte hoy?"}`;
+
+    await saveAgentMessage(conversationId, raw, memory.currentStage, { intent: "greeting", isHardcoded: true });
+    const totalTime = Date.now() - startTime;
+    console.log(`🏁 [AGENT-END] Completado en ${totalTime}ms - ${ts()}`);
+    return { content: raw, stage: memory.currentStage, parts: [{ kind: "text", content: raw }], cardProductIds: [] };
+  }
+
+  // ── 11b. DETALLE HARDCODEADO (entrega, garantía, acceso, duración, contenido, soporte) ─
+  // El cerebro ya verificó que NO hay repetición ni emoción negativa antes de decidir hardcoded
+  if (brain.strategy === "hardcoded_detail") {
+    const hardcoded = tryHardcodedAnswer(
+      lastText,
+      decision.productToShow?.name || memory.currentProductName,
+      voice
     );
-    
-    if (lastAgentCardMessage) {
-      const cardMatch = lastAgentCardMessage.content.match(/\[CARD:\s*(\d+)\s*\]/);
-      if (cardMatch) {
-        const productId = parseInt(cardMatch[1]);
-        currentProductInContext = productList.find(p => p.id === productId);
-        console.log(`📌 [PRODUCT-CONTEXT] Producto actual en conversación: ${currentProductInContext?.name} (ID: ${currentProductInContext?.id})`);
-      }
-    }
-  } else {
-    currentProductInContext = null;
-    console.log(`📌 [PRODUCT-CONTEXT] Ignorando restauración de contexto en Paso 1 (isGreetingOnly: ${isGreetingOnly}, isNewSession: ${isNewSession})`);
-  }
-  
-  // 🔍 PASO 2: VERIFICAR PALABRAS DE PREGUNTA
-  const hasQuestionWords = lastTextLower.includes("cómo") ||
-                           lastTextLower.includes("como") ||
-                           lastTextLower.includes("cuándo") ||
-                           lastTextLower.includes("cuando") ||
-                           lastTextLower.includes("dónde") ||
-                           lastTextLower.includes("donde") ||
-                           lastTextLower.includes("qué") ||
-                           lastTextLower.includes("que") ||
-                           lastTextLower.includes("cuál") ||
-                           lastTextLower.includes("cual") ||
-                           lastTextLower.includes("entregan") ||
-                           lastTextLower.includes("entrega") ||
-                           lastTextLower.includes("acceso") ||
-                           lastTextLower.includes("garantía") ||
-                           lastTextLower.includes("garantia") ||
-                           lastTextLower.includes("incluye") ||
-                           lastTextLower.includes("tiene") ||
-                           lastTextLower.includes("trae") ||
-                           lastTextLower.includes("soporte") ||
-                           lastTextLower.includes("duración") ||
-                           lastTextLower.includes("duracion") ||
-                           lastTextLower.includes("tiempo");
-  
-  // 🔍 PASO 3: VERIFICAR SI EL CLIENTE ESTÁ CONFIRMANDO
-  const isConfirmation = (lastTextLower.includes("sí") || 
-                         lastTextLower.includes("si") ||
-                         lastTextLower.includes("ok") ||
-                         lastTextLower.includes("dale") ||
-                         lastTextLower.includes("bueno") ||
-                         lastTextLower.includes("perfecto") ||
-                         lastTextLower.includes("me gustaría") ||
-                         lastTextLower.includes("quiero") ||
-                         lastTextLower.includes("adelante")) &&
-                         !lastTextLower.includes("no");
-  
-  // 🔍 PASO 4: BÚSQUEDA SEMÁNTICA CON CONTEXTO COMPLETO
-  console.log(`🔍 [PRODUCT-SEARCH] Buscando producto en catálogo para: "${lastText}"`);
-  
-  const allCategories = await db.select().from(productCategories);
-  const categoryMap = new Map(allCategories.map(c => [c.id, c.name.toLowerCase()]));
-
-  // Palabras genéricas que NO deben usarse para elegir producto (son preguntas sobre entrega/acceso o saludos)
-  const genericProductWords = new Set(["entrega","entregan","acceso","garantia","garantía","soporte","descarga","drive","google","duracion","duración","tiempo","incluye","tiene","trae","precio","valor","cuanto","cuánto","cual","cuál","pago","pagar","link","enlace","nequi","daviplata","transfiere","transferencia","comprar","adquirir","quiero","necesito","funciona","clases","lecciones","modulos","horas","video","hora","cómo","como","están","estan","estado","estas","estás"]);
-  const stopWords = ["el","la","los","las","lo","de","del","un","una","que","por","para","con","me","se","es","en","y","e","a","su","le","no","te","le","les","nos","os","lo","al","este","esta"];
-  const normalizeText = (t: string) => t.toLowerCase()
-    .replace(/mega pack/g, 'megapack')
-    .replace(/[^\w\sáéíóúñü]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-  const normalizedQuery = normalizeText(lastText);
-  // Mantener números de cualquier longitud (ej: '9', '60') para identificar packs exactos
-  const allWords = normalizedQuery.split(/\s+/).filter((w: string) => (w.length > 2 || /^\d+$/.test(w)) && !stopWords.includes(w));
-  // Separar palabras clave de producto vs palabras genéricas (entrega, acceso, garantía, etc.)
-  const productKeywords = allWords.filter((w: string) => !genericProductWords.has(w));
-  const queryWords = productKeywords.length > 0 ? productKeywords : allWords;
-
-  // Detectar si el usuario menciona una categoría
-  const mentionedCategories: string[] = [];
-  for (const [, catName] of categoryMap) {
-    if (catName.length > 3 && normalizedQuery.includes(catName)) {
-      mentionedCategories.push(catName);
+    if (hardcoded) {
+      console.log(`⚡ [FAST-TRACK] Respuesta hardcodeada para details_query - ${ts()}`);
+      const raw = hardcoded.response;
+      await saveAgentMessage(conversationId, raw, "details", {
+        intent: hardcoded.intent,
+        productId: decision.productToShow?.id || memory.currentProductId || undefined,
+        productName: decision.productToShow?.name || memory.currentProductName || undefined,
+        isHardcoded: true,
+      });
+      await persistStage(conversationId, "details");
+      const totalTime = Date.now() - startTime;
+      console.log(`🏁 [AGENT-END] Completado en ${totalTime}ms (hardcoded) - ${ts()}`);
+      return {
+        content: raw,
+        stage: "details",
+        parts: [{ kind: "text", content: raw }],
+        cardProductIds: [],
+      };
     }
   }
 
-  let bestMatch = null;
-  const searchResults = productList
-    .map(product => {
-      const catName = product.categoryId ? (categoryMap.get(product.categoryId) || '') : (product.category || '');
-      const productName = normalizeText(product.name);
-      const productDesc = normalizeText(product.description || '');
-      const productText = `${productName} ${productDesc} ${catName}`;
+  // ── 11c. RUTA IA — construir prompt final con cerebro + contexto del motor ─
+  const finalPrompt = buildFinalPrompt(systemPrompt, brain, voice) + `\n\n${engineContextBlock}`;
 
-      let score = 0;
-      const matchedWords: string[] = [];
-
-      // CRITERIO 1: Coincidencia de frase completa en el nombre del producto
-      const queryPhrase = queryWords.join(' ');
-      if (queryPhrase.length > 4 && productName.includes(queryPhrase)) {
-        score += 20;
-        console.log(`   📌 [FRASE-MATCH] "${queryPhrase}" coincide con nombre de producto "${productName}"`);
-      }
-
-      // CRITERIO 2: Coincidencia de frase parcial (ej: "pack idiomas" → "pack idiomas" en nombre)
-      for (let i = queryWords.length; i >= 2; i--) {
-        for (let j = 0; j <= queryWords.length - i; j++) {
-          const subPhrase = queryWords.slice(j, j + i).join(' ');
-          if (subPhrase.length > 4 && productName.includes(subPhrase)) {
-            score += 15;
-          }
-        }
-      }
-
-      // CRITERIO 3: Palabras individuales con peso contextual
-      for (const word of queryWords) {
-        if (productName.includes(word) || productName.includes(word.replace(/s$/, ''))) {
-          score += 5; // peso ALTO si está en el nombre del producto
-          matchedWords.push(word);
-        } else if (productText.includes(word) || productText.includes(word.replace(/s$/, ''))) {
-          score += 2; // peso MEDIO si está en descripción o categoría
-          matchedWords.push(word);
-        } else if (productDesc.includes(word)) {
-          score += 1; // peso BAJO solo en descripción
-        }
-      }
-
-      // CRITERIO 4: Bonus si la categoría mencionada coincide con este producto
-      if (mentionedCategories.length > 0) {
-        for (const cat of mentionedCategories) {
-          if (catName === cat || catName.includes(cat)) {
-            score += 6;
-          }
-        }
-      }
-
-      // CRITERIO 5: Penalización si el nombre del producto en la query no se parece al nombre real
-      // (evita que "megapack completo 81 en 1" gane por tener "megapack" cuando el usuario pidió "idiomas")
-
-      return { product, score, matchedWords };
-    })
-    .filter(r => r.score > 0)
-    .sort((a, b) => b.score - a.score);
-  
-  if (searchResults.length > 0) {
-    bestMatch = searchResults[0];
-    console.log(`🎯 [PRODUCT-SEARCH] Mejor coincidencia: ${bestMatch.product.name} (Score: ${bestMatch.score}, Palabras: [${bestMatch.matchedWords.join(', ')}])`);
-    // Log de todos los resultados para debug
-    for (const r of searchResults.slice(0, 5)) {
-      console.log(`   ${r.product.id}: "${r.product.name}" → score ${r.score} [${r.matchedWords.join(', ')}]`);
-    }
-  }
-
-  // 🧠 LÓGICA DE DECISIÓN DEL CONTEXTO DE PRODUCTO
-  if (bestMatch && currentProductInContext && bestMatch.product.id !== currentProductInContext.id) {
-    // 💡 Posible cambio de producto — verificar si es una pregunta genérica o un cambio real
-    const alreadySentCurrentCard = sentCards.has(currentProductInContext.id);
-    const isGenericQuestion = hasQuestionWords && alreadySentCurrentCard;
-    const isStrongMatch = bestMatch.score > 10; // Solo cambios con alta confianza
-
-    if (isGenericQuestion) {
-      // El cliente ya recibió la card y está preguntando algo, NO cambiar producto
-      console.log(`🔄 [PRODUCT-NO-SWITCH] Cliente pregunta, se mantiene: ${currentProductInContext.name} (match: ${bestMatch.product.name} score ${bestMatch.score})`);
-      productForRequest = null;
-    } else if (isStrongMatch && !sentCards.has(bestMatch.product.id)) {
-      // Cambio real a producto diferente con alta confianza
-      console.log(`🔄 [PRODUCT-SWITCH] Cambio confirmado: ${currentProductInContext.name} → ${bestMatch.product.name} (score: ${bestMatch.score})`);
-      productForRequest = bestMatch.product;
-    } else {
-      console.log(`🔄 [PRODUCT-NO-SWITCH] Match débil, se mantiene: ${currentProductInContext.name}`);
-      productForRequest = null;
-    }
-  } else if (isConfirmation && currentProductInContext) {
-    // 💡 Confirmando el producto actual
-    console.log(`✅ [PRODUCT-CONFIRMATION] Cliente confirmando producto: ${currentProductInContext.name}`);
-    productForRequest = null;
-  } else if (hasQuestionWords && currentProductInContext && (!bestMatch || bestMatch.product.id === currentProductInContext.id)) {
-    // 💡 Pregunta sobre el producto actual
-    if (sentCards.has(currentProductInContext.id)) {
-      // Tarjeta ya enviada antes, solo responde la pregunta
-      console.log(`❓ [PRODUCT-QUESTION] Cliente preguntando sobre producto (tarjeta YA enviada): ${currentProductInContext.name}`);
-      productForRequest = null;
-    } else {
-      // Primera vez que pregunta por este producto, ENVIAR TARJETA
-      productForRequest = currentProductInContext;
-      console.log(`🃏 [PRODUCT-QUESTION] Primera pregunta, ENVIANDO tarjeta: ${currentProductInContext.name}`);
-    }
-  } else if (bestMatch && !currentProductInContext) {
-    // 💡 Primer producto detectado en la conversación
-    if (!sentCards.has(bestMatch.product.id)) {
-      productForRequest = bestMatch.product;
-      console.log(`✅ [PRODUCT-SEARCH] Producto seleccionado: ${productForRequest.name}`);
-    }
-  } else {
-    console.log(`❌ [PRODUCT-SEARCH] No hay necesidad de enviar tarjeta nueva`);
-    productForRequest = null;
-  }
-  
-  // Si encontramos un producto, agregarlo al prompt
-  let productInstruction = "";
-  
-  // CASO 1: Hay un producto actual en la conversación (el cliente está preguntando sobre él)
-  if (currentProductInContext && !productForRequest) {
-    const features = (currentProductInContext.features as string[]) || [];
-    const featuresText = features.length > 0 
-      ? `\nCaracterísticas:\n${features.map(f => `  • ${f}`).join('\n')}`
-      : '';
-    
-    productInstruction = `\n\n📌 PRODUCTO ACTUAL EN CONVERSACIÓN:\nNombre: ${currentProductInContext.name}\nID: ${currentProductInContext.id}\nPrecio: ${formatPrice(Number(currentProductInContext.price), currentProductInContext.currency)}\nDescripción: ${currentProductInContext.description}${featuresText}\n\n🚨 CRÍTICO:\n- El cliente está preguntando sobre ESTE producto\n- NO cambies a otro producto\n- NO vuelvas a enviar [CARD: ${currentProductInContext.id}] (ya lo enviaste)\n- Responde su pregunta usando SOLO la información de arriba\n- NO inventes datos que no estén en la descripción\n- Si pregunta sobre entrega: "Se entrega 100% digital por Google Drive. Acceso inmediato."\n- Si pregunta sobre garantía: "Acceso de por vida. 7 días para reembolso si no te gusta."\n- Si pregunta sobre duración: "Acceso permanente de por vida. Sin límite de tiempo."\n- Si pregunta sobre soporte: "Es auto-aprendizaje. Tienes acceso a todo el contenido en Drive."`;
-  }
-  // CASO 2: Hay un nuevo producto para recomendar
-  else if (productForRequest) {
-    const features = (productForRequest.features as string[]) || [];
-    const featuresText = features.length > 0 
-      ? `\nCaracterísticas:\n${features.map(f => `  • ${f}`).join('\n')}`
-      : '';
-    
-    productInstruction = `\n\n🎯 PRODUCTO A RECOMENDAR:\nNombre: ${productForRequest.name}\nID: ${productForRequest.id}\nPrecio: ${formatPrice(Number(productForRequest.price), productForRequest.currency)}\nDescripción: ${productForRequest.description}${featuresText}\n\n🚨 DEBES incluir [CARD: ${productForRequest.id}] en tu respuesta.\n🚨 USA SOLO la información de arriba. NO inventes datos.\n🚨 Si la descripción dice "20 secciones", di "20 secciones", NO "283 clases".\n🚨 Si el precio es COP 20,000, di "COP 20,000", NO otro precio.\n🚨 NO menciones características que no estén en la descripción.`;
-  }
-  // CASO 3: Ya se envió una tarjeta antes
-  else if (sentCards.size > 0) {
-    productInstruction = `\n\n🚫 IMPORTANTE: Ya enviaste la tarjeta del producto anteriormente.\n✅ El cliente ya tiene toda la información del producto.\n✅ NO vuelvas a enviar [CARD: ID].\n✅ Responde de forma natural a su pregunta sin repetir información.\n✅ Si pregunta sobre entrega, pago o acceso, responde directamente sin mostrar la tarjeta de nuevo.`;
-  }
-
-  const baseSystemPrompt = activeAgent?.systemPrompt || systemPrompt;
-  let finalPrompt = "";
-  let responsePrefill = "";
-  
-  // 🎯 ESTRATEGIA SIMPLIFICADA: Dejar que la IA razone
-  console.log(`📊 [STAGE-ANALYSIS] Analizando contexto para conversación ${conversationId}`);
-  console.log(`   - isGreetingOnly: ${isGreetingOnly}`);
-  console.log(`   - hasIntroduced: ${conversationContext.hasIntroduced}`);
-  console.log(`   - currentTopic: ${conversationContext.currentTopic}`);
-  console.log(`   - productForRequest: ${productForRequest?.name || 'ninguno'}`);
-  console.log(`   - currentStage: ${convo.currentStage}`);
-  
-  // Detectar intención de pago - ✅ Usando HELPER UNIFICADO
-  const isPurchaseIntent = hasPaymentIntent(lastText);
-  
-  // 🎯 ESTRATEGIA 0: PREGUNTAS POST-TARJETA (Información puntual sin repetición)
-  let isPostCardQuestion = false;
-  let postCardResponse = "";
-  
-  if (sentCards.size > 0 && isPurchaseIntent) {
-    // Cliente preguntó algo relacionado con pago, pero ya vio la tarjeta
-    if (isPaymentConfirmation(lastText, history.length, sentCards, currentProductInContext?.id)) {
-      // Es confirmación de compra - enviar a empresa
-      console.log(`✅ [AGENT-STRATEGY] Confirmación de compra detectada`);
-      isPostCardQuestion = true;
-      postCardResponse = getConfirmationResponse(
-        currentProductInContext?.name || "Producto",
-        { 
-          email: process.env.COMPANY_EMAIL || "info@empresa.com",
-          phone: process.env.COMPANY_PHONE || "+57 123 456 7890"
-        }
-      );
-    } else if (isPaymentMethodQuestion(lastText, sentCards)) {
-      // Solo pregunta sobre método de pago
-      console.log(`💳 [AGENT-STRATEGY] Pregunta sobre método de pago`);
-      isPostCardQuestion = true;
-      postCardResponse = getPaymentMethodResponse([
-        "💳 Tarjeta de crédito/débito",
-        "📱 Nequi/Daviplata",
-        "🏦 Transferencia bancaria"
-      ]);
-    } else if (isProductDetailsQuestion(lastText, sentCards, currentProductInContext?.id)) {
-      // Pregunta sobre detalles del producto
-      console.log(`📋 [AGENT-STRATEGY] Pregunta sobre detalles del producto`);
-      isPostCardQuestion = false; // Dejar que la IA responda naturalmente
-    }
-  }
-  
-  // Si es pregunta post-tarjeta, usar respuesta rápida
-  if (isPostCardQuestion) {
-    console.log(`💬 [AGENT-STRATEGY] Respondiendo pregunta post-tarjeta sin repetir información`);
-    finalPrompt = baseSystemPrompt + `
-
-🚨 CONTEXTO: El cliente ya vio la información del producto. Solo está pidiendo un tipo de información específica.
-Tu tarea: Responder SOLO con la información que pide, SIN repetir detalles del producto ya mostrado.
-Sé conciso y amable.
-
-RESPUESTA PREDEFINIDA:
-${postCardResponse}`;
-    responsePrefill = postCardResponse.split('\n')[0];
-  }
-  // 🎯 ESTRATEGIA 1: INTENCIÓN DE PAGO (CIERRE)
-  else if (isPurchaseIntent) {
-    console.log(`💳 [AGENT-STRATEGY] Cliente quiere comprar - Facilitando pago`);
-    finalPrompt = baseSystemPrompt + intelligentContext + `\n\n🚨 CONTEXTO: El cliente quiere comprar.
-Tu objetivo es animarlo a realizar el pago con entusiasmo genuino.
-¡MUY IMPORTANTE!: TÚ NO DEBES INVENTAR NI ESCRIBIR LOS ENLACES DE PAGO NI LOS NÚMEROS DE CUENTA. El sistema los adjuntará de forma automática e invisible al final de tu mensaje.
-Sé cálido, confirma el producto y dile que los enlaces están listos abajo.${productInstruction}`;
-    responsePrefill = ``;
-  }
-  
-  // 🎯 ESTRATEGIA 2: PRIMERA VEZ (SALUDO + PRESENTACIÓN)
-  else if (isGreetingOnly && !conversationContext.hasIntroduced) {
-    console.log(`👋 [AGENT-STRATEGY] Primer contacto - Presentación`);
-    finalPrompt = baseSystemPrompt + intelligentContext + `\n\n🚨 CONTEXTO: Es el primer contacto con el cliente.
-Tu objetivo es PRESENTARTE de forma cálida y DESCUBRIR qué le interesa.
-Sé breve, usa emojis, y termina con una pregunta abierta.
-🚨 REGLA DE ORO DE NO-ATOSIGAMIENTO: No intentes vender ni presionar en este primer mensaje. Solo preséntate como Sofía, dale la bienvenida y pregúntale qué tipo de contenido o curso está buscando.`;
-    responsePrefill = ``;
-  }
-  
-  // 🎯 ESTRATEGIA 3: CLIENTE RECURRENTE (SALUDO CÁLIDO)
-  else if (isGreetingOnly && conversationContext.hasIntroduced) {
-    console.log(`👋 [AGENT-STRATEGY] Cliente recurrente - Saludo cálido`);
-    finalPrompt = baseSystemPrompt + intelligentContext + `\n\n🚨 CONTEXTO: El cliente ya conoce TecnoVariedades y ha vuelto a saludar.
-Tu objetivo es REACTIVAR su interés de forma muy cálida pero breve.
-Salúdalo por su nombre natural, sé muy breve y pregúntale en qué puedes colaborarle hoy.
-🚨 REGLA DE ORO DE NO-ATOSIGAMIENTO: Actúa como si no supieras de qué producto se habló antes (hazte el loco). NO le insistas con ningún producto ni menciones compras previas a menos que él lo haga explícitamente. Espera pacientemente a que vuelva a preguntar antes de dar información técnica o enlaces.`;
-    responsePrefill = ``;
-  }
-  
-  // 🎯 ESTRATEGIA 3.5: MANEJO DE OBJECIONES (Antes de razonamiento libre)
-  else if (hasObjectionIntent(lastText) && sentCards.size > 0) {
-    console.log(`🛡️ [AGENT-STRATEGY] Objeción detectada - Manejando objeción`);
-    const objectionAnalysis = conversationContext.leadBehavior.objectionAnalysis;
-    let objectionContext = "";
-    
-    if (objectionAnalysis) {
-      objectionContext = `
-
-🎯 ANÁLISIS DE OBJECIÓN:
-• Tipo: ${objectionAnalysis.type}
-• Confianza: ${Math.round(objectionAnalysis.confidence * 100)}%
-• Sentimiento: ${objectionAnalysis.sentiment}
-• Estrategia: ${objectionAnalysis.strategy}
-
-Tu tarea: Responder a la objeción de forma EMPÁTICA, ESPECÍFICA y COHERENTE.
-${objectionAnalysis.suggestedResponse ? `Sugerencia: ${objectionAnalysis.suggestedResponse}` : ""}`;
-    }
-    
-    finalPrompt = baseSystemPrompt + intelligentContext + `\n\n🚨 CONTEXTO: El cliente tiene una objeción sobre el producto.
-Tu objetivo es VALIDAR su preocupación, ENTENDER la raíz del problema, y ofrecer una SOLUCIÓN ESPECÍFICA.
-NO ignores la objeción. NO presiones. SÍ escucha con empatía.${objectionContext}${productInstruction}`;
-    responsePrefill = ``;
-  }
-  
-  // 🎯 ESTRATEGIA 4: CONVERSACIÓN GENERAL (RAZONAMIENTO LIBRE)
-  else {
-    console.log(`💬 [AGENT-STRATEGY] Conversación general - Razonamiento libre`);
-    finalPrompt = baseSystemPrompt + intelligentContext + `\n\n🚨 CONTEXTO: El cliente está explorando o preguntando algo específico.
-Tu objetivo es ENTENDER su pregunta, RAZONAR sobre la mejor respuesta, y RESPONDER de forma coherente.
-Busca en el catálogo el producto que mejor responda a su necesidad.
-Explica POR QUÉ recomiendas ese producto.${productInstruction}`;
-    responsePrefill = ``;
-  }
-
+  // ── Construir mensajes para la IA ─────────────────────────────────────────
+  const chatHistory = buildChatHistory(memory);
   const chatMessages = [
-    ...history.map(m => ({
-      role: m.role === "customer" ? "user" : "assistant",
-      content: m.content
-    })),
-    { role: "system", content: finalPrompt + `
-
-🚨 REGLAS DE FORMATO Y CONTEXTO:
-
-📌 **MEMORIA DE CONVERSACIÓN**
-• Recuerda SIEMPRE el último producto del que se habló. Ese es el tema actual.
-• Si el cliente pregunta "cómo se entrega", "tiene garantía", "qué incluye" → responde sobre el producto actual. NO cambies de producto.
-• Si el cliente menciona OTRO producto por su nombre (ej: "y el de piano?") → ahí sí cambia.
-
-📌 **ESTRUCTURA DE RESPUESTA**
-• Sin card: 3 líneas máx, con espacios, 1-2 emojis, cierra con pregunta.
-• Con card: 1-2 líneas de conexión, luego [CARD: ID]. NADA después de la card.
-• Usa emojis con propósito: 🎯 para ofertas, ✨ para destacar, ✅ para beneficios, 👇 para llamar atención.
-• Separa ideas con líneas en blanco, no escribas bloques de texto.
-
-📌 **PROHIBICIONES**
-• NUNCA repitas información ya dicha en el historial.
-• NUNCA escribas URLs, links de pago, números de cuenta.
-• NUNCA inventes datos del producto.
-• NUNCA uses frases hechas como "¡Claro que sí!", "Con gusto te ayudo".` },
-
-    // Prefill: el mensaje del asistente ya empieza con el formato correcto, la IA solo continúa
-    ...(responsePrefill ? [{ role: "assistant", content: responsePrefill }] : [])
+    ...chatHistory,
+    {
+      role: "system",
+      content: finalPrompt,
+    },
+    ...(decision.shouldSendCard && decision.productToShow
+      ? [{ role: "assistant", content: "" }]
+      : []),
   ];
 
-  console.log(`🤖 [AGENT-AI] Preparando llamada a IA - Mensajes: ${chatMessages.length}, Prompt final: ${finalPrompt.length} caracteres - ${new Date().toISOString()}`);
+  console.log(`🤖 [AGENT-AI] Enviando a IA - mensajes:${chatMessages.length} prompt:${finalPrompt.length}chars - ${ts()}`);
 
-  // Error Resilience Enhancement: Enhanced AI provider rotation with comprehensive fallback
+  //   ── 12. Llamada a IA con rotación de proveedores ──────────────────────────
   const customerInfo = { name: convo.contactName, phone: convo.contactPhone };
-  
+
   const result = await executeWithFallback(
     async () => {
-      console.log(`🔄 [AGENT-AI] Iniciando rotación de proveedores de IA - ${new Date().toISOString()}`);
       const rotationQueue: { config: any; source: string }[] = [];
-      
-      // Obtener configuración activa de la base de datos (TIENE LA MÁS ALTA PRIORIDAD)
       const dbConfig = appSettings ? getProviderConfigFromSettings(appSettings) : null;
       const activeProvider = appSettings?.aiProvider || "none";
 
-      console.log(`⚙️ [AGENT-AI] Proveedor activo en BD: ${activeProvider}`);
+      if (dbConfig) rotationQueue.push({ config: dbConfig, source: activeProvider });
 
-      // 🥇 1. PRIMERO: Proveedor configurado en el Dashboard (Base de Datos)
-      // Cubre: opencode, github, nvidia, ollama_local, openai_default, github_copilot_internal
-      if (dbConfig && healthMonitor.isServiceHealthy(activeProvider)) {
-        rotationQueue.push({ config: dbConfig, source: activeProvider });
-      } else if (dbConfig) {
-        console.log(`⚠️ [AGENT-AI] Proveedor DB '${activeProvider}' en COOLDOWN, añadiendo como fallback...`);
-        rotationQueue.push({ config: dbConfig, source: activeProvider }); // Añadir de todos modos como prioridad 1
-      }
-
-      // 🥈 2. FALLBACKS del sistema (solo si el proveedor DB no es suficiente)
       const copilotEnv = getProviderConfig("github_copilot_internal");
       const nvidiaEnv = getProviderConfig("nvidia");
       const githubEnv = getProviderConfig("github");
       const nvidiaFast = getProviderConfig("nvidia_fast");
       const ollamaConfig = getProviderConfig("ollama_local");
 
-      // Solo añadir fallbacks si el activo no los cubre ya
-      if (activeProvider !== "nvidia" && nvidiaEnv && healthMonitor.isServiceHealthy("nvidia_70b")) {
+      if (activeProvider !== "nvidia" && nvidiaEnv && healthMonitor.isServiceHealthy("nvidia_70b"))
         rotationQueue.push({ config: nvidiaEnv, source: "nvidia_70b" });
-      }
-      if (activeProvider !== "github_copilot_internal" && copilotEnv && healthMonitor.isServiceHealthy("copilot_internal")) {
+      if (activeProvider !== "github_copilot_internal" && copilotEnv && healthMonitor.isServiceHealthy("copilot_internal"))
         rotationQueue.push({ config: copilotEnv, source: "copilot_internal" });
-      }
-      if (activeProvider !== "github" && githubEnv && healthMonitor.isServiceHealthy("github_env")) {
+      if (activeProvider !== "github" && githubEnv && healthMonitor.isServiceHealthy("github_env"))
         rotationQueue.push({ config: githubEnv, source: "github_env" });
-      }
-      if (activeProvider !== "nvidia" && nvidiaFast && healthMonitor.isServiceHealthy("nvidia_8b")) {
+      if (activeProvider !== "nvidia" && nvidiaFast && healthMonitor.isServiceHealthy("nvidia_8b"))
         rotationQueue.push({ config: nvidiaFast, source: "nvidia_8b" });
-      }
-      if (activeProvider !== "ollama_local" && ollamaConfig && healthMonitor.isServiceHealthy("ollama_local")) {
+      if (activeProvider !== "ollama_local" && ollamaConfig && healthMonitor.isServiceHealthy("ollama_local"))
         rotationQueue.push({ config: ollamaConfig, source: "ollama_local" });
-      }
 
-      console.log(`🔄 [AGENT-AI] Cola de rotación preparada con ${rotationQueue.length} proveedores: ${rotationQueue.map(q => q.source).join(" -> ")}`);
-
-      if (rotationQueue.length === 0) {
-        console.error("❌ [AGENT-ERROR] No hay proveedores de IA configurados o saludables");
-        throw new Error("No hay proveedores de IA disponibles en este momento");
-      }
-
-      // Check if any AI providers are healthy
-      if (!areAIProvidersHealthy()) {
-        console.log(`⚠️ [AGENT-WARNING] Todos los proveedores de IA parecen no saludables, intentando de todos modos - ${new Date().toISOString()}`);
-        logger.warn({ conversationId }, "[Agent] All AI providers appear unhealthy, attempting anyway");
-      }
+      if (rotationQueue.length === 0) throw new Error("No hay proveedores de IA disponibles");
 
       let raw = "";
-      let lastError: Error | null = null;
-      
-      // 🚀 HARDCODED FIRST-TIME GREETING (Bypass AI entirely)
-      if (isGreetingOnly && !conversationContext.hasIntroduced) {
-        console.log(`⚡ [AGENT-FAST-TRACK] Enviando presentación hardcodeada instantánea - ${new Date().toISOString()}`);
-        
-        raw = `🎯 ¡Hola${customerName !== 'cliente' ? ` *${customerName}*` : ''}! Bienvenido a *${convo.tenantId === 1 ? 'TecnoVariedades D&S' : 'nuestra tienda'}* 🔥
+      let usedProvider = "unknown";
 
-Somos especialistas en cursos y megapacks digitales. 🚀
+      for (const { config, source } of rotationQueue) {
+        try {
+          console.log(`🎯 [AI] Intentando proveedor: ${source} - ${ts()}`);
 
-Dime, ¿qué tipo de contenido estás buscando? 😊`;
-      } else if (isGreetingOnly && conversationContext.hasIntroduced) {
-        console.log(`⚡ [AGENT-FAST-TRACK] Enviando saludo recurrente hardcodeado instantáneo - ${new Date().toISOString()}`);
-        raw = `✨ ¡${customerName !== 'cliente' ? `Qué gusto verte de nuevo, *${customerName}*` : 'Hola de nuevo'}! 🌟
-
-¿En qué puedo ayudarte hoy? 😊`;
-      } else {
-        for (const { config, source } of rotationQueue) {
-          try {
-            console.log(`🎯 [AGENT-AI] Intentando proveedor: ${source} (${config.model}) - ${new Date().toISOString()}`);
-            logger.debug({ 
-              conversationId, 
-              provider: source, 
-              model: config.model 
-            }, "[Agent] Attempting AI provider");
-          
-          // 🔑 INTERCAMBIO DE TOKEN PARA GITHUB COPILOT (VentasPro Elite Mode)
-          // Si es Copilot y no parece un token de sesión fresco (tid=), intentamos obtener uno nuevo
-          const isGithubPat = config.apiKey.startsWith("gho_") || config.apiKey.startsWith("ghp_") || config.apiKey.startsWith("ghu_");
-          const isExpiredOrOld = config.apiKey.startsWith("eyJ") && source === "github_copilot_internal"; 
-
-          if (config.baseUrl === "https://api.githubcopilot.com" && (isGithubPat || isExpiredOrOld)) {
-            console.log(`🔑 [AGENT-AI] Detectado token de GitHub (${isGithubPat ? 'PAT' : 'Old Session'}). Solicitando nuevo pase de entrada...`);
-            const { getCopilotSessionToken } = await import("./copilot");
-            const session = await getCopilotSessionToken(config.apiKey);
-            if (session) {
-              config.apiKey = session.token;
-              console.log("✅ [AGENT-AI] Pase de entrada de Copilot renovado exitosamente.");
-            } else {
-              console.error("❌ [AGENT-AI] No se pudo renovar el pase de entrada de Copilot.");
-              throw new Error("Sesión de Copilot expirada o inválida. Por favor, re-autentica en el Dashboard.");
+          // Renovar token Copilot si es PAT
+          if (config.baseUrl === "https://api.githubcopilot.com") {
+            const isGithubPat = config.apiKey.startsWith("gho_") || config.apiKey.startsWith("ghp_") || config.apiKey.startsWith("ghu_");
+            if (isGithubPat) {
+              const { getCopilotSessionToken } = await import("./copilot");
+              const session = await getCopilotSessionToken(config.apiKey);
+              if (session) config.apiKey = session.token;
             }
           }
 
-            console.log(`🔧 [AGENT-AI] Creando cliente para ${source}...`);
-            const client = createAIClient(config);
-            console.log(`📡 [AGENT-AI] Enviando petición a ${source} (${config.model})...`);
+          const client = createAIClient(config);
           const completion = await retryWithBackoff(
             () => client.chat.completions.create({
               model: config.model,
               messages: chatMessages as any,
-              temperature: 0.7,
-              presence_penalty: 0.6, // Evita repeticiones
+              temperature: 0.65,
+              presence_penalty: 0.7,
+              frequency_penalty: 0.5,
             }),
-            { maxRetries: 1, baseDelay: 500 }, // Quick retries for each provider
-            `AI_completion_${source}_conversation_${conversationId}`
+            { maxRetries: 1, baseDelay: 500 },
+            `AI_${source}_conv_${conversationId}`
           );
-          
+
           raw = completion.choices[0]?.message?.content?.trim() ?? "";
           if (raw) {
-            console.log(`✅ [AGENT-AI] Respuesta generada exitosamente con ${source} - Longitud: ${raw.length} caracteres - ${new Date().toISOString()}`);
-            
-            // 🛡️ GARANTÍA DE TARJETA VISUAL: Si el sistema decidió recomendar un producto y el modelo olvidó la etiqueta, la inyectamos nosotros
-            if (productForRequest && !raw.toLowerCase().includes("[card:")) {
-              console.log(`🔧 [AGENT-POSTPROCESS] El modelo olvidó incluir la tarjeta. Agregándola automáticamente: [CARD: ${productForRequest.id}]`);
-              raw = raw.trim() + `\n\n[CARD: ${productForRequest.id}]`;
-            }
-
-            // 🚨 ANTI-CONTEXT-LOSS: Si la IA incluyó una card de un producto DIFERENTE al contexto actual
-            // y ese producto ya se envió antes → removerla para no perder el hilo
-            if (currentProductInContext && !productForRequest) {
-              const wrongCardMatch = raw.match(/\[CARD:\s*(\d+)\s*\]/i);
-              if (wrongCardMatch && parseInt(wrongCardMatch[1]) !== currentProductInContext.id) {
-                const wrongProduct = productList.find(p => p.id === parseInt(wrongCardMatch[1]));
-                if (wrongProduct) {
-                  console.log(`🚨 [AGENT-ANTI-CONTEXT-LOSS] IA cambió de producto: ${currentProductInContext.name} → ${wrongProduct.name}. Revirtiendo card.`);
-                  raw = raw.replace(/\[CARD:\s*\d+\s*\]/gi, "").trim();
-                  // Si se eliminó la card, agregar contexto del producto correcto al final
-                  raw += `\n\n📌 Hablando de *${currentProductInContext.name}* ¿te ayudo en algo más?`;
-                }
-              }
-            }
-
-            logger.info({ 
-              conversationId,
-              provider: source,
-              response: raw.slice(0, 100),
-              contextApplied: {
-                hasIntroduced: conversationContext.hasIntroduced,
-                topicTransition: topicTransition?.to,
-                interestLevel: conversationContext.leadBehavior.interestLevel
-              }
-            }, "[Agent] Context-aware response generated successfully");
+            usedProvider = source;
+            console.log(`✅ [AI] Respuesta de ${source} - ${raw.length}chars - ${ts()}`);
             break;
           }
-        } catch (err) {
-          lastError = err instanceof Error ? err : new Error(String(err));
-          console.log(`❌ [AGENT-ERROR] Proveedor ${source} falló: ${lastError.message} - ${new Date().toISOString()}`);
-          logger.warn({ 
-            conversationId, 
-            provider: source, 
-            error: lastError.message 
-          }, "[Agent] Provider failed, trying next");
-        }
+        } catch (err: any) {
+          console.log(`❌ [AI] ${source} falló: ${err.message} - ${ts()}`);
         }
       }
 
-      // 🚀 POST-PROCESAMIENTO ANTI-HALLUCINACIÓN (Cero tolerancia a mentiras técnicas)
-      if (raw && raw.includes("[CARD:")) {
-        // 🚨 CRÍTICO: Eliminar TODO el texto después de [CARD: ID]
-        const cardMatch = raw.match(/\[CARD:\s*\d+\s*\]/i);
-        if (cardMatch) {
-          const cardEndIndex = raw.indexOf(cardMatch[0]) + cardMatch[0].length;
-          const textAfterCard = raw.substring(cardEndIndex).trim();
-          
-          if (textAfterCard) {
-            console.log(`🗑️ [AGENT-POSTPROCESS] Eliminando texto después de [CARD:]: "${textAfterCard.substring(0, 100)}..."`);
-            raw = raw.substring(0, cardEndIndex);
-          }
+      if (!raw) throw new Error("Todos los proveedores fallaron");
+
+      // ── Post-procesamiento ────────────────────────────────────────────────
+
+      // 1. Sanitizar: eliminar URLs y datos de pago si no es payment_intent
+      raw = sanitizeResponse(raw, decision.intent);
+
+      // 2. Card: garantizar que la IA incluyó la card si el motor decidió mostrarla
+      if (decision.shouldSendCard && decision.productToShow && !raw.toLowerCase().includes("[card:")) {
+        console.log(`🔧 [POST] IA olvidó la card. Agregando [CARD: ${decision.productToShow.id}]`);
+        raw = raw.trim() + `\n\n[CARD: ${decision.productToShow.id}]`;
+      }
+
+      // 3. Card: eliminar si el motor decidió NO mostrarla
+      if (!decision.shouldSendCard && raw.match(/\[CARD:\s*\d+\s*\]/i)) {
+        console.log(`🔧 [POST] Motor decidió no mostrar card. Eliminando.`);
+        raw = raw.replace(/\[CARD:\s*\d+\s*\]/gi, "").trim();
+      }
+
+      // 4. Card: eliminar todo texto después de la card
+      const cardMatch = raw.match(/\[CARD:\s*\d+\s*\]/i);
+      if (cardMatch) {
+        const cardEnd = raw.indexOf(cardMatch[0]) + cardMatch[0].length;
+        const after = raw.substring(cardEnd).trim();
+        if (after) {
+          console.log(`🗑️ [POST] Eliminando texto después de card: "${after.substring(0, 60)}"`);
+          raw = raw.substring(0, cardEnd);
         }
-        
-        // Solo borrar datos que NO existen en ningún producto (anti-halucinación selectiva)
-        const hallucinationPattern = /\d+\s*(lecciones|clases|módulos|modulos|videos|videos|gb|gigas)/gi;
-        raw = raw.replace(hallucinationPattern, (match) => {
-          const m = match.trim().toLowerCase();
-          const isReal = productList.some(p => {
-            const data = ((p.description || '') + ' ' + ((p.features as string[]) || []).join(' ')).toLowerCase();
-            return data.includes(m);
-          });
-          return isReal ? match : '';
-        });
-        // También borramos descripciones largas que suelen ser inventadas
-        raw = raw.replace(/✨.*?🎹/gs, "🎹"); 
       }
 
-      // Prepend prefill so the final message starts with the formatted header
-      if (responsePrefill && raw && !raw.startsWith("━")) {
-        raw = responsePrefill + raw;
-      }
+      // 5. Decorar con la voz del negocio (firma visual)
+      // Solo decorar si NO hay card (la card tiene su propio formato estricto)
+      const hasCard = /\[CARD:\s*\d+\s*\]/i.test(raw);
+      const isImportant = !hasCard && (brain.strategy === "ai_product_discovery" || brain.strategy === "ai_payment_close");
+      raw = formatWithBrandVoice(raw, voice, {
+        addSeparator: isImportant,
+        addSignature: isImportant && voice.signature ? true : false,
+        isImportant,
+      });
 
-      // ❌ ELIMINADO: Duplicación de información de pago
-      // paymentInfo ya es procesada por whatsapp.ts en buildProductCaption()
-      // Injecting here caused duplicate payment information to be sent to the client
-      // See: https://github.com/anomalyco/opencode - issue with payment duplication
-
-      // Parser con validador inteligente de IDs
-
+      // ── Parser de partes ──────────────────────────────────────────────────
+      const validIds = new Set(productList.map(p => p.id));
       const re = /\[CARD:\s*([\w-]+)\s*\]/gi;
       const parts: any[] = [];
       let lastIndex = 0;
-      let m;
       let cardCount = 0;
-      
-      // Build a Set of valid IDs for fast lookup
-      const validIds = new Set(productList.map(p => p.id));
+      let cardProductId: number | null = null;
+      let m: RegExpExecArray | null;
 
-      // Smart ID resolver: if the AI-generated ID doesn't exist, find closest product by name
-      const resolveCardId = (rawId: string): number | string => {
-        const numId = Number(rawId);
-        if (!isNaN(numId) && validIds.has(numId)) {
-          return numId; // exact match — trust it
-        }
-        
-        // AI made up an ID — try fuzzy match
-        // 1. Try with last customer message
-        // 2. Try with conversation topic (context)
-        const searchTerm = (lastText + " " + (conversationContext.currentTopic || "")).toLowerCase();
-        
-        const matched = productList.find(p =>
-          p.name.toLowerCase().split(' ').some(word => word.length > 3 && searchTerm.includes(word))
-        );
-
-        if (matched) {
-          console.log(`🔧 [AGENT-PARSER] ID inválido "${rawId}" → corregido a ${matched.id} (${matched.name}) usando contexto: "${searchTerm}"`);
-          return matched.id;
-        }
-        
-        console.log(`⚠️ [AGENT-PARSER] ID inválido "${rawId}" sin coincidencia en contexto "${searchTerm}" — descartando tarjeta`);
-        return -1; // sentinel for "discard"
-      };
-
-      console.log(`🔍 [AGENT-PARSER] Analizando respuesta para tarjetas - Texto: "${raw.substring(0, 100)}..." - ${new Date().toISOString()}`);
-      
       while ((m = re.exec(raw)) !== null) {
-        if (raw.slice(lastIndex, m.index).trim()) {
-          parts.push({ kind: "text", content: raw.slice(lastIndex, m.index).trim() });
-        }
-        
-        const resolvedId = resolveCardId(m[1]);
+        // Texto antes de la card → solo incluir si NO hay card (se decide al final)
+        const textBefore = raw.slice(lastIndex, m.index).trim();
+        if (textBefore) parts.push({ kind: "text", content: textBefore, _beforeCard: true });
+
+        const numId = Number(m[1]);
+        const resolvedId = (!isNaN(numId) && validIds.has(numId))
+          ? numId
+          : (() => {
+              const fallback = productList.find(p =>
+                p.name.toLowerCase().split(" ").some(w => w.length > 3 && lastText.toLowerCase().includes(w))
+              );
+              if (fallback) {
+                console.log(`🔧 [PARSER] ID inválido "${m![1]}" → ${fallback.id} (${fallback.name})`);
+                return fallback.id;
+              }
+              return -1;
+            })();
+
         if (resolvedId !== -1) {
           parts.push({ kind: "card", productId: resolvedId });
+          cardProductId = resolvedId;
           cardCount++;
         }
         lastIndex = m.index + m[0].length;
       }
-      
-      // 🚨 NUEVO: Si hay tarjetas, NO agregar texto después de la última tarjeta
-      const textAfterLastCard = raw.slice(lastIndex).trim();
-      if (textAfterLastCard && cardCount === 0) {
-        // Solo agregar si NO hay tarjetas (mensaje sin productos)
-        parts.push({ kind: "text", content: textAfterLastCard });
-      } else if (textAfterLastCard && cardCount > 0) {
-        // Si hay tarjetas, descartar el texto después
-        console.log(`🗑️ [AGENT-PARSER] Descartando texto después de tarjeta: "${textAfterLastCard.substring(0, 50)}..."`);
+
+      // Texto después de la última card → descartar si hay cards
+      const textAfter = raw.slice(lastIndex).trim();
+      if (textAfter && cardCount === 0) {
+        parts.push({ kind: "text", content: textAfter });
       }
 
-      console.log(`📋 [AGENT-PARSER] Respuesta procesada - Partes: ${parts.length}, Tarjetas: ${cardCount}, Texto final: ${parts.filter(p => p.kind === "text").length} segmentos - ${new Date().toISOString()}`);
+      // Eliminar textos _beforeCard si hay cards
+      const finalParts = cardCount > 0
+        ? parts.filter((p: any) => !p._beforeCard)
+        : parts.map((p: any) => { delete p._beforeCard; return p; });
+      finalParts.forEach((p: any) => delete p._beforeCard);
 
-      const processingTime = Date.now() - startTime;
-      console.log(`⏱️ [AGENT-SUCCESS] Respuesta completada en ${processingTime}ms - ${new Date().toISOString()}`);
+      console.log(`📋 [PARSER] partes:${finalParts.length} cards:${cardCount} - ${ts()}`);
+
+      // ── Guardar mensaje del agente en BD ──────────────────────────────────
+      const agentMeta = {
+        intent: decision.intent,
+        aiProvider: usedProvider,
+        cardSent: cardCount > 0,
+        productId: cardProductId || decision.productToShow?.id,
+        productName: cardProductId
+          ? productList.find(p => p.id === cardProductId)?.name
+          : decision.productToShow?.name,
+        isHardcoded: false,
+      };
+
+      await saveAgentMessage(conversationId, raw, decision.stage, agentMeta);
+      await persistStage(conversationId, decision.stage);
+
+      const totalTime = Date.now() - startTime;
+      console.log(`🏁 [AGENT-END] Completado en ${totalTime}ms proveedor:${usedProvider} - ${ts()}`);
 
       return {
         content: raw,
-        stage: "conversacion",
-        parts,
-        cardProductIds: parts.filter(p => p.kind === "card").map(p => p.productId),
+        stage: decision.stage,
+        parts: finalParts,
+        cardProductIds: finalParts.filter((p: any) => p.kind === "card").map((p: any) => p.productId),
       };
     },
     () => {
-      // Fallback response when all AI providers fail
-      console.log(`🆘 [AGENT-FALLBACK] Usando respuesta de emergencia - ${new Date().toISOString()}`);
-      logger.warn({ conversationId }, "[Agent] All AI providers failed, using intelligent fallback");
-      return determineFallbackResponse(lastText, conversationContext);
+      console.log(`🆘 [FALLBACK] Usando respuesta de emergencia - ${ts()}`);
+      const emo = brain.emotionalState;
+      const fallbackText = emo === "frustrated"
+        ? `${voice.emojis.guarantee} Disculpa los inconvenientes técnicos. Estoy reiniciando mis sistemas para atenderte mejor. ¿Puedes intentarlo de nuevo en un momento? 🙏`
+        : emo === "excited"
+        ? `${voice.emojis.greeting} ¡Perdona la demora! Estoy procesando tu solicitud. Dame solo un momento y te respondo al instante ⚡🙏`
+        : `${voice.emojis.guarantee} Estoy teniendo problemas técnicos. Por favor intenta de nuevo en unos minutos. 🙏`;
+      saveAgentMessage(conversationId, fallbackText, memory.currentStage, { intent: decision.intent, isHardcoded: true });
+      return {
+        content: fallbackText,
+        stage: memory.currentStage,
+        parts: [{ kind: "text", content: fallbackText }],
+        cardProductIds: [],
+      };
     },
-    {
-      conversationId,
-      customerMessage: lastText,
-      customerInfo
-    }
+    { conversationId, customerMessage: lastText, customerInfo }
   );
-
-  console.log(`📤 [AGENT-FINAL] Resultado final - Contenido: ${result.content?.substring(0, 50)}..., Partes: ${result.parts?.length}, Etapa: ${result.stage} - ${new Date().toISOString()}`);
-
-  // ACTUALIZAR ETAPA EN SEGUNDO PLANO
-  updateConversationStage(convo, lastText, result, conversationId).catch(err => {
-    console.log(`⚠️ [AGENT-WARNING] Error actualizando etapa: ${err.message} - ${new Date().toISOString()}`);
-    logger.error({ err }, "[Stage] Error actualizando etapa");
-  });
-
-  const totalTime = Date.now() - startTime;
-  console.log(`🏁 [AGENT-END] runAgentReply completado en ${totalTime}ms para conversación ${conversationId} - ${new Date().toISOString()}`);
 
   return result;
 }
+
 
 export async function ensureBootstrapData() {
   // No tocamos nada aquí para no sobreescribir lo que ya hay

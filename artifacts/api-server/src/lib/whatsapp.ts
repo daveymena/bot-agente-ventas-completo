@@ -25,6 +25,24 @@ import {
 } from "@whiskeysockets/baileys";
 import { trackWhatsAppCost } from "../middleware/rateLimiting";
 
+// ─── Simulación de escritura humana ───────────────────────────────────────────
+// Muestra "escribiendo..." en WhatsApp antes de enviar, con delay proporcional al texto
+
+const TYPING_WPM = 280;          // Palabras por minuto (humano rápido)
+const TYPING_MIN_MS = 800;       // Mínimo siempre visible
+const TYPING_MAX_MS = 4500;      // Máximo para no hacer esperar demasiado
+const READ_DELAY_MS = 400;       // Pausa antes de empezar a "escribir" (simula leer el mensaje)
+
+function calcTypingDelay(text: string): number {
+  const words = text.trim().split(/\s+/).length;
+  const ms = Math.round((words / TYPING_WPM) * 60_000);
+  return Math.min(Math.max(ms, TYPING_MIN_MS), TYPING_MAX_MS);
+}
+
+async function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 // Caché global de IDs de mensajes procesados para evitar duplicados/bucle
 const processedMessageIds = new Set<string>();
 
@@ -620,34 +638,28 @@ export class WhatsAppManager {
 
   async sendText(phone: string, text: string, originalJid?: string) {
     if (!this.sock || this.state !== "connected") throw new Error("WhatsApp no conectado");
-    
-    // Usar el JID original si está disponible (para mensajes LID), sino usar el formato estándar
     const targetJid = originalJid || `${phone}@s.whatsapp.net`;
-    
+
+    // Simular lectura + escritura
+    await sleep(READ_DELAY_MS);
+    await this.sock.sendPresenceUpdate("composing", targetJid);
+    await sleep(calcTypingDelay(text));
+    await this.sock.sendPresenceUpdate("paused", targetJid);
+
     await this.sock.sendMessage(targetJid, { text });
-    
-    // GUARDAR EN BD PARA EL DASHBOARD
-     try {
-       const [convo] = await db.select().from(conversations).where(eq(conversations.contactPhone, phone)).limit(1);
-       if (convo) {
-         await db.insert(messages).values({
-           conversationId: convo.id,
-           role: "agent",
-           content: text
-         });
-         console.log(`💾 [WA-SAVE] Mensaje de texto de IA guardado en BD para convo ${convo.id}`);
-       }
-     } catch (e) {
-       console.log("⚠️ Error guardando mensaje saliente en BD:", e);
-     }
-    
     trackWhatsAppCost(this.currentTenant.id.toString());
   }
 
   async sendImage(phone: string, imageUrl: string, caption: string, originalJid?: string) {
     if (!this.sock || this.state !== "connected") throw new Error("WhatsApp no conectado");
-    // Usar el JID original si está disponible (para mensajes LID), sino usar el formato estándar
     const jid = originalJid || `${phone}@s.whatsapp.net`;
+
+    // Simular lectura + escritura (basado en el caption)
+    await sleep(READ_DELAY_MS);
+    await this.sock.sendPresenceUpdate("composing", jid);
+    await sleep(calcTypingDelay(caption));
+    await this.sock.sendPresenceUpdate("paused", jid);
+
     try {
       const axios = (await import("axios")).default;
       const response = await axios.get(imageUrl, { responseType: 'arraybuffer', timeout: 8000 });
@@ -655,22 +667,6 @@ export class WhatsAppManager {
     } catch (e) {
       await this.sock.sendMessage(jid, { image: { url: imageUrl }, caption });
     }
-
-     // GUARDAR EN BD PARA EL DASHBOARD
-     try {
-       const [convo] = await db.select().from(conversations).where(eq(conversations.contactPhone, phone)).limit(1);
-       if (convo) {
-         await db.insert(messages).values({
-           conversationId: convo.id,
-           role: "agent",
-           content: caption || `[Imagen]: ${imageUrl}`
-         });
-         console.log(`💾 [WA-SAVE] Imagen de IA guardada en BD para convo ${convo.id}`);
-       }
-     } catch (e) {
-       console.log("⚠️ Error guardando imagen saliente en BD:", e);
-     }
-
     trackWhatsAppCost(this.currentTenant.id.toString());
   }
 
@@ -693,7 +689,10 @@ export class WhatsAppManager {
     for (let i = 0; i < parts.length; i++) {
       const part = parts[i];
       console.log(`📨 [WA-PARTS] Procesando parte ${i + 1}/${parts.length} - Tipo: ${part.kind} - ${timestamp}`);
-      
+
+      // Pausa natural entre partes consecutivas (simula que el agente "termina" un mensaje antes del siguiente)
+      if (i > 0) await sleep(600);
+
       if (part.kind === "text") {
         console.log(`💬 [WA-TEXT] Enviando texto: "${part.content?.substring(0, 50)}..." - ${timestamp}`);
         await this.sendText(phone, part.content || "", originalJid);

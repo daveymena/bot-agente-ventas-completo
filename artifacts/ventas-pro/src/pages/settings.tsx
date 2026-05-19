@@ -372,7 +372,7 @@ export default function Settings() {
                           <>
                             <div className="h-2 w-2 rounded-full bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.5)]" />
                             <span className="text-[10px] font-bold uppercase tracking-wider text-green-400">
-                              Puente OpenCode Local Activo (Puerto 8000)
+                              OpenCode Zen API directa (opencode.ai)
                             </span>
                           </>
                         );
@@ -683,22 +683,21 @@ export default function Settings() {
                             <p className="text-[10px] text-muted-foreground uppercase font-semibold">Usa modelos ilimitados y gratuitos de OpenCode.</p>
                           </div>
                         </div>
-                        <div className="text-xs text-muted-foreground leading-relaxed pt-2">
-                          Para usar esta opción, asegúrate de iniciar el puente ejecutando:
-                          <code className="block bg-black/40 p-2 rounded-lg font-mono text-[10px] mt-2 text-primary border border-primary/20">
-                            .\INICIAR_OPENCODE.ps1
-                          </code>
-                        </div>
+                        <p className="text-xs text-muted-foreground leading-relaxed pt-2">
+                          Conecta directo a <code className="text-primary">opencode.ai/zen/v1</code>. Configura{" "}
+                          <code className="text-primary">OPENCODE_API_KEY</code> y opcionalmente{" "}
+                          <code className="text-primary">OPENCODE_MODEL</code> en las variables de entorno del servidor.
+                        </p>
                       </div>
                       <div className="space-y-2">
                         <Label className="text-muted-foreground font-semibold uppercase tracking-wider text-[10px]">Modelo Seleccionado</Label>
                         <Input 
-                          value={formData.githubModel || "deepseek-v4-flash"} 
+                          value={formData.githubModel || "deepseek-v4-flash-free"} 
                           onChange={e => setFormData({...formData, githubModel: e.target.value})} 
-                          placeholder="deepseek-v4-flash"
+                          placeholder="deepseek-v4-flash-free"
                           className="bg-muted/30 font-mono"
                         />
-                        <p className="text-[9px] text-muted-foreground">Modelos soportados: <code className="text-primary">deepseek-v4-flash</code>, <code className="text-primary">qwen3.6-plus-free</code>, <code className="text-primary">minimax-m2.5-free</code>, <code className="text-primary">nemotron-3-super-free</code></p>
+                        <p className="text-[9px] text-muted-foreground">Modelos gratis: <code className="text-primary">deepseek-v4-flash-free</code>, <code className="text-primary">qwen3.6-plus-free</code>, <code className="text-primary">minimax-m2.5-free</code>, <code className="text-primary">nemotron-3-super-free</code>, <code className="text-primary">big-pickle</code></p>
                       </div>
                     </div>
                   )}

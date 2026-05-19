@@ -7,14 +7,33 @@ export interface AIProviderConfig {
   defaultHeaders?: Record<string, string>;
 }
 
+const ZEN_DIRECT_BASE_URL = "https://opencode.ai/zen/v1";
+const ZEN_DEFAULT_FREE_MODEL = "deepseek-v4-flash-free";
+
+function isZenDirectApi(baseUrl: string): boolean {
+  return baseUrl.includes("opencode.ai/zen");
+}
+
+/** Zen API uses model ids without the opencode/ prefix (e.g. deepseek-v4-flash-free). */
+export function normalizeZenModelId(model: string): string {
+  return model.startsWith("opencode/") ? model.slice("opencode/".length) : model;
+}
+
+function resolveOpenCodeConfig(modelOverride?: string): AIProviderConfig | null {
+  const apiKey = process.env.OPENCODE_API_KEY;
+  if (!apiKey) return null;
+
+  const baseUrl = process.env.OPENCODE_API_URL || ZEN_DIRECT_BASE_URL;
+  const rawModel = modelOverride || process.env.OPENCODE_MODEL || ZEN_DEFAULT_FREE_MODEL;
+  const model = isZenDirectApi(baseUrl) ? normalizeZenModelId(rawModel) : rawModel;
+
+  return { baseUrl, apiKey, model };
+}
+
 export function getProviderConfig(provider: string): AIProviderConfig | null {
   switch (provider) {
     case "opencode":
-      return {
-        baseUrl: process.env.OPENCODE_API_URL || "https://tecnovariedades-provedor-ia.er7iaf.easypanel.host/v1",
-        apiKey: process.env.OPENCODE_API_KEY || "dummy",
-        model: process.env.OPENCODE_MODEL || "opencode/deepseek-v4-flash-free",
-      };
+      return resolveOpenCodeConfig();
     case "github_copilot_internal":
       const copilotToken = process.env.GITHUB_COPILOT_TOKEN || process.env.GITHUB_TOKEN;
       if (!copilotToken) return null;
@@ -109,11 +128,7 @@ export function getProviderConfigFromSettings(settings: {
   if (!provider) return null;
 
   if (provider === "opencode") {
-    return {
-      baseUrl: process.env.OPENCODE_API_URL || "https://tecnovariedades-provedor-ia.er7iaf.easypanel.host/v1",
-      apiKey: process.env.OPENCODE_API_KEY || "dummy",
-      model: process.env.OPENCODE_MODEL || "opencode/deepseek-v4-flash-free",
-    };
+    return resolveOpenCodeConfig(settings.githubModel || undefined);
   }
 
   if (provider === "github_copilot_internal") {

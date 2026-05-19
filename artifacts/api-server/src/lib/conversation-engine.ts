@@ -1,0 +1,820 @@
+/**
+ * ============================================================
+ * CONVERSATION ENGINE — Motor Central de Conversación
+ * ============================================================
+ *
+ * Fuente única de verdad para:
+ *  - Detectar intención del mensaje entrante
+ *  - Determinar la etapa actual de la conversación
+ *  - Construir el contexto estructurado para la IA
+ *  - Decidir qué producto mostrar (o no)
+ *  - Guardar mensajes del agente en BD con metadata
+ *
+ * PRINCIPIOS:
+ *  - Toda decisión es determinista y trazable
+ *  - Nada se improvisa: cada respuesta tiene una razón documentada
+ *  - El historial de BD es la única fuente de verdad (no estado en memoria)
+ *  - Sin repetición: el motor verifica qué se dijo antes de decidir qué decir
+ */
+
+import { eq, and, desc } from "drizzle-orm";
+import { db, conversations, messages, products, productCategories } from "@workspace/db";
+import type { MessageMetadata } from "@workspace/db";
+
+// ─── Tipos públicos ────────────────────────────────────────────────────────────
+
+export type Intent =
+  | "greeting"       // Saludo inicial o de retorno
+  | "product_query"  // Pregunta sobre un producto específico
+  | "details_query"  // Pregunta sobre detalles (entrega, garantía, acceso, duración)
+  | "payment_intent" // Quiere pagar / pide links / métodos de pago
+  | "objection"      // Objeción de precio, desconfianza, etc.
+  | "confirmation"   // Confirma compra o acción
+  | "leaving"        // Se despide o pierde interés
+  | "general";       // Cualquier otra cosa
+
+export type Stage =
+  | "greeting"
+  | "discovery"
+  | "presentation"
+  | "details"
+  | "objection_handling"
+  | "closing"
+  | "post_sale";
+
+export interface ConversationMemory {
+  // Historial completo de mensajes (de BD)
+  history: Array<{
+    id: number;
+    role: string;
+    content: string;
+    stage: string | null;
+    metadata: MessageMetadata | null;
+    createdAt: Date;
+  }>;
+
+  // Estado derivado del historial
+  hasGreeted: boolean;           // El agente ya envió al menos un mensaje
+  currentStage: Stage;           // Etapa actual de la conversación
+  currentProductId: number | null; // Producto activo en la conversación
+  currentProductName: string | null;
+  sentProductIds: Set<number>;   // Todos los productos cuya card ya se envió
+  lastCustomerMessage: string;   // Último mensaje del cliente
+  lastAgentMessage: string;      // Último mensaje del agente
+  messageCount: number;          // Total de mensajes del cliente
+  isNewSession: boolean;         // Han pasado >4h desde el último mensaje
+  sessionStartedAt: Date | null;
+}
+
+export interface EngineDecision {
+  intent: Intent;
+  stage: Stage;
+  shouldSendCard: boolean;
+  productToShow: { id: number; name: string; price: number; currency: string; description: string; features: string[] } | null;
+  shouldGreet: boolean;
+  isRepeatGreeting: boolean;
+  contextBlock: string;          // Bloque de contexto para inyectar en el prompt
+  debugReason: string;           // Razón legible de la decisión (para logs)
+}
+
+// ─── Constantes de detección ───────────────────────────────────────────────────
+
+const GREETING_PATTERNS = [
+  "hola", "buenas", "buen dia", "buenos dias", "buenas tardes",
+  "buenas noches", "que tal", "como estas", "ola", "saludos",
+  "hey", "hi", "hello", "buen día"
+];
+
+const DETAILS_PATTERNS = [
+  "cómo", "como", "cuándo", "cuando", "dónde", "donde",
+  "entrega", "entregan", "acceso", "garantía", "garantia",
+  "incluye", "tiene", "trae", "soporte", "duración", "duracion",
+  "tiempo", "funciona", "descarga", "drive", "google", "plataforma",
+  "cuánto tarda", "cuanto tarda", "qué incluye", "que incluye"
+];
+
+const PAYMENT_PATTERNS = [
+  "pago", "pagar", "comprar", "adquirir", "compro",
+  "nequi", "daviplata", "transferencia", "transferir",
+  "cuenta", "link", "enlace", "precio", "cuánto cuesta",
+  "cuanto cuesta", "costo", "vale", "confirmo", "confirmar",
+  "procedo", "adelante", "vamos", "dale", "lo quiero", "lo compro"
+];
+
+const OBJECTION_PATTERNS = [
+  "caro", "costoso", "muy caro", "mucho dinero", "pensarlo",
+  "no sé", "no se", "duda", "inseguro", "desconfío", "desconfio",
+  "estafa", "funciona", "garantía", "devolución", "devolucion",
+  "reembolso", "no tengo", "sin dinero", "después", "luego",
+  "lo pienso", "déjame pensar"
+];
+
+const CONFIRMATION_PATTERNS = [
+  "sí", "si", "ok", "dale", "bueno", "perfecto", "listo",
+  "me gustaría", "me gustaria", "quiero", "adelante", "vamos",
+  "de acuerdo", "claro", "por supuesto"
+];
+
+const LEAVING_PATTERNS = [
+  "adiós", "adios", "chao", "chau", "gracias", "hasta luego",
+  "no gracias", "no me interesa", "no quiero", "déjame",
+  "molestando", "bye", "hasta pronto"
+];
+
+// Palabras que NO identifican un producto (son preguntas genéricas)
+const GENERIC_WORDS = new Set([
+  "entrega", "entregan", "acceso", "garantia", "garantía", "soporte",
+  "descarga", "drive", "google", "duracion", "duración", "tiempo",
+  "incluye", "tiene", "trae", "precio", "valor", "cuanto", "cuánto",
+  "cual", "cuál", "pago", "pagar", "link", "enlace", "nequi",
+  "daviplata", "transfiere", "transferencia", "comprar", "adquirir",
+  "quiero", "necesito", "funciona", "clases", "lecciones", "modulos",
+  "horas", "video", "hora", "cómo", "como", "están", "estan",
+  "estado", "estas", "estás", "información", "informacion", "info",
+  "detalles", "más", "mas", "saber", "conocer", "ver"
+]);
+
+const STOP_WORDS = new Set([
+  "el", "la", "los", "las", "lo", "de", "del", "un", "una",
+  "que", "por", "para", "con", "me", "se", "es", "en", "y",
+  "e", "a", "su", "le", "no", "te", "les", "nos", "os", "al",
+  "este", "esta", "ese", "esa", "mi", "tu", "si", "hay"
+]);
+
+// ─── Respuestas hardcodeadas para preguntas frecuentes ───────────────────────
+// Estas respuestas son deterministas — no dependen de la IA
+
+const DELIVERY_PATTERNS = [
+  "entrega", "entregan", "llega", "recibo", "recibir", "cómo llega",
+  "como llega", "cómo me lo", "como me lo", "cómo lo recibo", "como lo recibo",
+  "dónde lo", "donde lo", "cómo funciona la entrega", "como funciona"
+];
+
+const ACCESS_PATTERNS = [
+  "acceso", "cómo accedo", "como accedo", "cómo entro", "como entro",
+  "dónde descargo", "donde descargo", "cómo descargo", "como descargo",
+  "link de acceso", "enlace de acceso", "cómo lo uso", "como lo uso"
+];
+
+const GUARANTEE_PATTERNS = [
+  "garantía", "garantia", "devolución", "devolucion", "reembolso",
+  "si no me gusta", "si no funciona", "puedo devolver", "política de"
+];
+
+const DURATION_PATTERNS = [
+  "duración", "duracion", "cuánto dura", "cuanto dura", "por cuánto tiempo",
+  "por cuanto tiempo", "caduca", "vence", "expira", "de por vida", "permanente"
+];
+
+const CONTENT_PATTERNS = [
+  "contenido", "qué incluye", "que incluye", "qué trae", "que trae",
+  "qué viene", "que viene", "qué tiene", "que tiene", "qué hay",
+  "que hay", "módulos", "modulos", "lecciones", "clases", "videos",
+  "material", "archivos", "pdfs", "recursos"
+];
+
+const SUPPORT_PATTERNS = [
+  "soporte", "ayuda", "asistencia", "dudas", "preguntas", "contacto",
+  "tutor", "profesor", "instructor", "acompañamiento"
+];
+
+export interface HardcodedAnswer {
+  matched: boolean;
+  response: string;
+  intent: "details_query";
+}
+
+export function tryHardcodedAnswer(
+  text: string,
+  productName: string | null,
+  voice?: { emojis: Record<string, string>; deliveryInfo?: { method: string; timeframe: string; details: string }; guaranteeInfo?: { days: number; description: string }; accessInfo?: { type: string; description: string } }
+): HardcodedAnswer | null {
+  const t = text.toLowerCase();
+  const prod = productName ? `*${productName}*` : "el curso";
+  const e = voice?.emojis || {};
+  const emoji = (key: string, fallback: string) => e[key] || fallback;
+
+  const deliveryMethod = voice?.deliveryInfo?.method || "Google Drive";
+  const deliveryTime = voice?.deliveryInfo?.timeframe || "inmediato";
+  const guaranteeDays = voice?.guaranteeInfo?.days || 7;
+  const accessType = voice?.accessInfo?.type || "de por vida";
+
+  if (DELIVERY_PATTERNS.some(p => t.includes(p))) {
+    return {
+      matched: true,
+      intent: "details_query",
+      response: `${emoji("delivery", "📦")} La entrega de ${prod} es *100% por ${deliveryMethod}*.\n\nUna vez confirmado tu pago, recibes el enlace de ${deliveryMethod} directamente por este chat. ¡Acceso *${deliveryTime}*! ${emoji("benefit", "✅")}\n\n${emoji("question", "🤔")} ¿Tienes alguna otra pregunta?`,
+    };
+  }
+
+  if (ACCESS_PATTERNS.some(p => t.includes(p))) {
+    return {
+      matched: true,
+      intent: "details_query",
+      response: `${emoji("delivery", "🔗")} El acceso a ${prod} es por *${deliveryMethod}*.\n\nTe enviamos el enlace directo por este chat después del pago. Puedes verlo desde cualquier dispositivo, sin descargas obligatorias. ${emoji("benefit", "✅")}\n\n${emoji("question", "🤔")} ¿Algo más que quieras saber?`,
+    };
+  }
+
+  if (GUARANTEE_PATTERNS.some(p => t.includes(p))) {
+    return {
+      matched: true,
+      intent: "details_query",
+      response: `${emoji("guarantee", "🛡️")} Tienes *${guaranteeDays} días de garantía* sin preguntas.\n\nSi por cualquier razón no estás satisfecho, te devolvemos el dinero completo. Sin complicaciones. ${emoji("benefit", "✅")}\n\n${emoji("question", "🤔")} ¿Quieres proceder con la compra?`,
+    };
+  }
+
+  if (DURATION_PATTERNS.some(p => t.includes(p))) {
+    return {
+      matched: true,
+      intent: "details_query",
+      response: `${emoji("benefit", "♾️")} El acceso a ${prod} es *${accessType}*.\n\nNo caduca, no tiene mensualidad. Pagas una sola vez y el contenido es tuyo para siempre. ${emoji("benefit", "✅")}\n\n${emoji("question", "🤔")} ¿Tienes más preguntas?`,
+    };
+  }
+
+  if (CONTENT_PATTERNS.some(p => t.includes(p))) {
+    return {
+      matched: true,
+      intent: "details_query",
+      response: `${emoji("product", "📚")} ${prod} incluye todo el material en *${deliveryMethod}*:\n\n${emoji("benefit", "✅")} Videos en alta definición\n${emoji("benefit", "✅")} PDFs y recursos descargables\n${emoji("benefit", "✅")} Acceso *${accessType}*\n${emoji("benefit", "✅")} Pago único — sin suscripciones\n\n${emoji("question", "🤔")} ¿Quieres ver los detalles completos o proceder con la compra?`,
+    };
+  }
+
+  if (SUPPORT_PATTERNS.some(p => t.includes(p))) {
+    return {
+      matched: true,
+      intent: "details_query",
+      response: `${emoji("benefit", "💬")} ${prod} es *auto-aprendizaje* a tu ritmo.\n\nTienes acceso a todo el contenido en ${deliveryMethod} cuando quieras. Para dudas adicionales puedes escribirnos aquí directamente. ${emoji("benefit", "✅")}\n\n${emoji("question", "🤔")} ¿Algo más?`,
+    };
+  }
+
+  return null;
+}
+
+export function hasHardcodedAnswerBeenGiven(
+  memory: ConversationMemory,
+  currentIntent: "delivery" | "access" | "guarantee" | "duration" | "content" | "support"
+): boolean {
+  for (const msg of memory.history) {
+    if (msg.role !== "agent") continue;
+    const content = msg.content.toLowerCase();
+    switch (currentIntent) {
+      case "delivery":
+        if (content.includes("entrega") && (content.includes("digital") || content.includes("drive"))) return true;
+        break;
+      case "access":
+        if (content.includes("acceso") && (content.includes("drive"))) return true;
+        break;
+      case "guarantee":
+        if (content.includes("garant") && content.includes("día")) return true;
+        break;
+      case "duration":
+        if (content.includes("acceso") && (content.includes("por vida") || content.includes("caduca"))) return true;
+        break;
+      case "content":
+        if (content.includes("incluye") || (content.includes("material") && content.includes("drive"))) return true;
+        break;
+      case "support":
+        if (content.includes("auto-aprendizaje") || content.includes("ritmo")) return true;
+        break;
+    }
+  }
+  return false;
+}
+
+export function detectHardcodedIntent(text: string): "delivery" | "access" | "guarantee" | "duration" | "content" | "support" | null {
+  const t = text.toLowerCase();
+  if (DELIVERY_PATTERNS.some(p => t.includes(p))) return "delivery";
+  if (ACCESS_PATTERNS.some(p => t.includes(p))) return "access";
+  if (GUARANTEE_PATTERNS.some(p => t.includes(p))) return "guarantee";
+  if (DURATION_PATTERNS.some(p => t.includes(p))) return "duration";
+  if (CONTENT_PATTERNS.some(p => t.includes(p))) return "content";
+  if (SUPPORT_PATTERNS.some(p => t.includes(p))) return "support";
+  return null;
+}
+
+// ─── Post-procesamiento: eliminar URLs y datos de pago si no es payment_intent ─
+
+export function sanitizeResponse(text: string, intent: Intent): string {
+  if (intent === "payment_intent" || intent === "confirmation") return text;
+
+  // Eliminar URLs (http/https)
+  let clean = text.replace(/https?:\/\/[^\s\n]+/g, "").trim();
+
+  // Eliminar líneas que solo contienen datos de pago
+  const paymentLinePatterns = [
+    /🔹\s*\*?(Tarjeta|PayPal|Transferencia|Nequi|Daviplata)[^]*?(?=\n\n|\n🔹|$)/gi,
+    /💳\s*\*?ENLACES DE PAGO[^]*/gi,
+    /📍\s*\*?Nequi[^]*?(?=\n|$)/gi,
+    /👤\s*\*?Titular[^]*?(?=\n|$)/gi,
+    /pref_id=[^\s]*/gi,
+    /token=EC-[^\s]*/gi,
+  ];
+
+  for (const pattern of paymentLinePatterns) {
+    clean = clean.replace(pattern, "");
+  }
+
+  // Limpiar líneas vacías múltiples
+  clean = clean.replace(/\n{3,}/g, "\n\n").trim();
+
+  return clean;
+}
+
+export function detectIntent(text: string): Intent {
+  const t = text.toLowerCase().trim();
+  const words = t.split(/\s+/);
+  const wordCount = words.length;
+
+  // Saludo puro: mensaje corto con palabra de saludo
+  const isGreeting = GREETING_PATTERNS.some(p => t.includes(p)) && wordCount <= 8;
+  if (isGreeting) return "greeting";
+
+  // Intención de pago (alta prioridad)
+  if (PAYMENT_PATTERNS.some(p => t.includes(p))) return "payment_intent";
+
+  // Objeción
+  if (OBJECTION_PATTERNS.some(p => t.includes(p))) return "objection";
+
+  // Despedida
+  if (LEAVING_PATTERNS.some(p => t.includes(p))) return "leaving";
+
+  // Confirmación
+  if (CONFIRMATION_PATTERNS.some(p => t.includes(p)) && !t.includes("no ")) return "confirmation";
+
+  // Pregunta de detalles (sobre entrega, garantía, acceso, etc.)
+  if (DETAILS_PATTERNS.some(p => t.includes(p))) return "details_query";
+
+  // Pregunta sobre producto (tiene palabras que no son genéricas)
+  const productWords = words.filter(w => w.length > 3 && !GENERIC_WORDS.has(w) && !STOP_WORDS.has(w));
+  if (productWords.length > 0) return "product_query";
+
+  return "general";
+}
+
+// ─── Carga de memoria desde BD ────────────────────────────────────────────────
+
+export async function loadConversationMemory(conversationId: number): Promise<ConversationMemory> {
+  const [convo] = await db
+    .select()
+    .from(conversations)
+    .where(eq(conversations.id, conversationId))
+    .limit(1);
+
+  // Cargar historial completo (últimos 30 mensajes)
+  const history = await db
+    .select()
+    .from(messages)
+    .where(eq(messages.conversationId, conversationId))
+    .orderBy(desc(messages.createdAt))
+    .limit(30)
+    .then(rows => rows.reverse()); // Cronológico
+
+  const agentMessages = history.filter(m => m.role === "agent");
+  const customerMessages = history.filter(m => m.role === "customer");
+
+  // ¿Ya saludó el agente?
+  const hasGreeted = agentMessages.length > 0;
+
+  // Producto activo: el último producto cuya card se envió
+  let currentProductId: number | null = null;
+  let currentProductName: string | null = null;
+  const sentProductIds = new Set<number>();
+
+  for (const msg of agentMessages) {
+    const meta = msg.metadata as MessageMetadata | null;
+    if (meta?.cardSent && meta.productId) {
+      sentProductIds.add(meta.productId);
+      currentProductId = meta.productId;
+      currentProductName = meta.productName || null;
+    }
+    // También detectar por patrón [CARD: N] en el contenido (retrocompatibilidad)
+    const cardMatch = msg.content.match(/\[CARD:\s*(\d+)\s*\]/i);
+    if (cardMatch) {
+      const pid = parseInt(cardMatch[1]);
+      sentProductIds.add(pid);
+      currentProductId = pid;
+    }
+  }
+
+  // Etapa actual
+  const currentStage = mapStage(convo?.currentStage || "greeting");
+
+  // Último mensaje de cada rol
+  const lastCustomerMsg = [...customerMessages].pop();
+  const lastAgentMsg = [...agentMessages].pop();
+
+  // ¿Nueva sesión? (>4h desde el último mensaje)
+  let isNewSession = false;
+  if (history.length >= 2) {
+    const last = history[history.length - 1];
+    const prev = history[history.length - 2];
+    const diffHours = (new Date(last.createdAt).getTime() - new Date(prev.createdAt).getTime()) / 3_600_000;
+    if (diffHours > 4) isNewSession = true;
+  }
+
+  return {
+    history,
+    hasGreeted,
+    currentStage,
+    currentProductId,
+    currentProductName,
+    sentProductIds,
+    lastCustomerMessage: lastCustomerMsg?.content || "",
+    lastAgentMessage: lastAgentMsg?.content || "",
+    messageCount: customerMessages.length,
+    isNewSession,
+    sessionStartedAt: history[0] ? new Date(history[0].createdAt) : null,
+  };
+}
+
+function mapStage(raw: string): Stage {
+  const map: Record<string, Stage> = {
+    greeting: "greeting",
+    discovery: "discovery",
+    qualification: "discovery",
+    presentation: "presentation",
+    details: "details",
+    objection_handling: "objection_handling",
+    closing: "closing",
+    post_sale: "post_sale",
+  };
+  return map[raw] || "greeting";
+}
+
+// ─── Búsqueda semántica de producto ───────────────────────────────────────────
+
+function normalizeText(t: string): string {
+  return t.toLowerCase()
+    .replace(/mega\s*pack/g, "megapack")
+    .replace(/[^\w\sáéíóúñü]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+export async function findBestProductMatch(
+  text: string,
+  productList: Array<{ id: number; name: string; description: string | null; category: string | null; categoryId: number | null }>,
+  categoryMap: Map<number, string>
+): Promise<{ product: typeof productList[0]; score: number } | null> {
+  const normalized = normalizeText(text);
+  const allWords = normalized.split(/\s+/).filter(w =>
+    (w.length > 2 || /^\d+$/.test(w)) && !STOP_WORDS.has(w)
+  );
+  const queryWords = allWords.filter(w => !GENERIC_WORDS.has(w));
+  const effectiveWords = queryWords.length > 0 ? queryWords : allWords;
+
+  if (effectiveWords.length === 0) return null;
+
+  const results = productList.map(product => {
+    const catName = product.categoryId
+      ? (categoryMap.get(product.categoryId) || "")
+      : (product.category || "");
+    const productName = normalizeText(product.name);
+    const productDesc = normalizeText(product.description || "");
+    const productText = `${productName} ${productDesc} ${catName}`;
+
+    let score = 0;
+
+    // Frase completa en nombre
+    const phrase = effectiveWords.join(" ");
+    if (phrase.length > 4 && productName.includes(phrase)) score += 20;
+
+    // Sub-frases
+    for (let i = effectiveWords.length; i >= 2; i--) {
+      for (let j = 0; j <= effectiveWords.length - i; j++) {
+        const sub = effectiveWords.slice(j, j + i).join(" ");
+        if (sub.length > 4 && productName.includes(sub)) score += 15;
+      }
+    }
+
+    // Palabras individuales
+    for (const word of effectiveWords) {
+      const stem = word.replace(/s$/, "");
+      if (productName.includes(word) || productName.includes(stem)) {
+        score += 5;
+      } else if (productText.includes(word) || productText.includes(stem)) {
+        score += 2;
+      }
+    }
+
+    return { product, score };
+  }).filter(r => r.score > 0).sort((a, b) => b.score - a.score);
+
+  return results[0] || null;
+}
+
+// ─── Motor de decisión principal ──────────────────────────────────────────────
+
+export async function computeDecision(
+  memory: ConversationMemory,
+  incomingText: string,
+  productList: Array<any>,
+  categoryMap: Map<number, string>
+): Promise<EngineDecision> {
+  const intent = detectIntent(incomingText);
+  const t = incomingText.toLowerCase();
+
+  // ── Determinar etapa siguiente ──────────────────────────────────────────────
+  let stage: Stage = memory.currentStage;
+
+  if (intent === "greeting") {
+    stage = memory.hasGreeted ? "greeting" : "greeting";
+  } else if (intent === "payment_intent") {
+    stage = "closing";
+  } else if (intent === "objection") {
+    stage = "objection_handling";
+  } else if (intent === "product_query") {
+    stage = memory.currentProductId ? "presentation" : "discovery";
+  } else if (intent === "details_query") {
+    stage = memory.currentProductId ? "details" : "discovery";
+  } else if (intent === "confirmation") {
+    stage = "closing";
+  } else if (intent === "leaving") {
+    stage = memory.currentStage; // No cambiar etapa al despedirse
+  }
+
+  // ── Decidir si saludar ──────────────────────────────────────────────────────
+  const shouldGreet = intent === "greeting";
+  const isRepeatGreeting = shouldGreet && memory.hasGreeted;
+
+  // ── Decidir qué producto mostrar ────────────────────────────────────────────
+  let productToShow: EngineDecision["productToShow"] = null;
+  let shouldSendCard = false;
+
+  if (!shouldGreet && intent !== "leaving") {
+    // Buscar producto mencionado en el mensaje actual
+    const match = await findBestProductMatch(incomingText, productList, categoryMap);
+
+    if (match && match.score >= 5) {
+      const p: any = match.product;
+      const alreadySent = memory.sentProductIds.has(p.id);
+
+      if (!alreadySent) {
+        // Producto nuevo → mostrar card
+        productToShow = {
+          id: p.id,
+          name: p.name,
+          price: Number(p.price),
+          currency: p.currency || "COP",
+          description: p.description || "",
+          features: (p.features as string[]) || [],
+        };
+        shouldSendCard = true;
+      } else if (p.id !== memory.currentProductId) {
+        // Producto ya enviado pero diferente al actual → cambiar contexto sin card
+        productToShow = {
+          id: p.id,
+          name: p.name,
+          price: Number(p.price),
+          currency: p.currency || "COP",
+          description: p.description || "",
+          features: (p.features as string[]) || [],
+        };
+        shouldSendCard = false; // Ya se envió antes
+      } else {
+        // Mismo producto que ya está en contexto → responder sobre él sin card
+        const currentProduct = productList.find(p2 => p2.id === memory.currentProductId);
+        if (currentProduct) {
+          productToShow = {
+            id: currentProduct.id,
+            name: currentProduct.name,
+            price: Number(currentProduct.price),
+            currency: currentProduct.currency || "COP",
+            description: currentProduct.description || "",
+            features: (currentProduct.features as string[]) || [],
+          };
+        }
+        shouldSendCard = false;
+      }
+    } else if (memory.currentProductId) {
+      // Sin match nuevo → mantener producto actual en contexto
+      const currentProduct = productList.find(p2 => p2.id === memory.currentProductId);
+      if (currentProduct) {
+        productToShow = {
+          id: currentProduct.id,
+          name: currentProduct.name,
+          price: Number(currentProduct.price),
+          currency: currentProduct.currency || "COP",
+          description: currentProduct.description || "",
+          features: (currentProduct.features as string[]) || [],
+        };
+      }
+      shouldSendCard = false;
+    }
+  }
+
+  // ── Construir bloque de contexto para el prompt ─────────────────────────────
+  const contextBlock = buildContextBlock(memory, intent, stage, productToShow, shouldSendCard);
+
+  // ── Razón de la decisión (para logs) ────────────────────────────────────────
+  const debugReason = [
+    `intent=${intent}`,
+    `stage=${stage}`,
+    `hasGreeted=${memory.hasGreeted}`,
+    `isNewSession=${memory.isNewSession}`,
+    `currentProduct=${memory.currentProductName || "none"}`,
+    `sentCards=[${Array.from(memory.sentProductIds).join(",")}]`,
+    `shouldSendCard=${shouldSendCard}`,
+    `productToShow=${productToShow?.name || "none"}`,
+  ].join(" | ");
+
+  return {
+    intent,
+    stage,
+    shouldSendCard,
+    productToShow,
+    shouldGreet,
+    isRepeatGreeting,
+    contextBlock,
+    debugReason,
+  };
+}
+
+// ─── Constructor del bloque de contexto ───────────────────────────────────────
+
+function buildContextBlock(
+  memory: ConversationMemory,
+  intent: Intent,
+  stage: Stage,
+  product: EngineDecision["productToShow"],
+  shouldSendCard: boolean
+): string {
+  const lines: string[] = [];
+
+  // ── Estado de la conversación ──────────────────────────────────────────────
+  lines.push(`\n\n━━━━━━━━━━━━━━━━━━━━━━━`);
+  lines.push(`🧠 CONTEXTO DE CONVERSACIÓN`);
+  lines.push(`━━━━━━━━━━━━━━━━━━━━━━━`);
+  lines.push(`• Etapa: ${stage}`);
+  lines.push(`• Intención detectada: ${intent}`);
+  lines.push(`• Mensajes del cliente: ${memory.messageCount}`);
+  lines.push(`• Ya saludaste: ${memory.hasGreeted ? "SÍ" : "NO"}`);
+  lines.push(`• Nueva sesión (>4h): ${memory.isNewSession ? "SÍ" : "NO"}`);
+
+  if (memory.sentProductIds.size > 0) {
+    lines.push(`• Productos ya mostrados: [${Array.from(memory.sentProductIds).join(", ")}]`);
+  }
+
+  // ── Reglas según intención ─────────────────────────────────────────────────
+  lines.push(`\n🚨 INSTRUCCIONES PARA ESTA RESPUESTA:`);
+
+  if (memory.hasGreeted) {
+    lines.push(`• PROHIBIDO empezar con "Hola", "¡Hola!", "Buenos días" o cualquier saludo. Ya saludaste. Ve directo al punto.`);
+  }
+
+  switch (intent) {
+    case "greeting":
+      if (!memory.hasGreeted) {
+        lines.push(`• Es el PRIMER contacto. Preséntate brevemente como Sofía de TecnoVariedades y pregunta qué busca.`);
+        lines.push(`• Sé cálida, breve (máx 3 líneas) y termina con una pregunta abierta.`);
+        lines.push(`• NO menciones productos ni precios todavía.`);
+      } else if (memory.isNewSession) {
+        lines.push(`• El cliente regresa después de un tiempo. Salúdalo brevemente por su nombre y pregunta en qué puedes ayudarle.`);
+        lines.push(`• NO menciones conversaciones anteriores a menos que él lo haga.`);
+      } else {
+        lines.push(`• El cliente saludó de nuevo en la misma sesión. Responde brevemente y pregunta en qué puedes ayudarle.`);
+      }
+      break;
+
+    case "product_query":
+      if (shouldSendCard && product) {
+        lines.push(`• El cliente pregunta por "${product.name}". Muestra la tarjeta con [CARD: ${product.id}].`);
+        lines.push(`• Antes de la card, escribe UNA sola línea de conexión (ej: "¡Justo lo que buscas! 👇").`);
+        lines.push(`• NADA después de [CARD: ${product.id}].`);
+      } else if (product) {
+        lines.push(`• El cliente pregunta sobre "${product.name}" (ya mostrado antes).`);
+        lines.push(`• Responde su pregunta directamente usando los datos del producto abajo.`);
+        lines.push(`• NO vuelvas a enviar la tarjeta.`);
+      }
+      break;
+
+    case "details_query":
+      if (product) {
+        lines.push(`• El cliente pregunta detalles sobre "${product.name}".`);
+        lines.push(`• Responde SOLO la pregunta puntual. No repitas toda la info del producto.`);
+        lines.push(`• Entrega: 100% digital por Google Drive, acceso inmediato.`);
+        lines.push(`• Garantía: 7 días sin preguntas.`);
+        lines.push(`• Duración: acceso de por vida.`);
+        lines.push(`• NO envíes la tarjeta de nuevo.`);
+      } else {
+        lines.push(`• El cliente pregunta detalles pero no hay producto en contexto.`);
+        lines.push(`• Pregúntale sobre qué producto quiere información.`);
+      }
+      break;
+
+    case "payment_intent":
+      if (product) {
+        lines.push(`• El cliente quiere comprar "${product.name}".`);
+        lines.push(`• Confirma el producto con entusiasmo y dile que los enlaces de pago están abajo.`);
+        lines.push(`• NO escribas URLs ni números de cuenta — el sistema los adjunta automáticamente.`);
+        lines.push(`• Sé breve: 2-3 líneas máximo.`);
+      } else {
+        lines.push(`• El cliente quiere pagar pero no hay producto identificado.`);
+        lines.push(`• Pregúntale qué producto quiere adquirir.`);
+      }
+      break;
+
+    case "objection":
+      lines.push(`• El cliente tiene una objeción. Valida su preocupación con empatía.`);
+      lines.push(`• NO presiones. Escucha, entiende y ofrece una solución específica.`);
+      lines.push(`• Si es precio: recuerda el valor, la garantía de 7 días y el acceso de por vida.`);
+      lines.push(`• Si es desconfianza: menciona la garantía y que es pago único.`);
+      break;
+
+    case "confirmation":
+      if (product) {
+        lines.push(`• El cliente confirma interés en "${product.name}".`);
+        lines.push(`• Facilita el proceso de compra. Los enlaces se adjuntan automáticamente.`);
+      }
+      break;
+
+    case "leaving":
+      lines.push(`• El cliente se despide. Despídete amablemente y deja la puerta abierta.`);
+      lines.push(`• No insistas en vender. Sé breve y cálida.`);
+      break;
+
+    default:
+      lines.push(`• Responde de forma natural y útil a lo que el cliente pregunta.`);
+      if (product) {
+        lines.push(`• Mantén el contexto del producto "${product.name}".`);
+      }
+  }
+
+  // ── Datos del producto activo ──────────────────────────────────────────────
+  if (product) {
+    lines.push(`\n📦 PRODUCTO EN CONTEXTO:`);
+    lines.push(`• Nombre: ${product.name}`);
+    lines.push(`• ID: ${product.id}`);
+    lines.push(`• Precio: ${formatPrice(product.price, product.currency)}`);
+    lines.push(`• Descripción: ${product.description}`);
+    if (product.features.length > 0) {
+      lines.push(`• Características:`);
+      product.features.forEach(f => lines.push(`  ✅ ${f}`));
+    }
+    lines.push(`\n🚨 USA SOLO los datos de arriba. NO inventes características ni precios.`);
+    if (!shouldSendCard) {
+      lines.push(`🚨 NO envíes [CARD: ${product.id}] — ya se mostró antes.`);
+    }
+  }
+
+  return lines.join("\n");
+}
+
+function formatPrice(price: number, currency: string): string {
+  try {
+    return new Intl.NumberFormat("es-CO", {
+      style: "currency",
+      currency: currency || "COP",
+      maximumFractionDigits: 0,
+    }).format(price);
+  } catch {
+    return `${currency} ${price.toLocaleString()}`;
+  }
+}
+
+// ─── Guardar mensaje del agente en BD ─────────────────────────────────────────
+
+export async function saveAgentMessage(
+  conversationId: number,
+  content: string,
+  stage: Stage,
+  metadata: MessageMetadata
+): Promise<void> {
+  try {
+    await db.insert(messages).values({
+      conversationId,
+      role: "agent",
+      content,
+      stage,
+      metadata,
+    });
+
+    // Actualizar lastMessage en la conversación
+    await db.update(conversations)
+      .set({ lastMessage: content.substring(0, 200), lastMessageAt: new Date() })
+      .where(eq(conversations.id, conversationId));
+  } catch (err) {
+    console.error(`[ConversationEngine] Error guardando mensaje del agente:`, err);
+  }
+}
+
+// ─── Actualizar etapa en BD ────────────────────────────────────────────────────
+
+export async function persistStage(conversationId: number, stage: Stage): Promise<void> {
+  try {
+    await db.update(conversations)
+      .set({ currentStage: stage })
+      .where(eq(conversations.id, conversationId));
+  } catch (err) {
+    console.error(`[ConversationEngine] Error actualizando etapa:`, err);
+  }
+}
+
+// ─── Construir historial para la IA ───────────────────────────────────────────
+
+export function buildChatHistory(memory: ConversationMemory): Array<{ role: string; content: string }> {
+  return memory.history.map(m => ({
+    role: m.role === "customer" ? "user" : "assistant",
+    content: m.content,
+  }));
+}
