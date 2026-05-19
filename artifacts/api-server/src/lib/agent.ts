@@ -37,7 +37,7 @@ import {
   type Stage,
 } from "./conversation-engine";
 import { getBrandVoice, formatWithBrandVoice } from "./brand-voice";
-import { analyzeBrain, buildFinalPrompt } from "./response-brain";
+import { analyzeBrain, buildFinalPrompt, type ResponseStrategy, type EmotionalState } from "./response-brain";
 import { 
   isPaymentConfirmation, 
   isPaymentMethodQuestion, 
@@ -674,32 +674,38 @@ ${hasSentCardAlready ? "• NO repitas la card si ya la enviaste — responde la
     return { content: raw, stage: memory.currentStage, parts: [{ kind: "text", content: raw }], cardProductIds: [] };
   }
 
-  // ── 11b. DETALLE HARDCODEADO (entrega, garantía, acceso, duración, contenido, soporte) ─
-  // El cerebro ya verificó que NO hay repetición ni emoción negativa antes de decidir hardcoded
+  // ── 11b. DETALLE HARDCODEADO (duración, contenido, soporte) ─
+  // Entrega/garantía/acceso requieren razonamiento contextual → van a IA
   if (brain.strategy === "hardcoded_detail") {
-    const hardcoded = tryHardcodedAnswer(
-      lastText,
-      decision.productToShow?.name || memory.currentProductName,
-      voice
-    );
-    if (hardcoded) {
-      console.log(`⚡ [FAST-TRACK] Respuesta hardcodeada para details_query - ${ts()}`);
-      const raw = hardcoded.response;
-      await saveAgentMessage(conversationId, raw, "details", {
-        intent: hardcoded.intent,
-        productId: decision.productToShow?.id || memory.currentProductId || undefined,
-        productName: decision.productToShow?.name || memory.currentProductName || undefined,
-        isHardcoded: true,
-      });
-      await persistStage(conversationId, "details");
-      const totalTime = Date.now() - startTime;
-      console.log(`🏁 [AGENT-END] Completado en ${totalTime}ms (hardcoded) - ${ts()}`);
-      return {
-        content: raw,
-        stage: "details",
-        parts: [{ kind: "text", content: raw }],
-        cardProductIds: [],
-      };
+    const hcIntent = detectHardcodedIntent(lastText);
+    const needsReasoning = hcIntent === "delivery" || hcIntent === "guarantee" || hcIntent === "access";
+    if (!needsReasoning) {
+      const hardcoded = tryHardcodedAnswer(
+        lastText,
+        decision.productToShow?.name || memory.currentProductName,
+        voice
+      );
+      if (hardcoded) {
+        console.log(`⚡ [FAST-TRACK] Respuesta hardcodeada para details_query - ${ts()}`);
+        const raw = hardcoded.response;
+        await saveAgentMessage(conversationId, raw, "details", {
+          intent: hardcoded.intent,
+          productId: decision.productToShow?.id || memory.currentProductId || undefined,
+          productName: decision.productToShow?.name || memory.currentProductName || undefined,
+          isHardcoded: true,
+        });
+        await persistStage(conversationId, "details");
+        const totalTime = Date.now() - startTime;
+        console.log(`🏁 [AGENT-END] Completado en ${totalTime}ms (hardcoded) - ${ts()}`);
+        return {
+          content: raw,
+          stage: "details",
+          parts: [{ kind: "text", content: raw }],
+          cardProductIds: [],
+        };
+      }
+    } else {
+      console.log(`🧠 [BRAIN] ${hcIntent} requiere razonamiento → IA en vez de hardcode - ${ts()}`);
     }
   }
 
@@ -721,74 +727,135 @@ ${hasSentCardAlready ? "• NO repitas la card si ya la enviaste — responde la
 
   console.log(`🤖 [AGENT-AI] Enviando a IA - mensajes:${chatMessages.length} prompt:${finalPrompt.length}chars - ${ts()}`);
 
+  // ── Seleccionar modelo OpenCode según estrategia del cerebro ─────────────
+  const OPENCODE_FREE_MODELS = {
+    razonamiento: "opencode/qwen3.6-plus-free",
+    balanceado: "opencode/deepseek-v4-flash-free",
+    rapido: "opencode/nemotron-3-super-free",
+  } as const;
+
+  function selectOpenCodeModel(strategy: ResponseStrategy, emotional: EmotionalState): string {
+    if (emotional === "frustrated" || emotional === "objecting") {
+      console.log(`🎯 [MODEL-SELECT] Emoción ${emotional} → qwen3.6-plus-free (mejor razonamiento) - ${ts()}`);
+      return OPENCODE_FREE_MODELS.razonamiento;
+    }
+    switch (strategy) {
+      case "ai_objection_handle":
+        return OPENCODE_FREE_MODELS.razonamiento;
+      case "ai_payment_close":
+      case "ai_farewell":
+        return OPENCODE_FREE_MODELS.rapido;
+      case "ai_product_details":
+        return OPENCODE_FREE_MODELS.rapido;
+      case "ai_general_response":
+      case "ai_product_discovery":
+      default:
+        return OPENCODE_FREE_MODELS.balanceado;
+    }
+  }
+
   //   ── 12. Llamada a IA con rotación de proveedores ──────────────────────────
   const customerInfo = { name: convo.contactName, phone: convo.contactPhone };
 
   const result = await executeWithFallback(
     async () => {
-      const rotationQueue: { config: any; source: string }[] = [];
       const dbConfig = appSettings ? getProviderConfigFromSettings(appSettings) : null;
       const activeProvider = appSettings?.aiProvider || "none";
+      const isUserSelected = activeProvider !== "opencode" && activeProvider !== "none" && !!dbConfig;
 
-      if (dbConfig) rotationQueue.push({ config: dbConfig, source: activeProvider });
+      // ── Helper: pushear fallbacks disponibles ──
+      const pushFallbacks = (queue: { config: any; source: string }[]) => {
+        const copilotEnv = getProviderConfig("github_copilot_internal");
+        const nvidiaEnv = getProviderConfig("nvidia");
+        const githubEnv = getProviderConfig("github");
+        const nvidiaFast = getProviderConfig("nvidia_fast");
+        const ollamaConfig = getProviderConfig("ollama_local");
+        if (activeProvider !== "nvidia" && nvidiaEnv && healthMonitor.isServiceHealthy("nvidia_70b"))
+          queue.push({ config: nvidiaEnv, source: "nvidia_70b" });
+        if (activeProvider !== "github_copilot_internal" && copilotEnv && healthMonitor.isServiceHealthy("copilot_internal"))
+          queue.push({ config: copilotEnv, source: "copilot_internal" });
+        if (activeProvider !== "github" && githubEnv && healthMonitor.isServiceHealthy("github_env"))
+          queue.push({ config: githubEnv, source: "github_env" });
+        if (activeProvider !== "nvidia" && nvidiaFast && healthMonitor.isServiceHealthy("nvidia_8b"))
+          queue.push({ config: nvidiaFast, source: "nvidia_8b" });
+        if (activeProvider !== "ollama_local" && ollamaConfig && healthMonitor.isServiceHealthy("ollama_local"))
+          queue.push({ config: ollamaConfig, source: "ollama_local" });
+      };
 
-      const copilotEnv = getProviderConfig("github_copilot_internal");
-      const nvidiaEnv = getProviderConfig("nvidia");
-      const githubEnv = getProviderConfig("github");
-      const nvidiaFast = getProviderConfig("nvidia_fast");
-      const ollamaConfig = getProviderConfig("ollama_local");
+      // ── Helper: probar cola de proveedores ──
+      const tryQueue = async (queue: { config: any; source: string }[]): Promise<{ raw: string; usedProvider: string }> => {
+        for (const { config, source } of queue) {
+          try {
+            console.log(`🎯 [AI] Intentando proveedor: ${source} - ${ts()}`);
+            if (config.baseUrl === "https://api.githubcopilot.com") {
+              const isGithubPat = config.apiKey.startsWith("gho_") || config.apiKey.startsWith("ghp_") || config.apiKey.startsWith("ghu_");
+              if (isGithubPat) {
+                const { getCopilotSessionToken } = await import("./copilot");
+                const session = await getCopilotSessionToken(config.apiKey);
+                if (session) config.apiKey = session.token;
+              }
+            }
+            const client = createAIClient(config);
+            const completion = await retryWithBackoff(
+              () => client.chat.completions.create({
+                model: config.model,
+                messages: chatMessages as any,
+                temperature: 0.65,
+                presence_penalty: 0.7,
+                frequency_penalty: 0.5,
+              }),
+              { maxRetries: 1, baseDelay: 500 },
+              `AI_${source}_conv_${conversationId}`
+            );
+            const result = completion.choices[0]?.message?.content?.trim() ?? "";
+            if (result) {
+              console.log(`✅ [AI] Respuesta de ${source} - ${result.length}chars - ${ts()}`);
+              return { raw: result, usedProvider: source };
+            }
+          } catch (err: any) {
+            console.log(`❌ [AI] ${source} falló: ${err.message} - ${ts()}`);
+          }
+        }
+        return { raw: "", usedProvider: "unknown" };
+      };
 
-      if (activeProvider !== "nvidia" && nvidiaEnv && healthMonitor.isServiceHealthy("nvidia_70b"))
-        rotationQueue.push({ config: nvidiaEnv, source: "nvidia_70b" });
-      if (activeProvider !== "github_copilot_internal" && copilotEnv && healthMonitor.isServiceHealthy("copilot_internal"))
-        rotationQueue.push({ config: copilotEnv, source: "copilot_internal" });
-      if (activeProvider !== "github" && githubEnv && healthMonitor.isServiceHealthy("github_env"))
-        rotationQueue.push({ config: githubEnv, source: "github_env" });
-      if (activeProvider !== "nvidia" && nvidiaFast && healthMonitor.isServiceHealthy("nvidia_8b"))
-        rotationQueue.push({ config: nvidiaFast, source: "nvidia_8b" });
-      if (activeProvider !== "ollama_local" && ollamaConfig && healthMonitor.isServiceHealthy("ollama_local"))
-        rotationQueue.push({ config: ollamaConfig, source: "ollama_local" });
+      // ── Fase 1: Cola inicial ──
+      const rotationQueue: { config: any; source: string }[] = [];
+
+      if (isUserSelected) {
+        rotationQueue.push({ config: dbConfig, source: activeProvider });
+        console.log(`🎯 [AI] Proveedor seleccionado: ${activeProvider} (exclusivo) - ${ts()}`);
+      } else {
+        const opencodeEnv = getProviderConfig("opencode");
+        if (opencodeEnv) {
+          opencodeEnv.model = selectOpenCodeModel(brain.strategy, brain.emotionalState);
+          const modelName = opencodeEnv.model.replace("opencode/", "");
+          rotationQueue.push({ config: opencodeEnv, source: `opencode/${modelName}` });
+        }
+        if (dbConfig && activeProvider !== "opencode")
+          rotationQueue.push({ config: dbConfig, source: activeProvider });
+        pushFallbacks(rotationQueue);
+      }
 
       if (rotationQueue.length === 0) throw new Error("No hay proveedores de IA disponibles");
 
-      let raw = "";
-      let usedProvider = "unknown";
+      let { raw, usedProvider } = await tryQueue(rotationQueue);
 
-      for (const { config, source } of rotationQueue) {
-        try {
-          console.log(`🎯 [AI] Intentando proveedor: ${source} - ${ts()}`);
-
-          // Renovar token Copilot si es PAT
-          if (config.baseUrl === "https://api.githubcopilot.com") {
-            const isGithubPat = config.apiKey.startsWith("gho_") || config.apiKey.startsWith("ghp_") || config.apiKey.startsWith("ghu_");
-            if (isGithubPat) {
-              const { getCopilotSessionToken } = await import("./copilot");
-              const session = await getCopilotSessionToken(config.apiKey);
-              if (session) config.apiKey = session.token;
-            }
-          }
-
-          const client = createAIClient(config);
-          const completion = await retryWithBackoff(
-            () => client.chat.completions.create({
-              model: config.model,
-              messages: chatMessages as any,
-              temperature: 0.65,
-              presence_penalty: 0.7,
-              frequency_penalty: 0.5,
-            }),
-            { maxRetries: 1, baseDelay: 500 },
-            `AI_${source}_conv_${conversationId}`
-          );
-
-          raw = completion.choices[0]?.message?.content?.trim() ?? "";
-          if (raw) {
-            usedProvider = source;
-            console.log(`✅ [AI] Respuesta de ${source} - ${raw.length}chars - ${ts()}`);
-            break;
-          }
-        } catch (err: any) {
-          console.log(`❌ [AI] ${source} falló: ${err.message} - ${ts()}`);
+      // ── Fase 2: Si proveedor seleccionado falló → rotación inteligente ──
+      if (!raw && isUserSelected) {
+        console.log(`🔄 [ROTATION] ${activeProvider} falló — activando rotación inteligente - ${ts()}`);
+        const fallbackQueue: { config: any; source: string }[] = [];
+        const opencodeEnv = getProviderConfig("opencode");
+        if (opencodeEnv) {
+          opencodeEnv.model = selectOpenCodeModel(brain.strategy, brain.emotionalState);
+          const modelName = opencodeEnv.model.replace("opencode/", "");
+          fallbackQueue.push({ config: opencodeEnv, source: `opencode/${modelName}` });
+        }
+        pushFallbacks(fallbackQueue);
+        if (fallbackQueue.length > 0) {
+          const result = await tryQueue(fallbackQueue);
+          raw = result.raw;
+          usedProvider = result.usedProvider;
         }
       }
 
