@@ -602,6 +602,7 @@ export async function runAgentReply(conversationId: number) {
 
   // ── 9. Construir prompt base del sistema ──────────────────────────────────
   const hasSentCardAlready = memory.sentProductIds.size > 0;
+  const isPaymentIntent = (decision.intent === "payment_intent" || decision.intent === "confirmation");
 
   const systemPrompt = (activeAgent.systemPrompt || `Eres **${voice.agentName}**, ${voice.agentRole} de ${voice.businessName}.
 Estás conversando con **${customerName}**.
@@ -609,11 +610,12 @@ Estás conversando con **${customerName}**.
 ━━━━━━━━━━━━━━━━━━━━━━━
 🧠 CÓMO PIENSAS Y ACTÚAS
 ━━━━━━━━━━━━━━━━━━━━━━━
-1. ESCUCHA ACTIVA: Interpreta la intención real del cliente.
-2. MEMORIA: Recuerda todo lo que ya se habló. No repitas información.
-3. RESPUESTAS CORTAS: Máx 3 líneas + emoji. Sin paredes de texto.
-4. NO REPITAS: Si ya diste info, amplía con algo nuevo.
-5. FLUJO NATURAL: Charla, no catálogo.
+1. RESPUESTAS CORTAS: Máx 3 líneas + emoji. Sin paredes de texto. Sé directo.
+2. MEMORIA: No repitas información ya dicha. Si ya diste un dato, no lo repitas.
+3. NO DESCRIBAS PRODUCTOS: Nunca escribas descripciones, características o beneficios de productos. La tarjeta visual se envía automáticamente con toda esa info.
+4. NO INVENTES: Usa SOLO los datos del catálogo que ves abajo. NUNCA inventes precios, características, promociones, descuentos, ni métodos de entrega.
+5. NO PROMETAS: Nunca digas "te lo envío", "te mando el link", "te llega mañana". El sistema maneja la entrega automáticamente.
+6. FLUJO NATURAL: Charla, no catálogo. No sueltes información técnica a menos que te la pidan.
 
 ━━━━━━━━━━━━━━━━━━━━━━━
 📋 INFORMACIÓN DEL NEGOCIO
@@ -623,14 +625,17 @@ Estás conversando con **${customerName}**.
 ✅ Garantía: ${voice.guaranteeInfo.description}
 
 ━━━━━━━━━━━━━━━━━━━━━━━
-📦 CATÁLOGO COMPLETO
+📦 CATÁLOGO COMPLETO (solo para consulta, NO para describir)
 ━━━━━━━━━━━━━━━━━━━━━━━
 ${productList.length > 0 ? productsBlock : "No hay productos disponibles."}
 
-🚨 REGLAS ABSOLUTAS:
-• NO inventes precios, nombres ni características.
-• NO escribas URLs ni números de cuenta — el sistema los adjunta.
-${hasSentCardAlready ? "• NO repitas la card si ya la enviaste — responde la duda directamente." : "• Cuando recomiendes un producto nuevo, USA [CARD: ID] al final."}
+🚨 REGLAS ABSOLUTAS (violación = error grave):
+• NO escribas descripciones de productos. La card se encarga.
+• NO inventes precios, nombres, características, promociones ni descuentos.
+• NO escribas URLs, links de pago ni números de cuenta — el sistema los adjunta.
+• NO digas "te lo envío", "te mando el link", "te llega" ni prometas tiempos de entrega.
+• NO repitas información que ya diste. Sé fresco y directo.
+${isPaymentIntent ? "• El cliente YA QUIERE COMPRAR. NO recomiendes ni describas productos. Solo confirma (1 línea) y la tarjeta de pago se muestra sola." : hasSentCardAlready ? "• NO repitas la card si ya la enviaste — responde la duda directamente." : "• Cuando sea necesario presentar un producto nuevo, USA [CARD: ID] al final de tu mensaje — pero NO describas el producto."}
 • NO uses frases genéricas de apertura.`).trim();
 
   // ── 10. INTEGRAR contexto del motor DENTRO del cerebro ────────────────────
@@ -894,7 +899,16 @@ ${hasSentCardAlready ? "• NO repitas la card si ya la enviaste — responde la
       // 1. Sanitizar: eliminar URLs y datos de pago si no es payment_intent
       raw = sanitizeResponse(raw, decision.intent);
 
-      // 2. Card: garantizar que la IA incluyó la card si el motor decidió mostrarla
+      // 2a. Payment/Confirmation: reemplazar texto de IA por frase corta + card
+      // Evita que la IA describa productos cuando el cliente solo quiere pagar
+      const isPaymentFlow = (decision.intent === "payment_intent" || decision.intent === "confirmation");
+      if (isPaymentFlow && decision.shouldSendCard && decision.productToShow) {
+        const paymentPhrase = voice.phrases.payment_ready || "¡Los enlaces de pago están listos! 💳";
+        raw = `${paymentPhrase}\n\n[CARD: ${decision.productToShow.id}]`;
+        console.log(`🔧 [POST] Payment flow: texto IA reemplazado por frase hardcodeada + card - ${ts()}`);
+      }
+
+      // 2b. Card: garantizar que la IA incluyó la card si el motor decidió mostrarla
       if (decision.shouldSendCard && decision.productToShow && !raw.toLowerCase().includes("[card:")) {
         console.log(`🔧 [POST] IA olvidó la card. Agregando [CARD: ${decision.productToShow.id}]`);
         raw = raw.trim() + `\n\n[CARD: ${decision.productToShow.id}]`;
@@ -956,7 +970,8 @@ ${hasSentCardAlready ? "• NO repitas la card si ya la enviaste — responde la
             })();
 
         if (resolvedId !== -1) {
-          parts.push({ kind: "card", productId: resolvedId });
+          const isPaymentFlow = (decision.intent === "payment_intent" || decision.intent === "confirmation");
+          parts.push({ kind: "card", productId: resolvedId, paymentOnly: isPaymentFlow });
           cardProductId = resolvedId;
           cardCount++;
         }

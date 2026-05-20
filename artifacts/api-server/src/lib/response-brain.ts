@@ -91,7 +91,7 @@ const FRUSTRATED_SIGNALS = [
 ];
 
 const SATISFIED_SIGNALS = [
-  "gracias", "recibí", "llegó", "funciona", "excelente servicio",
+  "gracias", "recibí", "llegó", "excelente servicio",
   "muy bueno", "recomiendo", "volvería a comprar", "satisfecho"
 ];
 
@@ -357,9 +357,10 @@ function buildRequirements(
       break;
 
     case "ai_payment_close":
-      requirements.push(`Confirma el producto con entusiasmo.`);
-      requirements.push(`Di que los enlaces de pago están listos abajo (el sistema los adjunta).`);
-      requirements.push(`Sé breve: máximo 2-3 líneas.`);
+      requirements.push(`Confirma el producto con entusiasmo (1 línea).`);
+      requirements.push(`NO describas el producto — ni su contenido, características, beneficios ni precio.`);
+      requirements.push(`Di que los enlaces de pago están listos abajo (el sistema los adjunta automáticamente).`);
+      requirements.push(`Sé breve: máximo 2 líneas + emoji.`);
       break;
 
     case "ai_objection_handle":

@@ -112,6 +112,7 @@ export type AgentReplyPart = {
   kind: "text" | "card";
   content?: string;
   productId?: number;
+  paymentOnly?: boolean;
 };
 import { PaymentGateway } from "./payments";
 import { retryWithBackoff, notifyOperatorOfFailure } from "./fallbackSystem";
@@ -227,6 +228,44 @@ function buildProductCaption(p: typeof products.$inferSelect, categoryName: stri
 
   lines.push(`_¿Deseas confirmar tu compra ahora o tienes alguna pregunta adicional?_`);
   
+  return lines.join("\n");
+}
+
+function buildPaymentOnlyCaption(p: typeof products.$inferSelect, dynamicLinks?: any) {
+  const lines: string[] = [];
+
+  const nameUpper = p.name.toUpperCase();
+  const mainEmoji = nameUpper.includes("PIANO") ? "🎹" : 
+                    nameUpper.includes("GUITARRA") ? "🎸" : 
+                    nameUpper.includes("CANTO") ? "🎤" : 
+                    nameUpper.includes("EXCEL") ? "📊" : "💻";
+
+  lines.push(`💳 *PAGO — ${mainEmoji} ${nameUpper}*`);
+  lines.push("━━━━━━━━━━━━━━━━━━━━━━━");
+  lines.push("");
+
+  if (dynamicLinks) {
+    if (dynamicLinks.mercadopago && (dynamicLinks.mercadopago.url || dynamicLinks.mercadopago.shortUrl)) {
+      lines.push(`🔹 *Tarjeta de Crédito / PSE (Colombia):*`);
+      lines.push(`${dynamicLinks.mercadopago.url || dynamicLinks.mercadopago.shortUrl}`);
+      lines.push("");
+    }
+    if (dynamicLinks.paypal && (dynamicLinks.paypal.url || dynamicLinks.paypal.shortUrl)) {
+      lines.push(`🔹 *PayPal (Internacional):*`);
+      lines.push(`${dynamicLinks.paypal.url || dynamicLinks.paypal.shortUrl}`);
+      lines.push("");
+    }
+    if (dynamicLinks.transfer && dynamicLinks.transfer.options && dynamicLinks.transfer.options[0]) {
+      lines.push(`🔹 *Transferencia Directa:*`);
+      lines.push(`📍 *Nequi/Daviplata:* ${dynamicLinks.transfer.options[0].number}`);
+      lines.push(`👤 *Titular:* ${dynamicLinks.transfer.options[0].name}`);
+      lines.push("");
+    }
+  }
+
+  lines.push(`━━━━━━━━━━━━━━━━━━━━━━━`);
+  lines.push(`_¿Confirmas tu compra o tienes alguna duda?_`);
+
   return lines.join("\n");
 }
 
@@ -710,10 +749,13 @@ export class WhatsAppManager {
           const dynamicLinks = await pg.getAllLinks(product, { phone, name: pushName });
           console.log(`🔗 [WA-CARD] Enlaces generados - MercadoPago: ${!!dynamicLinks.mercadopago?.url}, PayPal: ${!!dynamicLinks.paypal?.url}, Transfer: ${dynamicLinks.transfer.options.length} - ${timestamp}`);
           
-          const caption = buildProductCaption(product, null, dynamicLinks);
+          const isPaymentOnly = part.paymentOnly === true;
+          const caption = isPaymentOnly
+            ? buildPaymentOnlyCaption(product, dynamicLinks)
+            : buildProductCaption(product, null, dynamicLinks);
           const imageToUse = product.imageUrl || getProductImage(product.name || "");
           
-          console.log(`🖼️ [WA-CARD] Enviando imagen con caption - URL: ${imageToUse?.substring(0, 50)}..., Caption: ${caption.length} caracteres - ${timestamp}`);
+          console.log(`🖼️ [WA-CARD] Enviando imagen con caption - URL: ${imageToUse?.substring(0, 50)}..., PaymentOnly: ${isPaymentOnly}, Caption: ${caption.length} caracteres - ${timestamp}`);
           await this.sendImage(phone, imageToUse, caption, originalJid);
           console.log(`✅ [WA-CARD] Tarjeta enviada exitosamente para ${product.name} - ${timestamp}`);
         } catch (err: any) {

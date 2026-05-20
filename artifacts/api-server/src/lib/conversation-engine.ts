@@ -117,15 +117,15 @@ const PAYMENT_PATTERNS = [
 
 const OBJECTION_PATTERNS = [
   "caro", "costoso", "muy caro", "mucho dinero", "pensarlo",
-  "no sé", "no se", "duda", "inseguro", "desconfío", "desconfio",
-  "estafa", "funciona", "garantía", "devolución", "devolucion",
+  "no sé", "no se", "duda", "dudas", "inseguro", "desconfío", "desconfio",
+  "estafa", "devolución", "devolucion",
   "reembolso", "no tengo", "sin dinero", "después", "luego",
-  "lo pienso", "déjame pensar"
+  "lo pienso", "déjame pensar", "más barato", "descuento", "promoción", "promocion"
 ];
 
 const CONFIRMATION_PATTERNS = [
   "sí", "si", "ok", "dale", "bueno", "perfecto", "listo",
-  "me gustaría", "me gustaria", "quiero", "adelante", "vamos",
+  "me gustaría", "me gustaria", "adelante", "vamos",
   "de acuerdo", "claro", "por supuesto"
 ];
 
@@ -154,9 +154,10 @@ const GENERIC_WORDS = new Set([
   "entrega", "entregan", "acceso", "garantia", "garantía", "soporte",
   "descarga", "drive", "google", "duracion", "duración", "tiempo",
   "incluye", "tiene", "trae", "precio", "valor", "cuanto", "cuánto",
-  "cual", "cuál", "pago", "pagar", "link", "enlace", "nequi",
-  "daviplata", "transfiere", "transferencia", "comprar", "adquirir",
+  "cual", "cuál", "transfiere",
   "quiero", "necesito", "funciona", "clases", "lecciones", "modulos",
+  "comprar", "adquirir", "pago", "pagar", "link", "enlace", "nequi",
+  "daviplata", "transferencia", "dale", "vamos", "adelante",
   "horas", "video", "hora", "cómo", "como", "están", "estan",
   "estado", "estas", "estás", "información", "informacion", "info",
   "detalles", "más", "mas", "saber", "conocer", "ver",
@@ -168,7 +169,9 @@ const STOP_WORDS = new Set([
   "el", "la", "los", "las", "lo", "de", "del", "un", "una",
   "que", "por", "para", "con", "me", "se", "es", "en", "y",
   "e", "a", "su", "le", "no", "te", "les", "nos", "os", "al",
-  "este", "esta", "ese", "esa", "mi", "tu", "si", "hay"
+  "este", "esta", "ese", "esa", "mi", "tu", "si", "hay",
+  "también", "tambien", "tienes", "tiene", "tengo", "son",
+  "muy", "más", "mas", "ya", "fue", "fui", "era",
 ]);
 
 // ─── Respuestas hardcodeadas para preguntas frecuentes ───────────────────────
@@ -383,12 +386,13 @@ export function detectIntent(text: string): Intent {
   // Confirmación
   if (CONFIRMATION_PATTERNS.some(p => t.includes(p)) && !t.includes("no ")) return "confirmation";
 
-  // Pregunta de detalles (sobre entrega, garantía, acceso, etc.)
-  if (DETAILS_PATTERNS.some(p => t.includes(p))) return "details_query";
-
   // Pregunta sobre producto (tiene palabras que no son genéricas)
+  // Va ANTES de details_query para que "tienes curso de guitarra" no se malinterprete como detalle
   const productWords = words.filter(w => w.length > 3 && !GENERIC_WORDS.has(w) && !STOP_WORDS.has(w));
   if (productWords.length > 0) return "product_query";
+
+  // Pregunta de detalles (sobre entrega, garantía, acceso, etc.)
+  if (DETAILS_PATTERNS.some(p => t.includes(p))) return "details_query";
 
   return "general";
 }
@@ -689,21 +693,13 @@ export async function findBestProductMatch(
       }
     }
 
-    // Nivel 1 (insuficiente): Solo una palabra genérica o muy pocas coincidencias
-    if (level === 0) {
-      const anyHit = allWords.filter(w => combined.includes(w));
-      if (anyHit.length > 0) {
-        level = 1;
-        matchDetail = `solo coincidencia genérica: ${anyHit.join(", ")}`;
-      }
-    }
-
     // Nivel 2 (búsqueda expandida de categoría):
     // Las palabras específicas de la consulta coinciden EXACTAMENTE con alias de la
     // categoría del producto — sin substrings ni coincidencias parciales.
     // Esto permite buscar "reparación de celulares" y encontrar productos de la categoría
     // "electronica" (cuyos alias incluyen "reparacion" y "celular"), pero NO permite que
     // "curso de inglés" devuelva productos de electrónica, mecánica, etc.
+    // VA ANTES del nivel 1 para que la categoría expandida tenga prioridad.
     if (level === 0 && specificWords.length > 0 && catName) {
       const normalizedAliases = [...(categoryAliasLower[catName] || [])].map(s => normalizeText(s));
       // Coincidencia exacta: alias contiene la palabra de la consulta (no al revés)
@@ -711,6 +707,15 @@ export async function findBestProductMatch(
       if (exactAliasHits.length >= Math.max(1, Math.ceil(specificWords.length * 0.4))) {
         level = 2;
         matchDetail = `búsqueda expandida por categoría "${catName}": alias=[${exactAliasHits.join(",")}]`;
+      }
+    }
+
+    // Nivel 1 (insuficiente): Solo palabras genéricas — ÚLTIMO RECURSO después de agotar nivel 2+
+    if (level === 0) {
+      const anyHit = allWords.filter(w => combined.includes(w));
+      if (anyHit.length > 0) {
+        level = 1;
+        matchDetail = `solo coincidencia genérica: ${anyHit.join(", ")}`;
       }
     }
 
@@ -808,7 +813,7 @@ export async function computeDecision(
         };
         shouldSendCard = true;
       } else if (p.id !== memory.currentProductId) {
-        // Producto ya enviado pero diferente al actual → cambiar contexto sin card
+        // Producto ya enviado pero diferente al actual → cambiar contexto
         productToShow = {
           id: p.id,
           name: p.name,
@@ -817,9 +822,10 @@ export async function computeDecision(
           description: p.description || "",
           features: (p.features as string[]) || [],
         };
-        shouldSendCard = false; // Ya se envió antes
+        // Si quiere pagar este producto, reenviar la card con enlaces de pago
+        shouldSendCard = (intent === "payment_intent" || intent === "confirmation");
       } else {
-        // Mismo producto que ya está en contexto → responder sobre él sin card
+        // Mismo producto que ya está en contexto → responder sobre él
         const currentProduct = productList.find(p2 => p2.id === memory.currentProductId);
         if (currentProduct) {
           productToShow = {
@@ -831,7 +837,8 @@ export async function computeDecision(
             features: (currentProduct.features as string[]) || [],
           };
         }
-        shouldSendCard = false;
+        // Si ya está pagando, mostrar la card con enlaces de pago
+        shouldSendCard = (intent === "payment_intent" || intent === "confirmation");
       }
     } else if (memory.currentProductId) {
       // Sin match nuevo y con producto en contexto: mantenerlo SOLO si no es una búsqueda de producto nuevo
@@ -839,7 +846,7 @@ export async function computeDecision(
       if (intent === "product_query") {
         productSearchFailed = true;
       } else {
-        // Detalles, objeción, etc. sobre el producto existente → mantener contexto
+        // Detalles, pago, objeción, etc. sobre el producto existente → mantener contexto
         const currentProduct = productList.find(p2 => p2.id === memory.currentProductId);
         if (currentProduct) {
           productToShow = {
@@ -851,7 +858,8 @@ export async function computeDecision(
             features: (currentProduct.features as string[]) || [],
           };
         }
-        shouldSendCard = false;
+        // Si quiere pagar, mostrar la card con los enlaces de pago
+        shouldSendCard = (intent === "payment_intent" || intent === "confirmation");
       }
     } else {
       // No hay match y no hay producto en contexto
@@ -1006,10 +1014,11 @@ function buildContextBlock(
 
     case "payment_intent":
       if (product) {
-        lines.push(`• El cliente quiere comprar "${product.name}".`);
-        lines.push(`• Confirma el producto con entusiasmo y dile que los enlaces de pago están abajo.`);
-        lines.push(`• NO escribas URLs ni números de cuenta — el sistema los adjunta automáticamente.`);
-        lines.push(`• Sé breve: 2-3 líneas máximo.`);
+        lines.push(`• El cliente QUIERE COMPRAR "${product.name}".`);
+        lines.push(`• Confirma con entusiasmo (1 línea). No describas el producto — la tarjeta con enlaces se envía automáticamente abajo.`);
+        lines.push(`• NO inventes ni reescribas la descripción del producto ni sus características.`);
+        lines.push(`• NO escribas URLs ni números de cuenta — el sistema los adjunta en la tarjeta.`);
+        lines.push(`• Sé MUY breve: máximo 2 líneas + emoji.`);
       } else {
         lines.push(`• El cliente quiere pagar pero no hay producto identificado.`);
         lines.push(`• Pregúntale qué producto quiere adquirir.`);
@@ -1025,8 +1034,11 @@ function buildContextBlock(
 
     case "confirmation":
       if (product) {
-        lines.push(`• El cliente confirma interés en "${product.name}".`);
-        lines.push(`• Facilita el proceso de compra. Los enlaces se adjuntan automáticamente.`);
+        lines.push(`• El cliente CONFIRMA que quiere comprar "${product.name}".`);
+        lines.push(`• Confirma con entusiasmo (1 línea). No describas el producto — la tarjeta con enlaces se envía automáticamente.`);
+        lines.push(`• NO inventes ni reescribas descripción, características ni beneficios del producto.`);
+        lines.push(`• NO escribas URLs ni números de cuenta — el sistema los adjunta en la tarjeta.`);
+        lines.push(`• Sé MUY breve: máximo 2 líneas + emoji.`);
       }
       break;
 
