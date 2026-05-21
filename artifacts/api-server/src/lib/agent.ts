@@ -55,6 +55,13 @@ import {
   type EmotionalContext
 } from "./objectionHandler";
 import { AdvancedIntelligence } from "./advanced-intelligence";
+import {
+  getOptimizedProviderOrder,
+  reportProviderResult,
+  getProviderTimeout,
+} from "./optimized-rotation";
+import { getG4FResponse, initializeG4F } from "./providers/g4f-provider";
+import { G4F_ENABLED } from "../config/g4f.config";
 
 // ============================================================
 // 🎯 UNIFIED KEYWORD CONSTANTS - SINGLE SOURCE OF TRUTH
@@ -605,37 +612,40 @@ export async function runAgentReply(conversationId: number) {
   const isPaymentIntent = (decision.intent === "payment_intent" || decision.intent === "confirmation");
 
   const systemPrompt = (activeAgent.systemPrompt || `Eres **${voice.agentName}**, ${voice.agentRole} de ${voice.businessName}.
-Estás conversando con **${customerName}**.
+Estás conversando con **${customerName}** en WhatsApp.
 
-━━━━━━━━━━━━━━━━━━━━━━━
-🧠 CÓMO PIENSAS Y ACTÚAS
-━━━━━━━━━━━━━━━━━━━━━━━
-1. NATURAL Y DIRECTO: Máx 5 líneas + emoji. Conversa como un asesor real, no un robot.
-2. RAZONA ANTES DE RESPONDER: Lee el contexto, entiende lo que el cliente preguntó, y responde con información útil.
-3. USA DATOS REALES: Cuando el cliente pregunte por un producto, responde con datos del catálogo (precio, características, descripción) — pero SOLO lo que está en la lista.
-4. NO INVENTES: NUNCA inventes precios, características, promociones, descuentos ni métodos de entrega. Si no está en el catálogo, no lo digas.
-5. MEMORIA: No repitas lo que ya dijiste. Si ya diste un dato sobre el producto, no lo repitas a menos que el cliente pregunte otra vez.
-6. NO PROMETAS: Nunca digas "te lo envío", "te mando el link", "te llega mañana". El sistema maneja entrega y pagos.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🧠 IDENTIDAD Y PERSONALIDAD
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Eres un asesor de ventas excepcionalmente inteligente y natural. Conversas como un ser humano real: cálido, empático, con sentido del humor cuando corresponde. NO eres un robot ni suenas automatizado.
 
-━━━━━━━━━━━━━━━━━━━━━━━
-📋 INFORMACIÓN DEL NEGOCIO
-━━━━━━━━━━━━━━━━━━━━━━━
-✅ Entrega: ${voice.deliveryInfo.details}
-✅ Acceso: ${voice.accessInfo.description}
-✅ Garantía: ${voice.guaranteeInfo.description}
+• Escuchas activamente: entiendes el contexto completo de la conversación, no solo la última pregunta.
+• Piensas antes de responder: analizas qué necesita realmente el cliente y respondes con precisión.
+• Eres versátil: puedes hablar DE VENTAS (productos, precios, pagos) y también DE TEMAS GENERALES (el clima, tecnología, recomendaciones, actualidad). Si el cliente pregunta algo ajeno al negocio, responde de forma natural y luego retoma el hilo.
+• Nunca inventas información que no esté en el catálogo o en el contexto proporcionado.
+• Usas emojis de forma NATURAL (1-2 por mensaje, no más). Solo cuando aportan calidez.
+• Tus respuestas son CONCISAS pero COMPLETAS. Ni te alargas ni eres demasiado cortante.
 
-━━━━━━━━━━━━━━━━━━━━━━━
-📦 CATÁLOGO DE PRODUCTOS (usa estos datos para responder)
-━━━━━━━━━━━━━━━━━━━━━━━
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📋 DATOS DEL NEGOCIO (usa esto para responder preguntas frecuentes)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+• Entrega: ${voice.deliveryInfo.details}
+• Acceso: ${voice.accessInfo.description}
+• Garantía: ${voice.guaranteeInfo.description}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📦 CATÁLOGO DE PRODUCTOS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ${productList.length > 0 ? productsBlock : "No hay productos disponibles."}
 
-🚨 REGLAS (violación = error grave):
-• NO inventes precios, nombres, características, promociones ni descuentos.
-• NO escribas URLs, links de pago ni números de cuenta — el sistema los adjunta automáticamente.
-• NO digas "te lo envío", "te mando el link", "te llega" ni prometas tiempos de entrega.
-• NO repitas información que ya diste. Sé fresco y natural.
-${isPaymentIntent ? "• El cliente YA QUIERE COMPRAR. Responde confirmando de forma natural y breve (ej: '¡Listo! Pasemos al pago'). La card con los métodos de pago se enviará automáticamente." : hasSentCardAlready ? "• NO repitas la card si ya la enviaste — responde la duda directamente." : "• Cuando sea necesario presentar un producto nuevo, USA [CARD: ID] al final de tu mensaje."}
-• NO uses frases genéricas de apertura como '¿En qué puedo ayudarte?'. Responde directo al tema.`).trim();
+⚠️ INSTRUCCIONES CRÍTICAS:
+[1] NUNCA inventes productos, precios, características, promociones ni descuentos. Usa SOLO los datos del catálogo.
+[2] NUNCA escribas links, URLs, números de cuenta, ni datos de pago. El sistema los adjunta automáticamente.
+[3] NUNCA digas "te lo envío", "te mando el link", "te llega" ni prometas tiempos de entrega.
+[4] Si el cliente pregunta algo FUERA del contexto del negocio (charla casual, opiniones, etc.), responde de forma natural y amable. Si es posible, redirige suavemente al tema de ventas.
+[5] Si NO SABES algo, admítelo con honestidad. No improvises ni inventes.
+[6] No repitas información que ya diste. Usa la MEMORIA de la conversación.
+${isPaymentIntent ? "[7] El cliente quiere COMPRAR. Confirma brevemente y con entusiasmo. El sistema mostrará automáticamente la tarjeta con métodos de pago." : hasSentCardAlready ? "[7] El producto ya se mostró antes. NO repitas la tarjeta. Responde la pregunta directamente." : "[7] Si consideras necesario presentar un producto, incluye [CARD: ID] al final de tu mensaje. Solo si es natural hacerlo."}`).trim();
 
   // ── 10. INTEGRAR contexto del motor DENTRO del cerebro ────────────────────
   // El bloque de contexto del motor (engineContext) se inyecta como contexto adicional
@@ -752,9 +762,6 @@ ${isPaymentIntent ? "• El cliente YA QUIERE COMPRAR. Responde confirmando de f
       role: "system",
       content: finalPrompt,
     },
-    ...(decision.shouldSendCard && decision.productToShow
-      ? [{ role: "assistant", content: "" }]
-      : []),
   ];
 
   console.log(`🤖 [AGENT-AI] Enviando a IA - mensajes:${chatMessages.length} prompt:${finalPrompt.length}chars - ${ts()}`);
@@ -799,7 +806,6 @@ ${isPaymentIntent ? "• El cliente YA QUIERE COMPRAR. Responde confirmando de f
       const pushFallbacks = (queue: { config: any; source: string }[]) => {
         // Proveedores gratuitos de free-llm-api-resources
         const freeProviders = [
-          // Gratis 100%
           { key: "openrouter", name: "openrouter/llama-3.3-70b-instruct:free", healthy: "openrouter" },
           { key: "google_ai_studio", name: "google/gemini-2.5-flash", healthy: "google_ai_studio" },
           { key: "groq", name: "groq/llama-3.3-70b-versatile", healthy: "groq" },
@@ -810,7 +816,6 @@ ${isPaymentIntent ? "• El cliente YA QUIERE COMPRAR. Responde confirmando de f
           { key: "mistral_codestral", name: "mistral/codestral-latest", healthy: "mistral_codestral" },
           { key: "huggingface", name: "hf/llama-3.3-70b-instruct", healthy: "huggingface" },
           { key: "opencode_zen", name: "zen/deepseek-v4-flash-free", healthy: "opencode_zen" },
-          // Trial credits
           { key: "deepseek", name: "deepseek/deepseek-chat", healthy: "deepseek" },
           { key: "together", name: "together/llama-3.1-405b", healthy: "together" },
           { key: "novita", name: "novita/llama-3.3-70b", healthy: "novita" },
@@ -833,7 +838,6 @@ ${isPaymentIntent ? "• El cliente YA QUIERE COMPRAR. Responde confirmando de f
           }
         }
 
-        // Proveedores existentes que requieren suscripción
         const copilotEnv = getProviderConfig("github_copilot_internal");
         const nvidiaEnv = getProviderConfig("nvidia");
         const githubEnv = getProviderConfig("github");
@@ -854,8 +858,27 @@ ${isPaymentIntent ? "• El cliente YA QUIERE COMPRAR. Responde confirmando de f
       // ── Helper: probar cola de proveedores ──
       const tryQueue = async (queue: { config: any; source: string }[]): Promise<{ raw: string; usedProvider: string }> => {
         for (const { config, source } of queue) {
+          // G4F: manejo especial (no usa OpenAI client)
+          if (source === "g4f") {
+            if (!G4F_ENABLED) continue;
+            console.log(`🆘 [G4F] Intentando G4F con 111+ proveedores - ${ts()}`);
+            const g4fResponse = await getG4FResponse(
+              chatMessages.map((m: any) => ({ role: m.role as "user" | "assistant" | "system", content: m.content })),
+              process.env.G4F_MODEL || "gpt-4-turbo"
+            );
+            if (g4fResponse?.content) {
+              console.log(`✅ [G4F] Respuesta obtenida: ${g4fResponse.content.length}chars - ${ts()}`);
+              return { raw: g4fResponse.content, usedProvider: "g4f" };
+            }
+            console.log(`❌ [G4F] No se obtuvo respuesta - ${ts()}`);
+            continue;
+          }
+
+          const providerName = source.split("/")[0].split("_")[0];
+          const timeout = getProviderTimeout(providerName);
+          const startTime = Date.now();
           try {
-            console.log(`🎯 [AI] Intentando proveedor: ${source} - ${ts()}`);
+            console.log(`🎯 [AI] Intentando proveedor: ${source} (timeout: ${timeout}ms) - ${ts()}`);
             if (config.baseUrl === "https://api.githubcopilot.com") {
               const isGithubPat = config.apiKey.startsWith("gho_") || config.apiKey.startsWith("ghp_") || config.apiKey.startsWith("ghu_");
               if (isGithubPat) {
@@ -873,33 +896,79 @@ ${isPaymentIntent ? "• El cliente YA QUIERE COMPRAR. Responde confirmando de f
                 presence_penalty: 0.7,
                 frequency_penalty: 0.5,
               }),
-              { maxRetries: 1, baseDelay: 500 },
+              { maxRetries: 0, baseDelay: 500 },
               `AI_${source}_conv_${conversationId}`
             );
             const result = completion.choices[0]?.message?.content?.trim() ?? "";
             if (result) {
-              console.log(`✅ [AI] Respuesta de ${source} - ${result.length}chars - ${ts()}`);
+              const elapsed = Date.now() - startTime;
+              reportProviderResult(providerName, true, elapsed);
+              console.log(`✅ [AI] Respuesta de ${source} - ${result.length}chars (${elapsed}ms) - ${ts()}`);
               return { raw: result, usedProvider: source };
             }
           } catch (err: any) {
-            console.log(`❌ [AI] ${source} falló: ${err.message} - ${ts()}`);
+            const elapsed = Date.now() - startTime;
+            reportProviderResult(providerName, false, undefined, err.message);
+            console.log(`❌ [AI] ${source} falló en ${elapsed}ms: ${err.message} - ${ts()}`);
           }
         }
         return { raw: "", usedProvider: "unknown" };
       };
 
-      // ── Fase 1: Cola inicial ──
+      // ── Helper: G4F como último respaldo ──
+      const tryG4FFallback = async (): Promise<string> => {
+        if (!G4F_ENABLED) return "";
+        console.log(`🆘 [G4F] Último respaldo — intentando G4F con 111+ proveedores - ${ts()}`);
+        const g4fResponse = await getG4FResponse(
+          chatMessages.map((m: any) => ({ role: m.role as "user" | "assistant" | "system", content: m.content })),
+          process.env.G4F_MODEL || "gpt-4-turbo"
+        );
+        if (g4fResponse?.content) {
+          console.log(`✅ [G4F] Respuesta obtenida: ${g4fResponse.content.length}chars - ${ts()}`);
+          return g4fResponse.content;
+        }
+        return "";
+      };
+
+      // ── Fase 1: Cola inicial con orden optimizado ──
       const rotationQueue: { config: any; source: string }[] = [];
 
-      if (isUserSelected) {
+      if (activeProvider === "g4f") {
+        console.log(`🎯 [AI] G4F seleccionado como proveedor principal - ${ts()}`);
+        // G4F se maneja por separado (no usa OpenAI client), se prueba primero
+      } else if (isUserSelected) {
         rotationQueue.push({ config: dbConfig, source: activeProvider });
         console.log(`🎯 [AI] Proveedor seleccionado: ${activeProvider} (exclusivo) - ${ts()}`);
       } else {
-        const opencodeEnv = getProviderConfig("opencode");
-        if (opencodeEnv) {
-          opencodeEnv.model = selectOpenCodeModel(brain.strategy, brain.emotionalState);
-          const modelName = opencodeEnv.model.replace("opencode/", "");
-          rotationQueue.push({ config: opencodeEnv, source: `opencode/${modelName}` });
+        const optimizedOrder = getOptimizedProviderOrder();
+        console.log(`🎯 [AI] Orden optimizado: [${optimizedOrder.join(", ")}] - ${ts()}`);
+
+        for (const prov of optimizedOrder) {
+          if (prov === "g4f") continue; // G4F va al final
+          if (prov === "opencode") {
+            const opencodeEnv = getProviderConfig("opencode");
+            if (opencodeEnv) {
+              opencodeEnv.model = selectOpenCodeModel(brain.strategy, brain.emotionalState);
+              const modelName = opencodeEnv.model.replace("opencode/", "");
+              rotationQueue.push({ config: opencodeEnv, source: `opencode/${modelName}` });
+            }
+          } else if (prov === "github_copilot_internal") {
+            const cfg = getProviderConfig(prov);
+            if (cfg && healthMonitor.isServiceHealthy("copilot_internal"))
+              rotationQueue.push({ config: cfg, source: "github_copilot_internal" });
+          } else if (prov === "ollama_local") {
+            const cfg = getProviderConfig(prov);
+            if (cfg && healthMonitor.isServiceHealthy("ollama_local"))
+              rotationQueue.push({ config: cfg, source: "ollama_local" });
+          } else if (prov === "nvidia") {
+            const cfg = getProviderConfig("nvidia");
+            if (cfg && healthMonitor.isServiceHealthy("nvidia_70b"))
+              rotationQueue.push({ config: cfg, source: "nvidia_70b" });
+          } else if (prov === "github") {
+            const cfg = getProviderConfig("github");
+            if (cfg && healthMonitor.isServiceHealthy("github_env"))
+              rotationQueue.push({ config: cfg, source: "github_env" });
+          }
         }
         if (dbConfig && activeProvider !== "opencode")
           rotationQueue.push({ config: dbConfig, source: activeProvider });
@@ -928,6 +997,16 @@ ${isPaymentIntent ? "• El cliente YA QUIERE COMPRAR. Responde confirmando de f
         }
       }
 
+      // ── Fase 3: G4F como último respaldo ──
+      if (!raw) {
+        console.log(`🔄 [G4F-FALLBACK] Todos los proveedores fallaron — usando G4F - ${ts()}`);
+        const g4fContent = await tryG4FFallback();
+        if (g4fContent) {
+          raw = g4fContent;
+          usedProvider = "g4f";
+        }
+      }
+
       if (!raw) throw new Error("Todos los proveedores fallaron");
 
       // ── Post-procesamiento ────────────────────────────────────────────────
@@ -935,24 +1014,21 @@ ${isPaymentIntent ? "• El cliente YA QUIERE COMPRAR. Responde confirmando de f
       // 1. Sanitizar: eliminar URLs y datos de pago si no es payment_intent
       raw = sanitizeResponse(raw, decision.intent);
 
-      // 2a. Payment/Confirmation: mantener respuesta natural de IA + card
-      // El system prompt ya le indica al AI que solo confirme brevemente
+      // 2a. Payment/Confirmation: FORZAR card con métodos de pago (requisito crítico)
       const isPaymentFlow = (decision.intent === "payment_intent" || decision.intent === "confirmation");
       if (isPaymentFlow && decision.shouldSendCard && decision.productToShow) {
         const hasCardMarker = raw.includes("[CARD:");
         raw = hasCardMarker ? raw : `${raw}\n\n[CARD: ${decision.productToShow.id}]`;
-        console.log(`🔧 [POST] Payment flow: respuesta IA preservada + card - ${ts()}`);
+        console.log(`🔧 [POST] Payment flow: card asegurada para ${decision.productToShow.id} - ${ts()}`);
       }
 
-      // 2b. Card: garantizar que la IA incluyó la card si el motor decidió mostrarla
-      if (decision.shouldSendCard && decision.productToShow && !raw.toLowerCase().includes("[card:")) {
-        console.log(`🔧 [POST] IA olvidó la card. Agregando [CARD: ${decision.productToShow.id}]`);
-        raw = raw.trim() + `\n\n[CARD: ${decision.productToShow.id}]`;
-      }
+      // 2b. Para intents NO payment: la IA decide autónomamente si incluir [CARD: ID] o no.
+      // El system prompt ya le indica que puede usar [CARD: ID] si es natural.
+      // No forzamos ni eliminamos cards — confiamos en el criterio de la IA.
 
-      // 3. Card: eliminar si el motor decidió NO mostrarla
-      if (!decision.shouldSendCard && raw.match(/\[CARD:\s*\d+\s*\]/i)) {
-        console.log(`🔧 [POST] Motor decidió no mostrar card. Eliminando.`);
+      // 3. Solo eliminar cards en intents donde claramente no corresponde (saludo, despedida, humano)
+      if ((decision.intent === "greeting" || decision.intent === "leaving" || decision.intent === "human_handoff") && raw.match(/\[CARD:\s*\d+\s*\]/i)) {
+        console.log(`🔧 [POST] Intent=${decision.intent} no requiere card. Eliminando.`);
         raw = raw.replace(/\[CARD:\s*\d+\s*\]/gi, "").trim();
       }
 
@@ -1020,11 +1096,8 @@ ${isPaymentIntent ? "• El cliente YA QUIERE COMPRAR. Responde confirmando de f
         parts.push({ kind: "text", content: textAfter });
       }
 
-      // Eliminar textos _beforeCard si hay cards
-      const finalParts = cardCount > 0
-        ? parts.filter((p: any) => !p._beforeCard)
-        : parts.map((p: any) => { delete p._beforeCard; return p; });
-      finalParts.forEach((p: any) => delete p._beforeCard);
+      // Limpiar flag interno _beforeCard
+      const finalParts = parts.map((p: any) => { delete p._beforeCard; return p; });
 
       console.log(`📋 [PARSER] partes:${finalParts.length} cards:${cardCount} - ${ts()}`);
 

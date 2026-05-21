@@ -211,6 +211,216 @@ const SUPPORT_PATTERNS = [
   "tutor", "profesor", "instructor", "acompañamiento"
 ];
 
+// ─── Sub-intenciones de pago (detectadas ANTES de payment_intent genérico) ───
+// Estas evitan que se re-envíe la card de pago cuando el cliente:
+//   1. Elige un método específico (Nequi, PayPal, etc.)
+//   2. Avisa que va a enviar comprobante / ya pagó
+//   3. Pregunta cómo / qué enviar para pagar
+
+// Pares [método_normalizado, patrones_que_lo_indican]
+const PAYMENT_METHOD_CHOICE_MAP: Array<{ method: string; patterns: string[] }> = [
+  {
+    method: "nequi",
+    patterns: [
+      "por nequi", "con nequi", "via nequi", "vía nequi",
+      "pagaré nequi", "pagare nequi", "pagaré por nequi", "pagare por nequi",
+      "voy con nequi", "prefiero nequi", "me voy por nequi",
+      "transfiero por nequi", "transferir por nequi",
+    ],
+  },
+  {
+    method: "daviplata",
+    patterns: [
+      "por daviplata", "con daviplata", "via daviplata", "vía daviplata",
+      "pagaré daviplata", "pagare daviplata", "pagaré por daviplata", "pagare por daviplata",
+      "voy con daviplata", "prefiero daviplata",
+    ],
+  },
+  {
+    method: "transferencia",
+    patterns: [
+      "por transferencia", "con transferencia", "via transferencia", "vía transferencia",
+      "transferencia bancaria", "transferencia directa",
+      "voy a transferir", "voy con transferencia",
+    ],
+  },
+  {
+    method: "paypal",
+    patterns: [
+      "por paypal", "con paypal", "via paypal", "vía paypal",
+      "pagaré paypal", "pagare paypal", "pagaré por paypal", "pagare por paypal",
+      "voy con paypal", "prefiero paypal",
+    ],
+  },
+  {
+    method: "tarjeta",
+    patterns: [
+      "por tarjeta", "con tarjeta", "con la tarjeta",
+      "tarjeta de crédito", "tarjeta de credito", "tarjeta de débito", "tarjeta de debito",
+      "voy con tarjeta", "prefiero tarjeta", "con pse", "por pse",
+      "crédito", "credito",
+    ],
+  },
+  {
+    method: "mercadopago",
+    patterns: [
+      "mercado pago", "mercadopago", "por mercado pago", "con mercado pago",
+      "voy con mercado pago", "prefiero mercado pago",
+    ],
+  },
+];
+
+const PAYMENT_PROOF_PATTERNS = [
+  "te envío el soporte", "te envio el soporte",
+  "te mando el soporte", "te paso el soporte",
+  "ya te envío", "ya te envio", "ya te mando", "ya te paso",
+  "te envío el comprobante", "te envio el comprobante",
+  "te mando el comprobante", "te paso el comprobante",
+  "te envío la captura", "te envio la captura", "te mando la captura", "te paso la captura",
+  "te envío el recibo", "te envio el recibo", "te paso el recibo",
+  "ya pagué", "ya pague", "ya transferí", "ya transferi",
+  "ya hice el pago", "realicé el pago", "realice el pago",
+  "acabo de pagar", "acabo de transferir",
+  "hice la transferencia", "hice el deposito", "hice el depósito",
+  "soporte de pago", "comprobante de pago", "captura del pago",
+  "pago realizado", "pago hecho", "pago completado", "pago efectuado",
+  "envío comprobante", "envio comprobante", "envío soporte", "envio soporte",
+];
+
+const PAYMENT_INSTRUCTION_PATTERNS = [
+  "qué te envío", "que te envio", "qué te mando", "que te mando",
+  "qué te paso", "que te paso", "qué te debo enviar", "que te debo enviar",
+  "qué te debo mandar", "que te debo mandar", "qué debo enviar", "que debo enviar",
+  "qué debo mandar", "que debo mandar", "qué te tengo que enviar", "que te tengo que enviar",
+  "qué tengo que enviar", "que tengo que enviar",
+  "cómo te pago", "como te pago", "cómo pago", "como pago",
+  "cómo hago el pago", "como hago el pago",
+  "a qué cuenta", "a que cuenta", "a qué número", "a que numero",
+  "número de cuenta", "numero de cuenta",
+  "datos para pagar", "datos del pago", "datos de pago",
+  "a quién le pago", "a quien le pago", "a nombre de quién", "a nombre de quien",
+];
+
+/**
+ * Detecta si el cliente está eligiendo un método de pago específico.
+ * Devuelve el método normalizado o null.
+ */
+export function detectChosenPaymentMethod(text: string): string | null {
+  const t = text.toLowerCase();
+  for (const { method, patterns } of PAYMENT_METHOD_CHOICE_MAP) {
+    if (patterns.some(p => t.includes(p))) return method;
+  }
+  return null;
+}
+
+/**
+ * Detecta si el cliente avisa que está enviando o ya envió el comprobante de pago.
+ */
+export function isPaymentProofIntent(text: string): boolean {
+  const t = text.toLowerCase();
+  return PAYMENT_PROOF_PATTERNS.some(p => t.includes(p));
+}
+
+/**
+ * Detecta si el cliente pregunta cómo / qué debe enviar para pagar.
+ */
+export function isPaymentInstructionIntent(text: string): boolean {
+  const t = text.toLowerCase();
+  return PAYMENT_INSTRUCTION_PATTERNS.some(p => t.includes(p));
+}
+
+// Datos del titular para respuestas hardcodeadas de pago
+// (normalmente vienen del agente; estos son fallback)
+const DEFAULT_TRANSFER_NUMBER = process.env.TRANSFER_NUMBER || "3136174267";
+const DEFAULT_TRANSFER_OWNER = process.env.TRANSFER_OWNER || "Deiner Mena";
+
+/**
+ * Genera una respuesta conversacional cuando el cliente:
+ *  - Elige un método de pago específico → instrucciones puntuales
+ *  - Anuncia que envía/envió comprobante → acuse de recibo
+ *  - Pregunta cómo pagar → flujo claro
+ *
+ * Devuelve null si ninguna sub-intención de pago coincide.
+ */
+export function tryPaymentSubIntentAnswer(
+  text: string,
+  customerName: string | null,
+  productName: string | null,
+  transferInfo?: { number?: string; owner?: string }
+): { matched: true; response: string; subIntent: "method_chosen" | "proof_sending" | "instructions"; chosenMethod?: string } | null {
+  const number = transferInfo?.number || DEFAULT_TRANSFER_NUMBER;
+  const owner = transferInfo?.owner || DEFAULT_TRANSFER_OWNER;
+  const name = (customerName && customerName !== "cliente") ? customerName.split(" ")[0] : null;
+  const greet = name ? `${name}` : "";
+  const prod = productName ? ` por *${productName}*` : "";
+
+  // 1) Cliente eligió un método específico
+  const chosenMethod = detectChosenPaymentMethod(text);
+  if (chosenMethod) {
+    let response = "";
+    switch (chosenMethod) {
+      case "nequi":
+      case "daviplata": {
+        const app = chosenMethod === "nequi" ? "Nequi" : "Daviplata";
+        response =
+          `¡Perfecto${greet ? `, ${greet}` : ""}! 🙌\n\n` +
+          `Transfiere a *${app}*:\n` +
+          `📱 *${number}*\n` +
+          `👤 A nombre de *${owner}*\n\n` +
+          `Cuando me envíes la captura del pago${prod}, verifico al instante y te paso el acceso. 📲`;
+        break;
+      }
+      case "transferencia": {
+        response =
+          `¡Listo${greet ? `, ${greet}` : ""}! 🙌\n\n` +
+          `Puedes transferir a *Nequi/Daviplata*:\n` +
+          `📱 *${number}*\n` +
+          `👤 A nombre de *${owner}*\n\n` +
+          `Apenas me envíes el comprobante, lo valido y te activo el acceso${prod}. ✅`;
+        break;
+      }
+      case "paypal": {
+        response =
+          `¡Genial${greet ? `, ${greet}` : ""}! 💳\n\n` +
+          `Usa el enlace de *PayPal* que te compartí en el mensaje anterior. ` +
+          `La confirmación es automática — apenas se procese el pago, te llega el acceso${prod}. ✨`;
+        break;
+      }
+      case "tarjeta":
+      case "mercadopago": {
+        response =
+          `¡Excelente${greet ? `, ${greet}` : ""}! 💳\n\n` +
+          `Usa el enlace de *Tarjeta / PSE* (Mercado Pago) que aparece arriba. ` +
+          `La confirmación es automática y recibes el acceso${prod} de inmediato. ⚡`;
+        break;
+      }
+    }
+    return { matched: true, response, subIntent: "method_chosen", chosenMethod };
+  }
+
+  // 2) Cliente avisa que envía / envió el comprobante
+  if (isPaymentProofIntent(text)) {
+    const variants = [
+      `¡Perfecto${greet ? `, ${greet}` : ""}! 🙌 Envíame la captura cuando puedas. La reviso al instante y te activo el acceso${prod}. 👀`,
+      `${greet ? `${greet}, ` : ""}quedó atenta 📲 Apenas reciba el comprobante, valido el pago y te paso el enlace de acceso${prod}.`,
+      `¡Genial! 🎉 Mándame la captura y la verifico enseguida. En cuanto confirme el pago${prod}, te llega el acceso. ✅`,
+    ];
+    const idx = (text.length + (name?.length || 0)) % variants.length;
+    return { matched: true, response: variants[idx], subIntent: "proof_sending" };
+  }
+
+  // 3) Cliente pregunta cómo / qué enviar
+  if (isPaymentInstructionIntent(text)) {
+    const response =
+      `Solo necesito la *captura del pago*${greet ? `, ${greet}` : ""} 📸\n\n` +
+      `Si pagas por *Nequi/Daviplata*, transfiere a *${number}* (a nombre de *${owner}*) y mándame el comprobante por aquí.\n\n` +
+      `Si usas *Tarjeta/PSE* o *PayPal*, la confirmación llega sola — no necesitas enviar nada. ✨`;
+    return { matched: true, response, subIntent: "instructions" };
+  }
+
+  return null;
+}
+
 export interface HardcodedAnswer {
   matched: boolean;
   response: string;
@@ -232,11 +442,22 @@ export function tryHardcodedAnswer(
   const guaranteeDays = voice?.guaranteeInfo?.days || 7;
   const accessType = voice?.accessInfo?.type || "de por vida";
 
+  // Helper: cierres conversacionales variados (a veces sin pregunta de cierre)
+  // Se rota según la longitud del texto entrante para no repetir siempre lo mismo.
+  const closingVariants = [
+    "",                                        // sin cierre (suena natural y no presiona)
+    `\n\n¿Te queda alguna duda?`,
+    `\n\n¿Hay algo más que quieras saber?`,
+    `\n\n¿Todo claro hasta aquí?`,
+    `\n\n¿Quieres saber algo más antes de continuar?`,
+  ];
+  const closing = closingVariants[text.length % closingVariants.length];
+
   if (DELIVERY_PATTERNS.some(p => t.includes(p))) {
     return {
       matched: true,
       intent: "details_query",
-      response: `${emoji("delivery", "📦")} La entrega de ${prod} es *100% por ${deliveryMethod}*.\n\nUna vez confirmado tu pago, recibes el enlace de ${deliveryMethod} directamente por este chat. ¡Acceso *${deliveryTime}*! ${emoji("benefit", "✅")}\n\n${emoji("question", "🤔")} ¿Tienes alguna otra pregunta?`,
+      response: `${emoji("delivery", "📦")} La entrega de ${prod} es *100% por ${deliveryMethod}*. Apenas se confirme tu pago, te llega el enlace de ${deliveryMethod} aquí mismo — acceso *${deliveryTime}* desde cualquier dispositivo. ${emoji("benefit", "✅")}${closing}`,
     };
   }
 
@@ -244,7 +465,7 @@ export function tryHardcodedAnswer(
     return {
       matched: true,
       intent: "details_query",
-      response: `${emoji("delivery", "🔗")} El acceso a ${prod} es por *${deliveryMethod}*.\n\nTe enviamos el enlace directo por este chat después del pago. Puedes verlo desde cualquier dispositivo, sin descargas obligatorias. ${emoji("benefit", "✅")}\n\n${emoji("question", "🤔")} ¿Algo más que quieras saber?`,
+      response: `${emoji("delivery", "🔗")} El acceso a ${prod} es por *${deliveryMethod}*. Te llega el enlace directo después del pago, lo abres desde el celular o computador, sin descargas obligatorias. ${emoji("benefit", "✅")}${closing}`,
     };
   }
 
@@ -252,7 +473,7 @@ export function tryHardcodedAnswer(
     return {
       matched: true,
       intent: "details_query",
-      response: `${emoji("guarantee", "🛡️")} Tienes *${guaranteeDays} días de garantía* sin preguntas.\n\nSi por cualquier razón no estás satisfecho, te devolvemos el dinero completo. Sin complicaciones. ${emoji("benefit", "✅")}\n\n${emoji("question", "🤔")} ¿Quieres proceder con la compra?`,
+      response: `${emoji("guarantee", "🛡️")} Tienes *${guaranteeDays} días de garantía* sin preguntas. Si no te convence por cualquier razón, te devolvemos el dinero completo. ${emoji("benefit", "✅")}${closing}`,
     };
   }
 
@@ -260,7 +481,7 @@ export function tryHardcodedAnswer(
     return {
       matched: true,
       intent: "details_query",
-      response: `${emoji("benefit", "♾️")} El acceso a ${prod} es *${accessType}*.\n\nNo caduca, no tiene mensualidad. Pagas una sola vez y el contenido es tuyo para siempre. ${emoji("benefit", "✅")}\n\n${emoji("question", "🤔")} ¿Tienes más preguntas?`,
+      response: `${emoji("benefit", "♾️")} El acceso a ${prod} es *${accessType}*. Pagas una sola vez y queda tuyo — sin mensualidades, sin caducidad. ${emoji("benefit", "✅")}${closing}`,
     };
   }
 
@@ -268,7 +489,7 @@ export function tryHardcodedAnswer(
     return {
       matched: true,
       intent: "details_query",
-      response: `${emoji("product", "📚")} ${prod} incluye todo el material en *${deliveryMethod}*:\n\n${emoji("benefit", "✅")} Videos en alta definición\n${emoji("benefit", "✅")} PDFs y recursos descargables\n${emoji("benefit", "✅")} Acceso *${accessType}*\n${emoji("benefit", "✅")} Pago único — sin suscripciones\n\n${emoji("question", "🤔")} ¿Quieres ver los detalles completos o proceder con la compra?`,
+      response: `${emoji("product", "📚")} ${prod} incluye todo el material por *${deliveryMethod}*:\n${emoji("benefit", "✅")} Videos en alta definición\n${emoji("benefit", "✅")} PDFs y recursos descargables\n${emoji("benefit", "✅")} Acceso *${accessType}*\n${emoji("benefit", "✅")} Pago único — sin suscripciones${closing}`,
     };
   }
 
@@ -276,7 +497,7 @@ export function tryHardcodedAnswer(
     return {
       matched: true,
       intent: "details_query",
-      response: `${emoji("benefit", "💬")} ${prod} es *auto-aprendizaje* a tu ritmo.\n\nTienes acceso a todo el contenido en ${deliveryMethod} cuando quieras. Para dudas adicionales puedes escribirnos aquí directamente. ${emoji("benefit", "✅")}\n\n${emoji("question", "🤔")} ¿Algo más?`,
+      response: `${emoji("benefit", "💬")} ${prod} es de *auto-aprendizaje* a tu ritmo, con todo el material disponible en ${deliveryMethod} cuando quieras. Si surge alguna duda, me escribes por aquí mismo y te ayudo. ${emoji("benefit", "✅")}${closing}`,
     };
   }
 
@@ -372,7 +593,21 @@ export function detectIntent(text: string): Intent {
   if (isGreeting) return "greeting";
 
   // Intención de pago (alta prioridad)
-  if (PAYMENT_PATTERNS.some(p => t.includes(p))) return "payment_intent";
+  // Pero si el mensaje contiene palabras de pago combinadas con consulta post-pago
+  // (ej: "Después de pagar que me entregas?"), NO es payment_intent sino details_query
+  const hasPayment = PAYMENT_PATTERNS.some(p => t.includes(p));
+  if (hasPayment) {
+    const afterPayment = ["después de pagar", "despues de pagar", "luego de pagar", "cuando pague", "cuando paga",
+      "después del pago", "despues del pago", "luego del pago"];
+    const isPostPaymentQuestion = afterPayment.some(p => t.includes(p));
+    const alsoHasDeliveryDetails = (["entrega", "entregan", "recibir", "acceso", "garantía", "garantia",
+      "incluye", "trae", "qué me", "que me", "me entregan"].some(d => t.includes(d)));
+    if (isPostPaymentQuestion || (alsoHasDeliveryDetails && t.length > 30)) {
+      // El cliente pregunta sobre qué pasa después del pago, no cómo pagar
+      return "details_query";
+    }
+    return "payment_intent";
+  }
 
   // Objeción
   if (OBJECTION_PATTERNS.some(p => t.includes(p))) return "objection";
@@ -1014,31 +1249,31 @@ function buildContextBlock(
 
     case "payment_intent":
       if (product) {
-        lines.push(`• El cliente QUIERE COMPRAR "${product.name}".`);
-        lines.push(`• Confirma con entusiasmo (1 línea). No describas el producto — la tarjeta con enlaces se envía automáticamente abajo.`);
-        lines.push(`• NO inventes ni reescribas la descripción del producto ni sus características.`);
-        lines.push(`• NO escribas URLs ni números de cuenta — el sistema los adjunta en la tarjeta.`);
-        lines.push(`• Sé MUY breve: máximo 2 líneas + emoji.`);
+        lines.push(`• El cliente QUIERE COMPRAR "${product.name}". Confirma con entusiasmo.`);
+        lines.push(`• Responde de forma natural y cálida. NO te alargues — 2-3 líneas máximo.`);
+        lines.push(`• No describas el producto otra vez; la tarjeta con métodos de pago se envía automáticamente abajo.`);
+        lines.push(`• NO escribas URLs, links ni números de cuenta.`);
+        lines.push(`• Sé breve pero humano. Ej: "¡Excelente elección! 💪 Te dejo aquí los datos para el pago"`);
       } else {
         lines.push(`• El cliente quiere pagar pero no hay producto identificado.`);
-        lines.push(`• Pregúntale qué producto quiere adquirir.`);
+        lines.push(`• Pregúntale qué producto quiere adquirir de forma amable.`);
       }
       break;
 
     case "objection":
-      lines.push(`• El cliente tiene una objeción. Valida su preocupación con empatía.`);
-      lines.push(`• NO presiones. Escucha, entiende y ofrece una solución específica.`);
+      lines.push(`• El cliente tiene una objeción. Valida su preocupación con empatía genuina.`);
+      lines.push(`• NO presiones. Escucha, entiende y ofrece soluciones.`);
       lines.push(`• Si es precio: recuerda el valor, la garantía de 7 días y el acceso de por vida.`);
-      lines.push(`• Si es desconfianza: menciona la garantía y que es pago único.`);
+      lines.push(`• Si es desconfianza: menciona la garantía y que es pago único sin letra chica.`);
       break;
 
     case "confirmation":
       if (product) {
-        lines.push(`• El cliente CONFIRMA que quiere comprar "${product.name}".`);
-        lines.push(`• Confirma con entusiasmo (1 línea). No describas el producto — la tarjeta con enlaces se envía automáticamente.`);
-        lines.push(`• NO inventes ni reescribas descripción, características ni beneficios del producto.`);
-        lines.push(`• NO escribas URLs ni números de cuenta — el sistema los adjunta en la tarjeta.`);
-        lines.push(`• Sé MUY breve: máximo 2 líneas + emoji.`);
+        lines.push(`• El cliente CONFIRMA que quiere comprar "${product.name}". ¡Genial!`);
+        lines.push(`• Responde con entusiasmo genuino y brevedad (2-3 líneas máximo).`);
+        lines.push(`• La tarjeta de pago con todos los métodos se envía automáticamente abajo.`);
+        lines.push(`• NO inventes ni reescribas descripción del producto.`);
+        lines.push(`• NO escribas URLs, links ni números de cuenta.`);
       }
       break;
 

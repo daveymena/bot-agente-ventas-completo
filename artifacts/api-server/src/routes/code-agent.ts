@@ -1,10 +1,17 @@
 import { Router } from "express";
-import { createAIClient, getProviderConfig, getProviderConfigFromSettings } from "@workspace/integrations-openai-ai-server";
-import { db, agents, settings } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import { createAIClient, getProviderConfig, getProviderConfigFromSettings, type AIProviderConfig } from "@workspace/integrations-openai-ai-server";
+import { db, agents, settings, products, productCategories, conversations, messages } from "@workspace/db";
+import { eq, and, desc } from "drizzle-orm";
 import { logger } from "../lib/logger";
 import type { TenantRequest } from "../lib/tenantManager";
 import { getCopilotSessionToken } from "../lib/copilot";
+import {
+  getOptimizedProviderOrder,
+  reportProviderResult,
+  getProviderTimeout,
+} from "../lib/optimized-rotation";
+import { getG4FResponse } from "../lib/providers/g4f-provider";
+import { G4F_ENABLED } from "../config/g4f.config";
 
 const router = Router();
 
@@ -384,18 +391,75 @@ Actúa con la autoridad de una Ingeniera Senior de Software y Directora de Venta
 ¡Diseña agentes que VENDAN y CONVIERTAN basándote en DATOS REALES!
 `;
 
-    const response = await client.chat.completions.create({
-      model: aiConfig.model,
-      messages: [
-        { role: "system", content: systemPrompt },
-        ...history,
-        { role: "user", content: `Mensaje del usuario: "${prompt}"\n\nRECORDATORIO CRÍTICO: Eres la Arquitecta experta (una consultora de IA). NO eres el bot de ventas. TU OBJETIVO: Conversar con el usuario, entender sus necesidades y hacer preguntas si falta información. Usa el campo "reply" del JSON para charlar con el usuario. Si tienes suficiente información, genera la "config". RESPONDE SIEMPRE EN FORMATO JSON ESTRICTO.` }
-      ],
-      temperature: 0.7,
-      response_format: { type: "json_object" }
-    });
+    // ── Helper para llamar IA con un provider ──
+    const tryArchitectWithProvider = async (config: AIProviderConfig, providerName: string): Promise<string | null> => {
+      const startTime = Date.now();
+      try {
+        const c = createAIClient(config);
+        const resp = await c.chat.completions.create({
+          model: config.model,
+          messages: [
+            { role: "system", content: systemPrompt },
+            ...history,
+            { role: "user", content: `Mensaje del usuario: "${prompt}"\n\nRECORDATORIO CRÍTICO: Eres la Arquitecta experta (una consultora de IA). NO eres el bot de ventas. TU OBJETIVO: Conversar con el usuario, entender sus necesidades y hacer preguntas si falta información. Usa el campo "reply" del JSON para charlar con el usuario. Si tienes suficiente información, genera la "config". RESPONDE SIEMPRE EN FORMATO JSON ESTRICTO.` }
+          ],
+          temperature: 0.7,
+          response_format: { type: "json_object" }
+        });
+        const content = resp.choices[0]?.message?.content;
+        if (content) {
+          reportProviderResult(providerName, true, Date.now() - startTime);
+          return content;
+        }
+        throw new Error("Empty response");
+      } catch (e: any) {
+        reportProviderResult(providerName, false, undefined, e.message);
+        logger.warn({ provider: providerName, error: e.message }, "[Architect] Provider failed");
+        return null;
+      }
+    };
 
-    let rawContent = response.choices[0]?.message?.content || "{}";
+    // ── Fase 1: Proveedor seleccionado ──
+    let rawContent = await tryArchitectWithProvider(aiConfig, dbSettings?.aiProvider || "opencode");
+
+    // ── Fase 2: Rotación inteligente ──
+    if (!rawContent) {
+      const providerOrder = getOptimizedProviderOrder();
+      logger.info({ order: providerOrder }, "[Architect] Selected provider failed, trying rotation");
+
+      for (const prov of providerOrder) {
+        if (prov === "g4f") continue;
+        if (prov === dbSettings?.aiProvider) continue; // ya lo intentamos
+        let config: AIProviderConfig | null = null;
+        if (prov === "opencode") config = getProviderConfig("opencode");
+        else if (prov === "nvidia") config = getProviderConfig("nvidia");
+        else if (prov === "github") config = getProviderConfig("github");
+        else if (prov === "github_copilot_internal") config = getProviderConfig("github_copilot_internal");
+        else if (prov === "ollama_local") config = getProviderConfig("ollama_local");
+        else config = getProviderConfig(prov);
+
+        if (!config) continue;
+
+        rawContent = await tryArchitectWithProvider(config, prov);
+        if (rawContent) break;
+      }
+    }
+
+    // ── Fase 3: G4F como último respaldo ──
+    if (!rawContent && G4F_ENABLED) {
+      logger.info("[Architect] All providers failed, trying G4F fallback");
+      const g4fResp = await getG4FResponse([
+        { role: "system", content: systemPrompt },
+        ...history.map((m: any) => ({ role: m.role as "user" | "assistant" | "system", content: m.content })),
+        { role: "user", content: `Mensaje del usuario: "${prompt}"\n\nRECORDATORIO CRÍTICO: Eres la Arquitecta experta (una consultora de IA). NO eres el bot de ventas. TU OBJETIVO: Conversar con el usuario, entender sus necesidades y hacer preguntas si falta información. Usa el campo "reply" del JSON para charlar con el usuario. Si tienes suficiente información, genera la "config". RESPONDE SIEMPRE EN FORMATO JSON ESTRICTO.` }
+      ], process.env.G4F_MODEL || "gpt-4-turbo");
+      if (g4fResp?.content) rawContent = g4fResp.content;
+    }
+
+    if (!rawContent) {
+      return res.status(500).json({ error: "All AI providers failed. No response from Architect." });
+    }
+
     rawContent = rawContent.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
     const result = JSON.parse(rawContent);
 
@@ -642,18 +706,69 @@ Responde SIEMPRE en JSON con esta estructura:
 ¡Diseña agentes que VENDAN y se VEA PROFESIONAL!
 `;
 
-    const response = await client.chat.completions.create({
-      model: aiConfig.model,
-      messages: [
-        { role: "system", content: systemPrompt },
-        ...history,
-        { role: "user", content: `Mensaje del usuario: "${prompt}"\n\nRECORDATORIO CRÍTICO: Eres la Arquitecta Visual (una consultora experta). NO eres el bot de ventas. TU OBJETIVO: Conversar con el usuario para entender qué bot necesita crear. Usa el campo "reply" del JSON para responderle, hacerle preguntas y asesorarlo. Cuando tengas información suficiente o propongas algo, llena también los campos de preview y configuración. RESPONDE SIEMPRE EN FORMATO JSON ESTRICTO.` }
-      ],
-      temperature: 0.8,
-      response_format: { type: "json_object" }
-    });
+    // ── Helper para llamar IA con un provider ──
+    const tryVisualWithProvider = async (config: AIProviderConfig, providerName: string): Promise<string | null> => {
+      const startTime = Date.now();
+      try {
+        const c = createAIClient(config);
+        const resp = await c.chat.completions.create({
+          model: config.model,
+          messages: [
+            { role: "system", content: systemPrompt },
+            ...history,
+            { role: "user", content: `Mensaje del usuario: "${prompt}"\n\nRECORDATORIO CRÍTICO: Eres la Arquitecta Visual (una consultora experta). NO eres el bot de ventas. TU OBJETIVO: Conversar con el usuario para entender qué bot necesita crear. Usa el campo "reply" del JSON para responderle, hacerle preguntas y asesorarlo. Cuando tengas información suficiente o propongas algo, llena también los campos de preview y configuración. RESPONDE SIEMPRE EN FORMATO JSON ESTRICTO.` }
+          ],
+          temperature: 0.8,
+          response_format: { type: "json_object" }
+        });
+        const content = resp.choices[0]?.message?.content;
+        if (content) {
+          reportProviderResult(providerName, true, Date.now() - startTime);
+          return content;
+        }
+        throw new Error("Empty response");
+      } catch (e: any) {
+        reportProviderResult(providerName, false, undefined, e.message);
+        return null;
+      }
+    };
 
-    let rawContent = response.choices[0]?.message?.content || "{}";
+    // ── Fase 1: Proveedor seleccionado ──
+    let rawContent = await tryVisualWithProvider(aiConfig, dbSettings?.aiProvider || "opencode");
+
+    // ── Fase 2: Rotación inteligente ──
+    if (!rawContent) {
+      const providerOrder = getOptimizedProviderOrder();
+      for (const prov of providerOrder) {
+        if (prov === "g4f") continue;
+        if (prov === dbSettings?.aiProvider) continue;
+        let config: AIProviderConfig | null = null;
+        if (prov === "opencode") config = getProviderConfig("opencode");
+        else if (prov === "nvidia") config = getProviderConfig("nvidia");
+        else if (prov === "github") config = getProviderConfig("github");
+        else if (prov === "github_copilot_internal") config = getProviderConfig("github_copilot_internal");
+        else if (prov === "ollama_local") config = getProviderConfig("ollama_local");
+        else config = getProviderConfig(prov);
+        if (!config) continue;
+        rawContent = await tryVisualWithProvider(config, prov);
+        if (rawContent) break;
+      }
+    }
+
+    // ── Fase 3: G4F como último respaldo ──
+    if (!rawContent && G4F_ENABLED) {
+      const g4fResp = await getG4FResponse([
+        { role: "system", content: systemPrompt },
+        ...history.map((m: any) => ({ role: m.role as "user" | "assistant" | "system", content: m.content })),
+        { role: "user", content: `Mensaje del usuario: "${prompt}"\n\nRECORDATORIO CRÍTICO: Eres la Arquitecta Visual (una consultora experta). NO eres el bot de ventas. TU OBJETIVO: Conversar con el usuario para entender qué bot necesita crear. Usa el campo "reply" del JSON para responderle, hacerle preguntas y asesorarlo. Cuando tengas información suficiente o propongas algo, llena también los campos de preview y configuración. RESPONDE SIEMPRE EN FORMATO JSON ESTRICTO.` }
+      ], process.env.G4F_MODEL || "gpt-4-turbo");
+      if (g4fResp?.content) rawContent = g4fResp.content;
+    }
+
+    if (!rawContent) {
+      return res.status(500).json({ error: "All AI providers failed for Visual Architect." });
+    }
+
     rawContent = rawContent.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
     const result = JSON.parse(rawContent);
 

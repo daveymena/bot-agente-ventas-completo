@@ -32,6 +32,7 @@ function resolveOpenCodeConfig(modelOverride?: string): AIProviderConfig | null 
 
 export function getProviderConfig(provider: string): AIProviderConfig | null {
   switch (provider) {
+    // ─── PROVEEDORES EXISTENTES ───────────────────────────────────────────────
     case "opencode":
       return resolveOpenCodeConfig();
     case "github_copilot_internal":
@@ -86,7 +87,6 @@ export function getProviderConfig(provider: string): AIProviderConfig | null {
         model: process.env.OLLAMA_LOCAL_MODEL || "hermes3:8b",
       };
     case "bridge_local":
-      // Puente local (LMArenaBridge / G4F) corriendo en localhost
       if (!process.env.BRIDGE_LOCAL_URL) return null;
       return {
         baseUrl: process.env.BRIDGE_LOCAL_URL,
@@ -94,12 +94,10 @@ export function getProviderConfig(provider: string): AIProviderConfig | null {
         model: process.env.BRIDGE_LOCAL_MODEL || "gpt-4o-mini",
       };
     case "github_haiku":
-      // Claude Haiku 4.5 via GitHub Models — GRATUITO y desbloqueado
-      const ghHaikuToken = process.env.GITHUB_TOKEN;
-      if (!ghHaikuToken) return null;
+      if (!process.env.GITHUB_TOKEN) return null;
       return {
         baseUrl: "https://models.inference.ai.azure.com",
-        apiKey: ghHaikuToken,
+        apiKey: process.env.GITHUB_TOKEN,
         model: "claude-haiku-4-5",
       };
     case "openai_default":
@@ -109,6 +107,292 @@ export function getProviderConfig(provider: string): AIProviderConfig | null {
         apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
         model: "gpt-4o",
       };
+
+    // ─── FREE PROVIDERS (cheahjs/free-llm-api-resources) ──────────────────────
+    // 🔗 https://github.com/cheahjs/free-llm-api-resources
+
+    // ── OpenRouter ── 20 req/min · 50 req/día · +1000 con $10 top-up
+    case "openrouter":
+      if (!process.env.OPENROUTER_API_KEY) return null;
+      return {
+        baseUrl: "https://openrouter.ai/api/v1",
+        apiKey: process.env.OPENROUTER_API_KEY,
+        model: process.env.OPENROUTER_MODEL || "meta-llama/llama-3.3-70b-instruct:free",
+        defaultHeaders: { "HTTP-Referer": process.env.APP_URL || "https://localhost" },
+      };
+
+    // ── Google AI Studio ── 500 req/día · 250k tokens/min
+    case "google_ai_studio":
+      if (!process.env.GOOGLE_API_KEY) return null;
+      return {
+        baseUrl: "https://generativelanguage.googleapis.com/v1beta",
+        apiKey: process.env.GOOGLE_API_KEY,
+        model: process.env.GOOGLE_MODEL || "gemini-2.5-flash",
+      };
+
+    // ── NVIDIA NIM ── 40 req/min · requiere verificación de teléfono
+    case "nvidia_nim":
+      if (!process.env.NVIDIA_API_KEY) return null;
+      return {
+        baseUrl: "https://integrate.api.nvidia.com/v1",
+        apiKey: process.env.NVIDIA_API_KEY,
+        model: process.env.NVIDIA_NIM_MODEL || "meta/llama-3.1-70b-instruct",
+      };
+
+    // ── Mistral (La Plateforme) ── 1M tokens/mes · requiere verificación tel
+    case "mistral":
+      if (!process.env.MISTRAL_API_KEY) return null;
+      return {
+        baseUrl: "https://api.mistral.ai/v1",
+        apiKey: process.env.MISTRAL_API_KEY,
+        model: process.env.MISTRAL_MODEL || "mistral-small-latest",
+      };
+
+    // ── Mistral Codestral ── 2,000 req/día · 30 req/min
+    case "mistral_codestral":
+      if (!process.env.MISTRAL_API_KEY) return null;
+      return {
+        baseUrl: "https://codestral.mistral.ai/v1",
+        apiKey: process.env.MISTRAL_API_KEY,
+        model: "codestral-latest",
+      };
+
+    // ── HuggingFace Inference ── $0.10/mes créditos
+    case "huggingface":
+      if (!process.env.HUGGINGFACE_API_KEY) return null;
+      return {
+        baseUrl: `https://api-inference.huggingface.co/v1`,
+        apiKey: process.env.HUGGINGFACE_API_KEY,
+        model: process.env.HUGGINGFACE_MODEL || "meta-llama/Llama-3.3-70B-Instruct",
+      };
+
+    // ── Vercel AI Gateway ── $5/mes
+    case "vercel_ai":
+      if (!process.env.VERCEL_AI_GATEWAY_TOKEN) return null;
+      return {
+        baseUrl: "https://ai-gateway.vercel.sh/api/v1",
+        apiKey: process.env.VERCEL_AI_GATEWAY_TOKEN,
+        model: process.env.VERCEL_AI_MODEL || "openai/gpt-4o-mini",
+      };
+
+    // ── OpenCode Zen ── free tier
+    case "opencode_zen":
+      if (!process.env.OPENCODE_ZEN_API_KEY) return null;
+      return {
+        baseUrl: "https://opencode.ai/zen/v1",
+        apiKey: process.env.OPENCODE_ZEN_API_KEY,
+        model: process.env.OPENCODE_ZEN_MODEL || "deepseek-v4-flash-free",
+      };
+
+    // ── Cerebras ── 1M tokens/día
+    case "cerebras":
+      if (!process.env.CEREBRAS_API_KEY) return null;
+      return {
+        baseUrl: "https://api.cerebras.ai/v1",
+        apiKey: process.env.CEREBRAS_API_KEY,
+        model: process.env.CEREBRAS_MODEL || "llama-3.1-8b-instruct",
+      };
+
+    // ── Groq ── LPU ultra-rápido · 1,000–14,400 req/día
+    case "groq":
+      if (!process.env.GROQ_API_KEY) return null;
+      return {
+        baseUrl: "https://api.groq.com/openai/v1",
+        apiKey: process.env.GROQ_API_KEY,
+        model: process.env.GROQ_MODEL || "llama-3.3-70b-versatile",
+      };
+
+    // ── Cohere ── 1,000 req/mes
+    case "cohere":
+      if (!process.env.COHERE_API_KEY) return null;
+      return {
+        baseUrl: "https://api.cohere.ai/v2",
+        apiKey: process.env.COHERE_API_KEY,
+        model: process.env.COHERE_MODEL || "command-a-03-2025",
+      };
+
+    // ── Cloudflare Workers AI ── 10,000 neuronas/día
+    case "cloudflare_workers":
+      if (!process.env.CLOUDFLARE_ACCOUNT_ID || !process.env.CLOUDFLARE_API_TOKEN) return null;
+      return {
+        baseUrl: `https://api.cloudflare.com/client/v4/accounts/${process.env.CLOUDFLARE_ACCOUNT_ID}/ai/run`,
+        apiKey: process.env.CLOUDFLARE_API_TOKEN,
+        model: process.env.CLOUDFLARE_MODEL || "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+        defaultHeaders: { "Accept-Encoding": "gzip, deflate" },
+      };
+
+    // ── GitHub Models ── según suscripción Copilot
+    case "github_models":
+      if (!process.env.GITHUB_TOKEN) return null;
+      return {
+        baseUrl: "https://models.inference.ai.azure.com",
+        apiKey: process.env.GITHUB_TOKEN,
+        model: process.env.GITHUB_MODEL || "meta-llama/llama-3.3-70b-instruct",
+      };
+
+    // ─── TRIAL CREDITS ────────────────────────────────────────────────────────
+
+    // ── Fireworks ── $1 crédito
+    case "fireworks":
+      if (!process.env.FIREWORKS_API_KEY) return null;
+      return {
+        baseUrl: "https://api.fireworks.ai/inference/v1",
+        apiKey: process.env.FIREWORKS_API_KEY,
+        model: process.env.FIREWORKS_MODEL || "accounts/fireworks/models/llama-v3p1-70b-instruct",
+      };
+
+    // ── Baseten ── $30 crédito
+    case "baseten":
+      if (!process.env.BASETEN_API_KEY) return null;
+      return {
+        baseUrl: process.env.BASETEN_BASE_URL || "https://api.baseten.co",
+        apiKey: process.env.BASETEN_API_KEY,
+        model: process.env.BASETEN_MODEL || "model-qKN1DlpX",
+        defaultHeaders: { "X-Agent-Title": "Agent-Sales-Bot" },
+      };
+
+    // ── AI21 ── $10 / 3 meses
+    case "ai21":
+      if (!process.env.AI21_API_KEY) return null;
+      return {
+        baseUrl: "https://api.ai21.com/studio/v1",
+        apiKey: process.env.AI21_API_KEY,
+        model: process.env.AI21_MODEL || "jamba-1.5-large",
+      };
+
+    // ── Upstage ── $10 / 3 meses
+    case "upstage":
+      if (!process.env.UPSTAGE_API_KEY) return null;
+      return {
+        baseUrl: "https://api.upstage.ai/v1/solar",
+        apiKey: process.env.UPSTAGE_API_KEY,
+        model: process.env.UPSTAGE_MODEL || "solar-pro2",
+      };
+
+    // ── Novita ── $0.50 / 1 año
+    case "novita":
+      if (!process.env.NOVITA_API_KEY) return null;
+      return {
+        baseUrl: "https://api.novita.ai/v3",
+        apiKey: process.env.NOVITA_API_KEY,
+        model: process.env.NOVITA_MODEL || "meta-llama/llama-3.1-70b-instruct",
+      };
+
+    // ── Nebius ── $1 crédito
+    case "nebius":
+      if (!process.env.NEBIUS_API_KEY) return null;
+      return {
+        baseUrl: "https://api.studio.nebius.com/v1",
+        apiKey: process.env.NEBIUS_API_KEY,
+        model: process.env.NEBIUS_MODEL || "meta-llama/llama-3.3-70b-instruct",
+      };
+
+    // ── Alibaba Cloud ── 1M tokens/modelo
+    case "alibaba":
+      if (!process.env.ALIBABA_API_KEY) return null;
+      return {
+        baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        apiKey: process.env.ALIBABA_API_KEY,
+        model: process.env.ALIBABA_MODEL || "qwen-plus",
+      };
+
+    // ── Hyperbolic ── $1 crédito
+    case "hyperbolic":
+      if (!process.env.HYPERBOLIC_API_KEY) return null;
+      return {
+        baseUrl: "https://api.hyperbolic.xyz/v1",
+        apiKey: process.env.HYPERBOLIC_API_KEY,
+        model: process.env.HYPERBOLIC_MODEL || "meta-llama/Llama-3.3-70B-Instruct",
+      };
+
+    // ── SambaNova Cloud ── $5 / 3 meses
+    case "sambanova":
+      if (!process.env.SAMBANOVA_API_KEY) return null;
+      return {
+        baseUrl: "https://api.sambanova.ai/v1",
+        apiKey: process.env.SAMBANOVA_API_KEY,
+        model: process.env.SAMBANOVA_MODEL || "Meta-Llama-3.3-70B-Instruct",
+      };
+
+    // ── NLP Cloud ── $15 crédito
+    case "nlp_cloud":
+      if (!process.env.NLP_CLOUD_API_KEY) return null;
+      return {
+        baseUrl: "https://api.nlpcloud.io/v1/gpu/",
+        apiKey: process.env.NLP_CLOUD_API_KEY,
+        model: process.env.NLP_CLOUD_MODEL || "meta-llama-3.1-70b-instruct",
+      };
+
+    // ── Modal ── $5/mes (+$30 con método de pago)
+    case "modal":
+      if (!process.env.MODAL_TOKEN_ID || !process.env.MODAL_TOKEN_SECRET) return null;
+      const modalKey = `${process.env.MODAL_TOKEN_ID}:${process.env.MODAL_TOKEN_SECRET}`;
+      return {
+        baseUrl: process.env.MODAL_BASE_URL || "https://api.modal.com/v1",
+        apiKey: modalKey,
+        model: process.env.MODAL_MODEL || "meta-llama/Llama-3.3-70B-Instruct",
+      };
+
+    // ── Inference.net ── $1 (+$25 por encuesta)
+    case "inference_net":
+      if (!process.env.INFERENCE_NET_API_KEY) return null;
+      return {
+        baseUrl: "https://api.inference.net/v1",
+        apiKey: process.env.INFERENCE_NET_API_KEY,
+        model: process.env.INFERENCE_NET_MODEL || "llama-3.3-70b-instruct",
+      };
+
+    // ── Scaleway Generative APIs ── 1M tokens gratis
+    case "scaleway":
+      if (!process.env.SCALEWAY_API_KEY) return null;
+      return {
+        baseUrl: "https://api.scaleway.com/generative-api/v1",
+        apiKey: process.env.SCALEWAY_API_KEY,
+        model: process.env.SCALEWAY_MODEL || "llama-3.3-70b-instruct",
+      };
+
+    // ─── ADDITIONAL FREE PROVIDERS ────────────────────────────────────────────
+
+    // ── DeepSeek (open source) ──
+    case "deepseek":
+      if (!process.env.DEEPSEEK_API_KEY) return null;
+      return {
+        baseUrl: "https://api.deepseek.com/v1",
+        apiKey: process.env.DEEPSEEK_API_KEY,
+        model: process.env.DEEPSEEK_MODEL || "deepseek-chat",
+      };
+
+    // ── Together AI ── $5 gratis al registro
+    case "together":
+      if (!process.env.TOGETHER_API_KEY) return null;
+      return {
+        baseUrl: "https://api.together.xyz/v1",
+        apiKey: process.env.TOGETHER_API_KEY,
+        model: process.env.TOGETHER_MODEL || "meta-llama/Llama-3.3-70B-Instruct-Turbo",
+      };
+
+    // ── Perplexity ── $5 gratis al registro
+    case "perplexity":
+      if (!process.env.PERPLEXITY_API_KEY) return null;
+      return {
+        baseUrl: "https://api.perplexity.ai",
+        apiKey: process.env.PERPLEXITY_API_KEY,
+        model: process.env.PERPLEXITY_MODEL || "sonar-pro",
+      };
+
+    // ── OpenPipe ── free tier
+    case "openpipe":
+      if (!process.env.OPENPIPE_API_KEY) return null;
+      return {
+        baseUrl: "https://api.openpipe.ai/v1",
+        apiKey: process.env.OPENPIPE_API_KEY,
+        model: process.env.OPENPIPE_MODEL || "openai/gpt-4o-mini",
+      };
+
+    // ── G4F (gpt4free) ── 111+ proveedores gratuitos, manejado internamente
+    case "g4f":
+      return { baseUrl: "__g4f__", apiKey: "__g4f__", model: "__g4f__" };
+
     default:
       return null;
   }
@@ -177,7 +461,20 @@ export function getProviderConfigFromSettings(settings: {
     };
   }
 
-  // Proveedor desconocido o no soportado
+  if (provider === "openai_default") {
+    if (!process.env.AI_INTEGRATIONS_OPENAI_BASE_URL || !process.env.AI_INTEGRATIONS_OPENAI_API_KEY) return null;
+    return {
+      baseUrl: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
+      apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
+      model: settings.githubModel || "gpt-4o",
+    };
+  }
+
+  // Fallback: intentar con getProviderConfig (soporta 30+ proveedores via env vars)
+  const genericConfig = getProviderConfig(provider);
+  if (genericConfig) return genericConfig;
+
+  // Proveedor no soportado
   return null;
 }
 

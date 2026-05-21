@@ -33,7 +33,7 @@ export default function Settings() {
     autoReplyEnabled: false,
     offHoursMessage: "",
     escalationKeywords: [] as string[],
-    aiProvider: "github" as "github" | "github_copilot_internal" | "ollama_local" | "openai_default" | "nvidia",
+    aiProvider: "github" as "github" | "github_copilot_internal" | "ollama_local" | "openai_default" | "nvidia" | "g4f" | "opencode",
     githubToken: "",
     githubModel: "gpt-4o-mini",
     copilotSessionToken: "",
@@ -361,6 +361,7 @@ export default function Settings() {
                       <option value="nvidia">NVIDIA NIM (High Performance)</option>
                       <option value="ollama_local">Ollama (Local)</option>
                       <option value="openai_default">OpenAI Direct</option>
+                      <option value="g4f">G4F (111+ Proveedores Gratis)</option>
                     </select>
                   </div>
 
@@ -416,6 +417,15 @@ export default function Settings() {
                             <div className={`h-2 w-2 rounded-full ${hasUrl ? 'bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.5)]' : 'bg-red-500'}`} />
                             <span className="text-[10px] font-bold uppercase tracking-wider">
                               {hasUrl ? 'Configurado para Ollama Local' : 'Falta URL de Ollama'}
+                            </span>
+                          </>
+                        );
+                      } else if (formData.aiProvider === "g4f") {
+                        return (
+                          <>
+                            <div className="h-2 w-2 rounded-full bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.5)]" />
+                            <span className="text-[10px] font-bold uppercase tracking-wider">
+                              G4F (111+ Proveedores Gratis - Auto Fallover)
                             </span>
                           </>
                         );
@@ -667,6 +677,27 @@ export default function Settings() {
                           placeholder="llama3.1"
                           className="bg-muted/30 font-mono"
                         />
+                      </div>
+                    </div>
+                  )}
+
+                  {formData.aiProvider === "g4f" && (
+                    <div className="space-y-4 animate-in fade-in slide-in-from-left-4">
+                      <div className="p-5 rounded-2xl border border-primary/20 bg-primary/5 space-y-3">
+                        <div className="flex items-center gap-3">
+                          <div className="p-2 bg-primary/20 rounded-lg text-primary">
+                            <Sparkles className="h-5 w-5" />
+                          </div>
+                          <div>
+                            <h4 className="text-sm font-bold">G4F (111+ Proveedores Gratis)</h4>
+                            <p className="text-[10px] text-muted-foreground uppercase font-semibold">Rotación automática entre más de 111 proveedores gratuitos.</p>
+                          </div>
+                        </div>
+                        <p className="text-xs text-muted-foreground leading-relaxed pt-2">
+                          G4F usa rotación inteligente entre más de 111 proveedores gratuitos.{" "}
+                          No necesita API keys — funciona con su propio pool de proveedores públicos.{" "}
+                          Configura <code className="text-primary">G4F_ENABLED=true</code> en las variables de entorno.
+                        </p>
                       </div>
                     </div>
                   )}

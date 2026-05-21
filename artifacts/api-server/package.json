@@ -14,16 +14,17 @@
     "reset:conversations": "tsx scripts/reset-conversations.ts"
   },
   "dependencies": {
-    "axios": "^1.7.0",
     "@types/node": "catalog:",
     "@whiskeysockets/baileys": "7.0.0-rc.9",
     "@workspace/api-zod": "workspace:*",
     "@workspace/db": "workspace:*",
     "@workspace/integrations-openai-ai-server": "workspace:*",
+    "axios": "^1.7.0",
     "cookie-parser": "^1.4.7",
     "cors": "^2",
     "drizzle-orm": "catalog:",
     "express": "^5",
+    "g4f": "^1.4.6",
     "nodemailer": "^6.10.1",
     "pino": "^9",
     "pino-http": "^10",

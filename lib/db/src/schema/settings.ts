@@ -27,6 +27,15 @@ export const settings = pgTable("settings", {
   nvidiaModel: text("nvidia_model").notNull().default("meta/llama-3.1-70b-instruct"),
   ollamaUrl: text("ollama_url"),
   ollamaModel: text("ollama_model").notNull().default("hermes3:8b"),
+
+  // ─── Business-Specific Config (portable across projects) ─────────────────────
+  // All brand/business data in one JSON column so any project can override without code changes.
+  // Keys: transferNumber, transferOwner, businessNiche, brandVoiceConfig (partial BrandVoice),
+  //       paymentMethodsConfig, deliveryInfo, guaranteeInfo, customPhrases
+  businessConfig: jsonb("business_config")
+    .$type<Record<string, any>>()
+    .notNull()
+    .default({}),
 });
 
 export type Settings = typeof settings.$inferSelect;
