@@ -610,12 +610,12 @@ Estás conversando con **${customerName}**.
 ━━━━━━━━━━━━━━━━━━━━━━━
 🧠 CÓMO PIENSAS Y ACTÚAS
 ━━━━━━━━━━━━━━━━━━━━━━━
-1. RESPUESTAS CORTAS: Máx 3 líneas + emoji. Sin paredes de texto. Sé directo.
-2. MEMORIA: No repitas información ya dicha. Si ya diste un dato, no lo repitas.
-3. NO DESCRIBAS PRODUCTOS: Nunca escribas descripciones, características o beneficios de productos. La tarjeta visual se envía automáticamente con toda esa info.
-4. NO INVENTES: Usa SOLO los datos del catálogo que ves abajo. NUNCA inventes precios, características, promociones, descuentos, ni métodos de entrega.
-5. NO PROMETAS: Nunca digas "te lo envío", "te mando el link", "te llega mañana". El sistema maneja la entrega automáticamente.
-6. FLUJO NATURAL: Charla, no catálogo. No sueltes información técnica a menos que te la pidan.
+1. NATURAL Y DIRECTO: Máx 5 líneas + emoji. Conversa como un asesor real, no un robot.
+2. RAZONA ANTES DE RESPONDER: Lee el contexto, entiende lo que el cliente preguntó, y responde con información útil.
+3. USA DATOS REALES: Cuando el cliente pregunte por un producto, responde con datos del catálogo (precio, características, descripción) — pero SOLO lo que está en la lista.
+4. NO INVENTES: NUNCA inventes precios, características, promociones, descuentos ni métodos de entrega. Si no está en el catálogo, no lo digas.
+5. MEMORIA: No repitas lo que ya dijiste. Si ya diste un dato sobre el producto, no lo repitas a menos que el cliente pregunte otra vez.
+6. NO PROMETAS: Nunca digas "te lo envío", "te mando el link", "te llega mañana". El sistema maneja entrega y pagos.
 
 ━━━━━━━━━━━━━━━━━━━━━━━
 📋 INFORMACIÓN DEL NEGOCIO
@@ -625,18 +625,17 @@ Estás conversando con **${customerName}**.
 ✅ Garantía: ${voice.guaranteeInfo.description}
 
 ━━━━━━━━━━━━━━━━━━━━━━━
-📦 CATÁLOGO COMPLETO (solo para consulta, NO para describir)
+📦 CATÁLOGO DE PRODUCTOS (usa estos datos para responder)
 ━━━━━━━━━━━━━━━━━━━━━━━
 ${productList.length > 0 ? productsBlock : "No hay productos disponibles."}
 
-🚨 REGLAS ABSOLUTAS (violación = error grave):
-• NO escribas descripciones de productos. La card se encarga.
+🚨 REGLAS (violación = error grave):
 • NO inventes precios, nombres, características, promociones ni descuentos.
-• NO escribas URLs, links de pago ni números de cuenta — el sistema los adjunta.
+• NO escribas URLs, links de pago ni números de cuenta — el sistema los adjunta automáticamente.
 • NO digas "te lo envío", "te mando el link", "te llega" ni prometas tiempos de entrega.
-• NO repitas información que ya diste. Sé fresco y directo.
-${isPaymentIntent ? "• El cliente YA QUIERE COMPRAR. NO recomiendes ni describas productos. Solo confirma (1 línea) y la tarjeta de pago se muestra sola." : hasSentCardAlready ? "• NO repitas la card si ya la enviaste — responde la duda directamente." : "• Cuando sea necesario presentar un producto nuevo, USA [CARD: ID] al final de tu mensaje — pero NO describas el producto."}
-• NO uses frases genéricas de apertura.`).trim();
+• NO repitas información que ya diste. Sé fresco y natural.
+${isPaymentIntent ? "• El cliente YA QUIERE COMPRAR. Responde confirmando de forma natural y breve (ej: '¡Listo! Pasemos al pago'). La card con los métodos de pago se enviará automáticamente." : hasSentCardAlready ? "• NO repitas la card si ya la enviaste — responde la duda directamente." : "• Cuando sea necesario presentar un producto nuevo, USA [CARD: ID] al final de tu mensaje."}
+• NO uses frases genéricas de apertura como '¿En qué puedo ayudarte?'. Responde directo al tema.`).trim();
 
   // ── 10. INTEGRAR contexto del motor DENTRO del cerebro ────────────────────
   // El bloque de contexto del motor (engineContext) se inyecta como contexto adicional
@@ -798,6 +797,43 @@ ${isPaymentIntent ? "• El cliente YA QUIERE COMPRAR. NO recomiendes ni describ
 
       // ── Helper: pushear fallbacks disponibles ──
       const pushFallbacks = (queue: { config: any; source: string }[]) => {
+        // Proveedores gratuitos de free-llm-api-resources
+        const freeProviders = [
+          // Gratis 100%
+          { key: "openrouter", name: "openrouter/llama-3.3-70b-instruct:free", healthy: "openrouter" },
+          { key: "google_ai_studio", name: "google/gemini-2.5-flash", healthy: "google_ai_studio" },
+          { key: "groq", name: "groq/llama-3.3-70b-versatile", healthy: "groq" },
+          { key: "cerebras", name: "cerebras/llama-3.1-8b-instruct", healthy: "cerebras" },
+          { key: "cloudflare_workers", name: "cf/llama-3.3-70b-instruct", healthy: "cloudflare_workers" },
+          { key: "cohere", name: "cohere/command-a-03-2025", healthy: "cohere" },
+          { key: "mistral", name: "mistral/mistral-small-latest", healthy: "mistral" },
+          { key: "mistral_codestral", name: "mistral/codestral-latest", healthy: "mistral_codestral" },
+          { key: "huggingface", name: "hf/llama-3.3-70b-instruct", healthy: "huggingface" },
+          { key: "opencode_zen", name: "zen/deepseek-v4-flash-free", healthy: "opencode_zen" },
+          // Trial credits
+          { key: "deepseek", name: "deepseek/deepseek-chat", healthy: "deepseek" },
+          { key: "together", name: "together/llama-3.1-405b", healthy: "together" },
+          { key: "novita", name: "novita/llama-3.3-70b", healthy: "novita" },
+          { key: "nebius", name: "nebius/llama-3.3-70b-instruct", healthy: "nebius" },
+          { key: "hyperbolic", name: "hyperbolic/llama-3.3-70b", healthy: "hyperbolic" },
+          { key: "sambanova", name: "sambanova/llama-3.3-70b", healthy: "sambanova" },
+          { key: "alibaba", name: "alibaba/qwen-plus", healthy: "alibaba" },
+          { key: "fireworks", name: "fireworks/llama-v31-70b", healthy: "fireworks" },
+          { key: "ai21", name: "ai21/jamba-1.5-large", healthy: "ai21" },
+          { key: "upstage", name: "upstage/solar-pro2", healthy: "upstage" },
+          { key: "nlp_cloud", name: "nlp_cloud/llama-3.3-70b", healthy: "nlp_cloud" },
+        ];
+
+        for (const p of freeProviders) {
+          if (activeProvider !== p.key) {
+            const cfg = getProviderConfig(p.key);
+            if (cfg && healthMonitor.isServiceHealthy(p.healthy)) {
+              queue.push({ config: cfg, source: p.name });
+            }
+          }
+        }
+
+        // Proveedores existentes que requieren suscripción
         const copilotEnv = getProviderConfig("github_copilot_internal");
         const nvidiaEnv = getProviderConfig("nvidia");
         const githubEnv = getProviderConfig("github");
@@ -899,13 +935,13 @@ ${isPaymentIntent ? "• El cliente YA QUIERE COMPRAR. NO recomiendes ni describ
       // 1. Sanitizar: eliminar URLs y datos de pago si no es payment_intent
       raw = sanitizeResponse(raw, decision.intent);
 
-      // 2a. Payment/Confirmation: reemplazar texto de IA por frase corta + card
-      // Evita que la IA describa productos cuando el cliente solo quiere pagar
+      // 2a. Payment/Confirmation: mantener respuesta natural de IA + card
+      // El system prompt ya le indica al AI que solo confirme brevemente
       const isPaymentFlow = (decision.intent === "payment_intent" || decision.intent === "confirmation");
       if (isPaymentFlow && decision.shouldSendCard && decision.productToShow) {
-        const paymentPhrase = voice.phrases.payment_ready || "¡Los enlaces de pago están listos! 💳";
-        raw = `${paymentPhrase}\n\n[CARD: ${decision.productToShow.id}]`;
-        console.log(`🔧 [POST] Payment flow: texto IA reemplazado por frase hardcodeada + card - ${ts()}`);
+        const hasCardMarker = raw.includes("[CARD:");
+        raw = hasCardMarker ? raw : `${raw}\n\n[CARD: ${decision.productToShow.id}]`;
+        console.log(`🔧 [POST] Payment flow: respuesta IA preservada + card - ${ts()}`);
       }
 
       // 2b. Card: garantizar que la IA incluyó la card si el motor decidió mostrarla
