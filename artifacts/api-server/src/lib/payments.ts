@@ -455,7 +455,7 @@ export class PaymentGateway {
             pending: `${this.config.appUrl}/mp-pending`,
           },
           notification_url: `${this.config.appUrl}/api/webhooks/mercadopago`,
-          external_reference: client.phone || "unknown",
+          external_reference: `${client.phone || "unknown"}|${product.id}`,
           auto_return: "approved",
         }),
         signal: AbortSignal.timeout(10000) // 10 second timeout
@@ -559,6 +559,7 @@ export class PaymentGateway {
               currency: "USD"
             },
             description: product.name,
+            custom: `${client.phone}|${product.id}`,
             item_list: {
               items: [{
                 name: product.name,
@@ -627,6 +628,7 @@ export class PaymentGateway {
         item_name: product.name,
         amount: amountUSD.toFixed(2),
         currency_code: "USD",
+        custom: `${client.phone}|${product.id}`,
         return: `${this.config.appUrl}/paypal-success`,
         cancel_return: `${this.config.appUrl}/paypal-cancel`,
         notify_url: `${this.config.appUrl}/api/webhooks/paypal`,

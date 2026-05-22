@@ -14,11 +14,11 @@
   "devDependencies": {
     "@rollup/rollup-win32-x64-msvc": "^4.60.2",
     "@tailwindcss/oxide-win32-x64-msvc": "^4.2.4",
-    "lightningcss-win32-x64-msvc": "^1.32.0",
+    "@types/node": "^20.11.0",
     "concurrently": "^9.1.0",
+    "lightningcss-win32-x64-msvc": "^1.32.0",
     "prettier": "^3.8.1",
-    "typescript": "~5.9.2",
-    "@types/node": "^20.11.0"
+    "typescript": "~5.9.2"
   },
   "pnpm": {
     "onlyBuiltDependencies": [
@@ -32,5 +32,8 @@
       "thread-stream",
       "pino-pretty"
     ]
+  },
+  "dependencies": {
+    "@craftjs/core": "catalog:"
   }
 }

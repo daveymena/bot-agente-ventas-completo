@@ -19,7 +19,8 @@ import analyticsRouter from "./analytics";
 import paymentsRouter from "./payments";
 import cleanRouter from "./clean";
 import authRouter from "./auth";
-import brandingRouter from "./branding";
+import storeRouter from "./store";
+import publicRouter from "./public";
 
 const router: IRouter = Router();
 
@@ -42,7 +43,8 @@ router.use("/analytics", analyticsRouter);
 router.use("/payments", paymentsRouter);
 router.use("/clean", cleanRouter);
 router.use("/auth", authRouter);
-router.use("/branding", brandingRouter);
+router.use("/store", storeRouter);
+router.use("/public", publicRouter);
 
 router.use((err: unknown, req: Request, res: Response, _next: NextFunction) => {
   if (err instanceof ZodError) {

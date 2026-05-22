@@ -59,6 +59,7 @@ import {
   getOptimizedProviderOrder,
   reportProviderResult,
   getProviderTimeout,
+  resetProviderRotation,
 } from "./optimized-rotation";
 import { getG4FResponse, initializeG4F } from "./providers/g4f-provider";
 import { G4F_ENABLED } from "../config/g4f.config";
@@ -627,11 +628,16 @@ Eres un asesor de ventas excepcionalmente inteligente y natural. Conversas como 
 • Tus respuestas son CONCISAS pero COMPLETAS. Ni te alargas ni eres demasiado cortante.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📋 DATOS DEL NEGOCIO (usa esto para responder preguntas frecuentes)
+📋 DATOS DEL NEGOCIO — PROCESO COMPLETO DE ENTREGA
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-• Entrega: ${voice.deliveryInfo.details}
+• Método de entrega: ${voice.deliveryInfo.details}
 • Acceso: ${voice.accessInfo.description}
 • Garantía: ${voice.guaranteeInfo.description}
+
+📌 PROCESO DE PAGO Y ENTREGA (explícale esto al cliente cuando pregunte):
+• Opción 1 — Pago por LINK (MercadoPago o PayPal): El cliente paga con tarjeta, PSE o PayPal. El sistema DETECTA EL PAGO AUTOMÁTICAMENTE y le envía el link de Google Drive del producto directamente a este chat. No necesita hacer nada más.
+• Opción 2 — Pago por CONSIGNACIÓN (Nequi/Daviplata/transferencia): El cliente transfiere al número indicado, luego ENVÍA LA CAPTURA O COMPROBANTE por este chat. El equipo verifica y envía el link de Google Drive. El cliente debe reenviar el comprobante aquí mismo.
+• Importante: CADA PRODUCTO tiene su propio link de Google Drive configurado. Se envía automáticamente al confirmar el pago.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 📦 CATÁLOGO DE PRODUCTOS
@@ -755,7 +761,7 @@ ${isPaymentIntent ? "[7] El cliente quiere COMPRAR. Confirma brevemente y con en
   const finalPrompt = buildFinalPrompt(systemPrompt, brain, voice) + `\n\n${engineContextBlock}`;
 
   // ── Construir mensajes para la IA ─────────────────────────────────────────
-  const chatHistory = buildChatHistory(memory);
+  const chatHistory = buildChatHistory(memory, 5); // últimos 5 mensajes para no saturar el prompt
   const chatMessages = [
     ...chatHistory,
     {
@@ -975,9 +981,14 @@ ${isPaymentIntent ? "[7] El cliente quiere COMPRAR. Confirma brevemente y con en
         pushFallbacks(rotationQueue);
       }
 
-      if (rotationQueue.length === 0) throw new Error("No hay proveedores de IA disponibles");
+      if (rotationQueue.length === 0) {
+        console.log(`🔄 [RESET] Queue vacío — reseteando cooldowns y usando G4F - ${ts()}`);
+        resetProviderRotation();
+      }
 
-      let { raw, usedProvider } = await tryQueue(rotationQueue);
+      let { raw, usedProvider } = rotationQueue.length > 0
+        ? await tryQueue(rotationQueue)
+        : { raw: "", usedProvider: "unknown" };
 
       // ── Fase 2: Si proveedor seleccionado falló → rotación inteligente ──
       if (!raw && isUserSelected) {

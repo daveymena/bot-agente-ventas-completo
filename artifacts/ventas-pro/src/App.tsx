@@ -18,12 +18,19 @@ import CodeAgentVisual from "@/pages/code-agent-visual";
 import AuthPage from "@/pages/auth";
 import PricingPage from "@/pages/pricing";
 import Branding from "@/pages/branding";
-import WooCommercePage from "@/pages/woocommerce";
+import StoreShop from "@/pages/tienda/Shop";
+import StoreCart from "@/pages/tienda/Cart";
+import StoreHome from "@/pages/tienda/Home";
+import { StoreProvider } from "@/pages/tienda/store-context";
+import { StoreLayout } from "@/pages/tienda/StoreLayout";
+import MiTiendaPage from "@/pages/mi-tienda";
 import SubscriptionSuccessPage from "@/pages/subscription-success";
 import SubscriptionFailurePage from "@/pages/subscription-failure";
 import ActivatePage from "@/pages/activate";
 import OnboardingPage from "@/pages/onboarding";
 import AdminTenantsPage from "@/pages/admin-tenants";
+import AdminStorePage from "@/pages/admin-store";
+import WooCommercePage from "@/pages/woocommerce";
 
 // Context para la sesión
 interface SessionContextType {
@@ -88,7 +95,37 @@ function Router() {
       <Route path="/subscription-failure" component={SubscriptionFailurePage} />
       <Route path="/activate" component={ActivatePage} />
       <Route path="/onboarding" component={OnboardingPage} />
+      <Route path="/store/:slug/carrito">
+        <StoreProvider>
+          <StoreLayout>
+            <StoreCart />
+          </StoreLayout>
+        </StoreProvider>
+      </Route>
+      <Route path="/store/:slug/productos">
+        <StoreProvider>
+          <StoreLayout>
+            <StoreShop />
+          </StoreLayout>
+        </StoreProvider>
+      </Route>
+      <Route path="/store/:slug/categoria/:type">
+        <StoreProvider>
+          <StoreLayout>
+            <StoreShop />
+          </StoreLayout>
+        </StoreProvider>
+      </Route>
+      <Route path="/store/:slug">
+        <StoreProvider>
+          <StoreLayout>
+            <StoreHome />
+          </StoreLayout>
+        </StoreProvider>
+      </Route>
+      <Route path="/mi-tienda" component={MiTiendaPage} />
       <Route path="/admin/tenants" component={AdminTenantsPage} />
+      <Route path="/admin/store" component={AdminStorePage} />
       <Route path="/auth" component={AuthPage} />
       <Route component={NotFound} />
     </Switch>
@@ -101,7 +138,7 @@ function AppContent() {
 
   useEffect(() => {
     // Redirigir a /auth si no está autenticado y no está ya en /auth o /pricing
-    if (!isLoading && !isAuthenticated && location !== "/auth" && location !== "/pricing" && location !== "/onboarding") {
+    if (!isLoading && !isAuthenticated && location !== "/auth" && location !== "/pricing" && location !== "/onboarding" && !location.startsWith("/store/") && !location.startsWith("/tienda/")) {
       console.log("🔒 No autenticado, redirigiendo a /auth...");
       setLocation("/auth");
     }

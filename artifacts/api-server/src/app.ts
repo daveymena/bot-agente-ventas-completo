@@ -173,15 +173,17 @@ const publicRoutes = [
   "/auth/register",
   "/auth/login",
   "/auth/logout",
-  "/auth/me", // ¡IMPORTANTE! Permitir verificación de sesión sin validación SaaS
+  "/auth/me",
   "/auth/send-verification-code",
   "/auth/verify-email",
   "/auth/request-password-reset",
   "/auth/verify-reset-code",
   "/auth/reset-password",
-  "/whatsapp/test-ia", // Endpoint de prueba para testing
-  "/webhooks/subscription", // Webhooks de suscripciones
-  "/activation", // Endpoints de activación de cuenta
+  "/whatsapp/status",
+  "/whatsapp/test-ia",
+  "/webhooks/subscription",
+  "/activation",
+  "/public", // Endpoints públicos (productos de tienda)
 ];
 
 const isPublicRoute = (path: string) => {

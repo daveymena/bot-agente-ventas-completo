@@ -60,10 +60,12 @@ export function AppSidebar() {
     { label: "Arquitecto IA", href: "/code-agent", icon: Wand2 },
     { label: "Arquitecto Visual", href: "/architect", icon: Eye },
     { label: "Personalización", href: "/branding", icon: Palette },
+    { label: "Tienda Admin", href: "/admin/store", icon: Package },
     { label: "Configuración", href: "/settings", icon: Settings },
     { label: "Planes", href: "/pricing", icon: Badge },
+    ...(sessionTenant?.slug ? [{ label: "Ver Tienda", href: `/mi-tienda`, icon: Eye }] : []),
     ...(isAdmin ? [{ label: "Admin Tenants", href: "/admin/tenants", icon: Crown }] : []),
-  ];
+];
 
   return (
     <Sidebar className="border-r border-white/10 shadow-[8px_0_32px_rgba(0,0,0,0.1)] dark:shadow-[8px_0_32px_rgba(0,0,0,0.4)] bg-background/60 backdrop-blur-3xl supports-[backdrop-filter]:bg-background/40">

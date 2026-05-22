@@ -457,7 +457,7 @@ export function tryHardcodedAnswer(
     return {
       matched: true,
       intent: "details_query",
-      response: `${emoji("delivery", "📦")} La entrega de ${prod} es *100% por ${deliveryMethod}*. Apenas se confirme tu pago, te llega el enlace de ${deliveryMethod} aquí mismo — acceso *${deliveryTime}* desde cualquier dispositivo. ${emoji("benefit", "✅")}${closing}`,
+      response: `${emoji("delivery", "📦")} La entrega de ${prod} es *100% digital por ${deliveryMethod}*. Tenemos 2 formas:\n\n1️⃣ *Pago por link* (MercadoPago/PayPal): El sistema detecta tu pago automáticamente y te envía el link de ${deliveryMethod} aquí mismo.\n\n2️⃣ *Pago por consignación* (Nequi/Daviplata): Después de transferir, reenvías la captura del comprobante por este chat y te enviamos el link.\n\nAmbos métodos te dan acceso *${deliveryTime}* desde cualquier dispositivo. ${emoji("benefit", "✅")}${closing}`,
     };
   }
 
@@ -465,7 +465,7 @@ export function tryHardcodedAnswer(
     return {
       matched: true,
       intent: "details_query",
-      response: `${emoji("delivery", "🔗")} El acceso a ${prod} es por *${deliveryMethod}*. Te llega el enlace directo después del pago, lo abres desde el celular o computador, sin descargas obligatorias. ${emoji("benefit", "✅")}${closing}`,
+      response: `${emoji("delivery", "🔗")} El acceso a ${prod} es por *${deliveryMethod}*. Una vez confirmado el pago (automático si pagas por link, o manual si envías comprobante), recibirás el enlace directo aquí. Lo abres desde el celular o computador, sin descargas obligatorias. ${emoji("benefit", "✅")}${closing}`,
     };
   }
 
@@ -597,13 +597,26 @@ export function detectIntent(text: string): Intent {
   // (ej: "Después de pagar que me entregas?"), NO es payment_intent sino details_query
   const hasPayment = PAYMENT_PATTERNS.some(p => t.includes(p));
   if (hasPayment) {
+    // Post-pago: cliente pregunta qué enviar/comprobar después de pagar
+    const postPaymentProc = ["que te debo enviar", "que debo enviar", "que te mando", "para confirmarte",
+      "comprobante", "para que sepas", "para que veas", "te envió el", "te mando el",
+      "ya pagué", "ya pague", "acabo de pagar", "captura", "pantallazo",
+      "confirmarte que", "para confirmar el pago", "envío el comprobante",
+      "ya transferí", "ya transferi", "acabo de transferir",
+      "te llega el", "como sabes", "como confirmo"];
+    const isPostPaymentProcess = postPaymentProc.some(p => t.includes(p));
+
+    if (isPostPaymentProcess) {
+      return "details_query";
+    }
+
+    // Post-pago: cliente pregunta sobre entrega/garantía después del pago
     const afterPayment = ["después de pagar", "despues de pagar", "luego de pagar", "cuando pague", "cuando paga",
       "después del pago", "despues del pago", "luego del pago"];
     const isPostPaymentQuestion = afterPayment.some(p => t.includes(p));
     const alsoHasDeliveryDetails = (["entrega", "entregan", "recibir", "acceso", "garantía", "garantia",
       "incluye", "trae", "qué me", "que me", "me entregan"].some(d => t.includes(d)));
     if (isPostPaymentQuestion || (alsoHasDeliveryDetails && t.length > 30)) {
-      // El cliente pregunta sobre qué pasa después del pago, no cómo pagar
       return "details_query";
     }
     return "payment_intent";
@@ -1103,7 +1116,7 @@ export async function computeDecision(
   }
 
   // ── Construir bloque de contexto para el prompt ─────────────────────────────
-  const contextBlock = buildContextBlock(memory, intent, stage, productToShow, shouldSendCard, searchReasoning, productSearchFailed);
+  const contextBlock = buildContextBlock(memory, intent, stage, productToShow, shouldSendCard, searchReasoning, productSearchFailed, t);
 
   // ── Razón de la decisión (para logs) ────────────────────────────────────────
   const debugReason = [
@@ -1143,7 +1156,8 @@ function buildContextBlock(
   product: EngineDecision["productToShow"],
   shouldSendCard: boolean,
   searchReasoning?: string | null,
-  productSearchFailed?: boolean
+  productSearchFailed?: boolean,
+  incomingText?: string
 ): string {
   const lines: string[] = [];
 
@@ -1239,6 +1253,19 @@ function buildContextBlock(
         lines.push(`• Garantía: 7 días sin preguntas.`);
         lines.push(`• Duración: acceso de por vida.`);
         lines.push(`• NO envíes la tarjeta de nuevo.`);
+        // Post-pago: si pregunta qué enviar/comprobante, explica el proceso completo
+        const rawText = (incomingText || "").toLowerCase();
+        if (["que te debo enviar", "comprobante", "confirmarte", "para que sepas",
+             "ya pagué", "ya pague", "acabo de pagar", "ya transferí", "ya transferi",
+             "captura", "pantallazo", "como confirmo", "como sabes", "comprobante de",
+             "te envio", "te mando", "ya hice el", "ya realicé", "ya realize"].some(p => rawText.includes(p))) {
+          lines.push(`\n📌 PROCESO POST-PAGO — Explícale claramente:`);
+          lines.push(`• Si pagó por LINK (MercadoPago/PayPal): El sistema DETECTA el pago automáticamente y le envía el link de Google Drive del producto a este chat. No necesita hacer nada.`);
+          lines.push(`• Si pagó por CONSIGNACIÓN (Nequi/Daviplata/transferencia): Debe REENVIAR la captura/comprobante del pago por este chat. El equipo verifica y envía el link de Google Drive de inmediato.`);
+          lines.push(`• Respuesta sugerida: "Si pagaste por Nequi/Daviplata, reenvíame la captura del comprobante por aquí para verificar y enviarte tu link de acceso. Si pagaste por MercadoPago o PayPal, el sistema lo detecta automáticamente y te llega el link."`);
+          lines.push(`• NO envies la tarjeta ni los links de pago otra vez — ya se enviaron antes.`);
+          lines.push(`• NO digas "te lo envío" ni "te mando el link" — el sistema lo hace automáticamente.`);
+        }
       } else {
         lines.push(`• El cliente pregunta detalles pero no hay producto en contexto.`);
         lines.push(`• PROHIBIDO inventar información de productos.`);
@@ -1361,8 +1388,9 @@ export async function persistStage(conversationId: number, stage: Stage): Promis
 
 // ─── Construir historial para la IA ───────────────────────────────────────────
 
-export function buildChatHistory(memory: ConversationMemory): Array<{ role: string; content: string }> {
-  return memory.history.map(m => ({
+export function buildChatHistory(memory: ConversationMemory, maxMessages?: number): Array<{ role: string; content: string }> {
+  const history = maxMessages ? memory.history.slice(-maxMessages) : memory.history;
+  return history.map(m => ({
     role: m.role === "customer" ? "user" : "assistant",
     content: m.content,
   }));

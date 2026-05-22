@@ -484,7 +484,7 @@ export function createAIClient(config: AIProviderConfig): OpenAI {
     baseURL: config.baseUrl,
     defaultHeaders: config.defaultHeaders,
     dangerouslyAllowBrowser: true,
-    timeout: 15000, // 15s timeout para rotación rápida entre proveedores
+    timeout: 60000, // 60s timeout para prompts con historial extenso
     maxRetries: 1,
   });
 }
