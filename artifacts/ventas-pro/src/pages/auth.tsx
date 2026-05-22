@@ -24,6 +24,12 @@ export default function AuthPage() {
     confirmPassword: ""
   });
 
+  // Estados para verificación de email después del registro
+  const [requiresEmailVerification, setRequiresEmailVerification] = useState(false);
+  const [verificationEmail, setVerificationEmail] = useState("");
+  const [verificationCode, setVerificationCode] = useState("");
+  const [resendLoading, setResendLoading] = useState(false);
+
   const [loginData, setLoginData] = useState({ email: "", password: "" });
   const [registerData, setRegisterData] = useState({
     name: "",
@@ -72,6 +78,23 @@ export default function AuthPage() {
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
+    
+    // Validaciones adicionales
+    if (registerData.password.length < 8) {
+      toast.error("La contraseña debe tener al menos 8 caracteres");
+      return;
+    }
+    
+    if (!/[A-Z]/.test(registerData.password)) {
+      toast.error("La contraseña debe contener al menos una mayúscula");
+      return;
+    }
+    
+    if (!/[0-9]/.test(registerData.password)) {
+      toast.error("La contraseña debe contener al menos un número");
+      return;
+    }
+
     setIsLoading(true);
     try {
       const res = await fetch("/api/auth/register", {
@@ -80,9 +103,11 @@ export default function AuthPage() {
         body: JSON.stringify(registerData)
       });
       const data = await res.json();
-      if (res.ok) {
-        toast.success("¡Cuenta creada exitosamente! Ahora inicia sesión.");
-        // Switch to login tab could be added here
+      if (res.ok && data.requiresVerification) {
+        toast.success("¡Cuenta creada exitosamente! Verifica tu email.");
+        setVerificationEmail(registerData.email);
+        setRequiresEmailVerification(true);
+        setRegisterData({ name: "", email: "", password: "", brandName: "", slug: "" });
       } else {
         toast.error(data.error || "Error en el registro");
       }
@@ -90,6 +115,55 @@ export default function AuthPage() {
       toast.error("Error conectando con el servidor");
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  // Función para verificar email
+  const handleVerifyEmail = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsLoading(true);
+    try {
+      const res = await fetch("/api/auth/verify-email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: verificationEmail, code: verificationCode })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        toast.success("✅ Email verificado exitosamente. Ahora puedes iniciar sesión.");
+        setRequiresEmailVerification(false);
+        setVerificationEmail("");
+        setVerificationCode("");
+      } else {
+        toast.error(data.error || "Código inválido o expirado");
+      }
+    } catch (err) {
+      toast.error("Error conectando con el servidor");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Función para resend verification email
+  const handleResendVerificationEmail = async () => {
+    setResendLoading(true);
+    try {
+      const res = await fetch("/api/auth/resend-verification-email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: verificationEmail })
+      });
+      const data = await res.json();
+      if (res.ok || res.status === 200) {
+        toast.success("📧 Nuevo código enviado a tu email");
+        setVerificationCode("");
+      } else {
+        toast.error(data.error || "Error al reenviar código");
+      }
+    } catch (err) {
+      toast.error("Error conectando con el servidor");
+    } finally {
+      setResendLoading(false);
     }
   };
 
@@ -223,8 +297,73 @@ export default function AuthPage() {
           <p className="text-muted-foreground mt-2">La plataforma de ventas autónoma de élite</p>
         </div>
 
-        {/* Pantalla de Recuperación de Contraseña */}
-        {showForgotPassword ? (
+        {/* Pantalla de Verificación de Email */}
+        {requiresEmailVerification ? (
+          <Card className="glass-panel border-none shadow-2xl">
+            <CardHeader>
+              <div className="flex items-center gap-2 mb-2">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    setRequiresEmailVerification(false);
+                    setVerificationEmail("");
+                    setVerificationCode("");
+                  }}
+                  className="h-8 w-8 p-0"
+                >
+                  <ArrowLeft className="h-4 w-4" />
+                </Button>
+                <CardTitle>Verifica tu Email</CardTitle>
+              </div>
+              <CardDescription>
+                Enviamos un código de 6 dígitos a {verificationEmail}
+              </CardDescription>
+            </CardHeader>
+            <form onSubmit={handleVerifyEmail}>
+              <CardContent className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="verification-code">Código de Verificación</Label>
+                  <div className="relative">
+                    <Mail className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+                    <Input
+                      id="verification-code"
+                      placeholder="000000"
+                      className="pl-10 text-center text-2xl tracking-widest"
+                      required
+                      maxLength={6}
+                      value={verificationCode}
+                      onChange={(e) => setVerificationCode(e.target.value.replace(/\D/g, ''))}
+                    />
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    El código expira en 15 minutos
+                  </p>
+                </div>
+              </CardContent>
+              <CardFooter className="flex flex-col gap-2">
+                <Button 
+                  type="submit"
+                  className="w-full" 
+                  disabled={isLoading || verificationCode.length !== 6}
+                >
+                  {isLoading ? "Verificando..." : "Verificar Email"}
+                  <ShieldCheck className="ml-2 h-4 w-4" />
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={handleResendVerificationEmail}
+                  disabled={resendLoading}
+                  className="text-xs"
+                >
+                  {resendLoading ? "Enviando..." : "¿No recibiste el código? Reenviar"}
+                </Button>
+              </CardFooter>
+            </form>
+          </Card>
+        ) : showForgotPassword ? (
           <Card className="glass-panel border-none shadow-2xl">
             <CardHeader>
               <div className="flex items-center gap-2 mb-2">
@@ -494,10 +633,36 @@ export default function AuthPage() {
                           onChange={(e) => setRegisterData({...registerData, password: e.target.value})}
                         />
                       </div>
+                      <div className="space-y-2 mt-2">
+                        <p className="text-xs text-muted-foreground">Requisitos de contraseña:</p>
+                        <div className="space-y-1">
+                          <p className={`text-xs flex items-center gap-2 ${registerData.password.length >= 8 ? 'text-green-600' : 'text-red-600'}`}>
+                            <span className={`w-4 h-4 rounded-full flex items-center justify-center text-white text-xs ${registerData.password.length >= 8 ? 'bg-green-600' : 'bg-red-600'}`}>
+                              {registerData.password.length >= 8 ? '✓' : '✕'}
+                            </span>
+                            Mínimo 8 caracteres
+                          </p>
+                          <p className={`text-xs flex items-center gap-2 ${/[A-Z]/.test(registerData.password) ? 'text-green-600' : 'text-red-600'}`}>
+                            <span className={`w-4 h-4 rounded-full flex items-center justify-center text-white text-xs ${/[A-Z]/.test(registerData.password) ? 'bg-green-600' : 'bg-red-600'}`}>
+                              {/[A-Z]/.test(registerData.password) ? '✓' : '✕'}
+                            </span>
+                            Una mayúscula (A-Z)
+                          </p>
+                          <p className={`text-xs flex items-center gap-2 ${/[0-9]/.test(registerData.password) ? 'text-green-600' : 'text-red-600'}`}>
+                            <span className={`w-4 h-4 rounded-full flex items-center justify-center text-white text-xs ${/[0-9]/.test(registerData.password) ? 'bg-green-600' : 'bg-red-600'}`}>
+                              {/[0-9]/.test(registerData.password) ? '✓' : '✕'}
+                            </span>
+                            Un número (0-9)
+                          </p>
+                        </div>
+                      </div>
                     </div>
                   </CardContent>
                   <CardFooter>
-                    <Button className="w-full shadow-lg shadow-primary/20 group" disabled={isLoading}>
+                    <Button 
+                      className="w-full shadow-lg shadow-primary/20 group" 
+                      disabled={isLoading || registerData.password.length < 8 || !/[A-Z]/.test(registerData.password) || !/[0-9]/.test(registerData.password)}
+                    >
                       {isLoading ? "Creando..." : "Registrar Tienda ✨"}
                       <ShieldCheck className="ml-2 h-4 w-4" />
                     </Button>

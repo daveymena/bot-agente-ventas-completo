@@ -8,7 +8,8 @@ import { logger } from "../lib/logger";
 import { 
   generateVerificationCode, 
   sendVerificationEmail, 
-  sendPasswordResetEmail 
+  sendPasswordResetEmail,
+  sendPasswordChangeConfirmationEmail
 } from "../lib/email";
 
 const router = Router();
@@ -343,6 +344,50 @@ router.post("/verify-email", async (req, res, next) => {
   }
 });
 
+// Resend email verification code
+const resendVerificationEmailSchema = z.object({
+  email: z.string().email(),
+});
+
+router.post("/resend-verification-email", async (req, res, next) => {
+  try {
+    const { email } = resendVerificationEmailSchema.parse(req.body);
+    
+    const [tenant] = await db.select().from(tenants).where(eq(tenants.email, email)).limit(1);
+    if (!tenant) {
+      // Por seguridad, no revelar si el email existe
+      return res.json({ message: "Si el email existe, recibirás un nuevo código de verificación" });
+    }
+
+    if (tenant.emailVerified) {
+      return res.status(400).json({ error: "El email ya está verificado" });
+    }
+
+    // Generar nuevo código
+    const verificationCode = generateVerificationCode();
+    const verificationExpiry = new Date(Date.now() + 15 * 60 * 1000); // 15 minutos
+
+    await db.update(tenants)
+      .set({
+        emailVerificationCode: verificationCode,
+        emailVerificationExpiry: verificationExpiry,
+      })
+      .where(eq(tenants.id, tenant.id));
+
+    // Enviar email
+    const sent = await sendVerificationEmail(email, verificationCode, tenant.name);
+    
+    if (!sent) {
+      logger.error({ email }, "[Auth] Error enviando nuevo código de verificación");
+    }
+
+    logger.info({ email }, "[Auth] Nuevo código de verificación enviado");
+    return res.json({ message: "Si el email existe, recibirás un nuevo código de verificación" });
+  } catch (e) {
+    return next(e);
+  }
+});
+
 // ============================================================
 // RECUPERACIÓN DE CONTRASEÑA
 // ============================================================
@@ -466,8 +511,14 @@ router.post("/reset-password", async (req, res, next) => {
       })
       .where(eq(tenants.id, tenant.id));
 
+    // Enviar confirmación de cambio
+    const confirmationSent = await sendPasswordChangeConfirmationEmail(email, tenant.name);
+    if (!confirmationSent) {
+      logger.warn({ email }, "[Auth] Contraseña restablecida pero no se pudo enviar confirmación");
+    }
+
     logger.info({ email }, "[Auth] Contraseña restablecida exitosamente");
-    return res.json({ message: "Contraseña restablecida exitosamente" });
+    return res.json({ message: "Contraseña restablecida exitosamente. Revisa tu email para confirmación." });
   } catch (e) {
     return next(e);
   }

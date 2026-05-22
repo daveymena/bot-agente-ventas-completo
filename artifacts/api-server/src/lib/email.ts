@@ -544,3 +544,150 @@ export async function verifyEmailService(): Promise<boolean> {
     return false;
   }
 }
+
+/**
+ * Envía confirmación de cambio de contraseña
+ */
+export async function sendPasswordChangeConfirmationEmail(
+  email: string,
+  name: string
+): Promise<boolean> {
+  try {
+    logger.info({ email }, "[Email] 📧 Enviando confirmación de cambio de contraseña...");
+    
+    const mailOptions = {
+      from: `"VentasPro" <${process.env.SMTP_USER}>`,
+      to: email,
+      subject: "✅ Contraseña Cambiada - VentasPro",
+      html: `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="UTF-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <style>
+            body {
+              font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+              background-color: #f5f5f5;
+              margin: 0;
+              padding: 0;
+            }
+            .container {
+              max-width: 600px;
+              margin: 40px auto;
+              background: white;
+              border-radius: 16px;
+              overflow: hidden;
+              box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+            }
+            .header {
+              background: linear-gradient(135deg, #10b981 0%, #34d399 100%);
+              padding: 40px 30px;
+              text-align: center;
+            }
+            .header h1 {
+              color: white;
+              margin: 0;
+              font-size: 28px;
+              font-weight: 700;
+            }
+            .content {
+              padding: 40px 30px;
+            }
+            .greeting {
+              font-size: 18px;
+              color: #1f2937;
+              margin-bottom: 20px;
+            }
+            .message {
+              font-size: 16px;
+              color: #4b5563;
+              line-height: 1.6;
+              margin-bottom: 30px;
+            }
+            .info-box {
+              background: #f0fdf4;
+              border-left: 4px solid #10b981;
+              padding: 20px;
+              margin: 20px 0;
+              border-radius: 8px;
+            }
+            .info-text {
+              font-size: 14px;
+              color: #065f46;
+              margin: 0;
+              line-height: 1.6;
+            }
+            .warning {
+              background: #fef2f2;
+              border-left: 4px solid #ef4444;
+              padding: 15px;
+              margin: 20px 0;
+              border-radius: 8px;
+            }
+            .warning-text {
+              font-size: 14px;
+              color: #991b1b;
+              margin: 0;
+            }
+            .footer {
+              background: #f9fafb;
+              padding: 30px;
+              text-align: center;
+              border-top: 1px solid #e5e7eb;
+            }
+            .footer-text {
+              font-size: 14px;
+              color: #6b7280;
+              margin: 5px 0;
+            }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <div class="header">
+              <h1>✅ Contraseña Actualizada</h1>
+            </div>
+            <div class="content">
+              <p class="greeting">¡Hola ${name}! 👋</p>
+              <p class="message">
+                Te confirmamos que tu contraseña ha sido <strong>cambiada exitosamente</strong> 
+                en tu cuenta de <strong>VentasPro</strong>.
+              </p>
+              
+              <div class="info-box">
+                <p class="info-text">
+                  ℹ️ <strong>¿Qué significa esto?</strong><br>
+                  Tu contraseña anterior ya no es válida. Solo puedes acceder con tu nueva contraseña.
+                </p>
+              </div>
+              
+              <div class="warning">
+                <p class="warning-text">
+                  ⚠️ <strong>Seguridad:</strong> Si no realizaste este cambio, 
+                  contacta inmediatamente a nuestro equipo de soporte.
+                </p>
+              </div>
+              
+              <p class="message" style="font-size: 14px; color: #6b7280;">
+                Si necesitas ayuda, estamos aquí para ti. Contacta a nuestro equipo de soporte en cualquier momento.
+              </p>
+            </div>
+            <div class="footer">
+              <p class="footer-text">© 2026 VentasPro - Plataforma de Ventas con IA</p>
+              <p class="footer-text">Este es un email automático, por favor no respondas.</p>
+            </div>
+          </div>
+        </body>
+        </html>
+      `,
+    };
+
+    const result = await transporter.sendMail(mailOptions);
+    logger.info({ email, messageId: result.messageId }, "[Email] ✅ Confirmación de cambio de contraseña enviada");
+    return true;
+  } catch (error) {
+    logger.error({ error, email }, "[Email] ❌ Error enviando confirmación de cambio de contraseña");
+    return false;
+  }
+}
