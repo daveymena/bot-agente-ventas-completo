@@ -1,39 +1,24 @@
 {
-  "name": "workspace",
+  "name": "bot-agente-ventas-completo",
   "version": "0.0.0",
-  "license": "MIT",
-  "scripts": {
-    "preinstall": "sh -c 'rm -f package-lock.json yarn.lock; case \"$npm_config_user_agent\" in pnpm/*) ;; *) echo \"Use pnpm instead\" >&2; exit 1 ;; esac'",
-    "dev": "concurrently --names \"API,WEB\" --prefix-colors \"cyan,green\" \"pnpm --filter @workspace/api-server run dev\" \"pnpm --filter @workspace/ventas-pro run dev\"",
-    "build": "pnpm run typecheck && pnpm -r --if-present run build",
-    "build:no-typecheck": "pnpm -r --if-present run build",
-    "typecheck:libs": "tsc --build",
-    "typecheck": "pnpm run typecheck:libs && pnpm -r --filter \"./artifacts/**\" --filter \"./scripts\" --if-present run typecheck"
-  },
   "private": true,
+  "workspaces": [
+    "artifacts/api-server",
+    "artifacts/ventas-pro",
+    "packages"
+  ],
+  "scripts": {
+    "build": "pnpm run typecheck && pnpm -r --filter \"./artifacts/**\" --filter \"./packages/**\" run build",
+    "typecheck": "pnpm run typecheck:libs && pnpm -r --filter \"./artifacts/api-server\" run typecheck",
+    "typecheck:libs": "tsc --build",
+    "dev": "pnpm -r --filter \"./artifacts/api-server\" run dev",
+    "test": "pnpm -r test"
+  },
   "devDependencies": {
-    "@rollup/rollup-win32-x64-msvc": "^4.60.2",
-    "@tailwindcss/oxide-win32-x64-msvc": "^4.2.4",
-    "@types/node": "^20.11.0",
-    "concurrently": "^9.1.0",
-    "lightningcss-win32-x64-msvc": "^1.32.0",
-    "prettier": "^3.8.1",
-    "typescript": "~5.9.2"
-  },
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "libsignal",
-      "@whiskeysockets/baileys",
-      "@adiwajshing/keyed-db",
-      "sharp",
-      "sqlite3",
-      "esbuild",
-      "protobufjs",
-      "thread-stream",
-      "pino-pretty"
-    ]
-  },
-  "dependencies": {
-    "@craftjs/core": "catalog:"
+    "@types/node": "^20.12.7",
+    "typescript": "^5.4.5",
+    "tsx": "^4.7.3"
   }
+}
+
 }
