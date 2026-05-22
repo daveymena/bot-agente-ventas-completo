@@ -6,13 +6,17 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
-import { Rocket, Mail, Lock, Store, User, ArrowRight, ShieldCheck, KeyRound, ArrowLeft } from "lucide-react";
+import { Rocket, Mail, Lock, Store, User, ArrowRight, ShieldCheck, KeyRound, ArrowLeft, Check, X } from "lucide-react";
 import { useSession } from "@/App";
 
 export default function AuthPage() {
   const [, setLocation] = useLocation();
   const [isLoading, setIsLoading] = useState(false);
   const { refreshSession } = useSession();
+
+  // Estados para modal de éxito de registro
+  const [showSuccessModal, setShowSuccessModal] = useState(false);
+  const [successEmail, setSuccessEmail] = useState("");
 
   // Estados para recuperación de contraseña
   const [showForgotPassword, setShowForgotPassword] = useState(false);
@@ -23,13 +27,6 @@ export default function AuthPage() {
     newPassword: "",
     confirmPassword: ""
   });
-
-  // Estados para verificación de email después del registro
-  const [requiresEmailVerification, setRequiresEmailVerification] = useState(false);
-  const [verificationEmail, setVerificationEmail] = useState("");
-  const [verificationCode, setVerificationCode] = useState("");
-  const [resendLoading, setResendLoading] = useState(false);
-  const [emailNotReceived, setEmailNotReceived] = useState(false);
 
   const [loginData, setLoginData] = useState({ email: "", password: "" });
   const [registerData, setRegisterData] = useState({
@@ -44,33 +41,23 @@ export default function AuthPage() {
     e.preventDefault();
     setIsLoading(true);
     try {
-      console.log("🔐 Enviando login request...");
       const res = await fetch("/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        credentials: "include", // Importante: incluir cookies
+        credentials: "include",
         body: JSON.stringify(loginData)
       });
       
-      console.log("📊 Response status:", res.status);
-      
       const data = await res.json();
-      console.log("📊 Response data:", data);
       
       if (res.ok) {
-        console.log("✅ Login exitoso. Refrescando sesión...");
         toast.success("¡Bienvenido de nuevo! 🚀");
-        
-        // Refrescar la sesión para actualizar el contexto
         await refreshSession();
-        
-        // Redirigir al dashboard
         setLocation("/");
       } else {
         toast.error(data.error || "Credenciales incorrectas");
       }
     } catch (err) {
-      console.error("❌ Error en login:", err);
       toast.error("Error conectando con el servidor");
     } finally {
       setIsLoading(false);
@@ -98,116 +85,34 @@ export default function AuthPage() {
 
     setIsLoading(true);
     try {
-      console.log("📝 Enviando registro...", registerData);
       const res = await fetch("/api/auth/register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(registerData)
       });
       
-      console.log("📊 Response status:", res.status);
       const data = await res.json();
-      console.log("📊 Response data:", data);
       
       if (res.ok) {
-        toast.success("¡Cuenta creada exitosamente! 🎉");
-        
-        if (data.requiresVerification) {
-          // Mostrar pantalla de verificación
-          setVerificationEmail(registerData.email);
-          setRequiresEmailVerification(true);
-          setEmailNotReceived(false);
-          toast.info("📧 Hemos enviado un código a tu email. Revísalo (puede estar en spam)");
-        } else {
-          // Si no requiere verificación, hacer login automático
-          toast.success("Entrando al panel...");
-          setTimeout(() => setLocation("/"), 1000);
-        }
-        
+        // Mostrar modal de éxito
+        setSuccessEmail(registerData.email);
+        setShowSuccessModal(true);
         setRegisterData({ name: "", email: "", password: "", brandName: "", slug: "" });
+        
+        // Redirigir a login después de 2.5 segundos
+        setTimeout(() => {
+          setShowSuccessModal(false);
+          // Cambiar a tab de login
+          const loginTab = document.querySelector('[value="login"]') as HTMLButtonElement;
+          if (loginTab) loginTab.click();
+        }, 2500);
       } else {
         toast.error(data.error || "Error en el registro");
       }
     } catch (err) {
-      console.error("❌ Error en registro:", err);
       toast.error("Error conectando con el servidor");
     } finally {
       setIsLoading(false);
-    }
-  };
-
-  // Función para verificar email
-  const handleVerifyEmail = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsLoading(true);
-    try {
-      const res = await fetch("/api/auth/verify-email", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: verificationEmail, code: verificationCode })
-      });
-      const data = await res.json();
-      if (res.ok) {
-        toast.success("✅ Email verificado exitosamente. Ahora puedes iniciar sesión.");
-        setRequiresEmailVerification(false);
-        setVerificationEmail("");
-        setVerificationCode("");
-      } else {
-        toast.error(data.error || "Código inválido o expirado");
-      }
-    } catch (err) {
-      toast.error("Error conectando con el servidor");
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  // Función para login rápido sin verificar email
-  const handleQuickLogin = async (email: string) => {
-    setIsLoading(true);
-    try {
-      // Usar la contraseña del registro
-      const res = await fetch("/api/auth/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ email, password: registerData.password })
-      });
-      
-      if (res.ok) {
-        toast.success("¡Bienvenido! 🚀 Verificarás tu email después.");
-        await refreshSession();
-        setLocation("/");
-      } else {
-        toast.error("Error al iniciar sesión. Intenta nuevamente.");
-      }
-    } catch (err) {
-      toast.error("Error conectando con el servidor");
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  // Función para resend verification email
-  const handleResendVerificationEmail = async () => {
-    setResendLoading(true);
-    try {
-      const res = await fetch("/api/auth/resend-verification-email", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: verificationEmail })
-      });
-      const data = await res.json();
-      if (res.ok || res.status === 200) {
-        toast.success("📧 Nuevo código enviado a tu email");
-        setVerificationCode("");
-      } else {
-        toast.error(data.error || "Error al reenviar código");
-      }
-    } catch (err) {
-      toast.error("Error conectando con el servidor");
-    } finally {
-      setResendLoading(false);
     }
   };
 
@@ -250,7 +155,7 @@ export default function AuthPage() {
       });
       const data = await res.json();
       if (res.ok) {
-        toast.success("✅ Código verificado. Ahora ingresa tu nueva contraseña.");
+        toast.success("✅ Código verificado. Ingresa tu nueva contraseña.");
         setForgotPasswordStep("newPassword");
       } else {
         toast.error(data.error || "Código inválido o expirado");
@@ -271,8 +176,8 @@ export default function AuthPage() {
       return;
     }
 
-    if (forgotPasswordData.newPassword.length < 6) {
-      toast.error("La contraseña debe tener al menos 6 caracteres");
+    if (forgotPasswordData.newPassword.length < 8) {
+      toast.error("La contraseña debe tener al menos 8 caracteres");
       return;
     }
 
@@ -291,12 +196,12 @@ export default function AuthPage() {
       if (res.ok) {
         toast.success("🎉 Contraseña cambiada exitosamente. Iniciando sesión...");
         
-        // Resetear estados del formulario de recuperación
+        // Resetear estados
         setShowForgotPassword(false);
         setForgotPasswordStep("email");
         setForgotPasswordData({ email: "", code: "", newPassword: "", confirmPassword: "" });
         
-        // Hacer login automático con la nueva contraseña
+        // Hacer login automático
         try {
           const loginRes = await fetch("/api/auth/login", {
             method: "POST",
@@ -310,7 +215,6 @@ export default function AuthPage() {
           
           if (loginRes.ok) {
             await refreshSession();
-            toast.success("¡Bienvenido de nuevo! 🚀");
             setLocation("/");
           } else {
             toast.info("Contraseña cambiada. Por favor inicia sesión.");
@@ -341,134 +245,49 @@ export default function AuthPage() {
           <p className="text-muted-foreground mt-2">La plataforma de ventas autónoma de élite</p>
         </div>
 
-        {/* Pantalla de Verificación de Email */}
-        {requiresEmailVerification ? (
-          <Card className="glass-panel border-none shadow-2xl">
-            <CardHeader>
-              <div className="flex items-center gap-2 mb-2">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => {
-                    setRequiresEmailVerification(false);
-                    setVerificationEmail("");
-                    setVerificationCode("");
-                    setEmailNotReceived(false);
-                  }}
-                  className="h-8 w-8 p-0"
-                >
-                  <ArrowLeft className="h-4 w-4" />
-                </Button>
-                <CardTitle>Verifica tu Email</CardTitle>
-              </div>
-              <CardDescription>
-                {!emailNotReceived 
-                  ? `Enviamos un código de 6 dígitos a ${verificationEmail}`
-                  : "No recibiste el email? Puedes continuar de todas formas"
-                }
-              </CardDescription>
-            </CardHeader>
-            
-            {!emailNotReceived && (
-              <form onSubmit={handleVerifyEmail}>
-                <CardContent className="space-y-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="verification-code">Código de Verificación</Label>
-                    <div className="relative">
-                      <Mail className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-                      <Input
-                        id="verification-code"
-                        placeholder="000000"
-                        className="pl-10 text-center text-2xl tracking-widest"
-                        required
-                        maxLength={6}
-                        value={verificationCode}
-                        onChange={(e) => setVerificationCode(e.target.value.replace(/\D/g, ''))}
-                      />
-                    </div>
-                    <p className="text-xs text-muted-foreground">
-                      El código expira en 15 minutos. Revisa también tu carpeta de spam.
-                    </p>
+        {/* Modal de Éxito del Registro */}
+        {showSuccessModal && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+            <Card className="glass-panel border-none shadow-2xl max-w-[400px] animate-in">
+              <CardHeader className="text-center space-y-4">
+                <div className="flex justify-center">
+                  <div className="w-16 h-16 rounded-full bg-green-100 flex items-center justify-center">
+                    <Check className="w-8 h-8 text-green-600" />
                   </div>
-                </CardContent>
-                <CardFooter className="flex flex-col gap-2">
-                  <Button 
-                    type="submit"
-                    className="w-full" 
-                    disabled={isLoading || verificationCode.length !== 6}
-                  >
-                    {isLoading ? "Verificando..." : "Verificar Email"}
-                    <ShieldCheck className="ml-2 h-4 w-4" />
-                  </Button>
-                  <div className="flex gap-2 w-full">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={handleResendVerificationEmail}
-                      disabled={resendLoading}
-                      className="flex-1 text-xs"
-                    >
-                      {resendLoading ? "Enviando..." : "Reenviar Código"}
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => setEmailNotReceived(true)}
-                      className="flex-1 text-xs"
-                    >
-                      No recibí email
-                    </Button>
-                  </div>
-                </CardFooter>
-              </form>
-            )}
-            
-            {emailNotReceived && (
-              <CardContent className="space-y-4">
-                <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 space-y-3">
-                  <p className="text-sm font-medium text-amber-900">
-                    ⚠️ El email de verificación no llegó
-                  </p>
-                  <ul className="text-xs text-amber-800 space-y-1 list-disc list-inside">
-                    <li>Revisa tu carpeta de spam o promotions</li>
-                    <li>Espera unos minutos, puede tardar</li>
-                    <li>Verifica que el email sea correcto</li>
-                  </ul>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={handleResendVerificationEmail}
-                    disabled={resendLoading}
-                    className="w-full text-xs"
-                  >
-                    {resendLoading ? "Reenviando..." : "Intentar reenviar"}
-                  </Button>
                 </div>
-                
-                <div className="border-t pt-4">
-                  <p className="text-xs text-muted-foreground mb-3">
-                    Puedes entrar sin verificación por ahora y verificar después desde tu panel.
-                  </p>
-                  <Button
-                    type="button"
-                    className="w-full"
-                    onClick={() => {
-                      // Hacer login automático con los datos de registro
-                      handleQuickLogin(verificationEmail);
-                    }}
-                    disabled={isLoading}
-                  >
-                    {isLoading ? "Entrando..." : "Continuar sin verificar"}
-                    <ArrowRight className="ml-2 h-4 w-4" />
-                  </Button>
+                <div>
+                  <CardTitle className="text-2xl">¡Cuenta Creada Exitosamente!</CardTitle>
+                  <CardDescription className="mt-2">Tu tienda está lista para empezar</CardDescription>
                 </div>
+              </CardHeader>
+              <CardContent className="space-y-3 text-center">
+                <p className="text-sm text-muted-foreground">
+                  Hemos enviado un email de confirmación a:
+                </p>
+                <p className="font-medium text-sm break-all">{successEmail}</p>
+                <p className="text-xs text-muted-foreground mt-4">
+                  Serás redirigido a la página de inicio de sesión en unos segundos...
+                </p>
               </CardContent>
-            )}
-          </Card>
-        ) : showForgotPassword ? (
+              <CardFooter>
+                <Button 
+                  className="w-full" 
+                  onClick={() => {
+                    setShowSuccessModal(false);
+                    const loginTab = document.querySelector('[value="login"]') as HTMLButtonElement;
+                    if (loginTab) loginTab.click();
+                  }}
+                >
+                  Ir a Iniciar Sesión
+                  <ArrowRight className="ml-2 h-4 w-4" />
+                </Button>
+              </CardFooter>
+            </Card>
+          </div>
+        )}
+
+        {/* Recuperación de Contraseña */}
+        {showForgotPassword ? (
           <Card className="glass-panel border-none shadow-2xl">
             <CardHeader>
               <div className="flex items-center gap-2 mb-2">
@@ -487,13 +306,12 @@ export default function AuthPage() {
                 <CardTitle>Recuperar Contraseña</CardTitle>
               </div>
               <CardDescription>
-                {forgotPasswordStep === "email" && "Ingresa tu email para recibir un código de recuperación"}
-                {forgotPasswordStep === "code" && "Ingresa el código de 6 dígitos que enviamos a tu email"}
+                {forgotPasswordStep === "email" && "Ingresa tu email para recibir un código"}
+                {forgotPasswordStep === "code" && "Ingresa el código de 6 dígitos"}
                 {forgotPasswordStep === "newPassword" && "Ingresa tu nueva contraseña"}
               </CardDescription>
             </CardHeader>
 
-            {/* Paso 1: Solicitar código */}
             {forgotPasswordStep === "email" && (
               <form onSubmit={handleRequestResetCode}>
                 <CardContent className="space-y-4">
@@ -515,28 +333,26 @@ export default function AuthPage() {
                 </CardContent>
                 <CardFooter>
                   <Button className="w-full" disabled={isLoading}>
-                    {isLoading ? "Enviando..." : "Enviar Código de Recuperación"}
+                    {isLoading ? "Enviando..." : "Enviar Código"}
                     <Mail className="ml-2 h-4 w-4" />
                   </Button>
                 </CardFooter>
               </form>
             )}
 
-            {/* Paso 2: Verificar código */}
             {forgotPasswordStep === "code" && (
               <form onSubmit={handleVerifyResetCode}>
                 <CardContent className="space-y-4">
                   <div className="space-y-2">
                     <Label htmlFor="reset-code">Código de Verificación</Label>
                     <div className="relative">
-                      <KeyRound className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+                      <Lock className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
                       <Input
                         id="reset-code"
-                        type="text"
-                        placeholder="123456"
-                        className="pl-10 text-center text-2xl tracking-widest font-mono"
-                        maxLength={6}
+                        placeholder="000000"
+                        className="pl-10 text-center text-2xl tracking-widest"
                         required
+                        maxLength={6}
                         value={forgotPasswordData.code}
                         onChange={(e) => setForgotPasswordData({ ...forgotPasswordData, code: e.target.value.replace(/\D/g, '') })}
                       />
@@ -546,25 +362,15 @@ export default function AuthPage() {
                     </p>
                   </div>
                 </CardContent>
-                <CardFooter className="flex flex-col gap-2">
-                  <Button className="w-full" disabled={isLoading}>
+                <CardFooter>
+                  <Button className="w-full" disabled={isLoading || forgotPasswordData.code.length !== 6}>
                     {isLoading ? "Verificando..." : "Verificar Código"}
                     <ShieldCheck className="ml-2 h-4 w-4" />
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setForgotPasswordStep("email")}
-                    className="text-xs"
-                  >
-                    ¿No recibiste el código? Reenviar
                   </Button>
                 </CardFooter>
               </form>
             )}
 
-            {/* Paso 3: Nueva contraseña */}
             {forgotPasswordStep === "newPassword" && (
               <form onSubmit={handleResetPassword}>
                 <CardContent className="space-y-4">
@@ -577,7 +383,7 @@ export default function AuthPage() {
                         type="password"
                         className="pl-10"
                         required
-                        minLength={6}
+                        minLength={8}
                         value={forgotPasswordData.newPassword}
                         onChange={(e) => setForgotPasswordData({ ...forgotPasswordData, newPassword: e.target.value })}
                       />
@@ -592,7 +398,7 @@ export default function AuthPage() {
                         type="password"
                         className="pl-10"
                         required
-                        minLength={6}
+                        minLength={8}
                         value={forgotPasswordData.confirmPassword}
                         onChange={(e) => setForgotPasswordData({ ...forgotPasswordData, confirmPassword: e.target.value })}
                       />
@@ -613,13 +419,14 @@ export default function AuthPage() {
             )}
           </Card>
         ) : (
-          /* Pantallas de Login y Registro */
+          /* Login y Registro */
           <Tabs defaultValue="login" className="w-full">
             <TabsList className="grid w-full grid-cols-2 mb-6 glass-panel p-1">
               <TabsTrigger value="login" className="rounded-lg">Iniciar Sesión</TabsTrigger>
               <TabsTrigger value="register" className="rounded-lg">Crear Cuenta</TabsTrigger>
             </TabsList>
 
+            {/* Tab: Login */}
             <TabsContent value="login">
               <Card className="glass-panel border-none shadow-2xl">
                 <CardHeader>
@@ -629,11 +436,11 @@ export default function AuthPage() {
                 <form onSubmit={handleLogin}>
                   <CardContent className="space-y-4">
                     <div className="space-y-2">
-                      <Label htmlFor="email">Email</Label>
+                      <Label htmlFor="login-email">Email</Label>
                       <div className="relative">
                         <Mail className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
                         <Input 
-                          id="email" 
+                          id="login-email" 
                           type="email" 
                           placeholder="tu@email.com" 
                           className="pl-10"
@@ -645,7 +452,7 @@ export default function AuthPage() {
                     </div>
                     <div className="space-y-2">
                       <div className="flex items-center justify-between">
-                        <Label htmlFor="password">Contraseña</Label>
+                        <Label htmlFor="login-password">Contraseña</Label>
                         <Button
                           type="button"
                           variant="link"
@@ -659,7 +466,7 @@ export default function AuthPage() {
                       <div className="relative">
                         <Lock className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
                         <Input 
-                          id="password" 
+                          id="login-password" 
                           type="password" 
                           className="pl-10"
                           required 
@@ -679,6 +486,7 @@ export default function AuthPage() {
               </Card>
             </TabsContent>
 
+            {/* Tab: Registro */}
             <TabsContent value="register">
               <Card className="glass-panel border-none shadow-2xl">
                 <CardHeader>
@@ -738,29 +546,22 @@ export default function AuthPage() {
                           onChange={(e) => setRegisterData({...registerData, password: e.target.value})}
                         />
                       </div>
-                      <div className="space-y-2 mt-2">
-                        <p className="text-xs text-muted-foreground">Requisitos de contraseña:</p>
-                        <div className="space-y-1">
-                          <p className={`text-xs flex items-center gap-2 ${registerData.password.length >= 8 ? 'text-green-600' : 'text-red-600'}`}>
-                            <span className={`w-4 h-4 rounded-full flex items-center justify-center text-white text-xs ${registerData.password.length >= 8 ? 'bg-green-600' : 'bg-red-600'}`}>
-                              {registerData.password.length >= 8 ? '✓' : '✕'}
-                            </span>
+                      {registerData.password && (
+                        <div className="space-y-1 mt-2">
+                          <div className={`text-xs flex items-center gap-2 ${registerData.password.length >= 8 ? 'text-green-600' : 'text-red-600'}`}>
+                            {registerData.password.length >= 8 ? <Check className="w-4 h-4" /> : <X className="w-4 h-4" />}
                             Mínimo 8 caracteres
-                          </p>
-                          <p className={`text-xs flex items-center gap-2 ${/[A-Z]/.test(registerData.password) ? 'text-green-600' : 'text-red-600'}`}>
-                            <span className={`w-4 h-4 rounded-full flex items-center justify-center text-white text-xs ${/[A-Z]/.test(registerData.password) ? 'bg-green-600' : 'bg-red-600'}`}>
-                              {/[A-Z]/.test(registerData.password) ? '✓' : '✕'}
-                            </span>
+                          </div>
+                          <div className={`text-xs flex items-center gap-2 ${/[A-Z]/.test(registerData.password) ? 'text-green-600' : 'text-red-600'}`}>
+                            {/[A-Z]/.test(registerData.password) ? <Check className="w-4 h-4" /> : <X className="w-4 h-4" />}
                             Una mayúscula (A-Z)
-                          </p>
-                          <p className={`text-xs flex items-center gap-2 ${/[0-9]/.test(registerData.password) ? 'text-green-600' : 'text-red-600'}`}>
-                            <span className={`w-4 h-4 rounded-full flex items-center justify-center text-white text-xs ${/[0-9]/.test(registerData.password) ? 'bg-green-600' : 'bg-red-600'}`}>
-                              {/[0-9]/.test(registerData.password) ? '✓' : '✕'}
-                            </span>
+                          </div>
+                          <div className={`text-xs flex items-center gap-2 ${/[0-9]/.test(registerData.password) ? 'text-green-600' : 'text-red-600'}`}>
+                            {/[0-9]/.test(registerData.password) ? <Check className="w-4 h-4" /> : <X className="w-4 h-4" />}
                             Un número (0-9)
-                          </p>
+                          </div>
                         </div>
-                      </div>
+                      )}
                     </div>
                   </CardContent>
                   <CardFooter>
