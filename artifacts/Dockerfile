@@ -6,10 +6,11 @@ WORKDIR /app
 # Instalar pnpm
 RUN npm install -g pnpm
 
-# Copiar archivos de configuración
+# BUILD RELOAD - bump version 1.1
 COPY pnpm-workspace.yaml pnpm-lock.yaml .npmrc ./
 COPY . .
 
+# BUILD RELOAD - bump version 1.1
 # Instalar dependencias (incluye workspace packages)
 RUN pnpm install --frozen-lockfile
 
