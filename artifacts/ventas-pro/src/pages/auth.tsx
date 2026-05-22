@@ -29,6 +29,7 @@ export default function AuthPage() {
   const [verificationEmail, setVerificationEmail] = useState("");
   const [verificationCode, setVerificationCode] = useState("");
   const [resendLoading, setResendLoading] = useState(false);
+  const [emailNotReceived, setEmailNotReceived] = useState(false);
 
   const [loginData, setLoginData] = useState({ email: "", password: "" });
   const [registerData, setRegisterData] = useState({
@@ -97,21 +98,38 @@ export default function AuthPage() {
 
     setIsLoading(true);
     try {
+      console.log("📝 Enviando registro...", registerData);
       const res = await fetch("/api/auth/register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(registerData)
       });
+      
+      console.log("📊 Response status:", res.status);
       const data = await res.json();
-      if (res.ok && data.requiresVerification) {
-        toast.success("¡Cuenta creada exitosamente! Verifica tu email.");
-        setVerificationEmail(registerData.email);
-        setRequiresEmailVerification(true);
+      console.log("📊 Response data:", data);
+      
+      if (res.ok) {
+        toast.success("¡Cuenta creada exitosamente! 🎉");
+        
+        if (data.requiresVerification) {
+          // Mostrar pantalla de verificación
+          setVerificationEmail(registerData.email);
+          setRequiresEmailVerification(true);
+          setEmailNotReceived(false);
+          toast.info("📧 Hemos enviado un código a tu email. Revísalo (puede estar en spam)");
+        } else {
+          // Si no requiere verificación, hacer login automático
+          toast.success("Entrando al panel...");
+          setTimeout(() => setLocation("/"), 1000);
+        }
+        
         setRegisterData({ name: "", email: "", password: "", brandName: "", slug: "" });
       } else {
         toast.error(data.error || "Error en el registro");
       }
     } catch (err) {
+      console.error("❌ Error en registro:", err);
       toast.error("Error conectando con el servidor");
     } finally {
       setIsLoading(false);
@@ -136,6 +154,32 @@ export default function AuthPage() {
         setVerificationCode("");
       } else {
         toast.error(data.error || "Código inválido o expirado");
+      }
+    } catch (err) {
+      toast.error("Error conectando con el servidor");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Función para login rápido sin verificar email
+  const handleQuickLogin = async (email: string) => {
+    setIsLoading(true);
+    try {
+      // Usar la contraseña del registro
+      const res = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ email, password: registerData.password })
+      });
+      
+      if (res.ok) {
+        toast.success("¡Bienvenido! 🚀 Verificarás tu email después.");
+        await refreshSession();
+        setLocation("/");
+      } else {
+        toast.error("Error al iniciar sesión. Intenta nuevamente.");
       }
     } catch (err) {
       toast.error("Error conectando con el servidor");
@@ -309,6 +353,7 @@ export default function AuthPage() {
                     setRequiresEmailVerification(false);
                     setVerificationEmail("");
                     setVerificationCode("");
+                    setEmailNotReceived(false);
                   }}
                   className="h-8 w-8 p-0"
                 >
@@ -317,51 +362,111 @@ export default function AuthPage() {
                 <CardTitle>Verifica tu Email</CardTitle>
               </div>
               <CardDescription>
-                Enviamos un código de 6 dígitos a {verificationEmail}
+                {!emailNotReceived 
+                  ? `Enviamos un código de 6 dígitos a ${verificationEmail}`
+                  : "No recibiste el email? Puedes continuar de todas formas"
+                }
               </CardDescription>
             </CardHeader>
-            <form onSubmit={handleVerifyEmail}>
-              <CardContent className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="verification-code">Código de Verificación</Label>
-                  <div className="relative">
-                    <Mail className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-                    <Input
-                      id="verification-code"
-                      placeholder="000000"
-                      className="pl-10 text-center text-2xl tracking-widest"
-                      required
-                      maxLength={6}
-                      value={verificationCode}
-                      onChange={(e) => setVerificationCode(e.target.value.replace(/\D/g, ''))}
-                    />
+            
+            {!emailNotReceived && (
+              <form onSubmit={handleVerifyEmail}>
+                <CardContent className="space-y-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="verification-code">Código de Verificación</Label>
+                    <div className="relative">
+                      <Mail className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+                      <Input
+                        id="verification-code"
+                        placeholder="000000"
+                        className="pl-10 text-center text-2xl tracking-widest"
+                        required
+                        maxLength={6}
+                        value={verificationCode}
+                        onChange={(e) => setVerificationCode(e.target.value.replace(/\D/g, ''))}
+                      />
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      El código expira en 15 minutos. Revisa también tu carpeta de spam.
+                    </p>
                   </div>
-                  <p className="text-xs text-muted-foreground">
-                    El código expira en 15 minutos
+                </CardContent>
+                <CardFooter className="flex flex-col gap-2">
+                  <Button 
+                    type="submit"
+                    className="w-full" 
+                    disabled={isLoading || verificationCode.length !== 6}
+                  >
+                    {isLoading ? "Verificando..." : "Verificar Email"}
+                    <ShieldCheck className="ml-2 h-4 w-4" />
+                  </Button>
+                  <div className="flex gap-2 w-full">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={handleResendVerificationEmail}
+                      disabled={resendLoading}
+                      className="flex-1 text-xs"
+                    >
+                      {resendLoading ? "Enviando..." : "Reenviar Código"}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setEmailNotReceived(true)}
+                      className="flex-1 text-xs"
+                    >
+                      No recibí email
+                    </Button>
+                  </div>
+                </CardFooter>
+              </form>
+            )}
+            
+            {emailNotReceived && (
+              <CardContent className="space-y-4">
+                <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 space-y-3">
+                  <p className="text-sm font-medium text-amber-900">
+                    ⚠️ El email de verificación no llegó
                   </p>
+                  <ul className="text-xs text-amber-800 space-y-1 list-disc list-inside">
+                    <li>Revisa tu carpeta de spam o promotions</li>
+                    <li>Espera unos minutos, puede tardar</li>
+                    <li>Verifica que el email sea correcto</li>
+                  </ul>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={handleResendVerificationEmail}
+                    disabled={resendLoading}
+                    className="w-full text-xs"
+                  >
+                    {resendLoading ? "Reenviando..." : "Intentar reenviar"}
+                  </Button>
+                </div>
+                
+                <div className="border-t pt-4">
+                  <p className="text-xs text-muted-foreground mb-3">
+                    Puedes entrar sin verificación por ahora y verificar después desde tu panel.
+                  </p>
+                  <Button
+                    type="button"
+                    className="w-full"
+                    onClick={() => {
+                      // Hacer login automático con los datos de registro
+                      handleQuickLogin(verificationEmail);
+                    }}
+                    disabled={isLoading}
+                  >
+                    {isLoading ? "Entrando..." : "Continuar sin verificar"}
+                    <ArrowRight className="ml-2 h-4 w-4" />
+                  </Button>
                 </div>
               </CardContent>
-              <CardFooter className="flex flex-col gap-2">
-                <Button 
-                  type="submit"
-                  className="w-full" 
-                  disabled={isLoading || verificationCode.length !== 6}
-                >
-                  {isLoading ? "Verificando..." : "Verificar Email"}
-                  <ShieldCheck className="ml-2 h-4 w-4" />
-                </Button>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  onClick={handleResendVerificationEmail}
-                  disabled={resendLoading}
-                  className="text-xs"
-                >
-                  {resendLoading ? "Enviando..." : "¿No recibiste el código? Reenviar"}
-                </Button>
-              </CardFooter>
-            </form>
+            )}
           </Card>
         ) : showForgotPassword ? (
           <Card className="glass-panel border-none shadow-2xl">
