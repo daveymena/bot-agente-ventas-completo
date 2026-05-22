@@ -12,11 +12,16 @@ COPY . .
 
 # BUILD RELOAD - bump version 1.1
 # Instalar dependencias (incluye workspace packages)
-RUN pnpm install --frozen-lockfile
+RUN echo '$$(date)' > /app/build-timestamp.txt && \
+    echo 'Forcing Docker build to rebuild from scratch' > /app/force-rebuild.txt && \
+    pnpm install --frozen-lockfile
 
 # Build del proyecto
-RUN pnpm --filter @workspace/api-server run build
-RUN pnpm --filter @workspace/ventas-pro run build
+RUN echo '$$(date)' > /app/build-timestamp.txt && \
+    echo 'Forcing Docker build to rebuild from scratch' > /app/force-rebuild.txt && \
+    pnpm --filter @workspace/api-server run build && \
+    pnpm --filter @workspace/ventas-pro run build && \
+    rm -f /app/force-rebuild.txt
 
 # Production stage
 FROM node:22-alpine
