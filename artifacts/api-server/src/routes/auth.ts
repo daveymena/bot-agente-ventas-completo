@@ -681,3 +681,51 @@ router.post("/2fa/verify", async (req, res, next) => {
   }
 });
 */
+
+// CHECK EMAIL AVAILABILITY (para validación en tiempo real)
+router.post("/check-email", async (req, res, next) => {
+  try {
+    const { email } = z.object({ email: z.string().email() }).parse(req.body);
+    
+    const existing = await db.select().from(tenants).where(eq(tenants.email, email)).limit(1);
+    
+    return res.json({ 
+      available: existing.length === 0,
+      email 
+    });
+  } catch (e) {
+    return next(e);
+  }
+});
+
+// AUTO-VERIFY EMAIL (sin requerer entrada de código)
+router.post("/verify-email-auto", async (req, res, next) => {
+  try {
+    const { email } = z.object({ email: z.string().email() }).parse(req.body);
+    
+    // Buscar el tenant
+    const [tenant] = await db.select().from(tenants).where(eq(tenants.email, email)).limit(1);
+    
+    if (!tenant) {
+      return res.status(404).json({ error: "Tenant no encontrado" });
+    }
+
+    // Marcar como verificado sin requerer código
+    const [updated] = await db.update(tenants)
+      .set({ 
+        emailVerified: true,
+        emailVerificationCode: null,
+        emailVerificationExpiry: null 
+      })
+      .where(eq(tenants.id, tenant.id))
+      .returning();
+
+    logger.info({ email }, "[Auth] Email auto-verificado");
+    return res.json({ 
+      message: "Email verificado automáticamente",
+      emailVerified: true 
+    });
+  } catch (e) {
+    return next(e);
+  }
+});

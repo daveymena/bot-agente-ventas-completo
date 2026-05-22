@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
-import { Rocket, Mail, Lock, Store, User, ArrowRight, ShieldCheck, KeyRound, ArrowLeft, Check, X } from "lucide-react";
+import { Rocket, Mail, Lock, Store, User, ArrowRight, ShieldCheck, KeyRound, ArrowLeft, Check, X, CheckCircle, AlertCircle, Loader } from "lucide-react";
 import { useSession } from "@/App";
 
 export default function AuthPage() {
@@ -17,6 +17,11 @@ export default function AuthPage() {
   // Estados para modal de éxito de registro
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [successEmail, setSuccessEmail] = useState("");
+  const [verifyingEmail, setVerifyingEmail] = useState(false);
+
+  // Estados para validación de email
+  const [emailCheckStatus, setEmailCheckStatus] = useState<"idle" | "checking" | "available" | "taken">("idle");
+  const [emailCheckTimeout, setEmailCheckTimeout] = useState<NodeJS.Timeout | null>(null);
 
   // Estados para recuperación de contraseña
   const [showForgotPassword, setShowForgotPassword] = useState(false);
@@ -36,6 +41,44 @@ export default function AuthPage() {
     brandName: "",
     slug: ""
   });
+
+
+  // Validación de email en tiempo real
+  const handleEmailChange = (email: string) => {
+    setRegisterData({...registerData, email});
+    
+    // Limpiar timeout anterior
+    if (emailCheckTimeout) clearTimeout(emailCheckTimeout);
+    
+    if (!email || !email.includes("@")) {
+      setEmailCheckStatus("idle");
+      return;
+    }
+
+    setEmailCheckStatus("checking");
+    
+    // Esperar 500ms antes de verificar (para no saturar el servidor)
+    const timeout = setTimeout(async () => {
+      try {
+        const res = await fetch("/api/auth/check-email", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email })
+        });
+        
+        const data = await res.json();
+        if (data.available) {
+          setEmailCheckStatus("available");
+        } else {
+          setEmailCheckStatus("taken");
+        }
+      } catch {
+        setEmailCheckStatus("idle");
+      }
+    }, 500);
+    
+    setEmailCheckTimeout(timeout);
+  };
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -64,6 +107,25 @@ export default function AuthPage() {
     }
   };
 
+  // Auto-verificar email después del registro
+  const autoVerifyEmail = async (email: string) => {
+    try {
+      const res = await fetch("/api/auth/verify-email-auto", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email })
+      });
+
+      if (res.ok) {
+        setVerifyingEmail(false);
+        return true;
+      }
+    } catch {
+      // Silenciar errores de auto-verificación
+    }
+    return false;
+  };
+
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
     
@@ -83,12 +145,23 @@ export default function AuthPage() {
       return;
     }
 
+    // Slug es opcional ahora
+    let slugToSend = registerData.slug.trim();
+    if (!slugToSend) {
+      // Auto-generar slug del nombre de marca o nombre
+      slugToSend = (registerData.brandName || registerData.name)
+        .toLowerCase()
+        .replace(/\s+/g, '-')
+        .replace(/[^a-z0-9-]/g, '');
+    }
+
     setIsLoading(true);
+    setVerifyingEmail(true);
     try {
       const res = await fetch("/api/auth/register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(registerData)
+        body: JSON.stringify({...registerData, slug: slugToSend})
       });
       
       const data = await res.json();
@@ -99,13 +172,25 @@ export default function AuthPage() {
         setShowSuccessModal(true);
         setRegisterData({ name: "", email: "", password: "", brandName: "", slug: "" });
         
-        // Redirigir a login después de 2.5 segundos
+        // Intentar auto-verificar email en background
+        autoVerifyEmail(registerData.email);
+        
+        // Redirigir a login después de 3 segundos con transición suave
         setTimeout(() => {
           setShowSuccessModal(false);
-          // Cambiar a tab de login
-          const loginTab = document.querySelector('[value="login"]') as HTMLButtonElement;
-          if (loginTab) loginTab.click();
-        }, 2500);
+          // Esperar 500ms para la animación
+          setTimeout(() => {
+            const loginTab = document.querySelector('[value="login"]') as HTMLButtonElement;
+            if (loginTab) {
+              loginTab.click();
+              // Enfocar campo de email para mejor UX
+              setTimeout(() => {
+                const loginEmail = document.querySelector('#login-email') as HTMLInputElement;
+                if (loginEmail) loginEmail.focus();
+              }, 300);
+            }
+          }, 500);
+        }, 3000);
       } else {
         toast.error(data.error || "Error en el registro");
       }
@@ -129,7 +214,10 @@ export default function AuthPage() {
       const data = await res.json();
       if (res.ok) {
         toast.success("📧 Código enviado a tu email. Revisa tu bandeja de entrada.");
-        setForgotPasswordStep("code");
+        // Transición suave
+        setTimeout(() => {
+          setForgotPasswordStep("code");
+        }, 500);
       } else {
         toast.error(data.error || "Error al enviar código");
       }
@@ -156,7 +244,10 @@ export default function AuthPage() {
       const data = await res.json();
       if (res.ok) {
         toast.success("✅ Código verificado. Ingresa tu nueva contraseña.");
-        setForgotPasswordStep("newPassword");
+        // Transición suave
+        setTimeout(() => {
+          setForgotPasswordStep("newPassword");
+        }, 500);
       } else {
         toast.error(data.error || "Código inválido o expirado");
       }
@@ -196,32 +287,31 @@ export default function AuthPage() {
       if (res.ok) {
         toast.success("🎉 Contraseña cambiada exitosamente. Iniciando sesión...");
         
-        // Resetear estados
-        setShowForgotPassword(false);
-        setForgotPasswordStep("email");
-        setForgotPasswordData({ email: "", code: "", newPassword: "", confirmPassword: "" });
-        
-        // Hacer login automático
-        try {
-          const loginRes = await fetch("/api/auth/login", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            credentials: "include",
-            body: JSON.stringify({
-              email: forgotPasswordData.email,
-              password: forgotPasswordData.newPassword
-            })
-          });
+        // Resetear estados con transición suave
+        setTimeout(() => {
+          setShowForgotPassword(false);
+          setForgotPasswordStep("email");
+          setForgotPasswordData({ email: "", code: "", newPassword: "", confirmPassword: "" });
           
-          if (loginRes.ok) {
-            await refreshSession();
-            setLocation("/");
-          } else {
-            toast.info("Contraseña cambiada. Por favor inicia sesión.");
-          }
-        } catch (loginErr) {
-          toast.info("Contraseña cambiada. Por favor inicia sesión.");
-        }
+          // Hacer login automático
+          try {
+            fetch("/api/auth/login", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              credentials: "include",
+              body: JSON.stringify({
+                email: forgotPasswordData.email,
+                password: forgotPasswordData.newPassword
+              })
+            }).then(loginRes => {
+              if (loginRes.ok) {
+                refreshSession().then(() => {
+                  setTimeout(() => setLocation("/"), 500);
+                });
+              }
+            });
+          } catch {}
+        }, 800);
       } else {
         toast.error(data.error || "Error al cambiar contraseña");
       }
@@ -247,12 +337,12 @@ export default function AuthPage() {
 
         {/* Modal de Éxito del Registro */}
         {showSuccessModal && (
-          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-            <Card className="glass-panel border-none shadow-2xl max-w-[400px] animate-in">
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 animate-in fade-in">
+            <Card className="glass-panel border-none shadow-2xl max-w-[400px] animate-in slide-in-from-bottom-4 duration-500">
               <CardHeader className="text-center space-y-4">
                 <div className="flex justify-center">
-                  <div className="w-16 h-16 rounded-full bg-green-100 flex items-center justify-center">
-                    <Check className="w-8 h-8 text-green-600" />
+                  <div className="w-16 h-16 rounded-full bg-gradient-to-br from-green-100 to-emerald-100 flex items-center justify-center animate-in scale-in-50 duration-500">
+                    <Check className="w-8 h-8 text-green-600 animate-in zoom-in delay-200 duration-700" />
                   </div>
                 </div>
                 <div>
@@ -265,17 +355,25 @@ export default function AuthPage() {
                   Hemos enviado un email de confirmación a:
                 </p>
                 <p className="font-medium text-sm break-all">{successEmail}</p>
+                {verifyingEmail && (
+                  <div className="flex items-center justify-center gap-2 text-xs text-blue-600 mt-3">
+                    <Loader className="h-3 w-3 animate-spin" />
+                    Verificando email...
+                  </div>
+                )}
                 <p className="text-xs text-muted-foreground mt-4">
                   Serás redirigido a la página de inicio de sesión en unos segundos...
                 </p>
               </CardContent>
               <CardFooter>
                 <Button 
-                  className="w-full" 
+                  className="w-full transition-all duration-300" 
                   onClick={() => {
                     setShowSuccessModal(false);
-                    const loginTab = document.querySelector('[value="login"]') as HTMLButtonElement;
-                    if (loginTab) loginTab.click();
+                    setTimeout(() => {
+                      const loginTab = document.querySelector('[value="login"]') as HTMLButtonElement;
+                      if (loginTab) loginTab.click();
+                    }, 300);
                   }}
                 >
                   Ir a Iniciar Sesión
@@ -518,25 +616,38 @@ export default function AuthPage() {
                       </div>
                     </div>
                     <div className="space-y-2">
-                      <Label htmlFor="reg-email">Email</Label>
-                      <div className="relative">
-                        <Mail className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-                        <Input id="reg-email" type="email" placeholder="juan@tienda.com" className="pl-10" required 
-                          value={registerData.email}
-                          onChange={(e) => setRegisterData({...registerData, email: e.target.value})}
-                        />
-                      </div>
-                    </div>
+                       <Label htmlFor="reg-email">Email</Label>
+                       <div className="relative">
+                         <Mail className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+                         <Input id="reg-email" type="email" placeholder="juan@tienda.com" className="pl-10 pr-10" required 
+                           value={registerData.email}
+                           onChange={(e) => handleEmailChange(e.target.value)}
+                         />
+                         {registerData.email && emailCheckStatus === "checking" && (
+                           <Loader className="absolute right-3 top-3 h-4 w-4 text-blue-500 animate-spin" />
+                         )}
+                         {registerData.email && emailCheckStatus === "available" && (
+                           <CheckCircle className="absolute right-3 top-3 h-4 w-4 text-green-500" />
+                         )}
+                         {registerData.email && emailCheckStatus === "taken" && (
+                           <AlertCircle className="absolute right-3 top-3 h-4 w-4 text-red-500" />
+                         )}
+                       </div>
+                       {emailCheckStatus === "taken" && (
+                         <p className="text-xs text-red-500">Este email ya está registrado</p>
+                       )}
+                     </div>
                     <div className="space-y-2">
-                      <Label htmlFor="reg-slug">Slug (URL personalizada)</Label>
-                      <div className="flex items-center">
-                        <div className="bg-muted px-3 h-10 flex items-center rounded-l-md border border-r-0 text-xs text-muted-foreground">app.com/</div>
-                        <Input id="reg-slug" placeholder="mi-tienda" className="rounded-l-none" required 
-                          value={registerData.slug}
-                          onChange={(e) => setRegisterData({...registerData, slug: e.target.value.toLowerCase().replace(/ /g, '-')})}
-                        />
-                      </div>
-                    </div>
+                       <Label htmlFor="reg-slug">Slug (URL personalizada) <span className="text-xs text-muted-foreground">(opcional)</span></Label>
+                       <div className="flex items-center gap-1">
+                         <div className="bg-muted px-3 h-10 flex items-center rounded-l-md border border-r-0 text-xs text-muted-foreground">app.com/</div>
+                         <Input id="reg-slug" placeholder="auto-generado" className="rounded-l-none text-xs" 
+                           value={registerData.slug}
+                           onChange={(e) => setRegisterData({...registerData, slug: e.target.value.toLowerCase().replace(/ /g, '-')})}
+                         />
+                       </div>
+                       <p className="text-xs text-muted-foreground">Si no lo indicas, se generará automáticamente</p>
+                     </div>
                     <div className="space-y-2">
                       <Label htmlFor="reg-pass">Contraseña</Label>
                       <div className="relative">
@@ -564,15 +675,15 @@ export default function AuthPage() {
                       )}
                     </div>
                   </CardContent>
-                  <CardFooter>
-                    <Button 
-                      className="w-full shadow-lg shadow-primary/20 group" 
-                      disabled={isLoading || registerData.password.length < 8 || !/[A-Z]/.test(registerData.password) || !/[0-9]/.test(registerData.password)}
-                    >
-                      {isLoading ? "Creando..." : "Registrar Tienda ✨"}
-                      <ShieldCheck className="ml-2 h-4 w-4" />
-                    </Button>
-                  </CardFooter>
+                   <CardFooter>
+                     <Button 
+                       className="w-full shadow-lg shadow-primary/20 group transition-all duration-300" 
+                       disabled={isLoading || registerData.password.length < 8 || !/[A-Z]/.test(registerData.password) || !/[0-9]/.test(registerData.password) || emailCheckStatus === "taken" || emailCheckStatus === "checking"}
+                     >
+                       {isLoading ? "Creando..." : "Registrar Tienda ✨"}
+                       <ShieldCheck className="ml-2 h-4 w-4" />
+                     </Button>
+                   </CardFooter>
                 </form>
               </Card>
             </TabsContent>
