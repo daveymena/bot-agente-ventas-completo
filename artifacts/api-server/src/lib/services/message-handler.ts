@@ -60,7 +60,8 @@ export class MessageHandler {
     console.log(`🔍 [MessageHandler] Validando mensaje - Tenant Recibido: "${params.tenantId}", Tipo: ${typeof params.tenantId}`);
 
     // Fuerza bruta: El tenant 1 siempre está habilitado
-    const isEnabled = params.tenantId === "1" || params.tenantId === 1 || config?.enabled === true;
+    const tenantId = typeof params.tenantId === 'string' ? parseInt(params.tenantId) : params.tenantId;
+    const isEnabled = tenantId === 1 || config?.enabled === true;
 
     if (!isEnabled) {
       logger.warn(`[MessageHandler] Tenant ${params.tenantId} not configured or disabled (isEnabled: ${isEnabled})`);
@@ -76,7 +77,7 @@ export class MessageHandler {
       // 1. Obtener o crear conversación
       // Limpiar el teléfono para evitar duplicados por formato (ej: +57 vs 57)
       const phone = params.remoteJid.split('@')[0].replace(/\D/g, ''); 
-      const tenantIdNum = parseInt(params.tenantId);
+      const tenantIdNum = tenantId;
       
       let convo = (await db.select().from(conversations)
         .where(and(

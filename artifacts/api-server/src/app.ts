@@ -27,9 +27,15 @@ whatsapp.start().catch(err => {
 
 // Auto-start AI Processor (Orchestrator) on boot
 import { getAgentOrchestrator } from "./lib/services/agent-orchestrator";
+import { getMessageHandler } from "./lib/services/message-handler";
 const orchestrator = getAgentOrchestrator();
 orchestrator.configureTenant("1", { enabled: true, processingIntervalMs: 1500 });
 logger.info("[AgentOrchestrator] AI processing auto-started for default tenant");
+
+// Configure MessageHandler for receiving incoming WhatsApp messages
+const messageHandler = getMessageHandler();
+messageHandler.configureTenant("1", { enabled: true });
+logger.info("[MessageHandler] Message receiver configured for default tenant");
 
 // Auto-seed agents if they don't exist
 (async () => {

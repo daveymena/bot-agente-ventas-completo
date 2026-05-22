@@ -14,6 +14,7 @@ import {
 import { logger } from "./logger";
 import { runAgentReply } from "./agent";
 import { createAIClient, getProviderConfig } from "@workspace/integrations-openai-ai-server";
+import { getMessageHandler } from "./services/message-handler";
 import { tenantManager, addTenantToInsert, type TenantContext } from "./tenantManager";
 import { 
   makeWASocket, 
@@ -658,9 +659,27 @@ export class WhatsAppManager {
               }
             }
             
-            console.log("✅ Texto extraído:", text.substring(0, 50));
-            await this.handleIncoming(phone, pushName, text.trim(), originalJid);
-          }
+             console.log("✅ Texto extraído:", text.substring(0, 50));
+             
+             // ✅ DELEGADO AL MESSAGE HANDLER + ORCHESTRATOR
+             // El MessageHandler encola el mensaje y el AgentOrchestrator lo procesa
+             // Esto evita respuestas duplicadas al procesar por una sola ruta
+             const messageHandler = getMessageHandler();
+             try {
+               await messageHandler.handleIncomingMessage({
+                 tenantId: "1",
+                 remoteJid: originalJid,
+                 fromMe: false,
+                 messageId: msg.key.id || `msg_${Date.now()}`,
+                 body: text.trim(),
+                 timestamp: new Date(msg.messageTimestamp ? msg.messageTimestamp * 1000 : Date.now()),
+                 pushName,
+               });
+               console.log(`📤 [WA-QUEUE] Mensaje encolado exitosamente a MessageHandler: ${text.substring(0, 30)}...`);
+             } catch (error) {
+               console.error(`❌ [WA-QUEUE] Error encolando mensaje en MessageHandler:`, error);
+             }
+           }
         } catch (e) {
           logger.error({ err: e }, "Error processing incoming message");
         }
@@ -767,55 +786,6 @@ export class WhatsAppManager {
     console.log(`🏁 [WA-PARTS] Envío de partes completado - Total: ${parts.length} partes procesadas - ${timestamp}`);
   }
 
-  private async handleIncoming(phone: string, pushName: string, text: string, originalJid?: string) {
-    const timestamp = new Date().toISOString();
-    console.log(`🔔 [WA-INCOMING] handleIncoming iniciado - Teléfono: ${phone}, Nombre: ${pushName}, Mensaje: "${text.substring(0, 50)}" - ${timestamp}`);
-    
-    try {
-      let convo = (await db.select().from(conversations).where(eq(conversations.contactPhone, phone)).limit(1))[0];
-      
-      if (!convo) {
-        console.log(`🆕 [WA-NEW] Creando nueva conversación para: ${phone} (${pushName}) - ${timestamp}`);
-        const [lead] = await db.insert(leads).values(addTenantToInsert({ name: pushName, phone, stage: "new", value: "0", source: "whatsapp" }, this.currentTenant.id)).returning();
-        const [created] = await db.insert(conversations).values(addTenantToInsert({ contactName: pushName, contactPhone: phone, status: "ai", currentStage: "greeting", leadId: lead?.id, unreadCount: 0 }, this.currentTenant.id)).returning();
-        convo = created!;
-        console.log(`📝 [WA-NEW] Nueva conversación creada exitosamente - ID: ${convo.id}, Lead ID: ${lead?.id} - ${timestamp}`);
-      } else {
-        console.log(`📱 [WA-EXISTING] Conversación existente encontrada - ID: ${convo.id}, Estado: ${convo.status}, Etapa: ${convo.currentStage} - ${timestamp}`);
-      }
-
-      console.log(`💾 [WA-SAVE] Guardando mensaje en BD - Conversación: ${convo.id} - ${timestamp}`);
-      await db.insert(messages).values({ conversationId: convo.id, role: "customer", content: text, stage: convo.currentStage });
-      await db.update(conversations).set({ lastMessage: text, lastMessageAt: new Date() }).where(eq(conversations.id, convo.id));
-
-      console.log(`📩 [WA-SAVED] Mensaje guardado exitosamente - "${text.substring(0, 30)}" | Conversación ID: ${convo.id} | Estado: ${convo.status} - ${timestamp}`);
-
-      if (convo.status === "ai") {
-        console.log(`🤖 [WA-AI] Estado es AI, ejecutando runAgentReply para conversación ${convo.id} - ${timestamp}`);
-        try {
-          console.log(`🔄 [WA-AI] Llamando runAgentReply(${convo.id}) - ${timestamp}`);
-          const reply = await runAgentReply(convo.id);
-          console.log(`📥 [WA-AI] runAgentReply completada - Respuesta: ${reply ? "SÍ" : "NO"}, Partes: ${reply?.parts?.length || 0} - ${timestamp}`);
-          
-          if (reply) {
-            console.log(`📤 [WA-SEND] Enviando respuesta con ${reply.parts?.length || 0} partes a ${phone} - ${timestamp}`);
-            await this.sendAgentParts(phone, pushName, reply.parts, originalJid);
-            console.log(`✅ [WA-SEND] Respuesta enviada exitosamente a ${phone} - ${timestamp}`);
-          } else {
-            console.log(`⚠️ [WA-WARNING] runAgentReply devolvió null para conversación ${convo.id} - ${timestamp}`);
-          }
-        } catch (err: any) {
-          console.error(`❌ [WA-ERROR] Error en runAgentReply para conversación ${convo.id}: ${err.message || err} - ${timestamp}`);
-          console.error(`🔍 [WA-ERROR] Stack trace:`, err.stack);
-        }
-      } else {
-        console.log(`⏭️ [WA-SKIP] Estado es "${convo.status}", no se responde automáticamente - ${timestamp}`);
-      }
-    } catch (err: any) {
-      console.error(`💥 [WA-CRITICAL] Error crítico en handleIncoming para ${phone}: ${err.message || err} - ${timestamp}`);
-      console.error(`🔍 [WA-CRITICAL] Stack trace:`, err.stack);
-    }
-  }
 }
 
 function hashCode(s: string) {
