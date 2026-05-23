@@ -545,25 +545,39 @@ IMPORTANTE: Usa esta información para responder de manera empática y estratég
 export async function runAgentReply(conversationId: number) {
   const startTime = Date.now();
   const ts = () => new Date().toISOString();
+  const logTime = (label: string) => {
+    const elapsed = Date.now() - startTime;
+    console.log(`⏱️ [TIMING] ${label}: ${elapsed}ms - ${ts()}`);
+  };
+  
   console.log(`🔍 [AGENT-START] runAgentReply iniciado para conversación ${conversationId} - ${ts()}`);
 
   // ── 1. Cargar conversación ────────────────────────────────────────────────
+  let t1 = Date.now();
   const [convo] = await db.select().from(conversations).where(eq(conversations.id, conversationId)).limit(1);
+  logTime(`1. Cargar conversación: ${Date.now() - t1}ms`);
+  
   if (!convo) {
     console.log(`❌ [AGENT-ERROR] Conversación ${conversationId} no encontrada - ${ts()}`);
     return null;
   }
 
   // ── 2. Cargar memoria estructurada desde BD (fuente única de verdad) ──────
+  t1 = Date.now();
   const memory = await loadConversationMemory(conversationId);
+  logTime(`2. Cargar memoria: ${Date.now() - t1}ms`);
+  
   const lastText = memory.lastCustomerMessage;
   const customerName = convo.contactName || "cliente";
 
   console.log(`🧠 [ENGINE] Memoria cargada - hasGreeted:${memory.hasGreeted} stage:${memory.currentStage} product:${memory.currentProductName || "none"} sentCards:[${Array.from(memory.sentProductIds).join(",")}] isNewSession:${memory.isNewSession} - ${ts()}`);
 
   // ── 3. Seleccionar agente activo ──────────────────────────────────────────
+  t1 = Date.now();
   const { getActiveAgent } = await import("./agent-router");
   const activeAgent = await getActiveAgent(lastText, conversationId, convo.tenantId);
+  logTime(`3. Seleccionar agente: ${Date.now() - t1}ms`);
+  
   if (!activeAgent) {
     console.log(`❌ [AGENT-ERROR] No hay agente activo configurado - ${ts()}`);
     return null;
@@ -571,7 +585,9 @@ export async function runAgentReply(conversationId: number) {
   console.log(`🤖 [AGENT-INFO] Agente activo: ${activeAgent.name} - ${ts()}`);
 
   // ── 4. Cargar productos y categorías (OPTIMIZADO - SELECTIVO) ─────────────
+  t1 = Date.now();
   const [appSettings] = await db.select().from(settingsTable).limit(1);
+  logTime(`4a. Cargar settings: ${Date.now() - t1}ms`);
   
   // Determinar si necesitamos productos basado en intención
   // Primero hacer un análisis rápido de intención sin cargar todo
@@ -582,30 +598,39 @@ export async function runAgentReply(conversationId: number) {
   
   if (needsProductsQuick) {
     // Solo cargar si es probable que sea product_query o payment_intent
+    t1 = Date.now();
     productList = await db.select().from(products)
       .where(eq(products.isActive, true))
       .limit(50); // Limitar a 50 productos más recientes
+    logTime(`4b. Cargar productos: ${Date.now() - t1}ms`);
     
+    t1 = Date.now();
     const allCategories = await db.select().from(productCategories);
     categoryMap = new Map(allCategories.map(c => [c.id, c.name.toLowerCase()]));
+    logTime(`4c. Cargar categorías: ${Date.now() - t1}ms`);
+    
     console.log(`📦 [AGENT-INFO] Productos cargados: ${productList.length} (selectivo) - ${ts()}`);
   } else {
     console.log(`📦 [AGENT-INFO] Productos omitidos (no necesarios) - ${ts()}`);
   }
 
   // ── 5. Motor de decisión ──────────────────────────────────────────────────
+  t1 = Date.now();
   const decision = await computeDecision(memory, lastText, productList, categoryMap);
+  logTime(`5. Motor de decisión: ${Date.now() - t1}ms`);
+  
   console.log(`🎯 [ENGINE-DECISION] ${decision.debugReason} - ${ts()}`);
 
   // ── 6. Obtener la voz del negocio (ANTES de cualquier respuesta) ─────────
+  t1 = Date.now();
   const voice = getBrandVoice(
     activeAgent.metadata as Record<string, any> | null,
     appSettings ? { businessName: appSettings.businessName } : null
   );
+  logTime(`6. Obtener voz del negocio: ${Date.now() - t1}ms`);
 
   // ── 7. CEREBRO DE RAZONAMIENTO: analiza ANTES de cualquier camino ────────
-  // El cerebro detecta emoción, elige estrategia, define prohibiciones y requisitos.
-  // El cerebro tiene la AUTORIDAD TOTAL para decidir si usar fast-track o IA.
+  t1 = Date.now();
   const hcIntent = decision.intent === "details_query" ? detectHardcodedIntent(lastText) : null;
   const hardcodedYaDado = hcIntent ? hasHardcodedAnswerBeenGiven(memory, hcIntent) : false;
   const brain = analyzeBrain(
@@ -616,19 +641,20 @@ export async function runAgentReply(conversationId: number) {
     decision.productToShow?.name || memory.currentProductName,
     hardcodedYaDado
   );
+  logTime(`7. Análisis del cerebro: ${Date.now() - t1}ms`);
+  
   console.log(`🧠 [BRAIN] estado:${brain.emotionalState} estrategia:${brain.strategy} — ${brain.strategyReason} - ${ts()}`);
 
   // ── 8. Construir catálogo para el prompt (OPTIMIZADO - SELECTIVO) ────────
+  t1 = Date.now();
   let productsBlock = "";
   
   if (decision.productToShow) {
-    // Si hay producto en contexto, solo mostrar ese
     const p = decision.productToShow;
     const features = (p.features as string[]) || [];
     productsBlock = `[PRODUCTO ID: ${p.id}] ${p.name} | Precio: ${formatPrice(Number(p.price), p.currency)} | ${p.description || ""}${features.length ? " | " + features.join(", ") : ""}`;
     console.log(`📦 [CATALOG] Mostrando solo producto en contexto: ${p.name}`);
   } else if (productList.length > 0 && (decision.intent === "product_query" || decision.intent === "payment_intent")) {
-    // Si es búsqueda, mostrar solo top 5 productos
     const topProducts = productList.slice(0, 5);
     productsBlock = topProducts.map(p => {
       const features = (p.features as string[]) || [];
@@ -636,10 +662,10 @@ export async function runAgentReply(conversationId: number) {
     }).join("\n");
     console.log(`📦 [CATALOG] Mostrando top 5 productos para búsqueda`);
   } else {
-    // Para otros intents, no incluir catálogo
     productsBlock = "[Catálogo disponible bajo demanda]";
     console.log(`📦 [CATALOG] Sin catálogo para intent: ${decision.intent}`);
   }
+  logTime(`8. Construir catálogo: ${Date.now() - t1}ms`);
 
   // ── 9. Construir prompt base del sistema ──────────────────────────────────
   const hasSentCardAlready = memory.sentProductIds.size > 0;
@@ -836,6 +862,9 @@ ${isPaymentIntent ? "[7] El cliente quiere COMPRAR. Confirma brevemente y con en
 
   //   ── 12. Llamada a IA con rotación de proveedores ──────────────────────────
   const customerInfo = { name: convo.contactName, phone: convo.contactPhone };
+  
+  const t12Start = Date.now();
+  console.log(`⏱️ [TIMING] Iniciando llamada a IA - ${ts()}`);
 
   const result = await executeWithFallback(
     async () => {
@@ -1231,6 +1260,8 @@ ${isPaymentIntent ? "[7] El cliente quiere COMPRAR. Confirma brevemente y con en
         .where(eq(conversations.id, conversationId));
 
       const totalTime = Date.now() - startTime;
+      const aiTime = Date.now() - t12Start;
+      console.log(`⏱️ [TIMING] Llamada a IA: ${aiTime}ms`);
       console.log(`🏁 [AGENT-END] Completado en ${totalTime}ms proveedor:${usedProvider} - ${ts()}`);
 
       return {
