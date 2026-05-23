@@ -2825,10 +2825,11 @@ export const getGetStoreLayoutQueryKey = (slug: string) => {
 
 export const getGetStoreLayoutQueryOptions = <
   TData = Awaited<ReturnType<typeof getStoreLayout>>,
+  TError = ErrorType<unknown>,
 >(slug: string, options?: {
   query?: UseQueryOptions<
     Awaited<ReturnType<typeof getStoreLayout>>,
-    ErrorType<unknown>,
+    TError,
     TData
   >;
   request?: SecondParameter<typeof customFetch>;
@@ -2837,7 +2838,11 @@ export const getGetStoreLayoutQueryOptions = <
   const { query: queryOptions, request: requestOptions } = options ?? {};
   const queryFn: QueryFunction<Awaited<ReturnType<typeof getStoreLayout>>> = ({ signal }) =>
     getStoreLayout(slug, { signal, ...requestOptions });
-  return { queryKey, queryFn, enabled: !!slug, ...queryOptions };
+  return { queryKey, queryFn, enabled: !!slug, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getStoreLayout>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
 };
 
 export const useGetStoreLayout = <
