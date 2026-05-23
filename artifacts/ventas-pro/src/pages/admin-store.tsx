@@ -71,6 +71,7 @@ const niches: NicheTemplate[] = [
 
 function TemplatesTab() {
   const { tenant } = useSession();
+  const [, setLocation] = useLocation();
   const queryClient = useQueryClient();
   const { data: existingProducts } = useListProducts();
   const [selected, setSelected] = useState<string | null>(null);
