@@ -874,55 +874,18 @@ ${isPaymentIntent ? "[7] El cliente quiere COMPRAR. Confirma brevemente y con en
 
       // ── Helper: pushear fallbacks disponibles ──
       const pushFallbacks = (queue: { config: any; source: string }[]) => {
-        // Proveedores gratuitos de free-llm-api-resources
-        const freeProviders = [
-          { key: "openrouter", name: "openrouter/llama-3.3-70b-instruct:free", healthy: "openrouter" },
-          { key: "google_ai_studio", name: "google/gemini-2.5-flash", healthy: "google_ai_studio" },
-          { key: "groq", name: "groq/llama-3.3-70b-versatile", healthy: "groq" },
-          { key: "cerebras", name: "cerebras/llama-3.1-8b-instruct", healthy: "cerebras" },
-          { key: "cloudflare_workers", name: "cf/llama-3.3-70b-instruct", healthy: "cloudflare_workers" },
-          { key: "cohere", name: "cohere/command-a-03-2025", healthy: "cohere" },
-          { key: "mistral", name: "mistral/mistral-small-latest", healthy: "mistral" },
-          { key: "mistral_codestral", name: "mistral/codestral-latest", healthy: "mistral_codestral" },
-          { key: "huggingface", name: "hf/llama-3.3-70b-instruct", healthy: "huggingface" },
-          { key: "opencode_zen", name: "zen/deepseek-v4-flash-free", healthy: "opencode_zen" },
-          { key: "deepseek", name: "deepseek/deepseek-chat", healthy: "deepseek" },
-          { key: "together", name: "together/llama-3.1-405b", healthy: "together" },
-          { key: "novita", name: "novita/llama-3.3-70b", healthy: "novita" },
-          { key: "nebius", name: "nebius/llama-3.3-70b-instruct", healthy: "nebius" },
-          { key: "hyperbolic", name: "hyperbolic/llama-3.3-70b", healthy: "hyperbolic" },
-          { key: "sambanova", name: "sambanova/llama-3.3-70b", healthy: "sambanova" },
-          { key: "alibaba", name: "alibaba/qwen-plus", healthy: "alibaba" },
-          { key: "fireworks", name: "fireworks/llama-v31-70b", healthy: "fireworks" },
-          { key: "ai21", name: "ai21/jamba-1.5-large", healthy: "ai21" },
-          { key: "upstage", name: "upstage/solar-pro2", healthy: "upstage" },
-          { key: "nlp_cloud", name: "nlp_cloud/llama-3.3-70b", healthy: "nlp_cloud" },
-        ];
-
-        for (const p of freeProviders) {
-          if (activeProvider !== p.key) {
-            const cfg = getProviderConfig(p.key);
-            if (cfg && healthMonitor.isServiceHealthy(p.healthy)) {
-              queue.push({ config: cfg, source: p.name });
-            }
-          }
-        }
-
         const copilotEnv = getProviderConfig("github_copilot_internal");
         const nvidiaEnv = getProviderConfig("nvidia");
         const githubEnv = getProviderConfig("github");
         const nvidiaFast = getProviderConfig("nvidia_fast");
-        const ollamaConfig = getProviderConfig("ollama_local");
         if (activeProvider !== "nvidia" && nvidiaEnv && healthMonitor.isServiceHealthy("nvidia_70b"))
           queue.push({ config: nvidiaEnv, source: "nvidia_70b" });
-        if (activeProvider !== "github_copilot_internal" && copilotEnv && healthMonitor.isServiceHealthy("copilot_internal"))
-          queue.push({ config: copilotEnv, source: "copilot_internal" });
         if (activeProvider !== "github" && githubEnv && healthMonitor.isServiceHealthy("github_env"))
           queue.push({ config: githubEnv, source: "github_env" });
+        if (activeProvider !== "github_copilot_internal" && copilotEnv && healthMonitor.isServiceHealthy("copilot_internal"))
+          queue.push({ config: copilotEnv, source: "copilot_internal" });
         if (activeProvider !== "nvidia" && nvidiaFast && healthMonitor.isServiceHealthy("nvidia_8b"))
           queue.push({ config: nvidiaFast, source: "nvidia_8b" });
-        if (activeProvider !== "ollama_local" && ollamaConfig && healthMonitor.isServiceHealthy("ollama_local"))
-          queue.push({ config: ollamaConfig, source: "ollama_local" });
       };
 
       // ── Helper: probar cola de proveedores ──
@@ -950,12 +913,12 @@ ${isPaymentIntent ? "[7] El cliente quiere COMPRAR. Confirma brevemente y con en
           try {
             console.log(`🎯 [AI] Intentando proveedor: ${source} (timeout: ${timeout}ms) - ${ts()}`);
             if (config.baseUrl === "https://api.githubcopilot.com") {
-              const isGithubPat = config.apiKey.startsWith("gho_") || config.apiKey.startsWith("ghp_") || config.apiKey.startsWith("ghu_");
-              if (isGithubPat) {
-                const { getCopilotSessionToken } = await import("./copilot");
-                const session = await getCopilotSessionToken(config.apiKey);
-                if (session) config.apiKey = session.token;
+              const { getCopilotSessionToken } = await import("./copilot");
+              let session = await getCopilotSessionToken(config.apiKey);
+              if (!session && process.env.GITHUB_TOKEN) {
+                session = await getCopilotSessionToken(process.env.GITHUB_TOKEN);
               }
+              if (session) config.apiKey = session.token;
             }
             const client = createAIClient(config);
             const completion = await retryWithBackoff(
@@ -1022,14 +985,6 @@ ${isPaymentIntent ? "[7] El cliente quiere COMPRAR. Confirma brevemente y con en
               const modelName = opencodeEnv.model.replace("opencode/", "");
               rotationQueue.push({ config: opencodeEnv, source: `opencode/${modelName}` });
             }
-          } else if (prov === "github_copilot_internal") {
-            const cfg = getProviderConfig(prov);
-            if (cfg && healthMonitor.isServiceHealthy("copilot_internal"))
-              rotationQueue.push({ config: cfg, source: "github_copilot_internal" });
-          } else if (prov === "ollama_local") {
-            const cfg = getProviderConfig(prov);
-            if (cfg && healthMonitor.isServiceHealthy("ollama_local"))
-              rotationQueue.push({ config: cfg, source: "ollama_local" });
           } else if (prov === "nvidia") {
             const cfg = getProviderConfig("nvidia");
             if (cfg && healthMonitor.isServiceHealthy("nvidia_70b"))

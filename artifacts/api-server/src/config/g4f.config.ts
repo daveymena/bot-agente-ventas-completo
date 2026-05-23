@@ -6,7 +6,7 @@
 export const G4F_ENABLED = process.env.G4F_ENABLED === "true";
 export const G4F_PROVIDER = process.env.G4F_PROVIDER || "auto";
 export const G4F_MODEL = process.env.G4F_MODEL || "gpt-4-turbo";
-export const G4F_TIMEOUT = parseInt(process.env.G4F_TIMEOUT || "30", 10);
+export const G4F_TIMEOUT = parseInt(process.env.G4F_TIMEOUT || "8", 10);
 
 // Fallback AI Configuration
 export const AI_FALLBACK_ENABLED = process.env.AI_FALLBACK_ENABLED === "true";

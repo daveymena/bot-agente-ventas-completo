@@ -32,7 +32,7 @@ class OptimizedProviderRotation {
     ollama_local: 5000,          // 5 segundos (era 12) - CRÍTICO: Ollama es lento
     nvidia: 8000,                // 8 segundos (era 15)
     github_models: 8000,         // 8 segundos (era 12)
-    g4f: 10000,                  // 10 segundos (era 20)
+    g4f: 8000,                   // 8 segundos (era 10)
   };
 
   // Cooldown muy corto para fallos (OPTIMIZADO)
@@ -79,8 +79,8 @@ class OptimizedProviderRotation {
       }
     }
 
-    // Añadir el resto en orden (SIN OLLAMA EN EASYPANEL - ES MUY LENTO)
-    const order = ["opencode", "github_copilot_internal", "nvidia", "github", "g4f"]; // Removido: ollama_local
+    // Añadir el resto en orden (solo proveedores con token que funcionan)
+    const order = ["opencode", "nvidia", "github", "g4f"];
     
     for (const provider of order) {
       // Saltar si ya está en la lista o en cooldown

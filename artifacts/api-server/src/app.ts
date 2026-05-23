@@ -29,7 +29,7 @@ whatsapp.start().catch(err => {
 import { getAgentOrchestrator } from "./lib/services/agent-orchestrator";
 import { getMessageHandler } from "./lib/services/message-handler";
 const orchestrator = getAgentOrchestrator();
-orchestrator.configureTenant("1", { enabled: true, processingIntervalMs: 1500 });
+orchestrator.configureTenant("1", { enabled: true, processingIntervalMs: 500 });
 logger.info("[AgentOrchestrator] AI processing auto-started for default tenant");
 
 // Configure MessageHandler for receiving incoming WhatsApp messages

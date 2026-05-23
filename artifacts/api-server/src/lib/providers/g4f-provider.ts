@@ -163,7 +163,7 @@ export async function getG4FImage(
           height: options?.height || 1024,
         }),
         new Promise((_, reject) =>
-          setTimeout(() => reject(new Error("G4F image timeout")), (G4F_TIMEOUT || 60) * 1000)
+          setTimeout(() => reject(new Error("G4F image timeout")), (G4F_TIMEOUT || 15) * 1000)
         ),
       ]);
 
