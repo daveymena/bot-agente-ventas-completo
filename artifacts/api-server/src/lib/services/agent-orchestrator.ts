@@ -12,7 +12,7 @@
 
 import { getMessageQueue, QueuedMessage } from '../message-queue';
 import { runAgentReply } from '../agent';
-import { whatsapp } from '../whatsapp';
+import { whatsapp, type AgentReplyPart } from '../whatsapp';
 import { db } from "@workspace/db";
 import { messages } from "@workspace/db";
 import { conversations } from "@workspace/db";
@@ -121,7 +121,7 @@ export class AgentOrchestrator {
       // Enviar respuesta via WhatsApp (Soporta Texto y Tarjetas Multimedia)
       if (reply && reply.parts) {
         const pushName = convo.contactName || phone;
-        await whatsapp.sendAgentParts(phone, pushName, reply.parts, message.from);
+        await whatsapp.sendAgentParts(phone, pushName, reply.parts as AgentReplyPart[], message.from);
         
         // Guardar cada parte en la BD para el historial del dashboard
         for (const part of reply.parts) {

@@ -25,7 +25,7 @@ import {
   followUps,
 } from "@workspace/db";
 import { runAgentReply } from "../lib/agent";
-import { whatsapp } from "../lib/whatsapp";
+import { whatsapp, type AgentReplyPart } from "../lib/whatsapp";
 import { logger } from "../lib/logger";
 import { getLeadScore, getLeadScoringDashboard } from "../lib/leadScoring";
 import { followUpScheduler, getDueFollowUps } from "../lib/followUpScheduler";
@@ -174,7 +174,7 @@ router.post("/:id/handoff", async (req, res, next) => {
       try {
         const reply = await runAgentReply(id);
         if (reply && whatsapp.isConnected()) {
-          await whatsapp.sendAgentParts(updated.contactPhone, updated.contactName, reply.parts);
+          await whatsapp.sendAgentParts(updated.contactPhone, updated.contactName, reply.parts as AgentReplyPart[]);
         }
       } catch (err) {
         logger.warn({ err }, "Agent reply after handoff failed");
