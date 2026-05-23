@@ -47,7 +47,14 @@ if (!dbUrl) {
 
 export const pool = new Pool({ 
   connectionString: dbUrl,
-  ssl: dbUrl.includes("sslmode=disable") ? false : { rejectUnauthorized: false }
+  ssl: dbUrl.includes("sslmode=disable") ? false : { rejectUnauthorized: false },
+  // OPTIMIZACIONES PARA EASYPANEL (Conexión remota lenta)
+  max: 20,                    // Máximo de conexiones simultáneas
+  min: 5,                     // Mínimo de conexiones en pool
+  idleTimeoutMillis: 30000,   // Cerrar conexión inactiva después de 30s
+  connectionTimeoutMillis: 5000, // Timeout de conexión: 5 segundos
+  statement_timeout: 10000,   // Timeout de query: 10 segundos
+  query_timeout: 10000,       // Timeout de query: 10 segundos
 });
 export const db = drizzle(pool, { schema });
 

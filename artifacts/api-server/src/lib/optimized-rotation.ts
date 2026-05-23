@@ -25,18 +25,18 @@ class OptimizedProviderRotation {
   private blacklist: Set<string> = new Set();
   private lastSuccessfulProvider: string | null = null;
   
-  // Timeouts agresivos para respuestas rápidas (OPTIMIZADO)
+  // Timeouts ULTRA-AGRESIVOS para EasyPanel (OPTIMIZADO PARA PRODUCCIÓN)
   private timeouts = {
-    opencode: 15000,             // 15 segundos (era 60)
-    github_copilot: 12000,       // 12 segundos (era 30)
-    ollama_local: 12000,         // 12 segundos (era 30)
-    nvidia: 15000,               // 15 segundos (era 45)
-    github_models: 12000,        // 12 segundos (era 30)
-    g4f: 20000,                  // 20 segundos (era 60)
+    opencode: 8000,              // 8 segundos (era 15)
+    github_copilot: 8000,        // 8 segundos (era 12)
+    ollama_local: 5000,          // 5 segundos (era 12) - CRÍTICO: Ollama es lento
+    nvidia: 8000,                // 8 segundos (era 15)
+    github_models: 8000,         // 8 segundos (era 12)
+    g4f: 10000,                  // 10 segundos (era 20)
   };
 
-  // Cooldown más corto para fallos (OPTIMIZADO)
-  private cooldownDuration = 10 * 1000;  // 10 segundos (era 30)
+  // Cooldown muy corto para fallos (OPTIMIZADO)
+  private cooldownDuration = 5 * 1000;  // 5 segundos (era 10)
 
   constructor() {
     this.initializeProviders();
@@ -79,8 +79,8 @@ class OptimizedProviderRotation {
       }
     }
 
-    // Añadir el resto en orden
-    const order = ["opencode", "github_copilot_internal", "ollama_local", "nvidia", "github", "g4f"];
+    // Añadir el resto en orden (SIN OLLAMA EN EASYPANEL - ES MUY LENTO)
+    const order = ["opencode", "github_copilot_internal", "nvidia", "github", "g4f"]; // Removido: ollama_local
     
     for (const provider of order) {
       // Saltar si ya está en la lista o en cooldown
