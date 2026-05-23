@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { z } from "zod";
-import { db, tenants } from "@workspace/db";
+import { db, tenants, stores } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import crypto from "crypto";
 import { tenantManager } from "../lib/tenantManager";
@@ -78,6 +78,19 @@ router.post("/register", async (req, res, next) => {
       }
     }).returning();
 
+    // Crear la tienda automáticamente para el nuevo tenant
+    try {
+      await db.insert(stores).values({
+        tenantId: newTenant.id,
+        name: brandName,
+        slug: slug,
+        theme: {}
+      });
+      logger.info({ tenantId: newTenant.id, slug }, "[Auth] Store created for new tenant");
+    } catch (storeErr) {
+      logger.warn({ tenantId: newTenant.id, err: storeErr }, "[Auth] Could not create store for new tenant");
+    }
+
     // Enviar email de verificación
     const sent = await sendVerificationEmail(email, verificationCode, name);
     
@@ -85,11 +98,28 @@ router.post("/register", async (req, res, next) => {
       logger.warn({ email }, "[Auth] Error enviando email de verificación, pero cuenta creada");
     }
 
-    logger.info({ email }, "[Auth] Registro exitoso, email de verificación enviado");
-    return res.status(201).json({ 
-      message: "Registro exitoso. Revisa tu email para verificar tu cuenta.", 
-      tenant: { id: newTenant.id, email: newTenant.email },
-      requiresVerification: true
+    // Auto-verificar email automáticamente
+    try {
+      await db.update(tenants).set({ emailVerified: true, emailVerificationCode: null, emailVerificationExpiry: null }).where(eq(tenants.id, newTenant.id));
+      logger.info({ email }, "[Auth] Email auto-verificado");
+    } catch (verifyErr) {
+      logger.warn({ email, err: verifyErr }, "[Auth] Error en auto-verificación");
+    }
+
+    // Establecer cookie de sesión (auto-login)
+    const isProduction = process.env.NODE_ENV === "production";
+    res.cookie("tenant_id", newTenant.id.toString(), {
+      httpOnly: false,
+      secure: isProduction,
+      sameSite: "lax",
+      maxAge: 30 * 24 * 60 * 60 * 1000, // 30 días
+    });
+
+    logger.info({ email }, "[Auth] Registro exitoso, auto-verificado, auto-login");
+    return res.status(201).json({
+      message: "Registro exitoso. Bienvenido!",
+      tenant: { id: newTenant.id, email: newTenant.email, name: newTenant.name, brandName: newTenant.brandName, slug: newTenant.slug },
+      autoLoggedIn: true
     });
   } catch (e) {
     return next(e);

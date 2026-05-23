@@ -190,6 +190,7 @@ const publicRoutes = [
   "/webhooks/subscription",
   "/activation",
   "/public", // Endpoints públicos (productos de tienda)
+  "/store", // Endpoints públicos de tienda (catalogo, layout)
 ];
 
 const isPublicRoute = (path: string) => {

@@ -167,30 +167,24 @@ export default function AuthPage() {
       const data = await res.json();
       
       if (res.ok) {
-        // Mostrar modal de éxito
-        setSuccessEmail(registerData.email);
-        setShowSuccessModal(true);
-        setRegisterData({ name: "", email: "", password: "", brandName: "", slug: "" });
-        
-        // Intentar auto-verificar email en background
-        autoVerifyEmail(registerData.email);
-        
-        // Redirigir a login después de 3 segundos con transición suave
-        setTimeout(() => {
-          setShowSuccessModal(false);
-          // Esperar 500ms para la animación
+        if (data.autoLoggedIn) {
+          toast.success("✅ ¡Registro exitoso! Bienvenido.");
+          await refreshSession();
+          setLocation("/dashboard");
+        } else {
+          // Fallback: mostrar modal de éxito
+          setSuccessEmail(registerData.email);
+          setShowSuccessModal(true);
+          setRegisterData({ name: "", email: "", password: "", brandName: "", slug: "" });
+          autoVerifyEmail(registerData.email);
           setTimeout(() => {
-            const loginTab = document.querySelector('[value="login"]') as HTMLButtonElement;
-            if (loginTab) {
-              loginTab.click();
-              // Enfocar campo de email para mejor UX
-              setTimeout(() => {
-                const loginEmail = document.querySelector('#login-email') as HTMLInputElement;
-                if (loginEmail) loginEmail.focus();
-              }, 300);
-            }
-          }, 500);
-        }, 3000);
+            setShowSuccessModal(false);
+            setTimeout(() => {
+              const loginTab = document.querySelector('[value="login"]') as HTMLButtonElement;
+              if (loginTab) loginTab.click();
+            }, 500);
+          }, 3000);
+        }
       } else {
         toast.error(data.error || "Error en el registro");
       }
