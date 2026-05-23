@@ -12,7 +12,8 @@ import {
   Wand2,
   Palette,
   ShoppingCart,
-  Eye
+  Eye,
+  Sparkles
 } from "lucide-react";
 import { Sidebar, SidebarContent, SidebarHeader, SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarProvider, SidebarTrigger, SidebarGroup, SidebarGroupContent } from "./ui/sidebar";
 import { Badge as UiBadge } from "@/components/ui/badge";
@@ -63,6 +64,7 @@ export function AppSidebar() {
     { label: "Tienda Admin", href: "/admin/store", icon: Package },
     { label: "Configuración", href: "/settings", icon: Settings },
     { label: "Planes", href: "/pricing", icon: Badge },
+    { label: "LM Arena", href: "/arena", icon: Sparkles },
     ...(sessionTenant?.slug ? [{ label: "Ver Tienda", href: `/mi-tienda`, icon: Eye }] : []),
     ...(isAdmin ? [{ label: "Admin Tenants", href: "/admin/tenants", icon: Crown }] : []),
 ];

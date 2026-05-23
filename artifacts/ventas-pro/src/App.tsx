@@ -32,6 +32,7 @@ import AdminTenantsPage from "@/pages/admin-tenants";
 import AdminStorePage from "@/pages/admin-store";
 import WooCommercePage from "@/pages/woocommerce";
 import StoreEditorPage from "@/pages/store-editor/StoreEditorPage";
+import ArenaPage from "@/pages/arena";
 
 // Context para la sesión
 interface SessionContextType {
@@ -128,6 +129,7 @@ function Router() {
       <Route path="/admin/tenants" component={AdminTenantsPage} />
       <Route path="/admin/store" component={AdminStorePage} />
       <Route path="/admin/store/editor" component={StoreEditorPage} />
+      <Route path="/arena" component={ArenaPage} />
       <Route path="/auth" component={AuthPage} />
       <Route component={NotFound} />
     </Switch>
