@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { ZodError } from "zod";
-import { db, stores, store_categories, store_products } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import { db, stores, store_categories, store_products, store_layouts } from "@workspace/db";
+import { eq, sql } from "drizzle-orm";
 import { Request, Response, NextFunction } from "express";
 
 const router = Router();
@@ -54,6 +54,40 @@ router.get("/admin/:slug", async (req: Request, res: Response, next: NextFunctio
   try {
     const store = (req as any).store;
     return res.json({ store });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Get store layout
+router.get("/admin/:slug/layout", async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const store = (req as any).store;
+    const layout = await db.select().from(store_layouts).where(eq(store_layouts.storeId, store.id)).then(r => r[0]);
+    return res.json({ layout: layout?.layoutData ?? null });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Save/update store layout (upsert)
+router.put("/admin/:slug/layout", async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const store = (req as any).store;
+    const { layoutData } = req.body;
+    if (!layoutData) return res.status(400).json({ message: "layoutData is required" });
+
+    const existing = await db.select().from(store_layouts).where(eq(store_layouts.storeId, store.id)).then(r => r[0]);
+
+    if (existing) {
+      await db.update(store_layouts)
+        .set({ layoutData, updatedAt: sql`NOW()` })
+        .where(eq(store_layouts.storeId, store.id));
+    } else {
+      await db.insert(store_layouts).values({ storeId: store.id, layoutData });
+    }
+
+    return res.json({ message: "Layout saved successfully" });
   } catch (err) {
     next(err);
   }

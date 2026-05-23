@@ -7,9 +7,10 @@ interface ToolbarProps {
   isPreview?: boolean;
   onResponsive?: (mode: 'desktop' | 'tablet' | 'mobile') => void;
   responsiveMode?: 'desktop' | 'tablet' | 'mobile';
+  saving?: boolean;
 }
 
-export const Toolbar = ({ onSave, onPreview, isPreview, onResponsive, responsiveMode = 'desktop' }: ToolbarProps) => {
+export const Toolbar = ({ onSave, onPreview, isPreview, onResponsive, responsiveMode = 'desktop', saving }: ToolbarProps) => {
   const { actions, query, canUndo, canRedo } = useEditor((state) => ({
     canUndo: state.options?.canUndo ?? false,
     canRedo: state.options?.canRedo ?? false,
@@ -70,9 +71,10 @@ export const Toolbar = ({ onSave, onPreview, isPreview, onResponsive, responsive
         {onSave && (
           <button
             onClick={onSave}
-            className="px-4 py-1.5 text-xs font-medium text-white bg-blue-600 rounded hover:bg-blue-700"
+            disabled={saving}
+            className="px-4 py-1.5 text-xs font-medium text-white bg-blue-600 rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            💾 Guardar
+            {saving ? '⏳ Guardando...' : '💾 Guardar'}
           </button>
         )}
         {onPreview && (

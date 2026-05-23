@@ -14,3 +14,4 @@ export * from "./paymentLinks";
 export * from "./follow_ups";
 export * from "./subscriptions";
 export * from "./payments";
+export * from "./store_layouts";
