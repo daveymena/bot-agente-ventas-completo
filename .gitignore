@@ -13,3 +13,4 @@ venv/
 .replit
 .replitignore
 replit.md
+api-server.log
