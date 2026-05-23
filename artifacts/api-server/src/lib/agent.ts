@@ -570,12 +570,28 @@ export async function runAgentReply(conversationId: number) {
   }
   console.log(`🤖 [AGENT-INFO] Agente activo: ${activeAgent.name} - ${ts()}`);
 
-  // ── 4. Cargar productos y categorías ─────────────────────────────────────
+  // ── 4. Cargar productos y categorías (OPTIMIZADO - SELECTIVO) ─────────────
   const [appSettings] = await db.select().from(settingsTable).limit(1);
-  const productList = await db.select().from(products).where(eq(products.isActive, true));
-  const allCategories = await db.select().from(productCategories);
-  const categoryMap = new Map(allCategories.map(c => [c.id, c.name.toLowerCase()]));
-  console.log(`📦 [AGENT-INFO] Productos activos: ${productList.length} - ${ts()}`);
+  
+  // Determinar si necesitamos productos basado en intención
+  // Primero hacer un análisis rápido de intención sin cargar todo
+  const needsProductsQuick = lastText.toLowerCase().match(/qué|producto|precio|comprar|pago|nequi|daviplata|transferencia|link|enlace|adquirir|compro/i);
+  
+  let productList: any[] = [];
+  let categoryMap = new Map<number, string>();
+  
+  if (needsProductsQuick) {
+    // Solo cargar si es probable que sea product_query o payment_intent
+    productList = await db.select().from(products)
+      .where(eq(products.isActive, true))
+      .limit(50); // Limitar a 50 productos más recientes
+    
+    const allCategories = await db.select().from(productCategories);
+    categoryMap = new Map(allCategories.map(c => [c.id, c.name.toLowerCase()]));
+    console.log(`📦 [AGENT-INFO] Productos cargados: ${productList.length} (selectivo) - ${ts()}`);
+  } else {
+    console.log(`📦 [AGENT-INFO] Productos omitidos (no necesarios) - ${ts()}`);
+  }
 
   // ── 5. Motor de decisión ──────────────────────────────────────────────────
   const decision = await computeDecision(memory, lastText, productList, categoryMap);
@@ -602,11 +618,28 @@ export async function runAgentReply(conversationId: number) {
   );
   console.log(`🧠 [BRAIN] estado:${brain.emotionalState} estrategia:${brain.strategy} — ${brain.strategyReason} - ${ts()}`);
 
-  // ── 8. Construir catálogo para el prompt ──────────────────────────────────
-  const productsBlock = productList.map(p => {
+  // ── 8. Construir catálogo para el prompt (OPTIMIZADO - SELECTIVO) ────────
+  let productsBlock = "";
+  
+  if (decision.productToShow) {
+    // Si hay producto en contexto, solo mostrar ese
+    const p = decision.productToShow;
     const features = (p.features as string[]) || [];
-    return `[PRODUCTO ID: ${p.id}] ${p.name} | Precio: ${formatPrice(Number(p.price), p.currency)} | ${p.description || ""}${features.length ? " | " + features.join(", ") : ""}`;
-  }).join("\n");
+    productsBlock = `[PRODUCTO ID: ${p.id}] ${p.name} | Precio: ${formatPrice(Number(p.price), p.currency)} | ${p.description || ""}${features.length ? " | " + features.join(", ") : ""}`;
+    console.log(`📦 [CATALOG] Mostrando solo producto en contexto: ${p.name}`);
+  } else if (productList.length > 0 && (decision.intent === "product_query" || decision.intent === "payment_intent")) {
+    // Si es búsqueda, mostrar solo top 5 productos
+    const topProducts = productList.slice(0, 5);
+    productsBlock = topProducts.map(p => {
+      const features = (p.features as string[]) || [];
+      return `[PRODUCTO ID: ${p.id}] ${p.name} | Precio: ${formatPrice(Number(p.price), p.currency)}`;
+    }).join("\n");
+    console.log(`📦 [CATALOG] Mostrando top 5 productos para búsqueda`);
+  } else {
+    // Para otros intents, no incluir catálogo
+    productsBlock = "[Catálogo disponible bajo demanda]";
+    console.log(`📦 [CATALOG] Sin catálogo para intent: ${decision.intent}`);
+  }
 
   // ── 9. Construir prompt base del sistema ──────────────────────────────────
   const hasSentCardAlready = memory.sentProductIds.size > 0;
@@ -760,8 +793,10 @@ ${isPaymentIntent ? "[7] El cliente quiere COMPRAR. Confirma brevemente y con en
   // ── 11c. RUTA IA — construir prompt final con cerebro + contexto del motor ─
   const finalPrompt = buildFinalPrompt(systemPrompt, brain, voice) + `\n\n${engineContextBlock}`;
 
-  // ── Construir mensajes para la IA ─────────────────────────────────────────
-  const chatHistory = buildChatHistory(memory, 5); // últimos 5 mensajes para no saturar el prompt
+  // ── Construir mensajes para la IA (OPTIMIZADO - HISTORIAL REDUCIDO) ──────
+  // Solo últimos 2 mensajes para contexto (suficiente para entender conversación)
+  const chatHistory = buildChatHistory(memory, 2); // últimos 2 mensajes (era 5)
+  console.log(`💬 [CHAT-HISTORY] Usando últimos 2 mensajes (reducido de 5)`);
   const chatMessages = [
     ...chatHistory,
     {

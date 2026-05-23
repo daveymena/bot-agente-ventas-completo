@@ -25,18 +25,18 @@ class OptimizedProviderRotation {
   private blacklist: Set<string> = new Set();
   private lastSuccessfulProvider: string | null = null;
   
-  // Timeouts balanceados para prompts grandes con historial
+  // Timeouts agresivos para respuestas rápidas (OPTIMIZADO)
   private timeouts = {
-    opencode: 60000,             // 60 segundos
-    github_copilot: 30000,       // 30 segundos
-    ollama_local: 30000,         // 30 segundos  
-    nvidia: 45000,               // 45 segundos
-    github_models: 30000,        // 30 segundos
-    g4f: 60000,                  // 60 segundos (respaldo)
+    opencode: 15000,             // 15 segundos (era 60)
+    github_copilot: 12000,       // 12 segundos (era 30)
+    ollama_local: 12000,         // 12 segundos (era 30)
+    nvidia: 15000,               // 15 segundos (era 45)
+    github_models: 12000,        // 12 segundos (era 30)
+    g4f: 20000,                  // 20 segundos (era 60)
   };
 
-  // Skip en cooldown si falló
-  private cooldownDuration = 30 * 1000;  // 30 segundos (antes 5 min)
+  // Cooldown más corto para fallos (OPTIMIZADO)
+  private cooldownDuration = 10 * 1000;  // 10 segundos (era 30)
 
   constructor() {
     this.initializeProviders();
