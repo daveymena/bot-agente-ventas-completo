@@ -119,6 +119,15 @@ function TemplatesTab() {
         <h2 className="text-2xl font-bold mb-1">Plantillas por Nicho</h2>
         <p className="text-sm text-muted-foreground">Elige una plantilla para precargar productos en tu tienda</p>
       </div>
+      <div className="flex gap-4 mb-6">
+        <Button onClick={() => setLocation("/admin/store/editor")} className="flex items-center gap-2 rounded-xl" variant="default">
+          <LayoutTemplate className="w-4 h-4" />
+          Editor Visual de Tienda
+        </Button>
+        <Button onClick={() => setLocation(window.location.origin + "/admin/store")} variant="outline" className="rounded-xl" disabled>
+          Vista Previa
+        </Button>
+      </div>
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {niches.map(t => (
           <Card
