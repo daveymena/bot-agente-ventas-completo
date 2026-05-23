@@ -1,0 +1,763 @@
+
+> @workspace/api-server@0.0.0 dev C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server
+> nodemon
+
+[33m[nodemon] 3.1.14[39m
+[33m[nodemon] to restart at any time, enter `rs`[39m
+[33m[nodemon] watching path(s): src\**\*[39m
+[33m[nodemon] watching extensions: ts,js,json[39m
+[32m[nodemon] starting `pnpm run build && pnpm run start`[39m
+
+> @workspace/api-server@0.0.0 build C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server
+> node ./build.mjs
+
+
+  dist\index.mjs                  10.8mb
+  dist\pino-worker.mjs           153.4kb
+  dist\pino-file.mjs             142.1kb
+  dist\pino-pretty.mjs           114.6kb
+  dist\thread-stream-worker.mjs    7.3kb
+  ...and 5 more output files...
+
+Done in 1257ms
+
+> @workspace/api-server@0.0.0 start C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server
+> node --enable-source-maps ./dist/index.mjs
+
+🔍 [DOTENV] Buscando configuración en: C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\.env
+📡 [DB-CONNECTION] Intentando conectar a: postgres://postgres:****@79.143.187.160:5432/tecnovariedades-db?sslmode=disable
+[G4F Config] Enabled: true, Provider: auto, Model: gpt-4-turbo, Timeout: 30s
+[AI Fallback] Order: nvidia → github → ollama_local
+[Frontend] NODE_ENV: development
+[Frontend] __dirname: C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\dist
+[Frontend] process.cwd(): C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server
+[Frontend] Buscando frontend en paths candidatos...
+[Frontend] Probando: C:\app\artifacts\ventas-pro\dist\public
+[Frontend] ❌ No existe: C:\app\artifacts\ventas-pro\dist\public
+[Frontend] Probando: C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\ventas-pro\dist\public
+[Frontend] ✅ Frontend encontrado en: C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\ventas-pro\dist\public
+[Frontend] Archivos: assets, favicon.svg, index.html, logo-minimal.svg, logo-sidebar.svg, logo-simple.svg, logo-white.svg, logo.svg, manifest.json, opengraph.jpg
+[21:18:04.310] [32mINFO[39m (37844): [36m[FollowUpScheduler] Starting scheduler[39m
+    [35mintervalMinutes[39m: 30
+[21:18:04.446] [32mINFO[39m (37844): [36m[AgentOrchestrator] Initialized - IA processor worker[39m
+[21:18:04.446] [32mINFO[39m (37844): [36m[AgentOrchestrator] Sequential processing loop started[39m
+[21:18:04.446] [32mINFO[39m (37844): [36m[AgentOrchestrator] AI processing auto-started for default tenant[39m
+[21:18:04.446] [32mINFO[39m (37844): [36m[MessageHandler] Initialized - WhatsApp message receiver only[39m
+[21:18:04.446] [32mINFO[39m (37844): [36m[MessageHandler] Message receiver configured for default tenant[39m
+[21:18:04.544] [32mINFO[39m (37844): [36mServer listening[39m
+    [35mport[39m: 3002
+    [35mhost[39m: "0.0.0.0"
+{"level":30,"time":"2026-05-23T02:18:04.863Z","pid":37844,"hostname":"PROYECTAR","class":"baileys","browser":["VentasPro","Chrome","1.0.0"],"helloMsg":{"clientHello":{"ephemeral":"bfwNefVPKGul8Z8vgUpfxraVchqJzgpMlGSw4S94dwc="}},"msg":"connected to WA"}
+{"level":30,"time":"2026-05-23T02:18:05.293Z","pid":37844,"hostname":"PROYECTAR","class":"baileys","node":{"username":"573042748709","passive":true,"userAgent":{"platform":"WEB","appVersion":{"primary":2,"secondary":3000,"tertiary":1035194821},"mcc":"000","mnc":"000","osVersion":"0.1","device":"Desktop","osBuildNumber":"0.1","releaseChannel":"RELEASE","localeLanguageIso6391":"en","localeCountryIso31661Alpha2":"US"},"webInfo":{"webSubPlatform":"WEB_BROWSER"},"connectType":"WIFI_UNKNOWN","connectReason":"USER_ACTIVATED","device":88,"pull":true,"lidDbMigrated":false},"msg":"logging in..."}
+[21:18:05.475] [32mINFO[39m (37844): [36m[Email] ✅ Servidor SMTP conectado y listo[39m
+{"level":30,"time":"2026-05-23T02:18:05.974Z","pid":37844,"hostname":"PROYECTAR","class":"baileys","msg":"804 pre-keys found on server"}
+{"level":30,"time":"2026-05-23T02:18:05.974Z","pid":37844,"hostname":"PROYECTAR","class":"baileys","msg":"Current prekey ID: 812, exists in storage: true"}
+{"level":30,"time":"2026-05-23T02:18:05.974Z","pid":37844,"hostname":"PROYECTAR","class":"baileys","msg":"PreKey validation passed - Server: 804, Current prekey 812 exists"}
+{"level":30,"time":"2026-05-23T02:18:06.204Z","pid":37844,"hostname":"PROYECTAR","class":"baileys","msg":"offline preview received"}
+{"level":30,"time":"2026-05-23T02:18:06.208Z","pid":37844,"hostname":"PROYECTAR","class":"baileys","msg":"handled 1 offline messages/notifications"}
+{"level":30,"time":"2026-05-23T02:18:06.208Z","pid":37844,"hostname":"PROYECTAR","class":"baileys","msg":"Connection is now AwaitingInitialSync, buffering events"}
+{"level":30,"time":"2026-05-23T02:18:06.208Z","pid":37844,"hostname":"PROYECTAR","class":"baileys","msg":"History sync is disabled by config, not waiting for notification. Transitioning to Online."}
+{"level":30,"time":"2026-05-23T02:18:06.399Z","pid":37844,"hostname":"PROYECTAR","class":"baileys","msg":"opened connection to WA"}
+{"level":30,"time":"2026-05-23T02:18:06.410Z","pid":37844,"hostname":"PROYECTAR","class":"baileys","myPN":"573042748709:88@s.whatsapp.net","myLID":"34579469598873:88@lid","msg":"Own LID session created successfully"}
+[21:18:06.403] [32mINFO[39m (37844): [36m[WhatsApp] Connected[39m
+    [35mphone[39m: "573042748709"
+{"level":40,"time":"2026-05-23T02:19:06.414Z","pid":37844,"hostname":"PROYECTAR","class":"baileys","msgId":"24025.1459-4","msg":"timed out waiting for message"}
+[COOKIES] Path: /api/auth/register
+[COOKIES] All cookies: {"oc_locale":"en","tenant_id":"1"}
+[COOKIES] tenant_id: 1
+[COOKIES] Headers Cookie: oc_locale=en; tenant_id=1
+[resolveTenant] Path: /auth/register, IsPublic: true, Cookies: {"oc_locale":"en","tenant_id":"1"}
+[resolveTenant] Ruta pública, saltando resolución de tenant
+[validateSaaS] Ruta pública permitida: /auth/register
+[COOKIES] Path: /api/auth/verify-email-auto
+[COOKIES] All cookies: {"oc_locale":"en","tenant_id":"1"}
+[COOKIES] tenant_id: 1
+[COOKIES] Headers Cookie: oc_locale=en; tenant_id=1
+[resolveTenant] Path: /auth/verify-email-auto, IsPublic: true, Cookies: {"oc_locale":"en","tenant_id":"1"}
+[resolveTenant] Ruta pública, saltando resolución de tenant
+[validateSaaS] Ruta pública permitida: /auth/verify-email-auto
+[21:27:40.989] [32mINFO[39m (37844): [36m[Email] Código de verificación enviado[39m
+    [35memail[39m: "dmenamosquera15@gmail.com"
+[21:27:40.989] [32mINFO[39m (37844): [36m[Auth] Registro exitoso, email de verificación enviado[39m
+    [35memail[39m: "dmenamosquera15@gmail.com"
+[21:27:40.991] [32mINFO[39m (37844): [36mrequest completed[39m
+    [35mreq[39m: {
+      "id": 1,
+      "method": "POST",
+      "url": "/api/auth/register"
+    }
+    [35mres[39m: {
+      "statusCode": 201
+    }
+    [35mresponseTime[39m: 4069
+[21:27:41.355] [32mINFO[39m (37844): [36m[Auth] Email auto-verificado[39m
+    [35memail[39m: "dmenamosquera15@gmail.com"
+[21:27:41.356] [32mINFO[39m (37844): [36mrequest completed[39m
+    [35mreq[39m: {
+      "id": 2,
+      "method": "POST",
+      "url": "/api/auth/verify-email-auto"
+    }
+    [35mres[39m: {
+      "statusCode": 200
+    }
+    [35mresponseTime[39m: 357
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `pnpm run build && pnpm run start`[39m
+
+> @workspace/api-server@0.0.0 build C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server
+> node ./build.mjs
+
+
+  dist\index.mjs                  10.8mb
+  dist\pino-worker.mjs           153.4kb
+  dist\pino-file.mjs             142.1kb
+  dist\pino-pretty.mjs           114.6kb
+  dist\thread-stream-worker.mjs    7.3kb
+  ...and 5 more output files...
+
+Done in 2655ms
+
+> @workspace/api-server@0.0.0 start C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server
+> node --enable-source-maps ./dist/index.mjs
+
+[32m[nodemon] restarting due to changes...[39m
+🔍 [DOTENV] Buscando configuración en: C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\.env
+📡 [DB-CONNECTION] Intentando conectar a: postgres://postgres:****@79.143.187.160:5432/tecnovariedades-db?sslmode=disable
+[G4F Config] Enabled: true, Provider: auto, Model: gpt-4-turbo, Timeout: 30s
+[AI Fallback] Order: nvidia → github → ollama_local
+[Frontend] NODE_ENV: development
+[Frontend] __dirname: C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\dist
+[Frontend] process.cwd(): C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server
+[Frontend] Buscando frontend en paths candidatos...
+[Frontend] Probando: C:\app\artifacts\ventas-pro\dist\public
+[Frontend] ❌ No existe: C:\app\artifacts\ventas-pro\dist\public
+[Frontend] Probando: C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\ventas-pro\dist\public
+[Frontend] ✅ Frontend encontrado en: C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\ventas-pro\dist\public
+[Frontend] Archivos: assets, favicon.svg, index.html, logo-minimal.svg, logo-sidebar.svg, logo-simple.svg, logo-white.svg, logo.svg, manifest.json, opengraph.jpg
+[32m[nodemon] starting `pnpm run build && pnpm run start`[39m
+
+> @workspace/api-server@0.0.0 build C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server
+> node ./build.mjs
+
+
+  dist\index.mjs                  10.8mb
+  dist\pino-worker.mjs           153.4kb
+  dist\pino-file.mjs             142.1kb
+  dist\pino-pretty.mjs           114.6kb
+  dist\thread-stream-worker.mjs    7.3kb
+  ...and 5 more output files...
+
+Done in 2542ms
+
+> @workspace/api-server@0.0.0 start C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server
+> node --enable-source-maps ./dist/index.mjs
+
+🔍 [DOTENV] Buscando configuración en: C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\.env
+📡 [DB-CONNECTION] Intentando conectar a: postgres://postgres:****@79.143.187.160:5432/tecnovariedades-db?sslmode=disable
+[G4F Config] Enabled: true, Provider: auto, Model: gpt-4-turbo, Timeout: 30s
+[AI Fallback] Order: nvidia → github → ollama_local
+[Frontend] NODE_ENV: development
+[Frontend] __dirname: C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\dist
+[Frontend] process.cwd(): C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server
+[Frontend] Buscando frontend en paths candidatos...
+[Frontend] Probando: C:\app\artifacts\ventas-pro\dist\public
+[Frontend] ❌ No existe: C:\app\artifacts\ventas-pro\dist\public
+[Frontend] Probando: C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\ventas-pro\dist\public
+[Frontend] ✅ Frontend encontrado en: C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\ventas-pro\dist\public
+[Frontend] Archivos: assets, favicon.svg, index.html, logo-minimal.svg, logo-sidebar.svg, logo-simple.svg, logo-white.svg, logo.svg, manifest.json, opengraph.jpg
+[21:42:05.459] [32mINFO[39m (9436): [36m[FollowUpScheduler] Starting scheduler[39m
+    [35mintervalMinutes[39m: 30
+[21:42:05.588] [32mINFO[39m (9436): [36m[AgentOrchestrator] Initialized - IA processor worker[39m
+[21:42:05.588] [32mINFO[39m (9436): [36m[AgentOrchestrator] Sequential processing loop started[39m
+[21:42:05.588] [32mINFO[39m (9436): [36m[AgentOrchestrator] AI processing auto-started for default tenant[39m
+[21:42:05.588] [32mINFO[39m (9436): [36m[MessageHandler] Initialized - WhatsApp message receiver only[39m
+[21:42:05.588] [32mINFO[39m (9436): [36m[MessageHandler] Message receiver configured for default tenant[39m
+[21:42:05.692] [31mERROR[39m (9436): [36mError listening on port[39m
+    err: {
+      "type": "Error",
+      "message": "listen EADDRINUSE: address already in use 0.0.0.0:3002",
+      "stack":
+          Error: listen EADDRINUSE: address already in use 0.0.0.0:3002
+              at Server.setupListenHandle [as _listen2] (node:net:1940:16)
+              at listenInCluster (node:net:1997:12)
+              at node:net:2206:7
+              at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+      "code": "EADDRINUSE",
+      "errno": -4091,
+      "syscall": "listen",
+      "address": "0.0.0.0",
+      "port": 3002
+    }
+ ELIFECYCLE  Command failed with exit code 1.
+[31m[nodemon] app crashed - waiting for file changes before starting...[39m
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `pnpm run build && pnpm run start`[39m
+
+> @workspace/api-server@0.0.0 build C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server
+> node ./build.mjs
+
+
+  dist\index.mjs                  10.8mb
+  dist\pino-worker.mjs           153.4kb
+  dist\pino-file.mjs             142.1kb
+  dist\pino-pretty.mjs           114.6kb
+  dist\thread-stream-worker.mjs    7.3kb
+  ...and 5 more output files...
+
+Done in 2878ms
+
+> @workspace/api-server@0.0.0 start C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server
+> node --enable-source-maps ./dist/index.mjs
+
+🔍 [DOTENV] Buscando configuración en: C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\.env
+📡 [DB-CONNECTION] Intentando conectar a: postgres://postgres:****@79.143.187.160:5432/tecnovariedades-db?sslmode=disable
+[G4F Config] Enabled: true, Provider: auto, Model: gpt-4-turbo, Timeout: 30s
+[AI Fallback] Order: nvidia → github → ollama_local
+[Frontend] NODE_ENV: development
+[Frontend] __dirname: C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\dist
+[Frontend] process.cwd(): C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server
+[Frontend] Buscando frontend en paths candidatos...
+[Frontend] Probando: C:\app\artifacts\ventas-pro\dist\public
+[Frontend] ❌ No existe: C:\app\artifacts\ventas-pro\dist\public
+[Frontend] Probando: C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\ventas-pro\dist\public
+[Frontend] ✅ Frontend encontrado en: C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\ventas-pro\dist\public
+[Frontend] Archivos: assets, favicon.svg, index.html, logo-minimal.svg, logo-sidebar.svg, logo-simple.svg, logo-white.svg, logo.svg, manifest.json, opengraph.jpg
+[21:42:25.774] [32mINFO[39m (27168): [36m[FollowUpScheduler] Starting scheduler[39m
+    [35mintervalMinutes[39m: 30
+[21:42:25.951] [32mINFO[39m (27168): [36m[AgentOrchestrator] Initialized - IA processor worker[39m
+[21:42:25.951] [32mINFO[39m (27168): [36m[AgentOrchestrator] Sequential processing loop started[39m
+[21:42:25.951] [32mINFO[39m (27168): [36m[AgentOrchestrator] AI processing auto-started for default tenant[39m
+[21:42:25.951] [32mINFO[39m (27168): [36m[MessageHandler] Initialized - WhatsApp message receiver only[39m
+[21:42:25.951] [32mINFO[39m (27168): [36m[MessageHandler] Message receiver configured for default tenant[39m
+[21:42:26.111] [31mERROR[39m (27168): [36mError listening on port[39m
+    err: {
+      "type": "Error",
+      "message": "listen EADDRINUSE: address already in use 0.0.0.0:3002",
+      "stack":
+          Error: listen EADDRINUSE: address already in use 0.0.0.0:3002
+              at Server.setupListenHandle [as _listen2] (node:net:1940:16)
+              at listenInCluster (node:net:1997:12)
+              at node:net:2206:7
+              at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+      "code": "EADDRINUSE",
+      "errno": -4091,
+      "syscall": "listen",
+      "address": "0.0.0.0",
+      "port": 3002
+    }
+ ELIFECYCLE  Command failed with exit code 1.
+[31m[nodemon] app crashed - waiting for file changes before starting...[39m
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `pnpm run build && pnpm run start`[39m
+
+> @workspace/api-server@0.0.0 build C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server
+> node ./build.mjs
+
+
+  dist\index.mjs                  10.8mb
+  dist\pino-worker.mjs           153.4kb
+  dist\pino-file.mjs             142.1kb
+  dist\pino-pretty.mjs           114.6kb
+  dist\thread-stream-worker.mjs    7.3kb
+  ...and 5 more output files...
+
+Done in 1408ms
+
+> @workspace/api-server@0.0.0 start C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server
+> node --enable-source-maps ./dist/index.mjs
+
+🔍 [DOTENV] Buscando configuración en: C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\.env
+📡 [DB-CONNECTION] Intentando conectar a: postgres://postgres:****@79.143.187.160:5432/tecnovariedades-db?sslmode=disable
+[G4F Config] Enabled: true, Provider: auto, Model: gpt-4-turbo, Timeout: 30s
+[AI Fallback] Order: nvidia → github → ollama_local
+[Frontend] NODE_ENV: development
+[Frontend] __dirname: C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\dist
+[Frontend] process.cwd(): C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server
+[Frontend] Buscando frontend en paths candidatos...
+[Frontend] Probando: C:\app\artifacts\ventas-pro\dist\public
+[Frontend] ❌ No existe: C:\app\artifacts\ventas-pro\dist\public
+[Frontend] Probando: C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\ventas-pro\dist\public
+[Frontend] ✅ Frontend encontrado en: C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\ventas-pro\dist\public
+[Frontend] Archivos: assets, favicon.svg, index.html, logo-minimal.svg, logo-sidebar.svg, logo-simple.svg, logo-white.svg, logo.svg, manifest.json, opengraph.jpg
+[21:48:52.477] [32mINFO[39m (47656): [36m[FollowUpScheduler] Starting scheduler[39m
+    [35mintervalMinutes[39m: 30
+[21:48:52.651] [32mINFO[39m (47656): [36m[AgentOrchestrator] Initialized - IA processor worker[39m
+[21:48:52.651] [32mINFO[39m (47656): [36m[AgentOrchestrator] Sequential processing loop started[39m
+[21:48:52.651] [32mINFO[39m (47656): [36m[AgentOrchestrator] AI processing auto-started for default tenant[39m
+[21:48:52.651] [32mINFO[39m (47656): [36m[MessageHandler] Initialized - WhatsApp message receiver only[39m
+[21:48:52.651] [32mINFO[39m (47656): [36m[MessageHandler] Message receiver configured for default tenant[39m
+[21:48:52.791] [32mINFO[39m (47656): [36mServer listening[39m
+    [35mport[39m: 3002
+    [35mhost[39m: "0.0.0.0"
+{"level":30,"time":"2026-05-23T02:48:53.016Z","pid":47656,"hostname":"PROYECTAR","class":"baileys","browser":["VentasPro","Chrome","1.0.0"],"helloMsg":{"clientHello":{"ephemeral":"5kwycinJqL+TzCQM01YcTcJGFuwsowEeioVEe2XvO30="}},"msg":"connected to WA"}
+{"level":30,"time":"2026-05-23T02:48:53.399Z","pid":47656,"hostname":"PROYECTAR","class":"baileys","node":{"username":"573042748709","passive":true,"userAgent":{"platform":"WEB","appVersion":{"primary":2,"secondary":3000,"tertiary":1035194821},"mcc":"000","mnc":"000","osVersion":"0.1","device":"Desktop","osBuildNumber":"0.1","releaseChannel":"RELEASE","localeLanguageIso6391":"en","localeCountryIso31661Alpha2":"US"},"webInfo":{"webSubPlatform":"WEB_BROWSER"},"connectType":"WIFI_UNKNOWN","connectReason":"USER_ACTIVATED","device":88,"pull":true,"lidDbMigrated":false},"msg":"logging in..."}
+{"level":30,"time":"2026-05-23T02:48:53.814Z","pid":47656,"hostname":"PROYECTAR","class":"baileys","msg":"804 pre-keys found on server"}
+{"level":30,"time":"2026-05-23T02:48:53.814Z","pid":47656,"hostname":"PROYECTAR","class":"baileys","msg":"Current prekey ID: 812, exists in storage: true"}
+{"level":30,"time":"2026-05-23T02:48:53.814Z","pid":47656,"hostname":"PROYECTAR","class":"baileys","msg":"PreKey validation passed - Server: 804, Current prekey 812 exists"}
+[21:48:53.704] [32mINFO[39m (47656): [36m[Email] ✅ Servidor SMTP conectado y listo[39m
+{"level":30,"time":"2026-05-23T02:48:53.973Z","pid":47656,"hostname":"PROYECTAR","class":"baileys","msg":"handled 0 offline messages/notifications"}
+{"level":30,"time":"2026-05-23T02:48:53.973Z","pid":47656,"hostname":"PROYECTAR","class":"baileys","msg":"Connection is now AwaitingInitialSync, buffering events"}
+{"level":30,"time":"2026-05-23T02:48:53.973Z","pid":47656,"hostname":"PROYECTAR","class":"baileys","msg":"History sync is disabled by config, not waiting for notification. Transitioning to Online."}
+{"level":30,"time":"2026-05-23T02:48:54.011Z","pid":47656,"hostname":"PROYECTAR","class":"baileys","msg":"opened connection to WA"}
+{"level":30,"time":"2026-05-23T02:48:54.024Z","pid":47656,"hostname":"PROYECTAR","class":"baileys","myPN":"573042748709:88@s.whatsapp.net","myLID":"34579469598873:88@lid","msg":"Own LID session created successfully"}
+[21:48:54.016] [32mINFO[39m (47656): [36m[WhatsApp] Connected[39m
+    [35mphone[39m: "573042748709"
+{"level":40,"time":"2026-05-23T02:49:54.017Z","pid":47656,"hostname":"PROYECTAR","class":"baileys","msgId":"11281.61274-4","msg":"timed out waiting for message"}
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `pnpm run build && pnpm run start`[39m
+
+> @workspace/api-server@0.0.0 build C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server
+> node ./build.mjs
+
+
+  dist\index.mjs                  10.8mb
+  dist\pino-worker.mjs           153.4kb
+  dist\pino-file.mjs             142.1kb
+  dist\pino-pretty.mjs           114.6kb
+  dist\thread-stream-worker.mjs    7.3kb
+  ...and 5 more output files...
+
+Done in 2442ms
+
+> @workspace/api-server@0.0.0 start C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server
+> node --enable-source-maps ./dist/index.mjs
+
+🔍 [DOTENV] Buscando configuración en: C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\.env
+📡 [DB-CONNECTION] Intentando conectar a: postgres://postgres:****@79.143.187.160:5432/tecnovariedades-db?sslmode=disable
+[G4F Config] Enabled: true, Provider: auto, Model: gpt-4-turbo, Timeout: 30s
+[AI Fallback] Order: nvidia → github → ollama_local
+[Frontend] NODE_ENV: development
+[Frontend] __dirname: C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\dist
+[Frontend] process.cwd(): C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server
+[Frontend] Buscando frontend en paths candidatos...
+[Frontend] Probando: C:\app\artifacts\ventas-pro\dist\public
+[Frontend] ❌ No existe: C:\app\artifacts\ventas-pro\dist\public
+[Frontend] Probando: C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\ventas-pro\dist\public
+[Frontend] ✅ Frontend encontrado en: C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\ventas-pro\dist\public
+[Frontend] Archivos: assets, favicon.svg, index.html, logo-minimal.svg, logo-sidebar.svg, logo-simple.svg, logo-white.svg, logo.svg, manifest.json, opengraph.jpg
+[22:00:59.678] [32mINFO[39m (47792): [36m[FollowUpScheduler] Starting scheduler[39m
+    [35mintervalMinutes[39m: 30
+[22:00:59.800] [32mINFO[39m (47792): [36m[AgentOrchestrator] Initialized - IA processor worker[39m
+[22:00:59.801] [32mINFO[39m (47792): [36m[AgentOrchestrator] Sequential processing loop started[39m
+[22:00:59.801] [32mINFO[39m (47792): [36m[AgentOrchestrator] AI processing auto-started for default tenant[39m
+[22:00:59.801] [32mINFO[39m (47792): [36m[MessageHandler] Initialized - WhatsApp message receiver only[39m
+[22:00:59.801] [32mINFO[39m (47792): [36m[MessageHandler] Message receiver configured for default tenant[39m
+[22:00:59.900] [31mERROR[39m (47792): [36mError listening on port[39m
+    err: {
+      "type": "Error",
+      "message": "listen EADDRINUSE: address already in use 0.0.0.0:3002",
+      "stack":
+          Error: listen EADDRINUSE: address already in use 0.0.0.0:3002
+              at Server.setupListenHandle [as _listen2] (node:net:1940:16)
+              at listenInCluster (node:net:1997:12)
+              at node:net:2206:7
+              at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+      "code": "EADDRINUSE",
+      "errno": -4091,
+      "syscall": "listen",
+      "address": "0.0.0.0",
+      "port": 3002
+    }
+ ELIFECYCLE  Command failed with exit code 1.
+[31m[nodemon] app crashed - waiting for file changes before starting...[39m
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `pnpm run build && pnpm run start`[39m
+
+> @workspace/api-server@0.0.0 build C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server
+> node ./build.mjs
+
+
+  dist\index.mjs                  10.8mb
+  dist\pino-worker.mjs           153.4kb
+  dist\pino-file.mjs             142.1kb
+  dist\pino-pretty.mjs           114.6kb
+  dist\thread-stream-worker.mjs    7.3kb
+  ...and 5 more output files...
+
+Done in 1016ms
+
+> @workspace/api-server@0.0.0 start C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server
+> node --enable-source-maps ./dist/index.mjs
+
+🔍 [DOTENV] Buscando configuración en: C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\.env
+📡 [DB-CONNECTION] Intentando conectar a: postgres://postgres:****@79.143.187.160:5432/tecnovariedades-db?sslmode=disable
+[G4F Config] Enabled: true, Provider: auto, Model: gpt-4-turbo, Timeout: 30s
+[AI Fallback] Order: nvidia → github → ollama_local
+[Frontend] NODE_ENV: development
+[Frontend] __dirname: C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\dist
+[Frontend] process.cwd(): C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server
+[Frontend] Buscando frontend en paths candidatos...
+[Frontend] Probando: C:\app\artifacts\ventas-pro\dist\public
+[Frontend] ❌ No existe: C:\app\artifacts\ventas-pro\dist\public
+[Frontend] Probando: C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\ventas-pro\dist\public
+[Frontend] ✅ Frontend encontrado en: C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\ventas-pro\dist\public
+[Frontend] Archivos: assets, favicon.svg, index.html, logo-minimal.svg, logo-sidebar.svg, logo-simple.svg, logo-white.svg, logo.svg, manifest.json, opengraph.jpg
+[22:01:03.740] [32mINFO[39m (47656): [36m[FollowUpScheduler] Starting scheduler[39m
+    [35mintervalMinutes[39m: 30
+[22:01:03.854] [32mINFO[39m (47656): [36m[AgentOrchestrator] Initialized - IA processor worker[39m
+[22:01:03.854] [32mINFO[39m (47656): [36m[AgentOrchestrator] Sequential processing loop started[39m
+[22:01:03.854] [32mINFO[39m (47656): [36m[AgentOrchestrator] AI processing auto-started for default tenant[39m
+[22:01:03.854] [32mINFO[39m (47656): [36m[MessageHandler] Initialized - WhatsApp message receiver only[39m
+[22:01:03.854] [32mINFO[39m (47656): [36m[MessageHandler] Message receiver configured for default tenant[39m
+[22:01:03.953] [32mINFO[39m (47656): [36mServer listening[39m
+    [35mport[39m: 3002
+    [35mhost[39m: "0.0.0.0"
+{"level":30,"time":"2026-05-23T03:01:04.245Z","pid":47656,"hostname":"PROYECTAR","class":"baileys","browser":["VentasPro","Chrome","1.0.0"],"helloMsg":{"clientHello":{"ephemeral":"xu+t5/yHRf8cbRJsPXkLuk3sCgFNSLVMokGcd/+TREQ="}},"msg":"connected to WA"}
+{"level":30,"time":"2026-05-23T03:01:04.642Z","pid":47656,"hostname":"PROYECTAR","class":"baileys","node":{"username":"573042748709","passive":true,"userAgent":{"platform":"WEB","appVersion":{"primary":2,"secondary":3000,"tertiary":1035194821},"mcc":"000","mnc":"000","osVersion":"0.1","device":"Desktop","osBuildNumber":"0.1","releaseChannel":"RELEASE","localeLanguageIso6391":"en","localeCountryIso31661Alpha2":"US"},"webInfo":{"webSubPlatform":"WEB_BROWSER"},"connectType":"WIFI_UNKNOWN","connectReason":"USER_ACTIVATED","device":88,"pull":true,"lidDbMigrated":false},"msg":"logging in..."}
+[22:01:04.751] [32mINFO[39m (47656): [36m[Email] ✅ Servidor SMTP conectado y listo[39m
+{"level":30,"time":"2026-05-23T03:01:05.302Z","pid":47656,"hostname":"PROYECTAR","class":"baileys","msg":"804 pre-keys found on server"}
+{"level":30,"time":"2026-05-23T03:01:05.302Z","pid":47656,"hostname":"PROYECTAR","class":"baileys","msg":"Current prekey ID: 812, exists in storage: true"}
+{"level":30,"time":"2026-05-23T03:01:05.302Z","pid":47656,"hostname":"PROYECTAR","class":"baileys","msg":"PreKey validation passed - Server: 804, Current prekey 812 exists"}
+{"level":30,"time":"2026-05-23T03:01:05.522Z","pid":47656,"hostname":"PROYECTAR","class":"baileys","msg":"handled 0 offline messages/notifications"}
+{"level":30,"time":"2026-05-23T03:01:05.522Z","pid":47656,"hostname":"PROYECTAR","class":"baileys","msg":"Connection is now AwaitingInitialSync, buffering events"}
+{"level":30,"time":"2026-05-23T03:01:05.522Z","pid":47656,"hostname":"PROYECTAR","class":"baileys","msg":"History sync is disabled by config, not waiting for notification. Transitioning to Online."}
+{"level":30,"time":"2026-05-23T03:01:05.724Z","pid":47656,"hostname":"PROYECTAR","class":"baileys","msg":"opened connection to WA"}
+{"level":30,"time":"2026-05-23T03:01:05.734Z","pid":47656,"hostname":"PROYECTAR","class":"baileys","myPN":"573042748709:88@s.whatsapp.net","myLID":"34579469598873:88@lid","msg":"Own LID session created successfully"}
+[22:01:05.728] [32mINFO[39m (47656): [36m[WhatsApp] Connected[39m
+    [35mphone[39m: "573042748709"
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `pnpm run build && pnpm run start`[39m
+
+> @workspace/api-server@0.0.0 build C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server
+> node ./build.mjs
+
+
+  dist\index.mjs                  10.8mb
+  dist\pino-worker.mjs           153.4kb
+  dist\pino-file.mjs             142.1kb
+  dist\pino-pretty.mjs           114.6kb
+  dist\thread-stream-worker.mjs    7.3kb
+  ...and 5 more output files...
+
+Done in 2217ms
+
+> @workspace/api-server@0.0.0 start C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server
+> node --enable-source-maps ./dist/index.mjs
+
+🔍 [DOTENV] Buscando configuración en: C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\.env
+📡 [DB-CONNECTION] Intentando conectar a: postgres://postgres:****@79.143.187.160:5432/tecnovariedades-db?sslmode=disable
+[G4F Config] Enabled: true, Provider: auto, Model: gpt-4-turbo, Timeout: 30s
+[AI Fallback] Order: nvidia → github → ollama_local
+[Frontend] NODE_ENV: development
+[Frontend] __dirname: C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\dist
+[Frontend] process.cwd(): C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server
+[Frontend] Buscando frontend en paths candidatos...
+[Frontend] Probando: C:\app\artifacts\ventas-pro\dist\public
+[Frontend] ❌ No existe: C:\app\artifacts\ventas-pro\dist\public
+[Frontend] Probando: C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\ventas-pro\dist\public
+[Frontend] ✅ Frontend encontrado en: C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\ventas-pro\dist\public
+[Frontend] Archivos: assets, favicon.svg, index.html, logo-minimal.svg, logo-sidebar.svg, logo-simple.svg, logo-white.svg, logo.svg, manifest.json, opengraph.jpg
+[22:01:16.686] [32mINFO[39m (19316): [36m[FollowUpScheduler] Starting scheduler[39m
+    [35mintervalMinutes[39m: 30
+[22:01:16.794] [32mINFO[39m (19316): [36m[AgentOrchestrator] Initialized - IA processor worker[39m
+[22:01:16.794] [32mINFO[39m (19316): [36m[AgentOrchestrator] Sequential processing loop started[39m
+[22:01:16.794] [32mINFO[39m (19316): [36m[AgentOrchestrator] AI processing auto-started for default tenant[39m
+[22:01:16.794] [32mINFO[39m (19316): [36m[MessageHandler] Initialized - WhatsApp message receiver only[39m
+[22:01:16.794] [32mINFO[39m (19316): [36m[MessageHandler] Message receiver configured for default tenant[39m
+[22:01:16.882] [31mERROR[39m (19316): [36mError listening on port[39m
+    err: {
+      "type": "Error",
+      "message": "listen EADDRINUSE: address already in use 0.0.0.0:3002",
+      "stack":
+          Error: listen EADDRINUSE: address already in use 0.0.0.0:3002
+              at Server.setupListenHandle [as _listen2] (node:net:1940:16)
+              at listenInCluster (node:net:1997:12)
+              at node:net:2206:7
+              at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+      "code": "EADDRINUSE",
+      "errno": -4091,
+      "syscall": "listen",
+      "address": "0.0.0.0",
+      "port": 3002
+    }
+ ELIFECYCLE  Command failed with exit code 1.
+[31m[nodemon] app crashed - waiting for file changes before starting...[39m
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `pnpm run build && pnpm run start`[39m
+
+> @workspace/api-server@0.0.0 build C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server
+> node ./build.mjs
+
+
+  dist\index.mjs                  10.8mb
+  dist\pino-worker.mjs           153.4kb
+  dist\pino-file.mjs             142.1kb
+  dist\pino-pretty.mjs           114.6kb
+  dist\thread-stream-worker.mjs    7.3kb
+  ...and 5 more output files...
+
+Done in 1000ms
+
+> @workspace/api-server@0.0.0 start C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server
+> node --enable-source-maps ./dist/index.mjs
+
+🔍 [DOTENV] Buscando configuración en: C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\.env
+📡 [DB-CONNECTION] Intentando conectar a: postgres://postgres:****@79.143.187.160:5432/tecnovariedades-db?sslmode=disable
+[G4F Config] Enabled: true, Provider: auto, Model: gpt-4-turbo, Timeout: 30s
+[AI Fallback] Order: nvidia → github → ollama_local
+[Frontend] NODE_ENV: development
+[Frontend] __dirname: C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\dist
+[Frontend] process.cwd(): C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server
+[Frontend] Buscando frontend en paths candidatos...
+[Frontend] Probando: C:\app\artifacts\ventas-pro\dist\public
+[Frontend] ❌ No existe: C:\app\artifacts\ventas-pro\dist\public
+[Frontend] Probando: C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\ventas-pro\dist\public
+[Frontend] ✅ Frontend encontrado en: C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\ventas-pro\dist\public
+[Frontend] Archivos: assets, favicon.svg, index.html, logo-minimal.svg, logo-sidebar.svg, logo-simple.svg, logo-white.svg, logo.svg, manifest.json, opengraph.jpg
+[22:01:26.786] [32mINFO[39m (6232): [36m[FollowUpScheduler] Starting scheduler[39m
+    [35mintervalMinutes[39m: 30
+[22:01:26.895] [32mINFO[39m (6232): [36m[AgentOrchestrator] Initialized - IA processor worker[39m
+[22:01:26.895] [32mINFO[39m (6232): [36m[AgentOrchestrator] Sequential processing loop started[39m
+[22:01:26.895] [32mINFO[39m (6232): [36m[AgentOrchestrator] AI processing auto-started for default tenant[39m
+[22:01:26.895] [32mINFO[39m (6232): [36m[MessageHandler] Initialized - WhatsApp message receiver only[39m
+[22:01:26.895] [32mINFO[39m (6232): [36m[MessageHandler] Message receiver configured for default tenant[39m
+[22:01:26.996] [32mINFO[39m (6232): [36mServer listening[39m
+    [35mport[39m: 3002
+    [35mhost[39m: "0.0.0.0"
+{"level":30,"time":"2026-05-23T03:01:27.298Z","pid":6232,"hostname":"PROYECTAR","class":"baileys","browser":["VentasPro","Chrome","1.0.0"],"helloMsg":{"clientHello":{"ephemeral":"rn7T0xgoeZ/bGlbpObViVmedfQe//o68ft2X6yVMz0w="}},"msg":"connected to WA"}
+{"level":30,"time":"2026-05-23T03:01:27.733Z","pid":6232,"hostname":"PROYECTAR","class":"baileys","node":{"username":"573042748709","passive":true,"userAgent":{"platform":"WEB","appVersion":{"primary":2,"secondary":3000,"tertiary":1035194821},"mcc":"000","mnc":"000","osVersion":"0.1","device":"Desktop","osBuildNumber":"0.1","releaseChannel":"RELEASE","localeLanguageIso6391":"en","localeCountryIso31661Alpha2":"US"},"webInfo":{"webSubPlatform":"WEB_BROWSER"},"connectType":"WIFI_UNKNOWN","connectReason":"USER_ACTIVATED","device":88,"pull":true,"lidDbMigrated":false},"msg":"logging in..."}
+[22:01:27.923] [32mINFO[39m (6232): [36m[Email] ✅ Servidor SMTP conectado y listo[39m
+{"level":30,"time":"2026-05-23T03:01:28.803Z","pid":6232,"hostname":"PROYECTAR","class":"baileys","msg":"804 pre-keys found on server"}
+{"level":30,"time":"2026-05-23T03:01:28.803Z","pid":6232,"hostname":"PROYECTAR","class":"baileys","msg":"Current prekey ID: 812, exists in storage: true"}
+{"level":30,"time":"2026-05-23T03:01:28.803Z","pid":6232,"hostname":"PROYECTAR","class":"baileys","msg":"PreKey validation passed - Server: 804, Current prekey 812 exists"}
+{"level":30,"time":"2026-05-23T03:01:29.139Z","pid":6232,"hostname":"PROYECTAR","class":"baileys","msg":"handled 0 offline messages/notifications"}
+{"level":30,"time":"2026-05-23T03:01:29.140Z","pid":6232,"hostname":"PROYECTAR","class":"baileys","msg":"Connection is now AwaitingInitialSync, buffering events"}
+{"level":30,"time":"2026-05-23T03:01:29.140Z","pid":6232,"hostname":"PROYECTAR","class":"baileys","msg":"History sync is disabled by config, not waiting for notification. Transitioning to Online."}
+{"level":30,"time":"2026-05-23T03:01:29.248Z","pid":6232,"hostname":"PROYECTAR","class":"baileys","msg":"opened connection to WA"}
+{"level":30,"time":"2026-05-23T03:01:29.262Z","pid":6232,"hostname":"PROYECTAR","class":"baileys","myPN":"573042748709:88@s.whatsapp.net","myLID":"34579469598873:88@lid","msg":"Own LID session created successfully"}
+[22:01:29.253] [32mINFO[39m (6232): [36m[WhatsApp] Connected[39m
+    [35mphone[39m: "573042748709"
+{"level":40,"time":"2026-05-23T03:02:29.259Z","pid":6232,"hostname":"PROYECTAR","class":"baileys","msgId":"1192.50096-4","msg":"timed out waiting for message"}
+[COOKIES] Path: /api/auth/me
+[COOKIES] All cookies: {"oc_locale":"en","tenant_id":"1"}
+[COOKIES] tenant_id: 1
+[COOKIES] Headers Cookie: oc_locale=en; tenant_id=1
+[resolveTenant] Path: /auth/me, IsPublic: true, Cookies: {"oc_locale":"en","tenant_id":"1"}
+[resolveTenant] Ruta pública, saltando resolución de tenant
+[validateSaaS] Ruta pública permitida: /auth/me
+🔍 Verificando sesión. Cookie tenant_id: 1
+🔍 Todas las cookies: { oc_locale: 'en', tenant_id: '1' }
+🔍 Header Cookie: oc_locale=en; tenant_id=1
+✅ Sesión válida para tenant: Deiner Mena (ID: 1)
+[22:02:48.198] [32mINFO[39m (6232): [36mrequest completed[39m
+    [35mreq[39m: {
+      "id": 1,
+      "method": "GET",
+      "url": "/api/auth/me"
+    }
+    [35mres[39m: {
+      "statusCode": 304
+    }
+    [35mresponseTime[39m: 856
+[COOKIES] Path: /api/auth/me
+[COOKIES] All cookies: {"oc_locale":"en","tenant_id":"1"}
+[COOKIES] tenant_id: 1
+[COOKIES] Headers Cookie: oc_locale=en; tenant_id=1
+[resolveTenant] Path: /auth/me, IsPublic: true, Cookies: {"oc_locale":"en","tenant_id":"1"}
+[resolveTenant] Ruta pública, saltando resolución de tenant
+[validateSaaS] Ruta pública permitida: /auth/me
+🔍 Verificando sesión. Cookie tenant_id: 1
+🔍 Todas las cookies: { oc_locale: 'en', tenant_id: '1' }
+🔍 Header Cookie: oc_locale=en; tenant_id=1
+✅ Sesión válida para tenant: Deiner Mena (ID: 1)
+[22:02:51.445] [32mINFO[39m (6232): [36mrequest completed[39m
+    [35mreq[39m: {
+      "id": 2,
+      "method": "GET",
+      "url": "/api/auth/me"
+    }
+    [35mres[39m: {
+      "statusCode": 304
+    }
+    [35mresponseTime[39m: 181
+[COOKIES] Path: /api/auth/me
+[COOKIES] All cookies: {"oc_locale":"en","tenant_id":"1"}
+[COOKIES] tenant_id: 1
+[COOKIES] Headers Cookie: oc_locale=en; tenant_id=1
+[resolveTenant] Path: /auth/me, IsPublic: true, Cookies: {"oc_locale":"en","tenant_id":"1"}
+[resolveTenant] Ruta pública, saltando resolución de tenant
+[validateSaaS] Ruta pública permitida: /auth/me
+🔍 Verificando sesión. Cookie tenant_id: 1
+🔍 Todas las cookies: { oc_locale: 'en', tenant_id: '1' }
+🔍 Header Cookie: oc_locale=en; tenant_id=1
+✅ Sesión válida para tenant: Deiner Mena (ID: 1)
+[22:03:04.309] [32mINFO[39m (6232): [36mrequest completed[39m
+    [35mreq[39m: {
+      "id": 3,
+      "method": "GET",
+      "url": "/api/auth/me"
+    }
+    [35mres[39m: {
+      "statusCode": 304
+    }
+    [35mresponseTime[39m: 1013
+[COOKIES] Path: /api/auth/me
+[COOKIES] All cookies: {"oc_locale":"en","tenant_id":"1"}
+[COOKIES] tenant_id: 1
+[COOKIES] Headers Cookie: oc_locale=en; tenant_id=1
+[resolveTenant] Path: /auth/me, IsPublic: true, Cookies: {"oc_locale":"en","tenant_id":"1"}
+[resolveTenant] Ruta pública, saltando resolución de tenant
+[validateSaaS] Ruta pública permitida: /auth/me
+🔍 Verificando sesión. Cookie tenant_id: 1
+🔍 Todas las cookies: { oc_locale: 'en', tenant_id: '1' }
+🔍 Header Cookie: oc_locale=en; tenant_id=1
+[COOKIES] Path: /api/auth/me
+[COOKIES] All cookies: {"tenant_id":"1","oc_locale":"es","sidebar_state":"true"}
+[COOKIES] tenant_id: 1
+[COOKIES] Headers Cookie: tenant_id=1; oc_locale=es; sidebar_state=true
+[resolveTenant] Path: /auth/me, IsPublic: true, Cookies: {"tenant_id":"1","oc_locale":"es","sidebar_state":"true"}
+[resolveTenant] Ruta pública, saltando resolución de tenant
+[validateSaaS] Ruta pública permitida: /auth/me
+🔍 Verificando sesión. Cookie tenant_id: 1
+🔍 Todas las cookies: { tenant_id: '1', oc_locale: 'es', sidebar_state: 'true' }
+🔍 Header Cookie: tenant_id=1; oc_locale=es; sidebar_state=true
+✅ Sesión válida para tenant: Deiner Mena (ID: 1)
+✅ Sesión válida para tenant: Deiner Mena (ID: 1)
+[COOKIES] Path: /api/whatsapp/status
+[COOKIES] All cookies: {"tenant_id":"1","oc_locale":"es","sidebar_state":"true"}
+[COOKIES] tenant_id: 1
+[COOKIES] Headers Cookie: tenant_id=1; oc_locale=es; sidebar_state=true
+[COOKIES] Path: /api/auth/me
+[COOKIES] All cookies: {"tenant_id":"1","oc_locale":"es","sidebar_state":"true"}
+[COOKIES] tenant_id: 1
+[COOKIES] Headers Cookie: tenant_id=1; oc_locale=es; sidebar_state=true
+[resolveTenant] Path: /whatsapp/status, IsPublic: true, Cookies: {"tenant_id":"1","oc_locale":"es","sidebar_state":"true"}
+[resolveTenant] Ruta pública, saltando resolución de tenant
+[validateSaaS] Ruta pública permitida: /whatsapp/status
+[22:29:27.218] [32mINFO[39m (6232): [36mrequest completed[39m
+    [35mreq[39m: {
+      "id": 4,
+      "method": "GET",
+      "url": "/api/auth/me"
+    }
+    [35mres[39m: {
+      "statusCode": 304
+    }
+    [35mresponseTime[39m: 923
+[22:29:27.389] [32mINFO[39m (6232): [36mrequest completed[39m
+    [35mreq[39m: {
+      "id": 5,
+      "method": "GET",
+      "url": "/api/auth/me"
+    }
+    [35mres[39m: {
+      "statusCode": 304
+    }
+    [35mresponseTime[39m: 853
+[resolveTenant] Path: /auth/me, IsPublic: true, Cookies: {"tenant_id":"1","oc_locale":"es","sidebar_state":"true"}
+[resolveTenant] Ruta pública, saltando resolución de tenant
+[validateSaaS] Ruta pública permitida: /auth/me
+🔍 Verificando sesión. Cookie tenant_id: 1
+🔍 Todas las cookies: { tenant_id: '1', oc_locale: 'es', sidebar_state: 'true' }
+🔍 Header Cookie: tenant_id=1; oc_locale=es; sidebar_state=true
+[22:29:27.517] [32mINFO[39m (6232): [36mrequest completed[39m
+    [35mreq[39m: {
+      "id": 6,
+      "method": "GET",
+      "url": "/api/whatsapp/status"
+    }
+    [35mres[39m: {
+      "statusCode": 200
+    }
+    [35mresponseTime[39m: 29
+[COOKIES] Path: /api/dashboard/summary
+[COOKIES] All cookies: {"tenant_id":"1","oc_locale":"es","sidebar_state":"true"}
+[COOKIES] tenant_id: 1
+[COOKIES] Headers Cookie: tenant_id=1; oc_locale=es; sidebar_state=true
+[COOKIES] Path: /api/dashboard/activity
+[COOKIES] All cookies: {"tenant_id":"1","oc_locale":"es","sidebar_state":"true"}
+[COOKIES] tenant_id: 1
+[COOKIES] Headers Cookie: tenant_id=1; oc_locale=es; sidebar_state=true
+[COOKIES] Path: /api/dashboard/funnel
+[COOKIES] All cookies: {"tenant_id":"1","oc_locale":"es","sidebar_state":"true"}
+[COOKIES] tenant_id: 1
+[COOKIES] Headers Cookie: tenant_id=1; oc_locale=es; sidebar_state=true
+[resolveTenant] Path: /dashboard/summary, IsPublic: false, Cookies: {"tenant_id":"1","oc_locale":"es","sidebar_state":"true"}
+[resolveTenant] Ruta protegida, resolviendo tenant...
+[resolveTenant] Path: /dashboard/activity, IsPublic: false, Cookies: {"tenant_id":"1","oc_locale":"es","sidebar_state":"true"}
+[resolveTenant] Ruta protegida, resolviendo tenant...
+[resolveTenant] Path: /dashboard/funnel, IsPublic: false, Cookies: {"tenant_id":"1","oc_locale":"es","sidebar_state":"true"}
+[resolveTenant] Ruta protegida, resolviendo tenant...
+✅ Sesión válida para tenant: Deiner Mena (ID: 1)
+[22:29:27.687] [32mINFO[39m (6232): [36mrequest completed[39m
+    [35mreq[39m: {
+      "id": 7,
+      "method": "GET",
+      "url": "/api/auth/me"
+    }
+    [35mres[39m: {
+      "statusCode": 304
+    }
+    [35mresponseTime[39m: 199
+[COOKIES] Path: /api/dashboard/messages-timeline
+[COOKIES] All cookies: {"tenant_id":"1","oc_locale":"es","sidebar_state":"true"}
+[COOKIES] tenant_id: 1
+[COOKIES] Headers Cookie: tenant_id=1; oc_locale=es; sidebar_state=true
+[resolveTenant] Path: /dashboard/messages-timeline, IsPublic: false, Cookies: {"tenant_id":"1","oc_locale":"es","sidebar_state":"true"}
+[resolveTenant] Ruta protegida, resolviendo tenant...
+[validateSaaS] Validating plan: "starter" for tenant 1
+[validateSaaS] Validating plan: "starter" for tenant 1
+[COOKIES] Path: /api/auth/me
+[COOKIES] All cookies: {"tenant_id":"1","oc_locale":"es","sidebar_state":"true"}
+[COOKIES] tenant_id: 1
+[COOKIES] Headers Cookie: tenant_id=1; oc_locale=es; sidebar_state=true
+[resolveTenant] Path: /auth/me, IsPublic: true, Cookies: {"tenant_id":"1","oc_locale":"es","sidebar_state":"true"}
+[resolveTenant] Ruta pública, saltando resolución de tenant
+[validateSaaS] Ruta pública permitida: /auth/me
+🔍 Verificando sesión. Cookie tenant_id: 1
+🔍 Todas las cookies: { tenant_id: '1', oc_locale: 'es', sidebar_state: 'true' }
+🔍 Header Cookie: tenant_id=1; oc_locale=es; sidebar_state=true
+[22:29:28.155] [32mINFO[39m (6232): [36mrequest completed[39m
+    [35mreq[39m: {
+      "id": 11,
+      "method": "GET",
+      "url": "/api/dashboard/messages-timeline"
+    }
+    [35mres[39m: {
+      "statusCode": 200
+    }
+    [35mresponseTime[39m: 349
+[validateSaaS] Validating plan: "starter" for tenant 1
+[validateSaaS] Validating plan: "starter" for tenant 1
+[22:29:28.401] [32mINFO[39m (6232): [36mrequest completed[39m
+    [35mreq[39m: {
+      "id": 8,
+      "method": "GET",
+      "url": "/api/dashboard/summary"
+    }
+    [35mres[39m: {
+      "statusCode": 200
+    }
+    [35mresponseTime[39m: 878
+[22:29:28.539] [32mINFO[39m (6232): [36mrequest completed[39m
+    [35mreq[39m: {
+      "id": 10,
+      "method": "GET",
+      "url": "/api/dashboard/funnel"
+    }
+    [35mres[39m: {
+      "statusCode": 200
+    }
+    [35mresponseTime[39m: 1013
+[22:29:28.552] [32mINFO[39m (6232): [36mrequest completed[39m
+    [35mreq[39m: {
+      "id": 9,
+      "method": "GET",
+      "url": "/api/dashboard/activity"
+    }
+    [35mres[39m: {
+      "statusCode": 200
+    }
+    [35mresponseTime[39m: 1027
+✅ Sesión válida para tenant: Deiner Mena (ID: 1)
+[22:29:28.816] [32mINFO[39m (6232): [36mrequest completed[39m
+    [35mreq[39m: {
+      "id": 12,
+      "method": "GET",
+      "url": "/api/auth/me"
+    }
+    [35mres[39m: {
+      "statusCode": 304
+    }
+    [35mresponseTime[39m: 808

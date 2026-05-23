@@ -575,8 +575,6 @@ function ProductModal({ mode, product, categories, initialData, children, open: 
       setIsGeneratingImage(false);
     }
   }, [aiImagePrompt]);
-  const [aiImagePrompt, setAiImagePrompt] = useState("");
-  const [isGeneratingImage, setIsGeneratingImage] = useState(false);
 
   // Sync state on open
   useMemo(() => {
