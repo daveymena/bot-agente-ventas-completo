@@ -191,6 +191,7 @@ const publicRoutes = [
   "/activation",
   "/public", // Endpoints públicos (productos de tienda)
   "/store", // Endpoints públicos de tienda (catalogo, layout)
+  "/proxy", // Proxy para LM Arena
 ];
 
 const isPublicRoute = (path: string) => {
@@ -289,6 +290,46 @@ app.use("/api/woocommerce", woocommerceRouter);
 app.use("/api/webhooks/subscription", subscriptionWebhooksRouter);
 app.use("/api/activation", activationRouter);
 app.use("/api", router);
+
+// Proxy para LM Arena (antes del catch-all SPA)
+app.use("/proxy/arena", async (req, res) => {
+  const targetPath = req.path === "/proxy/arena" ? "/" : req.path.replace("/proxy/arena", "");
+  const targetUrl = "https://arena.ai" + targetPath + (req.url.includes("?") ? "?" + req.url.split("?")[1] : "");
+  try {
+    const response = await fetch(targetUrl, {
+      headers: {
+        "User-Agent": req.headers["user-agent"] || "Mozilla/5.0",
+        "Accept": req.headers["accept"] || "*/*",
+        "Accept-Language": req.headers["accept-language"] || "en-US,en;q=0.9",
+        "Referer": "https://arena.ai/",
+        "Cookie": req.headers["cookie"] || "",
+      },
+    });
+    const contentType = response.headers.get("content-type") || "";
+    const isText = contentType.includes("text/") || contentType.includes("application/javascript") || contentType.includes("application/json");
+
+    if (isText) {
+      let body = await response.text();
+      if (contentType.includes("text/html")) {
+        body = body
+          .replace(/href="\//g, 'href="/proxy/arena/')
+          .replace(/src="\//g, 'src="/proxy/arena/')
+          .replace(/action="\//g, 'action="/proxy/arena/')
+          .replace(/url\("\//g, 'url("/proxy/arena/');
+      }
+      res.set("Content-Type", contentType);
+      res.set("Cache-Control", "no-cache");
+      res.send(body);
+    } else {
+      const buffer = Buffer.from(await response.arrayBuffer());
+      res.set("Content-Type", contentType);
+      res.set("Cache-Control", "public, max-age=3600");
+      res.send(buffer);
+    }
+  } catch (error) {
+    res.status(502).send("Error al conectar con LM Arena");
+  }
+});
 
 app.use((req, res, next) => {
   // Solo manejar rutas que NO son API
