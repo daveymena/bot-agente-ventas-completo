@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useCallback } from "react";
 import { 
   useListProducts, getListProductsQueryKey,
   useCreateProduct,
@@ -18,7 +18,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardFooter } from "@/componen
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
-import { Plus, MoreVertical, Edit, Trash2, Save, Package, Tag, Filter, Check, X, Image as ImageIcon } from "lucide-react";
+import { Plus, MoreVertical, Edit, Trash2, Save, Package, Tag, Filter, Check, X, Image as ImageIcon, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { format, parseISO } from "date-fns";
 import { es } from "date-fns/locale";
@@ -552,6 +552,31 @@ function ProductModal({ mode, product, categories, initialData, children, open: 
   });
 
   const [featureInput, setFeatureInput] = useState("");
+  const [aiImagePrompt, setAiImagePrompt] = useState("");
+  const [isGeneratingImage, setIsGeneratingImage] = useState(false);
+
+  const handleGenerateImage = useCallback(async () => {
+    if (!aiImagePrompt.trim()) return;
+    setIsGeneratingImage(true);
+    try {
+      const res = await fetch("/api/public/generate-image", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt: aiImagePrompt }),
+      });
+      if (!res.ok) throw new Error("Error al generar imagen");
+      const data = await res.json();
+      setFormData(prev => ({ ...prev, imageUrl: data.image }));
+      setAiImagePrompt("");
+      toast.success("Imagen generada correctamente");
+    } catch (err) {
+      toast.error("No se pudo generar la imagen");
+    } finally {
+      setIsGeneratingImage(false);
+    }
+  }, [aiImagePrompt]);
+  const [aiImagePrompt, setAiImagePrompt] = useState("");
+  const [isGeneratingImage, setIsGeneratingImage] = useState(false);
 
   // Sync state on open
   useMemo(() => {
@@ -749,7 +774,12 @@ function ProductModal({ mode, product, categories, initialData, children, open: 
                 </div>
                 <div className="flex-1 space-y-2">
                   <Input value={formData.imageUrl} onChange={e => setFormData({...formData, imageUrl: e.target.value})} placeholder="https://ejemplo.com/imagen.jpg" />
-                  <p className="text-[10px] text-muted-foreground">Pega un enlace de imagen pública. Se recomienda formato 16:9 o 1:1 de alta calidad.</p>
+                  <div className="flex gap-2 items-center">
+                    <Input value={aiImagePrompt} onChange={e => setAiImagePrompt(e.target.value)} placeholder="Describe la imagen para generar con IA..." className="text-xs" />
+                    <Button type="button" variant="secondary" size="sm" onClick={handleGenerateImage} disabled={isGeneratingImage || !aiImagePrompt.trim()}>
+                      <Sparkles className="h-3 w-3 mr-1" /> {isGeneratingImage ? "..." : "Generar"}
+                    </Button>
+                  </div>
                 </div>
               </div>
             </div>

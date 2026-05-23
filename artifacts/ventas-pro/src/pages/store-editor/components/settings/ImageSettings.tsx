@@ -1,9 +1,31 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useNode } from '@craftjs/core';
 import type { ImageProps } from '../ImageComponent';
 
 export const ImageSettings = () => {
   const { actions: { setProp }, props } = useNode((node) => ({ props: node.data.props as ImageProps }));
+  const [aiPrompt, setAiPrompt] = useState('');
+  const [generating, setGenerating] = useState(false);
+
+  const handleGenerate = async () => {
+    if (!aiPrompt.trim()) return;
+    setGenerating(true);
+    try {
+      const res = await fetch('/api/public/generate-image', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt: aiPrompt }),
+      });
+      if (!res.ok) throw new Error('Error');
+      const data = await res.json();
+      setProp((p: any) => (p.src = data.image));
+      setAiPrompt('');
+    } catch {
+      alert('No se pudo generar la imagen');
+    } finally {
+      setGenerating(false);
+    }
+  };
 
   return (
     <div className="space-y-4 p-4">
@@ -17,6 +39,26 @@ export const ImageSettings = () => {
           value={props.src || ''}
           onChange={(e) => setProp((p: any) => (p.src = e.target.value))}
         />
+      </div>
+
+      <div className="border-t pt-4">
+        <label className="block text-xs text-gray-500 mb-1">Generar con IA</label>
+        <div className="flex gap-2">
+          <input
+            type="text"
+            className="flex-1 border rounded px-2 py-1 text-sm"
+            value={aiPrompt}
+            onChange={(e) => setAiPrompt(e.target.value)}
+            placeholder="Describe la imagen..."
+          />
+          <button
+            className="px-3 py-1 bg-primary text-white text-xs rounded hover:bg-primary/80 disabled:opacity-50"
+            onClick={handleGenerate}
+            disabled={generating || !aiPrompt.trim()}
+          >
+            {generating ? '...' : 'Generar'}
+          </button>
+        </div>
       </div>
 
       <div>
