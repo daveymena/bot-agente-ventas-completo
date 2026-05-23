@@ -11,6 +11,19 @@ import {
   sendPasswordResetEmail,
   sendPasswordChangeConfirmationEmail
 } from "../lib/email";
+import { 
+  ApplicationError, 
+  sendError, 
+  asyncHandler,
+  ERROR_CODES 
+} from "../lib/error-handler";
+import {
+  verificationCodeLimiter,
+  loginLimiter,
+  registerLimiter,
+  passwordResetLimiter,
+  twoFactorLimiter
+} from "../lib/rate-limiter";
 
 const router = Router();
 
@@ -33,16 +46,20 @@ const loginSchema = z.object({
 });
 
 // REGISTER
-router.post("/register", async (req, res, next) => {
+router.post("/register", registerLimiter, async (req, res, next) => {
   try {
     const { name, email, password, brandName, slug } = registerSchema.parse(req.body);
     
     // Check if email or slug exists
     const existing = await db.select().from(tenants).where(eq(tenants.email, email)).limit(1);
-    if (existing.length > 0) return res.status(400).json({ error: "El email ya está registrado" });
+    if (existing.length > 0) {
+      throw new ApplicationError(ERROR_CODES.AUTH_EMAIL_ALREADY_REGISTERED);
+    }
     
     const existingSlug = await db.select().from(tenants).where(eq(tenants.slug, slug)).limit(1);
-    if (existingSlug.length > 0) return res.status(400).json({ error: "El nombre de tienda (slug) ya está en uso" });
+    if (existingSlug.length > 0) {
+      throw new ApplicationError(ERROR_CODES.AUTH_SLUG_ALREADY_IN_USE);
+    }
 
     const passwordHash = hashPassword(password);
 
@@ -127,7 +144,7 @@ router.post("/register", async (req, res, next) => {
 });
 
 // LOGIN
-router.post("/login", async (req, res, next) => {
+router.post("/login", loginLimiter, async (req, res, next) => {
   try {
     const { email, password } = loginSchema.parse(req.body);
     console.log(`🔐 Intento de login: ${email}`);
@@ -135,25 +152,15 @@ router.post("/login", async (req, res, next) => {
     
     if (!tenant) {
       console.log(`❌ Login fallido: Usuario ${email} no encontrado en DB.`);
-      return res.status(401).json({ error: "Usuario no encontrado" });
+      throw new ApplicationError(ERROR_CODES.AUTH_INVALID_CREDENTIALS);
     }
 
     const incomingHash = hashPassword(password);
     if (tenant.passwordHash !== incomingHash) {
       console.log(`❌ Login fallido: Contraseña incorrecta para ${email}.`);
       console.log(`🔍 Recibido: ${incomingHash.substring(0,10)}... | En DB: ${tenant.passwordHash?.substring(0,10)}...`);
-      return res.status(401).json({ error: "Contraseña incorrecta" });
+      throw new ApplicationError(ERROR_CODES.AUTH_INVALID_CREDENTIALS);
     }
-
-    // Verificar si el email está verificado (DESHABILITADO para testing)
-    // if (!tenant.emailVerified) {
-    //   console.log(`⚠️ Login: Email no verificado para ${email}`);
-    //   return res.status(403).json({ 
-    //     error: "Email no verificado", 
-    //     requiresVerification: true,
-    //     message: "Por favor verifica tu email antes de iniciar sesión"
-    //   });
-    // }
 
     console.log(`✅ Login exitoso: ${email} (ID: ${tenant.id})`);
 
@@ -286,17 +293,17 @@ const sendVerificationCodeSchema = z.object({
 });
 
 // Enviar código de verificación
-router.post("/send-verification-code", async (req, res, next) => {
+router.post("/send-verification-code", verificationCodeLimiter, async (req, res, next) => {
   try {
     const { email } = sendVerificationCodeSchema.parse(req.body);
     
     const [tenant] = await db.select().from(tenants).where(eq(tenants.email, email)).limit(1);
     if (!tenant) {
-      return res.status(404).json({ error: "Usuario no encontrado" });
+      throw new ApplicationError(ERROR_CODES.AUTH_NOT_AUTHENTICATED);
     }
 
     if (tenant.emailVerified) {
-      return res.status(400).json({ error: "El email ya está verificado" });
+      throw new ApplicationError(ERROR_CODES.AUTH_EMAIL_ALREADY_VERIFIED);
     }
 
     // Generar código de 6 dígitos
@@ -315,7 +322,7 @@ router.post("/send-verification-code", async (req, res, next) => {
     const sent = await sendVerificationEmail(email, code, tenant.name);
     
     if (!sent) {
-      return res.status(500).json({ error: "Error enviando el código. Intenta de nuevo." });
+      throw new ApplicationError(ERROR_CODES.INTERNAL_SERVER_ERROR);
     }
 
     logger.info({ email }, "[Auth] Código de verificación enviado");
@@ -325,37 +332,32 @@ router.post("/send-verification-code", async (req, res, next) => {
   }
 });
 
-const verifyEmailSchema = z.object({
-  email: z.string().email(),
-  code: z.string().length(6),
-});
-
 // Verificar código de email
-router.post("/verify-email", async (req, res, next) => {
+router.post("/verify-email", verificationCodeLimiter, async (req, res, next) => {
   try {
     const { email, code } = verifyEmailSchema.parse(req.body);
     
     const [tenant] = await db.select().from(tenants).where(eq(tenants.email, email)).limit(1);
     if (!tenant) {
-      return res.status(404).json({ error: "Usuario no encontrado" });
+      throw new ApplicationError(ERROR_CODES.NOT_FOUND);
     }
 
     if (tenant.emailVerified) {
-      return res.status(400).json({ error: "El email ya está verificado" });
+      throw new ApplicationError(ERROR_CODES.AUTH_EMAIL_ALREADY_VERIFIED);
     }
 
     if (!tenant.emailVerificationCode || !tenant.emailVerificationExpiry) {
-      return res.status(400).json({ error: "No hay código de verificación pendiente" });
+      throw new ApplicationError(ERROR_CODES.AUTH_NO_VERIFICATION_CODE);
     }
 
     // Verificar que el código no haya expirado
     if (new Date() > new Date(tenant.emailVerificationExpiry)) {
-      return res.status(400).json({ error: "El código ha expirado. Solicita uno nuevo." });
+      throw new ApplicationError(ERROR_CODES.AUTH_VERIFICATION_CODE_EXPIRED);
     }
 
     // Verificar el código
     if (tenant.emailVerificationCode !== code) {
-      return res.status(400).json({ error: "Código incorrecto" });
+      throw new ApplicationError(ERROR_CODES.AUTH_VERIFICATION_CODE_INVALID);
     }
 
     // Marcar email como verificado
@@ -427,7 +429,7 @@ const requestPasswordResetSchema = z.object({
 });
 
 // Solicitar código de recuperación
-router.post("/request-password-reset", async (req, res, next) => {
+router.post("/request-password-reset", passwordResetLimiter, async (req, res, next) => {
   try {
     const { email } = requestPasswordResetSchema.parse(req.body);
     
@@ -465,33 +467,28 @@ router.post("/request-password-reset", async (req, res, next) => {
   }
 });
 
-const verifyResetCodeSchema = z.object({
-  email: z.string().email(),
-  code: z.string().length(6),
-});
-
 // Verificar código de recuperación
-router.post("/verify-reset-code", async (req, res, next) => {
+router.post("/verify-reset-code", passwordResetLimiter, async (req, res, next) => {
   try {
     const { email, code } = verifyResetCodeSchema.parse(req.body);
     
     const [tenant] = await db.select().from(tenants).where(eq(tenants.email, email)).limit(1);
     if (!tenant) {
-      return res.status(404).json({ error: "Usuario no encontrado" });
+      throw new ApplicationError(ERROR_CODES.NOT_FOUND);
     }
 
     if (!tenant.passwordResetCode || !tenant.passwordResetExpiry) {
-      return res.status(400).json({ error: "No hay código de recuperación pendiente" });
+      throw new ApplicationError(ERROR_CODES.AUTH_NO_RESET_CODE);
     }
 
     // Verificar que el código no haya expirado
     if (new Date() > new Date(tenant.passwordResetExpiry)) {
-      return res.status(400).json({ error: "El código ha expirado. Solicita uno nuevo." });
+      throw new ApplicationError(ERROR_CODES.AUTH_RESET_CODE_EXPIRED);
     }
 
     // Verificar el código
     if (tenant.passwordResetCode !== code) {
-      return res.status(400).json({ error: "Código incorrecto" });
+      throw new ApplicationError(ERROR_CODES.AUTH_RESET_CODE_INVALID);
     }
 
     logger.info({ email }, "[Auth] Código de recuperación verificado");
@@ -501,34 +498,28 @@ router.post("/verify-reset-code", async (req, res, next) => {
   }
 });
 
-const resetPasswordSchema = z.object({
-  email: z.string().email(),
-  code: z.string().length(6),
-  newPassword: z.string().min(6),
-});
-
 // Restablecer contraseña
-router.post("/reset-password", async (req, res, next) => {
+router.post("/reset-password", passwordResetLimiter, async (req, res, next) => {
   try {
     const { email, code, newPassword } = resetPasswordSchema.parse(req.body);
     
     const [tenant] = await db.select().from(tenants).where(eq(tenants.email, email)).limit(1);
     if (!tenant) {
-      return res.status(404).json({ error: "Usuario no encontrado" });
+      throw new ApplicationError(ERROR_CODES.NOT_FOUND);
     }
 
     if (!tenant.passwordResetCode || !tenant.passwordResetExpiry) {
-      return res.status(400).json({ error: "No hay código de recuperación pendiente" });
+      throw new ApplicationError(ERROR_CODES.AUTH_NO_RESET_CODE);
     }
 
     // Verificar que el código no haya expirado
     if (new Date() > new Date(tenant.passwordResetExpiry)) {
-      return res.status(400).json({ error: "El código ha expirado. Solicita uno nuevo." });
+      throw new ApplicationError(ERROR_CODES.AUTH_RESET_CODE_EXPIRED);
     }
 
     // Verificar el código
     if (tenant.passwordResetCode !== code) {
-      return res.status(400).json({ error: "Código incorrecto" });
+      throw new ApplicationError(ERROR_CODES.AUTH_RESET_CODE_INVALID);
     }
 
     // Cambiar la contraseña

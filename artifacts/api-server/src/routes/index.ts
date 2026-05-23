@@ -1,5 +1,5 @@
 import { Router, type IRouter, type NextFunction, type Request, type Response } from "express";
-import { ZodError } from "zod";
+import { errorHandler } from "../lib/error-handler";
 import healthRouter from "./health";
 import whatsappRouter from "./whatsapp";
 import agentsRouter from "./agents";
@@ -46,14 +46,7 @@ router.use("/auth", authRouter);
 router.use("/store", storeRouter);
 router.use("/public", publicRouter);
 
-router.use((err: unknown, req: Request, res: Response, _next: NextFunction) => {
-  if (err instanceof ZodError) {
-    req.log?.warn({ err }, "Zod validation failed");
-    return res.status(400).json({ message: "Datos inválidos", issues: err.issues });
-  }
-  req.log?.error({ err }, "Unhandled API error");
-  const message = err instanceof Error ? err.message : "Error inesperado";
-  return res.status(500).json({ message });
-});
+// Usar el manejador de errores centralizado
+router.use(errorHandler);
 
 export default router;
