@@ -44,6 +44,17 @@ router.get("/:slug/product/:productId", async (req: Request, res: Response, next
   }
 });
 
+// Public layout (GET /store/:slug/layout)
+router.get("/:slug/layout", async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const store = (req as any).store;
+    const layout = await db.select().from(store_layouts).where(eq(store_layouts.storeId, store.id)).then(r => r[0]);
+    return res.json({ layout: layout?.layoutData ?? null });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // Admin routes (protected – placeholder, auth middleware to be added later)
 router.use("/admin/:slug", (req, _res, next) => {
   // TODO: add authentication & ownership check

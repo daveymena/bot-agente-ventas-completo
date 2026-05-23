@@ -1,7 +1,9 @@
+import { useEffect, useState } from "react";
 import { Link } from "wouter";
 import { motion } from "framer-motion";
 import { ArrowRight, Star, ShieldCheck, Zap, Globe, Package } from "lucide-react";
 import { useStoreCart } from "./store-context";
+import { StorePageRenderer } from "./StorePageRenderer";
 
 function Hero() {
   const { config } = useStoreCart();
@@ -115,6 +117,22 @@ function CategoryCard({ title, img, count, type, slug }: any) {
 
 export default function StoreHome() {
   const { products, config } = useStoreCart();
+  const [layout, setLayout] = useState<unknown>(null);
+  const [layoutLoading, setLayoutLoading] = useState(true);
+
+  useEffect(() => {
+    if (!config.slug) return;
+    setLayoutLoading(true);
+    fetch(`/api/store/${config.slug}/layout`)
+      .then(r => r.json())
+      .then(data => setLayout(data.layout))
+      .catch(() => setLayout(null))
+      .finally(() => setLayoutLoading(false));
+  }, [config.slug]);
+
+  if (layout && !layoutLoading) {
+    return <StorePageRenderer layout={layout} />;
+  }
 
   const featured = products.slice(0, 3);
 
