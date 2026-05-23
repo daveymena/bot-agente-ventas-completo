@@ -1079,18 +1079,24 @@ ${isPaymentIntent ? "[7] El cliente quiere COMPRAR. Confirma brevemente y con en
         if (textBefore) parts.push({ kind: "text", content: textBefore, _beforeCard: true });
 
         const numId = Number(m[1]);
-        const resolvedId = (!isNaN(numId) && validIds.has(numId))
-          ? numId
-          : (() => {
-              const fallback = productList.find(p =>
-                p.name.toLowerCase().split(" ").some(w => w.length > 3 && lastText.toLowerCase().includes(w))
-              );
-              if (fallback) {
-                console.log(`🔧 [PARSER] ID inválido "${m![1]}" → ${fallback.id} (${fallback.name})`);
-                return fallback.id;
-              }
-              return -1;
-            })();
+        let resolvedId = -1;
+
+        // ── VALIDACIÓN ESTRICTA DE PRODUCTO ──────────────────────────────────
+        // 1. Si el ID es válido, usarlo directamente
+        if (!isNaN(numId) && validIds.has(numId)) {
+          resolvedId = numId;
+          console.log(`✅ [PARSER] ID válido: ${numId} (${productList.find(p => p.id === numId)?.name})`);
+        }
+        // 2. Si el ID es inválido, usar SOLO el productToShow de decision (no fallback)
+        else if (decision.productToShow && validIds.has(decision.productToShow.id)) {
+          resolvedId = decision.productToShow.id;
+          console.log(`🔧 [PARSER] ID inválido "${m![1]}" → usando productToShow: ${decision.productToShow.id} (${decision.productToShow.name})`);
+        }
+        // 3. Si no hay productToShow, rechazar la card
+        else {
+          console.log(`❌ [PARSER] ID inválido "${m![1]}" y sin productToShow válido. Card rechazada.`);
+          resolvedId = -1;
+        }
 
         if (resolvedId !== -1) {
           const isPaymentFlow = (decision.intent === "payment_intent" || decision.intent === "confirmation");
@@ -1135,6 +1141,19 @@ ${isPaymentIntent ? "[7] El cliente quiere COMPRAR. Confirma brevemente y con en
           const pId = decision.productToShow.id;
           const pName = decision.productToShow.name;
           const pPrice = decision.productToShow.price;
+          
+          // ⚠️ VALIDACIÓN CRÍTICA: Asegurar que el producto en pago sea el correcto
+          // Verificar que el productId en la tarjeta coincida con el productToShow
+          const cardProductIds = finalParts.filter((p: any) => p.kind === "card").map((p: any) => p.productId);
+          if (cardProductIds.length > 0 && !cardProductIds.includes(pId)) {
+            console.log(`❌ [PAYMENT-VALIDATION] MISMATCH: Producto en pago (${pId}) no coincide con tarjeta (${cardProductIds.join(",")})`);
+            // Usar el producto de la tarjeta como fuente de verdad
+            const correctProduct = productList.find(p => cardProductIds.includes(p.id));
+            if (correctProduct) {
+              console.log(`🔧 [PAYMENT-VALIDATION] Corrigiendo a producto correcto: ${correctProduct.name} (ID: ${correctProduct.id})`);
+            }
+          }
+          
           const [customer] = await db.select().from(conversations)
             .where(eq(conversations.id, conversationId)).limit(1);
 

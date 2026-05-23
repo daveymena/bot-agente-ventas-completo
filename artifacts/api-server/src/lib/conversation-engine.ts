@@ -989,6 +989,28 @@ export async function findBestProductMatch(
   });
 
   const best = valid[0];
+  
+  // ── VALIDACIÓN ADICIONAL: Si hay múltiples productos con el mismo nivel,
+  // asegurarse de que el mejor sea realmente el mejor
+  if (valid.length > 1 && valid[0].level === valid[1].level) {
+    // Si hay empate, preferir el que tenga más coincidencias en el nombre
+    const topLevel = valid[0].level;
+    const topProducts = valid.filter(e => e.level === topLevel);
+    
+    if (topProducts.length > 1) {
+      // Calcular score adicional basado en coincidencias exactas
+      const scores = topProducts.map(e => {
+        const nameHits = specificWords.filter(w => normalizeText(e.product.name).includes(w)).length;
+        const descHits = specificWords.filter(w => normalizeText(e.product.description || "").includes(w)).length;
+        return { product: e, score: nameHits * 2 + descHits };
+      });
+      
+      scores.sort((a, b) => b.score - a.score);
+      reasoning.push(`⚠️ Múltiples productos con nivel ${topLevel}. Seleccionando por coincidencias: ${scores[0].product.product.name}`);
+      return { product: scores[0].product.product, score: topLevel * 25, reasoning: reasoning.join("\n") };
+    }
+  }
+  
   reasoning.push(`✅ Producto seleccionado: "${best.product.name}" (nivel ${best.level})`);
   reasoning.push(`   Razón: ${best.matchDetail}`);
   if (best.categoryHit) reasoning.push("   Coincidencia de categoría confirmada.");
@@ -1060,18 +1082,37 @@ export async function computeDecision(
           features: (p.features as string[]) || [],
         };
         shouldSendCard = true;
+        console.log(`✅ [DECISION] Producto nuevo encontrado: ${p.name} (ID: ${p.id})`);
       } else if (p.id !== memory.currentProductId) {
         // Producto ya enviado pero diferente al actual → cambiar contexto
-        productToShow = {
-          id: p.id,
-          name: p.name,
-          price: Number(p.price),
-          currency: p.currency || "COP",
-          description: p.description || "",
-          features: (p.features as string[]) || [],
-        };
-        // Si quiere pagar este producto, reenviar la card con enlaces de pago
-        shouldSendCard = (intent === "payment_intent" || intent === "confirmation");
+        // ⚠️ IMPORTANTE: Solo cambiar si es payment_intent o confirmation
+        // Para otros intents, mantener el producto actual para evitar confusión
+        if (intent === "payment_intent" || intent === "confirmation") {
+          productToShow = {
+            id: p.id,
+            name: p.name,
+            price: Number(p.price),
+            currency: p.currency || "COP",
+            description: p.description || "",
+            features: (p.features as string[]) || [],
+          };
+          shouldSendCard = true;
+          console.log(`🔄 [DECISION] Cambio de producto para pago: ${p.name} (ID: ${p.id})`);
+        } else {
+          // Mantener el producto actual para evitar confusión
+          const currentProduct = productList.find(p2 => p2.id === memory.currentProductId);
+          if (currentProduct) {
+            productToShow = {
+              id: currentProduct.id,
+              name: currentProduct.name,
+              price: Number(currentProduct.price),
+              currency: currentProduct.currency || "COP",
+              description: currentProduct.description || "",
+              features: (currentProduct.features as string[]) || [],
+            };
+          }
+          console.log(`⚠️ [DECISION] Producto diferente detectado pero manteniendo contexto actual: ${currentProduct?.name} (ID: ${memory.currentProductId})`);
+        }
       } else {
         // Mismo producto que ya está en contexto → responder sobre él
         const currentProduct = productList.find(p2 => p2.id === memory.currentProductId);
@@ -1087,12 +1128,14 @@ export async function computeDecision(
         }
         // Si ya está pagando, mostrar la card con enlaces de pago
         shouldSendCard = (intent === "payment_intent" || intent === "confirmation");
+        console.log(`✅ [DECISION] Mismo producto en contexto: ${currentProduct?.name} (ID: ${memory.currentProductId})`);
       }
     } else if (memory.currentProductId) {
       // Sin match nuevo y con producto en contexto: mantenerlo SOLO si no es una búsqueda de producto nuevo
       // Si la intención es 'product_query' (cliente pide algo nuevo) y no hay match, marcar como fallo
       if (intent === "product_query") {
         productSearchFailed = true;
+        console.log(`❌ [DECISION] Búsqueda de producto fallida - no hay match`);
       } else {
         // Detalles, pago, objeción, etc. sobre el producto existente → mantener contexto
         const currentProduct = productList.find(p2 => p2.id === memory.currentProductId);
@@ -1108,10 +1151,12 @@ export async function computeDecision(
         }
         // Si quiere pagar, mostrar la card con los enlaces de pago
         shouldSendCard = (intent === "payment_intent" || intent === "confirmation");
+        console.log(`✅ [DECISION] Manteniendo producto en contexto: ${currentProduct?.name} (ID: ${memory.currentProductId})`);
       }
     } else {
       // No hay match y no hay producto en contexto
       productSearchFailed = true;
+      console.log(`❌ [DECISION] Sin match y sin producto en contexto`);
     }
   }
 

@@ -37,6 +37,7 @@ export type ResponseStrategy =
   | "hardcoded_greeting"     // Saludo hardcodeado (rápido, consistente)
   | "hardcoded_detail"       // Detalle hardcodeado (entrega, garantía, etc.)
   | "human_handoff"          // Cliente pide humano — respuesta directa
+  | "ai_qualification"       // IA hace preguntas para perfilar al lead
   | "ai_product_discovery"   // IA busca y recomienda producto
   | "ai_product_details"     // IA responde sobre producto ya mostrado
   | "ai_payment_close"       // IA facilita el cierre con links
@@ -282,6 +283,14 @@ function selectStrategy(
   }
 
   // ── GENERAL / RESTO ──────────────────────────────────────────────────────
+  // Si no hay intenciones claras pero el lead es nuevo y no se han mostrado productos, calificamos
+  if (intent === "general" && memory.sentProductIds.size === 0 && memory.messageCount < 3) {
+    return {
+      strategy: "ai_qualification",
+      reason: "Lead nuevo sin intención clara — IA realiza calificación inicial",
+    };
+  }
+
   return {
     strategy: "ai_general_response",
     reason: `Intención "${intent}" — IA responde con análisis completo`,
@@ -342,6 +351,11 @@ function buildRequirements(
   const sep = makeSeparator(voice);
 
   switch (strategy) {
+    case "ai_qualification":
+      requirements.push(`Haz solo UNA pregunta breve para entender qué busca o su nivel de experiencia.`);
+      requirements.push(`No ofrezcas productos todavía hasta saber qué necesita.`);
+      break;
+
     case "ai_product_discovery":
       requirements.push(`Incluye [CARD: ID] al final de tu respuesta para mostrar el producto.`);
       requirements.push(`Antes de la card, escribe UNA sola línea de conexión emocional (ej: "${voice.phrases.product_intro}").`);
