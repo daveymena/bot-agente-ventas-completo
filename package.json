@@ -15,9 +15,14 @@
     "test": "pnpm -r test"
   },
   "devDependencies": {
+    "@tailwindcss/oxide-win32-x64-msvc": "4.2.4",
     "@types/node": "^20.12.7",
-    "typescript": "^5.4.5",
-    "tsx": "^4.7.3"
+    "lightningcss-win32-x64-msvc": "1.32.0",
+    "tsx": "^4.7.3",
+    "typescript": "^5.4.5"
+  },
+  "dependencies": {
+    "@rollup/rollup-win32-x64-msvc": "4.60.2",
+    "lightningcss": "1.32.0"
   }
-
 }
