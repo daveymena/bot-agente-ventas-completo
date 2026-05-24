@@ -380,9 +380,9 @@ export function determineResponseStrategy(
     shouldAskClarification = true;
     
     if (intentionAnalysis.missingInfo.includes('producto_especifico')) {
-      clarificationQuestion = '¿Qué producto te interesa específicamente? Tenemos cursos de piano, diseño, trading, idiomas y más.';
+      clarificationQuestion = 'No le hagas preguntas. Simplemente ofrécele nuestras categorías principales (piano, diseño, trading, idiomas, etc.) y deja que decida.';
     } else if (intentionAnalysis.missingInfo.includes('contexto_adicional')) {
-      clarificationQuestion = '¿Podrías darme más detalles sobre lo que necesitas? Así puedo ayudarte mejor.';
+      clarificationQuestion = 'No hagas preguntas para pedir más detalles. Proporciona información general y espera su reacción.';
     }
   }
   
@@ -473,7 +473,7 @@ export function generateIntelligentContext(
 `;
 
   if (strategy.shouldAskClarification) {
-    context += `\n⚠️ ACCIÓN REQUERIDA: Pedir aclaración\n- Pregunta sugerida: "${strategy.clarificationQuestion}"\n`;
+    context += `\n⚠️ ACCIÓN REQUERIDA: Faltan detalles.\n- Instrucción sugerida: "${strategy.clarificationQuestion}"\n`;
   }
   
   if (strategy.shouldProvideAlternatives) {
@@ -499,7 +499,7 @@ export function generateIntelligentContext(
 2. Usa ejemplos concretos
 3. Evita tecnicismos
 4. Ofrece guía paso a paso
-5. Pregunta si tiene dudas`;
+5. No hagas preguntas. Deja que el cliente inicie si tiene dudas`;
       break;
       
     case 'empathetic':
@@ -525,7 +525,7 @@ export function generateIntelligentContext(
     case 'consultative':
       context += `
 🤝 ESTRATEGIA CONSULTIVA:
-1. Haz preguntas inteligentes
+1. Analiza su situación silenciosamente
 2. Entiende su situación
 3. Recomienda la mejor opción
 4. Explica el por qué

@@ -357,8 +357,9 @@ function buildRequirements(
       break;
 
     case "ai_product_discovery":
-      requirements.push(`Incluye [CARD: ID] al final de tu respuesta para mostrar el producto.`);
-      requirements.push(`Antes de la card, escribe UNA sola línea de conexión emocional (ej: "${voice.phrases.product_intro}").`);
+      requirements.push(`Escribe SOLO 1 línea corta y entusiasta antes de la card (ej: "¡Aquí lo tienes! 👇" o "Mira esto 🔥").`);
+      requirements.push(`NO menciones el precio, el contenido ni los detalles — todo eso ya está en la card.`);
+      requirements.push(`Incluye [CARD: ID] justo después de esa línea.`);
       requirements.push(`NADA después de [CARD: ID].`);
       break;
 
@@ -366,7 +367,7 @@ function buildRequirements(
       if (productName) {
         requirements.push(`Responde sobre "${productName}" usando SOLO los datos del catálogo.`);
         requirements.push(`Sé específico y directo. Máximo 3-4 líneas.`);
-        requirements.push(`Termina con una pregunta de cierre.`);
+        requirements.push(`No hagas preguntas innecesarias. Entrega la información y deja que el cliente tome la iniciativa.`);
       }
       break;
 
@@ -381,7 +382,7 @@ function buildRequirements(
       requirements.push(`Empieza validando la preocupación: "${voice.phrases.objection_empathy}"`);
       requirements.push(`Ofrece una perspectiva concreta que reduzca el riesgo percibido.`);
       requirements.push(`Menciona la garantía: "${voice.phrases.guarantee_mention}"`);
-      requirements.push(`Termina con una pregunta que invite a continuar.`);
+      requirements.push(`No termines con una pregunta. Presenta la información amablemente y deja que el cliente decida su siguiente paso.`);
       break;
 
     case "ai_farewell":
@@ -392,8 +393,8 @@ function buildRequirements(
 
     case "ai_general_response":
       requirements.push(`Responde la pregunta directamente en la primera línea.`);
-      requirements.push(`Agrega contexto útil en 1-2 líneas adicionales.`);
-      requirements.push(`Termina con: "${voice.phrases.closing_question}"`);
+      requirements.push(`Agrega contexto útil en 1-2 líneas adicionales si es necesario.`);
+      requirements.push(`NO termines con una pregunta. Entrega la información y deja que el cliente tome la iniciativa.`);
       break;
   }
 
@@ -422,7 +423,6 @@ function buildFormatInstructions(
     `• Precio: ${voice.emojis.price} *PRECIO EN NEGRITA*`,
     `• Entrega: ${voice.emojis.delivery} Descripción`,
     `• Garantía: ${voice.emojis.guarantee} Descripción`,
-    `• Pregunta de cierre: ${voice.emojis.question} Pregunta`,
     ``,
     `ESTRUCTURA IDEAL (sin card):`,
     `[emoji] *TÍTULO*`,
@@ -431,8 +431,6 @@ function buildFormatInstructions(
     ``,
     `${voice.emojis.benefit} Punto 1`,
     `${voice.emojis.benefit} Punto 2`,
-    ``,
-    `${voice.emojis.question} Pregunta de cierre`,
     ``,
     `ESTRUCTURA CON CARD:`,
     `[1 línea de conexión]`,

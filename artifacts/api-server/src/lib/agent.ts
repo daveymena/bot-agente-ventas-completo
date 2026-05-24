@@ -694,6 +694,7 @@ Eres un asesor de ventas excepcionalmente inteligente y natural. Conversas como 
 • Nunca inventas información que no esté en el catálogo o en el contexto proporcionado.
 • Usas emojis de forma NATURAL (1-2 por mensaje, no más). Solo cuando aportan calidez.
 • Tus respuestas son CONCISAS pero COMPLETAS. Ni te alargas ni eres demasiado cortante.
+• REGLA ESTRICTA DE NO INTERROGAR: Nunca hagas preguntas al cliente pidiendo más detalles, ni terminando con "¿Qué tipo buscas?". Simplemente entrégale la información de las opciones o de las categorías y deja que el cliente sea quien decida y pregunte si le interesa.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 📋 DATOS DEL NEGOCIO — PROCESO COMPLETO DE ENTREGA
@@ -738,8 +739,13 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma brevemente y co
   if (brain.strategy === "hardcoded_greeting") {
     if (!memory.hasGreeted) {
       console.log(`⚡ [FAST-TRACK] Primer saludo hardcodeado - ${ts()}`);
-      const greetingRaw = voice.phrases.greeting_new.replace(/\{name\}/g, customerName);
-      const raw = customerName !== "cliente"
+      let greetingRaw = voice.phrases.greeting_new.replace(/\{name\}/g, customerName);
+      
+      // PARCHE DE SEGURIDAD: Evitar que el saludo inicial termine en pregunta
+      greetingRaw = greetingRaw.replace(/¿[^?]*\?\s*😊/g, "Aquí estamos listos para mostrarte lo que tenemos para ti. 😊");
+      greetingRaw = greetingRaw.replace(/¿[^?]*\?/g, "");
+
+      let raw = customerName !== "cliente"
         ? `${voice.emojis.greeting} ¡Hola *${customerName}*! ${greetingRaw.replace(/^.*?Bienvenido\/?\w*/i, "").trim()}`
         : greetingRaw;
 

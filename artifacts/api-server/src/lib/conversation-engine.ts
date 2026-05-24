@@ -1147,7 +1147,7 @@ export async function computeDecision(
   }
 
   // ── Construir bloque de contexto para el prompt ─────────────────────────────
-  const contextBlock = buildContextBlock(memory, intent, stage, productToShow, shouldSendCard, searchReasoning, productSearchFailed, t);
+  const contextBlock = buildContextBlock(memory, intent, stage, productToShow, shouldSendCard, searchReasoning, productSearchFailed, t, productList);
 
   // ── Razón de la decisión (para logs) ────────────────────────────────────────
   const debugReason = [
@@ -1188,7 +1188,8 @@ function buildContextBlock(
   shouldSendCard: boolean,
   searchReasoning?: string | null,
   productSearchFailed?: boolean,
-  incomingText?: string
+  incomingText?: string,
+  allProducts?: Array<any>
 ): string {
   const lines: string[] = [];
 
@@ -1218,7 +1219,7 @@ function buildContextBlock(
     lines.push(`\n✅ TU ACCIÓN:`);
     lines.push(`1. Dile la VERDAD: el producto que busca no está disponible.`);
     lines.push(`2. Menciona brevemente qué productos SÍ tienes más similares si los hay.`);
-    lines.push(`3. Pregúntale si le interesa alguno de los productos existentes.`);
+    lines.push(`3. Simplemente ofrécele la información y deja que el cliente decida si le interesa. NUNCA termines con preguntas como "¿qué tipo buscas?" o "¿te interesa alguno?".`);
     lines.push(`4. Sé honesto y directo, no inventes productos ni des información falsa.`);
     lines.push(`5. NUNCA muestres una tarjeta de un producto que no tiene que ver con lo que busca.`);
   }
@@ -1247,14 +1248,14 @@ function buildContextBlock(
   switch (intent) {
     case "greeting":
       if (!memory.hasGreeted) {
-        lines.push(`• Es el PRIMER contacto. Preséntate brevemente como Sofía de TecnoVariedades y pregunta qué busca.`);
-        lines.push(`• Sé cálida, breve (máx 3 líneas) y termina con una pregunta abierta.`);
+        lines.push(`• Es el PRIMER contacto. Preséntate brevemente como Sofía de TecnoVariedades y pregúntale en qué le puedes ayudar, pero sin ser invasiva.`);
+        lines.push(`• Sé cálida, breve (máx 2 líneas).`);
         lines.push(`• NO menciones productos ni precios todavía.`);
       } else if (memory.isNewSession) {
-        lines.push(`• El cliente regresa después de un tiempo. Salúdalo brevemente por su nombre y pregunta en qué puedes ayudarle.`);
+        lines.push(`• El cliente regresa después de un tiempo. Salúdalo brevemente por su nombre y ofrécele tu ayuda.`);
         lines.push(`• NO menciones conversaciones anteriores a menos que él lo haga.`);
       } else {
-        lines.push(`• El cliente saludó de nuevo en la misma sesión. Responde brevemente y pregunta en qué puedes ayudarle.`);
+        lines.push(`• El cliente saludó de nuevo en la misma sesión. Responde brevemente ofreciendo tu ayuda de manera proactiva.`);
       }
       break;
 
@@ -1264,16 +1265,19 @@ function buildContextBlock(
         lines.push(`• ADMITE HONESTAMENTE que lo que busca no está disponible en este momento.`);
         lines.push(`• NO inventes productos. NO muestres tarjetas. NO des detalles de productos inexistentes.`);
         lines.push(`• Revisa el catálogo completo abajo y si hay productos similares, menciónalos.`);
-        lines.push(`• Termina preguntando si le interesa alguno de los productos disponibles.`);
+        lines.push(`• NUNCA termines preguntando si le interesa o qué tipo busca. Dale la información y que el cliente decida.`);
       } else if (searchReasoning) {
         // La búsqueda encontró una posible coincidencia, pero la IA decide
         lines.push(`• 🔍 ANÁLISIS AUTOMÁTICO (referencia):`);
         searchReasoning.split("\n").forEach(r => lines.push(`  ${r}`));
-        lines.push(`• TU TRABAJO: Analiza el contexto completo y elige el producto correcto del catálogo.`);
-        lines.push(`• Usa [CARD: ID] al final si decides mostrar la tarjeta de algún producto.`);
+        lines.push(`• TU TRABAJO: Si el análisis detectó un producto válido, PRESÉNTALO DIRECTAMENTE con entusiasmo.`);
+        lines.push(`• NO interrogues al cliente (evita preguntarle "¿qué tipo buscas?" o "¿puedes darme más detalles?"). A los clientes no les gusta que los pongan a pensar o a dar explicaciones.`);
+        lines.push(`• Dale la información del producto que mejor encaje y deja que él decida si le interesa o si quiere hacer más preguntas.`);
+        lines.push(`• IMPORTANTE: Usa [CARD: ID] al final para mostrar la tarjeta del producto. Como la tarjeta ya tiene el título, precio e imagen, tu respuesta de texto debe ser EXTREMADAMENTE CORTA (1 o 2 líneas máximo) diciendo algo como "Aquí tienes la información 👇". NO repitas los detalles en el texto.`);
       } else {
-        lines.push(`• El cliente pregunta por un producto. Revisa el catálogo y elige el que corresponda.`);
-        lines.push(`• Usa [CARD: ID] al final si decides mostrar la tarjeta.`);
+        lines.push(`• El cliente pregunta por un producto. Revisa el catálogo y elige el que mejor corresponda.`);
+        lines.push(`• NO hagas preguntas innecesarias (ej. "¿puedes darme más detalles?"). Presenta la opción que creas conveniente de inmediato.`);
+        lines.push(`• Usa [CARD: ID] al final si decides mostrar la tarjeta. Si usas la tarjeta, tu mensaje de texto debe ser EXTREMADAMENTE CORTO (1 línea) porque la tarjeta ya muestra toda la información (precio, título, etc.).`);
       }
       break;
 
@@ -1364,6 +1368,30 @@ function buildContextBlock(
       lines.push(`🚨 NO envíes [CARD: ${product.id}] — ya se mostró antes.`);
     }
   }
+
+  // ── Catálogo completo — SIEMPRE se inyecta para que la IA no improvise ─────
+  if (allProducts && allProducts.length > 0) {
+    lines.push(`\n\n━━━━━━━━━━━━━━━━━━━━━━━`);
+    lines.push(`📋 CATÁLOGO COMPLETO DE PRODUCTOS (usa SOLO esta información)`);
+    lines.push(`━━━━━━━━━━━━━━━━━━━━━━━`);
+    lines.push(`🚨 REGLA ABSOLUTA: NO inventes ningún dato que no esté aquí. Si el producto no aparece en esta lista, NO EXISTE.`);
+    allProducts.forEach((p, i) => {
+      lines.push(`\n[${i + 1}] ID:${p.id} | ${p.name}`);
+      if (p.price) lines.push(`    💰 Precio: ${formatPrice(Number(p.price), p.currency || 'COP')}`);
+      if (p.description) lines.push(`    📝 ${String(p.description).substring(0, 200)}`);
+      if (p.category) lines.push(`    🏷️ Categoría: ${p.category}`);
+    });
+    lines.push(`\n━━━━━━━━━━━━━━━━━━━━━━━`);
+    lines.push(`FIN DEL CATÁLOGO. Usa [CARD: ID] con el ID exacto del producto de arriba.`);
+  }
+
+  // ── REGLA FINAL INQUEBRANTABLE — La IA la lee justo antes de generar ────────
+  lines.push(`\n\n🔴🔴🔴 REGLA FINAL INQUEBRANTABLE 🔴🔴🔴`);
+  lines.push(`NUNCA termines tu respuesta con una pregunta. NINGUNA. Ni "¿Qué idioma buscas?", ni "¿Te interesa?", ni "¿Podrías darme más detalles?".`);
+  lines.push(`Si el cliente menciona un producto o categoría (ej: "idiomas", "piano", "diseño"), muéstrale DIRECTAMENTE el producto más relevante del catálogo usando [CARD: ID] con 1 sola línea de texto.`);
+  lines.push(`Si no existe ese producto: di honestamente que no lo tienes y menciona los más similares del catálogo. SIN preguntar nada.`);
+  lines.push(`El cliente decide. Tú informas. No interrogas.`);
+  lines.push(`🔴🔴🔴 FIN REGLA FINAL 🔴🔴🔴`);
 
   return lines.join("\n");
 }

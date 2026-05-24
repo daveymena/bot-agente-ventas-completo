@@ -45,7 +45,7 @@ router.post("/test-ia", async (req, res, next) => {
     const [convo] = await db.insert(conversations).values({
       tenantId,
       contactName: "Test",
-      contactPhone: "test-ia",
+      contactPhone: req.body.phone || "test-ia",
       status: "ai",
       currentStage: "greeting"
     }).returning();

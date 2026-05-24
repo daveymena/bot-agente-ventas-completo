@@ -30,10 +30,11 @@ async function testBotQuestion(question) {
     try {
         console.log(`\n❓ Pregunta: ${question}`);
         
+        const phone = 'test-' + Date.now();
         const response = await fetch('http://localhost:3002/api/whatsapp/test-ia', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ message: question })
+            body: JSON.stringify({ message: question, phone: phone })
         });
         
         const result = await response.json();
@@ -41,9 +42,9 @@ async function testBotQuestion(question) {
         if (response.ok) {
             console.log('✅ Status: OK');
             console.log(`📋 Stage: ${result.stage}`);
-            console.log(`💬 Respuesta: ${result.response?.substring(0, 200)}`);
+            console.log(`💬 Respuesta: ${result.response}`);
             if (result.parts) {
-                console.log(`📦 Partes: ${JSON.stringify(result.parts).substring(0, 100)}`);
+                console.log(`📦 Partes: ${JSON.stringify(result.parts)}`);
             }
             return result;
         } else {
