@@ -652,25 +652,27 @@ export async function runAgentReply(conversationId: number) {
   
   console.log(`🧠 [BRAIN] estado:${brain.emotionalState} estrategia:${brain.strategy} — ${brain.strategyReason} - ${ts()}`);
 
-  // ── 8. Construir catálogo para el prompt (OPTIMIZADO - SELECTIVO) ────────
+  // ── 8. Construir catálogo COMPLETO para la IA (ella decide el producto) ──
   t1 = Date.now();
   let productsBlock = "";
+  const needsFullCatalog = decision.intent !== "greeting" && decision.intent !== "leaving";
   
-  if (decision.productToShow) {
-    const p = decision.productToShow;
-    const features = (p.features as string[]) || [];
-    productsBlock = `[PRODUCTO ID: ${p.id}] ${p.name} | Precio: ${formatPrice(Number(p.price), p.currency)} | ${p.description || ""}${features.length ? " | " + features.join(", ") : ""}`;
-    console.log(`📦 [CATALOG] Mostrando solo producto en contexto: ${p.name}`);
-  } else if (productList.length > 0 && (decision.intent === "product_query" || decision.intent === "payment_intent")) {
-    const topProducts = productList.slice(0, 5);
-    productsBlock = topProducts.map(p => {
+  if (productList.length > 0 && needsFullCatalog) {
+    productsBlock = productList.map(p => {
       const features = (p.features as string[]) || [];
-      return `[PRODUCTO ID: ${p.id}] ${p.name} | Precio: ${formatPrice(Number(p.price), p.currency)}`;
+      const featStr = features.length > 0 ? ` | Características: ${features.join(", ")}` : "";
+      const descStr = p.description ? ` | ${p.description.substring(0, 120)}` : "";
+      return `[ID: ${p.id}] *${p.name}* — ${formatPrice(Number(p.price), p.currency)}${descStr}${featStr}`;
+    }).join("\n\n");
+    console.log(`📦 [CATALOG] Catálogo completo para IA: ${productList.length} productos - ${ts()}`);
+  } else if (productList.length > 0) {
+    productsBlock = productList.map(p => {
+      return `[ID: ${p.id}] ${p.name} — ${formatPrice(Number(p.price), p.currency)}`;
     }).join("\n");
-    console.log(`📦 [CATALOG] Mostrando top 5 productos para búsqueda`);
+    console.log(`📦 [CATALOG] Catálogo básico para greeting/leaving: ${productList.length} productos`);
   } else {
     productsBlock = "[Catálogo disponible bajo demanda]";
-    console.log(`📦 [CATALOG] Sin catálogo para intent: ${decision.intent}`);
+    console.log(`📦 [CATALOG] Sin catálogo disponible`);
   }
   logTime(`8. Construir catálogo: ${Date.now() - t1}ms`);
 
@@ -717,15 +719,17 @@ ${productList.length > 0 ? productsBlock : "No hay productos disponibles."}
 [4] Si el cliente pregunta algo FUERA del contexto del negocio (charla casual, opiniones, etc.), responde de forma natural y amable. Si es posible, redirige suavemente al tema de ventas.
 [5] Si NO SABES algo, admítelo con honestidad. No improvises ni inventes.
 [6] No repitas información que ya diste. Usa la MEMORIA de la conversación.
-${isPaymentIntent ? "[7] El cliente quiere COMPRAR. Confirma brevemente y con entusiasmo. El sistema mostrará automáticamente la tarjeta con métodos de pago." : hasSentCardAlready ? "[7] El producto ya se mostró antes. NO repitas la tarjeta. Responde la pregunta directamente." : "[7] Si consideras necesario presentar un producto, incluye [CARD: ID] al final de tu mensaje. Solo si es natural hacerlo."}`).trim();
+${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma brevemente y con entusiasmo. El sistema mostrará automáticamente la tarjeta con métodos de pago del producto que elijas." : `[7] 🧠 ANALIZA EL CONTEXTO de la conversación y elige el producto CORRECTO del catálogo. Usa [CARD: ID] al final de tu mensaje para mostrar la tarjeta del producto que mejor corresponda a lo que el cliente pregunta. Si no estás segura, pregunta más detalles antes de mostrar una card. NUNCA muestres un producto que no tenga relación con lo que el cliente busca.`}`).trim();
 
   // ── 10. INTEGRAR contexto del motor DENTRO del cerebro ────────────────────
   // El bloque de contexto del motor (engineContext) se inyecta como contexto adicional
   // para que el prompt final tenga TODA la información disponible
+  // Pasar todos los productos a AdvancedIntelligence para mejor análisis contextual
+  const aiProductContext = productList.length > 0 ? productList.slice(0, 10) : [];
   const engineContextBlock = `${decision.contextBlock}\n\n${AdvancedIntelligence.generateIntelligentContext(
     lastText,
     memory.history,
-    decision.productToShow ? productList.find(p => p.id === decision.productToShow!.id) : null
+    aiProductContext.length > 0 ? aiProductContext : null
   )}`;
 
   // ── 11. ATENDER SEGÚN ESTRATEGIA DEL CEREBRO ─────────────────────────────

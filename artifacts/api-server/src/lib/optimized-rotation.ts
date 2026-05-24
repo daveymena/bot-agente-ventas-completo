@@ -27,12 +27,11 @@ class OptimizedProviderRotation {
   
   // Timeouts ULTRA-AGRESIVOS para EasyPanel (OPTIMIZADO PARA PRODUCCIÓN)
   private timeouts = {
-    opencode: 8000,              // 8 segundos (era 15)
-    github_copilot: 8000,        // 8 segundos (era 12)
-    ollama_local: 5000,          // 5 segundos (era 12) - CRÍTICO: Ollama es lento
-    nvidia: 8000,                // 8 segundos (era 15)
-    github_models: 8000,         // 8 segundos (era 12)
-    g4f: 8000,                   // 8 segundos (era 10)
+    opencode: 8000,              // 8 segundos
+    github_copilot: 8000,        // 8 segundos
+    ollama_local: 5000,          // 5 segundos - CRÍTICO: Ollama es lento
+    nvidia: 8000,                // 8 segundos
+    github_models: 8000,         // 8 segundos
   };
 
   // Cooldown muy corto para fallos (OPTIMIZADO)
@@ -45,11 +44,8 @@ class OptimizedProviderRotation {
   private initializeProviders() {
     const providerList = [
       "opencode",
-      "github_copilot_internal",
-      "ollama_local",
       "nvidia",
       "github",
-      "g4f"
     ];
 
     for (const name of providerList) {
@@ -80,7 +76,7 @@ class OptimizedProviderRotation {
     }
 
     // Añadir el resto en orden (solo proveedores con token que funcionan)
-    const order = ["opencode", "nvidia", "github", "g4f"];
+    const order = ["opencode", "nvidia", "github"];
     
     for (const provider of order) {
       // Saltar si ya está en la lista o en cooldown

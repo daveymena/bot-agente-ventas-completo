@@ -847,15 +847,12 @@ export async function findBestProductMatch(
   // La BD puede tener categorías llamadas "megapacks" o "cursos",
   // pero el buscador inteligente debe asociar nombres de BD reales a conceptos canónicos.
   const categoryAlias: Record<string, string[]> = {
-    // Categorías de BD que causan productos relevantes → keywords canónicas
-    "megapacks": ["electronica", "tecnologia", "diseno", "marketing", "idiomas", "fitness",
-                  "programacion", "hogar", "cocina", "decoracion", "mascota", "trading",
-                  "excel", "guitarra", "piano", "word", "powerpoint", "reparacion", "celular"],
-    "cursos":   ["electronica", "tecnologia", "diseno", "marketing", "idiomas", "fitness",
-                  "programacion", "hogar"],
-    "suscripciones": ["electronica", "tecnologia", "diseno", "marketing", "idiomas", "fitness",
-                  "programacion", "trading"],
-    "servicios": ["electronica", "tecnologia", "diseno", "marketing", "programacion"],
+    // Cada categoría mapea SOLO a keywords directamente relacionadas
+    // NUNCA mapees una categoría a keywords ajenas (ej: "megapacks" → "piano")
+    "megapacks": ["electronica", "tecnologia", "informatica", "programacion", "ofimatica"],
+    "cursos":   ["educacion", "aprendizaje", "capacitacion", "formacion"],
+    "suscripciones": ["suscripcion", "membresia", "acceso", "plataforma"],
+    "servicios": ["servicio", "consultoria", "asesoria", "soporte"],
   };
 
   // Construir el buscador directo: BD → conceptos (case-insensitive)
@@ -911,7 +908,7 @@ export async function findBestProductMatch(
     // Nivel 3: Coincidencia directa de palabras específicas en el NOMBRE
     if (level < 3) {
       const nameHits = specificWords.filter(w => productName.includes(w));
-      if (nameHits.length >= Math.max(1, Math.ceil(specificWords.length * 0.4))) {
+      if (nameHits.length >= Math.max(1, Math.ceil(specificWords.length * 0.5))) {
         level = 3;
         matchDetail = `${nameHits.length}/${specificWords.length} palabras específicas en el nombre: ${nameHits.join(", ")}`;
       }
@@ -935,7 +932,7 @@ export async function findBestProductMatch(
     // Nivel 2: Coincidencia de palabras específicas solo en DESCRIPCIÓN
     if (level < 2) {
       const descHits = specificWords.filter(w => productDesc.includes(w));
-      if (descHits.length >= Math.max(1, Math.ceil(specificWords.length * 0.5))) {
+      if (descHits.length >= Math.max(1, Math.ceil(specificWords.length * 0.6))) {
         level = 2;
         matchDetail = `${descHits.length}/${specificWords.length} palabras en descripción: ${descHits.join(", ")}`;
       }
@@ -952,9 +949,19 @@ export async function findBestProductMatch(
       const normalizedAliases = [...(categoryAliasLower[catName] || [])].map(s => normalizeText(s));
       // Coincidencia exacta: alias contiene la palabra de la consulta (no al revés)
       const exactAliasHits = specificWords.filter(w => normalizedAliases.some(a => a.includes(w)));
-      if (exactAliasHits.length >= Math.max(1, Math.ceil(specificWords.length * 0.4))) {
-        level = 2;
-        matchDetail = `búsqueda expandida por categoría "${catName}": alias=[${exactAliasHits.join(",")}]`;
+      if (exactAliasHits.length >= Math.max(1, Math.ceil(specificWords.length * 0.6))) {
+        // ✅ VALIDACIÓN CRUZADA: que al menos 1 palabra específica aparezca
+        // en el NOMBRE o DESCRIPCIÓN real del producto (no solo en alias)
+        const hasContentMatch = specificWords.some(w =>
+          productName.includes(w) || productDesc.includes(w)
+        );
+        if (hasContentMatch) {
+          level = 2;
+          matchDetail = `búsqueda expandida por categoría "${catName}": alias=[${exactAliasHits.join(",")}]`;
+        } else {
+          level = 1;
+          matchDetail = `categoría "${catName}" coincide pero sin respaldo en nombre/descripción del producto`;
+        }
       }
     }
 
@@ -1067,96 +1074,75 @@ export async function computeDecision(
     // Razonamiento de búsqueda (para inyectar en el prompt)
     searchReasoning = match?.reasoning || null;
 
+    // 🤖 DECISIÓN DE PRODUCTO DELEGADA A LA IA
+    // La IA recibe el catálogo completo y analiza el contexto de la conversación
+    // para elegir qué producto mostrar. El keyword matching solo sirve como
+    // sugerencia/advertencia, no como decisión final.
     if (match && match.score >= 50) {
       const p: any = match.product;
       const alreadySent = memory.sentProductIds.has(p.id);
 
-      if (!alreadySent) {
-        // Producto nuevo → mostrar card
-        productToShow = {
-          id: p.id,
-          name: p.name,
-          price: Number(p.price),
-          currency: p.currency || "COP",
-          description: p.description || "",
-          features: (p.features as string[]) || [],
-        };
-        shouldSendCard = true;
-        console.log(`✅ [DECISION] Producto nuevo encontrado: ${p.name} (ID: ${p.id})`);
-      } else if (p.id !== memory.currentProductId) {
-        // Producto ya enviado pero diferente al actual → cambiar contexto
-        // ⚠️ IMPORTANTE: Solo cambiar si es payment_intent o confirmation
-        // Para otros intents, mantener el producto actual para evitar confusión
-        if (intent === "payment_intent" || intent === "confirmation") {
+      if (intent === "payment_intent" || intent === "confirmation") {
+        // ── PAGO: la IA necesita un producto concreto. Usar el match como sugerencia ──
+        // pero la IA puede sobreescribirlo con [CARD: ID] en su respuesta.
+        if (!alreadySent || p.id !== memory.currentProductId) {
           productToShow = {
-            id: p.id,
-            name: p.name,
-            price: Number(p.price),
-            currency: p.currency || "COP",
-            description: p.description || "",
+            id: p.id, name: p.name, price: Number(p.price),
+            currency: p.currency || "COP", description: p.description || "",
             features: (p.features as string[]) || [],
           };
           shouldSendCard = true;
-          console.log(`🔄 [DECISION] Cambio de producto para pago: ${p.name} (ID: ${p.id})`);
+          console.log(`💳 [DECISION] Producto para pago sugerido: ${p.name} (ID: ${p.id})`);
         } else {
-          // Mantener el producto actual para evitar confusión
           const currentProduct = productList.find(p2 => p2.id === memory.currentProductId);
           if (currentProduct) {
             productToShow = {
-              id: currentProduct.id,
-              name: currentProduct.name,
-              price: Number(currentProduct.price),
-              currency: currentProduct.currency || "COP",
-              description: currentProduct.description || "",
+              id: currentProduct.id, name: currentProduct.name, price: Number(currentProduct.price),
+              currency: currentProduct.currency || "COP", description: currentProduct.description || "",
               features: (currentProduct.features as string[]) || [],
             };
           }
-          console.log(`⚠️ [DECISION] Producto diferente detectado pero manteniendo contexto actual: ${currentProduct?.name} (ID: ${memory.currentProductId})`);
+          shouldSendCard = true;
+          console.log(`💳 [DECISION] Mismo producto en pago: ${currentProduct?.name} (ID: ${memory.currentProductId})`);
         }
       } else {
-        // Mismo producto que ya está en contexto → responder sobre él
-        const currentProduct = productList.find(p2 => p2.id === memory.currentProductId);
-        if (currentProduct) {
-          productToShow = {
-            id: currentProduct.id,
-            name: currentProduct.name,
-            price: Number(currentProduct.price),
-            currency: currentProduct.currency || "COP",
-            description: currentProduct.description || "",
-            features: (currentProduct.features as string[]) || [],
-          };
-        }
-        // Si ya está pagando, mostrar la card con enlaces de pago
-        shouldSendCard = (intent === "payment_intent" || intent === "confirmation");
-        console.log(`✅ [DECISION] Mismo producto en contexto: ${currentProduct?.name} (ID: ${memory.currentProductId})`);
+        // ── CONSULTA DE PRODUCTO/DETALLE/GENERAL: la IA decide ──
+        // Incluir el match como análisis contextual, pero no forzar card
+        productToShow = null;
+        shouldSendCard = false;
+        searchReasoning = match.reasoning;
+        console.log(`🤖 [DECISION] Match encontrado pero delegado a IA: ${p.name} (score: ${match.score})`);
       }
     } else if (memory.currentProductId) {
-      // Sin match nuevo y con producto en contexto: mantenerlo SOLO si no es una búsqueda de producto nuevo
-      // Si la intención es 'product_query' (cliente pide algo nuevo) y no hay match, marcar como fallo
-      if (intent === "product_query") {
-        productSearchFailed = true;
-        console.log(`❌ [DECISION] Búsqueda de producto fallida - no hay match`);
-      } else {
-        // Detalles, pago, objeción, etc. sobre el producto existente → mantener contexto
+      if (intent === "payment_intent" || intent === "confirmation") {
         const currentProduct = productList.find(p2 => p2.id === memory.currentProductId);
         if (currentProduct) {
           productToShow = {
-            id: currentProduct.id,
-            name: currentProduct.name,
-            price: Number(currentProduct.price),
-            currency: currentProduct.currency || "COP",
-            description: currentProduct.description || "",
+            id: currentProduct.id, name: currentProduct.name, price: Number(currentProduct.price),
+            currency: currentProduct.currency || "COP", description: currentProduct.description || "",
             features: (currentProduct.features as string[]) || [],
           };
         }
-        // Si quiere pagar, mostrar la card con los enlaces de pago
-        shouldSendCard = (intent === "payment_intent" || intent === "confirmation");
-        console.log(`✅ [DECISION] Manteniendo producto en contexto: ${currentProduct?.name} (ID: ${memory.currentProductId})`);
+        shouldSendCard = true;
+        console.log(`💳 [DECISION] Producto en contexto para pago: ${currentProduct?.name} (ID: ${memory.currentProductId})`);
+      } else {
+        // Mantener producto en contexto como referencia, pero IA decide
+        const currentProduct = productList.find(p2 => p2.id === memory.currentProductId);
+        if (currentProduct) {
+          productToShow = null;
+          shouldSendCard = false;
+          console.log(`🤖 [DECISION] Producto en contexto delegado a IA: ${currentProduct?.name} (ID: ${memory.currentProductId})`);
+        }
       }
     } else {
-      // No hay match y no hay producto en contexto
-      productSearchFailed = true;
-      console.log(`❌ [DECISION] Sin match y sin producto en contexto`);
+      // No hay match ni producto en contexto
+      if (intent !== "payment_intent" && intent !== "confirmation") {
+        productSearchFailed = true;
+        console.log(`❌ [DECISION] Sin match y sin producto en contexto - delegado a IA`);
+      } else {
+        productSearchFailed = true;
+        console.log(`❌ [DECISION] Sin match y sin producto en contexto para pago`);
+      }
     }
   }
 
@@ -1277,16 +1263,17 @@ function buildContextBlock(
         lines.push(`• ADVERTENCIA: La búsqueda en el catálogo NO encontró un producto que coincida con lo que el cliente pide.`);
         lines.push(`• ADMITE HONESTAMENTE que lo que busca no está disponible en este momento.`);
         lines.push(`• NO inventes productos. NO muestres tarjetas. NO des detalles de productos inexistentes.`);
-        lines.push(`• Si hay productos similares, menciona SOLO los que estén listados abajo en el catálogo.`);
+        lines.push(`• Revisa el catálogo completo abajo y si hay productos similares, menciónalos.`);
         lines.push(`• Termina preguntando si le interesa alguno de los productos disponibles.`);
-      } else if (shouldSendCard && product) {
-        lines.push(`• El cliente pregunta por "${product.name}". Muestra la tarjeta con [CARD: ${product.id}].`);
-        lines.push(`• Antes de la card, escribe UNA sola línea de conexión (ej: "¡Justo lo que buscas! 👇").`);
-        lines.push(`• NADA después de [CARD: ${product.id}].`);
-      } else if (product) {
-        lines.push(`• El cliente pregunta sobre "${product.name}" (ya mostrado antes).`);
-        lines.push(`• Responde su pregunta directamente usando los datos del producto abajo.`);
-        lines.push(`• NO vuelvas a enviar la tarjeta.`);
+      } else if (searchReasoning) {
+        // La búsqueda encontró una posible coincidencia, pero la IA decide
+        lines.push(`• 🔍 ANÁLISIS AUTOMÁTICO (referencia):`);
+        searchReasoning.split("\n").forEach(r => lines.push(`  ${r}`));
+        lines.push(`• TU TRABAJO: Analiza el contexto completo y elige el producto correcto del catálogo.`);
+        lines.push(`• Usa [CARD: ID] al final si decides mostrar la tarjeta de algún producto.`);
+      } else {
+        lines.push(`• El cliente pregunta por un producto. Revisa el catálogo y elige el que corresponda.`);
+        lines.push(`• Usa [CARD: ID] al final si decides mostrar la tarjeta.`);
       }
       break;
 

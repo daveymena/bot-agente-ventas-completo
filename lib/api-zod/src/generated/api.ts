@@ -529,8 +529,11 @@ export const DeleteCategoryResponse = zod.object({
 export const GetWhatsAppStatusResponse = zod.object({
   state: zod.enum(["disconnected", "connecting", "qr", "connected", "error"]),
   qrCode: zod.string().nullish(),
+  qrDataUrl: zod.string().nullish(),
   phone: zod.string().nullish(),
+  phoneNumber: zod.string().nullish(),
   connectedAt: zod.string().nullish(),
+  lastError: zod.string().nullish(),
 });
 
 /**
@@ -539,8 +542,11 @@ export const GetWhatsAppStatusResponse = zod.object({
 export const ConnectWhatsAppResponse = zod.object({
   state: zod.enum(["disconnected", "connecting", "qr", "connected", "error"]),
   qrCode: zod.string().nullish(),
+  qrDataUrl: zod.string().nullish(),
   phone: zod.string().nullish(),
+  phoneNumber: zod.string().nullish(),
   connectedAt: zod.string().nullish(),
+  lastError: zod.string().nullish(),
 });
 
 /**
@@ -549,8 +555,11 @@ export const ConnectWhatsAppResponse = zod.object({
 export const DisconnectWhatsAppResponse = zod.object({
   state: zod.enum(["disconnected", "connecting", "qr", "connected", "error"]),
   qrCode: zod.string().nullish(),
+  qrDataUrl: zod.string().nullish(),
   phone: zod.string().nullish(),
+  phoneNumber: zod.string().nullish(),
   connectedAt: zod.string().nullish(),
+  lastError: zod.string().nullish(),
 });
 
 /**

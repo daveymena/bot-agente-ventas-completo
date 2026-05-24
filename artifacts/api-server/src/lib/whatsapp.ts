@@ -393,11 +393,13 @@ export class WhatsAppManager {
 
       const sock = makeWASocket({
          auth: authState,
-         printQRInTerminal: true,
          browser: ["VentasPro", "Chrome", "1.0.0"],
          syncFullHistory: false,
          markOnlineOnConnect: true,
          generateHighQualityLinkPreview: false,
+         // WhatsApp rechaza el protocolo WEB antiguo (error 405).
+         // Se requiere versión actualizada + plataforma MACOS para nuevo pairing.
+         version: [2, 3000, 1034074495],
        });
        this.sock = sock;
        console.log("✅ [INIT] Socket WhatsApp inicializado correctamente");

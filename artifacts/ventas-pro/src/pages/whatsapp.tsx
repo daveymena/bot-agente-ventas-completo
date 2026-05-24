@@ -127,8 +127,8 @@ export default function WhatsAppConnection() {
           </CardHeader>
           <CardContent className="flex flex-col items-center py-8">
             <div className="bg-white p-5 rounded-3xl shadow-[0_0_40px_rgba(var(--primary),0.15)] border border-primary/10 mb-8 transition-transform hover:scale-105 duration-500">
-              {(status.qrDataUrl || (status as any).qrCode) ? (
-                <img src={status.qrDataUrl || (status as any).qrCode} alt="WhatsApp QR Code" className="w-64 h-64" />
+              {status.qrCode ? (
+                <img src={status.qrCode} alt="WhatsApp QR Code" className="w-64 h-64" />
               ) : (
                 <Skeleton className="w-64 h-64 rounded-xl" />
               )}
@@ -171,7 +171,7 @@ export default function WhatsAppConnection() {
                   </div>
                   <div className="min-w-0">
                     <p className="text-xs text-muted-foreground font-medium mb-0.5">Línea vinculada</p>
-                    <p className="font-bold tabular-nums-all text-sm truncate">{status.phoneNumber}</p>
+                    <p className="font-bold tabular-nums-all text-sm truncate">{status.phone || status.phoneNumber || '-'}</p>
                   </div>
                 </div>
                 <div className="text-center">

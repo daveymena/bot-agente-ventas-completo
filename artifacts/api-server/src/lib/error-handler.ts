@@ -2,7 +2,8 @@ import { Response } from "express";
 import { ZodError } from "zod";
 import { ERROR_CODES, ERROR_MESSAGES, ERROR_HTTP_STATUS, ErrorCode } from "./error-codes";
 
-export { ERROR_CODES, ERROR_MESSAGES, ERROR_HTTP_STATUS, ErrorCode };
+export { ERROR_CODES, ERROR_MESSAGES, ERROR_HTTP_STATUS };
+export type { ErrorCode };
 
 /**
  * Interfaz para errores personalizados de la aplicación

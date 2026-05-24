@@ -1,6 +1,14 @@
 import app from "./app";
 import { logger } from "./lib/logger";
 
+// Evitar que errores no manejados de Baileys tumben el servidor
+process.on("unhandledRejection", (reason) => {
+  logger.warn({ err: reason instanceof Error ? { message: reason.message, stack: reason.stack } : reason }, "[Global] Unhandled Rejection - ignorada para evitar crash");
+});
+process.on("uncaughtException", (error) => {
+  logger.error({ err: { message: error.message, stack: error.stack } }, "[Global] Uncaught Exception - recuperando...");
+});
+
 let port = Number(process.env["PORT"] || "3002");
 const host = process.env["HOST"] || "0.0.0.0";
 

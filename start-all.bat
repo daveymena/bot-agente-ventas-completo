@@ -13,7 +13,7 @@ if not exist "artifacts\api-server" (
 )
 
 echo [1/2] Iniciando Backend (Puerto 3002)...
-start "Backend - Sofia AI" cmd /k "cd artifacts\api-server && npm run dev"
+start "Backend - Sofia AI" cmd /k "cd artifacts\api-server && pnpm run dev"
 
 echo.
 echo Esperando 3 segundos para que el backend inicie...
@@ -21,7 +21,7 @@ timeout /t 3 /nobreak > nul
 
 echo.
 echo [2/2] Iniciando Frontend (Puerto 5173)...
-start "Frontend - Sofia AI" cmd /k "cd artifacts\ventas-pro && npm run dev"
+start "Frontend - Sofia AI" cmd /k "cd artifacts\ventas-pro && pnpm run dev"
 
 echo.
 echo ========================================

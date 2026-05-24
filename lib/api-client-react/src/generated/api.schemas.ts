@@ -275,8 +275,11 @@ export const WhatsAppStatusState = {
 export interface WhatsAppStatus {
   state: WhatsAppStatusState;
   qrCode?: string | null;
+  qrDataUrl?: string | null;
   phone?: string | null;
+  phoneNumber?: string | null;
   connectedAt?: string | null;
+  lastError?: string | null;
 }
 
 export interface Settings {
