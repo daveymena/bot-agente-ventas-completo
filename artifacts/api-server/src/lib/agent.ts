@@ -589,30 +589,37 @@ export async function runAgentReply(conversationId: number) {
   const [appSettings] = await db.select().from(settingsTable).limit(1);
   logTime(`4a. Cargar settings: ${Date.now() - t1}ms`);
   
-  // Determinar si necesitamos productos basado en intención
-  // Primero hacer un análisis rápido de intención sin cargar todo
-  const needsProductsQuick = lastText.toLowerCase().match(/qué|producto|precio|comprar|pago|nequi|daviplata|transferencia|link|enlace|adquirir|compro/i);
+    // Determinar si necesitamos productos basado en intención
+    // Primero hacer un análisis rápido de intención sin cargar todo
+    const needsProductsQuick = lastText.toLowerCase().match(/qué|producto|precio|comprar|pago|nequi|daviplata|transferencia|link|enlace|adquirir|compro|megapack|piano|curso|pack|suscripci|membres|idiomas|idioma/i);
   
-  let productList: any[] = [];
-  let categoryMap = new Map<number, string>();
-  
-  if (needsProductsQuick) {
-    // Solo cargar si es probable que sea product_query o payment_intent
-    t1 = Date.now();
-    productList = await db.select().from(products)
-      .where(eq(products.isActive, true))
-      .limit(50); // Limitar a 50 productos más recientes
-    logTime(`4b. Cargar productos: ${Date.now() - t1}ms`);
+    let productList: any[] = [];
+    let categoryMap = new Map<number, string>();
     
-    t1 = Date.now();
-    const allCategories = await db.select().from(productCategories);
-    categoryMap = new Map(allCategories.map(c => [c.id, c.name.toLowerCase()]));
-    logTime(`4c. Cargar categorías: ${Date.now() - t1}ms`);
-    
-    console.log(`📦 [AGENT-INFO] Productos cargados: ${productList.length} (selectivo) - ${ts()}`);
-  } else {
-    console.log(`📦 [AGENT-INFO] Productos omitidos (no necesarios) - ${ts()}`);
-  }
+    if (needsProductsQuick) {
+      // Solo cargar si es probable que sea product_query o payment_intent
+      t1 = Date.now();
+      productList = await db.select().from(products)
+        .where(eq(products.isActive, true))
+        .limit(50); // Limitar a 50 productos más recientes
+      logTime(`4b. Cargar productos: ${Date.now() - t1}ms`);
+      
+      // Si no hay productos activos, hacer fallback a todos los productos (para casos de datos de prueba)
+      if (productList.length === 0) {
+        productList = await db.select().from(products)
+          .limit(50); // Fallback: cargar cualquier producto activo o no
+        logTime(`4b. Fallback - Cargar todos los productos: ${Date.now() - t1}ms`);
+      }
+      
+      t1 = Date.now();
+      const allCategories = await db.select().from(productCategories);
+      categoryMap = new Map(allCategories.map(c => [c.id, c.name.toLowerCase()]));
+      logTime(`4c. Cargar categorías: ${Date.now() - t1}ms`);
+      
+      console.log(`📦 [AGENT-INFO] Productos cargados: ${productList.length} (selectivo) - ${ts()}`);
+    } else {
+      console.log(`📦 [AGENT-INFO] Productos omitidos (no necesarios) - ${ts()}`);
+    }
 
   // ── 5. Motor de decisión ──────────────────────────────────────────────────
   t1 = Date.now();
