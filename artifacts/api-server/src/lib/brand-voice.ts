@@ -125,7 +125,7 @@ export const TECNOVARIEDADES_VOICE: BrandVoice = {
     greeting_new:
       "¡Bienvenido/a a *TecnoVariedades D&S*! 🔥\nEs un placer saludarte.\n\nEstoy a tu entera disposición para ayudarte con lo que necesites hoy. 😊",
     greeting_return:
-      "¡Qué gusto verte de nuevo! 🌟\n¿En qué puedo ayudarte hoy?",
+      "¡Qué gusto verte de nuevo! 🌟\nAquí estoy a tu disposición.",
     product_intro:
       "¡Justo lo que necesitas! 👇",
     payment_ready:
@@ -133,7 +133,7 @@ export const TECNOVARIEDADES_VOICE: BrandVoice = {
     objection_empathy:
       "Entiendo perfectamente tu preocupación 🤝",
     closing_question:
-      "¿Tienes alguna pregunta antes de proceder? 😊",
+      "Quedo a tu disposición si deseas proceder o si necesitas más información. 😊",
     farewell:
       "¡Fue un placer atenderte! Cualquier duda, aquí estoy 🌟",
     guarantee_mention:

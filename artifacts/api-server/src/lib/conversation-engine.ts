@@ -777,6 +777,7 @@ function normalizeText(t: string): string {
     .replace(/cocina/g, "cocina")
     .replace(/ba[oñ]o/g, "bano")
     .replace(/decoraci[oó]n/g, "decoracion")
+    .replace(/pianob/g, "piano")
     .replace(/[^\w\sáéíóúñü]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
@@ -1260,25 +1261,12 @@ function buildContextBlock(
       break;
 
     case "product_query":
-      if (productSearchFailed) {
-        lines.push(`• ADVERTENCIA: La búsqueda en el catálogo NO encontró un producto que coincida con lo que el cliente pide.`);
-        lines.push(`• ADMITE HONESTAMENTE que lo que busca no está disponible en este momento.`);
-        lines.push(`• NO inventes productos. NO muestres tarjetas. NO des detalles de productos inexistentes.`);
-        lines.push(`• Revisa el catálogo completo abajo y si hay productos similares, menciónalos.`);
-        lines.push(`• NUNCA termines preguntando si le interesa o qué tipo busca. Dale la información y que el cliente decida.`);
-      } else if (searchReasoning) {
-        // La búsqueda encontró una posible coincidencia, pero la IA decide
-        lines.push(`• 🔍 ANÁLISIS AUTOMÁTICO (referencia):`);
-        searchReasoning.split("\n").forEach(r => lines.push(`  ${r}`));
-        lines.push(`• TU TRABAJO: Si el análisis detectó un producto válido, PRESÉNTALO DIRECTAMENTE con entusiasmo.`);
-        lines.push(`• NO interrogues al cliente (evita preguntarle "¿qué tipo buscas?" o "¿puedes darme más detalles?"). A los clientes no les gusta que los pongan a pensar o a dar explicaciones.`);
-        lines.push(`• Dale la información del producto que mejor encaje y deja que él decida si le interesa o si quiere hacer más preguntas.`);
-        lines.push(`• IMPORTANTE: Usa [CARD: ID] al final para mostrar la tarjeta del producto. Como la tarjeta ya tiene el título, precio e imagen, tu respuesta de texto debe ser EXTREMADAMENTE CORTA (1 o 2 líneas máximo) diciendo algo como "Aquí tienes la información 👇". NO repitas los detalles en el texto.`);
-      } else {
-        lines.push(`• El cliente pregunta por un producto. Revisa el catálogo y elige el que mejor corresponda.`);
-        lines.push(`• NO hagas preguntas innecesarias (ej. "¿puedes darme más detalles?"). Presenta la opción que creas conveniente de inmediato.`);
-        lines.push(`• Usa [CARD: ID] al final si decides mostrar la tarjeta. Si usas la tarjeta, tu mensaje de texto debe ser EXTREMADAMENTE CORTO (1 línea) porque la tarjeta ya muestra toda la información (precio, título, etc.).`);
-      }
+      lines.push(`• El cliente pregunta por un producto o tiene un interés. Revisa el CATÁLOGO COMPLETO con mucha atención.`);
+      lines.push(`• Usa tu inteligencia: si el cliente escribe con errores (ej. "pianob", "megaoack"), entiende el contexto y busca la mejor coincidencia.`);
+      lines.push(`• Si encuentras el producto ideal en el catálogo, PRESÉNTALO DIRECTAMENTE usando la etiqueta [CARD: ID] (ej. [CARD: 311]).`);
+      lines.push(`• Cuando uses [CARD: ID], tu respuesta de texto debe ser EXTREMADAMENTE CORTA (1 línea máximo). No repitas precios ni detalles, la tarjeta ya los tiene.`);
+      lines.push(`• Si el producto DEFINITIVAMENTE NO ESTÁ en el catálogo (ej. pide algo completamente ajeno), admite honestamente que no lo tienes y menciona los más similares.`);
+      lines.push(`• NUNCA interrogues al cliente (evita preguntarle "¿qué tipo buscas?" o "¿puedes darme más detalles?"). Dale la información y que el cliente decida.`);
       break;
 
     case "details_query":
@@ -1388,8 +1376,8 @@ function buildContextBlock(
   // ── REGLA FINAL INQUEBRANTABLE — La IA la lee justo antes de generar ────────
   lines.push(`\n\n🔴🔴🔴 REGLA FINAL INQUEBRANTABLE 🔴🔴🔴`);
   lines.push(`NUNCA termines tu respuesta con una pregunta. NINGUNA. Ni "¿Qué idioma buscas?", ni "¿Te interesa?", ni "¿Podrías darme más detalles?".`);
-  lines.push(`Si el cliente menciona un producto o categoría (ej: "idiomas", "piano", "diseño"), muéstrale DIRECTAMENTE el producto más relevante del catálogo usando [CARD: ID] con 1 sola línea de texto.`);
-  lines.push(`Si no existe ese producto: di honestamente que no lo tienes y menciona los más similares del catálogo. SIN preguntar nada.`);
+  lines.push(`Eres una IA inteligente: Lee lo que pide el cliente (incluso si tiene errores ortográficos como "pianob" o "megaoack"). Revisa el CATÁLOGO COMPLETO. Si encuentras el producto (ej. ID 311 para piano), DEBES responder ÚNICAMENTE usando la etiqueta [CARD: ID] y una línea super corta introductoria. NO inventes precios en el texto, el precio ya viene en la tarjeta.`);
+  lines.push(`Si el cliente pide algo que DEFINITIVAMENTE NO ESTÁ en el catálogo (ej. "naves espaciales"), dile amablemente que no lo manejas y ofrece el catálogo general.`);
   lines.push(`El cliente decide. Tú informas. No interrogas.`);
   lines.push(`🔴🔴🔴 FIN REGLA FINAL 🔴🔴🔴`);
 

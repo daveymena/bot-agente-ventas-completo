@@ -29,10 +29,10 @@ import { trackWhatsAppCost } from "../middleware/rateLimiting";
 // ─── Simulación de escritura humana ───────────────────────────────────────────
 // Muestra "escribiendo..." en WhatsApp antes de enviar, con delay proporcional al texto
 
-const TYPING_WPM = 280;          // Palabras por minuto (humano rápido)
-const TYPING_MIN_MS = 800;       // Mínimo siempre visible
-const TYPING_MAX_MS = 4500;      // Máximo para no hacer esperar demasiado
-const READ_DELAY_MS = 400;       // Pausa antes de empezar a "escribir" (simula leer el mensaje)
+const TYPING_WPM = 800;          // Palabras por minuto (acelerado)
+const TYPING_MIN_MS = 300;       // Mínimo siempre visible
+const TYPING_MAX_MS = 1500;      // Máximo para no hacer esperar demasiado
+const READ_DELAY_MS = 100;       // Pausa antes de empezar a "escribir" (simula leer el mensaje)
 
 function calcTypingDelay(text: string): number {
   const words = text.trim().split(/\s+/).length;
