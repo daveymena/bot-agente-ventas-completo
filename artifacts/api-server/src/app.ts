@@ -21,21 +21,24 @@ import { db, agents } from "@workspace/db";
 import { eq } from "drizzle-orm";
 
 // Auto-start WhatsApp bot on boot
-whatsapp.start().catch(err => {
-  logger.error({ err }, "[WhatsApp] Failed to auto-start bot on boot");
-});
+// COMENTADO TEMPORALMENTE PARA DESARROLLO - Descomentar en producción
+// whatsapp.start().catch(err => {
+//   logger.error({ err }, "[WhatsApp] Failed to auto-start bot on boot");
+// });
 
 // Auto-start AI Processor (Orchestrator) on boot
+// COMENTADO TEMPORALMENTE PARA DESARROLLO - Descomentar en producción
 import { getAgentOrchestrator } from "./lib/services/agent-orchestrator";
 import { getMessageHandler } from "./lib/services/message-handler";
-const orchestrator = getAgentOrchestrator();
-orchestrator.configureTenant("1", { enabled: true, processingIntervalMs: 500 });
-logger.info("[AgentOrchestrator] AI processing auto-started for default tenant");
+// const orchestrator = getAgentOrchestrator();
+// orchestrator.configureTenant("1", { enabled: true, processingIntervalMs: 500 });
+// logger.info("[AgentOrchestrator] AI processing auto-started for default tenant");
 
 // Configure MessageHandler for receiving incoming WhatsApp messages
-const messageHandler = getMessageHandler();
-messageHandler.configureTenant("1", { enabled: true });
-logger.info("[MessageHandler] Message receiver configured for default tenant");
+// COMENTADO TEMPORALMENTE PARA DESARROLLO
+// const messageHandler = getMessageHandler();
+// messageHandler.configureTenant("1", { enabled: true });
+// logger.info("[MessageHandler] Message receiver configured for default tenant");
 
 // Auto-seed agents if they don't exist
 (async () => {

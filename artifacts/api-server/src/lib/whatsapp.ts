@@ -305,17 +305,23 @@ export class WhatsAppManager {
   }
 
   getStatus(): WhatsAppPublicStatus & { qrCode: string | null; phone: string | null; phoneNumber: string | null } {
-    return {
-      state: this.state,
-      qrCode: this.qrDataUrl,
-      phone: this.phoneNumber,
-      phoneNumber: this.phoneNumber,
-      connectedAt: this.connectedAt,
-      lastError: this.lastError,
-      // Keep original field names for internal consistency
-      qrDataUrl: this.qrDataUrl,
-    } as any;
-  }
+     const status = {
+       state: this.state,
+       qrCode: this.qrDataUrl,
+       phone: this.phoneNumber,
+       phoneNumber: this.phoneNumber,
+       connectedAt: this.connectedAt,
+       lastError: this.lastError,
+       // Keep original field names for internal consistency
+       qrDataUrl: this.qrDataUrl,
+     } as any;
+     
+     if (this.state === "qr" && this.qrDataUrl) {
+       console.log("📲 [STATUS] QR disponible - Longitud:", this.qrDataUrl.length);
+     }
+     
+     return status;
+   }
 
   isConnected() {
     return this.state === "connected";
@@ -356,82 +362,110 @@ export class WhatsAppManager {
     return this.getStatus();
   }
 
-  async start() {
-    if (this.starting) return this.getStatus();
-    if (this.state === "connected" || this.state === "qr") return this.getStatus();
-    
-    this.starting = true;
-    this.state = "connecting";
+   async start() {
+     if (this.starting) {
+       console.log("⚠️ [START] Ya hay un proceso de inicio en curso");
+       return this.getStatus();
+     }
+     if (this.state === "connected" || this.state === "qr") {
+       console.log(`ℹ️ [START] Estado actual: ${this.state} - No iniciando nueva conexión`);
+       return this.getStatus();
+     }
+     
+     this.starting = true;
+     this.state = "connecting";
+     console.log("🔄 [START] Iniciando conexión WhatsApp...");
 
-    try {
-      if (!existsSync(AUTH_DIR)) mkdirSync(AUTH_DIR, { recursive: true });
+     try {
+       if (!existsSync(AUTH_DIR)) {
+         mkdirSync(AUTH_DIR, { recursive: true });
+         console.log(`📁 [AUTH] Directorio de autenticación creado: ${AUTH_DIR}`);
+       }
 
-      const baileys = await import("@whiskeysockets/baileys");
-      const makeWASocket = (baileys as any).default ?? (baileys as any).makeWASocket;
-      const { useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion } = baileys as any;
+       const baileys = await import("@whiskeysockets/baileys");
+       const makeWASocket = (baileys as any).default ?? (baileys as any).makeWASocket;
+       const { useMultiFileAuthState, DisconnectReason } = baileys as any;
+       
+       console.log("✅ [IMPORT] Módulos de Baileys importados correctamente");
 
-      const { state: authState, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
-      let version: any = undefined;
-      try {
-        const v = await fetchLatestBaileysVersion();
-        version = v.version;
-      } catch (e) {}
+       const { state: authState, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
+       console.log("✅ [AUTH] Estado de autenticación cargado");
 
       const sock = makeWASocket({
-        auth: authState,
-        version,
-        printQRInTerminal: false,
-        browser: ["VentasPro", "Chrome", "1.0.0"],
-        syncFullHistory: false,
-        markOnlineOnConnect: true,
-      });
-      this.sock = sock;
+         auth: authState,
+         printQRInTerminal: true,
+         browser: ["VentasPro", "Chrome", "1.0.0"],
+         syncFullHistory: false,
+         markOnlineOnConnect: true,
+         generateHighQualityLinkPreview: false,
+       });
+       this.sock = sock;
+       console.log("✅ [INIT] Socket WhatsApp inicializado correctamente");
 
-      sock.ev.on("creds.update", saveCreds);
+       sock.ev.on("creds.update", saveCreds);
 
       sock.ev.on("connection.update", async (update: any) => {
-        const { connection, lastDisconnect, qr } = update;
+         const { connection, lastDisconnect, qr } = update;
+         
+         if (qr) {
+           try {
+             this.qrDataUrl = await QRCode.toDataURL(qr, { width: 320, margin: 1 });
+             this.state = "qr";
+             logger.info("[WhatsApp] QR code generated successfully");
+             console.log("✅ [QR] Código QR generado exitosamente - Longitud: ", this.qrDataUrl?.length);
+           } catch (err) {
+             logger.error({ err }, "[WhatsApp] Error generating QR code");
+             console.error("❌ [QR] Error generando código QR:", err);
+             this.state = "error";
+             this.lastError = `Error generating QR: ${err instanceof Error ? err.message : String(err)}`;
+           }
+         }
         
-        if (qr) {
-          this.qrDataUrl = await QRCode.toDataURL(qr, { width: 320, margin: 1 });
-          this.state = "qr";
-          logger.info("[WhatsApp] QR code generated");
-        }
+         if (connection === "open") {
+           this.state = "connected";
+           this.qrDataUrl = null;
+           this.connectedAt = new Date().toISOString();
+           this.phoneNumber = sock.user?.id?.split(":")[0]?.split("@")[0] ?? null;
+           this.starting = false;
+           this.reconnectAttempts = 0; // Reset on successful connection
+           this.lastError = null;
+           logger.info({ phone: this.phoneNumber }, "[WhatsApp] Connected");
+           console.log(`✅ [CONNECTED] WhatsApp conectado exitosamente - Teléfono: ${this.phoneNumber}`);
+         }
         
-        if (connection === "open") {
-          this.state = "connected";
-          this.qrDataUrl = null;
-          this.connectedAt = new Date().toISOString();
-          this.phoneNumber = sock.user?.id?.split(":")[0]?.split("@")[0] ?? null;
-          this.starting = false;
-          this.reconnectAttempts = 0; // Reset on successful connection
-          logger.info({ phone: this.phoneNumber }, "[WhatsApp] Connected");
-        }
-        
-        if (connection === "close") {
-          const code = (lastDisconnect?.error as any)?.output?.statusCode;
-          const loggedOut = code === DisconnectReason.loggedOut;
-          
-          this.sock = null;
-          this.starting = false;
-          this.qrDataUrl = null;
-          
-          if (loggedOut) {
-            this.reconnectAttempts = 0;
-            this.state = "disconnected";
-            logger.info("[WhatsApp] Logged out");
-          } else if (this.reconnectAttempts < this.MAX_RECONNECT_ATTEMPTS) {
-            this.reconnectAttempts++;
-            const delay = Math.min(3000 * this.reconnectAttempts, 30000); // max 30s
-            this.state = "error";
-            logger.warn({ attempt: this.reconnectAttempts, delay }, "[WhatsApp] Connection closed, reconnecting...");
-            setTimeout(() => this.start(), delay);
-          } else {
-            this.state = "disconnected";
-            this.reconnectAttempts = 0;
-            logger.error("[WhatsApp] Max reconnect attempts reached. Stopped. Please rescan QR manually.");
-          }
-        }
+         if (connection === "close") {
+           const code = (lastDisconnect?.error as any)?.output?.statusCode;
+           const loggedOut = code === DisconnectReason.loggedOut;
+           const errorMessage = (lastDisconnect?.error as any)?.message || 'Unknown error';
+           
+           console.log(`⚠️ [CONNECTION] Desconexión detectada - Código: ${code}, LoggedOut: ${loggedOut}, Error: ${errorMessage}`);
+           
+           this.sock = null;
+           this.starting = false;
+           this.qrDataUrl = null;
+           
+           if (loggedOut) {
+             this.reconnectAttempts = 0;
+             this.state = "disconnected";
+             this.lastError = "Sesión cerrada (LoggedOut)";
+             logger.info("[WhatsApp] Logged out");
+             console.log("❌ [AUTH] Usuario deslogueado - Se requiere nuevo QR");
+           } else if (this.reconnectAttempts < this.MAX_RECONNECT_ATTEMPTS) {
+             this.reconnectAttempts++;
+             const delay = Math.min(3000 * this.reconnectAttempts, 30000); // max 30s
+             this.state = "error";
+             this.lastError = `Reconectando... Intento ${this.reconnectAttempts}/${this.MAX_RECONNECT_ATTEMPTS}`;
+             logger.warn({ attempt: this.reconnectAttempts, delay, error: errorMessage }, "[WhatsApp] Connection closed, reconnecting...");
+             console.log(`🔄 [RECONNECT] Reintentando en ${delay}ms - Intento ${this.reconnectAttempts}/${this.MAX_RECONNECT_ATTEMPTS}`);
+             setTimeout(() => this.start(), delay);
+           } else {
+             this.state = "disconnected";
+             this.reconnectAttempts = 0;
+             this.lastError = "Máximo número de reconexiones alcanzado";
+             logger.error("[WhatsApp] Max reconnect attempts reached. Stopped. Please rescan QR manually.");
+             console.log("❌ [FATAL] Máximo de reintentos alcanzado - Se requiere nuevo QR");
+           }
+         }
       });
 
       sock.ev.on("messages.upsert", async (upsert: any) => {
@@ -685,14 +719,17 @@ export class WhatsAppManager {
         }
       });
        this.starting = false;
-       return this.getStatus();
-     } catch (e: any) {
-       this.starting = false;
-       this.state = "error";
-       logger.error({ err: e }, "Failed to start WhatsApp");
-       return this.getStatus();
-     }
-   }
+        return this.getStatus();
+      } catch (e: any) {
+        this.starting = false;
+        this.state = "error";
+        this.lastError = `Error al conectar: ${e instanceof Error ? e.message : String(e)}`;
+        logger.error({ err: e }, "Failed to start WhatsApp");
+        console.error("❌ [ERROR] Error fatal al iniciar WhatsApp:", e instanceof Error ? e.message : String(e));
+        console.error("Stack:", e instanceof Error ? e.stack : "No stack available");
+        return this.getStatus();
+      }
+    }
 
   async sendText(phone: string, text: string, originalJid?: string) {
     if (!this.sock || this.state !== "connected") throw new Error("WhatsApp no conectado");

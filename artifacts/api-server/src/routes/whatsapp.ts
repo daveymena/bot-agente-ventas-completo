@@ -5,6 +5,7 @@ import { runAgentReply } from "../lib/agent";
 import { db, conversations, messages } from "@workspace/db";
 import { existsSync, rmSync } from "node:fs";
 import path from "node:path";
+import QRCode from "qrcode";
 
 const router: IRouter = Router();
 
@@ -19,9 +20,6 @@ router.get("/status", (_req, res) => {
 router.post("/connect", async (_req, res, next) => {
   try {
     const status = await whatsapp.start();
-    if (!status) {
-      return res.json({ state: "connecting", qrCode: null, phone: null, connectedAt: null });
-    }
     return res.json(GetWhatsAppStatusResponse.parse(status));
   } catch (e) {
     return next(e);

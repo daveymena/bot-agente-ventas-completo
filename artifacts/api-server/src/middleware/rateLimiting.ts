@@ -138,7 +138,7 @@ export class RateLimitingMiddleware {
   // Default configurations
   private defaultConfig: RateLimitConfig = {
     windowMs: 15 * 60 * 1000, // 15 minutes
-    maxRequests: 100,
+    maxRequests: process.env.NODE_ENV === 'production' ? 100 : 1000, // 1000 en desarrollo, 100 en producción
     keyGenerator: (req) => req.ip || 'unknown'
   };
 

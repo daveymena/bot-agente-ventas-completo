@@ -19,7 +19,10 @@ export default function WhatsAppConnection() {
   const [isResetting, setIsResetting] = useState(false);
 
   const { data: status, isLoading } = useGetWhatsAppStatus({
-    query: { refetchInterval: (query) => query.state.data?.state === 'connected' ? 10000 : 2000, queryKey: getGetWhatsAppStatusQueryKey() }
+    query: { refetchInterval: (query) => {
+      const data = (query.state as any).data;
+      return data?.state === 'connected' ? 10000 : 2000;
+    }, queryKey: getGetWhatsAppStatusQueryKey() }
   });
 
   const connectMutation = useConnectWhatsApp();
