@@ -123,7 +123,7 @@ export const TECNOVARIEDADES_VOICE: BrandVoice = {
 
   phrases: {
     greeting_new:
-      "¡Bienvenido/a a *TecnoVariedades D&S*! 🔥\nSomos especialistas en cursos y megapacks digitales.\n\nAquí estamos listos para mostrarte lo que tenemos para ti. 😊",
+      "¡Bienvenido/a a *TecnoVariedades D&S*! 🔥\nEs un placer saludarte.\n\nEstoy a tu entera disposición para ayudarte con lo que necesites hoy. 😊",
     greeting_return:
       "¡Qué gusto verte de nuevo! 🌟\n¿En qué puedo ayudarte hoy?",
     product_intro:
