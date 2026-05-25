@@ -989,21 +989,39 @@ export async function findBestProductMatch(
   }
 
   // Filtrar: descartar nivel 1 (insuficiente)
-  const valid = evaluations.filter(e => e.level >= 2);
+  // PERO: Si no hay nivel 2+, permitir nivel 1 como último recurso
+  let valid = evaluations.filter(e => e.level >= 2);
 
   if (valid.length === 0) {
-    reasoning.push("❌ Ningún producto alcanza el criterio mínimo de coincidencia (nivel 2).");
-    reasoning.push(`   Productos revisados: ${productList.length}.`);
-    reasoning.push("   Respuesta: informar que no se encontró el producto buscado y listar productos similares.");
-    return null;
+    // Último recurso: permitir nivel 1 si hay coincidencia genérica
+    valid = evaluations.filter(e => e.level >= 1);
+    
+    if (valid.length === 0) {
+      reasoning.push("❌ Ningún producto alcanza el criterio mínimo de coincidencia (nivel 1).");
+      reasoning.push(`   Productos revisados: ${productList.length}.`);
+      reasoning.push("   Respuesta: informar que no se encontró el producto buscado y listar productos similares.");
+      return null;
+    }
+    
+    reasoning.push("⚠️ Usando coincidencia genérica (nivel 1) como último recurso.");
   }
 
   // Ordenar por nivel descendente, luego por cantidad de palabras específicas coincidentes en el nombre
   valid.sort((a, b) => {
     if (b.level !== a.level) return b.level - a.level;
+    
+    // Tiebreaker 1: Palabras específicas en el nombre
     const aNameHits = specificWords.filter(w => normalizeText(a.product.name).includes(w)).length;
     const bNameHits = specificWords.filter(w => normalizeText(b.product.name).includes(w)).length;
-    return bNameHits - aNameHits;
+    if (bNameHits !== aNameHits) return bNameHits - aNameHits;
+    
+    // Tiebreaker 2: Palabras específicas en la descripción
+    const aDescHits = specificWords.filter(w => normalizeText(a.product.description || "").includes(w)).length;
+    const bDescHits = specificWords.filter(w => normalizeText(b.product.description || "").includes(w)).length;
+    if (bDescHits !== aDescHits) return bDescHits - aDescHits;
+    
+    // Tiebreaker 3: Longitud del nombre (productos más específicos primero)
+    return normalizeText(a.product.name).length - normalizeText(b.product.name).length;
   });
 
   const best = valid[0];
