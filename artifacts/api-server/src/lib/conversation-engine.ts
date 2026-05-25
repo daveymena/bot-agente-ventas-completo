@@ -906,6 +906,16 @@ export async function findBestProductMatch(
       }
     }
 
+    // Nivel 3.5: TODAS las palabras específicas están en el NOMBRE (tiebreaker mejorado)
+    // Esto prioriza "Piano Mega Pack" sobre "DJ Producción Mega Pack" cuando se busca "piano mega pack"
+    if (level < 3.5) {
+      const nameHits = specificWords.filter(w => productName.includes(w));
+      if (nameHits.length === specificWords.length && specificWords.length > 1) {
+        level = 3.5;
+        matchDetail = `TODAS las palabras específicas en el nombre: ${nameHits.join(", ")}`;
+      }
+    }
+
     // Nivel 3: Coincidencia directa de palabras específicas en el NOMBRE
     if (level < 3) {
       const nameHits = specificWords.filter(w => productName.includes(w));
