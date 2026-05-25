@@ -1,5 +1,8 @@
 node_modules/
 .env
+.env.easypanel
+.env.easypanel.optimizado
+.env.production
 artifacts/api-server/.env
 *.db
 tecnovariedades.db
@@ -14,3 +17,4 @@ venv/
 .replitignore
 replit.md
 api-server.log
+INSTRUCCIONES_ENV_EASYPANEL.md
