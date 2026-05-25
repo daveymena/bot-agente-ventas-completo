@@ -12,6 +12,9 @@ import {
 import { db, products } from "@workspace/db";
 import * as XLSX from "xlsx";
 import { getSmartColumnMapping, processRowsWithMapping } from "../lib/smartImport";
+import { sendError } from "../lib/error-handler";
+import { ERROR_CODES } from "../lib/error-codes";
+import { logger } from "../lib/logger";
 import type { TenantRequest } from "../lib/tenantManager";
 
 const router = Router();
@@ -20,7 +23,7 @@ const router = Router();
 router.get("/", async (req: TenantRequest, res, next) => {
   try {
     const tenantId = req.tenant?.id;
-    if (!tenantId) return res.status(401).json({ message: "Tenant not resolved" });
+    if (!tenantId) return sendError(res, ERROR_CODES.UNAUTHORIZED, 401);
 
     const rows = await db
       .select()
@@ -38,7 +41,7 @@ router.get("/", async (req: TenantRequest, res, next) => {
 router.post("/", async (req: TenantRequest, res, next) => {
   try {
      const tenantId = req.tenant?.id;
-     if (!tenantId) return res.status(401).json({ message: "Tenant not resolved" });
+     if (!tenantId) return sendError(res, ERROR_CODES.UNAUTHORIZED, 401);
 
      if (req.body.price !== undefined) {
        req.body.price = String(req.body.price);
@@ -74,7 +77,7 @@ router.post("/", async (req: TenantRequest, res, next) => {
 router.patch("/:id", async (req: TenantRequest, res, next) => {
   try {
     const tenantId = req.tenant?.id;
-    if (!tenantId) return res.status(401).json({ message: "Tenant not resolved" });
+    if (!tenantId) return sendError(res, ERROR_CODES.UNAUTHORIZED, 401);
 
     const { id } = UpdateProductParams.parse(req.params);
     if (req.body.price !== undefined) {
@@ -91,7 +94,7 @@ router.patch("/:id", async (req: TenantRequest, res, next) => {
       .where(and(eq(products.id, id), eq(products.tenantId, tenantId)))
       .returning();
 
-    if (!updated) return res.status(404).json({ message: "Producto no encontrado o sin permisos" });
+    if (!updated) return sendError(res, ERROR_CODES.PRODUCT_NOT_FOUND, 404);
     return res.json(UpdateProductResponse.parse(serialize(updated)));
   } catch (e) {
     return next(e);
@@ -102,7 +105,7 @@ router.patch("/:id", async (req: TenantRequest, res, next) => {
 router.delete("/:id", async (req: TenantRequest, res, next) => {
   try {
     const tenantId = req.tenant?.id;
-    if (!tenantId) return res.status(401).json({ message: "Tenant not resolved" });
+    if (!tenantId) return sendError(res, ERROR_CODES.UNAUTHORIZED, 401);
 
     const { id } = DeleteProductParams.parse(req.params);
     const [deleted] = await db
@@ -110,7 +113,7 @@ router.delete("/:id", async (req: TenantRequest, res, next) => {
       .where(and(eq(products.id, id), eq(products.tenantId, tenantId)))
       .returning();
 
-    if (!deleted) return res.status(404).json({ message: "Producto no encontrado o sin permisos" });
+    if (!deleted) return sendError(res, ERROR_CODES.PRODUCT_NOT_FOUND, 404);
     return res.json(DeleteProductResponse.parse({ ok: true }));
   } catch (e) {
     return next(e);
@@ -124,10 +127,10 @@ router.delete("/:id", async (req: TenantRequest, res, next) => {
 router.post("/bulk-smart", async (req: TenantRequest, res, next) => {
   try {
     const tenantId = req.tenant?.id;
-    if (!tenantId) return res.status(401).json({ message: "Tenant not resolved" });
+    if (!tenantId) return sendError(res, ERROR_CODES.UNAUTHORIZED, 401);
 
     const { base64 } = req.body;
-    if (!base64) return res.status(400).json({ message: "No file provided" });
+    if (!base64) return sendError(res, ERROR_CODES.VALIDATION_NO_FILE_PROVIDED, 400);
 
     // Read the file (XLSX, CSV, etc.)
     const workbook = XLSX.read(base64, { type: "base64" });
@@ -135,14 +138,14 @@ router.post("/bulk-smart", async (req: TenantRequest, res, next) => {
     const sheet = workbook.Sheets[sheetName!];
     const rawRows = XLSX.utils.sheet_to_json(sheet!);
 
-    if (rawRows.length === 0) return res.status(400).json({ message: "File is empty" });
+    if (rawRows.length === 0) return sendError(res, ERROR_CODES.VALIDATION_INVALID_FILE_FORMAT, 400);
 
     // Get headers
     const headers = Object.keys(rawRows[0] as object);
     const sampleRows = rawRows.slice(0, 3);
 
     // Get smart mapping from Kimi 2.6
-    console.log(`🤖 [SmartImport] Pidiendo a Kimi 2.6 que analice las cabeceras: ${headers.join(", ")}`);
+    logger.info({ tenantId, headers }, "[Products] Analizando cabeceras para importación inteligente");
     const mapping = await getSmartColumnMapping(headers, sampleRows);
 
     // Process all rows using the AI mapping
@@ -167,9 +170,11 @@ router.post("/bulk-smart", async (req: TenantRequest, res, next) => {
           .returning();
         results.push(serialize(created!));
       } catch (err) {
-        console.error(`[SmartImport] Failed to insert row: ${item.name}`, err);
+        logger.error({ tenantId, item: item.name, error: err }, "[Products] Error al insertar producto");
       }
     }
+
+    logger.info({ tenantId, count: results.length }, "[Products] Importación completada");
 
     return res.json({ 
       ok: true, 
