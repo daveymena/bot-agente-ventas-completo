@@ -111,16 +111,6 @@ export function getProviderConfig(provider: string): AIProviderConfig | null {
     // ─── FREE PROVIDERS (cheahjs/free-llm-api-resources) ──────────────────────
     // 🔗 https://github.com/cheahjs/free-llm-api-resources
 
-    // ── OpenRouter ── 20 req/min · 50 req/día · +1000 con $10 top-up
-    case "openrouter":
-      if (!process.env.OPENROUTER_API_KEY) return null;
-      return {
-        baseUrl: "https://openrouter.ai/api/v1",
-        apiKey: process.env.OPENROUTER_API_KEY,
-        model: process.env.OPENROUTER_MODEL || "meta-llama/llama-3.3-70b-instruct:free",
-        defaultHeaders: { "HTTP-Referer": process.env.APP_URL || "https://localhost" },
-      };
-
     // ── Google AI Studio ── 500 req/día · 250k tokens/min
     case "google_ai_studio":
       if (!process.env.GOOGLE_API_KEY) return null;
@@ -193,13 +183,35 @@ export function getProviderConfig(provider: string): AIProviderConfig | null {
         model: process.env.CEREBRAS_MODEL || "llama-3.1-8b-instruct",
       };
 
-    // ── Groq ── LPU ultra-rápido · 1,000–14,400 req/día
-    case "groq":
-      if (!process.env.GROQ_API_KEY) return null;
+    // ── OpenRouter ── Modelos gratis/free · Acceso a múltiples proveedores
+    case "openrouter":
+      if (!process.env.OPENROUTER_API_KEY) return null;
+      
+      // Modelos free funcionales en OpenRouter
+      const freeModels = [
+        "meta-llama/llama-2-7b-chat",
+        "meta-llama/llama-3-8b-instruct",
+        "mistralai/mistral-7b-instruct",
+        "nousresearch/nous-hermes-2-mixtral-8x7b-dpo",
+        "openchat/openchat-3.5",
+        "gryphe/mythomist-7b",
+        "meta-llama/llama-3.1-8b-instruct",
+        "meta-llama/llama-3.1-70b-instruct",
+        "mistralai/mistral-large",
+        "openrouter/auto"
+      ];
+      
+      // Seleccionar modelo: usar el configurado o rotar entre free
+      const selectedModel = process.env.OPENROUTER_MODEL || freeModels[Math.floor(Math.random() * freeModels.length)];
+      
       return {
-        baseUrl: "https://api.groq.com/openai/v1",
-        apiKey: process.env.GROQ_API_KEY,
-        model: process.env.GROQ_MODEL || "llama-3.3-70b-versatile",
+        baseUrl: "https://openrouter.ai/api/v1",
+        apiKey: process.env.OPENROUTER_API_KEY,
+        model: selectedModel,
+        defaultHeaders: {
+          "HTTP-Referer": "https://tecnovariedades.com",
+          "X-Title": "TecnoVariedades Sales Bot"
+        }
       };
 
     // ── Cohere ── 1,000 req/mes
