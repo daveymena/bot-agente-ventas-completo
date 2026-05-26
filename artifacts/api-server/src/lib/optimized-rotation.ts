@@ -45,6 +45,7 @@ class OptimizedProviderRotation {
     const providerList = [
       "opencode",
       "nvidia",
+      "openrouter",
       "github",
     ];
 
@@ -76,7 +77,7 @@ class OptimizedProviderRotation {
     }
 
     // Añadir el resto en orden (solo proveedores con token que funcionan)
-    const order = ["opencode", "nvidia", "github"];
+    const order = ["opencode", "nvidia", "openrouter", "github"];
     
     for (const provider of order) {
       // Saltar si ya está en la lista o en cooldown
