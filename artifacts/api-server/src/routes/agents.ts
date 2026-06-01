@@ -1,7 +1,6 @@
-import { Router, type IRouter } from "express";import { safeISO } from "../lib/date-utils";
-
-import { and, desc, eq, ne } from "drizzle-orm";import { safeISO } from "../lib/date-utils";
-
+import { safeISO } from "../lib/date-utils";
+import { Router, type IRouter } from "express";
+import { and, desc, eq, ne } from "drizzle-orm";
 import {
   CreateAgentBody,
   ListAgentsResponse,
@@ -13,11 +12,9 @@ import {
   ActivateAgentParams,
   ActivateAgentResponse,
 } from "@workspace/api-zod";
-import { db, agents } from "@workspace/db";import { safeISO } from "../lib/date-utils";
-
+import { db, agents } from "@workspace/db";
 import { getAllTemplates, getTemplateByType } from "../lib/agent-templates";
 
-import { safeISO } from "../lib/date-utils";
 const router: IRouter = Router();
 
 // GET /api/agents/templates - Obtener todos los templates

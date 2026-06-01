@@ -100,11 +100,13 @@ export function errorHandler(
 
   // Errores genéricos
   if (err instanceof Error) {
-    req.log?.error({ err }, "Unhandled error");
+    // req.log?.error({ err }, "Unhandled error");
+    console.error("Unhandled error:", err);
     return res.status(500).json({
       error: ERROR_MESSAGES[ERROR_CODES.INTERNAL_SERVER_ERROR],
       code: ERROR_CODES.INTERNAL_SERVER_ERROR,
-      ...(process.env.NODE_ENV === "development" && { message: err.message }),
+      message: err.message,
+      stack: err.stack,
     });
   }
 

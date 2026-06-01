@@ -1,7 +1,6 @@
-import { Router, type IRouter } from "express";import { safeISO } from "../lib/date-utils";
-
-import { desc, eq } from "drizzle-orm";import { safeISO } from "../lib/date-utils";
-
+import { safeISO } from "../lib/date-utils";
+import { Router, type IRouter } from "express";
+import { desc, eq } from "drizzle-orm";
 import {
   CreateLeadBody,
   DeleteLeadParams,
@@ -14,7 +13,6 @@ import {
 } from "@workspace/api-zod";
 import { db, leads, activityEvents } from "@workspace/db";
 
-import { safeISO } from "../lib/date-utils";
 const router: IRouter = Router();
 
 router.get("/", async (req, res, next) => {
@@ -97,7 +95,7 @@ function serialize(row: typeof leads.$inferSelect) {
     value: Number(row.value),
     notes: row.notes ?? null,
     source: row.source ?? null,
-    createdAt: row.safeISO(createdAt),
+    createdAt: safeISO(row.createdAt),
   };
 }
 

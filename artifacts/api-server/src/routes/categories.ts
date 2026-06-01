@@ -1,3 +1,4 @@
+import { safeISO } from "../lib/date-utils";
 import { Router, type IRouter } from "express";
 import { asc, eq } from "drizzle-orm";
 import {
@@ -11,7 +12,6 @@ import {
 } from "@workspace/api-zod";
 import { db, productCategories } from "@workspace/db";
 
-import { safeISO } from "../lib/date-utils";
 const router: IRouter = Router();
 
 router.get("/", async (_req, res, next) => {
