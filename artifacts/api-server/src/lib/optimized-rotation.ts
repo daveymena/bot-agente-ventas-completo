@@ -27,11 +27,12 @@ class OptimizedProviderRotation {
   
   // Timeouts ULTRA-AGRESIVOS para EasyPanel (OPTIMIZADO PARA PRODUCCIÓN)
   private timeouts = {
-    opencode: 8000,              // 8 segundos
-    github_copilot: 8000,        // 8 segundos
-    ollama_local: 5000,          // 5 segundos - CRÍTICO: Ollama es lento
-    nvidia: 8000,                // 8 segundos
-    github_models: 8000,         // 8 segundos
+    opencode: 8000,
+    github_copilot: 8000,
+    ollama_local: 5000,
+    nvidia: 8000,
+    nvidia_nim_bridge: 8000,
+    github_models: 8000,
   };
 
   // Cooldown muy corto para fallos (OPTIMIZADO)
@@ -43,6 +44,7 @@ class OptimizedProviderRotation {
 
   private initializeProviders() {
     const providerList = [
+      "nvidia_nim_bridge",
       "opencode",
       "nvidia",
       "openrouter",

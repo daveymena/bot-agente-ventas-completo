@@ -11,6 +11,7 @@ import {
 } from "@workspace/api-zod";
 import { db, productCategories } from "@workspace/db";
 
+import { safeISO } from "../lib/date-utils";
 const router: IRouter = Router();
 
 router.get("/", async (_req, res, next) => {
@@ -65,7 +66,7 @@ function serialize(row: typeof productCategories.$inferSelect) {
     description: row.description ?? null,
     icon: row.icon ?? null,
     color: row.color,
-    createdAt: row.createdAt.toISOString(),
+    createdAt: safeISO(row.createdAt),
   };
 }
 

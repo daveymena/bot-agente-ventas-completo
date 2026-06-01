@@ -1,4 +1,4 @@
-import app from "./app";
+﻿import app from "./app";
 import { logger } from "./lib/logger";
 
 // Evitar que errores no manejados de Baileys tumben el servidor
@@ -26,3 +26,6 @@ app.listen(port, host, (err) => {
 
   logger.info({ port, host }, "Server listening");
 });
+ 
+
+

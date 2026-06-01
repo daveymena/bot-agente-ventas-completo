@@ -129,6 +129,15 @@ export function getProviderConfig(provider: string): AIProviderConfig | null {
         model: process.env.NVIDIA_NIM_MODEL || "meta/llama-3.1-70b-instruct",
       };
 
+    // ── NVIDIA NIM BRIDGE (Local Proxy) ── Modelos gratuitos vía ia.escarper
+    //    Corre en http://localhost:3000/v1, requiere tener el bridge ejecutándose
+    case "nvidia_nim_bridge":
+      return {
+        baseUrl: process.env.NVIDIA_NIM_BRIDGE_URL || "http://localhost:3000/v1",
+        apiKey: process.env.NVIDIA_NIM_BRIDGE_API_KEY || "no-key-required",
+        model: process.env.NVIDIA_NIM_BRIDGE_MODEL || "moonshotai/kimi-k2.6",
+      };
+
     // ── Mistral (La Plateforme) ── 1M tokens/mes · requiere verificación tel
     case "mistral":
       if (!process.env.MISTRAL_API_KEY) return null;

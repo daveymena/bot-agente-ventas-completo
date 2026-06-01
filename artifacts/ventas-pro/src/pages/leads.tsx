@@ -53,7 +53,7 @@ export default function Leads() {
   
   const { data: leads, isLoading } = useListLeads(
     { stage: filterStage === "all" ? undefined : filterStage },
-    { query: { queryKey: getListLeadsQueryKey({ stage: filterStage === "all" ? undefined : filterStage }) } }
+    { query: { queryKey: getListLeadsQueryKey({ stage: filterStage === "all" ? undefined : filterStage }), refetchInterval: 3000 } }
   );
 
   const deleteLead = useDeleteLead();

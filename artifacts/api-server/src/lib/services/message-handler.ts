@@ -121,8 +121,9 @@ export class MessageHandler {
 
       await db.update(conversations).set({ 
         lastMessage: params.body, 
-        lastMessageAt: new Date() 
+        lastMessageAt: new Date().toISOString() 
       }).where(eq(conversations.id, convo.id));
+
 
       // 3. Encolar para procesamiento
       const queuedMessage = this.queue.enqueue({

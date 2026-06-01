@@ -206,7 +206,7 @@ function serialize(row: typeof products.$inferSelect) {
     paymentLink: (row as any).paymentLink ?? null,
     deliveryLink: (row as any).deliveryLink ?? null,
     isActive: row.isActive,
-    createdAt: row.createdAt.toISOString(),
+    createdAt: row.createdAt instanceof Date ? row.createdAt.toISOString() : row.createdAt,
   };
 }
 

@@ -1002,6 +1002,10 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma brevemente y co
               const modelName = opencodeEnv.model.replace("opencode/", "");
               rotationQueue.push({ config: opencodeEnv, source: `opencode/${modelName}` });
             }
+          } else if (prov === "nvidia_nim_bridge") {
+            const cfg = getProviderConfig("nvidia_nim_bridge");
+            if (cfg)
+              rotationQueue.push({ config: cfg, source: "nvidia_nim_bridge" });
           } else if (prov === "nvidia") {
             const cfg = getProviderConfig("nvidia");
             if (cfg && healthMonitor.isServiceHealthy("nvidia_70b"))
@@ -1209,7 +1213,7 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma brevemente y co
             customerId: customer?.contactPhone || 'desconocido',
             customerEmail,
             customerPhone: customer?.contactPhone || 'sin_telefono',
-            timestamp: new Date(),
+            timestamp: new Date().toISOString(),
           });
           // Marcar conversación como estado pagado
           await db.update(conversations)
@@ -1225,7 +1229,7 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma brevemente y co
       await db.update(conversations)
         .set({
           lastMessage: raw.substring(0, 200),
-          lastMessageAt: new Date(),
+          lastMessageAt: new Date().toISOString(),
           currentProductId: agentMeta.productId ?? null,
           currentProductName: agentMeta.productName ?? null,
         })
@@ -1278,13 +1282,13 @@ export function getAgentSystemHealth() {
 export function checkAIProvidersStatus() {
   return {
     healthy: areAIProvidersHealthy(),
-    timestamp: new Date()
+    timestamp: new Date().toISOString()
   };
 }
 
 export function checkPaymentServicesStatus() {
   return {
     healthy: arePaymentServicesHealthy(),
-    timestamp: new Date()
+    timestamp: new Date().toISOString()
   };
 }

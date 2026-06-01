@@ -592,33 +592,34 @@ export function detectIntent(text: string): Intent {
   const isGreeting = GREETING_PATTERNS.some(p => t.includes(p)) && wordCount <= 8;
   if (isGreeting) return "greeting";
 
-  // Intención de pago (alta prioridad)
-  // Pero si el mensaje contiene palabras de pago combinadas con consulta post-pago
-  // (ej: "Después de pagar que me entregas?"), NO es payment_intent sino details_query
+  // Intención de pago o detalles post-pago
+  // Post-pago: cliente pregunta qué enviar/comprobar después de pagar o sobre requisitos de entrega
+  const postPaymentProc = ["que te debo enviar", "que debo enviar", "que te mando", "para confirmarte",
+    "comprobante", "para que sepas", "para que veas", "te envió el", "te mando el",
+    "ya pagué", "ya pague", "acabo de pagar", "captura", "pantallazo",
+    "confirmarte que", "para confirmar el pago", "envío el comprobante",
+    "ya transferí", "ya transferi", "acabo de transferir",
+    "te llega el", "como sabes", "como confirmo",
+    "que necesita", "que necesitas", "para entregar", "como lo envias",
+    "como me lo entregas", "correo", "email", "datos necesitas", "entregarselo", "entregárselo"];
+  const isPostPaymentProcess = postPaymentProc.some(p => t.includes(p));
+
+  if (isPostPaymentProcess) {
+    return "details_query";
+  }
+
+  // Post-pago: cliente pregunta sobre entrega/garantía después del pago
+  const afterPayment = ["después de pagar", "despues de pagar", "luego de pagar", "cuando pague", "cuando paga",
+    "después del pago", "despues del pago", "luego del pago"];
+  const isPostPaymentQuestion = afterPayment.some(p => t.includes(p));
+  const alsoHasDeliveryDetails = (["entrega", "entregan", "recibir", "acceso", "garantía", "garantia",
+    "incluye", "trae", "qué me", "que me", "me entregan"].some(d => t.includes(d)));
+  if (isPostPaymentQuestion || (alsoHasDeliveryDetails && t.length > 30)) {
+    return "details_query";
+  }
+
   const hasPayment = PAYMENT_PATTERNS.some(p => t.includes(p));
   if (hasPayment) {
-    // Post-pago: cliente pregunta qué enviar/comprobar después de pagar
-    const postPaymentProc = ["que te debo enviar", "que debo enviar", "que te mando", "para confirmarte",
-      "comprobante", "para que sepas", "para que veas", "te envió el", "te mando el",
-      "ya pagué", "ya pague", "acabo de pagar", "captura", "pantallazo",
-      "confirmarte que", "para confirmar el pago", "envío el comprobante",
-      "ya transferí", "ya transferi", "acabo de transferir",
-      "te llega el", "como sabes", "como confirmo"];
-    const isPostPaymentProcess = postPaymentProc.some(p => t.includes(p));
-
-    if (isPostPaymentProcess) {
-      return "details_query";
-    }
-
-    // Post-pago: cliente pregunta sobre entrega/garantía después del pago
-    const afterPayment = ["después de pagar", "despues de pagar", "luego de pagar", "cuando pague", "cuando paga",
-      "después del pago", "despues del pago", "luego del pago"];
-    const isPostPaymentQuestion = afterPayment.some(p => t.includes(p));
-    const alsoHasDeliveryDetails = (["entrega", "entregan", "recibir", "acceso", "garantía", "garantia",
-      "incluye", "trae", "qué me", "que me", "me entregan"].some(d => t.includes(d)));
-    if (isPostPaymentQuestion || (alsoHasDeliveryDetails && t.length > 30)) {
-      return "details_query";
-    }
     return "payment_intent";
   }
 
@@ -1268,104 +1269,77 @@ function buildContextBlock(
   }
 
   // ── Reglas según intención ─────────────────────────────────────────────────
-  lines.push(`\n🚨 INSTRUCCIONES PARA ESTA RESPUESTA:`);
+  lines.push(`\n🚨 INSTRUCCIONES DE INTELIGENCIA AVANZADA:`);
+  lines.push(`• ACTÚA CON INTELIGENCIA Y LÓGICA: Eres Sofía, asesora de TecnoVariedades D&S. Analiza profundamente lo que el cliente está diciendo. No respondas como un robot de opciones fijas. Entiende el contexto real.`);
 
   if (memory.hasGreeted) {
-    lines.push(`• PROHIBIDO empezar con "Hola", "¡Hola!", "Buenos días" o cualquier saludo. Ya saludaste. Ve directo al punto.`);
+    lines.push(`• PROHIBIDO saludar ("Hola", "Buenos días", etc.). Ya saludaste en esta conversación. Ve directo a la respuesta.`);
   }
 
   switch (intent) {
     case "greeting":
       if (!memory.hasGreeted) {
-        lines.push(`• Es el PRIMER contacto. Preséntate brevemente como Sofía de TecnoVariedades y pregúntale en qué le puedes ayudar, pero sin ser invasiva.`);
-        lines.push(`• Sé cálida, breve (máx 2 líneas).`);
-        lines.push(`• NO menciones productos ni precios todavía.`);
+        lines.push(`• Es el PRIMER contacto. Preséntate brevemente como Sofía y ofrécele ayuda sin ser invasiva (máximo 2 líneas). No menciones productos aún.`);
       } else if (memory.isNewSession) {
-        lines.push(`• El cliente regresa después de un tiempo. Salúdalo brevemente por su nombre y ofrécele tu ayuda.`);
-        lines.push(`• NO menciones conversaciones anteriores a menos que él lo haga.`);
+        lines.push(`• El cliente regresa después de mucho tiempo. Saluda brevemente y ofrécele ayuda.`);
       } else {
-        lines.push(`• El cliente saludó de nuevo en la misma sesión. Responde brevemente ofreciendo tu ayuda de manera proactiva.`);
+        lines.push(`• El cliente saludó de nuevo. Ofrece tu ayuda proactivamente.`);
       }
       break;
 
     case "product_query":
-      lines.push(`• El cliente pregunta por un producto o tiene un interés. Revisa el CATÁLOGO COMPLETO con mucha atención.`);
-      lines.push(`• Usa tu inteligencia: si el cliente escribe con errores (ej. "pianob", "megaoack"), entiende el contexto y busca la mejor coincidencia.`);
-      lines.push(`• Si encuentras el producto ideal en el catálogo, PRESÉNTALO DIRECTAMENTE usando la etiqueta [CARD: ID] (ej. [CARD: 311]).`);
-      lines.push(`• Cuando uses [CARD: ID], tu respuesta de texto debe ser EXTREMADAMENTE CORTA (1 línea máximo). No repitas precios ni detalles, la tarjeta ya los tiene.`);
-      lines.push(`• Si el producto DEFINITIVAMENTE NO ESTÁ en el catálogo (ej. pide algo completamente ajeno), admite honestamente que no lo tienes y menciona los más similares.`);
-      lines.push(`• NUNCA interrogues al cliente (evita preguntarle "¿qué tipo buscas?" o "¿puedes darme más detalles?"). Dale la información y que el cliente decida.`);
+      lines.push(`• El cliente busca un producto. Analiza inteligentemente sus palabras, corrige errores ortográficos mentalmente y busca en el CATÁLOGO.`);
+      lines.push(`• Si tenemos el producto, PRESÉNTALO DIRECTAMENTE usando SOLO la etiqueta [CARD: ID] (ej. [CARD: 311]) con una mini frase introductoria. El precio y detalles van en la tarjeta, NO los repitas en tu texto.`);
+      lines.push(`• Si definitivamente NO lo tenemos, sé honesto, dile que no lo manejas y ofrécele amablemente ver el catálogo general si lo desea.`);
       break;
 
     case "details_query":
       if (product) {
-        lines.push(`• El cliente pregunta detalles sobre "${product.name}".`);
-        lines.push(`• Responde SOLO la pregunta puntual. No repitas toda la info del producto.`);
-        lines.push(`• Entrega: 100% digital por Google Drive, acceso inmediato.`);
-        lines.push(`• Garantía: 7 días sin preguntas.`);
-        lines.push(`• Duración: acceso de por vida.`);
-        lines.push(`• NO envíes la tarjeta de nuevo.`);
-        // Post-pago: si pregunta qué enviar/comprobante, explica el proceso completo
+        lines.push(`• El cliente hace preguntas sobre "${product.name}" o sobre nuestro proceso.`);
+        lines.push(`• USA LA LÓGICA EXTREMA: Lee exactamente qué está preguntando y respóndele como un humano experto. No des respuestas prefabricadas genéricas.`);
+        lines.push(`• DATOS REALES: La entrega es 100% digital e inmediata por Google Drive. Acceso de por vida. Garantía de 7 días sin preguntas.`);
+        
         const rawText = (incomingText || "").toLowerCase();
-        if (["que te debo enviar", "comprobante", "confirmarte", "para que sepas",
-             "ya pagué", "ya pague", "acabo de pagar", "ya transferí", "ya transferi",
-             "captura", "pantallazo", "como confirmo", "como sabes", "comprobante de",
-             "te envio", "te mando", "ya hice el", "ya realicé", "ya realize"].some(p => rawText.includes(p))) {
-          lines.push(`\n📌 PROCESO POST-PAGO — Explícale claramente:`);
-          lines.push(`• Si pagó por LINK (MercadoPago/PayPal): El sistema DETECTA el pago automáticamente y le envía el link de Google Drive del producto a este chat. No necesita hacer nada.`);
-          lines.push(`• Si pagó por CONSIGNACIÓN (Nequi/Daviplata/transferencia): Debe REENVIAR la captura/comprobante del pago por este chat. El equipo verifica y envía el link de Google Drive de inmediato.`);
-          lines.push(`• Respuesta sugerida: "Si pagaste por Nequi/Daviplata, reenvíame la captura del comprobante por aquí para verificar y enviarte tu link de acceso. Si pagaste por MercadoPago o PayPal, el sistema lo detecta automáticamente y te llega el link."`);
-          lines.push(`• NO envies la tarjeta ni los links de pago otra vez — ya se enviaron antes.`);
-          lines.push(`• NO digas "te lo envío" ni "te mando el link" — el sistema lo hace automáticamente.`);
+        if (["que necesita", "que necesitas", "para entregar", "como lo envias", "como me lo entregas", "correo", "email", "datos necesitas", "que te debo enviar", "comprobante", "ya pagué", "ya transferí", "captura"].some(p => rawText.includes(p))) {
+          lines.push(`\n📌 INTELIGENCIA POST-PAGO: El cliente quiere saber qué se requiere para recibir el acceso.`);
+          lines.push(`• Dile esto claramente, con tus palabras pero cubriendo esta lógica: "Para entregarte el acceso solo necesito la captura/comprobante de tu pago por aquí (si pagas por Nequi/transferencia). Si usas MercadoPago/PayPal, el sistema detecta el pago y te manda el link automáticamente al chat. ¡No necesito tu correo!"`);
+          lines.push(`• NO pidas correos electrónicos, la entrega es directa a este WhatsApp.`);
         }
       } else {
-        lines.push(`• El cliente pregunta detalles pero no hay producto en contexto.`);
-        lines.push(`• PROHIBIDO inventar información de productos.`);
-        lines.push(`• Pregúntale sobre qué producto quiere información específica.`);
-        lines.push(`• NO menciones precios, garantías ni características de productos que no estén en el bloque de PRODUCTO EN CONTEXTO.`);
+        lines.push(`• El cliente pregunta detalles pero no identificó un producto claro. Guíalo para saber sobre qué producto específico tiene dudas, con amabilidad.`);
       }
       break;
 
     case "payment_intent":
       if (product) {
-        lines.push(`• El cliente QUIERE COMPRAR "${product.name}". Confirma con entusiasmo.`);
-        lines.push(`• Responde de forma natural y cálida. NO te alargues — 2-3 líneas máximo.`);
-        lines.push(`• No describas el producto otra vez; la tarjeta con métodos de pago se envía automáticamente abajo.`);
-        lines.push(`• NO escribas URLs, links ni números de cuenta.`);
-        lines.push(`• Sé breve pero humano. Ej: "¡Excelente elección! 💪 Te dejo aquí los datos para el pago"`);
+        lines.push(`• El cliente QUIERE COMPRAR "${product.name}". ¡Excelente!`);
+        lines.push(`• Responde con entusiasmo genuino, dale la bienvenida y dile que los métodos de pago están en la tarjeta de abajo (que se envía sola).`);
+        lines.push(`• Sé breve (2 líneas). NO pongas URLs de pago en el texto.`);
       } else {
-        lines.push(`• El cliente quiere pagar pero no hay producto identificado.`);
-        lines.push(`• Pregúntale qué producto quiere adquirir de forma amable.`);
+        lines.push(`• El cliente quiere pagar pero no sabemos qué producto. Pregúntale amablemente.`);
       }
       break;
 
     case "objection":
-      lines.push(`• El cliente tiene una objeción. Valida su preocupación con empatía genuina.`);
-      lines.push(`• NO presiones. Escucha, entiende y ofrece soluciones.`);
-      lines.push(`• Si es precio: recuerda el valor, la garantía de 7 días y el acceso de por vida.`);
-      lines.push(`• Si es desconfianza: menciona la garantía y que es pago único sin letra chica.`);
+      lines.push(`• LÓGICA DE OBJECIÓN: El cliente duda. Usa empatía extrema. Valida su preocupación (ej. "Te entiendo perfectamente").`);
+      lines.push(`• Si es precio: Recuérdale que es un pago único de por vida y la enorme cantidad de contenido que trae.`);
+      lines.push(`• Si es desconfianza: Menciona que tenemos garantía de 7 días 100% libre de riesgo.`);
       break;
 
     case "confirmation":
       if (product) {
-        lines.push(`• El cliente CONFIRMA que quiere comprar "${product.name}". ¡Genial!`);
-        lines.push(`• Responde con entusiasmo genuino y brevedad (2-3 líneas máximo).`);
-        lines.push(`• La tarjeta de pago con todos los métodos se envía automáticamente abajo.`);
-        lines.push(`• NO inventes ni reescribas descripción del producto.`);
-        lines.push(`• NO escribas URLs, links ni números de cuenta.`);
+        lines.push(`• El cliente CONFIRMA la compra de "${product.name}". Agradécele con entusiasmo y dile que proceda con los métodos de pago detallados abajo.`);
+        lines.push(`• NO inventes detalles adicionales, simplemente anímalo al cierre rápido.`);
       }
       break;
 
     case "leaving":
-      lines.push(`• El cliente se despide. Despídete amablemente y deja la puerta abierta.`);
-      lines.push(`• No insistas en vender. Sé breve y cálida.`);
+      lines.push(`• El cliente se despide o pospone. Despídete muy amablemente, recuérdale que sigues a su disposición cuando guste. Deja la puerta súper abierta.`);
       break;
 
     default:
-      lines.push(`• Responde de forma natural y útil a lo que el cliente pregunta.`);
-      if (product) {
-        lines.push(`• Mantén el contexto del producto "${product.name}".`);
-      }
+      lines.push(`• Usa tu sentido común y responde fluidamente a lo que el cliente necesite.`);
+      if (product) lines.push(`• Mantén en mente que el producto de interés es "${product.name}".`);
   }
 
   // ── Datos del producto activo ──────────────────────────────────────────────
@@ -1443,7 +1417,7 @@ export async function saveAgentMessage(
 
     // Actualizar lastMessage en la conversación
     await db.update(conversations)
-      .set({ lastMessage: content.substring(0, 200), lastMessageAt: new Date() })
+      .set({ lastMessage: content.substring(0, 200), lastMessageAt: new Date().toISOString() })
       .where(eq(conversations.id, conversationId));
   } catch (err) {
     console.error(`[ConversationEngine] Error guardando mensaje del agente:`, err);

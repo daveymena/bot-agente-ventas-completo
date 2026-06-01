@@ -17,7 +17,8 @@ import { validateSaasPlan, validateUsageLimits } from "./middleware/saasValidati
 import { validateFeatureLimits, validateMessageLimit } from "./middleware/featureLimits";
 import { whatsapp } from "./lib/whatsapp";
 import { getAllTemplates } from "./lib/agent-templates";
-import { db, agents } from "@workspace/db";
+import { db, agents, tenants, settings } from "@workspace/db";
+import { ensureDbReady } from "@workspace/db";
 import { eq } from "drizzle-orm";
 
 // Auto-start WhatsApp bot on boot
@@ -38,9 +39,46 @@ const messageHandler = getMessageHandler();
 messageHandler.configureTenant("1", { enabled: true });
 logger.info("[MessageHandler] Message receiver configured for default tenant");
 
-// Auto-seed agents if they don't exist
+// Auto-seed initial data if empty DB
 (async () => {
   try {
+    await ensureDbReady();
+
+    // Auto-seed tenant (admin user) if not exists
+    const existingTenants = await db.select().from(tenants).limit(1);
+    if (existingTenants.length === 0) {
+      console.log("👤 Creando tenant por defecto...");
+      const crypto = await import("crypto");
+      const passwordHash = crypto.createHash("sha256").update("6715320D").digest("hex");
+      await db.insert(tenants).values({
+        name: "Davey Mena",
+        email: "daveymena16@gmail.com",
+        passwordHash,
+        slug: "sofia-premium",
+        brandName: "TecnoVariedades",
+        status: "active",
+        plan: "premium",
+        agentName: "Sofía",
+        agentPersonality: "professional",
+        emailVerified: true,
+        settings: { timezone: "America/Bogota", language: "es", currency: "COP", autoRespond: true },
+      });
+      console.log("✅ Tenant creado: daveymena16@gmail.com / 6715320D");
+    }
+
+    // Auto-seed settings if not exists
+    const existingSettings = await db.select().from(settings).limit(1);
+    if (existingSettings.length === 0) {
+      await db.insert(settings).values({
+        businessName: "TecnoVariedades",
+        businessDescription: "Tienda virtual de productos digitales y servicios tecnológicos",
+        timezone: "America/Bogota",
+        aiProvider: "nvidia_nim_bridge",
+      });
+      console.log("✅ Settings por defecto creados");
+    }
+
+    // Auto-seed agents if they don't exist
     const existingAgents = await db.select().from(agents).limit(1);
     if (existingAgents.length === 0) {
       console.log("🤖 No hay agentes, creando desde templates...");
@@ -62,7 +100,7 @@ logger.info("[MessageHandler] Message receiver configured for default tenant");
       console.log("🎉 Agentes creados exitosamente");
     }
   } catch (error) {
-    console.error("❌ Error creando agentes:", error);
+    console.error("❌ Error en auto-seed:", error);
   }
 })();
 

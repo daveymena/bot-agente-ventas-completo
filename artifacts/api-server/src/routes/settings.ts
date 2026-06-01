@@ -127,6 +127,19 @@ async function getOrCreate() {
   return created!;
 }
 
+function parseKeywords(val: unknown): string[] {
+  if (Array.isArray(val)) return val;
+  if (typeof val === "string") {
+    try {
+      const parsed = JSON.parse(val);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return val ? [val] : [];
+    }
+  }
+  return [];
+}
+
 function serialize(row: typeof settings.$inferSelect) {
   return {
     businessName: row.businessName,
@@ -136,7 +149,7 @@ function serialize(row: typeof settings.$inferSelect) {
     workingHoursEnd: row.workingHoursEnd,
     autoReplyEnabled: row.autoReplyEnabled,
     offHoursMessage: row.offHoursMessage,
-    escalationKeywords: row.escalationKeywords ?? [],
+    escalationKeywords: parseKeywords(row.escalationKeywords),
     aiProvider: row.aiProvider,
     githubToken: row.githubToken,
     githubModel: row.githubModel,

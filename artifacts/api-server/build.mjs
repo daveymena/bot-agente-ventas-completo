@@ -3,7 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { build as esbuild } from "esbuild";
 import esbuildPluginPino from "esbuild-plugin-pino";
-import { rm } from "node:fs/promises";
+import { rm, cp } from "node:fs/promises";
 
 // Plugins (e.g. 'esbuild-plugin-pino') may use `require` to resolve dependencies
 globalThis.require = createRequire(import.meta.url);
@@ -13,6 +13,23 @@ const artifactDir = path.dirname(fileURLToPath(import.meta.url));
 async function buildAll() {
   const distDir = path.resolve(artifactDir, "dist");
   await rm(distDir, { recursive: true, force: true });
+
+  // Copy sql.js WASM file to dist so sql.js can find it at runtime
+  try {
+    const projectRoot = path.resolve(artifactDir, "../..");
+    const files = await (await import("node:fs/promises")).readdir(path.resolve(projectRoot, "node_modules/.pnpm"));
+    const sqlDir = files.find(f => f.startsWith("sql.js@"));
+    if (sqlDir) {
+      const sqlWasmSrc = path.resolve(projectRoot, "node_modules/.pnpm", sqlDir, "node_modules/sql.js/dist/sql-wasm.wasm");
+      const sqlWasmDst = path.resolve(distDir, "sql-wasm.wasm");
+      await cp(sqlWasmSrc, sqlWasmDst);
+      console.log(`✅ SQLite WASM copied to dist`);
+    } else {
+      console.warn(`⚠️ sql.js not found in .pnpm store`);
+    }
+  } catch (err) {
+    console.warn(`⚠️ Could not copy sql-wasm.wasm: ${err.message}`);
+  }
 
   await esbuild({
     entryPoints: [path.resolve(artifactDir, "src/index.ts")],

@@ -1,5 +1,7 @@
-import { Router, type IRouter } from "express";
-import { and, desc, eq, ne } from "drizzle-orm";
+import { Router, type IRouter } from "express";import { safeISO } from "../lib/date-utils";
+
+import { and, desc, eq, ne } from "drizzle-orm";import { safeISO } from "../lib/date-utils";
+
 import {
   CreateAgentBody,
   ListAgentsResponse,
@@ -11,9 +13,11 @@ import {
   ActivateAgentParams,
   ActivateAgentResponse,
 } from "@workspace/api-zod";
-import { db, agents } from "@workspace/db";
+import { db, agents } from "@workspace/db";import { safeISO } from "../lib/date-utils";
+
 import { getAllTemplates, getTemplateByType } from "../lib/agent-templates";
 
+import { safeISO } from "../lib/date-utils";
 const router: IRouter = Router();
 
 // GET /api/agents/templates - Obtener todos los templates
@@ -167,7 +171,7 @@ function serialize(row: typeof agents.$inferSelect) {
     systemPrompt: row.systemPrompt,
     stages: row.stages ?? [],
     isActive: row.isActive,
-    createdAt: row.createdAt.toISOString(),
+    createdAt: safeISO(row.createdAt),
   };
 }
 

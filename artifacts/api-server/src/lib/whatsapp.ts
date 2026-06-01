@@ -747,7 +747,7 @@ export class WhatsAppManager {
     trackWhatsAppCost(this.currentTenant.id.toString());
   }
 
-  async sendImage(phone: string, imageUrl: string, caption: string, originalJid?: string) {
+  async sendImage(phone: string, imageUrl: string, caption: string, originalJid?: string, fallbackImageUrl?: string) {
     if (!this.sock || this.state !== "connected") throw new Error("WhatsApp no conectado");
     const jid = originalJid || `${phone}@s.whatsapp.net`;
 
@@ -758,11 +758,44 @@ export class WhatsAppManager {
     await this.sock.sendPresenceUpdate("paused", jid);
 
     try {
-      const axios = (await import("axios")).default;
-      const response = await axios.get(imageUrl, { responseType: 'arraybuffer', timeout: 8000 });
-      await this.sock.sendMessage(jid, { image: Buffer.from(response.data), caption });
-    } catch (e) {
-      await this.sock.sendMessage(jid, { image: { url: imageUrl }, caption });
+      let isLocalFile = false;
+      let localPath = "";
+      
+      if (imageUrl.startsWith('/')) {
+        const path = await import("path");
+        const fs = await import("fs");
+        localPath = path.join(process.cwd(), "..", "ventas-pro", "public", imageUrl);
+        if (fs.existsSync(localPath)) {
+          isLocalFile = true;
+        }
+      }
+
+      if (isLocalFile) {
+        const fs = await import("fs");
+        const buffer = fs.readFileSync(localPath);
+        await this.sock.sendMessage(jid, { image: buffer, caption });
+      } else {
+        const fetchUrl = imageUrl.startsWith('/') ? `http://localhost:5173${imageUrl}` : imageUrl;
+        const axios = (await import("axios")).default;
+        const response = await axios.get(fetchUrl, { responseType: 'arraybuffer', timeout: 8000 });
+        await this.sock.sendMessage(jid, { image: Buffer.from(response.data), caption });
+      }
+    } catch (e: any) {
+      console.error(`[WhatsApp] Error procesando imagen ${imageUrl}: ${e.message}. Intentando fallback...`);
+      try {
+        if (fallbackImageUrl && fallbackImageUrl !== imageUrl) {
+          const axios = (await import("axios")).default;
+          const fallbackRes = await axios.get(fallbackImageUrl, { responseType: 'arraybuffer', timeout: 5000 });
+          await this.sock.sendMessage(jid, { image: Buffer.from(fallbackRes.data), caption });
+        } else {
+          throw new Error("No hay fallback image disponible o es igual a la original");
+        }
+      } catch (fallbackErr: any) {
+        console.error(`[WhatsApp] Error con fallback de imagen: ${fallbackErr.message}. Enviando solo texto...`);
+        await this.sock.sendMessage(jid, { text: caption }).catch((err: any) => {
+          console.error(`[WhatsApp] Error fatal enviando texto fallback: ${err.message}`);
+        });
+      }
     }
     trackWhatsAppCost(this.currentTenant.id.toString());
   }
@@ -811,10 +844,11 @@ export class WhatsAppManager {
           const caption = isPaymentOnly
             ? buildPaymentOnlyCaption(product, dynamicLinks)
             : buildProductCaption(product, null, dynamicLinks);
-          const imageToUse = product.imageUrl || getProductImage(product.name || "");
+          const fallbackImage = getProductImage(product.name || "");
+          const imageToUse = product.imageUrl || fallbackImage;
           
           console.log(`🖼️ [WA-CARD] Enviando imagen con caption - URL: ${imageToUse?.substring(0, 50)}..., PaymentOnly: ${isPaymentOnly}, Caption: ${caption.length} caracteres - ${timestamp}`);
-          await this.sendImage(phone, imageToUse, caption, originalJid);
+          await this.sendImage(phone, imageToUse, caption, originalJid, fallbackImage);
           console.log(`✅ [WA-CARD] Tarjeta enviada exitosamente para ${product.name} - ${timestamp}`);
         } catch (err: any) {
           console.log(`❌ [WA-CARD] Error enviando tarjeta para ${product.name}: ${err.message} - ${timestamp}`);

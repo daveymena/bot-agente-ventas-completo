@@ -34,19 +34,19 @@ function MetricCard({ title, value, icon: Icon, description, className = "" }: {
 
 export default function Dashboard() {
   const { data: summary, isLoading: loadingSummary } = useGetDashboardSummary({
-    query: { queryKey: getGetDashboardSummaryQueryKey() }
+    query: { queryKey: getGetDashboardSummaryQueryKey(), refetchInterval: 3000 }
   });
 
   const { data: activity, isLoading: loadingActivity } = useGetRecentActivity({
-    query: { queryKey: getGetRecentActivityQueryKey() }
+    query: { queryKey: getGetRecentActivityQueryKey(), refetchInterval: 3000 }
   });
 
   const { data: funnel, isLoading: loadingFunnel } = useGetFunnel({
-    query: { queryKey: getGetFunnelQueryKey() }
+    query: { queryKey: getGetFunnelQueryKey(), refetchInterval: 5000 }
   });
 
   const { data: timeline, isLoading: loadingTimeline } = useGetMessagesTimeline({
-    query: { queryKey: getGetMessagesTimelineQueryKey() }
+    query: { queryKey: getGetMessagesTimelineQueryKey(), refetchInterval: 5000 }
   });
 
   return (

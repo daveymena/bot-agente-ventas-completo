@@ -1,5 +1,7 @@
-import { Router, type IRouter } from "express";
-import { and, asc, desc, eq, ilike, lte, or } from "drizzle-orm";
+import { Router, type IRouter } from "express";import { safeISO } from "../lib/date-utils";
+
+import { and, asc, desc, eq, ilike, lte, or } from "drizzle-orm";import { safeISO } from "../lib/date-utils";
+
 import {
   GetConversationParams,
   GetConversationResponse,
@@ -24,11 +26,16 @@ import {
   activityEvents,
   followUps,
 } from "@workspace/db";
-import { runAgentReply } from "../lib/agent";
-import { whatsapp, type AgentReplyPart } from "../lib/whatsapp";
-import { logger } from "../lib/logger";
-import { getLeadScore, getLeadScoringDashboard } from "../lib/leadScoring";
-import { followUpScheduler, getDueFollowUps } from "../lib/followUpScheduler";
+import { runAgentReply } from "../lib/agent";import { safeISO } from "../lib/date-utils";
+
+import { whatsapp, type AgentReplyPart } from "../lib/whatsapp";import { safeISO } from "../lib/date-utils";
+
+import { logger } from "../lib/logger";import { safeISO } from "../lib/date-utils";
+
+import { getLeadScore, getLeadScoringDashboard } from "../lib/leadScoring";import { safeISO } from "../lib/date-utils";
+
+import { followUpScheduler, getDueFollowUps } from "../lib/followUpScheduler";import { safeISO } from "../lib/date-utils";
+
 import {
   apiRateLimit,
   conversationRateLimit,
@@ -265,13 +272,13 @@ function serializeConversation(row: typeof conversations.$inferSelect) {
     contactPhone: row.contactPhone,
     avatarColor: row.avatarColor,
     lastMessage: row.lastMessage ?? null,
-    lastMessageAt: row.lastMessageAt ? row.lastMessageAt.toISOString() : null,
+    lastMessageAt: row.lastMessageAt ? row.safeISO(lastMessageAt) : null,
     unreadCount: row.unreadCount,
     status: row.status,
     currentStage: row.currentStage ?? null,
     agentId: row.agentId ?? null,
     leadId: row.leadId ?? null,
-    createdAt: row.createdAt.toISOString(),
+    createdAt: row.safeISO(createdAt),
   };
 }
 
@@ -282,7 +289,7 @@ function serializeMessage(row: typeof messages.$inferSelect) {
     role: row.role,
     content: row.content,
     stage: row.stage ?? null,
-    createdAt: row.createdAt.toISOString(),
+    createdAt: row.safeISO(createdAt),
   };
 }
 

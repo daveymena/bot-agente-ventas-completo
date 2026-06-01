@@ -13,6 +13,25 @@ if (-not (Test-Path "artifacts\api-server")) {
     exit 1
 }
 
+# ── Bridge NVIDIA NIM ──
+$BridgeDir = Join-Path $PSScriptRoot "nvidia-nim-bridge"
+if (Test-Path $BridgeDir) {
+    Write-Host "[Bridge] Iniciando NVIDIA NIM Bridge (Puerto 3000)..." -ForegroundColor Yellow
+    $bridgeJob = Start-Job -ScriptBlock {
+        $ErrorActionPreference = "Stop"
+        $bd = $using:BridgeDir
+        try {
+            Set-Location "$bd"
+            npx tsx src/index.ts
+        } catch {
+            Write-Host "ERROR BRIDGE: $_" -ForegroundColor Red
+        }
+    }
+    Start-Sleep -Seconds 3
+    Write-Host "  -> Bridge iniciado en http://localhost:3000/v1" -ForegroundColor Green
+    Write-Host ""
+}
+
 Write-Host "[1/2] Iniciando Backend (Puerto 3002)..." -ForegroundColor Yellow
 $backendJob = Start-Job -ScriptBlock {
     $ErrorActionPreference = "Stop"
