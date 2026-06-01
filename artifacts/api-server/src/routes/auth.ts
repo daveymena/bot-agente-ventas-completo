@@ -124,10 +124,9 @@ router.post("/register", registerLimiter, async (req, res, next) => {
     }
 
     // Establecer cookie de sesión (auto-login)
-    const isProduction = process.env.NODE_ENV === "production";
     res.cookie("tenant_id", newTenant.id.toString(), {
       httpOnly: false,
-      secure: isProduction,
+      secure: false, // Permitir proxies HTTP
       sameSite: "lax",
       maxAge: 30 * 24 * 60 * 60 * 1000, // 30 días
     });
@@ -166,11 +165,10 @@ router.post("/login", loginLimiter, async (req, res, next) => {
 
     // Set cookie (Sesión persistente de 30 días)
     // Sin domain específico para que funcione tanto en localhost como en EasyPanel
-    const isProduction = process.env.NODE_ENV === "production";
     res.cookie("tenant_id", tenant.id.toString(), { 
       httpOnly: false,
-      secure: isProduction,
-      sameSite: isProduction ? "strict" : "lax",
+      secure: false, // Permitir proxies HTTP
+      sameSite: "lax",
       maxAge: 30 * 24 * 60 * 60 * 1000,
       path: "/",
     });
