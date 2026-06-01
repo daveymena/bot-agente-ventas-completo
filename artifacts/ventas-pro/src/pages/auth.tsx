@@ -91,16 +91,27 @@ export default function AuthPage() {
         body: JSON.stringify(loginData)
       });
       
-      const data = await res.json();
+      let data;
+      const text = await res.text();
+      try {
+        data = JSON.parse(text);
+      } catch (parseErr) {
+        console.error("Respuesta no-JSON del servidor:", text);
+        toast.error("Error del servidor: Revisa la consola");
+        setIsLoading(false);
+        return;
+      }
       
       if (res.ok) {
         toast.success("¡Bienvenido de nuevo! 🚀");
         await refreshSession();
         setLocation("/");
       } else {
-        toast.error(data.error || "Credenciales incorrectas");
+        toast.error(data.error || data.message || "Credenciales incorrectas");
+        console.error("Error del backend:", data);
       }
     } catch (err) {
+      console.error("Error de red/conexión:", err);
       toast.error("Error conectando con el servidor");
     } finally {
       setIsLoading(false);
