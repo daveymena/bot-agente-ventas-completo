@@ -26,48 +26,53 @@ function cleanupStore() {
  * @param keyGenerator - Función para generar la clave (por defecto IP)
  */
 export function rateLimit(
-  windowMs: number = 60000, // 1 minuto por defecto
-  maxRequests: number = 5, // 5 solicitudes por defecto
+  windowMs: number = 60000,
+  maxRequests: number = 5,
   keyGenerator?: (req: Request) => string
 ) {
   return (req: Request, res: Response, next: NextFunction) => {
-    // Limpiar store cada 10 minutos
-    if (Math.random() < 0.01) {
-      cleanupStore();
+    try {
+      // Limpiar store cada 10 minutos
+      if (Math.random() < 0.01) {
+        cleanupStore();
+      }
+
+      // Generar clave
+      const key = keyGenerator
+        ? keyGenerator(req)
+        : req.ip || req.socket.remoteAddress || "unknown";
+
+      const now = Date.now();
+      const record = rateLimitStore.get(key);
+
+      if (!record || record.resetTime < now) {
+        // Nueva ventana
+        rateLimitStore.set(key, { count: 1, resetTime: now + windowMs });
+        return next();
+      }
+
+      // Incrementar contador
+      record.count++;
+
+      if (record.count > maxRequests) {
+        // Usar next(error) en lugar de throw para que Express lo capture
+        return next(new ApplicationError(ERROR_CODES.AUTH_RATE_LIMIT_EXCEEDED, {
+          retryAfter: Math.ceil((record.resetTime - now) / 1000),
+        }));
+      }
+
+      // Agregar headers informativos
+      res.set("X-RateLimit-Limit", maxRequests.toString());
+      res.set("X-RateLimit-Remaining", (maxRequests - record.count).toString());
+      res.set(
+        "X-RateLimit-Reset",
+        new Date(record.resetTime).toISOString()
+      );
+
+      next();
+    } catch (err) {
+      next(err);
     }
-
-    // Generar clave
-    const key = keyGenerator
-      ? keyGenerator(req)
-      : req.ip || req.socket.remoteAddress || "unknown";
-
-    const now = Date.now();
-    const record = rateLimitStore.get(key);
-
-    if (!record || record.resetTime < now) {
-      // Nueva ventana
-      rateLimitStore.set(key, { count: 1, resetTime: now + windowMs });
-      return next();
-    }
-
-    // Incrementar contador
-    record.count++;
-
-    if (record.count > maxRequests) {
-      throw new ApplicationError(ERROR_CODES.AUTH_RATE_LIMIT_EXCEEDED, {
-        retryAfter: Math.ceil((record.resetTime - now) / 1000),
-      });
-    }
-
-    // Agregar headers informativos
-    res.set("X-RateLimit-Limit", maxRequests.toString());
-    res.set("X-RateLimit-Remaining", (maxRequests - record.count).toString());
-    res.set(
-      "X-RateLimit-Reset",
-      new Date(record.resetTime).toISOString()
-    );
-
-    next();
   };
 }
 
