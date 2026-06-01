@@ -202,19 +202,20 @@ router.post("/logout", (req, res) => {
 // GET CURRENT SESSION
 router.get("/me", async (req, res, next) => {
   try {
-    const tenantId = req.cookies?.tenant_id;
+    // Aceptar tanto cookie como header X-Tenant-Id (funciona detrás de Easypanel HTTPS proxy)
+    const tenantId = req.cookies?.tenant_id || req.headers["x-tenant-id"];
     
-    console.log(`🔍 Verificando sesión. Cookie tenant_id: ${tenantId}`);
+    console.log(`🔍 Verificando sesión. Cookie tenant_id: ${req.cookies?.tenant_id}, Header X-Tenant-Id: ${req.headers["x-tenant-id"]}`);
     console.log(`🔍 Todas las cookies:`, req.cookies);
-    console.log(`🔍 Header Cookie:`, req.headers.cookie);
     
     if (!tenantId) {
-      console.log(`❌ No hay cookie de sesión`);
+      console.log(`❌ No hay cookie de sesión ni header X-Tenant-Id`);
       return res.status(401).json({ 
         error: "No session found",
         debug: {
           cookies: req.cookies,
-          hasCookieHeader: !!req.headers.cookie
+          hasCookieHeader: !!req.headers.cookie,
+          hasXTenantHeader: !!req.headers["x-tenant-id"]
         }
       });
     }

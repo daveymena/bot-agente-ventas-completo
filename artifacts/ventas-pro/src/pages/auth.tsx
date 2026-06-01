@@ -103,6 +103,10 @@ export default function AuthPage() {
       }
       
       if (res.ok) {
+        // Guardar en localStorage como fallback al cookie (funciona detrás de proxies HTTPS como Easypanel)
+        if (data.tenant?.id) {
+          localStorage.setItem("tenant_id", String(data.tenant.id));
+        }
         toast.success("¡Bienvenido de nuevo! 🚀");
         await refreshSession();
         setLocation("/");

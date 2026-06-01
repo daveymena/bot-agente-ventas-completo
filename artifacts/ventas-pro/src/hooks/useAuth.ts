@@ -34,21 +34,37 @@ export function useAuth(): UseAuthReturn {
   const refreshSession = async () => {
     try {
       setIsLoading(true);
+      
+      // Leer tenant_id de localStorage como fallback al cookie
+      const localTenantId = localStorage.getItem("tenant_id");
+      
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+      };
+      
+      // Enviar como header si existe en localStorage (funciona detrás de proxies HTTPS)
+      if (localTenantId) {
+        headers["X-Tenant-Id"] = localTenantId;
+      }
+      
       const response = await fetch("/api/auth/me", {
         method: "GET",
         credentials: "include",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers,
       });
 
       if (response.ok) {
         const data = await response.json();
         setTenant(data.tenant);
         setIsAuthenticated(true);
+        // Persistir el ID en localStorage para la próxima visita
+        if (data.tenant?.id) {
+          localStorage.setItem("tenant_id", String(data.tenant.id));
+        }
       } else if (response.status === 401) {
         setTenant(null);
         setIsAuthenticated(false);
+        localStorage.removeItem("tenant_id");
       } else {
         console.error("Error verificando sesión:", response.statusText);
         setTenant(null);
@@ -80,6 +96,7 @@ export function useAuth(): UseAuthReturn {
     } finally {
       setTenant(null);
       setIsAuthenticated(false);
+      localStorage.removeItem("tenant_id"); // Limpiar tambi\u00e9n localStorage
       window.location.href = "/auth";
     }
   };

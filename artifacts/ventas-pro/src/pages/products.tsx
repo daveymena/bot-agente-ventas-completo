@@ -280,14 +280,48 @@ export default function Products() {
                   {/* Image Header */}
                   <div className="relative aspect-video w-full overflow-hidden bg-muted">
                     {product.imageUrl ? (
-                      <img src={product.imageUrl} alt={product.name} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105" />
+                      <img 
+                        src={product.imageUrl} 
+                        alt={product.name} 
+                        className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+                        onError={(e) => {
+                          const target = e.currentTarget;
+                          const localPath = `/images/products/${product.id}.jpg`;
+                          // Si ya intentamos la imagen local y también falló, mostrar fallback visual
+                          if (target.src.includes('/images/products/')) {
+                            target.style.display = 'none';
+                            const parent = target.parentElement;
+                            if (parent && !parent.querySelector('.img-fallback')) {
+                              const fallback = document.createElement('div');
+                              fallback.className = 'img-fallback w-full h-full flex items-center justify-center';
+                              fallback.style.cssText = `background: linear-gradient(135deg, ${catColor}33 0%, ${catColor}99 100%)`;
+                              fallback.innerHTML = `<span style="font-size:3rem;filter:drop-shadow(0 2px 8px rgba(0,0,0,0.3))">${cat?.icon || (product.kind === 'digital' ? '⚡' : '📦')}</span>`;
+                              parent.appendChild(fallback);
+                            }
+                          } else {
+                            // Primer intento: usar imagen local del servidor
+                            target.src = localPath;
+                          }
+                        }}
+                      />
                     ) : (
-                      <div 
-                        className="w-full h-full flex items-center justify-center transition-transform duration-500 group-hover:scale-105"
-                        style={{ background: `linear-gradient(135deg, ${catColor}22 0%, ${catColor} 100%)` }}
-                      >
-                        <span className="text-5xl drop-shadow-md">{cat?.icon || (product.kind === 'digital' ? '⚡' : '📦')}</span>
-                      </div>
+                      <img
+                        src={`/images/products/${product.id}.jpg`}
+                        alt={product.name}
+                        className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+                        onError={(e) => {
+                          const target = e.currentTarget;
+                          target.style.display = 'none';
+                          const parent = target.parentElement;
+                          if (parent && !parent.querySelector('.img-fallback')) {
+                            const fallback = document.createElement('div');
+                            fallback.className = 'img-fallback w-full h-full flex items-center justify-center';
+                            fallback.style.cssText = `background: linear-gradient(135deg, ${catColor}33 0%, ${catColor}99 100%)`;
+                            fallback.innerHTML = `<span style="font-size:3rem;filter:drop-shadow(0 2px 8px rgba(0,0,0,0.3))">${cat?.icon || (product.kind === 'digital' ? '⚡' : '📦')}</span>`;
+                            parent.appendChild(fallback);
+                          }
+                        }}
+                      />
                     )}
                     
                     {/* Badges Overlay */}
