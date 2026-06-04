@@ -48,5 +48,6 @@ EXPOSE 3002
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
   CMD node -e "require('http').get('http://localhost:3002/api/health', (r) => {if (r.statusCode !== 200) throw new Error(r.statusCode)})"
 
-# Iniciar servidor (sincroniza BD primero)
-CMD ["sh", "-c", "npx --yes drizzle-kit push --config ./lib/db/drizzle.config.ts --force && node --enable-source-maps ./artifacts/api-server/dist/index.mjs"]
+# Iniciar servidor (migra BD primero con script puro de Node, sin drizzle-kit)
+CMD ["sh", "-c", "node ./scripts/migrate.mjs && node --enable-source-maps ./artifacts/api-server/dist/index.mjs"]
+
