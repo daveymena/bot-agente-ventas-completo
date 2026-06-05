@@ -30,8 +30,6 @@ COPY scripts/package.json ./scripts/
 
 # Instalar dependencias
 RUN pnpm install --frozen-lockfile --no-optional 2>&1 | grep -v "ERR_PNPM_IGNORED_BUILDS" || true
-# Avoid git-less dependency issues by allowing ignore scripts for baileys
-RUN pnpm rebuild @whiskeysockets/baileys 2>/dev/null || true
 
 # Copiar el resto del código
 COPY . .
