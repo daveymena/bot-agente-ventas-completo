@@ -32,10 +32,10 @@ router.post("/register", async (req, res, next) => {
     const { name, email, password, brandName, slug } = registerSchema.parse(req.body);
     
     // Check if email or slug exists
-    const existing = await db.select().from(tenants).where(eq(tenants.email, email)).limit(1);
+    const existing = await db.select({ id: tenants.id }).from(tenants).where(eq(tenants.email, email)).limit(1);
     if (existing.length > 0) return res.status(400).json({ error: "El email ya está registrado" });
     
-    const existingSlug = await db.select().from(tenants).where(eq(tenants.slug, slug)).limit(1);
+    const existingSlug = await db.select({ id: tenants.id }).from(tenants).where(eq(tenants.slug, slug)).limit(1);
     if (existingSlug.length > 0) return res.status(400).json({ error: "El nombre de tienda (slug) ya está en uso" });
 
     const passwordHash = hashPassword(password);
@@ -63,7 +63,12 @@ router.post("/register", async (req, res, next) => {
         maxMonthlyMessages: 5000,
         apiCallsPerMinute: 60
       }
-    }).returning();
+    }).returning({
+      id: tenants.id,
+      name: tenants.name,
+      email: tenants.email,
+      slug: tenants.slug,
+    });
 
     return res.status(201).json({ message: "Registro exitoso", tenant: newTenant });
   } catch (e) {
@@ -76,7 +81,22 @@ router.post("/login", async (req, res, next) => {
   try {
     const { email, password } = loginSchema.parse(req.body);
     console.log(`🔐 Intento de login: ${email}`);
-    const [tenant] = await db.select().from(tenants).where(eq(tenants.email, email)).limit(1);
+    // Select only known-existing columns to avoid schema mismatch errors
+    const [tenant] = await db.select({
+      id: tenants.id,
+      name: tenants.name,
+      email: tenants.email,
+      passwordHash: tenants.passwordHash,
+      slug: tenants.slug,
+      brandName: tenants.brandName,
+      brandLogo: tenants.brandLogo,
+      status: tenants.status,
+      plan: tenants.plan,
+      agentName: tenants.agentName,
+      agentPersonality: tenants.agentPersonality,
+      settings: tenants.settings,
+      createdAt: tenants.createdAt,
+    }).from(tenants).where(eq(tenants.email, email)).limit(1);
     
     if (!tenant) {
       console.log(`❌ Login fallido: Usuario ${email} no encontrado en DB.`);
@@ -115,7 +135,17 @@ router.get("/me", async (req, res, next) => {
     if (!tenantId) {
       return res.status(401).json({ error: "No session found" });
     }
-    const [tenant] = await db.select().from(tenants).where(eq(tenants.id, Number(tenantId))).limit(1);
+    const [tenant] = await db.select({
+      id: tenants.id,
+      name: tenants.name,
+      email: tenants.email,
+      slug: tenants.slug,
+      plan: tenants.plan,
+      brandName: tenants.brandName,
+      status: tenants.status,
+      settings: tenants.settings,
+      createdAt: tenants.createdAt,
+    }).from(tenants).where(eq(tenants.id, Number(tenantId))).limit(1);
     if (!tenant) {
       return res.status(401).json({ error: "Tenant not found" });
     }
