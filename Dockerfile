@@ -34,9 +34,8 @@ RUN pnpm install --frozen-lockfile --no-optional 2>&1 | grep -v "ERR_PNPM_IGNORE
 # Copiar el resto del código
 COPY . .
 
-# Construir todo el proyecto (Backend + Frontend)
-# Skip typecheck - esbuild handles compilation without type checking
-RUN pnpm -r --if-present run build
+# Construir solo el API Server (Backend)
+RUN pnpm --filter @workspace/api-server run build
 
 # Etapa final para ejecución ligera
 FROM node:22-slim
