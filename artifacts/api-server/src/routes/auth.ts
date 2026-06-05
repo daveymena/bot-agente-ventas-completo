@@ -108,6 +108,33 @@ router.post("/login", async (req, res, next) => {
   }
 });
 
+// GET CURRENT USER (from cookie)
+router.get("/me", async (req, res, next) => {
+  try {
+    const tenantId = req.cookies?.tenant_id;
+    if (!tenantId) {
+      return res.status(401).json({ error: "No session found" });
+    }
+    const [tenant] = await db.select().from(tenants).where(eq(tenants.id, Number(tenantId))).limit(1);
+    if (!tenant) {
+      return res.status(401).json({ error: "Tenant not found" });
+    }
+    return res.json({
+      tenant: {
+        id: tenant.id,
+        name: tenant.name,
+        email: tenant.email,
+        slug: tenant.slug,
+        plan: tenant.plan,
+        status: tenant.status,
+        createdAt: tenant.createdAt,
+      },
+    });
+  } catch (e) {
+    return next(e);
+  }
+});
+
 // LOGOUT
 router.post("/logout", (req, res) => {
   res.clearCookie("tenant_id");
