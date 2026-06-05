@@ -22,6 +22,8 @@ export async function runAutoMigrations(): Promise<void> {
   logger.info("[AutoMigrate] Verificando columnas de la base de datos...");
   for (const sql of MIGRATIONS) {
     try {
+      await pool.query(`SET lock_timeout = '5s'`);
+      await pool.query(`SET statement_timeout = '10s'`);
       await pool.query(sql);
     } catch (err) {
       logger.error({ err, sql }, "[AutoMigrate] Error ejecutando migración");

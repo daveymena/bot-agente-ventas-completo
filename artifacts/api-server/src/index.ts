@@ -17,8 +17,8 @@ if (Number.isNaN(port) || port <= 0) {
 }
 
 async function start() {
-  // Run database migrations before accepting connections
-  await runAutoMigrations();
+  // Non-blocking database migrations (fires in background)
+  runAutoMigrations().catch(() => {});
 
   app.listen(port, (err) => {
     if (err) {
