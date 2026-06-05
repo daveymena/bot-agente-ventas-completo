@@ -117,6 +117,7 @@ async function buildAll() {
       "puppeteer",
       "puppeteer-core",
       "electron",
+      "pg-cloudflare",
       "axios",
     ],
     sourcemap: "linked",
