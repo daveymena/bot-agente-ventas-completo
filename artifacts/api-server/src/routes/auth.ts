@@ -93,9 +93,12 @@ router.post("/login", async (req, res, next) => {
     console.log(`✅ Login exitoso: ${email} (ID: ${tenant.id})`);
 
     // Set cookie (Simple session for now)
+    const isSecure = process.env.NODE_ENV === "production" || req.secure;
     res.cookie("tenant_id", tenant.id, { 
       httpOnly: true, 
-      secure: process.env.NODE_ENV === "production",
+      secure: isSecure,
+      sameSite: "lax",
+      path: "/",
       maxAge: 30 * 24 * 60 * 60 * 1000 // 30 days
     });
 

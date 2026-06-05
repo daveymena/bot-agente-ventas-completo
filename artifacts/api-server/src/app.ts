@@ -16,6 +16,9 @@ whatsapp.start().catch(err => {
 
 const app: Express = express();
 
+// Trust proxy para funcionar detrás de reverse proxy (Easypanel, Nginx, etc.)
+app.set("trust proxy", 1);
+
 app.use(
   pinoHttp({
     logger,
@@ -35,23 +38,27 @@ app.use(
     },
   }),
 );
-app.use(cors());
+app.use(cors({
+  origin: true,
+  credentials: true,
+}));
 app.use(cookieParser());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Resolución de tenant multi-inquilino
-app.use(resolveTenant());
-
-app.use("/api", router);
-
 // Servir frontend en producción
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const frontendPath = path.resolve(__dirname, "../../ventas-pro/dist");
+const frontendPath = path.resolve(__dirname, "../../ventas-pro/dist/public");
 
 app.use(express.static(frontendPath));
 
+// Resolución de tenant multi-inquilino - solo para rutas API
+app.use("/api", resolveTenant());
+
+app.use("/api", router);
+
+// SPA fallthrough - servir index.html para todas las rutas no-API
 app.use((req, res, next) => {
   if (req.path.startsWith("/api")) {
     return next();
