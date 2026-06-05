@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { z } from "zod";
-import { pool, tenants } from "@workspace/db";
+import { pool } from "@workspace/db";
 import crypto from "crypto";
 import { tenantManager } from "../lib/tenantManager";
 import { logger } from "../lib/logger";
