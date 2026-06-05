@@ -138,9 +138,9 @@ export default function Conversations() {
             const imageUrl = product.imageUrl || getProductImageFallback(product.name);
 
             return (
-              <div key={i} className="rounded-2xl overflow-hidden border border-border/60 shadow-md bg-card w-full max-w-[320px]">
+              <div key={i} className="rounded-2xl overflow-hidden border border-border/60 shadow-md bg-card w-full max-w-full sm:max-w-[320px]">
                 {/* Product Image */}
-                <div className="relative w-full h-44 bg-muted overflow-hidden">
+                <div className="relative w-full h-36 sm:h-44 bg-muted overflow-hidden">
                   {imageUrl ? (
                     <img
                       src={imageUrl}
@@ -163,15 +163,15 @@ export default function Conversations() {
                 </div>
 
                 {/* Card Body */}
-                <div className="p-4 space-y-3">
+                <div className="p-3 sm:p-4 space-y-2 sm:space-y-3">
                   {/* Title */}
                   <div>
-                    <p className="text-[11px] font-bold text-primary uppercase tracking-widest leading-none mb-1">
+                    <p className="text-[10px] sm:text-[11px] font-bold text-primary uppercase tracking-widest leading-none mb-1">
                       {product.highlight || "Curso Online"}
                     </p>
-                    <h3 className="text-base font-bold text-foreground leading-tight">{product.name}</h3>
+                    <h3 className="text-sm sm:text-base font-bold text-foreground leading-tight break-words">{product.name}</h3>
                     {product.description && (
-                      <p className="text-xs text-muted-foreground mt-1 leading-relaxed">{product.description}</p>
+                      <p className="text-xs text-muted-foreground mt-1 leading-relaxed break-words">{product.description}</p>
                     )}
                   </div>
 
@@ -182,7 +182,7 @@ export default function Conversations() {
                       {features.slice(0, 4).map((f, fi) => (
                         <div key={fi} className="flex items-start gap-1.5 text-xs text-foreground/80">
                           <span className="text-green-500 mt-0.5 shrink-0">✅</span>
-                          <span>{f}</span>
+                          <span className="break-words">{f}</span>
                         </div>
                       ))}
                     </div>
@@ -190,23 +190,23 @@ export default function Conversations() {
 
                   {/* Content stats */}
                   {(meta.sections || meta.classes || meta.duration) && (
-                    <div className="grid grid-cols-3 gap-2 bg-muted/50 rounded-xl p-2.5">
+                    <div className="grid grid-cols-3 gap-1.5 sm:gap-2 bg-muted/50 rounded-xl p-2 sm:p-2.5">
                       {meta.sections && (
                         <div className="text-center">
-                          <p className="text-sm font-bold text-foreground">📖 {meta.sections}</p>
-                          <p className="text-[9px] text-muted-foreground uppercase tracking-wide">secciones</p>
+                          <p className="text-xs sm:text-sm font-bold text-foreground">📖 {meta.sections}</p>
+                          <p className="text-[8px] sm:text-[9px] text-muted-foreground uppercase tracking-wide">secciones</p>
                         </div>
                       )}
                       {meta.classes && (
                         <div className="text-center">
-                          <p className="text-sm font-bold text-foreground">🎬 {meta.classes}</p>
-                          <p className="text-[9px] text-muted-foreground uppercase tracking-wide">clases</p>
+                          <p className="text-xs sm:text-sm font-bold text-foreground">🎬 {meta.classes}</p>
+                          <p className="text-[8px] sm:text-[9px] text-muted-foreground uppercase tracking-wide">clases</p>
                         </div>
                       )}
                       {meta.duration && (
                         <div className="text-center">
-                          <p className="text-sm font-bold text-foreground">⏱️ {meta.duration.split(' ')[0]}</p>
-                          <p className="text-[9px] text-muted-foreground uppercase tracking-wide">duración</p>
+                          <p className="text-xs sm:text-sm font-bold text-foreground">⏱️ {meta.duration.split(' ')[0]}</p>
+                          <p className="text-[8px] sm:text-[9px] text-muted-foreground uppercase tracking-wide">duración</p>
                         </div>
                       )}
                     </div>
@@ -216,7 +216,7 @@ export default function Conversations() {
                   <div className="flex items-center justify-between pt-1 border-t border-border/40">
                     <div>
                       <p className="text-[10px] text-muted-foreground uppercase tracking-wider">💰 Precio</p>
-                      <p className="text-lg font-extrabold text-foreground">
+                      <p className="text-base sm:text-lg font-extrabold text-foreground break-words">
                         {new Intl.NumberFormat('es-CO', { style: 'currency', currency: product.currency || 'COP', maximumFractionDigits: 0 }).format(Number(product.price))}
                       </p>
                     </div>
@@ -278,7 +278,7 @@ export default function Conversations() {
           <p className="text-muted-foreground">Monitorea a tus agentes y toma el control cuando sea necesario.</p>
         </div>
 
-        <div className="flex h-[calc(100vh-12rem)] min-h-[500px] glass-panel rounded-2xl border overflow-hidden shadow-lg shadow-black/5 dark:shadow-black/20 relative">
+        <div className="flex flex-col md:flex-row h-auto md:h-[calc(100vh-12rem)] min-h-[500px] glass-panel rounded-2xl border overflow-hidden shadow-lg shadow-black/5 dark:shadow-black/20 relative">
           
           {/* Left Pane - List */}
           <div className={`w-full md:w-[340px] flex-col border-r bg-card/50 ${selectedId ? 'hidden md:flex' : 'flex'}`}>
@@ -293,7 +293,7 @@ export default function Conversations() {
                 />
               </div>
             </div>
-            <ScrollArea className="flex-1">
+            <ScrollArea className="flex-1 max-h-[400px] md:max-h-none">
               {loadingConversations ? (
                 <div className="p-4 space-y-4">
                   {Array(6).fill(0).map((_, i) => (
@@ -387,33 +387,33 @@ export default function Conversations() {
             ) : (
               <>
                 {/* Chat Header */}
-                <div className="h-16 border-b flex items-center justify-between px-4 bg-background/80 backdrop-blur-xl sticky top-0 z-20">
-                  <div className="flex items-center gap-3">
-                    <Button variant="ghost" size="icon" className="md:hidden -ml-2 hover:bg-muted" onClick={() => setLocation("/conversations")}>
+                <div className="h-auto md:h-16 border-b flex flex-col md:flex-row items-start md:items-center justify-between p-3 md:px-4 gap-3 md:gap-0 bg-background/80 backdrop-blur-xl sticky top-0 z-20">
+                  <div className="flex items-center gap-3 w-full md:w-auto">
+                    <Button variant="ghost" size="icon" className="md:hidden -ml-2 hover:bg-muted shrink-0" onClick={() => setLocation("/conversations")}>
                       <ArrowLeft className="h-5 w-5" />
                     </Button>
-                    <Avatar className="h-10 w-10 border shadow-sm ring-2 ring-background" style={{ backgroundColor: activeConv.avatarColor }}>
+                    <Avatar className="h-10 w-10 border shadow-sm ring-2 ring-background shrink-0" style={{ backgroundColor: activeConv.avatarColor }}>
                       <AvatarFallback className="text-white bg-transparent font-medium">
                         {activeConv.contactName.substring(0, 2).toUpperCase()}
                       </AvatarFallback>
                     </Avatar>
-                    <div>
-                      <h3 className="font-bold leading-none text-foreground">{activeConv.contactName}</h3>
-                      <p className="text-xs text-muted-foreground mt-1 font-medium">{activeConv.contactPhone}</p>
+                    <div className="min-w-0 flex-1">
+                      <h3 className="font-bold leading-none text-foreground truncate">{activeConv.contactName}</h3>
+                      <p className="text-xs text-muted-foreground mt-1 font-medium truncate">{activeConv.contactPhone}</p>
                     </div>
                   </div>
                   
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 w-full md:w-auto">
                     {activeConv.status === "ai" ? (
-                      <Button variant="default" size="sm" className="rounded-full shadow-md shadow-primary/20 transition-all hover:scale-105" onClick={() => handleHandoff("human")} disabled={handoff.isPending}>
+                      <Button variant="default" size="sm" className="rounded-full shadow-md shadow-primary/20 transition-all hover:scale-105 text-xs md:text-sm flex-1 md:flex-none" onClick={() => handleHandoff("human")} disabled={handoff.isPending}>
                         <User className="h-4 w-4 mr-2" /> Tomar Control
                       </Button>
                     ) : activeConv.status === "human" ? (
-                      <Button variant="secondary" size="sm" className="rounded-full transition-all hover:scale-105" onClick={() => handleHandoff("ai")} disabled={handoff.isPending}>
+                      <Button variant="secondary" size="sm" className="rounded-full transition-all hover:scale-105 text-xs md:text-sm flex-1 md:flex-none" onClick={() => handleHandoff("ai")} disabled={handoff.isPending}>
                         <Bot className="h-4 w-4 mr-2 text-primary" /> Devolver a IA
                       </Button>
                     ) : null}
-                    <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive hover:bg-destructive/10 rounded-full" onClick={closeConversation}>
+                    <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive hover:bg-destructive/10 rounded-full shrink-0" onClick={closeConversation}>
                       <X className="h-4 w-4" />
                     </Button>
                   </div>
@@ -448,11 +448,11 @@ export default function Conversations() {
                             )}
                             
                             <div className={`flex flex-col mb-2 ${isCustomer ? 'items-end' : 'items-start'}`}>
-                              <div className={`flex items-end gap-2 max-w-[85%] md:max-w-[75%] ${isCustomer ? 'flex-row-reverse' : 'flex-row'}`}>
+                              <div className={`flex items-end gap-2 max-w-[95%] sm:max-w-[85%] md:max-w-[75%] ${isCustomer ? 'flex-row-reverse' : 'flex-row'}`}>
                                 
                                 {/* Avatar */}
                                 {!isCustomer && (
-                                  <div className="shrink-0 mb-1">
+                                  <div className="shrink-0 mb-1 hidden sm:block">
                                     {isAgent ? (
                                       <div className="w-8 h-8 rounded-full bg-primary flex items-center justify-center shadow-md ring-2 ring-background">
                                         <Bot className="h-4 w-4 text-primary-foreground" />
@@ -467,7 +467,7 @@ export default function Conversations() {
                                 
                                 {/* Bubble */}
                                 <div className={`
-                                  px-5 py-3 relative shadow-sm text-[15px] leading-relaxed
+                                  px-3 sm:px-5 py-2.5 sm:py-3 relative shadow-sm text-sm sm:text-[15px] leading-relaxed break-words overflow-hidden
                                   ${isCustomer 
                                     ? 'bg-primary text-primary-foreground rounded-2xl rounded-br-sm' 
                                     : isAgent
@@ -502,20 +502,20 @@ export default function Conversations() {
                 </div>
 
                 {/* Chat Input */}
-                <div className="p-4 bg-background/80 backdrop-blur-xl border-t relative z-20">
+                <div className="p-3 sm:p-4 bg-background/80 backdrop-blur-xl border-t relative z-20">
                   {activeConv.status === "closed" ? (
                     <div className="text-center p-4 text-sm font-medium text-muted-foreground bg-muted/50 rounded-xl border border-dashed">
                       Esta conversación ha sido cerrada.
                     </div>
                   ) : (
                     <form 
-                      className="flex gap-3 relative max-w-4xl mx-auto items-end"
+                      className="flex gap-2 sm:gap-3 relative max-w-4xl mx-auto items-end"
                       onSubmit={(e) => { e.preventDefault(); handleSend(); }}
                     >
-                      <div className="flex-1 relative">
+                      <div className="flex-1 relative min-w-0">
                         <Input 
-                          placeholder={activeConv.status === "ai" ? "Tomar control para enviar mensaje..." : "Escribe un mensaje como operador..."} 
-                          className="w-full rounded-full bg-card border-border/50 shadow-sm pl-6 pr-12 h-14 text-base focus-visible:ring-primary/30"
+                          placeholder={activeConv.status === "ai" ? "Tomar control para enviar..." : "Escribe un mensaje..."} 
+                          className="w-full rounded-full bg-card border-border/50 shadow-sm pl-4 sm:pl-6 pr-4 h-12 sm:h-14 text-sm sm:text-base focus-visible:ring-primary/30"
                           value={messageText}
                           onChange={(e) => setMessageText(e.target.value)}
                           disabled={activeConv.status === "ai" || sendMessage.isPending}
@@ -525,9 +525,9 @@ export default function Conversations() {
                         type="submit" 
                         disabled={!messageText.trim() || activeConv.status === "ai" || sendMessage.isPending}
                         size="icon"
-                        className="shrink-0 h-14 w-14 rounded-full bg-gradient-to-tr from-primary to-primary/80 hover:from-primary hover:to-primary shadow-lg shadow-primary/20 transition-transform active:scale-95"
+                        className="shrink-0 h-12 w-12 sm:h-14 sm:w-14 rounded-full bg-gradient-to-tr from-primary to-primary/80 hover:from-primary hover:to-primary shadow-lg shadow-primary/20 transition-transform active:scale-95"
                       >
-                        <Send className="h-5 w-5 ml-0.5" />
+                        <Send className="h-4 w-4 sm:h-5 sm:w-5 ml-0.5" />
                       </Button>
                     </form>
                   )}

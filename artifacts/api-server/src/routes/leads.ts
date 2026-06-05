@@ -1,3 +1,4 @@
+import { safeISO } from "../lib/date-utils";
 import { Router, type IRouter } from "express";
 import { desc, eq } from "drizzle-orm";
 import {
@@ -31,7 +32,11 @@ router.post("/", async (req, res, next) => {
     const body = CreateLeadBody.parse(req.body);
     const [created] = await db
       .insert(leads)
-      .values({ ...body, value: String(body.value ?? 0) })
+      .values({ 
+        ...body, 
+        phone: body.phone || body.name,
+        value: "0"
+      })
       .returning();
     await db.insert(activityEvents).values({
       type: "lead_created",
@@ -49,8 +54,7 @@ router.patch("/:id", async (req, res, next) => {
     const { id } = UpdateLeadParams.parse(req.params);
     const body = UpdateLeadBody.parse(req.body);
     const update: Record<string, unknown> = { ...body };
-    if (body.value !== undefined) update.value = String(body.value);
-    const [updated] = await db.update(leads).set(update).where(eq(leads.id, id)).returning();
+    const [updated] = await db.update(leads).set(update as any).where(eq(leads.id, id)).returning();
     if (!updated) return res.status(404).json({ message: "Lead no encontrado" });
     if (body.stage === "won") {
       await db.insert(activityEvents).values({
@@ -91,7 +95,7 @@ function serialize(row: typeof leads.$inferSelect) {
     value: Number(row.value),
     notes: row.notes ?? null,
     source: row.source ?? null,
-    createdAt: row.createdAt.toISOString(),
+    createdAt: safeISO(row.createdAt),
   };
 }
 

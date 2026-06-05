@@ -1,3 +1,4 @@
+import { safeISO } from "../lib/date-utils";
 import { Router, type IRouter } from "express";
 import { and, asc, desc, eq, ilike, lte, or } from "drizzle-orm";
 import {
@@ -25,7 +26,7 @@ import {
   followUps,
 } from "@workspace/db";
 import { runAgentReply } from "../lib/agent";
-import { whatsapp } from "../lib/whatsapp";
+import { whatsapp, type AgentReplyPart } from "../lib/whatsapp";
 import { logger } from "../lib/logger";
 import { getLeadScore, getLeadScoringDashboard } from "../lib/leadScoring";
 import { followUpScheduler, getDueFollowUps } from "../lib/followUpScheduler";
@@ -129,7 +130,26 @@ router.post("/:id/messages", conversationRateLimit, aiCostTracker, async (req, r
         logger.warn({ err }, "Send to WhatsApp failed (message persisted)");
       }
     }
-    return res.json(SendMessageResponse.parse(serializeMessage(msg!)));
+
+    // ✨ NEW: Si es mensaje del cliente, obtener respuesta del agente automáticamente
+    let agentReply = null;
+    if (body.asHuman === true && convo.status === "ai") {
+      try {
+        agentReply = await runAgentReply(id);
+        logger.debug({ conversationId: id, hasReply: !!agentReply }, "[Agent] Auto-reply generated");
+      } catch (err) {
+        logger.warn({ err, conversationId: id }, "[Agent] Failed to generate auto-reply");
+      }
+    }
+
+    return res.json({
+      ...SendMessageResponse.parse(serializeMessage(msg!)),
+      agentReply: agentReply ? {
+        content: agentReply.content,
+        stage: agentReply.stage,
+        parts: agentReply.parts
+      } : null
+    });
   } catch (e) {
     return next(e);
   }
@@ -155,7 +175,7 @@ router.post("/:id/handoff", async (req, res, next) => {
       try {
         const reply = await runAgentReply(id);
         if (reply && whatsapp.isConnected()) {
-          await whatsapp.sendAgentParts(updated.contactPhone, updated.contactName, reply.parts);
+          await whatsapp.sendAgentParts(updated.contactPhone, updated.contactName, reply.parts as AgentReplyPart[]);
         }
       } catch (err) {
         logger.warn({ err }, "Agent reply after handoff failed");
@@ -246,13 +266,13 @@ function serializeConversation(row: typeof conversations.$inferSelect) {
     contactPhone: row.contactPhone,
     avatarColor: row.avatarColor,
     lastMessage: row.lastMessage ?? null,
-    lastMessageAt: row.lastMessageAt ? row.lastMessageAt.toISOString() : null,
+    lastMessageAt: row.lastMessageAt ? safeISO(row.lastMessageAt) : null,
     unreadCount: row.unreadCount,
     status: row.status,
     currentStage: row.currentStage ?? null,
     agentId: row.agentId ?? null,
     leadId: row.leadId ?? null,
-    createdAt: row.createdAt.toISOString(),
+    createdAt: safeISO(row.createdAt),
   };
 }
 
@@ -263,7 +283,7 @@ function serializeMessage(row: typeof messages.$inferSelect) {
     role: row.role,
     content: row.content,
     stage: row.stage ?? null,
-    createdAt: row.createdAt.toISOString(),
+    createdAt: safeISO(row.createdAt),
   };
 }
 

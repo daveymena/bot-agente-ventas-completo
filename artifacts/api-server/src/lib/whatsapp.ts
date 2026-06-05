@@ -14,6 +14,7 @@ import {
 import { logger } from "./logger";
 import { runAgentReply } from "./agent";
 import { createAIClient, getProviderConfig } from "@workspace/integrations-openai-ai-server";
+import { getMessageHandler } from "./services/message-handler";
 import { tenantManager, addTenantToInsert, type TenantContext } from "./tenantManager";
 import { 
   makeWASocket, 
@@ -24,6 +25,27 @@ import {
   proto
 } from "@whiskeysockets/baileys";
 import { trackWhatsAppCost } from "../middleware/rateLimiting";
+
+// ─── Simulación de escritura humana ───────────────────────────────────────────
+// Muestra "escribiendo..." en WhatsApp antes de enviar, con delay proporcional al texto
+
+const TYPING_WPM = 800;          // Palabras por minuto (acelerado)
+const TYPING_MIN_MS = 300;       // Mínimo siempre visible
+const TYPING_MAX_MS = 1500;      // Máximo para no hacer esperar demasiado
+const READ_DELAY_MS = 100;       // Pausa antes de empezar a "escribir" (simula leer el mensaje)
+
+function calcTypingDelay(text: string): number {
+  const words = text.trim().split(/\s+/).length;
+  const ms = Math.round((words / TYPING_WPM) * 60_000);
+  return Math.min(Math.max(ms, TYPING_MIN_MS), TYPING_MAX_MS);
+}
+
+async function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+// Caché global de IDs de mensajes procesados para evitar duplicados/bucle
+const processedMessageIds = new Set<string>();
 
 // Función de diagnóstico para mensajes problemáticos
 function diagnoseMessage(msgObj: any): { 
@@ -91,6 +113,7 @@ export type AgentReplyPart = {
   kind: "text" | "card";
   content?: string;
   productId?: number;
+  paymentOnly?: boolean;
 };
 import { PaymentGateway } from "./payments";
 import { retryWithBackoff, notifyOperatorOfFailure } from "./fallbackSystem";
@@ -130,6 +153,22 @@ function getProductImage(name: string): string {
     if (nameLower.includes(key)) return url;
   }
 
+  // Try category-based fallback
+  const categoryImages: Record<string, string> = {
+    "música": "https://images.unsplash.com/photo-1511379938547-c1f69419868d?w=800",
+    "musica": "https://images.unsplash.com/photo-1511379938547-c1f69419868d?w=800",
+    "tecnología": "https://images.unsplash.com/photo-1518770660439-4636190af475?w=800",
+    "tecnologia": "https://images.unsplash.com/photo-1518770660439-4636190af475?w=800",
+    "negocios": "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=800",
+    "salud": "https://images.unsplash.com/photo-1544367567-0f2fcb009e0b?w=800",
+    "fitness": "https://images.unsplash.com/photo-1517836357463-d25dfeac3438?w=800",
+    "idiomas": "https://images.unsplash.com/photo-1456513080510-7bf3a84b82f8?w=800",
+  };
+
+  for (const [key, url] of Object.entries(categoryImages)) {
+    if (nameLower.includes(key)) return url;
+  }
+
   return genericImage;
 }
 
@@ -143,43 +182,41 @@ function buildProductCaption(p: typeof products.$inferSelect, categoryName: stri
   const mainEmoji = nameUpper.includes("PIANO") ? "🎹" : 
                     nameUpper.includes("GUITARRA") ? "🎸" : 
                     nameUpper.includes("CANTO") ? "🎤" : 
-                    nameUpper.includes("EXCEL") ? "📊" : "💎";
+                    nameUpper.includes("EXCEL") ? "📊" : "💻";
 
-  lines.push(`✨ ${mainEmoji} *EXPERIENCIA ELITE: ${nameUpper}*`);
+  lines.push(`✨ ${mainEmoji} *PROGRAMA PROFESIONAL: ${nameUpper}*`);
   lines.push("━━━━━━━━━━━━━━━━━━━━━━━");
   lines.push("");
-  lines.push(`🚀 *ANÁLISIS DE VALOR:*`);
-  lines.push(`Este programa ha sido curado para transformar tu habilidad de forma exponencial. No es solo un curso, es la llave a tu nueva maestría técnica.`);
+  lines.push(`*DESCRIPCIÓN:*`);
+  lines.push(`${p.description || 'Formación estructurada para llevar tus habilidades al siguiente nivel con metodología probada y práctica.'}`);
   lines.push("");
   
-  lines.push(`💎 *BENEFICIOS EXCLUSIVOS:*`);
+  lines.push(`*BENEFICIOS INCLUIDOS:*`);
   const features = (p.features ?? []);
-  if (features.length >= 3) {
+  if (features.length > 0) {
     for (const f of features) lines.push(`✅ ${f}`);
   } else {
-    lines.push(`✅ ${meta.classes || "280+"} Lecciones en Ultra HD`);
-    lines.push(`✅ PDFs y partituras de alta fidelidad`);
-    lines.push(`✅ Acceso vitalicio garantizado`);
-    lines.push(`✅ Soporte personalizado TecnoVariedades`);
+    lines.push(`✅ ${meta.classes || "Contenido completo"} en Alta Definición`);
+    lines.push(`✅ Acceso inmediato y de por vida`);
   }
   
   lines.push("");
-  lines.push(`💰 *INVERSIÓN ÚNICA:*`);
+  lines.push(`💰 *PRECIO ESPECIAL:*`);
   lines.push(`*${formatPriceForWa(Number(p.price), p.currency)}*`);
   lines.push("━━━━━━━━━━━━━━━━━━━━━━━");
   lines.push("");
 
   if (dynamicLinks) {
-    lines.push(`💳 *GESTIÓN DE PAGO SEGURO:*`);
+    lines.push(`💳 *ENLACES DE PAGO SEGURO:*`);
     lines.push("");
-    if (dynamicLinks.mercadopago && (dynamicLinks.mercadopago.shortUrl || dynamicLinks.mercadopago.url)) {
-      lines.push(`🔹 *Tarjeta / PSE (Colombia):*`);
-      lines.push(`${dynamicLinks.mercadopago.shortUrl || dynamicLinks.mercadopago.url}`);
+    if (dynamicLinks.mercadopago && (dynamicLinks.mercadopago.url || dynamicLinks.mercadopago.shortUrl)) {
+      lines.push(`🔹 *Tarjeta de Crédito / PSE (Colombia):*`);
+      lines.push(`${dynamicLinks.mercadopago.url || dynamicLinks.mercadopago.shortUrl}`);
       lines.push("");
     }
-    if (dynamicLinks.paypal && (dynamicLinks.paypal.shortUrl || dynamicLinks.paypal.url)) {
-      lines.push(`🔹 *PayPal / Crédito (Global):*`);
-      lines.push(`${dynamicLinks.paypal.shortUrl || dynamicLinks.paypal.url}`);
+    if (dynamicLinks.paypal && (dynamicLinks.paypal.url || dynamicLinks.paypal.shortUrl)) {
+      lines.push(`🔹 *PayPal (Internacional):*`);
+      lines.push(`${dynamicLinks.paypal.url || dynamicLinks.paypal.shortUrl}`);
       lines.push("");
     }
     if (dynamicLinks.transfer && dynamicLinks.transfer.options && dynamicLinks.transfer.options[0]) {
@@ -190,8 +227,46 @@ function buildProductCaption(p: typeof products.$inferSelect, categoryName: stri
     }
   }
 
-  lines.push(`_¿Deseas que procedamos con tu inscripción ahora o tienes alguna inquietud sobre el plan de estudio?_`);
+  lines.push(`_¿Deseas confirmar tu compra ahora o tienes alguna pregunta adicional?_`);
   
+  return lines.join("\n");
+}
+
+function buildPaymentOnlyCaption(p: typeof products.$inferSelect, dynamicLinks?: any) {
+  const lines: string[] = [];
+
+  const nameUpper = p.name.toUpperCase();
+  const mainEmoji = nameUpper.includes("PIANO") ? "🎹" : 
+                    nameUpper.includes("GUITARRA") ? "🎸" : 
+                    nameUpper.includes("CANTO") ? "🎤" : 
+                    nameUpper.includes("EXCEL") ? "📊" : "💻";
+
+  lines.push(`💳 *PAGO — ${mainEmoji} ${nameUpper}*`);
+  lines.push("━━━━━━━━━━━━━━━━━━━━━━━");
+  lines.push("");
+
+  if (dynamicLinks) {
+    if (dynamicLinks.mercadopago && (dynamicLinks.mercadopago.url || dynamicLinks.mercadopago.shortUrl)) {
+      lines.push(`🔹 *Tarjeta de Crédito / PSE (Colombia):*`);
+      lines.push(`${dynamicLinks.mercadopago.url || dynamicLinks.mercadopago.shortUrl}`);
+      lines.push("");
+    }
+    if (dynamicLinks.paypal && (dynamicLinks.paypal.url || dynamicLinks.paypal.shortUrl)) {
+      lines.push(`🔹 *PayPal (Internacional):*`);
+      lines.push(`${dynamicLinks.paypal.url || dynamicLinks.paypal.shortUrl}`);
+      lines.push("");
+    }
+    if (dynamicLinks.transfer && dynamicLinks.transfer.options && dynamicLinks.transfer.options[0]) {
+      lines.push(`🔹 *Transferencia Directa:*`);
+      lines.push(`📍 *Nequi/Daviplata:* ${dynamicLinks.transfer.options[0].number}`);
+      lines.push(`👤 *Titular:* ${dynamicLinks.transfer.options[0].name}`);
+      lines.push("");
+    }
+  }
+
+  lines.push(`━━━━━━━━━━━━━━━━━━━━━━━`);
+  lines.push(`_¿Confirmas tu compra o tienes alguna duda?_`);
+
   return lines.join("\n");
 }
 
@@ -230,17 +305,23 @@ export class WhatsAppManager {
   }
 
   getStatus(): WhatsAppPublicStatus & { qrCode: string | null; phone: string | null; phoneNumber: string | null } {
-    return {
-      state: this.state,
-      qrCode: this.qrDataUrl,
-      phone: this.phoneNumber,
-      phoneNumber: this.phoneNumber,
-      connectedAt: this.connectedAt,
-      lastError: this.lastError,
-      // Keep original field names for internal consistency
-      qrDataUrl: this.qrDataUrl,
-    } as any;
-  }
+     const status = {
+       state: this.state,
+       qrCode: this.qrDataUrl,
+       phone: this.phoneNumber,
+       phoneNumber: this.phoneNumber,
+       connectedAt: this.connectedAt,
+       lastError: this.lastError,
+       // Keep original field names for internal consistency
+       qrDataUrl: this.qrDataUrl,
+     } as any;
+     
+     if (this.state === "qr" && this.qrDataUrl) {
+       console.log("📲 [STATUS] QR disponible - Longitud:", this.qrDataUrl.length);
+     }
+     
+     return status;
+   }
 
   isConnected() {
     return this.state === "connected";
@@ -281,82 +362,112 @@ export class WhatsAppManager {
     return this.getStatus();
   }
 
-  async start() {
-    if (this.starting) return this.getStatus();
-    if (this.state === "connected" || this.state === "qr") return this.getStatus();
-    
-    this.starting = true;
-    this.state = "connecting";
+   async start() {
+     if (this.starting) {
+       console.log("⚠️ [START] Ya hay un proceso de inicio en curso");
+       return this.getStatus();
+     }
+     if (this.state === "connected" || this.state === "qr") {
+       console.log(`ℹ️ [START] Estado actual: ${this.state} - No iniciando nueva conexión`);
+       return this.getStatus();
+     }
+     
+     this.starting = true;
+     this.state = "connecting";
+     console.log("🔄 [START] Iniciando conexión WhatsApp...");
 
-    try {
-      if (!existsSync(AUTH_DIR)) mkdirSync(AUTH_DIR, { recursive: true });
+     try {
+       if (!existsSync(AUTH_DIR)) {
+         mkdirSync(AUTH_DIR, { recursive: true });
+         console.log(`📁 [AUTH] Directorio de autenticación creado: ${AUTH_DIR}`);
+       }
 
-      const baileys = await import("@whiskeysockets/baileys");
-      const makeWASocket = (baileys as any).default ?? (baileys as any).makeWASocket;
-      const { useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion } = baileys as any;
+       const baileys = await import("@whiskeysockets/baileys");
+       const makeWASocket = (baileys as any).default ?? (baileys as any).makeWASocket;
+       const { useMultiFileAuthState, DisconnectReason } = baileys as any;
+       
+       console.log("✅ [IMPORT] Módulos de Baileys importados correctamente");
 
-      const { state: authState, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
-      let version: any = undefined;
-      try {
-        const v = await fetchLatestBaileysVersion();
-        version = v.version;
-      } catch (e) {}
+       const { state: authState, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
+       console.log("✅ [AUTH] Estado de autenticación cargado");
 
       const sock = makeWASocket({
-        auth: authState,
-        version,
-        printQRInTerminal: false,
-        browser: ["VentasPro", "Chrome", "1.0.0"],
-        syncFullHistory: false,
-        markOnlineOnConnect: true,
-      });
-      this.sock = sock;
+         auth: authState,
+         browser: ["VentasPro", "Chrome", "1.0.0"],
+         syncFullHistory: false,
+         markOnlineOnConnect: true,
+         generateHighQualityLinkPreview: false,
+         // WhatsApp rechaza el protocolo WEB antiguo (error 405).
+         // Se requiere versión actualizada + plataforma MACOS para nuevo pairing.
+         version: [2, 3000, 1034074495],
+       });
+       this.sock = sock;
+       console.log("✅ [INIT] Socket WhatsApp inicializado correctamente");
 
-      sock.ev.on("creds.update", saveCreds);
+       sock.ev.on("creds.update", saveCreds);
 
       sock.ev.on("connection.update", async (update: any) => {
-        const { connection, lastDisconnect, qr } = update;
+         const { connection, lastDisconnect, qr } = update;
+         
+         if (qr) {
+           try {
+             this.qrDataUrl = await QRCode.toDataURL(qr, { width: 320, margin: 1 });
+             this.state = "qr";
+             logger.info("[WhatsApp] QR code generated successfully");
+             console.log("✅ [QR] Código QR generado exitosamente - Longitud: ", this.qrDataUrl?.length);
+           } catch (err) {
+             logger.error({ err }, "[WhatsApp] Error generating QR code");
+             console.error("❌ [QR] Error generando código QR:", err);
+             this.state = "error";
+             this.lastError = `Error generating QR: ${err instanceof Error ? err.message : String(err)}`;
+           }
+         }
         
-        if (qr) {
-          this.qrDataUrl = await QRCode.toDataURL(qr, { width: 320, margin: 1 });
-          this.state = "qr";
-          logger.info("[WhatsApp] QR code generated");
-        }
+         if (connection === "open") {
+           this.state = "connected";
+           this.qrDataUrl = null;
+           this.connectedAt = new Date().toISOString();
+           this.phoneNumber = sock.user?.id?.split(":")[0]?.split("@")[0] ?? null;
+           this.starting = false;
+           this.reconnectAttempts = 0; // Reset on successful connection
+           this.lastError = null;
+           logger.info({ phone: this.phoneNumber }, "[WhatsApp] Connected");
+           console.log(`✅ [CONNECTED] WhatsApp conectado exitosamente - Teléfono: ${this.phoneNumber}`);
+         }
         
-        if (connection === "open") {
-          this.state = "connected";
-          this.qrDataUrl = null;
-          this.connectedAt = new Date().toISOString();
-          this.phoneNumber = sock.user?.id?.split(":")[0]?.split("@")[0] ?? null;
-          this.starting = false;
-          this.reconnectAttempts = 0; // Reset on successful connection
-          logger.info({ phone: this.phoneNumber }, "[WhatsApp] Connected");
-        }
-        
-        if (connection === "close") {
-          const code = (lastDisconnect?.error as any)?.output?.statusCode;
-          const loggedOut = code === DisconnectReason.loggedOut;
-          
-          this.sock = null;
-          this.starting = false;
-          this.qrDataUrl = null;
-          
-          if (loggedOut) {
-            this.reconnectAttempts = 0;
-            this.state = "disconnected";
-            logger.info("[WhatsApp] Logged out");
-          } else if (this.reconnectAttempts < this.MAX_RECONNECT_ATTEMPTS) {
-            this.reconnectAttempts++;
-            const delay = Math.min(3000 * this.reconnectAttempts, 30000); // max 30s
-            this.state = "error";
-            logger.warn({ attempt: this.reconnectAttempts, delay }, "[WhatsApp] Connection closed, reconnecting...");
-            setTimeout(() => this.start(), delay);
-          } else {
-            this.state = "disconnected";
-            this.reconnectAttempts = 0;
-            logger.error("[WhatsApp] Max reconnect attempts reached. Stopped. Please rescan QR manually.");
-          }
-        }
+         if (connection === "close") {
+           const code = (lastDisconnect?.error as any)?.output?.statusCode;
+           const loggedOut = code === DisconnectReason.loggedOut;
+           const errorMessage = (lastDisconnect?.error as any)?.message || 'Unknown error';
+           
+           console.log(`⚠️ [CONNECTION] Desconexión detectada - Código: ${code}, LoggedOut: ${loggedOut}, Error: ${errorMessage}`);
+           
+           this.sock = null;
+           this.starting = false;
+           this.qrDataUrl = null;
+           
+           if (loggedOut) {
+             this.reconnectAttempts = 0;
+             this.state = "disconnected";
+             this.lastError = "Sesión cerrada (LoggedOut)";
+             logger.info("[WhatsApp] Logged out");
+             console.log("❌ [AUTH] Usuario deslogueado - Se requiere nuevo QR");
+           } else if (this.reconnectAttempts < this.MAX_RECONNECT_ATTEMPTS) {
+             this.reconnectAttempts++;
+             const delay = Math.min(3000 * this.reconnectAttempts, 30000); // max 30s
+             this.state = "error";
+             this.lastError = `Reconectando... Intento ${this.reconnectAttempts}/${this.MAX_RECONNECT_ATTEMPTS}`;
+             logger.warn({ attempt: this.reconnectAttempts, delay, error: errorMessage }, "[WhatsApp] Connection closed, reconnecting...");
+             console.log(`🔄 [RECONNECT] Reintentando en ${delay}ms - Intento ${this.reconnectAttempts}/${this.MAX_RECONNECT_ATTEMPTS}`);
+             setTimeout(() => this.start(), delay);
+           } else {
+             this.state = "disconnected";
+             this.reconnectAttempts = 0;
+             this.lastError = "Máximo número de reconexiones alcanzado";
+             logger.error("[WhatsApp] Max reconnect attempts reached. Stopped. Please rescan QR manually.");
+             console.log("❌ [FATAL] Máximo de reintentos alcanzado - Se requiere nuevo QR");
+           }
+         }
       });
 
       sock.ev.on("messages.upsert", async (upsert: any) => {
@@ -415,6 +526,22 @@ export class WhatsAppManager {
             if (isBotMediaOnly) {
               console.log("⏭️ [ANTI-LOOP] Ignorando mensaje de solo-media reenviado:", msgKeys[0]);
               continue;
+            }
+
+            // DEDUPLICACIÓN DE MENSAJES (Evita que el bot responda varias veces al mismo mensaje)
+            const msgId = msg.key.id;
+            if (msgId) {
+              if (processedMessageIds.has(msgId)) {
+                console.log(`⏭️ [ANTI-DUP] Ignorando mensaje duplicado ya procesado: ${msgId}`);
+                continue;
+              }
+              processedMessageIds.add(msgId);
+              
+              // Limitar tamaño de caché para evitar fugas de memoria
+              if (processedMessageIds.size > 2000) {
+                const firstAdded = Array.from(processedMessageIds)[0];
+                processedMessageIds.delete(firstAdded);
+              }
             }
             
             const remoteJid: string = msg.key.remoteJid ?? "";
@@ -568,76 +695,108 @@ export class WhatsAppManager {
               }
             }
             
-            console.log("✅ Texto extraído:", text.substring(0, 50));
-            await this.handleIncoming(phone, pushName, text.trim(), originalJid);
-          }
+             console.log("✅ Texto extraído:", text.substring(0, 50));
+             
+             // ✅ DELEGADO AL MESSAGE HANDLER + ORCHESTRATOR
+             // El MessageHandler encola el mensaje y el AgentOrchestrator lo procesa
+             // Esto evita respuestas duplicadas al procesar por una sola ruta
+             const messageHandler = getMessageHandler();
+             try {
+               await messageHandler.handleIncomingMessage({
+                 tenantId: "1",
+                 remoteJid: originalJid,
+                 fromMe: false,
+                 messageId: msg.key.id || `msg_${Date.now()}`,
+                 body: text.trim(),
+                 timestamp: new Date(msg.messageTimestamp ? msg.messageTimestamp * 1000 : Date.now()),
+                 pushName,
+               });
+               console.log(`📤 [WA-QUEUE] Mensaje encolado exitosamente a MessageHandler: ${text.substring(0, 30)}...`);
+             } catch (error) {
+               console.error(`❌ [WA-QUEUE] Error encolando mensaje en MessageHandler:`, error);
+             }
+           }
         } catch (e) {
           logger.error({ err: e }, "Error processing incoming message");
         }
       });
-      this.starting = false;
-    } catch (e: any) {
-      this.starting = false;
-      this.state = "error";
-      logger.error({ err: e }, "Failed to start WhatsApp");
+       this.starting = false;
+        return this.getStatus();
+      } catch (e: any) {
+        this.starting = false;
+        this.state = "error";
+        this.lastError = `Error al conectar: ${e instanceof Error ? e.message : String(e)}`;
+        logger.error({ err: e }, "Failed to start WhatsApp");
+        console.error("❌ [ERROR] Error fatal al iniciar WhatsApp:", e instanceof Error ? e.message : String(e));
+        console.error("Stack:", e instanceof Error ? e.stack : "No stack available");
+        return this.getStatus();
+      }
     }
-  }
 
   async sendText(phone: string, text: string, originalJid?: string) {
     if (!this.sock || this.state !== "connected") throw new Error("WhatsApp no conectado");
-    
-    // Usar el JID original si está disponible (para mensajes LID), sino usar el formato estándar
     const targetJid = originalJid || `${phone}@s.whatsapp.net`;
-    
+
+    // Simular lectura + escritura
+    await sleep(READ_DELAY_MS);
+    await this.sock.sendPresenceUpdate("composing", targetJid);
+    await sleep(calcTypingDelay(text));
+    await this.sock.sendPresenceUpdate("paused", targetJid);
+
     await this.sock.sendMessage(targetJid, { text });
-    
-    // GUARDAR EN BD PARA EL DASHBOARD
-    try {
-      const [convo] = await db.select().from(conversations).where(eq(conversations.contactPhone, phone)).limit(1);
-      if (convo) {
-        await db.insert(messages).values({
-          conversationId: convo.id,
-          role: "agent",
-          content: text,
-          status: "sent"
-        });
-        console.log(`💾 [WA-SAVE] Mensaje de texto de IA guardado en BD para convo ${convo.id}`);
-      }
-    } catch (e) {
-      console.log("⚠️ Error guardando mensaje saliente en BD:", e);
-    }
-    
     trackWhatsAppCost(this.currentTenant.id.toString());
   }
 
-  async sendImage(phone: string, imageUrl: string, caption: string, originalJid?: string) {
+  async sendImage(phone: string, imageUrl: string, caption: string, originalJid?: string, fallbackImageUrl?: string) {
     if (!this.sock || this.state !== "connected") throw new Error("WhatsApp no conectado");
-    // Usar el JID original si está disponible (para mensajes LID), sino usar el formato estándar
     const jid = originalJid || `${phone}@s.whatsapp.net`;
-    try {
-      const axios = (await import("axios")).default;
-      const response = await axios.get(imageUrl, { responseType: 'arraybuffer', timeout: 8000 });
-      await this.sock.sendMessage(jid, { image: Buffer.from(response.data), caption });
-    } catch (e) {
-      await this.sock.sendMessage(jid, { image: { url: imageUrl }, caption });
-    }
 
-    // GUARDAR EN BD PARA EL DASHBOARD
+    // Simular lectura + escritura (basado en el caption)
+    await sleep(READ_DELAY_MS);
+    await this.sock.sendPresenceUpdate("composing", jid);
+    await sleep(calcTypingDelay(caption));
+    await this.sock.sendPresenceUpdate("paused", jid);
+
     try {
-      const [convo] = await db.select().from(conversations).where(eq(conversations.contactPhone, phone)).limit(1);
-      if (convo) {
-        await db.insert(messages).values({
-          conversationId: convo.id,
-          role: "agent",
-          content: caption || `[Imagen]: ${imageUrl}`,
-          status: "sent"
-        });
-        console.log(`💾 [WA-SAVE] Imagen de IA guardada en BD para convo ${convo.id}`);
+      let isLocalFile = false;
+      let localPath = "";
+      
+      if (imageUrl.startsWith('/')) {
+        const path = await import("path");
+        const fs = await import("fs");
+        localPath = path.join(process.cwd(), "..", "ventas-pro", "public", imageUrl);
+        if (fs.existsSync(localPath)) {
+          isLocalFile = true;
+        }
       }
-    } catch (e) {
-      console.log("⚠️ Error guardando imagen saliente en BD:", e);
-    }
 
+      if (isLocalFile) {
+        const fs = await import("fs");
+        const buffer = fs.readFileSync(localPath);
+        await this.sock.sendMessage(jid, { image: buffer, caption });
+      } else {
+        const fetchUrl = imageUrl.startsWith('/') ? `http://localhost:5173${imageUrl}` : imageUrl;
+        const axios = (await import("axios")).default;
+        const response = await axios.get(fetchUrl, { responseType: 'arraybuffer', timeout: 8000 });
+        await this.sock.sendMessage(jid, { image: Buffer.from(response.data), caption });
+      }
+    } catch (e: any) {
+      console.error(`[WhatsApp] Error procesando imagen ${imageUrl}: ${e.message}. Intentando fallback...`);
+      try {
+        if (fallbackImageUrl && fallbackImageUrl !== imageUrl) {
+          const axios = (await import("axios")).default;
+          const fallbackRes = await axios.get(fallbackImageUrl, { responseType: 'arraybuffer', timeout: 5000 });
+          await this.sock.sendMessage(jid, { image: Buffer.from(fallbackRes.data), caption });
+        } else {
+          throw new Error("No hay fallback image disponible o es igual a la original");
+        }
+      } catch (fallbackErr: any) {
+        console.error(`[WhatsApp] Error con fallback de imagen: ${fallbackErr.message}. Enviando solo texto...`);
+        await this.sock.sendMessage(jid, { text: caption }).catch((err: any) => {
+          console.error(`[WhatsApp] Error fatal enviando texto fallback: ${err.message}`);
+        });
+      }
+    }
     trackWhatsAppCost(this.currentTenant.id.toString());
   }
 
@@ -651,26 +810,29 @@ export class WhatsAppManager {
     
     console.log(`🃏 [WA-PARTS] Tarjetas a procesar: ${cardIds.length} - IDs: [${cardIds.join(', ')}] - ${timestamp}`);
     
-    if (cardIds.length) {
-      const rows = await db.select().from(products).where(inArray(products.id, cardIds));
-      cardCache = new Map(rows.map((r) => [r.id, r]));
-      console.log(`📦 [WA-PARTS] Productos cargados: ${rows.length}/${cardIds.length} - ${timestamp}`);
-    }
+     if (cardIds.length) {
+       const rows = await db.select().from(products).where(inArray(products.id, cardIds.filter((id): id is number => id !== undefined)));
+       cardCache = new Map(rows.map((r) => [r.id, r]));
+       console.log(`📦 [WA-PARTS] Productos cargados: ${rows.length}/${cardIds.length} - ${timestamp}`);
+     }
 
     for (let i = 0; i < parts.length; i++) {
       const part = parts[i];
       console.log(`📨 [WA-PARTS] Procesando parte ${i + 1}/${parts.length} - Tipo: ${part.kind} - ${timestamp}`);
-      
+
+      // Pausa natural entre partes consecutivas (simula que el agente "termina" un mensaje antes del siguiente)
+      if (i > 0) await sleep(600);
+
       if (part.kind === "text") {
         console.log(`💬 [WA-TEXT] Enviando texto: "${part.content?.substring(0, 50)}..." - ${timestamp}`);
         await this.sendText(phone, part.content || "", originalJid);
         console.log(`✅ [WA-TEXT] Texto enviado exitosamente - ${timestamp}`);
-      } else {
-        const product = cardCache.get(part.productId);
-        if (!product) {
-          console.log(`⚠️ [WA-CARD] Producto no encontrado para ID: ${part.productId} - ${timestamp}`);
-          continue;
-        }
+       } else {
+         const product = cardCache.get(part.productId!);
+         if (!product) {
+           console.log(`⚠️ [WA-CARD] Producto no encontrado para ID: ${part.productId} - ${timestamp}`);
+           continue;
+         }
         
         console.log(`🃏 [WA-CARD] Enviando tarjeta de producto: ${product.name} (ID: ${part.productId}) - ${timestamp}`);
         
@@ -678,11 +840,15 @@ export class WhatsAppManager {
           const dynamicLinks = await pg.getAllLinks(product, { phone, name: pushName });
           console.log(`🔗 [WA-CARD] Enlaces generados - MercadoPago: ${!!dynamicLinks.mercadopago?.url}, PayPal: ${!!dynamicLinks.paypal?.url}, Transfer: ${dynamicLinks.transfer.options.length} - ${timestamp}`);
           
-          const caption = buildProductCaption(product, null, dynamicLinks);
-          const imageToUse = product.imageUrl || getProductImage(product.name || "");
+          const isPaymentOnly = part.paymentOnly === true;
+          const caption = isPaymentOnly
+            ? buildPaymentOnlyCaption(product, dynamicLinks)
+            : buildProductCaption(product, null, dynamicLinks);
+          const fallbackImage = getProductImage(product.name || "");
+          const imageToUse = product.imageUrl || fallbackImage;
           
-          console.log(`🖼️ [WA-CARD] Enviando imagen con caption - URL: ${imageToUse?.substring(0, 50)}..., Caption: ${caption.length} caracteres - ${timestamp}`);
-          await this.sendImage(phone, imageToUse, caption, originalJid);
+          console.log(`🖼️ [WA-CARD] Enviando imagen con caption - URL: ${imageToUse?.substring(0, 50)}..., PaymentOnly: ${isPaymentOnly}, Caption: ${caption.length} caracteres - ${timestamp}`);
+          await this.sendImage(phone, imageToUse, caption, originalJid, fallbackImage);
           console.log(`✅ [WA-CARD] Tarjeta enviada exitosamente para ${product.name} - ${timestamp}`);
         } catch (err: any) {
           console.log(`❌ [WA-CARD] Error enviando tarjeta para ${product.name}: ${err.message} - ${timestamp}`);
@@ -693,55 +859,6 @@ export class WhatsAppManager {
     console.log(`🏁 [WA-PARTS] Envío de partes completado - Total: ${parts.length} partes procesadas - ${timestamp}`);
   }
 
-  private async handleIncoming(phone: string, pushName: string, text: string, originalJid?: string) {
-    const timestamp = new Date().toISOString();
-    console.log(`🔔 [WA-INCOMING] handleIncoming iniciado - Teléfono: ${phone}, Nombre: ${pushName}, Mensaje: "${text.substring(0, 50)}" - ${timestamp}`);
-    
-    try {
-      let convo = (await db.select().from(conversations).where(eq(conversations.contactPhone, phone)).limit(1))[0];
-      
-      if (!convo) {
-        console.log(`🆕 [WA-NEW] Creando nueva conversación para: ${phone} (${pushName}) - ${timestamp}`);
-        const [lead] = await db.insert(leads).values(addTenantToInsert({ name: pushName, phone, stage: "new", value: "0", source: "whatsapp" }, this.currentTenant.id)).returning();
-        const [created] = await db.insert(conversations).values(addTenantToInsert({ contactName: pushName, contactPhone: phone, status: "ai", currentStage: "greeting", leadId: lead?.id, unreadCount: 0 }, this.currentTenant.id)).returning();
-        convo = created!;
-        console.log(`📝 [WA-NEW] Nueva conversación creada exitosamente - ID: ${convo.id}, Lead ID: ${lead?.id} - ${timestamp}`);
-      } else {
-        console.log(`📱 [WA-EXISTING] Conversación existente encontrada - ID: ${convo.id}, Estado: ${convo.status}, Etapa: ${convo.currentStage} - ${timestamp}`);
-      }
-
-      console.log(`💾 [WA-SAVE] Guardando mensaje en BD - Conversación: ${convo.id} - ${timestamp}`);
-      await db.insert(messages).values({ conversationId: convo.id, role: "customer", content: text, stage: convo.currentStage });
-      await db.update(conversations).set({ lastMessage: text, lastMessageAt: new Date() }).where(eq(conversations.id, convo.id));
-
-      console.log(`📩 [WA-SAVED] Mensaje guardado exitosamente - "${text.substring(0, 30)}" | Conversación ID: ${convo.id} | Estado: ${convo.status} - ${timestamp}`);
-
-      if (convo.status === "ai") {
-        console.log(`🤖 [WA-AI] Estado es AI, ejecutando runAgentReply para conversación ${convo.id} - ${timestamp}`);
-        try {
-          console.log(`🔄 [WA-AI] Llamando runAgentReply(${convo.id}) - ${timestamp}`);
-          const reply = await runAgentReply(convo.id);
-          console.log(`📥 [WA-AI] runAgentReply completada - Respuesta: ${reply ? "SÍ" : "NO"}, Partes: ${reply?.parts?.length || 0} - ${timestamp}`);
-          
-          if (reply) {
-            console.log(`📤 [WA-SEND] Enviando respuesta con ${reply.parts?.length || 0} partes a ${phone} - ${timestamp}`);
-            await this.sendAgentParts(phone, pushName, reply.parts, originalJid);
-            console.log(`✅ [WA-SEND] Respuesta enviada exitosamente a ${phone} - ${timestamp}`);
-          } else {
-            console.log(`⚠️ [WA-WARNING] runAgentReply devolvió null para conversación ${convo.id} - ${timestamp}`);
-          }
-        } catch (err: any) {
-          console.error(`❌ [WA-ERROR] Error en runAgentReply para conversación ${convo.id}: ${err.message || err} - ${timestamp}`);
-          console.error(`🔍 [WA-ERROR] Stack trace:`, err.stack);
-        }
-      } else {
-        console.log(`⏭️ [WA-SKIP] Estado es "${convo.status}", no se responde automáticamente - ${timestamp}`);
-      }
-    } catch (err: any) {
-      console.error(`💥 [WA-CRITICAL] Error crítico en handleIncoming para ${phone}: ${err.message || err} - ${timestamp}`);
-      console.error(`🔍 [WA-CRITICAL] Stack trace:`, err.stack);
-    }
-  }
 }
 
 function hashCode(s: string) {

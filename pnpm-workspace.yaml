@@ -39,13 +39,16 @@ packages:
   - lib/*
   - lib/integrations/*
   - scripts
+  - packages/tienda
 
 catalog:
+  typescript: ^5.9.2
   '@replit/vite-plugin-cartographer': ^0.5.1
   '@replit/vite-plugin-dev-banner': ^0.1.1
   '@replit/vite-plugin-runtime-error-modal': ^0.0.6
   '@tailwindcss/vite': ^4.1.14
-  '@tanstack/react-query': ^5.90.21
+  '@craftjs/core': ^0.2.12
+  '@craftjs/utils': ^0.3.3
   '@types/node': ^25.3.3
   '@types/react': ^19.2.0
   '@types/react-dom': ^19.2.0
@@ -55,6 +58,9 @@ catalog:
   drizzle-orm: ^0.45.2
   framer-motion: ^12.23.24
   lucide-react: ^0.545.0
+  recharts: ^3.8.1
+  zustand: ^5.0.13
+  sweetalert2: ^11.26.24
   # Must be this exact version because expo requires it
   react: 19.1.0
   # Must be this exact version because expo requires it
@@ -65,6 +71,7 @@ catalog:
   vite: ^7.3.2
   wouter: ^3.3.5
   zod: ^3.25.76
+  '@tanstack/react-query': ^4.29.12
 
 autoInstallPeers: false
 

@@ -18,6 +18,8 @@ export interface UpdateSettingsBody {
   aiProvider?: string;
   githubToken?: string;
   githubModel?: string;
+  nvidiaApiKey?: string;
+  nvidiaModel?: string;
   ollamaUrl?: string;
   ollamaModel?: string;
 }

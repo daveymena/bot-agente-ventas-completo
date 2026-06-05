@@ -1,0 +1,2351 @@
+[
+  {
+    "id": "MP-001",
+    "numero_drive": 1,
+    "nombre_carpeta": "1. CURSOS DISEÑO GRÁFICO",
+    "titulo_comercial": "CURSOS DISEÑO GRÁFICO",
+    "categoria": "DISEÑO",
+    "precio": 60000,
+    "ficha_tecnica": {
+      "emoji": "🎨",
+      "descripcion": "Photoshop, Illustrator, InDesign y Corel de básico a experto.",
+      "secciones": 45,
+      "clases": 420,
+      "duracion": "65h",
+      "beneficios": [
+        "Contenido Virtual y Descargable (MP4/PDF)",
+        "Acceso Permanente vía Google Drive",
+        "Sin Clases en Vivo / Sin Grupos",
+        "Estudio Autónomo a tu propio ritmo",
+        "Sin Certificación Oficial"
+      ]
+    },
+    "info_importante": {
+      "tipo": "Virtual / Descargable",
+      "certificable": "No",
+      "soporte_en_vivo": "No",
+      "entrega": "Inmediata"
+    },
+    "imagen_portada": "assets/images/piano_megapack.png"
+  },
+  {
+    "id": "MP-002",
+    "numero_drive": 2,
+    "nombre_carpeta": "2. OFFICE",
+    "titulo_comercial": "OFFICE",
+    "categoria": "OFFICE",
+    "precio": 20000,
+    "ficha_tecnica": {
+      "emoji": "💼",
+      "descripcion": "Word, PowerPoint, Access y Outlook empresarial.",
+      "secciones": 15,
+      "clases": 180,
+      "duracion": "35h",
+      "beneficios": [
+        "Contenido Virtual y Descargable (MP4/PDF)",
+        "Acceso Permanente vía Google Drive",
+        "Sin Clases en Vivo / Sin Grupos",
+        "Estudio Autónomo a tu propio ritmo",
+        "Sin Certificación Oficial"
+      ]
+    },
+    "info_importante": {
+      "tipo": "Virtual / Descargable",
+      "certificable": "No",
+      "soporte_en_vivo": "No",
+      "entrega": "Inmediata"
+    },
+    "imagen_portada": "assets/images/marketing_megapack.png"
+  },
+  {
+    "id": "MP-003",
+    "numero_drive": 3,
+    "nombre_carpeta": "3. INGLES",
+    "titulo_comercial": "INGLES",
+    "categoria": "IDIOMAS",
+    "precio": 20000,
+    "ficha_tecnica": {
+      "emoji": "🌍",
+      "descripcion": "Gramática, pronunciación y audios nativos (A1 a C1).",
+      "secciones": 12,
+      "clases": 150,
+      "duracion": "40h",
+      "beneficios": [
+        "Contenido Virtual y Descargable (MP4/PDF)",
+        "Acceso Permanente vía Google Drive",
+        "Sin Clases en Vivo / Sin Grupos",
+        "Estudio Autónomo a tu propio ritmo",
+        "Sin Certificación Oficial"
+      ]
+    },
+    "info_importante": {
+      "tipo": "Virtual / Descargable",
+      "certificable": "No",
+      "soporte_en_vivo": "No",
+      "entrega": "Inmediata"
+    },
+    "imagen_portada": "assets/images/idiomas_megapack.png"
+  },
+  {
+    "id": "MP-004",
+    "numero_drive": 4,
+    "nombre_carpeta": "4. EXCEL",
+    "titulo_comercial": "EXCEL",
+    "categoria": "EXCEL",
+    "precio": 20000,
+    "ficha_tecnica": {
+      "emoji": "📊",
+      "descripcion": "Tablas dinámicas, funciones avanzadas y dashboards.",
+      "secciones": 12,
+      "clases": 120,
+      "duracion": "25h",
+      "beneficios": [
+        "Contenido Virtual y Descargable (MP4/PDF)",
+        "Acceso Permanente vía Google Drive",
+        "Sin Clases en Vivo / Sin Grupos",
+        "Estudio Autónomo a tu propio ritmo",
+        "Sin Certificación Oficial"
+      ]
+    },
+    "info_importante": {
+      "tipo": "Virtual / Descargable",
+      "certificable": "No",
+      "soporte_en_vivo": "No",
+      "entrega": "Inmediata"
+    },
+    "imagen_portada": "assets/images/excel_megapack.png"
+  },
+  {
+    "id": "MP-005",
+    "numero_drive": 5,
+    "nombre_carpeta": "5. CURSO HACKING ÉTICO",
+    "titulo_comercial": "CURSO HACKING ÉTICO",
+    "categoria": "TECH",
+    "precio": 20000,
+    "ficha_tecnica": {
+      "emoji": "💻",
+      "descripcion": "Pentesting, Kali Linux, seguridad de redes y auditoría.",
+      "secciones": 30,
+      "clases": 250,
+      "duracion": "40h",
+      "beneficios": [
+        "Contenido Virtual y Descargable (MP4/PDF)",
+        "Acceso Permanente vía Google Drive",
+        "Sin Clases en Vivo / Sin Grupos",
+        "Estudio Autónomo a tu propio ritmo",
+        "Sin Certificación Oficial"
+      ]
+    },
+    "info_importante": {
+      "tipo": "Virtual / Descargable",
+      "certificable": "No",
+      "soporte_en_vivo": "No",
+      "entrega": "Inmediata"
+    },
+    "imagen_portada": "assets/images/hacking_megapack.png"
+  },
+  {
+    "id": "MP-006",
+    "numero_drive": 6,
+    "nombre_carpeta": "6. INFOGRAFÍAS",
+    "titulo_comercial": "INFOGRAFÍAS",
+    "categoria": "DISEÑO",
+    "precio": 20000,
+    "ficha_tecnica": {
+      "emoji": "🎨",
+      "descripcion": "Más de 2000 plantillas premium para presentaciones impactantes.",
+      "secciones": 10,
+      "clases": "2000+ Archivos",
+      "duracion": "Recurso",
+      "beneficios": [
+        "Contenido Virtual y Descargable (MP4/PDF)",
+        "Acceso Permanente vía Google Drive",
+        "Sin Clases en Vivo / Sin Grupos",
+        "Estudio Autónomo a tu propio ritmo",
+        "Sin Certificación Oficial"
+      ]
+    },
+    "info_importante": {
+      "tipo": "Virtual / Descargable",
+      "certificable": "No",
+      "soporte_en_vivo": "No",
+      "entrega": "Inmediata"
+    },
+    "imagen_portada": "assets/images/diseno_megapack.png"
+  },
+  {
+    "id": "MP-007",
+    "numero_drive": 7,
+    "nombre_carpeta": "7. DISEÑO GRÁFICO (RECURSOS)",
+    "titulo_comercial": "DISEÑO GRÁFICO (RECURSOS)",
+    "categoria": "DISEÑO",
+    "precio": 20000,
+    "ficha_tecnica": {
+      "emoji": "🎨",
+      "descripcion": "Fuentes, vectores, mockups y pinceles profesionales.",
+      "secciones": 25,
+      "clases": "50GB+ Material",
+      "duracion": "Recurso",
+      "beneficios": [
+        "Contenido Virtual y Descargable (MP4/PDF)",
+        "Acceso Permanente vía Google Drive",
+        "Sin Clases en Vivo / Sin Grupos",
+        "Estudio Autónomo a tu propio ritmo",
+        "Sin Certificación Oficial"
+      ]
+    },
+    "info_importante": {
+      "tipo": "Virtual / Descargable",
+      "certificable": "No",
+      "soporte_en_vivo": "No",
+      "entrega": "Inmediata"
+    },
+    "imagen_portada": "assets/images/diseno_megapack.png"
+  },
+  {
+    "id": "MP-008",
+    "numero_drive": 8,
+    "nombre_carpeta": "8. MARKETING DIGITAL",
+    "titulo_comercial": "MARKETING DIGITAL",
+    "categoria": "MARKETING",
+    "precio": 20000,
+    "ficha_tecnica": {
+      "emoji": "🚀",
+      "descripcion": "Facebook Ads, Google Ads, SEO y Estrategia de Contenidos.",
+      "secciones": 50,
+      "clases": 600,
+      "duracion": "100h+",
+      "beneficios": [
+        "Contenido Virtual y Descargable (MP4/PDF)",
+        "Acceso Permanente vía Google Drive",
+        "Sin Clases en Vivo / Sin Grupos",
+        "Estudio Autónomo a tu propio ritmo",
+        "Sin Certificación Oficial"
+      ]
+    },
+    "info_importante": {
+      "tipo": "Virtual / Descargable",
+      "certificable": "No",
+      "soporte_en_vivo": "No",
+      "entrega": "Inmediata"
+    },
+    "imagen_portada": "assets/images/marketing_megapack.png"
+  },
+  {
+    "id": "MP-009",
+    "numero_drive": 9,
+    "nombre_carpeta": "9. INSTALADORES",
+    "titulo_comercial": "INSTALADORES",
+    "categoria": "TECH",
+    "precio": 20000,
+    "ficha_tecnica": {
+      "emoji": "💻",
+      "descripcion": "Software esencial y utilitarios pre-activados para PC.",
+      "secciones": 8,
+      "clases": "100+ Softwares",
+      "duracion": "Herramienta",
+      "beneficios": [
+        "Contenido Virtual y Descargable (MP4/PDF)",
+        "Acceso Permanente vía Google Drive",
+        "Sin Clases en Vivo / Sin Grupos",
+        "Estudio Autónomo a tu propio ritmo",
+        "Sin Certificación Oficial"
+      ]
+    },
+    "info_importante": {
+      "tipo": "Virtual / Descargable",
+      "certificable": "No",
+      "soporte_en_vivo": "No",
+      "entrega": "Inmediata"
+    },
+    "imagen_portada": "assets/images/programacion_megapack.png"
+  },
+  {
+    "id": "MP-010",
+    "numero_drive": 10,
+    "nombre_carpeta": "10. KID IMPRIMIBLE",
+    "titulo_comercial": "KID IMPRIMIBLE",
+    "categoria": "CRAFT",
+    "precio": 20000,
+    "ficha_tecnica": {
+      "emoji": "🧵",
+      "descripcion": "Juegos, agendas y material educativo para niños listo para imprimir.",
+      "secciones": 20,
+      "clases": "3000+ PDFs",
+      "duracion": "Recurso",
+      "beneficios": [
+        "Contenido Virtual y Descargable (MP4/PDF)",
+        "Acceso Permanente vía Google Drive",
+        "Sin Clases en Vivo / Sin Grupos",
+        "Estudio Autónomo a tu propio ritmo",
+        "Sin Certificación Oficial"
+      ]
+    },
+    "info_importante": {
+      "tipo": "Virtual / Descargable",
+      "certificable": "No",
+      "soporte_en_vivo": "No",
+      "entrega": "Inmediata"
+    },
+    "imagen_portada": "assets/images/resina_megapack.png"
+  },
+  {
+    "id": "MP-011",
+    "numero_drive": 11,
+    "nombre_carpeta": "11. CUADROS Y DECORACIÓN",
+    "titulo_comercial": "CUADROS Y DECORACIÓN",
+    "categoria": "DISEÑO",
+    "precio": 20000,
+    "ficha_tecnica": {
+      "emoji": "🎨",
+      "descripcion": "Diseños para cuadros polípticos, canvas y decoración de interiores.",
+      "secciones": 15,
+      "clases": "500+ Diseños",
+      "duracion": "Recurso",
+      "beneficios": [
+        "Contenido Virtual y Descargable (MP4/PDF)",
+        "Acceso Permanente vía Google Drive",
+        "Sin Clases en Vivo / Sin Grupos",
+        "Estudio Autónomo a tu propio ritmo",
+        "Sin Certificación Oficial"
+      ]
+    },
+    "info_importante": {
+      "tipo": "Virtual / Descargable",
+      "certificable": "No",
+      "soporte_en_vivo": "No",
+      "entrega": "Inmediata"
+    },
+    "imagen_portada": "assets/images/diseno_megapack.png"
+  },
+  {
+    "id": "MP-012",
+    "numero_drive": 12,
+    "nombre_carpeta": "12. PORTADAS Y BRANDING",
+    "titulo_comercial": "PORTADAS Y BRANDING",
+    "categoria": "DISEÑO",
+    "precio": 20000,
+    "ficha_tecnica": {
+      "emoji": "🎨",
+      "descripcion": "Identidad visual, logos y portadas para redes sociales.",
+      "secciones": 10,
+      "clases": "1000+ Editables",
+      "duracion": "Recurso",
+      "beneficios": [
+        "Contenido Virtual y Descargable (MP4/PDF)",
+        "Acceso Permanente vía Google Drive",
+        "Sin Clases en Vivo / Sin Grupos",
+        "Estudio Autónomo a tu propio ritmo",
+        "Sin Certificación Oficial"
+      ]
+    },
+    "info_importante": {
+      "tipo": "Virtual / Descargable",
+      "certificable": "No",
+      "soporte_en_vivo": "No",
+      "entrega": "Inmediata"
+    },
+    "imagen_portada": "assets/images/diseno_megapack.png"
+  },
+  {
+    "id": "MP-013",
+    "numero_drive": 13,
+    "nombre_carpeta": "13. LIBROS MARKETING",
+    "titulo_comercial": "LIBROS MARKETING",
+    "categoria": "EDUCATIVO",
+    "precio": 20000,
+    "ficha_tecnica": {
+      "emoji": "📚",
+      "descripcion": "Biblioteca de los mejores autores de marketing y ventas.",
+      "secciones": 1,
+      "clases": "500+ Ebooks",
+      "duracion": "Lectura",
+      "beneficios": [
+        "Contenido Virtual y Descargable (MP4/PDF)",
+        "Acceso Permanente vía Google Drive",
+        "Sin Clases en Vivo / Sin Grupos",
+        "Estudio Autónomo a tu propio ritmo",
+        "Sin Certificación Oficial"
+      ]
+    },
+    "info_importante": {
+      "tipo": "Virtual / Descargable",
+      "certificable": "No",
+      "soporte_en_vivo": "No",
+      "entrega": "Inmediata"
+    },
+    "imagen_portada": "assets/images/marketing_megapack.png"
+  },
+  {
+    "id": "MP-014",
+    "numero_drive": 14,
+    "nombre_carpeta": "14. GASTRONOMÍA",
+    "titulo_comercial": "GASTRONOMÍA",
+    "categoria": "OFICIO",
+    "precio": 20000,
+    "ficha_tecnica": {
+      "emoji": "🔧",
+      "descripcion": "Cocina internacional, repostería, panadería y coctelería.",
+      "secciones": 18,
+      "clases": 140,
+      "duracion": "30h",
+      "beneficios": [
+        "Contenido Virtual y Descargable (MP4/PDF)",
+        "Acceso Permanente vía Google Drive",
+        "Sin Clases en Vivo / Sin Grupos",
+        "Estudio Autónomo a tu propio ritmo",
+        "Sin Certificación Oficial"
+      ]
+    },
+    "info_importante": {
+      "tipo": "Virtual / Descargable",
+      "certificable": "No",
+      "soporte_en_vivo": "No",
+      "entrega": "Inmediata"
+    },
+    "imagen_portada": "assets/images/melamina_megapack.png"
+  },
+  {
+    "id": "MP-015",
+    "numero_drive": 15,
+    "nombre_carpeta": "15. SÚPER MEMORIA",
+    "titulo_comercial": "SÚPER MEMORIA",
+    "categoria": "EDUCATIVO",
+    "precio": 20000,
+    "ficha_tecnica": {
+      "emoji": "📚",
+      "descripcion": "Técnicas de lectura rápida, mnemotecnia y aprendizaje acelerado.",
+      "secciones": 10,
+      "clases": 80,
+      "duracion": "12h",
+      "beneficios": [
+        "Contenido Virtual y Descargable (MP4/PDF)",
+        "Acceso Permanente vía Google Drive",
+        "Sin Clases en Vivo / Sin Grupos",
+        "Estudio Autónomo a tu propio ritmo",
+        "Sin Certificación Oficial"
+      ]
+    },
+    "info_importante": {
+      "tipo": "Virtual / Descargable",
+      "certificable": "No",
+      "soporte_en_vivo": "No",
+      "entrega": "Inmediata"
+    },
+    "imagen_portada": "assets/images/marketing_megapack.png"
+  },
+  {
+    "id": "MP-016",
+    "numero_drive": 16,
+    "nombre_carpeta": "16. SUBLIMADOS",
+    "titulo_comercial": "SUBLIMADOS",
+    "categoria": "CRAFT",
+    "precio": 20000,
+    "ficha_tecnica": {
+      "emoji": "🧵",
+      "descripcion": "Plantillas para tazas, camisas y gorras. Técnicas de estampado.",
+      "secciones": 12,
+      "clases": "4000+ Diseños",
+      "duracion": "8h",
+      "beneficios": [
+        "Contenido Virtual y Descargable (MP4/PDF)",
+        "Acceso Permanente vía Google Drive",
+        "Sin Clases en Vivo / Sin Grupos",
+        "Estudio Autónomo a tu propio ritmo",
+        "Sin Certificación Oficial"
+      ]
+    },
+    "info_importante": {
+      "tipo": "Virtual / Descargable",
+      "certificable": "No",
+      "soporte_en_vivo": "No",
+      "entrega": "Inmediata"
+    },
+    "imagen_portada": "assets/images/resina_megapack.png"
+  },
+  {
+    "id": "MP-017",
+    "numero_drive": 17,
+    "nombre_carpeta": "17. FX PREMIERE",
+    "titulo_comercial": "FX PREMIERE",
+    "categoria": "DISEÑO",
+    "precio": 20000,
+    "ficha_tecnica": {
+      "emoji": "🎨",
+      "descripcion": "Transiciones, efectos, LUTS y presets para edición de video pro.",
+      "secciones": 15,
+      "clases": 120,
+      "duracion": "20h",
+      "beneficios": [
+        "Contenido Virtual y Descargable (MP4/PDF)",
+        "Acceso Permanente vía Google Drive",
+        "Sin Clases en Vivo / Sin Grupos",
+        "Estudio Autónomo a tu propio ritmo",
+        "Sin Certificación Oficial"
+      ]
+    },
+    "info_importante": {
+      "tipo": "Virtual / Descargable",
+      "certificable": "No",
+      "soporte_en_vivo": "No",
+      "entrega": "Inmediata"
+    },
+    "imagen_portada": "assets/images/diseno_megapack.png"
+  },
+  {
+    "id": "MP-018",
+    "numero_drive": 18,
+    "nombre_carpeta": "18. DJ PRODUCCIÓN MUSICAL",
+    "titulo_comercial": "DJ PRODUCCIÓN MUSICAL",
+    "categoria": "MÚSICA",
+    "precio": 20000,
+    "ficha_tecnica": {
+      "emoji": "🎵",
+      "descripcion": "Mezcla, FL Studio, Ableton Live y teoría musical moderna.",
+      "secciones": 20,
+      "clases": 150,
+      "duracion": "30h",
+      "beneficios": [
+        "Contenido Virtual y Descargable (MP4/PDF)",
+        "Acceso Permanente vía Google Drive",
+        "Sin Clases en Vivo / Sin Grupos",
+        "Estudio Autónomo a tu propio ritmo",
+        "Sin Certificación Oficial"
+      ]
+    },
+    "info_importante": {
+      "tipo": "Virtual / Descargable",
+      "certificable": "No",
+      "soporte_en_vivo": "No",
+      "entrega": "Inmediata"
+    },
+    "imagen_portada": "assets/images/guitarra_megapack.png"
+  },
+  {
+    "id": "MP-019",
+    "numero_drive": 19,
+    "nombre_carpeta": "19. PROYECTOS EMPRENDEDORES",
+    "titulo_comercial": "PROYECTOS EMPRENDEDORES",
+    "categoria": "NEGOCIOS",
+    "precio": 20000,
+    "ficha_tecnica": {
+      "emoji": "💰",
+      "descripcion": "Modelos de negocio, planes de inversión y escalamiento.",
+      "secciones": 15,
+      "clases": 100,
+      "duracion": "25h",
+      "beneficios": [
+        "Contenido Virtual y Descargable (MP4/PDF)",
+        "Acceso Permanente vía Google Drive",
+        "Sin Clases en Vivo / Sin Grupos",
+        "Estudio Autónomo a tu propio ritmo",
+        "Sin Certificación Oficial"
+      ]
+    },
+    "info_importante": {
+      "tipo": "Virtual / Descargable",
+      "certificable": "No",
+      "soporte_en_vivo": "No",
+      "entrega": "Inmediata"
+    },
+    "imagen_portada": "assets/images/trading_megapack.png"
+  },
+  {
+    "id": "MP-020",
+    "numero_drive": 20,
+    "nombre_carpeta": "20. ARQUITECTURA",
+    "titulo_comercial": "ARQUITECTURA",
+    "categoria": "INGENIERÍA",
+    "precio": 20000,
+    "ficha_tecnica": {
+      "emoji": "🏗️",
+      "descripcion": "AutoCAD, modelado 3D, renders y lectura de planos.",
+      "secciones": 25,
+      "clases": 200,
+      "duracion": "50h",
+      "beneficios": [
+        "Contenido Virtual y Descargable (MP4/PDF)",
+        "Acceso Permanente vía Google Drive",
+        "Sin Clases en Vivo / Sin Grupos",
+        "Estudio Autónomo a tu propio ritmo",
+        "Sin Certificación Oficial"
+      ]
+    },
+    "info_importante": {
+      "tipo": "Virtual / Descargable",
+      "certificable": "No",
+      "soporte_en_vivo": "No",
+      "entrega": "Inmediata"
+    },
+    "imagen_portada": "assets/images/marketing_megapack.png"
+  },
+  {
+    "id": "MP-021",
+    "numero_drive": 21,
+    "nombre_carpeta": "21. CONSOLA EN PROGRAMACIÓN",
+    "titulo_comercial": "CONSOLA EN PROGRAMACIÓN",
+    "categoria": "TECH",
+    "precio": 20000,
+    "ficha_tecnica": {
+      "emoji": "💻",
+      "descripcion": "Lógica de programación, terminal y fundamentos de sistemas.",
+      "secciones": 15,
+      "clases": 120,
+      "duracion": "20h",
+      "beneficios": [
+        "Contenido Virtual y Descargable (MP4/PDF)",
+        "Acceso Permanente vía Google Drive",
+        "Sin Clases en Vivo / Sin Grupos",
+        "Estudio Autónomo a tu propio ritmo",
+        "Sin Certificación Oficial"
+      ]
+    },
+    "info_importante": {
+      "tipo": "Virtual / Descargable",
+      "certificable": "No",
+      "soporte_en_vivo": "No",
+      "entrega": "Inmediata"
+    },
+    "imagen_portada": "assets/images/programacion_megapack.png"
+  },
+  {
+    "id": "MP-022",
+    "numero_drive": 22,
+    "nombre_carpeta": "22. DESARROLLO WEB",
+    "titulo_comercial": "DESARROLLO WEB",
+    "categoria": "TECH",
+    "precio": 20000,
+    "ficha_tecnica": {
+      "emoji": "💻",
+      "descripcion": "HTML5, CSS3, JavaScript, React y Backend.",
+      "secciones": 50,
+      "clases": 600,
+      "duracion": "120h+",
+      "beneficios": [
+        "Contenido Virtual y Descargable (MP4/PDF)",
+        "Acceso Permanente vía Google Drive",
+        "Sin Clases en Vivo / Sin Grupos",
+        "Estudio Autónomo a tu propio ritmo",
+        "Sin Certificación Oficial"
+      ]
+    },
+    "info_importante": {
+      "tipo": "Virtual / Descargable",
+      "certificable": "No",
+      "soporte_en_vivo": "No",
+      "entrega": "Inmediata"
+    },
+    "imagen_portada": "assets/images/programacion_megapack.png"
+  },
+  {
+    "id": "MP-023",
+    "numero_drive": 23,
+    "nombre_carpeta": "23. PACK DE LIBROS (3700)",
+    "titulo_comercial": "PACK DE LIBROS (3700)",
+    "categoria": "EDUCATIVO",
+    "precio": 20000,
+    "ficha_tecnica": {
+      "emoji": "📚",
+      "descripcion": "Biblioteca masiva de cultura general, finanzas y literatura.",
+      "secciones": 1,
+      "clases": "3700+ Libros",
+      "duracion": "Lectura",
+      "beneficios": [
+        "Contenido Virtual y Descargable (MP4/PDF)",
+        "Acceso Permanente vía Google Drive",
+        "Sin Clases en Vivo / Sin Grupos",
+        "Estudio Autónomo a tu propio ritmo",
+        "Sin Certificación Oficial"
+      ]
+    },
+    "info_importante": {
+      "tipo": "Virtual / Descargable",
+      "certificable": "No",
+      "soporte_en_vivo": "No",
+      "entrega": "Inmediata"
+    },
+    "imagen_portada": "assets/images/marketing_megapack.png"
+  },
+  {
+    "id": "MP-024",
+    "numero_drive": 24,
+    "nombre_carpeta": "24. INGENIERÍA",
+    "titulo_comercial": "INGENIERÍA",
+    "categoria": "INGENIERÍA",
+    "precio": 20000,
+    "ficha_tecnica": {
+      "emoji": "🏗️",
+      "descripcion": "Cálculo, estructuras, hidrodinámica y software especializado.",
+      "secciones": 30,
+      "clases": 250,
+      "duracion": "60h",
+      "beneficios": [
+        "Contenido Virtual y Descargable (MP4/PDF)",
+        "Acceso Permanente vía Google Drive",
+        "Sin Clases en Vivo / Sin Grupos",
+        "Estudio Autónomo a tu propio ritmo",
+        "Sin Certificación Oficial"
+      ]
+    },
+    "info_importante": {
+      "tipo": "Virtual / Descargable",
+      "certificable": "No",
+      "soporte_en_vivo": "No",
+      "entrega": "Inmediata"
+    },
+    "imagen_portada": "assets/images/marketing_megapack.png"
+  },
+  {
+    "id": "MP-025",
+    "numero_drive": 25,
+    "nombre_carpeta": "25. ARMADO DE PC",
+    "titulo_comercial": "ARMADO DE PC",
+    "categoria": "TECH",
+    "precio": 20000,
+    "ficha_tecnica": {
+      "emoji": "💻",
+      "descripcion": "Hardware, compatibilidad, refrigeración y mantenimiento técnico.",
+      "secciones": 10,
+      "clases": 60,
+      "duracion": "12h",
+      "beneficios": [
+        "Contenido Virtual y Descargable (MP4/PDF)",
+        "Acceso Permanente vía Google Drive",
+        "Sin Clases en Vivo / Sin Grupos",
+        "Estudio Autónomo a tu propio ritmo",
+        "Sin Certificación Oficial"
+      ]
+    },
+    "info_importante": {
+      "tipo": "Virtual / Descargable",
+      "certificable": "No",
+      "soporte_en_vivo": "No",
+      "entrega": "Inmediata"
+    },
+    "imagen_portada": "assets/images/programacion_megapack.png"
+  },
+  {
+    "id": "MP-026",
+    "numero_drive": 26,
+    "nombre_carpeta": "26. GUITARRA PRO",
+    "titulo_comercial": "GUITARRA PRO",
+    "categoria": "MÚSICA",
+    "precio": 20000,
+    "ficha_tecnica": {
+      "emoji": "🎵",
+      "descripcion": "Acordes, escalas, técnicas de punteo y canciones populares.",
+      "secciones": 15,
+      "clases": 180,
+      "duracion": "25h",
+      "beneficios": [
+        "Contenido Virtual y Descargable (MP4/PDF)",
+        "Acceso Permanente vía Google Drive",
+        "Sin Clases en Vivo / Sin Grupos",
+        "Estudio Autónomo a tu propio ritmo",
+        "Sin Certificación Oficial"
+      ]
+    },
+    "info_importante": {
+      "tipo": "Virtual / Descargable",
+      "certificable": "No",
+      "soporte_en_vivo": "No",
+      "entrega": "Inmediata"
+    },
+    "imagen_portada": "assets/images/guitarra_megapack.png"
+  },
+  {
+    "id": "MP-027",
+    "numero_drive": 27,
+    "nombre_carpeta": "27. PREUNIVERSITARIO",
+    "titulo_comercial": "PREUNIVERSITARIO",
+    "categoria": "EDUCATIVO",
+    "precio": 20000,
+    "ficha_tecnica": {
+      "emoji": "📚",
+      "descripcion": "Matemáticas, física, química y aptitud verbal para exámenes.",
+      "secciones": 40,
+      "clases": 350,
+      "duracion": "100h",
+      "beneficios": [
+        "Contenido Virtual y Descargable (MP4/PDF)",
+        "Acceso Permanente vía Google Drive",
+        "Sin Clases en Vivo / Sin Grupos",
+        "Estudio Autónomo a tu propio ritmo",
+        "Sin Certificación Oficial"
+      ]
+    },
+    "info_importante": {
+      "tipo": "Virtual / Descargable",
+      "certificable": "No",
+      "soporte_en_vivo": "No",
+      "entrega": "Inmediata"
+    },
+    "imagen_portada": "assets/images/marketing_megapack.png"
+  },
+  {
+    "id": "MP-028",
+    "numero_drive": 28,
+    "nombre_carpeta": "28. FOTOGRAFÍA PRO",
+    "titulo_comercial": "FOTOGRAFÍA PRO",
+    "categoria": "DISEÑO",
+    "precio": 20000,
+    "ficha_tecnica": {
+      "emoji": "🎨",
+      "descripcion": "Iluminación, composición y revelado digital (Lightroom).",
+      "secciones": 12,
+      "clases": 110,
+      "duracion": "22h",
+      "beneficios": [
+        "Contenido Virtual y Descargable (MP4/PDF)",
+        "Acceso Permanente vía Google Drive",
+        "Sin Clases en Vivo / Sin Grupos",
+        "Estudio Autónomo a tu propio ritmo",
+        "Sin Certificación Oficial"
+      ]
+    },
+    "info_importante": {
+      "tipo": "Virtual / Descargable",
+      "certificable": "No",
+      "soporte_en_vivo": "No",
+      "entrega": "Inmediata"
+    },
+    "imagen_portada": "assets/images/diseno_megapack.png"
+  },
+  {
+    "id": "MP-029",
+    "numero_drive": 29,
+    "nombre_carpeta": "29. AULA VIRTUAL",
+    "titulo_comercial": "AULA VIRTUAL",
+    "categoria": "EDUCATIVO",
+    "precio": 20000,
+    "ficha_tecnica": {
+      "emoji": "📚",
+      "descripcion": "Plataformas educativas, Moodle y herramientas para docentes.",
+      "secciones": 10,
+      "clases": 70,
+      "duracion": "15h",
+      "beneficios": [
+        "Contenido Virtual y Descargable (MP4/PDF)",
+        "Acceso Permanente vía Google Drive",
+        "Sin Clases en Vivo / Sin Grupos",
+        "Estudio Autónomo a tu propio ritmo",
+        "Sin Certificación Oficial"
+      ]
+    },
+    "info_importante": {
+      "tipo": "Virtual / Descargable",
+      "certificable": "No",
+      "soporte_en_vivo": "No",
+      "entrega": "Inmediata"
+    },
+    "imagen_portada": "assets/images/marketing_megapack.png"
+  },
+  {
+    "id": "MP-030",
+    "numero_drive": 30,
+    "nombre_carpeta": "30. PSICOLOGÍA Y BIENESTAR",
+    "titulo_comercial": "PSICOLOGÍA Y BIENESTAR",
+    "categoria": "SALUD",
+    "precio": 20000,
+    "ficha_tecnica": {
+      "emoji": "🧘",
+      "descripcion": "Inteligencia emocional, terapia cognitivo conductual y salud mental.",
+      "secciones": 15,
+      "clases": 120,
+      "duracion": "30h",
+      "beneficios": [
+        "Contenido Virtual y Descargable (MP4/PDF)",
+        "Acceso Permanente vía Google Drive",
+        "Sin Clases en Vivo / Sin Grupos",
+        "Estudio Autónomo a tu propio ritmo",
+        "Sin Certificación Oficial"
+      ]
+    },
+    "info_importante": {
+      "tipo": "Virtual / Descargable",
+      "certificable": "No",
+      "soporte_en_vivo": "No",
+      "entrega": "Inmediata"
+    },
+    "imagen_portada": "assets/images/marketing_megapack.png"
+  },
+  {
+    "id": "MP-031",
+    "numero_drive": 31,
+    "nombre_carpeta": "31. EXPEDIENTES TÉCNICOS",
+    "titulo_comercial": "EXPEDIENTES TÉCNICOS",
+    "categoria": "INGENIERÍA",
+    "precio": 20000,
+    "ficha_tecnica": {
+      "emoji": "🏗️",
+      "descripcion": "Documentación para obras civiles, presupuestos y licitaciones.",
+      "secciones": 12,
+      "clases": 90,
+      "duracion": "20h",
+      "beneficios": [
+        "Contenido Virtual y Descargable (MP4/PDF)",
+        "Acceso Permanente vía Google Drive",
+        "Sin Clases en Vivo / Sin Grupos",
+        "Estudio Autónomo a tu propio ritmo",
+        "Sin Certificación Oficial"
+      ]
+    },
+    "info_importante": {
+      "tipo": "Virtual / Descargable",
+      "certificable": "No",
+      "soporte_en_vivo": "No",
+      "entrega": "Inmediata"
+    },
+    "imagen_portada": "assets/images/marketing_megapack.png"
+  },
+  {
+    "id": "MP-032",
+    "numero_drive": 32,
+    "nombre_carpeta": "32. CURSO REVIT BIM",
+    "titulo_comercial": "CURSO REVIT BIM",
+    "categoria": "INGENIERÍA",
+    "precio": 20000,
+    "ficha_tecnica": {
+      "emoji": "🏗️",
+      "descripcion": "Modelado Building Information Modeling (BIM) completo.",
+      "secciones": 25,
+      "clases": 150,
+      "duracion": "45h",
+      "beneficios": [
+        "Contenido Virtual y Descargable (MP4/PDF)",
+        "Acceso Permanente vía Google Drive",
+        "Sin Clases en Vivo / Sin Grupos",
+        "Estudio Autónomo a tu propio ritmo",
+        "Sin Certificación Oficial"
+      ]
+    },
+    "info_importante": {
+      "tipo": "Virtual / Descargable",
+      "certificable": "No",
+      "soporte_en_vivo": "No",
+      "entrega": "Inmediata"
+    },
+    "imagen_portada": "assets/images/marketing_megapack.png"
+  },
+  {
+    "id": "MP-033",
+    "numero_drive": 33,
+    "nombre_carpeta": "33. CURSO METRADO Y COSTOS",
+    "titulo_comercial": "CURSO METRADO Y COSTOS",
+    "categoria": "INGENIERÍA",
+    "precio": 20000,
+    "ficha_tecnica": {
+      "emoji": "🏗️",
+      "descripcion": "Cómputos métricos, presupuestos S10 e ingeniería de costos.",
+      "secciones": 10,
+      "clases": 80,
+      "duracion": "18h",
+      "beneficios": [
+        "Contenido Virtual y Descargable (MP4/PDF)",
+        "Acceso Permanente vía Google Drive",
+        "Sin Clases en Vivo / Sin Grupos",
+        "Estudio Autónomo a tu propio ritmo",
+        "Sin Certificación Oficial"
+      ]
+    },
+    "info_importante": {
+      "tipo": "Virtual / Descargable",
+      "certificable": "No",
+      "soporte_en_vivo": "No",
+      "entrega": "Inmediata"
+    },
+    "imagen_portada": "assets/images/marketing_megapack.png"
+  },
+  {
+    "id": "MP-034",
+    "numero_drive": 34,
+    "nombre_carpeta": "34. EXPEDIENTES TÉCNICOS PRO",
+    "titulo_comercial": "EXPEDIENTES TÉCNICOS PRO",
+    "categoria": "INGENIERÍA",
+    "precio": 20000,
+    "ficha_tecnica": {
+      "emoji": "🏗️",
+      "descripcion": "Gestión de proyectos avanzada para ingenieros civiles.",
+      "secciones": 15,
+      "clases": 100,
+      "duracion": "25h",
+      "beneficios": [
+        "Contenido Virtual y Descargable (MP4/PDF)",
+        "Acceso Permanente vía Google Drive",
+        "Sin Clases en Vivo / Sin Grupos",
+        "Estudio Autónomo a tu propio ritmo",
+        "Sin Certificación Oficial"
+      ]
+    },
+    "info_importante": {
+      "tipo": "Virtual / Descargable",
+      "certificable": "No",
+      "soporte_en_vivo": "No",
+      "entrega": "Inmediata"
+    },
+    "imagen_portada": "assets/images/marketing_megapack.png"
+  },
+  {
+    "id": "MP-035",
+    "numero_drive": 35,
+    "nombre_carpeta": "35. PACK EMPRENDEDOR",
+    "titulo_comercial": "PACK EMPRENDEDOR",
+    "categoria": "NEGOCIOS",
+    "precio": 20000,
+    "ficha_tecnica": {
+      "emoji": "💰",
+      "descripcion": "Dropshipping, E-commerce y ventas por redes sociales.",
+      "secciones": 20,
+      "clases": 180,
+      "duracion": "40h",
+      "beneficios": [
+        "Contenido Virtual y Descargable (MP4/PDF)",
+        "Acceso Permanente vía Google Drive",
+        "Sin Clases en Vivo / Sin Grupos",
+        "Estudio Autónomo a tu propio ritmo",
+        "Sin Certificación Oficial"
+      ]
+    },
+    "info_importante": {
+      "tipo": "Virtual / Descargable",
+      "certificable": "No",
+      "soporte_en_vivo": "No",
+      "entrega": "Inmediata"
+    },
+    "imagen_portada": "assets/images/trading_megapack.png"
+  },
+  {
+    "id": "MP-036",
+    "numero_drive": 36,
+    "nombre_carpeta": "36. PACK TERAPIA Y SALUD",
+    "titulo_comercial": "PACK TERAPIA Y SALUD",
+    "categoria": "SALUD",
+    "precio": 20000,
+    "ficha_tecnica": {
+      "emoji": "🧘",
+      "descripcion": "Fisioterapia, masajes terapéuticos y rehabilitación física.",
+      "secciones": 12,
+      "clases": 95,
+      "duracion": "22h",
+      "beneficios": [
+        "Contenido Virtual y Descargable (MP4/PDF)",
+        "Acceso Permanente vía Google Drive",
+        "Sin Clases en Vivo / Sin Grupos",
+        "Estudio Autónomo a tu propio ritmo",
+        "Sin Certificación Oficial"
+      ]
+    },
+    "info_importante": {
+      "tipo": "Virtual / Descargable",
+      "certificable": "No",
+      "soporte_en_vivo": "No",
+      "entrega": "Inmediata"
+    },
+    "imagen_portada": "assets/images/marketing_megapack.png"
+  },
+  {
+    "id": "MP-037",
+    "numero_drive": 37,
+    "nombre_carpeta": "37. PACK CANVA PRO",
+    "titulo_comercial": "PACK CANVA PRO",
+    "categoria": "DISEÑO",
+    "precio": 20000,
+    "ficha_tecnica": {
+      "emoji": "🎨",
+      "descripcion": "Dominio total de Canva para diseño de marcas y publicidad.",
+      "secciones": 10,
+      "clases": 85,
+      "duracion": "15h",
+      "beneficios": [
+        "Contenido Virtual y Descargable (MP4/PDF)",
+        "Acceso Permanente vía Google Drive",
+        "Sin Clases en Vivo / Sin Grupos",
+        "Estudio Autónomo a tu propio ritmo",
+        "Sin Certificación Oficial"
+      ]
+    },
+    "info_importante": {
+      "tipo": "Virtual / Descargable",
+      "certificable": "No",
+      "soporte_en_vivo": "No",
+      "entrega": "Inmediata"
+    },
+    "imagen_portada": "assets/images/diseno_megapack.png"
+  },
+  {
+    "id": "MP-038",
+    "numero_drive": 38,
+    "nombre_carpeta": "38. COLECCIÓN LITERARIA",
+    "titulo_comercial": "COLECCIÓN LITERARIA",
+    "categoria": "EDUCATIVO",
+    "precio": 20000,
+    "ficha_tecnica": {
+      "emoji": "📚",
+      "descripcion": "Grandes obras de la literatura universal en formato digital.",
+      "secciones": 1,
+      "clases": "1500+ Obras",
+      "duracion": "Lectura",
+      "beneficios": [
+        "Contenido Virtual y Descargable (MP4/PDF)",
+        "Acceso Permanente vía Google Drive",
+        "Sin Clases en Vivo / Sin Grupos",
+        "Estudio Autónomo a tu propio ritmo",
+        "Sin Certificación Oficial"
+      ]
+    },
+    "info_importante": {
+      "tipo": "Virtual / Descargable",
+      "certificable": "No",
+      "soporte_en_vivo": "No",
+      "entrega": "Inmediata"
+    },
+    "imagen_portada": "assets/images/marketing_megapack.png"
+  },
+  {
+    "id": "MP-039",
+    "numero_drive": 39,
+    "nombre_carpeta": "39. CURSO MECÁNICA AUTOMOTRIZ",
+    "titulo_comercial": "CURSO MECÁNICA AUTOMOTRIZ",
+    "categoria": "OFICIO",
+    "precio": 20000,
+    "ficha_tecnica": {
+      "emoji": "🔧",
+      "descripcion": "Motores, sistemas eléctricos, frenos y diagnóstico por escáner.",
+      "secciones": 20,
+      "clases": 180,
+      "duracion": "45h",
+      "beneficios": [
+        "Contenido Virtual y Descargable (MP4/PDF)",
+        "Acceso Permanente vía Google Drive",
+        "Sin Clases en Vivo / Sin Grupos",
+        "Estudio Autónomo a tu propio ritmo",
+        "Sin Certificación Oficial"
+      ]
+    },
+    "info_importante": {
+      "tipo": "Virtual / Descargable",
+      "certificable": "No",
+      "soporte_en_vivo": "No",
+      "entrega": "Inmediata"
+    },
+    "imagen_portada": "assets/images/melamina_megapack.png"
+  },
+  {
+    "id": "MP-040",
+    "numero_drive": 40,
+    "nombre_carpeta": "40. PACK DRYWALL",
+    "titulo_comercial": "PACK DRYWALL",
+    "categoria": "OFICIO",
+    "precio": 20000,
+    "ficha_tecnica": {
+      "emoji": "🔧",
+      "descripcion": "Construcción en seco, techos, muros y acabados modernos.",
+      "secciones": 12,
+      "clases": 90,
+      "duracion": "20h",
+      "beneficios": [
+        "Contenido Virtual y Descargable (MP4/PDF)",
+        "Acceso Permanente vía Google Drive",
+        "Sin Clases en Vivo / Sin Grupos",
+        "Estudio Autónomo a tu propio ritmo",
+        "Sin Certificación Oficial"
+      ]
+    },
+    "info_importante": {
+      "tipo": "Virtual / Descargable",
+      "certificable": "No",
+      "soporte_en_vivo": "No",
+      "entrega": "Inmediata"
+    },
+    "imagen_portada": "assets/images/melamina_megapack.png"
+  },
+  {
+    "id": "MP-041",
+    "numero_drive": 41,
+    "nombre_carpeta": "41. CURSO FUERZA FIT",
+    "titulo_comercial": "CURSO FUERZA FIT",
+    "categoria": "SALUD",
+    "precio": 20000,
+    "ficha_tecnica": {
+      "emoji": "🧘",
+      "descripcion": "Biomecánica del ejercicio, hipertrofia y programación de fuerza.",
+      "secciones": 10,
+      "clases": 80,
+      "duracion": "18h",
+      "beneficios": [
+        "Contenido Virtual y Descargable (MP4/PDF)",
+        "Acceso Permanente vía Google Drive",
+        "Sin Clases en Vivo / Sin Grupos",
+        "Estudio Autónomo a tu propio ritmo",
+        "Sin Certificación Oficial"
+      ]
+    },
+    "info_importante": {
+      "tipo": "Virtual / Descargable",
+      "certificable": "No",
+      "soporte_en_vivo": "No",
+      "entrega": "Inmediata"
+    },
+    "imagen_portada": "assets/images/marketing_megapack.png"
+  },
+  {
+    "id": "MP-042",
+    "numero_drive": 42,
+    "nombre_carpeta": "42. CURSO INGLES AVANZADO",
+    "titulo_comercial": "CURSO INGLES AVANZADO",
+    "categoria": "IDIOMAS",
+    "precio": 20000,
+    "ficha_tecnica": {
+      "emoji": "🌍",
+      "descripcion": "Inglés para negocios y preparación para exámenes (TOEFL/IELTS).",
+      "secciones": 15,
+      "clases": 150,
+      "duracion": "45h",
+      "beneficios": [
+        "Contenido Virtual y Descargable (MP4/PDF)",
+        "Acceso Permanente vía Google Drive",
+        "Sin Clases en Vivo / Sin Grupos",
+        "Estudio Autónomo a tu propio ritmo",
+        "Sin Certificación Oficial"
+      ]
+    },
+    "info_importante": {
+      "tipo": "Virtual / Descargable",
+      "certificable": "No",
+      "soporte_en_vivo": "No",
+      "entrega": "Inmediata"
+    },
+    "imagen_portada": "assets/images/idiomas_megapack.png"
+  },
+  {
+    "id": "MP-043",
+    "numero_drive": 43,
+    "nombre_carpeta": "43. CURSO FITNESS EN CASA",
+    "titulo_comercial": "CURSO FITNESS EN CASA",
+    "categoria": "SALUD",
+    "precio": 20000,
+    "ficha_tecnica": {
+      "emoji": "🧘",
+      "descripcion": "Rutinas sin equipo, nutrición deportiva y quema de grasa.",
+      "secciones": 12,
+      "clases": 100,
+      "duracion": "20h",
+      "beneficios": [
+        "Contenido Virtual y Descargable (MP4/PDF)",
+        "Acceso Permanente vía Google Drive",
+        "Sin Clases en Vivo / Sin Grupos",
+        "Estudio Autónomo a tu propio ritmo",
+        "Sin Certificación Oficial"
+      ]
+    },
+    "info_importante": {
+      "tipo": "Virtual / Descargable",
+      "certificable": "No",
+      "soporte_en_vivo": "No",
+      "entrega": "Inmediata"
+    },
+    "imagen_portada": "assets/images/marketing_megapack.png"
+  },
+  {
+    "id": "MP-044",
+    "numero_drive": 44,
+    "nombre_carpeta": "44. ENSAMBLAJE DE COMPUTADORES",
+    "titulo_comercial": "ENSAMBLAJE DE COMPUTADORES",
+    "categoria": "TECH",
+    "precio": 20000,
+    "ficha_tecnica": {
+      "emoji": "💻",
+      "descripcion": "Arquitectura de PCs, diagnóstico de hardware y mantenimiento.",
+      "secciones": 8,
+      "clases": 65,
+      "duracion": "15h",
+      "beneficios": [
+        "Contenido Virtual y Descargable (MP4/PDF)",
+        "Acceso Permanente vía Google Drive",
+        "Sin Clases en Vivo / Sin Grupos",
+        "Estudio Autónomo a tu propio ritmo",
+        "Sin Certificación Oficial"
+      ]
+    },
+    "info_importante": {
+      "tipo": "Virtual / Descargable",
+      "certificable": "No",
+      "soporte_en_vivo": "No",
+      "entrega": "Inmediata"
+    },
+    "imagen_portada": "assets/images/programacion_megapack.png"
+  },
+  {
+    "id": "MP-045",
+    "numero_drive": 45,
+    "nombre_carpeta": "45. PACK FILMORA",
+    "titulo_comercial": "PACK FILMORA",
+    "categoria": "DISEÑO",
+    "precio": 20000,
+    "ficha_tecnica": {
+      "emoji": "🎨",
+      "descripcion": "Edición de video creativa paso a paso con Filmora 12/13.",
+      "secciones": 10,
+      "clases": 80,
+      "duracion": "18h",
+      "beneficios": [
+        "Contenido Virtual y Descargable (MP4/PDF)",
+        "Acceso Permanente vía Google Drive",
+        "Sin Clases en Vivo / Sin Grupos",
+        "Estudio Autónomo a tu propio ritmo",
+        "Sin Certificación Oficial"
+      ]
+    },
+    "info_importante": {
+      "tipo": "Virtual / Descargable",
+      "certificable": "No",
+      "soporte_en_vivo": "No",
+      "entrega": "Inmediata"
+    },
+    "imagen_portada": "assets/images/diseno_megapack.png"
+  },
+  {
+    "id": "MP-046",
+    "numero_drive": 46,
+    "nombre_carpeta": "46. PACK EDUCA A TU MASCOTA",
+    "titulo_comercial": "PACK EDUCA A TU MASCOTA",
+    "categoria": "OFICIO",
+    "precio": 20000,
+    "ficha_tecnica": {
+      "emoji": "🔧",
+      "descripcion": "Adiestramiento canino, psicología animal y nutrición natural.",
+      "secciones": 8,
+      "clases": 60,
+      "duracion": "12h",
+      "beneficios": [
+        "Contenido Virtual y Descargable (MP4/PDF)",
+        "Acceso Permanente vía Google Drive",
+        "Sin Clases en Vivo / Sin Grupos",
+        "Estudio Autónomo a tu propio ritmo",
+        "Sin Certificación Oficial"
+      ]
+    },
+    "info_importante": {
+      "tipo": "Virtual / Descargable",
+      "certificable": "No",
+      "soporte_en_vivo": "No",
+      "entrega": "Inmediata"
+    },
+    "imagen_portada": "assets/images/melamina_megapack.png"
+  },
+  {
+    "id": "MP-047",
+    "numero_drive": 47,
+    "nombre_carpeta": "47. CURSO CINEMA 4D",
+    "titulo_comercial": "CURSO CINEMA 4D",
+    "categoria": "DISEÑO",
+    "precio": 20000,
+    "ficha_tecnica": {
+      "emoji": "🎨",
+      "descripcion": "Modelado 3D, animación y motion graphics profesional.",
+      "secciones": 20,
+      "clases": 160,
+      "duracion": "35h",
+      "beneficios": [
+        "Contenido Virtual y Descargable (MP4/PDF)",
+        "Acceso Permanente vía Google Drive",
+        "Sin Clases en Vivo / Sin Grupos",
+        "Estudio Autónomo a tu propio ritmo",
+        "Sin Certificación Oficial"
+      ]
+    },
+    "info_importante": {
+      "tipo": "Virtual / Descargable",
+      "certificable": "No",
+      "soporte_en_vivo": "No",
+      "entrega": "Inmediata"
+    },
+    "imagen_portada": "assets/images/diseno_megapack.png"
+  },
+  {
+    "id": "MP-048",
+    "numero_drive": 48,
+    "nombre_carpeta": "48. PACK SEO",
+    "titulo_comercial": "PACK SEO",
+    "categoria": "MARKETING",
+    "precio": 20000,
+    "ficha_tecnica": {
+      "emoji": "🚀",
+      "descripcion": "Posicionamiento en Google, palabras clave y SEO técnico.",
+      "secciones": 15,
+      "clases": 120,
+      "duracion": "25h",
+      "beneficios": [
+        "Contenido Virtual y Descargable (MP4/PDF)",
+        "Acceso Permanente vía Google Drive",
+        "Sin Clases en Vivo / Sin Grupos",
+        "Estudio Autónomo a tu propio ritmo",
+        "Sin Certificación Oficial"
+      ]
+    },
+    "info_importante": {
+      "tipo": "Virtual / Descargable",
+      "certificable": "No",
+      "soporte_en_vivo": "No",
+      "entrega": "Inmediata"
+    },
+    "imagen_portada": "assets/images/marketing_megapack.png"
+  },
+  {
+    "id": "MP-049",
+    "numero_drive": 49,
+    "nombre_carpeta": "49. PACK MARKETING DIGITAL V2",
+    "titulo_comercial": "PACK MARKETING DIGITAL V2",
+    "categoria": "MARKETING",
+    "precio": 20000,
+    "ficha_tecnica": {
+      "emoji": "🚀",
+      "descripcion": "Estrategias avanzadas de Growth Hacking y Tráfico Pago.",
+      "secciones": 25,
+      "clases": 200,
+      "duracion": "45h",
+      "beneficios": [
+        "Contenido Virtual y Descargable (MP4/PDF)",
+        "Acceso Permanente vía Google Drive",
+        "Sin Clases en Vivo / Sin Grupos",
+        "Estudio Autónomo a tu propio ritmo",
+        "Sin Certificación Oficial"
+      ]
+    },
+    "info_importante": {
+      "tipo": "Virtual / Descargable",
+      "certificable": "No",
+      "soporte_en_vivo": "No",
+      "entrega": "Inmediata"
+    },
+    "imagen_portada": "assets/images/marketing_megapack.png"
+  },
+  {
+    "id": "MP-050",
+    "numero_drive": 50,
+    "nombre_carpeta": "50. PACK NEGOCIOS",
+    "titulo_comercial": "PACK NEGOCIOS",
+    "categoria": "NEGOCIOS",
+    "precio": 20000,
+    "ficha_tecnica": {
+      "emoji": "💰",
+      "descripcion": "Gestión administrativa, legal y contabilidad para emprendedores.",
+      "secciones": 15,
+      "clases": 110,
+      "duracion": "30h",
+      "beneficios": [
+        "Contenido Virtual y Descargable (MP4/PDF)",
+        "Acceso Permanente vía Google Drive",
+        "Sin Clases en Vivo / Sin Grupos",
+        "Estudio Autónomo a tu propio ritmo",
+        "Sin Certificación Oficial"
+      ]
+    },
+    "info_importante": {
+      "tipo": "Virtual / Descargable",
+      "certificable": "No",
+      "soporte_en_vivo": "No",
+      "entrega": "Inmediata"
+    },
+    "imagen_portada": "assets/images/trading_megapack.png"
+  },
+  {
+    "id": "MP-051",
+    "numero_drive": 51,
+    "nombre_carpeta": "51. CURSO DE VENTAS",
+    "titulo_comercial": "CURSO DE VENTAS",
+    "categoria": "NEGOCIOS",
+    "precio": 20000,
+    "ficha_tecnica": {
+      "emoji": "💰",
+      "descripcion": "Neuroventas, persuasión y cierre de ventas de alto impacto.",
+      "secciones": 12,
+      "clases": 90,
+      "duracion": "20h",
+      "beneficios": [
+        "Contenido Virtual y Descargable (MP4/PDF)",
+        "Acceso Permanente vía Google Drive",
+        "Sin Clases en Vivo / Sin Grupos",
+        "Estudio Autónomo a tu propio ritmo",
+        "Sin Certificación Oficial"
+      ]
+    },
+    "info_importante": {
+      "tipo": "Virtual / Descargable",
+      "certificable": "No",
+      "soporte_en_vivo": "No",
+      "entrega": "Inmediata"
+    },
+    "imagen_portada": "assets/images/trading_megapack.png"
+  },
+  {
+    "id": "MP-052",
+    "numero_drive": 52,
+    "nombre_carpeta": "52. CURSO DE LIDERAZGO",
+    "titulo_comercial": "CURSO DE LIDERAZGO",
+    "categoria": "EDUCATIVO",
+    "precio": 20000,
+    "ficha_tecnica": {
+      "emoji": "📚",
+      "descripcion": "Gestión de equipos, inteligencia emocional y oratoria.",
+      "secciones": 10,
+      "clases": 75,
+      "duracion": "18h",
+      "beneficios": [
+        "Contenido Virtual y Descargable (MP4/PDF)",
+        "Acceso Permanente vía Google Drive",
+        "Sin Clases en Vivo / Sin Grupos",
+        "Estudio Autónomo a tu propio ritmo",
+        "Sin Certificación Oficial"
+      ]
+    },
+    "info_importante": {
+      "tipo": "Virtual / Descargable",
+      "certificable": "No",
+      "soporte_en_vivo": "No",
+      "entrega": "Inmediata"
+    },
+    "imagen_portada": "assets/images/marketing_megapack.png"
+  },
+  {
+    "id": "MP-053",
+    "numero_drive": 53,
+    "nombre_carpeta": "53. PRESETS LIGHTROOM",
+    "titulo_comercial": "PRESETS LIGHTROOM",
+    "categoria": "DISEÑO",
+    "precio": 20000,
+    "ficha_tecnica": {
+      "emoji": "🎨",
+      "descripcion": "Más de 5000 filtros profesionales para edición fotográfica rápida.",
+      "secciones": 5,
+      "clases": "5000+ Presets",
+      "duracion": "Recurso",
+      "beneficios": [
+        "Contenido Virtual y Descargable (MP4/PDF)",
+        "Acceso Permanente vía Google Drive",
+        "Sin Clases en Vivo / Sin Grupos",
+        "Estudio Autónomo a tu propio ritmo",
+        "Sin Certificación Oficial"
+      ]
+    },
+    "info_importante": {
+      "tipo": "Virtual / Descargable",
+      "certificable": "No",
+      "soporte_en_vivo": "No",
+      "entrega": "Inmediata"
+    },
+    "imagen_portada": "assets/images/diseno_megapack.png"
+  },
+  {
+    "id": "MP-054",
+    "numero_drive": 54,
+    "nombre_carpeta": "54. CURSO CAR AUDIO",
+    "titulo_comercial": "CURSO CAR AUDIO",
+    "categoria": "OFICIO",
+    "precio": 20000,
+    "ficha_tecnica": {
+      "emoji": "🔧",
+      "descripcion": "Instalación de sonido, amplificadores, cajas y ecualización.",
+      "secciones": 10,
+      "clases": 85,
+      "duracion": "20h",
+      "beneficios": [
+        "Contenido Virtual y Descargable (MP4/PDF)",
+        "Acceso Permanente vía Google Drive",
+        "Sin Clases en Vivo / Sin Grupos",
+        "Estudio Autónomo a tu propio ritmo",
+        "Sin Certificación Oficial"
+      ]
+    },
+    "info_importante": {
+      "tipo": "Virtual / Descargable",
+      "certificable": "No",
+      "soporte_en_vivo": "No",
+      "entrega": "Inmediata"
+    },
+    "imagen_portada": "assets/images/melamina_megapack.png"
+  },
+  {
+    "id": "MP-055",
+    "numero_drive": 55,
+    "nombre_carpeta": "55. CURSO DE COSTURA",
+    "titulo_comercial": "CURSO DE COSTURA",
+    "categoria": "OFICIO",
+    "precio": 20000,
+    "ficha_tecnica": {
+      "emoji": "🔧",
+      "descripcion": "Corte y confección, patronaje y alta costura desde cero.",
+      "secciones": 15,
+      "clases": 130,
+      "duracion": "30h",
+      "beneficios": [
+        "Contenido Virtual y Descargable (MP4/PDF)",
+        "Acceso Permanente vía Google Drive",
+        "Sin Clases en Vivo / Sin Grupos",
+        "Estudio Autónomo a tu propio ritmo",
+        "Sin Certificación Oficial"
+      ]
+    },
+    "info_importante": {
+      "tipo": "Virtual / Descargable",
+      "certificable": "No",
+      "soporte_en_vivo": "No",
+      "entrega": "Inmediata"
+    },
+    "imagen_portada": "assets/images/melamina_megapack.png"
+  },
+  {
+    "id": "MP-056",
+    "numero_drive": 56,
+    "nombre_carpeta": "56. CURSO LOCUCIÓN Y ORATORIA",
+    "titulo_comercial": "CURSO LOCUCIÓN Y ORATORIA",
+    "categoria": "EDUCATIVO",
+    "precio": 20000,
+    "ficha_tecnica": {
+      "emoji": "📚",
+      "descripcion": "Técnicas de voz, dicción y cómo hablar en público con seguridad.",
+      "secciones": 10,
+      "clases": 80,
+      "duracion": "16h",
+      "beneficios": [
+        "Contenido Virtual y Descargable (MP4/PDF)",
+        "Acceso Permanente vía Google Drive",
+        "Sin Clases en Vivo / Sin Grupos",
+        "Estudio Autónomo a tu propio ritmo",
+        "Sin Certificación Oficial"
+      ]
+    },
+    "info_importante": {
+      "tipo": "Virtual / Descargable",
+      "certificable": "No",
+      "soporte_en_vivo": "No",
+      "entrega": "Inmediata"
+    },
+    "imagen_portada": "assets/images/marketing_megapack.png"
+  },
+  {
+    "id": "MP-057",
+    "numero_drive": 57,
+    "nombre_carpeta": "57. CURSO DE JOYERÍA",
+    "titulo_comercial": "CURSO DE JOYERÍA",
+    "categoria": "OFICIO",
+    "precio": 20000,
+    "ficha_tecnica": {
+      "emoji": "🔧",
+      "descripcion": "Diseño y fabricación de joyas, orfebrería y piedras preciosas.",
+      "secciones": 12,
+      "clases": 95,
+      "duracion": "25h",
+      "beneficios": [
+        "Contenido Virtual y Descargable (MP4/PDF)",
+        "Acceso Permanente vía Google Drive",
+        "Sin Clases en Vivo / Sin Grupos",
+        "Estudio Autónomo a tu propio ritmo",
+        "Sin Certificación Oficial"
+      ]
+    },
+    "info_importante": {
+      "tipo": "Virtual / Descargable",
+      "certificable": "No",
+      "soporte_en_vivo": "No",
+      "entrega": "Inmediata"
+    },
+    "imagen_portada": "assets/images/melamina_megapack.png"
+  },
+  {
+    "id": "MP-058",
+    "numero_drive": 58,
+    "nombre_carpeta": "58. CURSO PILATES Y YOGA",
+    "titulo_comercial": "CURSO PILATES Y YOGA",
+    "categoria": "SALUD",
+    "precio": 20000,
+    "ficha_tecnica": {
+      "emoji": "🧘",
+      "descripcion": "Equilibrio corporal, flexibilidad y técnicas de meditación.",
+      "secciones": 15,
+      "clases": 120,
+      "duracion": "35h",
+      "beneficios": [
+        "Contenido Virtual y Descargable (MP4/PDF)",
+        "Acceso Permanente vía Google Drive",
+        "Sin Clases en Vivo / Sin Grupos",
+        "Estudio Autónomo a tu propio ritmo",
+        "Sin Certificación Oficial"
+      ]
+    },
+    "info_importante": {
+      "tipo": "Virtual / Descargable",
+      "certificable": "No",
+      "soporte_en_vivo": "No",
+      "entrega": "Inmediata"
+    },
+    "imagen_portada": "assets/images/marketing_megapack.png"
+  },
+  {
+    "id": "MP-059",
+    "numero_drive": 59,
+    "nombre_carpeta": "59. CURSO MASTER E-COMMERCE",
+    "titulo_comercial": "CURSO MASTER E-COMMERCE",
+    "categoria": "NEGOCIOS",
+    "precio": 20000,
+    "ficha_tecnica": {
+      "emoji": "💰",
+      "descripcion": "Shopify, Woocommerce y logística de envíos internacionales.",
+      "secciones": 25,
+      "clases": 220,
+      "duracion": "50h",
+      "beneficios": [
+        "Contenido Virtual y Descargable (MP4/PDF)",
+        "Acceso Permanente vía Google Drive",
+        "Sin Clases en Vivo / Sin Grupos",
+        "Estudio Autónomo a tu propio ritmo",
+        "Sin Certificación Oficial"
+      ]
+    },
+    "info_importante": {
+      "tipo": "Virtual / Descargable",
+      "certificable": "No",
+      "soporte_en_vivo": "No",
+      "entrega": "Inmediata"
+    },
+    "imagen_portada": "assets/images/trading_megapack.png"
+  },
+  {
+    "id": "MP-060",
+    "numero_drive": 60,
+    "nombre_carpeta": "60. CURSO DE IMPORTACIONES",
+    "titulo_comercial": "CURSO DE IMPORTACIONES",
+    "categoria": "NEGOCIOS",
+    "precio": 20000,
+    "ficha_tecnica": {
+      "emoji": "💰",
+      "descripcion": "Cómo importar de China y USA paso a paso (Aduanas y fletes).",
+      "secciones": 12,
+      "clases": 90,
+      "duracion": "22h",
+      "beneficios": [
+        "Contenido Virtual y Descargable (MP4/PDF)",
+        "Acceso Permanente vía Google Drive",
+        "Sin Clases en Vivo / Sin Grupos",
+        "Estudio Autónomo a tu propio ritmo",
+        "Sin Certificación Oficial"
+      ]
+    },
+    "info_importante": {
+      "tipo": "Virtual / Descargable",
+      "certificable": "No",
+      "soporte_en_vivo": "No",
+      "entrega": "Inmediata"
+    },
+    "imagen_portada": "assets/images/trading_megapack.png"
+  },
+  {
+    "id": "MP-061",
+    "numero_drive": 61,
+    "nombre_carpeta": "61. CURSO MASTER EXCEL",
+    "titulo_comercial": "CURSO MASTER EXCEL",
+    "categoria": "EXCEL",
+    "precio": 20000,
+    "ficha_tecnica": {
+      "emoji": "📊",
+      "descripcion": "Análisis de datos avanzado, Power BI e inteligencia de negocios.",
+      "secciones": 20,
+      "clases": 180,
+      "duracion": "45h",
+      "beneficios": [
+        "Contenido Virtual y Descargable (MP4/PDF)",
+        "Acceso Permanente vía Google Drive",
+        "Sin Clases en Vivo / Sin Grupos",
+        "Estudio Autónomo a tu propio ritmo",
+        "Sin Certificación Oficial"
+      ]
+    },
+    "info_importante": {
+      "tipo": "Virtual / Descargable",
+      "certificable": "No",
+      "soporte_en_vivo": "No",
+      "entrega": "Inmediata"
+    },
+    "imagen_portada": "assets/images/excel_megapack.png"
+  },
+  {
+    "id": "MP-062",
+    "numero_drive": 62,
+    "nombre_carpeta": "62. CURSO CREACIÓN DE APPS",
+    "titulo_comercial": "CURSO CREACIÓN DE APPS",
+    "categoria": "TECH",
+    "precio": 20000,
+    "ficha_tecnica": {
+      "emoji": "💻",
+      "descripcion": "Desarrollo de aplicaciones móviles sin código y con Flutter.",
+      "secciones": 18,
+      "clases": 150,
+      "duracion": "40h",
+      "beneficios": [
+        "Contenido Virtual y Descargable (MP4/PDF)",
+        "Acceso Permanente vía Google Drive",
+        "Sin Clases en Vivo / Sin Grupos",
+        "Estudio Autónomo a tu propio ritmo",
+        "Sin Certificación Oficial"
+      ]
+    },
+    "info_importante": {
+      "tipo": "Virtual / Descargable",
+      "certificable": "No",
+      "soporte_en_vivo": "No",
+      "entrega": "Inmediata"
+    },
+    "imagen_portada": "assets/images/programacion_megapack.png"
+  },
+  {
+    "id": "MP-063",
+    "numero_drive": 63,
+    "nombre_carpeta": "63. 15 MIL PLANOS DE CARPINTERÍA",
+    "titulo_comercial": "15 MIL PLANOS DE CARPINTERÍA",
+    "categoria": "OFICIO",
+    "precio": 20000,
+    "ficha_tecnica": {
+      "emoji": "🔧",
+      "descripcion": "Carpintería en madera, ensambles y proyectos paso a paso.",
+      "secciones": 1,
+      "clases": "15000+ Planos",
+      "duracion": "Recurso",
+      "beneficios": [
+        "Contenido Virtual y Descargable (MP4/PDF)",
+        "Acceso Permanente vía Google Drive",
+        "Sin Clases en Vivo / Sin Grupos",
+        "Estudio Autónomo a tu propio ritmo",
+        "Sin Certificación Oficial"
+      ]
+    },
+    "info_importante": {
+      "tipo": "Virtual / Descargable",
+      "certificable": "No",
+      "soporte_en_vivo": "No",
+      "entrega": "Inmediata"
+    },
+    "imagen_portada": "assets/images/melamina_megapack.png"
+  },
+  {
+    "id": "MP-064",
+    "numero_drive": 64,
+    "nombre_carpeta": "64. CURSO DISEÑO DE MODAS",
+    "titulo_comercial": "CURSO DISEÑO DE MODAS",
+    "categoria": "OFICIO",
+    "precio": 20000,
+    "ficha_tecnica": {
+      "emoji": "🔧",
+      "descripcion": "Ilustración de moda, colecciones y tendencias internacionales.",
+      "secciones": 18,
+      "clases": 140,
+      "duracion": "35h",
+      "beneficios": [
+        "Contenido Virtual y Descargable (MP4/PDF)",
+        "Acceso Permanente vía Google Drive",
+        "Sin Clases en Vivo / Sin Grupos",
+        "Estudio Autónomo a tu propio ritmo",
+        "Sin Certificación Oficial"
+      ]
+    },
+    "info_importante": {
+      "tipo": "Virtual / Descargable",
+      "certificable": "No",
+      "soporte_en_vivo": "No",
+      "entrega": "Inmediata"
+    },
+    "imagen_portada": "assets/images/melamina_megapack.png"
+  },
+  {
+    "id": "MP-065",
+    "numero_drive": 65,
+    "nombre_carpeta": "65. CURSO DE BARBERÍA",
+    "titulo_comercial": "CURSO DE BARBERÍA",
+    "categoria": "OFICIO",
+    "precio": 20000,
+    "ficha_tecnica": {
+      "emoji": "🔧",
+      "descripcion": "Degradados, visagismo, afeitado y gestión de barber shop.",
+      "secciones": 14,
+      "clases": 110,
+      "duracion": "25h",
+      "beneficios": [
+        "Contenido Virtual y Descargable (MP4/PDF)",
+        "Acceso Permanente vía Google Drive",
+        "Sin Clases en Vivo / Sin Grupos",
+        "Estudio Autónomo a tu propio ritmo",
+        "Sin Certificación Oficial"
+      ]
+    },
+    "info_importante": {
+      "tipo": "Virtual / Descargable",
+      "certificable": "No",
+      "soporte_en_vivo": "No",
+      "entrega": "Inmediata"
+    },
+    "imagen_portada": "assets/images/melamina_megapack.png"
+  },
+  {
+    "id": "MP-066",
+    "numero_drive": 66,
+    "nombre_carpeta": "66. CURSO DISEÑO DE INTERIORES",
+    "titulo_comercial": "CURSO DISEÑO DE INTERIORES",
+    "categoria": "DISEÑO",
+    "precio": 20000,
+    "ficha_tecnica": {
+      "emoji": "🎨",
+      "descripcion": "Decoración, iluminación, espacios y materiales modernos.",
+      "secciones": 15,
+      "clases": 120,
+      "duracion": "30h",
+      "beneficios": [
+        "Contenido Virtual y Descargable (MP4/PDF)",
+        "Acceso Permanente vía Google Drive",
+        "Sin Clases en Vivo / Sin Grupos",
+        "Estudio Autónomo a tu propio ritmo",
+        "Sin Certificación Oficial"
+      ]
+    },
+    "info_importante": {
+      "tipo": "Virtual / Descargable",
+      "certificable": "No",
+      "soporte_en_vivo": "No",
+      "entrega": "Inmediata"
+    },
+    "imagen_portada": "assets/images/diseno_megapack.png"
+  },
+  {
+    "id": "MP-067",
+    "numero_drive": 67,
+    "nombre_carpeta": "67. CURSO DE REPOSTERÍA",
+    "titulo_comercial": "CURSO DE REPOSTERÍA",
+    "categoria": "OFICIO",
+    "precio": 20000,
+    "ficha_tecnica": {
+      "emoji": "🔧",
+      "descripcion": "Pastelería fina, decoración de tortas y postres en tendencia.",
+      "secciones": 18,
+      "clases": 150,
+      "duracion": "35h",
+      "beneficios": [
+        "Contenido Virtual y Descargable (MP4/PDF)",
+        "Acceso Permanente vía Google Drive",
+        "Sin Clases en Vivo / Sin Grupos",
+        "Estudio Autónomo a tu propio ritmo",
+        "Sin Certificación Oficial"
+      ]
+    },
+    "info_importante": {
+      "tipo": "Virtual / Descargable",
+      "certificable": "No",
+      "soporte_en_vivo": "No",
+      "entrega": "Inmediata"
+    },
+    "imagen_portada": "assets/images/melamina_megapack.png"
+  },
+  {
+    "id": "MP-068",
+    "numero_drive": 68,
+    "nombre_carpeta": "68. CURSO DE ELECTRÓNICA",
+    "titulo_comercial": "CURSO DE ELECTRÓNICA",
+    "categoria": "TECH",
+    "precio": 20000,
+    "ficha_tecnica": {
+      "emoji": "💻",
+      "descripcion": "Circuitos, componentes, prototipado y reparación electrónica.",
+      "secciones": 20,
+      "clases": 180,
+      "duracion": "40h",
+      "beneficios": [
+        "Contenido Virtual y Descargable (MP4/PDF)",
+        "Acceso Permanente vía Google Drive",
+        "Sin Clases en Vivo / Sin Grupos",
+        "Estudio Autónomo a tu propio ritmo",
+        "Sin Certificación Oficial"
+      ]
+    },
+    "info_importante": {
+      "tipo": "Virtual / Descargable",
+      "certificable": "No",
+      "soporte_en_vivo": "No",
+      "entrega": "Inmediata"
+    },
+    "imagen_portada": "assets/images/programacion_megapack.png"
+  },
+  {
+    "id": "MP-069",
+    "numero_drive": 69,
+    "nombre_carpeta": "69. CURSO DE MAQUILLAJE",
+    "titulo_comercial": "CURSO DE MAQUILLAJE",
+    "categoria": "OFICIO",
+    "precio": 20000,
+    "ficha_tecnica": {
+      "emoji": "🔧",
+      "descripcion": "Maquillaje profesional, social, artístico y de novias.",
+      "secciones": 12,
+      "clases": 100,
+      "duracion": "22h",
+      "beneficios": [
+        "Contenido Virtual y Descargable (MP4/PDF)",
+        "Acceso Permanente vía Google Drive",
+        "Sin Clases en Vivo / Sin Grupos",
+        "Estudio Autónomo a tu propio ritmo",
+        "Sin Certificación Oficial"
+      ]
+    },
+    "info_importante": {
+      "tipo": "Virtual / Descargable",
+      "certificable": "No",
+      "soporte_en_vivo": "No",
+      "entrega": "Inmediata"
+    },
+    "imagen_portada": "assets/images/melamina_megapack.png"
+  },
+  {
+    "id": "MP-070",
+    "numero_drive": 70,
+    "nombre_carpeta": "70. CURSO DE COCTELERÍA",
+    "titulo_comercial": "CURSO DE COCTELERÍA",
+    "categoria": "OFICIO",
+    "precio": 20000,
+    "ficha_tecnica": {
+      "emoji": "🔧",
+      "descripcion": "Bartender profesional, mixología y creación de licores.",
+      "secciones": 10,
+      "clases": 85,
+      "duracion": "20h",
+      "beneficios": [
+        "Contenido Virtual y Descargable (MP4/PDF)",
+        "Acceso Permanente vía Google Drive",
+        "Sin Clases en Vivo / Sin Grupos",
+        "Estudio Autónomo a tu propio ritmo",
+        "Sin Certificación Oficial"
+      ]
+    },
+    "info_importante": {
+      "tipo": "Virtual / Descargable",
+      "certificable": "No",
+      "soporte_en_vivo": "No",
+      "entrega": "Inmediata"
+    },
+    "imagen_portada": "assets/images/melamina_megapack.png"
+  },
+  {
+    "id": "MP-071",
+    "numero_drive": 71,
+    "nombre_carpeta": "71. CURSO DE DIBUJO Y PINTURA",
+    "titulo_comercial": "CURSO DE DIBUJO Y PINTURA",
+    "categoria": "DISEÑO",
+    "precio": 20000,
+    "ficha_tecnica": {
+      "emoji": "🎨",
+      "descripcion": "Anatomía humana, paisajes, óleo y acuarela desde cero.",
+      "secciones": 20,
+      "clases": 160,
+      "duracion": "35h",
+      "beneficios": [
+        "Contenido Virtual y Descargable (MP4/PDF)",
+        "Acceso Permanente vía Google Drive",
+        "Sin Clases en Vivo / Sin Grupos",
+        "Estudio Autónomo a tu propio ritmo",
+        "Sin Certificación Oficial"
+      ]
+    },
+    "info_importante": {
+      "tipo": "Virtual / Descargable",
+      "certificable": "No",
+      "soporte_en_vivo": "No",
+      "entrega": "Inmediata"
+    },
+    "imagen_portada": "assets/images/diseno_megapack.png"
+  },
+  {
+    "id": "MP-072",
+    "numero_drive": 72,
+    "nombre_carpeta": "72. CURSO DISEÑO DE LOGOS",
+    "titulo_comercial": "CURSO DISEÑO DE LOGOS",
+    "categoria": "DISEÑO",
+    "precio": 20000,
+    "ficha_tecnica": {
+      "emoji": "🎨",
+      "descripcion": "Semiótica, colorimetría y diseño de marcas de alto nivel.",
+      "secciones": 12,
+      "clases": 100,
+      "duracion": "20h",
+      "beneficios": [
+        "Contenido Virtual y Descargable (MP4/PDF)",
+        "Acceso Permanente vía Google Drive",
+        "Sin Clases en Vivo / Sin Grupos",
+        "Estudio Autónomo a tu propio ritmo",
+        "Sin Certificación Oficial"
+      ]
+    },
+    "info_importante": {
+      "tipo": "Virtual / Descargable",
+      "certificable": "No",
+      "soporte_en_vivo": "No",
+      "entrega": "Inmediata"
+    },
+    "imagen_portada": "assets/images/diseno_megapack.png"
+  },
+  {
+    "id": "MP-073",
+    "numero_drive": 73,
+    "nombre_carpeta": "73. CURSO ANIMACIÓN 2D/3D",
+    "titulo_comercial": "CURSO ANIMACIÓN 2D/3D",
+    "categoria": "DISEÑO",
+    "precio": 20000,
+    "ficha_tecnica": {
+      "emoji": "🎨",
+      "descripcion": "Técnicas de animación, rigging y post-producción digital.",
+      "secciones": 25,
+      "clases": 210,
+      "duracion": "50h",
+      "beneficios": [
+        "Contenido Virtual y Descargable (MP4/PDF)",
+        "Acceso Permanente vía Google Drive",
+        "Sin Clases en Vivo / Sin Grupos",
+        "Estudio Autónomo a tu propio ritmo",
+        "Sin Certificación Oficial"
+      ]
+    },
+    "info_importante": {
+      "tipo": "Virtual / Descargable",
+      "certificable": "No",
+      "soporte_en_vivo": "No",
+      "entrega": "Inmediata"
+    },
+    "imagen_portada": "assets/images/diseno_megapack.png"
+  },
+  {
+    "id": "MP-074",
+    "numero_drive": 74,
+    "nombre_carpeta": "74. CURSO ADOBE ILLUSTRATOR",
+    "titulo_comercial": "CURSO ADOBE ILLUSTRATOR",
+    "categoria": "DISEÑO",
+    "precio": 20000,
+    "ficha_tecnica": {
+      "emoji": "🎨",
+      "descripcion": "Dominio total de vectores, ilustración y tipografía.",
+      "secciones": 15,
+      "clases": 140,
+      "duracion": "30h",
+      "beneficios": [
+        "Contenido Virtual y Descargable (MP4/PDF)",
+        "Acceso Permanente vía Google Drive",
+        "Sin Clases en Vivo / Sin Grupos",
+        "Estudio Autónomo a tu propio ritmo",
+        "Sin Certificación Oficial"
+      ]
+    },
+    "info_importante": {
+      "tipo": "Virtual / Descargable",
+      "certificable": "No",
+      "soporte_en_vivo": "No",
+      "entrega": "Inmediata"
+    },
+    "imagen_portada": "assets/images/diseno_megapack.png"
+  },
+  {
+    "id": "MP-075",
+    "numero_drive": 75,
+    "nombre_carpeta": "75. CURSO CREA Y VENDE CURSOS",
+    "titulo_comercial": "CURSO CREA Y VENDE CURSOS",
+    "categoria": "NEGOCIOS",
+    "precio": 20000,
+    "ficha_tecnica": {
+      "emoji": "💰",
+      "descripcion": "Cómo empaquetar tu conocimiento y venderlo online.",
+      "secciones": 10,
+      "clases": 85,
+      "duracion": "20h",
+      "beneficios": [
+        "Contenido Virtual y Descargable (MP4/PDF)",
+        "Acceso Permanente vía Google Drive",
+        "Sin Clases en Vivo / Sin Grupos",
+        "Estudio Autónomo a tu propio ritmo",
+        "Sin Certificación Oficial"
+      ]
+    },
+    "info_importante": {
+      "tipo": "Virtual / Descargable",
+      "certificable": "No",
+      "soporte_en_vivo": "No",
+      "entrega": "Inmediata"
+    },
+    "imagen_portada": "assets/images/trading_megapack.png"
+  },
+  {
+    "id": "MP-076",
+    "numero_drive": 76,
+    "nombre_carpeta": "76. DISEÑO DE PACKAGING",
+    "titulo_comercial": "DISEÑO DE PACKAGING",
+    "categoria": "DISEÑO",
+    "precio": 20000,
+    "ficha_tecnica": {
+      "emoji": "🎨",
+      "descripcion": "Diseño de cajas, etiquetas y presentaciones de producto.",
+      "secciones": 12,
+      "clases": 95,
+      "duracion": "22h",
+      "beneficios": [
+        "Contenido Virtual y Descargable (MP4/PDF)",
+        "Acceso Permanente vía Google Drive",
+        "Sin Clases en Vivo / Sin Grupos",
+        "Estudio Autónomo a tu propio ritmo",
+        "Sin Certificación Oficial"
+      ]
+    },
+    "info_importante": {
+      "tipo": "Virtual / Descargable",
+      "certificable": "No",
+      "soporte_en_vivo": "No",
+      "entrega": "Inmediata"
+    },
+    "imagen_portada": "assets/images/diseno_megapack.png"
+  },
+  {
+    "id": "MP-077",
+    "numero_drive": 77,
+    "nombre_carpeta": "77. DISEÑO EDITORIAL",
+    "titulo_comercial": "DISEÑO EDITORIAL",
+    "categoria": "DISEÑO",
+    "precio": 20000,
+    "ficha_tecnica": {
+      "emoji": "🎨",
+      "descripcion": "Diagramación de revistas, libros y catálogos en InDesign.",
+      "secciones": 15,
+      "clases": 120,
+      "duracion": "28h",
+      "beneficios": [
+        "Contenido Virtual y Descargable (MP4/PDF)",
+        "Acceso Permanente vía Google Drive",
+        "Sin Clases en Vivo / Sin Grupos",
+        "Estudio Autónomo a tu propio ritmo",
+        "Sin Certificación Oficial"
+      ]
+    },
+    "info_importante": {
+      "tipo": "Virtual / Descargable",
+      "certificable": "No",
+      "soporte_en_vivo": "No",
+      "entrega": "Inmediata"
+    },
+    "imagen_portada": "assets/images/diseno_megapack.png"
+  },
+  {
+    "id": "MP-078",
+    "numero_drive": 78,
+    "nombre_carpeta": "78. CURSO DE DECORACIÓN GLOBOS",
+    "titulo_comercial": "CURSO DE DECORACIÓN GLOBOS",
+    "categoria": "CRAFT",
+    "precio": 20000,
+    "ficha_tecnica": {
+      "emoji": "🧵",
+      "descripcion": "Arcos, columnas, ramos y figuras espectaculares con globos.",
+      "secciones": 10,
+      "clases": 80,
+      "duracion": "18h",
+      "beneficios": [
+        "Contenido Virtual y Descargable (MP4/PDF)",
+        "Acceso Permanente vía Google Drive",
+        "Sin Clases en Vivo / Sin Grupos",
+        "Estudio Autónomo a tu propio ritmo",
+        "Sin Certificación Oficial"
+      ]
+    },
+    "info_importante": {
+      "tipo": "Virtual / Descargable",
+      "certificable": "No",
+      "soporte_en_vivo": "No",
+      "entrega": "Inmediata"
+    },
+    "imagen_portada": "assets/images/resina_megapack.png"
+  },
+  {
+    "id": "MP-079",
+    "numero_drive": 79,
+    "nombre_carpeta": "79. CURSO LETTERING Y CALIGRAFÍA",
+    "titulo_comercial": "CURSO LETTERING Y CALIGRAFÍA",
+    "categoria": "DISEÑO",
+    "precio": 20000,
+    "ficha_tecnica": {
+      "emoji": "🎨",
+      "descripcion": "Dibujo de letras a mano y digital (Procreate/Illustrator).",
+      "secciones": 12,
+      "clases": 100,
+      "duracion": "22h",
+      "beneficios": [
+        "Contenido Virtual y Descargable (MP4/PDF)",
+        "Acceso Permanente vía Google Drive",
+        "Sin Clases en Vivo / Sin Grupos",
+        "Estudio Autónomo a tu propio ritmo",
+        "Sin Certificación Oficial"
+      ]
+    },
+    "info_importante": {
+      "tipo": "Virtual / Descargable",
+      "certificable": "No",
+      "soporte_en_vivo": "No",
+      "entrega": "Inmediata"
+    },
+    "imagen_portada": "assets/images/diseno_megapack.png"
+  },
+  {
+    "id": "MP-080",
+    "numero_drive": 80,
+    "nombre_carpeta": "80. PACK IDIOMAS",
+    "titulo_comercial": "PACK IDIOMAS",
+    "categoria": "IDIOMAS",
+    "precio": 20000,
+    "ficha_tecnica": {
+      "emoji": "🌍",
+      "descripcion": "Francés, Alemán, Italiano, Portugués y Japonés básico.",
+      "secciones": 20,
+      "clases": 250,
+      "duracion": "60h",
+      "beneficios": [
+        "Contenido Virtual y Descargable (MP4/PDF)",
+        "Acceso Permanente vía Google Drive",
+        "Sin Clases en Vivo / Sin Grupos",
+        "Estudio Autónomo a tu propio ritmo",
+        "Sin Certificación Oficial"
+      ]
+    },
+    "info_importante": {
+      "tipo": "Virtual / Descargable",
+      "certificable": "No",
+      "soporte_en_vivo": "No",
+      "entrega": "Inmediata"
+    },
+    "imagen_portada": "assets/images/idiomas_megapack.png"
+  },
+  {
+    "id": "MP-081",
+    "numero_drive": 81,
+    "nombre_carpeta": "81. COMICS Y NOVELA GRÁFICA",
+    "titulo_comercial": "COMICS Y NOVELA GRÁFICA",
+    "categoria": "DISEÑO",
+    "precio": 20000,
+    "ficha_tecnica": {
+      "emoji": "🎨",
+      "descripcion": "Narrativa visual, entintado y creación de personajes.",
+      "secciones": 15,
+      "clases": 130,
+      "duracion": "30h",
+      "beneficios": [
+        "Contenido Virtual y Descargable (MP4/PDF)",
+        "Acceso Permanente vía Google Drive",
+        "Sin Clases en Vivo / Sin Grupos",
+        "Estudio Autónomo a tu propio ritmo",
+        "Sin Certificación Oficial"
+      ]
+    },
+    "info_importante": {
+      "tipo": "Virtual / Descargable",
+      "certificable": "No",
+      "soporte_en_vivo": "No",
+      "entrega": "Inmediata"
+    },
+    "imagen_portada": "assets/images/diseno_megapack.png"
+  }
+]

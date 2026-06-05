@@ -1,11 +1,12 @@
-import { pgTable, serial, text, timestamp } from "drizzle-orm/pg-core";
+import { integer, pgTable, serial, text, timestamp } from "drizzle-orm/pg-core";
+import { tenants } from "./tenants";
 
 export const productCategories = pgTable("product_categories", {
   id: serial("id").primaryKey(),
+  tenantId: integer("tenant_id")
+    .references(() => tenants.id, { onDelete: "cascade" })
+    .notNull(),
   name: text("name").notNull(),
-  description: text("description"),
-  icon: text("icon"),
-  color: text("color").notNull().default("#0ea5e9"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 });
 

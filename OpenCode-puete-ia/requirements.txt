@@ -1,0 +1,15 @@
+# Dependencias para OpenCode Bridge
+
+# Cliente HTTP
+requests>=2.31.0
+
+# Servidor web (para proxy)
+flask>=3.0.0
+flask-cors>=4.0.0
+
+# Utilidades
+python-dotenv>=1.0.0
+
+# Testing (opcional)
+pytest>=7.4.0
+pytest-asyncio>=0.21.0

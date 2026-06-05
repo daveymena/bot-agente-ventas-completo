@@ -13,6 +13,7 @@ import { format, parseISO } from "date-fns";
 import { es } from "date-fns/locale";
 import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
+import { SaasStatusBanner } from "@/components/saas-status-banner";
 
 function MetricCard({ title, value, icon: Icon, description, className = "" }: { title: string, value: string | number, icon: any, description?: string, className?: string }) {
   return (
@@ -33,24 +34,27 @@ function MetricCard({ title, value, icon: Icon, description, className = "" }: {
 
 export default function Dashboard() {
   const { data: summary, isLoading: loadingSummary } = useGetDashboardSummary({
-    query: { queryKey: getGetDashboardSummaryQueryKey() }
+    query: { queryKey: getGetDashboardSummaryQueryKey(), refetchInterval: 3000 }
   });
 
   const { data: activity, isLoading: loadingActivity } = useGetRecentActivity({
-    query: { queryKey: getGetRecentActivityQueryKey() }
+    query: { queryKey: getGetRecentActivityQueryKey(), refetchInterval: 3000 }
   });
 
   const { data: funnel, isLoading: loadingFunnel } = useGetFunnel({
-    query: { queryKey: getGetFunnelQueryKey() }
+    query: { queryKey: getGetFunnelQueryKey(), refetchInterval: 5000 }
   });
 
   const { data: timeline, isLoading: loadingTimeline } = useGetMessagesTimeline({
-    query: { queryKey: getGetMessagesTimelineQueryKey() }
+    query: { queryKey: getGetMessagesTimelineQueryKey(), refetchInterval: 5000 }
   });
 
   return (
     <Layout>
       <div className="flex flex-col gap-8 animate-enter">
+        
+        {/* SaaS Status Banner */}
+        <SaasStatusBanner />
         
         {/* Hero Section */}
         <div className="flex flex-col md:flex-row gap-6 md:items-end justify-between bg-card/40 border p-6 md:p-8 rounded-3xl relative overflow-hidden shadow-sm">

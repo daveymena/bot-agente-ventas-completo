@@ -9,11 +9,18 @@ import {
   Settings,
   Terminal,
   Badge,
-  Wand2
+  Wand2,
+  Palette,
+  ShoppingCart,
+  Eye,
+  Sparkles
 } from "lucide-react";
 import { Sidebar, SidebarContent, SidebarHeader, SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarProvider, SidebarTrigger, SidebarGroup, SidebarGroupContent } from "./ui/sidebar";
 import { Badge as UiBadge } from "@/components/ui/badge";
 import { useGetWhatsAppStatus, getGetWhatsAppStatusQueryKey } from "@workspace/api-client-react";
+import { useSaasStatus } from "@/hooks/useSaasStatus";
+import { Star, Zap, Crown } from "lucide-react";
+import { useSession } from "@/App";
 
 export function AppSidebar() {
   const [location] = useLocation();
@@ -25,36 +32,66 @@ export function AppSidebar() {
     { label: "Prospectos", href: "/leads", icon: Users },
     { label: "Productos", href: "/products", icon: Package },
     { label: "WhatsApp", href: "/whatsapp", icon: Phone },
+    { label: "WooCommerce", href: "/woocommerce", icon: ShoppingCart },
     { label: "Arquitecto IA", href: "/code-agent", icon: Wand2 },
+    { label: "Arquitecto Visual", href: "/architect", icon: Eye },
+    { label: "Personalización", href: "/branding", icon: Palette },
     { label: "Configuración", href: "/settings", icon: Settings },
+    { label: "Planes", href: "/pricing", icon: Badge },
   ];
 
   const { data: wsStatus } = useGetWhatsAppStatus({
     query: { refetchInterval: 5000, queryKey: getGetWhatsAppStatusQueryKey() }
   });
 
+  const { saasStatus } = useSaasStatus();
+  const { tenant: sessionTenant } = useSession();
+  const currentPlan = saasStatus?.plan;
+  const isPremium = currentPlan && currentPlan !== 'free' && currentPlan !== 'basic';
+  const isAdmin = sessionTenant?.email === 'daveymena16@gmail.com';
+
+  const allNavItems = [
+    { label: "Panel", href: "/", icon: LayoutDashboard },
+    { label: "Conversaciones", href: "/conversations", icon: MessageSquare },
+    { label: "Agentes IA", href: "/agents", icon: Bot },
+    { label: "Prospectos", href: "/leads", icon: Users },
+    { label: "Productos", href: "/products", icon: Package },
+    { label: "WhatsApp", href: "/whatsapp", icon: Phone },
+    { label: "WooCommerce", href: "/woocommerce", icon: ShoppingCart },
+    { label: "Arquitecto IA", href: "/code-agent", icon: Wand2 },
+    { label: "Arquitecto Visual", href: "/architect", icon: Eye },
+    { label: "Personalización", href: "/branding", icon: Palette },
+    { label: "Tienda Admin", href: "/admin/store", icon: Package },
+    { label: "Configuración", href: "/settings", icon: Settings },
+    { label: "Planes", href: "/pricing", icon: Badge },
+    { label: "LM Arena", href: "/arena", icon: Sparkles },
+    ...(sessionTenant?.slug ? [{ label: "Ver Tienda", href: `/mi-tienda`, icon: Eye }] : []),
+    ...(isAdmin ? [{ label: "Admin Tenants", href: "/admin/tenants", icon: Crown }] : []),
+];
+
   return (
     <Sidebar className="border-r border-white/10 shadow-[8px_0_32px_rgba(0,0,0,0.1)] dark:shadow-[8px_0_32px_rgba(0,0,0,0.4)] bg-background/60 backdrop-blur-3xl supports-[backdrop-filter]:bg-background/40">
       <div className="absolute inset-0 bg-gradient-to-b from-primary/5 via-transparent to-accent/5 pointer-events-none" />
       <SidebarHeader className="flex h-[80px] items-center border-b border-white/5 px-6 relative z-10">
-        <Link href="/" className="flex items-center gap-3 font-bold text-xl text-foreground transition-all duration-300 hover:scale-[1.02] group">
-          {/* Premium Logo */}
-          <div className="relative flex items-center justify-center w-10 h-10 rounded-xl overflow-hidden border border-white/10 shadow-lg group-hover:border-orange-500/50 transition-all duration-300">
-            <div className="absolute inset-0 bg-gradient-to-br from-orange-500 to-yellow-500 opacity-20 group-hover:opacity-40 transition-opacity" />
-            <div className="absolute -inset-1 bg-gradient-to-r from-orange-500 to-yellow-500 rounded-xl blur opacity-0 group-hover:opacity-30 transition-opacity" />
-            <span className="text-xl font-black bg-gradient-to-br from-orange-400 to-yellow-500 bg-clip-text text-transparent relative z-10">V</span>
-          </div>
-          <div className="flex flex-col">
-            <span className="tracking-tight font-extrabold bg-gradient-to-br from-white via-white to-white/50 bg-clip-text text-transparent group-hover:from-orange-400 group-hover:to-yellow-500 transition-all duration-500">VentasPro</span>
-            <span className="text-[9px] font-bold text-muted-foreground uppercase tracking-[0.25em]">IA Engine</span>
-          </div>
+        <Link href="/" className="flex items-center transition-all duration-300 hover:scale-[1.02] group">
+          {/* Logo optimizado para sidebar oscuro */}
+          <img 
+            src="/logo-sidebar.svg" 
+            alt="VentasPro" 
+            className="h-10 w-auto transition-all duration-300 group-hover:brightness-110"
+          />
         </Link>
+        {isPremium && (
+          <UiBadge className="ml-2 bg-gradient-to-r from-amber-400 to-orange-600 border-none text-[10px] font-black tracking-tighter animate-pulse shadow-[0_0_15px_rgba(245,158,11,0.5)]">
+            PREMIUM
+          </UiBadge>
+        )}
       </SidebarHeader>
       <SidebarContent className="px-3 py-4">
         <SidebarGroup>
           <SidebarGroupContent>
             <SidebarMenu className="gap-2">
-              {navItems.map((item) => {
+              {allNavItems.map((item) => {
                 const isActive = location === item.href;
                 return (
                   <SidebarMenuItem key={item.href}>
@@ -114,7 +151,7 @@ export function AppSidebar() {
 export function Layout({ children }: { children: React.ReactNode }) {
   return (
     <SidebarProvider>
-      <div className="flex min-h-screen w-full bg-background relative overflow-hidden text-foreground">
+      <div className="flex min-h-screen w-full bg-background relative overflow-x-hidden text-foreground">
         {/* Mesh Gradient Background */}
         <div className="pointer-events-none fixed inset-0 z-0">
           <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] rounded-full bg-primary/5 blur-[120px]" />
@@ -123,15 +160,15 @@ export function Layout({ children }: { children: React.ReactNode }) {
         
         <AppSidebar />
         <div className="flex flex-1 flex-col w-full min-w-0 relative z-10 transition-all duration-300">
-          <header className="flex h-[72px] items-center gap-4 border-b bg-background/60 backdrop-blur-3xl px-4 md:px-6 sticky top-0 z-20 supports-[backdrop-filter]:bg-background/40">
-            <SidebarTrigger className="hover:bg-primary/10 rounded-xl w-10 h-10 flex items-center justify-center transition-all text-primary" />
-            <div className="flex-1" />
+          <header className="flex h-[60px] sm:h-[72px] items-center gap-4 border-b bg-background/60 backdrop-blur-3xl px-3 sm:px-4 md:px-6 sticky top-0 z-20 supports-[backdrop-filter]:bg-background/40">
+            <SidebarTrigger className="hover:bg-primary/10 rounded-xl w-9 h-9 sm:w-10 sm:h-10 flex items-center justify-center transition-all text-primary shrink-0" />
+            <div className="flex-1 min-w-0" />
             <div className="flex items-center gap-2">
-              <UiBadge variant="outline" className="bg-primary/5 text-primary border-primary/20 hidden sm:flex">V1.5 PREMIUM</UiBadge>
+              <UiBadge variant="outline" className="bg-primary/5 text-primary border-primary/20 hidden sm:flex text-xs">V1.5 PREMIUM</UiBadge>
             </div>
           </header>
-          <main className="flex-1 p-4 md:p-8 overflow-y-auto animate-enter scroll-smooth">
-            <div className="max-w-7xl mx-auto pb-20 md:pb-8">
+          <main className="flex-1 p-3 sm:p-4 md:p-8 overflow-y-auto overflow-x-hidden animate-enter scroll-smooth flex flex-col h-full">
+            <div className="max-w-7xl mx-auto pb-8 md:pb-4 w-full flex-1 flex flex-col min-h-0">
               {children}
             </div>
           </main>

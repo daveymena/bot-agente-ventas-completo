@@ -1,0 +1,21 @@
+{
+  "name": "VentasPro - Sistema de Ventas con IA",
+  "short_name": "VentasPro",
+  "description": "Sistema completo de ventas automatizadas con agentes de IA, gestión de conversaciones y análisis en tiempo real",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#6366f1",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["business", "productivity", "utilities"],
+  "lang": "es",
+  "dir": "ltr"
+}

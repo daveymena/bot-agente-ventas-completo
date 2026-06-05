@@ -1,6 +1,6 @@
 import { Router, type Request, type Response } from "express";
-import { db, products, conversations, messages } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import { db, products, conversations, messages, payments } from "@workspace/db";
+import { eq, and, desc } from "drizzle-orm";
 import { whatsapp } from "../lib/whatsapp";
 import { logger } from "../lib/logger";
 
@@ -44,6 +44,54 @@ router.post("/mercadopago", async (req: Request, res: Response) => {
       if (product && product.deliveryLink) {
         const message = `━━━━━━━━━━━━━━━━━━━━━━\n✅ *¡PAGO CONFIRMADO!* 🎉\n━━━━━━━━━━━━━━━━━━━━━━\n\n¡Hola! Tu pago por *${product.name}* ha sido verificado automáticamente.\n\nAquí tienes tu acceso de por vida:\n🚀 ${product.deliveryLink}\n\n¡Espero que disfrutes mucho el contenido! Si tienes dudas, aquí estoy.`;
 
+        // 1. Buscar y actualizar el registro de pago en BD
+        if (productId) {
+          const [pendingPayment] = await db.select()
+            .from(payments)
+            .where(and(
+              eq(payments.productId, productId),
+              eq(payments.status, 'pending')
+            ))
+            .orderBy(desc(payments.createdAt))
+            .limit(1);
+
+          if (pendingPayment) {
+            await db.update(payments)
+              .set({
+                status: 'confirmed',
+                paymentStatus: 'approved',
+                verifiedAt: new Date(),
+                verifiedBy: 'mercadopago_webhook',
+                verificationSource: 'webhook',
+              })
+              .where(eq(payments.id, pendingPayment.id));
+
+            logger.info({ paymentId: pendingPayment.id, productId }, "[Webhook] Pago actualizado a 'confirmed' en BD");
+          }
+
+          // 2. Actualizar conversación relacionada
+          const [relatedConvo] = await db.select()
+            .from(conversations)
+            .where(and(
+              eq(conversations.paymentStatus, 'pending'),
+              eq(conversations.currentProductId, productId)
+            ))
+            .orderBy(desc(conversations.createdAt))
+            .limit(1);
+
+          if (relatedConvo) {
+            await db.update(conversations)
+              .set({
+                paymentStatus: 'confirmed',
+                paidAt: new Date(),
+              })
+              .where(eq(conversations.id, relatedConvo.id));
+
+            logger.info({ conversationId: relatedConvo.id }, "[Webhook] Conversación actualizada a pago confirmado");
+          }
+        }
+
+        // 3. Enviar mensaje de entrega por WhatsApp
         if (whatsapp.isConnected()) {
           await whatsapp.sendText(phone, message);
           logger.info({ phone, productName: product.name }, "[Webhook] Entrega realizada exitosamente");
@@ -58,6 +106,95 @@ router.post("/mercadopago", async (req: Request, res: Response) => {
     res.json({ success: true });
   } catch (error) {
     logger.error({ error }, "[Webhook] Error procesando notificación de MercadoPago");
+    res.status(500).json({ error: "Internal error" });
+  }
+});
+
+router.post("/paypal", async (req: Request, res: Response) => {
+  try {
+    const body = req.body;
+    logger.info({ payment_status: body.payment_status, txn_id: body.txn_id, custom: body.custom }, "[Webhook] Notificación PayPal recibida");
+
+    if (body.payment_status === "Completed") {
+      const custom: string = body.custom || "";
+      let phone = "";
+      let productId: number | null = null;
+
+      if (custom.includes("|")) {
+        const parts = custom.split("|");
+        phone = parts[0] || "";
+        productId = parseInt(parts[1] || "0") || null;
+      }
+
+      if (!phone || !productId) {
+        logger.warn({ custom, txn_id: body.txn_id }, "[Webhook-PayPal] No se pudo extraer phone/productId del custom field");
+        res.json({ success: true });
+        return;
+      }
+
+      const [product] = await db.select().from(products).where(eq(products.id, productId));
+
+      if (product && product.deliveryLink) {
+        const message = `━━━━━━━━━━━━━━━━━━━━━━\n✅ *¡PAGO CONFIRMADO!* 🎉\n━━━━━━━━━━━━━━━━━━━━━━\n\n¡Hola! Tu pago por *${product.name}* ha sido verificado automáticamente.\n\nAquí tienes tu acceso de por vida:\n🚀 ${product.deliveryLink}\n\n¡Espero que disfrutes mucho el contenido! Si tienes dudas, aquí estoy.`;
+
+        // Actualizar pago en BD
+        if (productId) {
+          const [pendingPayment] = await db.select()
+            .from(payments)
+            .where(and(
+              eq(payments.productId, productId),
+              eq(payments.status, 'pending')
+            ))
+            .orderBy(desc(payments.createdAt))
+            .limit(1);
+
+          if (pendingPayment) {
+            await db.update(payments)
+              .set({
+                status: 'confirmed',
+                paymentStatus: 'approved',
+                verifiedAt: new Date(),
+                verifiedBy: 'paypal_ipn',
+                verificationSource: 'paypal_ipn',
+              })
+              .where(eq(payments.id, pendingPayment.id));
+          }
+
+          // Actualizar conversación
+          const [relatedConvo] = await db.select()
+            .from(conversations)
+            .where(and(
+              eq(conversations.paymentStatus, 'pending'),
+              eq(conversations.currentProductId, productId)
+            ))
+            .orderBy(desc(conversations.createdAt))
+            .limit(1);
+
+          if (relatedConvo) {
+            await db.update(conversations)
+              .set({
+                paymentStatus: 'confirmed',
+                paidAt: new Date(),
+              })
+              .where(eq(conversations.id, relatedConvo.id));
+          }
+        }
+
+        // Enviar link por WhatsApp
+        if (whatsapp.isConnected()) {
+          await whatsapp.sendText(phone, message);
+          logger.info({ phone, productName: product.name }, "[Webhook-PayPal] Entrega realizada exitosamente");
+        } else {
+          logger.warn({ phone, productId }, "[Webhook-PayPal] WhatsApp no conectado, no se pudo entregar");
+        }
+      } else {
+        logger.warn({ productId, hasDeliveryLink: !!product?.deliveryLink }, "[Webhook-PayPal] Producto sin link de entrega");
+      }
+    }
+
+    res.json({ success: true });
+  } catch (error) {
+    logger.error({ error }, "[Webhook-PayPal] Error procesando IPN de PayPal");
     res.status(500).json({ error: "Internal error" });
   }
 });

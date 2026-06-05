@@ -17,8 +17,10 @@ export const agents = pgTable("agents", {
   model: text("model").notNull().default("gpt-4o-mini"),
   systemPrompt: text("system_prompt").notNull(),
   stages: jsonb("stages").$type<AgentStage[]>().notNull().default([]),
+  metadata: jsonb("metadata").$type<Record<string, any>>().default({}),
   isActive: boolean("is_active").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
 });
 
 export type Agent = typeof agents.$inferSelect;

@@ -1,3 +1,4 @@
+import { safeISO } from "../lib/date-utils";
 import { Router, type IRouter } from "express";
 import { asc, eq } from "drizzle-orm";
 import {
@@ -65,7 +66,7 @@ function serialize(row: typeof productCategories.$inferSelect) {
     description: row.description ?? null,
     icon: row.icon ?? null,
     color: row.color,
-    createdAt: row.createdAt.toISOString(),
+    createdAt: safeISO(row.createdAt),
   };
 }
 

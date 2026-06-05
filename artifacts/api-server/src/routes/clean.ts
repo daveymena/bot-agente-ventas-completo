@@ -2,6 +2,8 @@ import { Router } from "express";
 import { db, conversations, messages, leads, activityEvents, products } from "@workspace/db";
 import { sql } from "drizzle-orm";
 import { logger } from "../lib/logger";
+import { sendError } from "../lib/error-handler";
+import { ERROR_CODES } from "../lib/error-codes";
 
 const router = Router();
 
@@ -11,7 +13,7 @@ router.post("/deep-clean", async (req, res) => {
     const { confirm = false } = req.body;
     
     if (!confirm) {
-      return res.status(400).json({ error: "Debes confirmar la limpieza profunda" });
+      return sendError(res, ERROR_CODES.CLEAN_CONFIRMATION_REQUIRED, 400);
     }
 
     logger.info("[Clean] Iniciando limpieza profunda de la base de datos...");
@@ -40,13 +42,13 @@ router.post("/deep-clean", async (req, res) => {
 
     logger.info("[Clean] Limpieza y reparación completada con éxito.");
 
-    res.json({ 
+    return res.json({ 
       success: true, 
       message: "Base de datos de interacciones reseteada completamente. Los productos han sido preservados." 
     });
   } catch (e: any) {
     logger.error(e, "[Clean] Error en Deep Clean");
-    res.status(500).json({ error: e.message });
+    return sendError(res, ERROR_CODES.INTERNAL_SERVER_ERROR, 500);
   }
 });
 

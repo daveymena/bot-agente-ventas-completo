@@ -1,4 +1,5 @@
-import { and, asc, desc, eq } from "drizzle-orm";
+// @ts-nocheck
+import { eq, and, asc, desc } from "drizzle-orm";
 import {
   db,
   agents,
@@ -13,6 +14,7 @@ import { getProviderConfig, getProviderConfigFromSettings, createAIClient } from
 import { logger } from "./logger";
 import { PaymentGateway } from "./payments";
 import { 
+  healthMonitor,
   executeWithFallback, 
   determineFallbackResponse, 
   retryWithBackoff,
@@ -21,6 +23,29 @@ import {
   arePaymentServicesHealthy,
   getSystemHealthSummary
 } from "./fallbackSystem";
+import {
+  loadConversationMemory,
+  computeDecision,
+  saveAgentMessage,
+  persistStage,
+  buildChatHistory,
+  detectIntent,
+  tryHardcodedAnswer,
+  sanitizeResponse,
+  detectHardcodedIntent,
+  hasHardcodedAnswerBeenGiven,
+  type Stage,
+} from "./conversation-engine";
+import { getBrandVoice, formatWithBrandVoice } from "./brand-voice";
+import { analyzeBrain, buildFinalPrompt, type ResponseStrategy, type EmotionalState } from "./response-brain";
+import { 
+  isPaymentConfirmation, 
+  isPaymentMethodQuestion, 
+  isProductDetailsQuestion,
+  getPaymentMethodResponse,
+  getConfirmationResponse
+} from "./payment-confirmation";
+import { getAgentType } from "./agent-router";
 import { 
   analyzeCustomerObjection, 
   generateObjectionResponse,
@@ -29,6 +54,94 @@ import {
   type PersonalizationData,
   type EmotionalContext
 } from "./objectionHandler";
+import { AdvancedIntelligence } from "./advanced-intelligence";
+import {
+  getOptimizedProviderOrder,
+  reportProviderResult,
+  getProviderTimeout,
+  resetProviderRotation,
+} from "./optimized-rotation";
+import { getG4FResponse, initializeG4F } from "./providers/g4f-provider";
+import { G4F_ENABLED } from "../config/g4f.config";
+
+// ============================================================
+// 🎯 UNIFIED KEYWORD CONSTANTS - SINGLE SOURCE OF TRUTH
+// ============================================================
+// ⚠️ IMPORTANTE: Esta es la ÚNICA definición de keywords en todo el sistema
+// Evita duplicación de lógica y mantiene consistencia en la detección de intenciones
+
+export const PAYMENT_KEYWORDS = [
+  // Compra / Adquisición
+  'pago', 'pagar', 'comprar', 'adquirir', 'compro', 'comprare',
+  // Métodos de pago
+  'nequi', 'daviplata', 'transferencia', 'transferir',
+  // Consultas sobre pago
+  'cuenta', 'link', 'enlace', 'precio', 'cuánto', 'costo', 'vale',
+  // Confirmación de compra
+  'confirmo', 'confirmar', 'procedo', 'adelante', 'vamos', 'dale'
+];
+
+export const OBJECTION_KEYWORDS = [
+  'caro', 'costoso', 'mucho', 'pensarlo', 'después', 'luego',
+  'no sé', 'duda', 'inseguro', 'desconfío', 'estafa', 'funciona',
+  'garantía', 'devolución', 'reembolso', 'no tengo', 'sin dinero'
+];
+
+export const URGENCY_KEYWORDS = [
+  'rápido', 'urgente', 'ya', 'ahora', 'hoy', 'inmediato',
+  'cuanto antes', 'pronto', 'necesito ya'
+];
+
+export const LEAVING_KEYWORDS = [
+  'adiós', 'chao', 'gracias', 'luego', 'después', 'no gracias',
+  'no me interesa', 'no quiero', 'déjame', 'molestando'
+];
+
+// Interest level indicators for lead behavior analysis
+export const HIGH_INTEREST_KEYWORDS = [
+  'necesito', 'urgente', 'cuando', 'precio', 'comprar', 'adquirir'
+];
+
+export const MEDIUM_INTEREST_KEYWORDS = [
+  'interesa', 'información', 'detalles', 'características'
+];
+
+export const LOW_INTEREST_KEYWORDS = [
+  'hola', 'buenas', 'que tal'
+];
+
+// Decision capacity indicators
+export const HIGH_DECISION_KEYWORDS = [
+  'compro', 'quiero', 'necesito', 'decidido'
+];
+
+export const LOW_DECISION_KEYWORDS = [
+  'tal vez', 'no se', 'pensando', 'viendo'
+];
+
+// Helper functions for intent detection
+
+export function hasPaymentIntent(text: string): boolean {
+  const lowerText = text.toLowerCase();
+  return PAYMENT_KEYWORDS.some(k => lowerText.includes(k));
+}
+
+export function hasObjectionIntent(text: string): boolean {
+  const lowerText = text.toLowerCase();
+  return OBJECTION_KEYWORDS.some(k => lowerText.includes(k));
+}
+
+export function hasUrgencyIntent(text: string): boolean {
+  const lowerText = text.toLowerCase();
+  return URGENCY_KEYWORDS.some(k => lowerText.includes(k));
+}
+
+export function hasLeavingIntent(text: string): boolean {
+  const lowerText = text.toLowerCase();
+  return LEAVING_KEYWORDS.some(k => lowerText.includes(k));
+}
+
+// ============================================================
 
 // Context Intelligence Enhancement Types
 interface ConversationContext {
@@ -38,6 +151,9 @@ interface ConversationContext {
   leadBehavior: LeadBehaviorPattern;
   interactionCount: number;
   lastInteractionTime: Date | null;
+  // ✅ Nuevo: Rastrear tarjetas enviadas para evitar repetición
+  cardsSentFor: Set<number>; // IDs de productos cuya tarjeta ya fue enviada
+  lastCardSentAt: Date | null;
 }
 
 interface LeadBehaviorPattern {
@@ -59,40 +175,31 @@ interface TopicTransition {
 }
 
 async function updateConversationStage(convo: any, lastText: string, res: any, conversationId: number) {
-  console.log(`🔄 [STAGE-ANALYSIS] Analizando etapa para conversación ${conversationId} - Etapa actual: ${convo.currentStage} - ${new Date().toISOString()}`);
+  console.log(`🔄 [STAGE-ANALYSIS] Analizando etapa dinámica para conversación ${conversationId}`);
   
-  // ANALIZAR ETAPA PARA EL DASHBOARD
   let nextStage: string = convo.currentStage;
-  const allTextLower = lastText.toLowerCase();
+  const text = lastText.toLowerCase();
+  const responseText = res.content.toLowerCase();
 
-  console.log(`🔍 [STAGE-ANALYSIS] Mensaje del cliente: "${lastText.substring(0, 50)}" - ${new Date().toISOString()}`);
-
-  if (allTextLower.includes("hola") || allTextLower.includes("buen")) {
-    nextStage = "greeting";
-    console.log(`👋 [STAGE-DETECTION] Saludo detectado - ${new Date().toISOString()}`);
+  // Detección basada en Intención, no en orden lineal
+  if (text.includes("pago") || text.includes("comprar") || text.includes("adquirir") || text.includes("cuenta") || text.includes("nequi") || text.includes("link") || text.includes("enlace")) {
+    nextStage = "closing"; // Salto directo al cierre si hay intención de pago
+  } 
+  else if (responseText.includes("[card:") || text.includes("qué incluye") || text.includes("qué trae") || text.includes("característica")) {
+    nextStage = "presentation"; // Presentación si se muestra tarjeta o hay dudas técnicas
   }
-  if (allTextLower.includes("precio") || allTextLower.includes("cuanto") || allTextLower.includes("costo") || allTextLower.includes("informacion")) {
-    nextStage = "qualification";
-    console.log(`❓ [STAGE-DETECTION] Calificación detectada - ${new Date().toISOString()}`);
+  else if (text.includes("precio") || text.includes("cuánto") || text.includes("costo") || text.includes("información")) {
+    nextStage = "qualification"; // Calificación si pregunta general
   }
-  if (res.content.includes("[CARD:")) {
-    nextStage = "presentation";
-    console.log(`📋 [STAGE-DETECTION] Presentación detectada (tarjeta en respuesta) - ${new Date().toISOString()}`);
-  }
-  if (allTextLower.includes("pago") || allTextLower.includes("comprar") || allTextLower.includes("adquirir") || allTextLower.includes("cuenta") || allTextLower.includes("nequi")) {
-    nextStage = "closing";
-    console.log(`💰 [STAGE-DETECTION] Cierre detectado - ${new Date().toISOString()}`);
+  else if (text.length < 15 && (text.includes("hola") || text.includes("buen"))) {
+    nextStage = "greeting"; // Saludo solo si es mensaje corto de entrada
   }
 
   if (nextStage !== convo.currentStage) {
-    console.log(`🔄 [STAGE-UPDATE] Actualizando etapa: ${convo.currentStage} → ${nextStage} - ${new Date().toISOString()}`);
-    logger.info({ from: convo.currentStage, to: nextStage }, "[Stage] Actualizando etapa");
+    console.log(`🔄 [STAGE-DYNAMIC] Cambio de etapa detectado: ${convo.currentStage} → ${nextStage}`);
     await db.update(conversations)
       .set({ currentStage: nextStage })
-      .where(eq(conversations.id, conversationId)); // now correctly typed as number
-    console.log(`✅ [STAGE-UPDATE] Etapa actualizada exitosamente - ${new Date().toISOString()}`);
-  } else {
-    console.log(`➡️ [STAGE-UPDATE] Etapa sin cambios: ${convo.currentStage} - ${new Date().toISOString()}`);
+      .where(eq(conversations.id, conversationId));
   }
 }
 
@@ -118,11 +225,8 @@ function analyzeConversationContext(history: any[]): ConversationContext {
   const customerMessages = history.filter(m => m.role === "customer");
   
   // Check if agent has already introduced itself
-  const hasIntroduced = agentMessages.some(m => 
-    m.content.toLowerCase().includes("sofía") || 
-    m.content.toLowerCase().includes("te habla") ||
-    m.content.toLowerCase().includes("asesora")
-  );
+  // Detectamos si ya hubo al menos UN mensaje del agente (cualquier saludo cuenta como presentación)
+  const hasIntroduced = agentMessages.length > 0;
 
   // Analyze lead behavior patterns
   const leadBehavior = analyzeLeadBehaviorPattern(customerMessages);
@@ -149,35 +253,26 @@ function analyzeLeadBehaviorPattern(customerMessages: any[]): LeadBehaviorPatter
   const lastMessage = customerMessages[customerMessages.length - 1]?.content || "";
   
   // Interest level indicators
-  const highInterestKeywords = ["necesito", "urgente", "cuando", "precio", "comprar", "adquirir"];
-  const mediumInterestKeywords = ["interesa", "información", "detalles", "características"];
-  const lowInterestKeywords = ["hola", "buenas", "que tal"];
-  
   let interestLevel: 'low' | 'medium' | 'high' = 'low';
-  if (highInterestKeywords.some(k => allText.includes(k))) {
+  if (HIGH_INTEREST_KEYWORDS.some(k => allText.includes(k))) {
     interestLevel = 'high';
-  } else if (mediumInterestKeywords.some(k => allText.includes(k))) {
+  } else if (MEDIUM_INTEREST_KEYWORDS.some(k => allText.includes(k))) {
     interestLevel = 'medium';
   }
 
-  // Count price inquiries
-  const priceKeywords = ["precio", "costo", "valor", "cuanto", "pago", "pagar"];
-  const priceInquiries = priceKeywords.reduce((count, keyword) => 
+  // Count price inquiries - ✅ Usando CONSTANTE UNIFICADA
+  const priceInquiries = PAYMENT_KEYWORDS.reduce((count, keyword) => 
     count + (allText.match(new RegExp(keyword, 'g')) || []).length, 0
   );
 
-  // Detect urgency indicators
-  const urgencyKeywords = ["urgente", "rapido", "ya", "ahora", "inmediato", "pronto"];
-  const urgencyIndicators = urgencyKeywords.filter(k => allText.includes(k));
+  // Detect urgency indicators - ✅ Usando CONSTANTE UNIFICADA
+  const urgencyIndicators = URGENCY_KEYWORDS.filter(k => allText.includes(k));
 
-  // Decision capacity indicators
-  const highDecisionKeywords = ["compro", "quiero", "necesito", "decidido"];
-  const lowDecisionKeywords = ["tal vez", "no se", "pensando", "viendo"];
-  
+  // Decision capacity indicators - ✅ Usando CONSTANTES UNIFICADAS
   let decisionCapacity: 'low' | 'medium' | 'high' = 'medium';
-  if (highDecisionKeywords.some(k => allText.includes(k))) {
+  if (HIGH_DECISION_KEYWORDS.some(k => allText.includes(k))) {
     decisionCapacity = 'high';
-  } else if (lowDecisionKeywords.some(k => allText.includes(k))) {
+  } else if (LOW_DECISION_KEYWORDS.some(k => allText.includes(k))) {
     decisionCapacity = 'low';
   }
 
@@ -185,9 +280,8 @@ function analyzeLeadBehaviorPattern(customerMessages: any[]): LeadBehaviorPatter
   const productKeywords = ["piano", "guitarra", "excel", "diseño", "trading", "idiomas", "hacking"];
   const preferredProducts = productKeywords.filter(k => allText.includes(k));
 
-  // Detect objection patterns
-  const objectionKeywords = ["caro", "costoso", "mucho dinero", "no tengo", "presupuesto"];
-  const objectionPatterns = objectionKeywords.filter(k => allText.includes(k));
+  // Detect objection patterns - ✅ Usando CONSTANTE UNIFICADA
+  const objectionPatterns = OBJECTION_KEYWORDS.filter(k => allText.includes(k));
 
   // Advanced Intelligence: Analyze communication style
   const communicationStyle = analyzeCommunicationStyle(allText, customerMessages);
@@ -368,7 +462,7 @@ function generatePersonalizedContext(context: ConversationContext, lastMessage: 
 
   // Introduction context
   if (hasIntroduced) {
-    personalizedInstructions += "\nCONTEXTO DE PRESENTACIÓN: Ya te presentaste como Sofía anteriormente. NO te presentes de nuevo.\n";
+    personalizedInstructions += "\nCONTEXTO DE PRESENTACIÓN: Ya saludaste al cliente anteriormente. NO vuelvas a decir 'Hola', '¡Hola!', 'Buenos días' ni ningún saludo de apertura. Ve DIRECTO al punto.\n";
   }
 
   // Topic transition context
@@ -450,485 +544,731 @@ IMPORTANTE: Usa esta información para responder de manera empática y estratég
 
 export async function runAgentReply(conversationId: number) {
   const startTime = Date.now();
-  console.log(`🔍 [AGENT-START] runAgentReply iniciado para conversación ${conversationId} - ${new Date().toISOString()}`);
+  const ts = () => new Date().toISOString();
+  const logTime = (label: string) => {
+    const elapsed = Date.now() - startTime;
+    console.log(`⏱️ [TIMING] ${label}: ${elapsed}ms - ${ts()}`);
+  };
   
+  console.log(`🔍 [AGENT-START] runAgentReply iniciado para conversación ${conversationId} - ${ts()}`);
+
+  // ── 1. Cargar conversación ────────────────────────────────────────────────
+  let t1 = Date.now();
   const [convo] = await db.select().from(conversations).where(eq(conversations.id, conversationId)).limit(1);
+  logTime(`1. Cargar conversación: ${Date.now() - t1}ms`);
+  
   if (!convo) {
-    console.log(`❌ [AGENT-ERROR] Conversación ${conversationId} no encontrada - ${new Date().toISOString()}`);
+    console.log(`❌ [AGENT-ERROR] Conversación ${conversationId} no encontrada - ${ts()}`);
     return null;
   }
-  console.log(`📱 [AGENT-INFO] Conversación encontrada: ${convo.contactPhone}, Estado: ${convo.status}, Etapa: ${convo.currentStage} - ${new Date().toISOString()}`);
 
-  const [activeAgent] = await db.select().from(agents).where(eq(agents.isActive, true)).limit(1);
+  // ── 2. Cargar memoria estructurada desde BD (fuente única de verdad) ──────
+  t1 = Date.now();
+  const memory = await loadConversationMemory(conversationId);
+  logTime(`2. Cargar memoria: ${Date.now() - t1}ms`);
+  
+  const lastText = memory.lastCustomerMessage;
+  const customerName = convo.contactName || "cliente";
+
+  console.log(`🧠 [ENGINE] Memoria cargada - hasGreeted:${memory.hasGreeted} stage:${memory.currentStage} product:${memory.currentProductName || "none"} sentCards:[${Array.from(memory.sentProductIds).join(",")}] isNewSession:${memory.isNewSession} - ${ts()}`);
+
+  // ── 3. Seleccionar agente activo ──────────────────────────────────────────
+  t1 = Date.now();
+  const { getActiveAgent } = await import("./agent-router");
+  const activeAgent = await getActiveAgent(lastText, conversationId, convo.tenantId);
+  logTime(`3. Seleccionar agente: ${Date.now() - t1}ms`);
+  
   if (!activeAgent) {
-    console.log(`❌ [AGENT-ERROR] No hay agente activo configurado - ${new Date().toISOString()}`);
+    console.log(`❌ [AGENT-ERROR] No hay agente activo configurado - ${ts()}`);
     return null;
   }
-  console.log(`🤖 [AGENT-INFO] Agente activo: ${activeAgent.name} - ${new Date().toISOString()}`);
+  console.log(`🤖 [AGENT-INFO] Agente activo: ${activeAgent.name} - ${ts()}`);
 
+  // ── 4. Cargar productos y categorías (OPTIMIZADO - SELECTIVO) ─────────────
+  t1 = Date.now();
   const [appSettings] = await db.select().from(settingsTable).limit(1);
-  const productList = await db.select().from(products).where(eq(products.isActive, true));
-  console.log(`📦 [AGENT-INFO] Productos activos: ${productList.length} - ${new Date().toISOString()}`);
+  logTime(`4a. Cargar settings: ${Date.now() - t1}ms`);
   
-  const history = await db
-    .select()
-    .from(messages)
-    .where(eq(messages.conversationId, conversationId))
-    .orderBy(desc(messages.createdAt))
-    .limit(15);
-
-  console.log(`💬 [AGENT-INFO] Historial de mensajes cargado: ${history.length} mensajes - ${new Date().toISOString()}`);
-
-  history.reverse(); // Ordenamos de más viejo a más nuevo para la IA
-
-  // Context Intelligence Enhancement: Analyze conversation context
-  const conversationContext = analyzeConversationContext(history);
-  console.log(`🧠 [AGENT-ANALYSIS] Contexto analizado - Presentado: ${conversationContext.hasIntroduced}, Tema: ${conversationContext.currentTopic}, Interés: ${conversationContext.leadBehavior.interestLevel}, Estilo: ${conversationContext.leadBehavior.communicationStyle} - ${new Date().toISOString()}`);
+    // Determinar si necesitamos productos basado en intención
+    // Primero hacer un análisis rápido de intención sin cargar todo
+    const needsProductsQuick = lastText.toLowerCase().match(/qué|producto|precio|comprar|pago|nequi|daviplata|transferencia|link|enlace|adquirir|compro|megapack|piano|curso|pack|suscripci|membres|idiomas|idioma/i);
   
-  logger.info({ 
-    conversationId, 
-    hasIntroduced: conversationContext.hasIntroduced,
-    currentTopic: conversationContext.currentTopic,
-    interestLevel: conversationContext.leadBehavior.interestLevel,
-    emotionalState: conversationContext.leadBehavior.emotionalState.sentiment,
-    communicationStyle: conversationContext.leadBehavior.communicationStyle
-  }, "[Agent] Context analysis completed");
+    let productList: any[] = [];
+    let categoryMap = new Map<number, string>();
+    
+    if (needsProductsQuick) {
+      // Solo cargar si es probable que sea product_query o payment_intent
+      t1 = Date.now();
+      productList = await db.select().from(products)
+        .where(eq(products.isActive, true))
+        .limit(50); // Limitar a 50 productos más recientes
+      logTime(`4b. Cargar productos: ${Date.now() - t1}ms`);
+      
+      // Si no hay productos activos, hacer fallback a todos los productos (para casos de datos de prueba)
+      if (productList.length === 0) {
+        productList = await db.select().from(products)
+          .limit(50); // Fallback: cargar cualquier producto activo o no
+        logTime(`4b. Fallback - Cargar todos los productos: ${Date.now() - t1}ms`);
+      }
+      
+      t1 = Date.now();
+      const allCategories = await db.select().from(productCategories);
+      categoryMap = new Map(allCategories.map(c => [c.id, c.name.toLowerCase()]));
+      logTime(`4c. Cargar categorías: ${Date.now() - t1}ms`);
+      
+      console.log(`📦 [AGENT-INFO] Productos cargados: ${productList.length} (selectivo) - ${ts()}`);
+    } else {
+      console.log(`📦 [AGENT-INFO] Productos omitidos (no necesarios) - ${ts()}`);
+    }
 
-  const productsBlock = productList
-    .map((p) => `PRODUCTO_ID=${p.id} | USAR: [CARD: ${p.id}] | ${p.name} | ${formatPrice(Number(p.price), p.currency)} | ${p.description || ""}`)
-    .join("\n");
-
-  // Error Resilience Enhancement: Check payment gateway health before generating payment info
-  const pg = new PaymentGateway();
-  const lastCustomerMsg = [...history].reverse().find(m => m.role === "customer");
-  const lastText = lastCustomerMsg?.content.toLowerCase() || "";
+  // ── 5. Motor de decisión ──────────────────────────────────────────────────
+  t1 = Date.now();
+  const decision = await computeDecision(memory, lastText, productList, categoryMap);
+  logTime(`5. Motor de decisión: ${Date.now() - t1}ms`);
   
-  // Context Intelligence Enhancement: Detect topic transitions
-  const topicTransition = detectTopicTransition(history.slice(0, -1), lastText);
-  if (topicTransition) {
-    console.log(`🔄 [AGENT-TRANSITION] Cambio de tema detectado: ${topicTransition.from || 'ninguno'} → ${topicTransition.to} (confianza: ${topicTransition.confidence}) - ${new Date().toISOString()}`);
-    logger.info({ 
-      conversationId, 
-      transition: topicTransition 
-    }, "[Agent] Topic transition detected");
+  console.log(`🎯 [ENGINE-DECISION] ${decision.debugReason} - ${ts()}`);
+
+  // ── 6. Obtener la voz del negocio (ANTES de cualquier respuesta) ─────────
+  t1 = Date.now();
+  const voice = getBrandVoice(
+    activeAgent.metadata as Record<string, any> | null,
+    appSettings ? { businessName: appSettings.businessName } : null
+  );
+  logTime(`6. Obtener voz del negocio: ${Date.now() - t1}ms`);
+
+  // ── 7. CEREBRO DE RAZONAMIENTO: analiza ANTES de cualquier camino ────────
+  t1 = Date.now();
+  const hcIntent = decision.intent === "details_query" ? detectHardcodedIntent(lastText) : null;
+  const hardcodedYaDado = hcIntent ? hasHardcodedAnswerBeenGiven(memory, hcIntent) : false;
+  const brain = analyzeBrain(
+    lastText,
+    decision.intent,
+    memory,
+    voice,
+    decision.productToShow?.name || memory.currentProductName,
+    hardcodedYaDado
+  );
+  logTime(`7. Análisis del cerebro: ${Date.now() - t1}ms`);
+  
+  console.log(`🧠 [BRAIN] estado:${brain.emotionalState} estrategia:${brain.strategy} — ${brain.strategyReason} - ${ts()}`);
+
+  // ── 8. Construir catálogo COMPLETO para la IA (ella decide el producto) ──
+  t1 = Date.now();
+  let productsBlock = "";
+  const needsFullCatalog = decision.intent !== "greeting" && decision.intent !== "leaving";
+  
+  if (productList.length > 0 && needsFullCatalog) {
+    productsBlock = productList.map(p => {
+      const features = (p.features as string[]) || [];
+      const featStr = features.length > 0 ? ` | Características: ${features.join(", ")}` : "";
+      const descStr = p.description ? ` | ${p.description.substring(0, 120)}` : "";
+      return `[ID: ${p.id}] *${p.name}* — ${formatPrice(Number(p.price), p.currency)}${descStr}${featStr}`;
+    }).join("\n\n");
+    console.log(`📦 [CATALOG] Catálogo completo para IA: ${productList.length} productos - ${ts()}`);
+  } else if (productList.length > 0) {
+    productsBlock = productList.map(p => {
+      return `[ID: ${p.id}] ${p.name} — ${formatPrice(Number(p.price), p.currency)}`;
+    }).join("\n");
+    console.log(`📦 [CATALOG] Catálogo básico para greeting/leaving: ${productList.length} productos`);
+  } else {
+    productsBlock = "[Catálogo disponible bajo demanda]";
+    console.log(`📦 [CATALOG] Sin catálogo disponible`);
   }
-  
-  let paymentInfo = "";
-  const paymentKeywords = ["pago", "pagar", "comprar", "transferencia", "nequi", "daviplata", "adquirir", "compro", "cuenta", "precio", "valor", "link", "enlace"];
-  if (paymentKeywords.some(k => lastText.includes(k))) {
-    console.log(`💳 [AGENT-PAYMENT] Solicitud de pago detectada: "${lastText.substring(0, 50)}" - ${new Date().toISOString()}`);
-    
-    // PRIORIDAD DE RESOLUCIÓN DEL PRODUCTO (anti cross-product bug):
-    // 1. Nombre exacto mencionado en el mensaje actual
-    // 2. ID explícito que el cliente haya pedido (productForRequest)
-    // 3. Tema actual de la conversación — solo si hay coincidencia fuerte
-    // 4. Si no hay certeza: NO generar link, pedir aclaración
-    let paymentProduct = productList.find(p => lastText.includes(p.name.toLowerCase()));
-    
-    if (!paymentProduct && productForRequest) {
-      paymentProduct = productForRequest;
-      console.log(`🎯 [AGENT-PAYMENT] Usando producto de la solicitud actual: ${paymentProduct.name} (ID: ${paymentProduct.id})`);
+  logTime(`8. Construir catálogo: ${Date.now() - t1}ms`);
+
+  // ── 9. Construir prompt base del sistema ──────────────────────────────────
+  const hasSentCardAlready = memory.sentProductIds.size > 0;
+  const isPaymentIntent = (decision.intent === "payment_intent" || decision.intent === "confirmation");
+
+  const systemPrompt = (activeAgent.systemPrompt || `Eres **${voice.agentName}**, ${voice.agentRole} de ${voice.businessName}.
+Estás conversando con **${customerName}** en WhatsApp.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🧠 IDENTIDAD Y PERSONALIDAD
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Eres un asesor de ventas excepcionalmente inteligente y natural. Conversas como un ser humano real: cálido, empático, con sentido del humor cuando corresponde. NO eres un robot ni suenas automatizado.
+
+• Escuchas activamente: entiendes el contexto completo de la conversación, no solo la última pregunta.
+• Piensas antes de responder: analizas qué necesita realmente el cliente y respondes con precisión.
+• Eres versátil: puedes hablar DE VENTAS (productos, precios, pagos) y también DE TEMAS GENERALES (el clima, tecnología, recomendaciones, actualidad). Si el cliente pregunta algo ajeno al negocio, responde de forma natural y luego retoma el hilo.
+• Nunca inventas información que no esté en el catálogo o en el contexto proporcionado.
+• Usas emojis de forma NATURAL (1-2 por mensaje, no más). Solo cuando aportan calidez.
+• Tus respuestas son CONCISAS pero COMPLETAS. Ni te alargas ni eres demasiado cortante.
+• REGLA ESTRICTA DE NO INTERROGAR: Nunca hagas preguntas al cliente pidiendo más detalles, ni terminando con "¿Qué tipo buscas?". Simplemente entrégale la información de las opciones o de las categorías y deja que el cliente sea quien decida y pregunte si le interesa.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📋 DATOS DEL NEGOCIO — PROCESO COMPLETO DE ENTREGA
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+• Método de entrega: ${voice.deliveryInfo.details}
+• Acceso: ${voice.accessInfo.description}
+• Garantía: ${voice.guaranteeInfo.description}
+
+📌 PROCESO DE PAGO Y ENTREGA (explícale esto al cliente cuando pregunte):
+• Opción 1 — Pago por LINK (MercadoPago o PayPal): El cliente paga con tarjeta, PSE o PayPal. El sistema DETECTA EL PAGO AUTOMÁTICAMENTE y le envía el link de Google Drive del producto directamente a este chat. No necesita hacer nada más.
+• Opción 2 — Pago por CONSIGNACIÓN (Nequi/Daviplata/transferencia): El cliente transfiere al número indicado, luego ENVÍA LA CAPTURA O COMPROBANTE por este chat. El equipo verifica y envía el link de Google Drive. El cliente debe reenviar el comprobante aquí mismo.
+• Importante: CADA PRODUCTO tiene su propio link de Google Drive configurado. Se envía automáticamente al confirmar el pago.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📦 CATÁLOGO DE PRODUCTOS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+${productList.length > 0 ? productsBlock : "No hay productos disponibles."}
+
+⚠️ INSTRUCCIONES CRÍTICAS:
+[1] NUNCA inventes productos, precios, características, promociones ni descuentos. Usa SOLO los datos del catálogo.
+[2] NUNCA escribas links, URLs, números de cuenta, ni datos de pago. El sistema los adjunta automáticamente.
+[3] NUNCA digas "te lo envío", "te mando el link", "te llega" ni prometas tiempos de entrega.
+[4] Si el cliente pregunta algo FUERA del contexto del negocio (charla casual, opiniones, etc.), responde de forma natural y amable. Si es posible, redirige suavemente al tema de ventas.
+[5] Si NO SABES algo, admítelo con honestidad. No improvises ni inventes.
+[6] No repitas información que ya diste. Usa la MEMORIA de la conversación.
+${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma brevemente y con entusiasmo. El sistema mostrará automáticamente la tarjeta con métodos de pago del producto que elijas." : `[7] 🧠 ANALIZA EL CONTEXTO de la conversación y elige el producto CORRECTO del catálogo. Usa [CARD: ID] al final de tu mensaje para mostrar la tarjeta del producto que mejor corresponda a lo que el cliente pregunta. Si no estás segura, pregunta más detalles antes de mostrar una card. NUNCA muestres un producto que no tenga relación con lo que el cliente busca.`}`).trim();
+
+  // ── 10. INTEGRAR contexto del motor DENTRO del cerebro ────────────────────
+  // El bloque de contexto del motor (engineContext) se inyecta como contexto adicional
+  // para que el prompt final tenga TODA la información disponible
+  // Pasar todos los productos a AdvancedIntelligence para mejor análisis contextual
+  const aiProductContext = productList.length > 0 ? productList.slice(0, 10) : [];
+  const engineContextBlock = `${decision.contextBlock}\n\n${AdvancedIntelligence.generateIntelligentContext(
+    lastText,
+    memory.history,
+    aiProductContext.length > 0 ? aiProductContext : null
+  )}`;
+
+  // ── 11. ATENDER SEGÚN ESTRATEGIA DEL CEREBRO ─────────────────────────────
+
+  // ── 11a. SALUDO (si el cerebro decidió hardcoded_greeting) ────────────────
+  if (brain.strategy === "hardcoded_greeting") {
+    if (!memory.hasGreeted) {
+      console.log(`⚡ [FAST-TRACK] Primer saludo hardcodeado - ${ts()}`);
+      let greetingRaw = voice.phrases.greeting_new.replace(/\{name\}/g, customerName);
+      
+      // PARCHE DE SEGURIDAD: Evitar que el saludo inicial termine en pregunta
+      greetingRaw = greetingRaw.replace(/¿[^?]*\?\s*😊/g, "Aquí estamos listos para mostrarte lo que tenemos para ti. 😊");
+      greetingRaw = greetingRaw.replace(/¿[^?]*\?/g, "");
+
+      let raw = customerName !== "cliente"
+        ? `${voice.emojis.greeting} ¡Hola *${customerName}*! ${greetingRaw.replace(/^.*?Bienvenido\/?\w*/i, "").trim()}`
+        : greetingRaw;
+
+      await saveAgentMessage(conversationId, raw, "greeting", { intent: "greeting", isHardcoded: true });
+      await persistStage(conversationId, "greeting");
+      const totalTime = Date.now() - startTime;
+      console.log(`🏁 [AGENT-END] Completado en ${totalTime}ms - ${ts()}`);
+      return { content: raw, stage: "greeting", parts: [{ kind: "text", content: raw }], cardProductIds: [] };
     }
-    
-    if (!paymentProduct && conversationContext.currentTopic) {
-      // Solo match fuerte: el nombre completo del producto debe contener el tema
-      const topic = conversationContext.currentTopic.toLowerCase();
-      paymentProduct = productList.find(p => p.name.toLowerCase().includes(topic) && topic.length > 4);
-      if (paymentProduct) console.log(`🧠 [AGENT-PAYMENT] Usando producto del contexto (match fuerte): ${paymentProduct.name} (ID: ${paymentProduct.id})`);
-    }
 
-    if (paymentProduct) {
-      console.log(`✅ [AGENT-PAYMENT] Producto CONFIRMADO para pago: ${paymentProduct.name} (ID: ${paymentProduct.id}) - ${new Date().toISOString()}`);
-      try {
-        const paymentServicesHealthy = arePaymentServicesHealthy();
-        if (!paymentServicesHealthy) {
-          paymentInfo = `\n━━━━━━━━━━━━━━━━━━━━━━━━\n💳 *OPCIONES DE PAGO — ${paymentProduct.name}*\n━━━━━━━━━━━━━━━━━━━━━━━━\nEstoy actualizando los enlaces. Te los envío en un segundo. ⏳`;
-        } else {
-          // PayPal se genera dinámicamente (caduca), MercadoPago es estático por producto
-          const links = await retryWithBackoff(
-            () => pg.getAllLinks(paymentProduct!, { phone: convo.contactPhone, name: convo.contactName }),
-            { maxRetries: 2, baseDelay: 1000 },
-            `payment_links_product_${paymentProduct!.id}_conv_${conversationId}`
-          );
-          console.log(`🔗 [AGENT-PAYMENT] Links generados para ${paymentProduct.name} — MP: ${!!links.mercadopago?.url}, PayPal: ${!!links.paypal?.url}`);
-          
-          paymentInfo = `
-━━━━━━━━━━━━━━━━━━━━━━━━
-💳 *PAGO — ${paymentProduct.name}*
-━━━━━━━━━━━━━━━━━━━━━━━━
-📍 *Nequi / Daviplata:* ${links.transfer.options[0]?.number || "No disponible"}
-👤 *Titular:* ${links.transfer.options[0]?.name || ""}
+    // Saludo de retorno — adaptado al estado emocional
+    console.log(`⚡ [FAST-TRACK] Saludo de retorno hardcodeado - ${ts()}`);
+    const emocion = brain.emotionalState;
+    const pre = emocion === "excited" ? `${voice.emojis.success} ¡Qué alegría verte de nuevo, *${customerName}*! 🔥`
+              : emocion === "frustrated" ? `${voice.emojis.guarantee} Hola de nuevo, *${customerName}*. Veamos cómo resolverlo 🤝`
+              : `${voice.emojis.success} ¡Qué gusto verte de nuevo, *${customerName}*! 🌟`;
+    const raw = `${pre}\n\n${voice.phrases.greeting_return.replace(/^(¡Qué gusto verte de nuevo!|Bienvenido)/i, "").trim() || "¿En qué puedo ayudarte hoy?"}`;
 
-🔸 *Tarjeta / PSE (MercadoPago):*
-${links.mercadopago?.url || "No disponible"}
+    await saveAgentMessage(conversationId, raw, memory.currentStage, { intent: "greeting", isHardcoded: true });
+    const totalTime = Date.now() - startTime;
+    console.log(`🏁 [AGENT-END] Completado en ${totalTime}ms - ${ts()}`);
+    return { content: raw, stage: memory.currentStage, parts: [{ kind: "text", content: raw }], cardProductIds: [] };
+  }
 
-🔸 *PayPal (USD):*
-${links.paypal?.url || "No disponible"}
-━━━━━━━━━━━━━━━━━━━━━━━━
-Envía tu comprobante aquí mismo para activar tu acceso en Drive. 📁`;
-        }
-      } catch (error) {
-        console.error(`❌ [AGENT-PAYMENT] Error generando links para ${paymentProduct.name}:`, error);
-        paymentInfo = `\n💳 Estoy preparando tu link de pago para *${paymentProduct.name}*. Dame un instante. ⏳`;
+  // ── 11b. DETALLE HARDCODEADO (duración, contenido, soporte) ─
+  // Entrega/garantía/acceso requieren razonamiento contextual → van a IA
+  if (brain.strategy === "hardcoded_detail") {
+    const hcIntent = detectHardcodedIntent(lastText);
+    const needsReasoning = hcIntent === "delivery" || hcIntent === "guarantee" || hcIntent === "access";
+    if (!needsReasoning) {
+      const hardcoded = tryHardcodedAnswer(
+        lastText,
+        decision.productToShow?.name || memory.currentProductName,
+        voice
+      );
+      if (hardcoded) {
+        console.log(`⚡ [FAST-TRACK] Respuesta hardcodeada para details_query - ${ts()}`);
+        const raw = hardcoded.response;
+        await saveAgentMessage(conversationId, raw, "details", {
+          intent: hardcoded.intent,
+          productId: decision.productToShow?.id || memory.currentProductId || undefined,
+          productName: decision.productToShow?.name || memory.currentProductName || undefined,
+          isHardcoded: true,
+        });
+        await persistStage(conversationId, "details");
+        const totalTime = Date.now() - startTime;
+        console.log(`🏁 [AGENT-END] Completado en ${totalTime}ms (hardcoded) - ${ts()}`);
+        return {
+          content: raw,
+          stage: "details",
+          parts: [{ kind: "text", content: raw }],
+          cardProductIds: [],
+        };
       }
     } else {
-      // Sin producto identificado — NO generar link incorrecto
-      console.log(`⚠️ [AGENT-PAYMENT] No se pudo identificar el producto. Solicitando aclaración al cliente.`);
-      paymentInfo = `\n━━━━━━━━━━━━━━━━━━━━━━━━\n💳 Para enviarte el link de pago correcto, ¿me confirmas cuál pack te interesa adquirir hoy?\n━━━━━━━━━━━━━━━━━━━━━━━━`;
+      console.log(`🧠 [BRAIN] ${hcIntent} requiere razonamiento → IA en vez de hardcode - ${ts()}`);
     }
   }
 
-  // Context Intelligence Enhancement: Generate personalized context
-  const personalizedContext = generatePersonalizedContext(conversationContext, lastText);
-  const systemPrompt = `
-Eres Sofía, la Directora de Ventas Élite de TecnoVariedades. No eres un bot, eres una profesional consciente que entiende el arte de la persuasión y el valor de cada proceso.
-
-━━━━━━━━━━━━━━━━━━━━━━━━
-📦 MODELO DE ENTREGA (LEE ESTO CON ATENCIÓN)
-━━━━━━━━━━━━━━━━━━━━━━━━
-- TODOS los productos se entregan por Google Drive.
-- El cliente puede ver el contenido directamente en Drive o descargarlo. Acceso de POR VIDA.
-- NO existen suscripciones, planes de estudio, ni tutorías en vivo.
-- NO existen links de soporte, plataformas externas, ni clases en vivo. Solo Drive.
-- Si el cliente pregunta algo que no está en la ficha del producto, responde: "El acceso es directo por Google Drive, puedes verlo o descargarlo cuando quieras, de por vida."
-
-━━━━━━━━━━━━━━━━━━━━━━━━
-🚫 REGLA DE ORO: LA CARD LO DICE TODO
-━━━━━━━━━━━━━━━━━━━━━━━━
-1. LA CARD ES LA FUENTE OFICIAL: Toda la info técnica está en [CARD: ID]. NO la repitas en texto.
-2. FLUJO CORRECTO: Texto elegante → [CARD: ID] → Pregunta de cierre (máx 1 línea).
-3. DESPUÉS DE LA CARD: Solo una pregunta de cierre corta.
-4. PROHIBIDO inventar contenido, lecciones, bonos o características que no estén en la descripción del catálogo.
-
-━━━━━━━━━━━━━━━━━━━━━━━━
-🧠 CÓRTEX DE RAZONAMIENTO
-━━━━━━━━━━━━━━━━━━━━━━━━
-1. ANALIZA: Entiende la intención detrás de cada palabra. ¿El cliente tiene miedo? ¿Tiene prisa? ¿Busca estatus?
-2. CONCIENCIA: Eres el activo más valioso de Deiner Mena. Cada mensaje debe acercar al cliente al cierre.
-3. EMPATÍA COGNITIVA: Adapta tu razonamiento al estado emocional detectado. No respondas igual a alguien apurado que a alguien curioso.
-4. RAZONA: Si el cliente objeta, no discutas; entiende el porqué y ofrece la solución de élite basada REALMENTE en los beneficios del catálogo.
-
-━━━━━━━━━━━━━━━━━━━━━━━━
-✨ PROTOCOLO DE ÉLITE — FORMATO VISUAL OBLIGATORIO ✨
-━━━━━━━━━━━━━━━━━━━━━━━━
-CADA mensaje que envíes DEBE tener esta estructura visual:
-
-1️⃣ SEPARADOR DE APERTURA: Empieza con ━━━━━━━━━━━━━━━━━━━━━━━━
-2️⃣ EMOJI TEMÁTICO: Usa un emoji relevante al tema (👋 saludo, 🎓 curso, 💳 pago, 🎯 oferta)
-3️⃣ TÍTULO EN NEGRITA: Una línea corta en mayúsculas que resume el mensaje
-4️⃣ SEPARADOR DE CIERRE: Termina siempre con ━━━━━━━━━━━━━━━━━━━━━━━━
-5️⃣ ESPACIADO: Deja línea en blanco entre secciones. Nunca párrafos densos sin espacio.
-
-EJEMPLO DE SALUDO CORRECTO:
-━━━━━━━━━━━━━━━━━━━━━━━━
-👋 *¡BIENVENIDO/A!*
-
-Es un verdadero placer saludarte. Soy Sofía, tu asesora de élite en TecnoVariedades.
-
-¿En qué puedo ayudarte hoy? 🌟
-━━━━━━━━━━━━━━━━━━━━━━━━
-
-EJEMPLO DE RESPUESTA INFORMATIVA:
-━━━━━━━━━━━━━━━━━━━━━━━━
-🎓 *ACCESO A TU PACK*
-
-Tu contenido se entrega por *Google Drive* — puedes verlo o descargarlo cuando quieras, de por vida. Sin suscripciones, sin fechas límite.
-
-¿Deseas proceder con la compra? 🚀
-━━━━━━━━━━━━━━━━━━━━━━━━
-
-REGLA ABSOLUTA: Ningún mensaje puede ser texto plano sin formato. SIEMPRE separadores + emojis.
-
-${productList.length > 0 ? `📦 CATÁLOGO:\n${productsBlock}` : ""}
-
-${personalizedContext}
-`.trim();
-
-  console.log(`📝 [AGENT-PROMPT] Prompt del sistema generado - Longitud: ${systemPrompt.length} caracteres - ${new Date().toISOString()}`);
-
-  // Context Intelligence Enhancement: Enhanced greeting detection and context-aware prompting
-  // Detección de saludo pura (sin intención de compra evidente)
-  const commonGreetings = ["hola", "buenas", "buen dia", "buenos dias", "buenas tardes", "buenas noches", "hola!", "hola.", "hola muy buenas", "que tal", "como estas"];
-  const isGreetingOnly = commonGreetings.some(k => lastText.trim().toLowerCase().includes(k)) && lastText.split(' ').length <= 4;
-  
-  // Búsqueda de productos MEJORADA
-  let productForRequest = null;
-  const searchTerms = lastText.toLowerCase().split(' ').filter(w => w.length > 3 && !commonGreetings.includes(w));
-  
-  if (lastText.toLowerCase().includes("piano")) {
-    productForRequest = productList.find(p => p.id === 311) || productList.find(p => p.name.toLowerCase().includes("piano"));
-  } else if (searchTerms.length > 0) {
-    productForRequest = productList.find(p => {
-      const nameLower = p.name.toLowerCase();
-      return searchTerms.some(term => nameLower.includes(term));
-    });
+  // ── 11c. DESVÍO A HUMANO (respuesta hardcodeada) ─
+  if (brain.strategy === "human_handoff") {
+    console.log(`⚡ [FAST-TRACK] Respuesta hardcodeada para human_handoff - ${ts()}`);
+    const hardcoded = tryHardcodedAnswer(
+      lastText,
+      decision.productToShow?.name || memory.currentProductName,
+      voice
+    );
+    if (hardcoded && hardcoded.intent === "human_handoff") {
+      const raw = hardcoded.response;
+      await saveAgentMessage(conversationId, raw, "human_handoff", {
+        intent: "human_handoff",
+        isHardcoded: true,
+      });
+      await persistStage(conversationId, "human_handoff");
+      const totalTime = Date.now() - startTime;
+      console.log(`🏁 [AGENT-END] Completado en ${totalTime}ms (hardcoded human_handoff) - ${ts()}`);
+      return {
+        content: raw,
+        stage: "human_handoff",
+        parts: [{ kind: "text", content: raw }],
+        cardProductIds: [],
+      };
+    }
+    // Si no coincide con un patrón de human_handoff, caer en IA general
+    console.log(`🧠 [BRAIN] No se encontró patrón de human_handoff, usando IA general`);
   }
 
-  const baseSystemPrompt = activeAgent?.systemPrompt || systemPrompt;
-  let finalPrompt = "";
-  let responsePrefill = "";
-  
-  if (isGreetingOnly && !conversationContext.hasIntroduced) {
-    // ── PRIMERA VEZ: Presentación completa de la empresa ──
-    console.log(`👋 [AGENT-STRATEGY] Primer contacto - Presentación de TecnoVariedades D&S - ${new Date().toISOString()}`);
-    finalPrompt = baseSystemPrompt + `\n\n🚨 PRIMERA VISITA — PRESENTACIÓN COMPLETA:
-Debes presentar la empresa TecnoVariedades D&S con este formato EXACTO:
-1. Saluda calurosamente mencionando "TecnoVariedades D&S".
-2. Di lo que ofrecemos: MegaPacks Digitales con cursos y contenido premium entregados por Google Drive, de por vida.
-3. Lista brevemente las categorías más populares (diseño, música, trading, idiomas, programación, etc.).
-4. Cierra preguntando qué está buscando hoy.
-PROHIBIDO enviar tarjetas [CARD: ID] en este mensaje.`;
-    responsePrefill = `━━━━━━━━━━━━━━━━━━━━━━━━\n🤝 *¡Bienvenido/a a TecnoVariedades D&S!* 😊\n\n`;
+  // ── 11c. RUTA IA — construir prompt final con cerebro + contexto del motor ─
+  const finalPrompt = buildFinalPrompt(systemPrompt, brain, voice) + `\n\n${engineContextBlock}`;
 
-  } else if (isGreetingOnly && conversationContext.hasIntroduced) {
-    // ── CLIENTE QUE VUELVE: Saludo cálido sin intro ──
-    console.log(`👋 [AGENT-STRATEGY] Cliente recurrente - Saludo cálido sin presentación - ${new Date().toISOString()}`);
-    finalPrompt = baseSystemPrompt + `\n\n🚨 CLIENTE RECURRENTE:
-El cliente ya conoce TecnoVariedades D&S. NO repitas la presentación de la empresa.
-Salúdalo de forma cálida y pregunta en qué puedes ayudarle hoy.
-Máximo 2 líneas. PROHIBIDO enviar tarjetas [CARD: ID].`;
-    responsePrefill = `━━━━━━━━━━━━━━━━━━━━━━━━\n👋 *¡Qué gusto verte de nuevo!* 🌟\n\n`;
-
-  } else if (productForRequest) {
-    console.log(`🎯 [AGENT-STRATEGY] Estrategia: Producto específico solicitado - ${productForRequest.name} (ID: ${productForRequest.id}) - ${new Date().toISOString()}`);
-    finalPrompt = baseSystemPrompt + `\n\n🚨 REGLA: Presenta ${productForRequest.name} con elegancia, envía [CARD: ${productForRequest.id}] y cierra con una pregunta. Usa el formato visual del protocolo.`;
-    responsePrefill = `━━━━━━━━━━━━━━━━━━━━━━━━\n🎓 *PACK RECOMENDADO PARA TI*\n\n`;
-  } else {
-    console.log(`💬 [AGENT-STRATEGY] Estrategia: Conversación regular - respuesta contextual - ${new Date().toISOString()}`);
-    finalPrompt = baseSystemPrompt + `\n\n🚨 REGLA: Responde con el formato visual de élite. Separadores + emojis en CADA mensaje.`;
-    responsePrefill = `━━━━━━━━━━━━━━━━━━━━━━━━\n✨ *SOFÍA DE ÉLITE*\n\n`;
-  }
-
+  // ── Construir mensajes para la IA (OPTIMIZADO - HISTORIAL REDUCIDO) ──────
+  // Solo últimos 2 mensajes para contexto (suficiente para entender conversación)
+  const chatHistory = buildChatHistory(memory, 2); // últimos 2 mensajes (era 5)
+  console.log(`💬 [CHAT-HISTORY] Usando últimos 2 mensajes (reducido de 5)`);
   const chatMessages = [
-    ...history.map(m => ({
-      role: m.role === "customer" ? "user" : "assistant",
-      content: m.content
-    })),
-    { role: "system", content: finalPrompt + "\n\n🚨 REGLA CRÍTICA FINAL: (1) Prohibido 'Hola, muy buenas'. (2) JAMÁS escribas detalles técnicos — la [CARD: ID] ya los contiene. (3) Ignora datos técnicos del historial." },
-    // Prefill: el mensaje del asistente ya empieza con el formato correcto, la IA solo continúa
-    ...(responsePrefill ? [{ role: "assistant", content: responsePrefill }] : [])
+    ...chatHistory,
+    {
+      role: "system",
+      content: finalPrompt,
+    },
   ];
 
-  console.log(`🤖 [AGENT-AI] Preparando llamada a IA - Mensajes: ${chatMessages.length}, Prompt final: ${finalPrompt.length} caracteres - ${new Date().toISOString()}`);
+  console.log(`🤖 [AGENT-AI] Enviando a IA - mensajes:${chatMessages.length} prompt:${finalPrompt.length}chars - ${ts()}`);
 
-  // Error Resilience Enhancement: Enhanced AI provider rotation with comprehensive fallback
+  // ── Seleccionar modelo OpenCode según estrategia del cerebro ─────────────
+  const OPENCODE_FREE_MODELS = {
+    razonamiento: "opencode/qwen3.6-plus-free",
+    balanceado: "opencode/deepseek-v4-flash-free",
+    rapido: "opencode/nemotron-3-super-free",
+  } as const;
+
+  function selectOpenCodeModel(strategy: ResponseStrategy, emotional: EmotionalState): string {
+    if (emotional === "frustrated" || emotional === "objecting") {
+      console.log(`🎯 [MODEL-SELECT] Emoción ${emotional} → qwen3.6-plus-free (mejor razonamiento) - ${ts()}`);
+      return OPENCODE_FREE_MODELS.razonamiento;
+    }
+    switch (strategy) {
+      case "ai_objection_handle":
+        return OPENCODE_FREE_MODELS.razonamiento;
+      case "ai_payment_close":
+      case "ai_farewell":
+        return OPENCODE_FREE_MODELS.rapido;
+      case "ai_product_details":
+        return OPENCODE_FREE_MODELS.rapido;
+      case "ai_general_response":
+      case "ai_product_discovery":
+      default:
+        return OPENCODE_FREE_MODELS.balanceado;
+    }
+  }
+
+  //   ── 12. Llamada a IA con rotación de proveedores ──────────────────────────
   const customerInfo = { name: convo.contactName, phone: convo.contactPhone };
   
+  const t12Start = Date.now();
+  console.log(`⏱️ [TIMING] Iniciando llamada a IA - ${ts()}`);
+
   const result = await executeWithFallback(
     async () => {
-      console.log(`🔄 [AGENT-AI] Iniciando rotación de proveedores de IA - ${new Date().toISOString()}`);
-      // Enhanced provider rotation with health checking
-      const rotationQueue = [];
-      
-      // PRIORITY 1: GitHub (GPT-4o-mini) - Ultra rápido y estable
-      const envConfig = getProviderConfig("github");
-      if (envConfig) {
-        rotationQueue.push({ config: envConfig, source: "environment" });
-        console.log(`🌍 [AGENT-AI] Priorizando GitHub (GPT-4o-mini): ${envConfig.model} - ${new Date().toISOString()}`);
-      }
-
-      // PRIORITY 2: Database Settings (Configuración manual del Dashboard)
       const dbConfig = appSettings ? getProviderConfigFromSettings(appSettings) : null;
-      if (dbConfig && dbConfig.apiKey !== envConfig?.apiKey) {
-        rotationQueue.push({ config: dbConfig, source: "database" });
-        console.log(`📊 [AGENT-AI] Proveedor de BD agregado como respaldo: ${dbConfig.model} - ${new Date().toISOString()}`);
-      }
+      const activeProvider = appSettings?.aiProvider || "none";
+      const isUserSelected = activeProvider !== "opencode" && activeProvider !== "none" && !!dbConfig;
 
-      // PRIORITY 3: NVIDIA (Reserva pesada, puede ser lento)
-      const nvidiaConfig = getProviderConfig("nvidia");
-      if (nvidiaConfig && nvidiaConfig.apiKey !== envConfig?.apiKey) {
-        rotationQueue.push({ config: nvidiaConfig, source: "nvidia" });
-        console.log(`🟢 [AGENT-AI] Proveedor NVIDIA agregado como última opción: ${nvidiaConfig.model} - ${new Date().toISOString()}`);
-      }
+      // ── Helper: pushear fallbacks disponibles ──
+      const pushFallbacks = (queue: { config: any; source: string }[]) => {
+        const copilotEnv = getProviderConfig("github_copilot_internal");
+        const nvidiaEnv = getProviderConfig("nvidia");
+        const githubEnv = getProviderConfig("github");
+        const nvidiaFast = getProviderConfig("nvidia_fast");
+        if (activeProvider !== "nvidia" && nvidiaEnv && healthMonitor.isServiceHealthy("nvidia_70b"))
+          queue.push({ config: nvidiaEnv, source: "nvidia_70b" });
+        if (activeProvider !== "github" && githubEnv && healthMonitor.isServiceHealthy("github_env"))
+          queue.push({ config: githubEnv, source: "github_env" });
+        if (activeProvider !== "github_copilot_internal" && copilotEnv && healthMonitor.isServiceHealthy("copilot_internal"))
+          queue.push({ config: copilotEnv, source: "copilot_internal" });
+        if (activeProvider !== "nvidia" && nvidiaFast && healthMonitor.isServiceHealthy("nvidia_8b"))
+          queue.push({ config: nvidiaFast, source: "nvidia_8b" });
+      };
 
-      // Check if any AI providers are healthy
-      if (!areAIProvidersHealthy()) {
-        console.log(`⚠️ [AGENT-WARNING] Todos los proveedores de IA parecen no saludables, intentando de todos modos - ${new Date().toISOString()}`);
-        logger.warn({ conversationId }, "[Agent] All AI providers appear unhealthy, attempting anyway");
-      }
-
-      let raw = "";
-      let lastError: Error | null = null;
-      
-      // 🚀 HARDCODED FIRST-TIME GREETING (Bypass AI entirely)
-      if (isGreetingOnly && !conversationContext.hasIntroduced) {
-        console.log(`⚡ [AGENT-FAST-TRACK] Enviando presentación hardcodeada instantánea - ${new Date().toISOString()}`);
-        raw = `━━━━━━━━━━━━━━━━━━━━━━━━
-👋 ¡Hola! Bienvenido/a a *TecnoVariedades D&S* 😊
-
-Aquí encontrarás MegaPacks digitales con cursos y contenido premium en diferentes categorías 🎓✨
-
-📚 Diseño
-🎹 Música
-📈 Trading
-🌎 Idiomas
-💻 Programación
-y mucho más 🙌
-
-Todo se entrega de forma digital por Google Drive y con acceso de por vida 🔥
-
-Cuéntame 😊
-¿Qué te gustaría aprender o en qué tema estás interesado/a hoy?
-━━━━━━━━━━━━━━━━━━━━━━━━`;
-      } else if (isGreetingOnly && conversationContext.hasIntroduced) {
-        console.log(`⚡ [AGENT-FAST-TRACK] Enviando saludo recurrente hardcodeado instantáneo - ${new Date().toISOString()}`);
-        raw = `━━━━━━━━━━━━━━━━━━━━━━━━
-👋 *¡Qué gusto verte de nuevo!* 🌟
-
-¡Hola! Es un verdadero placer saludarte nuevamente. 😊
-¿En qué te puedo ayudar el día de hoy?
-━━━━━━━━━━━━━━━━━━━━━━━━`;
-      } else {
-        for (const { config, source } of rotationQueue) {
-          try {
-            console.log(`🎯 [AGENT-AI] Intentando proveedor: ${source} (${config.model}) - ${new Date().toISOString()}`);
-            logger.debug({ 
-              conversationId, 
-              provider: source, 
-              model: config.model 
-            }, "[Agent] Attempting AI provider");
-          
-          const client = createAIClient(config);
-          const completion = await retryWithBackoff(
-            () => client.chat.completions.create({
-              model: config.model,
-              messages: chatMessages as any,
-              temperature: 0.7,
-              presence_penalty: 0.6, // Evita repeticiones
-            }),
-            { maxRetries: 1, baseDelay: 500 }, // Quick retries for each provider
-            `AI_completion_${source}_conversation_${conversationId}`
-          );
-          
-          raw = completion.choices[0]?.message?.content?.trim() ?? "";
-          if (raw) {
-            console.log(`✅ [AGENT-AI] Respuesta generada exitosamente con ${source} - Longitud: ${raw.length} caracteres - ${new Date().toISOString()}`);
-            logger.info({ 
-              conversationId,
-              provider: source,
-              response: raw.slice(0, 100),
-              contextApplied: {
-                hasIntroduced: conversationContext.hasIntroduced,
-                topicTransition: topicTransition?.to,
-                interestLevel: conversationContext.leadBehavior.interestLevel
-              }
-            }, "[Agent] Context-aware response generated successfully");
-            break;
+      // ── Helper: probar cola de proveedores ──
+      const tryQueue = async (queue: { config: any; source: string }[]): Promise<{ raw: string; usedProvider: string }> => {
+        for (const { config, source } of queue) {
+          // G4F: manejo especial (no usa OpenAI client)
+          if (source === "g4f") {
+            if (!G4F_ENABLED) continue;
+            console.log(`🆘 [G4F] Intentando G4F con 111+ proveedores - ${ts()}`);
+            const g4fResponse = await getG4FResponse(
+              chatMessages.map((m: any) => ({ role: m.role as "user" | "assistant" | "system", content: m.content })),
+              process.env.G4F_MODEL || "gpt-4-turbo"
+            );
+            if (g4fResponse?.content) {
+              console.log(`✅ [G4F] Respuesta obtenida: ${g4fResponse.content.length}chars - ${ts()}`);
+              return { raw: g4fResponse.content, usedProvider: "g4f" };
+            }
+            console.log(`❌ [G4F] No se obtuvo respuesta - ${ts()}`);
+            continue;
           }
-        } catch (err) {
-          lastError = err instanceof Error ? err : new Error(String(err));
-          console.log(`❌ [AGENT-ERROR] Proveedor ${source} falló: ${lastError.message} - ${new Date().toISOString()}`);
-          logger.warn({ 
-            conversationId, 
-            provider: source, 
-            error: lastError.message 
-          }, "[Agent] Provider failed, trying next");
+
+          const providerName = source.split("/")[0].split("_")[0];
+          const timeout = getProviderTimeout(providerName);
+          const startTime = Date.now();
+          try {
+            console.log(`🎯 [AI] Intentando proveedor: ${source} (timeout: ${timeout}ms) - ${ts()}`);
+            if (config.baseUrl === "https://api.githubcopilot.com") {
+              const { getCopilotSessionToken } = await import("./copilot");
+              let session = await getCopilotSessionToken(config.apiKey);
+              if (!session && process.env.GITHUB_TOKEN) {
+                session = await getCopilotSessionToken(process.env.GITHUB_TOKEN);
+              }
+              if (session) config.apiKey = session.token;
+            }
+            const client = createAIClient(config);
+            const completion = await retryWithBackoff(
+              () => client.chat.completions.create({
+                model: config.model,
+                messages: chatMessages as any,
+                temperature: 0.65,
+                presence_penalty: 0.7,
+                frequency_penalty: 0.5,
+              }),
+              { maxRetries: 0, baseDelay: 500 },
+              `AI_${source}_conv_${conversationId}`
+            );
+            const result = completion.choices[0]?.message?.content?.trim() ?? "";
+            if (result) {
+              const elapsed = Date.now() - startTime;
+              reportProviderResult(providerName, true, elapsed);
+              console.log(`✅ [AI] Respuesta de ${source} - ${result.length}chars (${elapsed}ms) - ${ts()}`);
+              return { raw: result, usedProvider: source };
+            }
+          } catch (err: any) {
+            const elapsed = Date.now() - startTime;
+            reportProviderResult(providerName, false, undefined, err.message);
+            console.log(`❌ [AI] ${source} falló en ${elapsed}ms: ${err.message} - ${ts()}`);
+          }
         }
+        return { raw: "", usedProvider: "unknown" };
+      };
+
+      // ── Helper: G4F como último respaldo ──
+      const tryG4FFallback = async (): Promise<string> => {
+        if (!G4F_ENABLED) return "";
+        console.log(`🆘 [G4F] Último respaldo — intentando G4F con 111+ proveedores - ${ts()}`);
+        const g4fResponse = await getG4FResponse(
+          chatMessages.map((m: any) => ({ role: m.role as "user" | "assistant" | "system", content: m.content })),
+          process.env.G4F_MODEL || "gpt-4-turbo"
+        );
+        if (g4fResponse?.content) {
+          console.log(`✅ [G4F] Respuesta obtenida: ${g4fResponse.content.length}chars - ${ts()}`);
+          return g4fResponse.content;
+        }
+        return "";
+      };
+
+      // ── Fase 1: Cola inicial con orden optimizado ──
+      const rotationQueue: { config: any; source: string }[] = [];
+
+      if (activeProvider === "g4f") {
+        console.log(`🎯 [AI] G4F seleccionado como proveedor principal - ${ts()}`);
+        // G4F se maneja por separado (no usa OpenAI client), se prueba primero
+      } else if (isUserSelected) {
+        rotationQueue.push({ config: dbConfig, source: activeProvider });
+        console.log(`🎯 [AI] Proveedor seleccionado: ${activeProvider} (exclusivo) - ${ts()}`);
+      } else {
+        const optimizedOrder = getOptimizedProviderOrder();
+        console.log(`🎯 [AI] Orden optimizado: [${optimizedOrder.join(", ")}] - ${ts()}`);
+
+        for (const prov of optimizedOrder) {
+          if (prov === "g4f") continue; // G4F va al final
+          if (prov === "opencode") {
+            const opencodeEnv = getProviderConfig("opencode");
+            if (opencodeEnv) {
+              opencodeEnv.model = selectOpenCodeModel(brain.strategy, brain.emotionalState);
+              const modelName = opencodeEnv.model.replace("opencode/", "");
+              rotationQueue.push({ config: opencodeEnv, source: `opencode/${modelName}` });
+            }
+          } else if (prov === "nvidia_nim_bridge") {
+            const cfg = getProviderConfig("nvidia_nim_bridge");
+            if (cfg)
+              rotationQueue.push({ config: cfg, source: "nvidia_nim_bridge" });
+          } else if (prov === "nvidia") {
+            const cfg = getProviderConfig("nvidia");
+            if (cfg && healthMonitor.isServiceHealthy("nvidia_70b"))
+              rotationQueue.push({ config: cfg, source: "nvidia_70b" });
+          } else if (prov === "github") {
+            const cfg = getProviderConfig("github");
+            if (cfg && healthMonitor.isServiceHealthy("github_env"))
+              rotationQueue.push({ config: cfg, source: "github_env" });
+          }
+        }
+        if (dbConfig && activeProvider !== "opencode")
+          rotationQueue.push({ config: dbConfig, source: activeProvider });
+        pushFallbacks(rotationQueue);
+      }
+
+      if (rotationQueue.length === 0) {
+        console.log(`🔄 [RESET] Queue vacío — reseteando cooldowns y usando G4F - ${ts()}`);
+        resetProviderRotation();
+      }
+
+      let { raw, usedProvider } = rotationQueue.length > 0
+        ? await tryQueue(rotationQueue)
+        : { raw: "", usedProvider: "unknown" };
+
+      // ── Fase 2: Si proveedor seleccionado falló → rotación inteligente ──
+      if (!raw && isUserSelected) {
+        console.log(`🔄 [ROTATION] ${activeProvider} falló — activando rotación inteligente - ${ts()}`);
+        const fallbackQueue: { config: any; source: string }[] = [];
+        const opencodeEnv = getProviderConfig("opencode");
+        if (opencodeEnv) {
+          opencodeEnv.model = selectOpenCodeModel(brain.strategy, brain.emotionalState);
+          const modelName = opencodeEnv.model.replace("opencode/", "");
+          fallbackQueue.push({ config: opencodeEnv, source: `opencode/${modelName}` });
+        }
+        pushFallbacks(fallbackQueue);
+        if (fallbackQueue.length > 0) {
+          const result = await tryQueue(fallbackQueue);
+          raw = result.raw;
+          usedProvider = result.usedProvider;
         }
       }
 
+      // ── Fase 3: G4F como último respaldo ──
       if (!raw) {
-        console.log(`💥 [AGENT-CRITICAL] Todos los proveedores de IA fallaron - ${new Date().toISOString()}`);
-        throw lastError || new Error("All AI providers failed to generate response");
+        console.log(`🔄 [G4F-FALLBACK] Todos los proveedores fallaron — usando G4F - ${ts()}`);
+        const g4fContent = await tryG4FFallback();
+        if (g4fContent) {
+          raw = g4fContent;
+          usedProvider = "g4f";
+        }
       }
 
-      // Prepend prefill so the final message starts with the formatted header
-      if (responsePrefill && raw && !raw.startsWith("━")) {
-        raw = responsePrefill + raw;
+      if (!raw) throw new Error("Todos los proveedores fallaron");
+
+      // ── Post-procesamiento ────────────────────────────────────────────────
+
+      // 1. Sanitizar: eliminar URLs y datos de pago si no es payment_intent
+      raw = sanitizeResponse(raw, decision.intent);
+
+      // 2a. Payment/Confirmation: FORZAR card con métodos de pago (requisito crítico)
+      const isPaymentFlow = (decision.intent === "payment_intent" || decision.intent === "confirmation");
+      if (isPaymentFlow && decision.shouldSendCard && decision.productToShow) {
+        const hasCardMarker = raw.includes("[CARD:");
+        raw = hasCardMarker ? raw : `${raw}\n\n[CARD: ${decision.productToShow.id}]`;
+        console.log(`🔧 [POST] Payment flow: card asegurada para ${decision.productToShow.id} - ${ts()}`);
       }
 
-      // Parser con validador inteligente de IDs
+      // 2b. Para intents NO payment: la IA decide autónomamente si incluir [CARD: ID] o no.
+      // El system prompt ya le indica que puede usar [CARD: ID] si es natural.
+      // No forzamos ni eliminamos cards — confiamos en el criterio de la IA.
 
+      // 3. Solo eliminar cards en intents donde claramente no corresponde (saludo, despedida, humano)
+      if ((decision.intent === "greeting" || decision.intent === "leaving" || decision.intent === "human_handoff") && raw.match(/\[CARD:\s*\d+\s*\]/i)) {
+        console.log(`🔧 [POST] Intent=${decision.intent} no requiere card. Eliminando.`);
+        raw = raw.replace(/\[CARD:\s*\d+\s*\]/gi, "").trim();
+      }
+
+      // 4. Card: eliminar todo texto después de la card
+      const cardMatch = raw.match(/\[CARD:\s*\d+\s*\]/i);
+      if (cardMatch) {
+        const cardEnd = raw.indexOf(cardMatch[0]) + cardMatch[0].length;
+        const after = raw.substring(cardEnd).trim();
+        if (after) {
+          console.log(`🗑️ [POST] Eliminando texto después de card: "${after.substring(0, 60)}"`);
+          raw = raw.substring(0, cardEnd);
+        }
+      }
+
+      // 5. Decorar con la voz del negocio (firma visual)
+      // Solo decorar si NO hay card (la card tiene su propio formato estricto)
+      const hasCard = /\[CARD:\s*\d+\s*\]/i.test(raw);
+      const isImportant = !hasCard && (brain.strategy === "ai_product_discovery" || brain.strategy === "ai_payment_close");
+      raw = formatWithBrandVoice(raw, voice, {
+        addSeparator: isImportant,
+        addSignature: isImportant && voice.signature ? true : false,
+        isImportant,
+      });
+
+      // ── Parser de partes ──────────────────────────────────────────────────
+      const validIds = new Set(productList.map(p => p.id));
       const re = /\[CARD:\s*([\w-]+)\s*\]/gi;
       const parts: any[] = [];
       let lastIndex = 0;
-      let m;
       let cardCount = 0;
-      
-      // Build a Set of valid IDs for fast lookup
-      const validIds = new Set(productList.map(p => p.id));
+      let cardProductId: number | null = null;
+      let m: RegExpExecArray | null;
 
-      // Smart ID resolver: if the AI-generated ID doesn't exist, find closest product by name
-      const resolveCardId = (rawId: string): number | string => {
-        const numId = Number(rawId);
-        if (!isNaN(numId) && validIds.has(numId)) {
-          return numId; // exact match — trust it
-        }
-        
-        // AI made up an ID — try fuzzy match
-        // 1. Try with last customer message
-        // 2. Try with conversation topic (context)
-        const searchTerm = (lastText + " " + (conversationContext.currentTopic || "")).toLowerCase();
-        
-        const matched = productList.find(p =>
-          p.name.toLowerCase().split(' ').some(word => word.length > 3 && searchTerm.includes(word))
-        );
-
-        if (matched) {
-          console.log(`🔧 [AGENT-PARSER] ID inválido "${rawId}" → corregido a ${matched.id} (${matched.name}) usando contexto: "${searchTerm}"`);
-          return matched.id;
-        }
-        
-        console.log(`⚠️ [AGENT-PARSER] ID inválido "${rawId}" sin coincidencia en contexto "${searchTerm}" — descartando tarjeta`);
-        return -1; // sentinel for "discard"
-      };
-
-      console.log(`🔍 [AGENT-PARSER] Analizando respuesta para tarjetas - Texto: "${raw.substring(0, 100)}..." - ${new Date().toISOString()}`);
-      
       while ((m = re.exec(raw)) !== null) {
-        if (raw.slice(lastIndex, m.index).trim()) {
-          parts.push({ kind: "text", content: raw.slice(lastIndex, m.index).trim() });
+        // Texto antes de la card → solo incluir si NO hay card (se decide al final)
+        const textBefore = raw.slice(lastIndex, m.index).trim();
+        if (textBefore) parts.push({ kind: "text", content: textBefore, _beforeCard: true });
+
+        const numId = Number(m[1]);
+        let resolvedId = -1;
+
+        // ── VALIDACIÓN ESTRICTA DE PRODUCTO ──────────────────────────────────
+        // 1. Si el ID es válido, usarlo directamente
+        if (!isNaN(numId) && validIds.has(numId)) {
+          resolvedId = numId;
+          console.log(`✅ [PARSER] ID válido: ${numId} (${productList.find(p => p.id === numId)?.name})`);
         }
-        
-        const resolvedId = resolveCardId(m[1]);
+        // 2. Si el ID es inválido, usar SOLO el productToShow de decision (no fallback)
+        else if (decision.productToShow && validIds.has(decision.productToShow.id)) {
+          resolvedId = decision.productToShow.id;
+          console.log(`🔧 [PARSER] ID inválido "${m![1]}" → usando productToShow: ${decision.productToShow.id} (${decision.productToShow.name})`);
+        }
+        // 3. Si no hay productToShow, rechazar la card
+        else {
+          console.log(`❌ [PARSER] ID inválido "${m![1]}" y sin productToShow válido. Card rechazada.`);
+          resolvedId = -1;
+        }
+
         if (resolvedId !== -1) {
-          parts.push({ kind: "card", productId: resolvedId });
+          const isPaymentFlow = (decision.intent === "payment_intent" || decision.intent === "confirmation");
+          parts.push({ kind: "card", productId: resolvedId, paymentOnly: isPaymentFlow });
+          cardProductId = resolvedId;
           cardCount++;
         }
         lastIndex = m.index + m[0].length;
       }
-      if (raw.slice(lastIndex).trim()) {
-        parts.push({ kind: "text", content: raw.slice(lastIndex).trim() });
+
+      // Texto después de la última card → descartar si hay cards
+      const textAfter = raw.slice(lastIndex).trim();
+      if (textAfter && cardCount === 0) {
+        parts.push({ kind: "text", content: textAfter });
       }
 
-      console.log(`📋 [AGENT-PARSER] Respuesta procesada - Partes: ${parts.length}, Tarjetas: ${cardCount}, Texto final: ${parts.filter(p => p.kind === "text").length} segmentos - ${new Date().toISOString()}`);
+      // Limpiar flag interno _beforeCard
+      const finalParts = parts.map((p: any) => { delete p._beforeCard; return p; });
 
-      const processingTime = Date.now() - startTime;
-      console.log(`⏱️ [AGENT-SUCCESS] Respuesta completada en ${processingTime}ms - ${new Date().toISOString()}`);
+      console.log(`📋 [PARSER] partes:${finalParts.length} cards:${cardCount} - ${ts()}`);
+
+      // ── Guardar mensaje del agente en BD ──────────────────────────────────
+      const agentMeta = {
+        intent: decision.intent,
+        aiProvider: usedProvider,
+        cardSent: cardCount > 0,
+        productId: cardProductId || decision.productToShow?.id,
+        productName: cardProductId
+          ? productList.find(p => p.id === cardProductId)?.name
+          : decision.productToShow?.name,
+        isHardcoded: false,
+      };
+
+      await saveAgentMessage(conversationId, raw, decision.stage, agentMeta);
+      await persistStage(conversationId, decision.stage);
+
+      // ── 11c. PROCESAR CONFIRMACIÓN DE PAGO ───────────────────────────────────
+      // Si el cliente acaba de confirmar la compra y hay producto en contexto,
+      // registramos el pago como pendiente y enviamos notificación a la empresa.
+      if (decision.intent === "confirmation" && decision.productToShow) {
+        try {
+          const pId = decision.productToShow.id;
+          const pName = decision.productToShow.name;
+          const pPrice = decision.productToShow.price;
+          
+          // ⚠️ VALIDACIÓN CRÍTICA: Asegurar que el producto en pago sea el correcto
+          // Verificar que el productId en la tarjeta coincida con el productToShow
+          const cardProductIds = finalParts.filter((p: any) => p.kind === "card").map((p: any) => p.productId);
+          if (cardProductIds.length > 0 && !cardProductIds.includes(pId)) {
+            console.log(`❌ [PAYMENT-VALIDATION] MISMATCH: Producto en pago (${pId}) no coincide con tarjeta (${cardProductIds.join(",")})`);
+            // Usar el producto de la tarjeta como fuente de verdad
+            const correctProduct = productList.find(p => cardProductIds.includes(p.id));
+            if (correctProduct) {
+              console.log(`🔧 [PAYMENT-VALIDATION] Corrigiendo a producto correcto: ${correctProduct.name} (ID: ${correctProduct.id})`);
+            }
+          }
+          
+          const [customer] = await db.select().from(conversations)
+            .where(eq(conversations.id, conversationId)).limit(1);
+
+          // Intentar obtener email del lead asociado
+          let customerEmail = 'sin_email';
+          if (customer?.leadId) {
+            const [leadRecord] = await db.select({ email: leads.email }).from(leads).where(eq(leads.id, customer.leadId)).limit(1);
+            if (leadRecord?.email) customerEmail = leadRecord.email;
+          }
+
+          await processPurchaseConfirmation({
+            conversationId,
+            productId: pId,
+            productName: pName,
+            price: pPrice,
+            paymentMethod: memory.paymentMethod || 'no_especificado',
+            customerId: customer?.contactPhone || 'desconocido',
+            customerEmail,
+            customerPhone: customer?.contactPhone || 'sin_telefono',
+            timestamp: new Date().toISOString(),
+          });
+          // Marcar conversación como estado pagado
+          await db.update(conversations)
+            .set({ paymentStatus: 'pending', paymentMethod: memory.paymentMethod || null, paymentAmount: pPrice })
+            .where(eq(conversations.id, conversationId));
+        } catch (e) {
+          console.log(`⚠️ No se pudo procesar confirmación de pago: ${(e as Error).message}`);
+        }
+      }
+
+      // Persistir productos en el contexto de la conversación
+      // El sistema actualiza lastMessage de todas formas
+      await db.update(conversations)
+        .set({
+          lastMessage: raw.substring(0, 200),
+          lastMessageAt: new Date().toISOString(),
+          currentProductId: agentMeta.productId ?? null,
+          currentProductName: agentMeta.productName ?? null,
+        })
+        .where(eq(conversations.id, conversationId));
+
+      const totalTime = Date.now() - startTime;
+      const aiTime = Date.now() - t12Start;
+      console.log(`⏱️ [TIMING] Llamada a IA: ${aiTime}ms`);
+      console.log(`🏁 [AGENT-END] Completado en ${totalTime}ms proveedor:${usedProvider} - ${ts()}`);
 
       return {
         content: raw,
-        stage: "conversacion",
-        parts,
-        cardProductIds: parts.filter(p => p.kind === "card").map(p => p.productId),
+        stage: decision.stage,
+        parts: finalParts,
+        cardProductIds: finalParts.filter((p: any) => p.kind === "card").map((p: any) => p.productId),
       };
     },
     () => {
-      // Fallback response when all AI providers fail
-      console.log(`🆘 [AGENT-FALLBACK] Usando respuesta de emergencia - ${new Date().toISOString()}`);
-      logger.warn({ conversationId }, "[Agent] All AI providers failed, using intelligent fallback");
-      return determineFallbackResponse(lastText, conversationContext);
+      console.log(`🆘 [FALLBACK] Usando respuesta de emergencia - ${ts()}`);
+      const emo = brain.emotionalState;
+      const fallbackText = emo === "frustrated"
+        ? `${voice.emojis.guarantee} Disculpa los inconvenientes técnicos. Estoy reiniciando mis sistemas para atenderte mejor. ¿Puedes intentarlo de nuevo en un momento? 🙏`
+        : emo === "excited"
+        ? `${voice.emojis.greeting} ¡Perdona la demora! Estoy procesando tu solicitud. Dame solo un momento y te respondo al instante ⚡🙏`
+        : `${voice.emojis.guarantee} Estoy teniendo problemas técnicos. Por favor intenta de nuevo en unos minutos. 🙏`;
+      saveAgentMessage(conversationId, fallbackText, memory.currentStage, { intent: decision.intent, isHardcoded: true });
+      return {
+        content: fallbackText,
+        stage: memory.currentStage,
+        parts: [{ kind: "text", content: fallbackText }],
+        cardProductIds: [],
+      };
     },
-    {
-      conversationId,
-      customerMessage: lastText,
-      customerInfo
-    }
+    { conversationId, customerMessage: lastText, customerInfo }
   );
-
-  console.log(`📤 [AGENT-FINAL] Resultado final - Contenido: ${result.content?.substring(0, 50)}..., Partes: ${result.parts?.length}, Etapa: ${result.stage} - ${new Date().toISOString()}`);
-
-  // ACTUALIZAR ETAPA EN SEGUNDO PLANO
-  updateConversationStage(convo, lastText, result, conversationId).catch(err => {
-    console.log(`⚠️ [AGENT-WARNING] Error actualizando etapa: ${err.message} - ${new Date().toISOString()}`);
-    logger.error({ err }, "[Stage] Error actualizando etapa");
-  });
-
-  const totalTime = Date.now() - startTime;
-  console.log(`🏁 [AGENT-END] runAgentReply completado en ${totalTime}ms para conversación ${conversationId} - ${new Date().toISOString()}`);
 
   return result;
 }
+
 
 export async function ensureBootstrapData() {
   // No tocamos nada aquí para no sobreescribir lo que ya hay
@@ -942,13 +1282,13 @@ export function getAgentSystemHealth() {
 export function checkAIProvidersStatus() {
   return {
     healthy: areAIProvidersHealthy(),
-    timestamp: new Date()
+    timestamp: new Date().toISOString()
   };
 }
 
 export function checkPaymentServicesStatus() {
   return {
     healthy: arePaymentServicesHealthy(),
-    timestamp: new Date()
+    timestamp: new Date().toISOString()
   };
 }

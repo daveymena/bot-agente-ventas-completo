@@ -1,0 +1,58 @@
+﻿node.exe : npm warn config ignoring workspace config at 
+C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server/.npmrc
+En línea: 1 Carácter: 1
++ & "C:\Program Files\nodejs/node.exe" "C:\Users\ADMIN\AppData\Roaming\ ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (npm warn config...i-server/.npmrc:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+npm warn Unknown project config "auto-install-peers". This will stop working in the next major version of npm. See 
+`npm help npmrc` for supported config options.
+npm warn Unknown project config "strict-peer-dependencies". This will stop working in the next major version of npm. 
+See `npm help npmrc` for supported config options.
+npm warn Unknown project config "allow-build". This will stop working in the next major version of npm. See `npm help 
+npmrc` for supported config options.
+npm warn Unknown project config "enable-pre-post-scripts". This will stop working in the next major version of npm. 
+See `npm help npmrc` for supported config options.
+­ƒöì [DOTENV] Buscando configuraci├│n en: C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\.env
+­ƒôí [DB-CONNECTION] Intentando conectar a: postgres://postgres:****@79.143.187.160:5432/tecnovariedades-db?sslmode=disable
+[G4F Config] Enabled: true, Provider: auto, Model: gpt-4-turbo, Timeout: 8s
+[AI Fallback] Order: opencode ÔåÆ nvidia ÔåÆ github ÔåÆ g4f
+­ƒöä [START] Iniciando conexi├│n WhatsApp...
+[Frontend] NODE_ENV: development
+[Frontend] __dirname: C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\src
+[Frontend] process.cwd(): C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server
+[Frontend] Buscando frontend en paths candidatos...
+[Frontend] Probando: C:\app\artifacts\ventas-pro\dist\public
+[Frontend] ÔØî No existe: C:\app\artifacts\ventas-pro\dist\public
+[Frontend] Probando: C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\ventas-pro\dist\public
+[Frontend] Ô£à Frontend encontrado en: C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\ventas-pro\dist\public
+[Frontend] Archivos: assets, favicon.svg, index.html, logo-minimal.svg, logo-sidebar.svg, logo-simple.svg, logo-white.svg, logo.svg, manifest.json, opengraph.jpg
+[06:01:17.488] [32mINFO[39m (8928): [36m[FollowUpScheduler] Starting scheduler[39m
+    [35mintervalMinutes[39m: 30
+[06:01:17.766] [32mINFO[39m (8928): [36m[AgentOrchestrator] Initialized - IA processor worker[39m
+[06:01:17.767] [32mINFO[39m (8928): [36m[AgentOrchestrator] Sequential processing loop started[39m
+[06:01:17.767] [32mINFO[39m (8928): [36m[AgentOrchestrator] AI processing auto-started for default tenant[39m
+[06:01:17.767] [32mINFO[39m (8928): [36m[MessageHandler] Initialized - WhatsApp message receiver only[39m
+[06:01:17.767] [32mINFO[39m (8928): [36m[MessageHandler] Message receiver configured for default tenant[39m
+[06:01:17.783] [32mINFO[39m (8928): [36mServer listening[39m
+    [35mport[39m: 3002
+    [35mhost[39m: "0.0.0.0"
+Ô£à [IMPORT] M├│dulos de Baileys importados correctamente
+Ô£à [AUTH] Estado de autenticaci├│n cargado
+Ô£à [INIT] Socket WhatsApp inicializado correctamente
+{"level":30,"time":"2026-05-24T11:01:18.484Z","pid":8928,"hostname":"PROYECTAR","class":"baileys","browser":["VentasPro","Chrome","1.0.0"],"helloMsg":{"clientHello":{"ephemeral":"Oabqb2JS15SGHZmrtpXvfInm281W0RWkMLR6IYxOOVU="}},"msg":"connected to WA"}
+{"level":30,"time":"2026-05-24T11:01:18.650Z","pid":8928,"hostname":"PROYECTAR","class":"baileys","node":{"username":"573042748687","passive":true,"userAgent":{"platform":"WEB","appVersion":{"primary":2,"secondary":3000,"tertiary":1034074495},"mcc":"000","mnc":"000","osVersion":"0.1","device":"Desktop","osBuildNumber":"0.1","releaseChannel":"RELEASE","localeLanguageIso6391":"en","localeCountryIso31661Alpha2":"US"},"webInfo":{"webSubPlatform":"WEB_BROWSER"},"connectType":"WIFI_UNKNOWN","connectReason":"USER_ACTIVATED","device":13,"pull":true,"lidDbMigrated":false},"msg":"logging in..."}
+[06:01:18.575] [32mINFO[39m (8928): [36m[Email] Ô£à Servidor SMTP conectado y listo[39m
+{"level":30,"time":"2026-05-24T11:01:19.169Z","pid":8928,"hostname":"PROYECTAR","class":"baileys","fromTimestamp":1779619814,"msg":"clean dirty bits account_sync"}
+{"level":30,"time":"2026-05-24T11:01:19.340Z","pid":8928,"hostname":"PROYECTAR","class":"baileys","msg":"811 pre-keys found on server"}
+{"level":30,"time":"2026-05-24T11:01:19.340Z","pid":8928,"hostname":"PROYECTAR","class":"baileys","msg":"Current prekey ID: 812, exists in storage: true"}
+{"level":30,"time":"2026-05-24T11:01:19.340Z","pid":8928,"hostname":"PROYECTAR","class":"baileys","msg":"PreKey validation passed - Server: 811, Current prekey 812 exists"}
+{"level":30,"time":"2026-05-24T11:01:19.526Z","pid":8928,"hostname":"PROYECTAR","class":"baileys","msg":"handled 0 offline messages/notifications"}
+{"level":30,"time":"2026-05-24T11:01:19.527Z","pid":8928,"hostname":"PROYECTAR","class":"baileys","msg":"Connection is now AwaitingInitialSync, buffering events"}
+{"level":30,"time":"2026-05-24T11:01:19.527Z","pid":8928,"hostname":"PROYECTAR","class":"baileys","msg":"History sync is disabled by config, not waiting for notification. Transitioning to Online."}
+{"level":30,"time":"2026-05-24T11:01:19.758Z","pid":8928,"hostname":"PROYECTAR","class":"baileys","msg":"opened connection to WA"}
+Ô£à [CONNECTED] WhatsApp conectado exitosamente - Tel├®fono: 573042748687
+{"level":30,"time":"2026-05-24T11:01:19.775Z","pid":8928,"hostname":"PROYECTAR","class":"baileys","myPN":"573042748687:13@s.whatsapp.net","myLID":"215814204608627:13@lid","msg":"Own LID session created successfully"}
+[06:01:19.762] [32mINFO[39m (8928): [36m[WhatsApp] Connected[39m
+    [35mphone[39m: "573042748687"

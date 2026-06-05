@@ -1,0 +1,136 @@
+version: "1.0"
+
+services:
+  api-server:
+    name: "Sofía API Server"
+    description: "WhatsApp AI Sales Bot Backend"
+
+    build:
+      dockerfile: ./artifacts/Dockerfile
+      context: .
+
+    ports:
+      - "3002:3002"
+
+    environment:
+      NODE_ENV: production
+      PORT: 3002
+      HOST: 0.0.0.0
+      LOG_LEVEL: info
+
+    healthCheck:
+      path: /api/health
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      startPeriod: 5s
+
+    resources:
+      limits:
+        cpus: "2"
+        memory: "2G"
+      requests:
+        cpus: "0.5"
+        memory: "512M"
+
+    restart:
+      policy: always
+      maxRetries: 5
+
+    volumes:
+      - ./data:/app/data
+
+  postgres:
+    name: "PostgreSQL Database"
+    image: "postgres:16-alpine"
+    environment:
+      POSTGRES_DB: tecnovariedades-db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
+  opencode-proxy:
+    name: "OpenCode AI Proxy"
+    description: "Proxy local para OpenCode AI (persistente vía opencode serve)"
+
+    build:
+      dockerfile: ./artifacts/opencode-proxy/Dockerfile
+      context: .
+
+    ports:
+      - "5000:5000"
+
+    environment:
+      PORT: 5000
+      LOG_LEVEL: INFO
+      DEFAULT_MODEL: deepseek-v4-flash-free
+      MAX_TIMEOUT: 180
+      OPENCODE_ZEN_BASE_URL: https://opencode.ai/zen/v1
+
+    healthCheck:
+      path: /health
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      startPeriod: 30s
+
+    resources:
+      limits:
+        cpus: "1"
+        memory: "1G"
+      requests:
+        cpus: "0.25"
+        memory: "256M"
+
+    restart:
+      policy: always
+      maxRetries: 5
+
+    volumes:
+      - opencode_data:/app/data
+      - opencode_logs:/app/logs
+
+  ollama:
+    name: "Ollama AI Engine"
+    image: "ollama/ollama:latest"
+    environment:
+      OLLAMA_HOST: "0.0.0.0:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    ports:
+      - "11434:11434"
+
+volumes:
+  postgres_data:
+  ollama_data:
+  opencode_data:
+  opencode_logs:
+
+deployment:
+  preDeployment: []
+  postDeployment:
+    - "echo 'Deployment completed successfully'"
+  migrations: []
+
+monitoring:
+  metrics:
+    - cpu
+    - memory
+    - disk
+    - network
+
+  logs:
+    - /app/logs
+    - stdout
+    - stderr
+
+backup:
+  enabled: true
+  schedule: "0 2 * * *"
+  retention: 7
+  targets:
+    - postgres_data
+    - ./data

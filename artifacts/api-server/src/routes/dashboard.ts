@@ -1,3 +1,4 @@
+import { safeISO } from "../lib/date-utils";
 import { Router, type IRouter } from "express";
 import { and, desc, eq, gte, sql } from "drizzle-orm";
 import {
@@ -67,7 +68,7 @@ router.get("/activity", async (_req, res, next) => {
           id: r.id,
           type: r.type,
           description: r.title + (r.subtitle ? ` — ${r.subtitle}` : ""),
-          createdAt: r.createdAt.toISOString(),
+          createdAt: r.safeISO(createdAt),
           metadata: null,
         })),
       ),
@@ -115,7 +116,7 @@ router.get("/messages-timeline", async (_req, res, next) => {
     for (let i = 0; i < days; i++) {
       const d = new Date(start);
       d.setDate(start.getDate() + i);
-      const key = d.toISOString().slice(0, 10);
+      const key = safeISO(d).slice(0, 10);
       map.set(key, { incoming: 0, outgoing: 0 });
     }
     for (const r of rows) {

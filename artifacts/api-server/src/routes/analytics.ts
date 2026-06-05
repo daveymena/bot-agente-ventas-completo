@@ -10,6 +10,8 @@ import {
 import { type TenantRequest } from "../lib/tenantManager";
 import { logger } from "../lib/logger";
 import { apiRateLimit } from "../middleware/rateLimiting";
+import { sendError } from "../lib/error-handler";
+import { ERROR_CODES } from "../lib/error-codes";
 
 const router: IRouter = Router();
 
@@ -41,9 +43,7 @@ const behaviorTrackingSchema = z.object({
 router.get("/dashboard", async (req: TenantRequest, res) => {
   try {
     if (!req.tenant) {
-      return res.status(404).json({ 
-        error: "No tenant context found" 
-      });
+      return sendError(res, ERROR_CODES.UNAUTHORIZED, 401);
     }
 
     const query = dateRangeSchema.parse(req.query);
@@ -51,6 +51,11 @@ router.get("/dashboard", async (req: TenantRequest, res) => {
     const startDate = query.startDate ? new Date(query.startDate) : 
       new Date(Date.now() - 30 * 24 * 60 * 60 * 1000); // Last 30 days
     const endDate = query.endDate ? new Date(query.endDate) : new Date();
+
+    // Validar rango de fechas
+    if (startDate >= endDate) {
+      return sendError(res, ERROR_CODES.VALIDATION_INVALID_DATE_RANGE, 400);
+    }
 
     const dashboard = await generateAnalyticsDashboard(req.tenant, startDate, endDate);
 
@@ -68,16 +73,11 @@ router.get("/dashboard", async (req: TenantRequest, res) => {
 
   } catch (error) {
     if (error instanceof z.ZodError) {
-      return res.status(400).json({ 
-        error: "Invalid date range", 
-        details: error.errors 
-      });
+      return sendError(res, ERROR_CODES.VALIDATION_INVALID_DATA, 400);
     }
 
     logger.error({ error, tenantId: req.tenant?.id }, "[Analytics] Failed to generate dashboard");
-    return res.status(500).json({ 
-      error: "Failed to generate analytics dashboard" 
-    });
+    return sendError(res, ERROR_CODES.INTERNAL_SERVER_ERROR, 500);
   }
 });
 
@@ -88,9 +88,7 @@ router.get("/dashboard", async (req: TenantRequest, res) => {
 router.get("/realtime", async (req: TenantRequest, res) => {
   try {
     if (!req.tenant) {
-      return res.status(404).json({ 
-        error: "No tenant context found" 
-      });
+      return sendError(res, ERROR_CODES.UNAUTHORIZED, 401);
     }
 
     const realTimeMetrics = await getRealTimeAnalytics(req.tenant);
@@ -103,9 +101,7 @@ router.get("/realtime", async (req: TenantRequest, res) => {
 
   } catch (error) {
     logger.error({ error, tenantId: req.tenant?.id }, "[Analytics] Failed to get real-time metrics");
-    return res.status(500).json({ 
-      error: "Failed to get real-time metrics" 
-    });
+    return sendError(res, ERROR_CODES.INTERNAL_SERVER_ERROR, 500);
   }
 });
 
@@ -116,9 +112,7 @@ router.get("/realtime", async (req: TenantRequest, res) => {
 router.get("/funnel", async (req: TenantRequest, res) => {
   try {
     if (!req.tenant) {
-      return res.status(404).json({ 
-        error: "No tenant context found" 
-      });
+      return sendError(res, ERROR_CODES.UNAUTHORIZED, 401);
     }
 
     const query = dateRangeSchema.parse(req.query);
@@ -126,6 +120,11 @@ router.get("/funnel", async (req: TenantRequest, res) => {
     const startDate = query.startDate ? new Date(query.startDate) : 
       new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
     const endDate = query.endDate ? new Date(query.endDate) : new Date();
+
+    // Validar rango de fechas
+    if (startDate >= endDate) {
+      return sendError(res, ERROR_CODES.VALIDATION_INVALID_DATE_RANGE, 400);
+    }
 
     const engine = new (await import("../lib/analytics")).AnalyticsEngine(req.tenant);
     const conversionMetrics = await engine.getConversionMetrics(startDate, endDate);
@@ -154,16 +153,11 @@ router.get("/funnel", async (req: TenantRequest, res) => {
 
   } catch (error) {
     if (error instanceof z.ZodError) {
-      return res.status(400).json({ 
-        error: "Invalid date range", 
-        details: error.errors 
-      });
+      return sendError(res, ERROR_CODES.VALIDATION_INVALID_DATA, 400);
     }
 
     logger.error({ error, tenantId: req.tenant?.id }, "[Analytics] Failed to get funnel analysis");
-    return res.status(500).json({ 
-      error: "Failed to get funnel analysis" 
-    });
+    return sendError(res, ERROR_CODES.INTERNAL_SERVER_ERROR, 500);
   }
 });
 
@@ -174,9 +168,7 @@ router.get("/funnel", async (req: TenantRequest, res) => {
 router.get("/performance", async (req: TenantRequest, res) => {
   try {
     if (!req.tenant) {
-      return res.status(404).json({ 
-        error: "No tenant context found" 
-      });
+      return sendError(res, ERROR_CODES.UNAUTHORIZED, 401);
     }
 
     const query = dateRangeSchema.parse(req.query);
@@ -184,6 +176,11 @@ router.get("/performance", async (req: TenantRequest, res) => {
     const startDate = query.startDate ? new Date(query.startDate) : 
       new Date(Date.now() - 7 * 24 * 60 * 60 * 1000); // Last 7 days
     const endDate = query.endDate ? new Date(query.endDate) : new Date();
+
+    // Validar rango de fechas
+    if (startDate >= endDate) {
+      return sendError(res, ERROR_CODES.VALIDATION_INVALID_DATE_RANGE, 400);
+    }
 
     const engine = new (await import("../lib/analytics")).AnalyticsEngine(req.tenant);
     const performanceMetrics = await engine.getPerformanceMetrics(startDate, endDate);
@@ -204,16 +201,11 @@ router.get("/performance", async (req: TenantRequest, res) => {
 
   } catch (error) {
     if (error instanceof z.ZodError) {
-      return res.status(400).json({ 
-        error: "Invalid date range", 
-        details: error.errors 
-      });
+      return sendError(res, ERROR_CODES.VALIDATION_INVALID_DATA, 400);
     }
 
     logger.error({ error, tenantId: req.tenant?.id }, "[Analytics] Failed to get performance metrics");
-    return res.status(500).json({ 
-      error: "Failed to get performance metrics" 
-    });
+    return sendError(res, ERROR_CODES.INTERNAL_SERVER_ERROR, 500);
   }
 });
 
@@ -224,9 +216,7 @@ router.get("/performance", async (req: TenantRequest, res) => {
 router.get("/behavior", async (req: TenantRequest, res) => {
   try {
     if (!req.tenant) {
-      return res.status(404).json({ 
-        error: "No tenant context found" 
-      });
+      return sendError(res, ERROR_CODES.UNAUTHORIZED, 401);
     }
 
     const query = dateRangeSchema.parse(req.query);
@@ -234,6 +224,11 @@ router.get("/behavior", async (req: TenantRequest, res) => {
     const startDate = query.startDate ? new Date(query.startDate) : 
       new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
     const endDate = query.endDate ? new Date(query.endDate) : new Date();
+
+    // Validar rango de fechas
+    if (startDate >= endDate) {
+      return sendError(res, ERROR_CODES.VALIDATION_INVALID_DATE_RANGE, 400);
+    }
 
     const engine = new (await import("../lib/analytics")).AnalyticsEngine(req.tenant);
     const behavioralAnalytics = await engine.getBehavioralAnalytics(startDate, endDate);
@@ -258,16 +253,11 @@ router.get("/behavior", async (req: TenantRequest, res) => {
 
   } catch (error) {
     if (error instanceof z.ZodError) {
-      return res.status(400).json({ 
-        error: "Invalid date range", 
-        details: error.errors 
-      });
+      return sendError(res, ERROR_CODES.VALIDATION_INVALID_DATA, 400);
     }
 
     logger.error({ error, tenantId: req.tenant?.id }, "[Analytics] Failed to get behavioral analytics");
-    return res.status(500).json({ 
-      error: "Failed to get behavioral analytics" 
-    });
+    return sendError(res, ERROR_CODES.INTERNAL_SERVER_ERROR, 500);
   }
 });
 
@@ -278,9 +268,7 @@ router.get("/behavior", async (req: TenantRequest, res) => {
 router.post("/track/conversion", async (req: TenantRequest, res) => {
   try {
     if (!req.tenant) {
-      return res.status(404).json({ 
-        error: "No tenant context found" 
-      });
+      return sendError(res, ERROR_CODES.UNAUTHORIZED, 401);
     }
 
     const validatedData = conversionTrackingSchema.parse(req.body);
@@ -306,16 +294,11 @@ router.post("/track/conversion", async (req: TenantRequest, res) => {
 
   } catch (error) {
     if (error instanceof z.ZodError) {
-      return res.status(400).json({ 
-        error: "Invalid data", 
-        details: error.errors 
-      });
+      return sendError(res, ERROR_CODES.VALIDATION_INVALID_DATA, 400);
     }
 
     logger.error({ error, tenantId: req.tenant?.id }, "[Analytics] Failed to track conversion");
-    return res.status(500).json({ 
-      error: "Failed to track conversion" 
-    });
+    return sendError(res, ERROR_CODES.INTERNAL_SERVER_ERROR, 500);
   }
 });
 
@@ -326,9 +309,7 @@ router.post("/track/conversion", async (req: TenantRequest, res) => {
 router.post("/track/behavior", async (req: TenantRequest, res) => {
   try {
     if (!req.tenant) {
-      return res.status(404).json({ 
-        error: "No tenant context found" 
-      });
+      return sendError(res, ERROR_CODES.UNAUTHORIZED, 401);
     }
 
     const validatedData = behaviorTrackingSchema.parse(req.body);
@@ -353,16 +334,11 @@ router.post("/track/behavior", async (req: TenantRequest, res) => {
 
   } catch (error) {
     if (error instanceof z.ZodError) {
-      return res.status(400).json({ 
-        error: "Invalid data", 
-        details: error.errors 
-      });
+      return sendError(res, ERROR_CODES.VALIDATION_INVALID_DATA, 400);
     }
 
     logger.error({ error, tenantId: req.tenant?.id }, "[Analytics] Failed to track behavior");
-    return res.status(500).json({ 
-      error: "Failed to track behavior event" 
-    });
+    return sendError(res, ERROR_CODES.INTERNAL_SERVER_ERROR, 500);
   }
 });
 
@@ -373,9 +349,7 @@ router.post("/track/behavior", async (req: TenantRequest, res) => {
 router.get("/health", async (req: TenantRequest, res) => {
   try {
     if (!req.tenant) {
-      return res.status(404).json({ 
-        error: "No tenant context found" 
-      });
+      return sendError(res, ERROR_CODES.UNAUTHORIZED, 401);
     }
 
     const engine = new (await import("../lib/analytics")).AnalyticsEngine(req.tenant);
@@ -400,9 +374,7 @@ router.get("/health", async (req: TenantRequest, res) => {
 
   } catch (error) {
     logger.error({ error, tenantId: req.tenant?.id }, "[Analytics] Failed to get system health");
-    return res.status(500).json({ 
-      error: "Failed to get system health status" 
-    });
+    return sendError(res, ERROR_CODES.INTERNAL_SERVER_ERROR, 500);
   }
 });
 

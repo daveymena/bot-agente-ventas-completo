@@ -5,6 +5,7 @@ import { runAgentReply } from "../lib/agent";
 import { db, conversations, messages } from "@workspace/db";
 import { existsSync, rmSync } from "node:fs";
 import path from "node:path";
+import QRCode from "qrcode";
 
 const router: IRouter = Router();
 
@@ -19,9 +20,6 @@ router.get("/status", (_req, res) => {
 router.post("/connect", async (_req, res, next) => {
   try {
     const status = await whatsapp.start();
-    if (!status) {
-      return res.json({ state: "connecting", qrCode: null, phone: null, connectedAt: null });
-    }
     return res.json(GetWhatsAppStatusResponse.parse(status));
   } catch (e) {
     return next(e);
@@ -41,11 +39,13 @@ router.post("/disconnect", async (_req, res, next) => {
 router.post("/test-ia", async (req, res, next) => {
   try {
     const msg = req.body?.message || "Hola, qué productos tienen?";
+    const tenantId = 1; // Tenant por defecto para testing
     
     // Crear conversación test
     const [convo] = await db.insert(conversations).values({
+      tenantId,
       contactName: "Test",
-      contactPhone: "test-ia",
+      contactPhone: req.body.phone || "test-ia",
       status: "ai",
       currentStage: "greeting"
     }).returning();
@@ -80,12 +80,9 @@ router.post("/reset-session", async (_req, res, next) => {
     // 1. Disconnect cleanly if connected
     await whatsapp.stop();
 
-    // 2. Delete the auth folder — same path as whatsapp.ts (dist/../.baileys-auth)
-    const authDir = path.resolve(
-      path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1')),
-      "..",
-      ".baileys-auth"
-    );    if (existsSync(authDir)) {
+    // 2. Delete the auth folder — always relative to cwd
+    const authDir = path.resolve(process.cwd(), ".baileys-auth");
+    if (existsSync(authDir)) {
       rmSync(authDir, { recursive: true, force: true });
     }
 

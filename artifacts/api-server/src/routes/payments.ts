@@ -10,6 +10,8 @@ import {
 import { type TenantRequest } from "../lib/tenantManager";
 import { logger } from "../lib/logger";
 import { apiRateLimit } from "../middleware/rateLimiting";
+import { sendError } from "../lib/error-handler";
+import { ERROR_CODES } from "../lib/error-codes";
 
 const router: IRouter = Router();
 
@@ -49,9 +51,7 @@ router.get("/health", async (req: TenantRequest, res) => {
 
   } catch (error) {
     logger.error({ error, tenantId: req.tenant?.id }, "[Payments] Failed to get health status");
-    return res.status(500).json({ 
-      error: "Failed to get payment system health" 
-    });
+    return sendError(res, ERROR_CODES.INTERNAL_SERVER_ERROR, 500);
   }
 });
 
@@ -62,9 +62,7 @@ router.get("/health", async (req: TenantRequest, res) => {
 router.get("/validate", async (req: TenantRequest, res) => {
   try {
     if (!req.tenant) {
-      return res.status(404).json({ 
-        error: "No tenant context found" 
-      });
+      return sendError(res, ERROR_CODES.UNAUTHORIZED, 401);
     }
 
     const validationResults = await validateAllPaymentServices(req.tenant);
@@ -93,9 +91,7 @@ router.get("/validate", async (req: TenantRequest, res) => {
 
   } catch (error) {
     logger.error({ error, tenantId: req.tenant?.id }, "[Payments] Failed to validate services");
-    return res.status(500).json({ 
-      error: "Failed to validate payment services" 
-    });
+    return sendError(res, ERROR_CODES.INTERNAL_SERVER_ERROR, 500);
   }
 });
 
@@ -106,9 +102,7 @@ router.get("/validate", async (req: TenantRequest, res) => {
 router.get("/analytics", async (req: TenantRequest, res) => {
   try {
     if (!req.tenant) {
-      return res.status(404).json({ 
-        error: "No tenant context found" 
-      });
+      return sendError(res, ERROR_CODES.UNAUTHORIZED, 401);
     }
 
     const query = dateRangeSchema.parse(req.query);
@@ -116,6 +110,11 @@ router.get("/analytics", async (req: TenantRequest, res) => {
     const startDate = query.startDate ? new Date(query.startDate) : 
       new Date(Date.now() - 30 * 24 * 60 * 60 * 1000); // Last 30 days
     const endDate = query.endDate ? new Date(query.endDate) : new Date();
+
+    // Validar rango de fechas
+    if (startDate >= endDate) {
+      return sendError(res, ERROR_CODES.VALIDATION_INVALID_DATE_RANGE, 400);
+    }
 
     const analytics = await getPaymentAnalytics(startDate, endDate, req.tenant);
     
@@ -143,16 +142,11 @@ router.get("/analytics", async (req: TenantRequest, res) => {
 
   } catch (error) {
     if (error instanceof z.ZodError) {
-      return res.status(400).json({ 
-        error: "Invalid date range", 
-        details: error.errors 
-      });
+      return sendError(res, ERROR_CODES.VALIDATION_INVALID_DATA, 400);
     }
 
     logger.error({ error, tenantId: req.tenant?.id }, "[Payments] Failed to get analytics");
-    return res.status(500).json({ 
-      error: "Failed to get payment analytics" 
-    });
+    return sendError(res, ERROR_CODES.INTERNAL_SERVER_ERROR, 500);
   }
 });
 
@@ -162,7 +156,7 @@ router.get("/analytics", async (req: TenantRequest, res) => {
  */
 router.get("/services/:service", async (req: TenantRequest, res) => {
   try {
-    const { service } = req.params;
+    const service = Array.isArray(req.params.service) ? req.params.service[0] : req.params.service;
     
     if (!['mercadopago', 'paypal', 'nequi'].includes(service)) {
       return res.status(400).json({ 
