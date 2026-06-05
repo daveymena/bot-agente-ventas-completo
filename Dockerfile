@@ -11,6 +11,7 @@ RUN apt-get update && apt-get install -y \
     python3 \
     make \
     g++ \
+    git \
     && rm -rf /var/lib/apt/lists/*
 
 # Copiar archivos de configuración del monorepo
@@ -27,9 +28,10 @@ COPY lib/integrations-openai-ai-server/package.json ./lib/integrations-openai-ai
 COPY lib/integrations-openai-ai-react/package.json ./lib/integrations-openai-ai-react/
 COPY scripts/package.json ./scripts/
 
-# Instalar dependencias - ignore build scripts error and continue
-# This is a workaround for pnpm v11 requiring approval for certain builds
+# Instalar dependencias
 RUN pnpm install --frozen-lockfile --no-optional 2>&1 | grep -v "ERR_PNPM_IGNORED_BUILDS" || true
+# Avoid git-less dependency issues by allowing ignore scripts for baileys
+RUN pnpm rebuild @whiskeysockets/baileys 2>/dev/null || true
 
 # Copiar el resto del código
 COPY . .
