@@ -1,4 +1,4 @@
-import { pool } from "@workspace/db";
+import { ensureDbReady } from "@workspace/db";
 import { logger } from "./logger";
 
 const MIGRATIONS = [
@@ -15,6 +15,11 @@ const MIGRATIONS = [
 ];
 
 export async function runAutoMigrations(): Promise<void> {
+  const { pool } = await ensureDbReady();
+  if (!pool) {
+    logger.warn("[AutoMigrate] No hay pool disponible, omitiendo migraciones");
+    return;
+  }
   logger.info("[AutoMigrate] Verificando columnas de la base de datos...");
   for (const sql of MIGRATIONS) {
     try {
