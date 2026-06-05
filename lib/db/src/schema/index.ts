@@ -15,3 +15,4 @@ export * from "./follow_ups";
 export * from "./subscriptions";
 export * from "./payments";
 export * from "./store_layouts";
+export * from "./whatsapp";
