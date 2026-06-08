@@ -3,7 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { build as esbuild } from "esbuild";
 import esbuildPluginPino from "esbuild-plugin-pino";
-import { rm } from "node:fs/promises";
+import { rm, cp } from "node:fs/promises";
 
 // Plugins (e.g. 'esbuild-plugin-pino') may use `require` to resolve dependencies
 globalThis.require = createRequire(import.meta.url);
@@ -118,6 +118,12 @@ globalThis.__dirname = __bannerPath.dirname(globalThis.__filename);
     `,
     },
   });
+
+  // Copy sql.js wasm binary for SQLite support
+  const dbPkgDir = path.resolve(artifactDir, "../../lib/db");
+  const dbRequire = createRequire(path.resolve(dbPkgDir, "package.json"));
+  const wasmPath = dbRequire.resolve("sql.js/dist/sql-wasm.wasm");
+  await cp(wasmPath, path.resolve(distDir, "sql-wasm.wasm"));
 }
 
 buildAll().catch((err) => {

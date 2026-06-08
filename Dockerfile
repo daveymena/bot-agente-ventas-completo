@@ -43,6 +43,9 @@ FROM node:22-slim
 WORKDIR /app
 RUN corepack enable
 
+# Instalar curl para healthcheck
+RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
+
 # Copiar solo lo necesario desde el build
 COPY --from=base /app /app
 
@@ -51,6 +54,13 @@ ENV NODE_ENV=production
 ENV PORT=3002
 
 EXPOSE 3002
+
+# Healthcheck para Easypanel
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+  CMD curl -f http://localhost:${PORT}/api/health || exit 1
+
+# Volumen persistente para sesión de WhatsApp (evita rescanear QR al reiniciar)
+VOLUME /app/artifacts/api-server/.baileys-auth
 
 # Comando de arranque: Inicia el API Server (que ahora también sirve el Frontend)
 CMD ["pnpm", "--filter", "@workspace/api-server", "run", "start"]

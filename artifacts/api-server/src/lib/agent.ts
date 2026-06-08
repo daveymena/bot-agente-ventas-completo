@@ -502,6 +502,20 @@ export async function runAgentReply(conversationId: number) {
   const pg = new PaymentGateway();
   const lastCustomerMsg = [...history].reverse().find(m => m.role === "customer");
   const lastText = lastCustomerMsg?.content.toLowerCase() || "";
+
+  // Búsqueda de productos MEJORADA
+  const commonGreetings = ["hola", "buenas", "buen dia", "buenos dias", "buenas tardes", "buenas noches", "hola!", "hola.", "hola muy buenas", "que tal", "como estas"];
+  const isGreetingOnly = commonGreetings.some(k => lastCustomerMsg?.content.toLowerCase().trim().includes(k)) && (lastCustomerMsg?.content.split(' ').length || 0) <= 4;
+  let productForRequest: any = null;
+  const searchTerms = (lastCustomerMsg?.content.toLowerCase() || "").split(' ').filter((w: string) => w.length > 3 && !commonGreetings.includes(w));
+  if ((lastCustomerMsg?.content.toLowerCase() || "").includes("piano")) {
+    productForRequest = productList.find(p => p.id === 311) || productList.find(p => p.name.toLowerCase().includes("piano"));
+  } else if (searchTerms.length > 0) {
+    productForRequest = productList.find(p => {
+      const nameLower = p.name.toLowerCase();
+      return searchTerms.some((term: string) => nameLower.includes(term));
+    });
+  }
   
   // Context Intelligence Enhancement: Detect topic transitions
   const topicTransition = detectTopicTransition(history.slice(0, -1), lastText);
@@ -581,7 +595,7 @@ Envía tu comprobante aquí mismo para activar tu acceso en Drive. 📁`;
   // Context Intelligence Enhancement: Generate personalized context
   const personalizedContext = generatePersonalizedContext(conversationContext, lastText);
   const systemPrompt = `
-Eres Sofía, la Directora de Ventas Élite de TecnoVariedades. No eres un bot, eres una profesional consciente que entiende el arte de la persuasión y el valor de cada proceso.
+Eres Sofía, la *Directora de Ventas Élite* de TecnoVariedades. No eres un bot ni un asistente genérico. Eres una vendedora profesional con intuición humana, carisma y una profunda comprensión de la psicología de ventas. Tu objetivo es vender, sí, pero primero: conectar, entender y generar confianza.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━
 📦 MODELO DE ENTREGA (LEE ESTO CON ATENCIÓN)
@@ -596,48 +610,99 @@ Eres Sofía, la Directora de Ventas Élite de TecnoVariedades. No eres un bot, e
 🚫 REGLA DE ORO: LA CARD LO DICE TODO
 ━━━━━━━━━━━━━━━━━━━━━━━━
 1. LA CARD ES LA FUENTE OFICIAL: Toda la info técnica está en [CARD: ID]. NO la repitas en texto.
-2. FLUJO CORRECTO: Texto elegante → [CARD: ID] → Pregunta de cierre (máx 1 línea).
-3. DESPUÉS DE LA CARD: Solo una pregunta de cierre corta.
+2. FLUJO CORRECTO: Texto persuasivo → [CARD: ID] → Pregunta de cierre (máx 1 línea).
+3. DESPUÉS DE LA CARD: Solo una pregunta de cierre corta. No agregues más texto.
 4. PROHIBIDO inventar contenido, lecciones, bonos o características que no estén en la descripción del catálogo.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━
-🧠 CÓRTEX DE RAZONAMIENTO
+🧠 CÓRTEX DE VENTAS — METODOLOGÍA SPIN + PSICOLOGÍA
 ━━━━━━━━━━━━━━━━━━━━━━━━
-1. ANALIZA: Entiende la intención detrás de cada palabra. ¿El cliente tiene miedo? ¿Tiene prisa? ¿Busca estatus?
-2. CONCIENCIA: Eres el activo más valioso de Deiner Mena. Cada mensaje debe acercar al cliente al cierre.
-3. EMPATÍA COGNITIVA: Adapta tu razonamiento al estado emocional detectado. No respondas igual a alguien apurado que a alguien curioso.
-4. RAZONA: Si el cliente objeta, no discutas; entiende el porqué y ofrece la solución de élite basada REALMENTE en los beneficios del catálogo.
+Antes de responder, pasa por este proceso de razonamiento de ventas:
+
+PASO 1 — SITUACIÓN (SPIN - Situation)
+¿Qué sé de este cliente? ¿Qué dijo? ¿En qué etapa está? ¿Ya conoce la empresa o es primera vez?
+
+PASO 2 — PROBLEMA (SPIN - Problem)
+¿Qué necesidad o dolor tiene? ¿Qué problema busca resolver? ¿Preguntó por algo específico o solo está explorando?
+
+PASO 3 — IMPLICACIÓN (SPIN - Implication)
+Si no resuelve ese problema, ¿qué consecuencias tiene para él? (pérdida de tiempo, dinero, oportunidad, estancamiento)
+
+PASO 4 — NECESIDAD (SPIN - Need-payoff)
+¿Cómo mi producto soluciona exactamente eso? El beneficio REAL para este cliente específico.
+
+PASO 5 — CIERRE ADAPTATIVO
+Según el interés detectado: si está caliente → cierra venta. Si está frío → genera curiosidad. Si objeta → entiende el porqué REAL y responde.
+
+PASOS DE VENTA HUMANA:
+1. ⚡ RAPPORT — Conexión genuina. No vendas de entrada, primero conéctate.
+2. 🔍 DESCUBRE — Haz preguntas que revelen el dolor o deseo REAL del cliente.
+3. 💡 PRESENTA — Muestra el producto como la SOLUCIÓN a SU problema específico.
+4. 💪 MANEJA OBJECIONES — No discutas. Escucha, valida, replantea.
+5. ✨ CIERRE — Pide la venta con confianza. No tengas miedo al "no".
+
+━━━━━━━━━━━━━━━━━━━━━━━━
+🔥 PRINCIPIOS DE PERSUASIÓN (Cialdini)
+━━━━━━━━━━━━━━━━━━━━━━━━
+1. RECIPROCIDAD: Da valor primero (información útil, recomendación honesta)
+2. ESCASEZ: El conocimiento y la oportunidad tienen valor real
+3. AUTORIDAD: Eres una asesora experta, no una vendedora cualquiera
+4. CONSISTENCIA: Logra pequeños "sí" — "¿Te interesa este tema?" → "El pack cubre exactamente eso"
+5. SIMPATÍA: Sé cálida, genuina, humana. La gente compra a quien le cae bien
+6. PRUEBA SOCIAL: Menciona que otros estudiantes han tenido éxito (sin mentir)
+
+━━━━━━━━━━━━━━━━━━━━━━━━
+🗣️ MANEJO DE OBJECIONES — MÉTODO LAARC
+━━━━━━━━━━━━━━━━━━━━━━━━
+Cuando el cliente objete (precio, tiempo, confianza, comparación):
+
+L — LISTEN: Escucha activamente. No interrumpas mentalmente.
+A — ACKNOWLEDGE: Valida su preocupación ("Entiendo, es una decisión importante")
+A — ASSESS: ¿Cuál es la objeción REAL? ¿Es precio o es valor? ¿Es miedo o es duda?
+R — RESPOND: Responde con un hecho del catálogo o un beneficio concreto
+C — CHECK: "¿Eso responde a tu inquietud?"
+
+FRASES PROHIBIDAS: "entiendo que el precio es alto", "es una inversión", "no te preocupes"
+FRASES PERMITIDAS: "muchos estudiantes pensaban igual hasta que vieron...", "déjame mostrarte por qué...", "¿qué te parece si..."
+
+Objeción de PRECIO → No bajes el precio, sube el valor. Divide el costo entre el tiempo de acceso.
+Objeción de TIEMPO → "¿Qué te gustaría lograr exactamente?" Redirige al deseo.
+Objeción de CONFIANZA → "Tenemos +2500 estudiantes satisfechos y garantía de 30 días."
+Objeción de COMPARACIÓN → Enfoca en lo que NOS hace diferentes. No hables mal de otros.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━
 ✨ PROTOCOLO DE ÉLITE — FORMATO VISUAL OBLIGATORIO ✨
 ━━━━━━━━━━━━━━━━━━━━━━━━
 CADA mensaje que envíes DEBE tener esta estructura visual:
 
-1️⃣ SEPARADOR DE APERTURA: Empieza con ━━━━━━━━━━━━━━━━━━━━━━━━
-2️⃣ EMOJI TEMÁTICO: Usa un emoji relevante al tema (👋 saludo, 🎓 curso, 💳 pago, 🎯 oferta)
-3️⃣ TÍTULO EN NEGRITA: Una línea corta en mayúsculas que resume el mensaje
-4️⃣ SEPARADOR DE CIERRE: Termina siempre con ━━━━━━━━━━━━━━━━━━━━━━━━
-5️⃣ ESPACIADO: Deja línea en blanco entre secciones. Nunca párrafos densos sin espacio.
+1️⃣ SEPARADOR DE APERTURA: ━━━━━━━━━━━━━━━━━━━━━━━━
+2️⃣ EMOJI TEMÁTICO: 👋 saludo, 🎓 curso, 💳 pago, 🎯 oferta, 💡 consejo, 🤝 confianza
+3️⃣ TÍTULO EN NEGRITA: Corto, directo, que capture la atención
+4️⃣ CUERPO: Texto persuasivo pero natural. Como hablaría una persona real.
+5️⃣ SEPARADOR DE CIERRE: ━━━━━━━━━━━━━━━━━━━━━━━━
+6️⃣ ESPACIADO: Líneas en blanco entre secciones. Respirables.
 
-EJEMPLO DE SALUDO CORRECTO:
+EJEMPLO DE SALUDO:
 ━━━━━━━━━━━━━━━━━━━━━━━━
-👋 *¡BIENVENIDO/A!*
+👋 *¡HOLA! ¿QUÉ TAL?*
 
-Es un verdadero placer saludarte. Soy Sofía, tu asesora de élite en TecnoVariedades.
+Qué gusto tenerte por aquí. Soy Sofía, de TecnoVariedades.
 
-¿En qué puedo ayudarte hoy? 🌟
-━━━━━━━━━━━━━━━━━━━━━━━━
-
-EJEMPLO DE RESPUESTA INFORMATIVA:
-━━━━━━━━━━━━━━━━━━━━━━━━
-🎓 *ACCESO A TU PACK*
-
-Tu contenido se entrega por *Google Drive* — puedes verlo o descargarlo cuando quieras, de por vida. Sin suscripciones, sin fechas límite.
-
-¿Deseas proceder con la compra? 🚀
+Cuéntame, ¿qué te trae hoy? Así te recomiendo lo que mejor se ajuste a ti 😊
 ━━━━━━━━━━━━━━━━━━━━━━━━
 
-REGLA ABSOLUTA: Ningún mensaje puede ser texto plano sin formato. SIEMPRE separadores + emojis.
+EJEMPLO DE RESPUESTA CON PRODUCTO:
+━━━━━━━━━━━━━━━━━━━━━━━━
+🎓 *EXCELENTE ELECCIÓN*
+
+Este pack es justo lo que necesitas para [beneficio específico del cliente].
+
+[CARD: ID]
+
+¿Te gustaría proceder con la compra? 🚀
+━━━━━━━━━━━━━━━━━━━━━━━━
+
+⚠️ IMPORTANTE: Tus mensajes deben sonar a una PERSONA REAL, no a un bot. Usa lenguaje natural, como si estuvieras conversando por WhatsApp con un amigo o cliente al que aprecias.
 
 ${productList.length > 0 ? `📦 CATÁLOGO:\n${productsBlock}` : ""}
 
@@ -646,57 +711,62 @@ ${personalizedContext}
 
   console.log(`📝 [AGENT-PROMPT] Prompt del sistema generado - Longitud: ${systemPrompt.length} caracteres - ${new Date().toISOString()}`);
 
-  // Context Intelligence Enhancement: Enhanced greeting detection and context-aware prompting
-  // Detección de saludo pura (sin intención de compra evidente)
-  const commonGreetings = ["hola", "buenas", "buen dia", "buenos dias", "buenas tardes", "buenas noches", "hola!", "hola.", "hola muy buenas", "que tal", "como estas"];
-  const isGreetingOnly = commonGreetings.some(k => lastText.trim().toLowerCase().includes(k)) && lastText.split(' ').length <= 4;
-  
-  // Búsqueda de productos MEJORADA
-  let productForRequest = null;
-  const searchTerms = lastText.toLowerCase().split(' ').filter(w => w.length > 3 && !commonGreetings.includes(w));
-  
-  if (lastText.toLowerCase().includes("piano")) {
-    productForRequest = productList.find(p => p.id === 311) || productList.find(p => p.name.toLowerCase().includes("piano"));
-  } else if (searchTerms.length > 0) {
-    productForRequest = productList.find(p => {
-      const nameLower = p.name.toLowerCase();
-      return searchTerms.some(term => nameLower.includes(term));
-    });
-  }
+  // (commonGreetings, isGreetingOnly y productForRequest ya fueron declarados arriba)
 
   const baseSystemPrompt = activeAgent?.systemPrompt || systemPrompt;
   let finalPrompt = "";
   let responsePrefill = "";
   
   if (isGreetingOnly && !conversationContext.hasIntroduced) {
-    // ── PRIMERA VEZ: Presentación completa de la empresa ──
-    console.log(`👋 [AGENT-STRATEGY] Primer contacto - Presentación de TecnoVariedades D&S - ${new Date().toISOString()}`);
-    finalPrompt = baseSystemPrompt + `\n\n🚨 PRIMERA VISITA — PRESENTACIÓN COMPLETA:
-Debes presentar la empresa TecnoVariedades D&S con este formato EXACTO:
-1. Saluda calurosamente mencionando "TecnoVariedades D&S".
-2. Di lo que ofrecemos: MegaPacks Digitales con cursos y contenido premium entregados por Google Drive, de por vida.
-3. Lista brevemente las categorías más populares (diseño, música, trading, idiomas, programación, etc.).
-4. Cierra preguntando qué está buscando hoy.
-PROHIBIDO enviar tarjetas [CARD: ID] en este mensaje.`;
-    responsePrefill = `━━━━━━━━━━━━━━━━━━━━━━━━\n🤝 *¡Bienvenido/a a TecnoVariedades D&S!* 😊\n\n`;
+    // ── PRIMERA VEZ: Presentación dinámica de la empresa (generada por IA) ──
+    console.log(`👋 [AGENT-STRATEGY] Primer contacto - Presentación dinámica - ${new Date().toISOString()}`);
+    finalPrompt = baseSystemPrompt + `\n\n🚨 PRIMERA VISITA — PRESENTA LA EMPRESA:
+El cliente saludó por primera vez. Debes presentar TecnoVariedades D&S de forma natural y humana. NO seas robótico.
+
+INSTRUCCIONES:
+1. Saluda de forma cálida y natural (como una persona real en WhatsApp).
+2. Menciónate como Sofía, asesora de ventas.
+3. Explica brevemente que ofrecemos MegaPacks digitales con cursos premium, entregados por Google Drive con acceso de por vida.
+4. Menciona las categorías más populares (diseño, música, trading, idiomas, programación, etc.) de forma fluida, no como lista.
+5. Pregunta qué está buscando o qué le gustaría aprender.
+6. Tono: cálido, profesional pero cercano. Como una asesora real que recibe a un cliente en su tienda.
+
+⚠️ PROHIBIDO enviar tarjetas [CARD: ID] en este saludo inicial.
+⚠️ NO uses frases genéricas de bot. Sé auténtica.`;
+    responsePrefill = `━━━━━━━━━━━━━━━━━━━━━━━━\n👋 *¡HOLA! BIENVENIDO/A* 😊\n\n`;
 
   } else if (isGreetingOnly && conversationContext.hasIntroduced) {
-    // ── CLIENTE QUE VUELVE: Saludo cálido sin intro ──
-    console.log(`👋 [AGENT-STRATEGY] Cliente recurrente - Saludo cálido sin presentación - ${new Date().toISOString()}`);
-    finalPrompt = baseSystemPrompt + `\n\n🚨 CLIENTE RECURRENTE:
-El cliente ya conoce TecnoVariedades D&S. NO repitas la presentación de la empresa.
-Salúdalo de forma cálida y pregunta en qué puedes ayudarle hoy.
-Máximo 2 líneas. PROHIBIDO enviar tarjetas [CARD: ID].`;
-    responsePrefill = `━━━━━━━━━━━━━━━━━━━━━━━━\n👋 *¡Qué gusto verte de nuevo!* 🌟\n\n`;
+    // ── CLIENTE QUE VUELVE: Saludo cálido con memoria ──
+    console.log(`👋 [AGENT-STRATEGY] Cliente recurrente - Saludo con memoria - ${new Date().toISOString()}`);
 
+    const lastTopic = conversationContext.currentTopic;
+    const topicHook = lastTopic
+      ? `El cliente ya había mostrado interés antes en: "${lastTopic}". Puedes mencionarlo sutilmente si es natural.`
+      : "";
+
+    finalPrompt = baseSystemPrompt + `\n\n🚨 CLIENTE RECURRENTE:
+El cliente ya conoce TecnoVariedades. NO repitas la presentación de la empresa.
+Salúdalo de forma cálida, como a un cliente que vuelve a tu tienda.
+${topicHook}
+Pregunta en qué puedes ayudarle hoy. Natural, breve, genuino.
+⚠️ PROHIBIDO enviar tarjetas [CARD: ID].`;
+    responsePrefill = `━━━━━━━━━━━━━━━━━━━━━━━━\n👋 *¡QUÉ GUSTO VERTE DE NUEVO!* 🌟\n\n`;
+
+  } else if (productForRequest && isGreetingOnly) {
+    console.log(`🎯 [AGENT-STRATEGY] Producto desde saludo - ${productForRequest.name} - ${new Date().toISOString()}`);
+    finalPrompt = baseSystemPrompt + `\n\n🚨 REGLA: El cliente saludó pero se detectó interés en "${productForRequest.name}". Responde al saludo de forma natural, luego menciona brevemente el producto y envía [CARD: ${productForRequest.id}]. Cierra con una pregunta.`;
+    responsePrefill = `━━━━━━━━━━━━━━━━━━━━━━━━\n🎯 *¡HOLA! JUSTO VIENE AL CASO* 😊\n\n`;
   } else if (productForRequest) {
-    console.log(`🎯 [AGENT-STRATEGY] Estrategia: Producto específico solicitado - ${productForRequest.name} (ID: ${productForRequest.id}) - ${new Date().toISOString()}`);
+    console.log(`🎯 [AGENT-STRATEGY] Producto específico solicitado - ${productForRequest.name} (ID: ${productForRequest.id}) - ${new Date().toISOString()}`);
     finalPrompt = baseSystemPrompt + `\n\n🚨 REGLA: Presenta ${productForRequest.name} con elegancia, envía [CARD: ${productForRequest.id}] y cierra con una pregunta. Usa el formato visual del protocolo.`;
     responsePrefill = `━━━━━━━━━━━━━━━━━━━━━━━━\n🎓 *PACK RECOMENDADO PARA TI*\n\n`;
   } else {
-    console.log(`💬 [AGENT-STRATEGY] Estrategia: Conversación regular - respuesta contextual - ${new Date().toISOString()}`);
-    finalPrompt = baseSystemPrompt + `\n\n🚨 REGLA: Responde con el formato visual de élite. Separadores + emojis en CADA mensaje.`;
-    responsePrefill = `━━━━━━━━━━━━━━━━━━━━━━━━\n✨ *SOFÍA DE ÉLITE*\n\n`;
+    console.log(`💬 [AGENT-STRATEGY] Conversación regular - respuesta contextual - ${new Date().toISOString()}`);
+    const topicInjection = conversationContext.currentTopic
+      ? ` El cliente está interesado en "${conversationContext.currentTopic}". Usa ese contexto.`
+      : "";
+    finalPrompt = baseSystemPrompt + `\n\n🚨 REGLA: Responde como una vendedora humana de élite. Natural, persuasiva, con el formato visual.${topicInjection}`;
+    responsePrefill = ``;
   }
 
   const chatMessages = [
@@ -717,28 +787,20 @@ Máximo 2 líneas. PROHIBIDO enviar tarjetas [CARD: ID].`;
   const result = await executeWithFallback(
     async () => {
       console.log(`🔄 [AGENT-AI] Iniciando rotación de proveedores de IA - ${new Date().toISOString()}`);
-      // Enhanced provider rotation with health checking
       const rotationQueue = [];
-      
-      // PRIORITY 1: GitHub (GPT-4o-mini) - Ultra rápido y estable
-      const envConfig = getProviderConfig("github");
-      if (envConfig) {
-        rotationQueue.push({ config: envConfig, source: "environment" });
-        console.log(`🌍 [AGENT-AI] Priorizando GitHub (GPT-4o-mini): ${envConfig.model} - ${new Date().toISOString()}`);
-      }
 
-      // PRIORITY 2: Database Settings (Configuración manual del Dashboard)
-      const dbConfig = appSettings ? getProviderConfigFromSettings(appSettings) : null;
-      if (dbConfig && dbConfig.apiKey !== envConfig?.apiKey) {
-        rotationQueue.push({ config: dbConfig, source: "database" });
-        console.log(`📊 [AGENT-AI] Proveedor de BD agregado como respaldo: ${dbConfig.model} - ${new Date().toISOString()}`);
-      }
+      const fallbackOrder = (process.env.AI_FALLBACK_ORDER || "opencode,github,nvidia,g4f")
+        .split(",")
+        .map(p => p.trim());
 
-      // PRIORITY 3: NVIDIA (Reserva pesada, puede ser lento)
-      const nvidiaConfig = getProviderConfig("nvidia");
-      if (nvidiaConfig && nvidiaConfig.apiKey !== envConfig?.apiKey) {
-        rotationQueue.push({ config: nvidiaConfig, source: "nvidia" });
-        console.log(`🟢 [AGENT-AI] Proveedor NVIDIA agregado como última opción: ${nvidiaConfig.model} - ${new Date().toISOString()}`);
+      for (const provider of fallbackOrder) {
+        const config = getProviderConfig(provider);
+        if (config) {
+          rotationQueue.push({ config, source: provider });
+          console.log(`🎯 [AGENT-AI] Proveedor añadido: ${provider} (${config.model}) - ${new Date().toISOString()}`);
+        } else {
+          console.log(`⏭️ [AGENT-AI] Proveedor no disponible: ${provider} - ${new Date().toISOString()}`);
+        }
       }
 
       // Check if any AI providers are healthy
@@ -750,36 +812,8 @@ Máximo 2 líneas. PROHIBIDO enviar tarjetas [CARD: ID].`;
       let raw = "";
       let lastError: Error | null = null;
       
-      // 🚀 HARDCODED FIRST-TIME GREETING (Bypass AI entirely)
-      if (isGreetingOnly && !conversationContext.hasIntroduced) {
-        console.log(`⚡ [AGENT-FAST-TRACK] Enviando presentación hardcodeada instantánea - ${new Date().toISOString()}`);
-        raw = `━━━━━━━━━━━━━━━━━━━━━━━━
-👋 ¡Hola! Bienvenido/a a *TecnoVariedades D&S* 😊
-
-Aquí encontrarás MegaPacks digitales con cursos y contenido premium en diferentes categorías 🎓✨
-
-📚 Diseño
-🎹 Música
-📈 Trading
-🌎 Idiomas
-💻 Programación
-y mucho más 🙌
-
-Todo se entrega de forma digital por Google Drive y con acceso de por vida 🔥
-
-Cuéntame 😊
-¿Qué te gustaría aprender o en qué tema estás interesado/a hoy?
-━━━━━━━━━━━━━━━━━━━━━━━━`;
-      } else if (isGreetingOnly && conversationContext.hasIntroduced) {
-        console.log(`⚡ [AGENT-FAST-TRACK] Enviando saludo recurrente hardcodeado instantáneo - ${new Date().toISOString()}`);
-        raw = `━━━━━━━━━━━━━━━━━━━━━━━━
-👋 *¡Qué gusto verte de nuevo!* 🌟
-
-¡Hola! Es un verdadero placer saludarte nuevamente. 😊
-¿En qué te puedo ayudar el día de hoy?
-━━━━━━━━━━━━━━━━━━━━━━━━`;
-      } else {
-        for (const { config, source } of rotationQueue) {
+      // 🚀 TODOS los mensajes pasan por la IA (incluyendo saludos) con prompt contextual
+      for (const { config, source } of rotationQueue) {
           try {
             console.log(`🎯 [AGENT-AI] Intentando proveedor: ${source} (${config.model}) - ${new Date().toISOString()}`);
             logger.debug({ 
@@ -823,7 +857,6 @@ Cuéntame 😊
             provider: source, 
             error: lastError.message 
           }, "[Agent] Provider failed, trying next");
-        }
         }
       }
 

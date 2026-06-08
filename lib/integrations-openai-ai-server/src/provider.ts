@@ -36,6 +36,20 @@ export function getProviderConfig(provider: string): AIProviderConfig | null {
         apiKey: "ollama",
         model: process.env.OLLAMA_LOCAL_MODEL || "hermes3:8b",
       };
+    case "opencode":
+      if (!process.env.OPENCODE_API_URL || !process.env.OPENCODE_API_KEY) return null;
+      return {
+        baseUrl: process.env.OPENCODE_API_URL,
+        apiKey: process.env.OPENCODE_API_KEY,
+        model: process.env.OPENCODE_MODEL || "opencode/deepseek-v4-flash-free",
+      };
+    case "g4f":
+      if (!process.env.G4F_ENABLED) return null;
+      return {
+        baseUrl: (process.env.G4F_BASE_URL || "http://localhost:1337") + "/v1",
+        apiKey: "g4f",
+        model: process.env.G4F_MODEL || "gpt-4-turbo",
+      };
     case "openai_default":
       if (!process.env.AI_INTEGRATIONS_OPENAI_BASE_URL || !process.env.AI_INTEGRATIONS_OPENAI_API_KEY) return null;
       return {
@@ -84,6 +98,24 @@ export function getProviderConfigFromSettings(settings: {
       baseUrl: url + "/v1",
       apiKey: "ollama",
       model: settings.ollamaModel || process.env.OLLAMA_LOCAL_MODEL || "hermes3:8b",
+    };
+  }
+
+  if (provider === "opencode") {
+    if (!process.env.OPENCODE_API_URL || !process.env.OPENCODE_API_KEY) return null;
+    return {
+      baseUrl: process.env.OPENCODE_API_URL,
+      apiKey: process.env.OPENCODE_API_KEY,
+      model: process.env.OPENCODE_MODEL || "opencode/deepseek-v4-flash-free",
+    };
+  }
+
+  if (provider === "g4f") {
+    if (!process.env.G4F_ENABLED) return null;
+    return {
+      baseUrl: (process.env.G4F_BASE_URL || "http://localhost:1337") + "/v1",
+      apiKey: "g4f",
+      model: process.env.G4F_MODEL || "gpt-4-turbo",
     };
   }
 
