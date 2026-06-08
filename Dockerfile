@@ -34,8 +34,13 @@ RUN pnpm install --frozen-lockfile --no-optional 2>&1 | grep -v "ERR_PNPM_IGNORE
 # Copiar el resto del código
 COPY . .
 
-# Construir solo el API Server (Backend)
+# Construir Backend
 RUN pnpm --filter @workspace/api-server run build
+
+# Construir Frontend (desde su directorio para resolución correcta de módulos)
+WORKDIR /app/artifacts/ventas-pro
+RUN pnpm run build
+WORKDIR /app
 
 # Etapa final para ejecución ligera
 FROM node:22-slim
