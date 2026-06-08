@@ -28,8 +28,8 @@ COPY lib/integrations-openai-ai-server/package.json ./lib/integrations-openai-ai
 COPY lib/integrations-openai-ai-react/package.json ./lib/integrations-openai-ai-react/
 COPY scripts/package.json ./scripts/
 
-# Instalar dependencias
-RUN pnpm install --frozen-lockfile --no-optional 2>&1 | grep -v "ERR_PNPM_IGNORED_BUILDS" || true
+# Instalar dependencias (sin --no-optional para incluir módulos nativos de Linux)
+RUN pnpm install --frozen-lockfile 2>&1 | grep -v "ERR_PNPM_EXOTIC_SUBDEP\|ERR_PNPM_IGNORED_BUILDS" || true
 
 # Copiar el resto del código
 COPY . .
@@ -37,10 +37,8 @@ COPY . .
 # Construir Backend
 RUN pnpm --filter @workspace/api-server run build
 
-# Construir Frontend (desde su directorio para resolución correcta de módulos)
-WORKDIR /app/artifacts/ventas-pro
-RUN pnpm run build
-WORKDIR /app
+# Construir Frontend
+RUN pnpm --filter @workspace/ventas-pro run build
 
 # Etapa final para ejecución ligera
 FROM node:22-slim
