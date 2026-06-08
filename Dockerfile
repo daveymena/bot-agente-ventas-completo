@@ -29,6 +29,7 @@ COPY lib/integrations-openai-ai-react/package.json ./lib/integrations-openai-ai-
 COPY scripts/package.json ./scripts/
 
 # Instalar dependencias (sin --no-optional para incluir módulos nativos de Linux)
+# --frozen-lockfile evita re-resolución, saltando el check de exotic subdeps de libsignal
 RUN pnpm install --frozen-lockfile 2>&1 | grep -v "ERR_PNPM_EXOTIC_SUBDEP\|ERR_PNPM_IGNORED_BUILDS" || true
 
 # Copiar el resto del código
