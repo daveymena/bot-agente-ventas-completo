@@ -52,5 +52,12 @@ ENV PORT=3002
 
 EXPOSE 3002
 
+# Healthcheck para Easypanel
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+  CMD curl -f http://localhost:${PORT}/api/healthz || exit 1
+
+# Volumen persistente para sesión de WhatsApp (evita rescanear QR al reiniciar)
+VOLUME /app/artifacts/api-server/.baileys-auth
+
 # Comando de arranque: Inicia el API Server (que ahora también sirve el Frontend)
 CMD ["pnpm", "--filter", "@workspace/api-server", "run", "start"]
