@@ -142,18 +142,9 @@ app.use(cookieParser());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Middleware de debugging para cookies
-app.use((req, res, next) => {
-  console.log(`[COOKIES] Path: ${req.path}`);
-  console.log(`[COOKIES] All cookies: ${JSON.stringify(req.cookies)}`);
-  console.log(`[COOKIES] tenant_id: ${req.cookies?.tenant_id}`);
-  console.log(`[COOKIES] Headers Cookie: ${req.headers.cookie}`);
-  
-  // Agregar header para debugging
-  res.setHeader('X-Debug-Cookies', JSON.stringify(req.cookies));
-  
-  next();
-});
+
+// (Middleware de debug de cookies eliminado - usaba console.log en cada request)
+
 
 // Health check endpoints (sin autenticación)
 app.use("/api", healthRouter);
@@ -252,14 +243,9 @@ const isPublicRoute = (path: string) => {
 // Middleware para resolver tenant SOLO en rutas protegidas
 const resolveTenantMiddleware = (req: Request, res: Response, next: NextFunction) => {
   const isPublic = isPublicRoute(req.path);
-  console.log(`[resolveTenant] Path: ${req.path}, IsPublic: ${isPublic}, Cookies: ${JSON.stringify(req.cookies)}`);
-  
   if (isPublic) {
-    console.log(`[resolveTenant] Ruta pública, saltando resolución de tenant`);
     return next();
   }
-  
-  console.log(`[resolveTenant] Ruta protegida, resolviendo tenant...`);
   resolveTenant()(req, res, next);
 };
 
@@ -267,18 +253,14 @@ const resolveTenantMiddleware = (req: Request, res: Response, next: NextFunction
 const validateSaasMiddleware = (req: Request, res: Response, next: NextFunction) => {
   // Permitir rutas públicas sin validación
   if (isPublicRoute(req.path)) {
-    console.log(`[validateSaaS] Ruta pública permitida: ${req.path}`);
     return next();
   }
   
   const tenant = (req as any).tenant;
   if (!tenant) {
-    console.log(`[validateSaaS] No tenant found for path: ${req.path}`);
+    logger.warn({ path: req.path }, `[validateSaaS] No tenant found`);
     return res.status(401).json({ error: "No tenant found" });
   }
-  
-  const plan = tenant.plan;
-  console.log(`[validateSaaS] Validating plan: "${plan}" for tenant ${tenant.id}`);
   
   validateSaasPlan()(req, res, next);
 };
