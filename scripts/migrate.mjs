@@ -13,19 +13,20 @@ import { dirname, join } from 'path';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
+const rootDir = dirname(__dirname);
 
 // Buscar pg en múltiples ubicaciones posibles
 let Client;
 try {
   // Intentar desde lib/db/node_modules
-  const require = createRequire(join(__dirname, 'lib/db/package.json'));
+  const require = createRequire(join(rootDir, 'lib/db/package.json'));
   const pg = require('pg');
   Client = pg.Client;
 } catch {
   try {
     // Intentar desde node_modules global de pnpm
     const { createRequire: cr } = await import('module');
-    const req = cr(join(__dirname, 'package.json'));
+    const req = cr(join(rootDir, 'package.json'));
     const pg = req('pg');
     Client = pg.Client;
   } catch {
@@ -163,6 +164,11 @@ const CREATE_TABLES = [
     sent_at TIMESTAMPTZ,
     status TEXT NOT NULL DEFAULT 'pending',
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`,
+  `CREATE TABLE IF NOT EXISTS whatsapp_auth (
+    key TEXT PRIMARY KEY,
+    value JSONB NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
   )`,
 ];
 
