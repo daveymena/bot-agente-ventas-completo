@@ -94,4 +94,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=5 \
 
 # IMPORTANTE: usar node directamente (NO pnpm) para que SIGTERM se propague correctamente
 # pnpm no hace forward de SIGTERM al proceso hijo -> crash en EasyPanel al reiniciar
-CMD ["sh", "-c", "node ./scripts/migrate.mjs && exec node --enable-source-maps ./artifacts/api-server/dist/index.mjs"]
+CMD ["sh", "-c", "node ./scripts/migrate.mjs; exec node --enable-source-maps ./artifacts/api-server/dist/index.mjs"]
