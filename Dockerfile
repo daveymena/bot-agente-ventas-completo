@@ -1,13 +1,17 @@
-FROM node:22-slim AS base
+# =============================================================================
+# BUILD STAGE
+# =============================================================================
+FROM node:22-slim AS builder
 
+# Deshabilitar corepack para evitar que descargue pnpm 10 automáticamente
+ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0
+ENV COREPACK_DEFAULT_TO_LATEST=0
 ENV PNPM_HOME="/pnpm"
 ENV PATH="$PNPM_HOME:$PATH"
-# Enable corepack and install pnpm 9 (Versión estable previa que no bloquea Baileys)
-RUN corepack enable && corepack prepare pnpm@9.15.9 --activate
 
 WORKDIR /app
 
-# Instalar dependencias del sistema necesarias para baileys y sharp
+# Instalar dependencias del sistema necesarias para Baileys y builds nativos
 RUN apt-get update && apt-get install -y \
     python3 \
     make \
@@ -16,48 +20,59 @@ RUN apt-get update && apt-get install -y \
     openssh-client \
     && rm -rf /var/lib/apt/lists/*
 
-# Copiar archivos de configuración del monorepo
+# Instalar pnpm directamente via npm (sin corepack para evitar conflictos de versión)
+RUN npm install -g pnpm@9.15.9 --no-fund --no-audit
+
+# Copiar manifiestos primero (optimiza cache de Docker layers)
 COPY pnpm-lock.yaml pnpm-workspace.yaml package.json .npmrc ./
 
-# Copiar package.json de todos los paquetes para optimizar cache de pnpm install
+# Copiar package.json de todos los paquetes del workspace
 COPY artifacts/api-server/package.json ./artifacts/api-server/
-COPY artifacts/ventas-pro/package.json ./artifacts/ventas-pro/
-COPY lib/api-zod/package.json ./lib/api-zod/
-COPY lib/api-spec/package.json ./lib/api-spec/
-COPY lib/api-client-react/package.json ./lib/api-client-react/
-COPY lib/db/package.json ./lib/db/
+COPY artifacts/ventas-pro/package.json  ./artifacts/ventas-pro/
+COPY lib/api-zod/package.json           ./lib/api-zod/
+COPY lib/api-spec/package.json          ./lib/api-spec/
+COPY lib/api-client-react/package.json  ./lib/api-client-react/
+COPY lib/db/package.json                ./lib/db/
 COPY lib/integrations-openai-ai-server/package.json ./lib/integrations-openai-ai-server/
-COPY lib/integrations-openai-ai-react/package.json ./lib/integrations-openai-ai-react/
-COPY scripts/package.json ./scripts/
+COPY lib/integrations-openai-ai-react/package.json  ./lib/integrations-openai-ai-react/
+COPY scripts/package.json               ./scripts/
 
-# Limpiar flags de pnpm v11 y usar instalación estándar de v9
+# Instalar todas las dependencias
 RUN pnpm install --no-frozen-lockfile --prod=false
 
-# Copiar el resto del código
+# Copiar el resto del código fuente
 COPY . .
 
-# Construir solo los proyectos necesarios (Backend + Frontend)
-# Nota: integrations-openai-ai-server y integrations-openai-ai-react son libs TypeScript inline, no tienen script build propio
-RUN pnpm --filter "@workspace/api-server" --filter "@workspace/ventas-pro" --filter "@workspace/db" --filter "@workspace/api-zod" --filter "@workspace/api-spec" --filter "@workspace/api-client-react" run build
+# Build: backend + frontend + libs necesarias
+RUN pnpm --filter "@workspace/db" \
+         --filter "@workspace/api-zod" \
+         --filter "@workspace/api-spec" \
+         --filter "@workspace/api-client-react" \
+         --filter "@workspace/api-server" \
+         --filter "@workspace/ventas-pro" \
+         run build
 
 # Verificar que el frontend se construyó correctamente
-RUN echo "🔍 Verificando build del frontend..." && \
+RUN echo "Verificando build del frontend..." && \
     ls -la /app/artifacts/ventas-pro/dist/public/ && \
-    if [ ! -f /app/artifacts/ventas-pro/dist/public/index.html ]; then \
-        echo "❌ ERROR: index.html no encontrado"; \
-        exit 1; \
-    else \
-        echo "✅ Frontend construido correctamente"; \
-    fi
+    test -f /app/artifacts/ventas-pro/dist/public/index.html && \
+    echo "Frontend OK" || (echo "ERROR: index.html no encontrado" && exit 1)
 
-# Etapa final para ejecución ligera y estable
+# =============================================================================
+# PRODUCTION STAGE - Imagen final ligera
+# =============================================================================
 FROM node:22-slim
 
-WORKDIR /app
-# Asegurar pnpm 9 también en la etapa final
-RUN corepack enable && corepack prepare pnpm@9.15.9 --activate
+# Deshabilitar corepack en producción también
+ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0
+ENV COREPACK_DEFAULT_TO_LATEST=0
+ENV NODE_ENV=production
+ENV PORT=3002
+ENV HOST=0.0.0.0
 
-# Instalar dependencias mínimas para producción
+WORKDIR /app
+
+# Solo instalar lo necesario en producción
 RUN apt-get update && apt-get install -y \
     python3 \
     make \
@@ -65,20 +80,18 @@ RUN apt-get update && apt-get install -y \
     sqlite3 \
     && rm -rf /var/lib/apt/lists/*
 
-# Copiar TODO el workspace del builder
-COPY --from=base /app /app
+# Copiar todo el workspace ya compilado desde el builder
+COPY --from=builder /app /app
 
-# Crear carpetas de persistencia para EasyPanel
+# Crear carpeta de datos persistente
 RUN mkdir -p /app/data && chmod 777 /app/data
-
-# Variables de entorno y argumentos de construcción
-ARG DATABASE_URL
-ENV DATABASE_URL=$DATABASE_URL
-ENV NODE_ENV=production
-ENV PORT=3002
-# Force rebuild: 2026-05-15 (v9 fallback)
 
 EXPOSE 3002
 
-# Comando de arranque optimizado
-CMD ["pnpm", "--filter", "@workspace/api-server", "run", "start"]
+# Healthcheck robusto: espera 60s antes del primer chequeo
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=5 \
+  CMD node -e "require('http').get('http://localhost:3002/api/health', (r) => { process.exit(r.statusCode === 200 ? 0 : 1) }).on('error', () => process.exit(1))"
+
+# IMPORTANTE: usar node directamente (NO pnpm) para que SIGTERM se propague correctamente
+# pnpm no hace forward de SIGTERM al proceso hijo -> crash en EasyPanel al reiniciar
+CMD ["sh", "-c", "node ./scripts/migrate.mjs && exec node --enable-source-maps ./artifacts/api-server/dist/index.mjs"]

@@ -3,10 +3,14 @@
 # =============================================================================
 FROM node:22-alpine AS builder
 
+# Deshabilitar corepack para evitar que descargue pnpm 10 automáticamente
+ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0
+ENV COREPACK_DEFAULT_TO_LATEST=0
+
 WORKDIR /app
 
-# Instalar pnpm
-RUN npm install -g pnpm@9.15.9
+# Instalar pnpm directamente (sin corepack)
+RUN npm install -g pnpm@9.15.9 --no-fund --no-audit
 
 # --- Copiar SOLO los manifiestos primero (optimiza cache de Docker) ---
 COPY pnpm-workspace.yaml pnpm-lock.yaml .npmrc package.json ./
@@ -22,8 +26,8 @@ COPY lib/integrations-openai-ai-server/package.json ./lib/integrations-openai-ai
 COPY lib/integrations-openai-ai-react/package.json  ./lib/integrations-openai-ai-react/
 COPY scripts/package.json               ./scripts/
 
-# Instalar dependencias (ignorar minimumReleaseAge para Docker builds)
-RUN pnpm install --no-frozen-lockfile --ignore-scripts=false
+# Instalar dependencias
+RUN pnpm install --no-frozen-lockfile --prod=false
 
 # --- Copiar el resto del código fuente ---
 COPY . .
@@ -35,23 +39,27 @@ RUN pnpm --filter @workspace/api-server run build
 RUN pnpm --filter @workspace/ventas-pro run build
 
 # Verificar que el frontend se compiló
-RUN echo "🔍 Verificando build del frontend..." && \
+RUN echo "Verificando build del frontend..." && \
     ls -la /app/artifacts/ventas-pro/dist/public/ && \
     test -f /app/artifacts/ventas-pro/dist/public/index.html && \
-    echo "✅ Frontend OK" || (echo "❌ ERROR: index.html no encontrado" && exit 1)
+    echo "Frontend OK" || (echo "ERROR: index.html no encontrado" && exit 1)
 
 # =============================================================================
 # PRODUCTION STAGE - Imagen final ligera
 # =============================================================================
 FROM node:22-alpine
 
+# Deshabilitar corepack en producción
+ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0
+ENV COREPACK_DEFAULT_TO_LATEST=0
+ENV NODE_ENV=production
+ENV PORT=3002
+ENV HOST=0.0.0.0
+
 WORKDIR /app
 
 # Dependencias mínimas del sistema
 RUN apk add --no-cache sqlite python3 make g++
-
-# Instalar pnpm en la imagen final
-RUN npm install -g pnpm@9.15.9
 
 # Copiar el workspace completo desde el builder
 COPY --from=builder /app/node_modules         /app/node_modules
@@ -66,16 +74,11 @@ COPY --from=builder /app/.npmrc               /app/
 # Crear carpeta de datos persistente
 RUN mkdir -p /app/data && chmod 777 /app/data
 
-# Variables de entorno
-ENV NODE_ENV=production
-ENV PORT=3002
-ENV HOST=0.0.0.0
-
 EXPOSE 3002
 
-# Healthcheck
+# Healthcheck robusto con 60s de start-period
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=5 \
   CMD node -e "require('http').get('http://localhost:3002/api/health', (r) => { process.exit(r.statusCode === 200 ? 0 : 1) }).on('error', () => process.exit(1))"
 
-# Iniciar: migrar BD y luego arrancar el servidor
-CMD ["sh", "-c", "node ./scripts/migrate.mjs && node --enable-source-maps ./artifacts/api-server/dist/index.mjs"]
+# IMPORTANTE: exec node (no pnpm) para que SIGTERM se propague correctamente
+CMD ["sh", "-c", "node ./scripts/migrate.mjs && exec node --enable-source-maps ./artifacts/api-server/dist/index.mjs"]
