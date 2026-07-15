@@ -81,8 +81,8 @@ router.post("/activate", async (req, res) => {
     await db
       .update(subscriptions)
       .set({
-        activatedAt: now,
-        updatedAt: now,
+        activatedAt: now.toISOString(),
+        updatedAt: now.toISOString(),
       })
       .where(eq(subscriptions.id, subscription.id));
 
@@ -96,7 +96,7 @@ router.post("/activate", async (req, res) => {
         subscriptionId: subscription.id.toString(),
         subscriptionStatus: "active",
         subscriptionEndsAt: subscription.expiresAt,
-        updatedAt: now,
+        updatedAt: now.toISOString(),
       })
       .where(eq(tenants.id, tenant.id));
 

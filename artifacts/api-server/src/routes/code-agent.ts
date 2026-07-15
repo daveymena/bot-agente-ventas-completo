@@ -492,7 +492,7 @@ Actúa con la autoridad de una Ingeniera Senior de Software y Directora de Venta
             stages: result.config.stages,
             metadata: metadata,
             isActive: true,
-            updatedAt: new Date()
+            updatedAt: new Date().toISOString()
           })
           .where(eq(agents.id, existingAgent.id));
         
@@ -800,7 +800,7 @@ Responde SIEMPRE en JSON con esta estructura:
             stages: result.config.stages,
             metadata: metadata,
             isActive: true,
-            updatedAt: new Date()
+            updatedAt: new Date().toISOString()
           })
           .where(eq(agents.id, existingAgent.id));
       } else {

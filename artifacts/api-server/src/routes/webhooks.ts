@@ -60,7 +60,7 @@ router.post("/mercadopago", async (req: Request, res: Response) => {
               .set({
                 status: 'confirmed',
                 paymentStatus: 'approved',
-                verifiedAt: new Date(),
+                verifiedAt: new Date().toISOString(),
                 verifiedBy: 'mercadopago_webhook',
                 verificationSource: 'webhook',
               })
@@ -83,7 +83,7 @@ router.post("/mercadopago", async (req: Request, res: Response) => {
             await db.update(conversations)
               .set({
                 paymentStatus: 'confirmed',
-                paidAt: new Date(),
+                paidAt: new Date().toISOString(),
               })
               .where(eq(conversations.id, relatedConvo.id));
 
@@ -153,7 +153,7 @@ router.post("/paypal", async (req: Request, res: Response) => {
               .set({
                 status: 'confirmed',
                 paymentStatus: 'approved',
-                verifiedAt: new Date(),
+                verifiedAt: new Date().toISOString(),
                 verifiedBy: 'paypal_ipn',
                 verificationSource: 'paypal_ipn',
               })
@@ -174,7 +174,7 @@ router.post("/paypal", async (req: Request, res: Response) => {
             await db.update(conversations)
               .set({
                 paymentStatus: 'confirmed',
-                paidAt: new Date(),
+                paidAt: new Date().toISOString(),
               })
               .where(eq(conversations.id, relatedConvo.id));
           }

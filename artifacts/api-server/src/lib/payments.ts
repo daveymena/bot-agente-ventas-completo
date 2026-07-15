@@ -96,7 +96,7 @@ class PaymentHealthMonitor {
       service,
       status,
       responseTime,
-      lastCheck: new Date(),
+      lastCheck: new Date().toISOString(),
       errorRate
     };
 
@@ -234,7 +234,7 @@ class URLShortener {
         await db.update(paymentLinks)
           .set({ 
             clicks: (link.clicks || 0) + 1,
-            lastClickAt: new Date()
+            lastClickAt: new Date().toISOString()
           })
           .where(eq(paymentLinks.id, link.id));
 
@@ -675,7 +675,7 @@ export class PaymentGateway {
     const links: any = {
       transfer: this.getTransferInfo(),
       validation: {
-        timestamp: new Date(),
+        timestamp: new Date().toISOString(),
         results: validationResults
       }
     };

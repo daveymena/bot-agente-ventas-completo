@@ -161,7 +161,7 @@ class MonitoringSystem {
     const [recentMessages] = await db
       .select({ count: sql<number>`count(*)` })
       .from(messages)
-      .where(gte(messages.createdAt, oneHourAgo));
+      .where(gte(messages.createdAt, oneHourAgo.toISOString()));
 
     const stageStats = await db
       .select({

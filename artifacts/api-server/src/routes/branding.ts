@@ -111,7 +111,7 @@ router.put("/", async (req, res, next) => {
       .update(tenants)
       .set({
         ...updates,
-        updatedAt: new Date(),
+        updatedAt: new Date().toISOString(),
       })
       .where(eq(tenants.id, Number(tenantId)));
 
@@ -139,7 +139,7 @@ router.post("/upload-logo", async (req, res, next) => {
       .update(tenants)
       .set({
         brandLogo: logoUrl,
-        updatedAt: new Date(),
+        updatedAt: new Date().toISOString(),
       })
       .where(eq(tenants.id, Number(tenantId)));
 

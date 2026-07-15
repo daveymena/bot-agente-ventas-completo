@@ -64,8 +64,8 @@ async function sendActivationEmail(subscriptionId: number): Promise<void> {
       await db
         .update(subscriptions)
         .set({
-          tokenSentAt: new Date(),
-          updatedAt: new Date(),
+          tokenSentAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
         })
         .where(eq(subscriptions.id, subscriptionId));
 
@@ -147,7 +147,7 @@ router.post("/mercadopago", async (req, res) => {
           .set({
             status: "failed",
             paymentStatus: payment.status,
-            updatedAt: new Date(),
+            updatedAt: new Date().toISOString(),
           })
           .where(eq(subscriptions.id, subscriptionId));
 
@@ -218,7 +218,7 @@ router.post("/paypal", async (req, res) => {
             .set({
               status: "failed",
               paymentStatus: "rejected",
-              updatedAt: new Date(),
+              updatedAt: new Date().toISOString(),
             })
             .where(eq(subscriptions.id, subscriptionId));
 

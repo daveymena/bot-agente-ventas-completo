@@ -333,7 +333,7 @@ export class TenantManager {
         .update(tenants)
         .set({
           ...updates,
-          updatedAt: new Date()
+          updatedAt: new Date().toISOString()
         })
         .where(eq(tenants.id, tenantId));
 

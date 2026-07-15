@@ -120,7 +120,7 @@ export class SubscriptionPaymentService {
       // Marcar suscripción como fallida
       await db
         .update(subscriptions)
-        .set({ status: "failed", updatedAt: new Date() })
+        .set({ status: "failed", updatedAt: new Date().toISOString() })
         .where(eq(subscriptions.id, subscription.id));
       
       throw error;
@@ -131,7 +131,7 @@ export class SubscriptionPaymentService {
       .update(subscriptions)
       .set({
         paymentId,
-        updatedAt: new Date(),
+        updatedAt: new Date().toISOString(),
       })
       .where(eq(subscriptions.id, subscription.id));
 
@@ -351,7 +351,7 @@ export class SubscriptionPaymentService {
     }
 
     // Calcular fechas
-    const now = new Date();
+    const now = new Date().toISOString();
     const expiresAt = new Date(now);
     if (subscription.billingCycle === "annual") {
       expiresAt.setFullYear(expiresAt.getFullYear() + 1);
@@ -366,8 +366,8 @@ export class SubscriptionPaymentService {
         status: "active",
         paymentStatus: "approved",
         startedAt: now,
-        expiresAt,
-        nextBillingDate: expiresAt,
+        expiresAt: expiresAt.toISOString(),
+        nextBillingDate: expiresAt.toISOString(),
         updatedAt: now,
       })
       .where(eq(subscriptions.id, subscriptionId));
@@ -380,7 +380,7 @@ export class SubscriptionPaymentService {
         status: "active",
         subscriptionId: subscriptionId.toString(),
         subscriptionStatus: "active",
-        subscriptionEndsAt: expiresAt,
+        subscriptionEndsAt: expiresAt.toISOString(),
         updatedAt: now,
       })
       .where(eq(tenants.id, subscription.tenantId));
@@ -413,7 +413,7 @@ export class SubscriptionPaymentService {
    * Cancela una suscripción
    */
   static async cancelSubscription(subscriptionId: number): Promise<void> {
-    const now = new Date();
+    const now = new Date().toISOString();
 
     await db
       .update(subscriptions)
@@ -459,7 +459,7 @@ export class SubscriptionPaymentService {
    * Verifica si una suscripción ha expirado y la actualiza
    */
   static async checkExpiredSubscriptions(): Promise<void> {
-    const now = new Date();
+    const now = new Date().toISOString();
 
     // Buscar suscripciones activas que hayan expirado
     const expiredSubscriptions = await db
@@ -468,7 +468,7 @@ export class SubscriptionPaymentService {
       .where(and(eq(subscriptions.status, "active")));
 
     for (const subscription of expiredSubscriptions) {
-      if (subscription.expiresAt && new Date(subscription.expiresAt) < now) {
+      if (subscription.expiresAt && new Date(subscription.expiresAt) < new Date(now)) {
         // Marcar como expirada
         await db
           .update(subscriptions)

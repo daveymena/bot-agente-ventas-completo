@@ -407,7 +407,7 @@ router.post("/admin/:id/action", async (req: TenantRequest, res) => {
     const { db, tenants: tenantsTable } = await import("@workspace/db");
     const { eq } = await import("drizzle-orm");
 
-    let update: any = { updatedAt: new Date() };
+    let update: any = { updatedAt: new Date().toISOString() };
     let message = "";
 
     switch (action) {

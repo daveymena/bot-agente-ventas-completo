@@ -60,7 +60,7 @@ export class FollowUpScheduler {
         leadId: conversation.leadId,
         contactName: conversation.contactName,
         contactPhone: conversation.contactPhone,
-        scheduledFor,
+        scheduledFor: scheduledFor.toISOString(),
         followUpType,
         message,
         priority,

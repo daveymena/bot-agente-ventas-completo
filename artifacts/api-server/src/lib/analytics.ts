@@ -160,8 +160,8 @@ export class AnalyticsEngine {
         .where(
           and(
             eq(leads.tenantId, this.tenant.id),
-            gte(leads.createdAt, startDate),
-            lte(leads.createdAt, endDate)
+            gte(leads.createdAt, startDate.toISOString()),
+            lte(leads.createdAt, endDate.toISOString())
           )
         );
 
@@ -255,8 +255,8 @@ export class AnalyticsEngine {
         .where(
           and(
             eq(conversations.tenantId, this.tenant.id),
-            gte(messages.createdAt, startDate),
-            lte(messages.createdAt, endDate)
+            gte(messages.createdAt, startDate.toISOString()),
+            lte(messages.createdAt, endDate.toISOString())
           )
         )
         .groupBy(messages.role, messages.createdAt);
@@ -325,8 +325,8 @@ export class AnalyticsEngine {
         .where(
           and(
             eq(conversations.tenantId, this.tenant.id),
-            gte(conversations.createdAt, startDate),
-            lte(conversations.createdAt, endDate)
+            gte(conversations.createdAt, startDate.toISOString()),
+            lte(conversations.createdAt, endDate.toISOString())
           )
         );
 
