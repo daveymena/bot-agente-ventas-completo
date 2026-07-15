@@ -15,24 +15,9 @@ export const tenants = pgTable("tenants", {
     primary: string;
     secondary: string;
     accent: string;
-    background: string;
-    foreground: string;
-    muted: string;
   }>(),
-  brandTheme: jsonb("brand_theme").$type<{
-    mode: "light" | "dark" | "auto";
-    font: string;
-    borderRadius: "none" | "sm" | "md" | "lg" | "xl";
-    customCSS?: string;
-  }>(),
-  brandSocial: jsonb("brand_social").$type<{
-    website?: string;
-    facebook?: string;
-    instagram?: string;
-    twitter?: string;
-    linkedin?: string;
-    whatsapp?: string;
-  }>(),
+  brandTheme: text("brand_theme"),
+  brandSocial: jsonb("brand_social").$type<Record<string, string>>(),
   agentPersonality: text("agent_personality").notNull().default("professional"),
   agentPrompt: text("agent_prompt"),
   agentName: text("agent_name").notNull().default("Asistente Virtual"),
@@ -45,15 +30,10 @@ export const tenants = pgTable("tenants", {
     transfer?: { enabled: boolean; accounts: Array<{ type: string; number: string; name: string }> };
   }>(),
   woocommerceIntegration: jsonb("woocommerce_integration").$type<{
+    url?: string;
+    consumerKey?: string;
+    consumerSecret?: string;
     enabled: boolean;
-    storeUrl: string;
-    consumerKey: string;
-    consumerSecret: string;
-    syncProducts: boolean;
-    autoCreateOrders: boolean;
-    syncInterval: number; // minutos
-    lastSync?: string;
-    webhookSecret?: string;
   }>(),
   limits: jsonb("limits").$type<{
     maxConversations: number;
@@ -74,16 +54,13 @@ export const tenants = pgTable("tenants", {
   trialEndsAt: timestamp("trial_ends_at", { withTimezone: true }),
   subscriptionEndsAt: timestamp("subscription_ends_at", { withTimezone: true }),
   metadata: jsonb("metadata"),
-  
-  // Campos de seguridad y verificación
-  emailVerified: boolean("email_verified").default(false).notNull(),
+  emailVerified: boolean("email_verified").default(false),
   emailVerificationCode: text("email_verification_code"),
   emailVerificationExpiry: timestamp("email_verification_expiry", { withTimezone: true }),
   passwordResetCode: text("password_reset_code"),
   passwordResetExpiry: timestamp("password_reset_expiry", { withTimezone: true }),
-  twoFactorEnabled: boolean("two_factor_enabled").default(false).notNull(),
+  twoFactorEnabled: boolean("two_factor_enabled").default(false),
   twoFactorSecret: text("two_factor_secret"),
-  
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 });

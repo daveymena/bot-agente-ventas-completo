@@ -1,0 +1,10 @@
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS brand_theme TEXT;
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS brand_social JSONB;
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS woocommerce_integration JSONB;
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS email_verified BOOLEAN DEFAULT false;
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS email_verification_code TEXT;
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS email_verification_expiry TIMESTAMP WITH TIME ZONE;
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS password_reset_code TEXT;
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS password_reset_expiry TIMESTAMP WITH TIME ZONE;
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS two_factor_enabled BOOLEAN DEFAULT false;
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS two_factor_secret TEXT;

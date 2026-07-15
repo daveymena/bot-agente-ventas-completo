@@ -165,31 +165,21 @@ overrides:
 importers:
 
   .:
-    dependencies:
-      '@rollup/rollup-win32-x64-msvc':
-        specifier: 4.60.2
-        version: 4.60.2
-      lightningcss:
-        specifier: 1.32.0
-        version: 1.32.0
-      sql.js:
-        specifier: 1.11.0
-        version: 1.11.0
     devDependencies:
+      '@rollup/rollup-win32-x64-msvc':
+        specifier: ^4.60.2
+        version: 4.60.2
       '@tailwindcss/oxide-win32-x64-msvc':
-        specifier: 4.2.4
+        specifier: ^4.2.4
         version: 4.2.4
-      '@types/node':
-        specifier: ^20.12.7
-        version: 20.19.39
       lightningcss-win32-x64-msvc:
-        specifier: 1.32.0
+        specifier: ^1.32.0
         version: 1.32.0
-      tsx:
-        specifier: ^4.7.3
-        version: 4.21.0
+      prettier:
+        specifier: ^3.8.1
+        version: 3.8.3
       typescript:
-        specifier: ^5.4.5
+        specifier: ~5.9.2
         version: 5.9.3
 
   artifacts/api-server:
@@ -227,6 +217,9 @@ importers:
       g4f:
         specifier: ^1.4.6
         version: 1.4.6
+      libsignal:
+        specifier: https://codeload.github.com/whiskeysockets/libsignal-node/tar.gz/bcea72df9ec34d9d9140ab30619cf479c7c144c7
+        version: https://codeload.github.com/whiskeysockets/libsignal-node/tar.gz/bcea72df9ec34d9d9140ab30619cf479c7c144c7
       nodemailer:
         specifier: ^6.10.1
         version: 6.10.1
@@ -674,7 +667,7 @@ importers:
     devDependencies:
       orval:
         specifier: ^8.5.2
-        version: 8.9.0(typescript@5.9.3)
+        version: 8.9.0(prettier@3.8.3)(typescript@5.9.3)
 
   lib/api-zod:
     dependencies:
@@ -2917,7 +2910,7 @@ packages:
     engines: {node: ^12.20.0 || ^14.13.1 || >=16.0.0}
 
   libsignal@https://codeload.github.com/whiskeysockets/libsignal-node/tar.gz/bcea72df9ec34d9d9140ab30619cf479c7c144c7:
-    resolution: {tarball: https://codeload.github.com/whiskeysockets/libsignal-node/tar.gz/bcea72df9ec34d9d9140ab30619cf479c7c144c7}
+    resolution: {gitHosted: true, integrity: sha512-KmRMuAYSfd4upRD0xOgKbURxRXNE8X8NtgmkUOJFXOn9ESSCXguIZ7PJu8OBJIr7KGww41Vf/Pbgko+PgWQ55g==, tarball: https://codeload.github.com/whiskeysockets/libsignal-node/tar.gz/bcea72df9ec34d9d9140ab30619cf479c7c144c7}
     version: 6.0.0
 
   lightningcss-linux-x64-gnu@1.32.0:
@@ -3311,6 +3304,11 @@ packages:
   postgres-interval@1.2.0:
     resolution: {integrity: sha512-9ZhXKM/rw350N1ovuWHbGxnGh/SNJ4cnxHiM0rxE4VN41wsg8P8zWn9hv/buK00RP4WvlOyr/RBDiptyxVbkZQ==}
     engines: {node: '>=0.10.0'}
+
+  prettier@3.8.3:
+    resolution: {integrity: sha512-7igPTM53cGHMW8xWuVTydi2KO233VFiTNyF5hLJqpilHfmn8C8gPf+PS7dUT64YcXFbiMGZxS9pCSxL/Dxm/Jw==}
+    engines: {node: '>=14'}
+    hasBin: true
 
   pretty-ms@9.3.0:
     resolution: {integrity: sha512-gjVS5hOP+M3wMm5nmNOucbIrqudzs9v/57bWRHQWLYklXqoXKrVfYW2W9+glfGsqtPgpiz5WwyEEB+ksXIx3gQ==}
@@ -6372,7 +6370,7 @@ snapshots:
       ws: 8.20.0
       zod: 3.25.76
 
-  orval@8.9.0(typescript@5.9.3):
+  orval@8.9.0(prettier@3.8.3)(typescript@5.9.3):
     dependencies:
       '@commander-js/extra-typings': 14.0.0(commander@14.0.3)
       '@orval/angular': 8.9.0(typescript@5.9.3)
@@ -6403,6 +6401,8 @@ snapshots:
       typedoc: 0.28.19(typescript@5.9.3)
       typedoc-plugin-coverage: 4.0.3(typedoc@0.28.19(typescript@5.9.3))
       typedoc-plugin-markdown: 4.11.0(typedoc@0.28.19(typescript@5.9.3))
+    optionalDependencies:
+      prettier: 3.8.3
     transitivePeerDependencies:
       - '@faker-js/faker'
       - supports-color
@@ -6589,6 +6589,8 @@ snapshots:
   postgres-interval@1.2.0:
     dependencies:
       xtend: 4.0.2
+
+  prettier@3.8.3: {}
 
   pretty-ms@9.3.0:
     dependencies:

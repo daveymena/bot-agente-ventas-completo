@@ -1,31 +1,36 @@
-﻿import app from "./app";
+import app from "./app";
 import { logger } from "./lib/logger";
+import { runAutoMigrations } from "./lib/autoMigrate";
 
-// Evitar que errores no manejados de Baileys tumben el servidor
-process.on("unhandledRejection", (reason) => {
-  logger.warn({ err: reason instanceof Error ? { message: reason.message, stack: reason.stack } : reason }, "[Global] Unhandled Rejection - ignorada para evitar crash");
-});
-process.on("uncaughtException", (error) => {
-  logger.error({ err: { message: error.message, stack: error.stack } }, "[Global] Uncaught Exception - recuperando...");
-});
+const rawPort = process.env["PORT"];
 
-let port = Number(process.env["PORT"] || "3002");
-const host = process.env["HOST"] || "0.0.0.0";
-
-// Fallback if parsing fails (e.g. if it's a shell string like ${PORT:-3002})
-if (Number.isNaN(port) || port <= 0) {
-  logger.warn({ rawPort: process.env["PORT"] }, "Invalid PORT in env, falling back to 3002");
-  port = 3002;
+if (!rawPort) {
+  throw new Error(
+    "PORT environment variable is required but was not provided.",
+  );
 }
 
-app.listen(port, host, (err) => {
-  if (err) {
-    logger.error({ err }, "Error listening on port");
-    process.exit(1);
-  }
+const port = Number(rawPort);
 
-  logger.info({ port, host }, "Server listening");
+if (Number.isNaN(port) || port <= 0) {
+  throw new Error(`Invalid PORT value: "${rawPort}"`);
+}
+
+async function start() {
+  // Non-blocking database migrations (fires in background)
+  runAutoMigrations().catch(() => {});
+
+  app.listen(port, (err) => {
+    if (err) {
+      logger.error({ err }, "Error listening on port");
+      process.exit(1);
+    }
+
+    logger.info({ port }, "Server listening");
+  });
+}
+
+start().catch((err) => {
+  logger.error({ err }, "Failed to start server");
+  process.exit(1);
 });
- 
-
-
