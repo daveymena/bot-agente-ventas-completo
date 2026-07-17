@@ -46,6 +46,7 @@ FROM node:22-slim
 
 WORKDIR /app
 RUN corepack enable
+RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
 
 # Copiar solo lo necesario desde el build
 COPY --from=base /app /app
