@@ -1,145 +1,60 @@
-// @ts-nocheck
+import { createHash } from "crypto";
 import { logger } from "./logger";
 
-export interface CopilotTokenResponse {
+interface CopilotSession {
   token: string;
-  expires_at: number;
-  refresh_in: number;
+  expiresAt: number;
+  refreshIn: number;
 }
 
-// VS Code Client ID for unlimited internal copilot API access
-const COPILOT_OAUTH_CLIENT_ID = "Iv1.b507a08c87ecfe98";
+const EXCHANGE_URL = "https://api.github.com/copilot_internal/v2/token";
+const cache = new Map<string, { token: string; expiresAt: number }>();
+const REFRESH_MARGIN_S = 120;
 
-export interface DeviceCodeResponse {
-  device_code: string;
-  user_code: string;
-  verification_uri: string;
-  expires_in: number;
-  interval: number;
+function fingerprint(raw: string): string {
+  return createHash("sha256").update(raw).digest("hex").slice(0, 16);
 }
 
-/**
- * Inicia el flujo de código de dispositivo con GitHub
- */
-export async function getCopilotDeviceCode(): Promise<DeviceCodeResponse | null> {
-  try {
-    const response = await fetch("https://github.com/login/device/code", {
-      method: "POST",
-      headers: {
-        "Accept": "application/json",
-        "Content-Type": "application/x-www-form-urlencoded",
-      },
-      body: new URLSearchParams({
-        client_id: COPILOT_OAUTH_CLIENT_ID,
-        scope: "read:user",
-      }).toString(),
-    });
+export async function getCopilotSessionToken(rawToken: string): Promise<CopilotSession | null> {
+  if (!rawToken || rawToken.length < 10) return null;
 
-    if (!response.ok) return null;
-    return await response.json();
-  } catch (error) {
-    logger.error({ err: error.message }, "[Copilot] Error initiating device code flow");
-    return null;
+  const fp = fingerprint(rawToken);
+  const cached = cache.get(fp);
+  if (cached) {
+    const remaining = cached.expiresAt - Math.floor(Date.now() / 1000);
+    if (remaining > REFRESH_MARGIN_S) {
+      return { token: cached.token, expiresAt: cached.expiresAt, refreshIn: remaining };
+    }
   }
-}
 
-/**
- * Polls GitHub for the access token using the device code
- */
-export async function pollCopilotToken(deviceCode: string): Promise<string | null> {
   try {
-    const response = await fetch("https://github.com/login/oauth/access_token", {
-      method: "POST",
-      headers: {
-        "Accept": "application/json",
-        "Content-Type": "application/x-www-form-urlencoded",
-      },
-      body: new URLSearchParams({
-        client_id: COPILOT_OAUTH_CLIENT_ID,
-        device_code: deviceCode,
-        grant_type: "urn:ietf:params:oauth:grant-type:device_code",
-      }).toString(),
-    });
-
-    const data = await response.json();
-    logger.info({ data, deviceCode: deviceCode.substring(0, 10) + "..." }, "[Copilot] Respuesta de polling de token");
-    
-    if (data.access_token) {
-      return data.access_token;
-    }
-    
-    if (data.error === "authorization_pending") {
-      return "pending";
-    }
-
-    if (data.error === "slow_down") {
-      return "pending"; // GitHub asks to poll less frequently, but we treat it as pending
-    }
-
-    if (data.error) {
-      logger.warn({ error: data.error, description: data.error_description }, "[Copilot] Error en polling de token");
-      throw new Error(data.error_description || data.error);
-    }
-
-    return null;
-  } catch (error) {
-    return null;
-  }
-}
-
-/**
- * Verifica un GitHub PAT y obtiene el token de sesión interno de Copilot (v2)
- */
-export async function getCopilotSessionToken(githubPat: string): Promise<CopilotTokenResponse | null> {
-  if (!githubPat) return null;
-  
-  try {
-    logger.info("[Copilot] Obteniendo token de sesión interno de Copilot...");
-
-    // Si el token ya es un token de sesión (empieza con tid_), no necesitamos intercambiarlo
-    // Pero GitHub PAT usualmente empieza con ghp_ o github_pat_
-    if (githubPat.startsWith("tid_")) {
-      logger.info("[Copilot] El token ya parece ser un token de sesión interno.");
-      return {
-        token: githubPat,
-        expires_at: Date.now() + 1800 * 1000,
-        refresh_in: 1800,
-      };
-    }
-
-    const response = await fetch("https://api.github.com/copilot_internal/v2/token", {
+    const resp = await fetch(EXCHANGE_URL, {
       method: "GET",
       headers: {
-        "Authorization": `token ${githubPat}`,
-        "Accept": "application/json",
-        "User-Agent": "VentasPro-Agent/1.0.0",
+        Authorization: `token ${rawToken}`,
+        Accept: "application/json",
+        "User-Agent": "VentasPro/1.0",
+        "Editor-Version": "vscode/1.104.1",
+        "Copilot-Integration-Id": "vscode-chat",
       },
+      signal: AbortSignal.timeout(10000),
     });
 
-    if (response.ok) {
-      const data = await response.json();
-      if (data.token) {
-        logger.info("[Copilot] ✅ Token interno de Copilot obtenido correctamente!");
-        return {
-          token: data.token,
-          // data.expires_at is in seconds
-          expires_at: data.expires_at ? data.expires_at * 1000 : Date.now() + 1800 * 1000,
-          refresh_in: data.refresh_in || 1800,
-        };
-      }
-    }
-
-    const errorText = await response.text().catch(() => "unknown");
-    logger.error({ status: response.status, body: errorText }, "[Copilot] Error al obtener el token interno de Copilot");
-    
-    // Si el error es 401, el PAT es inválido
-    if (response.status === 401) {
+    if (!resp.ok) {
+      logger.warn({ status: resp.status }, "[Copilot] Exchange failed");
       return null;
     }
 
-    return null;
-  } catch (error: any) {
-    logger.error({ err: error.message }, "[Copilot] Error de red al obtener token");
-    return null;
+    const data = await resp.json() as { token?: string; expires_at?: number };
+    if (!data.token) return null;
+
+    const expiresAt = data.expires_at || Math.floor(Date.now() / 1000) + 1800;
+    cache.set(fp, { token: data.token, expiresAt });
+
+    logger.info("[Copilot] Token exchanged successfully");
+    return { token: data.token, expiresAt, refreshIn: expiresAt - Math.floor(Date.now() / 1000) };
+  } catch (err) {
+    logger.warn({ err }, "[Copilot] Exchange error, using raw token");
+    return { token: rawToken, expiresAt: 0, refreshIn: 0 };
   }
-}
+}

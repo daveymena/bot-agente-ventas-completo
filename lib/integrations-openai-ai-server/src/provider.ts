@@ -36,14 +36,14 @@ export function getProviderConfig(provider: string): AIProviderConfig | null {
     case "opencode":
       return resolveOpenCodeConfig();
     case "github_copilot_internal":
-      const copilotToken = process.env.GITHUB_COPILOT_TOKEN || process.env.GITHUB_TOKEN;
-      if (!copilotToken) return null;
+      const rawCopilotToken = process.env.GITHUB_COPILOT_TOKEN || process.env.GITHUB_TOKEN;
+      if (!rawCopilotToken) return null;
       return {
         baseUrl: "https://api.githubcopilot.com",
-        apiKey: copilotToken,
+        apiKey: rawCopilotToken,
         model: process.env.GITHUB_MODEL || "gpt-4o",
         defaultHeaders: {
-          "Editor-Version": "vscode/1.96.0",
+          "Editor-Version": process.env.COPILOT_EDITOR_VERSION || "vscode/1.104.1",
           "Editor-Plugin-Version": "copilot/1.250.0",
           "Openai-Organization": "github-copilot",
           "Copilot-Integration-Id": "vscode-chat",
@@ -110,6 +110,15 @@ export function getProviderConfig(provider: string): AIProviderConfig | null {
 
     // ─── FREE PROVIDERS (cheahjs/free-llm-api-resources) ──────────────────────
     // 🔗 https://github.com/cheahjs/free-llm-api-resources
+
+    // ── GROQ (Rápido y gratuito) ── 30 req/min · 6k req/día
+    case "groq":
+      if (!process.env.GROQ_API_KEY) return null;
+      return {
+        baseUrl: "https://api.groq.com/openai/v1",
+        apiKey: process.env.GROQ_API_KEY,
+        model: process.env.GROQ_MODEL || "llama-3.1-8b-instant",
+      };
 
     // ── Google AI Studio ── 500 req/día · 250k tokens/min
     case "google_ai_studio":
