@@ -1,0 +1,82 @@
+name: sales-bot-facebook
+description: Plugin Hermes para controlar Agent-Sales-Bot — Facebook Ads, Messenger, Marketplace, Comments
+version: 1.0.0
+author: TecnoVariedades
+
+tools:
+  - name: sales_bot_create_draft_ad
+    description: Crea un anuncio en BORRADOR (PAUSED) en Facebook para un producto con estrategia ganadora según su nicho
+    handler: create_draft_ad
+    parameters:
+      type: object
+      properties:
+        productId:
+          type: integer
+          description: ID del producto en el catálogo
+        budget:
+          type: integer
+          description: Presupuesto diario en COP (default 7000)
+
+  - name: sales_bot_create_all_drafts
+    description: Crea anuncios en BORRADOR para TODOS los productos activos con estrategias por nicho
+    handler: create_all_drafts
+    parameters:
+      type: object
+      properties: {}
+
+  - name: sales_bot_publish_marketplace
+    description: Publica un producto en Facebook Marketplace
+    handler: publish_marketplace
+    parameters:
+      type: object
+      properties:
+        productId:
+          type: integer
+          description: ID del producto a publicar
+
+  - name: sales_bot_sync_marketplace
+    description: Sincroniza todos los productos activos a Facebook Marketplace
+    handler: sync_marketplace
+    parameters:
+      type: object
+      properties: {}
+
+  - name: sales_bot_get_strategy
+    description: Obtiene la estrategia ganadora recomendada para un producto según su nicho
+    handler: get_strategy
+    parameters:
+      type: object
+      properties:
+        productId:
+          type: integer
+          description: ID del producto
+
+  - name: sales_bot_send_whatsapp
+    description: Envía un mensaje de WhatsApp a un cliente usando el agente IA
+    handler: send_whatsapp
+    parameters:
+      type: object
+      properties:
+        phone:
+          type: string
+          description: Número de teléfono con código de país (ej: 57300...)
+        message:
+          type: string
+          description: Mensaje a enviar
+
+  - name: sales_bot_channel_status
+    description: Obtiene el estado de todos los canales (WhatsApp, Messenger, etc.)
+    handler: channel_status
+    parameters:
+      type: object
+      properties: {}
+
+  - name: sales_bot_investigate_hotmart
+    description: Investiga estrategias de venta en Hotmart para un nicho/producto específico
+    handler: investigate_hotmart
+    parameters:
+      type: object
+      properties:
+        niche:
+          type: string
+          description: Nicho o producto a investigar (ej: laptops, marketing digital, cursos)
