@@ -2,6 +2,11 @@ import { Router, type IRouter, type Request, type Response } from "express";
 import { eq } from "drizzle-orm";
 import { db, tenants, leads, conversations, messages } from "@workspace/db";
 import { facebookService as fb } from "../lib/facebook";
+import { facebookMessengerService as fbMessenger } from "../lib/facebook-messenger";
+import { facebookMarketplaceService as fbMarketplace } from "../lib/facebook-marketplace";
+import { facebookCommentsService as fbComments } from "../lib/facebook-comments";
+import { channelManager } from "../lib/channel-manager";
+import { adStrategist } from "../lib/ad-strategist";
 import { whatsapp } from "../lib/whatsapp";
 import { logger } from "../lib/logger";
 
@@ -142,6 +147,243 @@ router.post("/lead-ads/webhook", async (req: Request, res: Response) => {
     logger.error({ error }, "[Facebook] Error procesando lead webhook");
     res.status(200).json({ received: true });
   }
+});
+
+// ─── Facebook Messenger Webhook ────────────────────────────────────────────
+// GET /facebook/messenger/webhook — Facebook verification challenge
+router.get("/messenger/webhook", (req: Request, res: Response) => {
+  const mode = req.query["hub.mode"] as string;
+  const token = req.query["hub.verify_token"] as string;
+  const challenge = req.query["hub.challenge"] as string;
+  const verifyToken = process.env.FB_MESSENGER_VERIFY_TOKEN || "salesbot_messenger_2024";
+  if (mode === "subscribe" && token === verifyToken) {
+    logger.info("[FB-Messenger] Webhook verified");
+    return res.status(200).send(challenge);
+  }
+  return res.status(403).json({ error: "Verification failed" });
+});
+
+// POST /facebook/messenger/webhook — Receive messages from Messenger
+router.post("/messenger/webhook", async (req: Request, res: Response) => {
+  try {
+    const body = req.body;
+    if (body.object !== "page") {
+      return res.status(200).json({ received: true });
+    }
+
+    for (const entry of body.entry || []) {
+      for (const event of entry.messaging || []) {
+        const senderPsid = event.sender?.id;
+        const messageText = event.message?.text;
+        const senderName = event.sender?.name || event.message?.from?.name || "Facebook User";
+        const postback = event.postback?.payload;
+
+        if (!senderPsid) continue;
+
+        if (messageText) {
+          await fbMessenger.handleIncomingMessage(senderPsid, messageText, senderName);
+        } else if (postback) {
+          await fbMessenger.handleIncomingMessage(senderPsid, postback, senderName);
+        }
+      }
+
+      for (const event of entry.standby || []) {
+        const senderPsid = event.sender?.id;
+        const messageText = event.message?.text;
+        if (senderPsid && messageText) {
+          await fbMessenger.handleIncomingMessage(
+            senderPsid,
+            messageText,
+            event.message?.from?.name || "Facebook User"
+          );
+        }
+      }
+    }
+
+    res.status(200).json({ received: true });
+  } catch (error) {
+    logger.error({ error }, "[FB-Messenger] Error processing webhook");
+    res.status(200).json({ received: true });
+  }
+});
+
+// ─── Facebook Marketplace Webhook ──────────────────────────────────────────
+router.post("/marketplace/webhook", async (req: Request, res: Response) => {
+  try {
+    const body = req.body;
+    if (body.object !== "page") return res.status(200).json({ received: true });
+
+    for (const entry of body.entry || []) {
+      for (const change of entry.changes || []) {
+        if (change.field === "marketplace_listings") {
+          const value = change.value || {};
+          const itemId = value.listing_id || value.item_id;
+          const eventType = value.event_type || "unknown";
+          const sellerId = value.seller_id;
+
+          logger.info(
+            { itemId, eventType, sellerId },
+            "[FB-Marketplace] Webhook event received"
+          );
+
+          if (eventType === "inquiry" && value.inquirer_id) {
+            const inquirerName = value.inquirer_name || "Comprador";
+            const inquirerId = value.inquirer_id;
+            const message = value.message || "Hola, me interesa este producto";
+
+            await channelManager.processMessage({
+              channel: "facebook_messenger",
+              contactId: inquirerId,
+              contactName: inquirerName,
+              text: message,
+              metadata: { marketplaceItemId: itemId, eventType },
+            });
+          }
+        }
+      }
+    }
+
+    res.status(200).json({ received: true });
+  } catch (error) {
+    logger.error({ error }, "[FB-Marketplace] Error processing webhook");
+    res.status(200).json({ received: true });
+  }
+});
+
+// ─── Facebook Comments Webhook ─────────────────────────────────────────────
+router.post("/comments/webhook", async (req: Request, res: Response) => {
+  try {
+    const body = req.body;
+    if (body.object !== "page") return res.status(200).json({ received: true });
+
+    for (const entry of body.entry || []) {
+      for (const change of entry.changes || []) {
+        if (change.field === "feed") {
+          const value = change.value || {};
+          if (value.item === "comment" && value.verb === "add") {
+            const commentId = value.comment_id;
+            const message = value.message || "";
+            const fromId = value.from?.id || "";
+            const fromName = value.from?.name || "Usuario";
+            const postId = value.post_id || "";
+
+            if (commentId && message && fromId) {
+              await channelManager.processMessage({
+                channel: "facebook_comment",
+                contactId: fromId,
+                contactName: fromName,
+                text: message,
+                metadata: { commentId, postId },
+              });
+            }
+          }
+        }
+      }
+    }
+
+    res.status(200).json({ received: true });
+  } catch (error) {
+    logger.error({ error }, "[FB-Comments] Error processing webhook");
+    res.status(200).json({ received: true });
+  }
+});
+
+// ─── Messenger & Marketplace Management Endpoints ──────────────────────────
+router.post("/messenger/subscribe", async (_req, res, next) => {
+  try {
+    const ok = await fbMessenger.subscribeToWebhook();
+    return res.json({ ok, message: ok ? "Suscripción exitosa" : "Error al suscribir" });
+  } catch (e) { return next(e); }
+});
+
+router.get("/messenger/page-info", async (_req, res, next) => {
+  try {
+    const info = await fbMessenger.getPageInfo();
+    return res.json(info || { error: "No se pudo obtener info" });
+  } catch (e) { return next(e); }
+});
+
+router.post("/marketplace/listings/:productId", async (req, res, next) => {
+  try {
+    const productId = parseInt(req.params.productId);
+    const listing = await fbMarketplace.createListing(productId);
+    if (!listing) return res.status(500).json({ error: "Error al crear listing" });
+    return res.json(listing);
+  } catch (e) { return next(e); }
+});
+
+router.get("/marketplace/listings", async (_req, res, next) => {
+  try {
+    const status = (_req.query.status as string) || "ACTIVE";
+    const listings = await fbMarketplace.getListings(status as any);
+    return res.json({ listings });
+  } catch (e) { return next(e); }
+});
+
+router.post("/marketplace/sync", async (_req, res, next) => {
+  try {
+    const result = await fbMarketplace.syncActiveProducts();
+    return res.json(result);
+  } catch (e) { return next(e); }
+});
+
+router.delete("/marketplace/listings/:listingId", async (req, res, next) => {
+  try {
+    const ok = await fbMarketplace.deleteListing(req.params.listingId);
+    return res.json({ ok });
+  } catch (e) { return next(e); }
+});
+
+// ─── Ad Strategist Endpoints ───────────────────────────────────────────────
+router.post("/strategist/draft/:productId", async (req, res, next) => {
+  try {
+    const productId = parseInt(req.params.productId);
+    const tenantId = (req as any).tenant?.id || 1;
+    const draft = await adStrategist.createDraftAd(
+      process.env.FB_AD_ACCOUNT_ID || "",
+      process.env.FB_ACCESS_TOKEN || "",
+      productId
+    );
+    return res.json(draft);
+  } catch (e) { return next(e); }
+});
+
+router.post("/strategist/draft-all", async (_req, res, next) => {
+  try {
+    const result = await adStrategist.createDraftsForAllProducts();
+    return res.json(result);
+  } catch (e) { return next(e); }
+});
+
+router.get("/strategist/strategy/:productId", async (req, res, next) => {
+  try {
+    const [product] = await db.select().from(products).where(eq(products.id, parseInt(req.params.productId))).limit(1);
+    if (!product) return res.status(404).json({ error: "Producto no encontrado" });
+    const strategy = adStrategist.getStrategyForProduct(product);
+    const copy = await adStrategist.generateAdCopy(strategy, product);
+    return res.json({ product: product.name, strategy, adCopy: copy });
+  } catch (e) { return next(e); }
+});
+
+router.get("/channels/status", async (_req, res, next) => {
+  try {
+    const status = await channelManager.getStatus();
+    return res.json({ channels: status });
+  } catch (e) { return next(e); }
+});
+
+router.post("/channels/polling/start", async (_req, res, next) => {
+  try {
+    channelManager.startPollingFacebookComments();
+    return res.json({ ok: true, message: "Polling de comentarios iniciado" });
+  } catch (e) { return next(e); }
+});
+
+router.post("/channels/polling/stop", async (_req, res, next) => {
+  try {
+    channelManager.stopAll();
+    return res.json({ ok: true, message: "Polling detenido" });
+  } catch (e) { return next(e); }
 });
 
 // GET /facebook/config — leer configuración actual (desde metadata)

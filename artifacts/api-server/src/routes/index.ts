@@ -21,6 +21,7 @@ import cleanRouter from "./clean";
 import authRouter from "./auth";
 import storeRouter from "./store";
 import publicRouter from "./public";
+import facebookRouter from "./facebook";
 
 const router: IRouter = Router();
 
@@ -45,6 +46,7 @@ router.use("/clean", cleanRouter);
 router.use("/auth", authRouter);
 router.use("/store", storeRouter);
 router.use("/public", publicRouter);
+router.use("/facebook", facebookRouter);
 
 // Usar el manejador de errores centralizado
 router.use(errorHandler);

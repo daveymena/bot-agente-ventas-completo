@@ -45,6 +45,17 @@ export interface TenantContext {
       }>;
     };
   };
+  facebook?: {
+    accessToken?: string;
+    pixelId?: string;
+    catalogId?: string;
+    pageId?: string;
+    adAccountId?: string;
+    appId?: string;
+    appSecret?: string;
+    messengerPageToken?: string;
+    messengerVerifyToken?: string;
+  };
   limits: {
     maxConversations: number;
     maxProducts: number;

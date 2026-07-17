@@ -1,7 +1,6 @@
 node_modules/
 .env
-.env.easypanel
-.env.easypanel.optimizado
+.env.easypanel*
 .env.production
 artifacts/api-server/.env
 *.db
@@ -13,8 +12,22 @@ build/
 venv/
 .local/
 .agents/
-.replit
-.replitignore
+.replit*
 replit.md
 api-server.log
 INSTRUCCIONES_ENV_EASYPANEL.md
+
+# temp & generated
+*.pyc
+__pycache__/
+*.log
+*.bat
+*.ps1
+body.json
+fb_credentials.json
+productos-*.json
+products-*.json
+megapacks-*.json
+catalogo-*.json
+drive-*-analysis.json
+drive-names-*.json

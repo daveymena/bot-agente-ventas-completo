@@ -223,6 +223,10 @@ const publicRoutes = [
   "/activation",
   "/public", // Endpoints públicos (productos de tienda)
   "/store", // Endpoints públicos de tienda (catalogo, layout)
+  "/facebook/lead-ads/webhook", // Facebook Lead Ads webhook
+  "/facebook/messenger/webhook", // Facebook Messenger webhook
+  "/facebook/marketplace/webhook", // Facebook Marketplace webhook
+  "/facebook/comments/webhook", // Facebook Comments webhook
 ];
 
 const isPublicRoute = (path: string) => {

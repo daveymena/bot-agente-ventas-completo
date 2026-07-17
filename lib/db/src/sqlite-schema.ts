@@ -117,6 +117,7 @@ export const conversations = sqliteTable("conversations", {
   unreadCount: integer("unread_count").notNull().default(0),
   status: text("status").notNull().default("ai"),
   currentStage: text("current_stage"),
+  channel: text("channel").default("whatsapp"),
   agentId: integer("agent_id").references(() => agents.id, { onDelete: "set null" }),
   leadId: integer("lead_id").references(() => leads.id, { onDelete: "set null" }),
   paymentStatus: text("payment_status"),
