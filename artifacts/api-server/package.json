@@ -15,7 +15,7 @@
   },
   "dependencies": {
     "@types/node": "catalog:",
-    "@whiskeysockets/baileys": "7.0.0-rc.9",
+    "@whiskeysockets/baileys": "7.0.0-rc.13",
     "libsignal": "https://codeload.github.com/whiskeysockets/libsignal-node/tar.gz/bcea72df9ec34d9d9140ab30619cf479c7c144c7",
     "@workspace/api-zod": "workspace:*",
     "@workspace/db": "workspace:*",

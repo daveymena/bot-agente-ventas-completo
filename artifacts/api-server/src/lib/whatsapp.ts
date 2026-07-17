@@ -397,9 +397,9 @@ export class WhatsAppManager {
          syncFullHistory: false,
          markOnlineOnConnect: true,
          generateHighQualityLinkPreview: false,
-         // WhatsApp rechaza el protocolo WEB antiguo (error 405).
-         // Se requiere versión actualizada + plataforma MACOS para nuevo pairing.
-         version: [2, 3000, 1034074495],
+          // WhatsApp rechaza el protocolo WEB antiguo (error 405).
+          // Se requiere versión actualizada (rc.13) para nuevo pairing.
+          // version: omitido = baileys usa la correcta automáticamente
        });
        this.sock = sock;
        console.log("✅ [INIT] Socket WhatsApp inicializado correctamente");
