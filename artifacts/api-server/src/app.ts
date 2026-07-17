@@ -73,7 +73,7 @@ logger.info("[MessageHandler] Message receiver configured for default tenant");
         businessName: "TecnoVariedades",
         businessDescription: "Tienda virtual de productos digitales y servicios tecnológicos",
         timezone: "America/Bogota",
-        aiProvider: "nvidia_nim_bridge",
+        aiProvider: "opencode",
       });
       console.log("✅ Settings por defecto creados");
     }
