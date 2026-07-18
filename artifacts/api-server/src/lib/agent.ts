@@ -1,5 +1,5 @@
 // @ts-nocheck
-import { eq, and, asc, desc } from "drizzle-orm";
+import { eq, and, asc, desc, sql } from "drizzle-orm";
 import {
   db,
   agents,
@@ -722,12 +722,46 @@ ${productList.length > 0 ? productsBlock : "No hay productos disponibles."}
 [6] No repitas información que ya diste. Usa la MEMORIA de la conversación.
 ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma brevemente y con entusiasmo. El sistema mostrará automáticamente la tarjeta con métodos de pago del producto que elijas." : `[7] 🧠 ANALIZA EL CONTEXTO de la conversación y elige el producto CORRECTO del catálogo. Usa [CARD: ID] al final de tu mensaje para mostrar la tarjeta del producto que mejor corresponda a lo que el cliente pregunta. Si no estás segura, pregunta más detalles antes de mostrar una card. NUNCA muestres un producto que no tenga relación con lo que el cliente busca.`}`).trim();
 
+  // ── 9b. CONTEXTO DEL SISTEMA PARA EL ARQUITECTO ──────────────────────────
+  const isArchitect = activeAgent.name.toLowerCase().includes("arquitecto") || 
+    String((activeAgent.metadata as any)?.agentType || "").includes("architect");
+  let architectSystemContext = "";
+  if (isArchitect) {
+    const agentsCount = (await db.select({ count: sql<number>`count(*)` }).from(agents)).at(0)?.count || 0;
+    const productsAnalyzed = productList.length;
+    const productsWithoutImage = productList.filter((p: any) => !p.imageUrl).length;
+    const productCategories = [...new Set(productList.map((p: any) => p.category).filter(Boolean))];
+    
+    architectSystemContext = `
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📊 CONTEXTO DEL SISTEMA (EN VIVO)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+• Negocio: ${voice.businessName}
+• Productos activos: ${productsAnalyzed}
+• Productos sin imagen: ${productsWithoutImage}
+• Categorías: ${productCategories.length > 0 ? productCategories.join(", ") : "Ninguna"}
+• Agentes disponibles: ${agentsCount}
+• Cliente actual: ${customerName}
+
+HERRAMIENTAS DISPONIBLES:
+1. Gestionar productos (GET/PATCH /api/architect-tools/products/:id)
+2. Mejorar descripciones (POST /api/architect-tools/improve-description/:id)
+3. Mejorar producto completo (POST /api/architect-tools/improve-product/:id)
+4. Asignar imagen (POST /api/architect-tools/set-image/:id)
+5. Mejora masiva (POST /api/architect-tools/improve-all-products)
+6. Analizar sistema (GET /api/architect-tools/analyze-system)
+
+Cuando el usuario te pida mejorar algo, USA estas herramientas directamente.
+Si te dice "mejora el producto X", busca el ID y llama a la API correspondiente.
+`;
+  }
+
   // ── 10. INTEGRAR contexto del motor DENTRO del cerebro ────────────────────
   // El bloque de contexto del motor (engineContext) se inyecta como contexto adicional
   // para que el prompt final tenga TODA la información disponible
   // Pasar todos los productos a AdvancedIntelligence para mejor análisis contextual
   const aiProductContext = productList.length > 0 ? productList.slice(0, 10) : [];
-  const engineContextBlock = `${decision.contextBlock}\n\n${AdvancedIntelligence.generateIntelligentContext(
+  const engineContextBlock = `${architectSystemContext}${decision.contextBlock}\n\n${AdvancedIntelligence.generateIntelligentContext(
     lastText,
     memory.history,
     aiProductContext.length > 0 ? aiProductContext : null

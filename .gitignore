@@ -23,6 +23,7 @@ __pycache__/
 *.log
 *.bat
 *.ps1
+!products-full.json
 body.json
 fb_credentials.json
 productos-*.json

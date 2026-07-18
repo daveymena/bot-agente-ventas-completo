@@ -1,7 +1,7 @@
 import express, { type Express, type Request, type Response, type NextFunction } from "express";
 import path from "path";
 import { fileURLToPath } from "url";
-import { existsSync, readdirSync } from "fs";
+import { existsSync, readdirSync, readFileSync } from "fs";
 import cors from "cors";
 import cookieParser from "cookie-parser";
 import pinoHttp from "pino-http";
@@ -17,7 +17,7 @@ import { validateSaasPlan, validateUsageLimits } from "./middleware/saasValidati
 import { validateFeatureLimits, validateMessageLimit } from "./middleware/featureLimits";
 import { whatsapp } from "./lib/whatsapp";
 import { getAllTemplates } from "./lib/agent-templates";
-import { db, agents, tenants, settings } from "@workspace/db";
+import { db, agents, tenants, settings, products, productCategories } from "@workspace/db";
 import { ensureDbReady } from "@workspace/db";
 import { eq } from "drizzle-orm";
 
@@ -98,6 +98,49 @@ logger.info("[MessageHandler] Message receiver configured for default tenant");
         console.log(`✅ ${template.avatar} ${template.name} creado`);
       }
       console.log("🎉 Agentes creados exitosamente");
+    }
+
+    // Auto-seed products from JSON if they don't exist
+    const existingProducts = await db.select().from(products).limit(1);
+    if (existingProducts.length === 0) {
+      console.log("📦 No hay productos, sembrando desde products-full.json...");
+      const jsonPath = path.resolve(process.cwd(), "products-full.json");
+      if (existsSync(jsonPath)) {
+        const rawData = readFileSync(jsonPath, "utf-8");
+        const productsData = JSON.parse(rawData);
+        let catId = 1;
+        const existingCats = await db.select().from(productCategories).limit(1);
+        if (existingCats.length === 0) {
+          await db.insert(productCategories).values({ tenantId: 1, name: "General" });
+          console.log("✅ Categoría General creada");
+        } else {
+          catId = existingCats[0].id;
+        }
+        let count = 0;
+        for (const p of productsData) {
+          try {
+            await db.insert(products).values({
+              tenantId: 1,
+              name: p.name,
+              description: p.description || `Acceso completo a ${p.name}. Contenido actualizable, soporte técnico y descargas ilimitadas.`,
+              price: p.price.toString(),
+              currency: p.currency || "USD",
+              categoryId: catId,
+              category: p.category || "General",
+              kind: p.kind || "digital",
+              imageUrl: p.image_url,
+              features: p.features || ["Acceso permanente", "Contenido actualizable", "Soporte técnico", "Descargas ilimitadas"],
+              deliveryLink: p.deliveryLink || p.drive_url || "",
+              isActive: true,
+              metadata: JSON.stringify({ drive_folder_id: p.drive_folder_id }),
+            });
+            count++;
+          } catch {}
+        }
+        console.log(`✅ ${count} productos insertados desde JSON`);
+      } else {
+        console.log(`⚠️ products-full.json no encontrado en ${jsonPath}`);
+      }
     }
   } catch (error) {
     console.error("❌ Error en auto-seed:", error);
