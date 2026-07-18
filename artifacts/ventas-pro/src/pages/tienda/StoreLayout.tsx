@@ -1,11 +1,11 @@
 import { useState, useEffect } from "react";
 import { Link, useLocation } from "wouter";
-import { ShoppingCart, Menu, X, User, Search, Package, LayoutDashboard, LogOut, Star, ShieldCheck, Zap, Globe } from "lucide-react";
+import { ShoppingCart, Menu, X, Package } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useStoreCart } from "./store-context";
 
 function StoreInit({ slug }: { slug: string }) {
-  const { products, setProducts, setConfig, setLoading } = useStoreCart();
+  const { setProducts, setConfig, setLoading } = useStoreCart();
 
   useEffect(() => {
     if (!slug) return;
@@ -33,7 +33,7 @@ function StoreInit({ slug }: { slug: string }) {
 
 export function Navbar() {
   const [isOpen, setIsOpen] = useState(false);
-  const { cart, config, isAdmin, setAdmin } = useStoreCart();
+  const { cart, config } = useStoreCart();
   const [location] = useLocation();
   const cartCount = cart.reduce((acc, item) => acc + item.quantity, 0);
   const base = `/store/${config.slug}`;
@@ -41,7 +41,6 @@ export function Navbar() {
   const navLinks = [
     { name: "Inicio", path: base },
     { name: "Tienda", path: `${base}/productos` },
-    { name: "Digitales", path: `${base}/categoria/digital` },
   ];
 
   return (
@@ -72,9 +71,10 @@ export function Navbar() {
               <Link
                 key={link.path}
                 to={link.path}
-                className={`text-sm font-medium transition-colors hover:text-indigo-600 ${
-                  location === link.path ? "text-indigo-600" : "text-gray-600"
-                }`}
+                className="text-sm font-medium transition-colors"
+                style={location === link.path ? { color: config.primaryColor } : { color: "#475569" }}
+                onMouseEnter={e => e.currentTarget.style.color = config.primaryColor}
+                onMouseLeave={e => { if (location !== link.path) e.currentTarget.style.color = "#475569"; }}
               >
                 {link.name}
               </Link>
@@ -82,10 +82,10 @@ export function Navbar() {
           </div>
 
           <div className="hidden md:flex items-center space-x-5">
-            <Link to={`${base}/carrito`} className="relative p-2 text-gray-400 hover:text-indigo-600 transition-colors">
+            <Link to={`${base}/carrito`} className="relative p-2 transition-colors" style={{ color: "#9ca3af" }}>
               <ShoppingCart className="w-5 h-5" />
               {cartCount > 0 && (
-                <span className="absolute -top-1 -right-1 bg-indigo-600 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full ring-2 ring-white">
+                <span className="absolute -top-1 -right-1 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full ring-2 ring-white" style={{ backgroundColor: config.primaryColor }}>
                   {cartCount}
                 </span>
               )}
@@ -94,17 +94,18 @@ export function Navbar() {
 
           {/* Mobile menu button */}
           <div className="md:hidden flex items-center space-x-4">
-            <Link to={`${base}/carrito`} className="relative p-2 text-gray-400">
+            <Link to={`${base}/carrito`} className="relative p-2" style={{ color: "#9ca3af" }}>
               <ShoppingCart className="w-6 h-6" />
               {cartCount > 0 && (
-                <span className="absolute -top-1 -right-1 bg-indigo-600 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full ring-2 ring-white">
+                <span className="absolute -top-1 -right-1 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full ring-2 ring-white" style={{ backgroundColor: config.primaryColor }}>
                   {cartCount}
                 </span>
               )}
             </Link>
             <button
               onClick={() => setIsOpen(!isOpen)}
-              className="inline-flex items-center justify-center p-2 rounded-md text-gray-400 hover:text-indigo-600 hover:bg-gray-100 transition-all"
+              className="inline-flex items-center justify-center p-2 rounded-md transition-all"
+              style={{ color: "#9ca3af" }}
             >
               {isOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
             </button>
@@ -127,7 +128,8 @@ export function Navbar() {
                   key={link.path}
                   to={link.path}
                   onClick={() => setIsOpen(false)}
-                  className="block px-3 py-2 rounded-md text-base font-medium text-gray-700 hover:text-indigo-600 hover:bg-gray-50"
+                  className="block px-3 py-2 rounded-md text-base font-medium hover:bg-gray-50"
+                  style={{ color: location === link.path ? config.primaryColor : "#374151" }}
                 >
                   {link.name}
                 </Link>
@@ -150,42 +152,42 @@ export function Footer() {
         <div className="grid grid-cols-1 md:grid-cols-4 gap-12">
           <div className="col-span-1 md:col-span-1">
             <div className="flex items-center gap-2 mb-6">
-              <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center">
+              <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ backgroundColor: config.primaryColor }}>
                 <Package className="text-white w-5 h-5" />
               </div>
               <span className="text-xl font-extrabold text-white">{config.name}</span>
             </div>
             <p className="text-sm leading-relaxed">
-              La mejor solución e-commerce para productos digitales, físicos y dropshipping.
-              Escalable, profesional y segura.
+              Tu tienda de productos digitales y físicos con entrega inmediata, soporte 24/7 y garantía de calidad.
             </p>
           </div>
           <div>
             <h3 className="text-white font-bold mb-6">Tienda</h3>
             <ul className="space-y-4 text-sm">
-              <li><Link to={`${base}/categoria/digital`} className="hover:text-indigo-400 transition-colors">Productos Digitales</Link></li>
-              <li><Link to={`${base}/categoria/fisico`} className="hover:text-indigo-400 transition-colors">Productos Físicos</Link></li>
-              <li><Link to={`${base}/productos`} className="hover:text-indigo-400 transition-colors">Todos los Productos</Link></li>
+              <li><Link to={`${base}/productos`} className="hover:text-white transition-colors">Todos los Productos</Link></li>
+              <li><Link to={`${base}/productos`} className="hover:text-white transition-colors">Categorías</Link></li>
+              <li><Link to={`${base}/carrito`} className="hover:text-white transition-colors">Carrito</Link></li>
             </ul>
           </div>
           <div>
             <h3 className="text-white font-bold mb-6">Soporte</h3>
             <ul className="space-y-4 text-sm">
-              <li><a href="#" className="hover:text-indigo-400 transition-colors">Preguntas Frecuentes</a></li>
-              <li><a href="#" className="hover:text-indigo-400 transition-colors">Envíos y Devoluciones</a></li>
-              <li><a href="#" className="hover:text-indigo-400 transition-colors">Contacto</a></li>
+              <li><a href="#" className="hover:text-white transition-colors">Preguntas Frecuentes</a></li>
+              <li><a href="#" className="hover:text-white transition-colors">Envíos y Devoluciones</a></li>
+              <li><a href="#" className="hover:text-white transition-colors">Contacto</a></li>
             </ul>
           </div>
           <div>
             <h3 className="text-white font-bold mb-6">Newsletter</h3>
-            <p className="text-sm mb-4">Suscríbete para recibir ofertas exclusivas y novedades.</p>
+            <p className="text-sm mb-4">Suscríbete para recibir ofertas exclusivas.</p>
             <form className="flex gap-2" onSubmit={e => e.preventDefault()}>
               <input
                 type="email"
                 placeholder="Tu email"
-                className="bg-gray-800 border-none rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-indigo-500 w-full"
+                className="bg-gray-800 border-none rounded-lg px-4 py-2 text-sm w-full focus:ring-2"
+                style={{ caretColor: config.primaryColor }}
               />
-              <button className="bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-indigo-700 transition-colors">
+              <button className="text-white px-4 py-2 rounded-lg text-sm font-medium transition-opacity hover:opacity-90" style={{ backgroundColor: config.primaryColor }}>
                 Unirse
               </button>
             </form>
