@@ -23,7 +23,7 @@ async function generateCheckout(slug: string, productId: number, method: "mercad
   });
   if (!res.ok) throw new Error("Error generando enlace de pago");
   const data = await res.json();
-  if (data.checkoutUrl) window.location.href = data.checkoutUrl;
+  if (data.checkoutUrl) window.open(data.checkoutUrl, "_blank", "noopener,noreferrer");
 }
 
 /* ─── WhatsApp helper ─── */
