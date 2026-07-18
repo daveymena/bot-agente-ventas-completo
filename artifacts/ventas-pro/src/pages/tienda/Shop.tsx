@@ -268,29 +268,6 @@ function ProductCard({ product, idx, color }: { product: any; idx: number; color
               {paying === "paypal" ? "..." : "PayPal"}
             </button>
           </div>
-          {product.paymentLink && (
-            <a
-              href={product.paymentLink}
-              target="_blank"
-              rel="noopener noreferrer"
-              style={{ backgroundColor: `${color}10`, color }}
-              className="block text-center px-3 py-2 rounded-xl font-bold text-xs transition-all hover:opacity-80"
-            >
-              <CreditCard className="w-3.5 h-3.5 inline mr-1.5" />
-              Pagar ahora
-            </a>
-          )}
-          {product.deliveryLink && (
-            <a
-              href={product.deliveryLink}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="block text-center px-3 py-2 rounded-xl font-bold text-xs bg-emerald-50 text-emerald-600 border border-emerald-200 transition-all hover:bg-emerald-100"
-            >
-              <Download className="w-3.5 h-3.5 inline mr-1.5" />
-              Acceder al contenido
-            </a>
-          )}
         </div>
       </div>
     </motion.div>
@@ -432,27 +409,20 @@ export default function StoreShop() {
                           </button>
                         </div>
                         <div className="mt-2 flex gap-2 flex-wrap">
-                          {product.deliveryLink && (
-                            <a
-                              href={product.deliveryLink}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="inline-flex items-center gap-1 text-[10px] font-bold px-2.5 py-1.5 rounded-lg bg-emerald-50 text-emerald-600 border border-emerald-200"
-                            >
-                              <Download className="w-3 h-3" /> Acceder
-                            </a>
-                          )}
-                          {product.paymentLink && (
-                            <a
-                              href={product.paymentLink}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="inline-flex items-center gap-1 text-[10px] font-bold px-2.5 py-1.5 rounded-lg"
-                              style={{ backgroundColor: `${color}10`, color }}
-                            >
-                              <CreditCard className="w-3 h-3" /> Pagar
-                            </a>
-                          )}
+                          <button
+                            onClick={() => { if (config.slug) generateCheckout(config.slug, product.id, "mercadopago").catch(() => alert("Error generando pago")); }}
+                            className="inline-flex items-center gap-1 text-[10px] font-bold px-2.5 py-1.5 rounded-lg"
+                            style={{ borderColor: color, color, border: "1.5px solid" }}
+                          >
+                            <CreditCard className="w-3 h-3" /> MercadoPago
+                          </button>
+                          <button
+                            onClick={() => { if (config.slug) generateCheckout(config.slug, product.id, "paypal").catch(() => alert("Error generando pago")); }}
+                            className="inline-flex items-center gap-1 text-[10px] font-bold px-2.5 py-1.5 rounded-lg"
+                            style={{ borderColor: "#0070ba", color: "#0070ba", border: "1.5px solid" }}
+                          >
+                            <Lock className="w-3 h-3" /> PayPal
+                          </button>
                         </div>
                       </div>
                     </motion.div>

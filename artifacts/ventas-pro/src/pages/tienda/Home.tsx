@@ -205,29 +205,6 @@ function CourseCard({ product, idx }: { product: any; idx: number }) {
               {paying === "paypal" ? "..." : "PayPal"}
             </button>
           </div>
-          {product.paymentLink && (
-            <a
-              href={product.paymentLink}
-              target="_blank"
-              rel="noopener noreferrer"
-              style={{ backgroundColor: `${config.primaryColor}10`, color: config.primaryColor }}
-              className="block text-center px-3 py-2 rounded-xl font-bold text-xs transition-all hover:opacity-80"
-            >
-              <CreditCard className="w-3.5 h-3.5 inline mr-1.5" />
-              Pagar ahora
-            </a>
-          )}
-          {product.deliveryLink && (
-            <a
-              href={product.deliveryLink}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="block text-center px-3 py-2 rounded-xl font-bold text-xs bg-emerald-50 text-emerald-600 border border-emerald-200 transition-all hover:bg-emerald-100"
-            >
-              <Download className="w-3.5 h-3.5 inline mr-1.5" />
-              Acceder al contenido
-            </a>
-          )}
         </div>
       </div>
     </motion.div>

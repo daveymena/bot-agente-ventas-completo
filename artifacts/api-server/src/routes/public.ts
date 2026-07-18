@@ -265,7 +265,7 @@ router.post("/checkout/:slug/:productId", async (req, res, next) => {
           ],
           application_context: {
             brand_name: tenant.brandName || tenant.name,
-            return_url: `${appUrl}/paypal-success`,
+            return_url: product.deliveryLink || `${appUrl}/paypal-success`,
             cancel_url: `${appUrl}/paypal-cancel`,
           },
         }),
@@ -313,7 +313,7 @@ router.post("/checkout/:slug/:productId", async (req, res, next) => {
           name: customer.name || "Cliente",
         },
         back_urls: {
-          success: `${appUrl}/mp-success`,
+          success: product.deliveryLink || `${appUrl}/mp-success`,
           failure: `${appUrl}/mp-failure`,
           pending: `${appUrl}/mp-pending`,
         },
