@@ -42,6 +42,10 @@ export const paymentTransactions = schema.paymentTransactions;
 export const payments = schema.payments;
 export const store_layouts = schema.store_layouts;
 export const whatsappAuth = schema.whatsappAuth;
+export const personalityProfiles = schema.personalityProfiles;
+export const architectMemory = schema.architectMemory;
+export const responseAnalytics = schema.responseAnalytics;
+export const promptVersions = schema.promptVersions;
 
 export type {
   Tenant, InsertTenant,
@@ -62,6 +66,11 @@ export type {
   PaymentTransaction, InsertPaymentTransaction,
   Payment, InsertPayment,
   StoreLayout, InsertStoreLayout,
+  PersonalityProfile, InsertPersonalityProfile,
+  AgentType, BrandVoiceOverrides,
+  ArchitectMemory, InsertArchitectMemory, MemoryType,
+  ResponseAnalytics, InsertResponseAnalytics, ResponseOutcome,
+  PromptVersion, InsertPromptVersion,
 } from "./schema";
 export type { AgentStage } from "./schema/agents";
 
@@ -160,6 +169,10 @@ async function ensureSqliteTables(sqliteDb: import("sql.js").Database, saveDb: (
     `CREATE TABLE IF NOT EXISTS payments (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER REFERENCES tenants(id) ON DELETE CASCADE, conversation_id INTEGER REFERENCES conversations(id) ON DELETE SET NULL, lead_id INTEGER REFERENCES leads(id) ON DELETE SET NULL, product_id INTEGER REFERENCES products(id) ON DELETE SET NULL, amount REAL NOT NULL, currency TEXT DEFAULT 'COP', method TEXT NOT NULL, status TEXT DEFAULT 'pending', payment_status TEXT, proof_received INTEGER DEFAULT 0, proof_url TEXT, bank_reference TEXT, payer_account TEXT, payer_name TEXT, payer_email TEXT, payer_phone TEXT, verification_source TEXT, verified_at TEXT, verified_by TEXT, notes TEXT, metadata TEXT, created_at TEXT DEFAULT (datetime('now')), updated_at TEXT DEFAULT (datetime('now')))`,
     `CREATE TABLE IF NOT EXISTS store_layouts (id INTEGER PRIMARY KEY AUTOINCREMENT, store_id INTEGER REFERENCES stores(id) ON DELETE CASCADE NOT NULL UNIQUE, layout_data TEXT DEFAULT '{}', version TEXT DEFAULT '1', created_at TEXT DEFAULT (datetime('now')), updated_at TEXT DEFAULT (datetime('now')))`,
     `CREATE TABLE IF NOT EXISTS whatsapp_auth (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT DEFAULT (datetime('now')))`,
+    `CREATE TABLE IF NOT EXISTS personality_profiles (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER REFERENCES tenants(id) ON DELETE CASCADE, name TEXT NOT NULL, description TEXT NOT NULL, agent_name TEXT NOT NULL, agent_role TEXT NOT NULL, tone TEXT NOT NULL, language TEXT DEFAULT 'es', formality TEXT DEFAULT 'tú', agent_type TEXT DEFAULT 'general', system_prompt_core TEXT NOT NULL, keywords TEXT DEFAULT '[]', brand_voice_overrides TEXT, is_active INTEGER DEFAULT 1, created_at TEXT DEFAULT (datetime('now')), updated_at TEXT DEFAULT (datetime('now')))`,
+    `CREATE TABLE IF NOT EXISTS architect_memory (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER REFERENCES tenants(id) ON DELETE CASCADE, session_id TEXT DEFAULT 'default', memory_type TEXT NOT NULL, title TEXT NOT NULL, content TEXT NOT NULL, tags TEXT DEFAULT '[]', metadata TEXT, created_at TEXT DEFAULT (datetime('now')), updated_at TEXT DEFAULT (datetime('now')))`,
+    `CREATE TABLE IF NOT EXISTS response_analytics (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER REFERENCES tenants(id) ON DELETE CASCADE, agent_id INTEGER, profile_id INTEGER, conversation_id INTEGER, message_id INTEGER, response_text TEXT NOT NULL, response_length INTEGER NOT NULL, had_card INTEGER DEFAULT 0, card_product_id INTEGER, outcome TEXT, customer_message TEXT NOT NULL, sentiment_score INTEGER, response_time_ms INTEGER NOT NULL, metadata TEXT, created_at TEXT DEFAULT (datetime('now')))`,
+    `CREATE TABLE IF NOT EXISTS prompt_versions (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER REFERENCES tenants(id) ON DELETE CASCADE, agent_id INTEGER, profile_id INTEGER, previous_prompt TEXT NOT NULL, new_prompt TEXT NOT NULL, diff_summary TEXT NOT NULL, reason TEXT NOT NULL, performance_before TEXT, performance_after TEXT, applied_by TEXT NOT NULL, is_active INTEGER DEFAULT 1, created_at TEXT DEFAULT (datetime('now')))`,
   ];
 
   for (const sql of tables) {

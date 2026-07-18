@@ -28,6 +28,8 @@ class OptimizedProviderRotation {
   // Timeouts ULTRA-AGRESIVOS para EasyPanel (OPTIMIZADO PARA PRODUCCIÓN)
   private timeouts = {
     opencode: 8000,
+    opencode_zen: 15000,
+    groq: 15000,
     github_copilot: 8000,
     ollama_local: 5000,
     nvidia: 8000,
@@ -44,6 +46,8 @@ class OptimizedProviderRotation {
 
   private initializeProviders() {
     const providerList = [
+      "groq",
+      "opencode_zen",
       "nvidia_nim_bridge",
       "opencode",
       "nvidia",

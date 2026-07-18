@@ -322,3 +322,74 @@ export const whatsappAuth = sqliteTable("whatsapp_auth", {
   value: text("value", { mode: "json" }).notNull(),
   updatedAt: text("updated_at").notNull().default(sql`(datetime('now'))`),
 });
+
+// ── personality_profiles ──────────────────────────────────────────────────────
+export const personalityProfiles = sqliteTable("personality_profiles", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  tenantId: integer("tenant_id").references(() => tenants.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  description: text("description").notNull(),
+  agentName: text("agent_name").notNull(),
+  agentRole: text("agent_role").notNull(),
+  tone: text("tone").notNull(),
+  language: text("language").notNull().default("es"),
+  formality: text("formality").notNull().default("tú"),
+  agentType: text("agent_type").notNull().default("general"),
+  systemPromptCore: text("system_prompt_core").notNull(),
+  keywords: text("keywords", { mode: "json" }).$type<string[]>().notNull().default([]),
+  brandVoiceOverrides: text("brand_voice_overrides", { mode: "json" }).$type<any>().default(null),
+  isActive: integer("is_active", { mode: "boolean" }).notNull().default(true),
+  createdAt: text("created_at").notNull().default(sql`(datetime('now'))`),
+  updatedAt: text("updated_at").notNull().default(sql`(datetime('now'))`),
+});
+
+// ── architect_memory ──────────────────────────────────────────────────────────
+export const architectMemory = sqliteTable("architect_memory", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  tenantId: integer("tenant_id").references(() => tenants.id, { onDelete: "cascade" }),
+  sessionId: text("session_id").notNull().default("default"),
+  memoryType: text("memory_type").notNull(),
+  title: text("title").notNull(),
+  content: text("content").notNull(),
+  tags: text("tags", { mode: "json" }).$type<string[]>().notNull().default([]),
+  metadata: text("metadata", { mode: "json" }).$type<any>().default(null),
+  createdAt: text("created_at").notNull().default(sql`(datetime('now'))`),
+  updatedAt: text("updated_at").notNull().default(sql`(datetime('now'))`),
+});
+
+// ── response_analytics ────────────────────────────────────────────────────────
+export const responseAnalytics = sqliteTable("response_analytics", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  tenantId: integer("tenant_id").references(() => tenants.id, { onDelete: "cascade" }),
+  agentId: integer("agent_id"),
+  profileId: integer("profile_id"),
+  conversationId: integer("conversation_id"),
+  messageId: integer("message_id"),
+  responseText: text("response_text").notNull(),
+  responseLength: integer("response_length").notNull(),
+  hadCard: integer("had_card", { mode: "boolean" }).notNull().default(false),
+  cardProductId: integer("card_product_id"),
+  outcome: text("outcome"),
+  customerMessage: text("customer_message").notNull(),
+  sentimentScore: integer("sentiment_score"),
+  responseTimeMs: integer("response_time_ms").notNull(),
+  metadata: text("metadata", { mode: "json" }).$type<any>().default(null),
+  createdAt: text("created_at").notNull().default(sql`(datetime('now'))`),
+});
+
+// ── prompt_versions ───────────────────────────────────────────────────────────
+export const promptVersions = sqliteTable("prompt_versions", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  tenantId: integer("tenant_id").references(() => tenants.id, { onDelete: "cascade" }),
+  agentId: integer("agent_id"),
+  profileId: integer("profile_id"),
+  previousPrompt: text("previous_prompt").notNull(),
+  newPrompt: text("new_prompt").notNull(),
+  diffSummary: text("diff_summary").notNull(),
+  reason: text("reason").notNull(),
+  performanceBefore: text("performance_before", { mode: "json" }).$type<any>().default(null),
+  performanceAfter: text("performance_after", { mode: "json" }).$type<any>().default(null),
+  appliedBy: text("applied_by").notNull(),
+  isActive: integer("is_active", { mode: "boolean" }).notNull().default(true),
+  createdAt: text("created_at").notNull().default(sql`(datetime('now'))`),
+});

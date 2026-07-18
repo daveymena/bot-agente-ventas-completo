@@ -38,9 +38,9 @@ router.get("/summary", async (_req, res, next) => {
     const startOfDay = new Date();
     startOfDay.setHours(0, 0, 0, 0);
     const todayMsgs = await db
-      .select({ count: sql<number>`count(*)::int` })
+      .select({ count: sql<number>`count(*)` })
       .from(messages)
-      .where(gte(messages.createdAt, startOfDay));
+      .where(gte(messages.createdAt, safeISO(startOfDay)));
 
     return res.json(
       GetDashboardSummaryResponse.parse({
@@ -68,7 +68,7 @@ router.get("/activity", async (_req, res, next) => {
           id: r.id,
           type: r.type,
           description: r.title + (r.subtitle ? ` — ${r.subtitle}` : ""),
-          createdAt: r.safeISO(createdAt),
+          createdAt: safeISO(r.createdAt),
           metadata: null,
         })),
       ),
@@ -104,13 +104,13 @@ router.get("/messages-timeline", async (_req, res, next) => {
     start.setDate(start.getDate() - (days - 1));
     const rows = await db
       .select({
-        day: sql<string>`to_char(date_trunc('day', ${messages.createdAt}), 'YYYY-MM-DD')`,
+        day: sql<string>`strftime('%Y-%m-%d', ${messages.createdAt})`,
         role: messages.role,
-        count: sql<number>`count(*)::int`,
+        count: sql<number>`count(*)`,
       })
       .from(messages)
-      .where(gte(messages.createdAt, start))
-      .groupBy(sql`date_trunc('day', ${messages.createdAt})`, messages.role);
+      .where(gte(messages.createdAt, safeISO(start)))
+      .groupBy(sql`strftime('%Y-%m-%d', ${messages.createdAt})`, messages.role);
 
     const map = new Map<string, { incoming: number; outgoing: number }>();
     for (let i = 0; i < days; i++) {

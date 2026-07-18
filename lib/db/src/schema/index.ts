@@ -16,3 +16,7 @@ export * from "./subscriptions";
 export * from "./payments";
 export * from "./store_layouts";
 export * from "./whatsapp";
+export * from "./personality-profiles";
+export * from "./architect-memory";
+export * from "./response-analytics";
+export * from "./prompt-versions";

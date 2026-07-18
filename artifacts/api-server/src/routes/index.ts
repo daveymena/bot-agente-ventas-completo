@@ -22,6 +22,10 @@ import authRouter from "./auth";
 import storeRouter from "./store";
 import publicRouter from "./public";
 import facebookRouter from "./facebook";
+import personalityProfilesRouter from "./personality-profiles";
+import architectMemoryRouter from "./architect-memory";
+import responseAnalyticsRouter from "./response-analytics";
+import architectToolsRouter from "./architect-tools";
 
 const router: IRouter = Router();
 
@@ -47,6 +51,10 @@ router.use("/auth", authRouter);
 router.use("/store", storeRouter);
 router.use("/public", publicRouter);
 router.use("/facebook", facebookRouter);
+router.use("/personality-profiles", personalityProfilesRouter);
+router.use("/architect-memory", architectMemoryRouter);
+router.use("/response-analytics", responseAnalyticsRouter);
+router.use("/architect-tools", architectToolsRouter);
 
 // Usar el manejador de errores centralizado
 router.use(errorHandler);

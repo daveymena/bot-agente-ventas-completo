@@ -2,7 +2,27 @@ import { Request, Response, NextFunction } from "express";
 import { logger } from "../lib/logger";
 
 // Planes disponibles y sus límites
-export const SAAS_PLANS = {
+export const SAAS_PLANS: Record<string, { name: string; price: number; monthlyMessages: number; maxConversations: number; maxProducts: number; maxAgents: number; features: string[]; trialDays: number; }> = {
+  basic: {
+    name: "Basic",
+    price: 0,
+    monthlyMessages: 500,
+    maxConversations: 50,
+    maxProducts: 25,
+    maxAgents: 2,
+    features: ["Basic AI", "WhatsApp Integration"],
+    trialDays: 30,
+  },
+  premium: {
+    name: "Premium",
+    price: 49,
+    monthlyMessages: 5000,
+    maxConversations: 500,
+    maxProducts: 250,
+    maxAgents: 5,
+    features: ["Advanced AI", "WhatsApp Integration", "Analytics", "Priority Support"],
+    trialDays: 30,
+  },
   free: {
     name: "Free",
     price: 0,
