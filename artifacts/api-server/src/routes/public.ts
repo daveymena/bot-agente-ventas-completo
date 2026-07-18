@@ -48,6 +48,9 @@ router.get("/products/:slug", async (req, res, next) => {
       kind: p.kind,
       currency: p.currency,
       sku: p.sku,
+      features: p.features,
+      paymentLink: p.paymentLink,
+      deliveryLink: p.deliveryLink,
     }));
 
     return res.json({
@@ -165,6 +168,173 @@ router.post("/create-product/:slug", async (req, res, next) => {
       .returning();
 
     return res.json(product);
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /api/public/checkout/:slug/:productId
+ * Generates a payment checkout URL on-the-fly (MercadoPago preference or PayPal order).
+ * Body: { method: "mercadopago" | "paypal", customer?: { name?, email?, phone? } }
+ */
+router.post("/checkout/:slug/:productId", async (req, res, next) => {
+  try {
+    const { slug, productId } = req.params;
+    const method = (req.body?.method || "mercadopago") as string;
+    const customer = req.body?.customer || {};
+
+    const [tenant] = await db
+      .select()
+      .from(tenants)
+      .where(eq(tenants.slug, slug))
+      .limit(1);
+
+    if (!tenant) {
+      return res.status(404).json({ message: "Tienda no encontrada" });
+    }
+
+    const [product] = await db
+      .select()
+      .from(products)
+      .where(
+        and(
+          eq(products.tenantId, tenant.id),
+          eq(products.id, Number(productId)),
+        ),
+      )
+      .limit(1);
+
+    if (!product) {
+      return res.status(404).json({ message: "Producto no encontrado" });
+    }
+
+    const appUrl =
+      process.env.APP_URL ||
+      `http://localhost:${process.env.PORT || 3002}`;
+
+    if (method === "paypal") {
+      const clientId = process.env.PAYPAL_CLIENT_ID;
+      const clientSecret = process.env.PAYPAL_CLIENT_SECRET;
+      const paypalMode = process.env.PAYPAL_MODE || "live";
+      const paypalApi =
+        paypalMode === "sandbox"
+          ? "https://api-m.sandbox.paypal.com"
+          : "https://api-m.paypal.com";
+
+      if (!clientId || !clientSecret) {
+        return res.status(500).json({ message: "PayPal no configurado" });
+      }
+
+      const tokenRes = await fetch(`${paypalApi}/v1/oauth2/token`, {
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+          "Accept-Language": "en_US",
+          Authorization: `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString("base64")}`,
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+        body: "grant_type=client_credentials",
+        signal: AbortSignal.timeout(10000),
+      });
+
+      if (!tokenRes.ok) {
+        logger.error({ status: tokenRes.status }, "[Checkout] PayPal auth failed");
+        return res.status(502).json({ message: "Error autenticando con PayPal" });
+      }
+
+      const tokenData = (await tokenRes.json()) as any;
+
+      const orderRes = await fetch(`${paypalApi}/v2/checkout/orders`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${tokenData.access_token}`,
+        },
+        body: JSON.stringify({
+          intent: "CAPTURE",
+          purchase_units: [
+            {
+              reference_id: `${product.id}`,
+              description: product.name,
+              amount: {
+                currency_code: product.currency === "COP" ? "USD" : product.currency || "USD",
+                value: Number(product.price).toFixed(2),
+              },
+            },
+          ],
+          application_context: {
+            brand_name: tenant.brandName || tenant.name,
+            return_url: `${appUrl}/paypal-success`,
+            cancel_url: `${appUrl}/paypal-cancel`,
+          },
+        }),
+        signal: AbortSignal.timeout(10000),
+      });
+
+      const orderData = (await orderRes.json()) as any;
+      if (!orderRes.ok) {
+        logger.error({ orderData }, "[Checkout] PayPal order creation failed");
+        return res.status(502).json({ message: "Error creando orden de PayPal" });
+      }
+
+      const approveLink = orderData.links?.find((l: any) => l.rel === "approve")?.href;
+
+      return res.json({
+        method: "paypal",
+        checkoutUrl: approveLink,
+        orderId: orderData.id,
+      });
+    }
+
+    const mpToken = process.env.MERCADO_PAGO_ACCESS_TOKEN;
+    if (!mpToken) {
+      return res.status(500).json({ message: "MercadoPago no configurado" });
+    }
+
+    const mpRes = await fetch("https://api.mercadopago.com/checkout/preferences", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${mpToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        items: [
+          {
+            id: product.id?.toString() || "prod_" + Date.now(),
+            title: product.name,
+            quantity: 1,
+            currency_id: product.currency === "USD" ? "COP" : product.currency || "COP",
+            unit_price: Number(product.price || 0),
+          },
+        ],
+        payer: {
+          email: customer.email || "cliente@email.com",
+          name: customer.name || "Cliente",
+        },
+        back_urls: {
+          success: `${appUrl}/mp-success`,
+          failure: `${appUrl}/mp-failure`,
+          pending: `${appUrl}/mp-pending`,
+        },
+        auto_return: "approved",
+        external_reference: `${customer.phone || "guest"}|${product.id}`,
+      }),
+      signal: AbortSignal.timeout(10000),
+    });
+
+    const mpData = (await mpRes.json()) as any;
+    if (!mpRes.ok) {
+      logger.error({ mpData }, "[Checkout] MercadoPago preference failed");
+      return res.status(502).json({ message: "Error creando preferencia de MercadoPago" });
+    }
+
+    return res.json({
+      method: "mercadopago",
+      checkoutUrl: mpData.init_point,
+      sandboxUrl: mpData.sandbox_init_point,
+      preferenceId: mpData.id,
+    });
   } catch (err) {
     next(err);
   }

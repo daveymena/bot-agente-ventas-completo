@@ -1,8 +1,20 @@
 import { useState, useMemo } from "react";
 import { useLocation, Link } from "wouter";
-import { Search, Star, Zap, Package, ShieldCheck, Truck, CreditCard, Clock, Users, ShoppingBag, Filter, X, Grid3X3, List, BookOpen, PlayCircle, TrendingUp } from "lucide-react";
+import { Search, Star, Zap, Package, ShieldCheck, Truck, CreditCard, Clock, Users, ShoppingBag, Filter, X, Grid3X3, List, BookOpen, PlayCircle, TrendingUp, Lock, Download } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useStoreCart } from "./store-context";
+
+/* ─── Payment helper ─── */
+async function generateCheckout(slug: string, productId: number, method: "mercadopago" | "paypal") {
+  const res = await fetch(`/api/public/checkout/${slug}/${productId}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ method }),
+  });
+  if (!res.ok) throw new Error("Error generando enlace de pago");
+  const data = await res.json();
+  if (data.checkoutUrl) window.location.href = data.checkoutUrl;
+}
 
 /* ─── Trust Badges ─── */
 function TrustBar({ color }: { color: string }) {
@@ -152,8 +164,20 @@ function FilterSidebar({
 
 /* ─── Course-style Product Card ─── */
 function ProductCard({ product, idx, color }: { product: any; idx: number; color: string }) {
-  const { addToCart, cart } = useStoreCart();
+  const { addToCart, cart, config } = useStoreCart();
   const inCart = cart.find(i => i.id === product.id);
+  const [paying, setPaying] = useState<string | null>(null);
+
+  const handlePay = async (method: "mercadopago" | "paypal") => {
+    if (config.slug == null || product.id == null) return;
+    setPaying(method);
+    try {
+      await generateCheckout(config.slug, product.id, method);
+    } catch {
+      setPaying(null);
+      alert("No se pudo generar el enlace de pago. Intenta de nuevo.");
+    }
+  };
 
   return (
     <motion.div
@@ -221,6 +245,53 @@ function ProductCard({ product, idx, color }: { product: any; idx: number; color
             <Package className="w-3 h-3 inline mr-1" /> {inCart.quantity} en carrito
           </div>
         )}
+
+        {/* Payment buttons */}
+        <div className="mt-3 space-y-2">
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              onClick={() => handlePay("mercadopago")}
+              disabled={paying !== null}
+              style={{ borderColor: color, color }}
+              className="px-3 py-2 rounded-xl font-bold text-xs border-2 transition-all hover:opacity-80 disabled:opacity-50 flex items-center justify-center gap-1.5"
+            >
+              <CreditCard className="w-3.5 h-3.5" />
+              {paying === "mercadopago" ? "..." : "MercadoPago"}
+            </button>
+            <button
+              onClick={() => handlePay("paypal")}
+              disabled={paying !== null}
+              style={{ borderColor: "#0070ba", color: "#0070ba" }}
+              className="px-3 py-2 rounded-xl font-bold text-xs border-2 transition-all hover:opacity-80 disabled:opacity-50 flex items-center justify-center gap-1.5"
+            >
+              <Lock className="w-3.5 h-3.5" />
+              {paying === "paypal" ? "..." : "PayPal"}
+            </button>
+          </div>
+          {product.paymentLink && (
+            <a
+              href={product.paymentLink}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ backgroundColor: `${color}10`, color }}
+              className="block text-center px-3 py-2 rounded-xl font-bold text-xs transition-all hover:opacity-80"
+            >
+              <CreditCard className="w-3.5 h-3.5 inline mr-1.5" />
+              Pagar ahora
+            </a>
+          )}
+          {product.deliveryLink && (
+            <a
+              href={product.deliveryLink}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="block text-center px-3 py-2 rounded-xl font-bold text-xs bg-emerald-50 text-emerald-600 border border-emerald-200 transition-all hover:bg-emerald-100"
+            >
+              <Download className="w-3.5 h-3.5 inline mr-1.5" />
+              Acceder al contenido
+            </a>
+          )}
+        </div>
       </div>
     </motion.div>
   );
@@ -359,6 +430,29 @@ export default function StoreShop() {
                           >
                             Comprar
                           </button>
+                        </div>
+                        <div className="mt-2 flex gap-2 flex-wrap">
+                          {product.deliveryLink && (
+                            <a
+                              href={product.deliveryLink}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1 text-[10px] font-bold px-2.5 py-1.5 rounded-lg bg-emerald-50 text-emerald-600 border border-emerald-200"
+                            >
+                              <Download className="w-3 h-3" /> Acceder
+                            </a>
+                          )}
+                          {product.paymentLink && (
+                            <a
+                              href={product.paymentLink}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1 text-[10px] font-bold px-2.5 py-1.5 rounded-lg"
+                              style={{ backgroundColor: `${color}10`, color }}
+                            >
+                              <CreditCard className="w-3 h-3" /> Pagar
+                            </a>
+                          )}
                         </div>
                       </div>
                     </motion.div>

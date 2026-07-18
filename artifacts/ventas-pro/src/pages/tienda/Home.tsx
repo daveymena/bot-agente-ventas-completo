@@ -1,9 +1,21 @@
 import { useEffect, useState, useMemo } from "react";
 import { Link } from "wouter";
 import { motion } from "framer-motion";
-import { ArrowRight, Star, Zap, ShieldCheck, Package, Sparkles, Award, Clock, Users, BookOpen, PlayCircle } from "lucide-react";
+import { ArrowRight, Star, Zap, ShieldCheck, Package, Sparkles, Award, Clock, Users, BookOpen, PlayCircle, CreditCard, Lock, Download } from "lucide-react";
 import { useStoreCart } from "./store-context";
 import { StorePageRenderer } from "./StorePageRenderer";
+
+/* ─── Payment helper ─── */
+async function generateCheckout(slug: string, productId: number, method: "mercadopago" | "paypal") {
+  const res = await fetch(`/api/public/checkout/${slug}/${productId}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ method }),
+  });
+  if (!res.ok) throw new Error("Error generando enlace de pago");
+  const data = await res.json();
+  if (data.checkoutUrl) window.location.href = data.checkoutUrl;
+}
 
 /* ─── Hero tipo Teducas: limpio, claro, educativo ─── */
 function Hero() {
@@ -90,6 +102,18 @@ function Hero() {
 /* ─── Course-style Product Card (tipo Teducas) ─── */
 function CourseCard({ product, idx }: { product: any; idx: number }) {
   const { addToCart, config } = useStoreCart();
+  const [paying, setPaying] = useState<string | null>(null);
+
+  const handlePay = async (method: "mercadopago" | "paypal") => {
+    if (config.slug == null || product.id == null) return;
+    setPaying(method);
+    try {
+      await generateCheckout(config.slug, product.id, method);
+    } catch {
+      setPaying(null);
+      alert("No se pudo generar el enlace de pago. Intenta de nuevo.");
+    }
+  };
 
   return (
     <motion.div
@@ -157,6 +181,53 @@ function CourseCard({ product, idx }: { product: any; idx: number }) {
           >
             <Zap className="w-4 h-4" /> Agregar
           </button>
+        </div>
+
+        {/* Payment buttons */}
+        <div className="mt-3 space-y-2">
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              onClick={() => handlePay("mercadopago")}
+              disabled={paying !== null}
+              style={{ borderColor: config.primaryColor, color: config.primaryColor }}
+              className="px-3 py-2 rounded-xl font-bold text-xs border-2 transition-all hover:opacity-80 disabled:opacity-50 flex items-center justify-center gap-1.5"
+            >
+              <CreditCard className="w-3.5 h-3.5" />
+              {paying === "mercadopago" ? "..." : "MercadoPago"}
+            </button>
+            <button
+              onClick={() => handlePay("paypal")}
+              disabled={paying !== null}
+              style={{ borderColor: "#0070ba", color: "#0070ba" }}
+              className="px-3 py-2 rounded-xl font-bold text-xs border-2 transition-all hover:opacity-80 disabled:opacity-50 flex items-center justify-center gap-1.5"
+            >
+              <Lock className="w-3.5 h-3.5" />
+              {paying === "paypal" ? "..." : "PayPal"}
+            </button>
+          </div>
+          {product.paymentLink && (
+            <a
+              href={product.paymentLink}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ backgroundColor: `${config.primaryColor}10`, color: config.primaryColor }}
+              className="block text-center px-3 py-2 rounded-xl font-bold text-xs transition-all hover:opacity-80"
+            >
+              <CreditCard className="w-3.5 h-3.5 inline mr-1.5" />
+              Pagar ahora
+            </a>
+          )}
+          {product.deliveryLink && (
+            <a
+              href={product.deliveryLink}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="block text-center px-3 py-2 rounded-xl font-bold text-xs bg-emerald-50 text-emerald-600 border border-emerald-200 transition-all hover:bg-emerald-100"
+            >
+              <Download className="w-3.5 h-3.5 inline mr-1.5" />
+              Acceder al contenido
+            </a>
+          )}
         </div>
       </div>
     </motion.div>
