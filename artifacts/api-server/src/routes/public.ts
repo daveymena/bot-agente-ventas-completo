@@ -5,6 +5,20 @@ import { generateImageBuffer } from "@workspace/integrations-openai-ai-server";
 import { getG4FImage, getAvailableG4FImageProviders, initializeG4F } from "../lib/providers/g4f-provider";
 import { G4F_ENABLED } from "../config/g4f.config";
 import { logger } from "../lib/logger";
+import { whatsapp } from "../lib/whatsapp";
+
+/**
+ * Resuelve el número de WhatsApp asociado a la app (vía QR conectado).
+ * Orden: whatsapp.getStatus().phone (conectado) > tenant.contactPhone > ADMIN_PHONE .env
+ */
+function resolveWhatsAppPhone(tenant?: { contactPhone?: string | null }): string | null {
+  const wa = whatsapp.getStatus();
+  if (wa?.phone && /^\d+$/.test(wa.phone)) return wa.phone;
+  if (tenant?.contactPhone) return tenant.contactPhone.replace(/\D/g, "");
+  const admin = process.env.ADMIN_PHONE;
+  if (admin) return admin.replace(/\D/g, "");
+  return null;
+}
 
 const router = Router();
 
@@ -59,6 +73,7 @@ router.get("/products/:slug", async (req, res, next) => {
         slug: tenant.slug,
         logo: tenant.brandLogo,
         colors: tenant.brandColors,
+        whatsappPhone: resolveWhatsAppPhone(tenant),
       },
       products: serialized,
     });
@@ -335,6 +350,22 @@ router.post("/checkout/:slug/:productId", async (req, res, next) => {
       sandboxUrl: mpData.sandbox_init_point,
       preferenceId: mpData.id,
     });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * GET /api/public/whatsapp-info/:slug
+ * Devuelve el número de WhatsApp conectado a la app (vía QR) o el fallback del tenant/ADMIN_PHONE.
+ */
+router.get("/whatsapp-info/:slug", async (req, res, next) => {
+  try {
+    const { slug } = req.params;
+    const [tenant] = await db.select().from(tenants).where(eq(tenants.slug, slug)).limit(1);
+    if (!tenant) return res.status(404).json({ message: "Tienda no encontrada" });
+    const waPhone = resolveWhatsAppPhone(tenant);
+    return res.json({ phone: waPhone, connected: whatsapp.isConnected() });
   } catch (err) {
     next(err);
   }

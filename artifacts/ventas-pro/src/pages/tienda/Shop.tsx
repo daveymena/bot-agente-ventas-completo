@@ -16,6 +16,13 @@ async function generateCheckout(slug: string, productId: number, method: "mercad
   if (data.checkoutUrl) window.location.href = data.checkoutUrl;
 }
 
+/* ─── WhatsApp helper ─── */
+function buyViaWhatsApp(phone: string | null | undefined, product: any) {
+  if (!phone) { alert("WhatsApp no disponible. Contacta al administrador."); return; }
+  const msg = `¡Hola! 👋%0A%0AQuiero comprar este producto:%0A%0A*${encodeURIComponent(product.name)}*%0APrecio: $${encodeURIComponent(String(product.price))} ${encodeURIComponent(product.currency || "COP")}%0A%0A¿Me ayudas con el proceso de pago y entrega? 🙌`;
+  window.open(`https://wa.me/${phone}?text=${msg}`, "_blank", "noopener,noreferrer");
+}
+
 /* ─── Trust Badges ─── */
 function TrustBar({ color }: { color: string }) {
   const badges = [
@@ -232,7 +239,7 @@ function ProductCard({ product, idx, color }: { product: any; idx: number; color
             <span className="text-xs text-slate-400 ml-1">{product.currency || "USD"}</span>
           </div>
           <button
-            onClick={() => addToCart(product)}
+            onClick={() => buyViaWhatsApp(config.whatsappPhone, product)}
             style={{ backgroundColor: color }}
             className="px-4 py-2.5 text-white rounded-xl font-bold text-sm hover:opacity-90 transition-all hover:shadow-lg active:scale-95 flex items-center gap-1.5"
           >
@@ -401,7 +408,7 @@ export default function StoreShop() {
                             {Number(product.price).toLocaleString("es-CO")} <span className="text-xs text-slate-400">{product.currency}</span>
                           </span>
                           <button
-                            onClick={() => useStoreCart().addToCart(product)}
+                            onClick={() => buyViaWhatsApp(config.whatsappPhone, product)}
                             style={{ backgroundColor: color }}
                             className="px-4 py-2 text-white rounded-xl text-sm font-bold hover:opacity-90"
                           >

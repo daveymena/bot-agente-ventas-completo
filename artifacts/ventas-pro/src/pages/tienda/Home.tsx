@@ -17,6 +17,13 @@ async function generateCheckout(slug: string, productId: number, method: "mercad
   if (data.checkoutUrl) window.location.href = data.checkoutUrl;
 }
 
+/* ─── WhatsApp helper ─── */
+function buyViaWhatsApp(phone: string | null | undefined, product: any) {
+  if (!phone) { alert("WhatsApp no disponible. Contacta al administrador."); return; }
+  const msg = `¡Hola! 👋%0A%0AQuiero comprar este producto:%0A%0A*${encodeURIComponent(product.name)}*%0APrecio: $${encodeURIComponent(String(product.price))} ${encodeURIComponent(product.currency || "COP")}%0A%0A¿Me ayudas con el proceso de pago y entrega? 🙌`;
+  window.open(`https://wa.me/${phone}?text=${msg}`, "_blank", "noopener,noreferrer");
+}
+
 /* ─── Hero tipo Teducas: limpio, claro, educativo ─── */
 function Hero() {
   const { config, products } = useStoreCart();
@@ -175,11 +182,11 @@ function CourseCard({ product, idx }: { product: any; idx: number }) {
             <span className="text-xs text-slate-400 ml-1">{product.currency || "USD"}</span>
           </div>
           <button
-            onClick={() => addToCart(product)}
+            onClick={() => buyViaWhatsApp(config.whatsappPhone, product)}
             style={{ backgroundColor: config.primaryColor }}
             className="px-4 py-2.5 text-white rounded-xl font-bold text-sm hover:opacity-90 transition-all hover:shadow-lg active:scale-95 flex items-center gap-1.5"
           >
-            <Zap className="w-4 h-4" /> Agregar
+            <Zap className="w-4 h-4" /> Comprar
           </button>
         </div>
 

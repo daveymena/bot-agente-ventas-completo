@@ -24,6 +24,7 @@ export interface StoreConfig {
   logo: string | null;
   primaryColor: string;
   secondaryColor: string;
+  whatsappPhone?: string | null;
 }
 
 interface StoreContextType {

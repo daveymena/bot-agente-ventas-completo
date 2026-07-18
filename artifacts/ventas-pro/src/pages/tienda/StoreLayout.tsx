@@ -21,6 +21,7 @@ function StoreInit({ slug }: { slug: string }) {
             logo: data.store.logo || null,
             primaryColor: data.store.colors?.primary || "#4f46e5",
             secondaryColor: data.store.colors?.secondary || "#9333ea",
+            whatsappPhone: data.store.whatsappPhone || null,
           });
         }
       })
