@@ -8,6 +8,10 @@ export interface StoreProduct {
   image: string | null;
   category: string;
   kind: string;
+  currency?: string;
+  features?: string[] | null;
+  paymentLink?: string | null;
+  deliveryLink?: string | null;
 }
 
 interface CartItem extends StoreProduct {

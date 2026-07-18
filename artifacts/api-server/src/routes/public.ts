@@ -317,7 +317,7 @@ router.post("/checkout/:slug/:productId", async (req, res, next) => {
           failure: `${appUrl}/mp-failure`,
           pending: `${appUrl}/mp-pending`,
         },
-        auto_return: "approved",
+        ...(appUrl.startsWith("https") ? { auto_return: "approved" } : {}),
         external_reference: `${customer.phone || "guest"}|${product.id}`,
       }),
       signal: AbortSignal.timeout(10000),
@@ -326,7 +326,7 @@ router.post("/checkout/:slug/:productId", async (req, res, next) => {
     const mpData = (await mpRes.json()) as any;
     if (!mpRes.ok) {
       logger.error({ mpData }, "[Checkout] MercadoPago preference failed");
-      return res.status(502).json({ message: "Error creando preferencia de MercadoPago" });
+      return res.status(502).json({ message: "Error creando preferencia de MercadoPago", detail: mpData });
     }
 
     return res.json({
