@@ -60,7 +60,7 @@ function Hero() {
             initial={{ opacity: 0, scale: 0.8 }}
             animate={{ opacity: 1, scale: 1 }}
             transition={{ duration: 1 }}
-            className="relative hidden lg:block"
+            className="relative hidden lg:block pl-8"
           >
             <div className="grid grid-cols-2 gap-4">
               {products.slice(0, 4).map((p: any, i: number) => (
@@ -69,18 +69,18 @@ function Hero() {
                   initial={{ opacity: 0, y: 30 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: 0.3 + i * 0.15 }}
-                  className={`rounded-3xl overflow-hidden border-4 border-white/10 shadow-2xl ${i % 2 === 0 ? "translate-y-8" : ""}`}
+                  className="rounded-3xl overflow-hidden border-4 border-white/10 shadow-2xl"
                 >
                   <img
                     src={p.image || `https://placehold.co/400x400/${config.primaryColor.replace("#", "")}/ffffff?text=${encodeURIComponent(p.name.slice(0, 10))}`}
                     alt={p.name}
-                    className="w-full h-48 object-cover"
+                    className="w-full h-44 object-cover"
                   />
                 </motion.div>
               ))}
               {products.length === 0 && (
                 <div className="col-span-2 rounded-3xl border-4 border-white/10 shadow-2xl overflow-hidden">
-                  <img src="https://images.unsplash.com/photo-1556745757-8d76bdb798a5?w=800&auto=format&fit=crop&q=80" alt="Store" className="w-full h-96 object-cover" />
+                  <img src="https://images.unsplash.com/photo-1556745757-8d76bdb798a5?w=800&auto=format&fit=crop&q=80" alt="Store" className="w-full h-80 object-cover" />
                 </div>
               )}
             </div>
@@ -89,7 +89,7 @@ function Hero() {
               initial={{ opacity: 0, scale: 0 }}
               animate={{ opacity: 1, scale: 1 }}
               transition={{ delay: 1.2 }}
-              className="absolute -top-4 -right-4 z-20 bg-white rounded-2xl shadow-2xl px-5 py-3 flex items-center gap-2"
+              className="absolute top-0 right-0 z-20 bg-white rounded-2xl shadow-2xl px-5 py-3 flex items-center gap-2"
             >
               <Award className="w-6 h-6" style={{ color: config.primaryColor }} />
               <div>
