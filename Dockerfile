@@ -64,5 +64,12 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
 # Volumen persistente para sesión de WhatsApp (evita rescanear QR al reiniciar)
 VOLUME /app/artifacts/api-server/.baileys-auth
 
-# Comando de arranque: Inicia el API Server con exec para manejar señales (SIGTERM)
-CMD ["node", "--enable-source-maps", "artifacts/api-server/dist/index.mjs"]
+# Guardar DB por defecto aparte (no se pierde por el volumen)
+RUN mkdir -p /app/default-db && cp /app/data/tecnovariedades.db /app/default-db/ 2>/dev/null || true
+
+# Copiar entrypoint
+COPY entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
+
+# Comando de arranque
+CMD ["/app/entrypoint.sh"]
