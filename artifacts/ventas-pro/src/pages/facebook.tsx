@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Loader2, CheckCircle2, XCircle, RefreshCw, Megaphone, Package, Target, MapPin, Settings2, MessageCircle, Store, MessageSquare, Radio, Globe } from "lucide-react";
+import { Loader2, CheckCircle2, XCircle, RefreshCw, Megaphone, Package, Target, MapPin, Settings2, MessageCircle, Store, MessageSquare, Radio, Globe, FileText, Trash2, Play, Pencil } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Layout } from "@/components/layout";
 
@@ -65,7 +65,24 @@ interface PageInfo {
   picture?: string;
 }
 
-type Tab = "config" | "ads" | "messenger" | "marketplace" | "comments" | "channels";
+interface DraftAd {
+  id: number;
+  productId: number;
+  productName: string;
+  campaignId: string | null;
+  adId: string | null;
+  status: string;
+  fbStatus: string | null;
+  primaryText: string;
+  headline: string;
+  description: string;
+  imageUrl: string | null;
+  niche: string | null;
+  budget: number | null;
+  createdAt: string;
+}
+
+type Tab = "config" | "ads" | "messenger" | "marketplace" | "comments" | "channels" | "drafts";
 
 export default function FacebookAdsPage() {
   const { toast } = useToast();
@@ -97,6 +114,12 @@ export default function FacebookAdsPage() {
   const [selectedListingProduct, setSelectedListingProduct] = useState<number | null>(null);
   const [channelStatus, setChannelStatus] = useState<ChannelStatus[]>([]);
   const [pollingActive, setPollingActive] = useState(false);
+
+  const [drafts, setDrafts] = useState<DraftAd[]>([]);
+  const [loadingDrafts, setLoadingDrafts] = useState(false);
+  const [creatingDraft, setCreatingDraft] = useState(false);
+  const [creatingAllDrafts, setCreatingAllDrafts] = useState(false);
+  const [selectedDraftProduct, setSelectedDraftProduct] = useState<number | null>(null);
 
   useEffect(() => { loadData(); }, []);
 
@@ -268,9 +291,62 @@ export default function FacebookAdsPage() {
     }
   };
 
+  const loadDrafts = async () => {
+    try {
+      setLoadingDrafts(true);
+      const res = await apiRequest("/facebook/strategist/drafts");
+      setDrafts(res.drafts || []);
+    } catch { setDrafts([]); }
+    finally { setLoadingDrafts(false); }
+  };
+
+  const createDraftForProduct = async () => {
+    if (!selectedDraftProduct) return;
+    try {
+      setCreatingDraft(true);
+      await apiRequest(`/facebook/strategist/draft/${selectedDraftProduct}`, { method: "POST" });
+      toast({ title: "Borrador creado", description: "Borrador de anuncio creado exitosamente" });
+      loadDrafts();
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
+    } finally { setCreatingDraft(false); }
+  };
+
+  const createAllDrafts = async () => {
+    try {
+      setCreatingAllDrafts(true);
+      const res = await apiRequest("/facebook/strategist/draft-all", { method: "POST" });
+      toast({ title: "Borradores creados", description: `${res.created} creados, ${res.failed} fallos` });
+      loadDrafts();
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
+    } finally { setCreatingAllDrafts(false); }
+  };
+
+  const deleteDraft = async (draftId: number) => {
+    try {
+      await apiRequest(`/facebook/strategist/draft/${draftId}`, { method: "DELETE" });
+      toast({ title: "Borrador eliminado" });
+      loadDrafts();
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
+    }
+  };
+
+  const publishDraft = async (draftId: number) => {
+    try {
+      const res = await apiRequest(`/facebook/strategist/draft/${draftId}/publish`, { method: "POST" });
+      toast({ title: res.ok ? "Publicado" : "Error", description: res.message });
+      loadDrafts();
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
+    }
+  };
+
   const tabs = [
     { id: "config" as Tab, label: "Configuración", icon: Settings2, disabled: false },
     { id: "ads" as Tab, label: "Anuncios", icon: Megaphone, disabled: !connected },
+    { id: "drafts" as Tab, label: "Borradores", icon: FileText, disabled: false },
     { id: "messenger" as Tab, label: "Messenger", icon: MessageCircle, disabled: !connected },
     { id: "marketplace" as Tab, label: "Marketplace", icon: Store, disabled: !connected },
     { id: "comments" as Tab, label: "Comentarios", icon: MessageSquare, disabled: !connected },
@@ -300,7 +376,7 @@ export default function FacebookAdsPage() {
                 <Button
                   key={t.id}
                   variant={tab === t.id ? "default" : "ghost"}
-                  onClick={() => { setTab(t.id); if (t.id === "messenger") loadPageInfo(); if (t.id === "marketplace") loadListings(); if (t.id === "channels") loadChannelStatus(); }}
+                  onClick={() => { setTab(t.id); if (t.id === "messenger") loadPageInfo(); if (t.id === "marketplace") loadListings(); if (t.id === "channels") loadChannelStatus(); if (t.id === "drafts") loadDrafts(); }}
                   size="sm"
                   disabled={t.disabled}
                 >
@@ -413,6 +489,110 @@ export default function FacebookAdsPage() {
                     Sincronizar catálogo
                   </Button>
                 </div>
+              </div>
+            )}
+
+            {tab === "drafts" && (
+              <div className="grid gap-6">
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2"><FileText className="h-5 w-5" /> Borradores de Anuncios (Megapacks)</CardTitle>
+                    <CardDescription>Gestiona los borradores de anuncios para tus productos. Los borradores se crean en estado PAUSED en Facebook.</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <Label>Crear borrador para producto</Label>
+                        <select
+                          className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                          value={selectedDraftProduct || ""}
+                          onChange={e => setSelectedDraftProduct(Number(e.target.value) || null)}
+                        >
+                          <option value="">-- Selecciona un producto --</option>
+                          {products.map(p => (
+                            <option key={p.id} value={p.id}>{p.name}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="flex items-end">
+                        <Button onClick={createDraftForProduct} disabled={!selectedDraftProduct || creatingDraft} className="w-full">
+                          {creatingDraft ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileText className="mr-2 h-4 w-4" />}
+                          Crear borrador
+                        </Button>
+                      </div>
+                    </div>
+                    <div className="flex gap-2">
+                      <Button variant="outline" onClick={createAllDrafts} disabled={creatingAllDrafts}>
+                        {creatingAllDrafts ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Package className="mr-2 h-4 w-4" />}
+                        Crear borradores para TODOS los productos (Megapacks)
+                      </Button>
+                      <Button variant="outline" onClick={loadDrafts} disabled={loadingDrafts}>
+                        {loadingDrafts ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
+                        Actualizar lista
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {drafts.length > 0 && (
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>Borradores guardados ({drafts.length})</CardTitle>
+                      <CardDescription>Estos borradores están almacenados localmente y en Facebook (estado PAUSED).</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="space-y-3">
+                        {drafts.map(d => (
+                          <div key={d.id} className="flex items-start justify-between p-4 bg-muted rounded-lg gap-4">
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2">
+                                <h4 className="font-semibold truncate">{d.productName}</h4>
+                                <span className={`px-2 py-0.5 rounded text-xs font-medium ${d.status === "published" ? "bg-green-500/20 text-green-500" : "bg-amber-500/20 text-amber-500"}`}>
+                                  {d.status === "published" ? "Publicado" : d.status === "created" ? "Creado en FB" : "Borrador"}
+                                </span>
+                                {d.fbStatus && <span className="px-2 py-0.5 rounded text-xs bg-blue-500/20 text-blue-500">{d.fbStatus}</span>}
+                              </div>
+                              {d.niche && <p className="text-xs text-muted-foreground mt-1">Estrategia: {d.niche}</p>}
+                              {d.budget && <p className="text-xs text-muted-foreground">Presupuesto: ${d.budget.toLocaleString("es-CO")} COP/día</p>}
+                              {d.headline && <p className="text-sm mt-2 line-clamp-2">{d.headline}</p>}
+                              {d.primaryText && <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{d.primaryText}</p>}
+                              <p className="text-xs text-muted-foreground mt-1">
+                                Creado: {new Date(d.createdAt).toLocaleDateString("es-CO", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}
+                              </p>
+                            </div>
+                            <div className="flex flex-col gap-2 shrink-0">
+                              {d.status !== "published" && d.adId && (
+                                <Button size="sm" onClick={() => publishDraft(d.id)} title="Publicar anuncio">
+                                  <Play className="h-4 w-4" />
+                                </Button>
+                              )}
+                              {d.adId && (
+                                <Button size="sm" variant="outline" onClick={() => window.open(`https://www.facebook.com/adsmanager/manage/ads?act=${d.adId}`, "_blank")} title="Ver en Facebook">
+                                  <Globe className="h-4 w-4" />
+                                </Button>
+                              )}
+                              <Button size="sm" variant="destructive" onClick={() => deleteDraft(d.id)} title="Eliminar borrador">
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
+
+                {drafts.length === 0 && !loadingDrafts && (
+                  <Card>
+                    <CardContent className="p-8">
+                      <div className="text-center text-muted-foreground">
+                        <FileText className="h-12 w-12 mx-auto mb-2 opacity-50" />
+                        <p>No hay borradores de anuncios.</p>
+                        <p className="text-sm">Crea borradores para productos individuales o para todos (Megapacks).</p>
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
               </div>
             )}
 

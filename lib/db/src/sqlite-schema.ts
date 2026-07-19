@@ -377,6 +377,28 @@ export const responseAnalytics = sqliteTable("response_analytics", {
   createdAt: text("created_at").notNull().default(sql`(datetime('now'))`),
 });
 
+// ── facebook_drafts ────────────────────────────────────────────────────────────
+export const facebookDrafts = sqliteTable("facebook_drafts", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  tenantId: integer("tenant_id").references(() => tenants.id, { onDelete: "cascade" }),
+  productId: integer("product_id").references(() => products.id, { onDelete: "set null" }),
+  productName: text("product_name").notNull(),
+  campaignId: text("campaign_id"),
+  adSetId: text("ad_set_id"),
+  adId: text("ad_id"),
+  status: text("status").notNull().default("draft"),
+  strategy: text("strategy", { mode: "json" }),
+  primaryText: text("primary_text"),
+  headline: text("headline"),
+  description: text("description"),
+  imageUrl: text("image_url"),
+  niche: text("niche"),
+  budget: integer("budget"),
+  fbStatus: text("fb_status"),
+  createdAt: text("created_at").notNull().default(sql`(datetime('now'))`),
+  updatedAt: text("updated_at").notNull().default(sql`(datetime('now'))`),
+});
+
 // ── prompt_versions ───────────────────────────────────────────────────────────
 export const promptVersions = sqliteTable("prompt_versions", {
   id: integer("id").primaryKey({ autoIncrement: true }),

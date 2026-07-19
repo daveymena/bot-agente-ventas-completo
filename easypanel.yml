@@ -6,7 +6,7 @@ services:
     description: "WhatsApp AI Sales Bot Backend"
 
     build:
-      dockerfile: ./artifacts/Dockerfile
+      dockerfile: ./Dockerfile
       context: .
 
     ports:
@@ -16,7 +16,57 @@ services:
       NODE_ENV: production
       PORT: 3002
       HOST: 0.0.0.0
+      APP_URL: ${APP_URL}
       LOG_LEVEL: info
+      USE_SQLITE: "false"
+
+      # ========== DATABASE (PostgreSQL en producción) ==========
+      DATABASE_URL: "postgres://postgres:${DB_PASSWORD}@postgres:5432/tecnovariedades-db?sslmode=disable"
+
+      # ========== AI FALLBACK ==========
+      AI_FALLBACK_ENABLED: "${AI_FALLBACK_ENABLED:-true}"
+      AI_FALLBACK_ORDER: "${AI_FALLBACK_ORDER:-opencode,groq,github,g4f}"
+      OPENCODE_API_URL: "${OPENCODE_API_URL:-https://api.freemodel.dev/v1}"
+      OPENCODE_API_KEY: "${OPENCODE_API_KEY}"
+      OPENCODE_MODEL: "${OPENCODE_MODEL:-deepseek-v4-flash-free}"
+      GROQ_API_KEY: "${GROQ_API_KEY}"
+      GROQ_MODEL: "${GROQ_MODEL:-llama-3.1-8b-instant}"
+      GITHUB_TOKEN: "${GITHUB_TOKEN}"
+      GITHUB_MODEL: "${GITHUB_MODEL:-gpt-4o-mini}"
+      GITHUB_MODEL_CLAUDE: "${GITHUB_MODEL_CLAUDE:-claude-sonnet-4-20250514}"
+      G4F_ENABLED: "${G4F_ENABLED:-true}"
+      G4F_PROVIDER: "${G4F_PROVIDER:-auto}"
+      G4F_MODEL: "${G4F_MODEL:-gpt-4-turbo}"
+      G4F_TIMEOUT: "${G4F_TIMEOUT:-30}"
+
+      # ========== PAGOS ==========
+      TRANSFER_NUMBER: "${TRANSFER_NUMBER}"
+      TRANSFER_NAME: "${TRANSFER_NAME}"
+      MERCADO_PAGO_PUBLIC_KEY: "${MERCADO_PAGO_PUBLIC_KEY}"
+      MERCADO_PAGO_ACCESS_TOKEN: "${MERCADO_PAGO_ACCESS_TOKEN}"
+      PAYPAL_CLIENT_ID: "${PAYPAL_CLIENT_ID}"
+      PAYPAL_CLIENT_SECRET: "${PAYPAL_CLIENT_SECRET}"
+      PAYPAL_MODE: "${PAYPAL_MODE:-live}"
+
+      # ========== NOTIFICACIONES ==========
+      SMTP_HOST: "${SMTP_HOST:-smtp.gmail.com}"
+      SMTP_PORT: "${SMTP_PORT:-587}"
+      SMTP_USER: "${SMTP_USER}"
+      SMTP_PASS: "${SMTP_PASS}"
+      EMAIL_FROM: "${EMAIL_FROM}"
+      EMAIL_TO: "${EMAIL_TO}"
+
+      # ========== FACEBOOK ==========
+      FB_APP_ID: "${FB_APP_ID}"
+      FB_APP_SECRET: "${FB_APP_SECRET}"
+      FB_PAGE_ID: "${FB_PAGE_ID}"
+      FB_ACCESS_TOKEN: "${FB_ACCESS_TOKEN}"
+      FB_MESSENGER_PAGE_TOKEN: "${FB_MESSENGER_PAGE_TOKEN}"
+      FB_WEBHOOK_VERIFY_TOKEN: "${FB_WEBHOOK_VERIFY_TOKEN:-salesbot_verify_2024}"
+      FB_MESSENGER_VERIFY_TOKEN: "${FB_MESSENGER_VERIFY_TOKEN:-salesbot_messenger_2024}"
+
+      # ========== ADMIN ==========
+      ADMIN_PHONE: "${ADMIN_PHONE}"
 
     healthCheck:
       path: /api/health

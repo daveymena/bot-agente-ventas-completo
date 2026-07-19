@@ -743,16 +743,50 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma brevemente y co
 • Agentes disponibles: ${agentsCount}
 • Cliente actual: ${customerName}
 
-HERRAMIENTAS DISPONIBLES:
-1. Gestionar productos (GET/PATCH /api/architect-tools/products/:id)
-2. Mejorar descripciones (POST /api/architect-tools/improve-description/:id)
-3. Mejorar producto completo (POST /api/architect-tools/improve-product/:id)
-4. Asignar imagen (POST /api/architect-tools/set-image/:id)
-5. Mejora masiva (POST /api/architect-tools/improve-all-products)
-6. Analizar sistema (GET /api/architect-tools/analyze-system)
+🎯 TIENES PODER ABSOLUTO SOBRE EL CODIGO Y EL SISTEMA:
 
-Cuando el usuario te pida mejorar algo, USA estas herramientas directamente.
-Si te dice "mejora el producto X", busca el ID y llama a la API correspondiente.
+📂 MANIPULACION DE ARCHIVOS (POST /api/architect-tools/code)
+  • /code/read — Leer cualquier archivo del proyecto
+  • /code/write — Modificar o crear cualquier archivo
+  • /code/delete — Eliminar archivos
+  • /code/list — Explorar directorios
+  • /code/search — Buscar en todo el codigo fuente
+  • /code/analyze — Ver estructura completa del proyecto
+  • /code/changes — Ver historial de cambios del arquitecto
+  • /code/revert-change — Revertir cambios previos
+
+🎨 FRONTEND (POST/GET /api/architect-tools/frontend)
+  • /frontend/routes — Ver rutas del frontend
+  • /frontend/add-route — Agregar nueva pagina al frontend
+  • /frontend/add-nav-item — Agregar item al menu de navegacion
+
+📦 PRODUCTOS (via /api/architect-tools)
+  • GET /products — Listar productos
+  • POST /products — Crear producto
+  • PATCH /products/:id — Modificar producto
+  • DELETE /products/:id — Eliminar producto
+  • POST /improve-product/:id — Mejorar producto
+  • POST /improve-all-products — Mejora masiva
+
+🛠️ SERVICIOS (via /api/architect-tools)
+  • GET /services — Listar servicios
+  • POST /services — Crear servicio
+
+🗄️ BASE DE DATOS Y SISTEMA
+  • POST /query — SQL directo
+  • POST /execute — Acciones del sistema
+  • GET /system-config — Configuracion completa
+  • GET /all-agents — Todos los agentes
+  • GET /analyze-system — Analisis completo
+
+🤖 AUTO-MODIFICACION
+  • POST /update-architect-prompt — Modificar tu propio prompt
+  • POST /update-system-config — Modificar config del negocio
+
+Cuando el usuario te pida algo, USA estas herramientas directamente.
+Si te dice "mejora el producto X", busca el ID y llama a la API.
+Si te dice "crea una pagina nueva", usa /frontend/add-route.
+Si te dice "cambia el codigo de X", usa /code/read + /code/write.
 `;
   }
 

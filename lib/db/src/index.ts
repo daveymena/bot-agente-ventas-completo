@@ -46,6 +46,7 @@ export const personalityProfiles = schema.personalityProfiles;
 export const architectMemory = schema.architectMemory;
 export const responseAnalytics = schema.responseAnalytics;
 export const promptVersions = schema.promptVersions;
+export const facebookDrafts = schema.facebookDrafts;
 
 export type {
   Tenant, InsertTenant,
@@ -71,6 +72,7 @@ export type {
   ArchitectMemory, InsertArchitectMemory, MemoryType,
   ResponseAnalytics, InsertResponseAnalytics, ResponseOutcome,
   PromptVersion, InsertPromptVersion,
+  FacebookDraft, InsertFacebookDraft,
 } from "./schema";
 export type { AgentStage } from "./schema/agents";
 
@@ -173,6 +175,7 @@ async function ensureSqliteTables(sqliteDb: import("sql.js").Database, saveDb: (
     `CREATE TABLE IF NOT EXISTS architect_memory (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER REFERENCES tenants(id) ON DELETE CASCADE, session_id TEXT DEFAULT 'default', memory_type TEXT NOT NULL, title TEXT NOT NULL, content TEXT NOT NULL, tags TEXT DEFAULT '[]', metadata TEXT, created_at TEXT DEFAULT (datetime('now')), updated_at TEXT DEFAULT (datetime('now')))`,
     `CREATE TABLE IF NOT EXISTS response_analytics (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER REFERENCES tenants(id) ON DELETE CASCADE, agent_id INTEGER, profile_id INTEGER, conversation_id INTEGER, message_id INTEGER, response_text TEXT NOT NULL, response_length INTEGER NOT NULL, had_card INTEGER DEFAULT 0, card_product_id INTEGER, outcome TEXT, customer_message TEXT NOT NULL, sentiment_score INTEGER, response_time_ms INTEGER NOT NULL, metadata TEXT, created_at TEXT DEFAULT (datetime('now')))`,
     `CREATE TABLE IF NOT EXISTS prompt_versions (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER REFERENCES tenants(id) ON DELETE CASCADE, agent_id INTEGER, profile_id INTEGER, previous_prompt TEXT NOT NULL, new_prompt TEXT NOT NULL, diff_summary TEXT NOT NULL, reason TEXT NOT NULL, performance_before TEXT, performance_after TEXT, applied_by TEXT NOT NULL, is_active INTEGER DEFAULT 1, created_at TEXT DEFAULT (datetime('now')))`,
+    `CREATE TABLE IF NOT EXISTS facebook_drafts (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER REFERENCES tenants(id) ON DELETE CASCADE, product_id INTEGER REFERENCES products(id) ON DELETE SET NULL, product_name TEXT NOT NULL, campaign_id TEXT, ad_set_id TEXT, ad_id TEXT, status TEXT DEFAULT 'draft' NOT NULL, strategy TEXT, primary_text TEXT, headline TEXT, description TEXT, image_url TEXT, niche TEXT, budget INTEGER, fb_status TEXT, created_at TEXT DEFAULT (datetime('now')), updated_at TEXT DEFAULT (datetime('now')))`,
   ];
 
   for (const sql of tables) {

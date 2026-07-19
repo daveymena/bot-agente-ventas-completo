@@ -64,5 +64,5 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
 # Volumen persistente para sesión de WhatsApp (evita rescanear QR al reiniciar)
 VOLUME /app/artifacts/api-server/.baileys-auth
 
-# Comando de arranque: Inicia el API Server (que ahora también sirve el Frontend)
-CMD ["pnpm", "--filter", "@workspace/api-server", "run", "start"]
+# Comando de arranque: Inicia el API Server con exec para manejar señales (SIGTERM)
+CMD ["node", "--enable-source-maps", "artifacts/api-server/dist/index.mjs"]

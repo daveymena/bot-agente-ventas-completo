@@ -1,6 +1,6 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { eq } from "drizzle-orm";
-import { db, tenants, leads, conversations, messages } from "@workspace/db";
+import { db, tenants, leads, conversations, messages, products } from "@workspace/db";
 import { facebookService as fb } from "../lib/facebook";
 import { facebookMessengerService as fbMessenger } from "../lib/facebook-messenger";
 import { facebookMarketplaceService as fbMarketplace } from "../lib/facebook-marketplace";
@@ -289,6 +289,14 @@ router.post("/comments/webhook", async (req: Request, res: Response) => {
 });
 
 // ─── Messenger & Marketplace Management Endpoints ──────────────────────────
+router.get("/messenger/status", async (_req, res, next) => {
+  try {
+    const status = fbMessenger.getStatus();
+    const subscribedApps = await fbMessenger.getSubscribedApps();
+    return res.json({ ...status, subscribedApps });
+  } catch (e) { return next(e); }
+});
+
 router.post("/messenger/subscribe", async (_req, res, next) => {
   try {
     const ok = await fbMessenger.subscribeToWebhook();
@@ -300,6 +308,26 @@ router.get("/messenger/page-info", async (_req, res, next) => {
   try {
     const info = await fbMessenger.getPageInfo();
     return res.json(info || { error: "No se pudo obtener info" });
+  } catch (e) { return next(e); }
+});
+
+router.post("/messenger/save-token", async (req, res, next) => {
+  try {
+    const { pageToken } = req.body || {};
+    if (!pageToken) {
+      return res.status(400).json({ error: "pageToken es requerido" });
+    }
+    const tenantId = (req as any).tenant?.id || 1;
+    const [tenant] = await db.select({ metadata: tenants.metadata }).from(tenants).where(eq(tenants.id, tenantId)).limit(1);
+    const meta = tenant?.metadata ? (typeof tenant.metadata === "string" ? JSON.parse(tenant.metadata) : tenant.metadata) : {};
+    meta.facebook = {
+      ...(meta.facebook || {}),
+      messengerPageToken: pageToken,
+      accessToken: pageToken,
+    };
+    await db.update(tenants).set({ metadata: meta as any }).where(eq(tenants.id, tenantId));
+    logger.info("[FB-Messenger] Page token saved to tenant metadata");
+    return res.json({ ok: true, message: "Token guardado correctamente" });
   } catch (e) { return next(e); }
 });
 
@@ -335,6 +363,30 @@ router.delete("/marketplace/listings/:listingId", async (req, res, next) => {
 });
 
 // ─── Ad Strategist Endpoints ───────────────────────────────────────────────
+router.get("/strategist/drafts", async (req, res, next) => {
+  try {
+    const tenantId = (req as any).tenant?.id || 1;
+    const drafts = await adStrategist.getDrafts(tenantId);
+    return res.json({ drafts });
+  } catch (e) { return next(e); }
+});
+
+router.delete("/strategist/draft/:id", async (req, res, next) => {
+  try {
+    const draftId = parseInt(req.params.id);
+    const ok = await adStrategist.deleteDraft(draftId);
+    return res.json({ ok });
+  } catch (e) { return next(e); }
+});
+
+router.post("/strategist/draft/:id/publish", async (req, res, next) => {
+  try {
+    const draftId = parseInt(req.params.id);
+    const ok = await adStrategist.publishDraft(draftId);
+    return res.json({ ok, message: ok ? "Borrador publicado" : "Error al publicar" });
+  } catch (e) { return next(e); }
+});
+
 router.post("/strategist/draft/:productId", async (req, res, next) => {
   try {
     const productId = parseInt(req.params.productId);

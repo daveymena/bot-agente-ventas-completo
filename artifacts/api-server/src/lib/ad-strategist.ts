@@ -1,6 +1,6 @@
 import { logger } from "./logger";
-import { db, products, productCategories } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import { db, products, productCategories, facebookDrafts } from "@workspace/db";
+import { eq, desc } from "drizzle-orm";
 import { tenantManager, type TenantContext } from "./tenantManager";
 
 const FB_GRAPH_URL = "https://graph.facebook.com/v21.0";
@@ -34,96 +34,148 @@ export interface DraftAd {
 }
 
 const WINNING_STRATEGIES_BY_NICHE: Record<string, AdStrategy> = {
-  laptops_portatiles: {
-    niche: "Laptops y Portátiles",
-    hook: "¿Tu PC ya no da más? ⚡",
-    angle: "Potencia y portabilidad al mejor precio del mercado colombiano",
-    emotionalTrigger: "Productividad y estatus profesional",
+  diseno_grafico: {
+    niche: "Diseño Gráfico y Photoshop",
+    hook: "Pack completo de diseño gráfico: cursos, plantillas, recursos descargables. Todo lo que necesitas para crear diseños profesionales desde tu casa.",
+    angle: "Contenido digital descargable: cursos grabados de Photoshop, Illustrator, After Effects, Canva + plantillas editables + portafolio de recursos. Ideal para quien quiere aprender diseño por su cuenta, a su ritmo.",
+    emotionalTrigger: "Creatividad sin explotar + ganas de crear cosas profesionales",
     ctaType: "SHOP_NOW",
-    imageStyle: "Producto en fondo blanco con iluminación profesional, mostrando el diseño delgado",
-    imagePrompt: "Professional product photography of a modern laptop on white background, sleek design, studio lighting, 4K",
+    imageStyle: "Collage de trabajos de diseño mostrando variedad de estilos",
+    imagePrompt: "Colorful collage of graphic design works: logos, social media posts, flyers, branding. Professional portfolio style, vibrant colors, organized layout",
     ageMin: 18,
+    ageMax: 40,
+    interests: ["Adobe Photoshop", "Diseño gráfico", "Illustrator", "Canva", "Trabajo remoto", "Emprendimiento digital"],
+    budget: 15000,
+  },
+  programacion: {
+    niche: "Programación y Desarrollo Web",
+    hook: "Aprende programación desde cero con contenido descargable. Cursos, ejercicios y proyectos para que aprendas a tu ritmo, sin horarios ni presiones.",
+    angle: "Material digital de programación: cursos grabados de Python, JavaScript, desarrollo web, ciberseguridad, Linux. Descarga y estudia cuando quieras. Sin clases en vivo, sin fechas límite.",
+    emotionalTrigger: "Interés por la tecnología + deseo de aprender una habilidad con demanda",
+    ctaType: "SHOP_NOW",
+    imageStyle: "Código en pantalla con ambiente de estudio relajado",
+    imagePrompt: "VS Code editor on laptop with code visible, cozy study desk setup with coffee, books, natural lighting, authentic learning environment",
+    ageMin: 17,
+    ageMax: 35,
+    interests: ["Programación", "Python", "Desarrollo web", "JavaScript", "Tecnología", "Freelancer", "Trabajo remoto"],
+    budget: 20000,
+  },
+  marketing_digital: {
+    niche: "Marketing Digital y Meta Ads",
+    hook: "Pack de marketing digital descargable: cursos, guías, plantillas y estrategias. Aprende a tu ritmo sin pagar mensualidades ni suscripciones.",
+    angle: "Contenido digital de marketing: cursos grabados de Facebook Ads, Google Ads, SEO, ecommerce, copywriting. Descarga directa, acceso permanente. Lo estudias cuando quieras.",
+    emotionalTrigger: "Interés por los negocios digitales + ganas de aprender sin ataduras",
+    ctaType: "SHOP_NOW",
+    imageStyle: "Dashboard de marketing digital en laptop con ambiente de trabajo",
+    imagePrompt: "Marketing analytics dashboard on laptop screen, modern desk setup with notebook and pen, plants, natural lighting, professional home office",
+    ageMin: 20,
+    ageMax: 45,
+    interests: ["Marketing digital", "Facebook Ads", "Google Ads", "SEO", "Emprendimiento digital", "Ventas", "Ecommerce"],
+    budget: 18000,
+  },
+  fitness_salud: {
+    niche: "Fitness, Salud y Bienestar",
+    hook: "Guías de ejercicio, recetas saludables y planes de entrenamiento descargables. Transforma tu cuerpo desde casa, sin mensualidades ni cuotas.",
+    angle: "Contenido digital de fitness: rutinas grabadas, guías de nutrición, recetarios, planes de entrenamiento. Descargas todo y lo usas a tu ritmo. Pago único, acceso de por vida.",
+    emotionalTrigger: "Deseo de mejorar la salud + frustración con métodos que requieren pago recurrente",
+    ctaType: "SHOP_NOW",
+    imageStyle: "Persona haciendo ejercicio en casa o cocinando saludable, ambiente colombiano",
+    imagePrompt: "Colombian person exercising at home with simple equipment, natural lighting, authentic home environment, lifestyle photography, real and unposed",
+    ageMin: 20,
     ageMax: 50,
-    interests: ["Tecnología", "Computadores portátiles", "Trabajo remoto", "Productividad"],
-    budget: 8000,
+    interests: ["Ejercicio", "Pérdida de peso", "Nutrición", "Fitness", "Salud y bienestar", "Entrenamiento en casa", "Recetas saludables"],
+    budget: 12000,
   },
-  monitores: {
-    niche: "Monitores",
-    hook: "Trabaja y juega con la mejor calidad de imagen 🎮",
-    angle: "Monitores LG originales con la mejor relación calidad-precio",
-    emotionalTrigger: "Experiencia visual inmersiva",
+  idiomas: {
+    niche: "Aprendizaje de Idiomas",
+    hook: "Pack de idiomas descargable: cursos completos de inglés, francés, portugués y más. Aprende a tu ritmo, sin suscripciones, sin compromisos mensuales.",
+    angle: "Material digital de idiomas: cursos grabados con audios, ejercicios, vocabulario. Descarga todo de una vez y estudia cuando quieras. Sin renovaciones, sin pagos mensuales.",
+    emotionalTrigger: "Deseo de aprender idiomas + rechazo a suscripciones caras",
     ctaType: "SHOP_NOW",
-    imageStyle: "Monitor en setup gaming/oficina con RGB",
-    imagePrompt: "Gaming setup with LG monitor, RGB lighting, desk setup, dark ambiance, professional photography",
+    imageStyle: "Persona estudiando en casa con materiales digitales, ambiente tranquilo",
+    imagePrompt: "Person studying languages at home with laptop and headphones, world map on wall, books and notes on desk, natural daylight, peaceful learning atmosphere",
     ageMin: 16,
-    ageMax: 45,
-    interests: ["Videojuegos", "Tecnología", "PC Gaming", "Trabajo remoto"],
-    budget: 6000,
+    ageMax: 40,
+    interests: ["Aprender inglés", "Inglés", "Idiomas", "Viajes", "Intercambio cultural"],
+    budget: 15000,
   },
-  perifericos: {
-    niche: "Teclados y Mouse",
-    hook: "Escribe y navega con estilo ✨",
-    angle: "Combos inalámbricos que transforman tu escritorio",
-    emotionalTrigger: "Orden y estética moderna",
+  fotografia_edicion: {
+    niche: "Fotografía y Edición de Video",
+    hook: "Cursos de fotografía y edición descargables: Lightroom, Photoshop, Premiere. Aprende a editar como profesional sin pagar cursos caros ni suscripciones.",
+    angle: "Contenido digital de fotografía: cursos grabados, presets de Lightroom, plantillas de edición. Descargas ilimitadas, acceso permanente. Ideal para aprender a tu ritmo.",
+    emotionalTrigger: "Pasión por la fotografía + deseo de mejorar sin gastar en cursos mensuales",
     ctaType: "SHOP_NOW",
-    imageStyle: "Flat lay de escritorio con periféricos",
-    imagePrompt: "Flat lay photography of wireless keyboard and mouse on desk, pastel colors, modern office aesthetic, top view",
+    imageStyle: "Comparación de foto antes/después mostrando resultados de edición",
+    imagePrompt: "Split screen comparison of raw vs edited photo, Lightroom interface visible, dramatic improvement, creative workspace with camera gear",
     ageMin: 15,
-    ageMax: 40,
-    interests: ["Tecnología", "Diseño", "Trabajo remoto", "Productividad"],
-    budget: 5000,
+    ageMax: 35,
+    interests: ["Fotografía", "Lightroom", "Photoshop", "Edición de video", "Instagram", "Content creator", "TikTok"],
+    budget: 12000,
   },
-  audifonos_diademas: {
-    niche: "Audífonos y Diademas",
-    hook: "Sumérgete en tu música favorita 🎵",
-    angle: "Audio premium para gaming, música y trabajo con envío a toda Colombia",
-    emotionalTrigger: "Experiencia sensorial y entretenimiento",
+  musica_audio: {
+    niche: "Música y Producción de Audio",
+    hook: "Pack de producción musical descargable: cursos, beats, samples y recursos. Crea tu propia música desde tu PC, sin pagar mensualidades.",
+    angle: "Material digital de música: cursos grabados de FL Studio, Ableton, mezcla y masterización. Samples, presets y proyectos incluidos. Descarga y produce a tu ritmo.",
+    emotionalTrigger: "Pasión musical + deseo de producir sin riesgos ni suscripciones",
     ctaType: "SHOP_NOW",
-    imageStyle: "Audífonos en uso con ambiente lifestyle",
-    imagePrompt: "Person wearing gaming headphones, neon lights, RGB, immersive atmosphere, lifestyle photography",
-    ageMin: 14,
-    ageMax: 40,
-    interests: ["Música", "Videojuegos", "Tecnología", "Audio"],
-    budget: 6000,
-  },
-  impresoras_scanner: {
-    niche: "Impresoras y Escáneres",
-    hook: "Imprime sin límites, trabaja sin estrés 🖨️",
-    angle: "Equipos Brother y Epson originales para hogar y oficina",
-    emotionalTrigger: "Eficiencia y ahorro de tiempo",
-    ctaType: "LEARN_MORE",
-    imageStyle: "Impresora en oficina moderna",
-    imagePrompt: "Printer in modern home office setup, clean white desk, natural lighting, professional photography",
-    ageMin: 25,
-    ageMax: 60,
-    interests: ["Oficina", "Trabajo", "Emprendimiento", "Tecnología"],
-    budget: 5000,
-  },
-  macbooks_apple: {
-    niche: "MacBooks",
-    hook: "El poder de Apple al alcance de tu mano 🍎",
-    angle: "MacBook Pro M4 original con garantía, envío a todo Colombia",
-    emotionalTrigger: "Estatus y rendimiento profesional",
-    ctaType: "SHOP_NOW",
-    imageStyle: "MacBook en café o espacio moderno",
-    imagePrompt: "MacBook Pro on wooden table in coffee shop, warm lighting, lifestyle photography, professional atmosphere",
-    ageMin: 18,
-    ageMax: 45,
-    interests: ["Apple", "Diseño", "Desarrollo de software", "Tecnología"],
+    imageStyle: "Setup de producción musical casero, ambiente real y auténtico",
+    imagePrompt: "Home music production setup with laptop showing FL Studio, budget studio monitors, cozy bedroom vibe, urban decoration, authentic amateur studio",
+    ageMin: 15,
+    ageMax: 35,
+    interests: ["Música", "Producción musical", "FL Studio", "Ableton", "Composición", "Beat making"],
     budget: 10000,
   },
-  tecnologia_general: {
-    niche: "Tecnología General",
-    hook: "Lo último en tecnología está aquí 🚀",
-    angle: "Productos originales con garantía y el mejor precio del mercado",
-    emotionalTrigger: "Innovación y calidad",
+  tecnologia_it: {
+    niche: "Tecnología y Reparación",
+    hook: "Cursos de reparación y tecnología descargables. Aprende a reparar celulares, computadoras y consolas desde cero. Material práctico, sin teoría aburrida.",
+    angle: "Contenido digital técnico: guías paso a paso, diagramas, videos tutoriales de reparación. Descarga todo y consulta cuando necesites. Ideal para técnicos y principiantes.",
+    emotionalTrigger: "Interés por la tecnología práctica + ganas de aprender un oficio rentable",
     ctaType: "SHOP_NOW",
-    imageStyle: "Producto tecnológico con iluminación dramática",
-    imagePrompt: "Tech product with dramatic lighting, dark background, product photography, high contrast",
-    ageMin: 15,
+    imageStyle: "Persona reparando un dispositivo en su banco de trabajo, manos enfocadas",
+    imagePrompt: "Hands repairing a smartphone on a home workbench, tools organized, focused work, natural lighting, authentic technician workspace",
+    ageMin: 16,
+    ageMax: 50,
+    interests: ["Tecnología", "Reparación de celulares", "Electrónica", "Informática"],
+    budget: 10000,
+  },
+  construccion_arquitectura: {
+    niche: "Construcción y Arquitectura",
+    hook: "Planos, expedientes técnicos, presupuestos de obra y cursos de construcción descargables. Material real usado por profesionales del sector.",
+    angle: "Biblioteca digital de construcción: planos, expedientes, metrados, cursos de Revit, AutoCAD, Drywall. Descarga directa, úsalo en tus proyectos. Ideal para ingenieros y arquitectos.",
+    emotionalTrigger: "Eficiencia profesional + acceso a material de calidad sin pagar cursos caros",
+    ctaType: "SHOP_NOW",
+    imageStyle: "Planos y herramientas de construcción sobre mesa, ambiente profesional",
+    imagePrompt: "Architectural blueprints on drafting table, Revit software on laptop, professional workspace with tools and documents, natural lighting",
+    ageMin: 20,
+    ageMax: 60,
+    interests: ["Arquitectura", "Ingeniería civil", "Construcción", "Revit", "AutoCAD", "Planos"],
+    budget: 15000,
+  },
+  educacion_general: {
+    niche: "Cursos y Educación General",
+    hook: "¿Quieres aprender algo nuevo pero los cursos online son caros? MegaPack con 81 cursos digitales descargables por menos de $3 USD cada uno.",
+    angle: "La biblioteca digital más completa: diseño, programación, marketing, idiomas, música, fitness, tecnología, construcción y más. Contenido descargable, acceso permanente, sin suscripciones.",
+    emotionalTrigger: "Deseo de aprendizaje + hartazgo de pagar suscripciones mensuales",
+    ctaType: "SHOP_NOW",
+    imageStyle: "Collage de categorías de cursos disponibles, estilo marketplace",
+    imagePrompt: "Colorful grid of course thumbnails showing different categories: design, tech, music, fitness, languages, photography. Organized collage, vibrant colors",
+    ageMin: 16,
     ageMax: 55,
-    interests: ["Tecnología", "Innovación", "Electrónica", "Compras online"],
-    budget: 7000,
+    interests: ["Educación", "Cursos online", "Aprendizaje", "Desarrollo personal", "Emprendimiento"],
+    budget: 20000,
+  },
+  libros_recursos: {
+    niche: "Libros y Recursos Digitales",
+    hook: "Biblioteca digital descargable: libros, plantillas, presets, infografías y recursos. Todo por menos de lo que cuesta un solo libro físico en librería.",
+    angle: "Pack de recursos digitales: libros de negocio y desarrollo personal, plantillas editables, presets de Lightroom, infografías, formatos. Descarga directa, úsalo hoy.",
+    emotionalTrigger: "Hambre de conocimiento + deseo de acceder a recursos sin pagar suscripciones",
+    ctaType: "SHOP_NOW",
+    imageStyle: "Estantería digital mostrando variedad de recursos y portadas de libros",
+    imagePrompt: "Digital library display showing book covers and resource thumbnails, organized categories, professional design, warm lighting",
+    ageMin: 18,
+    ageMax: 55,
+    interests: ["Libros", "Lectura", "Desarrollo personal", "Conocimiento", "Educación"],
+    budget: 10000,
   },
 };
 
@@ -137,46 +189,182 @@ export class AdStrategist {
   getStrategyForProduct(product: any): AdStrategy {
     const name = (product.name || "").toLowerCase();
     const category = (product.category || "").toLowerCase();
-    const desc = (product.description || "").toLowerCase();
 
-    if (name.includes("macbook") || name.includes("macbook pro") || name.includes("mac") || category.includes("apple")) {
-      return { ...WINNING_STRATEGIES_BY_NICHE.macbooks_apple };
-    }
-    if (name.includes("monitor") || category.includes("monitor") || category.includes("pantalla") || desc.includes("monitor")) {
-      if (name.includes("ultrawide") || name.includes("ultra wide") || name.includes("4k")) {
-        const s = { ...WINNING_STRATEGIES_BY_NICHE.monitores };
-        s.hook = "Experimenta la ultrawide, no hay vuelta atrás 🖥️";
-        s.angle = "Monitores ultrawide y 4K para profesionales que exigen lo mejor";
-        return s;
-      }
-      return { ...WINNING_STRATEGIES_BY_NICHE.monitores };
-    }
-    if (name.includes("teclado") || name.includes("mouse") || name.includes("combo") || name.includes("pop icon") || name.includes("receptor") || category.includes("teclado") || category.includes("mouse")) {
-      return { ...WINNING_STRATEGIES_BY_NICHE.perifericos };
-    }
-    if (name.includes("diadema") || name.includes("audífono") || name.includes("audifono") || name.includes("astro") || name.includes("g435") || name.includes("g733") || name.includes("g335") || name.includes("g522") || name.includes("gaming") || category.includes("audifono") || category.includes("diadema")) {
-      return { ...WINNING_STRATEGIES_BY_NICHE.audifonos_diademas };
-    }
-    if (name.includes("impresora") || name.includes("escaner") || name.includes("scanner") || name.includes("brother") || name.includes("epson")) {
-      return { ...WINNING_STRATEGIES_BY_NICHE.impresoras_scanner };
-    }
-    if (name.includes("laptop") || name.includes("portatil") || name.includes("notebook") || name.includes("acer") || name.includes("asus") || name.includes("vivobook")) {
-      return { ...WINNING_STRATEGIES_BY_NICHE.laptops_portatiles };
+    if (category.includes("diseño") || category.includes("diseño gráfico") || name.includes("photoshop") || name.includes("ilustrator") || name.includes("indesign") || name.includes("lettering") || name.includes("logotipo") || name.includes("canva") || name.includes("after effects") || name.includes("premiere") || name.includes("animación") || name.includes("filmora") || name.includes("portadas") || name.includes("cuadros") || name.includes("sublimados") || name.includes("infografías") || name.includes("dibujo") || name.includes("ilustración") || name.includes("premiere")) {
+      return { ...WINNING_STRATEGIES_BY_NICHE.diseno_grafico };
     }
 
-    return { ...WINNING_STRATEGIES_BY_NICHE.tecnologia_general };
+    if (category.includes("programación") || category.includes("programacion") || name.includes("programación") || name.includes("programacion") || name.includes("desarrollo web") || name.includes("ciberseguridad") || name.includes("hacking") || name.includes("wordpress") || name.includes("linux") || name.includes("excel") || name.includes("videojuego") || name.includes("unity") || name.includes("python") || name.includes("javascript")) {
+      return { ...WINNING_STRATEGIES_BY_NICHE.programacion };
+    }
+
+    if (category.includes("marketing") || name.includes("marketing") || name.includes("seo") || name.includes("ecommerce") || name.includes("ventas") || name.includes("negocio") || name.includes("publicidad") || name.includes("facebook ads") || name.includes("google ads")) {
+      return { ...WINNING_STRATEGIES_BY_NICHE.marketing_digital };
+    }
+
+    if (category.includes("salud") || category.includes("deporte") || name.includes("fitness") || name.includes("pilates") || name.includes("fuerza") || name.includes("guerrero") || name.includes("perro") || name.includes("gastronomía") || name.includes("gastronomia") || name.includes("cocina") || name.includes("receta") || name.includes("perro")) {
+      return { ...WINNING_STRATEGIES_BY_NICHE.salud_deporte };
+    }
+
+    if (category.includes("idiomas") || name.includes("idiomas") || name.includes("inglés") || name.includes("ingles") || name.includes("oxford") || name.includes("idioma") || name.includes("frances") || name.includes("aleman") || name.includes("portugues") || name.includes("japones")) {
+      return { ...WINNING_STRATEGIES_BY_NICHE.idiomas };
+    }
+
+    if (name.includes("foto") || name.includes("fotografía") || name.includes("fotografia") || name.includes("lightroom") || name.includes("camara") || name.includes("presets")) {
+      return { ...WINNING_STRATEGIES_BY_NICHE.fotografia_edicion };
+    }
+
+    if (category.includes("música") || category.includes("musica") || name.includes("guitarra") || name.includes("dj") || name.includes("producción musical") || name.includes("produccion musical") || name.includes("música") || name.includes("musica") || name.includes("piano") || name.includes("audio") || name.includes("canto")) {
+      return { ...WINNING_STRATEGIES_BY_NICHE.musica_audio };
+    }
+
+    if (category.includes("tecnología") || category.includes("tecnologia") || name.includes("reparación") || name.includes("reparacion") || name.includes("celular") || name.includes("play station") || name.includes("consola") || name.includes("armado") || name.includes("ensamblaje") || name.includes("computador") || name.includes("instaladores")) {
+      return { ...WINNING_STRATEGIES_BY_NICHE.tecnologia_it };
+    }
+
+    if (category.includes("construcción") || category.includes("construccion") || name.includes("drywall") || name.includes("plano") || name.includes("revit") || name.includes("arquitectura") || name.includes("obra") || name.includes("construcción") || name.includes("construccion") || name.includes("carpintería") || name.includes("carpinteria") || name.includes("metrados") || name.includes("expediente") || name.includes("vivienda")) {
+      return { ...WINNING_STRATEGIES_BY_NICHE.construccion_arquitectura };
+    }
+
+    if (category.includes("libros") || category.includes("educación") || name.includes("libros") || name.includes("memoria") || name.includes("psicología") || name.includes("psicologia") || name.includes("contabilidad") || name.includes("autismo") || name.includes("lenguaje") || name.includes("preuniversitario") || name.includes("ingeniería") || name.includes("ingenieria") || name.includes("aula virtual")) {
+      return { ...WINNING_STRATEGIES_BY_NICHE.libros_recursos };
+    }
+
+    return { ...WINNING_STRATEGIES_BY_NICHE.educacion_general };
   }
 
   async generateAdCopy(strategy: AdStrategy, product: any): Promise<{ primaryText: string; headline: string; description: string }> {
-    const price = Number(product.price).toLocaleString("es-CO");
+    const priceUSD = Number(product.price).toFixed(2);
+    const priceCOP = (Number(product.price) * 4100).toLocaleString("es-CO");
     const name = product.name || "";
-    const desc = (product.description || "").substring(0, 150);
+    const rawDesc = (product.description || "").replace(/Acceso completo a /i, "").trim();
+    const shortDesc = rawDesc.length > 100 ? rawDesc.substring(0, 100) + "..." : rawDesc;
 
-    const primaryText = `${strategy.hook}\n\n${name} por solo $${price} COP 🔥\n${desc}\n\n✅ Producto original con garantía\n✅ Envío a toda Colombia\n✅ ${strategy.angle}\n\n💳 Aceptamos Nequi, Daviplata, Mercado Pago y PayPal`;
-    const headline = `${strategy.emojiTrigger || "🔥"} ${name.substring(0, 35)}`;
-    const description = `Solo $${price} COP | Envío gratis`;
+    const cat = (product.category || "").toLowerCase();
+    const features = product.features
+      ? (Array.isArray(product.features) ? product.features : [])
+      : [];
+
+    const descLine = shortDesc !== name ? shortDesc : `Contenido digital descargable de ${strategy.niche.toLowerCase()}. Material práctico, listo para usar.`;
+
+    const featuresLine = features.length >= 2
+      ? features.slice(0, 3).join(" • ")
+      : "📥 Descarga directa • 💾 Acceso permanente • 🔄 Actualizaciones incluidas";
+
+    const primaryText = `${strategy.hook}
+
+━━━━━━━━━━━━━━━━━━━━━━
+📦 ${name}
+━━━━━━━━━━━━━━━━━━━━━━
+
+${descLine}
+
+✅ ${featuresLine}
+✅ Pago ÚNICO — Nada de suscripciones ni mensualidades
+✅ Descarga inmediata — Recibes todo al instante
+✅ Garantía de 7 días — O te devolvemos tu dinero
+
+💳 Paga en COP: Nequi, Daviplata, Mercado Pago
+🔥 Solo $${priceCOP} COP (≈ $${priceUSD} USD) — Un solo pago y es tuyo para siempre`;
+
+    const getEmoji = () => {
+      const n = name.toLowerCase();
+      if (n.includes("diseño") || n.includes("photoshop") || n.includes("ilustra") || n.includes("lettering") || n.includes("logotipo") || n.includes("canva") || n.includes("after") || n.includes("premiere") || n.includes("animación") || n.includes("infografía") || n.includes("portada") || n.includes("cuadro")) return "🎨";
+      if (n.includes("programación") || n.includes("programacion") || n.includes("desarrollo web") || n.includes("python") || n.includes("hacking") || n.includes("ciberseguridad") || n.includes("wordpress") || n.includes("linux") || n.includes("excel") || n.includes("videojuego")) return "💻";
+      if (n.includes("marketing") || n.includes("ventas") || n.includes("seo") || n.includes("ecommerce") || n.includes("publicidad") || n.includes("facebook ads")) return "📈";
+      if (n.includes("idioma") || n.includes("inglés") || n.includes("ingles") || n.includes("oxford")) return "🌎";
+      if (n.includes("foto") || n.includes("lightroom") || n.includes("presets") || n.includes("cámara") || n.includes("camara")) return "📸";
+      if (n.includes("música") || n.includes("musica") || n.includes("guitarra") || n.includes("dj") || n.includes("audio") || n.includes("car audio")) return "🎵";
+      if (n.includes("fitness") || n.includes("pilates") || n.includes("fuerza") || n.includes("guerrero") || n.includes("perro") || n.includes("gastronomía") || n.includes("gastronomia") || n.includes("cocina")) return "💪";
+      if (n.includes("reparación") || n.includes("reparacion") || n.includes("celular") || n.includes("play") || n.includes("consola") || n.includes("armado") || n.includes("ensamblaje") || n.includes("computador") || n.includes("instaladores")) return "🔧";
+      if (n.includes("construcción") || n.includes("construccion") || n.includes("drywall") || n.includes("plano") || n.includes("revit") || n.includes("arquitectura") || n.includes("obra") || n.includes("carpintería") || n.includes("carpinteria") || n.includes("metrados") || n.includes("expediente") || n.includes("vivienda")) return "🏗️";
+      if (n.includes("libros") || n.includes("contabilidad") || n.includes("psicología") || n.includes("psicologia") || n.includes("autismo") || n.includes("lenguaje") || n.includes("preuniversitario") || n.includes("ingeniería") || n.includes("ingenieria") || n.includes("aula") || n.includes("memoria") || n.includes("educación") || n.includes("educacion")) return "📚";
+      return "🔥";
+    };
+
+    const headline = `${getEmoji()} ${name.replace(/^📂\s*/, "").substring(0, 35)}`;
+    const description = `$${priceCOP} COP • Pago único • Acceso permanente`;
 
     return { primaryText, headline, description };
+  }
+
+  async saveDraftToDb(draft: DraftAd): Promise<any> {
+    try {
+      const [saved] = await db.insert(facebookDrafts).values({
+        tenantId: this.tenant.id,
+        productId: draft.productId,
+        productName: draft.productName,
+        campaignId: draft.campaignId,
+        adSetId: draft.adSetId,
+        adId: draft.adId,
+        status: draft.status,
+        strategy: draft.strategy as any,
+        primaryText: draft.primaryText,
+        headline: draft.headline,
+        description: draft.description,
+        imageUrl: draft.imageUrl,
+        niche: draft.strategy.niche,
+        budget: draft.strategy.budget,
+        fbStatus: draft.status === "created" ? "PAUSED" : "draft",
+      }).returning();
+      return saved;
+    } catch (err: any) {
+      logger.error({ err }, "[AdStrategist] Error saving draft to DB");
+      return null;
+    }
+  }
+
+  async getDrafts(tenantId?: number): Promise<any[]> {
+    try {
+      const tid = tenantId || this.tenant.id;
+      return await db.select()
+        .from(facebookDrafts)
+        .where(eq(facebookDrafts.tenantId, tid))
+        .orderBy(desc(facebookDrafts.createdAt));
+    } catch (err: any) {
+      logger.error({ err }, "[AdStrategist] Error fetching drafts");
+      return [];
+    }
+  }
+
+  async deleteDraft(draftId: number): Promise<boolean> {
+    try {
+      await db.delete(facebookDrafts).where(eq(facebookDrafts.id, draftId));
+      return true;
+    } catch (err: any) {
+      logger.error({ err, draftId }, "[AdStrategist] Error deleting draft");
+      return false;
+    }
+  }
+
+  async publishDraft(draftId: number): Promise<boolean> {
+    try {
+      const [draft] = await db.select().from(facebookDrafts).where(eq(facebookDrafts.id, draftId)).limit(1);
+      if (!draft) return false;
+
+      if (draft.campaignId && draft.adId) {
+        const accessToken = this.tenant.facebook?.accessToken || process.env.FB_ACCESS_TOKEN || process.env.FB_MESSENGER_PAGE_TOKEN || "";
+        const adAccountId = this.tenant.facebook?.adAccountId || process.env.FB_AD_ACCOUNT_ID || "";
+        if (!accessToken || !adAccountId) return false;
+
+        const act = `act_${adAccountId}`;
+        await this.fbPost(act, "ads", accessToken, {
+          adset_id: draft.adSetId,
+          name: draft.productName,
+          status: "ACTIVE",
+          creative: { creative_id: draft.adId },
+        });
+
+        await db.update(facebookDrafts)
+          .set({ status: "published", fbStatus: "ACTIVE" })
+          .where(eq(facebookDrafts.id, draftId));
+        return true;
+      }
+      return false;
+    } catch (err: any) {
+      logger.error({ err, draftId }, "[AdStrategist] Error publishing draft");
+      return false;
+    }
   }
 
   async createDraftAd(adAccount: string, accessToken: string, productId: number): Promise<DraftAd> {
@@ -259,7 +447,7 @@ export class AdStrategist {
         "[AdStrategist] Draft ad created"
       );
 
-      return {
+      const draftResult: DraftAd = {
         productId: product.id,
         productName: product.name || "",
         strategy,
@@ -272,9 +460,13 @@ export class AdStrategist {
         adId: ad.id,
         status: "created",
       };
+
+      await this.saveDraftToDb(draftResult);
+
+      return draftResult;
     } catch (err: any) {
       logger.error({ err, productId }, "[AdStrategist] Error creating draft ad");
-      return {
+      const draftResult: DraftAd = {
         productId: product.id,
         productName: product.name || "",
         strategy,
@@ -287,13 +479,15 @@ export class AdStrategist {
         adId: null,
         status: "draft",
       };
+      await this.saveDraftToDb(draftResult);
+      return draftResult;
     }
   }
 
   async createDraftsForAllProducts(): Promise<{ created: number; failed: number; drafts: DraftAd[] }> {
     const result = { created: 0, failed: 0, drafts: [] as DraftAd[] };
 
-    const accessToken = this.tenant.facebook?.accessToken || process.env.FB_ACCESS_TOKEN || "";
+    const accessToken = this.tenant.facebook?.accessToken || process.env.FB_ACCESS_TOKEN || process.env.FB_MESSENGER_PAGE_TOKEN || "";
     const adAccountId = this.tenant.facebook?.adAccountId || process.env.FB_AD_ACCOUNT_ID || "";
 
     if (!accessToken || !adAccountId) {
@@ -326,7 +520,7 @@ export class AdStrategist {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
-    const data = await res.json();
+    const data: any = await res.json();
     if (data.error) throw new Error(`${data.error.message} (código ${data.error.code})`);
     return data;
   }

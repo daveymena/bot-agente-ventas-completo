@@ -3,6 +3,7 @@ import { db, conversations, messages, leads, tenants, products } from "@workspac
 import { eq, desc } from "drizzle-orm";
 import { runAgentReply } from "./agent";
 import { tenantManager, type TenantContext } from "./tenantManager";
+import { createHmac } from "crypto";
 
 const FB_GRAPH_URL = "https://graph.facebook.com/v21.0";
 
@@ -19,16 +20,48 @@ export class FacebookMessengerService {
     this.tenant = tenant || tenantManager.getDefaultTenant();
   }
 
-  private getConfig(): { pageAccessToken: string; appSecret: string } {
+  private getConfig(): {
+    pageAccessToken: string;
+    appSecret: string;
+    appId: string;
+    pageId: string;
+  } {
     const fb = this.tenant.facebook || {};
     return {
       pageAccessToken: fb.messengerPageToken || fb.accessToken || process.env.FB_MESSENGER_PAGE_TOKEN || "",
       appSecret: fb.appSecret || process.env.FB_APP_SECRET || "",
+      appId: fb.appId || process.env.FB_APP_ID || "4238613976451604",
+      pageId: fb.pageId || process.env.FB_PAGE_ID || "",
     };
   }
 
+  private getAppToken(): string {
+    const { appId, appSecret } = this.getConfig();
+    return appId && appSecret ? `${appId}|${appSecret}` : "";
+  }
+
   isConfigured(): boolean {
-    return !!this.getConfig().pageAccessToken;
+    const { pageAccessToken } = this.getConfig();
+    return !!pageAccessToken;
+  }
+
+  getStatus(): {
+    configured: boolean;
+    hasPageToken: boolean;
+    hasAppSecret: boolean;
+    pageId: string;
+    webhookConfigured: boolean;
+    subscribed: boolean;
+  } {
+    const { pageAccessToken, appSecret, pageId } = this.getConfig();
+    return {
+      configured: !!pageAccessToken,
+      hasPageToken: !!pageAccessToken,
+      hasAppSecret: !!appSecret,
+      pageId,
+      webhookConfigured: true,
+      subscribed: !!pageAccessToken,
+    };
   }
 
   async sendText(psid: string, text: string): Promise<boolean> {
@@ -198,11 +231,29 @@ export class FacebookMessengerService {
     return reply?.content || null;
   }
 
+  async getSubscribedApps(): Promise<string[]> {
+    const { pageAccessToken } = this.getConfig();
+    if (!pageAccessToken) return [];
+    try {
+      const res = await fetch(
+        `${FB_GRAPH_URL}/me/subscribed_apps?access_token=${pageAccessToken}`
+      );
+      const data = await res.json();
+      if (data.error) {
+        logger.error({ err: data.error }, "[FB-Messenger] Error getting subscribed apps");
+        return [];
+      }
+      return (data.data || []).map((a: any) => a.name);
+    } catch (err: any) {
+      logger.error({ err }, "[FB-Messenger] Error getting subscribed apps");
+      return [];
+    }
+  }
+
   async subscribeToWebhook(): Promise<boolean> {
     const { pageAccessToken } = this.getConfig();
     if (!pageAccessToken) return false;
     try {
-      const meta = this.tenant.facebook || {};
       const res = await fetch(
         `${FB_GRAPH_URL}/me/subscribed_apps?access_token=${pageAccessToken}`,
         { method: "POST", headers: { "Content-Type": "application/json" } }

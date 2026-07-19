@@ -20,3 +20,4 @@ export * from "./personality-profiles";
 export * from "./architect-memory";
 export * from "./response-analytics";
 export * from "./prompt-versions";
+export * from "./facebook-drafts";

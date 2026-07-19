@@ -51,7 +51,7 @@ export class FacebookService {
     this.tenant = tenant || tenantManager.getDefaultTenant();
     const fb = this.tenant.facebook || {};
     this.config = {
-      accessToken: fb.accessToken || process.env.FB_ACCESS_TOKEN || "",
+      accessToken: fb.accessToken || process.env.FB_ACCESS_TOKEN || process.env.FB_MESSENGER_PAGE_TOKEN || "",
       pixelId: fb.pixelId || process.env.FB_PIXEL_ID || "",
       catalogId: fb.catalogId || process.env.FB_CATALOG_ID || "",
       pageId: fb.pageId || process.env.FB_PAGE_ID || "",

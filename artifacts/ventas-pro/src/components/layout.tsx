@@ -1,5 +1,5 @@
 import { Link, useLocation } from "wouter";
-import { 
+import {
   LayoutDashboard, 
   MessageSquare, 
   Bot, 
@@ -13,7 +13,8 @@ import {
   Palette,
   ShoppingCart,
   Eye,
-  Sparkles
+  Sparkles,
+  Facebook
 } from "lucide-react";
 import { Sidebar, SidebarContent, SidebarHeader, SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarProvider, SidebarTrigger, SidebarGroup, SidebarGroupContent } from "./ui/sidebar";
 import { Badge as UiBadge } from "@/components/ui/badge";
@@ -61,6 +62,7 @@ export function AppSidebar() {
     { label: "Arquitecto IA", href: "/code-agent", icon: Wand2 },
     { label: "Arquitecto Visual", href: "/architect", icon: Eye },
     { label: "Personalización", href: "/branding", icon: Palette },
+    { label: "Facebook", href: "/facebook", icon: Facebook },
     { label: "Tienda Admin", href: "/admin/store", icon: Package },
     { label: "Configuración", href: "/settings", icon: Settings },
     { label: "Planes", href: "/pricing", icon: Badge },
