@@ -1,8 +1,12 @@
 import { config } from "dotenv";
 import path from "path";
+import { fileURLToPath } from "url";
 import fs from "fs";
 import * as sqliteSchema from "./sqlite-schema";
 import * as pgSchema from "./schema";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // ── ENV LOADER ───────────────────────────────────────────────────────────────
 let currentDir = process.cwd();

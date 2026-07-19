@@ -4,7 +4,6 @@ node_modules/
 .env.production
 artifacts/api-server/.env
 *.db
-tecnovariedades.db
 .baileys-auth/
 dist/
 build/
@@ -14,8 +13,6 @@ venv/
 .agents/
 .replit*
 replit.md
-api-server.log
-INSTRUCCIONES_ENV_EASYPANEL.md
 
 # temp & generated
 *.pyc
@@ -26,9 +23,11 @@ __pycache__/
 !products-full.json
 body.json
 fb_credentials.json
-productos-*.json
-products-*.json
-megapacks-*.json
-catalogo-*.json
-drive-*-analysis.json
-drive-names-*.json
+*.tsbuildinfo
+.kilo/
+.opencode/
+.vscode/
+scratch/
+nvidia-nim-bridge/.env
+lib/db/.env
+OpenCode-puete-ia/__pycache__/

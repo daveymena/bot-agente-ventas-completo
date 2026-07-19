@@ -1,97 +1,98 @@
-# AGENTS.md — Agent-Sales-Bot (VentasPro)
+# Agent-Sales-Bot (VentasPro)
 
 WhatsApp AI sales bot + SaaS platform. Express backend, React dashboard, SQLite/PostgreSQL dual-mode DB, Baileys WhatsApp integration, 10 AI agent personas.
 
 ## Quick Start
 
 ```bash
-# Install
+# 1. Install dependencies
 pnpm install
 
-# Dev (API server with nodemon hot-reload)
+# 2. Copy environment config
+cp .env.example .env
+# Edit .env with your AI provider key (at minimum OPENCODE_API_KEY)
+
+# 3. Start development servers
 pnpm run dev
-
-# Production build
-pnpm run build    # typecheck libs, then build api-server + ventas-pro
-
-# Start production
-pnpm --filter @workspace/api-server run start
-
-# Run from WSL (Windows server)
-/mnt/c/Windows/System32/cmd.exe /c "cd /d C:\Users\ADMIN\Videos\Agent-Sales-Bot && npx tsx artifacts/api-server/src/index.ts"
 ```
 
-## Architecture
+The backend runs on http://localhost:3002 and the frontend dev server on http://localhost:5173.
+
+### Default login (auto-seeded on first run)
+
+Email: `daveymena16@gmail.com`
+Password: `6715320D`
+
+## Project Structure
 
 ```
 artifacts/
   api-server/     → Express backend (port 3002), ESM, esbuild bundle
-  ventas-pro/     → Admin dashboard (React + Vite + Radix + Tailwind)
+  ventas-pro/     → Admin dashboard (React 19 + Vite + Tailwind + shadcn/ui)
 lib/
-  db/             → Drizzle ORM, dual SQLite/PG schema
+  db/             → Drizzle ORM, dual SQLite/PG schema (24 tables)
   api-zod/        → Zod validation schemas
-  api-client-react/ → React Query hooks (auto-generated from api-spec)
+  api-client-react/ → React Query hooks (auto-generated)
   integrations-openai-ai-server/ → 30+ AI provider abstraction
 packages/
   tienda/         → Public storefront (React + Vite, separate app)
 scripts/
-  migrate.mjs     → Pure SQL migration (runs before server start)
+  migrate.mjs     → PostgreSQL schema creation
+  migrate-to-pg.mjs → Full SQLite → PostgreSQL data migration
 ```
 
-## Database: SQLite vs PostgreSQL
+## Database: SQLite (Dev) vs PostgreSQL (Production)
 
-Set `USE_SQLITE=true` for local dev (SQLite). Production uses PostgreSQL (`DATABASE_URL`).
+Set `USE_SQLITE=true` in `.env` for local development (no database server needed).
 
-- **SQLite**: tables auto-created via raw SQL in `lib/db/src/index.ts`. No drizzle-kit needed. Auto-saves every 15s.
-- **PG**: schema managed by `drizzle-kit push`. Two parallel schema files must stay in sync: `lib/db/src/sqlite-schema.ts` and `lib/db/src/schema/`.
-- **DB Proxy pattern**: `lib/db` exports a `Proxy` that delays operations until async `initDb()` completes. Import `db` anywhere — it waits for readiness.
+To migrate from SQLite to PostgreSQL:
 
-## Key Gotchas
+```bash
+# 1. Set DATABASE_URL in .env
+# 2. Run the migration script
+DATABASE_URL=postgres://user:pass@host:5432/db node scripts/migrate-to-pg.mjs
+```
 
-- **ESM `__dirname`**: Use `fileURLToPath(import.meta.url)` + `path.dirname()`. The esbuild build injects CJS polyfills for bundled deps.
-- **Baileys auth**: Stored in `artifacts/api-server/.baileys-auth/` (gitignored). Path calculated via `import.meta.url` with WSL fix: `path.replace(/^\/([A-Za-z]:)/, '$1')`.
-- **Baileys version**: `@whiskeysockets/baileys` 7.0.0-rc13 (api-server MUST match root). rc.9 has outdated WhatsApp protocol `appVersion` (1027934701) causing error 405. rc13 uses 1035194821.
-- **SQLite rejects Date objects** in WHERE clauses — convert to ISO string before `gte()`.
-- **SQLite lacks PG functions**: no `to_char()`, `date_trunc()`, `::int`. Do grouping in JS.
-- **`printQRInTerminal` is deprecated** in Baileys 7.x — QR must be handled via `connection.update` event.
-- **WhatsApp auto-start commented out** in `app.ts` for dev. Uncomment for production.
-- **`exec node` in Docker CMD** is critical — pnpm doesn't forward SIGTERM. Use `exec node --enable-source-maps`.
-- **Build order**: `lib/db` → `lib/api-zod` → `lib/api-spec` → `lib/api-client-react` → `lib/integrations-openai-ai-server` → `artifacts/api-server`.
-- **Frontend build**: `artifacts/ventas-pro` uses `vite build` → `dist/public/`. The api-server serves this as static files.
-- **WSL**: `import.meta.url` returns `/C:/...` paths — must strip leading slash.
+This will create all 24 tables in PostgreSQL and copy all data from SQLite.
 
 ## AI Providers
 
-Configured via env vars. Fallback chain: `opencode` → `nvidia_nim_bridge` → `nvidia` → `openrouter` → `github`.
+Configure one or more in `.env`. Fallback chain: `opencode` → `groq` → `github` → `openrouter`.
 
-- **OpenCode/FreeModel**: Primary. Key in `.env` as `OPENCODE_API_KEY`.
-- **AI response time**: ~10s per message (gpt-5.5 via freemodel.dev).
-- **Agent routing**: `lib/api-server/src/lib/agent-router.ts` selects agent by keyword scoring.
+- **OpenCode** (free): `OPENCODE_API_KEY=sk-...` via `api.freemodel.dev`
+- **Groq** (free tier): `GROQ_API_KEY=gsk_...`
+- **GitHub Models**: `GITHUB_TOKEN=ghp_...`
 
 ## WhatsApp
 
-- Uses Baileys library. Auth in `.baileys-auth/` directory.
-- Auto-start disabled in dev. Connect via `POST /api/whatsapp/connect`.
-- Phone pairing available: `POST /api/whatsapp/pair-phone` with `{"phoneNumber":"..."}`.
-- After Logout (401), must scan new QR. Cooldown ~10-15 min after repeated failures.
-- Human typing simulation: 280 WPM, 800-4500ms delay.
+- Connect via the admin dashboard at `/whatsapp`
+- Or use the API: `POST /api/whatsapp/connect`
+- Phone pairing: `POST /api/whatsapp/pair-phone` with `{"phoneNumber":"..."}`
+- Auth session saved in `artifacts/api-server/.baileys-auth/`
 
-## Testing
+## Commands
 
 ```bash
-pnpm run test                           # All tests
-npx vitest run artifacts/api-server/src/routes/auth.test.ts  # Single file
-curl -X POST localhost:3002/api/whatsapp/test-ia -H "Content-Type: application/json" -d '{"message":"Hola"}'
+pnpm install          # Install all dependencies
+pnpm run dev           # Start backend + frontend dev servers
+pnpm run build         # Typecheck + build for production
+pnpm run test          # Run tests
 ```
 
-## Env Vars (minimum for local)
+## Architecture
+
+- Monorepo managed with pnpm workspaces
+- ESM throughout (Node 22+)
+- Dual database: SQLite (sql.js WASM) locally, PostgreSQL in production
+- AI fallback chain with 30+ provider support
+- Baileys for WhatsApp Web integration
+- SaaS multi-tenant with subscription management
+- Mercado Pago, PayPal, and bank transfer payments
+
+## Environment Variables (minimum)
 
 ```
 USE_SQLITE=true
 PORT=3002
-OPENCODE_API_KEY=...    # or any AI provider key
+OPENCODE_API_KEY=...   # or another AI provider key
 ```
-
-## Git
-
-Repo: `https://github.com/daveymena/bot-agente-ventas-completo.git`

@@ -13,26 +13,14 @@ import Leads from "@/pages/leads";
 import Products from "@/pages/products";
 import WhatsAppConnection from "@/pages/whatsapp";
 import Settings from "@/pages/settings";
-import CodeAgent from "@/pages/code-agent";
-import CodeAgentVisual from "@/pages/code-agent-visual";
 import AuthPage from "@/pages/auth";
 import PricingPage from "@/pages/pricing";
 import Branding from "@/pages/branding";
-import StoreShop from "@/pages/tienda/Shop";
-import StoreCart from "@/pages/tienda/Cart";
-import StoreHome from "@/pages/tienda/Home";
-import { StoreProvider } from "@/pages/tienda/store-context";
-import { StoreLayout } from "@/pages/tienda/StoreLayout";
-import MiTiendaPage from "@/pages/mi-tienda";
 import SubscriptionSuccessPage from "@/pages/subscription-success";
 import SubscriptionFailurePage from "@/pages/subscription-failure";
 import ActivatePage from "@/pages/activate";
 import OnboardingPage from "@/pages/onboarding";
-import AdminTenantsPage from "@/pages/admin-tenants";
-import AdminStorePage from "@/pages/admin-store";
 import WooCommercePage from "@/pages/woocommerce";
-import StoreEditorPage from "@/pages/store-editor/StoreEditorPage";
-import ArenaPage from "@/pages/arena";
 import FacebookAdsPage from "@/pages/facebook";
 
 // Context para la sesión
@@ -89,8 +77,6 @@ function Router() {
       <Route path="/products" component={Products} />
       <Route path="/whatsapp" component={WhatsAppConnection} />
       <Route path="/settings" component={Settings} />
-      <Route path="/code-agent" component={CodeAgent} />
-      <Route path="/architect" component={CodeAgentVisual} />
       <Route path="/pricing" component={PricingPage} />
       <Route path="/branding" component={Branding} />
       <Route path="/woocommerce" component={WooCommercePage} />
@@ -98,39 +84,6 @@ function Router() {
       <Route path="/subscription-failure" component={SubscriptionFailurePage} />
       <Route path="/activate" component={ActivatePage} />
       <Route path="/onboarding" component={OnboardingPage} />
-      <Route path="/store/:slug/carrito">
-        <StoreProvider>
-          <StoreLayout>
-            <StoreCart />
-          </StoreLayout>
-        </StoreProvider>
-      </Route>
-      <Route path="/store/:slug/productos">
-        <StoreProvider>
-          <StoreLayout>
-            <StoreShop />
-          </StoreLayout>
-        </StoreProvider>
-      </Route>
-      <Route path="/store/:slug/categoria/:type">
-        <StoreProvider>
-          <StoreLayout>
-            <StoreShop />
-          </StoreLayout>
-        </StoreProvider>
-      </Route>
-      <Route path="/store/:slug">
-        <StoreProvider>
-          <StoreLayout>
-            <StoreHome />
-          </StoreLayout>
-        </StoreProvider>
-      </Route>
-      <Route path="/mi-tienda" component={MiTiendaPage} />
-      <Route path="/admin/tenants" component={AdminTenantsPage} />
-      <Route path="/admin/store" component={AdminStorePage} />
-      <Route path="/admin/store/editor" component={StoreEditorPage} />
-      <Route path="/arena" component={ArenaPage} />
       <Route path="/facebook" component={FacebookAdsPage} />
       <Route path="/auth" component={AuthPage} />
       <Route component={NotFound} />

@@ -1,5 +1,0 @@
-
-    Easypanelv2.31.0 BRDADEENESFAFRHIIDITJAKANLPLPTRORUTHTRVICNDashboardActionsMonitorDomainsSettingsDocumentationDiscordDiscordFeedbackChangelogBuy LicenseQuick Search⌘ KCommand PaletteSearch for a command to run...35.254.218.190Dark ModeLogouttecnologyServices[data-radix-scroll-area-viewport]{scrollbar-width:none;-ms-overflow-style:none;-webkit-overflow-scrolling:touch;}[data-radix-scroll-area-viewport]::-webkit-scrollbar{display:none}base-openexnoba-dbexnova-traderopencod2opencode-evoposgrest-dbpreoperacionpreoperacional-novaventas-prowhatsapp-agen[data-radix-scroll-area-viewport]{scrollbar-width:none;-ms-overflow-style:none;-webkit-overflow-scrolling:touch;}[data-radix-scroll-area-viewport]::-webkit-scrollbar{display:none}OverviewSourceDeploymentsEnvironmentDomainsRedirectsScriptsSecurityResourcesMaintenanceStorageAdvancedtecnology/ventas-proappServiceTemplatesDeployDeployCPU 0.0%Memory 0.0 BNetwork I/O 0.0 B / 0.0 BLogs
-  
-
-tecnologyProject SettingsCreate ProjectNotesForce RebuildDestroy
