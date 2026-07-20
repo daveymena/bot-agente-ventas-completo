@@ -149,6 +149,10 @@ logger.info("[MessageHandler] Message receiver configured for default tenant");
 
 const app: Express = express();
 
+// Trust proxy for reverse proxies (EasyPanel, Nginx, etc.)
+// Necesario para que req.ip, req.secure, req.protocol funcionen correctamente detrás de proxies
+app.set("trust proxy", 1);
+
 app.use(
   pinoHttp({
     logger,
@@ -171,6 +175,11 @@ app.use(
 const corsOrigins = process.env.CORS_ORIGIN
   ? process.env.CORS_ORIGIN.split(",").map(s => s.trim())
   : ["http://localhost:5173", "http://127.0.0.1:5173", "http://0.0.0.0:5173", "http://localhost:3002"];
+
+// En producción, también permitir el origen dinámico de EasyPanel
+if (process.env.NODE_ENV === "production" && process.env.APP_URL) {
+  corsOrigins.push(process.env.APP_URL);
+}
 
 app.use(
   cors({
@@ -255,6 +264,8 @@ const publicRoutes = [
   "/auth/me",
   "/auth/send-verification-code",
   "/auth/verify-email",
+  "/auth/verify-email-auto",
+  "/auth/check-email",
   "/auth/request-password-reset",
   "/auth/verify-reset-code",
   "/auth/reset-password",
@@ -303,6 +314,11 @@ const validateSaasMiddleware = (req: Request, res: Response, next: NextFunction)
     return next();
   }
   
+  // Rutas de autenticación (como check-email) deben pasar sin validación SaaS
+  if (req.path.includes("/auth") || req.path.includes("/login") || req.path.includes("/register")) {
+    return next();
+  }
+  
   const tenant = (req as any).tenant;
   if (!tenant) {
     logger.warn({ path: req.path }, `[validateSaaS] No tenant found`);
@@ -317,6 +333,12 @@ const validateLimitsMiddleware = (req: Request, res: Response, next: NextFunctio
   if (isPublicRoute(req.path)) {
     return next();
   }
+  
+  // Rutas de autenticación deben pasar sin validación de límites
+  if (req.path.includes("/auth") || req.path.includes("/login") || req.path.includes("/register")) {
+    return next();
+  }
+  
   validateUsageLimits()(req, res, next);
 };
 
