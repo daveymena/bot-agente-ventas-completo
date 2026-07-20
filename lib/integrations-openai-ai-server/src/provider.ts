@@ -442,7 +442,7 @@ export function getProviderConfigFromSettings(settings: {
   if (!provider) return null;
 
   if (provider === "opencode") {
-    return resolveOpenCodeConfig(settings.githubModel || undefined);
+    return resolveOpenCodeConfig();
   }
 
   if (provider === "github_copilot_internal") {

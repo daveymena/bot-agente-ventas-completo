@@ -25,6 +25,7 @@ import FacebookAdsPage from "@/pages/facebook";
 import ArchitectVisual from "@/pages/architect-visual";
 import CodeAgent from "@/pages/code-agent";
 
+
 // Context para la sesión
 interface SessionContextType {
   tenant: any | null;
@@ -43,6 +44,11 @@ const SessionContext = createContext<SessionContextType>({
 });
 
 export const useSession = () => useContext(SessionContext);
+
+function TiendaRedirect() {
+  useEffect(() => { window.location.href = "/tienda"; }, []);
+  return null;
+}
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -90,6 +96,7 @@ function Router() {
       <Route path="/auth" component={AuthPage} />
       <Route path="/architect" component={ArchitectVisual} />
       <Route path="/code-agent" component={CodeAgent} />
+      <Route path="/mi-tienda" component={TiendaRedirect} />
       <Route component={NotFound} />
     </Switch>
   );
@@ -101,7 +108,7 @@ function AppContent() {
 
   useEffect(() => {
     // Redirigir a /auth si no está autenticado y no está ya en /auth o /pricing
-    if (!isLoading && !isAuthenticated && location !== "/auth" && location !== "/pricing" && location !== "/onboarding" && !location.startsWith("/store") && !location.startsWith("/tienda")) {
+    if (!isLoading && !isAuthenticated && location !== "/auth" && location !== "/pricing" && location !== "/onboarding" && !location.startsWith("/store") && !location.startsWith("/tienda") && location !== "/mi-tienda") {
       console.log("🔒 No autenticado, redirigiendo a /auth...");
       setLocation("/auth");
     }

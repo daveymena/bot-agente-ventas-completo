@@ -129,6 +129,7 @@ router.post("/architect", async (req: TenantRequest, res, next) => {
     // Obtener configuración de IA
     let aiConfig = getProviderConfigFromSettings(dbSettings || {}) 
       || getProviderConfig("opencode")
+      || getProviderConfig("groq")
       || getProviderConfig("nvidia") 
       || getProviderConfig("github");
 
@@ -440,6 +441,7 @@ Actúa con la autoridad de una Ingeniera Senior de Software y Directora de Venta
     // ── Fase 2: Rotación inteligente ──
     if (!rawContent) {
       const providerOrder = getOptimizedProviderOrder();
+      if (!providerOrder.includes("groq")) providerOrder.unshift("groq");
       logger.info({ order: providerOrder }, "[Architect] Selected provider failed, trying rotation");
 
       for (const prov of providerOrder) {
@@ -565,6 +567,7 @@ router.post("/visual-architect", async (req: TenantRequest, res, next) => {
     const [dbSettings] = await db.select().from(settings).limit(1);
     let aiConfig = getProviderConfigFromSettings(dbSettings || {})
       || getProviderConfig("opencode")
+      || getProviderConfig("groq")
       || getProviderConfig("nvidia")
       || getProviderConfig("github");
 
@@ -754,6 +757,7 @@ Responde SIEMPRE en JSON con esta estructura:
     // ── Fase 2: Rotación inteligente ──
     if (!rawContent) {
       const providerOrder = getOptimizedProviderOrder();
+      if (!providerOrder.includes("groq")) providerOrder.unshift("groq");
       for (const prov of providerOrder) {
         if (prov === "g4f") continue;
         if (prov === dbSettings?.aiProvider) continue;
