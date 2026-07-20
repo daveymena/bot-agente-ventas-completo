@@ -22,6 +22,12 @@ import ActivatePage from "@/pages/activate";
 import OnboardingPage from "@/pages/onboarding";
 import WooCommercePage from "@/pages/woocommerce";
 import FacebookAdsPage from "@/pages/facebook";
+import CodeAgentPage from "@/pages/code-agent";
+import ArchitectPage from "@/pages/architect";
+import AdminStorePage from "@/pages/admin-store";
+import MiTiendaPage from "@/pages/mi-tienda";
+import ArenaPage from "@/pages/arena";
+import AdminTenantsPage from "@/pages/admin-tenants";
 
 // Context para la sesión
 interface SessionContextType {
@@ -85,6 +91,12 @@ function Router() {
       <Route path="/activate" component={ActivatePage} />
       <Route path="/onboarding" component={OnboardingPage} />
       <Route path="/facebook" component={FacebookAdsPage} />
+      <Route path="/code-agent" component={CodeAgentPage} />
+      <Route path="/architect" component={ArchitectPage} />
+      <Route path="/admin/store" component={AdminStorePage} />
+      <Route path="/mi-tienda" component={MiTiendaPage} />
+      <Route path="/arena" component={ArenaPage} />
+      <Route path="/admin/tenants" component={AdminTenantsPage} />
       <Route path="/auth" component={AuthPage} />
       <Route component={NotFound} />
     </Switch>
