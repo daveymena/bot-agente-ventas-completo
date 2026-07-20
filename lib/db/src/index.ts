@@ -56,6 +56,11 @@ export const architectMemory = schema.architectMemory;
 export const responseAnalytics = schema.responseAnalytics;
 export const promptVersions = schema.promptVersions;
 export const facebookDrafts = schema.facebookDrafts;
+export const opencodeConfig = schema.opencodeConfig;
+export const opencodeSkills = schema.opencodeSkills;
+export const opencodeMcpServers = schema.opencodeMcpServers;
+export const opencodeCommands = schema.opencodeCommands;
+export const opencodeSession = schema.opencodeSession;
 
 export type {
   Tenant, InsertTenant,
