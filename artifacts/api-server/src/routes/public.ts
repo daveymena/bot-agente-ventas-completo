@@ -52,7 +52,7 @@ router.get("/products/:slug", async (req, res, next) => {
       )
       .orderBy(desc(products.createdAt));
 
-    const serialized = rows.map((p) => ({
+    const serialized = rows.map((p: any) => ({
       id: p.id,
       name: p.name,
       description: p.description,
@@ -78,7 +78,7 @@ router.get("/products/:slug", async (req, res, next) => {
       products: serialized,
     });
   } catch (err) {
-    next(err);
+    return next(err);
   }
 });
 
@@ -120,7 +120,7 @@ router.post("/generate-image", async (req, res, next) => {
 
     return res.status(500).json({ message: "No se pudo generar la imagen con ningún proveedor" });
   } catch (err) {
-    next(err);
+    return next(err);
   }
 });
 
@@ -146,7 +146,7 @@ router.get("/image-providers", async (_req, res, next) => {
 
     return res.json({ providers });
   } catch (err) {
-    next(err);
+    return next(err);
   }
 });
 
@@ -184,7 +184,7 @@ router.post("/create-product/:slug", async (req, res, next) => {
 
     return res.json(product);
   } catch (err) {
-    next(err);
+    return next(err);
   }
 });
 
@@ -351,7 +351,7 @@ router.post("/checkout/:slug/:productId", async (req, res, next) => {
       preferenceId: mpData.id,
     });
   } catch (err) {
-    next(err);
+    return next(err);
   }
 });
 
@@ -367,7 +367,7 @@ router.get("/whatsapp-info/:slug", async (req, res, next) => {
     const waPhone = resolveWhatsAppPhone(tenant);
     return res.json({ phone: waPhone, connected: whatsapp.isConnected() });
   } catch (err) {
-    next(err);
+    return next(err);
   }
 });
 

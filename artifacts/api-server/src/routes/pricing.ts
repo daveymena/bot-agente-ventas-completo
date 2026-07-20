@@ -250,7 +250,7 @@ router.get("/subscription/history", async (req, res) => {
     });
   } catch (error) {
     logger.error({ error }, "Error fetching payment history");
-    res.status(500).json({ error: "Internal server error" });
+    return res.status(500).json({ error: "Internal server error" });
   }
 });
 
@@ -271,7 +271,7 @@ router.post("/subscription/cancel", async (req, res) => {
 
     logger.info({ tenantId: tenant.id, subscriptionId: activeSubscription.id }, "Subscription cancelled");
 
-    res.json({
+    return res.json({
       message: "Subscription cancelled successfully",
       subscription: {
         id: activeSubscription.id,
@@ -281,7 +281,7 @@ router.post("/subscription/cancel", async (req, res) => {
     });
   } catch (error) {
     logger.error({ error }, "Error cancelling subscription");
-    res.status(500).json({ error: "Internal server error" });
+    return res.status(500).json({ error: "Internal server error" });
   }
 });
 

@@ -52,14 +52,14 @@ router.post("/copilot-token", async (req, res, next) => {
       .set({ 
         githubToken,
         copilotSessionToken: sessionToken.token,
-        copilotSessionExpiresAt: new Date(sessionToken.expires_at).toISOString()
+        copilotSessionExpiresAt: new Date(sessionToken.expiresAt * 1000).toISOString()
       })
       .where(eq(settings.id, currentSettings.id));
 
     return res.json({ 
       success: true, 
       token: sessionToken.token,
-      expires_at: sessionToken.expires_at 
+      expires_at: sessionToken.expiresAt 
     });
   } catch (e) {
     return next(e);
@@ -68,9 +68,8 @@ router.post("/copilot-token", async (req, res, next) => {
 
 router.post("/copilot-device-code", async (_req, res, next) => {
   try {
-    console.log("🚀 [BACKEND] Recibida solicitud para generar código de dispositivo Copilot");
-    const { getCopilotDeviceCode } = await import("../lib/copilot");
-    const data = await getCopilotDeviceCode();
+    // getCopilotDeviceCode no longer exists in the copilot module
+    return res.status(501).json({ error: "Device code flow not implemented" });
     if (!data) {
       console.error("❌ [BACKEND] Error: getCopilotDeviceCode devolvió null");
       return res.status(500).json({ error: "Error al generar código de dispositivo" });
@@ -87,31 +86,8 @@ router.post("/copilot-device-token", async (req, res, next) => {
   try {
     const { device_code } = req.body;
     if (!device_code) return res.status(400).json({ error: "device_code requerido" });
-    
-    const { pollCopilotToken, getCopilotSessionToken } = await import("../lib/copilot");
-    const token = await pollCopilotToken(device_code);
-    
-    if (token === "pending") {
-      return res.json({ success: false, status: "pending" });
-    }
-    
-    if (token) {
-      // Intentar obtener el token de sesión interno inmediatamente
-      const session = await getCopilotSessionToken(token);
-      
-      // 🚨 GUARDAR EN DB
-      const currentSettings = await getOrCreate();
-      await db.update(settings)
-        .set({ 
-          githubToken: token,
-          copilotSessionToken: session?.token || null,
-          copilotSessionExpiresAt: session ? new Date(session.expires_at).toISOString() : null
-        })
-        .where(eq(settings.id, currentSettings.id));
-      
-      console.log("✅ [BACKEND] Nuevo token de GitHub Copilot guardado y Dashboard notificado.");
-      return res.json({ success: true, token, session_token: session?.token });
-    }
+    // pollCopilotToken no longer exists in the copilot module
+    return res.status(501).json({ error: "Device code token polling not implemented" });
     
     return res.status(400).json({ error: "No se pudo obtener el token. Es posible que el código haya expirado." });
   } catch (e: any) {

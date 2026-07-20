@@ -19,6 +19,11 @@ import { whatsapp } from "../lib/whatsapp";
 const router: IRouter = Router();
 const STAGES = ["new", "contacted", "qualified", "proposal", "won", "lost"] as const;
 
+const USE_SQLITE = process.env.USE_SQLITE === "true";
+const DATE_FN = USE_SQLITE
+  ? sql<string>`strftime('%Y-%m-%d', ${messages.createdAt})`
+  : sql<string>`to_char(${messages.createdAt}, 'YYYY-MM-DD')`;
+
 router.get("/summary", async (_req, res, next) => {
   try {
     const allLeads = await db.select().from(leads);
@@ -40,7 +45,7 @@ router.get("/summary", async (_req, res, next) => {
     const todayMsgs = await db
       .select({ count: sql<number>`count(*)` })
       .from(messages)
-      .where(gte(messages.createdAt, safeISO(startOfDay)));
+      .where(gte(messages.createdAt, startOfDay));
 
     return res.json(
       GetDashboardSummaryResponse.parse({
@@ -104,13 +109,13 @@ router.get("/messages-timeline", async (_req, res, next) => {
     start.setDate(start.getDate() - (days - 1));
     const rows = await db
       .select({
-        day: sql<string>`strftime('%Y-%m-%d', ${messages.createdAt})`,
+        day: DATE_FN,
         role: messages.role,
         count: sql<number>`count(*)`,
       })
       .from(messages)
-      .where(gte(messages.createdAt, safeISO(start)))
-      .groupBy(sql`strftime('%Y-%m-%d', ${messages.createdAt})`, messages.role);
+      .where(gte(messages.createdAt, start))
+      .groupBy(DATE_FN, messages.role);
 
     const map = new Map<string, { incoming: number; outgoing: number }>();
     for (let i = 0; i < days; i++) {
