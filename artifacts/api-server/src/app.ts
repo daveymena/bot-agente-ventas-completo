@@ -237,7 +237,39 @@ function findFrontendPath(): string {
 
 const frontendPath = findFrontendPath();
 
-// Servir archivos estáticos con configuración optimizada
+// Función para encontrar el path de la tienda pública
+function findTiendaPath(): string | null {
+  const candidates = [
+    path.resolve("/app/packages/tienda/dist"),
+    path.resolve(__dirname, "../../../packages/tienda/dist"),
+    path.resolve(process.cwd(), "packages/tienda/dist"),
+  ];
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) {
+      const indexPath = path.join(candidate, "index.html");
+      if (existsSync(indexPath)) {
+        console.log(`[Tienda] ✅ Tienda encontrada en: ${candidate}`);
+        return candidate;
+      }
+    }
+  }
+  console.log(`[Tienda] ⚠️ Tienda no encontrada`);
+  return null;
+}
+
+const tiendaPath = findTiendaPath();
+
+// Servir archivos de la tienda pública en /tienda/
+if (tiendaPath) {
+  app.use("/tienda", express.static(tiendaPath, {
+    maxAge: process.env.NODE_ENV === "production" ? "1d" : 0,
+    etag: true,
+    lastModified: true,
+    index: false,
+  }));
+}
+
+// Servir archivos estáticos del frontend admin con configuración optimizada
 app.use(express.static(frontendPath, {
   maxAge: process.env.NODE_ENV === "production" ? "1d" : 0,
   etag: true,
@@ -359,6 +391,19 @@ app.use("/api/woocommerce", woocommerceRouter);
 app.use("/api/webhooks/subscription", subscriptionWebhooksRouter);
 app.use("/api/activation", activationRouter);
 app.use("/api", router);
+
+// SPA fallback para la tienda pública en /tienda/*
+app.use((req, res, next) => {
+  if (tiendaPath && (req.path === "/tienda" || req.path.startsWith("/tienda/"))) {
+    const indexPath = path.join(tiendaPath, "index.html");
+    if (existsSync(indexPath)) {
+      res.setHeader("Content-Type", "text/html");
+      res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+      return res.sendFile(indexPath);
+    }
+  }
+  next();
+});
 
 app.use((req, res, next) => {
   // Solo manejar rutas que NO son API

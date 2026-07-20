@@ -35,7 +35,17 @@ if ($LASTEXITCODE -ne 0) {
 Write-Host "✅ Frontend compilado" -ForegroundColor Green
 Write-Host ""
 
-# 4. Verificar build
+# 4. Compilar tienda pública
+Write-Host "🏪 Compilando tienda pública..." -ForegroundColor Yellow
+pnpm --filter @workspace/tienda run build
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "❌ Error compilando tienda pública" -ForegroundColor Red
+    exit 1
+}
+Write-Host "✅ Tienda pública compilada" -ForegroundColor Green
+Write-Host ""
+
+# 5. Verificar build
 Write-Host "🔍 Verificando build..." -ForegroundColor Yellow
 cd artifacts
 .\verify-build.ps1

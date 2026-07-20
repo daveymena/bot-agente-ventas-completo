@@ -26,6 +26,7 @@ COPY lib/api-client-react/package.json ./lib/api-client-react/
 COPY lib/db/package.json ./lib/db/
 COPY lib/integrations-openai-ai-server/package.json ./lib/integrations-openai-ai-server/
 COPY lib/integrations-openai-ai-react/package.json ./lib/integrations-openai-ai-react/
+COPY packages/tienda/package.json ./packages/tienda/
 COPY scripts/package.json ./scripts/
 
 # Instalar dependencias (sin --no-optional para incluir módulos nativos de Linux)
@@ -38,8 +39,11 @@ COPY . .
 # Construir Backend
 RUN pnpm --filter @workspace/api-server run build
 
-# Construir Frontend
+# Construir Frontend (Admin)
 RUN pnpm --filter @workspace/ventas-pro run build
+
+# Construir Frontend (Tienda Pública)
+RUN pnpm --filter @workspace/tienda run build
 
 # Etapa final para ejecución ligera
 FROM node:22-slim

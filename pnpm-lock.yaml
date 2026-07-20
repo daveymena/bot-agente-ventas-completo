@@ -722,6 +722,12 @@ importers:
 
   packages/tienda:
     dependencies:
+      '@craftjs/core':
+        specifier: 0.2.12
+        version: 0.2.12(react@19.1.0)
+      '@craftjs/utils':
+        specifier: 0.2.5
+        version: 0.2.5(react@19.1.0)
       '@tanstack/react-query':
         specifier: ^4.29.12
         version: 4.44.0(react-dom@19.1.0(react@19.1.0))(react@19.1.0)
