@@ -138,7 +138,7 @@ router.patch("/:id", async (req, res, next) => {
       .update(architectMemory)
       .set({
         ...req.body,
-        updatedAt: new Date() as any,
+        updatedAt: new Date().toISOString(),
       })
       .where(eq(architectMemory.id, Number(req.params.id)))
       .returning();

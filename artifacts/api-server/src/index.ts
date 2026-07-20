@@ -1,6 +1,7 @@
 import app from "./app";
 import { logger } from "./lib/logger";
 import { runAutoMigrations } from "./lib/autoMigrate";
+import { ensureDbReady } from "@workspace/db";
 
 const rawPort = process.env["PORT"];
 
@@ -17,6 +18,15 @@ if (Number.isNaN(port) || port <= 0) {
 }
 
 async function start() {
+  // Wait for database to be ready before accepting connections
+  logger.info("[DB] Esperando inicialización de base de datos...");
+  try {
+    await ensureDbReady();
+    logger.info("[DB] Base de datos lista");
+  } catch (err) {
+    logger.error({ err }, "[DB] Error en ensureDbReady, continuando de todas formas");
+  }
+
   // Non-blocking database migrations (fires in background)
   runAutoMigrations().catch(() => {});
 

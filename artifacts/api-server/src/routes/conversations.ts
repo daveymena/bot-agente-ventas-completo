@@ -120,7 +120,7 @@ router.post("/:id/messages", conversationRateLimit, aiCostTracker, async (req, r
       .returning();
     await db
       .update(conversations)
-      .set({ lastMessage: body.content, lastMessageAt: new Date(), status: body.asHuman ? "human" : convo.status })
+      .set({ lastMessage: body.content, lastMessageAt: new Date().toISOString(), status: body.asHuman ? "human" : convo.status })
       .where(eq(conversations.id, id));
 
     if (whatsapp.isConnected()) {

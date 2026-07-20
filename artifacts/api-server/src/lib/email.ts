@@ -1,26 +1,33 @@
 import * as nodemailer from "nodemailer";
 import { logger } from "./logger";
 
+const smtpConfigured = !!(process.env.SMTP_USER && process.env.SMTP_PASS);
+
 // Configuración del transporter de email
 // Puedes usar Gmail, SendGrid, o cualquier servicio SMTP
-const transporter = nodemailer.createTransport({
-  host: process.env.SMTP_HOST || "smtp.gmail.com",
-  port: parseInt(process.env.SMTP_PORT || "587"),
-  secure: process.env.SMTP_SECURE === "true", // true para 465, false para otros puertos
-  auth: {
-    user: process.env.SMTP_USER, // Tu email
-    pass: process.env.SMTP_PASS, // Tu contraseña o app password
-  },
-});
+const transporter = smtpConfigured
+  ? nodemailer.createTransport({
+      host: process.env.SMTP_HOST || "smtp.gmail.com",
+      port: parseInt(process.env.SMTP_PORT || "587"),
+      secure: process.env.SMTP_SECURE === "true", // true para 465, false para otros puertos
+      auth: {
+        user: process.env.SMTP_USER,
+        pass: process.env.SMTP_PASS,
+      },
+    })
+  : null;
 
-// Verificar conexión al iniciar
-transporter.verify((error, success) => {
-  if (error) {
-    logger.error({ error }, "[Email] ❌ Error conectando con servidor SMTP");
-  } else {
-    logger.info("[Email] ✅ Servidor SMTP conectado y listo");
-  }
-});
+if (smtpConfigured && transporter) {
+  transporter.verify((error, success) => {
+    if (error) {
+      logger.error({ error }, "[Email] ❌ Error conectando con servidor SMTP");
+    } else {
+      logger.info("[Email] ✅ Servidor SMTP conectado y listo");
+    }
+  });
+} else {
+  logger.info("[Email] ⚠️ SMTP no configurado. Las funciones de email estarán deshabilitadas.");
+}
 
 /**
  * Genera un código de 6 dígitos
@@ -37,6 +44,10 @@ export async function sendVerificationEmail(
   code: string,
   name: string
 ): Promise<boolean> {
+  if (!transporter) {
+    logger.warn({ email }, "[Email] SMTP no configurado, no se puede enviar email de verificación");
+    return false;
+  }
   try {
     const mailOptions = {
       from: `"VentasPro" <${process.env.SMTP_USER}>`,
@@ -200,6 +211,10 @@ export async function sendPasswordResetEmail(
   code: string,
   name: string
 ): Promise<boolean> {
+  if (!transporter) {
+    logger.warn({ email }, "[Email] SMTP no configurado, no se puede enviar email de recuperación");
+    return false;
+  }
   try {
     logger.info({ email, code }, "[Email] 📧 Intentando enviar código de recuperación...");
     
@@ -357,6 +372,10 @@ export async function sendActivationTokenEmail(
   plan: string,
   name: string
 ): Promise<boolean> {
+  if (!transporter) {
+    logger.warn({ email }, "[Email] SMTP no configurado, no se puede enviar token de activación");
+    return false;
+  }
   try {
     logger.info({ email, plan }, "[Email] 📧 Enviando token de activación de suscripción...");
     
@@ -535,6 +554,10 @@ export async function sendActivationTokenEmail(
  * Verifica la configuración del servicio de email
  */
 export async function verifyEmailService(): Promise<boolean> {
+  if (!transporter) {
+    logger.warn("[Email] SMTP no configurado, no se puede verificar servicio");
+    return false;
+  }
   try {
     await transporter.verify();
     logger.info("[Email] Servicio de email verificado correctamente");
@@ -552,6 +575,10 @@ export async function sendPasswordChangeConfirmationEmail(
   email: string,
   name: string
 ): Promise<boolean> {
+  if (!transporter) {
+    logger.warn({ email }, "[Email] SMTP no configurado, no se puede enviar confirmación de cambio");
+    return false;
+  }
   try {
     logger.info({ email }, "[Email] 📧 Enviando confirmación de cambio de contraseña...");
     

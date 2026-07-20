@@ -38,7 +38,7 @@ export class PersonalityEngine {
   async updateProfile(id: number, data: Partial<InsertPersonalityProfile>): Promise<PersonalityProfile | null> {
     const [profile] = await db
       .update(personalityProfiles)
-      .set({ ...data, updatedAt: new Date() as any })
+      .set({ ...data, updatedAt: new Date().toISOString() })
       .where(eq(personalityProfiles.id, id))
       .returning();
     if (!profile) return null;

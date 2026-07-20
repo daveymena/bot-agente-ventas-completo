@@ -22,6 +22,11 @@ for (let i = 0; i < 5; i++) {
 console.log(`🔍 [DOTENV] Buscando configuración en: ${rootEnvPath}`);
 config({ path: rootEnvPath });
 
+// Debug: print resolved DB vars
+console.log(`[DB-ENV] USE_SQLITE=${process.env.USE_SQLITE}`);
+console.log(`[DB-ENV] DATABASE_URL=${process.env.DATABASE_URL ? (process.env.DATABASE_URL.substring(0, 30) + '...') : 'NOT SET'}`);
+console.log(`[DB-ENV] CWD=${process.cwd()}`);
+
 const USE_SQLITE = process.env.USE_SQLITE === "true";
 
 // ── SCHEMA (conditional: SQLite or PG) ───────────────────────────────────────
@@ -85,6 +90,8 @@ export let db: any;
 export let pool: any;
 export let saveDbToDisk: (() => void) | null = null;
 
+let dbReady = false;
+
 async function initDb() {
   if (USE_SQLITE) {
     const initSqlJsMod = await import("sql.js");
@@ -129,6 +136,7 @@ async function initDb() {
     process.on("SIGTERM", () => { saveDb(); process.exit(0); });
 
     await ensureSqliteTables(sqliteDb, saveDb);
+    dbReady = true;
   } else {
     const { drizzle } = await import("drizzle-orm/node-postgres");
     const pg = await import("pg");
@@ -141,8 +149,34 @@ async function initDb() {
 
     if (dbUrl) {
       console.log(`📡 [DB-CONNECTION] Intentando conectar a: ${dbUrl.replace(/:([^:@]+)@/, ":****@")}`);
+    } else {
+      console.log(`❌ [DB-CONNECTION] DATABASE_URL no está definida. Intentando fallback a SQLite...`);
+      // Fallback: re-exec as SQLite
+      process.env.USE_SQLITE = "true";
+      const fallbackSqlJsMod = await import("sql.js");
+      const fallbackSqlJs = fallbackSqlJsMod.default;
+      const { drizzle: drizzleSqlJs } = await import("drizzle-orm/sql-js");
+      const fallbackPath = "./data/fallback.db";
+      const fullPath = path.resolve(fallbackPath);
+      const dir = path.dirname(fullPath);
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+      const SQL = await fallbackSqlJs({
+        locateFile: (file: string) => path.join(__dirname, file),
+      });
+      let sqliteDb: import("sql.js").Database;
+      if (fs.existsSync(fullPath)) {
+        const buffer = fs.readFileSync(fullPath);
+        sqliteDb = new SQL.Database(buffer);
+      } else {
+        sqliteDb = new SQL.Database();
+      }
+      sqliteDb.run("PRAGMA journal_mode=WAL;");
+      sqliteDb.run("PRAGMA foreign_keys=ON;");
+      db = drizzleSqlJs(sqliteDb, { schema: sqliteSchema });
+      pool = null;
+      dbReady = true;
+      return;
     }
-    if (!dbUrl) throw new Error("DATABASE_URL must be set in .env");
 
     pool = new Pool({
       connectionString: dbUrl,
@@ -151,6 +185,7 @@ async function initDb() {
       connectionTimeoutMillis: 5000, statement_timeout: 10000, query_timeout: 10000,
     });
     db = drizzle(pool, { schema: pgSchema });
+    dbReady = true;
   }
 }
 
@@ -190,16 +225,28 @@ async function ensureSqliteTables(sqliteDb: import("sql.js").Database, saveDb: (
 }
 
 // ── INIT ─────────────────────────────────────────────────────────────────────
-const initPromise = initDb().catch(err => {
+let initResolved = false;
+const initPromise = initDb().then(() => {
+  initResolved = true;
+  console.log(`✅ [DB] Inicializado (USE_SQLITE=${USE_SQLITE}, ready=${initResolved})`);
+}).catch(err => {
   console.error("❌ [DB] Error de inicialización:", err.message);
+  console.error("❌ [DB] La base de datos NO está disponible. Las operaciones de BD fallarán.");
 });
 
 export async function ensureDbReady() {
+  if (!initResolved) {
+    console.log("⏳ [DB] Esperando inicialización...");
+  }
   await initPromise;
   return { db, pool };
 }
 
+export function isDbReady() {
+  return dbReady && !!db;
+}
+
 // Eager init
 initPromise.then(() => {
-  if (USE_SQLITE) console.log("✅ [DB] SQLite listo");
+  if (dbReady) console.log("✅ [DB] Lista para usar");
 });

@@ -907,7 +907,7 @@ Responde SIEMPRE de forma profesional, clara y orientada a la venta.
           systemPrompt: systemPrompt,
           metadata: metadata,
           isActive: true,
-          updatedAt: new Date()
+          updatedAt: new Date().toISOString()
         })
         .where(eq(agents.id, existingAgent.id));
     } else {
