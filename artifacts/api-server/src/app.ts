@@ -182,7 +182,12 @@ app.use(
   }),
 );
 app.use(cookieParser());
-app.use(express.json());
+// Capturar el cuerpo crudo para poder verificar la firma de webhooks de Facebook (X-Hub-Signature-256)
+app.use(express.json({
+  verify: (req: any, _res, buf) => {
+    if (buf && buf.length) req.rawBody = buf;
+  },
+}));
 app.use(express.urlencoded({ extended: true }));
 
 

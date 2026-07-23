@@ -6,7 +6,7 @@ import {
   UpdateSettingsResponse,
 } from "@workspace/api-zod";
 import { db, settings } from "@workspace/db";
-import { getCopilotSessionToken } from "../lib/copilot";
+import { getCopilotSessionToken, getCopilotDeviceCode, pollCopilotToken } from "../lib/copilot";
 
 const router: IRouter = Router();
 
@@ -68,16 +68,15 @@ router.post("/copilot-token", async (req, res, next) => {
 
 router.post("/copilot-device-code", async (_req, res, next) => {
   try {
-    // getCopilotDeviceCode no longer exists in the copilot module
-    return res.status(501).json({ error: "Device code flow not implemented" });
+    const data = await getCopilotDeviceCode();
     if (!data) {
-      console.error("❌ [BACKEND] Error: getCopilotDeviceCode devolvió null");
-      return res.status(500).json({ error: "Error al generar código de dispositivo" });
+      return res.status(502).json({ error: "No se pudo generar el código de dispositivo de GitHub" });
     }
-    console.log("✅ [BACKEND] Código generado con éxito:", data.user_code);
+    console.log("✅ [BACKEND] Código de dispositivo generado:", data.user_code);
+    // El frontend debe mostrar user_code y verification_uri, y luego hacer polling
     return res.json(data);
   } catch (e) {
-    console.error("💥 [BACKEND] Error crítico en copilot-device-code:", e);
+    console.error("💥 [BACKEND] Error en copilot-device-code:", e);
     return next(e);
   }
 });
@@ -86,10 +85,37 @@ router.post("/copilot-device-token", async (req, res, next) => {
   try {
     const { device_code } = req.body;
     if (!device_code) return res.status(400).json({ error: "device_code requerido" });
-    // pollCopilotToken no longer exists in the copilot module
-    return res.status(501).json({ error: "Device code token polling not implemented" });
-    
-    return res.status(400).json({ error: "No se pudo obtener el token. Es posible que el código haya expirado." });
+
+    const result = await pollCopilotToken(device_code);
+
+    if (result.status === "pending") {
+      // Aún no autorizado: el frontend debe reintentar según el interval
+      return res.status(202).json({ status: "pending" });
+    }
+    if (result.status === "error" || !result.accessToken) {
+      return res.status(400).json({
+        status: "error",
+        error: result.error || "No se pudo obtener el token (código expirado o denegado).",
+      });
+    }
+
+    // Autorizado: intercambiar el token OAuth por el token de sesión de Copilot y guardarlo
+    const accessToken = result.accessToken;
+    const sessionToken = await getCopilotSessionToken(accessToken);
+
+    const currentSettings = await getOrCreate();
+    await db.update(settings)
+      .set({
+        githubToken: accessToken,
+        copilotSessionToken: sessionToken?.token || null,
+        copilotSessionExpiresAt: sessionToken?.expiresAt
+          ? new Date(sessionToken.expiresAt * 1000).toISOString()
+          : null,
+      })
+      .where(eq(settings.id, currentSettings.id));
+
+    console.log("✅ [BACKEND] Copilot autorizado y token guardado");
+    return res.json({ status: "authorized", success: true });
   } catch (e: any) {
     console.error("❌ [BACKEND] Error en copilot-device-token:", e.message);
     return res.status(400).json({ error: e.message || "Error al obtener token" });

@@ -959,10 +959,14 @@ Si te dice "cambia el codigo de X", usa /code/read + /code/write.
 
       // ── Helper: pushear fallbacks disponibles ──
       const pushFallbacks = (queue: { config: any; source: string }[]) => {
+        const groqEnv = getProviderConfig("groq");
         const copilotEnv = getProviderConfig("github_copilot_internal");
         const nvidiaEnv = getProviderConfig("nvidia");
         const githubEnv = getProviderConfig("github");
         const nvidiaFast = getProviderConfig("nvidia_fast");
+        // Groq: respaldo rápido y gratuito (antes estaba configurado pero nunca se usaba)
+        if (activeProvider !== "groq" && groqEnv && healthMonitor.isServiceHealthy("groq"))
+          queue.push({ config: groqEnv, source: "groq" });
         if (activeProvider !== "nvidia" && nvidiaEnv && healthMonitor.isServiceHealthy("nvidia_70b"))
           queue.push({ config: nvidiaEnv, source: "nvidia_70b" });
         if (activeProvider !== "github" && githubEnv && healthMonitor.isServiceHealthy("github_env"))

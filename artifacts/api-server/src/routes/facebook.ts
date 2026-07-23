@@ -1,4 +1,5 @@
-import { Router, type IRouter, type Request, type Response } from "express";
+import { Router, type IRouter, type Request, type Response, type NextFunction } from "express";
+import { createHmac, timingSafeEqual } from "crypto";
 import { eq } from "drizzle-orm";
 import { db, tenants, leads, conversations, messages, products } from "@workspace/db";
 import { facebookService as fb } from "../lib/facebook";
@@ -11,6 +12,40 @@ import { whatsapp } from "../lib/whatsapp";
 import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
+
+// ─── Verificación de firma de webhooks (X-Hub-Signature-256) ────────────────
+// Valida que el payload venga realmente de Facebook usando el App Secret.
+// Comportamiento seguro y factible: si no hay App Secret configurado o no llega
+// firma, se permite el paso (con warning) para no romper despliegues existentes.
+// Si ambos están presentes y NO coinciden, se rechaza con 403.
+function verifyFacebookSignature(req: Request, res: Response, next: NextFunction) {
+  const appSecret = process.env.FB_APP_SECRET || "";
+  const signature = (req.headers["x-hub-signature-256"] || req.headers["x-hub-signature"]) as string | undefined;
+  const rawBody: Buffer | undefined = (req as any).rawBody;
+
+  if (!appSecret) {
+    logger.warn("[Facebook] FB_APP_SECRET no configurado — firma de webhook NO verificada");
+    return next();
+  }
+  if (!signature || !rawBody) {
+    logger.warn("[Facebook] Webhook sin firma o sin body crudo — permitido pero sin verificar");
+    return next();
+  }
+
+  try {
+    const expected = "sha256=" + createHmac("sha256", appSecret).update(rawBody).digest("hex");
+    const sigBuf = Buffer.from(signature);
+    const expBuf = Buffer.from(expected);
+    if (sigBuf.length !== expBuf.length || !timingSafeEqual(sigBuf, expBuf)) {
+      logger.warn("[Facebook] Firma de webhook inválida — rechazado");
+      return res.status(403).json({ error: "Invalid signature" });
+    }
+    return next();
+  } catch (err) {
+    logger.error({ err }, "[Facebook] Error verificando firma de webhook");
+    return res.status(403).json({ error: "Signature verification error" });
+  }
+}
 
 // ─── Facebook Lead Ads Webhook ──────────────────────────────────────────────
 // GET /facebook/lead-ads/webhook — Facebook verificaciòn del webhook (challenge)
@@ -31,7 +66,7 @@ router.get("/lead-ads/webhook", (req: Request, res: Response) => {
 });
 
 // POST /facebook/lead-ads/webhook — Recibir leads de Facebook Lead Ads
-router.post("/lead-ads/webhook", async (req: Request, res: Response) => {
+router.post("/lead-ads/webhook", verifyFacebookSignature, async (req: Request, res: Response) => {
   try {
     const body = req.body;
     logger.info({ entryCount: body.entry?.length }, "[Facebook] Lead webhook recibido");
@@ -164,7 +199,7 @@ router.get("/messenger/webhook", (req: Request, res: Response) => {
 });
 
 // POST /facebook/messenger/webhook — Receive messages from Messenger
-router.post("/messenger/webhook", async (req: Request, res: Response) => {
+router.post("/messenger/webhook", verifyFacebookSignature, async (req: Request, res: Response) => {
   try {
     const body = req.body;
     if (body.object !== "page") {
@@ -179,6 +214,11 @@ router.post("/messenger/webhook", async (req: Request, res: Response) => {
         const postback = event.postback?.payload;
 
         if (!senderPsid) continue;
+
+        // Ignorar ecos (mensajes enviados por la propia página) para evitar bucles infinitos
+        if (event.message?.is_echo) continue;
+        // Ignorar acuses de entrega/lectura (no son mensajes entrantes)
+        if (event.delivery || event.read) continue;
 
         if (messageText) {
           await fbMessenger.handleIncomingMessage(senderPsid, messageText, senderName);
@@ -198,6 +238,30 @@ router.post("/messenger/webhook", async (req: Request, res: Response) => {
           );
         }
       }
+
+      // Facebook envía TODOS los eventos de la página a UNA sola URL de callback.
+      // Además de mensajes (entry.messaging), aquí llegan los comentarios en
+      // publicaciones/anuncios como entry.changes con field "feed". Los procesamos
+      // en el mismo endpoint para que una única URL de webhook cubra Messenger + comentarios.
+      for (const change of entry.changes || []) {
+        if (change.field === "feed") {
+          const value = change.value || {};
+          if (value.item === "comment" && value.verb === "add") {
+            const fromId = value.from?.id || "";
+            const ownPageId = process.env.FB_PAGE_ID || "";
+            // No responder los comentarios de la propia página (evita bucles)
+            if (fromId && fromId !== ownPageId && value.comment_id && value.message) {
+              await channelManager.processMessage({
+                channel: "facebook_comment",
+                contactId: fromId,
+                contactName: value.from?.name || "Usuario",
+                text: value.message,
+                metadata: { commentId: value.comment_id, postId: value.post_id || "" },
+              });
+            }
+          }
+        }
+      }
     }
 
     res.status(200).json({ received: true });
@@ -208,7 +272,7 @@ router.post("/messenger/webhook", async (req: Request, res: Response) => {
 });
 
 // ─── Facebook Marketplace Webhook ──────────────────────────────────────────
-router.post("/marketplace/webhook", async (req: Request, res: Response) => {
+router.post("/marketplace/webhook", verifyFacebookSignature, async (req: Request, res: Response) => {
   try {
     const body = req.body;
     if (body.object !== "page") return res.status(200).json({ received: true });
@@ -251,7 +315,7 @@ router.post("/marketplace/webhook", async (req: Request, res: Response) => {
 });
 
 // ─── Facebook Comments Webhook ─────────────────────────────────────────────
-router.post("/comments/webhook", async (req: Request, res: Response) => {
+router.post("/comments/webhook", verifyFacebookSignature, async (req: Request, res: Response) => {
   try {
     const body = req.body;
     if (body.object !== "page") return res.status(200).json({ received: true });

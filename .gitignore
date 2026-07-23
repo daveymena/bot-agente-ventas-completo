@@ -23,6 +23,8 @@ __pycache__/
 !products-full.json
 body.json
 fb_credentials.json
+fb-token.txt
+fb-page-token.txt
 *.tsbuildinfo
 .kilo/
 .opencode/
