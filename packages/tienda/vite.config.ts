@@ -28,9 +28,4 @@ export default defineConfig({
       },
     },
   },
-  build: {
-    rollupOptions: {
-      external: ['@tanstack/react-query'],
-    },
-  },
 });
