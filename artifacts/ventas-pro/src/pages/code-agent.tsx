@@ -21,13 +21,13 @@ export default function CodeAgentPage() {
   ]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
-  const scrollRef = useRef<HTMLDivElement>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
-  }, [messages]);
+    // El ScrollArea de Radix scrollea en su viewport interno, no en el nodo raíz,
+    // así que hacemos scroll con un ancla al final para que siempre se vea la última respuesta.
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+  }, [messages, loading]);
 
   const handleSend = async () => {
     if (!input.trim() || loading) return;
@@ -76,8 +76,8 @@ export default function CodeAgentPage() {
 
   return (
     <Layout>
-      <div className="flex flex-col gap-6 h-[calc(100vh-8rem)]">
-        <div className="flex items-center gap-3">
+      <div className="flex flex-col gap-6 flex-1 min-h-0">
+        <div className="flex items-center gap-3 shrink-0">
           <div className="p-2.5 rounded-xl bg-gradient-to-br from-purple-500/20 to-pink-500/20 border border-purple-500/20">
             <Wand2 className="h-6 w-6 text-purple-500" />
           </div>
@@ -87,8 +87,8 @@ export default function CodeAgentPage() {
           </div>
         </div>
 
-        <Card className="flex-1 flex flex-col overflow-hidden rounded-3xl border-0 shadow-lg glass-panel">
-          <ScrollArea ref={scrollRef} className="flex-1 p-4 md:p-6">
+        <Card className="flex-1 flex flex-col overflow-hidden rounded-3xl border-0 shadow-lg glass-panel min-h-0">
+          <ScrollArea className="flex-1 min-h-0 p-4 md:p-6">
             <div className="space-y-4 max-w-3xl mx-auto">
               {messages.map((msg, i) => (
                 <div key={i} className={`flex gap-3 ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
@@ -123,10 +123,11 @@ export default function CodeAgentPage() {
                   </div>
                 </div>
               )}
+              <div ref={messagesEndRef} />
             </div>
           </ScrollArea>
 
-          <div className="border-t border-white/10 p-4">
+          <div className="border-t border-white/10 p-4 shrink-0">
             <form
               onSubmit={(e) => {
                 e.preventDefault();
