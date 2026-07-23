@@ -24,6 +24,13 @@ const DATE_FN = USE_SQLITE
   ? sql<string>`strftime('%Y-%m-%d', ${messages.createdAt})`
   : sql<string>`to_char(${messages.createdAt}, 'YYYY-MM-DD')`;
 
+// SQLite (sql.js) no puede enlazar objetos Date como parámetros y las fechas se
+// guardan como TEXT con formato "YYYY-MM-DD HH:MM:SS". En Postgres la columna es
+// timestamp y acepta Date directamente. Este helper devuelve el valor correcto
+// para cada motor y evita el error 500 al comparar fechas.
+const toDbDate = (d: Date): string | Date =>
+  USE_SQLITE ? d.toISOString().slice(0, 19).replace("T", " ") : d;
+
 router.get("/summary", async (_req, res, next) => {
   try {
     const allLeads = await db.select().from(leads);
@@ -36,7 +43,7 @@ router.get("/summary", async (_req, res, next) => {
     startOfMonth.setDate(1);
     startOfMonth.setHours(0, 0, 0, 0);
     const revenueThisMonth = wonLeads
-      .filter((l) => l.createdAt >= startOfMonth)
+      .filter((l) => new Date(l.createdAt as any) >= startOfMonth)
       .reduce((acc, l) => acc + Number(l.value), 0);
     const conversionRate = totalLeads === 0 ? 0 : Math.round((wonDeals / totalLeads) * 100);
 
@@ -45,7 +52,7 @@ router.get("/summary", async (_req, res, next) => {
     const todayMsgs = await db
       .select({ count: sql<number>`count(*)` })
       .from(messages)
-      .where(gte(messages.createdAt, startOfDay));
+      .where(gte(messages.createdAt, toDbDate(startOfDay) as any));
 
     return res.json(
       GetDashboardSummaryResponse.parse({
@@ -55,7 +62,7 @@ router.get("/summary", async (_req, res, next) => {
         totalRevenue: revenueThisMonth,
         avgResponseTime: 45,
         messagesLast24h: Number(todayMsgs[0]?.count ?? 0),
-        newLeadsToday: allLeads.filter((l) => l.createdAt >= startOfDay).length,
+        newLeadsToday: allLeads.filter((l) => new Date(l.createdAt as any) >= startOfDay).length,
         closedDeals: wonDeals,
       }),
     );
@@ -114,7 +121,7 @@ router.get("/messages-timeline", async (_req, res, next) => {
         count: sql<number>`count(*)`,
       })
       .from(messages)
-      .where(gte(messages.createdAt, start))
+      .where(gte(messages.createdAt, toDbDate(start) as any))
       .groupBy(DATE_FN, messages.role);
 
     const map = new Map<string, { incoming: number; outgoing: number }>();
