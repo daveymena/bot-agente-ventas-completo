@@ -120,11 +120,14 @@ logger.info("[MessageHandler] Message receiver configured for default tenant");
         for (const p of productsData) {
           try {
             await db.insert(products).values({
+              // Conservar el id original para que la imagen (/images/products/{id}.jpg)
+              // coincida con el producto correcto y no se crucen.
+              ...(p.id ? { id: p.id } : {}),
               tenantId: 1,
               name: p.name,
               description: p.description || `Acceso completo a ${p.name}. Contenido actualizable, soporte técnico y descargas ilimitadas.`,
               price: p.price.toString(),
-              currency: p.currency || "USD",
+              currency: p.currency || "COP",
               categoryId: catId,
               category: p.category || "General",
               kind: p.kind || "digital",
