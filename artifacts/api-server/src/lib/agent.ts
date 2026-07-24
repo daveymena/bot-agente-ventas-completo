@@ -807,15 +807,10 @@ Si te dice "cambia el codigo de X", usa /code/read + /code/write.
   if (brain.strategy === "hardcoded_greeting") {
     if (!memory.hasGreeted) {
       console.log(`⚡ [FAST-TRACK] Primer saludo hardcodeado - ${ts()}`);
-      let greetingRaw = voice.phrases.greeting_new.replace(/\{name\}/g, customerName);
-      
-      // PARCHE DE SEGURIDAD: Evitar que el saludo inicial termine en pregunta
-      greetingRaw = greetingRaw.replace(/¿[^?]*\?\s*😊/g, "Aquí estamos listos para mostrarte lo que tenemos para ti. 😊");
-      greetingRaw = greetingRaw.replace(/¿[^?]*\?/g, "");
-
-      let raw = customerName !== "cliente"
-        ? `${voice.emojis.greeting} ¡Hola *${customerName}*! ${greetingRaw.replace(/^.*?Bienvenido\/?\w*/i, "").trim()}`
-        : greetingRaw;
+      const business = voice.businessName || "nuestra tienda";
+      const raw = (customerName && customerName !== "cliente")
+        ? `¡Hola ${customerName}! 👋 Bienvenido a *${business}*. ¿Qué estás buscando hoy?`
+        : `¡Hola! 👋 Bienvenido a *${business}*. ¿Qué estás buscando hoy?`;
 
       await saveAgentMessage(conversationId, raw, "greeting", { intent: "greeting", isHardcoded: true });
       await persistStage(conversationId, "greeting");
@@ -827,10 +822,10 @@ Si te dice "cambia el codigo de X", usa /code/read + /code/write.
     // Saludo de retorno — adaptado al estado emocional
     console.log(`⚡ [FAST-TRACK] Saludo de retorno hardcodeado - ${ts()}`);
     const emocion = brain.emotionalState;
-    const pre = emocion === "excited" ? `${voice.emojis.success} ¡Qué alegría verte de nuevo, *${customerName}*! 🔥`
-              : emocion === "frustrated" ? `${voice.emojis.guarantee} Hola de nuevo, *${customerName}*. Veamos cómo resolverlo 🤝`
-              : `${voice.emojis.success} ¡Qué gusto verte de nuevo, *${customerName}*! 🌟`;
-    const raw = `${pre}\n\n${voice.phrases.greeting_return.replace(/^(¡Qué gusto verte de nuevo!|Bienvenido)/i, "").trim() || "¿En qué puedo ayudarte hoy?"}`;
+    const nm = (customerName && customerName !== "cliente") ? ` ${customerName}` : "";
+    const raw = emocion === "frustrated"
+      ? `Hola de nuevo${nm}. Cuéntame qué pasó y lo resolvemos 🤝`
+      : `¡Hey${nm}! Qué bueno verte de nuevo 😊 ¿En qué te ayudo?`;
 
     await saveAgentMessage(conversationId, raw, memory.currentStage, { intent: "greeting", isHardcoded: true });
     const totalTime = Date.now() - startTime;
@@ -1167,13 +1162,12 @@ Si te dice "cambia el codigo de X", usa /code/read + /code/write.
       }
 
       // 5. Decorar con la voz del negocio (firma visual)
-      // Solo decorar si NO hay card (la card tiene su propio formato estricto)
-      const hasCard = /\[CARD:\s*\d+\s*\]/i.test(raw);
-      const isImportant = !hasCard && (brain.strategy === "ai_product_discovery" || brain.strategy === "ai_payment_close");
+      // Sin separadores ni firma mecánica: un vendedor humano no envía "━━━" ni
+      // firma cada mensaje. Dejamos el texto natural tal como lo generó la IA.
       raw = formatWithBrandVoice(raw, voice, {
-        addSeparator: isImportant,
-        addSignature: isImportant && voice.signature ? true : false,
-        isImportant,
+        addSeparator: false,
+        addSignature: false,
+        isImportant: false,
       });
 
       // ── Parser de partes ──────────────────────────────────────────────────

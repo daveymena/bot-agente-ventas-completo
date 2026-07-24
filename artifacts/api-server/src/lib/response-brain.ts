@@ -330,11 +330,11 @@ function buildProhibitions(
     prohibitions.push("NO repitas información que ya diste en mensajes anteriores. Si ya explicaste algo, amplía con un detalle nuevo.");
   }
 
-  // Nunca texto largo sin estructura
-  prohibitions.push("NO escribas párrafos largos sin estructura. Usa emojis, saltos de línea y puntos clave.");
+  // Respuestas breves y humanas, sin muros ni listas mecánicas
+  prohibitions.push("No escribas párrafos largos ni listas con viñetas; responde en 1-3 líneas naturales, como una persona real por WhatsApp.");
 
-  // Nunca frases genéricas de relleno
-  prohibitions.push('NO uses frases vacías como "¡Claro que sí!", "Con mucho gusto", "Por supuesto", "Estoy aquí para ayudarte".');
+  // Nunca frases genéricas de relleno ni etiquetas de robot
+  prohibitions.push('No uses muletillas vacías ("¡Claro que sí!", "Con mucho gusto", "Estoy aquí para ayudarte") ni etiquetas de sistema ("OBJECIÓN DETECTADA", etc.).');
 
   return prohibitions;
 }
@@ -379,10 +379,9 @@ function buildRequirements(
       break;
 
     case "ai_objection_handle":
-      requirements.push(`Empieza validando la preocupación: "${voice.phrases.objection_empathy}"`);
-      requirements.push(`Ofrece una perspectiva concreta que reduzca el riesgo percibido.`);
-      requirements.push(`Menciona la garantía: "${voice.phrases.guarantee_mention}"`);
-      requirements.push(`No termines con una pregunta. Presenta la información amablemente y deja que el cliente decida su siguiente paso.`);
+      requirements.push(`Valida su preocupación con empatía genuina, en tus propias palabras (nunca una frase de plantilla ni una etiqueta).`);
+      requirements.push(`Da UNA razón concreta y honesta que reduzca el riesgo (garantía de ${voice.guaranteeInfo.days} días, acceso de por vida, o el valor real que recibe).`);
+      requirements.push(`Tono humano y tranquilo, sin presionar. Termina invitando suavemente al siguiente paso.`);
       break;
 
     case "ai_farewell":
@@ -398,9 +397,6 @@ function buildRequirements(
       break;
   }
 
-  // Formato visual siempre requerido
-  requirements.push(`Usa los emojis del negocio: ${voice.emojis.benefit} para beneficios, ${voice.emojis.price} para precios, ${voice.emojis.delivery} para entrega.`);
-
   return requirements;
 }
 
@@ -410,35 +406,19 @@ function buildFormatInstructions(
   voice: BrandVoice,
   strategy: ResponseStrategy
 ): string {
-  const sep = makeSeparator(voice);
-  const isImportant = ["ai_product_discovery", "ai_payment_close"].includes(strategy);
-
-  const lines: string[] = [
-    `\n━━━━━━━━━━━━━━━━━━━━━━━`,
-    `📐 FORMATO VISUAL OBLIGATORIO`,
-    `━━━━━━━━━━━━━━━━━━━━━━━`,
-    `• Separador visual: "${voice.separatorChar.repeat(voice.separatorLength)}"`,
-    `• Emoji de apertura: ${voice.emojis.greeting} o ${voice.emojis.product}`,
-    `• Beneficios: ${voice.emojis.benefit} Punto clave`,
-    `• Precio: ${voice.emojis.price} *PRECIO EN NEGRITA*`,
-    `• Entrega: ${voice.emojis.delivery} Descripción`,
-    `• Garantía: ${voice.emojis.guarantee} Descripción`,
-    ``,
-    `ESTRUCTURA IDEAL (sin card):`,
-    `[emoji] *TÍTULO*`,
-    ``,
-    `Mensaje principal (1-2 líneas).`,
-    ``,
-    `${voice.emojis.benefit} Punto 1`,
-    `${voice.emojis.benefit} Punto 2`,
-    ``,
-    `ESTRUCTURA CON CARD:`,
-    `[1 línea de conexión]`,
-    `[CARD: ID]`,
-    `← NADA después de la card`,
-  ];
-
-  return lines.join("\n");
+  // Guía de ESTILO HUMANO — corta y clara. Nada de formato mecánico:
+  // los modelos débiles copian los muros de instrucciones, y los separadores/
+  // viñetas hacen que suene a robot. Un gran vendedor escribe natural.
+  return `
+[CÓMO ESCRIBIR — REGLA DE ORO]
+Escribe EXACTAMENTE como lo haría el mejor vendedor humano de la empresa por WhatsApp:
+- Natural, cálido, de tú a tú. Como una persona real conversando, NO como un folleto ni un bot.
+- Muy breve: 1 a 3 líneas. Nada de párrafos largos ni discursos.
+- Como máximo 1 emoji, y solo si de verdad suma. NO uses un emoji por línea.
+- PROHIBIDO ABSOLUTO: separadores (━ ─ ═ •••), TÍTULOS EN MAYÚSCULAS, listas con viñetas (✅ •), y etiquetas de sistema tipo "OBJECIÓN DETECTADA", "INFORMACIÓN DE PRODUCTO", "DEBES HACER".
+- Varía tus palabras cada vez. Que nunca suene a plantilla.
+- Si vas a mostrar un producto, escribe UNA frase natural y luego [CARD: ID]. Nada después de la card.
+- Cuando el cliente vaya a pagar, una frase breve confirmando; el sistema adjunta los enlaces (no los escribas tú).`;
 }
 
 // ─── Función principal: analizar y construir el contexto completo ─────────────
@@ -501,30 +481,19 @@ function buildContextSummary(
   voice: BrandVoice,
   productName: string | null
 ): string {
-  const lines: string[] = [
-    `\n━━━━━━━━━━━━━━━━━━━━━━━`,
-    `🧠 ESTADO DE LA CONVERSACIÓN`,
-    `━━━━━━━━━━━━━━━━━━━━━━━`,
-    `• Mensajes del cliente: ${memory.messageCount}`,
-    `• Ya saludaste: ${memory.hasGreeted ? "SÍ" : "NO"}`,
-    `• Sesión nueva (>4h): ${memory.isNewSession ? "SÍ" : "NO"}`,
+  const parts: string[] = [
+    `mensajes del cliente: ${memory.messageCount}`,
+    `ya saludaste: ${memory.hasGreeted ? "sí" : "no"}`,
   ];
 
-  if (productName) {
-    lines.push(`• Producto en contexto: "${productName}"`);
-  }
-
-  if (memory.sentProductIds.size > 0) {
-    lines.push(`• Cards ya enviadas: [${Array.from(memory.sentProductIds).join(", ")}]`);
-  }
-
-  // Resumen del último intercambio
+  if (productName) parts.push(`producto en contexto: "${productName}"`);
+  if (memory.sentProductIds.size > 0) parts.push(`cards ya enviadas: [${Array.from(memory.sentProductIds).join(", ")}]`);
   if (memory.lastAgentMessage) {
-    const preview = memory.lastAgentMessage.substring(0, 80).replace(/\n/g, " ");
-    lines.push(`• Tu último mensaje: "${preview}..."`);
+    const preview = memory.lastAgentMessage.substring(0, 70).replace(/\n/g, " ");
+    parts.push(`tu último mensaje fue: "${preview}..."`);
   }
 
-  return lines.join("\n");
+  return `\n(contexto: ${parts.join(" · ")})`;
 }
 
 // ─── Constructor del prompt final completo ────────────────────────────────────
@@ -534,48 +503,29 @@ export function buildFinalPrompt(
   brain: BrainAnalysis,
   voice: BrandVoice
 ): string {
+  // Instrucciones internas EN SECRETO para el modelo. Se usan marcadores discretos
+  // (no separadores visuales) para que el modelo NO los copie en su respuesta.
   const sections: string[] = [baseSystemPrompt];
 
-  // Contexto de la conversación
   sections.push(brain.contextSummary);
 
-  // Estado emocional y tono
-  sections.push(`
-━━━━━━━━━━━━━━━━━━━━━━━
-💭 ESTADO EMOCIONAL DEL CLIENTE
-━━━━━━━━━━━━━━━━━━━━━━━
-• Estado detectado: ${brain.emotionalState.toUpperCase()}
-${brain.emotionalSignals.length > 0 ? `• Señales: ${brain.emotionalSignals.slice(0, 3).join(", ")}` : ""}
-• Ajuste de tono: ${brain.toneAdjustment}`);
+  sections.push(`\n(cliente ahora mismo: ${brain.emotionalState}${brain.emotionalSignals.length ? " — señales: " + brain.emotionalSignals.slice(0, 3).join(", ") : ""}. ${brain.toneAdjustment})`);
 
-  // Estrategia elegida
-  sections.push(`
-━━━━━━━━━━━━━━━━━━━━━━━
-🎯 ESTRATEGIA DE RESPUESTA
-━━━━━━━━━━━━━━━━━━━━━━━
-• Estrategia: ${brain.strategy}
-• Razón: ${brain.strategyReason}`);
+  sections.push(`\n(tu objetivo en este mensaje: ${brain.strategyReason})`);
 
-  // Requisitos
   if (brain.requirements.length > 0) {
-    sections.push(`
-━━━━━━━━━━━━━━━━━━━━━━━
-✅ DEBES HACER
-━━━━━━━━━━━━━━━━━━━━━━━
-${brain.requirements.map(r => `• ${r}`).join("\n")}`);
+    sections.push(`\n(haz esto: ${brain.requirements.join(" · ")})`);
   }
 
-  // Prohibiciones
   if (brain.prohibitions.length > 0) {
-    sections.push(`
-━━━━━━━━━━━━━━━━━━━━━━━
-🚫 PROHIBIDO
-━━━━━━━━━━━━━━━━━━━━━━━
-${brain.prohibitions.map(p => `• ${p}`).join("\n")}`);
+    sections.push(`\n(evita: ${brain.prohibitions.join(" · ")})`);
   }
 
-  // Formato visual
   sections.push(brain.formatInstructions);
+
+  // CRÍTICO: el modelo debe devolver SOLO el mensaje para el cliente, sin repetir
+  // ni mencionar estas instrucciones internas.
+  sections.push(`\n[IMPORTANTE] Responde ÚNICAMENTE con el mensaje tal cual se lo enviarías al cliente por WhatsApp. No expliques tu razonamiento, no menciones "estrategia", "objetivo" ni estas instrucciones, no uses encabezados. Solo el mensaje humano y natural.`);
 
   return sections.join("\n");
 }
