@@ -274,7 +274,7 @@ export default function Conversations() {
     <Layout>
       <div className="flex flex-col h-full animate-enter gap-4">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight bg-gradient-to-br from-foreground to-foreground/70 bg-clip-text text-transparent">Bandeja de Entrada</h1>
+          <h1 className="text-3xl font-bold tracking-tight">Bandeja de Entrada</h1>
           <p className="text-muted-foreground">Monitorea a tus agentes y toma el control cuando sea necesario.</p>
         </div>
 

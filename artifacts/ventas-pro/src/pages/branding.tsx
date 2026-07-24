@@ -195,7 +195,7 @@ export default function Branding() {
         {/* Header */}
         <div className="flex flex-col md:flex-row md:justify-between md:items-end gap-4">
           <div>
-            <h1 className="text-3xl font-bold tracking-tight bg-gradient-to-br from-foreground to-foreground/70 bg-clip-text text-transparent">
+            <h1 className="text-3xl font-bold tracking-tight">
               Personalización de Marca
             </h1>
             <p className="text-muted-foreground mt-1">

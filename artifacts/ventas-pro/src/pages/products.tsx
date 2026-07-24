@@ -163,7 +163,7 @@ export default function Products() {
       <div className="flex flex-col gap-8 animate-enter">
         <div className="flex flex-col gap-2 md:flex-row md:justify-between md:items-end">
           <div>
-            <h1 className="text-3xl font-bold tracking-tight bg-gradient-to-br from-foreground to-foreground/70 bg-clip-text text-transparent">Catálogo de Productos</h1>
+            <h1 className="text-2xl font-semibold tracking-tight">Catálogo de Productos</h1>
             <p className="text-muted-foreground mt-1">Organiza tus ofertas para que los agentes IA puedan recomendarlas.</p>
           </div>
           <div className="flex items-center gap-3">
@@ -187,7 +187,7 @@ export default function Products() {
         </div>
 
         {/* Filters */}
-        <div className="glass-panel p-2 rounded-2xl flex flex-col md:flex-row gap-4 items-center justify-between sticky top-[80px] z-10">
+        <div className="glass-panel p-2 rounded-xl flex flex-col md:flex-row gap-4 items-center justify-between sticky top-[72px] z-10">
           <ScrollArea className="w-full md:w-auto max-w-[calc(100vw-3rem)]">
             <div className="flex gap-2 pb-2 md:pb-0 px-2 items-center">
               <Button 
@@ -276,7 +276,7 @@ export default function Products() {
               const catColor = cat?.color || "hsl(var(--primary))";
               
               return (
-                <Card key={product.id} className={`group flex flex-col overflow-hidden transition-all duration-300 hover:-translate-y-1 hover:shadow-xl ${!product.isActive ? 'opacity-60 grayscale-[0.3]' : ''}`}>
+                <Card key={product.id} className={`group flex flex-col overflow-hidden transition-shadow hover:shadow-md ${!product.isActive ? 'opacity-60' : ''}`}>
                   {/* Image Header */}
                   <div className="relative aspect-video w-full overflow-hidden bg-muted">
                     {product.imageUrl ? (

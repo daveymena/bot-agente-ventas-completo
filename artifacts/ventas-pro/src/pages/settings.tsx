@@ -142,7 +142,7 @@ export default function Settings() {
       <div className="flex flex-col gap-8 max-w-5xl mx-auto animate-enter">
         <div className="flex flex-col md:flex-row md:justify-between md:items-end gap-4">
           <div>
-            <h1 className="text-3xl font-bold tracking-tight bg-gradient-to-br from-foreground to-foreground/70 bg-clip-text text-transparent">Configuración</h1>
+            <h1 className="text-3xl font-bold tracking-tight">Configuración</h1>
             <p className="text-muted-foreground mt-1">Preferencias generales del negocio y comportamiento de IA.</p>
           </div>
         </div>

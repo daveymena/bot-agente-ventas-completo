@@ -121,7 +121,7 @@ export default function ArchitectVisual() {
     <Layout>
       <div className="flex flex-col gap-6 animate-enter h-[calc(100vh-10rem)]">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight bg-gradient-to-br from-foreground to-foreground/70 bg-clip-text text-transparent">
+          <h1 className="text-3xl font-bold tracking-tight">
             Arquitecto Visual
           </h1>
           <p className="text-muted-foreground mt-1">Diseña agentes IA con vista previa interactiva y simulaciones.</p>
