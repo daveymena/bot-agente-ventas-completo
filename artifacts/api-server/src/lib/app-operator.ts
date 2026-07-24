@@ -1,0 +1,279 @@
+/**
+ * ============================================================
+ * APP OPERATOR — Arquitecto IA con poderes reales de ejecución
+ * ============================================================
+ *
+ * A diferencia del Arquitecto clásico (que solo devuelve una config del agente),
+ * el Operador PUEDE EJECUTAR acciones reales sobre la aplicación: crear/editar
+ * productos, categorías, el agente, settings y la tienda — como si fuera el
+ * programador/administrador del sistema, todo por conversación.
+ *
+ * Protocolo portable (funciona con cualquier modelo OpenAI-compatible):
+ * el modelo responde SIEMPRE en JSON:
+ *   { "reply": "...", "actions": [ { "tool": "create_product", "args": {...} } ], "done": true|false }
+ * El backend ejecuta cada acción, devuelve los resultados al modelo y repite
+ * hasta que el modelo marca done:true (o se alcanza el límite de pasos).
+ */
+
+import { db, products, productCategories, agents, settings, stores } from "@workspace/db";
+import { eq, desc } from "drizzle-orm";
+import { logger } from "./logger";
+
+export interface OperatorContext {
+  tenantId: number;
+}
+
+export interface ToolResult {
+  ok: boolean;
+  summary: string;
+  data?: any;
+}
+
+interface ToolDef {
+  name: string;
+  description: string;
+  args: string; // descripción de argumentos para el prompt
+  run: (args: any, ctx: OperatorContext) => Promise<ToolResult>;
+}
+
+const num = (v: any) => (v === undefined || v === null || v === "" ? undefined : Number(v));
+
+// ─── Registro de herramientas ────────────────────────────────────────────────
+export const TOOLS: ToolDef[] = [
+  // ── Lectura / diagnóstico ──
+  {
+    name: "analyze_system",
+    description: "Ver un resumen del estado del sistema (conteos, productos sin imagen, etc.)",
+    args: "{}",
+    run: async (_args, ctx) => {
+      const prods = await db.select().from(products).where(eq(products.tenantId, ctx.tenantId));
+      const cats = await db.select().from(productCategories).where(eq(productCategories.tenantId, ctx.tenantId));
+      const ags = await db.select().from(agents).where(eq(agents.tenantId, ctx.tenantId));
+      const [st] = await db.select().from(settings).limit(1);
+      const stors = await db.select().from(stores).where(eq(stores.tenantId, ctx.tenantId));
+      const noImg = prods.filter((p) => !p.imageUrl).length;
+      return {
+        ok: true,
+        summary: `Productos: ${prods.length} (${noImg} sin imagen) · Categorías: ${cats.length} · Agentes: ${ags.length} · Tiendas: ${stors.length}`,
+        data: {
+          products: prods.length, productsWithoutImage: noImg, categories: cats.length,
+          agents: ags.length, stores: stors.length,
+          businessName: st?.businessName, aiProvider: st?.aiProvider,
+        },
+      };
+    },
+  },
+  {
+    name: "list_products",
+    description: "Listar productos (id, nombre, precio, categoría). Úsalo antes de editar para conocer los ids reales.",
+    args: '{ "limit"?: number }',
+    run: async (args, ctx) => {
+      const rows = await db.select().from(products).where(eq(products.tenantId, ctx.tenantId)).limit(num(args.limit) || 50);
+      return {
+        ok: true,
+        summary: `${rows.length} productos`,
+        data: rows.map((p) => ({ id: p.id, name: p.name, price: p.price, currency: p.currency, category: p.category, isActive: p.isActive, hasImage: !!p.imageUrl })),
+      };
+    },
+  },
+  {
+    name: "list_categories",
+    description: "Listar categorías de productos (id, nombre).",
+    args: "{}",
+    run: async (_args, ctx) => {
+      const rows = await db.select().from(productCategories).where(eq(productCategories.tenantId, ctx.tenantId));
+      return { ok: true, summary: `${rows.length} categorías`, data: rows.map((c) => ({ id: c.id, name: c.name })) };
+    },
+  },
+  {
+    name: "get_agent",
+    description: "Ver la configuración del agente de ventas actual.",
+    args: "{}",
+    run: async (_args, ctx) => {
+      const [a] = await db.select().from(agents).where(eq(agents.tenantId, ctx.tenantId)).orderBy(desc(agents.isActive)).limit(1);
+      if (!a) return { ok: true, summary: "No hay agente configurado", data: null };
+      return { ok: true, summary: `Agente: ${a.name} (${a.role})`, data: { id: a.id, name: a.name, role: a.role, tone: a.tone, isActive: a.isActive } };
+    },
+  },
+  {
+    name: "get_settings",
+    description: "Ver la configuración del negocio (nombre, descripción, proveedor de IA, etc.).",
+    args: "{}",
+    run: async () => {
+      const [s] = await db.select().from(settings).limit(1);
+      if (!s) return { ok: true, summary: "Sin settings", data: null };
+      return { ok: true, summary: "Settings del negocio", data: { businessName: s.businessName, businessDescription: s.businessDescription, timezone: s.timezone, aiProvider: s.aiProvider, autoReplyEnabled: s.autoReplyEnabled } };
+    },
+  },
+
+  // ── Productos (CRUD) ──
+  {
+    name: "create_product",
+    description: "Crear un producto o servicio nuevo.",
+    args: '{ "name": string (req), "price"?: number, "currency"?: string, "description"?: string, "category"?: string, "categoryId"?: number, "kind"?: "digital"|"service"|"physical", "imageUrl"?: string, "features"?: string[], "deliveryLink"?: string, "paymentLink"?: string, "isActive"?: boolean }',
+    run: async (args, ctx) => {
+      if (!args.name) return { ok: false, summary: "Falta 'name'" };
+      const [row] = await db.insert(products).values({
+        tenantId: ctx.tenantId,
+        name: String(args.name),
+        description: args.description || "",
+        price: (num(args.price) ?? 0) as any,
+        currency: args.currency || "COP",
+        category: args.category || "",
+        categoryId: num(args.categoryId) ?? null,
+        kind: args.kind || "digital",
+        imageUrl: args.imageUrl || "",
+        features: Array.isArray(args.features) ? args.features : [],
+        deliveryLink: args.deliveryLink || "",
+        paymentLink: args.paymentLink || "",
+        highlight: args.highlight || "",
+        isActive: args.isActive !== false,
+      } as any).returning();
+      return { ok: true, summary: `Producto creado: #${row.id} ${row.name}`, data: { id: row.id } };
+    },
+  },
+  {
+    name: "update_product",
+    description: "Actualizar campos de un producto existente por id. Solo se cambian los campos enviados.",
+    args: '{ "id": number (req), "name"?, "price"?, "currency"?, "description"?, "category"?, "categoryId"?, "kind"?, "imageUrl"?, "features"?: string[], "deliveryLink"?, "paymentLink"?, "highlight"?, "isActive"?: boolean }',
+    run: async (args, ctx) => {
+      const id = num(args.id);
+      if (!id) return { ok: false, summary: "Falta 'id'" };
+      const [existing] = await db.select().from(products).where(eq(products.id, id)).limit(1);
+      if (!existing || existing.tenantId !== ctx.tenantId) return { ok: false, summary: `Producto #${id} no encontrado` };
+      const patch: Record<string, any> = {};
+      for (const k of ["name", "description", "currency", "category", "kind", "imageUrl", "deliveryLink", "paymentLink", "highlight"]) {
+        if (args[k] !== undefined) patch[k] = args[k];
+      }
+      if (args.price !== undefined) patch.price = num(args.price);
+      if (args.categoryId !== undefined) patch.categoryId = num(args.categoryId);
+      if (args.features !== undefined) patch.features = Array.isArray(args.features) ? args.features : existing.features;
+      if (args.isActive !== undefined) patch.isActive = !!args.isActive;
+      if (Object.keys(patch).length === 0) return { ok: false, summary: "Nada que actualizar" };
+      await db.update(products).set(patch).where(eq(products.id, id));
+      return { ok: true, summary: `Producto #${id} actualizado (${Object.keys(patch).join(", ")})` };
+    },
+  },
+  {
+    name: "delete_product",
+    description: "Eliminar un producto por id. Acción destructiva.",
+    args: '{ "id": number (req) }',
+    run: async (args, ctx) => {
+      const id = num(args.id);
+      if (!id) return { ok: false, summary: "Falta 'id'" };
+      const [existing] = await db.select().from(products).where(eq(products.id, id)).limit(1);
+      if (!existing || existing.tenantId !== ctx.tenantId) return { ok: false, summary: `Producto #${id} no encontrado` };
+      await db.delete(products).where(eq(products.id, id));
+      return { ok: true, summary: `Producto #${id} eliminado` };
+    },
+  },
+
+  // ── Categorías ──
+  {
+    name: "create_category",
+    description: "Crear una categoría de productos.",
+    args: '{ "name": string (req) }',
+    run: async (args, ctx) => {
+      if (!args.name) return { ok: false, summary: "Falta 'name'" };
+      const [row] = await db.insert(productCategories).values({ tenantId: ctx.tenantId, name: String(args.name) } as any).returning();
+      return { ok: true, summary: `Categoría creada: #${row.id} ${row.name}`, data: { id: row.id } };
+    },
+  },
+
+  // ── Agente ──
+  {
+    name: "update_agent",
+    description: "Actualizar el agente de ventas (nombre, rol, tono, prompt, activo). Crea uno si no existe.",
+    args: '{ "name"?, "role"?, "tone"?, "systemPrompt"?, "isActive"?: boolean }',
+    run: async (args, ctx) => {
+      const [existing] = await db.select().from(agents).where(eq(agents.tenantId, ctx.tenantId)).limit(1);
+      const patch: Record<string, any> = {};
+      for (const k of ["name", "role", "tone", "systemPrompt"]) if (args[k] !== undefined) patch[k] = args[k];
+      if (args.isActive !== undefined) patch.isActive = !!args.isActive;
+      if (existing) {
+        if (Object.keys(patch).length === 0) return { ok: false, summary: "Nada que actualizar en el agente" };
+        patch.updatedAt = new Date().toISOString();
+        await db.update(agents).set(patch).where(eq(agents.id, existing.id));
+        return { ok: true, summary: `Agente #${existing.id} actualizado (${Object.keys(patch).join(", ")})` };
+      }
+      const [row] = await db.insert(agents).values({
+        tenantId: ctx.tenantId,
+        name: args.name || "Asistente",
+        role: args.role || "Vendedor",
+        tone: args.tone || "profesional",
+        language: "es",
+        model: "gpt-4o-mini",
+        systemPrompt: args.systemPrompt || "Eres un asistente de ventas.",
+        stages: [],
+        isActive: args.isActive !== false,
+      } as any).returning();
+      return { ok: true, summary: `Agente creado: #${row.id} ${row.name}`, data: { id: row.id } };
+    },
+  },
+
+  // ── Settings ──
+  {
+    name: "update_settings",
+    description: "Actualizar la configuración del negocio.",
+    args: '{ "businessName"?, "businessDescription"?, "timezone"?, "aiProvider"?, "autoReplyEnabled"?: boolean, "offHoursMessage"? }',
+    run: async (args) => {
+      const [s] = await db.select().from(settings).limit(1);
+      if (!s) return { ok: false, summary: "No hay settings para actualizar" };
+      const patch: Record<string, any> = {};
+      for (const k of ["businessName", "businessDescription", "timezone", "aiProvider", "offHoursMessage"]) if (args[k] !== undefined) patch[k] = args[k];
+      if (args.autoReplyEnabled !== undefined) patch.autoReplyEnabled = !!args.autoReplyEnabled;
+      if (Object.keys(patch).length === 0) return { ok: false, summary: "Nada que actualizar" };
+      await db.update(settings).set(patch).where(eq(settings.id, s.id));
+      return { ok: true, summary: `Settings actualizados (${Object.keys(patch).join(", ")})` };
+    },
+  },
+
+  // ── Tienda ──
+  {
+    name: "create_store",
+    description: "Crear la tienda pública del negocio (necesaria para que /tienda muestre catálogo).",
+    args: '{ "name": string (req), "slug": string (req, minúsculas y guiones) }',
+    run: async (args, ctx) => {
+      if (!args.name || !args.slug) return { ok: false, summary: "Faltan 'name' y/o 'slug'" };
+      const existing = await db.select().from(stores).where(eq(stores.slug, String(args.slug))).limit(1);
+      if (existing.length) return { ok: false, summary: `Ya existe una tienda con slug '${args.slug}'` };
+      const [row] = await db.insert(stores).values({ tenantId: ctx.tenantId, name: String(args.name), slug: String(args.slug) } as any).returning();
+      return { ok: true, summary: `Tienda creada: #${row.id} ${row.name} (/${row.slug})`, data: { id: row.id } };
+    },
+  },
+];
+
+const TOOL_MAP = new Map(TOOLS.map((t) => [t.name, t]));
+
+export async function executeAction(tool: string, args: any, ctx: OperatorContext): Promise<ToolResult> {
+  const def = TOOL_MAP.get(tool);
+  if (!def) return { ok: false, summary: `Herramienta desconocida: ${tool}` };
+  try {
+    return await def.run(args || {}, ctx);
+  } catch (e: any) {
+    logger.error({ tool, err: e?.message }, "[AppOperator] Tool error");
+    return { ok: false, summary: `Error ejecutando ${tool}: ${e?.message}` };
+  }
+}
+
+export function buildToolsDoc(): string {
+  return TOOLS.map((t) => `- ${t.name}: ${t.description}\n  args: ${t.args}`).join("\n");
+}
+
+export const OPERATOR_SYSTEM_PROMPT = `Eres el ARQUITECTO/OPERADOR del sistema — actúas como el programador y administrador de la aplicación.
+Puedes EJECUTAR acciones reales sobre la app usando HERRAMIENTAS. No describas los pasos: EJECÚTALOS con las herramientas.
+
+HERRAMIENTAS DISPONIBLES:
+${"${TOOLS}"}
+
+REGLAS:
+1. Responde SIEMPRE en JSON válido con esta forma exacta:
+   { "reply": "mensaje breve y claro para el admin", "actions": [ { "tool": "nombre", "args": { ... } } ], "done": true|false }
+2. Si necesitas datos reales (ids, nombres) primero usa herramientas de lectura (list_products, list_categories, analyze_system) y espera los resultados.
+3. Pon "done": false mientras te falten pasos; te devolveré los resultados y podrás continuar.
+4. Cuando la tarea esté completa, responde con "actions": [] y "done": true, resumiendo lo hecho en "reply".
+5. Para acciones destructivas (delete_product) confirma en el "reply" lo que harás; ejecútalas solo si el admin lo pidió claramente.
+6. No inventes ids ni datos: si no los conoces, léelos primero.
+7. Haz EXACTAMENTE lo que el admin pide, ni más ni menos. No crees ni modifiques cosas que no fueron solicitadas.
+8. Si el admin solo pregunta o pide un diagnóstico, usa solo herramientas de lectura y responde; no cambies nada.
+9. Sé conciso en "reply" (español).`;

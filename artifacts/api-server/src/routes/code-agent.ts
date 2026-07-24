@@ -12,6 +12,7 @@ import {
 } from "../lib/optimized-rotation";
 import { getG4FResponse } from "../lib/providers/g4f-provider";
 import { G4F_ENABLED } from "../config/g4f.config";
+import { OPERATOR_SYSTEM_PROMPT, buildToolsDoc, executeAction } from "../lib/app-operator";
 
 const router = Router();
 
@@ -983,6 +984,117 @@ router.get("/current", async (req: TenantRequest, res, next) => {
     });
   } catch (e) {
     logger.error(e, "[Architect] Error getting current agent:");
+    return next(e);
+  }
+});
+
+/**
+ * APP OPERATOR — Arquitecto IA con ejecución real de acciones.
+ * El modelo decide acciones (JSON) y el backend las ejecuta contra la BD en un
+ * bucle, como si fuera el programador/administrador de la app.
+ * POST /api/code-agent/operator  { prompt, history }
+ */
+router.post("/operator", async (req: TenantRequest, res, next) => {
+  try {
+    const tenantId = req.tenant?.id;
+    if (!tenantId) return res.status(401).json({ message: "Tenant not resolved" });
+
+    const { prompt, history = [] } = req.body;
+    if (!prompt) return res.status(400).json({ error: "prompt requerido" });
+
+    const [dbSettings] = await db.select().from(settings).limit(1);
+
+    // Lista de proveedores a intentar, con fallback y sin duplicados
+    const seenP = new Set<string>();
+    const candidates: { name: string; config: AIProviderConfig }[] = [];
+    const pushCfg = (name: string, cfg: AIProviderConfig | null) => {
+      if (!cfg) return;
+      const key = cfg.baseUrl + "|" + cfg.model;
+      if (seenP.has(key)) return;
+      seenP.add(key);
+      candidates.push({ name, config: cfg });
+    };
+    if (dbSettings?.aiProvider) pushCfg(dbSettings.aiProvider, getProviderConfigFromSettings(dbSettings));
+    pushCfg("opencode", getProviderConfig("opencode"));
+    pushCfg("groq", getProviderConfig("groq"));
+    pushCfg("github", getProviderConfig("github"));
+    pushCfg("nvidia", getProviderConfig("nvidia"));
+    pushCfg("github_copilot_internal", getProviderConfig("github_copilot_internal"));
+    if (candidates.length === 0) return res.status(500).json({ error: "No hay motor de IA configurado" });
+
+    // Llama a la IA probando proveedores en orden hasta que uno responda
+    const callAI = async (msgs: any[]): Promise<string | null> => {
+      for (const cand of candidates) {
+        const cfg: AIProviderConfig = { ...cand.config };
+        try {
+          if (cfg.baseUrl === "https://api.githubcopilot.com") {
+            const session = await getCopilotSessionToken(cfg.apiKey);
+            if (session) cfg.apiKey = session.token;
+          }
+          const client = createAIClient(cfg);
+          const resp = await client.chat.completions.create({
+            model: cfg.model,
+            messages: msgs,
+            temperature: 0.2,
+            response_format: { type: "json_object" },
+          });
+          const c = resp.choices[0]?.message?.content;
+          if (c) return c;
+        } catch (e: any) {
+          logger.warn({ provider: cand.name, err: e?.message }, "[AppOperator] provider failed, trying next");
+        }
+      }
+      return null;
+    };
+
+    const sys = OPERATOR_SYSTEM_PROMPT.replace("${TOOLS}", buildToolsDoc());
+    const ctx = { tenantId };
+    const actionsLog: any[] = [];
+    const messages: any[] = [
+      { role: "system", content: sys },
+      ...history,
+      { role: "user", content: String(prompt) },
+    ];
+
+    let finalReply = "";
+    for (let step = 0; step < 6; step++) {
+      const rawAI = await callAI(messages);
+      if (!rawAI) {
+        return res.status(502).json({ error: "Todos los proveedores de IA fallaron", actions: actionsLog });
+      }
+      let content = rawAI.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
+      let parsed: any;
+      try {
+        parsed = JSON.parse(content);
+      } catch {
+        finalReply = content;
+        break;
+      }
+
+      const actions = Array.isArray(parsed.actions) ? parsed.actions : [];
+      finalReply = parsed.reply || finalReply;
+      if (actions.length === 0) break;
+
+      const results: any[] = [];
+      for (const a of actions) {
+        const r = await executeAction(a.tool, a.args || {}, ctx);
+        results.push({ tool: a.tool, args: a.args, ok: r.ok, summary: r.summary, data: r.data });
+        actionsLog.push({ tool: a.tool, args: a.args, ok: r.ok, summary: r.summary });
+      }
+
+      messages.push({ role: "assistant", content });
+      messages.push({
+        role: "user",
+        content: "RESULTADOS DE LAS ACCIONES:\n" + JSON.stringify(results) + '\n\nContinúa la tarea. Si ya terminaste responde {"reply":"...","actions":[],"done":true}.',
+      });
+
+      if (parsed.done) break;
+    }
+
+    logger.info({ tenantId, actions: actionsLog.length }, "[AppOperator] Operator run completed");
+    return res.json({ reply: finalReply, actions: actionsLog, actionsCount: actionsLog.length });
+  } catch (e) {
+    logger.error(e, "[AppOperator] Error");
     return next(e);
   }
 });
