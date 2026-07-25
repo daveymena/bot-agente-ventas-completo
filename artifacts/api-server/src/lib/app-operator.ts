@@ -38,6 +38,26 @@ interface ToolDef {
 
 const num = (v: any) => (v === undefined || v === null || v === "" ? undefined : Number(v));
 
+// Lee los nombres de archivos/carpetas de una carpeta PÚBLICA de Google Drive
+// vía la vista incrustada (embeddedfolderview). Devuelve [] si es privada.
+async function readDriveFolder(folderId: string): Promise<string[]> {
+  try {
+    const res = await fetch(`https://drive.google.com/embeddedfolderview?id=${folderId}#list`, {
+      headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/122 Safari/537.36" },
+    });
+    if (!res.ok) return [];
+    const html = await res.text();
+    const matches = [...html.matchAll(/flip-entry-title[^>]*>([^<]+)<\/div>/gi)].map((m) => m[1].trim());
+    // Ordenar por número inicial si lo tienen (1., 2., 10.)
+    return matches.sort((a, b) => {
+      const na = parseInt(a), nb = parseInt(b);
+      return (isNaN(na) ? 1e9 : na) - (isNaN(nb) ? 1e9 : nb);
+    });
+  } catch {
+    return [];
+  }
+}
+
 // Convierte HTML a texto legible: prioriza <title> y meta description, luego
 // quita scripts/estilos/etiquetas y colapsa espacios.
 function htmlToText(html: string): string {
@@ -270,9 +290,17 @@ export const TOOLS: ToolDef[] = [
     run: async (args) => {
       const url = String(args.url || "").trim();
       if (!/^https?:\/\//i.test(url)) return { ok: false, summary: "URL inválida (debe empezar por http/https)" };
-      if (/drive\.google\.com\/drive\/folders/i.test(url)) {
-        return { ok: false, summary: "Es una carpeta privada de Google Drive: no se puede leer por URL (requiere login). Pídele al admin el contenido/detalles directamente." };
+
+      // Carpeta de Google Drive → si es PÚBLICA, listar sus archivos/módulos
+      const driveFolder = url.match(/drive\.google\.com\/drive\/folders\/([\w-]+)/i)?.[1];
+      if (driveFolder) {
+        const files = await readDriveFolder(driveFolder);
+        if (files.length === 0) {
+          return { ok: false, summary: "No pude leer la carpeta de Drive (probablemente es privada). Compártela como 'cualquiera con el enlace' o pásame el contenido." };
+        }
+        return { ok: true, summary: `Carpeta de Drive leída: ${files.length} elementos`, data: { modules: files, text: "Contenido de la carpeta:\n- " + files.join("\n- ") } };
       }
+
       try {
         const res = await fetch(url, {
           headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122 Safari/537.36" },
