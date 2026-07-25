@@ -12,7 +12,38 @@ import {
 } from "../lib/optimized-rotation";
 import { getG4FResponse } from "../lib/providers/g4f-provider";
 import { G4F_ENABLED } from "../config/g4f.config";
-import { OPERATOR_SYSTEM_PROMPT, buildToolsDoc, executeAction } from "../lib/app-operator";
+import { OPERATOR_SYSTEM_PROMPT, buildToolsDoc, executeAction, isReadOnlyTool, verifyMutation } from "../lib/app-operator";
+import {
+  loadArchitectHistory, saveArchitectTurn, getPendingPlan, setPendingPlan,
+  clearPendingPlan, isApproval, isRejection,
+} from "../lib/architect-store";
+
+// Descripción legible de una acción del plan, para mostrarla al admin antes de ejecutar.
+function describePlannedAction(a: { tool: string; args: any }): string {
+  const g = a.args || {};
+  switch (a.tool) {
+    case "update_product":
+      return `Actualizar producto ${g.id ?? g.name ?? "?"}: ${Object.entries(g).filter(([k]) => k !== "id").map(([k, v]) => `${k}=${v}`).join(", ")}`;
+    case "create_product":
+      return `Crear producto "${g.name ?? "?"}" (${g.price ?? "?"} ${g.currency ?? ""})`;
+    case "delete_product":
+      return `⚠️ ELIMINAR producto ${g.id ?? "?"}`;
+    case "create_category":
+      return `Crear categoría "${g.name ?? "?"}"`;
+    case "update_agent":
+      return `Actualizar el agente: ${Object.entries(g).map(([k, v]) => `${k}=${String(v).slice(0, 40)}`).join(", ")}`;
+    case "update_settings":
+      return `Actualizar configuración: ${Object.entries(g).map(([k, v]) => `${k}=${String(v).slice(0, 40)}`).join(", ")}`;
+    case "create_store":
+      return `Crear tienda "${g.name ?? g.slug ?? "?"}"`;
+    case "fb_create_ad":
+      return `💰 Crear campaña de Facebook para producto ${g.productId ?? "?"} (presupuesto ${g.dailyBudget ?? 5000}/día) — se crea EN PAUSA, no gasta hasta que la actives`;
+    case "fb_sync_catalog":
+      return `Sincronizar catálogo de productos a Facebook`;
+    default:
+      return `${a.tool}: ${JSON.stringify(g).slice(0, 80)}`;
+  }
+}
 
 const router = Router();
 
@@ -1049,18 +1080,58 @@ router.post("/operator", async (req: TenantRequest, res, next) => {
 
     const sys = OPERATOR_SYSTEM_PROMPT.replace("${TOOLS}", buildToolsDoc());
     const ctx = { tenantId };
-    const actionsLog: any[] = [];
+    const sessionId: string = (req.body?.sessionId as string) || "default";
+
+    // ── MEMORIA PERSISTENTE: cargar la conversación guardada en el servidor ──
+    // Así el Architect recuerda aunque el navegador se haya cerrado. Si el
+    // frontend manda history y no hay nada guardado, se usa ese como respaldo.
+    const persisted = await loadArchitectHistory(tenantId, sessionId);
+    const convo = persisted.length > 0 ? persisted : (Array.isArray(history) ? history : []);
+    await saveArchitectTurn(tenantId, sessionId, "user", String(prompt));
+
+    // ── ¿Hay un PLAN PENDIENTE esperando confirmación? ──
+    const pending = await getPendingPlan(tenantId, sessionId);
+    if (pending && pending.actions.length > 0) {
+      if (isApproval(String(prompt))) {
+        // EJECUTAR el plan aprobado, con VERIFICACIÓN tras cada cambio
+        const executed: any[] = [];
+        const lines: string[] = [];
+        for (const a of pending.actions) {
+          const r = await executeAction(a.tool, a.args || {}, ctx);
+          const verification = r.ok ? await verifyMutation(a.tool, a.args || {}, ctx) : "";
+          executed.push({ tool: a.tool, args: a.args, ok: r.ok, summary: r.summary, verification });
+          lines.push(`${r.ok ? "✅" : "❌"} ${r.summary}${verification ? `\n   ${verification}` : ""}`);
+        }
+        await clearPendingPlan(tenantId, sessionId);
+        const reply = `Listo, ejecuté el plan:\n\n${lines.join("\n")}`;
+        await saveArchitectTurn(tenantId, sessionId, "assistant", reply);
+        logger.info({ tenantId, executed: executed.length }, "[AppOperator] Plan aprobado y ejecutado");
+        return res.json({ reply, executed, status: "executed" });
+      }
+      if (isRejection(String(prompt))) {
+        await clearPendingPlan(tenantId, sessionId);
+        // Continúa abajo para re-planificar según la nueva instrucción.
+      } else {
+        // Ni aprobó ni rechazó claramente → re-planificamos con su mensaje
+        // (puede estar ajustando el plan). Limpiamos el plan viejo.
+        await clearPendingPlan(tenantId, sessionId);
+      }
+    }
+
     const messages: any[] = [
       { role: "system", content: sys },
-      ...history,
+      ...convo.map((m: any) => ({ role: m.role, content: m.content })),
       { role: "user", content: String(prompt) },
     ];
 
+    // ── FASE PLAN: ejecutamos SOLO lecturas (mirar antes de actuar); las
+    //    mutaciones se ACUMULAN como plan y NO se ejecutan hasta aprobación. ──
     let finalReply = "";
+    const plannedActions: any[] = [];
     for (let step = 0; step < 6; step++) {
       const rawAI = await callAI(messages);
       if (!rawAI) {
-        return res.status(502).json({ error: "Todos los proveedores de IA fallaron", actions: actionsLog });
+        return res.status(502).json({ error: "Todos los proveedores de IA fallaron" });
       }
       let content = rawAI.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
       let parsed: any;
@@ -1073,26 +1144,57 @@ router.post("/operator", async (req: TenantRequest, res, next) => {
 
       const actions = Array.isArray(parsed.actions) ? parsed.actions : [];
       finalReply = parsed.reply || finalReply;
-      if (actions.length === 0) break;
 
-      const results: any[] = [];
-      for (const a of actions) {
-        const r = await executeAction(a.tool, a.args || {}, ctx);
-        results.push({ tool: a.tool, args: a.args, ok: r.ok, summary: r.summary, data: r.data });
-        actionsLog.push({ tool: a.tool, args: a.args, ok: r.ok, summary: r.summary });
+      const reads = actions.filter((a: any) => isReadOnlyTool(a.tool));
+      const mutations = actions.filter((a: any) => !isReadOnlyTool(a.tool));
+
+      // Si hay MUTACIONES → ya tenemos el plan de cambios. Ejecutamos las
+      // lecturas de este turno (para grounding) pero PARAMOS aquí: no seguimos
+      // el loop, para no recolectar la misma mutación dos veces.
+      if (mutations.length > 0) {
+        for (const m of mutations) plannedActions.push({ tool: m.tool, args: m.args || {} });
+        for (const a of reads) await executeAction(a.tool, a.args || {}, ctx);
+        break;
       }
 
-      messages.push({ role: "assistant", content });
-      messages.push({
-        role: "user",
-        content: "RESULTADOS DE LAS ACCIONES:\n" + JSON.stringify(results) + '\n\nContinúa la tarea. Si ya terminaste responde {"reply":"...","actions":[],"done":true}.',
-      });
+      // Solo lecturas → ejecutar y devolver datos reales para que la IA se apoye
+      if (reads.length > 0) {
+        const results: any[] = [];
+        for (const a of reads) {
+          const r = await executeAction(a.tool, a.args || {}, ctx);
+          results.push({ tool: a.tool, ok: r.ok, summary: r.summary, data: r.data });
+        }
+        messages.push({ role: "assistant", content });
+        messages.push({
+          role: "user",
+          content: "RESULTADOS DE LECTURAS (datos reales):\n" + JSON.stringify(results) +
+            '\n\nUsa estos datos reales. Si vas a cambiar algo, propón el plan con ids/valores reales y pide confirmación. Responde {"reply":"...","actions":[...],"done":true}.',
+        });
+        if (parsed.done) break;
+        continue;
+      }
 
-      if (parsed.done) break;
+      // No hay acciones → respuesta informativa, terminamos.
+      break;
     }
 
-    logger.info({ tenantId, actions: actionsLog.length }, "[AppOperator] Operator run completed");
-    return res.json({ reply: finalReply, actions: actionsLog, actionsCount: actionsLog.length });
+    // ── ¿Quedó un plan de cambios? → guardar como pendiente y pedir confirmación ──
+    if (plannedActions.length > 0) {
+      const planText = plannedActions
+        .map((a, i) => `${i + 1}. ${describePlannedAction(a)}`)
+        .join("\n");
+      const reply =
+        `${finalReply ? finalReply + "\n\n" : ""}📋 *Plan propuesto (requiere tu confirmación):*\n${planText}\n\n¿Confirmas? Responde *sí* para ejecutar, o dime qué ajusto.`;
+      await setPendingPlan(tenantId, sessionId, plannedActions, reply);
+      await saveArchitectTurn(tenantId, sessionId, "assistant", reply);
+      logger.info({ tenantId, planned: plannedActions.length }, "[AppOperator] Plan propuesto, esperando confirmación");
+      return res.json({ reply, plan: plannedActions, status: "awaiting_confirmation" });
+    }
+
+    // Solo lectura / respuesta informativa → sin cambios que confirmar
+    await saveArchitectTurn(tenantId, sessionId, "assistant", finalReply);
+    logger.info({ tenantId }, "[AppOperator] Respuesta informativa (sin cambios)");
+    return res.json({ reply: finalReply, status: "info" });
   } catch (e) {
     logger.error(e, "[AppOperator] Error");
     return next(e);

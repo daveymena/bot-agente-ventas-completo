@@ -241,7 +241,119 @@ export const TOOLS: ToolDef[] = [
       return { ok: true, summary: `Tienda creada: #${row.id} ${row.name} (/${row.slug})`, data: { id: row.id } };
     },
   },
+
+  // ── 📘 FACEBOOK / META ─────────────────────────────────────────────────────
+  {
+    name: "fb_status",
+    description: "Verificar la conexión con Facebook/Meta (token válido, página, cuenta de ads).",
+    args: "{}",
+    run: async (_args, ctx) => {
+      const { FacebookService } = await import("./facebook");
+      const fb = new FacebookService();
+      if (!fb.isConfigured()) return { ok: false, summary: "Facebook no configurado (falta token en el entorno o en el tenant)." };
+      const v = await fb.validate();
+      return { ok: v.ok, summary: `Facebook: ${v.message}`, data: v };
+    },
+  },
+  {
+    name: "fb_suggest_audience",
+    description: "Sugerir la audiencia/segmentación ideal para un producto (usa IA + categoría). LECTURA, no gasta dinero.",
+    args: '{ "productId": number (req) }',
+    run: async (args, ctx) => {
+      if (!args.productId) return { ok: false, summary: "Falta 'productId'" };
+      const { FacebookService } = await import("./facebook");
+      const fb = new FacebookService();
+      const aud = await fb.suggestAudience(Number(args.productId));
+      if (!aud) return { ok: false, summary: "No se pudo sugerir audiencia (¿producto existe?)." };
+      return { ok: true, summary: `Audiencia sugerida: ${aud.description}`, data: aud };
+    },
+  },
+  {
+    name: "fb_create_ad",
+    description: "Crear una campaña de anuncios en Facebook/Instagram para un producto. Se crea SIEMPRE en PAUSA (no gasta hasta que el admin la active en Ads Manager). Meta adapta el creativo a cada tamaño/dispositivo automáticamente. GASTA DINERO al activarse.",
+    args: '{ "productId": number (req), "dailyBudget": number (opcional, en la moneda de la cuenta, def 5000), "startDate": string opcional ISO, "cities": string[] opcional, "ageMin": number opcional, "ageMax": number opcional }',
+    run: async (args, ctx) => {
+      if (!args.productId) return { ok: false, summary: "Falta 'productId'" };
+      const { FacebookService } = await import("./facebook");
+      const fb = new FacebookService();
+      if (!fb.isConfigured()) return { ok: false, summary: "Facebook no configurado (falta token)." };
+      const targeting: any = {};
+      if (args.cities) targeting.geoLocations = { cities: args.cities };
+      if (args.ageMin) targeting.ageMin = Number(args.ageMin);
+      if (args.ageMax) targeting.ageMax = Number(args.ageMax);
+      const r = await fb.createAdForProduct(
+        Number(args.productId),
+        num(args.dailyBudget) ?? 5000,
+        args.startDate,
+        Object.keys(targeting).length ? targeting : undefined,
+      );
+      if (!r) return { ok: false, summary: "No se pudo crear la campaña (revisa token, permisos o el producto)." };
+      return { ok: true, summary: `Campaña creada EN PAUSA para el producto ${args.productId}. Actívala en Ads Manager. Preview: ${r.previewUrl}`, data: r };
+    },
+  },
+  {
+    name: "fb_sync_catalog",
+    description: "Sincronizar los productos activos al catálogo de Facebook (para tiendas y anuncios dinámicos). Requiere catálogo asignado.",
+    args: "{}",
+    run: async (_args, ctx) => {
+      const { FacebookService } = await import("./facebook");
+      const fb = new FacebookService();
+      const r = await fb.syncCatalog();
+      return { ok: r.failed === 0, summary: `Catálogo sincronizado: ${r.synced} ok, ${r.failed} fallidos`, data: r };
+    },
+  },
+
+  // ── 🖼️ GENERACIÓN DE IMÁGENES ──────────────────────────────────────────────
+  {
+    name: "generate_image",
+    description: "Generar una imagen con IA a partir de una descripción, en el tamaño correcto según el uso. Devuelve la URL para que el admin la revise ANTES de asignarla. NO la asigna sola.",
+    args: '{ "prompt": string (req, descripción de la imagen), "purpose": "ad_feed"|"ad_story"|"card"|"square" (opcional, define el tamaño) }',
+    run: async (args) => {
+      if (!args.prompt) return { ok: false, summary: "Falta 'prompt' (descripción de la imagen)" };
+      const sizes: Record<string, string> = {
+        ad_feed: "1200x628", ad_story: "1080x1920", card: "1080x1080", square: "1080x1080",
+      };
+      const size = sizes[args.purpose as string] || "1080x1080";
+      const url = await generateImageUrl(String(args.prompt), size);
+      if (!url) return { ok: false, summary: "No hay generador de imágenes disponible. Activa G4F_ENABLED=true o configura AI_INTEGRATIONS_OPENAI_API_KEY (DALL-E)." };
+      return { ok: true, summary: `Imagen generada (${size}). Revísala: ${url}`, data: { imageUrl: url, size } };
+    },
+  },
 ];
+
+/**
+ * Genera una imagen con el proveedor disponible: DALL-E (OpenAI) si hay key,
+ * si no G4F (gratis) si está activo. Devuelve la URL o null si no hay generador.
+ */
+async function generateImageUrl(prompt: string, size: string): Promise<string | null> {
+  const openaiKey = process.env.AI_INTEGRATIONS_OPENAI_API_KEY;
+  if (openaiKey) {
+    try {
+      const [w] = size.split("x");
+      const dalleSize = Number(w) >= 1700 ? "1792x1024" : "1024x1024";
+      const resp = await fetch("https://api.openai.com/v1/images/generations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${openaiKey}` },
+        body: JSON.stringify({ model: "dall-e-3", prompt, n: 1, size: dalleSize }),
+      });
+      const data = await resp.json();
+      const url = data?.data?.[0]?.url;
+      if (url) return url;
+    } catch (e: any) {
+      logger.warn({ err: e?.message }, "[generate_image] DALL-E falló");
+    }
+  }
+  if (process.env.G4F_ENABLED === "true") {
+    try {
+      const { getG4FImage } = await import("./providers/g4f-provider");
+      const r = await getG4FImage(prompt);
+      if (r?.image) return r.image;
+    } catch (e: any) {
+      logger.warn({ err: e?.message }, "[generate_image] G4F falló");
+    }
+  }
+  return null;
+}
 
 const TOOL_MAP = new Map(TOOLS.map((t) => [t.name, t]));
 
@@ -256,24 +368,83 @@ export async function executeAction(tool: string, args: any, ctx: OperatorContex
   }
 }
 
+// ─── Clasificación de herramientas ───────────────────────────────────────────
+// Lectura: seguras, se ejecutan libremente para "mirar antes de actuar".
+// Mutación: cambian datos → requieren PLAN + confirmación del admin.
+// Destructivas / de dinero: confirmación reforzada.
+export const READ_ONLY_TOOLS = new Set([
+  "analyze_system", "list_products", "list_categories", "get_agent", "get_settings",
+  // Facebook de solo lectura + generación de imagen (solo devuelve preview, no asigna)
+  "fb_status", "fb_suggest_audience", "generate_image",
+]);
+export const DESTRUCTIVE_TOOLS = new Set([
+  "delete_product",
+  // fb_create_ad crea objetos reales en Meta y puede gastar al activarse → confirmación reforzada
+  "fb_create_ad",
+]);
+export function isReadOnlyTool(name: string): boolean {
+  return READ_ONLY_TOOLS.has(name);
+}
+export function isDestructiveTool(name: string): boolean {
+  return DESTRUCTIVE_TOOLS.has(name);
+}
+
+/**
+ * VERIFICAR DESPUÉS DE ACTUAR: tras una mutación, relee la entidad afectada y
+ * devuelve su estado REAL, para confirmar que el cambio se aplicó de verdad
+ * (no confiar en que el tool dijo "ok").
+ */
+export async function verifyMutation(tool: string, args: any, ctx: OperatorContext): Promise<string> {
+  try {
+    if (tool === "update_product" || tool === "create_product") {
+      const id = args?.id ? Number(args.id) : undefined;
+      let row;
+      if (id) {
+        [row] = await db.select().from(products).where(eq(products.id, id)).limit(1);
+      } else if (args?.name) {
+        const all = await db.select().from(products).where(eq(products.tenantId, ctx.tenantId));
+        row = all.find((p) => (p.name || "").toLowerCase() === String(args.name).toLowerCase());
+      }
+      if (!row) return "⚠️ No se pudo verificar (producto no encontrado tras la operación).";
+      return `Verificado → [ID ${row.id}] ${row.name} · ${row.price} ${row.currency} · ${row.imageUrl ? "con imagen" : "SIN imagen"} · ${row.isActive ? "activo" : "inactivo"}`;
+    }
+    if (tool === "delete_product") {
+      const id = args?.id ? Number(args.id) : undefined;
+      if (!id) return "";
+      const [row] = await db.select().from(products).where(eq(products.id, id)).limit(1);
+      return row ? "⚠️ El producto AÚN existe (no se borró)." : `Verificado → producto ${id} eliminado.`;
+    }
+    if (tool === "update_settings" || tool === "get_settings") {
+      const [st] = await db.select().from(settings).limit(1);
+      return st ? `Verificado → negocio: ${st.businessName} · IA: ${st.aiProvider}` : "";
+    }
+    if (tool === "update_agent" || tool === "get_agent") {
+      const [ag] = await db.select().from(agents).where(eq(agents.tenantId, ctx.tenantId)).limit(1);
+      return ag ? `Verificado → agente: ${ag.name} (${ag.role})` : "";
+    }
+  } catch (e: any) {
+    return `⚠️ Verificación falló: ${e?.message}`;
+  }
+  return "";
+}
+
 export function buildToolsDoc(): string {
   return TOOLS.map((t) => `- ${t.name}: ${t.description}\n  args: ${t.args}`).join("\n");
 }
 
-export const OPERATOR_SYSTEM_PROMPT = `Eres el ARQUITECTO/OPERADOR del sistema — actúas como el programador y administrador de la aplicación.
-Puedes EJECUTAR acciones reales sobre la app usando HERRAMIENTAS. No describas los pasos: EJECÚTALOS con las herramientas.
+export const OPERATOR_SYSTEM_PROMPT = `Eres el ARQUITECTO/OPERADOR del sistema — actúas como el programador y administrador de la aplicación, pero PRUDENTE y CONFIABLE.
 
 HERRAMIENTAS DISPONIBLES:
 ${"${TOOLS}"}
 
-REGLAS:
-1. Responde SIEMPRE en JSON válido con esta forma exacta:
-   { "reply": "mensaje breve y claro para el admin", "actions": [ { "tool": "nombre", "args": { ... } } ], "done": true|false }
-2. Si necesitas datos reales (ids, nombres) primero usa herramientas de lectura (list_products, list_categories, analyze_system) y espera los resultados.
-3. Pon "done": false mientras te falten pasos; te devolveré los resultados y podrás continuar.
-4. Cuando la tarea esté completa, responde con "actions": [] y "done": true, resumiendo lo hecho en "reply".
-5. Para acciones destructivas (delete_product) confirma en el "reply" lo que harás; ejecútalas solo si el admin lo pidió claramente.
-6. No inventes ids ni datos: si no los conoces, léelos primero.
-7. Haz EXACTAMENTE lo que el admin pide, ni más ni menos. No crees ni modifiques cosas que no fueron solicitadas.
-8. Si el admin solo pregunta o pide un diagnóstico, usa solo herramientas de lectura y responde; no cambies nada.
-9. Sé conciso en "reply" (español).`;
+FORMATO: Responde SIEMPRE en JSON válido:
+{ "reply": "mensaje claro para el admin", "actions": [ { "tool": "nombre", "args": { ... } } ], "done": true|false }
+
+PRINCIPIOS OBLIGATORIOS:
+1. MIRA ANTES DE ACTUAR: nunca inventes ids, precios ni datos. Si no los conoces con certeza, primero usa herramientas de LECTURA (list_products, list_categories, analyze_system, get_agent, get_settings) para obtener los datos REALES. Las lecturas se ejecutan solas; úsalas libremente.
+2. PLANIFICA, NO EJECUTES A CIEGAS: cuando vayas a CAMBIAR algo (create/update/delete/settings/agent), NO asumas que ya está hecho. El sistema NO ejecutará tus cambios hasta que el admin los apruebe. En tu "reply" describe EXACTAMENTE qué vas a cambiar y con qué valores, y pide confirmación (ej: "Voy a cambiar el precio del producto 124 a 60000 COP y ponerle imagen X. ¿Confirmas?").
+3. Incluye las acciones de cambio en "actions" con los datos ya resueltos (ids reales). El sistema las mostrará como PLAN y las ejecutará solo cuando el admin diga "sí".
+4. HONESTIDAD: si no encuentras algo (ej: un producto), dilo claramente y ofrece alternativas ("no encontré 'X', ¿te refieres a este [ID N]?"). Nunca fabriques un id ni un resultado.
+5. Haz EXACTAMENTE lo que el admin pide, ni más ni menos.
+6. Si el admin solo pregunta o pide diagnóstico, usa solo lecturas y responde; no propongas cambios.
+7. Sé claro y conciso en "reply" (español). Pon "done": true cuando no queden más lecturas por hacer.`;
