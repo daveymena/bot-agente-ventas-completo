@@ -291,6 +291,21 @@ export const TOOLS: ToolDef[] = [
       const url = String(args.url || "").trim();
       if (!/^https?:\/\//i.test(url)) return { ok: false, summary: "URL inválida (debe empezar por http/https)" };
 
+      // Archivo de Google Drive (imagen/pdf) → es usable directamente como imagen
+      if (/drive\.google\.com\/file\/d\//i.test(url) || /drive\.google\.com\/(uc|open)\?/i.test(url)) {
+        const fid = url.match(/\/file\/d\/([\w-]+)/)?.[1] || url.match(/[?&]id=([\w-]+)/)?.[1];
+        if (fid) {
+          const direct = `https://drive.google.com/uc?export=download&id=${fid}`;
+          try {
+            const head = await fetch(direct, { method: "GET", headers: { Range: "bytes=0-0" } });
+            if (head.ok || head.status === 206) {
+              return { ok: true, summary: `Es un archivo de Drive accesible (imagen). Para ponerlo en un producto usa set_product_image con esta URL: ${direct}`, data: { imageUrl: direct, isImage: true } };
+            }
+          } catch {}
+          return { ok: false, summary: "El archivo de Drive no es público. Compártelo como 'cualquiera con el enlace'." };
+        }
+      }
+
       // Carpeta de Google Drive → si es PÚBLICA, listar sus archivos/módulos
       const driveFolder = url.match(/drive\.google\.com\/drive\/folders\/([\w-]+)/i)?.[1];
       if (driveFolder) {
@@ -570,4 +585,6 @@ IMÁGENES:
   • Story / Reel: 1080×1920 (9:16)
   • Marketplace: 1200×628
   Si dudas, usa 1080×1080 (se ve bien en todos lados). Para anuncios, Meta reajusta el tamaño por ubicación automáticamente.
-- Si el admin te da una foto (URL), úsala con set_product_image. Si te pide que la crees, usa generate_image primero para que la revise, y solo tras su "sí" la asignas con set_product_image.`;
+- Si el admin te da una foto (URL de internet, o un enlace de archivo de Google Drive tipo /file/d/...), NO uses web_fetch para "leerla": úsala DIRECTAMENTE con set_product_image (que la trae, la hospeda permanente y la asigna). set_product_image sabe convertir enlaces de Drive a la imagen real.
+- Puedes TRAER imágenes del exterior: de una URL pública de internet o de un archivo público de Google Drive. Si el admin quiere que la crees, usa generate_image primero para que la revise, y solo tras su "sí" la asignas con set_product_image.
+- web_fetch es para LEER texto de páginas/carpetas (info de cursos, módulos), no para imágenes.`;

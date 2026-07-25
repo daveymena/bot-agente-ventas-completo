@@ -16,17 +16,35 @@ export function getImageStoreDir(): string {
 }
 
 /**
+ * Convierte enlaces de Google Drive (archivo) a la URL de descarga directa,
+ * para poder traer la imagen. Soporta /file/d/{id}/view, uc?id=, open?id=.
+ * Requiere que el archivo sea público ("cualquiera con el enlace").
+ */
+export function resolveImageSource(url: string): string {
+  if (!/drive\.google\.com/i.test(url)) return url;
+  const id =
+    url.match(/\/file\/d\/([\w-]+)/)?.[1] ||
+    url.match(/[?&]id=([\w-]+)/)?.[1];
+  if (id) return `https://drive.google.com/uc?export=download&id=${id}`;
+  return url;
+}
+
+/**
  * Descarga/decodifica una imagen (URL http(s) o data:base64) y la guarda en el
  * volumen. Devuelve la ruta pública servible, o null si falla.
  */
 export async function saveProductImage(source: string, productId: number): Promise<string | null> {
   try {
+    source = resolveImageSource(source); // convierte links de Drive a descarga directa
     let buffer: Buffer;
     if (source.startsWith("data:")) {
       const b64 = source.split(",")[1] || "";
       buffer = Buffer.from(b64, "base64");
     } else if (/^https?:\/\//i.test(source)) {
-      const res = await fetch(source);
+      const res = await fetch(source, {
+        headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/122 Safari/537.36" },
+        redirect: "follow",
+      });
       if (!res.ok) {
         logger.warn({ status: res.status, productId }, "[ImageStore] Descarga falló");
         return null;
