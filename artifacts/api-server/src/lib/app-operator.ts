@@ -38,6 +38,26 @@ interface ToolDef {
 
 const num = (v: any) => (v === undefined || v === null || v === "" ? undefined : Number(v));
 
+// Convierte HTML a texto legible: prioriza <title> y meta description, luego
+// quita scripts/estilos/etiquetas y colapsa espacios.
+function htmlToText(html: string): string {
+  const title = (html.match(/<title[^>]*>([^<]+)<\/title>/i)?.[1] || "").trim();
+  const desc = (html.match(/<meta[^>]+name=["']description["'][^>]+content=["']([^"']+)["']/i)?.[1]
+    || html.match(/<meta[^>]+property=["']og:description["'][^>]+content=["']([^"']+)["']/i)?.[1]
+    || "").trim();
+  let body = html
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<noscript[\s\S]*?<\/noscript>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'").replace(/&lt;/g, "<").replace(/&gt;/g, ">")
+    .replace(/\s+/g, " ")
+    .trim();
+  const header = [title && `TÍTULO: ${title}`, desc && `DESCRIPCIÓN: ${desc}`].filter(Boolean).join("\n");
+  return (header ? header + "\n\n" : "") + body;
+}
+
 // ─── Registro de herramientas ────────────────────────────────────────────────
 export const TOOLS: ToolDef[] = [
   // ── Lectura / diagnóstico ──
@@ -242,6 +262,35 @@ export const TOOLS: ToolDef[] = [
     },
   },
 
+  // ── 🌐 WEB / INFORMACIÓN EXTERNA ───────────────────────────────────────────
+  {
+    name: "web_fetch",
+    description: "Leer el contenido de texto de una URL pública (para extraer info de un curso, producto, artículo, etc.). OJO: no funciona con carpetas de Google Drive privadas (requieren login) ni con páginas que cargan todo por JavaScript.",
+    args: '{ "url": string (req) }',
+    run: async (args) => {
+      const url = String(args.url || "").trim();
+      if (!/^https?:\/\//i.test(url)) return { ok: false, summary: "URL inválida (debe empezar por http/https)" };
+      if (/drive\.google\.com\/drive\/folders/i.test(url)) {
+        return { ok: false, summary: "Es una carpeta privada de Google Drive: no se puede leer por URL (requiere login). Pídele al admin el contenido/detalles directamente." };
+      }
+      try {
+        const res = await fetch(url, {
+          headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122 Safari/537.36" },
+          redirect: "follow",
+        });
+        if (!res.ok) return { ok: false, summary: `La página respondió ${res.status}` };
+        const html = await res.text();
+        const text = htmlToText(html).slice(0, 5000);
+        if (text.replace(/\s/g, "").length < 40) {
+          return { ok: false, summary: "No se pudo extraer texto útil (la página carga contenido por JavaScript o está protegida). Pídele al admin los detalles directamente." };
+        }
+        return { ok: true, summary: `Contenido leído de ${url} (${text.length} chars)`, data: { text } };
+      } catch (e: any) {
+        return { ok: false, summary: `No se pudo acceder: ${e?.message}` };
+      }
+    },
+  },
+
   // ── 📘 FACEBOOK / META ─────────────────────────────────────────────────────
   {
     name: "fb_status",
@@ -410,6 +459,8 @@ export const READ_ONLY_TOOLS = new Set([
   "analyze_system", "list_products", "list_categories", "get_agent", "get_settings",
   // Facebook de solo lectura + generación de imagen (solo devuelve preview, no asigna)
   "fb_status", "fb_suggest_audience", "generate_image",
+  // Lectura de web (información externa)
+  "web_fetch",
 ]);
 export const DESTRUCTIVE_TOOLS = new Set([
   "delete_product",
