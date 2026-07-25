@@ -3,8 +3,13 @@ import { db, architectMemory } from "@workspace/db";
 import { eq, and, desc, like } from "drizzle-orm";
 import type { ArchitectMemory } from "@workspace/db";
 import { logger } from "../lib/logger";
+import { requireSuperAdmin } from "../middleware/requireSuperAdmin";
 
 const router: IRouter = Router();
+
+// Aceptaba un tenantId arbitrario por query string — cualquier tenant podía
+// leer la memoria de otro. Restringido al superadmin de la plataforma.
+router.use(requireSuperAdmin);
 
 router.get("/", async (req, res, next) => {
   try {

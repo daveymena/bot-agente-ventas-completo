@@ -1497,7 +1497,28 @@
     "kind": "digital",
     "image_url": "/images/products/122.jpg",
     "features": [],
-    "deliveryLink": "",
-    "drive_folder_id": null
+    "deliveryLink": "https://drive.google.com/drive/folders/1nyGxtM-0gOy98e4bAHd50VooPhicvM_8?usp=drive_link",
+    "drive_folder_id": "1nyGxtM-0gOy98e4bAHd50VooPhicvM_8",
+    "drive_url": "https://drive.google.com/drive/folders/1nyGxtM-0gOy98e4bAHd50VooPhicvM_8?usp=drive_link"
+  },
+  {
+    "id": 123,
+    "name": "CURSO DE PIANO COMPLETO",
+    "description": "Curso de Piano Completo de cero a avanzado. Aprende a tocar, interpretar y sentir la musica desde casa y a tu propio ritmo. Clases en video en alta calidad, teoria practica explicada facil, lecciones paso a paso, material extra (partituras y ejercicios) y soporte. Ideal para principiantes y avanzados, para todas las edades. 100% online y descargable: estudia sin internet. Acceso ilimitado de por vida.",
+    "price": 60000,
+    "currency": "COP",
+    "category": "Musica",
+    "kind": "digital",
+    "image_url": "https://drive.google.com/thumbnail?sz=w400&id=1fiU2woI3d2yd4xK5ixJZssETb-I4lhLh",
+    "features": [
+      "Clases en video HD",
+      "De cero a avanzado",
+      "Partituras y ejercicios",
+      "Acceso de por vida",
+      "Online y descargable",
+      "Soporte incluido"
+    ],
+    "deliveryLink": "https://drive.google.com/drive/folders/1fiU2woI3d2yd4xK5ixJZssETb-I4lhLh?usp=drive_link",
+    "drive_folder_id": "1fiU2woI3d2yd4xK5ixJZssETb-I4lhLh"
   }
 ]

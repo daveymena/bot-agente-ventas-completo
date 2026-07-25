@@ -589,25 +589,34 @@ export async function runAgentReply(conversationId: number) {
   const [appSettings] = await db.select().from(settingsTable).limit(1);
   logTime(`4a. Cargar settings: ${Date.now() - t1}ms`);
   
-    // Determinar si necesitamos productos basado en intención
-    // Primero hacer un análisis rápido de intención sin cargar todo
-    const needsProductsQuick = lastText.toLowerCase().match(/qué|producto|precio|comprar|pago|nequi|daviplata|transferencia|link|enlace|adquirir|compro|megapack|piano|curso|pack|suscripci|membres|idiomas|idioma/i);
-  
+    // ¿Necesitamos cargar el catálogo? Cargamos SIEMPRE excepto en un saludo
+    // puro (solo "hola"/"buenas"), porque un cliente puede preguntar por un
+    // producto nombrándolo directamente ("photoshop tienes?", "curso de excel")
+    // sin usar ninguna palabra genérica como "producto" o "precio". Antes un
+    // regex estrecho no cargaba el catálogo en esos casos y la IA inventaba
+    // IDs de producto inexistentes → la card se rechazaba y no se mostraba.
+    // Cargar el catálogo cuesta ~6ms (son pocos productos), así que es barato.
+    const isPureGreeting = /^\s*(hola+|buenas?|buenos?\s*d[ií]as?|buenas?\s*tardes?|buenas?\s*noches?|hey|hi|holi+|ola+|q(ue)?\s*tal|saludos)[\s!.,]*$/i.test(lastText.trim());
+    const shouldLoadProducts = !isPureGreeting || memory.hasGreeted;
+
     let productList: any[] = [];
     let categoryMap = new Map<number, string>();
-    
-    if (needsProductsQuick) {
-      // Solo cargar si es probable que sea product_query o payment_intent
+
+    if (shouldLoadProducts) {
+      // Cargar el catálogo. Límite amplio (200): con el catálogo COMPACTO el
+      // costo en prompt es bajo y así la IA ve TODOS los IDs válidos — antes,
+      // con límite 50 sobre 81 productos, si el cliente preguntaba por uno de
+      // los otros 31 su ID no estaba disponible y la card se rechazaba.
       t1 = Date.now();
       productList = await db.select().from(products)
         .where(eq(products.isActive, true))
-        .limit(50); // Limitar a 50 productos más recientes
+        .limit(200);
       logTime(`4b. Cargar productos: ${Date.now() - t1}ms`);
-      
-      // Si no hay productos activos, hacer fallback a todos los productos (para casos de datos de prueba)
+
+      // Si no hay productos activos, fallback a todos (p.ej. datos de prueba)
       if (productList.length === 0) {
         productList = await db.select().from(products)
-          .limit(50); // Fallback: cargar cualquier producto activo o no
+          .limit(200);
         logTime(`4b. Fallback - Cargar todos los productos: ${Date.now() - t1}ms`);
       }
       
@@ -652,19 +661,39 @@ export async function runAgentReply(conversationId: number) {
   
   console.log(`🧠 [BRAIN] estado:${brain.emotionalState} estrategia:${brain.strategy} — ${brain.strategyReason} - ${ts()}`);
 
-  // ── 8. Construir catálogo COMPLETO para la IA (ella decide el producto) ──
+  // ── 8. Construir catálogo para la IA ──────────────────────────────────────
+  // COMPACTO por diseño: una línea por producto (ID | nombre | precio | cat).
+  // Así la IA SIEMPRE tiene la lista completa de IDs válidos para elegir la
+  // card correcta, sin inflar el prompt. Antes se volcaban 50 productos con
+  // descripciones de 120 chars → ~19.500 chars → respuestas de hasta 57s y
+  // límites de tokens. La descripción completa se incluye SOLO del producto
+  // que se está discutiendo (el relevante), no de todo el catálogo.
   t1 = Date.now();
   let productsBlock = "";
-  const needsFullCatalog = decision.intent !== "greeting" && decision.intent !== "leaving";
-  
-  if (productList.length > 0 && needsFullCatalog) {
-    productsBlock = productList.map(p => {
-      const features = (p.features as string[]) || [];
-      const featStr = features.length > 0 ? ` | Características: ${features.join(", ")}` : "";
-      const descStr = p.description ? ` | ${p.description.substring(0, 120)}` : "";
-      return `[ID: ${p.id}] *${p.name}* — ${formatPrice(Number(p.price), p.currency)}${descStr}${featStr}`;
-    }).join("\n\n");
-    console.log(`📦 [CATALOG] Catálogo completo para IA: ${productList.length} productos - ${ts()}`);
+  const needsCatalog = decision.intent !== "greeting" && decision.intent !== "leaving";
+
+  if (productList.length > 0 && needsCatalog) {
+    // Producto en foco: el que la decisión eligió o el último con card enviada
+    const focusId = decision.productToShow?.id ?? memory.currentProductId ?? null;
+
+    const compact = productList.map(p => {
+      const cat = categoryMap.get(p.categoryId) || p.category || "";
+      const catStr = cat ? ` (${cat})` : "";
+      return `[ID: ${p.id}] ${p.name} — ${formatPrice(Number(p.price), p.currency)}${catStr}`;
+    }).join("\n");
+
+    // Detalle ampliado solo del producto en foco (si existe)
+    let focusDetail = "";
+    const focus = focusId ? productList.find(p => p.id === focusId) : null;
+    if (focus) {
+      const features = (focus.features as string[]) || [];
+      const featStr = features.length > 0 ? `\nCaracterísticas: ${features.join(", ")}` : "";
+      const descStr = focus.description ? `\n${focus.description.substring(0, 300)}` : "";
+      focusDetail = `\n\nPRODUCTO EN FOCO:\n[ID: ${focus.id}] *${focus.name}* — ${formatPrice(Number(focus.price), focus.currency)}${descStr}${featStr}`;
+    }
+
+    productsBlock = compact + focusDetail;
+    console.log(`📦 [CATALOG] Catálogo compacto para IA: ${productList.length} productos${focus ? ` (foco: ${focus.name})` : ""} - ${ts()}`);
   } else if (productList.length > 0) {
     productsBlock = productList.map(p => {
       return `[ID: ${p.id}] ${p.name} — ${formatPrice(Number(p.price), p.currency)}`;
@@ -686,27 +715,29 @@ Estás conversando con **${customerName}** en WhatsApp.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 🧠 IDENTIDAD Y PERSONALIDAD
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Eres un asesor de ventas excepcionalmente inteligente y natural. Conversas como un ser humano real: cálido, empático, con sentido del humor cuando corresponde. NO eres un robot ni suenas automatizado.
+Eres un VENDEDOR PROFESIONAL experto: cálido y humano, pero con foco claro en CERRAR la venta. Guías al cliente con seguridad hacia la compra sin presionar. NO eres un robot ni suenas automatizado.
 
-• Escuchas activamente: entiendes el contexto completo de la conversación, no solo la última pregunta.
-• Piensas antes de responder: analizas qué necesita realmente el cliente y respondes con precisión.
-• Eres versátil: puedes hablar DE VENTAS (productos, precios, pagos) y también DE TEMAS GENERALES (el clima, tecnología, recomendaciones, actualidad). Si el cliente pregunta algo ajeno al negocio, responde de forma natural y luego retoma el hilo.
-• Nunca inventas información que no esté en el catálogo o en el contexto proporcionado.
-• Usas emojis de forma NATURAL (1-2 por mensaje, no más). Solo cuando aportan calidez.
-• Tus respuestas son CONCISAS pero COMPLETAS. Ni te alargas ni eres demasiado cortante.
-• REGLA ESTRICTA DE NO INTERROGAR: Nunca hagas preguntas al cliente pidiendo más detalles, ni terminando con "¿Qué tipo buscas?". Simplemente entrégale la información de las opciones o de las categorías y deja que el cliente sea quien decida y pregunte si le interesa.
+• Escuchas activamente: entiendes TODO el contexto, no solo la última pregunta. Detectas qué necesita realmente el cliente.
+• Vendes por VALOR, no por presión: conectas el producto con el beneficio real para el cliente (qué logrará, qué problema resuelve), no solo listas características.
+• Precisión total: das datos exactos (precio, qué incluye, cómo se entrega). Nunca inventas productos, precios ni promesas. Si un dato NO está en el catálogo ni en los HECHOS CONFIRMADOS, lo dices con naturalidad y rediriges al valor — pero los HECHOS CONFIRMADOS (pago único, de por vida, Google Drive, sin certificado) SIEMPRE los respondes con seguridad.
+• Avanzas la venta en cada mensaje: tras dar información, das el siguiente paso natural (mostrar el producto ideal, resolver la duda que falta, o invitar a comprar). Cierra cuando el cliente muestra interés — no lo dejes en el aire.
+• Emojis NATURALES (1-2 por mensaje, no más). Respuestas CONCISAS pero completas: ni frías ni con relleno.
+• PREFIERE ENTREGAR INFORMACIÓN A INTERROGAR: si el cliente ya nombró un producto o categoría, entrégale la info y la card directamente. Solo pregunta UNA cosa concreta cuando el mensaje sea tan ambiguo que mostrar la opción equivocada arruinaría la venta. Nunca repitas una pregunta ya respondida.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📋 DATOS DEL NEGOCIO — PROCESO COMPLETO DE ENTREGA
+📋 HECHOS CONFIRMADOS DEL NEGOCIO (responde con TOTAL seguridad, son ciertos)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-• Método de entrega: ${voice.deliveryInfo.details}
-• Acceso: ${voice.accessInfo.description}
+• PAGO ÚNICO: se paga UNA sola vez. NO es suscripción, NO hay mensualidad, NO se renueva.
+• ACCESO DE POR VIDA: el contenido queda tuyo para siempre, no caduca.
+• ENTREGA 100% DIGITAL por Google Drive: puedes DESCARGARLO o VERLO ONLINE desde el mismo Drive, en cualquier dispositivo.
+• NO incluye certificado: son cursos/materiales de autoaprendizaje de alta calidad, pero NO emiten diploma ni certificación oficial. Si preguntan por certificado, dilo con naturalidad y redirige al VALOR del contenido (aprender la habilidad real).
 • Garantía: ${voice.guaranteeInfo.description}
+→ Estos hechos son CIERTOS para TODOS los productos. NUNCA respondas "no sé" ni "el catálogo no especifica" sobre ellos: respóndelos con seguridad.
 
-📌 PROCESO DE PAGO Y ENTREGA (explícale esto al cliente cuando pregunte):
-• Opción 1 — Pago por LINK (MercadoPago o PayPal): El cliente paga con tarjeta, PSE o PayPal. El sistema DETECTA EL PAGO AUTOMÁTICAMENTE y le envía el link de Google Drive del producto directamente a este chat. No necesita hacer nada más.
-• Opción 2 — Pago por CONSIGNACIÓN (Nequi/Daviplata/transferencia): El cliente transfiere al número indicado, luego ENVÍA LA CAPTURA O COMPROBANTE por este chat. El equipo verifica y envía el link de Google Drive. El cliente debe reenviar el comprobante aquí mismo.
-• Importante: CADA PRODUCTO tiene su propio link de Google Drive configurado. Se envía automáticamente al confirmar el pago.
+📌 PROCESO DE PAGO Y ENTREGA:
+• Pago por LINK (MercadoPago o PayPal): el cliente paga con tarjeta, PSE o PayPal. El sistema GENERA el enlace automáticamente y detecta el pago solo; al confirmarse, envía el Google Drive del producto a este chat.
+• Pago por CONSIGNACIÓN (Nequi/Daviplata/transferencia): el cliente transfiere y envía el comprobante por este chat; se verifica y se envía el Drive.
+• Los enlaces de pago (MercadoPago/PayPal) los GENERA EL SISTEMA en el momento — tú NO los escribes ni los inventas, solo confirmas con entusiasmo y el sistema los adjunta.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 📦 CATÁLOGO DE PRODUCTOS
@@ -718,84 +749,28 @@ ${productList.length > 0 ? productsBlock : "No hay productos disponibles."}
 [2] NUNCA escribas links, URLs, números de cuenta, ni datos de pago. El sistema los adjunta automáticamente.
 [3] NUNCA digas "te lo envío", "te mando el link", "te llega" ni prometas tiempos de entrega.
 [4] Si el cliente pregunta algo FUERA del contexto del negocio (charla casual, opiniones, etc.), responde de forma natural y amable. Si es posible, redirige suavemente al tema de ventas.
-[5] Si NO SABES algo, admítelo con honestidad. No improvises ni inventes.
+[5] Los HECHOS CONFIRMADOS DEL NEGOCIO (pago único, acceso de por vida, entrega por Google Drive con opción de descargar o ver online, sin certificado, garantía) respóndelos SIEMPRE con seguridad — NUNCA digas "no sé" ni "no especifica" sobre ellos. Para datos ESPECÍFICOS de un producto que no estén en el catálogo, admítelo con naturalidad y redirige al valor; no inventes.
 [6] No repitas información que ya diste. Usa la MEMORIA de la conversación.
-${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma brevemente y con entusiasmo. El sistema mostrará automáticamente la tarjeta con métodos de pago del producto que elijas." : `[7] 🧠 ANALIZA EL CONTEXTO de la conversación y elige el producto CORRECTO del catálogo. Usa [CARD: ID] al final de tu mensaje para mostrar la tarjeta del producto que mejor corresponda a lo que el cliente pregunta. Si no estás segura, pregunta más detalles antes de mostrar una card. NUNCA muestres un producto que no tenga relación con lo que el cliente busca.`}`).trim();
+[6b] El "[ID: N]" del catálogo es INTERNO, solo para que TÚ elijas la card correcta. NUNCA menciones ese número al cliente (nada de "el curso ID 82", "producto 82", etc.). Refiérete al producto SIEMPRE por su NOMBRE.
+[6c] Los datos de pago (número de Nequi/Daviplata y el NOMBRE del titular) van EXACTOS como aparecen en los datos del negocio. NUNCA cambies, adivines ni "corrijas" el nombre del titular ni el número — cópialos tal cual.
+${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo y cierra. Termina tu mensaje con [CARD: ID] del producto — el sistema adjunta AUTOMÁTICAMENTE la tarjeta con los enlaces dinámicos de MercadoPago y PayPal. NUNCA escribas [PAGAR:...], enlaces, URLs ni números de cuenta: SOLO usa [CARD: ID]." : `[7] 🧠 ANALIZA EL CONTEXTO y elige el producto CORRECTO del catálogo. Usa [CARD: ID] al final de tu mensaje para mostrar la tarjeta del producto que mejor corresponda. El ÚNICO marcador válido es [CARD: ID] — nunca uses [PAGAR:...] ni escribas enlaces. Si no estás segura, pregunta UNA cosa concreta antes de mostrar una card. NUNCA muestres un producto que no tenga relación con lo que el cliente busca.`}`).trim();
 
-  // ── 9b. CONTEXTO DEL SISTEMA PARA EL ARQUITECTO ──────────────────────────
-  const isArchitect = activeAgent.name.toLowerCase().includes("arquitecto") || 
-    String((activeAgent.metadata as any)?.agentType || "").includes("architect");
-  let architectSystemContext = "";
-  if (isArchitect) {
-    const agentsCount = (await db.select({ count: sql<number>`count(*)` }).from(agents)).at(0)?.count || 0;
-    const productsAnalyzed = productList.length;
-    const productsWithoutImage = productList.filter((p: any) => !p.imageUrl).length;
-    const productCategories = [...new Set(productList.map((p: any) => p.category).filter(Boolean))];
-    
-    architectSystemContext = `
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📊 CONTEXTO DEL SISTEMA (EN VIVO)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-• Negocio: ${voice.businessName}
-• Productos activos: ${productsAnalyzed}
-• Productos sin imagen: ${productsWithoutImage}
-• Categorías: ${productCategories.length > 0 ? productCategories.join(", ") : "Ninguna"}
-• Agentes disponibles: ${agentsCount}
-• Cliente actual: ${customerName}
-
-🎯 TIENES PODER ABSOLUTO SOBRE EL CODIGO Y EL SISTEMA:
-
-📂 MANIPULACION DE ARCHIVOS (POST /api/architect-tools/code)
-  • /code/read — Leer cualquier archivo del proyecto
-  • /code/write — Modificar o crear cualquier archivo
-  • /code/delete — Eliminar archivos
-  • /code/list — Explorar directorios
-  • /code/search — Buscar en todo el codigo fuente
-  • /code/analyze — Ver estructura completa del proyecto
-  • /code/changes — Ver historial de cambios del arquitecto
-  • /code/revert-change — Revertir cambios previos
-
-🎨 FRONTEND (POST/GET /api/architect-tools/frontend)
-  • /frontend/routes — Ver rutas del frontend
-  • /frontend/add-route — Agregar nueva pagina al frontend
-  • /frontend/add-nav-item — Agregar item al menu de navegacion
-
-📦 PRODUCTOS (via /api/architect-tools)
-  • GET /products — Listar productos
-  • POST /products — Crear producto
-  • PATCH /products/:id — Modificar producto
-  • DELETE /products/:id — Eliminar producto
-  • POST /improve-product/:id — Mejorar producto
-  • POST /improve-all-products — Mejora masiva
-
-🛠️ SERVICIOS (via /api/architect-tools)
-  • GET /services — Listar servicios
-  • POST /services — Crear servicio
-
-🗄️ BASE DE DATOS Y SISTEMA
-  • POST /query — SQL directo
-  • POST /execute — Acciones del sistema
-  • GET /system-config — Configuracion completa
-  • GET /all-agents — Todos los agentes
-  • GET /analyze-system — Analisis completo
-
-🤖 AUTO-MODIFICACION
-  • POST /update-architect-prompt — Modificar tu propio prompt
-  • POST /update-system-config — Modificar config del negocio
-
-Cuando el usuario te pida algo, USA estas herramientas directamente.
-Si te dice "mejora el producto X", busca el ID y llama a la API.
-Si te dice "crea una pagina nueva", usa /frontend/add-route.
-Si te dice "cambia el codigo de X", usa /code/read + /code/write.
-`;
-  }
+  // NOTA DE SEGURIDAD: Este runAgentReply() es el motor conversacional de
+  // cara al CLIENTE (WhatsApp/Facebook Messenger llaman directamente a esta
+  // función). Antes existía aquí un bloque que, si el agente activo se
+  // llamaba "arquitecto", inyectaba instrucciones dándole a la IA acceso a
+  // /query (SQL crudo), /code/write, /code/delete, etc. — alcanzable por
+  // CUALQUIER mensaje de un cliente si el enrutador de agentes elegía esa
+  // persona. El endpoint legítimo de diseño de agentes (POST
+  // /api/architect-tools/architect en code-agent.ts) no pasa por esta
+  // función, así que ese bloque no tenía ningún caso de uso real — se quitó.
 
   // ── 10. INTEGRAR contexto del motor DENTRO del cerebro ────────────────────
   // El bloque de contexto del motor (engineContext) se inyecta como contexto adicional
   // para que el prompt final tenga TODA la información disponible
   // Pasar todos los productos a AdvancedIntelligence para mejor análisis contextual
   const aiProductContext = productList.length > 0 ? productList.slice(0, 10) : [];
-  const engineContextBlock = `${architectSystemContext}${decision.contextBlock}\n\n${AdvancedIntelligence.generateIntelligentContext(
+  const engineContextBlock = `${decision.contextBlock}\n\n${AdvancedIntelligence.generateIntelligentContext(
     lastText,
     memory.history,
     aiProductContext.length > 0 ? aiProductContext : null
@@ -914,10 +889,17 @@ Si te dice "cambia el codigo de X", usa /code/read + /code/write.
   console.log(`🤖 [AGENT-AI] Enviando a IA - mensajes:${chatMessages.length} prompt:${finalPrompt.length}chars - ${ts()}`);
 
   // ── Seleccionar modelo OpenCode según estrategia del cerebro ─────────────
+  // Modelos válidos verificados contra la API de OpenCode Zen (opencode.ai/zen).
+  // IMPORTANTE:
+  //  - Sin prefijo "opencode/": la API lo rechaza ("Model not supported").
+  //  - "deepseek-v4-flash-free" es un modelo de razonamiento que gasta TODO el
+  //    presupuesto de tokens en reasoning_content y devuelve content vacío →
+  //    NO sirve para chat. Se reemplaza por modelos que sí devuelven contenido.
+  //  - "qwen3.6-plus-free" y "nemotron-3-super-free" NO existen en la API.
   const OPENCODE_FREE_MODELS = {
-    razonamiento: "opencode/qwen3.6-plus-free",
-    balanceado: "opencode/deepseek-v4-flash-free",
-    rapido: "opencode/nemotron-3-super-free",
+    razonamiento: "nemotron-3-ultra-free",  // respuestas más completas (objeciones)
+    balanceado: "mimo-v2.5-free",            // default: limpio y conciso
+    rapido: "big-pickle",                     // respuestas cortas y rápidas
   } as const;
 
   function selectOpenCodeModel(strategy: ResponseStrategy, emotional: EmotionalState): string {
@@ -1139,6 +1121,13 @@ Si te dice "cambia el codigo de X", usa /code/read + /code/write.
         raw = hasCardMarker ? raw : `${raw}\n\n[CARD: ${decision.productToShow.id}]`;
         console.log(`🔧 [POST] Payment flow: card asegurada para ${decision.productToShow.id} - ${ts()}`);
       }
+
+      // 2a-bis. Eliminar marcadores que la IA a veces inventa y que NADIE
+      // procesa ([PAGAR: id], [PAGO], [LINK], [ENLACE]...). El pago se entrega
+      // por la CARD (paymentOnly), que genera los links dinámicos de
+      // MercadoPago/PayPal en el canal. Sin esta limpieza, esos marcadores se
+      // mostrarían LITERALES al cliente. El [CARD: id] real se preserva.
+      raw = raw.replace(/\[\s*(PAGAR|PAGO|LINK|ENLACE|PAY|URL)\s*:?[^\]]*\]/gi, "").trim();
 
       // 2b. Para intents NO payment: la IA decide autónomamente si incluir [CARD: ID] o no.
       // El system prompt ya le indica que puede usar [CARD: ID] si es natural.

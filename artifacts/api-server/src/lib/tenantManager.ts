@@ -512,8 +512,12 @@ export function resolveTenant() {
       }
 
       // Method 4: Check for session cookie
+      // IMPORTANTE: usar signedCookies, no cookies. La cookie tenant_id es la
+      // única prueba de sesión del sistema — sin la firma (cookie-parser +
+      // COOKIE_SECRET), cualquiera podría forjar `tenant_id=<numero>` y
+      // autenticarse como cualquier tenant sin contraseña.
       if (!tenant) {
-        const tenantId = req.cookies?.tenant_id;
+        const tenantId = req.signedCookies?.tenant_id;
         if (tenantId) {
           tenant = await tenantManager.getTenantById(Number(tenantId));
         }

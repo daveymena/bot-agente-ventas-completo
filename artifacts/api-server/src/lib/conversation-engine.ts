@@ -331,8 +331,13 @@ export function isPaymentInstructionIntent(text: string): boolean {
 
 // Datos del titular para respuestas hardcodeadas de pago
 // (normalmente vienen del agente; estos son fallback)
-const DEFAULT_TRANSFER_NUMBER = process.env.TRANSFER_NUMBER || "3136174267";
-const DEFAULT_TRANSFER_OWNER = process.env.TRANSFER_OWNER || "Deiner Mena";
+// Fuente única: variables de entorno TRANSFER_NUMBER / TRANSFER_NAME.
+// Antes conversation-engine leía TRANSFER_OWNER y payments.ts leía
+// TRANSFER_NAME, con defaults distintos ("Deiner Mena" vs "Duvier Mena") →
+// el titular podía mostrarse incorrecto/inconsistente. Se unifica en
+// TRANSFER_NAME (con fallback a TRANSFER_OWNER por compatibilidad).
+const DEFAULT_TRANSFER_NUMBER = process.env.TRANSFER_NUMBER || "";
+const DEFAULT_TRANSFER_OWNER = process.env.TRANSFER_NAME || process.env.TRANSFER_OWNER || "";
 
 /**
  * Genera una respuesta conversacional cuando el cliente:
@@ -655,12 +660,17 @@ export async function loadConversationMemory(conversationId: number): Promise<Co
     .where(eq(conversations.id, conversationId))
     .limit(1);
 
-  // Cargar historial completo (últimos 30 mensajes)
+  // Cargar historial completo (últimos 30 mensajes).
+  // Desempate por id (serial autoincremental): sin esto, dos mensajes con el
+  // mismo createdAt (mismo segundo — cliente que manda dos mensajes seguidos,
+  // o respuesta del bot + mensaje del cliente casi simultáneos) quedan en
+  // orden indefinido, y el motor podía leer el mensaje equivocado como "el
+  // último" — respondiendo a algo viejo en vez del mensaje actual.
   const history = await db
     .select()
     .from(messages)
     .where(eq(messages.conversationId, conversationId))
-    .orderBy(desc(messages.createdAt))
+    .orderBy(desc(messages.createdAt), desc(messages.id))
     .limit(30)
     .then(rows => rows.reverse()); // Cronológico
 

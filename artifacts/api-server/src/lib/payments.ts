@@ -269,8 +269,8 @@ export class PaymentGateway {
       transferAccounts: tenantPayments.transfer?.accounts || [
         {
           type: "Nequi",
-          number: process.env.TRANSFER_NUMBER || "3136174267",
-          name: process.env.TRANSFER_NAME || "Duvier Mena"
+          number: process.env.TRANSFER_NUMBER || "",
+          name: process.env.TRANSFER_NAME || process.env.TRANSFER_OWNER || ""
         }
       ],
       appUrl: process.env.APP_URL || "https://tecnovariedades.easypanel.host",

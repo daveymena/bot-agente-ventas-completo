@@ -61,9 +61,13 @@ ENV PORT=3002
 
 EXPOSE 3002
 
-# Healthcheck para Easypanel
-HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-  CMD curl -f http://localhost:${PORT}/api/healthz || exit 1
+# Healthcheck para Easypanel — la ruta real es /api/health (ver src/health.ts).
+# Antes apuntaba a /api/healthz (inexistente): el check fallaba siempre, Easypanel
+# marcaba el contenedor como unhealthy y lo reiniciaba cada ~40s, cortando la
+# sesión de WhatsApp repetidamente. start-period amplio para dar tiempo al build
+# de la DB y la conexión inicial.
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+  CMD curl -f http://localhost:${PORT}/api/health || exit 1
 
 # Volumen persistente para sesión de WhatsApp (evita rescanear QR al reiniciar)
 VOLUME /app/artifacts/api-server/.baileys-auth

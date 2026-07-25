@@ -98,7 +98,8 @@ router.post("/login", async (req, res, next) => {
       secure: isSecure,
       sameSite: "lax",
       path: "/",
-      maxAge: 30 * 24 * 60 * 60 * 1000
+      maxAge: 30 * 24 * 60 * 60 * 1000,
+      signed: true,
     });
 
     return res.json({ message: "Login exitoso", tenant: { id: tenant.id, name: tenant.name, slug: tenant.slug } });
@@ -109,7 +110,7 @@ router.post("/login", async (req, res, next) => {
 
 router.get("/me", async (req, res, next) => {
   try {
-    const tenantId = req.cookies?.tenant_id;
+    const tenantId = req.signedCookies?.tenant_id;
     if (!tenantId) {
       return res.status(401).json({ error: "No session found" });
     }

@@ -4,6 +4,7 @@ import { fileURLToPath } from "url";
 import { existsSync, readdirSync, readFileSync } from "fs";
 import cors from "cors";
 import cookieParser from "cookie-parser";
+import { randomBytes } from "node:crypto";
 import pinoHttp from "pino-http";
 import router from "./routes";
 import healthRouter from "./health";
@@ -104,7 +105,11 @@ logger.info("[MessageHandler] Message receiver configured for default tenant");
     const existingProducts = await db.select().from(products).limit(1);
     if (existingProducts.length === 0) {
       console.log("📦 No hay productos, sembrando desde products-full.json...");
-      const jsonPath = path.resolve(process.cwd(), "products-full.json");
+      // El archivo vive en la raíz del monorepo, no en cwd (que varía según
+      // cómo se lance el proceso). Antes esto nunca sembraba productos en
+      // desarrollo local — el catálogo quedaba vacío y el bot no tenía nada
+      // que ofrecer.
+      const jsonPath = path.resolve(__dirname, "../../../products-full.json");
       if (existsSync(jsonPath)) {
         const rawData = readFileSync(jsonPath, "utf-8");
         const productsData = JSON.parse(rawData);
@@ -184,7 +189,26 @@ app.use(
     exposedHeaders: ["Set-Cookie"],
   }),
 );
-app.use(cookieParser());
+// La cookie de sesión (tenant_id) DEBE ir firmada — sin esto, cualquiera
+// puede forjar `tenant_id=<numero>` y autenticarse como cualquier tenant
+// (incluyendo el superusuario) sin contraseña. Ver COOKIE_SECRET en .env.
+//
+// Si no está configurado NO tumbamos el arranque (eso dejaría producción
+// caída si el secreto falta en Easypanel). En su lugar generamos uno
+// aleatorio en memoria y avisamos fuerte: la protección contra falsificación
+// se mantiene (nadie puede adivinar un secreto aleatorio), pero las sesiones
+// no sobreviven a un reinicio hasta que se configure COOKIE_SECRET fijo.
+let cookieSecret = process.env.COOKIE_SECRET;
+if (!cookieSecret) {
+  cookieSecret = randomBytes(32).toString("hex");
+  const where = process.env.NODE_ENV === "production" ? "PRODUCCIÓN" : "desarrollo";
+  logger.warn(
+    `[Security] COOKIE_SECRET no configurado en ${where} — usando un secreto aleatorio temporal. ` +
+    "Las sesiones se invalidarán en cada reinicio. Configura COOKIE_SECRET (fijo) en las " +
+    "variables de entorno para una sesión estable."
+  );
+}
+app.use(cookieParser(cookieSecret));
 // Capturar el cuerpo crudo para poder verificar la firma de webhooks de Facebook (X-Hub-Signature-256)
 app.use(express.json({
   verify: (req: any, _res, buf) => {
@@ -208,7 +232,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // Función para encontrar el path correcto del frontend
-function findFrontendPath(): string {
+function findFrontendPath(): string | null {
   const candidates = [
     // Producción (Docker)
     path.resolve("/app/artifacts/ventas-pro/dist/public"),
@@ -240,7 +264,12 @@ function findFrontendPath(): string {
     }
   }
 
-  throw new Error("❌ No se pudo encontrar el directorio del frontend compilado");
+  // No lanzar excepción: esto se ejecuta a nivel de módulo (top-level), así
+  // que un throw aquí tumbaba TODO el servidor (API, WhatsApp, Facebook,
+  // pagos) solo porque el dashboard de React no estaba compilado. El bot y
+  // la API no dependen del frontend — deben poder correr sin él.
+  console.warn("[Frontend] ⚠️ No se encontró el frontend compilado — la API y el bot seguirán funcionando, pero el dashboard no se servirá hasta compilarlo (pnpm run build).");
+  return null;
 }
 
 const frontendPath = findFrontendPath();
@@ -278,12 +307,14 @@ if (tiendaPath) {
 }
 
 // Servir archivos estáticos del frontend admin con configuración optimizada
-app.use(express.static(frontendPath, {
-  maxAge: process.env.NODE_ENV === "production" ? "1d" : 0,
-  etag: true,
-  lastModified: true,
-  index: false, // No servir index.html automáticamente, lo haremos manualmente
-}));
+if (frontendPath) {
+  app.use(express.static(frontendPath, {
+    maxAge: process.env.NODE_ENV === "production" ? "1d" : 0,
+    etag: true,
+    lastModified: true,
+    index: false, // No servir index.html automáticamente, lo haremos manualmente
+  }));
+}
 
 // Rutas públicas que no requieren validación de SaaS
 const publicRoutes = [
@@ -420,9 +451,9 @@ app.use((req, res, next) => {
   }
   
   console.log(`[Frontend] Serving index.html for path: ${req.path}`);
-  const indexPath = path.join(frontendPath, "index.html");
-  
-  if (existsSync(indexPath)) {
+  const indexPath = frontendPath ? path.join(frontendPath, "index.html") : null;
+
+  if (indexPath && existsSync(indexPath)) {
     // Configurar headers para SPA
     res.setHeader("Content-Type", "text/html");
     res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");

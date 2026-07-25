@@ -1,0 +1,569 @@
+[
+  {
+    "id": 1,
+    "name": "COMICS CONDORITO",
+    "category": "Diseño Gráfico",
+    "price": 49.99,
+    "currency": "USD"
+  },
+  {
+    "id": 2,
+    "name": "PACK IDIOMAS",
+    "category": "Idiomas",
+    "price": 51.87,
+    "currency": "USD"
+  },
+  {
+    "id": 3,
+    "name": "CURSO LETTERING DESDE CERO",
+    "category": "General",
+    "price": 53.74,
+    "currency": "USD"
+  },
+  {
+    "id": 4,
+    "name": "CURSO FOTOMONTAJE PUBLICITARIO",
+    "category": "Fotografía",
+    "price": 55.62,
+    "currency": "USD"
+  },
+  {
+    "id": 5,
+    "name": "DISEÑO EDITORIAL DESDE CERO",
+    "category": "General",
+    "price": 57.49,
+    "currency": "USD"
+  },
+  {
+    "id": 6,
+    "name": "DISEÑO DE LOGOTIPOS CON RETICULAS",
+    "category": "General",
+    "price": 59.37,
+    "currency": "USD"
+  },
+  {
+    "id": 7,
+    "name": "CURSO CREA Y GESTIONA UNA MARCA",
+    "category": "General",
+    "price": 61.24,
+    "currency": "USD"
+  },
+  {
+    "id": 8,
+    "name": "CURSO ADOBE INDESIGN DESDE CERO",
+    "category": "General",
+    "price": 63.12,
+    "currency": "USD"
+  },
+  {
+    "id": 9,
+    "name": "CURSO ANIMACIÓN EXPRESS PARA REDES SOCIALES",
+    "category": "General",
+    "price": 64.99,
+    "currency": "USD"
+  },
+  {
+    "id": 10,
+    "name": "CURSO DISEÑO DE APLICACIÓN MOVIL",
+    "category": "General",
+    "price": 66.87,
+    "currency": "USD"
+  },
+  {
+    "id": 11,
+    "name": "CURSO DE DIBUJO A ILUSTRACIÓN DIGITAL",
+    "category": "General",
+    "price": 68.74,
+    "currency": "USD"
+  },
+  {
+    "id": 12,
+    "name": "CURSO PRODUCCIÓN Y EDICIÓN DE VIDEO CON CAMARA",
+    "category": "Música",
+    "price": 70.62,
+    "currency": "USD"
+  },
+  {
+    "id": 13,
+    "name": "CURSO DE FOTOGRAFIA PROFESIONAL",
+    "category": "General",
+    "price": 72.49,
+    "currency": "USD"
+  },
+  {
+    "id": 14,
+    "name": "CURSO PHOTOSHOP PARA DISEÑO WEB",
+    "category": "General",
+    "price": 74.37,
+    "currency": "USD"
+  },
+  {
+    "id": 15,
+    "name": "CURSO DE ECOMMERCE",
+    "category": "General",
+    "price": 76.24,
+    "currency": "USD"
+  },
+  {
+    "id": 16,
+    "name": "CURSO DISEÑO DE INTERFACES MOVILES",
+    "category": "General",
+    "price": 78.12,
+    "currency": "USD"
+  },
+  {
+    "id": 17,
+    "name": "CURSO DE DESARROLLO WEB",
+    "category": "Programación",
+    "price": 79.99,
+    "currency": "USD"
+  },
+  {
+    "id": 18,
+    "name": "CURSO DISEÑO VISUAL DE MARCAS",
+    "category": "General",
+    "price": 81.87,
+    "currency": "USD"
+  },
+  {
+    "id": 19,
+    "name": "15 MIL PLANOS PARA MUEBLES DE CARPINTERIA",
+    "category": "General",
+    "price": 83.74,
+    "currency": "USD"
+  },
+  {
+    "id": 20,
+    "name": "CURSO CREACIÓN DE VIDEOJUEGOS",
+    "category": "General",
+    "price": 85.62,
+    "currency": "USD"
+  },
+  {
+    "id": 21,
+    "name": "CURSO MASTER EN ANIMACIÓN 3D",
+    "category": "General",
+    "price": 87.49,
+    "currency": "USD"
+  },
+  {
+    "id": 22,
+    "name": "CURSO PHOTOSHOP PARA RETOQUE DE RETRATOS",
+    "category": "General",
+    "price": 89.37,
+    "currency": "USD"
+  },
+  {
+    "id": 23,
+    "name": "CURSO MASTER EN WORDPRESS",
+    "category": "General",
+    "price": 91.24,
+    "currency": "USD"
+  },
+  {
+    "id": 24,
+    "name": "CURSO PILATES PARA UN CUERPO DE 10",
+    "category": "General",
+    "price": 93.12,
+    "currency": "USD"
+  },
+  {
+    "id": 25,
+    "name": "CURSO CIBERSEGURIDAD",
+    "category": "General",
+    "price": 94.99,
+    "currency": "USD"
+  },
+  {
+    "id": 26,
+    "name": "CURSO LOCUCIÓN PROFESIONAL",
+    "category": "General",
+    "price": 96.87,
+    "currency": "USD"
+  },
+  {
+    "id": 27,
+    "name": "CURSO SERVIDORES LINUX",
+    "category": "General",
+    "price": 98.74,
+    "currency": "USD"
+  },
+  {
+    "id": 28,
+    "name": "CURSO CAR AUDIO DESDE CERO",
+    "category": "General",
+    "price": 100.62,
+    "currency": "USD"
+  },
+  {
+    "id": 29,
+    "name": "PRESETS LIGHTROOM",
+    "category": "General",
+    "price": 102.49,
+    "currency": "USD"
+  },
+  {
+    "id": 30,
+    "name": "CURSO REPARACIÓN DE PLAY STATION",
+    "category": "Tecnología",
+    "price": 104.37,
+    "currency": "USD"
+  },
+  {
+    "id": 31,
+    "name": "CURSO REPARACIÓN DE CELULARES",
+    "category": "Tecnología",
+    "price": 106.24,
+    "currency": "USD"
+  },
+  {
+    "id": 32,
+    "name": "PACK PROGRAMACIÓN",
+    "category": "Programación",
+    "price": 108.12,
+    "currency": "USD"
+  },
+  {
+    "id": 33,
+    "name": "PACK MARKETING DIGITAL",
+    "category": "Marketing",
+    "price": 109.99,
+    "currency": "USD"
+  },
+  {
+    "id": 34,
+    "name": "PACK SEO MARKETING DESDE CERO",
+    "category": "Marketing",
+    "price": 111.87,
+    "currency": "USD"
+  },
+  {
+    "id": 35,
+    "name": "CURSO CINEMA 4D",
+    "category": "General",
+    "price": 113.74,
+    "currency": "USD"
+  },
+  {
+    "id": 36,
+    "name": "PACK EDUCA A TU PERRO",
+    "category": "General",
+    "price": 115.62,
+    "currency": "USD"
+  },
+  {
+    "id": 37,
+    "name": "PACK FILMORA",
+    "category": "General",
+    "price": 117.49,
+    "currency": "USD"
+  },
+  {
+    "id": 38,
+    "name": "ENSAMBLAJE DE COMPUTADORAS",
+    "category": "Tecnología",
+    "price": 119.37,
+    "currency": "USD"
+  },
+  {
+    "id": 39,
+    "name": "CURSO FITNESS EL CAMINO DEL GUERRERO",
+    "category": "Salud y Deporte",
+    "price": 121.24,
+    "currency": "USD"
+  },
+  {
+    "id": 40,
+    "name": "CURSO INGLES OXFORD",
+    "category": "General",
+    "price": 123.12,
+    "currency": "USD"
+  },
+  {
+    "id": 41,
+    "name": "CURSO FUERZA FIT",
+    "category": "General",
+    "price": 124.99,
+    "currency": "USD"
+  },
+  {
+    "id": 42,
+    "name": "PACK DRYWALL DESDE CERO",
+    "category": "General",
+    "price": 126.87,
+    "currency": "USD"
+  },
+  {
+    "id": 43,
+    "name": "CURSO MECANICA DE MOTOS",
+    "category": "General",
+    "price": 128.74,
+    "currency": "USD"
+  },
+  {
+    "id": 44,
+    "name": "COLECCION ALBUMES",
+    "category": "General",
+    "price": 130.62,
+    "currency": "USD"
+  },
+  {
+    "id": 45,
+    "name": "PACK CANVA",
+    "category": "General",
+    "price": 132.49,
+    "currency": "USD"
+  },
+  {
+    "id": 46,
+    "name": "PACK TERAPIA LENGUAJE Y AUTISMO",
+    "category": "General",
+    "price": 134.37,
+    "currency": "USD"
+  },
+  {
+    "id": 47,
+    "name": "PACK CONTABILIDAD",
+    "category": "General",
+    "price": 136.24,
+    "currency": "USD"
+  },
+  {
+    "id": 48,
+    "name": "EXPEDIENTES TECNICOS VIVIENDAS",
+    "category": "General",
+    "price": 138.12,
+    "currency": "USD"
+  },
+  {
+    "id": 49,
+    "name": "CURSO METRADOS LECTURA DE PLANOS",
+    "category": "General",
+    "price": 139.99,
+    "currency": "USD"
+  },
+  {
+    "id": 50,
+    "name": "CURSO REVIT BIM",
+    "category": "General",
+    "price": 141.87,
+    "currency": "USD"
+  },
+  {
+    "id": 51,
+    "name": "EXPEDIENTES OBRAS RESIDENTE DE OBRAS",
+    "category": "Construcción",
+    "price": 143.74,
+    "currency": "USD"
+  },
+  {
+    "id": 52,
+    "name": "PSICOLOGÍA PROFESIONAL",
+    "category": "Educación",
+    "price": 145.62,
+    "currency": "USD"
+  },
+  {
+    "id": 53,
+    "name": "AULA VIRTUAL",
+    "category": "Educación",
+    "price": 147.49,
+    "currency": "USD"
+  },
+  {
+    "id": 54,
+    "name": "FOTOGRAFÍA PROFESIONAL",
+    "category": "Fotografía",
+    "price": 149.37,
+    "currency": "USD"
+  },
+  {
+    "id": 55,
+    "name": "PREUNIVERSITARIO",
+    "category": "General",
+    "price": 151.24,
+    "currency": "USD"
+  },
+  {
+    "id": 56,
+    "name": "GUITARRA ACÚSTICA",
+    "category": "General",
+    "price": 153.12,
+    "currency": "USD"
+  },
+  {
+    "id": 57,
+    "name": "ARMADO DE COMPUTADORA",
+    "category": "Tecnología",
+    "price": 154.99,
+    "currency": "USD"
+  },
+  {
+    "id": 58,
+    "name": "INGENIERÍA",
+    "category": "General",
+    "price": 156.87,
+    "currency": "USD"
+  },
+  {
+    "id": 59,
+    "name": "PACK DE LIBROS",
+    "category": "Libros",
+    "price": 158.74,
+    "currency": "USD"
+  },
+  {
+    "id": 60,
+    "name": "DESARROLLO WEB",
+    "category": "Programación",
+    "price": 160.62,
+    "currency": "USD"
+  },
+  {
+    "id": 61,
+    "name": "CONSOLA EN MÓVIL - REPARACIÓN",
+    "category": "Tecnología",
+    "price": 162.49,
+    "currency": "USD"
+  },
+  {
+    "id": 62,
+    "name": "ARQUITECTURA",
+    "category": "Construcción",
+    "price": 164.37,
+    "currency": "USD"
+  },
+  {
+    "id": 63,
+    "name": "PROYECTOS",
+    "category": "General",
+    "price": 166.24,
+    "currency": "USD"
+  },
+  {
+    "id": 64,
+    "name": "DJ PRODUCCIÓN MUSICAL",
+    "category": "Música",
+    "price": 168.12,
+    "currency": "USD"
+  },
+  {
+    "id": 65,
+    "name": "FX PREMIERE",
+    "category": "General",
+    "price": 169.99,
+    "currency": "USD"
+  },
+  {
+    "id": 66,
+    "name": "SUBLIMADOS",
+    "category": "General",
+    "price": 171.87,
+    "currency": "USD"
+  },
+  {
+    "id": 67,
+    "name": "SÚPER MEMORIA",
+    "category": "General",
+    "price": 173.74,
+    "currency": "USD"
+  },
+  {
+    "id": 68,
+    "name": "GASTRONOMÍA",
+    "category": "Salud y Deporte",
+    "price": 175.62,
+    "currency": "USD"
+  },
+  {
+    "id": 69,
+    "name": "LIBROS MARKETING",
+    "category": "Marketing",
+    "price": 177.49,
+    "currency": "USD"
+  },
+  {
+    "id": 70,
+    "name": "PORTADAS EDITABLES",
+    "category": "General",
+    "price": 179.37,
+    "currency": "USD"
+  },
+  {
+    "id": 71,
+    "name": "CUADROS EDITABLES",
+    "category": "General",
+    "price": 181.24,
+    "currency": "USD"
+  },
+  {
+    "id": 72,
+    "name": "KID IMPRIMIBLE",
+    "category": "General",
+    "price": 183.12,
+    "currency": "USD"
+  },
+  {
+    "id": 73,
+    "name": "INSTALADORES",
+    "category": "General",
+    "price": 184.99,
+    "currency": "USD"
+  },
+  {
+    "id": 74,
+    "name": "MARKETING DIGITAL",
+    "category": "Marketing",
+    "price": 186.87,
+    "currency": "USD"
+  },
+  {
+    "id": 75,
+    "name": "DISEÑO GRÁFICO",
+    "category": "Diseño Gráfico",
+    "price": 188.74,
+    "currency": "USD"
+  },
+  {
+    "id": 76,
+    "name": "INFOGRAFÍAS",
+    "category": "General",
+    "price": 190.62,
+    "currency": "USD"
+  },
+  {
+    "id": 77,
+    "name": "CURSO HACKING ÉTICO",
+    "category": "General",
+    "price": 192.49,
+    "currency": "USD"
+  },
+  {
+    "id": 78,
+    "name": "EXCEL",
+    "category": "Programación",
+    "price": 194.37,
+    "currency": "USD"
+  },
+  {
+    "id": 79,
+    "name": "INGLES",
+    "category": "General",
+    "price": 196.24,
+    "currency": "USD"
+  },
+  {
+    "id": 80,
+    "name": "📂2 OFFICE",
+    "category": "General",
+    "price": 198.12,
+    "currency": "USD"
+  },
+  {
+    "id": 81,
+    "name": "CURSOS DISEÑO GRÁFICO",
+    "category": "Diseño Gráfico",
+    "price": 199.99,
+    "currency": "USD"
+  }
+]
