@@ -562,6 +562,27 @@ export function detectHardcodedIntent(text: string): "delivery" | "access" | "gu
 
 // ─── Post-procesamiento: eliminar URLs y datos de pago si no es payment_intent ─
 
+/**
+ * Estilo emoji para los mensajes al cliente: sin asteriscos de negrita ni
+ * viñetas de punto/guion — usa emojis, que se leen más amigables y pro en
+ * WhatsApp/Messenger. Se aplica a TODO mensaje saliente.
+ */
+export function toEmojiStyle(text: string): string {
+  if (!text) return text;
+  let t = text;
+  // Negritas markdown *texto* → texto (y quitar asteriscos sueltos)
+  t = t.replace(/\*([^*\n]+)\*/g, "$1").replace(/\*/g, "");
+  // Viñetas al inicio de línea (•, -, ▪, ●, ·, ‣) → ✅, salvo que la línea ya
+  // empiece con un emoji.
+  t = t.replace(/^[ \t]*[•▪●‣·]\s+/gm, "✅ ");
+  t = t.replace(/^[ \t]*-\s+(?=[A-Za-zÁÉÍÓÚÑáéíóúñ0-9])/gm, "✅ ");
+  // Separadores largos de guiones/igual (se ven robóticos) → quitar
+  t = t.replace(/^[ \t]*[-=_]{3,}[ \t]*$/gm, "");
+  // Colapsar líneas vacías de más
+  t = t.replace(/\n{3,}/g, "\n\n").trim();
+  return t;
+}
+
 export function sanitizeResponse(text: string, intent: Intent): string {
   if (intent === "payment_intent" || intent === "confirmation") return text;
 

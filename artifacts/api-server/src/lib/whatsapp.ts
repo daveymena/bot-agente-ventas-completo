@@ -13,6 +13,7 @@ import {
 } from "@workspace/db";
 import { logger } from "./logger";
 import { runAgentReply } from "./agent";
+import { toEmojiStyle } from "./conversation-engine";
 import { createAIClient, getProviderConfig } from "@workspace/integrations-openai-ai-server";
 import { getMessageHandler } from "./services/message-handler";
 import { tenantManager, addTenantToInsert, type TenantContext } from "./tenantManager";
@@ -736,6 +737,9 @@ export class WhatsAppManager {
   async sendText(phone: string, text: string, originalJid?: string) {
     if (!this.sock || this.state !== "connected") throw new Error("WhatsApp no conectado");
     const targetJid = originalJid || `${phone}@s.whatsapp.net`;
+
+    // Estilo emoji: sin asteriscos ni viñetas de punto (más amigable/pro)
+    text = toEmojiStyle(text);
 
     // Simular lectura + escritura
     await sleep(READ_DELAY_MS);

@@ -2,6 +2,7 @@ import { logger } from "./logger";
 import { db, conversations, messages, leads, tenants, products } from "@workspace/db";
 import { eq, desc } from "drizzle-orm";
 import { runAgentReply } from "./agent";
+import { toEmojiStyle } from "./conversation-engine";
 import { tenantManager, type TenantContext } from "./tenantManager";
 import { createHmac } from "crypto";
 
@@ -67,6 +68,7 @@ export class FacebookMessengerService {
   async sendText(psid: string, text: string): Promise<boolean> {
     const { pageAccessToken } = this.getConfig();
     if (!pageAccessToken) return false;
+    text = toEmojiStyle(text);
     try {
       const res = await fetch(
         `${FB_GRAPH_URL}/me/messages?access_token=${pageAccessToken}`,
