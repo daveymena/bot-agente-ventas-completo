@@ -319,6 +319,40 @@ export const TOOLS: ToolDef[] = [
       return { ok: true, summary: `Imagen generada (${size}). Revísala: ${url}`, data: { imageUrl: url, size } };
     },
   },
+  {
+    name: "set_product_image",
+    description: "Asignar una imagen a un producto desde una URL (una foto que el admin provee, o una imagen generada). La sube a Cloudinary para que quede PERMANENTE (no se vence ni se pierde en redeploys) y actualiza el producto. Cambia datos → requiere confirmación.",
+    args: '{ "productId": number (req), "imageUrl": string (req, URL de la imagen a asignar) }',
+    run: async (args, ctx) => {
+      const id = num(args.productId);
+      const src = String(args.imageUrl || "").trim();
+      if (!id || !src) return { ok: false, summary: "Faltan 'productId' y/o 'imageUrl'" };
+      const [prod] = await db.select().from(products).where(eq(products.id, id)).limit(1);
+      if (!prod) return { ok: false, summary: `Producto ${id} no existe` };
+
+      // Hospedaje permanente: 1º volumen de Easypanel (por defecto), 2º Cloudinary si está configurado.
+      let finalUrl: string | null = null;
+      let where = "";
+      const { saveProductImage } = await import("./image-store");
+      finalUrl = await saveProductImage(src, id);
+      if (finalUrl) where = "volumen de Easypanel";
+      if (!finalUrl) {
+        const { isCloudinaryConfigured, uploadImageToCloudinary } = await import("./cloudinary");
+        if (isCloudinaryConfigured()) {
+          finalUrl = await uploadImageToCloudinary(src, `products/${id}`);
+          if (finalUrl) where = "Cloudinary";
+        }
+      }
+      if (!finalUrl) return { ok: false, summary: "No se pudo guardar la imagen (revisa la URL de origen o el volumen de almacenamiento)." };
+
+      await db.update(products).set({ imageUrl: finalUrl }).where(eq(products.id, id));
+      return {
+        ok: true,
+        summary: `Imagen asignada al producto ${id} (${prod.name}) — hospedada permanente en ${where} ✅`,
+        data: { id, imageUrl: finalUrl, where },
+      };
+    },
+  },
 ];
 
 /**
@@ -447,4 +481,14 @@ PRINCIPIOS OBLIGATORIOS:
 4. HONESTIDAD: si no encuentras algo (ej: un producto), dilo claramente y ofrece alternativas ("no encontré 'X', ¿te refieres a este [ID N]?"). Nunca fabriques un id ni un resultado.
 5. Haz EXACTAMENTE lo que el admin pide, ni más ni menos.
 6. Si el admin solo pregunta o pide diagnóstico, usa solo lecturas y responde; no propongas cambios.
-7. Sé claro y conciso en "reply" (español). Pon "done": true cuando no queden más lecturas por hacer.`;
+7. Sé claro y conciso en "reply" (español). Pon "done": true cuando no queden más lecturas por hacer.
+
+IMÁGENES:
+- Puedes GENERAR imágenes (generate_image) y ASIGNARLAS a un producto (set_product_image). Las imágenes se hospedan permanentes (no se vencen).
+- SIEMPRE sugiere/usa la MEDIDA correcta según el uso:
+  • Card del producto / feed cuadrado: 1080×1080 (1:1)
+  • Anuncio feed horizontal: 1200×628 (1.91:1)
+  • Story / Reel: 1080×1920 (9:16)
+  • Marketplace: 1200×628
+  Si dudas, usa 1080×1080 (se ve bien en todos lados). Para anuncios, Meta reajusta el tamaño por ubicación automáticamente.
+- Si el admin te da una foto (URL), úsala con set_product_image. Si te pide que la crees, usa generate_image primero para que la revise, y solo tras su "sí" la asignas con set_product_image.`;

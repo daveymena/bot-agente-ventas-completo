@@ -1,7 +1,7 @@
 import express, { type Express, type Request, type Response, type NextFunction } from "express";
 import path from "path";
 import { fileURLToPath } from "url";
-import { existsSync, readdirSync, readFileSync } from "fs";
+import { existsSync, readdirSync, readFileSync, mkdirSync } from "fs";
 import cors from "cors";
 import cookieParser from "cookie-parser";
 import { randomBytes } from "node:crypto";
@@ -295,6 +295,17 @@ function findTiendaPath(): string | null {
 }
 
 const tiendaPath = findTiendaPath();
+
+// Servir imágenes subidas/generadas desde el VOLUMEN persistente en /uploads/.
+// (El Architect guarda aquí las fotos de producto — debe ser un volumen montado
+// en Easypanel, ej IMAGE_STORE_DIR=/app/uploads, para sobrevivir redeploys.)
+const uploadsDir = process.env.IMAGE_STORE_DIR || path.resolve(process.cwd(), "uploads");
+try { if (!existsSync(uploadsDir)) mkdirSync(uploadsDir, { recursive: true }); } catch {}
+app.use("/uploads", express.static(uploadsDir, {
+  maxAge: process.env.NODE_ENV === "production" ? "7d" : 0,
+  etag: true,
+  lastModified: true,
+}));
 
 // Servir archivos de la tienda pública en /tienda/
 if (tiendaPath) {

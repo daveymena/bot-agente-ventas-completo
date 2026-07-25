@@ -40,6 +40,8 @@ function describePlannedAction(a: { tool: string; args: any }): string {
       return `💰 Crear campaña de Facebook para producto ${g.productId ?? "?"} (presupuesto ${g.dailyBudget ?? 5000}/día) — se crea EN PAUSA, no gasta hasta que la actives`;
     case "fb_sync_catalog":
       return `Sincronizar catálogo de productos a Facebook`;
+    case "set_product_image":
+      return `Asignar imagen al producto ${g.productId ?? "?"} (se hospeda permanente): ${String(g.imageUrl ?? "").slice(0, 60)}`;
     default:
       return `${a.tool}: ${JSON.stringify(g).slice(0, 80)}`;
   }
