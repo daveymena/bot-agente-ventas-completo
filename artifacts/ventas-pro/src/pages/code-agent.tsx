@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Bot, Send, User, Loader2, Sparkles, Check, X, Wrench, MessageSquare } from "lucide-react";
+import { Bot, Send, User, Loader2, Sparkles, Check, X, Wrench, MessageSquare, Paperclip } from "lucide-react";
 import { toast } from "sonner";
 
 type Mode = "operator" | "agent";
@@ -52,7 +52,41 @@ export default function CodeAgent() {
   const [messages, setMessages] = useState<Message[]>([{ role: "assistant", content: GREETING.operator }]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Subir una imagen/archivo desde el chat (botón 📎) y dejar su URL lista para
+  // que el Architect la use (ej: "asigna esta imagen al producto ...").
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 8 * 1024 * 1024) { toast.error("La imagen supera 8MB"); return; }
+    setUploading(true);
+    try {
+      const dataUrl: string = await new Promise((resolve, reject) => {
+        const r = new FileReader();
+        r.onload = () => resolve(r.result as string);
+        r.onerror = reject;
+        r.readAsDataURL(file);
+      });
+      const res = await fetch("/api/code-agent/upload", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ image: dataUrl, filename: file.name }),
+        credentials: "include",
+      });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || "Error al subir");
+      const data = await res.json();
+      setInput((prev) => (prev ? prev + " " : "") + `Usa esta imagen: ${data.url}`);
+      toast.success("Imagen subida ✓ — dime a qué producto asignarla");
+    } catch (err: any) {
+      toast.error(err.message || "No se pudo subir la imagen");
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -213,10 +247,29 @@ export default function CodeAgent() {
 
             <div className="p-4 border-t border-border bg-card">
               <form onSubmit={(e) => { e.preventDefault(); handleSubmit(); }} className="flex gap-2">
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={handleFileUpload}
+                />
+                {mode === "operator" && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    disabled={loading || uploading}
+                    onClick={() => fileInputRef.current?.click()}
+                    title="Adjuntar imagen"
+                  >
+                    {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Paperclip className="h-4 w-4" />}
+                  </Button>
+                )}
                 <Input
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
-                  placeholder={mode === "operator" ? "Ej: crea una categoría 'Cursos IA' y muéstrame los productos…" : "Ej: crea un agente para vender cursos de programación…"}
+                  placeholder={mode === "operator" ? "Ej: crea una categoría 'Cursos IA'… o adjunta una imagen 📎" : "Ej: crea un agente para vender cursos de programación…"}
                   disabled={loading}
                   className="flex-1"
                 />

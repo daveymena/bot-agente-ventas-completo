@@ -33,6 +33,39 @@ export function resolveImageSource(url: string): string {
  * Descarga/decodifica una imagen (URL http(s) o data:base64) y la guarda en el
  * volumen. Devuelve la ruta pública servible, o null si falla.
  */
+/**
+ * Guarda una imagen subida manualmente (data URL base64 o URL) en el volumen,
+ * con nombre único. Devuelve la ruta pública para pasarla al Architect.
+ */
+export async function saveUploadedImage(source: string, filename?: string): Promise<string | null> {
+  try {
+    source = resolveImageSource(source);
+    let buffer: Buffer;
+    let ext = "jpg";
+    if (source.startsWith("data:")) {
+      const mime = source.match(/^data:image\/(\w+)/)?.[1];
+      if (mime) ext = mime === "jpeg" ? "jpg" : mime;
+      buffer = Buffer.from(source.split(",")[1] || "", "base64");
+    } else if (/^https?:\/\//i.test(source)) {
+      const res = await fetch(source, { headers: { "User-Agent": "Mozilla/5.0" }, redirect: "follow" });
+      if (!res.ok) return null;
+      buffer = Buffer.from(await res.arrayBuffer());
+    } else return null;
+    if (buffer.length < 100) return null;
+
+    const dir = path.join(getImageStoreDir(), "manual");
+    await mkdir(dir, { recursive: true });
+    const safe = (filename || "img").replace(/[^\w.-]/g, "_").slice(0, 40);
+    const name = `${Date.now()}-${safe}.${ext}`.replace(/\.\w+\.\w+$/, `.${ext}`);
+    await writeFile(path.join(dir, name), buffer);
+    logger.info({ name, bytes: buffer.length }, "[ImageStore] Imagen subida guardada");
+    return `/uploads/manual/${name}`;
+  } catch (e: any) {
+    logger.error({ err: e?.message }, "[ImageStore] Error guardando subida");
+    return null;
+  }
+}
+
 export async function saveProductImage(source: string, productId: number): Promise<string | null> {
   try {
     source = resolveImageSource(source); // convierte links de Drive a descarga directa

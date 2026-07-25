@@ -1203,5 +1203,29 @@ router.post("/operator", async (req: TenantRequest, res, next) => {
   }
 });
 
+/**
+ * POST /api/code-agent/upload — Subir una imagen/archivo desde el chat del
+ * Architect (botón 📎). Recibe la imagen como data URL base64 (sin multer),
+ * la guarda permanente en el volumen y devuelve la URL absoluta para usarla.
+ */
+router.post("/upload", async (req: TenantRequest, res, next) => {
+  try {
+    const tenantId = req.tenant?.id;
+    if (!tenantId) return res.status(401).json({ message: "Tenant not resolved" });
+    const { image, filename } = req.body || {};
+    if (!image || typeof image !== "string") return res.status(400).json({ error: "Falta 'image' (data URL base64)" });
+
+    const { saveUploadedImage } = await import("../lib/image-store");
+    const rel = await saveUploadedImage(image, filename);
+    if (!rel) return res.status(400).json({ error: "No se pudo guardar la imagen" });
+
+    const base = (process.env.APP_URL || "").replace(/\/$/, "");
+    const url = base ? `${base}${rel}` : rel;
+    return res.json({ ok: true, url, path: rel });
+  } catch (e) {
+    return next(e);
+  }
+});
+
 export default router;
 
