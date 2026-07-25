@@ -190,6 +190,21 @@ async function initDb() {
       connectionTimeoutMillis: 5000, statement_timeout: 10000, query_timeout: 10000,
     });
     db = drizzle(pool, { schema: pgSchema });
+
+    // Crear las tablas en Postgres si no existen (idempotente). Sin esto,
+    // cambiar a USE_SQLITE=false rompía la app porque las tablas no existían.
+    try {
+      const { ALL_TABLES } = await import("./pg-schema");
+      let created = 0;
+      for (const t of ALL_TABLES as { name: string; sql: string }[]) {
+        try { await pool.query(t.sql); created++; }
+        catch (e: any) { console.warn(`⚠️ [PG] tabla ${t.name}: ${e?.message?.slice(0, 80)}`); }
+      }
+      console.log(`✅ [PG] Esquema verificado: ${created}/${(ALL_TABLES as any[]).length} tablas listas`);
+    } catch (e: any) {
+      console.error(`❌ [PG] No se pudo crear el esquema: ${e?.message}`);
+    }
+
     dbReady = true;
   }
 }
