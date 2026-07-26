@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Bot, Send, User, Loader2, Sparkles, Check, X, Wrench, MessageSquare, Paperclip } from "lucide-react";
+import { Bot, Send, User, Loader2, Sparkles, Check, X, Wrench, MessageSquare, Paperclip, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
 
 type Mode = "operator" | "agent";
@@ -53,8 +53,46 @@ export default function CodeAgent() {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [restoring, setRestoring] = useState(true);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // El hilo vive en el servidor (architect_memory). Al montar la página lo
+  // restauramos para que cambiar de sección no borre la conversación.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/code-agent/history?sessionId=default", { credentials: "include" });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (cancelled || !Array.isArray(data.history) || data.history.length === 0) return;
+        setMessages([
+          { role: "assistant", content: GREETING.operator },
+          ...data.history.map((t: any) => ({ role: t.role, content: t.content })),
+        ]);
+        if (data.awaitingConfirmation) {
+          toast.info("Tienes un plan pendiente de confirmar");
+        }
+      } catch {
+        // sin historial: se queda el saludo
+      } finally {
+        if (!cancelled) setRestoring(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  const resetConversation = async () => {
+    if (!confirm("¿Empezar una conversación nueva? Se borrará el historial guardado.")) return;
+    try {
+      await fetch("/api/code-agent/history?sessionId=default", { method: "DELETE", credentials: "include" });
+      setMessages([{ role: "assistant", content: GREETING[mode] }]);
+      toast.success("Conversación reiniciada");
+    } catch {
+      toast.error("No se pudo reiniciar");
+    }
+  };
 
   // Subir una imagen/archivo desde el chat (botón 📎) y dejar su URL lista para
   // que el Architect la use (ej: "asigna esta imagen al producto ...").
@@ -153,6 +191,10 @@ export default function CodeAgent() {
               Opera tu aplicación con lenguaje natural: crea y edita datos, o diseña tu agente de ventas.
             </p>
           </div>
+          <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" onClick={resetConversation} title="Empezar conversación nueva">
+            <RotateCcw className="h-4 w-4 mr-1.5" /> Nueva
+          </Button>
           <div className="inline-flex rounded-lg border border-border bg-secondary p-1">
             <button
               onClick={() => switchMode("operator")}
@@ -166,6 +208,7 @@ export default function CodeAgent() {
             >
               <MessageSquare className="h-4 w-4" /> Diseñar agente
             </button>
+          </div>
           </div>
         </div>
 
@@ -273,7 +316,7 @@ export default function CodeAgent() {
                   disabled={loading}
                   className="flex-1"
                 />
-                <Button type="submit" disabled={loading || !input.trim()}>
+                <Button type="submit" disabled={loading || restoring || !input.trim()}>
                   {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
                 </Button>
               </form>

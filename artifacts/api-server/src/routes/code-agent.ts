@@ -15,7 +15,7 @@ import { G4F_ENABLED } from "../config/g4f.config";
 import { OPERATOR_SYSTEM_PROMPT, buildToolsDoc, executeAction, isReadOnlyTool, verifyMutation } from "../lib/app-operator";
 import {
   loadArchitectHistory, saveArchitectTurn, getPendingPlan, setPendingPlan,
-  clearPendingPlan, isApproval, isRejection,
+  clearPendingPlan, clearArchitectHistory, isApproval, isRejection,
 } from "../lib/architect-store";
 
 // Descripción legible de una acción del plan, para mostrarla al admin antes de ejecutar.
@@ -1199,6 +1199,43 @@ router.post("/operator", async (req: TenantRequest, res, next) => {
     return res.json({ reply: finalReply, status: "info" });
   } catch (e) {
     logger.error(e, "[AppOperator] Error");
+    return next(e);
+  }
+});
+
+/**
+ * GET /api/code-agent/history — Devuelve la conversación persistida del
+ * Architect para que la UI la restaure al volver a la página (antes el hilo
+ * vivía solo en el estado de React y se borraba al navegar).
+ */
+router.get("/history", async (req: TenantRequest, res, next) => {
+  try {
+    const tenantId = req.tenant?.id;
+    if (!tenantId) return res.status(401).json({ message: "Tenant not resolved" });
+    const sessionId = String(req.query.sessionId || "default");
+
+    const [history, pending] = await Promise.all([
+      loadArchitectHistory(tenantId, sessionId),
+      getPendingPlan(tenantId, sessionId),
+    ]);
+    return res.json({ history, awaitingConfirmation: !!pending });
+  } catch (e) {
+    return next(e);
+  }
+});
+
+/**
+ * DELETE /api/code-agent/history — Borra la conversación persistida (botón
+ * "nueva conversación"), incluido cualquier plan pendiente de aprobación.
+ */
+router.delete("/history", async (req: TenantRequest, res, next) => {
+  try {
+    const tenantId = req.tenant?.id;
+    if (!tenantId) return res.status(401).json({ message: "Tenant not resolved" });
+    const sessionId = String(req.query.sessionId || "default");
+    await clearArchitectHistory(tenantId, sessionId);
+    return res.json({ ok: true });
+  } catch (e) {
     return next(e);
   }
 });

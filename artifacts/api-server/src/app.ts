@@ -210,12 +210,15 @@ if (!cookieSecret) {
 }
 app.use(cookieParser(cookieSecret));
 // Capturar el cuerpo crudo para poder verificar la firma de webhooks de Facebook (X-Hub-Signature-256)
+// limit 12mb: las imágenes se suben como data URL base64 (≈+33% sobre el original),
+// el default de 100kb rechazaba cualquier foto real con 413.
 app.use(express.json({
+  limit: "12mb",
   verify: (req: any, _res, buf) => {
     if (buf && buf.length) req.rawBody = buf;
   },
 }));
-app.use(express.urlencoded({ extended: true }));
+app.use(express.urlencoded({ extended: true, limit: "12mb" }));
 
 
 // (Middleware de debug de cookies eliminado - usaba console.log en cada request)

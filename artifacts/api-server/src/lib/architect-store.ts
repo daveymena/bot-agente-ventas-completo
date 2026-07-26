@@ -128,6 +128,21 @@ export async function clearPendingPlan(
     );
 }
 
+/** Borra toda la conversación persistida de una sesión (turnos + plan pendiente). */
+export async function clearArchitectHistory(
+  tenantId: number,
+  sessionId: string,
+): Promise<void> {
+  await db
+    .delete(architectMemory)
+    .where(
+      and(
+        eq(architectMemory.tenantId, tenantId),
+        eq(architectMemory.sessionId, sessionId),
+      ),
+    );
+}
+
 // Detección de aprobación/rechazo del plan pendiente en el mensaje del usuario.
 export function isApproval(text: string): boolean {
   return /^\s*(s[ií]\b|dale|confirm|ok\b|okey|okay|h[aá]zlo|hacelo|aprob|adelante|proced|de una|listo|correcto|perfecto|ejec[uú]t|env[ií]a|s[ií] por favor|s[ií] hazlo)/i.test(
