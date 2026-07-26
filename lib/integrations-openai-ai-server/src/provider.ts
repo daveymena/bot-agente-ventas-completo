@@ -175,6 +175,24 @@ export function getProviderConfig(provider: string): AIProviderConfig | null {
         model: process.env.MIMO_MODEL || "mimo-v2.5-pro",
       };
 
+    // ── CEREBRAS ── gratis: 5 req/min · 1M tokens/hora · clave en cloud.cerebras.ai
+    case "cerebras":
+      if (!process.env.CEREBRAS_API_KEY) return null;
+      return {
+        baseUrl: "https://api.cerebras.ai/v1",
+        apiKey: process.env.CEREBRAS_API_KEY,
+        model: process.env.CEREBRAS_MODEL || "gpt-oss-120b",
+      };
+
+    // ── COHERE ── gratis: 20 req/min · 1.000 req/mes · clave en dashboard.cohere.com
+    case "cohere":
+      if (!process.env.COHERE_API_KEY) return null;
+      return {
+        baseUrl: "https://api.cohere.ai/compatibility/v1",
+        apiKey: process.env.COHERE_API_KEY,
+        model: process.env.COHERE_MODEL || "command-a-03-2025",
+      };
+
     // ── Google AI Studio ── 500 req/día · 250k tokens/min
     case "google_ai_studio":
       if (!process.env.GOOGLE_API_KEY) return null;

@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { createAIClient, getProviderConfig, getProviderConfigFromSettings, getOpenCodeRotation, type AIProviderConfig } from "@workspace/integrations-openai-ai-server";
+import { createAIClient, getProviderConfig, getProviderConfigFromSettings, getOpenCodeRotation, modelosPara, type AIProviderConfig } from "@workspace/integrations-openai-ai-server";
 import { db, agents, settings, products, productCategories, conversations, messages } from "@workspace/db";
 import { eq, and, desc } from "drizzle-orm";
 import { logger } from "../lib/logger";
@@ -1076,6 +1076,13 @@ router.post("/operator", async (req: TenantRequest, res, next) => {
     // así que al recibir 429 se pasa al siguiente modelo antes de abandonar Zen.
     for (const cfg of getOpenCodeRotation()) pushCfg(`opencode:${cfg.model}`, cfg);
     pushCfg("groq", getProviderConfig("groq"));
+    // Modelos gratis de otros proveedores especializados en RAZONAR: el
+    // operador planifica y usa herramientas, no le sirve un modelo "rápido".
+    // Solo entran los que tengan clave configurada (getProviderConfig da null).
+    for (const m of modelosPara("razonar")) {
+      const base = getProviderConfig(m.proveedor);
+      if (base) pushCfg(`${m.proveedor}:${m.modelo}`, { ...base, model: m.modelo });
+    }
     pushCfg("github", getProviderConfig("github"));
     pushCfg("nvidia", getProviderConfig("nvidia"));
     pushCfg("github_copilot_internal", getProviderConfig("github_copilot_internal"));
