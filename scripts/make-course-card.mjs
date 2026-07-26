@@ -145,11 +145,14 @@ const html = `<!doctype html><html><head><meta charset="utf-8">
 const tmpHtml = path.join(path.dirname(outPath), `.card-${Date.now()}.html`);
 await writeFile(tmpHtml, html, "utf8");
 
-const browser = await puppeteer.launch({
+// Navegador: por defecto el Chromium que puppeteer instala solo (funciona en
+// cualquier máquina y sistema). CHROME_PATH permite forzar uno del sistema.
+const launchOpts = {
   headless: "new",
-  executablePath: process.env.CHROME_PATH || "C:/Program Files/Google/Chrome/Application/chrome.exe",
   args: ["--no-sandbox", "--disable-dev-shm-usage"],
-});
+};
+if (process.env.CHROME_PATH) launchOpts.executablePath = process.env.CHROME_PATH;
+const browser = await puppeteer.launch(launchOpts);
 try {
   const page = await browser.newPage();
   await page.setViewport({ width: W, height: H, deviceScaleFactor: 1 });
