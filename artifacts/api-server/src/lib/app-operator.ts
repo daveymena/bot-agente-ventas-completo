@@ -407,7 +407,7 @@ export const TOOLS: ToolDef[] = [
       };
       const size = sizes[args.purpose as string] || "1080x1080";
       const url = await generateImageUrl(String(args.prompt), size);
-      if (!url) return { ok: false, summary: "No hay generador de imágenes disponible. Activa G4F_ENABLED=true o configura AI_INTEGRATIONS_OPENAI_API_KEY (DALL-E)." };
+      if (!url) return { ok: false, summary: "No se pudo generar la imagen con ningún proveedor (DALL-E, G4F ni Pollinations respondieron)." };
       return { ok: true, summary: `Imagen generada (${size}). Revísala: ${url}`, data: { imageUrl: url, size } };
     },
   },
@@ -477,6 +477,19 @@ async function generateImageUrl(prompt: string, size: string): Promise<string | 
     } catch (e: any) {
       logger.warn({ err: e?.message }, "[generate_image] G4F falló");
     }
+  }
+
+  // Pollinations: gratis y sin API key. Última red de seguridad para que
+  // generar imágenes nunca quede sin proveedor.
+  try {
+    const [w = "1024", h = "1024"] = size.split("x");
+    const url =
+      `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}` +
+      `?width=${encodeURIComponent(w)}&height=${encodeURIComponent(h)}&nologo=true&model=flux`;
+    const resp = await fetch(url, { method: "HEAD" });
+    if (resp.ok) return url;
+  } catch (e: any) {
+    logger.warn({ err: e?.message }, "[generate_image] Pollinations falló");
   }
   return null;
 }
