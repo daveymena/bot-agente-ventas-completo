@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Loader2, CheckCircle2, XCircle, RefreshCw, Megaphone, Package, Target, MapPin, Settings2, MessageCircle, Store, MessageSquare, Radio, Globe, FileText, Trash2, Play, Pencil } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Layout } from "@/components/layout";
@@ -343,6 +344,16 @@ export default function FacebookAdsPage() {
     }
   };
 
+  // Cambiar de sección: carga los datos que necesita cada una. Compartido por
+  // el desplegable (móvil) y las pestañas (escritorio).
+  const selectTab = (id: Tab) => {
+    setTab(id);
+    if (id === "messenger") loadPageInfo();
+    if (id === "marketplace") loadListings();
+    if (id === "channels") loadChannelStatus();
+    if (id === "drafts") loadDrafts();
+  };
+
   const tabs = [
     { id: "config" as Tab, label: "Configuración", icon: Settings2, disabled: false },
     { id: "ads" as Tab, label: "Anuncios", icon: Megaphone, disabled: !connected },
@@ -371,12 +382,31 @@ export default function FacebookAdsPage() {
 
         {!loading && (
           <>
-            <div className="flex gap-2 border-b pb-2 flex-wrap">
+            {/* Móvil: un desplegable en una sola línea. 7 pestañas en fila se
+                salen del ancho del teléfono. Escritorio: se mantienen visibles. */}
+            <div className="md:hidden border-b pb-2">
+              <Select value={tab} onValueChange={(v) => selectTab(v as Tab)}>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Sección" />
+                </SelectTrigger>
+                <SelectContent>
+                  {tabs.map(t => (
+                    <SelectItem key={t.id} value={t.id} disabled={t.disabled}>
+                      <span className="flex items-center gap-2">
+                        <t.icon className="h-4 w-4" /> {t.label}
+                      </span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="hidden md:flex gap-2 border-b pb-2 flex-wrap">
               {tabs.map(t => (
                 <Button
                   key={t.id}
                   variant={tab === t.id ? "default" : "ghost"}
-                  onClick={() => { setTab(t.id); if (t.id === "messenger") loadPageInfo(); if (t.id === "marketplace") loadListings(); if (t.id === "channels") loadChannelStatus(); if (t.id === "drafts") loadDrafts(); }}
+                  onClick={() => selectTab(t.id)}
                   size="sm"
                   disabled={t.disabled}
                 >

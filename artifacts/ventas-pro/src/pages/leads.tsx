@@ -86,20 +86,35 @@ export default function Leads() {
 
         {/* Filter Bar */}
         <div className="glass-panel p-2 rounded-2xl flex gap-4 items-center sticky top-[80px] z-10 overflow-hidden">
-          {/* contentWidth: esta fila de filtros SÍ debe poder desplazarse en horizontal */}
-          <ScrollArea contentWidth className="w-full max-w-[calc(100vw-3rem)]">
+          {/* Móvil: desplegable de una línea. Las 7 etapas en fila se salían
+              del ancho del teléfono y quedaban ocultas a la derecha. */}
+          <div className="md:hidden w-full px-1">
+            <Select value={filterStage} onValueChange={(v) => setFilterStage(v as LeadStage | "all")}>
+              <SelectTrigger className="w-full h-9 rounded-full text-xs">
+                <SelectValue placeholder="Todas las etapas" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todas las etapas</SelectItem>
+                {Object.entries(stageNames).map(([k, v]) => (
+                  <SelectItem key={k} value={k}>{v}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <ScrollArea contentWidth className="hidden md:block w-full max-w-[calc(100vw-3rem)]">
             <div className="flex gap-2 pb-2 md:pb-0 px-2 items-center min-w-max">
-              <Button 
-                variant={filterStage === "all" ? "default" : "ghost"} 
+              <Button
+                variant={filterStage === "all" ? "default" : "ghost"}
                 className={`rounded-full h-8 px-4 text-xs font-medium transition-all ${filterStage === 'all' ? 'shadow-md shadow-primary/20' : 'hover:bg-muted'}`}
                 onClick={() => setFilterStage("all")}
               >
                 Todas las etapas
               </Button>
               {Object.entries(stageNames).map(([k, v]) => (
-                <Button 
+                <Button
                   key={k}
-                  variant={filterStage === k ? "default" : "ghost"} 
+                  variant={filterStage === k ? "default" : "ghost"}
                   className={`rounded-full h-8 px-4 text-xs font-medium transition-all ${filterStage === k ? 'shadow-md shadow-primary/20' : 'hover:bg-muted'}`}
                   onClick={() => setFilterStage(k as LeadStage)}
                 >
