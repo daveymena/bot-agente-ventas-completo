@@ -33,3 +33,6 @@ scratch/
 nvidia-nim-bridge/.env
 lib/db/.env
 OpenCode-puete-ia/__pycache__/
+
+# Env de produccion con secretos reales (nunca subir)
+.env.produccion.txt
