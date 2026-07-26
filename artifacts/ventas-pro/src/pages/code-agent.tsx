@@ -166,33 +166,33 @@ export default function CodeAgent() {
 
   return (
     <Layout>
-      <div className="flex flex-col gap-4 animate-enter h-[calc(100vh-10rem)] md:h-[calc(100vh-8rem)]">
-        <div className="flex items-center justify-between gap-3 flex-shrink-0">
-          <div className="flex items-center gap-3">
+      <div className="flex flex-col gap-4 animate-enter h-[calc(100vh-12rem)] md:h-[calc(100vh-8rem)]">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 sm:gap-3 flex-shrink-0">
+          <div className="flex items-center gap-3 min-w-0 w-full sm:w-auto">
             <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-md shadow-indigo-200 shrink-0">
               <Bot className="w-5 h-5 text-white" />
             </div>
-            <div>
-              <h1 className="text-xl md:text-2xl font-bold tracking-tight">Arquitecto IA</h1>
-              <p className="text-muted-foreground text-xs md:text-sm">Opera tu app con lenguaje natural</p>
+            <div className="min-w-0">
+              <h1 className="text-xl md:text-2xl font-bold tracking-tight truncate">Arquitecto IA</h1>
+              <p className="text-muted-foreground text-xs md:text-sm truncate">Opera tu app con lenguaje natural</p>
             </div>
           </div>
-          <div className="flex items-center gap-2 shrink-0">
-            <Button variant="outline" size="sm" onClick={resetConversation} className="h-9 text-xs">
-              <RotateCcw className="h-3.5 w-3.5 mr-1.5" /> Nueva
+          <div className="flex items-center gap-2 shrink-0 self-end sm:self-auto">
+            <Button variant="outline" size="sm" onClick={resetConversation} className="h-8 sm:h-9 text-xs px-2 sm:px-3">
+              <RotateCcw className="h-3.5 w-3.5 sm:mr-1.5" /> <span className="hidden sm:inline">Nueva</span>
             </Button>
             <div className="inline-flex rounded-lg border border-border bg-secondary p-0.5">
               <button
                 onClick={() => switchMode("operator")}
-                className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors whitespace-nowrap ${mode === "operator" ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+                className={`inline-flex items-center gap-1 rounded-md px-2 sm:px-3 py-1.5 text-[11px] sm:text-xs font-medium transition-colors whitespace-nowrap ${mode === "operator" ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
               >
-                <Wrench className="h-3.5 w-3.5" /> Operador
+                <Wrench className="h-3 w-3 sm:h-3.5 sm:w-3.5" /> <span className="hidden sm:inline">Operador</span><span className="sm:hidden">Op.</span>
               </button>
               <button
                 onClick={() => switchMode("agent")}
-                className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors whitespace-nowrap ${mode === "agent" ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+                className={`inline-flex items-center gap-1 rounded-md px-2 sm:px-3 py-1.5 text-[11px] sm:text-xs font-medium transition-colors whitespace-nowrap ${mode === "agent" ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
               >
-                <MessageSquare className="h-3.5 w-3.5" /> Agente
+                <MessageSquare className="h-3 w-3 sm:h-3.5 sm:w-3.5" /> <span className="hidden sm:inline">Agente</span><span className="sm:hidden">Ag.</span>
               </button>
             </div>
           </div>

@@ -26,25 +26,25 @@ export function MobileNav() {
 
   return (
     <>
-      <nav className="fixed bottom-0 left-0 right-0 z-50 flex h-[72px] items-center justify-around bg-white/90 backdrop-blur-xl border-t border-gray-100 shadow-[0_-4px_20px_rgba(0,0,0,0.06)] px-2 pb-2 safe-area-bottom md:hidden">
+      <nav className="fixed bottom-0 left-0 right-0 z-50 flex h-[72px] items-center justify-evenly bg-white/90 backdrop-blur-xl border-t border-gray-100 shadow-[0_-4px_20px_rgba(0,0,0,0.06)] px-1 pb-2 safe-area-bottom md:hidden">
         {mainNavItems.map((item) => {
           const isActive = item.href === "/" ? location === "/" : location.startsWith(item.href);
           return (
             <Link
               key={item.href}
               href={item.href}
-              className={`flex flex-col items-center justify-center gap-0.5 rounded-2xl px-4 py-1.5 min-w-[56px] transition-all duration-200 ${
+              className={`flex flex-col items-center justify-center gap-0.5 rounded-2xl px-2 py-1.5 min-w-[48px] transition-all duration-200 flex-1 ${
                 isActive ? "text-indigo-600" : "text-gray-400 hover:text-gray-600"
               }`}
             >
-              <div className={`flex items-center justify-center w-10 h-8 rounded-xl transition-all duration-200 ${
+              <div className={`flex items-center justify-center w-9 h-7 rounded-xl transition-all duration-200 ${
                 isActive ? "bg-indigo-50" : ""
               }`}>
-                <item.icon className={`w-[22px] h-[22px] transition-all duration-200 ${
+                <item.icon className={`w-[20px] h-[20px] transition-all duration-200 ${
                   isActive ? "text-indigo-600" : ""
                 }`} />
               </div>
-              <span className={`text-[11px] font-semibold tracking-tight transition-all duration-200 ${
+              <span className={`text-[10px] font-semibold tracking-tight transition-all duration-200 ${
                 isActive ? "text-indigo-600" : "text-gray-400"
               }`}>
                 {item.label}
@@ -55,18 +55,18 @@ export function MobileNav() {
 
         <button
           onClick={() => setShowMore(!showMore)}
-          className={`flex flex-col items-center justify-center gap-0.5 rounded-2xl px-4 py-1.5 min-w-[56px] transition-all duration-200 ${
+          className={`flex flex-col items-center justify-center gap-0.5 rounded-2xl px-2 py-1.5 min-w-[48px] transition-all duration-200 flex-1 ${
             showMore ? "text-indigo-600" : "text-gray-400 hover:text-gray-600"
           }`}
         >
-          <div className={`flex items-center justify-center w-10 h-8 rounded-xl transition-all duration-200 ${
+          <div className={`flex items-center justify-center w-9 h-7 rounded-xl transition-all duration-200 ${
             showMore ? "bg-indigo-50" : ""
           }`}>
-            <MoreHorizontal className={`w-[22px] h-[22px] transition-all duration-200 ${
+            <MoreHorizontal className={`w-[20px] h-[20px] transition-all duration-200 ${
               showMore ? "text-indigo-600" : ""
             }`} />
           </div>
-          <span className={`text-[11px] font-semibold tracking-tight transition-all duration-200 ${
+          <span className={`text-[10px] font-semibold tracking-tight transition-all duration-200 ${
             showMore ? "text-indigo-600" : "text-gray-400"
           }`}>
             Más
