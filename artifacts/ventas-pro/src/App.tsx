@@ -45,7 +45,11 @@ const SessionContext = createContext<SessionContextType>({
 export const useSession = () => useContext(SessionContext);
 
 function TiendaRedirect() {
-  useEffect(() => { window.location.href = "/tienda"; }, []);
+  const { tenant } = useSession();
+  useEffect(() => {
+    const slug = tenant?.slug || '';
+    window.location.href = slug ? `/tienda/${slug}` : "/tienda";
+  }, [tenant]);
   return null;
 }
 

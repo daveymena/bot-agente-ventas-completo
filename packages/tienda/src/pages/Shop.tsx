@@ -1,9 +1,9 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useStore, Product } from '../store/useStore';
-import { Search, Star, ShoppingCart, Heart, Eye, Repeat2, ChevronDown, SlidersHorizontal, ArrowRight } from 'lucide-react';
+import { Search, Star, ShoppingCart, Heart, Eye, Repeat2, ChevronDown, SlidersHorizontal, ArrowRight, Store } from 'lucide-react';
 import { motion } from 'framer-motion';
 import Swal from 'sweetalert2';
-import { useParams, useSearchParams } from 'react-router-dom';
+import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
 
 interface ApiProduct {
   id: number;
@@ -96,14 +96,17 @@ const Shop = () => {
   const { addToCart, wishlist, toggleWishlist, updateConfig, products: localProducts } = useStore();
   const { slug: paramSlug } = useParams();
   const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
   const slug = paramSlug || 'demo';
   const searchQuery = searchParams.get('q') || '';
 
   const [apiProducts, setApiProducts] = useState<ApiProduct[]>([]);
   const [loading, setLoading] = useState(true);
+  const [apiError, setApiError] = useState(false);
 
   useEffect(() => {
-    if (!paramSlug) { setLoading(false); return; }
+    setLoading(true);
+    setApiError(false);
     fetch(`/api/public/products/${slug}`)
       .then(r => { if (!r.ok) throw new Error('No encontrada'); return r.json(); })
       .then(data => {
@@ -117,7 +120,7 @@ const Shop = () => {
           updateConfig({ primaryColor: data.store.colors.primary || '#4f46e5' });
         }
       })
-      .catch(() => setApiProducts([]))
+      .catch(() => { setApiProducts([]); setApiError(true); })
       .finally(() => setLoading(false));
   }, [slug]);
 
@@ -230,6 +233,28 @@ const Shop = () => {
 
         {loading ? (
           <div className="text-center py-20 text-slate-400 text-sm">Cargando productos...</div>
+        ) : apiError && products.length === 0 ? (
+          <div className="text-center py-16 sm:py-20 bg-white rounded-2xl border border-dashed border-gray-200 px-4">
+            <div className="w-16 h-16 rounded-full bg-indigo-50 flex items-center justify-center mx-auto mb-4">
+              <Store className="w-8 h-8 text-indigo-300" />
+            </div>
+            <h3 className="text-lg font-bold text-slate-900 mb-1">No hay productos disponibles</h3>
+            <p className="text-sm text-slate-400 mb-6 max-w-md mx-auto">Esta tienda aún no tiene productos publicados. Vuelve más tarde o contacta al vendedor.</p>
+          </div>
+        ) : apiError && !paramSlug ? (
+          <div className="text-center py-16 sm:py-20 bg-white rounded-2xl border border-dashed border-gray-200 px-4">
+            <div className="w-16 h-16 rounded-full bg-indigo-50 flex items-center justify-center mx-auto mb-4">
+              <Store className="w-8 h-8 text-indigo-300" />
+            </div>
+            <h3 className="text-lg font-bold text-slate-900 mb-1">Tienda no configurada</h3>
+            <p className="text-sm text-slate-400 mb-6 max-w-md mx-auto">Visita tu tienda desde el slug correcto o crea una desde el panel de administración.</p>
+            <button
+              onClick={() => navigate('/admin')}
+              className="inline-flex items-center gap-2 h-10 px-6 rounded-xl bg-indigo-600 text-white text-sm font-bold hover:bg-indigo-700 transition-colors"
+            >
+              Ir al panel
+            </button>
+          </div>
         ) : filteredProducts.length > 0 ? (
           <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2 sm:gap-4">
             {filteredProducts.slice(0, 12).map((product) => (
