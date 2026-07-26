@@ -58,6 +58,201 @@ async function readDriveFolder(folderId: string): Promise<string[]> {
   }
 }
 
+// Decodifica las entidades HTML más comunes (títulos y resúmenes del buscador
+// llegan con &amp;, &#233;, etc.).
+function decodeEntities(s: string): string {
+  return s
+    .replace(/&nbsp;/g, " ")
+    .replace(/&quot;/g, '"')
+    .replace(/&#0?39;/g, "'")
+    .replace(/&apos;/g, "'")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCodePoint(parseInt(h, 16)))
+    .replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(Number(d)))
+    .replace(/&amp;/g, "&"); // al final, para no romper las demás
+}
+
+// ── 🔎 BÚSQUEDA WEB ────────────────────────────────────────────────────────
+// Ningún buscador gratuito es fiable por sí solo: DuckDuckGo bloquea con HTTP
+// 202 tras unas pocas consultas seguidas, y las instancias públicas de SearXNG
+// van y vienen. Por eso se intentan varios en orden hasta que uno responda.
+export interface SearchHit { title: string; url: string; snippet: string }
+
+const SEARCH_UA =
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122 Safari/537.36";
+
+async function getText(url: string, headers: Record<string, string> = {}): Promise<string | null> {
+  try {
+    const res = await fetch(url, {
+      headers: { "User-Agent": SEARCH_UA, "Accept-Language": "es-ES,es;q=0.9,en;q=0.8", ...headers },
+      redirect: "follow",
+    });
+    // DuckDuckGo devuelve 202 + página "anomaly" cuando limita.
+    if (!res.ok || res.status === 202) return null;
+    return await res.text();
+  } catch {
+    return null;
+  }
+}
+
+/** Tavily: pensado para agentes, capa gratuita. Requiere TAVILY_API_KEY. */
+async function searchTavily(query: string, limit: number): Promise<SearchHit[]> {
+  const key = process.env.TAVILY_API_KEY;
+  if (!key) return [];
+  try {
+    const res = await fetch("https://api.tavily.com/search", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ api_key: key, query, max_results: limit, search_depth: "basic" }),
+    });
+    if (!res.ok) return [];
+    const j: any = await res.json();
+    return (j?.results || []).slice(0, limit).map((r: any) => ({
+      title: String(r.title || "").trim(),
+      url: String(r.url || ""),
+      snippet: String(r.content || "").replace(/\s+/g, " ").trim().slice(0, 400),
+    }));
+  } catch {
+    return [];
+  }
+}
+
+/** Brave Search API: capa gratuita. Requiere BRAVE_SEARCH_API_KEY. */
+async function searchBrave(query: string, limit: number): Promise<SearchHit[]> {
+  const key = process.env.BRAVE_SEARCH_API_KEY;
+  if (!key) return [];
+  try {
+    const res = await fetch(
+      `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(query)}&count=${limit}`,
+      { headers: { Accept: "application/json", "X-Subscription-Token": key } },
+    );
+    if (!res.ok) return [];
+    const j: any = await res.json();
+    return (j?.web?.results || []).slice(0, limit).map((r: any) => ({
+      title: String(r.title || "").trim(),
+      url: String(r.url || ""),
+      snippet: String(r.description || "").replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim().slice(0, 400),
+    }));
+  } catch {
+    return [];
+  }
+}
+
+/** DuckDuckGo (sin key). Mejor calidad, pero limita tras varias consultas. */
+async function searchDuckDuckGo(query: string, limit: number): Promise<SearchHit[]> {
+  const html = await getText(`https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`);
+  if (!html) return [];
+  const out: SearchHit[] = [];
+  for (const b of html.split(/class="result__a"/).slice(1)) {
+    if (out.length >= limit) break;
+    const href = b.match(/href="([^"]+)"/)?.[1] || "";
+    const title = decodeEntities(b.match(/>([^<]{3,300})</)?.[1] || "").trim();
+    let url = href.startsWith("//") ? `https:${href}` : href;
+    // DDG envuelve el destino en un redirect: /l/?uddg=<url-encoded>
+    const uddg = url.match(/[?&]uddg=([^&]+)/)?.[1];
+    if (uddg) url = decodeURIComponent(uddg);
+    const snippet = decodeEntities(
+      (b.match(/class="result__snippet"[^>]*>([\s\S]{0,600}?)<\/a>/)?.[1] || "")
+        .replace(/<[^>]+>/g, " ")
+        .replace(/\s+/g, " "),
+    ).trim();
+    if (title && /^https?:\/\//i.test(url)) out.push({ title, url, snippet: snippet.slice(0, 400) });
+  }
+  return out;
+}
+
+/** SearXNG público (sin key). Se rotan instancias porque caen a menudo. */
+const SEARX_INSTANCES = ["https://searxng.site", "https://search.rhscz.eu", "https://searx.be"];
+async function searchSearx(query: string, limit: number): Promise<SearchHit[]> {
+  for (const base of SEARX_INSTANCES) {
+    const html = await getText(`${base}/search?q=${encodeURIComponent(query)}`);
+    if (!html) continue;
+    const out: SearchHit[] = [];
+    for (const b of html.split(/<article\b/).slice(1)) {
+      if (out.length >= limit) break;
+      const m = b.match(/<h3>\s*<a[^>]+href="(https?:\/\/[^"]+)"[^>]*>([\s\S]*?)<\/a>/);
+      if (!m) continue;
+      const url = m[1];
+      const title = decodeEntities(m[2].replace(/<[^>]+>/g, "")).trim();
+      const snippet = decodeEntities(
+        (b.match(/<p class="content">([\s\S]*?)<\/p>/)?.[1] || "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " "),
+      ).trim();
+      if (title) out.push({ title, url, snippet: snippet.slice(0, 400) });
+    }
+    if (out.length > 0) return out;
+  }
+  return [];
+}
+
+/** Wikipedia: último recurso. Siempre disponible, pero solo enciclopédico. */
+async function searchWikipedia(query: string, limit: number): Promise<SearchHit[]> {
+  for (const lang of ["es", "en"]) {
+    const body = await getText(
+      `https://${lang}.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(query)}&srlimit=${limit}&format=json`,
+    );
+    if (!body) continue;
+    try {
+      const j = JSON.parse(body);
+      const hits = (j?.query?.search || []).map((r: any) => ({
+        title: String(r.title || ""),
+        url: `https://${lang}.wikipedia.org/wiki/${encodeURIComponent(String(r.title).replace(/ /g, "_"))}`,
+        snippet: String(r.snippet || "").replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim(),
+      }));
+      if (hits.length > 0) return hits;
+    } catch {}
+  }
+  return [];
+}
+
+// Portadas de buscadores y agregadores que algunas instancias devuelven como
+// "resultado": son ruido, nunca información sobre lo que se buscó.
+const JUNK_HOSTS =
+  /^(www\.)?(google|bing|duckduckgo|yahoo|baidu|yandex|ecosia|startpage|qwant|ask)\.[a-z.]+$/i;
+
+/** Descarta resultados que claramente no informan sobre la consulta. */
+function isUsefulHit(h: SearchHit, query: string): boolean {
+  let host = "";
+  let pathLen = 0;
+  try {
+    const u = new URL(h.url);
+    host = u.hostname;
+    pathLen = u.pathname.replace(/\/+$/, "").length;
+  } catch {
+    return false;
+  }
+  if (JUNK_HOSTS.test(host)) return false;
+  // Raíz de dominio sin resumen: casi siempre relleno.
+  if (pathLen === 0 && !h.snippet) {
+    // Se acepta si el dominio recoge alguna palabra clave (ej: opencode.ai).
+    const words = query.toLowerCase().match(/[a-záéíóúñ]{4,}/g) || [];
+    const bare = host.toLowerCase().replace(/[^a-z]/g, "");
+    if (!words.some((w) => bare.includes(w))) return false;
+  }
+  return true;
+}
+
+/** Intenta los motores en orden de calidad hasta que uno devuelva resultados. */
+export async function runWebSearch(
+  query: string,
+  limit = 6,
+): Promise<{ engine: string; results: SearchHit[] }> {
+  const chain: [string, (q: string, n: number) => Promise<SearchHit[]>][] = [
+    ["tavily", searchTavily],
+    ["brave", searchBrave],
+    ["duckduckgo", searchDuckDuckGo],
+    ["searxng", searchSearx],
+    ["wikipedia", searchWikipedia],
+  ];
+  for (const [engine, fn] of chain) {
+    // Se pide de más porque el filtro de relevancia descarta parte.
+    const raw = await fn(query, limit + 4);
+    const results = raw.filter((h) => isUsefulHit(h, query)).slice(0, limit);
+    if (results.length > 0) return { engine, results };
+  }
+  return { engine: "none", results: [] };
+}
+
 // Convierte HTML a texto legible: prioriza <title> y meta description, luego
 // quita scripts/estilos/etiquetas y colapsa espacios.
 function htmlToText(html: string): string {
@@ -334,6 +529,38 @@ export const TOOLS: ToolDef[] = [
     },
   },
 
+  {
+    name: "web_search",
+    description:
+      "BUSCAR en internet por palabras clave y obtener resultados REALES (título, URL y resumen). Úsala SIEMPRE antes de web_fetch cuando no conozcas la URL exacta: nunca adivines direcciones. Flujo normal: web_search para encontrar las fuentes → web_fetch para leer las 2-3 más relevantes.",
+    args: '{ "query": string (req), "limit": number (opcional, por defecto 6) }',
+    run: async (args) => {
+      const query = String(args.query || "").trim();
+      if (!query) return { ok: false, summary: "Falta 'query' (qué buscar)" };
+      const limit = Math.min(Math.max(Number(args.limit) || 6, 1), 10);
+
+      try {
+        const { engine, results } = await runWebSearch(query, limit);
+        if (results.length === 0) {
+          return {
+            ok: false,
+            summary: `Sin resultados para "${query}" (fallaron todos los buscadores). Prueba otras palabras clave.`,
+          };
+        }
+        const text = results
+          .map((r, i) => `${i + 1}. ${r.title}\n   ${r.url}\n   ${r.snippet}`)
+          .join("\n");
+        return {
+          ok: true,
+          summary: `🔎 ${results.length} resultados reales para "${query}" (vía ${engine})`,
+          data: { query, engine, results, text },
+        };
+      } catch (e: any) {
+        return { ok: false, summary: `No se pudo buscar: ${e?.message}` };
+      }
+    },
+  },
+
   // ── 📘 FACEBOOK / META ─────────────────────────────────────────────────────
   {
     name: "fb_status",
@@ -516,7 +743,7 @@ export const READ_ONLY_TOOLS = new Set([
   // Facebook de solo lectura + generación de imagen (solo devuelve preview, no asigna)
   "fb_status", "fb_suggest_audience", "generate_image",
   // Lectura de web (información externa)
-  "web_fetch",
+  "web_fetch", "web_search",
 ]);
 export const DESTRUCTIVE_TOOLS = new Set([
   "delete_product",
@@ -614,4 +841,12 @@ IMÁGENES:
   Si dudas, usa 1080×1080 (se ve bien en todos lados). Para anuncios, Meta reajusta el tamaño por ubicación automáticamente.
 - Si el admin te da una foto (URL de internet, o un enlace de archivo de Google Drive tipo /file/d/...), NO uses web_fetch para "leerla": úsala DIRECTAMENTE con set_product_image (que la trae, la hospeda permanente y la asigna). set_product_image sabe convertir enlaces de Drive a la imagen real.
 - Puedes TRAER imágenes del exterior: de una URL pública de internet o de un archivo público de Google Drive. Si el admin quiere que la crees, usa generate_image primero para que la revise, y solo tras su "sí" la asignas con set_product_image.
-- web_fetch es para LEER texto de páginas/carpetas (info de cursos, módulos), no para imágenes.`;
+- web_fetch es para LEER texto de páginas/carpetas (info de cursos, módulos), no para imágenes.
+
+INFORMACIÓN DE INTERNET (nunca inventes datos externos):
+- 🔎 Si no conoces la URL exacta, usa web_search PRIMERO. Jamás adivines direcciones.
+- 📖 Luego usa web_fetch en las 2-3 URLs más relevantes para leer el contenido real.
+- 🔁 Si el tema tiene varias partes (ej: "Claude Code, Antigravity, MCP y agentes"), busca y lee
+  CADA una en el mismo turno con done:false, hasta cubrirlas todas. No entregues la mitad.
+- 🧾 Cuando presentes la información, di de dónde salió (dominio o título de la fuente).
+- ⚠️ Si una búsqueda no da resultados útiles, dilo con honestidad; no rellenes con suposiciones.`;
