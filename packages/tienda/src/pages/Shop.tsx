@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useStore, Product } from '../store/useStore';
 import { Search, Star, ShoppingCart, Heart, Eye, Repeat2, ChevronDown, SlidersHorizontal, ArrowRight } from 'lucide-react';
 import { motion } from 'framer-motion';
@@ -17,6 +17,7 @@ interface ApiProduct {
 
 const ProductCard = ({ product }: { product: Product }) => {
   const { addToCart, wishlist, toggleWishlist } = useStore();
+  const [imgError, setImgError] = useState(false);
   const discount = product.type === 'digital' ? '-50%' : product.type === 'physical' ? '-40%' : '-35%';
   const flagBg = product.type === 'digital' ? '#4f46e5' : product.type === 'physical' ? '#0f766e' : '#b45309';
   const flag = product.type === 'digital' ? 'Digital' : product.type === 'physical' ? 'Oferta' : 'Combo';
@@ -31,11 +32,17 @@ const ProductCard = ({ product }: { product: Product }) => {
       className="group relative bg-white border border-gray-100 rounded-xl overflow-hidden hover:shadow-lg hover:border-gray-200 transition-all flex flex-col"
     >
       <div className="relative aspect-square bg-white overflow-hidden flex items-center justify-center border-b border-gray-50">
-        {product.image ? (
-          <img src={product.image} alt={product.name} className="w-full h-full object-contain p-4 group-hover:scale-105 transition-transform duration-500" />
+        {product.image && !imgError ? (
+          <img
+            src={product.image}
+            alt={product.name}
+            className="w-full h-full object-contain p-4 group-hover:scale-105 transition-transform duration-500"
+            onError={() => setImgError(true)}
+          />
         ) : (
-          <div className="w-full h-full bg-gradient-to-br from-slate-50 to-slate-100 flex items-center justify-center text-slate-300 text-sm font-semibold">
-            Sin imagen
+          <div className="w-full h-full bg-gradient-to-br from-indigo-50 to-indigo-100 flex flex-col items-center justify-center text-indigo-300">
+            <span className="text-3xl mb-1">{product.type === 'digital' ? '📄' : '📦'}</span>
+            <span className="text-[10px] font-semibold">{product.category || 'Producto'}</span>
           </div>
         )}
         <div className="absolute top-2.5 left-2.5 flex flex-col gap-1.5 items-start">
@@ -151,8 +158,9 @@ const Shop = () => {
   }, [products]);
 
   return (
-    <div className="max-w-7xl mx-auto px-4 py-7 flex gap-7 items-start flex-wrap">
-      <aside className={`${showFilters ? 'block' : 'hidden'} md:block flex-1 min-w-[230px] max-w-[260px] flex flex-col gap-4`}>
+    <div className="max-w-7xl mx-auto px-2 sm:px-4 py-4 sm:py-7 flex gap-7 items-start flex-wrap">
+      {showFilters && <div className="fixed inset-0 bg-black/30 z-40 md:hidden" onClick={() => setShowFilters(false)} />}
+      <aside className={`${showFilters ? 'fixed inset-0 z-50 md:relative md:inset-auto bg-white md:bg-transparent p-4 md:p-0 overflow-y-auto' : 'hidden'} md:block flex-1 min-w-[230px] max-w-[260px] flex flex-col gap-4`}>
         <div className="bg-white border border-gray-100 rounded-xl p-4.5">
           <h3 className="text-xs font-extrabold uppercase tracking-wider text-slate-900 mb-3.5">Filtrar por categoría</h3>
           <div className="flex flex-col gap-0.5">
@@ -198,15 +206,15 @@ const Shop = () => {
       </aside>
 
       <div className="flex-[999] min-w-0">
-        <div className="bg-white border border-gray-100 rounded-xl px-4.5 py-3 flex flex-wrap items-center justify-between gap-3 mb-5">
-          <p className="text-xs text-slate-400 font-medium m-0">
-            Mostrando <strong className="text-slate-800">1–{Math.min(filteredProducts.length, 12)}</strong> de <strong className="text-slate-800">{filteredProducts.length}</strong> resultados
+        <div className="bg-white border border-gray-100 rounded-xl px-3 sm:px-4.5 py-3 flex flex-wrap items-center justify-between gap-2 mb-5">
+          <p className="text-[11px] sm:text-xs text-slate-400 font-medium m-0">
+            <strong className="text-slate-800">{filteredProducts.length}</strong> producto(s)
           </p>
-          <div className="flex items-center gap-4">
-            <button onClick={() => setShowFilters(!showFilters)} className="md:hidden flex items-center gap-1.5 h-9 px-3 border border-gray-200 rounded-lg text-xs font-semibold text-slate-600">
-              <SlidersHorizontal className="w-3.5 h-3.5" /> Filtros
+          <div className="flex items-center gap-2 sm:gap-4">
+            <button onClick={() => setShowFilters(!showFilters)} className="md:hidden flex items-center gap-1.5 h-8 px-2.5 border border-gray-200 rounded-lg text-[11px] font-semibold text-slate-600">
+              <SlidersHorizontal className="w-3 h-3" /> Filtros
             </button>
-            <div className="flex items-center gap-2 text-xs text-slate-400 font-medium">
+            <div className="hidden sm:flex items-center gap-2 text-xs text-slate-400 font-medium">
               Mostrar
               <span className="font-extrabold text-indigo-600">12</span>
               <span className="text-slate-200">/</span>
@@ -214,7 +222,7 @@ const Shop = () => {
               <span className="text-slate-200">/</span>
               <span>48</span>
             </div>
-            <div className="flex items-center gap-1.5 h-9 px-3.5 border border-gray-200 rounded-lg text-xs font-semibold text-slate-600">
+            <div className="hidden sm:flex items-center gap-1.5 h-9 px-3.5 border border-gray-200 rounded-lg text-xs font-semibold text-slate-600">
               Ordenar por popularidad <ChevronDown className="w-3 h-3 text-slate-300" />
             </div>
           </div>
@@ -223,18 +231,18 @@ const Shop = () => {
         {loading ? (
           <div className="text-center py-20 text-slate-400 text-sm">Cargando productos...</div>
         ) : filteredProducts.length > 0 ? (
-          <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2 sm:gap-4">
             {filteredProducts.slice(0, 12).map((product) => (
               <ProductCard key={product.id} product={product} />
             ))}
           </div>
         ) : (
-          <div className="text-center py-20 bg-white rounded-2xl border border-dashed border-gray-200">
+          <div className="text-center py-16 sm:py-20 bg-white rounded-2xl border border-dashed border-gray-200 px-4">
             <div className="w-12 h-12 rounded-full bg-indigo-50 flex items-center justify-center mx-auto mb-4">
               <Search className="w-5 h-5 text-indigo-300" />
             </div>
-            <h3 className="text-lg font-bold text-slate-900 mb-1">No se encontraron productos</h3>
-            <p className="text-sm text-slate-400">Prueba con otros filtros o términos de búsqueda.</p>
+            <h3 className="text-base sm:text-lg font-bold text-slate-900 mb-1">No se encontraron productos</h3>
+            <p className="text-xs sm:text-sm text-slate-400">Prueba con otros filtros o términos de búsqueda.</p>
           </div>
         )}
 
