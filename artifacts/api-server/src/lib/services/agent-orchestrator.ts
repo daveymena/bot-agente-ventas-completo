@@ -11,7 +11,7 @@
  */
 
 import { getMessageQueue, QueuedMessage } from '../message-queue';
-import { runAgentReply } from '../agent';
+import { runAgentReplyWithGuardrail } from '../agent';
 import { whatsapp, type AgentReplyPart } from '../whatsapp';
 import { db } from "@workspace/db";
 import { messages } from "@workspace/db";
@@ -114,33 +114,77 @@ export class AgentOrchestrator {
         return;
       }
 
-      // Ejecutar el agente (lógica de IA) - usa runAgentReply con conversationId
+      // Ejecutar el agente (lógica de IA) - usa runAgentReplyWithGuardrail con conversationId
       // El motor de ventas tiene prioridad absoluta para mantener la coherencia de Sofía
-      const reply = await runAgentReply(convo.id);
+      logger.info({
+        conversationId: convo.id,
+        phone,
+      }, '[AgentOrchestrator] About to execute runAgentReplyWithGuardrail');
+      
+      const replyStart = Date.now();
+      const reply = await runAgentReplyWithGuardrail(convo.id);
+      const replyDuration = Date.now() - replyStart;
+      
+      logger.info({
+        conversationId: convo.id,
+        replyExists: !!reply,
+        hasContent: reply?.content ? true : false,
+        hasStage: reply?.stage ? true : false,
+        partsCount: reply?.parts?.length ?? 0,
+        durationMs: replyDuration,
+      }, '[AgentOrchestrator] runAgentReplyWithGuardrail completed');
 
       // Enviar respuesta via WhatsApp (Soporta Texto y Tarjetas Multimedia)
       if (reply && reply.parts) {
-        const pushName = convo.contactName || phone;
-        await whatsapp.sendAgentParts(phone, pushName, reply.parts as AgentReplyPart[], message.from);
+       const pushName = convo.contactName || phone;
+       logger.info({
+         conversationId: convo.id,
+         phone,
+         partsCount: reply.parts.length,
+         partTypes: reply.parts.map(p => p.kind).join(','),
+       }, '[AgentOrchestrator] Sending agent parts via WhatsApp');
         
-        // Guardar cada parte en la BD para el historial del dashboard
-        for (const part of reply.parts) {
-          if (part.kind === 'text' && part.content) {
-            await db.insert(messages).values({
-              conversationId: convo.id,
-              role: "agent",
-              content: part.content,
-              stage: convo.currentStage,
-            });
-          } else if (part.kind === 'card') {
-            await db.insert(messages).values({
-              conversationId: convo.id,
-              role: "agent",
-              content: `[CARD: ${part.productId}]`,
-              stage: convo.currentStage,
-            });
-          }
-        }
+       try {
+         await whatsapp.sendAgentParts(phone, pushName, reply.parts as AgentReplyPart[], message.from);
+         logger.info({
+           conversationId: convo.id,
+           phone,
+         }, '[AgentOrchestrator] sendAgentParts completed successfully');
+       } catch (sendError) {
+         logger.error({
+           error: sendError instanceof Error ? { message: sendError.message, stack: sendError.stack } : sendError,
+           conversationId: convo.id,
+           phone,
+         }, '[AgentOrchestrator] Error in sendAgentParts');
+         throw sendError;
+       }
+        
+       // Guardar cada parte en la BD para el historial del dashboard
+       for (const part of reply.parts) {
+         if (part.kind === 'text' && part.content) {
+           await db.insert(messages).values({
+             conversationId: convo.id,
+             role: "agent",
+             content: part.content,
+             stage: convo.currentStage,
+           });
+         } else if (part.kind === 'card') {
+           await db.insert(messages).values({
+             conversationId: convo.id,
+             role: "agent",
+             content: `[CARD: ${part.productId}]`,
+             stage: convo.currentStage,
+           });
+         }
+       }
+      } else {
+       logger.warn({
+         conversationId: convo.id,
+         phone,
+         replyNull: !reply,
+         noParts: reply && !reply.parts,
+         partsEmpty: reply?.parts && reply.parts.length === 0,
+       }, '[AgentOrchestrator] No response parts to send - possible early return from runAgentReplyWithGuardrail');
       }
 
       // Marcar como procesado
