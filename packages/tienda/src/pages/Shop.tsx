@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react';
-import { useStore } from '../store/useStore';
-import { Search, Filter, Star, Zap } from 'lucide-react';
+import { useStore, Product } from '../store/useStore';
+import { Search, Star, ShoppingCart, Heart, Eye, Repeat2, ChevronDown, SlidersHorizontal, ArrowRight } from 'lucide-react';
 import { motion } from 'framer-motion';
 import Swal from 'sweetalert2';
-import { useParams } from 'react-router-dom';
+import { useParams, useSearchParams } from 'react-router-dom';
 
 interface ApiProduct {
   id: number;
@@ -15,39 +15,113 @@ interface ApiProduct {
   kind: string;
 }
 
+const ProductCard = ({ product }: { product: Product }) => {
+  const { addToCart, wishlist, toggleWishlist } = useStore();
+  const discount = product.type === 'digital' ? '-50%' : product.type === 'physical' ? '-40%' : '-35%';
+  const flagBg = product.type === 'digital' ? '#4f46e5' : product.type === 'physical' ? '#0f766e' : '#b45309';
+  const flag = product.type === 'digital' ? 'Digital' : product.type === 'physical' ? 'Oferta' : 'Combo';
+  const note = product.type === 'digital' ? 'Acceso inmediato y de por vida' : 'Envío en 24 h · Contra entrega';
+  const noteFg = product.type === 'digital' ? '#15803d' : '#4f46e5';
+
+  return (
+    <motion.div
+      layout
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      className="group relative bg-white border border-gray-100 rounded-xl overflow-hidden hover:shadow-lg hover:border-gray-200 transition-all flex flex-col"
+    >
+      <div className="relative aspect-square bg-white overflow-hidden flex items-center justify-center border-b border-gray-50">
+        {product.image ? (
+          <img src={product.image} alt={product.name} className="w-full h-full object-contain p-4 group-hover:scale-105 transition-transform duration-500" />
+        ) : (
+          <div className="w-full h-full bg-gradient-to-br from-slate-50 to-slate-100 flex items-center justify-center text-slate-300 text-sm font-semibold">
+            Sin imagen
+          </div>
+        )}
+        <div className="absolute top-2.5 left-2.5 flex flex-col gap-1.5 items-start">
+          <span className="px-2 py-0.5 rounded text-[9px] font-extrabold uppercase tracking-wide text-white" style={{ background: flagBg }}>{flag}</span>
+          <span className="px-2 py-0.5 rounded text-[9px] font-extrabold text-white bg-rose-700">{discount}</span>
+        </div>
+        <div className="absolute top-2.5 right-2.5 flex flex-col gap-1.5">
+          <button className="w-7 h-7 rounded-full bg-white shadow flex items-center justify-center text-slate-400 hover:text-rose-500 transition-colors">
+            <Heart className={`w-3.5 h-3.5 ${wishlist.includes(product.id) ? 'fill-rose-500 text-rose-500' : ''}`}
+              onClick={() => toggleWishlist(product.id)} />
+          </button>
+          <button className="w-7 h-7 rounded-full bg-white shadow flex items-center justify-center text-slate-400 hover:text-indigo-600 transition-colors">
+            <Eye className="w-3.5 h-3.5" />
+          </button>
+          <button className="w-7 h-7 rounded-full bg-white shadow flex items-center justify-center text-slate-400 hover:text-indigo-600 transition-colors">
+            <Repeat2 className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      </div>
+      <div className="p-3.5 flex flex-col gap-1.5 flex-1">
+        <p className="text-[10px] font-bold text-slate-300 uppercase tracking-wider">{product.category}</p>
+        <h3 className="text-sm font-semibold leading-snug text-slate-900 line-clamp-2">{product.name}</h3>
+        <div className="flex items-center gap-1">
+          <Star className="w-2.5 h-2.5 fill-amber-400 text-amber-400" />
+          <span className="text-[11px] font-bold text-slate-600">4.9</span>
+          <span className="text-[11px] text-slate-300">(128)</span>
+        </div>
+        <div className="mt-auto pt-2">
+          <div className="flex items-baseline gap-2">
+            <span className="text-xs text-slate-300 line-through font-semibold">${(product.price * 1.5).toFixed(0)}</span>
+            <span className="text-lg font-extrabold tracking-tight text-slate-900">${product.price}</span>
+          </div>
+          <p className="text-[10px] font-bold mt-1 flex items-center gap-1" style={{ color: noteFg }}>{note}</p>
+          <button
+            onClick={() => {
+              addToCart(product);
+              Swal.fire({ title: '¡Agregado!', text: `${product.name} al carrito`, icon: 'success', toast: true, position: 'top-end', showConfirmButton: false, timer: 1500 });
+            }}
+            className="mt-2.5 w-full h-9 rounded-lg bg-indigo-600 text-white text-xs font-bold flex items-center justify-center gap-1.5 hover:bg-indigo-700 transition-colors"
+          >
+            <ShoppingCart className="w-3.5 h-3.5" />
+            {product.type === 'digital' ? 'Comprar ahora' : 'Añadir al carrito'}
+          </button>
+        </div>
+      </div>
+    </motion.div>
+  );
+};
+
 const Shop = () => {
-  const { addToCart, wishlist, toggleWishlist, updateConfig } = useStore();
+  const { addToCart, wishlist, toggleWishlist, updateConfig, products: localProducts } = useStore();
   const { slug: paramSlug } = useParams();
+  const [searchParams] = useSearchParams();
   const slug = paramSlug || 'demo';
+  const searchQuery = searchParams.get('q') || '';
 
   const [apiProducts, setApiProducts] = useState<ApiProduct[]>([]);
   const [loading, setLoading] = useState(true);
-  const [storeName, setStoreName] = useState('');
 
   useEffect(() => {
     fetch(`/api/public/products/${slug}`)
       .then(r => { if (!r.ok) throw new Error('No encontrada'); return r.json(); })
       .then(data => {
         setApiProducts(data.products);
-        setStoreName(data.store.name);
         updateConfig({ storeName: data.store.name });
       })
       .catch(() => setApiProducts([]))
       .finally(() => setLoading(false));
   }, [slug]);
 
-  const products = apiProducts.map(p => ({
-    id: p.id.toString(),
-    name: p.name,
-    description: p.description,
-    price: Number(p.price),
-    image: p.image ?? '',
-    category: p.category,
-    type: p.kind as 'digital' | 'physical' | 'dropshipping',
-  }));
+  const products = apiProducts.length > 0
+    ? apiProducts.map(p => ({
+        id: p.id.toString(),
+        name: p.name,
+        description: p.description,
+        price: Number(p.price),
+        image: p.image ?? '',
+        category: p.category,
+        type: p.kind as Product['type'],
+        stock: 999,
+      }))
+    : localProducts;
 
   const [filter, setFilter] = useState('all');
-  const [searchTerm, setSearchTerm] = useState('');
+  const [searchTerm, setSearchTerm] = useState(searchQuery || '');
+  const [showFilters, setShowFilters] = useState(false);
 
   const filteredProducts = products.filter(p => {
     const matchesFilter = filter === 'all' || p.type === filter;
@@ -55,148 +129,111 @@ const Shop = () => {
     return matchesFilter && matchesSearch;
   });
 
-  const searchResults = searchTerm.length > 0 
-    ? products.filter(p => p.name.toLowerCase().includes(searchTerm.toLowerCase())).slice(0, 4)
-    : [];
+  const categories = [
+    { name: 'Tecnología', count: 412, fg: '#0f172a' },
+    { name: 'Hogar', count: 288, fg: '#0f172a' },
+    { name: 'Estilo de Vida', count: 196, fg: '#0f172a' },
+    { name: 'Digital', count: 62, fg: '#4f46e5' },
+    { name: 'Oficina', count: 84, fg: '#0f172a' },
+    { name: 'Combos', count: 150, fg: '#0f172a' }
+  ];
 
   return (
-    <div className="max-w-7xl mx-auto px-4 py-12">
-      <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 mb-16">
-        <div className="max-w-xl">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-50 text-indigo-700 text-[10px] font-black uppercase tracking-widest mb-4">
-            Catálogo Oficial
+    <div className="max-w-7xl mx-auto px-4 py-7 flex gap-7 items-start flex-wrap">
+      <aside className={`${showFilters ? 'block' : 'hidden'} md:block flex-1 min-w-[230px] max-w-[260px] flex flex-col gap-4`}>
+        <div className="bg-white border border-gray-100 rounded-xl p-4.5">
+          <h3 className="text-xs font-extrabold uppercase tracking-wider text-slate-900 mb-3.5">Filtrar por categoría</h3>
+          <div className="flex flex-col gap-0.5">
+            {categories.map((c, i) => (
+              <div key={i} className="flex items-center justify-between gap-2 py-2 border-b border-slate-50 last:border-0">
+                <button
+                  onClick={() => setFilter(c.name.toLowerCase())}
+                  className="text-sm font-semibold hover:text-indigo-600 transition-colors"
+                  style={{ color: filter === c.name.toLowerCase() ? '#4f46e5' : c.fg }}
+                >
+                  {c.name}
+                </button>
+                <span className="text-[11px] font-semibold text-slate-300 font-mono">{c.count}</span>
+              </div>
+            ))}
+            <button
+              onClick={() => setFilter('all')}
+              className={`text-sm font-semibold py-2 text-left ${filter === 'all' ? 'text-indigo-600' : 'text-slate-700'} hover:text-indigo-600`}
+            >
+              Todos los productos
+            </button>
           </div>
-          <h1 className="text-5xl font-black text-slate-950 mb-4 tracking-tighter uppercase">Nuestra Tienda</h1>
-          <p className="text-slate-500 text-lg">Explora una selección curada de productos de alta gama diseñados para el máximo rendimiento.</p>
         </div>
 
-        <div className="flex flex-col sm:flex-row gap-4">
-          <div className="relative group">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
-            <input
-              type="text"
-              placeholder="Buscar productos..."
-              className="pl-10 pr-4 py-2 bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none w-full sm:w-64"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-            />
-            {/* Predictive Results */}
-            {searchResults.length > 0 && (
-              <div className="absolute top-full mt-2 left-0 right-0 bg-white rounded-2xl shadow-2xl border border-slate-100 p-2 z-50">
-                {searchResults.map(p => (
-                  <button 
-                    key={p.id}
-                    onClick={() => { setSearchTerm(p.name); }}
-                    className="w-full flex items-center gap-3 p-2 hover:bg-slate-50 rounded-xl transition-colors text-left"
-                  >
-                    <img src={p.image} className="w-10 h-10 rounded-lg object-cover" />
-                    <div>
-                      <p className="text-xs font-bold text-slate-900">{p.name}</p>
-                      <p className="text-[10px] text-indigo-600 font-bold">${p.price}</p>
-                    </div>
-                  </button>
-                ))}
-              </div>
-            )}
+        <div className="bg-white border border-gray-100 rounded-xl p-4.5">
+          <h3 className="text-xs font-extrabold uppercase tracking-wider text-slate-900 mb-3.5">Precio</h3>
+          <div className="relative h-1 rounded-full bg-gray-100 mx-1.5 mt-4 mb-4">
+            <div className="absolute left-[8%] right-[34%] top-0 h-1 rounded-full bg-indigo-600"></div>
+            <span className="absolute left-[8%] top-[-5px] w-3.5 h-3.5 -ml-1.5 rounded-full bg-white border-3 border-indigo-600 shadow-sm"></span>
+            <span className="absolute right-[34%] top-[-5px] w-3.5 h-3.5 -mr-2 rounded-full bg-white border-3 border-indigo-600 shadow-sm"></span>
           </div>
-          <div className="flex bg-white border border-gray-200 rounded-xl p-1">
-            {['all', 'digital', 'physical', 'dropshipping'].map((t) => (
-              <button
-                key={t}
-                onClick={() => setFilter(t)}
-                className={`px-4 py-1.5 rounded-lg text-xs font-bold capitalize transition-all ${
-                  filter === t ? 'bg-indigo-600 text-white shadow-md' : 'text-gray-500 hover:text-indigo-600'
-                }`}
-              >
-                {t === 'all' ? 'Todos' : t}
-              </button>
+          <p className="text-xs font-semibold text-slate-600 mt-3">$29.900 — $480.000</p>
+        </div>
+
+        <div className="bg-slate-950 text-white rounded-xl p-5">
+          <p className="text-[10px] font-extrabold tracking-widest uppercase text-indigo-300">Solo digital</p>
+          <p className="text-lg font-extrabold tracking-tight leading-tight mt-2">Cursos con acceso inmediato</p>
+          <p className="text-xs leading-relaxed text-slate-400 mt-2">Sin envíos, sin esperas. Recibes el enlace apenas confirmas el pago.</p>
+          <button className="inline-flex items-center gap-1.5 mt-4 h-9 px-4 rounded-lg bg-indigo-600 text-xs font-bold hover:bg-indigo-700 transition-colors">
+            Ver cursos <ArrowRight className="w-3 h-3" />
+          </button>
+        </div>
+      </aside>
+
+      <div className="flex-[999] min-w-0">
+        <div className="bg-white border border-gray-100 rounded-xl px-4.5 py-3 flex flex-wrap items-center justify-between gap-3 mb-5">
+          <p className="text-xs text-slate-400 font-medium m-0">
+            Mostrando <strong className="text-slate-800">1–{Math.min(filteredProducts.length, 12)}</strong> de <strong className="text-slate-800">{filteredProducts.length}</strong> resultados
+          </p>
+          <div className="flex items-center gap-4">
+            <button onClick={() => setShowFilters(!showFilters)} className="md:hidden flex items-center gap-1.5 h-9 px-3 border border-gray-200 rounded-lg text-xs font-semibold text-slate-600">
+              <SlidersHorizontal className="w-3.5 h-3.5" /> Filtros
+            </button>
+            <div className="flex items-center gap-2 text-xs text-slate-400 font-medium">
+              Mostrar
+              <span className="font-extrabold text-indigo-600">12</span>
+              <span className="text-slate-200">/</span>
+              <span>24</span>
+              <span className="text-slate-200">/</span>
+              <span>48</span>
+            </div>
+            <div className="flex items-center gap-1.5 h-9 px-3.5 border border-gray-200 rounded-lg text-xs font-semibold text-slate-600">
+              Ordenar por popularidad <ChevronDown className="w-3 h-3 text-slate-300" />
+            </div>
+          </div>
+        </div>
+
+        {loading ? (
+          <div className="text-center py-20 text-slate-400 text-sm">Cargando productos...</div>
+        ) : filteredProducts.length > 0 ? (
+          <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+            {filteredProducts.slice(0, 12).map((product) => (
+              <ProductCard key={product.id} product={product} />
             ))}
           </div>
-        </div>
-      </div>
+        ) : (
+          <div className="text-center py-20 bg-white rounded-2xl border border-dashed border-gray-200">
+            <div className="w-12 h-12 rounded-full bg-indigo-50 flex items-center justify-center mx-auto mb-4">
+              <Search className="w-5 h-5 text-indigo-300" />
+            </div>
+            <h3 className="text-lg font-bold text-slate-900 mb-1">No se encontraron productos</h3>
+            <p className="text-sm text-slate-400">Prueba con otros filtros o términos de búsqueda.</p>
+          </div>
+        )}
 
-      {filteredProducts.length > 0 ? (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-8">
-          {filteredProducts.map((product) => (
-            <motion.div
-              layout
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              key={product.id}
-              className="bg-white rounded-2xl overflow-hidden border border-gray-100 shadow-sm hover:shadow-xl transition-all group"
-            >
-              <div className="aspect-[4/5] overflow-hidden relative">
-                <img
-                  src={product.image}
-                  alt={product.name}
-                  className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
-                />
-                <div className="absolute top-4 right-4">
-                  <span className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase shadow-sm ${
-                    product.type === 'digital' ? 'bg-blue-600 text-white' :
-                    product.type === 'physical' ? 'bg-emerald-600 text-white' : 'bg-purple-600 text-white'
-                  }`}>
-                    {product.type}
-                  </span>
-                </div>
-              </div>
-              <div className="p-6">
-                <p className="text-[10px] font-bold text-indigo-600 uppercase tracking-widest mb-1">{product.category}</p>
-                <h3 className="font-bold text-gray-900 mb-2 group-hover:text-indigo-600 transition-colors truncate">
-                  {product.name}
-                </h3>
-                <div className="flex items-center gap-1 mb-4">
-                  {[...Array(5)].map((_, i) => (
-                    <Star key={i} className="w-3 h-3 fill-yellow-400 text-yellow-400" />
-                  ))}
-                  <span className="text-[10px] text-gray-400 font-bold ml-1">4.9/5.0</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <div className="flex flex-col">
-                    <span className="text-[10px] text-gray-400 font-bold line-through">$ {(product.price * 1.2).toFixed(2)}</span>
-                    <span className="text-xl font-extrabold text-gray-900">${product.price}</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => toggleWishlist(product.id)}
-                      className={`p-3 rounded-xl border transition-all ${
-                        wishlist.includes(product.id) 
-                        ? 'bg-red-50 border-red-100 text-red-500' 
-                        : 'bg-white border-slate-100 text-slate-400 hover:text-red-500'
-                      }`}
-                    >
-                      <Star className={`w-4 h-4 ${wishlist.includes(product.id) ? 'fill-current' : ''}`} />
-                    </button>
-                    <button
-                      onClick={() => {
-                        addToCart(product);
-                        Swal.fire({
-                          title: '¡Agregado!',
-                          text: `${product.name} al carrito`,
-                          icon: 'success',
-                          toast: true,
-                          position: 'top-end',
-                          showConfirmButton: false,
-                          timer: 2000
-                        });
-                      }}
-                      className="p-3 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition-all active:scale-95 shadow-lg shadow-indigo-100"
-                    >
-                      <Zap className="w-4 h-4" />
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </motion.div>
-          ))}
-        </div>
-      ) : (
-        <div className="text-center py-32 bg-white rounded-[2rem] border border-dashed border-gray-200">
-           <Filter className="w-12 h-12 text-gray-200 mx-auto mb-4" />
-           <h3 className="text-xl font-bold text-gray-900 mb-1">No se encontraron productos</h3>
-           <p className="text-gray-500">Prueba con otros filtros o términos de búsqueda.</p>
-        </div>
-      )}
+        {filteredProducts.length > 12 && (
+          <div className="flex justify-center mt-8">
+            <button className="inline-flex items-center gap-2 h-12 px-8 rounded-xl bg-white border border-gray-200 text-sm font-bold text-slate-800 hover:bg-slate-50 transition-colors">
+              Cargar más productos <ChevronDown className="w-4 h-4" />
+            </button>
+          </div>
+        )}
+      </div>
     </div>
   );
 };
