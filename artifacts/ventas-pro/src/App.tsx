@@ -22,7 +22,6 @@ import ActivatePage from "@/pages/activate";
 import OnboardingPage from "@/pages/onboarding";
 import WooCommercePage from "@/pages/woocommerce";
 import FacebookAdsPage from "@/pages/facebook";
-import ArchitectVisual from "@/pages/architect-visual";
 import CodeAgent from "@/pages/code-agent";
 
 
@@ -94,7 +93,6 @@ function Router() {
       <Route path="/onboarding" component={OnboardingPage} />
       <Route path="/facebook" component={FacebookAdsPage} />
       <Route path="/auth" component={AuthPage} />
-      <Route path="/architect" component={ArchitectVisual} />
       <Route path="/code-agent" component={CodeAgent} />
       <Route path="/mi-tienda" component={TiendaRedirect} />
       <Route component={NotFound} />
