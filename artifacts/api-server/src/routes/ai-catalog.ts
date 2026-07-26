@@ -11,9 +11,10 @@
  */
 import { Router } from "express";
 import { db, settings } from "@workspace/db";
+import { eq } from "drizzle-orm";
 import { MODELOS_LIBRES, type ModeloLibre } from "@workspace/integrations-openai-ai-server";
 import { logger } from "../lib/logger";
-import { cifrar, descifrar, cargarClavesEnEntorno } from "../lib/ai-keys";
+import { cifrar, descifrar, cargarClavesEnEntorno, leerBusinessConfig } from "../lib/ai-keys";
 import type { TenantRequest } from "../lib/tenantManager";
 
 const router = Router();
@@ -35,9 +36,7 @@ const PROVEEDORES = [
 async function leerClavesGuardadas(): Promise<Record<string, { apiKey?: string; model?: string }>> {
   try {
     const [row] = await db.select().from(settings).limit(1);
-    const bc: any = row?.businessConfig;
-    const cfg = typeof bc === "string" ? JSON.parse(bc || "{}") : bc || {};
-    return cfg.aiProviders || {};
+    return leerBusinessConfig(row?.businessConfig).aiProviders || {};
   } catch {
     return {};
   }
@@ -100,8 +99,7 @@ router.put("/provider", async (req: TenantRequest, res, next) => {
     const [row] = await db.select().from(settings).limit(1);
     if (!row) return res.status(404).json({ error: "No hay configuración creada" });
 
-    const bc: any = row.businessConfig;
-    const cfg = typeof bc === "string" ? JSON.parse(bc || "{}") : bc || {};
+    const cfg = leerBusinessConfig(row.businessConfig);
     cfg.aiProviders = cfg.aiProviders || {};
 
     const actual = cfg.aiProviders[proveedor] || {};
@@ -115,7 +113,9 @@ router.put("/provider", async (req: TenantRequest, res, next) => {
     if (Object.keys(actual).length === 0) delete cfg.aiProviders[proveedor];
     else cfg.aiProviders[proveedor] = actual;
 
-    await db.update(settings).set({ businessConfig: cfg as any });
+    // Acotado por id: settings es una fila única, pero sin WHERE un futuro
+    // multi-fila haría que esto sobrescribiera todas.
+    await db.update(settings).set({ businessConfig: cfg as any }).where(eq(settings.id, row.id));
     // Se vuelca al entorno YA, para que la clave funcione sin reiniciar.
     await cargarClavesEnEntorno();
     logger.info({ proveedor, conClave: !!actual.apiKey, modelo: actual.model }, "[AICatalog] proveedor guardado");

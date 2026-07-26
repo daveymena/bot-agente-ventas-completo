@@ -45,6 +45,26 @@ export const ENV_MODELO_POR_PROVEEDOR: Record<string, string> = {
   mimo: "MIMO_MODEL",
 };
 
+/**
+ * Lee businessConfig como objeto.
+ *
+ * La columna está declarada como json pero su valor por defecto quedó
+ * DOBLEMENTE codificado en la base (el valor crudo es `"{}"`), así que un solo
+ * JSON.parse devuelve la cadena "{}" en vez de un objeto. Se parsea hasta
+ * obtener un objeto, con tope para no quedar en bucle.
+ */
+export function leerBusinessConfig(valor: unknown): Record<string, any> {
+  let v: any = valor;
+  for (let i = 0; i < 3 && typeof v === "string"; i++) {
+    try {
+      v = JSON.parse(v || "{}");
+    } catch {
+      return {};
+    }
+  }
+  return v && typeof v === "object" && !Array.isArray(v) ? v : {};
+}
+
 function claveMaestra(): Buffer {
   // COOKIE_SECRET ya es obligatorio para las sesiones; se reutiliza como raíz.
   const secreto = process.env.COOKIE_SECRET || "clave-de-desarrollo-no-usar-en-produccion";
@@ -87,8 +107,7 @@ export async function cargarClavesEnEntorno(): Promise<number> {
   try {
     const [row] = await db.select().from(settings).limit(1);
     if (!row) return 0;
-    const bc: any = row.businessConfig;
-    const cfg = typeof bc === "string" ? JSON.parse(bc || "{}") : bc || {};
+    const cfg = leerBusinessConfig(row.businessConfig);
     const guardados = cfg.aiProviders || {};
 
     let aplicadas = 0;
