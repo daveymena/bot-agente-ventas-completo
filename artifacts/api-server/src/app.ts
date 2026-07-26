@@ -104,8 +104,14 @@ logger.info("[MessageHandler] Message receiver configured for default tenant");
     const existingProducts = await db.select().from(products).limit(1);
     if (existingProducts.length === 0) {
       console.log("📦 No hay productos, sembrando desde products-full.json...");
-      const jsonPath = path.resolve(process.cwd(), "products-full.json");
-      if (existsSync(jsonPath)) {
+      const possiblePaths = [
+        path.resolve(process.cwd(), "products-full.json"),
+        path.resolve(__dirname, "../../products-full.json"),
+        path.resolve(__dirname, "../../../products-full.json"),
+        "/app/products-full.json",
+      ];
+      const jsonPath = possiblePaths.find(p => existsSync(p));
+      if (jsonPath) {
         const rawData = readFileSync(jsonPath, "utf-8");
         const productsData = JSON.parse(rawData);
         let catId = 1;

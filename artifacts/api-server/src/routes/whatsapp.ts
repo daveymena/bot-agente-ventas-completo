@@ -77,14 +77,8 @@ router.post("/test-ia", async (req, res, next) => {
 // Designed for multi-tenant: in the future each tenant will have its own authDir.
 router.post("/reset-session", async (_req, res, next) => {
   try {
-    // 1. Disconnect cleanly if connected
-    await whatsapp.stop();
-
-    // 2. Delete the auth folder — always relative to cwd
-    const authDir = path.resolve(process.cwd(), ".baileys-auth");
-    if (existsSync(authDir)) {
-      rmSync(authDir, { recursive: true, force: true });
-    }
+    // 1. Disconnect cleanly if connected (keepAuth=false to delete auth)
+    await whatsapp.stop(false);
 
     // 3. Immediately start a fresh connection → will produce a new QR
     await whatsapp.start();
@@ -97,12 +91,9 @@ router.post("/reset-session", async (_req, res, next) => {
 
 // Returns session health: whether auth files exist and current state
 router.get("/session-info", (_req, res) => {
-  const authDir = path.resolve(process.cwd(), ".baileys-auth");
-  const hasFiles = existsSync(authDir);
   const status = whatsapp.getStatus();
   return res.json({
-    authFilesExist: hasFiles,
-    authDir,
+    state: status.state,
     ...GetWhatsAppStatusResponse.parse(status),
   });
 });
