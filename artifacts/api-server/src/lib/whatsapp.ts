@@ -804,6 +804,21 @@ export class WhatsAppManager {
     const timestamp = new Date().toISOString();
     console.log(`📤 [WA-PARTS] Iniciando envío de partes - Teléfono: ${phone}, Partes: ${parts.length} - ${timestamp}`);
     
+    // VALIDACIÓN CRÍTICA: Verificar socket antes de procesar
+    if (!this.sock) {
+      const errorMsg = `🔴 [WA-PARTS] Socket is NULL - WhatsApp connection lost or never initialized - ${timestamp}`;
+      console.error(errorMsg);
+      throw new Error("WhatsApp socket is not initialized. Connection may have been lost.");
+    }
+    
+    if (this.state !== "connected") {
+      const errorMsg = `🔴 [WA-PARTS] Socket state is "${this.state}" (expected "connected") - ${timestamp}`;
+      console.error(errorMsg);
+      throw new Error(`WhatsApp is not connected. Current state: ${this.state}`);
+    }
+    
+    console.log(`✅ [WA-PARTS] Socket validation passed - socket exists, state: "${this.state}" - ${timestamp}`);
+    
     const cardIds = parts.flatMap((p) => (p.kind === "card" ? [p.productId] : []));
     let cardCache: Map<number, any> = new Map();
     const pg = new PaymentGateway(this.currentTenant);
@@ -825,8 +840,13 @@ export class WhatsAppManager {
 
       if (part.kind === "text") {
         console.log(`💬 [WA-TEXT] Enviando texto: "${part.content?.substring(0, 50)}..." - ${timestamp}`);
-        await this.sendText(phone, part.content || "", originalJid);
-        console.log(`✅ [WA-TEXT] Texto enviado exitosamente - ${timestamp}`);
+        try {
+          await this.sendText(phone, part.content || "", originalJid);
+          console.log(`✅ [WA-TEXT] Texto enviado exitosamente - ${timestamp}`);
+        } catch (textErr: any) {
+          console.error(`❌ [WA-TEXT] Error enviando texto: ${textErr.message} - ${timestamp}`);
+          throw textErr;
+        }
        } else {
          const product = cardCache.get(part.productId!);
          if (!product) {
@@ -851,7 +871,8 @@ export class WhatsAppManager {
           await this.sendImage(phone, imageToUse, caption, originalJid, fallbackImage);
           console.log(`✅ [WA-CARD] Tarjeta enviada exitosamente para ${product.name} - ${timestamp}`);
         } catch (err: any) {
-          console.log(`❌ [WA-CARD] Error enviando tarjeta para ${product.name}: ${err.message} - ${timestamp}`);
+          console.error(`❌ [WA-CARD] Error enviando tarjeta para ${product.name}: ${err.message} - ${timestamp}`);
+          throw err;
         }
       }
     }

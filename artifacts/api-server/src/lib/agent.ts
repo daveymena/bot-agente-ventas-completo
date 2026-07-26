@@ -1337,6 +1337,44 @@ Si te dice "cambia el codigo de X", usa /code/read + /code/write.
   return result;
 }
 
+// GUARDRAIL: Ensure runAgentReply always returns a valid response structure
+export async function runAgentReplyWithGuardrail(conversationId: number) {
+  try {
+    const result = await runAgentReply(conversationId);
+    
+    // Validate result structure
+    if (!result) {
+      console.warn(`⚠️ [AGENT-GUARDRAIL] runAgentReply returned null/undefined for conv ${conversationId}. Returning fallback.`);
+      return {
+        content: "🙏 Disculpa, estoy teniendo dificultades técnicas. Por favor intenta de nuevo en unos momentos.",
+        stage: "error",
+        parts: [{ kind: "text", content: "🙏 Disculpa, estoy teniendo dificultades técnicas. Por favor intenta de nuevo en unos momentos." }],
+        cardProductIds: [],
+      };
+    }
+    
+    if (!result.parts || !Array.isArray(result.parts) || result.parts.length === 0) {
+      console.warn(`⚠️ [AGENT-GUARDRAIL] runAgentReply returned invalid parts for conv ${conversationId}. Parts: ${JSON.stringify(result.parts)}`);
+      // Ensure at least the content is returned as text part
+      const content = result.content || "No response";
+      return {
+        ...result,
+        parts: [{ kind: "text", content }],
+      };
+    }
+    
+    return result;
+  } catch (err: any) {
+    console.error(`❌ [AGENT-GUARDRAIL] Exception in runAgentReply: ${err.message}`, err.stack);
+    return {
+      content: "🙏 Disculpa, estoy teniendo dificultades técnicas. Por favor intenta de nuevo en unos momentos.",
+      stage: "error",
+      parts: [{ kind: "text", content: "🙏 Disculpa, estoy teniendo dificultades técnicas. Por favor intenta de nuevo en unos momentos." }],
+      cardProductIds: [],
+    };
+  }
+}
+
 
 export async function ensureBootstrapData() {
   // No tocamos nada aquí para no sobreescribir lo que ya hay
