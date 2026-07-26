@@ -134,10 +134,10 @@ export function Layout({ children }: { children: React.ReactNode }) {
   return (
     <SidebarProvider>
       <div className="flex min-h-screen w-full bg-background relative overflow-x-hidden text-foreground">
-        <AppSidebar />
+        {!isMobile && <AppSidebar />}
         <div className="flex flex-1 flex-col w-full min-w-0 relative z-10">
           <header className="flex h-14 sm:h-16 items-center gap-4 border-b border-border bg-card px-3 sm:px-4 md:px-6 sticky top-0 z-20">
-            <SidebarTrigger className="hover:bg-primary/10 rounded-xl w-9 h-9 sm:w-10 sm:h-10 flex items-center justify-center transition-all text-primary shrink-0" />
+            {!isMobile && <SidebarTrigger className="hover:bg-primary/10 rounded-xl w-9 h-9 sm:w-10 sm:h-10 flex items-center justify-center transition-all text-primary shrink-0" />}
             <div className="flex-1 min-w-0" />
             <div className="flex items-center gap-2">
               <UiBadge variant="outline" className="bg-primary/5 text-primary border-primary/20 hidden sm:flex text-xs">V1.5 PREMIUM</UiBadge>

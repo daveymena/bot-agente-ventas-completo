@@ -1,7 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { Layout } from "@/components/layout";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -26,25 +25,9 @@ interface Message {
 
 const GREETING: Record<Mode, string> = {
   operator:
-    "Soy tu Arquitecto IA con poderes de operador. Puedo crear y editar productos, categorías, el agente, la configuración y la tienda — como si fuera el programador de tu app. Dime qué necesitas y lo hago.",
+    "Soy tu Arquitecto IA. Puedo crear y editar productos, categorías, el agente, la configuración y la tienda. Dime qué necesitas y lo hago.",
   agent:
-    "Modo diseño de agente. Analizo tu negocio y configuro el ADN de tu agente de ventas (personalidad, objeciones, cierres). ¿Qué necesitas?",
-};
-
-const SUGGESTIONS: Record<Mode, string[]> = {
-  operator: [
-    "Analiza el sistema y dime qué falta",
-    "Crea la tienda para mi negocio",
-    "Crea una categoría 'Cursos IA'",
-    "Sube el precio del producto 5 a 30000",
-    "Desactiva los productos sin imagen",
-  ],
-  agent: [
-    "Crea un agente para mi negocio",
-    "Mejora el agente actual con objeciones",
-    "Configura estrategias de cierre",
-    "Agrega reglas de negocio",
-  ],
+    "Modo diseño de agente. Analizo tu negocio y configuro el ADN de tu agente de ventas.",
 };
 
 export default function CodeAgent() {
@@ -183,67 +166,70 @@ export default function CodeAgent() {
 
   return (
     <Layout>
-      <div className="flex flex-col gap-6 animate-enter lg:h-[calc(100vh-8rem)]">
-        <div className="flex items-center justify-between gap-4 flex-wrap">
-          <div>
-            <h1 className="text-2xl font-semibold tracking-tight">Arquitecto IA</h1>
-            <p className="text-muted-foreground mt-1 text-sm">
-              Opera tu aplicación con lenguaje natural: crea y edita datos, o diseña tu agente de ventas.
-            </p>
+      <div className="flex flex-col gap-4 animate-enter h-[calc(100vh-10rem)] md:h-[calc(100vh-8rem)]">
+        <div className="flex items-center justify-between gap-3 flex-shrink-0">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-md shadow-indigo-200 shrink-0">
+              <Bot className="w-5 h-5 text-white" />
+            </div>
+            <div>
+              <h1 className="text-xl md:text-2xl font-bold tracking-tight">Arquitecto IA</h1>
+              <p className="text-muted-foreground text-xs md:text-sm">Opera tu app con lenguaje natural</p>
+            </div>
           </div>
-          <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={resetConversation} title="Empezar conversación nueva">
-            <RotateCcw className="h-4 w-4 mr-1.5" /> Nueva
-          </Button>
-          <div className="inline-flex rounded-lg border border-border bg-secondary p-1">
-            <button
-              onClick={() => switchMode("operator")}
-              className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${mode === "operator" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}
-            >
-              <Wrench className="h-4 w-4" /> Operador
-            </button>
-            <button
-              onClick={() => switchMode("agent")}
-              className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${mode === "agent" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}
-            >
-              <MessageSquare className="h-4 w-4" /> Diseñar agente
-            </button>
-          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <Button variant="outline" size="sm" onClick={resetConversation} className="h-9 text-xs">
+              <RotateCcw className="h-3.5 w-3.5 mr-1.5" /> Nueva
+            </Button>
+            <div className="inline-flex rounded-lg border border-border bg-secondary p-0.5">
+              <button
+                onClick={() => switchMode("operator")}
+                className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors whitespace-nowrap ${mode === "operator" ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+              >
+                <Wrench className="h-3.5 w-3.5" /> Operador
+              </button>
+              <button
+                onClick={() => switchMode("agent")}
+                className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors whitespace-nowrap ${mode === "agent" ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+              >
+                <MessageSquare className="h-3.5 w-3.5" /> Agente
+              </button>
+            </div>
           </div>
         </div>
 
-        <div className="flex flex-col lg:flex-row flex-1 min-h-0 gap-6">
-          <div className="flex-1 flex flex-col border border-border rounded-xl bg-card overflow-hidden shadow-xs h-[55vh] lg:h-auto min-h-0">
-            <ScrollArea className="flex-1 p-4">
+        <div className="flex flex-1 min-h-0">
+          <div className="flex-1 flex flex-col border border-border rounded-2xl bg-card overflow-hidden shadow-sm min-h-0">
+            <ScrollArea className="flex-1 p-4 md:p-6">
               <div className="space-y-4">
                 {messages.map((msg, i) => (
                   <div key={i} className={`flex gap-3 ${msg.role === "user" ? "justify-end" : ""}`}>
                     {msg.role === "assistant" && (
-                      <div className="w-9 h-9 rounded-lg bg-primary/10 flex items-center justify-center shrink-0 mt-1">
-                        <Bot className="h-5 w-5 text-primary" />
+                      <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shrink-0 mt-1 shadow-sm">
+                        <Bot className="h-5 w-5 text-white" />
                       </div>
                     )}
-                    <div className={`max-w-[80%] ${msg.role === "user" ? "order-1" : ""}`}>
+                    <div className={`${msg.role === "user" ? "max-w-[85%] md:max-w-[70%]" : "max-w-[90%] md:max-w-[80%]"} ${msg.role === "user" ? "order-1" : ""}`}>
                       <div
-                        className={`rounded-xl px-4 py-3 ${
+                        className={`rounded-2xl px-4 py-3 md:px-5 md:py-3.5 ${
                           msg.role === "user"
-                            ? "bg-primary text-primary-foreground rounded-br-sm"
-                            : "bg-muted rounded-bl-sm border border-border"
+                            ? "bg-primary text-primary-foreground rounded-br-md"
+                            : "bg-muted/50 rounded-bl-md border border-border"
                         }`}
                       >
-                        <p className="text-sm whitespace-pre-wrap leading-relaxed">{msg.content}</p>
+                        <p className="text-sm md:text-base whitespace-pre-wrap leading-relaxed">{msg.content}</p>
                       </div>
 
                       {msg.actions && msg.actions.length > 0 && (
-                        <div className="mt-2 rounded-lg border border-border bg-card divide-y divide-border overflow-hidden">
+                        <div className="mt-2 rounded-xl border border-border bg-card/50 divide-y divide-border overflow-hidden shadow-xs">
                           {msg.actions.map((a, k) => (
-                            <div key={k} className="flex items-start gap-2 px-3 py-2 text-xs">
+                            <div key={k} className="flex items-start gap-2.5 px-3.5 py-2.5 text-xs md:text-sm">
                               <span
-                                className={`mt-0.5 shrink-0 h-4 w-4 rounded flex items-center justify-center ${a.ok ? "bg-emerald-500/10 text-emerald-600" : "bg-red-500/10 text-red-600"}`}
+                                className={`mt-0.5 shrink-0 h-5 w-5 rounded-lg flex items-center justify-center ${a.ok ? "bg-emerald-500/10 text-emerald-600" : "bg-red-500/10 text-red-600"}`}
                               >
                                 {a.ok ? <Check className="h-3 w-3" /> : <X className="h-3 w-3" />}
                               </span>
-                              <span className="font-mono text-[11px] text-muted-foreground shrink-0">{a.tool}</span>
+                              <span className="font-mono text-[11px] text-muted-foreground shrink-0 bg-muted px-1.5 py-0.5 rounded">{a.tool}</span>
                               <span className="text-foreground/90">{a.summary}</span>
                             </div>
                           ))}
@@ -252,11 +238,11 @@ export default function CodeAgent() {
 
                       {msg.configApplied && (
                         <div className="mt-2 flex gap-2 flex-wrap">
-                          <Badge className="bg-emerald-500/10 text-emerald-600 border-emerald-500/20">
+                          <Badge className="bg-emerald-500/10 text-emerald-600 border-emerald-500/20 text-xs px-3 py-1">
                             <Check className="h-3 w-3 mr-1" /> Configuración aplicada
                           </Badge>
                           {msg.advancedFeaturesEnabled && (
-                            <Badge className="bg-primary/10 text-primary border-primary/20">
+                            <Badge className="bg-primary/10 text-primary border-primary/20 text-xs px-3 py-1">
                               <Sparkles className="h-3 w-3 mr-1" /> Avanzado
                             </Badge>
                           )}
@@ -264,7 +250,7 @@ export default function CodeAgent() {
                       )}
                     </div>
                     {msg.role === "user" && (
-                      <div className="w-9 h-9 rounded-lg bg-primary flex items-center justify-center shrink-0 mt-1">
+                      <div className="w-9 h-9 rounded-xl bg-primary flex items-center justify-center shrink-0 mt-1 shadow-sm">
                         <User className="h-5 w-5 text-primary-foreground" />
                       </div>
                     )}
@@ -272,14 +258,14 @@ export default function CodeAgent() {
                 ))}
                 {loading && (
                   <div className="flex gap-3">
-                    <div className="w-9 h-9 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
-                      <Bot className="h-5 w-5 text-primary" />
+                    <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shrink-0">
+                      <Bot className="h-5 w-5 text-white" />
                     </div>
-                    <div className="bg-muted rounded-xl rounded-bl-sm border border-border px-4 py-3">
-                      <div className="flex gap-1.5">
-                        <div className="w-2 h-2 rounded-full bg-primary animate-bounce" />
-                        <div className="w-2 h-2 rounded-full bg-primary animate-bounce delay-100" />
-                        <div className="w-2 h-2 rounded-full bg-primary animate-bounce delay-200" />
+                    <div className="bg-muted/50 rounded-2xl rounded-bl-md border border-border px-5 py-4">
+                      <div className="flex gap-2">
+                        <div className="w-2.5 h-2.5 rounded-full bg-indigo-500 animate-bounce" />
+                        <div className="w-2.5 h-2.5 rounded-full bg-indigo-500 animate-bounce delay-100" />
+                        <div className="w-2.5 h-2.5 rounded-full bg-indigo-500 animate-bounce delay-200" />
                       </div>
                     </div>
                   </div>
@@ -288,7 +274,7 @@ export default function CodeAgent() {
               </div>
             </ScrollArea>
 
-            <div className="p-4 border-t border-border bg-card">
+            <div className="p-3 md:p-4 border-t border-border bg-card/50">
               <form onSubmit={(e) => { e.preventDefault(); handleSubmit(); }} className="flex gap-2">
                 <input
                   ref={fileInputRef}
@@ -305,62 +291,30 @@ export default function CodeAgent() {
                     disabled={loading || uploading}
                     onClick={() => fileInputRef.current?.click()}
                     title="Adjuntar imagen"
+                    className="h-11 w-11 rounded-xl shrink-0"
                   >
                     {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Paperclip className="h-4 w-4" />}
                   </Button>
                 )}
-                <Input
-                  value={input}
-                  onChange={(e) => setInput(e.target.value)}
-                  placeholder={mode === "operator" ? "Ej: crea una categoría 'Cursos IA'… o adjunta una imagen 📎" : "Ej: crea un agente para vender cursos de programación…"}
-                  disabled={loading}
-                  className="flex-1"
-                />
-                <Button type="submit" disabled={loading || restoring || !input.trim()}>
-                  {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-                </Button>
+                <div className="flex-1 relative">
+                  <Input
+                    value={input}
+                    onChange={(e) => setInput(e.target.value)}
+                    placeholder={mode === "operator" ? "Ej: analiza el sistema, crea un producto, configura la tienda..." : "Ej: crea un agente para vender cursos de programación..."}
+                    disabled={loading}
+                    className="flex-1 h-11 rounded-xl pr-12 text-sm"
+                  />
+                  <Button
+                    type="submit"
+                    disabled={loading || restoring || !input.trim()}
+                    size="icon"
+                    className="absolute right-1 top-1 h-9 w-9 rounded-lg"
+                  >
+                    {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                  </Button>
+                </div>
               </form>
             </div>
-          </div>
-
-          <div className="w-full lg:w-72 shrink-0 space-y-4">
-            <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-sm flex items-center gap-2">
-                  <Sparkles className="h-4 w-4 text-primary" /> Sugerencias
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-2 text-sm">
-                {SUGGESTIONS[mode].map((suggestion, i) => (
-                  <button
-                    key={i}
-                    onClick={() => setInput(suggestion)}
-                    className="w-full text-left p-2 rounded-lg hover:bg-muted text-xs text-muted-foreground hover:text-foreground transition-colors border border-transparent hover:border-border"
-                    disabled={loading}
-                  >
-                    {suggestion}
-                  </button>
-                ))}
-              </CardContent>
-            </Card>
-
-            {mode === "operator" && (
-              <Card>
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-sm flex items-center gap-2">
-                    <Wrench className="h-4 w-4 text-primary" /> Qué puede hacer
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="text-xs text-muted-foreground space-y-1.5">
-                  <p>· Crear / editar / eliminar productos</p>
-                  <p>· Crear categorías</p>
-                  <p>· Configurar el agente de ventas</p>
-                  <p>· Cambiar settings del negocio</p>
-                  <p>· Crear la tienda pública</p>
-                  <p>· Diagnóstico del sistema</p>
-                </CardContent>
-              </Card>
-            )}
           </div>
         </div>
       </div>

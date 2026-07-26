@@ -1,5 +1,5 @@
 import { useLocation, Link } from "wouter";
-import { LayoutDashboard, MessageSquare, Users, Package, MoreHorizontal, Bot, Phone, Settings, ShoppingCart, Palette, Facebook, Wand2 } from "lucide-react";
+import { LayoutDashboard, MessageSquare, Users, Package, MoreHorizontal, Bot, Phone, Settings, ShoppingCart, Palette, Facebook, Wand2, Store } from "lucide-react";
 import { useState } from "react";
 
 const mainNavItems = [
@@ -10,13 +10,14 @@ const mainNavItems = [
 ];
 
 const moreItems = [
+  { label: "Arquitecto IA", href: "/code-agent", icon: Wand2, highlight: true },
+  { label: "Tienda", href: "/mi-tienda", icon: Store },
   { label: "Agentes IA", href: "/agents", icon: Bot },
   { label: "WhatsApp", href: "/whatsapp", icon: Phone },
   { label: "Configuración", href: "/settings", icon: Settings },
   { label: "WooCommerce", href: "/woocommerce", icon: ShoppingCart },
   { label: "Personalización", href: "/branding", icon: Palette },
   { label: "Facebook", href: "/facebook", icon: Facebook },
-  { label: "Arquitecto IA", href: "/code-agent", icon: Wand2 },
 ];
 
 export function MobileNav() {

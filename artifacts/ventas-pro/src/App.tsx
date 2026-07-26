@@ -23,7 +23,7 @@ import OnboardingPage from "@/pages/onboarding";
 import WooCommercePage from "@/pages/woocommerce";
 import FacebookAdsPage from "@/pages/facebook";
 import CodeAgent from "@/pages/code-agent";
-
+import AdminStore from "@/pages/admin-store";
 
 // Context para la sesión
 interface SessionContextType {
@@ -98,7 +98,7 @@ function Router() {
       <Route path="/facebook" component={FacebookAdsPage} />
       <Route path="/auth" component={AuthPage} />
       <Route path="/code-agent" component={CodeAgent} />
-      <Route path="/mi-tienda" component={TiendaRedirect} />
+      <Route path="/mi-tienda" component={AdminStore} />
       <Route component={NotFound} />
     </Switch>
   );
