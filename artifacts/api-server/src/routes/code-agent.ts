@@ -1071,6 +1071,7 @@ router.post("/operator", async (req: TenantRequest, res, next) => {
       candidates.push({ name, config: cfg });
     };
     if (dbSettings?.aiProvider) pushCfg(dbSettings.aiProvider, getProviderConfigFromSettings(dbSettings));
+    pushCfg("mimo", getProviderConfig("mimo")); // API propia de Xiaomi, si hay clave
     pushCfg("opencode", getProviderConfig("opencode"));
     pushCfg("groq", getProviderConfig("groq"));
     pushCfg("github", getProviderConfig("github"));

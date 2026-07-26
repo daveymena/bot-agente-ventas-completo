@@ -120,6 +120,19 @@ export function getProviderConfig(provider: string): AIProviderConfig | null {
         model: process.env.GROQ_MODEL || "llama-3.1-8b-instant",
       };
 
+    // ── XIAOMI MiMo ── API propia, independiente de OpenCode Zen.
+    // Compatible con el formato de OpenAI. Sirve para no depender de la cuota
+    // gratuita de Zen, que se agota (FreeUsageLimitError).
+    // Clave: https://platform.xiaomimimo.com/#/console/api-keys  (formato sk-)
+    // Con plan de tokens la base es https://token-plan-cn.xiaomimimo.com/v1
+    case "mimo":
+      if (!process.env.MIMO_API_KEY) return null;
+      return {
+        baseUrl: process.env.MIMO_API_URL || "https://api.xiaomimimo.com/v1",
+        apiKey: process.env.MIMO_API_KEY,
+        model: process.env.MIMO_MODEL || "mimo-v2.5-pro",
+      };
+
     // ── Google AI Studio ── 500 req/día · 250k tokens/min
     case "google_ai_studio":
       if (!process.env.GOOGLE_API_KEY) return null;
