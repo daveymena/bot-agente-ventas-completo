@@ -8,7 +8,49 @@ export interface AIProviderConfig {
 }
 
 const ZEN_DIRECT_BASE_URL = "https://opencode.ai/zen/v1";
-const ZEN_DEFAULT_FREE_MODEL = "deepseek-v4-flash-free";
+const ZEN_DEFAULT_FREE_MODEL = "nemotron-3-ultra-free";
+
+/**
+ * Orden de rotación de los modelos gratuitos de OpenCode Zen.
+ *
+ * La cuota gratuita se agota POR MODELO (devuelve 429 FreeUsageLimitError),
+ * no por cuenta: cuando uno se acaba, otro sigue respondiendo. Antes solo se
+ * usaba OPENCODE_MODEL, así que al agotarse se caía al siguiente proveedor
+ * entero pudiendo seguir dentro de Zen.
+ *
+ * Orden comprobado contra la API real (2026-07-26):
+ *   nemotron-3-ultra-free  → devuelve texto ✅
+ *   mimo-v2.5-free         → 429 ese día, pero se restablece
+ *   ling-3.0-flash-free    → 429 ese día
+ *   big-pickle             → 429 ese día
+ *   hy3-free / deepseek-v4-flash-free → alternativas
+ *
+ * north-mini-code-free queda FUERA a propósito: responde 200 pero con
+ * content vacío (solo reasoning_content), y rompe el bucle del operador.
+ */
+const ZEN_ROTATION = [
+  "nemotron-3-ultra-free",
+  "mimo-v2.5-free",
+  "ling-3.0-flash-free",
+  "big-pickle",
+  "hy3-free",
+  "deepseek-v4-flash-free",
+];
+
+/** Modelos de Zen a probar, en orden: primero el configurado, luego el resto. */
+export function getOpenCodeRotation(): AIProviderConfig[] {
+  const preferido = normalizeZenModelId(process.env.OPENCODE_MODEL || ZEN_DEFAULT_FREE_MODEL);
+  const extra = (process.env.OPENCODE_ROTATION || "")
+    .split(",")
+    .map((m) => normalizeZenModelId(m.trim()))
+    .filter(Boolean);
+  const orden = [preferido, ...extra, ...ZEN_ROTATION].filter(
+    (m, i, arr) => m && arr.indexOf(m) === i, // sin duplicados, conserva el orden
+  );
+  return orden
+    .map((m) => resolveOpenCodeConfig(m))
+    .filter((c): c is AIProviderConfig => c !== null);
+}
 
 function isZenDirectApi(baseUrl: string): boolean {
   return baseUrl.includes("opencode.ai/zen");
@@ -449,13 +491,21 @@ export function getProviderConfigFromSettings(settings: {
   nvidiaModel?: string;
   ollamaUrl?: string | null;
   ollamaModel?: string;
+  opencodeModel?: string;
 }): AIProviderConfig | null {
   // Si no hay proveedor configurado en DB, retornar null para que el caller use su propio fallback
   const provider = settings.aiProvider;
   if (!provider) return null;
 
   if (provider === "opencode") {
-    return resolveOpenCodeConfig();
+    // Se pasa el modelo guardado en la pantalla de Configuración. Antes se
+    // llamaba sin argumento, así que la elección del usuario se ignoraba y
+    // siempre mandaba OPENCODE_MODEL del entorno.
+    return resolveOpenCodeConfig(settings.opencodeModel || settings.githubModel || undefined);
+  }
+
+  if (provider === "mimo") {
+    return getProviderConfig("mimo");
   }
 
   if (provider === "github_copilot_internal") {

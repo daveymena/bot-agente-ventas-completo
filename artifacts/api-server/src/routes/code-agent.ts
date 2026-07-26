@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { createAIClient, getProviderConfig, getProviderConfigFromSettings, type AIProviderConfig } from "@workspace/integrations-openai-ai-server";
+import { createAIClient, getProviderConfig, getProviderConfigFromSettings, getOpenCodeRotation, type AIProviderConfig } from "@workspace/integrations-openai-ai-server";
 import { db, agents, settings, products, productCategories, conversations, messages } from "@workspace/db";
 import { eq, and, desc } from "drizzle-orm";
 import { logger } from "../lib/logger";
@@ -1072,7 +1072,9 @@ router.post("/operator", async (req: TenantRequest, res, next) => {
     };
     if (dbSettings?.aiProvider) pushCfg(dbSettings.aiProvider, getProviderConfigFromSettings(dbSettings));
     pushCfg("mimo", getProviderConfig("mimo")); // API propia de Xiaomi, si hay clave
-    pushCfg("opencode", getProviderConfig("opencode"));
+    // Rotación DENTRO de OpenCode Zen: la cuota gratis se agota por modelo,
+    // así que al recibir 429 se pasa al siguiente modelo antes de abandonar Zen.
+    for (const cfg of getOpenCodeRotation()) pushCfg(`opencode:${cfg.model}`, cfg);
     pushCfg("groq", getProviderConfig("groq"));
     pushCfg("github", getProviderConfig("github"));
     pushCfg("nvidia", getProviderConfig("nvidia"));
@@ -1096,9 +1098,20 @@ router.post("/operator", async (req: TenantRequest, res, next) => {
             response_format: { type: "json_object" },
           });
           const c = resp.choices[0]?.message?.content;
-          if (c) return c;
+          if (c) {
+            logger.info({ provider: cand.name, model: cfg.model }, "[AppOperator] respondió");
+            return c;
+          }
+          // 200 con content vacío = modelo "de razonamiento" que solo devuelve
+          // reasoning_content. No sirve para el bucle: se pasa al siguiente.
+          logger.warn({ provider: cand.name, model: cfg.model }, "[AppOperator] respuesta vacía, rotando");
         } catch (e: any) {
-          logger.warn({ provider: cand.name, err: e?.message }, "[AppOperator] provider failed, trying next");
+          const msg = String(e?.message || "");
+          const agotado = /429|rate.?limit|FreeUsageLimit|quota/i.test(msg);
+          logger.warn(
+            { provider: cand.name, model: cfg.model, agotado, err: msg.slice(0, 120) },
+            agotado ? "[AppOperator] cuota agotada, rotando al siguiente modelo" : "[AppOperator] proveedor falló, rotando",
+          );
         }
       }
       return null;

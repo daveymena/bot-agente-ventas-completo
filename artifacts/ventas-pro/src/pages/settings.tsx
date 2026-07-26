@@ -264,7 +264,8 @@ export default function Settings() {
                       onChange={e => setFormData({...formData, aiProvider: e.target.value as any})}
                       className="w-full h-10 rounded-xl border border-input bg-muted/30 px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
                     >
-                      <option value="opencode">OpenCode Zen (Gratis - DeepSeek/Qwen)</option>
+                      <option value="opencode">OpenCode Zen (Gratis, con rotación de modelos)</option>
+                      <option value="mimo">Xiaomi MiMo (requiere MIMO_API_KEY)</option>
                       <option value="github_copilot_internal">GitHub Copilot Internal (VS Code Flow)</option>
                       <option value="github">GitHub Models (Azure)</option>
                       <option value="nvidia">NVIDIA NIM (High Performance)</option>
@@ -630,14 +631,26 @@ export default function Settings() {
                         </p>
                       </div>
                       <div className="space-y-2">
-                        <Label className="text-muted-foreground font-semibold uppercase tracking-wider text-[10px]">Modelo Seleccionado</Label>
-                        <Input 
-                          value={formData.githubModel || "deepseek-v4-flash-free"} 
-                          onChange={e => setFormData({...formData, githubModel: e.target.value})} 
-                          placeholder="deepseek-v4-flash-free"
-                          className="bg-muted/30 font-mono"
-                        />
-                        <p className="text-[9px] text-muted-foreground">Modelos gratis: <code className="text-primary">deepseek-v4-flash-free</code>, <code className="text-primary">qwen3.6-plus-free</code>, <code className="text-primary">minimax-m2.5-free</code>, <code className="text-primary">nemotron-3-super-free</code>, <code className="text-primary">big-pickle</code></p>
+                        <Label className="text-muted-foreground font-semibold uppercase tracking-wider text-[10px]">Modelo preferido</Label>
+                        <select
+                          value={formData.githubModel || "nemotron-3-ultra-free"}
+                          onChange={e => setFormData({...formData, githubModel: e.target.value})}
+                          className="w-full h-10 rounded-md border border-input bg-muted/30 px-3 font-mono text-sm"
+                        >
+                          <option value="nemotron-3-ultra-free">nemotron-3-ultra-free — verificado ✅</option>
+                          <option value="mimo-v2.5-free">mimo-v2.5-free</option>
+                          <option value="ling-3.0-flash-free">ling-3.0-flash-free</option>
+                          <option value="big-pickle">big-pickle</option>
+                          <option value="hy3-free">hy3-free</option>
+                          <option value="deepseek-v4-flash-free">deepseek-v4-flash-free</option>
+                        </select>
+                        <p className="text-[9px] text-muted-foreground leading-relaxed">
+                          🔄 Si el modelo elegido agota su cuota gratis (error 429), el sistema <strong>rota solo</strong> al
+                          siguiente de la lista, y solo abandona OpenCode si fallan todos.
+                          <br />
+                          ⚠️ <code className="text-primary">north-mini-code-free</code> queda fuera a propósito: responde
+                          pero con contenido vacío.
+                        </p>
                       </div>
                     </div>
                   )}
