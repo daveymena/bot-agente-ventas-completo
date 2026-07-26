@@ -19,6 +19,8 @@ import { Badge as UiBadge } from "@/components/ui/badge";
 import { useGetWhatsAppStatus, getGetWhatsAppStatusQueryKey } from "@workspace/api-client-react";
 import { useSaasStatus } from "@/hooks/useSaasStatus";
 import { useSession } from "@/App";
+import { MobileNav } from "./mobile-nav";
+import { useIsMobile } from "@/hooks/use-mobile";
 
 export function AppSidebar() {
   const [location] = useLocation();
@@ -127,6 +129,8 @@ export function AppSidebar() {
 }
 
 export function Layout({ children }: { children: React.ReactNode }) {
+  const isMobile = useIsMobile();
+
   return (
     <SidebarProvider>
       <div className="flex min-h-screen w-full bg-background relative overflow-x-hidden text-foreground">
@@ -139,12 +143,13 @@ export function Layout({ children }: { children: React.ReactNode }) {
               <UiBadge variant="outline" className="bg-primary/5 text-primary border-primary/20 hidden sm:flex text-xs">V1.5 PREMIUM</UiBadge>
             </div>
           </header>
-          <main className="flex-1 p-3 sm:p-4 md:p-8 overflow-y-auto overflow-x-hidden animate-enter scroll-smooth flex flex-col h-full">
+          <main className={`flex-1 p-3 sm:p-4 md:p-8 overflow-y-auto overflow-x-hidden animate-enter scroll-smooth flex flex-col h-full ${isMobile ? 'pb-[88px]' : ''}`}>
             <div className="max-w-7xl mx-auto pb-8 md:pb-4 w-full flex-1 flex flex-col min-h-0">
               {children}
             </div>
           </main>
         </div>
+        <MobileNav />
       </div>
     </SidebarProvider>
   );
