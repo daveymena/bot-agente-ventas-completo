@@ -30,6 +30,12 @@ const PROVEEDORES = [
   { id: "nvidia_nim", nombre: "NVIDIA NIM", gratis: true, envKey: "NVIDIA_API_KEY", alta: "https://build.nvidia.com", nota: "40 req/min · pide verificar teléfono" },
   { id: "github", nombre: "GitHub Models", gratis: true, envKey: "GITHUB_TOKEN", alta: "https://github.com/settings/tokens", nota: "Modelos de Azure con token de GitHub" },
   { id: "mimo", nombre: "Xiaomi MiMo", gratis: false, envKey: "MIMO_API_KEY", alta: "https://platform.xiaomimimo.com/#/console/api-keys", nota: "De pago · 1M de contexto · fuerte en código" },
+  { id: "openai", nombre: "OpenAI (ChatGPT)", gratis: false, envKey: "OPENAI_API_KEY", alta: "https://platform.openai.com/api-keys", nota: "GPT · también genera imágenes con DALL·E" },
+  { id: "anthropic", nombre: "Anthropic (Claude)", gratis: false, envKey: "ANTHROPIC_API_KEY", alta: "https://console.anthropic.com/settings/keys", nota: "Claude · fuerte razonando y en código" },
+  { id: "deepseek", nombre: "DeepSeek", gratis: false, envKey: "DEEPSEEK_API_KEY", alta: "https://platform.deepseek.com/api_keys", nota: "Muy barato · bueno en código y matemáticas" },
+  { id: "mistral", nombre: "Mistral", gratis: false, envKey: "MISTRAL_API_KEY", alta: "https://console.mistral.ai/api-keys", nota: "Tiene capa gratuita · pide verificar teléfono" },
+  { id: "xai", nombre: "xAI (Grok)", gratis: false, envKey: "XAI_API_KEY", alta: "https://console.x.ai", nota: "Grok · contexto amplio" },
+  { id: "together", nombre: "Together AI", gratis: false, envKey: "TOGETHER_API_KEY", alta: "https://api.together.ai/settings/api-keys", nota: "Créditos gratis al registrarse · modelos abiertos" },
 ];
 
 /** Claves guardadas por el admin desde la pantalla (dentro de businessConfig). */
@@ -81,6 +87,50 @@ router.get("/catalog", async (req: TenantRequest, res, next) => {
     return res.json({ proveedores: catalogo });
   } catch (e) {
     return next(e);
+  }
+});
+
+/**
+ * GET /api/ai/models/:proveedor — pregunta al proveedor QUÉ modelos ofrece.
+ *
+ * Se consulta en vivo su endpoint /models en vez de fijar aquí una lista: los
+ * catálogos cambian y una lista escrita a mano envejece mal (la pantalla
+ * llegó a ofrecer modelos que ya no existían).
+ */
+router.get("/models/:proveedor", async (req: TenantRequest, res, next) => {
+  try {
+    const proveedor = req.params.proveedor;
+    if (!PROVEEDORES.some((p) => p.id === proveedor)) {
+      return res.status(400).json({ error: "Proveedor desconocido" });
+    }
+
+    const { getProviderConfig } = await import("@workspace/integrations-openai-ai-server");
+    const guardadas = await leerClavesGuardadas();
+    const base = getProviderConfig(proveedor);
+    const guardada = guardadas[proveedor];
+    const apiKey = (guardada?.apiKey ? descifrar(guardada.apiKey) : null) || base?.apiKey;
+    if (!base?.baseUrl || !apiKey) {
+      return res.json({ modelos: [], error: "Configura primero la clave de este proveedor" });
+    }
+
+    const url = base.baseUrl.replace(/\/$/, "") + "/models";
+    const r = await fetch(url, { headers: { Authorization: `Bearer ${apiKey}` } });
+    if (!r.ok) {
+      return res.json({ modelos: [], error: `El proveedor respondió ${r.status}` });
+    }
+    const j: any = await r.json();
+    // Formato OpenAI: { data: [{ id }] }. Algunos devuelven {models:[...]}.
+    const lista: string[] = (j?.data || j?.models || [])
+      .map((m: any) => (typeof m === "string" ? m : m?.id || m?.name))
+      .filter(Boolean)
+      .sort();
+
+    // Se devuelve también la URL consultada: variables de entorno como
+    // OPENAI_BASE_URL pueden redirigir un proveedor a otro distinto, y sin
+    // esto el admin vería modelos ajenos sin entender por qué.
+    return res.json({ modelos: lista, total: lista.length, consultado: base.baseUrl });
+  } catch (e: any) {
+    return res.json({ modelos: [], error: String(e?.message || e).slice(0, 140) });
   }
 });
 

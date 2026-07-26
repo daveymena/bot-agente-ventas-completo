@@ -173,6 +173,65 @@ export function getProviderConfig(provider: string): AIProviderConfig | null {
         model: process.env.MIMO_MODEL || "mimo-v2.5-pro",
       };
 
+    // ─── PROVEEDORES COMERCIALES (compatibles con el formato de OpenAI) ──────
+    // Todos exponen /v1/chat/completions al estilo OpenAI, así que funcionan
+    // con el mismo cliente. Los ids de modelo NO se fijan aquí a propósito:
+    // se descubren en vivo desde /v1/models (ver ruta /api/ai/models).
+
+    // ── OpenAI (ChatGPT) ── https://platform.openai.com/api-keys
+    case "openai":
+      if (!process.env.OPENAI_API_KEY) return null;
+      return {
+        baseUrl: process.env.OPENAI_BASE_URL || "https://api.openai.com/v1",
+        apiKey: process.env.OPENAI_API_KEY,
+        model: process.env.OPENAI_MODEL || "gpt-4o-mini",
+      };
+
+    // ── Anthropic (Claude) ── capa compatible con OpenAI
+    case "anthropic":
+      if (!process.env.ANTHROPIC_API_KEY) return null;
+      return {
+        baseUrl: process.env.ANTHROPIC_BASE_URL || "https://api.anthropic.com/v1",
+        apiKey: process.env.ANTHROPIC_API_KEY,
+        model: process.env.ANTHROPIC_MODEL || "claude-sonnet-4-20250514",
+      };
+
+    // ── DeepSeek ── https://platform.deepseek.com · muy barato
+    case "deepseek":
+      if (!process.env.DEEPSEEK_API_KEY) return null;
+      return {
+        baseUrl: process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com/v1",
+        apiKey: process.env.DEEPSEEK_API_KEY,
+        model: process.env.DEEPSEEK_MODEL || "deepseek-chat",
+      };
+
+    // ── Mistral ── https://console.mistral.ai · tiene capa gratuita
+    case "mistral":
+      if (!process.env.MISTRAL_API_KEY) return null;
+      return {
+        baseUrl: process.env.MISTRAL_BASE_URL || "https://api.mistral.ai/v1",
+        apiKey: process.env.MISTRAL_API_KEY,
+        model: process.env.MISTRAL_MODEL || "mistral-small-latest",
+      };
+
+    // ── xAI (Grok) ── https://console.x.ai
+    case "xai":
+      if (!process.env.XAI_API_KEY) return null;
+      return {
+        baseUrl: process.env.XAI_BASE_URL || "https://api.x.ai/v1",
+        apiKey: process.env.XAI_API_KEY,
+        model: process.env.XAI_MODEL || "grok-2-latest",
+      };
+
+    // ── Together AI ── https://api.together.ai · créditos gratis al registrarse
+    case "together":
+      if (!process.env.TOGETHER_API_KEY) return null;
+      return {
+        baseUrl: process.env.TOGETHER_BASE_URL || "https://api.together.xyz/v1",
+        apiKey: process.env.TOGETHER_API_KEY,
+        model: process.env.TOGETHER_MODEL || "meta-llama/Llama-3.3-70B-Instruct-Turbo",
+      };
+
     // ── CEREBRAS ── gratis: 5 req/min · 1M tokens/hora · clave en cloud.cerebras.ai
     case "cerebras":
       if (!process.env.CEREBRAS_API_KEY) return null;
@@ -195,7 +254,10 @@ export function getProviderConfig(provider: string): AIProviderConfig | null {
     case "google_ai_studio":
       if (!process.env.GOOGLE_API_KEY) return null;
       return {
-        baseUrl: "https://generativelanguage.googleapis.com/v1beta",
+        // Ruta /openai/: es la capa compatible con OpenAI. La anterior
+        // (/v1beta a secas) es la API nativa de Gemini y el cliente de OpenAI
+        // no puede hablar con ella.
+        baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai/",
         apiKey: process.env.GOOGLE_API_KEY,
         model: process.env.GOOGLE_MODEL || "gemini-2.5-flash",
       };

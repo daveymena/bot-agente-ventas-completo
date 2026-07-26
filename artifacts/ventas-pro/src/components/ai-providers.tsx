@@ -50,6 +50,9 @@ export function AIProviders() {
   const [claves, setClaves] = useState<Record<string, string>>({});
   const [guardando, setGuardando] = useState<string | null>(null);
   const [probando, setProbando] = useState<string | null>(null);
+  const [descubriendo, setDescubriendo] = useState<string | null>(null);
+  const [descubiertos, setDescubiertos] = useState<Record<string, string[]>>({});
+  const [consultado, setConsultado] = useState<Record<string, string>>({});
   const [resultado, setResultado] = useState<Record<string, { ok: boolean; msg: string }>>({});
 
   const cargar = async () => {
@@ -86,6 +89,25 @@ export function AIProviders() {
       toast.error(e.message);
     } finally {
       setGuardando(null);
+    }
+  };
+
+  // Pregunta al proveedor qué modelos ofrece hoy, en vez de fiarse de una
+  // lista escrita a mano que envejece.
+  const descubrir = async (id: string) => {
+    setDescubriendo(id);
+    try {
+      const r = await fetch(`/api/ai/models/${id}`, { credentials: "include" });
+      const d = await r.json();
+      if (d.error) { toast.error(d.error); return; }
+      if (!d.modelos?.length) { toast.error("El proveedor no devolvió modelos"); return; }
+      setDescubiertos((x) => ({ ...x, [id]: d.modelos }));
+      setConsultado((x) => ({ ...x, [id]: d.consultado || "" }));
+      toast.success(`${d.total} modelos encontrados`);
+    } catch (e: any) {
+      toast.error(e.message);
+    } finally {
+      setDescubriendo(null);
     }
   };
 
@@ -163,30 +185,45 @@ export function AIProviders() {
           </p>
         </div>
 
-        {p.modelos.length > 0 && (
-          <div className="space-y-1.5">
+        <div className="space-y-1.5">
+          <div className="flex items-center justify-between gap-2">
             <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">Modelo</Label>
-            <select
-              value={p.modeloElegido || ""}
-              onChange={(e) => guardar(p.id, e.target.value)}
-              className="w-full h-9 rounded-md border border-input bg-muted/30 px-2 text-xs font-mono"
+            <button
+              type="button"
+              disabled={!p.tieneClave || descubriendo === p.id}
+              onClick={() => descubrir(p.id)}
+              className="text-[10px] text-primary hover:underline disabled:opacity-40 disabled:no-underline"
+              title="Consulta al proveedor qué modelos ofrece ahora mismo"
             >
-              <option value="">— elegir modelo —</option>
-              {p.modelos.filter((m) => m.seleccionable).map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.id} · {ESPECIALIDAD[m.especialidad]?.txt} · {ESTADO[m.estado]?.txt}
-                </option>
-              ))}
-            </select>
-            <div className="flex flex-wrap gap-1 pt-1">
-              {p.modelos.filter((m) => !m.seleccionable).map((m) => (
-                <span key={m.id} className="text-[9px] text-muted-foreground line-through" title={m.nota || ""}>
-                  {m.id}
-                </span>
-              ))}
-            </div>
+              {descubriendo === p.id ? "buscando…" : "🔄 descubrir modelos"}
+            </button>
           </div>
-        )}
+          <select
+            value={p.modeloElegido || ""}
+            onChange={(e) => guardar(p.id, e.target.value)}
+            className="w-full h-9 rounded-md border border-input bg-muted/30 px-2 text-xs font-mono"
+          >
+            <option value="">— elegir modelo —</option>
+            {/* Los descubiertos en vivo mandan sobre la lista del registro */}
+            {descubiertos[p.id]
+              ? descubiertos[p.id].map((id) => <option key={id} value={id}>{id}</option>)
+              : p.modelos.filter((m) => m.seleccionable).map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.id} · {ESPECIALIDAD[m.especialidad]?.txt} · {ESTADO[m.estado]?.txt}
+                  </option>
+                ))}
+          </select>
+          {consultado[p.id] && (
+            <p className="text-[9px] text-muted-foreground break-all">
+              Consultado en <code className="text-primary">{consultado[p.id]}</code>
+            </p>
+          )}
+          {!descubiertos[p.id] && p.modelos.length === 0 && (
+            <p className="text-[9px] text-muted-foreground">
+              Sin lista previa: pon la clave y pulsa «descubrir modelos».
+            </p>
+          )}
+        </div>
 
         <div className="flex items-center gap-2 flex-wrap">
           <Button size="sm" variant="outline" disabled={!p.tieneClave || probando === p.id} onClick={() => probar(p.id, p.modeloElegido || undefined)}>

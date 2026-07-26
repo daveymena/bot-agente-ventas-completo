@@ -30,6 +30,12 @@ export const ENV_POR_PROVEEDOR: Record<string, string> = {
   nvidia_nim: "NVIDIA_API_KEY",
   github: "GITHUB_TOKEN",
   mimo: "MIMO_API_KEY",
+  openai: "OPENAI_API_KEY",
+  anthropic: "ANTHROPIC_API_KEY",
+  deepseek: "DEEPSEEK_API_KEY",
+  mistral: "MISTRAL_API_KEY",
+  xai: "XAI_API_KEY",
+  together: "TOGETHER_API_KEY",
 };
 
 /** Variable del MODELO de cada proveedor (para que la elección también aplique). */
@@ -43,6 +49,12 @@ export const ENV_MODELO_POR_PROVEEDOR: Record<string, string> = {
   nvidia_nim: "NVIDIA_NIM_MODEL",
   github: "GITHUB_MODEL",
   mimo: "MIMO_MODEL",
+  openai: "OPENAI_MODEL",
+  anthropic: "ANTHROPIC_MODEL",
+  deepseek: "DEEPSEEK_MODEL",
+  mistral: "MISTRAL_MODEL",
+  xai: "XAI_MODEL",
+  together: "TOGETHER_MODEL",
 };
 
 /**
