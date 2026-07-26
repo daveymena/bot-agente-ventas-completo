@@ -14,6 +14,7 @@ import { es } from "date-fns/locale";
 import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
 import { SaasStatusBanner } from "@/components/saas-status-banner";
+import { MobileDashboard } from "@/components/mobile-dashboard";
 
 function MetricCard({ title, value, icon: Icon, description, className = "" }: { title: string, value: string | number, icon: any, description?: string, className?: string }) {
   return (
@@ -99,6 +100,9 @@ export default function Dashboard() {
             </Link>
           </div>
         </div>
+
+        {/* Mobile Dashboard */}
+        <MobileDashboard summary={summary ?? undefined} />
 
         {/* Main KPIs */}
         {loadingSummary ? (
