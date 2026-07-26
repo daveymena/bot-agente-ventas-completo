@@ -252,8 +252,8 @@ export default function Branding() {
                     />
                   )}
                   <div>
-                    <h2 className="text-2xl font-bold">{formData.brandName || "Tu Marca"}</h2>
-                    <p className="text-sm opacity-70">{formData.slug}</p>
+                    <h2 className="text-2xl font-bold break-words">{formData.brandName || "Tu Marca"}</h2>
+                    <p className="text-sm opacity-70 break-all">{formData.slug}</p>
                   </div>
                 </div>
                 
@@ -351,7 +351,7 @@ export default function Branding() {
                   disabled
                   className="bg-muted/30 font-mono text-sm"
                 />
-                <p className="text-xs text-muted-foreground">
+                <p className="text-xs text-muted-foreground break-all">
                   Tu tienda: app.com/{formData.slug}
                 </p>
               </div>

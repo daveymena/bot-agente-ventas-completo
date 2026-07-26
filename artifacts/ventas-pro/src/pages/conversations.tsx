@@ -126,7 +126,7 @@ export default function Conversations() {
         <div className="flex flex-col gap-3">
           {parts.map((part, i) => {
             if (part.type === 'text') {
-              return <p key={i} className="whitespace-pre-wrap">{part.value}</p>;
+              return <p key={i} className="whitespace-pre-wrap break-words [overflow-wrap:anywhere]">{part.value}</p>;
             }
             const product = products.find(p => p.id === part.productId);
             if (!product) return null;
@@ -235,7 +235,7 @@ export default function Conversations() {
         </div>
       );
     }
-    return <p className="whitespace-pre-wrap">{content}</p>;
+    return <p className="whitespace-pre-wrap break-words [overflow-wrap:anywhere]">{content}</p>;
   };
 
   // Fallback image map for products without imageUrl
@@ -330,9 +330,9 @@ export default function Conversations() {
                             </AvatarFallback>
                           </Avatar>
                           <div>
-                            <p className="font-semibold text-sm leading-none">{conv.contactName}</p>
-                            <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
-                              <Phone className="h-3 w-3" /> {conv.contactPhone}
+                            <p className="font-semibold text-sm leading-none truncate">{conv.contactName}</p>
+                            <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1 min-w-0">
+                              <Phone className="h-3 w-3 shrink-0" /> <span className="truncate">{conv.contactPhone}</span>
                             </p>
                           </div>
                         </div>
@@ -448,7 +448,7 @@ export default function Conversations() {
                             )}
                             
                             <div className={`flex flex-col mb-2 ${isCustomer ? 'items-end' : 'items-start'}`}>
-                              <div className={`flex items-end gap-2 max-w-[95%] sm:max-w-[85%] md:max-w-[75%] ${isCustomer ? 'flex-row-reverse' : 'flex-row'}`}>
+                              <div className={`flex items-end gap-2 min-w-0 max-w-[95%] sm:max-w-[85%] md:max-w-[75%] ${isCustomer ? 'flex-row-reverse' : 'flex-row'}`}>
                                 
                                 {/* Avatar */}
                                 {!isCustomer && (

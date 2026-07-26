@@ -86,7 +86,8 @@ export default function Leads() {
 
         {/* Filter Bar */}
         <div className="glass-panel p-2 rounded-2xl flex gap-4 items-center sticky top-[80px] z-10 overflow-hidden">
-          <ScrollArea className="w-full max-w-[calc(100vw-3rem)]">
+          {/* contentWidth: esta fila de filtros SÍ debe poder desplazarse en horizontal */}
+          <ScrollArea contentWidth className="w-full max-w-[calc(100vw-3rem)]">
             <div className="flex gap-2 pb-2 md:pb-0 px-2 items-center min-w-max">
               <Button 
                 variant={filterStage === "all" ? "default" : "ghost"} 

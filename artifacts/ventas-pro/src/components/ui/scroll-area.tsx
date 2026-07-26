@@ -3,16 +3,31 @@ import * as ScrollAreaPrimitive from "@radix-ui/react-scroll-area"
 
 import { cn } from "@/lib/utils"
 
+/**
+ * Radix renderiza dentro del Viewport un div con `min-width:100%; display:table`.
+ * Al ser una tabla se dimensiona al ANCHO DEL CONTENIDO, así que basta un texto
+ * largo sin espacios (una URL) para que crezca y empuje la pantalla hacia la
+ * derecha en móvil. Por defecto lo forzamos a `block`, que respeta el ancho del
+ * contenedor y deja que el texto ajuste.
+ *
+ * `contentWidth` recupera el comportamiento original, para los casos en que SÍ
+ * se quiere scroll horizontal (una fila de filtros con min-w-max, por ejemplo).
+ */
 const ScrollArea = React.forwardRef<
   React.ElementRef<typeof ScrollAreaPrimitive.Root>,
-  React.ComponentPropsWithoutRef<typeof ScrollAreaPrimitive.Root>
->(({ className, children, ...props }, ref) => (
+  React.ComponentPropsWithoutRef<typeof ScrollAreaPrimitive.Root> & { contentWidth?: boolean }
+>(({ className, children, contentWidth = false, ...props }, ref) => (
   <ScrollAreaPrimitive.Root
     ref={ref}
     className={cn("relative overflow-hidden", className)}
     {...props}
   >
-    <ScrollAreaPrimitive.Viewport className="h-full w-full rounded-[inherit]">
+    <ScrollAreaPrimitive.Viewport
+      className={cn(
+        "h-full w-full rounded-[inherit]",
+        !contentWidth && "[&>div]:!block [&>div]:!min-w-0",
+      )}
+    >
       {children}
     </ScrollAreaPrimitive.Viewport>
     <ScrollBar />

@@ -209,7 +209,7 @@ export default function CodeAgent() {
                         <Bot className="h-5 w-5 text-white" />
                       </div>
                     )}
-                    <div className={`${msg.role === "user" ? "max-w-[85%] md:max-w-[70%]" : "max-w-[90%] md:max-w-[80%]"} ${msg.role === "user" ? "order-1" : ""}`}>
+                    <div className={`min-w-0 ${msg.role === "user" ? "max-w-[85%] md:max-w-[70%]" : "max-w-[90%] md:max-w-[80%]"} ${msg.role === "user" ? "order-1" : ""}`}>
                       <div
                         className={`rounded-2xl px-4 py-3 md:px-5 md:py-3.5 ${
                           msg.role === "user"
@@ -217,7 +217,9 @@ export default function CodeAgent() {
                             : "bg-muted/50 rounded-bl-md border border-border"
                         }`}
                       >
-                        <p className="text-sm md:text-base whitespace-pre-wrap leading-relaxed">{msg.content}</p>
+                        {/* break-words + overflow-wrap:anywhere: las respuestas traen URLs
+                            largas (/uploads/...) que sin esto no se pueden partir */}
+                        <p className="text-sm md:text-base whitespace-pre-wrap break-words [overflow-wrap:anywhere] leading-relaxed">{msg.content}</p>
                       </div>
 
                       {msg.actions && msg.actions.length > 0 && (
@@ -230,7 +232,7 @@ export default function CodeAgent() {
                                 {a.ok ? <Check className="h-3 w-3" /> : <X className="h-3 w-3" />}
                               </span>
                               <span className="font-mono text-[11px] text-muted-foreground shrink-0 bg-muted px-1.5 py-0.5 rounded">{a.tool}</span>
-                              <span className="text-foreground/90">{a.summary}</span>
+                              <span className="text-foreground/90 min-w-0 break-words [overflow-wrap:anywhere]">{a.summary}</span>
                             </div>
                           ))}
                         </div>
