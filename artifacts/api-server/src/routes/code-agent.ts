@@ -17,6 +17,29 @@ import {
   loadArchitectHistory, saveArchitectTurn, getPendingPlan, setPendingPlan,
   clearPendingPlan, clearArchitectHistory, isApproval, isRejection,
 } from "../lib/architect-store";
+import { toEmojiStyle } from "../lib/conversation-engine";
+
+/**
+ * Detecta cuando el modelo responde ANUNCIANDO lo que va a hacer ("ahora voy a
+ * investigar X…") en vez de entregar el resultado. Pasaba que devolvía el
+ * anuncio con done:true, el bucle cortaba y el admin recibía la conversación a
+ * medias, teniendo que escribir "sigue" para cada paso.
+ */
+function isAnnouncement(text: string): boolean {
+  if (!text) return false;
+  const t = text.trim();
+  // Un anuncio suele ser corto y termina prometiendo el siguiente paso.
+  if (t.length > 1200) return false;
+  return /\b(ahora\s+(voy|procedo|investig|busc|revis|continú)|voy\s+a\s+(investigar|buscar|revisar|crear|consultar|analizar|completar|seguir)|proceder[ée]|procedo\s+a|d[ée]jame\s+(investigar|buscar|revisar|consultar)|perm[ií]teme\s+(investigar|buscar|revisar)|en\s+seguida|a\s+continuaci[óo]n\s+(voy|investig|busc)|siguiente\s+paso\s*:|estoy\s+(investigando|buscando|revisando|recopilando)|seguir[ée]\s+(investigando|buscando)|luego\s+(crear[ée]|investigar[ée]))/i.test(t);
+}
+
+/** Empujón para que complete el trabajo en el mismo turno, sin anunciarlo. */
+const CONTINUE_NUDGE =
+  "No anuncies lo que vas a hacer: HAZLO ahora en este mismo turno. " +
+  "Llama las herramientas que falten (web_fetch, list_products, etc.) y sigue " +
+  "hasta tener el resultado completo. Si ya reuniste la información y toca " +
+  "crear o modificar algo, propón el plan con datos reales. " +
+  'Solo pon done:true cuando entregues el resultado final o el plan a confirmar.';
 
 // Descripción legible de una acción del plan, para mostrarla al admin antes de ejecutar.
 function describePlannedAction(a: { tool: string; args: any }): string {
@@ -1105,7 +1128,7 @@ router.post("/operator", async (req: TenantRequest, res, next) => {
           lines.push(`${r.ok ? "✅" : "❌"} ${r.summary}${verification ? `\n   ${verification}` : ""}`);
         }
         await clearPendingPlan(tenantId, sessionId);
-        const reply = `Listo, ejecuté el plan:\n\n${lines.join("\n")}`;
+        const reply = toEmojiStyle(`Listo, ejecuté el plan:\n\n${lines.join("\n")}`);
         await saveArchitectTurn(tenantId, sessionId, "assistant", reply);
         logger.info({ tenantId, executed: executed.length }, "[AppOperator] Plan aprobado y ejecutado");
         return res.json({ reply, executed, status: "executed" });
@@ -1130,7 +1153,8 @@ router.post("/operator", async (req: TenantRequest, res, next) => {
     //    mutaciones se ACUMULAN como plan y NO se ejecutan hasta aprobación. ──
     let finalReply = "";
     const plannedActions: any[] = [];
-    for (let step = 0; step < 6; step++) {
+    const MAX_STEPS = 10;
+    for (let step = 0; step < MAX_STEPS; step++) {
       const rawAI = await callAI(messages);
       if (!rawAI) {
         return res.status(502).json({ error: "Todos los proveedores de IA fallaron" });
@@ -1172,11 +1196,22 @@ router.post("/operator", async (req: TenantRequest, res, next) => {
           content: "RESULTADOS DE LECTURAS (datos reales):\n" + JSON.stringify(results) +
             '\n\nUsa estos datos reales. Si vas a cambiar algo, propón el plan con ids/valores reales y pide confirmación. Responde {"reply":"...","actions":[...],"done":true}.',
         });
-        if (parsed.done) break;
+        // No cortamos si dijo done:true pero su reply es solo un anuncio de lo
+        // que "va a hacer": ahí todavía no hay resultado, hay que seguir.
+        if (parsed.done && !isAnnouncement(finalReply)) break;
+        if (parsed.done) {
+          messages.push({ role: "user", content: CONTINUE_NUDGE });
+        }
         continue;
       }
 
-      // No hay acciones → respuesta informativa, terminamos.
+      // No hay acciones. Si la respuesta es un anuncio ("ahora voy a…") en vez
+      // de un resultado, la empujamos a completarlo en lugar de devolverla.
+      if (isAnnouncement(finalReply) && step < MAX_STEPS - 1) {
+        messages.push({ role: "assistant", content });
+        messages.push({ role: "user", content: CONTINUE_NUDGE });
+        continue;
+      }
       break;
     }
 
@@ -1185,8 +1220,9 @@ router.post("/operator", async (req: TenantRequest, res, next) => {
       const planText = plannedActions
         .map((a, i) => `${i + 1}. ${describePlannedAction(a)}`)
         .join("\n");
-      const reply =
-        `${finalReply ? finalReply + "\n\n" : ""}📋 *Plan propuesto (requiere tu confirmación):*\n${planText}\n\n¿Confirmas? Responde *sí* para ejecutar, o dime qué ajusto.`;
+      const reply = toEmojiStyle(
+        `${finalReply ? finalReply + "\n\n" : ""}📋 Plan propuesto (requiere tu confirmación):\n${planText}\n\n❓ ¿Confirmas? Responde sí para ejecutar, o dime qué ajusto.`,
+      );
       await setPendingPlan(tenantId, sessionId, plannedActions, reply);
       await saveArchitectTurn(tenantId, sessionId, "assistant", reply);
       logger.info({ tenantId, planned: plannedActions.length }, "[AppOperator] Plan propuesto, esperando confirmación");
@@ -1194,6 +1230,7 @@ router.post("/operator", async (req: TenantRequest, res, next) => {
     }
 
     // Solo lectura / respuesta informativa → sin cambios que confirmar
+    finalReply = toEmojiStyle(finalReply);
     await saveArchitectTurn(tenantId, sessionId, "assistant", finalReply);
     logger.info({ tenantId }, "[AppOperator] Respuesta informativa (sin cambios)");
     return res.json({ reply: finalReply, status: "info" });
