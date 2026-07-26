@@ -18,23 +18,21 @@ const ZEN_DEFAULT_FREE_MODEL = "nemotron-3-ultra-free";
  * usaba OPENCODE_MODEL, así que al agotarse se caía al siguiente proveedor
  * entero pudiendo seguir dentro de Zen.
  *
- * Orden comprobado contra la API real (2026-07-26):
- *   nemotron-3-ultra-free  → devuelve texto ✅
- *   mimo-v2.5-free         → 429 ese día, pero se restablece
- *   ling-3.0-flash-free    → 429 ese día
- *   big-pickle             → 429 ese día
- *   hy3-free / deepseek-v4-flash-free → alternativas
+ * Barrido completo del catálogo el 2026-07-26 con max_tokens=2000: los 7
+ * modelos gratuitos responden. Orden por tiempo de respuesta medido.
  *
- * north-mini-code-free queda FUERA a propósito: responde 200 pero con
- * content vacío (solo reasoning_content), y rompe el bucle del operador.
+ * ⚠️ Los "de razonamiento" (north-mini-code-free, deepseek-v4-flash-free)
+ * NO están rotos: con max_tokens bajo (20-30) gastan el presupuesto pensando
+ * y devuelven content vacío. Con 2000+ responden bien.
  */
 const ZEN_ROTATION = [
-  "nemotron-3-ultra-free",
-  "mimo-v2.5-free",
-  "ling-3.0-flash-free",
-  "big-pickle",
-  "hy3-free",
-  "deepseek-v4-flash-free",
+  "nemotron-3-ultra-free",   // ~1,1 s
+  "ling-3.0-flash-free",     // ~1,2 s
+  "north-mini-code-free",    // ~2,1 s
+  "mimo-v2.5-free",          // ~2,6 s
+  "big-pickle",              // ~2,8 s
+  "deepseek-v4-flash-free",  // ~2,9 s
+  "laguna-s-2.1-free",       // ~6,4 s
 ];
 
 /** Modelos de Zen a probar, en orden: primero el configurado, luego el resto. */

@@ -25,14 +25,20 @@ export interface ModeloLibre {
 }
 
 export const MODELOS_LIBRES: ModeloLibre[] = [
-  // ── OpenCode Zen (clave OPENCODE_API_KEY, ya configurada) ──────────────────
-  { proveedor: "opencode", modelo: "nemotron-3-ultra-free", especialidad: "razonar", estado: "verificado", nota: "el más fiable hoy" },
-  { proveedor: "opencode", modelo: "mimo-v2.5-free", especialidad: "general", estado: "agotado" },
-  { proveedor: "opencode", modelo: "ling-3.0-flash-free", especialidad: "rapido", estado: "agotado" },
-  { proveedor: "opencode", modelo: "big-pickle", especialidad: "general", estado: "agotado" },
-  { proveedor: "opencode", modelo: "hy3-free", especialidad: "general", estado: "sin probar" },
-  { proveedor: "opencode", modelo: "deepseek-v4-flash-free", especialidad: "rapido", estado: "vacio", nota: "solo reasoning_content" },
-  { proveedor: "opencode", modelo: "north-mini-code-free", especialidad: "codigo", estado: "vacio", nota: "no usar en el bucle del operador" },
+  // ── OpenCode Zen (clave OPENCODE_API_KEY) ─────────────────────────────────
+  // Barrido completo del catálogo el 2026-07-26 con max_tokens=2000: los 7
+  // responden. Tiempos medidos en esa prueba.
+  //
+  // ⚠️ max_tokens IMPORTA: con 20-30 tokens, los modelos de razonamiento
+  // agotan el presupuesto "pensando" y devuelven content vacío. Aparentan
+  // estar rotos y no lo están. Pide 2000 o más.
+  { proveedor: "opencode", modelo: "nemotron-3-ultra-free", especialidad: "razonar", estado: "verificado", nota: "el más rápido: ~1,1 s" },
+  { proveedor: "opencode", modelo: "ling-3.0-flash-free", especialidad: "rapido", estado: "verificado", nota: "~1,2 s" },
+  { proveedor: "opencode", modelo: "north-mini-code-free", especialidad: "codigo", estado: "verificado", nota: "~2,1 s · necesita max_tokens alto" },
+  { proveedor: "opencode", modelo: "mimo-v2.5-free", especialidad: "general", estado: "verificado", nota: "~2,6 s" },
+  { proveedor: "opencode", modelo: "big-pickle", especialidad: "general", estado: "verificado", nota: "~2,8 s" },
+  { proveedor: "opencode", modelo: "deepseek-v4-flash-free", especialidad: "rapido", estado: "verificado", nota: "~2,9 s · necesita max_tokens alto" },
+  { proveedor: "opencode", modelo: "laguna-s-2.1-free", especialidad: "general", estado: "verificado", nota: "~6,4 s, el más lento" },
 
   // ── Groq (clave GROQ_API_KEY, ya configurada) ── 14.400 req/día ────────────
   { proveedor: "groq", modelo: "llama-3.1-8b-instant", especialidad: "rapido", estado: "verificado", contexto: 131072 },

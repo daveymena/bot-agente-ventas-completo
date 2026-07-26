@@ -156,7 +156,10 @@ router.post("/test", async (req: TenantRequest, res, next) => {
       const r = await client.chat.completions.create({
         model: cfg.model,
         messages: [{ role: "user", content: "Responde exactamente: OK" }],
-        max_tokens: 20,
+        // 2000 y no 20: los modelos de razonamiento gastan el presupuesto
+        // "pensando" y devuelven content vacío si se les da poco margen.
+        // Con un tope bajo, esta prueba los declaraba rotos sin estarlo.
+        max_tokens: 2000,
       });
       const texto = r.choices[0]?.message?.content || "";
       const ms = Date.now() - inicio;
