@@ -51,6 +51,15 @@ async function start() {
   // Non-blocking database migrations (fires in background)
   runAutoMigrations().catch(() => {});
 
+  // Claves de IA guardadas desde la pantalla de Configuración: se vuelcan al
+  // entorno para que los proveedores las usen igual que las del .env.
+  try {
+    const { cargarClavesEnEntorno } = await import("./lib/ai-keys");
+    await cargarClavesEnEntorno();
+  } catch (err) {
+    logger.warn({ err }, "[AIKeys] no se pudieron cargar las claves guardadas");
+  }
+
   app.listen(port, (err: any) => {
     if (err) {
       logger.error({ err }, "Error listening on port");

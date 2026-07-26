@@ -15,6 +15,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Save, X, Plus, Settings as SettingsIcon, ShieldCheck, Terminal, Sparkles } from "lucide-react";
 import { toast } from "sonner";
+import { AIProviders } from "@/components/ai-providers";
 
 export default function Settings() {
   const queryClient = useQueryClient();
@@ -672,6 +673,22 @@ export default function Settings() {
                     </ul>
                   </div>
                 </div>
+              </CardContent>
+            </Card>
+
+            {/* Alta de claves y elección de modelo por proveedor. Las claves se
+                guardan cifradas y el backend las carga al entorno para usarlas. */}
+            <Card className="rounded-3xl border-0 shadow-lg glass-panel overflow-hidden md:col-span-2 relative">
+              <div className="absolute top-0 right-0 w-full h-2 bg-gradient-to-r from-indigo-500 to-emerald-500" />
+              <CardHeader className="pt-8">
+                <CardTitle className="text-xl">Proveedores y modelos de IA</CardTitle>
+                <CardDescription className="mt-1 max-w-2xl">
+                  Añade la clave de cada proveedor y elige el modelo de una lista real. Los gratuitos
+                  funcionan sin pagar; los de pago son opcionales, para más rendimiento.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="pb-8">
+                <AIProviders />
               </CardContent>
             </Card>
 

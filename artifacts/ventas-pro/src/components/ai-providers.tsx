@@ -1,0 +1,228 @@
+import { useEffect, useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Loader2, Check, X, ExternalLink, KeyRound, Zap } from "lucide-react";
+import { toast } from "sonner";
+
+interface Modelo {
+  id: string;
+  especialidad: "razonar" | "rapido" | "vision" | "codigo" | "general";
+  estado: "verificado" | "sin probar" | "agotado" | "vacio";
+  contexto: number | null;
+  nota: string | null;
+  seleccionable: boolean;
+}
+
+interface Proveedor {
+  id: string;
+  nombre: string;
+  gratis: boolean;
+  envKey: string;
+  alta: string;
+  nota: string;
+  tieneClave: boolean;
+  origenClave: "entorno" | "guardada" | null;
+  modeloElegido: string | null;
+  modelos: Modelo[];
+}
+
+const ESPECIALIDAD: Record<string, { txt: string; cls: string }> = {
+  razonar: { txt: "🧠 razona", cls: "bg-violet-500/10 text-violet-600 border-violet-500/20" },
+  rapido: { txt: "⚡ rápido", cls: "bg-amber-500/10 text-amber-600 border-amber-500/20" },
+  vision: { txt: "👁️ visión", cls: "bg-sky-500/10 text-sky-600 border-sky-500/20" },
+  codigo: { txt: "💻 código", cls: "bg-emerald-500/10 text-emerald-600 border-emerald-500/20" },
+  general: { txt: "💬 general", cls: "bg-slate-500/10 text-slate-600 border-slate-500/20" },
+};
+
+const ESTADO: Record<string, { txt: string; cls: string }> = {
+  verificado: { txt: "✅ probado", cls: "text-emerald-600" },
+  "sin probar": { txt: "⏳ sin probar", cls: "text-muted-foreground" },
+  agotado: { txt: "🔴 cuota agotada", cls: "text-red-500" },
+  vacio: { txt: "⚫ no usable", cls: "text-muted-foreground line-through" },
+};
+
+export function AIProviders() {
+  const [provs, setProvs] = useState<Proveedor[]>([]);
+  const [cargando, setCargando] = useState(true);
+  const [claves, setClaves] = useState<Record<string, string>>({});
+  const [guardando, setGuardando] = useState<string | null>(null);
+  const [probando, setProbando] = useState<string | null>(null);
+  const [resultado, setResultado] = useState<Record<string, { ok: boolean; msg: string }>>({});
+
+  const cargar = async () => {
+    try {
+      const r = await fetch("/api/ai/catalog", { credentials: "include" });
+      if (!r.ok) throw new Error("No se pudo cargar el catálogo");
+      const d = await r.json();
+      setProvs(d.proveedores || []);
+    } catch (e: any) {
+      toast.error(e.message);
+    } finally {
+      setCargando(false);
+    }
+  };
+  useEffect(() => { cargar(); }, []);
+
+  const guardar = async (id: string, model?: string) => {
+    setGuardando(id);
+    try {
+      const body: any = { proveedor: id };
+      if (claves[id]) body.apiKey = claves[id];
+      if (model) body.model = model;
+      const r = await fetch("/api/ai/provider", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+        credentials: "include",
+      });
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || "Error al guardar");
+      setClaves((c) => ({ ...c, [id]: "" })); // no dejar la clave en pantalla
+      toast.success("Guardado");
+      await cargar();
+    } catch (e: any) {
+      toast.error(e.message);
+    } finally {
+      setGuardando(null);
+    }
+  };
+
+  const probar = async (id: string, model?: string) => {
+    setProbando(id);
+    try {
+      const r = await fetch("/api/ai/test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ proveedor: id, model }),
+        credentials: "include",
+      });
+      const d = await r.json();
+      setResultado((x) => ({
+        ...x,
+        [id]: { ok: !!d.ok, msg: d.ok ? `Responde en ${d.ms} ms` : d.error || "Falló" },
+      }));
+    } catch (e: any) {
+      setResultado((x) => ({ ...x, [id]: { ok: false, msg: e.message } }));
+    } finally {
+      setProbando(null);
+    }
+  };
+
+  if (cargando) {
+    return <div className="flex items-center gap-2 text-muted-foreground p-6"><Loader2 className="h-4 w-4 animate-spin" /> Cargando proveedores…</div>;
+  }
+
+  const gratis = provs.filter((p) => p.gratis);
+  const pago = provs.filter((p) => !p.gratis);
+
+  const tarjeta = (p: Proveedor) => (
+    <Card key={p.id} className="overflow-hidden">
+      <CardHeader className="pb-3">
+        <CardTitle className="text-sm flex items-center justify-between gap-2 flex-wrap">
+          <span className="flex items-center gap-2 min-w-0">
+            <KeyRound className="h-4 w-4 text-primary shrink-0" />
+            <span className="truncate">{p.nombre}</span>
+            {p.tieneClave ? (
+              <Badge className="bg-emerald-500/10 text-emerald-600 border-emerald-500/20 text-[10px]">
+                <Check className="h-3 w-3 mr-1" />
+                {p.origenClave === "entorno" ? "clave en .env" : "clave guardada"}
+              </Badge>
+            ) : (
+              <Badge variant="outline" className="text-[10px] text-muted-foreground">sin clave</Badge>
+            )}
+          </span>
+          <a href={p.alta} target="_blank" rel="noreferrer" className="text-[11px] text-primary hover:underline flex items-center gap-1 shrink-0">
+            obtener clave <ExternalLink className="h-3 w-3" />
+          </a>
+        </CardTitle>
+        <p className="text-[11px] text-muted-foreground">{p.nota}</p>
+      </CardHeader>
+
+      <CardContent className="space-y-3">
+        <div className="space-y-1.5">
+          <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">
+            Clave ({p.envKey})
+          </Label>
+          <div className="flex gap-2">
+            <Input
+              type="password"
+              autoComplete="off"
+              placeholder={p.tieneClave ? "•••••••• (guardada — escribe otra para cambiarla)" : "Pega aquí tu clave"}
+              value={claves[p.id] || ""}
+              onChange={(e) => setClaves((c) => ({ ...c, [p.id]: e.target.value }))}
+              className="font-mono text-xs min-w-0"
+            />
+            <Button size="sm" disabled={guardando === p.id || !claves[p.id]} onClick={() => guardar(p.id)}>
+              {guardando === p.id ? <Loader2 className="h-4 w-4 animate-spin" /> : "Guardar"}
+            </Button>
+          </div>
+          <p className="text-[9px] text-muted-foreground">
+            🔒 Se guarda cifrada (AES-256-GCM) y nunca se devuelve al navegador.
+          </p>
+        </div>
+
+        {p.modelos.length > 0 && (
+          <div className="space-y-1.5">
+            <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">Modelo</Label>
+            <select
+              value={p.modeloElegido || ""}
+              onChange={(e) => guardar(p.id, e.target.value)}
+              className="w-full h-9 rounded-md border border-input bg-muted/30 px-2 text-xs font-mono"
+            >
+              <option value="">— elegir modelo —</option>
+              {p.modelos.filter((m) => m.seleccionable).map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.id} · {ESPECIALIDAD[m.especialidad]?.txt} · {ESTADO[m.estado]?.txt}
+                </option>
+              ))}
+            </select>
+            <div className="flex flex-wrap gap-1 pt-1">
+              {p.modelos.filter((m) => !m.seleccionable).map((m) => (
+                <span key={m.id} className="text-[9px] text-muted-foreground line-through" title={m.nota || ""}>
+                  {m.id}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div className="flex items-center gap-2 flex-wrap">
+          <Button size="sm" variant="outline" disabled={!p.tieneClave || probando === p.id} onClick={() => probar(p.id, p.modeloElegido || undefined)}>
+            {probando === p.id ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : <Zap className="h-3.5 w-3.5 mr-1.5" />}
+            Probar ahora
+          </Button>
+          {resultado[p.id] && (
+            <span className={`text-[11px] flex items-center gap-1 min-w-0 ${resultado[p.id].ok ? "text-emerald-600" : "text-red-500"}`}>
+              {resultado[p.id].ok ? <Check className="h-3 w-3 shrink-0" /> : <X className="h-3 w-3 shrink-0" />}
+              <span className="break-words">{resultado[p.id].msg}</span>
+            </span>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  );
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h3 className="text-sm font-semibold mb-1">🆓 Proveedores gratuitos</h3>
+        <p className="text-xs text-muted-foreground mb-3">
+          Funcionan sin pagar. Si un modelo agota su cuota, el sistema rota solo al siguiente.
+        </p>
+        <div className="grid gap-3 lg:grid-cols-2">{gratis.map(tarjeta)}</div>
+      </div>
+
+      {pago.length > 0 && (
+        <div>
+          <h3 className="text-sm font-semibold mb-1">💳 Proveedores de pago</h3>
+          <p className="text-xs text-muted-foreground mb-3">
+            Opcionales: mejor rendimiento y sin límites de cuota. Solo se usan si pones su clave.
+          </p>
+          <div className="grid gap-3 lg:grid-cols-2">{pago.map(tarjeta)}</div>
+        </div>
+      )}
+    </div>
+  );
+}
