@@ -69,6 +69,58 @@ export const MODELOS_LIBRES: ModeloLibre[] = [
 
   // ── Xiaomi MiMo (falta MIMO_API_KEY, de pago) ─────────────────────────────
   { proveedor: "mimo", modelo: "mimo-v2.5-pro", especialidad: "codigo", estado: "sin probar", contexto: 1050000 },
+
+  // ═══ PROVEEDORES DE PAGO ═══════════════════════════════════════════════════
+  // Lista INICIAL para poder elegir sin tener clave todavía. Los catálogos
+  // cambian rápido: en cuanto pongas la clave, usa «descubrir modelos» y la
+  // pantalla se queda con los ids reales del proveedor.
+
+  // ── OpenAI (ChatGPT) ──
+  { proveedor: "openai", modelo: "gpt-4o", especialidad: "general", estado: "sin probar", contexto: 128000 },
+  { proveedor: "openai", modelo: "gpt-4o-mini", especialidad: "rapido", estado: "sin probar", contexto: 128000 },
+  { proveedor: "openai", modelo: "gpt-4o", especialidad: "vision", estado: "sin probar", nota: "multimodal" },
+  { proveedor: "openai", modelo: "o3-mini", especialidad: "razonar", estado: "sin probar" },
+
+  // ── Anthropic (Claude) ──
+  { proveedor: "anthropic", modelo: "claude-sonnet-4-20250514", especialidad: "razonar", estado: "sin probar", contexto: 200000 },
+  { proveedor: "anthropic", modelo: "claude-opus-4-20250514", especialidad: "codigo", estado: "sin probar", contexto: 200000 },
+  { proveedor: "anthropic", modelo: "claude-3-5-haiku-20241022", especialidad: "rapido", estado: "sin probar" },
+
+  // ── Google Gemini (de pago; la capa gratis está más arriba) ──
+  { proveedor: "google_ai_studio", modelo: "gemini-2.5-pro", especialidad: "razonar", estado: "sin probar", contexto: 1048576 },
+
+  // ── DeepSeek ──
+  { proveedor: "deepseek", modelo: "deepseek-chat", especialidad: "general", estado: "sin probar", contexto: 64000 },
+  { proveedor: "deepseek", modelo: "deepseek-reasoner", especialidad: "razonar", estado: "sin probar" },
+
+  // ── xAI (Grok) ──
+  { proveedor: "xai", modelo: "grok-2-latest", especialidad: "general", estado: "sin probar" },
+  { proveedor: "xai", modelo: "grok-2-vision-latest", especialidad: "vision", estado: "sin probar" },
+
+  // ── Mistral ──
+  { proveedor: "mistral", modelo: "mistral-large-latest", especialidad: "razonar", estado: "sin probar" },
+  { proveedor: "mistral", modelo: "mistral-small-latest", especialidad: "rapido", estado: "sin probar" },
+  { proveedor: "mistral", modelo: "codestral-latest", especialidad: "codigo", estado: "sin probar" },
+
+  // ── Together AI ──
+  { proveedor: "together", modelo: "meta-llama/Llama-3.3-70B-Instruct-Turbo", especialidad: "general", estado: "sin probar" },
+  { proveedor: "together", modelo: "Qwen/Qwen2.5-Coder-32B-Instruct", especialidad: "codigo", estado: "sin probar" },
+
+  // ── Perplexity ── responde citando fuentes de la web
+  { proveedor: "perplexity", modelo: "sonar", especialidad: "rapido", estado: "sin probar" },
+  { proveedor: "perplexity", modelo: "sonar-pro", especialidad: "razonar", estado: "sin probar" },
+
+  // ── Fireworks / DeepInfra / Nebius / SambaNova (modelos abiertos) ──
+  { proveedor: "fireworks", modelo: "accounts/fireworks/models/llama-v3p3-70b-instruct", especialidad: "general", estado: "sin probar" },
+  { proveedor: "deepinfra", modelo: "meta-llama/Llama-3.3-70B-Instruct", especialidad: "general", estado: "sin probar" },
+  { proveedor: "nebius", modelo: "meta-llama/Llama-3.3-70B-Instruct", especialidad: "general", estado: "sin probar" },
+  { proveedor: "sambanova", modelo: "Meta-Llama-3.3-70B-Instruct", especialidad: "rapido", estado: "sin probar" },
+
+  // ── Moonshot (Kimi) / Zhipu (GLM) / Alibaba (Qwen) ──
+  { proveedor: "moonshot", modelo: "kimi-k2-0905-preview", especialidad: "razonar", estado: "sin probar" },
+  { proveedor: "zhipu", modelo: "glm-4-plus", especialidad: "general", estado: "sin probar" },
+  { proveedor: "qwen", modelo: "qwen-plus", especialidad: "general", estado: "sin probar" },
+  { proveedor: "qwen", modelo: "qwen-vl-plus", especialidad: "vision", estado: "sin probar" },
 ];
 
 /** Modelos utilizables para una especialidad, mejores primero. */

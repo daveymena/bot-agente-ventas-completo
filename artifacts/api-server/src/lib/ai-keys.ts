@@ -36,6 +36,14 @@ export const ENV_POR_PROVEEDOR: Record<string, string> = {
   mistral: "MISTRAL_API_KEY",
   xai: "XAI_API_KEY",
   together: "TOGETHER_API_KEY",
+  perplexity: "PERPLEXITY_API_KEY",
+  fireworks: "FIREWORKS_API_KEY",
+  deepinfra: "DEEPINFRA_API_KEY",
+  moonshot: "MOONSHOT_API_KEY",
+  zhipu: "ZHIPU_API_KEY",
+  qwen: "QWEN_API_KEY",
+  nebius: "NEBIUS_API_KEY",
+  sambanova: "SAMBANOVA_API_KEY",
 };
 
 /** Variable del MODELO de cada proveedor (para que la elección también aplique). */
@@ -55,6 +63,14 @@ export const ENV_MODELO_POR_PROVEEDOR: Record<string, string> = {
   mistral: "MISTRAL_MODEL",
   xai: "XAI_MODEL",
   together: "TOGETHER_MODEL",
+  perplexity: "PERPLEXITY_MODEL",
+  fireworks: "FIREWORKS_MODEL",
+  deepinfra: "DEEPINFRA_MODEL",
+  moonshot: "MOONSHOT_MODEL",
+  zhipu: "ZHIPU_MODEL",
+  qwen: "QWEN_MODEL",
+  nebius: "NEBIUS_MODEL",
+  sambanova: "SAMBANOVA_MODEL",
 };
 
 /**

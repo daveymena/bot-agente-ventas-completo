@@ -36,6 +36,14 @@ const PROVEEDORES = [
   { id: "mistral", nombre: "Mistral", gratis: false, envKey: "MISTRAL_API_KEY", alta: "https://console.mistral.ai/api-keys", nota: "Tiene capa gratuita · pide verificar teléfono" },
   { id: "xai", nombre: "xAI (Grok)", gratis: false, envKey: "XAI_API_KEY", alta: "https://console.x.ai", nota: "Grok · contexto amplio" },
   { id: "together", nombre: "Together AI", gratis: false, envKey: "TOGETHER_API_KEY", alta: "https://api.together.ai/settings/api-keys", nota: "Créditos gratis al registrarse · modelos abiertos" },
+  { id: "perplexity", nombre: "Perplexity", gratis: false, envKey: "PERPLEXITY_API_KEY", alta: "https://www.perplexity.ai/settings/api", nota: "Responde buscando en la web, con fuentes" },
+  { id: "fireworks", nombre: "Fireworks AI", gratis: false, envKey: "FIREWORKS_API_KEY", alta: "https://fireworks.ai/account/api-keys", nota: "Modelos abiertos, rápido" },
+  { id: "deepinfra", nombre: "DeepInfra", gratis: false, envKey: "DEEPINFRA_API_KEY", alta: "https://deepinfra.com/dash/api_keys", nota: "De los más baratos por token" },
+  { id: "moonshot", nombre: "Moonshot (Kimi)", gratis: false, envKey: "MOONSHOT_API_KEY", alta: "https://platform.moonshot.ai/console/api-keys", nota: "Contexto muy amplio" },
+  { id: "zhipu", nombre: "Zhipu (GLM)", gratis: false, envKey: "ZHIPU_API_KEY", alta: "https://open.bigmodel.cn", nota: "GLM · buena relación precio/calidad" },
+  { id: "qwen", nombre: "Alibaba Qwen", gratis: false, envKey: "QWEN_API_KEY", alta: "https://dashscope.console.aliyun.com", nota: "Qwen · multilingüe y multimodal" },
+  { id: "nebius", nombre: "Nebius", gratis: false, envKey: "NEBIUS_API_KEY", alta: "https://studio.nebius.com", nota: "Créditos de prueba al registrarse" },
+  { id: "sambanova", nombre: "SambaNova", gratis: false, envKey: "SAMBANOVA_API_KEY", alta: "https://cloud.sambanova.ai/apis", nota: "Inferencia muy rápida" },
 ];
 
 /** Claves guardadas por el admin desde la pantalla (dentro de businessConfig). */

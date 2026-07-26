@@ -232,6 +232,78 @@ export function getProviderConfig(provider: string): AIProviderConfig | null {
         model: process.env.TOGETHER_MODEL || "meta-llama/Llama-3.3-70B-Instruct-Turbo",
       };
 
+    // ── Perplexity ── https://www.perplexity.ai/settings/api · busca en la web
+    case "perplexity":
+      if (!process.env.PERPLEXITY_API_KEY) return null;
+      return {
+        baseUrl: process.env.PERPLEXITY_BASE_URL || "https://api.perplexity.ai",
+        apiKey: process.env.PERPLEXITY_API_KEY,
+        model: process.env.PERPLEXITY_MODEL || "sonar",
+      };
+
+    // ── Fireworks AI ── https://fireworks.ai/account/api-keys
+    case "fireworks":
+      if (!process.env.FIREWORKS_API_KEY) return null;
+      return {
+        baseUrl: process.env.FIREWORKS_BASE_URL || "https://api.fireworks.ai/inference/v1",
+        apiKey: process.env.FIREWORKS_API_KEY,
+        model: process.env.FIREWORKS_MODEL || "accounts/fireworks/models/llama-v3p3-70b-instruct",
+      };
+
+    // ── DeepInfra ── https://deepinfra.com/dash/api_keys · muy barato
+    case "deepinfra":
+      if (!process.env.DEEPINFRA_API_KEY) return null;
+      return {
+        baseUrl: process.env.DEEPINFRA_BASE_URL || "https://api.deepinfra.com/v1/openai",
+        apiKey: process.env.DEEPINFRA_API_KEY,
+        model: process.env.DEEPINFRA_MODEL || "meta-llama/Llama-3.3-70B-Instruct",
+      };
+
+    // ── Moonshot (Kimi) ── https://platform.moonshot.ai · contexto enorme
+    case "moonshot":
+      if (!process.env.MOONSHOT_API_KEY) return null;
+      return {
+        baseUrl: process.env.MOONSHOT_BASE_URL || "https://api.moonshot.ai/v1",
+        apiKey: process.env.MOONSHOT_API_KEY,
+        model: process.env.MOONSHOT_MODEL || "kimi-k2-0905-preview",
+      };
+
+    // ── Zhipu (GLM) ── https://open.bigmodel.cn
+    case "zhipu":
+      if (!process.env.ZHIPU_API_KEY) return null;
+      return {
+        baseUrl: process.env.ZHIPU_BASE_URL || "https://open.bigmodel.cn/api/paas/v4",
+        apiKey: process.env.ZHIPU_API_KEY,
+        model: process.env.ZHIPU_MODEL || "glm-4-plus",
+      };
+
+    // ── Alibaba Qwen (DashScope) ── https://dashscope.console.aliyun.com
+    case "qwen":
+      if (!process.env.QWEN_API_KEY) return null;
+      return {
+        baseUrl: process.env.QWEN_BASE_URL || "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
+        apiKey: process.env.QWEN_API_KEY,
+        model: process.env.QWEN_MODEL || "qwen-plus",
+      };
+
+    // ── Nebius ── https://studio.nebius.com · créditos de prueba
+    case "nebius":
+      if (!process.env.NEBIUS_API_KEY) return null;
+      return {
+        baseUrl: process.env.NEBIUS_BASE_URL || "https://api.studio.nebius.com/v1",
+        apiKey: process.env.NEBIUS_API_KEY,
+        model: process.env.NEBIUS_MODEL || "meta-llama/Llama-3.3-70B-Instruct",
+      };
+
+    // ── SambaNova ── https://cloud.sambanova.ai · muy rápido
+    case "sambanova":
+      if (!process.env.SAMBANOVA_API_KEY) return null;
+      return {
+        baseUrl: process.env.SAMBANOVA_BASE_URL || "https://api.sambanova.ai/v1",
+        apiKey: process.env.SAMBANOVA_API_KEY,
+        model: process.env.SAMBANOVA_MODEL || "Meta-Llama-3.3-70B-Instruct",
+      };
+
     // ── CEREBRAS ── gratis: 5 req/min · 1M tokens/hora · clave en cloud.cerebras.ai
     case "cerebras":
       if (!process.env.CEREBRAS_API_KEY) return null;
