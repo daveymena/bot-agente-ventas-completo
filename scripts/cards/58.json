@@ -1,0 +1,43 @@
+{
+  "kicker": "CURSO DE",
+  "title": "MARCAS",
+  "subtitle": "DISEÑO VISUAL",
+  "tagline": "IDENTIDAD PROFESIONAL",
+  "intro": "Crea identidades completas: logotipo, paleta, tipografía y manual de marca.",
+  "features": [
+    {
+      "icon": "✳️",
+      "title": "LOGOTIPOS",
+      "text": "Del concepto al vector"
+    },
+    {
+      "icon": "🎨",
+      "title": "PALETA Y TIPO",
+      "text": "Sistemas coherentes"
+    },
+    {
+      "icon": "📘",
+      "title": "MANUAL DE MARCA",
+      "text": "Entrega profesional"
+    },
+    {
+      "icon": "▶️",
+      "title": "CLASES EN VIDEO",
+      "text": "Alta calidad"
+    }
+  ],
+  "bullets": [
+    "Acceso ilimitado de por vida",
+    "Estudia cuando y donde quieras",
+    "Ideal para principiantes y avanzados",
+    "Descargable y online vía Drive"
+  ],
+  "cta": "¡EMPIEZA HOY!",
+  "bgPrompt": "brand designer presenting logo sketches and color swatches on a desk, creative studio",
+  "seed": 58,
+  "accentLight": "#FFD9B0",
+  "accent": "#FF7A18",
+  "accentDark": "#A63C00",
+  "ink": "#1a0a00",
+  "rimLight": "warm orange"
+}

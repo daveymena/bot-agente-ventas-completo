@@ -1,0 +1,43 @@
+{
+  "kicker": "CURSO DE",
+  "title": "REPARACIÓN",
+  "subtitle": "DE MÓVILES",
+  "tagline": "DESDE CERO",
+  "intro": "Diagnostica y repara celulares: pantallas, batería, puertos de carga y software.",
+  "features": [
+    {
+      "icon": "🔧",
+      "title": "DIAGNÓSTICO",
+      "text": "Detecta la falla real"
+    },
+    {
+      "icon": "🔌",
+      "title": "CAMBIO DE PIEZAS",
+      "text": "Pantalla y batería"
+    },
+    {
+      "icon": "💰",
+      "title": "NEGOCIO PROPIO",
+      "text": "Cobra por reparar"
+    },
+    {
+      "icon": "▶️",
+      "title": "CLASES EN VIDEO",
+      "text": "Alta calidad"
+    }
+  ],
+  "bullets": [
+    "Acceso ilimitado de por vida",
+    "Estudia cuando y donde quieras",
+    "Ideal para principiantes y avanzados",
+    "Descargable y online vía Drive"
+  ],
+  "cta": "¡EMPIEZA HOY!",
+  "bgPrompt": "technician repairing a smartphone with precision tools on a workbench, close up hands",
+  "seed": 101,
+  "accentLight": "#C8F5E0",
+  "accent": "#10B981",
+  "accentDark": "#065F46",
+  "ink": "#02140e",
+  "rimLight": "teal green"
+}

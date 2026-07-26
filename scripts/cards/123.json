@@ -1,0 +1,43 @@
+{
+  "kicker": "CURSO DE",
+  "title": "PIANO",
+  "subtitle": "COMPLETO",
+  "tagline": "DE CERO A AVANZADO",
+  "intro": "Aprende a tocar, interpretar y sentir la música desde casa y a tu propio ritmo.",
+  "features": [
+    {
+      "icon": "🎹",
+      "title": "DESDE CERO",
+      "text": "No necesitas experiencia"
+    },
+    {
+      "icon": "🎵",
+      "title": "TEORÍA PRÁCTICA",
+      "text": "Fácil y clara"
+    },
+    {
+      "icon": "📈",
+      "title": "PROGRESO REAL",
+      "text": "Paso a paso"
+    },
+    {
+      "icon": "▶️",
+      "title": "CLASES EN VIDEO",
+      "text": "Alta calidad"
+    }
+  ],
+  "bullets": [
+    "Acceso ilimitado de por vida",
+    "Estudia cuando y donde quieras",
+    "Ideal para principiantes y avanzados",
+    "Descargable y online vía Drive"
+  ],
+  "cta": "¡EMPIEZA HOY!",
+  "bgPrompt": "smiling woman playing a black grand piano, hands on the keys, elegant",
+  "seed": 123,
+  "accentLight": "#FFE9A8",
+  "accent": "#F5B301",
+  "accentDark": "#B87700",
+  "ink": "#120c00",
+  "rimLight": "golden"
+}
