@@ -72,7 +72,7 @@ const Header = () => {
                 {searchResults.map(p => (
                   <button
                     key={p.id}
-                    onClick={() => { navigate(`/shop/${p.id}`); setSearchTerm(''); }}
+                    onClick={() => { navigate(`/shop?q=${encodeURIComponent(p.name)}`); setSearchTerm(''); }}
                     className="w-full flex items-center gap-3 p-2 hover:bg-slate-50 rounded-lg transition-colors text-left"
                   >
                     <img src={p.image} className="w-10 h-10 rounded-lg object-cover" />

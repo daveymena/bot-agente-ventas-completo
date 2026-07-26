@@ -96,11 +96,19 @@ const Shop = () => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    if (!paramSlug) { setLoading(false); return; }
     fetch(`/api/public/products/${slug}`)
       .then(r => { if (!r.ok) throw new Error('No encontrada'); return r.json(); })
       .then(data => {
         setApiProducts(data.products);
-        updateConfig({ storeName: data.store.name });
+        updateConfig({
+          storeName: data.store.name,
+          logoUrl: data.store.logo || '',
+          whatsappPhone: data.store.whatsappPhone || '573208270414',
+        });
+        if (data.store.colors) {
+          updateConfig({ primaryColor: data.store.colors.primary || '#4f46e5' });
+        }
       })
       .catch(() => setApiProducts([]))
       .finally(() => setLoading(false));
@@ -129,14 +137,18 @@ const Shop = () => {
     return matchesFilter && matchesSearch;
   });
 
-  const categories = [
-    { name: 'Tecnología', count: 412, fg: '#0f172a' },
-    { name: 'Hogar', count: 288, fg: '#0f172a' },
-    { name: 'Estilo de Vida', count: 196, fg: '#0f172a' },
-    { name: 'Digital', count: 62, fg: '#4f46e5' },
-    { name: 'Oficina', count: 84, fg: '#0f172a' },
-    { name: 'Combos', count: 150, fg: '#0f172a' }
-  ];
+  const categories = useMemo(() => {
+    const counts: Record<string, number> = {};
+    products.forEach(p => {
+      const cat = p.category || 'General';
+      counts[cat] = (counts[cat] || 0) + 1;
+    });
+    return Object.entries(counts).map(([name, count], i) => ({
+      name,
+      count,
+      fg: i === 0 ? '#4f46e5' : '#0f172a',
+    }));
+  }, [products]);
 
   return (
     <div className="max-w-7xl mx-auto px-4 py-7 flex gap-7 items-start flex-wrap">
