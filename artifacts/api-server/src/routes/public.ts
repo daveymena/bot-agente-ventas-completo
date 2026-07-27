@@ -260,6 +260,17 @@ router.post("/checkout/:slug/:productId", async (req, res, next) => {
 
       const tokenData = (await tokenRes.json()) as any;
 
+      // PayPal no liquida en COP: hay que CONVERTIR, no solo reetiquetar la
+      // moneda. Antes se mandaba el precio en pesos con currency_code USD, así
+      // que un curso de $60.000 COP (~14 USD) se cobraba como 60.000 USD.
+      // Misma tasa que usa el bot de WhatsApp en lib/payments.ts.
+      const exchangeRate = Number(process.env.PAYPAL_EXCHANGE_RATE) || 4300;
+      const isCop = (product.currency || "COP") === "COP";
+      const paypalCurrency = isCop ? "USD" : product.currency!;
+      const paypalValue = isCop
+        ? (Number(product.price || 0) / exchangeRate).toFixed(2)
+        : Number(product.price || 0).toFixed(2);
+
       const orderRes = await fetch(`${paypalApi}/v2/checkout/orders`, {
         method: "POST",
         headers: {
@@ -273,8 +284,8 @@ router.post("/checkout/:slug/:productId", async (req, res, next) => {
               reference_id: `${product.id}`,
               description: product.name,
               amount: {
-                currency_code: product.currency === "COP" ? "USD" : product.currency || "USD",
-                value: Number(product.price).toFixed(2),
+                currency_code: paypalCurrency,
+                value: paypalValue,
               },
             },
           ],
