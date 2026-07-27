@@ -69,11 +69,9 @@ EXPOSE 3002
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
   CMD curl -f http://localhost:${PORT}/api/health || exit 1
 
-# Volumen persistente para sesión de WhatsApp (evita rescanear QR al reiniciar)
-VOLUME /app/artifacts/api-server/.baileys-auth
-
-# Guardar DB por defecto aparte (no se pierde por el volumen)
-RUN mkdir -p /app/default-db && cp /app/data/tecnovariedades.db /app/default-db/ 2>/dev/null || true
+# El directorio /app/data es el volumen persistente (montado via easypanel.yml)
+# La autenticación de WhatsApp se guarda en /app/data/.baileys-auth
+RUN mkdir -p /app/data
 
 # Copiar entrypoint
 COPY entrypoint.sh /app/entrypoint.sh
