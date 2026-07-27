@@ -28,8 +28,9 @@ router.post("/connect", async (_req, res, next) => {
 
 router.post("/disconnect", async (_req, res, next) => {
   try {
-    const status = await whatsapp.stop();
-    return res.json(GetWhatsAppStatusResponse.parse(status));
+    await whatsapp.stop();
+    const status = whatsapp.getStatus();
+    return res.json({ ok: true, message: "WhatsApp desconectado", ...GetWhatsAppStatusResponse.parse(status) });
   } catch (e) {
     return next(e);
   }
