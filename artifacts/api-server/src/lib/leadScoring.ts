@@ -130,15 +130,20 @@ Criterios de puntuación (0-100):
   for (const { config, source } of rotationQueue) {
     try {
       const client = deps.createAIClient(config);
-      const completion = await client.chat.completions.create({
-        model: config.model,
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: userPrompt }
-        ],
-        temperature: 0.1, // Low temperature for consistent structured output
-        max_tokens: 300,
-      });
+      // Ver agent.ts: createAIClient trae 60s + 1 reintento fijos por
+      // defecto y los ignora un caller que no los overridea explícitamente.
+      const completion = await client.chat.completions.create(
+        {
+          model: config.model,
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: userPrompt }
+          ],
+          temperature: 0.1, // Low temperature for consistent structured output
+          max_tokens: 300,
+        },
+        { timeout: 10000, maxRetries: 0 },
+      );
 
       const raw = completion.choices[0]?.message?.content?.trim() ?? "";
       if (!raw) continue;

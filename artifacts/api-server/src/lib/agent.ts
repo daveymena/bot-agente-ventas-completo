@@ -1007,13 +1007,24 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
             }
             const client = createAIClient(config);
             const completion = await retryWithBackoff(
-              () => client.chat.completions.create({
-                model: config.model,
-                messages: chatMessages as any,
-                temperature: 0.65,
-                presence_penalty: 0.7,
-                frequency_penalty: 0.5,
-              }),
+              // El timeout de 60s + 1 reintento vive HARDCODEADO dentro de
+              // createAIClient (provider.ts) y se ignoraba aquí: un proveedor
+              // colgado bloqueaba la respuesta al cliente de WhatsApp hasta
+              // ~120s en vez de fallar a los `timeout`ms calculados arriba y
+              // pasar al siguiente proveedor. En el momento exacto en que un
+              // cliente pregunta "cómo pago" es cuando MENOS se puede tardar.
+              // timeout + maxRetries en las RequestOptions de esta llamada
+              // sobreescriben el default del cliente para ESTA petición.
+              () => client.chat.completions.create(
+                {
+                  model: config.model,
+                  messages: chatMessages as any,
+                  temperature: 0.65,
+                  presence_penalty: 0.7,
+                  frequency_penalty: 0.5,
+                },
+                { timeout, maxRetries: 0 },
+              ),
               { maxRetries: 0, baseDelay: 500 },
               `AI_${source}_conv_${conversationId}`
             );

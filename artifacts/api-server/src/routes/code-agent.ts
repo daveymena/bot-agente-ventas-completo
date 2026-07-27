@@ -63,6 +63,10 @@ function describePlannedAction(a: { tool: string; args: any }): string {
       return `💰 Crear campaña de Facebook para producto ${g.productId ?? "?"} (presupuesto ${g.dailyBudget ?? 5000}/día) — se crea EN PAUSA, no gasta hasta que la actives`;
     case "fb_sync_catalog":
       return `Sincronizar catálogo de productos a Facebook`;
+    case "fb_page_publish":
+      return `📢 PUBLICAR en el muro de la página de Facebook (público, gratis) el producto ${g.productId ?? "?"} — visible de inmediato para todos`;
+    case "fb_ad_draft":
+      return `Generar borrador de anuncio (copy + segmentación) para el producto ${g.productId ?? "?"} — no toca la cuenta de Meta, queda guardado local`;
     case "set_product_image":
       return `Asignar imagen al producto ${g.productId ?? "?"} (se hospeda permanente): ${String(g.imageUrl ?? "").slice(0, 60)}`;
     default:
@@ -469,16 +473,22 @@ Actúa con la autoridad de una Ingeniera Senior de Software y Directora de Venta
       const startTime = Date.now();
       try {
         const c = createAIClient(config);
-        const resp = await c.chat.completions.create({
-          model: config.model,
-          messages: [
-            { role: "system", content: systemPrompt },
-            ...history,
-            { role: "user", content: `Mensaje del usuario: "${prompt}"\n\nRECORDATORIO CRÍTICO: Eres la Arquitecta experta (una consultora de IA). NO eres el bot de ventas. TU OBJETIVO: Conversar con el usuario, entender sus necesidades y hacer preguntas si falta información. Usa el campo "reply" del JSON para charlar con el usuario. Si tienes suficiente información, genera la "config". RESPONDE SIEMPRE EN FORMATO JSON ESTRICTO.` }
-          ],
-          temperature: 0.7,
-          response_format: { type: "json_object" }
-        });
+        // Sin overridear timeout/maxRetries aquí, un proveedor colgado usaba
+        // el default de createAIClient (60s + 1 reintento, ~120s) antes de
+        // pasar al siguiente candidato — incluso para el mensaje inicial.
+        const resp = await c.chat.completions.create(
+          {
+            model: config.model,
+            messages: [
+              { role: "system", content: systemPrompt },
+              ...history,
+              { role: "user", content: `Mensaje del usuario: "${prompt}"\n\nRECORDATORIO CRÍTICO: Eres la Arquitecta experta (una consultora de IA). NO eres el bot de ventas. TU OBJETIVO: Conversar con el usuario, entender sus necesidades y hacer preguntas si falta información. Usa el campo "reply" del JSON para charlar con el usuario. Si tienes suficiente información, genera la "config". RESPONDE SIEMPRE EN FORMATO JSON ESTRICTO.` }
+            ],
+            temperature: 0.7,
+            response_format: { type: "json_object" }
+          },
+          { timeout: 15000, maxRetries: 0 },
+        );
         const content = resp.choices[0]?.message?.content;
         if (content) {
           reportProviderResult(providerName, true, Date.now() - startTime);
@@ -786,16 +796,19 @@ Responde SIEMPRE en JSON con esta estructura:
       const startTime = Date.now();
       try {
         const c = createAIClient(config);
-        const resp = await c.chat.completions.create({
-          model: config.model,
-          messages: [
-            { role: "system", content: systemPrompt },
-            ...history,
-            { role: "user", content: `Mensaje del usuario: "${prompt}"\n\nRECORDATORIO CRÍTICO: Eres la Arquitecta Visual (una consultora experta). NO eres el bot de ventas. TU OBJETIVO: Conversar con el usuario para entender qué bot necesita crear. Usa el campo "reply" del JSON para responderle, hacerle preguntas y asesorarlo. Cuando tengas información suficiente o propongas algo, llena también los campos de preview y configuración. RESPONDE SIEMPRE EN FORMATO JSON ESTRICTO.` }
-          ],
-          temperature: 0.8,
-          response_format: { type: "json_object" }
-        });
+        const resp = await c.chat.completions.create(
+          {
+            model: config.model,
+            messages: [
+              { role: "system", content: systemPrompt },
+              ...history,
+              { role: "user", content: `Mensaje del usuario: "${prompt}"\n\nRECORDATORIO CRÍTICO: Eres la Arquitecta Visual (una consultora experta). NO eres el bot de ventas. TU OBJETIVO: Conversar con el usuario para entender qué bot necesita crear. Usa el campo "reply" del JSON para responderle, hacerle preguntas y asesorarlo. Cuando tengas información suficiente o propongas algo, llena también los campos de preview y configuración. RESPONDE SIEMPRE EN FORMATO JSON ESTRICTO.` }
+            ],
+            temperature: 0.8,
+            response_format: { type: "json_object" }
+          },
+          { timeout: 15000, maxRetries: 0 },
+        );
         const content = resp.choices[0]?.message?.content;
         if (content) {
           reportProviderResult(providerName, true, Date.now() - startTime);
@@ -1098,12 +1111,21 @@ router.post("/operator", async (req: TenantRequest, res, next) => {
             if (session) cfg.apiKey = session.token;
           }
           const client = createAIClient(cfg);
-          const resp = await client.chat.completions.create({
-            model: cfg.model,
-            messages: msgs,
-            temperature: 0.2,
-            response_format: { type: "json_object" },
-          });
+          // createAIClient trae 60s + 1 reintento fijos por defecto (ver
+          // provider.ts): sin overridearlo aquí, un solo candidato colgado
+          // podía bloquear hasta ~120s, y con varios candidatos en la cola
+          // (rotación de opencode, groq, github...) el operador nunca
+          // respondía. 15s es generoso para el Architect (no es tan sensible
+          // a latencia como el bot de ventas) pero acotado.
+          const resp = await client.chat.completions.create(
+            {
+              model: cfg.model,
+              messages: msgs,
+              temperature: 0.2,
+              response_format: { type: "json_object" },
+            },
+            { timeout: 15000, maxRetries: 0 },
+          );
           const c = resp.choices[0]?.message?.content;
           if (c) {
             logger.info({ provider: cand.name, model: cfg.model }, "[AppOperator] respondió");

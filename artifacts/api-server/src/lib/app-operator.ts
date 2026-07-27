@@ -15,9 +15,10 @@
  * hasta que el modelo marca done:true (o se alcanza el límite de pasos).
  */
 
-import { db, products, productCategories, agents, settings, stores } from "@workspace/db";
-import { eq, desc } from "drizzle-orm";
+import { db, products, productCategories, agents, settings, stores, conversations, leads } from "@workspace/db";
+import { eq, desc, and, sql } from "drizzle-orm";
 import { logger } from "./logger";
+import { tenantManager } from "./tenantManager";
 
 export interface OperatorContext {
   tenantId: number;
@@ -621,6 +622,163 @@ export const TOOLS: ToolDef[] = [
       return { ok: r.failed === 0, summary: `Catálogo sincronizado: ${r.synced} ok, ${r.failed} fallidos`, data: r };
     },
   },
+  {
+    name: "fb_page_can_post",
+    description: "Diagnóstico: verifica si la página de Facebook conectada tiene permiso para publicar en su muro (sin esto, fb_page_publish falla).",
+    args: "{}",
+    run: async (_args, ctx) => {
+      const tenant = await tenantManager.getTenantById(ctx.tenantId);
+      const { checkPostingPermission } = await import("./facebook-page-posts");
+      const problema = await checkPostingPermission(tenant || undefined);
+      return {
+        ok: problema === null,
+        summary: problema === null ? "La página puede publicar ✅" : `No puede publicar: ${problema}`,
+        data: { canPost: problema === null, reason: problema },
+      };
+    },
+  },
+  {
+    name: "fb_page_preview",
+    description: "Genera el texto de una publicación ORGÁNICA (sin pauta, gratis) para un producto, SIN publicarla. Úsalo siempre antes de fb_page_publish para que el admin revise el texto y la imagen.",
+    args: '{ "productId": number (req) }',
+    run: async (args, ctx) => {
+      const id = num(args.productId);
+      if (!id) return { ok: false, summary: "Falta 'productId'" };
+      const tenant = await tenantManager.getTenantById(ctx.tenantId);
+      const { buildPostDraft } = await import("./facebook-page-posts");
+      try {
+        const draft = await buildPostDraft(id, tenant?.slug || "demo");
+        return {
+          ok: true,
+          summary: `Vista previa lista para "${draft.productName}". Imagen: ${draft.imageUrl ? "sí" : "no (se publicará solo texto)"}.`,
+          data: draft,
+        };
+      } catch (e: any) {
+        return { ok: false, summary: e?.message || "No se pudo generar la vista previa" };
+      }
+    },
+  },
+  {
+    name: "fb_page_publish",
+    description: "Publica en el MURO de la página de Facebook (orgánico, sin costo — distinto de fb_create_ad que es pauta paga). Muestra el producto con foto y texto reales del catálogo. Cambia el estado público de la página → requiere confirmación. Usa fb_page_preview antes para revisar el texto.",
+    args: '{ "productId": number (req), "message"?: string (opcional, para editar el texto generado antes de publicar) }',
+    run: async (args, ctx) => {
+      const id = num(args.productId);
+      if (!id) return { ok: false, summary: "Falta 'productId'" };
+      const tenant = await tenantManager.getTenantById(ctx.tenantId);
+      const { buildPostDraft, publishToPage } = await import("./facebook-page-posts");
+      try {
+        const draft = await buildPostDraft(id, tenant?.slug || "demo");
+        if (typeof args.message === "string" && args.message.trim()) draft.message = args.message.trim();
+        const result = await publishToPage(draft, tenant || undefined);
+        if (!result.ok) return { ok: false, summary: `No se pudo publicar: ${result.error}` };
+        return {
+          ok: true,
+          summary: `Publicado en la página: ${result.permalink || result.postId}`,
+          data: result,
+        };
+      } catch (e: any) {
+        return { ok: false, summary: e?.message || "Error publicando" };
+      }
+    },
+  },
+  {
+    name: "fb_ad_draft",
+    description: "Genera un BORRADOR de anuncio (copy, segmentación, imagen) para un producto y lo guarda localmente. Por defecto NO toca la cuenta publicitaria de Meta ni crea nada real — el admin lo revisa y decide si publicarlo después desde el panel de anuncios. Seguro de usar sin gastar dinero.",
+    args: '{ "productId": number (req) }',
+    run: async (args, ctx) => {
+      const id = num(args.productId);
+      if (!id) return { ok: false, summary: "Falta 'productId'" };
+      const { adStrategist } = await import("./ad-strategist");
+      try {
+        const draft = await adStrategist.createDraftAd(
+          process.env.FB_AD_ACCOUNT_ID || "",
+          process.env.FB_ACCESS_TOKEN || "",
+          id,
+        );
+        return {
+          ok: true,
+          summary: `Borrador de anuncio creado para "${draft.productName}" (nicho: ${draft.strategy.niche}). Guardado local, no se tocó la cuenta de Meta.`,
+          data: draft,
+        };
+      } catch (e: any) {
+        return { ok: false, summary: e?.message || "No se pudo generar el borrador" };
+      }
+    },
+  },
+  {
+    name: "fb_list_drafts",
+    description: "Lista los borradores de anuncios ya generados para este negocio (creados con fb_ad_draft), con su estado.",
+    args: "{}",
+    run: async (_args, ctx) => {
+      const { adStrategist } = await import("./ad-strategist");
+      const drafts = await adStrategist.getDrafts(ctx.tenantId);
+      return {
+        ok: true,
+        summary: `${drafts.length} borradores de anuncios`,
+        data: drafts.map((d: any) => ({ id: d.id, productName: d.productName, niche: d.strategy?.niche, status: d.status })),
+      };
+    },
+  },
+
+  // ── 📊 MONITOREO (WhatsApp, conversaciones, ventas) ─────────────────────────
+  {
+    name: "whatsapp_status",
+    description: "Ver el estado de la conexión de WhatsApp: conectado o no, número vinculado, último error. Úsalo para diagnosticar por qué el bot no está respondiendo.",
+    args: "{}",
+    run: async () => {
+      const { whatsapp } = await import("./whatsapp");
+      const s = whatsapp.getStatus();
+      return {
+        ok: true,
+        summary: s?.state === "connected"
+          ? `WhatsApp conectado — número ${s.phone}`
+          : `WhatsApp NO conectado (estado: ${s?.state || "desconocido"}${s?.lastError ? `, último error: ${s.lastError}` : ""})`,
+        data: s,
+      };
+    },
+  },
+  {
+    name: "dashboard_summary",
+    description: "Resumen de ventas y actividad del negocio: leads totales, conversaciones activas, tasa de conversión, ingresos del mes, mensajes de hoy.",
+    args: "{}",
+    run: async (_args, ctx) => {
+      const allLeads = await db.select().from(leads).where(eq(leads.tenantId, ctx.tenantId));
+      const allConvos = await db.select().from(conversations).where(eq(conversations.tenantId, ctx.tenantId));
+      const won = allLeads.filter((l) => l.stage === "won");
+      const startOfMonth = new Date(); startOfMonth.setDate(1); startOfMonth.setHours(0, 0, 0, 0);
+      const revenue = won.filter((l) => new Date(l.createdAt as any) >= startOfMonth).reduce((a, l) => a + Number(l.value), 0);
+      const data = {
+        totalLeads: allLeads.length,
+        activeConversations: allConvos.filter((c) => c.status !== "closed").length,
+        wonDeals: won.length,
+        conversionRate: allLeads.length ? Math.round((won.length / allLeads.length) * 100) : 0,
+        revenueThisMonth: revenue,
+      };
+      return { ok: true, summary: `${data.totalLeads} leads · ${data.activeConversations} conversaciones activas · ${data.wonDeals} ventas cerradas · conversión ${data.conversionRate}%`, data };
+    },
+  },
+  {
+    name: "list_recent_conversations",
+    description: "Lista las conversaciones más recientes de WhatsApp con su etapa y último mensaje. Útil para revisar cómo está vendiendo el agente.",
+    args: '{ "limit"?: number }',
+    run: async (args, ctx) => {
+      const rows = await db
+        .select()
+        .from(conversations)
+        .where(eq(conversations.tenantId, ctx.tenantId))
+        .orderBy(desc(conversations.lastMessageAt))
+        .limit(num(args.limit) || 15);
+      return {
+        ok: true,
+        summary: `${rows.length} conversaciones recientes`,
+        data: rows.map((c) => ({
+          id: c.id, name: c.contactName, phone: c.contactPhone, stage: c.currentStage,
+          status: c.status, lastMessage: c.lastMessage, lastMessageAt: c.lastMessageAt,
+        })),
+      };
+    },
+  },
 
   // ── 🖼️ GENERACIÓN DE IMÁGENES ──────────────────────────────────────────────
   {
@@ -742,6 +900,9 @@ export const READ_ONLY_TOOLS = new Set([
   "analyze_system", "list_products", "list_categories", "get_agent", "get_settings",
   // Facebook de solo lectura + generación de imagen (solo devuelve preview, no asigna)
   "fb_status", "fb_suggest_audience", "generate_image",
+  "fb_page_can_post", "fb_page_preview", "fb_list_drafts",
+  // Monitoreo: solo consultan, no cambian nada
+  "whatsapp_status", "dashboard_summary", "list_recent_conversations",
   // Lectura de web (información externa)
   "web_fetch", "web_search",
 ]);
@@ -749,6 +910,9 @@ export const DESTRUCTIVE_TOOLS = new Set([
   "delete_product",
   // fb_create_ad crea objetos reales en Meta y puede gastar al activarse → confirmación reforzada
   "fb_create_ad",
+  // fb_page_publish es público e irreversible desde la app (borrar hay que
+  // hacerlo en Facebook) → misma confirmación reforzada que gastar dinero.
+  "fb_page_publish",
 ]);
 export function isReadOnlyTool(name: string): boolean {
   return READ_ONLY_TOOLS.has(name);
@@ -842,6 +1006,17 @@ IMÁGENES:
 - Si el admin te da una foto (URL de internet, o un enlace de archivo de Google Drive tipo /file/d/...), NO uses web_fetch para "leerla": úsala DIRECTAMENTE con set_product_image (que la trae, la hospeda permanente y la asigna). set_product_image sabe convertir enlaces de Drive a la imagen real.
 - Puedes TRAER imágenes del exterior: de una URL pública de internet o de un archivo público de Google Drive. Si el admin quiere que la crees, usa generate_image primero para que la revise, y solo tras su "sí" la asignas con set_product_image.
 - web_fetch es para LEER texto de páginas/carpetas (info de cursos, módulos), no para imágenes.
+
+FACEBOOK — PUBLICAR (gratis) vs ANUNCIAR (paga), no las confundas:
+- 📢 fb_page_publish: publica en el MURO de la página, orgánico, SIN costo, visible de inmediato. Úsalo cuando el admin diga "publica", "postea" o "sube esto a Facebook". SIEMPRE llama fb_page_preview antes para que el admin vea el texto y la imagen, y fb_page_can_post si hay dudas de permisos.
+- 💰 fb_create_ad: crea una CAMPAÑA PAGA en Ads Manager (se crea en pausa, pero gastará dinero al activarla). Solo úsalo cuando el admin pida explícitamente "anuncio", "campaña" o "pauta" — nunca lo ofrezcas como si fuera gratis.
+- 📝 fb_ad_draft: genera el COPY y la segmentación de un anuncio y lo guarda local, SIN tocar la cuenta de Meta ni gastar nada. Es el paso intermedio seguro: úsalo para preparar campañas que el admin revisará y activará él mismo después, no fb_create_ad, salvo que pida crearla ya en Meta.
+
+MONITOREO (cuando el admin pregunte "cómo va todo", "revisa el negocio", "por qué no responde WhatsApp", etc.):
+- 📱 whatsapp_status: primero que nada si la duda es sobre el bot no respondiendo o la conexión.
+- 📊 dashboard_summary: leads, conversión, ventas del mes, conversaciones activas.
+- 💬 list_recent_conversations: para ver cómo está vendiendo el agente en conversaciones reales, no solo números.
+- Combina estas lecturas en el mismo turno para dar un diagnóstico completo, no solo un dato suelto.
 
 INFORMACIÓN DE INTERNET (nunca inventes datos externos):
 - 🔎 Si no conoces la URL exacta, usa web_search PRIMERO. Jamás adivines direcciones.
