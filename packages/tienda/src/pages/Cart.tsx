@@ -4,6 +4,7 @@ import { useStore } from '../store/useStore';
 import { Trash2, Plus, Minus, CreditCard, ChevronLeft, Lock } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import Swal from 'sweetalert2';
+import { trackInitiateCheckout } from '../lib/pixel';
 
 const Cart = () => {
   const { cart, updateCartQuantity, removeFromCart } = useStore();
@@ -27,6 +28,9 @@ const Cart = () => {
   const handleCheckout = async (method: 'mp' | 'pp') => {
     setIsProcessing(true);
     const gateway = method === 'mp' ? 'mercadopago' : 'paypal';
+
+    // Antes de salir del sitio hacia la pasarela: es el ultimo punto medible.
+    trackInitiateCheckout({ ids: cart.map(i => i.id), value: subtotal });
 
     try {
       const res = await fetch(`/api/public/checkout-cart/${slug}`, {

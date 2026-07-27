@@ -6,6 +6,7 @@ import {
   Infinity as InfinityIcon, Download, MessageCircle, CreditCard,
 } from 'lucide-react';
 import Swal from 'sweetalert2';
+import { initPixel, trackViewContent, trackAddToCart, trackInitiateCheckout, trackContact } from '../lib/pixel';
 
 interface DetailProduct {
   id: number;
@@ -52,6 +53,17 @@ const ProductDetail = () => {
       .then(data => {
         setProduct(data.product);
         setRelated(data.related || []);
+
+        // ViewContent: el evento que Meta usa para armar audiencias de
+        // remarketing (quien vio el producto pero no compró).
+        if (data.store?.pixelId) initPixel(data.store.pixelId);
+        trackViewContent({
+          id: data.product.id,
+          name: data.product.name,
+          price: Number(data.product.price),
+          currency: data.product.currency,
+          category: data.product.category,
+        });
       })
       .catch(() => setNotFound(true))
       .finally(() => setLoading(false));
@@ -60,6 +72,15 @@ const ProductDetail = () => {
   const comprar = async (method: 'mp' | 'pp') => {
     if (!product) return;
     setBuying(method);
+
+    // Se dispara ANTES de redirigir: una vez en la pasarela ya salimos del sitio
+    // y no hay forma de medir desde aquí.
+    trackInitiateCheckout({
+      ids: [product.id],
+      value: Number(product.price),
+      currency: product.currency,
+    });
+
     try {
       const res = await fetch(`/api/public/checkout/${slug}/${product.id}`, {
         method: 'POST',
@@ -220,6 +241,12 @@ const ProductDetail = () => {
                     type: (product.kind as any) || 'digital',
                     stock: 999,
                   });
+                  trackAddToCart({
+                    id: product.id,
+                    name: product.name,
+                    price,
+                    currency: product.currency,
+                  });
                   Swal.fire({
                     title: '¡Agregado!',
                     text: `${product.name} al carrito`,
@@ -239,6 +266,7 @@ const ProductDetail = () => {
                 href={waHref || '#'}
                 target="_blank"
                 rel="noopener noreferrer"
+                onClick={() => trackContact('ficha-producto')}
                 className={`py-3 rounded-xl font-bold transition-colors flex items-center justify-center gap-2 text-sm ${
                   waHref
                     ? 'bg-green-500 text-white hover:bg-green-600'

@@ -2,6 +2,7 @@ import { Link, useParams } from 'react-router-dom';
 import { ShoppingCart, MessageCircle, Menu, X, Store, Search } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { useStore } from '../store/useStore';
+import { initPixel } from '../lib/pixel';
 
 const PublicLayout = ({ children }: { children: React.ReactNode }) => {
   const { cart, config, updateConfig } = useStore();
@@ -17,6 +18,15 @@ const PublicLayout = ({ children }: { children: React.ReactNode }) => {
     fetch(`/api/public/whatsapp-info/${slug || 'demo'}`)
       .then(r => (r.ok ? r.json() : null))
       .then(d => { if (d?.phone) updateConfig({ whatsappPhone: d.phone }); })
+      .catch(() => {});
+  }, [slug]);
+
+  // El píxel se carga aquí por la misma razón: vale para toda la tienda. El ID
+  // llega del API porque en el SaaS cada tienda mide en su propia cuenta.
+  useEffect(() => {
+    fetch(`/api/public/products/${slug || 'demo'}`)
+      .then(r => (r.ok ? r.json() : null))
+      .then(d => { if (d?.store?.pixelId) initPixel(d.store.pixelId); })
       .catch(() => {});
   }, [slug]);
 

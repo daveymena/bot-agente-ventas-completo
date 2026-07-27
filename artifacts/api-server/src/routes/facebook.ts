@@ -591,7 +591,12 @@ router.put("/config", async (req, res, next) => {
     const meta = tenant?.metadata ? (typeof tenant.metadata === "string" ? JSON.parse(tenant.metadata) : tenant.metadata) : {};
     const current = meta.facebook || {};
     const body = req.body || {};
+    // Se hace merge sobre `current`, no un objeto nuevo con campos fijos:
+    // reconstruirlo borraba messengerPageToken, tasks y pageName —o sea, al
+    // guardar el pixel desde el panel se perdía la página conectada y había
+    // que rehacer todo el OAuth.
     meta.facebook = {
+      ...current,
       accessToken: body.accessToken || current.accessToken || "",
       pixelId: body.pixelId || current.pixelId || "",
       catalogId: body.catalogId || current.catalogId || "",

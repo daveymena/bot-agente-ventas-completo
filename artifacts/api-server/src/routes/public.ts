@@ -11,6 +11,20 @@ import { whatsapp } from "../lib/whatsapp";
  * Resuelve el número de WhatsApp asociado a la app (vía QR conectado).
  * Orden: whatsapp.getStatus().phone (conectado) > tenant.contactPhone > ADMIN_PHONE .env
  */
+/**
+ * Píxel de Meta del tenant. Sale de su metadata (cada tienda mide en SU píxel);
+ * el .env queda como respaldo para la instalación propia.
+ */
+function resolvePixelId(tenant?: { metadata?: unknown }): string | null {
+  try {
+    const raw = tenant?.metadata;
+    const meta: any = raw ? (typeof raw === "string" ? JSON.parse(raw) : raw) : {};
+    return meta?.facebook?.pixelId || process.env.FB_PIXEL_ID || null;
+  } catch {
+    return process.env.FB_PIXEL_ID || null;
+  }
+}
+
 function resolveWhatsAppPhone(tenant?: { contactPhone?: string | null }): string | null {
   const wa = whatsapp.getStatus();
   if (wa?.phone && /^\d+$/.test(wa.phone)) return wa.phone;
@@ -90,6 +104,7 @@ router.get("/products/:slug", async (req, res, next) => {
         logo: tenant.brandLogo,
         colors: tenant.brandColors,
         whatsappPhone: resolveWhatsAppPhone(tenant),
+        pixelId: resolvePixelId(tenant),
       },
       products: serialized,
     });
@@ -145,6 +160,7 @@ router.get("/product/:slug/:productId", async (req, res, next) => {
         slug: tenant.slug,
         logo: tenant.brandLogo,
         whatsappPhone: resolveWhatsAppPhone(tenant),
+        pixelId: resolvePixelId(tenant),
       },
       product: {
         id: p.id,

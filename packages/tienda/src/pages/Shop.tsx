@@ -3,6 +3,7 @@ import { useStore, Product } from '../store/useStore';
 import { Search, Star, ShoppingCart, Heart, SlidersHorizontal, ChevronDown, X, Store, Package, Layers } from 'lucide-react';
 import { motion } from 'framer-motion';
 import Swal from 'sweetalert2';
+import { trackAddToCart, trackInitiateCheckout } from '../lib/pixel';
 import { useParams, useSearchParams, useNavigate, Link } from 'react-router-dom';
 
 interface ApiProduct {
@@ -30,6 +31,7 @@ const ProductCard = ({ product, slug }: { product: Product; slug: string }) => {
   // en la misma página. Para acumular varios productos está "Agregar".
   const comprarAhora = async () => {
     setBuying(true);
+    trackInitiateCheckout({ ids: [product.id], value: product.price });
     try {
       const res = await fetch(`/api/public/checkout/${slug}/${product.id}`, {
         method: 'POST',
@@ -114,6 +116,7 @@ const ProductCard = ({ product, slug }: { product: Product; slug: string }) => {
             <button
               onClick={() => {
                 addToCart(product);
+                trackAddToCart({ id: product.id, name: product.name, price: product.price });
                 Swal.fire({
                   title: '¡Agregado!',
                   text: `${product.name} al carrito`,
