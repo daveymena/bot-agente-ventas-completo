@@ -36,7 +36,7 @@ async function start() {
       process.exit(1);
     }
 
-    logger.info({ port }, "Server listening");
+    logger.info({ port, authDir: process.env.WA_AUTH_DIR || "data/.baileys-auth" }, "Server listening — WhatsApp auth persistente");
   });
 }
 
