@@ -14,7 +14,6 @@ import { getMessageQueue, QueuedMessage } from '../message-queue';
 import { runAgentReply } from '../agent';
 import { whatsapp, type AgentReplyPart } from '../whatsapp';
 import { db } from "@workspace/db";
-import { messages } from "@workspace/db";
 import { conversations } from "@workspace/db";
 import { eq, and } from "drizzle-orm";
 import { logger } from '../logger';
@@ -143,24 +142,11 @@ export class AgentOrchestrator {
       const pushName = convo.contactName || phone;
       await whatsapp.sendAgentParts(phone, pushName, reply.parts as AgentReplyPart[], message.from);
 
-      // Guardar cada parte en la BD para el historial del dashboard
-      for (const part of reply.parts) {
-        if (part.kind === 'text' && part.content) {
-          await db.insert(messages).values({
-            conversationId: convo.id,
-            role: "agent",
-            content: part.content,
-            stage: convo.currentStage,
-          });
-        } else if (part.kind === 'card') {
-          await db.insert(messages).values({
-            conversationId: convo.id,
-            role: "agent",
-            content: `[CARD: ${part.productId}]`,
-            stage: convo.currentStage,
-          });
-        }
-      }
+      // NO se persiste aquí: runAgentReply ya guardó la respuesta con
+      // saveAgentMessage (con su metadata y actualizando lastMessage) en todos
+      // sus caminos de salida. Guardarla otra vez dejaba CADA respuesta al
+      // cliente duplicada en la BD, y como el historial alimenta el contexto de
+      // la IA, el agente se veía a sí mismo repitiéndose turno tras turno.
 
       // Marcar como procesado solo si se envió respuesta exitosamente
       this.queue.markProcessed(message.id);

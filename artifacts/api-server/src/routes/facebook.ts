@@ -8,6 +8,7 @@ import { facebookMarketplaceService as fbMarketplace } from "../lib/facebook-mar
 import { facebookCommentsService as fbComments } from "../lib/facebook-comments";
 import { channelManager } from "../lib/channel-manager";
 import { adStrategist } from "../lib/ad-strategist";
+import { buildPostDraft, publishToPage, checkPostingPermission } from "../lib/facebook-page-posts";
 import { whatsapp } from "../lib/whatsapp";
 import { logger } from "../lib/logger";
 
@@ -427,6 +428,67 @@ router.delete("/marketplace/listings/:listingId", async (req, res, next) => {
 });
 
 // ─── Ad Strategist Endpoints ───────────────────────────────────────────────
+// ── Publicaciones ORGÁNICAS en la página (sin pauta) ────────────────────────
+
+/** Diagnóstico: ¿el token puede publicar en el muro? */
+router.get("/page/can-post", async (_req, res, next) => {
+  try {
+    const problema = await checkPostingPermission();
+    return res.json({
+      canPost: problema === null,
+      pageId: process.env.FB_PAGE_ID || null,
+      reason: problema,
+    });
+  } catch (e) { return next(e); }
+});
+
+/** Genera el texto de la publicación SIN publicar, para revisarlo antes. */
+router.get("/page/post-preview/:productId", async (req, res, next) => {
+  try {
+    const tenant = (req as any).tenant;
+    const draft = await buildPostDraft(parseInt(req.params.productId), tenant?.slug || "demo");
+    return res.json(draft);
+  } catch (e: any) {
+    if (e?.message === "Producto no encontrado") {
+      return res.status(404).json({ error: e.message });
+    }
+    return next(e);
+  }
+});
+
+/**
+ * Publica en el muro de la página. Acción pública e irreversible desde la app
+ * (borrarla hay que hacerlo en Facebook), por eso exige confirm:true explícito
+ * en el body en vez de publicar con solo llamar al endpoint.
+ */
+router.post("/page/publish/:productId", async (req, res, next) => {
+  try {
+    if (req.body?.confirm !== true) {
+      return res.status(400).json({
+        error: "Confirmación requerida",
+        detail: "Enviá { \"confirm\": true } para publicar en la página. Usá /page/post-preview para revisar el texto antes.",
+      });
+    }
+
+    const tenant = (req as any).tenant;
+    const draft = await buildPostDraft(parseInt(req.params.productId), tenant?.slug || "demo");
+
+    // Permite editar el texto antes de publicar desde el panel
+    if (typeof req.body?.message === "string" && req.body.message.trim()) {
+      draft.message = req.body.message.trim();
+    }
+
+    const result = await publishToPage(draft);
+    if (!result.ok) return res.status(502).json(result);
+    return res.json(result);
+  } catch (e: any) {
+    if (e?.message === "Producto no encontrado") {
+      return res.status(404).json({ error: e.message });
+    }
+    return next(e);
+  }
+});
+
 router.get("/strategist/drafts", async (req, res, next) => {
   try {
     const tenantId = (req as any).tenant?.id || 1;
