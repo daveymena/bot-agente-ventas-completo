@@ -355,6 +355,7 @@ const publicRoutes = [
   "/facebook/messenger/webhook", // Facebook Messenger webhook
   "/facebook/marketplace/webhook", // Facebook Marketplace webhook
   "/facebook/comments/webhook", // Facebook Comments webhook
+  "/p", // Short URLs para productos
 ];
 
 const isPublicRoute = (path: string) => {
@@ -444,6 +445,25 @@ app.use("/api/woocommerce", woocommerceRouter);
 app.use("/api/webhooks/subscription", subscriptionWebhooksRouter);
 app.use("/api/activation", activationRouter);
 app.use("/api", router);
+
+// Short URL redirect: /p/:productId → /tienda/:slug/producto/:productId
+app.get("/p/:productId", async (req, res, next) => {
+  try {
+    const { db, products, tenants } = await import("@workspace/db");
+    const { eq } = await import("drizzle-orm");
+    const productId = parseInt(req.params.productId, 10);
+    if (isNaN(productId)) return res.status(404).send("Producto no válido");
+    const [p] = await db.select().from(products).where(eq(products.id, productId)).limit(1);
+    if (!p) return res.status(404).send("Producto no encontrado");
+    const [t] = await db.select().from(tenants).where(eq(tenants.id, p.tenantId)).limit(1);
+    const slug = t?.slug || "sofia-premium";
+    const appUrl = process.env.APP_URL || "";
+    const base = appUrl.replace(/\/+$/, "");
+    return res.redirect(301, `${base}/tienda/${slug}/producto/${productId}`);
+  } catch (e) {
+    return next(e);
+  }
+});
 
 // SPA fallback para la tienda pública en /tienda/*
 app.use((req, res, next) => {

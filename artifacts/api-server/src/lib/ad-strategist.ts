@@ -488,7 +488,7 @@ ${descLine}
         object_story_spec: {
           page_id: this.tenant.facebook?.pageId || process.env.FB_PAGE_ID || "",
           link_data: {
-            link: `${process.env.APP_URL || "https://tecnovariedades.easypanel.host"}/productos/${product.id}`,
+            link: `${process.env.APP_URL || "https://tecnovariedades.easypanel.host"}/p/${product.id}`,
             message: adCopy.primaryText,
             name: adCopy.headline,
             description: adCopy.description,

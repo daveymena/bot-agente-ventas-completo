@@ -114,8 +114,8 @@ export async function checkPostingPermission(tenant?: TenantContext): Promise<st
 }
 
 /**
- * Arma el texto de una publicación orgánica a partir de un producto.
- * No inventa datos: precio, nombre y descripción salen de la base.
+ * Arma el texto de una publicación orgánica con técnica de venta AIDA
+ * (Atención → Interés → Deseo → Acción). Sin inventar datos.
  */
 export async function buildPostDraft(
   productId: number,
@@ -127,35 +127,42 @@ export async function buildPostDraft(
   const price = Number(p.price || 0);
   const priceStr = "$" + Math.round(price).toLocaleString("es-CO");
   const features = (Array.isArray(p.features) ? p.features : []).slice(0, 5);
+  const cat = (p.category || "").toLowerCase();
 
   const appUrl = process.env.APP_URL || "";
   const link = /^https?:\/\//i.test(appUrl)
-    ? `${appUrl.replace(/\/+$/, "")}/tienda/${storeSlug}/producto/${p.id}`
+    ? `${appUrl.replace(/\/+$/, "")}/p/${p.id}`
     : null;
 
   const lines: string[] = [];
-  lines.push(`🎓 ${p.name}`);
+
+  // ── ATENCIÓN: Hook que duele o que ilusiona ──
+  lines.push(getHook(cat, p.name));
   lines.push("");
 
+  // ── INTERÉS: Qué gana el cliente ──
   if (p.description) {
-    // La primera frase basta: en el muro el texto largo se corta con "Ver más".
-    const firstLine = p.description.split(/\r?\n/).map(s => s.trim()).filter(Boolean)[0] || "";
-    if (firstLine) {
-      lines.push(firstLine.length > 200 ? firstLine.substring(0, 197) + "..." : firstLine);
+    const desc = p.description
+      .split(/\r?\n/).map(s => s.trim()).filter(Boolean)[0] || "";
+    if (desc) {
+      lines.push("✨ " + (desc.length > 180 ? desc.substring(0, 177) + "..." : desc));
       lines.push("");
     }
   }
 
+  // ── DESEO: Beneficios en formato escaneable ──
   for (const f of features) lines.push(`✅ ${f}`);
   if (features.length) lines.push("");
 
-  lines.push(`💰 ${priceStr} — pago único`);
-  lines.push("♾️ Acceso de por vida");
-  lines.push("📲 Entrega inmediata por Google Drive");
+  lines.push(`💰 ${priceStr} — PAGO ÚNICO (no hay cuotas ni suscripciones)`);
+  lines.push("♾️ Acceso de por vida — estudia cuando quieras");
+  lines.push("📲 Recibes todo por Google Drive al instante");
 
+  // ── ACCIÓN: CTA claro ──
   if (link) {
     lines.push("");
-    lines.push(`👉 ${link}`);
+    lines.push("👇 CÓMPRALO AQUÍ 👇");
+    lines.push(link);
   }
 
   return {
@@ -165,6 +172,77 @@ export async function buildPostDraft(
     imageUrl: absoluteUrl(p.imageUrl),
     link,
   };
+}
+
+const HOOKS_BY_CATEGORY: Record<string, string[]> = {
+  diseño: [
+    "¿Tu creatividad merece herramientas profesionales sin pagar mensualidades?",
+    "Diseña como un pro sin suscripciones. Paga una vez y usa para siempre.",
+  ],
+  idiomas: [
+    "Hablar 5 idiomas abre puertas que ni imaginas. ¿Listo para empezar?",
+    "Aprende francés, alemán, italiano, portugués y japonés con un solo pago.",
+  ],
+  musica: [
+    "Siempre quisiste tocar un instrumento. ¿Qué esperas para empezar?",
+    "La música cambia vidas. El curso que necesitas está a un clic.",
+  ],
+  programacion: [
+    "Los programadores ganan +60% que el promedio. Empieza hoy desde cero.",
+    "Aprende a programar desde casa y consigue tu primer trabajo remoto.",
+  ],
+  marketing: [
+    "El marketing digital ya no es opcional. Domínalo con contenido descargable.",
+    "Haz crecer tu negocio con estrategias que funcionan. Todo en un solo pack.",
+  ],
+  fitness: [
+    "Tu cuerpo de 10 empieza con decisiones de hoy. ¿Empiezas mañana?",
+    "Entrena en casa, a tu ritmo, sin excusas. Resultados garantizados.",
+  ],
+  fotografia: [
+    "Tu smartphone puede tomar fotos profesionales. Aprende cómo.",
+    "Captura momentos increíbles. Curso de fotografía de cero a pro.",
+  ],
+  tecnologia: [
+    "La tecnología avanza rápido. Mantente al día sin pagar mensualidades.",
+    "Domina la tecnología que el mercado pide. Contenido actualizado.",
+  ],
+  construccion: [
+    "Construye tu futuro con habilidades reales. Planos, metrados y más.",
+    "Obra gruesa a fin de obra: aprende todo lo que necesitas saber.",
+  ],
+  educacion: [
+    "Nunca dejes de aprender. Cursos completos por un solo pago.",
+    "El conocimiento es la mejor inversión. Empieza hoy.",
+  ],
+};
+
+function getHook(category: string, productName: string): string {
+  const lowerName = productName.toLowerCase();
+
+  if (lowerName.includes("piano") || lowerName.includes("guitarra")) {
+    return "🎹 ¿Siempre has querido tocar un instrumento? Este curso te lleva de 0 a avanzado.";
+  }
+  if (lowerName.includes("condorito") || lowerName.includes("comic") || lowerName.includes("lettering")) {
+    return "🎨 Transforma tu creatividad en arte digital. Aprende desde casa.";
+  }
+  if (lowerName.includes("idioma") || lowerName.includes("ingl") || lowerName.includes("franc")) {
+    return "🌍 Hablar varios idiomas es la llave del mundo. Empieza hoy con un solo pago.";
+  }
+  if (lowerName.includes("fitness") || lowerName.includes("pilates") || lowerName.includes("perro")) {
+    return "💪 Tu mejor versión te está esperando. Empieza hoy, desde casa.";
+  }
+  if (lowerName.includes("marketing") || lowerName.includes("seo") || lowerName.includes("ecommerce")) {
+    return "📈 El marketing digital mueve el mundo. Aprende lo que nadie te enseña en la universidad.";
+  }
+
+  for (const [key, hooks] of Object.entries(HOOKS_BY_CATEGORY)) {
+    if (category.includes(key) || lowerName.includes(key)) {
+      return hooks[Math.floor(Math.random() * hooks.length)];
+    }
+  }
+
+  return `📚 Aprende ${productName.toLowerCase()} desde cero. Contenido completo, pago único.`;
 }
 
 /**
