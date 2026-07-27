@@ -12,6 +12,7 @@
 import { logger } from "./logger";
 import { db, products } from "@workspace/db";
 import { eq } from "drizzle-orm";
+import { tenantManager, type TenantContext } from "./tenantManager";
 
 const FB_GRAPH = "https://graph.facebook.com/v21.0";
 
@@ -31,12 +32,26 @@ export interface PublishResult {
   error?: string;
 }
 
-function pageToken(): string {
-  return process.env.FB_MESSENGER_PAGE_TOKEN || process.env.FB_ACCESS_TOKEN || "";
-}
-
-function pageId(): string {
-  return process.env.FB_PAGE_ID || "";
+/**
+ * Credenciales de la página SIEMPRE por tenant primero.
+ *
+ * Esto es un SaaS: cada administrador conecta SU página. Si se leyera solo del
+ * .env, todas las cuentas publicarían en la misma página — la del dueño del
+ * servidor. El .env queda como respaldo para la instalación propia.
+ * Mismo orden que usan facebook.ts y facebook-messenger.ts.
+ */
+function pageCreds(tenant?: TenantContext): { token: string; pageId: string } {
+  const t = tenant || tenantManager.getDefaultTenant();
+  const fb = t?.facebook || {};
+  return {
+    token:
+      fb.messengerPageToken ||
+      fb.accessToken ||
+      process.env.FB_MESSENGER_PAGE_TOKEN ||
+      process.env.FB_ACCESS_TOKEN ||
+      "",
+    pageId: fb.pageId || process.env.FB_PAGE_ID || "",
+  };
 }
 
 /**
@@ -58,10 +73,10 @@ function absoluteUrl(pathOrUrl?: string | null): string | null {
  * Comprueba que el token tenga permiso para publicar en el feed de la página.
  * Devuelve el motivo si falta algo, o null si está todo bien.
  */
-export async function checkPostingPermission(): Promise<string | null> {
-  const token = pageToken();
-  if (!token) return "Falta FB_MESSENGER_PAGE_TOKEN / FB_ACCESS_TOKEN en el entorno";
-  if (!pageId()) return "Falta FB_PAGE_ID en el entorno";
+export async function checkPostingPermission(tenant?: TenantContext): Promise<string | null> {
+  const { token, pageId } = pageCreds(tenant);
+  if (!token) return "Esta cuenta no tiene conectada una página de Facebook (falta el token)";
+  if (!pageId) return "Esta cuenta no tiene conectada una página de Facebook (falta el ID de página)";
 
   try {
     const res = await fetch(`${FB_GRAPH}/me/permissions?access_token=${token}`, {
@@ -147,12 +162,14 @@ export async function buildPostDraft(
  * Si el producto tiene imagen se publica como foto con pie de texto (rinde
  * mucho más que un enlace suelto); si no, como publicación de texto + enlace.
  */
-export async function publishToPage(draft: PagePostDraft): Promise<PublishResult> {
-  const permissionError = await checkPostingPermission();
+export async function publishToPage(
+  draft: PagePostDraft,
+  tenant?: TenantContext,
+): Promise<PublishResult> {
+  const permissionError = await checkPostingPermission(tenant);
   if (permissionError) return { ok: false, error: permissionError };
 
-  const token = pageToken();
-  const id = pageId();
+  const { token, pageId: id } = pageCreds(tenant);
 
   try {
     const isPhoto = Boolean(draft.imageUrl);

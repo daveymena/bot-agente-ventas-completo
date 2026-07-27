@@ -431,12 +431,13 @@ router.delete("/marketplace/listings/:listingId", async (req, res, next) => {
 // ── Publicaciones ORGÁNICAS en la página (sin pauta) ────────────────────────
 
 /** Diagnóstico: ¿el token puede publicar en el muro? */
-router.get("/page/can-post", async (_req, res, next) => {
+router.get("/page/can-post", async (req, res, next) => {
   try {
-    const problema = await checkPostingPermission();
+    const tenant = (req as any).tenant;
+    const problema = await checkPostingPermission(tenant);
     return res.json({
       canPost: problema === null,
-      pageId: process.env.FB_PAGE_ID || null,
+      pageId: tenant?.facebook?.pageId || process.env.FB_PAGE_ID || null,
       reason: problema,
     });
   } catch (e) { return next(e); }
@@ -478,7 +479,7 @@ router.post("/page/publish/:productId", async (req, res, next) => {
       draft.message = req.body.message.trim();
     }
 
-    const result = await publishToPage(draft);
+    const result = await publishToPage(draft, tenant);
     if (!result.ok) return res.status(502).json(result);
     return res.json(result);
   } catch (e: any) {
