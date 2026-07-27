@@ -175,6 +175,117 @@ router.get("/product/:slug/:productId", async (req, res, next) => {
 });
 
 /**
+ * POST /api/public/fb-connect
+ * Onboarding de Facebook: recibe un token de usuario recién autorizado, lo
+ * canjea por uno de larga duración, saca el token de la página y lo guarda en
+ * el tenant. Así cada administrador conecta SU página sin pegar tokens a mano.
+ *
+ * Cerrado por defecto: solo responde con FB_CONNECT_ENABLED=true. Es un paso
+ * de configuración puntual, no un endpoint que deba quedar abierto — sin la
+ * bandera, cualquiera podría reasignar la página del tenant.
+ */
+router.post("/fb-connect", async (req, res, next) => {
+  try {
+    if (process.env.FB_CONNECT_ENABLED !== "true") {
+      return res.status(404).json({ message: "No disponible" });
+    }
+
+    const userToken = req.body?.userToken;
+    const tenantId = Number(req.body?.tenantId) || 1;
+    const wantedPageId = req.body?.pageId ? String(req.body.pageId) : null;
+
+    if (!userToken || typeof userToken !== "string") {
+      return res.status(400).json({ message: "userToken requerido" });
+    }
+
+    const appId = process.env.FB_APP_ID;
+    const appSecret = process.env.FB_APP_SECRET;
+    if (!appId || !appSecret) {
+      return res.status(500).json({ message: "FB_APP_ID / FB_APP_SECRET no configurados" });
+    }
+
+    const graph = "https://graph.facebook.com/v21.0";
+
+    // 1. Canjear por token de larga duración. Los tokens del Explorador duran
+    //    ~1-2 horas; los de página derivados de uno de larga duración no caducan.
+    const exRes = await fetch(
+      `${graph}/oauth/access_token?grant_type=fb_exchange_token&client_id=${appId}&client_secret=${appSecret}&fb_exchange_token=${encodeURIComponent(userToken)}`,
+      { signal: AbortSignal.timeout(15000) },
+    );
+    const exData: any = await exRes.json();
+    if (!exRes.ok || exData.error) {
+      logger.error({ err: exData?.error }, "[FB-Connect] Falló el canje de token");
+      return res.status(502).json({ message: exData?.error?.message || "Error canjeando el token" });
+    }
+    const longLivedUserToken = exData.access_token;
+
+    // 2. Páginas que administra, con su token propio
+    const pagesRes = await fetch(
+      `${graph}/me/accounts?fields=id,name,access_token,tasks&access_token=${encodeURIComponent(longLivedUserToken)}`,
+      { signal: AbortSignal.timeout(15000) },
+    );
+    const pagesData: any = await pagesRes.json();
+    if (!pagesRes.ok || pagesData.error) {
+      return res.status(502).json({ message: pagesData?.error?.message || "Error listando páginas" });
+    }
+
+    const pages: any[] = pagesData.data || [];
+    if (pages.length === 0) {
+      return res.status(404).json({ message: "El usuario no administra ninguna página" });
+    }
+
+    const page = wantedPageId ? pages.find(p => p.id === wantedPageId) : pages[0];
+    if (!page) {
+      return res.status(404).json({
+        message: `La página ${wantedPageId} no está entre las que administra`,
+        disponibles: pages.map(p => ({ id: p.id, name: p.name })),
+      });
+    }
+
+    // 3. Guardar en el tenant (no en el .env): esto es multi-cuenta
+    const [row] = await db.select({ metadata: tenants.metadata }).from(tenants).where(eq(tenants.id, tenantId)).limit(1);
+    const meta: any = row?.metadata
+      ? (typeof row.metadata === "string" ? JSON.parse(row.metadata) : row.metadata)
+      : {};
+    meta.facebook = {
+      ...(meta.facebook || {}),
+      pageId: page.id,
+      pageName: page.name,
+      messengerPageToken: page.access_token,
+      accessToken: page.access_token,
+      // Los tasks dicen qué puede hacer este token sobre la página.
+      // CREATE_CONTENT = puede publicar. Se guardan porque un token DE PÁGINA
+      // no expone /me/permissions (devuelve vacío), así que es la única forma
+      // fiable de saber si se puede publicar sin intentarlo a ciegas.
+      tasks: page.tasks || [],
+      connectedAt: new Date().toISOString(),
+    };
+    await db.update(tenants).set({ metadata: meta as any }).where(eq(tenants.id, tenantId));
+
+    // 4. Confirmar qué permisos quedaron en el token de la página
+    const permRes = await fetch(
+      `${graph}/me/permissions?access_token=${encodeURIComponent(page.access_token)}`,
+      { signal: AbortSignal.timeout(15000) },
+    );
+    const permData: any = await permRes.json();
+    const granted = (permData.data || []).filter((p: any) => p.status === "granted").map((p: any) => p.permission);
+
+    logger.info({ tenantId, pageId: page.id, pageName: page.name }, "[FB-Connect] Página conectada al tenant");
+
+    // Nunca se devuelve el token en la respuesta
+    return res.json({
+      ok: true,
+      page: { id: page.id, name: page.name, tasks: page.tasks },
+      canPost: granted.includes("pages_manage_posts"),
+      permissions: granted,
+      otrasPaginas: pages.filter(p => p.id !== page.id).map(p => ({ id: p.id, name: p.name })),
+    });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+/**
  * POST /api/public/generate-image
  * Genera una imagen por IA a partir de un prompt.
  * Intenta OpenAI primero; si falla o no hay key, usa G4F.

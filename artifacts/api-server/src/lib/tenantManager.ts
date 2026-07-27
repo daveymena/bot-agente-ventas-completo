@@ -55,6 +55,10 @@ export interface TenantContext {
     appSecret?: string;
     messengerPageToken?: string;
     messengerVerifyToken?: string;
+    pageName?: string;
+    /** Permisos de Facebook sobre la página (CREATE_CONTENT = puede publicar) */
+    tasks?: string[];
+    connectedAt?: string;
   };
   limits: {
     maxConversations: number;
@@ -138,8 +142,24 @@ const DEFAULT_TENANT: TenantContext = {
 };
 
 // Tenant Manager Class
+/**
+ * Extrae las credenciales de Facebook de tenants.metadata.
+ * La metadata puede venir como objeto o como string JSON según el motor de BD
+ * (SQLite la guarda serializada), por eso se contemplan ambos casos.
+ */
+function parseFacebookMeta(metadata: unknown): TenantContext["facebook"] {
+  if (!metadata) return undefined;
+  try {
+    const meta = typeof metadata === "string" ? JSON.parse(metadata) : (metadata as any);
+    return meta?.facebook || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export class TenantManager {
   private tenantCache: Map<string, TenantContext> = new Map();
+  // (parseFacebookMeta se define fuera de la clase, al final del archivo)
   private cacheExpiry: Map<string, number> = new Map();
   private readonly CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
@@ -180,7 +200,12 @@ export class TenantManager {
         paymentMethods: tenant.paymentMethods || DEFAULT_TENANT.paymentMethods,
         limits: tenant.limits || DEFAULT_TENANT.limits,
         brandColors: tenant.brandColors || DEFAULT_TENANT.brandColors,
-        plan: tenant.plan || "basic"
+        plan: tenant.plan || "basic",
+        // Credenciales de Facebook guardadas por tenant. Estaban declaradas en
+        // TenantContext pero nunca se leían de metadata, así que facebook
+        // quedaba undefined y TODO caía al .env global: en multi-cuenta eso
+        // significaba que cada tenant usaba la página del dueño del servidor.
+        facebook: parseFacebookMeta(tenant.metadata),
       };
 
       // Cache the result
@@ -233,7 +258,12 @@ export class TenantManager {
         paymentMethods: tenant.paymentMethods || DEFAULT_TENANT.paymentMethods,
         limits: tenant.limits || DEFAULT_TENANT.limits,
         brandColors: tenant.brandColors || DEFAULT_TENANT.brandColors,
-        plan: tenant.plan || "basic"
+        plan: tenant.plan || "basic",
+        // Credenciales de Facebook guardadas por tenant. Estaban declaradas en
+        // TenantContext pero nunca se leían de metadata, así que facebook
+        // quedaba undefined y TODO caía al .env global: en multi-cuenta eso
+        // significaba que cada tenant usaba la página del dueño del servidor.
+        facebook: parseFacebookMeta(tenant.metadata),
       };
 
       // Cache the result

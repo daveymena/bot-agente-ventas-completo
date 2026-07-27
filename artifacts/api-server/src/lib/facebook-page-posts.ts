@@ -78,28 +78,38 @@ export async function checkPostingPermission(tenant?: TenantContext): Promise<st
   if (!token) return "Esta cuenta no tiene conectada una página de Facebook (falta el token)";
   if (!pageId) return "Esta cuenta no tiene conectada una página de Facebook (falta el ID de página)";
 
+  // Un token DE PÁGINA devuelve /me/permissions vacío — ese endpoint solo
+  // sirve para tokens de usuario. Lo que manda son los `tasks` que Facebook
+  // asignó sobre la página: CREATE_CONTENT es el que permite publicar. Se
+  // guardan al conectar la cuenta (POST /public/fb-connect).
+  const t = tenant || tenantManager.getDefaultTenant();
+  const tasks: string[] = (t?.facebook as any)?.tasks || [];
+
+  if (tasks.length > 0) {
+    if (!tasks.includes("CREATE_CONTENT")) {
+      return (
+        "El token de esta página no tiene la tarea CREATE_CONTENT, que es la que " +
+        "permite publicar. Hay que reconectar la página con el permiso " +
+        "'pages_manage_posts' desde el panel."
+      );
+    }
+    return null;
+  }
+
+  // Sin tasks guardados (config vieja por .env): se valida al menos que el
+  // token sirva y corresponda a la página configurada.
   try {
-    const res = await fetch(`${FB_GRAPH}/me/permissions?access_token=${token}`, {
+    const res = await fetch(`${FB_GRAPH}/me?fields=id,name&access_token=${token}`, {
       signal: AbortSignal.timeout(10000),
     });
     const data: any = await res.json();
     if (data.error) return `Facebook rechazó el token: ${data.error.message}`;
-
-    const granted = new Set(
-      (data.data || []).filter((p: any) => p.status === "granted").map((p: any) => p.permission),
-    );
-
-    if (!granted.has("pages_manage_posts")) {
-      return (
-        "Falta el permiso 'pages_manage_posts'. Sin él Facebook no deja publicar " +
-        "en el muro de la página. Hay que agregarlo a la app en developers.facebook.com " +
-        "y volver a generar el token de la página."
-      );
+    if (data.id && data.id !== pageId) {
+      return `El token pertenece a "${data.name}" (${data.id}) pero la página configurada es ${pageId}. Reconecta la página desde el panel.`;
     }
-
     return null;
   } catch (err) {
-    return `No se pudo verificar permisos: ${err instanceof Error ? err.message : String(err)}`;
+    return `No se pudo verificar el token: ${err instanceof Error ? err.message : String(err)}`;
   }
 }
 
