@@ -20,6 +20,7 @@
 import { eq, and, desc } from "drizzle-orm";
 import { db, conversations, messages, products, productCategories } from "@workspace/db";
 import type { MessageMetadata } from "@workspace/db";
+import { dbNow } from "./date-utils";
 
 // ─── Tipos públicos ────────────────────────────────────────────────────────────
 
@@ -1446,9 +1447,15 @@ export async function saveAgentMessage(
       metadata,
     });
 
-    // Actualizar lastMessage en la conversación
+    // Actualizar lastMessage en la conversación.
+    // dbNow() en vez de new Date().toISOString(): en Postgres esta columna
+    // exige un objeto Date, un string la revienta (ver date-utils.ts). El
+    // catch de abajo se comía el error en silencio — toda respuesta del
+    // agente (saludo, detalles, handoff, fallback) actualizaba el mensaje
+    // pero NUNCA lastMessageAt, así que el inbox ordenaba mal las
+    // conversaciones recientes sin que se viera ningún error.
     await db.update(conversations)
-      .set({ lastMessage: content.substring(0, 200), lastMessageAt: new Date().toISOString() })
+      .set({ lastMessage: content.substring(0, 200), lastMessageAt: dbNow() })
       .where(eq(conversations.id, conversationId));
   } catch (err) {
     console.error(`[ConversationEngine] Error guardando mensaje del agente:`, err);

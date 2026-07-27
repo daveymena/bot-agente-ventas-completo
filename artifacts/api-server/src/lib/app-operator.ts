@@ -19,6 +19,7 @@ import { db, products, productCategories, agents, settings, stores, conversation
 import { eq, desc, and, sql } from "drizzle-orm";
 import { logger } from "./logger";
 import { tenantManager } from "./tenantManager";
+import { dbNow } from "./date-utils";
 
 export interface OperatorContext {
   tenantId: number;
@@ -428,7 +429,10 @@ export const TOOLS: ToolDef[] = [
       if (args.isActive !== undefined) patch.isActive = !!args.isActive;
       if (existing) {
         if (Object.keys(patch).length === 0) return { ok: false, summary: "Nada que actualizar en el agente" };
-        patch.updatedAt = new Date().toISOString();
+        // dbNow(): en Postgres updatedAt exige un objeto Date, un string
+        // revienta la escritura (ver date-utils.ts) — el Architect fallaba
+        // al aplicar sus propios planes de cambio sobre el agente.
+        patch.updatedAt = dbNow();
         await db.update(agents).set(patch).where(eq(agents.id, existing.id));
         return { ok: true, summary: `Agente #${existing.id} actualizado (${Object.keys(patch).join(", ")})` };
       }

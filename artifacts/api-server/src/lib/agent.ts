@@ -63,6 +63,7 @@ import {
 } from "./optimized-rotation";
 import { getG4FResponse, initializeG4F } from "./providers/g4f-provider";
 import { G4F_ENABLED } from "../config/g4f.config";
+import { dbNow } from "./date-utils";
 
 // ============================================================
 // 🎯 UNIFIED KEYWORD CONSTANTS - SINGLE SOURCE OF TRUTH
@@ -1311,10 +1312,17 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
 
       // Persistir productos en el contexto de la conversación
       // El sistema actualiza lastMessage de todas formas
+      //
+      // lastMessageAt usa dbNow(), NO new Date().toISOString(): en Postgres
+      // esta columna es timestamp en modo Date y Drizzle espera un objeto
+      // Date, no un string — pasarle un string reventaba AQUÍ MISMO justo
+      // después de que la IA generara una respuesta de venta válida, y el
+      // cliente de WhatsApp recibía "problemas técnicos" en vez de esa
+      // respuesta real. Ver date-utils.ts para el detalle completo.
       await db.update(conversations)
         .set({
           lastMessage: raw.substring(0, 200),
-          lastMessageAt: new Date().toISOString(),
+          lastMessageAt: dbNow(),
           currentProductId: agentMeta.productId ?? null,
           currentProductName: agentMeta.productName ?? null,
         })

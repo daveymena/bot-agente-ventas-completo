@@ -15,6 +15,7 @@ import { messages, conversations, leads } from "@workspace/db";
 import { eq, and } from "drizzle-orm";
 import { addTenantToInsert, type TenantContext } from '../tenantManager';
 import { logger } from '../logger';
+import { dbNow } from '../date-utils';
 
 export interface MessageHandlerConfig {
   tenantId: string;
@@ -119,9 +120,12 @@ export class MessageHandler {
         stage: convo.currentStage,
       });
 
-      await db.update(conversations).set({ 
-        lastMessage: params.body, 
-        lastMessageAt: new Date().toISOString() 
+      // dbNow(): en Postgres lastMessageAt exige un objeto Date, no un
+      // string (ver date-utils.ts) — esto corre en CADA mensaje entrante
+      // de WhatsApp, antes incluso de que el agente responda.
+      await db.update(conversations).set({
+        lastMessage: params.body,
+        lastMessageAt: dbNow()
       }).where(eq(conversations.id, convo.id));
 
 
