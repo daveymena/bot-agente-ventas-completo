@@ -281,10 +281,11 @@ export type WhatsAppPublicStatus = {
   lastError: string | null;
 };
 
-// AUTH_DIR: always relative to this source file's location (artifacts/api-server/)
-// Using import.meta.url ensures it works regardless of cwd
-const _moduleDir = path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1'));
-const AUTH_DIR = path.resolve(_moduleDir, "..", ".baileys-auth");
+// AUTH_DIR: dentro del volumen persistente /app/data para que sobreviva deploys
+// EasyPanel monta ./data:/app/data — .baileys-auth queda en /app/data/.baileys-auth
+const AUTH_DIR = process.env.WA_AUTH_DIR
+  ? path.resolve(process.env.WA_AUTH_DIR)
+  : path.resolve(process.cwd(), "data", ".baileys-auth");
 
 export class WhatsAppManager {
   private state: WAState = "disconnected";
@@ -331,7 +332,7 @@ export class WhatsAppManager {
   private reconnectAttempts = 0;
   private readonly MAX_RECONNECT_ATTEMPTS = 5;
 
-  async stop(): Promise<WhatsAppPublicStatus> {
+  async stop(keepAuth: boolean = true): Promise<WhatsAppPublicStatus> {
     try {
       if (this.sock) {
         this.sock.ev.removeAllListeners();
@@ -343,14 +344,16 @@ export class WhatsAppManager {
       logger.warn({ err: e }, "[WhatsApp] Error during stop");
     }
     
-    // Borrar carpeta de autenticación para forzar nuevo QR
-    try {
-      if (existsSync(AUTH_DIR)) {
-        rmSync(AUTH_DIR, { recursive: true, force: true });
-        logger.info("[WhatsApp] Auth directory deleted");
+    // Solo borrar auth cuando se pide explícitamente (reset-session)
+    if (!keepAuth) {
+      try {
+        if (existsSync(AUTH_DIR)) {
+          rmSync(AUTH_DIR, { recursive: true, force: true });
+          logger.info("[WhatsApp] Auth directory deleted");
+        }
+      } catch (e) {
+        logger.warn({ err: e }, "[WhatsApp] Error deleting auth directory");
       }
-    } catch (e) {
-      logger.warn({ err: e }, "[WhatsApp] Error deleting auth directory");
     }
     
     this.state = "disconnected";
@@ -359,7 +362,7 @@ export class WhatsAppManager {
     this.connectedAt = null;
     this.starting = false;
     this.lastError = null;
-    logger.info("[WhatsApp] Stopped and auth cleared");
+    logger.info({ keepAuth }, "[WhatsApp] Stopped");
     return this.getStatus();
   }
 

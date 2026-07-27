@@ -103,6 +103,12 @@ export class AgentOrchestrator {
       return;
     }
 
+    // Don't process messages if WhatsApp is not connected (will be retried)
+    if (!whatsapp.isConnected()) {
+      logger.debug('[AgentOrchestrator] WhatsApp not connected, deferring message processing');
+      return;
+    }
+
     try {
       logger.info({
         queueId: message.id,
@@ -121,45 +127,42 @@ export class AgentOrchestrator {
       }
 
       // Ejecutar el agente (lógica de IA) - usa runAgentReply con conversationId
-      // El motor de ventas tiene prioridad absoluta para mantener la coherencia de Sofía
       const reply = await runAgentReply(convo.id);
 
-      // Si la respuesta es nula, no hay nada que enviar
-      if (!reply) {
+      // Si la respuesta es nula o no tiene partes, no hay nada que enviar
+      if (!reply || !reply.parts) {
         logger.warn({
           conversationId: convo.id,
           queueId: message.id,
-        }, '[AgentOrchestrator] Agent returned null reply');
+        }, '[AgentOrchestrator] Agent returned null reply or no parts');
         this.queue.markProcessed(message.id);
         return;
       }
 
       // Enviar respuesta via WhatsApp (Soporta Texto y Tarjetas Multimedia)
-      if (reply.parts) {
-        const pushName = convo.contactName || phone;
-        await whatsapp.sendAgentParts(phone, pushName, reply.parts as AgentReplyPart[], message.from);
-        
-        // Guardar cada parte en la BD para el historial del dashboard
-        for (const part of reply.parts) {
-          if (part.kind === 'text' && part.content) {
-            await db.insert(messages).values({
-              conversationId: convo.id,
-              role: "agent",
-              content: part.content,
-              stage: convo.currentStage,
-            });
-          } else if (part.kind === 'card') {
-            await db.insert(messages).values({
-              conversationId: convo.id,
-              role: "agent",
-              content: `[CARD: ${part.productId}]`,
-              stage: convo.currentStage,
-            });
-          }
+      const pushName = convo.contactName || phone;
+      await whatsapp.sendAgentParts(phone, pushName, reply.parts as AgentReplyPart[], message.from);
+
+      // Guardar cada parte en la BD para el historial del dashboard
+      for (const part of reply.parts) {
+        if (part.kind === 'text' && part.content) {
+          await db.insert(messages).values({
+            conversationId: convo.id,
+            role: "agent",
+            content: part.content,
+            stage: convo.currentStage,
+          });
+        } else if (part.kind === 'card') {
+          await db.insert(messages).values({
+            conversationId: convo.id,
+            role: "agent",
+            content: `[CARD: ${part.productId}]`,
+            stage: convo.currentStage,
+          });
         }
       }
 
-      // Marcar como procesado
+      // Marcar como procesado solo si se envió respuesta exitosamente
       this.queue.markProcessed(message.id);
 
       logger.info({
