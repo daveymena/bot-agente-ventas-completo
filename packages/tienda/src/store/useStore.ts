@@ -160,7 +160,7 @@ export const useStore = create<StoreState>()(
         paypalClientId: '',
         ownerId: 'default-user',
         slug: '',
-        whatsappPhone: '573208270414',
+        whatsappPhone: '',
       },
       updateConfig: (newConfig) => set((state) => ({ 
         config: { ...state.config, ...newConfig } 

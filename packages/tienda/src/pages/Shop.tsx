@@ -19,9 +19,36 @@ const formatPrice = (price: number) => {
   return '$' + Math.round(price).toLocaleString('es-CO');
 };
 
-const ProductCard = ({ product }: { product: Product }) => {
+const ProductCard = ({ product, slug }: { product: Product; slug: string }) => {
   const { addToCart, wishlist, toggleWishlist } = useStore();
   const [imgError, setImgError] = useState(false);
+  const [buying, setBuying] = useState(false);
+
+  // "Comprar" va DIRECTO a la pasarela: antes decía Comprar pero solo metía el
+  // producto al carrito, así que el cliente creía haber comprado y se quedaba
+  // en la misma página. Para acumular varios productos está "Agregar".
+  const comprarAhora = async () => {
+    setBuying(true);
+    try {
+      const res = await fetch(`/api/public/checkout/${slug}/${product.id}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ method: 'mercadopago' }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.checkoutUrl) {
+        throw new Error(data?.message || 'No se pudo generar el enlace de pago');
+      }
+      window.location.href = data.checkoutUrl;
+    } catch (err) {
+      setBuying(false);
+      Swal.fire({
+        title: 'No pudimos abrir el pago',
+        text: err instanceof Error ? err.message : 'Intenta de nuevo.',
+        icon: 'error',
+      });
+    }
+  };
 
   return (
     <motion.div
@@ -68,24 +95,34 @@ const ProductCard = ({ product }: { product: Product }) => {
           <div className="flex items-baseline gap-1.5">
             <span className="text-lg font-black text-gray-900">{formatPrice(product.price)}</span>
           </div>
-          <button
-            onClick={() => {
-              addToCart(product);
-              Swal.fire({
-                title: '¡Agregado!',
-                text: `${product.name} al carrito`,
-                icon: 'success',
-                toast: true,
-                position: 'top-end',
-                showConfirmButton: false,
-                timer: 1500,
-              });
-            }}
-            className="mt-2 w-full h-9 rounded-lg bg-gray-900 text-white text-xs font-bold flex items-center justify-center gap-1.5 hover:bg-gray-800 transition-colors"
-          >
-            <ShoppingCart className="w-3.5 h-3.5" />
-            Comprar
-          </button>
+          <div className="mt-2 flex gap-1.5">
+            <button
+              onClick={comprarAhora}
+              disabled={buying}
+              className="flex-1 h-9 rounded-lg bg-gray-900 text-white text-xs font-bold flex items-center justify-center gap-1.5 hover:bg-gray-800 transition-colors disabled:opacity-50"
+            >
+              {buying ? 'Abriendo…' : 'Comprar ahora'}
+            </button>
+            <button
+              onClick={() => {
+                addToCart(product);
+                Swal.fire({
+                  title: '¡Agregado!',
+                  text: `${product.name} al carrito`,
+                  icon: 'success',
+                  toast: true,
+                  position: 'top-end',
+                  showConfirmButton: false,
+                  timer: 1500,
+                });
+              }}
+              title="Agregar al carrito"
+              aria-label="Agregar al carrito"
+              className="w-9 h-9 shrink-0 rounded-lg border border-gray-300 text-gray-700 flex items-center justify-center hover:bg-gray-50 transition-colors"
+            >
+              <ShoppingCart className="w-4 h-4" />
+            </button>
+          </div>
         </div>
       </div>
     </motion.div>
@@ -114,7 +151,7 @@ const Shop = () => {
         updateConfig({
           storeName: data.store.name,
           logoUrl: data.store.logo || '',
-          whatsappPhone: data.store.whatsappPhone || '573208270414',
+          whatsappPhone: data.store.whatsappPhone || '',
         });
         if (data.store.colors) {
           updateConfig({ primaryColor: data.store.colors.primary || '#4f46e5' });
@@ -291,7 +328,7 @@ const Shop = () => {
             <>
               <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 sm:gap-4">
                 {displayedProducts.map((product) => (
-                  <ProductCard key={product.id} product={product} />
+                  <ProductCard key={product.id} product={product} slug={slug} />
                 ))}
               </div>
               {filteredProducts.length > visibleCount && (

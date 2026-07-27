@@ -367,6 +367,193 @@ router.post("/checkout/:slug/:productId", async (req, res, next) => {
 });
 
 /**
+ * POST /api/public/checkout-cart/:slug
+ * Checkout del carrito con VARIOS productos. El endpoint por producto
+ * (/checkout/:slug/:productId) solo sirve para compra directa de 1 ítem.
+ *
+ * Los precios SIEMPRE se leen de la base de datos, nunca del cliente: si se
+ * confiara en el body, cualquiera podría pagar $1 por un curso alterando el
+ * request desde el navegador.
+ *
+ * body: { method: "mercadopago"|"paypal", items: [{productId, quantity}], customer }
+ */
+router.post("/checkout-cart/:slug", async (req, res, next) => {
+  try {
+    const { slug } = req.params;
+    const method = (req.body?.method || "mercadopago") as string;
+    const customer = req.body?.customer || {};
+    const rawItems = Array.isArray(req.body?.items) ? req.body.items : [];
+
+    if (rawItems.length === 0) {
+      return res.status(400).json({ message: "El carrito está vacío" });
+    }
+
+    const [tenant] = await db.select().from(tenants).where(eq(tenants.slug, slug)).limit(1);
+    if (!tenant) return res.status(404).json({ message: "Tienda no encontrada" });
+
+    // Cargar cada producto desde la BD y quedarnos con SU precio real
+    const lines: { product: typeof products.$inferSelect; quantity: number }[] = [];
+    for (const raw of rawItems) {
+      const productId = Number(raw?.productId);
+      const quantity = Math.max(1, Math.min(99, Number(raw?.quantity) || 1));
+      if (!Number.isFinite(productId)) continue;
+
+      const [product] = await db
+        .select()
+        .from(products)
+        .where(and(eq(products.tenantId, tenant.id), eq(products.id, productId)))
+        .limit(1);
+
+      if (product) lines.push({ product, quantity });
+    }
+
+    if (lines.length === 0) {
+      return res.status(404).json({ message: "Ningún producto del carrito existe en esta tienda" });
+    }
+
+    const appUrl = process.env.APP_URL || `http://localhost:${process.env.PORT || 3002}`;
+    const reference = `${customer.phone || "guest"}|cart|${lines.map(l => l.product.id).join(",")}`;
+
+    if (method === "paypal") {
+      const clientId = process.env.PAYPAL_CLIENT_ID;
+      const clientSecret = process.env.PAYPAL_CLIENT_SECRET;
+      if (!clientId || !clientSecret) {
+        return res.status(500).json({ message: "PayPal no configurado" });
+      }
+
+      const paypalApi =
+        (process.env.PAYPAL_MODE || "live") === "sandbox"
+          ? "https://api-m.sandbox.paypal.com"
+          : "https://api-m.paypal.com";
+
+      const tokenRes = await fetch(`${paypalApi}/v1/oauth2/token`, {
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+          Authorization: `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString("base64")}`,
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+        body: "grant_type=client_credentials",
+        signal: AbortSignal.timeout(10000),
+      });
+
+      if (!tokenRes.ok) {
+        logger.error({ status: tokenRes.status }, "[CheckoutCart] PayPal auth failed");
+        return res.status(502).json({ message: "Error autenticando con PayPal" });
+      }
+      const tokenData = (await tokenRes.json()) as any;
+
+      // Convertir COP → USD (PayPal no liquida en pesos). Se redondea CADA
+      // línea antes de sumar para que item_total cuadre exacto con el total;
+      // si se redondeara solo al final, PayPal rechaza la orden por descuadre.
+      const exchangeRate = Number(process.env.PAYPAL_EXCHANGE_RATE) || 4300;
+      const ppItems = lines.map(({ product, quantity }) => {
+        const isCop = (product.currency || "COP") === "COP";
+        const unit = isCop
+          ? Number(product.price || 0) / exchangeRate
+          : Number(product.price || 0);
+        return {
+          name: product.name.substring(0, 127),
+          quantity: String(quantity),
+          unit_amount: { currency_code: "USD", value: unit.toFixed(2) },
+        };
+      });
+
+      const itemTotal = ppItems
+        .reduce((acc, it) => acc + Number(it.unit_amount.value) * Number(it.quantity), 0)
+        .toFixed(2);
+
+      const orderRes = await fetch(`${paypalApi}/v2/checkout/orders`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${tokenData.access_token}`,
+        },
+        body: JSON.stringify({
+          intent: "CAPTURE",
+          purchase_units: [
+            {
+              reference_id: reference.substring(0, 255),
+              items: ppItems,
+              amount: {
+                currency_code: "USD",
+                value: itemTotal,
+                breakdown: { item_total: { currency_code: "USD", value: itemTotal } },
+              },
+            },
+          ],
+          application_context: {
+            brand_name: tenant.brandName || tenant.name,
+            return_url: `${appUrl}/paypal-success`,
+            cancel_url: `${appUrl}/paypal-cancel`,
+          },
+        }),
+        signal: AbortSignal.timeout(10000),
+      });
+
+      const orderData = (await orderRes.json()) as any;
+      if (!orderRes.ok) {
+        logger.error({ orderData }, "[CheckoutCart] PayPal order creation failed");
+        return res.status(502).json({ message: "Error creando orden de PayPal" });
+      }
+
+      return res.json({
+        method: "paypal",
+        checkoutUrl: orderData.links?.find((l: any) => l.rel === "approve")?.href,
+        orderId: orderData.id,
+        total: itemTotal,
+        currency: "USD",
+      });
+    }
+
+    const mpToken = process.env.MERCADO_PAGO_ACCESS_TOKEN;
+    if (!mpToken) return res.status(500).json({ message: "MercadoPago no configurado" });
+
+    const mpRes = await fetch("https://api.mercadopago.com/checkout/preferences", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${mpToken}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        items: lines.map(({ product, quantity }) => ({
+          id: String(product.id),
+          title: product.name,
+          quantity,
+          currency_id: product.currency === "USD" ? "COP" : product.currency || "COP",
+          unit_price: Number(product.price || 0),
+        })),
+        payer: {
+          email: customer.email || "cliente@email.com",
+          name: customer.name || "Cliente",
+        },
+        back_urls: {
+          success: `${appUrl}/mp-success`,
+          failure: `${appUrl}/mp-failure`,
+          pending: `${appUrl}/mp-pending`,
+        },
+        ...(appUrl.startsWith("https") ? { auto_return: "approved" } : {}),
+        external_reference: reference,
+      }),
+      signal: AbortSignal.timeout(10000),
+    });
+
+    const mpData = (await mpRes.json()) as any;
+    if (!mpRes.ok) {
+      logger.error({ mpData }, "[CheckoutCart] MercadoPago preference failed");
+      return res.status(502).json({ message: "Error creando preferencia de MercadoPago" });
+    }
+
+    return res.json({
+      method: "mercadopago",
+      checkoutUrl: mpData.init_point,
+      preferenceId: mpData.id,
+      total: lines.reduce((a, l) => a + Number(l.product.price || 0) * l.quantity, 0),
+      currency: "COP",
+    });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+/**
  * GET /api/public/whatsapp-info/:slug
  * Devuelve el número de WhatsApp conectado a la app (vía QR) o el fallback del tenant/ADMIN_PHONE.
  */

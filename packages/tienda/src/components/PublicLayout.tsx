@@ -1,14 +1,26 @@
 import { Link, useParams } from 'react-router-dom';
 import { ShoppingCart, MessageCircle, Menu, X, Store, Search } from 'lucide-react';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useStore } from '../store/useStore';
 
 const PublicLayout = ({ children }: { children: React.ReactNode }) => {
-  const { cart, config } = useStore();
+  const { cart, config, updateConfig } = useStore();
   const { slug } = useParams();
   const cartCount = cart.reduce((acc, item) => acc + item.quantity, 0);
   const base = slug ? `/tienda/${slug}` : '/tienda';
   const [mobileMenu, setMobileMenu] = useState(false);
+
+  // El número de WhatsApp se resuelve aquí (no en cada página) porque el layout
+  // envuelve toda la tienda. Viene del teléfono realmente conectado al bot por
+  // QR: dejarlo escrito en el código lo vuelve inválido al cambiar de línea.
+  useEffect(() => {
+    fetch(`/api/public/whatsapp-info/${slug || 'demo'}`)
+      .then(r => (r.ok ? r.json() : null))
+      .then(d => { if (d?.phone) updateConfig({ whatsappPhone: d.phone }); })
+      .catch(() => {});
+  }, [slug]);
+
+  const waHref = config.whatsappPhone ? `https://wa.me/${config.whatsappPhone}` : null;
 
   return (
     <div className="min-h-screen flex flex-col bg-gray-50">
@@ -26,7 +38,7 @@ const PublicLayout = ({ children }: { children: React.ReactNode }) => {
               <Link to={base} className="text-sm font-medium text-gray-600 hover:text-indigo-600 transition-colors border-b-2 border-transparent hover:border-indigo-600 pb-0.5">
                 Productos
               </Link>
-              <a href={`https://wa.me/${config.whatsappPhone || '573208270414'}`} target="_blank" rel="noopener noreferrer"
+              <a href={waHref || "#"} target="_blank" rel="noopener noreferrer"
                 className="flex items-center gap-1.5 text-sm font-medium text-gray-600 hover:text-green-600 transition-colors">
                 <MessageCircle className="w-4 h-4" /> WhatsApp
               </a>
@@ -61,7 +73,7 @@ const PublicLayout = ({ children }: { children: React.ReactNode }) => {
                 className="block px-3 py-2.5 text-sm font-medium text-gray-700 rounded-lg hover:bg-gray-50">
                 Productos
               </Link>
-              <a href={`https://wa.me/${config.whatsappPhone || '573208270414'}`} target="_blank" rel="noopener noreferrer"
+              <a href={waHref || "#"} target="_blank" rel="noopener noreferrer"
                 onClick={() => setMobileMenu(false)}
                 className="flex items-center gap-2 px-3 py-2.5 text-sm font-medium text-green-600 rounded-lg hover:bg-green-50">
                 <MessageCircle className="w-4 h-4" /> WhatsApp
@@ -76,7 +88,7 @@ const PublicLayout = ({ children }: { children: React.ReactNode }) => {
       </main>
 
       <a
-        href={`https://wa.me/${config.whatsappPhone || '573208270414'}`}
+        href={waHref || "#"}
         target="_blank"
         rel="noopener noreferrer"
         className="fixed bottom-5 right-5 z-40 w-14 h-14 rounded-full bg-green-500 text-white shadow-lg flex items-center justify-center hover:bg-green-600 transition-colors hover:scale-110 active:scale-95"
@@ -101,7 +113,7 @@ const PublicLayout = ({ children }: { children: React.ReactNode }) => {
               <h4 className="text-xs font-bold uppercase tracking-wider text-gray-500 mb-3">Enlaces</h4>
               <div className="space-y-2">
                 <Link to={base} className="block text-sm text-gray-400 hover:text-white transition-colors">Productos</Link>
-                <a href={`https://wa.me/${config.whatsappPhone || '573208270414'}`} target="_blank" rel="noopener noreferrer"
+                <a href={waHref || "#"} target="_blank" rel="noopener noreferrer"
                   className="block text-sm text-gray-400 hover:text-white transition-colors">WhatsApp</a>
                 <Link to={`${base}/carrito`} className="block text-sm text-gray-400 hover:text-white transition-colors">Carrito</Link>
               </div>

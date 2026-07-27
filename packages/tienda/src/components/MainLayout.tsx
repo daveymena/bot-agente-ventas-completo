@@ -87,11 +87,16 @@ const Header = () => {
           </div>
 
           <div className="flex items-center gap-4 flex-shrink-0">
-            <a href="https://wa.me/573208270414" target="_blank" rel="noopener noreferrer" className="hidden sm:flex items-center gap-2 text-sm">
+            <a
+              href={config.whatsappPhone ? `https://wa.me/${config.whatsappPhone}` : '#'}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="hidden sm:flex items-center gap-2 text-sm"
+            >
               <MessageCircle className="w-5 h-5 text-green-500" />
               <div className="leading-tight hidden lg:block">
                 <p className="text-[10px] text-slate-400 font-semibold">WhatsApp</p>
-                <p className="text-xs font-bold">320 827 0414</p>
+                <p className="text-xs font-bold">{config.whatsappPhone || '—'}</p>
               </div>
             </a>
             <span className="w-px h-6 bg-gray-100 hidden sm:block"></span>
