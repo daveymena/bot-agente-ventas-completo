@@ -41,15 +41,15 @@ router.post("/test-ia", async (req, res, next) => {
   try {
     const msg = req.body?.message || "Hola, qué productos tienen?";
     const tenantId = 1; // Tenant por defecto para testing
-    
+    const { addTenantToInsert } = await import("../lib/tenantManager");
+
     // Crear conversación test
-    const [convo] = await db.insert(conversations).values({
-      tenantId,
+    const [convo] = await db.insert(conversations).values(addTenantToInsert({
       contactName: "Test",
       contactPhone: req.body.phone || "test-ia",
       status: "ai",
       currentStage: "greeting"
-    }).returning();
+    }, tenantId)).returning();
     
     // Guardar mensaje
     await db.insert(messages).values({
