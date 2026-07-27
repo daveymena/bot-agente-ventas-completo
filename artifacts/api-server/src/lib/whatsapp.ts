@@ -132,45 +132,85 @@ function formatPriceForWa(price: number, currency: string) {
   }
 }
 
-function getProductImage(name: string): string {
-  const nameLower = name.toLowerCase();
-  const genericImage = "https://images.unsplash.com/photo-1499750310107-5fef28a66643?w=800";
-  
-  const imageMap: Record<string, string> = {
-    "piano": "https://images.unsplash.com/photo-1552422535-c45813c61732?w=800",
-    "guitarra": "https://images.unsplash.com/photo-1510915361894-db8b60106cb1?w=800",
-    "excel": "https://images.unsplash.com/photo-1460925895917-afdab827c52f?w=800",
-    "diseño": "https://images.unsplash.com/photo-1561070791-2526d30994b5?w=800",
-    "trading": "https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?w=800",
-    "hacking": "https://images.unsplash.com/photo-1550751827-4bd374c3f58b?w=800",
-    "marketing": "https://images.unsplash.com/photo-1460925895917-afdab827c52f?w=800",
-    "fitness": "https://images.unsplash.com/photo-1517836357463-d25dfeac3438?w=800",
-    "programación": "https://images.unsplash.com/photo-1461749280684-dccba630e2f6?w=800",
-    "ingles": "https://images.unsplash.com/photo-1456513080510-7bf3a84b82f8?w=800",
-    "idiomas": "https://images.unsplash.com/photo-1456513080510-7bf3a84b82f8?w=800",
-  };
+/**
+ * Carga los bytes de la imagen REAL de un producto.
+ *
+ * Antes esto se resolvía mal en producción y el bot terminaba mandando una
+ * foto de stock de Unsplash elegida por palabra clave del nombre — es decir,
+ * al cliente se le enseñaba una imagen que NO era el producto que compraba.
+ * Dos errores se sumaban:
+ *
+ *  1. La ruta local se buscaba en "<cwd>/../ventas-pro/public", pero en el
+ *     contenedor el frontend compilado vive en
+ *     /app/artifacts/ventas-pro/dist/public.
+ *  2. Si eso fallaba, se pedía por HTTP a http://localhost:5173 — el puerto
+ *     del servidor de desarrollo de Vite, que en producción no existe.
+ *
+ * Como 79 de 83 productos guardan la imagen con ruta relativa
+ * (/images/products/41.jpg), fallaban los dos caminos y SIEMPRE se caía al
+ * stock. Ahora se prueban las rutas reales del contenedor y, como último
+ * recurso, el propio dominio público de la app (APP_URL), que sí sirve
+ * /images y /uploads.
+ *
+ * Devuelve null si no se pudo obtener: quien llama debe mandar solo texto,
+ * nunca una imagen sustituta.
+ */
+async function loadProductImage(imageUrl: string): Promise<Buffer | null> {
+  if (!imageUrl) return null;
 
-  for (const [key, url] of Object.entries(imageMap)) {
-    if (nameLower.includes(key)) return url;
+  const axios = (await import("axios")).default;
+
+  // URL absoluta: se descarga tal cual.
+  if (/^https?:\/\//i.test(imageUrl)) {
+    try {
+      const r = await axios.get(imageUrl, { responseType: "arraybuffer", timeout: 8000 });
+      return Buffer.from(r.data);
+    } catch {
+      return null;
+    }
   }
 
-  // Try category-based fallback
-  const categoryImages: Record<string, string> = {
-    "música": "https://images.unsplash.com/photo-1511379938547-c1f69419868d?w=800",
-    "musica": "https://images.unsplash.com/photo-1511379938547-c1f69419868d?w=800",
-    "tecnología": "https://images.unsplash.com/photo-1518770660439-4636190af475?w=800",
-    "tecnologia": "https://images.unsplash.com/photo-1518770660439-4636190af475?w=800",
-    "negocios": "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=800",
-    "salud": "https://images.unsplash.com/photo-1544367567-0f2fcb009e0b?w=800",
-    "fitness": "https://images.unsplash.com/photo-1517836357463-d25dfeac3438?w=800",
-    "idiomas": "https://images.unsplash.com/photo-1456513080510-7bf3a84b82f8?w=800",
-  };
+  // Ruta relativa (/images/products/41.jpg, /uploads/products/123.jpg):
+  // primero desde disco, que es instantáneo y no depende de la red.
+  const path = await import("path");
+  const fs = await import("fs");
+  const rel = imageUrl.replace(/^\/+/, "");
 
-  for (const [key, url] of Object.entries(categoryImages)) {
-    if (nameLower.includes(key)) return url;
+  const candidatos = [
+    // Volumen de subidas (IMAGE_STORE_DIR monta /uploads)
+    process.env.IMAGE_STORE_DIR ? path.resolve(process.env.IMAGE_STORE_DIR, rel.replace(/^uploads\//, "")) : null,
+    // Frontend compilado dentro del contenedor
+    path.resolve("/app/artifacts/ventas-pro/dist/public", rel),
+    // Desarrollo local
+    path.resolve(process.cwd(), "../ventas-pro/dist/public", rel),
+    path.resolve(process.cwd(), "../ventas-pro/public", rel),
+    path.resolve(process.cwd(), rel),
+  ].filter(Boolean) as string[];
+
+  for (const c of candidatos) {
+    try {
+      if (fs.existsSync(c)) return fs.readFileSync(c);
+    } catch {
+      /* siguiente candidato */
+    }
   }
 
-  return genericImage;
+  // Último recurso: pedirla al propio dominio público de la app, que sirve
+  // /images y /uploads. Sustituye al viejo localhost:5173.
+  const appUrl = process.env.APP_URL || "";
+  if (/^https?:\/\//i.test(appUrl)) {
+    try {
+      const r = await axios.get(`${appUrl.replace(/\/+$/, "")}/${rel}`, {
+        responseType: "arraybuffer",
+        timeout: 8000,
+      });
+      return Buffer.from(r.data);
+    } catch {
+      /* no se pudo */
+    }
+  }
+
+  return null;
 }
 
 function buildProductCaption(p: typeof products.$inferSelect, categoryName: string | null, dynamicLinks?: any) {
@@ -754,7 +794,7 @@ export class WhatsAppManager {
     trackWhatsAppCost(this.currentTenant.id.toString());
   }
 
-  async sendImage(phone: string, imageUrl: string, caption: string, originalJid?: string, fallbackImageUrl?: string) {
+  async sendImage(phone: string, imageUrl: string, caption: string, originalJid?: string) {
     if (!this.sock || this.state !== "connected") throw new Error("WhatsApp no conectado");
     const jid = originalJid || `${phone}@s.whatsapp.net`;
 
@@ -765,44 +805,23 @@ export class WhatsAppManager {
     await this.sock.sendPresenceUpdate("paused", jid);
 
     try {
-      let isLocalFile = false;
-      let localPath = "";
-      
-      if (imageUrl.startsWith('/')) {
-        const path = await import("path");
-        const fs = await import("fs");
-        localPath = path.join(process.cwd(), "..", "ventas-pro", "public", imageUrl);
-        if (fs.existsSync(localPath)) {
-          isLocalFile = true;
-        }
-      }
-
-      if (isLocalFile) {
-        const fs = await import("fs");
-        const buffer = fs.readFileSync(localPath);
-        await this.sock.sendMessage(jid, { image: buffer, caption });
-      } else {
-        const fetchUrl = imageUrl.startsWith('/') ? `http://localhost:5173${imageUrl}` : imageUrl;
-        const axios = (await import("axios")).default;
-        const response = await axios.get(fetchUrl, { responseType: 'arraybuffer', timeout: 8000 });
-        await this.sock.sendMessage(jid, { image: Buffer.from(response.data), caption });
-      }
+      const buffer = await loadProductImage(imageUrl);
+      if (!buffer) throw new Error(`no se pudo obtener la imagen (${imageUrl})`);
+      await this.sock.sendMessage(jid, { image: buffer, caption });
     } catch (e: any) {
-      console.error(`[WhatsApp] Error procesando imagen ${imageUrl}: ${e.message}. Intentando fallback...`);
-      try {
-        if (fallbackImageUrl && fallbackImageUrl !== imageUrl) {
-          const axios = (await import("axios")).default;
-          const fallbackRes = await axios.get(fallbackImageUrl, { responseType: 'arraybuffer', timeout: 5000 });
-          await this.sock.sendMessage(jid, { image: Buffer.from(fallbackRes.data), caption });
-        } else {
-          throw new Error("No hay fallback image disponible o es igual a la original");
-        }
-      } catch (fallbackErr: any) {
-        console.error(`[WhatsApp] Error con fallback de imagen: ${fallbackErr.message}. Enviando solo texto...`);
-        await this.sock.sendMessage(jid, { text: caption }).catch((err: any) => {
-          console.error(`[WhatsApp] Error fatal enviando texto fallback: ${err.message}`);
-        });
-      }
+      // NO se manda una imagen "parecida" cuando falla la real.
+      //
+      // Antes se caía a getProductImage(), que devuelve fotos de stock de
+      // Unsplash elegidas por palabra clave del nombre. En una conversación
+      // de venta eso significa enseñarle al cliente una foto que NO es el
+      // producto que está comprando: peor que no mandar nada, porque induce
+      // a error sobre lo que recibe. Se manda el texto solo, que es honesto.
+      console.error(
+        `[WhatsApp] Imagen no disponible (${imageUrl}): ${e.message}. Se envía solo el texto para no mostrar una foto que no es del producto.`,
+      );
+      await this.sock.sendMessage(jid, { text: caption }).catch((err: any) => {
+        console.error(`[WhatsApp] Error fatal enviando texto: ${err.message}`);
+      });
     }
     trackWhatsAppCost(this.currentTenant.id.toString());
   }
@@ -851,11 +870,12 @@ export class WhatsAppManager {
           const caption = isPaymentOnly
             ? buildPaymentOnlyCaption(product, dynamicLinks)
             : buildProductCaption(product, null, dynamicLinks);
-          const fallbackImage = getProductImage(product.name || "");
-          const imageToUse = product.imageUrl || fallbackImage;
-          
-          console.log(`🖼️ [WA-CARD] Enviando imagen con caption - URL: ${imageToUse?.substring(0, 50)}..., PaymentOnly: ${isPaymentOnly}, Caption: ${caption.length} caracteres - ${timestamp}`);
-          await this.sendImage(phone, imageToUse, caption, originalJid, fallbackImage);
+          // Solo la imagen REAL del producto. Si no la tiene, sendImage manda
+          // el texto solo — nunca una foto de otro producto (ver sendImage).
+          const imageToUse = product.imageUrl || "";
+
+          console.log(`🖼️ [WA-CARD] Enviando imagen con caption - URL: ${imageToUse?.substring(0, 50) || "(sin imagen)"}, PaymentOnly: ${isPaymentOnly}, Caption: ${caption.length} caracteres - ${timestamp}`);
+          await this.sendImage(phone, imageToUse, caption, originalJid);
           console.log(`✅ [WA-CARD] Tarjeta enviada exitosamente para ${product.name} - ${timestamp}`);
         } catch (err: any) {
           console.log(`❌ [WA-CARD] Error enviando tarjeta para ${product.name}: ${err.message} - ${timestamp}`);
