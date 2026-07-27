@@ -369,8 +369,17 @@ const isPublicRoute = (path: string) => {
     return true;
   }
   
-  // Todas las demás rutas de pricing requieren autenticación
-  return publicRoutes.some(route => path.startsWith(route));
+  // Comparación por SEGMENTOS, no por prefijo de texto.
+  //
+  // Con startsWith, la entrada "/p" (URLs cortas de producto) hacía pública a
+  // "/products" —y también a "/payments" y "/pricing"—, así que resolveTenant
+  // no corría, req.tenant quedaba vacío y el dashboard recibía 401 al entrar a
+  // Productos: parecía que se cerraba la sesión sola. El mismo error dejaba
+  // "/store" cubriendo "/storefront", etc.
+  //
+  // Una ruta es pública solo si coincide exacta o es un ancestro real
+  // ("/p" cubre "/p/123" pero nunca "/products").
+  return publicRoutes.some(route => path === route || path.startsWith(route + "/"));
 };
 
 // Middleware para resolver tenant SOLO en rutas protegidas
