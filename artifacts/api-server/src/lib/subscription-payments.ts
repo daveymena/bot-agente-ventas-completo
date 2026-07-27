@@ -173,7 +173,9 @@ export class SubscriptionPaymentService {
     const planDetails = SAAS_PLANS[subscription.plan as SaasPlan];
 
     // Convertir a COP si es necesario (MercadoPago Colombia usa COP)
-    const amountCOP = amount * 4000; // 1 USD = 4000 COP aproximadamente
+    const { getExchangeRate } = await import("./exchange-rate");
+    const rate = await getExchangeRate();
+    const amountCOP = Math.round(amount * rate);
 
     const requestBody = {
       items: [
