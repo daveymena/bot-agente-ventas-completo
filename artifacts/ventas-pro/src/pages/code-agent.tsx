@@ -1,74 +1,164 @@
 import { useState, useRef, useEffect } from "react";
 import { Layout } from "@/components/layout";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Wand2, Send, Bot, User, Sparkles, Loader, AlertCircle } from "lucide-react";
+import { Bot, Send, User, Loader2, Sparkles, Check, X, Wrench, MessageSquare, Paperclip, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
+
+type Mode = "operator" | "agent";
+
+interface ActionEntry {
+  tool: string;
+  ok: boolean;
+  summary: string;
+}
 
 interface Message {
   role: "user" | "assistant";
   content: string;
+  configApplied?: boolean;
+  advancedFeaturesEnabled?: boolean;
+  actions?: ActionEntry[];
 }
 
-export default function CodeAgentPage() {
-  const [messages, setMessages] = useState<Message[]>([
-    {
-      role: "assistant",
-      content: "¡Hola! Soy tu Arquitecta IA especializada en diseñar agentes de ventas. Cuéntame qué tipo de agente necesitas o cómo puedo ayudarte a mejorar tu agente actual.",
-    },
-  ]);
+const GREETING: Record<Mode, string> = {
+  operator:
+    "Soy tu Arquitecto IA. Puedo crear y editar productos, categorías, el agente, la configuración y la tienda. Dime qué necesitas y lo hago.",
+  agent:
+    "Modo diseño de agente. Analizo tu negocio y configuro el ADN de tu agente de ventas.",
+};
+
+export default function CodeAgent() {
+  const [mode, setMode] = useState<Mode>("operator");
+  const [messages, setMessages] = useState<Message[]>([{ role: "assistant", content: GREETING.operator }]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
-  const scrollRef = useRef<HTMLDivElement>(null);
+  const [uploading, setUploading] = useState(false);
+  const [restoring, setRestoring] = useState(true);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // El hilo vive en el servidor (architect_memory). Al montar la página lo
+  // restauramos para que cambiar de sección no borre la conversación.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/code-agent/history?sessionId=default", { credentials: "include" });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (cancelled || !Array.isArray(data.history) || data.history.length === 0) return;
+        setMessages([
+          { role: "assistant", content: GREETING.operator },
+          ...data.history.map((t: any) => ({ role: t.role, content: t.content })),
+        ]);
+        if (data.awaitingConfirmation) {
+          toast.info("Tienes un plan pendiente de confirmar");
+        }
+      } catch {
+        // sin historial: se queda el saludo
+      } finally {
+        if (!cancelled) setRestoring(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  const resetConversation = async () => {
+    if (!confirm("¿Empezar una conversación nueva? Se borrará el historial guardado.")) return;
+    try {
+      await fetch("/api/code-agent/history?sessionId=default", { method: "DELETE", credentials: "include" });
+      setMessages([{ role: "assistant", content: GREETING[mode] }]);
+      toast.success("Conversación reiniciada");
+    } catch {
+      toast.error("No se pudo reiniciar");
+    }
+  };
+
+  // Subir una imagen/archivo desde el chat (botón 📎) y dejar su URL lista para
+  // que el Architect la use (ej: "asigna esta imagen al producto ...").
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 8 * 1024 * 1024) { toast.error("La imagen supera 8MB"); return; }
+    setUploading(true);
+    try {
+      const dataUrl: string = await new Promise((resolve, reject) => {
+        const r = new FileReader();
+        r.onload = () => resolve(r.result as string);
+        r.onerror = reject;
+        r.readAsDataURL(file);
+      });
+      const res = await fetch("/api/code-agent/upload", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ image: dataUrl, filename: file.name }),
+        credentials: "include",
+      });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || "Error al subir");
+      const data = await res.json();
+      setInput((prev) => (prev ? prev + " " : "") + `Usa esta imagen: ${data.url}`);
+      toast.success("Imagen subida ✓ — dime a qué producto asignarla");
+    } catch (err: any) {
+      toast.error(err.message || "No se pudo subir la imagen");
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
 
   useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  const handleSend = async () => {
-    if (!input.trim() || loading) return;
+  const switchMode = (m: Mode) => {
+    if (m === mode) return;
+    setMode(m);
+    setMessages([{ role: "assistant", content: GREETING[m] }]);
+  };
 
+  const handleSubmit = async () => {
+    if (!input.trim() || loading) return;
     const userMsg = input.trim();
     setInput("");
     setMessages((prev) => [...prev, { role: "user", content: userMsg }]);
     setLoading(true);
 
     try {
-      const history = messages.slice(1).map((m) => ({
-        role: m.role,
-        content: m.content,
-      }));
-
-      const res = await fetch("/api/code-agent/architect", {
+      const history = messages.map((m) => ({ role: m.role, content: m.content }));
+      const endpoint = mode === "operator" ? "/api/code-agent/operator" : "/api/code-agent/architect";
+      const res = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        credentials: "include",
         body: JSON.stringify({ prompt: userMsg, history }),
+        credentials: "include",
       });
 
       if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.message || "Error del servidor");
+        const err = await res.json().catch(() => ({ error: "Error del servidor" }));
+        throw new Error(err.error || `Error ${res.status}`);
       }
 
       const data = await res.json();
-      setMessages((prev) => [
-        ...prev,
-        { role: "assistant", content: data.reply || JSON.stringify(data, null, 2) },
-      ]);
+      const newMsg: Message = {
+        role: "assistant",
+        content: data.reply || (mode === "operator" ? "Listo." : "Configuración generada."),
+        configApplied: data.configApplied,
+        advancedFeaturesEnabled: data.advancedFeaturesEnabled,
+        actions: Array.isArray(data.actions) ? data.actions : undefined,
+      };
+      setMessages((prev) => [...prev, newMsg]);
+
+      if (mode === "operator" && data.actionsCount > 0) {
+        toast.success(`${data.actionsCount} acción(es) ejecutada(s)`);
+      } else if (data.configApplied) {
+        toast.success("Agente configurado");
+      }
     } catch (err: any) {
-      toast.error(err.message || "Error al conectar con el arquitecto IA");
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: "assistant",
-          content: "Lo siento, ocurrió un error. Por favor intenta de nuevo.",
-        },
-      ]);
+      toast.error(err.message || "Error al comunicar con el Arquitecto IA");
+      setMessages((prev) => [...prev, { role: "assistant", content: `Error: ${err.message}` }]);
     } finally {
       setLoading(false);
     }
@@ -76,77 +166,159 @@ export default function CodeAgentPage() {
 
   return (
     <Layout>
-      <div className="flex flex-col gap-6 h-[calc(100vh-8rem)]">
-        <div className="flex items-center gap-3">
-          <div className="p-2.5 rounded-xl bg-gradient-to-br from-purple-500/20 to-pink-500/20 border border-purple-500/20">
-            <Wand2 className="h-6 w-6 text-purple-500" />
+      <div className="flex flex-col gap-4 animate-enter h-[calc(100vh-12rem)] md:h-[calc(100vh-8rem)]">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 sm:gap-3 flex-shrink-0">
+          <div className="flex items-center gap-3 min-w-0 w-full sm:w-auto">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-md shadow-indigo-200 shrink-0">
+              <Bot className="w-5 h-5 text-white" />
+            </div>
+            <div className="min-w-0">
+              <h1 className="text-xl md:text-2xl font-bold tracking-tight truncate">Arquitecto IA</h1>
+              <p className="text-muted-foreground text-xs md:text-sm truncate">Opera tu app con lenguaje natural</p>
+            </div>
           </div>
-          <div>
-            <h1 className="text-2xl font-bold">Arquitecto IA</h1>
-            <p className="text-sm text-muted-foreground">Diseña y optimiza tus agentes de venta con IA</p>
+          <div className="flex items-center gap-2 shrink-0 self-end sm:self-auto">
+            <Button variant="outline" size="sm" onClick={resetConversation} className="h-8 sm:h-9 text-xs px-2 sm:px-3">
+              <RotateCcw className="h-3.5 w-3.5 sm:mr-1.5" /> <span className="hidden sm:inline">Nueva</span>
+            </Button>
+            <div className="inline-flex rounded-lg border border-border bg-secondary p-0.5">
+              <button
+                onClick={() => switchMode("operator")}
+                className={`inline-flex items-center gap-1 rounded-md px-2 sm:px-3 py-1.5 text-[11px] sm:text-xs font-medium transition-colors whitespace-nowrap ${mode === "operator" ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+              >
+                <Wrench className="h-3 w-3 sm:h-3.5 sm:w-3.5" /> <span className="hidden sm:inline">Operador</span><span className="sm:hidden">Op.</span>
+              </button>
+              <button
+                onClick={() => switchMode("agent")}
+                className={`inline-flex items-center gap-1 rounded-md px-2 sm:px-3 py-1.5 text-[11px] sm:text-xs font-medium transition-colors whitespace-nowrap ${mode === "agent" ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+              >
+                <MessageSquare className="h-3 w-3 sm:h-3.5 sm:w-3.5" /> <span className="hidden sm:inline">Agente</span><span className="sm:hidden">Ag.</span>
+              </button>
+            </div>
           </div>
         </div>
 
-        <Card className="flex-1 flex flex-col overflow-hidden rounded-3xl border-0 shadow-lg glass-panel">
-          <ScrollArea ref={scrollRef} className="flex-1 p-4 md:p-6">
-            <div className="space-y-4 max-w-3xl mx-auto">
-              {messages.map((msg, i) => (
-                <div key={i} className={`flex gap-3 ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
-                  {msg.role === "assistant" && (
-                    <div className="w-8 h-8 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center shrink-0 mt-1">
-                      <Bot className="h-4 w-4 text-white" />
-                    </div>
-                  )}
-                  <div
-                    className={`max-w-[80%] rounded-2xl px-4 py-3 ${
-                      msg.role === "user"
-                        ? "bg-primary/10 text-foreground rounded-tr-sm"
-                        : "bg-muted/50 text-foreground rounded-tl-sm"
-                    }`}
-                  >
-                    <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
-                  </div>
-                  {msg.role === "user" && (
-                    <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center shrink-0 mt-1">
-                      <User className="h-4 w-4 text-primary" />
-                    </div>
-                  )}
-                </div>
-              ))}
-              {loading && (
-                <div className="flex gap-3 justify-start">
-                  <div className="w-8 h-8 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center shrink-0 mt-1">
-                    <Bot className="h-4 w-4 text-white" />
-                  </div>
-                  <div className="max-w-[80%] rounded-2xl rounded-tl-sm px-4 py-3 bg-muted/50">
-                    <Loader className="h-4 w-4 animate-spin text-muted-foreground" />
-                  </div>
-                </div>
-              )}
-            </div>
-          </ScrollArea>
+        <div className="flex flex-1 min-h-0">
+          <div className="flex-1 flex flex-col border border-border rounded-2xl bg-card overflow-hidden shadow-sm min-h-0">
+            <ScrollArea className="flex-1 p-4 md:p-6">
+              <div className="space-y-4">
+                {messages.map((msg, i) => (
+                  <div key={i} className={`flex gap-3 ${msg.role === "user" ? "justify-end" : ""}`}>
+                    {msg.role === "assistant" && (
+                      <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shrink-0 mt-1 shadow-sm">
+                        <Bot className="h-5 w-5 text-white" />
+                      </div>
+                    )}
+                    <div className={`min-w-0 ${msg.role === "user" ? "max-w-[85%] md:max-w-[70%]" : "max-w-[90%] md:max-w-[80%]"} ${msg.role === "user" ? "order-1" : ""}`}>
+                      <div
+                        className={`rounded-2xl px-4 py-3 md:px-5 md:py-3.5 ${
+                          msg.role === "user"
+                            ? "bg-primary text-primary-foreground rounded-br-md"
+                            : "bg-muted/50 rounded-bl-md border border-border"
+                        }`}
+                      >
+                        {/* break-words + overflow-wrap:anywhere: las respuestas traen URLs
+                            largas (/uploads/...) que sin esto no se pueden partir */}
+                        <p className="text-sm md:text-base whitespace-pre-wrap break-words [overflow-wrap:anywhere] leading-relaxed">{msg.content}</p>
+                      </div>
 
-          <div className="border-t border-white/10 p-4">
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                handleSend();
-              }}
-              className="flex gap-2 max-w-3xl mx-auto"
-            >
-              <Input
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                placeholder="Describe el agente que necesitas..."
-                className="flex-1 rounded-xl bg-background/50 border-white/10"
-                disabled={loading}
-              />
-              <Button type="submit" disabled={loading || !input.trim()} className="rounded-xl">
-                {loading ? <Loader className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-              </Button>
-            </form>
+                      {msg.actions && msg.actions.length > 0 && (
+                        <div className="mt-2 rounded-xl border border-border bg-card/50 divide-y divide-border overflow-hidden shadow-xs">
+                          {msg.actions.map((a, k) => (
+                            <div key={k} className="flex items-start gap-2.5 px-3.5 py-2.5 text-xs md:text-sm">
+                              <span
+                                className={`mt-0.5 shrink-0 h-5 w-5 rounded-lg flex items-center justify-center ${a.ok ? "bg-emerald-500/10 text-emerald-600" : "bg-red-500/10 text-red-600"}`}
+                              >
+                                {a.ok ? <Check className="h-3 w-3" /> : <X className="h-3 w-3" />}
+                              </span>
+                              <span className="font-mono text-[11px] text-muted-foreground shrink-0 bg-muted px-1.5 py-0.5 rounded">{a.tool}</span>
+                              <span className="text-foreground/90 min-w-0 break-words [overflow-wrap:anywhere]">{a.summary}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {msg.configApplied && (
+                        <div className="mt-2 flex gap-2 flex-wrap">
+                          <Badge className="bg-emerald-500/10 text-emerald-600 border-emerald-500/20 text-xs px-3 py-1">
+                            <Check className="h-3 w-3 mr-1" /> Configuración aplicada
+                          </Badge>
+                          {msg.advancedFeaturesEnabled && (
+                            <Badge className="bg-primary/10 text-primary border-primary/20 text-xs px-3 py-1">
+                              <Sparkles className="h-3 w-3 mr-1" /> Avanzado
+                            </Badge>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                    {msg.role === "user" && (
+                      <div className="w-9 h-9 rounded-xl bg-primary flex items-center justify-center shrink-0 mt-1 shadow-sm">
+                        <User className="h-5 w-5 text-primary-foreground" />
+                      </div>
+                    )}
+                  </div>
+                ))}
+                {loading && (
+                  <div className="flex gap-3">
+                    <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shrink-0">
+                      <Bot className="h-5 w-5 text-white" />
+                    </div>
+                    <div className="bg-muted/50 rounded-2xl rounded-bl-md border border-border px-5 py-4">
+                      <div className="flex gap-2">
+                        <div className="w-2.5 h-2.5 rounded-full bg-indigo-500 animate-bounce" />
+                        <div className="w-2.5 h-2.5 rounded-full bg-indigo-500 animate-bounce delay-100" />
+                        <div className="w-2.5 h-2.5 rounded-full bg-indigo-500 animate-bounce delay-200" />
+                      </div>
+                    </div>
+                  </div>
+                )}
+                <div ref={messagesEndRef} />
+              </div>
+            </ScrollArea>
+
+            <div className="p-3 md:p-4 border-t border-border bg-card/50">
+              <form onSubmit={(e) => { e.preventDefault(); handleSubmit(); }} className="flex gap-2">
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={handleFileUpload}
+                />
+                {mode === "operator" && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    disabled={loading || uploading}
+                    onClick={() => fileInputRef.current?.click()}
+                    title="Adjuntar imagen"
+                    className="h-11 w-11 rounded-xl shrink-0"
+                  >
+                    {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Paperclip className="h-4 w-4" />}
+                  </Button>
+                )}
+                <div className="flex-1 relative">
+                  <Input
+                    value={input}
+                    onChange={(e) => setInput(e.target.value)}
+                    placeholder={mode === "operator" ? "Ej: analiza el sistema, crea un producto, configura la tienda..." : "Ej: crea un agente para vender cursos de programación..."}
+                    disabled={loading}
+                    className="flex-1 h-11 rounded-xl pr-12 text-sm"
+                  />
+                  <Button
+                    type="submit"
+                    disabled={loading || restoring || !input.trim()}
+                    size="icon"
+                    className="absolute right-1 top-1 h-9 w-9 rounded-lg"
+                  >
+                    {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                  </Button>
+                </div>
+              </form>
+            </div>
           </div>
-        </Card>
+        </div>
       </div>
     </Layout>
   );

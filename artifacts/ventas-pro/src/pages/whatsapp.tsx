@@ -19,10 +19,14 @@ export default function WhatsAppConnection() {
   const [isResetting, setIsResetting] = useState(false);
 
   const { data: status, isLoading } = useGetWhatsAppStatus({
-    query: { refetchInterval: (query) => {
-      const data = (query.state as any).data;
-      return data?.state === 'connected' ? 10000 : 2000;
-    }, queryKey: getGetWhatsAppStatusQueryKey() }
+    // react-query v4: refetchInterval recibe (data, query) — el primer arg es la data ya,
+    // no un objeto con .state. Antes se llamaba a `query.state.data` sobre `data` undefined
+    // y explotaba con "Cannot read properties of undefined (reading 'state')" en el primer
+    // render, dejando la página en blanco.
+    query: {
+      refetchInterval: (data: any) => (data?.state === 'connected' ? 10000 : 2000),
+      queryKey: getGetWhatsAppStatusQueryKey(),
+    },
   });
 
   const connectMutation = useConnectWhatsApp();
@@ -232,7 +236,7 @@ export default function WhatsAppConnection() {
       <div className="flex flex-col gap-6 animate-enter">
         <div className="flex items-start justify-between">
           <div>
-            <h1 className="text-3xl font-bold tracking-tight bg-gradient-to-br from-foreground to-foreground/70 bg-clip-text text-transparent">Conexión de WhatsApp</h1>
+            <h1 className="text-3xl font-bold tracking-tight">Conexión de WhatsApp</h1>
             <p className="text-muted-foreground mt-1">Gestiona el dispositivo vinculado a tus agentes IA.</p>
           </div>
           {status && status.state !== 'disconnected' && (

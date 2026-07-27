@@ -22,12 +22,8 @@ import ActivatePage from "@/pages/activate";
 import OnboardingPage from "@/pages/onboarding";
 import WooCommercePage from "@/pages/woocommerce";
 import FacebookAdsPage from "@/pages/facebook";
-import CodeAgentPage from "@/pages/code-agent";
-import ArchitectPage from "@/pages/architect";
-import AdminStorePage from "@/pages/admin-store";
-import MiTiendaPage from "@/pages/mi-tienda";
-import ArenaPage from "@/pages/arena";
-import AdminTenantsPage from "@/pages/admin-tenants";
+import CodeAgent from "@/pages/code-agent";
+import AdminStore from "@/pages/admin-store";
 
 // Context para la sesión
 interface SessionContextType {
@@ -47,6 +43,15 @@ const SessionContext = createContext<SessionContextType>({
 });
 
 export const useSession = () => useContext(SessionContext);
+
+function TiendaRedirect() {
+  const { tenant } = useSession();
+  useEffect(() => {
+    const slug = tenant?.slug || '';
+    window.location.href = slug ? `/tienda/${slug}` : "/tienda";
+  }, [tenant]);
+  return null;
+}
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -91,13 +96,9 @@ function Router() {
       <Route path="/activate" component={ActivatePage} />
       <Route path="/onboarding" component={OnboardingPage} />
       <Route path="/facebook" component={FacebookAdsPage} />
-      <Route path="/code-agent" component={CodeAgentPage} />
-      <Route path="/architect" component={ArchitectPage} />
-      <Route path="/admin/store" component={AdminStorePage} />
-      <Route path="/mi-tienda" component={MiTiendaPage} />
-      <Route path="/arena" component={ArenaPage} />
-      <Route path="/admin/tenants" component={AdminTenantsPage} />
       <Route path="/auth" component={AuthPage} />
+      <Route path="/code-agent" component={CodeAgent} />
+      <Route path="/mi-tienda" component={AdminStore} />
       <Route component={NotFound} />
     </Switch>
   );
@@ -109,7 +110,7 @@ function AppContent() {
 
   useEffect(() => {
     // Redirigir a /auth si no está autenticado y no está ya en /auth o /pricing
-    if (!isLoading && !isAuthenticated && location !== "/auth" && location !== "/pricing" && location !== "/onboarding" && !location.startsWith("/store/") && !location.startsWith("/tienda/")) {
+    if (!isLoading && !isAuthenticated && location !== "/auth" && location !== "/pricing" && location !== "/onboarding" && !location.startsWith("/store") && !location.startsWith("/tienda") && location !== "/mi-tienda") {
       console.log("🔒 No autenticado, redirigiendo a /auth...");
       setLocation("/auth");
     }
