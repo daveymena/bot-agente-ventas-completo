@@ -1,7 +1,7 @@
 import express, { type Express, type Request, type Response, type NextFunction } from "express";
 import path from "path";
 import { fileURLToPath } from "url";
-import { existsSync, readdirSync, readFileSync } from "fs";
+import { existsSync, readdirSync, readFileSync, mkdirSync, writeFileSync } from "fs";
 import cors from "cors";
 import cookieParser from "cookie-parser";
 import pinoHttp from "pino-http";
@@ -251,6 +251,73 @@ function findFrontendPath(): string {
 }
 
 const frontendPath = findFrontendPath();
+
+// Rutas de imágenes persistentes — se sirven desde el volumen de datos antes que desde git
+const IMAGES_DIR = path.resolve(process.cwd(), "data/images");
+mkdirSync(IMAGES_DIR, { recursive: true });
+
+// Servir imágenes de productos desde el volumen persistente primero
+app.get("/images/products/:filename", (req, res, next) => {
+  const filePath = path.resolve(IMAGES_DIR, "products", req.params.filename);
+  if (existsSync(filePath)) {
+    return res.sendFile(filePath);
+  }
+  // Fallback al archivo estático del repositorio
+  const staticPath = path.resolve(frontendPath, "images/products", req.params.filename);
+  if (existsSync(staticPath)) {
+    return res.sendFile(staticPath);
+  }
+  next();
+});
+
+// Upload de imagen (base64) para un producto
+app.post("/api/upload-product-image/:productId", express.json({ limit: "10mb" }), async (req, res, next) => {
+  try {
+    const productId = Number(req.params.productId);
+    if (!productId) return res.status(400).json({ message: "productId inválido" });
+
+    const { image } = req.body;
+    if (!image || typeof image !== "string") return res.status(400).json({ message: "Campo 'image' requerido (base64 o URL)" });
+
+    let buffer: Buffer;
+    let ext = "jpg";
+
+    if (image.startsWith("data:")) {
+      const matches = image.match(/^data:image\/(\w+);base64,(.+)$/);
+      if (!matches) return res.status(400).json({ message: "Formato base64 inválido" });
+      ext = matches[1] === "jpeg" ? "jpg" : matches[1];
+      buffer = Buffer.from(matches[2], "base64");
+    } else if (image.startsWith("http")) {
+      const resp = await fetch(image, { signal: AbortSignal.timeout(15000) });
+      if (!resp.ok) return res.status(502).json({ message: "No se pudo descargar la imagen" });
+      const contentType = resp.headers.get("content-type") || "";
+      if (contentType.includes("jpeg")) ext = "jpg";
+      else if (contentType.includes("png")) ext = "png";
+      else if (contentType.includes("webp")) ext = "webp";
+      buffer = Buffer.from(await resp.arrayBuffer());
+    } else {
+      return res.status(400).json({ message: "Formato no soportado. Envía data:image/... base64 o una URL http" });
+    }
+
+    const destDir = path.resolve(IMAGES_DIR, "products");
+    mkdirSync(destDir, { recursive: true });
+    const filename = `${productId}.${ext}`;
+    writeFileSync(path.resolve(destDir, filename), buffer);
+
+    const imageUrl = `/images/products/${filename}`;
+
+    // Actualizar en BD
+    try {
+      await db.update(products).set({ imageUrl }).where(eq(products.id, productId));
+    } catch {
+      logger.warn({ productId }, "[UploadImage] No se pudo actualizar imageUrl en BD");
+    }
+
+    return res.json({ imageUrl, message: "Imagen guardada en volumen persistente ✓" });
+  } catch (err) {
+    next(err);
+  }
+});
 
 // Servir archivos estáticos con configuración optimizada
 app.use(express.static(frontendPath, {
