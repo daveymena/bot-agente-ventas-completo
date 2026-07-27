@@ -3,7 +3,7 @@ import { useStore, Product } from '../store/useStore';
 import { Search, Star, ShoppingCart, Heart, SlidersHorizontal, ChevronDown, X, Store, Package, Layers } from 'lucide-react';
 import { motion } from 'framer-motion';
 import Swal from 'sweetalert2';
-import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
+import { useParams, useSearchParams, useNavigate, Link } from 'react-router-dom';
 
 interface ApiProduct {
   id: number;
@@ -23,6 +23,7 @@ const ProductCard = ({ product, slug }: { product: Product; slug: string }) => {
   const { addToCart, wishlist, toggleWishlist } = useStore();
   const [imgError, setImgError] = useState(false);
   const [buying, setBuying] = useState(false);
+  const detailHref = `/tienda/${slug}/producto/${product.id}`;
 
   // "Comprar" va DIRECTO a la pasarela: antes decía Comprar pero solo metía el
   // producto al carrito, así que el cliente creía haber comprado y se quedaba
@@ -58,20 +59,22 @@ const ProductCard = ({ product, slug }: { product: Product; slug: string }) => {
       className="group relative bg-white border border-gray-200 rounded-lg overflow-hidden hover:shadow-md hover:border-gray-300 transition-all flex flex-col"
     >
       <div className="relative aspect-square bg-gray-50 overflow-hidden">
-        {product.image && !imgError ? (
-          <img
-            src={product.image}
-            alt={product.name}
-            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-            onError={() => setImgError(true)}
-            loading="lazy"
-          />
-        ) : (
-          <div className="w-full h-full flex items-center justify-center text-gray-300">
-            <Package className="w-12 h-12" />
-          </div>
-        )}
-        <div className="absolute top-2 left-2">
+        <Link to={detailHref} className="block w-full h-full" aria-label={`Ver ${product.name}`}>
+          {product.image && !imgError ? (
+            <img
+              src={product.image}
+              alt={product.name}
+              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+              onError={() => setImgError(true)}
+              loading="lazy"
+            />
+          ) : (
+            <div className="w-full h-full flex items-center justify-center text-gray-300">
+              <Package className="w-12 h-12" />
+            </div>
+          )}
+        </Link>
+        <div className="absolute top-2 left-2 pointer-events-none">
           <span className="px-2 py-0.5 rounded text-[10px] font-bold text-white bg-indigo-600 shadow-sm">
             Digital
           </span>
@@ -85,7 +88,12 @@ const ProductCard = ({ product, slug }: { product: Product; slug: string }) => {
       </div>
       <div className="p-3 flex flex-col gap-1.5 flex-1">
         <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">{product.category || 'General'}</p>
-        <h3 className="text-sm font-semibold leading-snug text-gray-900 line-clamp-2 min-h-[2.5em]">{product.name}</h3>
+        <Link
+          to={detailHref}
+          className="text-sm font-semibold leading-snug text-gray-900 line-clamp-2 min-h-[2.5em] hover:text-indigo-600 transition-colors"
+        >
+          {product.name}
+        </Link>
         <div className="flex items-center gap-1">
           <Star className="w-3 h-3 fill-amber-400 text-amber-400" />
           <span className="text-xs font-bold text-gray-700">4.9</span>

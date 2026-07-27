@@ -20,6 +20,22 @@ function resolveWhatsAppPhone(tenant?: { contactPhone?: string | null }): string
   return null;
 }
 
+/**
+ * MercadoPago descarta picture_url si no es absoluta, y las imágenes del
+ * catálogo se guardan como rutas relativas (/images/products/41.jpg). Sin
+ * esto el checkout se queda sin foto del producto.
+ * Devuelve undefined en localhost: MP no puede alcanzar esa URL.
+ */
+function toAbsoluteImageUrl(imageUrl?: string | null): string | undefined {
+  if (!imageUrl) return undefined;
+  if (/^https?:\/\//i.test(imageUrl)) return imageUrl;
+
+  const appUrl = process.env.APP_URL || "";
+  if (!/^https:\/\//i.test(appUrl)) return undefined;
+
+  return `${appUrl.replace(/\/+$/, "")}/${imageUrl.replace(/^\/+/, "")}`;
+}
+
 const router = Router();
 
 /**
@@ -76,6 +92,82 @@ router.get("/products/:slug", async (req, res, next) => {
         whatsappPhone: resolveWhatsAppPhone(tenant),
       },
       products: serialized,
+    });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+/**
+ * GET /api/public/product/:slug/:productId
+ * Ficha completa de UN producto para la página de detalle de la tienda.
+ * Existe aparte de /products/:slug para no bajar el catálogo entero (~77KB)
+ * cada vez que alguien abre un producto.
+ */
+router.get("/product/:slug/:productId", async (req, res, next) => {
+  try {
+    const { slug, productId } = req.params;
+
+    const [tenant] = await db.select().from(tenants).where(eq(tenants.slug, slug)).limit(1);
+    if (!tenant) return res.status(404).json({ message: "Tienda no encontrada" });
+
+    const [p] = await db
+      .select()
+      .from(products)
+      .where(
+        and(
+          eq(products.tenantId, tenant.id),
+          eq(products.id, Number(productId)),
+          eq(products.isActive, true),
+        ),
+      )
+      .limit(1);
+
+    if (!p) return res.status(404).json({ message: "Producto no encontrado" });
+
+    // Productos relacionados: misma categoría, para que el cliente siga viendo
+    // opciones en vez de quedarse sin salida en la ficha.
+    const related = await db
+      .select()
+      .from(products)
+      .where(
+        and(
+          eq(products.tenantId, tenant.id),
+          eq(products.isActive, true),
+          eq(products.category, p.category ?? "General"),
+        ),
+      )
+      .limit(5);
+
+    return res.json({
+      store: {
+        name: tenant.brandName || tenant.name,
+        slug: tenant.slug,
+        logo: tenant.brandLogo,
+        whatsappPhone: resolveWhatsAppPhone(tenant),
+      },
+      product: {
+        id: p.id,
+        name: p.name,
+        description: p.description,
+        price: p.price,
+        currency: p.currency,
+        image: p.imageUrl,
+        category: p.category ?? "General",
+        kind: p.kind,
+        sku: p.sku,
+        features: p.features,
+      },
+      related: related
+        .filter(r => r.id !== p.id)
+        .slice(0, 4)
+        .map(r => ({
+          id: r.id,
+          name: r.name,
+          price: r.price,
+          image: r.imageUrl,
+          category: r.category ?? "General",
+        })),
     });
   } catch (err) {
     return next(err);
@@ -329,6 +421,11 @@ router.post("/checkout/:slug/:productId", async (req, res, next) => {
           {
             id: product.id?.toString() || "prod_" + Date.now(),
             title: product.name,
+            // description y picture_url hacen que MercadoPago muestre la ficha
+            // del producto en su checkout; sin ellos solo aparece el monto.
+            description: (product.description || product.name).replace(/\s+/g, " ").trim().substring(0, 250),
+            picture_url: toAbsoluteImageUrl(product.imageUrl),
+            category_id: "learnings",
             quantity: 1,
             currency_id: product.currency === "USD" ? "COP" : product.currency || "COP",
             unit_price: Number(product.price || 0),
@@ -516,6 +613,9 @@ router.post("/checkout-cart/:slug", async (req, res, next) => {
         items: lines.map(({ product, quantity }) => ({
           id: String(product.id),
           title: product.name,
+          description: (product.description || product.name).replace(/\s+/g, " ").trim().substring(0, 250),
+          picture_url: toAbsoluteImageUrl(product.imageUrl),
+          category_id: "learnings",
           quantity,
           currency_id: product.currency === "USD" ? "COP" : product.currency || "COP",
           unit_price: Number(product.price || 0),

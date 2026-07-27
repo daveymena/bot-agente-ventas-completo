@@ -458,12 +458,23 @@ app.use((req, res, next) => {
   next();
 });
 
+// Extensiones de archivos estáticos. Si express.static no los encontró, NO
+// deben caer en el fallback de la SPA: devolver index.html con 200 hace que
+// una imagen faltante "cargue bien" y el navegador muestre un roto sin causa
+// visible — y peor, el bot llegaba a mandar ese HTML por WhatsApp creyendo
+// que era la foto del producto. Un 404 dice la verdad.
+const ASSET_EXT = /\.(jpe?g|png|gif|webp|avif|svg|ico|bmp|mp4|webm|mp3|wav|pdf|zip|css|js|mjs|map|woff2?|ttf|eot|json|txt|xml)$/i;
+
 app.use((req, res, next) => {
   // Solo manejar rutas que NO son API
   if (req.path.startsWith("/api")) {
     return next();
   }
-  
+
+  if (ASSET_EXT.test(req.path)) {
+    return res.status(404).json({ error: "Not found", path: req.path });
+  }
+
   console.log(`[Frontend] Serving index.html for path: ${req.path}`);
   const indexPath = frontendPath ? path.join(frontendPath, "index.html") : null;
 
