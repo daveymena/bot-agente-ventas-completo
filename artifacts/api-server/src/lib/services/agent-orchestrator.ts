@@ -102,9 +102,10 @@ export class AgentOrchestrator {
       return;
     }
 
-    // Don't process messages if WhatsApp is not connected (will be retried)
+    // Don't process messages if WhatsApp is not connected (revert processing flag so it can be retried)
     if (!whatsapp.isConnected()) {
       logger.debug('[AgentOrchestrator] WhatsApp not connected, deferring message processing');
+      message.processing = false;
       return;
     }
 

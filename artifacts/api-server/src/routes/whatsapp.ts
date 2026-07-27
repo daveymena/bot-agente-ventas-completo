@@ -91,7 +91,9 @@ router.post("/reset-session", async (_req, res, next) => {
 
 // Returns session health: whether auth files exist and current state
 router.get("/session-info", (_req, res) => {
-  const authDir = path.resolve(process.cwd(), ".baileys-auth");
+  const authDir = process.env.WA_AUTH_DIR
+    ? path.resolve(process.env.WA_AUTH_DIR)
+    : path.resolve(process.cwd(), "data", ".baileys-auth");
   const hasFiles = existsSync(authDir);
   const status = whatsapp.getStatus();
   return res.json({
