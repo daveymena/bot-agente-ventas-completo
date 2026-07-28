@@ -122,7 +122,64 @@ export default function FacebookAdsPage() {
   const [creatingAllDrafts, setCreatingAllDrafts] = useState(false);
   const [selectedDraftProduct, setSelectedDraftProduct] = useState<number | null>(null);
 
-  useEffect(() => { loadData(); }, []);
+  // Login real con Facebook (OAuth): antes la única forma de "conectar" era
+  // pegar un token a mano en el campo de abajo -- si venía del Explorador de
+  // Graph API (lo más común), duraba 1-2 horas y el admin terminaba
+  // reconectando todo el tiempo. Este botón hace el login real y el backend
+  // (/api/public/fb-connect) canjea el token por uno de página de larga
+  // duración que prácticamente no vence.
+  const [fbAppConfig, setFbAppConfig] = useState<{ appId: string | null; enabled: boolean }>({ appId: null, enabled: false });
+  const [connectingOAuth, setConnectingOAuth] = useState(false);
+  const [otherPages, setOtherPages] = useState<Array<{ id: string; name: string }>>([]);
+
+  useEffect(() => {
+    loadData();
+    apiRequest("/public/fb-app-config").then(setFbAppConfig).catch(() => setFbAppConfig({ appId: null, enabled: false }));
+    handleOAuthRedirectIfAny();
+  }, []);
+
+  // Facebook redirige de vuelta con #access_token=... en el fragmento de la
+  // URL (nunca llega al servidor). Se lee una sola vez al cargar la página.
+  const handleOAuthRedirectIfAny = async () => {
+    const hash = window.location.hash;
+    if (!hash || !hash.includes("access_token=")) return;
+    const params = new URLSearchParams(hash.replace(/^#/, ""));
+    const userToken = params.get("access_token");
+    // Limpiar el hash de la URL para no reprocesar el mismo token al recargar.
+    window.history.replaceState(null, "", window.location.pathname + window.location.search);
+    if (!userToken) return;
+    await connectWithUserToken(userToken);
+  };
+
+  const connectWithUserToken = async (userToken: string, pageId?: string) => {
+    try {
+      setConnectingOAuth(true);
+      const res = await apiRequest("/public/fb-connect", {
+        method: "POST",
+        body: JSON.stringify({ userToken, tenantId: 1, pageId }),
+      });
+      toast({ title: "Facebook conectado", description: `Página: ${res.page?.name || res.page?.id}${res.canPost ? "" : " (falta el permiso para publicar en el muro)"}` });
+      setOtherPages(res.otrasPaginas || []);
+      setConnected(true);
+      const cfg = await apiRequest("/facebook/config");
+      if (cfg) setConfig(cfg);
+    } catch (e: any) {
+      toast({ title: "Error conectando Facebook", description: e.message, variant: "destructive" });
+    } finally {
+      setConnectingOAuth(false);
+    }
+  };
+
+  const startFacebookLogin = () => {
+    if (!fbAppConfig.appId) return;
+    const redirectUri = window.location.origin + window.location.pathname;
+    const scope = [
+      "pages_show_list", "pages_read_engagement", "pages_manage_posts",
+      "pages_manage_metadata", "pages_messaging", "ads_management", "catalog_management",
+    ].join(",");
+    const url = `https://www.facebook.com/v21.0/dialog/oauth?client_id=${encodeURIComponent(fbAppConfig.appId)}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(scope)}&response_type=token`;
+    window.location.href = url;
+  };
 
   const loadData = async () => {
     try {
@@ -416,34 +473,73 @@ export default function FacebookAdsPage() {
             </div>
 
             {tab === "config" && (
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2"><Settings2 className="h-5 w-5" /> Credenciales de Facebook</CardTitle>
-                  <CardDescription>Datos de tu cuenta de Facebook Business para todos los canales.</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                      <Label>Access Token</Label>
-                      <Input type="password" value={rawToken || (config.hasToken ? "••••••••" : "")} onChange={e => setRawToken(e.target.value)} placeholder="FB_ACCESS_TOKEN" />
-                      {config.hasToken && !rawToken && <p className="text-xs text-muted-foreground mt-1">Token ya configurado</p>}
-                    </div>
-                    <div><Label>Pixel ID</Label><Input value={config.pixelId} onChange={e => setConfig({...config, pixelId: e.target.value})} placeholder="FB_PIXEL_ID" /></div>
-                    <div><Label>Catalog ID</Label><Input value={config.catalogId} onChange={e => setConfig({...config, catalogId: e.target.value})} placeholder="FB_CATALOG_ID" /></div>
-                    <div><Label>Page ID</Label><Input value={config.pageId} onChange={e => setConfig({...config, pageId: e.target.value})} placeholder="FB_PAGE_ID" /></div>
-                    <div><Label>Ad Account ID</Label><Input value={config.adAccountId} onChange={e => setConfig({...config, adAccountId: e.target.value})} placeholder="FB_AD_ACCOUNT_ID (solo números)" /></div>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    <Button onClick={saveConfig} disabled={saving}>{saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}Guardar</Button>
-                    <Button variant="outline" onClick={testConnection} disabled={testing}>
-                      {testing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
-                      {connected === true ? "✓ Conectado" : connected === false ? "Reconectar" : "Probar conexión"}
+              <div className="grid gap-6">
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2"><Globe className="h-5 w-5" /> Conectar con Facebook</CardTitle>
+                    <CardDescription>
+                      Recomendado: hace login real con Facebook y guarda un token de página de larga
+                      duración (prácticamente no vence). El campo manual de abajo es solo un respaldo —
+                      si pegás ahí un token del Explorador de Graph API, dura 1-2 horas y hay que
+                      reconectar todo el tiempo.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    <Button onClick={startFacebookLogin} disabled={!fbAppConfig.enabled || connectingOAuth} className="w-full sm:w-auto">
+                      {connectingOAuth ? <Loader2 className="mr-2 h-4 w-4 animate-spin shrink-0" /> : <Globe className="mr-2 h-4 w-4 shrink-0" />}
+                      Conectar con Facebook
                     </Button>
-                  </div>
-                  {connected === true && <Alert className="border-green-500"><CheckCircle2 className="h-4 w-4 text-green-500" /><AlertDescription>Conexión exitosa. Todos los canales disponibles.</AlertDescription></Alert>}
-                  {connected === false && <Alert variant="destructive"><XCircle className="h-4 w-4" /><AlertDescription>No se pudo conectar. Verifica tu Access Token.</AlertDescription></Alert>}
-                </CardContent>
-              </Card>
+                    {!fbAppConfig.enabled && (
+                      <Alert>
+                        <XCircle className="h-4 w-4" />
+                        <AlertDescription>
+                          Falta configurar <code className="break-all">FB_APP_ID</code>, <code className="break-all">FB_APP_SECRET</code> y{" "}
+                          <code className="break-all">FB_CONNECT_ENABLED=true</code> en las variables de entorno del servidor.
+                          También agregá <code className="break-all">{window.location.origin}{window.location.pathname}</code> a las
+                          "Valid OAuth Redirect URIs" del producto Facebook Login de tu app en developers.facebook.com.
+                        </AlertDescription>
+                      </Alert>
+                    )}
+                    {otherPages.length > 0 && (
+                      <Alert>
+                        <MessageSquare className="h-4 w-4" />
+                        <AlertDescription>
+                          También administrás: {otherPages.map(p => p.name).join(", ")}. Para conectar otra en vez de la actual, decíselo al Arquitecto o volvé a hacer login y elegí otra.
+                        </AlertDescription>
+                      </Alert>
+                    )}
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2"><Settings2 className="h-5 w-5" /> Credenciales de Facebook (manual / avanzado)</CardTitle>
+                    <CardDescription>Solo si no podés usar el login de arriba. Pegar acá un token de corta duración hace que se venza pronto.</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <Label>Access Token</Label>
+                        <Input type="password" value={rawToken || (config.hasToken ? "••••••••" : "")} onChange={e => setRawToken(e.target.value)} placeholder="FB_ACCESS_TOKEN" />
+                        {config.hasToken && !rawToken && <p className="text-xs text-muted-foreground mt-1">Token ya configurado</p>}
+                      </div>
+                      <div><Label>Pixel ID</Label><Input value={config.pixelId} onChange={e => setConfig({...config, pixelId: e.target.value})} placeholder="FB_PIXEL_ID" /></div>
+                      <div><Label>Catalog ID</Label><Input value={config.catalogId} onChange={e => setConfig({...config, catalogId: e.target.value})} placeholder="FB_CATALOG_ID" /></div>
+                      <div><Label>Page ID</Label><Input value={config.pageId} onChange={e => setConfig({...config, pageId: e.target.value})} placeholder="FB_PAGE_ID" /></div>
+                      <div><Label>Ad Account ID</Label><Input value={config.adAccountId} onChange={e => setConfig({...config, adAccountId: e.target.value})} placeholder="FB_AD_ACCOUNT_ID (solo números)" /></div>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <Button onClick={saveConfig} disabled={saving}>{saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}Guardar</Button>
+                      <Button variant="outline" onClick={testConnection} disabled={testing}>
+                        {testing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
+                        {connected === true ? "✓ Conectado" : connected === false ? "Reconectar" : "Probar conexión"}
+                      </Button>
+                    </div>
+                    {connected === true && <Alert className="border-green-500"><CheckCircle2 className="h-4 w-4 text-green-500" /><AlertDescription>Conexión exitosa. Todos los canales disponibles.</AlertDescription></Alert>}
+                    {connected === false && <Alert variant="destructive"><XCircle className="h-4 w-4" /><AlertDescription>No se pudo conectar. Verifica tu Access Token.</AlertDescription></Alert>}
+                  </CardContent>
+                </Card>
+              </div>
             )}
 
             {tab === "ads" && connected && (
