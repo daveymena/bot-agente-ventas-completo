@@ -578,6 +578,44 @@ Debes responder SOLO con este JSON (sin markdown, sin acentos en las claves):
       return null;
     }
   }
+
+  // ── Publicar post orgánico en el muro de la página ──────────────────────────
+
+  async publishPost(message: string, imageUrl?: string, link?: string): Promise<{ postId: string; url: string } | null> {
+    if (!this.config.accessToken || !this.config.pageId) {
+      logger.warn("[Facebook] No hay token o pageId configurado para publicar post");
+      return null;
+    }
+
+    try {
+      const body: Record<string, any> = { message };
+
+      if (imageUrl) {
+        body.image_url = imageUrl;
+      }
+
+      if (link) {
+        body.link = link;
+      }
+
+      const result = await this.fbPost(`${this.config.pageId}/feed`, body);
+
+      if (!result || !result.id) {
+        logger.error({ result }, "[Facebook] Error publicando post: respuesta sin ID");
+        return null;
+      }
+
+      const postId = result.id;
+      const postUrl = `https://www.facebook.com/${postId.replace("_", "/posts/")}`;
+
+      logger.info({ postId, postUrl }, "[Facebook] Post publicado exitosamente en el muro de la página");
+
+      return { postId, url: postUrl };
+    } catch (err: any) {
+      logger.error({ err, message: message.substring(0, 100) }, "[Facebook] Error publicando post orgánico");
+      return null;
+    }
+  }
 }
 
 export const facebookService = new FacebookService();

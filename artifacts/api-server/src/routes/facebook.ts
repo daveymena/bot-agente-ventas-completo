@@ -509,4 +509,19 @@ router.post("/sync-catalog", async (_req, res, next) => {
   } catch (e) { return next(e); }
 });
 
+// POST /facebook/publish-post — Publicar post orgánico en el muro de la página
+router.post("/publish-post", async (req, res, next) => {
+  try {
+    const { message, imageUrl, link } = req.body || {};
+    if (!message) {
+      return res.status(400).json({ error: "El campo 'message' es requerido" });
+    }
+    const result = await fb.publishPost(message, imageUrl, link);
+    if (!result) {
+      return res.status(500).json({ error: "Error al publicar el post. Verifica la configuración de Facebook." });
+    }
+    return res.json({ ok: true, ...result });
+  } catch (e) { return next(e); }
+});
+
 export default router;
