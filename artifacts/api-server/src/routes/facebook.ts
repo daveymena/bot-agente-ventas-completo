@@ -6,6 +6,7 @@ import { facebookMessengerService as fbMessenger } from "../lib/facebook-messeng
 import { facebookMarketplaceService as fbMarketplace } from "../lib/facebook-marketplace";
 import { facebookCommentsService as fbComments } from "../lib/facebook-comments";
 import { channelManager } from "../lib/channel-manager";
+import { tenantManager } from "../lib/tenantManager";
 import { adStrategist } from "../lib/ad-strategist";
 import { whatsapp } from "../lib/whatsapp";
 import { logger } from "../lib/logger";
@@ -464,7 +465,11 @@ router.put("/config", async (req, res, next) => {
     const meta = tenant?.metadata ? (typeof tenant.metadata === "string" ? JSON.parse(tenant.metadata) : tenant.metadata) : {};
     const current = meta.facebook || {};
     const body = req.body || {};
+    // Merge sobre `current`, no un objeto nuevo con campos fijos: reconstruirlo
+    // borraba messengerPageToken/messengerVerifyToken — guardar el pixel desde
+    // el panel tumbaba la página conectada y había que rehacer el OAuth.
     meta.facebook = {
+      ...current,
       accessToken: body.accessToken || current.accessToken || "",
       pixelId: body.pixelId || current.pixelId || "",
       catalogId: body.catalogId || current.catalogId || "",
@@ -474,6 +479,7 @@ router.put("/config", async (req, res, next) => {
       appSecret: body.appSecret || current.appSecret || "",
     };
     await db.update(tenants).set({ metadata: meta as any }).where(eq(tenants.id, tenantId));
+    tenantManager.clearCache();
     return res.json({ ok: true });
   } catch (e) { return next(e); }
 });

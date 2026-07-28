@@ -28,7 +28,7 @@ export class FacebookMessengerService {
   } {
     const fb = this.tenant.facebook || {};
     return {
-      pageAccessToken: fb.messengerPageToken || fb.accessToken || process.env.FB_MESSENGER_PAGE_TOKEN || "",
+      pageAccessToken: fb.accessToken || fb.messengerPageToken || process.env.FB_ACCESS_TOKEN || process.env.FB_MESSENGER_PAGE_TOKEN || "",
       appSecret: fb.appSecret || process.env.FB_APP_SECRET || "",
       appId: fb.appId || process.env.FB_APP_ID || "4238613976451604",
       pageId: fb.pageId || process.env.FB_PAGE_ID || "",

@@ -3,6 +3,7 @@ import { createAIClient, getProviderConfig, getProviderConfigFromSettings, type 
 import { db, agents, settings, products, productCategories, conversations, messages } from "@workspace/db";
 import { eq, and, desc } from "drizzle-orm";
 import { logger } from "../lib/logger";
+import { dbNow } from "../lib/date-utils";
 import type { TenantRequest } from "../lib/tenantManager";
 import { getCopilotSessionToken } from "../lib/copilot";
 import {
@@ -507,7 +508,7 @@ Actúa con la autoridad de una Ingeniera Senior de Software y Directora de Venta
             stages: result.config.stages,
             metadata: metadata,
             isActive: true,
-            updatedAt: new Date().toISOString()
+            updatedAt: dbNow()
           })
           .where(eq(agents.id, existingAgent.id));
         
@@ -815,7 +816,7 @@ Responde SIEMPRE en JSON con esta estructura:
             stages: result.config.stages,
             metadata: metadata,
             isActive: true,
-            updatedAt: new Date().toISOString()
+            updatedAt: dbNow()
           })
           .where(eq(agents.id, existingAgent.id));
       } else {
@@ -907,7 +908,7 @@ Responde SIEMPRE de forma profesional, clara y orientada a la venta.
           systemPrompt: systemPrompt,
           metadata: metadata,
           isActive: true,
-          updatedAt: new Date().toISOString()
+          updatedAt: dbNow()
         })
         .where(eq(agents.id, existingAgent.id));
     } else {

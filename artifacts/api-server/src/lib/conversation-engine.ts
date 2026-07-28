@@ -20,6 +20,7 @@
 import { eq, and, desc } from "drizzle-orm";
 import { db, conversations, messages, products, productCategories } from "@workspace/db";
 import type { MessageMetadata } from "@workspace/db";
+import { dbNow } from "./date-utils";
 
 // ─── Tipos públicos ────────────────────────────────────────────────────────────
 
@@ -1417,7 +1418,7 @@ export async function saveAgentMessage(
 
     // Actualizar lastMessage en la conversación
     await db.update(conversations)
-      .set({ lastMessage: content.substring(0, 200), lastMessageAt: new Date().toISOString() })
+      .set({ lastMessage: content.substring(0, 200), lastMessageAt: dbNow() })
       .where(eq(conversations.id, conversationId));
   } catch (err) {
     console.error(`[ConversationEngine] Error guardando mensaje del agente:`, err);

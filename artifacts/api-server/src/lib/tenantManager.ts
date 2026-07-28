@@ -2,6 +2,7 @@
 import { eq, and, sql } from "drizzle-orm";
 import { db, tenants, conversations, leads, products, productCategories } from "@workspace/db";
 import { logger } from "./logger";
+import { dbNow } from "./date-utils";
 import type { Request, Response, NextFunction } from "express";
 
 // Tenant Context Types
@@ -344,7 +345,7 @@ export class TenantManager {
         .update(tenants)
         .set({
           ...updates,
-          updatedAt: new Date().toISOString()
+          updatedAt: dbNow()
         })
         .where(eq(tenants.id, tenantId));
 

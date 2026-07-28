@@ -63,6 +63,7 @@ import {
 } from "./optimized-rotation";
 import { getG4FResponse, initializeG4F } from "./providers/g4f-provider";
 import { G4F_ENABLED } from "../config/g4f.config";
+import { dbNow } from "./date-utils";
 
 // ============================================================
 // 🎯 UNIFIED KEYWORD CONSTANTS - SINGLE SOURCE OF TRUTH
@@ -1297,7 +1298,7 @@ Si te dice "cambia el codigo de X", usa /code/read + /code/write.
       await db.update(conversations)
         .set({
           lastMessage: raw.substring(0, 200),
-          lastMessageAt: new Date().toISOString(),
+          lastMessageAt: dbNow(),
           currentProductId: agentMeta.productId ?? null,
           currentProductName: agentMeta.productName ?? null,
         })

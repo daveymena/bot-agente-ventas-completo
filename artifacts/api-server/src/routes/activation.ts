@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { logger } from "../lib/logger";
 import { db, subscriptions, tenants } from "@workspace/db";
+import { dbNow } from "../lib/date-utils";
 import { eq } from "drizzle-orm";
 import { SAAS_PLANS, SaasPlan } from "../middleware/saasValidation";
 
@@ -75,14 +76,13 @@ router.post("/activate", async (req, res) => {
     }
 
     // Activar la cuenta
-    const now = new Date();
 
     // Actualizar suscripción
     await db
       .update(subscriptions)
       .set({
-        activatedAt: now.toISOString(),
-        updatedAt: now.toISOString(),
+        activatedAt: dbNow(),
+        updatedAt: dbNow(),
       })
       .where(eq(subscriptions.id, subscription.id));
 
@@ -96,7 +96,7 @@ router.post("/activate", async (req, res) => {
         subscriptionId: subscription.id.toString(),
         subscriptionStatus: "active",
         subscriptionEndsAt: subscription.expiresAt,
-        updatedAt: now.toISOString(),
+        updatedAt: dbNow(),
       })
       .where(eq(tenants.id, tenant.id));
 

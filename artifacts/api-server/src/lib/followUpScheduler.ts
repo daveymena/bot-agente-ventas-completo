@@ -3,6 +3,7 @@ import { db, conversations, messages, activityEvents, followUps, type FollowUp, 
 import { logger } from "./logger";
 import { leadScoringEngine, type LeadStage } from "./leadScoring";
 import { whatsapp } from "./whatsapp";
+import { toDbDate } from "./date-utils";
 
 export class FollowUpScheduler {
   private isRunning = false;
@@ -60,7 +61,7 @@ export class FollowUpScheduler {
         leadId: conversation.leadId,
         contactName: conversation.contactName,
         contactPhone: conversation.contactPhone,
-        scheduledFor: scheduledFor.toISOString(),
+        scheduledFor: toDbDate(scheduledFor),
         followUpType,
         message,
         priority,

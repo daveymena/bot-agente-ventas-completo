@@ -2,6 +2,7 @@ import { Router, type IRouter } from "express";
 import { z } from "zod";
 import { tenantManager, type TenantRequest } from "../lib/tenantManager";
 import { logger } from "../lib/logger";
+import { dbNow } from "../lib/date-utils";
 
 const router: IRouter = Router();
 
@@ -272,7 +273,7 @@ router.post("/current/clear-cache", async (req: TenantRequest, res) => {
       });
     }
 
-    tenantManager.clearCache(req.tenant.slug);
+    tenantManager.clearCache();
 
     logger.info({ tenantId: req.tenant.id }, "[Tenants] Cache cleared");
 
@@ -407,7 +408,7 @@ router.post("/admin/:id/action", async (req: TenantRequest, res) => {
     const { db, tenants: tenantsTable } = await import("@workspace/db");
     const { eq } = await import("drizzle-orm");
 
-    let update: any = { updatedAt: new Date().toISOString() };
+    let update: any = { updatedAt: dbNow() };
     let message = "";
 
     switch (action) {

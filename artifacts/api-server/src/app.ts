@@ -252,8 +252,10 @@ function findFrontendPath(): string {
 
 const frontendPath = findFrontendPath();
 
-// Rutas de imágenes persistentes — se sirven desde el volumen de datos antes que desde git
-const IMAGES_DIR = path.resolve(process.cwd(), "data/images");
+// Rutas de imágenes persistentes — se sirven desde el volumen de datos antes que desde git.
+// IMAGE_STORE_DIR debe apuntar al path REAL donde Easypanel montó el volumen
+// (revisar el mount configurado en el servicio, no asumir /app/data).
+const IMAGES_DIR = process.env.IMAGE_STORE_DIR || path.resolve(process.cwd(), "data/images");
 mkdirSync(IMAGES_DIR, { recursive: true });
 
 // Servir imágenes de productos desde el volumen persistente primero

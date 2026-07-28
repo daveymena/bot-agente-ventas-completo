@@ -1,5 +1,6 @@
 // @ts-nocheck
 import { logger } from "./logger";
+import { dbNow } from "./date-utils";
 import { db, paymentLinks } from "@workspace/db";
 import { eq, and, gte, lte } from "drizzle-orm";
 import { tenantManager, type TenantContext } from "./tenantManager";
@@ -234,7 +235,7 @@ class URLShortener {
         await db.update(paymentLinks)
           .set({ 
             clicks: (link.clicks || 0) + 1,
-            lastClickAt: new Date().toISOString()
+            lastClickAt: dbNow()
           })
           .where(eq(paymentLinks.id, link.id));
 

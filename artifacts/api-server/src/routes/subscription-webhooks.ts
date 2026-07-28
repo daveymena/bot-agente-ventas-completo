@@ -2,6 +2,7 @@ import { Router } from "express";
 import { logger } from "../lib/logger";
 import { SubscriptionPaymentService } from "../lib/subscription-payments";
 import { db, subscriptions, tenants } from "@workspace/db";
+import { dbNow } from "../lib/date-utils";
 import { eq } from "drizzle-orm";
 import { sendActivationTokenEmail } from "../lib/email";
 import { SAAS_PLANS, SaasPlan } from "../middleware/saasValidation";
@@ -64,8 +65,8 @@ async function sendActivationEmail(subscriptionId: number): Promise<void> {
       await db
         .update(subscriptions)
         .set({
-          tokenSentAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
+          tokenSentAt: dbNow(),
+          updatedAt: dbNow(),
         })
         .where(eq(subscriptions.id, subscriptionId));
 
@@ -147,7 +148,7 @@ router.post("/mercadopago", async (req, res) => {
           .set({
             status: "failed",
             paymentStatus: payment.status,
-            updatedAt: new Date().toISOString(),
+            updatedAt: dbNow(),
           })
           .where(eq(subscriptions.id, subscriptionId));
 
@@ -218,7 +219,7 @@ router.post("/paypal", async (req, res) => {
             .set({
               status: "failed",
               paymentStatus: "rejected",
-              updatedAt: new Date().toISOString(),
+              updatedAt: dbNow(),
             })
             .where(eq(subscriptions.id, subscriptionId));
 

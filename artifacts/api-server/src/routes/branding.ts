@@ -3,6 +3,7 @@ import { z } from "zod";
 import { db, tenants } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { logger } from "../lib/logger";
+import { dbNow } from "../lib/date-utils";
 
 const router = Router();
 
@@ -111,7 +112,7 @@ router.put("/", async (req, res, next) => {
       .update(tenants)
       .set({
         ...updates,
-        updatedAt: new Date().toISOString(),
+        updatedAt: dbNow(),
       })
       .where(eq(tenants.id, Number(tenantId)));
 
@@ -139,7 +140,7 @@ router.post("/upload-logo", async (req, res, next) => {
       .update(tenants)
       .set({
         brandLogo: logoUrl,
-        updatedAt: new Date().toISOString(),
+        updatedAt: dbNow(),
       })
       .where(eq(tenants.id, Number(tenantId)));
 
