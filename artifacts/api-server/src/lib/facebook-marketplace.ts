@@ -13,6 +13,26 @@ export interface MarketplaceListing {
   listingUrl: string;
 }
 
+export interface CreateListingResult {
+  ok: boolean;
+  listing?: MarketplaceListing;
+  error?: string;
+}
+
+/**
+ * Convierte una ruta relativa del catálogo (/uploads/products/42.jpg) en URL
+ * pública absoluta -- Facebook descarga la imagen desde sus servidores, una
+ * ruta relativa no le sirve. Mismo fallback de APP_URL que el resto del
+ * código (payments.ts, facebook-page-posts.ts, etc.).
+ */
+function absoluteImageUrl(pathOrUrl?: string | null): string | null {
+  if (!pathOrUrl) return null;
+  if (/^https?:\/\//i.test(pathOrUrl)) return pathOrUrl;
+  const appUrl = process.env.APP_URL || "https://tecnovariedades.easypanel.host";
+  if (!/^https:\/\//i.test(appUrl)) return null;
+  return `${appUrl.replace(/\/+$/, "")}/${pathOrUrl.replace(/^\/+/, "")}`;
+}
+
 export class FacebookMarketplaceService {
   private tenant: TenantContext;
 
@@ -33,9 +53,11 @@ export class FacebookMarketplaceService {
     return !!cfg.pageId && !!cfg.pageAccessToken;
   }
 
-  async createListing(productId: number): Promise<MarketplaceListing | null> {
+  async createListing(productId: number): Promise<CreateListingResult> {
     const { pageId, pageAccessToken } = this.getConfig();
-    if (!pageId || !pageAccessToken) return null;
+    if (!pageId || !pageAccessToken) {
+      return { ok: false, error: "Facebook no está conectado (falta el token o el ID de página de este negocio)" };
+    }
 
     try {
       const [product] = await db
@@ -43,7 +65,7 @@ export class FacebookMarketplaceService {
         .from(products)
         .where(eq(products.id, productId))
         .limit(1);
-      if (!product) throw new Error("Producto no encontrado");
+      if (!product) return { ok: false, error: "Producto no encontrado" };
 
       const price = Number(product.price).toFixed(0);
       const description = (product.description || product.name || "").substring(0, 5000);
@@ -56,8 +78,15 @@ export class FacebookMarketplaceService {
         condition: "new",
       };
 
-      if (product.image_url) {
-        listingData.image_urls = [product.image_url];
+      // Bug: el campo del esquema es imageUrl (columna image_url), leerlo
+      // como product.image_url daba siempre undefined -- ningún listing
+      // llevaba imagen, y el Marketplace Listings API de Meta la EXIGE, así
+      // que Facebook rechazaba la publicación entera con un error genérico.
+      const imageUrl = absoluteImageUrl(product.imageUrl);
+      if (imageUrl) {
+        listingData.image_urls = [imageUrl];
+      } else {
+        return { ok: false, error: "El producto no tiene imagen -- Marketplace exige al menos una foto. Asignale una imagen primero." };
       }
 
       const res = await fetch(
@@ -66,13 +95,14 @@ export class FacebookMarketplaceService {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(listingData),
+          signal: AbortSignal.timeout(20000),
         }
       );
 
-      const data = await res.json();
+      const data: any = await res.json();
       if (data.error) {
         logger.error({ err: data.error, product: product.name }, "[FB-Marketplace] Error creating listing");
-        return null;
+        return { ok: false, error: data.error.message || "Facebook rechazó el listing" };
       }
 
       logger.info(
@@ -81,15 +111,18 @@ export class FacebookMarketplaceService {
       );
 
       return {
-        id: data.id,
-        name: product.name || "",
-        price: `$${price} ${product.currency || "COP"}`,
-        status: "ACTIVE",
-        listingUrl: `https://www.facebook.com/marketplace/item/${data.id}`,
+        ok: true,
+        listing: {
+          id: data.id,
+          name: product.name || "",
+          price: `$${price} ${product.currency || "COP"}`,
+          status: "ACTIVE",
+          listingUrl: `https://www.facebook.com/marketplace/item/${data.id}`,
+        },
       };
     } catch (err: any) {
       logger.error({ err, productId }, "[FB-Marketplace] Error");
-      return null;
+      return { ok: false, error: err?.message || "Error desconocido" };
     }
   }
 
@@ -115,6 +148,7 @@ export class FacebookMarketplaceService {
             description: (product.description || "").substring(0, 5000),
             price: Number(product.price).toFixed(0),
           }),
+          signal: AbortSignal.timeout(20000),
         }
       );
 
@@ -133,7 +167,7 @@ export class FacebookMarketplaceService {
     try {
       const res = await fetch(
         `${FB_GRAPH_URL}/${listingId}?access_token=${pageAccessToken}`,
-        { method: "DELETE" }
+        { method: "DELETE", signal: AbortSignal.timeout(15000) }
       );
       const data = await res.json();
       return data.success !== false;
@@ -157,7 +191,8 @@ export class FacebookMarketplaceService {
       }
 
       const res = await fetch(
-        `${FB_GRAPH_URL}/${pageId}/marketplace_listings?${params}`
+        `${FB_GRAPH_URL}/${pageId}/marketplace_listings?${params}`,
+        { signal: AbortSignal.timeout(15000) },
       );
       const data = await res.json();
 
@@ -179,8 +214,8 @@ export class FacebookMarketplaceService {
     }
   }
 
-  async syncActiveProducts(): Promise<{ created: number; failed: number; listings: MarketplaceListing[] }> {
-    const result = { created: 0, failed: 0, listings: [] as MarketplaceListing[] };
+  async syncActiveProducts(): Promise<{ created: number; failed: number; listings: MarketplaceListing[]; errors: string[] }> {
+    const result = { created: 0, failed: 0, listings: [] as MarketplaceListing[], errors: [] as string[] };
 
     const activeProducts = await db
       .select()
@@ -190,15 +225,17 @@ export class FacebookMarketplaceService {
 
     for (const p of activeProducts) {
       try {
-        const listing = await this.createListing(p.id);
-        if (listing) {
+        const r = await this.createListing(p.id);
+        if (r.ok && r.listing) {
           result.created++;
-          result.listings.push(listing);
+          result.listings.push(r.listing);
         } else {
           result.failed++;
+          result.errors.push(`${p.name}: ${r.error || "error desconocido"}`);
         }
-      } catch {
+      } catch (err: any) {
         result.failed++;
+        result.errors.push(`${p.name}: ${err?.message || "error desconocido"}`);
       }
     }
 
