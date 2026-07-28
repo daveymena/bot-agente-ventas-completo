@@ -272,7 +272,7 @@ router.post("/current/clear-cache", async (req: TenantRequest, res) => {
       });
     }
 
-    tenantManager.clearCache(req.tenant.slug);
+    tenantManager.clearCache();
 
     logger.info({ tenantId: req.tenant.id }, "[Tenants] Cache cleared");
 

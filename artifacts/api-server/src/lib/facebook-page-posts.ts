@@ -45,10 +45,10 @@ function pageCreds(tenant?: TenantContext): { token: string; pageId: string } {
   const fb = t?.facebook || {};
   return {
     token:
-      fb.messengerPageToken ||
       fb.accessToken ||
-      process.env.FB_MESSENGER_PAGE_TOKEN ||
+      fb.messengerPageToken ||
       process.env.FB_ACCESS_TOKEN ||
+      process.env.FB_MESSENGER_PAGE_TOKEN ||
       "",
     pageId: fb.pageId || process.env.FB_PAGE_ID || "",
   };
