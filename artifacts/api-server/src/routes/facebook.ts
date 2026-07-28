@@ -4,7 +4,6 @@ import { eq } from "drizzle-orm";
 import { db, tenants, leads, conversations, messages, products } from "@workspace/db";
 import { facebookService as fb } from "../lib/facebook";
 import { facebookMessengerService as fbMessenger } from "../lib/facebook-messenger";
-import { facebookMarketplaceService as fbMarketplace } from "../lib/facebook-marketplace";
 import { facebookCommentsService as fbComments } from "../lib/facebook-comments";
 import { channelManager } from "../lib/channel-manager";
 import { tenantManager } from "../lib/tenantManager";
@@ -403,30 +402,41 @@ router.post("/messenger/save-token", async (req, res, next) => {
 router.post("/marketplace/listings/:productId", async (req, res, next) => {
   try {
     const productId = parseInt(req.params.productId);
-    const listing = await fbMarketplace.createListing(productId);
-    if (!listing) return res.status(500).json({ error: "Error al crear listing" });
-    return res.json(listing);
+    const tenant = (req as any).tenant;
+    // Mismo motivo que AdStrategist: el singleton fbMarketplace se crea SIN
+    // tenant (usa el por defecto, sin .facebook), así que siempre caía a
+    // variables de entorno vacías e ignoraba el token conectado en la BD.
+    const { FacebookMarketplaceService } = await import("../lib/facebook-marketplace");
+    const r = await new FacebookMarketplaceService(tenant || undefined).createListing(productId);
+    if (!r.ok || !r.listing) return res.status(502).json({ error: r.error || "Error al crear listing" });
+    return res.json(r.listing);
   } catch (e) { return next(e); }
 });
 
-router.get("/marketplace/listings", async (_req, res, next) => {
+router.get("/marketplace/listings", async (req, res, next) => {
   try {
-    const status = (_req.query.status as string) || "ACTIVE";
-    const listings = await fbMarketplace.getListings(status as any);
+    const status = (req.query.status as string) || "ACTIVE";
+    const tenant = (req as any).tenant;
+    const { FacebookMarketplaceService } = await import("../lib/facebook-marketplace");
+    const listings = await new FacebookMarketplaceService(tenant || undefined).getListings(status as any);
     return res.json({ listings });
   } catch (e) { return next(e); }
 });
 
-router.post("/marketplace/sync", async (_req, res, next) => {
+router.post("/marketplace/sync", async (req, res, next) => {
   try {
-    const result = await fbMarketplace.syncActiveProducts();
+    const tenant = (req as any).tenant;
+    const { FacebookMarketplaceService } = await import("../lib/facebook-marketplace");
+    const result = await new FacebookMarketplaceService(tenant || undefined).syncActiveProducts();
     return res.json(result);
   } catch (e) { return next(e); }
 });
 
 router.delete("/marketplace/listings/:listingId", async (req, res, next) => {
   try {
-    const ok = await fbMarketplace.deleteListing(req.params.listingId);
+    const tenant = (req as any).tenant;
+    const { FacebookMarketplaceService } = await import("../lib/facebook-marketplace");
+    const ok = await new FacebookMarketplaceService(tenant || undefined).deleteListing(req.params.listingId);
     return res.json({ ok });
   } catch (e) { return next(e); }
 });
