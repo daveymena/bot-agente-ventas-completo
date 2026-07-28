@@ -122,7 +122,64 @@ export default function FacebookAdsPage() {
   const [creatingAllDrafts, setCreatingAllDrafts] = useState(false);
   const [selectedDraftProduct, setSelectedDraftProduct] = useState<number | null>(null);
 
-  useEffect(() => { loadData(); }, []);
+  // Login real con Facebook (OAuth): antes la única forma de "conectar" era
+  // pegar un token a mano en el campo de abajo -- si venía del Explorador de
+  // Graph API (lo más común), duraba 1-2 horas y el admin terminaba
+  // reconectando todo el tiempo. Este botón hace el login real y el backend
+  // (/api/public/fb-connect) canjea el token por uno de página de larga
+  // duración que prácticamente no vence.
+  const [fbAppConfig, setFbAppConfig] = useState<{ appId: string | null; enabled: boolean }>({ appId: null, enabled: false });
+  const [connectingOAuth, setConnectingOAuth] = useState(false);
+  const [otherPages, setOtherPages] = useState<Array<{ id: string; name: string }>>([]);
+
+  useEffect(() => {
+    loadData();
+    apiRequest("/public/fb-app-config").then(setFbAppConfig).catch(() => setFbAppConfig({ appId: null, enabled: false }));
+    handleOAuthRedirectIfAny();
+  }, []);
+
+  // Facebook redirige de vuelta con #access_token=... en el fragmento de la
+  // URL (nunca llega al servidor). Se lee una sola vez al cargar la página.
+  const handleOAuthRedirectIfAny = async () => {
+    const hash = window.location.hash;
+    if (!hash || !hash.includes("access_token=")) return;
+    const params = new URLSearchParams(hash.replace(/^#/, ""));
+    const userToken = params.get("access_token");
+    // Limpiar el hash de la URL para no reprocesar el mismo token al recargar.
+    window.history.replaceState(null, "", window.location.pathname + window.location.search);
+    if (!userToken) return;
+    await connectWithUserToken(userToken);
+  };
+
+  const connectWithUserToken = async (userToken: string, pageId?: string) => {
+    try {
+      setConnectingOAuth(true);
+      const res = await apiRequest("/public/fb-connect", {
+        method: "POST",
+        body: JSON.stringify({ userToken, tenantId: 1, pageId }),
+      });
+      toast({ title: "Facebook conectado", description: `Página: ${res.page?.name || res.page?.id}${res.canPost ? "" : " (falta el permiso para publicar en el muro)"}` });
+      setOtherPages(res.otrasPaginas || []);
+      setConnected(true);
+      const cfg = await apiRequest("/facebook/config");
+      if (cfg) setConfig(cfg);
+    } catch (e: any) {
+      toast({ title: "Error conectando Facebook", description: e.message, variant: "destructive" });
+    } finally {
+      setConnectingOAuth(false);
+    }
+  };
+
+  const startFacebookLogin = () => {
+    if (!fbAppConfig.appId) return;
+    const redirectUri = window.location.origin + window.location.pathname;
+    const scope = [
+      "pages_show_list", "pages_read_engagement", "pages_manage_posts",
+      "pages_manage_metadata", "pages_messaging", "ads_management", "catalog_management",
+    ].join(",");
+    const url = `https://www.facebook.com/v21.0/dialog/oauth?client_id=${encodeURIComponent(fbAppConfig.appId)}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(scope)}&response_type=token`;
+    window.location.href = url;
+  };
 
   const loadData = async () => {
     try {
@@ -416,34 +473,73 @@ export default function FacebookAdsPage() {
             </div>
 
             {tab === "config" && (
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2"><Settings2 className="h-5 w-5" /> Credenciales de Facebook</CardTitle>
-                  <CardDescription>Datos de tu cuenta de Facebook Business para todos los canales.</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                      <Label>Access Token</Label>
-                      <Input type="password" value={rawToken || (config.hasToken ? "••••••••" : "")} onChange={e => setRawToken(e.target.value)} placeholder="FB_ACCESS_TOKEN" />
-                      {config.hasToken && !rawToken && <p className="text-xs text-muted-foreground mt-1">Token ya configurado</p>}
-                    </div>
-                    <div><Label>Pixel ID</Label><Input value={config.pixelId} onChange={e => setConfig({...config, pixelId: e.target.value})} placeholder="FB_PIXEL_ID" /></div>
-                    <div><Label>Catalog ID</Label><Input value={config.catalogId} onChange={e => setConfig({...config, catalogId: e.target.value})} placeholder="FB_CATALOG_ID" /></div>
-                    <div><Label>Page ID</Label><Input value={config.pageId} onChange={e => setConfig({...config, pageId: e.target.value})} placeholder="FB_PAGE_ID" /></div>
-                    <div><Label>Ad Account ID</Label><Input value={config.adAccountId} onChange={e => setConfig({...config, adAccountId: e.target.value})} placeholder="FB_AD_ACCOUNT_ID (solo números)" /></div>
-                  </div>
-                  <div className="flex gap-2">
-                    <Button onClick={saveConfig} disabled={saving}>{saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}Guardar</Button>
-                    <Button variant="outline" onClick={testConnection} disabled={testing}>
-                      {testing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
-                      {connected === true ? "✓ Conectado" : connected === false ? "Reconectar" : "Probar conexión"}
+              <div className="grid gap-6">
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2"><Globe className="h-5 w-5" /> Conectar con Facebook</CardTitle>
+                    <CardDescription>
+                      Recomendado: hace login real con Facebook y guarda un token de página de larga
+                      duración (prácticamente no vence). El campo manual de abajo es solo un respaldo —
+                      si pegás ahí un token del Explorador de Graph API, dura 1-2 horas y hay que
+                      reconectar todo el tiempo.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    <Button onClick={startFacebookLogin} disabled={!fbAppConfig.enabled || connectingOAuth} className="w-full sm:w-auto">
+                      {connectingOAuth ? <Loader2 className="mr-2 h-4 w-4 animate-spin shrink-0" /> : <Globe className="mr-2 h-4 w-4 shrink-0" />}
+                      Conectar con Facebook
                     </Button>
-                  </div>
-                  {connected === true && <Alert className="border-green-500"><CheckCircle2 className="h-4 w-4 text-green-500" /><AlertDescription>Conexión exitosa. Todos los canales disponibles.</AlertDescription></Alert>}
-                  {connected === false && <Alert variant="destructive"><XCircle className="h-4 w-4" /><AlertDescription>No se pudo conectar. Verifica tu Access Token.</AlertDescription></Alert>}
-                </CardContent>
-              </Card>
+                    {!fbAppConfig.enabled && (
+                      <Alert>
+                        <XCircle className="h-4 w-4" />
+                        <AlertDescription>
+                          Falta configurar <code className="break-all">FB_APP_ID</code>, <code className="break-all">FB_APP_SECRET</code> y{" "}
+                          <code className="break-all">FB_CONNECT_ENABLED=true</code> en las variables de entorno del servidor.
+                          También agregá <code className="break-all">{window.location.origin}{window.location.pathname}</code> a las
+                          "Valid OAuth Redirect URIs" del producto Facebook Login de tu app en developers.facebook.com.
+                        </AlertDescription>
+                      </Alert>
+                    )}
+                    {otherPages.length > 0 && (
+                      <Alert>
+                        <MessageSquare className="h-4 w-4" />
+                        <AlertDescription>
+                          También administrás: {otherPages.map(p => p.name).join(", ")}. Para conectar otra en vez de la actual, decíselo al Arquitecto o volvé a hacer login y elegí otra.
+                        </AlertDescription>
+                      </Alert>
+                    )}
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2"><Settings2 className="h-5 w-5" /> Credenciales de Facebook (manual / avanzado)</CardTitle>
+                    <CardDescription>Solo si no podés usar el login de arriba. Pegar acá un token de corta duración hace que se venza pronto.</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <Label>Access Token</Label>
+                        <Input type="password" value={rawToken || (config.hasToken ? "••••••••" : "")} onChange={e => setRawToken(e.target.value)} placeholder="FB_ACCESS_TOKEN" />
+                        {config.hasToken && !rawToken && <p className="text-xs text-muted-foreground mt-1">Token ya configurado</p>}
+                      </div>
+                      <div><Label>Pixel ID</Label><Input value={config.pixelId} onChange={e => setConfig({...config, pixelId: e.target.value})} placeholder="FB_PIXEL_ID" /></div>
+                      <div><Label>Catalog ID</Label><Input value={config.catalogId} onChange={e => setConfig({...config, catalogId: e.target.value})} placeholder="FB_CATALOG_ID" /></div>
+                      <div><Label>Page ID</Label><Input value={config.pageId} onChange={e => setConfig({...config, pageId: e.target.value})} placeholder="FB_PAGE_ID" /></div>
+                      <div><Label>Ad Account ID</Label><Input value={config.adAccountId} onChange={e => setConfig({...config, adAccountId: e.target.value})} placeholder="FB_AD_ACCOUNT_ID (solo números)" /></div>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <Button onClick={saveConfig} disabled={saving}>{saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}Guardar</Button>
+                      <Button variant="outline" onClick={testConnection} disabled={testing}>
+                        {testing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
+                        {connected === true ? "✓ Conectado" : connected === false ? "Reconectar" : "Probar conexión"}
+                      </Button>
+                    </div>
+                    {connected === true && <Alert className="border-green-500"><CheckCircle2 className="h-4 w-4 text-green-500" /><AlertDescription>Conexión exitosa. Todos los canales disponibles.</AlertDescription></Alert>}
+                    {connected === false && <Alert variant="destructive"><XCircle className="h-4 w-4" /><AlertDescription>No se pudo conectar. Verifica tu Access Token.</AlertDescription></Alert>}
+                  </CardContent>
+                </Card>
+              </div>
             )}
 
             {tab === "ads" && connected && (
@@ -508,7 +604,7 @@ export default function FacebookAdsPage() {
                     <CheckCircle2 className="h-4 w-4 text-green-500" />
                     <AlertDescription>
                       <p className="font-semibold">Anuncio creado</p>
-                      <p className="text-sm">Campaña: {result.campaignId} | Anuncio: {result.adId}</p>
+                      <p className="text-sm break-all">Campaña: {result.campaignId} | Anuncio: {result.adId}</p>
                       {result.adCopy && <div className="mt-2 p-2 bg-muted rounded text-xs"><p><strong>Texto:</strong> {result.adCopy.primaryText}</p></div>}
                     </AlertDescription>
                   </Alert>
@@ -551,13 +647,13 @@ export default function FacebookAdsPage() {
                         </Button>
                       </div>
                     </div>
-                    <div className="flex gap-2">
-                      <Button variant="outline" onClick={createAllDrafts} disabled={creatingAllDrafts}>
-                        {creatingAllDrafts ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Package className="mr-2 h-4 w-4" />}
+                    <div className="flex flex-wrap gap-2">
+                      <Button variant="outline" onClick={createAllDrafts} disabled={creatingAllDrafts} className="w-full sm:w-auto">
+                        {creatingAllDrafts ? <Loader2 className="mr-2 h-4 w-4 animate-spin shrink-0" /> : <Package className="mr-2 h-4 w-4 shrink-0" />}
                         Crear borradores para TODOS los productos (Megapacks)
                       </Button>
-                      <Button variant="outline" onClick={loadDrafts} disabled={loadingDrafts}>
-                        {loadingDrafts ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
+                      <Button variant="outline" onClick={loadDrafts} disabled={loadingDrafts} className="w-full sm:w-auto">
+                        {loadingDrafts ? <Loader2 className="mr-2 h-4 w-4 animate-spin shrink-0" /> : <RefreshCw className="mr-2 h-4 w-4 shrink-0" />}
                         Actualizar lista
                       </Button>
                     </div>
@@ -575,12 +671,12 @@ export default function FacebookAdsPage() {
                         {drafts.map(d => (
                           <div key={d.id} className="flex items-start justify-between p-4 bg-muted rounded-lg gap-4">
                             <div className="flex-1 min-w-0">
-                              <div className="flex items-center gap-2">
-                                <h4 className="font-semibold truncate">{d.productName}</h4>
-                                <span className={`px-2 py-0.5 rounded text-xs font-medium ${d.status === "published" ? "bg-green-500/20 text-green-500" : "bg-amber-500/20 text-amber-500"}`}>
+                              <div className="flex flex-wrap items-center gap-2 min-w-0">
+                                <h4 className="font-semibold truncate min-w-0">{d.productName}</h4>
+                                <span className={`shrink-0 px-2 py-0.5 rounded text-xs font-medium ${d.status === "published" ? "bg-green-500/20 text-green-500" : "bg-amber-500/20 text-amber-500"}`}>
                                   {d.status === "published" ? "Publicado" : d.status === "created" ? "Creado en FB" : "Borrador"}
                                 </span>
-                                {d.fbStatus && <span className="px-2 py-0.5 rounded text-xs bg-blue-500/20 text-blue-500">{d.fbStatus}</span>}
+                                {d.fbStatus && <span className="shrink-0 px-2 py-0.5 rounded text-xs bg-blue-500/20 text-blue-500">{d.fbStatus}</span>}
                               </div>
                               {d.niche && <p className="text-xs text-muted-foreground mt-1">Estrategia: {d.niche}</p>}
                               {d.budget && <p className="text-xs text-muted-foreground">Presupuesto: ${d.budget.toLocaleString("es-CO")} COP/día</p>}
@@ -636,10 +732,10 @@ export default function FacebookAdsPage() {
                   <CardContent className="space-y-4">
                     {pageInfo && (
                       <div className="flex items-center gap-4 p-4 bg-muted rounded-lg">
-                        {pageInfo.picture && <img src={pageInfo.picture} alt="" className="w-12 h-12 rounded-full" />}
-                        <div>
-                          <p className="font-semibold">{pageInfo.name}</p>
-                          <p className="text-sm text-muted-foreground">ID: {pageInfo.id}</p>
+                        {pageInfo.picture && <img src={pageInfo.picture} alt="" className="w-12 h-12 rounded-full shrink-0" />}
+                        <div className="min-w-0">
+                          <p className="font-semibold truncate">{pageInfo.name}</p>
+                          <p className="text-sm text-muted-foreground break-all">ID: {pageInfo.id}</p>
                         </div>
                       </div>
                     )}
@@ -648,10 +744,10 @@ export default function FacebookAdsPage() {
                       <Input value="salesbot_messenger_2024" readOnly className="font-mono text-sm" />
                       <p className="text-xs text-muted-foreground">
                         Usa este token al configurar el webhook en Facebook Developers. La URL del webhook es:
-                        <code className="block mt-1 p-1 bg-muted rounded text-xs">{window.location.origin}/api/facebook/messenger/webhook</code>
+                        <code className="block mt-1 p-1 bg-muted rounded text-xs break-all">{window.location.origin}/api/facebook/messenger/webhook</code>
                       </p>
                     </div>
-                    <div className="flex gap-2">
+                    <div className="flex flex-wrap gap-2">
                       <Button onClick={subscribeMessenger} disabled={subscribing || !pageInfo}>
                         {subscribing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <MessageCircle className="mr-2 h-4 w-4" />}
                         Suscribir al webhook
@@ -700,13 +796,13 @@ export default function FacebookAdsPage() {
                         </Button>
                       </div>
                     </div>
-                    <div className="flex gap-2">
+                    <div className="flex flex-wrap gap-2">
                       <Button variant="outline" onClick={loadListings} disabled={loadingListings}>
-                        {loadingListings ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
+                        {loadingListings ? <Loader2 className="mr-2 h-4 w-4 animate-spin shrink-0" /> : <RefreshCw className="mr-2 h-4 w-4 shrink-0" />}
                         Ver listings activos
                       </Button>
                       <Button variant="outline" onClick={syncAllMarketplace}>
-                        <Package className="mr-2 h-4 w-4" /> Sincronizar todos los productos
+                        <Package className="mr-2 h-4 w-4 shrink-0" /> Sincronizar todos los productos
                       </Button>
                     </div>
                   </CardContent>
@@ -749,16 +845,16 @@ export default function FacebookAdsPage() {
                       <Globe className="h-4 w-4" />
                       <AlertDescription>
                         Para activar la respuesta automática a comentarios, configura el webhook de Facebook en:
-                        <code className="block mt-1 p-1 bg-muted rounded text-xs">{window.location.origin}/api/facebook/comments/webhook</code>
+                        <code className="block mt-1 p-1 bg-muted rounded text-xs break-all">{window.location.origin}/api/facebook/comments/webhook</code>
                         <span className="block mt-1 text-xs">Verify Token: <strong>salesbot_messenger_2024</strong></span>
                       </AlertDescription>
                     </Alert>
                     <p className="text-sm text-muted-foreground">
                       También puedes activar el polling automático para revisar comentarios nuevos cada 60 segundos:
                     </p>
-                    <div className="flex gap-2">
+                    <div className="flex flex-wrap gap-2">
                       <Button onClick={startPolling} disabled={pollingActive}>
-                        <Radio className="mr-2 h-4 w-4" /> Iniciar monitoreo automático
+                        <Radio className="mr-2 h-4 w-4 shrink-0" /> Iniciar monitoreo automático
                       </Button>
                       <Button variant="outline" onClick={stopPolling} disabled={!pollingActive}>
                         Detener monitoreo

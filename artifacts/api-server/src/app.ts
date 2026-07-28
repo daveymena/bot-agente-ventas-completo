@@ -21,6 +21,7 @@ import { getAllTemplates } from "./lib/agent-templates";
 import { db, agents, tenants, settings, products, productCategories } from "@workspace/db";
 import { ensureDbReady } from "@workspace/db";
 import { eq } from "drizzle-orm";
+import { getImageStoreDir } from "./lib/image-store";
 
 // Auto-start WhatsApp bot on boot
 whatsapp.start().catch(err => {
@@ -293,7 +294,10 @@ const frontendPath = findFrontendPath();
 // Rutas de imágenes persistentes — se sirven desde el volumen de datos antes que desde git.
 // IMAGE_STORE_DIR debe apuntar al path REAL donde Easypanel montó el volumen
 // (revisar el mount configurado en el servicio, no asumir /app/data).
-const IMAGES_DIR = process.env.IMAGE_STORE_DIR || path.resolve(process.cwd(), "data/images");
+// Se calcula con getImageStoreDir() (mismo módulo que escribe las imágenes en
+// disco) para que servir y guardar SIEMPRE usen la misma ruta, aunque
+// IMAGE_STORE_DIR no esté seteada.
+const IMAGES_DIR = getImageStoreDir();
 mkdirSync(IMAGES_DIR, { recursive: true });
 
 // Servir imágenes de productos desde el volumen persistente primero

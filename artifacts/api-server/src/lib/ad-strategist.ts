@@ -405,7 +405,7 @@ ${descLine}
     if (/^https?:\/\//i.test(raw)) {
       imageUrl = raw;
     } else if (raw) {
-      const appUrl = process.env.APP_URL || "";
+      const appUrl = process.env.APP_URL || "https://tecnovariedades.easypanel.host";
       if (/^https:\/\//i.test(appUrl)) {
         imageUrl = `${appUrl.replace(/\/+$/, "")}/${raw.replace(/^\/+/, "")}`;
       }

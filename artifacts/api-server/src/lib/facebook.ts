@@ -66,7 +66,7 @@ export class FacebookService {
   async validate(): Promise<{ ok: boolean; message: string }> {
     if (!this.isConfigured()) return { ok: false, message: "Token no configurado" };
     try {
-      const res = await fetch(`${FB_GRAPH_URL}/me?access_token=${this.config.accessToken}`);
+      const res = await fetch(`${FB_GRAPH_URL}/me?access_token=${this.config.accessToken}`, { signal: AbortSignal.timeout(10000) });
       const d = await res.json();
       return d.id
         ? { ok: true, message: `Conectado como ${d.name || d.id}` }
@@ -200,6 +200,7 @@ Responde SOLO con este JSON exacto:
           temperature: 0.7,
           max_tokens: 400,
         }),
+        signal: AbortSignal.timeout(20000),
       });
       const data = await res.json();
       const text = data.choices?.[0]?.message?.content || "";
@@ -456,6 +457,7 @@ Debes responder SOLO con este JSON (sin markdown, sin acentos en las claves):
           temperature: 0.7,
           max_tokens: 300,
         }),
+        signal: AbortSignal.timeout(20000),
       });
 
       const data = await res.json();
@@ -518,6 +520,7 @@ Debes responder SOLO con este JSON (sin markdown, sin acentos en las claves):
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
+      signal: AbortSignal.timeout(20000),
     });
     const data = await res.json();
     if (data.error) throw new Error(`${data.error.message} (código ${data.error.code})`);
@@ -526,7 +529,7 @@ Debes responder SOLO con este JSON (sin markdown, sin acentos en las claves):
 
   private async fbGet(endpoint: string, query: Record<string, string> = {}): Promise<any> {
     const params = new URLSearchParams({ access_token: this.config.accessToken, ...query });
-    const res = await fetch(`${FB_GRAPH_URL}/${endpoint}?${params}`);
+    const res = await fetch(`${FB_GRAPH_URL}/${endpoint}?${params}`, { signal: AbortSignal.timeout(15000) });
     const data = await res.json();
     if (data.error) throw new Error(`${data.error.message} (código ${data.error.code})`);
     return data;

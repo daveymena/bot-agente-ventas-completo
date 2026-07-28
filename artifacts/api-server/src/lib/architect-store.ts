@@ -153,15 +153,21 @@ export async function clearArchitectHistory(
 // escriba — así que el admin confirmaba, el plan se descartaba por "no
 // reconocido" y la IA volvía a proponer el mismo plan en bucle infinito.
 export function isApproval(text: string): boolean {
-  const t = text.trim().toLowerCase().replace(/[!.¡¿?]+$/g, "").trim();
+  let t = text.trim().toLowerCase().replace(/[!.¡¿?]+$/g, "").trim();
+  // Muletillas al inicio ("entonces", "bueno", "pues", "vale", "ya") no
+  // cambian el sentido: "entonces confirmado" aprueba igual que "confirmado"
+  // solo. Sin este strip, isApproval() la rechazaba, el plan pendiente se
+  // borraba sin ejecutar y la IA volvía a proponer el MISMO plan — bucle
+  // visto en vivo con exactamente esta frase.
+  t = t.replace(/^(entonces|bueno|pues|vale|ya)[,\s]+/i, "").trim();
   // La palabra sola (o con una coletilla corta tipo "sí porfa", "dale pues")
   // ES la confirmación. "sí pero cambia el texto" NO debe contar como
   // aprobación — por eso se exige que sea (casi) todo el mensaje, no un
   // prefijo de una frase más larga con un "pero/pero que/cambia" después.
-  if (/^(s[ií]|ok(ay)?|dale|confirmo|confirmado|apruebo|adelante|proced[eo]|listo|claro|hazlo|ejec[uú]talo|correcto|perfecto)(\s+(porfa|por\s+favor|pues|ya|nomas|no\s+m[aá]s))?$/i.test(t)) {
+  if (/^(s[ií]|sip|ok(ay)?|dale|confirmo|confirmado|apruebo|adelante|proced[eo]|listo|claro|hazlo|ejec[uú]talo|correcto|perfecto|va|eso)(\s+(porfa|por\s+favor|pues|ya|nomas|no\s+m[aá]s))?$/i.test(t)) {
     return true;
   }
-  return /^\s*(s[ií]\s+(haz|por\s+favor|adelante|dale|ejecuta|procede|confirm(o|a|ado|ada)|apruebo|estoy\s+de\s+acuerdo)|dale\s+haz|ejecuta\s+(el\s+)?plan|apruebo\s+(el\s+)?plan|confirm(o|a|ado|ada)\s+(la\s+)?ejecuci|procede\s+con\s+todo)/i.test(t);
+  return /^\s*(s[ií]\s+(haz|por\s+favor|adelante|dale|ejecuta|procede|confirm(o|a|ado|ada)|apruebo|estoy\s+de\s+acuerdo)|dale\s+haz|ejecuta\s+(el\s+)?plan|apruebo\s+(el\s+)?plan|confirm(o|a|ado|ada)\s+(la\s+)?ejecuci|procede\s+con\s+todo|publ[ií]calo(\s+ya)?)/i.test(t);
 }
 
 export function isRejection(text: string): boolean {

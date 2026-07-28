@@ -6,6 +6,7 @@ import { getG4FImage, getAvailableG4FImageProviders, initializeG4F } from "../li
 import { G4F_ENABLED } from "../config/g4f.config";
 import { logger } from "../lib/logger";
 import { whatsapp } from "../lib/whatsapp";
+import { tenantManager } from "../lib/tenantManager";
 
 /**
  * Resuelve el número de WhatsApp asociado a la app (vía QR conectado).
@@ -191,6 +192,23 @@ router.get("/product/:slug/:productId", async (req, res, next) => {
 });
 
 /**
+ * GET /api/public/fb-app-config
+ * El botón "Conectar con Facebook" del panel necesita el App ID para armar
+ * la URL del diálogo de login — el App ID NO es secreto (viaja en la URL de
+ * cualquier botón "Login with Facebook" del mundo, a diferencia del App
+ * Secret, que nunca sale del backend). Sin este endpoint, el frontend no
+ * tenía forma de saber el App ID ni si el flujo está habilitado, así que no
+ * existía ningún botón real de conexión — solo el campo para pegar un token
+ * a mano, que si viene del Explorador de Graph API dura 1-2 horas.
+ */
+router.get("/fb-app-config", async (_req, res) => {
+  return res.json({
+    appId: process.env.FB_APP_ID || null,
+    enabled: process.env.FB_CONNECT_ENABLED === "true" && !!process.env.FB_APP_ID && !!process.env.FB_APP_SECRET,
+  });
+});
+
+/**
  * POST /api/public/fb-connect
  * Onboarding de Facebook: recibe un token de usuario recién autorizado, lo
  * canjea por uno de larga duración, saca el token de la página y lo guarda en
@@ -277,6 +295,12 @@ router.post("/fb-connect", async (req, res, next) => {
       connectedAt: new Date().toISOString(),
     };
     await db.update(tenants).set({ metadata: meta as any }).where(eq(tenants.id, tenantId));
+    // Sin esto, el tenant queda cacheado en memoria (hasta 5 min, ver
+    // tenantManager.CACHE_TTL) con el token VIEJO — el admin reconecta,
+    // la BD queda bien, pero el server sigue publicando con el token
+    // vencido hasta que el caché expira solo. Parecía que la reconexión
+    // "no servía".
+    tenantManager.clearCache();
 
     // 4. Confirmar qué permisos quedaron en el token de la página
     const permRes = await fetch(
