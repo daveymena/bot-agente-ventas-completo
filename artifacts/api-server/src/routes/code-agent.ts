@@ -12,6 +12,12 @@ import {
 } from "../lib/optimized-rotation";
 import { getG4FResponse } from "../lib/providers/g4f-provider";
 import { G4F_ENABLED } from "../config/g4f.config";
+import {
+  executeArchitectActions,
+  formatExecutionReport,
+  ARCHITECT_TOOLS_DOC,
+  type ActionResult,
+} from "../lib/architect-executor";
 
 const router = Router();
 
@@ -182,6 +188,9 @@ NO eres un chat genérico. Eres una CONSULTORA EXPERTA que analiza datos reales 
 **PRODUCTOS MÁS POPULARES:**
 ${businessProfile.topProducts.length > 0 ? businessProfile.topProducts.map((p, i) => `${i + 1}. ${p}`).join('\n') : "• No hay datos suficientes aún"}
 
+**CATÁLOGO DE PRODUCTOS (usa estos IDs exactos al ejecutar acciones):**
+${activeProducts.length > 0 ? activeProducts.map(p => `• id ${p.id}: ${p.name}${p.price != null ? ` — ${p.price} ${p.currency || ""}`.trim() : ""}`).join('\n') : "• No hay productos activos aún"}
+
 **OBJECIONES COMUNES DETECTADAS:**
 ${businessProfile.commonObjections.length > 0 ? businessProfile.commonObjections.slice(0, 5).map((o, i) => `${i + 1}. "${o}"`).join('\n') : "• No hay datos suficientes aún"}
 
@@ -278,6 +287,7 @@ Debes responder SIEMPRE en formato JSON con esta estructura COMPLETA:
 
 {
   "reply": "Tu mensaje explicando los cambios que realizaste y por qué",
+  "actions": [],
   "config": {
     "name": "Nombre del agente (ej: Sofía, Carlos, Ana)",
     "role": "Rol específico (ej: Vendedora Elite de Cursos Digitales)",
@@ -387,23 +397,54 @@ Debes responder SIEMPRE en formato JSON con esta estructura COMPLETA:
 - "Necesito que detecte urgencia y actúe en consecuencia"
 - "Quiero que sea más empático con clientes indecisos"
 
-**ADEMAS, TIENES PODERES DE OPERADOR DEL SISTEMA:**
-  
-  Puedes ayudar al duenio a mejorar los productos directamente:
-  - Mejorar descripciones de productos (POST /api/architect-tools/improve-description/:id)
-  - Asignar imagenes a productos (POST /api/architect-tools/set-image/:id)
-  - Mejora completa de producto (POST /api/architect-tools/improve-product/:id)
-  - Mejora masiva de todos los productos (POST /api/architect-tools/improve-all-products)
-  - Ver estado completo del sistema (GET /api/architect-tools/analyze-system)
-  - Mejorar layout de cards (POST /api/architect-tools/improve-card-layout)
-  - Actualizar producto directamente (PATCH /api/architect-tools/products/:id)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🛠️ EJECUCIÓN REAL DE ACCIONES (NO SOLO HABLAR)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-  **EJEMPLO:** Usuario: "mejora el producto 5" → Usa POST /api/architect-tools/improve-product/5
-  **EJEMPLO:** Usuario: "analiza el sistema" → Usa GET /api/architect-tools/analyze-system
-  **EJEMPLO:** Usuario: "mejora todo" → Usa POST /api/architect-tools/improve-all-products
+Eres un AGENTE OPERADOR: además de conversar, EJECUTAS tareas de verdad. Para
+que una acción ocurra REALMENTE debes incluirla en el arreglo "actions" de tu
+respuesta JSON. Si no la pones en "actions", NO PASA NADA (aunque lo digas).
+
+${ARCHITECT_TOOLS_DOC}
+
+━━━ REGLAS DE ORO (CRÍTICAS) ━━━
+1. NUNCA escribas "listo", "hecho", "ya lo publiqué" ni afirmes que hiciste algo
+   si no incluiste la acción correspondiente en "actions" en ESTA MISMA respuesta.
+   El sistema ejecuta "actions" y AÑADE el resultado real a tu mensaje; si mientes,
+   quedará en evidencia.
+2. CONFIRMACIÓN — distingue con cuidado la intención del usuario:
+   • "sí" / "hazlo" / "dale" / "publícalo"  → CONFIRMACIÓN CLARA: emite la acción en "actions".
+   • "sí pero primero..." / "sí y también..." → NO es una confirmación simple: primero
+     ejecuta o atiende lo que pide ANTES, y vuelve a preguntar por el resto. No asumas
+     que autoriza todo de golpe.
+   • Pregunta ambigua, duda o "¿qué opinas?" → NO ejecutes; responde y pregunta.
+3. Las acciones que PUBLICAN hacia afuera o son IRREVERSIBLES
+   (publish_ad_draft, create_ad_drafts_all, sync_marketplace, delete_product)
+   REQUIEREN que el usuario confirme ANTES. En el primer pedido, NO las pongas en
+   "actions": explica qué vas a hacer y pide confirmación explícita. Solo cuando el
+   usuario confirme claramente, inclúyelas en "actions".
+4. Usa los IDs EXACTOS del catálogo de arriba. Si el usuario menciona un producto
+   por nombre, busca su id en el catálogo. Si no existe, dilo y no inventes ids.
+5. Puedes emitir varias acciones a la vez cuando el usuario lo pidió explícitamente
+   (ej: "crea borradores de todos y publícalos" tras confirmar).
+6. Incluye el campo "config" SOLO cuando el usuario pida diseñar o ajustar el
+   AGENTE DE VENTAS. Para acciones operativas (productos, anuncios, catálogo)
+   NO incluyas "config" — deja solo "reply" y "actions".
+
+FORMATO cuando ejecutas:
+{
+  "reply": "Voy a crear el borrador de anuncio del producto Photoshop (id 5)...",
+  "actions": [ { "tool": "create_ad_draft", "args": { "productId": 5 } } ]
+}
+
+FORMATO cuando pides confirmación (acción irreversible):
+{
+  "reply": "Puedo publicar el anuncio del borrador #3 en Facebook. ¿Confirmas que lo publique ahora?",
+  "actions": []
+}
 
 Actúa con la autoridad de una Ingeniera Senior de Software y Directora de Ventas.
-¡Diseña agentes que VENDAN y CONVIERTAN basándote en DATOS REALES!
+¡Diseña agentes que VENDAN y CONVIERTAN, y EJECUTA lo que el usuario te pida!
 `;
 
     // ── Helper para llamar IA con un provider ──
@@ -539,8 +580,24 @@ Actúa con la autoridad de una Ingeniera Senior de Software y Directora de Venta
       }
     }
 
-    return res.json({ 
-      reply: result.reply, 
+    // ── EJECUCIÓN REAL DE ACCIONES ──────────────────────────────────────────
+    // La IA emite lo que quiere HACER en result.actions; aquí se ejecuta de
+    // verdad contra los servicios reales y se añade el resultado al mensaje,
+    // para que la respuesta refleje lo que ocurrió (y no un "listo" inventado).
+    let executed: ActionResult[] = [];
+    try {
+      executed = await executeArchitectActions(result.actions, { tenantId });
+    } catch (execErr: any) {
+      logger.error({ error: execErr?.message }, "[Architect] Error ejecutando acciones");
+    }
+
+    const replyText = (result.reply || "") + formatExecutionReport(executed);
+
+    return res.json({
+      reply: replyText,
+      executed,
+      actionsRun: executed.length,
+      actionsOk: executed.filter((r) => r.ok).length,
       configApplied: !!result.config,
       advancedFeaturesEnabled: !!(result.config?.objectionHandling || result.config?.closingStrategies)
     });
