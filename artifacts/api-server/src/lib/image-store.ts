@@ -11,8 +11,15 @@ import { writeFile, mkdir } from "node:fs/promises";
 import path from "node:path";
 import { logger } from "./logger";
 
+/**
+ * Único punto de verdad para el directorio de imágenes: app.ts (servido
+ * estático) y este módulo (donde se guardan) DEBEN devolver la misma ruta.
+ * Antes tenían defaults distintos ("uploads" vs "data/images") cuando
+ * IMAGE_STORE_DIR no estaba seteada, así que las imágenes se guardaban en
+ * un lado y se servían desde otro → 404 / "imagen rota" intermitente.
+ */
 export function getImageStoreDir(): string {
-  return process.env.IMAGE_STORE_DIR || path.resolve(process.cwd(), "uploads");
+  return process.env.IMAGE_STORE_DIR || path.resolve(process.cwd(), "data/images");
 }
 
 /**

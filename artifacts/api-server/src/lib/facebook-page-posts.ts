@@ -63,8 +63,16 @@ function absoluteUrl(pathOrUrl?: string | null): string | null {
   if (!pathOrUrl) return null;
   if (/^https?:\/\//i.test(pathOrUrl)) return pathOrUrl;
 
-  const appUrl = process.env.APP_URL || "";
-  if (!/^https:\/\//i.test(appUrl)) return null;
+  // Mismo fallback que el resto del código (payments.ts, email.ts, etc.)
+  // cuando APP_URL no está seteada. Sin esto, un producto con imagen
+  // relativa (/uploads/products/42.jpg) se publicaba SIN foto —
+  // absoluteUrl devolvía null en silencio y buildPostDraft mandaba
+  // imageUrl: null, así que publishToPage caía al post de solo texto.
+  const appUrl = process.env.APP_URL || "https://tecnovariedades.easypanel.host";
+  if (!/^https:\/\//i.test(appUrl)) {
+    logger.warn({ pathOrUrl, appUrl }, "[PagePost] APP_URL inválida — no se pudo armar URL absoluta de imagen");
+    return null;
+  }
 
   return `${appUrl.replace(/\/+$/, "")}/${pathOrUrl.replace(/^\/+/, "")}`;
 }

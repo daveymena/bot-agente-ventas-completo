@@ -392,6 +392,9 @@ router.post("/messenger/save-token", async (req, res, next) => {
       accessToken: pageToken,
     };
     await db.update(tenants).set({ metadata: meta as any }).where(eq(tenants.id, tenantId));
+    // Mismo motivo que en fb-connect: sin limpiar el caché, el tenant
+    // sigue sirviendo el token viejo desde memoria hasta 5 minutos.
+    tenantManager.clearCache();
     logger.info("[FB-Messenger] Page token saved to tenant metadata");
     return res.json({ ok: true, message: "Token guardado correctamente" });
   } catch (e) { return next(e); }

@@ -6,6 +6,7 @@ import { getG4FImage, getAvailableG4FImageProviders, initializeG4F } from "../li
 import { G4F_ENABLED } from "../config/g4f.config";
 import { logger } from "../lib/logger";
 import { whatsapp } from "../lib/whatsapp";
+import { tenantManager } from "../lib/tenantManager";
 
 /**
  * Resuelve el número de WhatsApp asociado a la app (vía QR conectado).
@@ -277,6 +278,12 @@ router.post("/fb-connect", async (req, res, next) => {
       connectedAt: new Date().toISOString(),
     };
     await db.update(tenants).set({ metadata: meta as any }).where(eq(tenants.id, tenantId));
+    // Sin esto, el tenant queda cacheado en memoria (hasta 5 min, ver
+    // tenantManager.CACHE_TTL) con el token VIEJO — el admin reconecta,
+    // la BD queda bien, pero el server sigue publicando con el token
+    // vencido hasta que el caché expira solo. Parecía que la reconexión
+    // "no servía".
+    tenantManager.clearCache();
 
     // 4. Confirmar qué permisos quedaron en el token de la página
     const permRes = await fetch(

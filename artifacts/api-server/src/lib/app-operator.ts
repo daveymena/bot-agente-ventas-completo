@@ -572,8 +572,9 @@ export const TOOLS: ToolDef[] = [
     description: "Verificar la conexión con Facebook/Meta (token válido, página, cuenta de ads).",
     args: "{}",
     run: async (_args, ctx) => {
+      const tenant = await tenantManager.getTenantById(ctx.tenantId);
       const { FacebookService } = await import("./facebook");
-      const fb = new FacebookService();
+      const fb = new FacebookService(tenant || undefined);
       if (!fb.isConfigured()) return { ok: false, summary: "Facebook no configurado (falta token en el entorno o en el tenant)." };
       const v = await fb.validate();
       return { ok: v.ok, summary: `Facebook: ${v.message}`, data: v };
@@ -585,8 +586,9 @@ export const TOOLS: ToolDef[] = [
     args: '{ "productId": number (req) }',
     run: async (args, ctx) => {
       if (!args.productId) return { ok: false, summary: "Falta 'productId'" };
+      const tenant = await tenantManager.getTenantById(ctx.tenantId);
       const { FacebookService } = await import("./facebook");
-      const fb = new FacebookService();
+      const fb = new FacebookService(tenant || undefined);
       const aud = await fb.suggestAudience(Number(args.productId));
       if (!aud) return { ok: false, summary: "No se pudo sugerir audiencia (¿producto existe?)." };
       return { ok: true, summary: `Audiencia sugerida: ${aud.description}`, data: aud };
@@ -598,8 +600,9 @@ export const TOOLS: ToolDef[] = [
     args: '{ "productId": number (req), "dailyBudget": number (opcional, en la moneda de la cuenta, def 5000), "startDate": string opcional ISO, "cities": string[] opcional, "ageMin": number opcional, "ageMax": number opcional }',
     run: async (args, ctx) => {
       if (!args.productId) return { ok: false, summary: "Falta 'productId'" };
+      const tenant = await tenantManager.getTenantById(ctx.tenantId);
       const { FacebookService } = await import("./facebook");
-      const fb = new FacebookService();
+      const fb = new FacebookService(tenant || undefined);
       if (!fb.isConfigured()) return { ok: false, summary: "Facebook no configurado (falta token)." };
       const targeting: any = {};
       if (args.cities) targeting.geoLocations = { cities: args.cities };
@@ -620,8 +623,9 @@ export const TOOLS: ToolDef[] = [
     description: "Sincronizar los productos activos al catálogo de Facebook (para tiendas y anuncios dinámicos). Requiere catálogo asignado.",
     args: "{}",
     run: async (_args, ctx) => {
+      const tenant = await tenantManager.getTenantById(ctx.tenantId);
       const { FacebookService } = await import("./facebook");
-      const fb = new FacebookService();
+      const fb = new FacebookService(tenant || undefined);
       const r = await fb.syncCatalog();
       return { ok: r.failed === 0, summary: `Catálogo sincronizado: ${r.synced} ok, ${r.failed} fallidos`, data: r };
     },
