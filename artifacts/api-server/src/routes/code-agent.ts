@@ -17,6 +17,7 @@ import { OPERATOR_SYSTEM_PROMPT, buildToolsDoc, executeAction, isReadOnlyTool, v
 import {
   loadArchitectHistory, saveArchitectTurn, getPendingPlan, setPendingPlan,
   clearPendingPlan, clearArchitectHistory, isApproval, isRejection,
+  saveRepairLesson, loadRecentLessons,
 } from "../lib/architect-store";
 import { toEmojiStyle } from "../lib/conversation-engine";
 
@@ -1155,9 +1156,76 @@ router.post("/operator", async (req: TenantRequest, res, next) => {
       return null;
     };
 
-    const sys = OPERATOR_SYSTEM_PROMPT.replace("${TOOLS}", buildToolsDoc());
+    // Lecciones de reparaciones pasadas de este negocio (ver
+    // saveRepairLesson más abajo): así el Operador no tropieza dos veces con
+    // el mismo error entre conversaciones distintas -- lo sabe de antemano
+    // en vez de tener que fallar primero para descubrirlo.
+    const lessons = await loadRecentLessons(tenantId);
+    const lessonsBlock = lessons.length
+      ? `\n\nLECCIONES DE ERRORES PASADOS EN ESTE NEGOCIO (evita repetirlos):\n${lessons.map((l) => `- ${l}`).join("\n")}`
+      : "";
+    const sys = OPERATOR_SYSTEM_PROMPT.replace("${TOOLS}", buildToolsDoc()) + lessonsBlock;
     const ctx = { tenantId };
     const sessionId: string = (req.body?.sessionId as string) || "default";
+
+    // Cuando una acción YA APROBADA falla, en vez de reportar el error y
+    // seguir, se le da al modelo hasta MAX_REPAIR_STEPS turnos para
+    // diagnosticar con las herramientas disponibles, corregir lo que haga
+    // falta (ej: generar y asignar la imagen que faltaba) y reintentar la
+    // acción original -- todo dentro del mismo alcance que el admin ya
+    // aprobó, nunca una mutación distinta sin avisar. Cada paso de la
+    // reparación queda logueado y visible en la respuesta final, no oculto.
+    const MAX_REPAIR_STEPS = 3;
+    async function attemptSelfRepair(
+      action: { tool: string; args: any },
+      failureSummary: string,
+    ): Promise<{ fixed: boolean; result: any; log: string[] }> {
+      const log: string[] = [];
+      const repairMessages: any[] = [
+        { role: "system", content: sys },
+        {
+          role: "user",
+          content:
+            `La siguiente acción, YA APROBADA por el admin, falló al ejecutarse:\n` +
+            `Herramienta: ${action.tool}\nArgumentos: ${JSON.stringify(action.args)}\nError: ${failureSummary}\n\n` +
+            `Diagnosticá la causa usando las herramientas de lectura que necesites. Si podés resolver el ` +
+            `problema con alguna herramienta disponible (ej: falta una imagen → generala y asignala), hacelo. ` +
+            `Cuando creas que ya se puede reintentar, incluí "${action.tool}" en "actions" (con los argumentos ` +
+            `corregidos si hacía falta cambiar algo). Si no se puede arreglar con las herramientas que tenés, ` +
+            `explicá el motivo real en "reply" y devolvé "actions": [] con "done": true.`,
+        },
+      ];
+
+      for (let step = 0; step < MAX_REPAIR_STEPS; step++) {
+        const rawAI = await callAI(repairMessages);
+        if (!rawAI) break;
+        const content = rawAI.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
+        let parsed: any;
+        try {
+          parsed = JSON.parse(content);
+        } catch {
+          break;
+        }
+        const actions = Array.isArray(parsed.actions) ? parsed.actions : [];
+        if (actions.length === 0) break;
+
+        const results: any[] = [];
+        for (const a of actions) {
+          const r = await executeAction(a.tool, a.args || {}, ctx);
+          results.push({ tool: a.tool, ok: r.ok, summary: r.summary });
+          log.push(`${r.ok ? "🔧✅" : "🔧❌"} ${r.summary}`);
+          if (a.tool === action.tool && r.ok) {
+            return { fixed: true, result: r, log };
+          }
+        }
+        repairMessages.push({ role: "assistant", content });
+        repairMessages.push({
+          role: "user",
+          content: "Resultado: " + JSON.stringify(results) + "\n\nSi ya se puede reintentar la acción original, hacelo ahora.",
+        });
+      }
+      return { fixed: false, result: null, log };
+    }
 
     // ── MEMORIA PERSISTENTE: cargar la conversación guardada en el servidor ──
     // Así el Architect recuerda aunque el navegador se haya cerrado. Si el
@@ -1170,14 +1238,26 @@ router.post("/operator", async (req: TenantRequest, res, next) => {
     const pending = await getPendingPlan(tenantId, sessionId);
     if (pending && pending.actions.length > 0) {
       if (isApproval(String(prompt))) {
-        // EJECUTAR el plan aprobado, con VERIFICACIÓN tras cada cambio
+        // EJECUTAR el plan aprobado, con VERIFICACIÓN tras cada cambio y
+        // AUTO-REPARACIÓN si algo falla (ver attemptSelfRepair arriba).
         const executed: any[] = [];
         const lines: string[] = [];
         for (const a of pending.actions) {
-          const r = await executeAction(a.tool, a.args || {}, ctx);
+          let r = await executeAction(a.tool, a.args || {}, ctx);
+          let repairLog: string[] = [];
+          if (!r.ok) {
+            const originalError = r.summary;
+            const repair = await attemptSelfRepair(a, originalError);
+            repairLog = repair.log;
+            if (repair.fixed && repair.result) {
+              r = repair.result;
+              await saveRepairLesson(tenantId, a.tool, originalError, repairLog.join(" / "));
+            }
+          }
           const verification = r.ok ? await verifyMutation(a.tool, a.args || {}, ctx) : "";
-          executed.push({ tool: a.tool, args: a.args, ok: r.ok, summary: r.summary, verification });
-          lines.push(`${r.ok ? "✅" : "❌"} ${r.summary}${verification ? `\n   ${verification}` : ""}`);
+          executed.push({ tool: a.tool, args: a.args, ok: r.ok, summary: r.summary, verification, repairLog });
+          const repairText = repairLog.length ? `\n   ${repairLog.join("\n   ")}` : "";
+          lines.push(`${r.ok ? "✅" : "❌"} ${r.summary}${repairText}${verification ? `\n   ${verification}` : ""}`);
         }
         await clearPendingPlan(tenantId, sessionId);
         const reply = toEmojiStyle(`Listo, ejecuté el plan:\n\n${lines.join("\n")}`);
