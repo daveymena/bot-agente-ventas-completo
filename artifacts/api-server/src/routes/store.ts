@@ -9,13 +9,13 @@ const router = Router();
 // Middleware to load store by slug
 router.param("slug", async (req: Request, res: Response, next: NextFunction, slug: string) => {
   try {
-    const store = await db.select().from(stores).where(eq(stores.slug, slug)).then(r => r[0]);
+    const store = await db.select().from(stores).where(eq(stores.slug, slug)).then((r: any) => r[0]);
     if (!store) return res.status(404).json({ message: "Store not found" });
     // attach store to request
     (req as any).store = store;
     next();
   } catch (err) {
-    next(err);
+    return next(err);
   }
 });
 
@@ -27,7 +27,7 @@ router.get("/:slug", async (req: Request, res: Response, next: NextFunction) => 
     const products = await db.select().from(store_products).where(eq(store_products.storeId, store.id));
     return res.json({ store, categories, products });
   } catch (err) {
-    next(err);
+    return next(err);
   }
 });
 
@@ -36,11 +36,11 @@ router.get("/:slug/product/:productId", async (req: Request, res: Response, next
   try {
     const { productId } = req.params;
     const store = (req as any).store;
-    const product = await db.select().from(store_products).where(eq(store_products.id, Number(productId))).then(r => r[0]);
+    const product = await db.select().from(store_products).where(eq(store_products.id, Number(productId))).then((r: any) => r[0]);
     if (!product) return res.status(404).json({ message: "Product not found" });
     return res.json({ store, product });
   } catch (err) {
-    next(err);
+    return next(err);
   }
 });
 
@@ -48,10 +48,10 @@ router.get("/:slug/product/:productId", async (req: Request, res: Response, next
 router.get("/:slug/layout", async (req: Request, res: Response, next: NextFunction) => {
   try {
     const store = (req as any).store;
-    const layout = await db.select().from(store_layouts).where(eq(store_layouts.storeId, store.id)).then(r => r[0]);
+    const layout = await db.select().from(store_layouts).where(eq(store_layouts.storeId, store.id)).then((r: any) => r[0]);
     return res.json({ layout: layout?.layoutData ?? null });
   } catch (err) {
-    next(err);
+    return next(err);
   }
 });
 
@@ -66,7 +66,7 @@ router.get("/admin/:slug", async (req: Request, res: Response, next: NextFunctio
     const store = (req as any).store;
     return res.json({ store });
   } catch (err) {
-    next(err);
+    return next(err);
   }
 });
 
@@ -74,10 +74,10 @@ router.get("/admin/:slug", async (req: Request, res: Response, next: NextFunctio
 router.get("/admin/:slug/layout", async (req: Request, res: Response, next: NextFunction) => {
   try {
     const store = (req as any).store;
-    const layout = await db.select().from(store_layouts).where(eq(store_layouts.storeId, store.id)).then(r => r[0]);
+    const layout = await db.select().from(store_layouts).where(eq(store_layouts.storeId, store.id)).then((r: any) => r[0]);
     return res.json({ layout: layout?.layoutData ?? null });
   } catch (err) {
-    next(err);
+    return next(err);
   }
 });
 
@@ -88,7 +88,7 @@ router.put("/admin/:slug/layout", async (req: Request, res: Response, next: Next
     const { layoutData } = req.body;
     if (!layoutData) return res.status(400).json({ message: "layoutData is required" });
 
-    const existing = await db.select().from(store_layouts).where(eq(store_layouts.storeId, store.id)).then(r => r[0]);
+    const existing = await db.select().from(store_layouts).where(eq(store_layouts.storeId, store.id)).then((r: any) => r[0]);
 
     if (existing) {
       await db.update(store_layouts)
@@ -100,7 +100,7 @@ router.put("/admin/:slug/layout", async (req: Request, res: Response, next: Next
 
     return res.json({ message: "Layout saved successfully" });
   } catch (err) {
-    next(err);
+    return next(err);
   }
 });
 

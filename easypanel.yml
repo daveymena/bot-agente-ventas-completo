@@ -45,6 +45,8 @@ services:
       PAYPAL_CLIENT_ID: "${PAYPAL_CLIENT_ID}"
       PAYPAL_CLIENT_SECRET: "${PAYPAL_CLIENT_SECRET}"
       PAYPAL_MODE: "${PAYPAL_MODE:-live}"
+      PAYPAL_EXCHANGE_RATE: "${PAYPAL_EXCHANGE_RATE:-3100}"
+      EXCHANGE_RATE: "${EXCHANGE_RATE:-3100}"
 
       # ========== NOTIFICACIONES ==========
       SMTP_HOST: "${SMTP_HOST:-smtp.gmail.com}"

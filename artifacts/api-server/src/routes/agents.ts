@@ -17,6 +17,19 @@ import { getAllTemplates, getTemplateByType } from "../lib/agent-templates";
 
 const router: IRouter = Router();
 
+/**
+ * Los agentes llevan el prompt de ventas de cada negocio. Sin filtrar por
+ * tenant, un cliente veía y editaba la estrategia comercial de otro.
+ *
+ * El caso más grave estaba en activar: se ponía isActive=false sobre TODOS los
+ * agentes de la tabla, así que activar el propio apagaba el bot de las demás
+ * cuentas. Toda operación de exclusividad debe acotarse al tenant.
+ */
+function tenantIdOf(req: any): number | null {
+  const id = req?.tenant?.id;
+  return typeof id === "number" ? id : null;
+}
+
 // GET /api/agents/templates - Obtener todos los templates
 router.get("/templates", async (_req, res, next) => {
   try {
@@ -40,9 +53,16 @@ router.get("/templates/:type", async (req, res, next) => {
   }
 });
 
-router.get("/", async (_req, res, next) => {
+router.get("/", async (req, res, next) => {
   try {
-    const rows = await db.select().from(agents).orderBy(desc(agents.createdAt));
+    const tenantId = tenantIdOf(req);
+    if (!tenantId) return res.status(401).json({ message: "No autorizado" });
+
+    const rows = await db
+      .select()
+      .from(agents)
+      .where(eq(agents.tenantId, tenantId))
+      .orderBy(desc(agents.createdAt));
     return res.json(ListAgentsResponse.parse(rows.map(serialize)));
   } catch (e) {
     return next(e);
@@ -51,10 +71,14 @@ router.get("/", async (_req, res, next) => {
 
 router.post("/", async (req, res, next) => {
   try {
+    const tenantId = tenantIdOf(req);
+    if (!tenantId) return res.status(401).json({ message: "No autorizado" });
+
     const body = CreateAgentBody.parse(req.body);
-    
+
     // Si se proporciona un templateType, usar el template
     let agentData: any = {
+      tenantId,
       name: body.name,
       role: body.personality || "sales_agent",
       tone: body.personality || "professional",
@@ -89,7 +113,7 @@ router.post("/", async (req, res, next) => {
       await db
         .update(agents)
         .set({ isActive: false })
-        .where(and(eq(agents.isActive, true), ne(agents.id, created.id)));
+        .where(and(eq(agents.tenantId, tenantId), eq(agents.isActive, true), ne(agents.id, created.id)));
     }
     
     return res.json(serialize(created!));
@@ -100,8 +124,15 @@ router.post("/", async (req, res, next) => {
 
 router.get("/:id", async (req, res, next) => {
   try {
+    const tenantId = tenantIdOf(req);
+    if (!tenantId) return res.status(401).json({ message: "No autorizado" });
+
     const id = Number(req.params.id);
-    const [row] = await db.select().from(agents).where(eq(agents.id, id)).limit(1);
+    const [row] = await db
+      .select()
+      .from(agents)
+      .where(and(eq(agents.id, id), eq(agents.tenantId, tenantId)))
+      .limit(1);
     if (!row) return res.status(404).json({ message: "Agente no encontrado" });
     return res.json(serialize(row));
   } catch (e) {
@@ -111,19 +142,22 @@ router.get("/:id", async (req, res, next) => {
 
 router.patch("/:id", async (req, res, next) => {
   try {
-     const { id } = UpdateAgentParams.parse(req.params);
-     const body = UpdateAgentBody.parse(req.body);
-     const [updated] = await db
-       .update(agents)
-       .set(body as any)
-       .where(eq(agents.id, id))
-       .returning();
-     if (!updated) return res.status(404).json({ message: "Agente no encontrado" });
-     if ((body as any).isActive) {
-       await db
-         .update(agents)
+    const tenantId = tenantIdOf(req);
+    if (!tenantId) return res.status(401).json({ message: "No autorizado" });
+
+    const { id } = UpdateAgentParams.parse(req.params);
+    const body = UpdateAgentBody.parse(req.body);
+    const [updated] = await db
+      .update(agents)
+      .set(body as any)
+      .where(and(eq(agents.id, id), eq(agents.tenantId, tenantId)))
+      .returning();
+    if (!updated) return res.status(404).json({ message: "Agente no encontrado" });
+    if ((body as any).isActive) {
+      await db
+        .update(agents)
         .set({ isActive: false })
-        .where(and(eq(agents.isActive, true), ne(agents.id, id)));
+        .where(and(eq(agents.tenantId, tenantId), eq(agents.isActive, true), ne(agents.id, id)));
     }
     return res.json(UpdateAgentResponse.parse(serialize(updated)));
   } catch (e) {
@@ -133,8 +167,11 @@ router.patch("/:id", async (req, res, next) => {
 
 router.delete("/:id", async (req, res, next) => {
   try {
+    const tenantId = tenantIdOf(req);
+    if (!tenantId) return res.status(401).json({ message: "No autorizado" });
+
     const { id } = DeleteAgentParams.parse(req.params);
-    await db.delete(agents).where(eq(agents.id, id));
+    await db.delete(agents).where(and(eq(agents.id, id), eq(agents.tenantId, tenantId)));
     return res.json(DeleteAgentResponse.parse({ ok: true }));
   } catch (e) {
     return next(e);
@@ -143,12 +180,22 @@ router.delete("/:id", async (req, res, next) => {
 
 router.post("/:id/activate", async (req, res, next) => {
   try {
+    const tenantId = tenantIdOf(req);
+    if (!tenantId) return res.status(401).json({ message: "No autorizado" });
+
     const { id } = ActivateAgentParams.parse(req.params);
-    await db.update(agents).set({ isActive: false }).where(eq(agents.isActive, true));
+
+    // Se desactiva solo DENTRO del tenant. Sin este filtro, activar un agente
+    // apagaba el agente activo de todas las demás cuentas del SaaS.
+    await db
+      .update(agents)
+      .set({ isActive: false })
+      .where(and(eq(agents.tenantId, tenantId), eq(agents.isActive, true)));
+
     const [updated] = await db
       .update(agents)
       .set({ isActive: true })
-      .where(eq(agents.id, id))
+      .where(and(eq(agents.id, id), eq(agents.tenantId, tenantId)))
       .returning();
     if (!updated) return res.status(404).json({ message: "Agente no encontrado" });
     return res.json(ActivateAgentResponse.parse(serialize(updated)));

@@ -4,6 +4,7 @@ import PublicLayout from './components/PublicLayout';
 import Home from './pages/Home';
 import Shop from './pages/Shop';
 import Cart from './pages/Cart';
+import ProductDetail from './pages/ProductDetail';
 import AdminDashboard from './pages/AdminDashboard';
 import EditorPage from './pages/EditorPage';
 import { useStore } from './store/useStore';
@@ -70,6 +71,14 @@ const App = () => {
           element={
             <PublicLayout>
               <Shop />
+            </PublicLayout>
+          }
+        />
+        <Route
+          path="/tienda/:slug/producto/:productId"
+          element={
+            <PublicLayout>
+              <ProductDetail />
             </PublicLayout>
           }
         />

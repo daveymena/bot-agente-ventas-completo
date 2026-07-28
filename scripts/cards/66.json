@@ -1,0 +1,43 @@
+{
+  "kicker": "CURSO DE",
+  "title": "LOCUCIÓN",
+  "subtitle": "PROFESIONAL",
+  "tagline": "TU VOZ COMO OFICIO",
+  "intro": "Aprende técnica vocal, interpretación y grabación para locutar con voz profesional.",
+  "features": [
+    {
+      "icon": "🎙️",
+      "title": "TÉCNICA VOCAL",
+      "text": "Respiración y dicción"
+    },
+    {
+      "icon": "🎧",
+      "title": "GRABACIÓN",
+      "text": "Micrófono y edición"
+    },
+    {
+      "icon": "💼",
+      "title": "SALIDA LABORAL",
+      "text": "Consigue trabajos"
+    },
+    {
+      "icon": "▶️",
+      "title": "CLASES EN VIDEO",
+      "text": "Alta calidad"
+    }
+  ],
+  "bullets": [
+    "Acceso ilimitado de por vida",
+    "Estudia cuando y donde quieras",
+    "Ideal para principiantes y avanzados",
+    "Descargable y online vía Drive"
+  ],
+  "cta": "¡EMPIEZA HOY!",
+  "bgPrompt": "voice over artist speaking into a professional studio microphone with headphones, recording booth",
+  "seed": 66,
+  "accentLight": "#E0CCFF",
+  "accent": "#8B5CF6",
+  "accentDark": "#4C1D95",
+  "ink": "#0f0620",
+  "rimLight": "violet purple"
+}

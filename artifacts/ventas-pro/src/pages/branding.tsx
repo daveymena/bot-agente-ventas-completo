@@ -195,7 +195,7 @@ export default function Branding() {
         {/* Header */}
         <div className="flex flex-col md:flex-row md:justify-between md:items-end gap-4">
           <div>
-            <h1 className="text-3xl font-bold tracking-tight bg-gradient-to-br from-foreground to-foreground/70 bg-clip-text text-transparent">
+            <h1 className="text-3xl font-bold tracking-tight">
               Personalización de Marca
             </h1>
             <p className="text-muted-foreground mt-1">
@@ -252,8 +252,8 @@ export default function Branding() {
                     />
                   )}
                   <div>
-                    <h2 className="text-2xl font-bold">{formData.brandName || "Tu Marca"}</h2>
-                    <p className="text-sm opacity-70">{formData.slug}</p>
+                    <h2 className="text-2xl font-bold break-words">{formData.brandName || "Tu Marca"}</h2>
+                    <p className="text-sm opacity-70 break-all">{formData.slug}</p>
                   </div>
                 </div>
                 
@@ -351,7 +351,7 @@ export default function Branding() {
                   disabled
                   className="bg-muted/30 font-mono text-sm"
                 />
-                <p className="text-xs text-muted-foreground">
+                <p className="text-xs text-muted-foreground break-all">
                   Tu tienda: app.com/{formData.slug}
                 </p>
               </div>

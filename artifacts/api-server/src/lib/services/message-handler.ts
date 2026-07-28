@@ -120,6 +120,9 @@ export class MessageHandler {
         stage: convo.currentStage,
       });
 
+      // dbNow(): en Postgres lastMessageAt exige un objeto Date, no un
+      // string (ver date-utils.ts) — esto corre en CADA mensaje entrante
+      // de WhatsApp, antes incluso de que el agente responda.
       await db.update(conversations).set({
         lastMessage: params.body,
         lastMessageAt: dbNow()

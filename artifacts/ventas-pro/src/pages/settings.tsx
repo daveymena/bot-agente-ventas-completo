@@ -6,7 +6,7 @@ import {
 import { useQueryClient } from "@tanstack/react-query";
 import { Layout } from "@/components/layout";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -15,6 +15,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Save, X, Plus, Settings as SettingsIcon, ShieldCheck, Terminal, Sparkles } from "lucide-react";
 import { toast } from "sonner";
+import { AIProviders } from "@/components/ai-providers";
 
 export default function Settings() {
   const queryClient = useQueryClient();
@@ -142,7 +143,7 @@ export default function Settings() {
       <div className="flex flex-col gap-8 max-w-5xl mx-auto animate-enter">
         <div className="flex flex-col md:flex-row md:justify-between md:items-end gap-4">
           <div>
-            <h1 className="text-3xl font-bold tracking-tight bg-gradient-to-br from-foreground to-foreground/70 bg-clip-text text-transparent">Configuración</h1>
+            <h1 className="text-3xl font-bold tracking-tight">Configuración</h1>
             <p className="text-muted-foreground mt-1">Preferencias generales del negocio y comportamiento de IA.</p>
           </div>
         </div>
@@ -152,100 +153,9 @@ export default function Settings() {
             <Skeleton className="h-[400px] w-full rounded-3xl" />
             <Skeleton className="h-[400px] w-full rounded-3xl" />
             <Skeleton className="h-[300px] w-full rounded-3xl md:col-span-2" />
-            <Card className="rounded-3xl border-0 shadow-lg glass-panel overflow-hidden md:col-span-2 relative">
-              <div className="absolute top-0 right-0 w-full h-2 bg-gradient-to-r from-orange-500 to-yellow-500" />
-              <CardHeader className="pt-8">
-                <CardTitle className="text-xl">Sincronización y Despliegue</CardTitle>
-                <CardDescription>Sincroniza los cambios locales con tu repositorio de GitHub.</CardDescription>
-              </CardHeader>
-              <CardContent className="flex flex-col md:flex-row items-center gap-6">
-                <div className="flex-1 space-y-4">
-                  <div className="p-4 bg-muted/20 rounded-2xl border border-white/5">
-                    <h4 className="text-sm font-bold flex items-center gap-2 mb-2">
-                      <Terminal className="h-4 w-4 text-primary" /> Estado de Git
-                    </h4>
-                    <p className="text-xs text-muted-foreground leading-relaxed">
-                      Al presionar el botón inferior, el sistema ejecutará <code className="bg-muted px-1 rounded">git add .</code>, <code className="bg-muted px-1 rounded">git commit</code> y <code className="bg-muted px-1 rounded">git push</code> automáticamente hacia tu rama principal.
-                    </p>
-                  </div>
-                </div>
-                <div className="flex flex-col gap-3 w-full md:w-auto">
-                  <Button 
-                    variant="outline" 
-                    className="h-14 px-8 rounded-2xl border-primary/20 hover:bg-primary/10 group transition-all"
-                    onClick={async () => {
-                      const confirm = window.confirm("¿Estás seguro de subir todos los cambios a GitHub?");
-                      if (!confirm) return;
-                      
-                      const loadingToast = toast.loading("Sincronizando con GitHub...");
-                      try {
-                        const res = await fetch("/api/sync/push", { method: "POST" });
-                        const data = await res.json();
-                        if (data.success) {
-                          toast.success(data.message, { id: loadingToast });
-                        } else {
-                          toast.error(data.error || data.message, { id: loadingToast });
-                        }
-                      } catch (e) {
-                        toast.error("Error crítico de conexión", { id: loadingToast });
-                      }
-                    }}
-                  >
-                    <Save className="h-5 w-5 mr-2 group-hover:animate-bounce" /> Subir Cambios a Git
-                  </Button>
-                  <p className="text-[10px] text-center text-muted-foreground uppercase font-bold tracking-widest">Rama: main</p>
-                </div>
-              </CardContent>
-            </Card>
           </div>
         ) : (
           <div className="grid gap-6 md:grid-cols-2">
-            <Card className="rounded-3xl border-0 shadow-lg glass-panel overflow-hidden md:col-span-2 relative">
-              <div className="absolute top-0 right-0 w-full h-2 bg-gradient-to-r from-orange-500 to-yellow-500" />
-              <CardHeader className="pt-8">
-                <CardTitle className="text-xl">Sincronización y Despliegue</CardTitle>
-                <CardDescription>Sincroniza los cambios locales con tu repositorio de GitHub.</CardDescription>
-              </CardHeader>
-              <CardContent className="flex flex-col md:flex-row items-center gap-6">
-                <div className="flex-1 space-y-4">
-                  <div className="p-4 bg-muted/20 rounded-2xl border border-white/5">
-                    <h4 className="text-sm font-bold flex items-center gap-2 mb-2">
-                      <Terminal className="h-4 w-4 text-primary" /> Estado de Git
-                    </h4>
-                    <p className="text-xs text-muted-foreground leading-relaxed">
-                      Al presionar el botón inferior, el sistema ejecutará <code className="bg-muted px-1 rounded">git add .</code>, <code className="bg-muted px-1 rounded">git commit</code> y <code className="bg-muted px-1 rounded">git push</code> automáticamente hacia tu rama principal.
-                    </p>
-                  </div>
-                </div>
-                <div className="flex flex-col gap-3 w-full md:w-auto">
-                  <Button 
-                    variant="outline" 
-                    className="h-14 px-8 rounded-2xl border-primary/20 hover:bg-primary/10 group transition-all"
-                    onClick={async () => {
-                      const confirm = window.confirm("¿Estás seguro de subir todos los cambios a GitHub?");
-                      if (!confirm) return;
-                      
-                      const loadingToast = toast.loading("Sincronizando con GitHub...");
-                      try {
-                        const res = await fetch("/api/sync/push", { method: "POST" });
-                        const data = await res.json();
-                        if (data.success) {
-                          toast.success(data.message, { id: loadingToast });
-                        } else {
-                          toast.error(data.error || data.message, { id: loadingToast });
-                        }
-                      } catch (e) {
-                        toast.error("Error crítico de conexión", { id: loadingToast });
-                      }
-                    }}
-                  >
-                    <Save className="h-5 w-5 mr-2 group-hover:animate-bounce" /> Subir Cambios a Git
-                  </Button>
-                  <p className="text-[10px] text-center text-muted-foreground uppercase font-bold tracking-widest">Rama: main</p>
-                </div>
-              </CardContent>
-            </Card>
-
             <Card className="rounded-3xl border-0 shadow-lg glass-panel overflow-hidden relative">
               <div className="absolute top-0 right-0 w-full h-2 bg-gradient-to-r from-primary to-accent" />
               <CardHeader className="pt-8">
@@ -355,7 +265,8 @@ export default function Settings() {
                       onChange={e => setFormData({...formData, aiProvider: e.target.value as any})}
                       className="w-full h-10 rounded-xl border border-input bg-muted/30 px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
                     >
-                      <option value="opencode">OpenCode Zen (Gratis - DeepSeek/Qwen)</option>
+                      <option value="opencode">OpenCode Zen (Gratis, con rotación de modelos)</option>
+                      <option value="mimo">Xiaomi MiMo (requiere MIMO_API_KEY)</option>
                       <option value="github_copilot_internal">GitHub Copilot Internal (VS Code Flow)</option>
                       <option value="github">GitHub Models (Azure)</option>
                       <option value="nvidia">NVIDIA NIM (High Performance)</option>
@@ -721,14 +632,26 @@ export default function Settings() {
                         </p>
                       </div>
                       <div className="space-y-2">
-                        <Label className="text-muted-foreground font-semibold uppercase tracking-wider text-[10px]">Modelo Seleccionado</Label>
-                        <Input 
-                          value={formData.githubModel || "deepseek-v4-flash-free"} 
-                          onChange={e => setFormData({...formData, githubModel: e.target.value})} 
-                          placeholder="deepseek-v4-flash-free"
-                          className="bg-muted/30 font-mono"
-                        />
-                        <p className="text-[9px] text-muted-foreground">Modelos gratis: <code className="text-primary">deepseek-v4-flash-free</code>, <code className="text-primary">qwen3.6-plus-free</code>, <code className="text-primary">minimax-m2.5-free</code>, <code className="text-primary">nemotron-3-super-free</code>, <code className="text-primary">big-pickle</code></p>
+                        <Label className="text-muted-foreground font-semibold uppercase tracking-wider text-[10px]">Modelo preferido</Label>
+                        <select
+                          value={formData.githubModel || "nemotron-3-ultra-free"}
+                          onChange={e => setFormData({...formData, githubModel: e.target.value})}
+                          className="w-full h-10 rounded-md border border-input bg-muted/30 px-3 font-mono text-sm"
+                        >
+                          <option value="nemotron-3-ultra-free">nemotron-3-ultra-free — verificado ✅</option>
+                          <option value="mimo-v2.5-free">mimo-v2.5-free</option>
+                          <option value="ling-3.0-flash-free">ling-3.0-flash-free</option>
+                          <option value="big-pickle">big-pickle</option>
+                          <option value="hy3-free">hy3-free</option>
+                          <option value="deepseek-v4-flash-free">deepseek-v4-flash-free</option>
+                        </select>
+                        <p className="text-[9px] text-muted-foreground leading-relaxed">
+                          🔄 Si el modelo elegido agota su cuota gratis (error 429), el sistema <strong>rota solo</strong> al
+                          siguiente de la lista, y solo abandona OpenCode si fallan todos.
+                          <br />
+                          ⚠️ <code className="text-primary">north-mini-code-free</code> queda fuera a propósito: responde
+                          pero con contenido vacío.
+                        </p>
                       </div>
                     </div>
                   )}
@@ -750,6 +673,22 @@ export default function Settings() {
                     </ul>
                   </div>
                 </div>
+              </CardContent>
+            </Card>
+
+            {/* Alta de claves y elección de modelo por proveedor. Las claves se
+                guardan cifradas y el backend las carga al entorno para usarlas. */}
+            <Card className="rounded-3xl border-0 shadow-lg glass-panel overflow-hidden md:col-span-2 relative">
+              <div className="absolute top-0 right-0 w-full h-2 bg-gradient-to-r from-indigo-500 to-emerald-500" />
+              <CardHeader className="pt-8">
+                <CardTitle className="text-xl">Proveedores y modelos de IA</CardTitle>
+                <CardDescription className="mt-1 max-w-2xl">
+                  Añade la clave de cada proveedor y elige el modelo de una lista real. Los gratuitos
+                  funcionan sin pagar; los de pago son opcionales, para más rendimiento.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="pb-8">
+                <AIProviders />
               </CardContent>
             </Card>
 

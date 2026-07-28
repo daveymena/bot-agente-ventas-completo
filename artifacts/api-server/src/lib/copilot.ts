@@ -11,6 +11,92 @@ const EXCHANGE_URL = "https://api.github.com/copilot_internal/v2/token";
 const cache = new Map<string, { token: string; expiresAt: number }>();
 const REFRESH_MARGIN_S = 120;
 
+// Client ID público de GitHub Copilot (usado por editores/OSS para el device flow).
+// Se puede sobreescribir por env si se dispone de uno propio.
+const GITHUB_CLIENT_ID = process.env.GITHUB_COPILOT_CLIENT_ID || "Iv1.b507a08c87ecfe98";
+
+export interface DeviceCodeResponse {
+  device_code: string;
+  user_code: string;
+  verification_uri: string;
+  interval: number;
+  expires_in: number;
+}
+
+/**
+ * Paso 1 del device flow: pide a GitHub un código de dispositivo.
+ * El usuario abre `verification_uri` e introduce `user_code` para autorizar.
+ */
+export async function getCopilotDeviceCode(): Promise<DeviceCodeResponse | null> {
+  try {
+    const resp = await fetch("https://github.com/login/device/code", {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+        "User-Agent": "VentasPro/1.0",
+      },
+      body: JSON.stringify({ client_id: GITHUB_CLIENT_ID, scope: "read:user" }),
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!resp.ok) {
+      logger.warn({ status: resp.status }, "[Copilot] Device code request failed");
+      return null;
+    }
+    const data = (await resp.json()) as any;
+    if (!data.device_code || !data.user_code) return null;
+    return {
+      device_code: data.device_code,
+      user_code: data.user_code,
+      verification_uri: data.verification_uri || "https://github.com/login/device",
+      interval: data.interval || 5,
+      expires_in: data.expires_in || 900,
+    };
+  } catch (err) {
+    logger.warn({ err }, "[Copilot] Device code error");
+    return null;
+  }
+}
+
+/**
+ * Paso 2 del device flow: intercambia el device_code por un token OAuth (gho_...).
+ * Devuelve { status } para que el frontend haga polling:
+ *  - "authorized": incluye accessToken
+ *  - "pending":    el usuario aún no autoriza (seguir haciendo polling)
+ *  - "error":      código expirado / denegado
+ */
+export async function pollCopilotToken(
+  deviceCode: string
+): Promise<{ status: "authorized" | "pending" | "error"; accessToken?: string; error?: string }> {
+  try {
+    const resp = await fetch("https://github.com/login/oauth/access_token", {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+        "User-Agent": "VentasPro/1.0",
+      },
+      body: JSON.stringify({
+        client_id: GITHUB_CLIENT_ID,
+        device_code: deviceCode,
+        grant_type: "urn:ietf:params:oauth:grant-type:device_code",
+      }),
+      signal: AbortSignal.timeout(10000),
+    });
+    const data = (await resp.json()) as any;
+    if (data.access_token) {
+      return { status: "authorized", accessToken: data.access_token };
+    }
+    if (data.error === "authorization_pending" || data.error === "slow_down") {
+      return { status: "pending" };
+    }
+    return { status: "error", error: data.error || "unknown_error" };
+  } catch (err: any) {
+    logger.warn({ err }, "[Copilot] Poll token error");
+    return { status: "error", error: err?.message || "network_error" };
+  }
+}
+
 function fingerprint(raw: string): string {
   return createHash("sha256").update(raw).digest("hex").slice(0, 16);
 }

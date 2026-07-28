@@ -28,8 +28,9 @@ router.post("/connect", async (_req, res, next) => {
 
 router.post("/disconnect", async (_req, res, next) => {
   try {
-    const status = await whatsapp.stop();
-    return res.json(GetWhatsAppStatusResponse.parse(status));
+    await whatsapp.stop();
+    const status = whatsapp.getStatus();
+    return res.json({ ok: true, message: "WhatsApp desconectado", ...GetWhatsAppStatusResponse.parse(status) });
   } catch (e) {
     return next(e);
   }
@@ -40,15 +41,15 @@ router.post("/test-ia", async (req, res, next) => {
   try {
     const msg = req.body?.message || "Hola, qué productos tienen?";
     const tenantId = 1; // Tenant por defecto para testing
-    
+    const { addTenantToInsert } = await import("../lib/tenantManager");
+
     // Crear conversación test
-    const [convo] = await db.insert(conversations).values({
-      tenantId,
+    const [convo] = await db.insert(conversations).values(addTenantToInsert({
       contactName: "Test",
       contactPhone: req.body.phone || "test-ia",
       status: "ai",
       currentStage: "greeting"
-    }).returning();
+    }, tenantId)).returning();
     
     // Guardar mensaje
     await db.insert(messages).values({
@@ -77,10 +78,9 @@ router.post("/test-ia", async (req, res, next) => {
 // Designed for multi-tenant: in the future each tenant will have its own authDir.
 router.post("/reset-session", async (_req, res, next) => {
   try {
-    // 1. Disconnect cleanly if connected (keepAuth=false to delete auth)
+    // stop(false) desconecta Y borra la carpeta de auth dentro del volumen
     await whatsapp.stop(false);
-
-    // 3. Immediately start a fresh connection → will produce a new QR
+    // Inmediatamente iniciar conexión fresca → nuevo QR
     await whatsapp.start();
     const status = whatsapp.getStatus();
     return res.json({ ok: true, message: "Sesión reiniciada — escanea el nuevo QR", ...GetWhatsAppStatusResponse.parse(status) });
@@ -91,9 +91,15 @@ router.post("/reset-session", async (_req, res, next) => {
 
 // Returns session health: whether auth files exist and current state
 router.get("/session-info", (_req, res) => {
+  const authDir = process.env.WA_AUTH_DIR
+    ? path.resolve(process.env.WA_AUTH_DIR)
+    : path.resolve(process.cwd(), "data", ".baileys-auth");
+  const hasFiles = existsSync(authDir);
   const status = whatsapp.getStatus();
   return res.json({
     state: status.state,
+    authFilesExist: hasFiles,
+    authDir,
     ...GetWhatsAppStatusResponse.parse(status),
   });
 });

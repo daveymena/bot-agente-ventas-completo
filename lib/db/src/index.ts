@@ -56,6 +56,11 @@ export const architectMemory = schema.architectMemory;
 export const responseAnalytics = schema.responseAnalytics;
 export const promptVersions = schema.promptVersions;
 export const facebookDrafts = schema.facebookDrafts;
+export const opencodeConfig = schema.opencodeConfig;
+export const opencodeSkills = schema.opencodeSkills;
+export const opencodeMcpServers = schema.opencodeMcpServers;
+export const opencodeCommands = schema.opencodeCommands;
+export const opencodeSession = schema.opencodeSession;
 
 export type {
   Tenant, InsertTenant,
@@ -185,7 +190,69 @@ async function initDb() {
       connectionTimeoutMillis: 5000, statement_timeout: 10000, query_timeout: 10000,
     });
     db = drizzle(pool, { schema: pgSchema });
+
+    // Crear las tablas en Postgres si no existen (idempotente). Sin esto,
+    // cambiar a USE_SQLITE=false rompía la app porque las tablas no existían.
+    try {
+      const { ALL_TABLES } = await import("./pg-schema");
+      let created = 0;
+      for (const t of ALL_TABLES as { name: string; sql: string }[]) {
+        try { await pool.query(t.sql); created++; }
+        catch (e: any) { console.warn(`⚠️ [PG] tabla ${t.name}: ${e?.message?.slice(0, 80)}`); }
+      }
+      console.log(`✅ [PG] Esquema verificado: ${created}/${(ALL_TABLES as any[]).length} tablas listas`);
+      await resyncPgSequences(pool);
+    } catch (e: any) {
+      console.error(`❌ [PG] No se pudo crear el esquema: ${e?.message}`);
+    }
+
     dbReady = true;
+  }
+}
+
+/**
+ * Resincroniza las secuencias de las columnas id en Postgres.
+ *
+ * Cuando los datos se migran conservando el id original (como se hizo al pasar
+ * de SQLite), las filas quedan con ids altos pero el contador de la secuencia
+ * sigue en 1. Cada INSERT nuevo intenta reusar un id ocupado y Postgres lo
+ * rechaza con 23505 (duplicate key).
+ *
+ * Se vio en producción: WhatsApp recibía "Hola" del cliente pero no podía
+ * guardarlo ("Key (id)=(2) already exists"), así que el bot nunca respondía.
+ *
+ * Corre en cada arranque porque es idempotente y barato: deja cada secuencia
+ * en MAX(id), y evita que una restauración o migración futura vuelva a romper
+ * la app de forma silenciosa.
+ */
+async function resyncPgSequences(pgPool: any): Promise<void> {
+  try {
+    const { rows } = await pgPool.query(`
+      SELECT pg_get_serial_sequence(quote_ident(c.table_name), c.column_name) AS seq,
+             c.table_name, c.column_name
+      FROM information_schema.columns c
+      JOIN information_schema.tables t
+        ON t.table_name = c.table_name AND t.table_schema = c.table_schema
+      WHERE c.table_schema = current_schema()
+        AND t.table_type = 'BASE TABLE'
+        AND pg_get_serial_sequence(quote_ident(c.table_name), c.column_name) IS NOT NULL
+    `);
+
+    let ajustadas = 0;
+    for (const r of rows as { seq: string; table_name: string; column_name: string }[]) {
+      if (!r.seq) continue;
+      // setval con is_called=false sobre COALESCE(MAX,0)+1 deja el contador
+      // listo para el siguiente id incluso con la tabla vacía.
+      await pgPool.query(
+        `SELECT setval($1, COALESCE((SELECT MAX(${r.column_name}) FROM ${r.table_name}), 0) + 1, false)`,
+        [r.seq],
+      );
+      ajustadas++;
+    }
+    console.log(`✅ [PG] Secuencias sincronizadas: ${ajustadas}`);
+  } catch (e: any) {
+    // No es fatal: si falla, la app arranca igual y se ve en los logs.
+    console.warn(`⚠️ [PG] No se pudieron sincronizar las secuencias: ${e?.message?.slice(0, 120)}`);
   }
 }
 

@@ -40,6 +40,7 @@ interface StoreConfig {
   paypalClientId: string;
   ownerId: string;
   slug: string;
+  whatsappPhone: string;
 }
 
 interface Branch {
@@ -159,6 +160,7 @@ export const useStore = create<StoreState>()(
         paypalClientId: '',
         ownerId: 'default-user',
         slug: '',
+        whatsappPhone: '',
       },
       updateConfig: (newConfig) => set((state) => ({ 
         config: { ...state.config, ...newConfig } 

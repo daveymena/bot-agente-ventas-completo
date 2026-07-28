@@ -125,6 +125,22 @@ const WINNING_STRATEGIES_BY_NICHE: Record<string, AdStrategy> = {
     interests: ["Música", "Producción musical", "FL Studio", "Ableton", "Composición", "Beat making"],
     budget: 10000,
   },
+  // Aprender a TOCAR un instrumento no es lo mismo que producir audio: el
+  // bucket musica_audio vendía FL Studio y masterización para un curso de
+  // piano, prometiendo algo que el producto no entrega.
+  instrumentos_musicales: {
+    niche: "Instrumentos Musicales y Canto",
+    hook: "Aprende a tocar desde cero, a tu ritmo y desde casa. Clases en video paso a paso, sin profesor ni horarios.",
+    angle: "Curso grabado de música: lecciones progresivas de cero a avanzado, partituras y ejercicios incluidos. Practica cuando quieras, repite la lección las veces que necesites.",
+    emotionalTrigger: "El sueño pendiente de tocar un instrumento + libertad de aprender sin horarios",
+    ctaType: "SHOP_NOW",
+    imageStyle: "Persona real tocando en casa, luz cálida, ambiente cercano y alcanzable",
+    imagePrompt: "Person playing piano at home in warm natural light, sheet music on stand, cozy living room, authentic candid moment, learning at own pace",
+    ageMin: 18,
+    ageMax: 60,
+    interests: ["Música", "Piano", "Guitarra", "Canto", "Instrumentos musicales", "Aprender música"],
+    budget: 10000,
+  },
   tecnologia_it: {
     niche: "Tecnología y Reparación",
     hook: "Cursos de reparación y tecnología descargables. Aprende a reparar celulares, computadoras y consolas desde cero. Material práctico, sin teoría aburrida.",
@@ -214,7 +230,13 @@ export class AdStrategist {
       return { ...WINNING_STRATEGIES_BY_NICHE.fotografia_edicion };
     }
 
-    if (category.includes("música") || category.includes("musica") || name.includes("guitarra") || name.includes("dj") || name.includes("producción musical") || name.includes("produccion musical") || name.includes("música") || name.includes("musica") || name.includes("piano") || name.includes("audio") || name.includes("canto")) {
+    // Instrumentos ANTES que producción: si no, "CURSO DE PIANO" caía en el
+    // bucket de productores y el anuncio ofrecía FL Studio y masterización.
+    if (name.includes("piano") || name.includes("guitarra") || name.includes("canto") || name.includes("violín") || name.includes("violin") || name.includes("bateria") || name.includes("batería") || name.includes("ukulele") || name.includes("saxofon") || name.includes("saxofón") || name.includes("teclado") || name.includes("cantar")) {
+      return { ...WINNING_STRATEGIES_BY_NICHE.instrumentos_musicales };
+    }
+
+    if (category.includes("música") || category.includes("musica") || name.includes("dj") || name.includes("producción musical") || name.includes("produccion musical") || name.includes("música") || name.includes("musica") || name.includes("audio")) {
       return { ...WINNING_STRATEGIES_BY_NICHE.musica_audio };
     }
 
@@ -374,9 +396,50 @@ ${descLine}
     const strategy = this.getStrategyForProduct(product);
     const adCopy = await this.generateAdCopy(strategy, product);
 
-    let imageUrl = product.image_url || "";
+    // El campo del esquema es imageUrl (column image_url). Leerlo como
+    // product.image_url daba siempre undefined, así que TODOS los anuncios
+    // salían con el placeholder gris en vez de la foto del producto.
+    // Facebook además exige URL absoluta: las del catálogo son relativas.
+    let imageUrl = "";
+    const raw = product.imageUrl || "";
+    if (/^https?:\/\//i.test(raw)) {
+      imageUrl = raw;
+    } else if (raw) {
+      const appUrl = process.env.APP_URL || "";
+      if (/^https:\/\//i.test(appUrl)) {
+        imageUrl = `${appUrl.replace(/\/+$/, "")}/${raw.replace(/^\/+/, "")}`;
+      }
+    }
     if (!imageUrl) {
       imageUrl = `https://placehold.co/1200x628/1A365D/FFFFFF?text=${encodeURIComponent((product.name || "").substring(0, 30))}`;
+      logger.warn({ productId: product.id, raw, appUrl: process.env.APP_URL }, "[AdStrategist] Sin imagen absoluta — usando placeholder");
+    }
+
+    // Por defecto NO se crean campañas en la cuenta publicitaria de Meta: sin
+    // presupuesto ni método de pago no tiene sentido, y una campaña real es
+    // difícil de deshacer. El borrador se guarda local y queda listo para
+    // revisarlo y publicarlo cuando se decida. Para habilitar la creación real
+    // hay que poner FB_CREATE_REAL_CAMPAIGNS=true de forma explícita.
+    if (process.env.FB_CREATE_REAL_CAMPAIGNS !== "true") {
+      const localDraft: DraftAd = {
+        productId: product.id,
+        productName: product.name || "",
+        strategy,
+        primaryText: adCopy.primaryText,
+        headline: adCopy.headline,
+        description: adCopy.description,
+        imageUrl,
+        campaignId: null,
+        adSetId: null,
+        adId: null,
+        status: "draft",
+      };
+      await this.saveDraftToDb(localDraft);
+      logger.info(
+        { productId: product.id, strategy: strategy.niche },
+        "[AdStrategist] Borrador local creado (sin tocar la cuenta publicitaria)"
+      );
+      return localDraft;
     }
 
     try {
@@ -425,7 +488,7 @@ ${descLine}
         object_story_spec: {
           page_id: this.tenant.facebook?.pageId || process.env.FB_PAGE_ID || "",
           link_data: {
-            link: `${process.env.APP_URL || "https://tecnovariedades.easypanel.host"}/productos/${product.id}`,
+            link: `${process.env.APP_URL || "https://tecnovariedades.easypanel.host"}/p/${product.id}`,
             message: adCopy.primaryText,
             name: adCopy.headline,
             description: adCopy.description,

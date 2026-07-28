@@ -41,7 +41,7 @@ const updateBrandingSchema = z.object({
 // GET - Obtener configuración de marca actual
 router.get("/", async (req, res, next) => {
   try {
-    const tenantId = req.cookies?.tenant_id;
+    const tenantId = req.signedCookies?.tenant_id;
     if (!tenantId) {
       return res.status(401).json({ error: "No autenticado" });
     }
@@ -101,7 +101,7 @@ router.get("/", async (req, res, next) => {
 // PUT - Actualizar configuración de marca
 router.put("/", async (req, res, next) => {
   try {
-    const tenantId = req.cookies?.tenant_id;
+    const tenantId = req.signedCookies?.tenant_id;
     if (!tenantId) {
       return res.status(401).json({ error: "No autenticado" });
     }
@@ -127,7 +127,7 @@ router.put("/", async (req, res, next) => {
 // POST - Subir logo (placeholder - necesitarías implementar upload de archivos)
 router.post("/upload-logo", async (req, res, next) => {
   try {
-    const tenantId = req.cookies?.tenant_id;
+    const tenantId = req.signedCookies?.tenant_id;
     if (!tenantId) {
       return res.status(401).json({ error: "No autenticado" });
     }
@@ -155,7 +155,7 @@ router.post("/upload-logo", async (req, res, next) => {
 // GET - Vista previa del tema (genera CSS dinámico)
 router.get("/preview-theme", async (req, res, next) => {
   try {
-    const tenantId = req.cookies?.tenant_id;
+    const tenantId = req.signedCookies?.tenant_id;
     if (!tenantId) {
       return res.status(401).json({ error: "No autenticado" });
     }

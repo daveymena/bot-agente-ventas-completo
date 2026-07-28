@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { createAIClient, getProviderConfig, getProviderConfigFromSettings, type AIProviderConfig } from "@workspace/integrations-openai-ai-server";
+import { createAIClient, getProviderConfig, getProviderConfigFromSettings, getOpenCodeRotation, modelosPara, type AIProviderConfig } from "@workspace/integrations-openai-ai-server";
 import { db, agents, settings, products, productCategories, conversations, messages } from "@workspace/db";
 import { eq, and, desc } from "drizzle-orm";
 import { logger } from "../lib/logger";
@@ -13,6 +13,67 @@ import {
 } from "../lib/optimized-rotation";
 import { getG4FResponse } from "../lib/providers/g4f-provider";
 import { G4F_ENABLED } from "../config/g4f.config";
+import { OPERATOR_SYSTEM_PROMPT, buildToolsDoc, executeAction, isReadOnlyTool, verifyMutation } from "../lib/app-operator";
+import {
+  loadArchitectHistory, saveArchitectTurn, getPendingPlan, setPendingPlan,
+  clearPendingPlan, clearArchitectHistory, isApproval, isRejection,
+} from "../lib/architect-store";
+import { toEmojiStyle } from "../lib/conversation-engine";
+
+/**
+ * Detecta cuando el modelo responde ANUNCIANDO lo que va a hacer ("ahora voy a
+ * investigar X…") en vez de entregar el resultado. Pasaba que devolvía el
+ * anuncio con done:true, el bucle cortaba y el admin recibía la conversación a
+ * medias, teniendo que escribir "sigue" para cada paso.
+ */
+function isAnnouncement(text: string): boolean {
+  if (!text) return false;
+  const t = text.trim();
+  // Un anuncio suele ser corto y termina prometiendo el siguiente paso.
+  if (t.length > 1200) return false;
+  return /\b(ahora\s+(voy|procedo|investig|busc|revis|continú)|voy\s+a\s+(investigar|buscar|revisar|crear|consultar|analizar|completar|seguir)|proceder[ée]|procedo\s+a|d[ée]jame\s+(investigar|buscar|revisar|consultar)|perm[ií]teme\s+(investigar|buscar|revisar)|en\s+seguida|a\s+continuaci[óo]n\s+(voy|investig|busc)|siguiente\s+paso\s*:|estoy\s+(investigando|buscando|revisando|recopilando)|seguir[ée]\s+(investigando|buscando)|luego\s+(crear[ée]|investigar[ée]))/i.test(t);
+}
+
+/** Empujón para que complete el trabajo en el mismo turno, sin anunciarlo. */
+const CONTINUE_NUDGE =
+  "No anuncies lo que vas a hacer: HAZLO ahora en este mismo turno. " +
+  "Llama las herramientas que falten (web_fetch, list_products, etc.) y sigue " +
+  "hasta tener el resultado completo. Si ya reuniste la información y toca " +
+  "crear o modificar algo, propón el plan con datos reales. " +
+  'Solo pon done:true cuando entregues el resultado final o el plan a confirmar.';
+
+// Descripción legible de una acción del plan, para mostrarla al admin antes de ejecutar.
+function describePlannedAction(a: { tool: string; args: any }): string {
+  const g = a.args || {};
+  switch (a.tool) {
+    case "update_product":
+      return `Actualizar producto ${g.id ?? g.name ?? "?"}: ${Object.entries(g).filter(([k]) => k !== "id").map(([k, v]) => `${k}=${v}`).join(", ")}`;
+    case "create_product":
+      return `Crear producto "${g.name ?? "?"}" (${g.price ?? "?"} ${g.currency ?? ""})`;
+    case "delete_product":
+      return `⚠️ ELIMINAR producto ${g.id ?? "?"}`;
+    case "create_category":
+      return `Crear categoría "${g.name ?? "?"}"`;
+    case "update_agent":
+      return `Actualizar el agente: ${Object.entries(g).map(([k, v]) => `${k}=${String(v).slice(0, 40)}`).join(", ")}`;
+    case "update_settings":
+      return `Actualizar configuración: ${Object.entries(g).map(([k, v]) => `${k}=${String(v).slice(0, 40)}`).join(", ")}`;
+    case "create_store":
+      return `Crear tienda "${g.name ?? g.slug ?? "?"}"`;
+    case "fb_create_ad":
+      return `💰 Crear campaña de Facebook para producto ${g.productId ?? "?"} (presupuesto ${g.dailyBudget ?? 5000}/día) — se crea EN PAUSA, no gasta hasta que la actives`;
+    case "fb_sync_catalog":
+      return `Sincronizar catálogo de productos a Facebook`;
+    case "fb_page_publish":
+      return `📢 PUBLICAR en el muro de la página de Facebook (público, gratis) el producto ${g.productId ?? "?"} — visible de inmediato para todos`;
+    case "fb_ad_draft":
+      return `Generar borrador de anuncio (copy + segmentación) para el producto ${g.productId ?? "?"} — no toca la cuenta de Meta, queda guardado local`;
+    case "set_product_image":
+      return `Asignar imagen al producto ${g.productId ?? "?"} (se hospeda permanente): ${String(g.imageUrl ?? "").slice(0, 60)}`;
+    default:
+      return `${a.tool}: ${JSON.stringify(g).slice(0, 80)}`;
+  }
+}
 
 const router = Router();
 
@@ -130,6 +191,7 @@ router.post("/architect", async (req: TenantRequest, res, next) => {
     // Obtener configuración de IA
     let aiConfig = getProviderConfigFromSettings(dbSettings || {}) 
       || getProviderConfig("opencode")
+      || getProviderConfig("groq")
       || getProviderConfig("nvidia") 
       || getProviderConfig("github");
 
@@ -412,16 +474,22 @@ Actúa con la autoridad de una Ingeniera Senior de Software y Directora de Venta
       const startTime = Date.now();
       try {
         const c = createAIClient(config);
-        const resp = await c.chat.completions.create({
-          model: config.model,
-          messages: [
-            { role: "system", content: systemPrompt },
-            ...history,
-            { role: "user", content: `Mensaje del usuario: "${prompt}"\n\nRECORDATORIO CRÍTICO: Eres la Arquitecta experta (una consultora de IA). NO eres el bot de ventas. TU OBJETIVO: Conversar con el usuario, entender sus necesidades y hacer preguntas si falta información. Usa el campo "reply" del JSON para charlar con el usuario. Si tienes suficiente información, genera la "config". RESPONDE SIEMPRE EN FORMATO JSON ESTRICTO.` }
-          ],
-          temperature: 0.7,
-          response_format: { type: "json_object" }
-        });
+        // Sin overridear timeout/maxRetries aquí, un proveedor colgado usaba
+        // el default de createAIClient (60s + 1 reintento, ~120s) antes de
+        // pasar al siguiente candidato — incluso para el mensaje inicial.
+        const resp = await c.chat.completions.create(
+          {
+            model: config.model,
+            messages: [
+              { role: "system", content: systemPrompt },
+              ...history,
+              { role: "user", content: `Mensaje del usuario: "${prompt}"\n\nRECORDATORIO CRÍTICO: Eres la Arquitecta experta (una consultora de IA). NO eres el bot de ventas. TU OBJETIVO: Conversar con el usuario, entender sus necesidades y hacer preguntas si falta información. Usa el campo "reply" del JSON para charlar con el usuario. Si tienes suficiente información, genera la "config". RESPONDE SIEMPRE EN FORMATO JSON ESTRICTO.` }
+            ],
+            temperature: 0.7,
+            response_format: { type: "json_object" }
+          },
+          { timeout: 15000, maxRetries: 0 },
+        );
         const content = resp.choices[0]?.message?.content;
         if (content) {
           reportProviderResult(providerName, true, Date.now() - startTime);
@@ -441,6 +509,7 @@ Actúa con la autoridad de una Ingeniera Senior de Software y Directora de Venta
     // ── Fase 2: Rotación inteligente ──
     if (!rawContent) {
       const providerOrder = getOptimizedProviderOrder();
+      if (!providerOrder.includes("groq")) providerOrder.unshift("groq");
       logger.info({ order: providerOrder }, "[Architect] Selected provider failed, trying rotation");
 
       for (const prov of providerOrder) {
@@ -566,6 +635,7 @@ router.post("/visual-architect", async (req: TenantRequest, res, next) => {
     const [dbSettings] = await db.select().from(settings).limit(1);
     let aiConfig = getProviderConfigFromSettings(dbSettings || {})
       || getProviderConfig("opencode")
+      || getProviderConfig("groq")
       || getProviderConfig("nvidia")
       || getProviderConfig("github");
 
@@ -727,16 +797,19 @@ Responde SIEMPRE en JSON con esta estructura:
       const startTime = Date.now();
       try {
         const c = createAIClient(config);
-        const resp = await c.chat.completions.create({
-          model: config.model,
-          messages: [
-            { role: "system", content: systemPrompt },
-            ...history,
-            { role: "user", content: `Mensaje del usuario: "${prompt}"\n\nRECORDATORIO CRÍTICO: Eres la Arquitecta Visual (una consultora experta). NO eres el bot de ventas. TU OBJETIVO: Conversar con el usuario para entender qué bot necesita crear. Usa el campo "reply" del JSON para responderle, hacerle preguntas y asesorarlo. Cuando tengas información suficiente o propongas algo, llena también los campos de preview y configuración. RESPONDE SIEMPRE EN FORMATO JSON ESTRICTO.` }
-          ],
-          temperature: 0.8,
-          response_format: { type: "json_object" }
-        });
+        const resp = await c.chat.completions.create(
+          {
+            model: config.model,
+            messages: [
+              { role: "system", content: systemPrompt },
+              ...history,
+              { role: "user", content: `Mensaje del usuario: "${prompt}"\n\nRECORDATORIO CRÍTICO: Eres la Arquitecta Visual (una consultora experta). NO eres el bot de ventas. TU OBJETIVO: Conversar con el usuario para entender qué bot necesita crear. Usa el campo "reply" del JSON para responderle, hacerle preguntas y asesorarlo. Cuando tengas información suficiente o propongas algo, llena también los campos de preview y configuración. RESPONDE SIEMPRE EN FORMATO JSON ESTRICTO.` }
+            ],
+            temperature: 0.8,
+            response_format: { type: "json_object" }
+          },
+          { timeout: 15000, maxRetries: 0 },
+        );
         const content = resp.choices[0]?.message?.content;
         if (content) {
           reportProviderResult(providerName, true, Date.now() - startTime);
@@ -755,6 +828,7 @@ Responde SIEMPRE en JSON con esta estructura:
     // ── Fase 2: Rotación inteligente ──
     if (!rawContent) {
       const providerOrder = getOptimizedProviderOrder();
+      if (!providerOrder.includes("groq")) providerOrder.unshift("groq");
       for (const prov of providerOrder) {
         if (prov === "g4f") continue;
         if (prov === dbSettings?.aiProvider) continue;
@@ -980,6 +1054,293 @@ router.get("/current", async (req: TenantRequest, res, next) => {
     });
   } catch (e) {
     logger.error(e, "[Architect] Error getting current agent:");
+    return next(e);
+  }
+});
+
+/**
+ * APP OPERATOR — Arquitecto IA con ejecución real de acciones.
+ * El modelo decide acciones (JSON) y el backend las ejecuta contra la BD en un
+ * bucle, como si fuera el programador/administrador de la app.
+ * POST /api/code-agent/operator  { prompt, history }
+ */
+router.post("/operator", async (req: TenantRequest, res, next) => {
+  try {
+    const tenantId = req.tenant?.id;
+    if (!tenantId) return res.status(401).json({ message: "Tenant not resolved" });
+
+    const { prompt, history = [] } = req.body;
+    if (!prompt) return res.status(400).json({ error: "prompt requerido" });
+
+    const [dbSettings] = await db.select().from(settings).limit(1);
+
+    // Lista de proveedores a intentar, con fallback y sin duplicados
+    const seenP = new Set<string>();
+    const candidates: { name: string; config: AIProviderConfig }[] = [];
+    const pushCfg = (name: string, cfg: AIProviderConfig | null) => {
+      if (!cfg) return;
+      const key = cfg.baseUrl + "|" + cfg.model;
+      if (seenP.has(key)) return;
+      seenP.add(key);
+      candidates.push({ name, config: cfg });
+    };
+    if (dbSettings?.aiProvider) pushCfg(dbSettings.aiProvider, getProviderConfigFromSettings(dbSettings));
+    pushCfg("mimo", getProviderConfig("mimo")); // API propia de Xiaomi, si hay clave
+    // Rotación DENTRO de OpenCode Zen: la cuota gratis se agota por modelo,
+    // así que al recibir 429 se pasa al siguiente modelo antes de abandonar Zen.
+    for (const cfg of getOpenCodeRotation()) pushCfg(`opencode:${cfg.model}`, cfg);
+    pushCfg("groq", getProviderConfig("groq"));
+    // Modelos gratis de otros proveedores especializados en RAZONAR: el
+    // operador planifica y usa herramientas, no le sirve un modelo "rápido".
+    // Solo entran los que tengan clave configurada (getProviderConfig da null).
+    for (const m of modelosPara("razonar")) {
+      const base = getProviderConfig(m.proveedor);
+      if (base) pushCfg(`${m.proveedor}:${m.modelo}`, { ...base, model: m.modelo });
+    }
+    pushCfg("github", getProviderConfig("github"));
+    pushCfg("nvidia", getProviderConfig("nvidia"));
+    pushCfg("github_copilot_internal", getProviderConfig("github_copilot_internal"));
+    if (candidates.length === 0) return res.status(500).json({ error: "No hay motor de IA configurado" });
+
+    // Llama a la IA probando proveedores en orden hasta que uno responda
+    const callAI = async (msgs: any[]): Promise<string | null> => {
+      for (const cand of candidates) {
+        const cfg: AIProviderConfig = { ...cand.config };
+        try {
+          if (cfg.baseUrl === "https://api.githubcopilot.com") {
+            const session = await getCopilotSessionToken(cfg.apiKey);
+            if (session) cfg.apiKey = session.token;
+          }
+          const client = createAIClient(cfg);
+          // createAIClient trae 60s + 1 reintento fijos por defecto (ver
+          // provider.ts): sin overridearlo aquí, un solo candidato colgado
+          // podía bloquear hasta ~120s, y con varios candidatos en la cola
+          // (rotación de opencode, groq, github...) el operador nunca
+          // respondía. 15s es generoso para el Architect (no es tan sensible
+          // a latencia como el bot de ventas) pero acotado.
+          const resp = await client.chat.completions.create(
+            {
+              model: cfg.model,
+              messages: msgs,
+              temperature: 0.2,
+              response_format: { type: "json_object" },
+            },
+            { timeout: 15000, maxRetries: 0 },
+          );
+          const c = resp.choices[0]?.message?.content;
+          if (c) {
+            logger.info({ provider: cand.name, model: cfg.model }, "[AppOperator] respondió");
+            return c;
+          }
+          // 200 con content vacío = modelo "de razonamiento" que solo devuelve
+          // reasoning_content. No sirve para el bucle: se pasa al siguiente.
+          logger.warn({ provider: cand.name, model: cfg.model }, "[AppOperator] respuesta vacía, rotando");
+        } catch (e: any) {
+          const msg = String(e?.message || "");
+          const agotado = /429|rate.?limit|FreeUsageLimit|quota/i.test(msg);
+          logger.warn(
+            { provider: cand.name, model: cfg.model, agotado, err: msg.slice(0, 120) },
+            agotado ? "[AppOperator] cuota agotada, rotando al siguiente modelo" : "[AppOperator] proveedor falló, rotando",
+          );
+        }
+      }
+      return null;
+    };
+
+    const sys = OPERATOR_SYSTEM_PROMPT.replace("${TOOLS}", buildToolsDoc());
+    const ctx = { tenantId };
+    const sessionId: string = (req.body?.sessionId as string) || "default";
+
+    // ── MEMORIA PERSISTENTE: cargar la conversación guardada en el servidor ──
+    // Así el Architect recuerda aunque el navegador se haya cerrado. Si el
+    // frontend manda history y no hay nada guardado, se usa ese como respaldo.
+    const persisted = await loadArchitectHistory(tenantId, sessionId);
+    const convo = persisted.length > 0 ? persisted : (Array.isArray(history) ? history : []);
+    await saveArchitectTurn(tenantId, sessionId, "user", String(prompt));
+
+    // ── ¿Hay un PLAN PENDIENTE esperando confirmación? ──
+    const pending = await getPendingPlan(tenantId, sessionId);
+    if (pending && pending.actions.length > 0) {
+      if (isApproval(String(prompt))) {
+        // EJECUTAR el plan aprobado, con VERIFICACIÓN tras cada cambio
+        const executed: any[] = [];
+        const lines: string[] = [];
+        for (const a of pending.actions) {
+          const r = await executeAction(a.tool, a.args || {}, ctx);
+          const verification = r.ok ? await verifyMutation(a.tool, a.args || {}, ctx) : "";
+          executed.push({ tool: a.tool, args: a.args, ok: r.ok, summary: r.summary, verification });
+          lines.push(`${r.ok ? "✅" : "❌"} ${r.summary}${verification ? `\n   ${verification}` : ""}`);
+        }
+        await clearPendingPlan(tenantId, sessionId);
+        const reply = toEmojiStyle(`Listo, ejecuté el plan:\n\n${lines.join("\n")}`);
+        await saveArchitectTurn(tenantId, sessionId, "assistant", reply);
+        logger.info({ tenantId, executed: executed.length }, "[AppOperator] Plan aprobado y ejecutado");
+        return res.json({ reply, executed, status: "executed" });
+      }
+      if (isRejection(String(prompt))) {
+        await clearPendingPlan(tenantId, sessionId);
+        // Continúa abajo para re-planificar según la nueva instrucción.
+      } else {
+        // Ni aprobó ni rechazó claramente → re-planificamos con su mensaje
+        // (puede estar ajustando el plan). Limpiamos el plan viejo.
+        await clearPendingPlan(tenantId, sessionId);
+      }
+    }
+
+    const messages: any[] = [
+      { role: "system", content: sys },
+      ...convo.map((m: any) => ({ role: m.role, content: m.content })),
+      { role: "user", content: String(prompt) },
+    ];
+
+    // ── FASE PLAN: ejecutamos SOLO lecturas (mirar antes de actuar); las
+    //    mutaciones se ACUMULAN como plan y NO se ejecutan hasta aprobación. ──
+    let finalReply = "";
+    const plannedActions: any[] = [];
+    const MAX_STEPS = 10;
+    for (let step = 0; step < MAX_STEPS; step++) {
+      const rawAI = await callAI(messages);
+      if (!rawAI) {
+        return res.status(502).json({ error: "Todos los proveedores de IA fallaron" });
+      }
+      let content = rawAI.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
+      let parsed: any;
+      try {
+        parsed = JSON.parse(content);
+      } catch {
+        finalReply = content;
+        break;
+      }
+
+      const actions = Array.isArray(parsed.actions) ? parsed.actions : [];
+      finalReply = parsed.reply || finalReply;
+
+      const reads = actions.filter((a: any) => isReadOnlyTool(a.tool));
+      const mutations = actions.filter((a: any) => !isReadOnlyTool(a.tool));
+
+      // Si hay MUTACIONES → ya tenemos el plan de cambios. Ejecutamos las
+      // lecturas de este turno (para grounding) pero PARAMOS aquí: no seguimos
+      // el loop, para no recolectar la misma mutación dos veces.
+      if (mutations.length > 0) {
+        for (const m of mutations) plannedActions.push({ tool: m.tool, args: m.args || {} });
+        for (const a of reads) await executeAction(a.tool, a.args || {}, ctx);
+        break;
+      }
+
+      // Solo lecturas → ejecutar y devolver datos reales para que la IA se apoye
+      if (reads.length > 0) {
+        const results: any[] = [];
+        for (const a of reads) {
+          const r = await executeAction(a.tool, a.args || {}, ctx);
+          results.push({ tool: a.tool, ok: r.ok, summary: r.summary, data: r.data });
+        }
+        messages.push({ role: "assistant", content });
+        messages.push({
+          role: "user",
+          content: "RESULTADOS DE LECTURAS (datos reales):\n" + JSON.stringify(results) +
+            '\n\nUsa estos datos reales. Si vas a cambiar algo, propón el plan con ids/valores reales y pide confirmación. Responde {"reply":"...","actions":[...],"done":true}.',
+        });
+        // No cortamos si dijo done:true pero su reply es solo un anuncio de lo
+        // que "va a hacer": ahí todavía no hay resultado, hay que seguir.
+        if (parsed.done && !isAnnouncement(finalReply)) break;
+        if (parsed.done) {
+          messages.push({ role: "user", content: CONTINUE_NUDGE });
+        }
+        continue;
+      }
+
+      // No hay acciones. Si la respuesta es un anuncio ("ahora voy a…") en vez
+      // de un resultado, la empujamos a completarlo en lugar de devolverla.
+      if (isAnnouncement(finalReply) && step < MAX_STEPS - 1) {
+        messages.push({ role: "assistant", content });
+        messages.push({ role: "user", content: CONTINUE_NUDGE });
+        continue;
+      }
+      break;
+    }
+
+    // ── ¿Quedó un plan de cambios? → guardar como pendiente y pedir confirmación ──
+    if (plannedActions.length > 0) {
+      const planText = plannedActions
+        .map((a, i) => `${i + 1}. ${describePlannedAction(a)}`)
+        .join("\n");
+      const reply = toEmojiStyle(
+        `${finalReply ? finalReply + "\n\n" : ""}📋 Plan propuesto (requiere tu confirmación):\n${planText}\n\n❓ ¿Confirmas? Responde sí para ejecutar, o dime qué ajusto.`,
+      );
+      await setPendingPlan(tenantId, sessionId, plannedActions, reply);
+      await saveArchitectTurn(tenantId, sessionId, "assistant", reply);
+      logger.info({ tenantId, planned: plannedActions.length }, "[AppOperator] Plan propuesto, esperando confirmación");
+      return res.json({ reply, plan: plannedActions, status: "awaiting_confirmation" });
+    }
+
+    // Solo lectura / respuesta informativa → sin cambios que confirmar
+    finalReply = toEmojiStyle(finalReply);
+    await saveArchitectTurn(tenantId, sessionId, "assistant", finalReply);
+    logger.info({ tenantId }, "[AppOperator] Respuesta informativa (sin cambios)");
+    return res.json({ reply: finalReply, status: "info" });
+  } catch (e) {
+    logger.error(e, "[AppOperator] Error");
+    return next(e);
+  }
+});
+
+/**
+ * GET /api/code-agent/history — Devuelve la conversación persistida del
+ * Architect para que la UI la restaure al volver a la página (antes el hilo
+ * vivía solo en el estado de React y se borraba al navegar).
+ */
+router.get("/history", async (req: TenantRequest, res, next) => {
+  try {
+    const tenantId = req.tenant?.id;
+    if (!tenantId) return res.status(401).json({ message: "Tenant not resolved" });
+    const sessionId = String(req.query.sessionId || "default");
+
+    const [history, pending] = await Promise.all([
+      loadArchitectHistory(tenantId, sessionId),
+      getPendingPlan(tenantId, sessionId),
+    ]);
+    return res.json({ history, awaitingConfirmation: !!pending });
+  } catch (e) {
+    return next(e);
+  }
+});
+
+/**
+ * DELETE /api/code-agent/history — Borra la conversación persistida (botón
+ * "nueva conversación"), incluido cualquier plan pendiente de aprobación.
+ */
+router.delete("/history", async (req: TenantRequest, res, next) => {
+  try {
+    const tenantId = req.tenant?.id;
+    if (!tenantId) return res.status(401).json({ message: "Tenant not resolved" });
+    const sessionId = String(req.query.sessionId || "default");
+    await clearArchitectHistory(tenantId, sessionId);
+    return res.json({ ok: true });
+  } catch (e) {
+    return next(e);
+  }
+});
+
+/**
+ * POST /api/code-agent/upload — Subir una imagen/archivo desde el chat del
+ * Architect (botón 📎). Recibe la imagen como data URL base64 (sin multer),
+ * la guarda permanente en el volumen y devuelve la URL absoluta para usarla.
+ */
+router.post("/upload", async (req: TenantRequest, res, next) => {
+  try {
+    const tenantId = req.tenant?.id;
+    if (!tenantId) return res.status(401).json({ message: "Tenant not resolved" });
+    const { image, filename } = req.body || {};
+    if (!image || typeof image !== "string") return res.status(400).json({ error: "Falta 'image' (data URL base64)" });
+
+    const { saveUploadedImage } = await import("../lib/image-store");
+    const rel = await saveUploadedImage(image, filename);
+    if (!rel) return res.status(400).json({ error: "No se pudo guardar la imagen" });
+
+    const base = (process.env.APP_URL || "").replace(/\/$/, "");
+    const url = base ? `${base}${rel}` : rel;
+    return res.json({ ok: true, url, path: rel });
+  } catch (e) {
     return next(e);
   }
 });

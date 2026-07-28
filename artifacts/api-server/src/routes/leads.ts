@@ -1,6 +1,6 @@
 import { safeISO } from "../lib/date-utils";
 import { Router, type IRouter } from "express";
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import {
   CreateLeadBody,
   DeleteLeadParams,
@@ -15,12 +15,26 @@ import { db, leads, activityEvents } from "@workspace/db";
 
 const router: IRouter = Router();
 
+/** Los leads son datos de clientes: nunca deben cruzarse entre cuentas. */
+function tenantIdOf(req: any): number | null {
+  const id = req?.tenant?.id;
+  return typeof id === "number" ? id : null;
+}
+
 router.get("/", async (req, res, next) => {
   try {
+    const tenantId = tenantIdOf(req);
+    if (!tenantId) return res.status(401).json({ message: "No autorizado" });
+
     const q = ListLeadsQueryParams.parse(req.query);
-    const rows = q.stage
-      ? await db.select().from(leads).where(eq(leads.stage, q.stage)).orderBy(desc(leads.createdAt))
-      : await db.select().from(leads).orderBy(desc(leads.createdAt));
+    const filters = [eq(leads.tenantId, tenantId)];
+    if (q.stage) filters.push(eq(leads.stage, q.stage));
+
+    const rows = await db
+      .select()
+      .from(leads)
+      .where(and(...filters))
+      .orderBy(desc(leads.createdAt));
     return res.json(ListLeadsResponse.parse(rows.map(serialize)));
   } catch (e) {
     return next(e);
@@ -51,10 +65,17 @@ router.post("/", async (req, res, next) => {
 
 router.patch("/:id", async (req, res, next) => {
   try {
+    const tenantId = tenantIdOf(req);
+    if (!tenantId) return res.status(401).json({ message: "No autorizado" });
+
     const { id } = UpdateLeadParams.parse(req.params);
     const body = UpdateLeadBody.parse(req.body);
     const update: Record<string, unknown> = { ...body };
-    const [updated] = await db.update(leads).set(update as any).where(eq(leads.id, id)).returning();
+    const [updated] = await db
+      .update(leads)
+      .set(update as any)
+      .where(and(eq(leads.id, id), eq(leads.tenantId, tenantId)))
+      .returning();
     if (!updated) return res.status(404).json({ message: "Lead no encontrado" });
     if (body.stage === "won") {
       await db.insert(activityEvents).values({
@@ -77,8 +98,12 @@ router.patch("/:id", async (req, res, next) => {
 
 router.delete("/:id", async (req, res, next) => {
   try {
+    const tenantId = tenantIdOf(req);
+    if (!tenantId) return res.status(401).json({ message: "No autorizado" });
+
     const { id } = DeleteLeadParams.parse(req.params);
-    await db.delete(leads).where(eq(leads.id, id));
+    // Acotado al tenant: sin esto, cualquiera borraba leads ajenos por id.
+    await db.delete(leads).where(and(eq(leads.id, id), eq(leads.tenantId, tenantId)));
     return res.json(DeleteLeadResponse.parse({ ok: true }));
   } catch (e) {
     return next(e);

@@ -332,8 +332,13 @@ export function isPaymentInstructionIntent(text: string): boolean {
 
 // Datos del titular para respuestas hardcodeadas de pago
 // (normalmente vienen del agente; estos son fallback)
-const DEFAULT_TRANSFER_NUMBER = process.env.TRANSFER_NUMBER || "3136174267";
-const DEFAULT_TRANSFER_OWNER = process.env.TRANSFER_OWNER || "Deiner Mena";
+// Fuente única: variables de entorno TRANSFER_NUMBER / TRANSFER_NAME.
+// Antes conversation-engine leía TRANSFER_OWNER y payments.ts leía
+// TRANSFER_NAME, con defaults distintos ("Deiner Mena" vs "Duvier Mena") →
+// el titular podía mostrarse incorrecto/inconsistente. Se unifica en
+// TRANSFER_NAME (con fallback a TRANSFER_OWNER por compatibilidad).
+const DEFAULT_TRANSFER_NUMBER = process.env.TRANSFER_NUMBER || "";
+const DEFAULT_TRANSFER_OWNER = process.env.TRANSFER_NAME || process.env.TRANSFER_OWNER || "";
 
 /**
  * Genera una respuesta conversacional cuando el cliente:
@@ -558,6 +563,27 @@ export function detectHardcodedIntent(text: string): "delivery" | "access" | "gu
 
 // ─── Post-procesamiento: eliminar URLs y datos de pago si no es payment_intent ─
 
+/**
+ * Estilo emoji para los mensajes al cliente: sin asteriscos de negrita ni
+ * viñetas de punto/guion — usa emojis, que se leen más amigables y pro en
+ * WhatsApp/Messenger. Se aplica a TODO mensaje saliente.
+ */
+export function toEmojiStyle(text: string): string {
+  if (!text) return text;
+  let t = text;
+  // Negritas markdown *texto* → texto (y quitar asteriscos sueltos)
+  t = t.replace(/\*([^*\n]+)\*/g, "$1").replace(/\*/g, "");
+  // Viñetas al inicio de línea (•, -, ▪, ●, ·, ‣) → ✅, salvo que la línea ya
+  // empiece con un emoji.
+  t = t.replace(/^[ \t]*[•▪●‣·]\s+/gm, "✅ ");
+  t = t.replace(/^[ \t]*-\s+(?=[A-Za-zÁÉÍÓÚÑáéíóúñ0-9])/gm, "✅ ");
+  // Separadores largos de guiones/igual (se ven robóticos) → quitar
+  t = t.replace(/^[ \t]*[-=_]{3,}[ \t]*$/gm, "");
+  // Colapsar líneas vacías de más
+  t = t.replace(/\n{3,}/g, "\n\n").trim();
+  return t;
+}
+
 export function sanitizeResponse(text: string, intent: Intent): string {
   if (intent === "payment_intent" || intent === "confirmation") return text;
 
@@ -656,12 +682,17 @@ export async function loadConversationMemory(conversationId: number): Promise<Co
     .where(eq(conversations.id, conversationId))
     .limit(1);
 
-  // Cargar historial completo (últimos 30 mensajes)
+  // Cargar historial completo (últimos 30 mensajes).
+  // Desempate por id (serial autoincremental): sin esto, dos mensajes con el
+  // mismo createdAt (mismo segundo — cliente que manda dos mensajes seguidos,
+  // o respuesta del bot + mensaje del cliente casi simultáneos) quedan en
+  // orden indefinido, y el motor podía leer el mensaje equivocado como "el
+  // último" — respondiendo a algo viejo en vez del mensaje actual.
   const history = await db
     .select()
     .from(messages)
     .where(eq(messages.conversationId, conversationId))
-    .orderBy(desc(messages.createdAt))
+    .orderBy(desc(messages.createdAt), desc(messages.id))
     .limit(30)
     .then(rows => rows.reverse()); // Cronológico
 
@@ -1416,7 +1447,13 @@ export async function saveAgentMessage(
       metadata,
     });
 
-    // Actualizar lastMessage en la conversación
+    // Actualizar lastMessage en la conversación.
+    // dbNow() en vez de new Date().toISOString(): en Postgres esta columna
+    // exige un objeto Date, un string la revienta (ver date-utils.ts). El
+    // catch de abajo se comía el error en silencio — toda respuesta del
+    // agente (saludo, detalles, handoff, fallback) actualizaba el mensaje
+    // pero NUNCA lastMessageAt, así que el inbox ordenaba mal las
+    // conversaciones recientes sin que se viera ningún error.
     await db.update(conversations)
       .set({ lastMessage: content.substring(0, 200), lastMessageAt: dbNow() })
       .where(eq(conversations.id, conversationId));

@@ -40,19 +40,33 @@ const router: IRouter = Router();
 
 router.use(apiRateLimit);
 
+/**
+ * Tenant de la sesión. TODA consulta de conversaciones debe filtrar por él:
+ * sin esto un administrador ve las conversaciones, teléfonos y mensajes de
+ * los clientes de otro — la fuga más grave posible en un SaaS.
+ */
+function tenantIdOf(req: any): number | null {
+  const id = req?.tenant?.id;
+  return typeof id === "number" ? id : null;
+}
+
 router.get("/", async (req, res, next) => {
   try {
+    const tenantId = tenantIdOf(req);
+    if (!tenantId) return res.status(401).json({ message: "No autorizado" });
+
     const q = ListConversationsQueryParams.parse(req.query);
-    const filters = [];
+    const filters = [eq(conversations.tenantId, tenantId)];
     if (q.status) filters.push(eq(conversations.status, q.status));
     if (q.search && q.search.trim()) {
       const term = `%${q.search.trim()}%`;
       filters.push(or(ilike(conversations.contactName, term), ilike(conversations.contactPhone, term))!);
     }
-    const where = filters.length === 1 ? filters[0] : filters.length > 1 ? and(...filters) : undefined;
-    const rows = where
-      ? await db.select().from(conversations).where(where).orderBy(desc(conversations.lastMessageAt))
-      : await db.select().from(conversations).orderBy(desc(conversations.lastMessageAt));
+    const rows = await db
+      .select()
+      .from(conversations)
+      .where(and(...filters))
+      .orderBy(desc(conversations.lastMessageAt));
     return res.json(ListConversationsResponse.parse(rows.map(serializeConversation)));
   } catch (e) {
     return next(e);
@@ -61,8 +75,16 @@ router.get("/", async (req, res, next) => {
 
 router.get("/:id", async (req, res, next) => {
   try {
+    const tenantId = tenantIdOf(req);
+    if (!tenantId) return res.status(401).json({ message: "No autorizado" });
+
     const { id } = GetConversationParams.parse(req.params);
-    const [row] = await db.select().from(conversations).where(eq(conversations.id, id)).limit(1);
+    // El id se acota al tenant: pedir el id de otro devuelve 404, no sus datos.
+    const [row] = await db
+      .select()
+      .from(conversations)
+      .where(and(eq(conversations.id, id), eq(conversations.tenantId, tenantId)))
+      .limit(1);
     if (!row) return res.status(404).json({ message: "Conversación no encontrada" });
     await db.update(conversations).set({ unreadCount: 0 }).where(eq(conversations.id, id));
     return res.json(GetConversationResponse.parse(serializeConversation({ ...row, unreadCount: 0 })));
@@ -73,12 +95,15 @@ router.get("/:id", async (req, res, next) => {
 
 router.patch("/:id", async (req, res, next) => {
   try {
+    const tenantId = tenantIdOf(req);
+    if (!tenantId) return res.status(401).json({ message: "No autorizado" });
+
     const { id } = UpdateConversationParams.parse(req.params);
     const body = UpdateConversationBody.parse(req.body);
     const [updated] = await db
       .update(conversations)
       .set(body)
-      .where(eq(conversations.id, id))
+      .where(and(eq(conversations.id, id), eq(conversations.tenantId, tenantId)))
       .returning();
     if (!updated) return res.status(404).json({ message: "Conversación no encontrada" });
     return res.json(UpdateConversationResponse.parse(serializeConversation(updated)));
@@ -89,7 +114,19 @@ router.patch("/:id", async (req, res, next) => {
 
 router.get("/:id/messages", async (req, res, next) => {
   try {
+    const tenantId = tenantIdOf(req);
+    if (!tenantId) return res.status(401).json({ message: "No autorizado" });
+
     const { id } = ListMessagesParams.parse(req.params);
+    // messages no guarda tenantId: se valida que la conversación sea del tenant
+    // ANTES de leer los mensajes, o cualquiera leería chats ajenos por id.
+    const [owner] = await db
+      .select({ id: conversations.id })
+      .from(conversations)
+      .where(and(eq(conversations.id, id), eq(conversations.tenantId, tenantId)))
+      .limit(1);
+    if (!owner) return res.status(404).json({ message: "Conversación no encontrada" });
+
     const rows = await db
       .select()
       .from(messages)
@@ -103,9 +140,16 @@ router.get("/:id/messages", async (req, res, next) => {
 
 router.post("/:id/messages", conversationRateLimit, aiCostTracker, async (req, res, next) => {
   try {
+    const tenantId = tenantIdOf(req);
+    if (!tenantId) return res.status(401).json({ message: "No autorizado" });
+
     const { id } = SendMessageParams.parse(req.params);
     const body = SendMessageBody.parse(req.body);
-    const [convo] = await db.select().from(conversations).where(eq(conversations.id, id)).limit(1);
+    const [convo] = await db
+      .select()
+      .from(conversations)
+      .where(and(eq(conversations.id, id), eq(conversations.tenantId, tenantId)))
+      .limit(1);
     if (!convo) return res.status(404).json({ message: "Conversación no encontrada" });
 
     const role = body.asHuman ? "human" : "agent";
@@ -120,6 +164,7 @@ router.post("/:id/messages", conversationRateLimit, aiCostTracker, async (req, r
       .returning();
     await db
       .update(conversations)
+      // dbNow(): Postgres exige Date en esta columna, un string la revienta.
       .set({ lastMessage: body.content, lastMessageAt: dbNow(), status: body.asHuman ? "human" : convo.status })
       .where(eq(conversations.id, id));
 

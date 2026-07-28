@@ -123,11 +123,11 @@ export const TECNOVARIEDADES_VOICE: BrandVoice = {
 
   phrases: {
     greeting_new:
-      "¡Bienvenido/a a *TecnoVariedades D&S*! 🔥\nEs un placer saludarte.\n\nEstoy a tu entera disposición para ayudarte con lo que necesites hoy. 😊",
+      "¡Hola! 👋 Bienvenido a *TecnoVariedades*. ¿Qué estás buscando hoy?",
     greeting_return:
-      "¡Qué gusto verte de nuevo! 🌟\nAquí estoy a tu disposición.",
+      "¡Hey! Qué bueno verte de nuevo 😊 ¿En qué te ayudo?",
     product_intro:
-      "¡Justo lo que necesitas! 👇",
+      "Mira esto 👇",
     payment_ready:
       "¡Perfecto! Los enlaces de pago están listos 💳\nPuedes pagar con tarjeta, PayPal, Nequi o Daviplata:",
     objection_empathy:

@@ -1,0 +1,43 @@
+{
+  "kicker": "CURSOS DE",
+  "title": "DISEÑO",
+  "subtitle": "GRÁFICO",
+  "tagline": "PACK COMPLETO",
+  "intro": "Photoshop, Illustrator, InDesign y Corel de básico a experto, en un solo pack.",
+  "features": [
+    {
+      "icon": "🎨",
+      "title": "4 PROGRAMAS",
+      "text": "De Photoshop a Corel"
+    },
+    {
+      "icon": "📚",
+      "title": "45 SECCIONES",
+      "text": "Más de 420 clases"
+    },
+    {
+      "icon": "⏱️",
+      "title": "65 HORAS",
+      "text": "Contenido completo"
+    },
+    {
+      "icon": "▶️",
+      "title": "CLASES EN VIDEO",
+      "text": "Alta calidad"
+    }
+  ],
+  "bullets": [
+    "Acceso ilimitado de por vida",
+    "Estudia cuando y donde quieras",
+    "Ideal para principiantes y avanzados",
+    "Descargable y online vía Drive"
+  ],
+  "cta": "¡EMPIEZA HOY!",
+  "bgPrompt": "graphic designer working with a drawing tablet and colorful design work on screen, creative studio",
+  "seed": 121,
+  "accentLight": "#FFD0F5",
+  "accent": "#D946EF",
+  "accentDark": "#86198F",
+  "ink": "#1a0418",
+  "rimLight": "magenta"
+}

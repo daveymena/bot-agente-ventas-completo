@@ -4,6 +4,7 @@ import { logger } from "./logger";
 import { leadScoringEngine, type LeadStage } from "./leadScoring";
 import { whatsapp } from "./whatsapp";
 import { toDbDate } from "./date-utils";
+import { facebookMessengerService } from "./facebook-messenger";
 
 export class FollowUpScheduler {
   private isRunning = false;
@@ -101,12 +102,29 @@ export class FollowUpScheduler {
 
   private async processFollowUp(followUp: FollowUp): Promise<void> {
     try {
-      if (!whatsapp.isConnected()) {
-        logger.warn({ followUpId: followUp.id }, "[FollowUpScheduler] WhatsApp not connected");
-        return;
-      }
+      // Los leads de Facebook Messenger se guardan como contactPhone=`fb:<psid>`
+      // (ver facebook-messenger.ts). Antes esto se ignoraba y SOLO se enviaba
+      // por WhatsApp, dejando a todos los leads de Facebook sin seguimiento.
+      const isFacebookLead = followUp.contactPhone.startsWith("fb:");
 
-      await whatsapp.sendText(followUp.contactPhone, followUp.message);
+      if (isFacebookLead) {
+        const psid = followUp.contactPhone.slice(3);
+        if (!facebookMessengerService.isConfigured()) {
+          logger.warn({ followUpId: followUp.id }, "[FollowUpScheduler] Facebook Messenger not configured");
+          return;
+        }
+        const sent = await facebookMessengerService.sendText(psid, followUp.message);
+        if (!sent) {
+          logger.warn({ followUpId: followUp.id }, "[FollowUpScheduler] Failed to send Facebook follow-up");
+          return;
+        }
+      } else {
+        if (!whatsapp.isConnected()) {
+          logger.warn({ followUpId: followUp.id }, "[FollowUpScheduler] WhatsApp not connected");
+          return;
+        }
+        await whatsapp.sendText(followUp.contactPhone, followUp.message);
+      }
 
       await db.update(followUps)
         .set({ completed: true, attempts: followUp.attempts + 1 })

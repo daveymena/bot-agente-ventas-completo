@@ -14,9 +14,8 @@ import { getMessageQueue, QueuedMessage } from '../message-queue';
 import { runAgentReply } from '../agent';
 import { whatsapp, type AgentReplyPart } from '../whatsapp';
 import { db } from "@workspace/db";
-import { messages } from "@workspace/db";
 import { conversations } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import { logger } from '../logger';
 
 export interface AgentOrchestratorConfig {
@@ -59,7 +58,13 @@ export class AgentOrchestrator {
   private startProcessing(): void {
     if (this.processing) return;
     this.processing = true;
-    this.runProcessingLoop();
+    // Ejecutar el loop en background (no esperar)
+    this.runProcessingLoop().catch(error => {
+      logger.error({ error }, '[AgentOrchestrator] Fatal error in processing loop');
+      this.processing = false;
+      // Reintentar en 5 segundos
+      setTimeout(() => this.startProcessing(), 5000);
+    });
     logger.info('[AgentOrchestrator] Sequential processing loop started');
   }
 
@@ -97,9 +102,10 @@ export class AgentOrchestrator {
       return;
     }
 
-    // Don't process messages if WhatsApp is not connected (will be retried)
+    // Don't process messages if WhatsApp is not connected (revert processing flag so it can be retried)
     if (!whatsapp.isConnected()) {
       logger.debug('[AgentOrchestrator] WhatsApp not connected, deferring message processing');
+      message.processing = false;
       return;
     }
 
@@ -123,38 +129,25 @@ export class AgentOrchestrator {
       // Ejecutar el agente (lógica de IA) - usa runAgentReply con conversationId
       const reply = await runAgentReply(convo.id);
 
+      // Si la respuesta es nula o no tiene partes, no hay nada que enviar
       if (!reply || !reply.parts) {
         logger.warn({
           conversationId: convo.id,
           queueId: message.id,
-        }, '[AgentOrchestrator] No reply generated, marking as failed');
-        this.queue.markFailed(message.id);
+        }, '[AgentOrchestrator] Agent returned null reply or no parts');
+        this.queue.markProcessed(message.id);
         return;
       }
 
-      // Enviar respuesta via WhatsApp
+      // Enviar respuesta via WhatsApp (Soporta Texto y Tarjetas Multimedia)
       const pushName = convo.contactName || phone;
       await whatsapp.sendAgentParts(phone, pushName, reply.parts as AgentReplyPart[], message.from);
-      
-      // Guardar cada parte en la BD para el historial del dashboard
-      for (const part of reply.parts) {
-        if (part.kind === 'text' && part.content) {
-          await db.insert(messages).values({
-            conversationId: convo.id,
-            role: "agent",
-            content: part.content,
-            stage: convo.currentStage,
-          });
-        } else if (part.kind === 'card') {
-          await db.insert(messages).values({
-            conversationId: convo.id,
-            role: "agent",
-            content: `[CARD: ${part.productId}]`,
-            stage: convo.currentStage,
-          });
-        }
-      }
 
+      // NO se persiste aquí: runAgentReply ya guardó la respuesta con
+      // saveAgentMessage (con su metadata y actualizando lastMessage) en todos
+      // sus caminos de salida. Guardarla otra vez dejaba CADA respuesta al
+      // cliente duplicada en la BD, y como el historial alimenta el contexto de
+      // la IA, el agente se veía a sí mismo repitiéndose turno tras turno.
       // Marcar como procesado solo si se envió respuesta exitosamente
       this.queue.markProcessed(message.id);
 
@@ -180,17 +173,34 @@ export class AgentOrchestrator {
    */
   private async getOrCreateConversation(tenantId: string, phone: string): Promise<{ id: number; currentStage: string | null; contactName: string; contactPhone: string } | null> {
     try {
-      // Buscar conversación existente
-      const existing = await db.select().from(conversations).where(eq(conversations.contactPhone, phone)).limit(1);
-      
+      const tenantIdNum = typeof tenantId === 'string' ? parseInt(tenantId) : tenantId;
+
+      // Buscar conversación existente (filtrar por tenantId + phone)
+      const existing = await db.select().from(conversations)
+        .where(and(
+          eq(conversations.contactPhone, phone),
+          eq(conversations.tenantId, tenantIdNum)
+        ))
+        .limit(1);
+
       if (existing.length > 0) {
         return existing[0];
       }
-      
-      // Si no existe, el MessageHandler debería haberla creado
-      logger.warn(`[AgentOrchestrator] Conversación no encontrada para ${phone}, el MessageHandler debería haberla creado`);
-      return null;
-      
+
+      // Si no existe, crear una nueva (el MessageHandler debería haber hecho esto, pero por si acaso)
+      logger.warn(`[AgentOrchestrator] Conversación no encontrada para ${phone}, creando nueva...`);
+      const { addTenantToInsert } = await import("../tenantManager");
+
+      const [convo] = await db.insert(conversations).values(addTenantToInsert({
+        contactName: phone,
+        contactPhone: phone,
+        status: "ai",
+        currentStage: "greeting",
+        unreadCount: 0
+      }, tenantIdNum)).returning();
+
+      return convo || null;
+
     } catch (error) {
       logger.error({ error }, '[AgentOrchestrator] Error getting/creating conversation');
       return null;

@@ -1,0 +1,43 @@
+{
+  "kicker": "CURSO DE",
+  "title": "PHOTOSHOP",
+  "subtitle": "PARA DISEÑO WEB",
+  "tagline": "DE CERO A EXPERTO",
+  "intro": "Diseña sitios e interfaces profesionales con Photoshop, del boceto al resultado final.",
+  "features": [
+    {
+      "icon": "🖥️",
+      "title": "DISEÑO WEB",
+      "text": "Maquetas e interfaces"
+    },
+    {
+      "icon": "🎨",
+      "title": "HERRAMIENTAS",
+      "text": "Photoshop a fondo"
+    },
+    {
+      "icon": "📐",
+      "title": "BUENAS PRÁCTICAS",
+      "text": "Medidas y retículas"
+    },
+    {
+      "icon": "▶️",
+      "title": "CLASES EN VIDEO",
+      "text": "Alta calidad"
+    }
+  ],
+  "bullets": [
+    "Acceso ilimitado de por vida",
+    "Estudia cuando y donde quieras",
+    "Ideal para principiantes y avanzados",
+    "Descargable y online vía Drive"
+  ],
+  "cta": "¡EMPIEZA HOY!",
+  "bgPrompt": "graphic designer working on a computer designing a website, modern creative studio, blue screen glow",
+  "seed": 54,
+  "accentLight": "#BFE4FF",
+  "accent": "#31A8FF",
+  "accentDark": "#0A5C99",
+  "ink": "#04121c",
+  "rimLight": "cool blue"
+}

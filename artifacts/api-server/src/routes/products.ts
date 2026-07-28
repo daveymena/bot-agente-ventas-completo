@@ -23,7 +23,7 @@ const router = Router();
 router.get("/", async (req: TenantRequest, res, next) => {
   try {
     const tenantId = req.tenant?.id;
-    if (!tenantId) return sendError(res, ERROR_CODES.UNAUTHORIZED, 401);
+    if (!tenantId) return sendError(res, ERROR_CODES.UNAUTHORIZED);
 
     const rows = await db
       .select()
@@ -41,7 +41,7 @@ router.get("/", async (req: TenantRequest, res, next) => {
 router.post("/", async (req: TenantRequest, res, next) => {
   try {
      const tenantId = req.tenant?.id;
-     if (!tenantId) return sendError(res, ERROR_CODES.UNAUTHORIZED, 401);
+     if (!tenantId) return sendError(res, ERROR_CODES.UNAUTHORIZED);
 
      if (req.body.price !== undefined) {
        req.body.price = String(req.body.price);
@@ -77,7 +77,7 @@ router.post("/", async (req: TenantRequest, res, next) => {
 router.patch("/:id", async (req: TenantRequest, res, next) => {
   try {
     const tenantId = req.tenant?.id;
-    if (!tenantId) return sendError(res, ERROR_CODES.UNAUTHORIZED, 401);
+    if (!tenantId) return sendError(res, ERROR_CODES.UNAUTHORIZED);
 
     const { id } = UpdateProductParams.parse(req.params);
     if (req.body.price !== undefined) {
@@ -94,7 +94,7 @@ router.patch("/:id", async (req: TenantRequest, res, next) => {
       .where(and(eq(products.id, id), eq(products.tenantId, tenantId)))
       .returning();
 
-    if (!updated) return sendError(res, ERROR_CODES.PRODUCT_NOT_FOUND, 404);
+    if (!updated) return sendError(res, ERROR_CODES.PRODUCT_NOT_FOUND);
     return res.json(UpdateProductResponse.parse(serialize(updated)));
   } catch (e) {
     return next(e);
@@ -105,7 +105,7 @@ router.patch("/:id", async (req: TenantRequest, res, next) => {
 router.delete("/:id", async (req: TenantRequest, res, next) => {
   try {
     const tenantId = req.tenant?.id;
-    if (!tenantId) return sendError(res, ERROR_CODES.UNAUTHORIZED, 401);
+    if (!tenantId) return sendError(res, ERROR_CODES.UNAUTHORIZED);
 
     const { id } = DeleteProductParams.parse(req.params);
     const [deleted] = await db
@@ -113,7 +113,7 @@ router.delete("/:id", async (req: TenantRequest, res, next) => {
       .where(and(eq(products.id, id), eq(products.tenantId, tenantId)))
       .returning();
 
-    if (!deleted) return sendError(res, ERROR_CODES.PRODUCT_NOT_FOUND, 404);
+    if (!deleted) return sendError(res, ERROR_CODES.PRODUCT_NOT_FOUND);
     return res.json(DeleteProductResponse.parse({ ok: true }));
   } catch (e) {
     return next(e);
@@ -127,10 +127,10 @@ router.delete("/:id", async (req: TenantRequest, res, next) => {
 router.post("/bulk-smart", async (req: TenantRequest, res, next) => {
   try {
     const tenantId = req.tenant?.id;
-    if (!tenantId) return sendError(res, ERROR_CODES.UNAUTHORIZED, 401);
+    if (!tenantId) return sendError(res, ERROR_CODES.UNAUTHORIZED);
 
     const { base64 } = req.body;
-    if (!base64) return sendError(res, ERROR_CODES.VALIDATION_NO_FILE_PROVIDED, 400);
+    if (!base64) return sendError(res, ERROR_CODES.VALIDATION_NO_FILE_PROVIDED);
 
     // Read the file (XLSX, CSV, etc.)
     const workbook = XLSX.read(base64, { type: "base64" });
@@ -138,7 +138,7 @@ router.post("/bulk-smart", async (req: TenantRequest, res, next) => {
     const sheet = workbook.Sheets[sheetName!];
     const rawRows = XLSX.utils.sheet_to_json(sheet!);
 
-    if (rawRows.length === 0) return sendError(res, ERROR_CODES.VALIDATION_INVALID_FILE_FORMAT, 400);
+    if (rawRows.length === 0) return sendError(res, ERROR_CODES.VALIDATION_INVALID_FILE_FORMAT);
 
     // Get headers
     const headers = Object.keys(rawRows[0] as object);

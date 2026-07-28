@@ -1,35 +1,8 @@
-<svg width="180" height="45" viewBox="0 0 180 45" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <!-- Icono moderno con gradiente -->
-  <defs>
-    <linearGradient id="iconGradient" x1="0" y1="0" x2="35" y2="35" gradientUnits="userSpaceOnUse">
-      <stop offset="0%" stop-color="#6366f1"/>
-      <stop offset="100%" stop-color="#8b5cf6"/>
-    </linearGradient>
-  </defs>
-  
-  <!-- Fondo del icono con sombra suave -->
-  <rect x="2" y="7" width="35" height="35" rx="10" fill="url(#iconGradient)" opacity="0.1"/>
-  <rect x="0" y="5" width="35" height="35" rx="10" fill="url(#iconGradient)"/>
-  
-  <!-- Icono de mensaje/chat simplificado -->
-  <path d="M 8 15 L 27 15 C 28.5 15 29 15.5 29 17 L 29 26 C 29 27.5 28.5 28 27 28 L 12 28 L 8 32 L 8 28 C 6.5 28 6 27.5 6 26 L 6 17 C 6 15.5 6.5 15 8 15 Z" 
-        fill="white" opacity="0.95"/>
-  
-  <!-- Checkmark dentro del mensaje -->
-  <path d="M 12 21 L 15 24 L 23 18" 
-        stroke="url(#iconGradient)" 
-        stroke-width="2" 
-        stroke-linecap="round" 
-        stroke-linejoin="round" 
-        fill="none"/>
-  
-  <!-- Texto "VentasPro" con mejor tipografía -->
-  <text x="45" y="30" 
-        font-family="'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" 
-        font-size="22" 
-        font-weight="700" 
-        letter-spacing="-0.5"
-        fill="#1e293b">
-    Ventas<tspan fill="#6366f1">Pro</tspan>
-  </text>
+<svg width="196" height="44" viewBox="0 0 196 44" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <g transform="translate(0,3) scale(0.59375)">
+    <path d="M18 2H46A16 16 0 0 1 62 18V46A16 16 0 0 1 46 62H8A6 6 0 0 1 2 56V18A16 16 0 0 1 18 2Z" fill="#4F46E5"></path>
+    <path d="M19 20.5L32 43.5" stroke="#FFFFFF" stroke-width="6.5" stroke-linecap="round"></path>
+    <path d="M32 43.5L45 20.5" stroke="#A5B4FC" stroke-width="6.5" stroke-linecap="round"></path>
+  </g>
+  <text x="50" y="29" font-family="Inter, -apple-system, system-ui, sans-serif" font-size="21" font-weight="700" letter-spacing="-0.65" fill="#0F172B">Ventas<tspan fill="#4F46E5">Pro</tspan></text>
 </svg>

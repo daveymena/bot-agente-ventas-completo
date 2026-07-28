@@ -48,6 +48,15 @@ const SessionContext = createContext<SessionContextType>({
 
 export const useSession = () => useContext(SessionContext);
 
+function TiendaRedirect() {
+  const { tenant } = useSession();
+  useEffect(() => {
+    const slug = tenant?.slug || '';
+    window.location.href = slug ? `/tienda/${slug}` : "/tienda";
+  }, [tenant]);
+  return null;
+}
+
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
@@ -109,7 +118,7 @@ function AppContent() {
 
   useEffect(() => {
     // Redirigir a /auth si no está autenticado y no está ya en /auth o /pricing
-    if (!isLoading && !isAuthenticated && location !== "/auth" && location !== "/pricing" && location !== "/onboarding" && !location.startsWith("/store/") && !location.startsWith("/tienda/")) {
+    if (!isLoading && !isAuthenticated && location !== "/auth" && location !== "/pricing" && location !== "/onboarding" && !location.startsWith("/store") && !location.startsWith("/tienda") && location !== "/mi-tienda") {
       console.log("🔒 No autenticado, redirigiendo a /auth...");
       setLocation("/auth");
     }

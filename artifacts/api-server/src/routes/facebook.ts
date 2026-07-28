@@ -1,4 +1,5 @@
-import { Router, type IRouter, type Request, type Response } from "express";
+import { Router, type IRouter, type Request, type Response, type NextFunction } from "express";
+import { createHmac, timingSafeEqual } from "crypto";
 import { eq } from "drizzle-orm";
 import { db, tenants, leads, conversations, messages, products } from "@workspace/db";
 import { facebookService as fb } from "../lib/facebook";
@@ -8,10 +9,45 @@ import { facebookCommentsService as fbComments } from "../lib/facebook-comments"
 import { channelManager } from "../lib/channel-manager";
 import { tenantManager } from "../lib/tenantManager";
 import { adStrategist } from "../lib/ad-strategist";
+import { buildPostDraft, publishToPage, checkPostingPermission } from "../lib/facebook-page-posts";
 import { whatsapp } from "../lib/whatsapp";
 import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
+
+// ─── Verificación de firma de webhooks (X-Hub-Signature-256) ────────────────
+// Valida que el payload venga realmente de Facebook usando el App Secret.
+// Comportamiento seguro y factible: si no hay App Secret configurado o no llega
+// firma, se permite el paso (con warning) para no romper despliegues existentes.
+// Si ambos están presentes y NO coinciden, se rechaza con 403.
+function verifyFacebookSignature(req: Request, res: Response, next: NextFunction) {
+  const appSecret = process.env.FB_APP_SECRET || "";
+  const signature = (req.headers["x-hub-signature-256"] || req.headers["x-hub-signature"]) as string | undefined;
+  const rawBody: Buffer | undefined = (req as any).rawBody;
+
+  if (!appSecret) {
+    logger.warn("[Facebook] FB_APP_SECRET no configurado — firma de webhook NO verificada");
+    return next();
+  }
+  if (!signature || !rawBody) {
+    logger.warn("[Facebook] Webhook sin firma o sin body crudo — permitido pero sin verificar");
+    return next();
+  }
+
+  try {
+    const expected = "sha256=" + createHmac("sha256", appSecret).update(rawBody).digest("hex");
+    const sigBuf = Buffer.from(signature);
+    const expBuf = Buffer.from(expected);
+    if (sigBuf.length !== expBuf.length || !timingSafeEqual(sigBuf, expBuf)) {
+      logger.warn("[Facebook] Firma de webhook inválida — rechazado");
+      return res.status(403).json({ error: "Invalid signature" });
+    }
+    return next();
+  } catch (err) {
+    logger.error({ err }, "[Facebook] Error verificando firma de webhook");
+    return res.status(403).json({ error: "Signature verification error" });
+  }
+}
 
 // ─── Facebook Lead Ads Webhook ──────────────────────────────────────────────
 // GET /facebook/lead-ads/webhook — Facebook verificaciòn del webhook (challenge)
@@ -32,7 +68,7 @@ router.get("/lead-ads/webhook", (req: Request, res: Response) => {
 });
 
 // POST /facebook/lead-ads/webhook — Recibir leads de Facebook Lead Ads
-router.post("/lead-ads/webhook", async (req: Request, res: Response) => {
+router.post("/lead-ads/webhook", verifyFacebookSignature, async (req: Request, res: Response) => {
   try {
     const body = req.body;
     logger.info({ entryCount: body.entry?.length }, "[Facebook] Lead webhook recibido");
@@ -165,7 +201,7 @@ router.get("/messenger/webhook", (req: Request, res: Response) => {
 });
 
 // POST /facebook/messenger/webhook — Receive messages from Messenger
-router.post("/messenger/webhook", async (req: Request, res: Response) => {
+router.post("/messenger/webhook", verifyFacebookSignature, async (req: Request, res: Response) => {
   try {
     const body = req.body;
     if (body.object !== "page") {
@@ -180,6 +216,11 @@ router.post("/messenger/webhook", async (req: Request, res: Response) => {
         const postback = event.postback?.payload;
 
         if (!senderPsid) continue;
+
+        // Ignorar ecos (mensajes enviados por la propia página) para evitar bucles infinitos
+        if (event.message?.is_echo) continue;
+        // Ignorar acuses de entrega/lectura (no son mensajes entrantes)
+        if (event.delivery || event.read) continue;
 
         if (messageText) {
           await fbMessenger.handleIncomingMessage(senderPsid, messageText, senderName);
@@ -199,6 +240,30 @@ router.post("/messenger/webhook", async (req: Request, res: Response) => {
           );
         }
       }
+
+      // Facebook envía TODOS los eventos de la página a UNA sola URL de callback.
+      // Además de mensajes (entry.messaging), aquí llegan los comentarios en
+      // publicaciones/anuncios como entry.changes con field "feed". Los procesamos
+      // en el mismo endpoint para que una única URL de webhook cubra Messenger + comentarios.
+      for (const change of entry.changes || []) {
+        if (change.field === "feed") {
+          const value = change.value || {};
+          if (value.item === "comment" && value.verb === "add") {
+            const fromId = value.from?.id || "";
+            const ownPageId = process.env.FB_PAGE_ID || "";
+            // No responder los comentarios de la propia página (evita bucles)
+            if (fromId && fromId !== ownPageId && value.comment_id && value.message) {
+              await channelManager.processMessage({
+                channel: "facebook_comment",
+                contactId: fromId,
+                contactName: value.from?.name || "Usuario",
+                text: value.message,
+                metadata: { commentId: value.comment_id, postId: value.post_id || "" },
+              });
+            }
+          }
+        }
+      }
     }
 
     res.status(200).json({ received: true });
@@ -209,7 +274,7 @@ router.post("/messenger/webhook", async (req: Request, res: Response) => {
 });
 
 // ─── Facebook Marketplace Webhook ──────────────────────────────────────────
-router.post("/marketplace/webhook", async (req: Request, res: Response) => {
+router.post("/marketplace/webhook", verifyFacebookSignature, async (req: Request, res: Response) => {
   try {
     const body = req.body;
     if (body.object !== "page") return res.status(200).json({ received: true });
@@ -252,7 +317,7 @@ router.post("/marketplace/webhook", async (req: Request, res: Response) => {
 });
 
 // ─── Facebook Comments Webhook ─────────────────────────────────────────────
-router.post("/comments/webhook", async (req: Request, res: Response) => {
+router.post("/comments/webhook", verifyFacebookSignature, async (req: Request, res: Response) => {
   try {
     const body = req.body;
     if (body.object !== "page") return res.status(200).json({ received: true });
@@ -364,6 +429,68 @@ router.delete("/marketplace/listings/:listingId", async (req, res, next) => {
 });
 
 // ─── Ad Strategist Endpoints ───────────────────────────────────────────────
+// ── Publicaciones ORGÁNICAS en la página (sin pauta) ────────────────────────
+
+/** Diagnóstico: ¿el token puede publicar en el muro? */
+router.get("/page/can-post", async (req, res, next) => {
+  try {
+    const tenant = (req as any).tenant;
+    const problema = await checkPostingPermission(tenant);
+    return res.json({
+      canPost: problema === null,
+      pageId: tenant?.facebook?.pageId || process.env.FB_PAGE_ID || null,
+      reason: problema,
+    });
+  } catch (e) { return next(e); }
+});
+
+/** Genera el texto de la publicación SIN publicar, para revisarlo antes. */
+router.get("/page/post-preview/:productId", async (req, res, next) => {
+  try {
+    const tenant = (req as any).tenant;
+    const draft = await buildPostDraft(parseInt(req.params.productId), tenant?.slug || "demo");
+    return res.json(draft);
+  } catch (e: any) {
+    if (e?.message === "Producto no encontrado") {
+      return res.status(404).json({ error: e.message });
+    }
+    return next(e);
+  }
+});
+
+/**
+ * Publica en el muro de la página. Acción pública e irreversible desde la app
+ * (borrarla hay que hacerlo en Facebook), por eso exige confirm:true explícito
+ * en el body en vez de publicar con solo llamar al endpoint.
+ */
+router.post("/page/publish/:productId", async (req, res, next) => {
+  try {
+    if (req.body?.confirm !== true) {
+      return res.status(400).json({
+        error: "Confirmación requerida",
+        detail: "Enviá { \"confirm\": true } para publicar en la página. Usá /page/post-preview para revisar el texto antes.",
+      });
+    }
+
+    const tenant = (req as any).tenant;
+    const draft = await buildPostDraft(parseInt(req.params.productId), tenant?.slug || "demo");
+
+    // Permite editar el texto antes de publicar desde el panel
+    if (typeof req.body?.message === "string" && req.body.message.trim()) {
+      draft.message = req.body.message.trim();
+    }
+
+    const result = await publishToPage(draft, tenant);
+    if (!result.ok) return res.status(502).json(result);
+    return res.json(result);
+  } catch (e: any) {
+    if (e?.message === "Producto no encontrado") {
+      return res.status(404).json({ error: e.message });
+    }
+    return next(e);
+  }
+});
+
 router.get("/strategist/drafts", async (req, res, next) => {
   try {
     const tenantId = (req as any).tenant?.id || 1;
@@ -465,9 +592,10 @@ router.put("/config", async (req, res, next) => {
     const meta = tenant?.metadata ? (typeof tenant.metadata === "string" ? JSON.parse(tenant.metadata) : tenant.metadata) : {};
     const current = meta.facebook || {};
     const body = req.body || {};
-    // Merge sobre `current`, no un objeto nuevo con campos fijos: reconstruirlo
-    // borraba messengerPageToken/messengerVerifyToken — guardar el pixel desde
-    // el panel tumbaba la página conectada y había que rehacer el OAuth.
+    // Se hace merge sobre `current`, no un objeto nuevo con campos fijos:
+    // reconstruirlo borraba messengerPageToken, tasks y pageName —o sea, al
+    // guardar el pixel desde el panel se perdía la página conectada y había
+    // que rehacer todo el OAuth.
     meta.facebook = {
       ...current,
       accessToken: body.accessToken || current.accessToken || "",

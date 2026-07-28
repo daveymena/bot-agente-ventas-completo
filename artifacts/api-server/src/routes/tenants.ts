@@ -326,7 +326,7 @@ router.post("/current/activate-with-token", async (req, res) => {
     
     const success = await tenantManager.updateTenant(tenant.id, { 
       plan: planId 
-    });
+    } as any);
 
     if (!success) {
       return res.status(400).json({ error: "Failed to update tenant plan" });
@@ -355,7 +355,7 @@ router.post("/current/activate-with-token", async (req, res) => {
 router.get("/admin/list", async (req: TenantRequest, res) => {
   try {
     // Only VIP admin can access
-    if (!req.tenant || req.tenant.email !== "daveymena16@gmail.com") {
+    if (!req.tenant || (req.tenant as any).email !== "daveymena16@gmail.com") {
       return res.status(403).json({ error: "Acceso solo para administrador" });
     }
 
@@ -365,7 +365,7 @@ router.get("/admin/list", async (req: TenantRequest, res) => {
     const allTenants = await db.select().from(tenantsTable).orderBy(tenantsTable.createdAt);
 
     // Enrich with usage counts
-    const enriched = await Promise.all(allTenants.map(async (t) => {
+    const enriched = await Promise.all(allTenants.map(async (t: any) => {
       const [convCount] = await db.select({ count: sql<number>`count(*)` })
         .from(conversations).where(eq(conversations.tenantId, t.id));
       const [prodCount] = await db.select({ count: sql<number>`count(*)` })
@@ -398,11 +398,11 @@ router.get("/admin/list", async (req: TenantRequest, res) => {
  */
 router.post("/admin/:id/action", async (req: TenantRequest, res) => {
   try {
-    if (!req.tenant || req.tenant.email !== "daveymena16@gmail.com") {
+    if (!req.tenant || (req.tenant as any).email !== "daveymena16@gmail.com") {
       return res.status(403).json({ error: "Acceso solo para administrador" });
     }
 
-    const tenantId = parseInt(req.params.id);
+    const tenantId = parseInt(req.params.id as string);
     const { action } = req.body;
 
     const { db, tenants: tenantsTable } = await import("@workspace/db");

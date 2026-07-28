@@ -3,8 +3,9 @@ import { logger } from "./lib/logger";
 
 const router = Router();
 
-// Health check endpoint
-router.get("/health", (req, res) => {
+// Health check endpoint. Se registra en /health y /healthz (alias) para
+// tolerar ambas convenciones de sonda de salud (Docker/Easypanel/K8s).
+const healthHandler = (req: any, res: any) => {
   try {
     res.status(200).json({
       status: "ok",
@@ -15,7 +16,10 @@ router.get("/health", (req, res) => {
     logger.error({ error }, "Health check failed");
     res.status(503).json({ status: "error" });
   }
-});
+};
+
+router.get("/health", healthHandler);
+router.get("/healthz", healthHandler);
 
 // Ready check endpoint
 router.get("/ready", (req, res) => {
