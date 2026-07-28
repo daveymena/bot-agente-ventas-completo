@@ -1206,6 +1206,18 @@ router.post("/operator", async (req: TenantRequest, res, next) => {
     let finalReply = "";
     const plannedActions: any[] = [];
     const MAX_STEPS = 10;
+    // resolved marca si el bucle terminó por una de las salidas normales
+    // (plan listo, resultado final, JSON irrecuperable). Si se apagan los
+    // MAX_STEPS sin que ninguna se dispare, antes se devolvía lo último que
+    // hubiera en finalReply sin avisar -- parecía que "se perdía" en silencio.
+    let resolved = false;
+    // Firma de cada lectura ya ejecutada en este turno (tool+args). Si el
+    // modelo pide la MISMA lectura con los MISMOS argumentos una tercera vez,
+    // no está progresando -- está en bucle -- así que se corta y se avisa en
+    // vez de seguir gastando pasos repitiendo lo mismo.
+    const seenReads = new Map<string, number>();
+    let loopSignature: string | null = null;
+
     for (let step = 0; step < MAX_STEPS; step++) {
       const rawAI = await callAI(messages);
       if (!rawAI) {
@@ -1216,7 +1228,19 @@ router.post("/operator", async (req: TenantRequest, res, next) => {
       try {
         parsed = JSON.parse(content);
       } catch {
+        // Un JSON roto no significa que el modelo no tenga nada útil que
+        // decir -- antes se rendía al primer error. Se le devuelve el error
+        // exacto y se le pide reformatear, con los pasos que queden.
+        if (step < MAX_STEPS - 1) {
+          messages.push({ role: "assistant", content });
+          messages.push({
+            role: "user",
+            content: 'Tu respuesta anterior no era JSON válido y no se pudo procesar. Responde EXCLUSIVAMENTE con el JSON { "reply": "...", "actions": [...], "done": true|false }, sin texto antes ni después, sin bloques de código markdown.',
+          });
+          continue;
+        }
         finalReply = content;
+        resolved = true;
         break;
       }
 
@@ -1232,6 +1256,7 @@ router.post("/operator", async (req: TenantRequest, res, next) => {
       if (mutations.length > 0) {
         for (const m of mutations) plannedActions.push({ tool: m.tool, args: m.args || {} });
         for (const a of reads) await executeAction(a.tool, a.args || {}, ctx);
+        resolved = true;
         break;
       }
 
@@ -1239,9 +1264,25 @@ router.post("/operator", async (req: TenantRequest, res, next) => {
       if (reads.length > 0) {
         const results: any[] = [];
         for (const a of reads) {
+          const sig = `${a.tool}:${JSON.stringify(a.args || {})}`;
+          const seenCount = (seenReads.get(sig) || 0) + 1;
+          seenReads.set(sig, seenCount);
+          if (seenCount > 2) {
+            loopSignature = sig;
+            break;
+          }
           const r = await executeAction(a.tool, a.args || {}, ctx);
           results.push({ tool: a.tool, ok: r.ok, summary: r.summary, data: r.data });
         }
+
+        if (loopSignature) {
+          finalReply = toEmojiStyle(
+            `${finalReply ? finalReply + "\n\n" : ""}⚠️ Me detuve porque estaba repitiendo la misma consulta (${loopSignature}) sin avanzar. Esto es lo que alcancé a averiguar antes de frenar -- decime qué falta y lo completo.`,
+          );
+          resolved = true;
+          break;
+        }
+
         messages.push({ role: "assistant", content });
         messages.push({
           role: "user",
@@ -1250,7 +1291,7 @@ router.post("/operator", async (req: TenantRequest, res, next) => {
         });
         // No cortamos si dijo done:true pero su reply es solo un anuncio de lo
         // que "va a hacer": ahí todavía no hay resultado, hay que seguir.
-        if (parsed.done && !isAnnouncement(finalReply)) break;
+        if (parsed.done && !isAnnouncement(finalReply)) { resolved = true; break; }
         if (parsed.done) {
           messages.push({ role: "user", content: CONTINUE_NUDGE });
         }
@@ -1264,7 +1305,18 @@ router.post("/operator", async (req: TenantRequest, res, next) => {
         messages.push({ role: "user", content: CONTINUE_NUDGE });
         continue;
       }
+      resolved = true;
       break;
+    }
+
+    // Se acabaron los MAX_STEPS sin que ninguna salida normal se disparara
+    // (el modelo seguía pidiendo lecturas o anunciando pasos sin cerrar).
+    // Avisar en vez de devolver la última respuesta parcial como si fuera
+    // definitiva.
+    if (!resolved && plannedActions.length === 0) {
+      finalReply = toEmojiStyle(
+        `${finalReply ? finalReply + "\n\n" : ""}⚠️ Llegué al límite de pasos (10) sin terminar la tarea por completo. Esto es lo que alcancé a hacer -- decime si querés que siga desde acá.`,
+      );
     }
 
     // ── ¿Quedó un plan de cambios? → guardar como pendiente y pedir confirmación ──
