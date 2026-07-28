@@ -46,15 +46,24 @@ logger.info("[MessageHandler] Message receiver configured for default tenant");
   try {
     await ensureDbReady();
 
-    // Auto-seed tenant (admin user) if not exists
+    // Auto-seed tenant (admin user) if not exists.
+    // Email/password vienen de ADMIN_EMAIL/ADMIN_PASSWORD -- nunca hardcodeados
+    // aquí: un valor fijo en el código es la misma cuenta admin conocida en
+    // CUALQUIER despliegue fresco de este repo. Fallback solo para no romper
+    // instalaciones locales sin .env; en producción hay que setear ambas vars.
     const existingTenants = await db.select().from(tenants).limit(1);
     if (existingTenants.length === 0) {
-      console.log("👤 Creando tenant por defecto...");
       const crypto = await import("crypto");
-      const passwordHash = crypto.createHash("sha256").update("6715320D").digest("hex");
+      const adminEmail = process.env.ADMIN_EMAIL || "admin@example.com";
+      const adminPassword = process.env.ADMIN_PASSWORD || crypto.randomBytes(12).toString("hex");
+      if (!process.env.ADMIN_PASSWORD) {
+        console.warn(`⚠️ ADMIN_PASSWORD no seteada -- se generó una temporal, cámbiala tras el primer login: ${adminPassword}`);
+      }
+      console.log("👤 Creando tenant por defecto...");
+      const passwordHash = crypto.createHash("sha256").update(adminPassword).digest("hex");
       await db.insert(tenants).values({
-        name: "Davey Mena",
-        email: "daveymena16@gmail.com",
+        name: "Admin",
+        email: adminEmail,
         passwordHash,
         slug: "sofia-premium",
         brandName: "TecnoVariedades",
@@ -65,7 +74,7 @@ logger.info("[MessageHandler] Message receiver configured for default tenant");
         emailVerified: true,
         settings: { timezone: "America/Bogota", language: "es", currency: "COP", autoRespond: true },
       });
-      console.log("✅ Tenant creado: daveymena16@gmail.com / 6715320D");
+      console.log(`✅ Tenant creado: ${adminEmail}`);
     }
 
     // Auto-seed settings if not exists

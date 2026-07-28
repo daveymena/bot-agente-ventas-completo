@@ -20,8 +20,10 @@ The backend runs on http://localhost:3002 and the frontend dev server on http://
 
 ### Default login (auto-seeded on first run)
 
-Email: `daveymena16@gmail.com`
-Password: `6715320D`
+Set `ADMIN_EMAIL` and `ADMIN_PASSWORD` in `.env` before the first run to control
+the seeded admin account. If unset, `app.ts` falls back to a fixed placeholder
+that is **not safe for a real deployment** — always set these explicitly in
+production and rotate the password if a placeholder value was ever used live.
 
 ## Project Structure
 
