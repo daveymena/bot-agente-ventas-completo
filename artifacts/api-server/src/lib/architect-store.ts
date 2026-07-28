@@ -128,6 +128,57 @@ export async function clearPendingPlan(
     );
 }
 
+// ── Lecciones de reparaciones ────────────────────────────────────────────────
+// Cuando el Operador falla en ejecutar una acción aprobada y logra
+// arreglarlo solo (ver attemptSelfRepair en code-agent.ts), se guarda qué
+// pasó y cómo se resolvió. Es memoria POR TENANT, no por sesión de chat —
+// sessionId fijo "global" — para que la lección sirva en cualquier
+// conversación futura, no solo en la que ocurrió el error.
+const LESSONS_SESSION = "global";
+const MAX_LESSONS_IN_PROMPT = 6;
+
+export async function saveRepairLesson(
+  tenantId: number,
+  tool: string,
+  errorSummary: string,
+  fixSummary: string,
+): Promise<void> {
+  try {
+    await db.insert(architectMemory).values({
+      tenantId,
+      sessionId: LESSONS_SESSION,
+      memoryType: "reflection",
+      title: `lesson:${tool}`,
+      content: `Herramienta "${tool}" falló (${errorSummary.slice(0, 200)}). Se resolvió: ${fixSummary.slice(0, 300)}`,
+      tags: [tool],
+      metadata: { tool },
+    });
+  } catch {
+    // La lección es un extra, no algo crítico -- si falla guardarla no debe
+    // romper la respuesta al admin.
+  }
+}
+
+export async function loadRecentLessons(tenantId: number): Promise<string[]> {
+  try {
+    const rows = await db
+      .select()
+      .from(architectMemory)
+      .where(
+        and(
+          eq(architectMemory.tenantId, tenantId),
+          eq(architectMemory.sessionId, LESSONS_SESSION),
+          eq(architectMemory.memoryType, "reflection"),
+        ),
+      )
+      .orderBy(desc(architectMemory.createdAt))
+      .limit(MAX_LESSONS_IN_PROMPT);
+    return rows.map((r: any) => r.content);
+  } catch {
+    return [];
+  }
+}
+
 /** Borra toda la conversación persistida de una sesión (turnos + plan pendiente). */
 export async function clearArchitectHistory(
   tenantId: number,
