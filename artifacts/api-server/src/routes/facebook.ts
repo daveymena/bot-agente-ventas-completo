@@ -513,27 +513,39 @@ router.delete("/strategist/draft/:id", async (req, res, next) => {
 router.post("/strategist/draft/:id/publish", async (req, res, next) => {
   try {
     const draftId = parseInt(req.params.id);
-    const ok = await adStrategist.publishDraft(draftId);
-    return res.json({ ok, message: ok ? "Borrador publicado" : "Error al publicar" });
+    const tenant = (req as any).tenant;
+    // El AdStrategist compartido se construye SIN tenant (usa el tenant por
+    // defecto, que no tiene .facebook), así que activar un borrador siempre
+    // caía a las variables de entorno e ignoraba el token guardado en la BD
+    // al conectar la página desde el panel. Se crea una instancia con el
+    // tenant real de la request para que use ESE token.
+    const { AdStrategist } = await import("../lib/ad-strategist");
+    const ok = await new AdStrategist(tenant || undefined).publishDraft(draftId);
+    return res.json({ ok, message: ok ? "Borrador publicado" : "Error al publicar (revisa que Facebook esté conectado y el borrador tenga campaña creada)" });
   } catch (e) { return next(e); }
 });
 
 router.post("/strategist/draft/:productId", async (req, res, next) => {
   try {
     const productId = parseInt(req.params.productId);
-    const tenantId = (req as any).tenant?.id || 1;
-    const draft = await adStrategist.createDraftAd(
-      process.env.FB_AD_ACCOUNT_ID || "",
-      process.env.FB_ACCESS_TOKEN || "",
+    const tenant = (req as any).tenant;
+    const adAccountId = tenant?.facebook?.adAccountId || process.env.FB_AD_ACCOUNT_ID || "";
+    const accessToken = tenant?.facebook?.accessToken || process.env.FB_ACCESS_TOKEN || "";
+    const { AdStrategist } = await import("../lib/ad-strategist");
+    const draft = await new AdStrategist(tenant || undefined).createDraftAd(
+      adAccountId,
+      accessToken,
       productId
     );
     return res.json(draft);
   } catch (e) { return next(e); }
 });
 
-router.post("/strategist/draft-all", async (_req, res, next) => {
+router.post("/strategist/draft-all", async (req, res, next) => {
   try {
-    const result = await adStrategist.createDraftsForAllProducts();
+    const tenant = (req as any).tenant;
+    const { AdStrategist } = await import("../lib/ad-strategist");
+    const result = await new AdStrategist(tenant || undefined).createDraftsForAllProducts();
     return res.json(result);
   } catch (e) { return next(e); }
 });

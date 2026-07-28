@@ -433,7 +433,7 @@ export default function FacebookAdsPage() {
                     <div><Label>Page ID</Label><Input value={config.pageId} onChange={e => setConfig({...config, pageId: e.target.value})} placeholder="FB_PAGE_ID" /></div>
                     <div><Label>Ad Account ID</Label><Input value={config.adAccountId} onChange={e => setConfig({...config, adAccountId: e.target.value})} placeholder="FB_AD_ACCOUNT_ID (solo números)" /></div>
                   </div>
-                  <div className="flex gap-2">
+                  <div className="flex flex-wrap gap-2">
                     <Button onClick={saveConfig} disabled={saving}>{saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}Guardar</Button>
                     <Button variant="outline" onClick={testConnection} disabled={testing}>
                       {testing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
@@ -508,7 +508,7 @@ export default function FacebookAdsPage() {
                     <CheckCircle2 className="h-4 w-4 text-green-500" />
                     <AlertDescription>
                       <p className="font-semibold">Anuncio creado</p>
-                      <p className="text-sm">Campaña: {result.campaignId} | Anuncio: {result.adId}</p>
+                      <p className="text-sm break-all">Campaña: {result.campaignId} | Anuncio: {result.adId}</p>
                       {result.adCopy && <div className="mt-2 p-2 bg-muted rounded text-xs"><p><strong>Texto:</strong> {result.adCopy.primaryText}</p></div>}
                     </AlertDescription>
                   </Alert>
@@ -551,13 +551,13 @@ export default function FacebookAdsPage() {
                         </Button>
                       </div>
                     </div>
-                    <div className="flex gap-2">
-                      <Button variant="outline" onClick={createAllDrafts} disabled={creatingAllDrafts}>
-                        {creatingAllDrafts ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Package className="mr-2 h-4 w-4" />}
+                    <div className="flex flex-wrap gap-2">
+                      <Button variant="outline" onClick={createAllDrafts} disabled={creatingAllDrafts} className="w-full sm:w-auto">
+                        {creatingAllDrafts ? <Loader2 className="mr-2 h-4 w-4 animate-spin shrink-0" /> : <Package className="mr-2 h-4 w-4 shrink-0" />}
                         Crear borradores para TODOS los productos (Megapacks)
                       </Button>
-                      <Button variant="outline" onClick={loadDrafts} disabled={loadingDrafts}>
-                        {loadingDrafts ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
+                      <Button variant="outline" onClick={loadDrafts} disabled={loadingDrafts} className="w-full sm:w-auto">
+                        {loadingDrafts ? <Loader2 className="mr-2 h-4 w-4 animate-spin shrink-0" /> : <RefreshCw className="mr-2 h-4 w-4 shrink-0" />}
                         Actualizar lista
                       </Button>
                     </div>
@@ -575,12 +575,12 @@ export default function FacebookAdsPage() {
                         {drafts.map(d => (
                           <div key={d.id} className="flex items-start justify-between p-4 bg-muted rounded-lg gap-4">
                             <div className="flex-1 min-w-0">
-                              <div className="flex items-center gap-2">
-                                <h4 className="font-semibold truncate">{d.productName}</h4>
-                                <span className={`px-2 py-0.5 rounded text-xs font-medium ${d.status === "published" ? "bg-green-500/20 text-green-500" : "bg-amber-500/20 text-amber-500"}`}>
+                              <div className="flex flex-wrap items-center gap-2 min-w-0">
+                                <h4 className="font-semibold truncate min-w-0">{d.productName}</h4>
+                                <span className={`shrink-0 px-2 py-0.5 rounded text-xs font-medium ${d.status === "published" ? "bg-green-500/20 text-green-500" : "bg-amber-500/20 text-amber-500"}`}>
                                   {d.status === "published" ? "Publicado" : d.status === "created" ? "Creado en FB" : "Borrador"}
                                 </span>
-                                {d.fbStatus && <span className="px-2 py-0.5 rounded text-xs bg-blue-500/20 text-blue-500">{d.fbStatus}</span>}
+                                {d.fbStatus && <span className="shrink-0 px-2 py-0.5 rounded text-xs bg-blue-500/20 text-blue-500">{d.fbStatus}</span>}
                               </div>
                               {d.niche && <p className="text-xs text-muted-foreground mt-1">Estrategia: {d.niche}</p>}
                               {d.budget && <p className="text-xs text-muted-foreground">Presupuesto: ${d.budget.toLocaleString("es-CO")} COP/día</p>}
@@ -636,10 +636,10 @@ export default function FacebookAdsPage() {
                   <CardContent className="space-y-4">
                     {pageInfo && (
                       <div className="flex items-center gap-4 p-4 bg-muted rounded-lg">
-                        {pageInfo.picture && <img src={pageInfo.picture} alt="" className="w-12 h-12 rounded-full" />}
-                        <div>
-                          <p className="font-semibold">{pageInfo.name}</p>
-                          <p className="text-sm text-muted-foreground">ID: {pageInfo.id}</p>
+                        {pageInfo.picture && <img src={pageInfo.picture} alt="" className="w-12 h-12 rounded-full shrink-0" />}
+                        <div className="min-w-0">
+                          <p className="font-semibold truncate">{pageInfo.name}</p>
+                          <p className="text-sm text-muted-foreground break-all">ID: {pageInfo.id}</p>
                         </div>
                       </div>
                     )}
@@ -648,10 +648,10 @@ export default function FacebookAdsPage() {
                       <Input value="salesbot_messenger_2024" readOnly className="font-mono text-sm" />
                       <p className="text-xs text-muted-foreground">
                         Usa este token al configurar el webhook en Facebook Developers. La URL del webhook es:
-                        <code className="block mt-1 p-1 bg-muted rounded text-xs">{window.location.origin}/api/facebook/messenger/webhook</code>
+                        <code className="block mt-1 p-1 bg-muted rounded text-xs break-all">{window.location.origin}/api/facebook/messenger/webhook</code>
                       </p>
                     </div>
-                    <div className="flex gap-2">
+                    <div className="flex flex-wrap gap-2">
                       <Button onClick={subscribeMessenger} disabled={subscribing || !pageInfo}>
                         {subscribing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <MessageCircle className="mr-2 h-4 w-4" />}
                         Suscribir al webhook
@@ -700,13 +700,13 @@ export default function FacebookAdsPage() {
                         </Button>
                       </div>
                     </div>
-                    <div className="flex gap-2">
+                    <div className="flex flex-wrap gap-2">
                       <Button variant="outline" onClick={loadListings} disabled={loadingListings}>
-                        {loadingListings ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
+                        {loadingListings ? <Loader2 className="mr-2 h-4 w-4 animate-spin shrink-0" /> : <RefreshCw className="mr-2 h-4 w-4 shrink-0" />}
                         Ver listings activos
                       </Button>
                       <Button variant="outline" onClick={syncAllMarketplace}>
-                        <Package className="mr-2 h-4 w-4" /> Sincronizar todos los productos
+                        <Package className="mr-2 h-4 w-4 shrink-0" /> Sincronizar todos los productos
                       </Button>
                     </div>
                   </CardContent>
@@ -749,16 +749,16 @@ export default function FacebookAdsPage() {
                       <Globe className="h-4 w-4" />
                       <AlertDescription>
                         Para activar la respuesta automática a comentarios, configura el webhook de Facebook en:
-                        <code className="block mt-1 p-1 bg-muted rounded text-xs">{window.location.origin}/api/facebook/comments/webhook</code>
+                        <code className="block mt-1 p-1 bg-muted rounded text-xs break-all">{window.location.origin}/api/facebook/comments/webhook</code>
                         <span className="block mt-1 text-xs">Verify Token: <strong>salesbot_messenger_2024</strong></span>
                       </AlertDescription>
                     </Alert>
                     <p className="text-sm text-muted-foreground">
                       También puedes activar el polling automático para revisar comentarios nuevos cada 60 segundos:
                     </p>
-                    <div className="flex gap-2">
+                    <div className="flex flex-wrap gap-2">
                       <Button onClick={startPolling} disabled={pollingActive}>
-                        <Radio className="mr-2 h-4 w-4" /> Iniciar monitoreo automático
+                        <Radio className="mr-2 h-4 w-4 shrink-0" /> Iniciar monitoreo automático
                       </Button>
                       <Button variant="outline" onClick={stopPolling} disabled={!pollingActive}>
                         Detener monitoreo

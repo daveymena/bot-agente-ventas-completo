@@ -697,11 +697,12 @@ export const TOOLS: ToolDef[] = [
     run: async (args, ctx) => {
       const id = num(args.productId);
       if (!id) return { ok: false, summary: "Falta 'productId'" };
-      const { adStrategist } = await import("./ad-strategist");
+      const tenant = await tenantManager.getTenantById(ctx.tenantId);
+      const { AdStrategist } = await import("./ad-strategist");
       try {
-        const draft = await adStrategist.createDraftAd(
-          process.env.FB_AD_ACCOUNT_ID || "",
-          process.env.FB_ACCESS_TOKEN || "",
+        const draft = await new AdStrategist(tenant || undefined).createDraftAd(
+          tenant?.facebook?.adAccountId || process.env.FB_AD_ACCOUNT_ID || "",
+          tenant?.facebook?.accessToken || process.env.FB_ACCESS_TOKEN || "",
           id,
         );
         return {
