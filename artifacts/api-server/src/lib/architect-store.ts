@@ -144,10 +144,13 @@ export async function clearArchitectHistory(
 }
 
 // Detección de aprobación/rechazo del plan pendiente en el mensaje del usuario.
+// Solo frases EXPLÍCITAS de confirmación — palabras sueltas como "sí", "ok",
+// "listo" o "confirm" NO son suficientes para evitar activaciones accidentales.
 export function isApproval(text: string): boolean {
-  return /^\s*(s[ií]\b|dale|confirm|ok\b|okey|okay|h[aá]zlo|hacelo|aprob|adelante|proced|de una|listo|correcto|perfecto|ejec[uú]t|env[ií]a|s[ií] por favor|s[ií] hazlo)/i.test(
-    text.trim(),
-  );
+  const t = text.trim().toLowerCase();
+  // Bloqueo total de palabras sueltas: "sí", "si", "ok", "listo", "dale" solo NO aprueban.
+  // Requiere confirmación explícita de la acción o frase compuesta.
+  return /^\s*(s[ií]\s+(haz|por\s+favor|adelante|dale|ejecuta|procede|confirmo|apruebo|estoy\s+de\s+acuerdo)|adelante\s*[,.]?\s*(haz|ejecuta|procede)?|dale\s+haz|ejecuta\s+(el\s+)?plan|apruebo\s+(el\s+)?plan|confirmo\s+(la\s+)?ejecuci|procede\s+con\s+todo)/i.test(t);
 }
 
 export function isRejection(text: string): boolean {
