@@ -144,13 +144,24 @@ export async function clearArchitectHistory(
 }
 
 // Detección de aprobación/rechazo del plan pendiente en el mensaje del usuario.
-// Solo frases EXPLÍCITAS de confirmación — palabras sueltas como "sí", "ok",
-// "listo" o "confirm" NO son suficientes para evitar activaciones accidentales.
+// Solo se llama cuando YA hay un plan pendiente esperando sí/no (el caller
+// filtra por `pending.actions.length > 0`) — no en medio de una conversación
+// libre — así que una palabra suelta acá no es ambigua: es LA respuesta a
+// "¿Confirmas? Responde sí para ejecutar". Antes esta función exigía una
+// frase compuesta ("sí ejecuta", "sí adelante") y rechazaba un "sí" o "ok"
+// solos — exactamente lo que el propio mensaje le pide al usuario que
+// escriba — así que el admin confirmaba, el plan se descartaba por "no
+// reconocido" y la IA volvía a proponer el mismo plan en bucle infinito.
 export function isApproval(text: string): boolean {
-  const t = text.trim().toLowerCase();
-  // Bloqueo total de palabras sueltas: "sí", "si", "ok", "listo", "dale" solo NO aprueban.
-  // Requiere confirmación explícita de la acción o frase compuesta.
-  return /^\s*(s[ií]\s+(haz|por\s+favor|adelante|dale|ejecuta|procede|confirmo|apruebo|estoy\s+de\s+acuerdo)|adelante\s*[,.]?\s*(haz|ejecuta|procede)?|dale\s+haz|ejecuta\s+(el\s+)?plan|apruebo\s+(el\s+)?plan|confirmo\s+(la\s+)?ejecuci|procede\s+con\s+todo)/i.test(t);
+  const t = text.trim().toLowerCase().replace(/[!.¡¿?]+$/g, "").trim();
+  // La palabra sola (o con una coletilla corta tipo "sí porfa", "dale pues")
+  // ES la confirmación. "sí pero cambia el texto" NO debe contar como
+  // aprobación — por eso se exige que sea (casi) todo el mensaje, no un
+  // prefijo de una frase más larga con un "pero/pero que/cambia" después.
+  if (/^(s[ií]|ok(ay)?|dale|confirmo|confirmado|apruebo|adelante|proced[eo]|listo|claro|hazlo|ejec[uú]talo|correcto|perfecto)(\s+(porfa|por\s+favor|pues|ya|nomas|no\s+m[aá]s))?$/i.test(t)) {
+    return true;
+  }
+  return /^\s*(s[ií]\s+(haz|por\s+favor|adelante|dale|ejecuta|procede|confirm(o|a|ado|ada)|apruebo|estoy\s+de\s+acuerdo)|dale\s+haz|ejecuta\s+(el\s+)?plan|apruebo\s+(el\s+)?plan|confirm(o|a|ado|ada)\s+(la\s+)?ejecuci|procede\s+con\s+todo)/i.test(t);
 }
 
 export function isRejection(text: string): boolean {

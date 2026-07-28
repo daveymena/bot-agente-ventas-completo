@@ -1085,6 +1085,16 @@ router.post("/operator", async (req: TenantRequest, res, next) => {
       candidates.push({ name, config: cfg });
     };
     if (dbSettings?.aiProvider) pushCfg(dbSettings.aiProvider, getProviderConfigFromSettings(dbSettings));
+    // El operador EJECUTA acciones reales (BD, Facebook) a partir de un JSON
+    // estricto — a diferencia del bot de ventas (alto volumen, tolera un
+    // modelo chico), acá un modelo débil genera JSON mal formado o "listo"
+    // sin haber llamado ninguna herramienta, y el admin ve comportamiento
+    // errático ("a veces sí, a veces no"). Se prueban primero los modelos
+    // fuertes (GPT-4o real vía Copilot, luego GPT-4o-mini) — es uso de admin,
+    // bajo volumen, la cuota de Copilot no es un problema aquí — y solo se
+    // cae a la rotación de modelos gratis pequeños si esos no responden.
+    pushCfg("github_copilot_internal", getProviderConfig("github_copilot_internal"));
+    pushCfg("github", getProviderConfig("github"));
     pushCfg("mimo", getProviderConfig("mimo")); // API propia de Xiaomi, si hay clave
     // Rotación DENTRO de OpenCode Zen: la cuota gratis se agota por modelo,
     // así que al recibir 429 se pasa al siguiente modelo antes de abandonar Zen.
@@ -1097,9 +1107,7 @@ router.post("/operator", async (req: TenantRequest, res, next) => {
       const base = getProviderConfig(m.proveedor);
       if (base) pushCfg(`${m.proveedor}:${m.modelo}`, { ...base, model: m.modelo });
     }
-    pushCfg("github", getProviderConfig("github"));
     pushCfg("nvidia", getProviderConfig("nvidia"));
-    pushCfg("github_copilot_internal", getProviderConfig("github_copilot_internal"));
     if (candidates.length === 0) return res.status(500).json({ error: "No hay motor de IA configurado" });
 
     // Llama a la IA probando proveedores en orden hasta que uno responda
