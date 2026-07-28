@@ -54,7 +54,9 @@ export async function saveUploadedImage(source: string, filename?: string): Prom
       if (mime) ext = mime === "jpeg" ? "jpg" : mime;
       buffer = Buffer.from(source.split(",")[1] || "", "base64");
     } else if (/^https?:\/\//i.test(source)) {
-      const res = await fetch(source, { headers: { "User-Agent": "Mozilla/5.0" }, redirect: "follow" });
+      // Sin timeout, una fuente lenta o colgada dejaba esta descarga (y con
+      // ella todo el turno del Arquitecto) esperando para siempre.
+      const res = await fetch(source, { headers: { "User-Agent": "Mozilla/5.0" }, redirect: "follow", signal: AbortSignal.timeout(20000) });
       if (!res.ok) return null;
       buffer = Buffer.from(await res.arrayBuffer());
     } else return null;
@@ -84,6 +86,7 @@ export async function saveProductImage(source: string, productId: number): Promi
       const res = await fetch(source, {
         headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/122 Safari/537.36" },
         redirect: "follow",
+        signal: AbortSignal.timeout(20000),
       });
       if (!res.ok) {
         logger.warn({ status: res.status, productId }, "[ImageStore] Descarga falló");

@@ -46,6 +46,7 @@ async function readDriveFolder(folderId: string): Promise<string[]> {
   try {
     const res = await fetch(`https://drive.google.com/embeddedfolderview?id=${folderId}#list`, {
       headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/122 Safari/537.36" },
+      signal: AbortSignal.timeout(15000),
     });
     if (!res.ok) return [];
     const html = await res.text();
@@ -89,6 +90,7 @@ async function getText(url: string, headers: Record<string, string> = {}): Promi
     const res = await fetch(url, {
       headers: { "User-Agent": SEARCH_UA, "Accept-Language": "es-ES,es;q=0.9,en;q=0.8", ...headers },
       redirect: "follow",
+      signal: AbortSignal.timeout(12000),
     });
     // DuckDuckGo devuelve 202 + página "anomaly" cuando limita.
     if (!res.ok || res.status === 202) return null;
@@ -107,6 +109,7 @@ async function searchTavily(query: string, limit: number): Promise<SearchHit[]> 
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ api_key: key, query, max_results: limit, search_depth: "basic" }),
+      signal: AbortSignal.timeout(12000),
     });
     if (!res.ok) return [];
     const j: any = await res.json();
@@ -127,7 +130,7 @@ async function searchBrave(query: string, limit: number): Promise<SearchHit[]> {
   try {
     const res = await fetch(
       `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(query)}&count=${limit}`,
-      { headers: { Accept: "application/json", "X-Subscription-Token": key } },
+      { headers: { Accept: "application/json", "X-Subscription-Token": key }, signal: AbortSignal.timeout(12000) },
     );
     if (!res.ok) return [];
     const j: any = await res.json();
@@ -497,7 +500,7 @@ export const TOOLS: ToolDef[] = [
         if (fid) {
           const direct = `https://drive.google.com/uc?export=download&id=${fid}`;
           try {
-            const head = await fetch(direct, { method: "GET", headers: { Range: "bytes=0-0" } });
+            const head = await fetch(direct, { method: "GET", headers: { Range: "bytes=0-0" }, signal: AbortSignal.timeout(10000) });
             if (head.ok || head.status === 206) {
               return { ok: true, summary: `Es un archivo de Drive accesible (imagen). Para ponerlo en un producto usa set_product_image con esta URL: ${direct}`, data: { imageUrl: direct, isImage: true } };
             }
@@ -520,6 +523,7 @@ export const TOOLS: ToolDef[] = [
         const res = await fetch(url, {
           headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122 Safari/537.36" },
           redirect: "follow",
+          signal: AbortSignal.timeout(15000),
         });
         if (!res.ok) return { ok: false, summary: `La página respondió ${res.status}` };
         const html = await res.text();
@@ -855,6 +859,10 @@ async function generateImageUrl(prompt: string, size: string): Promise<string | 
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${openaiKey}` },
         body: JSON.stringify({ model: "dall-e-3", prompt, n: 1, size: dalleSize }),
+        // Sin timeout, un DALL-E colgado dejaba el turno entero del Arquitecto
+        // "trabajando" sin fin -- el chat nunca respondía ni llegaba a subir
+        // la imagen. 30s alcanza de sobra para una generación normal.
+        signal: AbortSignal.timeout(30000),
       });
       const data = await resp.json();
       const url = data?.data?.[0]?.url;
@@ -880,7 +888,7 @@ async function generateImageUrl(prompt: string, size: string): Promise<string | 
     const url =
       `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}` +
       `?width=${encodeURIComponent(w)}&height=${encodeURIComponent(h)}&nologo=true&model=flux`;
-    const resp = await fetch(url, { method: "HEAD" });
+    const resp = await fetch(url, { method: "HEAD", signal: AbortSignal.timeout(15000) });
     if (resp.ok) return url;
   } catch (e: any) {
     logger.warn({ err: e?.message }, "[generate_image] Pollinations falló");
