@@ -19,19 +19,31 @@
  *
  * El token no vence en la práctica (exp ≈ año 2126).
  *
- * ── La restricción por IP (la parte no obvia) ───────────────────────────────
- * El JWT incluye un claim `ip_url` con las IPs autorizadas, y la API rechaza
- * TODO lo que venga de otra IP con:
+ * ── Por qué NO se usa el token de integración (la parte no obvia) ───────────
+ * El token de integración parece el camino natural, pero trae un claim
+ * `ip_url` con una whitelist y la API rechaza todo lo que venga de otra IP:
  *
  *   401 {"isSuccess":false,"message":"Access denied","ip":"<la IP que vio>"}
  *
- * Ese mensaje es la mejor herramienta de diagnóstico que hay: dice exactamente
- * qué IP hay que pedirle a Dropi que autorice. Por eso `dropiRequest` la
- * extrae y la propaga en el error en vez de tragarse el 401 — sin eso, el
- * síntoma es un "no funciona" opaco imposible de resolver.
+ * Esa whitelist la administra Dropi, no el usuario, así que dependeríamos de
+ * que su soporte autorice la IP del servidor — y de volver a pedirlo cada vez
+ * que el hosting cambie de IP.
  *
- * Ojo: la IP que importa es la del SERVIDOR donde corre esta app (el de
- * Easypanel), no la del navegador del admin.
+ * La vía que SÍ funciona sin ese trámite es la misma que usa el panel web de
+ * Dropi: el token de SESIÓN DE USUARIO (`DROPI_token` en el localStorage del
+ * panel) contra `POST /api/products/index`. Probado en vivo: responde 200 con
+ * el catálogo real y no filtra por IP.
+ *
+ * Detalles del endpoint, encontrados probando (la API no está documentada):
+ *   • Es POST, no GET. Un GET a la misma ruta devuelve
+ *     "No tiene permisos para ver este producto", que despista: no es un
+ *     problema de permisos, es el método equivocado.
+ *   • `POST /api/products` (sin /index) es CREAR producto, no listar.
+ *   • Los filtros van en el cuerpo: { pageSize, startData, keywords }.
+ *
+ * Contrapartida honesta: un token de sesión caduca antes que uno de
+ * integración, así que si un día la API empieza a responder 401 hay que
+ * regenerarlo desde el panel. `dropiStatus()` lo detecta y lo dice.
  */
 import { logger } from "./logger";
 
@@ -65,7 +77,7 @@ export async function dropiRequest<T = any>(
 ): Promise<DropiResult<T>> {
   const token = getDropiToken();
   if (!token) {
-    return { ok: false, error: "Falta DROPI_TOKEN. Genéralo en Dropi → Mis Integraciones (tipo 'Chatbot Agents') y ponlo en las variables de entorno." };
+    return { ok: false, error: "Falta DROPI_TOKEN. Es el token de sesión del panel de Dropi (localStorage → DROPI_token); ponlo en las variables de entorno del servidor." };
   }
 
   const url = `${DROPI_API_URL.replace(/\/+$/, "")}${path.startsWith("/") ? path : "/" + path}`;
@@ -89,16 +101,26 @@ export async function dropiRequest<T = any>(
 
     if (!res.ok || json?.isSuccess === false) {
       const msg = json?.message || `HTTP ${res.status}`;
-      // El 401 por whitelist trae la IP vista: es LA pista para resolverlo.
+
+      // Solo pasa si se configuró un token de INTEGRACIÓN en vez del de
+      // sesión: esos sí filtran por IP. El mensaje trae la IP que Dropi vio,
+      // que es justo el dato para resolverlo — se propaga en vez de perderlo.
       const blockedIp = json?.ip;
       if (blockedIp) {
         logger.warn({ blockedIp, path }, "[Dropi] Rechazado por whitelist de IP");
         return {
           ok: false,
           blockedIp,
-          error: `Dropi rechazó la petición por IP no autorizada. Vio la IP ${blockedIp} — pídele a soporte de Dropi que la agregue a la whitelist de la integración.`,
+          error: `Dropi rechazó la petición por IP (vio ${blockedIp}). Eso pasa con los tokens de INTEGRACIÓN, que traen whitelist. Usa el token de sesión del panel (localStorage → DROPI_token), que no filtra por IP.`,
         };
       }
+
+      // Token vencido: es lo esperable con un token de sesión y tiene arreglo
+      // concreto, así que se dice qué hacer en vez de devolver un 401 pelado.
+      if (res.status === 401 || /token|unauthenticated|unauthorized/i.test(msg)) {
+        return { ok: false, error: `Dropi no aceptó el token (${msg}). Probablemente venció: entra al panel de Dropi, copia el nuevo DROPI_token del localStorage y actualiza la variable de entorno.` };
+      }
+
       return { ok: false, error: msg };
     }
 
@@ -109,12 +131,12 @@ export async function dropiRequest<T = any>(
   }
 }
 
-/** Diagnóstico: ¿el token sirve y desde qué IP nos ve Dropi? */
+/** Diagnóstico: ¿el token sirve todavía? */
 export async function dropiStatus(): Promise<DropiResult> {
   if (!isDropiConfigured()) {
     return { ok: false, error: "Dropi no está configurado (falta DROPI_TOKEN)" };
   }
-  const r = await dropiRequest("/integrations/products", { pageSize: 1, startData: 0 });
+  const r = await dropiRequest("/api/products/index", { pageSize: 1, startData: 0 });
   if (r.ok) return { ok: true, data: { message: "Conexión con Dropi OK" } };
   return r;
 }
@@ -132,22 +154,29 @@ export interface DropiProduct {
 
 /** Busca productos en el catálogo de proveedores de Dropi. */
 export async function dropiSearchProducts(query: string, limit = 10): Promise<DropiResult<DropiProduct[]>> {
-  const r = await dropiRequest<any>("/integrations/products", {
+  const r = await dropiRequest<any>("/api/products/index", {
     pageSize: Math.min(limit, 50),
     startData: 0,
-    ...(query ? { name: query, keywords: query } : {}),
+    ...(query ? { keywords: query } : {}),
   });
   if (!r.ok) return r as DropiResult<DropiProduct[]>;
   const list = Array.isArray(r.data) ? r.data : (r.data as any)?.objects || [];
   return { ok: true, data: list as DropiProduct[] };
 }
 
-/** Trae un producto puntual por id. */
+/**
+ * Trae un producto puntual por id.
+ *
+ * No hay endpoint de "traer uno" que funcione con este token, así que se
+ * busca por id dentro del listado. Es la misma llamada que ya sabemos que
+ * responde, y evita depender de una ruta no verificada.
+ */
 export async function dropiGetProduct(id: number): Promise<DropiResult<DropiProduct>> {
-  const r = await dropiRequest<any>(`/integrations/products/${id}`, {}, "GET");
+  const r = await dropiRequest<any>("/api/products/index", { pageSize: 50, startData: 0, id });
   if (!r.ok) return r as DropiResult<DropiProduct>;
-  const p = Array.isArray(r.data) ? r.data[0] : r.data;
-  return p ? { ok: true, data: p as DropiProduct } : { ok: false, error: `Producto ${id} no encontrado en Dropi` };
+  const list: DropiProduct[] = Array.isArray(r.data) ? r.data : (r.data as any)?.objects || [];
+  const p = list.find((x) => Number(x.id) === Number(id)) || (list.length === 1 ? list[0] : null);
+  return p ? { ok: true, data: p } : { ok: false, error: `Producto ${id} no encontrado en Dropi` };
 }
 
 export interface DropiOrderInput {
@@ -168,7 +197,7 @@ export interface DropiOrderInput {
  * en app-operator.ts).
  */
 export async function dropiCreateOrder(input: DropiOrderInput): Promise<DropiResult> {
-  return dropiRequest("/integrations/orders", {
+  return dropiRequest("/api/orders", {
     products: [{ id: input.dropiProductId, quantity: input.quantity }],
     name: input.clientName,
     phone: input.clientPhone,
