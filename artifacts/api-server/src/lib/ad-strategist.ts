@@ -481,7 +481,10 @@ ${descLine}
       };
       if (pixelId) {
         adSetBody.billing_event = "IMPRESSIONS";
-        adSetBody.optimization_goal = "CONVERSIONS";
+        // "CONVERSIONS" no es un valor válido de optimization_goal -- el
+        // equivalente moderno para optimizar por conversiones de pixel es
+        // OFFSITE_CONVERSIONS.
+        adSetBody.optimization_goal = "OFFSITE_CONVERSIONS";
         adSetBody.bid_strategy = "LOWEST_COST_WITHOUT_CAP";
         adSetBody.promoted_object = { pixel_id: pixelId, custom_event_type: "LEAD" };
       } else {
