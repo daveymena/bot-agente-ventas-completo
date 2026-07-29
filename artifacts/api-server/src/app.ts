@@ -445,6 +445,7 @@ const publicRoutes = [
   "/whatsapp/status",
   "/whatsapp/test-ia",
   "/whatsapp/session-info",
+  "/whatsapp/network-check",
   "/webhooks/subscription",
   "/activation",
   "/public", // Endpoints públicos (productos de tienda)
