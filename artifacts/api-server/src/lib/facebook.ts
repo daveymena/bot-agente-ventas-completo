@@ -572,7 +572,17 @@ Debes responder SOLO con este JSON (sin markdown, sin acentos en las claves):
     const data = await res.json();
     if (data.error) {
       const prefix = step ? `[${step}] ` : "";
-      throw new Error(`${prefix}${data.error.message} (código ${data.error.code}${data.error.error_subcode ? `, subcódigo ${data.error.error_subcode}` : ""})`);
+      // error_user_msg / blame_field_specs son el detalle real y accionable
+      // que da Graph API ("Invalid parameter" código 100 es genérico y no
+      // dice cuál). logger.error para verlo en logs aunque no quepa en el
+      // mensaje corto que llega al cliente.
+      logger.error({ fbError: data.error, endpoint }, "[Facebook] Graph API error detallado");
+      const detail = data.error.error_user_msg
+        ? ` -- ${data.error.error_user_msg}`
+        : data.error.error_data?.blame_field_specs
+        ? ` -- campo(s): ${JSON.stringify(data.error.error_data.blame_field_specs)}`
+        : "";
+      throw new Error(`${prefix}${data.error.message}${detail} (código ${data.error.code}${data.error.error_subcode ? `, subcódigo ${data.error.error_subcode}` : ""})`);
     }
     return data;
   }
