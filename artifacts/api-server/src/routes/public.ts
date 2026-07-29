@@ -824,4 +824,19 @@ router.get("/whatsapp-info/:slug", async (req, res, next) => {
   }
 });
 
+/**
+ * GET /api/public/whatsapp-info
+ * Sin slug: devuelve la primera tienda activa.
+ */
+router.get("/whatsapp-info", async (_req, res, next) => {
+  try {
+    const [tenant] = await db.select().from(tenants).where(eq(tenants.isActive, true)).limit(1);
+    if (!tenant) return res.status(404).json({ message: "No hay tiendas activas" });
+    const waPhone = resolveWhatsAppPhone(tenant);
+    return res.json({ phone: waPhone, connected: whatsapp.isConnected(), slug: tenant.slug });
+  } catch (err) {
+    return next(err);
+  }
+});
+
 export default router;

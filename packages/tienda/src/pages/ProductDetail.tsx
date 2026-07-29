@@ -33,7 +33,7 @@ const formatPrice = (price: number) => '$' + Math.round(price).toLocaleString('e
 
 const ProductDetail = () => {
   const { slug: paramSlug, productId } = useParams();
-  const slug = paramSlug || 'demo';
+  const slug = paramSlug || 'sofia-premium';
   const navigate = useNavigate();
   const { addToCart, config } = useStore();
 
@@ -222,11 +222,26 @@ const ProductDetail = () => {
             <button
               onClick={() => comprar('mp')}
               disabled={buying !== null}
-              className="w-full bg-gray-900 text-white py-4 rounded-xl font-bold hover:bg-gray-800 transition-all flex items-center justify-center gap-2.5 disabled:opacity-50"
+              className="w-full bg-[#009EE3] text-white py-4 rounded-xl font-bold hover:opacity-90 transition-all flex items-center justify-center gap-2.5 disabled:opacity-50"
             >
               <CreditCard className="w-5 h-5" />
-              {buying === 'mp' ? 'Abriendo pago…' : 'Comprar ahora'}
+              {buying === 'mp' ? 'Abriendo pago…' : 'Pagar con Mercado Pago'}
             </button>
+
+            <button
+              onClick={() => comprar('pp')}
+              disabled={buying !== null}
+              className="w-full bg-[#FFC439] text-[#003087] py-4 rounded-xl font-bold hover:opacity-90 transition-all flex items-center justify-center gap-2.5 disabled:opacity-50"
+            >
+              <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor"><path d="M7.076 21.337H2.47a.641.641 0 01-.633-.74L4.944.901C5.026.382 5.474 0 5.998 0h7.46c2.57 0 4.578.543 5.69 1.81 1.01 1.15 1.304 2.42 1.012 4.287-.023.143-.05.288-.078.437-.983 5.05-4.349 6.797-8.647 6.797h-2.19a1.11 1.11 0 00-1.094.933l-.601 3.632c-.04.24-.246.44-.489.44l.002.001z"/><path d="M19.143 7.01c.072-.444.113-.912.113-1.41 0-.463-.04-.894-.113-1.293.036-.006.073-.01.109-.013.04-.003.08-.006.119-.008 1.104-.045 2.032.105 2.778.604 1.075.716 1.527 1.972 1.273 3.485-.756 4.523-3.392 6.054-6.83 6.054h-2.187a1.11 1.11 0 00-1.094.933l-.621 3.749c-.04.24-.247.44-.489.44H7.08l1.542-9.745c.082-.48.524-.833 1.006-.833h2.188c2.579 0 4.326-.593 5.327-3.023z" opacity=".5"/></svg>
+              {buying === 'pp' ? 'Abriendo pago…' : 'Pagar con PayPal'}
+            </button>
+
+            <div className="relative py-2 flex items-center">
+              <div className="flex-grow border-t border-gray-200" />
+              <span className="flex-shrink mx-3 text-[10px] font-bold text-gray-400 uppercase">Otras opciones</span>
+              <div className="flex-grow border-t border-gray-200" />
+            </div>
 
             <div className="grid grid-cols-2 gap-2.5">
               <button
@@ -259,7 +274,7 @@ const ProductDetail = () => {
                 }}
                 className="border border-gray-300 text-gray-800 py-3 rounded-xl font-bold hover:bg-gray-50 transition-colors flex items-center justify-center gap-2 text-sm"
               >
-                <ShoppingCart className="w-4 h-4" /> Agregar
+                <ShoppingCart className="w-4 h-4" /> Agregar al carrito
               </button>
 
               <a

@@ -145,7 +145,8 @@ const Shop = () => {
   const { slug: paramSlug } = useParams();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  const slug = paramSlug || 'demo';
+const DEFAULT_SLUG = 'sofia-premium';
+  const slug = paramSlug || DEFAULT_SLUG;
   const searchQuery = searchParams.get('q') || '';
 
   const [apiProducts, setApiProducts] = useState<ApiProduct[]>([]);

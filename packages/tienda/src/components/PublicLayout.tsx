@@ -15,7 +15,7 @@ const PublicLayout = ({ children }: { children: React.ReactNode }) => {
   // envuelve toda la tienda. Viene del teléfono realmente conectado al bot por
   // QR: dejarlo escrito en el código lo vuelve inválido al cambiar de línea.
   useEffect(() => {
-    fetch(`/api/public/whatsapp-info/${slug || 'demo'}`)
+    fetch(`/api/public/whatsapp-info/${slug || 'sofia-premium'}`)
       .then(r => (r.ok ? r.json() : null))
       .then(d => { if (d?.phone) updateConfig({ whatsappPhone: d.phone }); })
       .catch(() => {});
@@ -24,7 +24,7 @@ const PublicLayout = ({ children }: { children: React.ReactNode }) => {
   // El píxel se carga aquí por la misma razón: vale para toda la tienda. El ID
   // llega del API porque en el SaaS cada tienda mide en su propia cuenta.
   useEffect(() => {
-    fetch(`/api/public/products/${slug || 'demo'}`)
+    fetch(`/api/public/products/${slug || 'sofia-premium'}`)
       .then(r => (r.ok ? r.json() : null))
       .then(d => { if (d?.store?.pixelId) initPixel(d.store.pixelId); })
       .catch(() => {});

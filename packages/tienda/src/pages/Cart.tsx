@@ -9,7 +9,7 @@ import { trackInitiateCheckout } from '../lib/pixel';
 const Cart = () => {
   const { cart, updateCartQuantity, removeFromCart } = useStore();
   const { slug: paramSlug } = useParams();
-  const slug = paramSlug || 'demo';
+  const slug = paramSlug || 'sofia-premium';
   const subtotal = cart.reduce((acc, item) => acc + (item.price * item.quantity), 0);
   const [isProcessing, setIsProcessing] = useState(false);
   // Número real conectado al bot por QR — no uno fijo en el código, que queda
