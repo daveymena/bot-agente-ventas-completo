@@ -5,6 +5,19 @@ import { tenantManager, type TenantContext } from "./tenantManager";
 
 const FB_GRAPH_URL = "https://graph.facebook.com/v21.0";
 
+/**
+ * Convierte una ruta relativa del catálogo (/uploads/products/42.jpg) en URL
+ * pública absoluta -- Facebook descarga la imagen desde sus servidores, una
+ * ruta relativa no le sirve. Mismo helper que facebook-marketplace.ts.
+ */
+function absoluteImageUrl(pathOrUrl?: string | null): string | null {
+  if (!pathOrUrl) return null;
+  if (/^https?:\/\//i.test(pathOrUrl)) return pathOrUrl;
+  const appUrl = process.env.APP_URL || "https://tecnovariedades.easypanel.host";
+  if (!/^https:\/\//i.test(appUrl)) return null;
+  return `${appUrl.replace(/\/+$/, "")}/${pathOrUrl.replace(/^\/+/, "")}`;
+}
+
 export interface FacebookConfig {
   accessToken: string;
   pixelId: string;
@@ -249,9 +262,16 @@ Responde SOLO con este JSON exacto:
 
       const adCopy = await this.generateAdCopy(product);
 
+      // Bug: la columna es imageUrl (camelCase, Drizzle) -- leerla como
+      // product.image_url daba siempre undefined y el anuncio SIEMPRE salía
+      // con imagen placeholder genérica, nunca la foto real del producto.
+      // Además Facebook descarga la imagen desde SUS servidores, así que una
+      // ruta relativa (/images/products/41.jpg) no le sirve -- hay que
+      // convertirla a URL absoluta con APP_URL, igual que en Marketplace.
+      const absoluteProductImage = absoluteImageUrl(product.imageUrl);
       let imageHash = "";
-      if (product.image_url) {
-        imageHash = await this.uploadImage(adAccount, product.image_url, product.name);
+      if (absoluteProductImage) {
+        imageHash = await this.uploadImage(adAccount, absoluteProductImage, product.name);
       } else {
         imageHash = await this.generateImagePlaceholder(adAccount, product.name);
       }

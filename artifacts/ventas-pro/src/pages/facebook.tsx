@@ -53,7 +53,7 @@ interface Product {
   name: string;
   price: number;
   category: string;
-  image_url: string;
+  imageUrl: string | null;
 }
 
 interface FbAudience {
@@ -597,7 +597,7 @@ export default function FacebookAdsPage() {
                         <Card key={p.id} className={`cursor-pointer transition-all ${selectedProduct?.id === p.id ? "ring-2 ring-primary" : "hover:bg-accent/50"}`} onClick={() => suggestAudience(p)}>
                           <CardContent className="p-4">
                             <div className="aspect-video bg-muted rounded-md mb-3 overflow-hidden">
-                              {p.image_url ? <img src={p.image_url} alt={p.name} className="w-full h-full object-cover" /> : <div className="flex items-center justify-center h-full text-muted-foreground"><Megaphone className="h-8 w-8" /></div>}
+                              {p.imageUrl ? <img src={p.imageUrl} alt={p.name} className="w-full h-full object-cover" /> : <div className="flex items-center justify-center h-full text-muted-foreground"><Megaphone className="h-8 w-8" /></div>}
                             </div>
                             <h3 className="font-semibold truncate">{p.name}</h3>
                             <p className="text-sm text-muted-foreground">${Number(p.price).toLocaleString("es-CO")} COP</p>
