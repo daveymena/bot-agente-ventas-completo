@@ -282,7 +282,7 @@ Responde SOLO con este JSON exacto:
         objective: "OUTCOME_SALES",
         status: "PAUSED",
         special_ad_categories: [],
-      });
+      }, "campaña");
 
       // Construir targeting desde parámetros o usar defaults
       const fbTargeting: Record<string, any> = {
@@ -348,18 +348,33 @@ Responde SOLO con este JSON exacto:
         fbTargeting.instagram_positions = ["stream", "story", "reels"];
       }
 
-      // Conjunto de anuncios
-      const adSet = await this.fbPost(`${adAccount}/adsets`, {
+      // Conjunto de anuncios.
+      // optimization_goal=CONVERSIONS SIN promoted_object es rechazado por
+      // Graph API con error 100 "Invalid parameter" -- Facebook exige que el
+      // conjunto apunte a un pixel/evento cuando optimiza por conversión. Si
+      // hay pixelId configurado se lo mandamos (evento LEAD, más laxo que
+      // PURCHASE para cursos que no necesariamente trackean checkout); si no
+      // hay pixel, no se puede pedir CONVERSIONS y se cae a LINK_CLICKS, que
+      // no requiere promoted_object.
+      const adSetBody: Record<string, any> = {
         name: `${campaignName} - Conjunto`,
         campaign_id: campaign.id,
         daily_budget: Math.round(dailyBudget * 100),
-        billing_event: "IMPRESSIONS",
-        optimization_goal: "CONVERSIONS",
-        bid_strategy: "LOWEST_COST_WITHOUT_CAP",
         targeting: fbTargeting,
         status: "PAUSED",
         start_time: startDate ? new Date(startDate).toISOString() : new Date().toISOString(),
-      });
+      };
+      if (this.config.pixelId) {
+        adSetBody.billing_event = "IMPRESSIONS";
+        adSetBody.optimization_goal = "CONVERSIONS";
+        adSetBody.bid_strategy = "LOWEST_COST_WITHOUT_CAP";
+        adSetBody.promoted_object = { pixel_id: this.config.pixelId, custom_event_type: "LEAD" };
+      } else {
+        adSetBody.billing_event = "LINK_CLICKS";
+        adSetBody.optimization_goal = "LINK_CLICKS";
+        adSetBody.bid_strategy = "LOWEST_COST_WITHOUT_CAP";
+      }
+      const adSet = await this.fbPost(`${adAccount}/adsets`, adSetBody, "conjunto de anuncios");
 
       // Creativo
       const creative = await this.fbPost(`${adAccount}/adcreatives`, {
@@ -375,7 +390,7 @@ Responde SOLO con este JSON exacto:
             image_hash: imageHash,
           },
         },
-      });
+      }, "creativo");
 
       // Anuncio
       const ad = await this.fbPost(`${adAccount}/ads`, {
@@ -383,7 +398,7 @@ Responde SOLO con este JSON exacto:
         adset_id: adSet.id,
         creative: { creative_id: creative.id },
         status: "PAUSED",
-      });
+      }, "anuncio final");
 
       const previewUrl = `https://www.facebook.com/adsmanager/manage/ads?act=${this.config.adAccountId}&ad_id=${ad.id}`;
 
@@ -541,7 +556,7 @@ Debes responder SOLO con este JSON (sin markdown, sin acentos en las claves):
 
   // ── Utilidad: llamada a Graph API ──────────────────────────────────────────
 
-  private async fbPost(endpoint: string, body: Record<string, any>): Promise<any> {
+  private async fbPost(endpoint: string, body: Record<string, any>, step?: string): Promise<any> {
     const url = `${FB_GRAPH_URL}/${endpoint}`;
     const params = new URLSearchParams({ access_token: this.config.accessToken });
     const res = await fetch(`${url}?${params}`, {
@@ -551,7 +566,10 @@ Debes responder SOLO con este JSON (sin markdown, sin acentos en las claves):
       signal: AbortSignal.timeout(20000),
     });
     const data = await res.json();
-    if (data.error) throw new Error(`${data.error.message} (código ${data.error.code})`);
+    if (data.error) {
+      const prefix = step ? `[${step}] ` : "";
+      throw new Error(`${prefix}${data.error.message} (código ${data.error.code}${data.error.error_subcode ? `, subcódigo ${data.error.error_subcode}` : ""})`);
+    }
     return data;
   }
 
