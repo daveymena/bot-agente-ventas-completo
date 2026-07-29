@@ -903,6 +903,141 @@ export const TOOLS: ToolDef[] = [
       };
     },
   },
+
+  // ── 📦 DROPI (dropshipping) ────────────────────────────────────────────────
+  {
+    name: "dropi_status",
+    description: "Verificar la conexión con Dropi (dropshipping). Úsala SIEMPRE antes de buscar o importar: si el token no está o la IP del servidor no está autorizada, te dice exactamente qué falta.",
+    args: "{}",
+    run: async () => {
+      const { dropiStatus } = await import("./dropi");
+      const r = await dropiStatus();
+      if (r.ok) return { ok: true, summary: "📦 Dropi conectado y respondiendo." };
+      return {
+        ok: false,
+        summary: `Dropi no disponible: ${r.error}`,
+        data: r.blockedIp ? { ipBloqueada: r.blockedIp } : undefined,
+      };
+    },
+  },
+  {
+    name: "dropi_search_products",
+    description: "Buscar productos en el catálogo de proveedores de Dropi (dropshipping: los despacha el proveedor, no hace falta stock propio). Solo LEE — devuelve nombre, precio sugerido, stock e imagen para que el admin elija cuáles importar.",
+    args: '{ "query": string (req, qué buscar), "limit": number (opcional, por defecto 10) }',
+    run: async (args) => {
+      const { dropiSearchProducts, dropiProductImage } = await import("./dropi");
+      const q = String(args.query || "").trim();
+      const r = await dropiSearchProducts(q, num(args.limit) || 10);
+      if (!r.ok) return { ok: false, summary: `No se pudo buscar en Dropi: ${r.error}` };
+      const list = (r.data || []).map((p) => ({
+        id: p.id,
+        nombre: p.name,
+        precioSugerido: p.suggested_price ?? p.sale_price ?? null,
+        stock: p.stock ?? null,
+        imagen: dropiProductImage(p),
+      }));
+      if (list.length === 0) return { ok: true, summary: `Sin resultados en Dropi para "${q}"`, data: { productos: [] } };
+      return {
+        ok: true,
+        summary: `📦 ${list.length} productos de Dropi para "${q}"`,
+        data: { productos: list, text: list.map((p) => `#${p.id} ${p.nombre} — $${p.precioSugerido} (stock ${p.stock})`).join("\n") },
+      };
+    },
+  },
+  {
+    name: "dropi_import_product",
+    description: "Importar un producto de Dropi al catálogo de ESTA tienda (con su foto, descripción y precio). A partir de ahí el bot lo vende como cualquier otro producto. Crea datos → requiere confirmación. El precio de venta lo decide el admin: si no lo pasa, se usa el sugerido por Dropi.",
+    args: '{ "dropiProductId": number (req), "price": number (opcional, precio de venta al cliente) }',
+    run: async (args, ctx) => {
+      const { dropiGetProduct, dropiProductImage } = await import("./dropi");
+      const dropiId = num(args.dropiProductId);
+      if (!dropiId) return { ok: false, summary: "Falta 'dropiProductId'" };
+
+      const r = await dropiGetProduct(dropiId);
+      if (!r.ok || !r.data) return { ok: false, summary: `No se pudo traer el producto de Dropi: ${r.error}` };
+      const p = r.data;
+
+      const precio = num(args.price) || p.suggested_price || p.sale_price || 0;
+      if (!precio) return { ok: false, summary: "El producto de Dropi no trae precio y no se indicó uno. Pasa 'price'." };
+
+      const [creado] = await db
+        .insert(products)
+        .values({
+          tenantId: ctx.tenantId,
+          name: p.name,
+          description: p.description || p.name,
+          price: String(precio),
+          currency: "COP",
+          category: p.categories?.[0]?.name || "Dropshipping",
+          kind: "physical",
+          isActive: true,
+          // Queda registrado de dónde salió: sin esto es imposible saber, al
+          // vender, que hay que crear la orden en Dropi en vez de entregar
+          // un enlace de descarga como con los productos digitales.
+          metadata: JSON.stringify({ source: "dropi", dropiProductId: dropiId, dropiStock: p.stock ?? null }),
+        })
+        .returning();
+
+      // La foto se baja al volumen propio: las URLs de Dropi pueden rotar o
+      // caducar, y un producto sin imagen no se puede publicar ni anunciar.
+      const img = dropiProductImage(p);
+      let imgMsg = "sin imagen en Dropi";
+      if (img) {
+        const { saveProductImage } = await import("./image-store");
+        const saved = await saveProductImage(img, creado.id);
+        if (saved) {
+          await db.update(products).set({ imageUrl: saved }).where(eq(products.id, creado.id));
+          imgMsg = "con imagen guardada en el volumen";
+        } else {
+          await db.update(products).set({ imageUrl: img }).where(eq(products.id, creado.id));
+          imgMsg = "con imagen enlazada desde Dropi (no se pudo copiar al volumen)";
+        }
+      }
+
+      return {
+        ok: true,
+        summary: `📦 Importado de Dropi: #${creado.id} "${p.name}" a $${precio} COP (${imgMsg})`,
+        data: { id: creado.id, dropiProductId: dropiId, price: precio },
+      };
+    },
+  },
+  {
+    name: "dropi_create_order",
+    description: "Crear una orden REAL en Dropi para que el proveedor despache al cliente (pago contra entrega). Úsala solo cuando una venta ya esté cerrada y tengas los datos de envío completos. GENERA UN PEDIDO REAL con costo → requiere confirmación explícita.",
+    args: '{ "productId": number (req, id del producto en ESTA tienda), "quantity": number (req), "clientName": string (req), "clientPhone": string (req), "clientAddress": string (req), "clientCity": string (opcional), "clientDepartment": string (opcional), "notes": string (opcional) }',
+    run: async (args) => {
+      const { dropiCreateOrder } = await import("./dropi");
+      const pid = num(args.productId);
+      if (!pid) return { ok: false, summary: "Falta 'productId'" };
+
+      const [prod] = await db.select().from(products).where(eq(products.id, pid)).limit(1);
+      if (!prod) return { ok: false, summary: `Producto ${pid} no existe en la tienda` };
+
+      let meta: any = {};
+      try { meta = typeof prod.metadata === "string" ? JSON.parse(prod.metadata) : prod.metadata || {}; } catch {}
+      const dropiProductId = meta?.dropiProductId;
+      if (!dropiProductId) {
+        return { ok: false, summary: `"${prod.name}" no vino de Dropi (es un producto propio) — no se le puede crear orden de dropshipping.` };
+      }
+
+      for (const campo of ["clientName", "clientPhone", "clientAddress"]) {
+        if (!String(args[campo] || "").trim()) return { ok: false, summary: `Falta '${campo}' (obligatorio para el envío)` };
+      }
+
+      const r = await dropiCreateOrder({
+        dropiProductId,
+        quantity: num(args.quantity) || 1,
+        clientName: String(args.clientName),
+        clientPhone: String(args.clientPhone),
+        clientAddress: String(args.clientAddress),
+        clientCity: args.clientCity ? String(args.clientCity) : undefined,
+        clientDepartment: args.clientDepartment ? String(args.clientDepartment) : undefined,
+        notes: args.notes ? String(args.notes) : undefined,
+      });
+      if (!r.ok) return { ok: false, summary: `Dropi rechazó la orden: ${r.error}` };
+      return { ok: true, summary: `📦 Orden creada en Dropi para "${prod.name}" → ${args.clientName} (${args.clientPhone})`, data: r.data };
+    },
+  },
 ];
 
 /**
@@ -982,6 +1117,8 @@ export const READ_ONLY_TOOLS = new Set([
   "whatsapp_status", "dashboard_summary", "list_recent_conversations",
   // Lectura de web (información externa)
   "web_fetch", "web_search", "web_scrape_images",
+  // Dropi de solo lectura: consultar el catálogo del proveedor no crea nada.
+  "dropi_status", "dropi_search_products",
 ]);
 export const DESTRUCTIVE_TOOLS = new Set([
   "delete_product",
@@ -990,6 +1127,9 @@ export const DESTRUCTIVE_TOOLS = new Set([
   // fb_page_publish es público e irreversible desde la app (borrar hay que
   // hacerlo en Facebook) → misma confirmación reforzada que gastar dinero.
   "fb_page_publish",
+  // dropi_create_order dispara un despacho real del proveedor con cobro
+  // contra entrega: es dinero de verdad moviéndose, nunca sin el sí del admin.
+  "dropi_create_order",
 ]);
 export function isReadOnlyTool(name: string): boolean {
   return READ_ONLY_TOOLS.has(name);
@@ -1107,6 +1247,19 @@ INFORMACIÓN DE INTERNET (nunca inventes datos externos):
   una ilustración de IA. Flujo: web_search (encontrar la página) → web_scrape_images (sacar las
   fotos) → mostrarle al admin las 2-3 mejores → set_product_image con la que él elija.
   Si no hay foto real utilizable, ahí sí cae a generate_image.
+
+DROPSHIPPING CON DROPI (vender productos de proveedores sin tener stock):
+- 📦 dropi_status primero: si la IP del servidor no está autorizada te lo dice con la IP exacta
+  que hay que pedirle a Dropi que habilite. No sigas intentando si eso falla — reporta la IP.
+- 🔎 dropi_search_products para explorar el catálogo del proveedor; muéstrale al admin nombre,
+  precio sugerido y stock, y deja que él elija cuál importar y a qué precio venderlo.
+- ⬇️ dropi_import_product lo trae a ESTA tienda con su foto. A partir de ahí el bot lo vende
+  igual que cualquier producto propio.
+- 🚚 dropi_create_order SOLO cuando la venta ya esté cerrada y tengas nombre, teléfono y
+  dirección completos. Dispara un despacho real con cobro contra entrega: confirmación
+  obligatoria, y si falta algún dato pídelo antes en vez de inventarlo.
+- ⚠️ Los productos de Dropi son FÍSICOS: se envían a una dirección, no llevan enlace de Drive
+  como los cursos digitales. No mezcles los dos flujos.
 
 NO TE QUEDES ATASCADO (regla general):
 - Si una herramienta falla, NO repitas la misma llamada con los mismos argumentos esperando otro
