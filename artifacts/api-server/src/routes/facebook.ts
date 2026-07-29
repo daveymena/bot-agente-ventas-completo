@@ -600,6 +600,27 @@ router.post("/channels/polling/stop", async (_req, res, next) => {
   } catch (e) { return next(e); }
 });
 
+// GET /facebook/debug-pixels — lista los pixeles que SÍ están asociados a la
+// cuenta publicitaria configurada. Existe porque el pixelId guardado puede
+// pertenecer a una cuenta publicitaria distinta a la que realmente se usa
+// (ver adAccountId) -- Facebook rechaza el anuncio con "Píxel no asociado"
+// sin decir cuál sí lo está, así que hay que preguntarle directamente.
+router.get("/debug-pixels", async (req, res, next) => {
+  try {
+    const tenant = (req as any).tenant;
+    const { FacebookService } = await import("../lib/facebook");
+    const fbSvc = new FacebookService(tenant || undefined) as any;
+    const cfg = fbSvc.config;
+    if (!cfg?.accessToken || !cfg?.adAccountId) {
+      return res.status(422).json({ error: "Falta accessToken o adAccountId en la configuración" });
+    }
+    const url = `https://graph.facebook.com/v21.0/act_${cfg.adAccountId}/adspixels?fields=id,name&access_token=${cfg.accessToken}`;
+    const r = await fetch(url, { signal: AbortSignal.timeout(15000) });
+    const data = await r.json();
+    return res.json(data);
+  } catch (e) { return next(e); }
+});
+
 // GET /facebook/config — leer configuración actual (desde metadata)
 router.get("/config", async (req, res, next) => {
   try {
