@@ -559,6 +559,8 @@ Debes responder SOLO con este JSON (sin markdown, sin acentos en las claves):
 
   // ── Subida de imagen a Facebook ────────────────────────────────────────────
 
+  lastImageError: string | null = null;
+
   private async uploadImage(adAccount: string, imageUrl: string, productName: string): Promise<string> {
     try {
       const res = await this.fbPost(`${adAccount}/adimages`, { url: imageUrl, name: productName });
@@ -567,7 +569,8 @@ Debes responder SOLO con este JSON (sin markdown, sin acentos en las claves):
         return res.images[key]?.hash || "";
       }
     } catch (err: any) {
-      logger.warn({ err }, "[Facebook] Error uploading image, usando placeholder");
+      this.lastImageError = err?.message || String(err);
+      logger.warn({ err, imageUrl }, "[Facebook] Error uploading image, usando placeholder");
     }
     return await this.generateImagePlaceholder(adAccount, productName);
   }
@@ -582,7 +585,9 @@ Debes responder SOLO con este JSON (sin markdown, sin acentos en las claves):
         const key = Object.keys(res.images)[0];
         return res.images[key]?.hash || "";
       }
-    } catch (_) {}
+    } catch (err: any) {
+      this.lastImageError = `${this.lastImageError || ""} | placeholder: ${err?.message || err}`;
+    }
     return "";
   }
 

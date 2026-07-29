@@ -706,7 +706,10 @@ router.post("/create-ad/:productId", async (req, res, next) => {
     if (!result) {
       return res.status(500).json({ error: fbSvc.lastAdError || "Facebook rechazó la creación del anuncio (revisa que la cuenta publicitaria y el ad account id sean correctos, y que la página tenga permisos de anuncios)." });
     }
-    return res.json(result);
+    // imageHash vacío es "éxito" para create-ad (el anuncio SÍ se creó) pero
+    // significa que ni la foto real ni el placeholder se subieron -- se
+    // avisa aparte para no ocultarlo dentro de un 200 silencioso.
+    return res.json({ ...result, imageUploadError: result.imageHash ? null : fbSvc.lastImageError });
   } catch (e) { return next(e); }
 });
 
