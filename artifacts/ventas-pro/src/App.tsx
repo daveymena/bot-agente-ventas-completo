@@ -28,6 +28,7 @@ import AdminStorePage from "@/pages/admin-store";
 import MiTiendaPage from "@/pages/mi-tienda";
 import ArenaPage from "@/pages/arena";
 import AdminTenantsPage from "@/pages/admin-tenants";
+import PrivacyPolicyPage from "@/pages/privacy-policy";
 
 // Context para la sesión
 interface SessionContextType {
@@ -106,6 +107,7 @@ function Router() {
       <Route path="/mi-tienda" component={MiTiendaPage} />
       <Route path="/arena" component={ArenaPage} />
       <Route path="/admin/tenants" component={AdminTenantsPage} />
+      <Route path="/privacidad" component={PrivacyPolicyPage} />
       <Route path="/auth" component={AuthPage} />
       <Route component={NotFound} />
     </Switch>
@@ -118,7 +120,7 @@ function AppContent() {
 
   useEffect(() => {
     // Redirigir a /auth si no está autenticado y no está ya en /auth o /pricing
-    if (!isLoading && !isAuthenticated && location !== "/auth" && location !== "/pricing" && location !== "/onboarding" && !location.startsWith("/store") && !location.startsWith("/tienda") && location !== "/mi-tienda") {
+    if (!isLoading && !isAuthenticated && location !== "/auth" && location !== "/pricing" && location !== "/onboarding" && location !== "/privacidad" && !location.startsWith("/store") && !location.startsWith("/tienda") && location !== "/mi-tienda") {
       console.log("🔒 No autenticado, redirigiendo a /auth...");
       setLocation("/auth");
     }
