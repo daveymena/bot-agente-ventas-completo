@@ -463,6 +463,7 @@ ${descLine}
       // fix que en facebook.ts: si hay pixel se manda promoted_object con
       // evento LEAD, si no, se cae a LINK_CLICKS.
       const pixelId = this.tenant.facebook?.pixelId || process.env.FB_PIXEL_ID || "";
+      const hasUsablePixel = pixelId ? await this.pixelBelongsToAccount(act, accessToken, pixelId) : false;
       const adSetBody: Record<string, any> = {
         name: `[BORRADOR] ${product.name} - Conjunto`,
         campaign_id: campaign.id,
@@ -479,7 +480,7 @@ ${descLine}
         status: "PAUSED",
         start_time: new Date().toISOString(),
       };
-      if (pixelId) {
+      if (hasUsablePixel) {
         adSetBody.billing_event = "IMPRESSIONS";
         // "CONVERSIONS" no es un valor válido de optimization_goal -- el
         // equivalente moderno para optimizar por conversiones de pixel es
@@ -610,6 +611,22 @@ ${descLine}
     const data: any = await res.json();
     if (data.error) throw new Error(`${data.error.message} (código ${data.error.code})`);
     return data;
+  }
+
+  /** Mismo chequeo que en facebook.ts: el pixelId guardado puede pertenecer
+   * a otra cuenta publicitaria -- se verifica antes de usarlo para evitar
+   * el error tardío "Píxel no asociado" en el paso final. */
+  private async pixelBelongsToAccount(adAccount: string, accessToken: string, pixelId: string): Promise<boolean> {
+    try {
+      const params = new URLSearchParams({ access_token: accessToken, fields: "id" });
+      const res = await fetch(`${FB_GRAPH_URL}/${adAccount}/adspixels?${params}`);
+      const data: any = await res.json();
+      const ids: string[] = (data.data || []).map((p: any) => p.id);
+      return ids.includes(pixelId);
+    } catch (err: any) {
+      logger.warn({ err }, "[AdStrategist] No se pudo verificar el pixel de la cuenta");
+      return false;
+    }
   }
 }
 

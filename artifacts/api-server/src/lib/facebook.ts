@@ -361,10 +361,20 @@ Responde SOLO con este JSON exacto:
       // optimization_goal=CONVERSIONS SIN promoted_object es rechazado por
       // Graph API con error 100 "Invalid parameter" -- Facebook exige que el
       // conjunto apunte a un pixel/evento cuando optimiza por conversión. Si
-      // hay pixelId configurado se lo mandamos (evento LEAD, más laxo que
-      // PURCHASE para cursos que no necesariamente trackean checkout); si no
-      // hay pixel, no se puede pedir CONVERSIONS y se cae a LINK_CLICKS, que
-      // no requiere promoted_object.
+      // hay pixelId configurado se lo mandamos (evento PURCHASE); si no hay
+      // pixel, se cae a LINK_CLICKS, que no requiere promoted_object.
+      //
+      // El pixelId guardado puede pertenecer a OTRA cuenta publicitaria
+      // (pasó justo eso: se corrigió el adAccountId pero el pixel se quedó
+      // apuntando al de la cuenta vieja) -- Facebook rechaza el anuncio con
+      // "Píxel no asociado" sin decirlo hasta el paso final, después de
+      // crear campaña y conjunto. Para no desperdiciar esas llamadas, se
+      // verifica ANTES que el pixel realmente esté en la lista de pixeles de
+      // ESTA cuenta.
+      const hasUsablePixel = this.config.pixelId
+        ? await this.pixelBelongsToAccount(adAccount, this.config.pixelId)
+        : false;
+
       const adSetBody: Record<string, any> = {
         name: `${campaignName} - Conjunto`,
         campaign_id: campaign.id,
@@ -373,7 +383,7 @@ Responde SOLO con este JSON exacto:
         status: "PAUSED",
         start_time: startDate ? new Date(startDate).toISOString() : new Date().toISOString(),
       };
-      if (this.config.pixelId) {
+      if (hasUsablePixel) {
         adSetBody.billing_event = "IMPRESSIONS";
         // "CONVERSIONS" no es un valor válido de optimization_goal en la API
         // actual (Graph API lo rechaza con error 100 listando los válidos) --
@@ -606,6 +616,22 @@ Debes responder SOLO con este JSON (sin markdown, sin acentos en las claves):
     const data = await res.json();
     if (data.error) throw new Error(`${data.error.message} (código ${data.error.code})`);
     return data;
+  }
+
+  /** Un pixelId guardado puede pertenecer a una cuenta publicitaria distinta
+   * a la configurada (adAccountId) -- pasa cuando se cambia de cuenta sin
+   * actualizar el pixel. Graph API recién avisa "Píxel no asociado" al
+   * crear el anuncio final, después de gastar las llamadas de campaña y
+   * conjunto. Se pregunta antes para evitar el error 100 tardío. */
+  private async pixelBelongsToAccount(adAccount: string, pixelId: string): Promise<boolean> {
+    try {
+      const res = await this.fbGet(`${adAccount}/adspixels`, { fields: "id" });
+      const ids: string[] = (res.data || []).map((p: any) => p.id);
+      return ids.includes(pixelId);
+    } catch (err: any) {
+      logger.warn({ err }, "[Facebook] No se pudo verificar el pixel de la cuenta, se asume que no aplica");
+      return false;
+    }
   }
 
   // ── Sincronizar catálogo ───────────────────────────────────────────────────
