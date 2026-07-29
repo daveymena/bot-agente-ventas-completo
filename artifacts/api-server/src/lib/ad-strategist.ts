@@ -453,6 +453,9 @@ ${descLine}
         // explícito cuando la campaña no aplica a ninguna categoría especial
         // (vivienda, empleo, crédito, temas sociales/elecciones).
         special_ad_categories: ["NONE"],
+        // Presupuesto a nivel de conjunto (no CBO): Facebook exige declarar
+        // explícitamente que los conjuntos no comparten presupuesto entre sí.
+        is_adset_budget_sharing_enabled: false,
       });
 
       // optimization_goal=CONVERSIONS sin promoted_object es rechazado por

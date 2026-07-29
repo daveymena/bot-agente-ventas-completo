@@ -286,6 +286,11 @@ Responde SOLO con este JSON exacto:
         objective: "OUTCOME_SALES",
         status: "PAUSED",
         special_ad_categories: ["NONE"],
+        // El presupuesto se maneja a nivel de conjunto de anuncios (no CBO),
+        // así que Facebook exige declarar explícitamente que los conjuntos
+        // NO comparten presupuesto entre sí -- sin esto rechaza la campaña
+        // entera con error 100/subcódigo 4834011.
+        is_adset_budget_sharing_enabled: false,
       }, "campaña");
 
       // Construir targeting desde parámetros o usar defaults
