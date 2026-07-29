@@ -491,7 +491,9 @@ ${descLine}
         // el evento que corresponde a una campaña de venta.
         adSetBody.promoted_object = { pixel_id: pixelId, custom_event_type: "PURCHASE" };
       } else {
-        adSetBody.billing_event = "LINK_CLICKS";
+        // billing_event=LINK_CLICKS lo rechaza Facebook en cuentas nuevas --
+        // IMPRESSIONS sí está disponible desde el día uno.
+        adSetBody.billing_event = "IMPRESSIONS";
         adSetBody.optimization_goal = "LINK_CLICKS";
         adSetBody.bid_strategy = "LOWEST_COST_WITHOUT_CAP";
       }

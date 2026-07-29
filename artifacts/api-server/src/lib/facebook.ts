@@ -397,7 +397,12 @@ Responde SOLO con este JSON exacto:
         // corresponde a una campaña de venta.
         adSetBody.promoted_object = { pixel_id: this.config.pixelId, custom_event_type: "PURCHASE" };
       } else {
-        adSetBody.billing_event = "LINK_CLICKS";
+        // billing_event=LINK_CLICKS lo rechaza Facebook en cuentas nuevas
+        // ("cuando hayan cumplido nuestras políticas durante varias
+        // semanas") -- IMPRESSIONS sí está disponible desde el día uno y es
+        // compatible con optimization_goal=LINK_CLICKS (se paga por
+        // impresión, se optimiza para maximizar clics).
+        adSetBody.billing_event = "IMPRESSIONS";
         adSetBody.optimization_goal = "LINK_CLICKS";
         adSetBody.bid_strategy = "LOWEST_COST_WITHOUT_CAP";
       }
