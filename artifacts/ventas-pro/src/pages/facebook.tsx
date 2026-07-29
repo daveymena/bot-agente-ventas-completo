@@ -735,7 +735,7 @@ export default function FacebookAdsPage() {
                                 </Button>
                               )}
                               {d.adId && (
-                                <Button size="sm" variant="outline" onClick={() => window.open(`https://www.facebook.com/adsmanager/manage/ads?act=${d.adId}`, "_blank")} title="Ver en Facebook">
+                                <Button size="sm" variant="outline" onClick={() => window.open(`https://www.facebook.com/adsmanager/manage/ads?act=${config.adAccountId}&selected_ad_ids=${d.adId}`, "_blank")} title="Ver en Facebook">
                                   <Globe className="h-4 w-4" />
                                 </Button>
                               )}

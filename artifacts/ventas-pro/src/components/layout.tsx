@@ -133,7 +133,13 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
   return (
     <SidebarProvider>
-      <div className="flex min-h-screen w-full bg-background relative overflow-x-hidden text-foreground">
+      {/* h-screen (no min-h-screen): con min-height el contenedor crece con
+          el contenido en vez de quedar acotado al viewport, así que
+          overflow-y-auto de <main> nunca entra en juego y termina
+          scrolleando el documento entero -- con listas largas (ej. 85
+          borradores de Facebook) eso deja el header y el sidebar fijo
+          visualmente "atrás", fuera de la parte visible. */}
+      <div className="flex h-screen w-full bg-background relative overflow-x-hidden text-foreground">
         {!isMobile && <AppSidebar />}
         <div className="flex flex-1 flex-col w-full min-w-0 relative z-10">
           <header className="flex h-14 sm:h-16 items-center gap-4 border-b border-border bg-card px-3 sm:px-4 md:px-6 sticky top-0 z-20">
