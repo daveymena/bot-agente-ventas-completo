@@ -335,6 +335,7 @@ export class WhatsAppManager {
   private lastError: string | null = null;
   private sock: any = null;
   private starting = false;
+  private hadQrInThisSession = false;
   private currentTenant: TenantContext;
 
   constructor(tenant?: TenantContext) {
@@ -402,6 +403,7 @@ export class WhatsAppManager {
     this.connectedAt = null;
     this.starting = false;
     this.lastError = null;
+    this.hadQrInThisSession = false;
     logger.info({ keepAuth }, "[WhatsApp] Stopped");
     return this.getStatus();
   }
@@ -461,9 +463,10 @@ export class WhatsAppManager {
       sock.ev.on("connection.update", async (update: any) => {
          const { connection, lastDisconnect, qr } = update;
          
-         if (qr) {
-           try {
-             this.qrDataUrl = await QRCode.toDataURL(qr, { width: 320, margin: 1 });
+          if (qr) {
+            this.hadQrInThisSession = true;
+            try {
+              this.qrDataUrl = await QRCode.toDataURL(qr, { width: 320, margin: 1 });
              this.state = "qr";
              logger.info("[WhatsApp] QR code generated successfully");
              console.log("✅ [QR] Código QR generado exitosamente - Longitud: ", this.qrDataUrl?.length);
@@ -498,13 +501,19 @@ export class WhatsAppManager {
            this.starting = false;
            this.qrDataUrl = null;
            
-           if (loggedOut) {
-             this.reconnectAttempts = 0;
-             this.state = "disconnected";
-             this.lastError = "Sesión cerrada (LoggedOut)";
-             logger.info("[WhatsApp] Logged out");
-             console.log("❌ [AUTH] Usuario deslogueado - Se requiere nuevo QR");
-           } else if (this.reconnectAttempts < this.MAX_RECONNECT_ATTEMPTS) {
+            if (loggedOut) {
+              this.reconnectAttempts = 0;
+              this.state = "disconnected";
+              this.lastError = "Sesión cerrada (LoggedOut)";
+              logger.info("[WhatsApp] Logged out");
+              console.log("❌ [AUTH] Usuario deslogueado - Se requiere nuevo QR");
+            } else if (!this.hadQrInThisSession) {
+              this.reconnectAttempts = 0;
+              this.state = "disconnected";
+              this.lastError = "No se pudo conectar con WhatsApp. Revisa que el servidor tenga acceso a web.whatsapp.com (WebSocket).";
+              logger.error("[WhatsApp] Connection closed before QR was generated - network issue");
+              console.log("❌ [NETWORK] No se pudo conectar con WhatsApp - posible bloqueo de red");
+            } else if (this.reconnectAttempts < this.MAX_RECONNECT_ATTEMPTS) {
              this.reconnectAttempts++;
              const delay = Math.min(3000 * this.reconnectAttempts, 30000); // max 30s
              this.state = "error";
