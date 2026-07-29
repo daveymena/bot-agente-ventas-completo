@@ -445,15 +445,31 @@ export class WhatsAppManager {
        const { state: authState, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
        console.log("✅ [AUTH] Estado de autenticación cargado");
 
+       // fetchLatestBaileysVersion() estaba importado pero nunca se llamaba:
+       // el socket se creaba SIN `version`, así que usaba el WA_VERSION
+       // hardcodeado dentro del paquete al momento de compilarse. Cuando
+       // WhatsApp rota su versión de protocolo (pasa seguido) esa versión
+       // vieja hace que el servidor cierre la conexión de inmediato -- antes
+       // de emitir el evento "qr" -- lo que se veía como "no se pudo
+       // conectar, revisa que el servidor tenga acceso a whatsapp.com"
+       // aunque la red funcionara perfecto. Si falla la consulta, se sigue
+       // sin version (comportamiento anterior) en vez de romper el arranque.
+       let waVersion: [number, number, number] | undefined;
+       try {
+         const { version } = await fetchLatestBaileysVersion();
+         waVersion = version;
+         console.log(`✅ [VERSION] Baileys usará WA v${version.join(".")}`);
+       } catch (e) {
+         console.warn("⚠️ [VERSION] No se pudo obtener la versión más reciente de WhatsApp, usando la del paquete:", e instanceof Error ? e.message : e);
+       }
+
       const sock = makeWASocket({
          auth: authState,
          browser: ["VentasPro", "Chrome", "1.0.0"],
          syncFullHistory: false,
          markOnlineOnConnect: true,
          generateHighQualityLinkPreview: false,
-          // WhatsApp rechaza el protocolo WEB antiguo (error 405).
-          // Se requiere versión actualizada (rc.13) para nuevo pairing.
-          // version: omitido = baileys usa la correcta automáticamente
+         ...(waVersion ? { version: waVersion } : {}),
        });
        this.sock = sock;
        console.log("✅ [INIT] Socket WhatsApp inicializado correctamente");
