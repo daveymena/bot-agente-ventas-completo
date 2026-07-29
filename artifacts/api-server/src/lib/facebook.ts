@@ -400,9 +400,17 @@ Responde SOLO con este JSON exacto:
       };
     } catch (err: any) {
       logger.error({ err, productId }, "[Facebook] Error creando anuncio");
+      this.lastAdError = err?.message || "Error desconocido";
       return null;
     }
   }
+
+  /** Motivo real del último createAdForProduct fallido -- fbPost/fbGet
+   * tiran el mensaje de error de Graph API tal cual, pero createAdForProduct
+   * devuelve null en error (no puede tirar sin romper a otros que la llaman
+   * asumiendo `| null`), así que sin esto el llamador solo sabe "falló", no
+   * por qué. */
+  lastAdError: string | null = null;
 
   // ── Estrategias de copy por categoría ──────────────────────────────────────
 
