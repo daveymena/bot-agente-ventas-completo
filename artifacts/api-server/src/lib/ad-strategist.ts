@@ -449,16 +449,21 @@ ${descLine}
         name: `[BORRADOR] ${product.name} - ${new Date().toLocaleDateString("es-CO")}`,
         objective: "OUTCOME_SALES",
         status: "PAUSED",
-        special_ad_categories: [],
+        // [] tira error 100/subcódigo 4834011 -- Meta exige declarar "NONE"
+        // explícito cuando la campaña no aplica a ninguna categoría especial
+        // (vivienda, empleo, crédito, temas sociales/elecciones).
+        special_ad_categories: ["NONE"],
       });
 
-      const adSet = await this.fbPost(act, "adsets", accessToken, {
+      // optimization_goal=CONVERSIONS sin promoted_object es rechazado por
+      // Graph API (exige que el conjunto apunte a un pixel/evento). Mismo
+      // fix que en facebook.ts: si hay pixel se manda promoted_object con
+      // evento LEAD, si no, se cae a LINK_CLICKS.
+      const pixelId = this.tenant.facebook?.pixelId || process.env.FB_PIXEL_ID || "";
+      const adSetBody: Record<string, any> = {
         name: `[BORRADOR] ${product.name} - Conjunto`,
         campaign_id: campaign.id,
         daily_budget: Math.round(strategy.budget * 100),
-        billing_event: "IMPRESSIONS",
-        optimization_goal: "CONVERSIONS",
-        bid_strategy: "LOWEST_COST_WITHOUT_CAP",
         targeting: {
           geo_locations: { countries: ["CO"] },
           age_min: strategy.ageMin,
@@ -470,7 +475,18 @@ ${descLine}
         },
         status: "PAUSED",
         start_time: new Date().toISOString(),
-      });
+      };
+      if (pixelId) {
+        adSetBody.billing_event = "IMPRESSIONS";
+        adSetBody.optimization_goal = "CONVERSIONS";
+        adSetBody.bid_strategy = "LOWEST_COST_WITHOUT_CAP";
+        adSetBody.promoted_object = { pixel_id: pixelId, custom_event_type: "LEAD" };
+      } else {
+        adSetBody.billing_event = "LINK_CLICKS";
+        adSetBody.optimization_goal = "LINK_CLICKS";
+        adSetBody.bid_strategy = "LOWEST_COST_WITHOUT_CAP";
+      }
+      const adSet = await this.fbPost(act, "adsets", accessToken, adSetBody);
 
       let imageHash = "";
       try {

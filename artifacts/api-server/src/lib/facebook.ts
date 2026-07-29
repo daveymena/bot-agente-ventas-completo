@@ -276,12 +276,16 @@ Responde SOLO con este JSON exacto:
         imageHash = await this.generateImagePlaceholder(adAccount, product.name);
       }
 
-      // Campaña
+      // Campaña.
+      // special_ad_categories: [] daba error 100 / subcódigo 4834011 --
+      // Meta viene exigiendo que TODA campaña declare explícitamente "NONE"
+      // en vez de un array vacío quiere decir "no aplica ninguna categoría
+      // especial" (vivienda, empleo, crédito, temas sociales/elecciones).
       const campaign = await this.fbPost(`${adAccount}/campaigns`, {
         name: campaignName,
         objective: "OUTCOME_SALES",
         status: "PAUSED",
-        special_ad_categories: [],
+        special_ad_categories: ["NONE"],
       }, "campaña");
 
       // Construir targeting desde parámetros o usar defaults
