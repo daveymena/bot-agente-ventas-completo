@@ -2,7 +2,6 @@ import { Router, type IRouter, type Request, type Response, type NextFunction } 
 import { createHmac, timingSafeEqual } from "crypto";
 import { eq } from "drizzle-orm";
 import { db, tenants, leads, conversations, messages, products } from "@workspace/db";
-import { facebookService as fb } from "../lib/facebook";
 import { facebookMessengerService as fbMessenger } from "../lib/facebook-messenger";
 import { facebookCommentsService as fbComments } from "../lib/facebook-comments";
 import { channelManager } from "../lib/channel-manager";
@@ -354,24 +353,34 @@ router.post("/comments/webhook", verifyFacebookSignature, async (req: Request, r
 });
 
 // ─── Messenger & Marketplace Management Endpoints ──────────────────────────
-router.get("/messenger/status", async (_req, res, next) => {
+// Mismo motivo que /validate, /create-ad, etc.: el singleton `fbMessenger`
+// (importado arriba) se construye una sola vez sin tenant real, así que
+// nunca veía el token guardado desde el dashboard. Se instancia por request.
+router.get("/messenger/status", async (req, res, next) => {
   try {
-    const status = fbMessenger.getStatus();
-    const subscribedApps = await fbMessenger.getSubscribedApps();
+    const tenant = (req as any).tenant;
+    const { FacebookMessengerService } = await import("../lib/facebook-messenger");
+    const svc = new FacebookMessengerService(tenant || undefined);
+    const status = svc.getStatus();
+    const subscribedApps = await svc.getSubscribedApps();
     return res.json({ ...status, subscribedApps });
   } catch (e) { return next(e); }
 });
 
-router.post("/messenger/subscribe", async (_req, res, next) => {
+router.post("/messenger/subscribe", async (req, res, next) => {
   try {
-    const ok = await fbMessenger.subscribeToWebhook();
+    const tenant = (req as any).tenant;
+    const { FacebookMessengerService } = await import("../lib/facebook-messenger");
+    const ok = await new FacebookMessengerService(tenant || undefined).subscribeToWebhook();
     return res.json({ ok, message: ok ? "Suscripción exitosa" : "Error al suscribir" });
   } catch (e) { return next(e); }
 });
 
-router.get("/messenger/page-info", async (_req, res, next) => {
+router.get("/messenger/page-info", async (req, res, next) => {
   try {
-    const info = await fbMessenger.getPageInfo();
+    const tenant = (req as any).tenant;
+    const { FacebookMessengerService } = await import("../lib/facebook-messenger");
+    const info = await new FacebookMessengerService(tenant || undefined).getPageInfo();
     return res.json(info || { error: "No se pudo obtener info" });
   } catch (e) { return next(e); }
 });
@@ -637,45 +646,74 @@ router.put("/config", async (req, res, next) => {
   } catch (e) { return next(e); }
 });
 
-router.get("/validate", async (_req, res, next) => {
+// Los 5 endpoints de abajo usaban el singleton `fb` importado arriba, que se
+// construye UNA sola vez al arrancar el proceso con
+// tenantManager.getDefaultTenant() -- un objeto hardcodeado que NUNCA tiene
+// `.facebook` (ni token, ni ad account id, ni page id). Resultado: pasara lo
+// que pasara en "Credenciales de Facebook" del dashboard, estos botones
+// siempre pegaban con credenciales vacías y fallaban (create-ad con 500
+// genérico, publish-post/sync-catalog/validate silenciosamente rotos). El
+// Arquitecto SÍ funcionaba porque sus tools instancian
+// `new FacebookService(tenant)` por request (ver app-operator.ts); acá se
+// hace exactamente lo mismo, igual que ya se hizo para Marketplace y
+// AdStrategist más arriba en este archivo.
+router.get("/validate", async (req, res, next) => {
   try {
-    return res.json(await fb.validate());
+    const tenant = (req as any).tenant;
+    const { FacebookService } = await import("../lib/facebook");
+    return res.json(await new FacebookService(tenant || undefined).validate());
   } catch (e) { return next(e); }
 });
 
 router.post("/create-ad/:productId", async (req, res, next) => {
   try {
+    const tenant = (req as any).tenant;
     const productId = parseInt(req.params.productId);
     const { budget, startDate, targeting } = req.body;
-    const result = await fb.createAdForProduct(productId, budget || 5000, startDate, targeting);
-    if (!result) return res.status(500).json({ error: "Error al crear el anuncio" });
+    const { FacebookService } = await import("../lib/facebook");
+    const fbSvc = new FacebookService(tenant || undefined);
+    if (!fbSvc.isConfigured()) {
+      return res.status(422).json({ error: "Facebook no está conectado (falta el token de página). Configúralo en la pestaña Configuración." });
+    }
+    const result = await fbSvc.createAdForProduct(productId, budget || 5000, startDate, targeting);
+    if (!result) return res.status(500).json({ error: "Facebook rechazó la creación del anuncio (revisa que la cuenta publicitaria y el ad account id sean correctos, y que la página tenga permisos de anuncios)." });
     return res.json(result);
   } catch (e) { return next(e); }
 });
 
 router.get("/suggest-audience/:productId", async (req, res, next) => {
   try {
+    const tenant = (req as any).tenant;
     const productId = parseInt(req.params.productId);
-    const result = await fb.suggestAudience(productId);
+    const { FacebookService } = await import("../lib/facebook");
+    const result = await new FacebookService(tenant || undefined).suggestAudience(productId);
     if (!result) return res.status(404).json({ error: "No se pudo generar sugerencia de audiencia" });
     return res.json(result);
   } catch (e) { return next(e); }
 });
 
-router.post("/sync-catalog", async (_req, res, next) => {
+router.post("/sync-catalog", async (req, res, next) => {
   try {
-    return res.json(await fb.syncCatalog());
+    const tenant = (req as any).tenant;
+    const { FacebookService } = await import("../lib/facebook");
+    return res.json(await new FacebookService(tenant || undefined).syncCatalog());
   } catch (e) { return next(e); }
 });
 
 // POST /facebook/publish-post — Publicar post orgánico en el muro de la página
 router.post("/publish-post", async (req, res, next) => {
   try {
+    const tenant = (req as any).tenant;
     const { message, imageUrl, link } = req.body || {};
     if (!message) {
       return res.status(400).json({ error: "El campo 'message' es requerido" });
     }
-    const result = await fb.publishPost(message, imageUrl, link);
+    const { FacebookService } = await import("../lib/facebook");
+    const fbSvc = new FacebookService(tenant || undefined);
+    if (!fbSvc.isConfigured()) {
+      return res.status(422).json({ error: "Facebook no está conectado (falta el token de página). Configúralo en la pestaña Configuración." });
+    }
+    const result = await fbSvc.publishPost(message, imageUrl, link);
     if (!result) {
       return res.status(500).json({ error: "Error al publicar el post. Verifica la configuración de Facebook." });
     }
