@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Loader2, CheckCircle2, XCircle, RefreshCw, Megaphone, Package, Target, MapPin, Settings2, MessageCircle, Store, MessageSquare, Radio, Globe, FileText, Trash2, Play, Pencil } from "lucide-react";
+import { Loader2, CheckCircle2, XCircle, RefreshCw, Megaphone, Package, Target, MapPin, Settings2, MessageCircle, MessageSquare, Radio, Globe, FileText, Trash2, Play, Pencil } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Layout } from "@/components/layout";
 
@@ -62,14 +62,6 @@ interface FbAudience {
   rationale: string;
 }
 
-interface MarketplaceListing {
-  id: string;
-  name: string;
-  price: string;
-  status: string;
-  listingUrl: string;
-}
-
 interface ChannelStatus {
   channel: string;
   connected: boolean;
@@ -100,7 +92,7 @@ interface DraftAd {
   createdAt: string;
 }
 
-type Tab = "config" | "ads" | "messenger" | "marketplace" | "comments" | "channels" | "drafts";
+type Tab = "config" | "ads" | "messenger" | "comments" | "channels" | "drafts";
 
 export default function FacebookAdsPage() {
   const { toast } = useToast();
@@ -126,10 +118,6 @@ export default function FacebookAdsPage() {
 
   const [pageInfo, setPageInfo] = useState<PageInfo | null>(null);
   const [subscribing, setSubscribing] = useState(false);
-  const [listings, setListings] = useState<MarketplaceListing[]>([]);
-  const [loadingListings, setLoadingListings] = useState(false);
-  const [creatingListing, setCreatingListing] = useState(false);
-  const [selectedListingProduct, setSelectedListingProduct] = useState<number | null>(null);
   const [channelStatus, setChannelStatus] = useState<ChannelStatus[]>([]);
   const [pollingActive, setPollingActive] = useState(false);
 
@@ -331,39 +319,6 @@ export default function FacebookAdsPage() {
     } finally { setSubscribing(false); }
   };
 
-  const loadListings = async () => {
-    try {
-      setLoadingListings(true);
-      const res = await apiRequest("/facebook/marketplace/listings?status=ALL");
-      setListings(res.listings || []);
-    } catch { setListings([]); }
-    finally { setLoadingListings(false); }
-  };
-
-  const createListing = async () => {
-    if (!selectedListingProduct) return;
-    try {
-      setCreatingListing(true);
-      const res = await apiRequest(`/facebook/marketplace/listings/${selectedListingProduct}`, { method: "POST" });
-      if (res.id) {
-        toast({ title: "Listing creado", description: `Producto publicado en Marketplace` });
-        loadListings();
-      }
-    } catch (e: any) {
-      toast({ title: "Error", description: e.message, variant: "destructive" });
-    } finally { setCreatingListing(false); }
-  };
-
-  const syncAllMarketplace = async () => {
-    try {
-      const res = await apiRequest("/facebook/marketplace/sync", { method: "POST" });
-      toast({ title: "Sincronizado", description: `${res.created} creados, ${res.failed} fallos` });
-      loadListings();
-    } catch (e: any) {
-      toast({ title: "Error", description: e.message, variant: "destructive" });
-    }
-  };
-
   const loadChannelStatus = async () => {
     try {
       const res = await apiRequest("/facebook/channels/status");
@@ -448,7 +403,6 @@ export default function FacebookAdsPage() {
   const selectTab = (id: Tab) => {
     setTab(id);
     if (id === "messenger") loadPageInfo();
-    if (id === "marketplace") loadListings();
     if (id === "channels") loadChannelStatus();
     if (id === "drafts") loadDrafts();
   };
@@ -458,7 +412,6 @@ export default function FacebookAdsPage() {
     { id: "ads" as Tab, label: "Anuncios", icon: Megaphone, disabled: !connected },
     { id: "drafts" as Tab, label: "Borradores", icon: FileText, disabled: false },
     { id: "messenger" as Tab, label: "Messenger", icon: MessageCircle, disabled: !connected },
-    { id: "marketplace" as Tab, label: "Marketplace", icon: Store, disabled: !connected },
     { id: "comments" as Tab, label: "Comentarios", icon: MessageSquare, disabled: !connected },
     { id: "channels" as Tab, label: "Canales", icon: Radio, disabled: false },
   ];
@@ -669,10 +622,10 @@ export default function FacebookAdsPage() {
                   </CardHeader>
                   <CardContent className="space-y-4">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div>
+                      <div className="min-w-0">
                         <Label>Crear borrador para producto</Label>
                         <select
-                          className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                          className="flex h-10 w-full min-w-0 rounded-md border border-input bg-background px-3 py-2 text-sm"
                           value={selectedDraftProduct || ""}
                           onChange={e => setSelectedDraftProduct(Number(e.target.value) || null)}
                         >
@@ -806,72 +759,6 @@ export default function FacebookAdsPage() {
                     </Alert>
                   </CardContent>
                 </Card>
-              </div>
-            )}
-
-            {tab === "marketplace" && connected && (
-              <div className="grid gap-6">
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="flex items-center gap-2"><Store className="h-5 w-5" /> Publicar en Marketplace</CardTitle>
-                    <CardDescription>Publica tus productos directamente en Facebook Marketplace.</CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div>
-                        <Label>Seleccionar producto</Label>
-                        <select
-                          className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                          value={selectedListingProduct || ""}
-                          onChange={e => setSelectedListingProduct(Number(e.target.value) || null)}
-                        >
-                          <option value="">-- Selecciona un producto --</option>
-                          {products.map(p => (
-                            <option key={p.id} value={p.id}>{p.name} - ${Number(p.price).toLocaleString("es-CO")}</option>
-                          ))}
-                        </select>
-                      </div>
-                      <div className="flex items-end">
-                        <Button onClick={createListing} disabled={!selectedListingProduct || creatingListing} className="w-full">
-                          {creatingListing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Store className="mr-2 h-4 w-4" />}
-                          Publicar en Marketplace
-                        </Button>
-                      </div>
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      <Button variant="outline" onClick={loadListings} disabled={loadingListings}>
-                        {loadingListings ? <Loader2 className="mr-2 h-4 w-4 animate-spin shrink-0" /> : <RefreshCw className="mr-2 h-4 w-4 shrink-0" />}
-                        Ver listings activos
-                      </Button>
-                      <Button variant="outline" onClick={syncAllMarketplace}>
-                        <Package className="mr-2 h-4 w-4 shrink-0" /> Sincronizar todos los productos
-                      </Button>
-                    </div>
-                  </CardContent>
-                </Card>
-
-                {listings.length > 0 && (
-                  <Card>
-                    <CardHeader>
-                      <CardTitle>Listings en Marketplace ({listings.length})</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="space-y-2">
-                        {listings.map(l => (
-                          <div key={l.id} className="flex items-center justify-between p-3 bg-muted rounded-lg">
-                            <div>
-                              <p className="font-medium">{l.name}</p>
-                              <p className="text-sm text-muted-foreground">{l.price} | {l.status}</p>
-                            </div>
-                            <Button variant="outline" size="sm" onClick={() => window.open(l.listingUrl, "_blank")}>
-                              <Store className="mr-2 h-4 w-4" /> Ver
-                            </Button>
-                          </div>
-                        ))}
-                      </div>
-                    </CardContent>
-                  </Card>
-                )}
               </div>
             )}
 
