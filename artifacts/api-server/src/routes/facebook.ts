@@ -408,7 +408,7 @@ router.post("/marketplace/listings/:productId", async (req, res, next) => {
     // variables de entorno vacías e ignoraba el token conectado en la BD.
     const { FacebookMarketplaceService } = await import("../lib/facebook-marketplace");
     const r = await new FacebookMarketplaceService(tenant || undefined).createListing(productId);
-    if (!r.ok || !r.listing) return res.status(502).json({ error: r.error || "Error al crear listing" });
+    if (!r.ok || !r.listing) return res.status(422).json({ error: r.error || "Error al crear listing" });
     return res.json(r.listing);
   } catch (e) { return next(e); }
 });
