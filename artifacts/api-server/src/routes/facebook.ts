@@ -651,15 +651,21 @@ router.put("/config", async (req, res, next) => {
     // reconstruirlo borraba messengerPageToken, tasks y pageName —o sea, al
     // guardar el pixel desde el panel se perdía la página conectada y había
     // que rehacer todo el OAuth.
+    //
+    // Bug: usar `body.x || current.x` no permite NUNCA limpiar un campo --
+    // mandar pixelId:"" para borrarlo caía al valor anterior porque "" es
+    // falsy. Se usa `in body` para distinguir "no lo mandaron" (mantener
+    // el actual) de "lo mandaron vacío a propósito" (borrarlo).
+    const field = (key: string) => (key in body ? body[key] : current[key] || "");
     meta.facebook = {
       ...current,
-      accessToken: body.accessToken || current.accessToken || "",
-      pixelId: body.pixelId || current.pixelId || "",
-      catalogId: body.catalogId || current.catalogId || "",
-      pageId: body.pageId || current.pageId || "",
-      adAccountId: body.adAccountId || current.adAccountId || "",
-      appId: body.appId || current.appId || "",
-      appSecret: body.appSecret || current.appSecret || "",
+      accessToken: field("accessToken"),
+      pixelId: field("pixelId"),
+      catalogId: field("catalogId"),
+      pageId: field("pageId"),
+      adAccountId: field("adAccountId"),
+      appId: field("appId"),
+      appSecret: field("appSecret"),
     };
     await db.update(tenants).set({ metadata: meta as any }).where(eq(tenants.id, tenantId));
     tenantManager.clearCache();
