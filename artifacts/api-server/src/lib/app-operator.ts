@@ -570,6 +570,66 @@ export const TOOLS: ToolDef[] = [
     },
   },
 
+  {
+    name: "web_scrape_images",
+    description:
+      "EXTRAER las URLs de las imágenes reales de una página web (scraping). Úsala cuando el admin quiera una foto de producto que ya existe en internet (la página del proveedor, una tienda, un curso) en vez de generar una con IA. Devuelve las imágenes ordenadas de más a menos relevante (portada/og:image primero). Solo LEE, no asigna nada — después usa set_product_image con la URL elegida.",
+    args: '{ "url": string (req), "limit": number (opcional, por defecto 12) }',
+    run: async (args) => {
+      const url = String(args.url || "").trim();
+      const limit = Math.min(num(args.limit) || 12, 30);
+      if (!/^https?:\/\//i.test(url)) return { ok: false, summary: "URL inválida (debe empezar por http/https)" };
+      try {
+        const res = await fetch(url, {
+          headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122 Safari/537.36" },
+          redirect: "follow",
+          signal: AbortSignal.timeout(15000),
+        });
+        if (!res.ok) return { ok: false, summary: `La página respondió ${res.status}` };
+        const html = await res.text();
+
+        const base = new URL(url);
+        const abs = (u: string): string | null => {
+          try { return new URL(u.trim().replace(/&amp;/g, "&"), base).href; } catch { return null; }
+        };
+        // Descarta sprites, iconos, píxeles de tracking y logos: nunca sirven
+        // como foto de producto y ensucian la lista.
+        const util = (u: string) =>
+          !/\.svg($|\?)/i.test(u) &&
+          !/(sprite|icon|favicon|logo|pixel|avatar|badge|1x1|blank)/i.test(u);
+
+        const ordered: string[] = [];
+        const push = (u: string | null) => {
+          if (u && util(u) && !ordered.includes(u)) ordered.push(u);
+        };
+
+        // 1º las que la propia página declara como imagen principal.
+        for (const re of [/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/gi,
+                          /<meta[^>]+name=["']twitter:image["'][^>]+content=["']([^"']+)["']/gi]) {
+          for (const m of html.matchAll(re)) push(abs(m[1]));
+        }
+        // 2º <img src> y srcset, en orden de aparición.
+        for (const m of html.matchAll(/<img[^>]+?(?:data-src|data-original|src)=["']([^"']+)["']/gi)) push(abs(m[1]));
+        for (const m of html.matchAll(/srcset=["']([^"']+)["']/gi)) {
+          const best = m[1].split(",").pop()?.trim().split(/\s+/)[0];
+          if (best) push(abs(best));
+        }
+
+        const images = ordered.slice(0, limit);
+        if (images.length === 0) {
+          return { ok: false, summary: "No encontré imágenes utilizables (la página puede cargarlas por JavaScript)." };
+        }
+        return {
+          ok: true,
+          summary: `🖼️ ${images.length} imágenes encontradas en ${base.hostname}. La primera suele ser la principal.`,
+          data: { images, text: images.map((u, i) => `${i + 1}. ${u}`).join("\n") },
+        };
+      } catch (e: any) {
+        return { ok: false, summary: `No se pudo leer la página: ${e?.message}` };
+      }
+    },
+  },
+
   // ── 📘 FACEBOOK / META ─────────────────────────────────────────────────────
   {
     name: "fb_status",
@@ -921,7 +981,7 @@ export const READ_ONLY_TOOLS = new Set([
   // Monitoreo: solo consultan, no cambian nada
   "whatsapp_status", "dashboard_summary", "list_recent_conversations",
   // Lectura de web (información externa)
-  "web_fetch", "web_search",
+  "web_fetch", "web_search", "web_scrape_images",
 ]);
 export const DESTRUCTIVE_TOOLS = new Set([
   "delete_product",
@@ -1041,4 +1101,17 @@ INFORMACIÓN DE INTERNET (nunca inventes datos externos):
 - 🔁 Si el tema tiene varias partes (ej: "Claude Code, Antigravity, MCP y agentes"), busca y lee
   CADA una en el mismo turno con done:false, hasta cubrirlas todas. No entregues la mitad.
 - 🧾 Cuando presentes la información, di de dónde salió (dominio o título de la fuente).
-- ⚠️ Si una búsqueda no da resultados útiles, dilo con honestidad; no rellenes con suposiciones.`;
+- ⚠️ Si una búsqueda no da resultados útiles, dilo con honestidad; no rellenes con suposiciones.
+- 🖼️ web_scrape_images extrae las fotos REALES de una página web. Cuando falte la imagen de un
+  producto, prefiere esto antes que generate_image: una foto real del proveedor vende más que
+  una ilustración de IA. Flujo: web_search (encontrar la página) → web_scrape_images (sacar las
+  fotos) → mostrarle al admin las 2-3 mejores → set_product_image con la que él elija.
+  Si no hay foto real utilizable, ahí sí cae a generate_image.
+
+NO TE QUEDES ATASCADO (regla general):
+- Si una herramienta falla, NO repitas la misma llamada con los mismos argumentos esperando otro
+  resultado. Cambia de estrategia: otra fuente, otra herramienta, u otro enfoque.
+- Si algo te falta (una imagen, un dato, un id), consíguelo con las herramientas que tienes en
+  ESTE MISMO turno en vez de devolverle la tarea al admin.
+- Solo pregúntale al admin cuando la decisión sea genuinamente suya (qué producto, qué precio,
+  aprobar un gasto). Todo lo demás resuélvelo tú.`;

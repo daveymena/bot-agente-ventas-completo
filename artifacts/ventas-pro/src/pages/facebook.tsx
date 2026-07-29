@@ -16,8 +16,25 @@ const apiRequest = async (endpoint: string, options: RequestInit = {}) => {
     credentials: "include",
   });
   if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: "Error desconocido" }));
-    throw new Error(error.error || error.message || "Error en la solicitud");
+    // El servidor no siempre responde JSON: un 502/504 del proxy devuelve HTML,
+    // y `response.json()` explota → antes se mostraba "Error desconocido" para
+    // TODO, ocultando la causa real (timeout del proxy, endpoint caído, etc.).
+    // Ahora se lee como texto y solo se intenta parsear si de verdad es JSON.
+    const raw = await response.text().catch(() => "");
+    let detalle = "";
+    try {
+      const j = JSON.parse(raw);
+      detalle = j.error || j.message || "";
+    } catch {
+      if (response.status === 502 || response.status === 504) {
+        detalle = "el servidor tardó demasiado en responder (timeout del proxy). Suele pasar si Facebook no contesta.";
+      } else if (raw.trim().startsWith("<")) {
+        detalle = `el servidor respondió HTML en vez de JSON (${response.status}).`;
+      } else {
+        detalle = raw.slice(0, 200);
+      }
+    }
+    throw new Error(`${response.status} ${response.statusText}${detalle ? " — " + detalle : ""}`);
   }
   return response.json();
 };

@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { ZodError } from "zod";
-import { db, stores, store_categories, store_products, store_layouts } from "@workspace/db";
+import { db, stores, store_categories, store_products, store_layouts, products, productCategories } from "@workspace/db";
 import { eq, sql } from "drizzle-orm";
 import { Request, Response, NextFunction } from "express";
 
@@ -20,12 +20,31 @@ router.param("slug", async (req: Request, res: Response, next: NextFunction, slu
 });
 
 // Public catalog (GET /store/:slug)
+//
+// La tienda salía SIEMPRE vacía: leía de store_products/store_categories, unas
+// tablas puente que nadie llena nunca — el catálogo real vive en `products` y
+// `product_categories` (los mismos 50 productos que usa el bot y el panel).
+// Ahora se sirve el catálogo real del tenant dueño de la tienda, y solo se usa
+// store_products si esa tabla puente tiene entradas (selección curada manual).
 router.get("/:slug", async (req: Request, res: Response, next: NextFunction) => {
   try {
     const store = (req as any).store;
-    const categories = await db.select().from(store_categories).where(eq(store_categories.storeId, store.id));
-    const products = await db.select().from(store_products).where(eq(store_products.storeId, store.id));
-    return res.json({ store, categories, products });
+
+    const curated = await db.select().from(store_products).where(eq(store_products.storeId, store.id));
+    if (curated.length > 0) {
+      const categories = await db.select().from(store_categories).where(eq(store_categories.storeId, store.id));
+      return res.json({ store, categories, products: curated });
+    }
+
+    const [realProducts, realCategories] = await Promise.all([
+      db.select().from(products).where(eq(products.tenantId, store.tenantId)),
+      db.select().from(productCategories).where(eq(productCategories.tenantId, store.tenantId)),
+    ]);
+    return res.json({
+      store,
+      categories: realCategories,
+      products: realProducts.filter((p: any) => p.isActive !== false),
+    });
   } catch (err) {
     return next(err);
   }
@@ -36,7 +55,12 @@ router.get("/:slug/product/:productId", async (req: Request, res: Response, next
   try {
     const { productId } = req.params;
     const store = (req as any).store;
-    const product = await db.select().from(store_products).where(eq(store_products.id, Number(productId))).then((r: any) => r[0]);
+    // Mismo criterio que el catálogo: primero la tabla curada, y si ahí no
+    // está (que es lo normal) se busca en el catálogo real del tenant.
+    let product = await db.select().from(store_products).where(eq(store_products.id, Number(productId))).then((r: any) => r[0]);
+    if (!product) {
+      product = await db.select().from(products).where(eq(products.id, Number(productId))).then((r: any) => r[0]);
+    }
     if (!product) return res.status(404).json({ message: "Product not found" });
     return res.json({ store, product });
   } catch (err) {
