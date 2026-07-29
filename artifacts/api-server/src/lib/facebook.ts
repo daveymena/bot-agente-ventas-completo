@@ -381,7 +381,11 @@ Responde SOLO con este JSON exacto:
         // OFFSITE_CONVERSIONS.
         adSetBody.optimization_goal = "OFFSITE_CONVERSIONS";
         adSetBody.bid_strategy = "LOWEST_COST_WITHOUT_CAP";
-        adSetBody.promoted_object = { pixel_id: this.config.pixelId, custom_event_type: "LEAD" };
+        // LEAD no es compatible con el objetivo OUTCOME_SALES (Graph API lo
+        // rechaza: "Este evento de conversión no está disponible para el
+        // objetivo que has seleccionado"). PURCHASE es el evento que
+        // corresponde a una campaña de venta.
+        adSetBody.promoted_object = { pixel_id: this.config.pixelId, custom_event_type: "PURCHASE" };
       } else {
         adSetBody.billing_event = "LINK_CLICKS";
         adSetBody.optimization_goal = "LINK_CLICKS";
