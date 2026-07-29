@@ -406,19 +406,27 @@ export class WhatsAppManager {
     return this.getStatus();
   }
 
+   async requestPairingCode(phoneNumber: string): Promise<string> {
+      if (!this.sock) throw new Error("WhatsApp no está iniciado. Llama a start() primero.");
+      const code = await this.sock.requestPairingCode(phoneNumber);
+      const formatted = code.match(/.{1,4}/g)?.join("-") || code;
+      logger.info({ phoneNumber }, "[WhatsApp] Pairing code generated");
+      return formatted;
+    }
+
    async start() {
-     if (this.starting) {
-       console.log("⚠️ [START] Ya hay un proceso de inicio en curso");
-       return this.getStatus();
-     }
-     if (this.state === "connected" || this.state === "qr") {
-       console.log(`ℹ️ [START] Estado actual: ${this.state} - No iniciando nueva conexión`);
-       return this.getStatus();
-     }
-     
-     this.starting = true;
-     this.state = "connecting";
-     console.log("🔄 [START] Iniciando conexión WhatsApp...");
+      if (this.starting) {
+        console.log("⚠️ [START] Ya hay un proceso de inicio en curso");
+        return this.getStatus();
+      }
+      if (this.state === "connected" || this.state === "qr") {
+        console.log(`ℹ️ [START] Estado actual: ${this.state} - No iniciando nueva conexión`);
+        return this.getStatus();
+      }
+      
+      this.starting = true;
+      this.state = "connecting";
+      console.log("🔄 [START] Iniciando conexión WhatsApp...");
 
      try {
        if (!existsSync(AUTH_DIR)) {

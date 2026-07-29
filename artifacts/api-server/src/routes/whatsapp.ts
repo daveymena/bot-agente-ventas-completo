@@ -73,6 +73,17 @@ router.post("/test-ia", async (req, res, next) => {
   }
 });
 
+router.post("/pair-phone", async (req, res, next) => {
+  try {
+    const { phoneNumber } = req.body || {};
+    if (!phoneNumber) return res.status(400).json({ error: "phoneNumber requerido (ej: 573001234567)" });
+    const pairingCode = await whatsapp.requestPairingCode(phoneNumber);
+    return res.json({ ok: true, pairingCode, message: `Código: ${pairingCode} — Ingresa en WhatsApp > Dispositivos vinculados > Vincular con número de teléfono` });
+  } catch (e) {
+    return next(e);
+  }
+});
+
 // ── Session Management ─────────────────────────────────────────────────────────
 // Clears the saved Baileys auth files so the next /connect triggers a fresh QR.
 // Designed for multi-tenant: in the future each tenant will have its own authDir.
