@@ -187,15 +187,40 @@ export default function FacebookAdsPage() {
     }
   };
 
+  // PROBADO EN VIVO (jul-2026) — este flujo NO funciona todavía con la app
+  // actual y hay que arreglarlo del lado de Meta, no acá:
+  //
+  // Facebook devuelve "El dominio de esta URL no está incluido en los dominios
+  // de la aplicación" aunque el dominio SÍ esté cargado en App Domains y con la
+  // plataforma Website agregada (ambas cosas se verificaron). La causa real es
+  // que la app está configurada como "Inicio de sesión con Facebook para
+  // empresas" (Facebook Login for Business), y ese producto IGNORA `scope`:
+  // exige un `config_id` que apunte a una configuración de Business Login
+  // creada en el panel (Casos de uso → configuración), donde además se
+  // registran los redirect URIs válidos.
+  //
+  // Para habilitarlo: crear esa configuración en developers.facebook.com,
+  // exponer su id como FB_LOGIN_CONFIG_ID en el backend (junto a FB_APP_ID en
+  // /api/public/fb-app-config) y cambiar `scope=` por `config_id=` abajo.
+  //
+  // Mientras tanto el sistema funciona con el token de página permanente
+  // cargado a mano en "Credenciales (manual/avanzado)" — que al ser de página
+  // y de larga duración no se vence, así que esto es una comodidad, no un
+  // bloqueante.
   const startFacebookLogin = () => {
     if (!fbAppConfig.appId) return;
     const redirectUri = window.location.origin + window.location.pathname;
+    const configId = (fbAppConfig as any).loginConfigId;
+    const base = `https://www.facebook.com/v21.0/dialog/oauth?client_id=${encodeURIComponent(fbAppConfig.appId)}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=token`;
+    if (configId) {
+      window.location.href = `${base}&config_id=${encodeURIComponent(configId)}`;
+      return;
+    }
     const scope = [
       "pages_show_list", "pages_read_engagement", "pages_manage_posts",
       "pages_manage_metadata", "pages_messaging", "ads_management", "catalog_management",
     ].join(",");
-    const url = `https://www.facebook.com/v21.0/dialog/oauth?client_id=${encodeURIComponent(fbAppConfig.appId)}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(scope)}&response_type=token`;
-    window.location.href = url;
+    window.location.href = `${base}&scope=${encodeURIComponent(scope)}`;
   };
 
   const loadData = async () => {

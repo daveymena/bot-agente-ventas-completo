@@ -204,6 +204,10 @@ router.get("/product/:slug/:productId", async (req, res, next) => {
 router.get("/fb-app-config", async (_req, res) => {
   return res.json({
     appId: process.env.FB_APP_ID || null,
+    // Necesario si la app usa "Facebook Login for Business": ese producto
+    // ignora `scope` y exige el id de una configuración de Business Login.
+    // Ver el comentario en facebook.tsx → startFacebookLogin().
+    loginConfigId: process.env.FB_LOGIN_CONFIG_ID || null,
     enabled: process.env.FB_CONNECT_ENABLED === "true" && !!process.env.FB_APP_ID && !!process.env.FB_APP_SECRET,
   });
 });
