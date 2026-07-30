@@ -24,8 +24,21 @@ const ENC_PREFIX = "enc:v1:";
 // que un fallback aleatorio no sea, en la práctica, "no encriptar nada").
 // Para producción hace falta CREDENTIALS_ENCRYPTION_KEY fija en las
 // variables de entorno.
-let encryptionKey: Buffer;
-{
+//
+// La clave se deriva LAZY (recién en el primer encrypt/decrypt real), no
+// acá arriba al importar el módulo. Se encontró en vivo que derivarla al
+// importar es frágil: en un script suelto que importa este módulo ANTES
+// que el que carga el .env (el orden de imports estáticos de ES modules
+// no es "de arriba hacia abajo" como en JS normal, depende de qué módulo
+// importa a qué), CREDENTIALS_ENCRYPTION_KEY todavía no existía en
+// process.env y quedaba con la clave aleatoria de ese proceso -- cualquier
+// cosa encriptada o leída desde ESE proceso usaba una clave distinta a la
+// del servidor real, en silencio, sin ningún error hasta que alguien
+// intentara desencriptarlo desde el otro lado.
+let encryptionKey: Buffer | null = null;
+
+function getEncryptionKey(): Buffer {
+  if (encryptionKey) return encryptionKey;
   const configured = process.env.CREDENTIALS_ENCRYPTION_KEY;
   if (configured) {
     encryptionKey = crypto.createHash("sha256").update(configured).digest();
@@ -39,13 +52,14 @@ let encryptionKey: Buffer;
       "en las variables de entorno."
     );
   }
+  return encryptionKey;
 }
 
 /** Encripta un valor para guardarlo en la BD. Vacío/null pasa tal cual. */
 export function encryptSecret(plain: string | null | undefined): string {
   if (!plain) return "";
   const iv = randomBytes(IV_LENGTH);
-  const cipher = crypto.createCipheriv(ALGO, encryptionKey, iv);
+  const cipher = crypto.createCipheriv(ALGO, getEncryptionKey(), iv);
   const ciphertext = Buffer.concat([cipher.update(plain, "utf8"), cipher.final()]);
   const tag = cipher.getAuthTag();
   return ENC_PREFIX + Buffer.concat([iv, tag, ciphertext]).toString("base64");
@@ -66,7 +80,7 @@ export function decryptSecret(value: string | null | undefined): string {
     const iv = raw.subarray(0, IV_LENGTH);
     const tag = raw.subarray(IV_LENGTH, IV_LENGTH + TAG_LENGTH);
     const ciphertext = raw.subarray(IV_LENGTH + TAG_LENGTH);
-    const decipher = crypto.createDecipheriv(ALGO, encryptionKey, iv);
+    const decipher = crypto.createDecipheriv(ALGO, getEncryptionKey(), iv);
     decipher.setAuthTag(tag);
     return Buffer.concat([decipher.update(ciphertext), decipher.final()]).toString("utf8");
   } catch (err) {
