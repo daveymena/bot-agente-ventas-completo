@@ -33,8 +33,8 @@ function request(method, path, body, cookie) {
 async function main() {
   // Login
   const login = await request('POST', '/api/auth/login', {
-    email: 'daveymena16@gmail.com',
-    password: '6715320D'
+    email: process.env.ADMIN_EMAIL || '',
+    password: process.env.ADMIN_PASSWORD || ''
   });
   const setCookie = login.headers['set-cookie'];
   const cookie = Array.isArray(setCookie) ? setCookie.join('; ') : setCookie;

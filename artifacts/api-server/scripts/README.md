@@ -41,9 +41,7 @@ pnpm --filter "@workspace/api-server" run setup
 - Crea los 10 agentes desde templates
 - Configura el tenant por defecto
 
-**Credenciales por defecto:**
-- Email: `daveymena16@gmail.com`
-- Password: `6715320D`
+**Credenciales:** salen de las variables de entorno `ADMIN_EMAIL` / `ADMIN_PASSWORD` (ya no hay ninguna hardcodeada en el script) -- configuralas antes de correrlo.
 
 ---
 

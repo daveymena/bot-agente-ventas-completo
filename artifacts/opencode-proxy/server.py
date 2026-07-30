@@ -35,7 +35,11 @@ class Config:
     MAX_TIMEOUT = int(os.environ.get('MAX_TIMEOUT', 180))
     OPENCODE_ZEN_BASE_URL = resolve_upstream_base_url()
     RATE_LIMIT_PER_MINUTE = int(os.environ.get('RATE_LIMIT_PER_MINUTE', 100))  # Aumentado
-    API_KEY = os.environ.get('API_KEY') or "sk-WjeGlHujmGmDGBO1te2YM3sNGCgR72Ms650Lu5SL6gjacIP9Surmrarz5fUA4lfG"
+    # Antes tenía una clave maestra real hardcodeada como fallback -- si
+    # API_KEY no está seteada, este check queda deshabilitado (config.API_KEY
+    # es None/falsy, el `if config.API_KEY and ...` de abajo lo salta solo),
+    # en vez de aceptar una clave fija conocida en el código público.
+    API_KEY = os.environ.get('API_KEY')
     
     # Configuraciones de cache
     CACHE_TIMEOUT = int(os.environ.get('CACHE_TIMEOUT', 300))  # 5 minutos

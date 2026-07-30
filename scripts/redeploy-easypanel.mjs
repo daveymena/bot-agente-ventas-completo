@@ -29,8 +29,8 @@ async function main() {
   // Login
   console.log('Logging in to Easypanel...');
   const login = await request('POST', '/auth/login', {
-    email: 'daveymena162@gmail.com',
-    password: '6715320D.',
+    email: process.env.EASYPANEL_EMAIL || '',
+    password: process.env.EASYPANEL_PASSWORD || '',
   });
   console.log('Login:', login.status, login.body.substring(0, 200));
 

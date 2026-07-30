@@ -51,7 +51,7 @@ Pedido explícito del admin: que el Arquitecto no solo reporte errores, sino que
 
 ## ⚠️ Seguridad — pendiente de que lo resuelva el admin
 
-- **`AGENTS.md` (raíz del repo) tiene un password de admin por defecto hardcodeado en texto plano** (`Email: daveymena16@gmail.com` / `Password: 6715320D`) documentado como "auto-seeded on first run". Coincide con una contraseña que el admin pegó por accidente en un chat de soporte — **hay que rotarla si sigue siendo la real**, y considerar sacar el valor literal de `AGENTS.md` (dejar solo instrucciones, no la contraseña).
+- ~~`AGENTS.md` tenía un password de admin hardcodeado~~ Ya no está en `AGENTS.md` (se sacó en algún momento posterior a esta nota). Pero el mismo password terminó repetido en texto plano en ~33 scripts más (`setup-user.ts`, `scripts/easypanel*.py`, etc.) -- ya corregido (ver `DOCUMENTACION_PLATAFORMA.md`). **Sigue pendiente rotar la contraseña real** en las cuentas de verdad (admin de la app, Easypanel, base de datos) -- sacarla del código no la saca del historial de git de un repo público.
 - El admin también pegó en un chat un token de API de Easypanel — **debería regenerarlo** si no lo hizo ya.
 
 ## Qué probar en una máquina con internet real (lista de verificación)

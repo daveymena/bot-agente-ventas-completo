@@ -6,8 +6,8 @@ const { chromium } = require('playwright');
   await p.goto('http://35.254.218.190:3000/', { timeout: 30000 });
   console.log('Title:', await p.title());
   
-  await p.fill('input[name="email"]', 'daveymena16@gmail.com');
-  await p.fill('input[name="password"]', '6715320Dvd.');
+  await p.fill('input[name="email"]', process.env.EASYPANEL_EMAIL || 'daveymena16@gmail.com');
+  await p.fill('input[name="password"]', process.env.EASYPANEL_PASSWORD || '');
   await p.click('button[type="submit"]');
   await p.waitForTimeout(3000);
   
