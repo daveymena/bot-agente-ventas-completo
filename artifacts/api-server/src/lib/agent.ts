@@ -38,13 +38,14 @@ import {
 } from "./conversation-engine";
 import { getBrandVoice, formatWithBrandVoice } from "./brand-voice";
 import { analyzeBrain, buildFinalPrompt, type ResponseStrategy, type EmotionalState } from "./response-brain";
-import { 
-  isPaymentConfirmation, 
-  isPaymentMethodQuestion, 
+import {
+  isPaymentConfirmation,
+  isPaymentMethodQuestion,
   isProductDetailsQuestion,
   getPaymentMethodResponse,
   getConfirmationResponse
 } from "./payment-confirmation";
+import { sendPurchaseEvent } from "./meta-conversions-api";
 import { getAgentType } from "./agent-router";
 import { 
   analyzeCustomerObjection, 
@@ -1328,6 +1329,28 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
           await db.update(conversations)
             .set({ paymentStatus: 'pending', paymentMethod: memory.paymentMethod || null, paymentAmount: pPrice })
             .where(eq(conversations.id, conversationId));
+
+          // Meta Conversions API: este era el hueco real -- el pixel del
+          // navegador (packages/tienda/src/lib/pixel.ts) manda ViewContent/
+          // AddToCart/InitiateCheckout, pero como la compra se confirma
+          // DENTRO de la conversación de WhatsApp (no en el checkout del
+          // navegador), nunca había un evento "Purchase" real yendo a Meta.
+          // Sin esto, el optimization_goal=OFFSITE_CONVERSIONS que ya arma
+          // ad-strategist.ts/facebook.ts para las campañas con pixel no
+          // tiene ninguna señal de conversión real de la que aprender, sin
+          // importar qué tan bien segmentada esté la campaña.
+          if (realTenant?.facebook?.pixelId && realTenant?.facebook?.accessToken) {
+            const [productRow] = await db.select({ currency: products.currency }).from(products).where(eq(products.id, pId)).limit(1);
+            sendPurchaseEvent({
+              pixelId: realTenant.facebook.pixelId,
+              accessToken: realTenant.facebook.accessToken,
+              value: Number(pPrice) || 0,
+              currency: productRow?.currency || "COP",
+              contentIds: [pId],
+              customerEmail,
+              customerPhone: customer?.contactPhone,
+            }).catch(() => {}); // sendPurchaseEvent ya loguea sus propios errores -- no debe romper el flujo de venta real
+          }
         } catch (e) {
           console.log(`⚠️ No se pudo procesar confirmación de pago: ${(e as Error).message}`);
         }
