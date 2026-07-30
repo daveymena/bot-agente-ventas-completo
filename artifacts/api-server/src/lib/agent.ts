@@ -64,6 +64,7 @@ import {
 import { getG4FResponse, initializeG4F } from "./providers/g4f-provider";
 import { G4F_ENABLED } from "../config/g4f.config";
 import { dbNow } from "./date-utils";
+import { tenantManager } from "./tenantManager";
 
 // ============================================================
 // 🎯 UNIFIED KEYWORD CONSTANTS - SINGLE SOURCE OF TRUTH
@@ -609,20 +610,25 @@ export async function runAgentReply(conversationId: number) {
       // con límite 50 sobre 81 productos, si el cliente preguntaba por uno de
       // los otros 31 su ID no estaba disponible y la card se rechazaba.
       t1 = Date.now();
+      // eq(products.tenantId, ...): sin esto, el catálogo que ve la IA
+      // mezclaba productos de TODOS los tenants -- con un solo tenant real
+      // activo no se notaba, pero en cuanto exista un segundo con productos
+      // propios, el agente de un negocio le ofrecería productos ajenos.
       productList = await db.select().from(products)
-        .where(eq(products.isActive, true))
+        .where(and(eq(products.isActive, true), eq(products.tenantId, convo.tenantId)))
         .limit(200);
       logTime(`4b. Cargar productos: ${Date.now() - t1}ms`);
 
-      // Si no hay productos activos, fallback a todos (p.ej. datos de prueba)
+      // Si no hay productos activos, fallback a todos los del tenant (p.ej. datos de prueba)
       if (productList.length === 0) {
         productList = await db.select().from(products)
+          .where(eq(products.tenantId, convo.tenantId))
           .limit(200);
         logTime(`4b. Fallback - Cargar todos los productos: ${Date.now() - t1}ms`);
       }
       
       t1 = Date.now();
-      const allCategories = await db.select().from(productCategories);
+      const allCategories = await db.select().from(productCategories).where(eq(productCategories.tenantId, convo.tenantId));
       categoryMap = new Map(allCategories.map(c => [c.id, c.name.toLowerCase()]));
       logTime(`4c. Cargar categorías: ${Date.now() - t1}ms`);
       
@@ -640,10 +646,19 @@ export async function runAgentReply(conversationId: number) {
 
   // ── 6. Obtener la voz del negocio (ANTES de cualquier respuesta) ─────────
   t1 = Date.now();
+  // `settings` es una tabla GLOBAL (una sola fila para toda la plataforma,
+  // no tiene tenant_id) -- antes SOLO se usaba esa fila para el nombre del
+  // negocio, así que todos los tenants mostraban el mismo businessName. Se
+  // trae el tenant real dueño de esta conversación y se usa su brandName/
+  // agentName reales (los que configura en el dashboard) por encima del
+  // default global o el preset hardcodeado de getBrandVoice().
+  const realTenant = await tenantManager.getTenantById(convo.tenantId);
   const voice = getBrandVoice(
     activeAgent.metadata as Record<string, any> | null,
-    appSettings ? { businessName: appSettings.businessName } : null
+    { businessName: realTenant?.brandName || appSettings?.businessName }
   );
+  if (realTenant?.brandName) voice.businessName = realTenant.brandName;
+  if (realTenant?.agentName) voice.agentName = realTenant.agentName;
   logTime(`6. Obtener voz del negocio: ${Date.now() - t1}ms`);
 
   // ── 7. CEREBRO DE RAZONAMIENTO: analiza ANTES de cualquier camino ────────
@@ -773,7 +788,15 @@ ${productList.length > 0 ? productsBlock : "No hay productos disponibles."}
 [6] No repitas información que ya diste. Usa la MEMORIA de la conversación.
 [6b] El "[ID: N]" del catálogo es INTERNO, solo para que TÚ elijas la card correcta. NUNCA menciones ese número al cliente (nada de "el curso ID 82", "producto 82", etc.). Refiérete al producto SIEMPRE por su NOMBRE.
 [6c] Los datos de pago (número de Nequi/Daviplata y el NOMBRE del titular) van EXACTOS como aparecen en los datos del negocio. NUNCA cambies, adivines ni "corrijas" el nombre del titular ni el número — cópialos tal cual.
-${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo y cierra. Termina tu mensaje con [CARD: ID] del producto — el sistema adjunta AUTOMÁTICAMENTE la tarjeta con los enlaces dinámicos de MercadoPago y PayPal. NUNCA escribas [PAGAR:...], enlaces, URLs ni números de cuenta: SOLO usa [CARD: ID]." : `[7] 🧠 ANALIZA EL CONTEXTO y elige el producto CORRECTO del catálogo. Usa [CARD: ID] al final de tu mensaje para mostrar la tarjeta del producto que mejor corresponda. El ÚNICO marcador válido es [CARD: ID] — nunca uses [PAGAR:...] ni escribas enlaces. Si no estás segura, pregunta UNA cosa concreta antes de mostrar una card. NUNCA muestres un producto que no tenga relación con lo que el cliente busca.`}`).trim();
+${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo y cierra. Termina tu mensaje con [CARD: ID] del producto — el sistema adjunta AUTOMÁTICAMENTE la tarjeta con los enlaces dinámicos de MercadoPago y PayPal. NUNCA escribas [PAGAR:...], enlaces, URLs ni números de cuenta: SOLO usa [CARD: ID]." : `[7] 🧠 ANALIZA EL CONTEXTO y elige el producto CORRECTO del catálogo. Usa [CARD: ID] al final de tu mensaje para mostrar la tarjeta del producto que mejor corresponda. El ÚNICO marcador válido es [CARD: ID] — nunca uses [PAGAR:...] ni escribas enlaces. Si no estás segura, pregunta UNA cosa concreta antes de mostrar una card. NUNCA muestres un producto que no tenga relación con lo que el cliente busca.`}`).trim()
+    // tenants.agentPrompt: instrucciones libres que el dueño escribe en su
+    // dashboard ("Prompt del agente" en Configuración). Antes existían en la
+    // BD pero el flujo de WhatsApp nunca las leía -- se agregan siempre al
+    // final, tanto si el agente activo tiene su propio systemPrompt como si
+    // se usa el template por defecto, para que apliquen en cualquier caso.
+    + (realTenant?.agentPrompt?.trim()
+        ? `\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n📝 INSTRUCCIONES ESPECÍFICAS DEL NEGOCIO\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n${realTenant.agentPrompt.trim()}`
+        : "");
 
   // NOTA DE SEGURIDAD: Este runAgentReply() es el motor conversacional de
   // cara al CLIENTE (WhatsApp/Facebook Messenger llaman directamente a esta

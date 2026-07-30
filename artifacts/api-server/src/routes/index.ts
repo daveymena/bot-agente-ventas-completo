@@ -28,6 +28,7 @@ import personalityProfilesRouter from "./personality-profiles";
 import architectMemoryRouter from "./architect-memory";
 import responseAnalyticsRouter from "./response-analytics";
 import architectToolsRouter from "./architect-tools";
+import pricingRouter from "./pricing";
 
 const router: IRouter = Router();
 
@@ -59,6 +60,15 @@ router.use("/personality-profiles", personalityProfilesRouter);
 router.use("/architect-memory", architectMemoryRouter);
 router.use("/response-analytics", responseAnalyticsRouter);
 router.use("/architect-tools", architectToolsRouter);
+// Antes montado directamente en app.ts ANTES de resolveTenantMiddleware
+// (línea ~276, con el comentario "sin autenticación para GET, con
+// autenticación para POST" -- pero al montarse tan temprano, NINGUNA ruta
+// de este router pasaba nunca por resolveTenantMiddleware, ni siquiera
+// POST /pricing/upgrade). Acá, dentro de la cadena protegida normal,
+// isPublicRoute() en app.ts sigue dejando pasar sin sesión los GET
+// públicos (listado de planes), pero /upgrade y /current/info sí reciben
+// req.tenant real.
+router.use("/pricing", pricingRouter);
 
 // Usar el manejador de errores centralizado
 router.use(errorHandler);

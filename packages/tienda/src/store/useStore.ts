@@ -56,6 +56,8 @@ interface StoreState {
   branches: Branch[];
   activeBranch: string | null;
   isAdmin: boolean;
+  sessionChecked: boolean;
+  checkSession: () => Promise<void>;
   config: StoreConfig;
   activeTemplate: string | null;
   addProduct: (product: Product) => void;
@@ -109,7 +111,33 @@ export const useStore = create<StoreState>()(
         }
       ],
       cart: [],
+      // isAdmin nunca se activaba antes -- no había ningún login real para
+      // este editor, así que /admin y /editor eran inalcanzables (redirigían
+      // a "/" apenas se montaba la ruta). Se valida contra la sesión real de
+      // VentasPro (misma cookie firmada, mismo backend) en vez de una bandera
+      // local que nadie ponía en true.
       isAdmin: false,
+      sessionChecked: false,
+      checkSession: async () => {
+        try {
+          const res = await fetch('/api/auth/me', { credentials: 'include' });
+          if (!res.ok) { set({ isAdmin: false, sessionChecked: true }); return; }
+          const data = await res.json();
+          const tenant = data.tenant;
+          set((state) => ({
+            isAdmin: true,
+            sessionChecked: true,
+            config: {
+              ...state.config,
+              slug: tenant.slug || state.config.slug,
+              storeName: tenant.brandName || state.config.storeName,
+              ownerId: String(tenant.id),
+            },
+          }));
+        } catch {
+          set({ isAdmin: false, sessionChecked: true });
+        }
+      },
       activeTemplate: null,
       addProduct: (product) => set((state) => ({ products: [...state.products, product] })),
       removeProduct: (id) => set((state) => ({ products: state.products.filter(p => p.id !== id) })),

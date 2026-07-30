@@ -29,7 +29,7 @@ function absoluteImageUrl(pathOrUrl?: string | null): string | null {
   if (!pathOrUrl) return null;
   if (/^https?:\/\//i.test(pathOrUrl)) return pathOrUrl;
   const appUrl = process.env.APP_URL || "https://tecnovariedades.easypanel.host";
-  if (!/^https:\/\//i.test(appUrl)) return null;
+  if (!/^https?:\/\//i.test(appUrl)) return null;
   return `${appUrl.replace(/\/+$/, "")}/${pathOrUrl.replace(/^\/+/, "")}`;
 }
 

@@ -1,7 +1,7 @@
 import { Router, type Request, type Response } from "express";
 import { db, products, conversations, messages, payments } from "@workspace/db";
 import { eq, and, desc } from "drizzle-orm";
-import { whatsapp } from "../lib/whatsapp";
+import { whatsapp } from "../lib/whatsapp-singleton";
 import { logger } from "../lib/logger";
 import { dbNow } from "../lib/date-utils";
 

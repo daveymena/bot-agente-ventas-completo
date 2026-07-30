@@ -79,9 +79,45 @@ router.get("/:slug/layout", async (req: Request, res: Response, next: NextFuncti
   }
 });
 
-// Admin routes (protected – placeholder, auth middleware to be added later)
-router.use("/admin/:slug", (req, _res, next) => {
-  // TODO: add authentication & ownership check
+// POST /store/admin/bootstrap -- crea la tienda del tenant logueado si
+// todavía no tiene una. Los tenants nuevos ya la reciben automáticamente al
+// registrarse (ver routes/auth.ts), pero los que existían ANTES de ese fix
+// (como el tenant 1) se quedaron sin fila en `stores` -- por eso "la tienda
+// no aparece": GET /api/store/:slug devolvía 404 siempre. Idempotente: si ya
+// existe, devuelve la existente en vez de duplicar.
+router.post("/admin/bootstrap", async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const tenant = (req as any).tenant;
+    if (!tenant) return res.status(401).json({ message: "No session found. Please login." });
+
+    const existing = await db.select().from(stores).where(eq(stores.tenantId, tenant.id)).limit(1).then((r: any) => r[0]);
+    if (existing) return res.json({ store: existing, created: false });
+
+    const [created] = await db.insert(stores).values({
+      tenantId: tenant.id,
+      name: tenant.brandName || tenant.name,
+      slug: tenant.slug,
+    }).returning();
+    return res.status(201).json({ store: created, created: true });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// Admin routes (protected) -- exigen sesión real y que el tenant logueado
+// sea DUEÑO de esta tienda (o admin de la plataforma). Antes era un no-op
+// ("TODO: add authentication & ownership check") y además la ruta estaba en
+// publicRoutes de app.ts: cualquiera sin sesión podía editar el layout de la
+// tienda de CUALQUIER tenant con solo saber su slug.
+router.use("/admin/:slug", (req: Request, res: Response, next: NextFunction) => {
+  const tenant = (req as any).tenant;
+  const store = (req as any).store;
+  if (!tenant) {
+    return res.status(401).json({ message: "No session found. Please login." });
+  }
+  if (!tenant.isAdmin && tenant.id !== store?.tenantId) {
+    return res.status(403).json({ message: "No sos el dueño de esta tienda" });
+  }
   next();
 });
 

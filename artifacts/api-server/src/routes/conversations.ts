@@ -26,7 +26,13 @@ import {
   followUps,
 } from "@workspace/db";
 import { runAgentReply } from "../lib/agent";
-import { whatsapp, type AgentReplyPart } from "../lib/whatsapp";
+import { type AgentReplyPart } from "../lib/whatsapp-singleton";
+import { getWhatsAppForTenant } from "../lib/whatsapp-factory";
+// El proxy "whatsapp-singleton" siempre apunta a la instancia del tenant por
+// defecto (getCurrentTenantId() está fijo) -- usarlo acá enviaba la respuesta
+// de un cliente del tenant 2 desde el número de WhatsApp del tenant 1. Se usa
+// getWhatsAppForTenant(tenantId) para operar siempre sobre la instancia real
+// del tenant dueño de esta conversación.
 import { logger } from "../lib/logger";
 import { getLeadScore, getLeadScoringDashboard } from "../lib/leadScoring";
 import { followUpScheduler, getDueFollowUps } from "../lib/followUpScheduler";
@@ -35,6 +41,7 @@ import {
   conversationRateLimit,
   aiCostTracker,
 } from "../middleware/rateLimiting";
+import { validateMessageLimit } from "../middleware/featureLimits";
 
 const router: IRouter = Router();
 
@@ -138,7 +145,7 @@ router.get("/:id/messages", async (req, res, next) => {
   }
 });
 
-router.post("/:id/messages", conversationRateLimit, aiCostTracker, async (req, res, next) => {
+router.post("/:id/messages", conversationRateLimit, validateMessageLimit(), aiCostTracker, async (req, res, next) => {
   try {
     const tenantId = tenantIdOf(req);
     if (!tenantId) return res.status(401).json({ message: "No autorizado" });
@@ -168,9 +175,10 @@ router.post("/:id/messages", conversationRateLimit, aiCostTracker, async (req, r
       .set({ lastMessage: body.content, lastMessageAt: dbNow(), status: body.asHuman ? "human" : convo.status })
       .where(eq(conversations.id, id));
 
-    if (whatsapp.isConnected()) {
+    const waInstance = getWhatsAppForTenant(tenantId);
+    if (waInstance.isConnected()) {
       try {
-        await whatsapp.sendText(convo.contactPhone, body.content);
+        await waInstance.sendText(convo.contactPhone, body.content);
       } catch (err) {
         logger.warn({ err }, "Send to WhatsApp failed (message persisted)");
       }
@@ -202,12 +210,15 @@ router.post("/:id/messages", conversationRateLimit, aiCostTracker, async (req, r
 
 router.post("/:id/handoff", async (req, res, next) => {
   try {
+    const tenantId = tenantIdOf(req);
+    if (!tenantId) return res.status(401).json({ message: "No autorizado" });
+
     const { id } = HandoffConversationParams.parse(req.params);
     const body = HandoffConversationBody.parse(req.body);
     const [updated] = await db
       .update(conversations)
       .set({ status: body.target })
-      .where(eq(conversations.id, id))
+      .where(and(eq(conversations.id, id), eq(conversations.tenantId, tenantId)))
       .returning();
     if (!updated) return res.status(404).json({ message: "Conversación no encontrada" });
     await db.insert(activityEvents).values({
@@ -219,8 +230,9 @@ router.post("/:id/handoff", async (req, res, next) => {
     if (body.target === "ai") {
       try {
         const reply = await runAgentReply(id);
-        if (reply && whatsapp.isConnected()) {
-          await whatsapp.sendAgentParts(updated.contactPhone, updated.contactName, reply.parts as AgentReplyPart[]);
+        const waInstance = getWhatsAppForTenant(tenantId);
+        if (reply && waInstance.isConnected()) {
+          await waInstance.sendAgentParts(updated.contactPhone, updated.contactName, reply.parts as AgentReplyPart[]);
         }
       } catch (err) {
         logger.warn({ err }, "Agent reply after handoff failed");
@@ -236,8 +248,11 @@ router.post("/:id/handoff", async (req, res, next) => {
 
 router.get("/:id/lead-score", async (req, res, next) => {
   try {
+    const tenantId = tenantIdOf(req);
+    if (!tenantId) return res.status(401).json({ message: "No autorizado" });
+
     const { id } = GetConversationParams.parse(req.params);
-    const [conversation] = await db.select().from(conversations).where(eq(conversations.id, id)).limit(1);
+    const [conversation] = await db.select().from(conversations).where(and(eq(conversations.id, id), eq(conversations.tenantId, tenantId))).limit(1);
     if (!conversation) return res.status(404).json({ message: "Conversación no encontrada" });
 
     const leadScore = await getLeadScore(id);
@@ -254,7 +269,10 @@ router.get("/:id/lead-score", async (req, res, next) => {
 
 router.get("/dashboard/lead-scoring", async (req, res, next) => {
   try {
-    const dashboardData = await getLeadScoringDashboard();
+    const tenantId = tenantIdOf(req);
+    if (!tenantId) return res.status(401).json({ message: "No autorizado" });
+
+    const dashboardData = await getLeadScoringDashboard(tenantId);
     return res.json(dashboardData);
   } catch (e) {
     return next(e);
@@ -264,7 +282,10 @@ router.get("/dashboard/lead-scoring", async (req, res, next) => {
 // Retorna los follow-ups pendientes desde la base de datos
 router.get("/follow-ups/due", async (req, res, next) => {
   try {
-    const dueFollowUps = await getDueFollowUps();
+    const tenantId = tenantIdOf(req);
+    if (!tenantId) return res.status(401).json({ message: "No autorizado" });
+
+    const dueFollowUps = await getDueFollowUps(tenantId);
     return res.json(dueFollowUps);
   } catch (e) {
     return next(e);
@@ -274,7 +295,17 @@ router.get("/follow-ups/due", async (req, res, next) => {
 // Retorna los follow-ups de una conversación específica desde la DB
 router.get("/:id/follow-ups", async (req, res, next) => {
   try {
+    const tenantId = tenantIdOf(req);
+    if (!tenantId) return res.status(401).json({ message: "No autorizado" });
+
     const { id } = GetConversationParams.parse(req.params);
+    // Se valida que la conversación sea del tenant ANTES de leer sus follow-ups,
+    // mismo criterio que /:id/messages -- si no, cualquiera podía leer los
+    // follow-ups (nombre, teléfono, mensaje) de una conversación ajena por id.
+    const [owner] = await db.select({ id: conversations.id }).from(conversations)
+      .where(and(eq(conversations.id, id), eq(conversations.tenantId, tenantId))).limit(1);
+    if (!owner) return res.status(404).json({ message: "Conversación no encontrada" });
+
     const convFollowUps = await db.select().from(followUps)
       .where(eq(followUps.conversationId, id))
       .orderBy(desc(followUps.scheduledFor));
@@ -287,8 +318,20 @@ router.get("/:id/follow-ups", async (req, res, next) => {
 // Cancela (marca como completado) un follow-up por su ID numérico
 router.delete("/follow-ups/:followUpId", async (req, res, next) => {
   try {
+    const tenantId = tenantIdOf(req);
+    if (!tenantId) return res.status(401).json({ message: "No autorizado" });
+
     const followUpId = parseInt(req.params.followUpId || "0");
     if (!followUpId) return res.status(400).json({ message: "ID de follow-up inválido" });
+
+    // followUps no tiene tenantId propio -- se valida vía join con la
+    // conversación dueña antes de tocar nada, si no cualquier tenant podía
+    // cancelar follow-ups de otro con solo adivinar/iterar el id numérico.
+    const [owned] = await db.select({ id: followUps.id }).from(followUps)
+      .innerJoin(conversations, eq(followUps.conversationId, conversations.id))
+      .where(and(eq(followUps.id, followUpId), eq(conversations.tenantId, tenantId)))
+      .limit(1);
+    if (!owned) return res.status(404).json({ message: "Follow-up no encontrado" });
 
     const [cancelled] = await db.update(followUps)
       .set({ completed: true })

@@ -1,6 +1,7 @@
 import { useLocation, Link } from "wouter";
-import { LayoutDashboard, MessageSquare, Users, Package, MoreHorizontal, Bot, Phone, Settings, ShoppingCart, Palette, Facebook, Wand2, Store } from "lucide-react";
+import { LayoutDashboard, MessageSquare, Users, Package, MoreHorizontal, Bot, Phone, Settings, ShoppingCart, Palette, Facebook, Wand2, Store, Activity, Crown } from "lucide-react";
 import { useState } from "react";
+import { useSession } from "@/App";
 
 const mainNavItems = [
   { label: "Inicio", href: "/", icon: LayoutDashboard },
@@ -9,7 +10,7 @@ const mainNavItems = [
   { label: "Productos", href: "/products", icon: Package },
 ];
 
-const moreItems = [
+const baseMoreItems = [
   { label: "Arquitecto IA", href: "/code-agent", icon: Wand2, highlight: true },
   { label: "Tienda", href: "/mi-tienda", icon: Store },
   { label: "Agentes IA", href: "/agents", icon: Bot },
@@ -20,9 +21,23 @@ const moreItems = [
   { label: "Facebook", href: "/facebook", icon: Facebook },
 ];
 
+// "Monitor WA" muestra el estado de WhatsApp de TODOS los negocios
+// registrados, no solo el propio -- antes se listaba siempre, sin ningún
+// chequeo de admin (a diferencia del sidebar de escritorio, que sí lo
+// filtraba, aunque con un check roto). Se agrega acá para que el menú móvil
+// no ofrezca un link a una página que ahora rechaza con 403 a quien no sea
+// administrador de la plataforma.
+const adminMoreItems = [
+  { label: "Monitor WA", href: "/whatsapp-monitor", icon: Activity },
+  { label: "Administrador", href: "/admin/tenants", icon: Crown },
+];
+
 export function MobileNav() {
   const [location] = useLocation();
   const [showMore, setShowMore] = useState(false);
+  const { tenant: sessionTenant } = useSession();
+  const isAdmin = !!sessionTenant?.isAdmin;
+  const moreItems = isAdmin ? [...baseMoreItems, ...adminMoreItems] : baseMoreItems;
 
   return (
     <>

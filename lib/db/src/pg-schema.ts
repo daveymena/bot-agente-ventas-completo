@@ -15,6 +15,7 @@ export const ALL_TABLES = [
         domain TEXT,
         status TEXT NOT NULL DEFAULT 'active',
         plan TEXT NOT NULL DEFAULT 'basic',
+        is_admin BOOLEAN NOT NULL DEFAULT false,
         brand_name TEXT NOT NULL,
         brand_logo TEXT,
         brand_colors JSONB,
@@ -509,5 +510,12 @@ export const ALL_TABLES = [
         responded_at TIMESTAMPTZ
       )
     `
+  },
+  {
+    // No es una tabla nueva -- migración idempotente para instalaciones que
+    // ya tenían "tenants" creada antes de agregar is_admin (CREATE TABLE IF
+    // NOT EXISTS no agrega columnas a una tabla existente).
+    name: 'tenants.is_admin',
+    sql: `ALTER TABLE tenants ADD COLUMN IF NOT EXISTS is_admin BOOLEAN NOT NULL DEFAULT false`
   }
 ];

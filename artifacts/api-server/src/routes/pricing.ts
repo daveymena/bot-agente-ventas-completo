@@ -7,20 +7,25 @@ import { eq } from "drizzle-orm";
 
 const router = Router();
 
-// GET /api/pricing - Obtener todos los planes disponibles
+// GET /api/pricing - Obtener los planes que se ofrecen públicamente
+// (visible !== false) -- los planes legado (free/enterprise) siguen
+// existiendo para cuentas que ya los tengan asignados, pero no se listan acá.
 router.get("/", (req, res) => {
   try {
-    const plans = Object.entries(SAAS_PLANS).map(([key, plan]) => ({
-      id: key,
-      ...plan,
-      monthlyPrice: plan.price,
-      annualPrice: plan.price * 12 * 0.8, // 20% descuento anual
-    }));
+    const plans = Object.entries(SAAS_PLANS)
+      .filter(([, plan]) => plan.visible !== false)
+      .map(([key, plan]) => ({
+        id: key,
+        ...plan,
+        monthlyPrice: plan.price,
+        quarterlyPrice: plan.price * 3 * 0.9, // 10% descuento trimestral
+        annualPrice: plan.price * 12 * 0.8, // 20% descuento anual
+      }));
 
     res.json({
       plans,
       currency: "USD",
-      billingCycles: ["monthly", "annual"],
+      billingCycles: ["monthly", "quarterly", "annual"],
     });
   } catch (error) {
     logger.error({ error }, "Error fetching pricing");
@@ -50,88 +55,78 @@ router.get("/:plan", (req, res) => {
   }
 });
 
-// POST /api/pricing/upgrade - Cambiar de plan (SIN AUTENTICACIÓN REQUERIDA)
+// POST /api/pricing/upgrade - Cambiar de plan del tenant YA LOGUEADO.
+//
+// Antes ignoraba por completo la sesión: pedía un email en un diálogo y
+// buscaba/CREABA un tenant nuevo con ese email, sin relación con la cuenta
+// realmente logueada. Como esta ruta ya exige sesión real (no está en
+// publicRoutes -- ver isPublicRoute() en app.ts, que excluye explícitamente
+// cualquier path con "/upgrade"), terminaba siendo un flujo roto: el admin
+// logueado hacía clic en "Actualizar" y o bien creaba una cuenta fantasma
+// nueva, o subía el plan de OTRO tenant si el email tecleado coincidía con
+// el de otra cuenta. Ahora usa directamente req.tenant.
 router.post("/upgrade", async (req, res, next) => {
   try {
-    const { newPlan, billingCycle = "monthly", paymentMethod = "mercadopago", email } = req.body;
-    
-    logger.info({ newPlan, billingCycle, paymentMethod, email }, "[Pricing] Upgrade request received (public)");
-
-    // Validar email
-    if (!email || !email.includes('@')) {
-      logger.error({ email }, "[Pricing] Invalid email");
-      return res.status(400).json({ 
-        error: "Invalid email", 
-        message: "Por favor proporciona un email válido" 
-      });
+    const tenant = (req as any).tenant;
+    if (!tenant) {
+      return res.status(401).json({ error: "Unauthorized", message: "Iniciá sesión para cambiar de plan" });
     }
+
+    const { newPlan, billingCycle = "monthly", paymentMethod = "mercadopago" } = req.body;
+
+    logger.info({ tenantId: tenant.id, newPlan, billingCycle, paymentMethod }, "[Pricing] Upgrade request received");
 
     // Validar plan
-    if (!SAAS_PLANS[newPlan as SaasPlan]) {
+    if (!SAAS_PLANS[newPlan as SaasPlan] || SAAS_PLANS[newPlan as SaasPlan].visible === false) {
       logger.error({ newPlan }, "[Pricing] Invalid plan");
-      return res.status(400).json({ 
-        error: "Invalid plan", 
-        message: `El plan "${newPlan}" no existe` 
+      return res.status(400).json({
+        error: "Invalid plan",
+        message: `El plan "${newPlan}" no existe`
       });
     }
 
-    if (!["monthly", "annual"].includes(billingCycle)) {
+    if (!["monthly", "quarterly", "annual"].includes(billingCycle)) {
       logger.error({ billingCycle }, "[Pricing] Invalid billing cycle");
-      return res.status(400).json({ 
-        error: "Invalid billing cycle", 
-        message: "El ciclo debe ser 'monthly' o 'annual'" 
+      return res.status(400).json({
+        error: "Invalid billing cycle",
+        message: "El ciclo debe ser 'monthly', 'quarterly' o 'annual'"
       });
     }
 
     if (!["mercadopago", "paypal"].includes(paymentMethod)) {
       logger.error({ paymentMethod }, "[Pricing] Invalid payment method");
-      return res.status(400).json({ 
-        error: "Invalid payment method", 
-        message: "El método debe ser 'mercadopago' o 'paypal'" 
+      return res.status(400).json({
+        error: "Invalid payment method",
+        message: "El método debe ser 'mercadopago' o 'paypal'"
       });
     }
 
-    // Si es plan free, no requiere pago
-    if (newPlan === "free") {
-      logger.info("[Pricing] Free plan selected");
+    // Si es plan gratuito, se aplica directo sin pago. status: "trial" (no
+    // "active") -- es una prueba de 7 días, no un tier gratuito permanente;
+    // con "active" nunca se aplicaría la validación de vencimiento.
+    if (SAAS_PLANS[newPlan as SaasPlan].price === 0) {
+      await db.update(tenants).set({ plan: newPlan, status: "trial" }).where(eq(tenants.id, tenant.id));
+      logger.info({ tenantId: tenant.id, newPlan }, "[Pricing] Free plan applied directly");
       return res.json({
-        message: "Plan gratuito seleccionado",
-        newPlan: "free",
+        message: "Plan gratuito activado",
+        newPlan,
         requiresPayment: false,
       });
     }
 
-    logger.info({ email, newPlan, billingCycle, paymentMethod }, "[Pricing] Creating payment link...");
+    logger.info({ tenantId: tenant.id, newPlan, billingCycle, paymentMethod }, "[Pricing] Creating payment link...");
 
     try {
-      // Buscar o crear tenant temporal con el email
-      let [tenant] = await db.select().from(tenants).where(eq(tenants.email, email)).limit(1);
-      
-      if (!tenant) {
-        // Crear tenant temporal
-        logger.info({ email }, "[Pricing] Creating temporary tenant");
-        [tenant] = await db.insert(tenants).values({
-          email,
-          name: email.split('@')[0],
-          slug: `temp-${Date.now()}`,
-          brandName: "Nuevo Cliente",
-          plan: "free",
-          status: "trial",
-          emailVerified: false,
-        }).returning();
-      }
-
-      // Crear enlace de pago real
       const paymentLink = await SubscriptionPaymentService.createPaymentLink({
         tenantId: tenant.id,
         plan: newPlan as SaasPlan,
-        billingCycle: billingCycle as "monthly" | "annual",
+        billingCycle: billingCycle as "monthly" | "quarterly" | "annual",
         paymentMethod: paymentMethod as "mercadopago" | "paypal",
-        returnUrl: `${process.env.APP_URL || "https://tecnovariedades.easypanel.host"}/subscription-success?email=${encodeURIComponent(email)}`,
+        returnUrl: `${process.env.APP_URL || "https://tecnovariedades.easypanel.host"}/subscription-success?email=${encodeURIComponent(tenant.email)}`,
         cancelUrl: `${process.env.APP_URL || "https://tecnovariedades.easypanel.host"}/subscription-failure`,
       });
 
-      logger.info({ paymentLink, email }, "[Pricing] Payment link created successfully");
+      logger.info({ paymentLink, tenantId: tenant.id }, "[Pricing] Payment link created successfully");
 
       res.json({
         message: "Plan upgrade initiated",
@@ -144,19 +139,18 @@ router.post("/upgrade", async (req, res, next) => {
         subscriptionId: paymentLink.subscriptionId,
         amount: paymentLink.amount,
         currency: paymentLink.currency,
-        email,
       });
     } catch (paymentError: any) {
       logger.error({ error: paymentError.message, stack: paymentError.stack }, "[Pricing] Error creating payment link");
-      
-      return res.status(500).json({ 
+
+      return res.status(500).json({
         error: "Payment service error",
         message: paymentError.message || "No se pudo crear el enlace de pago. Por favor intenta nuevamente."
       });
     }
   } catch (error: any) {
     logger.error({ error: error.message, stack: error.stack }, "[Pricing] Unexpected error in upgrade endpoint");
-    res.status(500).json({ 
+    res.status(500).json({
       error: "Internal server error",
       message: "Error inesperado. Por favor contacta al soporte."
     });

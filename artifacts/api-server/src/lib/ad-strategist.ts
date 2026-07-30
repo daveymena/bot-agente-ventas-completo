@@ -506,18 +506,15 @@ ${descLine}
       }
       const adSet = await this.fbPost(act, "adsets", accessToken, adSetBody);
 
-      let imageHash = "";
-      try {
-        const imgRes = await this.fbPost(act, "adimages", accessToken, { url: imageUrl, name: product.name });
-        if (imgRes?.images) {
-          const key = Object.keys(imgRes.images)[0];
-          imageHash = imgRes.images[key]?.hash || "";
-        }
-      } catch (err: any) {
-        logger.warn({ err }, "[AdStrategist] Error uploading image");
-      }
-
-      const creative = await this.fbPost(act, "adcreatives", accessToken, {
+      // Imagen: se pasa como URL en `picture` en vez de subir por /adimages
+      // (la aplicación no tiene la capacidad adimages - error #3 de Graph API).
+      // Facebook descarga y cachea la imagen desde la URL directamente.
+      //
+      // Advantage+ Creative: mejoras automáticas de imagen vía
+      // creative_features_spec. Facebook aplica visual touch-ups, brillo/
+      // contraste, image generation, text optimizations, enhance CTA, etc.
+      // Si la cuenta no tiene habilitado alguno, lo ignora silenciosamente.
+      const creativePayload: Record<string, any> = {
         name: `[BORRADOR] ${product.name} - Creativo`,
         object_story_spec: {
           page_id: this.tenant.facebook?.pageId || process.env.FB_PAGE_ID || "",
@@ -527,10 +524,16 @@ ${descLine}
             name: adCopy.headline,
             description: adCopy.description,
             call_to_action: { type: strategy.ctaType },
-            image_hash: imageHash,
           },
         },
-      });
+        creative_features_spec: {
+          standard_enhancements: { enroll_status: "OPT_IN" },
+        },
+      };
+      if (imageUrl) {
+        creativePayload.object_story_spec.link_data.picture = imageUrl;
+      }
+      const creative = await this.fbPost(act, "adcreatives", accessToken, creativePayload);
 
       const ad = await this.fbPost(act, "ads", accessToken, {
         name: `[BORRADOR] ${product.name}`,

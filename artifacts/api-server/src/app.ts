@@ -8,7 +8,6 @@ import { randomBytes } from "node:crypto";
 import pinoHttp from "pino-http";
 import router from "./routes";
 import healthRouter from "./health";
-import pricingRouter from "./routes/pricing";
 import woocommerceRouter from "./routes/woocommerce";
 import subscriptionWebhooksRouter from "./routes/subscription-webhooks";
 import activationRouter from "./routes/activation";
@@ -16,17 +15,34 @@ import { logger } from "./lib/logger";
 import { resolveTenant } from "./lib/tenantManager";
 import { validateSaasPlan, validateUsageLimits } from "./middleware/saasValidation";
 import { validateFeatureLimits, validateMessageLimit } from "./middleware/featureLimits";
-import { whatsapp } from "./lib/whatsapp";
+import { getWhatsAppForTenant } from "./lib/whatsapp-factory";
+import { tenantManager } from "./lib/tenantManager";
 import { getAllTemplates } from "./lib/agent-templates";
 import { db, agents, tenants, settings, products, productCategories } from "@workspace/db";
 import { ensureDbReady } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { getImageStoreDir } from "./lib/image-store";
 
-// Auto-start WhatsApp bot on boot
-whatsapp.start().catch(err => {
-  logger.error({ err }, "[WhatsApp] Failed to auto-start bot on boot");
-});
+// Auto-start WhatsApp bot on boot (multi-tenant: una instancia por tenant)
+(async () => {
+  try {
+    // getDefaultTenant() devuelve un objeto placeholder hardcodeado (sin
+    // credenciales de pago/Facebook reales) -- se busca el tenant 1 real en
+    // la BD para que la instancia auto-iniciada tenga su brandName/agentPrompt
+    // reales desde el arranque, no el placeholder.
+    const realTenant = await tenantManager.getTenantById(1);
+    const defaultTenant = realTenant ?? tenantManager.getDefaultTenant();
+    const mgr = getWhatsAppForTenant(defaultTenant.id, defaultTenant);
+    await mgr.start();
+    logger.info({ tenantId: defaultTenant.id }, "[WhatsApp] Instancia auto-iniciada");
+  } catch (err) {
+    logger.error({ err }, "[WhatsApp] Failed to auto-start bot on boot");
+  }
+})();
+
+// Monitor periódico de instancias multi-tenant (limpieza cada 5 min)
+import { startWhatsAppMonitor } from "./lib/whatsapp-monitor";
+startWhatsAppMonitor(5 * 60 * 1000);
 
 // Auto-start del agente de crecimiento de Facebook Ads (asistido: solo
 // sugiere por WhatsApp, nunca ejecuta sin aprobación -- ver ad-growth-agent.ts)
@@ -255,8 +271,6 @@ app.use(express.urlencoded({ extended: true, limit: "12mb" }));
 // Health check endpoints (sin autenticación)
 app.use("/api", healthRouter);
 
-// Pricing endpoints (sin autenticación para GET, con autenticación para POST)
-app.use("/api/pricing", pricingRouter);
 
 // Servir frontend en producción
 const __filename = fileURLToPath(import.meta.url);
@@ -443,14 +457,14 @@ const publicRoutes = [
   "/auth/request-password-reset",
   "/auth/verify-reset-code",
   "/auth/reset-password",
-  "/whatsapp/connect",
-  "/whatsapp/disconnect",
-  "/whatsapp/reset-session",
-  "/whatsapp/pair-phone",
-  "/whatsapp/status",
-  "/whatsapp/test-ia",
-  "/whatsapp/session-info",
-  "/whatsapp/network-check",
+  // Estas rutas estaban acá y NO deberían -- controlan/leen la sesión de
+  // WhatsApp (resetearla, pedir un pairing code, desconectar, ver el path del
+  // authDir en el servidor). Al ser públicas, tenantIdFromReq() en
+  // routes/whatsapp.ts caía siempre a 1 (req.tenant nunca se seteaba) y
+  // cualquiera en internet, sin sesión, podía resetear/secuestrar la sesión
+  // de WhatsApp del tenant por defecto. Ahora requieren sesión real, lo que
+  // además es indispensable para que cada tenant controle SU propia sesión
+  // en vez de que todo colapse siempre al tenant 1.
   "/webhooks/subscription",
   "/activation",
   "/public", // Endpoints públicos (productos de tienda)
@@ -473,6 +487,17 @@ const isPublicRoute = (path: string) => {
     return true;
   }
   
+  // "/store" es público (catálogo/layout que ve el cliente), pero "/store/admin/*"
+  // NO debe serlo -- son las rutas que EDITAN la tienda de un tenant. Estaban
+  // cubiertas por el mismo prefijo público "/store" y el propio router de
+  // store.ts tenía el chequeo de auth como un TODO sin implementar: cualquiera,
+  // sin sesión, podía hacer PUT /api/store/admin/:slug/layout sobre la tienda
+  // de CUALQUIER tenant. Se excluye acá para que resolveTenant() corra y
+  // store.ts pueda validar que el tenant logueado sea el dueño de esa tienda.
+  if (path === "/store/admin" || path.startsWith("/store/admin/")) {
+    return false;
+  }
+
   // Comparación por SEGMENTOS, no por prefijo de texto.
   //
   // Con startsWith, la entrada "/p" (URLs cortas de producto) hacía pública a

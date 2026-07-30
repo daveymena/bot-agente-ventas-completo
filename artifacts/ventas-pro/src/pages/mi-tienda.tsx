@@ -103,7 +103,7 @@ export default function MiTiendaPage() {
                   <h3 className="font-semibold text-lg mb-1">{product.name}</h3>
                   <p className="text-sm text-muted-foreground line-clamp-2 mb-4">{product.description}</p>
                   <div className="flex items-center justify-between">
-                    <span className="text-2xl font-bold text-primary">${Number(product.price).toFixed(2)}</span>
+                     <span className="text-2xl font-bold text-primary">${Number(product.price).toLocaleString("es-CO")} COP</span>
                     <Button size="sm" className="gap-2">
                       <ShoppingCart className="h-4 w-4" />
                       Comprar

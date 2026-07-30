@@ -8,8 +8,9 @@ import { channelManager } from "../lib/channel-manager";
 import { tenantManager } from "../lib/tenantManager";
 import { adStrategist } from "../lib/ad-strategist";
 import { buildPostDraft, publishToPage, checkPostingPermission } from "../lib/facebook-page-posts";
-import { whatsapp } from "../lib/whatsapp";
+import { whatsapp } from "../lib/whatsapp-singleton";
 import { logger } from "../lib/logger";
+import { encryptSecret, decryptSecret } from "../lib/credentials-vault";
 
 const router: IRouter = Router();
 
@@ -86,7 +87,7 @@ router.post("/lead-ads/webhook", verifyFacebookSignature, async (req: Request, r
           const tenantId = 1;
           const [tenant] = await db.select({ metadata: tenants.metadata }).from(tenants).where(eq(tenants.id, tenantId)).limit(1);
           const meta = tenant?.metadata ? (typeof tenant.metadata === "string" ? JSON.parse(tenant.metadata) : tenant.metadata) : {};
-          const accessToken = meta.facebook?.accessToken || process.env.FB_ACCESS_TOKEN || "";
+          const accessToken = decryptSecret(meta.facebook?.accessToken) || process.env.FB_ACCESS_TOKEN || "";
 
           if (!accessToken) {
             logger.warn("[Facebook] No hay token de acceso configurado para obtener lead");
@@ -394,10 +395,11 @@ router.post("/messenger/save-token", async (req, res, next) => {
     const tenantId = (req as any).tenant?.id || 1;
     const [tenant] = await db.select({ metadata: tenants.metadata }).from(tenants).where(eq(tenants.id, tenantId)).limit(1);
     const meta = tenant?.metadata ? (typeof tenant.metadata === "string" ? JSON.parse(tenant.metadata) : tenant.metadata) : {};
+    const encryptedToken = encryptSecret(pageToken);
     meta.facebook = {
       ...(meta.facebook || {}),
-      messengerPageToken: pageToken,
-      accessToken: pageToken,
+      messengerPageToken: encryptedToken,
+      accessToken: encryptedToken,
     };
     await db.update(tenants).set({ metadata: meta as any }).where(eq(tenants.id, tenantId));
     // Mismo motivo que en fb-connect: sin limpiar el caché, el tenant
@@ -408,46 +410,20 @@ router.post("/messenger/save-token", async (req, res, next) => {
   } catch (e) { return next(e); }
 });
 
-router.post("/marketplace/listings/:productId", async (req, res, next) => {
-  try {
-    const productId = parseInt(req.params.productId);
-    const tenant = (req as any).tenant;
-    // Mismo motivo que AdStrategist: el singleton fbMarketplace se crea SIN
-    // tenant (usa el por defecto, sin .facebook), así que siempre caía a
-    // variables de entorno vacías e ignoraba el token conectado en la BD.
-    const { FacebookMarketplaceService } = await import("../lib/facebook-marketplace");
-    const r = await new FacebookMarketplaceService(tenant || undefined).createListing(productId);
-    if (!r.ok || !r.listing) return res.status(422).json({ error: r.error || "Error al crear listing" });
-    return res.json(r.listing);
-  } catch (e) { return next(e); }
+router.post("/marketplace/listings/:productId", async (_req, res) => {
+  return res.status(410).json({ error: "Marketplace eliminado. Esta función ya no está disponible." });
 });
 
-router.get("/marketplace/listings", async (req, res, next) => {
-  try {
-    const status = (req.query.status as string) || "ACTIVE";
-    const tenant = (req as any).tenant;
-    const { FacebookMarketplaceService } = await import("../lib/facebook-marketplace");
-    const listings = await new FacebookMarketplaceService(tenant || undefined).getListings(status as any);
-    return res.json({ listings });
-  } catch (e) { return next(e); }
+router.get("/marketplace/listings", async (_req, res) => {
+  return res.json({ listings: [], _note: "Marketplace eliminado" });
 });
 
-router.post("/marketplace/sync", async (req, res, next) => {
-  try {
-    const tenant = (req as any).tenant;
-    const { FacebookMarketplaceService } = await import("../lib/facebook-marketplace");
-    const result = await new FacebookMarketplaceService(tenant || undefined).syncActiveProducts();
-    return res.json(result);
-  } catch (e) { return next(e); }
+router.post("/marketplace/sync", async (_req, res) => {
+  return res.json({ synced: 0, failed: 0, _note: "Marketplace eliminado" });
 });
 
-router.delete("/marketplace/listings/:listingId", async (req, res, next) => {
-  try {
-    const tenant = (req as any).tenant;
-    const { FacebookMarketplaceService } = await import("../lib/facebook-marketplace");
-    const ok = await new FacebookMarketplaceService(tenant || undefined).deleteListing(req.params.listingId);
-    return res.json({ ok });
-  } catch (e) { return next(e); }
+router.delete("/marketplace/listings/:listingId", async (_req, res) => {
+  return res.json({ ok: false, _note: "Marketplace eliminado" });
 });
 
 // ─── Ad Strategist Endpoints ───────────────────────────────────────────────
@@ -621,20 +597,31 @@ router.get("/debug-pixels", async (req, res, next) => {
   } catch (e) { return next(e); }
 });
 
-// GET /facebook/config — leer configuración actual (desde metadata)
+// GET /facebook/config — leer configuración actual (desde metadata o entorno)
 router.get("/config", async (req, res, next) => {
   try {
     const tenantId = (req as any).tenant?.id || 1;
     const [tenant] = await db.select({ metadata: tenants.metadata }).from(tenants).where(eq(tenants.id, tenantId)).limit(1);
     const meta = tenant?.metadata ? (typeof tenant.metadata === "string" ? JSON.parse(tenant.metadata) : tenant.metadata) : {};
     const cfg = meta.facebook || {};
+
+    // Si no hay configuración en la BD, usar valores de entorno
+    const pageId = cfg.pageId || process.env.FB_PAGE_ID || "";
+    const adAccountId = cfg.adAccountId || process.env.FB_AD_ACCOUNT_ID || "";
+    const pixelId = cfg.pixelId || process.env.FB_PIXEL_ID || "";
+    const catalogId = cfg.catalogId || "";
+    // cfg.accessToken está encriptado en la BD -- desencriptar antes de armar
+    // el "•••••1234" de vista previa, si no se enmascaraban los últimos 4
+    // caracteres del texto cifrado (ilegibles) en vez del token real.
+    const accessToken = decryptSecret(cfg.accessToken) || process.env.FB_ACCESS_TOKEN || "";
+    
     return res.json({
-      accessToken: cfg.accessToken ? "•••••" + cfg.accessToken.slice(-4) : "",
-      pixelId: cfg.pixelId || "",
-      catalogId: cfg.catalogId || "",
-      pageId: cfg.pageId || "",
-      adAccountId: cfg.adAccountId || "",
-      hasToken: !!cfg.accessToken,
+      accessToken: accessToken ? "•••••" + accessToken.slice(-4) : "",
+      pixelId,
+      catalogId,
+      pageId,
+      adAccountId,
+      hasToken: !!accessToken,
     });
   } catch (e) { return next(e); }
 });
@@ -657,15 +644,22 @@ router.put("/config", async (req, res, next) => {
     // falsy. Se usa `in body` para distinguir "no lo mandaron" (mantener
     // el actual) de "lo mandaron vacío a propósito" (borrarlo).
     const field = (key: string) => (key in body ? body[key] : current[key] || "");
+    // accessToken/appSecret llegan del formulario en texto plano y current[key]
+    // ya está encriptado (viene tal cual de la BD) -- por eso se encriptan acá,
+    // después de decidir field(), y no antes: si se encriptara `body` entero de
+    // entrada, un PUT que NO toca el token re-encriptaría el valor ya
+    // encriptado de `current` como si fuera texto plano nuevo.
+    const newAccessToken = "accessToken" in body ? encryptSecret(body.accessToken) : current.accessToken || "";
+    const newAppSecret = "appSecret" in body ? encryptSecret(body.appSecret) : current.appSecret || "";
     meta.facebook = {
       ...current,
-      accessToken: field("accessToken"),
+      accessToken: newAccessToken,
       pixelId: field("pixelId"),
       catalogId: field("catalogId"),
       pageId: field("pageId"),
       adAccountId: field("adAccountId"),
       appId: field("appId"),
-      appSecret: field("appSecret"),
+      appSecret: newAppSecret,
     };
     await db.update(tenants).set({ metadata: meta as any }).where(eq(tenants.id, tenantId));
     tenantManager.clearCache();
@@ -706,10 +700,10 @@ router.post("/create-ad/:productId", async (req, res, next) => {
     if (!result) {
       return res.status(500).json({ error: fbSvc.lastAdError || "Facebook rechazó la creación del anuncio (revisa que la cuenta publicitaria y el ad account id sean correctos, y que la página tenga permisos de anuncios)." });
     }
-    // imageHash vacío es "éxito" para create-ad (el anuncio SÍ se creó) pero
-    // significa que ni la foto real ni el placeholder se subieron -- se
-    // avisa aparte para no ocultarlo dentro de un 200 silencioso.
-    return res.json({ ...result, imageUploadError: result.imageHash ? null : fbSvc.lastImageError });
+    // imageUrl vacío significa que no se pudo incluir imagen en el creativo
+    // (el anuncio SÍ se creó pero sin foto) -- se avisa aparte para no
+    // ocultarlo dentro de un 200 silencioso.
+    return res.json({ ...result, imageUploadError: result.imageUrl ? null : fbSvc.lastImageError });
   } catch (e) { return next(e); }
 });
 

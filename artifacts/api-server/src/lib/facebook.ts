@@ -73,7 +73,7 @@ export interface FbCampaignResult {
   campaignId: string;
   adSetId: string;
   adId: string;
-  imageHash: string;
+  imageUrl: string;
   adCopy: { primaryText: string; headline: string; description: string };
   status: string;
   previewUrl: string;
@@ -298,19 +298,22 @@ Responde SOLO con este JSON exacto:
 
       const adCopy = await this.generateAdCopy(product);
 
-      // Bug: la columna es imageUrl (camelCase, Drizzle) -- leerla como
+      // Bug de capacidad: /{adAccount}/adimages requiere la capacidad
+      // "adimages" que esta aplicación no tiene (Graph API error #3:
+      // "Application does not have the capability to make this API call").
+      // En vez de subir la imagen primero para obtener un hash, se pasa la
+      // URL absoluta de la imagen directamente en el campo `picture` del
+      // link_data de abajo. Facebook descarga, cachea y muestra la imagen
+      // desde ahí sin necesidad del endpoint de adimages.
+      //
+      // La columna es imageUrl (camelCase, Drizzle) -- leerla como
       // product.image_url daba siempre undefined y el anuncio SIEMPRE salía
       // con imagen placeholder genérica, nunca la foto real del producto.
       // Además Facebook descarga la imagen desde SUS servidores, así que una
       // ruta relativa (/images/products/41.jpg) no le sirve -- hay que
       // convertirla a URL absoluta con APP_URL, igual que en Marketplace.
-      const absoluteProductImage = absoluteImageUrl(product.imageUrl);
-      let imageHash = "";
-      if (absoluteProductImage) {
-        imageHash = await this.uploadImage(adAccount, absoluteProductImage, product.name);
-      } else {
-        imageHash = await this.generateImagePlaceholder(adAccount, product.name);
-      }
+      const absoluteProductImage = absoluteImageUrl(product.imageUrl) || "";
+      const creativeImageUrl = absoluteProductImage || this.generatePlaceholderUrl(product.name);
 
       // Campaña.
       // special_ad_categories: [] daba error 100 / subcódigo 4834011 --
@@ -444,8 +447,17 @@ Responde SOLO con este JSON exacto:
       }
       const adSet = await this.fbPost(`${adAccount}/adsets`, adSetBody, "conjunto de anuncios");
 
-      // Creativo
-      const creative = await this.fbPost(`${adAccount}/adcreatives`, {
+      // Creativo — se usa `picture` (URL) en vez de `image_hash` porque el
+      // endpoint /adimages no está disponible para esta aplicación (error #3);
+      // pasando la URL directamente Facebook la descarga y cachea él mismo.
+      //
+      // Advantage+ Creative: se activan las mejoras automáticas de imagen
+      // via creative_features_spec. Facebook aplicará las que apliquen según
+      // el formato (visual touch-ups, brillo/contraste, image generation,
+      // text optimizations, enhance CTA, inline comments, etc.) sin gastar
+      // llamadas extra a la API. Si la cuenta no tiene habilitado alguno,
+      // Facebook lo ignora silenciosamente.
+      const creativePayload: Record<string, any> = {
         name: `${product.name} - Creativo`,
         object_story_spec: {
           page_id: this.config.pageId,
@@ -461,10 +473,18 @@ Responde SOLO con este JSON exacto:
             name: adCopy.headline,
             description: adCopy.description,
             call_to_action: { type: "SHOP_NOW" },
-            image_hash: imageHash,
           },
         },
-      }, "creativo");
+        // Activa todas las mejoras disponibles de Advantage+ Creative para
+        // que Facebook optimice imágenes, texto, CTA y placement automáticamente
+        creative_features_spec: {
+          standard_enhancements: { enroll_status: "OPT_IN" },
+        },
+      };
+      if (creativeImageUrl) {
+        creativePayload.object_story_spec.link_data.picture = creativeImageUrl;
+      }
+      const creative = await this.fbPost(`${adAccount}/adcreatives`, creativePayload, "creativo");
 
       // Anuncio
       const ad = await this.fbPost(`${adAccount}/ads`, {
@@ -482,7 +502,7 @@ Responde SOLO con este JSON exacto:
         campaignId: campaign.id,
         adSetId: adSet.id,
         adId: ad.id,
-        imageHash,
+        imageUrl: creativeImageUrl,
         adCopy,
         status: "PAUSED",
         previewUrl,
@@ -714,38 +734,20 @@ Debes responder SOLO con este JSON (sin markdown, sin acentos en las claves):
     };
   }
 
-  // ── Subida de imagen a Facebook ────────────────────────────────────────────
+  // ── Imagen del anuncio ─────────────────────────────────────────────────────
+  // No se usa /adimages (la app no tiene esa capacidad). En vez de subir la
+  // imagen para obtener un hash, se pasa la URL absoluta directamente en el
+  // campo `picture` del link_data del creativo. Facebook descarga, cachea y
+  // muestra la imagen desde la URL sin necesidad del endpoint de subida.
 
   lastImageError: string | null = null;
 
-  private async uploadImage(adAccount: string, imageUrl: string, productName: string): Promise<string> {
-    try {
-      const res = await this.fbPost(`${adAccount}/adimages`, { url: imageUrl, name: productName });
-      if (res?.images) {
-        const key = Object.keys(res.images)[0];
-        return res.images[key]?.hash || "";
-      }
-    } catch (err: any) {
-      this.lastImageError = err?.message || String(err);
-      logger.warn({ err, imageUrl }, "[Facebook] Error uploading image, usando placeholder");
-    }
-    return await this.generateImagePlaceholder(adAccount, productName);
-  }
-
-  private async generateImagePlaceholder(adAccount: string, productName: string): Promise<string> {
+  /** Genera URL de placeholder para usar como fallback si el producto no tiene
+   * imagen. Se devuelve la URL directamente (no se sube a Facebook). */
+  private generatePlaceholderUrl(productName: string): string {
     const color = encodeURIComponent("1A365D");
     const text = encodeURIComponent(productName.substring(0, 30));
-    const placeholderUrl = `https://placehold.co/1200x628/1A365D/FFFFFF?text=${text}`;
-    try {
-      const res = await this.fbPost(`${adAccount}/adimages`, { url: placeholderUrl, name: productName });
-      if (res?.images) {
-        const key = Object.keys(res.images)[0];
-        return res.images[key]?.hash || "";
-      }
-    } catch (err: any) {
-      this.lastImageError = `${this.lastImageError || ""} | placeholder: ${err?.message || err}`;
-    }
-    return "";
+    return `https://placehold.co/1200x628/1A365D/FFFFFF?text=${text}`;
   }
 
   // ── Utilidad: llamada a Graph API ──────────────────────────────────────────

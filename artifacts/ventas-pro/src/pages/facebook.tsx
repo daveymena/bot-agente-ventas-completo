@@ -5,6 +5,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
+import { Textarea } from "@/components/ui/textarea";
 import { Loader2, CheckCircle2, XCircle, RefreshCw, Megaphone, Package, Target, MapPin, Settings2, MessageCircle, MessageSquare, Radio, Globe, FileText, Trash2, Play, Pencil } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Layout } from "@/components/layout";
@@ -92,7 +94,7 @@ interface DraftAd {
   createdAt: string;
 }
 
-type Tab = "config" | "ads" | "messenger" | "comments" | "channels" | "drafts" | "agent";
+type Tab = "config" | "ads" | "messenger" | "comments" | "channels" | "drafts";
 
 interface AgentLog {
   id: number;
@@ -139,6 +141,18 @@ export default function FacebookAdsPage() {
   const [creatingDraft, setCreatingDraft] = useState(false);
   const [creatingAllDrafts, setCreatingAllDrafts] = useState(false);
   const [selectedDraftProduct, setSelectedDraftProduct] = useState<number | null>(null);
+
+  // Modal de detalle de producto (pestaña Anuncios)
+  const [productDetail, setProductDetail] = useState<Product | null>(null);
+
+  // Editor de borrador (modal editable)
+  const [editingDraft, setEditingDraft] = useState<DraftAd | null>(null);
+  const [editHeadline, setEditHeadline] = useState("");
+  const [editPrimaryText, setEditPrimaryText] = useState("");
+  const [editBudget, setEditBudget] = useState<number>(5000);
+  const [savingDraft, setSavingDraft] = useState(false);
+
+
 
   const [agentLogs, setAgentLogs] = useState<AgentLog[]>([]);
   const [loadingAgentLogs, setLoadingAgentLogs] = useState(false);
@@ -232,7 +246,9 @@ export default function FacebookAdsPage() {
     try {
       setLoading(true);
       const [cfg, prods] = await Promise.all([
-        apiRequest("/facebook/config").catch(() => null),
+        apiRequest("/facebook/config").catch(() => ({
+          accessToken: "", pixelId: "", catalogId: "", pageId: "", adAccountId: "", hasToken: false,
+        })),
         apiRequest("/products").catch(() => []),
       ]);
       if (cfg) {
@@ -435,6 +451,33 @@ export default function FacebookAdsPage() {
     }
   };
 
+  // Abre el editor con los datos del borrador
+  const openEditDraft = (d: DraftAd) => {
+    setEditingDraft(d);
+    setEditHeadline(d.headline || "");
+    setEditPrimaryText(d.primaryText || "");
+    setEditBudget(d.budget || 5000);
+  };
+
+  // Guarda los cambios del borrador editado
+  const saveEditedDraft = async () => {
+    if (!editingDraft) return;
+    try {
+      setSavingDraft(true);
+      await apiRequest(`/facebook/strategist/draft/${editingDraft.id}`, {
+        method: "PUT",
+        body: JSON.stringify({ headline: editHeadline, primaryText: editPrimaryText, budget: editBudget }),
+      });
+      toast({ title: "Borrador actualizado" });
+      setEditingDraft(null);
+      loadDrafts();
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
+    } finally {
+      setSavingDraft(false);
+    }
+  };
+
   // Cambiar de sección: carga los datos que necesita cada una. Compartido por
   // el desplegable (móvil) y las pestañas (escritorio).
   const selectTab = (id: Tab) => {
@@ -586,13 +629,17 @@ export default function FacebookAdsPage() {
                   <CardContent>
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                       {products.map(p => (
-                        <Card key={p.id} className={`cursor-pointer transition-all ${selectedProduct?.id === p.id ? "ring-2 ring-primary" : "hover:bg-accent/50"}`} onClick={() => suggestAudience(p)}>
+                        <Card key={p.id} className={`cursor-pointer transition-all ${selectedProduct?.id === p.id ? "ring-2 ring-primary" : "hover:bg-accent/50"}`} onClick={() => { setProductDetail(p); suggestAudience(p); }}>
                           <CardContent className="p-4">
                             <div className="aspect-video bg-muted rounded-md mb-3 overflow-hidden">
                               {p.imageUrl ? <img src={p.imageUrl} alt={p.name} className="w-full h-full object-cover" /> : <div className="flex items-center justify-center h-full text-muted-foreground"><Megaphone className="h-8 w-8" /></div>}
                             </div>
                             <h3 className="font-semibold truncate">{p.name}</h3>
                             <p className="text-sm text-muted-foreground">${Number(p.price).toLocaleString("es-CO")} COP</p>
+                            <div className="flex gap-1 mt-2">
+                              <Button size="sm" variant="outline" className="text-xs" onClick={(ev) => { ev.stopPropagation(); setProductDetail(p); }}>Ver detalle</Button>
+                              <Button size="sm" className="text-xs" onClick={(ev) => { ev.stopPropagation(); suggestAudience(p); }}>Crear anuncio</Button>
+                            </div>
                           </CardContent>
                         </Card>
                       ))}
@@ -703,36 +750,46 @@ export default function FacebookAdsPage() {
                     <CardContent>
                       <div className="space-y-3">
                         {drafts.map(d => (
-                          <div key={d.id} className="flex items-start justify-between p-4 bg-muted rounded-lg gap-4">
+                          <div key={d.id} className="flex flex-col md:flex-row items-start justify-between p-4 bg-muted rounded-lg gap-4">
                             <div className="flex-1 min-w-0">
-                              <div className="flex flex-wrap items-center gap-2 min-w-0">
+                              <div className="flex flex-wrap items-center gap-2 min-w-0 mb-1">
                                 <h4 className="font-semibold truncate min-w-0">{d.productName}</h4>
                                 <span className={`shrink-0 px-2 py-0.5 rounded text-xs font-medium ${d.status === "published" ? "bg-green-500/20 text-green-500" : "bg-amber-500/20 text-amber-500"}`}>
                                   {d.status === "published" ? "Publicado" : d.status === "created" ? "Creado en FB" : "Borrador"}
                                 </span>
                                 {d.fbStatus && <span className="shrink-0 px-2 py-0.5 rounded text-xs bg-blue-500/20 text-blue-500">{d.fbStatus}</span>}
                               </div>
-                              {d.niche && <p className="text-xs text-muted-foreground mt-1">Estrategia: {d.niche}</p>}
-                              {d.budget && <p className="text-xs text-muted-foreground">Presupuesto: ${d.budget.toLocaleString("es-CO")} COP/día</p>}
-                              {d.headline && <p className="text-sm mt-2 line-clamp-2">{d.headline}</p>}
-                              {d.primaryText && <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{d.primaryText}</p>}
-                              <p className="text-xs text-muted-foreground mt-1">
+                              {d.niche && <p className="text-xs text-muted-foreground">Estrategia: {d.niche}</p>}
+                              <div className="flex flex-wrap gap-3 mt-2 text-xs">
+                                {d.budget && <span className="text-muted-foreground">💰 ${d.budget.toLocaleString("es-CO")} COP/día</span>}
+                                {d.headline && <span className="text-foreground font-medium">📝 {d.headline}</span>}
+                              </div>
+                              {d.primaryText && (
+                                <details className="mt-2">
+                                  <summary className="text-xs text-primary cursor-pointer hover:underline">Ver texto del anuncio</summary>
+                                  <p className="text-xs text-muted-foreground mt-2 whitespace-pre-wrap bg-background/50 p-2 rounded border max-h-40 overflow-y-auto">{d.primaryText}</p>
+                                </details>
+                              )}
+                              <p className="text-xs text-muted-foreground mt-2">
                                 Creado: {new Date(d.createdAt).toLocaleDateString("es-CO", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}
                               </p>
                             </div>
-                            <div className="flex flex-col gap-2 shrink-0">
-                              {d.status !== "published" && d.adId && (
-                                <Button size="sm" onClick={() => publishDraft(d.id)} title="Publicar anuncio">
-                                  <Play className="h-4 w-4" />
+                            <div className="flex md:flex-col gap-2 shrink-0">
+                              {d.status !== "published" && (
+                                <Button size="sm" variant="default" onClick={() => publishDraft(d.id)} title="Publicar anuncio en Facebook" disabled={!d.adId}>
+                                  <Play className="h-4 w-4 mr-1" /> Publicar
                                 </Button>
                               )}
+                              <Button size="sm" variant="outline" onClick={() => openEditDraft(d)} title="Editar borrador">
+                                <Pencil className="h-4 w-4 mr-1" /> Editar
+                              </Button>
                               {d.adId && (
-                                <Button size="sm" variant="outline" onClick={() => window.open(`https://www.facebook.com/adsmanager/manage/ads?act=${config.adAccountId}&selected_ad_ids=${d.adId}`, "_blank")} title="Ver en Facebook">
-                                  <Globe className="h-4 w-4" />
+                                <Button size="sm" variant="outline" onClick={() => window.open(`https://www.facebook.com/adsmanager/manage/ads?act=${config.adAccountId}&selected_ad_ids=${d.adId}`, "_blank")} title="Ver anuncio en Facebook Ads Manager">
+                                  <Globe className="h-4 w-4 mr-1" /> Ver en FB
                                 </Button>
                               )}
-                              <Button size="sm" variant="destructive" onClick={() => deleteDraft(d.id)} title="Eliminar borrador">
-                                <Trash2 className="h-4 w-4" />
+                              <Button size="sm" variant="destructive" onClick={() => { if (confirm(`¿Eliminar el borrador de ${d.productName}?`)) deleteDraft(d.id); }} title="Eliminar borrador">
+                                <Trash2 className="h-4 w-4 mr-1" /> Eliminar
                               </Button>
                             </div>
                           </div>
@@ -982,6 +1039,100 @@ export default function FacebookAdsPage() {
             )}
           </>
         )}
+
+        {/* Modal: Detalle de producto (pestaña Anuncios) */}
+        <Dialog open={!!productDetail} onOpenChange={(open) => { if (!open) setProductDetail(null); }}>
+          <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Package className="h-5 w-5" /> {productDetail?.name}
+              </DialogTitle>
+              <DialogDescription>Informacion completa del producto seleccionado.</DialogDescription>
+            </DialogHeader>
+            {productDetail && (
+              <div className="space-y-4">
+                {productDetail.imageUrl && (
+                  <div className="rounded-lg overflow-hidden border">
+                    <img src={productDetail.imageUrl} alt={productDetail.name} className="w-full max-h-64 object-cover" />
+                  </div>
+                )}
+                <div className="grid grid-cols-2 gap-3 text-sm">
+                  <div><Label className="text-muted-foreground">ID</Label><p className="font-semibold">{productDetail.id}</p></div>
+                  <div><Label className="text-muted-foreground">Categoria</Label><p className="font-semibold">{productDetail.category || "Sin categoria"}</p></div>
+                  <div><Label className="text-muted-foreground">Precio</Label><p className="font-semibold text-lg text-green-600">${Number(productDetail.price).toLocaleString("es-CO")} COP</p></div>
+                </div>
+                {(productDetail as any).description && (
+                  <div>
+                    <Label className="text-muted-foreground">Descripcion</Label>
+                    <p className="text-sm mt-1 whitespace-pre-wrap">{(productDetail as any).description}</p>
+                  </div>
+                )}
+                {Array.isArray((productDetail as any).features) && (productDetail as any).features.length > 0 && (
+                  <div>
+                    <Label className="text-muted-foreground">Caracteristicas</Label>
+                    <ul className="text-sm mt-1 space-y-1">
+                      {(productDetail as any).features.map((f: string, i: number) => (
+                        <li key={i} className="flex items-start gap-2"><CheckCircle2 className="h-4 w-4 text-green-500 shrink-0 mt-0.5" /> {f}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            )}
+            <DialogFooter className="flex gap-2">
+              <Button variant="outline" onClick={() => setProductDetail(null)}>Cerrar</Button>
+              <Button onClick={() => { if (productDetail) suggestAudience(productDetail); setProductDetail(null); }}>
+                <Megaphone className="h-4 w-4 mr-2" /> Crear anuncio con este producto
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Modal: Editor de borrador */}
+        <Dialog open={!!editingDraft} onOpenChange={(open) => { if (!open) setEditingDraft(null); }}>
+          <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Pencil className="h-5 w-5" /> Editar borrador: {editingDraft?.productName}
+              </DialogTitle>
+              <DialogDescription>Modifica el texto del anuncio, el titulo y el presupuesto antes de publicarlo en Facebook.</DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4">
+              <div>
+                <Label>Titular (headline)</Label>
+                <Input value={editHeadline} onChange={(e) => setEditHeadline(e.target.value)} maxLength={40} placeholder="Ej: Curso profesional de piano" />
+                <p className="text-xs text-muted-foreground mt-1">{editHeadline.length}/40 caracteres</p>
+              </div>
+              <div>
+                <Label>Texto principal del anuncio</Label>
+                <Textarea
+                  value={editPrimaryText}
+                  onChange={(e) => setEditPrimaryText(e.target.value)}
+                  rows={6}
+                  placeholder="Ej: Aprende a tocar piano desde cero..."
+                />
+                <p className="text-xs text-muted-foreground mt-1">{editPrimaryText.length} caracteres (max 500 recomendado)</p>
+              </div>
+              <div>
+                <Label>Presupuesto diario (COP)</Label>
+                <Input type="number" value={editBudget} onChange={(e) => setEditBudget(Number(e.target.value))} min={1000} />
+              </div>
+              {editingDraft && editingDraft.imageUrl && (
+                <div className="rounded-lg overflow-hidden border">
+                  <img src={editingDraft.imageUrl} alt="Imagen del anuncio" className="w-full max-h-48 object-cover" />
+                  <p className="text-xs text-muted-foreground p-2 bg-muted/50">La imagen proviene del producto. Para cambiarla, edita el producto en la seccion Productos.</p>
+                </div>
+              )}
+            </div>
+            <DialogFooter className="flex gap-2">
+              <Button variant="outline" onClick={() => setEditingDraft(null)}>Cancelar</Button>
+              <Button onClick={saveEditedDraft} disabled={savingDraft}>
+                {savingDraft ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <CheckCircle2 className="h-4 w-4 mr-2" />}
+                {savingDraft ? "Guardando..." : "Guardar cambios"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     </Layout>
   );

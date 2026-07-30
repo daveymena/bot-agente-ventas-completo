@@ -3,6 +3,7 @@ import { eq, and, sql } from "drizzle-orm";
 import { db, tenants, conversations, leads, products, productCategories } from "@workspace/db";
 import { logger } from "./logger";
 import { dbNow } from "./date-utils";
+import { decryptSecret } from "./credentials-vault";
 import type { Request, Response, NextFunction } from "express";
 
 // Tenant Context Types
@@ -10,6 +11,13 @@ export interface TenantContext {
   id: number;
   slug: string;
   name: string;
+  email: string;
+  // Dueño de la plataforma: ve y administra TODOS los tenants, no solo el
+  // propio. Antes esto se chequeaba comparando req.tenant.email (un campo
+  // que TenantContext nunca poblaba) contra un email hardcodeado -- esa
+  // comparación era siempre `undefined !== "..."`, así que la ruta de admin
+  // (/tenants/admin/:id/action) rechazaba a TODOS, incluido el admin real.
+  isAdmin: boolean;
   brandName: string;
   agentPersonality: string;
   agentPrompt: string | null;
@@ -85,6 +93,10 @@ const DEFAULT_TENANT: TenantContext = {
   id: 1,
   slug: "default",
   name: "TecnoVariedades",
+  email: "",
+  // Placeholder sin sesión real (usado por procesos internos como WhatsApp/
+  // AdStrategist cuando no hay tenant resuelto) -- nunca debe ser admin.
+  isAdmin: false,
   brandName: "TecnoVariedades",
   agentPersonality: "professional",
   agentPrompt: null,
@@ -152,7 +164,20 @@ function parseFacebookMeta(metadata: unknown): TenantContext["facebook"] {
   if (!metadata) return undefined;
   try {
     const meta = typeof metadata === "string" ? JSON.parse(metadata) : (metadata as any);
-    return meta?.facebook || undefined;
+    const fb = meta?.facebook;
+    if (!fb) return undefined;
+    // accessToken/appSecret/messengerPageToken se guardan encriptados (ver
+    // credentials-vault.ts) -- este es el único punto donde se arma
+    // TenantContext.facebook, así que desencriptar acá alcanza para que
+    // FacebookService y compañía sigan recibiendo el texto plano como
+    // siempre, sin tocar cada llamador. decryptSecret() devuelve el valor
+    // tal cual si es legacy en texto plano (sin el prefijo enc:v1:).
+    return {
+      ...fb,
+      accessToken: decryptSecret(fb.accessToken),
+      appSecret: decryptSecret(fb.appSecret),
+      messengerPageToken: decryptSecret(fb.messengerPageToken),
+    };
   } catch {
     return undefined;
   }
@@ -193,6 +218,8 @@ export class TenantManager {
         id: tenant.id,
         slug: tenant.slug,
         name: tenant.name,
+        email: tenant.email,
+        isAdmin: !!tenant.isAdmin,
         brandName: tenant.brandName,
         agentPersonality: tenant.agentPersonality,
         agentPrompt: tenant.agentPrompt,
@@ -251,6 +278,8 @@ export class TenantManager {
         id: tenant.id,
         slug: tenant.slug,
         name: tenant.name,
+        email: tenant.email,
+        isAdmin: !!tenant.isAdmin,
         brandName: tenant.brandName,
         agentPersonality: tenant.agentPersonality,
         agentPrompt: tenant.agentPrompt,
@@ -587,6 +616,22 @@ export function resolveTenant() {
       logger.error({ error }, "[TenantManager] Failed to resolve tenant");
       return res.status(401).json({ message: "Session error. Please login again." });
     }
+  };
+}
+
+/**
+ * Middleware: exige que el tenant autenticado sea administrador de la
+ * plataforma (tenants.is_admin). Debe usarse DESPUÉS de resolveTenant().
+ * Reemplaza el patrón anterior de comparar req.tenant.email contra un email
+ * hardcodeado -- además de estar hardcodeado, esa comparación nunca
+ * funcionó porque TenantContext no incluía email hasta ahora.
+ */
+export function requireAdmin() {
+  return (req: TenantRequest, res: Response, next: NextFunction) => {
+    if (!req.tenant?.isAdmin) {
+      return res.status(403).json({ message: "Acceso solo para administrador de la plataforma" });
+    }
+    next();
   };
 }
 

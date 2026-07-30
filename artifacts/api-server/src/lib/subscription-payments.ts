@@ -18,7 +18,7 @@ function generateActivationToken(plan: string, subscriptionId: number): string {
 export interface CreateSubscriptionPaymentParams {
   tenantId: number;
   plan: SaasPlan;
-  billingCycle: "monthly" | "annual";
+  billingCycle: "monthly" | "quarterly" | "annual";
   paymentMethod: "mercadopago" | "paypal";
   returnUrl?: string;
   cancelUrl?: string;
@@ -52,7 +52,9 @@ export class SubscriptionPaymentService {
 
     // Calcular el monto
     const monthlyPrice = getMonthlyPrice(plan);
-    const amount = billingCycle === "annual" ? monthlyPrice * 12 * 0.8 : monthlyPrice; // 20% descuento anual
+    const amount = billingCycle === "annual" ? monthlyPrice * 12 * 0.8 // 20% descuento anual
+      : billingCycle === "quarterly" ? monthlyPrice * 3 * 0.9 // 10% descuento trimestral
+      : monthlyPrice;
     const currency = "USD";
 
     logger.info({ plan, amount, currency, billingCycle }, "[SubscriptionPayment] Monto calculado");
@@ -182,7 +184,7 @@ export class SubscriptionPaymentService {
       items: [
         {
           id: `subscription_${subscription.id}`,
-          title: `Plan ${planDetails.name} - ${subscription.billingCycle === "annual" ? "Anual" : "Mensual"}`,
+          title: `Plan ${planDetails.name} - ${subscription.billingCycle === "annual" ? "Anual" : subscription.billingCycle === "quarterly" ? "Trimestral" : "Mensual"}`,
           description: `Suscripción al plan ${planDetails.name}`,
           quantity: 1,
           currency_id: "COP",
@@ -300,7 +302,7 @@ export class SubscriptionPaymentService {
           purchase_units: [
             {
               reference_id: `subscription_${subscription.id}`,
-              description: `Plan ${planDetails.name} - ${subscription.billingCycle === "annual" ? "Anual" : "Mensual"}`,
+              description: `Plan ${planDetails.name} - ${subscription.billingCycle === "annual" ? "Anual" : subscription.billingCycle === "quarterly" ? "Trimestral" : "Mensual"}`,
               amount: {
                 currency_code: currency,
                 value: amount.toFixed(2),
@@ -358,6 +360,8 @@ export class SubscriptionPaymentService {
     const expiresAt = new Date(nowDate);
     if (subscription.billingCycle === "annual") {
       expiresAt.setFullYear(expiresAt.getFullYear() + 1);
+    } else if (subscription.billingCycle === "quarterly") {
+      expiresAt.setMonth(expiresAt.getMonth() + 3);
     } else {
       expiresAt.setMonth(expiresAt.getMonth() + 1);
     }

@@ -11,6 +11,7 @@ export const tenants = sqliteTable("tenants", {
   domain: text("domain"),
   status: text("status").notNull().default("active"),
   plan: text("plan").notNull().default("basic"),
+  isAdmin: integer("is_admin", { mode: "boolean" }).notNull().default(false),
   brandName: text("brand_name").notNull(),
   brandLogo: text("brand_logo"),
   brandColors: text("brand_colors", { mode: "json" }),

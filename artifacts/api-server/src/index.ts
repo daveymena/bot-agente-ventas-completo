@@ -60,13 +60,13 @@ async function start() {
     logger.warn({ err }, "[AIKeys] no se pudieron cargar las claves guardadas");
   }
 
-  app.listen(port, (err: any) => {
+  app.listen(port, "0.0.0.0", (err: any) => {
     if (err) {
       logger.error({ err }, "Error listening on port");
       process.exit(1);
     }
 
-    logger.info({ port, authDir: process.env.WA_AUTH_DIR || "data/.baileys-auth" }, "Server listening — WhatsApp auth persistente");
+    logger.info({ port, host: "0.0.0.0", authDir: process.env.WA_AUTH_DIR || "data/.baileys-auth" }, "Server listening — WhatsApp auth persistente");
   });
 }
 

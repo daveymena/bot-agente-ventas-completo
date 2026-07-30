@@ -169,12 +169,17 @@ export default function Products() {
             <h1 className="text-2xl font-semibold tracking-tight">Catálogo de Productos</h1>
             <p className="text-muted-foreground mt-1">Organiza tus ofertas para que los agentes IA puedan recomendarlas.</p>
           </div>
-          <div className="flex items-center gap-3">
+          {/* flex-wrap: sin esto, en pantallas angostas las 3 acciones no
+              entraban en una sola fila y "Nuevo Producto" (la última)
+              quedaba empujada fuera del viewport a la derecha, invisible sin
+              scrollear horizontal -- mismo bug que ya se había corregido en
+              facebook.tsx, acá faltaba aplicarlo. */}
+          <div className="flex items-center gap-3 flex-wrap">
             <Button variant="outline" className="glass-panel" onClick={() => setIsCategoryModalOpen(true)}>
               <Tag className="h-4 w-4 mr-2 text-primary" /> Gestionar categorías
             </Button>
             <SmartImportButton onComplete={() => queryClient.invalidateQueries({ queryKey: getListProductsQueryKey() })} />
-            <ProductModal 
+            <ProductModal
               mode="create" 
               open={isNewModalOpen} 
               onOpenChange={(o) => {

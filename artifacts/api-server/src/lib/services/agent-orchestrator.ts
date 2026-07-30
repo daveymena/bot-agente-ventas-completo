@@ -12,7 +12,10 @@
 
 import { getMessageQueue, QueuedMessage } from '../message-queue';
 import { runAgentReply } from '../agent';
-import { whatsapp, type AgentReplyPart } from '../whatsapp';
+import { type AgentReplyPart } from '../whatsapp-singleton';
+import { getWhatsAppForTenant } from '../whatsapp-factory';
+import { tenantManager } from '../tenantManager';
+import { checkMessageLimit } from '../../middleware/featureLimits';
 import { db } from "@workspace/db";
 import { conversations } from "@workspace/db";
 import { eq, and } from "drizzle-orm";
@@ -93,19 +96,39 @@ export class AgentOrchestrator {
       return;
     }
 
-    const config = this.configs.get(message.tenantId);
-    // Fuerza bruta: Permitir tenant 1 siempre
-    const isEnabled = message.tenantId === "1" || message.tenantId === "0" || !!config?.enabled;
-
-    if (!isEnabled) {
-      logger.warn(`[AgentOrchestrator] Tenant ${message.tenantId} not enabled`);
+    const tenantIdNum = Number(message.tenantId);
+    if (!Number.isFinite(tenantIdNum)) {
+      logger.warn(`[AgentOrchestrator] tenantId inválido: "${message.tenantId}"`);
       return;
     }
 
-    // Don't process messages if WhatsApp is not connected (revert processing flag so it can be retried)
-    if (!whatsapp.isConnected()) {
-      logger.debug('[AgentOrchestrator] WhatsApp not connected, deferring message processing');
+    // Antes esto chequeaba whatsapp.isConnected() sobre el SINGLETON (proxy
+    // fijo al tenant por defecto, ver whatsapp-singleton.ts) sin importar de
+    // qué tenant era este mensaje -- si el tenant 1 tenía WhatsApp conectado
+    // pero el tenant 2 no, un mensaje del tenant 2 se procesaba igual. Peor
+    // aún: la respuesta se enviaba por whatsapp.sendAgentParts (mismo
+    // singleton), o sea, el cliente del tenant 2 recibía la respuesta desde
+    // el NÚMERO DE WHATSAPP DEL TENANT 1. Ahora usa la instancia real de
+    // ESE tenant en ambos pasos.
+    const waInstance = getWhatsAppForTenant(tenantIdNum);
+    if (!waInstance.isConnected()) {
+      logger.debug({ tenantId: tenantIdNum }, '[AgentOrchestrator] WhatsApp not connected for this tenant, deferring message processing');
       message.processing = false;
+      return;
+    }
+
+    // Límite de mensajes del plan: acá es donde realmente pasa el tráfico
+    // (mensajes de clientes por WhatsApp), no en el dashboard. Antes no
+    // existía ningún chequeo real -- cualquier tenant, sin importar el plan
+    // (incluida la prueba gratis de 30 mensajes), tenía respuestas de IA
+    // ilimitadas. Si se alcanzó el límite, el mensaje se descarta (no se
+    // reintenta en bucle) y se loguea -- el cliente no recibe respuesta
+    // hasta que el dueño actualice su plan.
+    const tenantForLimit = await tenantManager.getTenantById(tenantIdNum);
+    const limitCheck = await checkMessageLimit(tenantIdNum, tenantForLimit?.plan || "basic");
+    if (!limitCheck.allowed) {
+      logger.warn({ tenantId: tenantIdNum, current: limitCheck.current, limit: limitCheck.limit }, '[AgentOrchestrator] Monthly message limit reached, dropping message');
+      this.queue.markProcessed(message.id);
       return;
     }
 
@@ -141,7 +164,7 @@ export class AgentOrchestrator {
 
       // Enviar respuesta via WhatsApp (Soporta Texto y Tarjetas Multimedia)
       const pushName = convo.contactName || phone;
-      await whatsapp.sendAgentParts(phone, pushName, reply.parts as AgentReplyPart[], message.from);
+      await waInstance.sendAgentParts(phone, pushName, reply.parts as AgentReplyPart[], message.from);
 
       // NO se persiste aquí: runAgentReply ya guardó la respuesta con
       // saveAgentMessage (con su metadata y actualizando lastMessage) en todos

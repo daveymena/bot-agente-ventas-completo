@@ -360,6 +360,15 @@ export const conversationRateLimit = rateLimitingMiddleware.createRateLimit({
   }
 });
 
+// Recuperación de contraseña es pública (sin req.tenant), así que se limita
+// por IP + email para evitar que alguien la use para bombardear de emails a
+// una cuenta ajena o para tantear qué correos existen a fuerza de intentos.
+export const passwordResetRateLimit = rateLimitingMiddleware.createRateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutos
+  maxRequests: 5,
+  keyGenerator: (req: TenantRequest) => `pwreset_${req.ip}_${(req.body as any)?.email || ""}`
+});
+
 // Utility functions
 export function trackWhatsAppCost(tenantId: string): void {
   rateLimitingMiddleware.trackWhatsAppMessage(tenantId);

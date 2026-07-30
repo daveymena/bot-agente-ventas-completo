@@ -346,7 +346,9 @@ export default function WhatsAppConnection() {
         <div className="flex items-start justify-between">
           <div>
             <h1 className="text-3xl font-bold tracking-tight">Conexión de WhatsApp</h1>
-            <p className="text-muted-foreground mt-1">Gestiona el dispositivo vinculado a tus agentes IA.</p>
+            <p className="text-muted-foreground mt-1">
+              Gestiona el dispositivo vinculado a tus agentes IA. Cada sesión es independiente: puedes abrir el bot en otro lugar sin afectar esta conexión.
+            </p>
           </div>
           {status && status.state !== 'disconnected' && (
             <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-orange-600 rounded-xl shrink-0" onClick={handleResetSession} disabled={isResetting}>
@@ -354,7 +356,7 @@ export default function WhatsAppConnection() {
             </Button>
           )}
         </div>
-        
+
         {renderState()}
       </div>
     </Layout>

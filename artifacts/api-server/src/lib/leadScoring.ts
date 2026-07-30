@@ -355,9 +355,11 @@ export class LeadScoringEngine {
   }
 
   /**
-   * Dashboard data: scores all conversations.
+   * Dashboard data: scores all conversations DEL TENANT dado.
+   * Antes no filtraba -- cualquier tenant autenticado veía nombre, teléfono,
+   * último mensaje y score de los leads de TODOS los negocios de la plataforma.
    */
-  async getLeadScoringDashboard() {
+  async getLeadScoringDashboard(tenantId: number) {
     try {
       const allConversations = await db
         .select({
@@ -369,7 +371,8 @@ export class LeadScoringEngine {
           lastMessageAt: conversations.lastMessageAt,
           leadId: conversations.leadId
         })
-        .from(conversations);
+        .from(conversations)
+        .where(eq(conversations.tenantId, tenantId));
 
       const leadsWithScores = await Promise.all(
         allConversations.map(async (conv) => {
@@ -398,7 +401,7 @@ export class LeadScoringEngine {
         .sort((a, b) => b.score - a.score)
         .slice(0, 10);
 
-      const followUpsDue = (await getDueFollowUps()).map(f => ({
+      const followUpsDue = (await getDueFollowUps(tenantId)).map(f => ({
         leadId: f.leadId || 0,
         conversationId: f.conversationId,
         scheduledFor: f.scheduledFor,
@@ -532,6 +535,6 @@ export async function getLeadScore(conversationId: number): Promise<LeadScore> {
   return leadScoringEngine.calculateLeadScore(conversationId);
 }
 
-export async function getLeadScoringDashboard() {
-  return leadScoringEngine.getLeadScoringDashboard();
+export async function getLeadScoringDashboard(tenantId: number) {
+  return leadScoringEngine.getLeadScoringDashboard(tenantId);
 }

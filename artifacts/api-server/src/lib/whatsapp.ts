@@ -328,15 +328,18 @@ const AUTH_DIR = process.env.WA_AUTH_DIR
   : path.resolve(process.cwd(), "data", ".baileys-auth");
 
 export class WhatsAppManager {
-  private state: WAState = "disconnected";
-  private qrDataUrl: string | null = null;
-  private phoneNumber: string | null = null;
-  private connectedAt: string | null = null;
-  private lastError: string | null = null;
-  private sock: any = null;
-  private starting = false;
-  private hadQrInThisSession = false;
-  private currentTenant: TenantContext;
+  // protected (no private): WhatsAppByTenant hereda de esta clase y necesita
+  // tocar estos campos directamente en su propio start()/stop() para aislar
+  // la sesión por tenant.
+  protected state: WAState = "disconnected";
+  protected qrDataUrl: string | null = null;
+  protected phoneNumber: string | null = null;
+  protected connectedAt: string | null = null;
+  protected lastError: string | null = null;
+  protected sock: any = null;
+  protected starting = false;
+  protected hadQrInThisSession = false;
+  protected currentTenant: TenantContext;
 
   constructor(tenant?: TenantContext) {
     this.currentTenant = tenant || tenantManager.getDefaultTenant();
@@ -370,8 +373,8 @@ export class WhatsAppManager {
     return this.state === "connected";
   }
 
-  private reconnectAttempts = 0;
-  private readonly MAX_RECONNECT_ATTEMPTS = 5;
+  protected reconnectAttempts = 0;
+  protected readonly MAX_RECONNECT_ATTEMPTS = 5;
 
   async stop(keepAuth: boolean = true): Promise<WhatsAppPublicStatus> {
     try {
@@ -547,14 +550,37 @@ export class WhatsAppManager {
          }
       });
 
-      sock.ev.on("messages.upsert", async (upsert: any) => {
-        console.log("📨 Evento messages.upsert recibido:", JSON.stringify({ 
-          type: upsert.type, 
+      sock.ev.on("messages.upsert", (upsert: any) => this.handleIncomingMessages(upsert));
+       this.starting = false;
+        return this.getStatus();
+      } catch (e: any) {
+        this.starting = false;
+        this.state = "error";
+        this.lastError = `Error al conectar: ${e instanceof Error ? e.message : String(e)}`;
+        logger.error({ err: e }, "Failed to start WhatsApp");
+        console.error("❌ [ERROR] Error fatal al iniciar WhatsApp:", e instanceof Error ? e.message : String(e));
+        console.error("Stack:", e instanceof Error ? e.stack : "No stack available");
+        return this.getStatus();
+      }
+    }
+
+  /**
+   * Procesa el evento "messages.upsert" de Baileys: extrae el texto del
+   * mensaje entrante y lo encola en el MessageHandler para que el
+   * AgentOrchestrator lo procese. Extraído a método propio (antes vivía
+   * inline dentro de start()) para que WhatsAppByTenant pueda reusarlo sin
+   * duplicar 250 líneas -- antes intentaba delegar a un método
+   * "handleIncoming" que nunca existió, así que los mensajes entrantes de
+   * TODAS las instancias multi-tenant se perdían en silencio.
+   */
+  protected async handleIncomingMessages(upsert: any): Promise<void> {
+        console.log("📨 Evento messages.upsert recibido:", JSON.stringify({
+          type: upsert.type,
           count: upsert.messages?.length,
           firstMsgType: upsert.messages?.[0] ? Object.keys(upsert.messages[0].message || {})[0] : null,
           allMsgTypes: upsert.messages?.map((m: any) => Object.keys(m.message || {})).flat()
         }));
-        
+
         try {
           if (upsert.type !== "notify") {
             console.log("⏭️ Ignorando evento tipo:", upsert.type);
@@ -792,7 +818,7 @@ export class WhatsAppManager {
              const messageHandler = getMessageHandler();
              try {
                await messageHandler.handleIncomingMessage({
-                 tenantId: "1",
+                 tenantId: String(this.currentTenant.id),
                  remoteJid: originalJid,
                  fromMe: false,
                  messageId: msg.key.id || `msg_${Date.now()}`,
@@ -808,19 +834,7 @@ export class WhatsAppManager {
         } catch (e) {
           logger.error({ err: e }, "Error processing incoming message");
         }
-      });
-       this.starting = false;
-        return this.getStatus();
-      } catch (e: any) {
-        this.starting = false;
-        this.state = "error";
-        this.lastError = `Error al conectar: ${e instanceof Error ? e.message : String(e)}`;
-        logger.error({ err: e }, "Failed to start WhatsApp");
-        console.error("❌ [ERROR] Error fatal al iniciar WhatsApp:", e instanceof Error ? e.message : String(e));
-        console.error("Stack:", e instanceof Error ? e.stack : "No stack available");
-        return this.getStatus();
-      }
-    }
+  }
 
   async sendText(phone: string, text: string, originalJid?: string) {
     if (!this.sock || this.state !== "connected") throw new Error("WhatsApp no conectado");

@@ -14,7 +14,7 @@ import {
   leads,
   messages,
 } from "@workspace/db";
-import { whatsapp } from "../lib/whatsapp";
+import { whatsapp } from "../lib/whatsapp-singleton";
 
 const router: IRouter = Router();
 const STAGES = ["new", "contacted", "qualified", "proposal", "won", "lost"] as const;

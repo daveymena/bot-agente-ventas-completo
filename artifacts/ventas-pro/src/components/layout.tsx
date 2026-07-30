@@ -12,7 +12,9 @@ import {
   Palette,
   ShoppingCart,
   Eye,
-  Facebook
+  Facebook,
+  Activity,
+  Crown
 } from "lucide-react";
 import { Sidebar, SidebarContent, SidebarHeader, SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarProvider, SidebarTrigger, SidebarGroup, SidebarGroupContent } from "./ui/sidebar";
 import { Badge as UiBadge } from "@/components/ui/badge";
@@ -20,6 +22,7 @@ import { useGetWhatsAppStatus, getGetWhatsAppStatusQueryKey } from "@workspace/a
 import { useSaasStatus } from "@/hooks/useSaasStatus";
 import { useSession } from "@/App";
 import { MobileNav } from "./mobile-nav";
+import { HelpChatWidget } from "./HelpChatWidget";
 import { useIsMobile } from "@/hooks/use-mobile";
 
 export function AppSidebar() {
@@ -33,7 +36,7 @@ export function AppSidebar() {
   const { tenant: sessionTenant } = useSession();
   const currentPlan = saasStatus?.plan;
   const isPremium = currentPlan && currentPlan !== 'free' && currentPlan !== 'basic';
-  const isAdmin = sessionTenant?.email === 'daveymena16@gmail.com';
+  const isAdmin = !!sessionTenant?.isAdmin;
 
   const allNavItems = [
     { label: "Panel", href: "/", icon: LayoutDashboard },
@@ -42,6 +45,10 @@ export function AppSidebar() {
     { label: "Prospectos", href: "/leads", icon: Users },
     { label: "Productos", href: "/products", icon: Package },
     { label: "WhatsApp", href: "/whatsapp", icon: Phone },
+    ...(isAdmin ? [
+      { label: "Monitor WA", href: "/whatsapp-monitor", icon: Activity },
+      { label: "Administrador", href: "/admin/tenants", icon: Crown },
+    ] : []),
     { label: "WooCommerce", href: "/woocommerce", icon: ShoppingCart },
     { label: "Arquitecto IA", href: "/code-agent", icon: Wand2 },
     { label: "Personalización", href: "/branding", icon: Palette },
@@ -156,6 +163,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
           </main>
         </div>
         <MobileNav />
+        <HelpChatWidget />
       </div>
     </SidebarProvider>
   );
