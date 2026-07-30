@@ -411,9 +411,15 @@ ${descLine}
         imageUrl = `${appUrl.replace(/\/+$/, "")}/${raw.replace(/^\/+/, "")}`;
       }
     }
+    // Si no hay foto real del producto, se cae al placeholder gris con el
+    // nombre -- útil para no bloquear el borrador, pero NO es una foto real
+    // del curso. Este flag decide más abajo qué mejoras de Meta se activan:
+    // recortar/expandir o generar fondo sobre un cartel de texto genérico no
+    // tiene sentido y puede terminar pareciendo todavía menos al producto.
+    const hasRealProductImage = !!imageUrl;
     if (!imageUrl) {
       imageUrl = `https://placehold.co/1200x628/1A365D/FFFFFF?text=${encodeURIComponent((product.name || "").substring(0, 30))}`;
-      logger.warn({ productId: product.id, raw, appUrl: process.env.APP_URL }, "[AdStrategist] Sin imagen absoluta — usando placeholder");
+      logger.warn({ productId: product.id, raw, appUrl: process.env.APP_URL }, "[AdStrategist] Sin imagen absoluta — usando placeholder (el anuncio no representará el producto real hasta que se le cargue una foto)");
     }
 
     // Por defecto NO se crean campañas en la cuenta publicitaria de Meta: sin
@@ -511,9 +517,30 @@ ${descLine}
       // Facebook descarga y cachea la imagen desde la URL directamente.
       //
       // Advantage+ Creative: mejoras automáticas de imagen vía
-      // creative_features_spec. Facebook aplica visual touch-ups, brillo/
-      // contraste, image generation, text optimizations, enhance CTA, etc.
-      // Si la cuenta no tiene habilitado alguno, lo ignora silenciosamente.
+      // creative_features_spec. Verificado en vivo contra la cuenta real
+      // (act_1545022093928422, generatepreviews) que estos 5 flags son
+      // válidos y los acepta la cuenta -- Facebook NO devuelve fotos
+      // alternativas para elegir por API, retoca/expande la MISMA foto que
+      // se le manda al momento de entregar el anuncio.
+      //
+      // image_uncrop (expandir/generar fondo) y image_brightness_and_contrast
+      // solo se activan si hay una foto REAL del producto (hasRealProductImage):
+      // aplicarlas sobre el placeholder gris de texto no tiene nada que
+      // "realzar" y puede terminar generando un fondo que se parece todavía
+      // menos al curso real -- exactamente el problema de "la foto no
+      // corresponde al producto" que se reportó. standard_enhancements,
+      // text_optimizations y enhance_cta son retoques seguros (no alteran
+      // qué se ve en la imagen) y quedan activos siempre.
+      const creativeFeaturesSpec: Record<string, any> = {
+        standard_enhancements: { enroll_status: "OPT_IN" },
+        text_optimizations: { enroll_status: "OPT_IN" },
+        enhance_cta: { enroll_status: "OPT_IN" },
+      };
+      if (hasRealProductImage) {
+        creativeFeaturesSpec.image_touchups = { enroll_status: "OPT_IN" };
+        creativeFeaturesSpec.image_brightness_and_contrast = { enroll_status: "OPT_IN" };
+        creativeFeaturesSpec.image_uncrop = { enroll_status: "OPT_IN" };
+      }
       const creativePayload: Record<string, any> = {
         name: `[BORRADOR] ${product.name} - Creativo`,
         object_story_spec: {
@@ -526,9 +553,7 @@ ${descLine}
             call_to_action: { type: strategy.ctaType },
           },
         },
-        creative_features_spec: {
-          standard_enhancements: { enroll_status: "OPT_IN" },
-        },
+        creative_features_spec: creativeFeaturesSpec,
       };
       if (imageUrl) {
         creativePayload.object_story_spec.link_data.picture = imageUrl;
@@ -584,8 +609,8 @@ ${descLine}
     }
   }
 
-  async createDraftsForAllProducts(): Promise<{ created: number; failed: number; drafts: DraftAd[] }> {
-    const result = { created: 0, failed: 0, drafts: [] as DraftAd[] };
+  async createDraftsForAllProducts(): Promise<{ created: number; failed: number; withoutRealImage: number; drafts: DraftAd[] }> {
+    const result = { created: 0, failed: 0, withoutRealImage: 0, drafts: [] as DraftAd[] };
 
     const accessToken = this.tenant.facebook?.accessToken || process.env.FB_ACCESS_TOKEN || process.env.FB_MESSENGER_PAGE_TOKEN || "";
     const adAccountId = this.tenant.facebook?.adAccountId || process.env.FB_AD_ACCOUNT_ID || "";
@@ -603,6 +628,10 @@ ${descLine}
         result.drafts.push(draft);
         if (draft.status === "created") result.created++;
         else result.failed++;
+        // El placeholder de placehold.co es la señal de "este producto no
+        // tiene foto real" -- son los anuncios que van a salir con una
+        // imagen que NO corresponde al curso hasta que se les cargue una.
+        if (draft.imageUrl.startsWith("https://placehold.co/")) result.withoutRealImage++;
       } catch (err: any) {
         logger.error({ err, product: p.name }, "[AdStrategist] Failed");
         result.failed++;

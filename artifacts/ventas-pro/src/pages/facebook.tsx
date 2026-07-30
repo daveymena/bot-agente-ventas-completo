@@ -424,7 +424,15 @@ export default function FacebookAdsPage() {
     try {
       setCreatingAllDrafts(true);
       const res = await apiRequest("/facebook/strategist/draft-all", { method: "POST" });
-      toast({ title: "Borradores creados", description: `${res.created} creados, ${res.failed} fallos` });
+      // withoutRealImage: cuántos de esos borradores van a salir con el
+      // cartel de texto genérico en vez de una foto real del curso -- la
+      // causa más probable de "la foto no corresponde al producto".
+      const imgWarning = res.withoutRealImage > 0 ? ` -- ${res.withoutRealImage} sin foto real (revisá esos productos)` : "";
+      toast({
+        title: "Borradores creados",
+        description: `${res.created} creados, ${res.failed} fallos${imgWarning}`,
+        variant: res.withoutRealImage > 0 ? "destructive" : "default",
+      });
       loadDrafts();
     } catch (e: any) {
       toast({ title: "Error", description: e.message, variant: "destructive" });

@@ -314,6 +314,12 @@ Responde SOLO con este JSON exacto:
       // convertirla a URL absoluta con APP_URL, igual que en Marketplace.
       const absoluteProductImage = absoluteImageUrl(product.imageUrl) || "";
       const creativeImageUrl = absoluteProductImage || this.generatePlaceholderUrl(product.name);
+      // Igual que en ad-strategist.ts: las mejoras de Meta que ALTERAN la
+      // imagen (recorte/expansión, brillo y contraste) solo tienen sentido
+      // si hay una foto real del producto. Aplicarlas sobre el cartel de
+      // texto placeholder no mejora nada -- puede terminar generando un
+      // fondo que se parece todavía menos al curso real.
+      const hasRealProductImage = !!absoluteProductImage;
 
       // Campaña.
       // special_ad_categories: [] daba error 100 / subcódigo 4834011 --
@@ -451,12 +457,23 @@ Responde SOLO con este JSON exacto:
       // endpoint /adimages no está disponible para esta aplicación (error #3);
       // pasando la URL directamente Facebook la descarga y cachea él mismo.
       //
-      // Advantage+ Creative: se activan las mejoras automáticas de imagen
-      // via creative_features_spec. Facebook aplicará las que apliquen según
-      // el formato (visual touch-ups, brillo/contraste, image generation,
-      // text optimizations, enhance CTA, inline comments, etc.) sin gastar
-      // llamadas extra a la API. Si la cuenta no tiene habilitado alguno,
-      // Facebook lo ignora silenciosamente.
+      // Advantage+ Creative vía creative_features_spec -- verificado en vivo
+      // contra la cuenta real (act_1545022093928422, generatepreviews) que
+      // estos 5 flags son válidos. Meta NO devuelve fotos alternativas para
+      // elegir por API: retoca/expande la MISMA imagen que se le manda al
+      // momento de entregar el anuncio. image_touchups/brightness/uncrop
+      // (los que alteran la imagen) solo se activan con foto real del
+      // producto -- ver hasRealProductImage arriba.
+      const creativeFeaturesSpec: Record<string, any> = {
+        standard_enhancements: { enroll_status: "OPT_IN" },
+        text_optimizations: { enroll_status: "OPT_IN" },
+        enhance_cta: { enroll_status: "OPT_IN" },
+      };
+      if (hasRealProductImage) {
+        creativeFeaturesSpec.image_touchups = { enroll_status: "OPT_IN" };
+        creativeFeaturesSpec.image_brightness_and_contrast = { enroll_status: "OPT_IN" };
+        creativeFeaturesSpec.image_uncrop = { enroll_status: "OPT_IN" };
+      }
       const creativePayload: Record<string, any> = {
         name: `${product.name} - Creativo`,
         object_story_spec: {
@@ -475,11 +492,7 @@ Responde SOLO con este JSON exacto:
             call_to_action: { type: "SHOP_NOW" },
           },
         },
-        // Activa todas las mejoras disponibles de Advantage+ Creative para
-        // que Facebook optimice imágenes, texto, CTA y placement automáticamente
-        creative_features_spec: {
-          standard_enhancements: { enroll_status: "OPT_IN" },
-        },
+        creative_features_spec: creativeFeaturesSpec,
       };
       if (creativeImageUrl) {
         creativePayload.object_story_spec.link_data.picture = creativeImageUrl;
