@@ -57,6 +57,7 @@ export const responseAnalytics = schema.responseAnalytics;
 export const promptVersions = schema.promptVersions;
 export const facebookDrafts = schema.facebookDrafts;
 export const opencodeConfig = schema.opencodeConfig;
+export const adAgentLogs = schema.adAgentLogs;
 export const opencodeSkills = schema.opencodeSkills;
 export const opencodeMcpServers = schema.opencodeMcpServers;
 export const opencodeCommands = schema.opencodeCommands;
@@ -282,6 +283,7 @@ async function ensureSqliteTables(sqliteDb: import("sql.js").Database, saveDb: (
     `CREATE TABLE IF NOT EXISTS response_analytics (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER REFERENCES tenants(id) ON DELETE CASCADE, agent_id INTEGER, profile_id INTEGER, conversation_id INTEGER, message_id INTEGER, response_text TEXT NOT NULL, response_length INTEGER NOT NULL, had_card INTEGER DEFAULT 0, card_product_id INTEGER, outcome TEXT, customer_message TEXT NOT NULL, sentiment_score INTEGER, response_time_ms INTEGER NOT NULL, metadata TEXT, created_at TEXT DEFAULT (datetime('now')))`,
     `CREATE TABLE IF NOT EXISTS prompt_versions (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER REFERENCES tenants(id) ON DELETE CASCADE, agent_id INTEGER, profile_id INTEGER, previous_prompt TEXT NOT NULL, new_prompt TEXT NOT NULL, diff_summary TEXT NOT NULL, reason TEXT NOT NULL, performance_before TEXT, performance_after TEXT, applied_by TEXT NOT NULL, is_active INTEGER DEFAULT 1, created_at TEXT DEFAULT (datetime('now')))`,
     `CREATE TABLE IF NOT EXISTS facebook_drafts (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER REFERENCES tenants(id) ON DELETE CASCADE, product_id INTEGER REFERENCES products(id) ON DELETE SET NULL, product_name TEXT NOT NULL, campaign_id TEXT, ad_set_id TEXT, ad_id TEXT, status TEXT DEFAULT 'draft' NOT NULL, strategy TEXT, primary_text TEXT, headline TEXT, description TEXT, image_url TEXT, niche TEXT, budget INTEGER, fb_status TEXT, created_at TEXT DEFAULT (datetime('now')), updated_at TEXT DEFAULT (datetime('now')))`,
+    `CREATE TABLE IF NOT EXISTS ad_agent_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER REFERENCES tenants(id) ON DELETE CASCADE, campaign_id TEXT NOT NULL, ad_set_id TEXT, product_name TEXT, check_type TEXT NOT NULL, status TEXT DEFAULT 'suggested' NOT NULL, suggested_action TEXT, reason TEXT NOT NULL, metrics_snapshot TEXT, created_at TEXT DEFAULT (datetime('now')), responded_at TEXT)`,
   ];
 
   for (const sql of tables) {

@@ -465,6 +465,121 @@ Responde SOLO con este JSON exacto:
    * por qué. */
   lastAdError: string | null = null;
 
+  // ── Agente de crecimiento: lectura de métricas y control de campañas ───────
+
+  /** Campañas activas (no borradas/archivadas) de la cuenta publicitaria,
+   * con su conjunto de anuncios principal -- base para que el agente sepa
+   * qué revisar. */
+  async listActiveCampaigns(): Promise<Array<{ id: string; name: string; status: string; effectiveStatus: string }>> {
+    if (!this.config.adAccountId || !this.config.accessToken) return [];
+    const adAccount = `act_${this.config.adAccountId}`;
+    try {
+      const res = await this.fbGet(`${adAccount}/campaigns`, {
+        fields: "id,name,status,effective_status",
+        // ACTIVE y PAUSED: el agente tambien debe poder proponer reactivar
+        // una pausada si en el pasado le fue bien.
+        limit: "100",
+      });
+      return (res.data || []).filter((c: any) => c.effective_status !== "DELETED" && c.effective_status !== "ARCHIVED");
+    } catch (err: any) {
+      logger.warn({ err }, "[Facebook] Error listando campañas");
+      return [];
+    }
+  }
+
+  /** Métricas de una campaña en una ventana de tiempo. datePreset acepta los
+   * valores estándar de Graph API ("today", "yesterday", "last_3d",
+   * "last_7d", "last_14d", etc.) -- se usan ventanas cortas para proteger
+   * gasto y largas para decidir si escalar por tendencia. */
+  async getCampaignInsights(campaignId: string, datePreset: string): Promise<{
+    spend: number; impressions: number; clicks: number; ctr: number;
+    results: number; costPerResult: number; reach: number;
+  } | null> {
+    try {
+      const res = await this.fbGet(`${campaignId}/insights`, {
+        fields: "spend,impressions,clicks,ctr,reach,actions,cost_per_action_type",
+        date_preset: datePreset,
+      });
+      const row = res.data?.[0];
+      if (!row) {
+        // Sin filas = sin gasto/actividad todavia en esa ventana, no es error.
+        return { spend: 0, impressions: 0, clicks: 0, ctr: 0, results: 0, costPerResult: 0, reach: 0 };
+      }
+      // "Resultados" en Ads Manager es la acción principal segun el objetivo
+      // de la campaña (compra, lead, mensaje). Se suman todas las acciones
+      // de conversión relevantes como aproximación simple y auditable.
+      const actions: Array<{ action_type: string; value: string }> = row.actions || [];
+      const relevantTypes = ["purchase", "offsite_conversion.fb_pixel_purchase", "lead", "onsite_conversion.messaging_conversation_started_7d", "link_click"];
+      const results = actions
+        .filter(a => relevantTypes.includes(a.action_type))
+        .reduce((sum, a) => sum + (Number(a.value) || 0), 0);
+      const spend = Number(row.spend) || 0;
+      return {
+        spend,
+        impressions: Number(row.impressions) || 0,
+        clicks: Number(row.clicks) || 0,
+        ctr: Number(row.ctr) || 0,
+        reach: Number(row.reach) || 0,
+        results,
+        costPerResult: results > 0 ? spend / results : 0,
+      };
+    } catch (err: any) {
+      logger.warn({ err, campaignId }, "[Facebook] Error leyendo insights");
+      return null;
+    }
+  }
+
+  /** Presupuesto diario configurado y gastado hoy -- necesario para
+   * "protección de gasto" (¿ya se comió el presupuesto sin resultados?). */
+  async getAdSetBudgetStatus(adSetId: string): Promise<{ dailyBudget: number; status: string } | null> {
+    try {
+      const res = await this.fbGet(`${adSetId}`, { fields: "daily_budget,effective_status" });
+      return {
+        dailyBudget: res.daily_budget ? Number(res.daily_budget) / 100 : 0,
+        status: res.effective_status,
+      };
+    } catch (err: any) {
+      logger.warn({ err, adSetId }, "[Facebook] Error leyendo presupuesto del conjunto");
+      return null;
+    }
+  }
+
+  async pauseCampaign(campaignId: string): Promise<boolean> {
+    try {
+      await this.fbPost(campaignId, { status: "PAUSED" }, "pausar campaña");
+      return true;
+    } catch (err: any) {
+      logger.warn({ err, campaignId }, "[Facebook] Error pausando campaña");
+      return false;
+    }
+  }
+
+  async resumeCampaign(campaignId: string): Promise<boolean> {
+    try {
+      await this.fbPost(campaignId, { status: "ACTIVE" }, "reactivar campaña");
+      return true;
+    } catch (err: any) {
+      logger.warn({ err, campaignId }, "[Facebook] Error reactivando campaña");
+      return false;
+    }
+  }
+
+  /** Ajusta el presupuesto diario de un conjunto de anuncios por un
+   * porcentaje (ej. 0.2 = +20%, -0.2 = -20%). Graph API espera el
+   * presupuesto en centavos. */
+  async adjustAdSetBudget(adSetId: string, percentChange: number): Promise<{ ok: boolean; newBudget?: number }> {
+    try {
+      const current = await this.getAdSetBudgetStatus(adSetId);
+      if (!current || !current.dailyBudget) return { ok: false };
+      const newBudget = Math.max(1000, Math.round(current.dailyBudget * (1 + percentChange)));
+      await this.fbPost(adSetId, { daily_budget: Math.round(newBudget * 100) }, "ajustar presupuesto");
+      return { ok: true, newBudget };
+    } catch (err: any) {
+      logger.warn({ err, adSetId }, "[Facebook] Error ajustando presupuesto");
+      return { ok: false };
+    }
+  }
+
   // ── Estrategias de copy por categoría ──────────────────────────────────────
 
   private getCategoryStrategy(productName: string): { hook: string; angle: string; emoji: string } {

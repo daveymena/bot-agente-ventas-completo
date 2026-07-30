@@ -233,6 +233,22 @@ export const followUps = sqliteTable("follow_ups", {
   createdAt: text("created_at").notNull().default(sql`(datetime('now'))`),
 });
 
+// ── ad_agent_logs ───────────────────────────────────────────────────────────
+export const adAgentLogs = sqliteTable("ad_agent_logs", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  tenantId: integer("tenant_id").references(() => tenants.id, { onDelete: "cascade" }),
+  campaignId: text("campaign_id").notNull(),
+  adSetId: text("ad_set_id"),
+  productName: text("product_name"),
+  checkType: text("check_type").notNull(),
+  status: text("status").notNull().default("suggested"),
+  suggestedAction: text("suggested_action"),
+  reason: text("reason").notNull(),
+  metricsSnapshot: text("metrics_snapshot"),
+  createdAt: text("created_at").notNull().default(sql`(datetime('now'))`),
+  respondedAt: text("responded_at"),
+});
+
 // ── subscriptions ────────────────────────────────────────────────────────────
 export const subscriptions = sqliteTable("subscriptions", {
   id: integer("id").primaryKey({ autoIncrement: true }),

@@ -753,4 +753,25 @@ router.post("/publish-post", async (req, res, next) => {
   } catch (e) { return next(e); }
 });
 
+// ─── Agente de crecimiento (protección de gasto + revisión de tendencia) ───
+// Asistido: solo sugiere por WhatsApp, nunca ejecuta solo. Estas rutas son
+// de lectura/consulta para el panel; la aprobación real pasa por WhatsApp.
+
+router.get("/agent/logs", async (req, res, next) => {
+  try {
+    const { adAgentLogs } = await import("@workspace/db");
+    const { desc } = await import("drizzle-orm");
+    const rows = await db.select().from(adAgentLogs).orderBy(desc(adAgentLogs.createdAt)).limit(100);
+    return res.json({ logs: rows });
+  } catch (e) { return next(e); }
+});
+
+router.post("/agent/run-now", async (req, res, next) => {
+  try {
+    const { runSpendProtectionCheck, runTrendReview } = await import("../lib/ad-growth-agent");
+    await Promise.all([runSpendProtectionCheck(), runTrendReview()]);
+    return res.json({ ok: true, message: "Revisión ejecutada -- si encontró algo, te llega por WhatsApp." });
+  } catch (e) { return next(e); }
+});
+
 export default router;

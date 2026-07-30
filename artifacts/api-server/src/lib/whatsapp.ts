@@ -773,7 +773,19 @@ export class WhatsAppManager {
             }
             
              console.log("✅ Texto extraído:", text.substring(0, 50));
-             
+
+             // Si el mensaje es del admin respondiendo una sugerencia del
+             // agente de anuncios ("sí 45" / "no 45"), se resuelve acá y NO
+             // pasa al bot de ventas -- son cosas distintas aunque lleguen
+             // por el mismo número de WhatsApp.
+             try {
+               const { handleAdminReply } = await import("./ad-growth-agent");
+               const handled = await handleAdminReply(phone, text.trim());
+               if (handled) continue;
+             } catch (err) {
+               console.error("[AdGrowthAgent] Error procesando respuesta del admin:", err);
+             }
+
              // ✅ DELEGADO AL MESSAGE HANDLER + ORCHESTRATOR
              // El MessageHandler encola el mensaje y el AgentOrchestrator lo procesa
              // Esto evita respuestas duplicadas al procesar por una sola ruta

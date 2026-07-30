@@ -92,7 +92,20 @@ interface DraftAd {
   createdAt: string;
 }
 
-type Tab = "config" | "ads" | "messenger" | "comments" | "channels" | "drafts";
+type Tab = "config" | "ads" | "messenger" | "comments" | "channels" | "drafts" | "agent";
+
+interface AgentLog {
+  id: number;
+  campaignId: string;
+  adSetId: string | null;
+  productName: string | null;
+  checkType: "spend_protection" | "trend_review";
+  status: "suggested" | "approved" | "rejected" | "auto_applied" | "no_action";
+  suggestedAction: "pause" | "resume" | "increase_budget" | "decrease_budget" | null;
+  reason: string;
+  createdAt: string;
+  respondedAt: string | null;
+}
 
 export default function FacebookAdsPage() {
   const { toast } = useToast();
@@ -126,6 +139,10 @@ export default function FacebookAdsPage() {
   const [creatingDraft, setCreatingDraft] = useState(false);
   const [creatingAllDrafts, setCreatingAllDrafts] = useState(false);
   const [selectedDraftProduct, setSelectedDraftProduct] = useState<number | null>(null);
+
+  const [agentLogs, setAgentLogs] = useState<AgentLog[]>([]);
+  const [loadingAgentLogs, setLoadingAgentLogs] = useState(false);
+  const [runningAgentNow, setRunningAgentNow] = useState(false);
 
   // Login real con Facebook (OAuth): antes la única forma de "conectar" era
   // pegar un token a mano en el campo de abajo -- si venía del Explorador de
@@ -326,6 +343,26 @@ export default function FacebookAdsPage() {
     } catch { setChannelStatus([]); }
   };
 
+  const loadAgentLogs = async () => {
+    try {
+      setLoadingAgentLogs(true);
+      const res = await apiRequest("/facebook/agent/logs");
+      setAgentLogs(res.logs || []);
+    } catch { setAgentLogs([]); }
+    finally { setLoadingAgentLogs(false); }
+  };
+
+  const runAgentNow = async () => {
+    try {
+      setRunningAgentNow(true);
+      const res = await apiRequest("/facebook/agent/run-now", { method: "POST" });
+      toast({ title: "Revisión ejecutada", description: res.message });
+      loadAgentLogs();
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
+    } finally { setRunningAgentNow(false); }
+  };
+
   const startPolling = async () => {
     try {
       await apiRequest("/facebook/channels/polling/start", { method: "POST" });
@@ -405,12 +442,14 @@ export default function FacebookAdsPage() {
     if (id === "messenger") loadPageInfo();
     if (id === "channels") loadChannelStatus();
     if (id === "drafts") loadDrafts();
+    if (id === "agent") loadAgentLogs();
   };
 
   const tabs = [
     { id: "config" as Tab, label: "Configuración", icon: Settings2, disabled: false },
     { id: "ads" as Tab, label: "Anuncios", icon: Megaphone, disabled: !connected },
     { id: "drafts" as Tab, label: "Borradores", icon: FileText, disabled: false },
+    { id: "agent" as Tab, label: "Agente IA", icon: Radio, disabled: !connected },
     { id: "messenger" as Tab, label: "Messenger", icon: MessageCircle, disabled: !connected },
     { id: "comments" as Tab, label: "Comentarios", icon: MessageSquare, disabled: !connected },
     { id: "channels" as Tab, label: "Canales", icon: Radio, disabled: false },
@@ -794,6 +833,92 @@ export default function FacebookAdsPage() {
                         <CheckCircle2 className="h-4 w-4 text-green-500" />
                         <AlertDescription>Monitoreo automático de comentarios ACTIVO (cada 60s)</AlertDescription>
                       </Alert>
+                    )}
+                  </CardContent>
+                </Card>
+              </div>
+            )}
+
+            {tab === "agent" && (
+              <div className="grid gap-6">
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2"><Radio className="h-5 w-5" /> Agente de Anuncios (asistido)</CardTitle>
+                    <CardDescription>
+                      Revisa tus campañas activas dos veces: cada hora frena las que están quemando presupuesto sin resultados,
+                      y cada 6 horas mira la tendencia de los últimos días para sugerir escalar o bajar presupuesto.
+                      Nunca ejecuta nada solo -- te manda la sugerencia por WhatsApp y espera tu aprobación.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="flex flex-wrap gap-2">
+                      <Button onClick={runAgentNow} disabled={runningAgentNow}>
+                        {runningAgentNow ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
+                        Revisar ahora
+                      </Button>
+                      <Button variant="outline" onClick={loadAgentLogs} disabled={loadingAgentLogs}>
+                        {loadingAgentLogs ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
+                        Actualizar historial
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Historial de decisiones ({agentLogs.length})</CardTitle>
+                    <CardDescription>Cada fila es una revisión: lo que encontró, qué propuso, y si la aprobaste.</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    {agentLogs.length === 0 ? (
+                      <div className="text-center text-muted-foreground py-8">
+                        <Radio className="h-10 w-10 mx-auto mb-2 opacity-50" />
+                        <p>Todavía no hay revisiones registradas.</p>
+                        <p className="text-sm">El agente corre solo cada 1h y 6h, o tocá "Revisar ahora".</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        {agentLogs.map(log => {
+                          const statusColor: Record<string, string> = {
+                            suggested: "bg-amber-500/20 text-amber-500",
+                            approved: "bg-green-500/20 text-green-500",
+                            rejected: "bg-red-500/20 text-red-500",
+                            auto_applied: "bg-blue-500/20 text-blue-500",
+                            no_action: "bg-muted text-muted-foreground",
+                          };
+                          const statusLabel: Record<string, string> = {
+                            suggested: "Esperando respuesta",
+                            approved: "Aprobado y aplicado",
+                            rejected: "Descartado",
+                            auto_applied: "Aplicado",
+                            no_action: "Sin acción",
+                          };
+                          const actionLabel: Record<string, string> = {
+                            pause: "⏸️ Pausar", resume: "▶️ Reactivar",
+                            increase_budget: "📈 Subir presupuesto", decrease_budget: "📉 Bajar presupuesto",
+                          };
+                          return (
+                            <div key={log.id} className="p-4 bg-muted rounded-lg">
+                              <div className="flex flex-wrap items-center gap-2 mb-1">
+                                <h4 className="font-semibold min-w-0 truncate">{log.productName || log.campaignId}</h4>
+                                <span className={`shrink-0 px-2 py-0.5 rounded text-xs font-medium ${statusColor[log.status] || ""}`}>
+                                  {statusLabel[log.status] || log.status}
+                                </span>
+                                <span className="shrink-0 px-2 py-0.5 rounded text-xs bg-primary/10 text-primary">
+                                  {log.checkType === "spend_protection" ? "Protección de gasto" : "Revisión de tendencia"}
+                                </span>
+                                {log.suggestedAction && (
+                                  <span className="shrink-0 text-xs text-muted-foreground">{actionLabel[log.suggestedAction]}</span>
+                                )}
+                              </div>
+                              <p className="text-sm text-muted-foreground">{log.reason}</p>
+                              <p className="text-xs text-muted-foreground mt-1">
+                                {new Date(log.createdAt).toLocaleDateString("es-CO", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}
+                              </p>
+                            </div>
+                          );
+                        })}
+                      </div>
                     )}
                   </CardContent>
                 </Card>

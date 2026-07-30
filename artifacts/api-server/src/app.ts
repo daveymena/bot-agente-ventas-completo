@@ -28,6 +28,11 @@ whatsapp.start().catch(err => {
   logger.error({ err }, "[WhatsApp] Failed to auto-start bot on boot");
 });
 
+// Auto-start del agente de crecimiento de Facebook Ads (asistido: solo
+// sugiere por WhatsApp, nunca ejecuta sin aprobación -- ver ad-growth-agent.ts)
+import { startAdGrowthAgent } from "./lib/ad-growth-agent";
+startAdGrowthAgent();
+
 // Auto-start AI Processor (Orchestrator) on boot
 import { getAgentOrchestrator } from "./lib/services/agent-orchestrator";
 import { getMessageHandler } from "./lib/services/message-handler";

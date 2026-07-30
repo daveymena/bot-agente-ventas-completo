@@ -490,5 +490,24 @@ export const ALL_TABLES = [
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       )
     `
+  },
+  {
+    name: 'ad_agent_logs',
+    sql: `
+      CREATE TABLE IF NOT EXISTS ad_agent_logs (
+        id SERIAL PRIMARY KEY,
+        tenant_id INTEGER REFERENCES tenants(id) ON DELETE CASCADE,
+        campaign_id TEXT NOT NULL,
+        ad_set_id TEXT,
+        product_name TEXT,
+        check_type TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'suggested',
+        suggested_action TEXT,
+        reason TEXT NOT NULL,
+        metrics_snapshot JSONB,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        responded_at TIMESTAMPTZ
+      )
+    `
   }
 ];
