@@ -422,7 +422,7 @@ export default function FacebookAdsPage() {
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-3xl font-bold tracking-tight">Facebook Multi-Canal</h1>
-            <p className="text-muted-foreground">Conecta todos los canales de Facebook: Ads, Messenger, Marketplace y Comentarios</p>
+            <p className="text-muted-foreground">Conecta todos los canales de Facebook: Ads, Messenger y Comentarios</p>
           </div>
         </div>
 
