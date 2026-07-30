@@ -26,8 +26,10 @@ import { db, settings as settingsTable } from "@workspace/db";
 type ProductLite = { id: number; name: string | null; description: string | null };
 
 const VARIANT_STYLES = [
-  "Clean studio product photo on a plain neutral background, professional catalog style, product clearly centered and fully visible.",
-  "Lifestyle photo showing the product being used/displayed in a realistic everyday context (desk, home, workspace as fits the product), natural lighting.",
+  // Variante 1: Mockup 3D (dispositivos) de alta conversión para productos digitales
+  "High quality 3D mockup showing this digital product displayed simultaneously on a modern MacBook Pro, an iPad Pro, and an iPhone. Professional lighting, premium digital product presentation, high contrast.",
+  // Variante 2: User Generated Content (UGC) / Realismo imperfecto para generar confianza
+  "User Generated Content (UGC) style lifestyle photo. Someone holding or using the product naturally at home or office. Shot on iPhone style, natural imperfect lighting, highly authentic, no studio perfection.",
 ];
 
 /**

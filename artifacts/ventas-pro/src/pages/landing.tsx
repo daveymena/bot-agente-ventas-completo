@@ -460,15 +460,15 @@ function ScreenAds() {
 }
 
 const SHOWCASE_SCREENS = [
-  { id: "whatsapp", label: "WhatsApp", sub: "Sofía · en línea", Component: ScreenWhatsApp, bar: "bg-[#075E54]", icon: Bot },
-  { id: "tienda", label: "Tu Tienda", sub: "Catálogo en vivo", Component: ScreenStore, bar: "bg-slate-900 dark:bg-slate-800", icon: Store },
-  { id: "panel", label: "Panel de Ventas", sub: "Métricas en tiempo real", Component: ScreenDashboard, bar: "bg-slate-900 dark:bg-slate-800", icon: LayoutDashboard },
+  { id: "whatsapp", label: "WhatsApp", sub: "Sofía · en línea", img: "/whatsapp_app.png", bar: "bg-[#075E54]", icon: Bot },
+  { id: "tienda", label: "Tu Tienda", sub: "Catálogo en vivo", img: "/store_app.png", bar: "bg-slate-900 dark:bg-slate-800", icon: Store },
+  { id: "panel", label: "Panel de Ventas", sub: "Métricas en tiempo real", img: "/dashboard_app.png", bar: "bg-slate-900 dark:bg-slate-800", icon: LayoutDashboard },
   { id: "ads", label: "Marketing IA", sub: "Facebook Ads automático", Component: ScreenAds, bar: "bg-blue-600", icon: Wand2 },
 ];
 
 // ─── El "video interactivo" del hero: un mockup de teléfono que va rotando
 // solo entre las 4 pantallas del producto (WhatsApp, tienda, panel, ads) --
-// en vez de una sola captura fija, muestra el ecosistema completo en acción.
+// en vez de una sola captura fija, muestra el ecosistema completo en acción con imágenes fotorealistas.
 function ProductShowcase() {
   const [active, setActive] = useState(0);
   useEffect(() => {
@@ -494,7 +494,7 @@ function ProductShowcase() {
             <p className="text-[11px] text-white/70 leading-tight">{screen.sub}</p>
           </div>
         </div>
-        <div className="h-80 sm:h-96">
+        <div className="h-80 sm:h-96 relative">
           <AnimatePresence mode="wait">
             <motion.div
               key={screen.id}
@@ -502,9 +502,13 @@ function ProductShowcase() {
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: -24 }}
               transition={{ duration: 0.35 }}
-              className="h-full"
+              className="h-full w-full absolute inset-0"
             >
-              <screen.Component />
+              {screen.img ? (
+                <img src={screen.img} alt={screen.label} className="w-full h-full object-cover" />
+              ) : (
+                screen.Component && <screen.Component />
+              )}
             </motion.div>
           </AnimatePresence>
         </div>
@@ -655,10 +659,11 @@ export default function LandingPage() {
             initial={{ opacity: 0, scale: 0.92, y: 20 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             transition={{ duration: 0.6, delay: 0.15 }}
-            className="flex items-center justify-center lg:justify-end gap-2"
+            className="flex items-center justify-center lg:justify-end gap-2 w-full"
           >
-            <PersonWithPhone className="hidden lg:block w-36 h-40 shrink-0 opacity-90" />
-            <ProductShowcase />
+            <div className="w-full max-w-md">
+              <ProductShowcase />
+            </div>
           </motion.div>
         </div>
       </section>

@@ -59,7 +59,7 @@ export function AppSidebar() {
 ];
 
   return (
-    <Sidebar className="border-r border-sidebar-border bg-sidebar text-sidebar-foreground">
+    <Sidebar className="border-r border-sidebar-border bg-sidebar/80 backdrop-blur-xl text-sidebar-foreground">
       <SidebarHeader className="flex h-16 items-center border-b border-sidebar-border px-5">
         <Link href="/" className="flex items-center transition-all duration-300 hover:scale-[1.02] group">
           {/* Logo optimizado para sidebar oscuro */}
@@ -149,7 +149,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
       <div className="flex h-screen w-full bg-background relative overflow-x-hidden text-foreground">
         {!isMobile && <AppSidebar />}
         <div className="flex flex-1 flex-col w-full min-w-0 relative z-10">
-          <header className="flex h-14 sm:h-16 items-center gap-4 border-b border-border bg-card px-3 sm:px-4 md:px-6 sticky top-0 z-20">
+          <header className="flex h-14 sm:h-16 items-center gap-4 border-b border-border/50 bg-card/60 backdrop-blur-xl px-3 sm:px-4 md:px-6 sticky top-0 z-20 shadow-sm">
             {!isMobile && <SidebarTrigger className="hover:bg-primary/10 rounded-xl w-9 h-9 sm:w-10 sm:h-10 flex items-center justify-center transition-all text-primary shrink-0" />}
             <div className="flex-1 min-w-0" />
             <div className="flex items-center gap-2">

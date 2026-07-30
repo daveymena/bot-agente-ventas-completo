@@ -6,6 +6,8 @@ import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Bot, Send, User, Loader2, Sparkles, Check, X, Wrench, MessageSquare, Paperclip, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 type Mode = "operator" | "agent";
 
@@ -99,7 +101,7 @@ export default function CodeAgent() {
       });
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || "Error al subir");
       const data = await res.json();
-      setInput((prev) => (prev ? prev + " " : "") + `Usa esta imagen: ${data.url}`);
+      setInput((prev) => (prev ? prev + "\n\n" : "") + `Usa esta imagen:\n![Imagen subida](${data.url})`);
       toast.success("Imagen subida ✓ — dime a qué producto asignarla");
     } catch (err: any) {
       toast.error(err.message || "No se pudo subir la imagen");
@@ -217,9 +219,12 @@ export default function CodeAgent() {
                             : "bg-muted/50 rounded-bl-md border border-border"
                         }`}
                       >
-                        {/* break-words + overflow-wrap:anywhere: las respuestas traen URLs
-                            largas (/uploads/...) que sin esto no se pueden partir */}
-                        <p className="text-sm md:text-base whitespace-pre-wrap break-words [overflow-wrap:anywhere] leading-relaxed">{msg.content}</p>
+                        {/* break-words + overflow-wrap:anywhere: las respuestas traen URLs largas que sin esto no se pueden partir */}
+                        <div className="text-sm md:text-base prose prose-sm md:prose-base dark:prose-invert prose-p:leading-relaxed max-w-none break-words [overflow-wrap:anywhere] prose-img:rounded-lg prose-img:shadow-sm prose-a:text-indigo-500 hover:prose-a:text-indigo-600 prose-a:break-all">
+                          <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                            {msg.content}
+                          </ReactMarkdown>
+                        </div>
                       </div>
 
                       {msg.actions && msg.actions.length > 0 && (

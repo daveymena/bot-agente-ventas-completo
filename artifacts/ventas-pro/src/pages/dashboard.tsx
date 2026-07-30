@@ -15,6 +15,7 @@ import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
 import { SaasStatusBanner } from "@/components/saas-status-banner";
 import { MobileDashboard } from "@/components/mobile-dashboard";
+import { motion } from "framer-motion";
 
 function MetricCard({ title, value, icon: Icon, description, className = "" }: { title: string, value: string | number, icon: any, description?: string, className?: string }) {
   return (
@@ -50,15 +51,25 @@ export default function Dashboard() {
     query: { queryKey: getGetMessagesTimelineQueryKey(), refetchInterval: 5000 }
   });
 
+const containerVariants = {
+  hidden: { opacity: 0 },
+  show: { opacity: 1, transition: { staggerChildren: 0.1 } }
+};
+
+const itemVariants = {
+  hidden: { opacity: 0, y: 15 },
+  show: { opacity: 1, y: 0, transition: { duration: 0.4, ease: "easeOut" } }
+};
+
   return (
     <Layout>
-      <div className="flex flex-col gap-8 animate-enter">
+      <motion.div variants={containerVariants} initial="hidden" animate="show" className="flex flex-col gap-8">
         
         {/* SaaS Status Banner */}
-        <SaasStatusBanner />
+        <motion.div variants={itemVariants}><SaasStatusBanner /></motion.div>
         
         {/* Hero Section */}
-        <div className="flex flex-col md:flex-row gap-6 md:items-end justify-between bg-card border border-border p-6 md:p-7 rounded-xl shadow-xs">
+        <motion.div variants={itemVariants} className="flex flex-col md:flex-row gap-6 md:items-end justify-between glass-panel p-6 md:p-7 rounded-xl shadow-md border-0">
           <div>
             <h1 className="text-2xl font-semibold tracking-tight">Hola, bienvenido de nuevo</h1>
             <p className="text-muted-foreground mt-1.5 mb-5">Aquí está el resumen de tu operación en WhatsApp.</p>
@@ -94,41 +105,45 @@ export default function Dashboard() {
               <Smartphone className="h-4 w-4" /> Conectar WhatsApp
             </Link>
           </div>
-        </div>
+        </motion.div>
 
         {/* Mobile Dashboard */}
-        <MobileDashboard summary={summary ?? undefined} />
+        <motion.div variants={itemVariants}>
+          <MobileDashboard summary={summary ?? undefined} />
+        </motion.div>
 
         {/* Main KPIs */}
         {loadingSummary ? (
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-            {Array(4).fill(0).map((_, i) => <Skeleton key={i} className="h-36 w-full rounded-2xl" />)}
-          </div>
+          <motion.div variants={itemVariants} className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+            {Array(4).fill(0).map((_, i) => <Skeleton key={i} className="h-36 w-full rounded-2xl glass-card border-0" />)}
+          </motion.div>
         ) : summary ? (
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+          <motion.div variants={itemVariants} className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
             <MetricCard
               title="Ingresos del Mes"
               value={`$${(summary?.totalRevenue ?? 0).toLocaleString()}`}
               icon={DollarSign}
               description="Basado en tratos ganados"
+              className="glass-card border-0"
             />
-            <MetricCard title="Total Prospectos" value={summary?.totalLeads ?? 0} icon={Users} />
-            <MetricCard title="Conversaciones Activas" value={summary?.activeConversations ?? 0} icon={MessageSquare} />
+            <MetricCard title="Total Prospectos" value={summary?.totalLeads ?? 0} icon={Users} className="glass-card border-0" />
+            <MetricCard title="Conversaciones Activas" value={summary?.activeConversations ?? 0} icon={MessageSquare} className="glass-card border-0" />
             <MetricCard
               title="Tratos Ganados"
               value={summary?.closedDeals ?? 0}
               icon={CheckCircle}
+              className="glass-card border-0"
             />
-          </div>
+          </motion.div>
         ) : null}
 
         {/* Secondary KPIs */}
         {loadingSummary ? (
-          <div className="grid gap-4 md:grid-cols-3">
-            {Array(3).fill(0).map((_, i) => <Skeleton key={i} className="h-24 w-full rounded-2xl" />)}
-          </div>
+          <motion.div variants={itemVariants} className="grid gap-4 md:grid-cols-3">
+            {Array(3).fill(0).map((_, i) => <Skeleton key={i} className="h-24 w-full rounded-2xl glass-panel border-0" />)}
+          </motion.div>
         ) : summary ? (
-          <div className="grid gap-4 md:grid-cols-3">
+          <motion.div variants={itemVariants} className="grid gap-4 md:grid-cols-3">
             <Card className="glass-panel">
               <CardContent className="p-4 flex items-center gap-4">
                 <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center text-primary">
@@ -162,11 +177,11 @@ export default function Dashboard() {
                 </div>
               </CardContent>
             </Card>
-          </div>
+          </motion.div>
         ) : null}
 
         {/* Charts Section */}
-        <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-7">
+        <motion.div variants={itemVariants} className="grid gap-6 md:grid-cols-2 lg:grid-cols-7">
           <Card className="col-span-4 glass-panel border-0 shadow-md">
             <CardHeader className="pb-2">
               <CardTitle className="text-lg">Volumen de Mensajes</CardTitle>
@@ -261,9 +276,10 @@ export default function Dashboard() {
               )}
             </CardContent>
           </Card>
-        </div>
+        </motion.div>
 
         {/* Recent Activity */}
+        <motion.div variants={itemVariants}>
         <Card className="glass-panel border-0 shadow-md">
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <div>
@@ -317,7 +333,8 @@ export default function Dashboard() {
             )}
           </CardContent>
         </Card>
-      </div>
+        </motion.div>
+      </motion.div>
     </Layout>
   );
 }

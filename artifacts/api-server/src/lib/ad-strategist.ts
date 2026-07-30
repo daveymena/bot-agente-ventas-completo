@@ -281,21 +281,17 @@ export class AdStrategist {
       ? features.slice(0, 3).join(" • ")
       : "📥 Descarga directa • 💾 Acceso permanente • 🔄 Actualizaciones incluidas";
 
+    // Formato PAS (Problem - Agitate - Solve) de alta conversión (2025)
     const primaryText = `${strategy.hook}
 
-━━━━━━━━━━━━━━━━━━━━━━
-📦 ${name}
-━━━━━━━━━━━━━━━━━━━━━━
-
-${descLine}
+Si no tomas acción hoy, seguirás perdiendo tiempo y dinero con métodos que no funcionan.
+Este contenido digital es tu atajo directo a resultados profesionales.
 
 ✅ ${featuresLine}
-✅ Pago ÚNICO — Nada de suscripciones ni mensualidades
-✅ Descarga inmediata — Recibes todo al instante
-✅ Garantía de 7 días — O te devolvemos tu dinero
+✅ Pago único de $${priceFormatted} ${currency} (Cero mensualidades)
+✅ Acceso inmediato y permanente
 
-💳 Paga en ${currency}: Nequi, Daviplata, Mercado Pago
-🔥 Solo $${priceFormatted} ${currency} — Un solo pago y es tuyo para siempre`;
+👇 Haz clic abajo para descargar todo el contenido ahora.`;
 
     const getEmoji = () => {
       const n = name.toLowerCase();
@@ -312,6 +308,9 @@ ${descLine}
       return "🔥";
     };
 
+    // Headline corto (< 40 chars): emoji de categoría + nombre real del
+    // producto. (Antes decía "+15.000 Alumnos" fijo en TODOS los anuncios --
+    // una cifra sin respaldo real, se sacó.)
     const headline = `${getEmoji()} ${name.replace(/^📂\s*/, "").substring(0, 35)}`;
     const description = `$${priceFormatted} ${currency} • Pago único • Acceso permanente`;
 
