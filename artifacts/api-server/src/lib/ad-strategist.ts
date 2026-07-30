@@ -3,6 +3,7 @@ import { db, products, productCategories, facebookDrafts } from "@workspace/db";
 import { eq, desc } from "drizzle-orm";
 import { tenantManager, type TenantContext } from "./tenantManager";
 import { resolveInterestIds } from "./facebook";
+import { generateProductImage } from "./ai-product-image";
 
 const FB_GRAPH_URL = "https://graph.facebook.com/v21.0";
 
@@ -411,15 +412,33 @@ ${descLine}
         imageUrl = `${appUrl.replace(/\/+$/, "")}/${raw.replace(/^\/+/, "")}`;
       }
     }
-    // Si no hay foto real del producto, se cae al placeholder gris con el
-    // nombre -- útil para no bloquear el borrador, pero NO es una foto real
-    // del curso. Este flag decide más abajo qué mejoras de Meta se activan:
-    // recortar/expandir o generar fondo sobre un cartel de texto genérico no
-    // tiene sentido y puede terminar pareciendo todavía menos al producto.
-    const hasRealProductImage = !!imageUrl;
+    // Este flag decide más abajo qué mejoras de Meta se activan: recortar/
+    // expandir o generar fondo sobre un cartel de texto genérico no tiene
+    // sentido y puede terminar pareciendo todavía menos al producto.
+    let hasRealProductImage = !!imageUrl;
+
+    // Sin foto real del producto: antes de caer al cartel de texto gris, se
+    // intenta generar una con IA a partir del nombre y la descripción REALES
+    // del producto (no un estilo genérico por nicho) -- así corresponde al
+    // curso, no a una foto de stock cualquiera. Se guarda como archivo real
+    // (no data: URI) y se persiste en el producto para no regenerarla cada
+    // vez que se cree un anuncio, y para que también se vea en la tienda.
+    if (!imageUrl) {
+      const generatedPath = await generateProductImage({ id: product.id, name: product.name, description: product.description });
+      if (generatedPath) {
+        const appUrl = process.env.APP_URL || "https://tecnovariedades.easypanel.host";
+        if (/^https:\/\//i.test(appUrl)) {
+          imageUrl = `${appUrl.replace(/\/+$/, "")}/${generatedPath.replace(/^\/+/, "")}`;
+          hasRealProductImage = true;
+          await db.update(products).set({ imageUrl: generatedPath }).where(eq(products.id, product.id));
+          logger.info({ productId: product.id }, "[AdStrategist] Foto generada con IA para el anuncio (el producto no tenía ninguna)");
+        }
+      }
+    }
+
     if (!imageUrl) {
       imageUrl = `https://placehold.co/1200x628/1A365D/FFFFFF?text=${encodeURIComponent((product.name || "").substring(0, 30))}`;
-      logger.warn({ productId: product.id, raw, appUrl: process.env.APP_URL }, "[AdStrategist] Sin imagen absoluta — usando placeholder (el anuncio no representará el producto real hasta que se le cargue una foto)");
+      logger.warn({ productId: product.id, raw, appUrl: process.env.APP_URL }, "[AdStrategist] Sin imagen absoluta y no se pudo generar una — usando placeholder (el anuncio no representará el producto real hasta que se le cargue una foto)");
     }
 
     // Por defecto NO se crean campañas en la cuenta publicitaria de Meta: sin

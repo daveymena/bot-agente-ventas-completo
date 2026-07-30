@@ -15,6 +15,7 @@ import { getSmartColumnMapping, processRowsWithMapping } from "../lib/smartImpor
 import { sendError } from "../lib/error-handler";
 import { ERROR_CODES } from "../lib/error-codes";
 import { logger } from "../lib/logger";
+import { saveProductImage } from "../lib/image-store";
 import type { TenantRequest } from "../lib/tenantManager";
 
 const router = Router();
@@ -47,6 +48,7 @@ router.post("/", async (req: TenantRequest, res, next) => {
        req.body.price = String(req.body.price);
      }
      const body = CreateProductBody.parse(req.body);
+     const rawImageUrl = (body as any).imageUrl ?? null;
      const [created] = await db
        .insert(products)
        .values({
@@ -59,7 +61,14 @@ router.post("/", async (req: TenantRequest, res, next) => {
          categoryId: (body as any).categoryId ?? null,
          category: null,
          kind: body.kind ?? "digital",
-         imageUrl: (body as any).imageUrl ?? null,
+         // Si viene un data: URI (foto generada con IA en el editor) se
+         // guarda tal cual por ahora -- se reemplaza por el archivo real
+         // abajo, una vez que existe el id. Guardar el base64 crudo en la
+         // columna hincha la tabla y, peor, ad-strategist.ts/facebook.ts no
+         // lo reconocen como URL (no empieza con http) ni como ruta relativa
+         // -- terminaba armando una URL rota tipo ".../data:image/png..." y
+         // el anuncio salía con imagen inválida.
+         imageUrl: rawImageUrl,
          highlight: (body as any).highlight ?? null,
          features: (body as any).features ?? [],
          isActive: (body as any).isActive ?? true,
@@ -67,7 +76,17 @@ router.post("/", async (req: TenantRequest, res, next) => {
          deliveryLink: (body as any).deliveryLink ?? null,
        })
        .returning();
-     return res.json(serialize(created!));
+
+     let finalProduct = created!;
+     if (rawImageUrl && rawImageUrl.startsWith("data:")) {
+       const savedPath = await saveProductImage(rawImageUrl, created!.id);
+       if (savedPath) {
+         [finalProduct] = await db.update(products).set({ imageUrl: savedPath }).where(eq(products.id, created!.id)).returning();
+       } else {
+         logger.warn({ productId: created!.id }, "[Products] No se pudo persistir la imagen generada por IA a disco");
+       }
+     }
+     return res.json(serialize(finalProduct));
   } catch (e) {
     return next(e);
   }
@@ -84,9 +103,17 @@ router.patch("/:id", async (req: TenantRequest, res, next) => {
       req.body.price = String(req.body.price);
     }
     const body = UpdateProductBody.parse(req.body);
-    
+
     const update: Record<string, unknown> = { ...body };
     if (body.price !== undefined) update.price = String(body.price);
+    // Misma conversión que en POST /: un data: URI (imagen recién generada
+    // con IA) se persiste a disco y se reemplaza por la ruta real antes de
+    // guardar -- ver el comentario en el create de arriba.
+    if (typeof (body as any).imageUrl === "string" && (body as any).imageUrl.startsWith("data:")) {
+      const savedPath = await saveProductImage((body as any).imageUrl, id);
+      if (savedPath) update.imageUrl = savedPath;
+      else logger.warn({ productId: id }, "[Products] No se pudo persistir la imagen generada por IA a disco");
+    }
 
     const [updated] = await db
       .update(products)

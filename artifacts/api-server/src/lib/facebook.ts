@@ -312,14 +312,35 @@ Responde SOLO con este JSON exacto:
       // Además Facebook descarga la imagen desde SUS servidores, así que una
       // ruta relativa (/images/products/41.jpg) no le sirve -- hay que
       // convertirla a URL absoluta con APP_URL, igual que en Marketplace.
-      const absoluteProductImage = absoluteImageUrl(product.imageUrl) || "";
-      const creativeImageUrl = absoluteProductImage || this.generatePlaceholderUrl(product.name);
+      let creativeImageUrl = absoluteImageUrl(product.imageUrl) || "";
+      let hasRealProductImage = !!creativeImageUrl;
+
+      // Sin foto real: se intenta generar una con IA (nombre + descripción
+      // reales del producto, no un estilo genérico) antes de caer al cartel
+      // de texto placeholder -- mismo mecanismo que ad-strategist.ts, ver
+      // lib/ai-product-image.ts. Se persiste en el producto para no
+      // regenerarla en cada anuncio.
+      if (!creativeImageUrl) {
+        const { generateProductImage } = await import("./ai-product-image");
+        const generatedPath = await generateProductImage({ id: product.id, name: product.name, description: product.description });
+        if (generatedPath) {
+          const absolute = absoluteImageUrl(generatedPath);
+          if (absolute) {
+            creativeImageUrl = absolute;
+            hasRealProductImage = true;
+            await db.update(products).set({ imageUrl: generatedPath }).where(eq(products.id, product.id));
+            logger.info({ productId: product.id }, "[Facebook] Foto generada con IA para el anuncio (el producto no tenía ninguna)");
+          }
+        }
+      }
+      if (!creativeImageUrl) {
+        creativeImageUrl = this.generatePlaceholderUrl(product.name);
+      }
       // Igual que en ad-strategist.ts: las mejoras de Meta que ALTERAN la
       // imagen (recorte/expansión, brillo y contraste) solo tienen sentido
       // si hay una foto real del producto. Aplicarlas sobre el cartel de
       // texto placeholder no mejora nada -- puede terminar generando un
       // fondo que se parece todavía menos al curso real.
-      const hasRealProductImage = !!absoluteProductImage;
 
       // Campaña.
       // special_ad_categories: [] daba error 100 / subcódigo 4834011 --
