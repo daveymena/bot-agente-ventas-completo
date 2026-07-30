@@ -414,7 +414,13 @@ Responde SOLO con este JSON exacto:
         object_story_spec: {
           page_id: this.config.pageId,
           link_data: {
-            link: `${process.env.APP_URL || "https://tecnovariedades.easypanel.host"}/productos/${product.id}`,
+            // Bug: /productos/:id no existe en ningún router (ni el SPA del
+            // dashboard ni la tienda pública) -- todo anuncio creado desde
+            // esta pestaña llevaba a un 404. /p/:id es el short-link real
+            // (app.ts) que resuelve el tenant y redirige a
+            // /tienda/:slug/producto/:id -- el mismo que ya usa
+            // ad-strategist.ts para los borradores.
+            link: `${process.env.APP_URL || "https://tecnovariedades.easypanel.host"}/p/${product.id}`,
             message: adCopy.primaryText,
             name: adCopy.headline,
             description: adCopy.description,
@@ -655,15 +661,20 @@ Debes responder SOLO con este JSON (sin markdown, sin acentos en las claves):
     for (const p of activeProducts) {
       try {
         const existing = await this.findInCatalog(p.id);
+        // Mismos dos bugs que en createAdForProduct: p.image_url no existe
+        // (la columna es imageUrl) y /productos/:id no es una ruta real --
+        // ambos dejaban el catálogo con productos sin imagen y con un link
+        // roto en cada anuncio dinámico/shopping generado desde él.
+        const absoluteImage = absoluteImageUrl(p.imageUrl);
         const data = {
           title: p.name,
           description: (p.description || "").substring(0, 5000),
           price: `${Number(p.price).toFixed(0)}_COP`,
           currency: "COP",
-          image_url: p.image_url || "",
+          image_url: absoluteImage || "",
           product_type: p.category || "Digital",
           sku: `PROD-${p.id}`,
-          url: `${process.env.APP_URL || ""}/productos/${p.id}`,
+          url: `${process.env.APP_URL || ""}/p/${p.id}`,
         };
         if (existing) {
           await this.fbPost(existing.id, data);
