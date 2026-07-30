@@ -18,6 +18,29 @@ function absoluteImageUrl(pathOrUrl?: string | null): string | null {
   return `${appUrl.replace(/\/+$/, "")}/${pathOrUrl.replace(/^\/+/, "")}`;
 }
 
+/** Busca cada nombre de interés en la taxonomía real de intereses de
+ * Facebook (Graph API /search?type=adinterest) y devuelve solo los que
+ * existen, con su ID verdadero. Un interés mandado sin ID (o con uno
+ * inventado) no segmenta nada -- Graph API lo ignora en silencio y el
+ * anuncio sale con audiencia amplia aunque el panel muestre nombres de
+ * "intereses aplicados". Compartido entre FacebookService (Anuncios) y
+ * AdStrategist (Borradores), que tenían el mismo bug cada uno por su lado. */
+export async function resolveInterestIds(accessToken: string, names: string[]): Promise<Array<{ id: string; name: string }>> {
+  const resolved: Array<{ id: string; name: string }> = [];
+  for (const name of names) {
+    try {
+      const params = new URLSearchParams({ type: "adinterest", q: name, limit: "1", access_token: accessToken });
+      const res = await fetch(`${FB_GRAPH_URL}/search?${params}`, { signal: AbortSignal.timeout(10000) });
+      const data: any = await res.json();
+      const match = data?.data?.[0];
+      if (match?.id) resolved.push({ id: match.id, name: match.name || name });
+    } catch (err: any) {
+      logger.warn({ err, name }, "[Facebook] No se pudo resolver el interés en la taxonomía de Facebook");
+    }
+  }
+  return resolved;
+}
+
 export interface FacebookConfig {
   accessToken: string;
   pixelId: string;
@@ -165,11 +188,24 @@ export class FacebookService {
 
       // Intentar generar audiencia con IA
       const aiAudience = await this.generateAudienceWithAI(product, profile);
-      return aiAudience || {
+      const result = aiAudience || {
         description: profile.description,
         targeting,
         rationale: `Perfil por defecto para categoría "${product.category || "General"}": ${profile.description}`,
       };
+
+      // Bug real: tanto los intereses por categoría como los que genera la
+      // IA salían con id: "" -- Facebook exige el ID numérico de su propia
+      // taxonomía de intereses para segmentar, un nombre suelto no sirve y
+      // lo ignora en silencio. El anuncio se creaba igual pero SIN
+      // segmentar por interés (audiencia amplia), aunque el panel mostrara
+      // nombres de intereses "aplicados". Se resuelven acá contra la Graph
+      // API de búsqueda de intereses antes de devolver la sugerencia.
+      if (result.targeting.interests?.length) {
+        result.targeting.interests = await resolveInterestIds(this.config.accessToken, result.targeting.interests.map(i => i.name));
+      }
+
+      return result;
     } catch (err: any) {
       logger.error({ err, productId }, "[Facebook] Error sugiriendo audiencia");
       return null;

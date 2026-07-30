@@ -2,6 +2,7 @@ import { logger } from "./logger";
 import { db, products, productCategories, facebookDrafts } from "@workspace/db";
 import { eq, desc } from "drizzle-orm";
 import { tenantManager, type TenantContext } from "./tenantManager";
+import { resolveInterestIds } from "./facebook";
 
 const FB_GRAPH_URL = "https://graph.facebook.com/v21.0";
 
@@ -464,6 +465,12 @@ ${descLine}
       // evento LEAD, si no, se cae a LINK_CLICKS.
       const pixelId = this.tenant.facebook?.pixelId || process.env.FB_PIXEL_ID || "";
       const hasUsablePixel = pixelId ? await this.pixelBelongsToAccount(act, accessToken, pixelId) : false;
+      // Mismo bug que en facebook.ts: mandar intereses sin ID real de la
+      // taxonomía de Facebook hace que Graph API los ignore en silencio --
+      // el borrador salía con audiencia amplia aunque mostrara "intereses
+      // aplicados". Se resuelven contra la búsqueda real antes de armar el
+      // targeting.
+      const resolvedInterests = await resolveInterestIds(accessToken, strategy.interests);
       const adSetBody: Record<string, any> = {
         name: `[BORRADOR] ${product.name} - Conjunto`,
         campaign_id: campaign.id,
@@ -472,7 +479,7 @@ ${descLine}
           geo_locations: { countries: ["CO"] },
           age_min: strategy.ageMin,
           age_max: strategy.ageMax,
-          interests: strategy.interests.map(name => ({ name })),
+          ...(resolvedInterests.length > 0 ? { flexible_spec: [{ interests: resolvedInterests }] } : {}),
           publisher_platforms: ["facebook", "instagram"],
           facebook_positions: ["feed", "story", "marketplace", "reels"],
           instagram_positions: ["stream", "story", "reels"],
