@@ -19,7 +19,7 @@
 import { generateImageBuffer, getProviderConfigFromSettings, getProviderConfig, createAIClient } from "@workspace/integrations-openai-ai-server";
 import { getG4FImage } from "./providers/g4f-provider";
 import { G4F_ENABLED } from "../config/g4f.config";
-import { saveProductImage } from "./image-store";
+import { saveProductImage, saveProductImageVariant } from "./image-store";
 import { logger } from "./logger";
 import { db, settings as settingsTable } from "@workspace/db";
 
@@ -29,6 +29,19 @@ const VARIANT_STYLES = [
   "Clean studio product photo on a plain neutral background, professional catalog style, product clearly centered and fully visible.",
   "Lifestyle photo showing the product being used/displayed in a realistic everyday context (desk, home, workspace as fits the product), natural lighting.",
 ];
+
+/**
+ * Construye una URL de Pollinations.ai para generar una imagen de producto.
+ * Pollinations es una API pública totalmente gratuita (sin key, sin registro)
+ * que sirve imágenes generadas por FLUX desde una URL directa.
+ * Usar seed distinta por variante garantiza imágenes diferentes del mismo prompt.
+ */
+function buildPollinationsUrl(prompt: string, seed: number): string {
+  const encoded = encodeURIComponent(prompt);
+  // width=1080&height=1080: formato cuadrado, válido para feed e historias de
+  // Facebook/Instagram sin recortar. nologo=true elimina la marca de agua.
+  return `https://image.pollinations.ai/prompt/${encoded}?width=1080&height=1080&seed=${seed}&nologo=true&model=flux&enhance=true`;
+}
 
 function buildPrompt(product: ProductLite, variantIndex: number): string {
   const name = (product.name || "").trim();
@@ -41,7 +54,7 @@ function buildPrompt(product: ProductLite, variantIndex: number): string {
   );
 }
 
-async function generateOneImage(prompt: string, productId: number): Promise<string | null> {
+async function generateOneImage(prompt: string, productId: number, seed?: number): Promise<string | null> {
   if (process.env.AI_INTEGRATIONS_OPENAI_API_KEY) {
     try {
       const buffer = await generateImageBuffer(prompt, "1024x1024");
@@ -61,6 +74,16 @@ async function generateOneImage(prompt: string, productId: number): Promise<stri
     } catch (err) {
       logger.warn({ err, productId }, "[AiProductImage] G4F también falló");
     }
+  }
+  // Fallback gratuito: Pollinations.ai (sin API key, sin registro).
+  // Devuelve la URL directa -- saveProductImage/saveProductImageVariant la
+  // descargan y guardan en disco igual que cualquier otra URL http.
+  try {
+    const pollinationsUrl = buildPollinationsUrl(prompt, seed ?? Math.floor(Math.random() * 99999));
+    logger.info({ productId, pollinationsUrl }, "[AiProductImage] Usando Pollinations.ai como generador gratuito");
+    return pollinationsUrl;
+  } catch (err) {
+    logger.warn({ err, productId }, "[AiProductImage] Pollinations también falló");
   }
   return null;
 }
@@ -118,7 +141,9 @@ async function judgeBestCandidate(product: ProductLite, candidates: string[]): P
  */
 export async function generateProductImage(product: ProductLite): Promise<string | null> {
   const prompts = [buildPrompt(product, 0), buildPrompt(product, 1)];
-  const results = await Promise.all(prompts.map(p => generateOneImage(p, product.id)));
+  // Seeds fijas para que la imagen principal del producto sea reproducible
+  // (si se regenera, sale igual -- no un resultado aleatorio cada vez).
+  const results = await Promise.all(prompts.map((p, i) => generateOneImage(p, product.id, i * 1000 + product.id)));
   const candidates = results.filter((r): r is string => !!r);
 
   if (candidates.length === 0) {
@@ -134,4 +159,70 @@ export async function generateProductImage(product: ProductLite): Promise<string
     logger.warn({ productId: product.id }, "[AiProductImage] La imagen ganadora se generó pero no se pudo guardar en disco");
   }
   return savedPath;
+}
+
+/**
+ * Genera 2-3 variantes de imagen para un producto y devuelve las rutas
+ * públicas de TODAS las que pasen el filtro de coherencia de visión.
+ *
+ * Diferencia clave con generateProductImage(): en vez de elegir una sola
+ * ganadora y tirar el resto, guarda TODAS las candidatas con nombres
+ * distintos ({id}-v0.jpg, {id}-v1.jpg, ...) para que puedan usarse juntas
+ * en asset_feed_spec de Meta -- así el algoritmo de Meta elige cuál imagen
+ * convierte mejor con datos reales de audiencia, en vez de elegir nosotros
+ * a priori.
+ *
+ * La primera ruta del array corresponde siempre a la imagen que el juez
+ * de visión consideró la mejor (queda como imagen principal del producto).
+ * Las siguientes son las alternativas que superaron el filtro de coherencia.
+ *
+ * Si no hay ningún proveedor disponible o ninguna candidata supera el
+ * filtro, devuelve [] (el llamador debe caer a la imagen existente o al
+ * placeholder).
+ */
+export async function generateProductImageVariants(
+  product: ProductLite,
+  appUrl: string,
+): Promise<string[]> {
+  const prompts = [buildPrompt(product, 0), buildPrompt(product, 1)];
+  // Seeds distintas por variante garantizan imágenes diferentes incluso
+  // cuando el proveedor es Pollinations.ai (mismo prompt = misma imagen
+  // si la seed es igual). El product.id como base hace que las seeds sean
+  // estables por producto pero distintas entre productos.
+  const rawResults = await Promise.all(
+    prompts.map((p, i) => generateOneImage(p, product.id, product.id * 10 + i))
+  );
+  const candidates = rawResults.filter((r): r is string => !!r);
+
+  if (candidates.length === 0) {
+    logger.warn({ productId: product.id }, "[AiProductImage] Ningún proveedor de imagen disponible para variantes");
+    return [];
+  }
+
+  // El juez de visión devuelve el índice de la mejor candidata.
+  // Las demás también se guardan (pasaron la generación; si hay solo una,
+  // no hay nada que filtrar). En el futuro se puede agregar un chequeo
+  // de coherencia individual ("corresponde este producto?") por candidata.
+  const winnerIndex = await judgeBestCandidate(product, candidates);
+
+  // Reordenar: la ganadora va primero para que sea la imagen principal.
+  const ordered = [
+    candidates[winnerIndex]!,
+    ...candidates.filter((_, i) => i !== winnerIndex),
+  ];
+
+  const publicPaths: string[] = [];
+  for (let i = 0; i < ordered.length; i++) {
+    const path = await saveProductImageVariant(ordered[i]!, product.id, i);
+    if (path) {
+      const base = appUrl.replace(/\/+$/, "");
+      publicPaths.push(`${base}/${path.replace(/^\/+/, "")}`);
+    }
+  }
+
+  logger.info(
+    { productId: product.id, generated: candidates.length, saved: publicPaths.length },
+    "[AiProductImage] Variantes generadas para asset_feed_spec"
+  );
+  return publicPaths;
 }

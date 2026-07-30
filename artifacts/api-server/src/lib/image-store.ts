@@ -110,3 +110,42 @@ export async function saveProductImage(source: string, productId: number): Promi
     return null;
   }
 }
+
+/**
+ * Guarda una variante numerada de imagen de producto en disco.
+ * Permite almacenar varias versiones generadas por IA con nombres distintos
+ * ({productId}-v0.jpg, {productId}-v1.jpg, ...) para usarlas en asset_feed_spec
+ * de Meta sin sobreescribir la imagen principal del producto.
+ * Devuelve la ruta pública servible, o null si falla.
+ */
+export async function saveProductImageVariant(source: string, productId: number, variantIndex: number): Promise<string | null> {
+  try {
+    source = resolveImageSource(source);
+    let buffer: Buffer;
+    if (source.startsWith("data:")) {
+      const b64 = source.split(",")[1] || "";
+      buffer = Buffer.from(b64, "base64");
+    } else if (/^https?:\/\//i.test(source)) {
+      const res = await fetch(source, {
+        headers: { "User-Agent": "Mozilla/5.0" },
+        redirect: "follow",
+        signal: AbortSignal.timeout(20000),
+      });
+      if (!res.ok) return null;
+      buffer = Buffer.from(await res.arrayBuffer());
+    } else {
+      return null;
+    }
+    if (buffer.length < 100) return null;
+
+    const dir = path.join(getImageStoreDir(), "products");
+    await mkdir(dir, { recursive: true });
+    const filename = `${productId}-v${variantIndex}.jpg`;
+    await writeFile(path.join(dir, filename), buffer);
+    logger.info({ productId, variantIndex, bytes: buffer.length }, "[ImageStore] Variante guardada en volumen");
+    return `/uploads/products/${filename}?v=${Date.now()}`;
+  } catch (e: any) {
+    logger.error({ err: e?.message, productId, variantIndex }, "[ImageStore] Error guardando variante");
+    return null;
+  }
+}

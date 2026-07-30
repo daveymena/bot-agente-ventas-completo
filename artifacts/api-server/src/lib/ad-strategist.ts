@@ -258,8 +258,14 @@ export class AdStrategist {
   }
 
   async generateAdCopy(strategy: AdStrategy, product: any): Promise<{ primaryText: string; headline: string; description: string }> {
-    const priceUSD = Number(product.price).toFixed(2);
-    const priceCOP = (Number(product.price) * 4100).toLocaleString("es-CO");
+    // Bug real: esto multiplicaba product.price x 4100 asumiendo que SIEMPRE
+    // viene en USD, y mostraba ese mismo número crudo como si también fuera
+    // USD -- un producto de $10.000 COP salía anunciado como "$41.000.000
+    // COP (≈ $10000.00 USD)". product.currency ya existe y dice en qué
+    // moneda está el precio de verdad (COP es lo normal acá) -- se muestra
+    // tal cual, sin inventar una conversión a una moneda que no se cobra.
+    const currency = (product.currency || "COP").toUpperCase();
+    const priceFormatted = Number(product.price).toLocaleString("es-CO");
     const name = product.name || "";
     const rawDesc = (product.description || "").replace(/Acceso completo a /i, "").trim();
     const shortDesc = rawDesc.length > 100 ? rawDesc.substring(0, 100) + "..." : rawDesc;
@@ -288,8 +294,8 @@ ${descLine}
 ✅ Descarga inmediata — Recibes todo al instante
 ✅ Garantía de 7 días — O te devolvemos tu dinero
 
-💳 Paga en COP: Nequi, Daviplata, Mercado Pago
-🔥 Solo $${priceCOP} COP (≈ $${priceUSD} USD) — Un solo pago y es tuyo para siempre`;
+💳 Paga en ${currency}: Nequi, Daviplata, Mercado Pago
+🔥 Solo $${priceFormatted} ${currency} — Un solo pago y es tuyo para siempre`;
 
     const getEmoji = () => {
       const n = name.toLowerCase();
@@ -307,7 +313,7 @@ ${descLine}
     };
 
     const headline = `${getEmoji()} ${name.replace(/^📂\s*/, "").substring(0, 35)}`;
-    const description = `$${priceCOP} COP • Pago único • Acceso permanente`;
+    const description = `$${priceFormatted} ${currency} • Pago único • Acceso permanente`;
 
     return { primaryText, headline, description };
   }
@@ -420,18 +426,20 @@ ${descLine}
     // Sin foto real del producto: antes de caer al cartel de texto gris, se
     // intenta generar una con IA a partir del nombre y la descripción REALES
     // del producto (no un estilo genérico por nicho) -- así corresponde al
-    // curso, no a una foto de stock cualquiera. Se guarda como archivo real
-    // (no data: URI) y se persiste en el producto para no regenerarla cada
-    // vez que se cree un anuncio, y para que también se vea en la tienda.
+    // curso, no a una foto de stock cualquiera. generateProductImage ya
+    // genera 2 candidatas y elige la mejor con un juez de visión -- no hace
+    // falta guardar variantes extra (generateProductImageVariants) porque
+    // asset_feed_spec no se usa (ver más abajo, no funciona sin /adimages).
+    // Se guarda como archivo real (no data: URI) y se persiste en el
+    // producto para no regenerarla cada vez, y para que se vea en la tienda.
     if (!imageUrl) {
-      const generatedPath = await generateProductImage({ id: product.id, name: product.name, description: product.description });
-      if (generatedPath) {
-        const appUrl = process.env.APP_URL || "https://tecnovariedades.easypanel.host";
-        if (/^https:\/\//i.test(appUrl)) {
+      const appUrl = process.env.APP_URL || "https://tecnovariedades.easypanel.host";
+      if (/^https:\/\//i.test(appUrl)) {
+        const generatedPath = await generateProductImage({ id: product.id, name: product.name, description: product.description });
+        if (generatedPath) {
           imageUrl = `${appUrl.replace(/\/+$/, "")}/${generatedPath.replace(/^\/+/, "")}`;
           hasRealProductImage = true;
           await db.update(products).set({ imageUrl: generatedPath }).where(eq(products.id, product.id));
-          logger.info({ productId: product.id }, "[AdStrategist] Foto generada con IA para el anuncio (el producto no tenía ninguna)");
         }
       }
     }
@@ -511,6 +519,10 @@ ${descLine}
         },
         status: "PAUSED",
         start_time: new Date().toISOString(),
+        // is_dynamic_creative quedó sacado: era para asset_feed_spec, que no
+        // se usa (ver comentario en el creativo más abajo) -- dejarlo activo
+        // sin un creativo asset_feed_spec real habría hecho que Meta rechace
+        // el anuncio por incompatibilidad entre el adset y el creativo.
       };
       if (hasUsablePixel) {
         adSetBody.billing_event = "IMPRESSIONS";
@@ -559,7 +571,26 @@ ${descLine}
         creativeFeaturesSpec.image_touchups = { enroll_status: "OPT_IN" };
         creativeFeaturesSpec.image_brightness_and_contrast = { enroll_status: "OPT_IN" };
         creativeFeaturesSpec.image_uncrop = { enroll_status: "OPT_IN" };
+        // Meta genera fondos alternativos con su IA (modelo Emu) sobre la
+        // imagen del producto y elige el que mejor convierte -- exactamente
+        // la función "Generar variaciones" del Ads Manager, pero automática
+        // y sin intervención manual. Solo aplica sobre fotos reales (no
+        // placeholders de texto) para que el fondo generado tenga sentido.
+        creativeFeaturesSpec.image_background_gen = { enroll_status: "OPT_IN" };
       }
+      // asset_feed_spec (Dynamic Creative con varias imágenes) NO se usa acá.
+      // Se probó en vivo contra la cuenta real: generatepreviews lo acepta
+      // sintácticamente, pero la creación real (/adcreatives) rechaza CUALQUIER
+      // URL en asset_feed_spec.images -- probado con placehold.co Y con una
+      // imagen de Wikimedia (100% accesible), mismo error los dos:
+      // "No se ha podido descargar tu imagen" (subcode 3858258). Confirma que
+      // asset_feed_spec.images necesita sí o sí un image_hash real (subido por
+      // /adimages), no una URL -- y esa capacidad sigue bloqueada (error #3,
+      // igual que el picture normal). Meta A/B-testeando imágenes solo queda
+      // bloqueado hasta que se habilite /adimages vía revisión de Meta.
+      //
+      // Path único: una imagen fija en object_story_spec (funciona, verificado
+      // en las pruebas de imágenes reales de esta sesión).
       const creativePayload: Record<string, any> = {
         name: `[BORRADOR] ${product.name} - Creativo`,
         object_story_spec: {
@@ -570,13 +601,11 @@ ${descLine}
             name: adCopy.headline,
             description: adCopy.description,
             call_to_action: { type: strategy.ctaType },
+            ...(imageUrl ? { picture: imageUrl } : {}),
           },
         },
         creative_features_spec: creativeFeaturesSpec,
       };
-      if (imageUrl) {
-        creativePayload.object_story_spec.link_data.picture = imageUrl;
-      }
       const creative = await this.fbPost(act, "adcreatives", accessToken, creativePayload);
 
       const ad = await this.fbPost(act, "ads", accessToken, {

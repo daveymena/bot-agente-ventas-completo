@@ -494,6 +494,10 @@ Responde SOLO con este JSON exacto:
         creativeFeaturesSpec.image_touchups = { enroll_status: "OPT_IN" };
         creativeFeaturesSpec.image_brightness_and_contrast = { enroll_status: "OPT_IN" };
         creativeFeaturesSpec.image_uncrop = { enroll_status: "OPT_IN" };
+        // Meta genera fondos alternativos con su IA (Emu) sobre la imagen
+        // del producto -- equivale a la función "Generar variaciones" del
+        // Ads Manager pero activada automáticamente por API.
+        creativeFeaturesSpec.image_background_gen = { enroll_status: "OPT_IN" };
       }
       const creativePayload: Record<string, any> = {
         name: `${product.name} - Creativo`,
@@ -704,16 +708,21 @@ Responde SOLO con este JSON exacto:
   // ── Generación de copy con IA + estrategia de categoría ────────────────────
 
   private async generateAdCopy(product: any): Promise<{ primaryText: string; headline: string; description: string }> {
+    // product.currency, no "COP" fijo -- ver el mismo fix en ad-strategist.ts
+    // (ahí el bug era peor: multiplicaba x4100 asumiendo que el precio
+    // siempre venía en USD). Acá el precio en sí estaba bien, pero la
+    // etiqueta de moneda quedaba mal si el producto no está en COP.
+    const currency = (product.currency || "COP").toUpperCase();
     const priceFormatted = Number(product.price).toLocaleString("es-CO");
     const productName = product.name || "";
     const strategy = this.getCategoryStrategy(productName);
     const desc = (product.description || "").substring(0, 200);
 
     try {
-      const prompt = `Eres un copywriter experto en Facebook Ads para Colombia. Vendes cursos digitales a $20,000 COP.
+      const prompt = `Eres un copywriter experto en Facebook Ads para Colombia. Vendes cursos digitales.
 
 Producto: ${productName}
-Precio: $${priceFormatted} COP
+Precio: $${priceFormatted} ${currency}
 Categoría: ${product.category || "Digital"}
 Descripción: ${desc}
 
@@ -762,9 +771,9 @@ Debes responder SOLO con este JSON (sin markdown, sin acentos en las claves):
     }
 
     return {
-      primaryText: `${strategy.hook} ${strategy.emoji} Aprende ${productName} desde casa. Acceso de por vida + garantía 7 días. Solo $${priceFormatted} COP.`,
+      primaryText: `${strategy.hook} ${strategy.emoji} Aprende ${productName} desde casa. Acceso de por vida + garantía 7 días. Solo $${priceFormatted} ${currency}.`,
       headline: `${strategy.emoji} ${productName}`,
-      description: `Solo $${priceFormatted}`,
+      description: `Solo $${priceFormatted} ${currency}`,
     };
   }
 
