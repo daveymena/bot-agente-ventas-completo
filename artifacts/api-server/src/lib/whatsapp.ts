@@ -339,6 +339,7 @@ export class WhatsAppManager {
   protected sock: any = null;
   protected starting = false;
   protected hadQrInThisSession = false;
+  protected _usePairingCode = false;
   protected currentTenant: TenantContext;
 
   constructor(tenant?: TenantContext) {
@@ -419,7 +420,20 @@ export class WhatsAppManager {
       return formatted;
     }
 
-   async start() {
+  // Igual que start() pero marca el socket para modo pairing-code en vez de QR.
+  // Baileys REQUIERE que usePairingCode:true esté en makeWASocket() desde el
+  // primer momento — no se puede cambiar en caliente. Por eso tenemos dos
+  // métodos separados en vez de un paramétro opcional en start().
+  async startWithPairing() {
+    this._usePairingCode = true;
+    try {
+      return await this.start();
+    } finally {
+      this._usePairingCode = false;
+    }
+  }
+
+  async start() {
       if (this.starting) {
         console.log("⚠️ [START] Ya hay un proceso de inicio en curso");
         return this.getStatus();
@@ -472,6 +486,10 @@ export class WhatsAppManager {
          syncFullHistory: false,
          markOnlineOnConnect: true,
          generateHighQualityLinkPreview: false,
+         // usePairingCode DEBE estar en el constructor para que Baileys inicie
+         // el handshake Noise en modo pairing y no en modo QR. Sin esta flag
+         // requestPairingCode() falla con "Connection Failure" del noise-handler.
+         ...(this._usePairingCode ? { usePairingCode: true } : {}),
          ...(waVersion ? { version: waVersion } : {}),
        });
        this.sock = sock;

@@ -90,19 +90,19 @@ router.post("/pair-phone", async (req, res, next) => {
     const tid = tenantIdFromReq(req);
     const mgr = getWhatsAppForTenant(tid, (req as any).tenant);
 
-    // Siempre se fuerza un socket nuevo antes de pedir el código, en vez de
-    // reutilizar el que ya esté activo. Reusar un socket que sigue "vivo"
-    // (reintentando en segundo plano un login anterior, con otro número o
-    // colgado en un ciclo de QR) corrompe el handshake Noise de Baileys al
-    // pedir un pairing code sobre esa conexión a mitad de otro intento --
-    // se vio en vivo como "Error: Connection Failure" en noise-handler.ts
-    // dos segundos después de pedir el código. stop() + start() garantiza
-    // que el pairing code se pide sobre una conexión limpia.
-    await mgr.stop(false);
-    await mgr.start();
-    for (let i = 0; i < 10; i++) {
+    // Paramos la sesión actual SIN borrar auth (keepAuth=true) y arrancamos
+    // un socket nuevo con usePairingCode:true. Sin esa flag, Baileys negocia
+    // en modo QR y requestPairingCode() lanza "Connection Failure" del
+    // noise-handler porque el protocolo ya fue iniciado en otro modo.
+    await mgr.stop(true);
+    await mgr.startWithPairing();
+
+    // Esperamos a que el socket esté en estado 'connecting' (handshake Noise
+    // completado) antes de pedir el código — si se pide antes, WA rechaza.
+    for (let i = 0; i < 20; i++) {
       await new Promise((r) => setTimeout(r, 500));
-      if ((mgr as any).sock) break;
+      const st = mgr.getStatus().state;
+      if (st === "connecting" || st === "qr") break;
     }
 
     const pairingCode = await mgr.requestPairingCode(phoneNumber);
