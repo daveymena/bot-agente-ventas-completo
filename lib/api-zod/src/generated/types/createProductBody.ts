@@ -12,12 +12,14 @@ export interface CreateProductBody {
   description?: string;
   price: string;
   currency: string;
+  sku?: string | null;
   kind: ProductKind;
-  categoryId?: number;
-  imageUrl?: string;
-  paymentLink?: string;
-  deliveryLink?: string;
-  highlight?: string;
+  categoryId?: number | null;
+  imageUrl?: string | null;
+  paymentLink?: string | null;
+  deliveryLink?: string | null;
+  highlight?: string | null;
   features?: string[];
   metadata?: string;
+  isActive?: boolean;
 }
