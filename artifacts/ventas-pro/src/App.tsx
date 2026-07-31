@@ -103,45 +103,34 @@ const queryClient = new QueryClient({
 // de página completo, no un fragmento chico), con una duración breve para
 // que la espera no se sienta como una pausa.
 function Router() {
-  const [location] = useLocation();
   return (
-    <AnimatePresence mode="wait" initial={false}>
-      <motion.div
-        key={location}
-        initial={{ opacity: 0, y: 6 }}
-        animate={{ opacity: 1, y: 0 }}
-        exit={{ opacity: 0, y: -6 }}
-        transition={{ duration: 0.14, ease: "easeInOut" }}
-      >
-        <Switch>
-          <Route path="/" component={HomeRoute} />
-          <Route path="/conversations" component={Conversations} />
-          <Route path="/agents" component={Agents} />
-          <Route path="/leads" component={Leads} />
-          <Route path="/products" component={Products} />
-          <Route path="/whatsapp" component={WhatsAppConnection} />
-          <Route path="/whatsapp-monitor" component={WhatsAppMonitorPage} />
-          <Route path="/settings" component={Settings} />
-          <Route path="/pricing" component={PricingPage} />
-          <Route path="/branding" component={Branding} />
-          <Route path="/woocommerce" component={WooCommercePage} />
-          <Route path="/subscription-success" component={SubscriptionSuccessPage} />
-          <Route path="/subscription-failure" component={SubscriptionFailurePage} />
-          <Route path="/activate" component={ActivatePage} />
-          <Route path="/onboarding" component={OnboardingPage} />
-          <Route path="/facebook" component={FacebookAdsPage} />
-          <Route path="/code-agent" component={CodeAgentPage} />
-          <Route path="/architect" component={ArchitectPage} />
-          <Route path="/admin/store" component={AdminStorePage} />
-          <Route path="/mi-tienda" component={MiTiendaPage} />
-          <Route path="/arena" component={ArenaPage} />
-          <Route path="/admin/tenants" component={AdminTenantsPage} />
-          <Route path="/privacidad" component={PrivacyPolicyPage} />
-          <Route path="/auth" component={AuthPage} />
-          <Route component={NotFound} />
-        </Switch>
-      </motion.div>
-    </AnimatePresence>
+    <Switch>
+      <Route path="/" component={HomeRoute} />
+      <Route path="/conversations" component={Conversations} />
+      <Route path="/agents" component={Agents} />
+      <Route path="/leads" component={Leads} />
+      <Route path="/products" component={Products} />
+      <Route path="/whatsapp" component={WhatsAppConnection} />
+      <Route path="/whatsapp-monitor" component={WhatsAppMonitorPage} />
+      <Route path="/settings" component={Settings} />
+      <Route path="/pricing" component={PricingPage} />
+      <Route path="/branding" component={Branding} />
+      <Route path="/woocommerce" component={WooCommercePage} />
+      <Route path="/subscription-success" component={SubscriptionSuccessPage} />
+      <Route path="/subscription-failure" component={SubscriptionFailurePage} />
+      <Route path="/activate" component={ActivatePage} />
+      <Route path="/onboarding" component={OnboardingPage} />
+      <Route path="/facebook" component={FacebookAdsPage} />
+      <Route path="/code-agent" component={CodeAgentPage} />
+      <Route path="/architect" component={ArchitectPage} />
+      <Route path="/admin/store" component={AdminStorePage} />
+      <Route path="/mi-tienda" component={MiTiendaPage} />
+      <Route path="/arena" component={ArenaPage} />
+      <Route path="/admin/tenants" component={AdminTenantsPage} />
+      <Route path="/privacidad" component={PrivacyPolicyPage} />
+      <Route path="/auth" component={AuthPage} />
+      <Route component={NotFound} />
+    </Switch>
   );
 }
 

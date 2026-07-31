@@ -596,8 +596,8 @@ export default function LandingPage() {
             <button onClick={() => scrollTo("precios")} className="hover:text-foreground transition-colors">Precios</button>
           </nav>
           <div className="hidden md:flex items-center gap-3">
-            <Link href="/auth"><Button variant="ghost">Iniciar sesión</Button></Link>
-            <Link href="/auth?tab=register"><Button className="gap-1.5">Comenzar gratis <ArrowRight className="h-3.5 w-3.5" /></Button></Link>
+            <Button asChild variant="ghost"><Link href="/auth">Iniciar sesión</Link></Button>
+            <Button asChild className="gap-1.5"><Link href="/auth?tab=register">Comenzar gratis <ArrowRight className="h-3.5 w-3.5" /></Link></Button>
           </div>
           <button className="md:hidden p-2" onClick={() => setMobileMenuOpen(v => !v)} aria-label="Menú">
             {mobileMenuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
@@ -615,8 +615,8 @@ export default function LandingPage() {
                 <button onClick={() => scrollTo("ecosistema")} className="text-left text-sm font-medium py-1.5">Cómo funciona</button>
                 <button onClick={() => scrollTo("herramientas")} className="text-left text-sm font-medium py-1.5">Herramientas</button>
                 <button onClick={() => scrollTo("precios")} className="text-left text-sm font-medium py-1.5">Precios</button>
-                <Link href="/auth"><Button variant="outline" className="w-full mt-1">Iniciar sesión</Button></Link>
-                <Link href="/auth?tab=register"><Button className="w-full">Comenzar gratis</Button></Link>
+                <Button asChild variant="outline" className="w-full mt-1"><Link href="/auth">Iniciar sesión</Link></Button>
+                <Button asChild className="w-full"><Link href="/auth?tab=register">Comenzar gratis</Link></Button>
               </div>
             </motion.div>
           )}
