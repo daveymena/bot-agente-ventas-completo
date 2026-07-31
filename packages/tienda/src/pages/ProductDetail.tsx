@@ -104,14 +104,14 @@ const ProductDetail = () => {
 
   if (loading) {
     return (
-      <div className="max-w-6xl mx-auto px-4 py-16">
+      <div className="max-w-6xl mx-auto px-4 py-16 relative z-10">
         <div className="grid md:grid-cols-2 gap-10 animate-pulse">
-          <div className="aspect-square bg-gray-100 rounded-2xl" />
+          <div className="aspect-square glass-panel rounded-3xl" />
           <div className="space-y-4">
-            <div className="h-4 w-24 bg-gray-100 rounded" />
-            <div className="h-8 w-3/4 bg-gray-100 rounded" />
-            <div className="h-10 w-40 bg-gray-100 rounded" />
-            <div className="h-24 bg-gray-100 rounded" />
+            <div className="h-4 w-24 bg-white/10 rounded-lg" />
+            <div className="h-10 w-3/4 bg-white/10 rounded-xl" />
+            <div className="h-12 w-40 bg-white/10 rounded-xl" />
+            <div className="h-32 bg-white/10 rounded-2xl" />
           </div>
         </div>
       </div>
@@ -120,13 +120,15 @@ const ProductDetail = () => {
 
   if (notFound || !product) {
     return (
-      <div className="max-w-3xl mx-auto px-4 py-20 text-center">
-        <Package className="w-14 h-14 text-gray-300 mx-auto mb-5" />
-        <h2 className="text-2xl font-extrabold text-gray-900 mb-3">Producto no disponible</h2>
-        <p className="text-gray-500 mb-8">Puede que ya no esté publicado o el enlace sea incorrecto.</p>
+      <div className="max-w-3xl mx-auto px-4 py-24 text-center relative z-10">
+        <div className="w-24 h-24 bg-rose-500/10 rounded-full flex items-center justify-center mx-auto mb-6">
+          <Package className="w-12 h-12 text-rose-400" />
+        </div>
+        <h2 className="text-3xl font-heading font-extrabold text-white mb-3">Producto no disponible</h2>
+        <p className="text-gray-400 mb-10 text-lg">Puede que ya no esté publicado o el enlace sea incorrecto.</p>
         <Link
           to={`/tienda/${slug}`}
-          className="inline-flex items-center gap-2 bg-indigo-600 text-white px-7 py-3 rounded-xl font-bold hover:bg-indigo-700 transition-colors"
+          className="inline-flex items-center gap-2 bg-white/10 text-white px-8 py-4 rounded-xl font-bold hover:bg-white/20 transition-all border border-white/10"
         >
           Ver todos los productos
         </Link>
@@ -150,145 +152,104 @@ const ProductDetail = () => {
     : null;
 
   return (
-    <div className="max-w-6xl mx-auto px-4 py-8">
-      <button
-        onClick={() => navigate(`/tienda/${slug}`)}
-        className="inline-flex items-center gap-1.5 text-sm text-gray-500 hover:text-indigo-600 mb-6 transition-colors"
-      >
-        <ChevronLeft className="w-4 h-4" /> Volver a la tienda
-      </button>
+    <div className="max-w-6xl mx-auto px-4 py-8 relative z-10">
+      <div className="mb-8 flex items-center gap-2 text-sm text-gray-500 font-medium">
+        <Link to={`/tienda/${slug}`} className="hover:text-indigo-400 transition-colors">Inicio</Link>
+        <span className="text-gray-700">/</span>
+        <span className="capitalize text-gray-400">{product.category || 'General'}</span>
+        <span className="text-gray-700">/</span>
+        <span className="text-gray-200 truncate">{product.name}</span>
+      </div>
 
-      <div className="grid md:grid-cols-2 gap-10 lg:gap-14">
-        <div className="md:sticky md:top-24 md:self-start">
-          <div className="aspect-square bg-gray-50 rounded-2xl overflow-hidden border border-gray-200">
+      <div className="grid md:grid-cols-2 gap-10 lg:gap-16">
+        <div className="md:sticky md:top-28 md:self-start group">
+          <div className="aspect-square glass-panel rounded-3xl overflow-hidden relative shadow-[0_0_40px_-15px_rgba(99,102,241,0.2)] group-hover:shadow-[0_0_60px_-15px_rgba(99,102,241,0.4)] transition-shadow duration-500">
             {product.image && !imgError ? (
               <img
                 src={product.image}
                 alt={product.name}
-                className="w-full h-full object-cover"
+                className="w-full h-full object-cover opacity-90 group-hover:opacity-100 group-hover:scale-105 transition-all duration-700"
                 onError={() => setImgError(true)}
               />
             ) : (
-              <div className="w-full h-full flex items-center justify-center text-gray-300">
-                <Package className="w-20 h-20" />
+              <div className="w-full h-full flex items-center justify-center text-gray-600 bg-[#09090b]">
+                <Package className="w-24 h-24" />
               </div>
             )}
+            <div className="absolute inset-0 bg-gradient-to-t from-[#09090b] via-transparent to-transparent opacity-60" />
           </div>
         </div>
 
-        <div>
-          <p className="text-[11px] font-bold text-indigo-600 uppercase tracking-wider mb-2">
+        <div className="flex flex-col">
+          <p className="text-[11px] font-bold text-indigo-400 uppercase tracking-widest mb-3">
             {product.category}
           </p>
-          <h1 className="text-2xl sm:text-3xl font-extrabold text-gray-900 leading-tight mb-3">
+          <h1 className="text-3xl sm:text-4xl font-heading font-extrabold text-white leading-tight mb-4 tracking-tight">
             {product.name}
           </h1>
 
-          <div className="flex items-center gap-2 mb-5">
-            <div className="flex">
-              {[...Array(5)].map((_, i) => (
-                <Star key={i} className="w-4 h-4 fill-amber-400 text-amber-400" />
-              ))}
-            </div>
-            <span className="text-sm font-bold text-gray-700">4.9</span>
-            <span className="text-sm text-gray-400">(128 valoraciones)</span>
+          <div className="flex flex-wrap items-center gap-3 mb-6">
+            <span className="inline-flex items-center gap-1.5 bg-amber-500/10 border border-amber-500/20 text-amber-400 text-xs font-bold px-3 py-1.5 rounded-full">
+              <Star className="w-3.5 h-3.5 fill-amber-400" /> Más Vendido
+            </span>
+            <span className="inline-flex items-center gap-1.5 bg-indigo-500/10 border border-indigo-500/20 text-indigo-300 text-xs font-bold px-3 py-1.5 rounded-full">
+              <Check className="w-3.5 h-3.5" /> Acceso Inmediato
+            </span>
           </div>
 
-          <div className="mb-6">
+          <div className="mb-8">
             <div className="flex items-baseline gap-2">
-              <span className="text-4xl font-black text-gray-900">{formatPrice(price)}</span>
-              <span className="text-sm font-semibold text-gray-400">{product.currency || 'COP'}</span>
+              <span className="text-5xl font-heading font-black text-white">{formatPrice(price)}</span>
+              <span className="text-base font-semibold text-gray-500">{product.currency || 'COP'}</span>
             </div>
             <p className="text-sm text-green-600 font-bold mt-1">
               Pago único — sin mensualidades
             </p>
           </div>
 
-          <div className="grid grid-cols-2 gap-2.5 mb-6">
+          <div className="grid grid-cols-2 gap-3 mb-8">
             {[
               { icon: InfinityIcon, text: 'Acceso de por vida' },
               { icon: Download, text: 'Descargable u online' },
               { icon: ShieldCheck, text: 'Entrega por Google Drive' },
               { icon: Check, text: 'Acceso inmediato' },
             ].map(({ icon: Icon, text }) => (
-              <div key={text} className="flex items-center gap-2 text-sm text-gray-700">
-                <Icon className="w-4 h-4 text-indigo-600 shrink-0" />
+              <div key={text} className="flex items-center gap-2.5 text-sm text-gray-300 bg-white/5 border border-white/10 rounded-lg p-2">
+                <Icon className="w-4 h-4 text-indigo-400 shrink-0" />
                 <span>{text}</span>
               </div>
             ))}
           </div>
 
-          <div className="space-y-2.5 mb-6">
+          <div className="space-y-3 mb-8">
             <button
-              onClick={() => comprar('mp')}
-              disabled={buying !== null}
-              className="w-full bg-[#009EE3] text-white py-4 rounded-xl font-bold hover:opacity-90 transition-all flex items-center justify-center gap-2.5 disabled:opacity-50"
+              onClick={() => {
+                addToCart({
+                  id: String(product.id),
+                  name: product.name,
+                  price: Number(product.price),
+                  image: product.image ?? '',
+                  quantity: 1
+                });
+                trackAddToCart({ id: product.id, name: product.name, price: product.price });
+                navigate(`/tienda/${slug}/checkout`);
+              }}
+              className="w-full bg-gradient-to-r from-indigo-500 to-purple-600 text-white py-4 rounded-xl font-bold hover:from-indigo-400 hover:to-purple-500 transition-all flex items-center justify-center gap-2.5 shadow-glow hover:scale-[1.02]"
             >
-              <CreditCard className="w-5 h-5" />
-              {buying === 'mp' ? 'Abriendo pago…' : 'Pagar con Mercado Pago'}
+              <ShoppingCart className="w-5 h-5" />
+              Comprar ahora
             </button>
 
-            <button
-              onClick={() => comprar('pp')}
-              disabled={buying !== null}
-              className="w-full bg-[#FFC439] text-[#003087] py-4 rounded-xl font-bold hover:opacity-90 transition-all flex items-center justify-center gap-2.5 disabled:opacity-50"
-            >
-              <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor"><path d="M7.076 21.337H2.47a.641.641 0 01-.633-.74L4.944.901C5.026.382 5.474 0 5.998 0h7.46c2.57 0 4.578.543 5.69 1.81 1.01 1.15 1.304 2.42 1.012 4.287-.023.143-.05.288-.078.437-.983 5.05-4.349 6.797-8.647 6.797h-2.19a1.11 1.11 0 00-1.094.933l-.601 3.632c-.04.24-.246.44-.489.44l.002.001z"/><path d="M19.143 7.01c.072-.444.113-.912.113-1.41 0-.463-.04-.894-.113-1.293.036-.006.073-.01.109-.013.04-.003.08-.006.119-.008 1.104-.045 2.032.105 2.778.604 1.075.716 1.527 1.972 1.273 3.485-.756 4.523-3.392 6.054-6.83 6.054h-2.187a1.11 1.11 0 00-1.094.933l-.621 3.749c-.04.24-.247.44-.489.44H7.08l1.542-9.745c.082-.48.524-.833 1.006-.833h2.188c2.579 0 4.326-.593 5.327-3.023z" opacity=".5"/></svg>
-              {buying === 'pp' ? 'Abriendo pago…' : 'Pagar con PayPal'}
-            </button>
-
-            <div className="relative py-2 flex items-center">
-              <div className="flex-grow border-t border-gray-200" />
-              <span className="flex-shrink mx-3 text-[10px] font-bold text-gray-400 uppercase">Otras opciones</span>
-              <div className="flex-grow border-t border-gray-200" />
-            </div>
-
-            <div className="grid grid-cols-2 gap-2.5">
-              <button
-                onClick={() => {
-                  addToCart({
-                    id: String(product.id),
-                    name: product.name,
-                    description: product.description || '',
-                    price,
-                    image: product.image || '',
-                    category: product.category,
-                    type: (product.kind as any) || 'digital',
-                    stock: 999,
-                  });
-                  trackAddToCart({
-                    id: product.id,
-                    name: product.name,
-                    price,
-                    currency: product.currency,
-                  });
-                  Swal.fire({
-                    title: '¡Agregado!',
-                    text: `${product.name} al carrito`,
-                    icon: 'success',
-                    toast: true,
-                    position: 'top-end',
-                    showConfirmButton: false,
-                    timer: 1500,
-                  });
-                }}
-                className="border border-gray-300 text-gray-800 py-3 rounded-xl font-bold hover:bg-gray-50 transition-colors flex items-center justify-center gap-2 text-sm"
-              >
-                <ShoppingCart className="w-4 h-4" /> Agregar al carrito
-              </button>
-
+            {waHref && (
               <a
-                href={waHref || '#'}
+                href={waHref}
                 target="_blank"
-                rel="noopener noreferrer"
-                onClick={() => trackContact('ficha-producto')}
-                className={`py-3 rounded-xl font-bold transition-colors flex items-center justify-center gap-2 text-sm ${
-                  waHref
-                    ? 'bg-green-500 text-white hover:bg-green-600'
-                    : 'bg-gray-100 text-gray-400 pointer-events-none'
-                }`}
+                rel="noreferrer"
+                onClick={() => trackContact({ content_name: product.name })}
+                className="w-full bg-white/5 text-white border border-white/10 py-3.5 rounded-xl font-bold hover:bg-white/10 transition-all flex items-center justify-center gap-2.5"
               >
-                <MessageCircle className="w-4 h-4" /> Preguntar
+                <MessageCircle className="w-5 h-5 text-green-500" />
+                Consultar por WhatsApp
               </a>
             </div>
           </div>

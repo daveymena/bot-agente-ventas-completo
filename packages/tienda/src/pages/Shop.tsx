@@ -58,58 +58,65 @@ const ProductCard = ({ product, slug }: { product: Product; slug: string }) => {
       layout
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
-      className="group relative bg-white border border-gray-200 rounded-lg overflow-hidden hover:shadow-md hover:border-gray-300 transition-all flex flex-col"
+      className="group relative glass-panel rounded-2xl overflow-hidden hover:border-indigo-500/50 transition-all duration-300 flex flex-col hover:-translate-y-1 hover:shadow-indigo-500/10"
     >
-      <div className="relative aspect-square bg-gray-50 overflow-hidden">
+      <div className="relative aspect-square bg-[#09090b] overflow-hidden">
         <Link to={detailHref} className="block w-full h-full" aria-label={`Ver ${product.name}`}>
           {product.image && !imgError ? (
             <img
               src={product.image}
               alt={product.name}
-              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700 opacity-90 group-hover:opacity-100"
               onError={() => setImgError(true)}
               loading="lazy"
             />
           ) : (
-            <div className="w-full h-full flex items-center justify-center text-gray-300">
+            <div className="w-full h-full flex items-center justify-center text-gray-700 bg-[#09090b]">
               <Package className="w-12 h-12" />
             </div>
           )}
         </Link>
-        <div className="absolute top-2 left-2 pointer-events-none">
-          <span className="px-2 py-0.5 rounded text-[10px] font-bold text-white bg-indigo-600 shadow-sm">
-            Digital
+        <div className="absolute top-3 left-3 pointer-events-none">
+          <span className="px-2.5 py-1 rounded-md text-[10px] font-bold text-white bg-indigo-500 shadow-glow backdrop-blur-md">
+            DIGITAL
           </span>
         </div>
         <button
           onClick={() => toggleWishlist(product.id)}
-          className="absolute top-2 right-2 w-8 h-8 rounded-full bg-white/90 shadow-sm flex items-center justify-center text-gray-400 hover:text-rose-500 transition-colors opacity-0 group-hover:opacity-100"
+          className="absolute top-3 right-3 w-9 h-9 rounded-full bg-[#09090b]/50 backdrop-blur-md border border-white/10 shadow-lg flex items-center justify-center text-gray-400 hover:text-rose-400 hover:bg-[#09090b]/80 transition-all opacity-0 group-hover:opacity-100 translate-y-2 group-hover:translate-y-0"
         >
           <Heart className={`w-4 h-4 ${wishlist.includes(product.id) ? 'fill-rose-500 text-rose-500' : ''}`} />
         </button>
+        {/* Subtle gradient overlay at the bottom of the image */}
+        <div className="absolute bottom-0 left-0 right-0 h-1/3 bg-gradient-to-t from-[#09090b] to-transparent pointer-events-none" />
       </div>
-      <div className="p-3 flex flex-col gap-1.5 flex-1">
-        <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">{product.category || 'General'}</p>
+
+      <div className="p-4 flex flex-col gap-2 flex-1 relative z-10 bg-[#09090b]/40">
+        <p className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest">{product.category || 'General'}</p>
         <Link
           to={detailHref}
-          className="text-sm font-semibold leading-snug text-gray-900 line-clamp-2 min-h-[2.5em] hover:text-indigo-600 transition-colors"
+          className="text-base font-heading font-semibold leading-snug text-gray-200 line-clamp-2 min-h-[2.5em] hover:text-white transition-colors"
         >
           {product.name}
         </Link>
-        <div className="flex items-center gap-1">
-          <Star className="w-3 h-3 fill-amber-400 text-amber-400" />
-          <span className="text-xs font-bold text-gray-700">4.9</span>
-          <span className="text-xs text-gray-400">(128)</span>
-        </div>
-        <div className="mt-auto pt-1.5">
-          <div className="flex items-baseline gap-1.5">
-            <span className="text-lg font-black text-gray-900">{formatPrice(product.price)}</span>
+        
+        <div className="flex items-center gap-1.5 mt-1">
+          <div className="flex -space-x-1">
+            {[1,2,3,4,5].map(i => <Star key={i} className="w-3.5 h-3.5 fill-indigo-400 text-indigo-400" />)}
           </div>
-          <div className="mt-2 flex gap-1.5">
+          <span className="text-xs font-bold text-gray-300 ml-1">5.0</span>
+          <span className="text-xs text-gray-500">(128)</span>
+        </div>
+
+        <div className="mt-auto pt-4">
+          <div className="flex items-baseline gap-2">
+            <span className="text-xl font-heading font-bold text-white">{formatPrice(product.price)}</span>
+          </div>
+          <div className="mt-4 flex gap-2">
             <button
               onClick={comprarAhora}
               disabled={buying}
-              className="flex-1 h-9 rounded-lg bg-gray-900 text-white text-xs font-bold flex items-center justify-center gap-1.5 hover:bg-gray-800 transition-colors disabled:opacity-50"
+              className="flex-1 h-10 rounded-xl bg-gradient-to-r from-indigo-500 to-purple-600 text-white text-xs font-bold flex items-center justify-center gap-1.5 hover:from-indigo-400 hover:to-purple-500 transition-all disabled:opacity-50 shadow-glow"
             >
               {buying ? 'Abriendo…' : 'Comprar ahora'}
             </button>
@@ -125,11 +132,13 @@ const ProductCard = ({ product, slug }: { product: Product; slug: string }) => {
                   position: 'top-end',
                   showConfirmButton: false,
                   timer: 1500,
+                  background: '#18181b',
+                  color: '#fff',
                 });
               }}
               title="Agregar al carrito"
               aria-label="Agregar al carrito"
-              className="w-9 h-9 shrink-0 rounded-lg border border-gray-300 text-gray-700 flex items-center justify-center hover:bg-gray-50 transition-colors"
+              className="w-10 h-10 shrink-0 rounded-xl border border-white/10 text-gray-400 bg-white/5 flex items-center justify-center hover:bg-white/10 hover:text-white transition-all"
             >
               <ShoppingCart className="w-4 h-4" />
             </button>
@@ -215,139 +224,142 @@ const DEFAULT_SLUG = 'sofia-premium';
   const displayedProducts = filteredProducts.slice(0, visibleCount);
 
   return (
-    <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-8">
+    <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-6 sm:py-10 relative z-10">
       {showFilters && (
-        <div className="fixed inset-0 bg-black/40 z-40 md:hidden" onClick={() => setShowFilters(false)} />
+        <div className="fixed inset-0 bg-[#09090b]/80 backdrop-blur-sm z-40 md:hidden" onClick={() => setShowFilters(false)} />
       )}
 
       <div className="flex gap-8 items-start">
         <aside
           className={`
-            ${showFilters ? 'fixed inset-y-0 left-0 z-50 w-72 bg-white shadow-xl p-5 overflow-y-auto' : 'hidden'}
-            md:block md:relative md:inset-auto md:z-auto md:bg-transparent md:shadow-none md:p-0
+            ${showFilters ? 'fixed inset-y-0 left-0 z-50 w-72 glass-panel p-5 overflow-y-auto' : 'hidden'}
+            md:block md:relative md:inset-auto md:z-auto md:bg-transparent md:border-none md:shadow-none md:backdrop-blur-none md:p-0
             flex-shrink-0 w-64
           `}
         >
-          <div className="flex items-center justify-between mb-4 md:hidden">
-            <h2 className="text-sm font-bold text-gray-900">Filtros</h2>
-            <button onClick={() => setShowFilters(false)} className="p-1 text-gray-400 hover:text-gray-600">
+          <div className="flex items-center justify-between mb-6 md:hidden">
+            <h2 className="text-sm font-heading font-bold text-white">Filtros</h2>
+            <button onClick={() => setShowFilters(false)} className="p-1.5 text-gray-400 hover:text-white bg-white/5 rounded-lg border border-white/10">
               <X className="w-5 h-5" />
             </button>
           </div>
 
-          <div className="bg-white border border-gray-200 rounded-lg p-4 mb-4">
-            <h3 className="text-xs font-bold uppercase tracking-wider text-gray-900 mb-3">Categorías</h3>
-            <div className="space-y-0.5">
+          <div className="glass-panel rounded-2xl p-5 mb-6">
+            <h3 className="text-xs font-bold uppercase tracking-widest text-indigo-400 mb-4">Categorías</h3>
+            <div className="space-y-1">
               <button
                 onClick={() => setFilter('all')}
-                className={`w-full flex items-center justify-between px-3 py-2 rounded-md text-sm transition-colors ${
-                  filter === 'all' ? 'bg-indigo-50 text-indigo-700 font-semibold' : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
+                className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-sm transition-all ${
+                  filter === 'all' ? 'bg-indigo-500/20 text-indigo-300 font-semibold border border-indigo-500/30' : 'text-gray-400 hover:text-white hover:bg-white/5 border border-transparent'
                 }`}
               >
-                <span className="flex items-center gap-2">
+                <span className="flex items-center gap-2.5">
                   <Layers className="w-4 h-4" />
-                  Todos los productos
+                  Todos
                 </span>
-                <span className="text-xs text-gray-400 font-mono">{products.length}</span>
+                <span className="text-xs text-gray-500 font-mono">{products.length}</span>
               </button>
               {categories.map((c, i) => (
                 <button
                   key={i}
                   onClick={() => setFilter(c.name)}
-                  className={`w-full flex items-center justify-between px-3 py-2 rounded-md text-sm transition-colors ${
-                    filter === c.name ? 'bg-indigo-50 text-indigo-700 font-semibold' : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
+                  className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-sm transition-all ${
+                    filter === c.name ? 'bg-indigo-500/20 text-indigo-300 font-semibold border border-indigo-500/30' : 'text-gray-400 hover:text-white hover:bg-white/5 border border-transparent'
                   }`}
                 >
                   <span>{c.name}</span>
-                  <span className="text-xs text-gray-400 font-mono">{c.count}</span>
+                  <span className="text-xs text-gray-500 font-mono">{c.count}</span>
                 </button>
               ))}
             </div>
           </div>
 
-          <div className="bg-gradient-to-br from-gray-900 to-gray-800 text-white rounded-lg p-5">
-            <p className="text-sm font-bold">🚀 Acceso inmediato</p>
-            <p className="text-xs text-gray-400 mt-1 leading-relaxed">Todos los productos son digitales. Recibes el enlace de descarga al instante después del pago.</p>
+          <div className="bg-gradient-to-br from-indigo-500/20 to-purple-600/20 border border-indigo-500/30 text-white rounded-2xl p-6 relative overflow-hidden group">
+            <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-500/20 rounded-full blur-2xl -mr-10 -mt-10 pointer-events-none group-hover:bg-indigo-400/30 transition-colors" />
+            <p className="text-sm font-heading font-bold flex items-center gap-2">
+              <span className="animate-pulse">🚀</span> Acceso inmediato
+            </p>
+            <p className="text-xs text-gray-400 mt-2 leading-relaxed relative z-10">Todos los productos son digitales. Recibes el enlace al instante tras el pago.</p>
           </div>
         </aside>
 
         <div className="flex-1 min-w-0">
-          <div className="bg-white border border-gray-200 rounded-lg px-4 py-3 flex flex-wrap items-center justify-between gap-3 mb-5">
-            <div className="flex items-center gap-3">
+          <div className="glass-panel rounded-2xl px-5 py-4 flex flex-wrap items-center justify-between gap-4 mb-6">
+            <div className="flex items-center gap-4">
               <button
                 onClick={() => setShowFilters(true)}
-                className="md:hidden flex items-center gap-1.5 h-8 px-3 border border-gray-300 rounded-md text-xs font-semibold text-gray-600 hover:bg-gray-50"
+                className="md:hidden flex items-center gap-2 h-9 px-4 border border-white/10 rounded-xl text-xs font-semibold text-gray-300 bg-white/5 hover:bg-white/10 hover:text-white transition-all"
               >
-                <SlidersHorizontal className="w-3.5 h-3.5" /> Filtros
+                <SlidersHorizontal className="w-4 h-4" /> Filtros
               </button>
-              <p className="text-xs text-gray-500">
-                Mostrando <strong className="text-gray-800">{displayedProducts.length}</strong> de <strong className="text-gray-800">{filteredProducts.length}</strong> producto(s)
+              <p className="text-xs text-gray-400">
+                Mostrando <strong className="text-white">{displayedProducts.length}</strong> de <strong className="text-white">{filteredProducts.length}</strong> producto(s)
               </p>
             </div>
             <div className="flex items-center gap-3">
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
+              <div className="relative group">
+                <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 group-focus-within:text-indigo-400 transition-colors" />
                 <input
                   type="text"
                   placeholder="Buscar productos..."
                   value={searchTerm}
                   onChange={e => setSearchTerm(e.target.value)}
-                  className="w-40 sm:w-52 h-9 pl-9 pr-3 rounded-md border border-gray-300 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                  className="w-48 sm:w-64 h-10 pl-10 pr-4 rounded-xl border border-white/10 bg-[#09090b]/50 text-xs text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500/50 transition-all shadow-inner"
                 />
-              </div>
-              <div className="hidden sm:flex items-center gap-2 text-xs text-gray-400">
-                <span className="flex items-center gap-1.5 h-9 px-3 border border-gray-300 rounded-md text-gray-600 font-medium cursor-default">
-                  Ordenar <ChevronDown className="w-3 h-3 text-gray-400" />
-                </span>
               </div>
             </div>
           </div>
 
           {loading ? (
-            <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 sm:gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6">
               {Array.from({ length: 8 }).map((_, i) => (
-                <div key={i} className="bg-white border border-gray-200 rounded-lg overflow-hidden animate-pulse">
-                  <div className="aspect-square bg-gray-100" />
-                  <div className="p-3 space-y-2">
+                <div key={i} className="glass-panel rounded-2xl overflow-hidden animate-pulse">
+                  <div className="aspect-square bg-white/5" />
+                  <div className="p-4 space-y-3">
                     <div className="h-3 bg-gray-100 rounded w-1/3" />
-                    <div className="h-4 bg-gray-100 rounded w-2/3" />
-                    <div className="h-3 bg-gray-100 rounded w-1/4" />
-                    <div className="h-5 bg-gray-100 rounded w-1/2" />
-                    <div className="h-8 bg-gray-100 rounded" />
+                    <div className="h-3 bg-white/10 rounded w-1/3" />
+                    <div className="h-4 bg-white/10 rounded w-2/3" />
+                    <div className="h-3 bg-white/10 rounded w-1/4" />
+                    <div className="h-5 bg-white/10 rounded w-1/2 mt-4" />
+                    <div className="h-10 bg-white/10 rounded mt-2" />
                   </div>
                 </div>
               ))}
             </div>
           ) : apiError && products.length === 0 ? (
-            <div className="text-center py-20 bg-white rounded-lg border border-dashed border-gray-300 px-4">
-              <Store className="w-12 h-12 text-gray-300 mx-auto mb-4" />
-              <h3 className="text-lg font-bold text-gray-900 mb-1">No hay productos disponibles</h3>
-              <p className="text-sm text-gray-500 mb-6 max-w-md mx-auto">Esta tienda aún no tiene productos publicados.</p>
+            <div className="text-center py-24 glass-panel rounded-2xl px-6 border-dashed border-white/10">
+              <div className="w-20 h-20 bg-indigo-500/10 rounded-full flex items-center justify-center mx-auto mb-6">
+                <Store className="w-10 h-10 text-indigo-400" />
+              </div>
+              <h3 className="text-xl font-heading font-bold text-white mb-2">No hay productos disponibles</h3>
+              <p className="text-sm text-gray-400 mb-6 max-w-md mx-auto">Esta tienda aún no tiene productos publicados.</p>
             </div>
           ) : apiError && !paramSlug ? (
-            <div className="text-center py-20 bg-white rounded-lg border border-dashed border-gray-300 px-4">
-              <Store className="w-12 h-12 text-gray-300 mx-auto mb-4" />
-              <h3 className="text-lg font-bold text-gray-900 mb-1">Tienda no configurada</h3>
-              <p className="text-sm text-gray-500 mb-6 max-w-md mx-auto">Visita tu tienda desde el slug correcto.</p>
+            <div className="text-center py-24 glass-panel rounded-2xl px-6 border-dashed border-white/10">
+              <div className="w-20 h-20 bg-rose-500/10 rounded-full flex items-center justify-center mx-auto mb-6">
+                <Store className="w-10 h-10 text-rose-400" />
+              </div>
+              <h3 className="text-xl font-heading font-bold text-white mb-2">Tienda no configurada</h3>
+              <p className="text-sm text-gray-400 mb-8 max-w-md mx-auto">Visita tu tienda desde el slug correcto.</p>
               <button
                 onClick={() => navigate('/admin')}
-                className="inline-flex items-center gap-2 h-10 px-6 rounded-lg bg-gray-900 text-white text-sm font-bold hover:bg-gray-800 transition-colors"
+                className="inline-flex items-center gap-2 h-11 px-8 rounded-xl bg-gradient-to-r from-indigo-500 to-purple-600 text-white text-sm font-bold hover:from-indigo-400 hover:to-purple-500 transition-all shadow-glow"
               >
-                Ir al panel
+                Ir al panel de control
               </button>
             </div>
           ) : filteredProducts.length > 0 ? (
             <>
-              <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 sm:gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6">
                 {displayedProducts.map((product) => (
                   <ProductCard key={product.id} product={product} slug={slug} />
                 ))}
               </div>
               {filteredProducts.length > visibleCount && (
-                <div className="flex justify-center mt-8">
+                <div className="flex justify-center mt-10">
                   <button
                     onClick={() => setVisibleCount(prev => prev + 12)}
-                    className="inline-flex items-center gap-2 h-11 px-8 rounded-lg border border-gray-300 text-sm font-semibold text-gray-700 hover:bg-gray-50 transition-colors"
+                    className="inline-flex items-center gap-2 h-12 px-8 rounded-xl border border-white/10 bg-white/5 text-sm font-semibold text-white hover:bg-white/10 hover:border-white/20 transition-all"
                   >
                     Cargar más productos ({filteredProducts.length - visibleCount} restantes) <ChevronDown className="w-4 h-4" />
                   </button>
@@ -355,10 +367,12 @@ const DEFAULT_SLUG = 'sofia-premium';
               )}
             </>
           ) : (
-            <div className="text-center py-20 bg-white rounded-lg border border-dashed border-gray-300 px-4">
-              <Search className="w-10 h-10 text-gray-300 mx-auto mb-3" />
-              <h3 className="text-base font-bold text-gray-900 mb-1">No se encontraron productos</h3>
-              <p className="text-sm text-gray-500">Prueba con otros filtros o términos de búsqueda.</p>
+            <div className="text-center py-24 glass-panel rounded-2xl px-6 border-dashed border-white/10">
+              <div className="w-20 h-20 bg-indigo-500/10 rounded-full flex items-center justify-center mx-auto mb-6">
+                <Search className="w-10 h-10 text-indigo-400" />
+              </div>
+              <h3 className="text-xl font-heading font-bold text-white mb-2">No se encontraron productos</h3>
+              <p className="text-sm text-gray-400">Prueba con otros filtros o términos de búsqueda.</p>
             </div>
           )}
         </div>
