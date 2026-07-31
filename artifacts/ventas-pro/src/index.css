@@ -66,6 +66,10 @@
   --radius-xl: calc(var(--radius) + 4px);
 }
 
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+
 /* ============================================================
    LIGHT MODE — Professional slate + indigo (default)
    ============================================================ */
@@ -292,16 +296,21 @@
   }
 
   .animate-enter {
-    animation: enterUp 0.3s ease both;
+    animation: fadeIn 0.25s ease-out both;
   }
 
   .animate-enter-up {
-    animation: enterUp 0.25s ease both;
+    animation: enterUp 0.3s cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(4px); }
+    to   { opacity: 1; transform: translateY(0); }
   }
 
   @keyframes enterUp {
-    from { opacity: 0; transform: translateY(8px); }
-    to   { opacity: 1; transform: translateY(0); }
+    from { opacity: 0; transform: translateY(12px) scale(0.98); }
+    to   { opacity: 1; transform: translateY(0) scale(1); }
   }
 
   input[type="search"]::-webkit-search-cancel-button {
