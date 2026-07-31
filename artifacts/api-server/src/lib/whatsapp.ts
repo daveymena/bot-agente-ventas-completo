@@ -444,10 +444,28 @@ export class WhatsAppManager {
   // métodos separados en vez de un paramétro opcional en start().
   async startWithPairing() {
     this._usePairingCode = true;
+    this.starting = true;
+    this.state = "connecting";
+    console.log("🔄 [PAIRING] Iniciando sesión en modo pairing code...");
+
     try {
-      return await this.start();
+      // Esperar a que start() complete
+      const result = await this.start();
+
+      // Esperar un poco más para asegurar que el handshake Noise terminó
+      // antes de permitir requestPairingCode()
+      await new Promise(r => setTimeout(r, 3000));
+
+      console.log("✅ [PAIRING] Socket listo para pairing code");
+      return result;
+    } catch (e) {
+      console.error("❌ [PAIRING] Error iniciando pairing:", e);
+      this.state = "error";
+      this.lastError = `Error en pairing: ${e instanceof Error ? e.message : String(e)}`;
+      throw e;
     } finally {
       this._usePairingCode = false;
+      this.starting = false;
     }
   }
 
