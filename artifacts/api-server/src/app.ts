@@ -12,6 +12,7 @@ import woocommerceRouter from "./routes/woocommerce";
 import subscriptionWebhooksRouter from "./routes/subscription-webhooks";
 import activationRouter from "./routes/activation";
 import { logger } from "./lib/logger";
+import { securityShield } from "./lib/security-shield";
 import { resolveTenant } from "./lib/tenantManager";
 import { validateSaasPlan, validateUsageLimits } from "./middleware/saasValidation";
 import { validateFeatureLimits, validateMessageLimit } from "./middleware/featureLimits";
@@ -589,6 +590,30 @@ app.use("/api/messages", (req, res, next) => {
     return next();
   }
   validateMessageLimit()(req, res, next);
+});
+
+// Middleware de seguridad - Blindaje de información sensible
+app.use("/api", (req: Request, res: Response, next: NextFunction) => {
+  // Bloquear acceso a paths peligrosos
+  if (securityShield.blockDevelopmentPaths(req.path)) {
+    return res.status(403).json({
+      error: "Acceso denegado",
+    });
+  }
+
+  // Interceptar response para sanitizar headers
+  const originalJson = res.json.bind(res);
+  res.json = function (body: any) {
+    const sanitizedHeaders = securityShield.sanitizeResponseHeaders(
+      Object.fromEntries(Object.entries(res.getHeaders() as Record<string, any>))
+    );
+    Object.keys(sanitizedHeaders).forEach(key => {
+      res.setHeader(key, sanitizedHeaders[key]);
+    });
+    return originalJson(body);
+  };
+
+  next();
 });
 
 app.use("/api/woocommerce", woocommerceRouter);

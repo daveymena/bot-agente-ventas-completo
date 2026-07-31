@@ -28,6 +28,7 @@ import personalityProfilesRouter from "./personality-profiles";
 import architectMemoryRouter from "./architect-memory";
 import responseAnalyticsRouter from "./response-analytics";
 import architectToolsRouter from "./architect-tools";
+import architectRouter from "./architect";
 import pricingRouter from "./pricing";
 
 const router: IRouter = Router();
@@ -60,6 +61,7 @@ router.use("/personality-profiles", personalityProfilesRouter);
 router.use("/architect-memory", architectMemoryRouter);
 router.use("/response-analytics", responseAnalyticsRouter);
 router.use("/architect-tools", architectToolsRouter);
+router.use("/architect", architectRouter);
 // Antes montado directamente en app.ts ANTES de resolveTenantMiddleware
 // (línea ~276, con el comentario "sin autenticación para GET, con
 // autenticación para POST" -- pero al montarse tan temprano, NINGUNA ruta
