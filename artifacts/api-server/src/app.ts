@@ -81,7 +81,8 @@ logger.info("[MessageHandler] Message receiver configured for default tenant");
         console.warn(`⚠️ ADMIN_PASSWORD no seteada -- se generó una temporal, cámbiala tras el primer login: ${adminPassword}`);
       }
       console.log("👤 Creando tenant por defecto...");
-      const passwordHash = crypto.createHash("sha256").update(adminPassword).digest("hex");
+      const bcrypt = await import("bcryptjs");
+      const passwordHash = await bcrypt.default.hash(adminPassword, 10);
       await db.insert(tenants).values({
         name: "Admin",
         email: adminEmail,

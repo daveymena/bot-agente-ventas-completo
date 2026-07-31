@@ -385,5 +385,31 @@ export function resetTenantUsage(tenantId: string): void {
   rateLimitingMiddleware.resetUsage(tenantId);
 }
 
+// Payment-specific rate limiting (5 attempts per minute per tenant)
+const paymentAttempts = new Map<number, { count: number; resetTime: Date }>();
+
+export function paymentRateLimit(req: any, res: any, next: any) {
+  const tenantId = req.tenant?.id || 1;
+  const now = new Date();
+  const existing = paymentAttempts.get(tenantId);
+
+  if (!existing || now > existing.resetTime) {
+    paymentAttempts.set(tenantId, { count: 1, resetTime: new Date(now.getTime() + 60000) });
+    return next();
+  }
+
+  existing.count++;
+  if (existing.count > 5) {
+    logger.warn({ tenantId }, "[PaymentRateLimit] Too many payment attempts");
+    return res.status(429).json({
+      error: "Too many payment attempts",
+      message: "Demasiados intentos de pago. Por favor espera un minuto.",
+      retryAfter: Math.ceil((existing.resetTime.getTime() - now.getTime()) / 1000)
+    });
+  }
+
+  next();
+}
+
 // Export types
 export type { RateLimitConfig, CostTrackingConfig, UsageMetrics, RateLimitResult };

@@ -2,10 +2,23 @@ import { Router } from "express";
 import { SAAS_PLANS, SaasPlan, getPlanInfo, getMonthlyPrice } from "../middleware/saasValidation";
 import { logger } from "../lib/logger";
 import { SubscriptionPaymentService } from "../lib/subscription-payments";
+import { paymentRateLimit } from "../middleware/rateLimiting";
 import { db, tenants } from "@workspace/db";
 import { eq } from "drizzle-orm";
 
 const router = Router();
+
+// CSRF validation middleware for payment routes
+function validateCsrfToken(req: any, res: any, next: any) {
+  const token = req.headers['x-csrf-token'] || req.body?.csrfToken;
+  const sessionToken = req.session?.csrfToken;
+
+  if (!token || token !== sessionToken) {
+    logger.warn({ userId: req.user?.id }, "[CSRF] Invalid or missing CSRF token");
+    return res.status(403).json({ error: "CSRF validation failed", message: "Token inválido o expirado" });
+  }
+  next();
+}
 
 // GET /api/pricing - Obtener los planes que se ofrecen públicamente
 // (visible !== false) -- los planes legado (free/enterprise) siguen
@@ -65,7 +78,7 @@ router.get("/:plan", (req, res) => {
 // logueado hacía clic en "Actualizar" y o bien creaba una cuenta fantasma
 // nueva, o subía el plan de OTRO tenant si el email tecleado coincidía con
 // el de otra cuenta. Ahora usa directamente req.tenant.
-router.post("/upgrade", async (req, res, next) => {
+router.post("/upgrade", paymentRateLimit, validateCsrfToken, async (req, res, next) => {
   try {
     const tenant = (req as any).tenant;
     if (!tenant) {
