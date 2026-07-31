@@ -250,36 +250,36 @@ const DEFAULT_SLUG = 'sofia-premium';
               <button
                 onClick={() => setFilter('all')}
                 className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-sm transition-all ${
-                  filter === 'all' ? 'bg-indigo-500/20 text-indigo-300 font-semibold border border-indigo-500/30' : 'text-gray-400 hover:text-white hover:bg-white/5 border border-transparent'
+                  filter === 'all' ? 'bg-indigo-50 text-indigo-700 font-semibold border border-indigo-200' : 'text-slate-500 hover:text-indigo-600 hover:bg-slate-50 border border-transparent'
                 }`}
               >
                 <span className="flex items-center gap-2.5">
                   <Layers className="w-4 h-4" />
                   Todos
                 </span>
-                <span className="text-xs text-gray-500 font-mono">{products.length}</span>
+                <span className="text-xs text-slate-400 font-mono">{products.length}</span>
               </button>
               {categories.map((c, i) => (
                 <button
                   key={i}
                   onClick={() => setFilter(c.name)}
                   className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-sm transition-all ${
-                    filter === c.name ? 'bg-indigo-500/20 text-indigo-300 font-semibold border border-indigo-500/30' : 'text-gray-400 hover:text-white hover:bg-white/5 border border-transparent'
+                    filter === c.name ? 'bg-indigo-50 text-indigo-700 font-semibold border border-indigo-200' : 'text-slate-500 hover:text-indigo-600 hover:bg-slate-50 border border-transparent'
                   }`}
                 >
                   <span>{c.name}</span>
-                  <span className="text-xs text-gray-500 font-mono">{c.count}</span>
+                  <span className="text-xs text-slate-400 font-mono">{c.count}</span>
                 </button>
               ))}
             </div>
           </div>
 
-          <div className="bg-gradient-to-br from-indigo-500/20 to-purple-600/20 border border-indigo-500/30 text-white rounded-2xl p-6 relative overflow-hidden group">
-            <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-500/20 rounded-full blur-2xl -mr-10 -mt-10 pointer-events-none group-hover:bg-indigo-400/30 transition-colors" />
+          <div className="bg-gradient-to-br from-indigo-600 to-purple-600 text-white rounded-2xl p-6 relative overflow-hidden group shadow-lg shadow-indigo-500/20">
+            <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full blur-2xl -mr-10 -mt-10 pointer-events-none" />
             <p className="text-sm font-heading font-bold flex items-center gap-2">
               <span className="animate-pulse">🚀</span> Acceso inmediato
             </p>
-            <p className="text-xs text-gray-400 mt-2 leading-relaxed relative z-10">Todos los productos son digitales. Recibes el enlace al instante tras el pago.</p>
+            <p className="text-xs text-indigo-100 mt-2 leading-relaxed relative z-10">Todos los productos son digitales. Recibes el enlace al instante tras el pago.</p>
           </div>
         </aside>
 
@@ -288,23 +288,23 @@ const DEFAULT_SLUG = 'sofia-premium';
             <div className="flex items-center gap-4">
               <button
                 onClick={() => setShowFilters(true)}
-                className="md:hidden flex items-center gap-2 h-9 px-4 border border-white/10 rounded-xl text-xs font-semibold text-gray-300 bg-white/5 hover:bg-white/10 hover:text-white transition-all"
+                className="md:hidden flex items-center gap-2 h-9 px-4 border border-gray-200 rounded-xl text-xs font-semibold text-slate-600 bg-white hover:bg-slate-50 hover:text-indigo-600 transition-all shadow-sm"
               >
                 <SlidersHorizontal className="w-4 h-4" /> Filtros
               </button>
-              <p className="text-xs text-gray-400">
-                Mostrando <strong className="text-white">{displayedProducts.length}</strong> de <strong className="text-white">{filteredProducts.length}</strong> producto(s)
+              <p className="text-xs text-slate-500">
+                Mostrando <strong className="text-slate-900">{displayedProducts.length}</strong> de <strong className="text-slate-900">{filteredProducts.length}</strong> producto(s)
               </p>
             </div>
             <div className="flex items-center gap-3">
               <div className="relative group">
-                <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 group-focus-within:text-indigo-400 transition-colors" />
+                <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 group-focus-within:text-indigo-500 transition-colors" />
                 <input
                   type="text"
                   placeholder="Buscar productos..."
                   value={searchTerm}
                   onChange={e => setSearchTerm(e.target.value)}
-                  className="w-48 sm:w-64 h-10 pl-10 pr-4 rounded-xl border border-white/10 bg-[#09090b]/50 text-xs text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500/50 transition-all shadow-inner"
+                  className="w-48 sm:w-64 h-10 pl-10 pr-4 rounded-xl border border-gray-200 bg-white text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-400 transition-all shadow-sm"
                 />
               </div>
             </div>
@@ -327,23 +327,23 @@ const DEFAULT_SLUG = 'sofia-premium';
               ))}
             </div>
           ) : apiError && products.length === 0 ? (
-            <div className="text-center py-24 glass-panel rounded-2xl px-6 border-dashed border-white/10">
-              <div className="w-20 h-20 bg-indigo-500/10 rounded-full flex items-center justify-center mx-auto mb-6">
-                <Store className="w-10 h-10 text-indigo-400" />
+            <div className="text-center py-24 glass-panel rounded-2xl px-6 border border-dashed border-gray-200">
+              <div className="w-20 h-20 bg-indigo-50 rounded-full flex items-center justify-center mx-auto mb-6">
+                <Store className="w-10 h-10 text-indigo-500" />
               </div>
-              <h3 className="text-xl font-heading font-bold text-white mb-2">No hay productos disponibles</h3>
-              <p className="text-sm text-gray-400 mb-6 max-w-md mx-auto">Esta tienda aún no tiene productos publicados.</p>
+              <h3 className="text-xl font-heading font-bold text-slate-900 mb-2">No hay productos disponibles</h3>
+              <p className="text-sm text-slate-500 mb-6 max-w-md mx-auto">Esta tienda aún no tiene productos publicados.</p>
             </div>
           ) : apiError && !paramSlug ? (
-            <div className="text-center py-24 glass-panel rounded-2xl px-6 border-dashed border-white/10">
-              <div className="w-20 h-20 bg-rose-500/10 rounded-full flex items-center justify-center mx-auto mb-6">
-                <Store className="w-10 h-10 text-rose-400" />
+            <div className="text-center py-24 glass-panel rounded-2xl px-6 border border-dashed border-gray-200">
+              <div className="w-20 h-20 bg-rose-50 rounded-full flex items-center justify-center mx-auto mb-6">
+                <Store className="w-10 h-10 text-rose-500" />
               </div>
-              <h3 className="text-xl font-heading font-bold text-white mb-2">Tienda no configurada</h3>
-              <p className="text-sm text-gray-400 mb-8 max-w-md mx-auto">Visita tu tienda desde el slug correcto.</p>
+              <h3 className="text-xl font-heading font-bold text-slate-900 mb-2">Tienda no configurada</h3>
+              <p className="text-sm text-slate-500 mb-8 max-w-md mx-auto">Visita tu tienda desde el slug correcto.</p>
               <button
                 onClick={() => navigate('/admin')}
-                className="inline-flex items-center gap-2 h-11 px-8 rounded-xl bg-gradient-to-r from-indigo-500 to-purple-600 text-white text-sm font-bold hover:from-indigo-400 hover:to-purple-500 transition-all shadow-glow"
+                className="inline-flex items-center gap-2 h-11 px-8 rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 text-white text-sm font-bold hover:from-indigo-500 hover:to-purple-500 transition-all shadow-glow"
               >
                 Ir al panel de control
               </button>
@@ -359,7 +359,7 @@ const DEFAULT_SLUG = 'sofia-premium';
                 <div className="flex justify-center mt-10">
                   <button
                     onClick={() => setVisibleCount(prev => prev + 12)}
-                    className="inline-flex items-center gap-2 h-12 px-8 rounded-xl border border-white/10 bg-white/5 text-sm font-semibold text-white hover:bg-white/10 hover:border-white/20 transition-all"
+                    className="inline-flex items-center gap-2 h-12 px-8 rounded-xl border border-gray-200 bg-white text-sm font-semibold text-slate-700 hover:bg-slate-50 hover:border-indigo-300 hover:text-indigo-600 transition-all shadow-sm"
                   >
                     Cargar más productos ({filteredProducts.length - visibleCount} restantes) <ChevronDown className="w-4 h-4" />
                   </button>
@@ -367,12 +367,12 @@ const DEFAULT_SLUG = 'sofia-premium';
               )}
             </>
           ) : (
-            <div className="text-center py-24 glass-panel rounded-2xl px-6 border-dashed border-white/10">
-              <div className="w-20 h-20 bg-indigo-500/10 rounded-full flex items-center justify-center mx-auto mb-6">
-                <Search className="w-10 h-10 text-indigo-400" />
+            <div className="text-center py-24 glass-panel rounded-2xl px-6 border border-dashed border-gray-200">
+              <div className="w-20 h-20 bg-indigo-50 rounded-full flex items-center justify-center mx-auto mb-6">
+                <Search className="w-10 h-10 text-indigo-500" />
               </div>
-              <h3 className="text-xl font-heading font-bold text-white mb-2">No se encontraron productos</h3>
-              <p className="text-sm text-gray-400">Prueba con otros filtros o términos de búsqueda.</p>
+              <h3 className="text-xl font-heading font-bold text-slate-900 mb-2">No se encontraron productos</h3>
+              <p className="text-sm text-slate-500">Prueba con otros filtros o términos de búsqueda.</p>
             </div>
           )}
         </div>
