@@ -155,7 +155,7 @@ const ProductCard = ({ product, slug }: { product: Product; slug: string }) => {
 };
 
 const Shop = () => {
-  const { updateConfig, products: localProducts } = useStore();
+  const { config, updateConfig, products: localProducts } = useStore();
   const { slug: paramSlug } = useParams();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -235,14 +235,19 @@ const Shop = () => {
   return (
     <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-8 pb-24 md:pb-8">
       {/* HERO BANNER */}
-      <div className="rounded-2xl bg-gradient-to-r from-gray-900 via-red-900 to-black text-white p-6 sm:p-10 mb-6 relative overflow-hidden">
+      <div
+        className="rounded-2xl text-white p-6 sm:p-10 mb-6 relative overflow-hidden bg-gray-900 bg-cover bg-center"
+        style={config.heroImage ? { backgroundImage: `url(${config.heroImage})` } : undefined}
+      >
+        {/* Overlay oscuro para que el texto quede legible sobre la foto */}
+        <div className="absolute inset-0 bg-gradient-to-r from-black via-black/80 to-black/20" />
         <div className="relative z-10 max-w-lg">
           <p className="text-red-400 text-xs font-bold uppercase tracking-widest mb-2">Nueva colección</p>
           <h1 className="text-2xl sm:text-4xl font-black mb-2 leading-tight">Encuentra lo que buscas</h1>
           <p className="text-sm text-gray-300 mb-4">Productos físicos y digitales en un solo lugar</p>
           <div className="flex flex-wrap gap-2">
             <span className="bg-red-600 text-white px-3 py-1.5 rounded-lg text-xs font-bold">🚚 Envío a todo el país</span>
-            <span className="bg-white/10 text-white px-3 py-1.5 rounded-lg text-xs font-bold">⚡ Entrega digital inmediata</span>
+            <span className="bg-white/10 text-white px-3 py-1.5 rounded-lg text-xs font-bold backdrop-blur-sm">⚡ Entrega digital inmediata</span>
           </div>
         </div>
       </div>
