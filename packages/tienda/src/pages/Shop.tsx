@@ -58,9 +58,9 @@ const ProductCard = ({ product, slug }: { product: Product; slug: string }) => {
       layout
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
-      className="group relative glass-panel rounded-2xl overflow-hidden hover:border-indigo-500/50 transition-all duration-300 flex flex-col hover:-translate-y-1 hover:shadow-indigo-500/10"
+      className="group relative glass-panel rounded-2xl overflow-hidden hover:border-indigo-500/30 transition-all duration-300 flex flex-col hover:-translate-y-1 hover:shadow-[0_20px_40px_-15px_rgba(79,70,229,0.15)] bg-white"
     >
-      <div className="relative aspect-square bg-[#09090b] overflow-hidden">
+      <div className="relative aspect-square bg-slate-50 overflow-hidden">
         <Link to={detailHref} className="block w-full h-full" aria-label={`Ver ${product.name}`}>
           {product.image && !imgError ? (
             <img
@@ -71,7 +71,7 @@ const ProductCard = ({ product, slug }: { product: Product; slug: string }) => {
               loading="lazy"
             />
           ) : (
-            <div className="w-full h-full flex items-center justify-center text-gray-700 bg-[#09090b]">
+            <div className="w-full h-full flex items-center justify-center text-slate-300 bg-slate-50">
               <Package className="w-12 h-12" />
             </div>
           )}
@@ -83,34 +83,34 @@ const ProductCard = ({ product, slug }: { product: Product; slug: string }) => {
         </div>
         <button
           onClick={() => toggleWishlist(product.id)}
-          className="absolute top-3 right-3 w-9 h-9 rounded-full bg-[#09090b]/50 backdrop-blur-md border border-white/10 shadow-lg flex items-center justify-center text-gray-400 hover:text-rose-400 hover:bg-[#09090b]/80 transition-all opacity-0 group-hover:opacity-100 translate-y-2 group-hover:translate-y-0"
+          className="absolute top-3 right-3 w-9 h-9 rounded-full bg-white/80 backdrop-blur-md border border-gray-200 shadow-sm flex items-center justify-center text-gray-400 hover:text-rose-500 hover:bg-white transition-all opacity-0 group-hover:opacity-100 translate-y-2 group-hover:translate-y-0"
         >
           <Heart className={`w-4 h-4 ${wishlist.includes(product.id) ? 'fill-rose-500 text-rose-500' : ''}`} />
         </button>
         {/* Subtle gradient overlay at the bottom of the image */}
-        <div className="absolute bottom-0 left-0 right-0 h-1/3 bg-gradient-to-t from-[#09090b] to-transparent pointer-events-none" />
+        <div className="absolute bottom-0 left-0 right-0 h-1/3 bg-gradient-to-t from-black/5 to-transparent pointer-events-none" />
       </div>
 
-      <div className="p-4 flex flex-col gap-2 flex-1 relative z-10 bg-[#09090b]/40">
-        <p className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest">{product.category || 'General'}</p>
+      <div className="p-4 flex flex-col gap-2 flex-1 relative z-10 bg-white">
+        <p className="text-[10px] font-bold text-indigo-600 uppercase tracking-widest">{product.category || 'General'}</p>
         <Link
           to={detailHref}
-          className="text-base font-heading font-semibold leading-snug text-gray-200 line-clamp-2 min-h-[2.5em] hover:text-white transition-colors"
+          className="text-base font-heading font-semibold leading-snug text-slate-800 line-clamp-2 min-h-[2.5em] hover:text-indigo-600 transition-colors"
         >
           {product.name}
         </Link>
         
         <div className="flex items-center gap-1.5 mt-1">
           <div className="flex -space-x-1">
-            {[1,2,3,4,5].map(i => <Star key={i} className="w-3.5 h-3.5 fill-indigo-400 text-indigo-400" />)}
+            {[1,2,3,4,5].map(i => <Star key={i} className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />)}
           </div>
-          <span className="text-xs font-bold text-gray-300 ml-1">5.0</span>
-          <span className="text-xs text-gray-500">(128)</span>
+          <span className="text-xs font-bold text-slate-700 ml-1">5.0</span>
+          <span className="text-xs text-slate-500">(128)</span>
         </div>
 
         <div className="mt-auto pt-4">
           <div className="flex items-baseline gap-2">
-            <span className="text-xl font-heading font-bold text-white">{formatPrice(product.price)}</span>
+            <span className="text-xl font-heading font-bold text-slate-900">{formatPrice(product.price)}</span>
           </div>
           <div className="mt-4 flex gap-2">
             <button
@@ -138,7 +138,7 @@ const ProductCard = ({ product, slug }: { product: Product; slug: string }) => {
               }}
               title="Agregar al carrito"
               aria-label="Agregar al carrito"
-              className="w-10 h-10 shrink-0 rounded-xl border border-white/10 text-gray-400 bg-white/5 flex items-center justify-center hover:bg-white/10 hover:text-white transition-all"
+              className="w-10 h-10 shrink-0 rounded-xl border border-gray-200 text-slate-500 bg-white flex items-center justify-center hover:bg-slate-50 hover:text-indigo-600 transition-all shadow-sm"
             >
               <ShoppingCart className="w-4 h-4" />
             </button>
@@ -226,7 +226,7 @@ const DEFAULT_SLUG = 'sofia-premium';
   return (
     <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-6 sm:py-10 relative z-10">
       {showFilters && (
-        <div className="fixed inset-0 bg-[#09090b]/80 backdrop-blur-sm z-40 md:hidden" onClick={() => setShowFilters(false)} />
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-40 md:hidden" onClick={() => setShowFilters(false)} />
       )}
 
       <div className="flex gap-8 items-start">
@@ -238,14 +238,14 @@ const DEFAULT_SLUG = 'sofia-premium';
           `}
         >
           <div className="flex items-center justify-between mb-6 md:hidden">
-            <h2 className="text-sm font-heading font-bold text-white">Filtros</h2>
-            <button onClick={() => setShowFilters(false)} className="p-1.5 text-gray-400 hover:text-white bg-white/5 rounded-lg border border-white/10">
+            <h2 className="text-sm font-heading font-bold text-slate-900">Filtros</h2>
+            <button onClick={() => setShowFilters(false)} className="p-1.5 text-slate-500 hover:text-indigo-600 bg-white rounded-lg border border-gray-200 shadow-sm">
               <X className="w-5 h-5" />
             </button>
           </div>
 
           <div className="glass-panel rounded-2xl p-5 mb-6">
-            <h3 className="text-xs font-bold uppercase tracking-widest text-indigo-400 mb-4">Categorías</h3>
+            <h3 className="text-xs font-bold uppercase tracking-widest text-indigo-600 mb-4">Categorías</h3>
             <div className="space-y-1">
               <button
                 onClick={() => setFilter('all')}

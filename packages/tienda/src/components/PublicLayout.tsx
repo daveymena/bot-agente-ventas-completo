@@ -33,33 +33,33 @@ const PublicLayout = ({ children }: { children: React.ReactNode }) => {
   const waHref = config.whatsappPhone ? `https://wa.me/${config.whatsappPhone}` : null;
 
   return (
-    <div className="min-h-screen flex flex-col bg-[#09090b] text-gray-300 relative overflow-hidden">
+    <div className="min-h-screen flex flex-col bg-[#f8fafc] text-slate-900 relative overflow-hidden">
       {/* Background glow effects */}
-      <div className="absolute top-0 left-1/4 w-96 h-96 bg-indigo-600/20 rounded-full blur-[120px] pointer-events-none mix-blend-screen" />
-      <div className="absolute bottom-0 right-1/4 w-96 h-96 bg-purple-600/10 rounded-full blur-[100px] pointer-events-none mix-blend-screen" />
+      <div className="absolute top-0 left-1/4 w-96 h-96 bg-indigo-200/50 rounded-full blur-[120px] pointer-events-none mix-blend-multiply" />
+      <div className="absolute bottom-0 right-1/4 w-96 h-96 bg-purple-200/40 rounded-full blur-[100px] pointer-events-none mix-blend-multiply" />
 
-      <nav className="glass-nav sticky top-0 z-50 transition-all duration-300">
+      <nav className="glass-panel sticky top-0 z-50 transition-all duration-300 border-b border-gray-200/50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between h-20 items-center">
             <Link to={base} className="flex items-center gap-3 group">
-              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-lg shadow-indigo-500/20 group-hover:scale-105 transition-transform">
+              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-600 to-purple-600 flex items-center justify-center shadow-lg shadow-indigo-500/20 group-hover:scale-105 transition-transform">
                 <Store className="w-5 h-5 text-white" />
               </div>
-              <span className="text-xl font-heading font-bold text-white tracking-tight">{config.storeName || 'Tienda'}</span>
+              <span className="text-xl font-heading font-bold text-slate-900 tracking-tight">{config.storeName || 'Tienda'}</span>
             </Link>
 
             <div className="hidden md:flex items-center gap-8">
-              <Link to={base} className="text-sm font-medium text-gray-400 hover:text-white transition-colors relative after:absolute after:bottom-[-4px] after:left-0 after:h-[2px] after:w-0 hover:after:w-full after:bg-indigo-500 after:transition-all">
+              <Link to={base} className="text-sm font-semibold text-slate-600 hover:text-indigo-600 transition-colors relative after:absolute after:bottom-[-4px] after:left-0 after:h-[2px] after:w-0 hover:after:w-full after:bg-indigo-600 after:transition-all">
                 Productos
               </Link>
               <a href={waHref || "#"} target="_blank" rel="noopener noreferrer"
-                className="flex items-center gap-1.5 text-sm font-medium text-gray-400 hover:text-emerald-400 transition-colors group">
+                className="flex items-center gap-1.5 text-sm font-semibold text-slate-600 hover:text-emerald-600 transition-colors group">
                 <MessageCircle className="w-4 h-4 group-hover:animate-bounce-slow" /> WhatsApp
               </a>
-              <Link to={`${base}/carrito`} className="relative p-2 text-gray-400 hover:text-white transition-colors group">
+              <Link to={`${base}/carrito`} className="relative p-2 text-slate-600 hover:text-indigo-600 transition-colors group">
                 <ShoppingCart className="w-5 h-5 group-hover:scale-110 transition-transform" />
                 {cartCount > 0 && (
-                  <span className="absolute -top-1 -right-1 bg-indigo-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full ring-2 ring-[#09090b] shadow-glow">
+                  <span className="absolute -top-1 -right-1 bg-indigo-600 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full ring-2 ring-white shadow-glow">
                     {cartCount}
                   </span>
                 )}
@@ -67,29 +67,29 @@ const PublicLayout = ({ children }: { children: React.ReactNode }) => {
             </div>
 
             <div className="flex md:hidden items-center gap-3">
-              <Link to={`${base}/carrito`} className="relative p-2 text-gray-400 hover:text-white">
+              <Link to={`${base}/carrito`} className="relative p-2 text-slate-600 hover:text-indigo-600">
                 <ShoppingCart className="w-5 h-5" />
                 {cartCount > 0 && (
-                  <span className="absolute -top-1 -right-1 bg-indigo-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full ring-2 ring-[#09090b]">
+                  <span className="absolute -top-1 -right-1 bg-indigo-600 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full ring-2 ring-white">
                     {cartCount}
                   </span>
                 )}
               </Link>
-              <button onClick={() => setMobileMenu(!mobileMenu)} className="p-2 text-gray-400 hover:text-white transition-colors bg-white/5 rounded-lg border border-white/10">
+              <button onClick={() => setMobileMenu(!mobileMenu)} className="p-2 text-slate-600 hover:text-indigo-600 transition-colors bg-white rounded-lg border border-gray-200 shadow-sm">
                 {mobileMenu ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
               </button>
             </div>
           </div>
 
           {mobileMenu && (
-            <div className="md:hidden border-t border-white/10 py-4 space-y-2 animate-in slide-in-from-top-2 fade-in">
+            <div className="md:hidden border-t border-gray-100 py-4 space-y-2 animate-in slide-in-from-top-2 fade-in">
               <Link to={base} onClick={() => setMobileMenu(false)}
-                className="block px-4 py-3 text-sm font-medium text-gray-300 rounded-xl hover:bg-white/5 hover:text-white transition-colors">
+                className="block px-4 py-3 text-sm font-semibold text-slate-700 rounded-xl hover:bg-slate-50 transition-colors">
                 Productos
               </Link>
               <a href={waHref || "#"} target="_blank" rel="noopener noreferrer"
                 onClick={() => setMobileMenu(false)}
-                className="flex items-center gap-2 px-4 py-3 text-sm font-medium text-emerald-400 rounded-xl hover:bg-emerald-400/10 transition-colors">
+                className="flex items-center gap-2 px-4 py-3 text-sm font-semibold text-emerald-700 rounded-xl hover:bg-emerald-50 transition-colors">
                 <MessageCircle className="w-4 h-4" /> Asesoría por WhatsApp
               </a>
             </div>
