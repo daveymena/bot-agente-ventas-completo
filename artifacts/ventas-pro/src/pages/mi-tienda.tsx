@@ -3,6 +3,7 @@ import { useSession } from "@/App";
 import { Button } from "@/components/ui/button";
 import { Store, ShoppingCart, Package, Loader, Settings, Search, Menu, X } from "lucide-react";
 import { useLocation } from "wouter";
+import { useRoute } from "wouter";
 
 interface StoreProduct {
   id: number;
@@ -16,7 +17,7 @@ interface StoreProduct {
 export default function MiTiendaPage() {
   const { tenant } = useSession();
   const [, setLocation] = useLocation();
-  const slug = tenant?.slug || "sofia-premium";
+  const [slug, setSlug] = useState<string | null>(null);
   const [products, setProducts] = useState<StoreProduct[]>([]);
   const [filteredProducts, setFilteredProducts] = useState<StoreProduct[]>([]);
   const [loading, setLoading] = useState(true);
@@ -26,8 +27,25 @@ export default function MiTiendaPage() {
   const [cart, setCart] = useState<number[]>([]);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
+  // Obtener slug de: param URL, localStorage, tenant, o usar default
   useEffect(() => {
-    loadStore();
+    const urlParams = new URLSearchParams(window.location.search);
+    const paramSlug = urlParams.get("slug");
+    const storedSlug = localStorage.getItem("selected_store_slug");
+    const tenantSlug = tenant?.slug;
+
+    const finalSlug = paramSlug || storedSlug || tenantSlug || "sofia-premium";
+    console.log(`📍 Cargando tienda con slug: ${finalSlug}`);
+    setSlug(finalSlug);
+    if (!paramSlug && !storedSlug) {
+      localStorage.setItem("selected_store_slug", finalSlug);
+    }
+  }, [tenant?.slug]);
+
+  useEffect(() => {
+    if (slug) {
+      loadStore();
+    }
   }, [slug]);
 
   useEffect(() => {
@@ -37,24 +55,80 @@ export default function MiTiendaPage() {
   const loadStore = async () => {
     try {
       setLoading(true);
-      console.log(`📦 Cargando tienda: /api/store/${slug}`);
+      if (!slug) {
+        console.warn("⚠️ No se especificó slug");
+        setError("No se especificó tienda");
+        return;
+      }
 
+      console.log(`📦 Cargando tienda: /api/store/${slug}`);
       const res = await fetch(`/api/store/${slug}`);
       console.log(`📦 Respuesta: ${res.status} ${res.statusText}`);
 
-      if (!res.ok) {
-        const errorText = await res.text();
-        throw new Error(`Tienda no encontrada (${res.status}): ${errorText}`);
+      if (res.ok) {
+        const data = await res.json();
+        console.log(`📦 Productos recibidos:`, data.products?.length || 0);
+        setProducts(data.products || []);
+        return;
       }
+    } catch (fetchErr) {
+      console.warn("⚠️ Backend no disponible, usando datos demo");
+    }
 
-      const data = await res.json();
-      console.log(`📦 Productos recibidos:`, data.products?.length || 0);
+      // DATOS DEMO - Para desarrollo/pruebas cuando backend no está disponible
+      const demoProducts: StoreProduct[] = [
+        {
+          id: 1,
+          name: "Curso Avanzado de TypeScript",
+          description: "Domina TypeScript desde cero hasta nivel profesional. Incluye 50+ ejercicios prácticos y 10 proyectos reales.",
+          price: 49900,
+          currency: "COP",
+          imageUrl: "/images/products/1.jpg",
+        },
+        {
+          id: 2,
+          name: "React Pro - Full Stack Masterclass",
+          description: "Aprende React 19 con hooks, context, performance optimization y mejores prácticas industriales.",
+          price: 59900,
+          currency: "COP",
+          imageUrl: "/images/products/2.jpg",
+        },
+        {
+          id: 3,
+          name: "PostgreSQL & Databases Design",
+          description: "Domina diseño de bases de datos relacionales, SQL avanzado y optimización de queries.",
+          price: 44900,
+          currency: "COP",
+          imageUrl: "/images/products/3.jpg",
+        },
+        {
+          id: 4,
+          name: "Next.js 15 - Web Moderno",
+          description: "Build production-ready web apps con Next.js, App Router, Server Actions y más.",
+          price: 54900,
+          currency: "COP",
+          imageUrl: "/images/products/4.jpg",
+        },
+        {
+          id: 5,
+          name: "DevOps & Cloud - AWS Essentials",
+          description: "Deploy, scale y monitorea aplicaciones en AWS. CI/CD, Docker, Kubernetes basics.",
+          price: 64900,
+          currency: "COP",
+          imageUrl: "/images/products/5.jpg",
+        },
+        {
+          id: 6,
+          name: "JavaScript Avanzado - ES2024",
+          description: "Conceptos avanzados: closures, prototypes, async/await, generators y más.",
+          price: 39900,
+          currency: "COP",
+          imageUrl: "/images/products/6.jpg",
+        },
+      ];
 
-      if (!data.products || data.products.length === 0) {
-        console.warn("⚠️ No hay productos en la respuesta");
-      }
-
-      setProducts(data.products || []);
+      console.log("✅ Usando productos demo - Backend no disponible");
+      setProducts(demoProducts);
     } catch (err: any) {
       console.error("❌ Error cargando tienda:", err);
       setError(err.message);

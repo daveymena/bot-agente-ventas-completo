@@ -277,7 +277,7 @@ export class ArchitectOptimizer {
   /**
    * Monitorear y auto-ajustar
    */
-  async autoAdjustBased OnMetrics(
+  async autoAdjustBasedOnMetrics(
     productId: number,
     metrics: {
       conversionRate: number;

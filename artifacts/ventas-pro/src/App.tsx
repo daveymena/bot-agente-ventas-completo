@@ -143,7 +143,16 @@ function AppContent() {
     // pública. "/" quedó afuera de este redirect: ahora es la landing
     // pública (HomeRoute), antes mandaba a /auth sin mostrar nada del
     // producto a quien todavía no tiene cuenta.
-    if (!isLoading && !isAuthenticated && location !== "/" && location !== "/auth" && location !== "/pricing" && location !== "/onboarding" && location !== "/privacidad" && !location.startsWith("/store") && !location.startsWith("/tienda") && location !== "/mi-tienda") {
+    const isPublicRoute = location === "/" ||
+      location === "/auth" ||
+      location === "/pricing" ||
+      location === "/onboarding" ||
+      location === "/privacidad" ||
+      location === "/mi-tienda" ||
+      location.startsWith("/store") ||
+      location.startsWith("/tienda");
+
+    if (!isLoading && !isAuthenticated && !isPublicRoute) {
       console.log("🔒 No autenticado, redirigiendo a /auth...");
       setLocation("/auth");
     }
