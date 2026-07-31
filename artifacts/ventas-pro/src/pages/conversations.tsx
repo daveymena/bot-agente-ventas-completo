@@ -508,28 +508,37 @@ export default function Conversations() {
                       Esta conversación ha sido cerrada.
                     </div>
                   ) : (
-                    <form 
-                      className="flex gap-2 sm:gap-3 relative max-w-4xl mx-auto items-end"
-                      onSubmit={(e) => { e.preventDefault(); handleSend(); }}
-                    >
-                      <div className="flex-1 relative min-w-0">
-                        <Input 
-                          placeholder={activeConv.status === "ai" ? "Tomar control para enviar..." : "Escribe un mensaje..."} 
-                          className="w-full rounded-full bg-card border-border/50 shadow-sm pl-4 sm:pl-6 pr-4 h-12 sm:h-14 text-sm sm:text-base focus-visible:ring-primary/30"
-                          value={messageText}
-                          onChange={(e) => setMessageText(e.target.value)}
-                          disabled={activeConv.status === "ai" || sendMessage.isPending}
-                        />
-                      </div>
-                      <Button 
-                        type="submit" 
-                        disabled={!messageText.trim() || activeConv.status === "ai" || sendMessage.isPending}
-                        size="icon"
-                        className="shrink-0 h-12 w-12 sm:h-14 sm:w-14 rounded-full bg-gradient-to-tr from-primary to-primary/80 hover:from-primary hover:to-primary shadow-lg shadow-primary/20 transition-transform active:scale-95"
+                    <div className="relative max-w-4xl mx-auto">
+                      {activeConv.status === "ai" && (
+                        <div className="absolute inset-0 z-30 flex items-center justify-center bg-background/80 backdrop-blur-sm rounded-full cursor-pointer group" onClick={() => handleHandoff("human")}>
+                          <Button variant="default" size="sm" className="rounded-full shadow-lg shadow-primary/20 transition-transform group-hover:scale-105 pointer-events-none">
+                            <User className="h-4 w-4 mr-2" /> Tomar Control del Chat
+                          </Button>
+                        </div>
+                      )}
+                      <form 
+                        className="flex gap-2 sm:gap-3 relative items-end"
+                        onSubmit={(e) => { e.preventDefault(); handleSend(); }}
                       >
-                        <Send className="h-4 w-4 sm:h-5 sm:w-5 ml-0.5" />
-                      </Button>
-                    </form>
+                        <div className="flex-1 relative min-w-0">
+                          <Input 
+                            placeholder="Escribe un mensaje..." 
+                            className="w-full rounded-full bg-card border-border/50 shadow-sm pl-4 sm:pl-6 pr-4 h-12 sm:h-14 text-sm sm:text-base focus-visible:ring-primary/30"
+                            value={messageText}
+                            onChange={(e) => setMessageText(e.target.value)}
+                            disabled={activeConv.status === "ai" || sendMessage.isPending}
+                          />
+                        </div>
+                        <Button 
+                          type="submit" 
+                          disabled={!messageText.trim() || activeConv.status === "ai" || sendMessage.isPending}
+                          size="icon"
+                          className="shrink-0 h-12 w-12 sm:h-14 sm:w-14 rounded-full bg-gradient-to-tr from-primary to-primary/80 hover:from-primary hover:to-primary shadow-lg shadow-primary/20 transition-transform active:scale-95"
+                        >
+                          <Send className="h-4 w-4 sm:h-5 sm:w-5 ml-0.5" />
+                        </Button>
+                      </form>
+                    </div>
                   )}
                 </div>
               </>

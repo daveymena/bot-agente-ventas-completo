@@ -414,10 +414,28 @@ export class WhatsAppManager {
 
    async requestPairingCode(phoneNumber: string): Promise<string> {
       if (!this.sock) throw new Error("WhatsApp no está iniciado. Llama a start() primero.");
-      const code = await this.sock.requestPairingCode(phoneNumber);
-      const formatted = code.match(/.{1,4}/g)?.join("-") || code;
-      logger.info({ phoneNumber }, "[WhatsApp] Pairing code generated");
-      return formatted;
+      
+      let lastError = null;
+      // Reintentar hasta 5 veces (esperando a que el socket WS termine de conectar)
+      for (let i = 0; i < 5; i++) {
+        try {
+          // Esperar progresivamente (1s, 2s, etc) para asegurar que Noise Handshake terminó
+          await new Promise(r => setTimeout(r, 1500 + (i * 1000)));
+          
+          const code = await this.sock.requestPairingCode(phoneNumber);
+          const formatted = code.match(/.{1,4}/g)?.join("-") || code;
+          logger.info({ phoneNumber }, "[WhatsApp] Pairing code generated");
+          return formatted;
+        } catch (e: any) {
+          lastError = e;
+          console.warn(`⚠️ [WhatsApp] Intento ${i+1} de obtener PIN falló:`, e.message);
+          // Si el error no es de conexión o timeout, lanzar inmediatamente
+          if (!e.message?.includes("Connection Closed") && !e.message?.includes("Timeout")) {
+             throw e;
+          }
+        }
+      }
+      throw lastError || new Error("No se pudo obtener el código después de varios intentos");
     }
 
   // Igual que start() pero marca el socket para modo pairing-code en vez de QR.
@@ -442,10 +460,22 @@ export class WhatsAppManager {
         console.log(`ℹ️ [START] Estado actual: ${this.state} - No iniciando nueva conexión`);
         return this.getStatus();
       }
-      
+
       this.starting = true;
       this.state = "connecting";
       console.log("🔄 [START] Iniciando conexión WhatsApp...");
+
+      // Timeout de 25 segundos — si no hay evento de conexión en este tiempo,
+      // asumimos que la red/WhatsApp no está accesible y marcamos error.
+      const startTimeout = setTimeout(() => {
+        if (this.state === "connecting" && this.starting) {
+          this.starting = false;
+          this.state = "disconnected";
+          this.lastError = "Timeout: No se pudo conectar con WhatsApp en 25 segundos. Revisa tu conexión a internet o que web.whatsapp.com esté accesible.";
+          console.error("❌ [TIMEOUT] La conexión a WhatsApp tardó demasiado tiempo");
+          logger.error("[WhatsApp] Connection timeout - suspected network issue");
+        }
+      }, 25000);
 
      try {
        if (!existsSync(AUTH_DIR)) {
@@ -456,7 +486,7 @@ export class WhatsAppManager {
        const baileys = await import("@whiskeysockets/baileys");
        const makeWASocket = (baileys as any).default ?? (baileys as any).makeWASocket;
        const { useMultiFileAuthState, DisconnectReason } = baileys as any;
-       
+
        console.log("✅ [IMPORT] Módulos de Baileys importados correctamente");
 
        const { state: authState, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
@@ -498,8 +528,9 @@ export class WhatsAppManager {
        sock.ev.on("creds.update", saveCreds);
 
       sock.ev.on("connection.update", async (update: any) => {
+         clearTimeout(startTimeout);
          const { connection, lastDisconnect, qr } = update;
-         
+
           if (qr) {
             this.hadQrInThisSession = true;
             try {
@@ -514,7 +545,7 @@ export class WhatsAppManager {
              this.lastError = `Error generating QR: ${err instanceof Error ? err.message : String(err)}`;
            }
          }
-        
+
          if (connection === "open") {
            this.state = "connected";
            this.qrDataUrl = null;
@@ -526,18 +557,18 @@ export class WhatsAppManager {
            logger.info({ phone: this.phoneNumber }, "[WhatsApp] Connected");
            console.log(`✅ [CONNECTED] WhatsApp conectado exitosamente - Teléfono: ${this.phoneNumber}`);
          }
-        
+
          if (connection === "close") {
            const code = (lastDisconnect?.error as any)?.output?.statusCode;
            const loggedOut = code === DisconnectReason.loggedOut;
            const errorMessage = (lastDisconnect?.error as any)?.message || 'Unknown error';
-           
+
            console.log(`⚠️ [CONNECTION] Desconexión detectada - Código: ${code}, LoggedOut: ${loggedOut}, Error: ${errorMessage}`);
-           
+
            this.sock = null;
            this.starting = false;
            this.qrDataUrl = null;
-           
+
             if (loggedOut) {
               this.reconnectAttempts = 0;
               this.state = "disconnected";
@@ -572,6 +603,7 @@ export class WhatsAppManager {
        this.starting = false;
         return this.getStatus();
       } catch (e: any) {
+        clearTimeout(startTimeout);
         this.starting = false;
         this.state = "error";
         this.lastError = `Error al conectar: ${e instanceof Error ? e.message : String(e)}`;

@@ -97,13 +97,8 @@ router.post("/pair-phone", async (req, res, next) => {
     await mgr.stop(true);
     await mgr.startWithPairing();
 
-    // Esperamos a que el socket esté en estado 'connecting' (handshake Noise
-    // completado) antes de pedir el código — si se pide antes, WA rechaza.
-    for (let i = 0; i < 20; i++) {
-      await new Promise((r) => setTimeout(r, 500));
-      const st = mgr.getStatus().state;
-      if (st === "connecting" || st === "qr") break;
-    }
+    // El retry y la espera de la conexión WebSocket ahora están manejados
+    // internamente dentro de requestPairingCode() para mayor robustez.
 
     const pairingCode = await mgr.requestPairingCode(phoneNumber);
     return res.json({ ok: true, pairingCode, message: `Código: ${pairingCode} — Ingresa en WhatsApp > Dispositivos vinculados > Vincular con número de teléfono` });

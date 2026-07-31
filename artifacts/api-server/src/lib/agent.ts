@@ -693,7 +693,19 @@ export async function runAgentReply(conversationId: number) {
     // Producto en foco: el que la decisión eligió o el último con card enviada
     const focusId = decision.productToShow?.id ?? memory.currentProductId ?? null;
 
-    const compact = productList.map(p => {
+    // Limitar catálogo a 20 productos para no exceder tokens de proveedores free-tier.
+    // El producto en foco siempre se incluye; el resto se llena desde el inicio de la lista.
+    const MAX_CATALOG = 10;
+    let catalogSlice = productList;
+    if (productList.length > MAX_CATALOG) {
+      const focusProduct = focusId ? productList.find(p => p.id === focusId) : null;
+      catalogSlice = productList.slice(0, MAX_CATALOG);
+      if (focusProduct && !catalogSlice.find(p => p.id === focusProduct.id)) {
+        catalogSlice[MAX_CATALOG - 1] = focusProduct;
+      }
+    }
+
+    const compact = catalogSlice.map(p => {
       const cat = categoryMap.get(p.categoryId) || p.category || "";
       const catStr = cat ? ` (${cat})` : "";
       return `[ID: ${p.id}] ${p.name} — ${formatPrice(Number(p.price), p.currency)}${catStr}`;
@@ -710,7 +722,7 @@ export async function runAgentReply(conversationId: number) {
     }
 
     productsBlock = compact + focusDetail;
-    console.log(`📦 [CATALOG] Catálogo compacto para IA: ${productList.length} productos${focus ? ` (foco: ${focus.name})` : ""} - ${ts()}`);
+    console.log(`📦 [CATALOG] Catálogo compacto para IA: ${catalogSlice.length} productos (de ${productList.length} totales)${focus ? ` (foco: ${focus.name})` : ""} - ${ts()}`);
   } else if (productList.length > 0) {
     productsBlock = productList.map(p => {
       return `[ID: ${p.id}] ${p.name} — ${formatPrice(Number(p.price), p.currency)}`;

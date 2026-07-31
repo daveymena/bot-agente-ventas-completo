@@ -1,4 +1,5 @@
 import { Users, MessageSquare, CheckCircle, Timer, TrendingUp } from "lucide-react";
+import { Skeleton } from "@/components/ui/skeleton";
 
 interface MobileDashboardProps {
   summary?: {
@@ -13,16 +14,22 @@ interface MobileDashboardProps {
 }
 
 export function MobileDashboard({ summary }: MobileDashboardProps) {
+  const isLoading = !summary;
+
   return (
     <div className="flex flex-col gap-4 md:hidden">
       {/* Income Card */}
       <div className="bg-gradient-to-br from-indigo-600 to-indigo-700 rounded-[20px] p-5 text-white shadow-lg shadow-indigo-200">
         <div className="flex items-center justify-between mb-1">
           <span className="text-sm font-medium text-indigo-200">Ingresos del Mes</span>
-          <span className="text-[10px] font-semibold bg-white/20 px-2.5 py-1 rounded-full">+12.5%</span>
+          {isLoading ? (
+            <Skeleton className="h-5 w-12 bg-white/20 rounded-full" />
+          ) : (
+            <span className="text-[10px] font-semibold bg-white/20 px-2.5 py-1 rounded-full">+12.5%</span>
+          )}
         </div>
         <div className="text-3xl font-bold tracking-tight mb-3">
-          ${(summary?.totalRevenue ?? 48500).toLocaleString()}
+          {isLoading ? <Skeleton className="h-9 w-32 bg-white/20" /> : `$${(summary.totalRevenue || 0).toLocaleString()}`}
         </div>
         <div className="flex items-end justify-between">
           <div className="flex items-center gap-1.5 text-indigo-200 text-xs font-medium">
@@ -51,7 +58,9 @@ export function MobileDashboard({ summary }: MobileDashboardProps) {
               <Users className="w-4 h-4 text-indigo-600" />
             </div>
           </div>
-          <div className="text-2xl font-bold text-gray-900">{summary?.totalLeads ?? 1284}</div>
+          <div className="text-2xl font-bold text-gray-900">
+            {isLoading ? <Skeleton className="h-8 w-16" /> : summary.totalLeads}
+          </div>
         </div>
         <div className="bg-white rounded-[20px] p-4 shadow-sm border border-gray-100">
           <div className="flex items-center justify-between mb-2">
@@ -60,7 +69,9 @@ export function MobileDashboard({ summary }: MobileDashboardProps) {
               <MessageSquare className="w-4 h-4 text-indigo-600" />
             </div>
           </div>
-          <div className="text-2xl font-bold text-gray-900">{summary?.activeConversations ?? 37}</div>
+          <div className="text-2xl font-bold text-gray-900">
+            {isLoading ? <Skeleton className="h-8 w-16" /> : summary.activeConversations}
+          </div>
         </div>
         <div className="bg-white rounded-[20px] p-4 shadow-sm border border-gray-100">
           <div className="flex items-center justify-between mb-2">
@@ -69,7 +80,9 @@ export function MobileDashboard({ summary }: MobileDashboardProps) {
               <CheckCircle className="w-4 h-4 text-green-600" />
             </div>
           </div>
-          <div className="text-2xl font-bold text-gray-900">{summary?.closedDeals ?? 96}</div>
+          <div className="text-2xl font-bold text-gray-900">
+            {isLoading ? <Skeleton className="h-8 w-16" /> : summary.closedDeals}
+          </div>
         </div>
         <div className="bg-white rounded-[20px] p-4 shadow-sm border border-gray-100">
           <div className="flex items-center justify-between mb-2">
@@ -78,7 +91,9 @@ export function MobileDashboard({ summary }: MobileDashboardProps) {
               <Timer className="w-4 h-4 text-amber-600" />
             </div>
           </div>
-          <div className="text-2xl font-bold text-gray-900">{summary?.avgResponseTime ?? 4}s</div>
+          <div className="text-2xl font-bold text-gray-900">
+            {isLoading ? <Skeleton className="h-8 w-16" /> : `${summary.avgResponseTime}s`}
+          </div>
         </div>
       </div>
     </div>

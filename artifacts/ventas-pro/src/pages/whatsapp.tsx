@@ -112,7 +112,7 @@ export default function WhatsAppConnection() {
 
     if (!status || status.state === 'disconnected') {
       return (
-        <Card className="max-w-md mx-auto w-full mt-10 text-center rounded-3xl overflow-hidden glass-panel border-0 shadow-lg relative">
+        <Card key="disconnected" className="max-w-md mx-auto w-full mt-10 text-center rounded-3xl overflow-hidden glass-panel border-0 shadow-lg relative">
           <div className="absolute top-0 right-0 w-full h-full bg-gradient-to-br from-primary/5 via-transparent to-accent/5 pointer-events-none" />
           <CardHeader className="relative z-10 pt-10">
             <CardTitle className="text-3xl font-bold tracking-tight">Conectar WhatsApp</CardTitle>
@@ -128,15 +128,15 @@ export default function WhatsAppConnection() {
               </div>
             )}
             {!showPairForm ? (
-              <>
+              <div className="w-full flex flex-col gap-3">
                 <Button size="lg" className="w-full text-base h-14 rounded-xl shadow-lg shadow-primary/20 transition-transform active:scale-[0.98]" onClick={handleConnect} disabled={connectMutation.isPending}>
                   {connectMutation.isPending ? <RefreshCw className="mr-2 h-5 w-5 animate-spin" /> : <QrCode className="mr-2 h-5 w-5" />}
                   Generar código QR
                 </Button>
-                <Button variant="ghost" className="w-full mt-3 text-muted-foreground rounded-xl" onClick={() => setShowPairForm(true)}>
+                <Button variant="ghost" className="w-full text-muted-foreground rounded-xl" onClick={() => setShowPairForm(true)}>
                   <KeyRound className="h-4 w-4 mr-2" /> ¿El QR no carga? Usar código PIN
                 </Button>
-              </>
+              </div>
             ) : (
               <div className="text-left">
                 <label className="text-sm font-medium text-muted-foreground mb-2 block">Número con código de país</label>
@@ -171,8 +171,30 @@ export default function WhatsAppConnection() {
     }
 
     if (status.state === 'connecting') {
+      // If we have a pairing code, we shouldn't hide it with the connecting spinner!
+      if (pairingCode) {
+        return (
+          <Card key="pairing" className="max-w-md mx-auto w-full mt-10 text-center rounded-3xl overflow-hidden glass-panel border-0 shadow-lg">
+            <CardHeader className="pt-10">
+              <CardTitle className="text-3xl font-bold tracking-tight">Vincular con código PIN</CardTitle>
+              <CardDescription className="text-base mt-2">Ingresa este código en tu celular.</CardDescription>
+            </CardHeader>
+            <CardContent className="py-8">
+              <div className="bg-primary/10 border border-primary/20 rounded-2xl p-6 mb-3 text-center">
+                <p className="text-sm text-muted-foreground mb-3">Tu código de vinculación:</p>
+                <p className="text-4xl font-black tracking-widest text-primary">{pairingCode}</p>
+                <p className="text-sm text-muted-foreground mt-4">En tu teléfono: WhatsApp → Dispositivos vinculados → Vincular con número de teléfono</p>
+              </div>
+              <Button variant="ghost" className="w-full text-muted-foreground rounded-xl" onClick={handleResetSession} disabled={isResetting}>
+                Cancelar
+              </Button>
+            </CardContent>
+          </Card>
+        );
+      }
+
       return (
-        <Card className="max-w-md mx-auto w-full mt-10 text-center rounded-3xl overflow-hidden glass-panel border-0 shadow-lg">
+        <Card key="connecting" className="max-w-md mx-auto w-full mt-10 text-center rounded-3xl overflow-hidden glass-panel border-0 shadow-lg">
           <CardHeader className="pt-10">
             <CardTitle className="text-3xl font-bold tracking-tight">Conectando...</CardTitle>
             <CardDescription className="text-base mt-2">Generando sesión con los servidores de WhatsApp.</CardDescription>
@@ -195,7 +217,7 @@ export default function WhatsAppConnection() {
 
     if (status.state === 'qr') {
       return (
-        <Card className="max-w-md mx-auto w-full mt-10 rounded-3xl overflow-hidden glass-panel border-0 shadow-lg">
+        <Card key="qr" className="max-w-md mx-auto w-full mt-10 rounded-3xl overflow-hidden glass-panel border-0 shadow-lg">
           <CardHeader className="text-center pt-10">
             <CardTitle className="text-3xl font-bold tracking-tight">{showPairForm ? "Vincular con código PIN" : "Escanea para conectar"}</CardTitle>
             <CardDescription className="text-base mt-2">
@@ -206,7 +228,7 @@ export default function WhatsAppConnection() {
           </CardHeader>
           <CardContent className="flex flex-col items-center py-8">
             {!showPairForm ? (
-              <>
+              <div className="w-full flex flex-col items-center">
                 <div className="bg-white p-5 rounded-3xl shadow-[0_0_40px_rgba(var(--primary),0.15)] border border-primary/10 mb-8 transition-transform hover:scale-105 duration-500">
                   {status.qrCode ? (
                     <img src={status.qrCode} alt="WhatsApp QR Code" className="w-64 h-64" />
@@ -220,7 +242,7 @@ export default function WhatsAppConnection() {
                 <Button variant="ghost" size="sm" className="text-muted-foreground rounded-xl" onClick={() => setShowPairForm(true)}>
                   <KeyRound className="h-4 w-4 mr-2" /> ¿No puedes escanear? Usar código PIN
                 </Button>
-              </>
+              </div>
             ) : (
               <div className="text-left w-full">
                 <label className="text-sm font-medium text-muted-foreground mb-2 block">Número con código de país</label>
@@ -264,7 +286,7 @@ export default function WhatsAppConnection() {
 
     if (status.state === 'connected') {
       return (
-        <Card className="max-w-md mx-auto w-full mt-10 rounded-3xl overflow-hidden glass-panel border-0 shadow-lg relative">
+        <Card key="connected" className="max-w-md mx-auto w-full mt-10 rounded-3xl overflow-hidden glass-panel border-0 shadow-lg relative">
           <div className="absolute top-0 right-0 w-full h-full bg-gradient-to-b from-green-500/10 to-transparent pointer-events-none" />
           <div className="px-6 pt-12 pb-8 text-center relative z-10">
             <div className="mx-auto bg-gradient-to-br from-green-400 to-green-600 text-white rounded-full w-24 h-24 flex items-center justify-center mb-6 shadow-lg shadow-green-500/30 ring-8 ring-green-500/10">
@@ -312,7 +334,7 @@ export default function WhatsAppConnection() {
 
     if (status.state === 'error' || status.state === undefined) {
       return (
-        <Card className="max-w-md mx-auto w-full mt-10 rounded-3xl overflow-hidden glass-panel border-0 shadow-lg">
+        <Card key="error" className="max-w-md mx-auto w-full mt-10 rounded-3xl overflow-hidden glass-panel border border-destructive/20 shadow-lg shadow-destructive/5 relative">
           <CardHeader className="text-center pt-10">
             <div className="mx-auto bg-destructive/10 text-destructive rounded-full w-20 h-20 flex items-center justify-center mb-6 ring-8 ring-destructive/5">
               <AlertCircle className="h-10 w-10" />

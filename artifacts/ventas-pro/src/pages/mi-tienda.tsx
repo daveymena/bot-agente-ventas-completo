@@ -3,7 +3,7 @@ import { useSession } from "@/App";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Store, ShoppingCart, Package, ArrowLeft, Loader, Settings, ExternalLink, Edit } from "lucide-react";
-import { Link } from "wouter";
+import { Link, useLocation } from "wouter";
 
 interface StoreProduct {
   id: number;
@@ -15,6 +15,7 @@ interface StoreProduct {
 
 export default function MiTiendaPage() {
   const { tenant } = useSession();
+  const [, setLocation] = useLocation();
   const slug = tenant?.slug || "mi-tienda";
   const [products, setProducts] = useState<StoreProduct[]>([]);
   const [loading, setLoading] = useState(true);
@@ -83,11 +84,9 @@ export default function MiTiendaPage() {
           </div>
         </div>
         <div className="flex gap-2">
-          <Link href="/admin/products">
-            <Button variant="outline" size="sm" className="bg-white hover:bg-slate-50 gap-2">
-              <Settings className="h-4 w-4" /> Administrar Productos
-            </Button>
-          </Link>
+          <Button variant="outline" size="sm" className="bg-white hover:bg-slate-50 gap-2" onClick={() => setLocation("/admin/products")}>
+            <Settings className="h-4 w-4" /> Administrar Productos
+          </Button>
           <Button size="sm" className="bg-indigo-600 hover:bg-indigo-700 text-white gap-2" onClick={() => window.open(storeUrl, "_blank")}>
             <ExternalLink className="h-4 w-4" /> Ver Tienda Pública
           </Button>
@@ -105,9 +104,7 @@ export default function MiTiendaPage() {
             <Package className="h-16 w-16 text-indigo-300 mx-auto mb-4 opacity-70" />
             <h3 className="text-xl font-bold mb-2 text-slate-900">No hay productos publicados</h3>
             <p className="text-sm text-slate-500 mb-6">Agrega productos a tu catálogo para que aparezcan aquí.</p>
-            <Link href="/admin/products">
-              <Button className="bg-indigo-600 hover:bg-indigo-700">Ir a crear producto</Button>
-            </Link>
+            <Button className="bg-indigo-600 hover:bg-indigo-700" onClick={() => setLocation("/admin/products")}>Ir a crear producto</Button>
           </Card>
         ) : (
           <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
@@ -116,11 +113,9 @@ export default function MiTiendaPage() {
                 
                 {/* Admin Overlay Edit Button */}
                 <div className="absolute top-3 right-3 z-20 opacity-0 group-hover:opacity-100 transition-opacity">
-                  <Link href="/admin/products">
-                    <Button size="icon" variant="secondary" className="h-8 w-8 rounded-full bg-white/90 backdrop-blur shadow-sm hover:bg-indigo-50 hover:text-indigo-600">
-                      <Edit className="h-4 w-4" />
-                    </Button>
-                  </Link>
+                  <Button size="icon" variant="secondary" className="h-8 w-8 rounded-full bg-white/90 backdrop-blur shadow-sm hover:bg-indigo-50 hover:text-indigo-600" onClick={() => setLocation("/admin/products")}>
+                    <Edit className="h-4 w-4" />
+                  </Button>
                 </div>
 
                 <div className="aspect-[4/3] bg-slate-50 relative overflow-hidden flex-shrink-0 border-b border-gray-100">

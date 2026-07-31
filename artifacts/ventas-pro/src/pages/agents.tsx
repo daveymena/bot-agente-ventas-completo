@@ -12,7 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Bot, Plus, Star, MoreVertical, Edit, Trash2, Save, X, Sparkles, MessageSquare } from "lucide-react";
+import { Bot, Plus, Star, MoreVertical, Edit, Trash2, Save, X, Sparkles, MessageSquare, ArrowUp, ArrowDown } from "lucide-react";
 import { toast } from "sonner";
 import { format, parseISO } from "date-fns";
 import { es } from "date-fns/locale";
@@ -265,6 +265,24 @@ function AgentModal({ mode, agent, children, open: controlledOpen, onOpenChange 
     setFormData({ ...formData, stages: newStages });
   };
 
+  const moveStageUp = (index: number) => {
+    if (index === 0) return;
+    const newStages = [...formData.stages];
+    const temp = newStages[index - 1];
+    newStages[index - 1] = newStages[index];
+    newStages[index] = temp;
+    setFormData({ ...formData, stages: newStages });
+  };
+
+  const moveStageDown = (index: number) => {
+    if (index === formData.stages.length - 1) return;
+    const newStages = [...formData.stages];
+    const temp = newStages[index + 1];
+    newStages[index + 1] = newStages[index];
+    newStages[index] = temp;
+    setFormData({ ...formData, stages: newStages });
+  };
+
   return (
     <Dialog open={isOpen} onOpenChange={setIsOpen}>
       {children && <DialogTrigger asChild>{children}</DialogTrigger>}
@@ -341,9 +359,17 @@ function AgentModal({ mode, agent, children, open: controlledOpen, onOpenChange 
                         <Textarea className="h-[76px] text-sm resize-none" value={stage.prompt} onChange={e => updateStage(i, 'prompt', e.target.value)} placeholder="¿Qué debe hacer o preguntar el agente en esta fase?" />
                       </div>
                     </div>
-                    <Button variant="ghost" size="icon" className="absolute top-2 right-2 text-muted-foreground opacity-0 group-hover:opacity-100 hover:text-destructive hover:bg-destructive/10" onClick={() => removeStage(i)}>
-                      <X className="h-4 w-4" />
-                    </Button>
+                    <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <Button type="button" variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-foreground" onClick={() => moveStageUp(i)} disabled={i === 0}>
+                        <ArrowUp className="h-4 w-4" />
+                      </Button>
+                      <Button type="button" variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-foreground" onClick={() => moveStageDown(i)} disabled={i === formData.stages.length - 1}>
+                        <ArrowDown className="h-4 w-4" />
+                      </Button>
+                      <Button type="button" variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive hover:bg-destructive/10" onClick={() => removeStage(i)}>
+                        <X className="h-4 w-4" />
+                      </Button>
+                    </div>
                   </div>
                 ))}
               </div>

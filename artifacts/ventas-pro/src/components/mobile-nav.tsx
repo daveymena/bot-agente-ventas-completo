@@ -45,9 +45,13 @@ export function MobileNav() {
         {mainNavItems.map((item) => {
           const isActive = item.href === "/" ? location === "/" : location.startsWith(item.href);
           return (
-            <Link
+            <a
               key={item.href}
               href={item.href}
+              onClick={(e) => {
+                e.preventDefault();
+                setLocation(item.href);
+              }}
               className={`flex flex-col items-center justify-center gap-0.5 rounded-2xl px-2 py-1.5 min-w-[48px] transition-all duration-200 flex-1 ${
                 isActive ? "text-indigo-600" : "text-gray-400 hover:text-gray-600"
               }`}
@@ -64,7 +68,7 @@ export function MobileNav() {
               }`}>
                 {item.label}
               </span>
-            </Link>
+            </a>
           );
         })}
 
@@ -99,10 +103,13 @@ export function MobileNav() {
               {moreItems.map((item) => {
                 const isActive = item.href === "/" ? location === "/" : location.startsWith(item.href);
                 return (
-                  <Link
+                  <a
                     key={item.href}
                     href={item.href}
-                    onClick={() => setShowMore(false)}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      setLocation(item.href);
+                    }}
                     className={`flex flex-col items-center gap-1.5 rounded-2xl p-3 transition-all ${
                       isActive ? "bg-indigo-50 text-indigo-600" : "text-gray-600 hover:bg-gray-50"
                     }`}
@@ -113,7 +120,7 @@ export function MobileNav() {
                       <item.icon className={`w-5 h-5 ${isActive ? "text-indigo-600" : "text-gray-500"}`} />
                     </div>
                     <span className="text-[10px] font-semibold text-center leading-tight">{item.label}</span>
-                  </Link>
+                  </a>
                 );
               })}
             </div>

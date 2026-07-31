@@ -97,6 +97,43 @@ function SmartImportButton({ onComplete }: { onComplete: () => void }) {
 
 const DEFAULT_CURRENCIES = ["MXN", "USD", "EUR", "COP", "ARS", "CLP"];
 
+function ProductImage({ product, cat }: { product: any, cat: any }) {
+  const [imageState, setImageState] = useState<'initial' | 'local' | 'fallback'>('initial');
+  const catColor = cat?.color || "hsl(var(--primary))";
+  
+  if (imageState === 'fallback') {
+    return (
+      <div 
+        className="w-full h-full flex items-center justify-center transition-transform duration-500 group-hover:scale-105"
+        style={{ background: `linear-gradient(135deg, ${catColor}33 0%, ${catColor}99 100%)` }}
+      >
+        <span style={{ fontSize: '3rem', filter: 'drop-shadow(0 2px 8px rgba(0,0,0,0.3))' }}>
+          {cat?.icon || (product.kind === 'digital' ? '⚡' : '📦')}
+        </span>
+      </div>
+    );
+  }
+
+  const src = imageState === 'initial' && product.imageUrl 
+    ? product.imageUrl 
+    : `/images/products/${product.id}.jpg`;
+
+  return (
+    <img 
+      src={src} 
+      alt={product.name} 
+      className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+      onError={() => {
+        if (imageState === 'initial' && product.imageUrl) {
+          setImageState('local');
+        } else {
+          setImageState('fallback');
+        }
+      }}
+    />
+  );
+}
+
 export default function Products() {
   const queryClient = useQueryClient();
   const [activeCategoryId, setActiveCategoryId] = useState<number | "all">("all");
@@ -298,50 +335,7 @@ export default function Products() {
                 <Card key={product.id} className={`group flex flex-col overflow-hidden transition-shadow hover:shadow-md ${!product.isActive ? 'opacity-60' : ''}`}>
                   {/* Image Header */}
                   <div className="relative aspect-video w-full overflow-hidden bg-muted">
-                    {product.imageUrl ? (
-                      <img 
-                        src={product.imageUrl} 
-                        alt={product.name} 
-                        className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
-                        onError={(e) => {
-                          const target = e.currentTarget;
-                          const localPath = `/images/products/${product.id}.jpg`;
-                          // Si ya intentamos la imagen local y también falló, mostrar fallback visual
-                          if (target.src.includes('/images/products/')) {
-                            target.style.display = 'none';
-                            const parent = target.parentElement;
-                            if (parent && !parent.querySelector('.img-fallback')) {
-                              const fallback = document.createElement('div');
-                              fallback.className = 'img-fallback w-full h-full flex items-center justify-center';
-                              fallback.style.cssText = `background: linear-gradient(135deg, ${catColor}33 0%, ${catColor}99 100%)`;
-                              fallback.innerHTML = `<span style="font-size:3rem;filter:drop-shadow(0 2px 8px rgba(0,0,0,0.3))">${cat?.icon || (product.kind === 'digital' ? '⚡' : '📦')}</span>`;
-                              parent.appendChild(fallback);
-                            }
-                          } else {
-                            // Primer intento: usar imagen local del servidor
-                            target.src = localPath;
-                          }
-                        }}
-                      />
-                    ) : (
-                      <img
-                        src={`/images/products/${product.id}.jpg`}
-                        alt={product.name}
-                        className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
-                        onError={(e) => {
-                          const target = e.currentTarget;
-                          target.style.display = 'none';
-                          const parent = target.parentElement;
-                          if (parent && !parent.querySelector('.img-fallback')) {
-                            const fallback = document.createElement('div');
-                            fallback.className = 'img-fallback w-full h-full flex items-center justify-center';
-                            fallback.style.cssText = `background: linear-gradient(135deg, ${catColor}33 0%, ${catColor}99 100%)`;
-                            fallback.innerHTML = `<span style="font-size:3rem;filter:drop-shadow(0 2px 8px rgba(0,0,0,0.3))">${cat?.icon || (product.kind === 'digital' ? '⚡' : '📦')}</span>`;
-                            parent.appendChild(fallback);
-                          }
-                        }}
-                      />
-                    )}
+                    <ProductImage product={product} cat={cat} />
                     
                     {/* Badges Overlay */}
                     <div className="absolute top-3 left-3 right-3 flex justify-between items-start">

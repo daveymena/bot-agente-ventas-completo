@@ -630,6 +630,160 @@ export const TOOLS: ToolDef[] = [
     },
   },
 
+  // ── 🖼️ BÚSQUEDA DE IMÁGENES PROFESIONALES (para anuncios / productos) ────
+  {
+    name: "search_product_images",
+    description:
+      "BUSCAR imágenes profesionales de alta calidad en internet para un producto o tema. " +
+      "Devuelve URLs de fotos reales, aptas para Facebook Ads (mínimo 600px, sin logos/iconos/Wikipedia). " +
+      "Usa Pexels (stock gratuito), Brave Images y DuckDuckGo Images. " +
+      "Muéstrale al admin las opciones con Markdown: ![Opción 1](url) para que elija. " +
+      "Luego usa set_product_image con la URL elegida.",
+    args: '{ "query": string (req, ej: "curso excel online profesional"), "limit": number (opcional, default 6) }',
+    run: async (args) => {
+      const query = String(args.query || "").trim();
+      const limit = Math.min(num(args.limit) || 6, 12);
+      if (!query) return { ok: false, summary: "Falta 'query' (qué buscar)" };
+
+      const allImages: { url: string; source: string; title: string }[] = [];
+
+      // Dominios basura que NUNCA sirven para anuncios de Facebook
+      const JUNK_PATTERN = /(wikipedia|wikimedia|gravatar|avatar|favicon|icon|sprite|badge|pixel|1x1|blank|logo\.|\.svg|\.gif|placeholder|loading|spinner|data:image)/i;
+      const isGoodImage = (url: string): boolean => {
+        if (!url || !/^https?:\/\//i.test(url)) return false;
+        if (JUNK_PATTERN.test(url)) return false;
+        // Rechazar imágenes demasiado pequeñas por URL (thumbnails de 20px, 50px, etc.)
+        if (/\/(\d+)px-/i.test(url)) {
+          const px = parseInt(url.match(/\/(\d+)px-/i)![1]);
+          if (px < 200) return false;
+        }
+        return true;
+      };
+
+      // ── 1. Pexels (fotos stock profesionales, 100% legales para ads) ──
+      try {
+        const pexelsKey = process.env.PEXELS_API_KEY;
+        if (pexelsKey) {
+          const res = await fetch(
+            `https://api.pexels.com/v1/search?query=${encodeURIComponent(query)}&per_page=${limit}&locale=es-ES`,
+            { headers: { Authorization: pexelsKey }, signal: AbortSignal.timeout(10000) },
+          );
+          if (res.ok) {
+            const j: any = await res.json();
+            for (const photo of (j?.photos || [])) {
+              const url = photo?.src?.large2x || photo?.src?.large || photo?.src?.original;
+              if (url && isGoodImage(url)) {
+                allImages.push({ url, source: "Pexels", title: photo.alt || query });
+              }
+            }
+          }
+        }
+      } catch {}
+
+      // ── 2. Brave Image Search (alta calidad, requiere API key) ──
+      try {
+        const braveKey = process.env.BRAVE_SEARCH_API_KEY;
+        if (braveKey) {
+          const res = await fetch(
+            `https://api.search.brave.com/res/v1/images/search?q=${encodeURIComponent(query)}&count=${limit}&safesearch=moderate`,
+            { headers: { Accept: "application/json", "X-Subscription-Token": braveKey }, signal: AbortSignal.timeout(10000) },
+          );
+          if (res.ok) {
+            const j: any = await res.json();
+            for (const img of (j?.results || [])) {
+              const url = img?.properties?.url || img?.url;
+              if (url && isGoodImage(url)) {
+                allImages.push({ url, source: "Brave", title: img.title || query });
+              }
+            }
+          }
+        }
+      } catch {}
+
+      // ── 3. DuckDuckGo Image Search (sin API key, scraping) ──
+      if (allImages.length < limit) {
+        try {
+          // DDG necesita un token vqd para búsqueda de imágenes
+          const tokenRes = await fetch(
+            `https://duckduckgo.com/?q=${encodeURIComponent(query)}&iax=images&ia=images`,
+            { headers: { "User-Agent": SEARCH_UA }, signal: AbortSignal.timeout(8000) },
+          );
+          if (tokenRes.ok) {
+            const tokenHtml = await tokenRes.text();
+            const vqd = tokenHtml.match(/vqd=["']([^"']+)["']/)?.[1] ||
+                         tokenHtml.match(/vqd=([\d-]+)/)?.[1];
+            if (vqd) {
+              const imgRes = await fetch(
+                `https://duckduckgo.com/i.js?l=es-ES&o=json&q=${encodeURIComponent(query)}&vqd=${vqd}&f=size:Large`,
+                { headers: { "User-Agent": SEARCH_UA, Referer: "https://duckduckgo.com/" }, signal: AbortSignal.timeout(10000) },
+              );
+              if (imgRes.ok) {
+                const imgJson: any = await imgRes.json();
+                for (const r of (imgJson?.results || [])) {
+                  if (allImages.length >= limit * 2) break;
+                  const url = r?.image;
+                  if (url && isGoodImage(url)) {
+                    allImages.push({ url, source: "DuckDuckGo", title: r.title || query });
+                  }
+                }
+              }
+            }
+          }
+        } catch {}
+      }
+
+      // ── 4. Fallback: SearXNG con categoría images ──
+      if (allImages.length < 3) {
+        for (const base of SEARX_INSTANCES) {
+          try {
+            const res = await fetch(
+              `${base}/search?q=${encodeURIComponent(query)}&categories=images&format=json`,
+              { headers: { "User-Agent": SEARCH_UA }, signal: AbortSignal.timeout(8000) },
+            );
+            if (res.ok) {
+              const j: any = await res.json();
+              for (const r of (j?.results || [])) {
+                if (allImages.length >= limit * 2) break;
+                const url = r?.img_src || r?.url;
+                if (url && isGoodImage(url)) {
+                  allImages.push({ url, source: "SearXNG", title: r.title || query });
+                }
+              }
+              if (allImages.length >= 3) break;
+            }
+          } catch {}
+        }
+      }
+
+      // Deduplicar y limitar
+      const seen = new Set<string>();
+      const unique = allImages.filter(img => {
+        if (seen.has(img.url)) return false;
+        seen.add(img.url);
+        return true;
+      }).slice(0, limit);
+
+      if (unique.length === 0) {
+        return { ok: false, summary: "No encontré imágenes profesionales para esa búsqueda. Intenta con otros términos más específicos." };
+      }
+
+      // Formatear para que el Arquitecto muestre visualmente con Markdown
+      const markdown = unique.map((img, i) =>
+        `🖼️ Opción ${i + 1} (${img.source}): ${img.title}\n![Opción ${i + 1}](${img.url})`
+      ).join("\n\n");
+
+      return {
+        ok: true,
+        summary: `🖼️ ${unique.length} imágenes profesionales encontradas para "${query}". Muéstralas al admin con Markdown para que elija.`,
+        data: {
+          images: unique,
+          markdown,
+          text: unique.map((img, i) => `${i + 1}. [${img.source}] ${img.url}`).join("\n"),
+        },
+      };
+    },
+  },
+
   // ── 📘 FACEBOOK / META ─────────────────────────────────────────────────────
   {
     name: "fb_status",
@@ -1116,7 +1270,7 @@ export const READ_ONLY_TOOLS = new Set([
   // Monitoreo: solo consultan, no cambian nada
   "whatsapp_status", "dashboard_summary", "list_recent_conversations",
   // Lectura de web (información externa)
-  "web_fetch", "web_search", "web_scrape_images",
+  "web_fetch", "web_search", "web_scrape_images", "search_product_images",
   // Dropi de solo lectura: consultar el catálogo del proveedor no crea nada.
   "dropi_status", "dropi_search_products",
 ]);
@@ -1212,17 +1366,31 @@ PRINCIPIOS OBLIGATORIOS:
    Referencias útiles: 📦 productos · 🏷️ categorías · 🤖 agente · ⚙️ configuración · 🛒 tienda
    · 📣 anuncios · 🖼️ imágenes · ✅ hecho · ❌ error · 📋 plan · ❓ pregunta · 💰 precio.
 
-IMÁGENES:
-- Puedes GENERAR imágenes (generate_image) y ASIGNARLAS a un producto (set_product_image). Las imágenes se hospedan permanentes (no se vencen).
-- SIEMPRE sugiere/usa la MEDIDA correcta según el uso:
-  • Card del producto / feed cuadrado: 1080×1080 (1:1)
-  • Anuncio feed horizontal: 1200×628 (1.91:1)
-  • Story / Reel: 1080×1920 (9:16)
-  • Marketplace: 1200×628
-  Si dudas, usa 1080×1080 (se ve bien en todos lados). Para anuncios, Meta reajusta el tamaño por ubicación automáticamente.
-- Si el admin te da una foto (URL de internet, o un enlace de archivo de Google Drive tipo /file/d/...), NO uses web_fetch para "leerla": úsala DIRECTAMENTE con set_product_image (que la trae, la hospeda permanente y la asigna). set_product_image sabe convertir enlaces de Drive a la imagen real.
-- Puedes TRAER imágenes del exterior: de una URL pública de internet o de un archivo público de Google Drive. Si el admin quiere que la crees, usa generate_image primero para que la revise, y solo tras su "sí" la asignas con set_product_image.
-- web_fetch es para LEER texto de páginas/carpetas (info de cursos, módulos), no para imágenes.
+IMÁGENES — REGLAS DE CALIDAD PARA FACEBOOK ADS:
+- 🖼️ HERRAMIENTA PRINCIPAL: search_product_images. Busca fotos profesionales de alta calidad
+  en Pexels (stock gratuito legal), Brave Images y DuckDuckGo Images. SIEMPRE úsala primero
+  cuando el admin pida buscar una imagen para un producto o anuncio.
+- 📐 FLUJO OBLIGATORIO para asignar imágenes:
+  1️⃣ search_product_images con query descriptivo (ej: "persona aprendiendo piano teclado")
+  2️⃣ Mostrar las opciones al admin usando Markdown: ![Opción 1](url)
+  3️⃣ Esperar que el admin elija ("la 2", "la primera", etc.)
+  4️⃣ set_product_image con la URL elegida → queda hospedada permanente
+- 🚫 NUNCA descargues imágenes de Wikipedia, Wikimedia, ni ningún sitio enciclopédico.
+  Esas fotos NO sirven para anuncios y son ridículas como imagen de producto.
+- ✅ REQUISITOS FACEBOOK ADS (la imagen DEBE cumplir todos):
+  📏 Mínimo 1080×1080 px (1:1) para feed, 1200×628 para horizontal, 1080×1920 para stories
+  🚫 Máximo 20% de texto en la imagen (Meta penaliza el alcance si hay más)
+  🚫 Sin bordes gruesos, marcas de agua, ni collages con flechas rojas
+  ✅ Fotos reales, profesionales, bien iluminadas, fondos limpios
+  ✅ Personas usando el producto > producto solo > ilustración genérica
+- 📸 Si el admin te da una foto (URL o enlace de Google Drive /file/d/...), úsala DIRECTAMENTE
+  con set_product_image. NO uses web_fetch para fotos.
+- 🎨 generate_image es el ÚLTIMO recurso. Solo si search_product_images y web_scrape_images
+  fallan Y el admin no tiene foto propia. Siempre pregunta antes de generar con IA.
+- 📎 El admin también puede ADJUNTAR una imagen directamente en este chat. Si lo hace, tómala
+  y úsala con set_product_image.
+- web_scrape_images sigue disponible para extraer fotos de la página de un proveedor específico
+  cuando se conoce la URL exacta.
 
 FACEBOOK — PUBLICAR (gratis) vs ANUNCIAR (paga), no las confundas:
 - 📢 fb_page_publish: publica en el MURO de la página, orgánico, SIN costo, visible de inmediato. Úsalo cuando el admin diga "publica", "postea" o "sube esto a Facebook". SIEMPRE llama fb_page_preview antes para que el admin vea el texto y la imagen, y fb_page_can_post si hay dudas de permisos.
@@ -1242,11 +1410,6 @@ INFORMACIÓN DE INTERNET (nunca inventes datos externos):
   CADA una en el mismo turno con done:false, hasta cubrirlas todas. No entregues la mitad.
 - 🧾 Cuando presentes la información, di de dónde salió (dominio o título de la fuente).
 - ⚠️ Si una búsqueda no da resultados útiles, dilo con honestidad; no rellenes con suposiciones.
-- 🖼️ web_scrape_images extrae las fotos REALES de una página web. Cuando falte la imagen de un
-  producto, prefiere esto antes que generate_image: una foto real del proveedor vende más que
-  una ilustración de IA. Flujo: web_search (encontrar la página) → web_scrape_images (sacar las
-  fotos) → mostrarle al admin las 2-3 mejores → set_product_image con la que él elija.
-  Si no hay foto real utilizable, ahí sí cae a generate_image.
 
 DROPSHIPPING CON DROPI (vender productos de proveedores sin tener stock):
 - 📦 dropi_status primero: si la IP del servidor no está autorizada te lo dice con la IP exacta
