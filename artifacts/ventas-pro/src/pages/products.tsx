@@ -630,23 +630,35 @@ function ProductModal({ mode, product, categories, initialData, children, open: 
     if (!isOpen) return;
     if (mode === 'edit' && product) {
       setFormData({
-        name: product.name, description: product.description, price: product.price.toString(), currency: product.currency || "MXN",
-        sku: product.sku || "", categoryId: product.categoryId?.toString() || "none", kind: product.kind,
-        imageUrl: product.imageUrl || "", highlight: product.highlight || "", isActive: product.isActive, features: product.features || [],
-        paymentLink: (product as any).paymentLink || "", deliveryLink: (product as any).deliveryLink || ""
+        name: product.name || "",
+        description: product.description || "",
+        price: product.price ? product.price.toString() : "0",
+        currency: product.currency || "MXN",
+        sku: product.sku || "",
+        categoryId: product.categoryId ? product.categoryId.toString() : "none",
+        kind: product.kind || "digital",
+        imageUrl: product.imageUrl || "",
+        highlight: product.highlight || "",
+        isActive: product.isActive !== undefined ? product.isActive : true,
+        features: Array.isArray(product.features) ? product.features : [],
+        paymentLink: (product as any).paymentLink || "",
+        deliveryLink: (product as any).deliveryLink || ""
       });
     } else if (mode === 'create') {
-      setFormData({ 
-        name: initialData?.name || "", 
-        description: initialData?.description || "", 
-        price: initialData?.price || "0", 
-        currency: "MXN", 
-        sku: "", 
-        categoryId: "none", 
-        kind: initialData?.kind || "digital", 
-        imageUrl: "", highlight: "", isActive: true, 
+      setFormData({
+        name: initialData?.name || "",
+        description: initialData?.description || "",
+        price: initialData?.price || "0",
+        currency: "MXN",
+        sku: "",
+        categoryId: "none",
+        kind: initialData?.kind || "digital",
+        imageUrl: "",
+        highlight: "",
+        isActive: true,
         features: initialData?.features || [],
-        paymentLink: "", deliveryLink: "" 
+        paymentLink: "",
+        deliveryLink: ""
       });
     }
   }, [isOpen, mode, product, initialData]);
