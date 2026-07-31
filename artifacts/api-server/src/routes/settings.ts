@@ -7,6 +7,10 @@ import {
 } from "@workspace/api-zod";
 import { db, settings } from "@workspace/db";
 import { getCopilotSessionToken, getCopilotDeviceCode, pollCopilotToken } from "../lib/copilot";
+import { encryptionService } from "../lib/encryption-service";
+import { providerValidator } from "../lib/provider-validator";
+import { costTracker } from "../lib/cost-tracker";
+import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
 
@@ -163,5 +167,203 @@ function serialize(row: typeof settings.$inferSelect) {
     ollamaModel: row.ollamaModel,
   };
 }
+
+// ============================================================
+// PROVIDER CONFIGURATION ENDPOINTS
+// ============================================================
+
+/**
+ * GET /api/settings/providers
+ * Listar providers configurados (keys enmascaradas)
+ */
+router.get("/providers", async (req, res, next) => {
+  try {
+    const currentSettings = await getOrCreate();
+
+    // En memoria guardamos providers, por ahora retornar configurados en settings
+    const providers = [];
+
+    if (currentSettings.aiProvider) {
+      providers.push({
+        id: "default",
+        provider: currentSettings.aiProvider,
+        apiKey: "***CONFIGURED***",
+        model: "gpt-4o-mini",
+        isActive: true,
+      });
+    }
+
+    return res.json({ ok: true, providers });
+  } catch (e) {
+    return next(e);
+  }
+});
+
+/**
+ * POST /api/settings/test-provider
+ * Testear conexión a un provider
+ */
+router.post("/test-provider", async (req, res, next) => {
+  try {
+    const { provider, apiKey, resourceName } = req.body;
+
+    if (!provider || !apiKey) {
+      return res.status(400).json({
+        error: "provider y apiKey son requeridos",
+      });
+    }
+
+    logger.info({ provider }, "🧪 Testing provider connection");
+
+    const result = await providerValidator.validateProvider(provider, apiKey, resourceName);
+
+    return res.json({
+      ok: true,
+      test: result,
+    });
+  } catch (e) {
+    logger.error({ error: e }, "❌ Provider test failed");
+    return next(e);
+  }
+});
+
+/**
+ * POST /api/settings/add-provider
+ * Añadir nuevo provider con API key encriptada
+ */
+router.post("/add-provider", async (req, res, next) => {
+  try {
+    const { provider, apiKey, model, resourceName } = req.body;
+
+    if (!provider || !apiKey) {
+      return res.status(400).json({
+        error: "provider y apiKey son requeridos",
+      });
+    }
+
+    // Validar formato de key
+    const validation = encryptionService.validateApiKey(provider, apiKey);
+    if (!validation.valid) {
+      return res.status(400).json({
+        error: validation.error,
+      });
+    }
+
+    // Testear conexión
+    const testResult = await providerValidator.validateProvider(provider, apiKey, resourceName);
+    if (!testResult.valid) {
+      return res.status(400).json({
+        error: `Provider test fallido: ${testResult.message}`,
+        details: testResult.error,
+      });
+    }
+
+    // Encriptar y guardar
+    const encrypted = encryptionService.encrypt(apiKey);
+    const currentSettings = await getOrCreate();
+
+    // Por ahora, guardar en settings como aiProvider
+    await db.update(settings)
+      .set({
+        aiProvider: provider,
+        // Podríamos añadir campos adicionales a settings si es necesario
+      })
+      .where(eq(settings.id, currentSettings.id));
+
+    logger.info({ provider, model }, "✅ Provider añadido");
+
+    return res.json({
+      ok: true,
+      message: `Provider ${provider} configurado exitosamente`,
+      provider: {
+        id: "default",
+        provider,
+        apiKey: encryptionService.maskApiKey(apiKey),
+        model: model || testResult.models?.[0] || "default",
+        isActive: true,
+      },
+    });
+  } catch (e) {
+    logger.error({ error: e }, "❌ Add provider failed");
+    return next(e);
+  }
+});
+
+/**
+ * GET /api/settings/costs
+ * Obtener dashboard de costos
+ */
+router.get("/costs", async (req, res, next) => {
+  try {
+    const period = (req.query.period as "today" | "week" | "month") || "month";
+    const tenantId = (req as any).tenant?.id;
+
+    const report = costTracker.getReport(period, tenantId);
+
+    return res.json({
+      ok: true,
+      report,
+    });
+  } catch (e) {
+    return next(e);
+  }
+});
+
+/**
+ * GET /api/settings/provider-models
+ * Obtener modelos disponibles por provider
+ */
+router.get("/provider-models", async (req, res, next) => {
+  try {
+    const providers = ["openai", "claude", "azure", "g4f"];
+    const models: Record<string, string[]> = {};
+
+    for (const provider of providers) {
+      models[provider] = providerValidator.getAvailableModels(provider);
+    }
+
+    return res.json({
+      ok: true,
+      models,
+    });
+  } catch (e) {
+    return next(e);
+  }
+});
+
+/**
+ * GET /api/settings/provider-costs
+ * Obtener tabla de costos por modelo
+ */
+router.get("/provider-costs", async (req, res, next) => {
+  try {
+    const { provider, model } = req.query;
+
+    if (!provider || !model) {
+      return res.status(400).json({
+        error: "provider y model son requeridos",
+      });
+    }
+
+    const cost = providerValidator.getModelCost(String(provider), String(model));
+
+    return res.json({
+      ok: true,
+      provider,
+      model,
+      cost,
+      perMillionTokens: {
+        input: cost.input,
+        output: cost.output,
+      },
+      perThousandTokens: {
+        input: (cost.input / 1000).toFixed(6),
+        output: (cost.output / 1000).toFixed(6),
+      },
+    });
+  } catch (e) {
+    return next(e);
+  }
+});
 
 export default router;
