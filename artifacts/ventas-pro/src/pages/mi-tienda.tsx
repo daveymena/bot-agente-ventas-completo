@@ -16,7 +16,7 @@ interface StoreProduct {
 export default function MiTiendaPage() {
   const { tenant } = useSession();
   const [, setLocation] = useLocation();
-  const slug = tenant?.slug || "mi-tienda";
+  const slug = tenant?.slug || "sofia-premium";
   const [products, setProducts] = useState<StoreProduct[]>([]);
   const [filteredProducts, setFilteredProducts] = useState<StoreProduct[]>([]);
   const [loading, setLoading] = useState(true);
@@ -27,9 +27,7 @@ export default function MiTiendaPage() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   useEffect(() => {
-    if (slug) {
-      loadStore();
-    }
+    loadStore();
   }, [slug]);
 
   useEffect(() => {
@@ -39,13 +37,26 @@ export default function MiTiendaPage() {
   const loadStore = async () => {
     try {
       setLoading(true);
-      const res = await fetch(`/api/store/${slug}`, {
-        credentials: "include",
-      });
-      if (!res.ok) throw new Error("Tienda no encontrada");
+      console.log(`📦 Cargando tienda: /api/store/${slug}`);
+
+      const res = await fetch(`/api/store/${slug}`);
+      console.log(`📦 Respuesta: ${res.status} ${res.statusText}`);
+
+      if (!res.ok) {
+        const errorText = await res.text();
+        throw new Error(`Tienda no encontrada (${res.status}): ${errorText}`);
+      }
+
       const data = await res.json();
+      console.log(`📦 Productos recibidos:`, data.products?.length || 0);
+
+      if (!data.products || data.products.length === 0) {
+        console.warn("⚠️ No hay productos en la respuesta");
+      }
+
       setProducts(data.products || []);
     } catch (err: any) {
+      console.error("❌ Error cargando tienda:", err);
       setError(err.message);
     } finally {
       setLoading(false);
