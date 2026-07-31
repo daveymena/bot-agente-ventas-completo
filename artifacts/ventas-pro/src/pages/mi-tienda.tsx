@@ -3,7 +3,6 @@ import { useSession } from "@/App";
 import { Button } from "@/components/ui/button";
 import { Store, ShoppingCart, Package, Loader, Settings, Search, Menu, X } from "lucide-react";
 import { useLocation } from "wouter";
-import { useRoute } from "wouter";
 
 interface StoreProduct {
   id: number;
@@ -71,11 +70,8 @@ export default function MiTiendaPage() {
         setProducts(data.products || []);
         return;
       }
-    } catch (fetchErr) {
-      console.warn("⚠️ Backend no disponible, usando datos demo");
-    }
 
-      // DATOS DEMO - Para desarrollo/pruebas cuando backend no está disponible
+      console.warn("⚠️ Backend no disponible, usando datos demo");
       const demoProducts: StoreProduct[] = [
         {
           id: 1,
