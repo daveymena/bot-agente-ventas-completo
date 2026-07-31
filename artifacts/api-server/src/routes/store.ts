@@ -3,6 +3,7 @@ import { ZodError } from "zod";
 import { db, stores, store_categories, store_products, store_layouts, products, productCategories } from "@workspace/db";
 import { eq, sql } from "drizzle-orm";
 import { Request, Response, NextFunction } from "express";
+import { imageUrlFixer } from "../lib/image-url-fixer";
 
 const router = Router();
 
@@ -33,17 +34,29 @@ router.get("/:slug", async (req: Request, res: Response, next: NextFunction) => 
     const curated = await db.select().from(store_products).where(eq(store_products.storeId, store.id));
     if (curated.length > 0) {
       const categories = await db.select().from(store_categories).where(eq(store_categories.storeId, store.id));
-      return res.json({ store, categories, products: curated });
+      // Arreglar URLs de imágenes antes de retornar
+      const productsWithImages = curated.map((p: any) => ({
+        ...p,
+        imageUrl: p.imageUrl || imageUrlFixer.getImagePath(p.id),
+      }));
+      return res.json({ store, categories, products: productsWithImages });
     }
 
     const [realProducts, realCategories] = await Promise.all([
       db.select().from(products).where(eq(products.tenantId, store.tenantId)),
       db.select().from(productCategories).where(eq(productCategories.tenantId, store.tenantId)),
     ]);
+
+    // Arreglar URLs de imágenes antes de retornar
+    const activeProducts = realProducts.filter((p: any) => p.isActive !== false).map((p: any) => ({
+      ...p,
+      imageUrl: p.imageUrl || imageUrlFixer.getImagePath(p.id),
+    }));
+
     return res.json({
       store,
       categories: realCategories,
-      products: realProducts.filter((p: any) => p.isActive !== false),
+      products: activeProducts,
     });
   } catch (err) {
     return next(err);
@@ -74,6 +87,23 @@ router.get("/:slug/layout", async (req: Request, res: Response, next: NextFuncti
     const store = (req as any).store;
     const layout = await db.select().from(store_layouts).where(eq(store_layouts.storeId, store.id)).then((r: any) => r[0]);
     return res.json({ layout: layout?.layoutData ?? null });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// POST /store/admin/fix-images -- Corregir URLs de imágenes de todos los productos
+router.post("/admin/fix-images", async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const tenant = (req as any).tenant;
+    if (!tenant) return res.status(401).json({ message: "No session found. Please login." });
+
+    const result = await imageUrlFixer.fixAllProductImages(tenant.id);
+    return res.json({
+      ok: true,
+      message: "✅ URLs de imágenes corregidas",
+      ...result,
+    });
   } catch (err) {
     return next(err);
   }

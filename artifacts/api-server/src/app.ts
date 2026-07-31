@@ -13,6 +13,7 @@ import subscriptionWebhooksRouter from "./routes/subscription-webhooks";
 import activationRouter from "./routes/activation";
 import { logger } from "./lib/logger";
 import { securityShield } from "./lib/security-shield";
+import { imageUrlFixer } from "./lib/image-url-fixer";
 import { resolveTenant } from "./lib/tenantManager";
 import { validateSaasPlan, validateUsageLimits } from "./middleware/saasValidation";
 import { validateFeatureLimits, validateMessageLimit } from "./middleware/featureLimits";
@@ -187,6 +188,23 @@ logger.info("[MessageHandler] Message receiver configured for default tenant");
         console.log(`⚠️ products-full.json no encontrado en ${jsonPath}`);
       }
     }
+
+    // Auto-fix product image URLs (convert to /images/products/{id}.jpg format)
+    (async () => {
+      try {
+        const allProducts = await db.select().from(products).limit(1);
+        if (allProducts.length > 0) {
+          const result = await imageUrlFixer.fixAllProductImages(1);
+          if (result.fixed > 0) {
+            console.log(
+              `✅ ${result.fixed} product image URLs fixed (was ${result.withoutImages} without images)`
+            );
+          }
+        }
+      } catch (err) {
+        console.warn("⚠️ Could not auto-fix product images on startup:", err);
+      }
+    })();
   } catch (error) {
     console.error("❌ Error en auto-seed:", error);
   }
