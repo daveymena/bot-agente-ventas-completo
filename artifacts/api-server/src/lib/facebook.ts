@@ -213,13 +213,16 @@ export class FacebookService {
   }
 
   private async generateAudienceWithAI(product: any, profile: { ages: number[]; description: string }): Promise<FbAudienceSuggestion | null> {
-    const priceFormatted = Number(product.price).toLocaleString("es-CO");
+    const price = Number(product.price) || 0;
+    const priceFormatted = price > 0
+      ? price.toLocaleString("es-CO", { minimumFractionDigits: 0, maximumFractionDigits: 0 })
+      : "Consulta";
     try {
       const prompt = `Eres un experto en Facebook Ads para Colombia.
 Basado en el siguiente producto digital, sugiere la audiencia objetivo ideal para un anuncio.
 
 Producto: ${product.name}
-Precio: $${priceFormatted} COP
+Precio: ${priceFormatted === "Consulta" ? priceFormatted : `$${priceFormatted} COP`}
 Categoría: ${product.category || "General"}
 Descripción: ${(product.description || "").substring(0, 200)}
 
