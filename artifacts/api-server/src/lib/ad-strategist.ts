@@ -258,14 +258,12 @@ export class AdStrategist {
   }
 
   async generateAdCopy(strategy: AdStrategy, product: any): Promise<{ primaryText: string; headline: string; description: string }> {
-    // Bug real: esto multiplicaba product.price x 4100 asumiendo que SIEMPRE
-    // viene en USD, y mostraba ese mismo número crudo como si también fuera
-    // USD -- un producto de $10.000 COP salía anunciado como "$41.000.000
-    // COP (≈ $10000.00 USD)". product.currency ya existe y dice en qué
-    // moneda está el precio de verdad (COP es lo normal acá) -- se muestra
-    // tal cual, sin inventar una conversión a una moneda que no se cobra.
     const currency = (product.currency || "COP").toUpperCase();
-    const priceFormatted = Number(product.price).toLocaleString("es-CO");
+    // Validar y formatear precio correctamente (sin multiplicar por tipo de cambio ficticio)
+    const price = Number(product.price) || 0;
+    const priceFormatted = price > 0
+      ? price.toLocaleString("es-CO", { minimumFractionDigits: 0, maximumFractionDigits: 0 })
+      : "Consulta";
     const name = product.name || "";
     const rawDesc = (product.description || "").replace(/Acceso completo a /i, "").trim();
     const shortDesc = rawDesc.length > 100 ? rawDesc.substring(0, 100) + "..." : rawDesc;
@@ -281,6 +279,8 @@ export class AdStrategist {
       ? features.slice(0, 3).join(" • ")
       : "📥 Descarga directa • 💾 Acceso permanente • 🔄 Actualizaciones incluidas";
 
+    const priceDisplay = priceFormatted === "Consulta" ? "Consulta disponible" : `$${priceFormatted} ${currency}`;
+
     // Formato PAS (Problem - Agitate - Solve) de alta conversión (2025)
     const primaryText = `${strategy.hook}
 
@@ -288,7 +288,7 @@ Si no tomas acción hoy, seguirás perdiendo tiempo y dinero con métodos que no
 Este contenido digital es tu atajo directo a resultados profesionales.
 
 ✅ ${featuresLine}
-✅ Pago único de $${priceFormatted} ${currency} (Cero mensualidades)
+✅ Pago único de ${priceDisplay} (Cero mensualidades)
 ✅ Acceso inmediato y permanente
 
 👇 Haz clic abajo para descargar todo el contenido ahora.`;
@@ -312,7 +312,9 @@ Este contenido digital es tu atajo directo a resultados profesionales.
     // producto. (Antes decía "+15.000 Alumnos" fijo en TODOS los anuncios --
     // una cifra sin respaldo real, se sacó.)
     const headline = `${getEmoji()} ${name.replace(/^📂\s*/, "").substring(0, 35)}`;
-    const description = `$${priceFormatted} ${currency} • Pago único • Acceso permanente`;
+    const description = priceFormatted === "Consulta"
+      ? "Consulta disponible • Acceso permanente"
+      : `$${priceFormatted} ${currency} • Pago único • Acceso permanente`;
 
     return { primaryText, headline, description };
   }
