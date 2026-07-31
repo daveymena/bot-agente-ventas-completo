@@ -708,36 +708,31 @@ Responde SOLO con este JSON exacto:
   // ── Generación de copy con IA + estrategia de categoría ────────────────────
 
   private async generateAdCopy(product: any): Promise<{ primaryText: string; headline: string; description: string }> {
-    // product.currency, no "COP" fijo -- ver el mismo fix en ad-strategist.ts
-    // (ahí el bug era peor: multiplicaba x4100 asumiendo que el precio
-    // siempre venía en USD). Acá el precio en sí estaba bien, pero la
-    // etiqueta de moneda quedaba mal si el producto no está en COP.
     const currency = (product.currency || "COP").toUpperCase();
-    const priceFormatted = Number(product.price).toLocaleString("es-CO");
-    const productName = product.name || "";
+    // Validar y formatear precio correctamente
+    const price = Number(product.price) || 0;
+    const priceFormatted = price > 0
+      ? price.toLocaleString("es-CO", { minimumFractionDigits: 0, maximumFractionDigits: 0 })
+      : "Consulta";
+
+    const productName = product.name || "Producto";
     const strategy = this.getCategoryStrategy(productName);
-    const desc = (product.description || "").substring(0, 200);
+    const desc = (product.description || "").substring(0, 150);
 
     try {
-      const prompt = `Eres un copywriter experto en Facebook Ads para Colombia. Vendes cursos digitales.
+      const prompt = `Copywriter Facebook Ads para Colombia.
 
 Producto: ${productName}
-Precio: $${priceFormatted} ${currency}
-Categoría: ${product.category || "Digital"}
+Precio: ${priceFormatted === "Consulta" ? priceFormatted : `$${priceFormatted} COP`}
 Descripción: ${desc}
 
-Usa el framework PAS (Problema-Agitación-Solución):
-1. PROBLEMA: "${strategy.hook}"
-2. AGITACIÓN: Muestra el costo de no tener esta habilidad
-3. SOLUCIÓN: ${productName} por solo $${priceFormatted}
+Framework: Problema → Solución → Llamado a acción
 
-El ángulo de venta es: "${strategy.angle}"
-
-Debes responder SOLO con este JSON (sin markdown, sin acentos en las claves):
+Responde SOLO con JSON:
 {
-  "primaryText": "Texto principal del anuncio (máx 125 caracteres, USA PAS, tono directo y persuasivo, para Facebook)",
-  "headline": "Titular del anuncio (máx 40 caracteres, llamativo, con emoji)",
-  "description": "Descripción corta (máx 30 caracteres, ej: 'Solo $${priceFormatted} - Acceso de por vida')"
+  "primaryText": "Máx 125 caracteres. Directo, persuasivo, urgencia.",
+  "headline": "Máx 40 caracteres con emoji",
+  "description": "Máx 30 caracteres"
 }`;
 
       const res = await fetch(`${process.env.OPENCODE_API_URL || "https://api.freemodel.dev/v1"}/chat/completions`, {
@@ -760,10 +755,11 @@ Debes responder SOLO con este JSON (sin markdown, sin acentos en las claves):
       const jsonMatch = text.match(/\{[\s\S]*\}/);
       if (jsonMatch) {
         const parsed = JSON.parse(jsonMatch[0]);
+        const priceDisplay = priceFormatted === "Consulta" ? "Consulta disponible" : `Solo $${priceFormatted} COP`;
         return {
-          primaryText: parsed.primaryText || `${strategy.hook} ${strategy.emoji} ${productName} por solo $${priceFormatted}. ${strategy.angle}. Acceso de por vida + garantía 7 días.`,
+          primaryText: parsed.primaryText || `${strategy.hook} ${strategy.emoji} ${productName}. ${priceDisplay}.`,
           headline: parsed.headline || `${strategy.emoji} ${productName}`,
-          description: parsed.description || `Desde $${priceFormatted}`,
+          description: parsed.description || priceDisplay,
         };
       }
     } catch (_) {
