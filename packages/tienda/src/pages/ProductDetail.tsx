@@ -248,10 +248,10 @@ const ProductDetail = () => {
                 onClick={() => trackContact({ content_name: product.name })}
                 className="w-full bg-white/5 text-white border border-white/10 py-3.5 rounded-xl font-bold hover:bg-white/10 transition-all flex items-center justify-center gap-2.5"
               >
-                <MessageCircle className="w-5 h-5 text-green-500" />
+                <MessageCircle className="w-5 h-5 text-emerald-400" />
                 Consultar por WhatsApp
               </a>
-            </div>
+            )}
           </div>
 
           {features.length > 0 && (
