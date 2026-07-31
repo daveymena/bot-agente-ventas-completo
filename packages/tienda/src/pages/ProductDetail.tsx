@@ -5,7 +5,6 @@ import {
   ShoppingCart, Check, Package, Star, ShieldCheck,
   Infinity as InfinityIcon, Download, MessageCircle,
 } from 'lucide-react';
-import Swal from 'sweetalert2';
 import { initPixel, trackViewContent, trackAddToCart, trackInitiateCheckout, trackContact } from '../lib/pixel';
 
 interface DetailProduct {
@@ -34,6 +33,7 @@ const formatPrice = (price: number) => '$' + Math.round(price).toLocaleString('e
 const ProductDetail = () => {
   const { slug: paramSlug, productId } = useParams();
   const slug = paramSlug || 'sofia-premium';
+  const navigate = useNavigate();
   const { addToCart, config } = useStore();
 
   const [product, setProduct] = useState<DetailProduct | null>(null);
@@ -199,22 +199,12 @@ const ProductDetail = () => {
                 });
                 trackAddToCart({ id: product.id, name: product.name, price: product.price });
                 trackInitiateCheckout({ ids: [product.id], value: price, currency: product.currency });
-                Swal.fire({
-                  title: '¡Agregado!',
-                  text: `${product.name} al carrito`,
-                  icon: 'success',
-                  toast: true,
-                  position: 'top-end',
-                  showConfirmButton: false,
-                  timer: 1500,
-                  background: '#18181b',
-                  color: '#fff',
-                });
+                navigate(`/tienda/${slug}/checkout`);
               }}
               className="w-full bg-red-600 text-white py-4 rounded-xl font-bold hover:bg-red-700 transition-all flex items-center justify-center gap-2.5"
             >
               <ShoppingCart className="w-5 h-5" />
-              Agregar al carrito
+              Comprar ahora
             </button>
 
             {waHref && (

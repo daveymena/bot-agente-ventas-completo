@@ -13,12 +13,12 @@ const Cart = () => {
   if (cart.length === 0) {
     return (
       <div className="max-w-7xl mx-auto px-4 py-20 text-center">
-        <div className="w-24 h-24 bg-indigo-50 rounded-full flex items-center justify-center mx-auto mb-6">
-          <Trash2 className="w-10 h-10 text-indigo-300" />
+        <div className="w-24 h-24 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-6">
+          <Trash2 className="w-10 h-10 text-red-300" />
         </div>
         <h2 className="text-3xl font-extrabold text-gray-900 mb-4">Tu carrito está vacío</h2>
         <p className="text-gray-500 mb-8 max-w-sm mx-auto">Parece que aún no has añadido nada. ¡Explora nuestra tienda y encuentra algo genial!</p>
-        <Link to={`/tienda/${slug}`} className="inline-flex items-center gap-2 bg-indigo-600 text-white px-8 py-4 rounded-xl font-bold hover:bg-indigo-700 transition-colors">
+        <Link to={`/tienda/${slug}`} className="inline-flex items-center gap-2 bg-red-600 text-white px-8 py-4 rounded-xl font-bold hover:bg-red-700 transition-colors">
           Ir a la Tienda
         </Link>
       </div>
@@ -28,7 +28,7 @@ const Cart = () => {
   return (
     <div className="max-w-7xl mx-auto px-4 py-12">
       <div className="flex items-center gap-2 mb-8">
-        <Link to={`/tienda/${slug}`} className="text-gray-400 hover:text-indigo-600">
+        <Link to={`/tienda/${slug}`} className="text-gray-400 hover:text-red-600">
            <ChevronLeft className="w-6 h-6" />
         </Link>
         <h1 className="text-3xl font-extrabold text-gray-900">Carrito de Compras</h1>
@@ -99,7 +99,7 @@ const Cart = () => {
             <div className="space-y-3">
               <button
                 onClick={() => navigate(`/tienda/${slug}/checkout`)}
-                className="w-full bg-indigo-600 text-white py-4 rounded-xl font-bold hover:bg-indigo-700 transition-colors flex items-center justify-center gap-2"
+                className="w-full bg-red-600 text-white py-4 rounded-xl font-bold hover:bg-red-700 transition-colors flex items-center justify-center gap-2"
               >
                 <Lock className="w-4 h-4" /> Finalizar Compra Segura
               </button>
@@ -113,11 +113,11 @@ const Cart = () => {
             </div>
           </div>
 
-          <div className="bg-indigo-50 p-6 rounded-2xl border border-indigo-100">
-             <h4 className="font-bold text-indigo-900 text-sm mb-2 flex items-center gap-2">
+          <div className="bg-red-50 p-6 rounded-2xl border border-red-100">
+             <h4 className="font-bold text-red-900 text-sm mb-2 flex items-center gap-2">
                 <Lock className="w-4 h-4" /> Compra Protegida
              </h4>
-             <p className="text-xs text-indigo-700 leading-relaxed">
+             <p className="text-xs text-red-700 leading-relaxed">
                 Recibe el producto que esperabas o te devolvemos tu dinero. Seguridad garantizada por ProStore.
              </p>
           </div>
