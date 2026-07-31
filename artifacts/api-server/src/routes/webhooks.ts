@@ -4,6 +4,7 @@ import { eq, and, desc } from "drizzle-orm";
 import { whatsapp } from "../lib/whatsapp-singleton";
 import { logger } from "../lib/logger";
 import { dbNow } from "../lib/date-utils";
+import { sendOrderConfirmationEmail } from "../lib/email";
 
 const router = Router();
 
@@ -99,6 +100,23 @@ router.post("/mercadopago", async (req: Request, res: Response) => {
         } else {
           logger.warn({ phone, productId }, "[Webhook] WhatsApp no conectado, no se pudo entregar el producto");
         }
+
+        // 4. Enviar email de confirmación con factura y foto
+        if (relatedConvo && relatedConvo.customerEmail) {
+          const paymentData = body.data || {};
+          await sendOrderConfirmationEmail(
+            relatedConvo.customerEmail,
+            relatedConvo.contactName || "Cliente",
+            product.name,
+            product.imageUrl || null,
+            product.deliveryLink,
+            parseFloat(paymentData.transaction_amount || "0"),
+            product.currency || "COP",
+            String(paymentId),
+            "mercadopago"
+          );
+          logger.info({ email: relatedConvo.customerEmail, productName: product.name }, "[Webhook] Email de confirmación enviado");
+        }
       } else {
         logger.warn({ productId, hasDeliveryLink: !!product?.deliveryLink }, "[Webhook] Producto no encontrado o sin link de entrega");
       }
@@ -187,6 +205,22 @@ router.post("/paypal", async (req: Request, res: Response) => {
           logger.info({ phone, productName: product.name }, "[Webhook-PayPal] Entrega realizada exitosamente");
         } else {
           logger.warn({ phone, productId }, "[Webhook-PayPal] WhatsApp no conectado, no se pudo entregar");
+        }
+
+        // Enviar email de confirmación con factura y foto
+        if (relatedConvo && relatedConvo.customerEmail) {
+          await sendOrderConfirmationEmail(
+            relatedConvo.customerEmail,
+            relatedConvo.contactName || "Cliente",
+            product.name,
+            product.imageUrl || null,
+            product.deliveryLink,
+            parseFloat(body.mc_gross || "0"),
+            product.currency || "COP",
+            String(body.txn_id || ""),
+            "paypal"
+          );
+          logger.info({ email: relatedConvo.customerEmail, productName: product.name }, "[Webhook-PayPal] Email de confirmación enviado");
         }
       } else {
         logger.warn({ productId, hasDeliveryLink: !!product?.deliveryLink }, "[Webhook-PayPal] Producto sin link de entrega");

@@ -718,3 +718,267 @@ export async function sendPasswordChangeConfirmationEmail(
     return false;
   }
 }
+
+/**
+ * Envía confirmación de orden con link de descarga, foto y factura
+ */
+export async function sendOrderConfirmationEmail(
+  email: string,
+  customerName: string,
+  productName: string,
+  productImage: string | null,
+  downloadLink: string,
+  amount: number,
+  currency: string = "COP",
+  paymentId: string,
+  paymentMethod: string
+): Promise<boolean> {
+  if (!transporter) {
+    logger.warn({ email }, "[Email] SMTP no configurado, no se puede enviar email de confirmación de orden");
+    return false;
+  }
+  try {
+    const formattedAmount = new Intl.NumberFormat("es-CO", {
+      style: "currency",
+      currency: currency,
+      minimumFractionDigits: currency === "COP" ? 0 : 2,
+    }).format(amount);
+
+    const mailOptions = {
+      from: `"VentasPro" <${process.env.SMTP_USER}>`,
+      to: email,
+      subject: `✅ ¡Pago Confirmado! - ${productName}`,
+      html: `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="UTF-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <style>
+            body {
+              font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+              background-color: #f5f5f5;
+              margin: 0;
+              padding: 0;
+            }
+            .container {
+              max-width: 600px;
+              margin: 40px auto;
+              background: white;
+              border-radius: 16px;
+              overflow: hidden;
+              box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+            }
+            .header {
+              background: linear-gradient(135deg, #10b981 0%, #34d399 100%);
+              padding: 40px 30px;
+              text-align: center;
+            }
+            .header h1 {
+              color: white;
+              margin: 0;
+              font-size: 32px;
+              font-weight: 700;
+            }
+            .header-emoji {
+              font-size: 48px;
+              margin-bottom: 10px;
+            }
+            .content {
+              padding: 40px 30px;
+            }
+            .greeting {
+              font-size: 20px;
+              color: #1f2937;
+              margin-bottom: 10px;
+              font-weight: 600;
+            }
+            .message {
+              font-size: 16px;
+              color: #4b5563;
+              line-height: 1.6;
+              margin-bottom: 30px;
+            }
+            .product-section {
+              background: #f9fafb;
+              border-radius: 12px;
+              padding: 20px;
+              margin: 30px 0;
+            }
+            .product-image {
+              width: 100%;
+              max-width: 300px;
+              height: auto;
+              border-radius: 8px;
+              display: block;
+              margin: 0 auto 15px;
+            }
+            .product-name {
+              font-size: 18px;
+              font-weight: 700;
+              color: #1f2937;
+              text-align: center;
+              margin-bottom: 15px;
+            }
+            .download-button {
+              display: inline-block;
+              width: 100%;
+              background: linear-gradient(135deg, #10b981 0%, #34d399 100%);
+              color: white;
+              padding: 16px 32px;
+              border-radius: 8px;
+              text-decoration: none;
+              font-weight: 600;
+              text-align: center;
+              margin: 15px 0;
+              font-size: 16px;
+            }
+            .download-button:hover {
+              opacity: 0.9;
+            }
+            .invoice-section {
+              background: #f3f4f6;
+              border-left: 4px solid #10b981;
+              padding: 20px;
+              margin: 30px 0;
+              border-radius: 8px;
+            }
+            .invoice-title {
+              font-size: 14px;
+              font-weight: 700;
+              color: #1f2937;
+              text-transform: uppercase;
+              margin-bottom: 15px;
+              letter-spacing: 0.5px;
+            }
+            .invoice-row {
+              display: flex;
+              justify-content: space-between;
+              padding: 8px 0;
+              border-bottom: 1px solid #e5e7eb;
+              font-size: 14px;
+              color: #4b5563;
+            }
+            .invoice-row:last-child {
+              border-bottom: none;
+            }
+            .invoice-label {
+              font-weight: 600;
+              color: #1f2937;
+            }
+            .invoice-value {
+              text-align: right;
+            }
+            .total-row {
+              display: flex;
+              justify-content: space-between;
+              padding: 12px 0;
+              border-top: 2px solid #10b981;
+              margin-top: 10px;
+              font-size: 16px;
+              font-weight: 700;
+              color: #10b981;
+            }
+            .info-box {
+              background: #ecfdf5;
+              border: 1px solid #a7f3d0;
+              border-radius: 8px;
+              padding: 15px;
+              margin: 20px 0;
+              font-size: 14px;
+              color: #065f46;
+            }
+            .footer {
+              background: #f9fafb;
+              padding: 30px;
+              text-align: center;
+              border-top: 1px solid #e5e7eb;
+            }
+            .footer-text {
+              font-size: 14px;
+              color: #6b7280;
+              margin: 5px 0;
+            }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <div class="header">
+              <div class="header-emoji">✅</div>
+              <h1>¡Pago Confirmado!</h1>
+            </div>
+            <div class="content">
+              <p class="greeting">¡Hola ${customerName}! 🎉</p>
+              <p class="message">
+                Gracias por tu compra. Tu pago ha sido procesado exitosamente y tu producto ya está listo para descargar.
+              </p>
+
+              <div class="product-section">
+                ${productImage ? `<img src="${productImage}" alt="${productName}" class="product-image">` : ''}
+                <div class="product-name">${productName}</div>
+                <a href="${downloadLink}" class="download-button">📥 DESCARGAR PRODUCTO</a>
+                <p class="message" style="text-align: center; margin: 15px 0 0 0; font-size: 13px; color: #6b7280;">
+                  El link de descarga es único y personal. Válido por 30 días.
+                </p>
+              </div>
+
+              <div class="invoice-section">
+                <div class="invoice-title">📄 Factura de Compra</div>
+                <div class="invoice-row">
+                  <span class="invoice-label">Comprador:</span>
+                  <span class="invoice-value">${customerName}</span>
+                </div>
+                <div class="invoice-row">
+                  <span class="invoice-label">Producto:</span>
+                  <span class="invoice-value">${productName}</span>
+                </div>
+                <div class="invoice-row">
+                  <span class="invoice-label">Método de Pago:</span>
+                  <span class="invoice-value">${paymentMethod === 'mercadopago' ? '💳 Mercado Pago' : '💳 PayPal'}</span>
+                </div>
+                <div class="invoice-row">
+                  <span class="invoice-label">ID de Transacción:</span>
+                  <span class="invoice-value" style="font-family: monospace; font-size: 12px;">${paymentId}</span>
+                </div>
+                <div class="invoice-row">
+                  <span class="invoice-label">Fecha:</span>
+                  <span class="invoice-value">${new Date().toLocaleDateString('es-CO')}</span>
+                </div>
+                <div class="total-row">
+                  <span>TOTAL PAGADO:</span>
+                  <span>${formattedAmount}</span>
+                </div>
+              </div>
+
+              <div class="info-box">
+                <strong>ℹ️ Información Importante:</strong><br>
+                • Tu acceso es de por vida<br>
+                • Puedes descargar el producto ilimitadas veces<br>
+                • Revisa tu carpeta de spam si no recibes futuros emails<br>
+                • Si tienes problemas, contacta a nuestro soporte
+              </div>
+
+              <p class="message">
+                Esperamos que disfrutes mucho del producto. Si tienes alguna pregunta o necesitas soporte,
+                no dudes en escribirnos. ¡Estamos aquí para ayudarte!
+              </p>
+            </div>
+            <div class="footer">
+              <p class="footer-text">© 2026 VentasPro - Plataforma de Ventas con IA</p>
+              <p class="footer-text">Este es un email automático, por favor no respondas directamente a este mensaje.</p>
+              <p class="footer-text">📧 Para soporte: soporte@ventaspro.com</p>
+            </div>
+          </div>
+        </body>
+        </html>
+      `,
+    };
+
+    const result = await transporter.sendMail(mailOptions);
+    logger.info({ email, productName, paymentId, messageId: result.messageId }, "[Email] ✅ Confirmación de orden enviada exitosamente");
+    return true;
+  } catch (error) {
+    logger.error({ error, email, productName }, "[Email] ❌ Error enviando confirmación de orden");
+    return false;
+  }
+}
