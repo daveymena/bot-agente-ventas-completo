@@ -172,11 +172,11 @@ const ProductDetail = () => {
                 onError={() => setImgError(true)}
               />
             ) : (
-              <div className="w-full h-full flex items-center justify-center text-gray-600 bg-[#09090b]">
+              <div className="w-full h-full flex items-center justify-center text-slate-300 bg-slate-50">
                 <Package className="w-24 h-24" />
               </div>
             )}
-            <div className="absolute inset-0 bg-gradient-to-t from-[#09090b] via-transparent to-transparent opacity-60" />
+            <div className="absolute inset-0 bg-gradient-to-t from-slate-100/60 via-transparent to-transparent opacity-60" />
           </div>
         </div>
 

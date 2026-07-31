@@ -66,7 +66,7 @@
 }
 
 body {
-  @apply antialiased text-gray-300 bg-[#09090b];
+  @apply antialiased text-slate-900 bg-[#f8fafc];
   font-family: 'Inter', sans-serif;
 }
 
@@ -80,7 +80,7 @@ h1, h2, h3, h4, h5, h6, .font-heading {
 }
 
 .glass-nav {
-  @apply bg-[#09090b]/80 backdrop-blur-md border-b border-white/10;
+  @apply bg-white/80 backdrop-blur-md border-b border-gray-200/50;
 }
 
 ::-webkit-scrollbar {
@@ -88,7 +88,7 @@ h1, h2, h3, h4, h5, h6, .font-heading {
 }
 
 ::-webkit-scrollbar-track {
-  background: #09090b;
+  background: #f8fafc;
 }
 
 ::-webkit-scrollbar-thumb {

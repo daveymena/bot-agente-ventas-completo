@@ -111,7 +111,7 @@ export default function Checkout() {
                 <label className="block text-sm font-semibold text-gray-300 mb-2">Nombre Completo *</label>
                 <input
                   type="text"
-                  className="w-full px-4 py-3.5 rounded-xl border border-white/10 bg-[#09090b]/50 text-white focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500/50 outline-none transition-all shadow-inner placeholder-gray-600"
+                  className="w-full px-4 py-3.5 rounded-xl border border-gray-200 bg-white text-slate-800 focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-400 outline-none transition-all shadow-sm placeholder-slate-400"
                   placeholder="Ej. Juan Pérez"
                   value={formData.name}
                   onChange={e => setFormData({ ...formData, name: e.target.value })}
@@ -122,7 +122,7 @@ export default function Checkout() {
                 <label className="block text-sm font-semibold text-gray-300 mb-2">Correo Electrónico *</label>
                 <input
                   type="email"
-                  className="w-full px-4 py-3.5 rounded-xl border border-white/10 bg-[#09090b]/50 text-white focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500/50 outline-none transition-all shadow-inner placeholder-gray-600"
+                  className="w-full px-4 py-3.5 rounded-xl border border-gray-200 bg-white text-slate-800 focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-400 outline-none transition-all shadow-sm placeholder-slate-400"
                   placeholder="tu@email.com (Para enviarte el acceso)"
                   value={formData.email}
                   onChange={e => setFormData({ ...formData, email: e.target.value })}
@@ -133,7 +133,7 @@ export default function Checkout() {
                 <label className="block text-sm font-semibold text-gray-300 mb-2">WhatsApp (Opcional)</label>
                 <input
                   type="tel"
-                  className="w-full px-4 py-3.5 rounded-xl border border-white/10 bg-[#09090b]/50 text-white focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500/50 outline-none transition-all shadow-inner placeholder-gray-600"
+                  className="w-full px-4 py-3.5 rounded-xl border border-gray-200 bg-white text-slate-800 focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-400 outline-none transition-all shadow-sm placeholder-slate-400"
                   placeholder="+57 300 000 0000"
                   value={formData.phone}
                   onChange={e => setFormData({ ...formData, phone: e.target.value })}
@@ -187,7 +187,7 @@ export default function Checkout() {
             <div className="space-y-4 mb-8">
               {cart.map(item => (
                 <div key={item.id} className="flex gap-4 p-3 rounded-xl hover:bg-white/5 transition-colors border border-transparent hover:border-white/5">
-                  <div className="w-16 h-16 rounded-lg overflow-hidden shrink-0 bg-[#09090b]">
+                  <div className="w-16 h-16 rounded-lg overflow-hidden shrink-0 bg-slate-100">
                     <img src={item.image} alt={item.name} className="w-full h-full object-cover opacity-90" />
                   </div>
                   <div className="flex-1">
@@ -228,3 +228,4 @@ export default function Checkout() {
     </div>
   );
 }
+
