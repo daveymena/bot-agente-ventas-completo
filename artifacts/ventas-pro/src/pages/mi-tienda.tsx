@@ -106,6 +106,11 @@ export default function MiTiendaPage() {
 
   return (
     <div className="min-h-screen bg-white">
+      {/* DEBUG BANNER - CAMBIO REALIZADO ✅ */}
+      <div className="w-full bg-gradient-to-r from-green-500 to-emerald-500 text-white py-4 text-center font-bold text-lg">
+        ✅ ESTA ES LA TIENDA REDISEÑADA - CAMBIOS CARGADOS CORRECTAMENTE
+      </div>
+
       {/* Header - Simple and Mobile Optimized */}
       <header className="sticky top-0 z-50 bg-white border-b border-gray-200 shadow-sm">
         <div className="w-full px-4 sm:px-6 lg:px-8">
