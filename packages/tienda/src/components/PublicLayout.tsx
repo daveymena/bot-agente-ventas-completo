@@ -1,11 +1,11 @@
 import { Link, useParams } from 'react-router-dom';
-import { ShoppingCart, MessageCircle, Menu, X, Store, Search } from 'lucide-react';
+import { ShoppingCart, MessageCircle, Menu, X, Store, Heart, User } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { useStore } from '../store/useStore';
 import { initPixel } from '../lib/pixel';
 
 const PublicLayout = ({ children }: { children: React.ReactNode }) => {
-  const { cart, config, updateConfig } = useStore();
+  const { cart, wishlist, config, updateConfig } = useStore();
   const { slug } = useParams();
   const cartCount = cart.reduce((acc, item) => acc + item.quantity, 0);
   const base = slug ? `/tienda/${slug}` : '/tienda';
@@ -33,65 +33,73 @@ const PublicLayout = ({ children }: { children: React.ReactNode }) => {
   const waHref = config.whatsappPhone ? `https://wa.me/${config.whatsappPhone}` : null;
 
   return (
-    <div className="min-h-screen flex flex-col bg-[#f8fafc] text-slate-900 relative overflow-hidden">
-      {/* Background glow effects */}
-      <div className="absolute top-0 left-1/4 w-96 h-96 bg-indigo-200/50 rounded-full blur-[120px] pointer-events-none mix-blend-multiply" />
-      <div className="absolute bottom-0 right-1/4 w-96 h-96 bg-purple-200/40 rounded-full blur-[100px] pointer-events-none mix-blend-multiply" />
-
-      <nav className="glass-panel sticky top-0 z-50 transition-all duration-300 border-b border-gray-200/50">
+    <div className="min-h-screen flex flex-col bg-gray-50 text-slate-900">
+      <nav className="sticky top-0 z-50 bg-black text-white">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between h-20 items-center">
-            <Link to={base} className="flex items-center gap-3 group">
-              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-600 to-purple-600 flex items-center justify-center shadow-lg shadow-indigo-500/20 group-hover:scale-105 transition-transform">
+          <div className="flex justify-between h-16 items-center">
+            <Link to={base} className="flex items-center gap-2 group">
+              <div className="w-9 h-9 rounded-lg bg-red-600 flex items-center justify-center group-hover:scale-105 transition-transform">
                 <Store className="w-5 h-5 text-white" />
               </div>
-              <span className="text-xl font-heading font-bold text-slate-900 tracking-tight">{config.storeName || 'Tienda'}</span>
+              <span className="text-lg font-black tracking-tight uppercase">{config.storeName || 'Tienda'}</span>
             </Link>
 
-            <div className="hidden md:flex items-center gap-8">
-              <Link to={base} className="text-sm font-semibold text-slate-600 hover:text-indigo-600 transition-colors relative after:absolute after:bottom-[-4px] after:left-0 after:h-[2px] after:w-0 hover:after:w-full after:bg-indigo-600 after:transition-all">
+            <div className="hidden md:flex items-center gap-6">
+              <Link to={base} className="text-sm font-semibold text-gray-300 hover:text-white transition-colors">
                 Productos
               </Link>
               <a href={waHref || "#"} target="_blank" rel="noopener noreferrer"
-                className="flex items-center gap-1.5 text-sm font-semibold text-slate-600 hover:text-emerald-600 transition-colors group">
-                <MessageCircle className="w-4 h-4 group-hover:animate-bounce-slow" /> WhatsApp
+                className="flex items-center gap-1.5 text-sm font-semibold text-gray-300 hover:text-red-500 transition-colors group">
+                <MessageCircle className="w-4 h-4" /> WhatsApp
               </a>
-              <Link to={`${base}/carrito`} className="relative p-2 text-slate-600 hover:text-indigo-600 transition-colors group">
-                <ShoppingCart className="w-5 h-5 group-hover:scale-110 transition-transform" />
+              <Link to={`${base}/wishlist`} className="relative p-2 text-gray-300 hover:text-white transition-colors">
+                <Heart className="w-5 h-5" />
+                {wishlist.length > 0 && (
+                  <span className="absolute -top-1 -right-1 bg-red-600 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+                    {wishlist.length}
+                  </span>
+                )}
+              </Link>
+              <Link to={`${base}/carrito`} className="relative p-2 text-gray-300 hover:text-white transition-colors">
+                <ShoppingCart className="w-5 h-5" />
                 {cartCount > 0 && (
-                  <span className="absolute -top-1 -right-1 bg-indigo-600 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full ring-2 ring-white shadow-glow">
+                  <span className="absolute -top-1 -right-1 bg-red-600 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">
                     {cartCount}
                   </span>
                 )}
               </Link>
             </div>
 
-            <div className="flex md:hidden items-center gap-3">
-              <Link to={`${base}/carrito`} className="relative p-2 text-slate-600 hover:text-indigo-600">
+            <div className="flex md:hidden items-center gap-2">
+              <Link to={`${base}/carrito`} className="relative p-2 text-gray-300 hover:text-white">
                 <ShoppingCart className="w-5 h-5" />
                 {cartCount > 0 && (
-                  <span className="absolute -top-1 -right-1 bg-indigo-600 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full ring-2 ring-white">
+                  <span className="absolute -top-1 -right-1 bg-red-600 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">
                     {cartCount}
                   </span>
                 )}
               </Link>
-              <button onClick={() => setMobileMenu(!mobileMenu)} className="p-2 text-slate-600 hover:text-indigo-600 transition-colors bg-white rounded-lg border border-gray-200 shadow-sm">
-                {mobileMenu ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+              <button onClick={() => setMobileMenu(!mobileMenu)} className="p-2 text-gray-300 hover:text-white transition-colors">
+                {mobileMenu ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
               </button>
             </div>
           </div>
 
           {mobileMenu && (
-            <div className="md:hidden border-t border-gray-100 py-4 space-y-2 animate-in slide-in-from-top-2 fade-in">
+            <div className="md:hidden border-t border-gray-800 py-4 space-y-1">
               <Link to={base} onClick={() => setMobileMenu(false)}
-                className="block px-4 py-3 text-sm font-semibold text-slate-700 rounded-xl hover:bg-slate-50 transition-colors">
+                className="block px-4 py-3 text-sm font-semibold text-gray-200 rounded-lg hover:bg-gray-900 transition-colors">
                 Productos
               </Link>
               <a href={waHref || "#"} target="_blank" rel="noopener noreferrer"
                 onClick={() => setMobileMenu(false)}
-                className="flex items-center gap-2 px-4 py-3 text-sm font-semibold text-emerald-700 rounded-xl hover:bg-emerald-50 transition-colors">
-                <MessageCircle className="w-4 h-4" /> Asesoría por WhatsApp
+                className="flex items-center gap-2 px-4 py-3 text-sm font-semibold text-red-500 rounded-lg hover:bg-gray-900 transition-colors">
+                <MessageCircle className="w-4 h-4" /> Línea WhatsApp
               </a>
+              <Link to={`${base}/wishlist`} onClick={() => setMobileMenu(false)}
+                className="flex items-center gap-2 px-4 py-3 text-sm font-semibold text-gray-200 rounded-lg hover:bg-gray-900 transition-colors">
+                <Heart className="w-4 h-4" /> Lista de deseos
+              </Link>
             </div>
           )}
         </div>
@@ -101,22 +109,57 @@ const PublicLayout = ({ children }: { children: React.ReactNode }) => {
         {children}
       </main>
 
+      {/* Bottom Nav estilo Smartjoys (mobile) */}
+      <div className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white border-t border-gray-200 px-2 py-2 flex justify-around items-center">
+        <Link to={base} className="flex flex-col items-center gap-0.5 text-gray-700 px-2 py-1">
+          <Store className="h-5 w-5" />
+          <span className="text-[10px] font-semibold">Tienda</span>
+        </Link>
+        <Link to={`${base}/wishlist`} className="flex flex-col items-center gap-0.5 text-gray-700 px-2 py-1 relative">
+          <Heart className="h-5 w-5" />
+          <span className="text-[10px] font-semibold">Deseos</span>
+          {wishlist.length > 0 && (
+            <span className="absolute -top-0.5 right-1 bg-red-600 text-white text-[9px] font-bold rounded-full w-3.5 h-3.5 flex items-center justify-center">
+              {wishlist.length}
+            </span>
+          )}
+        </Link>
+        <a href={waHref || "#"} target="_blank" rel="noopener noreferrer" className="flex flex-col items-center gap-0.5 -mt-4">
+          <div className="w-12 h-12 rounded-full bg-green-500 flex items-center justify-center shadow-lg">
+            <MessageCircle className="h-6 w-6 text-white" />
+          </div>
+        </a>
+        <Link to={`${base}/carrito`} className="flex flex-col items-center gap-0.5 text-gray-700 px-2 py-1 relative">
+          <ShoppingCart className="h-5 w-5" />
+          <span className="text-[10px] font-semibold">Carrito</span>
+          {cartCount > 0 && (
+            <span className="absolute -top-0.5 right-1 bg-red-600 text-white text-[9px] font-bold rounded-full w-3.5 h-3.5 flex items-center justify-center">
+              {cartCount}
+            </span>
+          )}
+        </Link>
+        <button className="flex flex-col items-center gap-0.5 text-gray-700 px-2 py-1">
+          <User className="h-5 w-5" />
+          <span className="text-[10px] font-semibold">Cuenta</span>
+        </button>
+      </div>
+
       <a
         href={waHref || "#"}
         target="_blank"
         rel="noopener noreferrer"
-        className="fixed bottom-5 right-5 z-40 w-14 h-14 rounded-full bg-green-500 text-white shadow-lg flex items-center justify-center hover:bg-green-600 transition-colors hover:scale-110 active:scale-95"
+        className="hidden md:flex fixed bottom-5 right-5 z-40 w-14 h-14 rounded-full bg-green-500 text-white shadow-lg items-center justify-center hover:bg-green-600 transition-colors hover:scale-110 active:scale-95"
         aria-label="WhatsApp"
       >
         <MessageCircle className="w-7 h-7" />
       </a>
 
-      <footer className="bg-gray-900">
+      <footer className="bg-black pb-20 md:pb-0">
         <div className="max-w-7xl mx-auto px-4 py-12">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
             <div>
               <div className="flex items-center gap-2.5 mb-3">
-                <div className="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center">
+                <div className="w-8 h-8 rounded-lg bg-red-600 flex items-center justify-center">
                   <Store className="w-4 h-4 text-white" />
                 </div>
                 <span className="text-base font-bold text-white">{config.storeName || 'Tienda'}</span>
