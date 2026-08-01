@@ -156,8 +156,22 @@ export function Layout({ children }: { children: React.ReactNode }) {
               <UiBadge variant="outline" className="bg-primary/5 text-primary border-primary/20 hidden sm:flex text-xs">V1.5 PREMIUM</UiBadge>
             </div>
           </header>
-          <main className={`flex-1 p-3 sm:p-4 md:p-8 overflow-y-auto overflow-x-hidden animate-enter scroll-smooth flex flex-col h-full ${isMobile ? 'pb-[88px]' : ''}`}>
-            <div className="max-w-7xl mx-auto pb-8 md:pb-4 w-full flex-1 flex flex-col min-h-0">
+          {/* El espacio que reserva la barra inferior fija va en el div de
+              adentro, NO en <main>. <main> es el contenedor que scrollea
+              (overflow-y-auto) y WebKit -- o sea Safari en iPhone, que es
+              justamente donde se veía el problema -- descarta el
+              padding-bottom de un contenedor scrolleable cuando el contenido
+              desborda. Resultado: lo último de cada pantalla (botones de
+              guardar, selects, el final de las listas) quedaba tapado por la
+              barra. En un hijo que no scrollea el padding se respeta siempre.
+
+              El cálculo: 72px de la barra + 32px de aire + el inset del
+              home indicator en los teléfonos con notch. Y se resuelve con
+              `md:` (CSS puro) en vez de con el hook useIsMobile (JS), para
+              que el espacio no dependa de que un efecto de React ya haya
+              corrido. */}
+          <main className="flex-1 p-3 sm:p-4 md:p-8 overflow-y-auto overflow-x-hidden animate-enter scroll-smooth flex flex-col h-full">
+            <div className="max-w-7xl mx-auto pb-[calc(104px+env(safe-area-inset-bottom))] md:pb-4 w-full flex-1 flex flex-col min-h-0">
               {children}
             </div>
           </main>

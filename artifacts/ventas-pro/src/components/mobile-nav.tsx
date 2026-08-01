@@ -48,7 +48,13 @@ export function MobileNav() {
 
   return (
     <>
-      <nav className="fixed bottom-0 left-0 right-0 z-50 flex h-[72px] items-center justify-evenly bg-white/90 backdrop-blur-xl border-t border-gray-100 shadow-[0_-4px_20px_rgba(0,0,0,0.06)] px-1 pb-2 safe-area-bottom md:hidden">
+      {/* min-h en vez de h: con `h-[72px]` la altura quedaba clavada en 72px
+          y, como Tailwind usa border-box, el padding de `safe-area-bottom`
+          (el hueco del home indicator, ~34px en los iPhone con notch) se
+          comía el espacio interior en vez de agrandar la barra. Al ícono +
+          etiqueta le quedaban ~38px y los textos se recortaban -- los
+          botones "se escondían". Con min-h la barra crece lo necesario. */}
+      <nav className="fixed bottom-0 left-0 right-0 z-50 flex min-h-[72px] items-center justify-evenly bg-white/90 backdrop-blur-xl border-t border-gray-100 shadow-[0_-4px_20px_rgba(0,0,0,0.06)] px-1 pb-2 safe-area-bottom md:hidden">
         {mainNavItems.map((item) => {
           const isActive = item.href === "/" ? location === "/" : location.startsWith(item.href);
           return (
@@ -103,7 +109,7 @@ export function MobileNav() {
       {showMore && (
         <>
           <div className="fixed inset-0 z-40 md:hidden" onClick={() => setShowMore(false)} />
-          <div className="fixed bottom-[72px] left-0 right-0 z-40 md:hidden animate-enter-up bg-white rounded-t-2xl shadow-xl border-t border-gray-100 px-4 py-3 pb-6 safe-area-bottom max-h-[60vh] overflow-y-auto">
+          <div className="fixed bottom-[calc(72px+env(safe-area-inset-bottom))] left-0 right-0 z-40 md:hidden animate-enter-up bg-white rounded-t-2xl shadow-xl border-t border-gray-100 px-4 py-3 pb-6 max-h-[60vh] overflow-y-auto">
             <div className="w-10 h-1 rounded-full bg-gray-200 mx-auto mb-4" />
             <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3 px-1">Menú completo</p>
             <div className="grid grid-cols-3 gap-2">
