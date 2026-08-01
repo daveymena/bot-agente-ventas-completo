@@ -4,6 +4,7 @@ import { db, tenants } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { getWooCommerceService, WooCommerceService } from "../lib/woocommerce";
 import { logger } from "../lib/logger";
+import { encryptWooCommerce } from "../lib/credentials-vault";
 
 const router = Router();
 
@@ -107,7 +108,7 @@ router.put("/config", async (req, res) => {
 
     await db
       .update(tenants)
-      .set({ woocommerceIntegration: newConfig })
+      .set({ woocommerceIntegration: encryptWooCommerce(newConfig) })
       .where(eq(tenants.id, tenantId));
 
     logger.info({ tenantId }, "[WooCommerce] Configuración actualizada");
