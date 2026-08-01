@@ -12,13 +12,13 @@
  * la registra en ad_agent_logs y se la manda al admin por WhatsApp. Solo
  * actúa cuando el admin responde aprobando esa sugerencia puntual.
  */
-import { db, adAgentLogs } from "@workspace/db";
+import { db, adAgentLogs, tenants } from "@workspace/db";
 import { eq, and, desc } from "drizzle-orm";
 import { logger } from "./logger";
 import { whatsapp } from "./whatsapp";
 import { isApproval, isRejection } from "./architect-store";
 import { FacebookService } from "./facebook";
-import { tenantManager } from "./tenantManager";
+import { tenantManager, type TenantContext } from "./tenantManager";
 
 // Umbrales conservadores y auditables a propósito -- se pueden ajustar sin
 // tocar la lógica de decisión.
@@ -26,6 +26,41 @@ const SPEND_PROTECTION_MIN_IMPRESSIONS = 500; // no juzgar con muestra chica
 const TREND_MIN_IMPRESSIONS = 1000;
 const TREND_SCALE_UP_MAX_COST_RATIO = 0.7; // costo/resultado actual <= 70% de la ventana anterior => va bien
 const TREND_SCALE_DOWN_MIN_COST_RATIO = 1.5; // costo/resultado actual >= 150% de la ventana anterior => va mal
+
+// Tope de gasto diario, en la moneda de la cuenta publicitaria. 0 lo
+// desactiva, que es el valor por defecto -- nadie se encuentra de golpe con
+// que le pausaron los anuncios por un límite que no configuró.
+//
+// ESTE ES EL ÚNICO CHEQUEO QUE ACTÚA SIN PEDIR CONFIRMACIÓN, y es a
+// propósito: un tope que espera un "sí" por WhatsApp no es un tope. Si salta
+// a las 3 de la mañana y el admin duerme, el presupuesto se sigue quemando
+// hasta que despierte. Es defendible porque solo puede REDUCIR gasto (pausa),
+// nunca aumentarlo, así que el peor error posible es dejar de gastar de más.
+// Todo lo demás -- escalar, bajar, pausar por rendimiento -- sigue esperando
+// la aprobación explícita del admin.
+const DAILY_SPEND_CAP = Number(process.env.FB_DAILY_SPEND_CAP || 0);
+
+/**
+ * Todos los negocios activos, no solo el primero. Antes cada chequeo hacía
+ * `tenantManager.getDefaultTenant()`, así que en una instalación con varios
+ * negocios el agente vigilaba UNO y los demás gastaban sin supervisión.
+ * Si la consulta falla se cae al tenant por defecto: es preferible vigilar
+ * uno a no vigilar ninguno.
+ */
+async function getAdTenants(): Promise<TenantContext[]> {
+  try {
+    const rows = await db.select({ id: tenants.id }).from(tenants).where(eq(tenants.status, "active"));
+    const out: TenantContext[] = [];
+    for (const r of rows) {
+      const t = await tenantManager.getTenantById(r.id);
+      if (t) out.push(t);
+    }
+    return out.length > 0 ? out : [tenantManager.getDefaultTenant()];
+  } catch (err) {
+    logger.warn({ err }, "[AdGrowthAgent] No se pudieron listar los negocios, se usa el de por defecto");
+    return [tenantManager.getDefaultTenant()];
+  }
+}
 
 function fmtCOP(n: number): string {
   return new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", maximumFractionDigits: 0 }).format(n);
@@ -40,8 +75,9 @@ async function logSuggestion(entry: {
   campaignId: string;
   adSetId?: string | null;
   productName?: string | null;
-  checkType: "spend_protection" | "trend_review";
+  checkType: "spend_protection" | "trend_review" | "daily_cap";
   suggestedAction: "pause" | "resume" | "increase_budget" | "decrease_budget" | null;
+  status?: "suggested" | "applied";
   reason: string;
   metricsSnapshot: any;
 }) {
@@ -51,7 +87,7 @@ async function logSuggestion(entry: {
     adSetId: entry.adSetId || null,
     productName: entry.productName || null,
     checkType: entry.checkType,
-    status: entry.suggestedAction ? "suggested" : "no_action",
+    status: entry.status || (entry.suggestedAction ? "suggested" : "no_action"),
     suggestedAction: entry.suggestedAction,
     reason: entry.reason,
     metricsSnapshot: entry.metricsSnapshot,
@@ -87,10 +123,102 @@ async function notifyAdmin(logId: number, campaignName: string, action: string, 
   }
 }
 
+/**
+ * Freno de gasto diario: suma lo gastado HOY por todas las campañas activas
+ * del negocio y, si pasa el tope, las pausa TODAS y avisa.
+ *
+ * A diferencia del resto del agente, este chequeo ejecuta sin pedir permiso
+ * (ver el comentario de DAILY_SPEND_CAP arriba). Solo pausa: jamás sube
+ * presupuestos ni reactiva nada.
+ */
+export async function runDailyBudgetGuard(): Promise<void> {
+  if (!(DAILY_SPEND_CAP > 0)) return; // desactivado por defecto
+
+  for (const tenant of await getAdTenants()) {
+    try {
+      const fb = new FacebookService(tenant);
+      if (!fb.isConfigured()) continue;
+
+      const activas = (await fb.listActiveCampaigns()).filter((c) => c.effectiveStatus === "ACTIVE");
+      if (activas.length === 0) continue;
+
+      let gastoTotal = 0;
+      const conGasto: { id: string; name: string; spend: number }[] = [];
+      for (const c of activas) {
+        const ins = await fb.getCampaignInsights(c.id, "today");
+        if (!ins) continue;
+        gastoTotal += ins.spend;
+        conGasto.push({ id: c.id, name: c.name, spend: ins.spend });
+      }
+
+      if (gastoTotal < DAILY_SPEND_CAP) continue;
+
+      // Una sola vez por día: sin esto, al correr cada hora volvería a pausar
+      // (y a avisar) campañas que el admin pudo haber reactivado a mano.
+      const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
+      const previo = await db.select().from(adAgentLogs)
+        .where(and(eq(adAgentLogs.checkType, "daily_cap"), eq(adAgentLogs.tenantId, tenant.id)))
+        .orderBy(desc(adAgentLogs.createdAt)).limit(1);
+      if (previo[0] && new Date(previo[0].createdAt as any) >= hoy) continue;
+
+      const pausadas: string[] = [];
+      for (const c of conGasto) {
+        if (await fb.pauseCampaign(c.id)) pausadas.push(c.name);
+      }
+
+      const razon =
+        `Tope diario alcanzado: ${fmtCOP(gastoTotal)} gastados hoy (límite ${fmtCOP(DAILY_SPEND_CAP)}). ` +
+        `Se pausaron ${pausadas.length} de ${conGasto.length} campañas activas para no seguir gastando.`;
+
+      const log = await logSuggestion({
+        tenantId: tenant.id,
+        campaignId: conGasto.map((c) => c.id).join(","),
+        productName: `${pausadas.length} campañas`,
+        checkType: "daily_cap",
+        suggestedAction: "pause",
+        status: "applied", // ya ejecutado, no queda esperando aprobación
+        reason: razon,
+        metricsSnapshot: { gastoTotal, tope: DAILY_SPEND_CAP, campanas: conGasto, pausadas },
+      });
+
+      await notifyAdminExecuted(tenant, log.id, razon, pausadas);
+      logger.warn({ tenantId: tenant.id, gastoTotal, tope: DAILY_SPEND_CAP }, "[AdGrowthAgent] Tope diario alcanzado, campañas pausadas");
+    } catch (err) {
+      logger.error({ err, tenantId: tenant.id }, "[AdGrowthAgent] Error en el freno de gasto diario");
+    }
+  }
+}
+
+/** Aviso de algo YA EJECUTADO -- no pide confirmación, informa. */
+async function notifyAdminExecuted(tenant: TenantContext, logId: number, reason: string, pausadas: string[]) {
+  const phone = await getAdminPhone();
+  if (!phone || !whatsapp.isConnected()) return;
+  const lista = pausadas.length ? `\n\n⏸️ Pausadas:\n${pausadas.map((n) => `· ${n}`).join("\n")}` : "";
+  const text =
+    `🛑 *Freno de gasto* — registro #${logId}\n` +
+    `Negocio: *${tenant.brandName || tenant.name}*\n\n` +
+    `${reason}${lista}\n\n` +
+    `Ya está aplicado, no hace falta que respondas. Para reactivarlas, hacelo desde Ads Manager cuando quieras.`;
+  try {
+    await whatsapp.sendText(phone, text);
+  } catch (err) {
+    logger.warn({ err }, "[AdGrowthAgent] Error avisando del freno de gasto");
+  }
+}
+
 /** Protección de gasto: ventana corta, revisa si una campaña activa se está
  * comiendo el presupuesto sin resultados. Corre seguido a propósito. */
 export async function runSpendProtectionCheck(): Promise<void> {
-  const tenant = tenantManager.getDefaultTenant();
+  for (const tenant of await getAdTenants()) {
+    try {
+      await spendProtectionForTenant(tenant);
+    } catch (err) {
+      logger.error({ err, tenantId: tenant.id }, "[AdGrowthAgent] Error en protección de gasto del negocio");
+    }
+  }
+}
+
+async function spendProtectionForTenant(tenant: TenantContext): Promise<void> {
   const fb = new FacebookService(tenant);
   if (!fb.isConfigured()) return;
 
@@ -135,7 +263,16 @@ export async function runSpendProtectionCheck(): Promise<void> {
  * presupuesto a lo que va bien de forma sostenida) o bajar/pausar lo que
  * viene mal desde hace días -- no reacciona a un solo día. */
 export async function runTrendReview(): Promise<void> {
-  const tenant = tenantManager.getDefaultTenant();
+  for (const tenant of await getAdTenants()) {
+    try {
+      await trendReviewForTenant(tenant);
+    } catch (err) {
+      logger.error({ err, tenantId: tenant.id }, "[AdGrowthAgent] Error en revisión de tendencia del negocio");
+    }
+  }
+}
+
+async function trendReviewForTenant(tenant: TenantContext): Promise<void> {
   const fb = new FacebookService(tenant);
   if (!fb.isConfigured()) return;
 
@@ -179,7 +316,12 @@ export async function runTrendReview(): Promise<void> {
 
 /** Ejecuta una sugerencia ya aprobada. */
 async function applySuggestion(log: typeof adAgentLogs.$inferSelect): Promise<{ ok: boolean; message: string }> {
-  const tenant = tenantManager.getDefaultTenant();
+  // El tenant sale del LOG, no del por defecto: ahora que el agente vigila
+  // varios negocios, aplicar con las credenciales del primero tocaría la
+  // cuenta publicitaria equivocada -- pausaría la campaña de otro negocio, o
+  // fallaría porque ese id no existe en esa cuenta.
+  const tenant = (log.tenantId ? await tenantManager.getTenantById(log.tenantId) : null)
+    || tenantManager.getDefaultTenant();
   const fb = new FacebookService(tenant);
   switch (log.suggestedAction) {
     case "pause": {
@@ -251,5 +393,14 @@ export function startAdGrowthAgent() {
   const TREND_CHECK_MS = 6 * 60 * 60 * 1000; // cada 6h: revisión de tendencia, ventana larga
   setInterval(() => { runSpendProtectionCheck().catch(err => logger.error({ err }, "[AdGrowthAgent] Error en protección de gasto")); }, SPEND_CHECK_MS);
   setInterval(() => { runTrendReview().catch(err => logger.error({ err }, "[AdGrowthAgent] Error en revisión de tendencia")); }, TREND_CHECK_MS);
+
+  // El freno de gasto corre más seguido que los demás: es el único que
+  // detiene dinero saliendo, y cada 15 min acota cuánto se puede pasar del
+  // tope antes de que alguien lo note.
+  if (DAILY_SPEND_CAP > 0) {
+    const CAP_CHECK_MS = 15 * 60 * 1000;
+    setInterval(() => { runDailyBudgetGuard().catch(err => logger.error({ err }, "[AdGrowthAgent] Error en el freno de gasto diario")); }, CAP_CHECK_MS);
+    logger.info(`[AdGrowthAgent] Freno de gasto diario activo en ${DAILY_SPEND_CAP} (revisión cada 15 min)`);
+  }
   logger.info("[AdGrowthAgent] Iniciado -- protección de gasto cada 1h, revisión de tendencia cada 6h");
 }
