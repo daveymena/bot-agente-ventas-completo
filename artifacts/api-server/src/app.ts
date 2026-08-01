@@ -486,6 +486,8 @@ const publicRoutes = [
   // además es indispensable para que cada tenant controle SU propia sesión
   // en vez de que todo colapse siempre al tenant 1.
   "/webhooks/subscription",
+  "/webhooks/paypal",
+  "/webhooks/mercadopago",
   "/activation",
   "/public", // Endpoints públicos (productos de tienda)
   "/store", // Endpoints públicos de tienda (catalogo, layout)
