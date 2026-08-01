@@ -2,6 +2,7 @@
 import { Request, Response, NextFunction } from "express";
 import { logger } from "../lib/logger";
 import { tenantManager, type TenantRequest } from "../lib/tenantManager";
+import { incrementRateLimit } from "./rate-limit-store";
 
 // Rate Limiting Types
 export interface RateLimitConfig {
@@ -174,7 +175,7 @@ export class RateLimitingMiddleware {
         const tenantMaxRequests = req.tenant?.limits.apiCallsPerMinute || finalConfig.maxRequests;
         const effectiveMaxRequests = Math.min(finalConfig.maxRequests, tenantMaxRequests);
 
-        const result = this.storage.increment(key, finalConfig.windowMs);
+        const result = await incrementRateLimit(key, finalConfig.windowMs);
         const remaining = Math.max(0, effectiveMaxRequests - result.totalHits);
         const allowed = result.totalHits <= effectiveMaxRequests;
 
