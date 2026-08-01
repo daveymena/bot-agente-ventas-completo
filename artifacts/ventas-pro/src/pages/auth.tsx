@@ -333,16 +333,107 @@ export default function AuthPage() {
   };
 
   return (
-    <div className="min-h-screen w-full flex items-center justify-center bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-primary/20 via-background to-background p-4">
-      <div className="absolute inset-0 bg-grid-white/[0.02] -z-10" />
-      
-      <div className="w-full max-w-[450px] animate-enter">
-        <div className="flex flex-col items-center mb-8">
-          <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-primary to-accent flex items-center justify-center shadow-xl shadow-primary/20 mb-4">
-            <Rocket className="text-white h-8 w-8" />
+    /* Split-screen: panel de marca a la izquierda, formulario a la derecha --
+       el patrón de Stripe/Linear/Vercel. Antes era una sola columna angosta
+       centrada con TODO apilado (logo grande + título + subtítulo + tabs +
+       tarjeta), así que en portátiles el botón de enviar quedaba bajo el
+       pliegue y había que scrollear para iniciar sesión. Ahora la altura se
+       reparte en dos columnas y el formulario entra completo en pantalla.
+       El panel de marca es lg:flex -- en móvil no existe, para no empujar el
+       formulario hacia abajo. */
+    <div className="min-h-screen w-full lg:grid lg:grid-cols-[1.05fr_1fr]">
+      {/* ── PANEL DE MARCA (solo desktop) ── */}
+      <aside className="relative hidden lg:flex flex-col justify-between overflow-hidden bg-slate-950 text-white p-12 xl:p-16">
+        {/* Decorado: resplandores + retícula. Todo en CSS a propósito -- una
+            imagen de fondo hay que cargarla, se pixela en pantallas 4K y
+            obliga a mantener un asset; esto escala nítido a cualquier tamaño
+            y no suma ni un KB de red. */}
+        <div aria-hidden className="pointer-events-none absolute inset-0">
+          <div className="absolute -top-24 -left-20 w-[28rem] h-[28rem] rounded-full bg-primary/30 blur-3xl" />
+          <div className="absolute top-1/3 -right-24 w-[22rem] h-[22rem] rounded-full bg-fuchsia-600/20 blur-3xl" />
+          <div className="absolute bottom-[-8rem] left-1/4 w-[24rem] h-[24rem] rounded-full bg-cyan-500/10 blur-3xl" />
+          {/* Retícula sutil, se desvanece hacia abajo */}
+          <div
+            className="absolute inset-0 opacity-[0.07] [mask-image:linear-gradient(to_bottom,black,transparent_75%)]"
+            style={{
+              backgroundImage:
+                "linear-gradient(to right, white 1px, transparent 1px), linear-gradient(to bottom, white 1px, transparent 1px)",
+              backgroundSize: "56px 56px",
+            }}
+          />
+        </div>
+
+        <div className="relative flex items-center gap-3">
+          <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-primary to-fuchsia-500 flex items-center justify-center shadow-lg shadow-primary/30">
+            <Rocket className="h-5 w-5 text-white" />
           </div>
-          <h1 className="text-3xl font-bold tracking-tight">Sofía AI Sales</h1>
-          <p className="text-muted-foreground mt-2">La plataforma de ventas autónoma de élite</p>
+          <span className="text-lg font-bold tracking-tight">Sofía AI Sales</span>
+        </div>
+
+        <div className="relative max-w-md">
+          <h2 className="text-4xl xl:text-5xl font-black leading-[1.1] tracking-tight">
+            Vendé por WhatsApp<br />mientras dormís.
+          </h2>
+          <p className="mt-5 text-base text-slate-300 leading-relaxed">
+            Un agente de IA atiende, recomienda y cierra ventas por vos. Tu tienda y tus anuncios, en un solo lugar.
+          </p>
+
+          {/* Maqueta del producto: muestra lo que hace en vez de describirlo.
+              Es la "imagen" del panel, pero hecha con divs -- así queda
+              nítida en cualquier pantalla y se puede retocar el copy sin
+              volver a exportar nada. */}
+          <div className="mt-9 rounded-2xl border border-white/10 bg-white/[0.06] backdrop-blur-sm p-4 shadow-2xl">
+            <div className="flex items-center gap-2 pb-3 border-b border-white/10">
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)]" />
+              <span className="text-xs font-semibold text-slate-200">Sofía · en línea</span>
+            </div>
+            <div className="pt-3 space-y-2.5">
+              <div className="max-w-[80%] rounded-2xl rounded-tl-md bg-white/10 px-3.5 py-2 text-[13px] text-slate-100">
+                Hola, ¿el curso de piano tiene certificado?
+              </div>
+              <div className="ml-auto max-w-[85%] rounded-2xl rounded-tr-md bg-gradient-to-br from-primary to-fuchsia-500 px-3.5 py-2 text-[13px] text-white shadow-lg shadow-primary/30">
+                ¡Sí! Incluye certificado y acceso de por vida. Te dejo el link de pago 👇
+              </div>
+              <div className="ml-auto max-w-[85%] rounded-xl bg-white/10 border border-white/10 px-3.5 py-2.5">
+                <p className="text-[13px] font-semibold text-white leading-tight">Curso de Piano Completo</p>
+                <p className="text-[15px] font-black text-emerald-300 mt-0.5">$60.000</p>
+              </div>
+            </div>
+          </div>
+
+          <ul className="mt-8 flex flex-wrap gap-x-6 gap-y-3">
+            {[
+              { icon: User, text: "Atiende 24/7" },
+              { icon: Store, text: "Cobra y entrega solo" },
+              { icon: ShieldCheck, text: "Datos cifrados" },
+            ].map(({ icon: Icon, text }) => (
+              <li key={text} className="flex items-center gap-2">
+                <div className="w-7 h-7 shrink-0 rounded-lg bg-white/10 flex items-center justify-center">
+                  <Icon className="h-3.5 w-3.5 text-white" />
+                </div>
+                <span className="text-[13px] font-medium text-slate-200">{text}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+
+        <p className="relative text-xs text-slate-500">
+          © {new Date().getFullYear()} Sofía AI Sales
+        </p>
+      </aside>
+
+      {/* ── COLUMNA DEL FORMULARIO ── */}
+      <div className="flex items-center justify-center p-6 sm:p-10 bg-background">
+      <div className="w-full max-w-[430px] animate-enter">
+        {/* En desktop el panel de la izquierda ya presenta la marca, así que
+            acá el logo va compacto y no roba altura al formulario. En móvil,
+            donde ese panel no existe, es la única marca visible. */}
+        <div className="flex flex-col items-center lg:items-start mb-8">
+          <div className="w-14 h-14 lg:hidden rounded-2xl bg-gradient-to-br from-primary to-fuchsia-500 flex items-center justify-center shadow-xl shadow-primary/20 mb-4">
+            <Rocket className="text-white h-7 w-7" />
+          </div>
+          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">Sofía AI Sales</h1>
+          <p className="text-muted-foreground text-sm mt-1.5">La plataforma de ventas autónoma de élite</p>
         </div>
 
         {/* Modal de Éxito del Registro */}
@@ -702,10 +793,11 @@ export default function AuthPage() {
           </Tabs>
         )}
 
-        <p className="text-center text-xs text-muted-foreground mt-8 px-8 leading-relaxed">
-          Al continuar, aceptas nuestros términos de servicio y políticas de privacidad. 
-          Tu información está protegida por encriptación de grado militar.
+        <p className="text-center lg:text-left text-xs text-muted-foreground mt-8 lg:px-0 px-8 leading-relaxed">
+          Al continuar, aceptas nuestros términos de servicio y políticas de privacidad.
+          Tu información viaja cifrada.
         </p>
+      </div>
       </div>
     </div>
   );
