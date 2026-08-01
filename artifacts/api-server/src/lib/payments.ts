@@ -1,5 +1,6 @@
 // @ts-nocheck
 import { logger } from "./logger";
+import { dbNow } from "./date-utils";
 import { db, paymentLinks } from "@workspace/db";
 import { eq, and, gte, lte } from "drizzle-orm";
 import { tenantManager, type TenantContext } from "./tenantManager";
@@ -234,7 +235,7 @@ class URLShortener {
         await db.update(paymentLinks)
           .set({ 
             clicks: (link.clicks || 0) + 1,
-            lastClickAt: new Date().toISOString()
+            lastClickAt: dbNow()
           })
           .where(eq(paymentLinks.id, link.id));
 
@@ -269,8 +270,8 @@ export class PaymentGateway {
       transferAccounts: tenantPayments.transfer?.accounts || [
         {
           type: "Nequi",
-          number: process.env.TRANSFER_NUMBER || "3136174267",
-          name: process.env.TRANSFER_NAME || "Duvier Mena"
+          number: process.env.TRANSFER_NUMBER || "",
+          name: process.env.TRANSFER_NAME || process.env.TRANSFER_OWNER || ""
         }
       ],
       appUrl: process.env.APP_URL || "https://tecnovariedades.easypanel.host",
@@ -522,8 +523,9 @@ export class PaymentGateway {
 
     try {
       // Create PayPal payment using their API for dynamic links
-      const exchangeRate = Number(process.env.PAYPAL_EXCHANGE_RATE) || 4300; 
-      const amountUSD = Number(product.price || 0) / exchangeRate; // Convert COP to USD dynamically
+      const { getExchangeRate } = await import("./exchange-rate");
+      const exchangeRate = await getExchangeRate();
+      const amountUSD = Number(product.price || 0) / exchangeRate;
       
       // Get PayPal access token with timeout
       const authResponse = await fetch(`https://api-m.paypal.com/v1/oauth2/token`, {
@@ -619,7 +621,8 @@ export class PaymentGateway {
       await this.healthMonitor.checkServiceHealth('paypal');
       
       // Fallback to simple PayPal link if API fails
-      const amountUSD = Number(product.price || 0) / 4000;
+      const { getExchangeRate: getRate2 } = await import("./exchange-rate");
+      const amountUSD = Number(product.price || 0) / await getRate2();
       const baseUrl = this.config.paypalMode === "sandbox" ? "https://www.sandbox.paypal.com" : "https://www.paypal.com";
 
       const params = new URLSearchParams({

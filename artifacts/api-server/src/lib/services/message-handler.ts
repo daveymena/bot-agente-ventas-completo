@@ -15,6 +15,7 @@ import { messages, conversations, leads } from "@workspace/db";
 import { eq, and } from "drizzle-orm";
 import { addTenantToInsert, type TenantContext } from '../tenantManager';
 import { logger } from '../logger';
+import { dbNow } from '../date-utils';
 
 export interface MessageHandlerConfig {
   tenantId: string;
@@ -54,17 +55,17 @@ export class MessageHandler {
     timestamp: Date;
     pushName?: string;
   }): Promise<void> {
-    const config = this.configs.get(params.tenantId);
-    
-    // LOG DE DEPURACIÓN CRÍTICO
-    console.log(`🔍 [MessageHandler] Validando mensaje - Tenant Recibido: "${params.tenantId}", Tipo: ${typeof params.tenantId}`);
-
-    // Fuerza bruta: El tenant 1 siempre está habilitado
+    // El mensaje solo llega acá si vino por el socket de Baileys de ESE
+    // tenant (whatsapp-factory.ts aísla un socket por tenant) -- eso YA es
+    // la prueba de que el tenant es real y su instancia está activa. Antes
+    // había un "isEnabled" que exigía un registro previo en `configs`
+    // (poblado solo para el tenant "1" en el boot de app.ts) o comparar
+    // contra el número 1 a fuerza bruta: cualquier OTRO tenant, aunque su
+    // WhatsApp estuviera correctamente conectado y aislado, tenía sus
+    // mensajes descartados en silencio acá.
     const tenantId = typeof params.tenantId === 'string' ? parseInt(params.tenantId) : params.tenantId;
-    const isEnabled = tenantId === 1 || config?.enabled === true;
-
-    if (!isEnabled) {
-      logger.warn(`[MessageHandler] Tenant ${params.tenantId} not configured or disabled (isEnabled: ${isEnabled})`);
+    if (!Number.isFinite(tenantId)) {
+      logger.warn(`[MessageHandler] tenantId inválido: "${params.tenantId}"`);
       return;
     }
 
@@ -119,9 +120,12 @@ export class MessageHandler {
         stage: convo.currentStage,
       });
 
-      await db.update(conversations).set({ 
-        lastMessage: params.body, 
-        lastMessageAt: new Date().toISOString() 
+      // dbNow(): en Postgres lastMessageAt exige un objeto Date, no un
+      // string (ver date-utils.ts) — esto corre en CADA mensaje entrante
+      // de WhatsApp, antes incluso de que el agente responda.
+      await db.update(conversations).set({
+        lastMessage: params.body,
+        lastMessageAt: dbNow()
       }).where(eq(conversations.id, convo.id));
 
 

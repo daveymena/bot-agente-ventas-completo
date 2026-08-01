@@ -2,6 +2,8 @@
 import { eq, and, sql } from "drizzle-orm";
 import { db, tenants, conversations, leads, products, productCategories } from "@workspace/db";
 import { logger } from "./logger";
+import { dbNow } from "./date-utils";
+import { decryptSecret } from "./credentials-vault";
 import type { Request, Response, NextFunction } from "express";
 
 // Tenant Context Types
@@ -9,6 +11,13 @@ export interface TenantContext {
   id: number;
   slug: string;
   name: string;
+  email: string;
+  // Dueño de la plataforma: ve y administra TODOS los tenants, no solo el
+  // propio. Antes esto se chequeaba comparando req.tenant.email (un campo
+  // que TenantContext nunca poblaba) contra un email hardcodeado -- esa
+  // comparación era siempre `undefined !== "..."`, así que la ruta de admin
+  // (/tenants/admin/:id/action) rechazaba a TODOS, incluido el admin real.
+  isAdmin: boolean;
   brandName: string;
   agentPersonality: string;
   agentPrompt: string | null;
@@ -55,6 +64,10 @@ export interface TenantContext {
     appSecret?: string;
     messengerPageToken?: string;
     messengerVerifyToken?: string;
+    pageName?: string;
+    /** Permisos de Facebook sobre la página (CREATE_CONTENT = puede publicar) */
+    tasks?: string[];
+    connectedAt?: string;
   };
   limits: {
     maxConversations: number;
@@ -80,6 +93,10 @@ const DEFAULT_TENANT: TenantContext = {
   id: 1,
   slug: "default",
   name: "TecnoVariedades",
+  email: "",
+  // Placeholder sin sesión real (usado por procesos internos como WhatsApp/
+  // AdStrategist cuando no hay tenant resuelto) -- nunca debe ser admin.
+  isAdmin: false,
   brandName: "TecnoVariedades",
   agentPersonality: "professional",
   agentPrompt: null,
@@ -138,8 +155,37 @@ const DEFAULT_TENANT: TenantContext = {
 };
 
 // Tenant Manager Class
+/**
+ * Extrae las credenciales de Facebook de tenants.metadata.
+ * La metadata puede venir como objeto o como string JSON según el motor de BD
+ * (SQLite la guarda serializada), por eso se contemplan ambos casos.
+ */
+function parseFacebookMeta(metadata: unknown): TenantContext["facebook"] {
+  if (!metadata) return undefined;
+  try {
+    const meta = typeof metadata === "string" ? JSON.parse(metadata) : (metadata as any);
+    const fb = meta?.facebook;
+    if (!fb) return undefined;
+    // accessToken/appSecret/messengerPageToken se guardan encriptados (ver
+    // credentials-vault.ts) -- este es el único punto donde se arma
+    // TenantContext.facebook, así que desencriptar acá alcanza para que
+    // FacebookService y compañía sigan recibiendo el texto plano como
+    // siempre, sin tocar cada llamador. decryptSecret() devuelve el valor
+    // tal cual si es legacy en texto plano (sin el prefijo enc:v1:).
+    return {
+      ...fb,
+      accessToken: decryptSecret(fb.accessToken),
+      appSecret: decryptSecret(fb.appSecret),
+      messengerPageToken: decryptSecret(fb.messengerPageToken),
+    };
+  } catch {
+    return undefined;
+  }
+}
+
 export class TenantManager {
   private tenantCache: Map<string, TenantContext> = new Map();
+  // (parseFacebookMeta se define fuera de la clase, al final del archivo)
   private cacheExpiry: Map<string, number> = new Map();
   private readonly CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
@@ -172,6 +218,8 @@ export class TenantManager {
         id: tenant.id,
         slug: tenant.slug,
         name: tenant.name,
+        email: tenant.email,
+        isAdmin: !!tenant.isAdmin,
         brandName: tenant.brandName,
         agentPersonality: tenant.agentPersonality,
         agentPrompt: tenant.agentPrompt,
@@ -180,7 +228,12 @@ export class TenantManager {
         paymentMethods: tenant.paymentMethods || DEFAULT_TENANT.paymentMethods,
         limits: tenant.limits || DEFAULT_TENANT.limits,
         brandColors: tenant.brandColors || DEFAULT_TENANT.brandColors,
-        plan: tenant.plan || "basic"
+        plan: tenant.plan || "basic",
+        // Credenciales de Facebook guardadas por tenant. Estaban declaradas en
+        // TenantContext pero nunca se leían de metadata, así que facebook
+        // quedaba undefined y TODO caía al .env global: en multi-cuenta eso
+        // significaba que cada tenant usaba la página del dueño del servidor.
+        facebook: parseFacebookMeta(tenant.metadata),
       };
 
       // Cache the result
@@ -225,6 +278,8 @@ export class TenantManager {
         id: tenant.id,
         slug: tenant.slug,
         name: tenant.name,
+        email: tenant.email,
+        isAdmin: !!tenant.isAdmin,
         brandName: tenant.brandName,
         agentPersonality: tenant.agentPersonality,
         agentPrompt: tenant.agentPrompt,
@@ -233,7 +288,12 @@ export class TenantManager {
         paymentMethods: tenant.paymentMethods || DEFAULT_TENANT.paymentMethods,
         limits: tenant.limits || DEFAULT_TENANT.limits,
         brandColors: tenant.brandColors || DEFAULT_TENANT.brandColors,
-        plan: tenant.plan || "basic"
+        plan: tenant.plan || "basic",
+        // Credenciales de Facebook guardadas por tenant. Estaban declaradas en
+        // TenantContext pero nunca se leían de metadata, así que facebook
+        // quedaba undefined y TODO caía al .env global: en multi-cuenta eso
+        // significaba que cada tenant usaba la página del dueño del servidor.
+        facebook: parseFacebookMeta(tenant.metadata),
       };
 
       // Cache the result
@@ -344,7 +404,7 @@ export class TenantManager {
         .update(tenants)
         .set({
           ...updates,
-          updatedAt: new Date().toISOString()
+          updatedAt: dbNow()
         })
         .where(eq(tenants.id, tenantId));
 
@@ -512,8 +572,12 @@ export function resolveTenant() {
       }
 
       // Method 4: Check for session cookie
+      // IMPORTANTE: usar signedCookies, no cookies. La cookie tenant_id es la
+      // única prueba de sesión del sistema — sin la firma (cookie-parser +
+      // COOKIE_SECRET), cualquiera podría forjar `tenant_id=<numero>` y
+      // autenticarse como cualquier tenant sin contraseña.
       if (!tenant) {
-        const tenantId = req.cookies?.tenant_id;
+        const tenantId = req.signedCookies?.tenant_id;
         if (tenantId) {
           tenant = await tenantManager.getTenantById(Number(tenantId));
         }
@@ -552,6 +616,22 @@ export function resolveTenant() {
       logger.error({ error }, "[TenantManager] Failed to resolve tenant");
       return res.status(401).json({ message: "Session error. Please login again." });
     }
+  };
+}
+
+/**
+ * Middleware: exige que el tenant autenticado sea administrador de la
+ * plataforma (tenants.is_admin). Debe usarse DESPUÉS de resolveTenant().
+ * Reemplaza el patrón anterior de comparar req.tenant.email contra un email
+ * hardcodeado -- además de estar hardcodeado, esa comparación nunca
+ * funcionó porque TenantContext no incluía email hasta ahora.
+ */
+export function requireAdmin() {
+  return (req: TenantRequest, res: Response, next: NextFunction) => {
+    if (!req.tenant?.isAdmin) {
+      return res.status(403).json({ message: "Acceso solo para administrador de la plataforma" });
+    }
+    next();
   };
 }
 

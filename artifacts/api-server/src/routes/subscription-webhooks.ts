@@ -2,6 +2,7 @@ import { Router } from "express";
 import { logger } from "../lib/logger";
 import { SubscriptionPaymentService } from "../lib/subscription-payments";
 import { db, subscriptions, tenants } from "@workspace/db";
+import { dbNow } from "../lib/date-utils";
 import { eq } from "drizzle-orm";
 import { sendActivationTokenEmail } from "../lib/email";
 import { SAAS_PLANS, SaasPlan } from "../middleware/saasValidation";
@@ -64,8 +65,8 @@ async function sendActivationEmail(subscriptionId: number): Promise<void> {
       await db
         .update(subscriptions)
         .set({
-          tokenSentAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
+          tokenSentAt: dbNow(),
+          updatedAt: dbNow(),
         })
         .where(eq(subscriptions.id, subscriptionId));
 
@@ -147,7 +148,7 @@ router.post("/mercadopago", async (req, res) => {
           .set({
             status: "failed",
             paymentStatus: payment.status,
-            updatedAt: new Date().toISOString(),
+            updatedAt: dbNow(),
           })
           .where(eq(subscriptions.id, subscriptionId));
 
@@ -155,10 +156,10 @@ router.post("/mercadopago", async (req, res) => {
       }
     }
 
-    res.status(200).json({ received: true });
+    return res.status(200).json({ received: true });
   } catch (error) {
     logger.error({ error }, "[Webhook] Error processing MercadoPago subscription webhook");
-    res.status(500).json({ error: "Internal server error" });
+    return res.status(500).json({ error: "Internal server error" });
   }
 });
 
@@ -218,7 +219,7 @@ router.post("/paypal", async (req, res) => {
             .set({
               status: "failed",
               paymentStatus: "rejected",
-              updatedAt: new Date().toISOString(),
+              updatedAt: dbNow(),
             })
             .where(eq(subscriptions.id, subscriptionId));
 
@@ -231,10 +232,10 @@ router.post("/paypal", async (req, res) => {
         logger.info({ eventType: event.event_type }, "[Webhook] Unhandled PayPal event type");
     }
 
-    res.status(200).json({ received: true });
+    return res.status(200).json({ received: true });
   } catch (error) {
     logger.error({ error }, "[Webhook] Error processing PayPal subscription webhook");
-    res.status(500).json({ error: "Internal server error" });
+    return res.status(500).json({ error: "Internal server error" });
   }
 });
 
@@ -297,14 +298,14 @@ router.post("/paypal/capture", async (req, res) => {
 
       logger.info({ subscriptionId, orderId }, "[Webhook] PayPal payment captured and subscription activated");
 
-      res.json({ success: true, captureData });
+      return res.json({ success: true, captureData });
     } else {
       logger.warn({ subscriptionId, orderId, status: (captureData as Record<string, any>).status }, "[Webhook] PayPal capture failed");
-      res.status(400).json({ error: "Payment capture failed", details: captureData });
+      return res.status(400).json({ error: "Payment capture failed", details: captureData });
     }
   } catch (error) {
     logger.error({ error }, "[Webhook] Error capturing PayPal payment");
-    res.status(500).json({ error: "Internal server error" });
+    return res.status(500).json({ error: "Internal server error" });
   }
 });
 

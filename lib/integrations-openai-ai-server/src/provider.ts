@@ -8,7 +8,47 @@ export interface AIProviderConfig {
 }
 
 const ZEN_DIRECT_BASE_URL = "https://opencode.ai/zen/v1";
-const ZEN_DEFAULT_FREE_MODEL = "deepseek-v4-flash-free";
+const ZEN_DEFAULT_FREE_MODEL = "nemotron-3-ultra-free";
+
+/**
+ * Orden de rotación de los modelos gratuitos de OpenCode Zen.
+ *
+ * La cuota gratuita se agota POR MODELO (devuelve 429 FreeUsageLimitError),
+ * no por cuenta: cuando uno se acaba, otro sigue respondiendo. Antes solo se
+ * usaba OPENCODE_MODEL, así que al agotarse se caía al siguiente proveedor
+ * entero pudiendo seguir dentro de Zen.
+ *
+ * Barrido completo del catálogo el 2026-07-26 con max_tokens=2000: los 7
+ * modelos gratuitos responden. Orden por tiempo de respuesta medido.
+ *
+ * ⚠️ Los "de razonamiento" (north-mini-code-free, deepseek-v4-flash-free)
+ * NO están rotos: con max_tokens bajo (20-30) gastan el presupuesto pensando
+ * y devuelven content vacío. Con 2000+ responden bien.
+ */
+const ZEN_ROTATION = [
+  "nemotron-3-ultra-free",   // ~1,1 s
+  "ling-3.0-flash-free",     // ~1,2 s
+  "north-mini-code-free",    // ~2,1 s
+  "mimo-v2.5-free",          // ~2,6 s
+  "big-pickle",              // ~2,8 s
+  "deepseek-v4-flash-free",  // ~2,9 s
+  "laguna-s-2.1-free",       // ~6,4 s
+];
+
+/** Modelos de Zen a probar, en orden: primero el configurado, luego el resto. */
+export function getOpenCodeRotation(): AIProviderConfig[] {
+  const preferido = normalizeZenModelId(process.env.OPENCODE_MODEL || ZEN_DEFAULT_FREE_MODEL);
+  const extra = (process.env.OPENCODE_ROTATION || "")
+    .split(",")
+    .map((m) => normalizeZenModelId(m.trim()))
+    .filter(Boolean);
+  const orden = [preferido, ...extra, ...ZEN_ROTATION].filter(
+    (m, i, arr) => m && arr.indexOf(m) === i, // sin duplicados, conserva el orden
+  );
+  return orden
+    .map((m) => resolveOpenCodeConfig(m))
+    .filter((c): c is AIProviderConfig => c !== null);
+}
 
 function isZenDirectApi(baseUrl: string): boolean {
   return baseUrl.includes("opencode.ai/zen");
@@ -120,11 +160,176 @@ export function getProviderConfig(provider: string): AIProviderConfig | null {
         model: process.env.GROQ_MODEL || "llama-3.1-8b-instant",
       };
 
+    // ── XIAOMI MiMo ── API propia, independiente de OpenCode Zen.
+    // Compatible con el formato de OpenAI. Sirve para no depender de la cuota
+    // gratuita de Zen, que se agota (FreeUsageLimitError).
+    // Clave: https://platform.xiaomimimo.com/#/console/api-keys  (formato sk-)
+    // Con plan de tokens la base es https://token-plan-cn.xiaomimimo.com/v1
+    case "mimo":
+      if (!process.env.MIMO_API_KEY) return null;
+      return {
+        baseUrl: process.env.MIMO_API_URL || "https://api.xiaomimimo.com/v1",
+        apiKey: process.env.MIMO_API_KEY,
+        model: process.env.MIMO_MODEL || "mimo-v2.5-pro",
+      };
+
+    // ─── PROVEEDORES COMERCIALES (compatibles con el formato de OpenAI) ──────
+    // Todos exponen /v1/chat/completions al estilo OpenAI, así que funcionan
+    // con el mismo cliente. Los ids de modelo NO se fijan aquí a propósito:
+    // se descubren en vivo desde /v1/models (ver ruta /api/ai/models).
+
+    // ── OpenAI (ChatGPT) ── https://platform.openai.com/api-keys
+    case "openai":
+      if (!process.env.OPENAI_API_KEY) return null;
+      return {
+        baseUrl: process.env.OPENAI_BASE_URL || "https://api.openai.com/v1",
+        apiKey: process.env.OPENAI_API_KEY,
+        model: process.env.OPENAI_MODEL || "gpt-4o-mini",
+      };
+
+    // ── Anthropic (Claude) ── capa compatible con OpenAI
+    case "anthropic":
+      if (!process.env.ANTHROPIC_API_KEY) return null;
+      return {
+        baseUrl: process.env.ANTHROPIC_BASE_URL || "https://api.anthropic.com/v1",
+        apiKey: process.env.ANTHROPIC_API_KEY,
+        model: process.env.ANTHROPIC_MODEL || "claude-sonnet-4-20250514",
+      };
+
+    // ── DeepSeek ── https://platform.deepseek.com · muy barato
+    case "deepseek":
+      if (!process.env.DEEPSEEK_API_KEY) return null;
+      return {
+        baseUrl: process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com/v1",
+        apiKey: process.env.DEEPSEEK_API_KEY,
+        model: process.env.DEEPSEEK_MODEL || "deepseek-chat",
+      };
+
+    // ── Mistral ── https://console.mistral.ai · tiene capa gratuita
+    case "mistral":
+      if (!process.env.MISTRAL_API_KEY) return null;
+      return {
+        baseUrl: process.env.MISTRAL_BASE_URL || "https://api.mistral.ai/v1",
+        apiKey: process.env.MISTRAL_API_KEY,
+        model: process.env.MISTRAL_MODEL || "mistral-small-latest",
+      };
+
+    // ── xAI (Grok) ── https://console.x.ai
+    case "xai":
+      if (!process.env.XAI_API_KEY) return null;
+      return {
+        baseUrl: process.env.XAI_BASE_URL || "https://api.x.ai/v1",
+        apiKey: process.env.XAI_API_KEY,
+        model: process.env.XAI_MODEL || "grok-2-latest",
+      };
+
+    // ── Together AI ── https://api.together.ai · créditos gratis al registrarse
+    case "together":
+      if (!process.env.TOGETHER_API_KEY) return null;
+      return {
+        baseUrl: process.env.TOGETHER_BASE_URL || "https://api.together.xyz/v1",
+        apiKey: process.env.TOGETHER_API_KEY,
+        model: process.env.TOGETHER_MODEL || "meta-llama/Llama-3.3-70B-Instruct-Turbo",
+      };
+
+    // ── Perplexity ── https://www.perplexity.ai/settings/api · busca en la web
+    case "perplexity":
+      if (!process.env.PERPLEXITY_API_KEY) return null;
+      return {
+        baseUrl: process.env.PERPLEXITY_BASE_URL || "https://api.perplexity.ai",
+        apiKey: process.env.PERPLEXITY_API_KEY,
+        model: process.env.PERPLEXITY_MODEL || "sonar",
+      };
+
+    // ── Fireworks AI ── https://fireworks.ai/account/api-keys
+    case "fireworks":
+      if (!process.env.FIREWORKS_API_KEY) return null;
+      return {
+        baseUrl: process.env.FIREWORKS_BASE_URL || "https://api.fireworks.ai/inference/v1",
+        apiKey: process.env.FIREWORKS_API_KEY,
+        model: process.env.FIREWORKS_MODEL || "accounts/fireworks/models/llama-v3p3-70b-instruct",
+      };
+
+    // ── DeepInfra ── https://deepinfra.com/dash/api_keys · muy barato
+    case "deepinfra":
+      if (!process.env.DEEPINFRA_API_KEY) return null;
+      return {
+        baseUrl: process.env.DEEPINFRA_BASE_URL || "https://api.deepinfra.com/v1/openai",
+        apiKey: process.env.DEEPINFRA_API_KEY,
+        model: process.env.DEEPINFRA_MODEL || "meta-llama/Llama-3.3-70B-Instruct",
+      };
+
+    // ── Moonshot (Kimi) ── https://platform.moonshot.ai · contexto enorme
+    case "moonshot":
+      if (!process.env.MOONSHOT_API_KEY) return null;
+      return {
+        baseUrl: process.env.MOONSHOT_BASE_URL || "https://api.moonshot.ai/v1",
+        apiKey: process.env.MOONSHOT_API_KEY,
+        model: process.env.MOONSHOT_MODEL || "kimi-k2-0905-preview",
+      };
+
+    // ── Zhipu (GLM) ── https://open.bigmodel.cn
+    case "zhipu":
+      if (!process.env.ZHIPU_API_KEY) return null;
+      return {
+        baseUrl: process.env.ZHIPU_BASE_URL || "https://open.bigmodel.cn/api/paas/v4",
+        apiKey: process.env.ZHIPU_API_KEY,
+        model: process.env.ZHIPU_MODEL || "glm-4-plus",
+      };
+
+    // ── Alibaba Qwen (DashScope) ── https://dashscope.console.aliyun.com
+    case "qwen":
+      if (!process.env.QWEN_API_KEY) return null;
+      return {
+        baseUrl: process.env.QWEN_BASE_URL || "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
+        apiKey: process.env.QWEN_API_KEY,
+        model: process.env.QWEN_MODEL || "qwen-plus",
+      };
+
+    // ── Nebius ── https://studio.nebius.com · créditos de prueba
+    case "nebius":
+      if (!process.env.NEBIUS_API_KEY) return null;
+      return {
+        baseUrl: process.env.NEBIUS_BASE_URL || "https://api.studio.nebius.com/v1",
+        apiKey: process.env.NEBIUS_API_KEY,
+        model: process.env.NEBIUS_MODEL || "meta-llama/Llama-3.3-70B-Instruct",
+      };
+
+    // ── SambaNova ── https://cloud.sambanova.ai · muy rápido
+    case "sambanova":
+      if (!process.env.SAMBANOVA_API_KEY) return null;
+      return {
+        baseUrl: process.env.SAMBANOVA_BASE_URL || "https://api.sambanova.ai/v1",
+        apiKey: process.env.SAMBANOVA_API_KEY,
+        model: process.env.SAMBANOVA_MODEL || "Meta-Llama-3.3-70B-Instruct",
+      };
+
+    // ── CEREBRAS ── gratis: 5 req/min · 1M tokens/hora · clave en cloud.cerebras.ai
+    case "cerebras":
+      if (!process.env.CEREBRAS_API_KEY) return null;
+      return {
+        baseUrl: "https://api.cerebras.ai/v1",
+        apiKey: process.env.CEREBRAS_API_KEY,
+        model: process.env.CEREBRAS_MODEL || "gpt-oss-120b",
+      };
+
+    // ── COHERE ── gratis: 20 req/min · 1.000 req/mes · clave en dashboard.cohere.com
+    case "cohere":
+      if (!process.env.COHERE_API_KEY) return null;
+      return {
+        baseUrl: "https://api.cohere.ai/compatibility/v1",
+        apiKey: process.env.COHERE_API_KEY,
+        model: process.env.COHERE_MODEL || "command-a-03-2025",
+      };
+
     // ── Google AI Studio ── 500 req/día · 250k tokens/min
     case "google_ai_studio":
       if (!process.env.GOOGLE_API_KEY) return null;
       return {
-        baseUrl: "https://generativelanguage.googleapis.com/v1beta",
+        // Ruta /openai/: es la capa compatible con OpenAI. La anterior
+        // (/v1beta a secas) es la API nativa de Gemini y el cliente de OpenAI
+        // no puede hablar con ella.
+        baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai/",
         apiKey: process.env.GOOGLE_API_KEY,
         model: process.env.GOOGLE_MODEL || "gemini-2.5-flash",
       };
@@ -436,13 +641,21 @@ export function getProviderConfigFromSettings(settings: {
   nvidiaModel?: string;
   ollamaUrl?: string | null;
   ollamaModel?: string;
+  opencodeModel?: string;
 }): AIProviderConfig | null {
   // Si no hay proveedor configurado en DB, retornar null para que el caller use su propio fallback
   const provider = settings.aiProvider;
   if (!provider) return null;
 
   if (provider === "opencode") {
-    return resolveOpenCodeConfig(settings.githubModel || undefined);
+    // Se pasa el modelo guardado en la pantalla de Configuración. Antes se
+    // llamaba sin argumento, así que la elección del usuario se ignoraba y
+    // siempre mandaba OPENCODE_MODEL del entorno.
+    return resolveOpenCodeConfig(settings.opencodeModel || settings.githubModel || undefined);
+  }
+
+  if (provider === "mimo") {
+    return getProviderConfig("mimo");
   }
 
   if (provider === "github_copilot_internal") {

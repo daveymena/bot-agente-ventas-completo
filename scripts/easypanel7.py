@@ -1,3 +1,4 @@
+import os
 from playwright.sync_api import sync_playwright
 import time
 
@@ -7,7 +8,7 @@ with sync_playwright() as p:
     
     page.goto("http://35.254.218.190:3000/", timeout=30000)
     page.fill("input[name='email']", "daveymena16@gmail.com")
-    page.fill("input[name='password']", "6715320Dvd.")
+    page.fill("input[name='password']", os.environ.get("EASYPANEL_PASSWORD", ""))
     page.click("button[type='submit']")
     page.wait_for_timeout(3000)
     

@@ -7,7 +7,10 @@ import { defineConfig } from "vite";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+const basePath = process.env.NODE_ENV === "production" ? "/tienda/" : "/";
+
 export default defineConfig({
+  base: basePath,
   plugins: [react(), tailwindcss()],
   resolve: {
     alias: {
@@ -24,10 +27,5 @@ export default defineConfig({
         secure: false,
       },
     },
-  },
-  build: {
-    // Nota: NO externalizar @tanstack/react-query — no hay importmap en index.html,
-    // así que debe ir incluido en el bundle o la app crashea en producción.
-    outDir: "dist",
   },
 });

@@ -9,6 +9,14 @@ export const tenants = pgTable("tenants", {
   domain: text("domain"),
   status: text("status").notNull().default("active"),
   plan: text("plan").notNull().default("basic"),
+  // Dueño de la plataforma: puede ver y administrar TODOS los tenants (no
+  // solo el propio). Antes esto se chequeaba en el frontend comparando el
+  // email contra un valor hardcodeado ("daveymena16@gmail.com") y las rutas
+  // de administración multi-tenant (/api/whatsapp/instances, /health,
+  // /metrics, /cleanup) no verificaban nada en el backend -- cualquier
+  // tenant autenticado podía ver y controlar las sesiones de WhatsApp de
+  // TODOS los demás tenants con solo llamar a la API directamente.
+  isAdmin: boolean("is_admin").notNull().default(false),
   brandName: text("brand_name").notNull(),
   brandLogo: text("brand_logo"),
   brandColors: jsonb("brand_colors").$type<{

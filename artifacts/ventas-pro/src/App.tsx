@@ -1,5 +1,6 @@
 import { useEffect, useState, createContext, useContext } from "react";
 import { Switch, Route, Router as WouterRouter, useLocation } from "wouter";
+import { AnimatePresence, motion } from "framer-motion";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -12,6 +13,7 @@ import Agents from "@/pages/agents";
 import Leads from "@/pages/leads";
 import Products from "@/pages/products";
 import WhatsAppConnection from "@/pages/whatsapp";
+import WhatsAppMonitorPage from "@/pages/whatsapp-monitor";
 import Settings from "@/pages/settings";
 import AuthPage from "@/pages/auth";
 import PricingPage from "@/pages/pricing";
@@ -28,6 +30,8 @@ import AdminStorePage from "@/pages/admin-store";
 import MiTiendaPage from "@/pages/mi-tienda";
 import ArenaPage from "@/pages/arena";
 import AdminTenantsPage from "@/pages/admin-tenants";
+import PrivacyPolicyPage from "@/pages/privacy-policy";
+import LandingPage from "@/pages/landing";
 
 // Context para la sesión
 interface SessionContextType {
@@ -47,6 +51,24 @@ const SessionContext = createContext<SessionContextType>({
 });
 
 export const useSession = () => useContext(SessionContext);
+
+function TiendaRedirect() {
+  const { tenant } = useSession();
+  useEffect(() => {
+    const slug = tenant?.slug || '';
+    window.location.href = slug ? `/tienda/${slug}` : "/tienda";
+  }, [tenant]);
+  return null;
+}
+
+// "/" es la landing pública para quien no tiene sesión (antes redirigía
+// directo a /auth, sin mostrar nada del producto) y el Dashboard de siempre
+// para quien ya inició sesión -- una sola ruta, dos vistas según el caso.
+function HomeRoute() {
+  const { isAuthenticated, isLoading } = useSession();
+  if (isLoading) return null;
+  return isAuthenticated ? <Dashboard /> : <LandingPage />;
+}
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -73,15 +95,23 @@ const queryClient = new QueryClient({
   },
 });
 
+// Antes cada navegación reemplazaba la página al instante (un corte seco de
+// un layout completo a otro, sidebar incluido, porque cada página monta su
+// propio <Layout>). AnimatePresence + key={location} hace un fade/slide
+// corto entre la página saliente y la entrante en vez de ese salto -- mode
+// "wait" para que no se dibujen las dos superpuestas (cada una es un layout
+// de página completo, no un fragmento chico), con una duración breve para
+// que la espera no se sienta como una pausa.
 function Router() {
   return (
     <Switch>
-      <Route path="/" component={Dashboard} />
+      <Route path="/" component={HomeRoute} />
       <Route path="/conversations" component={Conversations} />
       <Route path="/agents" component={Agents} />
       <Route path="/leads" component={Leads} />
       <Route path="/products" component={Products} />
       <Route path="/whatsapp" component={WhatsAppConnection} />
+      <Route path="/whatsapp-monitor" component={WhatsAppMonitorPage} />
       <Route path="/settings" component={Settings} />
       <Route path="/pricing" component={PricingPage} />
       <Route path="/branding" component={Branding} />
@@ -97,6 +127,7 @@ function Router() {
       <Route path="/mi-tienda" component={MiTiendaPage} />
       <Route path="/arena" component={ArenaPage} />
       <Route path="/admin/tenants" component={AdminTenantsPage} />
+      <Route path="/privacidad" component={PrivacyPolicyPage} />
       <Route path="/auth" component={AuthPage} />
       <Route component={NotFound} />
     </Switch>
@@ -108,8 +139,11 @@ function AppContent() {
   const [location, setLocation] = useLocation();
 
   useEffect(() => {
-    // Redirigir a /auth si no está autenticado y no está ya en /auth o /pricing
-    if (!isLoading && !isAuthenticated && location !== "/auth" && location !== "/pricing" && location !== "/onboarding" && !location.startsWith("/store/") && !location.startsWith("/tienda/")) {
+    // Redirigir a /auth si no está autenticado y no está ya en una ruta
+    // pública. "/" quedó afuera de este redirect: ahora es la landing
+    // pública (HomeRoute), antes mandaba a /auth sin mostrar nada del
+    // producto a quien todavía no tiene cuenta.
+    if (!isLoading && !isAuthenticated && location !== "/" && location !== "/auth" && location !== "/pricing" && location !== "/onboarding" && location !== "/privacidad" && !location.startsWith("/store") && !location.startsWith("/tienda") && location !== "/mi-tienda") {
       console.log("🔒 No autenticado, redirigiendo a /auth...");
       setLocation("/auth");
     }

@@ -12,11 +12,13 @@
 
 import { getMessageQueue, QueuedMessage } from '../message-queue';
 import { runAgentReply } from '../agent';
-import { whatsapp, type AgentReplyPart } from '../whatsapp';
+import { type AgentReplyPart } from '../whatsapp-singleton';
+import { getWhatsAppForTenant } from '../whatsapp-factory';
+import { tenantManager } from '../tenantManager';
+import { checkMessageLimit } from '../../middleware/featureLimits';
 import { db } from "@workspace/db";
-import { messages } from "@workspace/db";
 import { conversations } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import { logger } from '../logger';
 
 export interface AgentOrchestratorConfig {
@@ -59,7 +61,13 @@ export class AgentOrchestrator {
   private startProcessing(): void {
     if (this.processing) return;
     this.processing = true;
-    this.runProcessingLoop();
+    // Ejecutar el loop en background (no esperar)
+    this.runProcessingLoop().catch(error => {
+      logger.error({ error }, '[AgentOrchestrator] Fatal error in processing loop');
+      this.processing = false;
+      // Reintentar en 5 segundos
+      setTimeout(() => this.startProcessing(), 5000);
+    });
     logger.info('[AgentOrchestrator] Sequential processing loop started');
   }
 
@@ -88,12 +96,39 @@ export class AgentOrchestrator {
       return;
     }
 
-    const config = this.configs.get(message.tenantId);
-    // Fuerza bruta: Permitir tenant 1 siempre
-    const isEnabled = message.tenantId === "1" || message.tenantId === "0" || !!config?.enabled;
+    const tenantIdNum = Number(message.tenantId);
+    if (!Number.isFinite(tenantIdNum)) {
+      logger.warn(`[AgentOrchestrator] tenantId inválido: "${message.tenantId}"`);
+      return;
+    }
 
-    if (!isEnabled) {
-      logger.warn(`[AgentOrchestrator] Tenant ${message.tenantId} not enabled`);
+    // Antes esto chequeaba whatsapp.isConnected() sobre el SINGLETON (proxy
+    // fijo al tenant por defecto, ver whatsapp-singleton.ts) sin importar de
+    // qué tenant era este mensaje -- si el tenant 1 tenía WhatsApp conectado
+    // pero el tenant 2 no, un mensaje del tenant 2 se procesaba igual. Peor
+    // aún: la respuesta se enviaba por whatsapp.sendAgentParts (mismo
+    // singleton), o sea, el cliente del tenant 2 recibía la respuesta desde
+    // el NÚMERO DE WHATSAPP DEL TENANT 1. Ahora usa la instancia real de
+    // ESE tenant en ambos pasos.
+    const waInstance = getWhatsAppForTenant(tenantIdNum);
+    if (!waInstance.isConnected()) {
+      logger.debug({ tenantId: tenantIdNum }, '[AgentOrchestrator] WhatsApp not connected for this tenant, deferring message processing');
+      message.processing = false;
+      return;
+    }
+
+    // Límite de mensajes del plan: acá es donde realmente pasa el tráfico
+    // (mensajes de clientes por WhatsApp), no en el dashboard. Antes no
+    // existía ningún chequeo real -- cualquier tenant, sin importar el plan
+    // (incluida la prueba gratis de 30 mensajes), tenía respuestas de IA
+    // ilimitadas. Si se alcanzó el límite, el mensaje se descarta (no se
+    // reintenta en bucle) y se loguea -- el cliente no recibe respuesta
+    // hasta que el dueño actualice su plan.
+    const tenantForLimit = await tenantManager.getTenantById(tenantIdNum);
+    const limitCheck = await checkMessageLimit(tenantIdNum, tenantForLimit?.plan || "basic");
+    if (!limitCheck.allowed) {
+      logger.warn({ tenantId: tenantIdNum, current: limitCheck.current, limit: limitCheck.limit }, '[AgentOrchestrator] Monthly message limit reached, dropping message');
+      this.queue.markProcessed(message.id);
       return;
     }
 
@@ -115,35 +150,28 @@ export class AgentOrchestrator {
       }
 
       // Ejecutar el agente (lógica de IA) - usa runAgentReply con conversationId
-      // El motor de ventas tiene prioridad absoluta para mantener la coherencia de Sofía
       const reply = await runAgentReply(convo.id);
 
-      // Enviar respuesta via WhatsApp (Soporta Texto y Tarjetas Multimedia)
-      if (reply && reply.parts) {
-        const pushName = convo.contactName || phone;
-        await whatsapp.sendAgentParts(phone, pushName, reply.parts as AgentReplyPart[], message.from);
-        
-        // Guardar cada parte en la BD para el historial del dashboard
-        for (const part of reply.parts) {
-          if (part.kind === 'text' && part.content) {
-            await db.insert(messages).values({
-              conversationId: convo.id,
-              role: "agent",
-              content: part.content,
-              stage: convo.currentStage,
-            });
-          } else if (part.kind === 'card') {
-            await db.insert(messages).values({
-              conversationId: convo.id,
-              role: "agent",
-              content: `[CARD: ${part.productId}]`,
-              stage: convo.currentStage,
-            });
-          }
-        }
+      // Si la respuesta es nula o no tiene partes, no hay nada que enviar
+      if (!reply || !reply.parts) {
+        logger.warn({
+          conversationId: convo.id,
+          queueId: message.id,
+        }, '[AgentOrchestrator] Agent returned null reply or no parts');
+        this.queue.markProcessed(message.id);
+        return;
       }
 
-      // Marcar como procesado
+      // Enviar respuesta via WhatsApp (Soporta Texto y Tarjetas Multimedia)
+      const pushName = convo.contactName || phone;
+      await waInstance.sendAgentParts(phone, pushName, reply.parts as AgentReplyPart[], message.from);
+
+      // NO se persiste aquí: runAgentReply ya guardó la respuesta con
+      // saveAgentMessage (con su metadata y actualizando lastMessage) en todos
+      // sus caminos de salida. Guardarla otra vez dejaba CADA respuesta al
+      // cliente duplicada en la BD, y como el historial alimenta el contexto de
+      // la IA, el agente se veía a sí mismo repitiéndose turno tras turno.
+      // Marcar como procesado solo si se envió respuesta exitosamente
       this.queue.markProcessed(message.id);
 
       logger.info({
@@ -168,17 +196,34 @@ export class AgentOrchestrator {
    */
   private async getOrCreateConversation(tenantId: string, phone: string): Promise<{ id: number; currentStage: string | null; contactName: string; contactPhone: string } | null> {
     try {
-      // Buscar conversación existente
-      const existing = await db.select().from(conversations).where(eq(conversations.contactPhone, phone)).limit(1);
-      
+      const tenantIdNum = typeof tenantId === 'string' ? parseInt(tenantId) : tenantId;
+
+      // Buscar conversación existente (filtrar por tenantId + phone)
+      const existing = await db.select().from(conversations)
+        .where(and(
+          eq(conversations.contactPhone, phone),
+          eq(conversations.tenantId, tenantIdNum)
+        ))
+        .limit(1);
+
       if (existing.length > 0) {
         return existing[0];
       }
-      
-      // Si no existe, el MessageHandler debería haberla creado
-      logger.warn(`[AgentOrchestrator] Conversación no encontrada para ${phone}, el MessageHandler debería haberla creado`);
-      return null;
-      
+
+      // Si no existe, crear una nueva (el MessageHandler debería haber hecho esto, pero por si acaso)
+      logger.warn(`[AgentOrchestrator] Conversación no encontrada para ${phone}, creando nueva...`);
+      const { addTenantToInsert } = await import("../tenantManager");
+
+      const [convo] = await db.insert(conversations).values(addTenantToInsert({
+        contactName: phone,
+        contactPhone: phone,
+        status: "ai",
+        currentStage: "greeting",
+        unreadCount: 0
+      }, tenantIdNum)).returning();
+
+      return convo || null;
+
     } catch (error) {
       logger.error({ error }, '[AgentOrchestrator] Error getting/creating conversation');
       return null;

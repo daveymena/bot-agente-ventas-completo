@@ -9,7 +9,9 @@ import productsRouter from "./products";
 import categoriesRouter from "./categories";
 import dashboardRouter from "./dashboard";
 import settingsRouter from "./settings";
+import brandingRouter from "./branding";
 import codeAgentRouter from "./code-agent";
+import aiCatalogRouter from "./ai-catalog";
 import webhooksRouter from "./webhooks";
 import syncRouter from "./sync";
 import paymentRedirectRouter from "./paymentRedirect";
@@ -26,6 +28,7 @@ import personalityProfilesRouter from "./personality-profiles";
 import architectMemoryRouter from "./architect-memory";
 import responseAnalyticsRouter from "./response-analytics";
 import architectToolsRouter from "./architect-tools";
+import pricingRouter from "./pricing";
 
 const router: IRouter = Router();
 
@@ -38,7 +41,9 @@ router.use("/products", productsRouter);
 router.use("/categories", categoriesRouter);
 router.use("/dashboard", dashboardRouter);
 router.use("/settings", settingsRouter);
+router.use("/branding", brandingRouter);
 router.use("/code-agent", codeAgentRouter);
+router.use("/ai", aiCatalogRouter);
 router.use("/webhooks", webhooksRouter);
 router.use("/sync", syncRouter);
 router.use("/p", paymentRedirectRouter);
@@ -55,6 +60,15 @@ router.use("/personality-profiles", personalityProfilesRouter);
 router.use("/architect-memory", architectMemoryRouter);
 router.use("/response-analytics", responseAnalyticsRouter);
 router.use("/architect-tools", architectToolsRouter);
+// Antes montado directamente en app.ts ANTES de resolveTenantMiddleware
+// (línea ~276, con el comentario "sin autenticación para GET, con
+// autenticación para POST" -- pero al montarse tan temprano, NINGUNA ruta
+// de este router pasaba nunca por resolveTenantMiddleware, ni siquiera
+// POST /pricing/upgrade). Acá, dentro de la cadena protegida normal,
+// isPublicRoute() en app.ts sigue dejando pasar sin sesión los GET
+// públicos (listado de planes), pero /upgrade y /current/info sí reciben
+// req.tenant real.
+router.use("/pricing", pricingRouter);
 
 // Usar el manejador de errores centralizado
 router.use(errorHandler);

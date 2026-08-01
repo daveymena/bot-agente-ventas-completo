@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="design_doc_mode" content="canvas" />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+<script src="https://unpkg.com/lucide@0.454.0/dist/umd/lucide.min.js"></script>
+<style>
+  *{box-sizing:border-box}
+  body{margin:0;font-family:'Inter',sans-serif;background:#eef1f6;color:#0f172a;-webkit-font-smoothing:antialiased}
+  a{color:#4f46e5;text-decoration:none}a:hover{color:#4338ca}
+  svg.lucide{stroke-width:2}
+  @keyframes ping{75%,100%{transform:scale(2);opacity:0}}
+  .phone *{scrollbar-width:none;-ms-overflow-style:none}
+  .phone *::-webkit-scrollbar{width:0;height:0;display:none}
+</style>
+</helmet>
+
+<section style="padding:56px 48px;display:flex;flex-direction:column;gap:28px">
+  <div style="display:flex;align-items:baseline;gap:16px">
+    <span style="font-size:13px;font-weight:700;letter-spacing:.08em;color:#4f46e5;background:#fff;border:1px solid #dfe4ec;padding:6px 12px;border-radius:999px">1a</span>
+    <div>
+      <h1 style="margin:0;font-size:28px;font-weight:700;letter-spacing:-.03em">VentasPro Móvil — Material 3 compacto</h1>
+      <p style="margin:6px 0 0;color:#5b6779;font-size:15px;max-width:70ch;text-wrap:pretty">Rediseño móvil del panel, la bandeja y el chat. Barra inferior de 5 destinos, tarjetas de 20px de radio, tipografía Inter y el índigo <span style="font-family:Menlo,monospace;font-size:13px">#4F46E5</span> de tu app como único color de marca.</p>
+    </div>
+  </div>
+
+  <div style="display:flex;flex-wrap:wrap;gap:40px;align-items:flex-start">
+
+    <x-import component-from-global-scope="AndroidDevice" from="./android-frame.jsx" hint-size="412px,892px">
+      <div style="position:relative;height:100%;display:flex;flex-direction:column;background:#f6f7fb;overflow:hidden" class="phone">
+        <div style="padding:14px 20px 4px;display:flex;align-items:center;justify-content:space-between;gap:12px">
+          <img src="assets/logo.svg" alt="VentasPro" style="height:26px;width:auto;display:block" />
+          <div style="display:flex;align-items:center;gap:6px">
+            <span style="position:relative;width:40px;height:40px;flex:0 0 40px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#334155"><i data-lucide="bell" style="width:21px;height:21px"></i><span style="position:absolute;top:7px;right:9px;width:8px;height:8px;border-radius:50%;background:#dc2626;border:2px solid #f6f7fb"></span></span>
+            <div style="width:40px;height:40px;flex:0 0 40px;border-radius:50%;background:#4f46e5;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px">DM</div>
+          </div>
+        </div>
+        <div style="padding:6px 20px 8px">
+          <p style="margin:0;font-size:13px;color:#64748b;font-weight:500">Miércoles, 25 de julio</p>
+          <h2 style="margin:2px 0 0;font-size:26px;font-weight:800;letter-spacing:-.03em">Hola, Davey</h2>
+        </div>
+
+        <div style="padding:8px 20px 0">
+          <div style="display:flex;align-items:center;gap:10px;background:#e8f5ec;border-radius:999px;padding:10px 14px">
+            <span style="position:relative;display:flex;width:8px;height:8px;flex:0 0 8px">
+              <span style="position:absolute;width:100%;height:100%;border-radius:50%;background:#4ade80;opacity:.75;animation:ping 1.6s cubic-bezier(0,0,.2,1) infinite"></span>
+              <span style="position:relative;width:8px;height:8px;border-radius:50%;background:#16a34a"></span>
+            </span>
+            <span style="font-size:13px;font-weight:600;color:#15803d">WhatsApp conectado · Sofía activa</span>
+          </div>
+        </div>
+
+        <div style="flex:1;min-height:0;overflow-y:auto;padding:16px 20px 124px;display:flex;flex-direction:column;gap:16px">
+
+          <div style="background:#4f46e5;color:#fff;border-radius:24px;padding:20px">
+            <p style="margin:0;font-size:13px;font-weight:500;opacity:.85">Ingresos del mes</p>
+            <p style="margin:4px 0 0;font-size:36px;font-weight:700;letter-spacing:-.03em;font-variant-numeric:tabular-nums">$18.420</p>
+            <div style="display:flex;align-items:center;gap:6px;margin-top:10px">
+              <i data-lucide="trending-up" style="width:16px;height:16px"></i>
+              <span style="font-size:13px;font-weight:600">+22% vs. mes anterior</span>
+            </div>
+            <svg viewBox="0 0 300 60" preserveAspectRatio="none" style="width:100%;height:52px;display:block;margin-top:14px">
+              <path d="M0,46 L50,35 L100,40 L150,25 L200,30 L250,14 L300,8" fill="none" stroke="rgba(255,255,255,.85)" stroke-width="2.5" vector-effect="non-scaling-stroke" stroke-linecap="round"/>
+            </svg>
+          </div>
+
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+            <div style="background:#fff;border-radius:20px;padding:16px">
+              <div style="width:36px;height:36px;border-radius:12px;background:#eef0fe;color:#4f46e5;display:flex;align-items:center;justify-content:center;margin-bottom:12px"><i data-lucide="users" style="width:18px;height:18px"></i></div>
+              <p style="margin:0;font-size:24px;font-weight:700;letter-spacing:-.02em;font-variant-numeric:tabular-nums">1.284</p>
+              <p style="margin:2px 0 0;font-size:13px;color:#64748b;font-weight:500">Prospectos</p>
+            </div>
+            <div style="background:#fff;border-radius:20px;padding:16px">
+              <div style="width:36px;height:36px;border-radius:12px;background:#e8f2ff;color:#0284c7;display:flex;align-items:center;justify-content:center;margin-bottom:12px"><i data-lucide="message-square" style="width:18px;height:18px"></i></div>
+              <p style="margin:0;font-size:24px;font-weight:700;letter-spacing:-.02em;font-variant-numeric:tabular-nums">37</p>
+              <p style="margin:2px 0 0;font-size:13px;color:#64748b;font-weight:500">Chats activos</p>
+            </div>
+            <div style="background:#fff;border-radius:20px;padding:16px">
+              <div style="width:36px;height:36px;border-radius:12px;background:#e8f5ec;color:#059669;display:flex;align-items:center;justify-content:center;margin-bottom:12px"><i data-lucide="check-circle" style="width:18px;height:18px"></i></div>
+              <p style="margin:0;font-size:24px;font-weight:700;letter-spacing:-.02em;font-variant-numeric:tabular-nums">96</p>
+              <p style="margin:2px 0 0;font-size:13px;color:#64748b;font-weight:500">Tratos ganados</p>
+            </div>
+            <div style="background:#fff;border-radius:20px;padding:16px">
+              <div style="width:36px;height:36px;border-radius:12px;background:#f3eefe;color:#7c5ce6;display:flex;align-items:center;justify-content:center;margin-bottom:12px"><i data-lucide="clock" style="width:18px;height:18px"></i></div>
+              <p style="margin:0;font-size:24px;font-weight:700;letter-spacing:-.02em;font-variant-numeric:tabular-nums">4s</p>
+              <p style="margin:2px 0 0;font-size:13px;color:#64748b;font-weight:500">Respuesta</p>
+            </div>
+          </div>
+
+          <div>
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+              <h3 style="margin:0;font-size:16px;font-weight:700;letter-spacing:-.01em">Embudo</h3>
+              <a href="#" style="font-size:13px;font-weight:600">Ver detalle</a>
+            </div>
+            <div style="background:#fff;border-radius:20px;padding:18px;display:flex;flex-direction:column;gap:14px">
+              <div>
+                <div style="display:flex;justify-content:space-between;font-size:13px;font-weight:600;margin-bottom:6px"><span>Nuevo</span><span style="font-variant-numeric:tabular-nums;color:#64748b">412</span></div>
+                <div style="height:8px;border-radius:999px;background:#eef0fe"><div style="height:8px;width:100%;border-radius:999px;background:#4f46e5"></div></div>
+              </div>
+              <div>
+                <div style="display:flex;justify-content:space-between;font-size:13px;font-weight:600;margin-bottom:6px"><span>Calificado</span><span style="font-variant-numeric:tabular-nums;color:#64748b">198</span></div>
+                <div style="height:8px;border-radius:999px;background:#eef0fe"><div style="height:8px;width:48%;border-radius:999px;background:#4f46e5"></div></div>
+              </div>
+              <div>
+                <div style="display:flex;justify-content:space-between;font-size:13px;font-weight:600;margin-bottom:6px"><span>Ganado</span><span style="font-variant-numeric:tabular-nums;color:#64748b">96</span></div>
+                <div style="height:8px;border-radius:999px;background:#eef0fe"><div style="height:8px;width:23%;border-radius:999px;background:#7c5ce6"></div></div>
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <h3 style="margin:0 0 10px;font-size:16px;font-weight:700;letter-spacing:-.01em">Actividad</h3>
+            <div style="background:#fff;border-radius:20px;overflow:hidden">
+              <div style="display:flex;align-items:center;gap:12px;padding:14px 16px;border-bottom:1px solid #f1f5f9">
+                <div style="width:38px;height:38px;flex:0 0 38px;border-radius:12px;background:#e8f5ec;color:#059669;display:flex;align-items:center;justify-content:center"><i data-lucide="users" style="width:18px;height:18px"></i></div>
+                <p style="flex:1;min-width:0;margin:0;font-size:14px;font-weight:500;line-height:1.35">Nuevo prospecto — Camila Restrepo</p>
+                <span style="font-size:12px;color:#94a3b8;font-weight:500">14:38</span>
+              </div>
+              <div style="display:flex;align-items:center;gap:12px;padding:14px 16px;border-bottom:1px solid #f1f5f9">
+                <div style="width:38px;height:38px;flex:0 0 38px;border-radius:12px;background:#eef0fe;color:#4f46e5;display:flex;align-items:center;justify-content:center"><i data-lucide="bot" style="width:18px;height:18px"></i></div>
+                <p style="flex:1;min-width:0;margin:0;font-size:14px;font-weight:500;line-height:1.35">Sofía envió catálogo a 3 prospectos</p>
+                <span style="font-size:12px;color:#94a3b8;font-weight:500">14:22</span>
+              </div>
+              <div style="display:flex;align-items:center;gap:12px;padding:14px 16px">
+                <div style="width:38px;height:38px;flex:0 0 38px;border-radius:12px;background:#f3eefe;color:#7c5ce6;display:flex;align-items:center;justify-content:center"><i data-lucide="arrow-right" style="width:18px;height:18px"></i></div>
+                <p style="flex:1;min-width:0;margin:0;font-size:14px;font-weight:500;line-height:1.35">Traspaso a humano — Laura Ospina</p>
+                <span style="font-size:12px;color:#94a3b8;font-weight:500">13:44</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div style="position:absolute;left:0;right:0;bottom:0;height:112px;background:linear-gradient(180deg,rgba(246,247,251,0) 0%,#f6f7fb 34%);pointer-events:none"></div>
+        <div style="position:absolute;left:0;right:0;bottom:24px;padding:0 10px">
+          <div style="background:#fff;border-radius:28px;box-shadow:0 8px 24px -8px rgba(15,23,42,.18);display:flex;justify-content:space-around;align-items:center;padding:8px 6px">
+            <div style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:6px 10px;min-width:56px">
+              <span style="background:#e0e2fd;color:#4f46e5;border-radius:999px;padding:5px 18px;display:flex"><i data-lucide="home" style="width:20px;height:20px"></i></span>
+              <span style="font-size:11px;font-weight:700;color:#4f46e5">Inicio</span>
+            </div>
+            <div style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:6px 10px;min-width:56px">
+              <span style="position:relative;color:#5b6779;padding:5px 18px;display:flex"><i data-lucide="message-square" style="width:20px;height:20px"></i><span style="position:absolute;top:0;right:12px;min-width:16px;height:16px;border-radius:999px;background:#dc2626;color:#fff;font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center;padding:0 4px">3</span></span>
+              <span style="font-size:11px;font-weight:500;color:#5b6779">Chats</span>
+            </div>
+            <div style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:6px 10px;min-width:56px">
+              <span style="color:#5b6779;padding:5px 18px;display:flex"><i data-lucide="users" style="width:20px;height:20px"></i></span>
+              <span style="font-size:11px;font-weight:500;color:#5b6779">Leads</span>
+            </div>
+            <div style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:6px 10px;min-width:56px">
+              <span style="color:#5b6779;padding:5px 18px;display:flex"><i data-lucide="package" style="width:20px;height:20px"></i></span>
+              <span style="font-size:11px;font-weight:500;color:#5b6779">Cursos</span>
+            </div>
+            <div style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:6px 10px;min-width:56px">
+              <span style="color:#5b6779;padding:5px 18px;display:flex"><i data-lucide="menu" style="width:20px;height:20px"></i></span>
+              <span style="font-size:11px;font-weight:500;color:#5b6779">Más</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </x-import>
+
+    <x-import component-from-global-scope="AndroidDevice" from="./android-frame.jsx" hint-size="412px,892px">
+      <div style="position:relative;height:100%;display:flex;flex-direction:column;background:#f6f7fb;overflow:hidden" class="phone">
+        <div style="padding:20px 20px 12px">
+          <h2 style="margin:0 0 14px;font-size:24px;font-weight:700;letter-spacing:-.02em">Conversaciones</h2>
+          <div style="display:flex;align-items:center;gap:10px;background:#fff;border-radius:999px;padding:12px 16px">
+            <i data-lucide="search" style="width:18px;height:18px;color:#94a3b8"></i>
+            <span style="font-size:14px;color:#94a3b8">Buscar contacto o mensaje</span>
+          </div>
+          <div style="display:flex;gap:8px;margin-top:14px;overflow-x:auto">
+            <span style="flex:0 0 auto;font-size:13px;font-weight:600;padding:7px 14px;border-radius:999px;background:#4f46e5;color:#fff">Todas · 37</span>
+            <span style="flex:0 0 auto;font-size:13px;font-weight:600;padding:7px 14px;border-radius:999px;background:#fff;color:#475569">Sin leer · 3</span>
+            <span style="flex:0 0 auto;font-size:13px;font-weight:600;padding:7px 14px;border-radius:999px;background:#fff;color:#475569">Humano · 1</span>
+            <span style="flex:0 0 auto;font-size:13px;font-weight:600;padding:7px 14px;border-radius:999px;background:#fff;color:#475569">Ganados</span>
+          </div>
+        </div>
+        <div style="flex:1;min-height:0;overflow-y:auto;padding:4px 20px 124px;display:flex;flex-direction:column;gap:10px">
+          <sc-for list="{{ chats }}" as="c" hint-placeholder-count="6">
+            <div style="background:#fff;border-radius:20px;padding:14px;display:flex;gap:12px;align-items:flex-start">
+              <div style="width:44px;height:44px;flex:0 0 44px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:14px;background:{{ c.color }}">{{ c.ini }}</div>
+              <div style="flex:1;min-width:0">
+                <div style="display:flex;align-items:baseline;justify-content:space-between;gap:8px">
+                  <p style="margin:0;font-size:15px;font-weight:700;letter-spacing:-.01em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ c.name }}</p>
+                  <span style="font-size:11px;color:#94a3b8;font-weight:600;flex:0 0 auto">{{ c.time }}</span>
+                </div>
+                <p style="margin:3px 0 0;font-size:14px;color:#64748b;line-height:1.35;display:-webkit-box;-webkit-line-clamp:1;-webkit-box-orient:vertical;overflow:hidden">{{ c.last }}</p>
+                <div style="display:flex;align-items:center;gap:6px;margin-top:9px">
+                  <span style="font-size:11px;font-weight:700;padding:3px 9px;border-radius:999px;color:{{ c.tagFg }};background:{{ c.tagBg }}">{{ c.status }}</span>
+                  <span style="font-size:11px;font-weight:600;padding:3px 9px;border-radius:999px;background:#f1f5f9;color:#64748b">{{ c.stage }}</span>
+                </div>
+              </div>
+            </div>
+          </sc-for>
+        </div>
+        <div style="position:absolute;right:20px;bottom:108px">
+          <div style="width:60px;height:60px;border-radius:20px;background:#4f46e5;color:#fff;display:flex;align-items:center;justify-content:center;box-shadow:0 10px 24px -6px rgba(79,70,229,.5)"><i data-lucide="pen-line" style="width:24px;height:24px"></i></div>
+        </div>
+        <div style="position:absolute;left:0;right:0;bottom:0;height:112px;background:linear-gradient(180deg,rgba(246,247,251,0) 0%,#f6f7fb 34%);pointer-events:none"></div>
+        <div style="position:absolute;left:0;right:0;bottom:24px;padding:0 10px">
+          <div style="background:#fff;border-radius:28px;box-shadow:0 8px 24px -8px rgba(15,23,42,.18);display:flex;justify-content:space-around;align-items:center;padding:8px 6px">
+            <div style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:6px 10px;min-width:56px">
+              <span style="color:#5b6779;padding:5px 18px;display:flex"><i data-lucide="home" style="width:20px;height:20px"></i></span>
+              <span style="font-size:11px;font-weight:500;color:#5b6779">Inicio</span>
+            </div>
+            <div style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:6px 10px;min-width:56px">
+              <span style="background:#e0e2fd;color:#4f46e5;border-radius:999px;padding:5px 18px;display:flex"><i data-lucide="message-square" style="width:20px;height:20px"></i></span>
+              <span style="font-size:11px;font-weight:700;color:#4f46e5">Chats</span>
+            </div>
+            <div style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:6px 10px;min-width:56px">
+              <span style="color:#5b6779;padding:5px 18px;display:flex"><i data-lucide="users" style="width:20px;height:20px"></i></span>
+              <span style="font-size:11px;font-weight:500;color:#5b6779">Leads</span>
+            </div>
+            <div style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:6px 10px;min-width:56px">
+              <span style="color:#5b6779;padding:5px 18px;display:flex"><i data-lucide="package" style="width:20px;height:20px"></i></span>
+              <span style="font-size:11px;font-weight:500;color:#5b6779">Cursos</span>
+            </div>
+            <div style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:6px 10px;min-width:56px">
+              <span style="color:#5b6779;padding:5px 18px;display:flex"><i data-lucide="menu" style="width:20px;height:20px"></i></span>
+              <span style="font-size:11px;font-weight:500;color:#5b6779">Más</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </x-import>
+
+    <x-import component-from-global-scope="AndroidDevice" from="./android-frame.jsx" hint-size="412px,892px">
+      <div style="position:relative;height:100%;display:flex;flex-direction:column;background:#f6f7fb;overflow:hidden" class="phone">
+        <div style="flex:0 0 auto;background:#fff;padding:12px 12px 12px 8px;display:flex;align-items:center;gap:10px;border-bottom:1px solid #eef1f6">
+          <span style="width:40px;height:40px;flex:0 0 40px;display:flex;align-items:center;justify-content:center;color:#0f172a"><i data-lucide="arrow-left" style="width:22px;height:22px"></i></span>
+          <div style="width:40px;height:40px;flex:0 0 40px;border-radius:50%;background:#0ea5e9;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px">CA</div>
+          <div style="flex:1;min-width:0">
+            <p style="margin:0;font-size:15px;font-weight:700;letter-spacing:-.01em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Camila Restrepo</p>
+            <p style="margin:2px 0 0;font-size:12px;color:#16a34a;font-weight:600">Sofía respondiendo…</p>
+          </div>
+          <span style="width:40px;height:40px;flex:0 0 40px;display:flex;align-items:center;justify-content:center;color:#5b6779"><i data-lucide="more-vertical" style="width:20px;height:20px"></i></span>
+        </div>
+
+        <div style="flex:0 0 auto;background:#fff;padding:0 12px 12px;display:flex;gap:8px;border-bottom:1px solid #eef1f6">
+          <div style="flex:1;display:flex;align-items:center;justify-content:center;gap:8px;height:40px;border-radius:999px;background:#4f46e5;color:#fff;font-size:13px;font-weight:700"><i data-lucide="user" style="width:16px;height:16px"></i> Tomar control</div>
+          <div style="flex:0 0 auto;display:flex;align-items:center;justify-content:center;gap:8px;height:40px;padding:0 16px;border-radius:999px;background:#f1f5f9;color:#475569;font-size:13px;font-weight:700"><i data-lucide="tag" style="width:16px;height:16px"></i> Etiquetar</div>
+        </div>
+
+        <div data-chat-scroll="1" style="flex:1;min-height:0;overflow-y:auto;padding:16px 16px 12px;display:flex;flex-direction:column;gap:14px">
+          <div style="display:flex;justify-content:center"><span style="font-size:11px;font-weight:700;color:#94a3b8;background:#e9edf4;padding:5px 12px;border-radius:999px">HOY</span></div>
+
+          <div style="display:flex;justify-content:flex-end">
+            <div style="max-width:80%;min-width:0;overflow-wrap:break-word;background:#4f46e5;color:#fff;border-radius:20px 20px 6px 20px;padding:11px 15px;font-size:15px;line-height:1.45">
+              Hola, vi el curso de lettering en Facebook. ¿Cuánto vale?
+              <div style="text-align:right;font-size:10px;font-weight:600;color:rgba(255,255,255,.75);margin-top:5px">14:26</div>
+            </div>
+          </div>
+
+          <div style="display:flex;gap:8px;align-items:flex-end;min-width:0">
+            <div style="width:28px;height:28px;flex:0 0 28px;border-radius:50%;background:#4f46e5;display:flex;align-items:center;justify-content:center"><i data-lucide="bot" style="width:15px;height:15px;color:#fff"></i></div>
+            <div style="max-width:82%;min-width:0;overflow-wrap:break-word;background:#fff;border-radius:20px 20px 20px 6px;padding:11px 15px;font-size:15px;line-height:1.45">
+              <span style="font-size:10px;font-weight:800;letter-spacing:.06em;color:#4f46e5">SOFÍA · IA</span>
+              <p style="margin:4px 0 0">¡Hola Camila! 👋 El curso trae 6 módulos, plantillas descargables y acceso de por vida. Está en <strong>$49</strong>.</p>
+              <div style="margin-top:10px;border-radius:14px;overflow:hidden;border:1px solid #eef1f6">
+                <img src="assets/products/43.jpg" alt="" style="width:100%;height:150px;object-fit:contain;display:block;background:#eef1f6" />
+                <div style="padding:10px 12px">
+                  <p style="margin:0;font-size:14px;font-weight:700;letter-spacing:-.01em">Lettering desde Cero</p>
+                  <p style="margin:2px 0 0;font-size:15px;font-weight:700;color:#4f46e5">$49</p>
+                </div>
+              </div>
+              <div style="text-align:right;font-size:10px;font-weight:600;color:#94a3b8;margin-top:6px">14:29</div>
+            </div>
+          </div>
+
+          <div style="display:flex;justify-content:flex-end">
+            <div style="max-width:80%;min-width:0;overflow-wrap:break-word;background:#4f46e5;color:#fff;border-radius:20px 20px 6px 20px;padding:11px 15px;font-size:15px;line-height:1.45">
+              ¿El acceso es inmediato después de pagar?
+              <div style="text-align:right;font-size:10px;font-weight:600;color:rgba(255,255,255,.75);margin-top:5px">14:38</div>
+            </div>
+          </div>
+
+          <div style="display:flex;gap:8px;align-items:center">
+            <div style="width:28px;height:28px;flex:0 0 28px;border-radius:50%;background:#4f46e5;display:flex;align-items:center;justify-content:center"><i data-lucide="bot" style="width:15px;height:15px;color:#fff"></i></div>
+            <div style="background:#fff;border-radius:20px;padding:13px 16px;display:flex;gap:5px">
+              <span style="width:7px;height:7px;border-radius:50%;background:#c3cad6"></span>
+              <span style="width:7px;height:7px;border-radius:50%;background:#c3cad6"></span>
+              <span style="width:7px;height:7px;border-radius:50%;background:#c3cad6"></span>
+            </div>
+          </div>
+        </div>
+
+        <div style="flex:0 0 auto;padding:8px 12px 0;display:flex;gap:8px;overflow-x:auto">
+          <span style="flex:0 0 auto;font-size:13px;font-weight:600;padding:8px 14px;border-radius:999px;background:#fff;border:1px solid #e2e8f0;color:#4f46e5">Sí, acceso inmediato</span>
+          <span style="flex:0 0 auto;font-size:13px;font-weight:600;padding:8px 14px;border-radius:999px;background:#fff;border:1px solid #e2e8f0;color:#4f46e5">Enviar link de pago</span>
+        </div>
+
+        <div style="flex:0 0 auto;padding:10px 12px 28px;display:flex;gap:8px;align-items:center">
+          <div style="flex:1;min-width:0;display:flex;align-items:center;gap:10px;height:48px;padding:0 16px;border-radius:999px;background:#fff">
+            <i data-lucide="plus" style="width:20px;height:20px;color:#94a3b8"></i>
+            <span style="font-size:14px;color:#94a3b8">Mensaje</span>
+          </div>
+          <div style="width:48px;height:48px;flex:0 0 48px;border-radius:50%;background:#4f46e5;color:#fff;display:flex;align-items:center;justify-content:center;box-shadow:0 6px 16px -4px rgba(79,70,229,.45)"><i data-lucide="send" style="width:20px;height:20px"></i></div>
+        </div>
+      </div>
+    </x-import>
+
+  </div>
+</section>
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  renderVals() {
+    return {
+      chats: [
+        { name: 'Camila Restrepo', ini: 'CA', color: '#0ea5e9', last: '¿El acceso es inmediato después de pagar?', time: '14:38', status: 'IA', stage: 'propuesta', tagBg: '#eef0fe', tagFg: '#4f46e5' },
+        { name: 'Andrés Gómez', ini: 'AN', color: '#7c5ce6', last: '¿El pack de idiomas trae certificado?', time: '14:31', status: 'IA', stage: 'calificado', tagBg: '#eef0fe', tagFg: '#4f46e5' },
+        { name: 'Laura Ospina', ini: 'LA', color: '#f59e0b', last: 'Quiero hablar con una persona, por favor', time: '13:44', status: 'HUMANO', stage: 'contactado', tagBg: '#fdf1e3', tagFg: '#b45309' },
+        { name: 'Julián Mesa', ini: 'JU', color: '#10b981', last: 'Listo, ya hice la transferencia ✅', time: '13:12', status: 'IA', stage: 'ganado', tagBg: '#e8f5ec', tagFg: '#15803d' },
+        { name: 'Valentina Ruiz', ini: 'VA', color: '#ef4444', last: 'Nueva conversación', time: '12:50', status: 'IA', stage: 'nuevo', tagBg: '#eef0fe', tagFg: '#4f46e5' },
+        { name: 'Sebastián Peña', ini: 'SE', color: '#6366f1', last: 'Gracias, lo pienso y te escribo', time: '11:20', status: 'IA', stage: 'contactado', tagBg: '#eef0fe', tagFg: '#4f46e5' }
+      ]
+    };
+  }
+  componentDidMount() { this.icons(); this.pin(); }
+  componentDidUpdate() { this.icons(); this.pin(); }
+  pin() {
+    const go = () => document.querySelectorAll('[data-chat-scroll]').forEach(el => { el.scrollTop = el.scrollHeight; });
+    go();
+    requestAnimationFrame(go);
+    setTimeout(go, 400);
+    setTimeout(go, 1200);
+  }
+  icons() {
+    const go = () => { if (window.lucide) window.lucide.createIcons(); else setTimeout(go, 120); };
+    go();
+  }
+}
+</script>
+</body>
+</html>

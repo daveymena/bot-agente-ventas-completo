@@ -4,7 +4,7 @@ import { Layout } from "@/components/layout";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Check, CreditCard, DollarSign, ArrowRight, Star, Zap, ShieldCheck, Mail } from "lucide-react";
+import { Check, CreditCard, DollarSign, ArrowRight, Star, Zap, Lock } from "lucide-react";
 import { toast } from "sonner";
 import {
   Select,
@@ -13,22 +13,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { useSaasStatus } from "@/hooks/useSaasStatus";
 
 interface Plan {
   id: string;
   name: string;
   price: number;
+  quarterlyPrice?: number;
+  annualPrice?: number;
   monthlyMessages: number;
   maxConversations: number;
   maxProducts: number;
@@ -37,17 +29,24 @@ interface Plan {
   trialDays?: number;
 }
 
+// Un motivo corto por plan -- por qué elegir ESE tier en particular, no una
+// sección aparte de "por qué elegirnos" (no existía en el código; lo que se
+// pedía era esto: contexto directo en cada tarjeta de plan).
+const PLAN_TAGLINES: Record<string, string> = {
+  basic: "Para probar la plataforma sin compromiso",
+  starter: "Ideal si estás arrancando y necesitas lo esencial",
+  premium: "El más elegido: equilibrio entre precio y capacidad",
+  professional: "Para negocios en crecimiento que necesitan más volumen",
+};
+
 export default function PricingPage() {
   const [, setLocation] = useLocation();
   const [plans, setPlans] = useState<Plan[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedPlan, setSelectedPlan] = useState<string | null>(null);
-  const [billingCycle, setBillingCycle] = useState<"monthly" | "annual">("monthly");
+  const [billingCycle, setBillingCycle] = useState<"monthly" | "quarterly" | "annual">("monthly");
   const [paymentMethod, setPaymentMethod] = useState<"mercadopago" | "paypal">("mercadopago");
   const [processingPayment, setProcessingPayment] = useState(false);
-  const [showEmailDialog, setShowEmailDialog] = useState(false);
-  const [email, setEmail] = useState("");
-  const [emailError, setEmailError] = useState("");
   const { saasStatus } = useSaasStatus();
 
   useEffect(() => {
@@ -66,44 +65,47 @@ export default function PricingPage() {
     }
   };
 
-  const validateEmail = (email: string): boolean => {
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    return emailRegex.test(email);
-  };
-
+  // Antes esto abría un diálogo pidiendo el email y POSTeaba a /pricing/upgrade
+  // con ese email -- el backend buscaba o CREABA un tenant nuevo con ese
+  // email, sin relación con la cuenta logueada. Como ya estás autenticado (la
+  // ruta exige sesión), no hace falta volver a pedir el email: se manda
+  // directo con la cookie de sesión y el backend actualiza TU cuenta.
   const handleUpgrade = async (planId: string) => {
-    if (planId === "free") {
-      toast.info("Ya tienes acceso al plan gratuito");
+    const plan = plans.find(p => p.id === planId);
+    if (plan?.price === 0) {
+      setProcessingPayment(true);
+      try {
+        const response = await fetch("/api/pricing/upgrade", {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ newPlan: planId, billingCycle, paymentMethod }),
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.message || data.error);
+        toast.success("Plan gratuito activado");
+        setTimeout(() => window.location.reload(), 1000);
+      } catch (error: any) {
+        toast.error(error.message || "No se pudo activar el plan");
+      } finally {
+        setProcessingPayment(false);
+      }
       return;
     }
+
     setSelectedPlan(planId);
-    setShowEmailDialog(true);
-  };
-
-  const handleEmailSubmit = async () => {
-    if (!email || !validateEmail(email)) {
-      setEmailError("Por favor ingresa un email válido");
-      return;
-    }
-
-    setEmailError("");
-    setShowEmailDialog(false);
     setProcessingPayment(true);
 
     try {
       const response = await fetch("/api/pricing/upgrade", {
         method: "POST",
+        credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ 
-          newPlan: selectedPlan,
-          billingCycle,
-          paymentMethod,
-          email,
-        }),
+        body: JSON.stringify({ newPlan: planId, billingCycle, paymentMethod }),
       });
 
       const data = await response.json();
-      
+
       if (!response.ok) {
         throw new Error(data.message || data.error || "Error al procesar el pago");
       }
@@ -112,7 +114,7 @@ export default function PricingPage() {
         toast.success(`Redirigiendo a ${paymentMethod === "mercadopago" ? "MercadoPago" : "PayPal"}...`);
         setTimeout(() => {
           window.location.href = data.paymentUrl;
-        }, 2000);
+        }, 1500);
       }
     } catch (error: any) {
       toast.error(error.message || "No se pudo procesar el pago");
@@ -139,10 +141,14 @@ export default function PricingPage() {
 
   return (
     <Layout>
-      <div className="relative overflow-hidden">
-        {/* Background Pattern */}
-        <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] rounded-full bg-primary/5 blur-[120px] pointer-events-none" />
-        <div className="absolute bottom-[-10%] right-[-5%] w-[30%] h-[40%] rounded-full bg-accent/5 blur-[100px] pointer-events-none" />
+      <div className="relative">
+        {/* Background Pattern -- cada círculo se recorta a sí mismo
+            (overflow-hidden) en vez de ponerlo en el contenedor raíz de toda
+            la página: eso último cortaba también el scroll del <main> que
+            envuelve esta página (era la única con overflow-hidden acá; el
+            resto del dashboard no lo tiene, por eso ahí sí scrolleaba bien). */}
+        <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] rounded-full bg-primary/5 blur-[120px] pointer-events-none overflow-hidden" />
+        <div className="absolute bottom-[-10%] right-[-5%] w-[30%] h-[40%] rounded-full bg-accent/5 blur-[100px] pointer-events-none overflow-hidden" />
 
         <div className="max-w-7xl mx-auto relative z-10">
           {/* Header */}
@@ -157,46 +163,57 @@ export default function PricingPage() {
               Elige la potencia de fuego que tu departamento de ventas necesita. Sin contratos, cancela cuando quieras.
             </p>
 
-            <div className="flex flex-col items-center gap-8">
-              {/* Billing Cycle Toggle */}
+            {/* Una sola fila compacta: ciclo de facturación + método de pago.
+                Antes esto eran 3 bloques apilados (toggle, selector, y una
+                barra de confianza que repetía MercadoPago/PayPal otra vez) --
+                ocupaba toda la pantalla antes de llegar a ver un solo plan, y
+                el nombre del método quedaba dicho 3 veces. */}
+            <div className="flex flex-wrap items-center justify-center gap-3">
               <div className="flex p-1 bg-muted/30 backdrop-blur-xl border border-white/5 rounded-2xl shadow-xl">
                 <button
                   onClick={() => setBillingCycle("monthly")}
-                  className={`px-8 py-3 rounded-xl text-sm font-bold transition-all duration-300 ${billingCycle === "monthly" ? "bg-white text-black shadow-lg" : "text-muted-foreground hover:text-foreground"}`}
+                  className={`px-5 py-2.5 rounded-xl text-sm font-bold transition-all duration-300 ${billingCycle === "monthly" ? "bg-white text-black shadow-lg" : "text-muted-foreground hover:text-foreground"}`}
                 >
                   Mensual
                 </button>
                 <button
-                  onClick={() => setBillingCycle("annual")}
-                  className={`px-8 py-3 rounded-xl text-sm font-bold transition-all duration-300 flex items-center gap-2 ${billingCycle === "annual" ? "bg-white text-black shadow-lg" : "text-muted-foreground hover:text-foreground"}`}
+                  onClick={() => setBillingCycle("quarterly")}
+                  className={`px-5 py-2.5 rounded-xl text-sm font-bold transition-all duration-300 flex items-center gap-1.5 ${billingCycle === "quarterly" ? "bg-white text-black shadow-lg" : "text-muted-foreground hover:text-foreground"}`}
                 >
-                  Anual <Badge className="bg-green-500 text-white border-none text-[10px] font-black px-1.5 py-0">AHORRA 20%</Badge>
+                  Trimestral <Badge className="bg-blue-500 text-white border-none text-[9px] font-black px-1.5 py-0">-10%</Badge>
+                </button>
+                <button
+                  onClick={() => setBillingCycle("annual")}
+                  className={`px-5 py-2.5 rounded-xl text-sm font-bold transition-all duration-300 flex items-center gap-1.5 ${billingCycle === "annual" ? "bg-white text-black shadow-lg" : "text-muted-foreground hover:text-foreground"}`}
+                >
+                  Anual <Badge className="bg-green-500 text-white border-none text-[9px] font-black px-1.5 py-0">-20%</Badge>
                 </button>
               </div>
 
-              {/* Payment Method Selection */}
-              <div className="flex items-center gap-4 p-2 bg-background/40 backdrop-blur-md rounded-2xl border border-white/5">
-                <span className="text-xs font-bold text-muted-foreground uppercase tracking-widest pl-4">Método:</span>
-                <Select value={paymentMethod} onValueChange={(value: any) => setPaymentMethod(value)}>
-                  <SelectTrigger className="w-[180px] bg-transparent border-none focus:ring-0 font-bold">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent className="glass-panel border-white/10">
-                    <SelectItem value="mercadopago" className="focus:bg-primary/10">
-                      <div className="flex items-center gap-2">
-                        <CreditCard className="h-4 w-4 text-primary" />
-                        MercadoPago
-                      </div>
-                    </SelectItem>
-                    <SelectItem value="paypal" className="focus:bg-primary/10">
-                      <div className="flex items-center gap-2">
-                        <DollarSign className="h-4 w-4 text-primary" />
-                        PayPal
-                      </div>
-                    </SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
+              <Select value={paymentMethod} onValueChange={(value: any) => setPaymentMethod(value)}>
+                <SelectTrigger className="w-[170px] h-[46px] bg-background/40 backdrop-blur-md border border-white/5 rounded-2xl font-bold">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="glass-panel border-white/10">
+                  <SelectItem value="mercadopago" className="focus:bg-primary/10">
+                    <div className="flex items-center gap-2">
+                      <CreditCard className="h-4 w-4 text-primary" />
+                      MercadoPago
+                    </div>
+                  </SelectItem>
+                  <SelectItem value="paypal" className="focus:bg-primary/10">
+                    <div className="flex items-center gap-2">
+                      <DollarSign className="h-4 w-4 text-primary" />
+                      PayPal
+                    </div>
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="flex items-center justify-center gap-2 text-[11px] text-muted-foreground mt-4">
+              <Lock className="h-3 w-3" />
+              <span>Pago 100% seguro y encriptado · Cancela cuando quieras</span>
             </div>
           </div>
 
@@ -230,15 +247,25 @@ export default function PricingPage() {
 
                   <div className="pt-10 pb-6 text-center border-b border-white/5 px-6">
                     <h3 className="text-2xl font-black mb-2">{plan.name}</h3>
+                    {PLAN_TAGLINES[plan.id] && (
+                      <p className="text-xs text-muted-foreground mb-3 leading-snug min-h-[2.2em]">{PLAN_TAGLINES[plan.id]}</p>
+                    )}
                     <div className="flex items-baseline justify-center gap-1">
                       <span className="text-4xl font-black tabular-nums">
-                        ${billingCycle === "annual" ? (plan.price * 12 * 0.8 / 12).toFixed(0) : plan.price}
+                        ${billingCycle === "annual" ? ((plan.annualPrice ?? plan.price * 12 * 0.8) / 12).toFixed(0)
+                          : billingCycle === "quarterly" ? ((plan.quarterlyPrice ?? plan.price * 3 * 0.9) / 3).toFixed(0)
+                          : plan.price}
                       </span>
                       <span className="text-muted-foreground font-medium">/mes</span>
                     </div>
                     {billingCycle === "annual" && plan.price > 0 && (
                       <div className="text-[10px] font-bold text-green-500 mt-2 uppercase tracking-widest bg-green-500/10 py-1 px-3 rounded-full mx-auto w-fit">
-                        Facturado anualmente
+                        Facturado anualmente (${(plan.annualPrice ?? plan.price * 12 * 0.8).toFixed(0)})
+                      </div>
+                    )}
+                    {billingCycle === "quarterly" && plan.price > 0 && (
+                      <div className="text-[10px] font-bold text-blue-500 mt-2 uppercase tracking-widest bg-blue-500/10 py-1 px-3 rounded-full mx-auto w-fit">
+                        Facturado trimestralmente (${(plan.quarterlyPrice ?? plan.price * 3 * 0.9).toFixed(0)})
                       </div>
                     )}
                   </div>
@@ -269,11 +296,11 @@ export default function PricingPage() {
                     </div>
                   </div>
 
-                  <div className="p-6 pt-0">
+                  <div className="p-6 pt-0 space-y-3">
                     <Button
                       className={`w-full h-14 rounded-2xl font-bold text-base transition-all duration-300 ${
-                        isCurrent 
-                          ? 'bg-muted text-muted-foreground cursor-default' 
+                        isCurrent
+                          ? 'bg-muted text-muted-foreground cursor-default'
                           : 'bg-gradient-to-r from-primary to-accent hover:opacity-90 shadow-lg shadow-primary/20 group-hover:scale-[1.02]'
                       }`}
                       onClick={() => !isCurrent && handleUpgrade(plan.id)}
@@ -328,70 +355,6 @@ export default function PricingPage() {
             </div>
           </div>
         </div>
-
-        {/* Activation Dialog */}
-        <Dialog open={showEmailDialog} onOpenChange={setShowEmailDialog}>
-          <DialogContent className="glass-panel border-white/20 p-0 overflow-hidden max-w-md">
-            <div className="bg-gradient-to-br from-primary/20 to-accent/20 p-8 text-center border-b border-white/10">
-              <div className="w-16 h-16 bg-background rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-xl border border-white/10">
-                <Mail className="h-8 w-8 text-primary" />
-              </div>
-              <DialogTitle className="text-2xl font-black mb-2">Finalizar Pedido</DialogTitle>
-              <DialogDescription className="text-muted-foreground font-medium">
-                Ingresa tu email para recibir tu token de activación tras el pago.
-              </DialogDescription>
-            </div>
-            
-            <div className="p-8 space-y-6">
-              <div className="space-y-2">
-                <Label htmlFor="email" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Email de Facturación</Label>
-                <Input
-                  id="email"
-                  type="email"
-                  placeholder="ejemplo@correo.com"
-                  value={email}
-                  onChange={(e) => {
-                    setEmail(e.target.value);
-                    setEmailError("");
-                  }}
-                  className={`h-12 bg-muted/20 border-white/10 rounded-xl px-4 ${emailError ? "border-red-500 focus-visible:ring-red-500" : ""}`}
-                />
-                {emailError && (
-                  <p className="text-xs text-red-500 font-bold mt-1">{emailError}</p>
-                )}
-              </div>
-
-              <div className="p-4 bg-primary/5 rounded-2xl border border-primary/10 flex gap-4 items-start">
-                <ShieldCheck className="h-5 w-5 text-primary mt-0.5 shrink-0" />
-                <p className="text-xs text-muted-foreground leading-relaxed">
-                  <strong className="text-foreground">Importante:</strong> Se enviará un <span className="text-primary font-bold">Token de Activación</span> a este email inmediatamente después de completar el pago en {paymentMethod}.
-                </p>
-              </div>
-            </div>
-            
-            <DialogFooter className="p-8 pt-0 flex gap-3">
-              <Button
-                variant="ghost"
-                className="flex-1 h-12 rounded-xl font-bold"
-                onClick={() => {
-                  setShowEmailDialog(false);
-                  setSelectedPlan(null);
-                  setEmail("");
-                  setEmailError("");
-                }}
-              >
-                Cancelar
-              </Button>
-              <Button 
-                className="flex-1 h-12 rounded-xl bg-primary hover:bg-primary/90 font-bold shadow-lg shadow-primary/20"
-                onClick={handleEmailSubmit}
-                disabled={!email || processingPayment}
-              >
-                {processingPayment ? <div className="animate-spin h-4 w-4 border-b-2 border-white rounded-full" /> : "Ir al Pago"}
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
       </div>
     </Layout>
   );

@@ -21,7 +21,9 @@
     "sweetalert2": "^11.26.24",
     "tailwind-merge": "catalog:",
     "zustand": "catalog:",
-    "@tanstack/react-query": "^4.29.12"
+    "@tanstack/react-query": "^4.29.12",
+    "@craftjs/core": "0.2.12",
+    "@craftjs/utils": "0.2.5"
 
   },
   "devDependencies": {

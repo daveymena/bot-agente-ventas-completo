@@ -1,16 +1,52 @@
-import { Router, type IRouter, type Request, type Response } from "express";
+import { Router, type IRouter, type Request, type Response, type NextFunction } from "express";
+import { createHmac, timingSafeEqual } from "crypto";
 import { eq } from "drizzle-orm";
 import { db, tenants, leads, conversations, messages, products } from "@workspace/db";
-import { facebookService as fb } from "../lib/facebook";
 import { facebookMessengerService as fbMessenger } from "../lib/facebook-messenger";
-import { facebookMarketplaceService as fbMarketplace } from "../lib/facebook-marketplace";
 import { facebookCommentsService as fbComments } from "../lib/facebook-comments";
 import { channelManager } from "../lib/channel-manager";
+import { tenantManager } from "../lib/tenantManager";
 import { adStrategist } from "../lib/ad-strategist";
-import { whatsapp } from "../lib/whatsapp";
+import { buildPostDraft, publishToPage, checkPostingPermission } from "../lib/facebook-page-posts";
+import { whatsapp } from "../lib/whatsapp-singleton";
 import { logger } from "../lib/logger";
+import { encryptSecret, decryptSecret } from "../lib/credentials-vault";
 
 const router: IRouter = Router();
+
+// ─── Verificación de firma de webhooks (X-Hub-Signature-256) ────────────────
+// Valida que el payload venga realmente de Facebook usando el App Secret.
+// Comportamiento seguro y factible: si no hay App Secret configurado o no llega
+// firma, se permite el paso (con warning) para no romper despliegues existentes.
+// Si ambos están presentes y NO coinciden, se rechaza con 403.
+function verifyFacebookSignature(req: Request, res: Response, next: NextFunction) {
+  const appSecret = process.env.FB_APP_SECRET || "";
+  const signature = (req.headers["x-hub-signature-256"] || req.headers["x-hub-signature"]) as string | undefined;
+  const rawBody: Buffer | undefined = (req as any).rawBody;
+
+  if (!appSecret) {
+    logger.warn("[Facebook] FB_APP_SECRET no configurado — firma de webhook NO verificada");
+    return next();
+  }
+  if (!signature || !rawBody) {
+    logger.warn("[Facebook] Webhook sin firma o sin body crudo — permitido pero sin verificar");
+    return next();
+  }
+
+  try {
+    const expected = "sha256=" + createHmac("sha256", appSecret).update(rawBody).digest("hex");
+    const sigBuf = Buffer.from(signature);
+    const expBuf = Buffer.from(expected);
+    if (sigBuf.length !== expBuf.length || !timingSafeEqual(sigBuf, expBuf)) {
+      logger.warn("[Facebook] Firma de webhook inválida — rechazado");
+      return res.status(403).json({ error: "Invalid signature" });
+    }
+    return next();
+  } catch (err) {
+    logger.error({ err }, "[Facebook] Error verificando firma de webhook");
+    return res.status(403).json({ error: "Signature verification error" });
+  }
+}
 
 // ─── Facebook Lead Ads Webhook ──────────────────────────────────────────────
 // GET /facebook/lead-ads/webhook — Facebook verificaciòn del webhook (challenge)
@@ -31,7 +67,7 @@ router.get("/lead-ads/webhook", (req: Request, res: Response) => {
 });
 
 // POST /facebook/lead-ads/webhook — Recibir leads de Facebook Lead Ads
-router.post("/lead-ads/webhook", async (req: Request, res: Response) => {
+router.post("/lead-ads/webhook", verifyFacebookSignature, async (req: Request, res: Response) => {
   try {
     const body = req.body;
     logger.info({ entryCount: body.entry?.length }, "[Facebook] Lead webhook recibido");
@@ -51,7 +87,7 @@ router.post("/lead-ads/webhook", async (req: Request, res: Response) => {
           const tenantId = 1;
           const [tenant] = await db.select({ metadata: tenants.metadata }).from(tenants).where(eq(tenants.id, tenantId)).limit(1);
           const meta = tenant?.metadata ? (typeof tenant.metadata === "string" ? JSON.parse(tenant.metadata) : tenant.metadata) : {};
-          const accessToken = meta.facebook?.accessToken || process.env.FB_ACCESS_TOKEN || "";
+          const accessToken = decryptSecret(meta.facebook?.accessToken) || process.env.FB_ACCESS_TOKEN || "";
 
           if (!accessToken) {
             logger.warn("[Facebook] No hay token de acceso configurado para obtener lead");
@@ -164,7 +200,7 @@ router.get("/messenger/webhook", (req: Request, res: Response) => {
 });
 
 // POST /facebook/messenger/webhook — Receive messages from Messenger
-router.post("/messenger/webhook", async (req: Request, res: Response) => {
+router.post("/messenger/webhook", verifyFacebookSignature, async (req: Request, res: Response) => {
   try {
     const body = req.body;
     if (body.object !== "page") {
@@ -179,6 +215,11 @@ router.post("/messenger/webhook", async (req: Request, res: Response) => {
         const postback = event.postback?.payload;
 
         if (!senderPsid) continue;
+
+        // Ignorar ecos (mensajes enviados por la propia página) para evitar bucles infinitos
+        if (event.message?.is_echo) continue;
+        // Ignorar acuses de entrega/lectura (no son mensajes entrantes)
+        if (event.delivery || event.read) continue;
 
         if (messageText) {
           await fbMessenger.handleIncomingMessage(senderPsid, messageText, senderName);
@@ -198,6 +239,30 @@ router.post("/messenger/webhook", async (req: Request, res: Response) => {
           );
         }
       }
+
+      // Facebook envía TODOS los eventos de la página a UNA sola URL de callback.
+      // Además de mensajes (entry.messaging), aquí llegan los comentarios en
+      // publicaciones/anuncios como entry.changes con field "feed". Los procesamos
+      // en el mismo endpoint para que una única URL de webhook cubra Messenger + comentarios.
+      for (const change of entry.changes || []) {
+        if (change.field === "feed") {
+          const value = change.value || {};
+          if (value.item === "comment" && value.verb === "add") {
+            const fromId = value.from?.id || "";
+            const ownPageId = process.env.FB_PAGE_ID || "";
+            // No responder los comentarios de la propia página (evita bucles)
+            if (fromId && fromId !== ownPageId && value.comment_id && value.message) {
+              await channelManager.processMessage({
+                channel: "facebook_comment",
+                contactId: fromId,
+                contactName: value.from?.name || "Usuario",
+                text: value.message,
+                metadata: { commentId: value.comment_id, postId: value.post_id || "" },
+              });
+            }
+          }
+        }
+      }
     }
 
     res.status(200).json({ received: true });
@@ -208,7 +273,7 @@ router.post("/messenger/webhook", async (req: Request, res: Response) => {
 });
 
 // ─── Facebook Marketplace Webhook ──────────────────────────────────────────
-router.post("/marketplace/webhook", async (req: Request, res: Response) => {
+router.post("/marketplace/webhook", verifyFacebookSignature, async (req: Request, res: Response) => {
   try {
     const body = req.body;
     if (body.object !== "page") return res.status(200).json({ received: true });
@@ -251,7 +316,7 @@ router.post("/marketplace/webhook", async (req: Request, res: Response) => {
 });
 
 // ─── Facebook Comments Webhook ─────────────────────────────────────────────
-router.post("/comments/webhook", async (req: Request, res: Response) => {
+router.post("/comments/webhook", verifyFacebookSignature, async (req: Request, res: Response) => {
   try {
     const body = req.body;
     if (body.object !== "page") return res.status(200).json({ received: true });
@@ -289,24 +354,34 @@ router.post("/comments/webhook", async (req: Request, res: Response) => {
 });
 
 // ─── Messenger & Marketplace Management Endpoints ──────────────────────────
-router.get("/messenger/status", async (_req, res, next) => {
+// Mismo motivo que /validate, /create-ad, etc.: el singleton `fbMessenger`
+// (importado arriba) se construye una sola vez sin tenant real, así que
+// nunca veía el token guardado desde el dashboard. Se instancia por request.
+router.get("/messenger/status", async (req, res, next) => {
   try {
-    const status = fbMessenger.getStatus();
-    const subscribedApps = await fbMessenger.getSubscribedApps();
+    const tenant = (req as any).tenant;
+    const { FacebookMessengerService } = await import("../lib/facebook-messenger");
+    const svc = new FacebookMessengerService(tenant || undefined);
+    const status = svc.getStatus();
+    const subscribedApps = await svc.getSubscribedApps();
     return res.json({ ...status, subscribedApps });
   } catch (e) { return next(e); }
 });
 
-router.post("/messenger/subscribe", async (_req, res, next) => {
+router.post("/messenger/subscribe", async (req, res, next) => {
   try {
-    const ok = await fbMessenger.subscribeToWebhook();
+    const tenant = (req as any).tenant;
+    const { FacebookMessengerService } = await import("../lib/facebook-messenger");
+    const ok = await new FacebookMessengerService(tenant || undefined).subscribeToWebhook();
     return res.json({ ok, message: ok ? "Suscripción exitosa" : "Error al suscribir" });
   } catch (e) { return next(e); }
 });
 
-router.get("/messenger/page-info", async (_req, res, next) => {
+router.get("/messenger/page-info", async (req, res, next) => {
   try {
-    const info = await fbMessenger.getPageInfo();
+    const tenant = (req as any).tenant;
+    const { FacebookMessengerService } = await import("../lib/facebook-messenger");
+    const info = await new FacebookMessengerService(tenant || undefined).getPageInfo();
     return res.json(info || { error: "No se pudo obtener info" });
   } catch (e) { return next(e); }
 });
@@ -320,49 +395,100 @@ router.post("/messenger/save-token", async (req, res, next) => {
     const tenantId = (req as any).tenant?.id || 1;
     const [tenant] = await db.select({ metadata: tenants.metadata }).from(tenants).where(eq(tenants.id, tenantId)).limit(1);
     const meta = tenant?.metadata ? (typeof tenant.metadata === "string" ? JSON.parse(tenant.metadata) : tenant.metadata) : {};
+    const encryptedToken = encryptSecret(pageToken);
     meta.facebook = {
       ...(meta.facebook || {}),
-      messengerPageToken: pageToken,
-      accessToken: pageToken,
+      messengerPageToken: encryptedToken,
+      accessToken: encryptedToken,
     };
     await db.update(tenants).set({ metadata: meta as any }).where(eq(tenants.id, tenantId));
+    // Mismo motivo que en fb-connect: sin limpiar el caché, el tenant
+    // sigue sirviendo el token viejo desde memoria hasta 5 minutos.
+    tenantManager.clearCache();
     logger.info("[FB-Messenger] Page token saved to tenant metadata");
     return res.json({ ok: true, message: "Token guardado correctamente" });
   } catch (e) { return next(e); }
 });
 
-router.post("/marketplace/listings/:productId", async (req, res, next) => {
-  try {
-    const productId = parseInt(req.params.productId);
-    const listing = await fbMarketplace.createListing(productId);
-    if (!listing) return res.status(500).json({ error: "Error al crear listing" });
-    return res.json(listing);
-  } catch (e) { return next(e); }
+router.post("/marketplace/listings/:productId", async (_req, res) => {
+  return res.status(410).json({ error: "Marketplace eliminado. Esta función ya no está disponible." });
 });
 
-router.get("/marketplace/listings", async (_req, res, next) => {
-  try {
-    const status = (_req.query.status as string) || "ACTIVE";
-    const listings = await fbMarketplace.getListings(status as any);
-    return res.json({ listings });
-  } catch (e) { return next(e); }
+router.get("/marketplace/listings", async (_req, res) => {
+  return res.json({ listings: [], _note: "Marketplace eliminado" });
 });
 
-router.post("/marketplace/sync", async (_req, res, next) => {
-  try {
-    const result = await fbMarketplace.syncActiveProducts();
-    return res.json(result);
-  } catch (e) { return next(e); }
+router.post("/marketplace/sync", async (_req, res) => {
+  return res.json({ synced: 0, failed: 0, _note: "Marketplace eliminado" });
 });
 
-router.delete("/marketplace/listings/:listingId", async (req, res, next) => {
-  try {
-    const ok = await fbMarketplace.deleteListing(req.params.listingId);
-    return res.json({ ok });
-  } catch (e) { return next(e); }
+router.delete("/marketplace/listings/:listingId", async (_req, res) => {
+  return res.json({ ok: false, _note: "Marketplace eliminado" });
 });
 
 // ─── Ad Strategist Endpoints ───────────────────────────────────────────────
+// ── Publicaciones ORGÁNICAS en la página (sin pauta) ────────────────────────
+
+/** Diagnóstico: ¿el token puede publicar en el muro? */
+router.get("/page/can-post", async (req, res, next) => {
+  try {
+    const tenant = (req as any).tenant;
+    const problema = await checkPostingPermission(tenant);
+    return res.json({
+      canPost: problema === null,
+      pageId: tenant?.facebook?.pageId || process.env.FB_PAGE_ID || null,
+      reason: problema,
+    });
+  } catch (e) { return next(e); }
+});
+
+/** Genera el texto de la publicación SIN publicar, para revisarlo antes. */
+router.get("/page/post-preview/:productId", async (req, res, next) => {
+  try {
+    const tenant = (req as any).tenant;
+    const draft = await buildPostDraft(parseInt(req.params.productId), tenant?.slug || "demo");
+    return res.json(draft);
+  } catch (e: any) {
+    if (e?.message === "Producto no encontrado") {
+      return res.status(404).json({ error: e.message });
+    }
+    return next(e);
+  }
+});
+
+/**
+ * Publica en el muro de la página. Acción pública e irreversible desde la app
+ * (borrarla hay que hacerlo en Facebook), por eso exige confirm:true explícito
+ * en el body en vez de publicar con solo llamar al endpoint.
+ */
+router.post("/page/publish/:productId", async (req, res, next) => {
+  try {
+    if (req.body?.confirm !== true) {
+      return res.status(400).json({
+        error: "Confirmación requerida",
+        detail: "Enviá { \"confirm\": true } para publicar en la página. Usá /page/post-preview para revisar el texto antes.",
+      });
+    }
+
+    const tenant = (req as any).tenant;
+    const draft = await buildPostDraft(parseInt(req.params.productId), tenant?.slug || "demo");
+
+    // Permite editar el texto antes de publicar desde el panel
+    if (typeof req.body?.message === "string" && req.body.message.trim()) {
+      draft.message = req.body.message.trim();
+    }
+
+    const result = await publishToPage(draft, tenant);
+    if (!result.ok) return res.status(502).json(result);
+    return res.json(result);
+  } catch (e: any) {
+    if (e?.message === "Producto no encontrado") {
+      return res.status(404).json({ error: e.message });
+    }
+    return next(e);
+  }
+});
+
 router.get("/strategist/drafts", async (req, res, next) => {
   try {
     const tenantId = (req as any).tenant?.id || 1;
@@ -382,27 +508,39 @@ router.delete("/strategist/draft/:id", async (req, res, next) => {
 router.post("/strategist/draft/:id/publish", async (req, res, next) => {
   try {
     const draftId = parseInt(req.params.id);
-    const ok = await adStrategist.publishDraft(draftId);
-    return res.json({ ok, message: ok ? "Borrador publicado" : "Error al publicar" });
+    const tenant = (req as any).tenant;
+    // El AdStrategist compartido se construye SIN tenant (usa el tenant por
+    // defecto, que no tiene .facebook), así que activar un borrador siempre
+    // caía a las variables de entorno e ignoraba el token guardado en la BD
+    // al conectar la página desde el panel. Se crea una instancia con el
+    // tenant real de la request para que use ESE token.
+    const { AdStrategist } = await import("../lib/ad-strategist");
+    const ok = await new AdStrategist(tenant || undefined).publishDraft(draftId);
+    return res.json({ ok, message: ok ? "Borrador publicado" : "Error al publicar (revisa que Facebook esté conectado y el borrador tenga campaña creada)" });
   } catch (e) { return next(e); }
 });
 
 router.post("/strategist/draft/:productId", async (req, res, next) => {
   try {
     const productId = parseInt(req.params.productId);
-    const tenantId = (req as any).tenant?.id || 1;
-    const draft = await adStrategist.createDraftAd(
-      process.env.FB_AD_ACCOUNT_ID || "",
-      process.env.FB_ACCESS_TOKEN || "",
+    const tenant = (req as any).tenant;
+    const adAccountId = tenant?.facebook?.adAccountId || process.env.FB_AD_ACCOUNT_ID || "";
+    const accessToken = tenant?.facebook?.accessToken || process.env.FB_ACCESS_TOKEN || "";
+    const { AdStrategist } = await import("../lib/ad-strategist");
+    const draft = await new AdStrategist(tenant || undefined).createDraftAd(
+      adAccountId,
+      accessToken,
       productId
     );
     return res.json(draft);
   } catch (e) { return next(e); }
 });
 
-router.post("/strategist/draft-all", async (_req, res, next) => {
+router.post("/strategist/draft-all", async (req, res, next) => {
   try {
-    const result = await adStrategist.createDraftsForAllProducts();
+    const tenant = (req as any).tenant;
+    const { AdStrategist } = await import("../lib/ad-strategist");
+    const result = await new AdStrategist(tenant || undefined).createDraftsForAllProducts();
     return res.json(result);
   } catch (e) { return next(e); }
 });
@@ -438,20 +576,52 @@ router.post("/channels/polling/stop", async (_req, res, next) => {
   } catch (e) { return next(e); }
 });
 
-// GET /facebook/config — leer configuración actual (desde metadata)
+// GET /facebook/debug-pixels — lista los pixeles que SÍ están asociados a la
+// cuenta publicitaria configurada. Existe porque el pixelId guardado puede
+// pertenecer a una cuenta publicitaria distinta a la que realmente se usa
+// (ver adAccountId) -- Facebook rechaza el anuncio con "Píxel no asociado"
+// sin decir cuál sí lo está, así que hay que preguntarle directamente.
+router.get("/debug-pixels", async (req, res, next) => {
+  try {
+    const tenant = (req as any).tenant;
+    const { FacebookService } = await import("../lib/facebook");
+    const fbSvc = new FacebookService(tenant || undefined) as any;
+    const cfg = fbSvc.config;
+    if (!cfg?.accessToken || !cfg?.adAccountId) {
+      return res.status(422).json({ error: "Falta accessToken o adAccountId en la configuración" });
+    }
+    const url = `https://graph.facebook.com/v21.0/act_${cfg.adAccountId}/adspixels?fields=id,name&access_token=${cfg.accessToken}`;
+    const r = await fetch(url, { signal: AbortSignal.timeout(15000) });
+    const data = await r.json();
+    return res.json(data);
+  } catch (e) { return next(e); }
+});
+
+// GET /facebook/config — leer configuración actual (desde metadata o entorno)
 router.get("/config", async (req, res, next) => {
   try {
     const tenantId = (req as any).tenant?.id || 1;
     const [tenant] = await db.select({ metadata: tenants.metadata }).from(tenants).where(eq(tenants.id, tenantId)).limit(1);
     const meta = tenant?.metadata ? (typeof tenant.metadata === "string" ? JSON.parse(tenant.metadata) : tenant.metadata) : {};
     const cfg = meta.facebook || {};
+
+    // Si no hay configuración en la BD, usar valores de entorno
+    const pageId = cfg.pageId || process.env.FB_PAGE_ID || "";
+    const adAccountId = cfg.adAccountId || process.env.FB_AD_ACCOUNT_ID || "";
+    const pixelId = cfg.pixelId || process.env.FB_PIXEL_ID || "";
+    const catalogId = cfg.catalogId || "";
+    // cfg.accessToken está encriptado en la BD -- desencriptar antes de armar
+    // el "•••••1234" de vista previa, si no se enmascaraban los últimos 4
+    // caracteres del texto cifrado (ilegibles) en vez del token real.
+    const accessToken = decryptSecret(cfg.accessToken) || process.env.FB_ACCESS_TOKEN || "";
+    
     return res.json({
-      accessToken: cfg.accessToken ? "•••••" + cfg.accessToken.slice(-4) : "",
-      pixelId: cfg.pixelId || "",
-      catalogId: cfg.catalogId || "",
-      pageId: cfg.pageId || "",
-      adAccountId: cfg.adAccountId || "",
-      hasToken: !!cfg.accessToken,
+      accessToken: accessToken ? "•••••" + accessToken.slice(-4) : "",
+      pixelId,
+      catalogId,
+      pageId,
+      adAccountId,
+      hasToken: !!accessToken,
     });
   } catch (e) { return next(e); }
 });
@@ -464,48 +634,137 @@ router.put("/config", async (req, res, next) => {
     const meta = tenant?.metadata ? (typeof tenant.metadata === "string" ? JSON.parse(tenant.metadata) : tenant.metadata) : {};
     const current = meta.facebook || {};
     const body = req.body || {};
+    // Se hace merge sobre `current`, no un objeto nuevo con campos fijos:
+    // reconstruirlo borraba messengerPageToken, tasks y pageName —o sea, al
+    // guardar el pixel desde el panel se perdía la página conectada y había
+    // que rehacer todo el OAuth.
+    //
+    // Bug: usar `body.x || current.x` no permite NUNCA limpiar un campo --
+    // mandar pixelId:"" para borrarlo caía al valor anterior porque "" es
+    // falsy. Se usa `in body` para distinguir "no lo mandaron" (mantener
+    // el actual) de "lo mandaron vacío a propósito" (borrarlo).
+    const field = (key: string) => (key in body ? body[key] : current[key] || "");
+    // accessToken/appSecret llegan del formulario en texto plano y current[key]
+    // ya está encriptado (viene tal cual de la BD) -- por eso se encriptan acá,
+    // después de decidir field(), y no antes: si se encriptara `body` entero de
+    // entrada, un PUT que NO toca el token re-encriptaría el valor ya
+    // encriptado de `current` como si fuera texto plano nuevo.
+    const newAccessToken = "accessToken" in body ? encryptSecret(body.accessToken) : current.accessToken || "";
+    const newAppSecret = "appSecret" in body ? encryptSecret(body.appSecret) : current.appSecret || "";
     meta.facebook = {
-      accessToken: body.accessToken || current.accessToken || "",
-      pixelId: body.pixelId || current.pixelId || "",
-      catalogId: body.catalogId || current.catalogId || "",
-      pageId: body.pageId || current.pageId || "",
-      adAccountId: body.adAccountId || current.adAccountId || "",
-      appId: body.appId || current.appId || "",
-      appSecret: body.appSecret || current.appSecret || "",
+      ...current,
+      accessToken: newAccessToken,
+      pixelId: field("pixelId"),
+      catalogId: field("catalogId"),
+      pageId: field("pageId"),
+      adAccountId: field("adAccountId"),
+      appId: field("appId"),
+      appSecret: newAppSecret,
     };
     await db.update(tenants).set({ metadata: meta as any }).where(eq(tenants.id, tenantId));
+    tenantManager.clearCache();
     return res.json({ ok: true });
   } catch (e) { return next(e); }
 });
 
-router.get("/validate", async (_req, res, next) => {
+// Los 5 endpoints de abajo usaban el singleton `fb` importado arriba, que se
+// construye UNA sola vez al arrancar el proceso con
+// tenantManager.getDefaultTenant() -- un objeto hardcodeado que NUNCA tiene
+// `.facebook` (ni token, ni ad account id, ni page id). Resultado: pasara lo
+// que pasara en "Credenciales de Facebook" del dashboard, estos botones
+// siempre pegaban con credenciales vacías y fallaban (create-ad con 500
+// genérico, publish-post/sync-catalog/validate silenciosamente rotos). El
+// Arquitecto SÍ funcionaba porque sus tools instancian
+// `new FacebookService(tenant)` por request (ver app-operator.ts); acá se
+// hace exactamente lo mismo, igual que ya se hizo para Marketplace y
+// AdStrategist más arriba en este archivo.
+router.get("/validate", async (req, res, next) => {
   try {
-    return res.json(await fb.validate());
+    const tenant = (req as any).tenant;
+    const { FacebookService } = await import("../lib/facebook");
+    return res.json(await new FacebookService(tenant || undefined).validate());
   } catch (e) { return next(e); }
 });
 
 router.post("/create-ad/:productId", async (req, res, next) => {
   try {
+    const tenant = (req as any).tenant;
     const productId = parseInt(req.params.productId);
     const { budget, startDate, targeting } = req.body;
-    const result = await fb.createAdForProduct(productId, budget || 5000, startDate, targeting);
-    if (!result) return res.status(500).json({ error: "Error al crear el anuncio" });
-    return res.json(result);
+    const { FacebookService } = await import("../lib/facebook");
+    const fbSvc = new FacebookService(tenant || undefined);
+    if (!fbSvc.isConfigured()) {
+      return res.status(422).json({ error: "Facebook no está conectado (falta el token de página). Configúralo en la pestaña Configuración." });
+    }
+    const result = await fbSvc.createAdForProduct(productId, budget || 5000, startDate, targeting);
+    if (!result) {
+      return res.status(500).json({ error: fbSvc.lastAdError || "Facebook rechazó la creación del anuncio (revisa que la cuenta publicitaria y el ad account id sean correctos, y que la página tenga permisos de anuncios)." });
+    }
+    // imageUrl vacío significa que no se pudo incluir imagen en el creativo
+    // (el anuncio SÍ se creó pero sin foto) -- se avisa aparte para no
+    // ocultarlo dentro de un 200 silencioso.
+    return res.json({ ...result, imageUploadError: result.imageUrl ? null : fbSvc.lastImageError });
   } catch (e) { return next(e); }
 });
 
 router.get("/suggest-audience/:productId", async (req, res, next) => {
   try {
+    const tenant = (req as any).tenant;
     const productId = parseInt(req.params.productId);
-    const result = await fb.suggestAudience(productId);
+    const { FacebookService } = await import("../lib/facebook");
+    const result = await new FacebookService(tenant || undefined).suggestAudience(productId);
     if (!result) return res.status(404).json({ error: "No se pudo generar sugerencia de audiencia" });
     return res.json(result);
   } catch (e) { return next(e); }
 });
 
-router.post("/sync-catalog", async (_req, res, next) => {
+router.post("/sync-catalog", async (req, res, next) => {
   try {
-    return res.json(await fb.syncCatalog());
+    const tenant = (req as any).tenant;
+    const { FacebookService } = await import("../lib/facebook");
+    return res.json(await new FacebookService(tenant || undefined).syncCatalog());
+  } catch (e) { return next(e); }
+});
+
+// POST /facebook/publish-post — Publicar post orgánico en el muro de la página
+router.post("/publish-post", async (req, res, next) => {
+  try {
+    const tenant = (req as any).tenant;
+    const { message, imageUrl, link } = req.body || {};
+    if (!message) {
+      return res.status(400).json({ error: "El campo 'message' es requerido" });
+    }
+    const { FacebookService } = await import("../lib/facebook");
+    const fbSvc = new FacebookService(tenant || undefined);
+    if (!fbSvc.isConfigured()) {
+      return res.status(422).json({ error: "Facebook no está conectado (falta el token de página). Configúralo en la pestaña Configuración." });
+    }
+    const result = await fbSvc.publishPost(message, imageUrl, link);
+    if (!result) {
+      return res.status(500).json({ error: "Error al publicar el post. Verifica la configuración de Facebook." });
+    }
+    return res.json({ ok: true, ...result });
+  } catch (e) { return next(e); }
+});
+
+// ─── Agente de crecimiento (protección de gasto + revisión de tendencia) ───
+// Asistido: solo sugiere por WhatsApp, nunca ejecuta solo. Estas rutas son
+// de lectura/consulta para el panel; la aprobación real pasa por WhatsApp.
+
+router.get("/agent/logs", async (req, res, next) => {
+  try {
+    const { adAgentLogs } = await import("@workspace/db");
+    const { desc } = await import("drizzle-orm");
+    const rows = await db.select().from(adAgentLogs).orderBy(desc(adAgentLogs.createdAt)).limit(100);
+    return res.json({ logs: rows });
+  } catch (e) { return next(e); }
+});
+
+router.post("/agent/run-now", async (req, res, next) => {
+  try {
+    const { runSpendProtectionCheck, runTrendReview } = await import("../lib/ad-growth-agent");
+    await Promise.all([runSpendProtectionCheck(), runTrendReview()]);
+    return res.json({ ok: true, message: "Revisión ejecutada -- si encontró algo, te llega por WhatsApp." });
   } catch (e) { return next(e); }
 });
 

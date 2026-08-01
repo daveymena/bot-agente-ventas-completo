@@ -11,4 +11,6 @@ if [ "$USE_SQLITE" = "true" ] && [ ! -f "$SQLITE_PATH" ]; then
   fi
 fi
 
+echo "🚀 Versión corregida: WhatsApp auth persistente - $(date)"
+
 exec node --enable-source-maps artifacts/api-server/dist/index.mjs "$@"

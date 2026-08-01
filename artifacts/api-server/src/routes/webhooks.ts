@@ -1,8 +1,9 @@
 import { Router, type Request, type Response } from "express";
 import { db, products, conversations, messages, payments } from "@workspace/db";
 import { eq, and, desc } from "drizzle-orm";
-import { whatsapp } from "../lib/whatsapp";
+import { whatsapp } from "../lib/whatsapp-singleton";
 import { logger } from "../lib/logger";
+import { dbNow } from "../lib/date-utils";
 
 const router = Router();
 
@@ -60,7 +61,7 @@ router.post("/mercadopago", async (req: Request, res: Response) => {
               .set({
                 status: 'confirmed',
                 paymentStatus: 'approved',
-                verifiedAt: new Date().toISOString(),
+                verifiedAt: dbNow(),
                 verifiedBy: 'mercadopago_webhook',
                 verificationSource: 'webhook',
               })
@@ -83,7 +84,7 @@ router.post("/mercadopago", async (req: Request, res: Response) => {
             await db.update(conversations)
               .set({
                 paymentStatus: 'confirmed',
-                paidAt: new Date().toISOString(),
+                paidAt: dbNow(),
               })
               .where(eq(conversations.id, relatedConvo.id));
 
@@ -153,7 +154,7 @@ router.post("/paypal", async (req: Request, res: Response) => {
               .set({
                 status: 'confirmed',
                 paymentStatus: 'approved',
-                verifiedAt: new Date().toISOString(),
+                verifiedAt: dbNow(),
                 verifiedBy: 'paypal_ipn',
                 verificationSource: 'paypal_ipn',
               })
@@ -174,7 +175,7 @@ router.post("/paypal", async (req: Request, res: Response) => {
             await db.update(conversations)
               .set({
                 paymentStatus: 'confirmed',
-                paidAt: new Date().toISOString(),
+                paidAt: dbNow(),
               })
               .where(eq(conversations.id, relatedConvo.id));
           }

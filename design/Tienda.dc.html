@@ -1,0 +1,421 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
+<script src="https://unpkg.com/lucide@0.454.0/dist/umd/lucide.min.js"></script>
+<script src="./image-slot.js"></script>
+<style>
+  *{box-sizing:border-box}
+  body{margin:0;font-family:'Inter',sans-serif;background:#f8fafc;color:#0f172a;-webkit-font-smoothing:antialiased}
+  a{color:#4f46e5;text-decoration:none}a:hover{color:#4338ca}
+  svg.lucide{stroke-width:2}
+</style>
+</helmet>
+
+<div style="min-height:100vh;display:flex;flex-direction:column;background:#f8fafc">
+
+  <div style="position:sticky;top:0;z-index:60;background:#0f172b;color:#fff;display:flex;align-items:center;justify-content:space-between;gap:16px;padding:10px 20px;flex-wrap:wrap">
+    <div style="display:flex;align-items:center;gap:10px;min-width:0">
+      <span style="width:26px;height:26px;flex:0 0 26px;border-radius:8px;background:#0f766e;display:flex;align-items:center;justify-content:center"><i data-lucide="store" style="width:15px;height:15px"></i></span>
+      <span style="font-size:13px;font-weight:700;letter-spacing:-.01em;white-space:nowrap">Tecnovariedades D&amp;N</span>
+      <span style="font-family:Menlo,monospace;font-size:11px;color:#8fa0bd;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">ventaspro.app/tienda/tecnovariedades-dn</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:8px;background:rgba(255,255,255,.07);border-radius:999px;padding:4px">
+      <button onClick="{{ setClient }}" style="border:none;font-family:inherit;cursor:pointer;font-size:13px;font-weight:700;padding:7px 16px;border-radius:999px;background:transparent;color:#c3cddd" data-mode-btn="cliente">Vista cliente</button>
+      <button onClick="{{ setAdmin }}" style="border:none;font-family:inherit;cursor:pointer;font-size:13px;font-weight:700;padding:7px 16px;border-radius:999px;background:transparent;color:#c3cddd" data-mode-btn="admin">Panel de tienda</button>
+    </div>
+  </div>
+
+  <sc-if value="{{ isClient }}" hint-placeholder-val="{{ true }}">
+  <div>
+    <div style="background:#fff;border-bottom:1px solid #e9eef5">
+      <div style="max-width:1320px;margin:0 auto;padding:14px 24px;display:flex;align-items:center;gap:20px;flex-wrap:wrap">
+        <div style="display:flex;align-items:center;gap:10px;flex:0 0 auto">
+          <img src="assets/store-logo.svg" alt="Tecnovariedades D&amp;N" style="height:32px;width:auto;display:block" />
+        </div>
+        <div style="flex:1;min-width:280px;display:flex;height:46px;border:2px solid #4f46e5;border-radius:10px;overflow:hidden;background:#fff">
+          <div style="display:flex;align-items:center;gap:6px;padding:0 14px;border-right:1px solid #e9eef5;font-size:13px;font-weight:600;color:#475569;white-space:nowrap">Todas <i data-lucide="chevron-down" style="width:13px;height:13px;color:#94a3b8"></i></div>
+          <div style="flex:1;min-width:0;display:flex;align-items:center;padding:0 14px;font-size:14px;color:#94a3b8">Buscar productos y cursos…</div>
+          <div style="width:52px;flex:0 0 52px;background:#4f46e5;color:#fff;display:flex;align-items:center;justify-content:center"><i data-lucide="search" style="width:18px;height:18px"></i></div>
+        </div>
+        <div style="display:flex;align-items:center;gap:18px;flex:0 0 auto">
+          <div style="display:flex;align-items:center;gap:9px">
+            <i data-lucide="message-circle" style="width:22px;height:22px;color:#25d366"></i>
+            <div style="line-height:1.2"><p style="margin:0;font-size:11px;color:#94a3b8;font-weight:600">WhatsApp</p><p style="margin:0;font-size:14px;font-weight:700">320 827 0414</p></div>
+          </div>
+          <span style="width:1px;height:28px;background:#e9eef5"></span>
+          <span style="position:relative;display:flex;color:#334155"><i data-lucide="heart" style="width:22px;height:22px"></i><span style="position:absolute;top:-5px;right:-7px;min-width:17px;height:17px;border-radius:999px;background:#0f172b;color:#fff;font-size:10px;font-weight:800;display:flex;align-items:center;justify-content:center;padding:0 4px">3</span></span>
+          <span style="display:flex;color:#334155"><i data-lucide="user" style="width:22px;height:22px"></i></span>
+          <div style="display:flex;align-items:center;gap:9px">
+            <span style="position:relative;display:flex;color:#334155"><i data-lucide="shopping-cart" style="width:23px;height:23px"></i><span style="position:absolute;top:-5px;right:-7px;min-width:17px;height:17px;border-radius:999px;background:#4f46e5;color:#fff;font-size:10px;font-weight:800;display:flex;align-items:center;justify-content:center;padding:0 4px">2</span></span>
+            <span style="font-size:14px;font-weight:700;font-variant-numeric:tabular-nums">$154.800</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div style="background:#fff;border-bottom:1px solid #e9eef5;position:sticky;top:46px;z-index:50">
+      <div style="max-width:1320px;margin:0 auto;padding:0 24px;display:flex;align-items:center;gap:2px;flex-wrap:wrap">
+        <span style="display:flex;align-items:center;gap:8px;height:46px;padding:0 16px 0 0;margin-right:12px;border-right:1px solid #e9eef5;font-size:14px;font-weight:700;color:#4f46e5"><i data-lucide="menu" style="width:17px;height:17px"></i> Categorías</span>
+        <div style="position:relative;padding:0 4px">
+          <span style="display:flex;align-items:center;gap:5px;height:46px;padding:0 14px;font-size:14px;font-weight:600;color:#0f172a;cursor:default">Tecnología <i data-lucide="chevron-down" style="width:14px;height:14px;color:#94a3b8"></i></span>
+        </div>
+        <div style="position:relative;padding:0 4px">
+          <span style="display:flex;align-items:center;gap:5px;height:46px;padding:0 14px;font-size:14px;font-weight:600;color:#0f172a;cursor:default">Hogar <i data-lucide="chevron-down" style="width:14px;height:14px;color:#94a3b8"></i></span>
+        </div>
+        <div style="position:relative;padding:0 4px">
+          <span style="display:flex;align-items:center;gap:5px;height:46px;padding:0 14px;font-size:14px;font-weight:600;color:#0f172a;cursor:default">Estilo de Vida <i data-lucide="chevron-down" style="width:14px;height:14px;color:#94a3b8"></i></span>
+        </div>
+        <div style="position:relative;padding:0 4px">
+          <span style="display:flex;align-items:center;gap:5px;height:46px;padding:0 14px;font-size:14px;font-weight:600;color:#0f172a;cursor:default">Digital <i data-lucide="chevron-down" style="width:14px;height:14px;color:#94a3b8"></i></span>
+        </div>
+        <span style="height:46px;display:flex;align-items:center;padding:0 14px;font-size:14px;font-weight:600;color:#0f172a">Combos</span>
+        <span style="height:46px;display:flex;align-items:center;gap:6px;padding:0 14px;font-size:14px;font-weight:700;color:#be123c;margin-left:auto"><i data-lucide="flame" style="width:16px;height:16px"></i> Ofertas del día</span>
+      </div>
+    </div>
+
+    <div style="background:#f1f5f9;border-bottom:1px solid #e9eef5">
+      <div style="max-width:1320px;margin:0 auto;padding:14px 24px;display:flex;align-items:center;gap:8px;font-size:13px;color:#64748b">
+        <a href="#" style="color:#64748b;font-weight:500">Inicio</a>
+        <span style="color:#cbd5e1">/</span>
+        <span style="font-weight:700;color:#0f172a">Tienda</span>
+      </div>
+    </div>
+
+    <div style="max-width:1320px;margin:0 auto;padding:28px 24px 64px;display:flex;gap:28px;align-items:flex-start;flex-wrap:wrap">
+
+      <aside style="flex:1 1 240px;min-width:230px;display:flex;flex-direction:column;gap:16px">
+        <div style="background:#fff;border:1px solid #e9eef5;border-radius:14px;padding:18px">
+          <h3 style="margin:0 0 14px;font-size:14px;font-weight:800;text-transform:uppercase;letter-spacing:.07em;color:#0f172a">Filtrar por categoría</h3>
+          <div style="display:flex;flex-direction:column;gap:2px">
+            <sc-for list="{{ cats }}" as="c" hint-placeholder-count="6">
+              <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 0;border-bottom:1px solid #f4f7fa">
+                <span style="font-size:14px;font-weight:600;color:{{ c.fg }}">{{ c.name }}</span>
+                <span style="font-size:12px;font-weight:600;color:#94a3b8;font-variant-numeric:tabular-nums">{{ c.n }}</span>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+        <div style="background:#fff;border:1px solid #e9eef5;border-radius:14px;padding:18px">
+          <h3 style="margin:0 0 14px;font-size:14px;font-weight:800;text-transform:uppercase;letter-spacing:.07em;color:#0f172a">Precio</h3>
+          <div style="height:5px;border-radius:999px;background:#e9eef5;position:relative;margin:16px 6px 0">
+            <span style="position:absolute;left:8%;right:34%;top:0;height:5px;border-radius:999px;background:#4f46e5"></span>
+            <span style="position:absolute;left:8%;top:-5px;width:15px;height:15px;margin-left:-7px;border-radius:50%;background:#fff;border:3px solid #4f46e5"></span>
+            <span style="position:absolute;right:34%;top:-5px;width:15px;height:15px;margin-right:-8px;border-radius:50%;background:#fff;border:3px solid #4f46e5"></span>
+          </div>
+          <p style="margin:16px 0 0;font-size:13px;font-weight:600;color:#475569">$29.900 — $480.000</p>
+        </div>
+        <div style="background:#0f172b;color:#fff;border-radius:14px;padding:20px">
+          <p style="margin:0;font-size:11px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:#a5b4fc">Solo digital</p>
+          <p style="margin:8px 0 0;font-size:19px;font-weight:800;letter-spacing:-.02em;line-height:1.25">Cursos con acceso inmediato</p>
+          <p style="margin:8px 0 0;font-size:13px;line-height:1.55;color:#8fa0bd">Sin envíos, sin esperas. Recibes el enlace apenas confirmas el pago.</p>
+          <span style="display:inline-flex;align-items:center;gap:7px;margin-top:16px;height:38px;padding:0 16px;border-radius:9px;background:#4f46e5;font-size:13px;font-weight:700">Ver cursos <i data-lucide="arrow-right" style="width:15px;height:15px"></i></span>
+        </div>
+      </aside>
+
+      <div style="flex:999 1 520px;min-width:0">
+        <div style="background:#fff;border:1px solid #e9eef5;border-radius:14px;padding:12px 18px;display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:14px;margin-bottom:20px">
+          <p style="margin:0;font-size:13px;color:#64748b;font-weight:500">Mostrando <strong style="color:#0f172a">1–12</strong> de <strong style="color:#0f172a">1.192</strong> resultados</p>
+          <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">
+            <div style="display:flex;align-items:center;gap:8px;font-size:13px;color:#64748b;font-weight:500">Mostrar
+              <span style="font-weight:800;color:#4f46e5">12</span><span style="color:#cbd5e1">/</span><span>24</span><span style="color:#cbd5e1">/</span><span>48</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;height:38px;padding:0 14px;border:1px solid #e2e8f0;border-radius:9px;font-size:13px;font-weight:600;color:#475569">Ordenar por popularidad <i data-lucide="chevron-down" style="width:14px;height:14px;color:#94a3b8"></i></div>
+          </div>
+        </div>
+
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:20px">
+          <sc-for list="{{ products }}" as="p" hint-placeholder-count="12">
+            <div style="position:relative;background:#fff;border:1px solid #e9eef5;border-radius:14px;overflow:hidden;display:flex;flex-direction:column" style-hover="box-shadow:0 18px 34px -14px rgba(15,23,42,.18);border-color:#dfe5ee">
+              <div style="position:relative;aspect-ratio:1/1;background:#fff;overflow:hidden;display:flex;align-items:center;justify-content:center;border-bottom:1px solid #f4f7fa">
+                <sc-if value="{{ p.hasImg }}" hint-placeholder-val="{{ true }}">
+                  <img src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-src="{{ p.img }}" alt="" style="width:100%;height:100%;object-fit:contain;display:block" />
+                </sc-if>
+                <sc-if value="{{ p.noImg }}" hint-placeholder-val="{{ false }}">
+                  <div style="position:absolute;inset:0"><image-slot id="{{ p.slot }}" shape="rect" fit="contain" placeholder="Arrastra la foto del producto"></image-slot></div>
+                </sc-if>
+                <div style="position:absolute;top:10px;left:10px;display:flex;flex-direction:column;gap:5px;align-items:flex-start">
+                  <span style="padding:3px 9px;border-radius:5px;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;color:#fff;background:{{ p.flagBg }}">{{ p.flag }}</span>
+                  <span style="padding:3px 9px;border-radius:5px;font-size:10px;font-weight:800;color:#fff;background:#be123c">{{ p.off }}</span>
+                </div>
+                <div style="position:absolute;top:10px;right:10px;display:flex;flex-direction:column;gap:6px">
+                  <span style="width:30px;height:30px;border-radius:50%;background:#fff;box-shadow:0 1px 4px rgba(15,23,42,.15);display:flex;align-items:center;justify-content:center;color:#64748b"><i data-lucide="heart" style="width:15px;height:15px"></i></span>
+                  <span style="width:30px;height:30px;border-radius:50%;background:#fff;box-shadow:0 1px 4px rgba(15,23,42,.15);display:flex;align-items:center;justify-content:center;color:#64748b"><i data-lucide="eye" style="width:15px;height:15px"></i></span>
+                  <span style="width:30px;height:30px;border-radius:50%;background:#fff;box-shadow:0 1px 4px rgba(15,23,42,.15);display:flex;align-items:center;justify-content:center;color:#64748b"><i data-lucide="repeat-2" style="width:15px;height:15px"></i></span>
+                </div>
+              </div>
+              <div style="padding:14px;display:flex;flex-direction:column;gap:7px;flex:1">
+                <p style="margin:0;font-size:11px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.07em">{{ p.cat }}</p>
+                <h3 style="margin:0;font-size:14px;font-weight:600;line-height:1.35;color:#0f172a;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden">{{ p.name }}</h3>
+                <div style="display:flex;align-items:center;gap:5px">
+                  <i data-lucide="star" style="width:12px;height:12px;color:#f59e0b;fill:#f59e0b"></i>
+                  <span style="font-size:12px;font-weight:700;color:#475569">{{ p.rating }}</span>
+                  <span style="font-size:12px;color:#94a3b8">({{ p.reviews }})</span>
+                </div>
+                <div style="margin-top:auto;padding-top:8px">
+                  <div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap">
+                    <span style="font-size:13px;color:#94a3b8;text-decoration:line-through;font-weight:600">{{ p.was }}</span>
+                    <span style="font-size:19px;font-weight:800;letter-spacing:-.02em;color:#0f172a">{{ p.price }}</span>
+                  </div>
+                  <p style="margin:5px 0 0;font-size:11px;font-weight:700;color:{{ p.noteFg }};display:flex;align-items:center;gap:5px">{{ p.note }}</p>
+                  <button style="margin-top:11px;width:100%;height:40px;border:none;border-radius:9px;background:#4f46e5;color:#fff;font-family:inherit;font-size:13px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:7px"><i data-lucide="shopping-cart" style="width:15px;height:15px"></i> {{ p.cta }}</button>
+                </div>
+              </div>
+            </div>
+          </sc-for>
+        </div>
+
+        <div style="display:flex;justify-content:center;margin-top:32px">
+          <span style="display:inline-flex;align-items:center;gap:9px;height:48px;padding:0 32px;border-radius:11px;background:#fff;border:1px solid #dfe5ee;font-size:14px;font-weight:700;color:#0f172a">Cargar más productos <i data-lucide="chevron-down" style="width:16px;height:16px"></i></span>
+        </div>
+      </div>
+    </div>
+
+    <div style="background:#fff;border-top:1px solid #e9eef5">
+      <div style="max-width:1320px;margin:0 auto;padding:32px 24px;display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:24px">
+        <div style="display:flex;align-items:center;gap:13px"><span style="width:44px;height:44px;flex:0 0 44px;border-radius:12px;background:#eef0fe;color:#4f46e5;display:flex;align-items:center;justify-content:center"><i data-lucide="truck" style="width:21px;height:21px"></i></span><div><p style="margin:0;font-size:14px;font-weight:700">Envío a todo el país</p><p style="margin:2px 0 0;font-size:13px;color:#64748b">Gratis desde $150.000</p></div></div>
+        <div style="display:flex;align-items:center;gap:13px"><span style="width:44px;height:44px;flex:0 0 44px;border-radius:12px;background:#eef0fe;color:#4f46e5;display:flex;align-items:center;justify-content:center"><i data-lucide="zap" style="width:21px;height:21px"></i></span><div><p style="margin:0;font-size:14px;font-weight:700">Digital inmediato</p><p style="margin:2px 0 0;font-size:13px;color:#64748b">Enlace al confirmar el pago</p></div></div>
+        <div style="display:flex;align-items:center;gap:13px"><span style="width:44px;height:44px;flex:0 0 44px;border-radius:12px;background:#eef0fe;color:#4f46e5;display:flex;align-items:center;justify-content:center"><i data-lucide="shield-check" style="width:21px;height:21px"></i></span><div><p style="margin:0;font-size:14px;font-weight:700">Compra protegida</p><p style="margin:2px 0 0;font-size:13px;color:#64748b">Garantía de 12 meses</p></div></div>
+        <div style="display:flex;align-items:center;gap:13px"><span style="width:44px;height:44px;flex:0 0 44px;border-radius:12px;background:#eef0fe;color:#4f46e5;display:flex;align-items:center;justify-content:center"><i data-lucide="credit-card" style="width:21px;height:21px"></i></span><div><p style="margin:0;font-size:14px;font-weight:700">Paga a cuotas</p><p style="margin:2px 0 0;font-size:13px;color:#64748b">O contra entrega</p></div></div>
+      </div>
+    </div>
+
+    <div style="background:#0f172b;color:#8fa0bd;padding:52px 24px 28px">
+      <div style="max-width:1320px;margin:0 auto;display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:40px">
+        <div>
+          <img src="assets/store-logo-white.svg" alt="Tecnovariedades D&amp;N" style="height:32px;width:auto;display:block" />
+          <p style="margin:14px 0 0;font-size:14px;line-height:1.6;max-width:34ch">Tecnología, hogar y formación digital en un solo lugar. Atención automatizada 24/7 con Sofía IA.</p>
+        </div>
+        <div>
+          <p style="margin:0 0 12px;color:#fff;font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.1em">Conózcanos</p>
+          <div style="display:flex;flex-direction:column;gap:9px;font-size:14px"><a href="#" style="color:#8fa0bd">Sobre nosotros</a><a href="#" style="color:#8fa0bd">Preguntas frecuentes</a><a href="#" style="color:#8fa0bd">Contáctanos</a></div>
+        </div>
+        <div>
+          <p style="margin:0 0 12px;color:#fff;font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.1em">Enlaces útiles</p>
+          <div style="display:flex;flex-direction:column;gap:9px;font-size:14px"><a href="#" style="color:#8fa0bd">Seguimiento de pedido</a><a href="#" style="color:#8fa0bd">Cómo accedo a mi curso</a><a href="#" style="color:#8fa0bd">Devoluciones y garantías</a></div>
+        </div>
+        <div>
+          <p style="margin:0 0 12px;color:#fff;font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.1em">Pagos seguros</p>
+          <div style="display:flex;flex-wrap:wrap;gap:8px">
+            <span style="font-size:12px;font-weight:700;padding:7px 12px;border-radius:8px;background:rgba(255,255,255,.07);color:#c3cddd">MercadoPago</span>
+            <span style="font-size:12px;font-weight:700;padding:7px 12px;border-radius:8px;background:rgba(255,255,255,.07);color:#c3cddd">Nequi</span>
+            <span style="font-size:12px;font-weight:700;padding:7px 12px;border-radius:8px;background:rgba(255,255,255,.07);color:#c3cddd">Contra entrega</span>
+          </div>
+        </div>
+      </div>
+      <div style="max-width:1320px;margin:36px auto 0;padding-top:22px;border-top:1px solid rgba(255,255,255,.08);font-size:13px">© 2026 Tecnovariedades D&amp;N — Todos los derechos reservados</div>
+    </div>
+  </div>
+  </sc-if>
+
+  <sc-if value="{{ isAdmin }}" hint-placeholder-val="{{ false }}">
+  <div style="max-width:1280px;margin:0 auto;padding:32px 24px 64px;display:flex;flex-direction:column;gap:24px;width:100%">
+
+    <div style="display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:20px">
+      <div>
+        <h1 style="margin:0;font-size:28px;font-weight:800;letter-spacing:-.03em">Mi tienda</h1>
+        <p style="margin:6px 0 0;font-size:15px;color:#64748b">Administra catálogo, apariencia y pedidos sin salir de VentasPro.</p>
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:10px">
+        <a href="#" style="display:inline-flex;align-items:center;gap:8px;height:42px;padding:0 18px;border-radius:11px;background:#fff;border:1px solid #e2e8f0;color:#0f172a;font-size:14px;font-weight:600"><i data-lucide="external-link" style="width:16px;height:16px"></i> Abrir tienda</a>
+        <a href="#" style="display:inline-flex;align-items:center;gap:8px;height:42px;padding:0 18px;border-radius:11px;background:#fff;border:1px solid #e2e8f0;color:#0f172a;font-size:14px;font-weight:600"><i data-lucide="palette" style="width:16px;height:16px"></i> Personalizar</a>
+        <a href="#" style="display:inline-flex;align-items:center;gap:8px;height:42px;padding:0 18px;border-radius:11px;background:#4f46e5;color:#fff;font-size:14px;font-weight:700"><i data-lucide="plus" style="width:16px;height:16px"></i> Nuevo producto</a>
+      </div>
+    </div>
+
+    <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;background:#fff;border:1px solid #e2e8f0;border-radius:14px;padding:14px 18px">
+      <span style="display:flex;align-items:center;gap:8px;font-size:13px;font-weight:700;color:#15803d;background:#e8f5ec;padding:6px 12px;border-radius:999px"><span style="width:7px;height:7px;border-radius:50%;background:#16a34a"></span> Publicada</span>
+      <span style="font-family:Menlo,monospace;font-size:13px;color:#475569">ventaspro.app/tienda/tecnovariedades-dn</span>
+      <span style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;color:#4f46e5;margin-left:auto"><i data-lucide="copy" style="width:15px;height:15px"></i> Copiar enlace</span>
+    </div>
+
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px">
+      <div style="background:#fff;border:1px solid #e2e8f0;border-radius:14px;padding:20px">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:12px"><span style="font-size:13px;font-weight:600;color:#64748b">Visitas hoy</span><span style="width:34px;height:34px;flex:0 0 34px;border-radius:10px;background:#eef0fe;color:#4f46e5;display:flex;align-items:center;justify-content:center"><i data-lucide="eye" style="width:17px;height:17px"></i></span></div>
+        <p style="margin:10px 0 0;font-size:28px;font-weight:800;letter-spacing:-.03em;font-variant-numeric:tabular-nums">1.042</p>
+        <p style="margin:4px 0 0;font-size:12px;font-weight:600;color:#15803d">+18% vs. ayer</p>
+      </div>
+      <div style="background:#fff;border:1px solid #e2e8f0;border-radius:14px;padding:20px">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:12px"><span style="font-size:13px;font-weight:600;color:#64748b">Pedidos</span><span style="width:34px;height:34px;flex:0 0 34px;border-radius:10px;background:#eef0fe;color:#4f46e5;display:flex;align-items:center;justify-content:center"><i data-lucide="shopping-bag" style="width:17px;height:17px"></i></span></div>
+        <p style="margin:10px 0 0;font-size:28px;font-weight:800;letter-spacing:-.03em;font-variant-numeric:tabular-nums">184</p>
+        <p style="margin:4px 0 0;font-size:12px;font-weight:600;color:#64748b">23 pendientes de envío</p>
+      </div>
+      <div style="background:#fff;border:1px solid #e2e8f0;border-radius:14px;padding:20px">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:12px"><span style="font-size:13px;font-weight:600;color:#64748b">Ticket promedio</span><span style="width:34px;height:34px;flex:0 0 34px;border-radius:10px;background:#eef0fe;color:#4f46e5;display:flex;align-items:center;justify-content:center"><i data-lucide="dollar-sign" style="width:17px;height:17px"></i></span></div>
+        <p style="margin:10px 0 0;font-size:28px;font-weight:800;letter-spacing:-.03em;font-variant-numeric:tabular-nums">$128.400</p>
+        <p style="margin:4px 0 0;font-size:12px;font-weight:600;color:#15803d">+6% este mes</p>
+      </div>
+      <div style="background:#fff;border:1px solid #e2e8f0;border-radius:14px;padding:20px">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:12px"><span style="font-size:13px;font-weight:600;color:#64748b">Carritos abandonados</span><span style="width:34px;height:34px;flex:0 0 34px;border-radius:10px;background:#fdecec;color:#dc2626;display:flex;align-items:center;justify-content:center"><i data-lucide="shopping-cart" style="width:17px;height:17px"></i></span></div>
+        <p style="margin:10px 0 0;font-size:28px;font-weight:800;letter-spacing:-.03em;font-variant-numeric:tabular-nums">14</p>
+        <p style="margin:4px 0 0;font-size:12px;font-weight:600;color:#4f46e5">Sofía puede recuperarlos →</p>
+      </div>
+    </div>
+
+    <div style="display:flex;flex-wrap:wrap;gap:24px;align-items:flex-start">
+      <div style="flex:1 1 560px;min-width:0;background:#fff;border:1px solid #e2e8f0;border-radius:16px;overflow:hidden">
+        <div style="padding:18px 20px;border-bottom:1px solid #eef1f6;display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px">
+          <div>
+            <h2 style="margin:0;font-size:17px;font-weight:700;letter-spacing:-.02em">Catálogo</h2>
+            <p style="margin:4px 0 0;font-size:13px;color:#64748b">1.192 productos · 14 en borrador</p>
+          </div>
+          <div style="display:flex;align-items:center;gap:10px;min-width:0">
+            <div style="display:flex;align-items:center;gap:8px;height:38px;padding:0 14px;border-radius:10px;background:#f8fafc;border:1px solid #e2e8f0;min-width:0">
+              <i data-lucide="search" style="width:15px;height:15px;color:#94a3b8"></i>
+              <span style="font-size:13px;color:#94a3b8;white-space:nowrap">Buscar producto</span>
+            </div>
+            <span style="width:38px;height:38px;flex:0 0 38px;border-radius:10px;border:1px solid #e2e8f0;display:flex;align-items:center;justify-content:center;color:#475569"><i data-lucide="sliders-horizontal" style="width:16px;height:16px"></i></span>
+          </div>
+        </div>
+        <sc-for list="{{ rows }}" as="r" hint-placeholder-count="5">
+          <div style="display:flex;align-items:center;gap:14px;padding:14px 20px;border-bottom:1px solid #f4f7fa">
+            <span style="width:56px;height:56px;flex:0 0 56px;border-radius:10px;background:#f1f5f9;display:flex;align-items:center;justify-content:center;overflow:hidden">
+              <img src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-src="{{ r.img }}" alt="" style="width:100%;height:100%;object-fit:contain;display:block;padding:3px" />
+            </span>
+            <div style="flex:1;min-width:0">
+              <p style="margin:0;font-size:14px;font-weight:700;letter-spacing:-.01em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ r.name }}</p>
+              <p style="margin:3px 0 0;font-size:12px;color:#94a3b8;font-family:Menlo,monospace">{{ r.sku }}</p>
+            </div>
+            <span style="flex:0 0 auto;font-size:12px;font-weight:700;padding:4px 10px;border-radius:999px;background:#f1f5f9;color:#475569">{{ r.cat }}</span>
+            <span style="flex:0 0 90px;text-align:right;font-size:14px;font-weight:700;font-variant-numeric:tabular-nums">{{ r.price }}</span>
+            <span style="flex:0 0 84px;text-align:right;font-size:13px;font-weight:700;font-variant-numeric:tabular-nums;color:{{ r.stockFg }}">{{ r.stock }}</span>
+            <span style="flex:0 0 auto;font-size:12px;font-weight:700;padding:4px 10px;border-radius:999px;color:{{ r.stFg }};background:{{ r.stBg }}">{{ r.state }}</span>
+            <span style="flex:0 0 32px;display:flex;justify-content:center;color:#94a3b8"><i data-lucide="more-horizontal" style="width:18px;height:18px"></i></span>
+          </div>
+        </sc-for>
+      </div>
+
+      <div style="flex:1 1 320px;min-width:0;display:flex;flex-direction:column;gap:16px">
+        <div style="background:#fff;border:1px solid #e2e8f0;border-radius:16px;padding:20px">
+          <h2 style="margin:0;font-size:17px;font-weight:700;letter-spacing:-.02em">Apariencia</h2>
+          <p style="margin:4px 0 16px;font-size:13px;color:#64748b">Se aplica al instante en la tienda pública.</p>
+          <p style="margin:0 0 8px;font-size:12px;font-weight:700;color:#475569;text-transform:uppercase;letter-spacing:.08em">Color de marca</p>
+          <div style="display:flex;gap:10px;margin-bottom:18px">
+            <span style="width:34px;height:34px;border-radius:10px;background:#4f46e5;box-shadow:0 0 0 2px #fff,0 0 0 4px #4f46e5"></span>
+            <span style="width:34px;height:34px;border-radius:10px;background:#0f766e"></span>
+            <span style="width:34px;height:34px;border-radius:10px;background:#b45309"></span>
+            <span style="width:34px;height:34px;border-radius:10px;background:#be123c"></span>
+            <span style="width:34px;height:34px;border-radius:10px;background:#0f172b"></span>
+          </div>
+          <p style="margin:0 0 8px;font-size:12px;font-weight:700;color:#475569;text-transform:uppercase;letter-spacing:.08em">Plantilla</p>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+            <div style="border:2px solid #4f46e5;border-radius:12px;padding:10px">
+              <div style="height:46px;border-radius:7px;background:repeating-linear-gradient(135deg,#f1f5f9,#f1f5f9 6px,#e7edf5 6px,#e7edf5 12px)"></div>
+              <p style="margin:8px 0 0;font-size:12px;font-weight:700">Escaparate</p>
+            </div>
+            <div style="border:1px solid #e2e8f0;border-radius:12px;padding:10px">
+              <div style="height:46px;border-radius:7px;background:repeating-linear-gradient(135deg,#f1f5f9,#f1f5f9 6px,#e7edf5 6px,#e7edf5 12px)"></div>
+              <p style="margin:8px 0 0;font-size:12px;font-weight:700;color:#64748b">Landing única</p>
+            </div>
+          </div>
+        </div>
+
+        <div style="background:#fff;border:1px solid #e2e8f0;border-radius:16px;padding:20px">
+          <h2 style="margin:0 0 14px;font-size:17px;font-weight:700;letter-spacing:-.02em">Pedidos recientes</h2>
+          <div style="display:flex;flex-direction:column;gap:12px">
+            <div style="display:flex;align-items:center;gap:12px">
+              <div style="width:36px;height:36px;flex:0 0 36px;border-radius:50%;background:#0ea5e9;color:#fff;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700">CA</div>
+              <div style="flex:1;min-width:0"><p style="margin:0;font-size:14px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Camila Restrepo</p><p style="margin:2px 0 0;font-size:12px;color:#94a3b8">Lettering desde Cero</p></div>
+              <span style="font-size:14px;font-weight:700;font-variant-numeric:tabular-nums">$49</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:12px">
+              <div style="width:36px;height:36px;flex:0 0 36px;border-radius:50%;background:#10b981;color:#fff;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700">JU</div>
+              <div style="flex:1;min-width:0"><p style="margin:0;font-size:14px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Julián Mesa</p><p style="margin:2px 0 0;font-size:12px;color:#94a3b8">Pack de los 12 Idiomas</p></div>
+              <span style="font-size:14px;font-weight:700;font-variant-numeric:tabular-nums">$65</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:12px">
+              <div style="width:36px;height:36px;flex:0 0 36px;border-radius:50%;background:#7c5ce6;color:#fff;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700">AN</div>
+              <div style="flex:1;min-width:0"><p style="margin:0;font-size:14px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Andrés Gómez</p><p style="margin:2px 0 0;font-size:12px;color:#94a3b8">Diseño Editorial desde Cero</p></div>
+              <span style="font-size:14px;font-weight:700;font-variant-numeric:tabular-nums">$59</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+  </sc-if>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  state = { mode: 'cliente' };
+  renderVals() {
+    const vals = this.build();
+    vals.products = vals.products.map((p, i) => ({
+      ...p,
+      hasImg: !!p.img,
+      noImg: !p.img,
+      slot: 'prod-' + i
+    }));
+    return vals;
+  }
+  build() {
+    return {
+      isClient: this.state.mode === 'cliente',
+      isAdmin: this.state.mode === 'admin',
+      setClient: () => this.setState({ mode: 'cliente' }),
+      setAdmin: () => this.setState({ mode: 'admin' }),
+      cats: [
+        { name: 'Tecnología', n: 412, fg: '#0f172a' },
+        { name: 'Hogar', n: 288, fg: '#0f172a' },
+        { name: 'Estilo de Vida', n: 196, fg: '#0f172a' },
+        { name: 'Digital', n: 62, fg: '#4f46e5' },
+        { name: 'Oficina', n: 84, fg: '#0f172a' },
+        { name: 'Combos', n: 150, fg: '#0f172a' }
+      ],
+      products: [
+        { img: 'assets/products/43.jpg', name: 'Curso Lettering desde Cero — Nivel Inicial', cat: 'Digital · Diseño', price: '$49.900', was: '$99.900', off: '-50%', rating: '4.96', reviews: 214, flag: 'Digital', flagBg: '#4f46e5', note: 'Acceso inmediato y de por vida', noteFg: '#15803d', cta: 'Comprar ahora' },
+        { img: 'assets/products/42.jpg', name: 'Pack de los 12 Idiomas — Inglés, Chino, Coreano y 9 más', cat: 'Digital · Idiomas', price: '$65.900', was: '$139.900', off: '-53%', rating: '4.88', reviews: 512, flag: 'Top ventas', flagBg: '#be123c', note: 'Acceso inmediato y de por vida', noteFg: '#15803d', cta: 'Comprar ahora' },
+        { img: 'assets/products/45.jpg', name: 'Curso Diseño Editorial desde Cero', cat: 'Digital · Diseño', price: '$59.900', was: '$119.900', off: '-50%', rating: '4.91', reviews: 176, flag: 'Digital', flagBg: '#4f46e5', note: 'Acceso inmediato y de por vida', noteFg: '#15803d', cta: 'Comprar ahora' },
+        { img: 'assets/products/47.jpg', name: 'Curso Crea tu Marca desde Cero', cat: 'Digital · Negocios', price: '$55.900', was: '$110.900', off: '-49%', rating: '5.00', reviews: 93, flag: 'Digital', flagBg: '#4f46e5', note: 'Acceso inmediato y de por vida', noteFg: '#15803d', cta: 'Comprar ahora' },
+        { img: 'assets/products/46.jpg', name: 'Pack +45 Retículas para Logos — PDF, Ai, EPS, SVG', cat: 'Digital · Recursos', price: '$29.900', was: '$59.900', off: '-50%', rating: '4.72', reviews: 341, flag: 'Oferta', flagBg: '#0f766e', note: 'Descarga inmediata', noteFg: '#15803d', cta: 'Comprar ahora' },
+        { img: 'assets/products/44.jpg', name: 'Curso Fotomontaje para Campañas Publicitarias', cat: 'Digital · Diseño', price: '$52.900', was: '$105.900', off: '-50%', rating: '4.84', reviews: 128, flag: 'Digital', flagBg: '#4f46e5', note: 'Acceso inmediato y de por vida', noteFg: '#15803d', cta: 'Comprar ahora' },
+        { img: 'assets/products/41.jpg', name: 'Colección Digital Comics Condorito', cat: 'Digital · Colecciones', price: '$19.900', was: '$45.900', off: '-57%', rating: '4.93', reviews: 604, flag: 'Top ventas', flagBg: '#be123c', note: 'Descarga inmediata', noteFg: '#15803d', cta: 'Comprar ahora' },
+        { img: '', name: 'Audífonos Inalámbricos con Cancelación de Ruido', cat: 'Tecnología · Audífonos', price: '$84.900', was: '$142.000', off: '-40%', rating: '4.99', reviews: 1204, flag: 'Top ventas', flagBg: '#be123c', note: 'Envío en 24 h · Contra entrega', noteFg: '#4f46e5', cta: 'Añadir al carrito' },
+        { img: '', name: 'Smartwatch Sumergible Diseño Redondo', cat: 'Tecnología · Smartwatches', price: '$169.900', was: '$301.000', off: '-44%', rating: '4.96', reviews: 862, flag: 'Oferta', flagBg: '#0f766e', note: 'Envío en 24 h · Contra entrega', noteFg: '#4f46e5', cta: 'Seleccionar opciones' },
+        { img: '', name: 'Proyector Inteligente Android WiFi + Control', cat: 'Hogar · Proyectores', price: '$289.900', was: '$344.000', off: '-16%', rating: '5.00', reviews: 318, flag: 'Oferta', flagBg: '#0f766e', note: 'Envío en 24 h · Contra entrega', noteFg: '#4f46e5', cta: 'Añadir al carrito' },
+        { img: '', name: 'Organizador Multifuncional Zapatero y Perchero', cat: 'Hogar · Organización', price: '$54.900', was: '$84.000', off: '-35%', rating: '5.00', reviews: 447, flag: 'Oferta', flagBg: '#0f766e', note: 'Envío en 24 h · Contra entrega', noteFg: '#4f46e5', cta: 'Seleccionar opciones' },
+        { img: '', name: 'Combo Plancha + Cepillo Secador de Cabello', cat: 'Combos · Cuidado Personal', price: '$84.900', was: '$140.000', off: '-39%', rating: '4.94', reviews: 731, flag: 'Combo', flagBg: '#b45309', note: 'Envío en 24 h · Contra entrega', noteFg: '#4f46e5', cta: 'Añadir al carrito' }
+      ],
+      rows: [
+        { img: 'assets/products/43.jpg', name: 'Curso Lettering desde Cero', sku: 'MT-LET-043', cat: 'Digital', price: '$49.900', stock: '∞', stockFg: '#64748b', state: 'Publicado', stBg: '#e8f5ec', stFg: '#15803d' },
+        { img: '', name: 'Audífonos Inalámbricos con Cancelación de Ruido', sku: 'MT-AUD-118', cat: 'Tecnología', price: '$84.900', stock: '412', stockFg: '#0f172a', state: 'Publicado', stBg: '#e8f5ec', stFg: '#15803d' },
+        { img: '', name: 'Smartwatch Sumergible Diseño Redondo', sku: 'MT-SMW-204', cat: 'Tecnología', price: '$169.900', stock: '0', stockFg: '#dc2626', state: 'Agotado', stBg: '#fdecec', stFg: '#b91c1c' },
+        { img: 'assets/products/42.jpg', name: 'Pack de los 12 Idiomas', sku: 'MT-IDI-042', cat: 'Digital', price: '$65.900', stock: '∞', stockFg: '#64748b', state: 'Publicado', stBg: '#e8f5ec', stFg: '#15803d' },
+        { img: '', name: 'Proyector Inteligente Android WiFi + Control', sku: 'MT-PRY-077', cat: 'Hogar', price: '$289.900', stock: '38', stockFg: '#0f172a', state: 'Publicado', stBg: '#e8f5ec', stFg: '#15803d' },
+        { img: '', name: 'Combo Plancha + Cepillo Secador de Cabello', sku: 'MT-CMB-311', cat: 'Combos', price: '$84.900', stock: '9', stockFg: '#b45309', state: 'Borrador', stBg: '#f1f5f9', stFg: '#475569' }
+      ]
+    };
+  }
+  componentDidMount() { this.icons(); this.sync(); this.imgs(); }
+  componentDidUpdate() { this.icons(); this.sync(); this.imgs(); }
+  imgs() {
+    document.querySelectorAll('img[data-src]').forEach(el => {
+      const s = el.getAttribute('data-src');
+      if (s && !s.includes('{{') && el.getAttribute('src') !== s) el.setAttribute('src', s);
+    });
+  }
+  sync() {
+    document.querySelectorAll('[data-mode-btn]').forEach(b => {
+      const active = b.getAttribute('data-mode-btn') === this.state.mode;
+      b.style.background = active ? '#4f46e5' : 'transparent';
+      b.style.color = active ? '#fff' : '#c3cddd';
+    });
+  }
+  icons() {
+    const go = () => { if (window.lucide) window.lucide.createIcons(); else setTimeout(go, 120); };
+    go();
+  }
+}
+</script>
+</body>
+</html>

@@ -5,6 +5,9 @@ interface Tenant {
   name: string;
   email: string;
   plan: string;
+  slug?: string;
+  brandName?: string;
+  isAdmin?: boolean;
 }
 
 interface UseAuthReturn {

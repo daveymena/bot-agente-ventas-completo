@@ -13,6 +13,7 @@ import {
 } from "@workspace/db";
 import { logger } from "./logger";
 import { runAgentReply } from "./agent";
+import { toEmojiStyle } from "./conversation-engine";
 import { createAIClient, getProviderConfig } from "@workspace/integrations-openai-ai-server";
 import { getMessageHandler } from "./services/message-handler";
 import { tenantManager, addTenantToInsert, type TenantContext } from "./tenantManager";
@@ -131,45 +132,85 @@ function formatPriceForWa(price: number, currency: string) {
   }
 }
 
-function getProductImage(name: string): string {
-  const nameLower = name.toLowerCase();
-  const genericImage = "https://images.unsplash.com/photo-1499750310107-5fef28a66643?w=800";
-  
-  const imageMap: Record<string, string> = {
-    "piano": "https://images.unsplash.com/photo-1552422535-c45813c61732?w=800",
-    "guitarra": "https://images.unsplash.com/photo-1510915361894-db8b60106cb1?w=800",
-    "excel": "https://images.unsplash.com/photo-1460925895917-afdab827c52f?w=800",
-    "diseño": "https://images.unsplash.com/photo-1561070791-2526d30994b5?w=800",
-    "trading": "https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?w=800",
-    "hacking": "https://images.unsplash.com/photo-1550751827-4bd374c3f58b?w=800",
-    "marketing": "https://images.unsplash.com/photo-1460925895917-afdab827c52f?w=800",
-    "fitness": "https://images.unsplash.com/photo-1517836357463-d25dfeac3438?w=800",
-    "programación": "https://images.unsplash.com/photo-1461749280684-dccba630e2f6?w=800",
-    "ingles": "https://images.unsplash.com/photo-1456513080510-7bf3a84b82f8?w=800",
-    "idiomas": "https://images.unsplash.com/photo-1456513080510-7bf3a84b82f8?w=800",
-  };
+/**
+ * Carga los bytes de la imagen REAL de un producto.
+ *
+ * Antes esto se resolvía mal en producción y el bot terminaba mandando una
+ * foto de stock de Unsplash elegida por palabra clave del nombre — es decir,
+ * al cliente se le enseñaba una imagen que NO era el producto que compraba.
+ * Dos errores se sumaban:
+ *
+ *  1. La ruta local se buscaba en "<cwd>/../ventas-pro/public", pero en el
+ *     contenedor el frontend compilado vive en
+ *     /app/artifacts/ventas-pro/dist/public.
+ *  2. Si eso fallaba, se pedía por HTTP a http://localhost:5173 — el puerto
+ *     del servidor de desarrollo de Vite, que en producción no existe.
+ *
+ * Como 79 de 83 productos guardan la imagen con ruta relativa
+ * (/images/products/41.jpg), fallaban los dos caminos y SIEMPRE se caía al
+ * stock. Ahora se prueban las rutas reales del contenedor y, como último
+ * recurso, el propio dominio público de la app (APP_URL), que sí sirve
+ * /images y /uploads.
+ *
+ * Devuelve null si no se pudo obtener: quien llama debe mandar solo texto,
+ * nunca una imagen sustituta.
+ */
+async function loadProductImage(imageUrl: string): Promise<Buffer | null> {
+  if (!imageUrl) return null;
 
-  for (const [key, url] of Object.entries(imageMap)) {
-    if (nameLower.includes(key)) return url;
+  const axios = (await import("axios")).default;
+
+  // URL absoluta: se descarga tal cual.
+  if (/^https?:\/\//i.test(imageUrl)) {
+    try {
+      const r = await axios.get(imageUrl, { responseType: "arraybuffer", timeout: 8000 });
+      return Buffer.from(r.data);
+    } catch {
+      return null;
+    }
   }
 
-  // Try category-based fallback
-  const categoryImages: Record<string, string> = {
-    "música": "https://images.unsplash.com/photo-1511379938547-c1f69419868d?w=800",
-    "musica": "https://images.unsplash.com/photo-1511379938547-c1f69419868d?w=800",
-    "tecnología": "https://images.unsplash.com/photo-1518770660439-4636190af475?w=800",
-    "tecnologia": "https://images.unsplash.com/photo-1518770660439-4636190af475?w=800",
-    "negocios": "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=800",
-    "salud": "https://images.unsplash.com/photo-1544367567-0f2fcb009e0b?w=800",
-    "fitness": "https://images.unsplash.com/photo-1517836357463-d25dfeac3438?w=800",
-    "idiomas": "https://images.unsplash.com/photo-1456513080510-7bf3a84b82f8?w=800",
-  };
+  // Ruta relativa (/images/products/41.jpg, /uploads/products/123.jpg):
+  // primero desde disco, que es instantáneo y no depende de la red.
+  const path = await import("path");
+  const fs = await import("fs");
+  const rel = imageUrl.replace(/^\/+/, "");
 
-  for (const [key, url] of Object.entries(categoryImages)) {
-    if (nameLower.includes(key)) return url;
+  const candidatos = [
+    // Volumen de subidas (IMAGE_STORE_DIR monta /uploads)
+    process.env.IMAGE_STORE_DIR ? path.resolve(process.env.IMAGE_STORE_DIR, rel.replace(/^uploads\//, "")) : null,
+    // Frontend compilado dentro del contenedor
+    path.resolve("/app/artifacts/ventas-pro/dist/public", rel),
+    // Desarrollo local
+    path.resolve(process.cwd(), "../ventas-pro/dist/public", rel),
+    path.resolve(process.cwd(), "../ventas-pro/public", rel),
+    path.resolve(process.cwd(), rel),
+  ].filter(Boolean) as string[];
+
+  for (const c of candidatos) {
+    try {
+      if (fs.existsSync(c)) return fs.readFileSync(c);
+    } catch {
+      /* siguiente candidato */
+    }
   }
 
-  return genericImage;
+  // Último recurso: pedirla al propio dominio público de la app, que sirve
+  // /images y /uploads. Sustituye al viejo localhost:5173.
+  const appUrl = process.env.APP_URL || "";
+  if (/^https?:\/\//i.test(appUrl)) {
+    try {
+      const r = await axios.get(`${appUrl.replace(/\/+$/, "")}/${rel}`, {
+        responseType: "arraybuffer",
+        timeout: 8000,
+      });
+      return Buffer.from(r.data);
+    } catch {
+      /* no se pudo */
+    }
+  }
+
+  return null;
 }
 
 function buildProductCaption(p: typeof products.$inferSelect, categoryName: string | null, dynamicLinks?: any) {
@@ -280,20 +321,26 @@ export type WhatsAppPublicStatus = {
   lastError: string | null;
 };
 
-// AUTH_DIR: always relative to this source file's location (artifacts/api-server/)
-// Using import.meta.url ensures it works regardless of cwd
-const _moduleDir = path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1'));
-const AUTH_DIR = path.resolve(_moduleDir, "..", ".baileys-auth");
+// AUTH_DIR: dentro del volumen persistente /app/data para que sobreviva deploys
+// EasyPanel monta ./data:/app/data — .baileys-auth queda en /app/data/.baileys-auth
+const AUTH_DIR = process.env.WA_AUTH_DIR
+  ? path.resolve(process.env.WA_AUTH_DIR)
+  : path.resolve(process.cwd(), "data", ".baileys-auth");
 
 export class WhatsAppManager {
-  private state: WAState = "disconnected";
-  private qrDataUrl: string | null = null;
-  private phoneNumber: string | null = null;
-  private connectedAt: string | null = null;
-  private lastError: string | null = null;
-  private sock: any = null;
-  private starting = false;
-  private currentTenant: TenantContext;
+  // protected (no private): WhatsAppByTenant hereda de esta clase y necesita
+  // tocar estos campos directamente en su propio start()/stop() para aislar
+  // la sesión por tenant.
+  protected state: WAState = "disconnected";
+  protected qrDataUrl: string | null = null;
+  protected phoneNumber: string | null = null;
+  protected connectedAt: string | null = null;
+  protected lastError: string | null = null;
+  protected sock: any = null;
+  protected starting = false;
+  protected hadQrInThisSession = false;
+  protected _usePairingCode = false;
+  protected currentTenant: TenantContext;
 
   constructor(tenant?: TenantContext) {
     this.currentTenant = tenant || tenantManager.getDefaultTenant();
@@ -327,10 +374,10 @@ export class WhatsAppManager {
     return this.state === "connected";
   }
 
-  private reconnectAttempts = 0;
-  private readonly MAX_RECONNECT_ATTEMPTS = 5;
+  protected reconnectAttempts = 0;
+  protected readonly MAX_RECONNECT_ATTEMPTS = 5;
 
-  async stop(): Promise<WhatsAppPublicStatus> {
+  async stop(keepAuth: boolean = true): Promise<WhatsAppPublicStatus> {
     try {
       if (this.sock) {
         this.sock.ev.removeAllListeners();
@@ -342,14 +389,16 @@ export class WhatsAppManager {
       logger.warn({ err: e }, "[WhatsApp] Error during stop");
     }
     
-    // Borrar carpeta de autenticación para forzar nuevo QR
-    try {
-      if (existsSync(AUTH_DIR)) {
-        rmSync(AUTH_DIR, { recursive: true, force: true });
-        logger.info("[WhatsApp] Auth directory deleted");
+    // Solo borrar auth cuando se pide explícitamente (reset-session)
+    if (!keepAuth) {
+      try {
+        if (existsSync(AUTH_DIR)) {
+          rmSync(AUTH_DIR, { recursive: true, force: true });
+          logger.info("[WhatsApp] Auth directory deleted");
+        }
+      } catch (e) {
+        logger.warn({ err: e }, "[WhatsApp] Error deleting auth directory");
       }
-    } catch (e) {
-      logger.warn({ err: e }, "[WhatsApp] Error deleting auth directory");
     }
     
     this.state = "disconnected";
@@ -358,23 +407,93 @@ export class WhatsAppManager {
     this.connectedAt = null;
     this.starting = false;
     this.lastError = null;
-    logger.info("[WhatsApp] Stopped and auth cleared");
+    this.hadQrInThisSession = false;
+    logger.info({ keepAuth }, "[WhatsApp] Stopped");
     return this.getStatus();
   }
 
-   async start() {
-     if (this.starting) {
-       console.log("⚠️ [START] Ya hay un proceso de inicio en curso");
-       return this.getStatus();
-     }
-     if (this.state === "connected" || this.state === "qr") {
-       console.log(`ℹ️ [START] Estado actual: ${this.state} - No iniciando nueva conexión`);
-       return this.getStatus();
-     }
-     
-     this.starting = true;
-     this.state = "connecting";
-     console.log("🔄 [START] Iniciando conexión WhatsApp...");
+   async requestPairingCode(phoneNumber: string): Promise<string> {
+      if (!this.sock) throw new Error("WhatsApp no está iniciado. Llama a start() primero.");
+      
+      let lastError = null;
+      // Reintentar hasta 5 veces (esperando a que el socket WS termine de conectar)
+      for (let i = 0; i < 5; i++) {
+        try {
+          // Esperar progresivamente (1s, 2s, etc) para asegurar que Noise Handshake terminó
+          await new Promise(r => setTimeout(r, 1500 + (i * 1000)));
+          
+          const code = await this.sock.requestPairingCode(phoneNumber);
+          const formatted = code.match(/.{1,4}/g)?.join("-") || code;
+          logger.info({ phoneNumber }, "[WhatsApp] Pairing code generated");
+          return formatted;
+        } catch (e: any) {
+          lastError = e;
+          console.warn(`⚠️ [WhatsApp] Intento ${i+1} de obtener PIN falló:`, e.message);
+          // Si el error no es de conexión o timeout, lanzar inmediatamente
+          if (!e.message?.includes("Connection Closed") && !e.message?.includes("Timeout")) {
+             throw e;
+          }
+        }
+      }
+      throw lastError || new Error("No se pudo obtener el código después de varios intentos");
+    }
+
+  // Igual que start() pero marca el socket para modo pairing-code en vez de QR.
+  // Baileys REQUIERE que usePairingCode:true esté en makeWASocket() desde el
+  // primer momento — no se puede cambiar en caliente. Por eso tenemos dos
+  // métodos separados en vez de un paramétro opcional en start().
+  async startWithPairing() {
+    this._usePairingCode = true;
+    this.starting = true;
+    this.state = "connecting";
+    console.log("🔄 [PAIRING] Iniciando sesión en modo pairing code...");
+
+    try {
+      // Esperar a que start() complete
+      const result = await this.start();
+
+      // Esperar un poco más para asegurar que el handshake Noise terminó
+      // antes de permitir requestPairingCode()
+      await new Promise(r => setTimeout(r, 3000));
+
+      console.log("✅ [PAIRING] Socket listo para pairing code");
+      return result;
+    } catch (e) {
+      console.error("❌ [PAIRING] Error iniciando pairing:", e);
+      this.state = "error";
+      this.lastError = `Error en pairing: ${e instanceof Error ? e.message : String(e)}`;
+      throw e;
+    } finally {
+      this._usePairingCode = false;
+      this.starting = false;
+    }
+  }
+
+  async start() {
+      if (this.starting) {
+        console.log("⚠️ [START] Ya hay un proceso de inicio en curso");
+        return this.getStatus();
+      }
+      if (this.state === "connected" || this.state === "qr") {
+        console.log(`ℹ️ [START] Estado actual: ${this.state} - No iniciando nueva conexión`);
+        return this.getStatus();
+      }
+
+      this.starting = true;
+      this.state = "connecting";
+      console.log("🔄 [START] Iniciando conexión WhatsApp...");
+
+      // Timeout de 25 segundos — si no hay evento de conexión en este tiempo,
+      // asumimos que la red/WhatsApp no está accesible y marcamos error.
+      const startTimeout = setTimeout(() => {
+        if (this.state === "connecting" && this.starting) {
+          this.starting = false;
+          this.state = "disconnected";
+          this.lastError = "Timeout: No se pudo conectar con WhatsApp en 25 segundos. Revisa tu conexión a internet o que web.whatsapp.com esté accesible.";
+          console.error("❌ [TIMEOUT] La conexión a WhatsApp tardó demasiado tiempo");
+          logger.error("[WhatsApp] Connection timeout - suspected network issue");
+        }
+      }, 25000);
 
      try {
        if (!existsSync(AUTH_DIR)) {
@@ -385,11 +504,29 @@ export class WhatsAppManager {
        const baileys = await import("@whiskeysockets/baileys");
        const makeWASocket = (baileys as any).default ?? (baileys as any).makeWASocket;
        const { useMultiFileAuthState, DisconnectReason } = baileys as any;
-       
+
        console.log("✅ [IMPORT] Módulos de Baileys importados correctamente");
 
        const { state: authState, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
        console.log("✅ [AUTH] Estado de autenticación cargado");
+
+       // fetchLatestBaileysVersion() estaba importado pero nunca se llamaba:
+       // el socket se creaba SIN `version`, así que usaba el WA_VERSION
+       // hardcodeado dentro del paquete al momento de compilarse. Cuando
+       // WhatsApp rota su versión de protocolo (pasa seguido) esa versión
+       // vieja hace que el servidor cierre la conexión de inmediato -- antes
+       // de emitir el evento "qr" -- lo que se veía como "no se pudo
+       // conectar, revisa que el servidor tenga acceso a whatsapp.com"
+       // aunque la red funcionara perfecto. Si falla la consulta, se sigue
+       // sin version (comportamiento anterior) en vez de romper el arranque.
+       let waVersion: [number, number, number] | undefined;
+       try {
+         const { version } = await fetchLatestBaileysVersion();
+         waVersion = version;
+         console.log(`✅ [VERSION] Baileys usará WA v${version.join(".")}`);
+       } catch (e) {
+         console.warn("⚠️ [VERSION] No se pudo obtener la versión más reciente de WhatsApp, usando la del paquete:", e instanceof Error ? e.message : e);
+       }
 
       const sock = makeWASocket({
          auth: authState,
@@ -397,9 +534,11 @@ export class WhatsAppManager {
          syncFullHistory: false,
          markOnlineOnConnect: true,
          generateHighQualityLinkPreview: false,
-          // WhatsApp rechaza el protocolo WEB antiguo (error 405).
-          // Se requiere versión actualizada (rc.13) para nuevo pairing.
-          // version: omitido = baileys usa la correcta automáticamente
+         // usePairingCode DEBE estar en el constructor para que Baileys inicie
+         // el handshake Noise en modo pairing y no en modo QR. Sin esta flag
+         // requestPairingCode() falla con "Connection Failure" del noise-handler.
+         ...(this._usePairingCode ? { usePairingCode: true } : {}),
+         ...(waVersion ? { version: waVersion } : {}),
        });
        this.sock = sock;
        console.log("✅ [INIT] Socket WhatsApp inicializado correctamente");
@@ -407,11 +546,13 @@ export class WhatsAppManager {
        sock.ev.on("creds.update", saveCreds);
 
       sock.ev.on("connection.update", async (update: any) => {
+         clearTimeout(startTimeout);
          const { connection, lastDisconnect, qr } = update;
-         
-         if (qr) {
-           try {
-             this.qrDataUrl = await QRCode.toDataURL(qr, { width: 320, margin: 1 });
+
+          if (qr) {
+            this.hadQrInThisSession = true;
+            try {
+              this.qrDataUrl = await QRCode.toDataURL(qr, { width: 320, margin: 1 });
              this.state = "qr";
              logger.info("[WhatsApp] QR code generated successfully");
              console.log("✅ [QR] Código QR generado exitosamente - Longitud: ", this.qrDataUrl?.length);
@@ -422,7 +563,7 @@ export class WhatsAppManager {
              this.lastError = `Error generating QR: ${err instanceof Error ? err.message : String(err)}`;
            }
          }
-        
+
          if (connection === "open") {
            this.state = "connected";
            this.qrDataUrl = null;
@@ -434,25 +575,31 @@ export class WhatsAppManager {
            logger.info({ phone: this.phoneNumber }, "[WhatsApp] Connected");
            console.log(`✅ [CONNECTED] WhatsApp conectado exitosamente - Teléfono: ${this.phoneNumber}`);
          }
-        
+
          if (connection === "close") {
            const code = (lastDisconnect?.error as any)?.output?.statusCode;
            const loggedOut = code === DisconnectReason.loggedOut;
            const errorMessage = (lastDisconnect?.error as any)?.message || 'Unknown error';
-           
+
            console.log(`⚠️ [CONNECTION] Desconexión detectada - Código: ${code}, LoggedOut: ${loggedOut}, Error: ${errorMessage}`);
-           
+
            this.sock = null;
            this.starting = false;
            this.qrDataUrl = null;
-           
-           if (loggedOut) {
-             this.reconnectAttempts = 0;
-             this.state = "disconnected";
-             this.lastError = "Sesión cerrada (LoggedOut)";
-             logger.info("[WhatsApp] Logged out");
-             console.log("❌ [AUTH] Usuario deslogueado - Se requiere nuevo QR");
-           } else if (this.reconnectAttempts < this.MAX_RECONNECT_ATTEMPTS) {
+
+            if (loggedOut) {
+              this.reconnectAttempts = 0;
+              this.state = "disconnected";
+              this.lastError = "Sesión cerrada (LoggedOut)";
+              logger.info("[WhatsApp] Logged out");
+              console.log("❌ [AUTH] Usuario deslogueado - Se requiere nuevo QR");
+            } else if (!this.hadQrInThisSession) {
+              this.reconnectAttempts = 0;
+              this.state = "disconnected";
+              this.lastError = "No se pudo conectar con WhatsApp. Revisa que el servidor tenga acceso a web.whatsapp.com (WebSocket).";
+              logger.error("[WhatsApp] Connection closed before QR was generated - network issue");
+              console.log("❌ [NETWORK] No se pudo conectar con WhatsApp - posible bloqueo de red");
+            } else if (this.reconnectAttempts < this.MAX_RECONNECT_ATTEMPTS) {
              this.reconnectAttempts++;
              const delay = Math.min(3000 * this.reconnectAttempts, 30000); // max 30s
              this.state = "error";
@@ -470,14 +617,38 @@ export class WhatsAppManager {
          }
       });
 
-      sock.ev.on("messages.upsert", async (upsert: any) => {
-        console.log("📨 Evento messages.upsert recibido:", JSON.stringify({ 
-          type: upsert.type, 
+      sock.ev.on("messages.upsert", (upsert: any) => this.handleIncomingMessages(upsert));
+       this.starting = false;
+        return this.getStatus();
+      } catch (e: any) {
+        clearTimeout(startTimeout);
+        this.starting = false;
+        this.state = "error";
+        this.lastError = `Error al conectar: ${e instanceof Error ? e.message : String(e)}`;
+        logger.error({ err: e }, "Failed to start WhatsApp");
+        console.error("❌ [ERROR] Error fatal al iniciar WhatsApp:", e instanceof Error ? e.message : String(e));
+        console.error("Stack:", e instanceof Error ? e.stack : "No stack available");
+        return this.getStatus();
+      }
+    }
+
+  /**
+   * Procesa el evento "messages.upsert" de Baileys: extrae el texto del
+   * mensaje entrante y lo encola en el MessageHandler para que el
+   * AgentOrchestrator lo procese. Extraído a método propio (antes vivía
+   * inline dentro de start()) para que WhatsAppByTenant pueda reusarlo sin
+   * duplicar 250 líneas -- antes intentaba delegar a un método
+   * "handleIncoming" que nunca existió, así que los mensajes entrantes de
+   * TODAS las instancias multi-tenant se perdían en silencio.
+   */
+  protected async handleIncomingMessages(upsert: any): Promise<void> {
+        console.log("📨 Evento messages.upsert recibido:", JSON.stringify({
+          type: upsert.type,
           count: upsert.messages?.length,
           firstMsgType: upsert.messages?.[0] ? Object.keys(upsert.messages[0].message || {})[0] : null,
           allMsgTypes: upsert.messages?.map((m: any) => Object.keys(m.message || {})).flat()
         }));
-        
+
         try {
           if (upsert.type !== "notify") {
             console.log("⏭️ Ignorando evento tipo:", upsert.type);
@@ -696,14 +867,26 @@ export class WhatsAppManager {
             }
             
              console.log("✅ Texto extraído:", text.substring(0, 50));
-             
+
+             // Si el mensaje es del admin respondiendo una sugerencia del
+             // agente de anuncios ("sí 45" / "no 45"), se resuelve acá y NO
+             // pasa al bot de ventas -- son cosas distintas aunque lleguen
+             // por el mismo número de WhatsApp.
+             try {
+               const { handleAdminReply } = await import("./ad-growth-agent");
+               const handled = await handleAdminReply(phone, text.trim());
+               if (handled) continue;
+             } catch (err) {
+               console.error("[AdGrowthAgent] Error procesando respuesta del admin:", err);
+             }
+
              // ✅ DELEGADO AL MESSAGE HANDLER + ORCHESTRATOR
              // El MessageHandler encola el mensaje y el AgentOrchestrator lo procesa
              // Esto evita respuestas duplicadas al procesar por una sola ruta
              const messageHandler = getMessageHandler();
              try {
                await messageHandler.handleIncomingMessage({
-                 tenantId: "1",
+                 tenantId: String(this.currentTenant.id),
                  remoteJid: originalJid,
                  fromMe: false,
                  messageId: msg.key.id || `msg_${Date.now()}`,
@@ -719,23 +902,14 @@ export class WhatsAppManager {
         } catch (e) {
           logger.error({ err: e }, "Error processing incoming message");
         }
-      });
-       this.starting = false;
-        return this.getStatus();
-      } catch (e: any) {
-        this.starting = false;
-        this.state = "error";
-        this.lastError = `Error al conectar: ${e instanceof Error ? e.message : String(e)}`;
-        logger.error({ err: e }, "Failed to start WhatsApp");
-        console.error("❌ [ERROR] Error fatal al iniciar WhatsApp:", e instanceof Error ? e.message : String(e));
-        console.error("Stack:", e instanceof Error ? e.stack : "No stack available");
-        return this.getStatus();
-      }
-    }
+  }
 
   async sendText(phone: string, text: string, originalJid?: string) {
     if (!this.sock || this.state !== "connected") throw new Error("WhatsApp no conectado");
     const targetJid = originalJid || `${phone}@s.whatsapp.net`;
+
+    // Estilo emoji: sin asteriscos ni viñetas de punto (más amigable/pro)
+    text = toEmojiStyle(text);
 
     // Simular lectura + escritura
     await sleep(READ_DELAY_MS);
@@ -747,7 +921,7 @@ export class WhatsAppManager {
     trackWhatsAppCost(this.currentTenant.id.toString());
   }
 
-  async sendImage(phone: string, imageUrl: string, caption: string, originalJid?: string, fallbackImageUrl?: string) {
+  async sendImage(phone: string, imageUrl: string, caption: string, originalJid?: string) {
     if (!this.sock || this.state !== "connected") throw new Error("WhatsApp no conectado");
     const jid = originalJid || `${phone}@s.whatsapp.net`;
 
@@ -758,44 +932,23 @@ export class WhatsAppManager {
     await this.sock.sendPresenceUpdate("paused", jid);
 
     try {
-      let isLocalFile = false;
-      let localPath = "";
-      
-      if (imageUrl.startsWith('/')) {
-        const path = await import("path");
-        const fs = await import("fs");
-        localPath = path.join(process.cwd(), "..", "ventas-pro", "public", imageUrl);
-        if (fs.existsSync(localPath)) {
-          isLocalFile = true;
-        }
-      }
-
-      if (isLocalFile) {
-        const fs = await import("fs");
-        const buffer = fs.readFileSync(localPath);
-        await this.sock.sendMessage(jid, { image: buffer, caption });
-      } else {
-        const fetchUrl = imageUrl.startsWith('/') ? `http://localhost:5173${imageUrl}` : imageUrl;
-        const axios = (await import("axios")).default;
-        const response = await axios.get(fetchUrl, { responseType: 'arraybuffer', timeout: 8000 });
-        await this.sock.sendMessage(jid, { image: Buffer.from(response.data), caption });
-      }
+      const buffer = await loadProductImage(imageUrl);
+      if (!buffer) throw new Error(`no se pudo obtener la imagen (${imageUrl})`);
+      await this.sock.sendMessage(jid, { image: buffer, caption });
     } catch (e: any) {
-      console.error(`[WhatsApp] Error procesando imagen ${imageUrl}: ${e.message}. Intentando fallback...`);
-      try {
-        if (fallbackImageUrl && fallbackImageUrl !== imageUrl) {
-          const axios = (await import("axios")).default;
-          const fallbackRes = await axios.get(fallbackImageUrl, { responseType: 'arraybuffer', timeout: 5000 });
-          await this.sock.sendMessage(jid, { image: Buffer.from(fallbackRes.data), caption });
-        } else {
-          throw new Error("No hay fallback image disponible o es igual a la original");
-        }
-      } catch (fallbackErr: any) {
-        console.error(`[WhatsApp] Error con fallback de imagen: ${fallbackErr.message}. Enviando solo texto...`);
-        await this.sock.sendMessage(jid, { text: caption }).catch((err: any) => {
-          console.error(`[WhatsApp] Error fatal enviando texto fallback: ${err.message}`);
-        });
-      }
+      // NO se manda una imagen "parecida" cuando falla la real.
+      //
+      // Antes se caía a getProductImage(), que devuelve fotos de stock de
+      // Unsplash elegidas por palabra clave del nombre. En una conversación
+      // de venta eso significa enseñarle al cliente una foto que NO es el
+      // producto que está comprando: peor que no mandar nada, porque induce
+      // a error sobre lo que recibe. Se manda el texto solo, que es honesto.
+      console.error(
+        `[WhatsApp] Imagen no disponible (${imageUrl}): ${e.message}. Se envía solo el texto para no mostrar una foto que no es del producto.`,
+      );
+      await this.sock.sendMessage(jid, { text: caption }).catch((err: any) => {
+        console.error(`[WhatsApp] Error fatal enviando texto: ${err.message}`);
+      });
     }
     trackWhatsAppCost(this.currentTenant.id.toString());
   }
@@ -844,11 +997,12 @@ export class WhatsAppManager {
           const caption = isPaymentOnly
             ? buildPaymentOnlyCaption(product, dynamicLinks)
             : buildProductCaption(product, null, dynamicLinks);
-          const fallbackImage = getProductImage(product.name || "");
-          const imageToUse = product.imageUrl || fallbackImage;
-          
-          console.log(`🖼️ [WA-CARD] Enviando imagen con caption - URL: ${imageToUse?.substring(0, 50)}..., PaymentOnly: ${isPaymentOnly}, Caption: ${caption.length} caracteres - ${timestamp}`);
-          await this.sendImage(phone, imageToUse, caption, originalJid, fallbackImage);
+          // Solo la imagen REAL del producto. Si no la tiene, sendImage manda
+          // el texto solo — nunca una foto de otro producto (ver sendImage).
+          const imageToUse = product.imageUrl || "";
+
+          console.log(`🖼️ [WA-CARD] Enviando imagen con caption - URL: ${imageToUse?.substring(0, 50) || "(sin imagen)"}, PaymentOnly: ${isPaymentOnly}, Caption: ${caption.length} caracteres - ${timestamp}`);
+          await this.sendImage(phone, imageToUse, caption, originalJid);
           console.log(`✅ [WA-CARD] Tarjeta enviada exitosamente para ${product.name} - ${timestamp}`);
         } catch (err: any) {
           console.log(`❌ [WA-CARD] Error enviando tarjeta para ${product.name}: ${err.message} - ${timestamp}`);

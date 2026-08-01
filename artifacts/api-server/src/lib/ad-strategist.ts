@@ -2,6 +2,8 @@ import { logger } from "./logger";
 import { db, products, productCategories, facebookDrafts } from "@workspace/db";
 import { eq, desc } from "drizzle-orm";
 import { tenantManager, type TenantContext } from "./tenantManager";
+import { resolveInterestIds } from "./facebook";
+import { generateProductImage } from "./ai-product-image";
 
 const FB_GRAPH_URL = "https://graph.facebook.com/v21.0";
 
@@ -125,6 +127,22 @@ const WINNING_STRATEGIES_BY_NICHE: Record<string, AdStrategy> = {
     interests: ["Música", "Producción musical", "FL Studio", "Ableton", "Composición", "Beat making"],
     budget: 10000,
   },
+  // Aprender a TOCAR un instrumento no es lo mismo que producir audio: el
+  // bucket musica_audio vendía FL Studio y masterización para un curso de
+  // piano, prometiendo algo que el producto no entrega.
+  instrumentos_musicales: {
+    niche: "Instrumentos Musicales y Canto",
+    hook: "Aprende a tocar desde cero, a tu ritmo y desde casa. Clases en video paso a paso, sin profesor ni horarios.",
+    angle: "Curso grabado de música: lecciones progresivas de cero a avanzado, partituras y ejercicios incluidos. Practica cuando quieras, repite la lección las veces que necesites.",
+    emotionalTrigger: "El sueño pendiente de tocar un instrumento + libertad de aprender sin horarios",
+    ctaType: "SHOP_NOW",
+    imageStyle: "Persona real tocando en casa, luz cálida, ambiente cercano y alcanzable",
+    imagePrompt: "Person playing piano at home in warm natural light, sheet music on stand, cozy living room, authentic candid moment, learning at own pace",
+    ageMin: 18,
+    ageMax: 60,
+    interests: ["Música", "Piano", "Guitarra", "Canto", "Instrumentos musicales", "Aprender música"],
+    budget: 10000,
+  },
   tecnologia_it: {
     niche: "Tecnología y Reparación",
     hook: "Cursos de reparación y tecnología descargables. Aprende a reparar celulares, computadoras y consolas desde cero. Material práctico, sin teoría aburrida.",
@@ -214,7 +232,13 @@ export class AdStrategist {
       return { ...WINNING_STRATEGIES_BY_NICHE.fotografia_edicion };
     }
 
-    if (category.includes("música") || category.includes("musica") || name.includes("guitarra") || name.includes("dj") || name.includes("producción musical") || name.includes("produccion musical") || name.includes("música") || name.includes("musica") || name.includes("piano") || name.includes("audio") || name.includes("canto")) {
+    // Instrumentos ANTES que producción: si no, "CURSO DE PIANO" caía en el
+    // bucket de productores y el anuncio ofrecía FL Studio y masterización.
+    if (name.includes("piano") || name.includes("guitarra") || name.includes("canto") || name.includes("violín") || name.includes("violin") || name.includes("bateria") || name.includes("batería") || name.includes("ukulele") || name.includes("saxofon") || name.includes("saxofón") || name.includes("teclado") || name.includes("cantar")) {
+      return { ...WINNING_STRATEGIES_BY_NICHE.instrumentos_musicales };
+    }
+
+    if (category.includes("música") || category.includes("musica") || name.includes("dj") || name.includes("producción musical") || name.includes("produccion musical") || name.includes("música") || name.includes("musica") || name.includes("audio")) {
       return { ...WINNING_STRATEGIES_BY_NICHE.musica_audio };
     }
 
@@ -234,8 +258,14 @@ export class AdStrategist {
   }
 
   async generateAdCopy(strategy: AdStrategy, product: any): Promise<{ primaryText: string; headline: string; description: string }> {
-    const priceUSD = Number(product.price).toFixed(2);
-    const priceCOP = (Number(product.price) * 4100).toLocaleString("es-CO");
+    // Bug real: esto multiplicaba product.price x 4100 asumiendo que SIEMPRE
+    // viene en USD, y mostraba ese mismo número crudo como si también fuera
+    // USD -- un producto de $10.000 COP salía anunciado como "$41.000.000
+    // COP (≈ $10000.00 USD)". product.currency ya existe y dice en qué
+    // moneda está el precio de verdad (COP es lo normal acá) -- se muestra
+    // tal cual, sin inventar una conversión a una moneda que no se cobra.
+    const currency = (product.currency || "COP").toUpperCase();
+    const priceFormatted = Number(product.price).toLocaleString("es-CO");
     const name = product.name || "";
     const rawDesc = (product.description || "").replace(/Acceso completo a /i, "").trim();
     const shortDesc = rawDesc.length > 100 ? rawDesc.substring(0, 100) + "..." : rawDesc;
@@ -251,21 +281,17 @@ export class AdStrategist {
       ? features.slice(0, 3).join(" • ")
       : "📥 Descarga directa • 💾 Acceso permanente • 🔄 Actualizaciones incluidas";
 
+    // Formato PAS (Problem - Agitate - Solve) de alta conversión (2025)
     const primaryText = `${strategy.hook}
 
-━━━━━━━━━━━━━━━━━━━━━━
-📦 ${name}
-━━━━━━━━━━━━━━━━━━━━━━
-
-${descLine}
+Si no tomas acción hoy, seguirás perdiendo tiempo y dinero con métodos que no funcionan.
+Este contenido digital es tu atajo directo a resultados profesionales.
 
 ✅ ${featuresLine}
-✅ Pago ÚNICO — Nada de suscripciones ni mensualidades
-✅ Descarga inmediata — Recibes todo al instante
-✅ Garantía de 7 días — O te devolvemos tu dinero
+✅ Pago único de $${priceFormatted} ${currency} (Cero mensualidades)
+✅ Acceso inmediato y permanente
 
-💳 Paga en COP: Nequi, Daviplata, Mercado Pago
-🔥 Solo $${priceCOP} COP (≈ $${priceUSD} USD) — Un solo pago y es tuyo para siempre`;
+👇 Haz clic abajo para descargar todo el contenido ahora.`;
 
     const getEmoji = () => {
       const n = name.toLowerCase();
@@ -282,8 +308,11 @@ ${descLine}
       return "🔥";
     };
 
+    // Headline corto (< 40 chars): emoji de categoría + nombre real del
+    // producto. (Antes decía "+15.000 Alumnos" fijo en TODOS los anuncios --
+    // una cifra sin respaldo real, se sacó.)
     const headline = `${getEmoji()} ${name.replace(/^📂\s*/, "").substring(0, 35)}`;
-    const description = `$${priceCOP} COP • Pago único • Acceso permanente`;
+    const description = `$${priceFormatted} ${currency} • Pago único • Acceso permanente`;
 
     return { primaryText, headline, description };
   }
@@ -374,9 +403,76 @@ ${descLine}
     const strategy = this.getStrategyForProduct(product);
     const adCopy = await this.generateAdCopy(strategy, product);
 
-    let imageUrl = product.image_url || "";
+    // El campo del esquema es imageUrl (column image_url). Leerlo como
+    // product.image_url daba siempre undefined, así que TODOS los anuncios
+    // salían con el placeholder gris en vez de la foto del producto.
+    // Facebook además exige URL absoluta: las del catálogo son relativas.
+    let imageUrl = "";
+    const raw = product.imageUrl || "";
+    if (/^https?:\/\//i.test(raw)) {
+      imageUrl = raw;
+    } else if (raw) {
+      const appUrl = process.env.APP_URL || "https://tecnovariedades.easypanel.host";
+      if (/^https:\/\//i.test(appUrl)) {
+        imageUrl = `${appUrl.replace(/\/+$/, "")}/${raw.replace(/^\/+/, "")}`;
+      }
+    }
+    // Este flag decide más abajo qué mejoras de Meta se activan: recortar/
+    // expandir o generar fondo sobre un cartel de texto genérico no tiene
+    // sentido y puede terminar pareciendo todavía menos al producto.
+    let hasRealProductImage = !!imageUrl;
+
+    // Sin foto real del producto: antes de caer al cartel de texto gris, se
+    // intenta generar una con IA a partir del nombre y la descripción REALES
+    // del producto (no un estilo genérico por nicho) -- así corresponde al
+    // curso, no a una foto de stock cualquiera. generateProductImage ya
+    // genera 2 candidatas y elige la mejor con un juez de visión -- no hace
+    // falta guardar variantes extra (generateProductImageVariants) porque
+    // asset_feed_spec no se usa (ver más abajo, no funciona sin /adimages).
+    // Se guarda como archivo real (no data: URI) y se persiste en el
+    // producto para no regenerarla cada vez, y para que se vea en la tienda.
+    if (!imageUrl) {
+      const appUrl = process.env.APP_URL || "https://tecnovariedades.easypanel.host";
+      if (/^https:\/\//i.test(appUrl)) {
+        const generatedPath = await generateProductImage({ id: product.id, name: product.name, description: product.description });
+        if (generatedPath) {
+          imageUrl = `${appUrl.replace(/\/+$/, "")}/${generatedPath.replace(/^\/+/, "")}`;
+          hasRealProductImage = true;
+          await db.update(products).set({ imageUrl: generatedPath }).where(eq(products.id, product.id));
+        }
+      }
+    }
+
     if (!imageUrl) {
       imageUrl = `https://placehold.co/1200x628/1A365D/FFFFFF?text=${encodeURIComponent((product.name || "").substring(0, 30))}`;
+      logger.warn({ productId: product.id, raw, appUrl: process.env.APP_URL }, "[AdStrategist] Sin imagen absoluta y no se pudo generar una — usando placeholder (el anuncio no representará el producto real hasta que se le cargue una foto)");
+    }
+
+    // Por defecto NO se crean campañas en la cuenta publicitaria de Meta: sin
+    // presupuesto ni método de pago no tiene sentido, y una campaña real es
+    // difícil de deshacer. El borrador se guarda local y queda listo para
+    // revisarlo y publicarlo cuando se decida. Para habilitar la creación real
+    // hay que poner FB_CREATE_REAL_CAMPAIGNS=true de forma explícita.
+    if (process.env.FB_CREATE_REAL_CAMPAIGNS !== "true") {
+      const localDraft: DraftAd = {
+        productId: product.id,
+        productName: product.name || "",
+        strategy,
+        primaryText: adCopy.primaryText,
+        headline: adCopy.headline,
+        description: adCopy.description,
+        imageUrl,
+        campaignId: null,
+        adSetId: null,
+        adId: null,
+        status: "draft",
+      };
+      await this.saveDraftToDb(localDraft);
+      logger.info(
+        { productId: product.id, strategy: strategy.niche },
+        "[AdStrategist] Borrador local creado (sin tocar la cuenta publicitaria)"
+      );
+      return localDraft;
     }
 
     try {
@@ -386,54 +482,130 @@ ${descLine}
         name: `[BORRADOR] ${product.name} - ${new Date().toLocaleDateString("es-CO")}`,
         objective: "OUTCOME_SALES",
         status: "PAUSED",
-        special_ad_categories: [],
+        // [] tira error 100/subcódigo 4834011 -- Meta exige declarar "NONE"
+        // explícito cuando la campaña no aplica a ninguna categoría especial
+        // (vivienda, empleo, crédito, temas sociales/elecciones).
+        special_ad_categories: ["NONE"],
+        // Presupuesto a nivel de conjunto (no CBO): Facebook exige declarar
+        // explícitamente que los conjuntos no comparten presupuesto entre sí.
+        is_adset_budget_sharing_enabled: false,
       });
 
-      const adSet = await this.fbPost(act, "adsets", accessToken, {
+      // optimization_goal=CONVERSIONS sin promoted_object es rechazado por
+      // Graph API (exige que el conjunto apunte a un pixel/evento). Mismo
+      // fix que en facebook.ts: si hay pixel se manda promoted_object con
+      // evento LEAD, si no, se cae a LINK_CLICKS.
+      const pixelId = this.tenant.facebook?.pixelId || process.env.FB_PIXEL_ID || "";
+      const hasUsablePixel = pixelId ? await this.pixelBelongsToAccount(act, accessToken, pixelId) : false;
+      // Mismo bug que en facebook.ts: mandar intereses sin ID real de la
+      // taxonomía de Facebook hace que Graph API los ignore en silencio --
+      // el borrador salía con audiencia amplia aunque mostrara "intereses
+      // aplicados". Se resuelven contra la búsqueda real antes de armar el
+      // targeting.
+      const resolvedInterests = await resolveInterestIds(accessToken, strategy.interests);
+      const adSetBody: Record<string, any> = {
         name: `[BORRADOR] ${product.name} - Conjunto`,
         campaign_id: campaign.id,
         daily_budget: Math.round(strategy.budget * 100),
-        billing_event: "IMPRESSIONS",
-        optimization_goal: "CONVERSIONS",
-        bid_strategy: "LOWEST_COST_WITHOUT_CAP",
         targeting: {
           geo_locations: { countries: ["CO"] },
           age_min: strategy.ageMin,
           age_max: strategy.ageMax,
-          interests: strategy.interests.map(name => ({ name })),
+          ...(resolvedInterests.length > 0 ? { flexible_spec: [{ interests: resolvedInterests }] } : {}),
           publisher_platforms: ["facebook", "instagram"],
           facebook_positions: ["feed", "story", "marketplace", "reels"],
           instagram_positions: ["stream", "story", "reels"],
         },
         status: "PAUSED",
         start_time: new Date().toISOString(),
-      });
-
-      let imageHash = "";
-      try {
-        const imgRes = await this.fbPost(act, "adimages", accessToken, { url: imageUrl, name: product.name });
-        if (imgRes?.images) {
-          const key = Object.keys(imgRes.images)[0];
-          imageHash = imgRes.images[key]?.hash || "";
-        }
-      } catch (err: any) {
-        logger.warn({ err }, "[AdStrategist] Error uploading image");
+        // is_dynamic_creative quedó sacado: era para asset_feed_spec, que no
+        // se usa (ver comentario en el creativo más abajo) -- dejarlo activo
+        // sin un creativo asset_feed_spec real habría hecho que Meta rechace
+        // el anuncio por incompatibilidad entre el adset y el creativo.
+      };
+      if (hasUsablePixel) {
+        adSetBody.billing_event = "IMPRESSIONS";
+        // "CONVERSIONS" no es un valor válido de optimization_goal -- el
+        // equivalente moderno para optimizar por conversiones de pixel es
+        // OFFSITE_CONVERSIONS.
+        adSetBody.optimization_goal = "OFFSITE_CONVERSIONS";
+        adSetBody.bid_strategy = "LOWEST_COST_WITHOUT_CAP";
+        // LEAD no es compatible con el objetivo OUTCOME_SALES -- PURCHASE es
+        // el evento que corresponde a una campaña de venta.
+        adSetBody.promoted_object = { pixel_id: pixelId, custom_event_type: "PURCHASE" };
+      } else {
+        // billing_event=LINK_CLICKS lo rechaza Facebook en cuentas nuevas --
+        // IMPRESSIONS sí está disponible desde el día uno.
+        adSetBody.billing_event = "IMPRESSIONS";
+        adSetBody.optimization_goal = "LINK_CLICKS";
+        adSetBody.bid_strategy = "LOWEST_COST_WITHOUT_CAP";
       }
+      const adSet = await this.fbPost(act, "adsets", accessToken, adSetBody);
 
-      const creative = await this.fbPost(act, "adcreatives", accessToken, {
+      // Imagen: se pasa como URL en `picture` en vez de subir por /adimages
+      // (la aplicación no tiene la capacidad adimages - error #3 de Graph API).
+      // Facebook descarga y cachea la imagen desde la URL directamente.
+      //
+      // Advantage+ Creative: mejoras automáticas de imagen vía
+      // creative_features_spec. Verificado en vivo contra la cuenta real
+      // (act_1545022093928422, generatepreviews) que estos 5 flags son
+      // válidos y los acepta la cuenta -- Facebook NO devuelve fotos
+      // alternativas para elegir por API, retoca/expande la MISMA foto que
+      // se le manda al momento de entregar el anuncio.
+      //
+      // image_uncrop (expandir/generar fondo) y image_brightness_and_contrast
+      // solo se activan si hay una foto REAL del producto (hasRealProductImage):
+      // aplicarlas sobre el placeholder gris de texto no tiene nada que
+      // "realzar" y puede terminar generando un fondo que se parece todavía
+      // menos al curso real -- exactamente el problema de "la foto no
+      // corresponde al producto" que se reportó. standard_enhancements,
+      // text_optimizations y enhance_cta son retoques seguros (no alteran
+      // qué se ve en la imagen) y quedan activos siempre.
+      const creativeFeaturesSpec: Record<string, any> = {
+        standard_enhancements: { enroll_status: "OPT_IN" },
+        text_optimizations: { enroll_status: "OPT_IN" },
+        enhance_cta: { enroll_status: "OPT_IN" },
+      };
+      if (hasRealProductImage) {
+        creativeFeaturesSpec.image_touchups = { enroll_status: "OPT_IN" };
+        creativeFeaturesSpec.image_brightness_and_contrast = { enroll_status: "OPT_IN" };
+        creativeFeaturesSpec.image_uncrop = { enroll_status: "OPT_IN" };
+        // Meta genera fondos alternativos con su IA (modelo Emu) sobre la
+        // imagen del producto y elige el que mejor convierte -- exactamente
+        // la función "Generar variaciones" del Ads Manager, pero automática
+        // y sin intervención manual. Solo aplica sobre fotos reales (no
+        // placeholders de texto) para que el fondo generado tenga sentido.
+        creativeFeaturesSpec.image_background_gen = { enroll_status: "OPT_IN" };
+      }
+      // asset_feed_spec (Dynamic Creative con varias imágenes) NO se usa acá.
+      // Se probó en vivo contra la cuenta real: generatepreviews lo acepta
+      // sintácticamente, pero la creación real (/adcreatives) rechaza CUALQUIER
+      // URL en asset_feed_spec.images -- probado con placehold.co Y con una
+      // imagen de Wikimedia (100% accesible), mismo error los dos:
+      // "No se ha podido descargar tu imagen" (subcode 3858258). Confirma que
+      // asset_feed_spec.images necesita sí o sí un image_hash real (subido por
+      // /adimages), no una URL -- y esa capacidad sigue bloqueada (error #3,
+      // igual que el picture normal). Meta A/B-testeando imágenes solo queda
+      // bloqueado hasta que se habilite /adimages vía revisión de Meta.
+      //
+      // Path único: una imagen fija en object_story_spec (funciona, verificado
+      // en las pruebas de imágenes reales de esta sesión).
+      const creativePayload: Record<string, any> = {
         name: `[BORRADOR] ${product.name} - Creativo`,
         object_story_spec: {
           page_id: this.tenant.facebook?.pageId || process.env.FB_PAGE_ID || "",
           link_data: {
-            link: `${process.env.APP_URL || "https://tecnovariedades.easypanel.host"}/productos/${product.id}`,
+            link: `${process.env.APP_URL || "https://tecnovariedades.easypanel.host"}/p/${product.id}`,
             message: adCopy.primaryText,
             name: adCopy.headline,
             description: adCopy.description,
             call_to_action: { type: strategy.ctaType },
-            image_hash: imageHash,
+            ...(imageUrl ? { picture: imageUrl } : {}),
           },
         },
-      });
+        creative_features_spec: creativeFeaturesSpec,
+      };
+      const creative = await this.fbPost(act, "adcreatives", accessToken, creativePayload);
 
       const ad = await this.fbPost(act, "ads", accessToken, {
         name: `[BORRADOR] ${product.name}`,
@@ -484,8 +656,8 @@ ${descLine}
     }
   }
 
-  async createDraftsForAllProducts(): Promise<{ created: number; failed: number; drafts: DraftAd[] }> {
-    const result = { created: 0, failed: 0, drafts: [] as DraftAd[] };
+  async createDraftsForAllProducts(): Promise<{ created: number; failed: number; withoutRealImage: number; drafts: DraftAd[] }> {
+    const result = { created: 0, failed: 0, withoutRealImage: 0, drafts: [] as DraftAd[] };
 
     const accessToken = this.tenant.facebook?.accessToken || process.env.FB_ACCESS_TOKEN || process.env.FB_MESSENGER_PAGE_TOKEN || "";
     const adAccountId = this.tenant.facebook?.adAccountId || process.env.FB_AD_ACCOUNT_ID || "";
@@ -503,6 +675,10 @@ ${descLine}
         result.drafts.push(draft);
         if (draft.status === "created") result.created++;
         else result.failed++;
+        // El placeholder de placehold.co es la señal de "este producto no
+        // tiene foto real" -- son los anuncios que van a salir con una
+        // imagen que NO corresponde al curso hasta que se les cargue una.
+        if (draft.imageUrl.startsWith("https://placehold.co/")) result.withoutRealImage++;
       } catch (err: any) {
         logger.error({ err, product: p.name }, "[AdStrategist] Failed");
         result.failed++;
@@ -523,6 +699,22 @@ ${descLine}
     const data: any = await res.json();
     if (data.error) throw new Error(`${data.error.message} (código ${data.error.code})`);
     return data;
+  }
+
+  /** Mismo chequeo que en facebook.ts: el pixelId guardado puede pertenecer
+   * a otra cuenta publicitaria -- se verifica antes de usarlo para evitar
+   * el error tardío "Píxel no asociado" en el paso final. */
+  private async pixelBelongsToAccount(adAccount: string, accessToken: string, pixelId: string): Promise<boolean> {
+    try {
+      const params = new URLSearchParams({ access_token: accessToken, fields: "id" });
+      const res = await fetch(`${FB_GRAPH_URL}/${adAccount}/adspixels?${params}`);
+      const data: any = await res.json();
+      const ids: string[] = (data.data || []).map((p: any) => p.id);
+      return ids.includes(pixelId);
+    } catch (err: any) {
+      logger.warn({ err }, "[AdStrategist] No se pudo verificar el pixel de la cuenta");
+      return false;
+    }
   }
 }
 

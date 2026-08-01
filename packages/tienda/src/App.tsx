@@ -1,15 +1,34 @@
+import { useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import MainLayout from './components/MainLayout';
 import PublicLayout from './components/PublicLayout';
 import Home from './pages/Home';
 import Shop from './pages/Shop';
 import Cart from './pages/Cart';
+import ProductDetail from './pages/ProductDetail';
+import Checkout from './pages/Checkout';
 import AdminDashboard from './pages/AdminDashboard';
 import EditorPage from './pages/EditorPage';
 import { useStore } from './store/useStore';
 
 const App = () => {
-  const { isAdmin } = useStore();
+  const { isAdmin, sessionChecked, checkSession } = useStore();
+
+  useEffect(() => {
+    checkSession();
+  }, []);
+
+  // Antes de saber si hay sesión real, no se puede decidir si /admin y
+  // /editor deben mostrar el panel o redirigir -- mostrar "denegado" de
+  // entrada (aunque el usuario SÍ esté logueado) se veía como un parpadeo
+  // roto en cada carga.
+  if (!sessionChecked) {
+    return (
+      <div className="min-h-screen flex items-center justify-center text-slate-400 text-sm">
+        Verificando sesión…
+      </div>
+    );
+  }
 
   return (
     <Router>
@@ -70,6 +89,22 @@ const App = () => {
           element={
             <PublicLayout>
               <Shop />
+            </PublicLayout>
+          }
+        />
+        <Route
+          path="/tienda/:slug/producto/:productId"
+          element={
+            <PublicLayout>
+              <ProductDetail />
+            </PublicLayout>
+          }
+        />
+        <Route
+          path="/tienda/:slug/checkout"
+          element={
+            <PublicLayout>
+              <Checkout />
             </PublicLayout>
           }
         />

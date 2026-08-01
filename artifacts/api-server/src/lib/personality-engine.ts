@@ -9,6 +9,7 @@ import type {
 import type { InsertAgent } from "@workspace/db/schema";
 import { AGENT_TEMPLATES } from "./agent-templates";
 import { logger } from "./logger";
+import { dbNow } from "./date-utils";
 
 export interface GeneratedAgent {
   name: string;
@@ -38,7 +39,7 @@ export class PersonalityEngine {
   async updateProfile(id: number, data: Partial<InsertPersonalityProfile>): Promise<PersonalityProfile | null> {
     const [profile] = await db
       .update(personalityProfiles)
-      .set({ ...data, updatedAt: new Date().toISOString() })
+      .set({ ...data, updatedAt: dbNow() })
       .where(eq(personalityProfiles.id, id))
       .returning();
     if (!profile) return null;

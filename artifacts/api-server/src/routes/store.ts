@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { ZodError } from "zod";
-import { db, stores, store_categories, store_products, store_layouts } from "@workspace/db";
+import { db, stores, store_categories, store_products, store_layouts, products, productCategories } from "@workspace/db";
 import { eq, sql } from "drizzle-orm";
 import { Request, Response, NextFunction } from "express";
 
@@ -9,25 +9,44 @@ const router = Router();
 // Middleware to load store by slug
 router.param("slug", async (req: Request, res: Response, next: NextFunction, slug: string) => {
   try {
-    const store = await db.select().from(stores).where(eq(stores.slug, slug)).then(r => r[0]);
+    const store = await db.select().from(stores).where(eq(stores.slug, slug)).then((r: any) => r[0]);
     if (!store) return res.status(404).json({ message: "Store not found" });
     // attach store to request
     (req as any).store = store;
     next();
   } catch (err) {
-    next(err);
+    return next(err);
   }
 });
 
 // Public catalog (GET /store/:slug)
+//
+// La tienda salía SIEMPRE vacía: leía de store_products/store_categories, unas
+// tablas puente que nadie llena nunca — el catálogo real vive en `products` y
+// `product_categories` (los mismos 50 productos que usa el bot y el panel).
+// Ahora se sirve el catálogo real del tenant dueño de la tienda, y solo se usa
+// store_products si esa tabla puente tiene entradas (selección curada manual).
 router.get("/:slug", async (req: Request, res: Response, next: NextFunction) => {
   try {
     const store = (req as any).store;
-    const categories = await db.select().from(store_categories).where(eq(store_categories.storeId, store.id));
-    const products = await db.select().from(store_products).where(eq(store_products.storeId, store.id));
-    return res.json({ store, categories, products });
+
+    const curated = await db.select().from(store_products).where(eq(store_products.storeId, store.id));
+    if (curated.length > 0) {
+      const categories = await db.select().from(store_categories).where(eq(store_categories.storeId, store.id));
+      return res.json({ store, categories, products: curated });
+    }
+
+    const [realProducts, realCategories] = await Promise.all([
+      db.select().from(products).where(eq(products.tenantId, store.tenantId)),
+      db.select().from(productCategories).where(eq(productCategories.tenantId, store.tenantId)),
+    ]);
+    return res.json({
+      store,
+      categories: realCategories,
+      products: realProducts.filter((p: any) => p.isActive !== false),
+    });
   } catch (err) {
-    next(err);
+    return next(err);
   }
 });
 
@@ -36,11 +55,16 @@ router.get("/:slug/product/:productId", async (req: Request, res: Response, next
   try {
     const { productId } = req.params;
     const store = (req as any).store;
-    const product = await db.select().from(store_products).where(eq(store_products.id, Number(productId))).then(r => r[0]);
+    // Mismo criterio que el catálogo: primero la tabla curada, y si ahí no
+    // está (que es lo normal) se busca en el catálogo real del tenant.
+    let product = await db.select().from(store_products).where(eq(store_products.id, Number(productId))).then((r: any) => r[0]);
+    if (!product) {
+      product = await db.select().from(products).where(eq(products.id, Number(productId))).then((r: any) => r[0]);
+    }
     if (!product) return res.status(404).json({ message: "Product not found" });
     return res.json({ store, product });
   } catch (err) {
-    next(err);
+    return next(err);
   }
 });
 
@@ -48,16 +72,52 @@ router.get("/:slug/product/:productId", async (req: Request, res: Response, next
 router.get("/:slug/layout", async (req: Request, res: Response, next: NextFunction) => {
   try {
     const store = (req as any).store;
-    const layout = await db.select().from(store_layouts).where(eq(store_layouts.storeId, store.id)).then(r => r[0]);
+    const layout = await db.select().from(store_layouts).where(eq(store_layouts.storeId, store.id)).then((r: any) => r[0]);
     return res.json({ layout: layout?.layoutData ?? null });
   } catch (err) {
-    next(err);
+    return next(err);
   }
 });
 
-// Admin routes (protected – placeholder, auth middleware to be added later)
-router.use("/admin/:slug", (req, _res, next) => {
-  // TODO: add authentication & ownership check
+// POST /store/admin/bootstrap -- crea la tienda del tenant logueado si
+// todavía no tiene una. Los tenants nuevos ya la reciben automáticamente al
+// registrarse (ver routes/auth.ts), pero los que existían ANTES de ese fix
+// (como el tenant 1) se quedaron sin fila en `stores` -- por eso "la tienda
+// no aparece": GET /api/store/:slug devolvía 404 siempre. Idempotente: si ya
+// existe, devuelve la existente en vez de duplicar.
+router.post("/admin/bootstrap", async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const tenant = (req as any).tenant;
+    if (!tenant) return res.status(401).json({ message: "No session found. Please login." });
+
+    const existing = await db.select().from(stores).where(eq(stores.tenantId, tenant.id)).limit(1).then((r: any) => r[0]);
+    if (existing) return res.json({ store: existing, created: false });
+
+    const [created] = await db.insert(stores).values({
+      tenantId: tenant.id,
+      name: tenant.brandName || tenant.name,
+      slug: tenant.slug,
+    }).returning();
+    return res.status(201).json({ store: created, created: true });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// Admin routes (protected) -- exigen sesión real y que el tenant logueado
+// sea DUEÑO de esta tienda (o admin de la plataforma). Antes era un no-op
+// ("TODO: add authentication & ownership check") y además la ruta estaba en
+// publicRoutes de app.ts: cualquiera sin sesión podía editar el layout de la
+// tienda de CUALQUIER tenant con solo saber su slug.
+router.use("/admin/:slug", (req: Request, res: Response, next: NextFunction) => {
+  const tenant = (req as any).tenant;
+  const store = (req as any).store;
+  if (!tenant) {
+    return res.status(401).json({ message: "No session found. Please login." });
+  }
+  if (!tenant.isAdmin && tenant.id !== store?.tenantId) {
+    return res.status(403).json({ message: "No sos el dueño de esta tienda" });
+  }
   next();
 });
 
@@ -66,7 +126,7 @@ router.get("/admin/:slug", async (req: Request, res: Response, next: NextFunctio
     const store = (req as any).store;
     return res.json({ store });
   } catch (err) {
-    next(err);
+    return next(err);
   }
 });
 
@@ -74,10 +134,10 @@ router.get("/admin/:slug", async (req: Request, res: Response, next: NextFunctio
 router.get("/admin/:slug/layout", async (req: Request, res: Response, next: NextFunction) => {
   try {
     const store = (req as any).store;
-    const layout = await db.select().from(store_layouts).where(eq(store_layouts.storeId, store.id)).then(r => r[0]);
+    const layout = await db.select().from(store_layouts).where(eq(store_layouts.storeId, store.id)).then((r: any) => r[0]);
     return res.json({ layout: layout?.layoutData ?? null });
   } catch (err) {
-    next(err);
+    return next(err);
   }
 });
 
@@ -88,7 +148,7 @@ router.put("/admin/:slug/layout", async (req: Request, res: Response, next: Next
     const { layoutData } = req.body;
     if (!layoutData) return res.status(400).json({ message: "layoutData is required" });
 
-    const existing = await db.select().from(store_layouts).where(eq(store_layouts.storeId, store.id)).then(r => r[0]);
+    const existing = await db.select().from(store_layouts).where(eq(store_layouts.storeId, store.id)).then((r: any) => r[0]);
 
     if (existing) {
       await db.update(store_layouts)
@@ -100,7 +160,7 @@ router.put("/admin/:slug/layout", async (req: Request, res: Response, next: Next
 
     return res.json({ message: "Layout saved successfully" });
   } catch (err) {
-    next(err);
+    return next(err);
   }
 });
 

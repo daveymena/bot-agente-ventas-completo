@@ -86,21 +86,35 @@ class AuthManager:
         if 'raw_key' not in columns:
             cursor.execute("ALTER TABLE api_keys ADD COLUMN raw_key TEXT")
             
-        # Auto-seed: Crear usuario admin por defecto si no existe
+        # Auto-seed: Crear usuario admin por defecto si no existe.
+        # Antes: password fijo "admin123" hardcodeado. Ahora sale de
+        # OPENCODE_PROXY_ADMIN_PASSWORD -- si no está seteada, se genera una
+        # temporal random y se avisa por consola (mismo patrón que el
+        # auto-seed del admin en artifacts/api-server/src/app.ts).
         cursor.execute("SELECT id FROM users WHERE username = 'admin'")
         if not cursor.fetchone():
-            password_hash = hashlib.sha256("admin123".encode()).hexdigest()
+            admin_password = os.environ.get("OPENCODE_PROXY_ADMIN_PASSWORD")
+            if not admin_password:
+                admin_password = secrets.token_hex(12)
+                print(f"⚠️  OPENCODE_PROXY_ADMIN_PASSWORD no seteada -- se generó una temporal, cámbiala tras el primer login: {admin_password}")
+            password_hash = hashlib.sha256(admin_password.encode()).hexdigest()
             cursor.execute("""
                 INSERT INTO users (username, password_hash, email, is_admin)
                 VALUES ('admin', ?, 'admin@opencode.local', 1)
             """, (password_hash,))
-            
-        # Auto-seed: Insertar las claves fijas del usuario si no existen
+
+        # Auto-seed: claves fijas del usuario, si se proveen por entorno.
+        # Antes: dos API keys reales hardcodeadas acá mismo, en texto plano,
+        # en un repo público. Ahora salen de OPENCODE_PROXY_SEED_KEYS (una o
+        # más, separadas por coma) -- si no está seteada, no se siembra
+        # ninguna clave fija (las keys se siguen pudiendo generar/gestionar
+        # normalmente desde la app).
+        seed_keys_env = os.environ.get("OPENCODE_PROXY_SEED_KEYS", "")
         default_keys = [
-            ("sk_y8Fg5Ccoox-lVH0O8s1qzHaD6b6zrNNVExAxx_pcNZE", "Clave Principal 1"),
-            ("sk-WjeGlHujmGmDGBO1te2YM3sNGCgR72Ms650Lu5SL6gjacIP9Surmrarz5fUA4lfG", "Clave Principal 2")
+            (key.strip(), f"Clave Principal {i + 1}")
+            for i, key in enumerate(seed_keys_env.split(",")) if key.strip()
         ]
-        
+
         for fixed_key, key_name in default_keys:
             fixed_hash = hashlib.sha256(fixed_key.encode()).hexdigest()
             # Verificar si la clave fija o su hash ya están

@@ -60,6 +60,35 @@ export class FacebookCommentsService {
     }
   }
 
+  /**
+   * Envía una respuesta PRIVADA (mensaje directo por Messenger) al autor de un
+   * comentario. Es el patrón profesional: responder público breve + DM con detalle.
+   * Solo funciona una vez por comentario y dentro de la ventana permitida por Facebook.
+   */
+  async sendPrivateReply(commentId: string, message: string): Promise<boolean> {
+    const { pageAccessToken } = this.getConfig();
+    if (!pageAccessToken) return false;
+    try {
+      const res = await fetch(
+        `${FB_GRAPH_URL}/${commentId}/private_replies?access_token=${pageAccessToken}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ message }),
+        }
+      );
+      const data = await res.json();
+      if (data.error) {
+        logger.warn({ err: data.error }, "[FB-Comments] No se pudo enviar respuesta privada");
+        return false;
+      }
+      return true;
+    } catch (err: any) {
+      logger.warn({ err }, "[FB-Comments] Error en respuesta privada");
+      return false;
+    }
+  }
+
   async getPostComments(postId: string, limit: number = 25): Promise<CommentData[]> {
     const { pageAccessToken } = this.getConfig();
     if (!pageAccessToken) return [];
@@ -138,7 +167,18 @@ export class FacebookCommentsService {
     const reply = await runAgentReply(conversationId);
 
     if (reply?.content) {
-      await this.replyToComment(comment.id, reply.content);
+      // Patrón profesional: DM con la respuesta completa + comentario público breve.
+      // 1) Intentar respuesta privada (abre conversación en Messenger).
+      const privateOk = await this.sendPrivateReply(comment.id, reply.content);
+
+      // 2) Respuesta pública: si el DM funcionó, dejar un mensaje corto que invite
+      //    al inbox; si falló, publicar la respuesta completa como respaldo.
+      if (privateOk) {
+        const shortPublic = `¡Hola ${userName.split(" ")[0] || ""}! 😊 Te acabo de enviar toda la información por mensaje privado 📩`;
+        await this.replyToComment(comment.id, shortPublic);
+      } else {
+        await this.replyToComment(comment.id, reply.content);
+      }
     }
 
     return reply?.content || null;

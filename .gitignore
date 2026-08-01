@@ -2,6 +2,7 @@ node_modules/
 .env
 .env.easypanel*
 .env.production
+.env.produccion.txt
 # Secretos locales del helper de EasyPanel (NUNCA versionar)
 scripts/easypanel/.easypanel.env
 **/.easypanel.env
@@ -9,6 +10,7 @@ scripts/easypanel/.easypanel.env
 *.secrets
 artifacts/api-server/.env
 *.db
+*.db.bak-*
 .baileys-auth/
 dist/
 build/
@@ -28,6 +30,8 @@ __pycache__/
 !products-full.json
 body.json
 fb_credentials.json
+fb-token.txt
+fb-page-token.txt
 *.tsbuildinfo
 .kilo/
 .opencode/
@@ -36,3 +40,6 @@ scratch/
 nvidia-nim-bridge/.env
 lib/db/.env
 OpenCode-puete-ia/__pycache__/
+
+# Token de la API de Easypanel — nunca se commitea
+.easypanel.env

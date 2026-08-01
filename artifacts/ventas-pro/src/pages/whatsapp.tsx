@@ -7,7 +7,8 @@ import { Layout } from "@/components/layout";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { QrCode, Smartphone, RefreshCw, PowerOff, ShieldCheck, AlertCircle, Phone, RotateCcw, Trash2 } from "lucide-react";
+import { QrCode, Smartphone, RefreshCw, PowerOff, ShieldCheck, AlertCircle, Phone, RotateCcw, Trash2, KeyRound } from "lucide-react";
+import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
 import { format, parseISO } from "date-fns";
@@ -17,12 +18,47 @@ import { useState } from "react";
 export default function WhatsAppConnection() {
   const queryClient = useQueryClient();
   const [isResetting, setIsResetting] = useState(false);
+  const [showPairForm, setShowPairForm] = useState(false);
+  const [phoneNumber, setPhoneNumber] = useState("");
+  const [pairingCode, setPairingCode] = useState<string | null>(null);
+  const [isPairing, setIsPairing] = useState(false);
+  const [pairError, setPairError] = useState<string | null>(null);
+
+  const handleRequestPairingCode = async () => {
+    const digits = phoneNumber.replace(/[^\d]/g, "");
+    if (digits.length < 8) {
+      setPairError("Ingresa el número completo con código de país (ej: 573001234567)");
+      return;
+    }
+    setIsPairing(true);
+    setPairError(null);
+    setPairingCode(null);
+    try {
+      const res = await fetch("/api/whatsapp/pair-phone", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phoneNumber: digits }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || data?.message || "No se pudo generar el código");
+      setPairingCode(data.pairingCode);
+      queryClient.invalidateQueries({ queryKey: getGetWhatsAppStatusQueryKey() });
+    } catch (e: any) {
+      setPairError(e.message || "Error al pedir el código de vinculación");
+    } finally {
+      setIsPairing(false);
+    }
+  };
 
   const { data: status, isLoading } = useGetWhatsAppStatus({
-    query: { refetchInterval: (query) => {
-      const data = (query.state as any).data;
-      return data?.state === 'connected' ? 10000 : 2000;
-    }, queryKey: getGetWhatsAppStatusQueryKey() }
+    // react-query v4: refetchInterval recibe (data, query) — el primer arg es la data ya,
+    // no un objeto con .state. Antes se llamaba a `query.state.data` sobre `data` undefined
+    // y explotaba con "Cannot read properties of undefined (reading 'state')" en el primer
+    // render, dejando la página en blanco.
+    query: {
+      refetchInterval: (data: any) => (data?.state === 'connected' ? 10000 : 2000),
+      queryKey: getGetWhatsAppStatusQueryKey(),
+    },
   });
 
   const connectMutation = useConnectWhatsApp();
@@ -76,7 +112,7 @@ export default function WhatsAppConnection() {
 
     if (!status || status.state === 'disconnected') {
       return (
-        <Card className="max-w-md mx-auto w-full mt-10 text-center rounded-3xl overflow-hidden glass-panel border-0 shadow-lg relative">
+        <Card key="disconnected" className="max-w-md mx-auto w-full mt-10 text-center rounded-3xl overflow-hidden glass-panel border-0 shadow-lg relative">
           <div className="absolute top-0 right-0 w-full h-full bg-gradient-to-br from-primary/5 via-transparent to-accent/5 pointer-events-none" />
           <CardHeader className="relative z-10 pt-10">
             <CardTitle className="text-3xl font-bold tracking-tight">Conectar WhatsApp</CardTitle>
@@ -86,18 +122,79 @@ export default function WhatsAppConnection() {
             <div className="mx-auto bg-muted/50 rounded-full w-28 h-28 flex items-center justify-center mb-8 border border-border/50 shadow-inner">
               <Smartphone className="h-12 w-12 text-muted-foreground" />
             </div>
-            <Button size="lg" className="w-full text-base h-14 rounded-xl shadow-lg shadow-primary/20 transition-transform active:scale-[0.98]" onClick={handleConnect} disabled={connectMutation.isPending}>
-              {connectMutation.isPending ? <RefreshCw className="mr-2 h-5 w-5 animate-spin" /> : <QrCode className="mr-2 h-5 w-5" />}
-              Generar código QR
-            </Button>
+            {status?.lastError && (
+              <div className="bg-destructive/10 border border-destructive/20 rounded-2xl p-3 mb-4 text-left">
+                <p className="text-xs font-mono text-destructive break-words">{status.lastError}</p>
+              </div>
+            )}
+            {!showPairForm ? (
+              <div className="w-full flex flex-col gap-3">
+                <Button size="lg" className="w-full text-base h-14 rounded-xl shadow-lg shadow-primary/20 transition-transform active:scale-[0.98]" onClick={handleConnect} disabled={connectMutation.isPending}>
+                  {connectMutation.isPending ? <RefreshCw className="mr-2 h-5 w-5 animate-spin" /> : <QrCode className="mr-2 h-5 w-5" />}
+                  Generar código QR
+                </Button>
+                <Button variant="ghost" className="w-full text-muted-foreground rounded-xl" onClick={() => setShowPairForm(true)}>
+                  <KeyRound className="h-4 w-4 mr-2" /> ¿El QR no carga? Usar código PIN
+                </Button>
+              </div>
+            ) : (
+              <div className="text-left">
+                <label className="text-sm font-medium text-muted-foreground mb-2 block">Número con código de país</label>
+                <Input
+                  placeholder="Ej: 573001234567"
+                  value={phoneNumber}
+                  onChange={(e) => setPhoneNumber(e.target.value)}
+                  disabled={isPairing}
+                  className="h-12 rounded-xl mb-3"
+                />
+                {pairError && <p className="text-sm text-destructive mb-3">{pairError}</p>}
+                {pairingCode ? (
+                  <div className="bg-primary/10 border border-primary/20 rounded-2xl p-4 mb-3 text-center">
+                    <p className="text-xs text-muted-foreground mb-1">Tu código de vinculación:</p>
+                    <p className="text-2xl font-bold tracking-widest">{pairingCode}</p>
+                    <p className="text-xs text-muted-foreground mt-2">En tu teléfono: WhatsApp → Dispositivos vinculados → Vincular con número de teléfono</p>
+                  </div>
+                ) : (
+                  <Button className="w-full h-12 rounded-xl mb-3" onClick={handleRequestPairingCode} disabled={isPairing}>
+                    {isPairing ? <RefreshCw className="mr-2 h-4 w-4 animate-spin" /> : <KeyRound className="mr-2 h-4 w-4" />}
+                    Obtener código
+                  </Button>
+                )}
+                <Button variant="ghost" className="w-full text-muted-foreground rounded-xl" onClick={() => { setShowPairForm(false); setPairingCode(null); setPairError(null); }}>
+                  Volver al código QR
+                </Button>
+              </div>
+            )}
           </CardContent>
         </Card>
       );
     }
 
     if (status.state === 'connecting') {
+      // If we have a pairing code, we shouldn't hide it with the connecting spinner!
+      if (pairingCode) {
+        return (
+          <Card key="pairing" className="max-w-md mx-auto w-full mt-10 text-center rounded-3xl overflow-hidden glass-panel border-0 shadow-lg">
+            <CardHeader className="pt-10">
+              <CardTitle className="text-3xl font-bold tracking-tight">Vincular con código PIN</CardTitle>
+              <CardDescription className="text-base mt-2">Ingresa este código en tu celular.</CardDescription>
+            </CardHeader>
+            <CardContent className="py-8">
+              <div className="bg-primary/10 border border-primary/20 rounded-2xl p-6 mb-3 text-center">
+                <p className="text-sm text-muted-foreground mb-3">Tu código de vinculación:</p>
+                <p className="text-4xl font-black tracking-widest text-primary">{pairingCode}</p>
+                <p className="text-sm text-muted-foreground mt-4">En tu teléfono: WhatsApp → Dispositivos vinculados → Vincular con número de teléfono</p>
+              </div>
+              <Button variant="ghost" className="w-full text-muted-foreground rounded-xl" onClick={handleResetSession} disabled={isResetting}>
+                Cancelar
+              </Button>
+            </CardContent>
+          </Card>
+        );
+      }
+
       return (
-        <Card className="max-w-md mx-auto w-full mt-10 text-center rounded-3xl overflow-hidden glass-panel border-0 shadow-lg">
+        <Card key="connecting" className="max-w-md mx-auto w-full mt-10 text-center rounded-3xl overflow-hidden glass-panel border-0 shadow-lg">
           <CardHeader className="pt-10">
             <CardTitle className="text-3xl font-bold tracking-tight">Conectando...</CardTitle>
             <CardDescription className="text-base mt-2">Generando sesión con los servidores de WhatsApp.</CardDescription>
@@ -120,22 +217,60 @@ export default function WhatsAppConnection() {
 
     if (status.state === 'qr') {
       return (
-        <Card className="max-w-md mx-auto w-full mt-10 rounded-3xl overflow-hidden glass-panel border-0 shadow-lg">
+        <Card key="qr" className="max-w-md mx-auto w-full mt-10 rounded-3xl overflow-hidden glass-panel border-0 shadow-lg">
           <CardHeader className="text-center pt-10">
-            <CardTitle className="text-3xl font-bold tracking-tight">Escanea para conectar</CardTitle>
-            <CardDescription className="text-base mt-2">Abre WhatsApp en tu teléfono, ve a "Dispositivos vinculados" y escanea este código QR.</CardDescription>
+            <CardTitle className="text-3xl font-bold tracking-tight">{showPairForm ? "Vincular con código PIN" : "Escanea para conectar"}</CardTitle>
+            <CardDescription className="text-base mt-2">
+              {showPairForm
+                ? "Ingresa tu número con código de país y usa el código en WhatsApp > Dispositivos vinculados."
+                : 'Abre WhatsApp en tu teléfono, ve a "Dispositivos vinculados" y escanea este código QR.'}
+            </CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col items-center py-8">
-            <div className="bg-white p-5 rounded-3xl shadow-[0_0_40px_rgba(var(--primary),0.15)] border border-primary/10 mb-8 transition-transform hover:scale-105 duration-500">
-              {status.qrCode ? (
-                <img src={status.qrCode} alt="WhatsApp QR Code" className="w-64 h-64" />
-              ) : (
-                <Skeleton className="w-64 h-64 rounded-xl" />
-              )}
-            </div>
-            <div className="flex items-center gap-2 text-sm text-primary font-medium bg-primary/10 px-5 py-2.5 rounded-full border border-primary/20 shadow-sm">
-              <RefreshCw className="h-4 w-4 animate-spin" /> Esperando confirmación...
-            </div>
+            {!showPairForm ? (
+              <div className="w-full flex flex-col items-center">
+                <div className="bg-white p-5 rounded-3xl shadow-[0_0_40px_rgba(var(--primary),0.15)] border border-primary/10 mb-8 transition-transform hover:scale-105 duration-500">
+                  {status.qrCode ? (
+                    <img src={status.qrCode} alt="WhatsApp QR Code" className="w-64 h-64" />
+                  ) : (
+                    <Skeleton className="w-64 h-64 rounded-xl" />
+                  )}
+                </div>
+                <div className="flex items-center gap-2 text-sm text-primary font-medium bg-primary/10 px-5 py-2.5 rounded-full border border-primary/20 shadow-sm mb-4">
+                  <RefreshCw className="h-4 w-4 animate-spin" /> Esperando confirmación...
+                </div>
+                <Button variant="ghost" size="sm" className="text-muted-foreground rounded-xl" onClick={() => setShowPairForm(true)}>
+                  <KeyRound className="h-4 w-4 mr-2" /> ¿No puedes escanear? Usar código PIN
+                </Button>
+              </div>
+            ) : (
+              <div className="text-left w-full">
+                <label className="text-sm font-medium text-muted-foreground mb-2 block">Número con código de país</label>
+                <Input
+                  placeholder="Ej: 573001234567"
+                  value={phoneNumber}
+                  onChange={(e) => setPhoneNumber(e.target.value)}
+                  disabled={isPairing}
+                  className="h-12 rounded-xl mb-3"
+                />
+                {pairError && <p className="text-sm text-destructive mb-3">{pairError}</p>}
+                {pairingCode ? (
+                  <div className="bg-primary/10 border border-primary/20 rounded-2xl p-4 mb-3 text-center">
+                    <p className="text-xs text-muted-foreground mb-1">Tu código de vinculación:</p>
+                    <p className="text-2xl font-bold tracking-widest">{pairingCode}</p>
+                    <p className="text-xs text-muted-foreground mt-2">En tu teléfono: WhatsApp → Dispositivos vinculados → Vincular con número de teléfono</p>
+                  </div>
+                ) : (
+                  <Button className="w-full h-12 rounded-xl mb-3" onClick={handleRequestPairingCode} disabled={isPairing}>
+                    {isPairing ? <RefreshCw className="mr-2 h-4 w-4 animate-spin" /> : <KeyRound className="mr-2 h-4 w-4" />}
+                    Obtener código
+                  </Button>
+                )}
+                <Button variant="ghost" className="w-full text-muted-foreground rounded-xl" onClick={() => { setShowPairForm(false); setPairingCode(null); setPairError(null); }}>
+                  Volver al código QR
+                </Button>
+              </div>
+            )}
           </CardContent>
           <CardFooter className="justify-between border-t border-border/50 pt-6 pb-6 bg-muted/5 gap-3">
             <Button variant="ghost" className="text-muted-foreground hover:text-foreground rounded-xl" onClick={handleDisconnect}>
@@ -151,7 +286,7 @@ export default function WhatsAppConnection() {
 
     if (status.state === 'connected') {
       return (
-        <Card className="max-w-md mx-auto w-full mt-10 rounded-3xl overflow-hidden glass-panel border-0 shadow-lg relative">
+        <Card key="connected" className="max-w-md mx-auto w-full mt-10 rounded-3xl overflow-hidden glass-panel border-0 shadow-lg relative">
           <div className="absolute top-0 right-0 w-full h-full bg-gradient-to-b from-green-500/10 to-transparent pointer-events-none" />
           <div className="px-6 pt-12 pb-8 text-center relative z-10">
             <div className="mx-auto bg-gradient-to-br from-green-400 to-green-600 text-white rounded-full w-24 h-24 flex items-center justify-center mb-6 shadow-lg shadow-green-500/30 ring-8 ring-green-500/10">
@@ -199,7 +334,7 @@ export default function WhatsAppConnection() {
 
     if (status.state === 'error' || status.state === undefined) {
       return (
-        <Card className="max-w-md mx-auto w-full mt-10 rounded-3xl overflow-hidden glass-panel border-0 shadow-lg">
+        <Card key="error" className="max-w-md mx-auto w-full mt-10 rounded-3xl overflow-hidden glass-panel border border-destructive/20 shadow-lg shadow-destructive/5 relative">
           <CardHeader className="text-center pt-10">
             <div className="mx-auto bg-destructive/10 text-destructive rounded-full w-20 h-20 flex items-center justify-center mb-6 ring-8 ring-destructive/5">
               <AlertCircle className="h-10 w-10" />
@@ -232,8 +367,10 @@ export default function WhatsAppConnection() {
       <div className="flex flex-col gap-6 animate-enter">
         <div className="flex items-start justify-between">
           <div>
-            <h1 className="text-3xl font-bold tracking-tight bg-gradient-to-br from-foreground to-foreground/70 bg-clip-text text-transparent">Conexión de WhatsApp</h1>
-            <p className="text-muted-foreground mt-1">Gestiona el dispositivo vinculado a tus agentes IA.</p>
+            <h1 className="text-3xl font-bold tracking-tight">Conexión de WhatsApp</h1>
+            <p className="text-muted-foreground mt-1">
+              Gestiona el dispositivo vinculado a tus agentes IA. Cada sesión es independiente: puedes abrir el bot en otro lugar sin afectar esta conexión.
+            </p>
           </div>
           {status && status.state !== 'disconnected' && (
             <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-orange-600 rounded-xl shrink-0" onClick={handleResetSession} disabled={isResetting}>
@@ -241,7 +378,7 @@ export default function WhatsAppConnection() {
             </Button>
           )}
         </div>
-        
+
         {renderState()}
       </div>
     </Layout>

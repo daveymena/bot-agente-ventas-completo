@@ -18,7 +18,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardFooter } from "@/componen
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
-import { Plus, MoreVertical, Edit, Trash2, Save, Package, Tag, Filter, Check, X, Image as ImageIcon, Sparkles } from "lucide-react";
+import { Plus, MoreVertical, Edit, Trash2, Save, Package, Tag, Filter, Check, X, Image as ImageIcon, Sparkles, Search } from "lucide-react";
 import { toast } from "sonner";
 import { format, parseISO } from "date-fns";
 import { es } from "date-fns/locale";
@@ -97,10 +97,48 @@ function SmartImportButton({ onComplete }: { onComplete: () => void }) {
 
 const DEFAULT_CURRENCIES = ["MXN", "USD", "EUR", "COP", "ARS", "CLP"];
 
+function ProductImage({ product, cat }: { product: any, cat: any }) {
+  const [imageState, setImageState] = useState<'initial' | 'local' | 'fallback'>('initial');
+  const catColor = cat?.color || "hsl(var(--primary))";
+  
+  if (imageState === 'fallback') {
+    return (
+      <div 
+        className="w-full h-full flex items-center justify-center transition-transform duration-500 group-hover:scale-105"
+        style={{ background: `linear-gradient(135deg, ${catColor}33 0%, ${catColor}99 100%)` }}
+      >
+        <span style={{ fontSize: '3rem', filter: 'drop-shadow(0 2px 8px rgba(0,0,0,0.3))' }}>
+          {cat?.icon || (product.kind === 'digital' ? '⚡' : '📦')}
+        </span>
+      </div>
+    );
+  }
+
+  const src = imageState === 'initial' && product.imageUrl 
+    ? product.imageUrl 
+    : `/images/products/${product.id}.jpg`;
+
+  return (
+    <img 
+      src={src} 
+      alt={product.name} 
+      className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+      onError={() => {
+        if (imageState === 'initial' && product.imageUrl) {
+          setImageState('local');
+        } else {
+          setImageState('fallback');
+        }
+      }}
+    />
+  );
+}
+
 export default function Products() {
   const queryClient = useQueryClient();
   const [activeCategoryId, setActiveCategoryId] = useState<number | "all">("all");
   const [activeKind, setActiveKind] = useState<ProductKind | "all">("all");
+  const [searchQuery, setSearchQuery] = useState("");
 
   const { data: products, isLoading: isLoadingProducts } = useListProducts({
     query: { queryKey: getListProductsQueryKey() }
@@ -115,12 +153,14 @@ export default function Products() {
 
   const filteredProducts = useMemo(() => {
     if (!products) return [];
+    const q = searchQuery.toLowerCase().trim();
     return (Array.isArray(products) ? products : []).filter(p => {
       const matchCategory = activeCategoryId === "all" || p.categoryId === activeCategoryId;
       const matchKind = activeKind === "all" || p.kind === activeKind;
-      return matchCategory && matchKind;
+      const matchSearch = !q || p.name.toLowerCase().includes(q);
+      return matchCategory && matchKind && matchSearch;
     });
-  }, [products, activeCategoryId, activeKind]);
+  }, [products, activeCategoryId, activeKind, searchQuery]);
 
   const handleDelete = (id: number) => {
     if(!confirm("¿Seguro que deseas eliminar este producto?")) return;
@@ -163,15 +203,20 @@ export default function Products() {
       <div className="flex flex-col gap-8 animate-enter">
         <div className="flex flex-col gap-2 md:flex-row md:justify-between md:items-end">
           <div>
-            <h1 className="text-3xl font-bold tracking-tight bg-gradient-to-br from-foreground to-foreground/70 bg-clip-text text-transparent">Catálogo de Productos</h1>
+            <h1 className="text-2xl font-semibold tracking-tight">Catálogo de Productos</h1>
             <p className="text-muted-foreground mt-1">Organiza tus ofertas para que los agentes IA puedan recomendarlas.</p>
           </div>
-          <div className="flex items-center gap-3">
+          {/* flex-wrap: sin esto, en pantallas angostas las 3 acciones no
+              entraban en una sola fila y "Nuevo Producto" (la última)
+              quedaba empujada fuera del viewport a la derecha, invisible sin
+              scrollear horizontal -- mismo bug que ya se había corregido en
+              facebook.tsx, acá faltaba aplicarlo. */}
+          <div className="flex items-center gap-3 flex-wrap">
             <Button variant="outline" className="glass-panel" onClick={() => setIsCategoryModalOpen(true)}>
               <Tag className="h-4 w-4 mr-2 text-primary" /> Gestionar categorías
             </Button>
             <SmartImportButton onComplete={() => queryClient.invalidateQueries({ queryKey: getListProductsQueryKey() })} />
-            <ProductModal 
+            <ProductModal
               mode="create" 
               open={isNewModalOpen} 
               onOpenChange={(o) => {
@@ -187,7 +232,18 @@ export default function Products() {
         </div>
 
         {/* Filters */}
-        <div className="glass-panel p-2 rounded-2xl flex flex-col md:flex-row gap-4 items-center justify-between sticky top-[80px] z-10">
+        <div className="glass-panel p-2 rounded-xl flex flex-col md:flex-row gap-3 items-center justify-between sticky top-[72px] z-10">
+          <div className="flex items-center gap-3 w-full md:w-auto px-2">
+            <div className="relative w-full md:w-56">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                placeholder="Buscar producto..."
+                className="h-9 pl-9 pr-3 rounded-xl text-sm bg-muted/30"
+              />
+            </div>
+          </div>
           <ScrollArea className="w-full md:w-auto max-w-[calc(100vw-3rem)]">
             <div className="flex gap-2 pb-2 md:pb-0 px-2 items-center">
               <Button 
@@ -276,53 +332,10 @@ export default function Products() {
               const catColor = cat?.color || "hsl(var(--primary))";
               
               return (
-                <Card key={product.id} className={`group flex flex-col overflow-hidden transition-all duration-300 hover:-translate-y-1 hover:shadow-xl ${!product.isActive ? 'opacity-60 grayscale-[0.3]' : ''}`}>
+                <Card key={product.id} className={`group flex flex-col overflow-hidden transition-shadow hover:shadow-md ${!product.isActive ? 'opacity-60' : ''}`}>
                   {/* Image Header */}
                   <div className="relative aspect-video w-full overflow-hidden bg-muted">
-                    {product.imageUrl ? (
-                      <img 
-                        src={product.imageUrl} 
-                        alt={product.name} 
-                        className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
-                        onError={(e) => {
-                          const target = e.currentTarget;
-                          const localPath = `/images/products/${product.id}.jpg`;
-                          // Si ya intentamos la imagen local y también falló, mostrar fallback visual
-                          if (target.src.includes('/images/products/')) {
-                            target.style.display = 'none';
-                            const parent = target.parentElement;
-                            if (parent && !parent.querySelector('.img-fallback')) {
-                              const fallback = document.createElement('div');
-                              fallback.className = 'img-fallback w-full h-full flex items-center justify-center';
-                              fallback.style.cssText = `background: linear-gradient(135deg, ${catColor}33 0%, ${catColor}99 100%)`;
-                              fallback.innerHTML = `<span style="font-size:3rem;filter:drop-shadow(0 2px 8px rgba(0,0,0,0.3))">${cat?.icon || (product.kind === 'digital' ? '⚡' : '📦')}</span>`;
-                              parent.appendChild(fallback);
-                            }
-                          } else {
-                            // Primer intento: usar imagen local del servidor
-                            target.src = localPath;
-                          }
-                        }}
-                      />
-                    ) : (
-                      <img
-                        src={`/images/products/${product.id}.jpg`}
-                        alt={product.name}
-                        className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
-                        onError={(e) => {
-                          const target = e.currentTarget;
-                          target.style.display = 'none';
-                          const parent = target.parentElement;
-                          if (parent && !parent.querySelector('.img-fallback')) {
-                            const fallback = document.createElement('div');
-                            fallback.className = 'img-fallback w-full h-full flex items-center justify-center';
-                            fallback.style.cssText = `background: linear-gradient(135deg, ${catColor}33 0%, ${catColor}99 100%)`;
-                            fallback.innerHTML = `<span style="font-size:3rem;filter:drop-shadow(0 2px 8px rgba(0,0,0,0.3))">${cat?.icon || (product.kind === 'digital' ? '⚡' : '📦')}</span>`;
-                            parent.appendChild(fallback);
-                          }
-                        }}
-                      />
-                    )}
+                    <ProductImage product={product} cat={cat} />
                     
                     {/* Badges Overlay */}
                     <div className="absolute top-3 left-3 right-3 flex justify-between items-start">
@@ -343,15 +356,17 @@ export default function Products() {
                   </div>
 
                   <CardHeader className="p-4 pb-2 relative">
-                    <div className="absolute right-2 top-2 z-10">
+                    <div className="absolute right-2 top-2 z-10 flex gap-1">
+                      <ProductModal mode="edit" product={product} categories={categories || []}>
+                        <Button variant="secondary" size="icon" className="h-8 w-8 bg-background/80 backdrop-blur-sm shadow-sm border border-border hover:bg-background">
+                          <Edit className="h-4 w-4 text-primary"/>
+                        </Button>
+                      </ProductModal>
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon" className="h-8 w-8 bg-background/50 backdrop-blur-sm opacity-0 group-hover:opacity-100 transition-opacity hover:bg-background"><MoreVertical className="h-4 w-4"/></Button>
+                          <Button variant="ghost" size="icon" className="h-8 w-8 bg-background/80 backdrop-blur-sm shadow-sm border border-border hover:bg-background"><MoreVertical className="h-4 w-4"/></Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end" className="w-40">
-                          <ProductModal mode="edit" product={product} categories={categories || []}>
-                            <DropdownMenuItem onSelect={(e) => e.preventDefault()}><Edit className="h-4 w-4 mr-2 text-muted-foreground"/> Editar</DropdownMenuItem>
-                          </ProductModal>
                           <DropdownMenuItem className="text-destructive focus:text-destructive focus:bg-destructive/10" onClick={() => handleDelete(product.id)}>
                             <Trash2 className="h-4 w-4 mr-2"/> Eliminar
                           </DropdownMenuItem>

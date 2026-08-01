@@ -48,6 +48,11 @@ export default defineConfig({
       strict: true,
     },
     proxy: {
+      "/tienda": {
+        target: process.env.VITE_API_URL || "http://localhost:3002",
+        changeOrigin: true,
+        secure: false,
+      },
       "/api": {
         target: process.env.VITE_API_URL || "http://localhost:3002",
         changeOrigin: true,

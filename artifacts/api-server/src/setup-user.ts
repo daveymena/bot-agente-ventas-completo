@@ -1,16 +1,20 @@
 import { db, tenants, agents } from "@workspace/db";
 import { eq } from "drizzle-orm";
-import crypto from "crypto";
+import bcrypt from "bcryptjs";
 import { getAllTemplates } from "./lib/agent-templates";
 
-function hashPassword(password: string) {
-  return crypto.createHash("sha256").update(password).digest("hex");
-}
-
 async function setup() {
-  const email = "daveymena16@gmail.com";
-  const password = "6715320D";
-  const passwordHash = hashPassword(password);
+  // Antes: email y contraseña hardcodeados acá (y hasheados con SHA-256
+  // plano) -- el mismo password real terminó repetido en ~30 scripts del
+  // repo, público en GitHub. Ahora salen de ADMIN_EMAIL/ADMIN_PASSWORD
+  // (mismo patrón que el auto-seed de app.ts) y se hashean con bcrypt.
+  const email = process.env.ADMIN_EMAIL;
+  const password = process.env.ADMIN_PASSWORD;
+  if (!email || !password) {
+    console.error("❌ Faltan ADMIN_EMAIL / ADMIN_PASSWORD en el entorno -- no se puede correr este script sin ellas.");
+    process.exit(1);
+  }
+  const passwordHash = await bcrypt.hash(password, 10);
   const slug = "sofia-premium";
 
   console.log(`🚀 Iniciando configuración para ${email}...`);
@@ -109,7 +113,6 @@ async function setup() {
 
   console.log("✨ ¡CONFIGURACIÓN COMPLETADA! ✨");
   console.log(`📧 Email: ${email}`);
-  console.log(`🔑 Pass: ${password}`);
   
   // 3. Crear los 10 agentes desde templates
   console.log("\n🤖 Creando agentes desde templates...");

@@ -1,0 +1,43 @@
+{
+  "kicker": "CURSO DE",
+  "title": "RETOQUE",
+  "subtitle": "DE RETRATOS",
+  "tagline": "NIVEL PROFESIONAL",
+  "intro": "Domina el retoque de piel, color y luz para que tus retratos se vean de revista.",
+  "features": [
+    {
+      "icon": "✨",
+      "title": "PIEL NATURAL",
+      "text": "Retoque sin plástico"
+    },
+    {
+      "icon": "🎚️",
+      "title": "COLOR Y LUZ",
+      "text": "Ajustes profesionales"
+    },
+    {
+      "icon": "📷",
+      "title": "FLUJO COMPLETO",
+      "text": "De la toma al final"
+    },
+    {
+      "icon": "▶️",
+      "title": "CLASES EN VIDEO",
+      "text": "Alta calidad"
+    }
+  ],
+  "bullets": [
+    "Acceso ilimitado de por vida",
+    "Estudia cuando y donde quieras",
+    "Ideal para principiantes y avanzados",
+    "Descargable y online vía Drive"
+  ],
+  "cta": "¡EMPIEZA HOY!",
+  "bgPrompt": "photographer retouching a portrait on a computer in a photo studio, softbox lighting",
+  "seed": 62,
+  "accentLight": "#FFD3E8",
+  "accent": "#FF4D97",
+  "accentDark": "#A3145A",
+  "ink": "#1c0410",
+  "rimLight": "soft pink"
+}

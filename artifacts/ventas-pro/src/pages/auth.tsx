@@ -13,6 +13,7 @@ export default function AuthPage() {
   const [, setLocation] = useLocation();
   const [isLoading, setIsLoading] = useState(false);
   const { refreshSession } = useSession();
+  const defaultTab = typeof window !== "undefined" && new URLSearchParams(window.location.search).get("tab") === "register" ? "register" : "login";
 
   // Estados para modal de éxito de registro
   const [showSuccessModal, setShowSuccessModal] = useState(false);
@@ -526,8 +527,10 @@ export default function AuthPage() {
             )}
           </Card>
         ) : (
-          /* Login y Registro */
-          <Tabs defaultValue="login" className="w-full">
+          /* Login y Registro. defaultTab lee ?tab=register (usado por los
+             CTA de la landing) para abrir directo en "Crear Cuenta" en vez
+             de forzar un clic extra. */
+          <Tabs defaultValue={defaultTab} className="w-full">
             <TabsList className="grid w-full grid-cols-2 mb-6 glass-panel p-1">
               <TabsTrigger value="login" className="rounded-lg">Iniciar Sesión</TabsTrigger>
               <TabsTrigger value="register" className="rounded-lg">Crear Cuenta</TabsTrigger>

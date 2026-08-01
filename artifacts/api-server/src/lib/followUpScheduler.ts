@@ -3,6 +3,8 @@ import { db, conversations, messages, activityEvents, followUps, type FollowUp, 
 import { logger } from "./logger";
 import { leadScoringEngine, type LeadStage } from "./leadScoring";
 import { whatsapp } from "./whatsapp";
+import { toDbDate } from "./date-utils";
+import { facebookMessengerService } from "./facebook-messenger";
 
 export class FollowUpScheduler {
   private isRunning = false;
@@ -60,7 +62,7 @@ export class FollowUpScheduler {
         leadId: conversation.leadId,
         contactName: conversation.contactName,
         contactPhone: conversation.contactPhone,
-        scheduledFor: scheduledFor.toISOString(),
+        scheduledFor: toDbDate(scheduledFor),
         followUpType,
         message,
         priority,
@@ -80,9 +82,13 @@ export class FollowUpScheduler {
 
   async processDueFollowUps(): Promise<void> {
     try {
-      const now = new Date();
+      // Mismo fix que getDueFollowUpsFromDB(): sql.js rechaza bindear un Date
+      // crudo. Este es el cron real que ENVÍA los follow-ups -- con el bug,
+      // esta query fallaba en cada corrida (silenciosamente, atrapada por el
+      // catch de abajo) y ningún follow-up se enviaba jamás.
+      const now = toDbDate(new Date());
       const dueFollowUps = await db.select().from(followUps)
-        .where(and(eq(followUps.completed, false), lte(followUps.scheduledFor, now)))
+        .where(and(eq(followUps.completed, false), lte(followUps.scheduledFor, now as any)))
         .orderBy(asc(followUps.scheduledFor));
 
       if (dueFollowUps.length === 0) return;
@@ -100,12 +106,29 @@ export class FollowUpScheduler {
 
   private async processFollowUp(followUp: FollowUp): Promise<void> {
     try {
-      if (!whatsapp.isConnected()) {
-        logger.warn({ followUpId: followUp.id }, "[FollowUpScheduler] WhatsApp not connected");
-        return;
-      }
+      // Los leads de Facebook Messenger se guardan como contactPhone=`fb:<psid>`
+      // (ver facebook-messenger.ts). Antes esto se ignoraba y SOLO se enviaba
+      // por WhatsApp, dejando a todos los leads de Facebook sin seguimiento.
+      const isFacebookLead = followUp.contactPhone.startsWith("fb:");
 
-      await whatsapp.sendText(followUp.contactPhone, followUp.message);
+      if (isFacebookLead) {
+        const psid = followUp.contactPhone.slice(3);
+        if (!facebookMessengerService.isConfigured()) {
+          logger.warn({ followUpId: followUp.id }, "[FollowUpScheduler] Facebook Messenger not configured");
+          return;
+        }
+        const sent = await facebookMessengerService.sendText(psid, followUp.message);
+        if (!sent) {
+          logger.warn({ followUpId: followUp.id }, "[FollowUpScheduler] Failed to send Facebook follow-up");
+          return;
+        }
+      } else {
+        if (!whatsapp.isConnected()) {
+          logger.warn({ followUpId: followUp.id }, "[FollowUpScheduler] WhatsApp not connected");
+          return;
+        }
+        await whatsapp.sendText(followUp.contactPhone, followUp.message);
+      }
 
       await db.update(followUps)
         .set({ completed: true, attempts: followUp.attempts + 1 })
@@ -145,11 +168,29 @@ export class FollowUpScheduler {
     };
   }
 
-  async getDueFollowUpsFromDB(): Promise<FollowUp[]> {
-    const now = new Date();
-    return db.select().from(followUps)
-      .where(and(eq(followUps.completed, false), lte(followUps.scheduledFor, now)))
+  // followUps no tiene columna tenantId propia -- sin el join a conversations,
+  // esta consulta devolvía los follow-ups (nombre, teléfono, mensaje) de
+  // TODOS los tenants a cualquier tenant autenticado que pidiera /follow-ups/due.
+  async getDueFollowUpsFromDB(tenantId?: number): Promise<FollowUp[]> {
+    // toDbDate(): sql.js (SQLite local) rechaza bindear un Date crudo
+    // ("Wrong API use: tried to bind a value of an unknown type") -- había
+    // que convertirlo igual que el resto del código hace con dbNow()/toDbDate().
+    const now = toDbDate(new Date());
+    if (tenantId === undefined) {
+      return db.select().from(followUps)
+        .where(and(eq(followUps.completed, false), lte(followUps.scheduledFor, now as any)))
+        .orderBy(asc(followUps.scheduledFor));
+    }
+    const rows = await db.select({ followUp: followUps })
+      .from(followUps)
+      .innerJoin(conversations, eq(followUps.conversationId, conversations.id))
+      .where(and(
+        eq(followUps.completed, false),
+        lte(followUps.scheduledFor, now as any),
+        eq(conversations.tenantId, tenantId),
+      ))
       .orderBy(asc(followUps.scheduledFor));
+    return rows.map(r => r.followUp);
   }
 
   private calculateFollowUpDate(stage: string): Date {
@@ -178,6 +219,6 @@ export function getFollowUpMetrics(): Promise<{ totalScheduled: number; overdue:
   return followUpScheduler.getMetrics();
 }
 
-export async function getDueFollowUps(): Promise<FollowUp[]> {
-  return followUpScheduler.getDueFollowUpsFromDB();
+export async function getDueFollowUps(tenantId?: number): Promise<FollowUp[]> {
+  return followUpScheduler.getDueFollowUpsFromDB(tenantId);
 }

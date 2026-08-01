@@ -4,7 +4,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Loader2, CheckCircle2, XCircle, RefreshCw, Megaphone, Package, Target, MapPin, Settings2, MessageCircle, Store, MessageSquare, Radio, Globe, FileText, Trash2, Play, Pencil } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
+import { Textarea } from "@/components/ui/textarea";
+import { Loader2, CheckCircle2, XCircle, RefreshCw, Megaphone, Package, Target, MapPin, Settings2, MessageCircle, MessageSquare, Radio, Globe, FileText, Trash2, Play, Pencil } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Layout } from "@/components/layout";
 
@@ -15,8 +18,25 @@ const apiRequest = async (endpoint: string, options: RequestInit = {}) => {
     credentials: "include",
   });
   if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: "Error desconocido" }));
-    throw new Error(error.error || error.message || "Error en la solicitud");
+    // El servidor no siempre responde JSON: un 502/504 del proxy devuelve HTML,
+    // y `response.json()` explota → antes se mostraba "Error desconocido" para
+    // TODO, ocultando la causa real (timeout del proxy, endpoint caído, etc.).
+    // Ahora se lee como texto y solo se intenta parsear si de verdad es JSON.
+    const raw = await response.text().catch(() => "");
+    let detalle = "";
+    try {
+      const j = JSON.parse(raw);
+      detalle = j.error || j.message || "";
+    } catch {
+      if (response.status === 502 || response.status === 504) {
+        detalle = "el servidor tardó demasiado en responder (timeout del proxy). Suele pasar si Facebook no contesta.";
+      } else if (raw.trim().startsWith("<")) {
+        detalle = `el servidor respondió HTML en vez de JSON (${response.status}).`;
+      } else {
+        detalle = raw.slice(0, 200);
+      }
+    }
+    throw new Error(`${response.status} ${response.statusText}${detalle ? " — " + detalle : ""}`);
   }
   return response.json();
 };
@@ -35,21 +55,13 @@ interface Product {
   name: string;
   price: number;
   category: string;
-  image_url: string;
+  imageUrl: string | null;
 }
 
 interface FbAudience {
   description: string;
   targeting: { ageMin: number; ageMax: number; genders: number[]; geoLocations?: any; interests?: Array<{ id: string; name: string }> };
   rationale: string;
-}
-
-interface MarketplaceListing {
-  id: string;
-  name: string;
-  price: string;
-  status: string;
-  listingUrl: string;
 }
 
 interface ChannelStatus {
@@ -82,7 +94,20 @@ interface DraftAd {
   createdAt: string;
 }
 
-type Tab = "config" | "ads" | "messenger" | "marketplace" | "comments" | "channels" | "drafts";
+type Tab = "config" | "ads" | "messenger" | "comments" | "channels" | "drafts";
+
+interface AgentLog {
+  id: number;
+  campaignId: string;
+  adSetId: string | null;
+  productName: string | null;
+  checkType: "spend_protection" | "trend_review";
+  status: "suggested" | "approved" | "rejected" | "auto_applied" | "no_action";
+  suggestedAction: "pause" | "resume" | "increase_budget" | "decrease_budget" | null;
+  reason: string;
+  createdAt: string;
+  respondedAt: string | null;
+}
 
 export default function FacebookAdsPage() {
   const { toast } = useToast();
@@ -108,10 +133,6 @@ export default function FacebookAdsPage() {
 
   const [pageInfo, setPageInfo] = useState<PageInfo | null>(null);
   const [subscribing, setSubscribing] = useState(false);
-  const [listings, setListings] = useState<MarketplaceListing[]>([]);
-  const [loadingListings, setLoadingListings] = useState(false);
-  const [creatingListing, setCreatingListing] = useState(false);
-  const [selectedListingProduct, setSelectedListingProduct] = useState<number | null>(null);
   const [channelStatus, setChannelStatus] = useState<ChannelStatus[]>([]);
   const [pollingActive, setPollingActive] = useState(false);
 
@@ -121,13 +142,113 @@ export default function FacebookAdsPage() {
   const [creatingAllDrafts, setCreatingAllDrafts] = useState(false);
   const [selectedDraftProduct, setSelectedDraftProduct] = useState<number | null>(null);
 
-  useEffect(() => { loadData(); }, []);
+  // Modal de detalle de producto (pestaña Anuncios)
+  const [productDetail, setProductDetail] = useState<Product | null>(null);
+
+  // Editor de borrador (modal editable)
+  const [editingDraft, setEditingDraft] = useState<DraftAd | null>(null);
+  const [editHeadline, setEditHeadline] = useState("");
+  const [editPrimaryText, setEditPrimaryText] = useState("");
+  const [editBudget, setEditBudget] = useState<number>(5000);
+  const [savingDraft, setSavingDraft] = useState(false);
+
+
+
+  const [agentLogs, setAgentLogs] = useState<AgentLog[]>([]);
+  const [loadingAgentLogs, setLoadingAgentLogs] = useState(false);
+  const [runningAgentNow, setRunningAgentNow] = useState(false);
+
+  // Login real con Facebook (OAuth): antes la única forma de "conectar" era
+  // pegar un token a mano en el campo de abajo -- si venía del Explorador de
+  // Graph API (lo más común), duraba 1-2 horas y el admin terminaba
+  // reconectando todo el tiempo. Este botón hace el login real y el backend
+  // (/api/public/fb-connect) canjea el token por uno de página de larga
+  // duración que prácticamente no vence.
+  const [fbAppConfig, setFbAppConfig] = useState<{ appId: string | null; enabled: boolean }>({ appId: null, enabled: false });
+  const [connectingOAuth, setConnectingOAuth] = useState(false);
+  const [otherPages, setOtherPages] = useState<Array<{ id: string; name: string }>>([]);
+
+  useEffect(() => {
+    loadData();
+    apiRequest("/public/fb-app-config").then(setFbAppConfig).catch(() => setFbAppConfig({ appId: null, enabled: false }));
+    handleOAuthRedirectIfAny();
+  }, []);
+
+  // Facebook redirige de vuelta con #access_token=... en el fragmento de la
+  // URL (nunca llega al servidor). Se lee una sola vez al cargar la página.
+  const handleOAuthRedirectIfAny = async () => {
+    const hash = window.location.hash;
+    if (!hash || !hash.includes("access_token=")) return;
+    const params = new URLSearchParams(hash.replace(/^#/, ""));
+    const userToken = params.get("access_token");
+    // Limpiar el hash de la URL para no reprocesar el mismo token al recargar.
+    window.history.replaceState(null, "", window.location.pathname + window.location.search);
+    if (!userToken) return;
+    await connectWithUserToken(userToken);
+  };
+
+  const connectWithUserToken = async (userToken: string, pageId?: string) => {
+    try {
+      setConnectingOAuth(true);
+      const res = await apiRequest("/public/fb-connect", {
+        method: "POST",
+        body: JSON.stringify({ userToken, tenantId: 1, pageId }),
+      });
+      toast({ title: "Facebook conectado", description: `Página: ${res.page?.name || res.page?.id}${res.canPost ? "" : " (falta el permiso para publicar en el muro)"}` });
+      setOtherPages(res.otrasPaginas || []);
+      setConnected(true);
+      const cfg = await apiRequest("/facebook/config");
+      if (cfg) setConfig(cfg);
+    } catch (e: any) {
+      toast({ title: "Error conectando Facebook", description: e.message, variant: "destructive" });
+    } finally {
+      setConnectingOAuth(false);
+    }
+  };
+
+  // PROBADO EN VIVO (jul-2026) — este flujo NO funciona todavía con la app
+  // actual y hay que arreglarlo del lado de Meta, no acá:
+  //
+  // Facebook devuelve "El dominio de esta URL no está incluido en los dominios
+  // de la aplicación" aunque el dominio SÍ esté cargado en App Domains y con la
+  // plataforma Website agregada (ambas cosas se verificaron). La causa real es
+  // que la app está configurada como "Inicio de sesión con Facebook para
+  // empresas" (Facebook Login for Business), y ese producto IGNORA `scope`:
+  // exige un `config_id` que apunte a una configuración de Business Login
+  // creada en el panel (Casos de uso → configuración), donde además se
+  // registran los redirect URIs válidos.
+  //
+  // Para habilitarlo: crear esa configuración en developers.facebook.com,
+  // exponer su id como FB_LOGIN_CONFIG_ID en el backend (junto a FB_APP_ID en
+  // /api/public/fb-app-config) y cambiar `scope=` por `config_id=` abajo.
+  //
+  // Mientras tanto el sistema funciona con el token de página permanente
+  // cargado a mano en "Credenciales (manual/avanzado)" — que al ser de página
+  // y de larga duración no se vence, así que esto es una comodidad, no un
+  // bloqueante.
+  const startFacebookLogin = () => {
+    if (!fbAppConfig.appId) return;
+    const redirectUri = window.location.origin + window.location.pathname;
+    const configId = (fbAppConfig as any).loginConfigId;
+    const base = `https://www.facebook.com/v21.0/dialog/oauth?client_id=${encodeURIComponent(fbAppConfig.appId)}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=token`;
+    if (configId) {
+      window.location.href = `${base}&config_id=${encodeURIComponent(configId)}`;
+      return;
+    }
+    const scope = [
+      "pages_show_list", "pages_read_engagement", "pages_manage_posts",
+      "pages_manage_metadata", "pages_messaging", "ads_management", "catalog_management",
+    ].join(",");
+    window.location.href = `${base}&scope=${encodeURIComponent(scope)}`;
+  };
 
   const loadData = async () => {
     try {
       setLoading(true);
       const [cfg, prods] = await Promise.all([
-        apiRequest("/facebook/config").catch(() => null),
+        apiRequest("/facebook/config").catch(() => ({
+          accessToken: "", pixelId: "", catalogId: "", pageId: "", adAccountId: "", hasToken: false,
+        })),
         apiRequest("/products").catch(() => []),
       ]);
       if (cfg) {
@@ -231,44 +352,31 @@ export default function FacebookAdsPage() {
     } finally { setSubscribing(false); }
   };
 
-  const loadListings = async () => {
-    try {
-      setLoadingListings(true);
-      const res = await apiRequest("/facebook/marketplace/listings?status=ALL");
-      setListings(res.listings || []);
-    } catch { setListings([]); }
-    finally { setLoadingListings(false); }
-  };
-
-  const createListing = async () => {
-    if (!selectedListingProduct) return;
-    try {
-      setCreatingListing(true);
-      const res = await apiRequest(`/facebook/marketplace/listings/${selectedListingProduct}`, { method: "POST" });
-      if (res.id) {
-        toast({ title: "Listing creado", description: `Producto publicado en Marketplace` });
-        loadListings();
-      }
-    } catch (e: any) {
-      toast({ title: "Error", description: e.message, variant: "destructive" });
-    } finally { setCreatingListing(false); }
-  };
-
-  const syncAllMarketplace = async () => {
-    try {
-      const res = await apiRequest("/facebook/marketplace/sync", { method: "POST" });
-      toast({ title: "Sincronizado", description: `${res.created} creados, ${res.failed} fallos` });
-      loadListings();
-    } catch (e: any) {
-      toast({ title: "Error", description: e.message, variant: "destructive" });
-    }
-  };
-
   const loadChannelStatus = async () => {
     try {
       const res = await apiRequest("/facebook/channels/status");
       setChannelStatus(res.channels || []);
     } catch { setChannelStatus([]); }
+  };
+
+  const loadAgentLogs = async () => {
+    try {
+      setLoadingAgentLogs(true);
+      const res = await apiRequest("/facebook/agent/logs");
+      setAgentLogs(res.logs || []);
+    } catch { setAgentLogs([]); }
+    finally { setLoadingAgentLogs(false); }
+  };
+
+  const runAgentNow = async () => {
+    try {
+      setRunningAgentNow(true);
+      const res = await apiRequest("/facebook/agent/run-now", { method: "POST" });
+      toast({ title: "Revisión ejecutada", description: res.message });
+      loadAgentLogs();
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
+    } finally { setRunningAgentNow(false); }
   };
 
   const startPolling = async () => {
@@ -316,7 +424,15 @@ export default function FacebookAdsPage() {
     try {
       setCreatingAllDrafts(true);
       const res = await apiRequest("/facebook/strategist/draft-all", { method: "POST" });
-      toast({ title: "Borradores creados", description: `${res.created} creados, ${res.failed} fallos` });
+      // withoutRealImage: cuántos de esos borradores van a salir con el
+      // cartel de texto genérico en vez de una foto real del curso -- la
+      // causa más probable de "la foto no corresponde al producto".
+      const imgWarning = res.withoutRealImage > 0 ? ` -- ${res.withoutRealImage} sin foto real (revisá esos productos)` : "";
+      toast({
+        title: "Borradores creados",
+        description: `${res.created} creados, ${res.failed} fallos${imgWarning}`,
+        variant: res.withoutRealImage > 0 ? "destructive" : "default",
+      });
       loadDrafts();
     } catch (e: any) {
       toast({ title: "Error", description: e.message, variant: "destructive" });
@@ -343,12 +459,49 @@ export default function FacebookAdsPage() {
     }
   };
 
+  // Abre el editor con los datos del borrador
+  const openEditDraft = (d: DraftAd) => {
+    setEditingDraft(d);
+    setEditHeadline(d.headline || "");
+    setEditPrimaryText(d.primaryText || "");
+    setEditBudget(d.budget || 5000);
+  };
+
+  // Guarda los cambios del borrador editado
+  const saveEditedDraft = async () => {
+    if (!editingDraft) return;
+    try {
+      setSavingDraft(true);
+      await apiRequest(`/facebook/strategist/draft/${editingDraft.id}`, {
+        method: "PUT",
+        body: JSON.stringify({ headline: editHeadline, primaryText: editPrimaryText, budget: editBudget }),
+      });
+      toast({ title: "Borrador actualizado" });
+      setEditingDraft(null);
+      loadDrafts();
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
+    } finally {
+      setSavingDraft(false);
+    }
+  };
+
+  // Cambiar de sección: carga los datos que necesita cada una. Compartido por
+  // el desplegable (móvil) y las pestañas (escritorio).
+  const selectTab = (id: Tab) => {
+    setTab(id);
+    if (id === "messenger") loadPageInfo();
+    if (id === "channels") loadChannelStatus();
+    if (id === "drafts") loadDrafts();
+    if (id === "agent") loadAgentLogs();
+  };
+
   const tabs = [
     { id: "config" as Tab, label: "Configuración", icon: Settings2, disabled: false },
     { id: "ads" as Tab, label: "Anuncios", icon: Megaphone, disabled: !connected },
     { id: "drafts" as Tab, label: "Borradores", icon: FileText, disabled: false },
+    { id: "agent" as Tab, label: "Agente IA", icon: Radio, disabled: !connected },
     { id: "messenger" as Tab, label: "Messenger", icon: MessageCircle, disabled: !connected },
-    { id: "marketplace" as Tab, label: "Marketplace", icon: Store, disabled: !connected },
     { id: "comments" as Tab, label: "Comentarios", icon: MessageSquare, disabled: !connected },
     { id: "channels" as Tab, label: "Canales", icon: Radio, disabled: false },
   ];
@@ -359,7 +512,7 @@ export default function FacebookAdsPage() {
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-3xl font-bold tracking-tight">Facebook Multi-Canal</h1>
-            <p className="text-muted-foreground">Conecta todos los canales de Facebook: Ads, Messenger, Marketplace y Comentarios</p>
+            <p className="text-muted-foreground">Conecta todos los canales de Facebook: Ads, Messenger y Comentarios</p>
           </div>
         </div>
 
@@ -371,12 +524,31 @@ export default function FacebookAdsPage() {
 
         {!loading && (
           <>
-            <div className="flex gap-2 border-b pb-2 flex-wrap">
+            {/* Móvil: un desplegable en una sola línea. 7 pestañas en fila se
+                salen del ancho del teléfono. Escritorio: se mantienen visibles. */}
+            <div className="md:hidden border-b pb-2">
+              <Select value={tab} onValueChange={(v) => selectTab(v as Tab)}>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Sección" />
+                </SelectTrigger>
+                <SelectContent>
+                  {tabs.map(t => (
+                    <SelectItem key={t.id} value={t.id} disabled={t.disabled}>
+                      <span className="flex items-center gap-2">
+                        <t.icon className="h-4 w-4" /> {t.label}
+                      </span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="hidden md:flex gap-2 border-b pb-2 flex-wrap">
               {tabs.map(t => (
                 <Button
                   key={t.id}
                   variant={tab === t.id ? "default" : "ghost"}
-                  onClick={() => { setTab(t.id); if (t.id === "messenger") loadPageInfo(); if (t.id === "marketplace") loadListings(); if (t.id === "channels") loadChannelStatus(); if (t.id === "drafts") loadDrafts(); }}
+                  onClick={() => selectTab(t.id)}
                   size="sm"
                   disabled={t.disabled}
                 >
@@ -386,34 +558,73 @@ export default function FacebookAdsPage() {
             </div>
 
             {tab === "config" && (
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2"><Settings2 className="h-5 w-5" /> Credenciales de Facebook</CardTitle>
-                  <CardDescription>Datos de tu cuenta de Facebook Business para todos los canales.</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                      <Label>Access Token</Label>
-                      <Input type="password" value={rawToken || (config.hasToken ? "••••••••" : "")} onChange={e => setRawToken(e.target.value)} placeholder="FB_ACCESS_TOKEN" />
-                      {config.hasToken && !rawToken && <p className="text-xs text-muted-foreground mt-1">Token ya configurado</p>}
-                    </div>
-                    <div><Label>Pixel ID</Label><Input value={config.pixelId} onChange={e => setConfig({...config, pixelId: e.target.value})} placeholder="FB_PIXEL_ID" /></div>
-                    <div><Label>Catalog ID</Label><Input value={config.catalogId} onChange={e => setConfig({...config, catalogId: e.target.value})} placeholder="FB_CATALOG_ID" /></div>
-                    <div><Label>Page ID</Label><Input value={config.pageId} onChange={e => setConfig({...config, pageId: e.target.value})} placeholder="FB_PAGE_ID" /></div>
-                    <div><Label>Ad Account ID</Label><Input value={config.adAccountId} onChange={e => setConfig({...config, adAccountId: e.target.value})} placeholder="FB_AD_ACCOUNT_ID (solo números)" /></div>
-                  </div>
-                  <div className="flex gap-2">
-                    <Button onClick={saveConfig} disabled={saving}>{saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}Guardar</Button>
-                    <Button variant="outline" onClick={testConnection} disabled={testing}>
-                      {testing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
-                      {connected === true ? "✓ Conectado" : connected === false ? "Reconectar" : "Probar conexión"}
+              <div className="grid gap-6">
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2"><Globe className="h-5 w-5" /> Conectar con Facebook</CardTitle>
+                    <CardDescription>
+                      Recomendado: hace login real con Facebook y guarda un token de página de larga
+                      duración (prácticamente no vence). El campo manual de abajo es solo un respaldo —
+                      si pegás ahí un token del Explorador de Graph API, dura 1-2 horas y hay que
+                      reconectar todo el tiempo.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    <Button onClick={startFacebookLogin} disabled={!fbAppConfig.enabled || connectingOAuth} className="w-full sm:w-auto">
+                      {connectingOAuth ? <Loader2 className="mr-2 h-4 w-4 animate-spin shrink-0" /> : <Globe className="mr-2 h-4 w-4 shrink-0" />}
+                      Conectar con Facebook
                     </Button>
-                  </div>
-                  {connected === true && <Alert className="border-green-500"><CheckCircle2 className="h-4 w-4 text-green-500" /><AlertDescription>Conexión exitosa. Todos los canales disponibles.</AlertDescription></Alert>}
-                  {connected === false && <Alert variant="destructive"><XCircle className="h-4 w-4" /><AlertDescription>No se pudo conectar. Verifica tu Access Token.</AlertDescription></Alert>}
-                </CardContent>
-              </Card>
+                    {!fbAppConfig.enabled && (
+                      <Alert>
+                        <XCircle className="h-4 w-4" />
+                        <AlertDescription>
+                          Falta configurar <code className="break-all">FB_APP_ID</code>, <code className="break-all">FB_APP_SECRET</code> y{" "}
+                          <code className="break-all">FB_CONNECT_ENABLED=true</code> en las variables de entorno del servidor.
+                          También agregá <code className="break-all">{window.location.origin}{window.location.pathname}</code> a las
+                          "Valid OAuth Redirect URIs" del producto Facebook Login de tu app en developers.facebook.com.
+                        </AlertDescription>
+                      </Alert>
+                    )}
+                    {otherPages.length > 0 && (
+                      <Alert>
+                        <MessageSquare className="h-4 w-4" />
+                        <AlertDescription>
+                          También administrás: {otherPages.map(p => p.name).join(", ")}. Para conectar otra en vez de la actual, decíselo al Arquitecto o volvé a hacer login y elegí otra.
+                        </AlertDescription>
+                      </Alert>
+                    )}
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2"><Settings2 className="h-5 w-5" /> Credenciales de Facebook (manual / avanzado)</CardTitle>
+                    <CardDescription>Solo si no podés usar el login de arriba. Pegar acá un token de corta duración hace que se venza pronto.</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <Label>Access Token</Label>
+                        <Input type="password" value={rawToken || (config.hasToken ? "••••••••" : "")} onChange={e => setRawToken(e.target.value)} placeholder="FB_ACCESS_TOKEN" />
+                        {config.hasToken && !rawToken && <p className="text-xs text-muted-foreground mt-1">Token ya configurado</p>}
+                      </div>
+                      <div><Label>Pixel ID</Label><Input value={config.pixelId} onChange={e => setConfig({...config, pixelId: e.target.value})} placeholder="FB_PIXEL_ID" /></div>
+                      <div><Label>Catalog ID</Label><Input value={config.catalogId} onChange={e => setConfig({...config, catalogId: e.target.value})} placeholder="FB_CATALOG_ID" /></div>
+                      <div><Label>Page ID</Label><Input value={config.pageId} onChange={e => setConfig({...config, pageId: e.target.value})} placeholder="FB_PAGE_ID" /></div>
+                      <div><Label>Ad Account ID</Label><Input value={config.adAccountId} onChange={e => setConfig({...config, adAccountId: e.target.value})} placeholder="FB_AD_ACCOUNT_ID (solo números)" /></div>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <Button onClick={saveConfig} disabled={saving}>{saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}Guardar</Button>
+                      <Button variant="outline" onClick={testConnection} disabled={testing}>
+                        {testing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
+                        {connected === true ? "✓ Conectado" : connected === false ? "Reconectar" : "Probar conexión"}
+                      </Button>
+                    </div>
+                    {connected === true && <Alert className="border-green-500"><CheckCircle2 className="h-4 w-4 text-green-500" /><AlertDescription>Conexión exitosa. Todos los canales disponibles.</AlertDescription></Alert>}
+                    {connected === false && <Alert variant="destructive"><XCircle className="h-4 w-4" /><AlertDescription>No se pudo conectar. Verifica tu Access Token.</AlertDescription></Alert>}
+                  </CardContent>
+                </Card>
+              </div>
             )}
 
             {tab === "ads" && connected && (
@@ -426,13 +637,17 @@ export default function FacebookAdsPage() {
                   <CardContent>
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                       {products.map(p => (
-                        <Card key={p.id} className={`cursor-pointer transition-all ${selectedProduct?.id === p.id ? "ring-2 ring-primary" : "hover:bg-accent/50"}`} onClick={() => suggestAudience(p)}>
+                        <Card key={p.id} className={`cursor-pointer transition-all ${selectedProduct?.id === p.id ? "ring-2 ring-primary" : "hover:bg-accent/50"}`} onClick={() => { setProductDetail(p); suggestAudience(p); }}>
                           <CardContent className="p-4">
                             <div className="aspect-video bg-muted rounded-md mb-3 overflow-hidden">
-                              {p.image_url ? <img src={p.image_url} alt={p.name} className="w-full h-full object-cover" /> : <div className="flex items-center justify-center h-full text-muted-foreground"><Megaphone className="h-8 w-8" /></div>}
+                              {p.imageUrl ? <img src={p.imageUrl} alt={p.name} className="w-full h-full object-cover" /> : <div className="flex items-center justify-center h-full text-muted-foreground"><Megaphone className="h-8 w-8" /></div>}
                             </div>
                             <h3 className="font-semibold truncate">{p.name}</h3>
                             <p className="text-sm text-muted-foreground">${Number(p.price).toLocaleString("es-CO")} COP</p>
+                            <div className="flex gap-1 mt-2">
+                              <Button size="sm" variant="outline" className="text-xs" onClick={(ev) => { ev.stopPropagation(); setProductDetail(p); }}>Ver detalle</Button>
+                              <Button size="sm" className="text-xs" onClick={(ev) => { ev.stopPropagation(); suggestAudience(p); }}>Crear anuncio</Button>
+                            </div>
                           </CardContent>
                         </Card>
                       ))}
@@ -478,7 +693,7 @@ export default function FacebookAdsPage() {
                     <CheckCircle2 className="h-4 w-4 text-green-500" />
                     <AlertDescription>
                       <p className="font-semibold">Anuncio creado</p>
-                      <p className="text-sm">Campaña: {result.campaignId} | Anuncio: {result.adId}</p>
+                      <p className="text-sm break-all">Campaña: {result.campaignId} | Anuncio: {result.adId}</p>
                       {result.adCopy && <div className="mt-2 p-2 bg-muted rounded text-xs"><p><strong>Texto:</strong> {result.adCopy.primaryText}</p></div>}
                     </AlertDescription>
                   </Alert>
@@ -501,10 +716,10 @@ export default function FacebookAdsPage() {
                   </CardHeader>
                   <CardContent className="space-y-4">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div>
+                      <div className="min-w-0">
                         <Label>Crear borrador para producto</Label>
                         <select
-                          className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                          className="flex h-10 w-full min-w-0 rounded-md border border-input bg-background px-3 py-2 text-sm"
                           value={selectedDraftProduct || ""}
                           onChange={e => setSelectedDraftProduct(Number(e.target.value) || null)}
                         >
@@ -521,13 +736,13 @@ export default function FacebookAdsPage() {
                         </Button>
                       </div>
                     </div>
-                    <div className="flex gap-2">
-                      <Button variant="outline" onClick={createAllDrafts} disabled={creatingAllDrafts}>
-                        {creatingAllDrafts ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Package className="mr-2 h-4 w-4" />}
+                    <div className="flex flex-wrap gap-2">
+                      <Button variant="outline" onClick={createAllDrafts} disabled={creatingAllDrafts} className="w-full sm:w-auto">
+                        {creatingAllDrafts ? <Loader2 className="mr-2 h-4 w-4 animate-spin shrink-0" /> : <Package className="mr-2 h-4 w-4 shrink-0" />}
                         Crear borradores para TODOS los productos (Megapacks)
                       </Button>
-                      <Button variant="outline" onClick={loadDrafts} disabled={loadingDrafts}>
-                        {loadingDrafts ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
+                      <Button variant="outline" onClick={loadDrafts} disabled={loadingDrafts} className="w-full sm:w-auto">
+                        {loadingDrafts ? <Loader2 className="mr-2 h-4 w-4 animate-spin shrink-0" /> : <RefreshCw className="mr-2 h-4 w-4 shrink-0" />}
                         Actualizar lista
                       </Button>
                     </div>
@@ -543,36 +758,46 @@ export default function FacebookAdsPage() {
                     <CardContent>
                       <div className="space-y-3">
                         {drafts.map(d => (
-                          <div key={d.id} className="flex items-start justify-between p-4 bg-muted rounded-lg gap-4">
+                          <div key={d.id} className="flex flex-col md:flex-row items-start justify-between p-4 bg-muted rounded-lg gap-4">
                             <div className="flex-1 min-w-0">
-                              <div className="flex items-center gap-2">
-                                <h4 className="font-semibold truncate">{d.productName}</h4>
-                                <span className={`px-2 py-0.5 rounded text-xs font-medium ${d.status === "published" ? "bg-green-500/20 text-green-500" : "bg-amber-500/20 text-amber-500"}`}>
+                              <div className="flex flex-wrap items-center gap-2 min-w-0 mb-1">
+                                <h4 className="font-semibold truncate min-w-0">{d.productName}</h4>
+                                <span className={`shrink-0 px-2 py-0.5 rounded text-xs font-medium ${d.status === "published" ? "bg-green-500/20 text-green-500" : "bg-amber-500/20 text-amber-500"}`}>
                                   {d.status === "published" ? "Publicado" : d.status === "created" ? "Creado en FB" : "Borrador"}
                                 </span>
-                                {d.fbStatus && <span className="px-2 py-0.5 rounded text-xs bg-blue-500/20 text-blue-500">{d.fbStatus}</span>}
+                                {d.fbStatus && <span className="shrink-0 px-2 py-0.5 rounded text-xs bg-blue-500/20 text-blue-500">{d.fbStatus}</span>}
                               </div>
-                              {d.niche && <p className="text-xs text-muted-foreground mt-1">Estrategia: {d.niche}</p>}
-                              {d.budget && <p className="text-xs text-muted-foreground">Presupuesto: ${d.budget.toLocaleString("es-CO")} COP/día</p>}
-                              {d.headline && <p className="text-sm mt-2 line-clamp-2">{d.headline}</p>}
-                              {d.primaryText && <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{d.primaryText}</p>}
-                              <p className="text-xs text-muted-foreground mt-1">
+                              {d.niche && <p className="text-xs text-muted-foreground">Estrategia: {d.niche}</p>}
+                              <div className="flex flex-wrap gap-3 mt-2 text-xs">
+                                {d.budget && <span className="text-muted-foreground">💰 ${d.budget.toLocaleString("es-CO")} COP/día</span>}
+                                {d.headline && <span className="text-foreground font-medium">📝 {d.headline}</span>}
+                              </div>
+                              {d.primaryText && (
+                                <details className="mt-2">
+                                  <summary className="text-xs text-primary cursor-pointer hover:underline">Ver texto del anuncio</summary>
+                                  <p className="text-xs text-muted-foreground mt-2 whitespace-pre-wrap bg-background/50 p-2 rounded border max-h-40 overflow-y-auto">{d.primaryText}</p>
+                                </details>
+                              )}
+                              <p className="text-xs text-muted-foreground mt-2">
                                 Creado: {new Date(d.createdAt).toLocaleDateString("es-CO", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}
                               </p>
                             </div>
-                            <div className="flex flex-col gap-2 shrink-0">
-                              {d.status !== "published" && d.adId && (
-                                <Button size="sm" onClick={() => publishDraft(d.id)} title="Publicar anuncio">
-                                  <Play className="h-4 w-4" />
+                            <div className="flex md:flex-col gap-2 shrink-0">
+                              {d.status !== "published" && (
+                                <Button size="sm" variant="default" onClick={() => publishDraft(d.id)} title="Publicar anuncio en Facebook" disabled={!d.adId}>
+                                  <Play className="h-4 w-4 mr-1" /> Publicar
                                 </Button>
                               )}
+                              <Button size="sm" variant="outline" onClick={() => openEditDraft(d)} title="Editar borrador">
+                                <Pencil className="h-4 w-4 mr-1" /> Editar
+                              </Button>
                               {d.adId && (
-                                <Button size="sm" variant="outline" onClick={() => window.open(`https://www.facebook.com/adsmanager/manage/ads?act=${d.adId}`, "_blank")} title="Ver en Facebook">
-                                  <Globe className="h-4 w-4" />
+                                <Button size="sm" variant="outline" onClick={() => window.open(`https://www.facebook.com/adsmanager/manage/ads?act=${config.adAccountId}&selected_ad_ids=${d.adId}`, "_blank")} title="Ver anuncio en Facebook Ads Manager">
+                                  <Globe className="h-4 w-4 mr-1" /> Ver en FB
                                 </Button>
                               )}
-                              <Button size="sm" variant="destructive" onClick={() => deleteDraft(d.id)} title="Eliminar borrador">
-                                <Trash2 className="h-4 w-4" />
+                              <Button size="sm" variant="destructive" onClick={() => { if (confirm(`¿Eliminar el borrador de ${d.productName}?`)) deleteDraft(d.id); }} title="Eliminar borrador">
+                                <Trash2 className="h-4 w-4 mr-1" /> Eliminar
                               </Button>
                             </div>
                           </div>
@@ -606,10 +831,10 @@ export default function FacebookAdsPage() {
                   <CardContent className="space-y-4">
                     {pageInfo && (
                       <div className="flex items-center gap-4 p-4 bg-muted rounded-lg">
-                        {pageInfo.picture && <img src={pageInfo.picture} alt="" className="w-12 h-12 rounded-full" />}
-                        <div>
-                          <p className="font-semibold">{pageInfo.name}</p>
-                          <p className="text-sm text-muted-foreground">ID: {pageInfo.id}</p>
+                        {pageInfo.picture && <img src={pageInfo.picture} alt="" className="w-12 h-12 rounded-full shrink-0" />}
+                        <div className="min-w-0">
+                          <p className="font-semibold truncate">{pageInfo.name}</p>
+                          <p className="text-sm text-muted-foreground break-all">ID: {pageInfo.id}</p>
                         </div>
                       </div>
                     )}
@@ -618,10 +843,10 @@ export default function FacebookAdsPage() {
                       <Input value="salesbot_messenger_2024" readOnly className="font-mono text-sm" />
                       <p className="text-xs text-muted-foreground">
                         Usa este token al configurar el webhook en Facebook Developers. La URL del webhook es:
-                        <code className="block mt-1 p-1 bg-muted rounded text-xs">{window.location.origin}/api/facebook/messenger/webhook</code>
+                        <code className="block mt-1 p-1 bg-muted rounded text-xs break-all">{window.location.origin}/api/facebook/messenger/webhook</code>
                       </p>
                     </div>
-                    <div className="flex gap-2">
+                    <div className="flex flex-wrap gap-2">
                       <Button onClick={subscribeMessenger} disabled={subscribing || !pageInfo}>
                         {subscribing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <MessageCircle className="mr-2 h-4 w-4" />}
                         Suscribir al webhook
@@ -641,72 +866,6 @@ export default function FacebookAdsPage() {
               </div>
             )}
 
-            {tab === "marketplace" && connected && (
-              <div className="grid gap-6">
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="flex items-center gap-2"><Store className="h-5 w-5" /> Publicar en Marketplace</CardTitle>
-                    <CardDescription>Publica tus productos directamente en Facebook Marketplace.</CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div>
-                        <Label>Seleccionar producto</Label>
-                        <select
-                          className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                          value={selectedListingProduct || ""}
-                          onChange={e => setSelectedListingProduct(Number(e.target.value) || null)}
-                        >
-                          <option value="">-- Selecciona un producto --</option>
-                          {products.map(p => (
-                            <option key={p.id} value={p.id}>{p.name} - ${Number(p.price).toLocaleString("es-CO")}</option>
-                          ))}
-                        </select>
-                      </div>
-                      <div className="flex items-end">
-                        <Button onClick={createListing} disabled={!selectedListingProduct || creatingListing} className="w-full">
-                          {creatingListing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Store className="mr-2 h-4 w-4" />}
-                          Publicar en Marketplace
-                        </Button>
-                      </div>
-                    </div>
-                    <div className="flex gap-2">
-                      <Button variant="outline" onClick={loadListings} disabled={loadingListings}>
-                        {loadingListings ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
-                        Ver listings activos
-                      </Button>
-                      <Button variant="outline" onClick={syncAllMarketplace}>
-                        <Package className="mr-2 h-4 w-4" /> Sincronizar todos los productos
-                      </Button>
-                    </div>
-                  </CardContent>
-                </Card>
-
-                {listings.length > 0 && (
-                  <Card>
-                    <CardHeader>
-                      <CardTitle>Listings en Marketplace ({listings.length})</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="space-y-2">
-                        {listings.map(l => (
-                          <div key={l.id} className="flex items-center justify-between p-3 bg-muted rounded-lg">
-                            <div>
-                              <p className="font-medium">{l.name}</p>
-                              <p className="text-sm text-muted-foreground">{l.price} | {l.status}</p>
-                            </div>
-                            <Button variant="outline" size="sm" onClick={() => window.open(l.listingUrl, "_blank")}>
-                              <Store className="mr-2 h-4 w-4" /> Ver
-                            </Button>
-                          </div>
-                        ))}
-                      </div>
-                    </CardContent>
-                  </Card>
-                )}
-              </div>
-            )}
-
             {tab === "comments" && connected && (
               <div className="grid gap-6">
                 <Card>
@@ -719,16 +878,16 @@ export default function FacebookAdsPage() {
                       <Globe className="h-4 w-4" />
                       <AlertDescription>
                         Para activar la respuesta automática a comentarios, configura el webhook de Facebook en:
-                        <code className="block mt-1 p-1 bg-muted rounded text-xs">{window.location.origin}/api/facebook/comments/webhook</code>
+                        <code className="block mt-1 p-1 bg-muted rounded text-xs break-all">{window.location.origin}/api/facebook/comments/webhook</code>
                         <span className="block mt-1 text-xs">Verify Token: <strong>salesbot_messenger_2024</strong></span>
                       </AlertDescription>
                     </Alert>
                     <p className="text-sm text-muted-foreground">
                       También puedes activar el polling automático para revisar comentarios nuevos cada 60 segundos:
                     </p>
-                    <div className="flex gap-2">
+                    <div className="flex flex-wrap gap-2">
                       <Button onClick={startPolling} disabled={pollingActive}>
-                        <Radio className="mr-2 h-4 w-4" /> Iniciar monitoreo automático
+                        <Radio className="mr-2 h-4 w-4 shrink-0" /> Iniciar monitoreo automático
                       </Button>
                       <Button variant="outline" onClick={stopPolling} disabled={!pollingActive}>
                         Detener monitoreo
@@ -739,6 +898,92 @@ export default function FacebookAdsPage() {
                         <CheckCircle2 className="h-4 w-4 text-green-500" />
                         <AlertDescription>Monitoreo automático de comentarios ACTIVO (cada 60s)</AlertDescription>
                       </Alert>
+                    )}
+                  </CardContent>
+                </Card>
+              </div>
+            )}
+
+            {tab === "agent" && (
+              <div className="grid gap-6">
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2"><Radio className="h-5 w-5" /> Agente de Anuncios (asistido)</CardTitle>
+                    <CardDescription>
+                      Revisa tus campañas activas dos veces: cada hora frena las que están quemando presupuesto sin resultados,
+                      y cada 6 horas mira la tendencia de los últimos días para sugerir escalar o bajar presupuesto.
+                      Nunca ejecuta nada solo -- te manda la sugerencia por WhatsApp y espera tu aprobación.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="flex flex-wrap gap-2">
+                      <Button onClick={runAgentNow} disabled={runningAgentNow}>
+                        {runningAgentNow ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
+                        Revisar ahora
+                      </Button>
+                      <Button variant="outline" onClick={loadAgentLogs} disabled={loadingAgentLogs}>
+                        {loadingAgentLogs ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
+                        Actualizar historial
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Historial de decisiones ({agentLogs.length})</CardTitle>
+                    <CardDescription>Cada fila es una revisión: lo que encontró, qué propuso, y si la aprobaste.</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    {agentLogs.length === 0 ? (
+                      <div className="text-center text-muted-foreground py-8">
+                        <Radio className="h-10 w-10 mx-auto mb-2 opacity-50" />
+                        <p>Todavía no hay revisiones registradas.</p>
+                        <p className="text-sm">El agente corre solo cada 1h y 6h, o tocá "Revisar ahora".</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        {agentLogs.map(log => {
+                          const statusColor: Record<string, string> = {
+                            suggested: "bg-amber-500/20 text-amber-500",
+                            approved: "bg-green-500/20 text-green-500",
+                            rejected: "bg-red-500/20 text-red-500",
+                            auto_applied: "bg-blue-500/20 text-blue-500",
+                            no_action: "bg-muted text-muted-foreground",
+                          };
+                          const statusLabel: Record<string, string> = {
+                            suggested: "Esperando respuesta",
+                            approved: "Aprobado y aplicado",
+                            rejected: "Descartado",
+                            auto_applied: "Aplicado",
+                            no_action: "Sin acción",
+                          };
+                          const actionLabel: Record<string, string> = {
+                            pause: "⏸️ Pausar", resume: "▶️ Reactivar",
+                            increase_budget: "📈 Subir presupuesto", decrease_budget: "📉 Bajar presupuesto",
+                          };
+                          return (
+                            <div key={log.id} className="p-4 bg-muted rounded-lg">
+                              <div className="flex flex-wrap items-center gap-2 mb-1">
+                                <h4 className="font-semibold min-w-0 truncate">{log.productName || log.campaignId}</h4>
+                                <span className={`shrink-0 px-2 py-0.5 rounded text-xs font-medium ${statusColor[log.status] || ""}`}>
+                                  {statusLabel[log.status] || log.status}
+                                </span>
+                                <span className="shrink-0 px-2 py-0.5 rounded text-xs bg-primary/10 text-primary">
+                                  {log.checkType === "spend_protection" ? "Protección de gasto" : "Revisión de tendencia"}
+                                </span>
+                                {log.suggestedAction && (
+                                  <span className="shrink-0 text-xs text-muted-foreground">{actionLabel[log.suggestedAction]}</span>
+                                )}
+                              </div>
+                              <p className="text-sm text-muted-foreground">{log.reason}</p>
+                              <p className="text-xs text-muted-foreground mt-1">
+                                {new Date(log.createdAt).toLocaleDateString("es-CO", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}
+                              </p>
+                            </div>
+                          );
+                        })}
+                      </div>
                     )}
                   </CardContent>
                 </Card>
@@ -802,6 +1047,100 @@ export default function FacebookAdsPage() {
             )}
           </>
         )}
+
+        {/* Modal: Detalle de producto (pestaña Anuncios) */}
+        <Dialog open={!!productDetail} onOpenChange={(open) => { if (!open) setProductDetail(null); }}>
+          <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Package className="h-5 w-5" /> {productDetail?.name}
+              </DialogTitle>
+              <DialogDescription>Informacion completa del producto seleccionado.</DialogDescription>
+            </DialogHeader>
+            {productDetail && (
+              <div className="space-y-4">
+                {productDetail.imageUrl && (
+                  <div className="rounded-lg overflow-hidden border">
+                    <img src={productDetail.imageUrl} alt={productDetail.name} className="w-full max-h-64 object-cover" />
+                  </div>
+                )}
+                <div className="grid grid-cols-2 gap-3 text-sm">
+                  <div><Label className="text-muted-foreground">ID</Label><p className="font-semibold">{productDetail.id}</p></div>
+                  <div><Label className="text-muted-foreground">Categoria</Label><p className="font-semibold">{productDetail.category || "Sin categoria"}</p></div>
+                  <div><Label className="text-muted-foreground">Precio</Label><p className="font-semibold text-lg text-green-600">${Number(productDetail.price).toLocaleString("es-CO")} COP</p></div>
+                </div>
+                {(productDetail as any).description && (
+                  <div>
+                    <Label className="text-muted-foreground">Descripcion</Label>
+                    <p className="text-sm mt-1 whitespace-pre-wrap">{(productDetail as any).description}</p>
+                  </div>
+                )}
+                {Array.isArray((productDetail as any).features) && (productDetail as any).features.length > 0 && (
+                  <div>
+                    <Label className="text-muted-foreground">Caracteristicas</Label>
+                    <ul className="text-sm mt-1 space-y-1">
+                      {(productDetail as any).features.map((f: string, i: number) => (
+                        <li key={i} className="flex items-start gap-2"><CheckCircle2 className="h-4 w-4 text-green-500 shrink-0 mt-0.5" /> {f}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            )}
+            <DialogFooter className="flex gap-2">
+              <Button variant="outline" onClick={() => setProductDetail(null)}>Cerrar</Button>
+              <Button onClick={() => { if (productDetail) suggestAudience(productDetail); setProductDetail(null); }}>
+                <Megaphone className="h-4 w-4 mr-2" /> Crear anuncio con este producto
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Modal: Editor de borrador */}
+        <Dialog open={!!editingDraft} onOpenChange={(open) => { if (!open) setEditingDraft(null); }}>
+          <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Pencil className="h-5 w-5" /> Editar borrador: {editingDraft?.productName}
+              </DialogTitle>
+              <DialogDescription>Modifica el texto del anuncio, el titulo y el presupuesto antes de publicarlo en Facebook.</DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4">
+              <div>
+                <Label>Titular (headline)</Label>
+                <Input value={editHeadline} onChange={(e) => setEditHeadline(e.target.value)} maxLength={40} placeholder="Ej: Curso profesional de piano" />
+                <p className="text-xs text-muted-foreground mt-1">{editHeadline.length}/40 caracteres</p>
+              </div>
+              <div>
+                <Label>Texto principal del anuncio</Label>
+                <Textarea
+                  value={editPrimaryText}
+                  onChange={(e) => setEditPrimaryText(e.target.value)}
+                  rows={6}
+                  placeholder="Ej: Aprende a tocar piano desde cero..."
+                />
+                <p className="text-xs text-muted-foreground mt-1">{editPrimaryText.length} caracteres (max 500 recomendado)</p>
+              </div>
+              <div>
+                <Label>Presupuesto diario (COP)</Label>
+                <Input type="number" value={editBudget} onChange={(e) => setEditBudget(Number(e.target.value))} min={1000} />
+              </div>
+              {editingDraft && editingDraft.imageUrl && (
+                <div className="rounded-lg overflow-hidden border">
+                  <img src={editingDraft.imageUrl} alt="Imagen del anuncio" className="w-full max-h-48 object-cover" />
+                  <p className="text-xs text-muted-foreground p-2 bg-muted/50">La imagen proviene del producto. Para cambiarla, edita el producto en la seccion Productos.</p>
+                </div>
+              )}
+            </div>
+            <DialogFooter className="flex gap-2">
+              <Button variant="outline" onClick={() => setEditingDraft(null)}>Cancelar</Button>
+              <Button onClick={saveEditedDraft} disabled={savingDraft}>
+                {savingDraft ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <CheckCircle2 className="h-4 w-4 mr-2" />}
+                {savingDraft ? "Guardando..." : "Guardar cambios"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     </Layout>
   );

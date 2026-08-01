@@ -4,8 +4,13 @@ import { codeOperator } from "../lib/code-operator";
 import { db, products, agents, settings, tenants } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { logger } from "../lib/logger";
+import { requireSuperAdmin } from "../middleware/requireSuperAdmin";
 
 const router: IRouter = Router();
+
+// SQL crudo, lectura/escritura de archivos y datos de TODOS los tenants —
+// solo el superadmin de la plataforma puede llegar a estas rutas.
+router.use(requireSuperAdmin);
 
 router.get("/products", async (_req, res, next) => {
   try {

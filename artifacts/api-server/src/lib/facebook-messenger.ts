@@ -2,6 +2,7 @@ import { logger } from "./logger";
 import { db, conversations, messages, leads, tenants, products } from "@workspace/db";
 import { eq, desc } from "drizzle-orm";
 import { runAgentReply } from "./agent";
+import { toEmojiStyle } from "./conversation-engine";
 import { tenantManager, type TenantContext } from "./tenantManager";
 import { createHmac } from "crypto";
 
@@ -28,7 +29,7 @@ export class FacebookMessengerService {
   } {
     const fb = this.tenant.facebook || {};
     return {
-      pageAccessToken: fb.messengerPageToken || fb.accessToken || process.env.FB_MESSENGER_PAGE_TOKEN || "",
+      pageAccessToken: fb.accessToken || fb.messengerPageToken || process.env.FB_ACCESS_TOKEN || process.env.FB_MESSENGER_PAGE_TOKEN || "",
       appSecret: fb.appSecret || process.env.FB_APP_SECRET || "",
       appId: fb.appId || process.env.FB_APP_ID || "4238613976451604",
       pageId: fb.pageId || process.env.FB_PAGE_ID || "",
@@ -67,6 +68,7 @@ export class FacebookMessengerService {
   async sendText(psid: string, text: string): Promise<boolean> {
     const { pageAccessToken } = this.getConfig();
     if (!pageAccessToken) return false;
+    text = toEmojiStyle(text);
     try {
       const res = await fetch(
         `${FB_GRAPH_URL}/me/messages?access_token=${pageAccessToken}`,
@@ -94,7 +96,34 @@ export class FacebookMessengerService {
   async sendProductCard(psid: string, product: any): Promise<boolean> {
     const { pageAccessToken } = this.getConfig();
     if (!pageAccessToken) return false;
-    const price = Number(product.price).toLocaleString("es-CO");
+
+    const appUrl = (process.env.APP_URL || "").replace(/\/$/, "");
+    const priceNum = Number(product.price) || 0;
+    const price = priceNum.toLocaleString("es-CO");
+    const currency = product.currency || "COP";
+
+    // Resolver imagen a URL absoluta pública (Messenger la exige)
+    const rawImage = product.imageUrl || product.image_url || "";
+    const imageUrl = rawImage
+      ? (/^https?:\/\//i.test(rawImage)
+          ? rawImage
+          : `${appUrl}${rawImage.startsWith("/") ? "" : "/"}${rawImage}`)
+      : "";
+
+    // Link de compra: paymentLink del producto o la tienda pública
+    const buyUrl = product.paymentLink || product.deliveryLink || (appUrl ? `${appUrl}/tienda` : "");
+
+    const shortDesc = product.description ? " · " + String(product.description).replace(/\s+/g, " ").slice(0, 60) : "";
+    const element: any = {
+      title: product.name,
+      subtitle: `$${price} ${currency}${shortDesc}`,
+    };
+    if (imageUrl) element.image_url = imageUrl;
+    if (buyUrl) {
+      element.default_action = { type: "web_url", url: buyUrl };
+      element.buttons = [{ type: "web_url", url: buyUrl, title: "🛒 Comprar ahora" }];
+    }
+
     try {
       const res = await fetch(
         `${FB_GRAPH_URL}/me/messages?access_token=${pageAccessToken}`,
@@ -106,32 +135,18 @@ export class FacebookMessengerService {
             message: {
               attachment: {
                 type: "template",
-                payload: {
-                  template_type: "generic",
-                  elements: [{
-                    title: product.name,
-                    image_url: product.image_url || "",
-                    subtitle: `$${price} COP`,
-                    default_action: {
-                      type: "web_url",
-                      url: product.paymentLinkCustom || `${process.env.APP_URL || ""}/productos/${product.id}`,
-                    },
-                    buttons: [
-                      {
-                        type: "web_url",
-                        url: product.paymentLinkMercadoPago || `${process.env.APP_URL || ""}/pagar/${product.id}`,
-                        title: "Comprar ahora",
-                      },
-                    ],
-                  }],
-                },
+                payload: { template_type: "generic", elements: [element] },
               },
             },
           }),
         }
       );
       const data = await res.json();
-      return !data.error;
+      if (data.error) {
+        logger.error({ err: data.error }, "[FB-Messenger] Error enviando card");
+        return false;
+      }
+      return true;
     } catch (err: any) {
       logger.error({ err }, "[FB-Messenger] Error enviando card");
       return false;
@@ -209,21 +224,23 @@ export class FacebookMessengerService {
 
     await this.setTyping(psid, "typing_off");
 
-    if (reply?.content) {
-      await this.sendText(psid, reply.content);
-    }
+    // Enviar en el MISMO orden que WhatsApp: texto y cards intercalados.
+    // Si no hay partes, usar el texto completo como respaldo.
+    const parts = (reply?.parts && reply.parts.length > 0)
+      ? reply.parts
+      : (reply?.content ? [{ kind: "text", content: reply.content }] : []);
 
-    if (reply?.parts) {
-      for (const part of reply.parts) {
-        if (part.kind === "card" && part.productId) {
-          const [product] = await db
-            .select()
-            .from(products)
-            .where(eq(products.id, part.productId))
-            .limit(1);
-          if (product) {
-            await this.sendProductCard(psid, product);
-          }
+    for (const part of parts) {
+      if (part.kind === "text" && part.content) {
+        await this.sendText(psid, part.content);
+      } else if (part.kind === "card" && part.productId) {
+        const [product] = await db
+          .select()
+          .from(products)
+          .where(eq(products.id, part.productId))
+          .limit(1);
+        if (product) {
+          await this.sendProductCard(psid, product);
         }
       }
     }

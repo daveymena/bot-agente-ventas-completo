@@ -14,19 +14,21 @@ import { es } from "date-fns/locale";
 import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
 import { SaasStatusBanner } from "@/components/saas-status-banner";
+import { MobileDashboard } from "@/components/mobile-dashboard";
+import { motion } from "framer-motion";
 
 function MetricCard({ title, value, icon: Icon, description, className = "" }: { title: string, value: string | number, icon: any, description?: string, className?: string }) {
   return (
-    <Card className={`glass-card overflow-hidden relative group transition-all duration-300 hover:-translate-y-1 ${className}`}>
-      <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 group-hover:scale-110 transition-all duration-500">
-        <Icon className="h-16 w-16" />
-      </div>
-      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 relative z-10">
+    <Card className={`transition-shadow hover:shadow-md ${className}`}>
+      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
         <CardTitle className="text-sm font-medium text-muted-foreground">{title}</CardTitle>
+        <div className="h-9 w-9 rounded-lg bg-primary/10 text-primary flex items-center justify-center">
+          <Icon className="h-[18px] w-[18px]" />
+        </div>
       </CardHeader>
-      <CardContent className="relative z-10">
-        <div className="text-3xl font-bold tracking-tight tabular-nums-all">{value}</div>
-        {description && <p className="text-xs text-muted-foreground mt-2 font-medium">{description}</p>}
+      <CardContent>
+        <div className="text-3xl font-semibold tracking-tight tabular-nums-all">{value}</div>
+        {description && <p className="text-xs text-muted-foreground mt-1.5 font-medium">{description}</p>}
       </CardContent>
     </Card>
   );
@@ -49,23 +51,28 @@ export default function Dashboard() {
     query: { queryKey: getGetMessagesTimelineQueryKey(), refetchInterval: 5000 }
   });
 
+const containerVariants = {
+  hidden: { opacity: 0 },
+  show: { opacity: 1, transition: { staggerChildren: 0.1 } }
+};
+
+const itemVariants = {
+  hidden: { opacity: 0, y: 15 },
+  show: { opacity: 1, y: 0, transition: { duration: 0.4, ease: "easeOut" } }
+};
+
   return (
     <Layout>
-      <div className="flex flex-col gap-8 animate-enter">
+      <motion.div variants={containerVariants} initial="hidden" animate="show" className="flex flex-col gap-8">
         
         {/* SaaS Status Banner */}
-        <SaasStatusBanner />
+        <motion.div variants={itemVariants}><SaasStatusBanner /></motion.div>
         
         {/* Hero Section */}
-        <div className="flex flex-col md:flex-row gap-6 md:items-end justify-between bg-card/40 border p-6 md:p-8 rounded-3xl relative overflow-hidden shadow-sm">
-          <div className="absolute top-0 right-0 w-full h-full bg-gradient-to-br from-primary/5 via-transparent to-accent/5 pointer-events-none" />
-          
-          <div className="relative z-10">
-            <div className="flex items-center gap-3 mb-2">
-              <span className="text-2xl">👋</span>
-              <h1 className="text-3xl font-bold tracking-tight">Hola, bienvenido de nuevo</h1>
-            </div>
-            <p className="text-muted-foreground text-lg mb-6">Aquí está el resumen de tu operación en WhatsApp.</p>
+        <motion.div variants={itemVariants} className="flex flex-col md:flex-row gap-6 md:items-end justify-between glass-panel p-6 md:p-7 rounded-xl shadow-md border-0">
+          <div>
+            <h1 className="text-2xl font-semibold tracking-tight">Hola, bienvenido de nuevo</h1>
+            <p className="text-muted-foreground mt-1.5 mb-5">Aquí está el resumen de tu operación en WhatsApp.</p>
             
             <div className="flex flex-wrap items-center gap-3">
               {summary?.whatsappConnected ? (
@@ -87,51 +94,56 @@ export default function Dashboard() {
             </div>
           </div>
           
-          <div className="flex flex-col sm:flex-row gap-3 relative z-10">
-            <Link href="/agents" className="inline-flex h-11 items-center justify-center rounded-full bg-primary/10 text-primary hover:bg-primary/20 font-medium px-6 transition-colors gap-2">
+          <div className="flex flex-col sm:flex-row gap-3">
+            <Link href="/agents" className="inline-flex h-10 items-center justify-center rounded-lg border border-border bg-secondary text-secondary-foreground hover:bg-muted font-medium px-5 transition-colors gap-2 text-sm">
               <Bot className="h-4 w-4" /> Nuevo Agente
             </Link>
-            <Link href="/products" className="inline-flex h-11 items-center justify-center rounded-full bg-accent/10 text-accent hover:bg-accent/20 font-medium px-6 transition-colors gap-2">
+            <Link href="/products" className="inline-flex h-10 items-center justify-center rounded-lg border border-border bg-secondary text-secondary-foreground hover:bg-muted font-medium px-5 transition-colors gap-2 text-sm">
               <Plus className="h-4 w-4" /> Crear Producto
             </Link>
-            <Link href="/whatsapp" className="inline-flex h-11 items-center justify-center rounded-full bg-primary text-primary-foreground hover:bg-primary/90 font-medium px-6 transition-colors gap-2 shadow-lg shadow-primary/20">
+            <Link href="/whatsapp" className="inline-flex h-10 items-center justify-center rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 font-medium px-5 transition-colors gap-2 text-sm">
               <Smartphone className="h-4 w-4" /> Conectar WhatsApp
             </Link>
           </div>
-        </div>
+        </motion.div>
+
+        {/* Mobile Dashboard */}
+        <motion.div variants={itemVariants}>
+          <MobileDashboard summary={summary ?? undefined} />
+        </motion.div>
 
         {/* Main KPIs */}
         {loadingSummary ? (
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-            {Array(4).fill(0).map((_, i) => <Skeleton key={i} className="h-36 w-full rounded-2xl" />)}
-          </div>
+          <motion.div variants={itemVariants} className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+            {Array(4).fill(0).map((_, i) => <Skeleton key={i} className="h-36 w-full rounded-2xl glass-card border-0" />)}
+          </motion.div>
         ) : summary ? (
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-            <MetricCard 
-              title="Ingresos del Mes" 
-              value={`$${(summary?.totalRevenue ?? 0).toLocaleString()}`} 
-              icon={DollarSign} 
-              className="bg-gradient-to-br from-primary/10 to-transparent border-primary/20"
+          <motion.div variants={itemVariants} className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+            <MetricCard
+              title="Ingresos del Mes"
+              value={`$${(summary?.totalRevenue ?? 0).toLocaleString()}`}
+              icon={DollarSign}
               description="Basado en tratos ganados"
+              className="glass-card border-0"
             />
-            <MetricCard title="Total Prospectos" value={summary?.totalLeads ?? 0} icon={Users} />
-            <MetricCard title="Conversaciones Activas" value={summary?.activeConversations ?? 0} icon={MessageSquare} />
-            <MetricCard 
-              title="Tratos Ganados" 
-              value={summary?.closedDeals ?? 0} 
+            <MetricCard title="Total Prospectos" value={summary?.totalLeads ?? 0} icon={Users} className="glass-card border-0" />
+            <MetricCard title="Conversaciones Activas" value={summary?.activeConversations ?? 0} icon={MessageSquare} className="glass-card border-0" />
+            <MetricCard
+              title="Tratos Ganados"
+              value={summary?.closedDeals ?? 0}
               icon={CheckCircle}
-              className="bg-gradient-to-br from-coral/10 to-transparent border-coral/20" 
+              className="glass-card border-0"
             />
-          </div>
+          </motion.div>
         ) : null}
 
         {/* Secondary KPIs */}
         {loadingSummary ? (
-          <div className="grid gap-4 md:grid-cols-3">
-            {Array(3).fill(0).map((_, i) => <Skeleton key={i} className="h-24 w-full rounded-2xl" />)}
-          </div>
+          <motion.div variants={itemVariants} className="grid gap-4 md:grid-cols-3">
+            {Array(3).fill(0).map((_, i) => <Skeleton key={i} className="h-24 w-full rounded-2xl glass-panel border-0" />)}
+          </motion.div>
         ) : summary ? (
-          <div className="grid gap-4 md:grid-cols-3">
+          <motion.div variants={itemVariants} className="grid gap-4 md:grid-cols-3">
             <Card className="glass-panel">
               <CardContent className="p-4 flex items-center gap-4">
                 <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center text-primary">
@@ -165,11 +177,11 @@ export default function Dashboard() {
                 </div>
               </CardContent>
             </Card>
-          </div>
+          </motion.div>
         ) : null}
 
         {/* Charts Section */}
-        <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-7">
+        <motion.div variants={itemVariants} className="grid gap-6 md:grid-cols-2 lg:grid-cols-7">
           <Card className="col-span-4 glass-panel border-0 shadow-md">
             <CardHeader className="pb-2">
               <CardTitle className="text-lg">Volumen de Mensajes</CardTitle>
@@ -264,9 +276,10 @@ export default function Dashboard() {
               )}
             </CardContent>
           </Card>
-        </div>
+        </motion.div>
 
         {/* Recent Activity */}
+        <motion.div variants={itemVariants}>
         <Card className="glass-panel border-0 shadow-md">
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <div>
@@ -290,28 +303,27 @@ export default function Dashboard() {
             ) : (
               <div className="space-y-3">
                 {(Array.isArray(activity) ? activity : []).map((event) => {
-                  let badge = '📌';
-                  let bgColor = 'bg-muted';
-                  let textColor = 'text-foreground';
-                  
+                  let Icon = Zap;
+                  let tint = 'bg-muted text-muted-foreground';
+
                   switch(event.type) {
-                    case 'lead_created': badge = '🟢'; bgColor = 'bg-green-500/10'; textColor = 'text-green-600 dark:text-green-400'; break;
-                    case 'deal_won': badge = '🎉'; bgColor = 'bg-coral/10'; textColor = 'text-coral'; break;
-                    case 'deal_lost': badge = '❌'; bgColor = 'bg-red-500/10'; textColor = 'text-red-600 dark:text-red-400'; break;
-                    case 'message_received': badge = '💬'; bgColor = 'bg-blue-500/10'; textColor = 'text-blue-600 dark:text-blue-400'; break;
-                    case 'agent_action': badge = '🤖'; bgColor = 'bg-primary/10'; textColor = 'text-primary'; break;
-                    case 'handoff': badge = '🔄'; bgColor = 'bg-accent/10'; textColor = 'text-accent'; break;
+                    case 'lead_created': Icon = Users; tint = 'bg-emerald-500/10 text-emerald-600'; break;
+                    case 'deal_won': Icon = CheckCircle; tint = 'bg-primary/10 text-primary'; break;
+                    case 'deal_lost': Icon = Activity; tint = 'bg-red-500/10 text-red-600'; break;
+                    case 'message_received': Icon = MessageSquare; tint = 'bg-sky-500/10 text-sky-600'; break;
+                    case 'agent_action': Icon = Bot; tint = 'bg-primary/10 text-primary'; break;
+                    case 'handoff': Icon = ArrowRight; tint = 'bg-accent/10 text-accent'; break;
                   }
 
                   return (
-                    <div key={event.id} className="flex items-center gap-4 p-3 rounded-xl hover:bg-muted/50 transition-colors border border-transparent hover:border-border">
-                      <div className={`shrink-0 w-10 h-10 rounded-full flex items-center justify-center text-lg ${bgColor}`}>
-                        {badge}
+                    <div key={event.id} className="flex items-center gap-3 p-3 rounded-lg hover:bg-muted/60 transition-colors">
+                      <div className={`shrink-0 w-9 h-9 rounded-lg flex items-center justify-center ${tint}`}>
+                        <Icon className="h-[18px] w-[18px]" />
                       </div>
-                      <div className="flex-1 space-y-0.5 min-w-0">
-                        <p className={`text-sm font-semibold leading-none truncate ${textColor}`}>{event.description}</p>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium leading-snug truncate text-foreground">{event.description}</p>
                       </div>
-                      <div className="text-xs font-medium text-muted-foreground whitespace-nowrap bg-muted px-2 py-1 rounded-md">
+                      <div className="text-xs font-medium text-muted-foreground whitespace-nowrap">
                         {format(parseISO(event.createdAt), "HH:mm", { locale: es })}
                       </div>
                     </div>
@@ -321,7 +333,8 @@ export default function Dashboard() {
             )}
           </CardContent>
         </Card>
-      </div>
+        </motion.div>
+      </motion.div>
     </Layout>
   );
 }

@@ -27,12 +27,14 @@ import Swal from 'sweetalert2';
 import { useStore } from '../store/useStore';
 import { storeTemplates, type StoreTemplate } from '../store/templates';
 import { Link } from 'react-router-dom';
+import { useRealProducts, type RealProduct } from '../hooks/useRealProducts';
 
 /* ───────── Dashboard Overview ───────── */
 const DashboardOverview = () => {
-  const { products, cart, config } = useStore();
+  const { cart, config } = useStore();
+  const { products: realProducts } = useRealProducts();
   const totalSales = cart.reduce((acc, item) => acc + item.price * item.quantity, 0);
-  const totalProducts = products.length;
+  const totalProducts = realProducts.length;
   const totalOrders = cart.length;
 
   const stats = [
@@ -64,40 +66,54 @@ const DashboardOverview = () => {
   );
 };
 
-/* ───────── Product Management ───────── */
+/* ───────── Product Management ─────────
+ * Antes operaba SOLO sobre el estado local de zustand (persistido en
+ * localStorage del navegador) -- nada de lo que se creaba/editaba/borraba
+ * acá llegaba a la base de datos real, ni se reflejaba en la tienda pública,
+ * el bot de WhatsApp ni el resto del dashboard. Ahora usa useRealProducts(),
+ * que pega directo a /api/products (el mismo endpoint que ya usa el resto
+ * del sistema). */
 const ProductManagement = () => {
-  const { products, addProduct, removeProduct, updateProduct } = useStore();
+  const { products, loading, error, createProduct, updateProduct, deleteProduct } = useRealProducts();
   const [showForm, setShowForm] = useState(false);
-  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<number | null>(null);
   const [search, setSearch] = useState('');
-  const [form, setForm] = useState({ name: '', price: 0, description: '', image: '', category: '', type: 'digital' as const });
+  const [saving, setSaving] = useState(false);
+  const [form, setForm] = useState({ name: '', price: 0, description: '', imageUrl: '', kind: 'digital' as 'digital' | 'physical' });
 
-  const resetForm = () => setForm({ name: '', price: 0, description: '', image: '', category: '', type: 'digital' });
+  const resetForm = () => setForm({ name: '', price: 0, description: '', imageUrl: '', kind: 'digital' });
   const openNew = () => { resetForm(); setEditingId(null); setShowForm(true); };
-  const openEdit = (p: typeof products[0]) => {
-    setForm({ name: p.name, price: p.price, description: p.description, image: p.image, category: p.category, type: p.type });
+  const openEdit = (p: RealProduct) => {
+    setForm({ name: p.name, price: Number(p.price), description: p.description || '', imageUrl: p.imageUrl || '', kind: p.kind });
     setEditingId(p.id);
     setShowForm(true);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!form.name || form.price <= 0) {
       Swal.fire('Error', 'Nombre y precio válidos requeridos', 'error');
       return;
     }
-    if (editingId) {
-      updateProduct({ id: editingId, ...form, stock: 0 });
-      Swal.fire('Actualizado', '', 'success');
-    } else {
-      addProduct({ id: Date.now().toString(), ...form, stock: 999 });
-      Swal.fire('Creado', 'Producto agregado correctamente', 'success');
+    setSaving(true);
+    try {
+      if (editingId) {
+        await updateProduct(editingId, form);
+        Swal.fire('Actualizado', '', 'success');
+      } else {
+        await createProduct(form);
+        Swal.fire('Creado', 'Producto agregado correctamente', 'success');
+      }
+      setShowForm(false);
+      resetForm();
+    } catch (err: any) {
+      Swal.fire('Error', err.message || 'No se pudo guardar el producto', 'error');
+    } finally {
+      setSaving(false);
     }
-    setShowForm(false);
-    resetForm();
   };
 
-  const handleDelete = (id: string, name: string) => {
+  const handleDelete = (id: number, name: string) => {
     Swal.fire({
       title: '¿Eliminar?',
       text: `Se borrará "${name}"`,
@@ -105,12 +121,20 @@ const ProductManagement = () => {
       showCancelButton: true,
       confirmButtonText: 'Sí, eliminar',
       cancelButtonText: 'Cancelar',
-    }).then(r => { if (r.isConfirmed) { removeProduct(id); Swal.fire('Eliminado', '', 'success'); } });
+    }).then(async r => {
+      if (!r.isConfirmed) return;
+      try {
+        await deleteProduct(id);
+        Swal.fire('Eliminado', '', 'success');
+      } catch (err: any) {
+        Swal.fire('Error', err.message || 'No se pudo eliminar', 'error');
+      }
+    });
   };
 
   const filtered = products.filter(p =>
     p.name.toLowerCase().includes(search.toLowerCase()) ||
-    p.category.toLowerCase().includes(search.toLowerCase())
+    (p.category || '').toLowerCase().includes(search.toLowerCase())
   );
 
   return (
@@ -130,18 +154,17 @@ const ProductManagement = () => {
           <h3 className="font-bold text-lg">{editingId ? 'Editar Producto' : 'Nuevo Producto'}</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <input placeholder="Nombre del producto" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} required className="border border-slate-200 rounded-xl p-3 text-sm focus:ring-2 focus:ring-indigo-500 outline-none" />
-            <input placeholder="Precio" type="number" step="0.01" value={form.price} onChange={e => setForm({ ...form, price: Number(e.target.value) })} required className="border border-slate-200 rounded-xl p-3 text-sm focus:ring-2 focus:ring-indigo-500 outline-none" />
-            <input placeholder="URL de imagen" value={form.image} onChange={e => setForm({ ...form, image: e.target.value })} className="border border-slate-200 rounded-xl p-3 text-sm focus:ring-2 focus:ring-indigo-500 outline-none md:col-span-2" />
-            <input placeholder="Categoría (ej: Cursos, Periféricos)" value={form.category} onChange={e => setForm({ ...form, category: e.target.value })} className="border border-slate-200 rounded-xl p-3 text-sm focus:ring-2 focus:ring-indigo-500 outline-none" />
-            <select value={form.type} onChange={e => setForm({ ...form, type: e.target.value as any })} className="border border-slate-200 rounded-xl p-3 text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
+            <input placeholder="Precio (COP)" type="number" step="1" value={form.price} onChange={e => setForm({ ...form, price: Number(e.target.value) })} required className="border border-slate-200 rounded-xl p-3 text-sm focus:ring-2 focus:ring-indigo-500 outline-none" />
+            <input placeholder="URL de imagen" value={form.imageUrl} onChange={e => setForm({ ...form, imageUrl: e.target.value })} className="border border-slate-200 rounded-xl p-3 text-sm focus:ring-2 focus:ring-indigo-500 outline-none md:col-span-2" />
+            <textarea placeholder="Descripción" value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} className="border border-slate-200 rounded-xl p-3 text-sm focus:ring-2 focus:ring-indigo-500 outline-none md:col-span-2" rows={3} />
+            <select value={form.kind} onChange={e => setForm({ ...form, kind: e.target.value as any })} className="border border-slate-200 rounded-xl p-3 text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
               <option value="digital">Digital</option>
               <option value="physical">Físico</option>
-              <option value="dropshipping">Dropshipping</option>
             </select>
           </div>
           <div className="flex gap-3 pt-2">
-            <button type="submit" className="flex items-center gap-2 bg-green-600 text-white px-6 py-2.5 rounded-xl font-bold hover:bg-green-700 transition-all">
-              <Save size={16} /> {editingId ? 'Actualizar' : 'Guardar'}
+            <button type="submit" disabled={saving} className="flex items-center gap-2 bg-green-600 text-white px-6 py-2.5 rounded-xl font-bold hover:bg-green-700 transition-all disabled:opacity-50">
+              <Save size={16} /> {saving ? 'Guardando…' : editingId ? 'Actualizar' : 'Guardar'}
             </button>
             <button type="button" onClick={() => { setShowForm(false); resetForm(); }} className="px-6 py-2.5 rounded-xl font-bold text-slate-500 hover:bg-slate-100 transition-all">
               Cancelar
@@ -150,7 +173,11 @@ const ProductManagement = () => {
         </form>
       )}
 
-      {filtered.length > 0 ? (
+      {loading ? (
+        <div className="text-center py-16 text-slate-400 text-sm">Cargando productos…</div>
+      ) : error ? (
+        <div className="text-center py-16 bg-white rounded-2xl border border-dashed border-red-200 text-red-500 text-sm">{error}</div>
+      ) : filtered.length > 0 ? (
         <div className="bg-white rounded-2xl border border-slate-100 overflow-hidden shadow-sm">
           <table className="w-full">
             <thead>
@@ -168,21 +195,21 @@ const ProductManagement = () => {
                   <td className="px-5 py-4">
                     <div className="flex items-center gap-3">
                       <div className="w-10 h-10 rounded-xl bg-slate-100 overflow-hidden flex-shrink-0">
-                        {p.image ? <img src={p.image} className="w-full h-full object-cover" /> : <Image className="w-5 h-5 m-auto text-slate-300" />}
+                        {p.imageUrl ? <img src={p.imageUrl} className="w-full h-full object-cover" /> : <Image className="w-5 h-5 m-auto text-slate-300" />}
                       </div>
                       <div>
                         <div className="font-semibold text-sm text-slate-900">{p.name}</div>
-                        <div className="text-xs text-slate-400">{p.description.slice(0, 40)}</div>
+                        <div className="text-xs text-slate-400">{(p.description || '').slice(0, 40)}</div>
                       </div>
                     </div>
                   </td>
-                  <td className="px-5 py-4 text-sm text-slate-500">{p.category}</td>
+                  <td className="px-5 py-4 text-sm text-slate-500">{p.category || '—'}</td>
                   <td className="px-5 py-4">
-                    <span className={`px-2 py-1 rounded-lg text-[10px] font-bold uppercase ${p.type === 'digital' ? 'bg-blue-100 text-blue-700' : p.type === 'physical' ? 'bg-emerald-100 text-emerald-700' : 'bg-purple-100 text-purple-700'}`}>
-                      {p.type}
+                    <span className={`px-2 py-1 rounded-lg text-[10px] font-bold uppercase ${p.kind === 'digital' ? 'bg-blue-100 text-blue-700' : 'bg-emerald-100 text-emerald-700'}`}>
+                      {p.kind}
                     </span>
                   </td>
-                  <td className="px-5 py-4 text-right font-bold text-slate-900">${p.price.toFixed(2)}</td>
+                  <td className="px-5 py-4 text-right font-bold text-slate-900">${Number(p.price).toLocaleString('es-CO')}</td>
                   <td className="px-5 py-4 text-right">
                     <div className="flex items-center justify-end gap-2">
                       <button onClick={() => openEdit(p)} className="p-2 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-indigo-600 transition-all">
@@ -357,7 +384,7 @@ const TemplateSelector = () => {
 /* ───────── Main Admin ───────── */
 const AdminDashboard = () => {
   const [activeTab, setActiveTab] = useState('overview');
-  const { setAdmin } = useStore();
+  const { setAdmin, config } = useStore();
 
   const menu = [
     { id: 'overview', label: 'Dashboard', icon: LayoutDashboard },
@@ -381,7 +408,7 @@ const AdminDashboard = () => {
           ))}
         </nav>
         <div className="p-4 border-t border-slate-100">
-          <Link to="/shop" className="flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium text-slate-500 hover:bg-slate-100 transition-all">
+          <Link to={config.slug ? `/tienda/${config.slug}` : '/shop'} className="flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium text-slate-500 hover:bg-slate-100 transition-all">
             <Eye size={18} /> Ver Tienda
           </Link>
           <button onClick={() => setAdmin(false)} className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium text-red-400 hover:bg-red-50 transition-all">

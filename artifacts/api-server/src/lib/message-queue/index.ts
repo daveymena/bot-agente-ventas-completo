@@ -87,6 +87,7 @@ export class MessageQueue extends EventEmitter {
     const msg = this.queue.find(m => m.id === messageId);
     if (msg) {
       msg.retryCount++;
+      msg.processing = false;
       if (msg.retryCount >= this.maxRetries) {
         this.emit('message:failed', msg);
       }

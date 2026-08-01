@@ -26,6 +26,7 @@ COPY lib/api-client-react/package.json ./lib/api-client-react/
 COPY lib/db/package.json ./lib/db/
 COPY lib/integrations-openai-ai-server/package.json ./lib/integrations-openai-ai-server/
 COPY lib/integrations-openai-ai-react/package.json ./lib/integrations-openai-ai-react/
+COPY packages/tienda/package.json ./packages/tienda/
 COPY scripts/package.json ./scripts/
 
 # Instalar dependencias (sin --no-optional para incluir módulos nativos de Linux)
@@ -38,8 +39,11 @@ COPY . .
 # Construir Backend
 RUN pnpm --filter @workspace/api-server run build
 
-# Construir Frontend
+# Construir Frontend (Admin)
 RUN pnpm --filter @workspace/ventas-pro run build
+
+# Construir Frontend (Tienda Pública)
+RUN pnpm --filter @workspace/tienda run build
 
 # Etapa final para ejecución ligera
 FROM node:22-slim
@@ -57,12 +61,17 @@ ENV PORT=3002
 
 EXPOSE 3002
 
-# Healthcheck para Easypanel
-HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-  CMD curl -f http://localhost:${PORT}/api/healthz || exit 1
+# Healthcheck para Easypanel — la ruta real es /api/health (ver src/health.ts).
+# Antes apuntaba a /api/healthz (inexistente): el check fallaba siempre, Easypanel
+# marcaba el contenedor como unhealthy y lo reiniciaba cada ~40s, cortando la
+# sesión de WhatsApp repetidamente. start-period amplio para dar tiempo al build
+# de la DB y la conexión inicial.
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+  CMD curl -f http://localhost:${PORT}/api/health || exit 1
 
-# Volumen persistente para sesión de WhatsApp (evita rescanear QR al reiniciar)
-VOLUME /app/artifacts/api-server/.baileys-auth
+# El directorio /app/data es el volumen persistente (montado via easypanel.yml)
+# La autenticación de WhatsApp se guarda en /app/data/.baileys-auth
+RUN mkdir -p /app/data
 
 # Guardar DB por defecto aparte (no se pierde por el volumen)
 RUN mkdir -p /app/default-db && cp /app/data/tecnovariedades.db /app/default-db/ 2>/dev/null || true

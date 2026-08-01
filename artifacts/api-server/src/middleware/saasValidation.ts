@@ -1,28 +1,73 @@
 import { Request, Response, NextFunction } from "express";
 import { logger } from "../lib/logger";
 
-// Planes disponibles y sus límites
-export const SAAS_PLANS: Record<string, { name: string; price: number; monthlyMessages: number; maxConversations: number; maxProducts: number; maxAgents: number; features: string[]; trialDays: number; }> = {
+// Planes disponibles y sus límites.
+//
+// Se mantienen TODAS las claves existentes (basic, free, starter, premium,
+// professional, enterprise) aunque ya no se muestren todas en la página de
+// precios -- tenants ya existentes tienen guardado tenant.plan = una de estas
+// claves (ej. tenant 1 = "premium"), y borrar una clave rompería
+// getPlanInfo()/validateSaasPlan() para ellos. `visible: false` es lo que la
+// controla la grilla pública de /pricing (ver GET /api/pricing en
+// routes/pricing.ts) -- las que quedan visibles son los 3 planes reales que
+// se venden ($15/$45/$65) más el gratuito.
+export const SAAS_PLANS: Record<string, { name: string; price: number; monthlyMessages: number; maxConversations: number; maxProducts: number; maxAgents: number; features: string[]; trialDays: number; visible?: boolean; }> = {
   basic: {
-    name: "Basic",
+    // Prueba de 7 días, no gratis para siempre -- si el plan gratuito no
+    // vence nadie tiene motivo real para pagar. 30 mensajes alcanza para que
+    // el negocio pruebe el bot, no para operar de verdad.
+    name: "Prueba gratis",
     price: 0,
-    monthlyMessages: 500,
-    maxConversations: 50,
-    maxProducts: 25,
+    monthlyMessages: 30,
+    maxConversations: 20,
+    maxProducts: 10,
+    maxAgents: 1,
+    features: ["IA básica", "Integración con WhatsApp", "1 agente", "30 mensajes de prueba", "7 días de duración"],
+    trialDays: 7,
+    visible: true,
+  },
+  starter: {
+    name: "Starter",
+    price: 15,
+    monthlyMessages: 1500,
+    maxConversations: 150,
+    maxProducts: 75,
     maxAgents: 2,
-    features: ["Basic AI", "WhatsApp Integration"],
+    features: ["IA avanzada", "Integración con WhatsApp", "Analítica básica", "Soporte por email"],
     trialDays: 30,
+    visible: true,
   },
   premium: {
-    name: "Premium",
-    price: 49,
-    monthlyMessages: 5000,
-    maxConversations: 500,
-    maxProducts: 250,
+    name: "Growth",
+    price: 45,
+    monthlyMessages: 6000,
+    maxConversations: 600,
+    maxProducts: 300,
     maxAgents: 5,
-    features: ["Advanced AI", "WhatsApp Integration", "Analytics", "Priority Support"],
+    features: ["IA avanzada", "Integración con WhatsApp", "Analítica completa", "Soporte prioritario", "Marca personalizada"],
     trialDays: 30,
+    visible: true,
   },
+  professional: {
+    name: "Pro",
+    price: 65,
+    monthlyMessages: 15000,
+    maxConversations: 1500,
+    maxProducts: 750,
+    maxAgents: 8,
+    features: [
+      "IA avanzada",
+      "Integración con WhatsApp",
+      "Analítica completa",
+      "Soporte prioritario",
+      "Marca personalizada",
+      "Acceso a la API",
+    ],
+    trialDays: 30,
+    visible: true,
+  },
+  // Legados: no se muestran en /pricing, pero siguen siendo válidos para
+  // cuentas que ya los tengan asignados.
   free: {
     name: "Free",
     price: 0,
@@ -32,33 +77,7 @@ export const SAAS_PLANS: Record<string, { name: string; price: number; monthlyMe
     maxAgents: 1,
     features: ["Basic AI", "WhatsApp Integration"],
     trialDays: 7,
-  },
-  starter: {
-    name: "Starter",
-    price: 29,
-    monthlyMessages: 1000,
-    maxConversations: 100,
-    maxProducts: 50,
-    maxAgents: 1,
-    features: ["Advanced AI", "WhatsApp Integration", "Analytics", "Email Support"],
-    trialDays: 30, // Aumentado a 30 días para evitar bloqueos prematuros
-  },
-  professional: {
-    name: "Professional",
-    price: 99,
-    monthlyMessages: 10000,
-    maxConversations: 1000,
-    maxProducts: 500,
-    maxAgents: 3,
-    features: [
-      "Advanced AI",
-      "WhatsApp Integration",
-      "Analytics",
-      "Priority Support",
-      "Custom Branding",
-      "API Access",
-    ],
-    trialDays: 30,
+    visible: false,
   },
   enterprise: {
     name: "Enterprise",
@@ -78,6 +97,7 @@ export const SAAS_PLANS: Record<string, { name: string; price: number; monthlyMe
       "Custom Integrations",
     ],
     trialDays: 365,
+    visible: false,
   },
 };
 
@@ -97,9 +117,12 @@ export function validateSaasPlan() {
       const rawPlan = (tenant.plan || "free").toString().toLowerCase();
       const plan = rawPlan as SaasPlan;
       
-      // EXCEPCIÓN VIP: Usuario administrador con acceso gratuito de por vida
-      const isVIP = tenant.email === "daveymena16@gmail.com";
-      
+      // EXCEPCIÓN VIP: administrador de la plataforma, acceso gratuito de por
+      // vida. Antes comparaba tenant.email contra un valor hardcodeado (el
+      // mismo patrón roto que ya se corrigió en tenants.ts/whatsapp.ts) --
+      // ahora usa el flag real is_admin de la BD.
+      const isVIP = !!tenant.isAdmin;
+
       if (isVIP) {
         // Forzamos estado activo y saltamos validaciones de expiración
         (req as any).saas = {

@@ -1,6 +1,6 @@
 import { logger } from "./logger";
 import { db, tenants, conversations, messages } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import { eq, desc } from "drizzle-orm";
 import { runAgentReply } from "./agent";
 import { whatsapp } from "./whatsapp";
 import { facebookMessengerService } from "./facebook-messenger";
@@ -126,8 +126,12 @@ export class ChannelManager {
         if (!facebookCommentsService.isConfigured()) return;
 
         const recentComments = await facebookCommentsService.getRecentComments(undefined, 1);
+        const ownPageId = process.env.FB_PAGE_ID || "";
 
         for (const comment of recentComments) {
+          // No responder comentarios de la propia página (evita bucles)
+          if (ownPageId && comment.from?.id === ownPageId) continue;
+
           const convoKey = `fb_comment:${comment.from.id}`;
           const existing = await db
             .select()
@@ -136,11 +140,12 @@ export class ChannelManager {
             .limit(1);
 
           if (existing.length > 0) {
+            // Comparar contra el ÚLTIMO mensaje del cliente (no el más antiguo)
             const lastMsg = await db
               .select()
               .from(messages)
               .where(eq(messages.conversationId, existing[0].id))
-              .orderBy(messages.createdAt)
+              .orderBy(desc(messages.createdAt))
               .limit(1);
 
             if (lastMsg.length > 0 && lastMsg[0].content === comment.message) {

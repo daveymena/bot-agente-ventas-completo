@@ -1,4 +1,5 @@
 import { logger } from "./logger";
+import { dbNow } from "./date-utils";
 import { db, subscriptions, paymentTransactions, tenants } from "@workspace/db";
 import { eq, and, desc } from "drizzle-orm";
 import { SAAS_PLANS, SaasPlan, getMonthlyPrice } from "../middleware/saasValidation";
@@ -17,7 +18,7 @@ function generateActivationToken(plan: string, subscriptionId: number): string {
 export interface CreateSubscriptionPaymentParams {
   tenantId: number;
   plan: SaasPlan;
-  billingCycle: "monthly" | "annual";
+  billingCycle: "monthly" | "quarterly" | "annual";
   paymentMethod: "mercadopago" | "paypal";
   returnUrl?: string;
   cancelUrl?: string;
@@ -51,7 +52,9 @@ export class SubscriptionPaymentService {
 
     // Calcular el monto
     const monthlyPrice = getMonthlyPrice(plan);
-    const amount = billingCycle === "annual" ? monthlyPrice * 12 * 0.8 : monthlyPrice; // 20% descuento anual
+    const amount = billingCycle === "annual" ? monthlyPrice * 12 * 0.8 // 20% descuento anual
+      : billingCycle === "quarterly" ? monthlyPrice * 3 * 0.9 // 10% descuento trimestral
+      : monthlyPrice;
     const currency = "USD";
 
     logger.info({ plan, amount, currency, billingCycle }, "[SubscriptionPayment] Monto calculado");
@@ -120,7 +123,7 @@ export class SubscriptionPaymentService {
       // Marcar suscripción como fallida
       await db
         .update(subscriptions)
-        .set({ status: "failed", updatedAt: new Date().toISOString() })
+        .set({ status: "failed", updatedAt: dbNow() })
         .where(eq(subscriptions.id, subscription.id));
       
       throw error;
@@ -131,7 +134,7 @@ export class SubscriptionPaymentService {
       .update(subscriptions)
       .set({
         paymentId,
-        updatedAt: new Date().toISOString(),
+        updatedAt: dbNow(),
       })
       .where(eq(subscriptions.id, subscription.id));
 
@@ -173,13 +176,15 @@ export class SubscriptionPaymentService {
     const planDetails = SAAS_PLANS[subscription.plan as SaasPlan];
 
     // Convertir a COP si es necesario (MercadoPago Colombia usa COP)
-    const amountCOP = amount * 4000; // 1 USD = 4000 COP aproximadamente
+    const { getExchangeRate } = await import("./exchange-rate");
+    const rate = await getExchangeRate();
+    const amountCOP = Math.round(amount * rate);
 
     const requestBody = {
       items: [
         {
           id: `subscription_${subscription.id}`,
-          title: `Plan ${planDetails.name} - ${subscription.billingCycle === "annual" ? "Anual" : "Mensual"}`,
+          title: `Plan ${planDetails.name} - ${subscription.billingCycle === "annual" ? "Anual" : subscription.billingCycle === "quarterly" ? "Trimestral" : "Mensual"}`,
           description: `Suscripción al plan ${planDetails.name}`,
           quantity: 1,
           currency_id: "COP",
@@ -297,7 +302,7 @@ export class SubscriptionPaymentService {
           purchase_units: [
             {
               reference_id: `subscription_${subscription.id}`,
-              description: `Plan ${planDetails.name} - ${subscription.billingCycle === "annual" ? "Anual" : "Mensual"}`,
+              description: `Plan ${planDetails.name} - ${subscription.billingCycle === "annual" ? "Anual" : subscription.billingCycle === "quarterly" ? "Trimestral" : "Mensual"}`,
               amount: {
                 currency_code: currency,
                 value: amount.toFixed(2),
@@ -351,13 +356,18 @@ export class SubscriptionPaymentService {
     }
 
     // Calcular fechas
-    const now = new Date().toISOString();
-    const expiresAt = new Date(now);
+    const nowDate = new Date();
+    const expiresAt = new Date(nowDate);
     if (subscription.billingCycle === "annual") {
       expiresAt.setFullYear(expiresAt.getFullYear() + 1);
+    } else if (subscription.billingCycle === "quarterly") {
+      expiresAt.setMonth(expiresAt.getMonth() + 3);
     } else {
       expiresAt.setMonth(expiresAt.getMonth() + 1);
     }
+    // dbNow()/dbExpires(): en Postgres estas columnas son timestamp (Date),
+    // no string — ver date-utils.ts.
+    const dbExpiresAt = process.env.USE_SQLITE === "true" ? expiresAt.toISOString() : expiresAt;
 
     // Actualizar suscripción
     await db
@@ -365,10 +375,10 @@ export class SubscriptionPaymentService {
       .set({
         status: "active",
         paymentStatus: "approved",
-        startedAt: now,
-        expiresAt: expiresAt.toISOString(),
-        nextBillingDate: expiresAt.toISOString(),
-        updatedAt: now,
+        startedAt: dbNow(),
+        expiresAt: dbExpiresAt,
+        nextBillingDate: dbExpiresAt,
+        updatedAt: dbNow(),
       })
       .where(eq(subscriptions.id, subscriptionId));
 
@@ -380,8 +390,8 @@ export class SubscriptionPaymentService {
         status: "active",
         subscriptionId: subscriptionId.toString(),
         subscriptionStatus: "active",
-        subscriptionEndsAt: expiresAt.toISOString(),
-        updatedAt: now,
+        subscriptionEndsAt: dbExpiresAt,
+        updatedAt: dbNow(),
       })
       .where(eq(tenants.id, subscription.tenantId));
 
@@ -400,7 +410,7 @@ export class SubscriptionPaymentService {
       payerName: paymentData.payerName,
       payerId: paymentData.payerId,
       webhookData: paymentData,
-      paidAt: now,
+      paidAt: dbNow(),
     });
 
     logger.info(
@@ -413,15 +423,13 @@ export class SubscriptionPaymentService {
    * Cancela una suscripción
    */
   static async cancelSubscription(subscriptionId: number): Promise<void> {
-    const now = new Date().toISOString();
-
     await db
       .update(subscriptions)
       .set({
         status: "cancelled",
-        cancelledAt: now,
+        cancelledAt: dbNow(),
         autoRenew: false,
-        updatedAt: now,
+        updatedAt: dbNow(),
       })
       .where(eq(subscriptions.id, subscriptionId));
 
@@ -459,7 +467,7 @@ export class SubscriptionPaymentService {
    * Verifica si una suscripción ha expirado y la actualiza
    */
   static async checkExpiredSubscriptions(): Promise<void> {
-    const now = new Date().toISOString();
+    const nowDate = new Date();
 
     // Buscar suscripciones activas que hayan expirado
     const expiredSubscriptions = await db
@@ -468,13 +476,13 @@ export class SubscriptionPaymentService {
       .where(and(eq(subscriptions.status, "active")));
 
     for (const subscription of expiredSubscriptions) {
-      if (subscription.expiresAt && new Date(subscription.expiresAt) < new Date(now)) {
+      if (subscription.expiresAt && new Date(subscription.expiresAt) < nowDate) {
         // Marcar como expirada
         await db
           .update(subscriptions)
           .set({
             status: "expired",
-            updatedAt: now,
+            updatedAt: dbNow(),
           })
           .where(eq(subscriptions.id, subscription.id));
 
@@ -485,7 +493,7 @@ export class SubscriptionPaymentService {
             plan: "free",
             status: "active",
             subscriptionStatus: "expired",
-            updatedAt: now,
+            updatedAt: dbNow(),
           })
           .where(eq(tenants.id, subscription.tenantId));
 

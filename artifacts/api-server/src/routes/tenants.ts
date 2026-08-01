@@ -2,6 +2,7 @@ import { Router, type IRouter } from "express";
 import { z } from "zod";
 import { tenantManager, type TenantRequest } from "../lib/tenantManager";
 import { logger } from "../lib/logger";
+import { dbNow } from "../lib/date-utils";
 
 const router: IRouter = Router();
 
@@ -272,7 +273,7 @@ router.post("/current/clear-cache", async (req: TenantRequest, res) => {
       });
     }
 
-    tenantManager.clearCache(req.tenant.slug);
+    tenantManager.clearCache();
 
     logger.info({ tenantId: req.tenant.id }, "[Tenants] Cache cleared");
 
@@ -325,7 +326,7 @@ router.post("/current/activate-with-token", async (req, res) => {
     
     const success = await tenantManager.updateTenant(tenant.id, { 
       plan: planId 
-    });
+    } as any);
 
     if (!success) {
       return res.status(400).json({ error: "Failed to update tenant plan" });
@@ -354,7 +355,7 @@ router.post("/current/activate-with-token", async (req, res) => {
 router.get("/admin/list", async (req: TenantRequest, res) => {
   try {
     // Only VIP admin can access
-    if (!req.tenant || req.tenant.email !== "daveymena16@gmail.com") {
+    if (!req.tenant?.isAdmin) {
       return res.status(403).json({ error: "Acceso solo para administrador" });
     }
 
@@ -364,7 +365,7 @@ router.get("/admin/list", async (req: TenantRequest, res) => {
     const allTenants = await db.select().from(tenantsTable).orderBy(tenantsTable.createdAt);
 
     // Enrich with usage counts
-    const enriched = await Promise.all(allTenants.map(async (t) => {
+    const enriched = await Promise.all(allTenants.map(async (t: any) => {
       const [convCount] = await db.select({ count: sql<number>`count(*)` })
         .from(conversations).where(eq(conversations.tenantId, t.id));
       const [prodCount] = await db.select({ count: sql<number>`count(*)` })
@@ -378,6 +379,7 @@ router.get("/admin/list", async (req: TenantRequest, res) => {
         slug: t.slug,
         plan: t.plan || "free",
         status: t.status || "inactive",
+        isAdmin: !!t.isAdmin,
         createdAt: t.createdAt,
         conversationCount: Number(convCount?.count || 0),
         productCount: Number(prodCount?.count || 0),
@@ -397,17 +399,27 @@ router.get("/admin/list", async (req: TenantRequest, res) => {
  */
 router.post("/admin/:id/action", async (req: TenantRequest, res) => {
   try {
-    if (!req.tenant || req.tenant.email !== "daveymena16@gmail.com") {
-      return res.status(403).json({ error: "Acceso solo para administrador" });
-    }
-
-    const tenantId = parseInt(req.params.id);
     const { action } = req.body;
+    const tenantId = parseInt(req.params.id as string);
 
     const { db, tenants: tenantsTable } = await import("@workspace/db");
     const { eq } = await import("drizzle-orm");
 
-    let update: any = { updatedAt: new Date().toISOString() };
+    // Bootstrap: si TODAVÍA no existe ningún administrador en la plataforma,
+    // se permite que un tenant autenticado se promueva a sí mismo una única
+    // vez. La ventana se cierra sola en cuanto exista al menos un admin --
+    // a partir de ahí, solo un admin existente puede promover a otros.
+    const isBootstrap = action === "make_admin" && req.tenant && req.tenant.id === tenantId;
+    if (!req.tenant?.isAdmin && isBootstrap) {
+      const existingAdmins = await db.select({ id: tenantsTable.id }).from(tenantsTable).where(eq(tenantsTable.isAdmin, true)).limit(1);
+      if (existingAdmins.length > 0) {
+        return res.status(403).json({ error: "Ya existe un administrador. Pedile que te promueva desde su cuenta." });
+      }
+    } else if (!req.tenant?.isAdmin) {
+      return res.status(403).json({ error: "Acceso solo para administrador" });
+    }
+
+    let update: any = { updatedAt: dbNow() };
     let message = "";
 
     switch (action) {
@@ -427,6 +439,24 @@ router.post("/admin/:id/action", async (req: TenantRequest, res) => {
       case "downgrade_free":
         update.plan = "free";
         message = "Tenant movido a Free";
+        break;
+      case "set_plan": {
+        const validPlans = ["free", "basic", "premium", "enterprise"];
+        const plan = req.body.plan;
+        if (!validPlans.includes(plan)) {
+          return res.status(400).json({ error: `Plan inválido. Debe ser uno de: ${validPlans.join(", ")}` });
+        }
+        update.plan = plan;
+        message = `Plan actualizado a ${plan}`;
+        break;
+      }
+      case "make_admin":
+        update.isAdmin = true;
+        message = "Tenant promovido a administrador de la plataforma";
+        break;
+      case "revoke_admin":
+        update.isAdmin = false;
+        message = "Permisos de administrador revocados";
         break;
       case "delete":
         await db.delete(tenantsTable).where(eq(tenantsTable.id, tenantId));

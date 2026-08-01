@@ -56,6 +56,12 @@ export const architectMemory = schema.architectMemory;
 export const responseAnalytics = schema.responseAnalytics;
 export const promptVersions = schema.promptVersions;
 export const facebookDrafts = schema.facebookDrafts;
+export const opencodeConfig = schema.opencodeConfig;
+export const adAgentLogs = schema.adAgentLogs;
+export const opencodeSkills = schema.opencodeSkills;
+export const opencodeMcpServers = schema.opencodeMcpServers;
+export const opencodeCommands = schema.opencodeCommands;
+export const opencodeSession = schema.opencodeSession;
 
 export type {
   Tenant, InsertTenant,
@@ -185,13 +191,75 @@ async function initDb() {
       connectionTimeoutMillis: 5000, statement_timeout: 10000, query_timeout: 10000,
     });
     db = drizzle(pool, { schema: pgSchema });
+
+    // Crear las tablas en Postgres si no existen (idempotente). Sin esto,
+    // cambiar a USE_SQLITE=false rompía la app porque las tablas no existían.
+    try {
+      const { ALL_TABLES } = await import("./pg-schema");
+      let created = 0;
+      for (const t of ALL_TABLES as { name: string; sql: string }[]) {
+        try { await pool.query(t.sql); created++; }
+        catch (e: any) { console.warn(`⚠️ [PG] tabla ${t.name}: ${e?.message?.slice(0, 80)}`); }
+      }
+      console.log(`✅ [PG] Esquema verificado: ${created}/${(ALL_TABLES as any[]).length} tablas listas`);
+      await resyncPgSequences(pool);
+    } catch (e: any) {
+      console.error(`❌ [PG] No se pudo crear el esquema: ${e?.message}`);
+    }
+
     dbReady = true;
+  }
+}
+
+/**
+ * Resincroniza las secuencias de las columnas id en Postgres.
+ *
+ * Cuando los datos se migran conservando el id original (como se hizo al pasar
+ * de SQLite), las filas quedan con ids altos pero el contador de la secuencia
+ * sigue en 1. Cada INSERT nuevo intenta reusar un id ocupado y Postgres lo
+ * rechaza con 23505 (duplicate key).
+ *
+ * Se vio en producción: WhatsApp recibía "Hola" del cliente pero no podía
+ * guardarlo ("Key (id)=(2) already exists"), así que el bot nunca respondía.
+ *
+ * Corre en cada arranque porque es idempotente y barato: deja cada secuencia
+ * en MAX(id), y evita que una restauración o migración futura vuelva a romper
+ * la app de forma silenciosa.
+ */
+async function resyncPgSequences(pgPool: any): Promise<void> {
+  try {
+    const { rows } = await pgPool.query(`
+      SELECT pg_get_serial_sequence(quote_ident(c.table_name), c.column_name) AS seq,
+             c.table_name, c.column_name
+      FROM information_schema.columns c
+      JOIN information_schema.tables t
+        ON t.table_name = c.table_name AND t.table_schema = c.table_schema
+      WHERE c.table_schema = current_schema()
+        AND t.table_type = 'BASE TABLE'
+        AND pg_get_serial_sequence(quote_ident(c.table_name), c.column_name) IS NOT NULL
+    `);
+
+    let ajustadas = 0;
+    for (const r of rows as { seq: string; table_name: string; column_name: string }[]) {
+      if (!r.seq) continue;
+      // setval con is_called=false sobre COALESCE(MAX,0)+1 deja el contador
+      // listo para el siguiente id incluso con la tabla vacía.
+      await pgPool.query(
+        `SELECT setval($1, COALESCE((SELECT MAX(${r.column_name}) FROM ${r.table_name}), 0) + 1, false)`,
+        [r.seq],
+      );
+      ajustadas++;
+    }
+    console.log(`✅ [PG] Secuencias sincronizadas: ${ajustadas}`);
+  } catch (e: any) {
+    // No es fatal: si falla, la app arranca igual y se ve en los logs.
+    console.warn(`⚠️ [PG] No se pudieron sincronizar las secuencias: ${e?.message?.slice(0, 120)}`);
   }
 }
 
 async function ensureSqliteTables(sqliteDb: import("sql.js").Database, saveDb: () => void) {
   const tables = [
-    `CREATE TABLE IF NOT EXISTS tenants (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, email TEXT NOT NULL UNIQUE, password_hash TEXT, slug TEXT NOT NULL UNIQUE, domain TEXT, status TEXT DEFAULT 'active', plan TEXT DEFAULT 'basic', brand_name TEXT NOT NULL, brand_logo TEXT, brand_colors TEXT, brand_theme TEXT, brand_social TEXT, agent_personality TEXT DEFAULT 'professional', agent_prompt TEXT, agent_name TEXT DEFAULT 'Asistente Virtual', contact_email TEXT, contact_phone TEXT, support_email TEXT, payment_methods TEXT, woocommerce_integration TEXT, limits TEXT, settings TEXT, subscription_id TEXT, subscription_status TEXT, trial_ends_at TEXT, subscription_ends_at TEXT, metadata TEXT, email_verified INTEGER DEFAULT 0, email_verification_code TEXT, email_verification_expiry TEXT, password_reset_code TEXT, password_reset_expiry TEXT, two_factor_enabled INTEGER DEFAULT 0, two_factor_secret TEXT, created_at TEXT DEFAULT (datetime('now')), updated_at TEXT DEFAULT (datetime('now')))`,
+    `CREATE TABLE IF NOT EXISTS tenants (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, email TEXT NOT NULL UNIQUE, password_hash TEXT, slug TEXT NOT NULL UNIQUE, domain TEXT, status TEXT DEFAULT 'active', plan TEXT DEFAULT 'basic', is_admin INTEGER DEFAULT 0, brand_name TEXT NOT NULL, brand_logo TEXT, brand_colors TEXT, brand_theme TEXT, brand_social TEXT, agent_personality TEXT DEFAULT 'professional', agent_prompt TEXT, agent_name TEXT DEFAULT 'Asistente Virtual', contact_email TEXT, contact_phone TEXT, support_email TEXT, payment_methods TEXT, woocommerce_integration TEXT, limits TEXT, settings TEXT, subscription_id TEXT, subscription_status TEXT, trial_ends_at TEXT, subscription_ends_at TEXT, metadata TEXT, email_verified INTEGER DEFAULT 0, email_verification_code TEXT, email_verification_expiry TEXT, password_reset_code TEXT, password_reset_expiry TEXT, two_factor_enabled INTEGER DEFAULT 0, two_factor_secret TEXT, created_at TEXT DEFAULT (datetime('now')), updated_at TEXT DEFAULT (datetime('now')))`,
     `CREATE TABLE IF NOT EXISTS agents (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER REFERENCES tenants(id) ON DELETE CASCADE, name TEXT NOT NULL, role TEXT NOT NULL, tone TEXT NOT NULL, language TEXT DEFAULT 'es', model TEXT DEFAULT 'gpt-4o-mini', system_prompt TEXT NOT NULL, stages TEXT DEFAULT '[]', metadata TEXT, is_active INTEGER DEFAULT 0, created_at TEXT DEFAULT (datetime('now')), updated_at TEXT DEFAULT (datetime('now')))`,
     `CREATE TABLE IF NOT EXISTS product_categories (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER REFERENCES tenants(id) ON DELETE CASCADE NOT NULL, name TEXT NOT NULL, created_at TEXT DEFAULT (datetime('now')))`,
     `CREATE TABLE IF NOT EXISTS products (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER REFERENCES tenants(id) ON DELETE CASCADE, name TEXT NOT NULL, description TEXT NOT NULL, price REAL DEFAULT 0, currency TEXT DEFAULT 'USD', sku TEXT, category_id INTEGER REFERENCES product_categories(id) ON DELETE SET NULL, category TEXT, kind TEXT DEFAULT 'digital', image_url TEXT, highlight TEXT, features TEXT, payment_link TEXT, delivery_link TEXT, is_active INTEGER DEFAULT 1, metadata TEXT, created_at TEXT DEFAULT (datetime('now')))`,
@@ -215,11 +283,24 @@ async function ensureSqliteTables(sqliteDb: import("sql.js").Database, saveDb: (
     `CREATE TABLE IF NOT EXISTS response_analytics (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER REFERENCES tenants(id) ON DELETE CASCADE, agent_id INTEGER, profile_id INTEGER, conversation_id INTEGER, message_id INTEGER, response_text TEXT NOT NULL, response_length INTEGER NOT NULL, had_card INTEGER DEFAULT 0, card_product_id INTEGER, outcome TEXT, customer_message TEXT NOT NULL, sentiment_score INTEGER, response_time_ms INTEGER NOT NULL, metadata TEXT, created_at TEXT DEFAULT (datetime('now')))`,
     `CREATE TABLE IF NOT EXISTS prompt_versions (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER REFERENCES tenants(id) ON DELETE CASCADE, agent_id INTEGER, profile_id INTEGER, previous_prompt TEXT NOT NULL, new_prompt TEXT NOT NULL, diff_summary TEXT NOT NULL, reason TEXT NOT NULL, performance_before TEXT, performance_after TEXT, applied_by TEXT NOT NULL, is_active INTEGER DEFAULT 1, created_at TEXT DEFAULT (datetime('now')))`,
     `CREATE TABLE IF NOT EXISTS facebook_drafts (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER REFERENCES tenants(id) ON DELETE CASCADE, product_id INTEGER REFERENCES products(id) ON DELETE SET NULL, product_name TEXT NOT NULL, campaign_id TEXT, ad_set_id TEXT, ad_id TEXT, status TEXT DEFAULT 'draft' NOT NULL, strategy TEXT, primary_text TEXT, headline TEXT, description TEXT, image_url TEXT, niche TEXT, budget INTEGER, fb_status TEXT, created_at TEXT DEFAULT (datetime('now')), updated_at TEXT DEFAULT (datetime('now')))`,
+    `CREATE TABLE IF NOT EXISTS ad_agent_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER REFERENCES tenants(id) ON DELETE CASCADE, campaign_id TEXT NOT NULL, ad_set_id TEXT, product_name TEXT, check_type TEXT NOT NULL, status TEXT DEFAULT 'suggested' NOT NULL, suggested_action TEXT, reason TEXT NOT NULL, metrics_snapshot TEXT, created_at TEXT DEFAULT (datetime('now')), responded_at TEXT)`,
   ];
 
   for (const sql of tables) {
     try { sqliteDb.run(sql); } catch (err) { console.error("Error creating table:", err); }
   }
+
+  // Migración idempotente: agrega columnas nuevas a tablas que ya existían
+  // en disco antes de que se agregara la columna (CREATE TABLE IF NOT EXISTS
+  // no las agrega retroactivamente). Falla en silencio si la columna ya
+  // existe (SQLite no soporta "ADD COLUMN IF NOT EXISTS").
+  const columnMigrations = [
+    `ALTER TABLE tenants ADD COLUMN is_admin INTEGER DEFAULT 0`,
+  ];
+  for (const sql of columnMigrations) {
+    try { sqliteDb.run(sql); } catch { /* columna ya existe */ }
+  }
+
   saveDb();
   console.log("✅ [SQLite] Todas las tablas creadas/verificadas");
 }
