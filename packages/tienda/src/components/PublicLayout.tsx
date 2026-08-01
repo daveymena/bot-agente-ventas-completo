@@ -201,16 +201,26 @@ const PublicLayout = ({ children }: { children: React.ReactNode }) => {
             </span>
           )}
         </Link>
+        {/* "Cuenta" era un <button> sin onClick: en la tienda pública no hay
+            login de cliente, así que solo ocupaba lugar y daba la sensación de
+            que el menú inferior "no funciona" al tocarlo. Para el público se
+            muestra el enlace que sí sirve (soporte por WhatsApp); el dueño
+            logueado conserva su acceso al panel. */}
         {isOwner ? (
           <Link to="/admin" className="flex flex-col items-center gap-0.5 text-gray-700 px-2 py-1">
             <LayoutDashboard className="h-5 w-5" />
             <span className="text-[10px] font-semibold">Admin</span>
           </Link>
         ) : (
-          <button className="flex flex-col items-center gap-0.5 text-gray-700 px-2 py-1">
+          <a
+            href={waHref || '#'}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex flex-col items-center gap-0.5 text-gray-700 px-2 py-1"
+          >
             <User className="h-5 w-5" />
-            <span className="text-[10px] font-semibold">Cuenta</span>
-          </button>
+            <span className="text-[10px] font-semibold">Soporte</span>
+          </a>
         )}
       </div>
 
