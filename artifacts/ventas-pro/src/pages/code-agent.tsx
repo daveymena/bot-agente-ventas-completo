@@ -168,7 +168,19 @@ export default function CodeAgent() {
 
   return (
     <Layout>
-      <div className="flex flex-col gap-4 animate-enter h-[calc(100vh-12rem)] md:h-[calc(100vh-8rem)]">
+      {/* Antes: h-[calc(100vh-12rem)] md:h-[calc(100vh-8rem)]. Medía contra
+          100vh -- el viewport ENTERO -- y le restaba a mano un chrome que el
+          Layout ya había descontado (header, padding de <main>, barra
+          inferior en móvil). Esos 12rem/8rem eran una adivinanza fija: en
+          cuanto la ventana era baja, la resta se comía casi todo y al área
+          de mensajes le quedaban ~100px, cortando las respuestas a media
+          frase.
+
+          flex-1 hace que ocupe exactamente el espacio que <main> le da, sea
+          el que sea -- el contenedor padre ya es flex-col con min-h-0. Y el
+          min-h evita el otro extremo: en pantallas muy bajas el chat no se
+          aplasta, mantiene un alto usable y es <main> el que scrollea. */}
+      <div className="flex flex-col gap-4 animate-enter flex-1 min-h-[24rem]">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 sm:gap-3 flex-shrink-0">
           <div className="flex items-center gap-3 min-w-0 w-full sm:w-auto">
             <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-md shadow-indigo-200 shrink-0">
@@ -220,11 +232,26 @@ export default function CodeAgent() {
                         }`}
                       >
                         {/* break-words + overflow-wrap:anywhere: las respuestas traen URLs largas que sin esto no se pueden partir */}
-                        <div className="text-sm md:text-base prose prose-sm md:prose-base dark:prose-invert prose-p:leading-relaxed max-w-none break-words [overflow-wrap:anywhere] prose-img:rounded-lg prose-img:shadow-sm prose-a:text-indigo-500 hover:prose-a:text-indigo-600 prose-a:break-all">
-                          <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                        {msg.role === "user" ? (
+                          // El mensaje del admin NO pasa por `prose`. Antes usaba
+                          // el mismo wrapper que la respuesta del bot, y Typography
+                          // fija `color: var(--tw-prose-body)` (gris oscuro) sobre
+                          // este div -- eso le ganaba al text-primary-foreground que
+                          // hereda de la burbuja, así que quedaba texto casi negro
+                          // sobre el fondo morado: ilegible. Además lo que escribe
+                          // el admin es texto plano, no Markdown; con whitespace-
+                          // pre-wrap se ve tal cual lo tipeó, saltos de línea
+                          // incluidos.
+                          <div className="text-sm md:text-base leading-relaxed whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
                             {msg.content}
-                          </ReactMarkdown>
-                        </div>
+                          </div>
+                        ) : (
+                          <div className="text-sm md:text-base prose prose-sm md:prose-base dark:prose-invert prose-p:leading-relaxed max-w-none break-words [overflow-wrap:anywhere] prose-img:rounded-lg prose-img:shadow-sm prose-a:text-indigo-500 hover:prose-a:text-indigo-600 prose-a:break-all">
+                            <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                              {msg.content}
+                            </ReactMarkdown>
+                          </div>
+                        )}
                       </div>
 
                       {msg.actions && msg.actions.length > 0 && (
