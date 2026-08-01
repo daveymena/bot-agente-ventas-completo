@@ -248,10 +248,19 @@ app.use(
 // no sobreviven a un reinicio hasta que se configure COOKIE_SECRET fijo.
 let cookieSecret = process.env.COOKIE_SECRET;
 if (!cookieSecret) {
+  if (process.env.NODE_ENV === "production") {
+    // En producción NO improvisamos un secreto: sin uno fijo las sesiones se
+    // caen en cada deploy/restart y no hay forma de detectar el problema.
+    // Fallar rápido obliga a configurarlo en Easypanel antes de servir tráfico.
+    logger.fatal(
+      "[Security] COOKIE_SECRET es obligatorio en producción y no está configurado. " +
+      "Genera uno fijo (p.ej. `openssl rand -hex 32`) y ponlo en las variables de entorno."
+    );
+    process.exit(1);
+  }
   cookieSecret = randomBytes(32).toString("hex");
-  const where = process.env.NODE_ENV === "production" ? "PRODUCCIÓN" : "desarrollo";
   logger.warn(
-    `[Security] COOKIE_SECRET no configurado en ${where} — usando un secreto aleatorio temporal. ` +
+    "[Security] COOKIE_SECRET no configurado en desarrollo — usando un secreto aleatorio temporal. " +
     "Las sesiones se invalidarán en cada reinicio. Configura COOKIE_SECRET (fijo) en las " +
     "variables de entorno para una sesión estable."
   );

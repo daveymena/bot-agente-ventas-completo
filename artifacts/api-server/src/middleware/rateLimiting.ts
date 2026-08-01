@@ -369,6 +369,16 @@ export const passwordResetRateLimit = rateLimitingMiddleware.createRateLimit({
   keyGenerator: (req: TenantRequest) => `pwreset_${req.ip}_${(req.body as any)?.email || ""}`
 });
 
+// Login es público (sin req.tenant). Sin límite, un atacante podía probar
+// miles de contraseñas por minuto contra un email (AUDIT_REPORT.md §1.5). Se
+// limita por IP + email: 10 intentos / 15 min es holgado para un humano que
+// se equivoca, pero corta el fuerza-bruta.
+export const loginRateLimit = rateLimitingMiddleware.createRateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutos
+  maxRequests: 10,
+  keyGenerator: (req: TenantRequest) => `login_${req.ip}_${(req.body as any)?.email || ""}`
+});
+
 // Utility functions
 export function trackWhatsAppCost(tenantId: string): void {
   rateLimitingMiddleware.trackWhatsAppMessage(tenantId);
