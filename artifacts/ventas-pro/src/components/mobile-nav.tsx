@@ -1,4 +1,4 @@
-import { useLocation, Link } from "wouter";
+import { useLocation } from "wouter";
 import { LayoutDashboard, MessageSquare, Users, Package, MoreHorizontal, Bot, Phone, Settings, ShoppingCart, Palette, Facebook, Wand2, Store, Activity, Crown } from "lucide-react";
 import { useState } from "react";
 import { useSession } from "@/App";
@@ -33,7 +33,14 @@ const adminMoreItems = [
 ];
 
 export function MobileNav() {
-  const [location] = useLocation();
+  // `setLocation` NO estaba en este destructuring, pero los onClick de abajo lo
+  // llamaban igual: como cada handler hace e.preventDefault() ANTES, se
+  // cancelaba la navegación nativa del <a> y acto seguido reventaba con
+  // "setLocation is not defined". Resultado: en móvil ningún botón de la barra
+  // inferior (ni del panel "Más") navegaba a ningún lado. TypeScript lo habría
+  // marcado, pero vite/esbuild solo transpila -- el error solo aparecía en la
+  // consola del navegador, en runtime.
+  const [location, setLocation] = useLocation();
   const [showMore, setShowMore] = useState(false);
   const { tenant: sessionTenant } = useSession();
   const isAdmin = !!sessionTenant?.isAdmin;
