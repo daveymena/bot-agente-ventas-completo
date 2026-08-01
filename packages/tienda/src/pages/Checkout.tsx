@@ -94,7 +94,7 @@ export default function Checkout() {
   return (
     <div className="max-w-6xl mx-auto px-4 py-8">
       <div className="mb-8 flex items-center gap-2">
-        <Link to={`/tienda/${slug}/carrito`} className="text-gray-500 hover:text-red-600 transition-colors bg-white p-2 rounded-xl border border-gray-200">
+        <Link to={`/tienda/${slug}/carrito`} className="text-gray-500 hover:text-[var(--store-primary)] transition-colors bg-white p-2 rounded-xl border border-gray-200">
           <ChevronLeft className="w-5 h-5" />
         </Link>
         <h1 className="text-3xl font-extrabold text-gray-900 tracking-tight">Finalizar Compra</h1>
@@ -111,7 +111,7 @@ export default function Checkout() {
                 <label className="block text-sm font-semibold text-gray-700 mb-2">Nombre Completo *</label>
                 <input
                   type="text"
-                  className="w-full px-4 py-3.5 rounded-xl border border-gray-200 bg-white text-gray-900 focus:ring-2 focus:ring-red-500/30 focus:border-red-400 outline-none transition-all shadow-sm placeholder-gray-400"
+                  className="w-full px-4 py-3.5 rounded-xl border border-gray-200 bg-white text-gray-900 focus:ring-2 focus:ring-[var(--store-primary)]/30 focus:border-[var(--store-primary)] outline-none transition-all shadow-sm placeholder-gray-400"
                   placeholder="Ej. Juan Pérez"
                   value={formData.name}
                   onChange={e => setFormData({ ...formData, name: e.target.value })}
@@ -122,7 +122,7 @@ export default function Checkout() {
                 <label className="block text-sm font-semibold text-gray-700 mb-2">Correo Electrónico *</label>
                 <input
                   type="email"
-                  className="w-full px-4 py-3.5 rounded-xl border border-gray-200 bg-white text-gray-900 focus:ring-2 focus:ring-red-500/30 focus:border-red-400 outline-none transition-all shadow-sm placeholder-gray-400"
+                  className="w-full px-4 py-3.5 rounded-xl border border-gray-200 bg-white text-gray-900 focus:ring-2 focus:ring-[var(--store-primary)]/30 focus:border-[var(--store-primary)] outline-none transition-all shadow-sm placeholder-gray-400"
                   placeholder="tu@email.com (Para enviarte el acceso)"
                   value={formData.email}
                   onChange={e => setFormData({ ...formData, email: e.target.value })}
@@ -133,7 +133,7 @@ export default function Checkout() {
                 <label className="block text-sm font-semibold text-gray-700 mb-2">WhatsApp (Opcional)</label>
                 <input
                   type="tel"
-                  className="w-full px-4 py-3.5 rounded-xl border border-gray-200 bg-white text-gray-900 focus:ring-2 focus:ring-red-500/30 focus:border-red-400 outline-none transition-all shadow-sm placeholder-gray-400"
+                  className="w-full px-4 py-3.5 rounded-xl border border-gray-200 bg-white text-gray-900 focus:ring-2 focus:ring-[var(--store-primary)]/30 focus:border-[var(--store-primary)] outline-none transition-all shadow-sm placeholder-gray-400"
                   placeholder="+57 300 000 0000"
                   value={formData.phone}
                   onChange={e => setFormData({ ...formData, phone: e.target.value })}
@@ -182,7 +182,7 @@ export default function Checkout() {
         <div>
           <div className="bg-white p-6 sm:p-8 rounded-2xl border border-gray-200 sticky top-24">
             <h2 className="text-xl font-bold text-gray-900 mb-6 flex items-center gap-2">
-              <Package className="w-5 h-5 text-red-600" /> Resumen de tu pedido
+              <Package className="w-5 h-5 text-[var(--store-primary)]" /> Resumen de tu pedido
             </h2>
             <div className="space-y-4 mb-8">
               {cart.map(item => (
@@ -216,9 +216,9 @@ export default function Checkout() {
               </div>
             </div>
 
-            <div className="mt-8 flex items-start gap-3 bg-red-50 p-4 rounded-xl border border-red-100">
-              <ShieldCheck className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
-              <p className="text-xs text-red-800/80 font-medium leading-relaxed">
+            <div className="mt-8 flex items-start gap-3 bg-[var(--store-primary)]/10 p-4 rounded-xl border border-[var(--store-primary)]/20">
+              <ShieldCheck className="w-5 h-5 text-[var(--store-primary)] shrink-0 mt-0.5" />
+              <p className="text-xs text-gray-700 font-medium leading-relaxed">
                 Pago 100% seguro. Tus datos están protegidos. El acceso a tus productos se enviará al correo proporcionado inmediatamente después de confirmar el pago.
               </p>
             </div>

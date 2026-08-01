@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { useStore, Product } from '../store/useStore';
-import { Search, Star, ShoppingCart, Heart, X, Store, Package, Download, Box, Truck, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Search, Star, ShoppingCart, Heart, Store, Package, Download, Box, ChevronLeft, ChevronRight } from 'lucide-react';
 import { motion } from 'framer-motion';
 import Swal from 'sweetalert2';
 import { trackAddToCart, trackInitiateCheckout } from '../lib/pixel';
@@ -21,12 +21,12 @@ const formatPrice = (price: number) => {
 };
 
 // Etiqueta visual por tipo de producto: digital se entrega al instante,
-// físico/dropshipping requieren envío. El badge hardcoded a "DIGITAL" antes
-// no reflejaba esto -- ahora lee el campo real (kind) de cada producto.
+// físico requiere envío. Solo estos dos valores existen de verdad en el
+// backend (products.kind, ver routes/products.ts) -- cualquier otro valor
+// cae a "digital" ahí, así que este mapa hace lo mismo.
 const TYPE_BADGE: Record<string, { label: string; icon: typeof Download; className: string }> = {
   digital: { label: 'Digital', icon: Download, className: 'bg-indigo-600' },
   physical: { label: 'Físico', icon: Box, className: 'bg-emerald-600' },
-  dropshipping: { label: 'Envío', icon: Truck, className: 'bg-amber-600' },
 };
 
 const ProductCard = ({ product, slug }: { product: Product; slug: string }) => {
@@ -94,17 +94,17 @@ const ProductCard = ({ product, slug }: { product: Product; slug: string }) => {
         </div>
         <button
           onClick={() => toggleWishlist(product.id)}
-          className="absolute top-2 left-2 w-8 h-8 rounded-full bg-white/90 backdrop-blur-sm border border-gray-200 shadow-sm flex items-center justify-center text-gray-400 hover:text-red-600 hover:bg-white transition-all"
+          className="absolute top-2 left-2 w-8 h-8 rounded-full bg-white/90 backdrop-blur-sm border border-gray-200 shadow-sm flex items-center justify-center text-gray-400 hover:text-[var(--store-primary)] hover:bg-white transition-all"
         >
-          <Heart className={`w-4 h-4 ${wishlist.includes(product.id) ? 'fill-red-600 text-red-600' : ''}`} />
+          <Heart className={`w-4 h-4 ${wishlist.includes(product.id) ? 'fill-[var(--store-primary)] text-[var(--store-primary)]' : ''}`} />
         </button>
       </div>
 
       <div className="p-3 flex flex-col gap-1.5 flex-1">
-        <p className="text-[10px] font-bold text-red-600 uppercase tracking-wider">{product.category || 'General'}</p>
+        <p className="text-[10px] font-bold text-[var(--store-primary)] uppercase tracking-wider">{product.category || 'General'}</p>
         <Link
           to={detailHref}
-          className="text-sm font-bold leading-snug text-gray-900 line-clamp-2 min-h-[2.5em] hover:text-red-600 transition-colors"
+          className="text-sm font-bold leading-snug text-gray-900 line-clamp-2 min-h-[2.5em] hover:text-[var(--store-primary)] transition-colors"
         >
           {product.name}
         </Link>
@@ -121,7 +121,7 @@ const ProductCard = ({ product, slug }: { product: Product; slug: string }) => {
             <button
               onClick={comprarAhora}
               disabled={buying}
-              className="flex-1 h-9 rounded-lg bg-red-600 text-white text-xs font-bold flex items-center justify-center gap-1.5 hover:bg-red-700 transition-all disabled:opacity-50"
+              className="flex-1 h-9 rounded-lg bg-[var(--store-primary)] text-[var(--store-on-primary)] text-xs font-bold flex items-center justify-center gap-1.5 hover:bg-[var(--store-primary-hover)] transition-all disabled:opacity-50"
             >
               {buying ? 'Abriendo…' : 'Comprar ahora'}
             </button>
@@ -143,7 +143,7 @@ const ProductCard = ({ product, slug }: { product: Product; slug: string }) => {
               }}
               title="Agregar al carrito"
               aria-label="Agregar al carrito"
-              className="w-9 h-9 shrink-0 rounded-lg border border-gray-200 text-gray-500 bg-white flex items-center justify-center hover:bg-gray-50 hover:text-red-600 transition-all"
+              className="w-9 h-9 shrink-0 rounded-lg border border-gray-200 text-gray-500 bg-white flex items-center justify-center hover:bg-gray-50 hover:text-[var(--store-primary)] transition-all"
             >
               <ShoppingCart className="w-4 h-4" />
             </button>
@@ -205,23 +205,36 @@ const Shop = () => {
   const [filter, setFilter] = useState('all');
   const [searchTerm, setSearchTerm] = useState(searchQuery || '');
 
+  // La clave de categoría es "nombre + tipo", no solo el nombre: un curso
+  // "Tecnología" (digital) y un gadget "Tecnología" (físico) son catálogos
+  // distintos para el dueño de la tienda -- agruparlos bajo un solo botón
+  // "Tecnología" los mezclaría en el mismo filtro aunque sean cosas muy
+  // distintas (una se entrega por WhatsApp, la otra por transportadora).
+  const categoryKey = (p: { category?: string; type?: string }) =>
+    `${p.category || 'General'}__${p.type || 'digital'}`;
+
   const filteredProducts = products.filter(p => {
-    const matchesFilter = filter === 'all' || p.category?.toLowerCase() === filter.toLowerCase();
+    const matchesFilter = filter === 'all' || categoryKey(p) === filter;
     const matchesSearch = p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
       (p.category && p.category.toLowerCase().includes(searchTerm.toLowerCase()));
     return matchesFilter && matchesSearch;
   });
 
   const categories = useMemo(() => {
-    const counts: Record<string, number> = {};
+    const counts: Record<string, { key: string; name: string; type: string; count: number }> = {};
     products.forEach(p => {
-      const cat = p.category || 'General';
-      counts[cat] = (counts[cat] || 0) + 1;
+      const key = categoryKey(p);
+      if (!counts[key]) counts[key] = { key, name: p.category || 'General', type: p.type || 'digital', count: 0 };
+      counts[key].count++;
     });
-    return Object.entries(counts)
-      .map(([name, count]) => ({ name, count }))
-      .sort((a, b) => b.count - a.count);
+    return Object.values(counts).sort((a, b) => b.count - a.count);
   }, [products]);
+
+  // El backend solo reconoce "digital" | "physical" en products.kind (ver
+  // routes/products.ts: row.kind === "physical" ? "physical" : "digital") --
+  // cualquier otro valor cae a "digital" ahí, así que se replica el mismo
+  // fallback acá para que el label nunca contradiga lo que el backend hace.
+  const typeLabel = (type: string) => type === 'physical' ? 'Físico' : 'Digital';
 
   const [visibleCount, setVisibleCount] = useState(12);
 
@@ -243,11 +256,11 @@ const Shop = () => {
         {/* Overlay oscuro para que el texto quede legible sobre la foto */}
         <div className="absolute inset-0 bg-gradient-to-r from-black via-black/80 to-black/20" />
         <div className="relative z-10 max-w-lg">
-          <p className="text-red-400 text-xs font-bold uppercase tracking-widest mb-2">Nueva colección</p>
+          <p className="text-[var(--store-primary)] text-xs font-bold uppercase tracking-widest mb-2">Nueva colección</p>
           <h1 className="text-2xl sm:text-4xl font-black mb-2 leading-tight">Encuentra lo que buscas</h1>
           <p className="text-sm text-gray-300 mb-4">Productos físicos y digitales en un solo lugar</p>
           <div className="flex flex-wrap gap-2">
-            <span className="bg-red-600 text-white px-3 py-1.5 rounded-lg text-xs font-bold">🚚 Envío a todo el país</span>
+            <span className="bg-[var(--store-primary)] text-[var(--store-on-primary)] px-3 py-1.5 rounded-lg text-xs font-bold">🚚 Envío a todo el país</span>
             <span className="bg-white/10 text-white px-3 py-1.5 rounded-lg text-xs font-bold backdrop-blur-sm">⚡ Entrega digital inmediata</span>
           </div>
         </div>
@@ -261,7 +274,7 @@ const Shop = () => {
           placeholder="Buscar productos..."
           value={searchTerm}
           onChange={e => setSearchTerm(e.target.value)}
-          className="w-full h-12 pl-12 pr-4 rounded-xl border border-gray-200 bg-white text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-red-500/30 focus:border-red-400 transition-all shadow-sm"
+          className="w-full h-12 pl-12 pr-4 rounded-xl border border-gray-200 bg-white text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[var(--store-primary)]/30 focus:border-[var(--store-primary)] transition-all shadow-sm"
         />
       </div>
 
@@ -283,20 +296,20 @@ const Shop = () => {
             <button
               onClick={() => setFilter('all')}
               className={`flex-shrink-0 px-4 py-2 rounded-lg font-semibold whitespace-nowrap text-sm transition-colors ${
-                filter === 'all' ? 'bg-red-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                filter === 'all' ? 'bg-[var(--store-primary)] text-[var(--store-on-primary)]' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
               }`}
             >
               Todos ({products.length})
             </button>
-            {categories.map((c, i) => (
+            {categories.map((c) => (
               <button
-                key={i}
-                onClick={() => setFilter(c.name)}
+                key={c.key}
+                onClick={() => setFilter(c.key)}
                 className={`flex-shrink-0 px-4 py-2 rounded-lg font-semibold whitespace-nowrap text-sm transition-colors ${
-                  filter === c.name ? 'bg-red-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  filter === c.key ? 'bg-[var(--store-primary)] text-[var(--store-on-primary)]' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                 }`}
               >
-                {c.name} ({c.count})
+                {c.name} <span className="opacity-70 font-normal">· {typeLabel(c.type)}</span> ({c.count})
               </button>
             ))}
           </div>
@@ -325,22 +338,22 @@ const Shop = () => {
         </div>
       ) : apiError && products.length === 0 ? (
         <div className="text-center py-24 bg-white rounded-2xl px-6 border border-dashed border-gray-200">
-          <div className="w-20 h-20 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-6">
-            <Store className="w-10 h-10 text-red-500" />
+          <div className="w-20 h-20 bg-[var(--store-primary)]/10 rounded-full flex items-center justify-center mx-auto mb-6">
+            <Store className="w-10 h-10 text-[var(--store-primary)]" />
           </div>
           <h3 className="text-xl font-bold text-gray-900 mb-2">No hay productos disponibles</h3>
           <p className="text-sm text-gray-500 mb-6 max-w-md mx-auto">Esta tienda aún no tiene productos publicados.</p>
         </div>
       ) : apiError && !paramSlug ? (
         <div className="text-center py-24 bg-white rounded-2xl px-6 border border-dashed border-gray-200">
-          <div className="w-20 h-20 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-6">
-            <Store className="w-10 h-10 text-red-500" />
+          <div className="w-20 h-20 bg-[var(--store-primary)]/10 rounded-full flex items-center justify-center mx-auto mb-6">
+            <Store className="w-10 h-10 text-[var(--store-primary)]" />
           </div>
           <h3 className="text-xl font-bold text-gray-900 mb-2">Tienda no configurada</h3>
           <p className="text-sm text-gray-500 mb-8 max-w-md mx-auto">Visita tu tienda desde el slug correcto.</p>
           <button
             onClick={() => navigate('/admin')}
-            className="inline-flex items-center gap-2 h-11 px-8 rounded-xl bg-red-600 text-white text-sm font-bold hover:bg-red-700 transition-all"
+            className="inline-flex items-center gap-2 h-11 px-8 rounded-xl bg-[var(--store-primary)] text-[var(--store-on-primary)] text-sm font-bold hover:bg-[var(--store-primary-hover)] transition-all"
           >
             Ir al panel de control
           </button>
@@ -356,7 +369,7 @@ const Shop = () => {
             <div className="flex justify-center mt-10">
               <button
                 onClick={() => setVisibleCount(prev => prev + 12)}
-                className="inline-flex items-center gap-2 h-12 px-8 rounded-xl border border-gray-200 bg-white text-sm font-semibold text-gray-700 hover:bg-gray-50 hover:border-red-300 hover:text-red-600 transition-all"
+                className="inline-flex items-center gap-2 h-12 px-8 rounded-xl border border-gray-200 bg-white text-sm font-semibold text-gray-700 hover:bg-gray-50 hover:border-[var(--store-primary)]/50 hover:text-[var(--store-primary)] transition-all"
               >
                 Cargar más productos ({filteredProducts.length - visibleCount} restantes)
               </button>
@@ -365,8 +378,8 @@ const Shop = () => {
         </>
       ) : (
         <div className="text-center py-24 bg-white rounded-2xl px-6 border border-dashed border-gray-200">
-          <div className="w-20 h-20 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-6">
-            <Search className="w-10 h-10 text-red-500" />
+          <div className="w-20 h-20 bg-[var(--store-primary)]/10 rounded-full flex items-center justify-center mx-auto mb-6">
+            <Search className="w-10 h-10 text-[var(--store-primary)]" />
           </div>
           <h3 className="text-xl font-bold text-gray-900 mb-2">No se encontraron productos</h3>
           <p className="text-sm text-gray-500">Prueba con otros filtros o términos de búsqueda.</p>

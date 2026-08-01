@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   LayoutDashboard,
   Package,
@@ -239,9 +239,60 @@ const ProductManagement = () => {
 /* ───────── Settings ───────── */
 const SettingsPanel = () => {
   const { config, updateConfig } = useStore();
+  const [saving, setSaving] = useState(false);
 
-  const handleSave = () => {
-    Swal.fire('Guardado', 'Configuración actualizada', 'success');
+  // Sin esto el picker siempre arrancaba en el rojo por defecto de la demo,
+  // aunque el dueño ya hubiera guardado otro color antes -- GET /api/branding
+  // es el mismo endpoint autenticado que ya expone brandColors completo.
+  useEffect(() => {
+    fetch('/api/branding', { credentials: 'include' })
+      .then(r => (r.ok ? r.json() : null))
+      .then(d => {
+        if (!d) return;
+        updateConfig({
+          storeName: d.brandName || config.storeName,
+          logoUrl: d.brandLogo || config.logoUrl,
+          primaryColor: d.brandColors?.primary || config.primaryColor,
+          secondaryColor: d.brandColors?.secondary || config.secondaryColor,
+        });
+      })
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Antes esto solo mostraba un mensaje de "Guardado" sin llamar al backend
+  // -- el color quedaba en el localStorage de ESTE navegador nada más, así
+  // que la tienda pública (que lee /api/public/products/:slug en cualquier
+  // otro navegador/dispositivo) nunca veía el cambio.
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      const res = await fetch('/api/branding', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          brandName: config.storeName || undefined,
+          // brandLogo exige URL válida en el backend -- mandarlo solo si de
+          // verdad parece una, para que un campo vacío o a medio escribir no
+          // tumbe el guardado completo del color por un 400 de otro campo.
+          ...(config.logoUrl?.startsWith('http') ? { brandLogo: config.logoUrl } : {}),
+          brandColors: {
+            primary: config.primaryColor,
+            secondary: config.secondaryColor,
+          },
+        }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data?.error || data?.message || 'No se pudo guardar');
+      }
+      Swal.fire('Guardado', 'Configuración actualizada en la tienda pública', 'success');
+    } catch (err: any) {
+      Swal.fire('Error', err.message || 'No se pudo guardar la configuración', 'error');
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -277,8 +328,8 @@ const SettingsPanel = () => {
             <p className="text-xs text-slate-400 mt-1">Identificador de la tienda en la URL pública</p>
           </div>
         </div>
-        <button onClick={handleSave} className="flex items-center gap-2 bg-indigo-600 text-white px-6 py-2.5 rounded-xl font-bold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200">
-          <Save size={16} /> Guardar Cambios
+        <button onClick={handleSave} disabled={saving} className="flex items-center gap-2 bg-indigo-600 text-white px-6 py-2.5 rounded-xl font-bold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200 disabled:opacity-50">
+          <Save size={16} /> {saving ? 'Guardando…' : 'Guardar Cambios'}
         </button>
       </div>
     </div>

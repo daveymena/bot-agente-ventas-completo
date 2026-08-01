@@ -1,52 +1,96 @@
 import { Link, useParams } from 'react-router-dom';
-import { ShoppingCart, MessageCircle, Menu, X, Store, Heart, User } from 'lucide-react';
-import { useState, useEffect } from 'react';
+import { ShoppingCart, MessageCircle, Menu, X, Store, Heart, User, LayoutDashboard, Pencil } from 'lucide-react';
+import { useState, useEffect, useMemo } from 'react';
 import { useStore } from '../store/useStore';
 import { initPixel } from '../lib/pixel';
 import { FacebookIcon, InstagramIcon, TikTokIcon, XIcon, LinkedInIcon } from './SocialIcons';
+import { MercadoPagoBadge, NequiBadge, PSEBadge } from './PaymentIcons';
+import { darken, readableTextColor } from '../lib/color';
 
 const PublicLayout = ({ children }: { children: React.ReactNode }) => {
-  const { cart, wishlist, config, updateConfig } = useStore();
+  const { cart, wishlist, config, updateConfig, isAdmin } = useStore();
   const { slug } = useParams();
+  const effectiveSlug = slug || 'sofia-premium';
   const cartCount = cart.reduce((acc, item) => acc + item.quantity, 0);
   const base = slug ? `/tienda/${slug}` : '/tienda';
   const [mobileMenu, setMobileMenu] = useState(false);
+
+  // El usuario logueado solo ve los botones de administración cuando la
+  // tienda que está viendo es LA SUYA -- isAdmin por sí solo solo dice "hay
+  // sesión de algún tenant", así que sin esta comparación, un dueño logueado
+  // vería el botón de "Panel Admin" en la tienda pública de OTRO negocio.
+  const isOwner = isAdmin && config.slug === effectiveSlug;
+
+  // El color de marca de la tienda (config.primaryColor, editable desde el
+  // panel admin) se expone como variables CSS para que todo el layout -- y
+  // las páginas hijas (Shop, ProductDetail, Cart, Checkout) -- lo lean con
+  // clases Tailwind tipo bg-[var(--store-primary)] en vez de tener el rojo
+  // de la demo hardcodeado.
+  const themeVars = useMemo(() => {
+    const primary = config.primaryColor || '#dc2626';
+    return {
+      '--store-primary': primary,
+      '--store-primary-hover': darken(primary, 0.15),
+      '--store-on-primary': readableTextColor(primary),
+    } as React.CSSProperties;
+  }, [config.primaryColor]);
 
   // El número de WhatsApp se resuelve aquí (no en cada página) porque el layout
   // envuelve toda la tienda. Viene del teléfono realmente conectado al bot por
   // QR: dejarlo escrito en el código lo vuelve inválido al cambiar de línea.
   useEffect(() => {
-    fetch(`/api/public/whatsapp-info/${slug || 'sofia-premium'}`)
+    fetch(`/api/public/whatsapp-info/${effectiveSlug}`)
       .then(r => (r.ok ? r.json() : null))
       .then(d => { if (d?.phone) updateConfig({ whatsappPhone: d.phone }); })
       .catch(() => {});
-  }, [slug]);
+  }, [effectiveSlug]);
 
-  // El píxel y las redes sociales del footer se cargan aquí por la misma razón:
-  // valen para toda la tienda, no solo para Shop -- si el footer dependiera de
-  // que Shop.tsx los guardara primero, entrar directo a un producto o al
-  // carrito (sin pasar por la home) dejaría el footer vacío.
+  // El píxel, el color de marca y las redes sociales del footer se cargan
+  // aquí por la misma razón: valen para toda la tienda, no solo para Shop --
+  // si dependieran de que Shop.tsx los guardara primero, entrar directo a un
+  // producto o al carrito (sin pasar por la home) los dejaría sin cargar.
   useEffect(() => {
-    fetch(`/api/public/products/${slug || 'sofia-premium'}`)
+    fetch(`/api/public/products/${effectiveSlug}`)
       .then(r => (r.ok ? r.json() : null))
       .then(d => {
         if (!d?.store) return;
         if (d.store.pixelId) initPixel(d.store.pixelId);
-        updateConfig({ socialLinks: d.store.socialLinks || {} });
+        updateConfig({
+          socialLinks: d.store.socialLinks || {},
+          ...(d.store.colors?.primary ? { primaryColor: d.store.colors.primary } : {}),
+        });
       })
       .catch(() => {});
-  }, [slug]);
+  }, [effectiveSlug]);
 
   const waHref = config.whatsappPhone ? `https://wa.me/${config.whatsappPhone}` : null;
 
   return (
-    <div className="min-h-screen flex flex-col bg-gray-50 text-slate-900">
+    <div className="min-h-screen flex flex-col bg-gray-50 text-slate-900" style={themeVars}>
       <nav className="sticky top-0 z-50 bg-black text-white">
+        {/* Barra de administración -- SOLO visible para el dueño logueado de
+            esta tienda, nunca para el público. El cliente que compra jamás
+            debería ver botones de "editar" o "panel admin" en su checkout. */}
+        {isOwner && (
+          <div className="bg-[var(--store-primary)] text-[var(--store-on-primary)]">
+            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-9 flex items-center justify-between text-xs font-semibold">
+              <span className="hidden sm:inline">Estás viendo tu tienda como dueño</span>
+              <div className="flex items-center gap-4 ml-auto">
+                <Link to="/editor" className="flex items-center gap-1.5 hover:opacity-80 transition-opacity">
+                  <Pencil className="w-3.5 h-3.5" /> Editar página
+                </Link>
+                <Link to="/admin" className="flex items-center gap-1.5 hover:opacity-80 transition-opacity">
+                  <LayoutDashboard className="w-3.5 h-3.5" /> Panel Admin
+                </Link>
+              </div>
+            </div>
+          </div>
+        )}
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between h-16 items-center">
             <Link to={base} className="flex items-center gap-2 group">
-              <div className="w-9 h-9 rounded-lg bg-red-600 flex items-center justify-center group-hover:scale-105 transition-transform">
-                <Store className="w-5 h-5 text-white" />
+              <div className="w-9 h-9 rounded-lg bg-[var(--store-primary)] flex items-center justify-center group-hover:scale-105 transition-transform">
+                <Store className="w-5 h-5 text-[var(--store-on-primary)]" />
               </div>
               <span className="text-lg font-black tracking-tight uppercase">{config.storeName || 'Tienda'}</span>
             </Link>
@@ -56,13 +100,13 @@ const PublicLayout = ({ children }: { children: React.ReactNode }) => {
                 Productos
               </Link>
               <a href={waHref || "#"} target="_blank" rel="noopener noreferrer"
-                className="flex items-center gap-1.5 text-sm font-semibold text-gray-300 hover:text-red-500 transition-colors group">
+                className="flex items-center gap-1.5 text-sm font-semibold text-gray-300 hover:text-[var(--store-primary)] transition-colors group">
                 <MessageCircle className="w-4 h-4" /> WhatsApp
               </a>
               <Link to={`${base}/wishlist`} className="relative p-2 text-gray-300 hover:text-white transition-colors">
                 <Heart className="w-5 h-5" />
                 {wishlist.length > 0 && (
-                  <span className="absolute -top-1 -right-1 bg-red-600 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+                  <span className="absolute -top-1 -right-1 bg-[var(--store-primary)] text-[var(--store-on-primary)] text-[10px] font-bold px-1.5 py-0.5 rounded-full">
                     {wishlist.length}
                   </span>
                 )}
@@ -70,7 +114,7 @@ const PublicLayout = ({ children }: { children: React.ReactNode }) => {
               <Link to={`${base}/carrito`} className="relative p-2 text-gray-300 hover:text-white transition-colors">
                 <ShoppingCart className="w-5 h-5" />
                 {cartCount > 0 && (
-                  <span className="absolute -top-1 -right-1 bg-red-600 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+                  <span className="absolute -top-1 -right-1 bg-[var(--store-primary)] text-[var(--store-on-primary)] text-[10px] font-bold px-1.5 py-0.5 rounded-full">
                     {cartCount}
                   </span>
                 )}
@@ -81,7 +125,7 @@ const PublicLayout = ({ children }: { children: React.ReactNode }) => {
               <Link to={`${base}/carrito`} className="relative p-2 text-gray-300 hover:text-white">
                 <ShoppingCart className="w-5 h-5" />
                 {cartCount > 0 && (
-                  <span className="absolute -top-1 -right-1 bg-red-600 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+                  <span className="absolute -top-1 -right-1 bg-[var(--store-primary)] text-[var(--store-on-primary)] text-[10px] font-bold px-1.5 py-0.5 rounded-full">
                     {cartCount}
                   </span>
                 )}
@@ -100,13 +144,25 @@ const PublicLayout = ({ children }: { children: React.ReactNode }) => {
               </Link>
               <a href={waHref || "#"} target="_blank" rel="noopener noreferrer"
                 onClick={() => setMobileMenu(false)}
-                className="flex items-center gap-2 px-4 py-3 text-sm font-semibold text-red-500 rounded-lg hover:bg-gray-900 transition-colors">
+                className="flex items-center gap-2 px-4 py-3 text-sm font-semibold text-[var(--store-primary)] rounded-lg hover:bg-gray-900 transition-colors">
                 <MessageCircle className="w-4 h-4" /> Línea WhatsApp
               </a>
               <Link to={`${base}/wishlist`} onClick={() => setMobileMenu(false)}
                 className="flex items-center gap-2 px-4 py-3 text-sm font-semibold text-gray-200 rounded-lg hover:bg-gray-900 transition-colors">
                 <Heart className="w-4 h-4" /> Lista de deseos
               </Link>
+              {isOwner && (
+                <>
+                  <Link to="/editor" onClick={() => setMobileMenu(false)}
+                    className="flex items-center gap-2 px-4 py-3 text-sm font-semibold text-gray-200 rounded-lg hover:bg-gray-900 transition-colors">
+                    <Pencil className="w-4 h-4" /> Editar página
+                  </Link>
+                  <Link to="/admin" onClick={() => setMobileMenu(false)}
+                    className="flex items-center gap-2 px-4 py-3 text-sm font-semibold text-gray-200 rounded-lg hover:bg-gray-900 transition-colors">
+                    <LayoutDashboard className="w-4 h-4" /> Panel Admin
+                  </Link>
+                </>
+              )}
             </div>
           )}
         </div>
@@ -126,7 +182,7 @@ const PublicLayout = ({ children }: { children: React.ReactNode }) => {
           <Heart className="h-5 w-5" />
           <span className="text-[10px] font-semibold">Deseos</span>
           {wishlist.length > 0 && (
-            <span className="absolute -top-0.5 right-1 bg-red-600 text-white text-[9px] font-bold rounded-full w-3.5 h-3.5 flex items-center justify-center">
+            <span className="absolute -top-0.5 right-1 bg-[var(--store-primary)] text-[var(--store-on-primary)] text-[9px] font-bold rounded-full w-3.5 h-3.5 flex items-center justify-center">
               {wishlist.length}
             </span>
           )}
@@ -140,15 +196,22 @@ const PublicLayout = ({ children }: { children: React.ReactNode }) => {
           <ShoppingCart className="h-5 w-5" />
           <span className="text-[10px] font-semibold">Carrito</span>
           {cartCount > 0 && (
-            <span className="absolute -top-0.5 right-1 bg-red-600 text-white text-[9px] font-bold rounded-full w-3.5 h-3.5 flex items-center justify-center">
+            <span className="absolute -top-0.5 right-1 bg-[var(--store-primary)] text-[var(--store-on-primary)] text-[9px] font-bold rounded-full w-3.5 h-3.5 flex items-center justify-center">
               {cartCount}
             </span>
           )}
         </Link>
-        <button className="flex flex-col items-center gap-0.5 text-gray-700 px-2 py-1">
-          <User className="h-5 w-5" />
-          <span className="text-[10px] font-semibold">Cuenta</span>
-        </button>
+        {isOwner ? (
+          <Link to="/admin" className="flex flex-col items-center gap-0.5 text-gray-700 px-2 py-1">
+            <LayoutDashboard className="h-5 w-5" />
+            <span className="text-[10px] font-semibold">Admin</span>
+          </Link>
+        ) : (
+          <button className="flex flex-col items-center gap-0.5 text-gray-700 px-2 py-1">
+            <User className="h-5 w-5" />
+            <span className="text-[10px] font-semibold">Cuenta</span>
+          </button>
+        )}
       </div>
 
       <a
@@ -166,8 +229,8 @@ const PublicLayout = ({ children }: { children: React.ReactNode }) => {
           <div className="grid grid-cols-1 md:grid-cols-4 gap-10">
             <div>
               <div className="flex items-center gap-2.5 mb-3">
-                <div className="w-8 h-8 rounded-lg bg-red-600 flex items-center justify-center">
-                  <Store className="w-4 h-4 text-white" />
+                <div className="w-8 h-8 rounded-lg bg-[var(--store-primary)] flex items-center justify-center">
+                  <Store className="w-4 h-4 text-[var(--store-on-primary)]" />
                 </div>
                 <span className="text-base font-bold text-white">{config.storeName || 'Tienda'}</span>
               </div>
@@ -179,31 +242,31 @@ const PublicLayout = ({ children }: { children: React.ReactNode }) => {
                 <div className="flex items-center gap-2">
                   {config.socialLinks?.facebook && (
                     <a href={config.socialLinks.facebook} target="_blank" rel="noopener noreferrer" aria-label="Facebook"
-                      className="w-9 h-9 rounded-full bg-white/10 hover:bg-red-600 text-gray-300 hover:text-white flex items-center justify-center transition-colors">
+                      className="w-9 h-9 rounded-full bg-white/10 hover:bg-[var(--store-primary)] text-gray-300 hover:text-[var(--store-on-primary)] flex items-center justify-center transition-colors">
                       <FacebookIcon className="w-4 h-4" />
                     </a>
                   )}
                   {config.socialLinks?.instagram && (
                     <a href={config.socialLinks.instagram} target="_blank" rel="noopener noreferrer" aria-label="Instagram"
-                      className="w-9 h-9 rounded-full bg-white/10 hover:bg-red-600 text-gray-300 hover:text-white flex items-center justify-center transition-colors">
+                      className="w-9 h-9 rounded-full bg-white/10 hover:bg-[var(--store-primary)] text-gray-300 hover:text-[var(--store-on-primary)] flex items-center justify-center transition-colors">
                       <InstagramIcon className="w-4 h-4" />
                     </a>
                   )}
                   {config.socialLinks?.tiktok && (
                     <a href={config.socialLinks.tiktok} target="_blank" rel="noopener noreferrer" aria-label="TikTok"
-                      className="w-9 h-9 rounded-full bg-white/10 hover:bg-red-600 text-gray-300 hover:text-white flex items-center justify-center transition-colors">
+                      className="w-9 h-9 rounded-full bg-white/10 hover:bg-[var(--store-primary)] text-gray-300 hover:text-[var(--store-on-primary)] flex items-center justify-center transition-colors">
                       <TikTokIcon className="w-4 h-4" />
                     </a>
                   )}
                   {config.socialLinks?.twitter && (
                     <a href={config.socialLinks.twitter} target="_blank" rel="noopener noreferrer" aria-label="X (Twitter)"
-                      className="w-9 h-9 rounded-full bg-white/10 hover:bg-red-600 text-gray-300 hover:text-white flex items-center justify-center transition-colors">
+                      className="w-9 h-9 rounded-full bg-white/10 hover:bg-[var(--store-primary)] text-gray-300 hover:text-[var(--store-on-primary)] flex items-center justify-center transition-colors">
                       <XIcon className="w-4 h-4" />
                     </a>
                   )}
                   {config.socialLinks?.linkedin && (
                     <a href={config.socialLinks.linkedin} target="_blank" rel="noopener noreferrer" aria-label="LinkedIn"
-                      className="w-9 h-9 rounded-full bg-white/10 hover:bg-red-600 text-gray-300 hover:text-white flex items-center justify-center transition-colors">
+                      className="w-9 h-9 rounded-full bg-white/10 hover:bg-[var(--store-primary)] text-gray-300 hover:text-[var(--store-on-primary)] flex items-center justify-center transition-colors">
                       <LinkedInIcon className="w-4 h-4" />
                     </a>
                   )}
@@ -237,9 +300,9 @@ const PublicLayout = ({ children }: { children: React.ReactNode }) => {
             <div>
               <h4 className="text-xs font-bold uppercase tracking-wider text-gray-500 mb-3">Pagos seguros</h4>
               <div className="flex flex-wrap gap-2">
-                <span className="text-xs font-bold px-3 py-1.5 rounded-md bg-[#00b1ea] text-white">MercadoPago</span>
-                <span className="text-xs font-bold px-3 py-1.5 rounded-md bg-[#da1884] text-white">Nequi</span>
-                <span className="text-xs font-bold px-3 py-1.5 rounded-md bg-[#0f3cc9] text-white">PSE</span>
+                <MercadoPagoBadge />
+                <NequiBadge />
+                <PSEBadge />
               </div>
             </div>
           </div>

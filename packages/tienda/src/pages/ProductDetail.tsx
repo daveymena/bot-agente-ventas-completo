@@ -86,14 +86,14 @@ const ProductDetail = () => {
   if (notFound || !product) {
     return (
       <div className="max-w-3xl mx-auto px-4 py-24 text-center">
-        <div className="w-24 h-24 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-6">
-          <Package className="w-12 h-12 text-red-400" />
+        <div className="w-24 h-24 bg-[var(--store-primary)]/10 rounded-full flex items-center justify-center mx-auto mb-6">
+          <Package className="w-12 h-12 text-[var(--store-primary)]" />
         </div>
         <h2 className="text-3xl font-extrabold text-gray-900 mb-3">Producto no disponible</h2>
         <p className="text-gray-500 mb-10 text-lg">Puede que ya no esté publicado o el enlace sea incorrecto.</p>
         <Link
           to={`/tienda/${slug}`}
-          className="inline-flex items-center gap-2 bg-red-600 text-white px-8 py-4 rounded-xl font-bold hover:bg-red-700 transition-all"
+          className="inline-flex items-center gap-2 bg-[var(--store-primary)] text-[var(--store-on-primary)] px-8 py-4 rounded-xl font-bold hover:bg-[var(--store-primary-hover)] transition-all"
         >
           Ver todos los productos
         </Link>
@@ -119,7 +119,7 @@ const ProductDetail = () => {
   return (
     <div className="max-w-6xl mx-auto px-4 py-8">
       <div className="mb-8 flex items-center gap-2 text-sm text-gray-500 font-medium">
-        <Link to={`/tienda/${slug}`} className="hover:text-red-600 transition-colors">Inicio</Link>
+        <Link to={`/tienda/${slug}`} className="hover:text-[var(--store-primary)] transition-colors">Inicio</Link>
         <span className="text-gray-300">/</span>
         <span className="capitalize text-gray-500">{product.category || 'General'}</span>
         <span className="text-gray-300">/</span>
@@ -145,7 +145,7 @@ const ProductDetail = () => {
         </div>
 
         <div className="flex flex-col">
-          <p className="text-[11px] font-bold text-red-600 uppercase tracking-widest mb-3">
+          <p className="text-[11px] font-bold text-[var(--store-primary)] uppercase tracking-widest mb-3">
             {product.category}
           </p>
           <h1 className="text-3xl sm:text-4xl font-extrabold text-gray-900 leading-tight mb-4 tracking-tight">
@@ -156,7 +156,7 @@ const ProductDetail = () => {
             <span className="inline-flex items-center gap-1.5 bg-amber-50 border border-amber-200 text-amber-700 text-xs font-bold px-3 py-1.5 rounded-full">
               <Star className="w-3.5 h-3.5 fill-amber-500 text-amber-500" /> Más Vendido
             </span>
-            <span className="inline-flex items-center gap-1.5 bg-red-50 border border-red-200 text-red-700 text-xs font-bold px-3 py-1.5 rounded-full">
+            <span className="inline-flex items-center gap-1.5 bg-[var(--store-primary)]/10 border border-[var(--store-primary)]/20 text-[var(--store-primary)] text-xs font-bold px-3 py-1.5 rounded-full">
               <Check className="w-3.5 h-3.5" /> Acceso Inmediato
             </span>
           </div>
@@ -179,7 +179,7 @@ const ProductDetail = () => {
               { icon: Check, text: 'Acceso inmediato' },
             ].map(({ icon: Icon, text }) => (
               <div key={text} className="flex items-center gap-2.5 text-sm text-gray-700 bg-gray-50 border border-gray-200 rounded-lg p-2">
-                <Icon className="w-4 h-4 text-red-600 shrink-0" />
+                <Icon className="w-4 h-4 text-[var(--store-primary)] shrink-0" />
                 <span>{text}</span>
               </div>
             ))}
@@ -201,7 +201,7 @@ const ProductDetail = () => {
                 trackInitiateCheckout({ ids: [product.id], value: price, currency: product.currency });
                 navigate(`/tienda/${slug}/checkout`);
               }}
-              className="w-full bg-red-600 text-white py-4 rounded-xl font-bold hover:bg-red-700 transition-all flex items-center justify-center gap-2.5"
+              className="w-full bg-[var(--store-primary)] text-[var(--store-on-primary)] py-4 rounded-xl font-bold hover:bg-[var(--store-primary-hover)] transition-all flex items-center justify-center gap-2.5"
             >
               <ShoppingCart className="w-5 h-5" />
               Comprar ahora

@@ -11,13 +11,17 @@ const router = Router();
 const updateBrandingSchema = z.object({
   brandName: z.string().min(1).optional(),
   brandLogo: z.string().url().optional().nullable(),
+  // Cada campo es opcional individualmente (antes todos eran obligatorios en
+  // cuanto se mandaba brandColors) -- el panel de la tienda solo deja editar
+  // "primary" por ahora, así que exigir los 6 hacía que ese guardado fallara
+  // siempre con un 400 de Zod.
   brandColors: z.object({
-    primary: z.string().regex(/^#[0-9A-Fa-f]{6}$/),
-    secondary: z.string().regex(/^#[0-9A-Fa-f]{6}$/),
-    accent: z.string().regex(/^#[0-9A-Fa-f]{6}$/),
-    background: z.string().regex(/^#[0-9A-Fa-f]{6}$/),
-    foreground: z.string().regex(/^#[0-9A-Fa-f]{6}$/),
-    muted: z.string().regex(/^#[0-9A-Fa-f]{6}$/),
+    primary: z.string().regex(/^#[0-9A-Fa-f]{6}$/).optional(),
+    secondary: z.string().regex(/^#[0-9A-Fa-f]{6}$/).optional(),
+    accent: z.string().regex(/^#[0-9A-Fa-f]{6}$/).optional(),
+    background: z.string().regex(/^#[0-9A-Fa-f]{6}$/).optional(),
+    foreground: z.string().regex(/^#[0-9A-Fa-f]{6}$/).optional(),
+    muted: z.string().regex(/^#[0-9A-Fa-f]{6}$/).optional(),
   }).optional(),
   brandTheme: z.object({
     mode: z.enum(["light", "dark", "auto"]),
@@ -109,10 +113,31 @@ router.put("/", async (req, res, next) => {
 
     const updates = updateBrandingSchema.parse(req.body);
 
+    // brandColors/brandSocial son JSON con varios subcampos (primary,
+    // secondary, facebook, instagram...) pero la UI solo edita uno o dos a
+    // la vez. Un SET directo del objeto entrante borraría los subcampos que
+    // no vinieron en este request -- se hace merge sobre lo que ya existía.
+    let mergedColors, mergedSocial;
+    if (updates.brandColors || updates.brandSocial) {
+      const [current] = await db
+        .select({ brandColors: tenants.brandColors, brandSocial: tenants.brandSocial })
+        .from(tenants)
+        .where(eq(tenants.id, Number(tenantId)))
+        .limit(1);
+      if (updates.brandColors) {
+        mergedColors = { ...(current?.brandColors as any || {}), ...updates.brandColors };
+      }
+      if (updates.brandSocial) {
+        mergedSocial = { ...(current?.brandSocial as any || {}), ...updates.brandSocial };
+      }
+    }
+
     await db
       .update(tenants)
       .set({
         ...updates,
+        ...(mergedColors ? { brandColors: mergedColors } : {}),
+        ...(mergedSocial ? { brandSocial: mergedSocial } : {}),
         updatedAt: dbNow(),
       })
       .where(eq(tenants.id, Number(tenantId)));
