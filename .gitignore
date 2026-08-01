@@ -2,6 +2,11 @@ node_modules/
 .env
 .env.easypanel*
 .env.production
+# Secretos locales del helper de EasyPanel (NUNCA versionar)
+scripts/easypanel/.easypanel.env
+**/.easypanel.env
+*.secret
+*.secrets
 artifacts/api-server/.env
 *.db
 .baileys-auth/
