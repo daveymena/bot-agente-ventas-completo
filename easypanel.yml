@@ -151,6 +151,41 @@ services:
     ports:
       - "11434:11434"
 
+  tienda:
+    name: "Tienda (Storefront)"
+    description: "Tienda pública del cliente — SPA servida por nginx, /api proxeado al api-server"
+
+    build:
+      dockerfile: ./packages/tienda/Dockerfile
+      context: .
+
+    ports:
+      - "8080:80"
+
+    environment:
+      # Dirección interna del api-server dentro del proyecto EasyPanel.
+      # Ajusta el host si el nombre del servicio difiere en tu proyecto.
+      API_UPSTREAM: "${API_UPSTREAM:-http://api-server:3002}"
+
+    healthCheck:
+      path: /
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      startPeriod: 10s
+
+    resources:
+      limits:
+        cpus: "0.5"
+        memory: "256M"
+      requests:
+        cpus: "0.1"
+        memory: "64M"
+
+    restart:
+      policy: always
+      maxRetries: 5
+
 volumes:
   postgres_data:
   ollama_data:

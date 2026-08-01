@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@workspace/api-client-react": "workspace:*",
+    "@craftjs/core": "catalog:",
     "clsx": "catalog:",
     "framer-motion": "catalog:",
     "lucide-react": "catalog:",

@@ -26,8 +26,8 @@ export default defineConfig({
     },
   },
   build: {
-    rollupOptions: {
-      external: ['@tanstack/react-query'],
-    },
+    // Nota: NO externalizar @tanstack/react-query — no hay importmap en index.html,
+    // así que debe ir incluido en el bundle o la app crashea en producción.
+    outDir: "dist",
   },
 });
