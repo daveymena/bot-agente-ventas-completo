@@ -37,6 +37,25 @@ export class WhatsAppByTenant extends WhatsAppManager {
     this.starting = true;
     this.state = "connecting";
 
+    // Timeout de conexión: si en 25s no hubo ningún evento (ni QR ni open ni
+    // close), asumimos que WhatsApp no es accesible. Sin esto, la clase por
+    // tenant se quedaba en "connecting" para siempre (spinner infinito en la
+    // UI) cuando la red al servidor de WhatsApp fallaba en silencio.
+    let connectTimeout: NodeJS.Timeout | null = setTimeout(() => {
+      if (this.state === "connecting" && this.starting) {
+        this.starting = false;
+        this.state = "error";
+        this.lastError =
+          "Timeout: no se pudo conectar con WhatsApp en 25s. Revisa que el servidor tenga acceso a web.whatsapp.com y reintenta.";
+        logger.error({ tenantAuthDir: this.tenantAuthDir }, "[WhatsApp-ByTenant] Connection timeout");
+        try { this.sock?.end?.(undefined); } catch {}
+        this.sock = null;
+      }
+    }, 25000);
+    const clearConnectTimeout = () => {
+      if (connectTimeout) { clearTimeout(connectTimeout); connectTimeout = null; }
+    };
+
     try {
       if (!existsSync(this.tenantAuthDir)) {
         mkdirSync(this.tenantAuthDir, { recursive: true });
@@ -71,6 +90,14 @@ export class WhatsAppByTenant extends WhatsAppManager {
       sock.ev.on("connection.update", async (update: any) => {
         const { connection, lastDisconnect, qr } = update;
 
+        // Solo cancelar el timeout ante un evento REAL de progreso (QR, abierto
+        // o cerrado). Baileys emite antes un update intermedio {connection:
+        // "connecting"} que no es terminal: si limpiáramos el timeout ahí, un
+        // socket que nunca llega a QR/open se quedaría colgado para siempre.
+        if (qr || connection === "open" || connection === "close") {
+          clearConnectTimeout();
+        }
+
         if (qr) {
           this.hadQrInThisSession = true;
           try {
@@ -99,14 +126,41 @@ export class WhatsAppByTenant extends WhatsAppManager {
           const isLoggedOut = reason === DisconnectReason?.loggedOut
             || reason === 401
             || reason === 403;
-          if (isLoggedOut) {
-            this.state = "error";
-            this.lastError = "Sesión cerrada (LoggedOut). Escanea el QR nuevamente.";
-          } else {
-            this.state = "disconnected";
-          }
+
           this.sock = null;
           this.starting = false;
+          this.qrDataUrl = null;
+
+          if (isLoggedOut) {
+            this.state = "error";
+            this.reconnectAttempts = 0;
+            this.lastError = "Sesión cerrada (LoggedOut). Escanea el QR nuevamente.";
+          } else if (this.reconnectAttempts < this.MAX_RECONNECT_ATTEMPTS) {
+            // Tras escanear el QR (o ingresar el PIN), WhatsApp cierra la
+            // conexión con restartRequired (código 515): es OBLIGATORIO
+            // reconectar con las credenciales ya guardadas para COMPLETAR el
+            // login. Antes esto se marcaba como "disconnected" y no se
+            // reconectaba nunca -> el QR se escaneaba pero jamás sincronizaba
+            // (idéntico síntoma con el PIN). También cubre caídas transitorias.
+            this.reconnectAttempts++;
+            this.state = "connecting";
+            const delay = Math.min(2000 * this.reconnectAttempts, 20000);
+            logger.info(
+              { reason, attempt: this.reconnectAttempts, tenantAuthDir: this.tenantAuthDir },
+              "[WhatsApp-ByTenant] Reconectando para completar el login (restartRequired/transitorio)",
+            );
+            setTimeout(() => {
+              // Si stop() u otro flujo cambió el estado mientras esperábamos,
+              // no reconectar (evita reconexiones fantasma tras un stop).
+              if (this.state === "connecting" && !this.sock) {
+                this.start().catch(() => {});
+              }
+            }, delay);
+          } else {
+            this.state = "disconnected";
+            this.reconnectAttempts = 0;
+            this.lastError = "No se pudo completar la conexión tras varios intentos. Reinicia la sesión e intenta de nuevo.";
+          }
         }
       });
 
@@ -119,6 +173,7 @@ export class WhatsAppByTenant extends WhatsAppManager {
 
       return this.getStatus();
     } catch (e: any) {
+      clearConnectTimeout();
       this.state = "error";
       this.lastError = e?.message || String(e);
       this.starting = false;
@@ -131,8 +186,16 @@ export class WhatsAppByTenant extends WhatsAppManager {
     try {
       if (this.sock) {
         this.sock.ev.removeAllListeners();
-        await this.sock.logout().catch(() => {});
-        this.sock.end(undefined);
+        // logout() invalida las credenciales en el servidor de WhatsApp y
+        // obliga a re-escanear el QR. Solo debe hacerse cuando explícitamente
+        // NO queremos conservar la auth (reset-session). Con keepAuth=true
+        // (reinicio normal o antes de un pairing) solo cerramos el socket:
+        // antes se llamaba logout() SIEMPRE, así que `pair-phone` -- que hace
+        // stop(true) primero -- borraba la sesión en cada intento.
+        if (!keepAuth) {
+          await this.sock.logout().catch(() => {});
+        }
+        try { this.sock.end(undefined); } catch {}
         this.sock = null;
       }
     } catch (e) {
@@ -157,6 +220,7 @@ export class WhatsAppByTenant extends WhatsAppManager {
     this.starting = false;
     this.lastError = null;
     this.hadQrInThisSession = false;
+    this.reconnectAttempts = 0;
     return this.getStatus();
   }
 }

@@ -47,8 +47,8 @@ export default function ArchitectPage() {
 
   return (
     <Layout>
-      <div className="flex flex-col gap-6 h-[calc(100vh-8rem)]">
-        <div className="flex items-center gap-3">
+      <div className="flex flex-col gap-6 flex-1 min-h-0">
+        <div className="flex items-center gap-3 shrink-0">
           <div className="p-2.5 rounded-xl bg-gradient-to-br from-blue-500/20 to-cyan-500/20 border border-blue-500/20">
             <Eye className="h-6 w-6 text-blue-500" />
           </div>

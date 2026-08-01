@@ -3,6 +3,11 @@ node_modules/
 .env.easypanel*
 .env.production
 .env.produccion.txt
+# Secretos locales del helper de EasyPanel (NUNCA versionar)
+scripts/easypanel/.easypanel.env
+**/.easypanel.env
+*.secret
+*.secrets
 artifacts/api-server/.env
 *.db
 *.db.bak-*

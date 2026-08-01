@@ -1,0 +1,37 @@
+# nginx para la tienda (SPA estática) + proxy de /api al api-server.
+# API_UPSTREAM se sustituye al arrancar el contenedor (ver Dockerfile / entrypoint).
+server {
+    listen 80;
+    server_name _;
+
+    root   /usr/share/nginx/html;
+    index  index.html;
+
+    # Gzip básico para assets
+    gzip on;
+    gzip_types text/css application/javascript application/json image/svg+xml;
+    gzip_min_length 1024;
+
+    # La tienda usa rutas relativas /api → se enrutan al api-server.
+    location /api/ {
+        proxy_pass         ${API_UPSTREAM};
+        proxy_http_version 1.1;
+        proxy_set_header   Host              $host;
+        proxy_set_header   X-Real-IP         $remote_addr;
+        proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header   X-Forwarded-Proto $scheme;
+        proxy_read_timeout 60s;
+    }
+
+    # Cache largo para assets con hash
+    location /assets/ {
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+        try_files $uri =404;
+    }
+
+    # Fallback SPA: cualquier ruta desconocida sirve index.html
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+}

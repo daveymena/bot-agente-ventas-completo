@@ -352,15 +352,6 @@ export function getProviderConfig(provider: string): AIProviderConfig | null {
         model: process.env.NVIDIA_NIM_BRIDGE_MODEL || "moonshotai/kimi-k2.6",
       };
 
-    // ── Mistral (La Plateforme) ── 1M tokens/mes · requiere verificación tel
-    case "mistral":
-      if (!process.env.MISTRAL_API_KEY) return null;
-      return {
-        baseUrl: "https://api.mistral.ai/v1",
-        apiKey: process.env.MISTRAL_API_KEY,
-        model: process.env.MISTRAL_MODEL || "mistral-small-latest",
-      };
-
     // ── Mistral Codestral ── 2,000 req/día · 30 req/min
     case "mistral_codestral":
       if (!process.env.MISTRAL_API_KEY) return null;
@@ -397,15 +388,6 @@ export function getProviderConfig(provider: string): AIProviderConfig | null {
         model: process.env.OPENCODE_ZEN_MODEL || "deepseek-v4-flash-free",
       };
 
-    // ── Cerebras ── 1M tokens/día
-    case "cerebras":
-      if (!process.env.CEREBRAS_API_KEY) return null;
-      return {
-        baseUrl: "https://api.cerebras.ai/v1",
-        apiKey: process.env.CEREBRAS_API_KEY,
-        model: process.env.CEREBRAS_MODEL || "llama-3.1-8b-instruct",
-      };
-
     // ── OpenRouter ── Modelos gratis/free · Acceso a múltiples proveedores
     case "openrouter":
       if (!process.env.OPENROUTER_API_KEY) return null;
@@ -437,15 +419,6 @@ export function getProviderConfig(provider: string): AIProviderConfig | null {
         }
       };
 
-    // ── Cohere ── 1,000 req/mes
-    case "cohere":
-      if (!process.env.COHERE_API_KEY) return null;
-      return {
-        baseUrl: "https://api.cohere.ai/v2",
-        apiKey: process.env.COHERE_API_KEY,
-        model: process.env.COHERE_MODEL || "command-a-03-2025",
-      };
-
     // ── Cloudflare Workers AI ── 10,000 neuronas/día
     case "cloudflare_workers":
       if (!process.env.CLOUDFLARE_ACCOUNT_ID || !process.env.CLOUDFLARE_API_TOKEN) return null;
@@ -466,15 +439,6 @@ export function getProviderConfig(provider: string): AIProviderConfig | null {
       };
 
     // ─── TRIAL CREDITS ────────────────────────────────────────────────────────
-
-    // ── Fireworks ── $1 crédito
-    case "fireworks":
-      if (!process.env.FIREWORKS_API_KEY) return null;
-      return {
-        baseUrl: "https://api.fireworks.ai/inference/v1",
-        apiKey: process.env.FIREWORKS_API_KEY,
-        model: process.env.FIREWORKS_MODEL || "accounts/fireworks/models/llama-v3p1-70b-instruct",
-      };
 
     // ── Baseten ── $30 crédito
     case "baseten":
@@ -513,15 +477,6 @@ export function getProviderConfig(provider: string): AIProviderConfig | null {
         model: process.env.NOVITA_MODEL || "meta-llama/llama-3.1-70b-instruct",
       };
 
-    // ── Nebius ── $1 crédito
-    case "nebius":
-      if (!process.env.NEBIUS_API_KEY) return null;
-      return {
-        baseUrl: "https://api.studio.nebius.com/v1",
-        apiKey: process.env.NEBIUS_API_KEY,
-        model: process.env.NEBIUS_MODEL || "meta-llama/llama-3.3-70b-instruct",
-      };
-
     // ── Alibaba Cloud ── 1M tokens/modelo
     case "alibaba":
       if (!process.env.ALIBABA_API_KEY) return null;
@@ -538,15 +493,6 @@ export function getProviderConfig(provider: string): AIProviderConfig | null {
         baseUrl: "https://api.hyperbolic.xyz/v1",
         apiKey: process.env.HYPERBOLIC_API_KEY,
         model: process.env.HYPERBOLIC_MODEL || "meta-llama/Llama-3.3-70B-Instruct",
-      };
-
-    // ── SambaNova Cloud ── $5 / 3 meses
-    case "sambanova":
-      if (!process.env.SAMBANOVA_API_KEY) return null;
-      return {
-        baseUrl: "https://api.sambanova.ai/v1",
-        apiKey: process.env.SAMBANOVA_API_KEY,
-        model: process.env.SAMBANOVA_MODEL || "Meta-Llama-3.3-70B-Instruct",
       };
 
     // ── NLP Cloud ── $15 crédito
@@ -588,32 +534,6 @@ export function getProviderConfig(provider: string): AIProviderConfig | null {
 
     // ─── ADDITIONAL FREE PROVIDERS ────────────────────────────────────────────
 
-    // ── DeepSeek (open source) ──
-    case "deepseek":
-      if (!process.env.DEEPSEEK_API_KEY) return null;
-      return {
-        baseUrl: "https://api.deepseek.com/v1",
-        apiKey: process.env.DEEPSEEK_API_KEY,
-        model: process.env.DEEPSEEK_MODEL || "deepseek-chat",
-      };
-
-    // ── Together AI ── $5 gratis al registro
-    case "together":
-      if (!process.env.TOGETHER_API_KEY) return null;
-      return {
-        baseUrl: "https://api.together.xyz/v1",
-        apiKey: process.env.TOGETHER_API_KEY,
-        model: process.env.TOGETHER_MODEL || "meta-llama/Llama-3.3-70B-Instruct-Turbo",
-      };
-
-    // ── Perplexity ── $5 gratis al registro
-    case "perplexity":
-      if (!process.env.PERPLEXITY_API_KEY) return null;
-      return {
-        baseUrl: "https://api.perplexity.ai",
-        apiKey: process.env.PERPLEXITY_API_KEY,
-        model: process.env.PERPLEXITY_MODEL || "sonar-pro",
-      };
 
     // ── OpenPipe ── free tier
     case "openpipe":

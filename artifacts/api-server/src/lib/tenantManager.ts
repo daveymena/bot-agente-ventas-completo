@@ -3,7 +3,7 @@ import { eq, and, sql } from "drizzle-orm";
 import { db, tenants, conversations, leads, products, productCategories } from "@workspace/db";
 import { logger } from "./logger";
 import { dbNow } from "./date-utils";
-import { decryptSecret } from "./credentials-vault";
+import { decryptSecret, encryptPaymentMethods, decryptPaymentMethods } from "./credentials-vault";
 import type { Request, Response, NextFunction } from "express";
 
 // Tenant Context Types
@@ -225,7 +225,7 @@ export class TenantManager {
         agentPrompt: tenant.agentPrompt,
         agentName: tenant.agentName,
         settings: tenant.settings || DEFAULT_TENANT.settings,
-        paymentMethods: tenant.paymentMethods || DEFAULT_TENANT.paymentMethods,
+        paymentMethods: decryptPaymentMethods(tenant.paymentMethods) || DEFAULT_TENANT.paymentMethods,
         limits: tenant.limits || DEFAULT_TENANT.limits,
         brandColors: tenant.brandColors || DEFAULT_TENANT.brandColors,
         plan: tenant.plan || "basic",
@@ -285,7 +285,7 @@ export class TenantManager {
         agentPrompt: tenant.agentPrompt,
         agentName: tenant.agentName,
         settings: tenant.settings || DEFAULT_TENANT.settings,
-        paymentMethods: tenant.paymentMethods || DEFAULT_TENANT.paymentMethods,
+        paymentMethods: decryptPaymentMethods(tenant.paymentMethods) || DEFAULT_TENANT.paymentMethods,
         limits: tenant.limits || DEFAULT_TENANT.limits,
         brandColors: tenant.brandColors || DEFAULT_TENANT.brandColors,
         plan: tenant.plan || "basic",
@@ -303,7 +303,7 @@ export class TenantManager {
       return tenantContext;
 
     } catch (error) {
-      logger.error({ error, id }, "[TenantManager] Failed to get tenant by ID");
+      logger.error({ err: error, id }, "[TenantManager] Failed to get tenant by ID");
       return null;
     }
   }
@@ -357,10 +357,10 @@ export class TenantManager {
              ...DEFAULT_TENANT.settings,
              ...tenantData.settings
            },
-           paymentMethods: {
+           paymentMethods: encryptPaymentMethods({
              ...DEFAULT_TENANT.paymentMethods,
              ...tenantData.paymentMethods
-           },
+           }),
            limits: DEFAULT_TENANT.limits,
            brandColors: DEFAULT_TENANT.brandColors,
            status: "trial",
@@ -400,10 +400,16 @@ export class TenantManager {
     brandColors: TenantContext['brandColors'];
   }>): Promise<boolean> {
     try {
+      // Cifrar los secretos de pago antes de persistir (encryptSecret es
+      // idempotente, así que re-guardar un valor ya cifrado no lo daña).
+      const safeUpdates: typeof updates = { ...updates };
+      if (safeUpdates.paymentMethods) {
+        safeUpdates.paymentMethods = encryptPaymentMethods(safeUpdates.paymentMethods);
+      }
       await db
         .update(tenants)
         .set({
-          ...updates,
+          ...safeUpdates,
           updatedAt: dbNow()
         })
         .where(eq(tenants.id, tenantId));

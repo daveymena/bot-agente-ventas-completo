@@ -119,6 +119,10 @@ async function buildAll() {
       "electron",
       "pg-cloudflare",
       "axios",
+      // Backend opcional de rate limiting (ver middleware/rate-limit-store.ts).
+      // Se carga con import dinámico solo si REDIS_URL está definido; externo
+      // para que el bundle no lo exija cuando no está instalado.
+      "ioredis",
     ],
     sourcemap: "linked",
     plugins: [

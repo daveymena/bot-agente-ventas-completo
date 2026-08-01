@@ -6,6 +6,7 @@ import { dbNow } from "../lib/date-utils";
 import { eq } from "drizzle-orm";
 import { sendActivationTokenEmail } from "../lib/email";
 import { SAAS_PLANS, SaasPlan } from "../middleware/saasValidation";
+import { verifyMercadoPagoSignature, verifyPayPalWebhook } from "../lib/webhook-security";
 
 const router = Router();
 
@@ -85,6 +86,13 @@ async function sendActivationEmail(subscriptionId: number): Promise<void> {
  */
 router.post("/mercadopago", async (req, res) => {
   try {
+    // Verificar firma antes de procesar nada (defensa contra webhooks falsos).
+    const sig = verifyMercadoPagoSignature(req);
+    if (!sig.ok) {
+      logger.warn({ reason: sig.reason }, "[Webhook] MercadoPago firma inválida — rechazado");
+      return res.status(401).json({ error: "Invalid signature" });
+    }
+
     const { type, data } = req.body;
 
     logger.info({ type, data }, "[Webhook] MercadoPago subscription notification received");
@@ -173,8 +181,13 @@ router.post("/paypal", async (req, res) => {
 
     logger.info({ eventType: event.event_type }, "[Webhook] PayPal subscription notification received");
 
-    // Verificar firma del webhook (opcional pero recomendado)
-    // TODO: Implementar verificación de firma de PayPal
+    // Verificar firma antes de activar nada. PayPal confía en el cuerpo tal
+    // cual, así que sin esto un POST falso activa una suscripción sin pago.
+    const sig = await verifyPayPalWebhook(req);
+    if (!sig.ok) {
+      logger.warn({ reason: sig.reason }, "[Webhook] PayPal firma inválida — rechazado");
+      return res.status(401).json({ error: "Invalid signature" });
+    }
 
     // Manejar diferentes tipos de eventos
     switch (event.event_type) {

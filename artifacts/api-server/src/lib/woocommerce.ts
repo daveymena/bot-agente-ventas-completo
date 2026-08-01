@@ -3,6 +3,7 @@ import axios, { AxiosInstance } from "axios";
 import { db, products, tenants } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { logger } from "./logger";
+import { decryptWooCommerce } from "./credentials-vault";
 
 export interface WooCommerceConfig {
   storeUrl: string;
@@ -343,7 +344,7 @@ export async function getWooCommerceService(tenantId: number): Promise<WooCommer
       return null;
     }
 
-    const config = tenant.woocommerceIntegration as any;
+    const config = decryptWooCommerce(tenant.woocommerceIntegration as any);
 
     if (!config.enabled || !config.storeUrl || !config.consumerKey || !config.consumerSecret) {
       return null;

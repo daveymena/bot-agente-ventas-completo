@@ -58,6 +58,11 @@ function getEncryptionKey(): Buffer {
 /** Encripta un valor para guardarlo en la BD. Vacío/null pasa tal cual. */
 export function encryptSecret(plain: string | null | undefined): string {
   if (!plain) return "";
+  // Idempotente: si ya viene cifrado con este esquema, no lo re-ciframos. Esto
+  // hace segura cualquier ruta de "update parcial" donde el valor actual (ya
+  // cifrado en la BD) se re-guarda sin cambios -- sin esto, un doble cifrado
+  // dejaría la credencial indescifrable.
+  if (plain.startsWith(ENC_PREFIX)) return plain;
   const iv = randomBytes(IV_LENGTH);
   const cipher = crypto.createCipheriv(ALGO, getEncryptionKey(), iv);
   const ciphertext = Buffer.concat([cipher.update(plain, "utf8"), cipher.final()]);
@@ -87,4 +92,54 @@ export function decryptSecret(value: string | null | undefined): string {
     logger.error({ err }, "[CredentialsVault] No se pudo desencriptar un secreto (clave distinta a la que lo encriptó, o dato corrupto)");
     return "";
   }
+}
+
+// ── Helpers por estructura ────────────────────────────────────────────────
+// Encriptan/desencriptan SOLO los campos secretos de las credenciales que los
+// tenants guardan (tokens/keys de pago y WooCommerce), dejando el resto igual.
+// Los campos no-secretos (enabled, mode, clientId público, número/nombre de
+// transferencia, storeUrl) pasan tal cual.
+
+/** Cifra los secretos de paymentMethods antes de guardar en la BD. */
+export function encryptPaymentMethods<T>(pm: T): T {
+  if (!pm || typeof pm !== "object") return pm;
+  const c: any = { ...(pm as any) };
+  if (c.mercadopago?.accessToken) {
+    c.mercadopago = { ...c.mercadopago, accessToken: encryptSecret(c.mercadopago.accessToken) };
+  }
+  if (c.paypal?.clientSecret) {
+    c.paypal = { ...c.paypal, clientSecret: encryptSecret(c.paypal.clientSecret) };
+  }
+  return c;
+}
+
+/** Descifra los secretos de paymentMethods al leer de la BD. */
+export function decryptPaymentMethods<T>(pm: T): T {
+  if (!pm || typeof pm !== "object") return pm;
+  const c: any = { ...(pm as any) };
+  if (c.mercadopago?.accessToken) {
+    c.mercadopago = { ...c.mercadopago, accessToken: decryptSecret(c.mercadopago.accessToken) };
+  }
+  if (c.paypal?.clientSecret) {
+    c.paypal = { ...c.paypal, clientSecret: decryptSecret(c.paypal.clientSecret) };
+  }
+  return c;
+}
+
+/** Cifra los secretos de la config de WooCommerce antes de guardar. */
+export function encryptWooCommerce<T>(cfg: T): T {
+  if (!cfg || typeof cfg !== "object") return cfg;
+  const c: any = { ...(cfg as any) };
+  if (c.consumerKey) c.consumerKey = encryptSecret(c.consumerKey);
+  if (c.consumerSecret) c.consumerSecret = encryptSecret(c.consumerSecret);
+  return c;
+}
+
+/** Descifra los secretos de la config de WooCommerce al leer. */
+export function decryptWooCommerce<T>(cfg: T): T {
+  if (!cfg || typeof cfg !== "object") return cfg;
+  const c: any = { ...(cfg as any) };
+  if (c.consumerKey) c.consumerKey = decryptSecret(c.consumerKey);
+  if (c.consumerSecret) c.consumerSecret = decryptSecret(c.consumerSecret);
+  return c;
 }

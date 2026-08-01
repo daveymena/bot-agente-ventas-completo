@@ -8,7 +8,7 @@ import { tenantManager } from "../lib/tenantManager";
 import { logger } from "../lib/logger";
 import { generateVerificationCode, sendPasswordResetEmail, sendPasswordChangeConfirmationEmail } from "../lib/email";
 import { toDbDate } from "../lib/date-utils";
-import { passwordResetRateLimit } from "../middleware/rateLimiting";
+import { passwordResetRateLimit, loginRateLimit } from "../middleware/rateLimiting";
 
 const router = Router();
 
@@ -135,7 +135,7 @@ router.post("/register", async (req, res, next) => {
   }
 });
 
-router.post("/login", async (req, res, next) => {
+router.post("/login", loginRateLimit, async (req, res, next) => {
   try {
     const { email, password } = loginSchema.parse(req.body);
     console.log(`🔐 Intento de login: ${email}`);

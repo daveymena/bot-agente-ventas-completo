@@ -2,6 +2,7 @@
 import { Request, Response, NextFunction } from "express";
 import { logger } from "../lib/logger";
 import { tenantManager, type TenantRequest } from "../lib/tenantManager";
+import { incrementRateLimit } from "./rate-limit-store";
 
 // Rate Limiting Types
 export interface RateLimitConfig {
@@ -174,7 +175,7 @@ export class RateLimitingMiddleware {
         const tenantMaxRequests = req.tenant?.limits.apiCallsPerMinute || finalConfig.maxRequests;
         const effectiveMaxRequests = Math.min(finalConfig.maxRequests, tenantMaxRequests);
 
-        const result = this.storage.increment(key, finalConfig.windowMs);
+        const result = await incrementRateLimit(key, finalConfig.windowMs);
         const remaining = Math.max(0, effectiveMaxRequests - result.totalHits);
         const allowed = result.totalHits <= effectiveMaxRequests;
 
@@ -367,6 +368,16 @@ export const passwordResetRateLimit = rateLimitingMiddleware.createRateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutos
   maxRequests: 5,
   keyGenerator: (req: TenantRequest) => `pwreset_${req.ip}_${(req.body as any)?.email || ""}`
+});
+
+// Login es público (sin req.tenant). Sin límite, un atacante podía probar
+// miles de contraseñas por minuto contra un email (AUDIT_REPORT.md §1.5). Se
+// limita por IP + email: 10 intentos / 15 min es holgado para un humano que
+// se equivoca, pero corta el fuerza-bruta.
+export const loginRateLimit = rateLimitingMiddleware.createRateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutos
+  maxRequests: 10,
+  keyGenerator: (req: TenantRequest) => `login_${req.ip}_${(req.body as any)?.email || ""}`
 });
 
 // Utility functions
