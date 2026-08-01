@@ -30,6 +30,9 @@ import { getImageStoreDir } from "./lib/image-store";
     // credenciales de pago/Facebook reales) -- se busca el tenant 1 real en
     // la BD para que la instancia auto-iniciada tenga su brandName/agentPrompt
     // reales desde el arranque, no el placeholder.
+    // El boot corre antes de que initDb() (async) termine. Sin esperar aquí,
+    // getTenantById(1) consultaba `db` undefined y fallaba en cada arranque.
+    await ensureDbReady();
     const realTenant = await tenantManager.getTenantById(1);
     const defaultTenant = realTenant ?? tenantManager.getDefaultTenant();
     const mgr = getWhatsAppForTenant(defaultTenant.id, defaultTenant);

@@ -1,5 +1,5 @@
 import { eq, and, lte, asc } from "drizzle-orm";
-import { db, conversations, messages, activityEvents, followUps, type FollowUp, type InsertFollowUp } from "@workspace/db";
+import { db, ensureDbReady, conversations, messages, activityEvents, followUps, type FollowUp, type InsertFollowUp } from "@workspace/db";
 import { logger } from "./logger";
 import { leadScoringEngine, type LeadStage } from "./leadScoring";
 import { whatsapp } from "./whatsapp";
@@ -82,6 +82,12 @@ export class FollowUpScheduler {
 
   async processDueFollowUps(): Promise<void> {
     try {
+      // Los schedulers arrancan en el boot, antes de que initDb() (async)
+      // termine. Sin esperar aquí, `db` era undefined en la primera corrida y
+      // la query lanzaba, cayendo al catch de abajo con un error vacío en cada
+      // arranque. ensureDbReady() es idempotente y barato una vez lista la DB.
+      await ensureDbReady();
+
       // Mismo fix que getDueFollowUpsFromDB(): sql.js rechaza bindear un Date
       // crudo. Este es el cron real que ENVÍA los follow-ups -- con el bug,
       // esta query fallaba en cada corrida (silenciosamente, atrapada por el
@@ -100,7 +106,7 @@ export class FollowUpScheduler {
         await new Promise(resolve => setTimeout(resolve, 2000));
       }
     } catch (error) {
-      logger.error({ error }, "[FollowUpScheduler] Failed to process due follow-ups");
+      logger.error({ err: error }, "[FollowUpScheduler] Failed to process due follow-ups");
     }
   }
 

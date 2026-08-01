@@ -303,7 +303,7 @@ export class TenantManager {
       return tenantContext;
 
     } catch (error) {
-      logger.error({ error, id }, "[TenantManager] Failed to get tenant by ID");
+      logger.error({ err: error, id }, "[TenantManager] Failed to get tenant by ID");
       return null;
     }
   }
