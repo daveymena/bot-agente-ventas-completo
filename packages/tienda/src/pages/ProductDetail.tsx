@@ -131,10 +131,17 @@ const ProductDetail = () => {
           <div className="aspect-square bg-gray-50 rounded-2xl overflow-hidden relative border border-gray-200">
             {product.image && !imgError ? (
               <img
-                src={product.image}
+                src={product.image || `/images/products/${product.id}.jpg`}
                 alt={product.name}
                 className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700"
-                onError={() => setImgError(true)}
+                onError={(e) => {
+                  const target = e.target as HTMLImageElement;
+                  if (!target.src.includes(`/images/products/${product.id}.jpg`)) {
+                    target.src = `/images/products/${product.id}.jpg`;
+                  } else {
+                    setImgError(true);
+                  }
+                }}
               />
             ) : (
               <div className="w-full h-full flex items-center justify-center text-gray-300 bg-gray-50">

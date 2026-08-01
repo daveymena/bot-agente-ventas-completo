@@ -187,20 +187,20 @@ export default function MiTiendaPage() {
   const wishlistCount = wishlist.length;
 
   return (
-    <div className="min-h-screen bg-white">
+    <div className="min-h-screen bg-white text-slate-900">
       {/* HEADER */}
       <header className="sticky top-0 z-40 bg-white border-b border-gray-200">
         <div className="px-4 py-3">
           <div className="flex items-center justify-between mb-3">
             <h1 className="text-2xl font-black text-gray-900">SMARTJOYS</h1>
             <div className="flex items-center gap-3">
-              <ShoppingCart className="h-6 w-6" />
+              <ShoppingCart className="h-6 w-6 text-slate-900" />
               {cartCount > 0 && (
                 <span className="absolute -top-2 -right-2 bg-red-600 text-white text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center">
                   {cartCount}
                 </span>
               )}
-              <Menu className="h-6 w-6 cursor-pointer" onClick={() => setMobileMenuOpen(!mobileMenuOpen)} />
+              <Menu className="h-6 w-6 cursor-pointer text-slate-900" onClick={() => setMobileMenuOpen(!mobileMenuOpen)} />
             </div>
           </div>
 
@@ -211,7 +211,7 @@ export default function MiTiendaPage() {
               placeholder="Buscar productos"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full px-4 py-2 bg-gray-100 rounded-full text-sm focus:outline-none focus:ring-2 focus:ring-red-600"
+              className="w-full px-4 py-2 bg-gray-100 rounded-full text-sm text-slate-900 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-red-600"
             />
             <Search className="absolute right-3 top-2.5 h-5 w-5 text-gray-400" />
           </div>
@@ -226,7 +226,7 @@ export default function MiTiendaPage() {
 
       {/* HERO BANNER */}
       <div className="bg-gradient-to-r from-gray-900 via-red-900 to-gray-900 text-white p-6 mb-6">
-        <h2 className="text-3xl font-black mb-2">ENCUENTRA LO QUE BUSCAS</h2>
+        <h2 className="text-3xl font-black mb-2 text-white">ENCUENTRA LO QUE BUSCAS</h2>
         <p className="text-sm text-gray-200 mb-4">Productos físicos y digitales en un solo lugar</p>
         <div className="flex gap-2">
           <span className="bg-red-600 text-white px-3 py-1 rounded text-sm font-bold">Envío Gratis</span>
@@ -280,20 +280,28 @@ export default function MiTiendaPage() {
                 className="bg-white rounded-lg border border-gray-200 overflow-hidden hover:shadow-lg transition-shadow"
               >
                 {/* PRODUCT IMAGE */}
-                <div className="relative aspect-square bg-gray-100 overflow-hidden">
+                <div className="relative aspect-square bg-gray-100 overflow-hidden flex items-center justify-center">
                   <img
-                    src={product.imageUrl}
+                    src={product.imageUrl || `/images/products/${product.id}.jpg`}
                     alt={product.name}
                     className="w-full h-full object-cover"
+                    onError={(e) => {
+                      const target = e.target as HTMLImageElement;
+                      if (!target.src.includes(`/images/products/${product.id}.jpg`)) {
+                        target.src = `/images/products/${product.id}.jpg`;
+                      } else {
+                        target.src = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 400 400'%3E%3Crect fill='%23f1f5f9' width='400' height='400'/%3E%3Ctext x='50%25' y='50%25' text-anchor='middle' dy='.3em' fill='%2394a3b8' font-size='24' font-family='sans-serif'%3ESin imagen%3C/text%3E%3C/svg%3E";
+                      }
+                    }}
                   />
                   {/* TYPE BADGE */}
                   <div className="absolute top-2 right-2">
                     {product.type === "digital" ? (
-                      <span className="bg-blue-600 text-white px-2 py-1 rounded text-xs font-bold flex items-center gap-1">
+                      <span className="bg-blue-600 text-white px-2 py-1 rounded text-xs font-bold flex items-center gap-1 shadow-sm">
                         <Download className="h-3 w-3" /> Digital
                       </span>
                     ) : (
-                      <span className="bg-green-600 text-white px-2 py-1 rounded text-xs font-bold flex items-center gap-1">
+                      <span className="bg-green-600 text-white px-2 py-1 rounded text-xs font-bold flex items-center gap-1 shadow-sm">
                         <Box className="h-3 w-3" /> Físico
                       </span>
                     )}

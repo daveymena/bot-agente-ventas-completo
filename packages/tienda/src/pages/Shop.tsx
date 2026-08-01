@@ -69,16 +69,23 @@ const ProductCard = ({ product, slug }: { product: Product; slug: string }) => {
       layout
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
-      className="group relative bg-white rounded-xl border border-gray-200 overflow-hidden hover:shadow-lg transition-shadow duration-300 flex flex-col"
+      className="group relative bg-white rounded-2xl overflow-hidden flex flex-col transition-all duration-300 shadow-[0_1px_2px_rgba(0,0,0,0.04),0_4px_8px_rgba(0,0,0,0.04),0_10px_20px_-4px_rgba(0,0,0,0.05)] hover:shadow-[0_2px_4px_rgba(0,0,0,0.06),0_10px_20px_rgba(0,0,0,0.08),0_24px_40px_-8px_rgba(0,0,0,0.12)] hover:-translate-y-1"
     >
       <div className="relative aspect-square bg-gray-50 overflow-hidden">
         <Link to={detailHref} className="block w-full h-full" aria-label={`Ver ${product.name}`}>
           {product.image && !imgError ? (
             <img
-              src={product.image}
+              src={product.image || `/images/products/${product.id}.jpg`}
               alt={product.name}
               className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-              onError={() => setImgError(true)}
+              onError={(e) => {
+                const target = e.target as HTMLImageElement;
+                if (!target.src.includes(`/images/products/${product.id}.jpg`)) {
+                  target.src = `/images/products/${product.id}.jpg`;
+                } else {
+                  setImgError(true);
+                }
+              }}
               loading="lazy"
             />
           ) : (

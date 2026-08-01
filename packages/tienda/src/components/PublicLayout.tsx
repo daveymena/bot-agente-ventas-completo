@@ -67,7 +67,7 @@ const PublicLayout = ({ children }: { children: React.ReactNode }) => {
 
   return (
     <div className="min-h-screen flex flex-col bg-gray-50 text-slate-900" style={themeVars}>
-      <nav className="sticky top-0 z-50 bg-black text-white">
+      <nav className="sticky top-0 z-50 bg-zinc-900 text-white">
         {/* Barra de administración -- SOLO visible para el dueño logueado de
             esta tienda, nunca para el público. El cliente que compra jamás
             debería ver botones de "editar" o "panel admin" en su checkout. */}
@@ -224,7 +224,7 @@ const PublicLayout = ({ children }: { children: React.ReactNode }) => {
         <MessageCircle className="w-7 h-7" />
       </a>
 
-      <footer className="bg-black pb-20 md:pb-0">
+      <footer className="bg-zinc-900 pb-20 md:pb-0">
         <div className="max-w-7xl mx-auto px-4 py-12">
           <div className="grid grid-cols-1 md:grid-cols-4 gap-10">
             <div>
