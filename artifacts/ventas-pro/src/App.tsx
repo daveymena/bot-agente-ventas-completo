@@ -27,7 +27,6 @@ import FacebookAdsPage from "@/pages/facebook";
 import CodeAgentPage from "@/pages/code-agent";
 import ArchitectPage from "@/pages/architect";
 import AdminStorePage from "@/pages/admin-store";
-import MiTiendaPage from "@/pages/mi-tienda";
 import ArenaPage from "@/pages/arena";
 import AdminTenantsPage from "@/pages/admin-tenants";
 import PrivacyPolicyPage from "@/pages/privacy-policy";
@@ -52,12 +51,21 @@ const SessionContext = createContext<SessionContextType>({
 
 export const useSession = () => useContext(SessionContext);
 
+// /mi-tienda ya no es una página propia: manda a la tienda pública real
+// (packages/tienda, servida por express en /tienda/*). Es una navegación de
+// navegador completa, no de wouter, porque son dos SPAs distintas.
 function TiendaRedirect() {
-  const { tenant } = useSession();
+  const { tenant, isLoading } = useSession();
   useEffect(() => {
+    // Sin esperar a que cargue la sesión, el primer render tiene tenant=null
+    // y mandaba a /tienda sin slug -- o sea a la tienda por defecto, no a la
+    // del dueño que hizo click.
+    if (isLoading) return;
     const slug = tenant?.slug || '';
-    window.location.href = slug ? `/tienda/${slug}` : "/tienda";
-  }, [tenant]);
+    // replace() y no href: con href, el botón "atrás" volvía a /mi-tienda y
+    // el efecto disparaba el redirect otra vez, dejando al usuario atrapado.
+    window.location.replace(slug ? `/tienda/${slug}` : "/tienda");
+  }, [tenant, isLoading]);
   return null;
 }
 
@@ -124,7 +132,7 @@ function Router() {
       <Route path="/code-agent" component={CodeAgentPage} />
       <Route path="/architect" component={ArchitectPage} />
       <Route path="/admin/store" component={AdminStorePage} />
-      <Route path="/mi-tienda" component={MiTiendaPage} />
+      <Route path="/mi-tienda" component={TiendaRedirect} />
       <Route path="/arena" component={ArenaPage} />
       <Route path="/admin/tenants" component={AdminTenantsPage} />
       <Route path="/privacidad" component={PrivacyPolicyPage} />

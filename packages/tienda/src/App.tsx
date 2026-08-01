@@ -7,6 +7,7 @@ import Shop from './pages/Shop';
 import Cart from './pages/Cart';
 import ProductDetail from './pages/ProductDetail';
 import Checkout from './pages/Checkout';
+import Wishlist from './pages/Wishlist';
 import AdminDashboard from './pages/AdminDashboard';
 import EditorPage from './pages/EditorPage';
 import { useStore } from './store/useStore';
@@ -113,6 +114,22 @@ const App = () => {
           element={
             <PublicLayout>
               <Cart />
+            </PublicLayout>
+          }
+        />
+        <Route
+          path="/tienda/wishlist"
+          element={
+            <PublicLayout>
+              <Wishlist />
+            </PublicLayout>
+          }
+        />
+        <Route
+          path="/tienda/:slug/wishlist"
+          element={
+            <PublicLayout>
+              <Wishlist />
             </PublicLayout>
           }
         />

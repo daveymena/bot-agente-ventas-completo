@@ -29,7 +29,10 @@ const TYPE_BADGE: Record<string, { label: string; icon: typeof Download; classNa
   physical: { label: 'Físico', icon: Box, className: 'bg-emerald-600' },
 };
 
-const ProductCard = ({ product, slug }: { product: Product; slug: string }) => {
+// Exportada porque la lista de deseos (Wishlist.tsx) muestra exactamente la
+// misma tarjeta -- duplicarla ahí hacía que el botón "Comprar ahora" y el
+// badge de tipo se fueran desincronizando entre las dos pantallas.
+export const ProductCard = ({ product, slug }: { product: Product; slug: string }) => {
   const { addToCart, wishlist, toggleWishlist } = useStore();
   const [imgError, setImgError] = useState(false);
   const [buying, setBuying] = useState(false);
