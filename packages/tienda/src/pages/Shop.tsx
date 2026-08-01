@@ -179,6 +179,7 @@ const Shop = () => {
           storeName: data.store.name,
           logoUrl: data.store.logo || '',
           whatsappPhone: data.store.whatsappPhone || '',
+          socialLinks: data.store.socialLinks || {},
         });
         if (data.store.colors) {
           updateConfig({ primaryColor: data.store.colors.primary || '#dc2626' });

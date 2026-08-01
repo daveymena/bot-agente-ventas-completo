@@ -22,6 +22,18 @@ interface MenuLink {
   path: string;
 }
 
+// Mismo shape que updateBrandingSchema.brandSocial en
+// artifacts/api-server/src/routes/branding.ts -- ese Zod schema es la
+// fuente de verdad de qué redes soporta el sistema.
+interface SocialLinks {
+  website?: string;
+  facebook?: string;
+  instagram?: string;
+  tiktok?: string;
+  twitter?: string;
+  linkedin?: string;
+}
+
 interface StoreConfig {
   storeName: string;
   logoUrl: string;
@@ -41,6 +53,7 @@ interface StoreConfig {
   ownerId: string;
   slug: string;
   whatsappPhone: string;
+  socialLinks: SocialLinks;
 }
 
 interface Branch {
@@ -189,6 +202,7 @@ export const useStore = create<StoreState>()(
         ownerId: 'default-user',
         slug: '',
         whatsappPhone: '',
+        socialLinks: {},
       },
       updateConfig: (newConfig) => set((state) => ({ 
         config: { ...state.config, ...newConfig } 

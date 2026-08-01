@@ -3,6 +3,7 @@ import { ShoppingCart, MessageCircle, Menu, X, Store, Heart, User } from 'lucide
 import { useState, useEffect } from 'react';
 import { useStore } from '../store/useStore';
 import { initPixel } from '../lib/pixel';
+import { FacebookIcon, InstagramIcon, TikTokIcon, XIcon, LinkedInIcon } from './SocialIcons';
 
 const PublicLayout = ({ children }: { children: React.ReactNode }) => {
   const { cart, wishlist, config, updateConfig } = useStore();
@@ -21,12 +22,18 @@ const PublicLayout = ({ children }: { children: React.ReactNode }) => {
       .catch(() => {});
   }, [slug]);
 
-  // El píxel se carga aquí por la misma razón: vale para toda la tienda. El ID
-  // llega del API porque en el SaaS cada tienda mide en su propia cuenta.
+  // El píxel y las redes sociales del footer se cargan aquí por la misma razón:
+  // valen para toda la tienda, no solo para Shop -- si el footer dependiera de
+  // que Shop.tsx los guardara primero, entrar directo a un producto o al
+  // carrito (sin pasar por la home) dejaría el footer vacío.
   useEffect(() => {
     fetch(`/api/public/products/${slug || 'sofia-premium'}`)
       .then(r => (r.ok ? r.json() : null))
-      .then(d => { if (d?.store?.pixelId) initPixel(d.store.pixelId); })
+      .then(d => {
+        if (!d?.store) return;
+        if (d.store.pixelId) initPixel(d.store.pixelId);
+        updateConfig({ socialLinks: d.store.socialLinks || {} });
+      })
       .catch(() => {});
   }, [slug]);
 
@@ -156,7 +163,7 @@ const PublicLayout = ({ children }: { children: React.ReactNode }) => {
 
       <footer className="bg-black pb-20 md:pb-0">
         <div className="max-w-7xl mx-auto px-4 py-12">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-10">
             <div>
               <div className="flex items-center gap-2.5 mb-3">
                 <div className="w-8 h-8 rounded-lg bg-red-600 flex items-center justify-center">
@@ -164,8 +171,46 @@ const PublicLayout = ({ children }: { children: React.ReactNode }) => {
                 </div>
                 <span className="text-base font-bold text-white">{config.storeName || 'Tienda'}</span>
               </div>
-              <p className="text-sm text-gray-400 leading-relaxed">Tu tienda de confianza con los mejores productos digitales y físicos.</p>
+              <p className="text-sm text-gray-400 leading-relaxed mb-5">Tu tienda de confianza con los mejores productos digitales y físicos.</p>
+
+              {/* Redes sociales -- solo se listan las que la tienda configuró
+                  de verdad; sin URL no hay ícono, para no mostrar enlaces rotos */}
+              {(config.socialLinks?.facebook || config.socialLinks?.instagram || config.socialLinks?.tiktok || config.socialLinks?.twitter || config.socialLinks?.linkedin) && (
+                <div className="flex items-center gap-2">
+                  {config.socialLinks?.facebook && (
+                    <a href={config.socialLinks.facebook} target="_blank" rel="noopener noreferrer" aria-label="Facebook"
+                      className="w-9 h-9 rounded-full bg-white/10 hover:bg-red-600 text-gray-300 hover:text-white flex items-center justify-center transition-colors">
+                      <FacebookIcon className="w-4 h-4" />
+                    </a>
+                  )}
+                  {config.socialLinks?.instagram && (
+                    <a href={config.socialLinks.instagram} target="_blank" rel="noopener noreferrer" aria-label="Instagram"
+                      className="w-9 h-9 rounded-full bg-white/10 hover:bg-red-600 text-gray-300 hover:text-white flex items-center justify-center transition-colors">
+                      <InstagramIcon className="w-4 h-4" />
+                    </a>
+                  )}
+                  {config.socialLinks?.tiktok && (
+                    <a href={config.socialLinks.tiktok} target="_blank" rel="noopener noreferrer" aria-label="TikTok"
+                      className="w-9 h-9 rounded-full bg-white/10 hover:bg-red-600 text-gray-300 hover:text-white flex items-center justify-center transition-colors">
+                      <TikTokIcon className="w-4 h-4" />
+                    </a>
+                  )}
+                  {config.socialLinks?.twitter && (
+                    <a href={config.socialLinks.twitter} target="_blank" rel="noopener noreferrer" aria-label="X (Twitter)"
+                      className="w-9 h-9 rounded-full bg-white/10 hover:bg-red-600 text-gray-300 hover:text-white flex items-center justify-center transition-colors">
+                      <XIcon className="w-4 h-4" />
+                    </a>
+                  )}
+                  {config.socialLinks?.linkedin && (
+                    <a href={config.socialLinks.linkedin} target="_blank" rel="noopener noreferrer" aria-label="LinkedIn"
+                      className="w-9 h-9 rounded-full bg-white/10 hover:bg-red-600 text-gray-300 hover:text-white flex items-center justify-center transition-colors">
+                      <LinkedInIcon className="w-4 h-4" />
+                    </a>
+                  )}
+                </div>
+              )}
             </div>
+
             <div>
               <h4 className="text-xs font-bold uppercase tracking-wider text-gray-500 mb-3">Enlaces</h4>
               <div className="space-y-2">
@@ -175,16 +220,30 @@ const PublicLayout = ({ children }: { children: React.ReactNode }) => {
                 <Link to={`${base}/carrito`} className="block text-sm text-gray-400 hover:text-white transition-colors">Carrito</Link>
               </div>
             </div>
+
+            <div>
+              <h4 className="text-xs font-bold uppercase tracking-wider text-gray-500 mb-3">Contacto</h4>
+              <div className="space-y-2.5">
+                {config.whatsappPhone && (
+                  <a href={waHref || '#'} target="_blank" rel="noopener noreferrer"
+                    className="flex items-center gap-2 text-sm text-gray-400 hover:text-white transition-colors">
+                    <MessageCircle className="w-4 h-4 text-emerald-500 shrink-0" />
+                    <span>+{config.whatsappPhone}</span>
+                  </a>
+                )}
+              </div>
+            </div>
+
             <div>
               <h4 className="text-xs font-bold uppercase tracking-wider text-gray-500 mb-3">Pagos seguros</h4>
               <div className="flex flex-wrap gap-2">
-                <span className="text-xs font-semibold px-3 py-1.5 rounded-md bg-white/10 text-gray-300">MercadoPago</span>
-                <span className="text-xs font-semibold px-3 py-1.5 rounded-md bg-white/10 text-gray-300">Nequi</span>
-                <span className="text-xs font-semibold px-3 py-1.5 rounded-md bg-white/10 text-gray-300">PSE</span>
+                <span className="text-xs font-bold px-3 py-1.5 rounded-md bg-[#00b1ea] text-white">MercadoPago</span>
+                <span className="text-xs font-bold px-3 py-1.5 rounded-md bg-[#da1884] text-white">Nequi</span>
+                <span className="text-xs font-bold px-3 py-1.5 rounded-md bg-[#0f3cc9] text-white">PSE</span>
               </div>
             </div>
           </div>
-          <div className="mt-8 pt-8 border-t border-white/10 text-center text-xs text-gray-600">
+          <div className="mt-10 pt-8 border-t border-white/10 text-center text-xs text-gray-600">
             &copy; {new Date().getFullYear()} {config.storeName || 'Tienda'} &mdash; Todos los derechos reservados
           </div>
         </div>

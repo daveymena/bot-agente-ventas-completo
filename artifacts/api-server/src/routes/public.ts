@@ -115,6 +115,9 @@ router.get("/products/:slug", async (req, res, next) => {
         colors: tenant.brandColors,
         whatsappPhone: resolveWhatsAppPhone(tenant),
         pixelId: resolvePixelId(tenant),
+        // Mismo shape que routes/branding.ts (updateBrandingSchema.brandSocial)
+        // -- ese es el schema "oficial" que ya valida el PUT /api/branding.
+        socialLinks: (tenant.brandSocial as any) || {},
       },
       products: serialized,
     });
