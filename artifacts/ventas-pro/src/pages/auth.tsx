@@ -6,8 +6,25 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
-import { Rocket, Mail, Lock, Store, User, ArrowRight, ShieldCheck, KeyRound, ArrowLeft, Check, X, CheckCircle, AlertCircle, Loader } from "lucide-react";
+import { Rocket, Mail, Lock, Store, User, ArrowRight, ShieldCheck, KeyRound, ArrowLeft, Check, X, CheckCircle, AlertCircle, Loader, Eye, EyeOff } from "lucide-react";
 import { useSession } from "@/App";
+
+// Tratamiento visual de los campos de esta pantalla. Va acá y no en el
+// componente Input porque ese es compartido por TODA la app (h-9, compacto,
+// pensado para tablas y paneles densos); agrandarlo allá cambiaría cada
+// formulario del sistema. Un login sí quiere campos altos y cómodos: 48px de
+// alto, esquinas suaves y un fondo tenue que se aclara al enfocar, con el
+// anillo en el color de marca.
+const FIELD =
+  "h-12 rounded-xl bg-muted/40 border-border/60 pl-11 text-[15px] shadow-none " +
+  "transition-all duration-200 " +
+  "hover:border-border " +
+  "focus-visible:bg-background focus-visible:border-primary focus-visible:ring-4 focus-visible:ring-primary/15";
+
+// El icono va centrado de verdad (top-1/2 + -translate-y-1/2) en vez de con
+// un top fijo: con campos de 48px un `top-3` lo dejaba pegado arriba.
+const FIELD_ICON =
+  "absolute left-3.5 top-1/2 -translate-y-1/2 h-[18px] w-[18px] text-muted-foreground pointer-events-none";
 
 export default function AuthPage() {
   const [, setLocation] = useLocation();
@@ -35,6 +52,11 @@ export default function AuthPage() {
   });
 
   const [loginData, setLoginData] = useState({ email: "", password: "" });
+  // Ver la contraseña que uno escribe: en móvil, escribir a ciegas una clave
+  // con mayúscula y número (lo que exige el registro) es la causa más común
+  // de "no me deja entrar" cuando en realidad hubo un typo.
+  const [showLoginPassword, setShowLoginPassword] = useState(false);
+  const [showRegisterPassword, setShowRegisterPassword] = useState(false);
   const [registerData, setRegisterData] = useState({
     name: "",
     email: "",
@@ -487,7 +509,7 @@ export default function AuthPage() {
 
         {/* Recuperación de Contraseña */}
         {showForgotPassword ? (
-          <Card className="glass-panel border-none shadow-2xl">
+          <Card className="border border-border/60 rounded-2xl shadow-xl shadow-black/5 bg-card">
             <CardHeader>
               <div className="flex items-center gap-2 mb-2">
                 <Button
@@ -622,30 +644,31 @@ export default function AuthPage() {
              CTA de la landing) para abrir directo en "Crear Cuenta" en vez
              de forzar un clic extra. */
           <Tabs defaultValue={defaultTab} className="w-full">
-            <TabsList className="grid w-full grid-cols-2 mb-6 glass-panel p-1">
-              <TabsTrigger value="login" className="rounded-lg">Iniciar Sesión</TabsTrigger>
-              <TabsTrigger value="register" className="rounded-lg">Crear Cuenta</TabsTrigger>
+            <TabsList className="grid w-full grid-cols-2 mb-6 h-12 p-1 rounded-xl bg-muted/60">
+              <TabsTrigger value="login" className="rounded-lg h-full text-sm font-semibold data-[state=active]:bg-background data-[state=active]:shadow-sm transition-all">Iniciar Sesión</TabsTrigger>
+              <TabsTrigger value="register" className="rounded-lg h-full text-sm font-semibold data-[state=active]:bg-background data-[state=active]:shadow-sm transition-all">Crear Cuenta</TabsTrigger>
             </TabsList>
 
             {/* Tab: Login */}
             <TabsContent value="login">
-              <Card className="glass-panel border-none shadow-2xl">
+              <Card className="border border-border/60 rounded-2xl shadow-xl shadow-black/5 bg-card">
                 <CardHeader>
                   <CardTitle>Bienvenido</CardTitle>
                   <CardDescription>Ingresa tus credenciales para acceder a tu panel.</CardDescription>
                 </CardHeader>
                 <form onSubmit={handleLogin}>
-                  <CardContent className="space-y-4">
+                  <CardContent className="space-y-5">
                     <div className="space-y-2">
-                      <Label htmlFor="login-email">Email</Label>
+                      <Label htmlFor="login-email" className="text-[13px] font-medium">Email</Label>
                       <div className="relative">
-                        <Mail className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-                        <Input 
-                          id="login-email" 
-                          type="email" 
-                          placeholder="tu@email.com" 
-                          className="pl-10"
-                          required 
+                        <Mail className={FIELD_ICON} />
+                        <Input
+                          id="login-email"
+                          type="email"
+                          placeholder="tu@email.com"
+                          className={FIELD}
+                          autoComplete="email"
+                          required
                           value={loginData.email}
                           onChange={(e) => setLoginData({...loginData, email: e.target.value})}
                         />
@@ -653,7 +676,7 @@ export default function AuthPage() {
                     </div>
                     <div className="space-y-2">
                       <div className="flex items-center justify-between">
-                        <Label htmlFor="login-password">Contraseña</Label>
+                        <Label htmlFor="login-password" className="text-[13px] font-medium">Contraseña</Label>
                         <Button
                           type="button"
                           variant="link"
@@ -665,22 +688,41 @@ export default function AuthPage() {
                         </Button>
                       </div>
                       <div className="relative">
-                        <Lock className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-                        <Input 
-                          id="login-password" 
-                          type="password" 
-                          className="pl-10"
-                          required 
+                        <Lock className={FIELD_ICON} />
+                        <Input
+                          id="login-password"
+                          type={showLoginPassword ? "text" : "password"}
+                          placeholder="••••••••"
+                          className={`${FIELD} pr-11`}
+                          autoComplete="current-password"
+                          required
                           value={loginData.password}
                           onChange={(e) => setLoginData({...loginData, password: e.target.value})}
                         />
+                        <button
+                          type="button"
+                          onClick={() => setShowLoginPassword((v) => !v)}
+                          aria-label={showLoginPassword ? "Ocultar contraseña" : "Mostrar contraseña"}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 p-1 rounded-md text-muted-foreground hover:text-foreground transition-colors"
+                        >
+                          {showLoginPassword ? <EyeOff className="h-[18px] w-[18px]" /> : <Eye className="h-[18px] w-[18px]" />}
+                        </button>
                       </div>
                     </div>
                   </CardContent>
                   <CardFooter>
-                    <Button className="w-full shadow-lg shadow-primary/20 group" disabled={isLoading}>
-                      {isLoading ? "Entrando..." : "Acceder al Panel"}
-                      <ArrowRight className="ml-2 h-4 w-4 group-hover:translate-x-1 transition-transform" />
+                    {/* Botón alto y con degradado, y un leve levantarse al pasar
+                        el mouse: es la acción principal de la pantalla y antes
+                        pesaba visualmente lo mismo que un campo. */}
+                    <Button
+                      className="w-full h-12 rounded-xl text-[15px] font-semibold bg-gradient-to-r from-primary to-fuchsia-500 hover:from-primary hover:to-fuchsia-600 shadow-lg shadow-primary/25 hover:shadow-xl hover:shadow-primary/30 hover:-translate-y-0.5 active:translate-y-0 transition-all duration-200 group"
+                      disabled={isLoading}
+                    >
+                      {isLoading ? (
+                        <><Loader className="mr-2 h-4 w-4 animate-spin" /> Entrando…</>
+                      ) : (
+                        <>Acceder al Panel <ArrowRight className="ml-2 h-4 w-4 group-hover:translate-x-1 transition-transform" /></>
+                      )}
                     </Button>
                   </CardFooter>
                 </form>
@@ -689,29 +731,29 @@ export default function AuthPage() {
 
             {/* Tab: Registro */}
             <TabsContent value="register">
-              <Card className="glass-panel border-none shadow-2xl">
+              <Card className="border border-border/60 rounded-2xl shadow-xl shadow-black/5 bg-card">
                 <CardHeader>
                   <CardTitle>Crea tu Tienda</CardTitle>
                   <CardDescription>Comienza a vender de forma autónoma con IA hoy mismo.</CardDescription>
                 </CardHeader>
                 <form onSubmit={handleRegister}>
-                  <CardContent className="space-y-4">
-                    <div className="grid grid-cols-2 gap-4">
+                  <CardContent className="space-y-5">
+                    <div className="grid grid-cols-2 gap-3">
                       <div className="space-y-2">
-                        <Label htmlFor="reg-name">Tu Nombre</Label>
+                        <Label htmlFor="reg-name" className="text-[13px] font-medium">Tu Nombre</Label>
                         <div className="relative">
-                          <User className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-                          <Input id="reg-name" placeholder="Juan" className="pl-10" required 
+                          <User className={FIELD_ICON} />
+                          <Input id="reg-name" placeholder="Juan" className={FIELD} autoComplete="given-name" required
                             value={registerData.name}
                             onChange={(e) => setRegisterData({...registerData, name: e.target.value})}
                           />
                         </div>
                       </div>
                       <div className="space-y-2">
-                        <Label htmlFor="reg-brand">Nombre de Marca</Label>
+                        <Label htmlFor="reg-brand" className="text-[13px] font-medium">Nombre de Marca</Label>
                         <div className="relative">
-                          <Store className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-                          <Input id="reg-brand" placeholder="Mi Tienda" className="pl-10" required 
+                          <Store className={FIELD_ICON} />
+                          <Input id="reg-brand" placeholder="Mi Tienda" className={FIELD} required
                             value={registerData.brandName}
                             onChange={(e) => setRegisterData({...registerData, brandName: e.target.value})}
                           />
@@ -719,32 +761,38 @@ export default function AuthPage() {
                       </div>
                     </div>
                     <div className="space-y-2">
-                       <Label htmlFor="reg-email">Email</Label>
+                       <Label htmlFor="reg-email" className="text-[13px] font-medium">Email</Label>
                        <div className="relative">
-                         <Mail className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-                         <Input id="reg-email" type="email" placeholder="juan@tienda.com" className="pl-10 pr-10" required 
+                         <Mail className={FIELD_ICON} />
+                         <Input id="reg-email" type="email" placeholder="juan@tienda.com" className={`${FIELD} pr-11`} autoComplete="email" required
                            value={registerData.email}
                            onChange={(e) => handleEmailChange(e.target.value)}
                          />
+                         {/* Indicadores centrados verticalmente, como el resto:
+                             con campos de 48px el `top-3` fijo los descolgaba. */}
                          {registerData.email && emailCheckStatus === "checking" && (
-                           <Loader className="absolute right-3 top-3 h-4 w-4 text-blue-500 animate-spin" />
+                           <Loader className="absolute right-3.5 top-1/2 -translate-y-1/2 h-[18px] w-[18px] text-blue-500 animate-spin" />
                          )}
                          {registerData.email && emailCheckStatus === "available" && (
-                           <CheckCircle className="absolute right-3 top-3 h-4 w-4 text-green-500" />
+                           <CheckCircle className="absolute right-3.5 top-1/2 -translate-y-1/2 h-[18px] w-[18px] text-emerald-500" />
                          )}
                          {registerData.email && emailCheckStatus === "taken" && (
-                           <AlertCircle className="absolute right-3 top-3 h-4 w-4 text-red-500" />
+                           <AlertCircle className="absolute right-3.5 top-1/2 -translate-y-1/2 h-[18px] w-[18px] text-red-500" />
                          )}
                        </div>
                        {emailCheckStatus === "taken" && (
-                         <p className="text-xs text-red-500">Este email ya está registrado</p>
+                         <p className="text-xs text-red-500 flex items-center gap-1.5"><AlertCircle className="h-3.5 w-3.5" /> Este email ya está registrado</p>
                        )}
                      </div>
                     <div className="space-y-2">
-                       <Label htmlFor="reg-slug">Slug (URL personalizada) <span className="text-xs text-muted-foreground">(opcional)</span></Label>
-                       <div className="flex items-center gap-1">
-                         <div className="bg-muted px-3 h-10 flex items-center rounded-l-md border border-r-0 text-xs text-muted-foreground">app.com/</div>
-                         <Input id="reg-slug" placeholder="auto-generado" className="rounded-l-none text-xs" 
+                       <Label htmlFor="reg-slug" className="text-[13px] font-medium">Slug (URL personalizada) <span className="text-xs font-normal text-muted-foreground">(opcional)</span></Label>
+                       {/* Prefijo y campo pegados dentro de un solo marco, en vez
+                           de dos cajas separadas con distinta altura y un hueco
+                           en el medio. El foco ilumina el grupo entero. */}
+                       <div className="flex items-stretch h-12 rounded-xl border border-border/60 bg-muted/40 overflow-hidden transition-all duration-200 focus-within:bg-background focus-within:border-primary focus-within:ring-4 focus-within:ring-primary/15">
+                         <span className="px-3.5 flex items-center text-[13px] text-muted-foreground border-r border-border/60 bg-muted/40 shrink-0">app.com/</span>
+                         <Input id="reg-slug" placeholder="auto-generado"
+                           className="h-full flex-1 rounded-none border-0 bg-transparent px-3.5 text-[15px] shadow-none focus-visible:ring-0"
                            value={registerData.slug}
                            onChange={(e) => setRegisterData({...registerData, slug: e.target.value.toLowerCase().replace(/ /g, '-')})}
                          />
@@ -752,13 +800,21 @@ export default function AuthPage() {
                        <p className="text-xs text-muted-foreground">Si no lo indicas, se generará automáticamente</p>
                      </div>
                     <div className="space-y-2">
-                      <Label htmlFor="reg-pass">Contraseña</Label>
+                      <Label htmlFor="reg-pass" className="text-[13px] font-medium">Contraseña</Label>
                       <div className="relative">
-                        <Lock className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-                        <Input id="reg-pass" type="password" className="pl-10" required 
+                        <Lock className={FIELD_ICON} />
+                        <Input id="reg-pass" type={showRegisterPassword ? "text" : "password"} placeholder="••••••••" className={`${FIELD} pr-11`} autoComplete="new-password" required
                           value={registerData.password}
                           onChange={(e) => setRegisterData({...registerData, password: e.target.value})}
                         />
+                        <button
+                          type="button"
+                          onClick={() => setShowRegisterPassword((v) => !v)}
+                          aria-label={showRegisterPassword ? "Ocultar contraseña" : "Mostrar contraseña"}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 p-1 rounded-md text-muted-foreground hover:text-foreground transition-colors"
+                        >
+                          {showRegisterPassword ? <EyeOff className="h-[18px] w-[18px]" /> : <Eye className="h-[18px] w-[18px]" />}
+                        </button>
                       </div>
                       {registerData.password && (
                         <div className="space-y-1 mt-2">
@@ -779,12 +835,15 @@ export default function AuthPage() {
                     </div>
                   </CardContent>
                    <CardFooter>
-                     <Button 
-                       className="w-full shadow-lg shadow-primary/20 group transition-all duration-300" 
+                     <Button
+                       className="w-full h-12 rounded-xl text-[15px] font-semibold bg-gradient-to-r from-primary to-fuchsia-500 hover:from-primary hover:to-fuchsia-600 shadow-lg shadow-primary/25 hover:shadow-xl hover:shadow-primary/30 hover:-translate-y-0.5 active:translate-y-0 transition-all duration-200 disabled:opacity-50 disabled:hover:translate-y-0 disabled:hover:shadow-lg"
                        disabled={isLoading || registerData.password.length < 8 || !/[A-Z]/.test(registerData.password) || !/[0-9]/.test(registerData.password) || emailCheckStatus === "taken" || emailCheckStatus === "checking"}
                      >
-                       {isLoading ? "Creando..." : "Registrar Tienda ✨"}
-                       <ShieldCheck className="ml-2 h-4 w-4" />
+                       {isLoading ? (
+                         <><Loader className="mr-2 h-4 w-4 animate-spin" /> Creando tu tienda…</>
+                       ) : (
+                         <>Registrar Tienda <ShieldCheck className="ml-2 h-4 w-4" /></>
+                       )}
                      </Button>
                    </CardFooter>
                 </form>
