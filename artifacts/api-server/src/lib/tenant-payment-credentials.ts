@@ -77,11 +77,48 @@ export interface CredencialesPayPal {
   enabled: boolean;
 }
 
+export interface CuentaTransferencia {
+  type: string;
+  number: string;
+  name: string;
+}
+
 export interface CredencialesDePago {
   mercadopago: CredencialesMercadoPago;
   paypal: CredencialesPayPal;
+  /** Nequi, Daviplata, bancos: el cliente transfiere y alguien verifica. */
+  transfer: { enabled: boolean; accounts: CuentaTransferencia[] };
   /** true si salieron de la config del negocio; false si son las del .env */
   propias: boolean;
+}
+
+/**
+ * Cuentas de transferencia del negocio.
+ *
+ * NO hay número por defecto, y es a propósito: antes el código traía
+ * "3136174267" hardcodeado como respaldo en cuatro lugares, así que un
+ * negocio sin configurar le daba a SUS clientes el número de un tercero.
+ * Plata que se va a la cuenta equivocada, sin ningún error visible.
+ *
+ * Vacío significa vacío: el bot no ofrece transferencia si no hay a dónde.
+ */
+function transferenciasDe(pm: any): { enabled: boolean; accounts: CuentaTransferencia[] } {
+  const propias: CuentaTransferencia[] = Array.isArray(pm?.transfer?.accounts)
+    ? pm.transfer.accounts.filter((c: any) => c?.number && c?.name)
+    : [];
+
+  if (propias.length > 0) {
+    return { enabled: pm.transfer?.enabled !== false, accounts: propias };
+  }
+
+  // Respaldo del .env solo si está realmente configurado -- sin inventar.
+  const envNum = process.env.TRANSFER_NUMBER || "";
+  const envName = process.env.TRANSFER_NAME || process.env.TRANSFER_OWNER || "";
+  if (envNum && envName) {
+    return { enabled: true, accounts: [{ type: "Nequi", number: envNum, name: envName }] };
+  }
+
+  return { enabled: false, accounts: [] };
 }
 
 /**
@@ -113,7 +150,8 @@ export function credencialesDe(tenant: TenantContext | null | undefined): Creden
       mode: (pm.paypal?.mode as "sandbox" | "live") || (process.env.PAYPAL_MODE === "sandbox" ? "sandbox" : "live"),
       enabled: tienePp ? pm.paypal?.enabled !== false : !!process.env.PAYPAL_CLIENT_ID,
     },
-    propias: tieneMp || tienePp,
+    transfer: transferenciasDe(pm),
+    propias: tieneMp || tienePp || (Array.isArray(pm?.transfer?.accounts) && pm.transfer.accounts.length > 0),
   };
 }
 

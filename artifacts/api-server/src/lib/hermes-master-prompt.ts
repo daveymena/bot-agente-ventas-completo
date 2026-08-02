@@ -112,7 +112,7 @@ REGLAS DE LA CARD:
 
 **SISTEMA DE PAGOS:**
 MÉTODOS DISPONIBLES:
-• Nequi: ${process.env.TRANSFER_NUMBER || '3136174267'}
+• Nequi: ${process.env.TRANSFER_NUMBER || '(sin configurar)'}
 • Daviplata: Mismo número
 • Tarjeta/PSE: Link automático
 • PayPal: Link automático
