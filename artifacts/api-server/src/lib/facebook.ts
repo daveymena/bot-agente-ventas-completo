@@ -626,6 +626,46 @@ Responde SOLO con este JSON exacto:
     }
   }
 
+  /** Métricas agregadas de varias campañas en una ventana, para que el
+   * Arquitecto responda "cómo van mis anuncios" con datos en vivo. Si se
+   * pasan campaignIds se filtran; si no, se revisan todas las activas.
+   * datePreset mapea los días de la ventana a los valores de Graph API. */
+  async getCampaignMetrics(opts?: {
+    campaignIds?: string[];
+    days?: number;
+  }): Promise<{
+    campaigns: Array<{ id: string; name: string; status: string; spend: number; impressions: number; clicks: number; ctr: number; reach: number; results: number; costPerResult: number }>;
+    totals: { spend: number; impressions: number; clicks: number; results: number; costPerResult: number };
+  } | null> {
+    if (!this.config.accessToken) return null;
+    let campaigns: Array<{ id: string; name: string; status: string }> = [];
+    if (Array.isArray(opts?.campaignIds) && opts!.campaignIds!.length) {
+      campaigns = opts!.campaignIds!.map((id) => ({ id, name: id, status: "ACTIVE" }));
+    } else {
+      campaigns = await this.listActiveCampaigns();
+    }
+    if (!campaigns.length) return { campaigns: [], totals: { spend: 0, impressions: 0, clicks: 0, results: 0, costPerResult: 0 } };
+    const days = Math.min(Math.max(opts?.days || 7, 1), 30);
+    const preset = days <= 1 ? "today" : days <= 3 ? "last_3d" : days <= 7 ? "last_7d" : days <= 14 ? "last_14d" : "last_30d";
+    const rows = [];
+    for (const c of campaigns) {
+      const m = await this.getCampaignInsights(c.id, preset);
+      if (!m) continue;
+      rows.push({ id: c.id, name: c.name, status: c.status, ...m });
+    }
+    const totals = rows.reduce(
+      (acc, r) => ({
+        spend: acc.spend + r.spend,
+        impressions: acc.impressions + r.impressions,
+        clicks: acc.clicks + r.clicks,
+        results: acc.results + r.results,
+        costPerResult: acc.results + r.results > 0 ? (acc.spend + r.spend) / (acc.results + r.results) : 0,
+      }),
+      { spend: 0, impressions: 0, clicks: 0, results: 0, costPerResult: 0 },
+    );
+    return { campaigns: rows, totals };
+  }
+
   /** Presupuesto diario configurado y gastado hoy -- necesario para
    * "protección de gasto" (¿ya se comió el presupuesto sin resultados?). */
   async getAdSetBudgetStatus(adSetId: string): Promise<{ dailyBudget: number; status: string } | null> {

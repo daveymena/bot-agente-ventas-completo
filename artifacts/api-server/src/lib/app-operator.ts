@@ -1156,6 +1156,73 @@ export const TOOLS: ToolDef[] = [
     },
   },
   {
+    name: "fb_agent_logs",
+    description: "Leer el historial del agente de crecimiento de anuncios: qué sugirió, por qué (razón y métricas del momento), si el admin aprobó/rechazó y si la acción se aplicó. Responde 'cómo van mis anuncios', 'qué me recomendó el agente', 'por qué pausó X'. LECTURA, no cambia nada.",
+    args: '{ "limit": number (opcional, cuántos logs, def 25), "checkType": string (opcional, filtrar por "spend_protection" | "trend_review" | "daily_cap"), "status": string (opcional, "suggested" | "applied" | "rejected" | "no_action") }',
+    run: async (args) => {
+      const { adAgentLogs } = await import("@workspace/db");
+      const { desc } = await import("drizzle-orm");
+      const limit = Math.min(Math.max(num(args.limit) || 25, 1), 100);
+      const conditions = [];
+      if (args.checkType) conditions.push(eq(adAgentLogs.checkType, String(args.checkType)));
+      if (args.status) conditions.push(eq(adAgentLogs.status, String(args.status)));
+      let rows;
+      if (conditions.length) {
+        rows = await db.select().from(adAgentLogs).where(and(...conditions)).orderBy(desc(adAgentLogs.createdAt)).limit(limit);
+      } else {
+        rows = await db.select().from(adAgentLogs).orderBy(desc(adAgentLogs.createdAt)).limit(limit);
+      }
+      if (!rows.length) return { ok: true, summary: "El agente de anuncios no ha registrado actividad todavía (corre cada cierto tiempo).", data: { logs: [] } };
+      const tipo: Record<string, string> = {
+        spend_protection: "Protección de gasto",
+        trend_review: "Revisión de tendencia",
+        daily_cap: "Tope diario",
+      };
+      const est: Record<string, string> = {
+        suggested: "🟡 sugerido",
+        applied: "✅ aplicado",
+        rejected: "🚫 rechazado",
+        no_action: "⚪ sin acción",
+      };
+      const accion: Record<string, string> = {
+        pause: "Pausar",
+        resume: "Reanudar",
+        increase_budget: "Subir presupuesto 20%",
+        decrease_budget: "Bajar presupuesto 30%",
+      };
+      const resumen = rows.map((r: any) => {
+        let m = "";
+        try { const s = typeof r.metricsSnapshot === "string" ? JSON.parse(r.metricsSnapshot) : r.metricsSnapshot || {}; m = Object.entries(s).filter(([k]) => k !== "id").map(([k, v]) => `${k}: ${v}`).join(", "); } catch { m = ""; }
+        return `[${tipo[r.checkType] || r.checkType}] ${r.suggestedAction ? accion[r.suggestedAction] || r.suggestedAction : "monitoreo"} · ${r.productName || r.campaignId} · ${r.reason}${m ? ` · métricas: ${m}` : ""}`;
+      });
+      return {
+        ok: true,
+        summary: `${rows.length} registro(s) del agente de anuncios.`,
+        data: { logs: rows.map((r: any) => ({ ...r, statusLabel: est[r.status] || r.status })), resumen },
+      };
+    },
+  },
+  {
+    name: "fb_campaign_metrics",
+    description: "Leer métricas EN VIVO de las campañas de Facebook Ads (gasto, impresiones, clics, CTR, alcance, resultados, costo por resultado). Responde 'cómo está rindiendo mi anuncio', 'cuánto gasté'. LECTURA, no cambia nada. Si no hay token o falla Meta, devuelve el motivo.",
+    args: '{ "campaignIds": string[] (opcional, filtrar campañas específicas), "days": number (opcional, ventana en días, def 7) }',
+    run: async (_args, ctx) => {
+      const tenant = await tenantManager.getTenantById(ctx.tenantId);
+      const { FacebookService } = await import("./facebook");
+      const fb = new FacebookService(tenant || undefined);
+      if (!fb.isConfigured()) return { ok: false, summary: "Facebook no configurado (falta token en el entorno o en el tenant)." };
+      const days = Math.min(Math.max(num(_args.days) || 7, 1), 30);
+      const r = await fb.getCampaignMetrics?.({
+        campaignIds: Array.isArray(_args.campaignIds) ? _args.campaignIds : undefined,
+        days,
+      });
+      if (!r) return { ok: false, summary: "No se pudieron leer las métricas (¿la cuenta de ads no tiene campañas o el token no tiene permiso?)." };
+      const cams = r.campaigns || r;
+      const n = Array.isArray(cams) ? cams.length : 0;
+      return { ok: n > 0, summary: n > 0 ? `${n} campaña(s) con datos.` : "No hay campañas con datos en la ventana seleccionada.", data: r };
+    },
+  },
+  {
     name: "dropi_create_order",
     description: "Crear una orden REAL en Dropi para que el proveedor despache al cliente (pago contra entrega). Úsala solo cuando una venta ya esté cerrada y tengas los datos de envío completos. GENERA UN PEDIDO REAL con costo → requiere confirmación explícita.",
     args: '{ "productId": number (req, id del producto en ESTA tienda), "quantity": number (req), "clientName": string (req), "clientPhone": string (req), "clientAddress": string (req), "clientCity": string (opcional), "clientDepartment": string (opcional), "notes": string (opcional) }',
@@ -1267,6 +1334,8 @@ export const READ_ONLY_TOOLS = new Set([
   // Facebook de solo lectura + generación de imagen (solo devuelve preview, no asigna)
   "fb_status", "fb_suggest_audience", "generate_image",
   "fb_page_can_post", "fb_page_preview", "fb_list_drafts",
+  // Agente de anuncios: leer logs y métricas no cambia nada (solo consulta)
+  "fb_agent_logs", "fb_campaign_metrics",
   // Monitoreo: solo consultan, no cambian nada
   "whatsapp_status", "dashboard_summary", "list_recent_conversations",
   // Lectura de web (información externa)

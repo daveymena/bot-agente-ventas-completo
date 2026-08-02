@@ -152,7 +152,7 @@ Oferta limitada: [CTA]`,
   async orchestrateCampaign(context: {
     productId: number;
     tenantId: number;
-    campaign Name: string;
+    campaignName: string;
     startDate: Date;
   }): Promise<{
     campaignId: string;
