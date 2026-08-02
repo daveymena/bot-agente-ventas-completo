@@ -204,7 +204,7 @@ export async function clearArchitectHistory(
 // escriba — así que el admin confirmaba, el plan se descartaba por "no
 // reconocido" y la IA volvía a proponer el mismo plan en bucle infinito.
 export function isApproval(text: string): boolean {
-  let t = text.trim().toLowerCase().replace(/[!.¡¿?]+$/g, "").trim();
+  let t = text.trim().toLowerCase().replace(/,/g, " ").replace(/[!.¡¿?]+$/g, "").trim();
   // Muletillas al inicio ("entonces", "bueno", "pues", "vale", "ya") no
   // cambian el sentido: "entonces confirmado" aprueba igual que "confirmado"
   // solo. Sin este strip, isApproval() la rechazaba, el plan pendiente se
