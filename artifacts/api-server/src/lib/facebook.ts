@@ -87,12 +87,27 @@ export class FacebookService {
   constructor(tenant?: TenantContext) {
     this.tenant = tenant || tenantManager.getDefaultTenant();
     const fb = this.tenant.facebook || {};
+
+    // El respaldo del .env vale SOLO para el negocio dueño del servidor.
+    //
+    // Antes aplicaba a todos: un negocio nuevo que todavía no conectó su
+    // Facebook heredaba silenciosamente el del dueño de la plataforma, así
+    // que publicaba en SU página y creaba anuncios que gastaban de SU cuenta
+    // publicitaria, midiendo en SU píxel. Es el mismo patrón que los cobros y
+    // el Nequi, pero el más caro: acá se gasta dinero solo.
+    //
+    // Para cualquier otro negocio, vacío es vacío: isConfigured() da false y
+    // la interfaz pide conectar Facebook, en vez de operar sobre la cuenta
+    // equivocada sin que nadie se entere.
+    const esDuenoDelServidor = this.tenant.id === tenantManager.getDefaultTenant().id;
+    const env = (valor: string | undefined) => (esDuenoDelServidor ? valor || "" : "");
+
     this.config = {
-      accessToken: fb.accessToken || process.env.FB_ACCESS_TOKEN || process.env.FB_MESSENGER_PAGE_TOKEN || "",
-      pixelId: fb.pixelId || process.env.FB_PIXEL_ID || "",
-      catalogId: fb.catalogId || process.env.FB_CATALOG_ID || "",
-      pageId: fb.pageId || process.env.FB_PAGE_ID || "",
-      adAccountId: fb.adAccountId || process.env.FB_AD_ACCOUNT_ID || "",
+      accessToken: fb.accessToken || env(process.env.FB_ACCESS_TOKEN || process.env.FB_MESSENGER_PAGE_TOKEN),
+      pixelId: fb.pixelId || env(process.env.FB_PIXEL_ID),
+      catalogId: fb.catalogId || env(process.env.FB_CATALOG_ID),
+      pageId: fb.pageId || env(process.env.FB_PAGE_ID),
+      adAccountId: fb.adAccountId || env(process.env.FB_AD_ACCOUNT_ID),
     };
   }
 
