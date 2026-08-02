@@ -178,8 +178,14 @@ const ProductManagement = () => {
       ) : error ? (
         <div className="text-center py-16 bg-white rounded-2xl border border-dashed border-red-200 text-red-500 text-sm">{error}</div>
       ) : filtered.length > 0 ? (
+        /* overflow-x-auto + min-w en la tabla: son 5 columnas (producto,
+           categoría, tipo, precio, acciones) y en un teléfono no entran. Sin
+           esto, o se aplastaban hasta ser ilegibles o desbordaban la página
+           entera hacia el costado. Ahora la tabla scrollea sola en horizontal
+           y el resto del panel queda quieto. */
         <div className="bg-white rounded-2xl border border-slate-100 overflow-hidden shadow-sm">
-          <table className="w-full">
+          <div className="overflow-x-auto">
+          <table className="w-full min-w-[640px]">
             <thead>
               <tr className="border-b border-slate-100 bg-slate-50/50">
                 <th className="text-left px-5 py-4 text-xs font-bold text-slate-400 uppercase tracking-wider">Producto</th>
@@ -224,6 +230,7 @@ const ProductManagement = () => {
               ))}
             </tbody>
           </table>
+          </div>
         </div>
       ) : (
         <div className="text-center py-16 bg-white rounded-2xl border border-dashed border-slate-200">
@@ -445,8 +452,14 @@ const AdminDashboard = () => {
   ];
 
   return (
-    <div className="min-h-screen bg-slate-50 flex">
-      <aside className="w-64 bg-white border-r border-slate-100 flex flex-col">
+    /* md:flex y no flex a secas: la barra lateral mide 256px fijos y no tenía
+       ninguna variante responsive, así que en un teléfono de 375px se comía
+       casi todo el ancho -- quedaban ~119px para el contenido, y descontando
+       el p-8 (64px) sobraban unos 55px útiles. El panel era inusable en
+       móvil. Abajo del breakpoint el contenedor pasa a bloque y la barra se
+       reemplaza por una cabecera con pestañas horizontales. */
+    <div className="min-h-screen bg-slate-50 md:flex">
+      <aside className="hidden md:flex w-64 bg-white border-r border-slate-100 flex-col">
         <div className="p-6 border-b border-slate-100">
           <h1 className="text-xl font-black text-slate-900">Admin</h1>
           <p className="text-xs text-slate-400">Panel de control</p>
@@ -467,7 +480,48 @@ const AdminDashboard = () => {
           </button>
         </div>
       </aside>
-      <main className="flex-1 p-8 overflow-y-auto">
+
+      {/* Cabecera móvil: mismas 4 secciones que la barra lateral, en
+          pestañas que scrollean en horizontal. Sticky para que no haya que
+          volver arriba cada vez que se cambia de sección. */}
+      <header className="md:hidden sticky top-0 z-30 bg-white border-b border-slate-100">
+        <div className="flex items-center justify-between gap-3 px-4 py-3">
+          <div className="min-w-0">
+            <h1 className="text-lg font-black text-slate-900 leading-tight">Admin</h1>
+            <p className="text-[11px] text-slate-400">Panel de control</p>
+          </div>
+          <div className="flex items-center gap-1 shrink-0">
+            <Link
+              to={config.slug ? `/tienda/${config.slug}` : '/shop'}
+              aria-label="Ver tienda"
+              className="p-2.5 rounded-xl text-slate-500 hover:bg-slate-100 transition-all"
+            >
+              <Eye size={18} />
+            </Link>
+            <button
+              onClick={() => setAdmin(false)}
+              aria-label="Salir del admin"
+              className="p-2.5 rounded-xl text-red-400 hover:bg-red-50 transition-all"
+            >
+              <LogOut size={18} />
+            </button>
+          </div>
+        </div>
+        <nav className="flex gap-1.5 px-3 pb-2.5 overflow-x-auto [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          {menu.map(item => (
+            <button
+              key={item.id}
+              onClick={() => setActiveTab(item.id)}
+              className={`shrink-0 flex items-center gap-2 px-3.5 py-2 rounded-xl text-[13px] font-semibold whitespace-nowrap transition-all ${activeTab === item.id ? 'bg-indigo-600 text-white shadow-md shadow-indigo-200' : 'bg-slate-100 text-slate-600'}`}
+            >
+              <item.icon size={15} /> {item.label}
+            </button>
+          ))}
+        </nav>
+      </header>
+
+      {/* p-4 en móvil: el p-8 fijo se llevaba 64px de los 375 de ancho */}
+      <main className="flex-1 min-w-0 p-4 md:p-8 overflow-y-auto">
         {activeTab === 'overview' && <DashboardOverview />}
         {activeTab === 'products' && <ProductManagement />}
         {activeTab === 'templates' && <TemplateSelector />}
