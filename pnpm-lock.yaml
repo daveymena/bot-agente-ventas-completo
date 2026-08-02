@@ -198,8 +198,8 @@ importers:
         specifier: 'catalog:'
         version: 25.9.5
       '@whiskeysockets/baileys':
-        specifier: 7.0.0-rc13
-        version: 7.0.0-rc13
+        specifier: 7.0.0-rc14
+        version: 7.0.0-rc14
       '@workspace/api-zod':
         specifier: workspace:*
         version: link:../../lib/api-zod
@@ -2019,8 +2019,8 @@ packages:
     peerDependencies:
       vite: ^4.2.0 || ^5.0.0 || ^6.0.0 || ^7.0.0 || ^8.0.0
 
-  '@whiskeysockets/baileys@7.0.0-rc13':
-    resolution: {integrity: sha512-8JPc8gaaCRykkjW2jxLGQ7/RZGrc7awO7WU+QJocf58eSUI9jAdcuYLynzhAbyU4UWvJJsHImZ+5E/JaZj5ypA==}
+  '@whiskeysockets/baileys@7.0.0-rc14':
+    resolution: {integrity: sha512-WK+X8ju8TPGxvWIsP8hrY6JB6FltYuFe+vsqKfjOYX25JObij9qLf2c3ZGdl1Q+vhFwbnT+AZmWAB5pTvzmSiQ==}
     engines: {node: '>=20.0.0'}
     peerDependencies:
       audio-decode: ^2.1.3
@@ -3016,7 +3016,7 @@ packages:
     resolution: {integrity: sha512-d/5V3YFtDljbFMufz4ncyUYGYhJl+vzAe+c2EFFBQ6bz1h8Q3IOMEGXYMzlibU60I+e8GagMMpji18iez3P1hA==}
 
   libsignal@https://codeload.github.com/whiskeysockets/libsignal-node/tar.gz/bcea72df9ec34d9d9140ab30619cf479c7c144c7:
-    resolution: {tarball: https://codeload.github.com/whiskeysockets/libsignal-node/tar.gz/bcea72df9ec34d9d9140ab30619cf479c7c144c7}
+    resolution: {gitHosted: true, tarball: https://codeload.github.com/whiskeysockets/libsignal-node/tar.gz/bcea72df9ec34d9d9140ab30619cf479c7c144c7}
     version: 6.0.0
 
   lightningcss-linux-x64-gnu@1.32.0:
@@ -5746,7 +5746,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  '@whiskeysockets/baileys@7.0.0-rc13':
+  '@whiskeysockets/baileys@7.0.0-rc14':
     dependencies:
       '@cacheable/node-cache': 1.7.6
       '@hapi/boom': 9.1.4
