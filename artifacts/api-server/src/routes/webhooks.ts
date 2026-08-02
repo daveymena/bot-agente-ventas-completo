@@ -114,7 +114,8 @@ router.post("/mercadopago", async (req: Request, res: Response) => {
             parseFloat(paymentData.transaction_amount || "0"),
             product.currency || "COP",
             String(paymentId),
-            "mercadopago"
+            "mercadopago",
+            product.tenantId ?? undefined
           );
           logger.info({ email: relatedConvo.customerEmail, productName: product.name }, "[Webhook] Email de confirmación enviado");
         }
@@ -219,7 +220,8 @@ router.post("/paypal", async (req: Request, res: Response) => {
             parseFloat(body.mc_gross || "0"),
             product.currency || "COP",
             String(body.txn_id || ""),
-            "paypal"
+            "paypal",
+            product.tenantId ?? undefined
           );
           logger.info({ email: relatedConvo.customerEmail, productName: product.name }, "[Webhook-PayPal] Email de confirmación enviado");
         }

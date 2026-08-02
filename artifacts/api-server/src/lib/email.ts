@@ -762,10 +762,16 @@ export async function sendOrderConfirmationEmail(
   currency: string = "COP",
   paymentId: string,
   paymentMethod: string,
-  smtp?: { host: string; port: number; secure: boolean; user: string; pass: string; from?: string }
+  // Este correo va del NEGOCIO a SU comprador, no de la plataforma. Con el
+  // tenantId sale del correo del negocio y firmado con su marca; sin él
+  // (llamadas viejas) cae al SMTP del servidor como antes.
+  //
+  // Que llegue de "VentasPro" -- una marca que el comprador no reconoce --
+  // es media entrega a spam y la otra media leída como estafa.
+  tenantId?: number
 ): Promise<boolean> {
-  const tr = smtp ? crearTransporter(smtp) : transporter;
-  if (!tr) {
+  // El transporter global solo hace falta para el camino de respaldo.
+  if (!transporter && !tenantId) {
     logger.warn({ email }, "[Email] SMTP no configurado, no se puede enviar email de confirmación de orden");
     return false;
   }
@@ -1006,7 +1012,24 @@ export async function sendOrderConfirmationEmail(
       `,
     };
 
-    const result = await tr.sendMail(mailOptions);
+    // Si el negocio tiene su propio correo, sale de ahí y con su marca.
+    // enviarComoNegocio cae solo al SMTP del servidor si no lo configuró.
+    if (tenantId) {
+      const { enviarComoNegocio } = await import("./tenant-email");
+      const enviado = await enviarComoNegocio(tenantId, {
+        to: email,
+        subject: mailOptions.subject,
+        html: mailOptions.html,
+      });
+      if (enviado) return true;
+      // Si falla el correo del negocio se reintenta por el del servidor: es
+      // preferible que el comprador reciba la confirmación desde una marca
+      // rara a que no reciba nada después de haber pagado.
+      logger.warn({ tenantId, email }, "[Email] Falló el correo del negocio; se reintenta por el del servidor");
+      if (!transporter) return false;
+    }
+
+    const result = await transporter!.sendMail(mailOptions);
     logger.info({ email, productName, paymentId, messageId: result.messageId }, "[Email] ✅ Confirmación de orden enviada exitosamente");
     return true;
   } catch (error) {

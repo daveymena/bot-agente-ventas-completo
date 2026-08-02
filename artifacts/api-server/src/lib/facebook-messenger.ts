@@ -31,7 +31,7 @@ export class FacebookMessengerService {
     return {
       pageAccessToken: fb.accessToken || fb.messengerPageToken || process.env.FB_ACCESS_TOKEN || process.env.FB_MESSENGER_PAGE_TOKEN || "",
       appSecret: fb.appSecret || process.env.FB_APP_SECRET || "",
-      appId: fb.appId || process.env.FB_APP_ID || "4238613976451604",
+      appId: fb.appId || process.env.FB_APP_ID || "",
       pageId: fb.pageId || process.env.FB_PAGE_ID || "",
     };
   }

@@ -21,10 +21,13 @@ import { CreditCard, CheckCircle2, AlertTriangle, Loader, Eye, EyeOff, ShieldChe
  * así significa "no lo cambies".
  */
 
+interface Cuenta { type: string; number: string; name: string }
+
 interface Estado {
   propias: boolean;
   mercadopago: { configurado: boolean; enabled: boolean; pista: string };
   paypal: { configurado: boolean; enabled: boolean; clientId: string; mode: "sandbox" | "live"; pista: string };
+  transfer: { configurado: boolean; enabled: boolean; accounts: Cuenta[] };
 }
 
 type Prueba = { ok: boolean; detalle: string } | null;
@@ -48,6 +51,9 @@ export function PaymentCredentials() {
   const [pruebaPp, setPruebaPp] = useState<Prueba>(null);
   const [probandoPp, setProbandoPp] = useState(false);
 
+  const [cuentas, setCuentas] = useState<Cuenta[]>([]);
+  const [trEnabled, setTrEnabled] = useState(true);
+
   const cargar = async () => {
     try {
       const res = await fetch("/api/payments/credentials", { credentials: "include" });
@@ -58,6 +64,8 @@ export function PaymentCredentials() {
       setPpId(data.paypal.clientId);
       setPpMode(data.paypal.mode);
       setPpEnabled(data.paypal.enabled);
+      setCuentas(data.transfer?.accounts || []);
+      setTrEnabled(data.transfer?.enabled ?? true);
     } catch {
       toast.error("No se pudo cargar la configuración de cobros");
     } finally {
@@ -105,6 +113,12 @@ export function PaymentCredentials() {
         body: JSON.stringify({
           mercadopago: { ...(mpToken ? { accessToken: mpToken } : {}), enabled: mpEnabled },
           paypal: { clientId: ppId, ...(ppSecret ? { clientSecret: ppSecret } : {}), mode: ppMode, enabled: ppEnabled },
+          transfer: {
+            enabled: trEnabled,
+            // Se descartan las filas a medio llenar: una cuenta sin número o
+            // sin titular no sirve para transferir y confunde al comprador.
+            accounts: cuentas.filter(c => c.type.trim() && c.number.trim() && c.name.trim()),
+          },
         }),
       });
       if (!res.ok) throw new Error();
@@ -271,6 +285,60 @@ export function PaymentCredentials() {
             </Button>
             <Resultado p={pruebaPp} />
           </div>
+        </div>
+
+        {/* ── Transferencias (Nequi, Daviplata, bancos) ── */}
+        <div className="space-y-3 pt-2 border-t border-border/50">
+          <div className="flex items-center justify-between gap-3 flex-wrap pt-5">
+            <div className="flex items-center gap-2">
+              <h3 className="font-bold">Nequi, Daviplata y bancos</h3>
+              {estado?.transfer.configurado
+                ? <Badge className="bg-emerald-500/10 text-emerald-600 border-emerald-500/20">Configurado</Badge>
+                : <Badge variant="outline" className="text-muted-foreground">Sin configurar</Badge>}
+            </div>
+            <div className="flex items-center gap-2">
+              <Label className="text-xs text-muted-foreground">Activo</Label>
+              <Switch checked={trEnabled} onCheckedChange={setTrEnabled} />
+            </div>
+          </div>
+
+          <p className="text-xs text-muted-foreground">
+            El bot le da estos datos al cliente para que transfiera. Ojo: la transferencia
+            <strong> no se confirma sola</strong> — alguien tiene que verificar que el dinero llegó.
+          </p>
+
+          {cuentas.length === 0 && (
+            <p className="text-xs text-amber-600 flex items-start gap-1.5">
+              <AlertTriangle className="h-3.5 w-3.5 mt-px shrink-0" />
+              Sin cuentas cargadas, el bot no va a ofrecer transferencia como forma de pago.
+            </p>
+          )}
+
+          <div className="space-y-2">
+            {cuentas.map((c, i) => (
+              <div key={i} className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)_minmax(0,1.4fr)_auto] items-center">
+                <Input value={c.type} placeholder="Nequi"
+                  onChange={e => setCuentas(cs => cs.map((x, k) => k === i ? { ...x, type: e.target.value } : x))}
+                  className="bg-muted/30" />
+                <Input value={c.number} placeholder="3001234567" inputMode="tel"
+                  onChange={e => setCuentas(cs => cs.map((x, k) => k === i ? { ...x, number: e.target.value } : x))}
+                  className="font-mono bg-muted/30" />
+                <Input value={c.name} placeholder="Titular de la cuenta"
+                  onChange={e => setCuentas(cs => cs.map((x, k) => k === i ? { ...x, name: e.target.value } : x))}
+                  className="bg-muted/30" />
+                <Button variant="ghost" size="sm" aria-label="Quitar cuenta"
+                  onClick={() => setCuentas(cs => cs.filter((_, k) => k !== i))}
+                  className="text-red-400 hover:text-red-500 hover:bg-red-50">
+                  Quitar
+                </Button>
+              </div>
+            ))}
+          </div>
+
+          <Button variant="outline" size="sm"
+            onClick={() => setCuentas(cs => [...cs, { type: "Nequi", number: "", name: "" }])}>
+            Agregar cuenta
+          </Button>
         </div>
 
         <div className="flex items-center justify-between gap-3 pt-2 flex-wrap">

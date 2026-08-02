@@ -138,13 +138,13 @@ const DEFAULT_TENANT: TenantContext = {
       accounts: [
         {
           type: "Nequi",
-          number: process.env.TRANSFER_NUMBER || "3136174267",
-          name: process.env.TRANSFER_NAME || "Duvier Mena"
+          number: process.env.TRANSFER_NUMBER || "",
+          name: process.env.TRANSFER_NAME || ""
         },
         {
           type: "Daviplata", 
-          number: process.env.TRANSFER_NUMBER || "3136174267",
-          name: process.env.TRANSFER_NAME || "Duvier Mena"
+          number: process.env.TRANSFER_NUMBER || "",
+          name: process.env.TRANSFER_NAME || ""
         }
       ]
     }

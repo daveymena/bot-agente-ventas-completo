@@ -6,7 +6,6 @@ import {
 import { useQueryClient } from "@tanstack/react-query";
 import { Layout } from "@/components/layout";
 import { PaymentCredentials } from "@/components/payment-credentials";
-import { FacebookCredentials } from "@/components/facebook-credentials";
 import { EmailCredentials } from "@/components/email-credentials";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -162,6 +161,7 @@ export default function Settings() {
             {/* Primero de la lista a propósito: sin esto configurado, las
                 ventas del negocio se cobran en la cuenta del servidor. */}
             <PaymentCredentials />
+            <EmailCredentials />
 
             <Card className="rounded-3xl border-0 shadow-lg glass-panel overflow-hidden relative">
               <div className="absolute top-0 right-0 w-full h-2 bg-gradient-to-r from-primary to-accent" />

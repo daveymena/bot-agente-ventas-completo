@@ -39,6 +39,16 @@ const guardarSchema = z.object({
     mode: z.enum(["sandbox", "live"]).optional(),
     enabled: z.boolean().optional(),
   }).optional(),
+  // Nequi, Daviplata, bancos. No son secretos -- el cliente TIENE que verlos
+  // para poder transferir -- así que van en claro, sin cifrar.
+  transfer: z.object({
+    enabled: z.boolean().optional(),
+    accounts: z.array(z.object({
+      type: z.string().min(1),
+      number: z.string().min(1),
+      name: z.string().min(1),
+    })).optional(),
+  }).optional(),
 });
 
 function tenantIdDe(req: any): number | null {
@@ -89,6 +99,14 @@ router.get("/credentials", async (req, res, next) => {
         mode: cred.paypal.mode,
         pista: pm?.paypal?.clientSecret ? enmascarar(cred.paypal.clientSecret) : "",
       },
+      transfer: {
+        // Solo cuentas PROPIAS: si mostrara el respaldo del .env, el dueño
+        // creería que ya cargó las suyas cuando en realidad está dando el
+        // número del servidor.
+        configurado: Array.isArray(pm?.transfer?.accounts) && pm.transfer.accounts.length > 0,
+        enabled: cred.transfer.enabled,
+        accounts: Array.isArray(pm?.transfer?.accounts) ? pm.transfer.accounts : [],
+      },
     });
   } catch (err) {
     return next(err);
@@ -131,6 +149,17 @@ router.put("/credentials", async (req, res, next) => {
           : {}),
         mode: paypal.mode ?? prev.mode ?? "live",
         enabled: paypal.enabled ?? prev.enabled ?? true,
+      };
+    }
+
+    if (parsed.data.transfer) {
+      const prev = actual.transfer || {};
+      nuevo.transfer = {
+        ...prev,
+        ...(parsed.data.transfer.accounts !== undefined
+          ? { accounts: parsed.data.transfer.accounts }
+          : {}),
+        enabled: parsed.data.transfer.enabled ?? prev.enabled ?? true,
       };
     }
 

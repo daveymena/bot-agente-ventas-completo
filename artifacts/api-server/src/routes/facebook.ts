@@ -622,6 +622,19 @@ router.get("/config", async (req, res, next) => {
       pageId,
       adAccountId,
       hasToken: !!accessToken,
+      // App ID y App Secret PROPIOS del negocio. El appId no es secreto (viaja
+      // en la URL de cualquier login de Facebook), así que se devuelve tal
+      // cual; del secret solo se informa si existe, nunca su valor.
+      //
+      // A diferencia de los campos de arriba, acá NO se cae al .env: eso
+      // mostraría la app de la plataforma como si fuera la del negocio, y el
+      // dueño creería que ya cargó la suya.
+      appId: cfg.appId || "",
+      hasAppSecret: !!decryptSecret(cfg.appSecret),
+      // Tampoco caen al .env, por el mismo motivo que appId/appSecret.
+      hasMessengerToken: !!decryptSecret(cfg.messengerPageToken),
+      messengerVerifyToken: cfg.messengerVerifyToken || "",
+      loginConfigId: cfg.loginConfigId || "",
     });
   } catch (e) { return next(e); }
 });
@@ -651,6 +664,11 @@ router.put("/config", async (req, res, next) => {
     // encriptado de `current` como si fuera texto plano nuevo.
     const newAccessToken = "accessToken" in body ? encryptSecret(body.accessToken) : current.accessToken || "";
     const newAppSecret = "appSecret" in body ? encryptSecret(body.appSecret) : current.appSecret || "";
+    // El token de página de Messenger también es un secreto: permite escribir
+    // en nombre de la página. Se cifra igual que los otros dos.
+    const newMessengerToken = "messengerPageToken" in body
+      ? encryptSecret(body.messengerPageToken)
+      : current.messengerPageToken || "";
     meta.facebook = {
       ...current,
       accessToken: newAccessToken,
@@ -660,6 +678,15 @@ router.put("/config", async (req, res, next) => {
       adAccountId: field("adAccountId"),
       appId: field("appId"),
       appSecret: newAppSecret,
+      // Estaban en TenantContext pero no se podían cargar desde el panel:
+      // dependían de que el flujo de OAuth los dejara, o del .env del
+      // servidor. Sin poder editarlos, un negocio con su propia app no tenía
+      // forma de conectar Messenger ni de validar sus webhooks.
+      messengerPageToken: newMessengerToken,
+      messengerVerifyToken: field("messengerVerifyToken"),
+      // Necesario si la app usa "Facebook Login for Business": ese producto
+      // ignora los permisos sueltos y exige el id de una configuración.
+      loginConfigId: field("loginConfigId"),
     };
     await db.update(tenants).set({ metadata: meta as any }).where(eq(tenants.id, tenantId));
     tenantManager.clearCache();

@@ -1,6 +1,6 @@
 import { encryptionService } from "./encryption-service";
 import { logger } from "./logger";
-import type { TenantContext } from "./tenantManager";
+import { tenantManager, type TenantContext } from "./tenantManager";
 
 /**
  * Credenciales de cobro POR NEGOCIO.
@@ -77,11 +77,52 @@ export interface CredencialesPayPal {
   enabled: boolean;
 }
 
+export interface CuentaTransferencia {
+  type: string;
+  number: string;
+  name: string;
+}
+
 export interface CredencialesDePago {
   mercadopago: CredencialesMercadoPago;
   paypal: CredencialesPayPal;
+  /** Nequi, Daviplata, bancos: el cliente transfiere y alguien verifica. */
+  transfer: { enabled: boolean; accounts: CuentaTransferencia[] };
   /** true si salieron de la config del negocio; false si son las del .env */
   propias: boolean;
+}
+
+/**
+ * Cuentas de transferencia del negocio.
+ *
+ * NO hay número por defecto, y es a propósito: antes el código traía
+ * "3136174267" hardcodeado como respaldo en cuatro lugares, así que un
+ * negocio sin configurar le daba a SUS clientes el número de un tercero.
+ * Plata que se va a la cuenta equivocada, sin ningún error visible.
+ *
+ * Vacío significa vacío: el bot no ofrece transferencia si no hay a dónde.
+ */
+function transferenciasDe(pm: any, esDuenoDelServidor: boolean): { enabled: boolean; accounts: CuentaTransferencia[] } {
+  const propias: CuentaTransferencia[] = Array.isArray(pm?.transfer?.accounts)
+    ? pm.transfer.accounts.filter((c: any) => c?.number && c?.name)
+    : [];
+
+  if (propias.length > 0) {
+    return { enabled: pm.transfer?.enabled !== false, accounts: propias };
+  }
+
+  // Respaldo del .env: solo para el dueño del servidor, y solo si está
+  // realmente configurado. Para otro negocio sería darle a SUS clientes el
+  // Nequi de un tercero -- plata que se va sin dejar rastro.
+  if (esDuenoDelServidor) {
+    const envNum = process.env.TRANSFER_NUMBER || "";
+    const envName = process.env.TRANSFER_NAME || process.env.TRANSFER_OWNER || "";
+    if (envNum && envName) {
+      return { enabled: true, accounts: [{ type: "Nequi", number: envNum, name: envName }] };
+    }
+  }
+
+  return { enabled: false, accounts: [] };
 }
 
 /**
@@ -102,18 +143,32 @@ export function credencialesDe(tenant: TenantContext | null | undefined): Creden
   const tieneMp = !!mpToken;
   const tienePp = !!(ppId && ppSecret);
 
+  // El respaldo del .env vale SOLO para el negocio dueño del servidor.
+  //
+  // La primera versión de esto lo aplicaba a todos, para no romper la
+  // instalación existente. Pero con un segundo negocio eso significa que sus
+  // ventas se cobran en la cuenta de MercadoPago del dueño de la plataforma
+  // -- exactamente el problema que este archivo venía a resolver.
+  //
+  // Para cualquier otro negocio, vacío es vacío: el checkout responde
+  // "MercadoPago no configurado" y el dueño va a cargar el suyo, en vez de
+  // que la plata entre en la cuenta equivocada sin que nadie se entere.
+  const esDuenoDelServidor = !tenant || tenant.id === tenantManager.getDefaultTenant().id;
+  const env = (valor: string | undefined) => (esDuenoDelServidor ? valor || "" : "");
+
   return {
     mercadopago: {
-      accessToken: mpToken || process.env.MERCADO_PAGO_ACCESS_TOKEN || "",
-      enabled: tieneMp ? pm.mercadopago?.enabled !== false : !!process.env.MERCADO_PAGO_ACCESS_TOKEN,
+      accessToken: mpToken || env(process.env.MERCADO_PAGO_ACCESS_TOKEN),
+      enabled: tieneMp ? pm.mercadopago?.enabled !== false : !!env(process.env.MERCADO_PAGO_ACCESS_TOKEN),
     },
     paypal: {
-      clientId: ppId || process.env.PAYPAL_CLIENT_ID || "",
-      clientSecret: ppSecret || process.env.PAYPAL_CLIENT_SECRET || "",
+      clientId: ppId || env(process.env.PAYPAL_CLIENT_ID),
+      clientSecret: ppSecret || env(process.env.PAYPAL_CLIENT_SECRET),
       mode: (pm.paypal?.mode as "sandbox" | "live") || (process.env.PAYPAL_MODE === "sandbox" ? "sandbox" : "live"),
-      enabled: tienePp ? pm.paypal?.enabled !== false : !!process.env.PAYPAL_CLIENT_ID,
+      enabled: tienePp ? pm.paypal?.enabled !== false : !!env(process.env.PAYPAL_CLIENT_ID),
     },
-    propias: tieneMp || tienePp,
+    transfer: transferenciasDe(pm, esDuenoDelServidor),
+    propias: tieneMp || tienePp || (Array.isArray(pm?.transfer?.accounts) && pm.transfer.accounts.length > 0),
   };
 }
 
