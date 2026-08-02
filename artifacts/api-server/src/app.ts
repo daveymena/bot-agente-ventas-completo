@@ -74,7 +74,17 @@ logger.info("[MessageHandler] Message receiver configured for default tenant");
     // aquí: un valor fijo en el código es la misma cuenta admin conocida en
     // CUALQUIER despliegue fresco de este repo. Fallback solo para no romper
     // instalaciones locales sin .env; en producción hay que setear ambas vars.
-    const existingTenants = await db.select().from(tenants).limit(1);
+    let existingTenants = [];
+    try {
+      existingTenants = await db.select().from(tenants).limit(1);
+    } catch (e: any) {
+      // Si falla por schema mismatch (columnas faltantes), ignorar auto-seed
+      if (e.message?.includes("does not exist") || e.code === "42703") {
+        console.warn("[AutoSeed] Schema mismatch detectado, omitiendo auto-seed");
+        return;
+      }
+      throw e;
+    }
     if (existingTenants.length === 0) {
       const crypto = await import("crypto");
       const adminEmail = process.env.ADMIN_EMAIL || "admin@example.com";
