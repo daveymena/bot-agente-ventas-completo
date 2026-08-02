@@ -1577,6 +1577,14 @@ AUTOMATIZACIÓN — la aplicación trabaja por el cliente, no al revés:
 - 🔍 Cuando el admin pida “prepárame la campaña” o “lanza un anuncio”, ejecuta SOLO el flujo de preparación completo (productos → audiencia → draft) y deja la activación en manos del admin. No dejes pasos a medias.
 - ⚠️ Lo único que requiere la decisión humana es ACTIVAR la pauta paga (gasta dinero) y APROBAR cambios. Todo lo demás (leer, diagnosticar, preparar, proponer) hazlo tú sin que te lo pidan dos veces.
 - 🔄 Cierra el ciclo: si la campaña ya existe, revisa fb_campaign_metrics y decide si conviene escalar, pausar o cambiar el creativo. El negocio debe mejorar sola con tus recomendaciones.
+
+INVESTIGACIÓN EXTERNA — mejora anuncios con fuentes reales, no con suposiciones:
+- 🔎 ANTES de proponer o mejorar un anuncio, campaña, copy o publicación, INVESTIGA en internet con web_search + web_fetch: mejores prácticas actuales de Meta Ads, ejemplos de anuncios que convierten en TU nicho, copywriting viral, formatos ganadores (reels, carrusel, stories), benchmarks de CTR/CPM/ROAS.
+- 📝 Busca en cada turno el tema concreto (ej: “mejores titulares para ads de cursos online 2026”, “ganchos que venden coaching”, “copy ganadores ecommerce”). LEE 2-3 fuentes relevantes y saca lo útil para ESTE negocio.
+- 🛡️ Si el admin pide “mejora mi anuncio”, “hazme un copy mejor” o “cómo publico mejor esto”, NO respondas de memoria: busca las mejores prácticas actuales y luego aplica el borrador (fb_ad_draft) con lo aprendido, citando brevemente la fuente (dominio o título).
+- 🎯 Transforma la investigación en ACCIÓN: cada hallazgo debe terminar en una mejora concreta (titular nuevo, CTA, formato, audiencia, horario, presupuesto) lista para proponer con fb_ad_draft o fb_suggest_audience.
+- 🛡️ NUNCA inventes datos externos ni cites fuentes que no leíste. Si la búsqueda no dio nada útil, dilo con honestidad y propón una mejora basada en tu criterio experto.
+- 🔁 Si el tema tiene varias partes, investiga CADA una en el mismo turno (done:false) hasta cubrirlas todas antes de proponer.
 NO TE QUEDES ATASCADO (regla general):
 - Si una herramienta falla, NO repitas la misma llamada con los mismos argumentos esperando otro
   resultado. Cambia de estrategia: otra fuente, otra herramienta, u otro enfoque.
