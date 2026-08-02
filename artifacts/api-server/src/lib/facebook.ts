@@ -1,4 +1,5 @@
 import { logger } from "./logger";
+import { getAppUrl } from "./app-url";
 import { db, products } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { tenantManager, type TenantContext } from "./tenantManager";
@@ -13,7 +14,7 @@ const FB_GRAPH_URL = "https://graph.facebook.com/v21.0";
 function absoluteImageUrl(pathOrUrl?: string | null): string | null {
   if (!pathOrUrl) return null;
   if (/^https?:\/\//i.test(pathOrUrl)) return pathOrUrl;
-  const appUrl = process.env.APP_URL || "https://tecnovariedades.easypanel.host";
+  const appUrl = getAppUrl();
   if (!/^https:\/\//i.test(appUrl)) return null;
   return `${appUrl.replace(/\/+$/, "")}/${pathOrUrl.replace(/^\/+/, "")}`;
 }
@@ -513,7 +514,7 @@ Responde SOLO con este JSON exacto:
             // (app.ts) que resuelve el tenant y redirige a
             // /tienda/:slug/producto/:id -- el mismo que ya usa
             // ad-strategist.ts para los borradores.
-            link: `${process.env.APP_URL || "https://tecnovariedades.easypanel.host"}/p/${product.id}`,
+            link: `${getAppUrl()}/p/${product.id}`,
             message: adCopy.primaryText,
             name: adCopy.headline,
             description: adCopy.description,

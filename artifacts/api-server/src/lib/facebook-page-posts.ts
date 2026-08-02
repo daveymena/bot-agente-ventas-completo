@@ -10,6 +10,7 @@
  */
 
 import { logger } from "./logger";
+import { getAppUrl } from "./app-url";
 import { db, products } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { tenantManager, type TenantContext } from "./tenantManager";
@@ -68,7 +69,7 @@ function absoluteUrl(pathOrUrl?: string | null): string | null {
   // relativa (/uploads/products/42.jpg) se publicaba SIN foto —
   // absoluteUrl devolvía null en silencio y buildPostDraft mandaba
   // imageUrl: null, así que publishToPage caía al post de solo texto.
-  const appUrl = process.env.APP_URL || "https://tecnovariedades.easypanel.host";
+  const appUrl = getAppUrl();
   if (!/^https:\/\//i.test(appUrl)) {
     logger.warn({ pathOrUrl, appUrl }, "[PagePost] APP_URL inválida — no se pudo armar URL absoluta de imagen");
     return null;

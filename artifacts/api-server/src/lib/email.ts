@@ -1,4 +1,5 @@
 import * as nodemailer from "nodemailer";
+import { getAppUrl } from "./app-url";
 import { logger } from "./logger";
 
 const smtpConfigured = !!(process.env.SMTP_USER && process.env.SMTP_PASS);
@@ -379,7 +380,7 @@ export async function sendActivationTokenEmail(
   try {
     logger.info({ email, plan }, "[Email] 📧 Enviando token de activación de suscripción...");
     
-    const activationUrl = `${process.env.APP_URL || "https://tecnovariedades.easypanel.host"}/activate?token=${token}`;
+    const activationUrl = `${getAppUrl()}/activate?token=${token}`;
     
     const mailOptions = {
       from: `"VentasPro" <${process.env.SMTP_USER}>`,

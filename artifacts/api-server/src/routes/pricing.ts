@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { getAppUrl } from "../lib/app-url";
 import { SAAS_PLANS, SaasPlan, getPlanInfo, getMonthlyPrice } from "../middleware/saasValidation";
 import { logger } from "../lib/logger";
 import { SubscriptionPaymentService } from "../lib/subscription-payments";
@@ -135,8 +136,8 @@ router.post("/upgrade", paymentRateLimit, validateCsrfToken, async (req, res, ne
         plan: newPlan as SaasPlan,
         billingCycle: billingCycle as "monthly" | "quarterly" | "annual",
         paymentMethod: paymentMethod as "mercadopago" | "paypal",
-        returnUrl: `${process.env.APP_URL || "https://tecnovariedades.easypanel.host"}/subscription-success?email=${encodeURIComponent(tenant.email)}`,
-        cancelUrl: `${process.env.APP_URL || "https://tecnovariedades.easypanel.host"}/subscription-failure`,
+        returnUrl: `${getAppUrl()}/subscription-success?email=${encodeURIComponent(tenant.email)}`,
+        cancelUrl: `${getAppUrl()}/subscription-failure`,
       });
 
       logger.info({ paymentLink, tenantId: tenant.id }, "[Pricing] Payment link created successfully");
