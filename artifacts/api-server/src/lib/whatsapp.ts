@@ -413,55 +413,74 @@ export class WhatsAppManager {
   }
 
    async requestPairingCode(phoneNumber: string): Promise<string> {
-      if (!this.sock) throw new Error("WhatsApp no está iniciado. Llama a start() primero.");
-      
+      if (!this.sock) throw new Error("WhatsApp no está iniciado. Llama a startWithPairing() primero.");
+
       let lastError = null;
-      // Reintentar hasta 5 veces (esperando a que el socket WS termine de conectar)
-      for (let i = 0; i < 5; i++) {
+      const maxRetries = 8;
+      const waitTimes = [2000, 3000, 4000, 5000, 6000, 7000, 8000, 10000];
+
+      for (let i = 0; i < maxRetries; i++) {
         try {
-          // Esperar progresivamente (1s, 2s, etc) para asegurar que Noise Handshake terminó
-          await new Promise(r => setTimeout(r, 1500 + (i * 1000)));
-          
+          const waitMs = waitTimes[i] || 10000;
+          console.log(`⏳ [PAIRING] Intento ${i+1}/${maxRetries} - esperando ${waitMs}ms para handshake Noise...`);
+          await new Promise(r => setTimeout(r, waitMs));
+
+          console.log(`🔄 [PAIRING] Solicitando código de emparejamiento para ${phoneNumber}...`);
           const code = await this.sock.requestPairingCode(phoneNumber);
           const formatted = code.match(/.{1,4}/g)?.join("-") || code;
-          logger.info({ phoneNumber }, "[WhatsApp] Pairing code generated");
+
+          logger.info({ phoneNumber, code: formatted }, "[WhatsApp] Pairing code generated successfully");
+          console.log(`✅ [PAIRING] Código generado: ${formatted}`);
           return formatted;
         } catch (e: any) {
           lastError = e;
-          console.warn(`⚠️ [WhatsApp] Intento ${i+1} de obtener PIN falló:`, e.message);
-          // Si el error no es de conexión o timeout, lanzar inmediatamente
-          if (!e.message?.includes("Connection Closed") && !e.message?.includes("Timeout")) {
-             throw e;
+          const msg = e.message || String(e);
+          console.warn(`⚠️ [PAIRING] Intento ${i+1}/${maxRetries} falló - ${msg}`);
+
+          // Si es un error irrecuperable, no reintentar
+          if (msg.includes("Invalid") || msg.includes("Unauthorized") || msg.includes("Bad request")) {
+            logger.error({ phoneNumber, error: msg }, "[WhatsApp] Pairing code request failed - not retrying");
+            throw e;
+          }
+
+          if (i === maxRetries - 1) {
+            const finalError = `No se pudo generar código de emparejamiento tras ${maxRetries} intentos. Último error: ${msg}`;
+            logger.error({ phoneNumber, lastError: msg }, "[WhatsApp] Max pairing retries reached");
+            throw new Error(finalError);
           }
         }
       }
       throw lastError || new Error("No se pudo obtener el código después de varios intentos");
     }
 
-  // Igual que start() pero marca el socket para modo pairing-code en vez de QR.
-  // Baileys REQUIERE que usePairingCode:true esté en makeWASocket() desde el
-  // primer momento — no se puede cambiar en caliente. Por eso tenemos dos
-  // métodos separados en vez de un paramétro opcional en start().
   async startWithPairing() {
     this._usePairingCode = true;
     this.starting = true;
     this.state = "connecting";
-    console.log("🔄 [PAIRING] Iniciando sesión en modo pairing code...");
+    console.log("🔄 [PAIRING] Iniciando sesión en modo pairing code (Baileys 7.0.0-rc14)...");
+    logger.info("[WhatsApp] Starting with pairing code mode");
 
     try {
-      // Esperar a que start() complete
       const result = await this.start();
 
-      // Esperar un poco más para asegurar que el handshake Noise terminó
-      // antes de permitir requestPairingCode()
-      await new Promise(r => setTimeout(r, 3000));
+      // El socket está conectado pero el Noise Handshake aún está en progreso.
+      // Esperamos más tiempo para asegurar que esté listo para requestPairingCode().
+      console.log("⏳ [PAIRING] Esperando que handshake Noise complete...");
+      await new Promise(r => setTimeout(r, 5000));
 
-      console.log("✅ [PAIRING] Socket listo para pairing code");
+      if (this.state !== "connected") {
+        throw new Error(`Socket no está en estado 'connected', está en: ${this.state}`);
+      }
+
+      console.log("✅ [PAIRING] Socket listo para solicitar código de emparejamiento");
+      logger.info("[WhatsApp] Pairing socket ready");
       return result;
     } catch (e) {
       console.error("❌ [PAIRING] Error iniciando pairing:", e);
       this.state = "error";
-      this.lastError = `Error en pairing: ${e instanceof Error ? e.message : String(e)}`;
+      const errMsg = e instanceof Error ? e.message : String(e);
+      this.lastError = `Error en pairing: ${errMsg}`;
+      logger.error({ error: errMsg }, "[WhatsApp] Pairing initialization failed");
       throw e;
     } finally {
       this._usePairingCode = false;
@@ -483,17 +502,16 @@ export class WhatsAppManager {
       this.state = "connecting";
       console.log("🔄 [START] Iniciando conexión WhatsApp...");
 
-      // Timeout de 25 segundos — si no hay evento de conexión en este tiempo,
-      // asumimos que la red/WhatsApp no está accesible y marcamos error.
+      const connectionTimeoutMs = this._usePairingCode ? 45000 : 30000;
       const startTimeout = setTimeout(() => {
         if (this.state === "connecting" && this.starting) {
           this.starting = false;
           this.state = "disconnected";
-          this.lastError = "Timeout: No se pudo conectar con WhatsApp en 25 segundos. Revisa tu conexión a internet o que web.whatsapp.com esté accesible.";
-          console.error("❌ [TIMEOUT] La conexión a WhatsApp tardó demasiado tiempo");
-          logger.error("[WhatsApp] Connection timeout - suspected network issue");
+          this.lastError = `Timeout: No se pudo conectar con WhatsApp en ${connectionTimeoutMs / 1000}s. Revisa tu conexión a internet, firewall, o que web.whatsapp.com esté accesible.`;
+          console.error(`❌ [TIMEOUT] Timeout de ${connectionTimeoutMs}ms alcanzado`);
+          logger.error({ timeoutMs: connectionTimeoutMs, mode: this._usePairingCode ? "pairing" : "qr" }, "[WhatsApp] Connection timeout");
         }
-      }, 25000);
+      }, connectionTimeoutMs);
 
      try {
        if (!existsSync(AUTH_DIR)) {

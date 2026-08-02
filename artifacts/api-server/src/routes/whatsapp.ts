@@ -26,7 +26,9 @@ router.post("/connect", async (req, res, next) => {
   try {
     const tid = tenantIdFromReq(req);
     const mgr = getWhatsAppForTenant(tid, (req as any).tenant);
-    const status = await mgr.start();
+    // Usar pairing-code por defecto (más confiable que QR en redes restringidas)
+    await mgr.startWithPairing();
+    const status = mgr.getStatus();
     return res.json(GetWhatsAppStatusResponse.parse(status));
   } catch (e) {
     return next(e);

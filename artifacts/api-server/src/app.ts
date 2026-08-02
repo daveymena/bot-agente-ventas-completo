@@ -636,6 +636,33 @@ app.use("/api", (req: Request, res: Response, next: NextFunction) => {
   next();
 });
 
+// Bloquear acceso a archivos sensibles (.env, .git, terraform, AWS, etc.)
+app.use((req: Request, res: Response, next: NextFunction) => {
+  const blockedPatterns = [
+    /^\/\.env/,
+    /^\/\.git/,
+    /^\/\.aws/,
+    /^\/\.secrets/,
+    /^\/secrets\./,
+    /^\/terraform\./,
+    /^\/config\/secrets/,
+    /^\/config\/master\.key/,
+    /^\/wp-config\.php/,
+    /^\/application\.(properties|yml|yaml)$/,
+    /^\/appsettings\.(json|Development\.json|Production\.json)$/,
+    /^\/root\//,
+    /^\/home\//,
+    /docker-compose/,
+  ];
+
+  if (blockedPatterns.some(pattern => pattern.test(req.path))) {
+    logger.warn({ path: req.path }, "🚨 Intento de acceso a archivo sensible bloqueado");
+    return res.status(403).json({ error: "Acceso denegado" });
+  }
+
+  next();
+});
+
 app.use("/api/woocommerce", woocommerceRouter);
 app.use("/api/webhooks/subscription", subscriptionWebhooksRouter);
 app.use("/api/activation", activationRouter);
