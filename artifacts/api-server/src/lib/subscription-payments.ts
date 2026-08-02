@@ -1,4 +1,5 @@
 import { logger } from "./logger";
+import { getAppUrl } from "./app-url";
 import { dbNow } from "./date-utils";
 import { db, subscriptions, paymentTransactions, tenants } from "@workspace/db";
 import { eq, and, desc } from "drizzle-orm";
@@ -172,7 +173,7 @@ export class SubscriptionPaymentService {
       throw new Error("MercadoPago no está configurado. Por favor contacta al administrador.");
     }
 
-    const appUrl = process.env.APP_URL || "https://tecnovariedades.easypanel.host";
+    const appUrl = getAppUrl();
     const planDetails = SAAS_PLANS[subscription.plan as SaasPlan];
 
     // Convertir a COP si es necesario (MercadoPago Colombia usa COP)
@@ -268,7 +269,7 @@ export class SubscriptionPaymentService {
       throw new Error("PayPal credentials no configuradas");
     }
 
-    const appUrl = process.env.APP_URL || "https://tecnovariedades.easypanel.host";
+    const appUrl = getAppUrl();
     const planDetails = SAAS_PLANS[subscription.plan as SaasPlan];
 
     try {

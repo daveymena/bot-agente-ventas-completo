@@ -1,5 +1,6 @@
 // @ts-nocheck
 import { logger } from "./logger";
+import { getAppUrl } from "./app-url";
 import { dbNow } from "./date-utils";
 import { db, paymentLinks } from "@workspace/db";
 import { eq, and, gte, lte } from "drizzle-orm";
@@ -202,7 +203,7 @@ class URLShortener {
   static async createShortLink(originalUrl: string, method: string, productId: number, clientPhone: string): Promise<string> {
     try {
       const shortCode = this.generateShortCode();
-      const baseUrl = process.env.APP_URL || "https://tecnovariedades.easypanel.host";
+      const baseUrl = getAppUrl();
       const shortUrl = `${baseUrl}/p/${shortCode}`;
 
       // Store in database for redirection
@@ -274,7 +275,7 @@ export class PaymentGateway {
           name: process.env.TRANSFER_NAME || process.env.TRANSFER_OWNER || ""
         }
       ],
-      appUrl: process.env.APP_URL || "https://tecnovariedades.easypanel.host",
+      appUrl: getAppUrl(),
       ...config,
     };
   }

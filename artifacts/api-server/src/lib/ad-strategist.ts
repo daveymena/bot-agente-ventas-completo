@@ -1,4 +1,5 @@
 import { logger } from "./logger";
+import { getAppUrl } from "./app-url";
 import { db, products, productCategories, facebookDrafts } from "@workspace/db";
 import { eq, desc } from "drizzle-orm";
 import { tenantManager, type TenantContext } from "./tenantManager";
@@ -414,7 +415,7 @@ Este contenido digital es tu atajo directo a resultados profesionales.
     if (/^https?:\/\//i.test(raw)) {
       imageUrl = raw;
     } else if (raw) {
-      const appUrl = process.env.APP_URL || "https://tecnovariedades.easypanel.host";
+      const appUrl = getAppUrl();
       if (/^https:\/\//i.test(appUrl)) {
         imageUrl = `${appUrl.replace(/\/+$/, "")}/${raw.replace(/^\/+/, "")}`;
       }
@@ -434,7 +435,7 @@ Este contenido digital es tu atajo directo a resultados profesionales.
     // Se guarda como archivo real (no data: URI) y se persiste en el
     // producto para no regenerarla cada vez, y para que se vea en la tienda.
     if (!imageUrl) {
-      const appUrl = process.env.APP_URL || "https://tecnovariedades.easypanel.host";
+      const appUrl = getAppUrl();
       if (/^https:\/\//i.test(appUrl)) {
         const generatedPath = await generateProductImage({ id: product.id, name: product.name, description: product.description });
         if (generatedPath) {
@@ -597,7 +598,7 @@ Este contenido digital es tu atajo directo a resultados profesionales.
         object_story_spec: {
           page_id: this.tenant.facebook?.pageId || process.env.FB_PAGE_ID || "",
           link_data: {
-            link: `${process.env.APP_URL || "https://tecnovariedades.easypanel.host"}/p/${product.id}`,
+            link: `${getAppUrl()}/p/${product.id}`,
             message: adCopy.primaryText,
             name: adCopy.headline,
             description: adCopy.description,

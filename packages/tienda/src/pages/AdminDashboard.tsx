@@ -22,6 +22,8 @@ import {
   LayoutTemplate,
   Sparkles,
   RefreshCw,
+  PanelLeftClose,
+  PanelLeftOpen,
 } from 'lucide-react';
 import Swal from 'sweetalert2';
 import { useStore } from '../store/useStore';
@@ -178,8 +180,54 @@ const ProductManagement = () => {
       ) : error ? (
         <div className="text-center py-16 bg-white rounded-2xl border border-dashed border-red-200 text-red-500 text-sm">{error}</div>
       ) : filtered.length > 0 ? (
-        <div className="bg-white rounded-2xl border border-slate-100 overflow-hidden shadow-sm">
-          <table className="w-full">
+        <>
+        {/* MÓVIL: rejilla de 2 columnas, el mismo patrón que las tarjetas de
+            la tienda pública. Una tabla de 5 columnas en un teléfono obliga a
+            scrollear de costado para ver el precio o poder editar -- y aun
+            resolviendo el desborde, deja media pantalla vacía. Con tarjetas
+            se ven el doble de productos por pantallazo y las acciones quedan
+            siempre a la vista. La tabla sigue existiendo para md+, donde el
+            ancho sobra y comparar filas es más cómodo. */}
+        <div className="md:hidden grid grid-cols-2 gap-3">
+          {filtered.map(p => (
+            <div key={p.id} className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden flex flex-col">
+              <div className="relative aspect-square bg-slate-100">
+                {p.imageUrl
+                  ? <img src={p.imageUrl} alt={p.name} className="w-full h-full object-cover" loading="lazy" />
+                  : <Image className="w-8 h-8 text-slate-300 absolute inset-0 m-auto" />}
+                <span className={`absolute top-1.5 left-1.5 px-1.5 py-0.5 rounded-md text-[9px] font-bold uppercase ${p.kind === 'digital' ? 'bg-blue-100 text-blue-700' : 'bg-emerald-100 text-emerald-700'}`}>
+                  {p.kind}
+                </span>
+              </div>
+              <div className="p-2.5 flex flex-col gap-1 flex-1">
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider truncate">{p.category || '—'}</p>
+                <h4 className="text-[13px] font-bold text-slate-900 leading-snug line-clamp-2 min-h-[2.4em]">{p.name}</h4>
+                <p className="text-sm font-black text-slate-900 mt-auto">${Number(p.price).toLocaleString('es-CO')}</p>
+                <div className="flex gap-1.5 pt-1">
+                  <button
+                    onClick={() => openEdit(p)}
+                    aria-label={`Editar ${p.name}`}
+                    className="flex-1 h-9 rounded-lg bg-slate-100 text-slate-600 flex items-center justify-center gap-1.5 text-xs font-semibold active:bg-slate-200 transition-all"
+                  >
+                    <Edit size={14} /> Editar
+                  </button>
+                  <button
+                    onClick={() => handleDelete(p.id, p.name)}
+                    aria-label={`Eliminar ${p.name}`}
+                    className="w-9 h-9 shrink-0 rounded-lg bg-red-50 text-red-400 flex items-center justify-center active:bg-red-100 transition-all"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* ESCRITORIO: la tabla de siempre */}
+        <div className="hidden md:block bg-white rounded-2xl border border-slate-100 overflow-hidden shadow-sm">
+          <div className="overflow-x-auto">
+          <table className="w-full min-w-[640px]">
             <thead>
               <tr className="border-b border-slate-100 bg-slate-50/50">
                 <th className="text-left px-5 py-4 text-xs font-bold text-slate-400 uppercase tracking-wider">Producto</th>
@@ -224,7 +272,9 @@ const ProductManagement = () => {
               ))}
             </tbody>
           </table>
+          </div>
         </div>
+        </>
       ) : (
         <div className="text-center py-16 bg-white rounded-2xl border border-dashed border-slate-200">
           <Package className="w-12 h-12 text-slate-200 mx-auto mb-4" />
@@ -437,6 +487,12 @@ const AdminDashboard = () => {
   const [activeTab, setActiveTab] = useState('overview');
   const { setAdmin, config } = useStore();
 
+  // Plegada de entrada por debajo de 1024px: es justo el rango (tablet y
+  // portátil chico) donde 256px de barra dejan el contenido apretado.
+  const [collapsed, setCollapsed] = useState(
+    typeof window !== 'undefined' ? window.innerWidth < 1024 : false,
+  );
+
   const menu = [
     { id: 'overview', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'products', label: 'Productos', icon: Package },
@@ -445,29 +501,98 @@ const AdminDashboard = () => {
   ];
 
   return (
-    <div className="min-h-screen bg-slate-50 flex">
-      <aside className="w-64 bg-white border-r border-slate-100 flex flex-col">
-        <div className="p-6 border-b border-slate-100">
-          <h1 className="text-xl font-black text-slate-900">Admin</h1>
-          <p className="text-xs text-slate-400">Panel de control</p>
+    /* md:flex y no flex a secas: la barra lateral mide 256px fijos y no tenía
+       ninguna variante responsive, así que en un teléfono de 375px se comía
+       casi todo el ancho -- quedaban ~119px para el contenido, y descontando
+       el p-8 (64px) sobraban unos 55px útiles. El panel era inusable en
+       móvil. Abajo del breakpoint el contenedor pasa a bloque y la barra se
+       reemplaza por una cabecera con pestañas horizontales. */
+    <div className="min-h-screen bg-slate-50 md:flex">
+      {/* Colapsable: con 256px fijos, en una tablet o un portátil chico
+          (768-1024px) la barra se llevaba un tercio del ancho y apretaba el
+          contenido. Arranca plegada por debajo de 1024px y el usuario puede
+          alternar cuando quiera; plegada deja solo los iconos en 64px. */}
+      <aside className={`hidden md:flex ${collapsed ? 'w-16' : 'w-64'} shrink-0 bg-white border-r border-slate-100 flex-col transition-[width] duration-200`}>
+        <div className={`border-b border-slate-100 flex items-center gap-2 ${collapsed ? 'p-3 justify-center' : 'p-6'}`}>
+          {!collapsed && (
+            <div className="min-w-0 flex-1">
+              <h1 className="text-xl font-black text-slate-900">Admin</h1>
+              <p className="text-xs text-slate-400">Panel de control</p>
+            </div>
+          )}
+          <button
+            onClick={() => setCollapsed(v => !v)}
+            aria-label={collapsed ? 'Expandir menú' : 'Plegar menú'}
+            title={collapsed ? 'Expandir menú' : 'Plegar menú'}
+            className="p-2 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-all shrink-0"
+          >
+            {collapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}
+          </button>
         </div>
-        <nav className="flex-1 p-4 space-y-1">
+        <nav className={`flex-1 space-y-1 ${collapsed ? 'p-2' : 'p-4'}`}>
           {menu.map(item => (
-            <button key={item.id} onClick={() => setActiveTab(item.id)} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all ${activeTab === item.id ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-200' : 'text-slate-500 hover:bg-slate-100'}`}>
-              <item.icon size={18} /> {item.label}
+            <button key={item.id} onClick={() => setActiveTab(item.id)}
+              title={collapsed ? item.label : undefined}
+              className={`w-full flex items-center rounded-xl text-sm font-medium transition-all ${collapsed ? 'justify-center px-0 py-3' : 'gap-3 px-4 py-3'} ${activeTab === item.id ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-200' : 'text-slate-500 hover:bg-slate-100'}`}>
+              <item.icon size={18} /> {!collapsed && item.label}
             </button>
           ))}
         </nav>
-        <div className="p-4 border-t border-slate-100">
-          <Link to={config.slug ? `/tienda/${config.slug}` : '/shop'} className="flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium text-slate-500 hover:bg-slate-100 transition-all">
-            <Eye size={18} /> Ver Tienda
+        <div className={`border-t border-slate-100 ${collapsed ? 'p-2' : 'p-4'}`}>
+          <Link to={config.slug ? `/tienda/${config.slug}` : '/shop'}
+            title={collapsed ? 'Ver tienda' : undefined}
+            className={`flex items-center rounded-xl text-sm font-medium text-slate-500 hover:bg-slate-100 transition-all ${collapsed ? 'justify-center px-0 py-3' : 'gap-3 px-4 py-3'}`}>
+            <Eye size={18} /> {!collapsed && 'Ver Tienda'}
           </Link>
-          <button onClick={() => setAdmin(false)} className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium text-red-400 hover:bg-red-50 transition-all">
-            <LogOut size={18} /> Salir del Admin
+          <button onClick={() => setAdmin(false)}
+            title={collapsed ? 'Salir del admin' : undefined}
+            className={`w-full flex items-center rounded-xl text-sm font-medium text-red-400 hover:bg-red-50 transition-all ${collapsed ? 'justify-center px-0 py-3' : 'gap-3 px-4 py-3'}`}>
+            <LogOut size={18} /> {!collapsed && 'Salir del Admin'}
           </button>
         </div>
       </aside>
-      <main className="flex-1 p-8 overflow-y-auto">
+
+      {/* Cabecera móvil: mismas 4 secciones que la barra lateral, en
+          pestañas que scrollean en horizontal. Sticky para que no haya que
+          volver arriba cada vez que se cambia de sección. */}
+      <header className="md:hidden sticky top-0 z-30 bg-white border-b border-slate-100">
+        <div className="flex items-center justify-between gap-3 px-4 py-3">
+          <div className="min-w-0">
+            <h1 className="text-lg font-black text-slate-900 leading-tight">Admin</h1>
+            <p className="text-[11px] text-slate-400">Panel de control</p>
+          </div>
+          <div className="flex items-center gap-1 shrink-0">
+            <Link
+              to={config.slug ? `/tienda/${config.slug}` : '/shop'}
+              aria-label="Ver tienda"
+              className="p-2.5 rounded-xl text-slate-500 hover:bg-slate-100 transition-all"
+            >
+              <Eye size={18} />
+            </Link>
+            <button
+              onClick={() => setAdmin(false)}
+              aria-label="Salir del admin"
+              className="p-2.5 rounded-xl text-red-400 hover:bg-red-50 transition-all"
+            >
+              <LogOut size={18} />
+            </button>
+          </div>
+        </div>
+        <nav className="flex gap-1.5 px-3 pb-2.5 overflow-x-auto [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          {menu.map(item => (
+            <button
+              key={item.id}
+              onClick={() => setActiveTab(item.id)}
+              className={`shrink-0 flex items-center gap-2 px-3.5 py-2 rounded-xl text-[13px] font-semibold whitespace-nowrap transition-all ${activeTab === item.id ? 'bg-indigo-600 text-white shadow-md shadow-indigo-200' : 'bg-slate-100 text-slate-600'}`}
+            >
+              <item.icon size={15} /> {item.label}
+            </button>
+          ))}
+        </nav>
+      </header>
+
+      {/* p-4 en móvil: el p-8 fijo se llevaba 64px de los 375 de ancho */}
+      <main className="flex-1 min-w-0 p-4 md:p-8 overflow-y-auto">
         {activeTab === 'overview' && <DashboardOverview />}
         {activeTab === 'products' && <ProductManagement />}
         {activeTab === 'templates' && <TemplateSelector />}
