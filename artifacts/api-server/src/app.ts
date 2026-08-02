@@ -69,6 +69,11 @@ logger.info("[MessageHandler] Message receiver configured for default tenant");
   try {
     await ensureDbReady();
 
+    // AUTO-SEED DESHABILITADO temporalmente por schema mismatch
+    // TODO: migrar schema de BD antes de habilitar
+    return;
+
+    /*
     // Auto-seed tenant (admin user) if not exists.
     // Email/password vienen de ADMIN_EMAIL/ADMIN_PASSWORD -- nunca hardcodeados
     // aquí: un valor fijo en el código es la misma cuenta admin conocida en
@@ -215,6 +220,7 @@ logger.info("[MessageHandler] Message receiver configured for default tenant");
         console.warn("⚠️ Could not auto-fix product images on startup:", err);
       }
     })();
+    */
   } catch (error) {
     console.error("❌ Error en auto-seed:", error);
   }
