@@ -622,6 +622,15 @@ router.get("/config", async (req, res, next) => {
       pageId,
       adAccountId,
       hasToken: !!accessToken,
+      // App ID y App Secret PROPIOS del negocio. El appId no es secreto (viaja
+      // en la URL de cualquier login de Facebook), así que se devuelve tal
+      // cual; del secret solo se informa si existe, nunca su valor.
+      //
+      // A diferencia de los campos de arriba, acá NO se cae al .env: eso
+      // mostraría la app de la plataforma como si fuera la del negocio, y el
+      // dueño creería que ya cargó la suya.
+      appId: cfg.appId || "",
+      hasAppSecret: !!decryptSecret(cfg.appSecret),
     });
   } catch (e) { return next(e); }
 });

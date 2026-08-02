@@ -48,6 +48,8 @@ interface FbConfig {
   pageId: string;
   adAccountId: string;
   hasToken: boolean;
+  appId?: string;
+  hasAppSecret?: boolean;
 }
 
 interface Product {
@@ -117,9 +119,10 @@ export default function FacebookAdsPage() {
   const [connected, setConnected] = useState<boolean | null>(null);
 
   const [config, setConfig] = useState<FbConfig>({
-    accessToken: "", pixelId: "", catalogId: "", pageId: "", adAccountId: "", hasToken: false,
+    accessToken: "", pixelId: "", catalogId: "", pageId: "", adAccountId: "", hasToken: false, appId: "", hasAppSecret: false,
   });
   const [rawToken, setRawToken] = useState("");
+  const [rawAppSecret, setRawAppSecret] = useState("");
 
   const [products, setProducts] = useState<Product[]>([]);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
@@ -247,7 +250,7 @@ export default function FacebookAdsPage() {
       setLoading(true);
       const [cfg, prods] = await Promise.all([
         apiRequest("/facebook/config").catch(() => ({
-          accessToken: "", pixelId: "", catalogId: "", pageId: "", adAccountId: "", hasToken: false,
+          accessToken: "", pixelId: "", catalogId: "", pageId: "", adAccountId: "", hasToken: false, appId: "", hasAppSecret: false,
         })),
         apiRequest("/products").catch(() => []),
       ]);
@@ -270,10 +273,14 @@ export default function FacebookAdsPage() {
           catalogId: config.catalogId,
           pageId: config.pageId,
           adAccountId: config.adAccountId,
+          appId: config.appId || "",
+          // Vacío = no lo cambies: el GET nunca devuelve el secret.
+          ...(rawAppSecret ? { appSecret: rawAppSecret } : {}),
         }),
       });
       toast({ title: "Guardado", description: "Configuración de Facebook guardada" });
       setRawToken("");
+      setRawAppSecret("");
       const cfg = await apiRequest("/facebook/config");
       if (cfg) setConfig(cfg);
     } catch (e: any) {
@@ -612,6 +619,25 @@ export default function FacebookAdsPage() {
                       <div><Label>Catalog ID</Label><Input value={config.catalogId} onChange={e => setConfig({...config, catalogId: e.target.value})} placeholder="FB_CATALOG_ID" /></div>
                       <div><Label>Page ID</Label><Input value={config.pageId} onChange={e => setConfig({...config, pageId: e.target.value})} placeholder="FB_PAGE_ID" /></div>
                       <div><Label>Ad Account ID</Label><Input value={config.adAccountId} onChange={e => setConfig({...config, adAccountId: e.target.value})} placeholder="FB_AD_ACCOUNT_ID (solo números)" /></div>
+
+                      {/* App ID y App Secret DE ESTE NEGOCIO. El backend ya los
+                          guardaba por tenant (PUT /config los persiste) y
+                          facebook-messenger.ts ya los lee, pero no había dónde
+                          cargarlos: quedaban dependiendo del .env del servidor,
+                          o sea de la app de Facebook del dueño de la plataforma.
+                          Con estos campos, cada negocio puede usar SU propia app
+                          -- necesario para verificar la firma de sus webhooks y
+                          para operar con sus propios permisos. */}
+                      <div>
+                        <Label>App ID</Label>
+                        <Input value={config.appId || ""} onChange={e => setConfig({...config, appId: e.target.value})} placeholder="Tu App ID de Meta" />
+                        <p className="text-xs text-muted-foreground mt-1">Opcional: solo si usás tu propia app de Facebook.</p>
+                      </div>
+                      <div>
+                        <Label>App Secret</Label>
+                        <Input type="password" value={rawAppSecret || (config.hasAppSecret ? "••••••••" : "")} onChange={e => setRawAppSecret(e.target.value)} placeholder="Tu App Secret de Meta" />
+                        {config.hasAppSecret && !rawAppSecret && <p className="text-xs text-muted-foreground mt-1">Ya configurado</p>}
+                      </div>
                     </div>
                     <div className="flex flex-wrap gap-2">
                       <Button onClick={saveConfig} disabled={saving}>{saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}Guardar</Button>
