@@ -50,6 +50,9 @@ interface FbConfig {
   hasToken: boolean;
   appId?: string;
   hasAppSecret?: boolean;
+  hasMessengerToken?: boolean;
+  messengerVerifyToken?: string;
+  loginConfigId?: string;
 }
 
 interface Product {
@@ -119,10 +122,14 @@ export default function FacebookAdsPage() {
   const [connected, setConnected] = useState<boolean | null>(null);
 
   const [config, setConfig] = useState<FbConfig>({
-    accessToken: "", pixelId: "", catalogId: "", pageId: "", adAccountId: "", hasToken: false, appId: "", hasAppSecret: false,
+    accessToken: "", pixelId: "", catalogId: "", pageId: "", adAccountId: "", hasToken: false, appId: "", hasAppSecret: false, hasMessengerToken: false, messengerVerifyToken: "", loginConfigId: "",
   });
   const [rawToken, setRawToken] = useState("");
   const [rawAppSecret, setRawAppSecret] = useState("");
+  const [rawMessengerToken, setRawMessengerToken] = useState("");
+  // Mostrar/ocultar secretos: escribir a ciegas un token largo es la causa
+  // numero uno de "no me lo acepta" cuando en realidad hubo un caracter de mas.
+  const [verSecretos, setVerSecretos] = useState(false);
 
   const [products, setProducts] = useState<Product[]>([]);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
@@ -250,7 +257,7 @@ export default function FacebookAdsPage() {
       setLoading(true);
       const [cfg, prods] = await Promise.all([
         apiRequest("/facebook/config").catch(() => ({
-          accessToken: "", pixelId: "", catalogId: "", pageId: "", adAccountId: "", hasToken: false, appId: "", hasAppSecret: false,
+          accessToken: "", pixelId: "", catalogId: "", pageId: "", adAccountId: "", hasToken: false, appId: "", hasAppSecret: false, hasMessengerToken: false, messengerVerifyToken: "", loginConfigId: "",
         })),
         apiRequest("/products").catch(() => []),
       ]);
@@ -276,11 +283,15 @@ export default function FacebookAdsPage() {
           appId: config.appId || "",
           // Vacío = no lo cambies: el GET nunca devuelve el secret.
           ...(rawAppSecret ? { appSecret: rawAppSecret } : {}),
+          ...(rawMessengerToken ? { messengerPageToken: rawMessengerToken } : {}),
+          messengerVerifyToken: config.messengerVerifyToken || "",
+          loginConfigId: config.loginConfigId || "",
         }),
       });
       toast({ title: "Guardado", description: "Configuración de Facebook guardada" });
       setRawToken("");
       setRawAppSecret("");
+      setRawMessengerToken("");
       const cfg = await apiRequest("/facebook/config");
       if (cfg) setConfig(cfg);
     } catch (e: any) {
@@ -635,10 +646,34 @@ export default function FacebookAdsPage() {
                       </div>
                       <div>
                         <Label>App Secret</Label>
-                        <Input type="password" value={rawAppSecret || (config.hasAppSecret ? "••••••••" : "")} onChange={e => setRawAppSecret(e.target.value)} placeholder="Tu App Secret de Meta" />
+                        <Input type={verSecretos ? "text" : "password"} value={rawAppSecret || (config.hasAppSecret ? "••••••••" : "")} onChange={e => setRawAppSecret(e.target.value)} placeholder="Tu App Secret de Meta" />
                         {config.hasAppSecret && !rawAppSecret && <p className="text-xs text-muted-foreground mt-1">Ya configurado</p>}
                       </div>
+
+                      {/* Messenger y Login for Business: estaban en el modelo
+                          pero no se podían cargar desde el panel, así que un
+                          negocio con su propia app no tenía forma de conectar
+                          Messenger ni de validar sus webhooks. */}
+                      <div>
+                        <Label>Messenger Page Token</Label>
+                        <Input type={verSecretos ? "text" : "password"} value={rawMessengerToken || (config.hasMessengerToken ? "••••••••" : "")} onChange={e => setRawMessengerToken(e.target.value)} placeholder="Token de página para Messenger" />
+                        {config.hasMessengerToken && !rawMessengerToken && <p className="text-xs text-muted-foreground mt-1">Ya configurado</p>}
+                      </div>
+                      <div>
+                        <Label>Messenger Verify Token</Label>
+                        <Input value={config.messengerVerifyToken || ""} onChange={e => setConfig({...config, messengerVerifyToken: e.target.value})} placeholder="El que pusiste en el webhook de Meta" />
+                      </div>
+                      <div>
+                        <Label>Login Config ID</Label>
+                        <Input value={config.loginConfigId || ""} onChange={e => setConfig({...config, loginConfigId: e.target.value})} placeholder="Solo si usás Login for Business" />
+                        <p className="text-xs text-muted-foreground mt-1">Meta → Inicio de sesión para empresas → Configuraciones.</p>
+                      </div>
                     </div>
+
+                    <label className="flex items-center gap-2 text-sm text-muted-foreground cursor-pointer w-fit">
+                      <input type="checkbox" checked={verSecretos} onChange={e => setVerSecretos(e.target.checked)} className="accent-primary" />
+                      Mostrar los valores ocultos
+                    </label>
                     <div className="flex flex-wrap gap-2">
                       <Button onClick={saveConfig} disabled={saving}>{saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}Guardar</Button>
                       <Button variant="outline" onClick={testConnection} disabled={testing}>
