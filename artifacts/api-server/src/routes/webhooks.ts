@@ -5,6 +5,7 @@ import { whatsapp } from "../lib/whatsapp-singleton";
 import { logger } from "../lib/logger";
 import { dbNow } from "../lib/date-utils";
 import { sendOrderConfirmationEmail } from "../lib/email";
+import { credencialesEmailDe } from "../lib/tenant-email-credentials";
 
 const router = Router();
 

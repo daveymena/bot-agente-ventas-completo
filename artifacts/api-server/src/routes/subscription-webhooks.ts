@@ -5,6 +5,7 @@ import { db, subscriptions, tenants } from "@workspace/db";
 import { dbNow } from "../lib/date-utils";
 import { eq } from "drizzle-orm";
 import { sendActivationTokenEmail } from "../lib/email";
+import { credencialesEmailDe } from "../lib/tenant-email-credentials";
 import { SAAS_PLANS, SaasPlan } from "../middleware/saasValidation";
 
 const router = Router();

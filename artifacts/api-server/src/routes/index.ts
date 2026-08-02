@@ -20,6 +20,8 @@ import usageRouter from "./usage";
 import analyticsRouter from "./analytics";
 import paymentsRouter from "./payments";
 import paymentCredentialsRouter from "./payment-credentials";
+import facebookCredentialsRouter from "./facebook-credentials";
+import emailCredentialsRouter from "./email-credentials";
 import cleanRouter from "./clean";
 import authRouter from "./auth";
 import storeRouter from "./store";
@@ -31,6 +33,7 @@ import responseAnalyticsRouter from "./response-analytics";
 import architectToolsRouter from "./architect-tools";
 import architectRouter from "./architect";
 import pricingRouter from "./pricing";
+import tenantConfigRouter from "./tenant-config";
 
 const router: IRouter = Router();
 
@@ -53,6 +56,8 @@ router.use("/tenants", tenantsRouter);
 router.use("/usage", usageRouter);
 router.use("/analytics", analyticsRouter);
 router.use("/payments", paymentCredentialsRouter);
+router.use("/facebook", facebookCredentialsRouter);
+router.use("/email", emailCredentialsRouter);
 router.use("/payments", paymentsRouter);
 router.use("/clean", cleanRouter);
 router.use("/auth", authRouter);
@@ -73,6 +78,7 @@ router.use("/architect", architectRouter);
 // públicos (listado de planes), pero /upgrade y /current/info sí reciben
 // req.tenant real.
 router.use("/pricing", pricingRouter);
+router.use("/tenant-config", tenantConfigRouter);
 
 // Usar el manejador de errores centralizado
 router.use(errorHandler);

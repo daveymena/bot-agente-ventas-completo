@@ -7,6 +7,7 @@ import { eq } from "drizzle-orm";
 import { tenantManager } from "../lib/tenantManager";
 import { logger } from "../lib/logger";
 import { generateVerificationCode, sendPasswordResetEmail, sendPasswordChangeConfirmationEmail } from "../lib/email";
+import { credencialesEmailDe } from "../lib/tenant-email-credentials";
 import { toDbDate } from "../lib/date-utils";
 import { passwordResetRateLimit } from "../middleware/rateLimiting";
 
@@ -264,7 +265,7 @@ router.post("/request-password-reset", passwordResetRateLimit, async (req, res, 
         .where(eq(tenants.id, tenant.id));
 
       try {
-        await sendPasswordResetEmail(tenant.email, code, tenant.name);
+        await sendPasswordResetEmail(tenant.email, code, tenant.name, credencialesEmailDe(tenant));
       } catch (err) {
         logger.error({ err, tenantId: tenant.id }, "[Auth] Fallo enviando email de recuperación");
       }
@@ -300,7 +301,7 @@ router.post("/reset-password", async (req, res, next) => {
       .where(eq(tenants.id, tenant.id));
 
     try {
-      await sendPasswordChangeConfirmationEmail(tenant.email, tenant.name);
+      await sendPasswordChangeConfirmationEmail(tenant.email, tenant.name, credencialesEmailDe(tenant));
     } catch (err) {
       logger.error({ err, tenantId: tenant.id }, "[Auth] Fallo enviando confirmación de cambio de contraseña");
     }

@@ -18,6 +18,26 @@ const transporter = smtpConfigured
     })
   : null;
 
+/**
+ * Crea un transporter nodemailer a partir de credenciales SMTP.
+ * Devuelve null si faltan usuario o contraseña.
+ */
+export function crearTransporter(creds: {
+  host: string;
+  port: number;
+  secure: boolean;
+  user: string;
+  pass: string;
+}) {
+  if (!creds.user || !creds.pass) return null;
+  return nodemailer.createTransport({
+    host: creds.host,
+    port: creds.port,
+    secure: creds.secure,
+    auth: { user: creds.user, pass: creds.pass },
+  });
+}
+
 if (smtpConfigured && transporter) {
   transporter.verify((error, success) => {
     if (error) {
@@ -43,15 +63,17 @@ export function generateVerificationCode(): string {
 export async function sendVerificationEmail(
   email: string,
   code: string,
-  name: string
+  name: string,
+  smtp?: { host: string; port: number; secure: boolean; user: string; pass: string; from?: string }
 ): Promise<boolean> {
-  if (!transporter) {
+  const tr = smtp ? crearTransporter(smtp) : transporter;
+  if (!tr) {
     logger.warn({ email }, "[Email] SMTP no configurado, no se puede enviar email de verificación");
     return false;
   }
   try {
     const mailOptions = {
-      from: `"VentasPro" <${process.env.SMTP_USER}>`,
+      from: smtp?.from || `"VentasPro" <${process.env.SMTP_USER}>`,
       to: email,
       subject: "🔐 Código de Verificación - VentasPro",
       html: `
@@ -195,7 +217,7 @@ export async function sendVerificationEmail(
       `,
     };
 
-    await transporter.sendMail(mailOptions);
+    await tr.sendMail(mailOptions);
     logger.info({ email }, "[Email] Código de verificación enviado");
     return true;
   } catch (error) {
@@ -210,9 +232,11 @@ export async function sendVerificationEmail(
 export async function sendPasswordResetEmail(
   email: string,
   code: string,
-  name: string
+  name: string,
+  smtp?: { host: string; port: number; secure: boolean; user: string; pass: string; from?: string }
 ): Promise<boolean> {
-  if (!transporter) {
+  const tr = smtp ? crearTransporter(smtp) : transporter;
+  if (!tr) {
     logger.warn({ email }, "[Email] SMTP no configurado, no se puede enviar email de recuperación");
     return false;
   }
@@ -220,7 +244,7 @@ export async function sendPasswordResetEmail(
     logger.info({ email, code }, "[Email] 📧 Intentando enviar código de recuperación...");
     
     const mailOptions = {
-      from: `"VentasPro" <${process.env.SMTP_USER}>`,
+      from: smtp?.from || `"VentasPro" <${process.env.SMTP_USER}>`,
       to: email,
       subject: "🔑 Recuperación de Contraseña - VentasPro",
       html: `
@@ -354,7 +378,7 @@ export async function sendPasswordResetEmail(
       `,
     };
 
-    const result = await transporter.sendMail(mailOptions);
+    const result = await tr.sendMail(mailOptions);
     logger.info({ email, messageId: result.messageId }, "[Email] ✅ Código de recuperación enviado exitosamente");
     return true;
   } catch (error) {
@@ -371,9 +395,11 @@ export async function sendActivationTokenEmail(
   email: string,
   token: string,
   plan: string,
-  name: string
+  name: string,
+  smtp?: { host: string; port: number; secure: boolean; user: string; pass: string; from?: string }
 ): Promise<boolean> {
-  if (!transporter) {
+  const tr = smtp ? crearTransporter(smtp) : transporter;
+  if (!tr) {
     logger.warn({ email }, "[Email] SMTP no configurado, no se puede enviar token de activación");
     return false;
   }
@@ -383,7 +409,7 @@ export async function sendActivationTokenEmail(
     const activationUrl = `${getAppUrl()}/activate?token=${token}`;
     
     const mailOptions = {
-      from: `"VentasPro" <${process.env.SMTP_USER}>`,
+      from: smtp?.from || `"VentasPro" <${process.env.SMTP_USER}>`,
       to: email,
       subject: `🎉 ¡Pago Confirmado! Activa tu Plan ${plan}`,
       html: `
@@ -541,7 +567,7 @@ export async function sendActivationTokenEmail(
       `,
     };
 
-    const result = await transporter.sendMail(mailOptions);
+    const result = await tr.sendMail(mailOptions);
     logger.info({ email, messageId: result.messageId }, "[Email] ✅ Token de activación enviado exitosamente");
     return true;
   } catch (error) {
@@ -554,8 +580,9 @@ export async function sendActivationTokenEmail(
 /**
  * Verifica la configuración del servicio de email
  */
-export async function verifyEmailService(): Promise<boolean> {
-  if (!transporter) {
+export async function verifyEmailService(smtp?: { host: string; port: number; secure: boolean; user: string; pass: string }): Promise<boolean> {
+  const tr = smtp ? crearTransporter(smtp) : transporter;
+  if (!tr) {
     logger.warn("[Email] SMTP no configurado, no se puede verificar servicio");
     return false;
   }
@@ -574,9 +601,11 @@ export async function verifyEmailService(): Promise<boolean> {
  */
 export async function sendPasswordChangeConfirmationEmail(
   email: string,
-  name: string
+  name: string,
+  smtp?: { host: string; port: number; secure: boolean; user: string; pass: string; from?: string }
 ): Promise<boolean> {
-  if (!transporter) {
+  const tr = smtp ? crearTransporter(smtp) : transporter;
+  if (!tr) {
     logger.warn({ email }, "[Email] SMTP no configurado, no se puede enviar confirmación de cambio");
     return false;
   }
@@ -584,7 +613,7 @@ export async function sendPasswordChangeConfirmationEmail(
     logger.info({ email }, "[Email] 📧 Enviando confirmación de cambio de contraseña...");
     
     const mailOptions = {
-      from: `"VentasPro" <${process.env.SMTP_USER}>`,
+      from: smtp?.from || `"VentasPro" <${process.env.SMTP_USER}>`,
       to: email,
       subject: "✅ Contraseña Cambiada - VentasPro",
       html: `
@@ -711,7 +740,7 @@ export async function sendPasswordChangeConfirmationEmail(
       `,
     };
 
-    const result = await transporter.sendMail(mailOptions);
+    const result = await tr.sendMail(mailOptions);
     logger.info({ email, messageId: result.messageId }, "[Email] ✅ Confirmación de cambio de contraseña enviada");
     return true;
   } catch (error) {
@@ -732,9 +761,11 @@ export async function sendOrderConfirmationEmail(
   amount: number,
   currency: string = "COP",
   paymentId: string,
-  paymentMethod: string
+  paymentMethod: string,
+  smtp?: { host: string; port: number; secure: boolean; user: string; pass: string; from?: string }
 ): Promise<boolean> {
-  if (!transporter) {
+  const tr = smtp ? crearTransporter(smtp) : transporter;
+  if (!tr) {
     logger.warn({ email }, "[Email] SMTP no configurado, no se puede enviar email de confirmación de orden");
     return false;
   }
@@ -746,7 +777,7 @@ export async function sendOrderConfirmationEmail(
     }).format(amount);
 
     const mailOptions = {
-      from: `"VentasPro" <${process.env.SMTP_USER}>`,
+      from: smtp?.from || `"VentasPro" <${process.env.SMTP_USER}>`,
       to: email,
       subject: `✅ ¡Pago Confirmado! - ${productName}`,
       html: `
@@ -975,7 +1006,7 @@ export async function sendOrderConfirmationEmail(
       `,
     };
 
-    const result = await transporter.sendMail(mailOptions);
+    const result = await tr.sendMail(mailOptions);
     logger.info({ email, productName, paymentId, messageId: result.messageId }, "[Email] ✅ Confirmación de orden enviada exitosamente");
     return true;
   } catch (error) {

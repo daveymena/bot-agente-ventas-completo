@@ -69,6 +69,15 @@ export interface TenantContext {
     tasks?: string[];
     connectedAt?: string;
   };
+  emailCredentials?: {
+    host?: string;
+    port?: number;
+    secure?: boolean;
+    user?: string;
+    pass?: string;
+    from?: string;
+    enabled?: boolean;
+  };
   limits: {
     maxConversations: number;
     maxProducts: number;
@@ -140,6 +149,15 @@ const DEFAULT_TENANT: TenantContext = {
       ]
     }
   },
+  emailCredentials: {
+    host: process.env.SMTP_HOST || "smtp.gmail.com",
+    port: Number(process.env.SMTP_PORT || "587"),
+    secure: process.env.SMTP_SECURE === "true",
+    user: process.env.SMTP_USER || "",
+    pass: process.env.SMTP_PASS || "",
+    from: `"VentasPro" <${process.env.SMTP_USER || "noreply@ventaspro.com"}>`,
+    enabled: !!(process.env.SMTP_USER && process.env.SMTP_PASS),
+  },
   limits: {
     maxConversations: 10000,
     maxProducts: 1000,
@@ -183,58 +201,79 @@ function parseFacebookMeta(metadata: unknown): TenantContext["facebook"] {
   }
 }
 
+/**
+ * Extrae las credenciales SMTP de tenants.metadata.emailCredentials.
+ * Misma regla que parseFacebookMeta: metadata puede venir como string JSON
+ * según el motor de BD y la password puede estar cifrada con credentials-vault.
+ */
+function parseEmailMeta(metadata: unknown): TenantContext["emailCredentials"] {
+  if (!metadata) return undefined;
+  try {
+    const meta = typeof metadata === "string" ? JSON.parse(metadata) : (metadata as any);
+    const em = meta?.emailCredentials;
+    if (!em) return undefined;
+    return {
+      ...em,
+      pass: decryptSecret(em.pass),
+    };
+  } catch {
+    return undefined;
+  }
+}
+
 export class TenantManager {
   private tenantCache: Map<string, TenantContext> = new Map();
   // (parseFacebookMeta se define fuera de la clase, al final del archivo)
   private cacheExpiry: Map<string, number> = new Map();
   private readonly CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
-  /**
-   * Gets tenant by slug with caching
-   */
-  async getTenantBySlug(slug: string): Promise<TenantContext | null> {
-    try {
-      // Check cache first
-      const cached = this.tenantCache.get(slug);
-      const expiry = this.cacheExpiry.get(slug);
-      
-      if (cached && expiry && Date.now() < expiry) {
-        return cached;
-      }
+/**
+    * Gets tenant by slug with caching
+    */
+    async getTenantBySlug(slug: string): Promise<TenantContext | null> {
+      try {
+        // Check cache first
+        const cached = this.tenantCache.get(slug);
+        const expiry = this.cacheExpiry.get(slug);
+        
+        if (cached && expiry && Date.now() < expiry) {
+          return cached;
+        }
 
-      // Query database
-      const [tenant] = await db
-        .select()
-        .from(tenants)
-        .where(eq(tenants.slug, slug))
-        .limit(1);
+        // Query database
+        const [tenant] = await db
+          .select()
+          .from(tenants)
+          .where(eq(tenants.slug, slug))
+          .limit(1);
 
-      if (!tenant) {
-        return null;
-      }
+        if (!tenant) {
+          return null;
+        }
 
-      // Convert to TenantContext
-      const tenantContext: TenantContext = {
-        id: tenant.id,
-        slug: tenant.slug,
-        name: tenant.name,
-        email: tenant.email,
-        isAdmin: !!tenant.isAdmin,
-        brandName: tenant.brandName,
-        agentPersonality: tenant.agentPersonality,
-        agentPrompt: tenant.agentPrompt,
-        agentName: tenant.agentName,
-        settings: tenant.settings || DEFAULT_TENANT.settings,
-        paymentMethods: tenant.paymentMethods || DEFAULT_TENANT.paymentMethods,
-        limits: tenant.limits || DEFAULT_TENANT.limits,
-        brandColors: tenant.brandColors || DEFAULT_TENANT.brandColors,
-        plan: tenant.plan || "basic",
-        // Credenciales de Facebook guardadas por tenant. Estaban declaradas en
-        // TenantContext pero nunca se leían de metadata, así que facebook
-        // quedaba undefined y TODO caía al .env global: en multi-cuenta eso
-        // significaba que cada tenant usaba la página del dueño del servidor.
-        facebook: parseFacebookMeta(tenant.metadata),
-      };
+        // Convert to TenantContext
+        const tenantContext: TenantContext = {
+          id: tenant.id,
+          slug: tenant.slug,
+          name: tenant.name,
+          email: tenant.email,
+          isAdmin: !!tenant.isAdmin,
+          brandName: tenant.brandName,
+          agentPersonality: tenant.agentPersonality,
+          agentPrompt: tenant.agentPrompt,
+          agentName: tenant.agentName,
+          settings: tenant.settings || DEFAULT_TENANT.settings,
+          paymentMethods: tenant.paymentMethods || DEFAULT_TENANT.paymentMethods,
+          limits: tenant.limits || DEFAULT_TENANT.limits,
+          brandColors: tenant.brandColors || DEFAULT_TENANT.brandColors,
+          plan: tenant.plan || "basic",
+          // Credenciales de Facebook guardadas por tenant. Estaban declaradas en
+          // TenantContext pero nunca se leían de metadata, así que facebook
+          // quedaba undefined y TODO caía al .env global: en multi-cuenta eso
+          // significaba que cada tenant usaba la página del dueño del servidor.
+          facebook: parseFacebookMeta(tenant.metadata),
+          emailCredentials: parseEmailMeta(tenant.metadata),
+        };
 
       // Cache the result
       this.tenantCache.set(slug, tenantContext);
@@ -294,6 +333,7 @@ export class TenantManager {
         // quedaba undefined y TODO caía al .env global: en multi-cuenta eso
         // significaba que cada tenant usaba la página del dueño del servidor.
         facebook: parseFacebookMeta(tenant.metadata),
+        emailCredentials: parseEmailMeta(tenant.metadata),
       };
 
       // Cache the result
