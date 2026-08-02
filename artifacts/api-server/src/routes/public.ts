@@ -9,6 +9,7 @@ import { getWhatsAppForTenant } from "../lib/whatsapp-factory";
 import { tenantManager } from "../lib/tenantManager";
 import { SAAS_PLANS } from "../middleware/saasValidation";
 import { encryptSecret } from "../lib/credentials-vault";
+import { credencialesDe } from "../lib/tenant-payment-credentials";
 
 /**
  * Resuelve el número de WhatsApp asociado a la app (vía QR conectado).
@@ -488,10 +489,18 @@ router.post("/checkout/:slug/:productId", async (req, res, next) => {
       process.env.APP_URL ||
       `http://localhost:${process.env.PORT || 3002}`;
 
+    // Credenciales DEL NEGOCIO dueño de este producto, no las del servidor.
+    // Antes esto leía process.env directo, así que el cobro de cualquier
+    // cliente terminaba en la cuenta del dueño de la plataforma. Con un solo
+    // negocio no se notaba -- esa cuenta era la correcta; con dos, el segundo
+    // le estaría cobrando al primero. credencialesDe() cae al .env solo si el
+    // negocio todavía no cargó las suyas.
+    const credenciales = credencialesDe(await tenantManager.getTenantById(tenant.id));
+
     if (method === "paypal") {
-      const clientId = process.env.PAYPAL_CLIENT_ID;
-      const clientSecret = process.env.PAYPAL_CLIENT_SECRET;
-      const paypalMode = process.env.PAYPAL_MODE || "live";
+      const clientId = credenciales.paypal.clientId;
+      const clientSecret = credenciales.paypal.clientSecret;
+      const paypalMode = credenciales.paypal.mode;
       const paypalApi =
         paypalMode === "sandbox"
           ? "https://api-m.sandbox.paypal.com"
@@ -573,7 +582,7 @@ router.post("/checkout/:slug/:productId", async (req, res, next) => {
       });
     }
 
-    const mpToken = process.env.MERCADO_PAGO_ACCESS_TOKEN;
+    const mpToken = credenciales.mercadopago.accessToken;
     if (!mpToken) {
       return res.status(500).json({ message: "MercadoPago no configurado" });
     }
@@ -771,7 +780,10 @@ router.post("/checkout-cart/:slug", async (req, res, next) => {
       });
     }
 
-    const mpToken = process.env.MERCADO_PAGO_ACCESS_TOKEN;
+    // Mismo criterio que el checkout de un producto: cobra el negocio dueño
+    // de la tienda, no el dueño del servidor.
+    const credencialesCarrito = credencialesDe(await tenantManager.getTenantById(tenant.id));
+    const mpToken = credencialesCarrito.mercadopago.accessToken;
     if (!mpToken) return res.status(500).json({ message: "MercadoPago no configurado" });
 
     const mpRes = await fetch("https://api.mercadopago.com/checkout/preferences", {

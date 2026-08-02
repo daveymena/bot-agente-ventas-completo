@@ -5,6 +5,7 @@ import {
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Layout } from "@/components/layout";
+import { PaymentCredentials } from "@/components/payment-credentials";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -156,6 +157,10 @@ export default function Settings() {
           </div>
         ) : (
           <div className="grid gap-6 md:grid-cols-2">
+            {/* Primero de la lista a propósito: sin esto configurado, las
+                ventas del negocio se cobran en la cuenta del servidor. */}
+            <PaymentCredentials />
+
             <Card className="rounded-3xl border-0 shadow-lg glass-panel overflow-hidden relative">
               <div className="absolute top-0 right-0 w-full h-2 bg-gradient-to-r from-primary to-accent" />
               <CardHeader className="pt-8">
