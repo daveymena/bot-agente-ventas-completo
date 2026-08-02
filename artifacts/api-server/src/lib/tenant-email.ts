@@ -59,16 +59,25 @@ export function configCorreoDe(tenant: any): ConfigCorreoNegocio {
   const pass = decryptSecret(e.pass);
   const propio = !!(e.user && pass);
 
+  // El respaldo del .env vale SOLO para el negocio dueño del servidor.
+  //
+  // Para otro negocio significaría mandar correos a SUS clientes desde la
+  // casilla del dueño de la plataforma: las respuestas le llegan a él, y el
+  // comprador ve una dirección que no tiene nada que ver con quien le vendió.
+  const esDuenoDelServidor = !tenant?.id || tenant.id === tenantManager.getDefaultTenant().id;
+  const envUser = esDuenoDelServidor ? (process.env.SMTP_USER || "") : "";
+  const envPass = esDuenoDelServidor ? (process.env.SMTP_PASS || "") : "";
+
   return {
     host: e.host || process.env.SMTP_HOST || "smtp.gmail.com",
     // Gmail: 465 va con TLS directo, 587 con STARTTLS. Elegir mal deja el
     // envío colgado hasta timeout en vez de dar un error claro.
     port: Number(e.port) || Number(process.env.SMTP_PORT) || 587,
     secure: e.port ? Number(e.port) === 465 : Number(process.env.SMTP_PORT) === 465,
-    user: propio ? e.user : (process.env.SMTP_USER || ""),
-    pass: propio ? pass : (process.env.SMTP_PASS || ""),
+    user: propio ? e.user : envUser,
+    pass: propio ? pass : envPass,
     fromName: e.fromName || tenant?.brandName || tenant?.name || "VentasPro",
-    enabled: propio ? e.enabled !== false : !!process.env.SMTP_USER,
+    enabled: propio ? e.enabled !== false : !!envUser,
     propio,
   };
 }
