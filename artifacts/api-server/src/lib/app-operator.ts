@@ -420,6 +420,19 @@ export const TOOLS: ToolDef[] = [
     },
   },
 
+  {
+    name: "delete_category",
+    description: "Eliminar una categoria de productos por su id.",
+    args: '{ "id": number (req) }',
+    run: async (args, ctx) => {
+      if (!args.id) return { ok: false, summary: "Falta 'id'" };
+      const existing = await db.select({ id: productCategories.id }).from(productCategories).where(and(eq(productCategories.tenantId, ctx.tenantId), eq(productCategories.id, Number(args.id)))).limit(1);
+      if (existing.length === 0) return { ok: false, summary: "No existe la categoria #" + args.id };
+      await db.delete(productCategories).where(and(eq(productCategories.tenantId, ctx.tenantId), eq(productCategories.id, Number(args.id))));
+      return { ok: true, summary: "Categoria #" + args.id + " eliminada" };
+    },
+  },
+
   // ── Agente ──
   {
     name: "update_agent",
