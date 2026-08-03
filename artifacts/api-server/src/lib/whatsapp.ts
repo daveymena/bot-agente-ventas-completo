@@ -451,9 +451,12 @@ export class WhatsAppManager {
   // primer momento — no se puede cambiar en caliente. Por eso tenemos dos
   // métodos separados en vez de un paramétro opcional en start().
   async startWithPairing() {
+    // NO setear `this.starting` ni `this.state` acá: start() tiene guards
+    // (`if (this.starting)` / `if (state === "connected" || "qr")`) que hacían
+    // que retornara inmediatamente sin crear el socket → requestPairingCode()
+    // fallaba con "WhatsApp no está iniciado". Dejar que start() gestione
+    // starting/state normalmente.
     this._usePairingCode = true;
-    this.starting = true;
-    this.state = "connecting";
     console.log("🔄 [PAIRING] Iniciando sesión en modo pairing code...");
 
     try {

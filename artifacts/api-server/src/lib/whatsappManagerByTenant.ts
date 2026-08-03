@@ -72,6 +72,11 @@ export class WhatsAppByTenant extends WhatsAppManager {
           defaultQueryTimeoutMs: 30000,
           keepAliveIntervalMs: 10000,
           ...(waVersion ? { version: waVersion } : {}),
+          // El modo pairing DEBE estar en el constructor (igual que en
+          // WhatsAppManager.start). Sin esto, requestPairingCode() falla con
+          // "Connection Failure" del noise-handler porque el protocolo se
+          // negocia en modo QR.
+          ...(this._usePairingCode ? { usePairingCode: true } : {}),
         });
         this.sock = sock;
 
