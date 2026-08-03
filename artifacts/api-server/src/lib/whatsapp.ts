@@ -1,6 +1,8 @@
 import { eq, inArray, desc } from "drizzle-orm";
 import path from "node:path";
 import { existsSync, mkdirSync, rmSync } from "node:fs";
+import { HttpProxyAgent } from "http-proxy-agent";
+import { HttpsProxyAgent } from "https-proxy-agent";
 import QRCode from "qrcode";
 import {
   db,
@@ -546,6 +548,35 @@ export class WhatsAppManager {
          console.warn("⚠️ [VERSION] No se pudo obtener la versión más reciente de WhatsApp, usando la del paquete:", e instanceof Error ? e.message : e);
        }
 
+      // Configurar proxy si está disponible (para Floppy Data u otros servicios)
+      let httpAgent: any = undefined;
+      let httpsAgent: any = undefined;
+      const proxyUrl = process.env.PROXY_URL; // ej: http://user:pass@proxy.host:port
+      if (proxyUrl) {
+        console.log("[PROXY] Configurando proxy para WhatsApp...");
+        try {
+          const proxyUri = new URL(proxyUrl);
+          const proxyAuth = proxyUri.username && proxyUri.password
+            ? `${proxyUri.username}:${proxyUri.password}`
+            : undefined;
+
+          httpAgent = new HttpProxyAgent({
+            host: proxyUri.hostname || undefined,
+            port: proxyUri.port ? Number(proxyUri.port) : undefined,
+            proxyAuth: proxyAuth,
+          });
+
+          httpsAgent = new HttpsProxyAgent({
+            host: proxyUri.hostname || undefined,
+            port: proxyUri.port ? Number(proxyUri.port) : undefined,
+            proxyAuth: proxyAuth,
+          });
+          console.log("✅ [PROXY] Proxy configurado correctamente");
+        } catch (err) {
+          console.warn("⚠️ [PROXY] Error al configurar proxy:", err instanceof Error ? err.message : err);
+        }
+      }
+
       const sock = makeWASocket({
          auth: authState,
          browser: ["VentasPro", "Chrome", "1.0.0"],
@@ -557,6 +588,7 @@ export class WhatsAppManager {
          // requestPairingCode() falla con "Connection Failure" del noise-handler.
          ...(this._usePairingCode ? { usePairingCode: true } : {}),
          ...(waVersion ? { version: waVersion } : {}),
+         ...(httpAgent ? { agent: { http: httpAgent, https: httpsAgent } } : {}),
        });
        this.sock = sock;
        console.log("✅ [INIT] Socket WhatsApp inicializado correctamente");
