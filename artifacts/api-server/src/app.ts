@@ -34,6 +34,16 @@ import { getImageStoreDir } from "./lib/image-store";
     // reales desde el arranque, no el placeholder.
     const realTenant = await tenantManager.getTenantById(1);
     const defaultTenant = realTenant ?? tenantManager.getDefaultTenant();
+
+    // Si no hay tenant resuelto (BD vacía o schema viejo), no intentar
+    // arrancar WhatsApp -- antes esto lanzaba un TypeError inesperado
+    // ("Cannot read properties of undefined (reading 'id')") que rompía el
+    // arranque del servidor en loop.
+    if (!defaultTenant?.id) {
+      logger.warn("[WhatsApp] No hay tenant disponible, omitiendo auto-start del bot");
+      return;
+    }
+
     const mgr = getWhatsAppForTenant(defaultTenant.id, defaultTenant);
     await mgr.start();
     logger.info({ tenantId: defaultTenant.id }, "[WhatsApp] Instancia auto-iniciada");
