@@ -12,6 +12,10 @@ const MIGRATIONS = [
   `ALTER TABLE tenants ADD COLUMN IF NOT EXISTS password_reset_expiry TIMESTAMP WITH TIME ZONE`,
   `ALTER TABLE tenants ADD COLUMN IF NOT EXISTS two_factor_enabled BOOLEAN DEFAULT false`,
   `ALTER TABLE tenants ADD COLUMN IF NOT EXISTS two_factor_secret TEXT`,
+  `ALTER TABLE tenants ADD COLUMN IF NOT EXISTS is_admin BOOLEAN NOT NULL DEFAULT false`,
+  `ALTER TABLE tenants ADD COLUMN IF NOT EXISTS facebook_integration JSONB`,
+  `ALTER TABLE tenants ADD COLUMN IF NOT EXISTS email_config JSONB`,
+  `ALTER TABLE tenants ADD COLUMN IF NOT EXISTS api_keys JSONB`,
 ];
 
 export async function runAutoMigrations(): Promise<void> {

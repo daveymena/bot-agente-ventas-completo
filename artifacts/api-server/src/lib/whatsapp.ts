@@ -346,6 +346,14 @@ export class WhatsAppManager {
     this.currentTenant = tenant || tenantManager.getDefaultTenant();
   }
 
+  // Getter de compatibilidad: el código heredado (y subclases) referenciaba
+  // this.tenant, pero la propiedad real es currentTenant. Este getter evita
+  // TypeError "Cannot read properties of undefined (reading 'id')" cuando un
+  // método usa this.tenant.id sin haberlo declarado.
+  get tenant(): TenantContext {
+    return this.currentTenant;
+  }
+
   setTenant(tenant: TenantContext): void {
     this.currentTenant = tenant;
     logger.info({ tenantId: tenant.id }, "[WhatsApp] Tenant context updated");
