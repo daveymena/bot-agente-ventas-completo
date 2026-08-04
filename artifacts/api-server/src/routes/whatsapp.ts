@@ -375,7 +375,7 @@ router.get("/context", async (req, res, next) => {
 
     // Obtener productos del negocio
     const prods = await db.select().from(productsTable)
-      .where((p) => p.tenantId.eq(tid))
+      .where(eq(productsTable.tenantId, tid))
       .limit(10);
 
     res.json({
