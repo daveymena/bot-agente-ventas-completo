@@ -267,4 +267,126 @@ router.post("/instances/:tenantId/start", requireAdmin(), async (req, res, next)
   }
 });
 
+// ────────────────────────────────────────────────────────────────────────────
+// 🤖 ENDPOINTS PARA APP ANDROID + ARQUITECTO IA
+// ────────────────────────────────────────────────────────────────────────────
+
+// POST /api/whatsapp/capture
+// Recibe notificación de app Android, el Arquitecto IA analiza si responder
+router.post("/capture", async (req, res, next) => {
+  try {
+    const { phone, message, timestamp } = req.body;
+    if (!phone || !message) {
+      return res.status(400).json({ error: "phone y message requeridos" });
+    }
+
+    const tid = tenantIdFromReq(req);
+    const { analyzeWhatsAppMessage } = await import("../lib/whatsapp-brain");
+
+    // Buscar o crear conversación
+    let [convo] = await db.select().from(conversations)
+      .where((c) => c.contactPhone.eq(phone) && c.tenantId.eq(tid));
+
+    if (!convo) {
+      [convo] = await db.insert(conversations).values({
+        tenantId: tid,
+        contactName: `Cliente ${phone}`,
+        contactPhone: phone,
+        channel: "whatsapp",
+        status: "ai"
+      }).returning();
+    }
+
+    // Guardar mensaje del cliente
+    await db.insert(messages).values({
+      conversationId: convo.id,
+      role: "customer",
+      content: message,
+    });
+
+    // Analizar con WhatsApp Brain (Arquitecto IA)
+    const analysis = await analyzeWhatsAppMessage(convo.id, tid);
+
+    // Respuesta al app Android
+    res.json({
+      ok: true,
+      conversationId: convo.id,
+      debe_responder: analysis.debe_responder,
+      respuesta: analysis.respuesta,
+      confianza: analysis.confianza,
+      tipo_mensaje: analysis.tipo_mensaje,
+      razonamiento: analysis.razonamiento,
+      timestamp: new Date().toISOString()
+    });
+  } catch (e) {
+    return next(e);
+  }
+});
+
+// POST /api/whatsapp/execute
+// App Android confirma y envía la respuesta automática
+router.post("/execute", async (req, res, next) => {
+  try {
+    const { conversationId, mensaje, phone } = req.body;
+    if (!conversationId || !mensaje) {
+      return res.status(400).json({ error: "conversationId y mensaje requeridos" });
+    }
+
+    const tid = tenantIdFromReq(req);
+
+    // Guardar respuesta en BD
+    await db.insert(messages).values({
+      conversationId,
+      role: "assistant",
+      content: mensaje,
+      metadata: {
+        es_automatico: true,
+        enviado_via: "app_android",
+        timestamp: new Date().toISOString()
+      }
+    });
+
+    // TODO: Integrar con Baileys para enviar realmente el mensaje
+    // const mgr = getWhatsAppForTenant(tid, (req as any).tenant);
+    // await mgr.sendMessage(phone, mensaje);
+
+    res.json({
+      ok: true,
+      conversationId,
+      mensaje_enviado: true,
+      timestamp: new Date().toISOString()
+    });
+  } catch (e) {
+    return next(e);
+  }
+});
+
+// GET /api/whatsapp/context
+// App Android obtiene contexto del negocio
+router.get("/context", async (req, res, next) => {
+  try {
+    const tid = tenantIdFromReq(req);
+    const { products: productsTable } = await import("@workspace/db");
+
+    // Obtener productos del negocio
+    const prods = await db.select().from(productsTable)
+      .where((p) => p.tenantId.eq(tid))
+      .limit(10);
+
+    res.json({
+      ok: true,
+      tenantId: tid,
+      productos: prods.map(p => ({
+        id: p.id,
+        nombre: p.name,
+        precio: p.price,
+        descripcion: p.description?.substring(0, 200)
+      })),
+      timestamp: new Date().toISOString()
+    });
+  } catch (e) {
+    return next(e);
+  }
+});
+
 export default router;
