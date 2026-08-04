@@ -29,6 +29,7 @@ type Prueba = { ok: boolean; detalle: string; page?: { id: string; name: string;
 export function FacebookCredentials() {
   const [estado, setEstado] = useState<Estado | null>(null);
   const [cargando, setCargando] = useState(true);
+  const [guardando, setGuardando] = useState(false);
 
   const [fbToken, setFbToken] = useState("");
   const [verToken, setVerToken] = useState(false);
@@ -89,7 +90,7 @@ export function FacebookCredentials() {
   };
 
   const guardar = async () => {
-    const guardando = true;
+    setGuardando(true);
     try {
       const res = await fetch("/api/facebook/credentials", {
         method: "PUT",
@@ -115,6 +116,8 @@ export function FacebookCredentials() {
       await cargar();
     } catch {
       toast.error("No se pudieron guardar");
+    } finally {
+      setGuardando(false);
     }
   };
 

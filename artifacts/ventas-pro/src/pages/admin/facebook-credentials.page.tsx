@@ -139,7 +139,7 @@ export default function FacebookCredentialsPage() {
     );
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-950 to-slate-900 p-6">
+    <div className="min-h-screen bg-gradient-to-br from-slate-950 to-slate-900 p-4 sm:p-6 pb-[calc(7rem+env(safe-area-inset-bottom))]">
       <div className="max-w-4xl mx-auto">
         <Card className="rounded-3xl border-0 shadow-2xl glass-panel overflow-hidden relative">
           <div className="absolute top-0 right-0 w-full h-2 bg-gradient-to-r from-blue-500 to-cyan-500" />

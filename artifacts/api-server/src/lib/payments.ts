@@ -5,6 +5,7 @@ import { dbNow } from "./date-utils";
 import { db, paymentLinks } from "@workspace/db";
 import { eq, and, gte, lte } from "drizzle-orm";
 import { tenantManager, type TenantContext } from "./tenantManager";
+import { credencialesDe, probarMercadoPago, probarPayPal } from "./tenant-payment-credentials";
 
 // Payment Validation and Enhancement Types
 export interface PaymentServiceHealth {
@@ -260,21 +261,16 @@ export class PaymentGateway {
     this.tenant = tenant || tenantManager.getDefaultTenant();
     this.healthMonitor = new PaymentHealthMonitor();
     
-    // Use tenant-specific payment configuration
-    const tenantPayments = this.tenant.paymentMethods;
-    
+    // Resolve/decrypt the tenant credentials. Reading paymentMethods directly
+    // returns encrypted objects and creates invalid payment links.
+    const tenantPayments = credencialesDe(this.tenant);
+
     this.config = {
-      mercadoPagoAccessToken: tenantPayments.mercadopago?.accessToken || process.env.MERCADO_PAGO_ACCESS_TOKEN,
-      paypalClientId: tenantPayments.paypal?.clientId || process.env.PAYPAL_CLIENT_ID,
-      paypalClientSecret: tenantPayments.paypal?.clientSecret || process.env.PAYPAL_CLIENT_SECRET,
-      paypalMode: tenantPayments.paypal?.mode || process.env.PAYPAL_MODE || "live",
-      transferAccounts: tenantPayments.transfer?.accounts || [
-        {
-          type: "Nequi",
-          number: process.env.TRANSFER_NUMBER || "",
-          name: process.env.TRANSFER_NAME || process.env.TRANSFER_OWNER || ""
-        }
-      ],
+      mercadoPagoAccessToken: tenantPayments.mercadopago.accessToken,
+      paypalClientId: tenantPayments.paypal.clientId,
+      paypalClientSecret: tenantPayments.paypal.clientSecret,
+      paypalMode: tenantPayments.paypal.mode,
+      transferAccounts: tenantPayments.transfer.accounts,
       appUrl: getAppUrl(),
       ...config,
     };
@@ -288,16 +284,30 @@ export class PaymentGateway {
 
     // Validate MercadoPago
     if (this.config.mercadoPagoAccessToken) {
-      const mpHealth = this.healthMonitor.getServiceHealth('mercadopago');
-      const mpValidation = await this.validateMercadoPagoService(mpHealth);
-      results.push(mpValidation);
+      const check = await probarMercadoPago(this.config.mercadoPagoAccessToken);
+      results.push({
+        isValid: check.ok,
+        service: "mercadopago",
+        errors: check.ok ? [] : [check.detalle],
+        warnings: [],
+        estimatedSuccess: check.ok ? 95 : 0,
+      });
     }
 
     // Validate PayPal
     if (this.config.paypalClientId && this.config.paypalClientSecret) {
-      const paypalHealth = this.healthMonitor.getServiceHealth('paypal');
-      const paypalValidation = await this.validatePayPalService(paypalHealth);
-      results.push(paypalValidation);
+      const check = await probarPayPal(
+        this.config.paypalClientId,
+        this.config.paypalClientSecret,
+        this.config.paypalMode,
+      );
+      results.push({
+        isValid: check.ok,
+        service: "paypal",
+        errors: check.ok ? [] : [check.detalle],
+        warnings: [],
+        estimatedSuccess: check.ok ? 90 : 0,
+      });
     }
 
     // Validate Transfer (always available)
@@ -411,9 +421,15 @@ export class PaymentGateway {
 
   async createMercadoPagoLink(product: any, client: any): Promise<PaymentMethodResult | null> {
     // Validate service before attempting to create link
-    const validation = await this.validateMercadoPagoService(
-      this.healthMonitor.getServiceHealth('mercadopago')
-    );
+    const token = this.config.mercadoPagoAccessToken;
+    const check = await probarMercadoPago(token);
+    const validation: PaymentValidationResult = {
+      isValid: check.ok,
+      service: "mercadopago",
+      errors: check.ok ? [] : [check.detalle],
+      warnings: [],
+      estimatedSuccess: check.ok ? 95 : 0,
+    };
 
     if (!validation.isValid) {
       logger.warn({ 
@@ -427,7 +443,7 @@ export class PaymentGateway {
       logger.warn({ warnings: validation.warnings }, "[Payment] MercadoPago warnings detected");
     }
 
-    const mpAccessToken = this.config.mercadoPagoAccessToken;
+    const mpAccessToken = token;
     if (!mpAccessToken) return null;
 
     try {
@@ -503,9 +519,16 @@ export class PaymentGateway {
 
   async createPayPalLink(product: any, client: any): Promise<PaymentMethodResult | null> {
     // Validate service before attempting to create link
-    const validation = await this.validatePayPalService(
-      this.healthMonitor.getServiceHealth('paypal')
-    );
+    const clientId = this.config.paypalClientId;
+    const clientSecret = this.config.paypalClientSecret;
+    const check = await probarPayPal(clientId, clientSecret, this.config.paypalMode);
+    const validation: PaymentValidationResult = {
+      isValid: check.ok,
+      service: "paypal",
+      errors: check.ok ? [] : [check.detalle],
+      warnings: [],
+      estimatedSuccess: check.ok ? 90 : 0,
+    };
 
     if (!validation.isValid) {
       logger.warn({ 
@@ -519,7 +542,7 @@ export class PaymentGateway {
       logger.warn({ warnings: validation.warnings }, "[Payment] PayPal warnings detected");
     }
 
-    const paypalClientId = this.config.paypalClientId;
+    const paypalClientId = clientId;
     if (!paypalClientId) return null;
 
     try {

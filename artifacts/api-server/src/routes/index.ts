@@ -26,6 +26,7 @@ import authRouter from "./auth";
 import storeRouter from "./store";
 import publicRouter from "./public";
 import facebookRouter from "./facebook";
+import facebookCredentialsRouter from "./facebook-credentials";
 import personalityProfilesRouter from "./personality-profiles";
 import architectMemoryRouter from "./architect-memory";
 import responseAnalyticsRouter from "./response-analytics";
@@ -62,6 +63,9 @@ router.use("/auth", authRouter);
 router.use("/store", storeRouter);
 router.use("/public", publicRouter);
 router.use("/facebook", facebookRouter);
+// Credenciales por tenant: debe montarse explícitamente; el router general de
+// Facebook no contiene /credentials y antes el frontend recibía 404.
+router.use("/facebook", facebookCredentialsRouter);
 router.use("/personality-profiles", personalityProfilesRouter);
 router.use("/architect-memory", architectMemoryRouter);
 router.use("/response-analytics", responseAnalyticsRouter);
