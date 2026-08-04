@@ -19,6 +19,7 @@ import { logger } from "./logger";
 
 export class WhatsAppByTenant extends WhatsAppManager {
   public tenantAuthDir: string;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(tenant: TenantContext, authDir: string) {
     super(tenant);
@@ -27,6 +28,10 @@ export class WhatsAppByTenant extends WhatsAppManager {
 
   // Override de `start()` para usar authDir del tenant
   async start() {
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
     if (this.starting) {
       return this.getStatus();
     }
@@ -123,8 +128,21 @@ export class WhatsAppByTenant extends WhatsAppManager {
               this.lastError = "Sesión cerrada (LoggedOut). Escanea el QR nuevamente.";
               logger.warn({ tenantId: this.currentTenant.id }, "[WhatsApp] Sesión cerrada por WhatsApp");
             } else {
-              this.state = "disconnected";
-              logger.info({ tenantId: this.currentTenant.id, reason }, "[WhatsApp] Desconectado");
+              this.reconnectAttempts++;
+              const delay = Math.min(2000 * this.reconnectAttempts, 30000);
+              this.state = "error";
+              this.lastError = `Reconectando... intento ${this.reconnectAttempts}`;
+              logger.warn({ tenantId: this.currentTenant.id, reason, delay }, "[WhatsApp] Desconexión transitoria; reintentando");
+              if (this.reconnectAttempts <= this.MAX_RECONNECT_ATTEMPTS) {
+                this.reconnectTimer = setTimeout(() => {
+                  this.reconnectTimer = null;
+                  void this.start();
+                }, delay);
+              } else {
+                this.state = "disconnected";
+                this.lastError = "Máximo número de reconexiones alcanzado";
+                this.reconnectAttempts = 0;
+              }
             }
             this.sock = null;
             this.starting = false;
@@ -169,6 +187,10 @@ export class WhatsAppByTenant extends WhatsAppManager {
 
   // Override stop para borrar la carpeta del tenant (no la global)
   async stop(keepAuth: boolean = true) {
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
     try {
       if (this.sock) {
         this.sock.ev.removeAllListeners();
