@@ -5,6 +5,7 @@ import { getMetricsForAll, healthSummary, cleanupInactiveInstances } from "../li
 import { requireAdmin, tenantManager } from "../lib/tenantManager";
 import { runAgentReply } from "../lib/agent";
 import { db, conversations, messages } from "@workspace/db";
+import { and, eq } from "drizzle-orm";
 import { existsSync, rmSync } from "node:fs";
 import path from "node:path";
 
@@ -284,8 +285,12 @@ router.post("/capture", async (req, res, next) => {
     const { analyzeWhatsAppMessage } = await import("../lib/whatsapp-brain");
 
     // Buscar o crear conversación
-    let [convo] = await db.select().from(conversations)
-      .where((c) => c.contactPhone.eq(phone) && c.tenantId.eq(tid));
+    const convos = await db.select().from(conversations)
+      .where(and(
+        eq(conversations.contactPhone, phone),
+        eq(conversations.tenantId, tid)
+      ));
+    let convo = convos[0];
 
     if (!convo) {
       [convo] = await db.insert(conversations).values({
