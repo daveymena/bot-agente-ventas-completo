@@ -847,7 +847,9 @@ export const TOOLS: ToolDef[] = [
       const results = await validateAllPaymentServices(tenant || undefined);
       const cred = new PaymentGateway(tenant || undefined);
       const transfer = cred.getTransferInfo();
-      const available = results.filter((r: any) => r.isValid).map((r: any) => r.service);
+      const available = results
+        .filter((r: any) => r.isValid && r.service !== "transfer")
+        .map((r: any) => r.service);
       return {
         ok: available.length > 0 || transfer.options.length > 0,
         summary: `Pagos disponibles: ${[...available, transfer.options.length ? "transferencia" : ""].filter(Boolean).join(", ") || "ninguno"}`,
