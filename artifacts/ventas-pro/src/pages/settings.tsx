@@ -162,6 +162,7 @@ export default function Settings() {
                 ventas del negocio se cobran en la cuenta del servidor. */}
             <PaymentCredentials />
             <EmailCredentials />
+            <FacebookCredentials />
 
             <Card className="rounded-3xl border-0 shadow-lg glass-panel overflow-hidden relative">
               <div className="absolute top-0 right-0 w-full h-2 bg-gradient-to-r from-primary to-accent" />

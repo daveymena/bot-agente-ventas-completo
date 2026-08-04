@@ -27,6 +27,8 @@
     "drizzle-orm": "catalog:",
     "express": "^5",
     "g4f": "^1.4.6",
+    "http-proxy-agent": "^7.0.2",
+    "https-proxy-agent": "^7.0.2",
     "libsignal": "https://codeload.github.com/whiskeysockets/libsignal-node/tar.gz/bcea72df9ec34d9d9140ab30619cf479c7c144c7",
     "nodemailer": "^6.10.1",
     "pino": "^9",

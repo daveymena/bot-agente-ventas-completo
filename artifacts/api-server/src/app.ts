@@ -69,12 +69,27 @@ logger.info("[MessageHandler] Message receiver configured for default tenant");
   try {
     await ensureDbReady();
 
+    // AUTO-SEED DESHABILITADO temporalmente por schema mismatch
+    // TODO: migrar schema de BD antes de habilitar
+    return;
+
+    /*
     // Auto-seed tenant (admin user) if not exists.
     // Email/password vienen de ADMIN_EMAIL/ADMIN_PASSWORD -- nunca hardcodeados
     // aquí: un valor fijo en el código es la misma cuenta admin conocida en
     // CUALQUIER despliegue fresco de este repo. Fallback solo para no romper
     // instalaciones locales sin .env; en producción hay que setear ambas vars.
-    const existingTenants = await db.select().from(tenants).limit(1);
+    let existingTenants = [];
+    try {
+      existingTenants = await db.select().from(tenants).limit(1);
+    } catch (e: any) {
+      // Si falla por schema mismatch (columnas faltantes), ignorar auto-seed
+      if (e.message?.includes("does not exist") || e.code === "42703") {
+        console.warn("[AutoSeed] Schema mismatch detectado, omitiendo auto-seed");
+        return;
+      }
+      throw e;
+    }
     if (existingTenants.length === 0) {
       const crypto = await import("crypto");
       const adminEmail = process.env.ADMIN_EMAIL || "admin@example.com";
@@ -205,6 +220,7 @@ logger.info("[MessageHandler] Message receiver configured for default tenant");
         console.warn("⚠️ Could not auto-fix product images on startup:", err);
       }
     })();
+    */
   } catch (error) {
     console.error("❌ Error en auto-seed:", error);
   }
@@ -632,6 +648,33 @@ app.use("/api", (req: Request, res: Response, next: NextFunction) => {
     });
     return originalJson(body);
   };
+
+  next();
+});
+
+// Bloquear acceso a archivos sensibles (.env, .git, terraform, AWS, etc.)
+app.use((req: Request, res: Response, next: NextFunction) => {
+  const blockedPatterns = [
+    /^\/\.env/,
+    /^\/\.git/,
+    /^\/\.aws/,
+    /^\/\.secrets/,
+    /^\/secrets\./,
+    /^\/terraform\./,
+    /^\/config\/secrets/,
+    /^\/config\/master\.key/,
+    /^\/wp-config\.php/,
+    /^\/application\.(properties|yml|yaml)$/,
+    /^\/appsettings\.(json|Development\.json|Production\.json)$/,
+    /^\/root\//,
+    /^\/home\//,
+    /docker-compose/,
+  ];
+
+  if (blockedPatterns.some(pattern => pattern.test(req.path))) {
+    logger.warn({ path: req.path }, "🚨 Intento de acceso a archivo sensible bloqueado");
+    return res.status(403).json({ error: "Acceso denegado" });
+  }
 
   next();
 });
