@@ -391,7 +391,11 @@ export class WhatsAppManager {
     try {
       if (this.sock) {
         this.sock.ev.removeAllListeners();
-        await this.sock.logout().catch(() => {});
+        // logout() invalidates the WhatsApp session. A normal stop must only
+        // close the socket so the persisted credentials remain usable.
+        if (!keepAuth) {
+          await this.sock.logout().catch(() => {});
+        }
         this.sock.end(undefined);
         this.sock = null;
       }
@@ -470,23 +474,19 @@ export class WhatsAppManager {
     // fallaba con "WhatsApp no está iniciado". Dejar que start() gestione
     // starting/state normalmente.
     this._usePairingCode = true;
-    this.starting = true;
-    this.state = "connecting";
     console.log("🔄 [PAIRING] Iniciando sesión en modo pairing code (Baileys 7.0.0-rc14)...");
     logger.info("[WhatsApp] Starting with pairing code mode");
 
     try {
       const result = await this.start();
 
-      // El socket está conectado pero el Noise Handshake aún está en progreso.
-      // Esperamos más tiempo para asegurar que esté listo para requestPairingCode().
-      console.log("⏳ [PAIRING] Esperando que handshake Noise complete...");
-      await new Promise(r => setTimeout(r, 5000));
-
-      if (this.state !== "connected") {
-        throw new Error(`Socket no está en estado 'connected', está en: ${this.state}`);
+      // Pairing is requested before WhatsApp becomes authenticated/connected.
+      // Waiting for state === connected here deadlocks the flow.
+      console.log("⏳ [PAIRING] Esperando inicialización del socket...");
+      await new Promise(r => setTimeout(r, 1500));
+      if (!this.sock || this.state === "error" || this.state === "disconnected") {
+        throw new Error(`Socket no está disponible para pairing (estado: ${this.state})`);
       }
-
       console.log("✅ [PAIRING] Socket listo para solicitar código de emparejamiento");
       logger.info("[WhatsApp] Pairing socket ready");
       return result;

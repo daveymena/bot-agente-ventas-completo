@@ -172,7 +172,9 @@ export class WhatsAppByTenant extends WhatsAppManager {
     try {
       if (this.sock) {
         this.sock.ev.removeAllListeners();
-        await this.sock.logout().catch(() => {});
+        if (!keepAuth) {
+          await this.sock.logout().catch(() => {});
+        }
         this.sock.end(undefined);
         this.sock = null;
       }
