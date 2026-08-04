@@ -497,6 +497,33 @@ export const TOOLS: ToolDef[] = [
       return { ok: true, summary: `Tienda creada: #${row.id} ${row.name} (/${row.slug})`, data: { id: row.id } };
     },
   },
+  {
+    name: "get_store",
+    description: "Consultar la tienda pública actual, su slug y tema visual.",
+    args: "{}",
+    run: async (_args, ctx) => {
+      const [store] = await db.select().from(stores).where(eq(stores.tenantId, ctx.tenantId)).limit(1);
+      return store
+        ? { ok: true, summary: `Tienda: ${store.name} (/${store.slug})`, data: { id: store.id, name: store.name, slug: store.slug, theme: store.theme } }
+        : { ok: true, summary: "El negocio todavía no tiene tienda", data: null };
+    },
+  },
+  {
+    name: "update_store",
+    description: "Actualizar la tienda existente: nombre, slug o tema visual. Solo cambia los campos enviados.",
+    args: '{ "name"?, "slug"?, "theme"?: object }',
+    run: async (args, ctx) => {
+      const [store] = await db.select().from(stores).where(eq(stores.tenantId, ctx.tenantId)).limit(1);
+      if (!store) return { ok: false, summary: "No existe una tienda para actualizar; créala primero" };
+      const patch: Record<string, any> = {};
+      if (args.name !== undefined) patch.name = String(args.name).trim();
+      if (args.slug !== undefined) patch.slug = String(args.slug).trim().toLowerCase().replace(/[^a-z0-9-]/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "");
+      if (args.theme !== undefined && args.theme && typeof args.theme === "object") patch.theme = args.theme;
+      if (!Object.keys(patch).length) return { ok: false, summary: "Nada que actualizar en la tienda" };
+      const [updated] = await db.update(stores).set(patch).where(eq(stores.id, store.id)).returning();
+      return { ok: true, summary: `Tienda actualizada: ${updated.name} (/${updated.slug})`, data: { id: updated.id, name: updated.name, slug: updated.slug } };
+    },
+  },
 
   // ── 🌐 WEB / INFORMACIÓN EXTERNA ───────────────────────────────────────────
   {
@@ -804,11 +831,28 @@ export const TOOLS: ToolDef[] = [
     args: "{}",
     run: async (_args, ctx) => {
       const tenant = await tenantManager.getTenantById(ctx.tenantId);
-      const { FacebookService } = await import("./facebook");
-      const fb = new FacebookService(tenant || undefined);
-      if (!fb.isConfigured()) return { ok: false, summary: "Facebook no configurado (falta token en el entorno o en el tenant)." };
-      const v = await fb.validate();
-      return { ok: v.ok, summary: `Facebook: ${v.message}`, data: v };
+      const { credencialesFacebookDe, probarFacebook } = await import("./tenant-facebook-credentials");
+      const cred = credencialesFacebookDe(tenant);
+      const v = await probarFacebook(cred.accessToken, cred.pageId || undefined);
+      return { ok: v.ok, summary: `Facebook: ${v.detalle}`, data: { ...v, pageId: cred.pageId, adAccountId: cred.adAccountId, catalogId: cred.catalogId } };
+    },
+  },
+  {
+    name: "payment_status",
+    description: "Probar las credenciales reales de pago del tenant y mostrar qué métodos están disponibles, sin crear cobros.",
+    args: "{}",
+    run: async (_args, ctx) => {
+      const tenant = await tenantManager.getTenantById(ctx.tenantId);
+      const { validateAllPaymentServices, PaymentGateway } = await import("./payments");
+      const results = await validateAllPaymentServices(tenant || undefined);
+      const cred = new PaymentGateway(tenant || undefined);
+      const transfer = cred.getTransferInfo();
+      const available = results.filter((r: any) => r.isValid).map((r: any) => r.service);
+      return {
+        ok: available.length > 0 || transfer.options.length > 0,
+        summary: `Pagos disponibles: ${[...available, transfer.options.length ? "transferencia" : ""].filter(Boolean).join(", ") || "ninguno"}`,
+        data: { results, transferAccounts: transfer.options.length },
+      };
     },
   },
   {
@@ -1344,6 +1388,7 @@ export async function executeAction(tool: string, args: any, ctx: OperatorContex
 // Destructivas / de dinero: confirmación reforzada.
 export const READ_ONLY_TOOLS = new Set([
   "analyze_system", "list_products", "list_categories", "get_agent", "get_settings",
+  "get_store", "payment_status",
   // Facebook de solo lectura + generación de imagen (solo devuelve preview, no asigna)
   "fb_status", "fb_suggest_audience", "generate_image",
   "fb_page_can_post", "fb_page_preview", "fb_list_drafts",
@@ -1406,6 +1451,14 @@ export async function verifyMutation(tool: string, args: any, ctx: OperatorConte
     if (tool === "update_agent" || tool === "get_agent") {
       const [ag] = await db.select().from(agents).where(eq(agents.tenantId, ctx.tenantId)).limit(1);
       return ag ? `Verificado → agente: ${ag.name} (${ag.role})` : "";
+    }
+    if (tool === "create_category" || tool === "delete_category") {
+      const rows = await db.select().from(productCategories).where(eq(productCategories.tenantId, ctx.tenantId));
+      return `Verificado → ${rows.length} categorías en el negocio.`;
+    }
+    if (tool === "create_store" || tool === "update_store") {
+      const [store] = await db.select().from(stores).where(eq(stores.tenantId, ctx.tenantId)).limit(1);
+      return store ? `Verificado → tienda ${store.name} (/${store.slug}).` : "⚠️ La tienda no aparece después de la operación.";
     }
   } catch (e: any) {
     return `⚠️ Verificación falló: ${e?.message}`;
@@ -1521,6 +1574,7 @@ MONITOREO (cuando el admin pregunte "cómo va todo", "revisa el negocio", "por q
 - 📊 dashboard_summary: leads, conversión, ventas del mes, conversaciones activas.
 - 💬 list_recent_conversations: para ver cómo está vendiendo el agente en conversaciones reales, no solo números.
 - Combina estas lecturas en el mismo turno para dar un diagnóstico completo, no solo un dato suelto.
+- 🧾 Para una revisión integral usa también analyze_system + get_store + payment_status + fb_status: confirma catálogo, tienda, cobros y Meta antes de recomendar cambios.
 
 INFORMACIÓN DE INTERNET (nunca inventes datos externos):
 - 🔎 Si no conoces la URL exacta, usa web_search PRIMERO. Jamás adivines direcciones.
@@ -1577,6 +1631,7 @@ AUTOMATIZACIÓN — la aplicación trabaja por el cliente, no al revés:
 - 🔍 Cuando el admin pida “prepárame la campaña” o “lanza un anuncio”, ejecuta SOLO el flujo de preparación completo (productos → audiencia → draft) y deja la activación en manos del admin. No dejes pasos a medias.
 - ⚠️ Lo único que requiere la decisión humana es ACTIVAR la pauta paga (gasta dinero) y APROBAR cambios. Todo lo demás (leer, diagnosticar, preparar, proponer) hazlo tú sin que te lo pidan dos veces.
 - 🔄 Cierra el ciclo: si la campaña ya existe, revisa fb_campaign_metrics y decide si conviene escalar, pausar o cambiar el creativo. El negocio debe mejorar sola con tus recomendaciones.
+- ✅ Después de crear o cambiar una tienda, categoría, producto o configuración, ejecuta la lectura/validación correspondiente y reporta el estado real, nunca solo el mensaje de la herramienta.
 
 INVESTIGACIÓN EXTERNA — mejora anuncios con fuentes reales, no con suposiciones:
 - 🔎 ANTES de proponer o mejorar un anuncio, campaña, copy o publicación, INVESTIGA en internet con web_search + web_fetch: mejores prácticas actuales de Meta Ads, ejemplos de anuncios que convierten en TU nicho, copywriting viral, formatos ganadores (reels, carrusel, stories), benchmarks de CTR/CPM/ROAS.

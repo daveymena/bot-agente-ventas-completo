@@ -1260,10 +1260,13 @@ router.post("/operator", async (req: TenantRequest, res, next) => {
           lines.push(`${r.ok ? "✅" : "❌"} ${r.summary}${repairText}${verification ? `\n   ${verification}` : ""}`);
         }
         await clearPendingPlan(tenantId, sessionId);
-        const reply = toEmojiStyle(`Listo, ejecuté el plan:\n\n${lines.join("\n")}`);
+        const allOk = executed.every((item) => item.ok);
+        const reply = toEmojiStyle(
+          `${allOk ? "✅ Plan ejecutado y verificado" : "⚠️ El plan terminó con errores; no voy a decir que quedó listo"}:\n\n${lines.join("\n")}`,
+        );
         await saveArchitectTurn(tenantId, sessionId, "assistant", reply);
         logger.info({ tenantId, executed: executed.length }, "[AppOperator] Plan aprobado y ejecutado");
-        return res.json({ reply, executed, status: "executed" });
+        return res.json({ reply, executed, actionsCount: executed.length, status: allOk ? "executed" : "partial_failure" });
       }
       if (isRejection(String(prompt))) {
         await clearPendingPlan(tenantId, sessionId);
