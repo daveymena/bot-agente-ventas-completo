@@ -52,6 +52,8 @@ export default function AuthPage() {
   });
 
   const [loginData, setLoginData] = useState({ email: "", password: "" });
+  const [twoFactorPending, setTwoFactorPending] = useState(false);
+  const [twoFactorCode, setTwoFactorCode] = useState("");
   // Ver la contraseña que uno escribe: en móvil, escribir a ciegas una clave
   // con mayúscula y número (lo que exige el registro) es la causa más común
   // de "no me deja entrar" cuando en realidad hubo un typo.
@@ -126,6 +128,11 @@ export default function AuthPage() {
       }
       
       if (res.ok) {
+        if (data.requiresTwoFactor) {
+          setTwoFactorPending(true);
+          toast.info("Introduce el código de tu aplicación autenticadora");
+          return;
+        }
         // Guardar en localStorage como fallback al cookie (funciona detrás de proxies HTTPS como Easypanel)
         if (data.tenant?.id) {
           localStorage.setItem("tenant_id", String(data.tenant.id));
@@ -140,6 +147,28 @@ export default function AuthPage() {
     } catch (err) {
       console.error("Error de red/conexión:", err);
       toast.error("Error conectando con el servidor");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const verifyTwoFactor = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsLoading(true);
+    try {
+      const res = await fetch("/api/auth/2fa/verify-login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ code: twoFactorCode }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Código 2FA incorrecto");
+      toast.success("¡Bienvenido de nuevo! 🚀");
+      await refreshSession();
+      setLocation("/");
+    } catch (err: any) {
+      toast.error(err.message || "No se pudo verificar el código");
     } finally {
       setIsLoading(false);
     }
@@ -727,9 +756,30 @@ export default function AuthPage() {
                   </CardFooter>
                 </form>
               </Card>
-            </TabsContent>
+             </TabsContent>
 
-            {/* Tab: Registro */}
+             {twoFactorPending && (
+               <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60 p-4">
+                 <Card className="w-full max-w-md rounded-2xl shadow-2xl">
+                   <CardHeader>
+                     <CardTitle>Verificación en dos pasos</CardTitle>
+                     <CardDescription>Abre Google Authenticator, Authy u otra aplicación TOTP e introduce el código de 6 dígitos.</CardDescription>
+                   </CardHeader>
+                   <form onSubmit={verifyTwoFactor}>
+                     <CardContent className="space-y-4">
+                       <Input autoFocus inputMode="numeric" autoComplete="one-time-code" maxLength={6} value={twoFactorCode} onChange={(e) => setTwoFactorCode(e.target.value.replace(/\D/g, ""))} placeholder="000000" className="text-center text-2xl tracking-[0.5em]" />
+                       <p className="text-xs text-muted-foreground">También puedes usar uno de tus códigos de recuperación de un solo uso.</p>
+                     </CardContent>
+                     <CardFooter className="gap-2">
+                       <Button type="button" variant="outline" onClick={() => { setTwoFactorPending(false); setTwoFactorCode(""); }}>Cancelar</Button>
+                       <Button type="submit" className="flex-1" disabled={isLoading || twoFactorCode.length < 6}>{isLoading ? "Verificando..." : "Verificar"}</Button>
+                     </CardFooter>
+                   </form>
+                 </Card>
+               </div>
+             )}
+
+             {/* Tab: Registro */}
             <TabsContent value="register">
               <Card className="border border-border/60 rounded-2xl shadow-xl shadow-black/5 bg-card">
                 <CardHeader>

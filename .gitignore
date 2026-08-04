@@ -38,3 +38,12 @@ OpenCode-puete-ia/__pycache__/
 
 # Token de la API de Easypanel — nunca se commitea
 .easypanel.env
+
+# Android signing and local SDK configuration
+android-project/local.properties
+android-project/gradle.properties
+android-project/**/*.keystore
+android-project/**/*.jks
+*.apk
+*.keystore
+*.jks

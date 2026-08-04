@@ -369,6 +369,12 @@ export const passwordResetRateLimit = rateLimitingMiddleware.createRateLimit({
   keyGenerator: (req: TenantRequest) => `pwreset_${req.ip}_${(req.body as any)?.email || ""}`
 });
 
+export const authRateLimit = rateLimitingMiddleware.createRateLimit({
+  windowMs: 15 * 60 * 1000,
+  maxRequests: 12,
+  keyGenerator: (req: TenantRequest) => `auth_${req.ip}_${(req.body as any)?.email || ""}`,
+});
+
 // Utility functions
 export function trackWhatsAppCost(tenantId: string): void {
   rateLimitingMiddleware.trackWhatsAppMessage(tenantId);

@@ -18,6 +18,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Save, X, Plus, Settings as SettingsIcon, ShieldCheck, Terminal, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { AIProviders } from "@/components/ai-providers";
+import { TwoFactorSettings } from "@/components/two-factor-settings";
 
 export default function Settings() {
   const queryClient = useQueryClient();
@@ -163,6 +164,7 @@ export default function Settings() {
             <PaymentCredentials />
             <EmailCredentials />
             <FacebookCredentials />
+            <TwoFactorSettings />
 
             <Card className="rounded-3xl border-0 shadow-lg glass-panel overflow-hidden relative">
               <div className="absolute top-0 right-0 w-full h-2 bg-gradient-to-r from-primary to-accent" />
