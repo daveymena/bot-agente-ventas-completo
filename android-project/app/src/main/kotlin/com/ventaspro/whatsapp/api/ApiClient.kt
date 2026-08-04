@@ -2,6 +2,8 @@ package com.ventaspro.whatsapp.api
 
 import android.content.Context
 import android.content.SharedPreferences
+import androidx.security.crypto.EncryptedSharedPreferences
+import androidx.security.crypto.MasterKey
 import com.google.gson.Gson
 import com.ventaspro.whatsapp.models.ApiCapturerResponse
 import com.ventaspro.whatsapp.models.ContextResponse
@@ -17,7 +19,15 @@ import java.util.concurrent.TimeUnit
 
 class ApiClient(private val context: Context) {
 
-    private val prefs: SharedPreferences = context.getSharedPreferences("auth", Context.MODE_PRIVATE)
+    private val prefs: SharedPreferences = EncryptedSharedPreferences.create(
+        context,
+        "auth",
+        MasterKey.Builder(context)
+            .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+            .build(),
+        EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+        EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
+    )
     private val gson = Gson()
     private val client = OkHttpClient.Builder()
         .connectTimeout(30, TimeUnit.SECONDS)
