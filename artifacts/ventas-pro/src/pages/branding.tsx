@@ -617,7 +617,7 @@ export default function Branding() {
         </div>
 
         {/* Save Button (Mobile) */}
-        <div className="md:hidden fixed bottom-4 left-4 right-4 z-50">
+        <div className="md:hidden fixed bottom-[calc(88px+env(safe-area-inset-bottom))] left-4 right-4 z-40">
           <Button
             onClick={handleSave}
             disabled={isSaving}

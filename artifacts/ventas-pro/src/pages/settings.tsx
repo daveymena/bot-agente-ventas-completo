@@ -750,7 +750,7 @@ export default function Settings() {
         )}
         
         {/* Fixed Save Button Bottom */}
-        <div className="sticky bottom-6 flex justify-end z-20 mt-4 pointer-events-none">
+        <div className="sticky bottom-[calc(88px+env(safe-area-inset-bottom))] md:bottom-6 flex justify-center md:justify-end z-20 mt-4 pointer-events-none">
           <Button 
             className="rounded-full shadow-xl shadow-primary/20 h-14 px-8 text-base pointer-events-auto transition-transform hover:scale-105" 
             onClick={handleSubmit} 
