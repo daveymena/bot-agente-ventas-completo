@@ -42,6 +42,7 @@ OpenCode-puete-ia/__pycache__/
 # Android signing and local SDK configuration
 android-project/local.properties
 android-project/gradle.properties
+android-project/.gradle/
 android-project/**/*.keystore
 android-project/**/*.jks
 *.apk
