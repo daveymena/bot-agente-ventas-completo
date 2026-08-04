@@ -72,6 +72,11 @@ export class WhatsAppByTenant extends WhatsAppManager {
           defaultQueryTimeoutMs: 30000,
           keepAliveIntervalMs: 10000,
           ...(waVersion ? { version: waVersion } : {}),
+          // El modo pairing DEBE estar en el constructor (igual que en
+          // WhatsAppManager.start). Sin esto, requestPairingCode() falla con
+          // "Connection Failure" del noise-handler porque el protocolo se
+          // negocia en modo QR.
+          ...(this._usePairingCode ? { usePairingCode: true } : {}),
         });
         this.sock = sock;
 
@@ -85,11 +90,11 @@ export class WhatsAppByTenant extends WhatsAppManager {
             try {
               this.qrDataUrl = await QRCode.toDataURL(qr, { width: 320, margin: 1 });
               this.state = "qr";
-              logger.info({ tenantId: this.tenant.id }, "[WhatsApp] QR generado exitosamente");
+              logger.info({ tenantId: this.currentTenant.id }, "[WhatsApp] QR generado exitosamente");
             } catch (err) {
               this.state = "error";
               this.lastError = `Error generating QR: ${err instanceof Error ? err.message : String(err)}`;
-              logger.error({ err, tenantId: this.tenant.id }, "[WhatsApp] Error generando QR");
+              logger.error({ err, tenantId: this.currentTenant.id }, "[WhatsApp] Error generando QR");
             }
           }
 
@@ -102,7 +107,7 @@ export class WhatsAppByTenant extends WhatsAppManager {
             try {
               const me = sock.user?.id?.split(":")[0] || sock.user?.id || null;
               this.phoneNumber = me;
-              logger.info({ tenantId: this.tenant.id, phone: me }, "[WhatsApp] Conectado exitosamente");
+              logger.info({ tenantId: this.currentTenant.id, phone: me }, "[WhatsApp] Conectado exitosamente");
             } catch {}
           }
 
@@ -116,10 +121,10 @@ export class WhatsAppByTenant extends WhatsAppManager {
             if (isLoggedOut) {
               this.state = "error";
               this.lastError = "Sesión cerrada (LoggedOut). Escanea el QR nuevamente.";
-              logger.warn({ tenantId: this.tenant.id }, "[WhatsApp] Sesión cerrada por WhatsApp");
+              logger.warn({ tenantId: this.currentTenant.id }, "[WhatsApp] Sesión cerrada por WhatsApp");
             } else {
               this.state = "disconnected";
-              logger.info({ tenantId: this.tenant.id, reason }, "[WhatsApp] Desconectado");
+              logger.info({ tenantId: this.currentTenant.id, reason }, "[WhatsApp] Desconectado");
             }
             this.sock = null;
             this.starting = false;
@@ -133,13 +138,13 @@ export class WhatsAppByTenant extends WhatsAppManager {
         // silencio sin ningún error visible.
         sock.ev.on("messages.upsert", (m: any) => this.handleIncomingMessages(m));
 
-        logger.info({ tenantId: this.tenant.id, attempt: retries + 1 }, "[WhatsApp] Iniciando conexión");
+        logger.info({ tenantId: this.currentTenant.id, attempt: retries + 1 }, "[WhatsApp] Iniciando conexión");
         return this.getStatus();
       } catch (e: any) {
         retries++;
         logger.error({ 
           err: e, 
-          tenantId: this.tenant.id, 
+          tenantId: this.currentTenant.id, 
           attempt: retries, 
           maxRetries: MAX_RETRIES 
         }, "[WhatsApp] Error en intento de conexión");

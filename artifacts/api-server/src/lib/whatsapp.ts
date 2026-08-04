@@ -348,6 +348,14 @@ export class WhatsAppManager {
     this.currentTenant = tenant || tenantManager.getDefaultTenant();
   }
 
+  // Getter de compatibilidad: el código heredado (y subclases) referenciaba
+  // this.tenant, pero la propiedad real es currentTenant. Este getter evita
+  // TypeError "Cannot read properties of undefined (reading 'id')" cuando un
+  // método usa this.tenant.id sin haberlo declarado.
+  get tenant(): TenantContext {
+    return this.currentTenant;
+  }
+
   setTenant(tenant: TenantContext): void {
     this.currentTenant = tenant;
     logger.info({ tenantId: tenant.id }, "[WhatsApp] Tenant context updated");
@@ -456,6 +464,11 @@ export class WhatsAppManager {
     }
 
   async startWithPairing() {
+    // NO setear `this.starting` ni `this.state` acá: start() tiene guards
+    // (`if (this.starting)` / `if (state === "connected" || "qr")`) que hacían
+    // que retornara inmediatamente sin crear el socket → requestPairingCode()
+    // fallaba con "WhatsApp no está iniciado". Dejar que start() gestione
+    // starting/state normalmente.
     this._usePairingCode = true;
     this.starting = true;
     this.state = "connecting";
