@@ -1113,7 +1113,13 @@ router.post("/operator", async (req: TenantRequest, res, next) => {
 
     // Llama a la IA probando proveedores en orden hasta que uno responda
     const callAI = async (msgs: any[]): Promise<string | null> => {
+      // The reverse proxy has a finite request timeout. A long serial fallback
+      // chain used to outlive it and surface as a generic 502 even though the
+      // app was healthy. Give the operator a bounded, predictable window.
+      const deadline = Date.now() + 45_000;
       for (const cand of candidates) {
+        const remaining = deadline - Date.now();
+        if (remaining <= 0) break;
         const cfg: AIProviderConfig = { ...cand.config };
         try {
           if (cfg.baseUrl === "https://api.githubcopilot.com") {
@@ -1134,7 +1140,7 @@ router.post("/operator", async (req: TenantRequest, res, next) => {
               temperature: 0.2,
               response_format: { type: "json_object" },
             },
-            { timeout: 15000, maxRetries: 0 },
+            { timeout: Math.min(10_000, remaining), maxRetries: 0 },
           );
           const c = resp.choices[0]?.message?.content;
           if (c) {
