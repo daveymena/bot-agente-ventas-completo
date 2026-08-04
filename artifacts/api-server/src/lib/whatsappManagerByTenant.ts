@@ -122,11 +122,24 @@ export class WhatsAppByTenant extends WhatsAppManager {
             const isLoggedOut = reason === DisconnectReason?.loggedOut
               || reason === 401
               || reason === 403;
+            const isRestartRequired = reason === DisconnectReason?.restartRequired || reason === 515;
             
             if (isLoggedOut) {
               this.state = "error";
               this.lastError = "Sesión cerrada (LoggedOut). Escanea el QR nuevamente.";
               logger.warn({ tenantId: this.currentTenant.id }, "[WhatsApp] Sesión cerrada por WhatsApp");
+            } else if (isRestartRequired) {
+              // Baileys closes with 515 after a QR scan while it restarts the
+              // socket using the newly saved credentials. This is expected and
+              // must not consume the normal reconnect budget.
+              this.reconnectAttempts = 0;
+              this.state = "connecting";
+              this.lastError = "Sincronizando la sesión de WhatsApp...";
+              logger.info({ tenantId: this.currentTenant.id, reason }, "[WhatsApp] Reinicio requerido tras sincronización");
+              this.reconnectTimer = setTimeout(() => {
+                this.reconnectTimer = null;
+                void this.start();
+              }, 1000);
             } else {
               this.reconnectAttempts++;
               const delay = Math.min(2000 * this.reconnectAttempts, 30000);
