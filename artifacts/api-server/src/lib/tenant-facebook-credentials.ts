@@ -100,8 +100,11 @@ export async function probarFacebook(
 
     // Si se indicó una página, verificar que el token la administre.
     if (pageId) {
+      // `tasks` was removed/permission-gated in newer Graph API versions and
+      // made a valid token look broken. Identity and page access are enough to
+      // validate the publishing configuration here.
       const page = await fetch(
-        `https://graph.facebook.com/v21.0/${pageId}?fields=id,name,tasks&access_token=${accessToken}`,
+        `https://graph.facebook.com/v21.0/${pageId}?fields=id,name&access_token=${accessToken}`,
         { signal: AbortSignal.timeout(12000) },
       );
       const pageData: any = await page.json();
@@ -114,7 +117,7 @@ export async function probarFacebook(
       return {
         ok: true,
         detalle: `Conectado como ${meData.name} · Página ${pageData.name || pageId}`,
-        page: { id: pageData.id, name: pageData.name, tasks: pageData.tasks },
+        page: { id: pageData.id, name: pageData.name },
       };
     }
 
