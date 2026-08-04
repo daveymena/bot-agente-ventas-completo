@@ -376,16 +376,26 @@ mkdirSync(IMAGES_DIR, { recursive: true });
 
 // Servir imágenes de productos desde el volumen persistente primero
 app.get("/images/products/:filename", (req, res, next) => {
-  const filePath = path.resolve(IMAGES_DIR, "products", req.params.filename);
+  const filename = req.params.filename;
+  // Never let a public image URL escape the product image directory.
+  if (path.basename(filename) !== filename || !/^\d+\.(?:jpe?g|png|webp)$/i.test(filename)) {
+    return res.status(404).end();
+  }
+  const filePath = path.resolve(IMAGES_DIR, "products", filename);
   if (existsSync(filePath)) {
     return res.sendFile(filePath);
   }
   // Fallback al archivo estático del repositorio
-  const staticPath = path.resolve(frontendPath, "images/products", req.params.filename);
-  if (existsSync(staticPath)) {
+  const staticPath = frontendPath ? path.resolve(frontendPath, "images/products", filename) : "";
+  if (staticPath && existsSync(staticPath)) {
     return res.sendFile(staticPath);
   }
-  next();
+  // Legacy catalog rows can reference an image that was removed from the
+  // volume. Return a neutral placeholder instead of a noisy 404 and broken
+  // cards; the product can still be edited to attach a real image later.
+  res.type("svg").send(
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 450"><defs><linearGradient id="g" x1="0" x2="1"><stop stop-color="#e2e8f0"/><stop offset="1" stop-color="#cbd5e1"/></linearGradient></defs><rect width="800" height="450" fill="url(#g)"/><text x="400" y="235" text-anchor="middle" font-family="Arial,sans-serif" font-size="28" fill="#475569">Imagen no disponible</text></svg>`,
+  );
 });
 
 // Upload de imagen (base64) para un producto
