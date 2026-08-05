@@ -725,13 +725,19 @@ app.get("/p/:productId", async (req, res, next) => {
 
 // SPA fallback para la tienda pública en /tienda/*
 app.use((req, res, next) => {
-  if (tiendaPath && (req.path === "/tienda" || req.path.startsWith("/tienda/"))) {
+  const isPublicStorePath = req.path === "/tienda" || req.path.startsWith("/tienda/");
+  if (isPublicStorePath && tiendaPath) {
     const indexPath = path.join(tiendaPath, "index.html");
     if (existsSync(indexPath)) {
       res.setHeader("Content-Type", "text/html");
       res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
       return res.sendFile(indexPath);
     }
+  }
+  // Never fall through to the admin SPA. A missing public-store build must be
+  // visible as an operational error, not as a dashboard rendered at /tienda.
+  if (isPublicStorePath) {
+    return res.status(503).send("La tienda pública no está disponible temporalmente.");
   }
   next();
 });
