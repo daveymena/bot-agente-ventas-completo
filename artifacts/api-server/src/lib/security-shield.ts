@@ -136,6 +136,18 @@ export class SecurityShield {
    * Bloquear acceso a información de desarrollo/infraestructura
    */
   blockDevelopmentPaths(path: string): boolean {
+    // "/config" quedó sacado de esta lista: el chequeo de abajo es un simple
+    // .includes() (substring, no segmento exacto de path), así que bloqueaba
+    // CUALQUIER ruta que tuviera "config" en el camino -- incluidas rutas de
+    // negocio reales con ese nombre por convención REST (GET/PUT
+    // /api/facebook/config, /api/woocommerce/config). Efecto real: la página
+    // de Facebook nunca podía cargar sus credenciales guardadas al abrir
+    // (racionalmente devolvía 403 "Acceso denegado" desde ESTE middleware,
+    // antes de llegar siquiera a la ruta real), así que el estado de
+    // "conectado" arrancaba en null/false siempre en cada carga, aunque las
+    // credenciales estuvieran configuradas -- solo se corregía si el usuario
+    // apretaba manualmente "Probar conexión" (que pega a /facebook/validate,
+    // un path que no contiene "config" y por eso nunca fue bloqueado).
     const blockedPaths = [
       "/debug",
       "/admin",
@@ -147,7 +159,6 @@ export class SecurityShield {
       "/health-detailed",
       "/logs",
       "/system",
-      "/config",
       "/version",
       "/_internal",
     ];
