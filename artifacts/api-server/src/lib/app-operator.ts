@@ -1534,6 +1534,17 @@ async function generateImageUrl(prompt: string, size: string): Promise<string | 
 
 const TOOL_MAP = new Map(TOOLS.map((t) => [t.name, t]));
 
+/**
+ * Modelos económicos/gratuitos (mimo, llama-3.1-8b, etc — ver AI_FALLBACK_ORDER)
+ * a veces devuelven una entrada de "actions" sin el campo "tool" o con un
+ * nombre inventado. Antes eso se colaba tal cual a plannedActions y el admin
+ * veía "undefined: {}" en el plan propuesto -- ahora se puede filtrar ANTES
+ * de armar el plan en vez de mostrar la acción rota.
+ */
+export function isKnownTool(name: any): boolean {
+  return typeof name === "string" && TOOL_MAP.has(name);
+}
+
 export async function executeAction(tool: string, args: any, ctx: OperatorContext): Promise<ToolResult> {
   const def = TOOL_MAP.get(tool);
   if (!def) return { ok: false, summary: `Herramienta desconocida: ${tool}` };

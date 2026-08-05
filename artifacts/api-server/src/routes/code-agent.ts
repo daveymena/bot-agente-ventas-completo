@@ -13,7 +13,7 @@ import {
 } from "../lib/optimized-rotation";
 import { getG4FResponse } from "../lib/providers/g4f-provider";
 import { G4F_ENABLED } from "../config/g4f.config";
-import { OPERATOR_SYSTEM_PROMPT, buildToolsDoc, executeAction, isReadOnlyTool, verifyMutation } from "../lib/app-operator";
+import { OPERATOR_SYSTEM_PROMPT, buildToolsDoc, executeAction, isReadOnlyTool, isKnownTool, verifyMutation } from "../lib/app-operator";
 import {
   loadArchitectHistory, saveArchitectTurn, getPendingPlan, setPendingPlan,
   clearPendingPlan, clearArchitectHistory, isApproval, isRejection,
@@ -1333,11 +1333,33 @@ router.post("/operator", async (req: TenantRequest, res, next) => {
         break;
       }
 
-      const actions = Array.isArray(parsed.actions) ? parsed.actions : [];
+      const rawActions = Array.isArray(parsed.actions) ? parsed.actions : [];
       finalReply = parsed.reply || finalReply;
+
+      // Filtrar acciones sin "tool" válido ANTES de clasificarlas -- si no,
+      // una acción rota (tool undefined/inventado) caía en "mutación" por
+      // descarte (no está en READ_ONLY_TOOLS) y terminaba mostrada como
+      // "undefined: {}" en el plan propuesto al admin.
+      const actions = rawActions.filter((a: any) => isKnownTool(a?.tool));
+      const invalidActions = rawActions.filter((a: any) => !isKnownTool(a?.tool));
+      if (invalidActions.length > 0) {
+        logger.warn({ invalidActions }, "[AppOperator] El modelo devolvió acciones con 'tool' inválido/faltante, descartadas");
+      }
 
       const reads = actions.filter((a: any) => isReadOnlyTool(a.tool));
       const mutations = actions.filter((a: any) => !isReadOnlyTool(a.tool));
+
+      // Si TODAS las acciones de este paso eran inválidas y no quedó ninguna
+      // válida, pedirle al modelo que reintente en vez de seguir con un paso
+      // vacío silencioso (mismo patrón que el retry de JSON mal formado).
+      if (rawActions.length > 0 && actions.length === 0 && step < MAX_STEPS - 1) {
+        messages.push({ role: "assistant", content });
+        messages.push({
+          role: "user",
+          content: `Las acciones que devolviste no tienen un "tool" válido (revisa el nombre exacto de la herramienta). Reintenta con el nombre correcto, o si no necesitás ejecutar nada, devolvé "actions": [].`,
+        });
+        continue;
+      }
 
       // Si hay MUTACIONES → ya tenemos el plan de cambios. Ejecutamos las
       // lecturas de este turno (para grounding) pero PARAMOS aquí: no seguimos
