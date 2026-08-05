@@ -556,8 +556,20 @@ Este contenido digital es tu atajo directo a resultados profesionales.
           age_max: strategy.ageMax,
           ...(resolvedInterests.length > 0 ? { flexible_spec: [{ interests: resolvedInterests }] } : {}),
           publisher_platforms: ["facebook", "instagram"],
-          facebook_positions: ["feed", "story", "marketplace", "reels"],
+          // "reels" no es una ubicación válida para facebook_positions (probado
+          // en vivo contra la cuenta real: error #100/1815433 "Posición en
+          // Facebook no válida"). El equivalente correcto en Facebook es
+          // "facebook_reels" -- "reels" a secas sí es válido, pero solo dentro
+          // de instagram_positions (línea de abajo).
+          facebook_positions: ["feed", "story", "marketplace", "facebook_reels"],
           instagram_positions: ["stream", "story", "reels"],
+          // Meta exige declarar explícitamente esta bandera desde que introdujo
+          // Advantage+ Audience -- sin ella, /adsets rechaza la creación entera
+          // con error #100/1870227 ("Se requiere la marca de audiencia de
+          // Advantage"), probado en vivo. En 0 para respetar el targeting
+          // explícito (edad/intereses) en vez de dejar que Meta lo expanda
+          // automáticamente sin avisar.
+          targeting_automation: { advantage_audience: 0 },
         },
         status: "PAUSED",
         start_time: new Date().toISOString(),

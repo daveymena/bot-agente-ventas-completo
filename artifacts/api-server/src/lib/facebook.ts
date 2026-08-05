@@ -442,6 +442,13 @@ Responde SOLO con este JSON exacto:
         fbTargeting.instagram_positions = ["stream", "story", "reels"];
       }
 
+      // Meta exige declarar esta bandera desde que introdujo Advantage+
+      // Audience -- sin ella, /adsets rechaza la creación completa con error
+      // #100/1870227 ("Se requiere la marca de audiencia de Advantage"),
+      // probado en vivo contra la cuenta real. En 0 para respetar el
+      // targeting explícito en vez de dejar que Meta lo expanda solo.
+      fbTargeting.targeting_automation = { advantage_audience: 0 };
+
       // Conjunto de anuncios.
       // optimization_goal=CONVERSIONS SIN promoted_object es rechazado por
       // Graph API con error 100 "Invalid parameter" -- Facebook exige que el
