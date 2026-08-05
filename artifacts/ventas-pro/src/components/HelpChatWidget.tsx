@@ -70,7 +70,7 @@ export function HelpChatWidget() {
           (MobileNav) ocupa 72px + safe-area, el botón/ventana quedan por
           encima de eso, no debajo (se veían tapados/mezclados). */}
       {open && (
-        <div className="fixed bottom-[calc(152px+env(safe-area-inset-bottom))] md:bottom-24 right-4 sm:right-6 z-50 w-[340px] max-w-[calc(100vw-2rem)] h-[480px] max-h-[calc(100vh-180px)] rounded-2xl border bg-background shadow-2xl flex flex-col overflow-hidden animate-enter">
+        <div className="fixed bottom-[calc(220px+env(safe-area-inset-bottom))] md:bottom-24 right-4 sm:right-6 z-40 w-[340px] max-w-[calc(100vw-2rem)] h-[480px] max-h-[calc(100vh-240px)] rounded-2xl border bg-background shadow-2xl flex flex-col overflow-hidden animate-enter">
           <div className="p-3.5 border-b bg-primary/5 flex items-center justify-between shrink-0">
             <div>
               <p className="font-bold text-sm">Asistente VentasPro</p>
@@ -132,7 +132,7 @@ export function HelpChatWidget() {
 
       <button
         onClick={() => (open ? handleClose() : setOpen(true))}
-        className="fixed bottom-[calc(88px+env(safe-area-inset-bottom))] md:bottom-6 right-4 sm:right-6 z-50 h-14 w-14 rounded-full bg-primary text-primary-foreground shadow-xl shadow-primary/30 flex items-center justify-center hover:scale-105 transition-transform"
+        className="fixed bottom-[calc(132px+env(safe-area-inset-bottom))] md:bottom-6 right-4 sm:right-6 z-40 h-14 w-14 rounded-full bg-primary text-primary-foreground shadow-xl shadow-primary/30 flex items-center justify-center hover:scale-105 transition-transform"
         title="Ayuda"
       >
         {open ? <X className="h-6 w-6" /> : <MessageCircle className="h-6 w-6" />}
