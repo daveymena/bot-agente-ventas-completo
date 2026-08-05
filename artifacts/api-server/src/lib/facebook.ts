@@ -969,24 +969,34 @@ Responde SOLO con JSON:
     }
 
     try {
-      const body: Record<string, any> = { message };
-
+      // Con imagen: /feed + image_url NO adjunta la foto -- probado en vivo
+      // contra la página real. Cuando el post lleva `link`, Facebook arma la
+      // card de previsualización rascando los meta OG de esa URL e ignora
+      // `image_url` por completo; sin `link`, /feed tampoco tiene forma de
+      // mostrar una imagen salvo subiéndola. El endpoint correcto para que la
+      // foto quede realmente asociada al texto es /{page-id}/photos con
+      // `url` + `caption` (confirmado: el post resultante trae full_picture y
+      // el attachment de tipo "photo"). Ese endpoint no tiene un campo de link
+      // aparte, así que el link -- si hay uno -- se agrega como texto plano al
+      // final del caption; Facebook lo detecta y lo muestra clickeable.
+      let result: any;
       if (imageUrl) {
-        body.image_url = imageUrl;
+        const caption = link ? `${message}\n\n${link}` : message;
+        result = await this.fbPost(`${this.config.pageId}/photos`, { url: imageUrl, caption });
+      } else {
+        const body: Record<string, any> = { message };
+        if (link) body.link = link;
+        result = await this.fbPost(`${this.config.pageId}/feed`, body);
       }
 
-      if (link) {
-        body.link = link;
-      }
-
-      const result = await this.fbPost(`${this.config.pageId}/feed`, body);
-
-      if (!result || !result.id) {
+      // /photos devuelve {id, post_id}: el id de la publicación real en el
+      // muro es post_id, no id (que es el id de la foto suelta).
+      const postId = result?.post_id || result?.id;
+      if (!postId) {
         logger.error({ result }, "[Facebook] Error publicando post: respuesta sin ID");
         return null;
       }
 
-      const postId = result.id;
       const postUrl = `https://www.facebook.com/${postId.replace("_", "/posts/")}`;
 
       logger.info({ postId, postUrl }, "[Facebook] Post publicado exitosamente en el muro de la página");
