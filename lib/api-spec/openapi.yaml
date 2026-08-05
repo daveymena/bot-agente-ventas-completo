@@ -666,7 +666,9 @@ components:
           type: integer
         closedDeals:
           type: integer
-      required: [totalLeads, activeConversations, conversionRate, totalRevenue, avgResponseTime, messagesLast24h, newLeadsToday, closedDeals]
+        whatsappConnected:
+          type: boolean
+      required: [totalLeads, activeConversations, conversionRate, totalRevenue, avgResponseTime, messagesLast24h, newLeadsToday, closedDeals, whatsappConnected]
 
     ActivityEvent:
       type: object

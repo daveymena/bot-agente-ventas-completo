@@ -14,7 +14,7 @@ import {
   leads,
   messages,
 } from "@workspace/db";
-import { whatsapp } from "../lib/whatsapp-singleton";
+import { getWhatsAppForTenant } from "../lib/whatsapp-factory";
 
 const router: IRouter = Router();
 const STAGES = ["new", "contacted", "qualified", "proposal", "won", "lost"] as const;
@@ -67,16 +67,55 @@ router.get("/summary", async (req, res, next) => {
           .where(and(gte(messages.createdAt, toDbDate(startOfDay) as any), inArray(messages.conversationId, convoIds)))
       : [{ count: 0 }];
 
+    // Estado real de WhatsApp para ESTE tenant (antes se usaba un badge sin
+    // fuente real: el campo whatsappConnected no existía en la respuesta,
+    // así que el frontend siempre mostraba "Desconectado" sin importar el
+    // estado real de la conexión).
+    const whatsappConnected = getWhatsAppForTenant(tenantId, (req as any).tenant).isConnected();
+
+    // Tiempo de respuesta real: promedio de los últimos 50 pares mensaje del
+    // cliente → respuesta del asistente, en esta cuenta (antes era un 45
+    // fijo, igual para todas las cuentas todo el tiempo).
+    const recentMsgs = convoIds.length
+      ? await db
+          .select({ conversationId: messages.conversationId, role: messages.role, createdAt: messages.createdAt })
+          .from(messages)
+          .where(inArray(messages.conversationId, convoIds))
+          .orderBy(desc(messages.createdAt))
+          .limit(400)
+      : [];
+    const byConvoAsc = [...recentMsgs].reverse(); // orderBy desc + limit trae los más recientes; procesar en orden cronológico
+    const responseTimesSec: number[] = [];
+    let pendingAt: Date | null = null;
+    let pendingConvo: number | null = null;
+    for (const m of byConvoAsc) {
+      if (m.conversationId !== pendingConvo) {
+        pendingAt = null;
+        pendingConvo = m.conversationId;
+      }
+      if (m.role === "customer") {
+        pendingAt = m.createdAt as any;
+      } else if (m.role === "assistant" && pendingAt) {
+        const diff = (new Date(m.createdAt as any).getTime() - new Date(pendingAt).getTime()) / 1000;
+        if (diff > 0 && diff < 30 * 60) responseTimesSec.push(diff);
+        pendingAt = null;
+      }
+    }
+    const avgResponseTime = responseTimesSec.length > 0
+      ? Math.round(responseTimesSec.reduce((a, b) => a + b, 0) / responseTimesSec.length)
+      : 0;
+
     return res.json(
       GetDashboardSummaryResponse.parse({
         totalLeads,
         activeConversations: allConvos.filter((c) => c.status !== "closed").length,
         conversionRate,
         totalRevenue: revenueThisMonth,
-        avgResponseTime: 45,
+        avgResponseTime,
         messagesLast24h: Number(todayMsgs[0]?.count ?? 0),
         newLeadsToday: allLeads.filter((l) => new Date(l.createdAt as any) >= startOfDay).length,
         closedDeals: wonDeals,
+        whatsappConnected,
       }),
     );
   } catch (e) {

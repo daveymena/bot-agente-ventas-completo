@@ -22,6 +22,7 @@ export interface DashboardSummary {
   messagesLast24h: number;
   newLeadsToday: number;
   closedDeals: number;
+  whatsappConnected: boolean;
 }
 
 export interface ActivityEvent {

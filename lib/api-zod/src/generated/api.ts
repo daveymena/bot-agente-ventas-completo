@@ -26,6 +26,7 @@ export const GetDashboardSummaryResponse = zod.object({
   messagesLast24h: zod.number(),
   newLeadsToday: zod.number(),
   closedDeals: zod.number(),
+  whatsappConnected: zod.boolean(),
 });
 
 /**
