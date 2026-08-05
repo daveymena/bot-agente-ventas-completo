@@ -47,6 +47,8 @@ router.post("/mercadopago", async (req: Request, res: Response) => {
       if (product && product.deliveryLink) {
         const message = `━━━━━━━━━━━━━━━━━━━━━━\n✅ *¡PAGO CONFIRMADO!* 🎉\n━━━━━━━━━━━━━━━━━━━━━━\n\n¡Hola! Tu pago por *${product.name}* ha sido verificado automáticamente.\n\nAquí tienes tu acceso de por vida:\n🚀 ${product.deliveryLink}\n\n¡Espero que disfrutes mucho el contenido! Si tienes dudas, aquí estoy.`;
 
+        let relatedConvo: any = null;
+
         // 1. Buscar y actualizar el registro de pago en BD
         if (productId) {
           const [pendingPayment] = await db.select()
@@ -73,7 +75,7 @@ router.post("/mercadopago", async (req: Request, res: Response) => {
           }
 
           // 2. Actualizar conversación relacionada
-          const [relatedConvo] = await db.select()
+          [relatedConvo] = await db.select()
             .from(conversations)
             .where(and(
               eq(conversations.paymentStatus, 'pending'),
@@ -157,6 +159,7 @@ router.post("/paypal", async (req: Request, res: Response) => {
 
       if (product && product.deliveryLink) {
         const message = `━━━━━━━━━━━━━━━━━━━━━━\n✅ *¡PAGO CONFIRMADO!* 🎉\n━━━━━━━━━━━━━━━━━━━━━━\n\n¡Hola! Tu pago por *${product.name}* ha sido verificado automáticamente.\n\nAquí tienes tu acceso de por vida:\n🚀 ${product.deliveryLink}\n\n¡Espero que disfrutes mucho el contenido! Si tienes dudas, aquí estoy.`;
+        let relatedConvo: any = null;
 
         // Actualizar pago en BD
         if (productId) {
@@ -182,7 +185,7 @@ router.post("/paypal", async (req: Request, res: Response) => {
           }
 
           // Actualizar conversación
-          const [relatedConvo] = await db.select()
+          [relatedConvo] = await db.select()
             .from(conversations)
             .where(and(
               eq(conversations.paymentStatus, 'pending'),

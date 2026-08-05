@@ -5,6 +5,8 @@ import { db, subscriptions, paymentTransactions, tenants } from "@workspace/db";
 import { eq, and, desc } from "drizzle-orm";
 import { SAAS_PLANS, SaasPlan, getMonthlyPrice } from "../middleware/saasValidation";
 import * as crypto from "crypto";
+import { tenantManager } from "./tenantManager";
+import { credencialesDe } from "./tenant-payment-credentials";
 
 /**
  * Genera un token único de activación
@@ -164,7 +166,8 @@ export class SubscriptionPaymentService {
     returnUrl?: string,
     cancelUrl?: string
   ): Promise<{ paymentUrl: string; paymentId: string }> {
-    const accessToken = process.env.MERCADO_PAGO_ACCESS_TOKEN;
+    const tenantContext = await tenantManager.getTenantById(subscription.tenantId);
+    const accessToken = credencialesDe(tenantContext).mercadopago.accessToken;
     
     logger.info("[SubscriptionPayment] Iniciando creación de pago MercadoPago");
     
@@ -201,7 +204,7 @@ export class SubscriptionPaymentService {
         failure: cancelUrl || `${appUrl}/subscription-failure`,
         pending: `${appUrl}/subscription-pending`,
       },
-      notification_url: `${appUrl}/api/webhooks/subscription/mercadopago`,
+      notification_url: `${appUrl}/api/webhooks/subscription/mercadopago?tenantId=${tenant.id}`,
       external_reference: `subscription_${subscription.id}`,
       auto_return: "approved",
       metadata: {
@@ -262,8 +265,10 @@ export class SubscriptionPaymentService {
     returnUrl?: string,
     cancelUrl?: string
   ): Promise<{ paymentUrl: string; paymentId: string }> {
-    const clientId = process.env.PAYPAL_CLIENT_ID;
-    const clientSecret = process.env.PAYPAL_CLIENT_SECRET;
+    const paymentCreds = credencialesDe(await tenantManager.getTenantById(subscription.tenantId));
+    const clientId = paymentCreds.paypal.clientId;
+    const clientSecret = paymentCreds.paypal.clientSecret;
+    const paypalMode = paymentCreds.paypal.mode;
 
     if (!clientId || !clientSecret) {
       throw new Error("PayPal credentials no configuradas");
@@ -274,7 +279,8 @@ export class SubscriptionPaymentService {
 
     try {
       // Obtener token de acceso
-      const authResponse = await fetch("https://api-m.paypal.com/v1/oauth2/token", {
+      const paypalBase = paypalMode === "sandbox" ? "https://api-m.sandbox.paypal.com" : "https://api-m.paypal.com";
+      const authResponse = await fetch(`${paypalBase}/v1/oauth2/token`, {
         method: "POST",
         headers: {
           Accept: "application/json",
@@ -292,7 +298,7 @@ export class SubscriptionPaymentService {
       }
 
       // Crear orden de pago
-      const orderResponse = await fetch("https://api-m.paypal.com/v2/checkout/orders", {
+      const orderResponse = await fetch(`${paypalBase}/v2/checkout/orders`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

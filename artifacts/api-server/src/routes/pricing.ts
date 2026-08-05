@@ -11,11 +11,14 @@ const router = Router();
 
 // CSRF validation middleware for payment routes
 function validateCsrfToken(req: any, res: any, next: any) {
-  const token = req.headers['x-csrf-token'] || req.body?.csrfToken;
-  const sessionToken = req.session?.csrfToken;
-
-  if (!token || token !== sessionToken) {
-    logger.warn({ userId: req.user?.id }, "[CSRF] Invalid or missing CSRF token");
+  // Authentication uses a signed SameSite cookie, not express-session. The old
+  // check always saw req.session.csrfToken as undefined and rejected every
+  // subscription button before creating its payment link.
+  const origin = req.get("origin");
+  const appOrigin = getAppUrl().replace(/\/+$/, "");
+  const requestOrigin = `${req.protocol}://${req.get("host")}`;
+  if (origin && origin !== appOrigin && origin !== requestOrigin) {
+    logger.warn({ origin, requestOrigin }, "[CSRF] Cross-origin payment request blocked");
     return res.status(403).json({ error: "CSRF validation failed", message: "Token inválido o expirado" });
   }
   next();

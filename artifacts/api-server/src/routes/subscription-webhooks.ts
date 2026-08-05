@@ -7,6 +7,7 @@ import { eq } from "drizzle-orm";
 import { sendActivationTokenEmail } from "../lib/email";
 import { credencialesEmailDe } from "../lib/tenant-email-credentials";
 import { SAAS_PLANS, SaasPlan } from "../middleware/saasValidation";
+import { credencialesDe } from "../lib/tenant-payment-credentials";
 
 const router = Router();
 
@@ -95,7 +96,13 @@ router.post("/mercadopago", async (req, res) => {
       const paymentId = data.id;
 
       // Obtener detalles del pago
-      const accessToken = process.env.MERCADO_PAGO_ACCESS_TOKEN;
+      const tenantId = Number(req.query.tenantId);
+      const [webhookTenant] = Number.isFinite(tenantId) && tenantId > 0
+        ? await db.select().from(tenants).where(eq(tenants.id, tenantId)).limit(1)
+        : [];
+      const accessToken = webhookTenant
+        ? credencialesDe(webhookTenant as any).mercadopago.accessToken
+        : process.env.MERCADO_PAGO_ACCESS_TOKEN;
       if (!accessToken) {
         logger.error("[Webhook] MercadoPago access token not configured");
         return res.status(500).json({ error: "Configuration error" });
