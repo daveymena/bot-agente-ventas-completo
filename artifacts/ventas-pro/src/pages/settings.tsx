@@ -7,6 +7,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Layout } from "@/components/layout";
 import { PaymentCredentials } from "@/components/payment-credentials";
 import { EmailCredentials } from "@/components/email-credentials";
+import { FacebookCredentials } from "@/components/facebook-credentials";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
