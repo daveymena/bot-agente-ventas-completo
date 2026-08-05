@@ -1124,6 +1124,109 @@ export const TOOLS: ToolDef[] = [
     },
   },
 
+  // ── 🧠 INTELIGENCIA DE NEGOCIO (arquitecto real, con datos reales) ─────────
+  // Estos tools exponen los módulos architect-predictor/-optimizer/-reasoner/
+  // -multichannel al agente conversacional real. Antes existían pero solo se
+  // podían llamar por una API REST separada que nadie usaba -- el Arquitecto
+  // IA de WhatsApp/dashboard no tenía forma de invocarlos. Todos son de solo
+  // lectura/sugerencia (no mutan nada), por eso van en READ_ONLY_TOOLS.
+  {
+    name: "predict_customer",
+    description: "Predicciones reales (basadas en historial real de conversación/mensajes/pagos, no inventadas) sobre un cliente: probabilidad de compra próxima, riesgo de abandono (churn) y mejor horario para contactarlo. Úsalo antes de decidir cómo o cuándo hacerle seguimiento a alguien.",
+    args: '{ "phone": string (req, número o parte del número del cliente) }',
+    run: async (args, ctx) => {
+      const phone = String(args.phone || "").trim();
+      if (!phone) return { ok: false, summary: "Falta 'phone'" };
+      const { architectPredictor } = await import("./architect-predictor");
+      const [purchase, churn, timing] = await Promise.all([
+        architectPredictor.predictNextPurchase(ctx.tenantId, phone),
+        architectPredictor.predictChurnRisk(ctx.tenantId, phone),
+        architectPredictor.predictBestContactTime(ctx.tenantId, phone),
+      ]);
+      return {
+        ok: true,
+        summary: `Compra: ${purchase.prediction} (${purchase.probability}%, confianza ${purchase.confidence}%) · Churn: ${churn.prediction} · Mejor horario: ${timing.bestDay} ~${timing.bestHour}:00`,
+        data: { purchase, churn, timing },
+      };
+    },
+  },
+  {
+    name: "optimize_price",
+    description: "Sugiere un ajuste de precio para un producto basado en pagos confirmados reales vs. interés real (mensajes de clientes) en los últimos 30 días -- no en una demanda inventada. Si hay pocos datos, lo dice en vez de inventar una recomendación. Solo sugiere, no cambia el precio solo.",
+    args: '{ "productId": number (req) }',
+    run: async (args, ctx) => {
+      const id = num(args.productId);
+      if (!id) return { ok: false, summary: "Falta 'productId'" };
+      const { architectOptimizer } = await import("./architect-optimizer");
+      const { architectMemoryService } = await import("./architect-memory-service");
+      const result = await architectOptimizer.optimizePricing(id);
+      await architectMemoryService.recordLearning(
+        ctx.tenantId, "decision", `💲 Sugerencia de precio: producto #${id}`,
+        `${result.currentValue} → ${result.optimizedValue}. ${result.expectedImprovement}`,
+        ["pricing", `product-${id}`], { confidence: result.confidence, impact: 60, source: "optimize_price" },
+      );
+      return { ok: true, summary: `${result.currentValue} → ${result.optimizedValue} (confianza ${result.confidence}%): ${result.expectedImprovement}`, data: result };
+    },
+  },
+  {
+    name: "optimize_copy",
+    description: "Reescribe la descripción de un producto usando SOLO sus features/highlight reales ya cargados (nunca inventa garantías, soporte o beneficios que el producto no tiene declarados). Si el producto no tiene features cargadas, te lo dice en vez de inventar contenido.",
+    args: '{ "productId": number (req) }',
+    run: async (args) => {
+      const id = num(args.productId);
+      if (!id) return { ok: false, summary: "Falta 'productId'" };
+      const { architectOptimizer } = await import("./architect-optimizer");
+      const result = await architectOptimizer.optimizeCopy(id);
+      return { ok: true, summary: result.expectedImprovement, data: result };
+    },
+  },
+  {
+    name: "analyze_channel_performance",
+    description: "Compara el desempeño real (conversaciones y ventas confirmadas) entre los canales que de verdad están integrados: WhatsApp, Facebook Messenger y comentarios de Facebook. Canales sin integración real (email, SMS) se marcan como no implementados en vez de simular datos.",
+    args: "{}",
+    run: async (_args, ctx) => {
+      const { architectMultichannel } = await import("./architect-multichannel");
+      const result = await architectMultichannel.analyzePerformance(ctx.tenantId);
+      return {
+        ok: true,
+        summary: result.top_performer
+          ? `Mejor canal: ${result.top_performer}${result.bottom_performer ? ` · Peor: ${result.bottom_performer}` : ""}`
+          : "Sin volumen suficiente todavía para comparar canales con confianza",
+        data: result,
+      };
+    },
+  },
+  {
+    name: "reason_business_decision",
+    description: "Razona una decisión de negocio desde 4 ángulos (CEO/estrategia, ventas, UX, datos) y da una recomendación con nivel de confianza real (más alto cuanto más datos reales le des, no un número fijo). Antes de razonar, consulta lecciones aprendidas de decisiones pasadas similares en este negocio, y guarda la nueva conclusión para la próxima vez -- así el Arquitecto IA mejora con el tiempo en vez de repetir el mismo análisis desde cero.",
+    args: '{ "situation": string (req, ej: "bajar el precio del curso de piano"), "data"?: object (métricas reales que tengas: conversionRate, aov, monthlyVisitors, revenue, etc — cuantas más pases, más confiable la respuesta), "goals"?: string[] }',
+    run: async (args, ctx) => {
+      const situation = String(args.situation || "").trim();
+      if (!situation) return { ok: false, summary: "Falta 'situation'" };
+      const { architectReasoner } = await import("./architect-reasoner");
+      const { architectMemoryService } = await import("./architect-memory-service");
+      const priorLearnings = await architectMemoryService.applyLearnings(ctx.tenantId, situation);
+      const context = {
+        situation,
+        data: { ...(args.data && typeof args.data === "object" ? args.data : {}), previousLessons: priorLearnings.relevantLessons.map((l) => l.title) },
+        constraints: [],
+        goals: Array.isArray(args.goals) ? args.goals : [],
+      };
+      const reasoning = await architectReasoner.reason(context);
+      await architectMemoryService.recordLearning(
+        ctx.tenantId, "decision", `🧠 Razonamiento: ${situation}`,
+        reasoning.synthesis.recommendation,
+        ["reasoning", situation.toLowerCase().slice(0, 40)],
+        { confidence: reasoning.synthesis.confidence, impact: 55, source: "reason_business_decision" },
+      );
+      return {
+        ok: true,
+        summary: `${reasoning.synthesis.recommendation} (confianza ${reasoning.synthesis.confidence}%)${priorLearnings.relevantLessons.length ? ` · basado en ${priorLearnings.relevantLessons.length} lecciones previas` : ""}`,
+        data: reasoning,
+      };
+    },
+  },
+
   // ── 🖼️ GENERACIÓN DE IMÁGENES ──────────────────────────────────────────────
   {
     name: "generate_image",
@@ -1456,6 +1559,10 @@ export const READ_ONLY_TOOLS = new Set([
   "fb_agent_logs", "fb_campaign_metrics",
   // Monitoreo: solo consultan, no cambian nada
   "whatsapp_status", "dashboard_summary", "list_recent_conversations",
+  // Inteligencia de negocio: predicción/optimización/razonamiento son
+  // sugerencias basadas en datos reales, ninguna cambia nada por sí sola.
+  "predict_customer", "optimize_price", "optimize_copy",
+  "analyze_channel_performance", "reason_business_decision",
   // Lectura de web (información externa)
   "web_fetch", "web_search", "web_scrape_images", "search_product_images",
   // Dropi de solo lectura: consultar el catálogo del proveedor no crea nada.
@@ -1700,6 +1807,15 @@ INVESTIGACIÓN EXTERNA — mejora anuncios con fuentes reales, no con suposicion
 - 🎯 Transforma la investigación en ACCIÓN: cada hallazgo debe terminar en una mejora concreta (titular nuevo, CTA, formato, audiencia, horario, presupuesto) lista para proponer con fb_ad_draft o fb_suggest_audience.
 - 🛡️ NUNCA inventes datos externos ni cites fuentes que no leíste. Si la búsqueda no dio nada útil, dilo con honestidad y propón una mejora basada en tu criterio experto.
 - 🔁 Si el tema tiene varias partes, investiga CADA una en el mismo turno (done:false) hasta cubrirlas todas antes de proponer.
+
+INTELIGENCIA DE NEGOCIO — usa datos reales del propio negocio, no intuición:
+- 🧠 predict_customer: antes de decidir CÓMO o CUÁNDO hacerle seguimiento a un cliente puntual, úsalo para ver su probabilidad real de compra, riesgo de abandono y mejor horario de contacto — basado en su historial real, no en una corazonada.
+- 💲 optimize_price: si el admin pregunta si debería subir/bajar el precio de un producto, o si notas que uno no convierte, úsalo antes de opinar — la sugerencia sale de pagos e interés reales, no de una intuición genérica.
+- ✍️ optimize_copy: para mejorar la descripción de un producto en la tienda/catálogo (distinto de fb_ad_draft, que es para anuncios). Si el producto no tiene features cargadas te lo va a decir — en ese caso pide esos datos primero, no inventes beneficios.
+- 📊 analyze_channel_performance: cuando te pregunten "¿qué canal está funcionando mejor?" o antes de decidir dónde invertir más esfuerzo, úsalo — compara WhatsApp vs Facebook con datos reales de conversión, no asume que uno es mejor.
+- 🧭 reason_business_decision: para decisiones más grandes ("¿bajo el precio del megapack?", "¿cómo mejoro la conversión este mes?", "¿qué hago con los leads fríos?") que necesitan mirarse desde varios ángulos (estrategia, ventas, UX, datos) antes de responder. Pásale los números reales que tengas (conversionRate, revenue, aov, etc) — cuantos más datos reales le des, más confiable la respuesta. Consulta solo, y guarda automáticamente, lecciones de decisiones pasadas similares — así la próxima vez que preguntes algo parecido ya arranca con ese contexto.
+- 🛡️ Estas herramientas NUNCA inventan confianza ni cifras: si no hay datos suficientes, te lo dicen explícitamente en vez de dar un número que parezca creíble. Transmití esa misma honestidad al admin — no redondees "datos insuficientes" a una recomendación segura.
+
 NO TE QUEDES ATASCADO (regla general):
 - Si una herramienta falla, NO repitas la misma llamada con los mismos argumentos esperando otro
   resultado. Cambia de estrategia: otra fuente, otra herramienta, u otro enfoque.
