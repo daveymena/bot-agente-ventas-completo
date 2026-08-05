@@ -1021,8 +1021,8 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: "fb_ad_draft",
-    description: "Genera un BORRADOR de anuncio (copy, segmentación, imagen) para un producto y lo guarda localmente. Por defecto NO toca la cuenta publicitaria de Meta ni crea nada real — el admin lo revisa y decide si publicarlo después desde el panel de anuncios. Seguro de usar sin gastar dinero. REQUIERE haber investigado antes (web_search o web_fetch) en esta misma sesión, en las últimas 3 horas -- si no, la llamada falla y hay que investigar primero.",
-    args: '{ "productId": number (req) }',
+    description: "Genera un BORRADOR de anuncio (copy, segmentación, imagen) para un producto y lo guarda localmente. Por defecto NO toca la cuenta publicitaria de Meta ni crea nada real — el admin lo revisa y decide si publicarlo después desde el panel de anuncios. Seguro de usar sin gastar dinero. REQUIERE haber investigado antes (web_search o web_fetch) en esta misma sesión, en las últimas 3 horas -- si no, la llamada falla y hay que investigar primero. IMPORTANTE: pasa hook/angle/researchNote basados en lo que REALMENTE encontraste en la investigación (ángulos que funcionan en el nicho, dolor real del cliente, lo que hace la competencia) -- si los omites, el borrador cae a una plantilla genérica fija por categoría, que es exactamente lo que la investigación busca evitar.",
+    args: '{ "productId": number (req), "hook"?: string (gancho inicial del anuncio, basado en lo investigado), "angle"?: string (ángulo/enfoque del producto respaldado por la investigación), "researchNote"?: string (fuente o hallazgo concreto que respalda el hook/angle, ej: "competidores en Facebook Ads Library usan X"), "primaryText"?: string (texto completo del anuncio, solo si quieres reemplazar el armado automático por completo), "headline"?: string, "description"?: string }',
     run: async (args, ctx) => {
       const id = num(args.productId);
       if (!id) return { ok: false, summary: "Falta 'productId'" };
@@ -1034,15 +1034,25 @@ export const TOOLS: ToolDef[] = [
       }
       const tenant = await tenantManager.getTenantById(ctx.tenantId);
       const { AdStrategist } = await import("./ad-strategist");
+      const grounded = {
+        hook: typeof args.hook === "string" ? args.hook.trim() || undefined : undefined,
+        angle: typeof args.angle === "string" ? args.angle.trim() || undefined : undefined,
+        researchNote: typeof args.researchNote === "string" ? args.researchNote.trim() || undefined : undefined,
+        primaryText: typeof args.primaryText === "string" ? args.primaryText.trim() || undefined : undefined,
+        headline: typeof args.headline === "string" ? args.headline.trim() || undefined : undefined,
+        description: typeof args.description === "string" ? args.description.trim() || undefined : undefined,
+      };
       try {
         const draft = await new AdStrategist(tenant || undefined).createDraftAd(
           tenant?.facebook?.adAccountId || process.env.FB_AD_ACCOUNT_ID || "",
           tenant?.facebook?.accessToken || process.env.FB_ACCESS_TOKEN || "",
           id,
+          grounded,
         );
+        const groundedNote = grounded.hook || grounded.researchNote ? " (anclado en la investigación de esta sesión)" : " (plantilla genérica del nicho — no se pasó hook/angle basado en investigación)";
         return {
           ok: true,
-          summary: `Borrador de anuncio creado para "${draft.productName}" (nicho: ${draft.strategy.niche}). Guardado local, no se tocó la cuenta de Meta.`,
+          summary: `Borrador de anuncio creado para "${draft.productName}" (nicho: ${draft.strategy.niche})${groundedNote}. Guardado local, no se tocó la cuenta de Meta.`,
           data: draft,
         };
       } catch (e: any) {
@@ -1745,7 +1755,7 @@ IMÁGENES — REGLAS DE CALIDAD PARA FACEBOOK ADS:
 FACEBOOK — PUBLICAR (gratis) vs ANUNCIAR (paga), no las confundas:
 - 📢 fb_page_publish: publica en el MURO de la página, orgánico, SIN costo, visible de inmediato. Úsalo cuando el admin diga "publica", "postea" o "sube esto a Facebook". SIEMPRE llama fb_page_preview antes para que el admin vea el texto y la imagen, y fb_page_can_post si hay dudas de permisos.
 - 💰 fb_create_ad: crea una CAMPAÑA PAGA en Ads Manager (se crea en pausa, pero gastará dinero al activarla). Solo úsalo cuando el admin pida explícitamente "anuncio", "campaña" o "pauta" — nunca lo ofrezcas como si fuera gratis.
-- 📝 fb_ad_draft: genera el COPY y la segmentación de un anuncio y lo guarda local, SIN tocar la cuenta de Meta ni gastar nada. Es el paso intermedio seguro: úsalo para preparar campañas que el admin revisará y activará él mismo después, no fb_create_ad, salvo que pida crearla ya en Meta.
+- 📝 fb_ad_draft: genera el COPY y la segmentación de un anuncio y lo guarda local, SIN tocar la cuenta de Meta ni gastar nada. Es el paso intermedio seguro: úsalo para preparar campañas que el admin revisará y activará él mismo después, no fb_create_ad, salvo que pida crearla ya en Meta. SIEMPRE pásale hook/angle/researchNote basados en lo que investigaste en ESTE turno (web_search/web_fetch) -- si lo llamas sin eso, el copy sale de una plantilla genérica por categoría, no de lo que realmente encontraste que funciona para ese producto.
 
 MONITOREO (cuando el admin pregunte "cómo va todo", "revisa el negocio", "por qué no responde WhatsApp", etc.):
 - 📱 whatsapp_status: primero que nada si la duda es sobre el bot no respondiendo o la conexión.

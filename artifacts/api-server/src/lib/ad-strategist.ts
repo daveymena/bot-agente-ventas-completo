@@ -20,6 +20,10 @@ export interface AdStrategy {
   ageMax: number;
   interests: string[];
   budget: number;
+  /** Fuente/hallazgo real que respalda el hook/ángulo, cuando el agente lo
+   * generó a partir de investigación en esta sesión (ver ResearchGroundedCopy).
+   * Ausente cuando el copy viene de la plantilla fija por nicho. */
+  researchNote?: string;
 }
 
 export interface DraftAd {
@@ -198,6 +202,26 @@ const WINNING_STRATEGIES_BY_NICHE: Record<string, AdStrategy> = {
   },
 };
 
+/** Lo que el agente conversacional puede aportar cuando genera un borrador
+ * DESPUÉS de investigar (web_search/web_fetch reales en la misma sesión --
+ * ver hasRecentResearch en app-operator.ts). Sin esto, el copy sale siempre
+ * de la plantilla fija por nicho sin importar qué se investigó; con esto,
+ * el hook/ángulo/texto puede reflejar lo que realmente funciona hoy en el
+ * nicho, en vez de un texto genérico repetido para todos los productos de
+ * esa categoría. Todos los campos son opcionales -- lo que no se pase cae
+ * al valor de la plantilla fija (necesaria para createDraftsForAllProducts,
+ * que corre sin contexto de chat/investigación).
+ */
+export interface ResearchGroundedCopy {
+  hook?: string;
+  angle?: string;
+  primaryText?: string;
+  headline?: string;
+  description?: string;
+  /** Breve nota de qué fuente/hallazgo respalda este copy, para trazabilidad. */
+  researchNote?: string;
+}
+
 export class AdStrategist {
   private tenant: TenantContext;
 
@@ -258,7 +282,14 @@ export class AdStrategist {
     return { ...WINNING_STRATEGIES_BY_NICHE.educacion_general };
   }
 
-  async generateAdCopy(strategy: AdStrategy, product: any): Promise<{ primaryText: string; headline: string; description: string }> {
+  async generateAdCopy(strategy: AdStrategy, product: any, grounded?: ResearchGroundedCopy): Promise<{ primaryText: string; headline: string; description: string }> {
+    // Si el agente investigó y aportó su propio hook/ángulo, se usa ESE en
+    // vez del texto fijo del nicho -- el hook es literalmente lo que separa
+    // un anuncio "genérico por categoría" de uno anclado en lo que se
+    // encontró que funciona hoy para este producto puntual.
+    if (grounded?.hook) strategy = { ...strategy, hook: grounded.hook };
+    if (grounded?.angle) strategy = { ...strategy, angle: grounded.angle };
+
     const currency = (product.currency || "COP").toUpperCase();
     // Validar y formatear precio correctamente (sin multiplicar por tipo de cambio ficticio)
     const price = Number(product.price) || 0;
@@ -317,7 +348,15 @@ Este contenido digital es tu atajo directo a resultados profesionales.
       ? "Consulta disponible • Acceso permanente"
       : `$${priceFormatted} ${currency} • Pago único • Acceso permanente`;
 
-    return { primaryText, headline, description };
+    // Override final: si el agente investigó y redactó su propio texto
+    // completo (no solo hook/ángulo), se respeta tal cual -- el precio y los
+    // datos reales del producto ya quedaron incorporados en su versión
+    // porque el agente los ve en el mismo turno via list_products.
+    return {
+      primaryText: grounded?.primaryText || primaryText,
+      headline: grounded?.headline || headline,
+      description: grounded?.description || description,
+    };
   }
 
   async saveDraftToDb(draft: DraftAd): Promise<any> {
@@ -399,12 +438,13 @@ Este contenido digital es tu atajo directo a resultados profesionales.
     }
   }
 
-  async createDraftAd(adAccount: string, accessToken: string, productId: number): Promise<DraftAd> {
+  async createDraftAd(adAccount: string, accessToken: string, productId: number, grounded?: ResearchGroundedCopy): Promise<DraftAd> {
     const [product] = await db.select().from(products).where(eq(products.id, productId)).limit(1);
     if (!product) throw new Error("Producto no encontrado");
 
     const strategy = this.getStrategyForProduct(product);
-    const adCopy = await this.generateAdCopy(strategy, product);
+    if (grounded?.researchNote) strategy.researchNote = grounded.researchNote;
+    const adCopy = await this.generateAdCopy(strategy, product, grounded);
 
     // El campo del esquema es imageUrl (column image_url). Leerlo como
     // product.image_url daba siempre undefined, así que TODOS los anuncios
