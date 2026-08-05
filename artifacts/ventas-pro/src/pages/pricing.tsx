@@ -39,6 +39,12 @@ const PLAN_TAGLINES: Record<string, string> = {
   professional: "Para negocios en crecimiento que necesitan más volumen",
 };
 
+const copFormatter = new Intl.NumberFormat("es-CO", {
+  style: "currency",
+  currency: "COP",
+  maximumFractionDigits: 0,
+});
+
 export default function PricingPage() {
   const [, setLocation] = useLocation();
   const [plans, setPlans] = useState<Plan[]>([]);
@@ -47,6 +53,7 @@ export default function PricingPage() {
   const [billingCycle, setBillingCycle] = useState<"monthly" | "quarterly" | "annual">("monthly");
   const [paymentMethod, setPaymentMethod] = useState<"mercadopago" | "paypal">("mercadopago");
   const [processingPayment, setProcessingPayment] = useState(false);
+  const [usdToCop, setUsdToCop] = useState<number | null>(null);
   const { saasStatus } = useSaasStatus();
 
   useEffect(() => {
@@ -58,6 +65,7 @@ export default function PricingPage() {
       const response = await fetch("/api/pricing");
       const data = await response.json();
       setPlans(data.plans);
+      if (typeof data.usdToCop === "number") setUsdToCop(data.usdToCop);
     } catch (error) {
       console.error("Error fetching plans:", error);
     } finally {
@@ -111,7 +119,14 @@ export default function PricingPage() {
       }
 
       if (data.paymentUrl) {
-        toast.success(`Redirigiendo a ${paymentMethod === "mercadopago" ? "MercadoPago" : "PayPal"}...`);
+        const gateway = paymentMethod === "mercadopago" ? "MercadoPago" : "PayPal";
+        const chargeNote =
+          data.chargedCurrency === "COP"
+            ? ` Se cobrarán ${copFormatter.format(data.chargedAmount)}.`
+            : typeof data.copEquivalent === "number"
+              ? ` Se cobrarán $${data.chargedAmount} USD (≈ ${copFormatter.format(data.copEquivalent)}).`
+              : "";
+        toast.success(`Redirigiendo a ${gateway}...${chargeNote}`);
         setTimeout(() => {
           window.location.href = data.paymentUrl;
         }, 1500);
@@ -267,6 +282,19 @@ export default function PricingPage() {
                       <div className="text-[10px] font-bold text-blue-500 mt-2 uppercase tracking-widest bg-blue-500/10 py-1 px-3 rounded-full mx-auto w-fit">
                         Facturado trimestralmente (${(plan.quarterlyPrice ?? plan.price * 3 * 0.9).toFixed(0)})
                       </div>
+                    )}
+                    {plan.price > 0 && usdToCop && (
+                      <p className="text-[11px] text-muted-foreground mt-2">
+                        ≈{" "}
+                        {copFormatter.format(
+                          (billingCycle === "annual"
+                            ? plan.annualPrice ?? plan.price * 12 * 0.8
+                            : billingCycle === "quarterly"
+                              ? plan.quarterlyPrice ?? plan.price * 3 * 0.9
+                              : plan.price) * usdToCop,
+                        )}{" "}
+                        {paymentMethod === "mercadopago" ? "(cobro real vía MercadoPago)" : "(referencial · se cobra en USD vía PayPal)"}
+                      </p>
                     )}
                   </div>
 

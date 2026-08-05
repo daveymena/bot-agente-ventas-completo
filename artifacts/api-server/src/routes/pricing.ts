@@ -6,6 +6,7 @@ import { SubscriptionPaymentService } from "../lib/subscription-payments";
 import { paymentRateLimit } from "../middleware/rateLimiting";
 import { db, tenants } from "@workspace/db";
 import { eq } from "drizzle-orm";
+import { getExchangeRate } from "../lib/exchange-rate";
 
 const router = Router();
 
@@ -27,7 +28,7 @@ function validateCsrfToken(req: any, res: any, next: any) {
 // GET /api/pricing - Obtener los planes que se ofrecen públicamente
 // (visible !== false) -- los planes legado (free/enterprise) siguen
 // existiendo para cuentas que ya los tengan asignados, pero no se listan acá.
-router.get("/", (req, res) => {
+router.get("/", async (req, res) => {
   try {
     const plans = Object.entries(SAAS_PLANS)
       .filter(([, plan]) => plan.visible !== false)
@@ -39,9 +40,15 @@ router.get("/", (req, res) => {
         annualPrice: plan.price * 12 * 0.8, // 20% descuento anual
       }));
 
+    // Tasa real (misma fuente que usa el cobro por MercadoPago) para que el
+    // frontend pueda mostrar el equivalente en pesos junto al precio en USD,
+    // sin importar el método de pago elegido.
+    const usdToCop = await getExchangeRate();
+
     res.json({
       plans,
       currency: "USD",
+      usdToCop,
       billingCycles: ["monthly", "quarterly", "annual"],
     });
   } catch (error) {
@@ -156,6 +163,9 @@ router.post("/upgrade", paymentRateLimit, validateCsrfToken, async (req, res, ne
         subscriptionId: paymentLink.subscriptionId,
         amount: paymentLink.amount,
         currency: paymentLink.currency,
+        chargedAmount: paymentLink.chargedAmount,
+        chargedCurrency: paymentLink.chargedCurrency,
+        copEquivalent: paymentLink.copEquivalent,
       });
     } catch (paymentError: any) {
       logger.error({ error: paymentError.message, stack: paymentError.stack }, "[Pricing] Error creating payment link");

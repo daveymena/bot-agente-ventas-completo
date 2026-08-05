@@ -31,8 +31,15 @@ export interface PaymentLinkResult {
   paymentUrl: string;
   paymentId: string;
   subscriptionId: number;
+  /** Precio de referencia del plan, siempre en USD. */
   amount: number;
   currency: string;
+  /** Lo que realmente se le cobra al usuario (COP vía MercadoPago, USD vía PayPal). */
+  chargedAmount: number;
+  chargedCurrency: string;
+  /** Equivalente en pesos colombianos al monto de referencia, para mostrarlo
+   * siempre junto al precio aunque se cobre en USD (PayPal). */
+  copEquivalent: number;
 }
 
 /**
@@ -102,21 +109,33 @@ export class SubscriptionPaymentService {
       "[SubscriptionPayment] Suscripción creada en BD con token de activación"
     );
 
+    // Tasa real (una sola vez, se reusa para el cobro en MercadoPago y para
+    // mostrar el equivalente en pesos aunque se cobre en USD vía PayPal).
+    const { getExchangeRate } = await import("./exchange-rate");
+    const rate = await getExchangeRate();
+    const copEquivalent = Math.round(amount * rate);
+
     // Generar enlace de pago según el método
     let paymentUrl: string;
     let paymentId: string;
+    let chargedAmount: number;
+    let chargedCurrency: string;
 
     logger.info({ paymentMethod }, "[SubscriptionPayment] Generando enlace de pago...");
 
     try {
       if (paymentMethod === "mercadopago") {
-        const result = await this.createMercadoPagoPayment(tenant, subscription, amount, currency, returnUrl, cancelUrl);
+        const result = await this.createMercadoPagoPayment(tenant, subscription, amount, currency, rate, returnUrl, cancelUrl);
         paymentUrl = result.paymentUrl;
         paymentId = result.paymentId;
+        chargedAmount = copEquivalent;
+        chargedCurrency = "COP";
       } else if (paymentMethod === "paypal") {
         const result = await this.createPayPalPayment(tenant, subscription, amount, currency, returnUrl, cancelUrl);
         paymentUrl = result.paymentUrl;
         paymentId = result.paymentId;
+        chargedAmount = amount;
+        chargedCurrency = currency;
       } else {
         throw new Error(`Método de pago no soportado: ${paymentMethod}`);
       }
@@ -152,6 +171,9 @@ export class SubscriptionPaymentService {
       subscriptionId: subscription.id,
       amount,
       currency,
+      chargedAmount,
+      chargedCurrency,
+      copEquivalent,
     };
   }
 
@@ -163,14 +185,15 @@ export class SubscriptionPaymentService {
     subscription: any,
     amount: number,
     currency: string,
+    rate: number,
     returnUrl?: string,
     cancelUrl?: string
   ): Promise<{ paymentUrl: string; paymentId: string }> {
     const tenantContext = await tenantManager.getTenantById(subscription.tenantId);
     const accessToken = credencialesDe(tenantContext).mercadopago.accessToken;
-    
+
     logger.info("[SubscriptionPayment] Iniciando creación de pago MercadoPago");
-    
+
     if (!accessToken) {
       logger.error("[SubscriptionPayment] MercadoPago access token no configurado");
       throw new Error("MercadoPago no está configurado. Por favor contacta al administrador.");
@@ -179,9 +202,7 @@ export class SubscriptionPaymentService {
     const appUrl = getAppUrl();
     const planDetails = SAAS_PLANS[subscription.plan as SaasPlan];
 
-    // Convertir a COP si es necesario (MercadoPago Colombia usa COP)
-    const { getExchangeRate } = await import("./exchange-rate");
-    const rate = await getExchangeRate();
+    // Convertir a COP (MercadoPago Colombia liquida en COP, no en USD)
     const amountCOP = Math.round(amount * rate);
 
     const requestBody = {
