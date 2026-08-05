@@ -152,27 +152,51 @@ export class ArchitectReasoner {
         cac: data.cac || "N/A", // Customer acquisition cost
         roas: data.roas || "N/A", // Return on ad spend
       },
-      predictions: [
-        `Si implementas mejoras: +${Math.floor(Math.random() * 30 + 15)}% conversión`,
-        `Potencial de revenue: $${Math.floor((data.aov || 100) * (data.monthlyVisitors || 1000) * 0.05)}`,
-      ],
+      predictions: this.buildDataDrivenPredictions(data),
     };
   }
 
   /**
-   * Síntesis final de todas las perspectivas
+   * Solo produce una "predicción" cuando el llamador realmente pasó los datos
+   * necesarios para calcularla. Sin datos reales, dice explícitamente que
+   * faltan -- nunca rellena con valores random o placeholders inventados.
    */
-  private synthesize(reasoning: ReasoningResult): ReasoningResult["synthesis"] {
-    const perspectives = [
-      reasoning.ceo_perspective.strategy,
-      reasoning.sales_perspective.closingStrategy,
-      reasoning.design_perspective.userExperience,
-      reasoning.data_perspective.insights[0],
-    ];
+  private buildDataDrivenPredictions(data: Record<string, any>): string[] {
+    const predictions: string[] = [];
+
+    if (typeof data.aov === "number" && typeof data.monthlyVisitors === "number") {
+      const assumedConversion = typeof data.conversionRate === "number" ? data.conversionRate / 100 : null;
+      if (assumedConversion !== null) {
+        const potentialRevenue = Math.floor(data.aov * data.monthlyVisitors * assumedConversion);
+        predictions.push(`Revenue mensual actual estimado con la conversión dada: $${potentialRevenue}`);
+      } else {
+        predictions.push("Falta conversionRate real para estimar revenue potencial -- no se inventa una tasa.");
+      }
+    } else {
+      predictions.push("Datos insuficientes (aov / monthlyVisitors) para proyectar revenue -- pásalos para obtener una estimación real.");
+    }
+
+    if (typeof data.conversionRate !== "number") {
+      predictions.push("Sin conversionRate real no se puede predecir mejora esperada -- se necesita el dato para no inventar un %.");
+    }
+
+    return predictions;
+  }
+
+  /**
+   * Síntesis final de todas las perspectivas. La confianza refleja cuántos
+   * datos reales trajo el contexto -- más señal real, más confianza; nunca
+   * un número fijo independiente del input.
+   */
+  private synthesize(reasoning: ReasoningResult, context: ReasoningContext): ReasoningResult["synthesis"] {
+    const realDataFields = Object.values(context.data).filter(
+      (v) => v !== undefined && v !== null && v !== "N/A"
+    ).length;
+    const confidence = Math.min(40 + realDataFields * 8, 90);
 
     return {
       recommendation: `ACCIÓN RECOMENDADA: Combinar estrategia CEO (${reasoning.ceo_perspective.timeline}) + ventas (${reasoning.sales_perspective.approach}) + diseño mejorado + data-driven optimization`,
-      confidence: 82,
+      confidence,
       nextSteps: [
         "1. Revisar UX/design friction points",
         "2. Implementar mejoras de copy y messaging",
@@ -198,7 +222,7 @@ export class ArchitectReasoner {
     };
 
     // Síntesis final
-    reasoning.synthesis = this.synthesize(reasoning);
+    reasoning.synthesis = this.synthesize(reasoning, context);
 
     logger.info({ confidence: reasoning.synthesis.confidence }, "✅ Reasoning complete");
 

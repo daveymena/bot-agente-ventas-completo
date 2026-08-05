@@ -15,14 +15,64 @@
  * hasta que el modelo marca done:true (o se alcanza el límite de pasos).
  */
 
-import { db, products, productCategories, agents, settings, stores, conversations, leads } from "@workspace/db";
-import { eq, desc, and, sql } from "drizzle-orm";
+import { db, products, productCategories, agents, settings, stores, conversations, leads, architectMemory } from "@workspace/db";
+import { eq, desc, and, gte, sql } from "drizzle-orm";
 import { logger } from "./logger";
 import { tenantManager } from "./tenantManager";
 import { dbNow } from "./date-utils";
 
 export interface OperatorContext {
   tenantId: number;
+  sessionId?: string;
+}
+
+// Ventana de vigencia de una investigación: una búsqueda de hace 3 horas ya
+// no representa "lo que funciona hoy" para decidir un anuncio nuevo.
+const RESEARCH_EVIDENCE_WINDOW_MS = 3 * 60 * 60 * 1000;
+
+async function recordResearchEvidence(ctx: OperatorContext, query: string): Promise<void> {
+  if (!ctx.sessionId) return;
+  try {
+    await db.insert(architectMemory).values({
+      tenantId: ctx.tenantId,
+      sessionId: ctx.sessionId,
+      memoryType: "research_evidence",
+      title: "web_research",
+      content: query.slice(0, 500),
+      tags: [],
+      metadata: {},
+    });
+  } catch (e: any) {
+    logger.warn({ err: e?.message }, "[AppOperator] No se pudo registrar evidencia de investigación");
+  }
+}
+
+/**
+ * Gate real (no una sugerencia en el prompt): ¿hubo una búsqueda/lectura web
+ * reciente en esta sesión? Sin esto, fb_ad_draft no genera nada -- el modelo
+ * puede saltarse una instrucción del prompt, pero no puede saltarse esto.
+ */
+async function hasRecentResearch(ctx: OperatorContext): Promise<boolean> {
+  if (!ctx.sessionId) return false;
+  try {
+    const since = new Date(Date.now() - RESEARCH_EVIDENCE_WINDOW_MS).toISOString();
+    const rows = await db
+      .select({ id: architectMemory.id })
+      .from(architectMemory)
+      .where(
+        and(
+          eq(architectMemory.tenantId, ctx.tenantId),
+          eq(architectMemory.sessionId, ctx.sessionId),
+          eq(architectMemory.memoryType, "research_evidence"),
+          gte(architectMemory.createdAt, since),
+        ),
+      )
+      .limit(1);
+    return rows.length > 0;
+  } catch (e: any) {
+    logger.warn({ err: e?.message }, "[AppOperator] No se pudo verificar evidencia de investigación");
+    return false; // ante la duda, no dejar pasar sin investigar
+  }
 }
 
 export interface ToolResult {
@@ -530,7 +580,7 @@ export const TOOLS: ToolDef[] = [
     name: "web_fetch",
     description: "Leer el contenido de texto de una URL pública (para extraer info de un curso, producto, artículo, etc.). OJO: no funciona con carpetas de Google Drive privadas (requieren login) ni con páginas que cargan todo por JavaScript.",
     args: '{ "url": string (req) }',
-    run: async (args) => {
+    run: async (args, ctx) => {
       const url = String(args.url || "").trim();
       if (!/^https?:\/\//i.test(url)) return { ok: false, summary: "URL inválida (debe empezar por http/https)" };
 
@@ -571,6 +621,7 @@ export const TOOLS: ToolDef[] = [
         if (text.replace(/\s/g, "").length < 40) {
           return { ok: false, summary: "No se pudo extraer texto útil (la página carga contenido por JavaScript o está protegida). Pídele al admin los detalles directamente." };
         }
+        await recordResearchEvidence(ctx, url);
         return { ok: true, summary: `Contenido leído de ${url} (${text.length} chars)`, data: { text } };
       } catch (e: any) {
         return { ok: false, summary: `No se pudo acceder: ${e?.message}` };
@@ -583,7 +634,7 @@ export const TOOLS: ToolDef[] = [
     description:
       "BUSCAR en internet por palabras clave y obtener resultados REALES (título, URL y resumen). Úsala SIEMPRE antes de web_fetch cuando no conozcas la URL exacta: nunca adivines direcciones. Flujo normal: web_search para encontrar las fuentes → web_fetch para leer las 2-3 más relevantes.",
     args: '{ "query": string (req), "limit": number (opcional, por defecto 6) }',
-    run: async (args) => {
+    run: async (args, ctx) => {
       const query = String(args.query || "").trim();
       if (!query) return { ok: false, summary: "Falta 'query' (qué buscar)" };
       const limit = Math.min(Math.max(Number(args.limit) || 6, 1), 10);
@@ -599,6 +650,7 @@ export const TOOLS: ToolDef[] = [
         const text = results
           .map((r, i) => `${i + 1}. ${r.title}\n   ${r.url}\n   ${r.snippet}`)
           .join("\n");
+        await recordResearchEvidence(ctx, query);
         return {
           ok: true,
           summary: `🔎 ${results.length} resultados reales para "${query}" (vía ${engine})`,
@@ -969,11 +1021,17 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: "fb_ad_draft",
-    description: "Genera un BORRADOR de anuncio (copy, segmentación, imagen) para un producto y lo guarda localmente. Por defecto NO toca la cuenta publicitaria de Meta ni crea nada real — el admin lo revisa y decide si publicarlo después desde el panel de anuncios. Seguro de usar sin gastar dinero.",
+    description: "Genera un BORRADOR de anuncio (copy, segmentación, imagen) para un producto y lo guarda localmente. Por defecto NO toca la cuenta publicitaria de Meta ni crea nada real — el admin lo revisa y decide si publicarlo después desde el panel de anuncios. Seguro de usar sin gastar dinero. REQUIERE haber investigado antes (web_search o web_fetch) en esta misma sesión, en las últimas 3 horas -- si no, la llamada falla y hay que investigar primero.",
     args: '{ "productId": number (req) }',
     run: async (args, ctx) => {
       const id = num(args.productId);
       if (!id) return { ok: false, summary: "Falta 'productId'" };
+      if (!(await hasRecentResearch(ctx))) {
+        return {
+          ok: false,
+          summary: "Todavía no investigaste nada en esta sesión (o hace más de 3 horas). Usa web_search para ver qué funciona de verdad en este nicho -- competencia, ángulos, precios -- antes de generar el borrador. No se genera copy sin esa base real.",
+        };
+      }
       const tenant = await tenantManager.getTenantById(ctx.tenantId);
       const { AdStrategist } = await import("./ad-strategist");
       try {

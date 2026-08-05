@@ -1171,8 +1171,8 @@ router.post("/operator", async (req: TenantRequest, res, next) => {
       ? `\n\nLECCIONES DE ERRORES PASADOS EN ESTE NEGOCIO (evita repetirlos):\n${lessons.map((l) => `- ${l}`).join("\n")}`
       : "";
     const sys = OPERATOR_SYSTEM_PROMPT.replace("${TOOLS}", buildToolsDoc()) + lessonsBlock;
-    const ctx = { tenantId };
     const sessionId: string = (req.body?.sessionId as string) || "default";
+    const ctx = { tenantId, sessionId };
 
     // Cuando una acción YA APROBADA falla, en vez de reportar el error y
     // seguir, se le da al modelo hasta MAX_REPAIR_STEPS turnos para

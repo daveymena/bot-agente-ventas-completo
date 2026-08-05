@@ -1,13 +1,11 @@
 /**
- * ============================================================
  * ARCHITECT PREDICTOR
- * ============================================================
- * Machine Learning simple pero poderoso
- * Predice: compras, churn, mejores precios, timing
+ * Heurísticas sobre datos reales de conversaciones, mensajes y pagos.
+ * Predice: compras, churn, mejores precios, timing.
  */
 
-import { db, conversations, payments, products } from "@workspace/db";
-import { eq, and, gte, lte } from "drizzle-orm";
+import { db, conversations, messages, payments, products } from "@workspace/db";
+import { eq, and, like, inArray, gte } from "drizzle-orm";
 import { logger } from "./logger";
 
 export interface PredictionResult {
@@ -24,16 +22,10 @@ export class ArchitectPredictor {
    */
   async predictNextPurchase(tenantId: number, customerId: string): Promise<PredictionResult> {
     try {
-      // Obtener historial del cliente
-      const conversations_list = await db
+      const customer_convos = await db
         .select()
         .from(conversations)
-        .where(eq(conversations.tenantId, tenantId))
-        .limit(100);
-
-      const customer_convos = conversations_list.filter((c) =>
-        (c as any).whatsappNumber?.includes(customerId)
-      );
+        .where(and(eq(conversations.tenantId, tenantId), like(conversations.contactPhone, `%${customerId}%`)));
 
       if (customer_convos.length === 0) {
         return {
@@ -45,14 +37,13 @@ export class ArchitectPredictor {
         };
       }
 
-      // Calcular señales
       const recentConvos = customer_convos.slice(-10);
-      const messageCount = recentConvos.reduce((sum, c) => sum + ((c as any).messages?.length || 0), 0);
+      const convoIds = recentConvos.map((c) => c.id);
+      const messageCount = await this.countMessages(convoIds);
       const hasPaymentPending = recentConvos.some((c) => c.paymentStatus === "pending");
       const daysSinceLastContact = this.daysSinceLastMessage(customer_convos);
-      const avgResponseTime = this.calculateAvgResponseTime(customer_convos);
+      const avgResponseTime = await this.calculateAvgResponseTime(convoIds);
 
-      // Scoring heurístico
       let score = 50;
       const signals: string[] = [];
 
@@ -71,7 +62,7 @@ export class ArchitectPredictor {
         signals.push("Contacto reciente");
       }
 
-      if (avgResponseTime < 3600) {
+      if (avgResponseTime !== null && avgResponseTime < 3600) {
         score += 10;
         signals.push("Responde rápidamente");
       }
@@ -80,7 +71,9 @@ export class ArchitectPredictor {
         prediction: score > 70 ? "MUY PROBABLE" : score > 50 ? "PROBABLE" : "INCIERTO",
         probability: Math.min(score, 95),
         confidence: 75,
-        reasoning: `Cliente muestra ${signals.length} señales positivas: ${signals.join(", ")}`,
+        reasoning: signals.length > 0
+          ? `Cliente muestra ${signals.length} señales positivas: ${signals.join(", ")}`
+          : "Sin señales positivas claras en el historial reciente.",
         suggestedAction: score > 70 ? "push_close" : score > 50 ? "send_offer" : "nurture",
       };
     } catch (error) {
@@ -100,12 +93,10 @@ export class ArchitectPredictor {
    */
   async predictChurnRisk(tenantId: number, customerId: string): Promise<PredictionResult> {
     try {
-      const convos = await db
+      const customer_convos = await db
         .select()
         .from(conversations)
-        .where(eq(conversations.tenantId, tenantId));
-
-      const customer_convos = convos.filter((c) => (c as any).whatsappNumber?.includes(customerId));
+        .where(and(eq(conversations.tenantId, tenantId), like(conversations.contactPhone, `%${customerId}%`)));
 
       if (customer_convos.length === 0) {
         return {
@@ -126,22 +117,17 @@ export class ArchitectPredictor {
         warnings.push(`Silencio de ${daysSilent} días`);
       }
 
-      const messagesDecline = this.calculateTrendDecline(customer_convos);
-      if (messagesDecline > 50) {
+      const convoIds = customer_convos.map((c) => c.id);
+      const messagesDecline = await this.calculateTrendDecline(convoIds);
+      if (messagesDecline !== null && messagesDecline > 50) {
         risk += 25;
-        warnings.push("Decline en frecuencia de mensajes");
-      }
-
-      const unresolvedIssues = customer_convos.filter((c) => (c as any).notes?.includes("no resuelto"));
-      if (unresolvedIssues.length > 0) {
-        risk += 20;
-        warnings.push(`${unresolvedIssues.length} issues sin resolver`);
+        warnings.push(`Decline de ${Math.round(messagesDecline)}% en frecuencia de mensajes`);
       }
 
       return {
         prediction: risk > 70 ? "ALTO" : risk > 40 ? "MEDIO" : "BAJO",
         probability: Math.min(risk, 95),
-        confidence: 70,
+        confidence: messagesDecline !== null ? 70 : 55, // menos confianza si no hay suficiente historial para medir tendencia
         reasoning: warnings.length > 0 ? `Advertencias: ${warnings.join(", ")}` : "Cliente estable",
         suggestedAction: risk > 70 ? "urgent_reengagement" : risk > 40 ? "send_check_in" : "maintain",
       };
@@ -158,7 +144,7 @@ export class ArchitectPredictor {
   }
 
   /**
-   * Optimizar precio dinámicamente
+   * Optimizar precio dinámicamente en base a ventas reales vs. interés real (mensajes) del producto
    */
   async optimizePrice(productId: number, currentPrice: number): Promise<{
     suggestedPrice: number;
@@ -181,35 +167,53 @@ export class ArchitectPredictor {
         };
       }
 
-      // Obtener datos de ventas
-      const payments_list = await db
-        .select()
-        .from(payments)
-        .where(eq(payments.productId, productId));
-
       const lastMonth = new Date();
       lastMonth.setDate(lastMonth.getDate() - 30);
 
-      const recentSales = payments_list.filter((p) => new Date(p.createdAt!) > lastMonth);
-      const conversionRate = (recentSales.length / Math.max(100, recentSales.length + 50)) * 100;
+      const recentSales = await db
+        .select()
+        .from(payments)
+        .where(
+          and(
+            eq(payments.productId, productId),
+            eq(payments.status, "confirmed"),
+            gte(payments.createdAt, lastMonth.toISOString())
+          )
+        );
 
-      // Lógica de optimización
+      // Interés real: mensajes de clientes que mencionan el producto en el mismo periodo.
+      const productKeyword = product.name.toLowerCase();
+      const recentMessages = await db
+        .select({ content: messages.content })
+        .from(messages)
+        .innerJoin(conversations, eq(messages.conversationId, conversations.id))
+        .where(
+          and(
+            eq(conversations.tenantId, product.tenantId!),
+            eq(messages.role, "customer"),
+            gte(messages.createdAt, lastMonth.toISOString())
+          )
+        );
+      const interestedInquiries = recentMessages.filter((m) => m.content.toLowerCase().includes(productKeyword)).length;
+      const conversionRate = interestedInquiries > 0 ? (recentSales.length / interestedInquiries) * 100 : 0;
+
       let priceChange = 0;
       let reasoning = "";
       let expectedImpact = "neutral";
 
-      if (conversionRate > 30) {
-        // Conversión alta → Subir precio
-        priceChange = Math.floor(currentPrice * 0.15); // +15%
-        reasoning = `Alta conversión (${conversionRate.toFixed(1)}%). Subir precio para maximizar revenue.`;
+      if (interestedInquiries < 5) {
+        reasoning = `Solo ${interestedInquiries} consultas reales en 30 días. Datos insuficientes para ajustar precio con confianza.`;
+        expectedImpact = "insufficient_data";
+      } else if (conversionRate > 30) {
+        priceChange = Math.floor(currentPrice * 0.15);
+        reasoning = `Alta conversión real (${conversionRate.toFixed(1)}% de ${interestedInquiries} consultas). Subir precio para maximizar revenue.`;
         expectedImpact = "increase_revenue";
       } else if (conversionRate < 10) {
-        // Conversión baja → Bajar precio
-        priceChange = Math.floor(currentPrice * -0.2); // -20%
-        reasoning = `Baja conversión (${conversionRate.toFixed(1)}%). Bajar precio para aumentar volumen.`;
+        priceChange = Math.floor(currentPrice * -0.2);
+        reasoning = `Baja conversión real (${conversionRate.toFixed(1)}% de ${interestedInquiries} consultas). Bajar precio para aumentar volumen.`;
         expectedImpact = "increase_volume";
       } else {
-        reasoning = `Conversión estable (${conversionRate.toFixed(1)}%). Mantener precio.`;
+        reasoning = `Conversión estable (${conversionRate.toFixed(1)}% de ${interestedInquiries} consultas). Mantener precio.`;
         expectedImpact = "stable";
       }
 
@@ -231,7 +235,7 @@ export class ArchitectPredictor {
   }
 
   /**
-   * Predecir mejor hora para contactar
+   * Predecir mejor hora para contactar, basado en los timestamps reales de los mensajes del cliente.
    */
   async predictBestContactTime(tenantId: number, customerId: string): Promise<{
     bestHour: number; // 0-23
@@ -240,30 +244,41 @@ export class ArchitectPredictor {
     reasoning: string;
   }> {
     try {
-      const convos = await db
-        .select()
+      const customer_convos = await db
+        .select({ id: conversations.id })
         .from(conversations)
-        .where(eq(conversations.tenantId, tenantId));
+        .where(and(eq(conversations.tenantId, tenantId), like(conversations.contactPhone, `%${customerId}%`)));
 
-      const customer_convos = convos.filter((c) => (c as any).whatsappNumber?.includes(customerId));
-
-      if (customer_convos.length < 3) {
+      if (customer_convos.length === 0) {
         return {
-          bestHour: 14, // Tarde por defecto
+          bestHour: 14,
           bestDay: "martes",
           confidence: 30,
           reasoning: "Datos insuficientes. Usar horario estándar.",
         };
       }
 
-      // Analizar patrones (simplificado)
+      const convoIds = customer_convos.map((c) => c.id);
+      const customerMessages = await db
+        .select({ createdAt: messages.createdAt })
+        .from(messages)
+        .where(and(inArray(messages.conversationId, convoIds), eq(messages.role, "customer")));
+
+      if (customerMessages.length < 3) {
+        return {
+          bestHour: 14,
+          bestDay: "martes",
+          confidence: 30,
+          reasoning: "Datos insuficientes. Usar horario estándar.",
+        };
+      }
+
       const hourCounts = new Array(24).fill(0);
       const dayCounts = new Array(7).fill(0);
 
-      customer_convos.forEach((c) => {
-        const date = new Date((c as any).lastMessageTime || c.createdAt);
-        hourCounts[date.getHours()]++;
-        dayCounts[date.getDay()]++;
+      customerMessages.forEach((m) => {
+        hourCounts[m.createdAt.getHours()]++;
+        dayCounts[m.createdAt.getDay()]++;
       });
 
       const bestHour = hourCounts.indexOf(Math.max(...hourCounts));
@@ -271,10 +286,10 @@ export class ArchitectPredictor {
       const dayNames = ["domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado"];
 
       return {
-        bestHour: bestHour === 0 ? 14 : bestHour, // Fallback a las 14:00
+        bestHour,
         bestDay: dayNames[bestDayIndex] || "martes",
-        confidence: Math.min(50 + customer_convos.length * 5, 85),
-        reasoning: `Patrón detectado: Cliente más activo ${dayNames[bestDayIndex]} alrededor de las ${bestHour}:00`,
+        confidence: Math.min(50 + customerMessages.length * 3, 85),
+        reasoning: `Patrón detectado sobre ${customerMessages.length} mensajes reales: cliente más activo ${dayNames[bestDayIndex]} alrededor de las ${bestHour}:00`,
       };
     } catch (error) {
       logger.error({ error }, "Best contact time prediction failed");
@@ -289,23 +304,76 @@ export class ArchitectPredictor {
 
   // ─── HELPERS ─────────────────────────────────────────────────────────────
 
-  private daysSinceLastMessage(convos: any[]): number {
+  private daysSinceLastMessage(convos: Array<{ lastMessageAt: Date | null; createdAt: Date }>): number {
     if (!convos || convos.length === 0) return 999;
-    const lastConvo = convos[convos.length - 1];
-    const lastDate = new Date(lastConvo.updatedAt || lastConvo.createdAt);
-    return Math.floor((Date.now() - lastDate.getTime()) / (1000 * 60 * 60 * 24));
+    const mostRecent = convos.reduce((latest, c) => {
+      const t = (c.lastMessageAt || c.createdAt).getTime();
+      return t > latest ? t : latest;
+    }, 0);
+    return Math.floor((Date.now() - mostRecent) / (1000 * 60 * 60 * 24));
   }
 
-  private calculateAvgResponseTime(convos: any[]): number {
-    // Retorna tiempo promedio en segundos
-    if (convos.length < 2) return 3600; // 1 hora por defecto
-    return 3600; // Simplificado por ahora
+  private async countMessages(conversationIds: number[]): Promise<number> {
+    if (conversationIds.length === 0) return 0;
+    const rows = await db.select({ id: messages.id }).from(messages).where(inArray(messages.conversationId, conversationIds));
+    return rows.length;
   }
 
-  private calculateTrendDecline(convos: any[]): number {
-    // Retorna % de decline en últimas 2 semanas vs mes anterior
-    if (convos.length < 5) return 0;
-    return Math.random() * 30; // Simulado por ahora
+  /**
+   * Tiempo promedio real (segundos) entre un mensaje de cliente y la siguiente respuesta del asistente.
+   * Retorna null si no hay suficientes pares para medir.
+   */
+  private async calculateAvgResponseTime(conversationIds: number[]): Promise<number | null> {
+    if (conversationIds.length === 0) return null;
+    const rows = await db
+      .select({ conversationId: messages.conversationId, role: messages.role, createdAt: messages.createdAt })
+      .from(messages)
+      .where(inArray(messages.conversationId, conversationIds))
+      .orderBy(messages.conversationId, messages.createdAt);
+
+    const diffsSeconds: number[] = [];
+    let pendingAt: Date | null = null;
+    let pendingConvo: number | null = null;
+    for (const row of rows) {
+      if (row.conversationId !== pendingConvo) {
+        pendingAt = null;
+        pendingConvo = row.conversationId;
+      }
+      if (row.role === "customer") {
+        pendingAt = row.createdAt;
+      } else if (row.role === "assistant" && pendingAt) {
+        const diff = (row.createdAt.getTime() - pendingAt.getTime()) / 1000;
+        if (diff > 0 && diff < 30 * 60) diffsSeconds.push(diff);
+        pendingAt = null;
+      }
+    }
+    if (diffsSeconds.length === 0) return null;
+    return diffsSeconds.reduce((a, b) => a + b, 0) / diffsSeconds.length;
+  }
+
+  /**
+   * % de decline real en volumen de mensajes: últimos 14 días vs. los 14-30 días anteriores.
+   * Retorna null si no hay suficiente historial (menos de 30 días de datos) para comparar con confianza.
+   */
+  private async calculateTrendDecline(conversationIds: number[]): Promise<number | null> {
+    if (conversationIds.length === 0) return null;
+    const now = new Date();
+    const day14 = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000);
+    const day30 = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+
+    const rows = await db
+      .select({ createdAt: messages.createdAt })
+      .from(messages)
+      .where(and(inArray(messages.conversationId, conversationIds), gte(messages.createdAt, day30.toISOString())));
+
+    if (rows.length < 5) return null; // no hay suficiente historial para una tendencia confiable
+
+    const recentCount = rows.filter((r) => r.createdAt >= day14).length;
+    const priorCount = rows.filter((r) => r.createdAt < day14).length;
+
+    if (priorCount === 0) return null;
+    const decline = ((priorCount - recentCount) / priorCount) * 100;
+    return Math.max(0, decline);
   }
 }
 

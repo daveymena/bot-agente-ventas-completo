@@ -1,7 +1,13 @@
-import { eq, and, gte, lte, desc, asc, sql, count } from "drizzle-orm";
-import { db, conversations, messages, leads, products, activityEvents } from "@workspace/db";
+import { eq, and, gte, lte, desc, asc, sql, count, inArray } from "drizzle-orm";
+import { db, conversations, messages, leads, products, activityEvents, payments } from "@workspace/db";
 import { logger } from "./logger";
 import { tenantManager, type TenantContext } from "./tenantManager";
+import { whatsapp } from "./whatsapp";
+
+const AI_PROVIDERS_CONFIGURED = (process.env.AI_FALLBACK_ORDER || "groq,opencode_zen,opencode,github")
+  .split(",")
+  .map((p) => p.trim())
+  .filter(Boolean);
 
 // Analytics Types
 export interface ConversionFunnelData {
@@ -284,10 +290,50 @@ export class AnalyticsEngine {
         .sort((a, b) => b.messageCount - a.messageCount)
         .slice(0, 5);
 
-      // Simulate response time and system metrics
-      const averageResponseTime = 1200; // 1.2 seconds average
-      const systemUptime = 99.5; // 99.5% uptime
-      const errorRate = 0.5; // 0.5% error rate
+      // Real average response time: pair each customer message with the next
+      // assistant message in the same conversation and diff their timestamps.
+      const orderedMessages = await db
+        .select({
+          conversationId: messages.conversationId,
+          role: messages.role,
+          createdAt: messages.createdAt,
+        })
+        .from(messages)
+        .innerJoin(conversations, eq(messages.conversationId, conversations.id))
+        .where(
+          and(
+            eq(conversations.tenantId, this.tenant.id),
+            gte(messages.createdAt, startDate.toISOString()),
+            lte(messages.createdAt, endDate.toISOString())
+          )
+        )
+        .orderBy(asc(messages.conversationId), asc(messages.createdAt));
+
+      const responseTimesMs: number[] = [];
+      let pendingCustomerMsgAt: Date | null = null;
+      let pendingConvoId: number | null = null;
+      for (const msg of orderedMessages) {
+        if (msg.conversationId !== pendingConvoId) {
+          pendingCustomerMsgAt = null;
+          pendingConvoId = msg.conversationId;
+        }
+        if (msg.role === "customer") {
+          pendingCustomerMsgAt = msg.createdAt;
+        } else if (msg.role === "assistant" && pendingCustomerMsgAt) {
+          const diff = msg.createdAt.getTime() - pendingCustomerMsgAt.getTime();
+          if (diff > 0 && diff < 30 * 60 * 1000) responseTimesMs.push(diff); // discard outliers >30min (human handoff, etc.)
+          pendingCustomerMsgAt = null;
+        }
+      }
+      const averageResponseTime = responseTimesMs.length > 0
+        ? Math.round(responseTimesMs.reduce((a, b) => a + b, 0) / responseTimesMs.length)
+        : 0;
+
+      // No real uptime/error-rate monitoring infrastructure exists yet (no persisted
+      // connection-state history, no error event log). Report the one real signal we
+      // do have -- current WhatsApp connection state -- instead of a fabricated series.
+      const systemUptime = whatsapp.isConnected() ? 100 : 0;
+      const errorRate = 0; // not tracked -- no error event log exists to compute this from
 
       return {
         averageResponseTime,
@@ -319,7 +365,9 @@ export class AnalyticsEngine {
           id: conversations.id,
           createdAt: conversations.createdAt,
           lastMessageAt: conversations.lastMessageAt,
-          currentStage: conversations.currentStage
+          currentStage: conversations.currentStage,
+          contactPhone: conversations.contactPhone,
+          paymentStatus: conversations.paymentStatus
         })
         .from(conversations)
         .where(
@@ -361,38 +409,77 @@ export class AnalyticsEngine {
         (sum, conv) => sum + conv.messageCount, 0
       ) / Math.max(messagesPerConversation.length, 1);
 
-      // Simulate return user rate
-      const returnUserRate = 25; // 25% return rate
+      // Real return-user rate: of the contactPhones seen in this window, what
+      // fraction already had a conversation (with this tenant) before startDate.
+      const phonesInWindow = [...new Set(conversationData.map((c) => c.contactPhone).filter(Boolean))];
+      let returningPhones = 0;
+      if (phonesInWindow.length > 0) {
+        const priorConvos = await db
+          .select({ contactPhone: conversations.contactPhone })
+          .from(conversations)
+          .where(
+            and(
+              eq(conversations.tenantId, this.tenant.id),
+              lte(conversations.createdAt, startDate.toISOString()),
+              inArray(conversations.contactPhone, phonesInWindow)
+            )
+          );
+        returningPhones = new Set(priorConvos.map((c) => c.contactPhone)).size;
+      }
+      const returnUserRate = phonesInWindow.length > 0
+        ? Math.round((returningPhones / phonesInWindow.length) * 100)
+        : 0;
 
       // Analyze popular products
       const productInquiries = await this.analyzeProductInquiries(startDate, endDate);
 
-      // Simulate common questions and dropoff points
-      const commonQuestions = [
-        { question: "¿Cuál es el precio?", frequency: 45, category: "pricing" },
-        { question: "¿Cómo funciona el curso?", frequency: 32, category: "product_info" },
-        { question: "¿Hay garantía?", frequency: 28, category: "trust" },
-        { question: "¿Cuánto tiempo dura?", frequency: 25, category: "product_info" },
-        { question: "¿Incluye certificado?", frequency: 22, category: "certification" }
-      ];
+      // Real common questions: frequency of "?"-containing customer messages,
+      // grouped by their exact normalized text (works for FAQ-style repeated
+      // questions; doesn't attempt semantic clustering of paraphrases).
+      const customerQuestionRows = await db
+        .select({ content: messages.content })
+        .from(messages)
+        .innerJoin(conversations, eq(messages.conversationId, conversations.id))
+        .where(
+          and(
+            eq(conversations.tenantId, this.tenant.id),
+            eq(messages.role, "customer"),
+            gte(messages.createdAt, startDate.toISOString()),
+            lte(messages.createdAt, endDate.toISOString()),
+            sql`${messages.content} LIKE '%?%'`
+          )
+        );
 
-      const dropoffPoints = [
-        { 
-          stage: "Price Discussion", 
-          dropoffRate: 35, 
-          commonReasons: ["Price too high", "Need to think", "Comparing options"] 
-        },
-        { 
-          stage: "Product Details", 
-          dropoffRate: 22, 
-          commonReasons: ["Not what expected", "Too complex", "Wrong timing"] 
-        },
-        { 
-          stage: "Payment Process", 
-          dropoffRate: 15, 
-          commonReasons: ["Payment issues", "Trust concerns", "Changed mind"] 
+      const questionFrequency = new Map<string, number>();
+      for (const row of customerQuestionRows) {
+        const normalized = row.content.trim().toLowerCase().replace(/\s+/g, " ");
+        if (normalized.length < 4 || normalized.length > 120) continue; // skip noise/long paragraphs
+        questionFrequency.set(normalized, (questionFrequency.get(normalized) || 0) + 1);
+      }
+      const commonQuestions = [...questionFrequency.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 10)
+        .map(([question, frequency]) => ({ question, frequency, category: "uncategorized" }));
+
+      // Real dropoff points: for conversations that reached each currentStage
+      // but never got a confirmed payment, that stage is where they stalled.
+      const stageCounts = new Map<string, number>();
+      const stageStalled = new Map<string, number>();
+      for (const c of conversationData) {
+        const stage = c.currentStage || "unknown";
+        stageCounts.set(stage, (stageCounts.get(stage) || 0) + 1);
+        if (c.paymentStatus !== "confirmed") {
+          stageStalled.set(stage, (stageStalled.get(stage) || 0) + 1);
         }
-      ];
+      }
+      const dropoffPoints = [...stageCounts.entries()]
+        .map(([stage, total]) => ({
+          stage,
+          dropoffRate: total > 0 ? Math.round(((stageStalled.get(stage) || 0) / total) * 100) : 0,
+          commonReasons: [] as string[], // no reason-capture mechanism exists yet -- left empty rather than invented
+        }))
+        .sort((a, b) => b.dropoffRate - a.dropoffRate)
+        .slice(0, 5);
 
       return {
         userEngagement: {
@@ -439,20 +526,38 @@ export class AnalyticsEngine {
           )
         );
 
+      // Real conversions: confirmed payments per product in this window.
+      const productIds = tenantProducts.map((p) => p.id);
+      const confirmedPayments = productIds.length > 0
+        ? await db
+            .select({ productId: payments.productId, count: sql<number>`count(*)` })
+            .from(payments)
+            .where(
+              and(
+                eq(payments.tenantId, this.tenant.id),
+                eq(payments.status, "confirmed"),
+                inArray(payments.productId, productIds),
+                gte(payments.createdAt, startDate.toISOString()),
+                lte(payments.createdAt, endDate.toISOString())
+              )
+            )
+            .groupBy(payments.productId)
+        : [];
+      const conversionsByProduct = new Map(confirmedPayments.map((p) => [p.productId, Number(p.count)]));
+
       const productAnalytics = tenantProducts.map(product => {
         const productKeywords = [
           product.name.toLowerCase(),
           ...(product.category ? [product.category.toLowerCase()] : [])
         ];
 
-        const inquiries = messageContent.filter(msg => 
-          productKeywords.some(keyword => 
+        const inquiries = messageContent.filter(msg =>
+          productKeywords.some(keyword =>
             msg.content.toLowerCase().includes(keyword)
           )
         ).length;
 
-        // Simulate conversions (in real implementation, track actual conversions)
-        const conversions = Math.floor(inquiries * 0.15); // 15% conversion rate
+        const conversions = conversionsByProduct.get(product.id) || 0;
         const conversionRate = inquiries > 0 ? (conversions / inquiries) * 100 : 0;
 
         return {
@@ -480,43 +585,82 @@ export class AnalyticsEngine {
    */
   async getSystemHealthMetrics(): Promise<SystemHealthMetrics> {
     try {
-      // Simulate AI provider health checks
-      const aiProviderHealth = [
-        {
-          provider: "OpenAI GPT-4",
-          status: 'healthy' as const,
-          responseTime: 1200,
-          errorRate: 0.5,
-          lastCheck: new Date()
-        },
-        {
-          provider: "Anthropic Claude",
-          status: 'healthy' as const,
-          responseTime: 1100,
-          errorRate: 0.3,
-          lastCheck: new Date()
-        }
-      ];
+      // Real AI provider health: which of the actually-configured providers
+      // (AI_FALLBACK_ORDER) generated a response in the last 24h, per their
+      // own aiProvider tag on the message metadata. A provider with zero
+      // recent successful uses is reported down, not fabricated as healthy.
+      const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+      const recentAssistantMsgs = await db
+        .select({
+          provider: sql<string | null>`${messages.metadata}->>'aiProvider'`,
+          createdAt: messages.createdAt,
+        })
+        .from(messages)
+        .innerJoin(conversations, eq(messages.conversationId, conversations.id))
+        .where(
+          and(
+            eq(conversations.tenantId, this.tenant.id),
+            eq(messages.role, "assistant"),
+            gte(messages.createdAt, oneDayAgo.toISOString())
+          )
+        );
+      const lastSeenByProvider = new Map<string, Date>();
+      for (const row of recentAssistantMsgs) {
+        if (!row.provider) continue;
+        const prev = lastSeenByProvider.get(row.provider);
+        if (!prev || row.createdAt > prev) lastSeenByProvider.set(row.provider, row.createdAt);
+      }
+      const aiProviderHealth = AI_PROVIDERS_CONFIGURED.map((provider) => {
+        const lastCheck = lastSeenByProvider.get(provider) || null;
+        return {
+          provider,
+          status: (lastCheck ? 'healthy' : 'down') as 'healthy' | 'degraded' | 'down',
+          responseTime: 0, // per-provider latency isn't recorded yet
+          errorRate: 0, // per-provider error count isn't recorded yet
+          lastCheck: lastCheck || new Date(0),
+        };
+      });
 
-      // WhatsApp health simulation
+      // Real WhatsApp health: actual connection state + real message counts (24h).
+      const waConnected = whatsapp.isConnected();
+      const [sentCount] = await db
+        .select({ count: sql<number>`count(*)` })
+        .from(messages)
+        .innerJoin(conversations, eq(messages.conversationId, conversations.id))
+        .where(and(eq(conversations.tenantId, this.tenant.id), eq(messages.role, "assistant"), gte(messages.createdAt, oneDayAgo.toISOString())));
+      const [receivedCount] = await db
+        .select({ count: sql<number>`count(*)` })
+        .from(messages)
+        .innerJoin(conversations, eq(messages.conversationId, conversations.id))
+        .where(and(eq(conversations.tenantId, this.tenant.id), eq(messages.role, "customer"), gte(messages.createdAt, oneDayAgo.toISOString())));
       const whatsappHealth = {
-        status: 'connected' as const,
-        messagesSent: 1250,
-        messagesReceived: 980,
-        connectionUptime: 99.2
+        status: (waConnected ? 'connected' : 'disconnected') as 'connected' | 'disconnected' | 'error',
+        messagesSent: Number(sentCount?.count) || 0,
+        messagesReceived: Number(receivedCount?.count) || 0,
+        connectionUptime: waConnected ? 100 : 0, // instantaneous signal, not a tracked historical %
       };
 
-      // Database health simulation
-      const databaseHealth = {
-        status: 'healthy' as const,
-        queryTime: 45,
-        connectionPool: 8
-      };
+      // Real database health: time an actual round-trip query.
+      const dbCheckStart = Date.now();
+      let databaseHealth: { status: 'healthy' | 'slow' | 'error'; queryTime: number; connectionPool: number };
+      try {
+        await db.execute(sql`SELECT 1`);
+        const queryTime = Date.now() - dbCheckStart;
+        databaseHealth = {
+          status: queryTime < 200 ? 'healthy' : 'slow',
+          queryTime,
+          connectionPool: 0, // pool size isn't exposed by the current db client wrapper
+        };
+      } catch {
+        databaseHealth = { status: 'error', queryTime: Date.now() - dbCheckStart, connectionPool: 0 };
+      }
 
-      // Payment gateway health simulation
+      // Payment gateways: no live ping implemented (would add an external call to
+      // this endpoint). Report whether credentials are configured, which is real,
+      // rather than a fabricated "healthy" + fake latency.
       const paymentGatewayHealth = {
-        mercadopago: { status: 'healthy', responseTime: 800 },
-        paypal: { status: 'healthy', responseTime: 1200 }
+        mercadopago: { status: process.env.MERCADOPAGO_ACCESS_TOKEN ? 'configured' : 'not_configured', responseTime: 0 },
+        paypal: { status: process.env.PAYPAL_CLIENT_ID ? 'configured' : 'not_configured', responseTime: 0 },
       };
 
       return {

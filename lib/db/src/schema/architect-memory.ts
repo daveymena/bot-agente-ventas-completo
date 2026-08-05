@@ -14,7 +14,11 @@ export type MemoryType =
   | "decision"
   | "observation"
   | "instruction"
-  | "reflection";
+  | "reflection"
+  // Evidencia de que se ejecutó una investigación real (web_search/web_fetch)
+  // en la sesión -- usado como gate server-side antes de generar un anuncio,
+  // para no depender de que el modelo "decida" investigar por su cuenta.
+  | "research_evidence";
 
 export interface ArchitectMemory {
   id: number;

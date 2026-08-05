@@ -344,8 +344,81 @@ export class WhatsAppManager {
   protected _usePairingCode = false;
   protected currentTenant: TenantContext;
 
+  // ── Límite real de envíos salientes (anti-bloqueo de número) ──────────────
+  // WA_MAX_MSGS_PER_HOUR/DAY estaban documentados en .env pero nunca se leían
+  // en ningún archivo -- cero protección real contra que Meta marque el
+  // número por volumen alto. Cada WhatsAppManager es por tenant/número (ver
+  // WhatsAppByTenant), así que un array de timestamps por instancia ya aísla
+  // el conteo correctamente sin necesitar keyear por tenantId.
+  // En memoria (se resetea si el proceso reinicia) -- igual que el resto del
+  // rate limiting de este backend (ver middleware/rateLimiting.ts); para un
+  // límite que sobreviva reinicios habría que moverlo a Redis/DB más adelante.
+  private sentTimestampsMs: number[] = [];
+  private consecutiveSendFailures = 0;
+  private sendingPausedUntil: number | null = null;
+
   constructor(tenant?: TenantContext) {
     this.currentTenant = tenant || tenantManager.getDefaultTenant();
+  }
+
+  /**
+   * Gate real antes de cualquier envío: corta si se supera el límite por
+   * hora/día, o si el circuito está abierto por fallos recientes seguidos
+   * (señal de que WhatsApp ya está rechazando/restringiendo el número).
+   * Lanza en vez de enviar en silencio -- no queremos que un límite superado
+   * pase desapercibido.
+   */
+  private enforceSendLimits(): void {
+    const now = Date.now();
+
+    if (this.sendingPausedUntil && now < this.sendingPausedUntil) {
+      const mins = Math.ceil((this.sendingPausedUntil - now) / 60000);
+      throw new Error(
+        `Envíos en pausa de protección por ${mins} min más: hubo ${this.consecutiveSendFailures} fallos seguidos al enviar, probable señal de restricción del número. Revisa el estado de la sesión de WhatsApp antes de reintentar.`,
+      );
+    }
+
+    const maxPerHour = Number(process.env.WA_MAX_MSGS_PER_HOUR) || 0;
+    const maxPerDay = Number(process.env.WA_MAX_MSGS_PER_DAY) || 0;
+    if (maxPerHour <= 0 && maxPerDay <= 0) return; // sin límite configurado, no forzar nada
+
+    const oneHourAgo = now - 60 * 60 * 1000;
+    const oneDayAgo = now - 24 * 60 * 60 * 1000;
+    // Podar mientras contamos, así el array no crece sin límite en una sesión larga.
+    this.sentTimestampsMs = this.sentTimestampsMs.filter((t) => t >= oneDayAgo);
+
+    const sentLastHour = this.sentTimestampsMs.filter((t) => t >= oneHourAgo).length;
+    const sentLastDay = this.sentTimestampsMs.length;
+
+    if (maxPerHour > 0 && sentLastHour >= maxPerHour) {
+      throw new Error(`Límite de ${maxPerHour} mensajes/hora alcanzado (${sentLastHour} enviados en la última hora). Se corta el envío para no arriesgar el número -- espera antes de seguir.`);
+    }
+    if (maxPerDay > 0 && sentLastDay >= maxPerDay) {
+      throw new Error(`Límite de ${maxPerDay} mensajes/día alcanzado. Se corta el envío para no arriesgar el número -- espera a que rote la ventana de 24h.`);
+    }
+  }
+
+  private recordSendSuccess(): void {
+    this.sentTimestampsMs.push(Date.now());
+    this.consecutiveSendFailures = 0;
+  }
+
+  /**
+   * Varios fallos de envío seguidos son la señal más directa de que WhatsApp
+   * ya está restringiendo el número -- mejor pausar todo el envío un rato y
+   * que alguien lo revise, que seguir insistiendo y empeorar el bloqueo.
+   */
+  private recordSendFailure(): void {
+    this.consecutiveSendFailures++;
+    const CIRCUIT_BREAKER_THRESHOLD = 5;
+    const CIRCUIT_BREAKER_PAUSE_MS = 30 * 60 * 1000;
+    if (this.consecutiveSendFailures >= CIRCUIT_BREAKER_THRESHOLD) {
+      this.sendingPausedUntil = Date.now() + CIRCUIT_BREAKER_PAUSE_MS;
+      logger.error(
+        { tenantId: this.currentTenant.id, failures: this.consecutiveSendFailures },
+        "[WhatsApp] Circuito abierto: demasiados fallos de envío seguidos, pausando 30 min por protección del número",
+      );
+    }
   }
 
   // Getter de compatibilidad: el código heredado (y subclases) referenciaba
@@ -969,6 +1042,7 @@ export class WhatsAppManager {
 
   async sendText(phone: string, text: string, originalJid?: string) {
     if (!this.sock || this.state !== "connected") throw new Error("WhatsApp no conectado");
+    this.enforceSendLimits();
     const targetJid = originalJid || `${phone}@s.whatsapp.net`;
 
     // Estilo emoji: sin asteriscos ni viñetas de punto (más amigable/pro)
@@ -980,12 +1054,19 @@ export class WhatsAppManager {
     await sleep(calcTypingDelay(text));
     await this.sock.sendPresenceUpdate("paused", targetJid);
 
-    await this.sock.sendMessage(targetJid, { text });
+    try {
+      await this.sock.sendMessage(targetJid, { text });
+    } catch (e) {
+      this.recordSendFailure();
+      throw e;
+    }
+    this.recordSendSuccess();
     trackWhatsAppCost(this.currentTenant.id.toString());
   }
 
   async sendImage(phone: string, imageUrl: string, caption: string, originalJid?: string) {
     if (!this.sock || this.state !== "connected") throw new Error("WhatsApp no conectado");
+    this.enforceSendLimits();
     const jid = originalJid || `${phone}@s.whatsapp.net`;
 
     // Simular lectura + escritura (basado en el caption)
@@ -994,10 +1075,12 @@ export class WhatsAppManager {
     await sleep(calcTypingDelay(caption));
     await this.sock.sendPresenceUpdate("paused", jid);
 
+    let sentSomething = false;
     try {
       const buffer = await loadProductImage(imageUrl);
       if (!buffer) throw new Error(`no se pudo obtener la imagen (${imageUrl})`);
       await this.sock.sendMessage(jid, { image: buffer, caption });
+      sentSomething = true;
     } catch (e: any) {
       // NO se manda una imagen "parecida" cuando falla la real.
       //
@@ -1009,10 +1092,19 @@ export class WhatsAppManager {
       console.error(
         `[WhatsApp] Imagen no disponible (${imageUrl}): ${e.message}. Se envía solo el texto para no mostrar una foto que no es del producto.`,
       );
-      await this.sock.sendMessage(jid, { text: caption }).catch((err: any) => {
+      try {
+        await this.sock.sendMessage(jid, { text: caption });
+        sentSomething = true;
+      } catch (err: any) {
         console.error(`[WhatsApp] Error fatal enviando texto: ${err.message}`);
-      });
+      }
     }
+    // Solo cuenta como fallo de ENVÍO (para el circuit breaker) si ni la
+    // imagen ni el texto de respaldo lograron salir por el socket -- que
+    // falte la imagen del producto no es una señal de que WhatsApp esté
+    // restringiendo el número.
+    if (sentSomething) this.recordSendSuccess();
+    else this.recordSendFailure();
     trackWhatsAppCost(this.currentTenant.id.toString());
   }
 

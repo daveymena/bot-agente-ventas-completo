@@ -19,6 +19,31 @@ import { whatsapp } from "./whatsapp";
 import { isApproval, isRejection } from "./architect-store";
 import { FacebookService } from "./facebook";
 import { tenantManager, type TenantContext } from "./tenantManager";
+import { architectMemoryService } from "./architect-memory-service";
+
+/**
+ * Confianza basada en el tamaño de muestra REAL de la campaña, no un número
+ * fijo -- más impresiones reales respaldando la decisión, más confianza.
+ */
+function sampleBasedConfidence(impressions: number): number {
+  return Math.min(40 + Math.floor(impressions / 100), 95);
+}
+
+/**
+ * Cierra el ciclo de aprendizaje: si el admin ya rechazó esta MISMA acción
+ * para esta MISMA campaña recientemente, se lo recuerda en la nueva
+ * sugerencia en vez de repetirla como si fuera la primera vez.
+ */
+async function recentRejectionNote(tenantId: number, campaignName: string, action: string): Promise<string> {
+  try {
+    const memories = await architectMemoryService.retrieveRelevantMemories(tenantId, campaignName, 10);
+    const rejection = memories.find((m) => m.tags?.includes(action) && m.tags?.includes("rejected"));
+    if (!rejection) return "";
+    return `\n\n🧠 Nota: ya rechazaste una sugerencia similar (${action}) para esta campaña antes -- si sigue sin convencerte, decime "no" de nuevo y dejo de repetirla por un tiempo.`;
+  } catch {
+    return "";
+  }
+}
 
 // Umbrales conservadores y auditables a propósito -- se pueden ajustar sin
 // tocar la lógica de decisión.
@@ -295,7 +320,8 @@ async function trendReviewForTenant(tenant: TenantContext): Promise<void> {
     const ratio = recent.costPerResult / previous.costPerResult;
 
     if (ratio <= TREND_SCALE_UP_MAX_COST_RATIO) {
-      const reason = `Los últimos 3 días el costo por resultado bajó a ${fmtCOP(recent.costPerResult)} (antes ${fmtCOP(previous.costPerResult)} en la semana) -- tendencia consistente positiva, no un día suelto. Se sugiere subir el presupuesto 20% para escalar mientras funciona.`;
+      const memoryNote = await recentRejectionNote(tenant.id, campaign.name, "increase_budget");
+      const reason = `Los últimos 3 días el costo por resultado bajó a ${fmtCOP(recent.costPerResult)} (antes ${fmtCOP(previous.costPerResult)} en la semana) -- tendencia consistente positiva, no un día suelto. Se sugiere subir el presupuesto 20% para escalar mientras funciona.${memoryNote}`;
       const log = await logSuggestion({
         tenantId: tenant.id, campaignId: campaign.id, productName: campaign.name,
         checkType: "trend_review", suggestedAction: "increase_budget", reason,
@@ -303,7 +329,8 @@ async function trendReviewForTenant(tenant: TenantContext): Promise<void> {
       });
       await notifyAdmin(log.id, campaign.name, "increase_budget", reason);
     } else if (ratio >= TREND_SCALE_DOWN_MIN_COST_RATIO) {
-      const reason = `Los últimos 3 días el costo por resultado subió a ${fmtCOP(recent.costPerResult)} (antes ${fmtCOP(previous.costPerResult)} en la semana) -- tendencia consistente negativa. Se sugiere pausarla o bajar el presupuesto 30% para no seguir perdiendo eficiencia.`;
+      const memoryNote = await recentRejectionNote(tenant.id, campaign.name, "decrease_budget");
+      const reason = `Los últimos 3 días el costo por resultado subió a ${fmtCOP(recent.costPerResult)} (antes ${fmtCOP(previous.costPerResult)} en la semana) -- tendencia consistente negativa. Se sugiere pausarla o bajar el presupuesto 30% para no seguir perdiendo eficiencia.${memoryNote}`;
       const log = await logSuggestion({
         tenantId: tenant.id, campaignId: campaign.id, productName: campaign.name,
         checkType: "trend_review", suggestedAction: "decrease_budget", reason,
@@ -372,6 +399,17 @@ export async function handleAdminReply(phone: string, text: string): Promise<boo
   if (rejected) {
     await db.update(adAgentLogs).set({ status: "rejected", respondedAt: new Date() }).where(eq(adAgentLogs.id, log.id));
     await whatsapp.sendText(phone, `Descartado — no se hizo ningún cambio en "${log.productName}".`);
+    if (log.tenantId) {
+      const impressions = (log.metricsSnapshot as any)?.impressions ?? (log.metricsSnapshot as any)?.recent?.impressions ?? 0;
+      await architectMemoryService.recordLearning(
+        log.tenantId,
+        "observation",
+        `❌ Sugerencia rechazada: ${log.checkType} → ${log.suggestedAction} (${log.productName})`,
+        `El admin rechazó la sugerencia. Razón registrada del sistema: ${log.reason}`,
+        ["ad-agent", log.checkType, String(log.suggestedAction), "rejected"],
+        { confidence: sampleBasedConfidence(impressions), impact: 50, source: "ad-growth-agent" },
+      );
+    }
     return true;
   }
 
@@ -381,6 +419,17 @@ export async function handleAdminReply(phone: string, text: string): Promise<boo
     respondedAt: new Date(),
   }).where(eq(adAgentLogs.id, log.id));
   await whatsapp.sendText(phone, result.ok ? `✅ ${result.message}` : `⚠️ ${result.message}`);
+  if (log.tenantId) {
+    const impressions = (log.metricsSnapshot as any)?.impressions ?? (log.metricsSnapshot as any)?.recent?.impressions ?? 0;
+    await architectMemoryService.recordLearning(
+      log.tenantId,
+      "decision",
+      `${result.ok ? "✅" : "⚠️"} Sugerencia aplicada: ${log.checkType} → ${log.suggestedAction} (${log.productName})`,
+      `${log.reason}\nResultado real al aplicarla: ${result.message}`,
+      ["ad-agent", log.checkType, String(log.suggestedAction), result.ok ? "applied-ok" : "applied-failed"],
+      { confidence: sampleBasedConfidence(impressions), impact: result.ok ? 80 : 40, source: "ad-growth-agent" },
+    );
+  }
   return true;
 }
 
