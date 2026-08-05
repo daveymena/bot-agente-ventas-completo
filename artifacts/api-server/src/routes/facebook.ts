@@ -527,10 +527,20 @@ router.post("/strategist/draft/:productId", async (req, res, next) => {
     const adAccountId = tenant?.facebook?.adAccountId || process.env.FB_AD_ACCOUNT_ID || "";
     const accessToken = tenant?.facebook?.accessToken || process.env.FB_ACCESS_TOKEN || "";
     const { AdStrategist } = await import("../lib/ad-strategist");
+    // Copy grounded en investigación real, opcional -- mismos campos que usa
+    // el Arquitecto vía fb_ad_draft (ver ResearchGroundedCopy). Sin esto la
+    // ruta solo podía generar desde la plantilla fija por nicho; con esto
+    // también sirve para publicar campañas armadas con research hecho fuera
+    // del loop del Arquitecto (que puede tardar demasiado en pedidos largos).
+    const { hook, angle, primaryText, headline, description, researchNote } = req.body || {};
+    const grounded = (hook || angle || primaryText || headline || description || researchNote)
+      ? { hook, angle, primaryText, headline, description, researchNote }
+      : undefined;
     const draft = await new AdStrategist(tenant || undefined).createDraftAd(
       adAccountId,
       accessToken,
-      productId
+      productId,
+      grounded
     );
     return res.json(draft);
   } catch (e) { return next(e); }
