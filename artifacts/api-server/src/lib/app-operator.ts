@@ -16,7 +16,7 @@
  */
 
 import { db, products, productCategories, agents, settings, stores, conversations, leads, architectMemory } from "@workspace/db";
-import { eq, desc, and, gte, sql } from "drizzle-orm";
+import { eq, desc, and, gte, sql, ilike } from "drizzle-orm";
 import { logger } from "./logger";
 import { tenantManager } from "./tenantManager";
 import { dbNow } from "./date-utils";
@@ -355,13 +355,23 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: "list_products",
-    description: "Listar productos (id, nombre, precio, categoría). Úsalo antes de editar para conocer los ids reales.",
-    args: '{ "limit"?: number }',
+    description: "Listar productos (id, nombre, precio, categoría). Úsalo antes de editar para conocer los ids reales. Si buscás un producto puntual (ej. 'el curso de piano'), pasá 'search' -- el catálogo puede tener más productos que el límite por defecto, y sin buscar por nombre podés no ver uno que sí existe.",
+    args: '{ "limit"?: number, "search"?: string (filtra por nombre, sin distinguir mayúsculas) }',
     run: async (args, ctx) => {
-      const rows = await db.select().from(products).where(eq(products.tenantId, ctx.tenantId)).limit(num(args.limit) || 50);
+      const search = typeof args.search === "string" ? args.search.trim() : "";
+      const conditions = [eq(products.tenantId, ctx.tenantId)];
+      if (search) conditions.push(ilike(products.name, `%${search}%`));
+      // Antes sin orderBy: con más productos que el límite por defecto (85 en
+      // este negocio, límite 50), Postgres no garantiza qué subconjunto
+      // devuelve sin ORDER BY -- un producto real podía quedar afuera de
+      // forma no determinística según el escaneo interno, y el Arquitecto
+      // reportaba "no encontré el producto" sobre algo que sí existía.
+      // orderBy(id) hace el resultado reproducible; 'search' deja encontrar
+      // un producto puntual sin depender de que entre en la muestra truncada.
+      const rows = await db.select().from(products).where(and(...conditions)).orderBy(products.id).limit(num(args.limit) || 50);
       return {
         ok: true,
-        summary: `${rows.length} productos`,
+        summary: `${rows.length} productos${search ? ` (filtrado por "${search}")` : ""}`,
         data: rows.map((p) => ({ id: p.id, name: p.name, price: p.price, currency: p.currency, category: p.category, isActive: p.isActive, hasImage: !!p.imageUrl })),
       };
     },
@@ -1797,6 +1807,7 @@ DROPSHIPPING CON DROPI (vender productos de proveedores sin tener stock):
 
 EXCELENCIA EN FACEBOOK — piensa como un EXPERTO en Meta Ads, no como un simple ejecutor:
 - 🔍 ANTES de tocar cualquier campaña, INDAGA: revisa los productos reales (list_products), prepara el anuncio con fb_ad_draft y verifica la imagen correcta. Nunca crees ni ofrezcas una campaña sobre datos que no revisaste en ESTE turno.
+- 🔎 Si el admin menciona un producto por nombre (ej. "el curso de piano"), usa list_products con el parámetro "search" (ej. search:"piano") en vez de listar todo el catálogo sin filtro -- el catálogo puede tener más productos que el límite por defecto, y una lista sin buscar por nombre puede no mostrarte uno que sí existe. No le digas al admin "no encontré ese producto" sin haber buscado por su nombre primero.
 - 🎯 Recomienda el objetivo correcto según la meta del negocio (tráfico, alcance, leads o ventas) y justifica tu elección en términos de negocio.
 - 💰 Presupuesto con criterio: sugiérelo según el producto y el objetivo, y advierte el gasto diario real. Nunca ofrezcas la pauta paga como si fuera gratis.
 - 📈 Métricas de experto al monitorear campañas: CTR, CPM, CPC, ROAS, costo por resultado. Da una lectura accionable (ej: “el anuncio X tiene CTR bajo, probemos un titular nuevo”), no un listado de números.
