@@ -217,47 +217,64 @@ async function searchDuckDuckGo(query: string, limit: number): Promise<SearchHit
   return out;
 }
 
-/** SearXNG público (sin key). Se rotan instancias porque caen a menudo. */
+/**
+ * SearXNG público (sin key). Se rotan instancias porque caen a menudo.
+ *
+ * Las 3 instancias se consultan EN PARALELO, no en serie: probarlas una por
+ * una (con ~12s de timeout cada una) podía sumar hasta 36s solo para este
+ * motor, y era uno de los tramos que hacía que una búsqueda completa tardara
+ * más de un minuto (ver runWebSearch). En paralelo el costo es el de la
+ * instancia más lenta, no la suma de las tres.
+ */
 const SEARX_INSTANCES = ["https://searxng.site", "https://search.rhscz.eu", "https://searx.be"];
 async function searchSearx(query: string, limit: number): Promise<SearchHit[]> {
-  for (const base of SEARX_INSTANCES) {
-    const html = await getText(`${base}/search?q=${encodeURIComponent(query)}`);
-    if (!html) continue;
-    const out: SearchHit[] = [];
-    for (const b of html.split(/<article\b/).slice(1)) {
-      if (out.length >= limit) break;
-      const m = b.match(/<h3>\s*<a[^>]+href="(https?:\/\/[^"]+)"[^>]*>([\s\S]*?)<\/a>/);
-      if (!m) continue;
-      const url = m[1];
-      const title = decodeEntities(m[2].replace(/<[^>]+>/g, "")).trim();
-      const snippet = decodeEntities(
-        (b.match(/<p class="content">([\s\S]*?)<\/p>/)?.[1] || "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " "),
-      ).trim();
-      if (title) out.push({ title, url, snippet: snippet.slice(0, 400) });
-    }
-    if (out.length > 0) return out;
-  }
-  return [];
+  const attempts = await Promise.all(
+    SEARX_INSTANCES.map(async (base) => {
+      const html = await getText(`${base}/search?q=${encodeURIComponent(query)}`);
+      if (!html) return [] as SearchHit[];
+      const out: SearchHit[] = [];
+      for (const b of html.split(/<article\b/).slice(1)) {
+        if (out.length >= limit) break;
+        const m = b.match(/<h3>\s*<a[^>]+href="(https?:\/\/[^"]+)"[^>]*>([\s\S]*?)<\/a>/);
+        if (!m) continue;
+        const url = m[1];
+        const title = decodeEntities(m[2].replace(/<[^>]+>/g, "")).trim();
+        const snippet = decodeEntities(
+          (b.match(/<p class="content">([\s\S]*?)<\/p>/)?.[1] || "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " "),
+        ).trim();
+        if (title) out.push({ title, url, snippet: snippet.slice(0, 400) });
+      }
+      return out;
+    }),
+  );
+  return attempts.find((out) => out.length > 0) || [];
 }
 
-/** Wikipedia: último recurso. Siempre disponible, pero solo enciclopédico. */
+/**
+ * Wikipedia: último recurso. Siempre disponible, pero solo enciclopédico.
+ * "es" y "en" en paralelo por la misma razón que arriba.
+ */
 async function searchWikipedia(query: string, limit: number): Promise<SearchHit[]> {
-  for (const lang of ["es", "en"]) {
-    const body = await getText(
-      `https://${lang}.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(query)}&srlimit=${limit}&format=json`,
-    );
-    if (!body) continue;
-    try {
-      const j = JSON.parse(body);
-      const hits = (j?.query?.search || []).map((r: any) => ({
-        title: String(r.title || ""),
-        url: `https://${lang}.wikipedia.org/wiki/${encodeURIComponent(String(r.title).replace(/ /g, "_"))}`,
-        snippet: String(r.snippet || "").replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim(),
-      }));
-      if (hits.length > 0) return hits;
-    } catch {}
-  }
-  return [];
+  const attempts = await Promise.all(
+    ["es", "en"].map(async (lang) => {
+      const body = await getText(
+        `https://${lang}.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(query)}&srlimit=${limit}&format=json`,
+      );
+      if (!body) return [] as SearchHit[];
+      try {
+        const j = JSON.parse(body);
+        return (j?.query?.search || []).map((r: any) => ({
+          title: String(r.title || ""),
+          url: `https://${lang}.wikipedia.org/wiki/${encodeURIComponent(String(r.title).replace(/ /g, "_"))}`,
+          snippet: String(r.snippet || "").replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim(),
+        }));
+      } catch {
+        return [] as SearchHit[];
+      }
+    }),
+  );
+  // "es" gana si ambos tienen resultados -- orden de prioridad, no de llegada.
+  return attempts[0].length > 0 ? attempts[0] : attempts[1];
 }
 
 // Portadas de buscadores y agregadores que algunas instancias devuelven como
@@ -287,7 +304,22 @@ function isUsefulHit(h: SearchHit, query: string): boolean {
   return true;
 }
 
-/** Intenta los motores en orden de calidad hasta que uno devuelva resultados. */
+/**
+ * Intenta los 5 motores EN PARALELO y se queda con el de mayor calidad que
+ * haya devuelto algo (tavily > brave > duckduckgo > searxng > wikipedia).
+ *
+ * Antes se probaban en serie, uno esperando al anterior. Con Tavily/Brave sin
+ * API key (devuelven al toque) el costo real caía sobre duckduckgo (~12s,
+ * frecuentemente bloqueado con 202 tras varias consultas seguidas) + searxng
+ * (hasta 36s con sus 3 instancias) + wikipedia (~12s) = hasta ~60-70s por
+ * CADA llamada a esta función. El Arquitecto puede llamarla varias veces
+ * dentro de su loop de hasta 10 pasos (una investigación real casi siempre
+ * dispara más de una búsqueda), así que ese costo se multiplicaba -- la causa
+ * real detrás de pedidos que tardaban varios minutos y terminaban en el
+ * genérico "Error: Error del servidor" (ver code-agent.tsx, que cae a ese
+ * texto cuando la respuesta no llega a ser JSON). En paralelo el costo es el
+ * de la instancia más lenta del motor más lento (~12-15s), no la suma.
+ */
 export async function runWebSearch(
   query: string,
   limit = 6,
@@ -299,11 +331,16 @@ export async function runWebSearch(
     ["searxng", searchSearx],
     ["wikipedia", searchWikipedia],
   ];
-  for (const [engine, fn] of chain) {
-    // Se pide de más porque el filtro de relevancia descarta parte.
-    const raw = await fn(query, limit + 4);
-    const results = raw.filter((h) => isUsefulHit(h, query)).slice(0, limit);
-    if (results.length > 0) return { engine, results };
+  const settled = await Promise.all(
+    chain.map(async ([engine, fn]) => {
+      // Se pide de más porque el filtro de relevancia descarta parte.
+      const raw = await fn(query, limit + 4).catch(() => [] as SearchHit[]);
+      return { engine, results: raw.filter((h) => isUsefulHit(h, query)).slice(0, limit) };
+    }),
+  );
+  for (const [engine] of chain) {
+    const found = settled.find((s) => s.engine === engine && s.results.length > 0);
+    if (found) return found;
   }
   return { engine: "none", results: [] };
 }

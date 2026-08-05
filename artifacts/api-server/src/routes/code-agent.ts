@@ -1306,8 +1306,23 @@ router.post("/operator", async (req: TenantRequest, res, next) => {
     // vez de seguir gastando pasos repitiendo lo mismo.
     const seenReads = new Map<string, number>();
     let loopSignature: string | null = null;
+    // Red de seguridad de tiempo total: cada callAI ya está acotado a 45s,
+    // pero nada acotaba la SUMA de hasta 10 pasos + sus lecturas (búsquedas
+    // web, fetch de páginas, etc). Un pedido de investigación real podía
+    // encadenar varias búsquedas y superar varios minutos, tiempo en el que
+    // el cliente (o algún proxy intermedio) cortaba la conexión y el
+    // frontend mostraba el genérico "Error: Error del servidor" sin haber
+    // recibido nunca una respuesta real del servidor. Con esto, si se supera
+    // el límite entre pasos, se corta acá con una respuesta real (parcial
+    // pero real) en vez de dejar que algo externo la corte primero.
+    const requestDeadline = Date.now() + 100_000;
+    let timedOut = false;
 
     for (let step = 0; step < MAX_STEPS; step++) {
+      if (Date.now() > requestDeadline) {
+        timedOut = true;
+        break;
+      }
       const rawAI = await callAI(messages);
       if (!rawAI) {
         return res.status(502).json({ error: "Todos los proveedores de IA fallaron" });
@@ -1426,7 +1441,9 @@ router.post("/operator", async (req: TenantRequest, res, next) => {
     // definitiva.
     if (!resolved && plannedActions.length === 0) {
       finalReply = toEmojiStyle(
-        `${finalReply ? finalReply + "\n\n" : ""}⚠️ Llegué al límite de pasos (10) sin terminar la tarea por completo. Esto es lo que alcancé a hacer -- decime si querés que siga desde acá.`,
+        timedOut
+          ? `${finalReply ? finalReply + "\n\n" : ""}⚠️ Esto está tardando más de lo esperado (varias búsquedas/pasos encadenados). Esto es lo que alcancé a averiguar -- pedime que continúe, o dividí el pedido en partes más chicas.`
+          : `${finalReply ? finalReply + "\n\n" : ""}⚠️ Llegué al límite de pasos (10) sin terminar la tarea por completo. Esto es lo que alcancé a hacer -- decime si querés que siga desde acá.`,
       );
     }
 
