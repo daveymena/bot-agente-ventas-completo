@@ -674,7 +674,7 @@ export default function FacebookAdsPage() {
                       <input type="checkbox" checked={verSecretos} onChange={e => setVerSecretos(e.target.checked)} className="accent-primary" />
                       Mostrar los valores ocultos
                     </label>
-                    <div className="sticky bottom-[calc(88px+env(safe-area-inset-bottom))] md:static z-30 flex flex-wrap gap-2 -mx-2 px-2 py-3 rounded-xl bg-background/95 backdrop-blur-md border border-border/60 md:border-0 md:bg-transparent md:backdrop-blur-none md:p-0 md:mx-0">
+                    <div className="fixed md:static bottom-[calc(76px+env(safe-area-inset-bottom))] left-3 right-3 md:left-auto md:right-auto z-[55] flex flex-wrap gap-2 p-3 rounded-xl bg-background/95 backdrop-blur-md border border-border/60 shadow-2xl md:border-0 md:bg-transparent md:backdrop-blur-none md:shadow-none md:p-0 md:mx-0">
                       <Button onClick={saveConfig} disabled={saving}>{saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}Guardar</Button>
                       <Button variant="outline" onClick={testConnection} disabled={testing}>
                         {testing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
