@@ -584,12 +584,24 @@ const validateSaasMiddleware = (req: Request, res: Response, next: NextFunction)
   if (isPublicRoute(req.path)) {
     return next();
   }
-  
+
   // Rutas de autenticación (como check-email) deben pasar sin validación SaaS
   if (req.path.includes("/auth") || req.path.includes("/login") || req.path.includes("/register")) {
     return next();
   }
-  
+
+  // /pricing (incluye POST /pricing/upgrade) NUNCA debe bloquearse acá: es
+  // justo la ruta que un tenant con trial vencido o plan inválido necesita
+  // para pagar y arreglarlo. Antes este middleware corría igual que para
+  // cualquier otra ruta protegida, así que "Trial expired -- action:
+  // upgrade_plan" (línea de abajo) le devolvía 403 al cliente EN LA MISMA
+  // ruta que el propio error le decía que usara para solucionarlo -- un
+  // candado sin salida. resolveTenantMiddleware sigue corriendo antes que
+  // esto, así que /pricing/upgrade igual recibe req.tenant real.
+  if (req.path.includes("/pricing")) {
+    return next();
+  }
+
   const tenant = (req as any).tenant;
   if (!tenant) {
     logger.warn({ path: req.path }, `[validateSaaS] No tenant found`);
@@ -604,12 +616,18 @@ const validateLimitsMiddleware = (req: Request, res: Response, next: NextFunctio
   if (isPublicRoute(req.path)) {
     return next();
   }
-  
+
   // Rutas de autenticación deben pasar sin validación de límites
   if (req.path.includes("/auth") || req.path.includes("/login") || req.path.includes("/register")) {
     return next();
   }
-  
+
+  // Mismo motivo que en validateSaasMiddleware: pagar/actualizar el plan no
+  // puede quedar bloqueado por haber superado los límites del plan actual.
+  if (req.path.includes("/pricing")) {
+    return next();
+  }
+
   validateUsageLimits()(req, res, next);
 };
 
