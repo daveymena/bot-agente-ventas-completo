@@ -152,9 +152,24 @@ export class WhatsAppByTenant extends WhatsAppManager {
                   void this.start();
                 }, delay);
               } else {
+                // No dar la sesión por perdida: esto NO fue un logout, las
+                // credenciales en disco siguen siendo válidas. Antes, al
+                // agotar los reintentos rápidos, el manager se rendía para
+                // siempre -- el panel quedaba mostrando "Desconectado" de
+                // forma permanente aunque el teléfono siguiera vinculado,
+                // sin ningún proceso que lo reintentara solo (requería
+                // intervención manual desde el panel). Ahora se reporta el
+                // estado real (disconnected) pero se sigue reintentando cada
+                // 2 min indefinidamente -- ritmo lento a propósito para no
+                // martillar la conexión, pero sin rendirse.
                 this.state = "disconnected";
-                this.lastError = "Máximo número de reconexiones alcanzado";
+                this.lastError = "Reconexión pausada tras varios intentos fallidos; reintentando cada 2 min";
                 this.reconnectAttempts = 0;
+                const RECONNECT_COOLDOWN_MS = 2 * 60 * 1000;
+                this.reconnectTimer = setTimeout(() => {
+                  this.reconnectTimer = null;
+                  void this.start();
+                }, RECONNECT_COOLDOWN_MS);
               }
             }
             this.sock = null;
