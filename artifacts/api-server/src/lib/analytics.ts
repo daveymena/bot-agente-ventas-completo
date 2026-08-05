@@ -2,7 +2,7 @@ import { eq, and, gte, lte, desc, asc, sql, count, inArray } from "drizzle-orm";
 import { db, conversations, messages, leads, products, activityEvents, payments } from "@workspace/db";
 import { logger } from "./logger";
 import { tenantManager, type TenantContext } from "./tenantManager";
-import { whatsapp } from "./whatsapp";
+import { getWhatsAppForTenant } from "./whatsapp-factory";
 
 const AI_PROVIDERS_CONFIGURED = (process.env.AI_FALLBACK_ORDER || "groq,opencode_zen,opencode,github")
   .split(",")
@@ -332,7 +332,11 @@ export class AnalyticsEngine {
       // No real uptime/error-rate monitoring infrastructure exists yet (no persisted
       // connection-state history, no error event log). Report the one real signal we
       // do have -- current WhatsApp connection state -- instead of a fabricated series.
-      const systemUptime = whatsapp.isConnected() ? 100 : 0;
+      // Antes usaba el singleton "./whatsapp" (una instancia standalone que
+      // nunca se inicia), así que este número era SIEMPRE 0 sin importar el
+      // estado real del negocio -- getWhatsAppForTenant(this.tenant.id) es la
+      // instancia real que efectivamente conecta.
+      const systemUptime = getWhatsAppForTenant(this.tenant.id).isConnected() ? 100 : 0;
       const errorRate = 0; // not tracked -- no error event log exists to compute this from
 
       return {
@@ -622,7 +626,9 @@ export class AnalyticsEngine {
       });
 
       // Real WhatsApp health: actual connection state + real message counts (24h).
-      const waConnected = whatsapp.isConnected();
+      // Mismo fix que arriba: usar la instancia real del tenant, no el
+      // singleton standalone que nunca conecta.
+      const waConnected = getWhatsAppForTenant(this.tenant.id).isConnected();
       const [sentCount] = await db
         .select({ count: sql<number>`count(*)` })
         .from(messages)

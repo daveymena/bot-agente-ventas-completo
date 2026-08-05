@@ -555,9 +555,10 @@ router.get("/strategist/strategy/:productId", async (req, res, next) => {
   } catch (e) { return next(e); }
 });
 
-router.get("/channels/status", async (_req, res, next) => {
+router.get("/channels/status", async (req, res, next) => {
   try {
-    const status = await channelManager.getStatus();
+    const tenantId = (req as any).tenant?.id || 1;
+    const status = await channelManager.getStatus(tenantId);
     return res.json({ channels: status });
   } catch (e) { return next(e); }
 });

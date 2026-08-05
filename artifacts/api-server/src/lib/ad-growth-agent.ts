@@ -15,7 +15,7 @@
 import { db, adAgentLogs, tenants } from "@workspace/db";
 import { eq, and, desc } from "drizzle-orm";
 import { logger } from "./logger";
-import { whatsapp } from "./whatsapp";
+import { getWhatsAppForTenant } from "./whatsapp-factory";
 import { isApproval, isRejection } from "./architect-store";
 import { FacebookService } from "./facebook";
 import { tenantManager, type TenantContext } from "./tenantManager";
@@ -120,13 +120,18 @@ async function logSuggestion(entry: {
   return row;
 }
 
-async function notifyAdmin(logId: number, campaignName: string, action: string, reason: string) {
+async function notifyAdmin(tenantId: number, logId: number, campaignName: string, action: string, reason: string) {
   const phone = await getAdminPhone();
   if (!phone) {
     logger.warn("[AdGrowthAgent] ADMIN_PHONE no configurado, no se puede notificar la sugerencia");
     return;
   }
-  if (!whatsapp.isConnected()) {
+  // Antes usaba el singleton "./whatsapp" (instancia standalone que nunca se
+  // inicia) -- isConnected() daba SIEMPRE false, así que ninguna sugerencia
+  // del agente de anuncios llegaba nunca por WhatsApp, solo quedaba
+  // registrada en la BD. getWhatsAppForTenant(tenantId) es la instancia real.
+  const wa = getWhatsAppForTenant(tenantId);
+  if (!wa.isConnected()) {
     logger.warn("[AdGrowthAgent] WhatsApp no conectado, sugerencia solo quedó registrada");
     return;
   }
@@ -142,7 +147,7 @@ async function notifyAdmin(logId: number, campaignName: string, action: string, 
     `${reason}\n\n` +
     `Responde *sí ${logId}* para aplicarlo o *no ${logId}* para descartarlo.`;
   try {
-    await whatsapp.sendText(phone, text);
+    await wa.sendText(phone, text);
   } catch (err) {
     logger.warn({ err }, "[AdGrowthAgent] Error enviando sugerencia por WhatsApp");
   }
@@ -217,7 +222,8 @@ export async function runDailyBudgetGuard(): Promise<void> {
 /** Aviso de algo YA EJECUTADO -- no pide confirmación, informa. */
 async function notifyAdminExecuted(tenant: TenantContext, logId: number, reason: string, pausadas: string[]) {
   const phone = await getAdminPhone();
-  if (!phone || !whatsapp.isConnected()) return;
+  const wa = getWhatsAppForTenant(tenant.id);
+  if (!phone || !wa.isConnected()) return;
   const lista = pausadas.length ? `\n\n⏸️ Pausadas:\n${pausadas.map((n) => `· ${n}`).join("\n")}` : "";
   const text =
     `🛑 *Freno de gasto* — registro #${logId}\n` +
@@ -225,7 +231,7 @@ async function notifyAdminExecuted(tenant: TenantContext, logId: number, reason:
     `${reason}${lista}\n\n` +
     `Ya está aplicado, no hace falta que respondas. Para reactivarlas, hacelo desde Ads Manager cuando quieras.`;
   try {
-    await whatsapp.sendText(phone, text);
+    await wa.sendText(phone, text);
   } catch (err) {
     logger.warn({ err }, "[AdGrowthAgent] Error avisando del freno de gasto");
   }
@@ -279,7 +285,7 @@ async function spendProtectionForTenant(tenant: TenantContext): Promise<void> {
         reason,
         metricsSnapshot: insights,
       });
-      await notifyAdmin(log.id, campaign.name, "pause", reason);
+      await notifyAdmin(tenant.id, log.id, campaign.name, "pause", reason);
     }
   }
 }
@@ -327,7 +333,7 @@ async function trendReviewForTenant(tenant: TenantContext): Promise<void> {
         checkType: "trend_review", suggestedAction: "increase_budget", reason,
         metricsSnapshot: { recent, previous, ratio },
       });
-      await notifyAdmin(log.id, campaign.name, "increase_budget", reason);
+      await notifyAdmin(tenant.id, log.id, campaign.name, "increase_budget", reason);
     } else if (ratio >= TREND_SCALE_DOWN_MIN_COST_RATIO) {
       const memoryNote = await recentRejectionNote(tenant.id, campaign.name, "decrease_budget");
       const reason = `Los últimos 3 días el costo por resultado subió a ${fmtCOP(recent.costPerResult)} (antes ${fmtCOP(previous.costPerResult)} en la semana) -- tendencia consistente negativa. Se sugiere pausarla o bajar el presupuesto 30% para no seguir perdiendo eficiencia.${memoryNote}`;
@@ -336,7 +342,7 @@ async function trendReviewForTenant(tenant: TenantContext): Promise<void> {
         checkType: "trend_review", suggestedAction: "decrease_budget", reason,
         metricsSnapshot: { recent, previous, ratio },
       });
-      await notifyAdmin(log.id, campaign.name, "decrease_budget", reason);
+      await notifyAdmin(tenant.id, log.id, campaign.name, "decrease_budget", reason);
     }
   }
 }
@@ -396,9 +402,14 @@ export async function handleAdminReply(phone: string, text: string): Promise<boo
   }
   if (!log || log.status !== "suggested") return false;
 
+  // La instancia correcta es la del negocio dueño de esta sugerencia
+  // (log.tenantId), no un singleton global -- mismo criterio que ya usa
+  // applySuggestion() más abajo para esta misma fila.
+  const wa = getWhatsAppForTenant(log.tenantId ?? undefined);
+
   if (rejected) {
     await db.update(adAgentLogs).set({ status: "rejected", respondedAt: new Date() }).where(eq(adAgentLogs.id, log.id));
-    await whatsapp.sendText(phone, `Descartado — no se hizo ningún cambio en "${log.productName}".`);
+    await wa.sendText(phone, `Descartado — no se hizo ningún cambio en "${log.productName}".`);
     if (log.tenantId) {
       const impressions = (log.metricsSnapshot as any)?.impressions ?? (log.metricsSnapshot as any)?.recent?.impressions ?? 0;
       await architectMemoryService.recordLearning(
@@ -418,7 +429,7 @@ export async function handleAdminReply(phone: string, text: string): Promise<boo
     status: result.ok ? "approved" : "rejected",
     respondedAt: new Date(),
   }).where(eq(adAgentLogs.id, log.id));
-  await whatsapp.sendText(phone, result.ok ? `✅ ${result.message}` : `⚠️ ${result.message}`);
+  await wa.sendText(phone, result.ok ? `✅ ${result.message}` : `⚠️ ${result.message}`);
   if (log.tenantId) {
     const impressions = (log.metricsSnapshot as any)?.impressions ?? (log.metricsSnapshot as any)?.recent?.impressions ?? 0;
     await architectMemoryService.recordLearning(

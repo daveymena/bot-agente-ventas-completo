@@ -1080,9 +1080,18 @@ export const TOOLS: ToolDef[] = [
     name: "whatsapp_status",
     description: "Ver el estado de la conexión de WhatsApp: conectado o no, número vinculado, último error. Úsalo para diagnosticar por qué el bot no está respondiendo.",
     args: "{}",
-    run: async () => {
-      const { whatsapp } = await import("./whatsapp");
-      const s = whatsapp.getStatus();
+    run: async (_args, ctx) => {
+      // Antes importaba `whatsapp` de "./whatsapp" -- una instancia standalone
+      // de WhatsAppManager que NUNCA se inicia (el bot real corre por tenant
+      // vía whatsapp-factory.ts). Esa instancia siempre reporta su estado
+      // inicial ("no conectado"), sin importar que el WhatsApp del negocio SÍ
+      // esté conectado -- el Arquitecto decía "no tengo WhatsApp conectado"
+      // de forma permanente, sin relación con la realidad. getWhatsAppForTenant
+      // con el tenant real de esta conversación (no el proxy de compatibilidad
+      // en whatsapp-singleton.ts, que cae al tenant por defecto) es la fuente
+      // correcta -- mismo patrón que ya se aplicó en routes/dashboard.ts.
+      const { getWhatsAppForTenant } = await import("./whatsapp-factory");
+      const s = getWhatsAppForTenant(ctx.tenantId).getStatus();
       return {
         ok: true,
         summary: s?.state === "connected"

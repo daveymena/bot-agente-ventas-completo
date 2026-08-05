@@ -2,7 +2,7 @@ import { eq, and, lte, asc } from "drizzle-orm";
 import { db, conversations, messages, activityEvents, followUps, type FollowUp, type InsertFollowUp } from "@workspace/db";
 import { logger } from "./logger";
 import { leadScoringEngine, type LeadStage } from "./leadScoring";
-import { whatsapp } from "./whatsapp";
+import { getWhatsAppForTenant } from "./whatsapp-factory";
 import { toDbDate } from "./date-utils";
 import { facebookMessengerService } from "./facebook-messenger";
 
@@ -123,11 +123,21 @@ export class FollowUpScheduler {
           return;
         }
       } else {
-        if (!whatsapp.isConnected()) {
+        // Antes usaba el singleton "./whatsapp" (instancia standalone que
+        // nunca se inicia) -- isConnected() daba SIEMPRE false, así que
+        // NINGÚN follow-up por WhatsApp se enviaba jamás, sin ningún error
+        // visible (solo el warning de "not connected" en el log).
+        // followUps no tiene columna tenantId propia (ver comentario en
+        // getDueFollowUpsFromDB), así que se usa el tenant por defecto --
+        // correcto para un negocio de un solo tenant; si en el futuro hay
+        // varios negocios activos con follow-ups propios, esto necesita
+        // resolver el tenant real via conversations.tenantId.
+        const wa = getWhatsAppForTenant();
+        if (!wa.isConnected()) {
           logger.warn({ followUpId: followUp.id }, "[FollowUpScheduler] WhatsApp not connected");
           return;
         }
-        await whatsapp.sendText(followUp.contactPhone, followUp.message);
+        await wa.sendText(followUp.contactPhone, followUp.message);
       }
 
       await db.update(followUps)
