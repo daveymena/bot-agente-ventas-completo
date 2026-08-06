@@ -741,9 +741,28 @@ app.get("/p/:productId", async (req, res, next) => {
   }
 });
 
-// SPA fallback para la tienda pública en /tienda/*
+// SPA fallback para la tienda pública en /tienda/* y sus dos rutas de
+// administración propias, que su router (packages/tienda) define SIN el
+// prefijo /tienda -- BrowserRouter ahí no tiene basename, así que /editor y
+// /admin están pensadas para pegarle directo a la raíz del dominio (ej.
+// ventasproia.com/editor), no a ventasproia.com/tienda/editor.
+//
+// Antes esta condición SOLO reconocía /tienda/*, así que /editor y /admin
+// caían al fallback general de más abajo, que sirve el index.html de
+// ventas-pro (la app de administración) -- un SPA completamente distinto
+// que no tiene ninguna ruta "/editor" en SU router, así que no renderizaba
+// nada: la página quedaba en blanco, sin ningún error visible.
+//
+// EXACTO, no por prefijo: ventas-pro SÍ tiene rutas reales bajo /admin/*
+// (/admin/store, /admin/tenants) -- matchear por prefijo redirigiría esas
+// páginas reales al SPA equivocado. La tienda solo navega a "/admin" a
+// secas (nunca a una subruta), así que el match exacto no le falta nada.
+const TIENDA_OWN_ROUTES = new Set(["/editor", "/admin"]);
 app.use((req, res, next) => {
-  const isPublicStorePath = req.path === "/tienda" || req.path.startsWith("/tienda/");
+  const isPublicStorePath =
+    req.path === "/tienda" ||
+    req.path.startsWith("/tienda/") ||
+    TIENDA_OWN_ROUTES.has(req.path);
   if (isPublicStorePath && tiendaPath) {
     const indexPath = path.join(tiendaPath, "index.html");
     if (existsSync(indexPath)) {
