@@ -14,6 +14,7 @@ import {
 import { getG4FResponse } from "../lib/providers/g4f-provider";
 import { G4F_ENABLED } from "../config/g4f.config";
 import { OPERATOR_SYSTEM_PROMPT, buildToolsDoc, executeAction, isReadOnlyTool, isKnownTool, verifyMutation } from "../lib/app-operator";
+import { leerBusinessConfig } from "../lib/ai-keys";
 import {
   loadArchitectHistory, saveArchitectTurn, getPendingPlan, setPendingPlan,
   clearPendingPlan, clearArchitectHistory, isApproval, isRejection,
@@ -33,6 +34,29 @@ function isAnnouncement(text: string): boolean {
   // Un anuncio suele ser corto y termina prometiendo el siguiente paso.
   if (t.length > 1200) return false;
   return /\b(ahora\s+(voy|procedo|investig|busc|revis|continú)|voy\s+a\s+(investigar|buscar|revisar|crear|consultar|analizar|completar|seguir)|proceder[ée]|procedo\s+a|d[ée]jame\s+(investigar|buscar|revisar|consultar)|perm[ií]teme\s+(investigar|buscar|revisar)|en\s+seguida|a\s+continuaci[óo]n\s+(voy|investig|busc)|siguiente\s+paso\s*:|estoy\s+(investigando|buscando|revisando|recopilando)|seguir[ée]\s+(investigando|buscando)|luego\s+(crear[ée]|investigar[ée]))/i.test(t);
+}
+
+/**
+ * Primer proveedor de IA que el admin haya guardado a propósito en
+ * Configuración → Modelos de pago (catálogo de 23 proveedores en
+ * ai-catalog.ts, con prueba de conexión real vía /api/ai/test).
+ *
+ * Antes esto no se leía en ningún endpoint de IA del operador/arquitecto: el
+ * admin podía elegir "OpenAI" o "Anthropic" con su propia clave, ver
+ * "✅ funciona" en el botón Probar conexión, y el sistema seguía usando en
+ * silencio el fallback fijo (opencode/groq/nvidia/github) sin tocar jamás lo
+ * que el admin configuró explícitamente -- la elección quedaba guardada en la
+ * base pero era letra muerta para cualquier respuesta real. Se prueba
+ * PRIMERO, antes que cualquier fallback genérico: es una decisión explícita
+ * y más reciente que cualquier default del sistema.
+ */
+function proveedorGuardadoPrioritario(businessConfig: unknown): AIProviderConfig | null {
+  const guardados = leerBusinessConfig(businessConfig).aiProviders || {};
+  for (const proveedor of Object.keys(guardados)) {
+    const cfg = getProviderConfig(proveedor);
+    if (cfg) return cfg;
+  }
+  return null;
 }
 
 /** Empujón para que complete el trabajo en el mismo turno, sin anunciarlo. */
@@ -190,10 +214,11 @@ router.post("/architect", async (req: TenantRequest, res, next) => {
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
     // Obtener configuración de IA
-    let aiConfig = getProviderConfigFromSettings(dbSettings || {}) 
+    let aiConfig = proveedorGuardadoPrioritario((dbSettings as any)?.businessConfig)
+      || getProviderConfigFromSettings(dbSettings || {})
       || getProviderConfig("opencode")
       || getProviderConfig("groq")
-      || getProviderConfig("nvidia") 
+      || getProviderConfig("nvidia")
       || getProviderConfig("github");
 
     if (!aiConfig) {
@@ -634,7 +659,8 @@ router.post("/visual-architect", async (req: TenantRequest, res, next) => {
     const { prompt, history = [] } = req.body;
 
     const [dbSettings] = await db.select().from(settings).limit(1);
-    let aiConfig = getProviderConfigFromSettings(dbSettings || {})
+    let aiConfig = proveedorGuardadoPrioritario((dbSettings as any)?.businessConfig)
+      || getProviderConfigFromSettings(dbSettings || {})
       || getProviderConfig("opencode")
       || getProviderConfig("groq")
       || getProviderConfig("nvidia")
@@ -1085,6 +1111,19 @@ router.post("/operator", async (req: TenantRequest, res, next) => {
       seenP.add(key);
       candidates.push({ name, config: cfg });
     };
+    // Proveedores que el admin eligió y guardó a propósito en Configuración →
+    // Modelos de pago (pantalla ai-catalog.ts/AIProviders.tsx, catálogo de 23
+    // proveedores con prueba de conexión real). Antes esta lista NUNCA se
+    // leía acá: el admin podía elegir "OpenAI" con su propia clave, probar
+    // la conexión con éxito en esa pantalla, y el Arquitecto igual seguía
+    // usando en silencio la lista fija de abajo (opencode/groq/github/...) sin
+    // tocar jamás lo que el admin configuró -- la elección quedaba guardada
+    // pero era letra muerta. Van primero: fue una decisión explícita del
+    // admin, más reciente y más específica que cualquier fallback genérico.
+    const catalogoGuardado = leerBusinessConfig((dbSettings as any)?.businessConfig).aiProviders || {};
+    for (const proveedor of Object.keys(catalogoGuardado)) {
+      pushCfg(proveedor, getProviderConfig(proveedor));
+    }
     if (dbSettings?.aiProvider) pushCfg(dbSettings.aiProvider, getProviderConfigFromSettings(dbSettings));
     // El operador EJECUTA acciones reales (BD, Facebook) a partir de un JSON
     // estricto — a diferencia del bot de ventas (alto volumen, tolera un
