@@ -78,7 +78,14 @@ router.get("/catalog", async (req: TenantRequest, res, next) => {
         ...p,
         // Nunca se devuelve la clave, solo si existe y de dónde sale.
         tieneClave: enEntorno || !!guardada?.apiKey,
-        origenClave: enEntorno ? "entorno" : guardada?.apiKey ? "guardada" : null,
+        // "guardada" tiene prioridad en el chequeo: cargarClavesEnEntorno()
+        // vuelca la clave guardada AL entorno del proceso, así que para el
+        // momento en que esto se lee, process.env[envKey] también es true
+        // cuando la fuente real fue la base -- sin este orden, el admin vería
+        // "entorno" (como si fuera la clave de fábrica del servidor) incluso
+        // después de guardar la suya propia, que es justamente la que se está
+        // usando de verdad.
+        origenClave: guardada?.apiKey ? "guardada" : enEntorno ? "entorno" : null,
         modeloElegido: guardada?.model || null,
         modelos: (porProveedor.get(p.id) || []).map((m) => ({
           id: m.modelo,

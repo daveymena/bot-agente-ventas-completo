@@ -143,8 +143,18 @@ export async function cargarClavesEnEntorno(): Promise<number> {
       const envKey = ENV_POR_PROVEEDOR[proveedor];
       if (envKey && datos?.apiKey) {
         const plana = descifrar(datos.apiKey);
-        // El entorno manda: si el .env ya trae la clave, no se pisa.
-        if (plana && !process.env[envKey]) {
+        // La clave guardada desde Configuración GANA sobre la del .env, no al
+        // revés. Antes era "si el .env ya trae la clave, no se pisa": para
+        // opencode/groq/github -- los únicos tres proveedores que además
+        // vienen con clave puesta de fábrica en el .env de este deploy -- eso
+        // hacía que la pantalla de "Modelos de pago" guardara la clave nueva
+        // en la base (cifrada, con éxito aparente) pero NUNCA se usara en
+        // ningún lado: ni el Arquitecto, ni el botón "Probar conexión" (que
+        // también resuelve vía getProviderConfig(), o sea vía process.env).
+        // settings es una fila única de este deploy, no algo compartido entre
+        // negocios -- no hay ninguna razón real para que el admin no pueda
+        // reemplazar la clave que trae el servidor por una propia.
+        if (plana) {
           process.env[envKey] = plana;
           aplicadas++;
         }
