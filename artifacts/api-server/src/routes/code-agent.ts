@@ -1354,7 +1354,11 @@ router.post("/operator", async (req: TenantRequest, res, next) => {
     // recibido nunca una respuesta real del servidor. Con esto, si se supera
     // el límite entre pasos, se corta acá con una respuesta real (parcial
     // pero real) en vez de dejar que algo externo la corte primero.
-    const requestDeadline = Date.now() + 100_000;
+    // 220s: deja lugar de sobra a UN llamado a deep_research (hasta 180s,
+    // corre en un contenedor externo aparte, no cuenta contra la RAM/CPU de
+    // este proceso) más el paso final donde el modelo redacta la respuesta
+    // con esos resultados.
+    const requestDeadline = Date.now() + 220_000;
     let timedOut = false;
     // hasRecentResearch() (ver app-operator.ts) solo bloquea la herramienta
     // fb_ad_draft -- protege que se GUARDE un borrador sin investigar, pero
@@ -1459,7 +1463,7 @@ router.post("/operator", async (req: TenantRequest, res, next) => {
           }
           const r = await executeAction(a.tool, a.args || {}, ctx);
           results.push({ tool: a.tool, ok: r.ok, summary: r.summary, data: r.data });
-          if (a.tool === "web_search") usedWebSearchThisTurn = true;
+          if (a.tool === "web_search" || a.tool === "deep_research") usedWebSearchThisTurn = true;
         }
 
         if (loopSignature) {

@@ -75,6 +75,80 @@ async function hasRecentResearch(ctx: OperatorContext): Promise<boolean> {
   }
 }
 
+/**
+ * Agentes de investigación externos (instancias standalone de `opencode
+ * serve`, cada una en su propio contenedor EasyPanel con CPU/RAM dedicados
+ * -- proyecto `opencode1`: oc-zen, oc-groq, oc-router).
+ *
+ * Por qué existen: una investigación real (varias búsquedas web encadenadas
+ * + razonamiento multi-paso) hecha DENTRO del propio proceso de
+ * bot-agenwhatsapp llegó a tumbar el contenedor entero -- EasyPanel
+ * devolvía su propia página "Service is not reachable", no un error de la
+ * app, señal de agotar la RAM/CPU compartida del host. Estas tres
+ * instancias tienen su propio contenedor con recursos reservados (1
+ * CPU/1GB cada una), así que el trabajo pesado corre ahí, no acá: lo único
+ * que hace este proceso es esperar una respuesta HTTP, que es barato.
+ *
+ * Confirmado en vivo (2026-08-06): las tres responden con modelos
+ * gratuitos (sin necesitar la cuenta de pago OpenCode Go) y con
+ * herramienta `websearch` real -- probado con una investigación de 3
+ * búsquedas encadenadas que devolvió datos y URLs reales, sin fabricar
+ * nada.
+ */
+const EXTERNAL_RESEARCH_AGENTS: { url: string; providerID: string; modelID: string }[] = [
+  { url: "https://oc-zen.2xs2bu.easypanel.host", providerID: "opencode", modelID: "nemotron-3-ultra-free" },
+  { url: "https://oc-groq.2xs2bu.easypanel.host", providerID: "groq", modelID: "llama-3.3-70b-versatile" },
+  { url: "https://oc-router.2xs2bu.easypanel.host", providerID: "openrouter", modelID: "google/gemma-4-26b-a4b-it:free" },
+];
+
+/**
+ * Delegar una investigación completa a uno de los agentes externos.
+ * Prueba las 3 instancias en orden (refuerzo: si una falla o está sin
+ * cuota, sigue con la próxima) y devuelve el texto final de la respuesta.
+ */
+async function askExternalResearchAgent(prompt: string): Promise<{ agent: string; text: string } | null> {
+  for (const agent of EXTERNAL_RESEARCH_AGENTS) {
+    try {
+      const sessionRes = await fetch(`${agent.url}/session`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "{}",
+        signal: AbortSignal.timeout(15000),
+      });
+      if (!sessionRes.ok) continue;
+      const session: any = await sessionRes.json();
+      if (!session?.id) continue;
+
+      // El loop interno (varias búsquedas + razonamiento) corre en SU
+      // contenedor, no en este -- 180s es generoso pero no cuesta nada acá.
+      const msgRes = await fetch(`${agent.url}/session/${session.id}/message`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          agent: "general",
+          model: { providerID: agent.providerID, modelID: agent.modelID },
+          parts: [{ type: "text", text: prompt }],
+        }),
+        signal: AbortSignal.timeout(180000),
+      });
+      if (!msgRes.ok) continue;
+      const msg: any = await msgRes.json();
+      if (msg?.error) {
+        logger.warn({ agent: agent.url, error: msg.error }, "[AppOperator] Agente externo devolvió error, rotando");
+        continue;
+      }
+      const parts: any[] = Array.isArray(msg?.parts) ? msg.parts : [];
+      const textParts = parts.filter((p) => p?.type === "text").map((p) => String(p.text || ""));
+      const text = textParts.join("\n\n").trim();
+      if (!text) continue;
+      return { agent: agent.providerID, text };
+    } catch (e: any) {
+      logger.warn({ agent: agent.url, err: e?.message }, "[AppOperator] Agente externo falló, rotando al siguiente");
+    }
+  }
+  return null;
+}
+
 export interface ToolResult {
   ok: boolean;
   summary: string;
@@ -705,6 +779,36 @@ export const TOOLS: ToolDef[] = [
         };
       } catch (e: any) {
         return { ok: false, summary: `No se pudo buscar: ${e?.message}` };
+      }
+    },
+  },
+
+  {
+    name: "deep_research",
+    description:
+      "Delega una investigación COMPLETA (varias búsquedas + análisis, encadenadas) a un agente externo dedicado, en vez de encadenar varios web_search vos mismo en este turno. Úsala para pedidos de investigación reales antes de armar una campaña/anuncio (tendencias del nicho, qué hace la competencia, qué ángulos funcionan) -- es más lenta que web_search (puede tardar 1-2 minutos) pero hace el trabajo pesado en un servidor aparte y devuelve un resumen ya elaborado con fuentes citadas, no resultados crudos para que vos los proceses.",
+    args: '{ "instruccion": string (req) — qué investigar, en lenguaje natural, ej: "tendencias de anuncios de cursos de piano online, con fuentes" }',
+    run: async (args, ctx) => {
+      const instruccion = String(args.instruccion || "").trim();
+      if (!instruccion) return { ok: false, summary: "Falta 'instruccion' (qué investigar)" };
+      try {
+        const result = await askExternalResearchAgent(
+          `Investigá en internet de verdad (usá tu herramienta de búsqueda web, no respondas de memoria): ${instruccion}. Sé concreto, citá las fuentes/URLs reales que encontraste, no inventes datos.`,
+        );
+        if (!result) {
+          return {
+            ok: false,
+            summary: "Los agentes de investigación externos no respondieron (los 3 fallaron o están sin cuota). Usa web_search como alternativa.",
+          };
+        }
+        await recordResearchEvidence(ctx, instruccion);
+        return {
+          ok: true,
+          summary: `🔎 Investigación completa (vía agente externo ${result.agent})`,
+          data: { instruccion, agente: result.agent, resultado: result.text },
+        };
+      } catch (e: any) {
+        return { ok: false, summary: `No se pudo completar la investigación: ${e?.message}` };
       }
     },
   },
@@ -1641,7 +1745,7 @@ export const READ_ONLY_TOOLS = new Set([
   "predict_customer", "optimize_price", "optimize_copy",
   "analyze_channel_performance", "reason_business_decision",
   // Lectura de web (información externa)
-  "web_fetch", "web_search", "web_scrape_images", "search_product_images",
+  "web_fetch", "web_search", "web_scrape_images", "search_product_images", "deep_research",
   // Dropi de solo lectura: consultar el catálogo del proveedor no crea nada.
   "dropi_status", "dropi_search_products",
 ]);
@@ -1813,7 +1917,7 @@ IMÁGENES — REGLAS DE CALIDAD PARA FACEBOOK ADS:
 FACEBOOK — PUBLICAR (gratis) vs ANUNCIAR (paga), no las confundas:
 - 📢 fb_page_publish: publica en el MURO de la página, orgánico, SIN costo, visible de inmediato. Úsalo cuando el admin diga "publica", "postea" o "sube esto a Facebook". SIEMPRE llama fb_page_preview antes para que el admin vea el texto y la imagen, y fb_page_can_post si hay dudas de permisos.
 - 💰 fb_create_ad: crea una CAMPAÑA PAGA en Ads Manager (se crea en pausa, pero gastará dinero al activarla). Solo úsalo cuando el admin pida explícitamente "anuncio", "campaña" o "pauta" — nunca lo ofrezcas como si fuera gratis.
-- 📝 fb_ad_draft: genera el COPY y la segmentación de un anuncio y lo guarda local, SIN tocar la cuenta de Meta ni gastar nada. Es el paso intermedio seguro: úsalo para preparar campañas que el admin revisará y activará él mismo después, no fb_create_ad, salvo que pida crearla ya en Meta. SIEMPRE pásale hook/angle/researchNote basados en lo que investigaste en ESTE turno (web_search/web_fetch) -- si lo llamas sin eso, el copy sale de una plantilla genérica por categoría, no de lo que realmente encontraste que funciona para ese producto.
+- 📝 fb_ad_draft: genera el COPY y la segmentación de un anuncio y lo guarda local, SIN tocar la cuenta de Meta ni gastar nada. Es el paso intermedio seguro: úsalo para preparar campañas que el admin revisará y activará él mismo después, no fb_create_ad, salvo que pida crearla ya en Meta. SIEMPRE pásale hook/angle/researchNote basados en lo que investigaste en ESTE turno (deep_research/web_search/web_fetch) -- si lo llamas sin eso, el copy sale de una plantilla genérica por categoría, no de lo que realmente encontraste que funciona para ese producto.
 
 MONITOREO (cuando el admin pregunte "cómo va todo", "revisa el negocio", "por qué no responde WhatsApp", etc.):
 - 📱 whatsapp_status: primero que nada si la duda es sobre el bot no respondiendo o la conexión.
@@ -1825,6 +1929,11 @@ MONITOREO (cuando el admin pregunte "cómo va todo", "revisa el negocio", "por q
 INFORMACIÓN DE INTERNET (nunca inventes datos externos):
 - 🔎 Si no conoces la URL exacta, usa web_search PRIMERO. Jamás adivines direcciones.
 - 📖 Luego usa web_fetch en las 2-3 URLs más relevantes para leer el contenido real.
+- 🧠 Para un pedido de INVESTIGACIÓN REAL (tendencias del nicho, qué hace la competencia, qué ángulos
+  funcionan hoy, benchmarks) usa deep_research en vez de encadenar varios web_search vos mismo: delega
+  el trabajo pesado a un agente externo dedicado y te devuelve un resumen ya elaborado con fuentes.
+  Tarda más (podés tardar 1-2 minutos en responder, es normal, esperá el resultado) pero es más
+  confiable para este tipo de pedido que armar la investigación paso a paso vos mismo.
 - 🔁 Si el tema tiene varias partes (ej: "Claude Code, Antigravity, MCP y agentes"), busca y lee
   CADA una en el mismo turno con done:false, hasta cubrirlas todas. No entregues la mitad.
 - 🧾 Cuando presentes la información, di de dónde salió (dominio o título de la fuente).
