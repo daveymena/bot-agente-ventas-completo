@@ -107,20 +107,32 @@ const EXTERNAL_RESEARCH_AGENTS: { url: string; providerID: string; modelID: stri
  * cuota, sigue con la próxima) y devuelve el texto final de la respuesta.
  */
 async function askExternalResearchAgent(prompt: string): Promise<{ agent: string; text: string } | null> {
+  // Presupuesto GLOBAL, no por intento: el proxy delante de bot-agenwhatsapp
+  // corta la respuesta al cliente ~150-160s después de iniciado el turno
+  // completo del operador (confirmado en vivo -- el trabajo terminaba bien
+  // del lado del servidor, pero el cliente recibía un 502 antes de que la
+  // respuesta volviera). Si cada uno de los 3 agentes pudiera gastar su
+  // propio timeout completo, el peor caso (2 fallan antes de que el tercero
+  // responda) superaría ese límite igual. Con un techo global, el segundo/
+  // tercer intento usan lo que quede del presupuesto, no un timeout fijo.
+  const globalDeadline = Date.now() + 100_000;
   for (const agent of EXTERNAL_RESEARCH_AGENTS) {
+    const remaining = globalDeadline - Date.now();
+    if (remaining < 10_000) break; // no alcanza ni para el intento más corto
     try {
       const sessionRes = await fetch(`${agent.url}/session`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: "{}",
-        signal: AbortSignal.timeout(15000),
+        signal: AbortSignal.timeout(Math.min(15000, remaining)),
       });
       if (!sessionRes.ok) continue;
       const session: any = await sessionRes.json();
       if (!session?.id) continue;
 
       // El loop interno (varias búsquedas + razonamiento) corre en SU
-      // contenedor, no en este -- 180s es generoso pero no cuesta nada acá.
+      // contenedor, no en este -- el costo para este proceso es solo
+      // mantener la conexión HTTP abierta.
       const msgRes = await fetch(`${agent.url}/session/${session.id}/message`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -129,7 +141,7 @@ async function askExternalResearchAgent(prompt: string): Promise<{ agent: string
           model: { providerID: agent.providerID, modelID: agent.modelID },
           parts: [{ type: "text", text: prompt }],
         }),
-        signal: AbortSignal.timeout(180000),
+        signal: AbortSignal.timeout(Math.max(5000, globalDeadline - Date.now())),
       });
       if (!msgRes.ok) continue;
       const msg: any = await msgRes.json();

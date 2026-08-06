@@ -1354,11 +1354,15 @@ router.post("/operator", async (req: TenantRequest, res, next) => {
     // recibido nunca una respuesta real del servidor. Con esto, si se supera
     // el límite entre pasos, se corta acá con una respuesta real (parcial
     // pero real) en vez de dejar que algo externo la corte primero.
-    // 220s: deja lugar de sobra a UN llamado a deep_research (hasta 180s,
-    // corre en un contenedor externo aparte, no cuenta contra la RAM/CPU de
-    // este proceso) más el paso final donde el modelo redacta la respuesta
-    // con esos resultados.
-    const requestDeadline = Date.now() + 220_000;
+    // 130s: probado en vivo que el proxy/reverse-proxy delante de
+    // bot-agenwhatsapp corta la respuesta al cliente en algún punto entre
+    // ~150-160s del turno completo (confirmado: el trabajo se completaba
+    // bien del lado del servidor -- research_evidence quedaba guardado --
+    // pero el cliente recibía un 502 antes de que la respuesta volviera).
+    // Este límite tiene que quedar claramente por debajo de ese corte para
+    // que el aviso de "tardando más de lo esperado" (más abajo) llegue a
+    // tiempo, en vez de que el proxy gane la carrera primero.
+    const requestDeadline = Date.now() + 130_000;
     let timedOut = false;
     // hasRecentResearch() (ver app-operator.ts) solo bloquea la herramienta
     // fb_ad_draft -- protege que se GUARDE un borrador sin investigar, pero
