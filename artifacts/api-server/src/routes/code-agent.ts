@@ -1317,6 +1317,27 @@ router.post("/operator", async (req: TenantRequest, res, next) => {
     // pero real) en vez de dejar que algo externo la corte primero.
     const requestDeadline = Date.now() + 100_000;
     let timedOut = false;
+    // hasRecentResearch() (ver app-operator.ts) solo bloquea la herramienta
+    // fb_ad_draft -- protege que se GUARDE un borrador sin investigar, pero
+    // no protege la respuesta de TEXTO. Si el admin solo pide "mostrame el
+    // borrador" (sin querer guardarlo todavía), el modelo nunca toca esa
+    // herramienta, así que ese gate nunca se dispara -- y un modelo débil
+    // (típicamente uno de los proveedores gratuitos del fallback) puede
+    // directamente inventar copy de marketing completo en su "reply",
+    // presentándolo como si viniera de una "investigación previa" real que
+    // nunca hizo. Confirmado en vivo: un pedido de investigar cursos de
+    // piano devolvió "+10.000 alumnos", un precio "antes $120.000" que no
+    // existe, y una URL de imagen inventada, sin haber llamado web_search
+    // ni ninguna otra herramienta en todo el turno. Esto viola directamente
+    // el principio central del proyecto (nunca fabricar datos/métricas) --
+    // ver PRINCIPIOS OBLIGATORIOS #4 en OPERATOR_SYSTEM_PROMPT, que hasta
+    // ahora dependía 100% de que el modelo lo respetara solo, sin ningún
+    // control real del servidor.
+    let usedWebSearchThisTurn = false;
+    const FABRICATED_RESEARCH_CLAIM =
+      /investigaci[oó]n\s+(previa|realizada|real)|seg[uú]n\s+mi\s+investigaci[oó]n|basado\s+en\s+mi\s+conocimiento/i;
+    const AD_COPY_SHAPE =
+      /gancho\s*\(hook\)|texto\s+principal|primary\s+text|t[ií]tulo\s*\(headline\)|borrador\s+del\s+anuncio/i;
 
     for (let step = 0; step < MAX_STEPS; step++) {
       if (Date.now() > requestDeadline) {
@@ -1399,6 +1420,7 @@ router.post("/operator", async (req: TenantRequest, res, next) => {
           }
           const r = await executeAction(a.tool, a.args || {}, ctx);
           results.push({ tool: a.tool, ok: r.ok, summary: r.summary, data: r.data });
+          if (a.tool === "web_search") usedWebSearchThisTurn = true;
         }
 
         if (loopSignature) {
@@ -1429,6 +1451,25 @@ router.post("/operator", async (req: TenantRequest, res, next) => {
       if (isAnnouncement(finalReply) && step < MAX_STEPS - 1) {
         messages.push({ role: "assistant", content });
         messages.push({ role: "user", content: CONTINUE_NUDGE });
+        continue;
+      }
+      // Copy de marketing con forma de "investigación previa" pero sin haber
+      // llamado web_search en NINGÚN paso de este turno -- fabricación
+      // disfrazada de research real (ver comentario arriba, en la
+      // declaración de estos regex). Se rechaza y se obliga a investigar de
+      // verdad antes de responder, en vez de dejar pasar el texto inventado.
+      if (
+        !usedWebSearchThisTurn &&
+        FABRICATED_RESEARCH_CLAIM.test(finalReply) &&
+        AD_COPY_SHAPE.test(finalReply) &&
+        step < MAX_STEPS - 1
+      ) {
+        messages.push({ role: "assistant", content });
+        messages.push({
+          role: "user",
+          content:
+            'Tu respuesta anterior presenta copy de anuncio como si viniera de una "investigación previa", pero no llamaste a web_search en ningún momento de este turno -- eso es fabricar datos, algo que este sistema no puede permitir. Descartá esa respuesta. Llamá a web_search de verdad con una consulta real sobre el nicho ANTES de escribir cualquier copy, y basá el hook/ángulo en lo que encuentres. Si preferís no investigar ahora, decilo explícitamente en vez de inventar hallazgos.',
+        });
         continue;
       }
       resolved = true;
