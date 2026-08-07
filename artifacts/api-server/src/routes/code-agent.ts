@@ -1155,7 +1155,19 @@ router.post("/operator", async (req: TenantRequest, res, next) => {
       // The reverse proxy has a finite request timeout. A long serial fallback
       // chain used to outlive it and surface as a generic 502 even though the
       // app was healthy. Give the operator a bounded, predictable window.
-      const deadline = Date.now() + 45_000;
+      //
+      // 45s (con 10s por candidato) resultó insuficiente para prompts pesados
+      // (system prompt + doc de herramientas grande, varios candidatos en la
+      // rotación): confirmado en vivo que "Todos los proveedores de IA
+      // fallaron" (este mismo 502, más abajo) se disparaba de forma
+      // reproducible ~50-55s después de iniciado el turno para un pedido de
+      // varias partes ("qué errores tenemos en los productos, qué
+      // información debe ir, qué formato") mientras una versión más corta
+      // del mismo pedido sí respondía bien en ~26s. 70s/15s le da a cada
+      // candidato (incluidos los modelos gratis más lentos bajo carga) más
+      // margen real antes de agotar la rotación completa, sin acercarse al
+      // requestDeadline de 130s del turno completo (ver más abajo).
+      const deadline = Date.now() + 70_000;
       for (const cand of candidates) {
         const remaining = deadline - Date.now();
         if (remaining <= 0) break;
@@ -1179,7 +1191,7 @@ router.post("/operator", async (req: TenantRequest, res, next) => {
               temperature: 0.2,
               response_format: { type: "json_object" },
             },
-            { timeout: Math.min(10_000, remaining), maxRetries: 0 },
+            { timeout: Math.min(15_000, remaining), maxRetries: 0 },
           );
           const c = resp.choices[0]?.message?.content;
           if (c) {
