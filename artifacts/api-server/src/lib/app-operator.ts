@@ -15,7 +15,7 @@
  * hasta que el modelo marca done:true (o se alcanza el límite de pasos).
  */
 
-import { db, products, productCategories, agents, settings, stores, conversations, leads, architectMemory } from "@workspace/db";
+import { db, products, productCategories, agents, settings, stores, tenants, conversations, leads, architectMemory } from "@workspace/db";
 import { eq, desc, and, gte, sql, ilike } from "drizzle-orm";
 import { logger } from "./logger";
 import { tenantManager } from "./tenantManager";
@@ -464,13 +464,22 @@ export const TOOLS: ToolDef[] = [
       const ags = await db.select().from(agents).where(eq(agents.tenantId, ctx.tenantId));
       const [st] = await db.select().from(settings).limit(1);
       const stors = await db.select().from(stores).where(eq(stores.tenantId, ctx.tenantId));
+      // La tienda pública real (GET /api/public/products/:slug, la que usa
+      // PublicLayout.tsx) se resuelve por tenants.slug, no por una fila en
+      // `stores` -- tenants viejos (como el 1) nunca recibieron esa fila y
+      // antes esto decía "0 tiendas, aún no creada" aunque la tienda pública
+      // ya estuviera viva y vendiendo. stors.length sigue siendo real (fila
+      // de personalización curada), pero "hay tienda pública" se decide con
+      // el slug, que es lo que de verdad determina si /tienda/<slug> responde.
+      const [tenantRow] = await db.select({ slug: tenants.slug }).from(tenants).where(eq(tenants.id, ctx.tenantId)).limit(1);
+      const publicStoreUrl = tenantRow?.slug ? `/tienda/${tenantRow.slug}` : null;
       const noImg = prods.filter((p) => !p.imageUrl).length;
       return {
         ok: true,
-        summary: `Productos: ${prods.length} (${noImg} sin imagen) · Categorías: ${cats.length} · Agentes: ${ags.length} · Tiendas: ${stors.length}`,
+        summary: `Productos: ${prods.length} (${noImg} sin imagen) · Categorías: ${cats.length} · Agentes: ${ags.length} · Tienda pública: ${publicStoreUrl ? `activa en ${publicStoreUrl}` : "sin slug, no accesible"} (fila en tabla stores: ${stors.length})`,
         data: {
           products: prods.length, productsWithoutImage: noImg, categories: cats.length,
-          agents: ags.length, stores: stors.length,
+          agents: ags.length, stores: stors.length, publicStoreUrl,
           businessName: st?.businessName, aiProvider: st?.aiProvider,
         },
       };
@@ -1393,6 +1402,7 @@ export const TOOLS: ToolDef[] = [
         data: { ...(args.data && typeof args.data === "object" ? args.data : {}), previousLessons: priorLearnings.relevantLessons.map((l) => l.title) },
         constraints: [],
         goals: Array.isArray(args.goals) ? args.goals : [],
+        tenantId: ctx.tenantId,
       };
       const reasoning = await architectReasoner.reason(context);
       await architectMemoryService.recordLearning(
