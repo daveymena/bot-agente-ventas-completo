@@ -58,6 +58,7 @@ export const promptVersions = schema.promptVersions;
 export const facebookDrafts = schema.facebookDrafts;
 export const opencodeConfig = schema.opencodeConfig;
 export const adAgentLogs = schema.adAgentLogs;
+export const remarketingCampaigns = schema.remarketingCampaigns;
 export const opencodeSkills = schema.opencodeSkills;
 export const opencodeMcpServers = schema.opencodeMcpServers;
 export const opencodeCommands = schema.opencodeCommands;

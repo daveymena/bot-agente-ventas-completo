@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { db, tenants, products, settings as settingsTable } from "@workspace/db";
+import { db, tenants, products, settings as settingsTable, leads } from "@workspace/db";
 import { eq, and, desc, like } from "drizzle-orm";
 import { generateImageBuffer, getProviderConfigFromSettings, getProviderConfig, createAIClient } from "@workspace/integrations-openai-ai-server";
 import { getG4FImage, getAvailableG4FImageProviders, initializeG4F } from "../lib/providers/g4f-provider";
@@ -956,6 +956,29 @@ router.post("/help-chat", async (req, res, next) => {
     logger.error({ err }, "[HelpChat] Error");
     return res.status(500).json({ error: "Internal error", reply: "Tuvimos un problema técnico. Intentá de nuevo o escribinos por WhatsApp.", escalate: true });
   }
+});
+
+/**
+ * GET /api/public/unsubscribe?leadId=123
+ * Baja de un solo clic para correos de remarketing (sin login, como exige
+ * cualquier proveedor de email serio). Marca el lead como opt_out=true; a
+ * partir de ahí email_campaign_send y whatsapp_broadcast_send lo excluyen
+ * de cualquier campaña futura. No borra ni afecta la conversación de venta
+ * normal, solo remarketing masivo.
+ */
+router.get("/unsubscribe", async (req, res) => {
+  const leadId = Number(req.query.leadId);
+  if (!leadId) return res.status(400).send("Falta leadId");
+  try {
+    await db.update(leads).set({ optOut: true }).where(eq(leads.id, leadId));
+  } catch (err) {
+    logger.error({ err, leadId }, "[Unsubscribe] Error");
+  }
+  return res.send(`<!doctype html><html><head><meta charset="utf-8"><title>Baja confirmada</title></head>
+    <body style="font-family:sans-serif;max-width:480px;margin:60px auto;text-align:center;color:#222">
+      <h2>Listo, ya no vas a recibir más correos de remarketing.</h2>
+      <p>Si esto fue un error, escribinos y te volvemos a agregar.</p>
+    </body></html>`);
 });
 
 export default router;

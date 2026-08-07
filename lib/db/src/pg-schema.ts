@@ -145,7 +145,28 @@ export const ALL_TABLES = [
         source TEXT,
         payment_status TEXT,
         lifetime_value NUMERIC(12,2) DEFAULT 0,
+        opt_out BOOLEAN NOT NULL DEFAULT false,
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `
+  },
+  {
+    name: 'remarketing_campaigns',
+    sql: `
+      CREATE TABLE IF NOT EXISTS remarketing_campaigns (
+        id SERIAL PRIMARY KEY,
+        tenant_id INTEGER REFERENCES tenants(id) ON DELETE CASCADE,
+        channel TEXT NOT NULL,
+        segment TEXT,
+        subject TEXT,
+        message TEXT NOT NULL,
+        total_targeted INTEGER NOT NULL DEFAULT 0,
+        total_sent INTEGER NOT NULL DEFAULT 0,
+        total_failed INTEGER NOT NULL DEFAULT 0,
+        total_opted_out INTEGER NOT NULL DEFAULT 0,
+        results JSONB DEFAULT '[]',
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        completed_at TIMESTAMPTZ
       )
     `
   },

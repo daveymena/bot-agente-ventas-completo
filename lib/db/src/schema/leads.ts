@@ -1,4 +1,4 @@
-import { numeric, pgTable, serial, text, timestamp, integer } from "drizzle-orm/pg-core";
+import { numeric, pgTable, serial, text, timestamp, integer, boolean } from "drizzle-orm/pg-core";
 import { tenants } from "./tenants";
 
 export const leads = pgTable("leads", {
@@ -15,6 +15,9 @@ export const leads = pgTable("leads", {
   // ── Estado de pago ─────────────────────────────────────────────────────────
   paymentStatus: text("payment_status"),         // pending | confirmed | rejected
   lifetimeValue: numeric("lifetime_value", { precision: 12, scale: 2 }).default("0"),
+
+  // Remarketing: true si el lead pidió no recibir más campañas (email/WhatsApp).
+  optOut: boolean("opt_out").notNull().default(false),
 
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 });

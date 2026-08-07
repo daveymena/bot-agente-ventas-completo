@@ -1671,6 +1671,44 @@ export const TOOLS: ToolDef[] = [
       return { ok: true, summary: `📦 Orden creada en Dropi para "${prod.name}" → ${args.clientName} (${args.clientPhone})`, data: r.data };
     },
   },
+
+  // ── Remarketing ──
+  {
+    name: "lead_opt_out",
+    description: "Marca (o desmarca) un lead como que no quiere recibir más campañas de remarketing (email_campaign_send / whatsapp_broadcast_send lo excluyen automáticamente). Usalo cuando el admin te cuente que un cliente pidió no recibir más mensajes/promociones.",
+    args: '{ "leadId": number (req), "optOut"?: boolean (default true) }',
+    run: async (args, ctx) => {
+      const id = num(args.leadId);
+      if (!id) return { ok: false, summary: "Falta 'leadId'" };
+      const value = args.optOut === undefined ? true : !!args.optOut;
+      const [existing] = await db.select().from(leads).where(and(eq(leads.id, id), eq(leads.tenantId, ctx.tenantId))).limit(1);
+      if (!existing) return { ok: false, summary: `Lead #${id} no encontrado` };
+      await db.update(leads).set({ optOut: value }).where(eq(leads.id, id));
+      return { ok: true, summary: value ? `🚫 ${existing.name} marcado como que no quiere más campañas.` : `✅ ${existing.name} vuelve a poder recibir campañas.` };
+    },
+  },
+  {
+    name: "email_campaign_send",
+    description: "Envía un correo de remarketing a los leads guardados (filtrable por 'stage'). Usa el SMTP configurado del negocio, o el del servidor si no configuró uno propio. Nunca incluye leads con opt_out=true. Acción real e irreversible una vez enviada → requiere confirmación explícita del admin mostrando el asunto, el mensaje y a cuántos leads les llega ANTES de ejecutar. Hay un tope de seguridad por envío (300 destinatarios); si el segmento es más grande, acotá con 'stage' o dividí en varias tandas.",
+    args: '{ "subject": string (req), "html": string (req, cuerpo del correo en HTML simple), "stage"?: string (opcional, filtra leads por etapa: "new", "cierre", etc — si se omite, aplica a todos los leads con email y sin opt_out) }',
+    run: async (args, ctx) => {
+      if (!args.subject || !args.html) return { ok: false, summary: "Faltan 'subject' y/o 'html'" };
+      const { sendEmailCampaign } = await import("./remarketing");
+      const r = await sendEmailCampaign(ctx.tenantId, { subject: String(args.subject), html: String(args.html), stage: args.stage ? String(args.stage) : undefined });
+      return { ok: r.ok, summary: `📧 ${r.summary}`, data: r };
+    },
+  },
+  {
+    name: "whatsapp_broadcast_send",
+    description: "Manda el mismo mensaje de WhatsApp a los leads guardados (filtrable por 'stage'). Usa el WhatsApp ya conectado del negocio, con espera entre cada envío para reducir el riesgo de que Meta marque el número por enviar en ráfaga. Nunca incluye leads con opt_out=true. RIESGO REAL: mandar de más o muy seguido puede hacer que WhatsApp banee o restrinja el número del negocio -- por eso el tope de seguridad es más bajo que el de email (80 por envío) y por eso esto SIEMPRE requiere que el admin confirme explícitamente el mensaje exacto y el segmento antes de ejecutar, sin excepciones.",
+    args: '{ "message": string (req), "stage"?: string (opcional, filtra leads por etapa — si se omite, aplica a todos los leads sin opt_out) }',
+    run: async (args, ctx) => {
+      if (!args.message) return { ok: false, summary: "Falta 'message'" };
+      const { sendWhatsappBroadcast } = await import("./remarketing");
+      const r = await sendWhatsappBroadcast(ctx.tenantId, { message: String(args.message), stage: args.stage ? String(args.stage) : undefined });
+      return { ok: r.ok, summary: `📲 ${r.summary}`, data: r };
+    },
+  },
 ];
 
 /**
@@ -1781,6 +1819,10 @@ export const DESTRUCTIVE_TOOLS = new Set([
   // dropi_create_order dispara un despacho real del proveedor con cobro
   // contra entrega: es dinero de verdad moviéndose, nunca sin el sí del admin.
   "dropi_create_order",
+  // Envíos masivos reales a la base de leads -- irreversibles una vez
+  // mandados, y whatsapp_broadcast_send además arriesga el número del
+  // negocio si se abusa -- nunca sin confirmación explícita del admin.
+  "email_campaign_send", "whatsapp_broadcast_send",
 ]);
 export function isReadOnlyTool(name: string): boolean {
   return READ_ONLY_TOOLS.has(name);
@@ -1856,7 +1898,8 @@ PRINCIPIOS OBLIGATORIOS:
 5. Haz EXACTAMENTE lo que el admin pide, ni más ni menos.
 6. Si el admin solo pregunta o pide diagnóstico, usa solo lecturas y responde; no propongas cambios.
 7. Sé claro y conciso en "reply" (español, sin mezclar caracteres de otro idioma/alfabeto por error). Pon "done": true cuando no queden más lecturas por hacer.
-7.1. REGISTRO SEGÚN EL MENSAJE: si el admin te saluda, charla, te hace una pregunta suelta o hace una devolución conversacional ("¿y eso por qué pasa?", "dale, contame más", "¿qué más podés hacer?"), respondé como lo haría un socio con criterio hablando por chat: en prosa corta y natural, sin títulos, sin números de sección, sin markdown (nada de ##, ###) y sin convertir la respuesta en un informe. Reservá el formato estructurado de la regla 9 (líneas con emoji) para cuando el contenido REALMENTE es una lista de varios ítems, un plan de cambios, o un resumen con varios datos -- no por defecto en cada respuesta. Una pregunta casual no necesita "Diagnóstico:", "Análisis de Situación:" ni "Recomendación como Director de Marketing:" -- esas etiquetas son para cuando arma un reporte de verdad, no para toda charla.
+7.1. REGISTRO SEGÚN EL CONTENIDO, NO SEGÚN CÓMO PREGUNTÓ: el emoji por línea (regla 9) sigue siendo el formato normal para cualquier respuesta con contenido real -- datos, hallazgos, varios puntos, un diagnóstico, una lista, un plan -- AUNQUE la pregunta haya sido casual ("che, ¿cómo ves las ventas?", "¿y eso por qué pasa?"). El admin prefiere ese formato, ayuda a leer rápido; no lo elimines. Lo único que cambia a prosa corta y natural, sin emoji por línea, es cuando la respuesta NO tiene contenido informativo real: un saludo, un "dale", un "jaja", un agradecimiento, charla pura sin datos que transmitir -- ahí un menú o una lista no tiene nada que organizar, así que no la fuerces.
+7.1b. Sea cual sea el registro: NUNCA uses encabezados markdown (##, ###) ni te firmes con una etiqueta de personaje tipo "Análisis de Situación:", "Diagnóstico:" o "Recomendación como Director de Marketing:" -- eso suena a informe de consultora, no a alguien que te está ayudando. Decí el hallazgo o la recomendación directo, con una línea de emoji si hace falta (ej: "🎯 Para cerrar esa venta, yo le mandaría...").
 7.2. NUNCA muestres al admin los nombres técnicos de las herramientas (fb_ad_draft, reason_business_decision, deep_research, etc.) en tu "reply" -- describí lo que hacés en lenguaje llano ("preparo un borrador de anuncio", "reviso tendencias del nicho"), esos nombres son para vos, no para el admin.
 8. TERMINA EL TRABAJO EN UN SOLO TURNO — NO ANUNCIES, HAZ:
    ❌ MAL: "Ya tengo la info de Claude Code. Ahora voy a investigar Antigravity…" (y no llamas la herramienta)

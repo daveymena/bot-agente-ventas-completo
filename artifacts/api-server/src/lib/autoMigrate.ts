@@ -16,6 +16,22 @@ const MIGRATIONS = [
   `ALTER TABLE tenants ADD COLUMN IF NOT EXISTS facebook_integration JSONB`,
   `ALTER TABLE tenants ADD COLUMN IF NOT EXISTS email_config JSONB`,
   `ALTER TABLE tenants ADD COLUMN IF NOT EXISTS api_keys JSONB`,
+  `ALTER TABLE leads ADD COLUMN IF NOT EXISTS opt_out BOOLEAN NOT NULL DEFAULT false`,
+  `CREATE TABLE IF NOT EXISTS remarketing_campaigns (
+    id SERIAL PRIMARY KEY,
+    tenant_id INTEGER REFERENCES tenants(id) ON DELETE CASCADE,
+    channel TEXT NOT NULL,
+    segment TEXT,
+    subject TEXT,
+    message TEXT NOT NULL,
+    total_targeted INTEGER NOT NULL DEFAULT 0,
+    total_sent INTEGER NOT NULL DEFAULT 0,
+    total_failed INTEGER NOT NULL DEFAULT 0,
+    total_opted_out INTEGER NOT NULL DEFAULT 0,
+    results JSONB DEFAULT '[]',
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
+    completed_at TIMESTAMP WITH TIME ZONE
+  )`,
 ];
 
 export async function runAutoMigrations(): Promise<void> {
