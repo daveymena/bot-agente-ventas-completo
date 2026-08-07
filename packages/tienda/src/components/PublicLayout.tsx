@@ -95,14 +95,7 @@ const PublicLayout = ({ children }: { children: React.ReactNode }) => {
               <span className="text-lg font-black tracking-tight uppercase">{config.storeName || 'Tienda'}</span>
             </Link>
 
-            <div className="hidden md:flex items-center gap-6">
-              <Link to={base} className="text-sm font-semibold text-gray-300 hover:text-white transition-colors">
-                Productos
-              </Link>
-              <a href={waHref || "#"} target="_blank" rel="noopener noreferrer"
-                className="flex items-center gap-1.5 text-sm font-semibold text-gray-300 hover:text-[var(--store-primary)] transition-colors group">
-                <MessageCircle className="w-4 h-4" /> WhatsApp
-              </a>
+            <div className="hidden md:flex items-center gap-4">
               <Link to={`${base}/wishlist`} className="relative p-2 text-gray-300 hover:text-white transition-colors">
                 <Heart className="w-5 h-5" />
                 {wishlist.length > 0 && (
@@ -165,6 +158,25 @@ const PublicLayout = ({ children }: { children: React.ReactNode }) => {
               )}
             </div>
           )}
+        </div>
+
+        {/* Franja de categorías -- estilo Smartjoys: el header queda negro
+            (marca/carrito/deseos), pero la fila de navegación real vive en
+            un bloque sólido con el color de marca, no en gris apagado sobre
+            negro. Solo en escritorio: en mobile "Productos" y "WhatsApp" ya
+            están cubiertos por la barra inferior fija y el FAB de WhatsApp. */}
+        <div className="hidden md:block bg-[var(--store-primary)]">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="flex items-center gap-6 h-10">
+              <Link to={base} className="text-sm font-semibold text-[var(--store-on-primary)] hover:opacity-80 transition-opacity">
+                Productos
+              </Link>
+              <a href={waHref || "#"} target="_blank" rel="noopener noreferrer"
+                className="flex items-center gap-1.5 text-sm font-semibold text-[var(--store-on-primary)] hover:opacity-80 transition-opacity">
+                <MessageCircle className="w-4 h-4" /> WhatsApp
+              </a>
+            </div>
+          </div>
         </div>
       </nav>
 
@@ -234,7 +246,7 @@ const PublicLayout = ({ children }: { children: React.ReactNode }) => {
         <MessageCircle className="w-7 h-7" />
       </a>
 
-      <footer className="bg-zinc-900 pb-20 md:pb-0">
+      <footer className="bg-zinc-900 border-t-4 border-[var(--store-primary)] pb-20 md:pb-0">
         <div className="max-w-7xl mx-auto px-4 py-12">
           <div className="grid grid-cols-1 md:grid-cols-4 gap-10">
             <div>
@@ -252,31 +264,31 @@ const PublicLayout = ({ children }: { children: React.ReactNode }) => {
                 <div className="flex items-center gap-2">
                   {config.socialLinks?.facebook && (
                     <a href={config.socialLinks.facebook} target="_blank" rel="noopener noreferrer" aria-label="Facebook"
-                      className="w-9 h-9 rounded-full bg-white/10 hover:bg-[var(--store-primary)] text-gray-300 hover:text-[var(--store-on-primary)] flex items-center justify-center transition-colors">
+                      className="w-9 h-9 rounded-full bg-[var(--store-primary)]/10 hover:bg-[var(--store-primary)] text-gray-300 hover:text-[var(--store-on-primary)] flex items-center justify-center transition-colors">
                       <FacebookIcon className="w-4 h-4" />
                     </a>
                   )}
                   {config.socialLinks?.instagram && (
                     <a href={config.socialLinks.instagram} target="_blank" rel="noopener noreferrer" aria-label="Instagram"
-                      className="w-9 h-9 rounded-full bg-white/10 hover:bg-[var(--store-primary)] text-gray-300 hover:text-[var(--store-on-primary)] flex items-center justify-center transition-colors">
+                      className="w-9 h-9 rounded-full bg-[var(--store-primary)]/10 hover:bg-[var(--store-primary)] text-gray-300 hover:text-[var(--store-on-primary)] flex items-center justify-center transition-colors">
                       <InstagramIcon className="w-4 h-4" />
                     </a>
                   )}
                   {config.socialLinks?.tiktok && (
                     <a href={config.socialLinks.tiktok} target="_blank" rel="noopener noreferrer" aria-label="TikTok"
-                      className="w-9 h-9 rounded-full bg-white/10 hover:bg-[var(--store-primary)] text-gray-300 hover:text-[var(--store-on-primary)] flex items-center justify-center transition-colors">
+                      className="w-9 h-9 rounded-full bg-[var(--store-primary)]/10 hover:bg-[var(--store-primary)] text-gray-300 hover:text-[var(--store-on-primary)] flex items-center justify-center transition-colors">
                       <TikTokIcon className="w-4 h-4" />
                     </a>
                   )}
                   {config.socialLinks?.twitter && (
                     <a href={config.socialLinks.twitter} target="_blank" rel="noopener noreferrer" aria-label="X (Twitter)"
-                      className="w-9 h-9 rounded-full bg-white/10 hover:bg-[var(--store-primary)] text-gray-300 hover:text-[var(--store-on-primary)] flex items-center justify-center transition-colors">
+                      className="w-9 h-9 rounded-full bg-[var(--store-primary)]/10 hover:bg-[var(--store-primary)] text-gray-300 hover:text-[var(--store-on-primary)] flex items-center justify-center transition-colors">
                       <XIcon className="w-4 h-4" />
                     </a>
                   )}
                   {config.socialLinks?.linkedin && (
                     <a href={config.socialLinks.linkedin} target="_blank" rel="noopener noreferrer" aria-label="LinkedIn"
-                      className="w-9 h-9 rounded-full bg-white/10 hover:bg-[var(--store-primary)] text-gray-300 hover:text-[var(--store-on-primary)] flex items-center justify-center transition-colors">
+                      className="w-9 h-9 rounded-full bg-[var(--store-primary)]/10 hover:bg-[var(--store-primary)] text-gray-300 hover:text-[var(--store-on-primary)] flex items-center justify-center transition-colors">
                       <LinkedInIcon className="w-4 h-4" />
                     </a>
                   )}
@@ -285,7 +297,7 @@ const PublicLayout = ({ children }: { children: React.ReactNode }) => {
             </div>
 
             <div>
-              <h4 className="text-xs font-bold uppercase tracking-wider text-gray-500 mb-3">Enlaces</h4>
+              <h4 className="text-xs font-bold uppercase tracking-wider text-[var(--store-primary)] mb-3">Enlaces</h4>
               <div className="space-y-2">
                 <Link to={base} className="block text-sm text-gray-400 hover:text-white transition-colors">Productos</Link>
                 <a href={waHref || "#"} target="_blank" rel="noopener noreferrer"
@@ -295,7 +307,7 @@ const PublicLayout = ({ children }: { children: React.ReactNode }) => {
             </div>
 
             <div>
-              <h4 className="text-xs font-bold uppercase tracking-wider text-gray-500 mb-3">Contacto</h4>
+              <h4 className="text-xs font-bold uppercase tracking-wider text-[var(--store-primary)] mb-3">Contacto</h4>
               <div className="space-y-2.5">
                 {config.whatsappPhone && (
                   <a href={waHref || '#'} target="_blank" rel="noopener noreferrer"
@@ -308,7 +320,7 @@ const PublicLayout = ({ children }: { children: React.ReactNode }) => {
             </div>
 
             <div>
-              <h4 className="text-xs font-bold uppercase tracking-wider text-gray-500 mb-3">Pagos seguros</h4>
+              <h4 className="text-xs font-bold uppercase tracking-wider text-[var(--store-primary)] mb-3">Pagos seguros</h4>
               <div className="flex flex-wrap gap-2">
                 <MercadoPagoBadge />
                 <NequiBadge />
