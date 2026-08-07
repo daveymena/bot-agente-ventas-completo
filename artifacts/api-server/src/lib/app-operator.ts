@@ -1259,9 +1259,23 @@ export const TOOLS: ToolDef[] = [
           grounded,
         );
         const groundedNote = grounded.hook || grounded.researchNote ? " (anclado en la investigación de esta sesión)" : " (plantilla genérica del nicho — no se pasó hook/angle basado en investigación)";
+        // El summary es lo ÚNICO que el admin termina viendo (ver lines.push
+        // en code-agent.ts, arma la respuesta final con r.summary, nunca con
+        // r.data) -- antes esto era una sola línea confirmando que "se creó
+        // un borrador" sin mostrar una sola palabra del copy real. El admin
+        // aprobaba a ciegas y, después de aprobar, seguía sin ver qué se
+        // había generado. Ahora el copy completo va en el summary mismo.
+        const copyPreview = [
+          `📝 Borrador de anuncio para "${draft.productName}" (nicho: ${draft.strategy.niche})${groundedNote}:`,
+          `🎯 Título: ${draft.headline}`,
+          `✍️ Texto principal: ${draft.primaryText}`,
+          `📄 Descripción: ${draft.description}`,
+          draft.imageUrl ? `🖼️ Imagen: ${draft.imageUrl}` : `🖼️ Sin imagen asignada todavía`,
+          `💾 Guardado local, no se tocó la cuenta de Meta.`,
+        ].join("\n");
         return {
           ok: true,
-          summary: `Borrador de anuncio creado para "${draft.productName}" (nicho: ${draft.strategy.niche})${groundedNote}. Guardado local, no se tocó la cuenta de Meta.`,
+          summary: copyPreview,
           data: draft,
         };
       } catch (e: any) {
@@ -1929,7 +1943,9 @@ FORMATO: Responde SIEMPRE en JSON válido:
 
 PRINCIPIOS OBLIGATORIOS:
 1. MIRA ANTES DE ACTUAR: nunca inventes ids, precios ni datos. Si no los conoces con certeza, primero usa herramientas de LECTURA (list_products, list_categories, analyze_system, get_agent, get_settings) para obtener los datos REALES. Las lecturas se ejecutan solas; úsalas libremente.
-2. PLANIFICA, NO EJECUTES A CIEGAS: cuando vayas a CAMBIAR algo (create/update/delete/settings/agent), NO asumas que ya está hecho. El sistema NO ejecutará tus cambios hasta que el admin los apruebe. En tu "reply" describe EXACTAMENTE qué vas a cambiar y con qué valores, y pide confirmación (ej: "Voy a cambiar el precio del producto 124 a 60000 COP y ponerle imagen X. ¿Confirmas?").
+2. PLANIFICA, NO EJECUTES A CIEGAS: cuando vayas a CAMBIAR algo (create/update/delete/settings/agent), NO asumas que ya está hecho. El sistema NO ejecutará tus cambios hasta que el admin los apruebe. En tu "reply" describe EXACTAMENTE qué vas a cambiar y con qué valores, y pide confirmación (ej: "Voy a cambiar el precio del producto 124 a 60000 COP y ponerle imagen X. ¿Confirmas?"). Si lo que vas a crear es CONTENIDO (copy de un anuncio, descripción de un producto, mensaje de una campaña), el "reply" tiene que incluir el CONTENIDO REAL completo, no solo la acción -- el admin no puede aprobar a ciegas algo que no vio. Escribí el título/hook/texto real en el reply antes de pedir confirmación.
+   ❌ MAL: "Voy a generar un borrador de anuncio para el producto 123 con el ángulo investigado. ¿Confirmas?" (el admin no sabe qué va a decir el anuncio)
+   ✅ BIEN: "📝 Borrador listo para confirmar — Título: 'Toca tus canciones favoritas en 30 días'. Texto: '...(copy completo)...'. ¿Confirmas?"
 3. Incluye las acciones de cambio en "actions" con los datos ya resueltos (ids reales). El sistema las mostrará como PLAN y las ejecutará solo cuando el admin diga "sí".
 4. HONESTIDAD: si no encuentras algo (ej: un producto), dilo claramente y ofrece alternativas ("no encontré 'X', ¿te refieres a este [ID N]?"). Nunca fabriques un id ni un resultado.
 5. Haz EXACTAMENTE lo que el admin pide, ni más ni menos.
