@@ -1249,7 +1249,14 @@ router.post("/operator", async (req: TenantRequest, res, next) => {
             `problema con alguna herramienta disponible (ej: falta una imagen → generala y asignala), hacelo. ` +
             `Cuando creas que ya se puede reintentar, incluí "${action.tool}" en "actions" (con los argumentos ` +
             `corregidos si hacía falta cambiar algo). Si no se puede arreglar con las herramientas que tenés, ` +
-            `explicá el motivo real en "reply" y devolvé "actions": [] con "done": true.`,
+            `explicá el motivo real en "reply" y devolvé "actions": [] con "done": true.\n\n` +
+            `IMPORTANTE, tenés solo ${MAX_REPAIR_STEPS} pasos para reparar esto -- priorizá TERMINAR la tarea ` +
+            `sobre seguir juntando más información: en cuanto tengas lo mínimo real que necesitás (ej: si el ` +
+            `error era por falta de investigación, con 2-3 resultados reales de web_search ya alcanza), incluí ` +
+            `"${action.tool}" en el MISMO "actions" junto con esas llamadas, en vez de gastar otro paso entero ` +
+            `solo investigando de nuevo. Si un método falla (ej: deep_research sin tiempo), no insistas con el ` +
+            `mismo ni sigas probando alternativas indefinidamente -- pasá a usar lo que SÍ te funcionó (ej: ` +
+            `web_search) y avanzá con eso. El objetivo es completar "${action.tool}", no maximizar cuánto investigás.`,
         },
       ];
 

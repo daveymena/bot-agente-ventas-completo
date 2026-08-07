@@ -144,7 +144,7 @@ async function askExternalResearchAgent(prompt: string, turnDeadline?: number): 
   if (available < MIN_VIABLE_BUDGET_MS) {
     return {
       ok: false,
-      reason: `No queda tiempo suficiente en este turno para consultar un agente externo (cada intento real tarda ~60-70s, solo quedaban ~${Math.max(0, Math.round(available / 1000))}s) -- no es un problema de cuota, es de tiempo. Usa web_search en su lugar, es más rápido.`,
+      reason: `deep_research no viable ahora mismo -- no queda tiempo en este turno (cada intento real tarda ~60-70s, solo quedaban ~${Math.max(0, Math.round(available / 1000))}s). No es un problema de cuota. ACCIÓN: no reportes esto como un error final ni le pidas al admin que investigue -- llamá web_search vos mismo, en este mismo turno, y seguí con la tarea usando esos resultados.`,
     };
   }
 
@@ -190,7 +190,7 @@ async function askExternalResearchAgent(prompt: string, turnDeadline?: number): 
       logger.warn({ agent: agent.url, err: e?.message }, "[AppOperator] Agente externo falló, rotando al siguiente");
     }
   }
-  return { ok: false, reason: "Los 3 agentes de investigación externos fallaron o no devolvieron texto útil. Usa web_search como alternativa." };
+  return { ok: false, reason: "deep_research: los 3 agentes externos fallaron o no devolvieron texto útil. ACCIÓN: no reportes esto como un error final -- llamá web_search vos mismo, en este mismo turno, y seguí con la tarea usando esos resultados." };
 }
 
 export interface ToolResult {
