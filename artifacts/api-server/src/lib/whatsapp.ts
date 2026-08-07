@@ -860,12 +860,29 @@ export class WhatsAppManager {
               continue;
             }
             
-            // Para LID, usar el número alternativo si está disponible
+            // Para LID (@lid), el JID NO contiene el número real -- es un
+            // identificador interno de privacidad que WhatsApp usa desde el
+            // rollout de "phone number privacy". Antes esto se guardaba tal
+            // cual como si fuera el teléfono (ver bug: leads con "teléfono"
+            // tipo 6988129931330). Hay que resolverlo al número real vía el
+            // LIDMappingStore de Baileys; participant solo sirve en grupos.
             let phone: string;
             let originalJid: string = remoteJid; // Guardar el JID original para responder
-            if (remoteJid.endsWith("@lid") && msg.key.participant) {
-              // Usar el participant como número de teléfono para LID
-              phone = msg.key.participant.split("@")[0]!;
+            if (remoteJid.endsWith("@lid")) {
+              let resolvedPn: string | null = null;
+              try {
+                resolvedPn = (await this.sock?.signalRepository?.lidMapping?.getPNForLID(remoteJid)) ?? null;
+              } catch (err) {
+                console.error("⚠️ Error resolviendo LID a número real:", err);
+              }
+              if (resolvedPn) {
+                phone = resolvedPn.split("@")[0]!;
+              } else if (msg.key.participant) {
+                phone = msg.key.participant.split("@")[0]!;
+              } else {
+                console.warn("⚠️ No se pudo resolver LID a número real, usando ID interno como fallback:", remoteJid);
+                phone = remoteJid.split("@")[0]!;
+              }
             } else {
               phone = remoteJid.split("@")[0]!;
             }
@@ -1024,6 +1041,7 @@ export class WhatsAppManager {
                await messageHandler.handleIncomingMessage({
                  tenantId: String(this.currentTenant.id),
                  remoteJid: originalJid,
+                 phone,
                  fromMe: false,
                  messageId: msg.key.id || `msg_${Date.now()}`,
                  body: text.trim(),

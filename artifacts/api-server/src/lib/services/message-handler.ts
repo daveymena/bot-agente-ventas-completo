@@ -49,6 +49,7 @@ export class MessageHandler {
   async handleIncomingMessage(params: {
     tenantId: string;
     remoteJid: string;
+    phone?: string;
     fromMe: boolean;
     messageId: string;
     body: string;
@@ -76,8 +77,10 @@ export class MessageHandler {
 
     try {
       // 1. Obtener o crear conversación
-      // Limpiar el teléfono para evitar duplicados por formato (ej: +57 vs 57)
-      const phone = params.remoteJid.split('@')[0].replace(/\D/g, ''); 
+      // Preferir el número ya resuelto (params.phone) -- para JIDs @lid,
+      // remoteJid NO es un teléfono real (ver whatsapp.ts). Solo si no
+      // llega resuelto, se cae al parseo directo del JID (compatibilidad).
+      const phone = (params.phone || params.remoteJid.split('@')[0]).replace(/\D/g, '');
       const tenantIdNum = tenantId;
       
       let convo = (await db.select().from(conversations)
