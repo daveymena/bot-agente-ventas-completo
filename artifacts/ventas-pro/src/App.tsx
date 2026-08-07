@@ -52,20 +52,23 @@ const SessionContext = createContext<SessionContextType>({
 export const useSession = () => useContext(SessionContext);
 
 // /mi-tienda ya no es una página propia: manda a la tienda pública real
-// (packages/tienda, servida por express en /tienda/*). Es una navegación de
-// navegador completa, no de wouter, porque son dos SPAs distintas.
+// (packages/tienda, servida por express en /tienda/*), que es una SPA
+// completamente distinta. Antes usaba window.location.replace() en la
+// MISMA pestaña -- el panel de administración se perdía por completo cada
+// vez que alguien quería ver su tienda. Abre en pestaña nueva y devuelve
+// esta pestaña al panel, para poder tener las dos cosas a la vista.
 function TiendaRedirect() {
   const { tenant, isLoading } = useSession();
+  const [, setLocation] = useLocation();
   useEffect(() => {
     // Sin esperar a que cargue la sesión, el primer render tiene tenant=null
     // y mandaba a /tienda sin slug -- o sea a la tienda por defecto, no a la
     // del dueño que hizo click.
     if (isLoading) return;
     const slug = tenant?.slug || '';
-    // replace() y no href: con href, el botón "atrás" volvía a /mi-tienda y
-    // el efecto disparaba el redirect otra vez, dejando al usuario atrapado.
-    window.location.replace(slug ? `/tienda/${slug}` : "/tienda");
-  }, [tenant, isLoading]);
+    window.open(slug ? `/tienda/${slug}` : "/tienda", "_blank", "noopener,noreferrer");
+    setLocation("/");
+  }, [tenant, isLoading, setLocation]);
   return null;
 }
 

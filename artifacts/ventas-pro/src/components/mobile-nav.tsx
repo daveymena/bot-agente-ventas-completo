@@ -12,7 +12,6 @@ const mainNavItems = [
 
 const baseMoreItems = [
   { label: "Arquitecto IA", href: "/code-agent", icon: Wand2, highlight: true },
-  { label: "Tienda", href: "/mi-tienda", icon: Store },
   { label: "Agentes IA", href: "/agents", icon: Bot },
   { label: "WhatsApp", href: "/whatsapp", icon: Phone },
   { label: "Configuración", href: "/settings", icon: Settings },
@@ -44,7 +43,15 @@ export function MobileNav() {
   const [showMore, setShowMore] = useState(false);
   const { tenant: sessionTenant } = useSession();
   const isAdmin = !!sessionTenant?.isAdmin;
-  const moreItems = isAdmin ? [...baseMoreItems, ...adminMoreItems] : baseMoreItems;
+  // "Tienda" es la SPA pública, no una ruta de esta app -- external:true hace
+  // que se abra en pestaña nueva en vez de reemplazar el panel admin (ver el
+  // mismo tratamiento en components/layout.tsx).
+  const tiendaItem = sessionTenant?.slug
+    ? [{ label: "Tienda", href: `/tienda/${sessionTenant.slug}`, icon: Store, external: true }]
+    : [];
+  const moreItems = isAdmin
+    ? [...tiendaItem, ...baseMoreItems, ...adminMoreItems]
+    : [...tiendaItem, ...baseMoreItems];
 
   return (
     <>
@@ -115,11 +122,18 @@ export function MobileNav() {
             <div className="grid grid-cols-3 gap-2">
               {moreItems.map((item) => {
                 const isActive = item.href === "/" ? location === "/" : location.startsWith(item.href);
+                const isExternal = (item as any).external;
                 return (
                   <a
                     key={item.href}
                     href={item.href}
+                    target={isExternal ? "_blank" : undefined}
+                    rel={isExternal ? "noopener noreferrer" : undefined}
                     onClick={(e) => {
+                      // Los destinos externos (la tienda pública) siguen su
+                      // navegación normal en pestaña nueva; solo las rutas
+                      // internas usan el router de la SPA.
+                      if (isExternal) { setShowMore(false); return; }
                       e.preventDefault();
                       setLocation(item.href);
                     }}

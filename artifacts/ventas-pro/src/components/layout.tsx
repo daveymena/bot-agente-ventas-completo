@@ -55,7 +55,7 @@ export function AppSidebar() {
     { label: "Facebook", href: "/facebook", icon: Facebook },
     { label: "Configuración", href: "/settings", icon: Settings },
     { label: "Planes", href: "/pricing", icon: Badge },
-    ...(sessionTenant?.slug ? [{ label: "Ver Tienda", href: `/mi-tienda`, icon: Eye }] : []),
+    ...(sessionTenant?.slug ? [{ label: "Ver Tienda", href: `/tienda/${sessionTenant.slug}`, icon: Eye, external: true }] : []),
 ];
 
   return (
@@ -81,6 +81,13 @@ export function AppSidebar() {
             <SidebarMenu className="gap-2">
               {allNavItems.map((item) => {
                 const isActive = location === item.href;
+                const linkClassName = "flex items-center gap-3 px-3 w-full";
+                const linkContent = (
+                  <>
+                    <item.icon className={`h-[18px] w-[18px] shrink-0 ${isActive ? 'text-white' : 'text-sidebar-foreground group-hover:text-white'}`} />
+                    <span>{item.label}</span>
+                  </>
+                );
                 return (
                   <SidebarMenuItem key={item.href}>
                     <SidebarMenuButton
@@ -95,10 +102,20 @@ export function AppSidebar() {
                         }
                       `}
                     >
-                      <Link href={item.href} className="flex items-center gap-3 px-3 w-full">
-                        <item.icon className={`h-[18px] w-[18px] shrink-0 ${isActive ? 'text-white' : 'text-sidebar-foreground group-hover:text-white'}`} />
-                        <span>{item.label}</span>
-                      </Link>
+                      {/* "external" son destinos fuera de esta SPA (la tienda
+                          pública, otra app entera) -- un <Link> de wouter ahí
+                          termina reemplazando toda la página admin en la misma
+                          pestaña. Se abren en pestaña nueva para mantener el
+                          panel vivo al mismo tiempo. */}
+                      {(item as any).external ? (
+                        <a href={item.href} target="_blank" rel="noopener noreferrer" className={linkClassName}>
+                          {linkContent}
+                        </a>
+                      ) : (
+                        <Link href={item.href} className={linkClassName}>
+                          {linkContent}
+                        </Link>
+                      )}
                     </SidebarMenuButton>
                   </SidebarMenuItem>
                 )
