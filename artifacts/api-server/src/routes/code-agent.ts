@@ -13,7 +13,7 @@ import {
 } from "../lib/optimized-rotation";
 import { getG4FResponse } from "../lib/providers/g4f-provider";
 import { G4F_ENABLED } from "../config/g4f.config";
-import { OPERATOR_SYSTEM_PROMPT, buildToolsDoc, executeAction, isReadOnlyTool, isKnownTool, verifyMutation } from "../lib/app-operator";
+import { OPERATOR_SYSTEM_PROMPT, buildToolsDoc, executeAction, isReadOnlyTool, isKnownTool, verifyMutation, type OperatorContext } from "../lib/app-operator";
 import { leerBusinessConfig } from "../lib/ai-keys";
 import {
   loadArchitectHistory, saveArchitectTurn, getPendingPlan, setPendingPlan,
@@ -1223,7 +1223,7 @@ router.post("/operator", async (req: TenantRequest, res, next) => {
       : "";
     const sys = OPERATOR_SYSTEM_PROMPT.replace("${TOOLS}", buildToolsDoc()) + lessonsBlock;
     const sessionId: string = (req.body?.sessionId as string) || "default";
-    const ctx = { tenantId, sessionId };
+    const ctx: OperatorContext = { tenantId, sessionId };
 
     // Cuando una acción YA APROBADA falla, en vez de reportar el error y
     // seguir, se le da al modelo hasta MAX_REPAIR_STEPS turnos para
@@ -1375,6 +1375,12 @@ router.post("/operator", async (req: TenantRequest, res, next) => {
     // que el aviso de "tardando más de lo esperado" (más abajo) llegue a
     // tiempo, en vez de que el proxy gane la carrera primero.
     const requestDeadline = Date.now() + 130_000;
+    // deep_research (app-operator.ts) necesita saber cuánto le queda al
+    // TURNO completo, no armarse su propio presupuesto fresco -- un agente
+    // externo real tarda ~60-70s, así que si ya se gastaron varios pasos
+    // (ej: unos web_search antes) puede no quedar tiempo real, y sin esto
+    // el error se reportaba como "sin cuota" en vez de "sin tiempo".
+    ctx.turnDeadline = requestDeadline;
     let timedOut = false;
     // hasRecentResearch() (ver app-operator.ts) solo bloquea la herramienta
     // fb_ad_draft -- protege que se GUARDE un borrador sin investigar, pero

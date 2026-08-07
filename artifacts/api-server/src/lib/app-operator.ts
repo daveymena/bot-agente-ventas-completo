@@ -24,6 +24,15 @@ import { dbNow } from "./date-utils";
 export interface OperatorContext {
   tenantId: number;
   sessionId?: string;
+  // Timestamp absoluto (Date.now() + ms) del límite del TURNO completo del
+  // operador (ver requestDeadline en routes/code-agent.ts, 130s). Sin esto,
+  // deep_research se armaba su propio presupuesto fresco de 100s cada vez
+  // que se llamaba -- si ya se habían gastado varios pasos del turno (ej:
+  // 3 web_search antes), a un agente externo real (~60-70s por intento
+  // confirmado en vivo) no le quedaba tiempo real para responder antes de
+  // que el turno completo cortara la conexión, y el error se reportaba
+  // como "sin cuota" cuando en realidad era que se quedó sin tiempo.
+  turnDeadline?: number;
 }
 
 // Ventana de vigencia de una investigación: una búsqueda de hace 3 horas ya
@@ -101,24 +110,47 @@ const EXTERNAL_RESEARCH_AGENTS: { url: string; providerID: string; modelID: stri
   { url: "https://oc-router.2xs2bu.easypanel.host", providerID: "openrouter", modelID: "google/gemma-4-26b-a4b-it:free" },
 ];
 
+// Medido en vivo (2026-08-07): UN solo intento exitoso contra oc-zen tomó
+// ~66s (creación de sesión ~0.6s + mensaje ~65.5s -- el modelo hace su
+// propia búsqueda web real antes de responder, no es instantáneo). Por
+// debajo de este piso, ni vale la pena intentar: el intento va a quedar a
+// mitad de camino cuando se acabe el tiempo, y el motivo real ("no quedaba
+// tiempo en el turno") terminaba reportándose como "sin cuota" -- que no
+// es lo que pasó, confundía el diagnóstico.
+const MIN_VIABLE_BUDGET_MS = 50_000;
+
+type ExternalResearchResult =
+  | { ok: true; agent: string; text: string }
+  | { ok: false; reason: string };
+
 /**
  * Delegar una investigación completa a uno de los agentes externos.
  * Prueba las 3 instancias en orden (refuerzo: si una falla o está sin
  * cuota, sigue con la próxima) y devuelve el texto final de la respuesta.
+ *
+ * `turnDeadline` (Date.now() + ms, ver OperatorContext) es el límite del
+ * TURNO COMPLETO del operador, no de esta función sola -- antes esta
+ * función siempre se armaba un presupuesto fresco de 100s propio, sin
+ * saber cuánto quedaba realmente disponible. Si deep_research se llamaba
+ * después de varios pasos ya gastados (ej: 3 web_search antes en el mismo
+ * turno), un agente externo real (~60-70s) directamente no le alcanzaba el
+ * tiempo que quedaba -- fallaba, pero el mensaje decía "sin cuota" cuando
+ * el motivo real era que no había presupuesto suficiente.
  */
-async function askExternalResearchAgent(prompt: string): Promise<{ agent: string; text: string } | null> {
-  // Presupuesto GLOBAL, no por intento: el proxy delante de bot-agenwhatsapp
-  // corta la respuesta al cliente ~150-160s después de iniciado el turno
-  // completo del operador (confirmado en vivo -- el trabajo terminaba bien
-  // del lado del servidor, pero el cliente recibía un 502 antes de que la
-  // respuesta volviera). Si cada uno de los 3 agentes pudiera gastar su
-  // propio timeout completo, el peor caso (2 fallan antes de que el tercero
-  // responda) superaría ese límite igual. Con un techo global, el segundo/
-  // tercer intento usan lo que quede del presupuesto, no un timeout fijo.
-  const globalDeadline = Date.now() + 100_000;
+async function askExternalResearchAgent(prompt: string, turnDeadline?: number): Promise<ExternalResearchResult> {
+  const hardCap = Date.now() + 100_000; // techo propio, nunca más que esto aunque sobre turno
+  const effectiveDeadline = turnDeadline ? Math.min(turnDeadline, hardCap) : hardCap;
+  const available = effectiveDeadline - Date.now();
+  if (available < MIN_VIABLE_BUDGET_MS) {
+    return {
+      ok: false,
+      reason: `No queda tiempo suficiente en este turno para consultar un agente externo (cada intento real tarda ~60-70s, solo quedaban ~${Math.max(0, Math.round(available / 1000))}s) -- no es un problema de cuota, es de tiempo. Usa web_search en su lugar, es más rápido.`,
+    };
+  }
+
   for (const agent of EXTERNAL_RESEARCH_AGENTS) {
-    const remaining = globalDeadline - Date.now();
-    if (remaining < 10_000) break; // no alcanza ni para el intento más corto
+    const remaining = effectiveDeadline - Date.now();
+    if (remaining < MIN_VIABLE_BUDGET_MS) break; // lo que queda ya no alcanza ni para un intento realista
     try {
       const sessionRes = await fetch(`${agent.url}/session`, {
         method: "POST",
@@ -141,7 +173,7 @@ async function askExternalResearchAgent(prompt: string): Promise<{ agent: string
           model: { providerID: agent.providerID, modelID: agent.modelID },
           parts: [{ type: "text", text: prompt }],
         }),
-        signal: AbortSignal.timeout(Math.max(5000, globalDeadline - Date.now())),
+        signal: AbortSignal.timeout(Math.max(5000, effectiveDeadline - Date.now())),
       });
       if (!msgRes.ok) continue;
       const msg: any = await msgRes.json();
@@ -153,12 +185,12 @@ async function askExternalResearchAgent(prompt: string): Promise<{ agent: string
       const textParts = parts.filter((p) => p?.type === "text").map((p) => String(p.text || ""));
       const text = textParts.join("\n\n").trim();
       if (!text) continue;
-      return { agent: agent.providerID, text };
+      return { ok: true, agent: agent.providerID, text };
     } catch (e: any) {
       logger.warn({ agent: agent.url, err: e?.message }, "[AppOperator] Agente externo falló, rotando al siguiente");
     }
   }
-  return null;
+  return { ok: false, reason: "Los 3 agentes de investigación externos fallaron o no devolvieron texto útil. Usa web_search como alternativa." };
 }
 
 export interface ToolResult {
@@ -822,12 +854,10 @@ export const TOOLS: ToolDef[] = [
       try {
         const result = await askExternalResearchAgent(
           `Investigá en internet de verdad (usá tu herramienta de búsqueda web, no respondas de memoria): ${instruccion}. Sé concreto, citá las fuentes/URLs reales que encontraste, no inventes datos.`,
+          ctx.turnDeadline,
         );
-        if (!result) {
-          return {
-            ok: false,
-            summary: "Los agentes de investigación externos no respondieron (los 3 fallaron o están sin cuota). Usa web_search como alternativa.",
-          };
+        if (!result.ok) {
+          return { ok: false, summary: result.reason };
         }
         await recordResearchEvidence(ctx, instruccion);
         return {
