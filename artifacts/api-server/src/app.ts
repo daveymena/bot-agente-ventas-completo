@@ -61,6 +61,12 @@ startWhatsAppMonitor(5 * 60 * 1000);
 import { startAdGrowthAgent } from "./lib/ad-growth-agent";
 startAdGrowthAgent();
 
+// Auto-start del scheduler de remarketing: procesa en tandas chicas las
+// campañas de email/WhatsApp que Atlas encoló (nunca manda nada por su
+// cuenta -- solo drena lo que el admin ya confirmó, ver remarketing.ts).
+import { remarketingScheduler } from "./lib/remarketing-scheduler";
+remarketingScheduler.start();
+
 // Auto-start AI Processor (Orchestrator) on boot
 import { getAgentOrchestrator } from "./lib/services/agent-orchestrator";
 import { getMessageHandler } from "./lib/services/message-handler";

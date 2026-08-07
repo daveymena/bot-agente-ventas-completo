@@ -959,16 +959,26 @@ router.post("/help-chat", async (req, res, next) => {
 });
 
 /**
- * GET /api/public/unsubscribe?leadId=123
+ * GET /api/public/unsubscribe?leadId=123&token=...
  * Baja de un solo clic para correos de remarketing (sin login, como exige
  * cualquier proveedor de email serio). Marca el lead como opt_out=true; a
  * partir de ahí email_campaign_send y whatsapp_broadcast_send lo excluyen
  * de cualquier campaña futura. No borra ni afecta la conversación de venta
  * normal, solo remarketing masivo.
+ *
+ * El "token" es obligatorio y se verifica con HMAC (ver remarketing.ts) --
+ * antes esta ruta confiaba en leadId crudo, secuencial y sin dueño: cualquiera
+ * podía probar leadId=1,2,3... y dar de baja leads de OTRO negocio sin login
+ * ni permiso. Sin un token válido para ESE leadId puntual, no se toca nada.
  */
 router.get("/unsubscribe", async (req, res) => {
   const leadId = Number(req.query.leadId);
+  const token = String(req.query.token || "");
   if (!leadId) return res.status(400).send("Falta leadId");
+  const { verifyUnsubscribeToken } = await import("../lib/remarketing");
+  if (!verifyUnsubscribeToken(leadId, token)) {
+    return res.status(403).send("Link de baja inválido o vencido.");
+  }
   try {
     await db.update(leads).set({ optOut: true }).where(eq(leads.id, leadId));
   } catch (err) {

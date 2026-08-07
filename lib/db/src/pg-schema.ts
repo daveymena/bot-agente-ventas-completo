@@ -160,6 +160,8 @@ export const ALL_TABLES = [
         segment TEXT,
         subject TEXT,
         message TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'queued',
+        pending_lead_ids JSONB NOT NULL DEFAULT '[]',
         total_targeted INTEGER NOT NULL DEFAULT 0,
         total_sent INTEGER NOT NULL DEFAULT 0,
         total_failed INTEGER NOT NULL DEFAULT 0,

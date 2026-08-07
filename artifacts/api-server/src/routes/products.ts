@@ -12,6 +12,7 @@ import {
 import { db, products } from "@workspace/db";
 import * as XLSX from "xlsx";
 import { getSmartColumnMapping, processRowsWithMapping } from "../lib/smartImport";
+import { resolveCategoryId } from "../lib/product-categories";
 import { sendError } from "../lib/error-handler";
 import { ERROR_CODES } from "../lib/error-codes";
 import { logger } from "../lib/logger";
@@ -179,9 +180,27 @@ router.post("/bulk-smart", async (req: TenantRequest, res, next) => {
     const processedProducts = processRowsWithMapping(rawRows, mapping);
 
     // Insert into database
+    // La categoría (texto de la columna "Categoría" del Excel) se resuelve a
+    // la fila REAL de product_categories -- antes esta ruta ni siquiera
+    // guardaba item.category (se calculaba y se descartaba), así que un
+    // import masivo dejaba TODOS los productos sin categoría real, sin
+    // importar lo que dijera la planilla. Se cachea por nombre normalizado
+    // dentro de este import puntual para no repetir el lookup/insert por
+    // cada fila que comparte categoría.
+    const categoryIdCache = new Map<string, number | null>();
     const results = [];
     for (const item of processedProducts) {
       try {
+        let categoryId: number | null = null;
+        if (item.category) {
+          const key = item.category.trim().toLowerCase();
+          if (categoryIdCache.has(key)) {
+            categoryId = categoryIdCache.get(key)!;
+          } else {
+            categoryId = await resolveCategoryId(tenantId, item.category);
+            categoryIdCache.set(key, categoryId);
+          }
+        }
         const [created] = await db
           .insert(products)
           .values({
@@ -190,6 +209,8 @@ router.post("/bulk-smart", async (req: TenantRequest, res, next) => {
             description: item.description,
             price: String(item.price),
             currency: item.currency,
+            category: item.category || null,
+            categoryId,
             kind: "digital",
             imageUrl: item.imageUrl,
             isActive: true,

@@ -541,10 +541,12 @@ export const TOOLS: ToolDef[] = [
   // ── Productos (CRUD) ──
   {
     name: "create_product",
-    description: "Crear un producto o servicio nuevo.",
+    description: "Crear un producto o servicio nuevo. Si das 'category' (texto) y no un 'categoryId' puntual, se resuelve/crea automáticamente la categoría real -- nunca queda un producto con la etiqueta de texto desconectada de la categoría real (eso es lo que rompía el filtrado por categoría antes).",
     args: '{ "name": string (req), "price"?: number, "currency"?: string, "description"?: string, "category"?: string, "categoryId"?: number, "kind"?: "digital"|"service"|"physical", "imageUrl"?: string, "features"?: string[], "deliveryLink"?: string, "paymentLink"?: string, "isActive"?: boolean }',
     run: async (args, ctx) => {
       if (!args.name) return { ok: false, summary: "Falta 'name'" };
+      const { resolveCategoryId } = await import("./product-categories");
+      const categoryId = num(args.categoryId) ?? await resolveCategoryId(ctx.tenantId, args.category);
       const [row] = await db.insert(products).values({
         tenantId: ctx.tenantId,
         name: String(args.name),
@@ -552,7 +554,7 @@ export const TOOLS: ToolDef[] = [
         price: (num(args.price) ?? 0) as any,
         currency: args.currency || "COP",
         category: args.category || "",
-        categoryId: num(args.categoryId) ?? null,
+        categoryId,
         kind: args.kind || "digital",
         imageUrl: args.imageUrl || "",
         features: Array.isArray(args.features) ? args.features : [],
@@ -566,7 +568,7 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: "update_product",
-    description: "Actualizar campos de un producto existente por id. Solo se cambian los campos enviados.",
+    description: "Actualizar campos de un producto existente por id. Solo se cambian los campos enviados. Si mandás 'category' (texto) sin 'categoryId' puntual, se resuelve/crea automáticamente la categoría real y se re-vincula -- nunca queda la etiqueta de texto desconectada de la categoría real.",
     args: '{ "id": number (req), "name"?, "price"?, "currency"?, "description"?, "category"?, "categoryId"?, "kind"?, "imageUrl"?, "features"?: string[], "deliveryLink"?, "paymentLink"?, "highlight"?, "isActive"?: boolean }',
     run: async (args, ctx) => {
       const id = num(args.id);
@@ -578,7 +580,12 @@ export const TOOLS: ToolDef[] = [
         if (args[k] !== undefined) patch[k] = args[k];
       }
       if (args.price !== undefined) patch.price = num(args.price);
-      if (args.categoryId !== undefined) patch.categoryId = num(args.categoryId);
+      if (args.categoryId !== undefined) {
+        patch.categoryId = num(args.categoryId);
+      } else if (args.category !== undefined) {
+        const { resolveCategoryId } = await import("./product-categories");
+        patch.categoryId = await resolveCategoryId(ctx.tenantId, args.category);
+      }
       if (args.features !== undefined) patch.features = Array.isArray(args.features) ? args.features : existing.features;
       if (args.isActive !== undefined) patch.isActive = !!args.isActive;
       if (Object.keys(patch).length === 0) return { ok: false, summary: "Nada que actualizar" };
@@ -1689,24 +1696,24 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: "email_campaign_send",
-    description: "Envía un correo de remarketing a los leads guardados (filtrable por 'stage'). Usa el SMTP configurado del negocio, o el del servidor si no configuró uno propio. Nunca incluye leads con opt_out=true. Acción real e irreversible una vez enviada → requiere confirmación explícita del admin mostrando el asunto, el mensaje y a cuántos leads les llega ANTES de ejecutar. Hay un tope de seguridad por envío (300 destinatarios); si el segmento es más grande, acotá con 'stage' o dividí en varias tandas.",
-    args: '{ "subject": string (req), "html": string (req, cuerpo del correo en HTML simple), "stage"?: string (opcional, filtra leads por etapa: "new", "cierre", etc — si se omite, aplica a todos los leads con email y sin opt_out) }',
+    description: "Encola un correo de remarketing para los leads guardados (filtrable por 'stage'). Progresivo, NO masivo: no se manda todo de una, queda encolado y remarketing-scheduler.ts lo va mandando en tandas de a poco durante varias horas -- así el patrón de envío no se lee como un blast. Sin 'stage', apunta solo a leads potenciales (excluye automáticamente 'converted' y 'lost', que no son remarketing). Usa el SMTP configurado del negocio. Nunca incluye leads con opt_out=true. Acción real e irreversible una vez que empieza a mandarse → requiere confirmación explícita del admin mostrando el asunto, el mensaje y a cuántos leads les llega ANTES de encolar. Tope de 300 destinatarios por campaña; si el segmento es más grande, acotá con 'stage' o dividí en varias campañas.",
+    args: '{ "subject": string (req), "html": string (req, cuerpo del correo en HTML simple), "stage"?: string (opcional, filtra leads por etapa puntual — si se omite, aplica a leads potenciales sin opt_out, excluyendo convertidos/perdidos) }',
     run: async (args, ctx) => {
       if (!args.subject || !args.html) return { ok: false, summary: "Faltan 'subject' y/o 'html'" };
-      const { sendEmailCampaign } = await import("./remarketing");
-      const r = await sendEmailCampaign(ctx.tenantId, { subject: String(args.subject), html: String(args.html), stage: args.stage ? String(args.stage) : undefined });
-      return { ok: r.ok, summary: `📧 ${r.summary}`, data: r };
+      const { queueEmailCampaign } = await import("./remarketing");
+      const r = await queueEmailCampaign(ctx.tenantId, { subject: String(args.subject), html: String(args.html), stage: args.stage ? String(args.stage) : undefined });
+      return { ok: r.ok, summary: r.summary, data: r };
     },
   },
   {
     name: "whatsapp_broadcast_send",
-    description: "Manda el mismo mensaje de WhatsApp a los leads guardados (filtrable por 'stage'). Usa el WhatsApp ya conectado del negocio, con espera entre cada envío para reducir el riesgo de que Meta marque el número por enviar en ráfaga. Nunca incluye leads con opt_out=true. RIESGO REAL: mandar de más o muy seguido puede hacer que WhatsApp banee o restrinja el número del negocio -- por eso el tope de seguridad es más bajo que el de email (80 por envío) y por eso esto SIEMPRE requiere que el admin confirme explícitamente el mensaje exacto y el segmento antes de ejecutar, sin excepciones.",
-    args: '{ "message": string (req), "stage"?: string (opcional, filtra leads por etapa — si se omite, aplica a todos los leads sin opt_out) }',
+    description: "Encola el mismo mensaje de WhatsApp para los leads guardados (filtrable por 'stage'). Progresivo, NO masivo: no se manda todo de una, queda encolado y remarketing-scheduler.ts lo va mandando en tandas chicas (5 cada 10 min) durante el día -- reduce mucho el riesgo de que Meta marque el número por un patrón de ráfaga. Sin 'stage', apunta solo a leads potenciales (excluye automáticamente 'converted' y 'lost'). Usa el WhatsApp ya conectado del negocio. Nunca incluye leads con opt_out=true. RIESGO REAL si se abusa igual: por eso el tope de seguridad es más bajo que el de email (80 por campaña) y por eso esto SIEMPRE requiere que el admin confirme explícitamente el mensaje exacto y el segmento antes de encolar, sin excepciones.",
+    args: '{ "message": string (req), "stage"?: string (opcional, filtra leads por etapa puntual — si se omite, aplica a leads potenciales sin opt_out, excluyendo convertidos/perdidos) }',
     run: async (args, ctx) => {
       if (!args.message) return { ok: false, summary: "Falta 'message'" };
-      const { sendWhatsappBroadcast } = await import("./remarketing");
-      const r = await sendWhatsappBroadcast(ctx.tenantId, { message: String(args.message), stage: args.stage ? String(args.stage) : undefined });
-      return { ok: r.ok, summary: `📲 ${r.summary}`, data: r };
+      const { queueWhatsappBroadcast } = await import("./remarketing");
+      const r = await queueWhatsappBroadcast(ctx.tenantId, { message: String(args.message), stage: args.stage ? String(args.stage) : undefined });
+      return { ok: r.ok, summary: r.summary, data: r };
     },
   },
 ];
