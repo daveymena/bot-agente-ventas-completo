@@ -27,7 +27,7 @@ interface Message {
 
 const GREETING: Record<Mode, string> = {
   operator:
-    "Soy tu Arquitecto IA. Puedo crear y editar productos, categorías, el agente, la configuración y la tienda. Dime qué necesitas y lo hago.",
+    "Soy Atlas, tu asistente VentasPro. Puedo crear y editar productos, categorías, el agente, la configuración y la tienda. Dime qué necesitas y lo hago.",
   agent:
     "Modo diseño de agente. Analizo tu negocio y configuro el ADN de tu agente de ventas.",
 };
@@ -159,7 +159,7 @@ export default function CodeAgent() {
         toast.success("Agente configurado");
       }
     } catch (err: any) {
-      toast.error(err.message || "Error al comunicar con el Arquitecto IA");
+      toast.error(err.message || "Error al comunicar con Atlas");
       setMessages((prev) => [...prev, { role: "assistant", content: `Error: ${err.message}` }]);
     } finally {
       setLoading(false);
@@ -187,8 +187,8 @@ export default function CodeAgent() {
               <Bot className="w-5 h-5 text-white" />
             </div>
             <div className="min-w-0">
-              <h1 className="text-xl md:text-2xl font-bold tracking-tight truncate">Arquitecto IA</h1>
-              <p className="text-muted-foreground text-xs md:text-sm truncate">Opera tu app con lenguaje natural</p>
+              <h1 className="text-xl md:text-2xl font-bold tracking-tight truncate">Atlas VentasPro</h1>
+              <p className="text-muted-foreground text-xs md:text-sm truncate">Tu asistente para operar la app con lenguaje natural</p>
             </div>
           </div>
           <div className="flex items-center gap-2 shrink-0 self-end sm:self-auto">

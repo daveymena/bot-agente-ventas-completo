@@ -11,7 +11,7 @@ const mainNavItems = [
 ];
 
 const baseMoreItems = [
-  { label: "Arquitecto IA", href: "/code-agent", icon: Wand2, highlight: true },
+  { label: "Atlas VentasPro", href: "/code-agent", icon: Wand2, highlight: true },
   { label: "Agentes IA", href: "/agents", icon: Bot },
   { label: "WhatsApp", href: "/whatsapp", icon: Phone },
   { label: "Configuración", href: "/settings", icon: Settings },

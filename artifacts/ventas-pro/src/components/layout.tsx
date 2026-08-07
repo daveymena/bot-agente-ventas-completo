@@ -50,7 +50,7 @@ export function AppSidebar() {
       { label: "Administrador", href: "/admin/tenants", icon: Crown },
     ] : []),
     { label: "WooCommerce", href: "/woocommerce", icon: ShoppingCart },
-    { label: "Arquitecto IA", href: "/code-agent", icon: Wand2 },
+    { label: "Atlas VentasPro", href: "/code-agent", icon: Wand2 },
     { label: "Personalización", href: "/branding", icon: Palette },
     { label: "Facebook", href: "/facebook", icon: Facebook },
     { label: "Configuración", href: "/settings", icon: Settings },

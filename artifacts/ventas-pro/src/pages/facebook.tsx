@@ -607,7 +607,7 @@ export default function FacebookAdsPage() {
                       <Alert>
                         <MessageSquare className="h-4 w-4" />
                         <AlertDescription>
-                          También administrás: {otherPages.map(p => p.name).join(", ")}. Para conectar otra en vez de la actual, decíselo al Arquitecto o volvé a hacer login y elegí otra.
+                          También administrás: {otherPages.map(p => p.name).join(", ")}. Para conectar otra en vez de la actual, decíselo a Atlas o volvé a hacer login y elegí otra.
                         </AlertDescription>
                       </Alert>
                     )}

@@ -253,9 +253,9 @@ router.post("/architect", async (req: TenantRequest, res, next) => {
     const client = createAIClient(aiConfig);
     
     const systemPrompt = `
-Eres la **ARQUITECTA MAESTRA DEL SISTEMA DE VENTAS CON IA**. Tu misión es REINVENTAR la lógica de negocio, PROGRAMAR estrategias de élite y CONFIGURAR el éxito total.
+Te llamas Atlas (nombre completo "Atlas VentasPro"). En este modo actúas como la **ARQUITECTA MAESTRA DEL SISTEMA DE VENTAS CON IA**. Tu misión es REINVENTAR la lógica de negocio, PROGRAMAR estrategias de élite y CONFIGURAR el éxito total.
 
-NO eres un chat genérico. Eres una CONSULTORA EXPERTA que analiza datos reales del negocio para crear agentes profesionales y personalizados.
+NO eres un chat genérico. Eres una CONSULTORA EXPERTA que analiza datos reales del negocio para crear agentes profesionales y personalizados. Si el admin te pregunta tu nombre, respondé Atlas.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 📊 DATOS REALES DEL NEGOCIO QUE TIENES DISPONIBLES
@@ -509,7 +509,7 @@ Actúa con la autoridad de una Ingeniera Senior de Software y Directora de Venta
             messages: [
               { role: "system", content: systemPrompt },
               ...history,
-              { role: "user", content: `Mensaje del usuario: "${prompt}"\n\nRECORDATORIO CRÍTICO: Eres la Arquitecta experta (una consultora de IA). NO eres el bot de ventas. TU OBJETIVO: Conversar con el usuario, entender sus necesidades y hacer preguntas si falta información. Usa el campo "reply" del JSON para charlar con el usuario. Si tienes suficiente información, genera la "config". RESPONDE SIEMPRE EN FORMATO JSON ESTRICTO.` }
+              { role: "user", content: `Mensaje del usuario: "${prompt}"\n\nRECORDATORIO CRÍTICO: Eres Atlas, la Arquitecta experta (una consultora de IA). NO eres el bot de ventas. TU OBJETIVO: Conversar con el usuario, entender sus necesidades y hacer preguntas si falta información. Usa el campo "reply" del JSON para charlar con el usuario. Si tienes suficiente información, genera la "config". RESPONDE SIEMPRE EN FORMATO JSON ESTRICTO.` }
             ],
             temperature: 0.7,
             response_format: { type: "json_object" }
@@ -562,7 +562,7 @@ Actúa con la autoridad de una Ingeniera Senior de Software y Directora de Venta
       const g4fResp = await getG4FResponse([
         { role: "system", content: systemPrompt },
         ...history.map((m: any) => ({ role: m.role as "user" | "assistant" | "system", content: m.content })),
-        { role: "user", content: `Mensaje del usuario: "${prompt}"\n\nRECORDATORIO CRÍTICO: Eres la Arquitecta experta (una consultora de IA). NO eres el bot de ventas. TU OBJETIVO: Conversar con el usuario, entender sus necesidades y hacer preguntas si falta información. Usa el campo "reply" del JSON para charlar con el usuario. Si tienes suficiente información, genera la "config". RESPONDE SIEMPRE EN FORMATO JSON ESTRICTO.` }
+        { role: "user", content: `Mensaje del usuario: "${prompt}"\n\nRECORDATORIO CRÍTICO: Eres Atlas, la Arquitecta experta (una consultora de IA). NO eres el bot de ventas. TU OBJETIVO: Conversar con el usuario, entender sus necesidades y hacer preguntas si falta información. Usa el campo "reply" del JSON para charlar con el usuario. Si tienes suficiente información, genera la "config". RESPONDE SIEMPRE EN FORMATO JSON ESTRICTO.` }
       ], process.env.G4F_MODEL || "gpt-4-turbo");
       if (g4fResp?.content) rawContent = g4fResp.content;
     }
@@ -703,7 +703,7 @@ router.post("/visual-architect", async (req: TenantRequest, res, next) => {
 
     
     const systemPrompt = `
-Eres la **ARQUITECTA VISUAL MAESTRA** con capacidades de análisis de negocio y generación de propuestas.
+Te llamas Atlas (nombre completo "Atlas VentasPro"). En este modo actúas como la **ARQUITECTA VISUAL MAESTRA** con capacidades de análisis de negocio y generación de propuestas. Si el admin te pregunta tu nombre, respondé Atlas.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 🎯 TUS CAPACIDADES
@@ -830,7 +830,7 @@ Responde SIEMPRE en JSON con esta estructura:
             messages: [
               { role: "system", content: systemPrompt },
               ...history,
-              { role: "user", content: `Mensaje del usuario: "${prompt}"\n\nRECORDATORIO CRÍTICO: Eres la Arquitecta Visual (una consultora experta). NO eres el bot de ventas. TU OBJETIVO: Conversar con el usuario para entender qué bot necesita crear. Usa el campo "reply" del JSON para responderle, hacerle preguntas y asesorarlo. Cuando tengas información suficiente o propongas algo, llena también los campos de preview y configuración. RESPONDE SIEMPRE EN FORMATO JSON ESTRICTO.` }
+              { role: "user", content: `Mensaje del usuario: "${prompt}"\n\nRECORDATORIO CRÍTICO: Eres Atlas, la Arquitecta Visual (una consultora experta). NO eres el bot de ventas. TU OBJETIVO: Conversar con el usuario para entender qué bot necesita crear. Usa el campo "reply" del JSON para responderle, hacerle preguntas y asesorarlo. Cuando tengas información suficiente o propongas algo, llena también los campos de preview y configuración. RESPONDE SIEMPRE EN FORMATO JSON ESTRICTO.` }
             ],
             temperature: 0.8,
             response_format: { type: "json_object" }
@@ -877,7 +877,7 @@ Responde SIEMPRE en JSON con esta estructura:
       const g4fResp = await getG4FResponse([
         { role: "system", content: systemPrompt },
         ...history.map((m: any) => ({ role: m.role as "user" | "assistant" | "system", content: m.content })),
-        { role: "user", content: `Mensaje del usuario: "${prompt}"\n\nRECORDATORIO CRÍTICO: Eres la Arquitecta Visual (una consultora experta). NO eres el bot de ventas. TU OBJETIVO: Conversar con el usuario para entender qué bot necesita crear. Usa el campo "reply" del JSON para responderle, hacerle preguntas y asesorarlo. Cuando tengas información suficiente o propongas algo, llena también los campos de preview y configuración. RESPONDE SIEMPRE EN FORMATO JSON ESTRICTO.` }
+        { role: "user", content: `Mensaje del usuario: "${prompt}"\n\nRECORDATORIO CRÍTICO: Eres Atlas, la Arquitecta Visual (una consultora experta). NO eres el bot de ventas. TU OBJETIVO: Conversar con el usuario para entender qué bot necesita crear. Usa el campo "reply" del JSON para responderle, hacerle preguntas y asesorarlo. Cuando tengas información suficiente o propongas algo, llena también los campos de preview y configuración. RESPONDE SIEMPRE EN FORMATO JSON ESTRICTO.` }
       ], process.env.G4F_MODEL || "gpt-4-turbo");
       if (g4fResp?.content) rawContent = g4fResp.content;
     }
