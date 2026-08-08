@@ -514,15 +514,26 @@ Responde SOLO con este JSON exacto:
       // endpoint /adimages no está disponible para esta aplicación (error #3);
       // pasando la URL directamente Facebook la descarga y cachea él mismo.
       //
-      // Advantage+ Creative vía creative_features_spec -- verificado en vivo
-      // contra la cuenta real (act_1545022093928422, generatepreviews) que
-      // estos 5 flags son válidos. Meta NO devuelve fotos alternativas para
-      // elegir por API: retoca/expande la MISMA imagen que se le manda al
-      // momento de entregar el anuncio. image_touchups/brightness/uncrop
-      // (los que alteran la imagen) solo se activan con foto real del
-      // producto -- ver hasRealProductImage arriba.
+      // Advantage+ Creative -- verificado en vivo (2026-08-08) contra la
+      // cuenta real que el campo `creative_features_spec` EN LA RAÍZ del
+      // payload es aceptado por la API (no da error) pero Meta lo IGNORA
+      // por completo: el creativo quedaba creado con
+      // degrees_of_freedom_spec.creative_features_spec en OPT_OUT para
+      // TODO, pese a pedir OPT_IN -- confirmado leyendo el creativo recién
+      // creado, nunca se activaba ninguna mejora real. El campo correcto
+      // que Meta sí lee va ANIDADO dentro de `degrees_of_freedom_spec`.
+      // Además, probado en vivo que:
+      //  - `standard_enhancements` está OBSOLETO en este campo (error 100/
+      //    subcódigo 3858504: "Define funciones individuales en su lugar")
+      //    -- por eso NO va acá, solo las mejoras individuales de abajo.
+      //  - `image_background_gen` requiere un catálogo asociado al anuncio
+      //    (error 100/subcódigo 3858293: "solo está disponible si hay un
+      //    catálogo seleccionado") -- esta cuenta no crea anuncios vía
+      //    catálogo, así que NO se manda; agregarla de nuevo el día que se
+      //    pase a Advantage+ catalog ads.
+      // image_touchups/brightness/uncrop (los que alteran la imagen) solo
+      // se activan con foto real del producto -- ver hasRealProductImage.
       const creativeFeaturesSpec: Record<string, any> = {
-        standard_enhancements: { enroll_status: "OPT_IN" },
         text_optimizations: { enroll_status: "OPT_IN" },
         enhance_cta: { enroll_status: "OPT_IN" },
       };
@@ -530,10 +541,6 @@ Responde SOLO con este JSON exacto:
         creativeFeaturesSpec.image_touchups = { enroll_status: "OPT_IN" };
         creativeFeaturesSpec.image_brightness_and_contrast = { enroll_status: "OPT_IN" };
         creativeFeaturesSpec.image_uncrop = { enroll_status: "OPT_IN" };
-        // Meta genera fondos alternativos con su IA (Emu) sobre la imagen
-        // del producto -- equivale a la función "Generar variaciones" del
-        // Ads Manager pero activada automáticamente por API.
-        creativeFeaturesSpec.image_background_gen = { enroll_status: "OPT_IN" };
       }
       const creativePayload: Record<string, any> = {
         name: `${product.name} - Creativo`,
@@ -553,7 +560,7 @@ Responde SOLO con este JSON exacto:
             call_to_action: { type: "SHOP_NOW" },
           },
         },
-        creative_features_spec: creativeFeaturesSpec,
+        degrees_of_freedom_spec: { creative_features_spec: creativeFeaturesSpec },
       };
       if (creativeImageUrl) {
         creativePayload.object_story_spec.link_data.picture = creativeImageUrl;

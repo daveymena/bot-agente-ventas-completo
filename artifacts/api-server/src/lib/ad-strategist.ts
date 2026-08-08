@@ -615,23 +615,30 @@ Este contenido digital es tu atajo directo a resultados profesionales.
       // (la aplicación no tiene la capacidad adimages - error #3 de Graph API).
       // Facebook descarga y cachea la imagen desde la URL directamente.
       //
-      // Advantage+ Creative: mejoras automáticas de imagen vía
-      // creative_features_spec. Verificado en vivo contra la cuenta real
-      // (act_1545022093928422, generatepreviews) que estos 5 flags son
-      // válidos y los acepta la cuenta -- Facebook NO devuelve fotos
-      // alternativas para elegir por API, retoca/expande la MISMA foto que
-      // se le manda al momento de entregar el anuncio.
+      // Advantage+ Creative -- verificado en vivo (2026-08-08) contra la
+      // cuenta real que el campo `creative_features_spec` EN LA RAÍZ del
+      // payload es aceptado sintácticamente pero Meta lo IGNORA por
+      // completo: el creativo quedaba creado con
+      // degrees_of_freedom_spec.creative_features_spec en OPT_OUT para
+      // TODO pese a pedir OPT_IN (confirmado leyendo el creativo recién
+      // creado). El campo correcto que Meta sí lee va ANIDADO dentro de
+      // `degrees_of_freedom_spec` (ver creativePayload más abajo). Además:
+      //  - `standard_enhancements` está OBSOLETO acá (error 100/subcódigo
+      //    3858504: "Define funciones individuales en su lugar") -- por
+      //    eso no va, solo las mejoras individuales de abajo.
+      //  - `image_background_gen` requiere catálogo asociado al anuncio
+      //    (error 100/subcódigo 3858293) -- esta cuenta no crea anuncios
+      //    vía catálogo, así que no se manda.
       //
       // image_uncrop (expandir/generar fondo) y image_brightness_and_contrast
       // solo se activan si hay una foto REAL del producto (hasRealProductImage):
       // aplicarlas sobre el placeholder gris de texto no tiene nada que
       // "realzar" y puede terminar generando un fondo que se parece todavía
       // menos al curso real -- exactamente el problema de "la foto no
-      // corresponde al producto" que se reportó. standard_enhancements,
-      // text_optimizations y enhance_cta son retoques seguros (no alteran
-      // qué se ve en la imagen) y quedan activos siempre.
+      // corresponde al producto" que se reportó. text_optimizations y
+      // enhance_cta son retoques seguros (no alteran qué se ve en la
+      // imagen) y quedan activos siempre.
       const creativeFeaturesSpec: Record<string, any> = {
-        standard_enhancements: { enroll_status: "OPT_IN" },
         text_optimizations: { enroll_status: "OPT_IN" },
         enhance_cta: { enroll_status: "OPT_IN" },
       };
@@ -639,12 +646,6 @@ Este contenido digital es tu atajo directo a resultados profesionales.
         creativeFeaturesSpec.image_touchups = { enroll_status: "OPT_IN" };
         creativeFeaturesSpec.image_brightness_and_contrast = { enroll_status: "OPT_IN" };
         creativeFeaturesSpec.image_uncrop = { enroll_status: "OPT_IN" };
-        // Meta genera fondos alternativos con su IA (modelo Emu) sobre la
-        // imagen del producto y elige el que mejor convierte -- exactamente
-        // la función "Generar variaciones" del Ads Manager, pero automática
-        // y sin intervención manual. Solo aplica sobre fotos reales (no
-        // placeholders de texto) para que el fondo generado tenga sentido.
-        creativeFeaturesSpec.image_background_gen = { enroll_status: "OPT_IN" };
       }
       // asset_feed_spec (Dynamic Creative con varias imágenes) NO se usa acá.
       // Se probó en vivo contra la cuenta real: generatepreviews lo acepta
@@ -672,7 +673,7 @@ Este contenido digital es tu atajo directo a resultados profesionales.
             ...(imageUrl ? { picture: imageUrl } : {}),
           },
         },
-        creative_features_spec: creativeFeaturesSpec,
+        degrees_of_freedom_spec: { creative_features_spec: creativeFeaturesSpec },
       };
       const creative = await this.fbPost(act, "adcreatives", accessToken, creativePayload);
 
