@@ -10,7 +10,7 @@
  *  - Plan pendiente  → memoryType "decision",   title "pending_plan", content = JSON de acciones
  */
 import { db, architectMemory } from "@workspace/db";
-import { and, eq, asc, desc } from "drizzle-orm";
+import { and, eq, asc, desc, inArray } from "drizzle-orm";
 
 export interface ChatTurn {
   role: "user" | "assistant";
@@ -184,12 +184,26 @@ export async function clearArchitectHistory(
   tenantId: number,
   sessionId: string,
 ): Promise<void> {
+  // Borra el TRANSCRIPT visible ("observation") y cualquier plan pendiente
+  // sin confirmar ("decision" -- no debe sobrevivir a un reset, si quedara
+  // colgado un "sí" suelto en la conversación nueva podría confirmar por
+  // accidente un plan de OTRO pedido). Lo que NO se borra: "research_evidence".
+  // Encontrado en vivo: el frontend nunca manda un sessionId propio (siempre
+  // "default", ver code-agent.tsx), así que "Nueva conversación" -- pensado
+  // como "limpiar lo que veo en pantalla" -- borraba TAMBIÉN la evidencia de
+  // investigación real (con su propia ventana de vigencia de 3h en
+  // hasRecentResearch()). El admin investigaba de verdad, apretaba Nueva por
+  // cualquier motivo, y el siguiente fb_ad_draft volvía a rechazar esa misma
+  // investigación real -- un loop de "todavía no investigaste nada" que desde
+  // afuera no tenía ninguna explicación, porque la investigación SÍ había
+  // pasado.
   await db
     .delete(architectMemory)
     .where(
       and(
         eq(architectMemory.tenantId, tenantId),
         eq(architectMemory.sessionId, sessionId),
+        inArray(architectMemory.memoryType, ["observation", "decision"]),
       ),
     );
 }
