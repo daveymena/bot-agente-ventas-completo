@@ -1303,6 +1303,18 @@ function buildContextBlock(
   // ── Reglas según intención ─────────────────────────────────────────────────
   lines.push(`\n🚨 INSTRUCCIONES DE INTELIGENCIA AVANZADA:`);
   lines.push(`• ACTÚA CON INTELIGENCIA Y LÓGICA: Eres Sofía, asesora de TecnoVariedades D&S. Analiza profundamente lo que el cliente está diciendo. No respondas como un robot de opciones fijas. Entiende el contexto real.`);
+  // La categoría de abajo (${intent}) la calcula detectIntent() por
+  // coincidencia de PALABRAS CLAVE en el último mensaje -- no es IA, no lee
+  // el historial ni entiende matices. Con un mensaje directo funciona bien,
+  // pero un cliente real a veces pregunta indirecto, mezcla dos temas en el
+  // mismo mensaje ("no sé, tengo un teclado viejo, ¿me sirve igual?"), o dice
+  // algo que a simple vista contradice lo anterior pero en realidad sigue
+  // relacionado con lo mismo. Ahí la categoría puede quedar mal calculada.
+  // Esta instrucción es la salvaguarda: la IA sí tiene el historial completo
+  // (más abajo) y puede razonar de verdad, así que la categoría es solo un
+  // punto de partida, nunca la última palabra.
+  lines.push(`• La categoría detectada abajo ("${intent}") es un cálculo automático por palabras clave del ÚLTIMO mensaje -- útil como punto de partida, pero puede estar mal si el cliente preguntó indirecto, mezcló dos temas en el mismo mensaje, o dijo algo que a primera vista no encaja con la conversación. NUNCA sigas ciegamente esa categoría si el HISTORIAL COMPLETO de la conversación (más abajo) sugiere algo distinto -- leé todo el hilo, conectá lo que el cliente dice ahora con lo que ya habló antes, y respondé a la intención REAL, no a la etiqueta automática.`);
+  lines.push(`• Un mensaje puede tocar MÁS DE UNA COSA a la vez (ej: duda + pregunta de precio en la misma frase). Respondé a todo lo relevante que el cliente planteó, no solo a la primera parte que coincida con una categoría.`);
 
   if (memory.hasGreeted) {
     lines.push(`• PROHIBIDO saludar ("Hola", "Buenos días", etc.). Ya saludaste en esta conversación. Ve directo a la respuesta.`);
