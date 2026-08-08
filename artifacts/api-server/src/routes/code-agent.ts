@@ -1325,8 +1325,13 @@ router.post("/operator", async (req: TenantRequest, res, next) => {
         }
         await clearPendingPlan(tenantId, sessionId);
         const allOk = executed.every((item) => item.ok);
+        // join("\n\n"), no "\n": el frontend renderiza con ReactMarkdown, que
+        // colapsa un solo salto de línea a un espacio -- con un solo plan
+        // que ejecuta VARIAS acciones (ej: dos fb_ad_draft en la misma
+        // confirmación), los resultados quedaban pegados uno contra el otro
+        // sin ninguna separación visible entre un borrador y el siguiente.
         const reply = toEmojiStyle(
-          `${allOk ? "✅ Plan ejecutado y verificado" : "⚠️ El plan terminó con errores; no voy a decir que quedó listo"}:\n\n${lines.join("\n")}`,
+          `${allOk ? "✅ Plan ejecutado y verificado" : "⚠️ El plan terminó con errores; no voy a decir que quedó listo"}:\n\n${lines.join("\n\n")}`,
         );
         await saveArchitectTurn(tenantId, sessionId, "assistant", reply);
         logger.info({ tenantId, executed: executed.length }, "[AppOperator] Plan aprobado y ejecutado");

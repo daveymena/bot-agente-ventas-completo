@@ -1302,14 +1302,21 @@ export const TOOLS: ToolDef[] = [
         // un borrador" sin mostrar una sola palabra del copy real. El admin
         // aprobaba a ciegas y, después de aprobar, seguía sin ver qué se
         // había generado. Ahora el copy completo va en el summary mismo.
+        //
+        // join("\n\n") y no "\n": el frontend renderiza la reply con
+        // ReactMarkdown -- en Markdown/CommonMark un solo salto de línea
+        // dentro de un párrafo se colapsa a un espacio (no hay línea nueva
+        // visible), solo una línea EN BLANCO (doble salto) separa párrafos
+        // de verdad. Con un solo "\n" todo el borrador salía como un bloque
+        // aplastado sin ninguna separación visible entre título/texto/precio.
         const copyPreview = [
           `📝 Borrador de anuncio para "${draft.productName}" (nicho: ${draft.strategy.niche})${groundedNote}:`,
           `🎯 Título: ${draft.headline}`,
-          `✍️ Texto principal: ${draft.primaryText}`,
+          `✍️ Texto principal:\n${draft.primaryText}`,
           `📄 Descripción: ${draft.description}`,
           draft.imageUrl ? `🖼️ Imagen: ${draft.imageUrl}` : `🖼️ Sin imagen asignada todavía`,
           `💾 Guardado local, no se tocó la cuenta de Meta.`,
-        ].join("\n");
+        ].join("\n\n");
         return {
           ok: true,
           summary: copyPreview,

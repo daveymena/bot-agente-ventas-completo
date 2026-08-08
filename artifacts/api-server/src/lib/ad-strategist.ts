@@ -8,6 +8,20 @@ import { generateProductImage } from "./ai-product-image";
 
 const FB_GRAPH_URL = "https://graph.facebook.com/v21.0";
 
+// Corta en el último espacio dentro del límite en vez de a lo bruto -- un
+// substring ciego partía nombres de producto a mitad de palabra (ej: "Curso
+// de Piano Completo: De Cero a" con "Nivel Avanzado" perdido sin ni un "…"
+// que avise que se cortó). Si no hay un espacio razonablemente cerca del
+// límite (título de una sola palabra larga), corta igual pero al menos
+// avisa con "…".
+function truncateAtWord(text: string, maxLen: number): string {
+  if (text.length <= maxLen) return text;
+  const cut = text.slice(0, maxLen);
+  const lastSpace = cut.lastIndexOf(" ");
+  const clean = lastSpace > maxLen * 0.6 ? cut.slice(0, lastSpace) : cut;
+  return clean.trimEnd() + "…";
+}
+
 export interface AdStrategy {
   niche: string;
   hook: string;
@@ -343,7 +357,7 @@ Este contenido digital es tu atajo directo a resultados profesionales.
     // Headline corto (< 40 chars): emoji de categoría + nombre real del
     // producto. (Antes decía "+15.000 Alumnos" fijo en TODOS los anuncios --
     // una cifra sin respaldo real, se sacó.)
-    const headline = `${getEmoji()} ${name.replace(/^📂\s*/, "").substring(0, 35)}`;
+    const headline = `${getEmoji()} ${truncateAtWord(name.replace(/^📂\s*/, ""), 35)}`;
     const description = priceFormatted === "Consulta"
       ? "Consulta disponible • Acceso permanente"
       : `$${priceFormatted} ${currency} • Pago único • Acceso permanente`;
