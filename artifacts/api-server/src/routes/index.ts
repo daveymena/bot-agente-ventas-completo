@@ -33,7 +33,6 @@ import responseAnalyticsRouter from "./response-analytics";
 import architectToolsRouter from "./architect-tools";
 import architectRouter from "./architect";
 import pricingRouter from "./pricing";
-import tenantConfigRouter from "./tenant-config";
 
 const router: IRouter = Router();
 
@@ -80,7 +79,6 @@ router.use("/architect", architectRouter);
 // públicos (listado de planes), pero /upgrade y /current/info sí reciben
 // req.tenant real.
 router.use("/pricing", pricingRouter);
-router.use("/tenant-config", tenantConfigRouter);
 
 // Usar el manejador de errores centralizado
 router.use(errorHandler);
