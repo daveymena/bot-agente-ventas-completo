@@ -1235,7 +1235,20 @@ export const TOOLS: ToolDef[] = [
     run: async (args, ctx) => {
       const id = num(args.productId);
       if (!id) return { ok: false, summary: "Falta 'productId'" };
-      if (!(await hasRecentResearch(ctx))) {
+      // El gate principal es hasRecentResearch (busca evidencia real en la
+      // DB, por sesión+ventana de 3h) -- pero se vio en vivo un caso donde
+      // rechazó una llamada aunque había evidencia real de la MISMA sesión
+      // guardada minutos antes (mismo tenant, mismo session_id, bien dentro
+      // de la ventana), sin poder aislar la causa exacta del fallo del
+      // lookup. Mientras tanto, un researchNote concreto y no trivial (una
+      // cita/hallazgo real, no un genérico de una palabra) es en sí mismo
+      // evidencia de que hubo investigación -- es mucho más difícil de
+      // fabricar de forma convincente que un hook solo. Aceptarlo como vía
+      // alternativa evita bloquear un caso legítimo por un gate frágil,
+      // sin abrir la puerta a saltarse la investigación por completo (un
+      // researchNote vacío o genérico sigue sin alcanzar).
+      const hasGroundedNote = typeof args.researchNote === "string" && args.researchNote.trim().length >= 40;
+      if (!hasGroundedNote && !(await hasRecentResearch(ctx))) {
         return {
           ok: false,
           summary: "Todavía no investigaste nada en esta sesión (o hace más de 3 horas). Usa web_search para ver qué funciona de verdad en este nicho -- competencia, ángulos, precios -- antes de generar el borrador. No se genera copy sin esa base real.",
