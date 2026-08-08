@@ -1225,6 +1225,21 @@ router.post("/operator", async (req: TenantRequest, res, next) => {
     const sessionId: string = (req.body?.sessionId as string) || "default";
     const ctx: OperatorContext = { tenantId, sessionId };
 
+    // Errores de CUENTA de Meta (certificación de política de no
+    // discriminación, método de pago, verificación de identidad/negocio) no
+    // se arreglan con ninguna herramienta del sistema -- son una acción que
+    // solo el dueño de la cuenta puede hacer fuera de la app, en una URL
+    // específica que Meta. Lanzar self-repair igual sólo desperdicia pasos y
+    // termina creando y borrando campañas de prueba reales en Ads Manager
+    // para nada (confirmado en vivo 2026-08-08: campaña→conjunto→creativo se
+    // crean bien, y el /ads final rechaza con "certifica en
+    // facebook.com/certification/nondiscrimination", código 3/2859002 -- ni
+    // reintentar ni "arreglar" nada del lado del código cambia ese resultado).
+    const isUnfixableMetaAccountError = (msg: string) =>
+      /facebook\.com\/certification|m[eé]todo de pago|payment method|verificar tu identidad|business verification/i.test(
+        msg || "",
+      );
+
     // Cuando una acción YA APROBADA falla, en vez de reportar el error y
     // seguir, se le da al modelo hasta MAX_REPAIR_STEPS turnos para
     // diagnosticar con las herramientas disponibles, corregir lo que haga
@@ -1309,7 +1324,7 @@ router.post("/operator", async (req: TenantRequest, res, next) => {
         for (const a of pending.actions) {
           let r = await executeAction(a.tool, a.args || {}, ctx);
           let repairLog: string[] = [];
-          if (!r.ok) {
+          if (!r.ok && !isUnfixableMetaAccountError(r.summary)) {
             const originalError = r.summary;
             const repair = await attemptSelfRepair(a, originalError);
             repairLog = repair.log;
