@@ -519,7 +519,7 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: "list_products",
-    description: "Listar productos (id, nombre, precio, categoría). Úsalo antes de editar para conocer los ids reales. Si buscás un producto puntual (ej. 'el curso de piano'), pasá 'search' -- el catálogo puede tener más productos que el límite por defecto, y sin buscar por nombre podés no ver uno que sí existe.",
+    description: "Listar productos (id, nombre, precio, categoría). Úsalo antes de editar para conocer los ids reales. Si buscás un producto puntual (ej. 'el curso de piano'), pasá 'search' -- el catálogo puede tener más productos que el límite por defecto, y sin buscar por nombre podés no ver uno que sí existe. IMPORTANTE: 'search' filtra por NOMBRE (texto), no por id -- si ya tenés el productId numérico (ej. 123), no lo pases acá como texto de búsqueda, no lo va a encontrar por el número.",
     args: '{ "limit"?: number, "search"?: string (filtra por nombre, sin distinguir mayúsculas) }',
     run: async (args, ctx) => {
       const search = typeof args.search === "string" ? args.search.trim() : "";
@@ -734,9 +734,22 @@ export const TOOLS: ToolDef[] = [
     args: "{}",
     run: async (_args, ctx) => {
       const [store] = await db.select().from(stores).where(eq(stores.tenantId, ctx.tenantId)).limit(1);
-      return store
-        ? { ok: true, summary: `Tienda: ${store.name} (/${store.slug})`, data: { id: store.id, name: store.name, slug: store.slug, theme: store.theme } }
-        : { ok: true, summary: "El negocio todavía no tiene tienda", data: null };
+      if (store) {
+        return { ok: true, summary: `Tienda: ${store.name} (/${store.slug})`, data: { id: store.id, name: store.name, slug: store.slug, theme: store.theme } };
+      }
+      // La fila en `stores` es solo para personalización curada (tema,
+      // nombre propio) -- casi ningún negocio la llena nunca. La tienda
+      // pública REAL en /tienda/:slug sirve directo del catálogo real
+      // (products/productCategories por tenant) con o sin esa fila, la
+      // misma lógica de fallback que ya tiene routes/store.ts. Antes esta
+      // tool decía "todavía no tiene tienda" incluso con la tienda pública
+      // activa y vendiendo -- información falsa que confundía al admin y
+      // al propio Atlas durante auto-reparación.
+      const [tenant] = await db.select({ slug: tenants.slug }).from(tenants).where(eq(tenants.id, ctx.tenantId)).limit(1);
+      if (tenant?.slug) {
+        return { ok: true, summary: `Tienda pública activa en /tienda/${tenant.slug} (sin personalización curada -- usa el catálogo real directo).`, data: { slug: tenant.slug, curated: false } };
+      }
+      return { ok: true, summary: "El negocio todavía no tiene tienda", data: null };
     },
   },
   {
@@ -1152,7 +1165,18 @@ export const TOOLS: ToolDef[] = [
         args.startDate,
         Object.keys(targeting).length ? targeting : undefined,
       );
-      if (!r) return { ok: false, summary: "No se pudo crear la campaña (revisa token, permisos o el producto)." };
+      if (!r) {
+        // createAdForProduct devuelve null en cualquier error (para no
+        // romper a otros llamadores que asumen `| null`) pero SÍ guarda el
+        // motivo real en fb.lastAdError -- antes esto se ignoraba y siempre
+        // se mostraba el mismo genérico "revisa token, permisos o el
+        // producto", así que un error real y específico de Graph API (ej:
+        // "no hay método de pago en la cuenta") quedaba invisible tanto
+        // para el admin como para el propio self-repair, que terminaba
+        // investigando cosas que no tenían nada que ver con la causa real.
+        const detalle = fb.lastAdError ? ` Motivo real: ${fb.lastAdError}` : "";
+        return { ok: false, summary: `No se pudo crear la campaña.${detalle}` };
+      }
       return { ok: true, summary: `Campaña creada EN PAUSA para el producto ${args.productId}. Actívala en Ads Manager. Preview: ${r.previewUrl}`, data: r };
     },
   },
