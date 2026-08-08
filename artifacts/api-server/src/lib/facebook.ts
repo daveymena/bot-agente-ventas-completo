@@ -378,6 +378,16 @@ Responde SOLO con este JSON exacto:
         is_adset_budget_sharing_enabled: false,
       }, "campaña");
 
+      // Desde acá, cualquier paso que falle (conjunto/creativo/anuncio) deja
+      // la CAMPAÑA ya creada huérfana en la cuenta real -- confirmado en vivo
+      // que el paso final (/ads) es justo donde Meta recién avisa errores
+      // tardíos (pixel no asociado, sin método de pago) después de haber
+      // gastado ya las llamadas anteriores. Se envuelve todo lo que sigue
+      // para poder borrar la campaña (cascada: se lleva conjunto y creativo)
+      // si algo falla, en vez de dejar objetos sueltos acumulándose en Ads
+      // Manager cada vez que se reintenta.
+      try {
+
       // Construir targeting desde parámetros o usar defaults
       const fbTargeting: Record<string, any> = {
         geo_locations: targeting?.geoLocations?.countries
@@ -571,6 +581,15 @@ Responde SOLO con este JSON exacto:
         status: "PAUSED",
         previewUrl,
       };
+      } catch (innerErr: any) {
+        // El conjunto/creativo/anuncio no llegaron a existir todos -- borrar
+        // la campaña se lleva en cascada lo que sí se alcanzó a crear, no
+        // deja restos sueltos en Ads Manager. Best-effort: si el borrado en
+        // sí falla, no tapa el error original (innerErr sigue siendo lo que
+        // se relanza).
+        await this.fbDeleteBestEffort(campaign.id);
+        throw innerErr;
+      }
     } catch (err: any) {
       logger.error({ err, productId }, "[Facebook] Error creando anuncio");
       this.lastAdError = err?.message || "Error desconocido";
@@ -890,6 +909,18 @@ Responde SOLO con JSON:
     const data = await res.json();
     if (data.error) throw new Error(`${data.error.message} (código ${data.error.code})`);
     return data;
+  }
+
+  /** Best-effort: no tira si falla (se usa para limpiar objetos huérfanos
+   * después de un error, nunca debe tapar el error original que causó la
+   * limpieza). */
+  private async fbDeleteBestEffort(endpoint: string): Promise<void> {
+    try {
+      const params = new URLSearchParams({ access_token: this.config.accessToken });
+      await fetch(`${FB_GRAPH_URL}/${endpoint}?${params}`, { method: "DELETE", signal: AbortSignal.timeout(15000) });
+    } catch (e: any) {
+      logger.warn({ endpoint, err: e?.message }, "[Facebook] No se pudo limpiar un objeto huérfano");
+    }
   }
 
   /** Un pixelId guardado puede pertenecer a una cuenta publicitaria distinta
