@@ -575,6 +575,22 @@ export async function runAgentReply(conversationId: number) {
 
   console.log(`🧠 [ENGINE] Memoria cargada - hasGreeted:${memory.hasGreeted} stage:${memory.currentStage} product:${memory.currentProductName || "none"} sentCards:[${Array.from(memory.sentProductIds).join(",")}] isNewSession:${memory.isNewSession} - ${ts()}`);
 
+  // Puntuación de lead + seguimiento inteligente automático (leadScoring.ts /
+  // followUpScheduler.ts). Estaba completamente construido pero NUNCA se
+  // llamaba desde el flujo real de WhatsApp -- el único import que existía
+  // era en whatsapp.ts (la clase base), pero ninguna llamada real lo
+  // invocaba en ningún lado del código (confirmado: cero resultados al
+  // buscar "processMessageForLeadScoring(" en todo el repo salvo su propia
+  // definición). Por eso `follow_ups` seguía en 0 filas aunque ya había
+  // conversaciones reales. Fire-and-forget: no debe bloquear ni retrasar la
+  // respuesta real al cliente, y processMessageForScoring ya atrapa sus
+  // propios errores internamente (documentado como "no crítico").
+  if (lastText) {
+    import("./leadScoring")
+      .then(({ processMessageForLeadScoring }) => processMessageForLeadScoring(conversationId, lastText))
+      .catch((err) => console.error(`⚠️ [LEAD-SCORING] Error en scoring/follow-up para conversación ${conversationId}:`, err?.message || err));
+  }
+
   // ── 3. Seleccionar agente activo ──────────────────────────────────────────
   t1 = Date.now();
   const { getActiveAgent } = await import("./agent-router");
