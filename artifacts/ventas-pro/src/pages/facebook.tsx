@@ -535,7 +535,7 @@ export default function FacebookAdsPage() {
       <div className="space-y-6 p-6">
         <div className="flex items-center justify-between">
           <div>
-            <div className="flex items-center gap-1.5">
+            <div className="flex items-start gap-1.5">
               <h1 className="text-3xl font-bold tracking-tight">Facebook Multi-Canal</h1>
               <HelpTourButton guide={HELP_GUIDE} />
             </div>

@@ -82,7 +82,7 @@ export default function Leads() {
       <div className="flex flex-col gap-6 animate-enter">
         <div className="flex flex-col md:flex-row md:justify-between md:items-end gap-4">
           <div>
-            <div className="flex items-center gap-1.5">
+            <div className="flex items-start gap-1.5">
               <h1 className="text-3xl font-bold tracking-tight">Prospectos (CRM)</h1>
               <HelpTourButton guide={HELP_GUIDE} />
             </div>

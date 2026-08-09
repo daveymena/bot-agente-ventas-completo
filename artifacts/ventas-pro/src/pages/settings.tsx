@@ -153,7 +153,7 @@ export default function Settings() {
       <div className="flex flex-col gap-8 max-w-5xl mx-auto animate-enter">
         <div className="flex flex-col md:flex-row md:justify-between md:items-end gap-4">
           <div>
-            <div className="flex items-center gap-1.5">
+            <div className="flex items-start gap-1.5">
               <h1 className="text-3xl font-bold tracking-tight">Configuración</h1>
               <HelpTourButton guide={HELP_GUIDE} />
             </div>
@@ -441,7 +441,7 @@ export default function Settings() {
 
                           {!deviceFlow.active ? (
                             <div className="space-y-6 animate-in fade-in duration-500">
-                              <div className="grid grid-cols-5 gap-2">
+                              <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
                                 {["GPT-4o", "Claude 3.5", "o1", "o3", "Llama 3"].map(m => (
                                   <div key={m} className="flex flex-col items-center gap-1">
                                     <div className="w-full h-1 bg-gradient-to-r from-transparent via-primary/30 to-transparent rounded-full" />

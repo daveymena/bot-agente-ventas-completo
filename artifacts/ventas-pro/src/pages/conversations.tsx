@@ -280,7 +280,7 @@ export default function Conversations() {
     <Layout>
       <div className="flex flex-col h-full animate-enter gap-4">
         <div>
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-start gap-1.5">
             <h1 className="text-3xl font-bold tracking-tight">Bandeja de Entrada</h1>
             <HelpTourButton guide={HELP_GUIDE} />
           </div>

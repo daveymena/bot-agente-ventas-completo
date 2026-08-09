@@ -78,7 +78,7 @@ const itemVariants = {
         {/* Hero Section */}
         <motion.div variants={itemVariants} className="flex flex-col md:flex-row gap-6 md:items-end justify-between glass-panel p-6 md:p-7 rounded-xl shadow-md border-0">
           <div>
-            <div className="flex items-center gap-1.5">
+            <div className="flex items-start gap-1.5">
               <h1 className="text-2xl font-semibold tracking-tight">Hola, bienvenido de nuevo</h1>
               <HelpTourButton guide={HELP_GUIDE} />
             </div>

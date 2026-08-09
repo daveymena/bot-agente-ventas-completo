@@ -104,16 +104,16 @@ export function HelpChatWidget() {
                       <div className="mt-2.5 flex flex-col gap-1.5">
                         <button
                           onClick={() => { handleClose(); setLocation(`/ayuda?guide=${guide.id}`); }}
-                          className="flex items-center gap-1.5 text-xs font-bold text-primary hover:text-primary/80"
+                          className="flex items-start gap-1.5 text-xs font-bold text-primary hover:text-primary/80 text-left"
                         >
-                          <BookOpen className="h-3 w-3" /> Ver guía completa: {guide.title}
+                          <BookOpen className="h-3 w-3 shrink-0 mt-0.5" /> <span>Ver guía completa: {guide.title}</span>
                         </button>
                         {hasTour && guide.route && (
                           <button
                             onClick={() => { handleClose(); setLocation(`${guide.route}?tour=${guide.id}`); }}
-                            className="flex items-center gap-1.5 text-xs font-bold text-primary hover:text-primary/80"
+                            className="flex items-start gap-1.5 text-xs font-bold text-primary hover:text-primary/80 text-left"
                           >
-                            <PlayCircle className="h-3 w-3" /> Mostrarme en la app
+                            <PlayCircle className="h-3 w-3 shrink-0 mt-0.5" /> <span>Mostrarme en la app</span>
                           </button>
                         )}
                       </div>

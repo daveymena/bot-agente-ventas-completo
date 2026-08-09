@@ -1,0 +1,17 @@
+/* driver.js's popover defaults to min-width:250px/max-width:300px, sin
+   margen de aire -- en un celular angosto (~320-360px) queda pegado a los
+   bordes o directamente se corta. Se acota al ancho real disponible y se
+   reducen un poco los tamaños de fuente/paddings solo en pantallas chicas. */
+@media (max-width: 480px) {
+  .driver-popover {
+    min-width: 0;
+    max-width: calc(100vw - 2rem);
+    padding: 12px;
+  }
+  .driver-popover-title {
+    font-size: 16px;
+  }
+  .driver-popover-description {
+    font-size: 13px;
+  }
+}

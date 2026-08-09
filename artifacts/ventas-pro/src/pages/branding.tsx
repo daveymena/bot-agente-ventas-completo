@@ -201,7 +201,7 @@ export default function Branding() {
         {/* Header */}
         <div className="flex flex-col md:flex-row md:justify-between md:items-end gap-4">
           <div>
-            <div className="flex items-center gap-1.5">
+            <div className="flex items-start gap-1.5">
               <h1 className="text-3xl font-bold tracking-tight">
                 Personalización de Marca
               </h1>
@@ -268,7 +268,7 @@ export default function Branding() {
                   </div>
                 </div>
                 
-                <div className="grid grid-cols-3 gap-4">
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
                   <div 
                     className="p-4 rounded-xl text-white text-center font-semibold"
                     style={{ backgroundColor: formData.brandColors.primary }}

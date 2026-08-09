@@ -177,7 +177,7 @@ export default function PricingPage() {
             <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-primary/10 text-primary border border-primary/20 text-xs font-bold uppercase tracking-widest mb-6">
               <Star className="h-3 w-3 fill-primary" /> Membresías Elite
             </div>
-            <div className="flex items-center justify-center gap-1.5 mb-6">
+            <div className="flex items-start justify-center gap-1.5 mb-6">
               <h1 className="text-4xl md:text-5xl font-black tracking-tight bg-gradient-to-br from-foreground via-foreground to-foreground/70 bg-clip-text text-transparent">
                 Escala tu Negocio con IA
               </h1>

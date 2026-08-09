@@ -210,7 +210,7 @@ export default function Products() {
       <div className="flex flex-col gap-8 animate-enter">
         <div className="flex flex-col gap-2 md:flex-row md:justify-between md:items-end">
           <div>
-            <div className="flex items-center gap-1.5">
+            <div className="flex items-start gap-1.5">
               <h1 className="text-2xl font-semibold tracking-tight">Catálogo de Productos</h1>
               <HelpTourButton guide={HELP_GUIDE} />
             </div>

@@ -1,5 +1,6 @@
 import { driver, type DriveStep } from "driver.js";
 import "driver.js/dist/driver.css";
+import "./tour.css";
 import type { HelpGuideStep } from "@/data/help-guides";
 
 /**
