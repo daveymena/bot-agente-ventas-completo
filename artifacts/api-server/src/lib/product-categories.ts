@@ -26,18 +26,30 @@ function normalize(name: string): string {
   return name.trim().toLowerCase();
 }
 
-export async function resolveCategoryId(tenantId: number, categoryName: string | null | undefined): Promise<number | null> {
+/**
+ * `kind` (digital/physical/service) separa qué categorías sirven para qué
+ * tipo de producto (ver product_categories.kind) -- el match es por nombre
+ * Y kind juntos, no solo nombre. Sin esto, un producto físico con category
+ * "Tecnología" podía terminar matcheando/creando la MISMA categoría que ya
+ * usa un producto digital de "Tecnología", mezclando ambos tipos otra vez
+ * por esta puerta en particular.
+ */
+export async function resolveCategoryId(
+  tenantId: number,
+  categoryName: string | null | undefined,
+  kind: string = "digital",
+): Promise<number | null> {
   const name = (categoryName || "").trim();
   if (!name) return null;
 
   const existing = await db
-    .select({ id: productCategories.id, name: productCategories.name })
+    .select({ id: productCategories.id, name: productCategories.name, kind: productCategories.kind })
     .from(productCategories)
     .where(eq(productCategories.tenantId, tenantId));
 
-  const match = existing.find((c) => normalize(c.name) === normalize(name));
+  const match = existing.find((c) => normalize(c.name) === normalize(name) && c.kind === kind);
   if (match) return match.id;
 
-  const [created] = await db.insert(productCategories).values({ tenantId, name } as any).returning();
+  const [created] = await db.insert(productCategories).values({ tenantId, name, kind } as any).returning();
   return created.id;
 }

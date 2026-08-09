@@ -1074,9 +1074,11 @@ components:
           nullable: true
         color:
           type: string
+        kind:
+          $ref: "#/components/schemas/ProductKind"
         createdAt:
           type: string
-      required: [id, name, createdAt]
+      required: [id, name, kind, createdAt]
 
     CreateCategoryBody:
       type: object
@@ -1085,8 +1087,12 @@ components:
           type: string
         description:
           type: string
-        emoji:
+        icon:
           type: string
+        color:
+          type: string
+        kind:
+          $ref: "#/components/schemas/ProductKind"
       required: [name]
 
     UpdateCategoryBody:
@@ -1096,8 +1102,12 @@ components:
           type: string
         description:
           type: string
-        emoji:
+        icon:
           type: string
+        color:
+          type: string
+        kind:
+          $ref: "#/components/schemas/ProductKind"
 
     WhatsAppStatus:
       type: object

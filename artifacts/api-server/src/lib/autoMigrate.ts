@@ -17,6 +17,15 @@ const MIGRATIONS = [
   `ALTER TABLE tenants ADD COLUMN IF NOT EXISTS email_config JSONB`,
   `ALTER TABLE tenants ADD COLUMN IF NOT EXISTS api_keys JSONB`,
   `ALTER TABLE leads ADD COLUMN IF NOT EXISTS opt_out BOOLEAN NOT NULL DEFAULT false`,
+  // El admin pidió separar categorías de productos Digitales vs Físicas --
+  // hoy cualquier categoría se puede usar para cualquier tipo de producto,
+  // sin ninguna restricción. description/icon/color ya existían en la DB
+  // real (usados por routes/categories.ts) pero no en este esquema; se
+  // agregan acá también por las dudas, de forma idempotente.
+  `ALTER TABLE product_categories ADD COLUMN IF NOT EXISTS description TEXT`,
+  `ALTER TABLE product_categories ADD COLUMN IF NOT EXISTS icon TEXT`,
+  `ALTER TABLE product_categories ADD COLUMN IF NOT EXISTS color TEXT NOT NULL DEFAULT '#6b7280'`,
+  `ALTER TABLE product_categories ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'digital'`,
   `CREATE TABLE IF NOT EXISTS remarketing_campaigns (
     id SERIAL PRIMARY KEY,
     tenant_id INTEGER REFERENCES tenants(id) ON DELETE CASCADE,

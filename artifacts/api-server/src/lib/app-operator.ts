@@ -578,7 +578,7 @@ export const TOOLS: ToolDef[] = [
     run: async (args, ctx) => {
       if (!args.name) return { ok: false, summary: "Falta 'name'" };
       const { resolveCategoryId } = await import("./product-categories");
-      const categoryId = num(args.categoryId) ?? await resolveCategoryId(ctx.tenantId, args.category);
+      const categoryId = num(args.categoryId) ?? await resolveCategoryId(ctx.tenantId, args.category, args.kind || "digital");
       const [row] = await db.insert(products).values({
         tenantId: ctx.tenantId,
         name: String(args.name),
@@ -616,7 +616,7 @@ export const TOOLS: ToolDef[] = [
         patch.categoryId = num(args.categoryId);
       } else if (args.category !== undefined) {
         const { resolveCategoryId } = await import("./product-categories");
-        patch.categoryId = await resolveCategoryId(ctx.tenantId, args.category);
+        patch.categoryId = await resolveCategoryId(ctx.tenantId, args.category, patch.kind || existing.kind);
       }
       if (args.features !== undefined) patch.features = Array.isArray(args.features) ? args.features : existing.features;
       if (args.isActive !== undefined) patch.isActive = !!args.isActive;

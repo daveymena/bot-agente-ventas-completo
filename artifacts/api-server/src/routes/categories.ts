@@ -63,9 +63,10 @@ function serialize(row: typeof productCategories.$inferSelect) {
   return {
     id: row.id,
     name: row.name,
-    description: (row as any).description ?? null,
-    icon: (row as any).icon ?? null,
-    color: (row as any).color ?? "#6b7280",
+    description: row.description ?? null,
+    icon: row.icon ?? null,
+    color: row.color ?? "#6b7280",
+    kind: row.kind ?? "digital",
     createdAt: safeISO(row.createdAt),
   };
 }

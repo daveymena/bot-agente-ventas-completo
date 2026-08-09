@@ -193,11 +193,16 @@ router.post("/bulk-smart", async (req: TenantRequest, res, next) => {
       try {
         let categoryId: number | null = null;
         if (item.category) {
-          const key = item.category.trim().toLowerCase();
+          // La importación por Excel todavía no detecta Digital/Físico por
+          // fila (siempre inserta "digital" más abajo) -- se resuelve la
+          // categoría con ese mismo kind para no desalinearse. Si en el
+          // futuro esta importación aprende a leer una columna "Tipo", este
+          // kind debe pasar a venir de esa columna en vez de estar fijo.
+          const key = `digital:${item.category.trim().toLowerCase()}`;
           if (categoryIdCache.has(key)) {
             categoryId = categoryIdCache.get(key)!;
           } else {
-            categoryId = await resolveCategoryId(tenantId, item.category);
+            categoryId = await resolveCategoryId(tenantId, item.category, "digital");
             categoryIdCache.set(key, categoryId);
           }
         }
