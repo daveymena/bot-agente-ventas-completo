@@ -956,12 +956,23 @@ router.post("/help-chat", async (req, res, next) => {
     }
 
     const client = createAIClient(config);
-    const completion = await client.chat.completions.create({
+    const basePayload = {
       model: config.model,
-      messages: [{ role: "system", content: HELP_CHAT_SYSTEM_PROMPT }, ...trimmed],
+      messages: [{ role: "system" as const, content: HELP_CHAT_SYSTEM_PROMPT }, ...trimmed],
       temperature: 0.4,
-      response_format: { type: "json_object" },
-    });
+    };
+    let completion;
+    try {
+      completion = await client.chat.completions.create({ ...basePayload, response_format: { type: "json_object" } });
+    } catch (jsonModeErr) {
+      // No todos los proveedores/modelos configurables acá (el dropdown de
+      // Configuración permite varios) soportan response_format json_object
+      // -- algunos lo rechazan de plano en vez de ignorarlo. Reintenta sin
+      // ese parámetro; el prompt igual le pide JSON al modelo, y el parseo
+      // de abajo ya tolera que la respuesta no sea JSON válido.
+      logger.warn({ err: jsonModeErr }, "[HelpChat] response_format json_object rechazado, reintentando sin él");
+      completion = await client.chat.completions.create(basePayload);
+    }
 
     // El modelo debería devolver JSON real (pedido en el prompt), pero si
     // alguna vez no cumple, se cae al comportamiento anterior: todo el texto
