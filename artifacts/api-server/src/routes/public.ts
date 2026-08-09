@@ -942,7 +942,12 @@ router.post("/help-chat", async (req, res, next) => {
       content: String(m.content || "").slice(0, 2000),
     }));
 
-    const [appSettings] = await db.select().from(settingsTable).limit(1);
+    let appSettings: typeof settingsTable.$inferSelect | undefined;
+    try {
+      [appSettings] = await db.select().from(settingsTable).limit(1);
+    } catch (dbErr) {
+      logger.error({ err: dbErr }, "[HelpChat] No se pudo leer settings, se sigue solo con proveedores por variable de entorno");
+    }
     // Candidatos en orden -- antes esto era `??`, que solo pasaba al
     // siguiente si getProviderConfig devolvía null (ej. falta la API key).
     // Pero un candidato puede resolver una config "válida" que igual falla
@@ -1014,11 +1019,19 @@ router.post("/help-chat", async (req, res, next) => {
     // WhatsApp del dueño de la plataforma (tenant 1) -- acá SÍ es correcto
     // usar siempre el tenant por defecto, a diferencia de resolveWhatsAppPhone
     // para tiendas públicas: este chat es sobre VentasPro mismo, no sobre el
-    // negocio de un tenant en particular.
-    const waStatus = getWhatsAppForTenant(1).getStatus();
-    const whatsappPhone = (waStatus?.phone && /^\d+$/.test(waStatus.phone))
-      ? waStatus.phone
-      : process.env.ADMIN_PHONE?.replace(/\D/g, "") || null;
+    // negocio de un tenant en particular. Esto es solo para el botón de
+    // WhatsApp del escalamiento -- si falla, no debe tirar abajo una
+    // respuesta de IA que sí funcionó.
+    let whatsappPhone: string | null = null;
+    try {
+      const waStatus = getWhatsAppForTenant(1).getStatus();
+      whatsappPhone = (waStatus?.phone && /^\d+$/.test(waStatus.phone))
+        ? waStatus.phone
+        : process.env.ADMIN_PHONE?.replace(/\D/g, "") || null;
+    } catch (waErr) {
+      logger.warn({ err: waErr }, "[HelpChat] No se pudo resolver el teléfono de WhatsApp para escalamiento");
+      whatsappPhone = process.env.ADMIN_PHONE?.replace(/\D/g, "") || null;
+    }
 
     return res.json({ reply, escalate, suggestedGuideId, whatsappPhone });
   } catch (err) {
