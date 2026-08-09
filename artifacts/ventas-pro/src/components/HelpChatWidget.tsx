@@ -27,6 +27,23 @@ function now() {
   return new Date().toLocaleTimeString("es", { hour: "2-digit", minute: "2-digit", hour12: false });
 }
 
+// Cada página envuelve su contenido en su propio <Layout>, así que este
+// componente se desmonta y se vuelve a montar en cada navegación -- sin
+// esto, cambiar de sección durante una conversación la borraba de golpe.
+// sessionStorage (no localStorage) porque el corte natural es "mientras
+// dura la visita" -- se limpia sola al cerrar el widget (la persona ya
+// terminó) o al cerrar la pestaña, no debe sobrevivir para siempre.
+const SESSION_KEY = "vp-help-chat-messages";
+
+function loadPersistedMessages(): ChatMessage[] {
+  try {
+    const raw = sessionStorage.getItem(SESSION_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
 /**
  * Asistente de ayuda flotante, disponible en todo el dashboard (y en /pricing,
  * que también usa <Layout>). Responde dudas sobre VentasPro mismo -- planes,
@@ -44,7 +61,7 @@ export function HelpChatWidget() {
   const [, setLocation] = useLocation();
   const [open, setOpen] = useState(false);
   const [hasOpenedOnce, setHasOpenedOnce] = useState(false);
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [messages, setMessages] = useState<ChatMessage[]>(loadPersistedMessages);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -53,13 +70,25 @@ export function HelpChatWidget() {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [messages, loading]);
 
+  useEffect(() => {
+    try {
+      if (messages.length > 0) sessionStorage.setItem(SESSION_KEY, JSON.stringify(messages));
+    } catch {
+      // Modo privado u otro caso donde sessionStorage no está disponible --
+      // la conversación simplemente no sobrevive a la navegación, sin romper nada.
+    }
+  }, [messages]);
+
   // Al cerrar (la persona ya terminó de preguntar) se limpia la conversación
   // sola, para que la próxima vez que se abra el widget arranque en blanco en
   // vez de mostrar la charla anterior ya resuelta. El delay es solo para que
   // no se vea el contenido vaciarse mientras el panel todavía está cerrando.
   const handleClose = () => {
     setOpen(false);
-    setTimeout(() => setMessages([]), 300);
+    setTimeout(() => {
+      setMessages([]);
+      try { sessionStorage.removeItem(SESSION_KEY); } catch {}
+    }, 300);
   };
 
   const handleToggle = () => {
