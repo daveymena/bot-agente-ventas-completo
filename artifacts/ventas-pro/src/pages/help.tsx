@@ -6,8 +6,10 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Search, PlayCircle } from "lucide-react";
 import { HELP_GUIDES, HELP_CATEGORIES, getHelpGuide } from "@/data/help-guides";
+import { useIsMobile } from "@/hooks/use-mobile";
 
 export default function HelpCenterPage() {
+  const isMobile = useIsMobile();
   const [, setLocation] = useLocation();
   const search = useSearch();
   const initialId = new URLSearchParams(search).get("guide");
@@ -113,24 +115,30 @@ export default function HelpCenterPage() {
               )}
 
               <div className="space-y-5">
-                {guide.steps.map((step, i) => (
-                  <div key={i} className="flex gap-4">
-                    <div className="h-7 w-7 rounded-full bg-muted flex items-center justify-center text-xs font-bold shrink-0 mt-0.5">
-                      {i + 1}
+                {guide.steps.map((step, i) => {
+                  // Si quien mira el Centro de Ayuda está en un celular, la
+                  // captura de escritorio le sirve poco -- se prioriza la
+                  // móvil cuando existe, con el escritorio como respaldo.
+                  const shot = (isMobile && step.screenshotMobile) || step.screenshot;
+                  return (
+                    <div key={i} className="flex gap-4">
+                      <div className="h-7 w-7 rounded-full bg-muted flex items-center justify-center text-xs font-bold shrink-0 mt-0.5">
+                        {i + 1}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="font-semibold text-sm mb-1">{step.title}</p>
+                        <p className="text-sm text-muted-foreground leading-relaxed">{step.description}</p>
+                        {shot && (
+                          <img
+                            src={shot}
+                            alt={step.title}
+                            className="mt-3 rounded-xl border shadow-sm max-w-full"
+                          />
+                        )}
+                      </div>
                     </div>
-                    <div className="min-w-0 flex-1">
-                      <p className="font-semibold text-sm mb-1">{step.title}</p>
-                      <p className="text-sm text-muted-foreground leading-relaxed">{step.description}</p>
-                      {step.screenshot && (
-                        <img
-                          src={step.screenshot}
-                          alt={step.title}
-                          className="mt-3 rounded-xl border shadow-sm max-w-full"
-                        />
-                      )}
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </CardContent>
           </Card>

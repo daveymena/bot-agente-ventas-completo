@@ -20,6 +20,8 @@ export interface HelpGuideStep {
   description: string;
   /** Ruta bajo /images/help/<guideId>/, se completa en una etapa posterior. */
   screenshot?: string;
+  /** Captura en vista móvil: /images/help/<guideId>/2.png. */
+  screenshotMobile?: string;
   /** Coincide con un atributo data-tour="..." real en la página de destino. */
   tourTarget?: string;
 }
@@ -63,6 +65,7 @@ export const HELP_GUIDES: HelpGuide[] = [
         description:
           "El Panel muestra tus KPIs principales (ingresos, leads, conversaciones, negocios ganados), un gráfico de mensajes y tu embudo de ventas, todo actualizado en tiempo real.",
         screenshot: "/images/help/panel/1.png",
+        screenshotMobile: "/images/help/panel/2.png",
       },
       {
         title: "Accesos rápidos",
@@ -108,6 +111,7 @@ export const HELP_GUIDES: HelpGuide[] = [
           "Una vez vinculado vas a ver 'Conexión Activa' con tu número y la hora de inicio de sesión. A partir de acá tu Agente IA ya puede responder mensajes reales.",
         tourTarget: "whatsapp-connected-card",
         screenshot: "/images/help/whatsapp-connect/1.png",
+        screenshotMobile: "/images/help/whatsapp-connect/2.png",
       },
       {
         title: "Desconectar o reiniciar",
@@ -131,6 +135,7 @@ export const HELP_GUIDES: HelpGuide[] = [
           "Tocá 'Nuevo Agente' y completá Nombre, Rol, Tono y el Prompt del sistema (las instrucciones maestras de cómo debe comportarse).",
         tourTarget: "agents-new-button",
         screenshot: "/images/help/agents/1.png",
+        screenshotMobile: "/images/help/agents/2.png",
       },
       {
         title: "El flujo de conversación",
@@ -162,6 +167,7 @@ export const HELP_GUIDES: HelpGuide[] = [
           "Tocá 'Nuevo Producto' y completá nombre, descripción, precio, categoría y si es Digital o Físico. También podés usar una de las plantillas rápidas (Servicio Digital, Producto Físico, Suscripción) desde el estado vacío.",
         tourTarget: "products-new-button",
         screenshot: "/images/help/products/1.png",
+        screenshotMobile: "/images/help/products/2.png",
       },
       {
         title: "Importar por Excel con IA",
@@ -248,6 +254,7 @@ export const HELP_GUIDES: HelpGuide[] = [
           "En la pestaña 'Configuración' tocá 'Conectar con Facebook' — es la forma recomendada, con un solo login real de Meta. La opción manual con tokens es solo para casos avanzados.",
         tourTarget: "facebook-connect-button",
         screenshot: "/images/help/facebook/1.png",
+        screenshotMobile: "/images/help/facebook/2.png",
       },
       {
         title: "Crear anuncios",
@@ -290,6 +297,7 @@ export const HELP_GUIDES: HelpGuide[] = [
           "Pegá la URL de tu tienda, el Consumer Key y el Consumer Secret, activá el interruptor 'Habilitar Integración' y tocá 'Verificar Estado de Conexión'.",
         tourTarget: "woocommerce-enable-toggle",
         screenshot: "/images/help/woocommerce/1.png",
+        screenshotMobile: "/images/help/woocommerce/2.png",
       },
       {
         title: "Sincronizar catálogo",
@@ -316,6 +324,7 @@ export const HELP_GUIDES: HelpGuide[] = [
           "En 'Operador' Atlas ejecuta acciones reales (crear productos, cambiar configuración). En 'Agente' solo diseña la configuración de tus Agentes IA, sin tocar nada todavía.",
         tourTarget: "code-agent-mode-toggle",
         screenshot: "/images/help/code-agent/1.png",
+        screenshotMobile: "/images/help/code-agent/2.png",
       },
       {
         title: "Pedile algo",
@@ -340,6 +349,7 @@ export const HELP_GUIDES: HelpGuide[] = [
         title: "Logo y nombre",
         description: "Cargá el nombre de tu marca y subí o pegá la URL de tu logo.",
         screenshot: "/images/help/branding/1.png",
+        screenshotMobile: "/images/help/branding/2.png",
       },
       {
         title: "Colores y tema",
@@ -371,6 +381,7 @@ export const HELP_GUIDES: HelpGuide[] = [
         description: "Cargá los datos de tu negocio y elegí el Proveedor de IA principal que va a usar tu Agente (con un indicador en vivo de si está bien conectado).",
         tourTarget: "settings-ai-provider",
         screenshot: "/images/help/settings/1.png",
+        screenshotMobile: "/images/help/settings/2.png",
       },
       {
         title: "Horarios y respuestas automáticas",
@@ -405,6 +416,7 @@ export const HELP_GUIDES: HelpGuide[] = [
         description: "Elegí Mensual, Trimestral (10% de descuento) o Anual (20% de descuento).",
         tourTarget: "pricing-billing-cycle",
         screenshot: "/images/help/pricing/1.png",
+        screenshotMobile: "/images/help/pricing/2.png",
       },
       {
         title: "Método de pago",
@@ -428,6 +440,7 @@ export const HELP_GUIDES: HelpGuide[] = [
         title: "Cómo se ve",
         description: "Tocá 'Ver Tienda' en el menú lateral para abrir, en una pestaña nueva, la tienda pública tal como la ve cualquier cliente: tu catálogo, tu logo y tus colores.",
         screenshot: "/images/help/tienda/1.png",
+        screenshotMobile: "/images/help/tienda/2.png",
       },
       {
         title: "Se actualiza sola",
