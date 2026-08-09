@@ -943,35 +943,54 @@ router.post("/help-chat", async (req, res, next) => {
     }));
 
     const [appSettings] = await db.select().from(settingsTable).limit(1);
-    // Si el proveedor guardado en settings no está configurado/reconocido
-    // (ej. "mimo", que no es un provider real), cae a proveedores por
-    // variable de entorno -- mismo patrón de respaldo que ya usa agent.ts
-    // para las conversaciones de venta, así este endpoint no queda inútil
-    // solo porque el dropdown de Configuración tiene un valor raro.
-    const config = (appSettings ? getProviderConfigFromSettings(appSettings) : null)
-      ?? getProviderConfig("groq")
-      ?? getProviderConfig("github");
-    if (!config) {
+    // Candidatos en orden -- antes esto era `??`, que solo pasaba al
+    // siguiente si getProviderConfig devolvía null (ej. falta la API key).
+    // Pero un candidato puede resolver una config "válida" que igual falla
+    // en tiempo real (ej. el proveedor guardado en Configuración apunta a
+    // un proxy interno caído) -- si eso pasa el endpoint quedaba 500 sin
+    // intentar nada más. Ahora se prueban en orden de verdad hasta que uno
+    // responda.
+    const candidates = [
+      appSettings ? getProviderConfigFromSettings(appSettings) : null,
+      getProviderConfig("groq"),
+      getProviderConfig("github"),
+    ].filter((c): c is NonNullable<typeof c> => !!c);
+
+    if (candidates.length === 0) {
       return res.status(503).json({ error: "AI provider not configured", reply: "El asistente no está disponible en este momento.", escalate: true });
     }
 
-    const client = createAIClient(config);
-    const basePayload = {
-      model: config.model,
-      messages: [{ role: "system" as const, content: HELP_CHAT_SYSTEM_PROMPT }, ...trimmed],
-      temperature: 0.4,
-    };
-    let completion;
-    try {
-      completion = await client.chat.completions.create({ ...basePayload, response_format: { type: "json_object" } });
-    } catch (jsonModeErr) {
-      // No todos los proveedores/modelos configurables acá (el dropdown de
-      // Configuración permite varios) soportan response_format json_object
-      // -- algunos lo rechazan de plano en vez de ignorarlo. Reintenta sin
-      // ese parámetro; el prompt igual le pide JSON al modelo, y el parseo
-      // de abajo ya tolera que la respuesta no sea JSON válido.
-      logger.warn({ err: jsonModeErr }, "[HelpChat] response_format json_object rechazado, reintentando sin él");
-      completion = await client.chat.completions.create(basePayload);
+    let completion: Awaited<ReturnType<ReturnType<typeof createAIClient>["chat"]["completions"]["create"]>> | null = null;
+    let lastErr: unknown = null;
+    for (const config of candidates) {
+      const client = createAIClient(config);
+      const basePayload = {
+        model: config.model,
+        messages: [{ role: "system" as const, content: HELP_CHAT_SYSTEM_PROMPT }, ...trimmed],
+        temperature: 0.4,
+      };
+      try {
+        completion = await client.chat.completions.create({ ...basePayload, response_format: { type: "json_object" } });
+        break;
+      } catch (jsonModeErr) {
+        // No todos los proveedores/modelos soportan response_format
+        // json_object -- algunos lo rechazan de plano en vez de ignorarlo.
+        // Reintenta sin ese parámetro antes de pasar al siguiente candidato;
+        // el prompt igual le pide JSON al modelo, y el parseo de abajo ya
+        // tolera que la respuesta no sea JSON válido.
+        try {
+          completion = await client.chat.completions.create(basePayload);
+          break;
+        } catch (plainErr) {
+          lastErr = plainErr;
+          logger.warn({ err: plainErr, provider: config.baseUrl }, "[HelpChat] Candidato de IA falló, probando el siguiente");
+        }
+      }
+    }
+
+    if (!completion) {
+      logger.error({ err: lastErr }, "[HelpChat] Todos los proveedores de IA fallaron");
+      return res.status(503).json({ error: "AI provider unavailable", reply: "El asistente no está disponible en este momento. Probá de nuevo en un rato.", escalate: true });
     }
 
     // El modelo debería devolver JSON real (pedido en el prompt), pero si
