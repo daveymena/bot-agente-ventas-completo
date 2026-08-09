@@ -8,6 +8,11 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Loader2, CheckCircle2, XCircle, RefreshCw, ShoppingCart, Package } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Layout } from "@/components/layout";
+import { HelpTourButton } from "@/components/HelpTourButton";
+import { useAutoTour } from "@/hooks/use-auto-tour";
+import { getHelpGuide } from "@/data/help-guides";
+
+const HELP_GUIDE = getHelpGuide("woocommerce")!;
 
 // Helper para hacer requests
 const apiRequest = async (endpoint: string, options: RequestInit = {}) => {
@@ -41,6 +46,7 @@ interface WooCommerceConfig {
 }
 
 export default function WooCommercePage() {
+  useAutoTour(HELP_GUIDE);
   const { toast } = useToast();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -215,6 +221,7 @@ export default function WooCommercePage() {
               <h1 className="text-4xl font-extrabold tracking-tight bg-gradient-to-br from-foreground to-foreground/60 bg-clip-text text-transparent">
                 WooCommerce
               </h1>
+              <HelpTourButton guide={HELP_GUIDE} />
             </div>
             <p className="text-muted-foreground text-lg ml-1">
               Sincroniza tu catálogo y automatiza tus ventas en WhatsApp.
@@ -223,6 +230,7 @@ export default function WooCommercePage() {
           <div className="flex gap-3">
             {config.enabled && config.hasCredentials && (
               <Button
+                data-tour="woocommerce-sync-button"
                 variant="outline"
                 size="lg"
                 onClick={handleSyncProducts}
@@ -274,6 +282,7 @@ export default function WooCommercePage() {
                     </p>
                   </div>
                   <Switch
+                    data-tour="woocommerce-enable-toggle"
                     checked={config.enabled}
                     onCheckedChange={(checked) => setConfig({ ...config, enabled: checked })}
                     className="data-[state=checked]:bg-primary"

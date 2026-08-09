@@ -8,6 +8,11 @@ import { Bot, Send, User, Loader2, Sparkles, Check, X, Wrench, MessageSquare, Pa
 import { toast } from "sonner";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { HelpTourButton } from "@/components/HelpTourButton";
+import { useAutoTour } from "@/hooks/use-auto-tour";
+import { getHelpGuide } from "@/data/help-guides";
+
+const HELP_GUIDE = getHelpGuide("code-agent")!;
 
 type Mode = "operator" | "agent";
 
@@ -33,6 +38,7 @@ const GREETING: Record<Mode, string> = {
 };
 
 export default function CodeAgent() {
+  useAutoTour(HELP_GUIDE);
   const [mode, setMode] = useState<Mode>("operator");
   const [messages, setMessages] = useState<Message[]>([{ role: "assistant", content: GREETING.operator }]);
   const [input, setInput] = useState("");
@@ -187,7 +193,10 @@ export default function CodeAgent() {
               <Bot className="w-5 h-5 text-white" />
             </div>
             <div className="min-w-0">
-              <h1 className="text-xl md:text-2xl font-bold tracking-tight truncate">Atlas VentasPro</h1>
+              <div className="flex items-center gap-1.5">
+                <h1 className="text-xl md:text-2xl font-bold tracking-tight truncate">Atlas VentasPro</h1>
+                <HelpTourButton guide={HELP_GUIDE} />
+              </div>
               <p className="text-muted-foreground text-xs md:text-sm truncate">Tu asistente para operar la app con lenguaje natural</p>
             </div>
           </div>
@@ -195,7 +204,7 @@ export default function CodeAgent() {
             <Button variant="outline" size="sm" onClick={resetConversation} className="h-8 sm:h-9 text-xs px-2 sm:px-3">
               <RotateCcw className="h-3.5 w-3.5 sm:mr-1.5" /> <span className="hidden sm:inline">Nueva</span>
             </Button>
-            <div className="inline-flex rounded-lg border border-border bg-secondary p-0.5">
+            <div data-tour="code-agent-mode-toggle" className="inline-flex rounded-lg border border-border bg-secondary p-0.5">
               <button
                 onClick={() => switchMode("operator")}
                 className={`inline-flex items-center gap-1 rounded-md px-2 sm:px-3 py-1.5 text-[11px] sm:text-xs font-medium transition-colors whitespace-nowrap ${mode === "operator" ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
@@ -330,7 +339,7 @@ export default function CodeAgent() {
                     {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Paperclip className="h-4 w-4" />}
                   </Button>
                 )}
-                <div className="flex-1 relative">
+                <div className="flex-1 relative" data-tour="code-agent-input">
                   <Input
                     value={input}
                     onChange={(e) => setInput(e.target.value)}

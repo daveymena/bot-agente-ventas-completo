@@ -13,6 +13,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { HelpTourButton } from "@/components/HelpTourButton";
+import { useAutoTour } from "@/hooks/use-auto-tour";
+import { getHelpGuide } from "@/data/help-guides";
+
+const HELP_GUIDE = getHelpGuide("pricing")!;
 import { useSaasStatus } from "@/hooks/useSaasStatus";
 
 interface Plan {
@@ -46,6 +51,7 @@ const copFormatter = new Intl.NumberFormat("es-CO", {
 });
 
 export default function PricingPage() {
+  useAutoTour(HELP_GUIDE);
   const [, setLocation] = useLocation();
   const [plans, setPlans] = useState<Plan[]>([]);
   const [loading, setLoading] = useState(true);
@@ -171,9 +177,12 @@ export default function PricingPage() {
             <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-primary/10 text-primary border border-primary/20 text-xs font-bold uppercase tracking-widest mb-6">
               <Star className="h-3 w-3 fill-primary" /> Membresías Elite
             </div>
-            <h1 className="text-4xl md:text-5xl font-black tracking-tight mb-6 bg-gradient-to-br from-foreground via-foreground to-foreground/70 bg-clip-text text-transparent">
-              Escala tu Negocio con IA
-            </h1>
+            <div className="flex items-center justify-center gap-1.5 mb-6">
+              <h1 className="text-4xl md:text-5xl font-black tracking-tight bg-gradient-to-br from-foreground via-foreground to-foreground/70 bg-clip-text text-transparent">
+                Escala tu Negocio con IA
+              </h1>
+              <HelpTourButton guide={HELP_GUIDE} />
+            </div>
             <p className="text-lg text-muted-foreground max-w-2xl mx-auto mb-10 leading-relaxed">
               Elige la potencia de fuego que tu departamento de ventas necesita. Sin contratos, cancela cuando quieras.
             </p>
@@ -184,7 +193,7 @@ export default function PricingPage() {
                 ocupaba toda la pantalla antes de llegar a ver un solo plan, y
                 el nombre del método quedaba dicho 3 veces. */}
             <div className="flex flex-wrap items-center justify-center gap-3">
-              <div className="flex p-1 bg-muted/30 backdrop-blur-xl border border-white/5 rounded-2xl shadow-xl">
+              <div data-tour="pricing-billing-cycle" className="flex p-1 bg-muted/30 backdrop-blur-xl border border-white/5 rounded-2xl shadow-xl">
                 <button
                   onClick={() => setBillingCycle("monthly")}
                   className={`px-5 py-2.5 rounded-xl text-sm font-bold transition-all duration-300 ${billingCycle === "monthly" ? "bg-white text-black shadow-lg" : "text-muted-foreground hover:text-foreground"}`}
@@ -255,7 +264,7 @@ export default function PricingPage() {
                   )}
                   
                   {isCurrent && (
-                    <div className="absolute top-4 left-4">
+                    <div className="absolute top-4 left-4" data-tour="pricing-current-plan">
                       <Badge className="bg-primary text-white border-none shadow-lg shadow-primary/20">Tu Plan Actual</Badge>
                     </div>
                   )}

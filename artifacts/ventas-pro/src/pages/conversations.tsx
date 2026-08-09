@@ -21,8 +21,14 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Send, User, Bot, Search, Phone, ArrowLeft, MessageSquare, Check, X, Tag } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { HelpTourButton } from "@/components/HelpTourButton";
+import { useAutoTour } from "@/hooks/use-auto-tour";
+import { getHelpGuide } from "@/data/help-guides";
+
+const HELP_GUIDE = getHelpGuide("conversations")!;
 
 export default function Conversations() {
+  useAutoTour(HELP_GUIDE);
   const [location, setLocation] = useLocation();
   const searchParams = new URLSearchParams(window.location.search);
   const selectedId = searchParams.get("id") ? parseInt(searchParams.get("id")!) : null;
@@ -274,7 +280,10 @@ export default function Conversations() {
     <Layout>
       <div className="flex flex-col h-full animate-enter gap-4">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Bandeja de Entrada</h1>
+          <div className="flex items-center gap-1.5">
+            <h1 className="text-3xl font-bold tracking-tight">Bandeja de Entrada</h1>
+            <HelpTourButton guide={HELP_GUIDE} />
+          </div>
           <p className="text-muted-foreground">Monitorea a tus agentes y toma el control cuando sea necesario.</p>
         </div>
 
@@ -285,9 +294,10 @@ export default function Conversations() {
             <div className="p-4 border-b space-y-4 bg-background/50 backdrop-blur-md sticky top-0 z-10">
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input 
-                  placeholder="Buscar conversaciones..." 
-                  className="pl-9 bg-background border-muted-foreground/20 rounded-full h-10" 
+                <Input
+                  data-tour="conversations-search"
+                  placeholder="Buscar conversaciones..."
+                  className="pl-9 bg-background border-muted-foreground/20 rounded-full h-10"
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                 />
@@ -405,7 +415,7 @@ export default function Conversations() {
                   
                   <div className="flex items-center gap-2 w-full md:w-auto">
                     {activeConv.status === "ai" ? (
-                      <Button variant="default" size="sm" className="rounded-full shadow-md shadow-primary/20 transition-all hover:scale-105 text-xs md:text-sm flex-1 md:flex-none" onClick={() => handleHandoff("human")} disabled={handoff.isPending}>
+                      <Button data-tour="conversations-take-control" variant="default" size="sm" className="rounded-full shadow-md shadow-primary/20 transition-all hover:scale-105 text-xs md:text-sm flex-1 md:flex-none" onClick={() => handleHandoff("human")} disabled={handoff.isPending}>
                         <User className="h-4 w-4 mr-2" /> Tomar Control
                       </Button>
                     ) : activeConv.status === "human" ? (

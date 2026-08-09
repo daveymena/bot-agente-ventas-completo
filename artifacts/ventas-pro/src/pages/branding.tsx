@@ -8,6 +8,11 @@ import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Save, Palette, Upload, Eye, Globe, Facebook, Instagram, Twitter, Linkedin, Phone } from "lucide-react";
 import { toast } from "sonner";
+import { HelpTourButton } from "@/components/HelpTourButton";
+import { useAutoTour } from "@/hooks/use-auto-tour";
+import { getHelpGuide } from "@/data/help-guides";
+
+const HELP_GUIDE = getHelpGuide("branding")!;
 
 interface BrandColors {
   primary: string;
@@ -63,6 +68,7 @@ const defaultTheme: BrandTheme = {
 };
 
 export default function Branding() {
+  useAutoTour(HELP_GUIDE);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
@@ -195,15 +201,19 @@ export default function Branding() {
         {/* Header */}
         <div className="flex flex-col md:flex-row md:justify-between md:items-end gap-4">
           <div>
-            <h1 className="text-3xl font-bold tracking-tight">
-              Personalización de Marca
-            </h1>
+            <div className="flex items-center gap-1.5">
+              <h1 className="text-3xl font-bold tracking-tight">
+                Personalización de Marca
+              </h1>
+              <HelpTourButton guide={HELP_GUIDE} />
+            </div>
             <p className="text-muted-foreground mt-1">
               Configura los colores, logo y redes sociales de tu negocio
             </p>
           </div>
           <div className="flex gap-3">
             <Button
+              data-tour="branding-preview-toggle"
               variant="outline"
               onClick={() => setShowPreview(!showPreview)}
               className="h-11 px-6 rounded-xl"
@@ -212,6 +222,7 @@ export default function Branding() {
               {showPreview ? "Ocultar" : "Vista Previa"}
             </Button>
             <Button
+              data-tour="branding-save-button"
               onClick={handleSave}
               disabled={isSaving}
               className="h-11 px-6 rounded-xl bg-gradient-to-r from-primary to-accent hover:opacity-90"
@@ -359,7 +370,7 @@ export default function Branding() {
           </Card>
 
           {/* Colores de Marca */}
-          <Card className="rounded-3xl border-0 shadow-lg glass-panel overflow-hidden relative">
+          <Card data-tour="branding-colors" className="rounded-3xl border-0 shadow-lg glass-panel overflow-hidden relative">
             <div className="absolute top-0 right-0 w-full h-2 bg-gradient-to-r from-purple-500 to-pink-500" />
             <CardHeader className="pt-8">
               <CardTitle className="text-xl flex items-center gap-2">

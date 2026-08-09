@@ -20,8 +20,14 @@ import { Save, X, Plus, Settings as SettingsIcon, ShieldCheck, Terminal, Sparkle
 import { toast } from "sonner";
 import { AIProviders } from "@/components/ai-providers";
 import { TwoFactorSettings } from "@/components/two-factor-settings";
+import { HelpTourButton } from "@/components/HelpTourButton";
+import { useAutoTour } from "@/hooks/use-auto-tour";
+import { getHelpGuide } from "@/data/help-guides";
+
+const HELP_GUIDE = getHelpGuide("settings")!;
 
 export default function Settings() {
+  useAutoTour(HELP_GUIDE);
   const queryClient = useQueryClient();
   const { data: settings, isLoading } = useGetSettings({
     query: { queryKey: getGetSettingsQueryKey() }
@@ -147,7 +153,10 @@ export default function Settings() {
       <div className="flex flex-col gap-8 max-w-5xl mx-auto animate-enter">
         <div className="flex flex-col md:flex-row md:justify-between md:items-end gap-4">
           <div>
-            <h1 className="text-3xl font-bold tracking-tight">Configuración</h1>
+            <div className="flex items-center gap-1.5">
+              <h1 className="text-3xl font-bold tracking-tight">Configuración</h1>
+              <HelpTourButton guide={HELP_GUIDE} />
+            </div>
             <p className="text-muted-foreground mt-1">Preferencias generales del negocio y comportamiento de IA.</p>
           </div>
         </div>
@@ -261,7 +270,7 @@ export default function Settings() {
               </CardContent>
             </Card>
 
-            <Card className="rounded-3xl border-0 shadow-lg glass-panel overflow-hidden relative md:col-span-2">
+            <Card data-tour="settings-ai-provider" className="rounded-3xl border-0 shadow-lg glass-panel overflow-hidden relative md:col-span-2">
               <div className="absolute top-0 right-0 w-full h-2 bg-gradient-to-r from-blue-500 to-primary" />
               <CardHeader className="pt-8">
                 <CardTitle className="text-xl">Configuración de Inteligencia Artificial</CardTitle>
@@ -713,9 +722,9 @@ export default function Settings() {
               </CardHeader>
               <CardContent className="space-y-6">
                 <div className="flex flex-col md:flex-row gap-4">
-                  <div className="flex-1">
+                  <div className="flex-1" data-tour="settings-escalation-keywords">
                     <div className="flex gap-2">
-                      <Input 
+                      <Input
                         value={keywordInput}
                         onChange={e => setKeywordInput(e.target.value)}
                         onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), addKeyword())}
@@ -752,9 +761,10 @@ export default function Settings() {
         
         {/* Fixed Save Button Bottom */}
         <div className="sticky bottom-[calc(88px+env(safe-area-inset-bottom))] md:bottom-6 flex justify-center md:justify-end z-20 mt-4 pointer-events-none">
-          <Button 
-            className="rounded-full shadow-xl shadow-primary/20 h-14 px-8 text-base pointer-events-auto transition-transform hover:scale-105" 
-            onClick={handleSubmit} 
+          <Button
+            data-tour="settings-save-button"
+            className="rounded-full shadow-xl shadow-primary/20 h-14 px-8 text-base pointer-events-auto transition-transform hover:scale-105"
+            onClick={handleSubmit}
             disabled={updateSettings.isPending}
           >
             <Save className="h-5 w-5 mr-2" /> Guardar Todos los Cambios

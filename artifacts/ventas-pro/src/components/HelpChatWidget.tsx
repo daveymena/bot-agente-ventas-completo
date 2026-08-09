@@ -1,12 +1,15 @@
 import { useState, useRef, useEffect } from "react";
-import { MessageCircle, X, Send, Loader2, ArrowRight } from "lucide-react";
+import { useLocation } from "wouter";
+import { MessageCircle, X, Send, Loader2, ArrowRight, BookOpen, PlayCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { getHelpGuide } from "@/data/help-guides";
 
 interface ChatMessage {
   role: "user" | "assistant";
   content: string;
   escalate?: boolean;
   whatsappPhone?: string | null;
+  suggestedGuideId?: string | null;
 }
 
 /**
@@ -18,6 +21,7 @@ interface ChatMessage {
  * ofrece un botón directo a WhatsApp en vez de dejar a la persona sin salida.
  */
 export function HelpChatWidget() {
+  const [, setLocation] = useLocation();
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
@@ -51,7 +55,7 @@ export function HelpChatWidget() {
         body: JSON.stringify({ messages: nextMessages.map(m => ({ role: m.role, content: m.content })) }),
       });
       const data = await res.json();
-      setMessages(prev => [...prev, { role: "assistant", content: data.reply, escalate: data.escalate, whatsappPhone: data.whatsappPhone }]);
+      setMessages(prev => [...prev, { role: "assistant", content: data.reply, escalate: data.escalate, whatsappPhone: data.whatsappPhone, suggestedGuideId: data.suggestedGuideId }]);
     } catch {
       setMessages(prev => [...prev, { role: "assistant", content: "Tuvimos un problema para responder. Intentá de nuevo.", escalate: true, whatsappPhone: null }]);
     } finally {
@@ -92,6 +96,29 @@ export function HelpChatWidget() {
               <div key={i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
                 <div className={`max-w-[85%] rounded-2xl px-3.5 py-2.5 text-sm whitespace-pre-wrap ${m.role === "user" ? "bg-primary text-primary-foreground" : "bg-muted"}`}>
                   {m.content}
+                  {m.role === "assistant" && m.suggestedGuideId && (() => {
+                    const guide = getHelpGuide(m.suggestedGuideId);
+                    if (!guide) return null;
+                    const hasTour = guide.steps.some(s => s.tourTarget);
+                    return (
+                      <div className="mt-2.5 flex flex-col gap-1.5">
+                        <button
+                          onClick={() => { handleClose(); setLocation(`/ayuda?guide=${guide.id}`); }}
+                          className="flex items-center gap-1.5 text-xs font-bold text-primary hover:text-primary/80"
+                        >
+                          <BookOpen className="h-3 w-3" /> Ver guía completa: {guide.title}
+                        </button>
+                        {hasTour && guide.route && (
+                          <button
+                            onClick={() => { handleClose(); setLocation(`${guide.route}?tour=${guide.id}`); }}
+                            className="flex items-center gap-1.5 text-xs font-bold text-primary hover:text-primary/80"
+                          >
+                            <PlayCircle className="h-3 w-3" /> Mostrarme en la app
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })()}
                   {m.role === "assistant" && m.escalate && m.whatsappPhone && (
                     <a
                       href={waLink(m.whatsappPhone)}

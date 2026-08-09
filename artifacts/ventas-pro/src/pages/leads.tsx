@@ -15,6 +15,9 @@ import { Plus, MoreVertical, Edit, Trash2, Save, Phone, Mail, Users, Tag } from 
 import { toast } from "sonner";
 import { format, parseISO } from "date-fns";
 import { es } from "date-fns/locale";
+import { HelpTourButton } from "@/components/HelpTourButton";
+import { useAutoTour } from "@/hooks/use-auto-tour";
+import { getHelpGuide } from "@/data/help-guides";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -47,7 +50,10 @@ const stageNames: Record<LeadStage, string> = {
   lost: "Perdido ❌",
 };
 
+const HELP_GUIDE = getHelpGuide("leads")!;
+
 export default function Leads() {
+  useAutoTour(HELP_GUIDE);
   const queryClient = useQueryClient();
   const [filterStage, setFilterStage] = useState<LeadStage | "all">("all");
   
@@ -76,16 +82,19 @@ export default function Leads() {
       <div className="flex flex-col gap-6 animate-enter">
         <div className="flex flex-col md:flex-row md:justify-between md:items-end gap-4">
           <div>
-            <h1 className="text-3xl font-bold tracking-tight">Prospectos (CRM)</h1>
+            <div className="flex items-center gap-1.5">
+              <h1 className="text-3xl font-bold tracking-tight">Prospectos (CRM)</h1>
+              <HelpTourButton guide={HELP_GUIDE} />
+            </div>
             <p className="text-muted-foreground mt-1">Gestiona tus contactos y oportunidades de venta.</p>
           </div>
           <LeadModal mode="create" open={isNewModalOpen} onOpenChange={setIsNewModalOpen}>
-            <Button className="shadow-lg shadow-primary/20"><Plus className="h-4 w-4 mr-2"/> Nuevo Prospecto</Button>
+            <Button data-tour="leads-new-button" className="shadow-lg shadow-primary/20"><Plus className="h-4 w-4 mr-2"/> Nuevo Prospecto</Button>
           </LeadModal>
         </div>
 
         {/* Filter Bar */}
-        <div className="glass-panel p-2 rounded-2xl flex gap-4 items-center sticky top-[80px] z-10 overflow-hidden">
+        <div data-tour="leads-stage-filter" className="glass-panel p-2 rounded-2xl flex gap-4 items-center sticky top-[80px] z-10 overflow-hidden">
           {/* Móvil: desplegable de una línea. Las 7 etapas en fila se salían
               del ancho del teléfono y quedaban ocultas a la derecha. */}
           <div className="md:hidden w-full px-1">

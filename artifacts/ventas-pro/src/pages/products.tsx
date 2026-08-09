@@ -22,6 +22,9 @@ import { Plus, MoreVertical, Edit, Trash2, Save, Package, Tag, Filter, Check, X,
 import { toast } from "sonner";
 import { format, parseISO } from "date-fns";
 import { es } from "date-fns/locale";
+import { HelpTourButton } from "@/components/HelpTourButton";
+import { useAutoTour } from "@/hooks/use-auto-tour";
+import { getHelpGuide } from "@/data/help-guides";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -81,8 +84,9 @@ function SmartImportButton({ onComplete }: { onComplete: () => void }) {
         onChange={handleFileUpload}
         disabled={isUploading}
       />
-      <Button 
-        variant="outline" 
+      <Button
+        data-tour="products-import-button"
+        variant="outline"
         className="glass-panel border-primary/30 hover:border-primary/50 text-primary"
         onClick={() => document.getElementById('smart-import')?.click()}
         disabled={isUploading}
@@ -134,7 +138,10 @@ function ProductImage({ product, cat }: { product: any, cat: any }) {
   );
 }
 
+const HELP_GUIDE = getHelpGuide("products")!;
+
 export default function Products() {
+  useAutoTour(HELP_GUIDE);
   const queryClient = useQueryClient();
   const [activeCategoryId, setActiveCategoryId] = useState<number | "all">("all");
   const [activeKind, setActiveKind] = useState<ProductKind | "all">("all");
@@ -203,7 +210,10 @@ export default function Products() {
       <div className="flex flex-col gap-8 animate-enter">
         <div className="flex flex-col gap-2 md:flex-row md:justify-between md:items-end">
           <div>
-            <h1 className="text-2xl font-semibold tracking-tight">Catálogo de Productos</h1>
+            <div className="flex items-center gap-1.5">
+              <h1 className="text-2xl font-semibold tracking-tight">Catálogo de Productos</h1>
+              <HelpTourButton guide={HELP_GUIDE} />
+            </div>
             <p className="text-muted-foreground mt-1">Organiza tus ofertas para que los agentes IA puedan recomendarlas.</p>
           </div>
           {/* flex-wrap: sin esto, en pantallas angostas las 3 acciones no
@@ -226,7 +236,7 @@ export default function Products() {
               categories={categories || []}
               initialData={templateSelected}
             >
-              <Button className="shadow-lg shadow-primary/20"><Plus className="h-4 w-4 mr-2"/> Nuevo Producto</Button>
+              <Button data-tour="products-new-button" className="shadow-lg shadow-primary/20"><Plus className="h-4 w-4 mr-2"/> Nuevo Producto</Button>
             </ProductModal>
           </div>
         </div>
@@ -414,9 +424,10 @@ export default function Products() {
                       <span className={`text-[9px] font-black uppercase tracking-widest ${product.isActive ? 'text-emerald-500' : 'text-muted-foreground'}`}>
                         {product.isActive ? 'Activo' : 'Inactivo'}
                       </span>
-                      <Switch 
+                      <Switch
+                        data-tour="products-active-toggle"
                         id={`active-${product.id}`}
-                        checked={product.isActive} 
+                        checked={product.isActive}
                         onCheckedChange={(checked) => handleToggleActive(product.id, checked)}
                         className="scale-75 origin-right"
                       />

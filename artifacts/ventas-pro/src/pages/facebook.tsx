@@ -10,6 +10,11 @@ import { Textarea } from "@/components/ui/textarea";
 import { Loader2, CheckCircle2, XCircle, RefreshCw, Megaphone, Package, Target, MapPin, Settings2, MessageCircle, MessageSquare, Radio, Globe, FileText, Trash2, Play, Pencil } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Layout } from "@/components/layout";
+import { HelpTourButton } from "@/components/HelpTourButton";
+import { useAutoTour } from "@/hooks/use-auto-tour";
+import { getHelpGuide } from "@/data/help-guides";
+
+const HELP_GUIDE = getHelpGuide("facebook")!;
 
 const apiRequest = async (endpoint: string, options: RequestInit = {}) => {
   const response = await fetch(`/api${endpoint}`, {
@@ -115,6 +120,7 @@ interface AgentLog {
 }
 
 export default function FacebookAdsPage() {
+  useAutoTour(HELP_GUIDE);
   const { toast } = useToast();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -529,7 +535,10 @@ export default function FacebookAdsPage() {
       <div className="space-y-6 p-6">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold tracking-tight">Facebook Multi-Canal</h1>
+            <div className="flex items-center gap-1.5">
+              <h1 className="text-3xl font-bold tracking-tight">Facebook Multi-Canal</h1>
+              <HelpTourButton guide={HELP_GUIDE} />
+            </div>
             <p className="text-muted-foreground">Conecta todos los canales de Facebook: Ads, Messenger y Comentarios</p>
           </div>
         </div>
@@ -588,7 +597,7 @@ export default function FacebookAdsPage() {
                     </CardDescription>
                   </CardHeader>
                   <CardContent className="space-y-3">
-                    <Button onClick={startFacebookLogin} disabled={!fbAppConfig.enabled || connectingOAuth} className="w-full sm:w-auto">
+                    <Button data-tour="facebook-connect-button" onClick={startFacebookLogin} disabled={!fbAppConfig.enabled || connectingOAuth} className="w-full sm:w-auto">
                       {connectingOAuth ? <Loader2 className="mr-2 h-4 w-4 animate-spin shrink-0" /> : <Globe className="mr-2 h-4 w-4 shrink-0" />}
                       Conectar con Facebook
                     </Button>
@@ -804,7 +813,7 @@ export default function FacebookAdsPage() {
                       </div>
                     </div>
                     <div className="flex flex-wrap gap-2">
-                      <Button variant="outline" onClick={createAllDrafts} disabled={creatingAllDrafts} className="w-full sm:w-auto">
+                      <Button data-tour="facebook-megapack-button" variant="outline" onClick={createAllDrafts} disabled={creatingAllDrafts} className="w-full sm:w-auto">
                         {creatingAllDrafts ? <Loader2 className="mr-2 h-4 w-4 animate-spin shrink-0" /> : <Package className="mr-2 h-4 w-4 shrink-0" />}
                         Crear borradores para TODOS los productos (Megapacks)
                       </Button>

@@ -31,6 +31,7 @@ import ArenaPage from "@/pages/arena";
 import AdminTenantsPage from "@/pages/admin-tenants";
 import PrivacyPolicyPage from "@/pages/privacy-policy";
 import LandingPage from "@/pages/landing";
+import HelpCenterPage from "@/pages/help";
 
 // Context para la sesión
 interface SessionContextType {
@@ -132,6 +133,7 @@ function Router() {
       <Route path="/activate" component={ActivatePage} />
       <Route path="/onboarding" component={OnboardingPage} />
       <Route path="/facebook" component={FacebookAdsPage} />
+      <Route path="/ayuda" component={HelpCenterPage} />
       <Route path="/code-agent" component={CodeAgentPage} />
       <Route path="/architect" component={ArchitectPage} />
       <Route path="/admin/store" component={AdminStorePage} />
