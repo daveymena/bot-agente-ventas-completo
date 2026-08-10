@@ -35,6 +35,17 @@ export class AutoTuneEngine {
     return query;
   }
 
+  /** Lee una versión sin aplicarla -- se usa para validar de quién es antes
+   * de dejar que alguien la restaure (ver la ruta de rollback). */
+  async getVersion(versionId: number) {
+    const [version] = await db
+      .select()
+      .from(promptVersions)
+      .where(eq(promptVersions.id, versionId))
+      .limit(1);
+    return version || null;
+  }
+
   async rollbackToVersion(versionId: number) {
     const [version] = await db
       .select()
@@ -108,10 +119,12 @@ export class AutoTuneEngine {
     };
   }
 
-  async applyAutoTune(agentId: number, tenantId?: number) {
+  async applyAutoTune(agentId: number, tenantId: number) {
     try {
-      const performance = await responseAnalyticsEngine.getConversionRate(agentId, 30);
-      const stats = await responseAnalyticsEngine.getStats(agentId, 30);
+      // tenantId ahora es obligatorio y va primero: estas consultas se
+      // filtran por negocio (antes miraban las métricas de TODOS los tenants).
+      const performance = await responseAnalyticsEngine.getConversionRate(tenantId, agentId, 30);
+      const stats = await responseAnalyticsEngine.getStats(tenantId, agentId, 30);
 
       const performanceData = {
         ...performance,

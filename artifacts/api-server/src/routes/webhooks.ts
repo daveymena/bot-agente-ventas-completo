@@ -6,8 +6,91 @@ import { logger } from "../lib/logger";
 import { dbNow } from "../lib/date-utils";
 import { sendOrderConfirmationEmail } from "../lib/email";
 import { credencialesEmailDe } from "../lib/tenant-email-credentials";
+import { credencialesDe } from "../lib/tenant-payment-credentials";
+import { tenantManager } from "../lib/tenantManager";
 
 const router = Router();
+
+/**
+ * Estos webhooks ENTREGAN el producto: marcan el pago como confirmado y le
+ * mandan al cliente el link de acceso real por WhatsApp. Son endpoints
+ * públicos (tienen que serlo, los llama la pasarela), así que NADA de lo que
+ * llega en el cuerpo se puede tomar como cierto: antes alcanzaba con un POST
+ * armado a mano con `external_reference: "telefono|productId"` para llevarse
+ * cualquier producto gratis, sin haber pagado nunca.
+ *
+ * La regla ahora: del body solo se usa el ID del pago, y con ese ID se le
+ * pregunta a la pasarela si el cobro existe de verdad y está aprobado. Si no
+ * se puede confirmar, no se entrega nada.
+ */
+
+/** Verifica un pago contra la API real de MercadoPago. null = no confiable. */
+async function verificarPagoMercadoPago(
+  paymentId: string,
+  tenantId: number | null | undefined,
+): Promise<{ externalReference: string; amount: number } | null> {
+  try {
+    const tenant = tenantId ? await tenantManager.getTenantById(tenantId) : null;
+    const accessToken = (tenant ? credencialesDe(tenant).mercadopago.accessToken : "")
+      || process.env.MERCADO_PAGO_ACCESS_TOKEN;
+    if (!accessToken) {
+      logger.error({ paymentId }, "[Webhook] Sin token de MercadoPago para verificar el pago -- no se entrega nada");
+      return null;
+    }
+    const res = await fetch(`https://api.mercadopago.com/v1/payments/${encodeURIComponent(paymentId)}`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!res.ok) {
+      logger.warn({ paymentId, status: res.status }, "[Webhook] MercadoPago no reconoce este pago -- no se entrega nada");
+      return null;
+    }
+    const pago = (await res.json()) as any;
+    if (pago?.status !== "approved") {
+      logger.warn({ paymentId, status: pago?.status }, "[Webhook] Pago de MercadoPago no aprobado -- no se entrega nada");
+      return null;
+    }
+    return {
+      externalReference: String(pago.external_reference || ""),
+      amount: Number(pago.transaction_amount || 0),
+    };
+  } catch (err) {
+    logger.error({ err, paymentId }, "[Webhook] Error verificando el pago con MercadoPago");
+    return null;
+  }
+}
+
+/**
+ * Verifica una notificación IPN de PayPal reenviándosela a PayPal tal cual,
+ * que responde "VERIFIED" o "INVALID" -- es el mecanismo oficial del IPN
+ * clásico (el formato que usa este handler: payment_status/txn_id/custom).
+ */
+async function verificarIpnPayPal(body: Record<string, any>, sandbox: boolean): Promise<boolean> {
+  try {
+    const url = sandbox
+      ? "https://ipnpb.sandbox.paypal.com/cgi-bin/webscr"
+      : "https://ipnpb.paypal.com/cgi-bin/webscr";
+    // PayPal exige que se le devuelvan los MISMOS campos, en el mismo orden,
+    // precedidos por cmd=_notify-validate.
+    const params = new URLSearchParams({ cmd: "_notify-validate" });
+    for (const [k, v] of Object.entries(body)) params.append(k, String(v));
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded", "User-Agent": "VentasPro-IPN" },
+      body: params.toString(),
+      signal: AbortSignal.timeout(15000),
+    });
+    const texto = (await res.text()).trim();
+    if (texto !== "VERIFIED") {
+      logger.warn({ respuesta: texto, txn_id: body.txn_id }, "[Webhook-PayPal] IPN NO verificada por PayPal -- no se entrega nada");
+      return false;
+    }
+    return true;
+  } catch (err) {
+    logger.error({ err }, "[Webhook-PayPal] Error verificando la IPN con PayPal");
+    return false;
+  }
+}
 
 router.post("/mercadopago", async (req: Request, res: Response) => {
   try {
@@ -21,9 +104,23 @@ router.post("/mercadopago", async (req: Request, res: Response) => {
         return;
       }
 
-      // Extraer el external_reference que contiene el teléfono del cliente y el productId
-      // Formato esperado: "phone|productId" o solo el teléfono
-      const externalRef: string = body.data?.external_reference || body.external_reference || "";
+      // El external_reference ("telefono|productId") se toma de lo que
+      // devuelve la API de MercadoPago, NO del cuerpo del POST -- si viniera
+      // del body, cualquiera podría pedir la entrega de cualquier producto a
+      // su propio número sin haber pagado.
+      const refDelBody: string = body.data?.external_reference || body.external_reference || "";
+      const productIdTentativo = refDelBody.includes("|") ? parseInt(refDelBody.split("|")[1] || "0") || null : null;
+      const [productoTentativo] = productIdTentativo
+        ? await db.select().from(products).where(eq(products.id, productIdTentativo))
+        : [];
+
+      const verificado = await verificarPagoMercadoPago(String(paymentId), productoTentativo?.tenantId);
+      if (!verificado) {
+        res.json({ success: true });
+        return;
+      }
+
+      const externalRef = verificado.externalReference;
       let phone = "";
       let productId: number | null = null;
 
@@ -151,6 +248,15 @@ router.post("/paypal", async (req: Request, res: Response) => {
 
       if (!phone || !productId) {
         logger.warn({ custom, txn_id: body.txn_id }, "[Webhook-PayPal] No se pudo extraer phone/productId del custom field");
+        res.json({ success: true });
+        return;
+      }
+
+      // Recién acá se le pregunta a PayPal si esta notificación es auténtica.
+      // Sin este paso, un POST armado a mano con payment_status "Completed"
+      // bastaba para llevarse cualquier producto gratis.
+      const esSandbox = (process.env.PAYPAL_MODE || "").toLowerCase() === "sandbox";
+      if (!(await verificarIpnPayPal(body, esSandbox))) {
         res.json({ success: true });
         return;
       }

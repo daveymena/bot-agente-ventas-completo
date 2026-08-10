@@ -453,43 +453,15 @@ router.get("/image-providers", async (_req, res, next) => {
   }
 });
 
-/**
- * POST /api/public/create-product/:slug
- * Crea un producto en la BD real para el tenant (requiere API key simple o es público para admin local)
- */
-router.post("/create-product/:slug", async (req, res, next) => {
-  try {
-    const { slug } = req.params;
-    const { name, description, price, category } = req.body;
-
-    const [tenant] = await db
-      .select()
-      .from(tenants)
-      .where(eq(tenants.slug, slug))
-      .limit(1);
-
-    if (!tenant) {
-      return res.status(404).json({ message: "Tenant no encontrado" });
-    }
-
-    const [product] = await db
-      .insert(products)
-      .values({
-        tenantId: tenant.id,
-        name,
-        description,
-        price: String(price ?? 0),
-        category: category ?? "General",
-        imageUrl: req.body.imageUrl ?? null,
-        isActive: true,
-      })
-      .returning();
-
-    return res.json(product);
-  } catch (err) {
-    return next(err);
-  }
-});
+// ELIMINADO: POST /api/public/create-product/:slug
+//
+// Insertaba productos en el catálogo de cualquier negocio con solo saber su
+// slug -- que es público por diseño, es la URL de la tienda. Su propio
+// comentario decía "requiere API key simple", pero ese chequeo nunca existió:
+// vivía bajo el prefijo /public (sin sesión), así que cualquiera en internet
+// podía llenar la tienda de un cliente con productos y precios inventados.
+// No tenía ni un solo llamador en todo el repo. Crear productos ya se hace
+// por POST /api/products, que sí exige sesión y usa el tenant de la cookie.
 
 /**
  * POST /api/public/checkout/:slug/:productId
