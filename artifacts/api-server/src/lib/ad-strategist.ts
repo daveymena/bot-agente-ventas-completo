@@ -737,10 +737,20 @@ Este contenido digital es tu atajo directo a resultados profesionales.
       // aplicados". Se resuelven contra la búsqueda real antes de armar el
       // targeting.
       const resolvedInterests = await resolveInterestIds(accessToken, strategy.interests);
+
+      // strategy.budget viene en PESOS (las plantillas por nicho traen
+      // 12.000-20.000 COP). Meta lo guarda en la moneda de la CUENTA: con una
+      // cuenta en USD, mandar 20000*100 le dijo a Meta "US$20.000 por día"
+      // (~80 millones de pesos diarios) en una campaña que quedó ACTIVA
+      // -- incidente real del 2026-08-10, ver presupuestoDiarioParaMeta.
+      const { FacebookService: FbSvc } = await import("./facebook");
+      const presupuestoMeta = await new FbSvc(this.tenant).presupuestoDiarioParaMetaPublico(strategy.budget);
+      if (!presupuestoMeta.ok) throw new Error(presupuestoMeta.message);
+
       const adSetBody: Record<string, any> = {
         name: `[BORRADOR] ${product.name} - Conjunto`,
         campaign_id: campaign.id,
-        daily_budget: Math.round(strategy.budget * 100),
+        daily_budget: presupuestoMeta.valor,
         targeting: {
           geo_locations: { countries: ["CO"] },
           age_min: strategy.ageMin,

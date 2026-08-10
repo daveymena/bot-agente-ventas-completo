@@ -127,6 +127,86 @@ export class FacebookService {
     return !!this.config.accessToken;
   }
 
+  /**
+   * Moneda de la cuenta publicitaria ("COP", "USD", ...), cacheada por
+   * instancia. Meta guarda los presupuestos en la MONEDA DE LA CUENTA, no en
+   * la del negocio.
+   */
+  private monedaCuenta: string | null = null;
+  async getAccountCurrency(): Promise<string | null> {
+    if (this.monedaCuenta) return this.monedaCuenta;
+    if (!this.config.adAccountId) return null;
+    try {
+      const r = await this.fbGet(`act_${this.config.adAccountId}`, { fields: "currency" }, this.config.userAccessToken);
+      this.monedaCuenta = r?.currency || null;
+      return this.monedaCuenta;
+    } catch (err: any) {
+      logger.warn({ err }, "[Facebook] No se pudo leer la moneda de la cuenta publicitaria");
+      return null;
+    }
+  }
+
+  /**
+   * Convierte un presupuesto expresado en PESOS COLOMBIANOS a las unidades
+   * mínimas de la moneda de la cuenta, que es lo que espera Graph API.
+   *
+   * INCIDENTE REAL (2026-08-10) que motiva esto: toda la app razona en COP
+   * (las plantillas por nicho traen `budget: 15000/20000`, o sea ~15-20 mil
+   * pesos), y el código hacía `daily_budget: monto * 100` asumiendo que la
+   * cuenta también estaba en COP. La cuenta real estaba en USD, así que Meta
+   * leyó 2.000.000 de centavos = **US$20.000 POR DÍA** (~80 millones de pesos
+   * diarios) en una campaña que quedó ACTIVA. Lo único que evitó el desastre
+   * fue que la cuenta no tenía método de pago todavía.
+   *
+   * Además de convertir, hay un TECHO DURO de seguridad: ningún camino
+   * automático debería poder fijar un presupuesto diario disparatado por un
+   * error de unidades. Si el monto convertido supera el equivalente a
+   * ~2.000.000 COP/día, se corta con un error claro en vez de mandarlo.
+   */
+  /** Igual que presupuestoDiarioParaMeta, expuesto para que ad-strategist.ts
+   * (que arma sus propias campañas) use exactamente la misma conversión y el
+   * mismo techo de seguridad, en vez de duplicar la lógica. */
+  async presupuestoDiarioParaMetaPublico(montoCop: number) {
+    return this.presupuestoDiarioParaMeta(montoCop);
+  }
+
+  private async presupuestoDiarioParaMeta(montoCop: number): Promise<{ ok: true; valor: number } | { ok: false; message: string }> {
+    if (!Number.isFinite(montoCop) || montoCop <= 0) {
+      return { ok: false, message: "El presupuesto diario tiene que ser mayor a cero." };
+    }
+    const TECHO_COP = 2_000_000; // ~US$500/día: muy por encima de un uso normal acá
+    if (montoCop > TECHO_COP) {
+      return {
+        ok: false,
+        message: `El presupuesto diario (${montoCop.toLocaleString("es-CO")} COP) supera el máximo de seguridad de ${TECHO_COP.toLocaleString("es-CO")} COP por día. Si de verdad querés gastar eso, cambialo desde el Administrador de Anuncios de Meta.`,
+      };
+    }
+
+    const moneda = (await this.getAccountCurrency()) || "COP";
+    if (moneda === "COP") return { ok: true, valor: Math.round(montoCop * 100) };
+
+    // La cuenta está en otra moneda: se convierte de verdad, con la tasa en
+    // vivo que ya usa el checkout (exchange-rate.ts, COP por 1 USD).
+    try {
+      const { getExchangeRate } = await import("./exchange-rate");
+      const copPorUsd = await getExchangeRate();
+      if (!copPorUsd || copPorUsd <= 0) throw new Error("tasa inválida");
+      if (moneda === "USD") {
+        const usd = montoCop / copPorUsd;
+        return { ok: true, valor: Math.max(1, Math.round(usd * 100)) };
+      }
+      // Otra moneda distinta de COP y USD: no se adivina la conversión. Es
+      // preferible no crear el anuncio que crearlo con un monto inventado.
+      return {
+        ok: false,
+        message: `Tu cuenta publicitaria está en ${moneda}. Todavía no sabemos convertir pesos a esa moneda automáticamente: definí el presupuesto directamente en el Administrador de Anuncios de Meta.`,
+      };
+    } catch (err: any) {
+      logger.error({ err }, "[Facebook] No se pudo convertir el presupuesto a la moneda de la cuenta");
+      return { ok: false, message: "No se pudo convertir el presupuesto a la moneda de tu cuenta publicitaria. Intentá de nuevo en unos minutos." };
+    }
+  }
+
   async validate(): Promise<{ ok: boolean; message: string }> {
     if (!this.isConfigured()) return { ok: false, message: "Token no configurado" };
     try {
@@ -489,10 +569,15 @@ Responde SOLO con este JSON exacto:
         ? await this.pixelBelongsToAccount(adAccount, this.config.pixelId)
         : false;
 
+      // El monto llega en COP (así razona toda la app); Meta lo quiere en la
+      // moneda de la CUENTA. Ver presupuestoDiarioParaMeta().
+      const presu = await this.presupuestoDiarioParaMeta(dailyBudget);
+      if (!presu.ok) throw new Error(presu.message);
+
       const adSetBody: Record<string, any> = {
         name: `${campaignName} - Conjunto`,
         campaign_id: campaign.id,
-        daily_budget: Math.round(dailyBudget * 100),
+        daily_budget: presu.valor,
         targeting: fbTargeting,
         status: "PAUSED",
         start_time: startDate ? new Date(startDate).toISOString() : new Date().toISOString(),
@@ -757,13 +842,14 @@ Responde SOLO con este JSON exacto:
    * pago), el admin tiene que poder enterarse de por qué.
    */
   async setAdSetBudget(adSetId: string, dailyBudget: number): Promise<{ ok: boolean; message?: string }> {
-    if (!Number.isFinite(dailyBudget) || dailyBudget <= 0) {
-      return { ok: false, message: "El presupuesto diario tiene que ser mayor a cero." };
-    }
+    // El monto viene en COP y se convierte a la moneda real de la cuenta,
+    // con techo de seguridad (ver presupuestoDiarioParaMeta).
+    const presu = await this.presupuestoDiarioParaMeta(dailyBudget);
+    if (!presu.ok) return { ok: false, message: presu.message };
     try {
       await this.fbPost(
         adSetId,
-        { daily_budget: Math.round(dailyBudget * 100) },
+        { daily_budget: presu.valor },
         "fijar presupuesto",
         this.config.userAccessToken,
       );
@@ -823,7 +909,15 @@ Responde SOLO con este JSON exacto:
     try {
       const current = await this.getAdSetBudgetStatus(adSetId);
       if (!current || !current.dailyBudget) return { ok: false };
-      const newBudget = Math.max(1000, Math.round(current.dailyBudget * (1 + percentChange)));
+      // Acá NO se convierte: current.dailyBudget ya viene de Meta en la moneda
+      // de la cuenta, así que el porcentaje se aplica y se devuelve en esa
+      // misma moneda. Lo que sí importa es el PISO: estaba fijo en 1000, que
+      // en una cuenta en pesos son 1.000 COP (razonable) pero en una cuenta
+      // en dólares serían US$1.000 POR DÍA -- un piso capaz de multiplicar el
+      // gasto por mil al "bajar" un presupuesto.
+      const moneda = (await this.getAccountCurrency()) || "COP";
+      const piso = moneda === "COP" ? 1000 : 1;
+      const newBudget = Math.max(piso, Math.round(current.dailyBudget * (1 + percentChange)));
       await this.fbPost(adSetId, { daily_budget: Math.round(newBudget * 100) }, "ajustar presupuesto", this.config.userAccessToken);
       return { ok: true, newBudget };
     } catch (err: any) {
