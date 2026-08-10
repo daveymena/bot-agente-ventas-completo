@@ -245,6 +245,40 @@ export class AdStrategist {
     this.tenant = tenant || tenantManager.getDefaultTenant();
   }
 
+  /**
+   * Credenciales de Facebook DE ESTE NEGOCIO, sin heredar las del dueño de la
+   * plataforma.
+   *
+   * Este módulo CREA ANUNCIOS QUE GASTAN DINERO REAL. Antes cada lectura caía
+   * directo a `process.env.FB_*` cuando el negocio no tenía Facebook
+   * conectado: un cliente nuevo que le pidiera a Atlas crear un anuncio lo
+   * habría creado en la CUENTA PUBLICITARIA DEL DUEÑO DE LA PLATAFORMA,
+   * gastando SU dinero y publicando en SU página. Con un solo negocio no se
+   * nota (esa cuenta ES la correcta); con dos es un desastre.
+   *
+   * Es la misma protección que ya tenía `facebook.ts` (ver
+   * `esDuenoDelServidor` en su constructor) y que se aplicó a los cobros
+   * (`tenant-payment-credentials.ts`) -- este módulo se había quedado afuera.
+   *
+   * Para cualquier negocio que no sea el dueño del servidor, vacío es vacío:
+   * la operación falla con un mensaje claro pidiendo conectar Facebook, que
+   * es infinitamente mejor que operar sobre la cuenta equivocada.
+   */
+  private credencialesFb(): { accessToken: string; adAccountId: string; pageId: string; pixelId: string } {
+    const fb = this.tenant.facebook || {};
+    const esDuenoDelServidor = this.tenant.id === tenantManager.getDefaultTenant().id;
+    const env = (valor: string | undefined) => (esDuenoDelServidor ? valor || "" : "");
+    return {
+      // Token de USUARIO primero: crear/publicar campañas es Marketing API y
+      // exige ads_management -- un token de página falla con el error #17.
+      accessToken:
+        fb.userAccessToken || fb.accessToken || env(process.env.FB_ACCESS_TOKEN || process.env.FB_MESSENGER_PAGE_TOKEN),
+      adAccountId: fb.adAccountId || env(process.env.FB_AD_ACCOUNT_ID),
+      pageId: fb.pageId || env(process.env.FB_PAGE_ID),
+      pixelId: fb.pixelId || env(process.env.FB_PIXEL_ID),
+    };
+  }
+
   getStrategyForProduct(product: any): AdStrategy {
     const name = (product.name || "").toLowerCase();
     const category = (product.category || "").toLowerCase();
@@ -435,8 +469,7 @@ Este contenido digital es tu atajo directo a resultados profesionales.
         // -- crear/activar campañas es una operación de Marketing API, exige
         // permisos de usuario (ads_management). Un token de página (lo que
         // había acá antes) falla con el error #17 de Meta.
-        const accessToken = this.tenant.facebook?.userAccessToken || this.tenant.facebook?.accessToken || process.env.FB_ACCESS_TOKEN || process.env.FB_MESSENGER_PAGE_TOKEN || "";
-        const adAccountId = this.tenant.facebook?.adAccountId || process.env.FB_AD_ACCOUNT_ID || "";
+        const { accessToken, adAccountId } = this.credencialesFb();
         if (!accessToken || !adAccountId) return false;
 
         // El anuncio (con su creativo real) ya se creó en createDraftAd,
@@ -485,8 +518,7 @@ Este contenido digital es tu atajo directo a resultados profesionales.
       if (!draft) return { ok: false, message: "Borrador no encontrado" };
       if (!draft.adId) return { ok: false, message: "Este borrador todavía no tiene anuncio creado en Meta" };
 
-      const accessToken = this.tenant.facebook?.userAccessToken || this.tenant.facebook?.accessToken || process.env.FB_ACCESS_TOKEN || process.env.FB_MESSENGER_PAGE_TOKEN || "";
-      const adAccountId = this.tenant.facebook?.adAccountId || process.env.FB_AD_ACCOUNT_ID || "";
+      const { accessToken, adAccountId } = this.credencialesFb();
       if (!accessToken || !adAccountId) return { ok: false, message: "Falta token o cuenta publicitaria" };
       const act = `act_${adAccountId}`;
 
@@ -511,7 +543,7 @@ Este contenido digital es tu atajo directo a resultados profesionales.
       const creative = await this.fbPost(act, "adcreatives", accessToken, {
         name: `[BORRADOR] ${draft.productName} - Creativo (editado)`,
         object_story_spec: {
-          page_id: this.tenant.facebook?.pageId || process.env.FB_PAGE_ID || "",
+          page_id: this.credencialesFb().pageId,
           link_data: linkData,
         },
       });
@@ -557,7 +589,18 @@ Este contenido digital es tu atajo directo a resultados profesionales.
     return `https://wa.me/${digitos}`;
   }
 
-  async createDraftAd(adAccount: string, accessToken: string, productId: number, grounded?: ResearchGroundedCopy, manualImages?: string[], destino?: { tipo: "whatsapp"; numero: string }): Promise<DraftAd> {
+  async createDraftAd(adAccountParam: string, accessTokenParam: string, productId: number, grounded?: ResearchGroundedCopy, manualImages?: string[], destino?: { tipo: "whatsapp"; numero: string }): Promise<DraftAd> {
+    // Las credenciales se resuelven SIEMPRE acá, no se confía en las que
+    // manda quien llama: los tres llamadores (la ruta HTTP, la herramienta
+    // fb_ad_draft de Atlas y createDraftsForAllProducts) armaban su propio
+    // `tenant?.facebook?.X || process.env.FB_X`, sin la protección de "solo
+    // el dueño del servidor hereda el .env". Con eso, un negocio que todavía
+    // no conectó su Facebook habría creado anuncios REALES en la cuenta
+    // publicitaria del dueño de la plataforma, gastando su dinero. Los
+    // parámetros quedan por compatibilidad de firma.
+    const { accessToken, adAccountId: adAccount } = this.credencialesFb();
+    void adAccountParam; void accessTokenParam;
+
     const [product] = await db.select().from(products).where(eq(products.id, productId)).limit(1);
     if (!product) throw new Error("Producto no encontrado");
 
@@ -635,6 +678,17 @@ Este contenido digital es tu atajo directo a resultados profesionales.
       return localDraft;
     }
 
+    // A partir de acá se crean objetos REALES que gastan dinero. Sin las
+    // credenciales de ESTE negocio no se sigue: antes se intentaba igual con
+    // cadenas vacías (o, peor, con las del dueño de la plataforma) y el
+    // admin recibía un error críptico de Meta en vez de saber que lo único
+    // que le falta es conectar su Facebook.
+    if (!accessToken || !adAccount) {
+      throw new Error(
+        "Para crear anuncios reales primero tenés que conectar tu cuenta de Facebook desde la sección Facebook del panel.",
+      );
+    }
+
     try {
       const act = `act_${adAccount}`;
 
@@ -645,7 +699,7 @@ Este contenido digital es tu atajo directo a resultados profesionales.
       // destino del conjunto, el objeto promocionado y el CTA del creativo.
       // Es EL caso de uso central de este producto (vender por WhatsApp) y
       // hasta ahora no se podía armar desde la app.
-      const pageIdDestino = this.tenant.facebook?.pageId || process.env.FB_PAGE_ID || "";
+      const pageIdDestino = this.credencialesFb().pageId;
       const waLink = destino?.tipo === "whatsapp" ? this.normalizarWhatsApp(destino.numero) : null;
       if (destino?.tipo === "whatsapp" && !waLink) {
         throw new Error("El número de WhatsApp no es válido. Poné el número con código de país, por ejemplo 573001234567.");
@@ -675,7 +729,7 @@ Este contenido digital es tu atajo directo a resultados profesionales.
       // Graph API (exige que el conjunto apunte a un pixel/evento). Mismo
       // fix que en facebook.ts: si hay pixel se manda promoted_object con
       // evento LEAD, si no, se cae a LINK_CLICKS.
-      const pixelId = this.tenant.facebook?.pixelId || process.env.FB_PIXEL_ID || "";
+      const pixelId = this.credencialesFb().pixelId;
       const hasUsablePixel = pixelId ? await this.pixelBelongsToAccount(act, accessToken, pixelId) : false;
       // Mismo bug que en facebook.ts: mandar intereses sin ID real de la
       // taxonomía de Facebook hace que Graph API los ignore en silencio --
@@ -836,7 +890,7 @@ Este contenido digital es tu atajo directo a resultados profesionales.
       const creativePayload: Record<string, any> = {
         name: `[BORRADOR] ${product.name} - Creativo`,
         object_story_spec: {
-          page_id: this.tenant.facebook?.pageId || process.env.FB_PAGE_ID || "",
+          page_id: this.credencialesFb().pageId,
           link_data: linkData,
         },
         degrees_of_freedom_spec: { creative_features_spec: creativeFeaturesSpec },
@@ -896,8 +950,7 @@ Este contenido digital es tu atajo directo a resultados profesionales.
   async createDraftsForAllProducts(): Promise<{ created: number; failed: number; withoutRealImage: number; drafts: DraftAd[] }> {
     const result = { created: 0, failed: 0, withoutRealImage: 0, drafts: [] as DraftAd[] };
 
-    const accessToken = this.tenant.facebook?.userAccessToken || this.tenant.facebook?.accessToken || process.env.FB_ACCESS_TOKEN || process.env.FB_MESSENGER_PAGE_TOKEN || "";
-    const adAccountId = this.tenant.facebook?.adAccountId || process.env.FB_AD_ACCOUNT_ID || "";
+    const { accessToken, adAccountId } = this.credencialesFb();
 
     if (!accessToken || !adAccountId) {
       logger.error("[AdStrategist] Facebook not configured");

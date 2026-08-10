@@ -6,6 +6,7 @@ import { requireAdmin, tenantManager } from "../lib/tenantManager";
 import { runAgentReply } from "../lib/agent";
 import { db, conversations, messages } from "@workspace/db";
 import { and, eq } from "drizzle-orm";
+import { logger } from "../lib/logger";
 import { existsSync, rmSync } from "node:fs";
 import path from "node:path";
 
@@ -351,14 +352,39 @@ router.post("/execute", async (req, res, next) => {
       }
     });
 
-    // TODO: Integrar con Baileys para enviar realmente el mensaje
-    // const mgr = getWhatsAppForTenant(tid, (req as any).tenant);
-    // await mgr.sendMessage(phone, mensaje);
+    // Envío REAL por WhatsApp.
+    //
+    // Antes esto era un TODO comentado y la respuesta devolvía
+    // `mensaje_enviado: true` igual, SIEMPRE: el mensaje quedaba guardado en
+    // la base y quien llamara (la app Android) recibía "enviado" aunque no
+    // hubiera salido nada. Un "listo" que no es cierto es peor que un error:
+    // el negocio cree que le contestó al cliente y en realidad lo dejó
+    // esperando. Ahora se intenta enviar de verdad y se informa exactamente
+    // lo que pasó.
+    let enviado = false;
+    let detalle = "";
+    if (!phone) {
+      detalle = "No se indicó a qué número enviar el mensaje.";
+    } else {
+      try {
+        const mgr = getWhatsAppForTenant(tid, (req as any).tenant);
+        if (!mgr.isConnected()) {
+          detalle = "WhatsApp no está conectado en este momento. El mensaje quedó guardado, pero no salió.";
+        } else {
+          await mgr.sendText(String(phone), String(mensaje));
+          enviado = true;
+        }
+      } catch (err: any) {
+        logger.error({ err, conversationId }, "[WhatsApp] Falló el envío desde /execute");
+        detalle = "No se pudo entregar el mensaje por WhatsApp.";
+      }
+    }
 
     res.json({
-      ok: true,
+      ok: enviado,
       conversationId,
-      mensaje_enviado: true,
+      mensaje_enviado: enviado,
+      ...(enviado ? {} : { motivo: detalle }),
       timestamp: new Date().toISOString()
     });
   } catch (e) {
