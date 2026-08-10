@@ -489,11 +489,49 @@ router.post("/page/publish/:productId", async (req, res, next) => {
   }
 });
 
+/**
+ * POST /strategist/upload-image — sube una foto propia del admin (data URL
+ * base64, mismo patrón que /api/code-agent/upload) para usarla en un
+ * borrador de Facebook (sola o como parte de un carrusel de varias).
+ */
+router.post("/strategist/upload-image", async (req, res, next) => {
+  try {
+    const { image, filename } = req.body || {};
+    if (!image || typeof image !== "string") return res.status(400).json({ error: "Falta 'image' (data URL base64)" });
+    const { saveUploadedImage } = await import("../lib/image-store");
+    const rel = await saveUploadedImage(image, filename);
+    if (!rel) return res.status(400).json({ error: "No se pudo guardar la imagen" });
+    const base = (process.env.APP_URL || "").replace(/\/$/, "");
+    return res.json({ ok: true, url: base ? `${base}${rel}` : rel, path: rel });
+  } catch (e) { return next(e); }
+});
+
 router.get("/strategist/drafts", async (req, res, next) => {
   try {
     const tenantId = (req as any).tenant?.id || 1;
     const drafts = await adStrategist.getDrafts(tenantId);
     return res.json({ drafts });
+  } catch (e) { return next(e); }
+});
+
+/**
+ * GET /strategist/draft/:id/insights — métricas reales de Meta (gasto,
+ * impresiones, clics, resultados) para un borrador ya publicado, así el
+ * admin ve cómo va gastando/rindiendo el anuncio sin salir del panel.
+ */
+router.get("/strategist/draft/:id/insights", async (req, res, next) => {
+  try {
+    const draftId = parseInt(req.params.id);
+    const [draft] = await db.select().from(facebookDrafts).where(eq(facebookDrafts.id, draftId)).limit(1);
+    if (!draft) return res.status(404).json({ message: "Borrador no encontrado" });
+    if (!draft.campaignId) return res.status(400).json({ message: "Este borrador todavía no tiene campaña creada en Meta" });
+
+    const { FacebookService } = await import("../lib/facebook");
+    const svc = new FacebookService((req as any).tenant || undefined);
+    const allowed = ["today", "yesterday", "last_3d", "last_7d", "last_14d", "last_30d"];
+    const datePreset = allowed.includes(String(req.query.datePreset)) ? String(req.query.datePreset) : "last_7d";
+    const insights = await svc.getCampaignInsights(draft.campaignId, datePreset);
+    return res.json({ insights, datePreset, fbStatus: draft.fbStatus });
   } catch (e) { return next(e); }
 });
 
@@ -511,7 +549,7 @@ router.delete("/strategist/draft/:id", async (req, res, next) => {
 router.put("/strategist/draft/:id", async (req, res, next) => {
   try {
     const draftId = parseInt(req.params.id);
-    const { headline, primaryText, budget } = req.body || {};
+    const { headline, primaryText, budget, images } = req.body || {};
     const patch: Record<string, any> = { updatedAt: new Date() };
     if (typeof headline === "string") patch.headline = headline;
     if (typeof primaryText === "string") patch.primaryText = primaryText;
@@ -519,9 +557,24 @@ router.put("/strategist/draft/:id", async (req, res, next) => {
       const n = Number(budget);
       if (!Number.isNaN(n)) patch.budget = n;
     }
+    if (Array.isArray(images)) {
+      const list = images.filter((u: any) => typeof u === "string" && u);
+      patch.images = list;
+      if (list[0]) patch.imageUrl = list[0];
+    }
     const [updated] = await db.update(facebookDrafts).set(patch).where(eq(facebookDrafts.id, draftId)).returning();
     if (!updated) return res.status(404).json({ ok: false, message: "Borrador no encontrado" });
-    return res.json({ ok: true, draft: updated });
+
+    // Si el borrador ya tiene anuncio real en Meta y se tocó imagen/texto,
+    // hay que reconstruir el creativo -- guardar acá solo cambia la base de
+    // datos, Facebook no se entera solo. Falla suave: el "Guardar" en sí
+    // funcionó igual, se avisa aparte si Meta rechazó la actualización.
+    let metaSync: { ok: boolean; message?: string } | null = null;
+    if (updated.adId && (Array.isArray(images) || typeof headline === "string" || typeof primaryText === "string")) {
+      const { AdStrategist } = await import("../lib/ad-strategist");
+      metaSync = await new AdStrategist((req as any).tenant || undefined).updateDraftCreative(draftId);
+    }
+    return res.json({ ok: true, draft: updated, metaSync });
   } catch (e) { return next(e); }
 });
 
@@ -552,17 +605,25 @@ router.post("/strategist/draft/:productId", async (req, res, next) => {
     // ruta solo podía generar desde la plantilla fija por nicho; con esto
     // también sirve para publicar campañas armadas con research hecho fuera
     // del loop del Arquitecto (que puede tardar demasiado en pedidos largos).
-    const { hook, angle, primaryText, headline, description, researchNote } = req.body || {};
+    const { hook, angle, primaryText, headline, description, researchNote, images, publishNow } = req.body || {};
     const grounded = (hook || angle || primaryText || headline || description || researchNote)
       ? { hook, angle, primaryText, headline, description, researchNote }
       : undefined;
-    const draft = await new AdStrategist(tenant || undefined).createDraftAd(
-      adAccountId,
-      accessToken,
-      productId,
-      grounded
-    );
-    return res.json(draft);
+    // images: fotos que el admin ya subió con su propio diseño (ver
+    // POST /strategist/upload-image) -- cuando vienen, createDraftAd las usa
+    // tal cual y no genera nada con IA. publishNow activa el anuncio (ya
+    // creado pausado) en el mismo paso, para "ya tengo mi imagen, publicar
+    // de una vez" en vez de dejarlo como borrador a revisar.
+    const manualImages = Array.isArray(images) ? images.filter((u: any) => typeof u === "string" && u) : undefined;
+    const strategist = new AdStrategist(tenant || undefined);
+    const draft = await strategist.createDraftAd(adAccountId, accessToken, productId, grounded, manualImages);
+    let published = false;
+    if (publishNow && draft.status === "created") {
+      const rows = await db.select().from(facebookDrafts).where(eq(facebookDrafts.productId, productId));
+      const saved = rows[rows.length - 1];
+      if (saved) published = await strategist.publishDraft(saved.id);
+    }
+    return res.json({ ...draft, published });
   } catch (e) { return next(e); }
 });
 

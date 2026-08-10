@@ -7,7 +7,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
-import { Loader2, CheckCircle2, XCircle, RefreshCw, Megaphone, Package, Target, MapPin, Settings2, MessageCircle, MessageSquare, Radio, Globe, FileText, Trash2, Play, Pencil } from "lucide-react";
+import { Loader2, CheckCircle2, XCircle, RefreshCw, Megaphone, Package, Target, MapPin, Settings2, MessageCircle, MessageSquare, Radio, Globe, FileText, Trash2, Play, Pencil, BarChart3 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Layout } from "@/components/layout";
 import { HelpTourButton } from "@/components/HelpTourButton";
@@ -99,6 +99,7 @@ interface DraftAd {
   headline: string;
   description: string;
   imageUrl: string | null;
+  images: string[] | null;
   niche: string | null;
   budget: number | null;
   createdAt: string;
@@ -158,6 +159,14 @@ export default function FacebookAdsPage() {
   const [creatingAllDrafts, setCreatingAllDrafts] = useState(false);
   const [selectedDraftProduct, setSelectedDraftProduct] = useState<number | null>(null);
 
+  // Métricas en vivo por borrador publicado (gasto, impresiones, clics...)
+  // -- ver loadInsights(). Se piden bajo demanda, no todas de una, para no
+  // gastar rate limit de Meta si hay muchos borradores en la lista.
+  interface DraftInsights { spend: number; impressions: number; clicks: number; ctr: number; results: number; costPerResult: number; reach: number; }
+  const [insights, setInsights] = useState<Record<number, DraftInsights | "error">>({});
+  const [loadingInsights, setLoadingInsights] = useState<Record<number, boolean>>({});
+  const [insightsRange, setInsightsRange] = useState<Record<number, string>>({});
+
   // Modal de detalle de producto (pestaña Anuncios)
   const [productDetail, setProductDetail] = useState<Product | null>(null);
 
@@ -166,6 +175,8 @@ export default function FacebookAdsPage() {
   const [editHeadline, setEditHeadline] = useState("");
   const [editPrimaryText, setEditPrimaryText] = useState("");
   const [editBudget, setEditBudget] = useState<number>(5000);
+  const [editImages, setEditImages] = useState<string[]>([]);
+  const [uploadingImage, setUploadingImage] = useState(false);
   const [savingDraft, setSavingDraft] = useState(false);
 
 
@@ -477,6 +488,20 @@ export default function FacebookAdsPage() {
     }
   };
 
+  const loadInsights = async (draftId: number, datePreset?: string) => {
+    const range = datePreset || insightsRange[draftId] || "last_7d";
+    setInsightsRange((r) => ({ ...r, [draftId]: range }));
+    setLoadingInsights((l) => ({ ...l, [draftId]: true }));
+    try {
+      const res = await apiRequest(`/facebook/strategist/draft/${draftId}/insights?datePreset=${range}`);
+      setInsights((i) => ({ ...i, [draftId]: res.insights }));
+    } catch (e: any) {
+      setInsights((i) => ({ ...i, [draftId]: "error" }));
+    } finally {
+      setLoadingInsights((l) => ({ ...l, [draftId]: false }));
+    }
+  };
+
   const publishDraft = async (draftId: number) => {
     try {
       const res = await apiRequest(`/facebook/strategist/draft/${draftId}/publish`, { method: "POST" });
@@ -493,6 +518,34 @@ export default function FacebookAdsPage() {
     setEditHeadline(d.headline || "");
     setEditPrimaryText(d.primaryText || "");
     setEditBudget(d.budget || 5000);
+    setEditImages(d.images && d.images.length > 0 ? d.images : (d.imageUrl ? [d.imageUrl] : []));
+  };
+
+  // Sube una foto (archivo local -> data URL -> servidor) y la agrega a la
+  // lista del borrador que se está editando. 2+ fotos = anuncio carrusel.
+  const addDraftImage = async (file: File) => {
+    setUploadingImage(true);
+    try {
+      const dataUrl: string = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+      const res = await apiRequest("/facebook/strategist/upload-image", {
+        method: "POST",
+        body: JSON.stringify({ image: dataUrl, filename: file.name }),
+      });
+      setEditImages((imgs) => [...imgs, res.url]);
+    } catch (e: any) {
+      toast({ title: "Error subiendo la imagen", description: e.message, variant: "destructive" });
+    } finally {
+      setUploadingImage(false);
+    }
+  };
+
+  const removeDraftImage = (index: number) => {
+    setEditImages((imgs) => imgs.filter((_, i) => i !== index));
   };
 
   // Guarda los cambios del borrador editado
@@ -500,11 +553,15 @@ export default function FacebookAdsPage() {
     if (!editingDraft) return;
     try {
       setSavingDraft(true);
-      await apiRequest(`/facebook/strategist/draft/${editingDraft.id}`, {
+      const res = await apiRequest(`/facebook/strategist/draft/${editingDraft.id}`, {
         method: "PUT",
-        body: JSON.stringify({ headline: editHeadline, primaryText: editPrimaryText, budget: editBudget }),
+        body: JSON.stringify({ headline: editHeadline, primaryText: editPrimaryText, budget: editBudget, images: editImages }),
       });
-      toast({ title: "Borrador actualizado" });
+      if (res.metaSync && !res.metaSync.ok) {
+        toast({ title: "Guardado, pero Facebook no aceptó el cambio de imagen", description: res.metaSync.message, variant: "destructive" });
+      } else {
+        toast({ title: "Borrador actualizado", description: res.metaSync?.ok ? "El anuncio en Facebook ya muestra las fotos nuevas." : undefined });
+      }
       setEditingDraft(null);
       loadDrafts();
     } catch (e: any) {
@@ -861,6 +918,65 @@ export default function FacebookAdsPage() {
                               <p className="text-xs text-muted-foreground mt-2">
                                 Creado: {new Date(d.createdAt).toLocaleDateString("es-CO", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}
                               </p>
+                              {d.campaignId && (
+                                <div className="mt-3 pt-3 border-t border-border/50">
+                                  {!insights[d.id] ? (
+                                    <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={() => loadInsights(d.id)} disabled={loadingInsights[d.id]}>
+                                      {loadingInsights[d.id] ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <BarChart3 className="h-3.5 w-3.5 mr-1" />}
+                                      Ver métricas
+                                    </Button>
+                                  ) : insights[d.id] === "error" ? (
+                                    <p className="text-xs text-red-500">No se pudieron cargar las métricas. <button className="underline" onClick={() => loadInsights(d.id)}>Reintentar</button></p>
+                                  ) : (
+                                    <div>
+                                      <div className="flex items-center justify-between mb-2">
+                                        <span className="text-xs font-medium text-muted-foreground">Rendimiento del anuncio</span>
+                                        <div className="flex items-center gap-1">
+                                          <select
+                                            className="text-xs bg-background border rounded px-1 py-0.5"
+                                            value={insightsRange[d.id] || "last_7d"}
+                                            onChange={(e) => loadInsights(d.id, e.target.value)}
+                                          >
+                                            <option value="today">Hoy</option>
+                                            <option value="last_3d">3 días</option>
+                                            <option value="last_7d">7 días</option>
+                                            <option value="last_30d">30 días</option>
+                                          </select>
+                                          <Button size="sm" variant="ghost" className="h-6 w-6 p-0" onClick={() => loadInsights(d.id)} disabled={loadingInsights[d.id]} title="Actualizar">
+                                            <RefreshCw className={`h-3 w-3 ${loadingInsights[d.id] ? "animate-spin" : ""}`} />
+                                          </Button>
+                                        </div>
+                                      </div>
+                                      <div className="grid grid-cols-3 sm:grid-cols-6 gap-2 text-center">
+                                        <div className="bg-background/50 rounded p-1.5">
+                                          <p className="text-sm font-semibold">${(insights[d.id] as DraftInsights).spend.toLocaleString("es-CO")}</p>
+                                          <p className="text-[10px] text-muted-foreground">Gastado</p>
+                                        </div>
+                                        <div className="bg-background/50 rounded p-1.5">
+                                          <p className="text-sm font-semibold">{(insights[d.id] as DraftInsights).impressions.toLocaleString("es-CO")}</p>
+                                          <p className="text-[10px] text-muted-foreground">Impresiones</p>
+                                        </div>
+                                        <div className="bg-background/50 rounded p-1.5">
+                                          <p className="text-sm font-semibold">{(insights[d.id] as DraftInsights).clicks.toLocaleString("es-CO")}</p>
+                                          <p className="text-[10px] text-muted-foreground">Clics</p>
+                                        </div>
+                                        <div className="bg-background/50 rounded p-1.5">
+                                          <p className="text-sm font-semibold">{(insights[d.id] as DraftInsights).ctr.toFixed(2)}%</p>
+                                          <p className="text-[10px] text-muted-foreground">CTR</p>
+                                        </div>
+                                        <div className="bg-background/50 rounded p-1.5">
+                                          <p className="text-sm font-semibold">{(insights[d.id] as DraftInsights).results}</p>
+                                          <p className="text-[10px] text-muted-foreground">Resultados</p>
+                                        </div>
+                                        <div className="bg-background/50 rounded p-1.5">
+                                          <p className="text-sm font-semibold">${(insights[d.id] as DraftInsights).costPerResult.toLocaleString("es-CO")}</p>
+                                          <p className="text-[10px] text-muted-foreground">Costo/resultado</p>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              )}
                             </div>
                             <div className="flex md:flex-col gap-2 shrink-0">
                               {d.status !== "published" && (
@@ -1205,12 +1321,38 @@ export default function FacebookAdsPage() {
                 <Label>Presupuesto diario (COP)</Label>
                 <Input type="number" value={editBudget} onChange={(e) => setEditBudget(Number(e.target.value))} min={1000} />
               </div>
-              {editingDraft && editingDraft.imageUrl && (
-                <div className="rounded-lg overflow-hidden border">
-                  <img src={editingDraft.imageUrl} alt="Imagen del anuncio" className="w-full max-h-48 object-cover" />
-                  <p className="text-xs text-muted-foreground p-2 bg-muted/50">La imagen proviene del producto. Para cambiarla, edita el producto en la seccion Productos.</p>
+              <div>
+                <Label>Fotos del anuncio ({editImages.length}{editImages.length > 1 ? " · se publica como carrusel" : ""})</Label>
+                <div className="flex flex-wrap gap-2 mt-2">
+                  {editImages.map((url, i) => (
+                    <div key={i} className="relative w-24 h-24 rounded-lg overflow-hidden border group">
+                      <img src={url} alt={`Foto ${i + 1}`} className="w-full h-full object-cover" />
+                      <button
+                        type="button"
+                        onClick={() => removeDraftImage(i)}
+                        className="absolute top-1 right-1 bg-black/60 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs opacity-0 group-hover:opacity-100 transition-opacity"
+                      >
+                        ✕
+                      </button>
+                      {i === 0 && <span className="absolute bottom-0 inset-x-0 bg-black/60 text-white text-[10px] text-center py-0.5">Principal</span>}
+                    </div>
+                  ))}
+                  <label className="w-24 h-24 rounded-lg border-2 border-dashed flex flex-col items-center justify-center cursor-pointer text-muted-foreground hover:border-primary hover:text-primary transition-colors">
+                    {uploadingImage ? <Loader2 className="h-5 w-5 animate-spin" /> : <span className="text-2xl leading-none">+</span>}
+                    <span className="text-[10px] mt-1">Agregar</span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      disabled={uploadingImage}
+                      onChange={(e) => { const f = e.target.files?.[0]; if (f) addDraftImage(f); e.target.value = ""; }}
+                    />
+                  </label>
                 </div>
-              )}
+                <p className="text-xs text-muted-foreground mt-2">
+                  Subí tu propia foto (o varias — se publican como carrusel, la persona desliza entre ellas). Si no subís ninguna, se usa la del producto.
+                </p>
+              </div>
             </div>
             <DialogFooter className="flex gap-2">
               <Button variant="outline" onClick={() => setEditingDraft(null)}>Cancelar</Button>

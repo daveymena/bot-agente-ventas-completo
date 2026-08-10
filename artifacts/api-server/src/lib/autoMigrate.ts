@@ -26,6 +26,9 @@ const MIGRATIONS = [
   `ALTER TABLE product_categories ADD COLUMN IF NOT EXISTS icon TEXT`,
   `ALTER TABLE product_categories ADD COLUMN IF NOT EXISTS color TEXT NOT NULL DEFAULT '#6b7280'`,
   `ALTER TABLE product_categories ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'digital'`,
+  // Fotos múltiples para borradores de Facebook (carrusel) -- antes solo
+  // existía image_url (una sola imagen por anuncio).
+  `ALTER TABLE facebook_drafts ADD COLUMN IF NOT EXISTS images JSONB DEFAULT '[]'`,
   `CREATE TABLE IF NOT EXISTS remarketing_campaigns (
     id SERIAL PRIMARY KEY,
     tenant_id INTEGER REFERENCES tenants(id) ON DELETE CASCADE,

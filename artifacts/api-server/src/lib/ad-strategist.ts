@@ -48,6 +48,8 @@ export interface DraftAd {
   headline: string;
   description: string;
   imageUrl: string;
+  /** Todas las imágenes del borrador (incluye imageUrl). 2+ = anuncio carrusel. */
+  images?: string[];
   campaignId: string | null;
   adSetId: string | null;
   adId: string | null;
@@ -388,6 +390,7 @@ Este contenido digital es tu atajo directo a resultados profesionales.
         headline: draft.headline,
         description: draft.description,
         imageUrl: draft.imageUrl,
+        images: draft.images && draft.images.length > 0 ? draft.images : (draft.imageUrl ? [draft.imageUrl] : []),
         niche: draft.strategy.niche,
         budget: draft.strategy.budget,
         fbStatus: draft.status === "created" ? "PAUSED" : "draft",
@@ -465,7 +468,81 @@ Este contenido digital es tu atajo directo a resultados profesionales.
     }
   }
 
-  async createDraftAd(adAccount: string, accessToken: string, productId: number, grounded?: ResearchGroundedCopy): Promise<DraftAd> {
+  /**
+   * Reconstruye el creativo real en Meta cuando se editan las fotos y/o el
+   * texto de un borrador que YA tiene anuncio creado (campaignId/adId).
+   * Los creativos de Facebook son inmutables una vez creados -- no hay forma
+   * de "editar" la imagen de uno existente, hay que crear un creativo NUEVO
+   * y cambiar el `creative_id` del anuncio para que apunte a él (funciona
+   * tanto en PAUSED como en ACTIVE). Sin esto, editar y guardar fotos en el
+   * panel actualizaba la base de datos pero el anuncio real seguía mostrando
+   * la imagen vieja al publicarse -- una desprolijidad que confundiría al
+   * admin (todo "se ve" guardado pero Facebook publica algo distinto).
+   */
+  async updateDraftCreative(draftId: number): Promise<{ ok: boolean; message?: string }> {
+    try {
+      const [draft] = await db.select().from(facebookDrafts).where(eq(facebookDrafts.id, draftId)).limit(1);
+      if (!draft) return { ok: false, message: "Borrador no encontrado" };
+      if (!draft.adId) return { ok: false, message: "Este borrador todavía no tiene anuncio creado en Meta" };
+
+      const accessToken = this.tenant.facebook?.userAccessToken || this.tenant.facebook?.accessToken || process.env.FB_ACCESS_TOKEN || process.env.FB_MESSENGER_PAGE_TOKEN || "";
+      const adAccountId = this.tenant.facebook?.adAccountId || process.env.FB_AD_ACCOUNT_ID || "";
+      if (!accessToken || !adAccountId) return { ok: false, message: "Falta token o cuenta publicitaria" };
+      const act = `act_${adAccountId}`;
+
+      const images = (draft.images && draft.images.length > 0 ? draft.images : (draft.imageUrl ? [draft.imageUrl] : [])) as string[];
+      const linkData: Record<string, any> = {
+        link: `${getAppUrl()}/p/${draft.productId ?? ""}`,
+        message: draft.primaryText || "",
+        name: draft.headline || "",
+        description: draft.description || "",
+      };
+      if (images.length > 1) {
+        linkData.child_attachments = images.map((url, i) => ({
+          link: `${getAppUrl()}/p/${draft.productId ?? ""}`,
+          picture: url,
+          name: i === 0 ? (draft.headline || "") : `${draft.headline || ""} (${i + 1})`,
+          description: draft.description || "",
+        }));
+      } else if (images[0]) {
+        linkData.picture = images[0];
+      }
+
+      const creative = await this.fbPost(act, "adcreatives", accessToken, {
+        name: `[BORRADOR] ${draft.productName} - Creativo (editado)`,
+        object_story_spec: {
+          page_id: this.tenant.facebook?.pageId || process.env.FB_PAGE_ID || "",
+          link_data: linkData,
+        },
+      });
+
+      const swapRes = await fetch(`${FB_GRAPH_URL}/${draft.adId}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ creative: JSON.stringify({ creative_id: creative.id }), access_token: accessToken }),
+      });
+      const swapData: any = await swapRes.json();
+      if (swapData.error) {
+        logger.error({ err: swapData.error, draftId }, "[AdStrategist] Meta rechazó el cambio de creativo");
+        return { ok: false, message: swapData.error.message || "Meta rechazó el cambio de imagen" };
+      }
+      return { ok: true };
+    } catch (err: any) {
+      logger.error({ err, draftId }, "[AdStrategist] Error actualizando el creativo");
+      return { ok: false, message: err?.message || "Error actualizando el creativo" };
+    }
+  }
+
+  /** URL relativa (/uploads/...) o ya absoluta -> siempre absoluta, o "" si no se puede resolver. */
+  private toAbsoluteUrl(raw: string): string {
+    if (!raw) return "";
+    if (/^https?:\/\//i.test(raw)) return raw;
+    const appUrl = getAppUrl();
+    if (/^https:\/\//i.test(appUrl)) return `${appUrl.replace(/\/+$/, "")}/${raw.replace(/^\/+/, "")}`;
+    return "";
+  }
+
+  async createDraftAd(adAccount: string, accessToken: string, productId: number, grounded?: ResearchGroundedCopy, manualImages?: string[]): Promise<DraftAd> {
     const [product] = await db.select().from(products).where(eq(products.id, productId)).limit(1);
     if (!product) throw new Error("Producto no encontrado");
 
@@ -473,20 +550,17 @@ Este contenido digital es tu atajo directo a resultados profesionales.
     if (grounded?.researchNote) strategy.researchNote = grounded.researchNote;
     const adCopy = await this.generateAdCopy(strategy, product, grounded);
 
+    // Fotos propias del admin (ya subidas, ver saveUploadedImage): si las
+    // trae, van primero y NO se genera nada con IA -- es el caso "ya diseñé
+    // mi imagen, quiero publicar de una vez".
+    const manualAbsolute = (manualImages || []).map(u => this.toAbsoluteUrl(u)).filter(Boolean);
+
     // El campo del esquema es imageUrl (column image_url). Leerlo como
     // product.image_url daba siempre undefined, así que TODOS los anuncios
     // salían con el placeholder gris en vez de la foto del producto.
     // Facebook además exige URL absoluta: las del catálogo son relativas.
-    let imageUrl = "";
+    let imageUrl = manualAbsolute[0] || this.toAbsoluteUrl(product.imageUrl || "");
     const raw = product.imageUrl || "";
-    if (/^https?:\/\//i.test(raw)) {
-      imageUrl = raw;
-    } else if (raw) {
-      const appUrl = getAppUrl();
-      if (/^https:\/\//i.test(appUrl)) {
-        imageUrl = `${appUrl.replace(/\/+$/, "")}/${raw.replace(/^\/+/, "")}`;
-      }
-    }
     // Este flag decide más abajo qué mejoras de Meta se activan: recortar/
     // expandir o generar fondo sobre un cartel de texto genérico no tiene
     // sentido y puede terminar pareciendo todavía menos al producto.
@@ -532,6 +606,7 @@ Este contenido digital es tu atajo directo a resultados profesionales.
         headline: adCopy.headline,
         description: adCopy.description,
         imageUrl,
+        images: manualAbsolute.length > 0 ? manualAbsolute : undefined,
         campaignId: null,
         adSetId: null,
         adId: null,
@@ -673,18 +748,37 @@ Este contenido digital es tu atajo directo a resultados profesionales.
       //
       // Path único: una imagen fija en object_story_spec (funciona, verificado
       // en las pruebas de imágenes reales de esta sesión).
+      //
+      // Carrusel (2+ fotos propias del admin, manualAbsolute): usa
+      // link_data.child_attachments, con `picture` como URL por tarjeta --
+      // MISMO campo `picture` que ya funciona en el path de una sola imagen,
+      // así que debería aceptar URL igual (a diferencia de asset_feed_spec,
+      // que exige image_hash). A diferencia del resto de este archivo, esto
+      // NO está "probado en vivo" todavía -- probar con un borrador de bajo
+      // presupuesto antes de confiar en el carrusel a escala.
+      const isCarousel = manualAbsolute.length > 1;
+      const linkData: Record<string, any> = {
+        link: `${getAppUrl()}/p/${product.id}`,
+        message: adCopy.primaryText,
+        name: adCopy.headline,
+        description: adCopy.description,
+        call_to_action: { type: strategy.ctaType },
+      };
+      if (isCarousel) {
+        linkData.child_attachments = manualAbsolute.map((url, i) => ({
+          link: `${getAppUrl()}/p/${product.id}`,
+          picture: url,
+          name: i === 0 ? adCopy.headline : `${adCopy.headline} (${i + 1})`,
+          description: adCopy.description,
+        }));
+      } else if (imageUrl) {
+        linkData.picture = imageUrl;
+      }
       const creativePayload: Record<string, any> = {
         name: `[BORRADOR] ${product.name} - Creativo`,
         object_story_spec: {
           page_id: this.tenant.facebook?.pageId || process.env.FB_PAGE_ID || "",
-          link_data: {
-            link: `${getAppUrl()}/p/${product.id}`,
-            message: adCopy.primaryText,
-            name: adCopy.headline,
-            description: adCopy.description,
-            call_to_action: { type: strategy.ctaType },
-            ...(imageUrl ? { picture: imageUrl } : {}),
-          },
+          link_data: linkData,
         },
         degrees_of_freedom_spec: { creative_features_spec: creativeFeaturesSpec },
       };
@@ -710,6 +804,7 @@ Este contenido digital es tu atajo directo a resultados profesionales.
         headline: adCopy.headline,
         description: adCopy.description,
         imageUrl,
+        images: manualAbsolute.length > 0 ? manualAbsolute : undefined,
         campaignId: campaign.id,
         adSetId: adSet.id,
         adId: ad.id,

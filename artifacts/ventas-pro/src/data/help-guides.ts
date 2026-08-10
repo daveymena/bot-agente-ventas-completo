@@ -249,9 +249,14 @@ export const HELP_GUIDES: HelpGuide[] = [
     summary: "Conectá tu página de Facebook para anunciar, vender por Messenger y responder comentarios automáticamente.",
     steps: [
       {
+        title: "Qué necesitás (y qué NO necesitás)",
+        description:
+          "Solo necesitás dos cosas, las mismas que ya tenés si manejás tu negocio en Facebook: tu cuenta personal de Facebook, y ser administrador de la página de Facebook de tu negocio. NO necesitás crear ninguna aplicación, clave de API ni token — eso ya está resuelto del lado de VentasPro. Si tu negocio todavía no tiene una página de Facebook, creála primero en facebook.com/pages/create (2 minutos) y después volvé acá.",
+      },
+      {
         title: "Conectar tu cuenta",
         description:
-          "En la pestaña 'Configuración' tocá 'Conectar con Facebook' — es la forma recomendada, con un solo login real de Meta. La opción manual con tokens es solo para casos avanzados.",
+          "En la pestaña 'Configuración' tocá 'Conectar con Facebook'. Se abre la pantalla de login de Facebook (con tu sesión, no la nuestra) — iniciá sesión si hace falta y tocá 'Continuar' para aprobar los permisos. Al volver, tu página ya queda conectada, sin que hayas visto ni copiado ningún token. La opción manual con tokens es solo para casos avanzados/soporte técnico.",
         tourTarget: "facebook-connect-button",
         screenshot: "/images/help/facebook/1.png",
         screenshotMobile: "/images/help/facebook/2.png",
