@@ -8,6 +8,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
 import { Rocket, Mail, Lock, Store, User, ArrowRight, ShieldCheck, KeyRound, ArrowLeft, Check, X, CheckCircle, AlertCircle, Loader, Eye, EyeOff } from "lucide-react";
 import { useSession } from "@/App";
+import { describeError } from "@/lib/utils";
 
 // Tratamiento visual de los campos de esta pantalla. Va acá y no en el
 // componente Input porque ese es compartido por TODA la app (h-9, compacto,
@@ -121,8 +122,12 @@ export default function AuthPage() {
       try {
         data = JSON.parse(text);
       } catch (parseErr) {
+        // El detalle técnico queda en la consola para diagnóstico, pero al
+        // usuario -- que está en la PRIMERA pantalla del producto -- no se le
+        // pide "revisar la consola": no sabe qué es eso y da la peor primera
+        // impresión posible.
         console.error("Respuesta no-JSON del servidor:", text);
-        toast.error("Error del servidor: Revisa la consola");
+        toast.error("No pudimos conectar con el servidor. Intentá de nuevo en unos segundos.");
         setIsLoading(false);
         return;
       }
@@ -168,7 +173,7 @@ export default function AuthPage() {
       await refreshSession();
       setLocation("/");
     } catch (err: any) {
-      toast.error(err.message || "No se pudo verificar el código");
+      toast.error(describeError(err, "No se pudo verificar el código. Intentá de nuevo."));
     } finally {
       setIsLoading(false);
     }

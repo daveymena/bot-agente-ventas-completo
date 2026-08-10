@@ -170,9 +170,14 @@ router.post("/upgrade", paymentRateLimit, validateCsrfToken, async (req, res, ne
     } catch (paymentError: any) {
       logger.error({ error: paymentError.message, stack: paymentError.stack }, "[Pricing] Error creating payment link");
 
+      // El mensaje crudo del gateway (MercadoPago/PayPal) NO se devuelve al
+      // cliente: son excepciones técnicas en inglés ("Invalid preference
+      // payer email", errores de red, etc.) que a quien está intentando
+      // pagar solo lo asustan. Queda completo en el log de arriba, que es
+      // donde sirve para diagnosticar.
       return res.status(500).json({
         error: "Payment service error",
-        message: paymentError.message || "No se pudo crear el enlace de pago. Por favor intenta nuevamente."
+        message: "No se pudo crear el enlace de pago. Por favor intenta nuevamente en unos minutos."
       });
     }
   } catch (error: any) {

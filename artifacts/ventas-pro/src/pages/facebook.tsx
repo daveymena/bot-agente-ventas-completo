@@ -13,6 +13,7 @@ import { Layout } from "@/components/layout";
 import { HelpTourButton } from "@/components/HelpTourButton";
 import { useAutoTour } from "@/hooks/use-auto-tour";
 import { getHelpGuide } from "@/data/help-guides";
+import { describeError } from "@/lib/utils";
 
 const HELP_GUIDE = getHelpGuide("facebook")!;
 
@@ -236,7 +237,7 @@ export default function FacebookAdsPage() {
       const cfg = await apiRequest("/facebook/config");
       if (cfg) setConfig(cfg);
     } catch (e: any) {
-      toast({ title: "Error conectando Facebook", description: e.message, variant: "destructive" });
+      toast({ title: "Error conectando Facebook", description: describeError(e, "No se pudo conectar con Facebook. Volvé a intentarlo en unos segundos."), variant: "destructive" });
     } finally {
       setConnectingOAuth(false);
     }
@@ -309,7 +310,7 @@ export default function FacebookAdsPage() {
       const cfg = await apiRequest("/facebook/config");
       if (cfg) setConfig(cfg);
     } catch (e: any) {
-      toast({ title: "Error", description: e.message, variant: "destructive" });
+      toast({ title: "Error", description: describeError(e, "No se pudo guardar la configuración de Facebook."), variant: "destructive" });
     } finally { setSaving(false); }
   };
 
@@ -321,7 +322,7 @@ export default function FacebookAdsPage() {
       toast({ title: res.ok ? "Conectado" : "Error", description: res.message });
     } catch (e: any) {
       setConnected(false);
-      toast({ title: "Error", description: e.message, variant: "destructive" });
+      toast({ title: "Error", description: describeError(e, "No se pudo verificar la conexión con Facebook."), variant: "destructive" });
     } finally { setTesting(false); }
   };
 
@@ -334,7 +335,7 @@ export default function FacebookAdsPage() {
       const res = await apiRequest(`/facebook/suggest-audience/${product.id}`);
       setAudience(res);
     } catch (e: any) {
-      toast({ title: "Error", description: e.message, variant: "destructive" });
+      toast({ title: "Error", description: describeError(e, "No se pudo sugerir una audiencia para este producto."), variant: "destructive" });
     }
   };
 
@@ -353,7 +354,7 @@ export default function FacebookAdsPage() {
       setResult(res);
       toast({ title: "Anuncio creado", description: `Anuncio para ${selectedProduct.name} creado (pausado)` });
     } catch (e: any) {
-      toast({ title: "Error", description: e.message, variant: "destructive" });
+      toast({ title: "Error", description: describeError(e, "No se pudo crear el anuncio. Revisá que Facebook esté conectado."), variant: "destructive" });
     } finally { setCreating(false); }
   };
 
@@ -363,7 +364,7 @@ export default function FacebookAdsPage() {
       const res = await apiRequest("/facebook/sync-catalog", { method: "POST" });
       toast({ title: "Catálogo sincronizado", description: `${res.synced} productos, ${res.failed} fallos` });
     } catch (e: any) {
-      toast({ title: "Error", description: e.message, variant: "destructive" });
+      toast({ title: "Error", description: describeError(e, "No se pudo sincronizar el catálogo con Facebook."), variant: "destructive" });
     } finally { setSyncing(false); }
   };
 
@@ -380,7 +381,7 @@ export default function FacebookAdsPage() {
       const res = await apiRequest("/facebook/messenger/subscribe", { method: "POST" });
       toast({ title: res.ok ? "Suscrito" : "Error", description: res.message });
     } catch (e: any) {
-      toast({ title: "Error", description: e.message, variant: "destructive" });
+      toast({ title: "Error", description: describeError(e, "No se pudo activar el bot de Messenger."), variant: "destructive" });
     } finally { setSubscribing(false); }
   };
 
@@ -407,7 +408,7 @@ export default function FacebookAdsPage() {
       toast({ title: "Revisión ejecutada", description: res.message });
       loadAgentLogs();
     } catch (e: any) {
-      toast({ title: "Error", description: e.message, variant: "destructive" });
+      toast({ title: "Error", description: describeError(e, "No se pudo ejecutar el agente de anuncios ahora."), variant: "destructive" });
     } finally { setRunningAgentNow(false); }
   };
 
@@ -417,7 +418,7 @@ export default function FacebookAdsPage() {
       setPollingActive(true);
       toast({ title: "Polling iniciado", description: "Monitoreo automático de comentarios activado" });
     } catch (e: any) {
-      toast({ title: "Error", description: e.message, variant: "destructive" });
+      toast({ title: "Error", description: describeError(e, "No se pudo activar la revisión automática de mensajes."), variant: "destructive" });
     }
   };
 
@@ -427,7 +428,7 @@ export default function FacebookAdsPage() {
       setPollingActive(false);
       toast({ title: "Polling detenido" });
     } catch (e: any) {
-      toast({ title: "Error", description: e.message, variant: "destructive" });
+      toast({ title: "Error", description: describeError(e, "No se pudo detener la revisión automática de mensajes."), variant: "destructive" });
     }
   };
 
@@ -448,7 +449,7 @@ export default function FacebookAdsPage() {
       toast({ title: "Borrador creado", description: "Borrador de anuncio creado exitosamente" });
       loadDrafts();
     } catch (e: any) {
-      toast({ title: "Error", description: e.message, variant: "destructive" });
+      toast({ title: "Error", description: describeError(e, "No se pudo crear el borrador del anuncio."), variant: "destructive" });
     } finally { setCreatingDraft(false); }
   };
 
@@ -467,7 +468,7 @@ export default function FacebookAdsPage() {
       });
       loadDrafts();
     } catch (e: any) {
-      toast({ title: "Error", description: e.message, variant: "destructive" });
+      toast({ title: "Error", description: describeError(e, "No se pudieron crear los borradores de todos los productos."), variant: "destructive" });
     } finally { setCreatingAllDrafts(false); }
   };
 
@@ -477,7 +478,7 @@ export default function FacebookAdsPage() {
       toast({ title: "Borrador eliminado" });
       loadDrafts();
     } catch (e: any) {
-      toast({ title: "Error", description: e.message, variant: "destructive" });
+      toast({ title: "Error", description: describeError(e, "No se pudo eliminar el borrador."), variant: "destructive" });
     }
   };
 
@@ -501,7 +502,7 @@ export default function FacebookAdsPage() {
       toast({ title: res.ok ? "Publicado" : "Error", description: res.message });
       loadDrafts();
     } catch (e: any) {
-      toast({ title: "Error", description: e.message, variant: "destructive" });
+      toast({ title: "Error", description: describeError(e, "No se pudo publicar el anuncio en Facebook."), variant: "destructive" });
     }
   };
 
@@ -531,7 +532,7 @@ export default function FacebookAdsPage() {
       });
       setEditImages((imgs) => [...imgs, res.url]);
     } catch (e: any) {
-      toast({ title: "Error subiendo la imagen", description: e.message, variant: "destructive" });
+      toast({ title: "Error subiendo la imagen", description: describeError(e, "No se pudo subir la imagen. Probá con otra foto o un archivo más liviano."), variant: "destructive" });
     } finally {
       setUploadingImage(false);
     }
@@ -558,7 +559,7 @@ export default function FacebookAdsPage() {
       setEditingDraft(null);
       loadDrafts();
     } catch (e: any) {
-      toast({ title: "Error", description: e.message, variant: "destructive" });
+      toast({ title: "Error", description: describeError(e, "No se pudieron guardar los cambios del borrador."), variant: "destructive" });
     } finally {
       setSavingDraft(false);
     }
