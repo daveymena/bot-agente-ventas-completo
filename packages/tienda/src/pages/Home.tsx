@@ -1,3 +1,4 @@
+import { placeholderImage, placeholderBanner } from "../lib/placeholder-image";
 import { motion } from 'framer-motion';
 import { useStore } from '../store/useStore';
 import { ArrowRight, Star, ShieldCheck, Zap, Globe, MapPin } from 'lucide-react';
@@ -53,7 +54,7 @@ const Hero = () => {
           >
             <div className="relative z-10 rounded-[3rem] overflow-hidden border-8 border-white/10 shadow-2xl">
               <img 
-                src={config.heroImage || "https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=800&auto=format&fit=crop&q=80"} 
+                src={config.heroImage || placeholderBanner("Tu tienda")} 
                 alt="Hero Product"
                 className="w-full h-[600px] object-cover"
               />
@@ -153,19 +154,19 @@ const Home = () => {
                 title="Digital Pro" 
                 type="digital" 
                 count="24"
-                img="https://images.unsplash.com/photo-1614332287897-cdc485fa562d?w=800&auto=format&fit=crop&q=60" 
+                img={placeholderImage("Digital Pro")} 
               />
               <CategoryCard 
                 title="Equipamiento" 
                 type="physical" 
                 count="150+"
-                img="https://images.unsplash.com/photo-1542496658-e33a6d0d50f6?w=800&auto=format&fit=crop&q=60" 
+                img={placeholderImage("Equipamiento")} 
               />
               <CategoryCard 
                 title="Gadgets" 
                 type="dropshipping" 
                 count="89"
-                img="https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=800&auto=format&fit=crop&q=60" 
+                img={placeholderImage("Gadgets")} 
               />
             </div>
           </div>

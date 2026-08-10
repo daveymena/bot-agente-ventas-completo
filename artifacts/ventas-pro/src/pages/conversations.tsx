@@ -244,25 +244,41 @@ export default function Conversations() {
     return <p className="whitespace-pre-wrap break-words [overflow-wrap:anywhere]">{content}</p>;
   };
 
-  // Fallback image map for products without imageUrl
+  /**
+   * Imagen de respaldo para un producto sin foto cargada.
+   *
+   * Antes esto era un mapa fijo de fotos de Unsplash (una por palabra clave:
+   * piano, guitarra, trading...). Dos problemas: son fotos de terceros
+   * incrustadas desde su servidor -- material ajeno dentro de un producto que
+   * se vende -- y encima ni siquiera correspondían al producto real del
+   * cliente, solo al tema. Ahora se dibuja una tarjeta propia, con la inicial
+   * y el nombre del producto sobre un color derivado de su propio nombre
+   * (mismo nombre = siempre el mismo color, no parpadea entre recargas).
+   *
+   * Para una imagen REAL del producto está la generación con IA del formulario
+   * de Productos (ver handleGenerateImage en products.tsx), que la crea a
+   * partir del nombre y la descripción y la guarda como imagen propia.
+   */
   function getProductImageFallback(name: string): string {
-    const n = name.toLowerCase();
-    const map: Record<string, string> = {
-      piano: "https://images.unsplash.com/photo-1520522118901-447bb5c67039?w=800",
-      guitarra: "https://images.unsplash.com/photo-1510915361894-db8b60106cb1?w=800",
-      excel: "https://images.unsplash.com/photo-1460925895917-afdab827c52f?w=800",
-      diseño: "https://images.unsplash.com/photo-1561070791-2526d30994b5?w=800",
-      trading: "https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?w=800",
-      hacking: "https://images.unsplash.com/photo-1550751827-4bd374c3f58b?w=800",
-      marketing: "https://images.unsplash.com/photo-1432888622747-4eb9a8f2b1c5?w=800",
-      fitness: "https://images.unsplash.com/photo-1517836357463-d25dfeac3438?w=800",
-      idiomas: "https://images.unsplash.com/photo-1546410531-bb4caa6b424d?w=800",
-      programacion: "https://images.unsplash.com/photo-1461749280684-dccba630e2f6?w=800",
-    };
-    for (const [key, url] of Object.entries(map)) {
-      if (n.includes(key)) return url;
-    }
-    return "https://images.unsplash.com/photo-1434031211128-095490e7e7e9?w=800";
+    const limpio = (name || "Producto").trim() || "Producto";
+    // Hash estable del nombre -> tono fijo. Sin Math.random(): con una
+    // aleatoria, la misma tarjeta cambiaba de color en cada render.
+    let hash = 0;
+    for (let i = 0; i < limpio.length; i++) hash = (hash * 31 + limpio.charCodeAt(i)) >>> 0;
+    const hue = hash % 360;
+    const inicial = limpio[0].toUpperCase();
+    const corto = limpio.length > 22 ? `${limpio.slice(0, 21)}…` : limpio;
+    const escapar = (s: string) => s.replace(/[<>&"]/g, (c) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", '"': "&quot;" }[c] || c));
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="800" height="800" viewBox="0 0 800 800">
+<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+<stop offset="0%" stop-color="hsl(${hue} 70% 55%)"/><stop offset="100%" stop-color="hsl(${(hue + 40) % 360} 70% 40%)"/>
+</linearGradient></defs>
+<rect width="800" height="800" fill="url(#g)"/>
+<text x="400" y="380" font-family="system-ui,-apple-system,sans-serif" font-size="260" font-weight="700" fill="rgba(255,255,255,.92)" text-anchor="middle">${escapar(inicial)}</text>
+<text x="400" y="510" font-family="system-ui,-apple-system,sans-serif" font-size="44" fill="rgba(255,255,255,.85)" text-anchor="middle">${escapar(corto)}</text>
+</svg>`;
+    // encodeURIComponent (no btoa): btoa rompe con acentos y eñes, comunes acá.
+    return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
   }
 
   const getStageGradient = (stage?: string | null) => {

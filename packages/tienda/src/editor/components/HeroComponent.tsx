@@ -1,3 +1,4 @@
+import { placeholderBanner } from "../../lib/placeholder-image";
 import React from 'react';
 import { useNode, Element } from '@craftjs/core';
 import { TextComponent } from './TextComponent';
@@ -14,7 +15,7 @@ export interface HeroProps {
 }
 
 const defaultProps: HeroProps = {
-  backgroundImage: 'https://images.unsplash.com/photo-1497366216548-37526070297c?w=1200',
+  backgroundImage: placeholderBanner("Portada"),
   overlayColor: '#000000',
   overlayOpacity: 0.4,
   height: '500px',

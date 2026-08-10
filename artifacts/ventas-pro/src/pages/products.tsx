@@ -629,14 +629,29 @@ function ProductModal({ mode, product, categories, initialData, children, open: 
   const [aiImagePrompt, setAiImagePrompt] = useState("");
   const [isGeneratingImage, setIsGeneratingImage] = useState(false);
 
+  // Si el admin no escribe nada, se arma el prompt con el nombre y la
+  // descripción del producto -- antes el botón quedaba deshabilitado hasta
+  // que escribiera una descripción de la imagen en texto libre, algo que un
+  // dueño de negocio no tiene por qué saber hacer.
   const handleGenerateImage = useCallback(async () => {
-    if (!aiImagePrompt.trim()) return;
+    const nombre = (formData.name || "").trim();
+    const escrito = aiImagePrompt.trim();
+    if (!escrito && !nombre) {
+      toast.error("Escribí primero el nombre del producto");
+      return;
+    }
+    const prompt = escrito || [
+      `Foto profesional de producto para "${nombre}".`,
+      (formData.description || "").trim().slice(0, 200),
+      "Estilo fotografía realista de marketing, sin texto ni logos encima, apta para publicar en redes.",
+    ].filter(Boolean).join(" ");
+
     setIsGeneratingImage(true);
     try {
       const res = await fetch("/api/public/generate-image", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt: aiImagePrompt }),
+        body: JSON.stringify({ prompt }),
       });
       if (!res.ok) throw new Error("Error al generar imagen");
       const data = await res.json();
@@ -644,11 +659,11 @@ function ProductModal({ mode, product, categories, initialData, children, open: 
       setAiImagePrompt("");
       toast.success("Imagen generada correctamente");
     } catch (err) {
-      toast.error("No se pudo generar la imagen");
+      toast.error("No se pudo generar la imagen. Probá de nuevo en unos segundos.");
     } finally {
       setIsGeneratingImage(false);
     }
-  }, [aiImagePrompt]);
+  }, [aiImagePrompt, formData.name, formData.description]);
 
   // Sync state on open
   useMemo(() => {
@@ -873,8 +888,8 @@ function ProductModal({ mode, product, categories, initialData, children, open: 
                 <div className="flex-1 space-y-2">
                   <Input value={formData.imageUrl} onChange={e => setFormData({...formData, imageUrl: e.target.value})} placeholder="https://ejemplo.com/imagen.jpg" />
                   <div className="flex gap-2 items-center">
-                    <Input value={aiImagePrompt} onChange={e => setAiImagePrompt(e.target.value)} placeholder="Describe la imagen para generar con IA..." className="text-xs" />
-                    <Button type="button" variant="secondary" size="sm" onClick={handleGenerateImage} disabled={isGeneratingImage || !aiImagePrompt.trim()}>
+                    <Input value={aiImagePrompt} onChange={e => setAiImagePrompt(e.target.value)} placeholder="Opcional: describí la imagen que querés" className="text-xs" />
+                    <Button type="button" variant="secondary" size="sm" onClick={handleGenerateImage} disabled={isGeneratingImage || (!aiImagePrompt.trim() && !formData.name.trim())} title="Si lo dejás vacío, se genera a partir del nombre y la descripción del producto">
                       <Sparkles className="h-3 w-3 mr-1" /> {isGeneratingImage ? "..." : "Generar"}
                     </Button>
                   </div>
