@@ -489,6 +489,63 @@ router.post("/page/publish/:productId", async (req, res, next) => {
   }
 });
 
+// ── Centro de control de campañas ───────────────────────────────────────────
+// Estas capacidades ya existían en FacebookService, pero SOLO las usaba el
+// agente automático (ad-growth-agent, que además pide aprobación por
+// WhatsApp): el admin no tenía forma de ver sus campañas en vivo ni de
+// pausar, reactivar o cambiar el presupuesto desde el panel. Tenía que
+// entrar al Administrador de Anuncios de Meta para cualquier cosa.
+
+/** Campañas reales de la cuenta, con métricas de la ventana pedida. */
+router.get("/campaigns", async (req, res, next) => {
+  try {
+    const { FacebookService } = await import("../lib/facebook");
+    const svc = new FacebookService((req as any).tenant || undefined);
+    if (!svc.isConfigured()) return res.json({ campaigns: [], totals: null, connected: false });
+    const days = Math.min(Math.max(Number(req.query.days) || 7, 1), 30);
+    const data = await svc.getCampaignMetrics({ days });
+    return res.json({ ...(data || { campaigns: [], totals: null }), connected: true, days });
+  } catch (e) { return next(e); }
+});
+
+/** Conjuntos de una campaña: el presupuesto se fija acá, no en la campaña. */
+router.get("/campaigns/:id/adsets", async (req, res, next) => {
+  try {
+    const { FacebookService } = await import("../lib/facebook");
+    const svc = new FacebookService((req as any).tenant || undefined);
+    return res.json({ adSets: await svc.listAdSets(req.params.id) });
+  } catch (e) { return next(e); }
+});
+
+router.post("/campaigns/:id/pause", async (req, res, next) => {
+  try {
+    const { FacebookService } = await import("../lib/facebook");
+    const ok = await new FacebookService((req as any).tenant || undefined).pauseCampaign(req.params.id);
+    return res.json({ ok, message: ok ? "Campaña pausada. Deja de gastar desde ahora." : "No se pudo pausar la campaña." });
+  } catch (e) { return next(e); }
+});
+
+router.post("/campaigns/:id/resume", async (req, res, next) => {
+  try {
+    const { FacebookService } = await import("../lib/facebook");
+    const ok = await new FacebookService((req as any).tenant || undefined).resumeCampaign(req.params.id);
+    return res.json({ ok, message: ok ? "Campaña reactivada. Vuelve a gastar según su presupuesto." : "No se pudo reactivar la campaña." });
+  } catch (e) { return next(e); }
+});
+
+/** Presupuesto diario exacto de un conjunto de anuncios (en pesos, no %). */
+router.put("/adsets/:id/budget", async (req, res, next) => {
+  try {
+    const monto = Number(req.body?.dailyBudget);
+    const { FacebookService } = await import("../lib/facebook");
+    const r = await new FacebookService((req as any).tenant || undefined).setAdSetBudget(req.params.id, monto);
+    return res.json({
+      ok: r.ok,
+      message: r.ok ? `Presupuesto diario actualizado a $${monto.toLocaleString("es-CO")}.` : r.message,
+    });
+  } catch (e) { return next(e); }
+});
+
 /**
  * POST /strategist/upload-image — sube una foto propia del admin (data URL
  * base64, mismo patrón que /api/code-agent/upload) para usarla en un
@@ -615,8 +672,12 @@ router.post("/strategist/draft/:productId", async (req, res, next) => {
     // creado pausado) en el mismo paso, para "ya tengo mi imagen, publicar
     // de una vez" en vez de dejarlo como borrador a revisar.
     const manualImages = Array.isArray(images) ? images.filter((u: any) => typeof u === "string" && u) : undefined;
+    // whatsapp: número (o enlace wa.me) al que debe llevar el anuncio. Cambia
+    // el tipo de campaña entera, no solo el botón -- ver createDraftAd.
+    const wa = req.body?.whatsapp ? String(req.body.whatsapp) : "";
+    const destino = wa ? ({ tipo: "whatsapp", numero: wa } as const) : undefined;
     const strategist = new AdStrategist(tenant || undefined);
-    const draft = await strategist.createDraftAd(adAccountId, accessToken, productId, grounded, manualImages);
+    const draft = await strategist.createDraftAd(adAccountId, accessToken, productId, grounded, manualImages, destino);
     let published = false;
     if (publishNow && draft.status === "created") {
       const rows = await db.select().from(facebookDrafts).where(eq(facebookDrafts.productId, productId));

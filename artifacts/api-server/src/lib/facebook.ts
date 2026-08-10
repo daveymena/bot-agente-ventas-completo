@@ -708,12 +708,15 @@ Responde SOLO con este JSON exacto:
     if (!campaigns.length) return { campaigns: [], totals: { spend: 0, impressions: 0, clicks: 0, results: 0, costPerResult: 0 } };
     const days = Math.min(Math.max(opts?.days || 7, 1), 30);
     const preset = days <= 1 ? "today" : days <= 3 ? "last_3d" : days <= 7 ? "last_7d" : days <= 14 ? "last_14d" : "last_30d";
-    const rows = [];
-    for (const c of campaigns) {
-      const m = await this.getCampaignInsights(c.id, preset);
-      if (!m) continue;
-      rows.push({ id: c.id, name: c.name, status: c.status, ...m });
-    }
+    // Una consulta por campaña, EN PARALELO: en serie, un panel con 10
+    // campañas encadenaba 10 viajes a Meta y tardaba una eternidad en pintar.
+    const medidas = await Promise.all(
+      campaigns.map(async (c) => {
+        const m = await this.getCampaignInsights(c.id, preset);
+        return m ? { id: c.id, name: c.name, status: c.status, ...m } : null;
+      }),
+    );
+    const rows = medidas.filter((r): r is NonNullable<typeof r> => r !== null);
     const totals = rows.reduce(
       (acc, r) => ({
         spend: acc.spend + r.spend,
@@ -739,6 +742,57 @@ Responde SOLO con este JSON exacto:
     } catch (err: any) {
       logger.warn({ err, adSetId }, "[Facebook] Error leyendo presupuesto del conjunto");
       return null;
+    }
+  }
+
+  /**
+   * Fija el presupuesto diario de un conjunto de anuncios a un valor exacto.
+   *
+   * Distinto de adjustAdSetBudget(), que mueve un PORCENTAJE: eso le sirve al
+   * agente automático ("subile 20%"), pero un admin que entra al panel piensa
+   * en pesos, no en porcentajes. Graph API espera centavos.
+   *
+   * Devuelve un mensaje real de Meta cuando falla, en vez de un booleano
+   * mudo: si Meta rechaza el monto (mínimos por moneda, cuenta sin método de
+   * pago), el admin tiene que poder enterarse de por qué.
+   */
+  async setAdSetBudget(adSetId: string, dailyBudget: number): Promise<{ ok: boolean; message?: string }> {
+    if (!Number.isFinite(dailyBudget) || dailyBudget <= 0) {
+      return { ok: false, message: "El presupuesto diario tiene que ser mayor a cero." };
+    }
+    try {
+      await this.fbPost(
+        adSetId,
+        { daily_budget: Math.round(dailyBudget * 100) },
+        "fijar presupuesto",
+        this.config.userAccessToken,
+      );
+      return { ok: true };
+    } catch (err: any) {
+      logger.warn({ err, adSetId, dailyBudget }, "[Facebook] Error fijando presupuesto");
+      return { ok: false, message: err?.message || "Meta no aceptó el cambio de presupuesto." };
+    }
+  }
+
+  /** Conjuntos de anuncios de una campaña, con su presupuesto y estado --
+   * necesario para que el panel sepa a QUÉ conjunto cambiarle el presupuesto
+   * (el presupuesto vive en el conjunto, no en la campaña). */
+  async listAdSets(campaignId: string): Promise<Array<{ id: string; name: string; status: string; dailyBudget: number }>> {
+    try {
+      const res = await this.fbGet(
+        `${campaignId}/adsets`,
+        { fields: "id,name,effective_status,daily_budget", limit: "50" },
+        this.config.userAccessToken,
+      );
+      return (res.data || []).map((a: any) => ({
+        id: a.id,
+        name: a.name,
+        status: a.effective_status,
+        dailyBudget: a.daily_budget ? Number(a.daily_budget) / 100 : 0,
+      }));
+    } catch (err: any) {
+      logger.warn({ err, campaignId }, "[Facebook] Error listando conjuntos de anuncios");
+      return [];
     }
   }
 

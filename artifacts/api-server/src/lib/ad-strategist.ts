@@ -542,7 +542,22 @@ Este contenido digital es tu atajo directo a resultados profesionales.
     return "";
   }
 
-  async createDraftAd(adAccount: string, accessToken: string, productId: number, grounded?: ResearchGroundedCopy, manualImages?: string[]): Promise<DraftAd> {
+  /**
+   * Normaliza un número o enlace de WhatsApp a un link wa.me utilizable.
+   * Acepta "573001234567", "+57 300 123 4567" o un wa.me/enlace ya armado.
+   * Devuelve null si no hay un número reconocible (mejor no crear el anuncio
+   * que crear uno cuyo botón no lleva a ningún lado).
+   */
+  private normalizarWhatsApp(valor: string): string | null {
+    const v = String(valor || "").trim();
+    if (!v) return null;
+    const desdeEnlace = v.match(/(?:wa\.me|api\.whatsapp\.com\/send\?phone=)\/?(\d{7,15})/i);
+    const digitos = desdeEnlace ? desdeEnlace[1] : v.replace(/\D/g, "");
+    if (!digitos || digitos.length < 7 || digitos.length > 15) return null;
+    return `https://wa.me/${digitos}`;
+  }
+
+  async createDraftAd(adAccount: string, accessToken: string, productId: number, grounded?: ResearchGroundedCopy, manualImages?: string[], destino?: { tipo: "whatsapp"; numero: string }): Promise<DraftAd> {
     const [product] = await db.select().from(products).where(eq(products.id, productId)).limit(1);
     if (!product) throw new Error("Producto no encontrado");
 
@@ -623,9 +638,29 @@ Este contenido digital es tu atajo directo a resultados profesionales.
     try {
       const act = `act_${adAccount}`;
 
+      // ── Destino del anuncio ────────────────────────────────────────────
+      // Por defecto el anuncio manda a la página del producto en la web. Con
+      // destino WhatsApp el anuncio abre una conversación directa: es otro
+      // tipo de campaña, no un cambio de botón -- cambia el objetivo, el
+      // destino del conjunto, el objeto promocionado y el CTA del creativo.
+      // Es EL caso de uso central de este producto (vender por WhatsApp) y
+      // hasta ahora no se podía armar desde la app.
+      const pageIdDestino = this.tenant.facebook?.pageId || process.env.FB_PAGE_ID || "";
+      const waLink = destino?.tipo === "whatsapp" ? this.normalizarWhatsApp(destino.numero) : null;
+      if (destino?.tipo === "whatsapp" && !waLink) {
+        throw new Error("El número de WhatsApp no es válido. Poné el número con código de país, por ejemplo 573001234567.");
+      }
+      if (waLink && !pageIdDestino) {
+        throw new Error("Para un anuncio que lleve a WhatsApp hace falta tener la página de Facebook conectada.");
+      }
+      const esWhatsApp = !!waLink;
+
       const campaign = await this.fbPost(act, "campaigns", accessToken, {
-        name: `[BORRADOR] ${product.name} - ${new Date().toLocaleDateString("es-CO")}`,
-        objective: "OUTCOME_SALES",
+        name: `[BORRADOR] ${product.name}${esWhatsApp ? " (WhatsApp)" : ""} - ${new Date().toLocaleDateString("es-CO")}`,
+        // OUTCOME_SALES optimiza compras en la web y no admite destino de
+        // mensajería; para conversaciones el objetivo correcto es
+        // OUTCOME_ENGAGEMENT.
+        objective: esWhatsApp ? "OUTCOME_ENGAGEMENT" : "OUTCOME_SALES",
         status: "PAUSED",
         // [] tira error 100/subcódigo 4834011 -- Meta exige declarar "NONE"
         // explícito cuando la campaña no aplica a ninguna categoría especial
@@ -680,7 +715,20 @@ Este contenido digital es tu atajo directo a resultados profesionales.
         // sin un creativo asset_feed_spec real habría hecho que Meta rechace
         // el anuncio por incompatibilidad entre el adset y el creativo.
       };
-      if (hasUsablePixel) {
+      if (esWhatsApp) {
+        // Click-to-WhatsApp: el conjunto declara que el destino es una
+        // conversación de WhatsApp y promociona la PÁGINA (no el pixel, que
+        // mide la web y acá no interviene). Se optimiza por conversaciones
+        // iniciadas, que es lo que realmente se quiere contar.
+        adSetBody.destination_type = "WHATSAPP";
+        adSetBody.promoted_object = { page_id: pageIdDestino };
+        adSetBody.billing_event = "IMPRESSIONS";
+        adSetBody.optimization_goal = "CONVERSATIONS";
+        adSetBody.bid_strategy = "LOWEST_COST_WITHOUT_CAP";
+        // Marketplace no admite anuncios de mensajería: dejarlo hace que Meta
+        // rechace el conjunto entero.
+        adSetBody.targeting.facebook_positions = ["feed", "story", "facebook_reels"];
+      } else if (hasUsablePixel) {
         adSetBody.billing_event = "IMPRESSIONS";
         // "CONVERSIONS" no es un valor válido de optimization_goal -- el
         // equivalente moderno para optimizar por conversiones de pixel es
@@ -757,19 +805,30 @@ Este contenido digital es tu atajo directo a resultados profesionales.
       // NO está "probado en vivo" todavía -- probar con un borrador de bajo
       // presupuesto antes de confiar en el carrusel a escala.
       const isCarousel = manualAbsolute.length > 1;
+      // Con destino WhatsApp el enlace ES el wa.me y el botón tiene que ser
+      // "Enviar mensaje por WhatsApp": si se deja el CTA de venta normal
+      // (ej. SHOP_NOW), Meta rechaza el creativo por no corresponder al
+      // destino de mensajería declarado en el conjunto.
+      const destinoLink = esWhatsApp ? waLink! : `${getAppUrl()}/p/${product.id}`;
       const linkData: Record<string, any> = {
-        link: `${getAppUrl()}/p/${product.id}`,
+        link: destinoLink,
         message: adCopy.primaryText,
         name: adCopy.headline,
         description: adCopy.description,
-        call_to_action: { type: strategy.ctaType },
+        call_to_action: esWhatsApp
+          ? { type: "WHATSAPP_MESSAGE", value: { app_destination: "WHATSAPP", link: waLink! } }
+          : { type: strategy.ctaType },
       };
       if (isCarousel) {
+        // destinoLink, no la URL del producto: si no, en un carrusel con
+        // destino WhatsApp cada tarjeta llevaría a la web y solo el botón
+        // general abriría el chat -- justo lo contrario de lo pedido.
         linkData.child_attachments = manualAbsolute.map((url, i) => ({
-          link: `${getAppUrl()}/p/${product.id}`,
+          link: destinoLink,
           picture: url,
           name: i === 0 ? adCopy.headline : `${adCopy.headline} (${i + 1})`,
           description: adCopy.description,
+          ...(esWhatsApp ? { call_to_action: { type: "WHATSAPP_MESSAGE", value: { app_destination: "WHATSAPP", link: waLink! } } } : {}),
         }));
       } else if (imageUrl) {
         linkData.picture = imageUrl;

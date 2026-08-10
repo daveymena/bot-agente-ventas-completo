@@ -1255,7 +1255,7 @@ export const TOOLS: ToolDef[] = [
   {
     name: "fb_ad_draft",
     description: "Genera un BORRADOR de anuncio (copy, segmentación, imagen) para un producto y lo guarda localmente. Por defecto NO toca la cuenta publicitaria de Meta ni crea nada real — el admin lo revisa y decide si publicarlo después desde el panel de anuncios. Seguro de usar sin gastar dinero. REQUIERE haber investigado antes (web_search o web_fetch) en esta misma sesión, en las últimas 3 horas -- si no, la llamada falla y hay que investigar primero. IMPORTANTE: pasa hook/angle/researchNote basados en lo que REALMENTE encontraste en la investigación (ángulos que funcionan en el nicho, dolor real del cliente, lo que hace la competencia) -- si los omites, el borrador cae a una plantilla genérica fija por categoría, que es exactamente lo que la investigación busca evitar.",
-    args: '{ "productId": number (req), "hook"?: string (gancho inicial del anuncio, basado en lo investigado), "angle"?: string (ángulo/enfoque del producto respaldado por la investigación), "researchNote"?: string (fuente o hallazgo concreto que respalda el hook/angle, ej: "competidores en Facebook Ads Library usan X"), "primaryText"?: string (texto completo del anuncio, solo si quieres reemplazar el armado automático por completo), "headline"?: string, "description"?: string }',
+    args: '{ "productId": number (req), "hook"?: string (gancho inicial del anuncio, basado en lo investigado), "angle"?: string (ángulo/enfoque del producto respaldado por la investigación), "researchNote"?: string (fuente o hallazgo concreto que respalda el hook/angle, ej: "competidores en Facebook Ads Library usan X"), "primaryText"?: string (texto completo del anuncio, solo si quieres reemplazar el armado automático por completo), "headline"?: string, "description"?: string, "whatsapp"?: string (número CON código de país, ej "573001234567", o un enlace wa.me — si lo pasás, el anuncio lleva a una conversación de WhatsApp en vez de a la web; úsalo cuando el admin pida "tráfico a WhatsApp" o "que me escriban") }',
     run: async (args, ctx) => {
       const id = num(args.productId);
       if (!id) return { ok: false, summary: "Falta 'productId'" };
@@ -1289,11 +1289,16 @@ export const TOOLS: ToolDef[] = [
         description: typeof args.description === "string" ? args.description.trim() || undefined : undefined,
       };
       try {
+        // Destino WhatsApp: cambia el tipo de campaña entera (objetivo,
+        // destino del conjunto y botón), no es solo un enlace distinto.
+        const wa = typeof args.whatsapp === "string" ? args.whatsapp.trim() : "";
         const draft = await new AdStrategist(tenant || undefined).createDraftAd(
           tenant?.facebook?.adAccountId || process.env.FB_AD_ACCOUNT_ID || "",
           tenant?.facebook?.userAccessToken || tenant?.facebook?.accessToken || process.env.FB_ACCESS_TOKEN || "",
           id,
           grounded,
+          undefined,
+          wa ? { tipo: "whatsapp", numero: wa } : undefined,
         );
         const groundedNote = grounded.hook || grounded.researchNote ? " (anclado en la investigación de esta sesión)" : " (plantilla genérica del nicho — no se pasó hook/angle basado en investigación)";
         // El summary es lo ÚNICO que el admin termina viendo (ver lines.push
@@ -1729,6 +1734,72 @@ export const TOOLS: ToolDef[] = [
       return { ok: n > 0, summary: n > 0 ? `${n} campaña(s) con datos.` : "No hay campañas con datos en la ventana seleccionada.", data: r };
     },
   },
+  // Control real de campañas desde el chat. NO son de solo lectura: mueven
+  // dinero (pausar corta el gasto, reactivar lo reanuda, el presupuesto lo
+  // cambia), así que quedan fuera de READ_ONLY_TOOLS y pasan por el plan con
+  // confirmación del admin, igual que crear un anuncio.
+  {
+    name: "fb_pause_campaign",
+    description: "PAUSAR una campaña de Facebook Ads que está activa: deja de gastar de inmediato. Úsala cuando el admin pida frenar/parar/pausar un anuncio, o cuando esté gastando sin resultados. Necesita el id de la campaña -- si no lo tenés, leé primero las métricas para obtenerlo.",
+    args: '{ "campaignId": string (req, id de la campaña en Meta) }',
+    run: async (_args, ctx) => {
+      const campaignId = String(_args.campaignId || "").trim();
+      if (!campaignId) return { ok: false, summary: "Falta el id de la campaña a pausar." };
+      const tenant = await tenantManager.getTenantById(ctx.tenantId);
+      const { FacebookService } = await import("./facebook");
+      const fb = new FacebookService(tenant || undefined);
+      if (!fb.isConfigured()) return { ok: false, summary: "Facebook no está conectado." };
+      const ok = await fb.pauseCampaign(campaignId);
+      return { ok, summary: ok ? `Campaña ${campaignId} pausada: deja de gastar desde ahora.` : `Meta no aceptó pausar la campaña ${campaignId}.` };
+    },
+  },
+  {
+    name: "fb_resume_campaign",
+    description: "REACTIVAR una campaña de Facebook Ads que estaba pausada: vuelve a gastar según su presupuesto diario. Úsala solo si el admin lo pide explícitamente.",
+    args: '{ "campaignId": string (req, id de la campaña en Meta) }',
+    run: async (_args, ctx) => {
+      const campaignId = String(_args.campaignId || "").trim();
+      if (!campaignId) return { ok: false, summary: "Falta el id de la campaña a reactivar." };
+      const tenant = await tenantManager.getTenantById(ctx.tenantId);
+      const { FacebookService } = await import("./facebook");
+      const fb = new FacebookService(tenant || undefined);
+      if (!fb.isConfigured()) return { ok: false, summary: "Facebook no está conectado." };
+      const ok = await fb.resumeCampaign(campaignId);
+      return { ok, summary: ok ? `Campaña ${campaignId} reactivada: vuelve a gastar.` : `Meta no aceptó reactivar la campaña ${campaignId}.` };
+    },
+  },
+  {
+    name: "fb_set_budget",
+    description: "Fijar el presupuesto DIARIO de un conjunto de anuncios, en pesos (no en porcentaje). El presupuesto vive en el conjunto de anuncios, NO en la campaña: si solo tenés el id de la campaña, usá fb_list_adsets primero para obtener el del conjunto.",
+    args: '{ "adSetId": string (req, id del CONJUNTO de anuncios), "dailyBudget": number (req, monto diario en la moneda de la cuenta) }',
+    run: async (_args, ctx) => {
+      const adSetId = String(_args.adSetId || "").trim();
+      const monto = num(_args.dailyBudget);
+      if (!adSetId) return { ok: false, summary: "Falta el id del conjunto de anuncios." };
+      if (!monto || monto <= 0) return { ok: false, summary: "El presupuesto diario tiene que ser un monto mayor a cero." };
+      const tenant = await tenantManager.getTenantById(ctx.tenantId);
+      const { FacebookService } = await import("./facebook");
+      const fb = new FacebookService(tenant || undefined);
+      if (!fb.isConfigured()) return { ok: false, summary: "Facebook no está conectado." };
+      const r = await fb.setAdSetBudget(adSetId, monto);
+      return { ok: r.ok, summary: r.ok ? `Presupuesto diario del conjunto ${adSetId} fijado en ${monto}.` : (r.message || "Meta no aceptó el cambio de presupuesto.") };
+    },
+  },
+  {
+    name: "fb_list_adsets",
+    description: "Listar los conjuntos de anuncios de una campaña, con su presupuesto diario y estado. LECTURA, no cambia nada. Se usa para saber a qué conjunto cambiarle el presupuesto.",
+    args: '{ "campaignId": string (req, id de la campaña) }',
+    run: async (_args, ctx) => {
+      const campaignId = String(_args.campaignId || "").trim();
+      if (!campaignId) return { ok: false, summary: "Falta el id de la campaña." };
+      const tenant = await tenantManager.getTenantById(ctx.tenantId);
+      const { FacebookService } = await import("./facebook");
+      const fb = new FacebookService(tenant || undefined);
+      if (!fb.isConfigured()) return { ok: false, summary: "Facebook no está conectado." };
+      const adSets = await fb.listAdSets(campaignId);
+      return { ok: adSets.length > 0, summary: adSets.length ? `${adSets.length} conjunto(s) de anuncios.` : "Esa campaña no tiene conjuntos de anuncios visibles.", data: adSets };
+    },
+  },
   {
     name: "dropi_create_order",
     description: "Crear una orden REAL en Dropi para que el proveedor despache al cliente (pago contra entrega). Úsala solo cuando una venta ya esté cerrada y tengas los datos de envío completos. GENERA UN PEDIDO REAL con costo → requiere confirmación explícita.",
@@ -1901,6 +1972,9 @@ export const READ_ONLY_TOOLS = new Set([
   "analyze_channel_performance", "reason_business_decision",
   // Lectura de web (información externa)
   "web_fetch", "web_search", "web_scrape_images", "search_product_images", "deep_research",
+  // Listar conjuntos es lectura pura. pause/resume/set_budget NO van acá a
+  // propósito: mueven dinero real y tienen que pasar por confirmación.
+  "fb_list_adsets",
   // Dropi de solo lectura: consultar el catálogo del proveedor no crea nada.
   "dropi_status", "dropi_search_products",
 ]);
