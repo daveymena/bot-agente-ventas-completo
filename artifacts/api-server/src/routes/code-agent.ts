@@ -103,6 +103,14 @@ function describePlannedAction(a: { tool: string; args: any }): string {
 const router = Router();
 
 /**
+ * Último proveedor de IA que respondió de verdad, como "baseUrl|model".
+ * Es solo una pista de rendimiento para no volver a probar primero a los que
+ * están caídos (ver callAI en el endpoint del operador). Si queda obsoleta no
+ * rompe nada: la rotación igual recorre todos los candidatos.
+ */
+let ultimoProveedorBueno = "";
+
+/**
  * AGENT ARCHITECT AI
  * This endpoint allows users to design their agents via natural language chat.
  * Kimi 2.6 will interpret the request and update the agent's DNA.
@@ -1150,6 +1158,24 @@ router.post("/operator", async (req: TenantRequest, res, next) => {
     pushCfg("nvidia", getProviderConfig("nvidia"));
     if (candidates.length === 0) return res.status(500).json({ error: "No hay motor de IA configurado" });
 
+    // callAI se llama una vez por paso (hasta 10), y antes CADA paso volvía a
+    // recorrer la lista de proveedores desde el principio: si los primeros
+    // estaban caídos o lentos, se pagaban 15s por cada uno OTRA VEZ en cada
+    // paso. Con 3-4 pasos son 90-120s tirados en proveedores que ya se sabía
+    // que no responden -- la causa principal de que el turno se sintiera
+    // lentísimo y terminara chocando contra el límite de 130s ("se quedó
+    // colgado"). Empezando por el último que funcionó, ese costo se paga una
+    // sola vez.
+    //
+    // Se guarda la CLAVE del proveedor (no el índice) en una variable de
+    // módulo: así el aprendizaje sobrevive entre peticiones -- importa para
+    // las auto-continuaciones, que son peticiones nuevas y si no volverían a
+    // empezar de cero. Guardar el índice sería incorrecto: la lista de
+    // candidatos se arma por petición y puede tener otro orden o largo.
+    const idxUltimoBueno = Math.max(
+      0,
+      candidates.findIndex((c) => c.config.baseUrl + "|" + c.config.model === ultimoProveedorBueno),
+    );
     // Llama a la IA probando proveedores en orden hasta que uno responda
     const callAI = async (msgs: any[]): Promise<string | null> => {
       // The reverse proxy has a finite request timeout. A long serial fallback
@@ -1168,7 +1194,11 @@ router.post("/operator", async (req: TenantRequest, res, next) => {
       // margen real antes de agotar la rotación completa, sin acercarse al
       // requestDeadline de 130s del turno completo (ver más abajo).
       const deadline = Date.now() + 70_000;
-      for (const cand of candidates) {
+      // Se prueban todos, pero empezando por el último que funcionó (rotación
+      // circular), no siempre desde el índice 0.
+      for (let salto = 0; salto < candidates.length; salto++) {
+        const i = (idxUltimoBueno + salto) % candidates.length;
+        const cand = candidates[i];
         const remaining = deadline - Date.now();
         if (remaining <= 0) break;
         const cfg: AIProviderConfig = { ...cand.config };
@@ -1195,6 +1225,8 @@ router.post("/operator", async (req: TenantRequest, res, next) => {
           );
           const c = resp.choices[0]?.message?.content;
           if (c) {
+            // Los pasos siguientes (y las próximas peticiones) arrancan por este.
+            ultimoProveedorBueno = cfg.baseUrl + "|" + cfg.model;
             logger.info({ provider: cand.name, model: cfg.model }, "[AppOperator] respondió");
             return c;
           }
@@ -1501,7 +1533,13 @@ router.post("/operator", async (req: TenantRequest, res, next) => {
 
       // Solo lecturas → ejecutar y devolver datos reales para que la IA se apoye
       if (reads.length > 0) {
-        const results: any[] = [];
+        // Las lecturas son de solo lectura y entre sí no dependen una de otra
+        // (listar productos, ver estado de WhatsApp, buscar en la web...).
+        // Antes se ejecutaban EN SERIE: si el modelo pedía tres en un paso, el
+        // turno pagaba la suma de las tres. En paralelo paga solo la más lenta.
+        // El control de bucle (seenReads) se aplica ANTES de lanzarlas, para
+        // que siga cortando igual si el modelo repite la misma consulta.
+        const aEjecutar: any[] = [];
         for (const a of reads) {
           const sig = `${a.tool}:${JSON.stringify(a.args || {})}`;
           const seenCount = (seenReads.get(sig) || 0) + 1;
@@ -1510,10 +1548,23 @@ router.post("/operator", async (req: TenantRequest, res, next) => {
             loopSignature = sig;
             break;
           }
-          const r = await executeAction(a.tool, a.args || {}, ctx);
-          results.push({ tool: a.tool, ok: r.ok, summary: r.summary, data: r.data });
-          if (a.tool === "web_search" || a.tool === "deep_research") usedWebSearchThisTurn = true;
+          aEjecutar.push(a);
         }
+
+        const results = await Promise.all(
+          aEjecutar.map(async (a) => {
+            if (a.tool === "web_search" || a.tool === "deep_research") usedWebSearchThisTurn = true;
+            // Una lectura que explote no debe tumbar todo el paso: se reporta
+            // como fallida y el modelo sigue con las demás.
+            try {
+              const r = await executeAction(a.tool, a.args || {}, ctx);
+              return { tool: a.tool, ok: r.ok, summary: r.summary, data: r.data };
+            } catch (e: any) {
+              logger.warn({ tool: a.tool, err: e?.message }, "[AppOperator] lectura falló");
+              return { tool: a.tool, ok: false, summary: `No se pudo completar: ${e?.message || "error"}` };
+            }
+          }),
+        );
 
         if (loopSignature) {
           finalReply = toEmojiStyle(
