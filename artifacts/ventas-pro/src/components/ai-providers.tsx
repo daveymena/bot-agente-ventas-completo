@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Loader2, Check, X, ExternalLink, KeyRound, Zap } from "lucide-react";
 import { toast } from "sonner";
+import { describeError } from "@/lib/utils";
 
 interface Modelo {
   id: string;
@@ -62,7 +63,7 @@ export function AIProviders() {
       const d = await r.json();
       setProvs(d.proveedores || []);
     } catch (e: any) {
-      toast.error(e.message);
+      toast.error(describeError(e, "No se pudo cargar el catálogo de proveedores"));
     } finally {
       setCargando(false);
     }
@@ -86,7 +87,7 @@ export function AIProviders() {
       toast.success("Guardado");
       await cargar();
     } catch (e: any) {
-      toast.error(e.message);
+      toast.error(describeError(e, "No se pudo guardar el proveedor"));
     } finally {
       setGuardando(null);
     }
@@ -105,7 +106,7 @@ export function AIProviders() {
       setConsultado((x) => ({ ...x, [id]: d.consultado || "" }));
       toast.success(`${d.total} modelos encontrados`);
     } catch (e: any) {
-      toast.error(e.message);
+      toast.error(describeError(e, "No se pudieron consultar los modelos disponibles"));
     } finally {
       setDescubriendo(null);
     }

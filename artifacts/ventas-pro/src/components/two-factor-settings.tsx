@@ -6,6 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { ShieldCheck, Loader } from "lucide-react";
 import { toast } from "sonner";
+import { describeError } from "@/lib/utils";
 
 export function TwoFactorSettings() {
   const [enabled, setEnabled] = useState(false);
@@ -26,7 +27,7 @@ export function TwoFactorSettings() {
       const res = await fetch("/api/auth/2fa/setup", { method: "POST", credentials: "include" });
       if (!res.ok) throw new Error("No se pudo iniciar 2FA");
       setSetup(await res.json());
-    } catch (e: any) { toast.error(e.message); } finally { setLoading(false); }
+    } catch (e: any) { toast.error(describeError(e, "No se pudo iniciar la verificación en dos pasos")); } finally { setLoading(false); }
   };
 
   const enable = async () => {
@@ -37,7 +38,7 @@ export function TwoFactorSettings() {
       if (!res.ok) throw new Error(data.error || "Código incorrecto");
       setEnabled(true); setSetup(null); setCode(""); setRecoveryCodes(data.recoveryCodes || []);
       toast.success("Doble factor activado");
-    } catch (e: any) { toast.error(e.message); } finally { setLoading(false); }
+    } catch (e: any) { toast.error(describeError(e, "Código incorrecto, intentá de nuevo")); } finally { setLoading(false); }
   };
 
   const disable = async () => {
@@ -46,7 +47,7 @@ export function TwoFactorSettings() {
       const res = await fetch("/api/auth/2fa/disable", { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ code }) });
       if (!res.ok) throw new Error((await res.json()).error || "Código incorrecto");
       setEnabled(false); setCode(""); toast.success("Doble factor desactivado");
-    } catch (e: any) { toast.error(e.message); } finally { setLoading(false); }
+    } catch (e: any) { toast.error(describeError(e, "Código incorrecto, intentá de nuevo")); } finally { setLoading(false); }
   };
 
   return <Card className="rounded-3xl border-0 shadow-lg glass-panel md:col-span-2">
