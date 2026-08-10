@@ -206,9 +206,13 @@ export default function FacebookAdsPage() {
   const connectWithUserToken = async (userToken: string, pageId?: string) => {
     try {
       setConnectingOAuth(true);
+      // El tenant lo resuelve el backend a partir de la sesión (cookie
+      // firmada) -- antes se mandaba un tenantId: 1 fijo acá, así que TODO
+      // negocio que conectaba su Facebook terminaba pisando la conexión del
+      // dueño de la plataforma en vez de la suya propia.
       const res = await apiRequest("/public/fb-connect", {
         method: "POST",
-        body: JSON.stringify({ userToken, tenantId: 1, pageId }),
+        body: JSON.stringify({ userToken, pageId }),
       });
       toast({ title: "Facebook conectado", description: `Página: ${res.page?.name || res.page?.id}${res.canPost ? "" : " (falta el permiso para publicar en el muro)"}` });
       setOtherPages(res.otrasPaginas || []);

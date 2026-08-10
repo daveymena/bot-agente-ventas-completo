@@ -562,6 +562,16 @@ const isPublicRoute = (path: string) => {
     return false;
   }
 
+  // POST /public/fb-connect guarda el token/página de Facebook DENTRO del
+  // tenant -- si queda cubierto por el "/public" público de arriba, cualquiera
+  // en internet puede mandar {tenantId, userToken} sin sesión y secuestrar la
+  // conexión de Facebook de OTRO negocio (o la del dueño de la plataforma,
+  // ya que tenantId caía a 1 por defecto). Se excluye para que resolveTenant()
+  // corra y el handler use el tenant de la sesión real, no el que manda el cliente.
+  if (path === "/public/fb-connect") {
+    return false;
+  }
+
   // Comparación por SEGMENTOS, no por prefijo de texto.
   //
   // Con startsWith, la entrada "/p" (URLs cortas de producto) hacía pública a

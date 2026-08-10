@@ -242,7 +242,16 @@ router.post("/fb-connect", async (req, res, next) => {
     }
 
     const userToken = req.body?.userToken;
-    const tenantId = Number(req.body?.tenantId) || 1;
+    // El tenant SIEMPRE sale de la sesión (cookie firmada, ver resolveTenant()
+    // en app.ts), nunca del body -- este endpoint estaba excluido de "/public"
+    // en isPublicRoute() justamente para que resolveTenant() corra antes y
+    // rechace con 401 si no hay sesión real. Confiar en req.body.tenantId
+    // dejaba que cualquiera sin loguearse reasignara la página de Facebook de
+    // CUALQUIER tenant (o la del dueño de la plataforma, tenantId caía a 1).
+    const tenantId = (req as any).tenant?.id;
+    if (!tenantId) {
+      return res.status(401).json({ message: "Sesión requerida" });
+    }
     const wantedPageId = req.body?.pageId ? String(req.body.pageId) : null;
 
     if (!userToken || typeof userToken !== "string") {
