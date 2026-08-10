@@ -111,6 +111,32 @@ const router = Router();
 let ultimoProveedorBueno = "";
 
 /**
+ * Traduce el nombre técnico de una herramienta a lo que se le muestra al
+ * admin mientras Atlas trabaja.
+ *
+ * IMPORTANTE: el respaldo NUNCA es el nombre crudo de la herramienta. La
+ * regla del producto es que en ninguna parte de la app aparezcan nombres
+ * técnicos (`fb_ad_draft`, `deep_research`...) -- quien administra el panel no
+ * es programador y eso solo confunde. Ante una herramienta no mapeada se dice
+ * algo genérico pero honesto.
+ */
+function describirTarea(tool: string): string {
+  const t = String(tool || "").toLowerCase();
+  if (/^(web_search|deep_research|web_fetch|web_scrape)/.test(t)) return "Buscando información en internet";
+  if (/image/.test(t)) return "Trabajando con las imágenes";
+  if (/product|catalog/.test(t)) return "Revisando tu catálogo de productos";
+  if (/whatsapp|wa_/.test(t)) return "Revisando tu WhatsApp";
+  if (/conversation|message|chat/.test(t)) return "Revisando tus conversaciones";
+  if (/lead|prospect|customer|client/.test(t)) return "Revisando tus prospectos";
+  if (/^fb_|facebook|meta_|\bad\b|ads?_|campaign/.test(t)) return "Consultando tu cuenta de Facebook";
+  if (/agent/.test(t)) return "Revisando tus agentes de venta";
+  if (/analytic|metric|dashboard|report|insight|stats/.test(t)) return "Mirando tus métricas";
+  if (/payment|price|pricing|billing|plan/.test(t)) return "Revisando precios y cobros";
+  if (/setting|config|brand|store|tienda/.test(t)) return "Revisando la configuración de tu negocio";
+  return "Consultando la información de tu negocio";
+}
+
+/**
  * AGENT ARCHITECT AI
  * This endpoint allows users to design their agents via natural language chat.
  * Kimi 2.6 will interpret the request and update the agent's DNA.
@@ -1107,6 +1133,47 @@ router.post("/operator", async (req: TenantRequest, res, next) => {
     const { prompt, history = [] } = req.body;
     if (!prompt) return res.status(400).json({ error: "prompt requerido" });
 
+    // ── Progreso en vivo ──────────────────────────────────────────────────
+    // Un turno puede tardar decenas de segundos: varios pasos, cada uno con
+    // su llamada a la IA y sus lecturas reales. Sin nada en pantalla el admin
+    // ve un spinner quieto y no puede distinguir "está trabajando" de "se
+    // colgó" -- la queja original. Con `stream: true` el cliente recibe avisos
+    // de lo que está pasando y, al final, EXACTAMENTE el mismo objeto que
+    // devuelve la vía normal; sin ese flag el comportamiento no cambia en
+    // nada, así que un cliente viejo sigue funcionando igual.
+    const streaming = req.body?.stream === true;
+    if (streaming) {
+      res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
+      res.setHeader("Cache-Control", "no-cache, no-transform");
+      res.setHeader("Connection", "keep-alive");
+      // Sin esto el proxy (Traefik/nginx) acumula la respuesta y entrega todos
+      // los avisos de golpe al final -- justo lo que se quiere evitar.
+      res.setHeader("X-Accel-Buffering", "no");
+      res.flushHeaders?.();
+    }
+    const sse = (event: string, data: any) => {
+      if (!streaming || res.writableEnded) return;
+      res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+    };
+    /** Aviso corto, en lenguaje llano, de lo que Atlas está haciendo ahora. */
+    const progreso = (texto: string) => sse("progress", { texto });
+    /**
+     * Cierra el turno. Con streaming manda el resultado como último evento;
+     * sin streaming responde JSON normal. Todas las salidas del handler pasan
+     * por acá para que las dos vías devuelvan lo mismo.
+     */
+    const finish = (payload: any, status = 200) => {
+      if (streaming) {
+        // Con SSE las cabeceras ya se enviaron, así que no se puede cambiar el
+        // código de estado: un fallo se comunica como evento "error" y el
+        // frontend muestra su mensaje amable.
+        sse(status === 200 ? "result" : "error", payload);
+        res.end();
+        return;
+      }
+      return res.status(status).json(payload);
+    };
+
     const [dbSettings] = await db.select().from(settings).limit(1);
 
     // Lista de proveedores a intentar, con fallback y sin duplicados
@@ -1156,7 +1223,7 @@ router.post("/operator", async (req: TenantRequest, res, next) => {
       if (base) pushCfg(`${m.proveedor}:${m.modelo}`, { ...base, model: m.modelo });
     }
     pushCfg("nvidia", getProviderConfig("nvidia"));
-    if (candidates.length === 0) return res.status(500).json({ error: "No hay motor de IA configurado" });
+    if (candidates.length === 0) return finish({ error: "No hay motor de IA configurado" }, 500);
 
     // callAI se llama una vez por paso (hasta 10), y antes CADA paso volvía a
     // recorrer la lista de proveedores desde el principio: si los primeros
@@ -1382,7 +1449,7 @@ router.post("/operator", async (req: TenantRequest, res, next) => {
         );
         await saveArchitectTurn(tenantId, sessionId, "assistant", reply);
         logger.info({ tenantId, executed: executed.length }, "[AppOperator] Plan aprobado y ejecutado");
-        return res.json({ reply, executed, actionsCount: executed.length, status: allOk ? "executed" : "partial_failure" });
+        return finish({ reply, executed, actionsCount: executed.length, status: allOk ? "executed" : "partial_failure" });
       }
       if (isRejection(String(prompt))) {
         await clearPendingPlan(tenantId, sessionId);
@@ -1468,9 +1535,10 @@ router.post("/operator", async (req: TenantRequest, res, next) => {
         timedOut = true;
         break;
       }
+      progreso(step === 0 ? "Entendiendo tu pedido" : "Analizando lo que encontré");
       const rawAI = await callAI(messages);
       if (!rawAI) {
-        return res.status(502).json({ error: "Todos los proveedores de IA fallaron" });
+        return finish({ error: "Todos los proveedores de IA fallaron" }, 502);
       }
       let content = rawAI.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
       let parsed: any;
@@ -1525,6 +1593,7 @@ router.post("/operator", async (req: TenantRequest, res, next) => {
       // lecturas de este turno (para grounding) pero PARAMOS aquí: no seguimos
       // el loop, para no recolectar la misma mutación dos veces.
       if (mutations.length > 0) {
+        progreso("Preparando el plan de cambios para que lo apruebes");
         for (const m of mutations) plannedActions.push({ tool: m.tool, args: m.args || {} });
         for (const a of reads) await executeAction(a.tool, a.args || {}, ctx);
         resolved = true;
@@ -1550,6 +1619,11 @@ router.post("/operator", async (req: TenantRequest, res, next) => {
           }
           aEjecutar.push(a);
         }
+
+        // Se avisa ANTES de lanzarlas (van en paralelo): es el tramo más lento
+        // del turno, justo donde el admin necesita ver que algo pasa. Sin
+        // repetir el mismo texto si dos lecturas caen en la misma categoría.
+        for (const texto of new Set(aEjecutar.map((a) => describirTarea(a.tool)))) progreso(texto);
 
         const results = await Promise.all(
           aEjecutar.map(async (a) => {
@@ -1651,17 +1725,26 @@ router.post("/operator", async (req: TenantRequest, res, next) => {
       await setPendingPlan(tenantId, sessionId, plannedActions, reply);
       await saveArchitectTurn(tenantId, sessionId, "assistant", reply);
       logger.info({ tenantId, planned: plannedActions.length }, "[AppOperator] Plan propuesto, esperando confirmación");
-      return res.json({ reply, plan: plannedActions, status: "awaiting_confirmation" });
+      return finish({ reply, plan: plannedActions, status: "awaiting_confirmation" });
     }
 
     // Solo lectura / respuesta informativa → sin cambios que confirmar
     finalReply = toEmojiStyle(finalReply);
     await saveArchitectTurn(tenantId, sessionId, "assistant", finalReply);
     logger.info({ tenantId, needsContinuation }, "[AppOperator] Respuesta informativa (sin cambios)");
-    return res.json({ reply: finalReply, status: "info", needsContinuation });
+    return finish({ reply: finalReply, status: "info", needsContinuation });
   } catch (e) {
     logger.error(e, "[AppOperator] Error");
-    return next(e);
+    // Con streaming las cabeceras ya salieron: el manejador de errores de
+    // Express intentaría escribir un JSON con su propio código de estado y
+    // fallaría, dejando la conexión colgada -- justo el síntoma que este
+    // trabajo vino a eliminar. Se cierra con un evento de error propio.
+    if (!res.headersSent) return next(e);
+    try {
+      res.write(`event: error\ndata: ${JSON.stringify({ error: "turno interrumpido" })}\n\n`);
+    } catch { /* la conexión ya estaba cerrada */ }
+    if (!res.writableEnded) res.end();
+    return;
   }
 });
 

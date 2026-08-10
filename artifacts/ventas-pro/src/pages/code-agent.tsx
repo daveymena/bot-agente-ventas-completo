@@ -43,6 +43,10 @@ export default function CodeAgent() {
   const [messages, setMessages] = useState<Message[]>([{ role: "assistant", content: GREETING.operator }]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  // Lo que Atlas está haciendo ahora mismo, en lenguaje llano (llega por SSE,
+  // ver callAtlas). Sin esto el admin solo veía tres puntitos rebotando y no
+  // podía distinguir "está trabajando" de "se colgó".
+  const [progreso, setProgreso] = useState("");
   const [uploading, setUploading] = useState(false);
   const [restoring, setRestoring] = useState(true);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -138,18 +142,56 @@ export default function CodeAgent() {
   const MAX_AUTO_CONTINUATIONS = 4;
 
   const callAtlas = async (promptText: string, historyForCall: { role: string; content: string }[]) => {
-    const endpoint = mode === "operator" ? "/api/code-agent/operator" : "/api/code-agent/architect";
+    const esOperador = mode === "operator";
+    const endpoint = esOperador ? "/api/code-agent/operator" : "/api/code-agent/architect";
     const res = await fetch(endpoint, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ prompt: promptText, history: historyForCall }),
+      // Solo el operador emite progreso; el modo Agente responde de una.
+      body: JSON.stringify({ prompt: promptText, history: historyForCall, ...(esOperador ? { stream: true } : {}) }),
       credentials: "include",
     });
     if (!res.ok) {
       await res.json().catch(() => null);
       throw new Error(`status ${res.status}`);
     }
-    return res.json();
+
+    // Si el servidor no habla SSE (versión anterior desplegada, o el modo
+    // Agente) se lee como JSON normal: el frontend nuevo sigue andando contra
+    // un backend viejo, sin quedarse esperando un stream que no va a llegar.
+    const tipo = res.headers.get("content-type") || "";
+    if (!tipo.includes("text/event-stream") || !res.body) return res.json();
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let resultado: any = null;
+
+    // Formato SSE: bloques separados por línea en blanco, con "event:" y
+    // "data:". Se acumula en un buffer porque un bloque puede llegar partido
+    // entre dos trozos de red.
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const bloques = buffer.split("\n\n");
+      buffer = bloques.pop() || "";
+      for (const bloque of bloques) {
+        const evento = /^event:\s*(.+)$/m.exec(bloque)?.[1]?.trim();
+        const datos = /^data:\s*(.+)$/m.exec(bloque)?.[1];
+        if (!datos) continue;
+        let payload: any;
+        try { payload = JSON.parse(datos); } catch { continue; }
+        if (evento === "progress" && payload?.texto) setProgreso(String(payload.texto));
+        else if (evento === "result") resultado = payload;
+        else if (evento === "error") throw new Error(payload?.error || "turno interrumpido");
+      }
+    }
+    // Se cortó el stream sin resultado (se cayó la red a mitad de camino):
+    // se trata como fallo para que salte el mensaje amable de reintentar, en
+    // vez de mostrar una respuesta vacía como si hubiera terminado bien.
+    if (!resultado) throw new Error("stream sin resultado");
+    return resultado;
   };
 
   const handleSubmit = async () => {
@@ -158,6 +200,7 @@ export default function CodeAgent() {
     setInput("");
     setMessages((prev) => [...prev, { role: "user", content: userMsg }]);
     setLoading(true);
+    setProgreso("");
 
     try {
       let history = messages.map((m) => ({ role: m.role, content: m.content }));
@@ -197,6 +240,7 @@ export default function CodeAgent() {
       setMessages((prev) => [...prev, { role: "assistant", content: "No pude terminar de responder. ¿Podés intentarlo de nuevo?" }]);
     } finally {
       setLoading(false);
+      setProgreso("");
     }
   };
 
@@ -332,11 +376,18 @@ export default function CodeAgent() {
                     <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shrink-0">
                       <Bot className="h-5 w-5 text-white" />
                     </div>
-                    <div className="bg-muted/50 rounded-2xl rounded-bl-md border border-border px-5 py-4">
-                      <div className="flex gap-2">
-                        <div className="w-2.5 h-2.5 rounded-full bg-indigo-500 animate-bounce" />
-                        <div className="w-2.5 h-2.5 rounded-full bg-indigo-500 animate-bounce delay-100" />
-                        <div className="w-2.5 h-2.5 rounded-full bg-indigo-500 animate-bounce delay-200" />
+                    <div className="bg-muted/50 rounded-2xl rounded-bl-md border border-border px-5 py-4 min-w-0">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div className="flex gap-2 shrink-0">
+                          <div className="w-2.5 h-2.5 rounded-full bg-indigo-500 animate-bounce" />
+                          <div className="w-2.5 h-2.5 rounded-full bg-indigo-500 animate-bounce delay-100" />
+                          <div className="w-2.5 h-2.5 rounded-full bg-indigo-500 animate-bounce delay-200" />
+                        </div>
+                        {/* El texto de progreso llega por SSE mientras Atlas
+                            trabaja: sin él, un turno de 40s parecía colgado. */}
+                        {progreso && (
+                          <span className="text-sm text-muted-foreground break-words">{progreso}…</span>
+                        )}
                       </div>
                     </div>
                   </div>
