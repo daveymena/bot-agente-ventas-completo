@@ -428,17 +428,30 @@ Este contenido digital es tu atajo directo a resultados profesionales.
       if (!draft) return false;
 
       if (draft.campaignId && draft.adId) {
-        const accessToken = this.tenant.facebook?.accessToken || process.env.FB_ACCESS_TOKEN || process.env.FB_MESSENGER_PAGE_TOKEN || "";
+        // Token de USUARIO primero (ver TenantContext.facebook.userAccessToken)
+        // -- crear/activar campañas es una operación de Marketing API, exige
+        // permisos de usuario (ads_management). Un token de página (lo que
+        // había acá antes) falla con el error #17 de Meta.
+        const accessToken = this.tenant.facebook?.userAccessToken || this.tenant.facebook?.accessToken || process.env.FB_ACCESS_TOKEN || process.env.FB_MESSENGER_PAGE_TOKEN || "";
         const adAccountId = this.tenant.facebook?.adAccountId || process.env.FB_AD_ACCOUNT_ID || "";
         if (!accessToken || !adAccountId) return false;
 
-        const act = `act_${adAccountId}`;
-        await this.fbPost(act, "ads", accessToken, {
-          adset_id: draft.adSetId,
-          name: draft.productName,
-          status: "ACTIVE",
-          creative: { creative_id: draft.adId },
+        // El anuncio (con su creativo real) ya se creó en createDraftAd,
+        // PAUSED -- acá solo hay que activarlo con un POST directo a su
+        // propio nodo (Graph API: POST /{ad-id} {status}). Antes esto
+        // intentaba crear un anuncio NUEVO pasando el id del anuncio
+        // existente como si fuera un creative_id (objeto equivocado: un "ad"
+        // no es un "adcreative"), así que Meta lo rechazaba siempre.
+        const activateRes = await fetch(`${FB_GRAPH_URL}/${draft.adId}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ status: "ACTIVE", access_token: accessToken }),
         });
+        const activateData: any = await activateRes.json();
+        if (activateData.error) {
+          logger.error({ err: activateData.error, draftId }, "[AdStrategist] Meta rechazó activar el anuncio");
+          return false;
+        }
 
         await db.update(facebookDrafts)
           .set({ status: "published", fbStatus: "ACTIVE" })
@@ -729,7 +742,7 @@ Este contenido digital es tu atajo directo a resultados profesionales.
   async createDraftsForAllProducts(): Promise<{ created: number; failed: number; withoutRealImage: number; drafts: DraftAd[] }> {
     const result = { created: 0, failed: 0, withoutRealImage: 0, drafts: [] as DraftAd[] };
 
-    const accessToken = this.tenant.facebook?.accessToken || process.env.FB_ACCESS_TOKEN || process.env.FB_MESSENGER_PAGE_TOKEN || "";
+    const accessToken = this.tenant.facebook?.userAccessToken || this.tenant.facebook?.accessToken || process.env.FB_ACCESS_TOKEN || process.env.FB_MESSENGER_PAGE_TOKEN || "";
     const adAccountId = this.tenant.facebook?.adAccountId || process.env.FB_AD_ACCOUNT_ID || "";
 
     if (!accessToken || !adAccountId) {
@@ -761,13 +774,28 @@ Este contenido digital es tu atajo directo a resultados profesionales.
   private async fbPost(adAccount: string, endpoint: string, accessToken: string, body: Record<string, any>): Promise<any> {
     const url = `${FB_GRAPH_URL}/${adAccount}/${endpoint}`;
     const params = new URLSearchParams({ access_token: accessToken });
-    const res = await fetch(`${url}?${params}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
+    let res: Response;
+    try {
+      res = await fetch(`${url}?${params}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(20000),
+      });
+    } catch (err: any) {
+      // Antes esto no tenía timeout: una llamada colgada a Meta bloqueaba el
+      // flujo indefinidamente en vez de fallar con un error entendible.
+      logger.error({ err, endpoint }, "[AdStrategist] fbPost sin respuesta (timeout o red)");
+      throw new Error(`Sin respuesta de Facebook en /${endpoint}: ${err?.message || err}`);
+    }
     const data: any = await res.json();
-    if (data.error) throw new Error(`${data.error.message} (código ${data.error.code})`);
+    if (data.error) {
+      // Antes solo se propagaba message+code -- error_subcode, fbtrace_id y
+      // el resto del objeto (clave para diagnosticar rate limits/permisos)
+      // se perdían y solo quedaban en la excepción genérica del caller.
+      logger.error({ fbError: data.error, endpoint, adAccount }, "[AdStrategist] Meta devolvió un error");
+      throw new Error(`${data.error.message} (código ${data.error.code}${data.error.error_subcode ? `, subcódigo ${data.error.error_subcode}` : ""})`);
+    }
     return data;
   }
 

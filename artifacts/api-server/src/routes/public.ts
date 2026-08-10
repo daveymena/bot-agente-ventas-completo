@@ -305,6 +305,11 @@ router.post("/fb-connect", async (req, res, next) => {
       pageName: page.name,
       messengerPageToken: encryptedPageToken,
       accessToken: encryptedPageToken,
+      // Token de USUARIO (scope ads_management) -- antes se descartaba
+      // después de listar páginas. Sin esto, crear/publicar campañas
+      // pagadas usaba el token de página de arriba y Meta lo rechazaba
+      // con el error #17 "User access token required".
+      userAccessToken: encryptSecret(longLivedUserToken),
       // Los tasks dicen qué puede hacer este token sobre la página.
       // CREATE_CONTENT = puede publicar. Se guardan porque un token DE PÁGINA
       // no expone /me/permissions (devuelve vacío), así que es la única forma

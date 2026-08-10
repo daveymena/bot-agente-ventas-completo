@@ -56,6 +56,16 @@ export interface TenantContext {
   };
   facebook?: {
     accessToken?: string;
+    /**
+     * Token de USUARIO de larga duración (scope ads_management), obtenido en
+     * el OAuth de conexión pero antes se descartaba después de listar
+     * páginas. `accessToken` de arriba es un token de PÁGINA -- sirve para
+     * publicar posts/Messenger, pero Meta rechaza con el error #17 "User
+     * access token required" si se lo usa para crear/publicar campañas y
+     * anuncios pagados. Ver ad-strategist.ts, que prioriza este campo para
+     * esas operaciones.
+     */
+    userAccessToken?: string;
     pixelId?: string;
     catalogId?: string;
     pageId?: string;
@@ -193,6 +203,7 @@ function parseFacebookMeta(metadata: unknown): TenantContext["facebook"] {
     return {
       ...fb,
       accessToken: decryptSecret(fb.accessToken),
+      userAccessToken: decryptSecret(fb.userAccessToken),
       appSecret: decryptSecret(fb.appSecret),
       messengerPageToken: decryptSecret(fb.messengerPageToken),
     };

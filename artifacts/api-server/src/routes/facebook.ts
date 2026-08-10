@@ -1,7 +1,7 @@
 import { Router, type IRouter, type Request, type Response, type NextFunction } from "express";
 import { createHmac, timingSafeEqual } from "crypto";
 import { eq } from "drizzle-orm";
-import { db, tenants, leads, conversations, messages, products } from "@workspace/db";
+import { db, tenants, leads, conversations, messages, products, facebookDrafts } from "@workspace/db";
 import { facebookMessengerService as fbMessenger } from "../lib/facebook-messenger";
 import { facebookCommentsService as fbComments } from "../lib/facebook-comments";
 import { channelManager } from "../lib/channel-manager";
@@ -505,6 +505,26 @@ router.delete("/strategist/draft/:id", async (req, res, next) => {
   } catch (e) { return next(e); }
 });
 
+// El frontend (facebook.tsx, editar borrador) ya llamaba a este PUT desde
+// hace tiempo -- la ruta nunca existió del lado del servidor, así que
+// "Guardar" en el modal de edición siempre daba 404 en silencio.
+router.put("/strategist/draft/:id", async (req, res, next) => {
+  try {
+    const draftId = parseInt(req.params.id);
+    const { headline, primaryText, budget } = req.body || {};
+    const patch: Record<string, any> = { updatedAt: new Date() };
+    if (typeof headline === "string") patch.headline = headline;
+    if (typeof primaryText === "string") patch.primaryText = primaryText;
+    if (budget !== undefined && budget !== null && budget !== "") {
+      const n = Number(budget);
+      if (!Number.isNaN(n)) patch.budget = n;
+    }
+    const [updated] = await db.update(facebookDrafts).set(patch).where(eq(facebookDrafts.id, draftId)).returning();
+    if (!updated) return res.status(404).json({ ok: false, message: "Borrador no encontrado" });
+    return res.json({ ok: true, draft: updated });
+  } catch (e) { return next(e); }
+});
+
 router.post("/strategist/draft/:id/publish", async (req, res, next) => {
   try {
     const draftId = parseInt(req.params.id);
@@ -525,7 +545,7 @@ router.post("/strategist/draft/:productId", async (req, res, next) => {
     const productId = parseInt(req.params.productId);
     const tenant = (req as any).tenant;
     const adAccountId = tenant?.facebook?.adAccountId || process.env.FB_AD_ACCOUNT_ID || "";
-    const accessToken = tenant?.facebook?.accessToken || process.env.FB_ACCESS_TOKEN || "";
+    const accessToken = tenant?.facebook?.userAccessToken || tenant?.facebook?.accessToken || process.env.FB_ACCESS_TOKEN || "";
     const { AdStrategist } = await import("../lib/ad-strategist");
     // Copy grounded en investigación real, opcional -- mismos campos que usa
     // el Arquitecto vía fb_ad_draft (ver ResearchGroundedCopy). Sin esto la

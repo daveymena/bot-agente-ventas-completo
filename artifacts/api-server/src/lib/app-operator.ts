@@ -1291,7 +1291,7 @@ export const TOOLS: ToolDef[] = [
       try {
         const draft = await new AdStrategist(tenant || undefined).createDraftAd(
           tenant?.facebook?.adAccountId || process.env.FB_AD_ACCOUNT_ID || "",
-          tenant?.facebook?.accessToken || process.env.FB_ACCESS_TOKEN || "",
+          tenant?.facebook?.userAccessToken || tenant?.facebook?.accessToken || process.env.FB_ACCESS_TOKEN || "",
           id,
           grounded,
         );
