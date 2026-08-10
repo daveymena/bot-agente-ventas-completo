@@ -44,6 +44,12 @@ export async function resolveInterestIds(accessToken: string, names: string[]): 
 
 export interface FacebookConfig {
   accessToken: string;
+  // Token de PÁGINA -- sirve para publicar en el muro (/feed, /photos) pero
+  // Meta lo rechaza en endpoints de cuenta publicitaria y de catálogo, que
+  // exigen un token de USUARIO con permisos ads_management/catalog_management
+  // otorgados a nivel de Business Manager. Mismo motivo por el que
+  // ad-strategist.ts necesitó separar los dos tokens (ver comentario ahí).
+  userAccessToken: string;
   pixelId: string;
   catalogId: string;
   pageId: string;
@@ -102,8 +108,14 @@ export class FacebookService {
     const esDuenoDelServidor = this.tenant.id === tenantManager.getDefaultTenant().id;
     const env = (valor: string | undefined) => (esDuenoDelServidor ? valor || "" : "");
 
+    const pageToken = fb.accessToken || env(process.env.FB_ACCESS_TOKEN || process.env.FB_MESSENGER_PAGE_TOKEN);
     this.config = {
-      accessToken: fb.accessToken || env(process.env.FB_ACCESS_TOKEN || process.env.FB_MESSENGER_PAGE_TOKEN),
+      accessToken: pageToken,
+      // Sin token de usuario propio (tenant que conectó antes de que
+      // existiera userAccessToken, o dueño del servidor sin uno separado en
+      // .env) caemos al de página -- sigue fallando en catálogo/anuncios
+      // igual que antes, pero no rompe nada que hoy funcione con él.
+      userAccessToken: fb.userAccessToken || pageToken,
       pixelId: fb.pixelId || env(process.env.FB_PIXEL_ID),
       catalogId: fb.catalogId || env(process.env.FB_CATALOG_ID),
       pageId: fb.pageId || env(process.env.FB_PAGE_ID),
@@ -218,7 +230,7 @@ export class FacebookService {
       // nombres de intereses "aplicados". Se resuelven acá contra la Graph
       // API de búsqueda de intereses antes de devolver la sugerencia.
       if (result.targeting.interests?.length) {
-        result.targeting.interests = await resolveInterestIds(this.config.accessToken, result.targeting.interests.map(i => i.name));
+        result.targeting.interests = await resolveInterestIds(this.config.userAccessToken, result.targeting.interests.map(i => i.name));
       }
 
       return result;
@@ -376,7 +388,7 @@ Responde SOLO con este JSON exacto:
         // NO comparten presupuesto entre sí -- sin esto rechaza la campaña
         // entera con error 100/subcódigo 4834011.
         is_adset_budget_sharing_enabled: false,
-      }, "campaña");
+      }, "campaña", this.config.userAccessToken);
 
       // Desde acá, cualquier paso que falle (conjunto/creativo/anuncio) deja
       // la CAMPAÑA ya creada huérfana en la cuenta real -- confirmado en vivo
@@ -508,7 +520,7 @@ Responde SOLO con este JSON exacto:
         adSetBody.optimization_goal = "LINK_CLICKS";
         adSetBody.bid_strategy = "LOWEST_COST_WITHOUT_CAP";
       }
-      const adSet = await this.fbPost(`${adAccount}/adsets`, adSetBody, "conjunto de anuncios");
+      const adSet = await this.fbPost(`${adAccount}/adsets`, adSetBody, "conjunto de anuncios", this.config.userAccessToken);
 
       // Creativo — se usa `picture` (URL) en vez de `image_hash` porque el
       // endpoint /adimages no está disponible para esta aplicación (error #3);
@@ -565,7 +577,7 @@ Responde SOLO con este JSON exacto:
       if (creativeImageUrl) {
         creativePayload.object_story_spec.link_data.picture = creativeImageUrl;
       }
-      const creative = await this.fbPost(`${adAccount}/adcreatives`, creativePayload, "creativo");
+      const creative = await this.fbPost(`${adAccount}/adcreatives`, creativePayload, "creativo", this.config.userAccessToken);
 
       // Anuncio
       const ad = await this.fbPost(`${adAccount}/ads`, {
@@ -573,7 +585,7 @@ Responde SOLO con este JSON exacto:
         adset_id: adSet.id,
         creative: { creative_id: creative.id },
         status: "PAUSED",
-      }, "anuncio final");
+      }, "anuncio final", this.config.userAccessToken);
 
       const previewUrl = `https://www.facebook.com/adsmanager/manage/ads?act=${this.config.adAccountId}&ad_id=${ad.id}`;
 
@@ -625,7 +637,7 @@ Responde SOLO con este JSON exacto:
         // ACTIVE y PAUSED: el agente tambien debe poder proponer reactivar
         // una pausada si en el pasado le fue bien.
         limit: "100",
-      });
+      }, this.config.userAccessToken);
       return (res.data || []).filter((c: any) => c.effective_status !== "DELETED" && c.effective_status !== "ARCHIVED");
     } catch (err: any) {
       logger.warn({ err }, "[Facebook] Error listando campañas");
@@ -645,7 +657,7 @@ Responde SOLO con este JSON exacto:
       const res = await this.fbGet(`${campaignId}/insights`, {
         fields: "spend,impressions,clicks,ctr,reach,actions,cost_per_action_type",
         date_preset: datePreset,
-      });
+      }, this.config.userAccessToken);
       const row = res.data?.[0];
       if (!row) {
         // Sin filas = sin gasto/actividad todavia en esa ventana, no es error.
@@ -719,7 +731,7 @@ Responde SOLO con este JSON exacto:
    * "protección de gasto" (¿ya se comió el presupuesto sin resultados?). */
   async getAdSetBudgetStatus(adSetId: string): Promise<{ dailyBudget: number; status: string } | null> {
     try {
-      const res = await this.fbGet(`${adSetId}`, { fields: "daily_budget,effective_status" });
+      const res = await this.fbGet(`${adSetId}`, { fields: "daily_budget,effective_status" }, this.config.userAccessToken);
       return {
         dailyBudget: res.daily_budget ? Number(res.daily_budget) / 100 : 0,
         status: res.effective_status,
@@ -732,7 +744,7 @@ Responde SOLO con este JSON exacto:
 
   async pauseCampaign(campaignId: string): Promise<boolean> {
     try {
-      await this.fbPost(campaignId, { status: "PAUSED" }, "pausar campaña");
+      await this.fbPost(campaignId, { status: "PAUSED" }, "pausar campaña", this.config.userAccessToken);
       return true;
     } catch (err: any) {
       logger.warn({ err, campaignId }, "[Facebook] Error pausando campaña");
@@ -742,7 +754,7 @@ Responde SOLO con este JSON exacto:
 
   async resumeCampaign(campaignId: string): Promise<boolean> {
     try {
-      await this.fbPost(campaignId, { status: "ACTIVE" }, "reactivar campaña");
+      await this.fbPost(campaignId, { status: "ACTIVE" }, "reactivar campaña", this.config.userAccessToken);
       return true;
     } catch (err: any) {
       logger.warn({ err, campaignId }, "[Facebook] Error reactivando campaña");
@@ -758,7 +770,7 @@ Responde SOLO con este JSON exacto:
       const current = await this.getAdSetBudgetStatus(adSetId);
       if (!current || !current.dailyBudget) return { ok: false };
       const newBudget = Math.max(1000, Math.round(current.dailyBudget * (1 + percentChange)));
-      await this.fbPost(adSetId, { daily_budget: Math.round(newBudget * 100) }, "ajustar presupuesto");
+      await this.fbPost(adSetId, { daily_budget: Math.round(newBudget * 100) }, "ajustar presupuesto", this.config.userAccessToken);
       return { ok: true, newBudget };
     } catch (err: any) {
       logger.warn({ err, adSetId }, "[Facebook] Error ajustando presupuesto");
@@ -883,9 +895,9 @@ Responde SOLO con JSON:
 
   // ── Utilidad: llamada a Graph API ──────────────────────────────────────────
 
-  private async fbPost(endpoint: string, body: Record<string, any>, step?: string): Promise<any> {
+  private async fbPost(endpoint: string, body: Record<string, any>, step?: string, token?: string): Promise<any> {
     const url = `${FB_GRAPH_URL}/${endpoint}`;
-    const params = new URLSearchParams({ access_token: this.config.accessToken });
+    const params = new URLSearchParams({ access_token: token || this.config.accessToken });
     const res = await fetch(`${url}?${params}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -910,8 +922,8 @@ Responde SOLO con JSON:
     return data;
   }
 
-  private async fbGet(endpoint: string, query: Record<string, string> = {}): Promise<any> {
-    const params = new URLSearchParams({ access_token: this.config.accessToken, ...query });
+  private async fbGet(endpoint: string, query: Record<string, string> = {}, token?: string): Promise<any> {
+    const params = new URLSearchParams({ access_token: token || this.config.accessToken, ...query });
     const res = await fetch(`${FB_GRAPH_URL}/${endpoint}?${params}`, { signal: AbortSignal.timeout(15000) });
     const data = await res.json();
     if (data.error) throw new Error(`${data.error.message} (código ${data.error.code})`);
@@ -937,7 +949,7 @@ Responde SOLO con JSON:
    * conjunto. Se pregunta antes para evitar el error 100 tardío. */
   private async pixelBelongsToAccount(adAccount: string, pixelId: string): Promise<boolean> {
     try {
-      const res = await this.fbGet(`${adAccount}/adspixels`, { fields: "id" });
+      const res = await this.fbGet(`${adAccount}/adspixels`, { fields: "id" }, this.config.userAccessToken);
       const ids: string[] = (res.data || []).map((p: any) => p.id);
       return ids.includes(pixelId);
     } catch (err: any) {
@@ -973,9 +985,9 @@ Responde SOLO con JSON:
           url: `${process.env.APP_URL || ""}/p/${p.id}`,
         };
         if (existing) {
-          await this.fbPost(existing.id, data);
+          await this.fbPost(existing.id, data, "catálogo: actualizar producto", this.config.userAccessToken);
         } else {
-          await this.fbPost(`${this.config.catalogId}/products`, data);
+          await this.fbPost(`${this.config.catalogId}/products`, data, "catálogo: crear producto", this.config.userAccessToken);
         }
         result.synced++;
       } catch (err: any) {
@@ -991,7 +1003,7 @@ Responde SOLO con JSON:
       const data = await this.fbGet(`${this.config.catalogId}/products`, {
         fields: "id,sku",
         filtering: JSON.stringify([{ field: "sku", value: `PROD-${productId}` }]),
-      });
+      }, this.config.userAccessToken);
       return data.data?.[0] || null;
     } catch (_) {
       return null;
