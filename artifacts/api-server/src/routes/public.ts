@@ -241,7 +241,6 @@ router.post("/fb-connect", async (req, res, next) => {
       return res.status(404).json({ message: "No disponible" });
     }
 
-    const userToken = req.body?.userToken;
     // El tenant SIEMPRE sale de la sesión (cookie firmada, ver resolveTenant()
     // en app.ts), nunca del body -- este endpoint estaba excluido de "/public"
     // en isPublicRoute() justamente para que resolveTenant() corra antes y
@@ -254,10 +253,6 @@ router.post("/fb-connect", async (req, res, next) => {
     }
     const wantedPageId = req.body?.pageId ? String(req.body.pageId) : null;
 
-    if (!userToken || typeof userToken !== "string") {
-      return res.status(400).json({ message: "userToken requerido" });
-    }
-
     const appId = process.env.FB_APP_ID;
     const appSecret = process.env.FB_APP_SECRET;
     if (!appId || !appSecret) {
@@ -265,6 +260,39 @@ router.post("/fb-connect", async (req, res, next) => {
     }
 
     const graph = "https://graph.facebook.com/v21.0";
+
+    // Authorization Code flow (no Implicit): el frontend manda `code` (de un
+    // solo uso, de la query string) en vez de `userToken` -- con
+    // response_type=token, Facebook devolvía el access_token de verdad en el
+    // FRAGMENTO de la URL de redirección (#access_token=...), visible un
+    // instante en la barra de direcciones del navegador antes de que el JS
+    // lo borrara. El código de un solo uso no es sensible de la misma forma
+    // (no sirve sin el App Secret, que nunca sale del servidor), y el
+    // intercambio real por el token pasa acá, server-side. `redirect_uri`
+    // tiene que ser EXACTAMENTE la misma URL que se usó al pedir el login
+    // (exigencia de OAuth), por eso el frontend la manda tal cual la armó.
+    const code = req.body?.code;
+    const redirectUri = req.body?.redirectUri;
+    let userToken = req.body?.userToken; // compat: token ya resuelto (uso interno/pruebas)
+
+    if (!userToken) {
+      if (!code || typeof code !== "string" || !redirectUri || typeof redirectUri !== "string") {
+        return res.status(400).json({ message: "code y redirectUri requeridos" });
+      }
+      const codeExRes = await fetch(
+        `${graph}/oauth/access_token?client_id=${appId}&client_secret=${appSecret}&redirect_uri=${encodeURIComponent(redirectUri)}&code=${encodeURIComponent(code)}`,
+        { signal: AbortSignal.timeout(15000) },
+      );
+      const codeExData: any = await codeExRes.json();
+      if (!codeExRes.ok || codeExData.error) {
+        logger.error({ err: codeExData?.error }, "[FB-Connect] Falló el canje del código de autorización");
+        return res.status(502).json({ message: codeExData?.error?.message || "Error canjeando el código de Facebook" });
+      }
+      userToken = codeExData.access_token;
+    }
+    if (!userToken || typeof userToken !== "string") {
+      return res.status(400).json({ message: "No se pudo obtener un token de acceso" });
+    }
 
     // 1. Canjear por token de larga duración. Los tokens del Explorador duran
     //    ~1-2 horas; los de página derivados de uno de larga duración no caducan.

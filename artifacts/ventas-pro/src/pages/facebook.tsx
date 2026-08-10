@@ -201,29 +201,34 @@ export default function FacebookAdsPage() {
     handleOAuthRedirectIfAny();
   }, []);
 
-  // Facebook redirige de vuelta con #access_token=... en el fragmento de la
-  // URL (nunca llega al servidor). Se lee una sola vez al cargar la página.
+  // Facebook redirige de vuelta con ?code=... en la QUERY STRING (nunca en
+  // el fragmento) -- Authorization Code flow, no Implicit. Con el flujo
+  // anterior (response_type=token) el access_token de verdad viajaba en el
+  // fragmento de la URL (#access_token=...) y quedaba visible un instante
+  // en la barra de direcciones del navegador; el código de acá es de un
+  // solo uso y no sirve sin el App Secret (que nunca sale del servidor), así
+  // que no expone nada sensible aunque se vea en la URL o quede en el
+  // historial del navegador.
   const handleOAuthRedirectIfAny = async () => {
-    const hash = window.location.hash;
-    if (!hash || !hash.includes("access_token=")) return;
-    const params = new URLSearchParams(hash.replace(/^#/, ""));
-    const userToken = params.get("access_token");
-    // Limpiar el hash de la URL para no reprocesar el mismo token al recargar.
-    window.history.replaceState(null, "", window.location.pathname + window.location.search);
-    if (!userToken) return;
-    await connectWithUserToken(userToken);
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get("code");
+    if (!code) return;
+    // Limpiar el ?code= de la URL para no reprocesarlo al recargar.
+    window.history.replaceState(null, "", window.location.pathname);
+    await connectWithAuthCode(code);
   };
 
-  const connectWithUserToken = async (userToken: string, pageId?: string) => {
+  const connectWithAuthCode = async (code: string, pageId?: string) => {
     try {
       setConnectingOAuth(true);
+      const redirectUri = window.location.origin + window.location.pathname;
       // El tenant lo resuelve el backend a partir de la sesión (cookie
       // firmada) -- antes se mandaba un tenantId: 1 fijo acá, así que TODO
       // negocio que conectaba su Facebook terminaba pisando la conexión del
       // dueño de la plataforma en vez de la suya propia.
       const res = await apiRequest("/public/fb-connect", {
         method: "POST",
-        body: JSON.stringify({ userToken, pageId }),
+        body: JSON.stringify({ code, redirectUri, pageId }),
       });
       toast({ title: "Facebook conectado", description: `Página: ${res.page?.name || res.page?.id}${res.canPost ? "" : " (falta el permiso para publicar en el muro)"}` });
       setOtherPages(res.otrasPaginas || []);
@@ -237,31 +242,19 @@ export default function FacebookAdsPage() {
     }
   };
 
-  // PROBADO EN VIVO (jul-2026) — este flujo NO funciona todavía con la app
-  // actual y hay que arreglarlo del lado de Meta, no acá:
-  //
-  // Facebook devuelve "El dominio de esta URL no está incluido en los dominios
-  // de la aplicación" aunque el dominio SÍ esté cargado en App Domains y con la
-  // plataforma Website agregada (ambas cosas se verificaron). La causa real es
-  // que la app está configurada como "Inicio de sesión con Facebook para
-  // empresas" (Facebook Login for Business), y ese producto IGNORA `scope`:
-  // exige un `config_id` que apunte a una configuración de Business Login
-  // creada en el panel (Casos de uso → configuración), donde además se
-  // registran los redirect URIs válidos.
-  //
-  // Para habilitarlo: crear esa configuración en developers.facebook.com,
-  // exponer su id como FB_LOGIN_CONFIG_ID en el backend (junto a FB_APP_ID en
-  // /api/public/fb-app-config) y cambiar `scope=` por `config_id=` abajo.
-  //
-  // Mientras tanto el sistema funciona con el token de página permanente
-  // cargado a mano en "Credenciales (manual/avanzado)" — que al ser de página
-  // y de larga duración no se vence, así que esto es una comodidad, no un
-  // bloqueante.
+  // La app usa "Inicio de sesión con Facebook para empresas" (Facebook Login
+  // for Business), que ignora `scope` y exige un `config_id` de una
+  // configuración creada en developers.facebook.com → Inicio de sesión con
+  // Facebook para empresas → Ajustes (ahí también se registra el redirect
+  // URI válido). Confirmado funcionando en producción (ago-2026) con
+  // FB_LOGIN_CONFIG_ID configurado. response_type=code (no `token`): el
+  // código de un solo uso se canjea del lado del servidor, así el access
+  // token real nunca pasa por la URL del navegador.
   const startFacebookLogin = () => {
     if (!fbAppConfig.appId) return;
     const redirectUri = window.location.origin + window.location.pathname;
     const configId = (fbAppConfig as any).loginConfigId;
-    const base = `https://www.facebook.com/v21.0/dialog/oauth?client_id=${encodeURIComponent(fbAppConfig.appId)}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=token`;
+    const base = `https://www.facebook.com/v21.0/dialog/oauth?client_id=${encodeURIComponent(fbAppConfig.appId)}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code`;
     if (configId) {
       window.location.href = `${base}&config_id=${encodeURIComponent(configId)}`;
       return;
