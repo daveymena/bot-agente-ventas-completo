@@ -125,8 +125,12 @@ async function sendActivationEmail(subscriptionId: number): Promise<void> {
     const planName = planInfo?.name || subscription.plan;
 
     // Enviar email
+    // El token de activación NO va al log: es la credencial que activa la
+    // cuenta paga, y cualquiera con acceso a los logs (un dump, un panel de
+    // monitoreo, un backup) podría usarla. Alcanza con saber a quién se le
+    // mandó para diagnosticar.
     logger.info(
-      { email: tenant.email, subscriptionId, token: subscription.activationToken },
+      { email: tenant.email, subscriptionId },
       "[Webhook] Enviando email con token de activación..."
     );
 

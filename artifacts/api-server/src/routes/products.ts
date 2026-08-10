@@ -21,6 +21,24 @@ import type { TenantRequest } from "../lib/tenantManager";
 
 const router = Router();
 
+/**
+ * El precio viaja como string (columna numeric de Postgres) y el esquema
+ * generado por orval lo tipa como `zod.string()` sin ningún refinamiento --
+ * o sea que "abc", "-100" o "" pasaban la validación y llegaban tal cual a
+ * la base, al checkout y al link de pago. La validación va acá y no en el
+ * esquema porque ese archivo es generado (orval está roto con la versión de
+ * zod instalada) y se perdería en la próxima regeneración.
+ *
+ * Devuelve un mensaje listo para mostrarle al admin, o null si está bien.
+ */
+function validarPrecio(valor: unknown): string | null {
+  if (valor === undefined || valor === null || valor === "") return null; // opcional: cae al default
+  const n = Number(valor);
+  if (!Number.isFinite(n)) return "El precio debe ser un número.";
+  if (n < 0) return "El precio no puede ser negativo.";
+  return null;
+}
+
 // List products for the current tenant
 router.get("/", async (req: TenantRequest, res, next) => {
   try {
@@ -45,6 +63,8 @@ router.post("/", async (req: TenantRequest, res, next) => {
      const tenantId = req.tenant?.id;
      if (!tenantId) return sendError(res, ERROR_CODES.UNAUTHORIZED);
 
+     const errorPrecio = validarPrecio(req.body.price);
+     if (errorPrecio) return res.status(400).json({ message: errorPrecio });
      if (req.body.price !== undefined) {
        req.body.price = String(req.body.price);
      }
@@ -100,6 +120,8 @@ router.patch("/:id", async (req: TenantRequest, res, next) => {
     if (!tenantId) return sendError(res, ERROR_CODES.UNAUTHORIZED);
 
     const { id } = UpdateProductParams.parse(req.params);
+    const errorPrecio = validarPrecio(req.body.price);
+    if (errorPrecio) return res.status(400).json({ message: errorPrecio });
     if (req.body.price !== undefined) {
       req.body.price = String(req.body.price);
     }
