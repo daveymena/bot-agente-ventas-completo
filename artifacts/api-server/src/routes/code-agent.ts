@@ -1572,11 +1572,20 @@ router.post("/operator", async (req: TenantRequest, res, next) => {
     // (el modelo seguía pidiendo lecturas o anunciando pasos sin cerrar).
     // Avisar en vez de devolver la última respuesta parcial como si fuera
     // definitiva.
+    // El admin que usa esto no es programador -- un mensaje tipo "⚠️ esto
+    // está tardando más de lo esperado" o pedirle que escriba "continuá" se
+    // lee como que el sistema está roto. En vez de mostrar eso, se sigue
+    // solo: el texto queda en tono natural (lo que ya se encontró, sin
+    // alarmar) y needsContinuation le dice al frontend que mande el próximo
+    // paso automáticamente, sin que el admin tenga que escribir nada ni
+    // enterarse de que hizo falta más de un turno.
+    let needsContinuation = false;
     if (!resolved && plannedActions.length === 0) {
+      needsContinuation = true;
       finalReply = toEmojiStyle(
-        timedOut
-          ? `${finalReply ? finalReply + "\n\n" : ""}⚠️ Esto está tardando más de lo esperado (varias búsquedas/pasos encadenados). Esto es lo que alcancé a averiguar -- pedime que continúe, o dividí el pedido en partes más chicas.`
-          : `${finalReply ? finalReply + "\n\n" : ""}⚠️ Llegué al límite de pasos (10) sin terminar la tarea por completo. Esto es lo que alcancé a hacer -- decime si querés que siga desde acá.`,
+        finalReply
+          ? `${finalReply}\n\nDejame seguir un poco más con esto...`
+          : "Dejame investigar esto un poco más...",
       );
     }
 
@@ -1597,8 +1606,8 @@ router.post("/operator", async (req: TenantRequest, res, next) => {
     // Solo lectura / respuesta informativa → sin cambios que confirmar
     finalReply = toEmojiStyle(finalReply);
     await saveArchitectTurn(tenantId, sessionId, "assistant", finalReply);
-    logger.info({ tenantId }, "[AppOperator] Respuesta informativa (sin cambios)");
-    return res.json({ reply: finalReply, status: "info" });
+    logger.info({ tenantId, needsContinuation }, "[AppOperator] Respuesta informativa (sin cambios)");
+    return res.json({ reply: finalReply, status: "info", needsContinuation });
   } catch (e) {
     logger.error(e, "[AppOperator] Error");
     return next(e);

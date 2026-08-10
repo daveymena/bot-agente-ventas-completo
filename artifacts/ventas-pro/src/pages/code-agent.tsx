@@ -127,6 +127,31 @@ export default function CodeAgent() {
     setMessages([{ role: "assistant", content: GREETING[m] }]);
   };
 
+  // Quien usa esto no es programador: un pedido pesado (investigar + armar
+  // una campaña, por ejemplo) puede necesitar más de un turno internamente
+  // porque el proxy corta la conexión a los ~150s -- pero eso es un detalle
+  // de infraestructura, no algo que el admin tenga que resolver escribiendo
+  // "continuá" él mismo. Si el backend marca needsContinuation, se sigue
+  // solo (silencioso, sin mensaje de usuario nuevo, el indicador de
+  // "escribiendo" queda prendido todo el tiempo) hasta un tope razonable de
+  // vueltas -- nunca se le muestra al admin nada que suene a error técnico.
+  const MAX_AUTO_CONTINUATIONS = 4;
+
+  const callAtlas = async (promptText: string, historyForCall: { role: string; content: string }[]) => {
+    const endpoint = mode === "operator" ? "/api/code-agent/operator" : "/api/code-agent/architect";
+    const res = await fetch(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ prompt: promptText, history: historyForCall }),
+      credentials: "include",
+    });
+    if (!res.ok) {
+      await res.json().catch(() => null);
+      throw new Error(`status ${res.status}`);
+    }
+    return res.json();
+  };
+
   const handleSubmit = async () => {
     if (!input.trim() || loading) return;
     const userMsg = input.trim();
@@ -135,38 +160,41 @@ export default function CodeAgent() {
     setLoading(true);
 
     try {
-      const history = messages.map((m) => ({ role: m.role, content: m.content }));
-      const endpoint = mode === "operator" ? "/api/code-agent/operator" : "/api/code-agent/architect";
-      const res = await fetch(endpoint, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt: userMsg, history }),
-        credentials: "include",
-      });
+      let history = messages.map((m) => ({ role: m.role, content: m.content }));
+      let data = await callAtlas(userMsg, history);
 
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({ error: "Error del servidor" }));
-        throw new Error(err.error || `Error ${res.status}`);
+      for (let round = 0; round < MAX_AUTO_CONTINUATIONS && data?.needsContinuation; round++) {
+        const partial: Message = {
+          role: "assistant",
+          content: data.reply || "Sigo trabajando en esto...",
+          configApplied: data.configApplied,
+          advancedFeaturesEnabled: data.advancedFeaturesEnabled,
+          actions: Array.isArray(data.actions) ? data.actions : undefined,
+        };
+        setMessages((prev) => [...prev, partial]);
+        history = [...history, { role: "user", content: userMsg }, { role: "assistant", content: partial.content }];
+        data = await callAtlas("Continuá con lo que ya tenías, sin repetir lo que ya investigaste o hiciste.", history);
       }
 
-      const data = await res.json();
       const newMsg: Message = {
         role: "assistant",
-        content: data.reply || (mode === "operator" ? "Listo." : "Configuración generada."),
-        configApplied: data.configApplied,
-        advancedFeaturesEnabled: data.advancedFeaturesEnabled,
-        actions: Array.isArray(data.actions) ? data.actions : undefined,
+        content: data?.reply || (mode === "operator" ? "Listo." : "Configuración generada."),
+        configApplied: data?.configApplied,
+        advancedFeaturesEnabled: data?.advancedFeaturesEnabled,
+        actions: Array.isArray(data?.actions) ? data.actions : undefined,
       };
       setMessages((prev) => [...prev, newMsg]);
 
-      if (mode === "operator" && data.actionsCount > 0) {
+      if (mode === "operator" && data?.actionsCount > 0) {
         toast.success(`${data.actionsCount} acción(es) ejecutada(s)`);
-      } else if (data.configApplied) {
+      } else if (data?.configApplied) {
         toast.success("Agente configurado");
       }
-    } catch (err: any) {
-      toast.error(err.message || "Error al comunicar con Atlas");
-      setMessages((prev) => [...prev, { role: "assistant", content: `Error: ${err.message}` }]);
+    } catch {
+      // Nunca se muestra el mensaje técnico crudo (network error, status
+      // HTTP, etc.) -- para un admin no programador eso no significa nada,
+      // solo lo asusta. Un tono neutral y una acción concreta (reintentar).
+      setMessages((prev) => [...prev, { role: "assistant", content: "No pude terminar de responder. ¿Podés intentarlo de nuevo?" }]);
     } finally {
       setLoading(false);
     }
