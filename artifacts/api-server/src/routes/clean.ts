@@ -1,54 +1,75 @@
 import { Router } from "express";
-import { db, conversations, messages, leads, activityEvents, products } from "@workspace/db";
-import { sql } from "drizzle-orm";
+import { db, conversations, messages, leads } from "@workspace/db";
+import { eq, inArray } from "drizzle-orm";
 import { logger } from "../lib/logger";
 import { sendError } from "../lib/error-handler";
 import { ERROR_CODES } from "../lib/error-codes";
+import { requireAdmin, type TenantRequest } from "../lib/tenantManager";
 
 const router = Router();
 
-// Endpoint especial de limpieza profunda
-router.post("/deep-clean", async (req, res) => {
+/**
+ * Borrado de las interacciones (conversaciones, mensajes y prospectos) DEL
+ * NEGOCIO QUE LLAMA. Herramienta de mantenimiento para dejar una cuenta
+ * limpia después de probar.
+ *
+ * Antes esto era un borrado global sin dueño: `db.delete(messages)` /
+ * `db.delete(conversations)` / `db.delete(leads)` / `db.delete(activityEvents)`
+ * SIN ningún filtro por tenant, y la ruta solo exigía tener sesión (no ser
+ * admin). O sea que cualquier cliente logueado podía borrar las
+ * conversaciones, los mensajes y los prospectos de TODOS los negocios de la
+ * plataforma con un solo POST. Ahora exige ser administrador y solo toca los
+ * datos del negocio autenticado.
+ *
+ * También hacía dos UPDATE masivos sobre `products` (sin filtro de tenant)
+ * que reescribían la imagen de los productos de todo el mundo apuntándolas a
+ * una foto de stock de Unsplash. Eso se eliminó: no es "reparar", es pisar
+ * los datos de los clientes con una imagen ajena. Si un producto no tiene
+ * foto, la app ya genera una propia con IA (ver ai-product-image.ts).
+ */
+router.post("/deep-clean", requireAdmin(), async (req: TenantRequest, res) => {
   try {
     const { confirm = false } = req.body;
-    
+
+    // sendError ya deduce el HTTP status del propio código de error
+    // (ERROR_HTTP_STATUS); el tercer argumento son "details", no el status --
+    // pasarle 400/401/500 ahí no cambiaba nada y rompía el tipo.
     if (!confirm) {
-      return sendError(res, ERROR_CODES.CLEAN_CONFIRMATION_REQUIRED, 400);
+      return sendError(res, ERROR_CODES.CLEAN_CONFIRMATION_REQUIRED);
     }
 
-    logger.info("[Clean] Iniciando limpieza profunda de la base de datos...");
+    const tenantId = req.tenant?.id;
+    if (!tenantId) return sendError(res, ERROR_CODES.UNAUTHORIZED);
 
-    // Borrar interacciones en orden para respetar FKs si existen
-    await db.delete(messages);
-    await db.delete(conversations);
-    await db.delete(leads);
-    await db.delete(activityEvents);
+    logger.info({ tenantId }, "[Clean] Borrando interacciones del negocio");
 
-    logger.info("[Clean] Reparando imágenes de productos...");
-    
-    // Corregir dominio Pexels a Unsplash (IDs compatibles)
-    await db.execute(sql`
-      UPDATE products 
-      SET image_url = REPLACE(image_url, 'pexels.com', 'unsplash.com')
-      WHERE image_url LIKE '%pexels.com%';
-    `);
+    // Los mensajes no tienen tenant_id propio: cuelgan de la conversación,
+    // así que hay que resolver primero cuáles son de este negocio.
+    const propias = await db
+      .select({ id: conversations.id })
+      .from(conversations)
+      .where(eq(conversations.tenantId, tenantId));
+    const ids = propias.map((c: { id: number }) => c.id);
 
-    // Poner fallback a imágenes vacías o nulas
-    await db.execute(sql`
-      UPDATE products 
-      SET image_url = 'https://images.unsplash.com/photo-1526374965328-7f61d4dc18c5?w=800'
-      WHERE image_url IS NULL OR image_url = '' OR image_url = 'null';
-    `);
+    if (ids.length > 0) {
+      await db.delete(messages).where(inArray(messages.conversationId, ids));
+    }
+    await db.delete(conversations).where(eq(conversations.tenantId, tenantId));
+    await db.delete(leads).where(eq(leads.tenantId, tenantId));
 
-    logger.info("[Clean] Limpieza y reparación completada con éxito.");
+    // activity_events NO se toca: esa tabla no tiene columna de negocio, así
+    // que no hay forma de borrar solo las de este tenant sin llevarse por
+    // delante el historial de actividad de los demás.
 
-    return res.json({ 
-      success: true, 
-      message: "Base de datos de interacciones reseteada completamente. Los productos han sido preservados." 
+    logger.info({ tenantId, conversaciones: ids.length }, "[Clean] Limpieza completada");
+
+    return res.json({
+      success: true,
+      message: `Se borraron ${ids.length} conversaciones con sus mensajes, y los prospectos de tu negocio. Los productos no se tocaron.`,
     });
   } catch (e: any) {
     logger.error(e, "[Clean] Error en Deep Clean");
-    return sendError(res, ERROR_CODES.INTERNAL_SERVER_ERROR, 500);
+    return sendError(res, ERROR_CODES.INTERNAL_SERVER_ERROR);
   }
 });
 
