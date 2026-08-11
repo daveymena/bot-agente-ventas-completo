@@ -15,7 +15,7 @@
  * hasta que el modelo marca done:true (o se alcanza el límite de pasos).
  */
 
-import { db, products, productCategories, agents, settings, stores, tenants, conversations, leads, architectMemory } from "@workspace/db";
+import { db, products, productCategories, agents, settings, stores, tenants, conversations, leads, architectMemory, facebookDrafts } from "@workspace/db";
 import { eq, desc, and, gte, sql, ilike } from "drizzle-orm";
 import { logger } from "./logger";
 import { tenantManager } from "./tenantManager";
@@ -1362,6 +1362,37 @@ export const TOOLS: ToolDef[] = [
     },
   },
 
+  {
+    name: "fb_update_draft_creative",
+    description: "Cambia el TEXTO (headline/primaryText/description) de un borrador de anuncio ya existente -- si ese borrador ya es un objeto real en Meta (creadoEnMeta:true en fb_list_drafts), reconstruye el creativo real y lo repone en el anuncio (Meta no deja editar un creativo existente, así que arma uno nuevo y lo repunta; el anuncio sigue con el mismo id y el mismo estado -- PAUSED sigue PAUSED). Si el borrador todavía no existe en Meta, esto solo actualiza el borrador local. Usala cuando el admin apruebe un copy nuevo para reemplazar el de un anuncio ya creado -- no hay otra forma de lograrlo, fb_create_ad SIEMPRE crea una campaña nueva con copy autogenerado y NO acepta texto personalizado.",
+    args: '{ "draftId": number (req, id del borrador -- lo da fb_list_drafts), "headline"?: string, "primaryText"?: string, "description"?: string }',
+    run: async (_args, ctx) => {
+      const draftId = Number(_args.draftId);
+      if (!draftId) return { ok: false, summary: "Falta el id del borrador (usá fb_list_drafts para obtenerlo)." };
+      const patch: Record<string, any> = { updatedAt: new Date() };
+      if (typeof _args.headline === "string" && _args.headline.trim()) patch.headline = _args.headline.trim();
+      if (typeof _args.primaryText === "string" && _args.primaryText.trim()) patch.primaryText = _args.primaryText.trim();
+      if (typeof _args.description === "string" && _args.description.trim()) patch.description = _args.description.trim();
+      if (Object.keys(patch).length <= 1) return { ok: false, summary: "No mandaste ningún campo de texto para actualizar." };
+
+      const [updated] = await db.update(facebookDrafts).set(patch).where(and(eq(facebookDrafts.id, draftId), eq(facebookDrafts.tenantId, ctx.tenantId))).returning();
+      if (!updated) return { ok: false, summary: `No encontré el borrador ${draftId} para este negocio.` };
+
+      if (!updated.campaignId) {
+        return { ok: true, summary: `Borrador ${draftId} actualizado (guardado local, todavía no existe en Meta).` };
+      }
+      const { AdStrategist } = await import("./ad-strategist");
+      const tenant = await tenantManager.getTenantById(ctx.tenantId);
+      const sync = await new AdStrategist(tenant || undefined).updateDraftCreative(draftId);
+      return {
+        ok: sync.ok,
+        summary: sync.ok
+          ? `Borrador ${draftId} actualizado y sincronizado con el anuncio real en Meta (sigue en el mismo estado, ${updated.fbStatus || "PAUSED"}).`
+          : `Se guardó el texto nuevo, pero Meta rechazó actualizar el creativo del anuncio real: ${sync.message || "error desconocido"}.`,
+      };
+    },
+  },
+
   // ── 📊 MONITOREO (WhatsApp, conversaciones, ventas) ─────────────────────────
   {
     name: "whatsapp_status",
@@ -2200,6 +2231,7 @@ FACEBOOK — PUBLICAR (gratis) vs ANUNCIAR (paga), no las confundas:
 - 📢 fb_page_publish: publica en el MURO de la página, orgánico, SIN costo, visible de inmediato. Úsalo cuando el admin diga "publica", "postea" o "sube esto a Facebook". SIEMPRE llama fb_page_preview antes para que el admin vea el texto y la imagen, y fb_page_can_post si hay dudas de permisos.
 - 💰 fb_create_ad: crea una CAMPAÑA PAGA en Ads Manager (se crea en pausa, pero gastará dinero al activarla). Solo úsalo cuando el admin pida explícitamente "anuncio", "campaña" o "pauta" — nunca lo ofrezcas como si fuera gratis.
 - 📝 fb_ad_draft: genera el COPY y la segmentación de un anuncio y lo guarda local, SIN tocar la cuenta de Meta ni gastar nada. Es el paso intermedio seguro: úsalo para preparar campañas que el admin revisará y activará él mismo después, no fb_create_ad, salvo que pida crearla ya en Meta. SIEMPRE pásale hook/angle/researchNote basados en lo que investigaste en ESTE turno (deep_research/web_search/web_fetch) -- si lo llamas sin eso, el copy sale de una plantilla genérica por categoría, no de lo que realmente encontraste que funciona para ese producto.
+- ✏️ fb_update_draft_creative: cuando el admin apruebe un copy NUEVO para reemplazar el texto de un anuncio que YA existe (campaña real creada, sea PAUSED o ACTIVE), esta es la única forma de aplicarlo -- fb_create_ad siempre crea una campaña NUEVA con copy autogenerado, nunca edita la existente. Usá fb_list_drafts primero para conseguir el draftId correcto.
 
 MONITOREO (cuando el admin pregunte "cómo va todo", "revisa el negocio", "por qué no responde WhatsApp", etc.):
 - 📱 whatsapp_status: primero que nada si la duda es sobre el bot no respondiendo o la conexión.
