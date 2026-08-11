@@ -132,9 +132,11 @@ export default function PricingPage() {
             : typeof data.copEquivalent === "number"
               ? ` Se cobrarán $${data.chargedAmount} USD (≈ ${copFormatter.format(data.copEquivalent)}).`
               : "";
-        toast.success(`Redirigiendo a ${gateway}...${chargeNote}`);
+        toast.success(`Abriendo ${gateway} en una pestaña nueva...${chargeNote}`);
         setTimeout(() => {
-          window.location.href = data.paymentUrl;
+          window.open(data.paymentUrl, "_blank", "noopener,noreferrer");
+          setProcessingPayment(false);
+          setSelectedPlan(null);
         }, 1500);
       }
     } catch (error: any) {

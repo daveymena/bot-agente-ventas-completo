@@ -257,14 +257,14 @@ export default function FacebookAdsPage() {
     const configId = (fbAppConfig as any).loginConfigId;
     const base = `https://www.facebook.com/v21.0/dialog/oauth?client_id=${encodeURIComponent(fbAppConfig.appId)}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code`;
     if (configId) {
-      window.location.href = `${base}&config_id=${encodeURIComponent(configId)}`;
+      window.open(`${base}&config_id=${encodeURIComponent(configId)}`, "_blank", "noopener,noreferrer");
       return;
     }
     const scope = [
       "pages_show_list", "pages_read_engagement", "pages_manage_posts",
       "pages_manage_metadata", "pages_messaging", "ads_management", "catalog_management",
     ].join(",");
-    window.location.href = `${base}&scope=${encodeURIComponent(scope)}`;
+    window.open(`${base}&scope=${encodeURIComponent(scope)}`, "_blank", "noopener,noreferrer");
   };
 
   const loadData = async () => {

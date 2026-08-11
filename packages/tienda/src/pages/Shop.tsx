@@ -260,7 +260,7 @@ const Shop = () => {
     <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-8 pb-24 md:pb-8">
       {/* HERO BANNER */}
       <div
-        className="rounded-2xl text-white p-6 sm:p-10 mb-6 relative overflow-hidden bg-gray-900 bg-cover bg-center"
+        className="rounded-2xl text-white p-6 sm:p-10 mb-6 relative overflow-hidden bg-zinc-900 bg-cover bg-center"
         style={config.heroImage ? { backgroundImage: `url(${config.heroImage})` } : undefined}
       >
         {/* Overlay oscuro para que el texto quede legible sobre la foto */}
