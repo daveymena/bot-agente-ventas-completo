@@ -138,6 +138,14 @@ function describePlannedAction(a: { tool: string; args: any }): string {
       return `Generar borrador de anuncio (copy + segmentación) para el producto ${g.productId ?? "?"} — no toca la cuenta de Meta, queda guardado local`;
     case "set_product_image":
       return `Asignar imagen al producto ${g.productId ?? "?"} (se hospeda permanente): ${String(g.imageUrl ?? "").slice(0, 60)}`;
+    case "fb_update_draft_creative":
+      return `✏️ Actualizar el copy del anuncio (borrador ${g.draftId ?? "?"})${g.headline ? ` — nuevo título: "${String(g.headline).slice(0, 50)}"` : ""} — sigue en el mismo estado en el que estaba (pausado sigue pausado), no se activa solo`;
+    case "fb_pause_campaign":
+      return `⏸️ Pausar la campaña ${g.campaignId ?? "?"} de Facebook — deja de gastar`;
+    case "fb_resume_campaign":
+      return `▶️ Reactivar la campaña ${g.campaignId ?? "?"} de Facebook — vuelve a gastar según su presupuesto diario`;
+    case "fb_set_budget":
+      return `💰 Cambiar el presupuesto diario del conjunto de anuncios ${g.adSetId ?? "?"} a $${g.dailyBudget ?? "?"}`;
     default:
       return `${a.tool}: ${JSON.stringify(g).slice(0, 80)}`;
   }
