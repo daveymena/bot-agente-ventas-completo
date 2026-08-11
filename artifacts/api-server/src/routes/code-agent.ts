@@ -23,6 +23,28 @@ import {
 import { toEmojiStyle } from "../lib/conversation-engine";
 
 /**
+ * El frontend del operador renderiza "reply" con ReactMarkdown (ver
+ * code-agent.tsx), y en Markdown/CommonMark un solo salto de línea DENTRO de
+ * un párrafo se colapsa a un espacio -- solo una línea EN BLANCO (salto
+ * doble) separa líneas de verdad. El prompt de Atlas (OPERATOR_SYSTEM_PROMPT,
+ * reglas 9 y 10) le pide al modelo escribir siempre con dos saltos entre
+ * líneas, pero un modelo de la rotación gratis no lo respeta con
+ * consistencia -- el síntoma reportado es que la respuesta se ve "toda
+ * amontonada" pese a que el texto crudo sí tenía saltos de línea.
+ *
+ * En vez de confiar 100% en que el modelo obedezca, se normaliza acá:
+ * cualquier corrida de uno o más saltos de línea se vuelve exactamente dos.
+ * Es seguro específicamente para las respuestas de Atlas porque nunca traen
+ * bloques de código ni tablas -- son texto conversacional con líneas de
+ * emoji, exactamente el formato que el propio prompt pide separar con
+ * líneas en blanco.
+ */
+function paraMarkdown(texto: string): string {
+  if (!texto) return texto;
+  return texto.replace(/\r\n/g, "\n").replace(/\n+/g, "\n\n").trim();
+}
+
+/**
  * Detecta cuando el modelo responde ANUNCIANDO lo que va a hacer ("ahora voy a
  * investigar X…") en vez de entregar el resultado. Pasaba que devolvía el
  * anuncio con done:true, el bucle cortaba y el admin recibía la conversación a
@@ -1444,9 +1466,9 @@ router.post("/operator", async (req: TenantRequest, res, next) => {
         // que ejecuta VARIAS acciones (ej: dos fb_ad_draft en la misma
         // confirmación), los resultados quedaban pegados uno contra el otro
         // sin ninguna separación visible entre un borrador y el siguiente.
-        const reply = toEmojiStyle(
+        const reply = paraMarkdown(toEmojiStyle(
           `${allOk ? "✅ Plan ejecutado y verificado" : "⚠️ El plan terminó con errores; no voy a decir que quedó listo"}:\n\n${lines.join("\n\n")}`,
-        );
+        ));
         await saveArchitectTurn(tenantId, sessionId, "assistant", reply);
         logger.info({ tenantId, executed: executed.length }, "[AppOperator] Plan aprobado y ejecutado");
         return finish({ reply, executed, actionsCount: executed.length, status: allOk ? "executed" : "partial_failure" });
@@ -1641,9 +1663,9 @@ router.post("/operator", async (req: TenantRequest, res, next) => {
         );
 
         if (loopSignature) {
-          finalReply = toEmojiStyle(
+          finalReply = paraMarkdown(toEmojiStyle(
             `${finalReply ? finalReply + "\n\n" : ""}⚠️ Me detuve porque estaba repitiendo la misma consulta (${loopSignature}) sin avanzar. Esto es lo que alcancé a averiguar antes de frenar -- decime qué falta y lo completo.`,
-          );
+          ));
           resolved = true;
           break;
         }
@@ -1707,11 +1729,11 @@ router.post("/operator", async (req: TenantRequest, res, next) => {
     let needsContinuation = false;
     if (!resolved && plannedActions.length === 0) {
       needsContinuation = true;
-      finalReply = toEmojiStyle(
+      finalReply = paraMarkdown(toEmojiStyle(
         finalReply
           ? `${finalReply}\n\nDejame seguir un poco más con esto...`
           : "Dejame investigar esto un poco más...",
-      );
+      ));
     }
 
     // ── ¿Quedó un plan de cambios? → guardar como pendiente y pedir confirmación ──
@@ -1719,9 +1741,9 @@ router.post("/operator", async (req: TenantRequest, res, next) => {
       const planText = plannedActions
         .map((a, i) => `${i + 1}. ${describePlannedAction(a)}`)
         .join("\n");
-      const reply = toEmojiStyle(
+      const reply = paraMarkdown(toEmojiStyle(
         `${finalReply ? finalReply + "\n\n" : ""}📋 Plan propuesto (requiere tu confirmación):\n${planText}\n\n❓ ¿Confirmas? Responde sí para ejecutar, o dime qué ajusto.`,
-      );
+      ));
       await setPendingPlan(tenantId, sessionId, plannedActions, reply);
       await saveArchitectTurn(tenantId, sessionId, "assistant", reply);
       logger.info({ tenantId, planned: plannedActions.length }, "[AppOperator] Plan propuesto, esperando confirmación");
@@ -1729,7 +1751,7 @@ router.post("/operator", async (req: TenantRequest, res, next) => {
     }
 
     // Solo lectura / respuesta informativa → sin cambios que confirmar
-    finalReply = toEmojiStyle(finalReply);
+    finalReply = paraMarkdown(toEmojiStyle(finalReply));
     await saveArchitectTurn(tenantId, sessionId, "assistant", finalReply);
     logger.info({ tenantId, needsContinuation }, "[AppOperator] Respuesta informativa (sin cambios)");
     return finish({ reply: finalReply, status: "info", needsContinuation });
