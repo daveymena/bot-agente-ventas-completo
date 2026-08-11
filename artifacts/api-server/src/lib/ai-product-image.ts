@@ -38,10 +38,21 @@ const VARIANT_STYLES = [
  * que sirve imágenes generadas por FLUX desde una URL directa.
  * Usar seed distinta por variante garantiza imágenes diferentes del mismo prompt.
  */
+/**
+ * 1080×1080 (1:1) verificado contra la guía oficial de anuncios de Meta
+ * (2026-08-10): es la relación de aspecto correcta para carrusel -- "always
+ * use 1:1 for carousel cards, 4:5 will be cropped unpredictably" (2-10
+ * tarjetas soportadas, tope de archivo 30MB, JPG/PNG). Para imagen ÚNICA en
+ * feed Meta ahora recomienda 4:5 (1440×1800) en vez de 1:1, pero 1:1 sigue
+ * siendo válido ahí y es la única relación que funciona bien en AMBOS casos
+ * (imagen sola o carrusel) sin generar dos variantes -- por eso se mantiene.
+ * Límites de texto reales de Meta (no aplicados como corte duro acá, Meta
+ * trunca visualmente si te pasás, no rechaza): texto principal 50-150
+ * caracteres (125 recomendado en carrusel), título 27 car. en imagen única /
+ * 40 en cada tarjeta de carrusel.
+ */
 function buildPollinationsUrl(prompt: string, seed: number): string {
   const encoded = encodeURIComponent(prompt);
-  // width=1080&height=1080: formato cuadrado, válido para feed e historias de
-  // Facebook/Instagram sin recortar. nologo=true elimina la marca de agua.
   return `https://image.pollinations.ai/prompt/${encoded}?width=1080&height=1080&seed=${seed}&nologo=true&model=flux&enhance=true`;
 }
 
