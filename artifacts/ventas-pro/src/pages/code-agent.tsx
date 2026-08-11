@@ -11,6 +11,16 @@ import remarkGfm from "remark-gfm";
 import { HelpTourButton } from "@/components/HelpTourButton";
 import { useAutoTour } from "@/hooks/use-auto-tour";
 import { getHelpGuide } from "@/data/help-guides";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 const HELP_GUIDE = getHelpGuide("code-agent")!;
 
@@ -49,6 +59,7 @@ export default function CodeAgent() {
   const [progreso, setProgreso] = useState("");
   const [uploading, setUploading] = useState(false);
   const [restoring, setRestoring] = useState(true);
+  const [confirmingReset, setConfirmingReset] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -79,7 +90,6 @@ export default function CodeAgent() {
   }, []);
 
   const resetConversation = async () => {
-    if (!confirm("¿Empezar una conversación nueva? Se borrará el historial guardado.")) return;
     try {
       await fetch("/api/code-agent/history?sessionId=default", { method: "DELETE", credentials: "include" });
       setMessages([{ role: "assistant", content: GREETING[mode] }]);
@@ -140,6 +150,11 @@ export default function CodeAgent() {
   // "escribiendo" queda prendido todo el tiempo) hasta un tope razonable de
   // vueltas -- nunca se le muestra al admin nada que suene a error técnico.
   const MAX_AUTO_CONTINUATIONS = 4;
+  // El backend igual recorta a los últimos 30 turnos (defensa real contra
+  // colgadas en hilos largos, ver code-agent.ts) -- este límite acá evita
+  // mandar un payload gigante de entrada en primer lugar en conversaciones
+  // de varios días como la que causó el cuelgue original (2026-08-10).
+  const HISTORY_LIMIT = 30;
 
   const callAtlas = async (promptText: string, historyForCall: { role: string; content: string }[]) => {
     const esOperador = mode === "operator";
@@ -203,7 +218,7 @@ export default function CodeAgent() {
     setProgreso("");
 
     try {
-      let history = messages.map((m) => ({ role: m.role, content: m.content }));
+      let history = messages.slice(-HISTORY_LIMIT).map((m) => ({ role: m.role, content: m.content }));
       let data = await callAtlas(userMsg, history);
 
       for (let round = 0; round < MAX_AUTO_CONTINUATIONS && data?.needsContinuation; round++) {
@@ -215,7 +230,7 @@ export default function CodeAgent() {
           actions: Array.isArray(data.actions) ? data.actions : undefined,
         };
         setMessages((prev) => [...prev, partial]);
-        history = [...history, { role: "user", content: userMsg }, { role: "assistant", content: partial.content }];
+        history = [...history, { role: "user", content: userMsg }, { role: "assistant", content: partial.content }].slice(-HISTORY_LIMIT);
         data = await callAtlas("Continuá con lo que ya tenías, sin repetir lo que ya investigaste o hiciste.", history);
       }
 
@@ -273,7 +288,7 @@ export default function CodeAgent() {
             </div>
           </div>
           <div className="flex items-center gap-2 shrink-0 self-end sm:self-auto">
-            <Button variant="outline" size="sm" onClick={resetConversation} className="h-8 sm:h-9 text-xs px-2 sm:px-3">
+            <Button variant="outline" size="sm" onClick={() => setConfirmingReset(true)} className="h-8 sm:h-9 text-xs px-2 sm:px-3">
               <RotateCcw className="h-3.5 w-3.5 sm:mr-1.5" /> <span className="hidden sm:inline">Nueva</span>
             </Button>
             <div data-tour="code-agent-mode-toggle" className="inline-flex rounded-lg border border-border bg-secondary p-0.5">
@@ -440,6 +455,19 @@ export default function CodeAgent() {
           </div>
         </div>
       </div>
+
+      <AlertDialog open={confirmingReset} onOpenChange={setConfirmingReset}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>¿Empezar una conversación nueva?</AlertDialogTitle>
+            <AlertDialogDescription>Se borrará el historial guardado de este chat con Atlas.</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={resetConversation}>Sí, empezar de nuevo</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Layout>
   );
 }

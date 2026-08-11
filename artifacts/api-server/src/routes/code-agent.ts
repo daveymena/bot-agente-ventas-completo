@@ -45,6 +45,27 @@ function paraMarkdown(texto: string): string {
 }
 
 /**
+ * El frontend manda TODO el historial de la conversación en cada turno (ver
+ * code-agent.tsx). En un hilo que lleva días de uso real (visto en vivo:
+ * decenas de turnos, algunos con respuestas largas de investigación) ese
+ * payload crece sin límite -- confirmado en vivo el 2026-08-10 que un pedido
+ * simple ("decime hola") respondía en 11s con historial vacío, pero el MISMO
+ * mensaje real del admin se quedaba colgado sin error ni respuesta con el
+ * historial completo de esa conversación de varios días. No se identificó
+ * cuál límite exacto se pisa (tokens del modelo, tamaño de body, timeout del
+ * proxy) -- no importa cuál sea, la app tiene que degradar sola en vez de
+ * colgarse en silencio. Se recorta a los últimos N turnos ANTES de construir
+ * cualquier prompt; el admin sigue viendo su historial completo en pantalla
+ * (vive aparte, en el navegador/architect_memory), solo se acorta lo que se
+ * manda al modelo.
+ */
+const HISTORIAL_MAX_TURNOS = 30;
+function acotarHistorial(historial: unknown): { role: string; content: string }[] {
+  if (!Array.isArray(historial)) return [];
+  return historial.slice(-HISTORIAL_MAX_TURNOS);
+}
+
+/**
  * Detecta cuando el modelo responde ANUNCIANDO lo que va a hacer ("ahora voy a
  * investigar X…") en vez de entregar el resultado. Pasaba que devolvía el
  * anuncio con done:true, el bucle cortaba y el admin recibía la conversación a
@@ -168,7 +189,8 @@ router.post("/architect", async (req: TenantRequest, res, next) => {
     const tenantId = req.tenant?.id;
     if (!tenantId) return res.status(401).json({ message: "Tenant not resolved" });
 
-    const { prompt, history = [] } = req.body;
+    const { prompt, history: historialCrudo = [] } = req.body;
+    const history = acotarHistorial(historialCrudo);
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // 🧠 ANÁLISIS DEL NEGOCIO REAL — Datos de la BD
@@ -712,7 +734,8 @@ router.post("/visual-architect", async (req: TenantRequest, res, next) => {
     const tenantId = req.tenant?.id;
     if (!tenantId) return res.status(401).json({ message: "Tenant not resolved" });
 
-    const { prompt, history = [] } = req.body;
+    const { prompt, history: historialCrudo = [] } = req.body;
+    const history = acotarHistorial(historialCrudo);
 
     const [dbSettings] = await db.select().from(settings).limit(1);
     let aiConfig = proveedorGuardadoPrioritario((dbSettings as any)?.businessConfig)
@@ -1152,7 +1175,8 @@ router.post("/operator", async (req: TenantRequest, res, next) => {
     const tenantId = req.tenant?.id;
     if (!tenantId) return res.status(401).json({ message: "Tenant not resolved" });
 
-    const { prompt, history = [] } = req.body;
+    const { prompt, history: historialCrudo = [] } = req.body;
+    const history = acotarHistorial(historialCrudo);
     if (!prompt) return res.status(400).json({ error: "prompt requerido" });
 
     // ── Progreso en vivo ──────────────────────────────────────────────────
