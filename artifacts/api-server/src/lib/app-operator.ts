@@ -1336,7 +1336,7 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: "fb_list_drafts",
-    description: "Lista los borradores de anuncios ya generados para este negocio (creados con fb_ad_draft), con su estado.",
+    description: "Lista los borradores de anuncios ya generados para este negocio (creados con fb_ad_draft), con el TEXTO REAL del anuncio (headline/primaryText/description) y su estado. Usá esta tool -- no fb_campaign_metrics ni el nombre interno de la campaña -- cuando te pidan revisar, opinar o mejorar el COPY de un anuncio: el nombre de la campaña es solo una etiqueta administrativa que el cliente nunca ve, no es el texto del anuncio.",
     args: "{}",
     run: async (_args, ctx) => {
       const { adStrategist } = await import("./ad-strategist");
@@ -1344,7 +1344,20 @@ export const TOOLS: ToolDef[] = [
       return {
         ok: true,
         summary: `${drafts.length} borradores de anuncios`,
-        data: drafts.map((d: any) => ({ id: d.id, productName: d.productName, niche: d.strategy?.niche, status: d.status })),
+        data: drafts.map((d: any) => ({
+          id: d.id,
+          productName: d.productName,
+          niche: d.strategy?.niche,
+          status: d.status,
+          creadoEnMeta: !!d.campaignId,
+          campaignId: d.campaignId,
+          fbStatus: d.fbStatus,
+          headline: d.headline,
+          primaryText: d.primaryText,
+          description: d.description,
+          dailyBudgetCop: d.budget,
+          numImagenes: Array.isArray(d.images) ? d.images.length : (d.imageUrl ? 1 : 0),
+        })),
       };
     },
   },
