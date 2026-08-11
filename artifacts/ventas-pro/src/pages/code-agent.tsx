@@ -149,7 +149,17 @@ export default function CodeAgent() {
   // solo (silencioso, sin mensaje de usuario nuevo, el indicador de
   // "escribiendo" queda prendido todo el tiempo) hasta un tope razonable de
   // vueltas -- nunca se le muestra al admin nada que suene a error técnico.
-  const MAX_AUTO_CONTINUATIONS = 4;
+  // Antes en 4: para un pedido pesado de verdad (investigar + armar varios
+  // anuncios) 4 vueltas (~11min de presupuesto real, 130s x 5 turnos totales)
+  // no alcanzaban -- el bucle de abajo se cortaba con needsContinuation
+  // todavía en true, y lo último que había en data.reply era el texto de
+  // relleno ("Dejame seguir un poco más con esto...") del backend, mostrado
+  // como si fuera la respuesta final. El admin veía al bot "quedarse corto"
+  // sin ningún aviso de que en realidad no había terminado. Subido a 8 para
+  // que aguante tareas más largas: si aun así se agota, ver el bloque de
+  // abajo que ahora SÍ le avisa al admin en vez de mostrar el relleno como
+  // definitivo.
+  const MAX_AUTO_CONTINUATIONS = 8;
   // El backend igual recorta a los últimos 30 turnos (defensa real contra
   // colgadas en hilos largos, ver code-agent.ts) -- este límite acá evita
   // mandar un payload gigante de entrada en primer lugar en conversaciones
@@ -234,9 +244,21 @@ export default function CodeAgent() {
         data = await callAtlas("Continuá con lo que ya tenías, sin repetir lo que ya investigaste o hiciste.", history);
       }
 
+      // Se agotaron las MAX_AUTO_CONTINUATIONS vueltas y el backend TODAVÍA
+      // marca needsContinuation: la tarea no terminó de verdad. Antes acá se
+      // mostraba data.reply tal cual -- el texto de relleno del backend
+      // ("Dejame seguir un poco más con esto...") -- como si fuera la
+      // respuesta final, y el admin no tenía forma de saber que en realidad
+      // había quedado algo a mitad de camino. Se lo decimos explícito y le
+      // damos una acción concreta (escribir "seguí") en vez de dejarlo
+      // pensando que el bot se olvidó o se colgó.
+      const content = data?.needsContinuation
+        ? `${data.reply ? data.reply + "\n\n" : ""}Esto está resultando más largo de lo normal y todavía no terminé. Escribime "seguí" y retomo justo donde quedé.`
+        : data?.reply || (mode === "operator" ? "Listo." : "Configuración generada.");
+
       const newMsg: Message = {
         role: "assistant",
-        content: data?.reply || (mode === "operator" ? "Listo." : "Configuración generada."),
+        content,
         configApplied: data?.configApplied,
         advancedFeaturesEnabled: data?.advancedFeaturesEnabled,
         actions: Array.isArray(data?.actions) ? data.actions : undefined,
