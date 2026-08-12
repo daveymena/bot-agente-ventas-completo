@@ -1715,6 +1715,30 @@ export const TOOLS: ToolDef[] = [
         };
       }
       const tenant = await tenantManager.getTenantById(ctx.tenantId);
+
+      // Marcadores sin rellenar: visto en vivo (2026-08-12), el modelo entregó
+      // un anuncio listo "para confirmar" que decía literalmente
+      // "Escríbeme por WhatsApp: [NÚMERO DE WHATSAPP]". Un hueco así no se
+      // nota entre 300 palabras de copy bien escrito, y se iría publicado tal
+      // cual, pagando por mostrarlo. Se corta acá y se le dice al modelo de
+      // dónde sacar el dato real, en vez de confiar en que se acuerde.
+      const textosDelAnuncio = [args.primaryText, args.headline, args.description, args.hook]
+        .filter((t) => typeof t === "string")
+        .join(" ");
+      const marcador = textosDelAnuncio.match(/\[[^\]]{2,40}\]|\{\{[^}]{2,40}\}\}|\bXXX+\b|<[A-ZÁÉÍÓÚÑ\s_]{3,30}>/);
+      if (marcador) {
+        const numeroReal = tenant?.whatsappNumber || "";
+        return {
+          ok: false,
+          summary:
+            `El anuncio quedó con un hueco sin rellenar: "${marcador[0]}". Un anuncio se publica tal cual está, ` +
+            `así que no puede llevar marcadores. Reescribí ese texto con el dato REAL y volvé a llamar la herramienta.` +
+            (numeroReal
+              ? ` El WhatsApp del negocio es ${numeroReal} -- usá ese número.`
+              : ` Si te falta el número de WhatsApp, sacalo con whatsapp_status; si no hay ninguno configurado, decíselo al admin en vez de inventar uno.`),
+        };
+      }
+
       const { AdStrategist } = await import("./ad-strategist");
       const grounded = {
         hook: typeof args.hook === "string" ? args.hook.trim() || undefined : undefined,
