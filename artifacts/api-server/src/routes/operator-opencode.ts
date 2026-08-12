@@ -300,6 +300,19 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
       const tools: Record<string, boolean> = {};
       for (const t of toolRegistry) tools[t.name] = true;
 
+      // Apagar las herramientas NATIVAS de OpenCode. Diagnosticado en vivo
+      // (2026-08-12) consultando la BD: ante un pedido de investigación, el
+      // modelo gastaba los 135s del turno y NO quedaba ni una fila --
+      // ninguna de nuestras herramientas se había llamado. La razón: OpenCode
+      // trae su propio `websearch`/`webfetch` y el modelo los prefería,
+      // quedándose colgado en ellos en vez de usar la investigación en
+      // segundo plano. Mientras estas existan, ninguna instrucción del prompt
+      // alcanza. Además `bash`/`write`/`edit` le darían acceso al sistema de
+      // archivos del contenedor, que un turno de Atlas no necesita para nada.
+      for (const nativa of ["bash", "edit", "write", "read", "glob", "grep", "webfetch", "websearch", "task", "todowrite", "skill", "question", "patch", "list"]) {
+        tools[nativa] = false;
+      }
+
       // Detecta respuestas donde el modelo ESCRIBIÓ la llamada a la
       // herramienta como texto en vez de invocarla por el canal real de
       // tool-calling. Visto en vivo dos veces, en formatos distintos:
