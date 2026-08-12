@@ -1204,6 +1204,103 @@ export const TOOLS: ToolDef[] = [
   },
 
   {
+    name: "fb_ad_library",
+    description:
+      "Ver los anuncios que la COMPETENCIA está pagando AHORA MISMO en Facebook/Instagram, leyendo la Biblioteca de Anuncios pública de Meta. Es la mejor fuente real para saber qué está funcionando en un nicho: son anuncios activos, con plata puesta detrás, no opiniones. Usala antes de armar una campaña para basar el hook/ángulo en lo que la competencia sostiene al aire. Devuelve el texto real de cada anuncio y quién lo publica.",
+    args: '{ "query": string (req) — nicho o producto, ej: "curso de piano", "pais"?: string (ISO2, por defecto CO), "limite"?: number (por defecto 8) }',
+    run: async (args, ctx) => {
+      const query = String(args.query || "").trim();
+      if (!query) return { ok: false, summary: "Falta 'query' (qué nicho o producto buscar)" };
+      const pais = String(args.pais || "CO").toUpperCase().slice(0, 2);
+      const limite = Math.min(Math.max(num(args.limite) || 8, 1), 20);
+
+      // La API oficial (`ads_archive`) NO sirve acá: exige rol asignado en la
+      // app y, para anuncios COMERCIALES, solo cubre la Unión Europea (fuera
+      // de la UE devuelve únicamente anuncios políticos). Verificado en vivo
+      // contra la app real el 2026-08-12. Y la página pública responde 403 a
+      // clientes HTTP simples. Por eso se renderiza con un navegador real.
+      const url =
+        `https://www.facebook.com/ads/library/?active_status=active&ad_type=all` +
+        `&country=${encodeURIComponent(pais)}&q=${encodeURIComponent(query)}&media_type=all`;
+
+      let navegador: any = null;
+      try {
+        const puppeteer: any = (await import("puppeteer")).default;
+        navegador = await puppeteer.launch({
+          headless: true,
+          executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
+          // --no-sandbox es necesario dentro del contenedor (corre como root).
+          args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage", "--lang=es-CO"],
+        });
+        const pagina = await navegador.newPage();
+        await pagina.setUserAgent(
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+        );
+        await pagina.setViewport({ width: 1366, height: 900 });
+        await pagina.goto(url, { waitUntil: "domcontentloaded", timeout: 35_000 });
+        // La biblioteca carga los resultados por JS después del HTML inicial.
+        await new Promise((r) => setTimeout(r, 6000));
+
+        // Se pasa como STRING a propósito: este código corre dentro del
+        // navegador, no en Node, así que `document` no existe de este lado y
+        // TypeScript lo marcaría como error (o habría que meter la librería
+        // "dom" en el tsconfig del backend entero, que es peor).
+        const datos: { titulo: string; pideLogin: boolean; lineas: string[] } = await pagina.evaluate(`(() => {
+          const cuerpo = (document.body && document.body.innerText) || "";
+          const texto = cuerpo.split("\\n").map(function (l) { return l.trim(); }).filter(Boolean);
+          return {
+            titulo: document.title,
+            pideLogin: /iniciar sesión|log in|inicia sesión/i.test(cuerpo),
+            lineas: texto.slice(0, 400)
+          };
+        })()`);
+
+        if (datos.pideLogin) {
+          return {
+            ok: false,
+            summary: "La Biblioteca de Anuncios pidió iniciar sesión para esta búsqueda, así que no pude leerla. No inventes anuncios: decíselo al admin.",
+          };
+        }
+
+        // Los anuncios activos vienen precedidos por "Se empezó a publicar el"
+        // / "Started running on" y el identificador. Se agrupa por ese marcador
+        // en vez de depender de clases CSS, que Facebook cambia seguido.
+        const bloques: string[] = [];
+        let actual: string[] = [];
+        for (const linea of datos.lineas) {
+          if (/^(se empez|started running|library id|identificador)/i.test(linea)) {
+            if (actual.length) bloques.push(actual.join(" | "));
+            actual = [linea];
+          } else if (actual.length) {
+            actual.push(linea);
+          }
+        }
+        if (actual.length) bloques.push(actual.join(" | "));
+
+        const anuncios = bloques.slice(0, limite).map((b) => b.slice(0, 600));
+        if (!anuncios.length) {
+          return {
+            ok: false,
+            summary: `No se encontraron anuncios activos para "${query}" en ${pais} (o Facebook cambió el formato de la página). No inventes resultados: decile al admin que no hubo datos.`,
+            data: { url, muestraCruda: datos.lineas.slice(0, 25) },
+          };
+        }
+
+        await recordResearchEvidence(ctx, `fb_ad_library: ${query} (${pais})`);
+        return {
+          ok: true,
+          summary: `📢 ${anuncios.length} anuncios ACTIVOS de la competencia para "${query}" en ${pais} (Biblioteca de Anuncios de Meta, datos reales de hoy)`,
+          data: { query, pais, url, anuncios },
+        };
+      } catch (e: any) {
+        return { ok: false, summary: `No se pudo leer la Biblioteca de Anuncios: ${e?.message || e}. No inventes anuncios.` };
+      } finally {
+        try { await navegador?.close(); } catch { /* el navegador ya se cerró solo */ }
+      }
+    },
+  },
+
+  {
     name: "web_scrape_images",
     description:
       "EXTRAER las URLs de las imágenes reales de una página web (scraping). Úsala cuando el admin quiera una foto de producto que ya existe en internet (la página del proveedor, una tienda, un curso) en vez de generar una con IA. Devuelve las imágenes ordenadas de más a menos relevante (portada/og:image primero). Solo LEE, no asigna nada — después usa set_product_image con la URL elegida.",
@@ -2336,7 +2433,7 @@ export const READ_ONLY_TOOLS = new Set([
   "predict_customer", "optimize_price", "optimize_copy",
   "analyze_channel_performance", "reason_business_decision",
   // Lectura de web (información externa)
-  "web_fetch", "web_search", "web_scrape_images", "search_product_images", "deep_research",
+  "web_fetch", "web_search", "web_scrape_images", "search_product_images", "deep_research", "fb_ad_library",
   "research_start", "research_check",
   // Listar conjuntos es lectura pura. pause/resume/set_budget NO van acá a
   // propósito: mueven dinero real y tienen que pasar por confirmación.

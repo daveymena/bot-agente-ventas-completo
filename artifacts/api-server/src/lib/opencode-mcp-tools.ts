@@ -58,6 +58,16 @@ const TOOL_SCHEMAS: Record<string, object> = {
     additionalProperties: false,
   },
   research_check: { type: "object", properties: {}, additionalProperties: false },
+  fb_ad_library: {
+    type: "object",
+    properties: {
+      query: { type: "string", description: "Nicho o producto a espiar, ej: 'curso de piano'" },
+      pais: { type: "string", description: "Código ISO2 del país, por defecto CO" },
+      limite: { type: "number", description: "Cuántos anuncios traer, por defecto 8" },
+    },
+    required: ["query"],
+    additionalProperties: false,
+  },
   deep_research: {
     type: "object",
     properties: {
