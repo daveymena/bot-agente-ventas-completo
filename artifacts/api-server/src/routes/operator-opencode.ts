@@ -336,6 +336,21 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
               text,
               timeoutMs: timeoutCandidato,
             });
+            // Bug real encontrado probando en vivo (2026-08-12): un candidato
+            // respondio 200 "sin error" pero el texto traia sintaxis de
+            // tool-call sin ejecutar de verdad (literal "<function=nombre>...
+            // </function>" en el texto final) -- el modelo "alucino" que
+            // llamaba una herramienta en vez de invocarla por el canal real
+            // de tool-calling de OpenCode. Eso casi le llega directo al
+            // admin como si fuera la respuesta. Tratarlo como fallo (no como
+            // exito) para que rote al siguiente candidato en vez de
+            // aceptarlo.
+            const pareceToolCallSinEjecutar = /<function\s*=|<\|python_tag\|>|\[TOOL_CALLS\]/i.test(ultimo.text);
+            if (pareceToolCallSinEjecutar) {
+              logger.warn({ tenantId, model }, "[AtlasOpenCode] Candidato filtro sintaxis de tool-call sin ejecutar, rotando al siguiente");
+              ultimo = { text: "", error: "tool-call no ejecutado (sintaxis filtrada en el texto)" };
+              continue;
+            }
             if (!ultimo.error) break; // Respuesta real -- no seguir rotando.
             logger.warn({ tenantId, model, error: ultimo.error }, "[AtlasOpenCode] Candidato falló, rotando al siguiente");
           } catch (err: any) {
