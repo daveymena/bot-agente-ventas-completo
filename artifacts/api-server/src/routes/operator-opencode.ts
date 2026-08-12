@@ -228,7 +228,13 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
           model: pickOpencodeModel(),
           tools,
           text,
-          timeoutMs: 100_000,
+          // 125s: probado en vivo que un turno con 2 llamadas de herramienta
+          // encadenadas (ej: buscar el producto, después proponer el
+          // cambio) con el modelo gratis actual supera los 100s -- 125s deja
+          // margen real bajo el corte del proxy delante de la app (~150-160s,
+          // confirmado empíricamente para /operator) sin acercarse tanto que
+          // el 502 del proxy gane la carrera antes de que esto responda.
+          timeoutMs: 125_000,
         });
       });
 
