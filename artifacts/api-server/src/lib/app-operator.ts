@@ -330,7 +330,26 @@ function lanzarInvestigacionEnSegundoPlano(ctx: OperatorContext, instruccion: st
         logger.warn({ tenantId: ctx.tenantId, motivo: result.reason }, "[AppOperator] Investigación en segundo plano falló");
       }
     } catch (e: any) {
+      // Antes acá SOLO se logueaba -- y como los logs de este contenedor no
+      // son accesibles por API, una excepción dejaba el trabajo sin ninguna
+      // fila: ni éxito ni fallo, desaparecía sin rastro y era imposible
+      // diagnosticar (pasó exactamente eso el 2026-08-12). Ahora la excepción
+      // también se guarda, así el próximo `research_check` la muestra en vez
+      // de decir "no hay ninguna investigación".
       logger.error({ err: e?.message, tenantId: ctx.tenantId }, "[AppOperator] Investigación en segundo plano reventó");
+      try {
+        await db.insert(architectMemory).values({
+          tenantId: ctx.tenantId,
+          sessionId,
+          memoryType: "research_result",
+          title: instruccion.slice(0, 200),
+          content: `La investigación se interrumpió por un error interno: ${e?.message || e}`,
+          tags: [],
+          metadata: { estado: "fallo", excepcion: String(e?.message || e).slice(0, 300) },
+        });
+      } catch (e2: any) {
+        logger.error({ err: e2?.message }, "[AppOperator] Tampoco se pudo guardar el fallo de la investigación");
+      }
     } finally {
       investigacionesEnCurso.delete(clave);
     }
