@@ -28,10 +28,17 @@ import {
 } from "./app-operator";
 import { logger } from "./logger";
 
-// Herramientas de investigación propia que OpenCode reemplaza con su propio
-// buscador (ver decisión del usuario en el plan) -- todo lo demás en
-// READ_ONLY_TOOLS se expone tal cual.
-const EXCLUDED_FROM_MCP = new Set(["web_search", "deep_research"]);
+// CAUSA RAÍZ de que Atlas nunca investigara (encontrada 2026-08-12): acá se
+// excluían `web_search` y `deep_research` porque el plan original asumía que
+// OpenCode iba a usar SU PROPIO buscador nativo. Pero ese buscador nativo se
+// colgaba y quemaba el turno entero, así que se apagaron las herramientas
+// nativas en operator-opencode.ts... y con esta exclusión todavía acá, el
+// modelo quedó SIN NINGUNA forma de investigar: contestaba "voy a investigar"
+// y no pasaba nada, sin dejar una sola fila en `architect_memory`. Ahora se
+// exponen las nuestras, que además corren en segundo plano y no bloquean.
+// Se deja el Set (vacío) a propósito: es el lugar natural donde excluir algo
+// del puente MCP si hiciera falta más adelante.
+const EXCLUDED_FROM_MCP = new Set<string>([]);
 
 /** JSON Schema mínimo por herramienta, a mano -- son datos sensibles
  * (scoping, montos, ids), preferible explícito a inferido del string libre
@@ -42,6 +49,32 @@ const EXCLUDED_FROM_MCP = new Set(["web_search", "deep_research"]);
  */
 const TOOL_SCHEMAS: Record<string, object> = {
   analyze_system: { type: "object", properties: {}, additionalProperties: false },
+  research_start: {
+    type: "object",
+    properties: {
+      instruccion: { type: "string", description: "Qué investigar, en lenguaje natural. Ej: 'qué ángulos funcionan hoy en anuncios de cursos de piano online para adultos'" },
+    },
+    required: ["instruccion"],
+    additionalProperties: false,
+  },
+  research_check: { type: "object", properties: {}, additionalProperties: false },
+  deep_research: {
+    type: "object",
+    properties: {
+      instruccion: { type: "string", description: "Qué investigar, en lenguaje natural." },
+    },
+    required: ["instruccion"],
+    additionalProperties: false,
+  },
+  web_search: {
+    type: "object",
+    properties: {
+      query: { type: "string", description: "Qué buscar" },
+      limit: { type: "number", description: "Cuántos resultados, por defecto 6" },
+    },
+    required: ["query"],
+    additionalProperties: false,
+  },
   list_products: {
     type: "object",
     properties: {
