@@ -335,22 +335,33 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
         // que el último de la cadena conteste algo en vez de morir en el
         // corte del proxy sin respuesta.
         const RESERVA_RESPALDO_MS = 25_000;
+        // Menos que esto no alcanza ni para el intento más rápido: seguir
+        // intentando desde acá solo garantiza pasarse del corte del proxy.
+        const PISO_UTIL_MS = 8_000;
         let ultimo: { text: string; error?: string } = { text: "", error: "sin candidatos" };
         for (let i = 0; i < cadena.length; i++) {
           const model = cadena[i];
           const esUltimo = i === cadena.length - 1;
           const restante = turnDeadline - Date.now();
-          if (restante < 5_000 && !esUltimo) {
-            logger.warn({ tenantId, model }, "[AtlasOpenCode] Presupuesto de tiempo agotado, salto directo al respaldo gratis");
-            continue; // Se salta a un candidato intermedio sin tiempo real de probar -- deja lugar al último (Zen).
+          // Bug real encontrado probando en vivo (2026-08-12): antes acá había
+          // pisos fijos (Math.max(..., 15_000) / Math.max(restante, 20_000))
+          // que IGNORABAN el reloj -- con 4 candidatos, un primer intento
+          // largo que fallaba dejaba a los 3 siguientes corriendo 15+15+20s
+          // por encima del deadline. La suma daba ~161s, exactamente el 502
+          // del proxy que se estaba reproduciendo. Ningún intento puede durar
+          // más de lo que realmente queda.
+          if (restante <= PISO_UTIL_MS) {
+            logger.warn({ tenantId, model: model.modelID, restante }, "[AtlasOpenCode] Sin tiempo útil restante, se corta la rotación y se responde con lo que haya");
+            break;
           }
           // Un candidato NO-último puede quedarse con casi todo el turno (menos
           // la reserva): un pedido con investigación real necesita ~60-90s de
-          // corrido, y trocearlo en ventanas de 45s hacía que el primer
+          // corrido, y trocearlo en ventanas cortas hacía que el primer
           // candidato -- el preferido -- fallara SIEMPRE en esos casos.
-          const timeoutCandidato = esUltimo
-            ? Math.max(restante, 20_000)
-            : Math.max(restante - RESERVA_RESPALDO_MS, 15_000);
+          const timeoutCandidato = Math.min(
+            restante,
+            esUltimo ? restante : Math.max(restante - RESERVA_RESPALDO_MS, PISO_UTIL_MS),
+          );
           try {
             ultimo = await sendOpencodeMessage(cfg.host, cfg.authHeader, opencodeSessionId, {
               system,
@@ -386,6 +397,20 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
 
       if (opencodeError) {
         logger.error({ tenantId, opencodeError }, "[AtlasOpenCode] Error del motor OpenCode");
+        // Quedarse sin tiempo NO es lo mismo que romperse: el pedido puede
+        // haber avanzado de verdad (una investigación real llega a quedar
+        // registrada aunque la respuesta no alcance a volver). Devolver un
+        // 502 genérico ahí le miente al admin -- suena a que no pasó nada.
+        // Se responde 200 con un mensaje honesto y accionable, mismo criterio
+        // que la salida "esto está tardando" de /operator.
+        const seAcaboElTiempo = /timeout|abort|sin tiempo|sin candidatos/i.test(String(opencodeError));
+        if (seAcaboElTiempo) {
+          const reply = paraMarkdown(toEmojiStyle(
+            "⏳ Esto está tardando más de lo que aguanta una sola respuesta. Lo que alcancé a averiguar quedó guardado. Pedime que continúe y sigo desde ahí, o dividí el pedido en pasos más chicos.",
+          ));
+          await saveArchitectTurn(tenantId, sessionId, "assistant", reply);
+          return finish({ reply, status: "partial", needsContinuation: true });
+        }
         return finish({ error: "No pude terminar de responder con el motor nuevo. ¿Podés intentarlo de nuevo?" }, 502);
       }
 
