@@ -21,6 +21,7 @@ import {
   saveRepairLesson, loadRecentLessons,
 } from "../lib/architect-store";
 import { toEmojiStyle } from "../lib/conversation-engine";
+import { describePlannedAction } from "../lib/opencode-mcp-tools";
 
 /**
  * El frontend del operador renderiza "reply" con ReactMarkdown (ver
@@ -109,47 +110,6 @@ const CONTINUE_NUDGE =
   "hasta tener el resultado completo. Si ya reuniste la información y toca " +
   "crear o modificar algo, propón el plan con datos reales. " +
   'Solo pon done:true cuando entregues el resultado final o el plan a confirmar.';
-
-// Descripción legible de una acción del plan, para mostrarla al admin antes de ejecutar.
-function describePlannedAction(a: { tool: string; args: any }): string {
-  const g = a.args || {};
-  switch (a.tool) {
-    case "update_product":
-      return `Actualizar producto ${g.id ?? g.name ?? "?"}: ${Object.entries(g).filter(([k]) => k !== "id").map(([k, v]) => `${k}=${v}`).join(", ")}`;
-    case "create_product":
-      return `Crear producto "${g.name ?? "?"}" (${g.price ?? "?"} ${g.currency ?? ""})`;
-    case "delete_product":
-      return `⚠️ ELIMINAR producto ${g.id ?? "?"}`;
-    case "create_category":
-      return `Crear categoría "${g.name ?? "?"}"`;
-    case "update_agent":
-      return `Actualizar el agente: ${Object.entries(g).map(([k, v]) => `${k}=${String(v).slice(0, 40)}`).join(", ")}`;
-    case "update_settings":
-      return `Actualizar configuración: ${Object.entries(g).map(([k, v]) => `${k}=${String(v).slice(0, 40)}`).join(", ")}`;
-    case "create_store":
-      return `Crear tienda "${g.name ?? g.slug ?? "?"}"`;
-    case "fb_create_ad":
-      return `💰 Crear campaña de Facebook para producto ${g.productId ?? "?"} (presupuesto ${g.dailyBudget ?? 5000}/día) — se crea EN PAUSA, no gasta hasta que la actives`;
-    case "fb_sync_catalog":
-      return `Sincronizar catálogo de productos a Facebook`;
-    case "fb_page_publish":
-      return `📢 PUBLICAR en el muro de la página de Facebook (público, gratis) el producto ${g.productId ?? "?"} — visible de inmediato para todos`;
-    case "fb_ad_draft":
-      return `Generar borrador de anuncio (copy + segmentación) para el producto ${g.productId ?? "?"} — no toca la cuenta de Meta, queda guardado local`;
-    case "set_product_image":
-      return `Asignar imagen al producto ${g.productId ?? "?"} (se hospeda permanente): ${String(g.imageUrl ?? "").slice(0, 60)}`;
-    case "fb_update_draft_creative":
-      return `✏️ Actualizar el copy del anuncio (borrador ${g.draftId ?? "?"})${g.headline ? ` — nuevo título: "${String(g.headline).slice(0, 50)}"` : ""} — sigue en el mismo estado en el que estaba (pausado sigue pausado), no se activa solo`;
-    case "fb_pause_campaign":
-      return `⏸️ Pausar la campaña ${g.campaignId ?? "?"} de Facebook — deja de gastar`;
-    case "fb_resume_campaign":
-      return `▶️ Reactivar la campaña ${g.campaignId ?? "?"} de Facebook — vuelve a gastar según su presupuesto diario`;
-    case "fb_set_budget":
-      return `💰 Cambiar el presupuesto diario del conjunto de anuncios ${g.adSetId ?? "?"} a $${g.dailyBudget ?? "?"}`;
-    default:
-      return `${a.tool}: ${JSON.stringify(g).slice(0, 80)}`;
-  }
-}
 
 const router = Router();
 

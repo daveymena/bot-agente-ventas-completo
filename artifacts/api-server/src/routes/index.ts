@@ -33,6 +33,7 @@ import responseAnalyticsRouter from "./response-analytics";
 import architectToolsRouter from "./architect-tools";
 import architectRouter from "./architect";
 import pricingRouter from "./pricing";
+import mcpBridgeRouter from "./mcp-bridge";
 
 const router: IRouter = Router();
 
@@ -79,6 +80,9 @@ router.use("/architect", architectRouter);
 // públicos (listado de planes), pero /upgrade y /current/info sí reciben
 // req.tenant real.
 router.use("/pricing", pricingRouter);
+// Puente MCP para el cerebro OpenCode de Atlas -- tiene su propia
+// autenticación por token de turno (ver app.ts, allowlist "/internal/mcp").
+router.use("/internal/mcp", mcpBridgeRouter);
 
 // Usar el manejador de errores centralizado
 router.use(errorHandler);

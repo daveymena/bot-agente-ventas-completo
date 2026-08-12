@@ -18,7 +18,13 @@ export type MemoryType =
   // Evidencia de que se ejecutó una investigación real (web_search/web_fetch)
   // en la sesión -- usado como gate server-side antes de generar un anuncio,
   // para no depender de que el modelo "decida" investigar por su cuenta.
-  | "research_evidence";
+  | "research_evidence"
+  // Acción de mutación propuesta por OpenCode dentro de UN turno de Atlas
+  // (ver opencode-mcp-tools.ts, propose_action) -- sessionId acá es el
+  // turnId, no el sessionId de chat, para que turnos concurrentes/reintentos
+  // nunca mezclen sus borradores. Se lee y se borra en el mismo turno
+  // (drainDraftPlan), nunca queda como historial permanente.
+  | "draft_plan";
 
 export interface ArchitectMemory {
   id: number;

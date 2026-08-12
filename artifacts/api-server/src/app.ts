@@ -538,6 +538,12 @@ const publicRoutes = [
   "/facebook/marketplace/webhook", // Facebook Marketplace webhook
   "/facebook/comments/webhook", // Facebook Comments webhook
   "/p", // Short URLs para productos
+  // Puente MCP que llama el contenedor OpenCode (cerebro de Atlas), no un
+  // navegador con sesión -- tiene su PROPIA autenticación (token de turno
+  // HMAC firmado, ver opencode-turn-token.ts), igual que los webhooks de
+  // arriba. Sin esto, resolveTenant() exigiría una cookie de sesión que
+  // OpenCode nunca va a tener.
+  "/internal/mcp",
 ];
 
 const isPublicRoute = (path: string) => {
