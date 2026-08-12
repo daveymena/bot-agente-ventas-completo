@@ -70,38 +70,24 @@ function conCandado<T>(fn: () => Promise<T>): Promise<T> {
   return run;
 }
 
-// Respaldo fijo confirmado funcionando en vivo (2026-08-11) contra operato --
-// gratis pero lento (turnos de 2+ herramientas pueden acercarse al límite de
-// tiempo). Se usa solo si no hay un proveedor mejor ya sincronizado.
-const MODELO_RESPALDO = { providerID: "openrouter", modelID: "nvidia/nemotron-3-nano-30b-a3b:free" };
+// Respaldo fijo confirmado funcionando en vivo (2026-08-12, contenedor
+// opencode-clean) -- gratis y rápido (~1-2s por turno simple).
+//
+// Se intentó preferir un proveedor pago ya sincronizado (groq/mistral/
+// openrouter) cuando estuviera disponible, pero `/config/providers` lista
+// TODO el catálogo por defecto de OpenCode (183 proveedores) sin importar si
+// hay una key real cargada -- así que "está en la lista" nunca significó
+// "tiene una key que funciona". Con eso, `pickOpencodeModel` elegía groq (o
+// caía al openrouter de respaldo) sin key válida y cada turno moría con un
+// 500 genérico de OpenCode. Confirmado en vivo: groq y openrouter fallan con
+// key real sincronizada igual; opencode/big-pickle (Zen, gratis) responde
+// bien de forma consistente. Hasta no tener una forma confiable de detectar
+// "esta key realmente sirve" (ej. `/provider`'s `connected`, que tampoco se
+// actualizó al sincronizar keys nuevas en las pruebas), se usa directo el
+// modelo gratis -- más lento que un proveedor pago real, pero sin caídas.
+const MODELO_RESPALDO = { providerID: "opencode", modelID: "big-pickle" };
 
-// Proveedores preferidos, en orden, cuando el admin ya los sincronizó (ver
-// lib/opencode-provider-sync.ts) -- groq primero porque es el más rápido
-// confirmado en este proyecto (usado también por oc-groq para deep_research).
-const PREFERENCIA_PROVEEDORES: { providerID: string; modelID: string }[] = [
-  { providerID: "groq", modelID: "llama-3.3-70b-versatile" },
-  { providerID: "mistral", modelID: "mistral-large-latest" },
-];
-
-/** Elige el mejor modelo disponible en operato: primero un proveedor real
- * que el admin haya sincronizado (más rápido/confiable que el gratis fijo),
- * si no, el respaldo gratis conocido. Nunca lanza -- ante cualquier duda usa
- * el respaldo. */
-async function pickOpencodeModel(host: string, authHeader: string): Promise<{ providerID: string; modelID: string }> {
-  try {
-    const res = await fetch(`${host}/config/providers`, {
-      headers: { Authorization: authHeader },
-      signal: AbortSignal.timeout(10_000),
-    });
-    if (!res.ok) return MODELO_RESPALDO;
-    const data = (await res.json()) as any;
-    const disponibles = new Set((data?.providers || []).map((p: any) => p.id));
-    for (const cand of PREFERENCIA_PROVEEDORES) {
-      if (disponibles.has(cand.providerID)) return cand;
-    }
-  } catch {
-    // Ante cualquier falla al consultar, seguir con el respaldo conocido.
-  }
+async function pickOpencodeModel(_host: string, _authHeader: string): Promise<{ providerID: string; modelID: string }> {
   return MODELO_RESPALDO;
 }
 
