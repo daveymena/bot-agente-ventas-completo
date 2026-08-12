@@ -1237,9 +1237,15 @@ export const TOOLS: ToolDef[] = [
           "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
         );
         await pagina.setViewport({ width: 1366, height: 900 });
-        await pagina.goto(url, { waitUntil: "domcontentloaded", timeout: 35_000 });
-        // La biblioteca carga los resultados por JS después del HTML inicial.
-        await new Promise((r) => setTimeout(r, 6000));
+        // Los tiempos NO son arbitrarios: probado en vivo (2026-08-12) contra
+        // la biblioteca real. Con `domcontentloaded` + 8s solo se obtiene el
+        // encabezado de la página, sin un solo anuncio. Con `networkidle2` +
+        // espera + un scroll (que dispara la carga diferida) aparecen los
+        // ~120 resultados reales con su texto completo.
+        await pagina.goto(url, { waitUntil: "networkidle2", timeout: 45_000 });
+        await new Promise((r) => setTimeout(r, 7000));
+        await pagina.evaluate("window.scrollBy(0, 2500)");
+        await new Promise((r) => setTimeout(r, 4000));
 
         // Se pasa como STRING a propósito: este código corre dentro del
         // navegador, no en Node, así que `document` no existe de este lado y
@@ -1255,20 +1261,28 @@ export const TOOLS: ToolDef[] = [
           };
         })()`);
 
-        if (datos.pideLogin) {
+        // OJO: NO alcanza con buscar "iniciar sesión" en el texto -- ese botón
+        // está SIEMPRE en el encabezado de la biblioteca aunque la página se
+        // vea perfecta sin cuenta (falso positivo que tuve la primera vez).
+        // La señal fiable de que sí se cargó es que aparezca el identificador
+        // de biblioteca de al menos un anuncio.
+        const ANCLA_ANUNCIO = /^(identificador de la biblioteca|library id)/i;
+        const hayAnuncios = datos.lineas.some((l) => ANCLA_ANUNCIO.test(l));
+        if (!hayAnuncios && datos.pideLogin) {
           return {
             ok: false,
             summary: "La Biblioteca de Anuncios pidió iniciar sesión para esta búsqueda, así que no pude leerla. No inventes anuncios: decíselo al admin.",
           };
         }
 
-        // Los anuncios activos vienen precedidos por "Se empezó a publicar el"
-        // / "Started running on" y el identificador. Se agrupa por ese marcador
-        // en vez de depender de clases CSS, que Facebook cambia seguido.
+        // Se agrupa por el identificador de biblioteca (el marcador real,
+        // verificado en vivo) en vez de por clases CSS, que Facebook cambia
+        // seguido. Cada bloque queda con: id, desde cuándo circula, quién lo
+        // publica y el texto del anuncio.
         const bloques: string[] = [];
         let actual: string[] = [];
         for (const linea of datos.lineas) {
-          if (/^(se empez|started running|library id|identificador)/i.test(linea)) {
+          if (ANCLA_ANUNCIO.test(linea)) {
             if (actual.length) bloques.push(actual.join(" | "));
             actual = [linea];
           } else if (actual.length) {
@@ -1277,7 +1291,11 @@ export const TOOLS: ToolDef[] = [
         }
         if (actual.length) bloques.push(actual.join(" | "));
 
-        const anuncios = bloques.slice(0, limite).map((b) => b.slice(0, 600));
+        // Se limpia el ruido de interfaz que se cuela entre el texto real.
+        const RUIDO = /^(plataformas|abrir menú|ver detalles|eliminar|activo|publicidad|filtros|ordenar|​)$/i;
+        const anuncios = bloques
+          .slice(0, limite)
+          .map((b) => b.split(" | ").filter((t) => t && !RUIDO.test(t)).join(" | ").slice(0, 700));
         if (!anuncios.length) {
           return {
             ok: false,
