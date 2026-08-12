@@ -228,13 +228,16 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
           model: pickOpencodeModel(),
           tools,
           text,
-          // 125s: probado en vivo que un turno con 2 llamadas de herramienta
-          // encadenadas (ej: buscar el producto, después proponer el
-          // cambio) con el modelo gratis actual supera los 100s -- 125s deja
-          // margen real bajo el corte del proxy delante de la app (~150-160s,
-          // confirmado empíricamente para /operator) sin acercarse tanto que
-          // el 502 del proxy gane la carrera antes de que esto responda.
-          timeoutMs: 125_000,
+          // 145s: el modelo gratis actual (openrouter/nemotron-3-nano-30b)
+          // resultó más lento de lo esperado bajo carga -- 100s y 125s
+          // ambos se quedaron cortos en vivo para un turno con 2 llamadas de
+          // herramienta encadenadas. 145s es lo más cerca que conviene ir
+          // del corte del proxy delante de la app (~150-160s, confirmado
+          // empíricamente para /operator) sin garantizar perder la carrera.
+          // Es una limitación real del modelo gratis, no del código -- la
+          // sincronización de API keys pagas del admin (próxima tarea) es
+          // el arreglo de fondo, esto es la mitigación mientras tanto.
+          timeoutMs: 145_000,
         });
       });
 
