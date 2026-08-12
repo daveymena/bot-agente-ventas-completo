@@ -29,7 +29,7 @@ import { Router } from "express";
 import { randomUUID } from "node:crypto";
 import type { TenantRequest } from "../lib/tenantManager";
 import { logger } from "../lib/logger";
-import { ATLAS_SYSTEM_PROMPT_V2, executeAction, verifyMutation, iniciarInvestigacion, type OperatorContext } from "../lib/app-operator";
+import { ATLAS_SYSTEM_PROMPT_V2, executeAction, verifyMutation, investigacionRapida, type OperatorContext } from "../lib/app-operator";
 import {
   loadArchitectHistory, saveArchitectTurn, getPendingPlan, setPendingPlan,
   clearPendingPlan, isApproval, loadRecentLessons,
@@ -356,15 +356,25 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
       // promesa que Atlas le hace al admin siempre es cierta.
       const PEDIDO_DE_INVESTIGACION = /\b(investig|averigu|indag|research|analiz[aá] el mercado|qu[eé] funciona|tendencia|competencia|benchmark)/i;
       if (PEDIDO_DE_INVESTIGACION.test(String(prompt))) {
+        progreso("Investigando en internet...");
+        // Sincrónica y corta a propósito (ver investigacionRapida): el
+        // resultado real llega en ESTA respuesta, sin trabajos en segundo
+        // plano que se puedan perder ni promesas que cumplir después. Se le
+        // reserva algo menos de la mitad del turno; lo que sobra le queda al
+        // modelo para redactar, que tarda 10-20s.
+        const PRESUPUESTO_INVESTIGACION_MS = 70_000;
         try {
-          const r = await iniciarInvestigacion(ctx, String(prompt));
-          text += `\n\n[SISTEMA] Ya arranqué la investigación por vos, no hace falta que llames ninguna herramienta para eso. Estado: ${r.summary}`;
-          if (r.data?.resultado) {
-            text += `\n\n[SISTEMA] Resultado ya disponible de una investigación reciente sobre lo mismo -- usalo para responder AHORA:\n${String(r.data.resultado).slice(0, 6000)}`;
+          const r = await investigacionRapida(ctx, String(prompt), Math.min(PRESUPUESTO_INVESTIGACION_MS, Math.max(turnDeadline - Date.now() - 45_000, 20_000)));
+          if (r.ok) {
+            text += `\n\n[SISTEMA] Investigación REAL ya hecha para este pedido (hallazgos con sus fuentes). Respondé al admin USANDO ESTO, no prometas investigar después ni digas que vas a averiguar -- ya está hecho:\n${r.texto.slice(0, 6000)}`;
+          } else {
+            // Que el modelo sepa que NO hay datos, para que lo diga en vez de
+            // inventar o de prometer una investigación que no va a llegar.
+            text += `\n\n[SISTEMA] La investigación NO se pudo completar (${r.motivo.slice(0, 300)}). Decíselo al admin con honestidad y ofrecele reintentar; NO inventes hallazgos ni cites fuentes que no tenés.`;
           }
-          progreso("Investigación en marcha...");
         } catch (e: any) {
-          logger.warn({ tenantId, err: e?.message }, "[AtlasOpenCode] No se pudo arrancar la investigación del lado del servidor");
+          logger.warn({ tenantId, err: e?.message }, "[AtlasOpenCode] La investigación sincrónica falló");
+          text += `\n\n[SISTEMA] La investigación falló por un error técnico. Decíselo al admin con honestidad; NO inventes hallazgos.`;
         }
       }
 

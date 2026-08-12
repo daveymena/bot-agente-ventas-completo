@@ -369,6 +369,39 @@ export interface ToolResult {
  * otro no, y el modelo elegía el equivocado sin importar lo que dijera el
  * prompt. Ahora cualquiera de las dos se comporta igual de bien.
  */
+/**
+ * Investigación CORTA y sincrónica, pensada para entrar dentro del turno.
+ *
+ * Por qué existe (2026-08-12): el agente externo tarda ~139s cuando se le
+ * pide una investigación completa -- justo por encima del corte del proxy
+ * (~150s), lo que obligó a construir todo el andamiaje de segundo plano...
+ * que después resultó ser la fuente de casi todos los problemas (trabajos
+ * que no dejaban rastro, el modelo prometiendo sin ejecutar). La salida
+ * simple: pedirle MENOS. Con un tope de 3 búsquedas y respuesta breve entra
+ * en 60-90s, y el resultado real llega en la MISMA respuesta -- sin trabajos
+ * en segundo plano, sin estado que se pueda perder, sin promesas que
+ * cumplir después.
+ */
+export async function investigacionRapida(
+  ctx: OperatorContext,
+  instruccion: string,
+  presupuestoMs: number,
+): Promise<{ ok: true; texto: string } | { ok: false; motivo: string }> {
+  const res = await askExternalResearchAgent(
+    `Investigá esto en internet y respondé BREVE: ${instruccion}\n\n` +
+      `REGLAS ESTRICTAS (respetalas o la respuesta no sirve):\n` +
+      `- Máximo 3 búsquedas web. No encadenes más.\n` +
+      `- Máximo 250 palabras en total.\n` +
+      `- Solo hallazgos concretos y accionables, con la URL real de cada uno.\n` +
+      `- Si no encontrás algo, decilo. No rellenes con conocimiento general ni inventes datos.`,
+    Date.now() + presupuestoMs,
+    presupuestoMs,
+  );
+  if (!res.ok) return { ok: false, motivo: res.reason };
+  await recordResearchEvidence(ctx, instruccion);
+  return { ok: true, texto: res.text };
+}
+
 export async function iniciarInvestigacion(ctx: OperatorContext, instruccion: string): Promise<ToolResult> {
   limpiarInvestigacionesVencidas();
   const clave = claveInvestigacion(ctx.tenantId, ctx.sessionId!);
