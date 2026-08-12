@@ -11,6 +11,7 @@ import dashboardRouter from "./dashboard";
 import settingsRouter from "./settings";
 import brandingRouter from "./branding";
 import codeAgentRouter from "./code-agent";
+import operatorOpencodeRouter from "./operator-opencode";
 import aiCatalogRouter from "./ai-catalog";
 import webhooksRouter from "./webhooks";
 import syncRouter from "./sync";
@@ -48,6 +49,9 @@ router.use("/dashboard", dashboardRouter);
 router.use("/settings", settingsRouter);
 router.use("/branding", brandingRouter);
 router.use("/code-agent", codeAgentRouter);
+// Fase A del plan "Reemplazar el cerebro de Atlas por OpenCode" -- ruta
+// nueva y separada, no toca /operator. Ver operator-opencode.ts.
+router.use("/code-agent", operatorOpencodeRouter);
 router.use("/ai", aiCatalogRouter);
 router.use("/webhooks", webhooksRouter);
 router.use("/sync", syncRouter);

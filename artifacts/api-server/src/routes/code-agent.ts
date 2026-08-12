@@ -40,7 +40,7 @@ import { describePlannedAction } from "../lib/opencode-mcp-tools";
  * emoji, exactamente el formato que el propio prompt pide separar con
  * líneas en blanco.
  */
-function paraMarkdown(texto: string): string {
+export function paraMarkdown(texto: string): string {
   if (!texto) return texto;
   return texto.replace(/\r\n/g, "\n").replace(/\n+/g, "\n\n").trim();
 }
