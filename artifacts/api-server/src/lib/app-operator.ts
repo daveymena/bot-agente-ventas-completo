@@ -343,6 +343,65 @@ export interface ToolResult {
   data?: any;
 }
 
+/**
+ * Camino ÚNICO para arrancar una investigación, compartido por `research_start`
+ * y por `deep_research` (que quedó como alias). Tener una sola implementación
+ * es deliberado: mientras existían dos caminos, uno bloqueaba el turno y el
+ * otro no, y el modelo elegía el equivocado sin importar lo que dijera el
+ * prompt. Ahora cualquiera de las dos se comporta igual de bien.
+ */
+async function iniciarInvestigacion(ctx: OperatorContext, instruccion: string): Promise<ToolResult> {
+  limpiarInvestigacionesVencidas();
+  const clave = claveInvestigacion(ctx.tenantId, ctx.sessionId!);
+  const yaCorriendo = investigacionesEnCurso.get(clave);
+  if (yaCorriendo) {
+    return {
+      ok: true,
+      summary: `Ya hay una investigación en curso en esta conversación ("${yaCorriendo.instruccion.slice(0, 80)}"). No arranques otra: esperá y usá research_check.`,
+    };
+  }
+
+  // Observado en vivo (2026-08-12): cuando el admin vuelve a preguntar
+  // "¿ya está?", el modelo tiende a arrancar una investigación NUEVA en lugar
+  // de leer la que ya terminó -- dejando al admin esperando para siempre con
+  // el resultado anterior listo y sin usar. En vez de confiar en que el
+  // prompt lo evite, la herramienta misma devuelve el resultado reciente si
+  // el pedido es sobre lo mismo.
+  const recientes = await db
+    .select()
+    .from(architectMemory)
+    .where(
+      and(
+        eq(architectMemory.tenantId, ctx.tenantId),
+        eq(architectMemory.sessionId, ctx.sessionId!),
+        eq(architectMemory.memoryType, "research_result"),
+        gte(architectMemory.createdAt, new Date(Date.now() - 20 * 60 * 1000).toISOString()),
+      ),
+    )
+    .orderBy(desc(architectMemory.createdAt))
+    .limit(1);
+  const previa = recientes[0];
+  if (previa && (previa.metadata as any)?.estado !== "fallo" && mismoTema(previa.title, instruccion)) {
+    return {
+      ok: true,
+      summary: `Ya hay una investigación reciente sobre esto ("${previa.title}") -- no hace falta arrancar otra. Usá ESTE resultado para responderle al admin ahora mismo.`,
+      data: { instruccion: previa.title, resultado: previa.content },
+    };
+  }
+  if (investigacionesEnCurso.size >= MAX_INVESTIGACIONES_CONCURRENTES) {
+    return {
+      ok: false,
+      summary: "Hay demasiadas investigaciones corriendo ahora mismo. Decile al admin que reintente en un minuto -- no es un error de él.",
+    };
+  }
+
+  lanzarInvestigacionEnSegundoPlano(ctx, instruccion);
+  return {
+    ok: true,
+    summary: `🔎 Investigación arrancada en segundo plano: "${instruccion.slice(0, 120)}". Tarda ~1-3 min. AHORA: contestale al admin que estás investigando y que te vuelva a escribir en un minuto -- NO te quedes esperando ni llames research_check en este mismo turno, todavía no va a estar.`,
+  };
+}
+
 interface ToolDef {
   name: string;
   description: string;
@@ -1012,28 +1071,20 @@ export const TOOLS: ToolDef[] = [
   {
     name: "deep_research",
     description:
-      "Delega una investigación COMPLETA (varias búsquedas + análisis, encadenadas) a un agente externo dedicado, en vez de encadenar varios web_search vos mismo en este turno. Úsala para pedidos de investigación reales antes de armar una campaña/anuncio (tendencias del nicho, qué hace la competencia, qué ángulos funcionan) -- es más lenta que web_search (puede tardar 1-2 minutos) pero hace el trabajo pesado en un servidor aparte y devuelve un resumen ya elaborado con fuentes citadas, no resultados crudos para que vos los proceses.",
+      "Investigación real y completa sobre un tema (tendencias del nicho, competencia, qué ángulos funcionan). Arranca en segundo plano y te devuelve el control AL INSTANTE: NO esperes el resultado en este turno. Después de llamarla, decile al admin que estás investigando y que te escriba en un minuto; cuando vuelva, leé el resultado con research_check.",
     args: '{ "instruccion": string (req) — qué investigar, en lenguaje natural, ej: "tendencias de anuncios de cursos de piano online, con fuentes" }',
+    // Alias de research_start, a propósito. Verificado en vivo (2026-08-12):
+    // por más que el prompt diga "no uses deep_research", el modelo la sigue
+    // eligiendo y quemaba el turno entero (135s) esperando un resultado que
+    // no entra en un request -- el admin terminaba sin nada. En vez de
+    // pelearla desde el prompt, la herramienta misma se comporta bien: ya no
+    // bloquea, arranca el trabajo en segundo plano igual que research_start.
+    // Así ningún modelo puede usarla mal, elija la que elija.
     run: async (args, ctx) => {
       const instruccion = String(args.instruccion || "").trim();
       if (!instruccion) return { ok: false, summary: "Falta 'instruccion' (qué investigar)" };
-      try {
-        const result = await askExternalResearchAgent(
-          `Investigá en internet de verdad (usá tu herramienta de búsqueda web, no respondas de memoria): ${instruccion}. Sé concreto, citá las fuentes/URLs reales que encontraste, no inventes datos.`,
-          ctx.turnDeadline,
-        );
-        if (!result.ok) {
-          return { ok: false, summary: result.reason };
-        }
-        await recordResearchEvidence(ctx, instruccion);
-        return {
-          ok: true,
-          summary: `🔎 Investigación completa (vía agente externo ${result.agent})`,
-          data: { instruccion, agente: result.agent, resultado: result.text },
-        };
-      } catch (e: any) {
-        return { ok: false, summary: `No se pudo completar la investigación: ${e?.message}` };
-      }
+      if (!ctx.sessionId) return { ok: false, summary: "No hay sesión para asociar la investigación" };
+      return iniciarInvestigacion(ctx, instruccion);
     },
   },
 
@@ -1046,58 +1097,7 @@ export const TOOLS: ToolDef[] = [
       const instruccion = String(args.instruccion || "").trim();
       if (!instruccion) return { ok: false, summary: "Falta 'instruccion' (qué investigar)" };
       if (!ctx.sessionId) return { ok: false, summary: "No hay sesión para asociar la investigación" };
-
-      limpiarInvestigacionesVencidas();
-      const clave = claveInvestigacion(ctx.tenantId, ctx.sessionId);
-      const yaCorriendo = investigacionesEnCurso.get(clave);
-      if (yaCorriendo) {
-        return {
-          ok: true,
-          summary: `Ya hay una investigación en curso en esta conversación ("${yaCorriendo.instruccion.slice(0, 80)}"). No arranques otra: esperá y usá research_check.`,
-        };
-      }
-
-      // Observado en vivo (2026-08-12): cuando el admin vuelve a preguntar
-      // "¿ya está?", el modelo tiende a llamar research_start OTRA VEZ en
-      // lugar de research_check -- arrancando una investigación nueva y
-      // dejando al admin esperando para siempre, con el resultado anterior
-      // ya listo y sin usar. En vez de confiar en que el prompt lo evite, la
-      // herramienta misma devuelve el resultado reciente si el pedido es
-      // sobre lo mismo. Así, agarre la herramienta que agarre, el modelo
-      // termina entregando lo investigado.
-      const recientes = await db
-        .select()
-        .from(architectMemory)
-        .where(
-          and(
-            eq(architectMemory.tenantId, ctx.tenantId),
-            eq(architectMemory.sessionId, ctx.sessionId),
-            eq(architectMemory.memoryType, "research_result"),
-            gte(architectMemory.createdAt, new Date(Date.now() - 20 * 60 * 1000).toISOString()),
-          ),
-        )
-        .orderBy(desc(architectMemory.createdAt))
-        .limit(1);
-      const previa = recientes[0];
-      if (previa && (previa.metadata as any)?.estado !== "fallo" && mismoTema(previa.title, instruccion)) {
-        return {
-          ok: true,
-          summary: `Ya hay una investigación reciente sobre esto ("${previa.title}") -- no hace falta arrancar otra. Usá ESTE resultado para responderle al admin ahora mismo.`,
-          data: { instruccion: previa.title, resultado: previa.content },
-        };
-      }
-      if (investigacionesEnCurso.size >= MAX_INVESTIGACIONES_CONCURRENTES) {
-        return {
-          ok: false,
-          summary: "Hay demasiadas investigaciones corriendo ahora mismo. Decile al admin que reintente en un minuto -- no es un error de él.",
-        };
-      }
-
-      lanzarInvestigacionEnSegundoPlano(ctx, instruccion);
-      return {
-        ok: true,
-        summary: `🔎 Investigación arrancada en segundo plano: "${instruccion.slice(0, 120)}". Tarda ~1-3 min. AHORA: contestale al admin que estás investigando y que te vuelva a escribir en un minuto -- NO te quedes esperando ni llames research_check en este mismo turno, todavía no va a estar.`,
-      };
+      return iniciarInvestigacion(ctx, instruccion);
     },
   },
 
