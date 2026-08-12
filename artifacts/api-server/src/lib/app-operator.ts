@@ -385,21 +385,28 @@ export interface ToolResult {
 export async function investigacionRapida(
   ctx: OperatorContext,
   instruccion: string,
-  presupuestoMs: number,
+  _presupuestoMs: number,
 ): Promise<{ ok: true; texto: string } | { ok: false; motivo: string }> {
-  const res = await askExternalResearchAgent(
-    `Investigá esto en internet y respondé BREVE: ${instruccion}\n\n` +
-      `REGLAS ESTRICTAS (respetalas o la respuesta no sirve):\n` +
-      `- Máximo 3 búsquedas web. No encadenes más.\n` +
-      `- Máximo 250 palabras en total.\n` +
-      `- Solo hallazgos concretos y accionables, con la URL real de cada uno.\n` +
-      `- Si no encontrás algo, decilo. No rellenes con conocimiento general ni inventes datos.`,
-    Date.now() + presupuestoMs,
-    presupuestoMs,
-  );
-  if (!res.ok) return { ok: false, motivo: res.reason };
-  await recordResearchEvidence(ctx, instruccion);
-  return { ok: true, texto: res.text };
+  // Se usa el buscador PROPIO (`runWebSearch`, 5 motores en paralelo, ~15s),
+  // no los agentes externos. Medido en vivo (2026-08-12): un agente externo
+  // tarda ~139s y NO responde ni en 120s aunque se le pida explícitamente
+  // "máximo 3 búsquedas, 250 palabras" -- ignora el límite. Con el corte del
+  // proxy en ~150s, nunca va a entrar en un turno. El buscador propio sí, y
+  // devuelve exactamente lo que hace falta: hallazgos reales CON su URL,
+  // que es lo que permite fundamentar sin inventar.
+  try {
+    const { engine, results } = await runWebSearch(instruccion, 8);
+    if (!results.length) {
+      return { ok: false, motivo: `ningún buscador devolvió resultados para "${instruccion.slice(0, 80)}"` };
+    }
+    const texto = results
+      .map((r, i) => `${i + 1}. ${r.title}\n   Fuente: ${r.url}\n   ${r.snippet}`)
+      .join("\n\n");
+    await recordResearchEvidence(ctx, instruccion);
+    return { ok: true, texto: `Resultados reales (vía ${engine}):\n\n${texto}` };
+  } catch (e: any) {
+    return { ok: false, motivo: e?.message || "error desconocido al buscar" };
+  }
 }
 
 export async function iniciarInvestigacion(ctx: OperatorContext, instruccion: string): Promise<ToolResult> {
