@@ -72,22 +72,46 @@ function conCandado<T>(fn: () => Promise<T>): Promise<T> {
 
 // Respaldo fijo confirmado funcionando en vivo (2026-08-12, contenedor
 // opencode-clean) -- gratis y rápido (~1-2s por turno simple).
-//
-// Se intentó preferir un proveedor pago ya sincronizado (groq/mistral/
-// openrouter) cuando estuviera disponible, pero `/config/providers` lista
-// TODO el catálogo por defecto de OpenCode (183 proveedores) sin importar si
-// hay una key real cargada -- así que "está en la lista" nunca significó
-// "tiene una key que funciona". Con eso, `pickOpencodeModel` elegía groq (o
-// caía al openrouter de respaldo) sin key válida y cada turno moría con un
-// 500 genérico de OpenCode. Confirmado en vivo: groq y openrouter fallan con
-// key real sincronizada igual; opencode/big-pickle (Zen, gratis) responde
-// bien de forma consistente. Hasta no tener una forma confiable de detectar
-// "esta key realmente sirve" (ej. `/provider`'s `connected`, que tampoco se
-// actualizó al sincronizar keys nuevas en las pruebas), se usa directo el
-// modelo gratis -- más lento que un proveedor pago real, pero sin caídas.
 const MODELO_RESPALDO = { providerID: "opencode", modelID: "big-pickle" };
 
-async function pickOpencodeModel(_host: string, _authHeader: string): Promise<{ providerID: string; modelID: string }> {
+// Diagnóstico completo (2026-08-12) de por qué el sync de keys no alcanzaba
+// para usar un proveedor pago:
+// 1. `PUT /auth/{id}` sí guarda la key en el auth.json del contenedor (server
+//    lo confirma con `true`), pero el endpoint `/provider`'s `connected` --
+//    lo único que refleja qué proveedores están realmente utilizables -- NO
+//    se recalcula a partir de auth.json en caliente. Solo lista un proveedor
+//    como "connected" si su variable de entorno estándar (`GROQ_API_KEY`,
+//    `MISTRAL_API_KEY`, etc.) estaba seteada en el PROCESO al arrancar.
+//    Confirmado agregando `MISTRAL_API_KEY` como env var real del servicio
+//    `opencode-clean` en EasyPanel + reinicio: "mistral" pasó a aparecer en
+//    `connected` y una llamada real funcionó (200, respuesta correcta, costo
+//    real cobrado). Es decir: el sync dinámico de `opencode-provider-sync.ts`
+//    (`PUT /auth/*`) deja la key lista para cuando el proceso reinicie con
+//    esa env var seteada, pero no la activa en caliente por sí solo.
+// 2. `groq` con `llama-3.3-70b-versatile`, aun ya "connected" del mismo modo,
+//    falla con `ContextOverflowError` ("Session too large to compact...")
+//    incluso en una sesión nueva vacía sin herramientas -- probablemente un
+//    bug de esta versión de opencode-ai con ese modelo puntual, no algo
+//    resoluble desde acá. Se lo excluye de la preferencia a propósito.
+//
+// Con `MISTRAL_API_KEY` ya seteada como env var real en `opencode-clean`,
+// preferirlo cuando `/provider` lo reporte como conectado; si no, o si la
+// consulta falla, usar el respaldo gratis de Zen.
+const PROVEEDOR_PREFERIDO = { providerID: "mistral", modelID: "mistral-large-latest" };
+
+async function pickOpencodeModel(host: string, authHeader: string): Promise<{ providerID: string; modelID: string }> {
+  try {
+    const res = await fetch(`${host}/provider`, {
+      headers: { Authorization: authHeader },
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!res.ok) return MODELO_RESPALDO;
+    const data = (await res.json()) as any;
+    const conectados: string[] = data?.connected || [];
+    if (conectados.includes(PROVEEDOR_PREFERIDO.providerID)) return PROVEEDOR_PREFERIDO;
+  } catch {
+    // Ante cualquier falla al consultar, seguir con el respaldo conocido.
+  }
   return MODELO_RESPALDO;
 }
 
