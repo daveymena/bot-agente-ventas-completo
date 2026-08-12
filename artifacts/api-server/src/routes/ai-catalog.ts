@@ -15,6 +15,7 @@ import { eq } from "drizzle-orm";
 import { MODELOS_LIBRES, type ModeloLibre } from "@workspace/integrations-openai-ai-server";
 import { logger } from "../lib/logger";
 import { cifrar, descifrar, cargarClavesEnEntorno, leerBusinessConfig } from "../lib/ai-keys";
+import { sincronizarProveedorConOpencode, sincronizarTodasLasClavesConOpencode } from "../lib/opencode-provider-sync";
 import type { TenantRequest } from "../lib/tenantManager";
 
 const router = Router();
@@ -185,7 +186,28 @@ router.put("/provider", async (req: TenantRequest, res, next) => {
     await cargarClavesEnEntorno();
     logger.info({ proveedor, conClave: !!actual.apiKey, modelo: actual.model }, "[AICatalog] proveedor guardado");
 
+    // Sincroniza la clave (recién guardada, en texto plano en esta misma
+    // request) hacia OpenCode -- best-effort, nunca bloquea la respuesta.
+    if (typeof apiKey === "string" && apiKey.trim()) {
+      sincronizarProveedorConOpencode(proveedor, apiKey.trim()).catch(() => {});
+    }
+
     return res.json({ ok: true, proveedor, tieneClave: !!actual.apiKey, modelo: actual.model || null });
+  } catch (e) {
+    return next(e);
+  }
+});
+
+/**
+ * POST /api/ai/sync-opencode — reenvía TODAS las claves ya guardadas hacia
+ * OpenCode (backfill para las que se guardaron antes de que existiera esta
+ * sincronización, o para realinear si operato perdió su config). Nunca
+ * devuelve ni loguea las claves en sí, solo cuántas se sincronizaron.
+ */
+router.post("/sync-opencode", async (_req: TenantRequest, res, next) => {
+  try {
+    const resultado = await sincronizarTodasLasClavesConOpencode();
+    return res.json({ ok: true, ...resultado });
   } catch (e) {
     return next(e);
   }

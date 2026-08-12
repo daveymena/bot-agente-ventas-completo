@@ -70,12 +70,39 @@ function conCandado<T>(fn: () => Promise<T>): Promise<T> {
   return run;
 }
 
-// Modelo fijo confirmado funcionando en vivo (2026-08-11) contra operato.
-// TODO(tarea "Sincronizar API keys guardadas hacia operato"): preferir acá
-// el proveedor que el admin guardó en Configuración → Modelos de pago,
-// sincronizado a operato vía PUT /auth/{providerID}, con este como fallback.
-function pickOpencodeModel(): { providerID: string; modelID: string } {
-  return { providerID: "openrouter", modelID: "nvidia/nemotron-3-nano-30b-a3b:free" };
+// Respaldo fijo confirmado funcionando en vivo (2026-08-11) contra operato --
+// gratis pero lento (turnos de 2+ herramientas pueden acercarse al límite de
+// tiempo). Se usa solo si no hay un proveedor mejor ya sincronizado.
+const MODELO_RESPALDO = { providerID: "openrouter", modelID: "nvidia/nemotron-3-nano-30b-a3b:free" };
+
+// Proveedores preferidos, en orden, cuando el admin ya los sincronizó (ver
+// lib/opencode-provider-sync.ts) -- groq primero porque es el más rápido
+// confirmado en este proyecto (usado también por oc-groq para deep_research).
+const PREFERENCIA_PROVEEDORES: { providerID: string; modelID: string }[] = [
+  { providerID: "groq", modelID: "llama-3.3-70b-versatile" },
+  { providerID: "mistral", modelID: "mistral-large-latest" },
+];
+
+/** Elige el mejor modelo disponible en operato: primero un proveedor real
+ * que el admin haya sincronizado (más rápido/confiable que el gratis fijo),
+ * si no, el respaldo gratis conocido. Nunca lanza -- ante cualquier duda usa
+ * el respaldo. */
+async function pickOpencodeModel(host: string, authHeader: string): Promise<{ providerID: string; modelID: string }> {
+  try {
+    const res = await fetch(`${host}/config/providers`, {
+      headers: { Authorization: authHeader },
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!res.ok) return MODELO_RESPALDO;
+    const data = (await res.json()) as any;
+    const disponibles = new Set((data?.providers || []).map((p: any) => p.id));
+    for (const cand of PREFERENCIA_PROVEEDORES) {
+      if (disponibles.has(cand.providerID)) return cand;
+    }
+  } catch {
+    // Ante cualquier falla al consultar, seguir con el respaldo conocido.
+  }
+  return MODELO_RESPALDO;
 }
 
 async function registerMcpBridge(host: string, authHeader: string, mcpUrl: string): Promise<void> {
@@ -223,9 +250,10 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
       const { text: finalReply, error: opencodeError } = await conCandado(async () => {
         await registerMcpBridge(cfg.host, cfg.authHeader, mcpUrl);
         const opencodeSessionId = await createOpencodeSession(cfg.host, cfg.authHeader);
+        const model = await pickOpencodeModel(cfg.host, cfg.authHeader);
         return sendOpencodeMessage(cfg.host, cfg.authHeader, opencodeSessionId, {
           system,
-          model: pickOpencodeModel(),
+          model,
           tools,
           text,
           // 145s: el modelo gratis actual (openrouter/nemotron-3-nano-30b)
