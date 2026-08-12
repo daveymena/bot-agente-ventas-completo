@@ -389,9 +389,16 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
         }
       }
 
+      // Se guardan afuera para poder mandarle un segundo pedido dirigido al
+      // modelo si hizo falta (ver "insistencia" más abajo), sin volver a
+      // crear sesión ni perder el contexto de lo que ya escribió.
+      let sesionOpencode = "";
+      let modeloUsado: { providerID: string; modelID: string } | null = null;
+
       const { text: finalReply, error: opencodeError } = await conCandado(async () => {
         await registerMcpBridge(cfg.host, cfg.authHeader, mcpUrl);
         const opencodeSessionId = await createOpencodeSession(cfg.host, cfg.authHeader);
+        sesionOpencode = opencodeSessionId;
         const cadena = await pickOpencodeModelChain(cfg.host, cfg.authHeader);
 
         // Bug real encontrado probando en vivo (2026-08-12): con 145s FIJOS
@@ -441,6 +448,7 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
             esUltimo ? restante : Math.max(restante - RESERVA_RESPALDO_MS, PISO_UTIL_MS),
           );
           try {
+            modeloUsado = model;
             ultimo = await sendOpencodeMessage(cfg.host, cfg.authHeader, opencodeSessionId, {
               system,
               model,
@@ -515,7 +523,54 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
           `No lo tomes como dato comprobado. Pedime que lo verifique y busco de verdad antes de que decidas nada con esto.`;
       }
 
-      const plannedActions = await drainDraftPlan(tenantId, turnId);
+      let plannedActions = await drainDraftPlan(tenantId, turnId);
+
+      // ── Insistencia dirigida cuando pidió una acción y no la ejecutó ─────
+      // Verificado en vivo (2026-08-12): ante "creá el anuncio", el modelo
+      // redacta un copy excelente, pregunta "¿te gusta?" y NO llama
+      // fb_ad_draft. El admin se queda creyendo que tiene un anuncio guardado
+      // cuando no existe nada. Las "5 reglas" del prompt arreglaron inventar
+      // ofertas y dejar huecos, pero NO esto -- que es exactamente lo que ya
+      // sabíamos: lo que hay que EJECUTAR no se garantiza por prompt.
+      //
+      // En vez de adivinar el copy desde el texto (frágil) o de rendirse, se
+      // le manda un segundo pedido corto EN LA MISMA SESIÓN: ya tiene el
+      // copy que escribió, solo le falta guardarlo. Si igual no lo hace, se
+      // le avisa al admin con honestidad en vez de dejarlo creyendo que sí.
+      const PEDIDO_DE_ACCION = /\b(cre[aá]|prepar[aá]|arm[aá]|gener[aá]|hac[eé]|publi[cq])/i;
+      const MENCIONA_ANUNCIO = /\b(anuncio|campa|ad\b|publicaci[oó]n|post)\b/i;
+      const pidioCrearAlgo = PEDIDO_DE_ACCION.test(String(prompt)) && MENCIONA_ANUNCIO.test(String(prompt));
+      const quedaTiempo = turnDeadline - Date.now() > 25_000;
+
+      if (pidioCrearAlgo && plannedActions.length === 0 && sesionOpencode && modeloUsado && quedaTiempo && !opencodeError) {
+        logger.info({ tenantId, sessionId }, "[AtlasOpenCode] Pidió crear algo y no llamó ninguna herramienta -- se insiste una vez");
+        progreso("Guardando lo que preparé...");
+        try {
+          await sendOpencodeMessage(cfg.host, cfg.authHeader, sesionOpencode, {
+            system,
+            model: modeloUsado,
+            tools,
+            text:
+              "[SISTEMA] Escribiste el contenido pero NO lo guardaste: no llamaste ninguna herramienta, " +
+              "así que del lado del admin no existe nada. Llamá AHORA la herramienta que corresponde " +
+              "(fb_ad_draft para un anuncio, propose_action para publicar) usando EXACTAMENTE el texto que " +
+              "acabás de redactar, completo y sin huecos. No vuelvas a escribir el copy en el chat ni pidas " +
+              "confirmación: solo hacé la llamada.",
+            timeoutMs: Math.max(turnDeadline - Date.now() - 5_000, 15_000),
+          });
+          plannedActions = await drainDraftPlan(tenantId, turnId);
+        } catch (e: any) {
+          logger.warn({ tenantId, err: e?.message }, "[AtlasOpenCode] La insistencia falló");
+        }
+
+        if (plannedActions.length === 0) {
+          // Que el admin NO se quede pensando que tiene algo guardado.
+          finalReplyVerificado =
+            `${finalReplyVerificado}\n\n⚠️ Aviso automático: esto quedó solo como texto en el chat, ` +
+            `NO se guardó como borrador en el sistema. Pedímelo de nuevo (por ejemplo "guardá ese anuncio") ` +
+            `y lo registro de verdad.`;
+        }
+      }
 
       if (plannedActions.length > 0) {
         const planText = plannedActions.map((a, i) => `${i + 1}. ${describePlannedAction(a)}`).join("\n");
