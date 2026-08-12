@@ -280,8 +280,21 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
     const heartbeat = setInterval(() => progreso("Sigo trabajando en tu pedido..."), 15_000);
 
     try {
+      // Un ÚNICO reloj para todo el turno, arrancado acá y no más adelante:
+      // antes el presupuesto de la rotación se medía recién al llegar al
+      // bucle de candidatos, así que la preparación previa (registrar el
+      // puente MCP hasta 15s + crear la sesión hasta 20s + consultar
+      // proveedores hasta 10s) quedaba FUERA de la cuenta y el turno real
+      // podía pasarse del corte del proxy (~150-160s) aunque el presupuesto
+      // interno dijera 130s. Reproducido en vivo: 502 a los 154s.
+      const TURNO_TOTAL_MS = 135_000;
+      const turnDeadline = Date.now() + TURNO_TOTAL_MS;
+
       const turnId = randomUUID();
-      const token = mintTurnToken({ tenantId, sessionId, turnId });
+      // La TTL del token = lo que dura el turno. Además de acotar el token,
+      // su `exp` es lo que el puente MCP usa como turnDeadline para que una
+      // herramienta lenta (deep_research) sepa cuánto tiempo le queda real.
+      const token = mintTurnToken({ tenantId, sessionId, turnId }, TURNO_TOTAL_MS);
       const mcpUrl = `${getAppUrl()}/api/internal/mcp/atlas?token=${token}`;
       const toolRegistry = buildMcpToolRegistry();
       const tools: Record<string, boolean> = {};
@@ -316,18 +329,28 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
         // (siempre el respaldo gratis de Zen, confirmado ~1-5s en vivo) se
         // queda con lo que quede, para que llegue a intentarse igual aunque
         // los anteriores hayan consumido casi todo el presupuesto.
-        const PRESUPUESTO_TOTAL_MS = 130_000;
-        const inicioRotacion = Date.now();
+        // Se reserva una cola fija para el respaldo gratis de Zen (~1-5s
+        // confirmado en vivo, pero se le deja margen): así, por lento que
+        // haya sido un candidato anterior, SIEMPRE queda tiempo real para
+        // que el último de la cadena conteste algo en vez de morir en el
+        // corte del proxy sin respuesta.
+        const RESERVA_RESPALDO_MS = 25_000;
         let ultimo: { text: string; error?: string } = { text: "", error: "sin candidatos" };
         for (let i = 0; i < cadena.length; i++) {
           const model = cadena[i];
           const esUltimo = i === cadena.length - 1;
-          const restante = PRESUPUESTO_TOTAL_MS - (Date.now() - inicioRotacion);
+          const restante = turnDeadline - Date.now();
           if (restante < 5_000 && !esUltimo) {
             logger.warn({ tenantId, model }, "[AtlasOpenCode] Presupuesto de tiempo agotado, salto directo al respaldo gratis");
             continue; // Se salta a un candidato intermedio sin tiempo real de probar -- deja lugar al último (Zen).
           }
-          const timeoutCandidato = esUltimo ? Math.max(restante, 20_000) : Math.min(restante, 45_000);
+          // Un candidato NO-último puede quedarse con casi todo el turno (menos
+          // la reserva): un pedido con investigación real necesita ~60-90s de
+          // corrido, y trocearlo en ventanas de 45s hacía que el primer
+          // candidato -- el preferido -- fallara SIEMPRE en esos casos.
+          const timeoutCandidato = esUltimo
+            ? Math.max(restante, 20_000)
+            : Math.max(restante - RESERVA_RESPALDO_MS, 15_000);
           try {
             ultimo = await sendOpencodeMessage(cfg.host, cfg.authHeader, opencodeSessionId, {
               system,

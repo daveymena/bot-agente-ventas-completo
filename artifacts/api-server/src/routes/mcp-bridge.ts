@@ -92,10 +92,20 @@ router.post("/atlas", async (req: Request, res: Response) => {
         return res.json(rpcResult(id, { content: [{ type: "text", text: `Herramienta desconocida: ${toolName}` }], isError: true }));
       }
 
+      // `turnDeadline` es lo que hace que una herramienta lenta (deep_research
+      // sobre todo, ~60-70s por intento real) sepa cuánto tiempo le queda de
+      // verdad en ESTE turno. Sin esto se armaba su propio presupuesto fresco
+      // de 100s, ajeno al turno que la llamó: en /operator-opencode eso hacía
+      // que la herramienta siguiera corriendo del lado del servidor mucho
+      // después de que la espera del turno la hubiera abandonado, quemando el
+      // turno entero y terminando en un 502 del proxy sin ninguna respuesta
+      // (reproducido en vivo, 2026-08-12). El `exp` del token de turno ES el
+      // límite real del turno -- se acuña con esa TTL justamente para esto.
       const ctx: OperatorContext & { turnId: string } = {
         tenantId: auth.tenantId,
         sessionId: auth.sessionId,
         turnId: auth.turnId,
+        turnDeadline: auth.exp,
       };
 
       logger.info({ tenantId: auth.tenantId, turnId: auth.turnId, tool: toolName }, "[AtlasMCP] tools/call");
