@@ -354,6 +354,10 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
       // Solución: si el pedido es de investigación, el servidor la arranca
       // ÉL MISMO antes de hablarle al modelo, y se lo informa. Así la
       // promesa que Atlas le hace al admin siempre es cierta.
+      // ¿Se consiguió información REAL de internet en este turno? Es la
+      // única fuente de verdad para desmentir al modelo más abajo si dice
+      // que investigó cuando no lo hizo.
+      let huboInvestigacionReal = false;
       const PEDIDO_DE_INVESTIGACION = /\b(investig|averigu|indag|research|analiz[aá] el mercado|qu[eé] funciona|tendencia|competencia|benchmark)/i;
       if (PEDIDO_DE_INVESTIGACION.test(String(prompt))) {
         progreso("Investigando en internet...");
@@ -366,6 +370,7 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
         try {
           const r = await investigacionRapida(ctx, String(prompt), Math.min(PRESUPUESTO_INVESTIGACION_MS, Math.max(turnDeadline - Date.now() - 45_000, 20_000)));
           if (r.ok) {
+            huboInvestigacionReal = true;
             text += `\n\n[SISTEMA] Investigación REAL ya hecha para este pedido (hallazgos con sus fuentes). Respondé al admin USANDO ESTO, no prometas investigar después ni digas que vas a averiguar -- ya está hecho:\n${r.texto.slice(0, 6000)}`;
           } else {
             // Que el modelo sepa que NO hay datos, para que lo diga en vez de
@@ -480,12 +485,36 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
         return finish({ error: "No pude terminar de responder con el motor nuevo. ¿Podés intentarlo de nuevo?" }, 502);
       }
 
+      // ── Desmentido automático de investigación inventada ────────────────
+      // Verificado en vivo (2026-08-12) y es el comportamiento más peligroso
+      // que apareció en todo el día: se le pidió al modelo "USA
+      // OBLIGATORIAMENTE tu herramienta websearch" y respondió "Usé la
+      // herramienta websearch (búsqueda web real, 8 resultados)" con
+      // hallazgos detallados... sin UNA SOLA llamada a herramienta en la
+      // respuesta (solo `reasoning` y `text`, costo 0, 13s). Los sitios que
+      // nombró existen de verdad -- los recuerda del entrenamiento -- pero
+      // los datos que les atribuye (precios, "4.8/5 con +1200 reseñas",
+      // "edición 2026") no los verificó nadie. No es que falle: falla
+      // AFIRMANDO que funcionó, que es justo lo que este producto no puede
+      // permitirse (el admin tomaría decisiones de plata con eso).
+      // Como el prompt no alcanza, el sistema lo desmiente: solo hay
+      // investigación real si LA HIZO EL SERVIDOR en este turno.
+      let finalReplyVerificado = finalReply;
+      const AFIRMA_HABER_INVESTIGADO = /\b(busqu[ée]|investigu[ée]|seg[uú]n (?:mi|la) (?:b[uú]squeda|investigaci[oó]n)|us[ée] (?:la herramienta )?(?:websearch|web_search)|resultados reales|encontr[ée] en internet|fuentes? (?:reales?|encontradas?))/i;
+      if (!huboInvestigacionReal && AFIRMA_HABER_INVESTIGADO.test(finalReplyVerificado || "")) {
+        logger.warn({ tenantId, sessionId }, "[AtlasOpenCode] El modelo afirmó haber investigado sin que hubiera búsqueda real -- se corrige la respuesta");
+        finalReplyVerificado =
+          `${finalReplyVerificado}\n\n⚠️ Aviso automático: en este mensaje NO se hizo ninguna búsqueda web real, ` +
+          `así que lo de arriba sale del conocimiento general del modelo y no de fuentes verificadas hoy. ` +
+          `No lo tomes como dato comprobado. Pedime que lo verifique y busco de verdad antes de que decidas nada con esto.`;
+      }
+
       const plannedActions = await drainDraftPlan(tenantId, turnId);
 
       if (plannedActions.length > 0) {
         const planText = plannedActions.map((a, i) => `${i + 1}. ${describePlannedAction(a)}`).join("\n");
         const reply = paraMarkdown(toEmojiStyle(
-          `${finalReply ? finalReply + "\n\n" : ""}📋 Plan propuesto (requiere tu confirmación):\n${planText}\n\n❓ ¿Confirmas? Responde sí para ejecutar, o dime qué ajusto.`,
+          `${finalReplyVerificado ? finalReplyVerificado + "\n\n" : ""}📋 Plan propuesto (requiere tu confirmación):\n${planText}\n\n❓ ¿Confirmas? Responde sí para ejecutar, o dime qué ajusto.`,
         ));
         await setPendingPlan(tenantId, sessionId, plannedActions, reply);
         await saveArchitectTurn(tenantId, sessionId, "assistant", reply);
@@ -493,7 +522,7 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
         return finish({ reply, plan: plannedActions, status: "awaiting_confirmation" });
       }
 
-      const reply = paraMarkdown(toEmojiStyle(finalReply || "No tengo una respuesta para eso todavía."));
+      const reply = paraMarkdown(toEmojiStyle(finalReplyVerificado || "No tengo una respuesta para eso todavía."));
       await saveArchitectTurn(tenantId, sessionId, "assistant", reply);
       return finish({ reply, status: "info", needsContinuation: false });
     } finally {
