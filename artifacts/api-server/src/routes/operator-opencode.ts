@@ -303,28 +303,38 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
         const opencodeSessionId = await createOpencodeSession(cfg.host, cfg.authHeader);
         const cadena = await pickOpencodeModelChain(cfg.host, cfg.authHeader);
 
-        // Rotación real: se intenta cada candidato conectado en orden: si
-        // uno falla (rate limit, 500, timeout puntual) se prueba el
-        // siguiente EN LA MISMA SESIÓN antes de rendirse -- el respaldo
-        // gratis de Zen (último de la cadena) nunca falla por falta de
-        // crédito, así que esto siempre termina respondiendo algo salvo un
-        // problema real de infraestructura (proxy, red).
+        // Bug real encontrado probando en vivo (2026-08-12): con 145s FIJOS
+        // por candidato, una tarea con varias herramientas encadenadas (ej.
+        // armar un borrador de anuncio) se colgó sin respuesta -- si el
+        // primer candidato tarda cerca de 145s, para cuando se prueba el
+        // segundo la conexión con el cliente YA fue cortada por el proxy
+        // delante de la app (~150-160s, mismo límite documentado para
+        // /operator). El servidor seguía trabajando de fondo, pero nadie
+        // veía la respuesta. Fix: presupuesto de tiempo TOTAL para todo el
+        // turno (no por candidato) -- cada intento se queda con el tiempo
+        // que sobra, nunca con 145s fijos de nuevo. El último candidato
+        // (siempre el respaldo gratis de Zen, confirmado ~1-5s en vivo) se
+        // queda con lo que quede, para que llegue a intentarse igual aunque
+        // los anteriores hayan consumido casi todo el presupuesto.
+        const PRESUPUESTO_TOTAL_MS = 130_000;
+        const inicioRotacion = Date.now();
         let ultimo: { text: string; error?: string } = { text: "", error: "sin candidatos" };
-        for (const model of cadena) {
+        for (let i = 0; i < cadena.length; i++) {
+          const model = cadena[i];
+          const esUltimo = i === cadena.length - 1;
+          const restante = PRESUPUESTO_TOTAL_MS - (Date.now() - inicioRotacion);
+          if (restante < 5_000 && !esUltimo) {
+            logger.warn({ tenantId, model }, "[AtlasOpenCode] Presupuesto de tiempo agotado, salto directo al respaldo gratis");
+            continue; // Se salta a un candidato intermedio sin tiempo real de probar -- deja lugar al último (Zen).
+          }
+          const timeoutCandidato = esUltimo ? Math.max(restante, 20_000) : Math.min(restante, 45_000);
           try {
             ultimo = await sendOpencodeMessage(cfg.host, cfg.authHeader, opencodeSessionId, {
               system,
               model,
               tools,
               text,
-              // 145s: el modelo gratis actual (openrouter/nemotron-3-nano-30b)
-              // resultó más lento de lo esperado bajo carga -- 100s y 125s
-              // ambos se quedaron cortos en vivo para un turno con 2 llamadas
-              // de herramienta encadenadas. 145s es lo más cerca que conviene
-              // ir del corte del proxy delante de la app (~150-160s,
-              // confirmado empíricamente para /operator) sin garantizar
-              // perder la carrera.
-              timeoutMs: 145_000,
+              timeoutMs: timeoutCandidato,
             });
             if (!ultimo.error) break; // Respuesta real -- no seguir rotando.
             logger.warn({ tenantId, model, error: ultimo.error }, "[AtlasOpenCode] Candidato falló, rotando al siguiente");
