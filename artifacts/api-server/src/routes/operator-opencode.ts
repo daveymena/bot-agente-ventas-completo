@@ -300,6 +300,24 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
       const tools: Record<string, boolean> = {};
       for (const t of toolRegistry) tools[t.name] = true;
 
+      // Detecta respuestas donde el modelo ESCRIBIÓ la llamada a la
+      // herramienta como texto en vez de invocarla por el canal real de
+      // tool-calling. Visto en vivo dos veces, en formatos distintos:
+      // "<function=webfetch>{...}</function>" y "atlas_research_startegraphics{"}".
+      // En ambos casos ninguna herramienta se ejecutó y esa basura le llega
+      // al admin como si fuera la respuesta. Se apoya en los nombres reales
+      // del registro (no en una lista fija) y en que el prompt ya prohíbe
+      // mostrarle nombres técnicos de herramientas al admin: si aparece uno
+      // en la respuesta, algo salió mal sí o sí.
+      const nombresHerramientas = toolRegistry.map((t) => t.name).filter(Boolean);
+      const pareceHerramientaFiltrada = (txt: string): boolean => {
+        if (!txt) return false;
+        if (/<function\s*=|<\|python_tag\|>|\[TOOL_CALLS\]|<tool_call>/i.test(txt)) return true;
+        // OpenCode expone las herramientas MCP con prefijo (ej. atlas_list_products).
+        if (/\batlas_[a-z_]+/i.test(txt) && /[{}"]/.test(txt)) return true;
+        return nombresHerramientas.some((n) => new RegExp(`\\b${n}\\s*[{(]`, "i").test(txt));
+      };
+
       const lessons = await loadRecentLessons(tenantId);
       const lessonsBlock = lessons.length
         ? `\n\nLECCIONES DE ERRORES PASADOS EN ESTE NEGOCIO (evita repetirlos):\n${lessons.map((l) => `- ${l}`).join("\n")}`
@@ -379,8 +397,7 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
             // admin como si fuera la respuesta. Tratarlo como fallo (no como
             // exito) para que rote al siguiente candidato en vez de
             // aceptarlo.
-            const pareceToolCallSinEjecutar = /<function\s*=|<\|python_tag\|>|\[TOOL_CALLS\]/i.test(ultimo.text);
-            if (pareceToolCallSinEjecutar) {
+            if (pareceHerramientaFiltrada(ultimo.text)) {
               logger.warn({ tenantId, model }, "[AtlasOpenCode] Candidato filtro sintaxis de tool-call sin ejecutar, rotando al siguiente");
               ultimo = { text: "", error: "tool-call no ejecutado (sintaxis filtrada en el texto)" };
               continue;

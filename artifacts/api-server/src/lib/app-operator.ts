@@ -218,6 +218,29 @@ function claveInvestigacion(tenantId: number, sessionId: string): string {
   return `${tenantId}:${sessionId}`;
 }
 
+/**
+ * ¿Dos pedidos de investigación son sobre lo mismo? Comparación deliberadamente
+ * simple (palabras de contenido en común): alcanza para distinguir "otra vez lo
+ * mismo" de "un tema nuevo", que es la única decisión que hay que tomar acá.
+ */
+function mismoTema(a: string, b: string): boolean {
+  const palabras = (s: string) =>
+    new Set(
+      s
+        .toLowerCase()
+        .normalize("NFD")
+        .replace(/[̀-ͯ]/g, "")
+        .split(/[^a-z0-9]+/)
+        .filter((w) => w.length > 3),
+    );
+  const A = palabras(a);
+  const B = palabras(b);
+  if (A.size === 0 || B.size === 0) return false;
+  let comunes = 0;
+  for (const w of A) if (B.has(w)) comunes++;
+  return comunes / Math.min(A.size, B.size) >= 0.5;
+}
+
 function limpiarInvestigacionesVencidas(): void {
   const ahora = Date.now();
   for (const [clave, job] of investigacionesEnCurso) {
@@ -996,6 +1019,36 @@ export const TOOLS: ToolDef[] = [
         return {
           ok: true,
           summary: `Ya hay una investigación en curso en esta conversación ("${yaCorriendo.instruccion.slice(0, 80)}"). No arranques otra: esperá y usá research_check.`,
+        };
+      }
+
+      // Observado en vivo (2026-08-12): cuando el admin vuelve a preguntar
+      // "¿ya está?", el modelo tiende a llamar research_start OTRA VEZ en
+      // lugar de research_check -- arrancando una investigación nueva y
+      // dejando al admin esperando para siempre, con el resultado anterior
+      // ya listo y sin usar. En vez de confiar en que el prompt lo evite, la
+      // herramienta misma devuelve el resultado reciente si el pedido es
+      // sobre lo mismo. Así, agarre la herramienta que agarre, el modelo
+      // termina entregando lo investigado.
+      const recientes = await db
+        .select()
+        .from(architectMemory)
+        .where(
+          and(
+            eq(architectMemory.tenantId, ctx.tenantId),
+            eq(architectMemory.sessionId, ctx.sessionId),
+            eq(architectMemory.memoryType, "research_result"),
+            gte(architectMemory.createdAt, new Date(Date.now() - 20 * 60 * 1000).toISOString()),
+          ),
+        )
+        .orderBy(desc(architectMemory.createdAt))
+        .limit(1);
+      const previa = recientes[0];
+      if (previa && (previa.metadata as any)?.estado !== "fallo" && mismoTema(previa.title, instruccion)) {
+        return {
+          ok: true,
+          summary: `Ya hay una investigación reciente sobre esto ("${previa.title}") -- no hace falta arrancar otra. Usá ESTE resultado para responderle al admin ahora mismo.`,
+          data: { instruccion: previa.title, resultado: previa.content },
         };
       }
       if (investigacionesEnCurso.size >= MAX_INVESTIGACIONES_CONCURRENTES) {
