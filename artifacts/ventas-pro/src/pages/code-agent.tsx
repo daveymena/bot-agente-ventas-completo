@@ -158,7 +158,17 @@ export default function CodeAgent() {
 
   const callAtlas = async (promptText: string, historyForCall: { role: string; content: string }[]) => {
     const esOperador = mode === "operator";
-    const endpoint = esOperador ? "/api/code-agent/operator" : "/api/code-agent/architect";
+    // Corte al motor nuevo (2026-08-12). Medido en vivo con el MISMO pedido
+    // ("investigá la competencia y creá el anuncio"): la ruta vieja
+    // `/operator` devolvió 502 a los 79s -- el "No pude terminar de responder"
+    // que reportó el admin -- mientras `/operator-opencode` lo resolvió en
+    // 27-47s con datos reales, repetidas veces. Además el motor nuevo trae los
+    // candados que la vieja no tiene: investigación disparada por el servidor
+    // (no por la promesa del modelo), aviso automático si afirma haber
+    // investigado sin hacerlo, aviso si escribió algo y no lo guardó, y solo
+    // las herramientas del pedido en vez de las 34 (que era lo que lo hacía
+    // tardar 69s en algo tan simple como listar 3 productos).
+    const endpoint = esOperador ? "/api/code-agent/operator-opencode" : "/api/code-agent/architect";
     const res = await fetch(endpoint, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
