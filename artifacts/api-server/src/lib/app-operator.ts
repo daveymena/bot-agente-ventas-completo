@@ -533,9 +533,18 @@ export const TOOLS: ToolDef[] = [
       // orderBy(id) hace el resultado reproducible; 'search' deja encontrar
       // un producto puntual sin depender de que entre en la muestra truncada.
       const rows = await db.select().from(products).where(and(...conditions)).orderBy(products.id).limit(num(args.limit) || 50);
+      // Bug real encontrado probando Atlas (2026-08-12): el summary decía
+      // solo "N productos" sin aclarar que N es el tope de la página, no el
+      // total -- el modelo reportaba esa página truncada como si fuera el
+      // catálogo completo (ej. "tenés 50 productos" con 84 reales). Un
+      // COUNT(*) aparte con el mismo filtro deja el summary inequívoco para
+      // CUALQUIER modelo que rote en este turno, sin depender de que siga
+      // bien la advertencia del prompt del sistema.
+      const [{ total }] = await db.select({ total: sql<number>`count(*)::int` }).from(products).where(and(...conditions));
+      const truncado = total > rows.length;
       return {
         ok: true,
-        summary: `${rows.length} productos${search ? ` (filtrado por "${search}")` : ""}`,
+        summary: `${rows.length} productos${search ? ` (filtrado por "${search}")` : ""}${truncado ? ` -- ADVERTENCIA: esto es una página parcial, hay ${total} en total. No reportes ${rows.length} como el total del catálogo; para el conteo real completo usá analyze_system.` : ""}`,
         data: rows.map((p) => ({ id: p.id, name: p.name, price: p.price, currency: p.currency, category: p.category, isActive: p.isActive, hasImage: !!p.imageUrl })),
       };
     },
