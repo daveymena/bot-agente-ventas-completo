@@ -29,7 +29,7 @@ import { Router } from "express";
 import { randomUUID } from "node:crypto";
 import type { TenantRequest } from "../lib/tenantManager";
 import { logger } from "../lib/logger";
-import { ATLAS_SYSTEM_PROMPT_V2, executeAction, verifyMutation, type OperatorContext } from "../lib/app-operator";
+import { ATLAS_SYSTEM_PROMPT_V2, executeAction, verifyMutation, iniciarInvestigacion, type OperatorContext } from "../lib/app-operator";
 import {
   loadArchitectHistory, saveArchitectTurn, getPendingPlan, setPendingPlan,
   clearPendingPlan, isApproval, loadRecentLessons,
@@ -340,7 +340,33 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
       const historyText = convo
         .map((m: any) => `${m.role === "user" ? "Admin" : "Atlas"}: ${m.content}`)
         .join("\n\n");
-      const text = historyText ? `${historyText}\n\nAdmin: ${prompt}` : `Admin: ${prompt}`;
+      let text = historyText ? `${historyText}\n\nAdmin: ${prompt}` : `Admin: ${prompt}`;
+
+      // ── Investigación garantizada por el SERVIDOR, no por el modelo ──────
+      // Verificado en vivo (2026-08-12), y es el problema más grave que
+      // apareció: ante "investigá X", el modelo contesta "estoy investigando,
+      // te aviso en un minuto" y NO llama ninguna herramienta -- confirmado
+      // pidiendo research_check un segundo después ("no hay investigación
+      // activa") y con cero filas en `architect_memory`. O sea: le decía al
+      // admin que estaba trabajando cuando no había arrancado nada. Eso es
+      // exactamente la fabricación que este producto no puede permitirse.
+      // Ni el prompt ni exponer mejor la herramienta lo resolvieron.
+      // Solución: si el pedido es de investigación, el servidor la arranca
+      // ÉL MISMO antes de hablarle al modelo, y se lo informa. Así la
+      // promesa que Atlas le hace al admin siempre es cierta.
+      const PEDIDO_DE_INVESTIGACION = /\b(investig|averigu|indag|research|analiz[aá] el mercado|qu[eé] funciona|tendencia|competencia|benchmark)/i;
+      if (PEDIDO_DE_INVESTIGACION.test(String(prompt))) {
+        try {
+          const r = await iniciarInvestigacion(ctx, String(prompt));
+          text += `\n\n[SISTEMA] Ya arranqué la investigación por vos, no hace falta que llames ninguna herramienta para eso. Estado: ${r.summary}`;
+          if (r.data?.resultado) {
+            text += `\n\n[SISTEMA] Resultado ya disponible de una investigación reciente sobre lo mismo -- usalo para responder AHORA:\n${String(r.data.resultado).slice(0, 6000)}`;
+          }
+          progreso("Investigación en marcha...");
+        } catch (e: any) {
+          logger.warn({ tenantId, err: e?.message }, "[AtlasOpenCode] No se pudo arrancar la investigación del lado del servidor");
+        }
+      }
 
       const { text: finalReply, error: opencodeError } = await conCandado(async () => {
         await registerMcpBridge(cfg.host, cfg.authHeader, mcpUrl);

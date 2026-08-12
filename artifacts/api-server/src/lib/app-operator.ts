@@ -369,7 +369,7 @@ export interface ToolResult {
  * otro no, y el modelo elegía el equivocado sin importar lo que dijera el
  * prompt. Ahora cualquiera de las dos se comporta igual de bien.
  */
-async function iniciarInvestigacion(ctx: OperatorContext, instruccion: string): Promise<ToolResult> {
+export async function iniciarInvestigacion(ctx: OperatorContext, instruccion: string): Promise<ToolResult> {
   limpiarInvestigacionesVencidas();
   const clave = claveInvestigacion(ctx.tenantId, ctx.sessionId!);
   const yaCorriendo = investigacionesEnCurso.get(clave);
