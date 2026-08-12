@@ -71,7 +71,8 @@ function conCandado<T>(fn: () => Promise<T>): Promise<T> {
 }
 
 // Respaldo fijo confirmado funcionando en vivo (2026-08-12, contenedor
-// opencode-clean) -- gratis y rápido (~1-2s por turno simple).
+// opencode-clean) -- gratis y rápido (~1-2s por turno simple). SIEMPRE es el
+// último candidato de la rotación: nunca falla por falta de crédito/quota.
 const MODELO_RESPALDO = { providerID: "opencode", modelID: "big-pickle" };
 
 // Diagnóstico completo (2026-08-12) de por qué el sync de keys no alcanzaba
@@ -87,32 +88,72 @@ const MODELO_RESPALDO = { providerID: "opencode", modelID: "big-pickle" };
 //    `connected` y una llamada real funcionó (200, respuesta correcta, costo
 //    real cobrado). Es decir: el sync dinámico de `opencode-provider-sync.ts`
 //    (`PUT /auth/*`) deja la key lista para cuando el proceso reinicie con
-//    esa env var seteada, pero no la activa en caliente por sí solo.
+//    esa env var seteada, pero no la activa en caliente por sí solo -- para
+//    activar un proveedor pago nuevo hace falta agregar su env var real al
+//    contenedor `opencode-clean` en EasyPanel + reiniciarlo una vez.
 // 2. `groq` con `llama-3.3-70b-versatile`, aun ya "connected" del mismo modo,
 //    falla con `ContextOverflowError` ("Session too large to compact...")
 //    incluso en una sesión nueva vacía sin herramientas -- probablemente un
 //    bug de esta versión de opencode-ai con ese modelo puntual, no algo
-//    resoluble desde acá. Se lo excluye de la preferencia a propósito.
+//    resoluble desde acá. Se lo excluye de la lista de candidatos.
 //
-// Con `MISTRAL_API_KEY` ya seteada como env var real en `opencode-clean`,
-// preferirlo cuando `/provider` lo reporte como conectado; si no, o si la
-// consulta falla, usar el respaldo gratis de Zen.
-const PROVEEDOR_PREFERIDO = { providerID: "mistral", modelID: "mistral-large-latest" };
+// 3. `openrouter` activado el mismo día (env var real `OPENROUTER_API_KEY`
+//    + reinicio): a diferencia de `mistral`/`groq`, poner solo un valor de
+//    prueba en la env var SÍ marcó "connected" en `/provider`, pero la
+//    llamada real falló con 401 "Missing Authentication header" -- el
+//    campo `connected` y la autenticación real de cada request son cosas
+//    separadas, hace falta el valor REAL de la key en la env var para que
+//    la llamada funcione, no alcanza con que exista. Con la key real
+//    confirmado en vivo. Se probaron los 16 modelos gratis del catálogo de
+//    OpenRouter de este contenedor (turno simple, sin herramientas): 3
+//    fallaron por timeout >40s (`google/gemma-4-26b-a4b-it:free`,
+//    `google/gemma-4-31b-it:free`, `nvidia/nemotron-3-super-120b-a12b:free`),
+//    1 no soporta tool-calling en absoluto (`nvidia/nemotron-3.5-content-
+//    safety:free`, es un clasificador de moderación, no un chat), 1 ignoró
+//    la instrucción de forma rara (`cohere/north-mini-code:free`). Los 3
+//    elegidos abajo respondieron limpio en 1,3-4,4s y tienen
+//    `capabilities.toolcall:true` confirmado en el catálogo.
+//
+// Rotación real: lista ORDENADA de candidatos (pagos o gratis-con-key-
+// propia, lo que los distingue del respaldo de Zen es que dependen de una
+// activación explícita). Para cada turno se consulta `/provider` una vez
+// (qué está `connected` hoy, ya sea porque alguien activó su env var, o
+// porque el usuario pidió que se dejen varios activos a la vez para no
+// depender de uno solo) y se arma la sub-lista de los que están realmente
+// conectados, en este orden de preferencia. Si el elegido falla EN LA
+// LLAMADA REAL (rate limit, 500, lo que sea) se prueba el siguiente
+// conectado antes de rendirse al respaldo gratis -- así un proveedor caído
+// (o sin activar tras un reinicio del contenedor) nunca deja a Atlas sin
+// responder, y agregar un proveedor nuevo a esta lista es lo único que hace
+// falta en código una vez que su env var quede seteada con la key real.
+const CANDIDATOS_PAGOS: { providerID: string; modelID: string }[] = [
+  { providerID: "mistral", modelID: "mistral-large-latest" },
+  { providerID: "openrouter", modelID: "nvidia/nemotron-3-nano-30b-a3b:free" },
+  { providerID: "openrouter", modelID: "poolside/laguna-xs-2.1:free" },
+  { providerID: "openrouter", modelID: "nvidia/nemotron-3-ultra-550b-a55b:free" },
+];
 
-async function pickOpencodeModel(host: string, authHeader: string): Promise<{ providerID: string; modelID: string }> {
+async function proveedoresConectados(host: string, authHeader: string): Promise<Set<string>> {
   try {
     const res = await fetch(`${host}/provider`, {
       headers: { Authorization: authHeader },
       signal: AbortSignal.timeout(10_000),
     });
-    if (!res.ok) return MODELO_RESPALDO;
+    if (!res.ok) return new Set();
     const data = (await res.json()) as any;
-    const conectados: string[] = data?.connected || [];
-    if (conectados.includes(PROVEEDOR_PREFERIDO.providerID)) return PROVEEDOR_PREFERIDO;
+    return new Set<string>(data?.connected || []);
   } catch {
-    // Ante cualquier falla al consultar, seguir con el respaldo conocido.
+    return new Set();
   }
-  return MODELO_RESPALDO;
+}
+
+// Lista de candidatos a intentar EN ORDEN para este turno: los pagos que
+// estén realmente conectados ahora mismo (en el orden de preferencia de
+// CANDIDATOS_PAGOS), y siempre el respaldo gratis al final.
+async function pickOpencodeModelChain(host: string, authHeader: string): Promise<{ providerID: string; modelID: string }[]> {
+  const conectados = await proveedoresConectados(host, authHeader);
+  const pagosDisponibles = CANDIDATOS_PAGOS.filter((c) => conectados.has(c.providerID));
+  return [...pagosDisponibles, MODELO_RESPALDO];
 }
 
 async function registerMcpBridge(host: string, authHeader: string, mcpUrl: string): Promise<void> {
@@ -260,23 +301,39 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
       const { text: finalReply, error: opencodeError } = await conCandado(async () => {
         await registerMcpBridge(cfg.host, cfg.authHeader, mcpUrl);
         const opencodeSessionId = await createOpencodeSession(cfg.host, cfg.authHeader);
-        const model = await pickOpencodeModel(cfg.host, cfg.authHeader);
-        return sendOpencodeMessage(cfg.host, cfg.authHeader, opencodeSessionId, {
-          system,
-          model,
-          tools,
-          text,
-          // 145s: el modelo gratis actual (openrouter/nemotron-3-nano-30b)
-          // resultó más lento de lo esperado bajo carga -- 100s y 125s
-          // ambos se quedaron cortos en vivo para un turno con 2 llamadas de
-          // herramienta encadenadas. 145s es lo más cerca que conviene ir
-          // del corte del proxy delante de la app (~150-160s, confirmado
-          // empíricamente para /operator) sin garantizar perder la carrera.
-          // Es una limitación real del modelo gratis, no del código -- la
-          // sincronización de API keys pagas del admin (próxima tarea) es
-          // el arreglo de fondo, esto es la mitigación mientras tanto.
-          timeoutMs: 145_000,
-        });
+        const cadena = await pickOpencodeModelChain(cfg.host, cfg.authHeader);
+
+        // Rotación real: se intenta cada candidato conectado en orden: si
+        // uno falla (rate limit, 500, timeout puntual) se prueba el
+        // siguiente EN LA MISMA SESIÓN antes de rendirse -- el respaldo
+        // gratis de Zen (último de la cadena) nunca falla por falta de
+        // crédito, así que esto siempre termina respondiendo algo salvo un
+        // problema real de infraestructura (proxy, red).
+        let ultimo: { text: string; error?: string } = { text: "", error: "sin candidatos" };
+        for (const model of cadena) {
+          try {
+            ultimo = await sendOpencodeMessage(cfg.host, cfg.authHeader, opencodeSessionId, {
+              system,
+              model,
+              tools,
+              text,
+              // 145s: el modelo gratis actual (openrouter/nemotron-3-nano-30b)
+              // resultó más lento de lo esperado bajo carga -- 100s y 125s
+              // ambos se quedaron cortos en vivo para un turno con 2 llamadas
+              // de herramienta encadenadas. 145s es lo más cerca que conviene
+              // ir del corte del proxy delante de la app (~150-160s,
+              // confirmado empíricamente para /operator) sin garantizar
+              // perder la carrera.
+              timeoutMs: 145_000,
+            });
+            if (!ultimo.error) break; // Respuesta real -- no seguir rotando.
+            logger.warn({ tenantId, model, error: ultimo.error }, "[AtlasOpenCode] Candidato falló, rotando al siguiente");
+          } catch (err: any) {
+            ultimo = { text: "", error: err?.message || "error desconocido" };
+            logger.warn({ tenantId, model, error: ultimo.error }, "[AtlasOpenCode] Candidato falló (excepción), rotando al siguiente");
+          }
+        }
+        return ultimo;
       });
 
       if (opencodeError) {
