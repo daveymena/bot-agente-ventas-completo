@@ -104,10 +104,16 @@ async function hasRecentResearch(ctx: OperatorContext): Promise<boolean> {
  * búsquedas encadenadas que devolvió datos y URLs reales, sin fabricar
  * nada.
  */
-const EXTERNAL_RESEARCH_AGENTS: { url: string; providerID: string; modelID: string }[] = [
-  { url: "https://oc-zen.2xs2bu.easypanel.host", providerID: "opencode", modelID: "nemotron-3-ultra-free" },
-  { url: "https://oc-groq.2xs2bu.easypanel.host", providerID: "groq", modelID: "llama-3.3-70b-versatile" },
-  { url: "https://oc-router.2xs2bu.easypanel.host", providerID: "openrouter", modelID: "google/gemma-4-26b-a4b-it:free" },
+// `internalUrl` primero: los 3 agentes viven en el MISMO servidor que esta
+// app, así que salir a internet (DNS público + TLS + proxy) para volver a
+// entrar es más lento y agrega puntos de falla que no hacen falta. En la red
+// interna de EasyPanel el host es `<proyecto>_<servicio>` y el puerto es el
+// INTERNO del contenedor (4000), no el publicado (4040). Si por lo que sea
+// la red interna no resuelve, se cae a la URL pública, que también funciona.
+const EXTERNAL_RESEARCH_AGENTS: { url: string; internalUrl?: string; providerID: string; modelID: string }[] = [
+  { url: "https://oc-zen.2xs2bu.easypanel.host", internalUrl: "http://opencode1_oc-zen:4000", providerID: "opencode", modelID: "nemotron-3-ultra-free" },
+  { url: "https://oc-groq.2xs2bu.easypanel.host", internalUrl: "http://opencode1_oc-groq:4000", providerID: "groq", modelID: "llama-3.3-70b-versatile" },
+  { url: "https://oc-router.2xs2bu.easypanel.host", internalUrl: "http://opencode1_oc-router:4000", providerID: "openrouter", modelID: "google/gemma-4-26b-a4b-it:free" },
 ];
 
 // Medido en vivo (2026-08-07): UN solo intento exitoso contra oc-zen tomó
@@ -151,49 +157,78 @@ async function askExternalResearchAgent(prompt: string, turnDeadline?: number, h
     };
   }
 
+  // Sin esto quedábamos CIEGOS: cuando los 3 agentes fallaban, lo único que
+  // se guardaba era "los 3 fallaron", sin decir por qué -- y con `oc-zen`
+  // respondiendo bien en una prueba directa, no había forma de saber si el
+  // motivo era red, modelo, timeout o respuesta vacía (pasó exactamente eso
+  // el 2026-08-12). Ahora cada intento deja su motivo concreto y el detalle
+  // viaja en el resultado, así se diagnostica sin depender de los logs del
+  // contenedor (que en este EasyPanel no son accesibles por API).
+  const fallos: string[] = [];
   for (const agent of EXTERNAL_RESEARCH_AGENTS) {
     const remaining = effectiveDeadline - Date.now();
-    if (remaining < MIN_VIABLE_BUDGET_MS) break; // lo que queda ya no alcanza ni para un intento realista
-    try {
-      const sessionRes = await fetch(`${agent.url}/session`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: "{}",
-        signal: AbortSignal.timeout(Math.min(15000, remaining)),
-      });
-      if (!sessionRes.ok) continue;
-      const session: any = await sessionRes.json();
-      if (!session?.id) continue;
-
-      // El loop interno (varias búsquedas + razonamiento) corre en SU
-      // contenedor, no en este -- el costo para este proceso es solo
-      // mantener la conexión HTTP abierta.
-      const msgRes = await fetch(`${agent.url}/session/${session.id}/message`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          agent: "general",
-          model: { providerID: agent.providerID, modelID: agent.modelID },
-          parts: [{ type: "text", text: prompt }],
-        }),
-        signal: AbortSignal.timeout(Math.max(5000, effectiveDeadline - Date.now())),
-      });
-      if (!msgRes.ok) continue;
-      const msg: any = await msgRes.json();
-      if (msg?.error) {
-        logger.warn({ agent: agent.url, error: msg.error }, "[AppOperator] Agente externo devolvió error, rotando");
-        continue;
-      }
-      const parts: any[] = Array.isArray(msg?.parts) ? msg.parts : [];
-      const textParts = parts.filter((p) => p?.type === "text").map((p) => String(p.text || ""));
-      const text = textParts.join("\n\n").trim();
-      if (!text) continue;
-      return { ok: true, agent: agent.providerID, text };
-    } catch (e: any) {
-      logger.warn({ agent: agent.url, err: e?.message }, "[AppOperator] Agente externo falló, rotando al siguiente");
+    if (remaining < MIN_VIABLE_BUDGET_MS) {
+      fallos.push(`${agent.providerID}: no se intentó, solo quedaban ${Math.round(remaining / 1000)}s`);
+      break; // lo que queda ya no alcanza ni para un intento realista
     }
+    // Red interna primero, pública como respaldo (ver comentario del array).
+    const bases = [agent.internalUrl, agent.url].filter(Boolean) as string[];
+    let exito: ExternalResearchResult | null = null;
+    for (const base of bases) {
+      const via = base.startsWith("http://") ? "interna" : "pública";
+      try {
+        const restante = effectiveDeadline - Date.now();
+        if (restante < MIN_VIABLE_BUDGET_MS) { fallos.push(`${agent.providerID} (${via}): sin tiempo`); break; }
+
+        const sessionRes = await fetch(`${base}/session`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: "{}",
+          signal: AbortSignal.timeout(Math.min(15000, restante)),
+        });
+        if (!sessionRes.ok) { fallos.push(`${agent.providerID} (${via}): crear sesión devolvió ${sessionRes.status}`); continue; }
+        const session: any = await sessionRes.json();
+        if (!session?.id) { fallos.push(`${agent.providerID} (${via}): sesión sin id`); continue; }
+
+        // El loop interno (varias búsquedas + razonamiento) corre en SU
+        // contenedor, no en este -- el costo para este proceso es solo
+        // mantener la conexión HTTP abierta.
+        const msgRes = await fetch(`${base}/session/${session.id}/message`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            agent: "general",
+            model: { providerID: agent.providerID, modelID: agent.modelID },
+            parts: [{ type: "text", text: prompt }],
+          }),
+          signal: AbortSignal.timeout(Math.max(5000, effectiveDeadline - Date.now())),
+        });
+        if (!msgRes.ok) { fallos.push(`${agent.providerID} (${via}): mensaje devolvió ${msgRes.status}`); continue; }
+        const msg: any = await msgRes.json();
+        if (msg?.error) {
+          const detalle = msg.error?.data?.message || msg.error?.name || JSON.stringify(msg.error).slice(0, 160);
+          fallos.push(`${agent.providerID} (${via}): ${detalle}`);
+          logger.warn({ agent: base, error: msg.error }, "[AppOperator] Agente externo devolvió error, rotando");
+          continue;
+        }
+        const parts: any[] = Array.isArray(msg?.parts) ? msg.parts : [];
+        const textParts = parts.filter((p) => p?.type === "text").map((p) => String(p.text || ""));
+        const text = textParts.join("\n\n").trim();
+        if (!text) { fallos.push(`${agent.providerID} (${via}): respondió sin texto`); continue; }
+        exito = { ok: true, agent: `${agent.providerID} (${via})`, text };
+        break;
+      } catch (e: any) {
+        const detalle = e?.name === "TimeoutError" ? "se pasó del tiempo" : (e?.message || "error desconocido");
+        fallos.push(`${agent.providerID} (${via}): ${detalle}`);
+        logger.warn({ agent: base, err: e?.message }, "[AppOperator] Agente externo falló, rotando");
+      }
+    }
+    if (exito) return exito;
   }
-  return { ok: false, reason: "deep_research: los 3 agentes externos fallaron o no devolvieron texto útil. ACCIÓN: no reportes esto como un error final -- llamá web_search vos mismo, en este mismo turno, y seguí con la tarea usando esos resultados." };
+  return {
+    ok: false,
+    reason: `Ningún agente de investigación respondió. Motivo de cada uno -- ${fallos.join(" | ")}. ACCIÓN: no reportes esto como un error final -- llamá web_search vos mismo y seguí con la tarea usando esos resultados.`,
+  };
 }
 
 // ── Investigación en SEGUNDO PLANO ──────────────────────────────────────────
