@@ -295,8 +295,14 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
       // su `exp` es lo que el puente MCP usa como turnDeadline para que una
       // herramienta lenta (deep_research) sepa cuánto tiempo le queda real.
       const token = mintTurnToken({ tenantId, sessionId, turnId }, TURNO_TOTAL_MS);
-      const mcpUrl = `${getAppUrl()}/api/internal/mcp/atlas?token=${token}`;
-      const toolRegistry = buildMcpToolRegistry();
+      const toolRegistry = buildMcpToolRegistry(String(prompt));
+      // El subconjunto viaja en la URL del puente: es lo que hace que el
+      // modelo reciba solo los esquemas que puede llegar a usar en ESTE
+      // pedido, en vez de los 34 completos. Ver el comentario en
+      // opencode-mcp-tools.ts sobre por qué esto importa tanto (69s → objetivo
+      // de segundos para un pedido simple).
+      const nombresPermitidos = toolRegistry.map((t) => t.name).join(",");
+      const mcpUrl = `${getAppUrl()}/api/internal/mcp/atlas?token=${token}&tools=${encodeURIComponent(nombresPermitidos)}`;
       const tools: Record<string, boolean> = {};
       for (const t of toolRegistry) tools[t.name] = true;
 

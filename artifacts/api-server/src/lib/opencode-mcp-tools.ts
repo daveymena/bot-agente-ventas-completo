@@ -335,10 +335,70 @@ export async function drainDraftPlan(tenantId: number, turnId: string): Promise<
 
 /** Arma el registro completo de tools MCP: las de lectura (derivadas de
  * READ_ONLY_TOOLS, delegando la ejecución real a executeAction) + propose_action. */
-export function buildMcpToolRegistry(): McpToolDef[] {
+// ── Subconjunto de herramientas por pedido ──────────────────────────────────
+// Medido en vivo (2026-08-12): el modelo solo (mistral, sin herramientas)
+// responde en 2,5s, pero un turno de Atlas para algo tan simple como "dame 3
+// productos" tardaba 69s. La diferencia no es el modelo: son las 34
+// herramientas con sus esquemas completos + el prompt de sistema, que se
+// mandan ENTERAS en cada turno. El modelo tiene que digerir todo eso antes de
+// contestar.
+//
+// Solución: mandarle solo lo que puede llegar a necesitar según lo que pidió
+// el admin. El núcleo va siempre (son las lecturas básicas del negocio, y
+// `propose_action` que se agrega aparte); los grupos se suman por palabra
+// clave. Ante la duda -- si el pedido no matchea ningún grupo -- se mandan
+// TODAS, para no romper un caso raro por ahorrar tokens.
+const NUCLEO = new Set([
+  "analyze_system", "list_products", "list_categories", "dashboard_summary",
+  "get_agent", "get_settings", "get_store",
+]);
+
+const GRUPOS: { patron: RegExp; herramientas: string[] }[] = [
+  {
+    patron: /facebook|anuncio|campa|meta|ads?\b|publicit|p[uú]blico|audiencia|creativ/i,
+    herramientas: ["fb_status", "fb_suggest_audience", "fb_page_can_post", "fb_page_preview", "fb_list_drafts", "fb_agent_logs", "fb_campaign_metrics", "fb_list_adsets", "fb_ad_library", "generate_image", "search_product_images"],
+  },
+  {
+    patron: /whatsapp|wasap|conversaci|chat|mensaje|cliente|lead/i,
+    herramientas: ["whatsapp_status", "list_recent_conversations", "predict_customer"],
+  },
+  {
+    patron: /investig|averigu|indag|research|tendencia|competencia|mercado|benchmark|qu[eé] funciona/i,
+    herramientas: ["research_start", "research_check", "fb_ad_library", "web_search", "web_fetch", "deep_research"],
+  },
+  {
+    patron: /precio|cobr|pago|vender|venta|ingreso|factur|suscrip/i,
+    herramientas: ["payment_status", "optimize_price", "analyze_channel_performance"],
+  },
+  {
+    patron: /imagen|foto|dise[ñn]|portada/i,
+    herramientas: ["generate_image", "search_product_images", "web_scrape_images"],
+  },
+  {
+    patron: /dropi|proveedor|dropshipping|stock/i,
+    herramientas: ["dropi_status", "dropi_search_products"],
+  },
+  {
+    patron: /copy|texto|redact|descripci|t[ií]tulo/i,
+    herramientas: ["optimize_copy", "reason_business_decision"],
+  },
+];
+
+function herramientasRelevantes(pedido?: string): Set<string> | null {
+  if (!pedido || pedido.trim().length < 3) return null; // sin pista: mandar todas
+  const activos = GRUPOS.filter((g) => g.patron.test(pedido));
+  if (activos.length === 0) return null; // no matcheó nada: mandar todas
+  const set = new Set(NUCLEO);
+  for (const g of activos) for (const h of g.herramientas) set.add(h);
+  return set;
+}
+
+export function buildMcpToolRegistry(pedido?: string): McpToolDef[] {
   const descriptions = readOnlyToolDescriptions();
+  const relevantes = herramientasRelevantes(pedido);
   const readTools: McpToolDef[] = [...READ_ONLY_TOOLS]
     .filter((name) => !EXCLUDED_FROM_MCP.has(name))
+    .filter((name) => !relevantes || relevantes.has(name))
     .map((name) => {
       const schema = TOOL_SCHEMAS[name];
       if (!schema) {

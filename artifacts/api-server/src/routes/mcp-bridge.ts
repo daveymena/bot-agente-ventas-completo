@@ -80,7 +80,19 @@ router.post("/atlas", async (req: Request, res: Response) => {
     }
 
     if (method === "tools/list") {
-      const tools = TOOL_REGISTRY.map((t) => ({ name: t.name, description: t.description, inputSchema: t.inputSchema }));
+      // Filtrado por turno vía `?tools=a,b,c` en la URL del puente. Acá es
+      // donde de verdad se ahorra: el modelo recibe los esquemas COMPLETOS de
+      // todo lo que esta lista devuelva, y con las 34 herramientas un pedido
+      // simple ("dame 3 productos") tardaba 69s contra 2,5s del modelo solo.
+      // Habilitar/deshabilitar del lado de OpenCode no alcanza: los esquemas
+      // ya viajaron. Sin el parámetro se devuelven todas (comportamiento
+      // anterior), así nada se rompe si alguien llama al puente sin filtro.
+      const permitidas = String(req.query.tools || "").split(",").map((s) => s.trim()).filter(Boolean);
+      const lista = permitidas.length
+        ? TOOL_REGISTRY.filter((t) => permitidas.includes(t.name) || t.name === "propose_action")
+        : TOOL_REGISTRY;
+      const tools = lista.map((t) => ({ name: t.name, description: t.description, inputSchema: t.inputSchema }));
+      logger.info({ turnId: auth.turnId, expuestas: tools.length, total: TOOL_REGISTRY.length }, "[AtlasMCP] tools/list");
       return res.json(rpcResult(id, { tools }));
     }
 
