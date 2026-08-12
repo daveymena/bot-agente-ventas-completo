@@ -137,8 +137,11 @@ type ExternalResearchResult =
  * tiempo que quedaba -- fallaba, pero el mensaje decía "sin cuota" cuando
  * el motivo real era que no había presupuesto suficiente.
  */
-async function askExternalResearchAgent(prompt: string, turnDeadline?: number): Promise<ExternalResearchResult> {
-  const hardCap = Date.now() + 100_000; // techo propio, nunca más que esto aunque sobre turno
+async function askExternalResearchAgent(prompt: string, turnDeadline?: number, hardCapMs = 100_000): Promise<ExternalResearchResult> {
+  // `hardCapMs` mayor solo para la investigación en SEGUNDO PLANO, que no
+  // está atada a un request HTTP y sí puede permitirse probar más de un
+  // agente externo (cada intento real ~65s).
+  const hardCap = Date.now() + hardCapMs; // techo propio, nunca más que esto aunque sobre turno
   const effectiveDeadline = turnDeadline ? Math.min(turnDeadline, hardCap) : hardCap;
   const available = effectiveDeadline - Date.now();
   if (available < MIN_VIABLE_BUDGET_MS) {
@@ -191,6 +194,89 @@ async function askExternalResearchAgent(prompt: string, turnDeadline?: number): 
     }
   }
   return { ok: false, reason: "deep_research: los 3 agentes externos fallaron o no devolvieron texto útil. ACCIÓN: no reportes esto como un error final -- llamá web_search vos mismo, en este mismo turno, y seguí con la tarea usando esos resultados." };
+}
+
+// ── Investigación en SEGUNDO PLANO ──────────────────────────────────────────
+// Medido en vivo (2026-08-12): CUALQUIER turno de Atlas que use una
+// herramienta web agota el presupuesto del turno (~135s) y termina en una
+// respuesta parcial, mientras que un turno que solo lee datos propios tarda
+// 12s. La causa de fondo no es una herramienta puntual: es que el proxy
+// delante de la app corta a los ~150-160s, así que una investigación real
+// (cada agente externo tarda ~65s) NO entra en un request HTTP, por más que
+// se ajusten timeouts. La única salida real es sacarla del request: se
+// arranca el trabajo, se responde al instante, y el resultado queda guardado
+// para el turno siguiente.
+const investigacionesEnCurso = new Map<string, { instruccion: string; desde: number }>();
+// Tope duro: este contenedor es chico y ya se cayó antes por investigaciones
+// pesadas (ver historial del proyecto). Mejor rechazar y avisar que tumbarlo.
+const MAX_INVESTIGACIONES_CONCURRENTES = 2;
+// Si un trabajo quedó marcado "en curso" más que esto, se asume que el
+// proceso se reinició en el medio -- no hay worker externo que lo retome.
+const INVESTIGACION_VENCIDA_MS = 5 * 60 * 1000;
+
+function claveInvestigacion(tenantId: number, sessionId: string): string {
+  return `${tenantId}:${sessionId}`;
+}
+
+function limpiarInvestigacionesVencidas(): void {
+  const ahora = Date.now();
+  for (const [clave, job] of investigacionesEnCurso) {
+    if (ahora - job.desde > INVESTIGACION_VENCIDA_MS) investigacionesEnCurso.delete(clave);
+  }
+}
+
+/**
+ * Corre la investigación DESPUÉS de que el request ya respondió. No se
+ * espera (a propósito): el proceso sigue vivo entre requests, así que la
+ * promesa termina sola y guarda el resultado. Nunca lanza hacia afuera --
+ * un fallo acá no puede tumbar el proceso (sería un unhandled rejection).
+ */
+function lanzarInvestigacionEnSegundoPlano(ctx: OperatorContext, instruccion: string): void {
+  const sessionId = ctx.sessionId;
+  if (!sessionId) return;
+  const clave = claveInvestigacion(ctx.tenantId, sessionId);
+  investigacionesEnCurso.set(clave, { instruccion, desde: Date.now() });
+
+  void (async () => {
+    try {
+      const result = await askExternalResearchAgent(
+        `Investigá en internet de verdad (usá tu herramienta de búsqueda web, no respondas de memoria): ${instruccion}. Sé concreto, citá las fuentes/URLs reales que encontraste, no inventes datos.`,
+        undefined,
+        240_000, // sin request esperando: alcanza para probar más de un agente externo
+      );
+      if (result.ok) {
+        await db.insert(architectMemory).values({
+          tenantId: ctx.tenantId,
+          sessionId,
+          memoryType: "research_result",
+          title: instruccion.slice(0, 200),
+          content: result.text,
+          tags: [],
+          metadata: { estado: "listo", agente: result.agent },
+        });
+        // La evidencia se registra SOLO si la investigación realmente terminó
+        // -- así el gate de fb_ad_draft sigue significando "hubo investigación
+        // de verdad", no "alguien pidió una y se cayó".
+        await recordResearchEvidence(ctx, instruccion);
+        logger.info({ tenantId: ctx.tenantId, agente: result.agent }, "[AppOperator] Investigación en segundo plano completada");
+      } else {
+        await db.insert(architectMemory).values({
+          tenantId: ctx.tenantId,
+          sessionId,
+          memoryType: "research_result",
+          title: instruccion.slice(0, 200),
+          content: result.reason,
+          tags: [],
+          metadata: { estado: "fallo" },
+        });
+        logger.warn({ tenantId: ctx.tenantId, motivo: result.reason }, "[AppOperator] Investigación en segundo plano falló");
+      }
+    } catch (e: any) {
+      logger.error({ err: e?.message, tenantId: ctx.tenantId }, "[AppOperator] Investigación en segundo plano reventó");
+    } finally {
+      investigacionesEnCurso.delete(clave);
+    }
+  })();
 }
 
 export interface ToolResult {
@@ -890,6 +976,83 @@ export const TOOLS: ToolDef[] = [
       } catch (e: any) {
         return { ok: false, summary: `No se pudo completar la investigación: ${e?.message}` };
       }
+    },
+  },
+
+  {
+    name: "research_start",
+    description:
+      "Arranca una investigación REAL en segundo plano y te devuelve el control AL INSTANTE (no espera). Usala para cualquier pedido de investigación de verdad (tendencias del nicho, qué hace la competencia, qué ángulos funcionan) ANTES de armar una campaña o anuncio: una investigación real tarda 1-3 minutos y NO entra en una sola respuesta, así que este es el camino correcto -- no deep_research. Después de llamarla, decile al admin en lenguaje llano que estás investigando y que en un minuto le traés el resultado; cuando él vuelva a escribirte, usá research_check para leerlo.",
+    args: '{ "instruccion": string (req) — qué investigar, en lenguaje natural, ej: "qué ángulos funcionan hoy en anuncios de cursos de piano online para adultos" }',
+    run: async (args, ctx) => {
+      const instruccion = String(args.instruccion || "").trim();
+      if (!instruccion) return { ok: false, summary: "Falta 'instruccion' (qué investigar)" };
+      if (!ctx.sessionId) return { ok: false, summary: "No hay sesión para asociar la investigación" };
+
+      limpiarInvestigacionesVencidas();
+      const clave = claveInvestigacion(ctx.tenantId, ctx.sessionId);
+      const yaCorriendo = investigacionesEnCurso.get(clave);
+      if (yaCorriendo) {
+        return {
+          ok: true,
+          summary: `Ya hay una investigación en curso en esta conversación ("${yaCorriendo.instruccion.slice(0, 80)}"). No arranques otra: esperá y usá research_check.`,
+        };
+      }
+      if (investigacionesEnCurso.size >= MAX_INVESTIGACIONES_CONCURRENTES) {
+        return {
+          ok: false,
+          summary: "Hay demasiadas investigaciones corriendo ahora mismo. Decile al admin que reintente en un minuto -- no es un error de él.",
+        };
+      }
+
+      lanzarInvestigacionEnSegundoPlano(ctx, instruccion);
+      return {
+        ok: true,
+        summary: `🔎 Investigación arrancada en segundo plano: "${instruccion.slice(0, 120)}". Tarda ~1-3 min. AHORA: contestale al admin que estás investigando y que te vuelva a escribir en un minuto -- NO te quedes esperando ni llames research_check en este mismo turno, todavía no va a estar.`,
+      };
+    },
+  },
+
+  {
+    name: "research_check",
+    description:
+      "Leer el resultado de la investigación que arrancaste con research_start. Usala al principio del turno cuando el admin vuelve a escribirte después de haber pedido una investigación.",
+    args: "{}",
+    run: async (_args, ctx) => {
+      if (!ctx.sessionId) return { ok: false, summary: "No hay sesión para buscar la investigación" };
+      limpiarInvestigacionesVencidas();
+
+      const [ultima] = await db
+        .select()
+        .from(architectMemory)
+        .where(
+          and(
+            eq(architectMemory.tenantId, ctx.tenantId),
+            eq(architectMemory.sessionId, ctx.sessionId),
+            eq(architectMemory.memoryType, "research_result"),
+          ),
+        )
+        .orderBy(desc(architectMemory.createdAt))
+        .limit(1);
+
+      const enCurso = investigacionesEnCurso.get(claveInvestigacion(ctx.tenantId, ctx.sessionId));
+      if (enCurso) {
+        return {
+          ok: true,
+          summary: `⏳ La investigación sigue en curso (arrancó hace ${Math.round((Date.now() - enCurso.desde) / 1000)}s). Decile al admin que le falta poco y que te vuelva a escribir en un momento.`,
+        };
+      }
+      if (!ultima) {
+        return { ok: false, summary: "No hay ninguna investigación en esta conversación. Si hace falta investigar, arrancala con research_start." };
+      }
+      if ((ultima.metadata as any)?.estado === "fallo") {
+        return { ok: false, summary: `La investigación no pudo completarse: ${ultima.content.slice(0, 300)}` };
+      }
+      return {
+        ok: true,
+        summary: `🔎 Investigación lista: "${ultima.title}"`,
+        data: { instruccion: ultima.title, resultado: ultima.content },
+      };
     },
   },
 
@@ -2027,6 +2190,7 @@ export const READ_ONLY_TOOLS = new Set([
   "analyze_channel_performance", "reason_business_decision",
   // Lectura de web (información externa)
   "web_fetch", "web_search", "web_scrape_images", "search_product_images", "deep_research",
+  "research_start", "research_check",
   // Listar conjuntos es lectura pura. pause/resume/set_budget NO van acá a
   // propósito: mueven dinero real y tienen que pasar por confirmación.
   "fb_list_adsets",
@@ -2180,6 +2344,13 @@ ESTRATEGIA DE OFERTA (antes de crear cualquier cosa — producto, anuncio, copy,
 - 📋 Si el admin te pide un producto nuevo, propón tu mejor versión profesional: nombre atractivo, descripción que vende, precio con argumento y categoría correcta. No te limites a transcribir lo que dice: mejóralo con criterio y explica por qué.
 
 🚫 NUNCA fabriques "prueba social" ni datos de mercado (ej: "+10.000 alumnos", "antes $X, ahora $Y" cuando el producto no tiene ese precio anterior real, estadísticas de conversión inventadas). Si el admin pide investigar tendencias/competencia antes de armar un anuncio, DEBÉS buscar de verdad (tu propio buscador) y basar el hook/ángulo en lo que encuentres -- nunca redactes una sección "INVESTIGACIÓN PREVIA" o "según mi investigación" a partir de tu propio conocimiento general sin haber buscado. Si no vas a investigar, decilo explícitamente ("no investigué, esto es una plantilla genérica") en vez de simular que sí lo hiciste.
+
+⏱️ CÓMO INVESTIGAR SIN QUEDARTE COLGADO (importante, es la diferencia entre servir o no servir):
+- Una investigación real tarda 1-3 minutos y NO entra en el tiempo de una sola respuesta. Si lo intentás dentro del mismo turno, el pedido se corta y el admin se queda sin nada.
+- Por eso: llamá research_start (arranca en segundo plano, vuelve al instante), decile al admin en lenguaje llano que estás investigando y que te escriba en un minuto, y TERMINÁ el turno ahí.
+- Cuando el admin vuelva a escribirte, empezá con research_check para leer el resultado ya listo y recién ahí armá el anuncio/estrategia con ese material real.
+- NO uses deep_research (se queda esperando y termina cortado). Un web_search suelto sí sirve para un dato puntual y rápido, pero no para "investigá el nicho".
+- Nunca encadenes búsqueda tras búsqueda en un mismo turno para "terminar todo": es exactamente lo que hace que el pedido muera sin respuesta.
 
 COPYWRITING DE NIVEL AGENCIA (aplica a descripciones, anuncios y respuestas del agente):
 - 🎯 Beneficio primero, SIEMPRE: “Aprende a tocar piano en 8 semanas” vende más que “Curso de piano”. Vende el resultado, no la característica.
@@ -2421,10 +2592,14 @@ INFORMACIÓN DE INTERNET (nunca inventes datos externos):
 - 🔎 Si no conoces la URL exacta, usa web_search PRIMERO. Jamás adivines direcciones.
 - 📖 Luego usa web_fetch en las 2-3 URLs más relevantes para leer el contenido real.
 - 🧠 Para un pedido de INVESTIGACIÓN REAL (tendencias del nicho, qué hace la competencia, qué ángulos
-  funcionan hoy, benchmarks) usa deep_research en vez de encadenar varios web_search vos mismo: delega
-  el trabajo pesado a un agente externo dedicado y te devuelve un resumen ya elaborado con fuentes.
-  Tarda más (podés tardar 1-2 minutos en responder, es normal, esperá el resultado) pero es más
-  confiable para este tipo de pedido que armar la investigación paso a paso vos mismo.
+  funcionan hoy, benchmarks) usá research_start: arranca el trabajo pesado en segundo plano y te
+  devuelve el control AL INSTANTE. Contestale al admin que estás investigando y que te vuelva a
+  escribir en un minuto; cuando vuelva, leé el resultado con research_check. NO uses deep_research
+  para esto: se queda esperando dentro de la misma respuesta y una investigación real no entra en
+  el tiempo de un solo mensaje -- termina cortada, sin resultado para nadie.
+- ⏱️ Regla de tiempo: si un pedido necesita investigación de verdad, NUNCA intentes resolverlo entero
+  en un solo turno encadenando búsqueda tras búsqueda. Arrancá la investigación, respondé, y seguí
+  en el turno siguiente con el resultado ya listo.
 - 🔁 Si el tema tiene varias partes (ej: "Claude Code, Antigravity, MCP y agentes"), busca y lee
   CADA una en el mismo turno con done:false, hasta cubrirlas todas. No entregues la mitad.
 - 🧾 Cuando presentes la información, di de dónde salió (dominio o título de la fuente).

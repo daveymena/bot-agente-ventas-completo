@@ -19,6 +19,12 @@ export type MemoryType =
   // en la sesión -- usado como gate server-side antes de generar un anuncio,
   // para no depender de que el modelo "decida" investigar por su cuenta.
   | "research_evidence"
+  // Resultado COMPLETO de una investigación corrida en segundo plano
+  // (research_start/research_check en app-operator.ts). Existe porque una
+  // investigación real tarda más de lo que aguanta un request HTTP: el
+  // trabajo sigue después de responder y el resultado queda acá para que
+  // el siguiente turno lo lea ya listo.
+  | "research_result"
   // Acción de mutación propuesta por OpenCode dentro de UN turno de Atlas
   // (ver opencode-mcp-tools.ts, propose_action) -- sessionId acá es el
   // turnId, no el sessionId de chat, para que turnos concurrentes/reintentos
