@@ -384,11 +384,22 @@ const GRUPOS: { patron: RegExp; herramientas: string[] }[] = [
   },
 ];
 
+// Cuando el pedido no cae en ningún grupo (ej. "¿cómo está el sistema?"), NO
+// se mandan las 34: se manda el núcleo + un puñado de estados generales.
+// Medido: con el respaldo de "mandar todas", ese pedido seguía tardando 45-77s
+// mientras uno que sí matcheaba bajó de 69s a 10,6s. El núcleo cubre de sobra
+// las preguntas generales del negocio; si de verdad hiciera falta algo
+// específico, el admin lo va a nombrar y ahí sí matchea su grupo.
+const GENERAL_EXTRA = ["whatsapp_status", "payment_status", "fb_status", "list_recent_conversations"];
+
 function herramientasRelevantes(pedido?: string): Set<string> | null {
-  if (!pedido || pedido.trim().length < 3) return null; // sin pista: mandar todas
+  if (!pedido || pedido.trim().length < 3) return null; // sin pista real: mandar todas
   const activos = GRUPOS.filter((g) => g.patron.test(pedido));
-  if (activos.length === 0) return null; // no matcheó nada: mandar todas
   const set = new Set(NUCLEO);
+  if (activos.length === 0) {
+    for (const h of GENERAL_EXTRA) set.add(h);
+    return set;
+  }
   for (const g of activos) for (const h of g.herramientas) set.add(h);
   return set;
 }
