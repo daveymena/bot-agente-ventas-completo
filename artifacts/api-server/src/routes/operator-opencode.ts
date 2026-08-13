@@ -380,6 +380,37 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
         .join("\n\n");
       let text = historyText ? `${historyText}\n\nAdmin: ${prompt}` : `Admin: ${prompt}`;
 
+      // ── Pedidos de varias partes: se atiende UNA por vez ─────────────────
+      // Idea del admin, y es la solución correcta al problema de fondo en vez
+      // de un parche de tiempos: "¿por qué no dividimos el pedido para que no
+      // haga todo de golpe?". Reproducido en vivo, "mostrame el copy, la
+      // estrategia, la segmentación, el seguimiento y el presupuesto" tardaba
+      // 130-135s -- contra el techo del proxy (~150s) -- porque el modelo
+      // intentaba resolver las cinco cosas en un solo turno.
+      //
+      // Ahora el servidor detecta que son varias y le pide SOLO la primera,
+      // avisándole al admin qué queda pendiente. Cada parte entra holgada en
+      // el tiempo disponible y el admin ve avance real en vez de una
+      // disculpa. No depende de que el modelo se autolimite.
+      let partesPendientes: string[] = [];
+      const CONECTORES = /,| y (?=el |la |los |las |un |una )/i;
+      const crudo = String(prompt).trim();
+      if (crudo.length > 60) {
+        const partes = crudo
+          .split(CONECTORES)
+          .map((p) => p.trim())
+          .filter((p) => p.length > 3);
+        if (partes.length >= 3) {
+          const primera = partes[0];
+          partesPendientes = partes.slice(1);
+          text +=
+            `\n\n[SISTEMA] El admin pidió VARIAS cosas en un solo mensaje. Resolvé SOLO esta primera: "${primera}". ` +
+            `NO abordes las demás todavía (${partesPendientes.join(", ")}) -- el sistema se las va a ofrecer después. ` +
+            `Hacer todo junto no entra en una sola respuesta y termina fallando. Concentrate en esa primera parte y hacela bien.`;
+          progreso(`Resolviendo lo primero: ${primera.slice(0, 40)}...`);
+        }
+      }
+
       // ── Investigación garantizada por el SERVIDOR, no por el modelo ──────
       // Verificado en vivo (2026-08-12), y es el problema más grave que
       // apareció: ante "investigá X", el modelo contesta "estoy investigando,
@@ -567,6 +598,15 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
       // Como el prompt no alcanza, el sistema lo desmiente: solo hay
       // investigación real si LA HIZO EL SERVIDOR en este turno.
       let finalReplyVerificado = finalReply;
+
+      // Si el pedido se dividió, cerrar diciéndole al admin qué falta. Sin
+      // esto parecería que Atlas ignoró la mitad de lo que pidió.
+      if (partesPendientes.length && finalReplyVerificado) {
+        finalReplyVerificado +=
+          `\n\n📋 Tu pedido tenía varias partes. Resolví la primera; falta:\n` +
+          partesPendientes.map((p, i) => `${i + 1}. ${p}`).join("\n") +
+          `\n\nDecime "seguí" y voy con la próxima (de a una salen mejor y más rápido).`;
+      }
       const AFIRMA_HABER_INVESTIGADO = /\b(busqu[ée]|investigu[ée]|seg[uú]n (?:mi|la) (?:b[uú]squeda|investigaci[oó]n)|us[ée] (?:la herramienta )?(?:websearch|web_search)|resultados reales|encontr[ée] en internet|fuentes? (?:reales?|encontradas?))/i;
       if (!huboInvestigacionReal && AFIRMA_HABER_INVESTIGADO.test(finalReplyVerificado || "")) {
         logger.warn({ tenantId, sessionId }, "[AtlasOpenCode] El modelo afirmó haber investigado sin que hubiera búsqueda real -- se corrige la respuesta");
