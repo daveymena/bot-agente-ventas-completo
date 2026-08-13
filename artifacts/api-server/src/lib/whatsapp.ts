@@ -357,8 +357,96 @@ export class WhatsAppManager {
   private consecutiveSendFailures = 0;
   private sendingPausedUntil: number | null = null;
 
+  // ── Calentamiento del número ──────────────────────────────────────────────
+  // Un chip recién activado que manda 400 mensajes el primer día es la receta
+  // más directa para que WhatsApp lo restrinja: los números nuevos arrancan
+  // con reputación cero y el volumen alto de entrada es la señal más fuerte.
+  // El tope real es el MENOR entre el límite del plan y el del calentamiento,
+  // que sube solo con los días de operación.
+  private diasOperandoCache: { valor: number; expira: number } | null = null;
+
+  // Texto normalizado -> destinatarios distintos a los que ya se le mandó.
+  // Mandar el MISMO mensaje palabra por palabra a mucha gente es otra señal
+  // fuerte de automatización (más que el volumen en sí).
+  private textosEnviados = new Map<string, { destinos: Set<string>; desde: number }>();
+
   constructor(tenant?: TenantContext) {
     this.currentTenant = tenant || tenantManager.getDefaultTenant();
+  }
+
+  /** Días que lleva operando este número, según su primer mensaje saliente. */
+  private async diasOperando(): Promise<number> {
+    const ahora = Date.now();
+    if (this.diasOperandoCache && ahora < this.diasOperandoCache.expira) return this.diasOperandoCache.valor;
+    let dias = 999; // ante la duda, NO restringir a un número que ya venía operando
+    try {
+      const tenantId = this.currentTenant?.id;
+      const [fila] = await db
+        .select({ primero: messages.createdAt })
+        .from(messages)
+        .innerJoin(conversations, eq(messages.conversationId, conversations.id))
+        .where(eq(conversations.tenantId, tenantId as number))
+        .orderBy(messages.createdAt)
+        .limit(1);
+      if (fila?.primero) {
+        dias = Math.floor((ahora - new Date(fila.primero).getTime()) / 86_400_000);
+      } else {
+        dias = 0; // sin historial: número nuevo, arranca en la franja más baja
+      }
+    } catch {
+      /* si falla la consulta se deja 999 -- no bloquear por un problema de BD */
+    }
+    this.diasOperandoCache = { valor: dias, expira: ahora + 60 * 60 * 1000 };
+    return dias;
+  }
+
+  /** Tope diario del calentamiento según los días operando. */
+  private topeCalentamiento(dias: number): number {
+    if (dias <= 2) return 20;
+    if (dias <= 6) return 50;
+    if (dias <= 13) return 120;
+    if (dias <= 20) return 250;
+    return Number.MAX_SAFE_INTEGER; // ya "caliente": manda el límite del plan
+  }
+
+  /**
+   * Controles que necesitan consultar datos (calentamiento y repetición de
+   * contenido). Van aparte de enforceSendLimits() porque esa es síncrona.
+   * Lanza con un mensaje entendible: quien llama decide si avisar al admin.
+   */
+  private async verificarProteccionesAsync(texto: string, destino: string): Promise<void> {
+    // 1) Calentamiento
+    const dias = await this.diasOperando();
+    const tope = this.topeCalentamiento(dias);
+    if (tope !== Number.MAX_SAFE_INTEGER) {
+      const desdeHace24h = Date.now() - 86_400_000;
+      const enviadosHoy = this.sentTimestampsMs.filter((t) => t >= desdeHace24h).length;
+      if (enviadosHoy >= tope) {
+        throw new Error(
+          `Este número lleva ${dias} día(s) operando, así que está en período de calentamiento: máximo ${tope} mensajes por día. ` +
+            `Mandar más de entrada es la causa más común de que WhatsApp restrinja un número nuevo. El tope sube solo con los días.`,
+        );
+      }
+    }
+
+    // 2) Mismo texto a muchos destinatarios distintos
+    const MAX_DESTINOS_MISMO_TEXTO = Number(process.env.WA_MAX_DESTINOS_MISMO_TEXTO) || 5;
+    const clave = texto.toLowerCase().replace(/\s+/g, " ").replace(/[^\p{L}\p{N} ]/gu, "").trim().slice(0, 160);
+    if (clave.length >= 25) { // los mensajes muy cortos ("ok", "gracias") se repiten naturalmente
+      const haceUnaHora = Date.now() - 60 * 60 * 1000;
+      for (const [k, v] of this.textosEnviados) if (v.desde < haceUnaHora) this.textosEnviados.delete(k);
+
+      const reg = this.textosEnviados.get(clave) || { destinos: new Set<string>(), desde: Date.now() };
+      if (!reg.destinos.has(destino) && reg.destinos.size >= MAX_DESTINOS_MISMO_TEXTO) {
+        throw new Error(
+          `Este MISMO texto ya se envió a ${reg.destinos.size} personas distintas en la última hora. ` +
+            `Repetir un mensaje palabra por palabra es una de las señales más fuertes de automatización para WhatsApp. ` +
+            `Variá el mensaje (saludo, orden de las ideas, cierre) antes de seguir.`,
+        );
+      }
+      reg.destinos.add(destino);
+      this.textosEnviados.set(clave, reg);
+    }
   }
 
   /**
@@ -1097,6 +1185,7 @@ export class WhatsAppManager {
   async sendText(phone: string, text: string, originalJid?: string) {
     if (!this.sock || this.state !== "connected") throw new Error("WhatsApp no conectado");
     this.enforceSendLimits();
+    await this.verificarProteccionesAsync(text, phone);
     await this.esperarEspaciadoEntreEnvios();
     const targetJid = originalJid || `${phone}@s.whatsapp.net`;
 
