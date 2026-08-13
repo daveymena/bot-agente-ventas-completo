@@ -642,6 +642,26 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
       // investigación real si LA HIZO EL SERVIDOR en este turno.
       let finalReplyVerificado = finalReply;
 
+
+      // Si el pedido se dividió, cerrar diciéndole al admin qué falta. Sin
+      // esto parecería que Atlas ignoró la mitad de lo que pidió.
+      if (partesPendientes.length && finalReplyVerificado) {
+        finalReplyVerificado +=
+          `\n\n📋 Tu pedido tenía varias partes. Resolví la primera; falta:\n` +
+          partesPendientes.map((p, i) => `${i + 1}. ${p}`).join("\n") +
+          `\n\nDecime "seguí" y voy con la próxima (de a una salen mejor y más rápido).`;
+      }
+      const AFIRMA_HABER_INVESTIGADO = /\b(busqu[ée]|investigu[ée]|seg[uú]n (?:mi|la) (?:b[uú]squeda|investigaci[oó]n)|us[ée] (?:la herramienta )?(?:websearch|web_search)|resultados reales|encontr[ée] en internet|fuentes? (?:reales?|encontradas?))/i;
+      if (!huboInvestigacionReal && AFIRMA_HABER_INVESTIGADO.test(finalReplyVerificado || "")) {
+        logger.warn({ tenantId, sessionId }, "[AtlasOpenCode] El modelo afirmó haber investigado sin que hubiera búsqueda real -- se corrige la respuesta");
+        finalReplyVerificado =
+          `${finalReplyVerificado}\n\n⚠️ Aviso automático: en este mensaje NO se hizo ninguna búsqueda web real, ` +
+          `así que lo de arriba sale del conocimiento general del modelo y no de fuentes verificadas hoy. ` +
+          `No lo tomes como dato comprobado. Pedime que lo verifique y busco de verdad antes de que decidas nada con esto.`;
+      }
+
+      let plannedActions = await drainDraftPlan(tenantId, turnId);
+
       // ── "Ya lo hice" cuando NO hizo nada ─────────────────────────────────
       // El problema más grave de todos, reportado por el admin con la
       // conversación entera en la mano (2026-08-12): Atlas escribía
@@ -665,25 +685,6 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
           `${finalReplyVerificado}\n\n⚠️ Corrección automática: **todavía no se creó ni guardó nada.** ` +
           `Lo de arriba es una PROPUESTA. Recién se ejecuta cuando confirmes acá abajo.`;
       }
-
-      // Si el pedido se dividió, cerrar diciéndole al admin qué falta. Sin
-      // esto parecería que Atlas ignoró la mitad de lo que pidió.
-      if (partesPendientes.length && finalReplyVerificado) {
-        finalReplyVerificado +=
-          `\n\n📋 Tu pedido tenía varias partes. Resolví la primera; falta:\n` +
-          partesPendientes.map((p, i) => `${i + 1}. ${p}`).join("\n") +
-          `\n\nDecime "seguí" y voy con la próxima (de a una salen mejor y más rápido).`;
-      }
-      const AFIRMA_HABER_INVESTIGADO = /\b(busqu[ée]|investigu[ée]|seg[uú]n (?:mi|la) (?:b[uú]squeda|investigaci[oó]n)|us[ée] (?:la herramienta )?(?:websearch|web_search)|resultados reales|encontr[ée] en internet|fuentes? (?:reales?|encontradas?))/i;
-      if (!huboInvestigacionReal && AFIRMA_HABER_INVESTIGADO.test(finalReplyVerificado || "")) {
-        logger.warn({ tenantId, sessionId }, "[AtlasOpenCode] El modelo afirmó haber investigado sin que hubiera búsqueda real -- se corrige la respuesta");
-        finalReplyVerificado =
-          `${finalReplyVerificado}\n\n⚠️ Aviso automático: en este mensaje NO se hizo ninguna búsqueda web real, ` +
-          `así que lo de arriba sale del conocimiento general del modelo y no de fuentes verificadas hoy. ` +
-          `No lo tomes como dato comprobado. Pedime que lo verifique y busco de verdad antes de que decidas nada con esto.`;
-      }
-
-      let plannedActions = await drainDraftPlan(tenantId, turnId);
 
       // ── Preguntar y proponer a la vez es contradictorio ──────────────────
       // Visto en vivo (2026-08-12): Atlas preguntó "¿para cuál curso querés
