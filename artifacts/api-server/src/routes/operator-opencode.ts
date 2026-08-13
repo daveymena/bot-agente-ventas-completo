@@ -465,6 +465,15 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
         // Menos que esto no alcanza ni para el intento más rápido: seguir
         // intentando desde acá solo garantiza pasarse del corte del proxy.
         const PISO_UTIL_MS = 8_000;
+        // TECHO por candidato no-último. Reproducido en vivo (2026-08-12) con
+        // un pedido grande ("mostrame el copy, la estrategia, la
+        // segmentación, el seguimiento y el presupuesto"): el primer
+        // candidato se comía ~100s, fallaba, y a los tres siguientes les
+        // quedaban 8s cada uno -- ninguno alcanzaba a responder y el admin
+        // terminaba viendo "esto está tardando". Acotando el primero a 55s,
+        // la cadena entera tiene margen real: si el preferido no puede, el
+        // respaldo gratis (rápido) SÍ llega a contestar algo útil.
+        const TECHO_POR_CANDIDATO_MS = 55_000;
         let ultimo: { text: string; error?: string } = { text: "", error: "sin candidatos" };
         for (let i = 0; i < cadena.length; i++) {
           const model = cadena[i];
@@ -487,7 +496,9 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
           // candidato -- el preferido -- fallara SIEMPRE en esos casos.
           const timeoutCandidato = Math.min(
             restante,
-            esUltimo ? restante : Math.max(restante - RESERVA_RESPALDO_MS, PISO_UTIL_MS),
+            esUltimo
+              ? restante
+              : Math.min(Math.max(restante - RESERVA_RESPALDO_MS, PISO_UTIL_MS), TECHO_POR_CANDIDATO_MS),
           );
           try {
             modeloUsado = model;
