@@ -39,6 +39,8 @@ import { paraMarkdown } from "./code-agent";
 import { describePlannedAction, buildMcpToolRegistry, drainDraftPlan } from "../lib/opencode-mcp-tools";
 import { mintTurnToken } from "../lib/opencode-turn-token";
 import { getAppUrl } from "../lib/app-url";
+import { db, products } from "@workspace/db";
+import { eq, desc } from "drizzle-orm";
 
 const router = Router();
 
@@ -380,6 +382,48 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
         .join("\n\n");
       let text = historyText ? `${historyText}\n\nAdmin: ${prompt}` : `Admin: ${prompt}`;
 
+      // Un pedido de anuncio/campaña/publicación. Se declara acá arriba
+      // porque lo usan dos bloques: el que pregunta por el producto faltante
+      // (abajo) y el que dispara la investigación previa.
+      const PEDIDO_DE_ANUNCIO = /(cre[aá]|prepar[aá]|arm[aá]|gener[aá]|hac[eé]|dise[ñn])\w*\s+(un\s+|el\s+|la\s+|una\s+)?(anuncio|campa|publicaci|post|ad)/i;
+
+      // ── Anuncio sin producto: preguntar ANTES de gastar un turno ─────────
+      // Pedido del admin: "antes de ponerse a inventar debería pedir la
+      // información si no se la dan". La regla del prompt no alcanzó --
+      // probado en vivo con "crea un anuncio": el modelo NO preguntó, eligió
+      // productos por su cuenta ("elegidos por relevancia y demanda actual")
+      // y tardó 125s en hacerlo.
+      //
+      // Acá no hace falta un modelo para saber que falta el dato: si el
+      // pedido es de anuncio y no nombra ningún producto ni id, se pregunta
+      // DIRECTO, sin llamar al modelo. Sale en ~2s, es imposible que invente
+      // y el admin elige él.
+      if (PEDIDO_DE_ANUNCIO.test(String(prompt))) {
+        const contexto = `${historyText}\n${prompt}`.toLowerCase();
+        const suyos = await db
+          .select({ id: products.id, name: products.name })
+          .from(products)
+          .where(eq(products.tenantId, tenantId))
+          .orderBy(desc(products.id))
+          .limit(200);
+        const mencionaProducto = suyos.some((p: { id: number; name: string }) => {
+          if (new RegExp(`\\b${p.id}\\b`).test(contexto)) return true;
+          const palabras = String(p.name).toLowerCase().split(/[^\p{L}\p{N}]+/u).filter((w) => w.length >= 5);
+          return palabras.length > 0 && palabras.some((w) => contexto.includes(w));
+        });
+
+        if (!mencionaProducto && suyos.length > 0) {
+          const muestra = suyos.slice(0, 8).map((p: { id: number; name: string }) => `• ${p.name} (id ${p.id})`).join("\n");
+          const reply = paraMarkdown(toEmojiStyle(
+            `¿Para cuál producto querés el anuncio? Decime el nombre o el número y lo preparo.\n\n${muestra}` +
+            (suyos.length > 8 ? `\n\n…y ${suyos.length - 8} más. Si querés, decime el nombre y lo busco.` : ""),
+          ));
+          await saveArchitectTurn(tenantId, sessionId, "assistant", reply);
+          logger.info({ tenantId }, "[AtlasOpenCode] Pidieron un anuncio sin decir de qué producto -- se pregunta sin gastar un turno de modelo");
+          return finish({ reply, status: "info", needsContinuation: false });
+        }
+      }
+
       // ── Pedidos de varias partes: se atiende UNA por vez ─────────────────
       // Idea del admin, y es la solución correcta al problema de fondo en vez
       // de un parche de tiempos: "¿por qué no dividimos el pedido para que no
@@ -437,7 +481,6 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
       // "Todavía no investigaste nada en esta sesión". El candado hacía bien
       // su trabajo y aun así el admin quedaba trabado. Si el anuncio necesita
       // investigación, se investiga y punto.
-      const PEDIDO_DE_ANUNCIO = /\b(cre[aá]|prepar[aá]|arm[aá]|gener[aá]|hac[eé]|dise[ñn])\w*\s+(un\s+|el\s+|la\s+|una\s+)?(anuncio|campa|publicaci|post|ad\b)/i;
       if (PEDIDO_DE_INVESTIGACION.test(String(prompt)) || PEDIDO_DE_ANUNCIO.test(String(prompt))) {
         progreso("Investigando en internet...");
         // Sincrónica y corta a propósito (ver investigacionRapida): el
