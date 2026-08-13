@@ -618,6 +618,33 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
 
       let plannedActions = await drainDraftPlan(tenantId, turnId);
 
+      // ── Preguntar y proponer a la vez es contradictorio ──────────────────
+      // Visto en vivo (2026-08-12): Atlas preguntó "¿para cuál curso querés
+      // el copy?" y en el MISMO mensaje propuso un plan para el producto 123.
+      // El admin no sabe si le están preguntando o pidiéndole confirmar, y si
+      // confirma sin querer se ejecuta sobre un producto que él nunca eligió.
+      // Pedido explícito del admin: "antes de ponerse a inventar debería
+      // pedir la información si no se la dan".
+      //
+      // Si la respuesta termina preguntando por un dato que falta, se
+      // descarta el plan: primero se responde la pregunta, después se
+      // propone. La pregunta queda; lo que se cae es la acción a medias.
+      // Se mira solo el CIERRE de la respuesta (últimos 250 caracteres): una
+      // pregunta por un dato faltante va al final. Así no se confunde con una
+      // pregunta retórica en el medio del texto. "¿Confirmas?" no entra
+      // porque no pide un dato, pide una decisión sobre algo ya armado.
+      const PIDE_UN_DATO = /¿\s*(para |de |con |a )?(cu[aá]l|qu[eé]|cu[aá]nto|qui[eé]n|d[oó]nde)\b[^?]{0,140}\?/i;
+      const cierre = String(finalReply || "").trim().slice(-250);
+      const terminaPreguntando = PIDE_UN_DATO.test(cierre);
+      if (terminaPreguntando && plannedActions.length > 0) {
+        logger.info(
+          { tenantId, acciones: plannedActions.length },
+          "[AtlasOpenCode] El modelo preguntó y propuso a la vez -- se descarta el plan y queda la pregunta",
+        );
+        await clearPendingPlan(tenantId, sessionId).catch(() => undefined);
+        plannedActions = [];
+      }
+
       // ── Insistencia dirigida cuando pidió una acción y no la ejecutó ─────
       // Verificado en vivo (2026-08-12): ante "creá el anuncio", el modelo
       // redacta un copy excelente, pregunta "¿te gusta?" y NO llama
