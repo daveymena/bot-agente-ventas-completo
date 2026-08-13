@@ -565,6 +565,43 @@ export async function runAgentReply(conversationId: number) {
     return null;
   }
 
+  // ── Límite del plan contratado ────────────────────────────────────────────
+  // AGUJERO REAL cerrado el 2026-08-12: el límite mensual de mensajes existía
+  // solo como middleware HTTP, pero los mensajes de WhatsApp entran por el
+  // socket de Baileys y NUNCA pasan por una ruta HTTP -- así que el bot
+  // respondía sin límite alguno. Un cliente del plan más barato podía generar
+  // decenas de miles de respuestas con IA que paga el dueño de la plataforma,
+  // sin ningún tope. Es fuga de dinero directa, no un detalle de producto.
+  //
+  // Este es el punto ÚNICO por donde pasan todas las respuestas del agente
+  // (WhatsApp, Messenger y comentarios de Facebook), así que el candado va
+  // acá y cubre todos los canales de una.
+  if (convo.tenantId) {
+    try {
+      const { checkMessageLimit } = await import("../middleware/featureLimits");
+      const { tenantManager } = await import("./tenantManager");
+      const tenant = await tenantManager.getTenantById(convo.tenantId);
+      const plan = (tenant as any)?.plan || (tenant as any)?.subscriptionPlan || "basic";
+      const limite = await checkMessageLimit(convo.tenantId, plan);
+      if (!limite.allowed) {
+        logger.warn(
+          { tenantId: convo.tenantId, plan, usados: limite.current, tope: limite.limit },
+          "[Agent] Límite mensual del plan alcanzado -- no se genera respuesta con IA",
+        );
+        // Se devuelve null (no responde) en vez de lanzar: el mensaje del
+        // cliente igual queda guardado, y el dueño del negocio ve el aviso en
+        // su panel. Contestarle al cliente final "tu plan se acabó" sería
+        // exponerle al comprador un problema comercial que no es suyo.
+        return null;
+      }
+    } catch (e: any) {
+      // Ante un fallo del chequeo NO se bloquea la respuesta: dejar mudo al
+      // bot de un cliente que sí pagó es peor que dejar pasar algunos
+      // mensajes de más.
+      logger.warn({ err: e?.message, tenantId: convo.tenantId }, "[Agent] No se pudo verificar el límite del plan; se responde igual");
+    }
+  }
+
   // ── 2. Cargar memoria estructurada desde BD (fuente única de verdad) ──────
   t1 = Date.now();
   const memory = await loadConversationMemory(conversationId);
