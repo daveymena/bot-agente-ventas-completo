@@ -28,17 +28,19 @@ import {
 } from "./app-operator";
 import { logger } from "./logger";
 
-// CAUSA RAÍZ de que Atlas nunca investigara (encontrada 2026-08-12): acá se
-// excluían `web_search` y `deep_research` porque el plan original asumía que
-// OpenCode iba a usar SU PROPIO buscador nativo. Pero ese buscador nativo se
-// colgaba y quemaba el turno entero, así que se apagaron las herramientas
-// nativas en operator-opencode.ts... y con esta exclusión todavía acá, el
-// modelo quedó SIN NINGUNA forma de investigar: contestaba "voy a investigar"
-// y no pasaba nada, sin dejar una sola fila en `architect_memory`. Ahora se
-// exponen las nuestras, que además corren en segundo plano y no bloquean.
-// Se deja el Set (vacío) a propósito: es el lugar natural donde excluir algo
-// del puente MCP si hiciera falta más adelante.
-const EXCLUDED_FROM_MCP = new Set<string>([]);
+// Las herramientas de investigación quedan FUERA del puente a propósito: el
+// servidor ya investiga solo antes de hablarle al modelo (investigacionRapida
+// en operator-opencode.ts) y le pasa los hallazgos en el contexto.
+//
+// Por qué se sacaron (2026-08-12, con el admin trabado en vivo): sus
+// descripciones venían de la época del segundo plano y le decían al modelo
+// "arranca la investigación y decile al admin que te escriba en un minuto".
+// El modelo obedecía al pie de la letra: contestaba "estoy investigando, te
+// aviso en un minuto", NO llamaba nada, y el turno terminaba sin borrador.
+// El admin lo vivía como "promete y nunca publica". Mientras la herramienta
+// exista con esa semántica, el modelo va a seguir prometiendo -- sacarla es
+// lo único que lo corta de raíz.
+const EXCLUDED_FROM_MCP = new Set<string>(["research_start", "research_check", "deep_research"]);
 
 /** JSON Schema mínimo por herramienta, a mano -- son datos sensibles
  * (scoping, montos, ids), preferible explícito a inferido del string libre
@@ -392,7 +394,7 @@ const GRUPOS: { patron: RegExp; herramientas: string[] }[] = [
     // anuncio SIEMPRE puede necesitar investigar. Sin ellas en el subconjunto,
     // el modelo no tenía con qué cumplir el requisito y el pedido moría con
     // "todavía no investigaste nada" (reportado en vivo por el admin).
-    herramientas: ["fb_status", "fb_suggest_audience", "fb_page_can_post", "fb_page_preview", "fb_list_drafts", "fb_agent_logs", "fb_campaign_metrics", "fb_list_adsets", "fb_ad_library", "generate_image", "search_product_images", "web_search", "research_start", "research_check"],
+    herramientas: ["fb_status", "fb_suggest_audience", "fb_page_can_post", "fb_page_preview", "fb_list_drafts", "fb_agent_logs", "fb_campaign_metrics", "fb_list_adsets", "fb_ad_library", "generate_image", "search_product_images", "web_search"],
   },
   {
     patron: /whatsapp|wasap|conversaci|chat|mensaje|cliente|lead/i,
@@ -400,7 +402,7 @@ const GRUPOS: { patron: RegExp; herramientas: string[] }[] = [
   },
   {
     patron: /investig|averigu|indag|research|tendencia|competencia|mercado|benchmark|qu[eé] funciona/i,
-    herramientas: ["research_start", "research_check", "fb_ad_library", "web_search", "web_fetch", "deep_research"],
+    herramientas: ["fb_ad_library", "web_search", "web_fetch"],
   },
   {
     patron: /precio|cobr|pago|vender|venta|ingreso|factur|suscrip/i,
