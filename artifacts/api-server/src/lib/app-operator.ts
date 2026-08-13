@@ -370,6 +370,31 @@ export interface ToolResult {
  * prompt. Ahora cualquiera de las dos se comporta igual de bien.
  */
 /**
+ * Saca el término de búsqueda para la Biblioteca de Anuncios a partir de lo
+ * que pidió el admin. La biblioteca busca por palabra clave, así que mandarle
+ * la frase entera ("investigá la competencia de cursos de piano en Colombia y
+ * creá el anuncio con ángulo de fe") no encuentra nada -- hay que quedarse
+ * con el sustantivo del nicho.
+ */
+function extraerNichoParaAnuncios(instruccion: string): string {
+  const RUIDO = new RegExp(
+    "\\b(investig\\w*|averigu\\w*|indag\\w*|analiz\\w*|busc\\w*|cre\\w*|prepar\\w*|arm\\w*|gener\\w*|hac\\w*|" +
+      "la|el|los|las|un|una|de|del|en|para|con|que|qu[eé]|sobre|mi|mis|su|sus|y|o|" +
+      "competencia|mercado|tendencia\\w*|angulo\\w*|[aá]ngulo\\w*|anuncio\\w*|campa\\w*|publicaci\\w*|" +
+      "colombia|activos?|ahora|hoy|funcionan?|mejor\\w*|destino|whatsapp|presupuesto|bajo|fe)\\b",
+    "gi",
+  );
+  const limpio = instruccion
+    .replace(RUIDO, " ")
+    .replace(/[^\p{L}\p{N}\s]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  // Se queda con las 3 primeras palabras con contenido (ej. "cursos piano").
+  const termino = limpio.split(" ").filter((w) => w.length > 3).slice(0, 3).join(" ");
+  return termino || instruccion.slice(0, 60);
+}
+
+/**
  * Investigación CORTA y sincrónica, pensada para entrar dentro del turno.
  *
  * Por qué existe (2026-08-12): el agente externo tarda ~139s cuando se le
@@ -387,17 +412,41 @@ export async function investigacionRapida(
   instruccion: string,
   _presupuestoMs: number,
 ): Promise<{ ok: true; texto: string } | { ok: false; motivo: string }> {
-  // Se usa el buscador PROPIO (`runWebSearch`, 5 motores en paralelo, ~15s),
-  // no los agentes externos. Medido en vivo (2026-08-12): un agente externo
-  // tarda ~139s y NO responde ni en 120s aunque se le pida explícitamente
-  // "máximo 3 búsquedas, 250 palabras" -- ignora el límite. Con el corte del
-  // proxy en ~150s, nunca va a entrar en un turno. El buscador propio sí, y
-  // devuelve exactamente lo que hace falta: hallazgos reales CON su URL,
-  // que es lo que permite fundamentar sin inventar.
+  // ORDEN DE FUENTES, por confiabilidad medida (2026-08-12):
+  //
+  // 1º la BIBLIOTECA DE ANUNCIOS DE META. Es la mejor fuente para esto y la
+  //    única que demostró funcionar de verdad: devuelve los anuncios que la
+  //    competencia está PAGANDO hoy, con su texto completo. Para decidir un
+  //    ángulo de venta, eso vale más que cualquier artículo.
+  // 2º el buscador propio (`runWebSearch`) como respaldo.
+  //
+  // Antes se usaba solo el buscador propio y fallaba casi siempre: no hay
+  // clave de Tavily/Brave configurada (Brave pasó a ser de pago) y DuckDuckGo
+  // bloquea seguido, así que devolvía cero resultados. Eso disparaba el
+  // candado de fb_ad_draft ("todavía no investigaste nada") y dejaba al admin
+  // sin poder crear el anuncio -- reportado en vivo. El candado hacía bien su
+  // trabajo; lo que faltaba era una fuente que funcionara.
+  const terminoNicho = extraerNichoParaAnuncios(instruccion);
+  try {
+    const r = await executeAction("fb_ad_library", { query: terminoNicho, limite: 8 }, ctx);
+    if (r.ok && r.data?.anuncios?.length) {
+      // recordResearchEvidence ya lo hace fb_ad_library internamente.
+      return {
+        ok: true,
+        texto:
+          `Anuncios REALES que la competencia está pagando ahora mismo (Biblioteca de Anuncios de Meta, "${terminoNicho}"):\n\n` +
+          r.data.anuncios.map((a: string, i: number) => `${i + 1}. ${a}`).join("\n\n"),
+      };
+    }
+    logger.info({ motivo: r.summary?.slice(0, 160) }, "[AppOperator] La Biblioteca de Anuncios no dio resultados; se prueba el buscador web");
+  } catch (e: any) {
+    logger.warn({ err: e?.message }, "[AppOperator] Falló la Biblioteca de Anuncios; se prueba el buscador web");
+  }
+
   try {
     const { engine, results } = await runWebSearch(instruccion, 8);
     if (!results.length) {
-      return { ok: false, motivo: `ningún buscador devolvió resultados para "${instruccion.slice(0, 80)}"` };
+      return { ok: false, motivo: `ni la Biblioteca de Anuncios ni los buscadores devolvieron resultados para "${terminoNicho}"` };
     }
     const texto = results
       .map((r, i) => `${i + 1}. ${r.title}\n   Fuente: ${r.url}\n   ${r.snippet}`)
