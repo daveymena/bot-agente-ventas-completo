@@ -296,6 +296,37 @@ async function proposeAction(
   if (isReadOnlyTool(tool)) return { ok: false, summary: `"${tool}" es de solo lectura -- llamala directo, no hace falta proponerla ni confirmarla.` };
 
   const toolArgs = args?.args && typeof args.args === "object" ? args.args : {};
+
+  // Datos obligatorios: sin esto el admin veía planes tipo "Generar borrador
+  // para el producto ?" (visto en vivo, 2026-08-12) -- imposible de aprobar
+  // con criterio, y si lo aprobaba igual, la ejecución fallaba después. Mejor
+  // rechazar la propuesta acá y decirle al modelo qué le falta, que dejarlo
+  // llegar al admin con un signo de pregunta donde va un id.
+  const OBLIGATORIOS: Record<string, string[]> = {
+    fb_ad_draft: ["productId"],
+    fb_create_ad: ["productId"],
+    fb_page_publish: ["productId"],
+    set_product_image: ["productId", "imageUrl"],
+    update_product: ["id"],
+    delete_product: ["id"],
+    fb_update_draft_creative: ["draftId"],
+    fb_pause_campaign: ["campaignId"],
+    fb_resume_campaign: ["campaignId"],
+    fb_set_budget: ["adSetId", "dailyBudget"],
+  };
+  const faltantes = (OBLIGATORIOS[tool] || []).filter(
+    (k) => toolArgs[k] === undefined || toolArgs[k] === null || toolArgs[k] === "" || toolArgs[k] === "?",
+  );
+  if (faltantes.length) {
+    return {
+      ok: false,
+      summary:
+        `No se puede proponer "${tool}" sin ${faltantes.join(" y ")}. ` +
+        `Averigualo primero con una herramienta de lectura (por ejemplo list_products para el id del producto) ` +
+        `y volvé a proponer la acción con el dato real. No la propongas con un valor vacío ni inventado.`,
+    };
+  }
+
   const description = describePlannedAction({ tool, args: toolArgs });
 
   await db.insert(architectMemory).values({

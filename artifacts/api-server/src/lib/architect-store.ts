@@ -229,7 +229,13 @@ export function isApproval(text: string): boolean {
   // ES la confirmación. "sí pero cambia el texto" NO debe contar como
   // aprobación — por eso se exige que sea (casi) todo el mensaje, no un
   // prefijo de una frase más larga con un "pero/pero que/cambia" después.
-  if (/^(s[ií]|sip|ok(ay)?|dale|confirmo|confirmado|apruebo|adelante|proced[eo]|listo|claro|hazlo|ejec[uú]talo|correcto|perfecto|va|eso)(\s+(porfa|por\s+favor|pues|ya|nomas|no\s+m[aá]s))?$/i.test(t)) {
+  // "s" SOLA cuenta como sí. Visto en vivo (2026-08-12): el admin respondió
+  // "S" a un "¿Confirmas?", no matcheaba `s[ií]` (que exige la i), el plan se
+  // borraba sin ejecutar y Atlas volvía a proponer EXACTAMENTE lo mismo --
+  // el admin confirmó tres veces seguidas y nunca pasó nada. Delante de un
+  // plan pendiente que pregunta "responde sí para ejecutar", una "s" sola no
+  // puede significar otra cosa. Mismo criterio para "sii", "yes" y "ya está".
+  if (/^(s|s[ií]+|sip|yes|ok(ay)?|dale|confirmo|confirmado|apruebo|adelante|proced[eo]|listo|claro|hazlo|ejec[uú]talo|correcto|perfecto|va|eso)(\s+(porfa|por\s+favor|pues|ya|nomas|no\s+m[aá]s))?$/i.test(t)) {
     return true;
   }
   return /^\s*(s[ií]\s+(haz|por\s+favor|adelante|dale|ejecuta|procede|confirm(o|a|ado|ada)|apruebo|estoy\s+de\s+acuerdo)|dale\s+haz|ejecuta\s+(el\s+)?plan|apruebo\s+(el\s+)?plan|confirm(o|a|ado|ada)\s+(la\s+)?ejecuci|procede\s+con\s+todo|publ[ií]calo(\s+ya)?)/i.test(t);
