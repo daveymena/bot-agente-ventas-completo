@@ -368,6 +368,31 @@ export class WhatsAppManager {
    * Lanza en vez de enviar en silencio -- no queremos que un límite superado
    * pase desapercibido.
    */
+  /**
+   * Espera lo necesario para que NUNCA salgan dos mensajes pegados a menos de
+   * ~8-20s uno del otro (con variación aleatoria, no un intervalo fijo).
+   *
+   * Por qué importa: el límite por hora/día no impide mandar 60 mensajes en
+   * 60 segundos y después parar -- y esa ráfaga es exactamente el patrón que
+   * delata a un bot y hace que WhatsApp restrinja el número. Un humano no
+   * escribe a 60 personas en un minuto. La variación aleatoria evita el otro
+   * patrón delator: intervalos perfectamente regulares.
+   *
+   * No afecta la conversación normal (una respuesta cada varios segundos ya
+   * cumple el espaciado por sí sola); solo frena los envíos en lote.
+   */
+  private ultimoEnvioMs = 0;
+  private async esperarEspaciadoEntreEnvios(): Promise<void> {
+    const MIN_MS = Number(process.env.WA_MIN_MS_ENTRE_ENVIOS) || 8000;
+    const JITTER_MS = Number(process.env.WA_JITTER_MS_ENTRE_ENVIOS) || 12000;
+    const objetivo = MIN_MS + Math.floor(Math.random() * JITTER_MS);
+    const transcurrido = Date.now() - this.ultimoEnvioMs;
+    if (this.ultimoEnvioMs > 0 && transcurrido < objetivo) {
+      await sleep(objetivo - transcurrido);
+    }
+    this.ultimoEnvioMs = Date.now();
+  }
+
   private enforceSendLimits(): void {
     const now = Date.now();
 
@@ -378,9 +403,20 @@ export class WhatsAppManager {
       );
     }
 
-    const maxPerHour = Number(process.env.WA_MAX_MSGS_PER_HOUR) || 0;
-    const maxPerDay = Number(process.env.WA_MAX_MSGS_PER_DAY) || 0;
-    if (maxPerHour <= 0 && maxPerDay <= 0) return; // sin límite configurado, no forzar nada
+    // Valores por DEFECTO, no "sin límite". Antes, si nadie configuraba las
+    // env vars, esto devolvía sin forzar nada -- y en producción no estaban
+    // configuradas (verificado 2026-08-12), así que la protección existía en
+    // el código pero NUNCA se aplicaba: el número podía mandar miles de
+    // mensajes de corrido. Un límite que hay que acordarse de encender no es
+    // una protección.
+    //
+    // Los números son conservadores a propósito: Baileys es un cliente NO
+    // oficial y el volumen alto es la causa #1 de bloqueo. 60/hora y 400/día
+    // permiten una operación de ventas normal (conversaciones reales,
+    // seguimientos) y cortan el envío masivo, que es lo que quema números.
+    // Se pueden subir por env var si un negocio lo justifica.
+    const maxPerHour = Number(process.env.WA_MAX_MSGS_PER_HOUR) || 60;
+    const maxPerDay = Number(process.env.WA_MAX_MSGS_PER_DAY) || 400;
 
     const oneHourAgo = now - 60 * 60 * 1000;
     const oneDayAgo = now - 24 * 60 * 60 * 1000;
@@ -1061,6 +1097,7 @@ export class WhatsAppManager {
   async sendText(phone: string, text: string, originalJid?: string) {
     if (!this.sock || this.state !== "connected") throw new Error("WhatsApp no conectado");
     this.enforceSendLimits();
+    await this.esperarEspaciadoEntreEnvios();
     const targetJid = originalJid || `${phone}@s.whatsapp.net`;
 
     // Estilo emoji: sin asteriscos ni viñetas de punto (más amigable/pro)
@@ -1085,6 +1122,7 @@ export class WhatsAppManager {
   async sendImage(phone: string, imageUrl: string, caption: string, originalJid?: string) {
     if (!this.sock || this.state !== "connected") throw new Error("WhatsApp no conectado");
     this.enforceSendLimits();
+    await this.esperarEspaciadoEntreEnvios();
     const jid = originalJid || `${phone}@s.whatsapp.net`;
 
     // Simular lectura + escritura (basado en el caption)
