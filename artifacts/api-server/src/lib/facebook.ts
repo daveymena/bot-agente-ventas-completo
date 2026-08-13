@@ -183,7 +183,26 @@ export class FacebookService {
     }
 
     const moneda = (await this.getAccountCurrency()) || "COP";
-    if (moneda === "COP") return { ok: true, valor: Math.round(montoCop * 100) };
+
+    // ⚠️ BUG DE PLATA REAL corregido el 2026-08-12: acá se multiplicaba SIEMPRE
+    // por 100, y para el peso colombiano eso multiplica el gasto por CIEN.
+    //
+    // Meta expresa los montos en la "unidad mínima" de la moneda de la cuenta,
+    // pero el factor depende de la moneda (su `currency offset`), no es 100
+    // para todas. El PESO COLOMBIANO tiene offset 1 -- no tiene centavos --
+    // así que un presupuesto de $10.000 COP se manda como 10000, NO como
+    // 1.000.000. Confirmado en la documentación oficial de Meta
+    // (developers.facebook.com/docs/marketing-api/currencies): COP, CLP, CRC,
+    // HUF, ISK, IDR, JPY, KRW, PYG, TWD y VND son todas offset 1.
+    //
+    // Esto explica exactamente lo que el admin venía reportando: la app decía
+    // "$10.000/día" y el Administrador de Anuncios mostraba "$1.000.000/día".
+    // No era un error de lectura suyo ni un problema de conversión de moneda:
+    // era este x100. Por suerte ninguna campaña llegó a tener conjunto de
+    // anuncios, así que el gasto real quedó en $0 -- pero si alguna hubiera
+    // arrancado, habría gastado cien veces lo pedido.
+    const SIN_DECIMALES = new Set(["COP", "CLP", "CRC", "HUF", "ISK", "IDR", "JPY", "KRW", "PYG", "TWD", "VND"]);
+    if (moneda === "COP") return { ok: true, valor: Math.round(montoCop) };
 
     // La cuenta está en otra moneda: se convierte de verdad, con la tasa en
     // vivo que ya usa el checkout (exchange-rate.ts, COP por 1 USD).
@@ -194,6 +213,15 @@ export class FacebookService {
       if (moneda === "USD") {
         const usd = montoCop / copPorUsd;
         return { ok: true, valor: Math.max(1, Math.round(usd * 100)) };
+      }
+      // Si la cuenta está en otra moneda SIN decimales (yen, won, guaraní...),
+      // no se puede convertir sin su tasa real, pero al menos que no se
+      // multiplique por 100 por descuido si algún día se agrega la conversión.
+      if (SIN_DECIMALES.has(moneda)) {
+        return {
+          ok: false,
+          message: `Tu cuenta publicitaria está en ${moneda}. Definí el presupuesto directamente en el Administrador de Anuncios de Meta para no arriesgar un monto mal convertido.`,
+        };
       }
       // Otra moneda distinta de COP y USD: no se adivina la conversión. Es
       // preferible no crear el anuncio que crearlo con un monto inventado.
