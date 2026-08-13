@@ -1788,6 +1788,54 @@ export const TOOLS: ToolDef[] = [
         };
       }
 
+      // ── Promesas comerciales inventadas ──────────────────────────────────
+      // Reportado en vivo por el admin (2026-08-12) con el copy en la mano: el
+      // anuncio decía "$60.000 COP (antes $100.000)" y "Garantía de 7 días"
+      // para un producto que NO tiene precio anterior ni garantía. Las "5
+      // reglas" del prompt ya lo prohibían explícitamente y aun así pasó --
+      // otra confirmación de que una regla de prompt no es un control.
+      //
+      // Esto no es un error de redacción: es una promesa comercial. Si sale
+      // publicada, el admin tiene que cumplírsela a quien la reclame, o
+      // quedar mal. Se valida contra los datos REALES del producto y, si la
+      // promesa no está respaldada, se rechaza la generación.
+      const [prodReal] = await db.select().from(products).where(and(eq(products.id, id), eq(products.tenantId, ctx.tenantId))).limit(1);
+      if (prodReal) {
+        const respaldo = [
+          prodReal.name,
+          prodReal.description,
+          Array.isArray(prodReal.features) ? (prodReal.features as string[]).join(" ") : "",
+          prodReal.highlight,
+        ].filter(Boolean).join(" ").toLowerCase();
+
+        const PROMESAS: { patron: RegExp; que: string }[] = [
+          { patron: /\bantes\s*\$?\s*[\d.,]+|\bprecio\s+(anterior|regular|normal)|\bde\s*\$[\d.,]+\s*a\s*\$/i, que: "un precio anterior / descuento" },
+          { patron: /\bgarant[ií]a\b|\bgarantizad/i, que: "una garantía" },
+          { patron: /\bgratis\b|\bregalo\b|\bbono\b|\bsin costo\b/i, que: "algo gratis o de regalo" },
+          { patron: /\b\d+\s*%\s*(de\s*)?(descuento|off)\b|\b2x1\b/i, que: "un descuento" },
+          { patron: /\bcupos?\s+limitados?\b|\b[uú]ltimos?\s+cupos?\b|\bsolo\s+hoy\b|\bpor\s+tiempo\s+limitado\b/i, que: "una urgencia o escasez" },
+          { patron: /\breembolso\b|\bdevoluci[oó]n\s+de\s+dinero\b/i, que: "una devolución de dinero" },
+        ];
+
+        for (const p of PROMESAS) {
+          const m = textosDelAnuncio.match(p.patron);
+          if (!m) continue;
+          // ¿El producto real respalda esa promesa? Se busca la palabra clave
+          // del match en su nombre/descripción/características.
+          const clave = m[0].toLowerCase().replace(/[^a-záéíóúñ%\d]/g, " ").trim().split(/\s+/)[0] || "";
+          if (clave && respaldo.includes(clave)) continue; // está respaldada, se deja pasar
+          return {
+            ok: false,
+            summary:
+              `El anuncio promete ${p.que} ("${m[0]}") que NO figura en los datos reales del producto "${prodReal.name}". ` +
+              `Una promesa así el admin tiene que cumplírsela a quien la reclame, así que no se puede inventar. ` +
+              `Reescribí el copy SIN eso -- vendé con lo que el producto sí tiene (precio $${Number(prodReal.price).toLocaleString("es-CO")} ${prodReal.currency}, ` +
+              `${Array.isArray(prodReal.features) && prodReal.features.length ? (prodReal.features as string[]).slice(0, 4).join(", ") : "sus beneficios reales"}) ` +
+              `y volvé a llamar la herramienta. Si el admin QUIERE ofrecer un descuento o garantía, que lo cargue primero en el producto.`,
+          };
+        }
+      }
+
       const { AdStrategist } = await import("./ad-strategist");
       const grounded = {
         hook: typeof args.hook === "string" ? args.hook.trim() || undefined : undefined,
