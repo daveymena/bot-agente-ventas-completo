@@ -32,7 +32,7 @@ import { logger } from "../lib/logger";
 import { ATLAS_SYSTEM_PROMPT_V2, executeAction, verifyMutation, investigacionRapida, type OperatorContext } from "../lib/app-operator";
 import {
   loadArchitectHistory, saveArchitectTurn, getPendingPlan, setPendingPlan,
-  clearPendingPlan, isApproval, loadRecentLessons,
+  clearPendingPlan, isApproval, isRejection, loadRecentLessons,
 } from "../lib/architect-store";
 import { toEmojiStyle } from "../lib/conversation-engine";
 import { paraMarkdown } from "./code-agent";
@@ -276,9 +276,35 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
         logger.info({ tenantId, executed: executed.length }, "[AtlasOpenCode] Plan aprobado y ejecutado");
         return finish({ reply, executed, actionsCount: executed.length, status: allOk ? "executed" : "partial_failure" });
       }
-      // Rechazo explícito o respuesta ambigua: en ambos casos se limpia el
-      // plan viejo y se re-planifica con el mensaje nuevo (mismo criterio
-      // que /operator -- solo la aprobación tiene un camino distinto).
+      // ── Respuesta ambigua: PREGUNTAR, no descartar ──────────────────────
+      // Antes, cualquier cosa que no fuera una aprobación exacta borraba el
+      // plan en silencio y se volvía a planificar desde cero. Con la
+      // conversación real en la mano (2026-08-12) se vio el resultado: el
+      // admin respondía algo corto, el plan desaparecía, Atlas proponía otra
+      // vez LO MISMO, y así en loop -- confirmó tres veces sin que se
+      // ejecutara nada, sin ninguna pista de por qué.
+      //
+      // Ahora: si la respuesta es corta y no arranca un pedido nuevo, se
+      // asume que INTENTÓ confirmar (un "oka", "sale", "hazlo pues", un dedo
+      // que erró la tecla) y se le pregunta, MANTENIENDO el plan vivo. Si es
+      // un rechazo claro o un pedido nuevo de verdad, ahí sí se descarta.
+      const respuesta = String(prompt).trim();
+      const arrancaPedidoNuevo = /\b(cre[aá]|prepar[aá]|arm[aá]|gener[aá]|hac[eé]|mostr|mu[eé]stra|dame|list[aá]|busc|investig|cambi|edit|borr|elimin|public|analiz|configur|cu[aá]nt|qu[eé]|c[oó]mo|por\s+qu[eé])/i.test(respuesta);
+      const pareceIntentoDeConfirmar = respuesta.length <= 30 && !arrancaPedidoNuevo && !isRejection(respuesta);
+
+      if (pareceIntentoDeConfirmar) {
+        const planTexto = pending.actions.map((a, i) => `${i + 1}. ${describePlannedAction(a)}`).join("\n");
+        const reply = paraMarkdown(toEmojiStyle(
+          `🤔 No me quedó claro si querés que lo haga. Sigue pendiente esto:\n\n${planTexto}\n\n` +
+          `Respondé *sí* para que lo ejecute, o decime qué cambio.`,
+        ));
+        await saveArchitectTurn(tenantId, sessionId, "assistant", reply);
+        logger.info({ tenantId, respuesta: respuesta.slice(0, 40) }, "[AtlasOpenCode] Respuesta ambigua con plan pendiente -- se pregunta en vez de descartar");
+        return finish({ reply, plan: pending.actions, status: "awaiting_confirmation" });
+      }
+
+      // Rechazo explícito o pedido nuevo de verdad: recién ahí se descarta el
+      // plan viejo y se planifica con el mensaje nuevo.
       await clearPendingPlan(tenantId, sessionId);
     }
 
