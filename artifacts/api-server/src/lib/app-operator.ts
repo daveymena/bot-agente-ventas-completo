@@ -1757,10 +1757,26 @@ export const TOOLS: ToolDef[] = [
       // sin abrir la puerta a saltarse la investigación por completo (un
       // researchNote vacío o genérico sigue sin alcanzar).
       const hasGroundedNote = typeof args.researchNote === "string" && args.researchNote.trim().length >= 40;
-      if (!hasGroundedNote && !(await hasRecentResearch(ctx))) {
+      // El copy escrito por el modelo con datos reales del producto SÍ cuenta
+      // como base verificable. Motivo (2026-08-12, con el admin trabado en
+      // vivo): el candado exigía investigación EXTERNA, pero la Biblioteca de
+      // Anuncios falla de forma intermitente (Facebook bloquea según la IP
+      // del datacenter) y no hay clave de buscador -- así que la
+      // investigación fallaba, no quedaba evidencia, el candado bloqueaba, y
+      // el admin NUNCA lograba crear un anuncio. El producto quedaba inútil.
+      //
+      // El propósito del candado es que no se INVENTE, no que sea imposible
+      // trabajar. Escribir el copy a partir del nombre, la descripción, las
+      // características y el precio REALES del producto no es inventar: es
+      // usar datos verificables. Y lo que sí protege contra la fabricación
+      // (promesas de descuentos/garantías inexistentes, marcadores sin
+      // rellenar) se valida más abajo, siempre, con o sin investigación.
+      const copyPropio = typeof args.primaryText === "string" && args.primaryText.trim().length >= 80;
+      const investigo = hasGroundedNote || (await hasRecentResearch(ctx));
+      if (!investigo && !copyPropio) {
         return {
           ok: false,
-          summary: "Todavía no investigaste nada en esta sesión (o hace más de 3 horas). Usa web_search para ver qué funciona de verdad en este nicho -- competencia, ángulos, precios -- antes de generar el borrador. No se genera copy sin esa base real.",
+          summary: "Para generar el anuncio necesito o bien una investigación reciente, o que vos escribas el copy completo (primaryText) a partir de los datos reales del producto. No se genera copy de la nada.",
         };
       }
       const tenant = await tenantManager.getTenantById(ctx.tenantId);
@@ -1857,7 +1873,16 @@ export const TOOLS: ToolDef[] = [
           undefined,
           wa ? { tipo: "whatsapp", numero: wa } : undefined,
         );
-        const groundedNote = grounded.hook || grounded.researchNote ? " (anclado en la investigación de esta sesión)" : " (plantilla genérica del nicho — no se pasó hook/angle basado en investigación)";
+        // Que el admin sepa SIEMPRE sobre qué base se escribió el anuncio.
+        // Si se hizo sin investigación externa (porque falló o no había), se
+        // dice tal cual: es un dato que cambia cuánta confianza darle al
+        // ángulo elegido, y ocultarlo sería la misma fabricación silenciosa
+        // que venimos cerrando todo el día.
+        const groundedNote = investigo
+          ? " (anclado en la investigación de esta sesión)"
+          : copyPropio
+            ? " ⚠️ (sin investigación externa: el copy sale de los datos reales del producto, no de lo que hace la competencia hoy)"
+            : " (plantilla genérica del nicho — no se pasó hook/angle basado en investigación)";
         // El summary es lo ÚNICO que el admin termina viendo (ver lines.push
         // en code-agent.ts, arma la respuesta final con r.summary, nunca con
         // r.data) -- antes esto era una sola línea confirmando que "se creó
