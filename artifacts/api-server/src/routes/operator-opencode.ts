@@ -242,7 +242,13 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
     };
 
     const cfg = opencodeConfig();
-    if (!cfg) return finish({ error: "El cerebro OpenCode no está configurado (faltan ATLAS_OPENCODE_HOST/USER/PASS)" }, 500);
+    // Al admin NUNCA se le nombra la infraestructura interna (OpenCode,
+    // proveedores, contenedores): para él esto es Atlas y punto. El detalle
+    // técnico va al log, que es donde sirve para diagnosticar.
+    if (!cfg) {
+      logger.error("[AtlasOpenCode] Faltan ATLAS_OPENCODE_HOST/USER/PASS -- el motor no puede arrancar");
+      return finish({ error: "Atlas no está disponible en este momento. Avisale al soporte técnico si sigue así." }, 500);
+    }
 
     const persisted = await loadArchitectHistory(tenantId, sessionId);
     const convo = persisted.length > 0 ? persisted : (Array.isArray(historialCrudo) ? historialCrudo : []);
@@ -276,7 +282,7 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
       await clearPendingPlan(tenantId, sessionId);
     }
 
-    progreso("Pensando con OpenCode...");
+    progreso("Pensando...");
     const heartbeat = setInterval(() => progreso("Sigo trabajando en tu pedido..."), 15_000);
 
     try {
@@ -506,7 +512,7 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
           await saveArchitectTurn(tenantId, sessionId, "assistant", reply);
           return finish({ reply, status: "partial", needsContinuation: true });
         }
-        return finish({ error: "No pude terminar de responder con el motor nuevo. ¿Podés intentarlo de nuevo?" }, 502);
+        return finish({ error: "No pude terminar de responder. ¿Podés intentarlo de nuevo?" }, 502);
       }
 
       // ── Desmentido automático de investigación inventada ────────────────
