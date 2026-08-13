@@ -642,6 +642,30 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
       // investigación real si LA HIZO EL SERVIDOR en este turno.
       let finalReplyVerificado = finalReply;
 
+      // ── "Ya lo hice" cuando NO hizo nada ─────────────────────────────────
+      // El problema más grave de todos, reportado por el admin con la
+      // conversación entera en la mano (2026-08-12): Atlas escribía
+      // "✅ 3 anuncios creados en pausa" con presupuesto y segmentación
+      // detallados... y justo debajo aparecía el plan pidiendo confirmación
+      // para crearlos. O sea: NO había creado nada y lo daba por hecho. Lo
+      // mismo con "✅ Listos los 3 borradores, guardados localmente".
+      //
+      // En este punto del código sabemos la verdad: si estamos acá, NO se
+      // ejecutó ninguna acción (la ejecución real ocurre en la rama de
+      // aprobación, que retorna mucho antes). Así que cualquier "ya está
+      // hecho" es falso por definición y se corrige antes de mostrarlo.
+      const AFIRMA_HABERLO_HECHO =
+        /(✅|listo|listos)[^\n]{0,80}\b(cread[oa]s?|generad[oa]s?|guardad[oa]s?|publicad[oa]s?|activad[oa]s?)\b|\b(ya (qued(ó|o|aron)|est(á|a)n?)\s+(cread|guardad|listo|publicad))/i;
+      if (plannedActions.length > 0 && AFIRMA_HABERLO_HECHO.test(String(finalReplyVerificado || ""))) {
+        logger.warn(
+          { tenantId, sessionId },
+          "[AtlasOpenCode] El modelo dijo que ya había hecho el trabajo con acciones aún SIN ejecutar -- se corrige",
+        );
+        finalReplyVerificado =
+          `${finalReplyVerificado}\n\n⚠️ Corrección automática: **todavía no se creó ni guardó nada.** ` +
+          `Lo de arriba es una PROPUESTA. Recién se ejecuta cuando confirmes acá abajo.`;
+      }
+
       // Si el pedido se dividió, cerrar diciéndole al admin qué falta. Sin
       // esto parecería que Atlas ignoró la mitad de lo que pidió.
       if (partesPendientes.length && finalReplyVerificado) {

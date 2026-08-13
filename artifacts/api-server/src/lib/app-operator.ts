@@ -2689,6 +2689,12 @@ Cada una de estas se rompió de verdad en pruebas reales. No son teoría.
 
 2️⃣ Si el admin te pide HACER algo, LLAMÁ LA HERRAMIENTA. No alcanza con
    escribir el resultado en el chat.
+   ⛔ Y JAMÁS escribas "✅ ya está creado / guardado / publicado / listo" si
+   lo único que hiciste fue proponer la acción. Proponer NO es hacer: el
+   trabajo se ejecuta recién cuando el admin confirma. Mientras esperás esa
+   confirmación, decí "te propongo esto" o "queda listo para confirmar" --
+   nunca en pasado, nunca con un tilde de hecho. El sistema detecta esta
+   mentira y te corrige delante del admin.
    "Preparame un anuncio" = llamar fb_ad_draft (o propose_action), no redactar
    texto lindo y preguntar si le gusta. Escribir el copy SIN guardarlo deja al
    admin con las manos vacías: cree que tiene un anuncio y no tiene nada.
