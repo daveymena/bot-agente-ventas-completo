@@ -444,7 +444,15 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
           .split(CONECTORES)
           .map((p) => p.trim())
           .filter((p) => p.length > 3);
-        if (partes.length >= 3) {
+        // Solo se divide si cada parte pide algo ENTREGABLE distinto. Sin
+        // esto se rompía un pedido normal: "creá el anuncio con ángulo de fe,
+        // destino WhatsApp, presupuesto 10000" son PARÁMETROS de una sola
+        // tarea, no tres tareas -- y al partirlo, Atlas contestaba solo el
+        // ángulo y dejaba "destino WhatsApp" y "presupuesto" como pendientes,
+        // que es absurdo (visto en vivo, 2026-08-12).
+        const ENTREGABLE = /\b(copy|texto|estrategia|segmentaci|seguimiento|presupuesto|an[aá]lisis|informe|reporte|plan\b|campa|anuncio|publicaci|imagen|p[uú]blico|audiencia|m[eé]tricas?)\b/i;
+        const conEntregable = partes.filter((p) => ENTREGABLE.test(p));
+        if (partes.length >= 3 && conEntregable.length >= 3) {
           const primera = partes[0];
           partesPendientes = partes.slice(1);
           text +=
