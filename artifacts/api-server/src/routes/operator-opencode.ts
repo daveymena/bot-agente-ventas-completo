@@ -365,7 +365,17 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
       // que investigó cuando no lo hizo.
       let huboInvestigacionReal = false;
       const PEDIDO_DE_INVESTIGACION = /\b(investig|averigu|indag|research|analiz[aá] el mercado|qu[eé] funciona|tendencia|competencia|benchmark)/i;
-      if (PEDIDO_DE_INVESTIGACION.test(String(prompt))) {
+      // Crear un anuncio TAMBIÉN dispara la investigación, aunque el admin no
+      // use la palabra "investigá". Motivo real (reportado en vivo por el
+      // admin, 2026-08-12): `fb_ad_draft` exige investigación reciente -- un
+      // candado correcto, evita copy inventado -- pero si el servidor solo
+      // investigaba ante palabras como "investigá", un pedido normal como
+      // "creá el anuncio del curso" quedaba bloqueado con
+      // "Todavía no investigaste nada en esta sesión". El candado hacía bien
+      // su trabajo y aun así el admin quedaba trabado. Si el anuncio necesita
+      // investigación, se investiga y punto.
+      const PEDIDO_DE_ANUNCIO = /\b(cre[aá]|prepar[aá]|arm[aá]|gener[aá]|hac[eé]|dise[ñn])\w*\s+(un\s+|el\s+|la\s+|una\s+)?(anuncio|campa|publicaci|post|ad\b)/i;
+      if (PEDIDO_DE_INVESTIGACION.test(String(prompt)) || PEDIDO_DE_ANUNCIO.test(String(prompt))) {
         progreso("Investigando en internet...");
         // Sincrónica y corta a propósito (ver investigacionRapida): el
         // resultado real llega en ESTA respuesta, sin trabajos en segundo
