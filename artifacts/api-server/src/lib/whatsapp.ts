@@ -1,4 +1,4 @@
-import { eq, inArray, desc } from "drizzle-orm";
+import { eq, inArray, desc, and } from "drizzle-orm";
 import path from "node:path";
 import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { HttpProxyAgent } from "http-proxy-agent";
@@ -410,11 +410,63 @@ export class WhatsAppManager {
   }
 
   /**
-   * Controles que necesitan consultar datos (calentamiento y repetición de
-   * contenido). Van aparte de enforceSendLimits() porque esa es síncrona.
-   * Lanza con un mensaje entendible: quien llama decide si avisar al admin.
+   * ¿Este contacto nos escribió alguna vez? Es LA pregunta que más importa
+   * para no perder el número.
+   *
+   * La causa número uno de bloqueo en WhatsApp NO es el volumen: son los
+   * REPORTES y bloqueos de gente que nunca pidió el mensaje. Un bot que solo
+   * responde a quien le escribió primero casi nunca cae; uno que inicia
+   * conversaciones en frío cae aunque respete todos los límites de volumen.
+   *
+   * Por eso, por defecto, solo se permite escribirle a alguien que ya nos
+   * escribió. Se puede desactivar con WA_PERMITIR_ENVIO_EN_FRIO=true, pero
+   * es una decisión consciente del dueño de la plataforma, no el default.
+   */
+  private async contactoNosEscribio(telefono: string): Promise<boolean> {
+    const soloDigitos = String(telefono).replace(/\D/g, "");
+    if (!soloDigitos) return false;
+    try {
+      const tenantId = this.currentTenant?.id;
+      const [fila] = await db
+        .select({ id: messages.id })
+        .from(messages)
+        .innerJoin(conversations, eq(messages.conversationId, conversations.id))
+        .where(
+          and(
+            eq(conversations.tenantId, tenantId as number),
+            eq(conversations.contactPhone, soloDigitos),
+            eq(messages.role, "user"),
+          ),
+        )
+        .limit(1);
+      return !!fila;
+    } catch (e: any) {
+      // Ante un fallo de consulta NO se bloquea: dejar mudo el bot de un
+      // cliente que sí pagó es peor que dejar pasar un mensaje.
+      logger.warn({ err: e?.message }, "[WhatsApp] No se pudo verificar si el contacto escribió; se permite el envío");
+      return true;
+    }
+  }
+
+  /**
+   * Controles que necesitan consultar datos (envío en frío, calentamiento y
+   * repetición de contenido). Van aparte de enforceSendLimits() porque esa es
+   * síncrona. Lanza con un mensaje entendible: quien llama decide si avisar
+   * al admin.
    */
   private async verificarProteccionesAsync(texto: string, destino: string): Promise<void> {
+    // 0) Envío en frío -- el control que más protege el número
+    if (process.env.WA_PERMITIR_ENVIO_EN_FRIO !== "true") {
+      if (!(await this.contactoNosEscribio(destino))) {
+        throw new Error(
+          `No se envía: ${destino} nunca escribió a este WhatsApp. Escribirle a alguien que no lo pidió es la causa ` +
+            `número uno de que Meta bloquee un número (los reportes pesan más que el volumen). ` +
+            `Si el contacto responde una vez, la conversación queda habilitada sola. ` +
+            `Para permitir envíos en frío bajo tu responsabilidad: WA_PERMITIR_ENVIO_EN_FRIO=true.`,
+        );
+      }
+    }
+
     // 1) Calentamiento
     const dias = await this.diasOperando();
     const tope = this.topeCalentamiento(dias);
