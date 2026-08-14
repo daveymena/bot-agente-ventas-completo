@@ -20,6 +20,7 @@ import { eq, desc, and, gte, sql, ilike } from "drizzle-orm";
 import { logger } from "./logger";
 import { tenantManager } from "./tenantManager";
 import { dbNow } from "./date-utils";
+import { getAppUrl } from "./app-url";
 
 export interface OperatorContext {
   tenantId: number;
@@ -792,6 +793,174 @@ function htmlToText(html: string): string {
     .trim();
   const header = [title && `TÍTULO: ${title}`, desc && `DESCRIPCIÓN: ${desc}`].filter(Boolean).join("\n");
   return (header ? header + "\n\n" : "") + body;
+}
+
+/**
+ * Valida el CONTENIDO de un anuncio contra los datos reales del producto.
+ * Devuelve el motivo del rechazo (dirigido al modelo, para que lo corrija) o
+ * `null` si el copy está limpio.
+ *
+ * Vive suelta y exportada, y no dentro de `fb_ad_draft`, por una razón que
+ * costó una sesión entera: estas validaciones corrían SOLO al ejecutar, o
+ * sea DESPUÉS de que el admin ya había confirmado el plan. La conversación
+ * del PACK EDUCA A TU PERRO (2026-08-14) muestra el resultado exacto: el
+ * admin armó el anuncio a lo largo de ~10 mensajes, confirmó, y recién ahí
+ * le saltó "quedó con un hueco sin rellenar: [Enlace a la tienda]". Cada
+ * rechazo le costaba un turno completo y una confirmación nueva, y no pudo
+ * crear NI UN anuncio.
+ *
+ * Corriéndola también al PROPONER (ver `proposeAction`), el rechazo le llega
+ * al modelo como resultado de herramienta, en el mismo turno, cuando todavía
+ * puede reescribir el copy y volver a proponer solo. El admin nunca ve el
+ * plan roto: ve el plan ya corregido.
+ */
+export async function validarContenidoAnuncio(
+  args: { productId?: any; primaryText?: any; headline?: any; description?: any; hook?: any; message?: any },
+  ctx: OperatorContext,
+): Promise<string | null> {
+  const id = num(args.productId);
+  if (!id) return null; // el id lo validan los llamadores, cada uno a su manera
+
+  // Marcadores sin rellenar: visto en vivo (2026-08-12), el modelo entregó
+  // un anuncio listo "para confirmar" que decía literalmente
+  // "Escríbeme por WhatsApp: [NÚMERO DE WHATSAPP]". Un hueco así no se
+  // nota entre 300 palabras de copy bien escrito, y se iría publicado tal
+  // cual, pagando por mostrarlo. Se corta acá y se le dice al modelo de
+  // dónde sacar el dato real, en vez de confiar en que se acuerde.
+  // `message` va incluido porque es el campo que usa fb_page_publish (el
+  // texto del muro): sin él, una publicación orgánica con un hueco sin
+  // rellenar se colaba entera, y esa también sale a la cara del público.
+  const textosDelAnuncio = [args.primaryText, args.headline, args.description, args.hook, args.message]
+    .filter((t) => typeof t === "string")
+    .join(" ");
+  const marcador = textosDelAnuncio.match(/\[[^\]]{2,40}\]|\{\{[^}]{2,40}\}\}|\bXXX+\b|<[A-ZÁÉÍÓÚÑ\s_]{3,30}>/);
+  if (marcador) {
+    const tenant = await tenantManager.getTenantById(ctx.tenantId);
+    const numeroReal = tenant?.whatsappNumber || "";
+    // El enlace de la tienda/producto es el marcador que más aparece, y es
+    // el único que el modelo NO puede deducir: lo arma el backend. Antes se
+    // le decía "poné el dato real" sin decirle cuál, y el modelo improvisaba
+    // ("Comprá tu pack aquí", sin enlace) o volvía a preguntarle al admin.
+    // Ahora se le entrega la URL ya armada.
+    const esEnlace = /enlace|link|url|tienda|web|sitio/i.test(marcador[0]);
+    let pista = "";
+    if (esEnlace) {
+      // El enlace canónico del producto es el MISMO que el backend le pone al
+      // creativo (ver ad-strategist.ts, `${getAppUrl()}/p/<id>`). Se le dice
+      // explícito porque el modelo lo venía inventando: en la conversación
+      // del 2026-08-14 armó "…/sofia-premium/product/76", una ruta que no
+      // existe, y la iba a publicar pagando por los clics.
+      const base = getAppUrl().replace(/\/+$/, "");
+      pista =
+        ` El enlace REAL del producto es ${base}/p/${id} -- usá ese, tal cual, o directamente no pongas ninguna URL en el texto:` +
+        ` el botón del anuncio ya lleva a ese enlace solo. No armes rutas por tu cuenta.`;
+    } else if (/whatsapp|wasap|n[uú]mero|tel/i.test(marcador[0])) {
+      pista = numeroReal
+        ? ` El WhatsApp del negocio es ${numeroReal} -- usá ese número.`
+        : ` Si te falta el número de WhatsApp, sacalo con whatsapp_status; si no hay ninguno configurado, decíselo al admin en vez de inventar uno.`;
+    }
+    return (
+      `El anuncio quedó con un hueco sin rellenar: "${marcador[0]}". Un anuncio se publica tal cual está, ` +
+      `así que no puede llevar marcadores. Reescribí ese texto con el dato REAL y volvé a llamar la herramienta.` +
+      pista
+    );
+  }
+
+  // ── Promesas comerciales inventadas ──────────────────────────────────
+  // Reportado en vivo por el admin (2026-08-12) con el copy en la mano: el
+  // anuncio decía "$60.000 COP (antes $100.000)" y "Garantía de 7 días"
+  // para un producto que NO tiene precio anterior ni garantía. Las "5
+  // reglas" del prompt ya lo prohibían explícitamente y aun así pasó --
+  // otra confirmación de que una regla de prompt no es un control.
+  //
+  // Esto no es un error de redacción: es una promesa comercial. Si sale
+  // publicada, el admin tiene que cumplírsela a quien la reclame, o
+  // quedar mal. Se valida contra los datos REALES del producto y, si la
+  // promesa no está respaldada, se rechaza la generación.
+  const [prodReal] = await db.select().from(products).where(and(eq(products.id, id), eq(products.tenantId, ctx.tenantId))).limit(1);
+  if (!prodReal) return null;
+
+  const respaldo = [
+    prodReal.name,
+    prodReal.description,
+    Array.isArray(prodReal.features) ? (prodReal.features as string[]).join(" ") : "",
+    prodReal.highlight,
+  ].filter(Boolean).join(" ").toLowerCase();
+
+  // ── Citas puestas en boca de alguien real ────────────────────────
+  // Encontrado revisando un anuncio ya generado (2026-08-12): el copy
+  // traía 📖 "La música es una herramienta de bendición" — Edwin Jurado.
+  // Ese nombre salió de la Biblioteca de Anuncios: es un COMPETIDOR del
+  // admin, y la frase probablemente nunca la dijo. Atribuirle palabras
+  // a una persona real es más delicado que inventar un descuento: puede
+  // ser un problema legal y de reputación, y sale publicado pagando.
+  // El validador de promesas no lo cubría porque no es una oferta.
+  const CITA_ATRIBUIDA = /["“”«][^"“”«»]{10,200}["“”»]\s*[—\-–]\s*([A-ZÁÉÍÓÚÑ][\wáéíóúñ]+(?:\s+[A-ZÁÉÍÓÚÑ][\wáéíóúñ]+){0,3})/;
+  const cita = textosDelAnuncio.match(CITA_ATRIBUIDA);
+  if (cita) {
+    const autor = cita[1].trim();
+    if (!respaldo.includes(autor.toLowerCase())) {
+      return (
+        `El anuncio le atribuye una frase a "${autor}", y esa persona no figura en los datos del producto. ` +
+        `Poner palabras en boca de alguien real que quizás nunca las dijo es un problema serio -- legal y de reputación -- ` +
+        `y peor todavía si es un competidor. Sacá la cita y volvé a llamar la herramienta. ` +
+        `Si querés una frase inspiradora, escribila sin atribuírsela a nadie.`
+      );
+    }
+  }
+
+  const PROMESAS: { patron: RegExp; que: string }[] = [
+    { patron: /\bantes\s*\$?\s*[\d.,]+|\bprecio\s+(anterior|regular|normal)|\bde\s*\$[\d.,]+\s*a\s*\$/i, que: "un precio anterior / descuento" },
+    { patron: /\bgarant[ií]a\b|\bgarantizad/i, que: "una garantía" },
+    { patron: /\bgratis\b|\bregalo\b|\bbono\b|\bsin costo\b/i, que: "algo gratis o de regalo" },
+    { patron: /\b\d+\s*%\s*(de\s*)?(descuento|off)\b|\b2x1\b/i, que: "un descuento" },
+    { patron: /\bcupos?\s+limitados?\b|\b[uú]ltimos?\s+cupos?\b|\bsolo\s+hoy\b|\bpor\s+tiempo\s+limitado\b/i, que: "una urgencia o escasez" },
+    { patron: /\breembolso\b|\bdevoluci[oó]n\s+de\s+dinero\b/i, que: "una devolución de dinero" },
+  ];
+
+  for (const p of PROMESAS) {
+    const m = textosDelAnuncio.match(p.patron);
+    if (!m) continue;
+    // ¿El producto real respalda esa promesa? Se busca la palabra clave
+    // del match en su nombre/descripción/características.
+    const clave = m[0].toLowerCase().replace(/[^a-záéíóúñ%\d]/g, " ").trim().split(/\s+/)[0] || "";
+    if (clave && respaldo.includes(clave)) continue; // está respaldada, se deja pasar
+    return (
+      `El anuncio promete ${p.que} ("${m[0]}") que NO figura en los datos reales del producto "${prodReal.name}". ` +
+      `Una promesa así el admin tiene que cumplírsela a quien la reclame, así que no se puede inventar. ` +
+      `Reescribí el copy SIN eso -- vendé con lo que el producto sí tiene (precio $${Number(prodReal.price).toLocaleString("es-CO")} ${prodReal.currency}, ` +
+      `${Array.isArray(prodReal.features) && prodReal.features.length ? (prodReal.features as string[]).slice(0, 4).join(", ") : "sus beneficios reales"}) ` +
+      `y volvé a llamar la herramienta. Si el admin QUIERE ofrecer un descuento o garantía, que lo cargue primero en el producto.`
+    );
+  }
+
+  return null;
+}
+
+/**
+ * Deja un mensaje de error listo para que lo LEA EL ADMIN.
+ *
+ * Los `summary` de rechazo están escritos para el modelo: le hablan de vos,
+ * le dicen "volvé a llamar la herramienta" y le nombran herramientas
+ * (`whatsapp_status`, `list_products`). Cuando una acción falla DESPUÉS de
+ * que el admin confirmó, ese texto se le mostraba crudo -- y quedaba un
+ * mensaje que le da órdenes que él no puede ejecutar, con nombres internos
+ * que la regla 6.3 del prompt prohíbe mostrarle. Visto en vivo el 2026-08-14:
+ * "Reescribí ese texto con el dato REAL y volvé a llamar la herramienta. Si
+ * te falta el número de WhatsApp, sacalo con whatsapp_status".
+ *
+ * Se queda el MOTIVO (que sí le sirve) y se corta la instrucción al modelo.
+ */
+export function mensajeParaAdmin(summary: string): string {
+  const texto = String(summary || "").trim();
+  if (!texto) return "No se pudo completar.";
+  // Se parte en oraciones y se descartan las dirigidas al modelo.
+  const ORDEN_AL_MODELO = /\b(volv[eé] a (llamar|proponer|intentar)|reescrib[ií]|pas[aá] en|sac[aá]lo con|averigualo|no la propongas|no lo inventes|sum[aá] tambi[eé]n|llam[aá] ahora)\b/i;
+  const NOMBRA_HERRAMIENTA = /\b(fb_[a-z_]+|whatsapp_status|list_products|get_store|propose_action|optimize_copy|deep_research|web_search|web_fetch)\b/i;
+  const oraciones = texto.split(/(?<=[.!?])\s+/);
+  const utiles = oraciones.filter((o) => !ORDEN_AL_MODELO.test(o) && !NOMBRA_HERRAMIENTA.test(o));
+  const limpio = utiles.join(" ").trim();
+  return limpio || texto.split(/(?<=[.!?])\s+/)[0] || texto;
 }
 
 // ─── Registro de herramientas ────────────────────────────────────────────────
@@ -1781,100 +1950,8 @@ export const TOOLS: ToolDef[] = [
       }
       const tenant = await tenantManager.getTenantById(ctx.tenantId);
 
-      // Marcadores sin rellenar: visto en vivo (2026-08-12), el modelo entregó
-      // un anuncio listo "para confirmar" que decía literalmente
-      // "Escríbeme por WhatsApp: [NÚMERO DE WHATSAPP]". Un hueco así no se
-      // nota entre 300 palabras de copy bien escrito, y se iría publicado tal
-      // cual, pagando por mostrarlo. Se corta acá y se le dice al modelo de
-      // dónde sacar el dato real, en vez de confiar en que se acuerde.
-      const textosDelAnuncio = [args.primaryText, args.headline, args.description, args.hook]
-        .filter((t) => typeof t === "string")
-        .join(" ");
-      const marcador = textosDelAnuncio.match(/\[[^\]]{2,40}\]|\{\{[^}]{2,40}\}\}|\bXXX+\b|<[A-ZÁÉÍÓÚÑ\s_]{3,30}>/);
-      if (marcador) {
-        const numeroReal = tenant?.whatsappNumber || "";
-        return {
-          ok: false,
-          summary:
-            `El anuncio quedó con un hueco sin rellenar: "${marcador[0]}". Un anuncio se publica tal cual está, ` +
-            `así que no puede llevar marcadores. Reescribí ese texto con el dato REAL y volvé a llamar la herramienta.` +
-            (numeroReal
-              ? ` El WhatsApp del negocio es ${numeroReal} -- usá ese número.`
-              : ` Si te falta el número de WhatsApp, sacalo con whatsapp_status; si no hay ninguno configurado, decíselo al admin en vez de inventar uno.`),
-        };
-      }
-
-      // ── Promesas comerciales inventadas ──────────────────────────────────
-      // Reportado en vivo por el admin (2026-08-12) con el copy en la mano: el
-      // anuncio decía "$60.000 COP (antes $100.000)" y "Garantía de 7 días"
-      // para un producto que NO tiene precio anterior ni garantía. Las "5
-      // reglas" del prompt ya lo prohibían explícitamente y aun así pasó --
-      // otra confirmación de que una regla de prompt no es un control.
-      //
-      // Esto no es un error de redacción: es una promesa comercial. Si sale
-      // publicada, el admin tiene que cumplírsela a quien la reclame, o
-      // quedar mal. Se valida contra los datos REALES del producto y, si la
-      // promesa no está respaldada, se rechaza la generación.
-      const [prodReal] = await db.select().from(products).where(and(eq(products.id, id), eq(products.tenantId, ctx.tenantId))).limit(1);
-      if (prodReal) {
-        const respaldo = [
-          prodReal.name,
-          prodReal.description,
-          Array.isArray(prodReal.features) ? (prodReal.features as string[]).join(" ") : "",
-          prodReal.highlight,
-        ].filter(Boolean).join(" ").toLowerCase();
-
-        // ── Citas puestas en boca de alguien real ────────────────────────
-        // Encontrado revisando un anuncio ya generado (2026-08-12): el copy
-        // traía 📖 "La música es una herramienta de bendición" — Edwin Jurado.
-        // Ese nombre salió de la Biblioteca de Anuncios: es un COMPETIDOR del
-        // admin, y la frase probablemente nunca la dijo. Atribuirle palabras
-        // a una persona real es más delicado que inventar un descuento: puede
-        // ser un problema legal y de reputación, y sale publicado pagando.
-        // El validador de promesas no lo cubría porque no es una oferta.
-        const CITA_ATRIBUIDA = /["“”«][^"“”«»]{10,200}["“”»]\s*[—\-–]\s*([A-ZÁÉÍÓÚÑ][\wáéíóúñ]+(?:\s+[A-ZÁÉÍÓÚÑ][\wáéíóúñ]+){0,3})/;
-        const cita = textosDelAnuncio.match(CITA_ATRIBUIDA);
-        if (cita) {
-          const autor = cita[1].trim();
-          if (!respaldo.includes(autor.toLowerCase())) {
-            return {
-              ok: false,
-              summary:
-                `El anuncio le atribuye una frase a "${autor}", y esa persona no figura en los datos del producto. ` +
-                `Poner palabras en boca de alguien real que quizás nunca las dijo es un problema serio -- legal y de reputación -- ` +
-                `y peor todavía si es un competidor. Sacá la cita y volvé a llamar la herramienta. ` +
-                `Si querés una frase inspiradora, escribila sin atribuírsela a nadie.`,
-            };
-          }
-        }
-
-        const PROMESAS: { patron: RegExp; que: string }[] = [
-          { patron: /\bantes\s*\$?\s*[\d.,]+|\bprecio\s+(anterior|regular|normal)|\bde\s*\$[\d.,]+\s*a\s*\$/i, que: "un precio anterior / descuento" },
-          { patron: /\bgarant[ií]a\b|\bgarantizad/i, que: "una garantía" },
-          { patron: /\bgratis\b|\bregalo\b|\bbono\b|\bsin costo\b/i, que: "algo gratis o de regalo" },
-          { patron: /\b\d+\s*%\s*(de\s*)?(descuento|off)\b|\b2x1\b/i, que: "un descuento" },
-          { patron: /\bcupos?\s+limitados?\b|\b[uú]ltimos?\s+cupos?\b|\bsolo\s+hoy\b|\bpor\s+tiempo\s+limitado\b/i, que: "una urgencia o escasez" },
-          { patron: /\breembolso\b|\bdevoluci[oó]n\s+de\s+dinero\b/i, que: "una devolución de dinero" },
-        ];
-
-        for (const p of PROMESAS) {
-          const m = textosDelAnuncio.match(p.patron);
-          if (!m) continue;
-          // ¿El producto real respalda esa promesa? Se busca la palabra clave
-          // del match en su nombre/descripción/características.
-          const clave = m[0].toLowerCase().replace(/[^a-záéíóúñ%\d]/g, " ").trim().split(/\s+/)[0] || "";
-          if (clave && respaldo.includes(clave)) continue; // está respaldada, se deja pasar
-          return {
-            ok: false,
-            summary:
-              `El anuncio promete ${p.que} ("${m[0]}") que NO figura en los datos reales del producto "${prodReal.name}". ` +
-              `Una promesa así el admin tiene que cumplírsela a quien la reclame, así que no se puede inventar. ` +
-              `Reescribí el copy SIN eso -- vendé con lo que el producto sí tiene (precio $${Number(prodReal.price).toLocaleString("es-CO")} ${prodReal.currency}, ` +
-              `${Array.isArray(prodReal.features) && prodReal.features.length ? (prodReal.features as string[]).slice(0, 4).join(", ") : "sus beneficios reales"}) ` +
-              `y volvé a llamar la herramienta. Si el admin QUIERE ofrecer un descuento o garantía, que lo cargue primero en el producto.`,
-          };
-        }
-      }
+      const reparo = await validarContenidoAnuncio(args, ctx);
+      if (reparo) return { ok: false, summary: reparo };
 
       const { AdStrategist } = await import("./ad-strategist");
       const grounded = {

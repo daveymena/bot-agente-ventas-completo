@@ -24,6 +24,7 @@ import {
   isKnownTool,
   isReadOnlyTool,
   READ_ONLY_TOOLS,
+  validarContenidoAnuncio,
   type OperatorContext,
 } from "./app-operator";
 import { logger } from "./logger";
@@ -343,6 +344,40 @@ async function proposeAction(
           : `Averigualo primero con una herramienta de lectura (por ejemplo list_products para el id del producto) `) +
         `Volvé a proponer la acción con el dato real. No la propongas con un valor vacío ni inventado.`,
     };
+  }
+
+  // ── Validar el CONTENIDO acá, no al ejecutar ────────────────────────────
+  // La conversación del PACK EDUCA A TU PERRO (2026-08-14) mostró el costo
+  // exacto de validar tarde: el admin armó el anuncio a lo largo de ~10
+  // mensajes, confirmó, y recién DESPUÉS del "sí" le saltó "quedó con un
+  // hueco sin rellenar: [Enlace a la tienda]". Cada rechazo se comía un turno
+  // entero más una confirmación nueva, el mensaje de rechazo estaba escrito
+  // para el modelo (le hablaba de "volvé a llamar la herramienta") y el admin
+  // no pudo crear NI UN anuncio en toda la sesión.
+  //
+  // Validando al PROPONER, el rechazo vuelve como resultado de herramienta en
+  // el MISMO turno: el modelo todavía está corriendo, corrige el copy y
+  // propone de nuevo solo. El admin ve directamente el plan bueno.
+  if (tool === "fb_ad_draft" || tool === "fb_create_ad" || tool === "fb_page_publish") {
+    // El MISMO umbral que aplica fb_ad_draft al ejecutar (`copyPropio`, 80
+    // caracteres). Si no se chequea también acá, un copy corto pasa la
+    // propuesta, el admin lo confirma, y recién entonces rebota con
+    // "necesito investigación reciente o que escribas el copy completo" --
+    // otra vez el fallo tarde, que es la trampa que hay que cerrar de raíz.
+    const copy = typeof toolArgs.primaryText === "string" ? toolArgs.primaryText.trim() : "";
+    if (tool === "fb_ad_draft" && copy.length > 0 && copy.length < 80) {
+      return {
+        ok: false,
+        summary:
+          `El texto del anuncio es demasiado corto (${copy.length} caracteres; hacen falta al menos 80). ` +
+          `Un anuncio de una línea no vende y además no alcanza como base verificable. ` +
+          `Escribí el anuncio COMPLETO en "primaryText" -- gancho, beneficios concretos del producto, precio real y cierre -- ` +
+          `y proponé de nuevo.`,
+      };
+    }
+
+    const problema = await validarContenidoAnuncio(toolArgs, ctx);
+    if (problema) return { ok: false, summary: problema };
   }
 
   const description = describePlannedAction({ tool, args: toolArgs });

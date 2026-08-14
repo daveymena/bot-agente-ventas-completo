@@ -13,7 +13,7 @@ import {
 } from "../lib/optimized-rotation";
 import { getG4FResponse } from "../lib/providers/g4f-provider";
 import { G4F_ENABLED } from "../config/g4f.config";
-import { OPERATOR_SYSTEM_PROMPT, buildToolsDoc, executeAction, isReadOnlyTool, isKnownTool, verifyMutation, type OperatorContext } from "../lib/app-operator";
+import { OPERATOR_SYSTEM_PROMPT, buildToolsDoc, executeAction, isReadOnlyTool, isKnownTool, verifyMutation, mensajeParaAdmin, type OperatorContext } from "../lib/app-operator";
 import { leerBusinessConfig } from "../lib/ai-keys";
 import {
   loadArchitectHistory, saveArchitectTurn, getPendingPlan, setPendingPlan,
@@ -1449,7 +1449,11 @@ router.post("/operator", async (req: TenantRequest, res, next) => {
           const verification = r.ok ? await verifyMutation(a.tool, a.args || {}, ctx) : "";
           executed.push({ tool: a.tool, args: a.args, ok: r.ok, summary: r.summary, verification, repairLog });
           const repairText = repairLog.length ? `\n   ${repairLog.join("\n   ")}` : "";
-          lines.push(`${r.ok ? "✅" : "❌"} ${r.summary}${repairText}${verification ? `\n   ${verification}` : ""}`);
+          // En el fallo, el summary está escrito para el modelo ("volvé a
+          // llamar la herramienta", nombres internos) -- se limpia antes de
+          // mostrárselo al admin. Ver mensajeParaAdmin.
+          const paraElAdmin = r.ok ? r.summary : mensajeParaAdmin(r.summary);
+          lines.push(`${r.ok ? "✅" : "❌"} ${paraElAdmin}${repairText}${verification ? `\n   ${verification}` : ""}`);
         }
         await clearPendingPlan(tenantId, sessionId);
         const allOk = executed.every((item) => item.ok);

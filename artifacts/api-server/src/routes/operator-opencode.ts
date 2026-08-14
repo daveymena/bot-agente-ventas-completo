@@ -29,7 +29,7 @@ import { Router } from "express";
 import { randomUUID } from "node:crypto";
 import type { TenantRequest } from "../lib/tenantManager";
 import { logger } from "../lib/logger";
-import { ATLAS_SYSTEM_PROMPT_V2, executeAction, verifyMutation, investigacionRapida, type OperatorContext } from "../lib/app-operator";
+import { ATLAS_SYSTEM_PROMPT_V2, executeAction, verifyMutation, investigacionRapida, mensajeParaAdmin, type OperatorContext } from "../lib/app-operator";
 import {
   loadArchitectHistory, saveArchitectTurn, getPendingPlan, setPendingPlan,
   clearPendingPlan, isApproval, isRejection, loadRecentLessons,
@@ -267,7 +267,10 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
           const r = await executeAction(a.tool, a.args || {}, ctx);
           const verification = r.ok ? await verifyMutation(a.tool, a.args || {}, ctx) : "";
           executed.push({ tool: a.tool, args: a.args, ok: r.ok, summary: r.summary, verification });
-          lines.push(`${r.ok ? "✅" : "❌"} ${r.summary}${verification ? `\n   ${verification}` : ""}`);
+          // En el fallo, el summary está escrito para el modelo -- se limpia
+          // antes de mostrárselo al admin (ver mensajeParaAdmin).
+          const paraElAdmin = r.ok ? r.summary : mensajeParaAdmin(r.summary);
+          lines.push(`${r.ok ? "✅" : "❌"} ${paraElAdmin}${verification ? `\n   ${verification}` : ""}`);
         }
         await clearPendingPlan(tenantId, sessionId);
         const allOk = executed.every((item) => item.ok);
