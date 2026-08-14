@@ -22,6 +22,33 @@ function truncateAtWord(text: string, maxLen: number): string {
   return clean.trimEnd() + "…";
 }
 
+/**
+ * Saca el markdown del texto de un anuncio.
+ *
+ * Facebook NO interpreta markdown: publica los asteriscos tal cual. Visto en
+ * un borrador real (2026-08-14, id 196): el modelo escribió
+ * "Con el **PACK EDUCA A TU PERRO**, tendrás acceso **permanente**…" y así
+ * se iba a publicar, con los asteriscos a la vista. Se ve amateur en un
+ * anuncio pago, y no hay forma de que el modelo se acuerde siempre de no
+ * usarlo -- por eso se limpia acá, en el único punto por el que pasa TODO el
+ * texto antes de guardarse, en vez de pedírselo por prompt.
+ *
+ * Solo se saca el marcado de énfasis y los encabezados. Los emojis, los
+ * saltos de línea y las viñetas con "✅"/"-" se dejan intactos: eso sí se ve
+ * bien en Facebook y es parte del formato que el admin quiere.
+ */
+function sinMarkdown(texto: string): string {
+  if (!texto) return texto;
+  return texto
+    .replace(/\*\*\*(.+?)\*\*\*/gs, "$1")      // ***negrita cursiva***
+    .replace(/\*\*(.+?)\*\*/gs, "$1")           // **negrita**
+    .replace(/(^|[\s(])\*(?!\s)(.+?)(?<!\s)\*/gs, "$1$2") // *cursiva*, sin tocar "2 * 3"
+    .replace(/__(.+?)__/gs, "$1")               // __negrita__
+    .replace(/\[(.+?)\]\((https?:\/\/[^)]+)\)/g, "$1: $2") // [texto](url) -> texto: url
+    .replace(/^#{1,6}\s+/gm, "")                // ## encabezados
+    .replace(/^\s*>\s?/gm, "");                 // > citas
+}
+
 export interface AdStrategy {
   niche: string;
   hook: string;
@@ -403,9 +430,9 @@ Este contenido digital es tu atajo directo a resultados profesionales.
     // datos reales del producto ya quedaron incorporados en su versión
     // porque el agente los ve en el mismo turno via list_products.
     return {
-      primaryText: grounded?.primaryText || primaryText,
-      headline: grounded?.headline || headline,
-      description: grounded?.description || description,
+      primaryText: sinMarkdown(grounded?.primaryText || primaryText),
+      headline: sinMarkdown(grounded?.headline || headline),
+      description: sinMarkdown(grounded?.description || description),
     };
   }
 
@@ -459,10 +486,46 @@ Este contenido digital es tu atajo directo a resultados profesionales.
     }
   }
 
+  /** Precio real del producto, o null si no se puede leer. Solo para el
+   * candado de publishDraft -- no se usa para armar copy. */
+  private async precioDelProducto(productId: number | null): Promise<number | null> {
+    if (!productId) return null;
+    try {
+      const [p] = await db.select({ price: products.price }).from(products).where(eq(products.id, productId)).limit(1);
+      const n = Number(p?.price);
+      return Number.isFinite(n) && n > 0 ? n : null;
+    } catch { return null; }
+  }
+
   async publishDraft(draftId: number): Promise<boolean> {
     try {
       const [draft] = await db.select().from(facebookDrafts).where(eq(facebookDrafts.id, draftId)).limit(1);
       if (!draft) return false;
+
+      // ── Candado de precio ────────────────────────────────────────────
+      // Auditando los borradores reales del admin (2026-08-14): 84 de 195
+      // traían el precio disparatado, del tipo "Solo $82.000.000 COP
+      // (≈ $20000.00 USD)" -- un generador viejo tomaba los 20.000 PESOS
+      // como si fueran 20.000 DÓLARES y los convertía. Ese generador ya no
+      // está en el código, pero los 84 borradores siguen guardados y basta
+      // un clic en "publicar" para sacar un anuncio pago con un precio de
+      // 82 millones. Se corta acá, que es por donde pasan todos los caminos
+      // de publicación, en vez de confiar en que nadie le dé al botón.
+      const precioReal = await this.precioDelProducto(draft.productId);
+      if (precioReal) {
+        const textos = [draft.primaryText, draft.headline, draft.description].filter(Boolean).join(" ");
+        // Cualquier cifra del texto que supere 10x el precio real del
+        // producto es un error de conversión, no una decisión comercial.
+        for (const bruto of textos.match(/\$\s?[\d][\d.,]{2,}/g) || []) {
+          const n = Number(bruto.replace(/[^\d]/g, ""));
+          if (!Number.isFinite(n) || n <= precioReal * 10) continue;
+          logger.error(
+            { draftId, precioReal, precioEnElTexto: n },
+            "[AdStrategist] Publicación BLOQUEADA: el borrador tiene un precio que no es el del producto",
+          );
+          return false;
+        }
+      }
 
       if (draft.campaignId && draft.adId) {
         // Token de USUARIO primero (ver TenantContext.facebook.userAccessToken)

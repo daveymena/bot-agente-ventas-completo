@@ -918,6 +918,67 @@ export async function validarContenidoAnuncio(
     { patron: /\breembolso\b|\bdevoluci[oó]n\s+de\s+dinero\b/i, que: "una devolución de dinero" },
   ];
 
+  // ── Promesas de RESULTADO ────────────────────────────────────────────
+  // Encontradas en un borrador real recién generado (2026-08-14, id 196):
+  // "Resultados en 30 días o menos, con solo 15 minutos al día" y un titular
+  // "Transforma a tu Perro en el Mejor Compañero en Solo 30 Días", para un
+  // producto que no promete ningún plazo. Es la misma familia que la garantía
+  // inventada -- una promesa que el admin tiene que sostener ante quien la
+  // reclame -- pero la lista de arriba no la cubría porque no es una oferta
+  // comercial sino un resultado prometido. Para quien vende esto como
+  // servicio profesional de publicaciones, es justo la frase que trae
+  // problemas.
+  const RESULTADOS: { patron: RegExp; que: string }[] = [
+    { patron: /\ben\s+(solo\s+)?\d+\s*(d[ií]as?|semanas?|meses|horas?)\b/i, que: "un plazo para lograr resultados" },
+    { patron: /\bresultados?\s+(en|desde|garantizad)/i, que: "resultados en un plazo" },
+    { patron: /\b\d+\s*minutos?\s+(al|por)\s+d[ií]a\b/i, que: "un tiempo diario de dedicación" },
+    { patron: /\bde\s+cero\s+a\s+(experto|avanzado|profesional)\b/i, que: "un nivel final alcanzado" },
+  ];
+  for (const p of RESULTADOS) {
+    const m = textosDelAnuncio.match(p.patron);
+    if (!m) continue;
+    // Igual que las promesas comerciales: si el producto REALMENTE lo dice,
+    // el anuncio puede decirlo. Se compara la frase completa del match.
+    if (respaldo.includes(m[0].toLowerCase().trim())) continue;
+    return (
+      `El anuncio promete ${p.que} ("${m[0]}") que NO figura en los datos reales del producto "${prodReal.name}". ` +
+      `Nadie puede sostener un plazo que el producto no promete: si alguien no lo logra en ese tiempo, te lo reclama a vos. ` +
+      `Reescribí esa parte sin prometer plazos ni resultados -- describí lo que el producto SÍ entrega ` +
+      `(${Array.isArray(prodReal.features) && prodReal.features.length ? (prodReal.features as string[]).slice(0, 4).join(", ") : "sus beneficios reales"}) ` +
+      `y volvé a llamar la herramienta.`
+    );
+  }
+
+  // ── Entregables inventados ───────────────────────────────────────────
+  // Mismo borrador 196: prometía "Videos prácticos" y "Técnicas
+  // profesionales usadas por adiestradores expertos" para un producto cuyos
+  // datos no mencionan ni videos ni adiestradores. Prometer un formato de
+  // entrega que no existe es de las cosas que más rápido genera un reclamo:
+  // el cliente paga esperando video y recibe otra cosa.
+  const ENTREGABLES: { patron: RegExp; que: string }[] = [
+    { patron: /\bv[ií]deos?\b/i, que: "videos" },
+    { patron: /\baudios?\b/i, que: "audios" },
+    { patron: /\bplantillas?\b/i, que: "plantillas" },
+    { patron: /\bcertificad[oa]s?\b/i, que: "un certificado" },
+    { patron: /\basesor[ií]as?\b|\bmentor[ií]as?\b/i, que: "asesoría o mentoría" },
+    { patron: /\bcomunidad\b|\bgrupo\s+(privado|exclusivo)\b/i, que: "una comunidad o grupo" },
+    { patron: /\ben\s+vivo\b|\bclases?\s+en\s+directo\b/i, que: "clases en vivo" },
+  ];
+  for (const p of ENTREGABLES) {
+    const m = textosDelAnuncio.match(p.patron);
+    if (!m) continue;
+    // La raíz de la palabra alcanza: "videos"/"vídeo" comparten "ideo".
+    const raiz = m[0].toLowerCase().replace(/[^a-záéíóúñ]/g, "").slice(0, 6);
+    if (raiz && respaldo.includes(raiz)) continue;
+    return (
+      `El anuncio dice que el producto incluye ${p.que} ("${m[0]}"), y eso NO figura en los datos reales de "${prodReal.name}". ` +
+      `Prometer un formato de entrega que no existe es de lo que más rápido genera un reclamo: el cliente paga esperándolo. ` +
+      `Sacá esa parte y vendé con lo que el producto sí entrega ` +
+      `(${Array.isArray(prodReal.features) && prodReal.features.length ? (prodReal.features as string[]).slice(0, 4).join(", ") : "sus beneficios reales"}). ` +
+      `Si el producto de verdad los incluye, que el admin los cargue primero en las características del producto.`
+    );
+  }
+
   for (const p of PROMESAS) {
     const m = textosDelAnuncio.match(p.patron);
     if (!m) continue;
