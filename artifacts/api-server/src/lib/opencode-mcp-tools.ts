@@ -305,7 +305,19 @@ async function proposeAction(
   // rechazar la propuesta acá y decirle al modelo qué le falta, que dejarlo
   // llegar al admin con un signo de pregunta donde va un id.
   const OBLIGATORIOS: Record<string, string[]> = {
-    fb_ad_draft: ["productId"],
+    // `primaryText` es obligatorio a propósito. Reportado en vivo por el
+    // admin (2026-08-13) después de varios intentos sin poder crear NI UN
+    // anuncio: el modelo escribía un copy completo en el chat, el admin lo
+    // leía y confirmaba... pero a la herramienta solo le pasaba el
+    // productId. Sin copy, fb_ad_draft rechazaba ("necesito investigación o
+    // que escribas el copy completo") y el flujo moría SIEMPRE en el último
+    // paso, después de que el admin ya había invertido varios mensajes.
+    //
+    // Exigirlo acá resuelve dos cosas de una: destraba la creación, y
+    // garantiza que el copy que el admin APROBÓ es exactamente el que se
+    // guarda -- antes, aunque hubiera funcionado, el texto del chat y el del
+    // borrador podían no coincidir.
+    fb_ad_draft: ["productId", "primaryText"],
     fb_create_ad: ["productId"],
     fb_page_publish: ["productId"],
     set_product_image: ["productId", "imageUrl"],
@@ -324,8 +336,12 @@ async function proposeAction(
       ok: false,
       summary:
         `No se puede proponer "${tool}" sin ${faltantes.join(" y ")}. ` +
-        `Averigualo primero con una herramienta de lectura (por ejemplo list_products para el id del producto) ` +
-        `y volvé a proponer la acción con el dato real. No la propongas con un valor vacío ni inventado.`,
+        (faltantes.includes("primaryText")
+          ? `Pasá en "primaryText" el TEXTO COMPLETO del anuncio que le mostraste al admin -- el mismo, palabra por palabra, ` +
+            `no un resumen ni una referencia tipo "el copy de arriba". Sumá también "headline" (título corto) y, si lo tenés, ` +
+            `"description". Sin el texto adjunto no se guarda nada y el admin se queda sin anuncio después de haberlo aprobado. `
+          : `Averigualo primero con una herramienta de lectura (por ejemplo list_products para el id del producto) `) +
+        `Volvé a proponer la acción con el dato real. No la propongas con un valor vacío ni inventado.`,
     };
   }
 
