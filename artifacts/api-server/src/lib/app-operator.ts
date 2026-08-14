@@ -1824,6 +1824,30 @@ export const TOOLS: ToolDef[] = [
           prodReal.highlight,
         ].filter(Boolean).join(" ").toLowerCase();
 
+        // ── Citas puestas en boca de alguien real ────────────────────────
+        // Encontrado revisando un anuncio ya generado (2026-08-12): el copy
+        // traía 📖 "La música es una herramienta de bendición" — Edwin Jurado.
+        // Ese nombre salió de la Biblioteca de Anuncios: es un COMPETIDOR del
+        // admin, y la frase probablemente nunca la dijo. Atribuirle palabras
+        // a una persona real es más delicado que inventar un descuento: puede
+        // ser un problema legal y de reputación, y sale publicado pagando.
+        // El validador de promesas no lo cubría porque no es una oferta.
+        const CITA_ATRIBUIDA = /["“”«][^"“”«»]{10,200}["“”»]\s*[—\-–]\s*([A-ZÁÉÍÓÚÑ][\wáéíóúñ]+(?:\s+[A-ZÁÉÍÓÚÑ][\wáéíóúñ]+){0,3})/;
+        const cita = textosDelAnuncio.match(CITA_ATRIBUIDA);
+        if (cita) {
+          const autor = cita[1].trim();
+          if (!respaldo.includes(autor.toLowerCase())) {
+            return {
+              ok: false,
+              summary:
+                `El anuncio le atribuye una frase a "${autor}", y esa persona no figura en los datos del producto. ` +
+                `Poner palabras en boca de alguien real que quizás nunca las dijo es un problema serio -- legal y de reputación -- ` +
+                `y peor todavía si es un competidor. Sacá la cita y volvé a llamar la herramienta. ` +
+                `Si querés una frase inspiradora, escribila sin atribuírsela a nadie.`,
+            };
+          }
+        }
+
         const PROMESAS: { patron: RegExp; que: string }[] = [
           { patron: /\bantes\s*\$?\s*[\d.,]+|\bprecio\s+(anterior|regular|normal)|\bde\s*\$[\d.,]+\s*a\s*\$/i, que: "un precio anterior / descuento" },
           { patron: /\bgarant[ií]a\b|\bgarantizad/i, que: "una garantía" },
