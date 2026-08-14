@@ -13,7 +13,7 @@ import {
 } from "../lib/optimized-rotation";
 import { getG4FResponse } from "../lib/providers/g4f-provider";
 import { G4F_ENABLED } from "../config/g4f.config";
-import { OPERATOR_SYSTEM_PROMPT, buildToolsDoc, executeAction, isReadOnlyTool, isKnownTool, verifyMutation, mensajeParaAdmin, type OperatorContext } from "../lib/app-operator";
+import { OPERATOR_SYSTEM_PROMPT, buildToolsDoc, executeAction, isReadOnlyTool, isKnownTool, verifyMutation, mensajeParaAdmin, validarContenidoAnuncio, bloqueoDeMeta, type OperatorContext } from "../lib/app-operator";
 import { leerBusinessConfig } from "../lib/ai-keys";
 import {
   loadArchitectHistory, saveArchitectTurn, getPendingPlan, setPendingPlan,
@@ -1611,6 +1611,39 @@ router.post("/operator", async (req: TenantRequest, res, next) => {
       // lecturas de este turno (para grounding) pero PARAMOS aquí: no seguimos
       // el loop, para no recolectar la misma mutación dos veces.
       if (mutations.length > 0) {
+        // ── Validar ANTES de armar el plan, no después del "sí" ───────────
+        // Esta ruta arma plannedActions por su cuenta, sin pasar por
+        // proposeAction, así que las validaciones de contenido y de conexión
+        // con Meta no la cubrían. Sin esto, el mismo agujero de siempre: el
+        // admin aprueba y recién ahí rebota. Acá el modelo todavía está en el
+        // loop, así que se le devuelve el motivo y reintenta -- mismo patrón
+        // exacto que el retry de "tool inválida" de unas líneas más arriba.
+        const rechazos: string[] = [];
+        for (const m of mutations) {
+          const args = m.args || {};
+          if (m.tool === "fb_ad_draft" || m.tool === "fb_create_ad" || m.tool === "fb_page_publish") {
+            const problema = await validarContenidoAnuncio(args, ctx);
+            if (problema) { rechazos.push(problema); continue; }
+          }
+          const bloqueo = await bloqueoDeMeta(m.tool, ctx);
+          if (bloqueo) rechazos.push(bloqueo);
+        }
+        if (rechazos.length > 0 && step < MAX_STEPS - 1) {
+          logger.info({ tenantId, rechazos: rechazos.length }, "[AppOperator] Plan rechazado antes de proponerlo -- se le devuelve al modelo para que corrija");
+          messages.push({ role: "assistant", content });
+          messages.push({ role: "user", content: rechazos.join("\n\n") });
+          continue;
+        }
+        // Sin intentos restantes: NO se propone algo que va a fallar igual.
+        // Se le dice al admin en su idioma qué pasa y se corta.
+        if (rechazos.length > 0) {
+          const reply = paraMarkdown(toEmojiStyle(
+            `No pude dejarlo listo:\n\n${rechazos.map((r) => `❌ ${mensajeParaAdmin(r)}`).join("\n\n")}`,
+          ));
+          await saveArchitectTurn(tenantId, sessionId, "assistant", reply);
+          return finish({ reply, status: "info", needsContinuation: false });
+        }
+
         progreso("Preparando el plan de cambios para que lo apruebes");
         for (const m of mutations) plannedActions.push({ tool: m.tool, args: m.args || {} });
         for (const a of reads) await executeAction(a.tool, a.args || {}, ctx);

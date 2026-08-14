@@ -25,6 +25,7 @@ import {
   isReadOnlyTool,
   READ_ONLY_TOOLS,
   validarContenidoAnuncio,
+  bloqueoDeMeta,
   type OperatorContext,
 } from "./app-operator";
 import { logger } from "./logger";
@@ -379,6 +380,13 @@ async function proposeAction(
     const problema = await validarContenidoAnuncio(toolArgs, ctx);
     if (problema) return { ok: false, summary: problema };
   }
+
+  // ── ¿Meta está conectado? Preguntarlo ANTES de hacerle aprobar algo ──────
+  // Mismo fallo tardío que el copy, pero peor: "Facebook no configurado
+  // (falta token)" no se arregla reescribiendo nada ni volviendo a
+  // confirmar. El admin aprobaba una campaña que no tenía forma de correr.
+  const bloqueo = await bloqueoDeMeta(tool, ctx);
+  if (bloqueo) return { ok: false, summary: bloqueo };
 
   const description = describePlannedAction({ tool, args: toolArgs });
 

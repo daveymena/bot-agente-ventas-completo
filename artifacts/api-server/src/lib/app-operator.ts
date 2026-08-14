@@ -921,10 +921,27 @@ export async function validarContenidoAnuncio(
   for (const p of PROMESAS) {
     const m = textosDelAnuncio.match(p.patron);
     if (!m) continue;
-    // ¿El producto real respalda esa promesa? Se busca la palabra clave
-    // del match en su nombre/descripción/características.
-    const clave = m[0].toLowerCase().replace(/[^a-záéíóúñ%\d]/g, " ").trim().split(/\s+/)[0] || "";
-    if (clave && respaldo.includes(clave)) continue; // está respaldada, se deja pasar
+    // ¿El producto real respalda esa promesa? Se buscan las palabras del
+    // match como PALABRAS ENTERAS en su nombre/descripción/características.
+    //
+    // Antes esto era `respaldo.includes(clave)` -- una subcadena suelta -- y
+    // se le escapaba la promesa más común de todas. Encontrado con una prueba
+    // real sobre el producto 76: el anuncio decía "$20.000 COP (antes
+    // $50.000)", un descuento que no existe, y pasaba limpio porque la
+    // descripción del producto dice "Actualizaciones constANTES incluidas".
+    // La subcadena "antes" estaba, así que el validador la daba por
+    // respaldada y dejaba salir publicado un precio anterior inventado.
+    //
+    // También se toman las palabras de >=4 letras en vez de la primera del
+    // match: para "50% descuento" la primera era "50", y comprobar si el
+    // texto del producto contiene "50" en algún lado no dice nada.
+    const palabras = (m[0].toLowerCase().match(/[a-záéíóúñ]{4,}/g) || []);
+    const esPalabraEntera = (w: string) =>
+      new RegExp(`(^|[^a-záéíóúñ])${w}([^a-záéíóúñ]|$)`, "i").test(respaldo);
+    const respaldada = palabras.length > 0
+      ? palabras.some(esPalabraEntera)
+      : respaldo.includes(m[0].toLowerCase().trim()); // "2x1" y similares, sin letras
+    if (respaldada) continue; // está respaldada de verdad, se deja pasar
     return (
       `El anuncio promete ${p.que} ("${m[0]}") que NO figura en los datos reales del producto "${prodReal.name}". ` +
       `Una promesa así el admin tiene que cumplírsela a quien la reclame, así que no se puede inventar. ` +
@@ -934,6 +951,66 @@ export async function validarContenidoAnuncio(
     );
   }
 
+  return null;
+}
+
+/**
+ * ¿Se puede llegar a Meta con lo que este negocio tiene conectado hoy?
+ * Devuelve el motivo del bloqueo, o `null` si está en condiciones.
+ *
+ * Existe por la misma razón que `validarContenidoAnuncio`: hasta ahora esto
+ * se descubría al EJECUTAR. El admin armaba la campaña, confirmaba, y recién
+ * después le llegaba "Facebook no configurado (falta token)" -- un problema
+ * que no se arregla reescribiendo el copy ni volviendo a confirmar, sino
+ * yendo a conectar la cuenta. Preguntarlo ANTES de proponer evita hacerle
+ * aprobar algo que no tenía forma de funcionar.
+ *
+ * `fb_ad_draft` NO pasa por acá a propósito: guarda un borrador local, no
+ * toca Meta, y tiene que seguir funcionando con Facebook desconectado --
+ * es justamente el paso que sirve para tener el anuncio listo mientras
+ * tanto.
+ */
+export async function bloqueoDeMeta(
+  tool: string,
+  ctx: OperatorContext,
+): Promise<string | null> {
+  const NECESITAN_META: Record<string, "pagina" | "ads"> = {
+    fb_page_publish: "pagina",
+    fb_create_ad: "ads",
+    fb_pause_campaign: "ads",
+    fb_resume_campaign: "ads",
+    fb_set_budget: "ads",
+    fb_update_draft_creative: "ads",
+    fb_sync_catalog: "ads",
+  };
+  const necesita = NECESITAN_META[tool];
+  if (!necesita) return null;
+
+  const tenant = await tenantManager.getTenantById(ctx.tenantId);
+  const { credencialesFacebookDe } = await import("./tenant-facebook-credentials");
+  const cred = credencialesFacebookDe(tenant);
+
+  if (!cred.accessToken) {
+    return (
+      `Este negocio todavía no tiene Facebook conectado, así que esta acción no puede funcionar. ` +
+      `Decíle al admin que conecte su cuenta de Facebook desde el panel (Configuración → Facebook) y ` +
+      `que después te lo pida de nuevo. No propongas la acción hasta que esté conectada. ` +
+      `Mientras tanto sí podés dejarle el borrador del anuncio guardado, que no necesita Meta.`
+    );
+  }
+  if (necesita === "pagina" && !cred.pageId) {
+    return (
+      `Hay token de Facebook pero no hay una página elegida, y sin página no se puede publicar en el muro. ` +
+      `Decíle al admin que seleccione su página en el panel (Configuración → Facebook). No propongas la publicación hasta entonces.`
+    );
+  }
+  if (necesita === "ads" && !cred.adAccountId) {
+    return (
+      `Hay token de Facebook pero no hay cuenta publicitaria configurada, y sin eso no se puede crear ni manejar una campaña. ` +
+      `Decíle al admin que cargue su cuenta publicitaria en el panel (Configuración → Facebook). ` +
+      `Mientras tanto sí podés dejarle el borrador del anuncio guardado, que no necesita Meta.`
+    );
+  }
   return null;
 }
 
