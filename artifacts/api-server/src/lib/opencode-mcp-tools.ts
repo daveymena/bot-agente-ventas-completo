@@ -399,7 +399,29 @@ async function proposeAction(
   });
 
   logger.info({ tenantId: ctx.tenantId, turnId: ctx.turnId, tool }, "[AtlasMCP] Acción propuesta (sin ejecutar)");
-  return { ok: true, summary: description };
+  // El resultado que ve el MODELO tiene que decir, sin ninguna ambigüedad, que
+  // todavía no pasó nada.
+  //
+  // Antes acá se devolvía `description` a secas -- pero esa frase está escrita
+  // para la LISTA DEL ADMIN ("Generar borrador de anuncio ... queda guardado
+  // local"), no para el modelo. Leída como resultado de herramienta suena a
+  // acción cumplida, así que el modelo cierra el turno diciendo que ya quedó
+  // guardado. Medido con dos cerebros distintos el 2026-08-14: Atlas reportó
+  // "✅ Borrador generado y guardado" y Hermes "Borrador guardado: sí", las
+  // dos veces sin que existiera nada. El admin se queda creyendo que tiene un
+  // anuncio que nunca se creó.
+  //
+  // Se arregla del lado del PUENTE y no del prompt a propósito: por acá pasa
+  // cualquier cerebro (Atlas, Hermes, el que venga), así que el candado vale
+  // para todos sin repetir la regla en cada system prompt.
+  return {
+    ok: true,
+    summary:
+      `PROPUESTA REGISTRADA — TODAVÍA NO SE EJECUTÓ NADA. No existe ningún cambio en el sistema en este momento. ` +
+      `Lo único que pasó es que "${tool}" quedó anotada, esperando que el admin la apruebe; recién ahí se ejecuta de verdad. ` +
+      `Al responderle, NO digas que quedó guardado, creado, publicado ni listo: decile qué preparaste y pedile que lo confirme. ` +
+      `Acción en espera: ${description}`,
+  };
 }
 
 /** Lee y borra las propuestas acumuladas de un turno (llamado UNA vez, al
