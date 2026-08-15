@@ -950,12 +950,45 @@ Responde SOLO con este JSON exacto:
     }
   }
 
+  /**
+   * Reactiva una campaña Y sus conjuntos de anuncios.
+   *
+   * Los dos niveles, y no solo la campaña, porque Meta NO entrega nada si el
+   * conjunto está pausado, por más que la campaña figure activa. Encontrado
+   * en la cuenta del admin (2026-08-15): la campaña del Curso de Piano estaba
+   * ACTIVE desde hacía dos días con 0 impresiones y 0 de gasto -- su conjunto
+   * seguía en PAUSED. Se sospechó de facturación y de aprobación de Meta
+   * antes de dar con esto.
+   *
+   * Los anuncios se crean con el conjunto en PAUSED (ver createAdForProduct),
+   * así que TODA campaña recién creada cae en este caso: activarla sola no
+   * hace absolutamente nada. Es decir, hasta ahora ningún camino automático
+   * podía llegar a mostrar un anuncio -- ni Atlas ni el panel.
+   *
+   * Devuelve false si algún nivel falla: "a medias" acá significa que el
+   * admin cree que su anuncio corre y no corre.
+   */
   async resumeCampaign(campaignId: string): Promise<boolean> {
     try {
       await this.fbPost(campaignId, { status: "ACTIVE" }, "reactivar campaña", this.config.userAccessToken);
-      return true;
     } catch (err: any) {
       logger.warn({ err, campaignId }, "[Facebook] Error reactivando campaña");
+      return false;
+    }
+    try {
+      const conjuntos = await this.listAdSets(campaignId);
+      if (conjuntos.length === 0) {
+        logger.warn({ campaignId }, "[Facebook] La campaña no tiene conjuntos: activarla no va a mostrar nada");
+        return false;
+      }
+      for (const c of conjuntos) {
+        if (c.status === "ACTIVE") continue;
+        await this.fbPost(c.id, { status: "ACTIVE" }, "reactivar conjunto", this.config.userAccessToken);
+        logger.info({ campaignId, adSetId: c.id }, "[Facebook] Conjunto reactivado");
+      }
+      return true;
+    } catch (err: any) {
+      logger.warn({ err, campaignId }, "[Facebook] La campaña quedó activa pero un conjunto no se pudo reactivar");
       return false;
     }
   }

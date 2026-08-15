@@ -2644,7 +2644,12 @@ export const TOOLS: ToolDef[] = [
       const fb = new FacebookService(tenant || undefined);
       if (!fb.isConfigured()) return { ok: false, summary: "Facebook no está conectado." };
       const ok = await fb.resumeCampaign(campaignId);
-      return { ok, summary: ok ? `Campaña ${campaignId} reactivada: vuelve a gastar.` : `Meta no aceptó reactivar la campaña ${campaignId}.` };
+      return {
+        ok,
+        summary: ok
+          ? `Campaña ${campaignId} activada, junto con sus conjuntos de anuncios: ya empieza a mostrarse y a gastar.`
+          : `No quedó activa la campaña ${campaignId}. Puede que Meta rechazara el cambio, o que la campaña esté vacía (sin conjuntos de anuncios adentro, activarla no muestra nada).`,
+      };
     },
   },
   {
