@@ -2634,7 +2634,12 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: "fb_resume_campaign",
-    description: "REACTIVAR una campaña de Facebook Ads que estaba pausada: vuelve a gastar según su presupuesto diario. Úsala solo si el admin lo pide explícitamente.",
+    // La descripción dice explícitamente que cubre los conjuntos porque, sin
+    // eso, el modelo salía a buscar una herramienta de conjuntos, no la
+    // encontraba y se la INVENTABA (visto en vivo, 2026-08-15: propuso usar
+    // "fb_update_adset_status", que no existe). No hay ninguna otra: esta es
+    // la que pone un anuncio a correr.
+    description: "PONER A CORRER una campaña de Facebook Ads que estaba pausada. Activa la campaña Y TAMBIÉN sus conjuntos de anuncios, que es lo que de verdad hace que el anuncio se muestre -- Meta no entrega nada si el conjunto está pausado, por más que la campaña figure activa, y los anuncios se crean siempre con el conjunto en pausa. Es la ÚNICA herramienta para esto: no existe ninguna de \"activar conjunto\" por separado, no la inventes. Empieza a gastar el presupuesto diario, así que usala solo si el admin lo pide explícitamente.",
     args: '{ "campaignId": string (req, id de la campaña en Meta) }',
     run: async (_args, ctx) => {
       const campaignId = String(_args.campaignId || "").trim();
