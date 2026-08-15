@@ -654,13 +654,63 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
       let finalReplyVerificado = finalReply;
 
 
-      // Si el pedido se dividió, cerrar diciéndole al admin qué falta. Sin
-      // esto parecería que Atlas ignoró la mitad de lo que pidió.
+      // ── Seguir solo con las partes que falten, mientras quede tiempo ─────
+      // Antes, un pedido de varias partes resolvía la primera y le pedía al
+      // admin que escribiera "seguí" por cada una. Pedido explícito del admin
+      // (2026-08-15): "necesito que todo lo haga Atlas, no yo". Y tenía
+      // razón: encargarle el ciclo completo de un producto y que devuelva
+      // solo la investigación, pidiendo permiso para continuar, no es un
+      // asistente autónomo.
+      //
+      // El corte original no era un capricho: el turno vive dentro de una
+      // petición HTTP y el proxy corta cerca de los 150s. Por eso acá se
+      // sigue SOLO mientras el reloj del turno lo permita -- mismo criterio
+      // que la "insistencia dirigida" de más abajo. Si el tiempo se acaba con
+      // partes sin hacer, ahí sí se le dice al admin cuáles quedaron, en vez
+      // de fingir que se hizo todo.
+      const MARGEN_POR_PARTE_MS = 45_000;
+      while (
+        partesPendientes.length > 0 &&
+        sesionOpencode &&
+        modeloUsado &&
+        !opencodeError &&
+        turnDeadline - Date.now() > MARGEN_POR_PARTE_MS
+      ) {
+        const siguiente = partesPendientes.shift()!;
+        logger.info({ tenantId, parte: siguiente.slice(0, 60) }, "[AtlasOpenCode] Sigo solo con la parte siguiente");
+        progreso(`Sigo con: ${siguiente.slice(0, 40)}...`);
+        try {
+          const r = await sendOpencodeMessage(cfg.host, cfg.authHeader, sesionOpencode, {
+            system,
+            model: modeloUsado,
+            tools,
+            text:
+              `[SISTEMA] Seguí vos solo con la parte siguiente del mismo pedido: "${siguiente}". ` +
+              `Usá lo que ya averiguaste recién, no vuelvas a investigar lo mismo. ` +
+              `No le pidas permiso al admin para continuar: resolvela y, si hay que crear o cambiar algo, ` +
+              `proponelo con propose_action.`,
+            timeoutMs: Math.max(turnDeadline - Date.now() - 10_000, 20_000),
+          });
+          if (r.error) {
+            logger.warn({ tenantId, err: r.error }, "[AtlasOpenCode] La parte siguiente falló, corto acá");
+            partesPendientes.unshift(siguiente);
+            break;
+          }
+          if (r.text) finalReplyVerificado = `${finalReplyVerificado}\n\n${r.text}`.trim();
+        } catch (e: any) {
+          logger.warn({ tenantId, err: e?.message }, "[AtlasOpenCode] Excepción en la parte siguiente, corto acá");
+          partesPendientes.unshift(siguiente);
+          break;
+        }
+      }
+
+      // Lo que NO alcanzó a entrar en el turno se dice tal cual. Sin esto
+      // parecería que Atlas ignoró la mitad de lo que pidió.
       if (partesPendientes.length && finalReplyVerificado) {
         finalReplyVerificado +=
-          `\n\n📋 Tu pedido tenía varias partes. Resolví la primera; falta:\n` +
+          `\n\n📋 No me alcanzó el tiempo del turno para todo. Falta:\n` +
           partesPendientes.map((p, i) => `${i + 1}. ${p}`).join("\n") +
-          `\n\nDecime "seguí" y voy con la próxima (de a una salen mejor y más rápido).`;
+          `\n\nDecime "seguí" y lo termino.`;
       }
       const AFIRMA_HABER_INVESTIGADO = /\b(busqu[ée]|investigu[ée]|seg[uú]n (?:mi|la) (?:b[uú]squeda|investigaci[oó]n)|us[ée] (?:la herramienta )?(?:websearch|web_search)|resultados reales|encontr[ée] en internet|fuentes? (?:reales?|encontradas?))/i;
       if (!huboInvestigacionReal && AFIRMA_HABER_INVESTIGADO.test(finalReplyVerificado || "")) {
