@@ -2422,7 +2422,10 @@ export const TOOLS: ToolDef[] = [
       const id = num(args.productId);
       const src = String(args.imageUrl || "").trim();
       if (!id || !src) return { ok: false, summary: "Faltan 'productId' y/o 'imageUrl'" };
-      const [prod] = await db.select().from(products).where(eq(products.id, id)).limit(1);
+      // El filtro por tenant no es opcional: sin él, un negocio podía
+      // cambiarle la imagen a un producto de OTRO negocio sabiendo su id
+      // (corregido 2026-08-15). Los ids son correlativos y fáciles de tantear.
+      const [prod] = await db.select().from(products).where(and(eq(products.id, id), eq(products.tenantId, ctx.tenantId))).limit(1);
       if (!prod) return { ok: false, summary: `Producto ${id} no existe` };
 
       // Hospedaje permanente: 1º volumen de Easypanel (por defecto), 2º Cloudinary si está configurado.
@@ -2550,19 +2553,20 @@ export const TOOLS: ToolDef[] = [
     name: "fb_agent_logs",
     description: "Leer el historial del agente de crecimiento de anuncios: qué sugirió, por qué (razón y métricas del momento), si el admin aprobó/rechazó y si la acción se aplicó. Responde 'cómo van mis anuncios', 'qué me recomendó el agente', 'por qué pausó X'. LECTURA, no cambia nada.",
     args: '{ "limit": number (opcional, cuántos logs, def 25), "checkType": string (opcional, filtrar por "spend_protection" | "trend_review" | "daily_cap"), "status": string (opcional, "suggested" | "applied" | "rejected" | "no_action") }',
-    run: async (args) => {
+    run: async (args, ctx) => {
       const { adAgentLogs } = await import("@workspace/db");
       const { desc } = await import("drizzle-orm");
       const limit = Math.min(Math.max(num(args.limit) || 25, 1), 100);
-      const conditions = [];
+      // FUGA ENTRE NEGOCIOS corregida (2026-08-15): esta herramienta no
+      // recibía `ctx` siquiera, y ninguna de sus dos ramas filtraba por
+      // tenant -- le devolvía a CUALQUIER negocio la actividad del agente de
+      // anuncios de TODOS los demás (nombres de campaña, decisiones de gasto,
+      // motivos). La tabla siempre tuvo la columna `tenant_id`; simplemente
+      // no se usaba. El filtro va primero y no es opcional.
+      const conditions = [eq(adAgentLogs.tenantId, ctx.tenantId)];
       if (args.checkType) conditions.push(eq(adAgentLogs.checkType, String(args.checkType)));
       if (args.status) conditions.push(eq(adAgentLogs.status, String(args.status)));
-      let rows;
-      if (conditions.length) {
-        rows = await db.select().from(adAgentLogs).where(and(...conditions)).orderBy(desc(adAgentLogs.createdAt)).limit(limit);
-      } else {
-        rows = await db.select().from(adAgentLogs).orderBy(desc(adAgentLogs.createdAt)).limit(limit);
-      }
+      const rows = await db.select().from(adAgentLogs).where(and(...conditions)).orderBy(desc(adAgentLogs.createdAt)).limit(limit);
       if (!rows.length) return { ok: true, summary: "El agente de anuncios no ha registrado actividad todavía (corre cada cierto tiempo).", data: { logs: [] } };
       const tipo: Record<string, string> = {
         spend_protection: "Protección de gasto",
@@ -2693,12 +2697,17 @@ export const TOOLS: ToolDef[] = [
     name: "dropi_create_order",
     description: "Crear una orden REAL en Dropi para que el proveedor despache al cliente (pago contra entrega). Úsala solo cuando una venta ya esté cerrada y tengas los datos de envío completos. GENERA UN PEDIDO REAL con costo → requiere confirmación explícita.",
     args: '{ "productId": number (req, id del producto en ESTA tienda), "quantity": number (req), "clientName": string (req), "clientPhone": string (req), "clientAddress": string (req), "clientCity": string (opcional), "clientDepartment": string (opcional), "notes": string (opcional) }',
-    run: async (args) => {
+    run: async (args, ctx) => {
       const { dropiCreateOrder } = await import("./dropi");
       const pid = num(args.productId);
       if (!pid) return { ok: false, summary: "Falta 'productId'" };
 
-      const [prod] = await db.select().from(products).where(eq(products.id, pid)).limit(1);
+      // El más delicado de los tres agujeros de aislamiento encontrados el
+      // 2026-08-15: esta herramienta no recibía `ctx` y buscaba el producto
+      // solo por id, así que un negocio podía generar un PEDIDO REAL, con
+      // costo y despacho, contra el producto de otro. La descripción ya
+      // advierte "id del producto en ESTA tienda" -- ahora se verifica.
+      const [prod] = await db.select().from(products).where(and(eq(products.id, pid), eq(products.tenantId, ctx.tenantId))).limit(1);
       if (!prod) return { ok: false, summary: `Producto ${pid} no existe en la tienda` };
 
       let meta: any = {};
@@ -2901,7 +2910,11 @@ export async function verifyMutation(tool: string, args: any, ctx: OperatorConte
       const id = args?.id ? Number(args.id) : undefined;
       let row;
       if (id) {
-        [row] = await db.select().from(products).where(eq(products.id, id)).limit(1);
+        // Con tenant, aunque acá solo se llega tras una mutación que ya
+        // validó propiedad: esta función DEVUELVE datos del producto al
+        // admin (nombre, precio, estado), así que no debe poder leer uno
+        // ajeno ni siquiera por un camino indirecto.
+        [row] = await db.select().from(products).where(and(eq(products.id, id), eq(products.tenantId, ctx.tenantId))).limit(1);
       } else if (args?.name) {
         const all = await db.select().from(products).where(eq(products.tenantId, ctx.tenantId));
         row = all.find((p) => (p.name || "").toLowerCase() === String(args.name).toLowerCase());
