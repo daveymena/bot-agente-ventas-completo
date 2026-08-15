@@ -910,11 +910,25 @@ export async function validarContenidoAnuncio(
   }
 
   const PROMESAS: { patron: RegExp; que: string }[] = [
-    { patron: /\bantes\s*\$?\s*[\d.,]+|\bprecio\s+(anterior|regular|normal)|\bde\s*\$[\d.,]+\s*a\s*\$/i, que: "un precio anterior / descuento" },
+    // "precio especial por lanzamiento" se coló entera (2026-08-15, producto
+    // 119): el patrón solo miraba "antes $X" y "precio anterior". Cualquier
+    // adjetivo que insinúe que el precio es temporal es una promesa igual --
+    // el cliente que la lee espera que después suba.
+    { patron: /\bantes\s*\$?\s*[\d.,]+|\bprecio\s+(anterior|regular|normal)|\bde\s*\$[\d.,]+\s*a\s*\$|\bprecio\s+(especial|promocional|de\s+lanzamiento|introductorio)|\bpor\s+lanzamiento\b|\boferta\s+(especial|de\s+lanzamiento)/i, que: "un precio anterior / descuento" },
     { patron: /\bgarant[ií]a\b|\bgarantizad/i, que: "una garantía" },
     { patron: /\bgratis\b|\bregalo\b|\bbono\b|\bsin costo\b/i, que: "algo gratis o de regalo" },
     { patron: /\b\d+\s*%\s*(de\s*)?(descuento|off)\b|\b2x1\b/i, que: "un descuento" },
-    { patron: /\bcupos?\s+limitados?\b|\b[uú]ltimos?\s+cupos?\b|\bsolo\s+hoy\b|\bpor\s+tiempo\s+limitado\b/i, que: "una urgencia o escasez" },
+    // "¡30 cupos disponibles!" pasó limpio (2026-08-15, producto 119) y el
+    // caso es peor de lo que parece: Atlas venía de leer la Biblioteca de
+    // Anuncios, donde un COMPETIDOR (Glish Colombia) anuncia "30 CUPOS
+    // DISPONIBLES", y le copió el número a un producto que es un archivo
+    // digital ilimitado -- no existe ningún cupo. Investigar la competencia
+    // sirve para el ÁNGULO, nunca para copiar sus condiciones comerciales.
+    //
+    // Ahora cualquier mención de cupos/plazas/vacantes con número, y las
+    // fórmulas de urgencia por fecha, cuentan como promesa salvo que el
+    // producto real las respalde.
+    { patron: /\b\d+\s*(cupos?|plazas?|vacantes?|lugares)\b|\bcupos?\s+(limitados?|disponibles?)\b|\b[uú]ltimos?\s+(cupos?|d[ií]as?|lugares)\b|\bsolo\s+hoy\b|\bpor\s+tiempo\s+limitado\b|\btermina\s+(hoy|ma[nñ]ana|pronto)\b|\b[uú]ltima\s+oportunidad\b|\bantes\s+de\s+que\s+(suba|termine|se\s+acabe)/i, que: "una urgencia o escasez" },
     { patron: /\breembolso\b|\bdevoluci[oó]n\s+de\s+dinero\b/i, que: "una devolución de dinero" },
   ];
 
