@@ -465,6 +465,22 @@ export async function drainDraftPlan(tenantId: number, turnId: string): Promise<
 const NUCLEO = new Set([
   "analyze_system", "list_products", "list_categories", "dashboard_summary",
   "get_agent", "get_settings", "get_store",
+  // `web_search`/`web_fetch` van en el núcleo, no en un grupo. Motivo medido
+  // en vivo (2026-08-15), con la clave de Tavily ya configurada y funcionando:
+  // al pedirle "buscá el precio de curso de adiestramiento canino en
+  // Colombia", el enrutador matcheó el grupo de PRECIOS (por la palabra
+  // "precio") y le mandó payment_status/optimize_price -- sin buscador. Como
+  // un grupo SÍ matcheó, tampoco se activó el respaldo de "ante la duda,
+  // mandá todas". Atlas respondió "no tengo acceso a una herramienta de
+  // búsqueda web" y, en otro intento, inventó precios etiquetándolos como
+  // "datos históricos, no inventados".
+  //
+  // El patrón de investigación ni siquiera contemplaba "buscar"/"búsqueda",
+  // así que pedirle explícitamente que busque era la forma más segura de
+  // dejarlo sin buscador. En vez de perseguir palabras clave una por una,
+  // van siempre: son de solo lectura, son dos esquemas, y sin ellas el
+  // sistema fabrica datos -- que es el riesgo que este proyecto más cuida.
+  "web_search", "web_fetch",
 ]);
 
 const GRUPOS: { patron: RegExp; herramientas: string[] }[] = [
@@ -482,7 +498,9 @@ const GRUPOS: { patron: RegExp; herramientas: string[] }[] = [
     herramientas: ["whatsapp_status", "list_recent_conversations", "predict_customer"],
   },
   {
-    patron: /investig|averigu|indag|research|tendencia|competencia|mercado|benchmark|qu[eé] funciona/i,
+    // "busc"/"búsqueda" y "competidor" faltaban: pedirle literalmente que
+    // buscara algo no matcheaba este grupo. Ver el comentario del NÚCLEO.
+    patron: /investig|averigu|indag|research|busc|b[uú]squeda|tendencia|competencia|competidor|mercado|benchmark|qu[eé] funciona/i,
     herramientas: ["fb_ad_library", "web_search", "web_fetch"],
   },
   {
