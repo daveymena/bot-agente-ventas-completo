@@ -86,6 +86,15 @@ export interface FbCampaignResult {
   previewUrl: string;
 }
 
+/**
+ * Monedas SIN centavos (currency offset 1 en Meta): el monto va tal cual,
+ * ni se multiplica ni se divide por 100. Vive a nivel de modulo porque la
+ * usan la conversion de ida y la de vuelta -- tenerla duplicada fue lo que
+ * dejo el x100 vivo del lado de la LECTURA despues de arreglarlo en la
+ * escritura. Fuente: developers.facebook.com/docs/marketing-api/currencies
+ */
+const MONEDAS_SIN_DECIMALES = new Set(["COP", "CLP", "CRC", "HUF", "ISK", "IDR", "JPY", "KRW", "PYG", "TWD", "VND"]);
+
 export class FacebookService {
   private config: FacebookConfig;
   private tenant: TenantContext;
@@ -201,7 +210,6 @@ export class FacebookService {
     // era este x100. Por suerte ninguna campaña llegó a tener conjunto de
     // anuncios, así que el gasto real quedó en $0 -- pero si alguna hubiera
     // arrancado, habría gastado cien veces lo pedido.
-    const SIN_DECIMALES = new Set(["COP", "CLP", "CRC", "HUF", "ISK", "IDR", "JPY", "KRW", "PYG", "TWD", "VND"]);
     if (moneda === "COP") return { ok: true, valor: Math.round(montoCop) };
 
     // La cuenta está en otra moneda: se convierte de verdad, con la tasa en
@@ -217,7 +225,7 @@ export class FacebookService {
       // Si la cuenta está en otra moneda SIN decimales (yen, won, guaraní...),
       // no se puede convertir sin su tasa real, pero al menos que no se
       // multiplique por 100 por descuido si algún día se agrega la conversión.
-      if (SIN_DECIMALES.has(moneda)) {
+      if (MONEDAS_SIN_DECIMALES.has(moneda)) {
         return {
           ok: false,
           message: `Tu cuenta publicitaria está en ${moneda}. Definí el presupuesto directamente en el Administrador de Anuncios de Meta para no arriesgar un monto mal convertido.`,
@@ -843,13 +851,33 @@ Responde SOLO con este JSON exacto:
     return { campaigns: rows, totals };
   }
 
+  /**
+   * Inversa de `presupuestoDiarioParaMeta`: pasa un monto que viene de Graph
+   * API (en unidades mínimas) al número que el admin entiende.
+   *
+   * Dividir por 100 SIEMPRE es incorrecto, por el mismo motivo que
+   * multiplicar por 100 siempre lo era: el peso colombiano no tiene centavos
+   * (offset 1). Visto en vivo (2026-08-15): un conjunto con $10.000 COP/día
+   * bien guardados en Meta se le mostraba al admin como "$100/día".
+   *
+   * Al leer es tan peligroso como al escribir, pero al revés: si el admin ve
+   * "$100" donde hay $10.000 y decide "esto no gasta nada, lo subo a 10.000",
+   * termina poniendo cien veces lo que quería.
+   */
+  private async deMetaAMonedaDeCuenta(valorMeta: unknown): Promise<number> {
+    const n = Number(valorMeta);
+    if (!Number.isFinite(n) || n <= 0) return 0;
+    const moneda = (await this.getAccountCurrency()) || "COP";
+    return MONEDAS_SIN_DECIMALES.has(moneda) ? n : n / 100;
+  }
+
   /** Presupuesto diario configurado y gastado hoy -- necesario para
    * "protección de gasto" (¿ya se comió el presupuesto sin resultados?). */
   async getAdSetBudgetStatus(adSetId: string): Promise<{ dailyBudget: number; status: string } | null> {
     try {
       const res = await this.fbGet(`${adSetId}`, { fields: "daily_budget,effective_status" }, this.config.userAccessToken);
       return {
-        dailyBudget: res.daily_budget ? Number(res.daily_budget) / 100 : 0,
+        dailyBudget: await this.deMetaAMonedaDeCuenta(res.daily_budget),
         status: res.effective_status,
       };
     } catch (err: any) {
@@ -898,12 +926,14 @@ Responde SOLO con este JSON exacto:
         { fields: "id,name,effective_status,daily_budget", limit: "50" },
         this.config.userAccessToken,
       );
-      return (res.data || []).map((a: any) => ({
+      // Promise.all y no un map suelto: la conversión consulta la moneda de
+      // la cuenta (cacheada por instancia), así que es asíncrona.
+      return await Promise.all((res.data || []).map(async (a: any) => ({
         id: a.id,
         name: a.name,
         status: a.effective_status,
-        dailyBudget: a.daily_budget ? Number(a.daily_budget) / 100 : 0,
-      }));
+        dailyBudget: await this.deMetaAMonedaDeCuenta(a.daily_budget),
+      })));
     } catch (err: any) {
       logger.warn({ err, campaignId }, "[Facebook] Error listando conjuntos de anuncios");
       return [];
