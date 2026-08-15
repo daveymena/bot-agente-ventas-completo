@@ -320,7 +320,13 @@ async function proposeAction(
     // guarda -- antes, aunque hubiera funcionado, el texto del chat y el del
     // borrador podían no coincidir.
     fb_ad_draft: ["productId", "primaryText"],
-    fb_create_ad: ["productId"],
+    // `dailyBudget` obligatorio. Visto en vivo (2026-08-15): Atlas le mostró
+    // al admin "$50.000 COP/día" y propuso la acción SIN dailyBudget, así que
+    // iba a ejecutarse con el default de 5.000 -- diez veces menos que lo que
+    // el admin estaba aprobando. El admin decide leyendo el texto; si el
+    // número real es otro, la aprobación no significa nada. Sin default
+    // silencioso: si no lo dice, no se propone.
+    fb_create_ad: ["productId", "dailyBudget"],
     fb_page_publish: ["productId"],
     set_product_image: ["productId", "imageUrl"],
     update_product: ["id"],
@@ -462,7 +468,23 @@ export async function drainDraftPlan(tenantId: number, turnId: string): Promise<
 // `propose_action` que se agrega aparte); los grupos se suman por palabra
 // clave. Ante la duda -- si el pedido no matchea ningún grupo -- se mandan
 // TODAS, para no romper un caso raro por ahorrar tokens.
-const NUCLEO = new Set([
+// TODA herramienta de solo lectura va en el núcleo, en todos los pedidos.
+//
+// El cerebro viejo (`/operator`, code-agent.ts) le pasaba al modelo las 34
+// herramientas SIEMPRE, vía buildToolsDoc(). El cerebro nuevo estrenó este
+// recorte por palabra clave para bajar los 69s por turno -- y ahí empezó el
+// "antes funcionaba y ahora no" que reportó el admin. Es literal: si la frase
+// no matchea el patrón correcto, la capacidad desaparece sin que nadie se
+// entere. Medido: pedirle "buscá el PRECIO de X" lo mandaba al grupo de
+// precios y se quedaba sin buscador, y contestaba "no tengo acceso a una
+// herramienta de búsqueda web".
+//
+// Adivinar por palabras clave es frágil por diseño: cada frase que no
+// anticipamos es una capacidad perdida en silencio. Leer no rompe nada -- no
+// hay razón de seguridad para esconder una lectura. El recorte se mantiene
+// solo para las que MUTAN, que además pasan por propose_action.
+const NUCLEO = new Set<string>([
+  ...READ_ONLY_TOOLS,
   "analyze_system", "list_products", "list_categories", "dashboard_summary",
   "get_agent", "get_settings", "get_store",
   // `web_search`/`web_fetch` van en el núcleo, no en un grupo. Motivo medido
