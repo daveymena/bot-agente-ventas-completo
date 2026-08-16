@@ -1,5 +1,6 @@
 import { eq, inArray, desc, and } from "drizzle-orm";
 import { transcribirAudio, describirImagen } from "./media-entrante";
+import { contextoDeMoneda } from "./moneda-por-pais";
 import path from "node:path";
 import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { HttpProxyAgent } from "http-proxy-agent";
@@ -275,6 +276,10 @@ function variante(opciones: string[], semilla: string): string {
 function buildProductCaption(p: typeof products.$inferSelect, categoryName: string | null, dynamicLinks?: any, semilla = "") {
   const lines: string[] = [];
   const sem = `${semilla}|${p.id}`;
+  // La semilla viene como "telefono|productId": el teléfono dice de qué país
+  // es el cliente, y de ahí salen la moneda y los medios de pago que le
+  // sirven de verdad.
+  const mon = contextoDeMoneda(String(semilla).split("|")[0], Number(p.price), p.currency);
 
   let meta: any = {};
   try { meta = JSON.parse(p.metadata || "{}"); } catch(e) {}
@@ -359,7 +364,13 @@ function buildProductCaption(p: typeof products.$inferSelect, categoryName: stri
   }
   lines.push("");
 
-  lines.push(`💰 *PRECIO: ${formatPriceForWa(Number(p.price), p.currency)}*`);
+  // Precio en la moneda que el cliente entiende. La semilla trae su teléfono,
+  // y el código de país es el dato más confiable de una conversación: no lo
+  // eligió para una encuesta, es su línea real.
+  lines.push(`💰 *PRECIO: ${mon.precioTexto}*`);
+  if (!mon.esColombia && mon.pais) {
+    lines.push(`🌎 Precio para ${mon.pais} — pagás en línea, acceso inmediato.`);
+  }
   lines.push("");
   lines.push("━━━━━━━━━━━━━━━━━━");
   lines.push("");
@@ -367,17 +378,29 @@ function buildProductCaption(p: typeof products.$inferSelect, categoryName: stri
   if (dynamicLinks) {
     lines.push(variante([`💳 *FORMAS DE PAGO*`, `💳 *Podés pagar así*`, `💳 *Medios de pago*`, `💳 *Cómo pagar*`], sem));
     lines.push("");
-    if (dynamicLinks.mercadopago && (dynamicLinks.mercadopago.url || dynamicLinks.mercadopago.shortUrl)) {
+
+    // Enlace CORTO primero. El acortador ya existía y generaba /p/<código>,
+    // pero acá se pedía `url || shortUrl`: el largo ganaba siempre y el corto
+    // solo aparecía si el largo faltaba. Un checkout de MercadoPago crudo son
+    // ~120 caracteres de ruido con tokens adentro; en el celular ocupa cuatro
+    // renglones y parece un enlace sospechoso.
+    const corto = (m: any) => m?.shortUrl || m?.url || "";
+
+    // A un cliente de otro país, MercadoPago Colombia le rechaza la tarjeta y
+    // Nequi/Daviplata directamente no existen para él: son billeteras
+    // colombianas. Mostrarle esas opciones es hacerle perder el tiempo y
+    // pedirle que confíe en algo que no puede usar. Afuera cobra PayPal.
+    if (mon.aceptaPagosLocales && corto(dynamicLinks.mercadopago)) {
       lines.push(`🔹 *Tarjeta / PSE:*`);
-      lines.push(`${dynamicLinks.mercadopago.url || dynamicLinks.mercadopago.shortUrl}`);
+      lines.push(corto(dynamicLinks.mercadopago));
       lines.push("");
     }
-    if (dynamicLinks.paypal && (dynamicLinks.paypal.url || dynamicLinks.paypal.shortUrl)) {
-      lines.push(`🔹 *PayPal (Internacional):*`);
-      lines.push(`${dynamicLinks.paypal.url || dynamicLinks.paypal.shortUrl}`);
+    if (corto(dynamicLinks.paypal)) {
+      lines.push(mon.esColombia ? `🔹 *PayPal (Internacional):*` : `🔹 *Tarjeta o PayPal:*`);
+      lines.push(corto(dynamicLinks.paypal));
       lines.push("");
     }
-    if (dynamicLinks.transfer && dynamicLinks.transfer.options && dynamicLinks.transfer.options[0]) {
+    if (mon.aceptaPagosLocales && dynamicLinks.transfer?.options?.[0]) {
       lines.push(`🔹 *Nequi / Daviplata:*`);
       lines.push(`📱 ${dynamicLinks.transfer.options[0].number}`);
       lines.push(`👤 ${dynamicLinks.transfer.options[0].name}`);

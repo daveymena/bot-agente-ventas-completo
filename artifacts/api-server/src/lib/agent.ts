@@ -953,6 +953,19 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
   // para que el prompt final tenga TODA la información disponible
   // Pasar todos los productos a AdvancedIntelligence para mejor análisis contextual
   const aiProductContext = productList.length > 0 ? productList.slice(0, 10) : [];
+  // El cliente puede no ser colombiano: la ficha de producto ya le muestra el
+  // precio en su moneda, pero el agente también habla de precios en texto
+  // libre y ahí decía "$60.000" a secas -- que un mexicano lee como 60 mil
+  // pesos MEXICANOS. Y le ofrecía Nequi, que afuera no existe.
+  const { contextoDeMoneda: ctxMoneda } = await import("./moneda-por-pais");
+  const monedaCliente = ctxMoneda(convo.contactPhone, 0);
+  const bloqueMoneda = monedaCliente.esColombia
+    ? ""
+    : `\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n🌎 ESTE CLIENTE NO ES DE COLOMBIA${monedaCliente.pais ? ` (${monedaCliente.pais})` : ""}\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`
+      + `Los precios del catálogo están en PESOS COLOMBIANOS. Cuando le digas un precio, aclarale SIEMPRE que es en pesos colombianos y, si sabés el equivalente, dáselo en dólares. Nunca digas "$60.000" a secas: lo va a leer como su propia moneda.\n`
+      + `Para pagar, ofrecele SOLO PayPal o tarjeta internacional. NO le ofrezcas Nequi ni Daviplata (son billeteras colombianas, no las tiene) ni el checkout de MercadoPago Colombia (le rechaza la tarjeta).\n`
+      + `El producto es digital: lo recibe igual esté donde esté, sin envíos ni aduana. Decíselo, es de las primeras dudas que tiene alguien comprando de otro país.`;
+
   const bloqueAnuncio = anuncio
     ? `\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n📣 ESTE CLIENTE LLEGÓ DESDE UN ANUNCIO\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`
       + `Anuncio: "${anuncio.titulo}"\n`
@@ -968,7 +981,7 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
     lastText,
     memory.history,
     aiProductContext.length > 0 ? aiProductContext : null
-  )}${bloqueAnuncio}`;
+  )}${bloqueAnuncio}${bloqueMoneda}`;
 
   // ── 11. ATENDER SEGÚN ESTRATEGIA DEL CEREBRO ─────────────────────────────
 
@@ -1092,7 +1105,7 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
     // bloque del anuncio son los que cambian la respuesta; el análisis de
     // AdvancedIntelligence es el más largo y el más prescindible.
     const base = buildFinalPrompt(systemPrompt, brain, voice);
-    const esencial = `${decision.contextBlock}${bloqueAnuncio}`;
+    const esencial = `${decision.contextBlock}${bloqueAnuncio}${bloqueMoneda}`;
     promptArmado = `${base}\n\n${esencial}`;
     if (promptArmado.length > TOPE_PROMPT) {
       // Todavía no entra: lo que sobra es el prompt del negocio o del agente.
