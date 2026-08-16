@@ -1096,6 +1096,7 @@ export async function bloqueoDeMeta(
     fb_update_draft_creative: "ads",
     fb_upload_draft_to_meta: "ads",
     fb_set_ad_status: "ads",
+    fb_make_campaign_deliver: "ads",
     fb_sync_catalog: "ads",
   };
   const necesita = NECESITAN_META[tool];
@@ -3045,13 +3046,62 @@ export const TOOLS: ToolDef[] = [
     },
   },
   {
-    name: "fb_set_ad_status",
-    description: "Enciende o apaga UN anuncio puntual dentro de una campaña, sin tocar su conjunto ni la campaña. Es lo que hace falta cuando una campaña figura activa pero su anuncio está pausado (fb_resume_campaign NO alcanza: reactiva la campaña y los conjuntos, pero no los anuncios, y de paso puede encender conjuntos pausados y multiplicar el gasto). Conseguí el id del anuncio con fb_why_not_delivering. ACTIVAR HACE QUE EMPIECE A GASTAR.",
-    args: '{ "adId": string (req, id del ANUNCIO, no de la campaña), "activar": boolean (req, true para encenderlo, false para pausarlo) }',
+    name: "fb_make_campaign_deliver",
+    description: "HACE QUE UNA CAMPAÑA EMPIECE A ENTREGAR. Es LA herramienta para 'activá el anuncio', 'encendé la campaña', 'hacé que corra de nuevo'. Diagnostica sola dónde está el freno (campaña, conjunto o anuncio) y enciende SOLO lo mínimo necesario, eligiendo siempre la opción más barata: si hay un anuncio apagado en un conjunto que ya corre, enciende ese anuncio y NO suma presupuesto; si no, enciende UN solo conjunto. Nunca enciende varios conjuntos (multiplicaría el gasto). No necesitás saber ids de conjuntos ni de anuncios: solo el de la campaña, que da fb_list_campaigns. HACE QUE EMPIECE A GASTAR.",
+    args: '{ "campaignId": string (req, id de la CAMPAÑA -- lo da fb_list_campaigns) }',
     run: async (args, ctx) => {
-      const adId = String(args.adId || "").trim();
-      if (!adId) return { ok: false, summary: "Falta el id del anuncio (usá fb_why_not_delivering para obtenerlo)." };
-      if (typeof args.activar !== "boolean") return { ok: false, summary: "Falta 'activar' (true para encender, false para pausar)." };
+      const campaignId = String(args.campaignId || args.campaign_id || args.id || "").trim();
+      if (!campaignId) return { ok: false, summary: "Falta el id de la campaña (usá fb_list_campaigns para obtenerlo)." };
+      const bloqueo = await bloqueoDeMeta("fb_make_campaign_deliver", ctx);
+      if (bloqueo) return { ok: false, summary: bloqueo };
+
+      const tenant = await tenantManager.getTenantById(ctx.tenantId);
+      const { FacebookService } = await import("./facebook");
+      const fb = new FacebookService(tenant || undefined);
+      if (!fb.isConfigured()) return { ok: false, summary: "Facebook no está conectado." };
+
+      const r = await fb.hacerQueEntregue(campaignId, true);
+      if (!r.ok) return { ok: false, summary: r.message || "No se pudo activar la entrega." };
+      if (r.yaEntregaba && !r.aplicado) return { ok: true, summary: "Esa campaña ya estaba entregando: no toqué nada." };
+
+      const costo = r.costoDiario ? ` Va a gastar $${r.costoDiario.toLocaleString("es-CO")}/día.` : "";
+      // El estado se RELEE de Meta, no se asume: el objetivo es que entregue,
+      // no que la llamada devuelva 200.
+      return {
+        ok: true,
+        summary: r.yaEntregaba
+          ? `✅ Listo: ${r.plan}. Verificado contra Meta — la campaña ya está entregando.${costo}`
+          : `Hice el cambio (${r.plan}), pero al releer de Meta la campaña TODAVÍA no figura entregando. Puede tardar unos minutos en propagar, o quedar algo más pausado adentro. Revisala en un rato.`,
+      };
+    },
+  },
+  {
+    name: "fb_set_ad_status",
+    description: "Enciende o apaga UN objeto puntual de Facebook Ads: un anuncio o un conjunto de anuncios. Para el caso normal de 'hacé que la campaña corra' usá mejor fb_make_campaign_deliver, que decide sola qué encender. Esta es para control fino cuando ya sabés exactamente qué objeto tocar. ACTIVAR HACE QUE EMPIECE A GASTAR.",
+    args: '{ "adId": string (req, id del anuncio o del conjunto), "status": string ("ACTIVE" para encender, "PAUSED" para apagar), "tipo"?: "anuncio" | "conjunto" (por defecto se detecta solo) }',
+    run: async (args, ctx) => {
+      const objetoId = String(args.adId || args.adSetId || args.adsetId || args.id || "").trim();
+      if (!objetoId) return { ok: false, summary: "Falta el id del anuncio o conjunto." };
+
+      // Se acepta CUALQUIER forma razonable de decir "encender".
+      //
+      // Antes el único nombre válido era `activar: boolean`, un nombre que
+      // inventé yo. Meta usa `status: "ACTIVE"|"PAUSED"`, así que el modelo
+      // escribe `status` -- y la llamada moría con "Falta 'activar'" después
+      // de que el admin ya había confirmado. Pelear contra lo que el modelo
+      // escribe naturalmente es perder siempre: se acepta todo y listo.
+      const crudo = args.status ?? args.estado ?? args.activar ?? args.active ?? args.enable;
+      let activar: boolean | null = null;
+      if (typeof crudo === "boolean") activar = crudo;
+      else if (typeof crudo === "string") {
+        const v = crudo.trim().toUpperCase();
+        if (["ACTIVE", "ACTIVO", "TRUE", "ON", "1", "ENCENDER", "ACTIVAR"].includes(v)) activar = true;
+        else if (["PAUSED", "PAUSADO", "FALSE", "OFF", "0", "PAUSAR", "APAGAR"].includes(v)) activar = false;
+      }
+      if (activar === null) {
+        return { ok: false, summary: 'No entendí si hay que encender o apagar. Pasá status: "ACTIVE" o status: "PAUSED".' };
+      }
+
       const bloqueo = await bloqueoDeMeta("fb_set_ad_status", ctx);
       if (bloqueo) return { ok: false, summary: bloqueo };
 
@@ -3060,13 +3110,22 @@ export const TOOLS: ToolDef[] = [
       const fb = new FacebookService(tenant || undefined);
       if (!fb.isConfigured()) return { ok: false, summary: "Facebook no está conectado." };
 
-      const r = await fb.setAdStatus(adId, args.activar);
-      if (!r.ok) return { ok: false, summary: r.message || "Meta no aceptó el cambio." };
+      const tipo = String(args.tipo || "").toLowerCase();
+      const esConjunto = tipo.includes("conjunto") || tipo.includes("adset");
+      const r = esConjunto ? await fb.setAdSetStatus(objetoId, activar) : await fb.setAdStatus(objetoId, activar);
+
+      if (!r.ok) {
+        // Si falló por el tipo equivocado, se prueba el otro antes de rendirse:
+        // el modelo confunde ids de conjunto y de anuncio, y el admin no tiene
+        // por qué pagar esa confusión con un error críptico.
+        const otro = esConjunto ? await fb.setAdStatus(objetoId, activar) : await fb.setAdSetStatus(objetoId, activar);
+        if (!otro.ok) return { ok: false, summary: `Meta no aceptó el cambio: ${r.message || otro.message}. Verificá que el id ${objetoId} exista (usá fb_why_not_delivering).` };
+      }
       return {
         ok: true,
-        summary: args.activar
-          ? `Anuncio ${adId} ACTIVADO: si su conjunto está activo, ya empezó a mostrarse y a gastar.`
-          : `Anuncio ${adId} pausado: dejó de mostrarse y de gastar.`,
+        summary: activar
+          ? `${esConjunto ? "Conjunto" : "Anuncio"} ${objetoId} ACTIVADO.`
+          : `${esConjunto ? "Conjunto" : "Anuncio"} ${objetoId} pausado: dejó de gastar.`,
       };
     },
   },
@@ -3564,6 +3623,7 @@ PRINCIPIOS OBLIGATORIOS:
    • Para saber si una campaña existe o si quedó pausada, usá fb_list_campaigns, NO las métricas: una campaña pausada no gastó nada, así que no aparece en métricas -- y eso NO significa que no exista.
    • Para buscar un producto por id, si la consulta falla, buscá por nombre antes de decir que no está. Una consulta que falla no es un hecho sobre el mundo.
 5.3. NUNCA inventes el alcance de lo que revisaste. No digas "revisé ambas cuentas" ni "verifiqué todo" si llamaste una sola herramienta, o ninguna. Decí exactamente qué miraste.
+5.7. "ACTIVÁ EL ANUNCIO / LA CAMPAÑA" = fb_make_campaign_deliver, UNA SOLA VEZ. No encadenes fb_why_not_delivering + fb_set_ad_status + confirmaciones sueltas: esa herramienta ya diagnostica sola y enciende lo mínimo necesario (si hay un anuncio apagado en un conjunto que ya corre, lo enciende sin sumar presupuesto). Solo necesitás el id de la CAMPAÑA. NUNCA escribas un id de conjunto o de anuncio que no hayas leído de una herramienta en este mismo mensaje: si no lo tenés, pedí la campaña y dejá que la herramienta encuentre el resto. Un id inventado hace fallar la acción después de que el admin ya confirmó, que es la peor forma de fallar.
 5.5. LEER NO SE PIDE PERMISO. Nunca preguntes "¿confirmás que reviso?" ni "¿querés que consulte?": las herramientas de lectura no cambian nada, no gastan un peso y no se deshacen. Corrélas y CONTESTÁ CON EL RESULTADO. El admin te pidió algo, no te pidió un presupuesto de trabajo. Pedir confirmación se reserva EXCLUSIVAMENTE para lo que cambia algo real (crear, editar, borrar, publicar, gastar, enviar) -- eso va por propose_action y ahí sí espera su "sí".
 5.6. SI TE PIDEN UNA ACCIÓN, HACÉ EL CAMINO COMPLETO EN EL MISMO TURNO. Ejemplo real: ante "activá el anuncio del piano" NO contestes "te propongo diagnosticar primero, ¿confirmás?". Encadenalo vos: buscá la campaña, revisá por qué no entrega (lectura, sin preguntar), identificá el anuncio apagado y recién ahí proponé el ÚNICO cambio real que hace falta, ya con el id concreto y diciendo cuánto va a gastar por día. Una sola confirmación, sobre la acción de verdad.
 5.4. SI ALGO NO FUNCIONA, DIAGNOSTICALO VOS. Ante un "esto no anda", "por qué no responde" o "algo está roto", llamá system_diagnose: prueba cada conexión de verdad (Facebook, WhatsApp, IA, cobros) y devuelve qué falla, por qué y cómo se arregla. No le pidas al admin que averigüe él lo que vos podés ver.

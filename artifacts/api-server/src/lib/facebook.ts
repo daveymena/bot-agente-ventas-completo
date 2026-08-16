@@ -1016,6 +1016,79 @@ Responde SOLO con este JSON exacto:
     }
   }
 
+  /** Enciende o apaga un CONJUNTO de anuncios. Es lo que faltaba: el nivel
+   * intermedio entre la campaña y el anuncio, y donde vive el presupuesto. */
+  async setAdSetStatus(adSetId: string, activo: boolean): Promise<{ ok: boolean; message?: string }> {
+    try {
+      await this.fbPost(adSetId, { status: activo ? "ACTIVE" : "PAUSED" },
+        activo ? "activar conjunto" : "pausar conjunto", this.config.userAccessToken);
+      return { ok: true };
+    } catch (err: any) {
+      return { ok: false, message: err?.message || "Meta rechazó el cambio de estado del conjunto" };
+    }
+  }
+
+  /**
+   * Hace que una campaña ENTREGUE de verdad, con el mínimo cambio posible.
+   *
+   * Nació de un caso que costó varios intentos fallidos: el admin pidió
+   * "activá el anuncio del piano" y el flujo exigía encadenar a mano listar
+   * campañas, diagnosticar, elegir el objeto correcto (¿campaña, conjunto o
+   * anuncio?) y llamar la herramienta con el id exacto -- con una confirmación
+   * en cada paso. El modelo se perdía, inventaba ids y terminaba llamando la
+   * herramienta equivocada. Nada de eso es trabajo del modelo: es una decisión
+   * mecánica que el servidor puede tomar solo mirando la estructura.
+   *
+   * Elige SIEMPRE la opción más barata que logra la entrega:
+   *   1. Si hay un conjunto ACTIVO con un anuncio apagado -> enciende ese
+   *      anuncio. No suma presupuesto: el conjunto ya estaba corriendo.
+   *   2. Si no, enciende UN SOLO conjunto (el que ya tenga un anuncio activo
+   *      adentro) -> suma el presupuesto de ese conjunto, nada más.
+   * Nunca enciende varios conjuntos: cada uno suma su propio presupuesto
+   * diario y multiplicaría el gasto sin que nadie lo pida.
+   *
+   * Verifica el resultado releyendo de Meta, no asumiendo que salió bien.
+   */
+  async hacerQueEntregue(campaignId: string, aplicar: boolean): Promise<{
+    ok: boolean; yaEntregaba?: boolean; plan?: string; costoDiario?: number;
+    aplicado?: boolean; message?: string;
+  }> {
+    const est = await this.estructuraDeCampana(campaignId);
+    if (!est) return { ok: false, message: "No pude leer la estructura de esa campaña en Meta." };
+    if (est.entregando) return { ok: true, yaEntregaba: true, plan: "Ya está entregando: no hace falta tocar nada." };
+
+    // Opción 1: anuncio apagado dentro de un conjunto que YA corre.
+    const conjuntoVivo = est.conjuntos.find((c) => c.estado === "ACTIVE" && c.anuncios.length > 0);
+    if (conjuntoVivo) {
+      const anuncio = conjuntoVivo.anuncios.find((a) => a.estado !== "ACTIVE");
+      if (anuncio) {
+        const plan = `Encender el anuncio "${anuncio.nombre}" dentro del conjunto que ya está activo`;
+        if (!aplicar) return { ok: true, plan, costoDiario: conjuntoVivo.presupuestoDiario };
+        const r = await this.setAdStatus(anuncio.id, true);
+        if (!r.ok) return { ok: false, message: r.message };
+        const verif = await this.estructuraDeCampana(campaignId);
+        return { ok: true, aplicado: true, plan, costoDiario: conjuntoVivo.presupuestoDiario, yaEntregaba: !!verif?.entregando };
+      }
+    }
+
+    // Opción 2: un conjunto apagado que ya tiene un anuncio listo adentro.
+    const candidato = est.conjuntos.find((c) => c.estado !== "ACTIVE" && c.anuncios.some((a) => a.configurado === "ACTIVE"))
+      || est.conjuntos.find((c) => c.estado !== "ACTIVE" && c.anuncios.length > 0);
+    if (candidato) {
+      const plan = `Encender el conjunto "${candidato.nombre}" (su anuncio ya está listo adentro)`;
+      if (!aplicar) return { ok: true, plan, costoDiario: candidato.presupuestoDiario };
+      const r = await this.setAdSetStatus(candidato.id, true);
+      if (!r.ok) return { ok: false, message: r.message };
+      // Con el conjunto encendido, el anuncio de adentro puede seguir pausado.
+      const anuncioApagado = candidato.anuncios.find((a) => a.configurado !== "ACTIVE");
+      if (anuncioApagado) await this.setAdStatus(anuncioApagado.id, true);
+      const verif = await this.estructuraDeCampana(campaignId);
+      return { ok: true, aplicado: true, plan, costoDiario: candidato.presupuestoDiario, yaEntregaba: !!verif?.entregando };
+    }
+
+    return { ok: false, message: "Esta campaña no tiene ningún anuncio adentro: hay que crear el anuncio antes de poder encenderla." };
+  }
+
   async listAdSets(campaignId: string): Promise<Array<{ id: string; name: string; status: string; dailyBudget: number }>> {
     try {
       const res = await this.fbGet(
