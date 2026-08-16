@@ -57,6 +57,31 @@ export class WhatsAppByTenant extends WhatsAppManager {
         const makeWASocket = (baileys as any).default ?? (baileys as any).makeWASocket;
         const { useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion } = baileys as any;
 
+        // ── Desmontar el socket anterior ANTES de crear uno nuevo ─────────
+        // Sin esto los listeners se acumulan y un solo mensaje entrante se
+        // procesa varias veces. Medido en producción (2026-08-16): el admin
+        // escribió "Hola" UNA vez y el bot respondió SEIS veces el mismo
+        // saludo, y sus mensajes siguientes ya no entraron.
+        //
+        // Dos caminos lo provocan, y los dos son normales acá:
+        //  1. El reconector llama a start() cada 2 min mientras el estado sea
+        //     "error"/"disconnected" -- la guardia `this.starting` solo frena
+        //     arranques SIMULTÁNEOS, no uno nuevo sobre un socket viejo vivo.
+        //  2. Este mismo bucle reintenta hasta 3 veces: si un intento falla
+        //     después de asignar this.sock, su socket queda con listeners.
+        //
+        // Un socket de Baileys sigue recibiendo eventos hasta que se le hace
+        // end(), así que el viejo seguía contestando en paralelo al nuevo.
+        // Para el cliente eso es spam, y para el número es riesgo de reporte.
+        if (this.sock) {
+          try {
+            this.sock.ev.removeAllListeners();
+            this.sock.end?.(undefined);
+          } catch { /* best-effort: si ya estaba muerto, da igual */ }
+          this.sock = null;
+          logger.info({ tenantId: this.currentTenant?.id }, "[WhatsApp] Socket anterior desmontado antes de reconectar");
+        }
+
         const { state: authState, saveCreds } = await useMultiFileAuthState(this.tenantAuthDir);
 
         let waVersion: [number, number, number] | undefined;

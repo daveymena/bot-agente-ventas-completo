@@ -330,6 +330,16 @@ const AUTH_DIR = process.env.WA_AUTH_DIR
   : path.resolve(process.cwd(), "data", ".baileys-auth");
 
 export class WhatsAppManager {
+  /**
+   * Ids de mensajes de WhatsApp ya procesados, para no contestar dos veces el
+   * mismo. Es ESTÁTICO a propósito: compartido entre todas las instancias
+   * (una por tenant, más el proxy del singleton), porque la duplicación
+   * justamente viene de tener más de un socket vivo a la vez. Si viviera en
+   * la instancia, cada socket duplicado tendría su propio registro y no
+   * serviría de nada.
+   */
+  protected static mensajesVistos = new Set<string>();
+
   // protected (no private): WhatsAppByTenant hereda de esta clase y necesita
   // tocar estos campos directamente en su propio start()/stop() para aislar
   // la sesión por tenant.
@@ -981,7 +991,31 @@ export class WhatsAppManager {
           }
           
           for (const msg of upsert.messages ?? []) {
-            console.log("📨 Procesando mensaje:", { 
+            // ── Un mensaje se contesta UNA sola vez ──────────────────────
+            // Segunda línea de defensa, independiente de cuántos listeners
+            // haya montados. La primera es desmontar el socket viejo antes
+            // de reconectar (ver whatsappManagerByTenant.start), pero esto
+            // cubre cualquier otro camino de duplicación: reintentos de
+            // Baileys, dos instancias del proceso, un upsert repetido.
+            //
+            // Motivo real (2026-08-16): el admin escribió "Hola" una vez y
+            // recibió SEIS veces la misma respuesta. Para el cliente es spam
+            // y para el número es riesgo de reporte, que es justo lo que más
+            // hay que cuidar.
+            const idMensaje = msg?.key?.id ? String(msg.key.id) : "";
+            if (idMensaje) {
+              if (WhatsAppManager.mensajesVistos.has(idMensaje)) {
+                console.log("⏭️ Mensaje ya procesado, se ignora:", idMensaje);
+                continue;
+              }
+              WhatsAppManager.mensajesVistos.add(idMensaje);
+              // Se recorta para no crecer sin límite en un proceso largo.
+              if (WhatsAppManager.mensajesVistos.size > 5000) {
+                const it = WhatsAppManager.mensajesVistos.values();
+                for (let i = 0; i < 1000; i++) WhatsAppManager.mensajesVistos.delete(it.next().value as string);
+              }
+            }
+            console.log("📨 Procesando mensaje:", {
               msgKey: msg.key,
               fromMe: msg.key.fromMe,
               remoteJid: msg.key.remoteJid,
