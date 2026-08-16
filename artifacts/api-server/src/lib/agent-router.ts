@@ -226,28 +226,43 @@ export async function getActiveAgent(
   conversationId: number,
   tenantId: number
 ) {
+  // Un agente sin nombre no puede atender a nadie: se presenta como nadie y
+  // no tiene flujo. Se encontró uno OPERANDO en producción (auditoría del
+  // 16-08-2026), creado con el registro corrupto. La validación al activar
+  // evita que vuelva a pasar, pero el que ya está activo en la base tiene que
+  // quedar fuera acá, que es donde de verdad se elige quién responde.
+  const sirve = (a: any) => !!a && String(a.name || "").trim().length > 0;
+
   // Intentar seleccionar el mejor agente
   const selected = await selectBestAgent(messageText, conversationId, tenantId);
-  
+
   if (selected) {
+    // El filtro por tenant NO es opcional acá: buscar solo por id significaba
+    // que un id de otro negocio -- por un bug de selección o un id viejo --
+    // traía el agente de ESE otro negocio, con su prompt y su personalidad,
+    // para contestarle a un cliente que no es suyo.
     const [agent] = await db
       .select()
       .from(agents)
-      .where(eq(agents.id, selected.agentId))
+      .where(and(eq(agents.id, selected.agentId), eq(agents.tenantId, tenantId)))
       .limit(1);
-    
-    return agent;
+
+    if (sirve(agent)) return agent;
+    logger.warn({ tenantId, agentId: selected.agentId }, "[AgentRouter] El agente elegido no sirve (sin nombre o de otro negocio) — se busca otro");
   }
 
-  // Fallback: obtener cualquier agente activo
-  const [fallback] = await db
+  // Fallback: cualquier agente activo del negocio que tenga nombre.
+  const activos = await db
     .select()
     .from(agents)
     .where(and(
       eq(agents.tenantId, tenantId),
       eq(agents.isActive, true)
-    ))
-    .limit(1);
+    ));
 
-  return fallback;
+  const usable = activos.find(sirve);
+  if (!usable && activos.length) {
+    logger.error({ tenantId, cuantos: activos.length }, "[AgentRouter] Hay agentes activos pero NINGUNO tiene nombre");
+  }
+  return usable;
 }

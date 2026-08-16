@@ -362,8 +362,21 @@ export default function Branding() {
                   disabled
                   className="bg-muted/30 font-mono text-sm"
                 />
+                {/* Antes decía "app.com/{slug}": mal el dominio (app.com es un
+                    placeholder que nunca se reemplazó) y mal la ruta (a la
+                    tienda se entra por /tienda/...). Quien copiaba eso para
+                    compartir su tienda repartía un link muerto. Ahora sale el
+                    dominio real desde donde se está viendo el panel. */}
                 <p className="text-xs text-muted-foreground break-all">
-                  Tu tienda: app.com/{formData.slug}
+                  Tu tienda:{" "}
+                  <a
+                    href={`/tienda/${formData.slug}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="underline hover:text-foreground"
+                  >
+                    {window.location.host}/tienda/{formData.slug}
+                  </a>
                 </p>
               </div>
             </CardContent>

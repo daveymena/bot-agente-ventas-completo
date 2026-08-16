@@ -86,7 +86,9 @@ router.post("/", async (req, res, next) => {
       model: "gpt-4o-mini",
       systemPrompt: body.systemPrompt || "Eres un agente de ventas profesional",
       stages: [],
-      isActive: (body as any).isActive ?? false
+      // Mismo motivo que en PATCH: nada sin nombre queda atendiendo clientes.
+      // Si viene sin nombre se crea igual, pero desactivado.
+      isActive: String(body.name || "").trim() ? ((body as any).isActive ?? false) : false,
     };
     
     // Si hay un templateType, sobrescribir con datos del template
@@ -147,6 +149,27 @@ router.patch("/:id", async (req, res, next) => {
 
     const { id } = UpdateAgentParams.parse(req.params);
     const body = UpdateAgentBody.parse(req.body);
+
+    // Un agente sin nombre NO puede quedar atendiendo clientes.
+    //
+    // Se encontró uno operando así (auditoría del 16-08-2026): sin nombre y
+    // sin etapas de conversación. Si el enrutador lo elige, le contesta al
+    // cliente sin persona ni flujo, y no hay forma de saber quién respondió
+    // qué. El nombre no es decorativo: es con lo que el agente se presenta.
+    if ((body as any).isActive) {
+      const [actual] = await db
+        .select({ name: agents.name })
+        .from(agents)
+        .where(and(eq(agents.id, id), eq(agents.tenantId, tenantId)))
+        .limit(1);
+      const nombreFinal = String((body as any).name ?? actual?.name ?? "").trim();
+      if (!nombreFinal) {
+        return res.status(400).json({
+          message: "Este agente no tiene nombre, así que no se puede activar. Ponele un nombre y volvé a intentarlo.",
+        });
+      }
+    }
+
     const [updated] = await db
       .update(agents)
       .set(body as any)

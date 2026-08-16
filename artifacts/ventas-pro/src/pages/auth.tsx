@@ -845,7 +845,9 @@ export default function AuthPage() {
                            de dos cajas separadas con distinta altura y un hueco
                            en el medio. El foco ilumina el grupo entero. */}
                        <div className="flex items-stretch h-12 rounded-xl border border-border/60 bg-muted/40 overflow-hidden transition-all duration-200 focus-within:bg-background focus-within:border-primary focus-within:ring-4 focus-within:ring-primary/15">
-                         <span className="px-3.5 flex items-center text-[13px] text-muted-foreground border-r border-border/60 bg-muted/40 shrink-0">app.com/</span>
+                         {/* "app.com/" era un placeholder que nunca se
+                             reemplazó por el dominio real. */}
+                         <span className="px-3.5 flex items-center text-[13px] text-muted-foreground border-r border-border/60 bg-muted/40 shrink-0">{window.location.host}/tienda/</span>
                          <Input id="reg-slug" placeholder="auto-generado"
                            className="h-full flex-1 rounded-none border-0 bg-transparent px-3.5 text-[15px] shadow-none focus-visible:ring-0"
                            value={registerData.slug}
