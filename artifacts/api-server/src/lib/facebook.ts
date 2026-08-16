@@ -774,12 +774,23 @@ Responde SOLO con este JSON exacto:
         // una pausada si en el pasado le fue bien.
         limit: "100",
       }, this.config.userAccessToken);
+      this.lastCampaignListError = null;
       return (res.data || []).filter((c: any) => c.effective_status !== "DELETED" && c.effective_status !== "ARCHIVED");
     } catch (err: any) {
+      // Se deja constancia del motivo. Devolver [] a secas hacía que "falló la
+      // consulta" y "no hay campañas" fueran EXACTAMENTE lo mismo para quien
+      // llama. Visto en vivo (16-08-2026): el admin preguntó si su campaña de
+      // piano seguía pausada y Atlas contestó que no existía ninguna campaña
+      // en su cuenta -- cuando él mismo la había pausado. Una consulta que
+      // falla no puede leerse como un hecho sobre el mundo.
+      this.lastCampaignListError = err?.message || "error desconocido consultando campañas";
       logger.warn({ err }, "[Facebook] Error listando campañas");
       return [];
     }
   }
+
+  /** Motivo del último listActiveCampaigns fallido; null si salió bien. */
+  lastCampaignListError: string | null = null;
 
   /** Métricas de una campaña en una ventana de tiempo. datePreset acepta los
    * valores estándar de Graph API ("today", "yesterday", "last_3d",

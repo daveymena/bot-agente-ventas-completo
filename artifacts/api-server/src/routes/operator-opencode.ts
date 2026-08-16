@@ -763,6 +763,26 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
           `así que pueden estar viejos o equivocados. Miralos en el panel, o pedime que los consulte y te los traigo del dato real.`;
       }
 
+      // ── Afirmar que revisó Facebook sin haberlo consultado ───────────────
+      // Caso real (16-08-2026): el admin preguntó si su campaña de piano
+      // seguía pausada y Atlas contestó "revisión en ambas cuentas de Facebook
+      // Ads: la campaña no existe en ninguna de las dos". Hay UNA sola cuenta
+      // publicitaria configurada, y no llamó ninguna herramienta de Facebook.
+      // Inventó el alcance de una revisión que no hizo, sobre una campaña que
+      // el admin había pausado con su propia mano.
+      const AFIRMA_REVISO_META =
+        /\b(revis|verifi|consult|busqu|chequ)\w*[^.\n]{0,60}\b(facebook|meta|ads?\b|campa[ñn]a)/i;
+      const NIEGA_EXISTENCIA = /\bno (existe|hay|tiene|aparece|encontr)\w*/i;
+      const TOOLS_META = ["fb_list_campaigns", "fb_campaign_metrics", "fb_status", "fb_list_adsets", "fb_list_drafts"];
+      const consultoMeta = lecturas.some((t) => TOOLS_META.includes(t));
+      const textoFinal = String(finalReplyVerificado || "");
+      if (!consultoMeta && AFIRMA_REVISO_META.test(textoFinal) && NIEGA_EXISTENCIA.test(textoFinal)) {
+        logger.warn({ tenantId, sessionId, lecturas }, "[AtlasOpenCode] Afirmó haber revisado Meta sin consultarlo -- se corrige");
+        finalReplyVerificado =
+          `⚠️ **No consulté Meta en este mensaje**, así que no puedo afirmar que algo no exista allá. `
+          + `Pedime que lo revise y consulto la cuenta publicitaria de verdad.\n\n---\n\n${textoFinal}`;
+      }
+
       let plannedActions = await drainDraftPlan(tenantId, turnId);
 
       // ── "Ya lo hice" cuando NO hizo nada ─────────────────────────────────

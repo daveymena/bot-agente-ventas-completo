@@ -2868,6 +2868,45 @@ export const TOOLS: ToolDef[] = [
     },
   },
   {
+    name: "fb_list_campaigns",
+    description: "Lista TODAS las campañas de la cuenta publicitaria con su estado REAL (activa, pausada, en revisión, etc.), incluidas las PAUSADAS. Usá ESTA -- no fb_campaign_metrics -- cuando el admin pregunte si una campaña existe, si está activa o si quedó pausada. Las métricas solo muestran campañas CON GASTO en la ventana consultada: una campaña pausada no gastó nada, así que no aparece ahí, y eso NO significa que no exista. LECTURA, no cambia nada.",
+    args: "{}",
+    run: async (_args, ctx) => {
+      const tenant = await tenantManager.getTenantById(ctx.tenantId);
+      const { FacebookService } = await import("./facebook");
+      const fb = new FacebookService(tenant || undefined);
+      if (!fb.isConfigured()) return { ok: false, summary: "Facebook no está conectado (falta el token de la cuenta publicitaria)." };
+
+      const campañas = await fb.listActiveCampaigns();
+      // Distinguir "no pude consultar" de "no hay ninguna". Decir que no
+      // existe una campaña que el admin pausó con su propia mano destruye la
+      // confianza en todo lo demás que informe el agente.
+      if (fb.lastCampaignListError) {
+        return {
+          ok: false,
+          summary: `No pude leer las campañas de Meta: ${fb.lastCampaignListError}. NO puedo afirmar que no existan -- la consulta falló, que es distinto. Revisá el token de la cuenta publicitaria.`,
+        };
+      }
+      if (campañas.length === 0) {
+        return { ok: true, summary: "La consulta funcionó y la cuenta publicitaria no tiene ninguna campaña (ni activa ni pausada).", data: { campañas: [] } };
+      }
+
+      const porEstado: Record<string, number> = {};
+      for (const c of campañas) porEstado[c.effectiveStatus] = (porEstado[c.effectiveStatus] || 0) + 1;
+      const detalle = campañas.slice(0, 25)
+        .map((c) => `• ${c.name} — ${c.effectiveStatus === "ACTIVE" ? "ACTIVA" : c.effectiveStatus} (id ${c.id})`)
+        .join("\n");
+
+      return {
+        ok: true,
+        summary:
+          `${campañas.length} campaña(s) en la cuenta [${Object.entries(porEstado).map(([e, n]) => `${e}: ${n}`).join(", ")}]:\n\n${detalle}` +
+          (campañas.length > 25 ? `\n…y ${campañas.length - 25} más.` : ""),
+        data: { campañas },
+      };
+    },
+  },
+  {
     name: "fb_campaign_metrics",
     description: "Leer métricas EN VIVO de las campañas de Facebook Ads (gasto, impresiones, clics, CTR, alcance, resultados, costo por resultado). Responde 'cómo está rindiendo mi anuncio', 'cuánto gasté'. LECTURA, no cambia nada. Si no hay token o falla Meta, devuelve el motivo.",
     args: '{ "campaignIds": string[] (opcional, filtrar campañas específicas), "days": number (opcional, ventana en días, def 7) }',
@@ -3128,7 +3167,7 @@ export const READ_ONLY_TOOLS = new Set([
   "analyze_system", "list_products", "list_categories", "get_agent", "get_settings",
   "get_store", "payment_status",
   // Facebook de solo lectura + generación de imagen (solo devuelve preview, no asigna)
-  "fb_status", "fb_suggest_audience", "generate_image",
+  "fb_status", "fb_suggest_audience", "generate_image", "fb_list_campaigns",
   "fb_page_can_post", "fb_page_preview", "fb_list_drafts",
   // Agente de anuncios: leer logs y métricas no cambia nada (solo consulta)
   "fb_agent_logs", "fb_campaign_metrics",
