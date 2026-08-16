@@ -1079,6 +1079,7 @@ export async function bloqueoDeMeta(
     fb_resume_campaign: "ads",
     fb_set_budget: "ads",
     fb_update_draft_creative: "ads",
+    fb_upload_draft_to_meta: "ads",
     fb_sync_catalog: "ads",
   };
   const necesita = NECESITAN_META[tool];
@@ -2229,6 +2230,36 @@ export const TOOLS: ToolDef[] = [
     },
   },
 
+  {
+    name: "fb_upload_draft_to_meta",
+    description: "Sube a Meta un borrador que hoy solo existe local, CON SU PROPIO TEXTO, y lo deja en PAUSA (no gasta un peso). Es el paso intermedio entre 'borrador guardado acá' y 'campaña gastando': después de esto el admin puede verlo en Ads Manager y activarlo cuando quiera. Usá fb_list_drafts para conseguir el draftId. NO confundir con publicar/activar: esto NO enciende la campaña.",
+    args: '{ "draftId": number (req, id del borrador -- lo da fb_list_drafts) }',
+    run: async (args, ctx) => {
+      const draftId = Number(args.draftId);
+      if (!draftId) return { ok: false, summary: "Falta el id del borrador (usá fb_list_drafts para obtenerlo)." };
+      const bloqueo = await bloqueoDeMeta("fb_upload_draft_to_meta", ctx);
+      if (bloqueo) return { ok: false, summary: bloqueo };
+
+      // El borrador tiene que ser de ESTE negocio: sin el filtro, un id ajeno
+      // publicaría el anuncio de otro en la cuenta publicitaria de este.
+      const [propio] = await db
+        .select({ id: facebookDrafts.id })
+        .from(facebookDrafts)
+        .where(and(eq(facebookDrafts.id, draftId), eq(facebookDrafts.tenantId, ctx.tenantId)))
+        .limit(1);
+      if (!propio) return { ok: false, summary: `No encontré el borrador ${draftId} para este negocio.` };
+
+      const tenant = await tenantManager.getTenantById(ctx.tenantId);
+      const { AdStrategist } = await import("./ad-strategist");
+      const r = await new AdStrategist(tenant || undefined).subirBorradorAMeta(draftId);
+      return {
+        ok: r.ok,
+        summary: r.ok
+          ? `Borrador ${draftId} subido a Meta en PAUSA (campaña ${r.campaignId}). NO está gastando: quedó pausado para que lo revises en Ads Manager y lo actives vos cuando quieras.`
+          : (r.message || "No se pudo subir el borrador a Meta."),
+      };
+    },
+  },
   {
     name: "fb_update_draft_creative",
     description: "Cambia el TEXTO (headline/primaryText/description) de un borrador de anuncio ya existente -- si ese borrador ya es un objeto real en Meta (creadoEnMeta:true en fb_list_drafts), reconstruye el creativo real y lo repone en el anuncio (Meta no deja editar un creativo existente, así que arma uno nuevo y lo repunta; el anuncio sigue con el mismo id y el mismo estado -- PAUSED sigue PAUSED). Si el borrador todavía no existe en Meta, esto solo actualiza el borrador local. Usala cuando el admin apruebe un copy nuevo para reemplazar el de un anuncio ya creado -- no hay otra forma de lograrlo, fb_create_ad SIEMPRE crea una campaña nueva con copy autogenerado y NO acepta texto personalizado.",

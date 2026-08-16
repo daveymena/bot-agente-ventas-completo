@@ -433,6 +433,15 @@ Responde SOLO con este JSON exacto:
     dailyBudget: number = 5000,
     startDate?: string,
     targeting?: FbTargeting,
+    /**
+     * Copy ya escrito y aprobado (el de un borrador). Si no viene, se genera
+     * uno acá como siempre.
+     *
+     * Sin esto no había forma de llevar a Meta el texto que el admin aprobó:
+     * el copy se escribía y revisaba en el borrador, y al publicar se
+     * generaba OTRO distinto. Se aprobaba una cosa y se publicaba otra.
+     */
+    copyAprobado?: { primaryText: string; headline: string; description: string },
   ): Promise<FbCampaignResult | null> {
     if (!this.config.adAccountId || !this.config.accessToken) return null;
 
@@ -443,7 +452,13 @@ Responde SOLO con este JSON exacto:
       const adAccount = `act_${this.config.adAccountId}`;
       const campaignName = `${product.name} - ${new Date().toLocaleDateString("es-CO")}`;
 
-      const adCopy = await this.generateAdCopy(product);
+      const adCopy = copyAprobado?.primaryText?.trim()
+        ? {
+            primaryText: copyAprobado.primaryText,
+            headline: copyAprobado.headline || "",
+            description: copyAprobado.description || "",
+          }
+        : await this.generateAdCopy(product);
 
       // Bug de capacidad: /{adAccount}/adimages requiere la capacidad
       // "adimages" que esta aplicación no tiene (Graph API error #3:

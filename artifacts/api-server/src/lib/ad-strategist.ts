@@ -592,6 +592,66 @@ Este contenido digital es tu atajo directo a resultados profesionales.
   }
 
   /**
+   * Sube un borrador LOCAL a Meta, en PAUSA, con su propio copy.
+   *
+   * Este paso no existía y era un callejón sin salida: los borradores que crea
+   * Atlas quedan solo en la base (sin campaignId), y publishDraft solo sabe
+   * ACTIVAR un anuncio que ya exista en Meta -- con un borrador local devolvía
+   * false y no pasaba nada. O sea que el copy que el admin revisaba y aprobaba
+   * nunca llegaba a Meta, y la única forma de sacarlo era crear una campaña
+   * nueva con fb_create_ad, que ignora ese texto y genera otro.
+   *
+   * Queda separado en dos acciones distintas, que es como tiene que ser:
+   *   - subir a Meta (PAUSED): no gasta un peso, se puede revisar en Ads Manager
+   *   - activar (ACTIVE): empieza a gastar, y es publishDraft
+   */
+  async subirBorradorAMeta(draftId: number): Promise<{ ok: boolean; message?: string; campaignId?: string }> {
+    try {
+      const [draft] = await db.select().from(facebookDrafts).where(eq(facebookDrafts.id, draftId)).limit(1);
+      if (!draft) return { ok: false, message: "No encontré ese borrador." };
+      if (draft.campaignId) {
+        return { ok: false, message: `Ese borrador ya existe en Meta (campaña ${draft.campaignId}), en estado ${draft.fbStatus || "PAUSED"}.` };
+      }
+      if (!draft.productId) return { ok: false, message: "El borrador no tiene producto asociado." };
+
+      const { FacebookService } = await import("./facebook");
+      const fb = new FacebookService(this.tenant);
+      if (!fb.isConfigured()) return { ok: false, message: "Facebook no está conectado." };
+
+      const creado = await fb.createAdForProduct(
+        draft.productId,
+        Number(draft.budget) || 5000,
+        undefined,
+        undefined,
+        // El copy APROBADO, no uno nuevo.
+        {
+          primaryText: String(draft.primaryText || ""),
+          headline: String(draft.headline || ""),
+          description: String(draft.description || ""),
+        },
+      );
+      if (!creado) return { ok: false, message: "Meta no aceptó crear la campaña." };
+
+      await db.update(facebookDrafts)
+        .set({
+          campaignId: creado.campaignId,
+          adSetId: creado.adSetId,
+          adId: creado.adId,
+          status: "created",
+          fbStatus: "PAUSED",
+          updatedAt: new Date(),
+        })
+        .where(eq(facebookDrafts.id, draftId));
+
+      logger.info({ draftId, campaignId: creado.campaignId }, "[AdStrategist] Borrador subido a Meta en PAUSA");
+      return { ok: true, campaignId: creado.campaignId };
+    } catch (err: any) {
+      logger.error({ err, draftId }, "[AdStrategist] Error subiendo el borrador a Meta");
+      return { ok: false, message: err?.message || "Error subiendo el borrador a Meta" };
+    }
+  }
+
+  /**
    * Reconstruye el creativo real en Meta cuando se editan las fotos y/o el
    * texto de un borrador que YA tiene anuncio creado (campaignId/adId).
    * Los creativos de Facebook son inmutables una vez creados -- no hay forma
