@@ -202,6 +202,43 @@ export default function FacebookAdsPage() {
     handleOAuthRedirectIfAny();
   }, []);
 
+  // Estado de canales, derivado de la configuración que ya se cargó.
+  //
+  // `channelStatus` estaba declarado pero NUNCA se llenaba: no existía una
+  // sola llamada a setChannelStatus en toda la página. Como la lista siempre
+  // quedaba vacía, la pestaña Canales mostraba "Conecta Facebook primero"
+  // incluso con Facebook conectado y funcionando, contradiciendo a la pestaña
+  // de al lado que decía "Conexión exitosa".
+  useEffect(() => {
+    const canales: ChannelStatus[] = [
+      {
+        channel: "facebook",
+        label: "Facebook (página y anuncios)",
+        connected: !!config.hasToken && !!config.pageId,
+        error: !config.hasToken ? "Falta el token de acceso" : !config.pageId ? "Falta elegir la página" : undefined,
+      },
+      {
+        channel: "messenger",
+        label: "Messenger",
+        connected: !!config.hasMessengerToken,
+        error: config.hasMessengerToken ? undefined : "Falta el token de la página para Messenger",
+      },
+      {
+        channel: "comentarios",
+        label: "Comentarios en publicaciones",
+        connected: !!config.hasMessengerToken && !!config.messengerVerifyToken,
+        error: config.messengerVerifyToken ? undefined : "Falta el verify token del webhook",
+      },
+      {
+        channel: "anuncios",
+        label: "Cuenta publicitaria",
+        connected: !!config.adAccountId,
+        error: config.adAccountId ? undefined : "Falta la cuenta publicitaria",
+      },
+    ];
+    setChannelStatus(canales);
+  }, [config.hasToken, config.pageId, config.hasMessengerToken, config.messengerVerifyToken, config.adAccountId]);
+
   // Facebook redirige de vuelta con ?code=... en la QUERY STRING (nunca en
   // el fragmento) -- Authorization Code flow, no Implicit. Con el flujo
   // anterior (response_type=token) el access_token de verdad viajaba en el
@@ -1213,7 +1250,12 @@ export default function FacebookAdsPage() {
                             {ch.connected ? <CheckCircle2 className="h-5 w-5 text-green-500" /> : <XCircle className="h-5 w-5 text-destructive" />}
                             <div>
                               <p className="font-medium">{ch.label}</p>
-                              <p className="text-sm text-muted-foreground">{ch.connected ? "Conectado" : "Desconectado"}</p>
+                              {/* El motivo se venía calculando y tirando: decir
+                                  "Desconectado" sin decir qué falta obliga a
+                                  adivinar cuál de cinco campos es. */}
+                              <p className="text-sm text-muted-foreground">
+                                {ch.connected ? "Conectado" : (ch.error || "Desconectado")}
+                              </p>
                             </div>
                           </div>
                         </div>
