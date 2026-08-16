@@ -779,6 +779,85 @@ app.get("/p/:productId", async (req, res, next) => {
 // (/admin/store, /admin/tenants) -- matchear por prefijo redirigiría esas
 // páginas reales al SPA equivocado. La tienda solo navega a "/admin" a
 // secas (nunca a una subruta), así que el match exacto no le falta nada.
+/**
+ * Inyecta el título y las etiquetas Open Graph del producto en el HTML de la
+ * tienda, para las URLs que apuntan a un producto concreto.
+ *
+ * Por qué hace falta: la tienda es un SPA. WhatsApp, Facebook e Instagram NO
+ * ejecutan JavaScript cuando arman la vista previa de un enlace -- leen el
+ * HTML tal como sale del servidor. Ese HTML es el mismo para todas las rutas,
+ * así que hasta ahora TODO enlace compartido mostraba el título de la
+ * plantilla ("ProStore | Solución E-commerce Profesional") y ninguna imagen.
+ *
+ * Reportado por el admin (2026-08-16) y verificado: cero etiquetas og:* en
+ * /tienda/<slug>/producto/<id> y en /p/<id>. Importa el doble acá porque los
+ * anuncios pagos llevan a esas URLs y el agente de WhatsApp las manda en cada
+ * conversación: el cliente ve un enlace sin foto ni nombre y desconfía.
+ *
+ * Devuelve null si la ruta no es de producto (para no pagar una consulta a la
+ * base en cada carga de la tienda), o una promesa del HTML ya modificado.
+ */
+function metaDeProducto(rutaUrl: string): Promise<string | null> | null {
+  const m = rutaUrl.match(/^\/tienda\/[^/]+\/producto\/(\d+)\/?$/) || rutaUrl.match(/^\/p\/(\d+)\/?$/);
+  if (!m) return null;
+  const productId = Number(m[1]);
+  if (!Number.isFinite(productId)) return null;
+
+  return (async () => {
+    try {
+      const { db, products } = await import("@workspace/db");
+      const { eq } = await import("drizzle-orm");
+      const [p] = await db.select().from(products).where(eq(products.id, productId)).limit(1);
+      if (!p || !tiendaPath) return null;
+
+      const indexPath = path.join(tiendaPath, "index.html");
+      let html = readFileSync(indexPath, "utf8");
+
+      const appUrl = (process.env.APP_URL || "https://ventasproia.com").replace(/\/+$/, "");
+      const abs = (u: string) => (!u ? "" : /^https?:\/\//i.test(u) ? u : `${appUrl}/${String(u).replace(/^\/+/, "")}`);
+
+      const esc = (s: string) =>
+        String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+
+      const nombre = String(p.name || "Producto");
+      const precio = p.price ? `$${Number(p.price).toLocaleString("es-CO")} ${p.currency || "COP"}` : "";
+      // La primera línea de la descripción es el resumen del curso; el resto
+      // son los beneficios, que no aportan a una vista previa.
+      const resumen = String(p.description || "").split(/\r?\n/)[0].replace(/^[^\p{L}\p{N}]+/u, "").trim();
+      const titulo = precio ? `${nombre} — ${precio}` : nombre;
+      const descripcion = (resumen || nombre).slice(0, 200);
+      const imagen = abs(String(p.imageUrl || ""));
+      const url = `${appUrl}${rutaUrl}`;
+
+      const tags = [
+        `<title>${esc(titulo)}</title>`,
+        `<meta name="description" content="${esc(descripcion)}">`,
+        `<meta property="og:type" content="product">`,
+        `<meta property="og:title" content="${esc(titulo)}">`,
+        `<meta property="og:description" content="${esc(descripcion)}">`,
+        `<meta property="og:url" content="${esc(url)}">`,
+        imagen ? `<meta property="og:image" content="${esc(imagen)}">` : "",
+        imagen ? `<meta property="og:image:width" content="1200">` : "",
+        imagen ? `<meta property="og:image:height" content="630">` : "",
+        `<meta name="twitter:card" content="${imagen ? "summary_large_image" : "summary"}">`,
+        `<meta name="twitter:title" content="${esc(titulo)}">`,
+        `<meta name="twitter:description" content="${esc(descripcion)}">`,
+        imagen ? `<meta name="twitter:image" content="${esc(imagen)}">` : "",
+      ].filter(Boolean).join("\n    ");
+
+      // Se reemplaza el <title> de la plantilla en vez de sumar otro: dos
+      // títulos dejan que el rastreador elija, y suele quedarse con el
+      // primero -- el genérico.
+      html = html.replace(/<title>[\s\S]*?<\/title>/i, "");
+      html = html.replace(/<head([^>]*)>/i, `<head$1>\n    ${tags}`);
+      return html;
+    } catch (e: any) {
+      logger.warn({ err: e?.message, productId }, "[Tienda] No se pudieron armar los metadatos del producto");
+      return null;
+    }
+  })();
+}
+
 const TIENDA_OWN_ROUTES = new Set(["/editor", "/admin"]);
 app.use((req, res, next) => {
   const isPublicStorePath =
@@ -790,6 +869,14 @@ app.use((req, res, next) => {
     if (existsSync(indexPath)) {
       res.setHeader("Content-Type", "text/html");
       res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+      // Metadatos por producto: sin esto, compartir el enlace de un producto
+      // no muestra NADA (ver metaDeProducto). Se resuelve antes de responder.
+      const meta = metaDeProducto(req.path);
+      if (meta) {
+        return meta
+          .then((html) => (html ? res.send(html) : res.sendFile(indexPath)))
+          .catch(() => res.sendFile(indexPath));
+      }
       return res.sendFile(indexPath);
     }
   }
