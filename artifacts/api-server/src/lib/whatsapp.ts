@@ -435,7 +435,20 @@ export class WhatsAppManager {
           and(
             eq(conversations.tenantId, tenantId as number),
             eq(conversations.contactPhone, soloDigitos),
-            eq(messages.role, "user"),
+            // "customer" es el valor REAL con el que se guarda un mensaje
+            // entrante en toda la app (conversation-engine, message-handler,
+            // facebook-messenger, facebook-comments). "user" no existe en
+            // ninguna fila.
+            //
+            // BUG DE PRODUCCIÓN (2026-08-16): al preguntar por "user" esta
+            // consulta nunca encontraba nada, así que la función concluía
+            // "este contacto nunca nos escribió" para TODO el mundo y
+            // bloqueaba TODAS las respuestas. El bot quedó completamente
+            // mudo desde que se agregó la protección. Verificado con la fila
+            // real: {"role":"customer","content":"Tienes el curso de piano"},
+            // una consulta de un cliente que se quedó sin respuesta mientras
+            // había una campaña paga corriendo.
+            eq(messages.role, "customer"),
           ),
         )
         .limit(1);
