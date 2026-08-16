@@ -452,6 +452,21 @@ const AUTH_DIR = process.env.WA_AUTH_DIR
   ? path.resolve(process.env.WA_AUTH_DIR)
   : path.resolve(process.cwd(), "data", ".baileys-auth");
 
+/**
+ * Deja SOLO el numero de un JID de WhatsApp.
+ *
+ * Un JID puede venir como "573001234567:12@s.whatsapp.net": el ":12" es el
+ * identificador de DISPOSITIVO, no parte del telefono. Cortando solo por "@"
+ * quedaba "573001234567:12" como si fuera el numero.
+ *
+ * Lo vio el admin en un cliente que llego de un anuncio pago: el bot lo
+ * saludo con "Hola 51908825398:0". Ademas ensuciaba la identidad -- el mismo
+ * contacto podia quedar en dos conversaciones segun si el JID traia sufijo.
+ */
+function soloNumero(jid: string | null | undefined): string {
+  return String(jid || "").split("@")[0]!.split(":")[0]!.replace(/\D/g, "");
+}
+
 export class WhatsAppManager {
   /**
    * Ids de mensajes de WhatsApp ya procesados, para no contestar dos veces el
@@ -1235,12 +1250,12 @@ export class WhatsAppManager {
                 console.error("⚠️ Error resolviendo LID a número real:", err);
               }
               if (resolvedPn) {
-                phone = resolvedPn.split("@")[0]!;
+                phone = soloNumero(resolvedPn);
                 // Se recuerda: la resolución falla de forma INTERMITENTE para
                 // el mismo contacto, y ahí estaba el bug (ver abajo).
                 WhatsAppManager.lidAPhone.set(remoteJid, phone);
               } else if (msg.key.participant) {
-                phone = msg.key.participant.split("@")[0]!;
+                phone = soloNumero(msg.key.participant);
                 WhatsAppManager.lidAPhone.set(remoteJid, phone);
               } else if (WhatsAppManager.lidAPhone.has(remoteJid)) {
                 // Ya lo resolvimos antes en esta sesión: se reusa.
@@ -1258,10 +1273,10 @@ export class WhatsAppManager {
                 // el OTRO, que tenía historia vieja. Por eso el admin veía
                 // que "solo saluda": contestaba con el contexto equivocado.
                 console.warn("⚠️ No se pudo resolver LID a número real, usando ID interno como fallback:", remoteJid);
-                phone = remoteJid.split("@")[0]!;
+                phone = soloNumero(remoteJid);
               }
             } else {
-              phone = remoteJid.split("@")[0]!;
+              phone = soloNumero(remoteJid);
             }
             const pushName: string = msg.pushName ?? phone;
 

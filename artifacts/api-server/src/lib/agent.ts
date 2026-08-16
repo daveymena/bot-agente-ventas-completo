@@ -545,6 +545,25 @@ IMPORTANTE: Usa esta información para responder de manera empática y estratég
   return personalizedInstructions;
 }
 
+/**
+ * ¿Esto es un nombre de persona, o el telefono disfrazado?
+ *
+ * WhatsApp no siempre manda el pushName, y el sistema caia al numero como
+ * nombre. Resultado, visto con un cliente que llego de un ANUNCIO PAGO:
+ *   "¡Hola 51908825398:0! 👋 Bienvenido a TecnoVariedades"
+ *
+ * Un saludo asi quema el lead en el primer mensaje. Ante la duda es mejor
+ * saludar sin nombre: "¡Hola! 👋" es neutro y correcto, decirle el numero no.
+ */
+function esNombreReal(n: string | null | undefined): boolean {
+  const v = String(n || "").trim();
+  if (!v || v.length < 2 || v.toLowerCase() === "cliente") return false;
+  // Mayoria de digitos, o con el sufijo de dispositivo de un JID: es telefono.
+  const digitos = (v.match(/\d/g) || []).length;
+  if (digitos >= 6 || digitos > v.length / 2 || /^\+?\d[\d\s:-]*$/.test(v)) return false;
+  return true;
+}
+
 export async function runAgentReply(conversationId: number) {
   const startTime = Date.now();
   const ts = () => new Date().toISOString();
@@ -892,7 +911,7 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
     if (!memory.hasGreeted) {
       console.log(`⚡ [FAST-TRACK] Primer saludo hardcodeado - ${ts()}`);
       const business = voice.businessName || "nuestra tienda";
-      const raw = (customerName && customerName !== "cliente")
+      const raw = esNombreReal(customerName)
         ? `¡Hola ${customerName}! 👋 Bienvenido a *${business}*. ¿Qué estás buscando hoy?`
         : `¡Hola! 👋 Bienvenido a *${business}*. ¿Qué estás buscando hoy?`;
 
