@@ -71,27 +71,67 @@ function resolveOpenCodeConfig(modelOverride?: string): AIProviderConfig | null 
 }
 
 /**
- * Modelos que OpenCode Go LISTA en su catalogo pero que no responden.
- * Verificado uno por uno contra la cuenta del admin (2026-08-16): de los 26
- * que expone /models, 20 contestan y estos 6 no.
+ * Modelos de OpenCode Go que sirven para atender a un cliente, en orden de
+ * velocidad medida.
  *
- *   deepseek-v4-flash / -pro  403 -- solo disponibles en el host de DeepSeek
- *   grok-4.5                  503 -- proveedor caido
- *   hy3-preview               400 -- rechaza la peticion
- *   mimo-v2-omni / -pro       400 -- rechazan la peticion
+ * Medido con el trabajo real (mensaje de cliente en espanol pidiendo precio),
+ * no con un ping: de los 26 que expone /models, SOLO 4 sirven. La medicion
+ * anterior decia "20 contestan" porque miraba el HTTP; mirando el CONTENIDO,
+ * la mayoria no sirve:
  *
- * Se listan aca para no gastar un turno del cliente descubriendolo en vivo:
- * el catalogo del proveedor dice que existen, y solo probandolos se sabe que
- * no sirven. Si alguno vuelve a funcionar, sacarlo de esta lista.
+ *   - 8 devuelven HTTP 200 con el contenido VACIO (glm-5, glm-5.1, glm-5.2,
+ *     glm-5.3, minimax-m2.5, hy3, kimi-k2.7-code, kimi-k3). Un 200 vacio es
+ *     peor que un error: el bot se queda mudo y nada avisa que fallo.
+ *   - kimi-k2.5, kimi-k2.6 y minimax-m3 mandan su RAZONAMIENTO como respuesta
+ *     ("El usuario me pide que actue como vendedor...") e incluso inventan
+ *     precios ("Tenemos desde $49", "esta en $XX"). Eso llegando a un cliente
+ *     es peor que no responder.
+ *   - deepseek-v4-*: 403 RegionError. qwen*/grok-4.5: 503. hy3-preview,
+ *     mimo-v2-omni, mimo-v2-pro: 400.
+ *
+ * Si alguno mejora, se agrega aca; el orden es el que se rota.
+ */
+const MODELOS_GO_UTILES = [
+  "gpt-5.6-luna",   // 2299 ms
+  "minimax-m2.7",   // 3224 ms
+  "mimo-v2.5-pro",  // 3493 ms
+  "mimo-v2.5",      // 4445 ms
+];
+
+/**
+ * Modelos que Go LISTA pero que NO sirven (ver el detalle arriba). Se listan
+ * para no gastar un turno del cliente descubriendolo en vivo.
  */
 const MODELOS_GO_ROTOS = new Set([
-  "deepseek-v4-flash",
-  "deepseek-v4-pro",
-  "grok-4.5",
-  "hy3-preview",
-  "mimo-v2-omni",
-  "mimo-v2-pro",
+  // no responden
+  "deepseek-v4-flash", "deepseek-v4-pro", "grok-4.5", "hy3-preview",
+  "mimo-v2-omni", "mimo-v2-pro",
+  "qwen3.5-plus", "qwen3.6-plus", "qwen3.7-plus", "qwen3.7-max", "qwen3.8-max",
+  // responden 200 pero con el contenido vacio
+  "glm-5", "glm-5.1", "glm-5.2", "glm-5.3", "hy3", "kimi-k3",
+  "kimi-k2.7-code", "minimax-m2.5",
+  // filtran su razonamiento al cliente e inventan precios
+  "kimi-k2.5", "kimi-k2.6", "minimax-m3",
 ]);
+
+/**
+ * Todos los modelos utiles de Go, para rotar dentro del proveedor.
+ *
+ * Antes Go era un solo modelo (Luna): si Luna fallaba o se quedaba sin cuota,
+ * se abandonaba el proveedor entero y se pasaba al siguiente, desperdiciando
+ * los otros modelos pagos que si funcionan.
+ */
+export function getOpenCodeGoRotation(): AIProviderConfig[] {
+  const goKey = process.env.OPENCODE_GO_API_KEY;
+  if (!goKey) return [];
+  const baseUrl = process.env.OPENCODE_GO_API_URL || "https://opencode.ai/zen/go/v1";
+  const preferido = process.env.OPENCODE_GO_MODEL || MODELOS_GO_UTILES[0]!;
+  const extra = (process.env.OPENCODE_GO_ROTATION || "").split(",").map((m) => m.trim()).filter(Boolean);
+  const orden = [preferido, ...extra, ...MODELOS_GO_UTILES]
+    .filter((m) => m && !MODELOS_GO_ROTOS.has(m))
+    .filter((m, i, arr) => arr.indexOf(m) === i);
+  return orden.map((model) => ({ baseUrl, apiKey: goKey, model }));
+}
 
 export function getProviderConfig(provider: string): AIProviderConfig | null {
   switch (provider) {

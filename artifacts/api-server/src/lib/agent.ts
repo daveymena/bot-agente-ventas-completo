@@ -10,7 +10,7 @@ import {
   leads,
   settings as settingsTable,
 } from "@workspace/db";
-import { getProviderConfig, getProviderConfigFromSettings, createAIClient, getOpenCodeRotation } from "@workspace/integrations-openai-ai-server";
+import { getProviderConfig, getProviderConfigFromSettings, createAIClient, getOpenCodeRotation, getOpenCodeGoRotation } from "@workspace/integrations-openai-ai-server";
 import { logger } from "./logger";
 import { PaymentGateway } from "./payments";
 import { 
@@ -1230,6 +1230,14 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
               console.log(`✅ [AI] Respuesta de ${source} - ${result.length}chars (${elapsed}ms) - ${ts()}`);
               return { raw: result, usedProvider: source };
             }
+            // Un 200 con el contenido VACÍO es un fallo, aunque no tire error.
+            // Antes solo se contaba como fallo lo que caía en el catch, así que
+            // un modelo que siempre devuelve vacío nunca se marcaba enfermo y
+            // seguía siendo el primero de la cola en CADA mensaje, quemando un
+            // viaje de ida y vuelta por cliente. Hay varios así: 8 de los 26
+            // modelos de OpenCode Go contestan 200 sin una sola letra.
+            reportProviderResult(providerName, false, Date.now() - startTime, "respuesta vacía");
+            console.log(`⚠️ [AI] ${source} contestó 200 pero VACÍO — se pasa al siguiente - ${ts()}`);
           } catch (err: any) {
             const elapsed = Date.now() - startTime;
             reportProviderResult(providerName, false, undefined, err.message);
@@ -1299,8 +1307,15 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
           } else if (prov === "opencode_go") {
             // Nivel de pago: no se queda sin cuota a mitad del día como el
             // gratuito, así que sirve de red cuando el free se agota.
-            const cfg = getProviderConfig("opencode_go");
-            if (cfg) rotationQueue.push({ config: cfg, source: "opencode_go" });
+            //
+            // Se encolan TODOS sus modelos útiles, no solo Luna. Antes, si
+            // Luna fallaba, se abandonaba Go entero y se saltaba al siguiente
+            // proveedor, desperdiciando los otros modelos pagos que sí
+            // responden. Cuáles son "útiles" está medido en provider.ts: de
+            // los 26 que Go lista, solo 4 sirven de verdad.
+            for (const cfg of getOpenCodeGoRotation()) {
+              rotationQueue.push({ config: cfg, source: `opencode_go/${cfg.model}` });
+            }
           } else if (prov === "opencode_zen") {
             // Zen gratuito: se encolan TODOS sus modelos, no uno solo.
             //
