@@ -48,3 +48,7 @@ android-project/**/*.jks
 *.apk
 *.keystore
 *.jks
+
+# Respaldos de base de datos: contienen tokens y datos de clientes.
+# NUNCA van al repositorio (GitHub los bloquea, y con razon).
+respaldo-ventaspro-*.json

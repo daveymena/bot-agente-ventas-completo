@@ -74,6 +74,32 @@ router.get("/", async (req, res, next) => {
   }
 });
 
+/**
+ * Un prospecto por id. Faltaba, igual que GET /api/products/:id: quien la
+ * llamaba recibía el 404 de Express en HTML y concluía que el prospecto no
+ * existía.
+ */
+router.get("/:id", async (req, res, next) => {
+  try {
+    const tenantId = tenantIdOf(req);
+    if (!tenantId) return res.status(401).json({ message: "No autorizado" });
+
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id)) return res.status(400).json({ message: "Id inválido" });
+
+    const [row] = await db
+      .select()
+      .from(leads)
+      .where(and(eq(leads.id, id), eq(leads.tenantId, tenantId)))
+      .limit(1);
+    if (!row) return res.status(404).json({ message: "Prospecto no encontrado" });
+
+    return res.json(serialize(row));
+  } catch (e) {
+    return next(e);
+  }
+});
+
 router.post("/", async (req, res, next) => {
   try {
     const body = CreateLeadBody.parse(req.body);

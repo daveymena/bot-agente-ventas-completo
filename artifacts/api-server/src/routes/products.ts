@@ -57,6 +57,37 @@ router.get("/", async (req: TenantRequest, res, next) => {
   }
 });
 
+/**
+ * Un producto por id.
+ *
+ * No existía, y eso frenaba a Atlas de una forma engañosa: al pedirle un
+ * anuncio para el producto 124 llamaba a GET /api/products/124, recibía el 404
+ * de Express (HTML, "Cannot GET /api/products/124") y le contestaba al admin
+ * "no encontré el producto con ID 124 en tu catálogo" -- cuando el producto
+ * existe y está en el listado. El agente no puede distinguir "no existe el
+ * recurso" de "no existe la ruta" si la ruta ni siquiera responde JSON.
+ */
+router.get("/:id", async (req: TenantRequest, res, next) => {
+  try {
+    const tenantId = req.tenant?.id;
+    if (!tenantId) return sendError(res, ERROR_CODES.UNAUTHORIZED);
+
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id)) return sendError(res, ERROR_CODES.VALIDATION_INVALID_DATA);
+
+    const [row] = await db
+      .select()
+      .from(products)
+      .where(and(eq(products.id, id), eq(products.tenantId, tenantId)))
+      .limit(1);
+    if (!row) return sendError(res, ERROR_CODES.PRODUCT_NOT_FOUND);
+
+    return res.json(serialize(row));
+  } catch (e) {
+    return next(e);
+  }
+});
+
 // Create a product for the current tenant
 router.post("/", async (req: TenantRequest, res, next) => {
   try {

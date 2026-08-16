@@ -865,7 +865,20 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
       const pidioCrearAlgo = PEDIDO_DE_ACCION.test(String(prompt)) && MENCIONA_ANUNCIO.test(String(prompt));
       const quedaTiempo = turnDeadline - Date.now() > 25_000;
 
-      if (pidioCrearAlgo && plannedActions.length === 0 && sesionOpencode && modeloUsado && quedaTiempo && !opencodeError) {
+      // Si Atlas está PREGUNTANDO algo, no guardar es lo correcto.
+      //
+      // Antes esto se disparaba con cualquier pedido que mencionara crear un
+      // anuncio, sin mirar qué había contestado. Resultado (re-auditoría del
+      // 16-08-2026): a un mensaje donde Atlas solo preguntaba "¿Continúo?
+      // Decime sí o el nombre del producto" se le pegaba "⚠️ esto quedó solo
+      // como texto en el chat, NO se guardó como borrador". No había nada que
+      // guardar: estaba pidiendo el dato que le faltaba, que es justo lo que
+      // le pedimos que haga antes de inventar.
+      const PREGUNTA_AL_ADMIN =
+        /\?\s*$|¿[^?]{3,120}\?|\b(decime|dec[ií]dme|cu[aá]l de|necesito que me (digas|pases)|me falta saber|confirmame|para cu[aá]l)\b/i;
+      const estaPreguntando = PREGUNTA_AL_ADMIN.test(String(finalReplyVerificado || "").slice(-400));
+
+      if (pidioCrearAlgo && !estaPreguntando && plannedActions.length === 0 && sesionOpencode && modeloUsado && quedaTiempo && !opencodeError) {
         logger.info({ tenantId, sessionId }, "[AtlasOpenCode] Pidió crear algo y no llamó ninguna herramienta -- se insiste una vez");
         progreso("Guardando lo que preparé...");
         try {

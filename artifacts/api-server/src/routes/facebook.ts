@@ -1,6 +1,6 @@
 import { Router, type IRouter, type Request, type Response, type NextFunction } from "express";
 import { createHmac, timingSafeEqual } from "crypto";
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import { db, tenants, leads, conversations, messages, products, facebookDrafts } from "@workspace/db";
 import { facebookMessengerService as fbMessenger } from "../lib/facebook-messenger";
 import { facebookCommentsService as fbComments } from "../lib/facebook-comments";
@@ -589,6 +589,28 @@ router.get("/strategist/drafts", async (req, res, next) => {
     const tenantId = (req as any).tenant?.id || 1;
     const drafts = await adStrategist.getDrafts(tenantId);
     return res.json({ drafts });
+  } catch (e) { return next(e); }
+});
+
+/**
+ * Un borrador por id. Faltaba, como las de producto y prospecto: quien la
+ * llamaba recibía el 404 de Express en HTML y lo interpretaba como "ese
+ * borrador no existe".
+ */
+router.get("/strategist/drafts/:id", async (req, res, next) => {
+  try {
+    const tenantId = (req as any).tenant?.id || 1;
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id)) return res.status(400).json({ message: "Id inválido" });
+
+    const [draft] = await db
+      .select()
+      .from(facebookDrafts)
+      .where(and(eq(facebookDrafts.id, id), eq(facebookDrafts.tenantId, tenantId)))
+      .limit(1);
+    if (!draft) return res.status(404).json({ message: "Borrador no encontrado" });
+
+    return res.json(draft);
   } catch (e) { return next(e); }
 });
 
