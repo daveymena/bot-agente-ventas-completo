@@ -1,7 +1,7 @@
 import { logger } from "./logger";
 import { getAppUrl } from "./app-url";
 import { db, products, productCategories, facebookDrafts } from "@workspace/db";
-import { eq, desc } from "drizzle-orm";
+import { eq, desc, and } from "drizzle-orm";
 import { tenantManager, type TenantContext } from "./tenantManager";
 import { resolveInterestIds } from "./facebook";
 import { generateProductImage } from "./ai-product-image";
@@ -438,6 +438,33 @@ Este contenido digital es tu atajo directo a resultados profesionales.
 
   async saveDraftToDb(draft: DraftAd): Promise<any> {
     try {
+      // No guardar el MISMO borrador dos veces.
+      //
+      // Se acumularon 200 borradores con duplicados masivos: el mismo producto
+      // con el mismo copy repetido 3 y 5 veces, creados con minutos de
+      // diferencia (efecto de los reintentos cuando el turno se corta y de
+      // "crear borradores para TODOS los productos"). Eso ensucia la pantalla
+      // y hace imposible encontrar el borrador bueno.
+      //
+      // Solo se considera duplicado si coincide producto Y texto: si el copy
+      // es distinto, es una variante legítima y se guarda.
+      if (draft.status !== "created") {
+        const previos = await db
+          .select()
+          .from(facebookDrafts)
+          .where(and(
+            eq(facebookDrafts.tenantId, this.tenant.id),
+            eq(facebookDrafts.productId, draft.productId),
+          ));
+        const igual = previos.find((p: any) =>
+          String(p.primaryText || "").trim() === String(draft.primaryText || "").trim() &&
+          String(p.headline || "").trim() === String(draft.headline || "").trim());
+        if (igual) {
+          logger.info({ draftId: igual.id, productId: draft.productId }, "[AdStrategist] Ya existía un borrador idéntico -- se reutiliza en vez de duplicar");
+          return igual;
+        }
+      }
+
       const [saved] = await db.insert(facebookDrafts).values({
         tenantId: this.tenant.id,
         productId: draft.productId,
