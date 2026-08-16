@@ -367,6 +367,29 @@ export class AdStrategist {
     if (grounded?.hook) strategy = { ...strategy, hook: grounded.hook };
     if (grounded?.angle) strategy = { ...strategy, angle: grounded.angle };
 
+    // Sin hook propio, NO se usa el de la plantilla del nicho.
+    //
+    // El hook es la primera línea del anuncio, y el de la plantilla se
+    // escribió para un producto concreto. Auditados los borradores reales
+    // (16-08-2026): los 29 del nicho "Cursos y Educación General" comparten
+    // el mismo gancho, el del MEGAPACK -- "81 cursos digitales descargables
+    // por menos de $3 USD cada uno". O sea que el anuncio del curso de IA de
+    // $60.000 abría prometiendo 81 cursos a 3 dólares. Eso es publicidad
+    // engañosa pagada: Meta puede rechazarlo y el cliente reclama con razón.
+    //
+    // El reemplazo sale del producto REAL: su primera línea de descripción,
+    // que es lo que el admin escribió sobre él.
+    if (!grounded?.hook) {
+      const primeraLinea = String(product.description || "")
+        .split(/\r?\n/)[0]!
+        .replace(/^[^\p{L}\p{N}]+/u, "")
+        .trim();
+      const propio = primeraLinea.length >= 25
+        ? (primeraLinea.length > 120 ? `${primeraLinea.slice(0, 117).trimEnd()}...` : primeraLinea)
+        : String(product.name || "").trim();
+      if (propio) strategy = { ...strategy, hook: propio };
+    }
+
     const currency = (product.currency || "COP").toUpperCase();
     // Validar y formatear precio correctamente (sin multiplicar por tipo de cambio ficticio)
     const price = Number(product.price) || 0;
@@ -384,9 +407,18 @@ export class AdStrategist {
 
     const descLine = shortDesc !== name ? shortDesc : `Contenido digital descargable de ${strategy.niche.toLowerCase()}. Material práctico, listo para usar.`;
 
+    // Sin características cargadas NO se inventan.
+    //
+    // El respaldo prometía "Acceso permanente" y "Actualizaciones incluidas"
+    // para cualquier producto, tuviera o no eso. Son justo los compromisos que
+    // el cliente reclama después (paga esperando actualizaciones de por vida),
+    // y que la validación de contenido bloquea cuando los escribe el modelo --
+    // no tiene sentido que la plantilla los meta sola por la puerta de atrás.
+    // Lo único que se afirma sin datos es lo que es cierto para todo producto
+    // digital de esta tienda: que se descarga y que la entrega es inmediata.
     const featuresLine = features.length >= 2
       ? features.slice(0, 3).join(" • ")
-      : "📥 Descarga directa • 💾 Acceso permanente • 🔄 Actualizaciones incluidas";
+      : "📥 Descarga inmediata • 💻 100% online";
 
     const priceDisplay = priceFormatted === "Consulta" ? "Consulta disponible" : `$${priceFormatted} ${currency}`;
 
