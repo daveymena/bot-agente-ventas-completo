@@ -18,7 +18,7 @@
  */
 
 import { eq, and, desc } from "drizzle-orm";
-import { db, conversations, messages, products, productCategories } from "@workspace/db";
+import { db, conversations, messages, products, productCategories, leads } from "@workspace/db";
 import type { MessageMetadata } from "@workspace/db";
 import { dbNow } from "./date-utils";
 
@@ -1523,11 +1523,62 @@ export async function saveAgentMessage(
 
 // ─── Actualizar etapa en BD ────────────────────────────────────────────────────
 
+/**
+ * Etapa del EMBUDO que le corresponde a cada etapa de la conversación.
+ *
+ * El CRM no se alimentaba de las conversaciones: el agente venía etiquetando
+ * cada charla (greeting / details / closing...) pero el lead se quedaba en
+ * "new" para siempre. Con 23 conversaciones activas el embudo mostraba todo en
+ * cero, así que no servía para saber dónde se traba la venta -- que es lo
+ * único para lo que existe un embudo.
+ *
+ * "won" NO se pone acá a propósito: que el cliente llegue a cierre no
+ * significa que pagó. Ganar un trato exige un pago confirmado, no una
+ * conversación entusiasta.
+ */
+const ETAPA_DEL_EMBUDO: Record<string, string> = {
+  greeting: "new",
+  discovery: "contacted",
+  details: "qualified",
+  presentation: "qualified",
+  objection_handling: "proposal",
+  closing: "proposal",
+  // post_sale llega cuando ya hubo compra; el lead pasa a ganado solo por el
+  // camino del pago confirmado, no por esta vía.
+  human_handoff: "contacted",
+};
+
+/** Orden del embudo: un lead avanza, nunca retrocede por una charla suelta. */
+const ORDEN_EMBUDO = ["new", "contacted", "qualified", "proposal", "won", "lost"];
+
 export async function persistStage(conversationId: number, stage: Stage): Promise<void> {
   try {
     await db.update(conversations)
       .set({ currentStage: stage })
       .where(eq(conversations.id, conversationId));
+
+    // Reflejar el avance en el lead (el embudo del panel sale de ahí).
+    const destino = ETAPA_DEL_EMBUDO[stage];
+    if (!destino) return;
+    const [convo] = await db
+      .select({ leadId: conversations.leadId })
+      .from(conversations)
+      .where(eq(conversations.id, conversationId))
+      .limit(1);
+    if (!convo?.leadId) return;
+
+    const [lead] = await db.select().from(leads).where(eq(leads.id, convo.leadId)).limit(1);
+    if (!lead) return;
+    // Un trato ya ganado o perdido no vuelve al embudo por un mensaje nuevo,
+    // y tampoco se retrocede: si ya estaba en "proposal", que el cliente
+    // salude otra vez no lo devuelve a "new".
+    if (lead.stage === "won" || lead.stage === "lost") return;
+    const actual = ORDEN_EMBUDO.indexOf(String(lead.stage || "new"));
+    const nuevo = ORDEN_EMBUDO.indexOf(destino);
+    if (nuevo <= actual) return;
+
+    await db.update(leads).set({ stage: destino }).where(eq(leads.id, lead.id));
+    console.log(`📊 [CRM] Lead ${lead.id}: ${lead.stage} → ${destino} (conversación en "${stage}")`);
   } catch (err) {
     console.error(`[ConversationEngine] Error actualizando etapa:`, err);
   }
