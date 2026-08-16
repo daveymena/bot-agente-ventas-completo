@@ -36,7 +36,7 @@ import {
 } from "../lib/architect-store";
 import { toEmojiStyle } from "../lib/conversation-engine";
 import { paraMarkdown } from "./code-agent";
-import { describePlannedAction, buildMcpToolRegistry, drainDraftPlan } from "../lib/opencode-mcp-tools";
+import { describePlannedAction, buildMcpToolRegistry, drainDraftPlan, lecturasDelTurno } from "../lib/opencode-mcp-tools";
 import { mintTurnToken } from "../lib/opencode-turn-token";
 import { getAppUrl } from "../lib/app-url";
 import { db, products } from "@workspace/db";
@@ -738,6 +738,24 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
           `${finalReplyVerificado}\n\n⚠️ Aviso automático: en este mensaje NO se hizo ninguna búsqueda web real, ` +
           `así que lo de arriba sale del conocimiento general del modelo y no de fuentes verificadas hoy. ` +
           `No lo tomes como dato comprobado. Pedime que lo verifique y busco de verdad antes de que decidas nada con esto.`;
+      }
+
+      // ── Números del negocio que NO se leyeron ────────────────────────────
+      // Se lo vio informarle al admin "1 lead · 4 conversaciones activas"
+      // cuando el panel mostraba 5 y 23. No es que Atlas lea de otra fuente:
+      // dashboard_summary y el endpoint del panel corren la MISMA consulta,
+      // con el mismo filtro de tenant y el mismo conteo. O sea que esos
+      // números no salieron de ninguna consulta: los recordó de un turno
+      // viejo o los inventó. Y el admin toma decisiones con eso.
+      const AFIRMA_NUMEROS = /\b\d+\s*(leads?|prospectos?|conversaciones?|ventas?\s+cerradas?|tratos?)\b|\bconversi[oó]n\b[^.\n]{0,20}?\d+\s*%|\bingresos?\s+(?:de|del mes)?\s*\$?\s*[\d.,]+/i;
+      const lecturas = await lecturasDelTurno(tenantId, turnId);
+      const leyoMetricas = lecturas.some((t) =>
+        ["dashboard_summary", "list_recent_conversations", "list_leads", "sales_report"].includes(t));
+      if (!leyoMetricas && AFIRMA_NUMEROS.test(finalReplyVerificado || "")) {
+        logger.warn({ tenantId, sessionId, lecturas }, "[AtlasOpenCode] Dio números del negocio sin consultarlos -- se corrige la respuesta");
+        finalReplyVerificado =
+          `${finalReplyVerificado}\n\n⚠️ Aviso automático: los números de arriba NO se consultaron en este mensaje, ` +
+          `así que pueden estar viejos o equivocados. Miralos en el panel, o pedime que los consulte y te los traigo del dato real.`;
       }
 
       let plannedActions = await drainDraftPlan(tenantId, turnId);

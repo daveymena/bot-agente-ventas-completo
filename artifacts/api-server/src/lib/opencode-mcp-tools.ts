@@ -432,6 +432,41 @@ async function proposeAction(
 
 /** Lee y borra las propuestas acumuladas de un turno (llamado UNA vez, al
  * terminar la respuesta de OpenCode, desde routes/code-agent.ts). */
+/** Deja anotado que en ESTE turno se ejecutó realmente una herramienta de lectura. */
+async function registrarLecturaDelTurno(ctx: any, tool: string): Promise<void> {
+  const tenantId = Number(ctx?.tenantId);
+  const turnId = String(ctx?.turnId || "");
+  if (!Number.isFinite(tenantId) || !turnId) return;
+  try {
+    await db.insert(architectMemory).values({
+      tenantId,
+      sessionId: turnId,
+      memoryType: "tool_used",
+      content: tool,
+    } as any);
+  } catch {
+    // Es telemetría de apoyo: si falla, no puede tumbar la herramienta real.
+  }
+}
+
+/** Qué herramientas de lectura se ejecutaron de verdad en el turno. */
+export async function lecturasDelTurno(tenantId: number, turnId: string): Promise<string[]> {
+  const { eq, and } = await import("drizzle-orm");
+  try {
+    const rows = await db
+      .select()
+      .from(architectMemory)
+      .where(and(
+        eq(architectMemory.tenantId, tenantId),
+        eq(architectMemory.sessionId, turnId),
+        eq(architectMemory.memoryType, "tool_used"),
+      ));
+    return rows.map((r: ArchitectMemory) => String(r.content));
+  } catch {
+    return [];
+  }
+}
+
 export async function drainDraftPlan(tenantId: number, turnId: string): Promise<{ tool: string; args: any }[]> {
   const { eq, and } = await import("drizzle-orm");
   const rows = await db
@@ -578,7 +613,16 @@ export function buildMcpToolRegistry(pedido?: string): McpToolDef[] {
         name,
         description: descriptions.get(name) || name,
         inputSchema: schema || GENERIC_FALLBACK_SCHEMA,
-        handler: async (args, ctx) => executeAction(name, args, ctx),
+        handler: async (args, ctx) => {
+          // Se deja constancia de QUÉ leyó de verdad en este turno. Sirve para
+          // desmentirlo después: se lo vio informar "1 lead, 4 conversaciones"
+          // cuando el panel mostraba 5 y 23. Las dos consultas son idénticas
+          // (mismo filtro de tenant, mismo conteo), así que esos números no
+          // salieron de la herramienta: los inventó. Sin este registro no hay
+          // forma de distinguir un dato leído de uno recordado.
+          registrarLecturaDelTurno(ctx, name).catch(() => {});
+          return executeAction(name, args, ctx);
+        },
       };
     });
 
