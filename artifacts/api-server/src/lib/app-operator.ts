@@ -15,8 +15,8 @@
  * hasta que el modelo marca done:true (o se alcanza el límite de pasos).
  */
 
-import { db, products, productCategories, agents, settings, stores, tenants, conversations, leads, architectMemory, facebookDrafts } from "@workspace/db";
-import { eq, desc, and, gte, sql, ilike } from "drizzle-orm";
+import { db, products, productCategories, agents, settings, stores, tenants, conversations, leads, architectMemory, facebookDrafts, payments } from "@workspace/db";
+import { eq, desc, and, gte, sql, ilike, inArray } from "drizzle-orm";
 import { logger } from "./logger";
 import { tenantManager } from "./tenantManager";
 import { dbNow } from "./date-utils";
@@ -2379,6 +2379,101 @@ export const TOOLS: ToolDef[] = [
     },
   },
   {
+    name: "list_pending_transfers",
+    description: "Muestra los clientes que llegaron a cierre y dijeron que iban a pagar por Nequi/Daviplata/transferencia, pero cuyo pago NADIE confirmó todavía. Solo LEE. La transferencia no se confirma sola: si nadie verifica que el dinero llegó, esas ventas quedan invisibles y el panel sigue marcando 0 ingresos.",
+    args: "{}",
+    run: async (_args, ctx) => {
+      const pendientes = await db
+        .select()
+        .from(conversations)
+        .where(and(
+          eq(conversations.tenantId, ctx.tenantId),
+          eq(conversations.currentStage, "closing"),
+        ))
+        .orderBy(desc(conversations.lastMessageAt))
+        .limit(50);
+
+      const sinConfirmar = pendientes.filter((c: any) => c.paymentStatus !== "confirmed");
+      if (sinConfirmar.length === 0) {
+        return { ok: true, summary: "No hay pagos por transferencia esperando confirmación.", data: { pendientes: [] } };
+      }
+
+      const ids = [...new Set(sinConfirmar.map((c: any) => c.currentProductId).filter(Boolean))] as number[];
+      const prods = ids.length
+        ? await db.select().from(products).where(and(eq(products.tenantId, ctx.tenantId), inArray(products.id, ids)))
+        : [];
+      const nombreDe = (id: number | null) => prods.find((p: any) => p.id === id)?.name || "producto sin identificar";
+
+      const detalle = sinConfirmar.slice(0, 20).map((c: any) =>
+        `• #${c.id} · ${c.contactName || c.contactPhone} · ${nombreDe(c.currentProductId)} · último mensaje ${c.lastMessageAt ? new Date(c.lastMessageAt).toLocaleDateString("es-CO") : "—"}`
+      ).join("\n");
+
+      return {
+        ok: true,
+        summary:
+          `${sinConfirmar.length} conversaciones llegaron a cierre y siguen SIN pago confirmado:\n\n${detalle}` +
+          (sinConfirmar.length > 20 ? `\n…y ${sinConfirmar.length - 20} más.` : "") +
+          `\n\nSi alguna ya te pagó, decime "confirmá el pago de la conversación N" y la registro como venta.`,
+        data: { pendientes: sinConfirmar.map((c: any) => ({ conversationId: c.id, contacto: c.contactName || c.contactPhone, productId: c.currentProductId })) },
+      };
+    },
+  },
+  {
+    name: "confirm_transfer_payment",
+    description: "Registra que un pago por Nequi/Daviplata/transferencia SÍ llegó: marca la conversación como pagada y el trato como ganado, con su monto. Usalo solo cuando el admin confirme que vio el dinero en su cuenta -- nunca porque el cliente diga que ya pagó ni porque haya mandado un comprobante. Conseguí el id con list_pending_transfers.",
+    args: '{ "conversationId": number (req), "amount"?: number (monto recibido; si no se pasa, se usa el precio del producto), "method"?: string ("nequi" | "daviplata" | "transferencia", def "transferencia") }',
+    run: async (args, ctx) => {
+      const convId = num(args.conversationId);
+      if (!convId) return { ok: false, summary: "Falta el id de la conversación (usá list_pending_transfers)." };
+
+      const [convo] = await db
+        .select()
+        .from(conversations)
+        .where(and(eq(conversations.id, convId), eq(conversations.tenantId, ctx.tenantId)))
+        .limit(1);
+      if (!convo) return { ok: false, summary: `No encontré la conversación ${convId} en este negocio.` };
+      if ((convo as any).paymentStatus === "confirmed") {
+        return { ok: false, summary: `La conversación ${convId} ya figura como pagada.` };
+      }
+
+      const [prod] = (convo as any).currentProductId
+        ? await db.select().from(products).where(eq(products.id, (convo as any).currentProductId)).limit(1)
+        : [];
+      const monto = num(args.amount) || Number(prod?.price || 0);
+      if (!monto) return { ok: false, summary: "No pude determinar el monto: pasá 'amount' con lo que recibiste." };
+
+      await db.update(conversations)
+        .set({ paymentStatus: "confirmed", paidAt: dbNow() } as any)
+        .where(eq(conversations.id, convId));
+
+      // Mismo criterio que los webhooks de pasarela: solo un pago confirmado
+      // marca el trato como ganado. Acá la confirmación la da el admin, que
+      // es el único que puede ver una transferencia llegar a su cuenta.
+      if ((convo as any).leadId) {
+        await db.update(leads)
+          .set({ stage: "won", value: String(monto) })
+          .where(and(eq(leads.id, (convo as any).leadId), eq(leads.tenantId, ctx.tenantId)));
+      }
+
+      await db.insert(payments).values({
+        tenantId: ctx.tenantId,
+        conversationId: convId,
+        leadId: (convo as any).leadId || null,
+        productId: (convo as any).currentProductId || null,
+        amount: String(monto),
+        currency: String(prod?.currency || "COP"),
+        method: String(args.method || "transferencia"),
+        status: "confirmed",
+        paymentStatus: "approved",
+      } as any);
+
+      return {
+        ok: true,
+        summary: `Pago registrado: conversación ${convId} marcada como pagada y el trato como GANADO por $${monto.toLocaleString("es-CO")}. Ya cuenta en los ingresos del panel.`,
+      };
+    },
+  },
+  {
     name: "list_duplicate_contacts",
     description: "Muestra los contactos que son la MISMA persona guardada varias veces (por ejemplo el mismo número con un dígito de más, o con el sufijo ':0' del identificador interno de WhatsApp). Solo LEE y reporta: no fusiona ni borra nada. Útil cuando el admin pregunta por qué el bot no reconoce a un cliente que ya escribió antes, o por qué las métricas de prospectos no cuadran.",
     args: "{}",
@@ -3024,6 +3119,10 @@ export const READ_ONLY_TOOLS = new Set([
   "fb_agent_logs", "fb_campaign_metrics",
   // Monitoreo: solo consultan, no cambian nada
   "whatsapp_status", "dashboard_summary", "list_recent_conversations", "list_duplicate_contacts",
+  // Ver qué transferencias faltan conciliar es lectura; CONFIRMAR una no lo es
+  // (marca una venta y mueve ingresos), así que confirm_transfer_payment queda
+  // fuera a propósito y pasa por la aprobación del admin.
+  "list_pending_transfers",
   // Inteligencia de negocio: predicción/optimización/razonamiento son
   // sugerencias basadas en datos reales, ninguna cambia nada por sí sola.
   "predict_customer", "optimize_price", "optimize_copy",
