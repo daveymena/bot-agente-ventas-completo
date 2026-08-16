@@ -454,6 +454,24 @@ export function startAdGrowthAgent() {
   setInterval(() => { runSpendProtectionCheck().catch(err => logger.error({ err }, "[AdGrowthAgent] Error en protección de gasto")); }, SPEND_CHECK_MS);
   setInterval(() => { runTrendReview().catch(err => logger.error({ err }, "[AdGrowthAgent] Error en revisión de tendencia")); }, TREND_CHECK_MS);
 
+  // Una primera pasada poco después de arrancar, sin esperar el intervalo.
+  //
+  // Con solo setInterval, la primera revisión de gasto caía recién a la hora
+  // de haber arrancado, y la de tendencia a las 6 horas -- y CADA reinicio o
+  // despliegue vuelve el reloj a cero. Entre despliegues seguidos, el agente
+  // no llegaba a correr nunca: por eso su historial mostraba "0 revisiones"
+  // aunque la pantalla prometiera que revisa cada 1h y 6h. Justamente el
+  // guardián que evita gastar de más era el que nunca se despertaba.
+  //
+  // Los 2 minutos son para no competir con el arranque (WhatsApp
+  // reconectando, migraciones, carga de claves).
+  const ARRANQUE_MS = 2 * 60 * 1000;
+  setTimeout(() => {
+    logger.info("[AdGrowthAgent] Primera revisión tras el arranque");
+    runSpendProtectionCheck().catch(err => logger.error({ err }, "[AdGrowthAgent] Error en la primera protección de gasto"));
+    runTrendReview().catch(err => logger.error({ err }, "[AdGrowthAgent] Error en la primera revisión de tendencia"));
+  }, ARRANQUE_MS).unref?.();
+
   // El freno de gasto corre más seguido que los demás: es el único que
   // detiene dinero saliendo, y cada 15 min acota cuánto se puede pasar del
   // tope antes de que alguien lo note.
@@ -461,6 +479,10 @@ export function startAdGrowthAgent() {
     const CAP_CHECK_MS = 15 * 60 * 1000;
     setInterval(() => { runDailyBudgetGuard().catch(err => logger.error({ err }, "[AdGrowthAgent] Error en el freno de gasto diario")); }, CAP_CHECK_MS);
     logger.info(`[AdGrowthAgent] Freno de gasto diario activo en ${DAILY_SPEND_CAP} (revisión cada 15 min)`);
+  } else {
+    // Que no quede apagado en silencio: es el único mecanismo que detiene
+    // dinero saliendo si una campaña se dispara.
+    logger.warn("[AdGrowthAgent] SIN freno de gasto diario: FB_DAILY_SPEND_CAP no está configurado, no hay tope automático de gasto en anuncios");
   }
   logger.info("[AdGrowthAgent] Iniciado -- protección de gasto cada 1h, revisión de tendencia cada 6h");
 }
