@@ -23,6 +23,7 @@ const router = Router();
 /** Proveedores que la app sabe usar, con dónde se saca la clave. */
 const PROVEEDORES = [
   { id: "opencode", nombre: "OpenCode Zen", gratis: true, envKey: "OPENCODE_API_KEY", alta: "https://opencode.ai", nota: "Gratis con rotación automática entre modelos" },
+  { id: "opencode_go", nombre: "OpenCode Go", gratis: false, envKey: "OPENCODE_GO_API_KEY", alta: "https://opencode.ai", nota: "De pago · sin cuota diaria · requiere método de pago en el workspace" },
   { id: "groq", nombre: "Groq", gratis: true, envKey: "GROQ_API_KEY", alta: "https://console.groq.com/keys", nota: "Muy rápido · 14.400 peticiones/día" },
   { id: "openrouter", nombre: "OpenRouter", gratis: true, envKey: "OPENROUTER_API_KEY", alta: "https://openrouter.ai/keys", nota: "18 modelos gratis, incluidos los de visión" },
   { id: "google_ai_studio", nombre: "Google AI Studio", gratis: true, envKey: "GOOGLE_API_KEY", alta: "https://aistudio.google.com/apikey", nota: "250k tokens/min · multimodal" },

@@ -28,6 +28,7 @@ class OptimizedProviderRotation {
   // Timeouts ULTRA-AGRESIVOS para EasyPanel (OPTIMIZADO PARA PRODUCCIÓN)
   private timeouts = {
     opencode: 8000,
+    opencode_go: 20000,
     opencode_zen: 15000,
     groq: 15000,
     github_copilot: 8000,
@@ -47,6 +48,7 @@ class OptimizedProviderRotation {
   private initializeProviders() {
     const providerList = [
       "groq",
+      "opencode_go",
       "opencode_zen",
       "nvidia_nim_bridge",
       "opencode",
@@ -96,7 +98,7 @@ class OptimizedProviderRotation {
     // para no perder un proveedor por no estar en la variable.
     const configurado = (process.env.AI_FALLBACK_ORDER || "")
       .split(",").map((s) => s.trim()).filter(Boolean);
-    const conocidos = ["opencode", "opencode_zen", "groq", "nvidia", "openrouter", "github"];
+    const conocidos = ["opencode", "opencode_go", "opencode_zen", "groq", "nvidia", "openrouter", "github"];
     const order = [...new Set([...configurado, ...conocidos])];
     
     for (const provider of order) {

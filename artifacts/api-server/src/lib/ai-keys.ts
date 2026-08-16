@@ -22,6 +22,11 @@ const PREFIJO = "enc:v1:";
 /** Variable de entorno que espera cada proveedor. */
 export const ENV_POR_PROVEEDOR: Record<string, string> = {
   opencode: "OPENCODE_API_KEY",
+  // Nivel PAGO de OpenCode, separado del gratuito a propósito: el free se
+  // queda sin cuota a mitad del día (FreeUsageLimitError) y deja al bot sin
+  // responder. Teniéndolos como proveedores distintos, el admin puede poner
+  // Go de respaldo y que el corte de cuota no lo saque de servicio.
+  opencode_go: "OPENCODE_GO_API_KEY",
   groq: "GROQ_API_KEY",
   openrouter: "OPENROUTER_API_KEY",
   google_ai_studio: "GOOGLE_API_KEY",

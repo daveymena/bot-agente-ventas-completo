@@ -75,6 +75,18 @@ export function getProviderConfig(provider: string): AIProviderConfig | null {
     // ─── PROVEEDORES EXISTENTES ───────────────────────────────────────────────
     case "opencode":
       return resolveOpenCodeConfig();
+    // Nivel de pago de OpenCode. Endpoint distinto del gratuito y clave
+    // propia, para que convivan: el free se queda sin cuota a mitad del día
+    // y Go sigue respondiendo.
+    case "opencode_go": {
+      const goKey = process.env.OPENCODE_GO_API_KEY;
+      if (!goKey) return null;
+      return {
+        baseUrl: process.env.OPENCODE_GO_API_URL || "https://opencode.ai/zen/go/v1",
+        apiKey: goKey,
+        model: process.env.OPENCODE_GO_MODEL || "gpt-5.6-luna",
+      };
+    }
     case "github_copilot_internal":
       const rawCopilotToken = process.env.GITHUB_COPILOT_TOKEN || process.env.GITHUB_TOKEN;
       if (!rawCopilotToken) return null;

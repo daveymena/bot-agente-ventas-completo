@@ -1093,7 +1093,12 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
             continue;
           }
 
-          const providerName = source.split("/")[0].split("_")[0];
+          // El nombre con el que se reporta salud al rotador. Se corta en "/"
+          // (opencode/mimo-v2.5-free → opencode) pero NO en "_": recortar ahí
+          // convertía "opencode_go" y "opencode_zen" en "opencode", así que
+          // un fallo del gratuito ponía en cooldown al de pago y viceversa --
+          // justo los dos que existen para cubrirse entre sí.
+          const providerName = source.split("/")[0];
           const timeout = getProviderTimeout(providerName);
           const startTime = Date.now();
           try {
@@ -1196,6 +1201,17 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
             // CUALQUIER pregunta -- con una campaña paga corriendo.
             const cfg = getProviderConfig("groq");
             if (cfg) rotationQueue.push({ config: cfg, source: "groq" });
+          } else if (prov === "openrouter") {
+            // Mismo caso que groq: getProviderConfig("openrouter") existe
+            // desde siempre, pero sin rama acá nunca entraba a la cola. El
+            // admin lo tiene configurado y funcionando.
+            const cfg = getProviderConfig("openrouter");
+            if (cfg) rotationQueue.push({ config: cfg, source: "openrouter" });
+          } else if (prov === "opencode_go") {
+            // Nivel de pago: no se queda sin cuota a mitad del día como el
+            // gratuito, así que sirve de red cuando el free se agota.
+            const cfg = getProviderConfig("opencode_go");
+            if (cfg) rotationQueue.push({ config: cfg, source: "opencode_go" });
           } else if (prov === "opencode_zen") {
             // Alias de "opencode": misma API de Zen. Estaba en la
             // configuración del admin y tampoco tenía rama.
@@ -1213,6 +1229,19 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
             const cfg = getProviderConfig("github");
             if (cfg && healthMonitor.isServiceHealthy("github_env"))
               rotationQueue.push({ config: cfg, source: "github_env" });
+          } else {
+            // Cualquier otro proveedor que el admin ponga en
+            // AI_FALLBACK_ORDER entra solo, sin necesidad de una rama propia.
+            //
+            // La causa raíz del apagón del 2026-08-16 fue justamente esto:
+            // groq y openrouter estaban configurados, resolvían bien, y aun
+            // así el bot contestaba "problemas técnicos" porque nadie había
+            // escrito su `else if`. Se ignoraban EN SILENCIO. Con este caso
+            // por defecto, agregar un proveedor pasa a ser configuración y no
+            // un cambio de código -- y sobre todo, deja de haber proveedores
+            // invisibles.
+            const cfg = getProviderConfig(prov);
+            if (cfg) rotationQueue.push({ config: cfg, source: prov });
           }
         }
         if (dbConfig && activeProvider !== "opencode")
