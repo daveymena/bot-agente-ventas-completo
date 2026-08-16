@@ -40,9 +40,39 @@ import { describePlannedAction } from "../lib/opencode-mcp-tools";
  * emoji, exactamente el formato que el propio prompt pide separar con
  * líneas en blanco.
  */
+/**
+ * Nombres técnicos de herramientas dichos al admin, traducidos a lenguaje
+ * llano.
+ *
+ * El prompt ya prohíbe mostrarlos (regla 6.3), pero una regla de prompt no es
+ * una garantía: se lo vio en vivo escribiendo "Te propongo diagnosticar
+ * primero con atlas_fb_why_not_delivering. ¿Confirmás?". Al admin ese nombre
+ * no le dice nada y lo saca de la conversación -- de golpe está leyendo
+ * código en vez de hablando con alguien que lo ayuda. Se limpia acá, que es
+ * por donde pasa TODA respuesta antes de mostrarse.
+ */
+const NOMBRES_LLANOS: Array<[RegExp, string]> = [
+  [/\batlas_fb_why_not_delivering\b|\bfb_why_not_delivering\b/gi, "revisar por qué no está entregando"],
+  [/\batlas_fb_set_ad_status\b|\bfb_set_ad_status\b/gi, "encender o apagar el anuncio"],
+  [/\batlas_fb_list_campaigns\b|\bfb_list_campaigns\b/gi, "revisar tus campañas"],
+  [/\batlas_fb_campaign_metrics\b|\bfb_campaign_metrics\b/gi, "mirar las métricas"],
+  [/\batlas_fb_upload_draft_to_meta\b|\bfb_upload_draft_to_meta\b/gi, "subir el borrador a Meta en pausa"],
+  [/\batlas_fb_resume_campaign\b|\bfb_resume_campaign\b/gi, "reactivar la campaña"],
+  [/\batlas_fb_pause_campaign\b|\bfb_pause_campaign\b/gi, "pausar la campaña"],
+  [/\batlas_fb_ad_draft\b|\bfb_ad_draft\b/gi, "preparar el borrador del anuncio"],
+  [/\batlas_system_diagnose\b|\bsystem_diagnose\b/gi, "revisar el sistema a fondo"],
+  [/\batlas_list_products\b|\blist_products\b/gi, "revisar tu catálogo"],
+  [/\batlas_propose_action\b|\bpropose_action\b/gi, "proponerte el cambio"],
+  // Cualquier otro que se escape: se saca el prefijo y los guiones bajos, que
+  // es mejor que mostrar "atlas_dropi_create_order" tal cual.
+  [/\batlas_([a-z]+(?:_[a-z]+)+)\b/gi, (m: any, n: string) => n.replace(/_/g, " ")] as any,
+];
+
 export function paraMarkdown(texto: string): string {
   if (!texto) return texto;
-  return texto.replace(/\r\n/g, "\n").replace(/\n+/g, "\n\n").trim();
+  let t = texto.replace(/\r\n/g, "\n").replace(/\n+/g, "\n\n").trim();
+  for (const [patron, reemplazo] of NOMBRES_LLANOS) t = t.replace(patron, reemplazo as any);
+  return t;
 }
 
 /**

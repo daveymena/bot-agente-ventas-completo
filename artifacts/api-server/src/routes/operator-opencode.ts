@@ -646,6 +646,25 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
         // Se responde 200 con un mensaje honesto y accionable, mismo criterio
         // que la salida "esto está tardando" de /operator.
         const seAcaboElTiempo = /timeout|abort|sin tiempo|sin candidatos/i.test(String(opencodeError));
+
+        // Si igual alcanzó a redactar algo útil, se muestra ESO.
+        //
+        // El modelo puede devolver texto Y error a la vez (se quedó sin tiempo
+        // en el último tramo, pero ya tenía la respuesta armada). Acá se
+        // descartaba el texto y se ponía el aviso en su lugar, así que al
+        // admin le llegaba "corté acá, no hice nada" pegado a un trabajo que
+        // SÍ estaba hecho -- visto en vivo pidiendo activar el anuncio del
+        // piano: primero el aviso de que cortó, y debajo el diagnóstico
+        // completo de la campaña. Dos mensajes que se contradicen.
+        const parcial = String(finalReply || "").trim();
+        if (seAcaboElTiempo && parcial.length > 80) {
+          const reply = paraMarkdown(toEmojiStyle(
+            `${parcial}\n\n⏳ (Me quedé sin tiempo para seguir: lo de arriba es lo que alcancé. Si falta algo, pedime que continúe.)`,
+          ));
+          await saveArchitectTurn(tenantId, sessionId, "assistant", reply);
+          return finish({ reply, status: "partial", needsContinuation: true });
+        }
+
         if (seAcaboElTiempo) {
           const reply = paraMarkdown(toEmojiStyle(
             // Antes decía "Lo que alcancé a averiguar quedó guardado", y se
