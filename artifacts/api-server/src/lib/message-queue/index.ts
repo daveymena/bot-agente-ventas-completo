@@ -14,6 +14,22 @@ export interface QueuedMessage {
   timestamp: Date;
   messageId: string;
   isGroup: boolean;
+  /**
+   * Conversación YA resuelta por el MessageHandler, y el teléfono real.
+   *
+   * Sin esto, el orquestador volvía a deducir el teléfono con
+   * `message.from.split("@")[0]` -- el JID crudo -- mientras el handler usaba
+   * el número resuelto. Dos cálculos distintos sobre el mismo mensaje, y por
+   * lo tanto DOS conversaciones para el mismo cliente: los mensajes entrantes
+   * en una y las respuestas en la otra.
+   *
+   * Medido en producción (2026-08-16): conv 7 con 11 mensajes del cliente y
+   * cero respuestas, conv 1 con 32 respuestas y cero mensajes del cliente,
+   * emparejadas al mismo segundo. El agente respondía leyendo un hilo donde
+   * el cliente nunca había preguntado nada, así que siempre saludaba.
+   */
+  conversationId?: number;
+  phone?: string;
   processed: boolean;
   processing?: boolean;
   retryCount: number;

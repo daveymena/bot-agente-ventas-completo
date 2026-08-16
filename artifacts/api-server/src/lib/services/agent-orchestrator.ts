@@ -139,9 +139,15 @@ export class AgentOrchestrator {
         from: message.from,
       }, '[AgentOrchestrator] Processing message');
 
-      // Obtener conversación basada en el número de teléfono
-      const phone = message.from.split('@')[0];
-      const convo = await this.getOrCreateConversation(message.tenantId, phone);
+      // La conversación viene resuelta desde el MessageHandler. Deducirla otra
+      // vez del JID crudo era lo que partía al cliente en dos hilos: los
+      // mensajes entrantes iban a la conversación del número REAL y las
+      // respuestas a otra creada con el id interno de WhatsApp. Solo se
+      // recalcula si el mensaje viene sin ella (colas viejas, otros canales).
+      const phone = message.phone || message.from.split('@')[0];
+      const convo = message.conversationId
+        ? await this.getConversationById(message.conversationId)
+        : await this.getOrCreateConversation(message.tenantId, phone);
       
       if (!convo) {
         logger.error(`[AgentOrchestrator] No se pudo obtener conversación para ${message.from}`);
@@ -194,6 +200,19 @@ export class AgentOrchestrator {
   /**
    * Obtiene o crea una conversación para un mensaje
    */
+  /** La conversación exacta que resolvió el MessageHandler, por id. */
+  private async getConversationById(
+    id: number,
+  ): Promise<{ id: number; currentStage: string | null; contactName: string; contactPhone: string } | null> {
+    try {
+      const [row] = await db.select().from(conversations).where(eq(conversations.id, id)).limit(1);
+      return row ?? null;
+    } catch (e: any) {
+      logger.error({ err: e?.message, conversationId: id }, "[AgentOrchestrator] No se pudo leer la conversación");
+      return null;
+    }
+  }
+
   private async getOrCreateConversation(tenantId: string, phone: string): Promise<{ id: number; currentStage: string | null; contactName: string; contactPhone: string } | null> {
     try {
       const tenantIdNum = typeof tenantId === 'string' ? parseInt(tenantId) : tenantId;

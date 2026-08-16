@@ -141,6 +141,10 @@ export class MessageHandler {
         timestamp: params.timestamp,
         messageId: params.messageId,
         isGroup: params.remoteJid.endsWith('@g.us'),
+        // La conversación ya está resuelta acá: se pasa para que el
+        // orquestador NO la vuelva a deducir del JID y termine en otra.
+        conversationId: convo.id,
+        phone,
       });
 
       logger.info({
