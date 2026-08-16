@@ -775,7 +775,24 @@ Responde SOLO con este JSON exacto:
         limit: "100",
       }, this.config.userAccessToken);
       this.lastCampaignListError = null;
-      return (res.data || []).filter((c: any) => c.effective_status !== "DELETED" && c.effective_status !== "ARCHIVED");
+      // Graph API devuelve `effective_status` (guion bajo) y acá se prometía
+      // `effectiveStatus` (camello). El filtro de abajo usaba bien el nombre
+      // real, pero NADIE más: todos los consumidores leían `effectiveStatus`,
+      // que siempre era undefined. Consecuencias medidas hoy (16-08-2026):
+      //   - El agente de protección de gasto filtra `effectiveStatus ===
+      //     "ACTIVE"`, así que NUNCA encontraba una campaña activa y nunca
+      //     frenó nada. Es justo el guardián que evita gastar de más.
+      //   - El diagnóstico informó "8 campañas (0 activas)" con la campaña de
+      //     piano en ACTIVE.
+      // Se normaliza acá, en el único lugar por donde pasan todos.
+      return (res.data || [])
+        .filter((c: any) => c.effective_status !== "DELETED" && c.effective_status !== "ARCHIVED")
+        .map((c: any) => ({
+          id: c.id,
+          name: c.name,
+          status: c.status,
+          effectiveStatus: c.effective_status || c.status,
+        }));
     } catch (err: any) {
       // Se deja constancia del motivo. Devolver [] a secas hacía que "falló la
       // consulta" y "no hay campañas" fueran EXACTAMENTE lo mismo para quien

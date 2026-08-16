@@ -2445,12 +2445,35 @@ export const TOOLS: ToolDef[] = [
 
       // ── Cobros ──────────────────────────────────────────────────────────
       try {
-        const [row] = await db.select().from(settings).limit(1);
-        const cfg: any = row?.businessConfig ? (typeof row.businessConfig === "string" ? JSON.parse(row.businessConfig) : row.businessConfig) : {};
-        const activos = ["mercadopago", "paypal", "transfer"].filter((m) => cfg?.payments?.[m]?.enabled);
-        if (activos.length === 0) {
-          fallas.push({ pieza: "Cobros", problema: "No hay ningún medio de pago activo: el cliente no tiene cómo pagar.", arreglo: "Activá al menos uno en Configuración → Cobros." });
-        } else sanos.push(`Cobros activos: ${activos.join(", ")}`);
+        // Los medios de pago viven en tenants.paymentMethods, NO en
+        // settings.businessConfig. Leyendo el lugar equivocado, este
+        // diagnóstico informó "no hay ningún medio de pago activo" con
+        // MercadoPago y PayPal funcionando y entregando enlaces a clientes.
+        // Un diagnóstico que inventa fallas es peor que no tenerlo: manda al
+        // admin a arreglar algo que no está roto.
+        const [row] = await db
+          .select({ paymentMethods: tenants.paymentMethods })
+          .from(tenants)
+          .where(eq(tenants.id, ctx.tenantId))
+          .limit(1);
+        const pmRaw: any = row?.paymentMethods;
+        const pm: any = typeof pmRaw === "string" ? JSON.parse(pmRaw || "{}") : (pmRaw || {});
+        // "configurado" es tener credencial; "activo" es además estar habilitado.
+        const configurados = ["mercadopago", "paypal", "transfer", "nequi", "daviplata"]
+          .filter((m) => pm?.[m] && Object.keys(pm[m]).length > 0);
+        const activos = configurados.filter((m) => pm[m]?.enabled !== false);
+
+        if (configurados.length === 0) {
+          fallas.push({ pieza: "Cobros", problema: "No hay ningún medio de pago configurado: el cliente no tiene cómo pagar.", arreglo: "Cargá al menos uno en Configuración → Cobros." });
+        } else if (activos.length === 0) {
+          fallas.push({ pieza: "Cobros", problema: `Hay medios configurados (${configurados.join(", ")}) pero TODOS están desactivados.`, arreglo: "Activalos en Configuración → Cobros." });
+        } else {
+          sanos.push(`Cobros activos: ${activos.join(", ")}`);
+          const apagados = configurados.filter((m) => !activos.includes(m));
+          if (apagados.length) {
+            fallas.push({ pieza: "Cobros", problema: `Configurados pero APAGADOS (el cliente no los ve): ${apagados.join(", ")}`, arreglo: "Activalos en Configuración → Cobros si querés ofrecerlos." });
+          }
+        }
       } catch { /* si no se puede leer, no se inventa una falla */ }
 
       // ── Tope de gasto en anuncios ───────────────────────────────────────
