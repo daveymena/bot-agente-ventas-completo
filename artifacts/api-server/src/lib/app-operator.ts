@@ -880,6 +880,21 @@ export async function validarContenidoAnuncio(
   const [prodReal] = await db.select().from(products).where(and(eq(products.id, id), eq(products.tenantId, ctx.tenantId))).limit(1);
   if (!prodReal) return null;
 
+  // ── Titular más largo de lo que Meta muestra ─────────────────────────
+  // Meta corta el titular alrededor de los 40 caracteres. Auditados los
+  // borradores reales (16-08-2026): 6 se pasaban, uno con 77 caracteres. El
+  // anuncio sale igual, pero el cliente ve la frase cortada a la mitad --
+  // justo el titular, que es lo único que muchos leen. La descripción de la
+  // herramienta ya pedía "máx. ~35", pero nada lo verificaba.
+  const titular = typeof args.headline === "string" ? args.headline.trim() : "";
+  if (titular.length > 40) {
+    return (
+      `El titular tiene ${titular.length} caracteres y Meta corta alrededor de los 40: al cliente le va a llegar cortado. ` +
+      `Titular actual: "${titular}". ` +
+      `Reescribilo en 40 caracteres o menos -- que el gancho entre entero -- y volvé a llamar la herramienta.`
+    );
+  }
+
   const respaldo = [
     prodReal.name,
     prodReal.description,

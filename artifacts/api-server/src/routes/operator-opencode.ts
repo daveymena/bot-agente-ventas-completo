@@ -648,7 +648,12 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
         const seAcaboElTiempo = /timeout|abort|sin tiempo|sin candidatos/i.test(String(opencodeError));
         if (seAcaboElTiempo) {
           const reply = paraMarkdown(toEmojiStyle(
-            "⏳ Esto está tardando más de lo que aguanta una sola respuesta. Lo que alcancé a averiguar quedó guardado. Pedime que continúe y sigo desde ahí, o dividí el pedido en pasos más chicos.",
+            // Antes decía "Lo que alcancé a averiguar quedó guardado", y se
+            // leía como que el trabajo pedido había quedado guardado. No hay
+            // nada guardado: se cortó el turno. Con lo sensible que resultó
+            // este punto -- Atlas diciendo "guardado" sin guardar --, este
+            // mensaje tiene que ser inequívoco.
+            "⏳ Esto está tardando más de lo que aguanta una sola respuesta, así que corté acá. **No se creó ni se guardó nada.** Solo me queda la investigación que alcancé a hacer. Pedime que continúe y sigo desde ahí, o dividí el pedido en pasos más chicos.",
           ));
           await saveArchitectTurn(tenantId, sessionId, "assistant", reply);
           return finish({ reply, status: "partial", needsContinuation: true });
@@ -772,16 +777,48 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
       // ejecutó ninguna acción (la ejecución real ocurre en la rama de
       // aprobación, que retorna mucho antes). Así que cualquier "ya está
       // hecho" es falso por definición y se corrige antes de mostrarlo.
+      // El candado NO puede depender de que haya un plan propuesto.
+      //
+      // Antes exigía `plannedActions.length > 0`, y el peor caso es justo el
+      // contrario: auditoría del 16-08-2026, 2 de 2 intentos de crear un
+      // anuncio. Atlas contestó "✅ Campos guardados y valores: … Presupuesto
+      // diario: $10.000 … Estado: PAUSED" SIN proponer ningún plan y sin
+      // llamar ninguna herramienta -- no hubo un solo POST a la API en toda la
+      // traza de red. En la base de datos no quedó nada. Como no había plan,
+      // el candado no se activaba y el admin se quedaba creyendo que su
+      // anuncio existía.
+      //
+      // Acá sabemos la verdad sin preguntarle al texto: si la ejecución llegó
+      // a este punto, NO se ejecutó ninguna acción de escritura -- la
+      // ejecución real ocurre en la rama de aprobación, que retorna mucho
+      // antes. Así que cualquier "ya está hecho" es falso POR CONSTRUCCIÓN,
+      // haya plan o no.
       const AFIRMA_HABERLO_HECHO =
-        /(✅|listo|listos)[^\n]{0,80}\b(cread[oa]s?|generad[oa]s?|guardad[oa]s?|publicad[oa]s?|activad[oa]s?)\b|\b(ya (qued(ó|o|aron)|est(á|a)n?)\s+(cread|guardad|listo|publicad))/i;
-      if (plannedActions.length > 0 && AFIRMA_HABERLO_HECHO.test(String(finalReplyVerificado || ""))) {
+        /(✅|listo|listos)[^\n]{0,80}\b(cread[oa]s?|generad[oa]s?|guardad[oa]s?|publicad[oa]s?|activad[oa]s?|registrad[oa]s?|actualizad[oa]s?)\b/i
+        .test(String(finalReplyVerificado || ""))
+        || /\b(campos?|borrador|anuncio|producto|cambios?)\s+(guardad[oa]s?|cread[oa]s?|registrad[oa]s?|actualizad[oa]s?)\b/i
+        .test(String(finalReplyVerificado || ""))
+        // "quedó actualizado" / "fueron creados" / "ya está guardado": el "ya"
+        // no puede ser obligatorio, casi nunca aparece.
+        || /\b(qued(ó|o|aron)|fue(ron)?|est(á|á n|an?))\s+(cread|guardad|actualizad|registrad|publicad|activad)/i
+        .test(String(finalReplyVerificado || ""));
+
+      if (AFIRMA_HABERLO_HECHO) {
         logger.warn(
-          { tenantId, sessionId },
-          "[AtlasOpenCode] El modelo dijo que ya había hecho el trabajo con acciones aún SIN ejecutar -- se corrige",
+          { tenantId, sessionId, teniaPlan: plannedActions.length > 0 },
+          "[AtlasOpenCode] El modelo dijo que ya había hecho el trabajo sin ejecutar NADA -- se corrige",
         );
-        finalReplyVerificado =
-          `${finalReplyVerificado}\n\n⚠️ Corrección automática: **todavía no se creó ni guardó nada.** ` +
-          `Lo de arriba es una PROPUESTA. Recién se ejecuta cuando confirmes acá abajo.`;
+        // La corrección va ARRIBA, no al final.
+        //
+        // Puesta abajo producía un mensaje que se contradecía solo: decía
+        // "Borrador guardado:" y dos líneas después "NO se guardó". El admin
+        // lee de arriba hacia abajo y se queda con lo primero.
+        const aclaracion = plannedActions.length > 0
+          ? `⚠️ **Todavía no se guardó nada.** Lo de abajo es una PROPUESTA: se ejecuta recién cuando la confirmes.`
+          : `⚠️ **Todavía no se guardó nada, y no quedó ninguna acción pendiente de confirmar.** `
+            + `Lo de abajo es solo texto: no se creó ni se modificó nada en el sistema. `
+            + `Pedímelo de nuevo para que lo registre de verdad.`;
+        finalReplyVerificado = `${aclaracion}\n\n---\n\n${finalReplyVerificado}`;
       }
 
       // ── Preguntar y proponer a la vez es contradictorio ──────────────────
