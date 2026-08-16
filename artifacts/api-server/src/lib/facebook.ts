@@ -993,11 +993,18 @@ Responde SOLO con este JSON exacto:
           .filter((a: any) => a.adset_id === c.id)
           .map((a: any) => ({ id: a.id, nombre: a.name, estado: a.effective_status, configurado: a.configured_status })),
       }));
-      // Entrega de verdad solo si hay al menos un anuncio ACTIVE dentro de un
-      // conjunto ACTIVE. Cualquier otra combinación no muestra el anuncio a
-      // nadie, por más que la campaña diga "activa".
+      // Entrega de verdad solo si hay al menos un anuncio encendido dentro de
+      // un conjunto encendido. Cualquier otra combinación no muestra el
+      // anuncio a nadie, por más que la campaña diga "activa".
+      //
+      // IN_PROCESS y PENDING_REVIEW cuentan como encendido: Meta pasa por esos
+      // estados unos segundos después de recibir el cambio, antes de dejarlo
+      // en ACTIVE. Sin contemplarlos, verificar justo después de encender daba
+      // "todavía no entrega" sobre un cambio que SÍ se había aplicado -- y al
+      // admin le llegaba un mensaje de fracaso por algo que había funcionado.
+      const ENCENDIDO = new Set(["ACTIVE", "IN_PROCESS", "PENDING_REVIEW", "PENDING_BILLING_INFO"]);
       const entregando = conjuntos.some((c: any) =>
-        c.estado === "ACTIVE" && c.anuncios.some((a: any) => a.estado === "ACTIVE"));
+        ENCENDIDO.has(c.estado) && c.anuncios.some((a: any) => ENCENDIDO.has(a.estado)));
       return { conjuntos, entregando };
     } catch (err: any) {
       logger.warn({ err, campaignId }, "[Facebook] No se pudo leer la estructura de la campaña");
@@ -1066,6 +1073,8 @@ Responde SOLO con este JSON exacto:
         if (!aplicar) return { ok: true, plan, costoDiario: conjuntoVivo.presupuestoDiario };
         const r = await this.setAdStatus(anuncio.id, true);
         if (!r.ok) return { ok: false, message: r.message };
+        // Un respiro antes de releer: Meta necesita un momento para propagar.
+        await new Promise((res) => setTimeout(res, 2500));
         const verif = await this.estructuraDeCampana(campaignId);
         return { ok: true, aplicado: true, plan, costoDiario: conjuntoVivo.presupuestoDiario, yaEntregaba: !!verif?.entregando };
       }
@@ -1082,6 +1091,7 @@ Responde SOLO con este JSON exacto:
       // Con el conjunto encendido, el anuncio de adentro puede seguir pausado.
       const anuncioApagado = candidato.anuncios.find((a) => a.configurado !== "ACTIVE");
       if (anuncioApagado) await this.setAdStatus(anuncioApagado.id, true);
+      await new Promise((res) => setTimeout(res, 2500));
       const verif = await this.estructuraDeCampana(campaignId);
       return { ok: true, aplicado: true, plan, costoDiario: candidato.presupuestoDiario, yaEntregaba: !!verif?.entregando };
     }

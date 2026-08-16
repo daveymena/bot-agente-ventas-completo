@@ -3071,7 +3071,10 @@ export const TOOLS: ToolDef[] = [
         ok: true,
         summary: r.yaEntregaba
           ? `✅ Listo: ${r.plan}. Verificado contra Meta — la campaña ya está entregando.${costo}`
-          : `Hice el cambio (${r.plan}), pero al releer de Meta la campaña TODAVÍA no figura entregando. Puede tardar unos minutos en propagar, o quedar algo más pausado adentro. Revisala en un rato.`,
+          // El cambio SÍ se aplicó (Meta lo aceptó); lo que falta es que
+          // termine de propagar. Decirlo como "todavía no figura entregando"
+          // se leía como un fracaso sobre algo que había funcionado.
+          : `✅ Hecho: ${r.plan}.${costo} Meta aceptó el cambio y lo está propagando — puede tardar unos minutos en empezar a mostrarse. Si en media hora sigue sin impresiones, avisame y lo reviso.`,
       };
     },
   },
