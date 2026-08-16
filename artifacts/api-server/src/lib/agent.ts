@@ -564,6 +564,35 @@ function esNombreReal(n: string | null | undefined): boolean {
   return true;
 }
 
+/**
+ * El anuncio del que llego el cliente, leido del ultimo mensaje suyo.
+ *
+ * Cuando alguien hace clic en un anuncio de Facebook/Instagram, Meta
+ * autocompleta el mensaje con un texto identico para TODOS los anuncios
+ * ("Hola! Quiero mas informacion"), y adjunta aparte el titular y el link del
+ * anuncio real. O sea: el texto no dice nada y el dato que si dice a que le
+ * hizo clic viaja en la metadata. Si se ignora, el cliente que costo dinero
+ * traer recibe un "que estas buscando?" -- justo lo que el ya habia dicho al
+ * hacer clic.
+ */
+function anuncioDeOrigen(history: Array<{ role: string; metadata?: any }>) {
+  for (let i = history.length - 1; i >= 0; i--) {
+    const m = history[i]!;
+    if (m.role !== "customer") continue;
+    const md = m.metadata || {};
+    if (md.adTitle || md.adBody || md.adUrl || md.adId) {
+      return {
+        titulo: String(md.adTitle || ""),
+        cuerpo: String(md.adBody || ""),
+        url: String(md.adUrl || ""),
+        anuncioId: String(md.adId || ""),
+      };
+    }
+    return null; // solo interesa el mensaje actual, no anuncios de hace dias
+  }
+  return null;
+}
+
 export async function runAgentReply(conversationId: number) {
   const startTime = Date.now();
   const ts = () => new Date().toISOString();
@@ -628,6 +657,18 @@ export async function runAgentReply(conversationId: number) {
   
   const lastText = memory.lastCustomerMessage;
   const customerName = convo.contactName || "cliente";
+
+  // ¿Llegó de un anuncio? El titular del anuncio dice qué producto vino a
+  // buscar; el texto que escribió no (Meta lo autocompleta igual para todos).
+  // Se usa SOLO para decidir producto y etapa: para hablarle se sigue usando
+  // lo que el cliente realmente escribió.
+  const anuncio = anuncioDeOrigen(memory.history as any);
+  const textoParaDecidir = anuncio
+    ? `${lastText} ${anuncio.titulo} ${anuncio.cuerpo}`.trim()
+    : lastText;
+  if (anuncio) {
+    console.log(`📣 [ANUNCIO] Cliente llegó del anuncio "${anuncio.titulo}" (${anuncio.url || "sin link"})`);
+  }
 
   console.log(`🧠 [ENGINE] Memoria cargada - hasGreeted:${memory.hasGreeted} stage:${memory.currentStage} product:${memory.currentProductName || "none"} sentCards:[${Array.from(memory.sentProductIds).join(",")}] isNewSession:${memory.isNewSession} - ${ts()}`);
 
@@ -711,8 +752,22 @@ export async function runAgentReply(conversationId: number) {
     }
 
   // ── 5. Motor de decisión ──────────────────────────────────────────────────
+  // El link del anuncio suele apuntar al producto exacto (/p/123 o
+  // /producto/123). Eso es un dato duro, no una adivinanza sobre el titular:
+  // si resuelve, se le suma el nombre real del producto al texto con el que
+  // decide el motor, para que no se equivoque de curso.
+  let textoDecision = textoParaDecidir;
+  const idEnLink = Number(String(anuncio?.url || "").match(/\/(?:p|producto|product)\/(\d+)/)?.[1] || 0);
+  if (idEnLink) {
+    const delAnuncio = productList.find((p: any) => p.id === idEnLink);
+    if (delAnuncio) {
+      textoDecision = `${textoParaDecidir} ${delAnuncio.name}`;
+      console.log(`📣 [ANUNCIO] Link resuelto al producto #${idEnLink} "${delAnuncio.name}"`);
+    }
+  }
+
   t1 = Date.now();
-  const decision = await computeDecision(memory, lastText, productList, categoryMap);
+  const decision = await computeDecision(memory, textoDecision, productList, categoryMap);
   logTime(`5. Motor de decisión: ${Date.now() - t1}ms`);
   
   console.log(`🎯 [ENGINE-DECISION] ${decision.debugReason} - ${ts()}`);
@@ -898,16 +953,31 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
   // para que el prompt final tenga TODA la información disponible
   // Pasar todos los productos a AdvancedIntelligence para mejor análisis contextual
   const aiProductContext = productList.length > 0 ? productList.slice(0, 10) : [];
+  const bloqueAnuncio = anuncio
+    ? `\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n📣 ESTE CLIENTE LLEGÓ DESDE UN ANUNCIO\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`
+      + `Anuncio: "${anuncio.titulo}"\n`
+      + (anuncio.cuerpo ? `Texto del anuncio: "${anuncio.cuerpo}"\n` : "")
+      + (anuncio.url ? `Link del anuncio: ${anuncio.url}\n` : "")
+      + `\nEl mensaje que ves ("${lastText}") lo autocompletó Facebook al hacer clic — NO lo escribió él.\n`
+      + `Ya sabés qué vino a buscar: hablale DE ESE PRODUCTO desde el primer mensaje.\n`
+      + `NO le preguntes "¿qué estás buscando?" ni "¿en qué te ayudo?" — ya te lo dijo con el clic.\n`
+      + `Saludá en una línea corta y pasá directo al producto del anuncio.`
+    : "";
+
   const engineContextBlock = `${decision.contextBlock}\n\n${AdvancedIntelligence.generateIntelligentContext(
     lastText,
     memory.history,
     aiProductContext.length > 0 ? aiProductContext : null
-  )}`;
+  )}${bloqueAnuncio}`;
 
   // ── 11. ATENDER SEGÚN ESTRATEGIA DEL CEREBRO ─────────────────────────────
 
   // ── 11a. SALUDO (si el cerebro decidió hardcoded_greeting) ────────────────
-  if (brain.strategy === "hardcoded_greeting") {
+  // Si el cliente llegó de un anuncio NO entra acá aunque solo haya escrito
+  // "hola": ya sabemos a qué le hizo clic, y contestarle "¿qué estás buscando?"
+  // es tirar a la basura el clic que se pagó. Esos van por el camino normal,
+  // que sí muestra el producto del anuncio.
+  if (brain.strategy === "hardcoded_greeting" && !anuncio) {
     if (!memory.hasGreeted) {
       console.log(`⚡ [FAST-TRACK] Primer saludo hardcodeado - ${ts()}`);
       const business = voice.businessName || "nuestra tienda";

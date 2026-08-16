@@ -610,14 +610,61 @@ export function sanitizeResponse(text: string, intent: Intent): string {
   return clean;
 }
 
+// Cortesías y muletillas que acompañan al saludo sin cambiar la intención.
+// "hola amigo" sigue siendo un saludo; "hola precio?" no.
+const CORTESIAS = [
+  "amigo", "amiga", "señor", "señora", "senor", "senora", "don", "doña", "dona",
+  "disculpa", "disculpe", "perdon", "perdón", "por favor", "porfa", "porfis",
+  "gracias", "tardes", "dias", "días", "noches", "estas", "estás", "esta", "tal",
+  "ahi", "ahí", "todo bien", "que mas", "qué más", "como va", "cómo va", "bendiciones",
+];
+
+// Una sola palabra que, sola, ya es un pedido concreto.
+const PALABRA_ES_PEDIDO = new Set([
+  "precio", "precios", "costo", "costos", "valor", "vale", "cuanto", "cuánto",
+  "info", "informacion", "información", "curso", "cursos", "producto", "productos",
+  "comprar", "compro", "pagar", "catalogo", "catálogo", "interesa", "interesado",
+]);
+
+function quitarSaludoYCortesias(t: string): string {
+  let r = ` ${t} `;
+  // De más largo a más corto: si "buenas" se fuera primero, "buenas tardes"
+  // dejaría "tardes" suelto como si fuera contenido.
+  const aQuitar = [...GREETING_PATTERNS, ...CORTESIAS].sort((a, b) => b.length - a.length);
+  for (const p of aQuitar) {
+    r = r.replace(new RegExp(`(^|[^a-záéíóúñ])${p}([^a-záéíóúñ]|$)`, "gi"), " ");
+  }
+  return r.replace(/[¡!¿?.,;:*_()\-]+/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function esPedidoReal(resto: string): boolean {
+  if (!resto) return false;
+  const palabras = resto.split(/\s+/).filter(Boolean);
+  // Una sola palabra suele ser el nombre de quien escribe ("hola duvier"),
+  // no un pedido — salvo que la palabra misma sea el pedido ("hola precio").
+  if (palabras.length === 1) return PALABRA_ES_PEDIDO.has(palabras[0]!);
+  return palabras.length >= 2;
+}
+
 export function detectIntent(text: string): Intent {
   const t = text.toLowerCase().trim();
   const words = t.split(/\s+/);
   const wordCount = words.length;
 
-  // Saludo puro: mensaje corto con palabra de saludo
-  const isGreeting = GREETING_PATTERNS.some(p => t.includes(p)) && wordCount <= 8;
-  if (isGreeting) return "greeting";
+  // Un saludo es "puro" solo si al quitarle el saludo y las cortesías NO
+  // queda un pedido. Antes alcanzaba con que el mensaje tuviera "hola" y
+  // ≤8 palabras, así que "¡Hola! Quiero más información" — el texto exacto
+  // que manda WhatsApp cuando alguien hace clic en un anuncio de Facebook —
+  // y "hola cuanto vale el curso de piano" se clasificaban como saludo: el
+  // cliente que venía llegando del anuncio recibía un "¿qué estás buscando?"
+  // que ignoraba justamente lo que había venido a buscar.
+  if (GREETING_PATTERNS.some(p => t.includes(p))) {
+    const resto = quitarSaludoYCortesias(t);
+    // `resto` ya no contiene ninguna palabra de saludo, así que la llamada
+    // recursiva no vuelve a entrar acá.
+    if (esPedidoReal(resto)) return detectIntent(resto);
+    return "greeting";
+  }
 
   // Intención de pago o detalles post-pago
   // Post-pago: cliente pregunta qué enviar/comprobar después de pagar o sobre requisitos de entrega

@@ -467,6 +467,44 @@ function soloNumero(jid: string | null | undefined): string {
   return String(jid || "").split("@")[0]!.split(":")[0]!.replace(/\D/g, "");
 }
 
+/** Lo que viaja pegado al primer mensaje de alguien que llego por un anuncio. */
+export interface ContextoDeAnuncio {
+  titulo: string;
+  cuerpo: string;
+  url: string;
+  anuncioId: string;
+}
+
+/**
+ * Cuando alguien hace clic en "Enviar mensaje" de un anuncio de Facebook o
+ * Instagram, WhatsApp adjunta al primer mensaje un `externalAdReply` con el
+ * titular del anuncio, su texto y el link de destino. Ese bloque dice a QUE
+ * producto le hizo clic el cliente -- que es exactamente lo que el mensaje de
+ * texto NO dice, porque Meta lo autocompleta con "Hola! Quiero mas
+ * informacion" para todos los anuncios por igual.
+ *
+ * Hasta ahora el backend no lo leia en ningun lado: se pagaba el clic, llegaba
+ * el dato de que producto lo genero, y se tiraba a la basura.
+ */
+export function extraerContextoDeAnuncio(msgObj: any): ContextoDeAnuncio | null {
+  if (!msgObj || typeof msgObj !== "object") return null;
+  // El contextInfo cuelga del sub-mensaje (extendedTextMessage, imageMessage,
+  // videoMessage...) segun con que formato haya salido el anuncio.
+  const candidatos = [msgObj, ...Object.values(msgObj)];
+  for (const c of candidatos) {
+    const ad = (c as any)?.contextInfo?.externalAdReply;
+    if (!ad) continue;
+    const ctx: ContextoDeAnuncio = {
+      titulo: String(ad.title || "").trim(),
+      cuerpo: String(ad.body || "").trim(),
+      url: String(ad.sourceUrl || "").trim(),
+      anuncioId: String(ad.sourceId || ad.ctwaClid || "").trim(),
+    };
+    if (ctx.titulo || ctx.cuerpo || ctx.url || ctx.anuncioId) return ctx;
+  }
+  return null;
+}
+
 export class WhatsAppManager {
   /**
    * Ids de mensajes de WhatsApp ya procesados, para no contestar dos veces el
@@ -1439,6 +1477,10 @@ export class WhatsAppManager {
                  body: text.trim(),
                  timestamp: new Date(msg.messageTimestamp ? msg.messageTimestamp * 1000 : Date.now()),
                  pushName,
+                 // De que anuncio llego (si llego de uno). El texto que manda
+                 // Meta es siempre el mismo para todos los anuncios, asi que
+                 // esto es lo unico que dice que producto vino a buscar.
+                 anuncio: extraerContextoDeAnuncio(msgObj) ?? undefined,
                });
                console.log(`📤 [WA-QUEUE] Mensaje encolado exitosamente a MessageHandler: ${text.substring(0, 30)}...`);
              } catch (error) {

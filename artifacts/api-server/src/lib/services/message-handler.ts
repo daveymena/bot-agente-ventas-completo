@@ -55,6 +55,8 @@ export class MessageHandler {
     body: string;
     timestamp: Date;
     pushName?: string;
+    /** Anuncio de Facebook/Instagram del que llegó este contacto, si llegó de uno. */
+    anuncio?: { titulo: string; cuerpo: string; url: string; anuncioId: string };
   }): Promise<void> {
     // El mensaje solo llega acá si vino por el socket de Baileys de ESE
     // tenant (whatsapp-factory.ts aísla un socket por tenant) -- eso YA es
@@ -116,12 +118,31 @@ export class MessageHandler {
       }
 
       // 2. Guardar mensaje en base de datos
+      // El anuncio del que vino se guarda con el mensaje: el agente lo lee para
+      // saber qué producto le interesó al cliente, porque el texto que manda
+      // Meta ("¡Hola! Quiero más información") es idéntico para todos.
       await db.insert(messages).values({
         conversationId: convo.id,
         role: "customer",
         content: params.body,
         stage: convo.currentStage,
+        metadata: params.anuncio
+          ? {
+              adTitle: params.anuncio.titulo,
+              adBody: params.anuncio.cuerpo,
+              adUrl: params.anuncio.url,
+              adId: params.anuncio.anuncioId,
+            }
+          : {},
       });
+
+      if (params.anuncio) {
+        logger.info({
+          conversationId: convo.id,
+          adTitle: params.anuncio.titulo,
+          adUrl: params.anuncio.url,
+        }, '[MessageHandler] Contacto llegó desde un anuncio');
+      }
 
       // dbNow(): en Postgres lastMessageAt exige un objeto Date, no un
       // string (ver date-utils.ts) — esto corre en CADA mensaje entrante
