@@ -82,8 +82,22 @@ class OptimizedProviderRotation {
       }
     }
 
-    // Añadir el resto en orden (solo proveedores con token que funcionan)
-    const order = ["opencode", "nvidia", "openrouter", "github"];
+    // El orden sale de AI_FALLBACK_ORDER, no de una lista fija.
+    //
+    // Estaba incrustado como ["opencode","nvidia","openrouter","github"] y
+    // GROQ NO FIGURABA. Ese era el ultimo eslabon del bug del 2026-08-16: el
+    // admin tenia groq configurado en AI_FALLBACK_ORDER, groq responde en
+    // 620ms con el catalogo completo, y aun asi el bot contestaba "Estoy
+    // teniendo problemas tecnicos" a todo. Nunca llegaba: se filtraba acá,
+    // antes que en ningun otro lado. Da igual cuantas ramas se agreguen mas
+    // arriba si esta lista no lo nombra.
+    //
+    // Se respeta lo que el admin configura y se completa con los conocidos,
+    // para no perder un proveedor por no estar en la variable.
+    const configurado = (process.env.AI_FALLBACK_ORDER || "")
+      .split(",").map((s) => s.trim()).filter(Boolean);
+    const conocidos = ["opencode", "opencode_zen", "groq", "nvidia", "openrouter", "github"];
+    const order = [...new Set([...configurado, ...conocidos])];
     
     for (const provider of order) {
       // Saltar si ya está en la lista o en cooldown
