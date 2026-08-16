@@ -299,6 +299,33 @@ async function proposeAction(
   if (!isKnownTool(tool)) return { ok: false, summary: `"${tool}" no es una herramienta real de esta app -- no la propongas, revisá el nombre exacto.` };
   if (isReadOnlyTool(tool)) return { ok: false, summary: `"${tool}" es de solo lectura -- llamala directo, no hace falta proponerla ni confirmarla.` };
 
+  // Herramientas que EXISTEN pero que el modelo no debe elegir a mano porque
+  // hay una equivalente que no se puede usar mal.
+  //
+  // Caso que lo motivó, después de días sin poder encender un anuncio: para
+  // "activá el anuncio del piano" el modelo elegía fb_set_ad_status y le
+  // pasaba un id de conjunto INVENTADO (120248999000230097, inexistente en la
+  // cuenta). La acción moría en Meta con "Object does not exist" DESPUÉS de
+  // que el admin ya había confirmado. Elegir entre campaña, conjunto o
+  // anuncio y acertar el id no es trabajo del modelo: es una decisión
+  // mecánica que el servidor toma leyendo la estructura. Se le saca la opción
+  // de equivocarse y se lo manda a la herramienta que solo pide la campaña.
+  const REDIRIGIR: Record<string, { hacia: string; porque: string }> = {
+    fb_set_ad_status: {
+      hacia: "fb_make_campaign_deliver",
+      porque: "necesita el id exacto de un anuncio o conjunto, y elegirlo mal hace fallar la acción después de que el admin confirmó",
+    },
+  };
+  const redir = REDIRIGIR[tool];
+  if (redir) {
+    return {
+      ok: false,
+      summary:
+        `No uses "${tool}": ${redir.porque}. Usá "${redir.hacia}" pasándole SOLO el id de la CAMPAÑA `
+        + `(el que devuelve fb_list_campaigns). Esa herramienta averigua sola qué hay que encender y prende lo mínimo necesario.`,
+    };
+  }
+
   const toolArgs = args?.args && typeof args.args === "object" ? args.args : {};
 
   // Datos obligatorios: sin esto el admin veía planes tipo "Generar borrador
@@ -636,7 +663,10 @@ export function buildMcpToolRegistry(pedido?: string): McpToolDef[] {
   // pero él no sabía el nombre. Se veía como "no quiso" cuando era "no sabía
   // que podía". Listarlas todas convierte eso en imposible.
   const accionesDeCambio = ALL_OPERATOR_TOOLS
-    .filter((t) => !READ_ONLY_TOOLS.has(t.name) && !EXCLUDED_FROM_MCP.has(t.name))
+    // fb_set_ad_status no se anuncia: existe, pero para el modelo el camino es
+    // fb_make_campaign_deliver (ver REDIRIGIR en proposeAction). Mostrarla solo
+    // le da una forma de equivocarse con ids que no leyó.
+    .filter((t) => !READ_ONLY_TOOLS.has(t.name) && !EXCLUDED_FROM_MCP.has(t.name) && t.name !== "fb_set_ad_status")
     .map((t) => `${t.name}: ${String(t.description || "").split(/\.\s|\. /)[0].slice(0, 110)}`);
 
   const proposeTool: McpToolDef = {
