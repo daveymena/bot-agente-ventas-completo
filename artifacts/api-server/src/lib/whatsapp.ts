@@ -231,8 +231,8 @@ async function loadProductImage(imageUrl: string): Promise<Buffer | null> {
  * líneas cortaría una lista de módulos por la mitad y quedaría peor que el
  * muro. Cada bloque es una idea completa.
  */
-function buildProductBlocks(p: typeof products.$inferSelect, dynamicLinks?: any, semilla = ""): string[] {
-  const completo = buildProductCaption(p, null, dynamicLinks, semilla);
+async function buildProductBlocks(p: typeof products.$inferSelect, dynamicLinks?: any, semilla = ""): Promise<string[]> {
+  const completo = await buildProductCaption(p, null, dynamicLinks, semilla);
   // El separador es la línea en blanco doble que deja cada sección; se agrupan
   // las secciones cortas para no mandar ocho mensajes de una línea.
   const secciones = completo.split(/\n(?=📚 |💻 |💰 |━|💳 |🛒 |🚀 )/);
@@ -273,13 +273,13 @@ function variante(opciones: string[], semilla: string): string {
   return opciones[Math.abs(h) % opciones.length]!;
 }
 
-function buildProductCaption(p: typeof products.$inferSelect, categoryName: string | null, dynamicLinks?: any, semilla = "") {
+async function buildProductCaption(p: typeof products.$inferSelect, categoryName: string | null, dynamicLinks?: any, semilla = ""): Promise<string> {
   const lines: string[] = [];
   const sem = `${semilla}|${p.id}`;
   // La semilla viene como "telefono|productId": el teléfono dice de qué país
   // es el cliente, y de ahí salen la moneda y los medios de pago que le
   // sirven de verdad.
-  const mon = contextoDeMoneda(String(semilla).split("|")[0], Number(p.price), p.currency);
+  const mon = await contextoDeMoneda(String(semilla).split("|")[0], Number(p.price), p.currency);
 
   let meta: any = {};
   try { meta = JSON.parse(p.metadata || "{}"); } catch(e) {}
@@ -1699,7 +1699,7 @@ export class WhatsAppManager {
             // y se siente como alguien escribiendo, no como un folleto.
             // El teléfono va de semilla: dos clientes distintos reciben
             // redacciones distintas, y el mismo cliente siempre la misma.
-            const bloques = buildProductBlocks(product, dynamicLinks, phone);
+            const bloques = await buildProductBlocks(product, dynamicLinks, phone);
             console.log(`🖼️ [WA-CARD] Enviando ficha en ${bloques.length} bloques - ${timestamp}`);
             await this.sendImage(phone, imageToUse, bloques[0] || product.name, originalJid);
             for (const bloque of bloques.slice(1)) {

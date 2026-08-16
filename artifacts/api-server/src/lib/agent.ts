@@ -958,7 +958,7 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
   // libre y ahí decía "$60.000" a secas -- que un mexicano lee como 60 mil
   // pesos MEXICANOS. Y le ofrecía Nequi, que afuera no existe.
   const { contextoDeMoneda: ctxMoneda } = await import("./moneda-por-pais");
-  const monedaCliente = ctxMoneda(convo.contactPhone, 0);
+  const monedaCliente = await ctxMoneda(convo.contactPhone, 0);
   const bloqueMoneda = monedaCliente.esColombia
     ? ""
     : `\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n🌎 ESTE CLIENTE NO ES DE COLOMBIA${monedaCliente.pais ? ` (${monedaCliente.pais})` : ""}\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`

@@ -2,70 +2,102 @@
  * Precio y medios de pago según el país del cliente.
  *
  * El catálogo está en pesos colombianos, pero los anuncios corren en varios
- * países. A un cliente de México, España o Estados Unidos decirle "$60.000"
- * no le dice nada -- o peor, lo lee como 60 mil de SU moneda y se asusta. Y
- * los medios de pago tampoco sirven igual: Nequi y Daviplata son billeteras
- * colombianas, y el checkout de MercadoPago Colombia le rechaza la tarjeta a
- * un extranjero. Lo único que cobra afuera es PayPal.
+ * países. A un cliente de México "$60.000" no le dice nada -- o peor, lo lee
+ * como 60 mil pesos MEXICANOS y se asusta. Y los medios de pago tampoco
+ * sirven igual: Nequi y Daviplata son billeteras colombianas, y el checkout
+ * de MercadoPago Colombia le rechaza la tarjeta a un extranjero. Afuera cobra
+ * PayPal.
  *
- * El país sale del código del número de WhatsApp, que es el dato más
- * confiable que hay en una conversación: el cliente no lo elige para
- * responder una encuesta, es su línea real.
+ * El país sale del código del número de WhatsApp, que es el dato más confiable
+ * de una conversación: el cliente no lo eligió para responder una encuesta,
+ * es su línea real.
  *
- * SOBRE LA CONVERSIÓN: la tasa NO se inventa ni se cablea en el código. Sale
- * de USD_COP_RATE, que el admin controla. Si no está configurada, NO se
- * muestra un precio en dólares -- se muestra el de pesos y listo. Este
- * proyecto ya se quemó con una conversión inventada: un generador viejo tomó
- * 20.000 PESOS como si fueran 20.000 DÓLARES y sacó anuncios que pedían
- * "$82.000.000 COP". Un precio equivocado en un anuncio pago es peor que no
- * mostrar precio.
+ * SOBRE LA CONVERSIÓN. La tasa se trae del día, de una API pública sin clave,
+ * y se cachea unas horas. NUNCA se inventa ni se cablea un número: este
+ * proyecto ya se quemó con una conversión inventada -- un generador viejo tomó
+ * 20.000 PESOS como si fueran 20.000 DÓLARES y sacó anuncios pidiendo
+ * "$82.000.000 COP". Si la tasa no se puede obtener, se muestra el precio en
+ * pesos aclarando la moneda; jamás una cifra convertida a ojo.
  */
 
-/** Códigos de país que usan peso colombiano. */
-const COLOMBIA = "57";
+import { logger } from "./logger";
 
-/**
- * Prefijos telefónicos por país, del más largo al más corto: hay códigos de
- * 1, 2 y 3 dígitos y "1" (EE.UU./Canadá) es prefijo de muchos otros.
- */
+/** Prefijo telefónico → país y su moneda local. */
 const PREFIJOS: Array<{ codigo: string; pais: string; moneda: string }> = [
   { codigo: "57", pais: "Colombia", moneda: "COP" },
-  { codigo: "52", pais: "México", moneda: "USD" },
-  { codigo: "54", pais: "Argentina", moneda: "USD" },
-  { codigo: "56", pais: "Chile", moneda: "USD" },
-  { codigo: "51", pais: "Perú", moneda: "USD" },
-  { codigo: "58", pais: "Venezuela", moneda: "USD" },
-  { codigo: "593", pais: "Ecuador", moneda: "USD" },
-  { codigo: "591", pais: "Bolivia", moneda: "USD" },
-  { codigo: "595", pais: "Paraguay", moneda: "USD" },
-  { codigo: "598", pais: "Uruguay", moneda: "USD" },
-  { codigo: "506", pais: "Costa Rica", moneda: "USD" },
-  { codigo: "507", pais: "Panamá", moneda: "USD" },
-  { codigo: "503", pais: "El Salvador", moneda: "USD" },
-  { codigo: "502", pais: "Guatemala", moneda: "USD" },
-  { codigo: "504", pais: "Honduras", moneda: "USD" },
-  { codigo: "505", pais: "Nicaragua", moneda: "USD" },
-  { codigo: "809", pais: "República Dominicana", moneda: "USD" },
-  { codigo: "34", pais: "España", moneda: "USD" },
-  { codigo: "1", pais: "Estados Unidos / Canadá", moneda: "USD" },
+  { codigo: "52", pais: "México", moneda: "MXN" },
+  { codigo: "54", pais: "Argentina", moneda: "ARS" },
+  { codigo: "56", pais: "Chile", moneda: "CLP" },
+  { codigo: "51", pais: "Perú", moneda: "PEN" },
+  { codigo: "58", pais: "Venezuela", moneda: "USD" },   // de hecho se opera en dólares
+  { codigo: "593", pais: "Ecuador", moneda: "USD" },    // moneda oficial: dólar
+  { codigo: "591", pais: "Bolivia", moneda: "BOB" },
+  { codigo: "595", pais: "Paraguay", moneda: "PYG" },
+  { codigo: "598", pais: "Uruguay", moneda: "UYU" },
+  { codigo: "506", pais: "Costa Rica", moneda: "CRC" },
+  { codigo: "507", pais: "Panamá", moneda: "USD" },     // moneda oficial: dólar
+  { codigo: "503", pais: "El Salvador", moneda: "USD" }, // moneda oficial: dólar
+  { codigo: "502", pais: "Guatemala", moneda: "GTQ" },
+  { codigo: "504", pais: "Honduras", moneda: "HNL" },
+  { codigo: "505", pais: "Nicaragua", moneda: "NIO" },
+  { codigo: "809", pais: "República Dominicana", moneda: "DOP" },
+  { codigo: "829", pais: "República Dominicana", moneda: "DOP" },
+  { codigo: "849", pais: "República Dominicana", moneda: "DOP" },
+  { codigo: "34", pais: "España", moneda: "EUR" },
+  { codigo: "1", pais: "Estados Unidos", moneda: "USD" },
 ];
+
+/** Monedas que no se muestran con decimales: el centavo no existe en la práctica. */
+const SIN_DECIMALES = new Set(["COP", "CLP", "PYG", "ARS", "CRC"]);
+
+// ─── Tasas del día ──────────────────────────────────────────────────────────
+// Se cachean en memoria: cotizar en CADA mensaje sería lento y abusivo con un
+// servicio gratuito, y la tasa no se mueve tanto en unas horas.
+let tasasCache: { valores: Record<string, number>; obtenidas: number } | null = null;
+const VIGENCIA_MS = 6 * 60 * 60 * 1000; // 6 horas
+
+const API_TASAS = process.env.EXCHANGE_RATES_URL || "https://open.er-api.com/v6/latest/USD";
+
+/**
+ * Tasas con base USD ("1 USD = X de esa moneda"). Devuelve null si no se
+ * pudieron obtener -- quien llama NO debe convertir a ojo en ese caso.
+ */
+export async function tasasDelDia(): Promise<Record<string, number> | null> {
+  if (tasasCache && Date.now() - tasasCache.obtenidas < VIGENCIA_MS) return tasasCache.valores;
+  try {
+    const r = await fetch(API_TASAS, { signal: AbortSignal.timeout(8000) });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const j: any = await r.json();
+    const valores = j?.rates || j?.conversion_rates;
+    if (!valores?.COP) throw new Error("la respuesta no trae COP");
+    tasasCache = { valores, obtenidas: Date.now() };
+    logger.info({ cop: valores.COP }, "[Moneda] Tasas del día actualizadas");
+    return valores;
+  } catch (e: any) {
+    logger.warn({ err: e?.message }, "[Moneda] No se pudo traer la tasa del día");
+    // Cache vencido pero existente: mejor una tasa de hace unas horas que
+    // ninguna. Una tasa vieja se desvía centavos; no convertir pierde la venta.
+    if (tasasCache) return tasasCache.valores;
+    // Último recurso: la tasa fija que haya configurado el admin.
+    const manual = Number(process.env.USD_COP_RATE || 0);
+    return manual > 0 ? { COP: manual, USD: 1 } : null;
+  }
+}
 
 export interface ContextoDeMoneda {
   pais: string;
   esColombia: boolean;
-  /** Precio ya formateado para mostrarle a ESTE cliente. */
+  /** Precio ya formateado para ESTE cliente. */
   precioTexto: string;
-  /** true si el cliente puede pagar por MercadoPago / Nequi / Daviplata. */
+  /** true si puede pagar por MercadoPago / Nequi / Daviplata. */
   aceptaPagosLocales: boolean;
 }
 
-/** País del cliente a partir de su número de WhatsApp. */
 export function paisDeTelefono(telefono: string | null | undefined): { pais: string; moneda: string } {
   const n = String(telefono || "").replace(/\D/g, "");
   if (!n) return { pais: "", moneda: "COP" };
   // Del prefijo más largo al más corto: "593" (Ecuador) tiene que ganarle a
-  // "59" y "1" (EE.UU.) no puede robarse los números que empiezan con 1 de
-  // otro código más largo.
+  // "59", y "1" (EE.UU.) no puede robarse los códigos más largos.
   for (const p of [...PREFIJOS].sort((a, b) => b.codigo.length - a.codigo.length)) {
     if (n.startsWith(p.codigo)) return { pais: p.pais, moneda: p.moneda };
   }
@@ -74,65 +106,56 @@ export function paisDeTelefono(telefono: string | null | undefined): { pais: str
   return { pais: "", moneda: "COP" };
 }
 
-/** Tasa USD→COP configurada por el admin. 0 = no configurada. */
-export function tasaUsdCop(): number {
-  const t = Number(process.env.USD_COP_RATE || 0);
-  return Number.isFinite(t) && t > 0 ? t : 0;
+function formatearMonto(monto: number, moneda: string): string {
+  if (SIN_DECIMALES.has(moneda)) return `${moneda} $${Math.round(monto).toLocaleString("es-CO")}`;
+  // Desde 20 se redondea: "$14.87" se ve a precio de saldo; por debajo los
+  // centavos sí importan.
+  return monto >= 20
+    ? `${moneda} $${Math.round(monto).toLocaleString("en-US")}`
+    : `${moneda} $${monto.toFixed(2)}`;
 }
 
 /**
  * Cómo mostrarle el precio a este cliente.
  *
- * A un colombiano: pesos, como siempre.
- * A un extranjero: dólares, con el equivalente en pesos entre paréntesis para
- * que no haya sorpresas si termina pagando en la pasarela local. Si no hay
- * tasa configurada, se muestran los pesos y se aclara la moneda -- nunca se
- * inventa un número en dólares.
+ * Colombiano  → pesos, como siempre.
+ * Extranjero  → su moneda local + el equivalente en dólares, que es la
+ *               referencia que todos entienden y con la que va a pagar en
+ *               PayPal. Sin tasa disponible, pesos colombianos aclarados.
  */
-export function contextoDeMoneda(
+export async function contextoDeMoneda(
   telefono: string | null | undefined,
   precioCop: number,
   monedaDelProducto?: string | null,
-): ContextoDeMoneda {
+): Promise<ContextoDeMoneda> {
   const { pais, moneda } = paisDeTelefono(telefono);
   const esColombia = moneda === "COP";
   const cop = Number(precioCop) || 0;
   const monedaBase = String(monedaDelProducto || "COP").toUpperCase();
-
   const enPesos = `$${cop.toLocaleString("es-CO")} COP`;
 
   // El producto ya está en otra moneda: se respeta tal cual, no se toca.
   if (monedaBase !== "COP") {
-    return {
-      pais,
-      esColombia,
-      precioTexto: `$${cop.toLocaleString("es-CO")} ${monedaBase}`,
-      aceptaPagosLocales: esColombia,
-    };
+    return { pais, esColombia, precioTexto: `$${cop.toLocaleString("es-CO")} ${monedaBase}`, aceptaPagosLocales: esColombia };
   }
-
   if (esColombia) {
     return { pais: pais || "Colombia", esColombia: true, precioTexto: enPesos, aceptaPagosLocales: true };
   }
 
-  const tasa = tasaUsdCop();
-  if (!tasa) {
-    // Sin tasa NO se inventa un precio en dólares: se dice el de pesos,
-    // dejando claro que son pesos colombianos.
+  const tasas = await tasasDelDia();
+  if (!tasas?.COP) {
     return { pais, esColombia: false, precioTexto: enPesos, aceptaPagosLocales: false };
   }
 
-  const usd = cop / tasa;
-  // Redondeo a entero desde 20 USD: "$14.87" se ve a precio de saldo, y por
-  // debajo de eso los centavos sí importan.
-  const usdTexto = usd >= 20
-    ? `USD $${Math.round(usd).toLocaleString("en-US")}`
-    : `USD $${usd.toFixed(2)}`;
+  const usd = cop / tasas.COP;
+  const usdTexto = formatearMonto(usd, "USD");
 
-  return {
-    pais,
-    esColombia: false,
-    precioTexto: `${usdTexto} (${enPesos})`,
-    aceptaPagosLocales: false,
-  };
+  // Su moneda local primero (es la que entiende sin hacer cuentas), el dólar
+  // entre paréntesis como referencia y porque es con lo que paga en PayPal.
+  const tasaLocal = tasas[moneda];
+  const precioTexto = moneda !== "USD" && tasaLocal
+    ? `${formatearMonto(usd * tasaLocal, moneda)} (${usdTexto})`
+    : usdTexto;
+
+  return { pais, esColombia: false, precioTexto, aceptaPagosLocales: false };
 }
