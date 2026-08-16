@@ -86,7 +86,7 @@ function resolveOpenCodeConfig(modelOverride?: string): AIProviderConfig | null 
  *     ("El usuario me pide que actue como vendedor...") e incluso inventan
  *     precios ("Tenemos desde $49", "esta en $XX"). Eso llegando a un cliente
  *     es peor que no responder.
- *   - deepseek-v4-*: 403 RegionError. qwen*/grok-4.5: 503. hy3-preview,
+ *   - deepseek-v4: 403 RegionError. qwen y grok-4.5: 503. hy3-preview,
  *     mimo-v2-omni, mimo-v2-pro: 400.
  *
  * Si alguno mejora, se agrega aca; el orden es el que se rota.
