@@ -340,6 +340,19 @@ export class WhatsAppManager {
    */
   protected static mensajesVistos = new Set<string>();
 
+  /**
+   * LID (identificador interno de WhatsApp) → teléfono real, recordado.
+   *
+   * `getPNForLID` falla de forma intermitente para el mismo contacto. Sin
+   * memoria, un mensaje se guardaba con el número real y el siguiente con el
+   * id interno: la misma persona quedaba partida en dos conversaciones, y el
+   * agente respondía leyendo el hilo equivocado.
+   *
+   * Estático por el mismo motivo que `mensajesVistos`: lo comparten todas las
+   * instancias (una por tenant, más el proxy del singleton).
+   */
+  protected static lidAPhone = new Map<string, string>();
+
   // protected (no private): WhatsAppByTenant hereda de esta clase y necesita
   // tocar estos campos directamente en su propio start()/stop() para aislar
   // la sesión por tenant.
@@ -1100,9 +1113,27 @@ export class WhatsAppManager {
               }
               if (resolvedPn) {
                 phone = resolvedPn.split("@")[0]!;
+                // Se recuerda: la resolución falla de forma INTERMITENTE para
+                // el mismo contacto, y ahí estaba el bug (ver abajo).
+                WhatsAppManager.lidAPhone.set(remoteJid, phone);
               } else if (msg.key.participant) {
                 phone = msg.key.participant.split("@")[0]!;
+                WhatsAppManager.lidAPhone.set(remoteJid, phone);
+              } else if (WhatsAppManager.lidAPhone.has(remoteJid)) {
+                // Ya lo resolvimos antes en esta sesión: se reusa.
+                phone = WhatsAppManager.lidAPhone.get(remoteJid)!;
+                console.log("↩️ LID resuelto desde memoria:", remoteJid, "->", phone);
               } else {
+                // BUG DE PRODUCCIÓN (2026-08-16): acá se usaba el LID como si
+                // fuera el teléfono, sin más. Como la resolución falla de
+                // forma intermitente, el MISMO cliente terminaba en dos
+                // conversaciones: una con su número real y otra con el id
+                // interno. Medido en la base: conv 8 (1 mensaje del cliente,
+                // 0 respuestas) contra conv 9 (0 mensajes, 3 respuestas) --
+                // el mismo par partido en dos. Y el peor efecto: sus
+                // mensajes entraban en un hilo y el agente respondía leyendo
+                // el OTRO, que tenía historia vieja. Por eso el admin veía
+                // que "solo saluda": contestaba con el contexto equivocado.
                 console.warn("⚠️ No se pudo resolver LID a número real, usando ID interno como fallback:", remoteJid);
                 phone = remoteJid.split("@")[0]!;
               }
