@@ -34,6 +34,13 @@ if [ -z "${EP_TOKEN:-}" ] && [ -f "$HOME/.easypanel.env" ]; then
   # shellcheck disable=SC1091
   source "$HOME/.easypanel.env"
 fi
+# El archivo de la maquina usa EASYPANEL_TOKEN/EASYPANEL_URL (los nombres que
+# muestra el panel); el script nacio usando EP_*. Se aceptan los dos para que
+# el deploy no falle por el nombre de la variable.
+EP_TOKEN="${EP_TOKEN:-${EASYPANEL_TOKEN:-}}"
+if [ -n "${EASYPANEL_URL:-}" ] && [ -z "${EP_HOST_EXPLICITO:-}" ]; then
+  EP_HOST="${EASYPANEL_URL%/}"
+fi
 if [ -z "${EP_TOKEN:-}" ]; then
   echo "Falta EP_TOKEN (exportalo o ponelo en ~/.easypanel.env)" >&2
   exit 1

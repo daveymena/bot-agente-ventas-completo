@@ -1,4 +1,5 @@
 import { eq, inArray, desc, and } from "drizzle-orm";
+import { transcribirAudio, describirImagen } from "./media-entrante";
 import path from "node:path";
 import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { HttpProxyAgent } from "http-proxy-agent";
@@ -1237,15 +1238,14 @@ export class WhatsAppManager {
               continue;
             }
             
-            // ANTI-LOOP: Ignorar mensajes que son exclusivamente imágenes o documentos
-            // enviados por el bot (el caption de sendImage re-entra como evento)
+            // Acá vivía un filtro que descartaba TODO mensaje que fuera solo
+            // imagen, documento, sticker o audio, diciendo que era media del
+            // bot que volvía a entrar. Pero el reingreso propio ya se ataja
+            // arriba con fromMe, así que lo único que llegaba a este filtro
+            // era media del CLIENTE: la foto sin texto, el pantallazo del
+            // comprobante y la nota de voz se tiraban en silencio y el bot
+            // nunca contestaba. Ahora la media se entiende (ver más abajo).
             const msgKeys = Object.keys(msg.message || {});
-            const isBotMediaOnly = msgKeys.length === 1 && 
-              (msgKeys[0] === "imageMessage" || msgKeys[0] === "documentMessage" || msgKeys[0] === "stickerMessage" || msgKeys[0] === "audioMessage");
-            if (isBotMediaOnly) {
-              console.log("⏭️ [ANTI-LOOP] Ignorando mensaje de solo-media reenviado:", msgKeys[0]);
-              continue;
-            }
 
             // DEDUPLICACIÓN DE MENSAJES (Evita que el bot responda varias veces al mismo mensaje)
             const msgId = msg.key.id;
@@ -1414,7 +1414,48 @@ export class WhatsAppManager {
             
             if (!text || !text.trim()) {
               console.log("⚠️ MENSAJE SIN TEXTO EXTRAÍBLE");
-              
+
+              // ── Nota de voz o foto del cliente ────────────────────────────
+              // Va ANTES del rebusque de más abajo: ese rebusque agarra
+              // cualquier cadena del JSON del mensaje, y en una foto eso puede
+              // terminar siendo un mimetype ("image/jpeg") entrando al agente
+              // como si fuera lo que dijo el cliente.
+              const esAudio = !!(msgObj?.audioMessage || msgObj?.pttMessage);
+              const esImagen = !!msgObj?.imageMessage;
+              if (esAudio || esImagen) {
+                try {
+                  const buf = (await downloadMediaMessage(msg, "buffer", {})) as Buffer;
+                  const mime = String(
+                    msgObj?.audioMessage?.mimetype || msgObj?.imageMessage?.mimetype || ""
+                  ).split(";")[0] || (esAudio ? "audio/ogg" : "image/jpeg");
+
+                  if (esAudio) {
+                    const dicho = await transcribirAudio(buf, mime);
+                    if (dicho) {
+                      text = dicho;
+                      console.log(`🎙️ [AUDIO] Nota de voz transcrita: "${dicho.slice(0, 60)}"`);
+                    } else {
+                      // Sin transcripción no se adivina: se le dice al cliente
+                      // la verdad y se le da una salida, en vez de callarse.
+                      text = "[el cliente mandó una nota de voz que no se pudo escuchar]";
+                    }
+                  } else {
+                    const visto = await describirImagen(buf, mime);
+                    text = visto
+                      ? `[el cliente mandó una foto: ${visto}]`
+                      : "[el cliente mandó una foto que no se pudo ver]";
+                    console.log(`🖼️ [IMAGEN] ${visto ? "descrita" : "sin modelo que la vea"}`);
+                  }
+                } catch (e: any) {
+                  console.error("❌ [MEDIA] No se pudo procesar la media:", e?.message);
+                  text = esAudio
+                    ? "[el cliente mandó una nota de voz que no se pudo escuchar]"
+                    : "[el cliente mandó una foto que no se pudo ver]";
+                }
+              }
+            }
+
+            if (!text || !text.trim()) {
               // Usar función de diagnóstico
               const diagnostic = diagnoseMessage(msgObj);
               console.log("🔍 DIAGNÓSTICO:", diagnostic.diagnosis);
