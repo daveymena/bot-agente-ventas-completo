@@ -302,6 +302,15 @@ function buildProductCaption(p: typeof products.$inferSelect, categoryName: stri
     }
   }
 
+  // Comprar desde la tienda: pedido del admin (2026-08-16). Es la salida
+  // cuando el cliente no quiere ninguno de los métodos de arriba, y además
+  // ahí ve el producto con su foto y su ficha completa. El enlace corto /p/<id>
+  // redirige a la página real y ya trae vista previa con imagen al compartirse.
+  const urlTienda = `${(process.env.APP_URL || "https://ventasproia.com").replace(/\/+$/, "")}/p/${p.id}`;
+  lines.push(`🛒 *O comprá directo en la tienda:*`);
+  lines.push(urlTienda);
+  lines.push("");
+
   lines.push(`🚀 *¿Quieres comprarlo ahora o tienes alguna pregunta?*`);
   
   return lines.join("\n");
