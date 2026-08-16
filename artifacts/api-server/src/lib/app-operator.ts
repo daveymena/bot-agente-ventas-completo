@@ -2348,6 +2348,60 @@ export const TOOLS: ToolDef[] = [
     },
   },
   {
+    name: "list_duplicate_contacts",
+    description: "Muestra los contactos que son la MISMA persona guardada varias veces (por ejemplo el mismo número con un dígito de más, o con el sufijo ':0' del identificador interno de WhatsApp). Solo LEE y reporta: no fusiona ni borra nada. Útil cuando el admin pregunta por qué el bot no reconoce a un cliente que ya escribió antes, o por qué las métricas de prospectos no cuadran.",
+    args: "{}",
+    run: async (_args, ctx) => {
+      const convos = await db.select().from(conversations).where(eq(conversations.tenantId, ctx.tenantId));
+
+      // Dos registros son la misma persona si su número, ya limpio, termina
+      // igual en los últimos 10 dígitos (que es lo que identifica a un
+      // teléfono sin importar cómo se escribió el prefijo del país).
+      const clave = (tel: string) => {
+        const soloDigitos = String(tel || "").split(":")[0]!.replace(/\D/g, "");
+        return soloDigitos.slice(-10);
+      };
+
+      type Fila = { id: number; contactPhone: string | null; contactName: string | null; lastMessageAt: any };
+      const grupos = new Map<string, Fila[]>();
+      for (const c of convos as Fila[]) {
+        const k = clave(c.contactPhone || "");
+        if (k.length < 8) continue; // sin número reconocible, no se agrupa
+        const lista = grupos.get(k) || [];
+        lista.push(c);
+        grupos.set(k, lista);
+      }
+
+      const duplicados = [...grupos.entries()]
+        .filter(([, lista]) => lista.length > 1)
+        .map(([k, lista]) => ({
+          numero: k,
+          nombre: lista.find((c: Fila) => c.contactName && !/^\d+$/.test(c.contactName))?.contactName || "(sin nombre)",
+          registros: lista
+            .map((c: Fila) => ({ id: c.id, telefonoGuardado: c.contactPhone, ultimoMensaje: c.lastMessageAt }))
+            .sort((a, b) => a.id - b.id),
+        }));
+
+      if (duplicados.length === 0) {
+        return { ok: true, summary: "No hay contactos duplicados: cada persona figura una sola vez.", data: { duplicados: [] } };
+      }
+
+      const detalle = duplicados.slice(0, 15).map((d) =>
+        `• ${d.nombre} — ${d.registros.length} registros: ${d.registros.map((r) => r.telefonoGuardado).join(" / ")}`
+      ).join("\n");
+      const totalSobrantes = duplicados.reduce((a, d) => a + d.registros.length - 1, 0);
+
+      return {
+        ok: true,
+        summary:
+          `${duplicados.length} personas están guardadas más de una vez (${totalSobrantes} conversaciones de sobra).\n\n${detalle}` +
+          (duplicados.length > 15 ? `\n…y ${duplicados.length - 15} más.` : "") +
+          `\n\nMientras estén así, el bot NO reconoce a esos clientes cuando vuelven a escribir: su historial está partido y los saluda como nuevos.`,
+        data: { duplicados },
+      };
+    },
+  },
+  {
     name: "list_recent_conversations",
     description: "Lista las conversaciones más recientes de WhatsApp con su etapa y último mensaje. Útil para revisar cómo está vendiendo el agente.",
     args: '{ "limit"?: number }',
@@ -2938,7 +2992,7 @@ export const READ_ONLY_TOOLS = new Set([
   // Agente de anuncios: leer logs y métricas no cambia nada (solo consulta)
   "fb_agent_logs", "fb_campaign_metrics",
   // Monitoreo: solo consultan, no cambian nada
-  "whatsapp_status", "dashboard_summary", "list_recent_conversations",
+  "whatsapp_status", "dashboard_summary", "list_recent_conversations", "list_duplicate_contacts",
   // Inteligencia de negocio: predicción/optimización/razonamiento son
   // sugerencias basadas en datos reales, ninguna cambia nada por sí sola.
   "predict_customer", "optimize_price", "optimize_copy",
