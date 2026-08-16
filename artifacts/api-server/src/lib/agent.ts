@@ -1070,7 +1070,40 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
   }
 
   // ── 11c. RUTA IA — construir prompt final con cerebro + contexto del motor ─
-  const finalPrompt = buildFinalPrompt(systemPrompt, brain, voice) + `\n\n${engineContextBlock}`;
+  //
+  // Tope de tamaño del prompt. Medido contra la API real de Groq con el modelo
+  // que usa el bot (llama-3.1-8b-instant, 16-08-2026):
+  //   15.000 caracteres (3.648 tokens) -> responde bien
+  //   ~22.000 en adelante              -> 429 por límite de tokens por minuto
+  //   32.000 en adelante               -> 413 "Request too large"
+  // El tier gratis corta en 6.000 tokens, y la plantilla del system prompt
+  // sola ya son 11.422 caracteres: alcanza con que el negocio tenga su propio
+  // prompt largo para pasarse. Los 413/429 que se veían en el panel salen de
+  // acá -- NO de inyectar el catálogo, que no se inyecta.
+  //
+  // Pasarse no degrada la respuesta: la ANULA, y el cliente recibe "problemas
+  // técnicos" en el momento en que estaba interesado. Por eso se recorta antes
+  // de mandar, empezando por lo menos crítico.
+  const TOPE_PROMPT = Number(process.env.MAX_PROMPT_CHARS || 18000);
+  let promptArmado = buildFinalPrompt(systemPrompt, brain, voice) + `\n\n${engineContextBlock}`;
+  if (promptArmado.length > TOPE_PROMPT) {
+    const antes = promptArmado.length;
+    // El contexto del motor (qué producto mostrar, en qué etapa va) y el
+    // bloque del anuncio son los que cambian la respuesta; el análisis de
+    // AdvancedIntelligence es el más largo y el más prescindible.
+    const base = buildFinalPrompt(systemPrompt, brain, voice);
+    const esencial = `${decision.contextBlock}${bloqueAnuncio}`;
+    promptArmado = `${base}\n\n${esencial}`;
+    if (promptArmado.length > TOPE_PROMPT) {
+      // Todavía no entra: lo que sobra es el prompt del negocio o del agente.
+      // Se corta por el final, avisando en el propio texto para que el modelo
+      // sepa que viene truncado y no complete lo que falta por su cuenta.
+      const corte = Math.max(TOPE_PROMPT - esencial.length - 200, 2000);
+      promptArmado = `${base.slice(0, corte)}\n[…instrucciones recortadas por longitud…]\n\n${esencial}`;
+    }
+    console.log(`✂️ [PROMPT] Recortado de ${antes} a ${promptArmado.length} chars (tope ${TOPE_PROMPT}) - ${ts()}`);
+  }
+  const finalPrompt = promptArmado;
 
   // ── Construir mensajes para la IA (OPTIMIZADO - HISTORIAL REDUCIDO) ──────
   // Solo últimos 2 mensajes para contexto (suficiente para entender conversación)

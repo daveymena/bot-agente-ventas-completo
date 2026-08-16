@@ -797,6 +797,56 @@ app.get("/p/:productId", async (req, res, next) => {
  * Devuelve null si la ruta no es de producto (para no pagar una consulta a la
  * base en cada carga de la tienda), o una promesa del HTML ya modificado.
  */
+/**
+ * Título y metadatos de la PORTADA de una tienda (/tienda/:slug).
+ *
+ * La plantilla trae un título fijo -- "ProStore | Solución E-commerce
+ * Profesional" -- que se veía en la pestaña de todas las tiendas. Para un
+ * cliente que llega desde un anuncio de "VentasPro" y aterriza en una página
+ * que dice "TecnoVariedades" con la pestaña en "ProStore", son tres marcas
+ * distintas en la misma pantalla: se lee como estafa antes del primer mensaje.
+ * Acá se pone el nombre REAL de esa tienda.
+ */
+function metaDeTienda(rutaUrl: string): Promise<string | null> | null {
+  const m = rutaUrl.match(/^\/tienda\/([^/]+)\/?$/);
+  if (!m || !tiendaPath) return null;
+  const slug = m[1]!;
+
+  return (async () => {
+    try {
+      const { db, stores } = await import("@workspace/db");
+      const { eq } = await import("drizzle-orm");
+      const [tienda] = await db.select().from(stores).where(eq(stores.slug, slug)).limit(1);
+      if (!tienda) return null;
+
+      const indexPath = path.join(tiendaPath!, "index.html");
+      let html = readFileSync(indexPath, "utf8");
+      const esc = (s: string) =>
+        String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+      const appUrl = (process.env.APP_URL || "https://ventasproia.com").replace(/\/+$/, "");
+      const nombre = String(tienda.name || "Tienda");
+      const desc = `Cursos y productos digitales de ${nombre}. Acceso inmediato después de la compra.`;
+
+      const tags = [
+        `<title>${esc(nombre)}</title>`,
+        `<meta name="description" content="${esc(desc)}">`,
+        `<meta property="og:type" content="website">`,
+        `<meta property="og:site_name" content="${esc(nombre)}">`,
+        `<meta property="og:title" content="${esc(nombre)}">`,
+        `<meta property="og:description" content="${esc(desc)}">`,
+        `<meta property="og:url" content="${esc(`${appUrl}${rutaUrl}`)}">`,
+      ].join("\n    ");
+
+      html = html.replace(/<title>[\s\S]*?<\/title>/i, "");
+      html = html.replace(/<head([^>]*)>/i, `<head$1>\n    ${tags}`);
+      return html;
+    } catch (e: any) {
+      logger.warn({ err: e?.message, slug }, "[Tienda] No se pudieron armar los metadatos de la portada");
+      return null;
+    }
+  })();
+}
+
 function metaDeProducto(rutaUrl: string): Promise<string | null> | null {
   const m = rutaUrl.match(/^\/tienda\/[^/]+\/producto\/(\d+)\/?$/) || rutaUrl.match(/^\/p\/(\d+)\/?$/);
   if (!m) return null;
@@ -871,7 +921,7 @@ app.use((req, res, next) => {
       res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
       // Metadatos por producto: sin esto, compartir el enlace de un producto
       // no muestra NADA (ver metaDeProducto). Se resuelve antes de responder.
-      const meta = metaDeProducto(req.path);
+      const meta = metaDeProducto(req.path) || metaDeTienda(req.path);
       if (meta) {
         return meta
           .then((html) => (html ? res.send(html) : res.sendFile(indexPath)))
