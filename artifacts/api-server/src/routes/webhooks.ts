@@ -1,5 +1,5 @@
 import { Router, type Request, type Response } from "express";
-import { db, products, conversations, messages, payments } from "@workspace/db";
+import { db, products, conversations, messages, payments, leads } from "@workspace/db";
 import { eq, and, desc } from "drizzle-orm";
 import { whatsapp } from "../lib/whatsapp-singleton";
 import { logger } from "../lib/logger";
@@ -172,9 +172,12 @@ router.post("/mercadopago", async (req: Request, res: Response) => {
           }
 
           // 2. Actualizar conversación relacionada
+          // El filtro por tenant no es opcional: sin él, un pago podía
+          // marcarle la conversación a OTRO negocio que tuviera una pendiente.
           [relatedConvo] = await db.select()
             .from(conversations)
             .where(and(
+              eq(conversations.tenantId, product.tenantId),
               eq(conversations.paymentStatus, 'pending'),
               eq(conversations.currentProductId, productId)
             ))
@@ -190,6 +193,29 @@ router.post("/mercadopago", async (req: Request, res: Response) => {
               .where(eq(conversations.id, relatedConvo.id));
 
             logger.info({ conversationId: relatedConvo.id }, "[Webhook] Conversación actualizada a pago confirmado");
+
+            // 2b. Cerrar el trato en el CRM.
+            //
+            // Acá estaba el agujero de la conciliación: el pago se verificaba
+            // contra MercadoPago, se marcaba la conversación y se entregaba el
+            // producto, pero el LEAD nunca pasaba a ganado. Por eso el panel
+            // mostraba "0 ventas cerradas" e "ingresos $0" aunque alguien
+            // hubiera pagado: era imposible distinguir "nadie compró" de
+            // "alguien compró y el sistema no se enteró".
+            //
+            // Este es el ÚNICO camino que marca un trato como ganado: exige un
+            // pago verificado contra la pasarela, no una conversación que
+            // pintaba bien.
+            if (relatedConvo.leadId) {
+              const [lead] = await db.select().from(leads).where(eq(leads.id, relatedConvo.leadId)).limit(1);
+              if (lead && lead.stage !== "won") {
+                const monto = Number(verificado.amount || product.price || 0);
+                await db.update(leads)
+                  .set({ stage: "won", value: String(monto || lead.value || 0) })
+                  .where(eq(leads.id, lead.id));
+                logger.info({ leadId: lead.id, monto }, "[Webhook] Trato marcado como GANADO por pago verificado");
+              }
+            }
           }
         }
 
@@ -290,10 +316,12 @@ router.post("/paypal", async (req: Request, res: Response) => {
               .where(eq(payments.id, pendingPayment.id));
           }
 
-          // Actualizar conversación
+          // Actualizar conversación (con filtro de tenant: sin él, un pago
+          // podía marcarle la conversación pendiente a otro negocio)
           [relatedConvo] = await db.select()
             .from(conversations)
             .where(and(
+              eq(conversations.tenantId, product.tenantId),
               eq(conversations.paymentStatus, 'pending'),
               eq(conversations.currentProductId, productId)
             ))
@@ -307,6 +335,19 @@ router.post("/paypal", async (req: Request, res: Response) => {
                 paidAt: dbNow(),
               })
               .where(eq(conversations.id, relatedConvo.id));
+
+            // Cerrar el trato, igual que en MercadoPago: sin esto el pago se
+            // verificaba y se entregaba el producto, pero el panel seguía
+            // diciendo "0 ventas cerradas, $0 de ingresos".
+            if (relatedConvo.leadId) {
+              const [lead] = await db.select().from(leads).where(eq(leads.id, relatedConvo.leadId)).limit(1);
+              if (lead && lead.stage !== "won") {
+                await db.update(leads)
+                  .set({ stage: "won", value: String(Number(product.price || lead.value || 0)) })
+                  .where(eq(leads.id, lead.id));
+                logger.info({ leadId: lead.id }, "[Webhook-PayPal] Trato marcado como GANADO por pago verificado");
+              }
+            }
           }
         }
 
