@@ -215,9 +215,66 @@ async function loadProductImage(imageUrl: string): Promise<Buffer | null> {
   return null;
 }
 
-function buildProductCaption(p: typeof products.$inferSelect, categoryName: string | null, dynamicLinks?: any) {
+/**
+ * La ficha partida en BLOQUES, para mandarla como varios mensajes seguidos en
+ * vez de un solo muro.
+ *
+ * Pedido del admin (2026-08-16): "que el texto vaya partido, que no se vea tan
+ * lleno... sabiendo que no es lo mismo en PC que en móvil". Tiene razón: en el
+ * celular un mensaje de 30 líneas ocupa la pantalla entera y da pereza; cuatro
+ * mensajes cortos se leen de un vistazo y además se siente humano, que es como
+ * escribe un vendedor de verdad.
+ *
+ * El corte es por SECCIÓN, no cada N renglones fijos: partir a ciegas cada 3
+ * líneas cortaría una lista de módulos por la mitad y quedaría peor que el
+ * muro. Cada bloque es una idea completa.
+ */
+function buildProductBlocks(p: typeof products.$inferSelect, dynamicLinks?: any, semilla = ""): string[] {
+  const completo = buildProductCaption(p, null, dynamicLinks, semilla);
+  // El separador es la línea en blanco doble que deja cada sección; se agrupan
+  // las secciones cortas para no mandar ocho mensajes de una línea.
+  const secciones = completo.split(/\n(?=📚 |💻 |💰 |━|💳 |🛒 |🚀 )/);
+  const bloques: string[] = [];
+  let actual = "";
+  for (const s of secciones) {
+    const limpio = s.replace(/^\n+|\n+$/g, "");
+    if (!limpio || limpio === "━━━━━━━━━━━━━━━━━━") continue;
+    // Un bloque se cierra cuando ya tiene 3+ renglones con contenido.
+    const renglones = (actual + "\n" + limpio).split("\n").filter((l) => l.trim()).length;
+    if (actual && renglones > 8) {
+      bloques.push(actual.trim());
+      actual = limpio;
+    } else {
+      actual = actual ? `${actual}\n\n${limpio}` : limpio;
+    }
+  }
+  if (actual.trim()) bloques.push(actual.trim());
+  return bloques;
+}
+
+/**
+ * Elige una variante de texto de forma ESTABLE para una misma semilla.
+ *
+ * Por qué existe: WhatsApp marca como spam las cuentas que mandan el mismo
+ * texto una y otra vez a distintos contactos, y eso es lo que más rápido hace
+ * que bloqueen un número. Una plantilla fija -- mismo cierre, mismos
+ * encabezados en cada ficha -- es exactamente ese patrón.
+ *
+ * Estable y no aleatoria a propósito: dentro de una misma conversación el
+ * texto no debe bailar entre mensajes (quedaría raro), pero SÍ tiene que
+ * diferir entre clientes. La semilla es teléfono + producto.
+ */
+function variante(opciones: string[], semilla: string): string {
+  if (opciones.length === 0) return "";
+  let h = 0;
+  for (let i = 0; i < semilla.length; i++) h = (h * 31 + semilla.charCodeAt(i)) | 0;
+  return opciones[Math.abs(h) % opciones.length]!;
+}
+
+function buildProductCaption(p: typeof products.$inferSelect, categoryName: string | null, dynamicLinks?: any, semilla = "") {
   const lines: string[] = [];
-  
+  const sem = `${semilla}|${p.id}`;
+
   let meta: any = {};
   try { meta = JSON.parse(p.metadata || "{}"); } catch(e) {}
 
@@ -239,35 +296,60 @@ function buildProductCaption(p: typeof products.$inferSelect, categoryName: stri
   lines.push(`${mainEmoji} *${nameUpper}*`);
   lines.push("");
 
-  // Solo la primera línea de la descripción: es el resumen del curso. El
-  // resto del texto son los beneficios, que van más abajo en su bloque.
-  const resumen = String(p.description || "")
+  // Resumen: la primera línea, y CORTADA.
+  //
+  // Quedarse con la primera línea no alcanza: hay productos cuyo texto
+  // original trae el temario entero en un solo párrafo (el curso de piano
+  // son 550 caracteres de corrido). Eso es exactamente el muro que el admin
+  // no quiere -- y encima repite lo que ya va listado en "Incluye" abajo.
+  //
+  // Se corta en la primera frase que cierre antes de los 180 caracteres; si
+  // no hay punto, en el último espacio. La idea es que el cliente lea DE QUÉ
+  // ES en dos segundos y el detalle lo vea en las viñetas.
+  const crudo = String(p.description || "")
     .split(/\r?\n/)[0]
     .replace(/^[^\p{L}\p{N}]+/u, "")
     .trim();
+  let resumen = crudo;
+  if (crudo.length > 180) {
+    const corteFrase = crudo.slice(0, 180).lastIndexOf(". ");
+    if (corteFrase > 60) {
+      resumen = crudo.slice(0, corteFrase + 1);
+    } else {
+      const corteEspacio = crudo.slice(0, 180).lastIndexOf(" ");
+      resumen = crudo.slice(0, corteEspacio > 60 ? corteEspacio : 180).trimEnd() + "…";
+    }
+  }
   lines.push(resumen || "Formación práctica para llevar tus habilidades al siguiente nivel.");
   lines.push("");
 
   // Lo ESPECÍFICO de este curso va en "Incluye"; lo estándar (que es igual en
   // todos) va aparte en "Modalidad", para no mezclar temario con condiciones.
-  const ESTANDAR = /acceso permanente|contenido actualizable|soporte t[eé]cnico|descargas ilimitadas|alta definici[oó]n|google drive|actualizaciones|certificaci[oó]n de participaci[oó]n/i;
+  // Condiciones de entrega y acceso: van en "Modalidad", no en el temario.
+  //
+  // El patrón cubre las VARIANTES de redacción porque cada producto las
+  // escribe distinto. Con una lista corta se colaban a "Incluye" y el bloque
+  // de Modalidad las repetía debajo -- el admin lo detectó en el curso de
+  // piano: "Acceso de por vida" y "Online y descargable" aparecían dos veces
+  // en la misma ficha.
+  const ESTANDAR = /acceso (permanente|de por vida|inmediato|ilimitado)|de por vida|contenido actualizable|actualizaciones|soporte (t[eé]cnico|incluido)|descargas? (ilimitadas?|incluidas?)|descargable|alta definici[oó]n|\bHD\b|google drive|100% online|certificaci[oó]n de participaci[oó]n/i;
   const features = (p.features ?? []) as string[];
   const propias = features.filter((f) => !ESTANDAR.test(String(f)));
   const estandar = features.filter((f) => ESTANDAR.test(String(f)));
 
   if (propias.length > 0) {
-    lines.push(`📚 *Incluye:*`);
+    lines.push(variante([`📚 *Incluye:*`, `📚 *Qué vas a recibir:*`, `📚 *Contenido:*`, `📚 *Esto trae:*`], sem));
     // Tope de 8: más que eso vuelve a ser un muro. Si hay más, se dice.
     for (const f of propias.slice(0, 8)) lines.push(`✅ ${f}`);
     if (propias.length > 8) lines.push(`✅ …y ${propias.length - 8} módulos más`);
     lines.push("");
   } else if (meta.classes) {
-    lines.push(`📚 *Incluye:*`);
+    lines.push(variante([`📚 *Incluye:*`, `📚 *Qué vas a recibir:*`, `📚 *Contenido:*`, `📚 *Esto trae:*`], sem));
     lines.push(`✅ ${meta.classes} en Alta Definición`);
     lines.push("");
   }
 
-  lines.push(`💻 *Modalidad:*`);
+  lines.push(variante([`💻 *Modalidad:*`, `💻 *Cómo funciona:*`, `💻 *Acceso:*`, `💻 *Cómo lo recibís:*`], sem));
   if (estandar.length > 0) {
     for (const f of estandar.slice(0, 4)) lines.push(`✅ ${f}`);
   } else {
@@ -282,7 +364,7 @@ function buildProductCaption(p: typeof products.$inferSelect, categoryName: stri
   lines.push("");
 
   if (dynamicLinks) {
-    lines.push(`💳 *FORMAS DE PAGO*`);
+    lines.push(variante([`💳 *FORMAS DE PAGO*`, `💳 *Podés pagar así*`, `💳 *Medios de pago*`, `💳 *Cómo pagar*`], sem));
     lines.push("");
     if (dynamicLinks.mercadopago && (dynamicLinks.mercadopago.url || dynamicLinks.mercadopago.shortUrl)) {
       lines.push(`🔹 *Tarjeta / PSE:*`);
@@ -307,11 +389,11 @@ function buildProductCaption(p: typeof products.$inferSelect, categoryName: stri
   // ahí ve el producto con su foto y su ficha completa. El enlace corto /p/<id>
   // redirige a la página real y ya trae vista previa con imagen al compartirse.
   const urlTienda = `${(process.env.APP_URL || "https://ventasproia.com").replace(/\/+$/, "")}/p/${p.id}`;
-  lines.push(`🛒 *O comprá directo en la tienda:*`);
+  lines.push(variante([`🛒 *O comprá directo en la tienda:*`, `🛒 *También podés comprarlo acá:*`, `🛒 *Directo desde la web:*`, `🛒 *Si preferís, desde la tienda:*`], sem));
   lines.push(urlTienda);
   lines.push("");
 
-  lines.push(`🚀 *¿Quieres comprarlo ahora o tienes alguna pregunta?*`);
+  lines.push(variante([`🚀 *¿Querés comprarlo ahora o tenés alguna pregunta?*`, `🚀 *¿Lo querés llevar o te resuelvo alguna duda primero?*`, `🚀 *¿Arrancamos hoy o te queda alguna pregunta?*`, `🚀 *¿Te lo activo ahora o querés saber algo más?*`, `🚀 *¿Seguimos con la compra o te ayudo con algo más?*`], sem));
   
   return lines.join("\n");
 }
@@ -1465,15 +1547,31 @@ export class WhatsAppManager {
           console.log(`🔗 [WA-CARD] Enlaces generados - MercadoPago: ${!!dynamicLinks.mercadopago?.url}, PayPal: ${!!dynamicLinks.paypal?.url}, Transfer: ${dynamicLinks.transfer.options.length} - ${timestamp}`);
           
           const isPaymentOnly = part.paymentOnly === true;
-          const caption = isPaymentOnly
-            ? buildPaymentOnlyCaption(product, dynamicLinks)
-            : buildProductCaption(product, null, dynamicLinks);
           // Solo la imagen REAL del producto. Si no la tiene, sendImage manda
           // el texto solo — nunca una foto de otro producto (ver sendImage).
           const imageToUse = product.imageUrl || "";
 
-          console.log(`🖼️ [WA-CARD] Enviando imagen con caption - URL: ${imageToUse?.substring(0, 50) || "(sin imagen)"}, PaymentOnly: ${isPaymentOnly}, Caption: ${caption.length} caracteres - ${timestamp}`);
-          await this.sendImage(phone, imageToUse, caption, originalJid);
+          if (isPaymentOnly) {
+            const caption = buildPaymentOnlyCaption(product, dynamicLinks);
+            console.log(`🖼️ [WA-CARD] Enviando pago - Caption: ${caption.length} caracteres - ${timestamp}`);
+            await this.sendImage(phone, imageToUse, caption, originalJid);
+          } else {
+            // La ficha va PARTIDA: la foto con el título y el resumen, y el
+            // resto como mensajes cortos seguidos. En el celular un solo
+            // mensaje de 30 líneas tapa la pantalla; así se lee de un vistazo
+            // y se siente como alguien escribiendo, no como un folleto.
+            // El teléfono va de semilla: dos clientes distintos reciben
+            // redacciones distintas, y el mismo cliente siempre la misma.
+            const bloques = buildProductBlocks(product, dynamicLinks, phone);
+            console.log(`🖼️ [WA-CARD] Enviando ficha en ${bloques.length} bloques - ${timestamp}`);
+            await this.sendImage(phone, imageToUse, bloques[0] || product.name, originalJid);
+            for (const bloque of bloques.slice(1)) {
+              // Pausa entre bloques: sin esto llegan todos juntos y se pierde
+              // el efecto de mensajes separados.
+              await sleep(900);
+              await this.sendText(phone, bloque, originalJid);
+            }
+          }
           console.log(`✅ [WA-CARD] Tarjeta enviada exitosamente para ${product.name} - ${timestamp}`);
         } catch (err: any) {
           console.log(`❌ [WA-CARD] Error enviando tarjeta para ${product.name}: ${err.message} - ${timestamp}`);
