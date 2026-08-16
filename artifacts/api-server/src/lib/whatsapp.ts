@@ -227,33 +227,65 @@ function buildProductCaption(p: typeof products.$inferSelect, categoryName: stri
                     nameUpper.includes("CANTO") ? "🎤" : 
                     nameUpper.includes("EXCEL") ? "📊" : "💻";
 
-  lines.push(`✨ ${mainEmoji} *PROGRAMA PROFESIONAL: ${nameUpper}*`);
-  lines.push("━━━━━━━━━━━━━━━━━━━━━━━");
+  // ── Formato corto y escaneable ────────────────────────────────────────────
+  // Regla explícita del admin (2026-08-16): "no quiero texto tan grande, eso
+  // da pereza leer". Antes esta ficha volcaba la DESCRIPCIÓN COMPLETA -- que
+  // desde la restauración del catálogo incluye el bloque de beneficios -- y
+  // justo debajo repetía esos mismos beneficios como "BENEFICIOS INCLUIDOS".
+  // El cliente recibía el mismo contenido dos veces y un muro de texto.
+  //
+  // Ahora: título, UNA línea de qué es, qué incluye (lo específico del curso),
+  // modalidad (lo estándar), precio y pago. Cada bloque corto y separado.
+  lines.push(`${mainEmoji} *${nameUpper}*`);
   lines.push("");
-  lines.push(`*DESCRIPCIÓN:*`);
-  lines.push(`${p.description || 'Formación estructurada para llevar tus habilidades al siguiente nivel con metodología probada y práctica.'}`);
+
+  // Solo la primera línea de la descripción: es el resumen del curso. El
+  // resto del texto son los beneficios, que van más abajo en su bloque.
+  const resumen = String(p.description || "")
+    .split(/\r?\n/)[0]
+    .replace(/^[^\p{L}\p{N}]+/u, "")
+    .trim();
+  lines.push(resumen || "Formación práctica para llevar tus habilidades al siguiente nivel.");
   lines.push("");
-  
-  lines.push(`*BENEFICIOS INCLUIDOS:*`);
-  const features = (p.features ?? []);
-  if (features.length > 0) {
-    for (const f of features) lines.push(`✅ ${f}`);
-  } else {
-    lines.push(`✅ ${meta.classes || "Contenido completo"} en Alta Definición`);
-    lines.push(`✅ Acceso inmediato y de por vida`);
+
+  // Lo ESPECÍFICO de este curso va en "Incluye"; lo estándar (que es igual en
+  // todos) va aparte en "Modalidad", para no mezclar temario con condiciones.
+  const ESTANDAR = /acceso permanente|contenido actualizable|soporte t[eé]cnico|descargas ilimitadas|alta definici[oó]n|google drive|actualizaciones|certificaci[oó]n de participaci[oó]n/i;
+  const features = (p.features ?? []) as string[];
+  const propias = features.filter((f) => !ESTANDAR.test(String(f)));
+  const estandar = features.filter((f) => ESTANDAR.test(String(f)));
+
+  if (propias.length > 0) {
+    lines.push(`📚 *Incluye:*`);
+    // Tope de 8: más que eso vuelve a ser un muro. Si hay más, se dice.
+    for (const f of propias.slice(0, 8)) lines.push(`✅ ${f}`);
+    if (propias.length > 8) lines.push(`✅ …y ${propias.length - 8} módulos más`);
+    lines.push("");
+  } else if (meta.classes) {
+    lines.push(`📚 *Incluye:*`);
+    lines.push(`✅ ${meta.classes} en Alta Definición`);
+    lines.push("");
   }
-  
+
+  lines.push(`💻 *Modalidad:*`);
+  if (estandar.length > 0) {
+    for (const f of estandar.slice(0, 4)) lines.push(`✅ ${f}`);
+  } else {
+    lines.push(`✅ 100% online y descargable`);
+    lines.push(`✅ Acceso de por vida ♾️`);
+  }
   lines.push("");
-  lines.push(`💰 *PRECIO ESPECIAL:*`);
-  lines.push(`*${formatPriceForWa(Number(p.price), p.currency)}*`);
-  lines.push("━━━━━━━━━━━━━━━━━━━━━━━");
+
+  lines.push(`💰 *PRECIO: ${formatPriceForWa(Number(p.price), p.currency)}*`);
+  lines.push("");
+  lines.push("━━━━━━━━━━━━━━━━━━");
   lines.push("");
 
   if (dynamicLinks) {
-    lines.push(`💳 *ENLACES DE PAGO SEGURO:*`);
+    lines.push(`💳 *FORMAS DE PAGO*`);
     lines.push("");
     if (dynamicLinks.mercadopago && (dynamicLinks.mercadopago.url || dynamicLinks.mercadopago.shortUrl)) {
-      lines.push(`🔹 *Tarjeta de Crédito / PSE (Colombia):*`);
+      lines.push(`🔹 *Tarjeta / PSE:*`);
       lines.push(`${dynamicLinks.mercadopago.url || dynamicLinks.mercadopago.shortUrl}`);
       lines.push("");
     }
@@ -263,14 +295,14 @@ function buildProductCaption(p: typeof products.$inferSelect, categoryName: stri
       lines.push("");
     }
     if (dynamicLinks.transfer && dynamicLinks.transfer.options && dynamicLinks.transfer.options[0]) {
-      lines.push(`🔹 *Transferencia Directa:*`);
-      lines.push(`📍 *Nequi/Daviplata:* ${dynamicLinks.transfer.options[0].number}`);
-      lines.push(`👤 *Titular:* ${dynamicLinks.transfer.options[0].name}`);
+      lines.push(`🔹 *Nequi / Daviplata:*`);
+      lines.push(`📱 ${dynamicLinks.transfer.options[0].number}`);
+      lines.push(`👤 ${dynamicLinks.transfer.options[0].name}`);
       lines.push("");
     }
   }
 
-  lines.push(`_¿Deseas confirmar tu compra ahora o tienes alguna pregunta adicional?_`);
+  lines.push(`🚀 *¿Quieres comprarlo ahora o tienes alguna pregunta?*`);
   
   return lines.join("\n");
 }
