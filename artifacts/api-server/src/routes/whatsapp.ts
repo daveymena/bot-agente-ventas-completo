@@ -5,7 +5,7 @@ import { getMetricsForAll, healthSummary, cleanupInactiveInstances } from "../li
 import { requireAdmin, tenantManager } from "../lib/tenantManager";
 import { runAgentReply } from "../lib/agent";
 import { db, conversations, messages } from "@workspace/db";
-import { and, eq } from "drizzle-orm";
+import { and, eq, desc } from "drizzle-orm";
 import { logger } from "../lib/logger";
 import { existsSync, rmSync } from "node:fs";
 import path from "node:path";
@@ -56,12 +56,28 @@ router.post("/test-ia", async (req, res, next) => {
     const tenantId = tenantIdFromReq(req);
     const { addTenantToInsert } = await import("../lib/tenantManager");
 
-    const [convo] = await db.insert(conversations).values(addTenantToInsert({
+    // Se REUSA la conversación de ese teléfono si ya existe, igual que hace
+    // WhatsApp real. Antes hacía un insert incondicional: cada llamada creaba
+    // una conversación nueva, así que el agente contestaba siempre sin
+    // historia. Probando con esta ruta parecía que el bot "perdía el hilo"
+    // (mostraba un producto y al mensaje siguiente ya no sabía cuál era),
+    // cuando en realidad era la ruta la que le borraba la memoria en cada
+    // mensaje. Una herramienta de diagnóstico que miente sobre el sistema es
+    // peor que no tenerla.
+    const telefono = req.body.phone || "test-ia";
+    const [existente] = await db
+      .select()
+      .from(conversations)
+      .where(and(eq(conversations.tenantId, tenantId), eq(conversations.contactPhone, telefono)))
+      .orderBy(desc(conversations.id))
+      .limit(1);
+
+    const convo = existente ?? (await db.insert(conversations).values(addTenantToInsert({
       contactName: "Test",
-      contactPhone: req.body.phone || "test-ia",
+      contactPhone: telefono,
       status: "ai",
       currentStage: "greeting"
-    }, tenantId)).returning();
+    }, tenantId)).returning())[0];
 
     await db.insert(messages).values({
       conversationId: convo.id,
