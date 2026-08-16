@@ -454,8 +454,27 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
         // ángulo y dejaba "destino WhatsApp" y "presupuesto" como pendientes,
         // que es absurdo (visto en vivo, 2026-08-12).
         const ENTREGABLE = /\b(copy|texto|estrategia|segmentaci|seguimiento|presupuesto|an[aá]lisis|informe|reporte|plan\b|campa|anuncio|publicaci|imagen|p[uú]blico|audiencia|m[eé]tricas?)\b/i;
+        // Además del entregable, cada parte tiene que ser una ORDEN entera y
+        // por sí sola: empezar con un verbo de acción y estar bien formada.
+        //
+        // Sin esto, partir por comas producía pedazos de frase que después se
+        // le mostraban al admin como tareas pendientes. Caso real (reporte del
+        // 16-08-2026): apareció como pendiente el texto
+        //   "descripcion y CTA) y crealo como BORRADOR ... NO lo publiques"
+        // -- un fragmento cortado dentro de un paréntesis, con la instrucción
+        // "NO lo publiques" convertida en un ítem de trabajo. Contar palabras
+        // de entregable no alcanzaba porque los PARÁMETROS de una sola tarea
+        // (presupuesto, texto, imagen) las traen igual.
+        const ACCION = /^(?:y\s+)?(?:me\s+)?(?:por\s+favor\s+)?(cre[aá]|arm[aá]|gener[aá]|analiz[aá]|investig[aá]|busc[aá]|revis[aá]|public[aá]|activ[aá]|paus[aá]|escrib[ií]|redact[aá]|list[aá]|mostr[aá]|actualiz[aá]|corrig|cambi[aá]|elimin[aá]|borr[aá]|program[aá]|calcul[aá])/i;
+        const balanceada = (p: string) =>
+          (p.match(/\(/g) || []).length === (p.match(/\)/g) || []).length;
+        const partesUtiles = partes.filter((p) => ENTREGABLE.test(p) && ACCION.test(p) && balanceada(p));
+        // Se parte SOLO si todas las partes con entregable son órdenes bien
+        // formadas: si aunque sea una es un fragmento, se trata el pedido como
+        // una sola tarea. Es preferible tardar más en un pedido que mostrarle
+        // al admin basura como si fuera trabajo pendiente.
         const conEntregable = partes.filter((p) => ENTREGABLE.test(p));
-        if (partes.length >= 3 && conEntregable.length >= 3) {
+        if (partes.length >= 3 && partesUtiles.length >= 3 && partesUtiles.length === conEntregable.length) {
           const primera = partes[0];
           partesPendientes = partes.slice(1);
           text +=

@@ -652,7 +652,7 @@ Este contenido digital es tu atajo directo a resultados profesionales.
     return `https://wa.me/${digitos}`;
   }
 
-  async createDraftAd(adAccountParam: string, accessTokenParam: string, productId: number, grounded?: ResearchGroundedCopy, manualImages?: string[], destino?: { tipo: "whatsapp"; numero: string }): Promise<DraftAd> {
+  async createDraftAd(adAccountParam: string, accessTokenParam: string, productId: number, grounded?: ResearchGroundedCopy, manualImages?: string[], destino?: { tipo: "whatsapp"; numero: string }, presupuestoDiario?: number): Promise<DraftAd> {
     // Las credenciales se resuelven SIEMPRE acá, no se confía en las que
     // manda quien llama: los tres llamadores (la ruta HTTP, la herramienta
     // fb_ad_draft de Atlas y createDraftsForAllProducts) armaban su propio
@@ -668,6 +668,18 @@ Este contenido digital es tu atajo directo a resultados profesionales.
     if (!product) throw new Error("Producto no encontrado");
 
     const strategy = this.getStrategyForProduct(product);
+    // El presupuesto que pidió el admin MANDA sobre el de la estrategia.
+    //
+    // Antes no había forma de pasarlo: el borrador se guardaba siempre con el
+    // valor fijo del nicho (Cursos -> $20.000/día), mientras Atlas le
+    // confirmaba al admin por chat el número que él había pedido. O sea, se
+    // le confirmaba un número y se guardaba OTRO, sobre un objeto cuya
+    // función es gastar dinero: si le daba "Publicar" confiando en el chat,
+    // gastaba el doble de lo autorizado. El default del nicho ahora es solo
+    // el respaldo para cuando no se pide nada.
+    if (Number.isFinite(presupuestoDiario) && (presupuestoDiario as number) > 0) {
+      strategy.budget = Math.round(presupuestoDiario as number);
+    }
     if (grounded?.researchNote) strategy.researchNote = grounded.researchNote;
     const adCopy = await this.generateAdCopy(strategy, product, grounded);
 

@@ -887,6 +887,10 @@ export async function validarContenidoAnuncio(
     prodReal.highlight,
   ].filter(Boolean).join(" ").toLowerCase();
 
+  // El mismo respaldo sin espacios ni signos, para comparar raíces de matches
+  // de varias palabras (ver ENTREGABLES más abajo).
+  const respaldoCompacto = respaldo.replace(/[^a-záéíóúñ]/g, "");
+
   // ── Citas puestas en boca de alguien real ────────────────────────
   // Encontrado revisando un anuncio ya generado (2026-08-12): el copy
   // traía 📖 "La música es una herramienta de bendición" — Edwin Jurado.
@@ -977,13 +981,32 @@ export async function validarContenidoAnuncio(
     { patron: /\basesor[ií]as?\b|\bmentor[ií]as?\b/i, que: "asesoría o mentoría" },
     { patron: /\bcomunidad\b|\bgrupo\s+(privado|exclusivo)\b/i, que: "una comunidad o grupo" },
     { patron: /\ben\s+vivo\b|\bclases?\s+en\s+directo\b/i, que: "clases en vivo" },
+    // Agregados tras el reporte de fallos del 16-08-2026: Atlas publicó
+    // "acceso de por vida, certificado y soporte personalizado" para el
+    // producto 124, cuyo registro tiene `features` VACÍO. De esas seis
+    // afirmaciones, el único que se atajaba era el certificado: las otras
+    // cinco pasaban libres. Son compromisos que se reclaman igual que una
+    // garantía -- el cliente paga esperando soporte de por vida y lo exige.
+    { patron: /\bacceso\s+(de\s+por\s+vida|permanente|ilimitado|vitalicio)\b|\bde\s+por\s+vida\b|\bpara\s+siempre\b/i, que: "acceso de por vida" },
+    { patron: /\bsoporte\b|\bacompa[nñ]amiento\b|\batenci[oó]n\s+personalizada\b/i, que: "soporte o acompañamiento" },
+    { patron: /\bactualizaciones?\b|\bcontenido\s+actualizable\b/i, que: "actualizaciones" },
+    { patron: /\bcasos?\s+de\s+[eé]xito\b|\btestimonios?\b|\bhistorias?\s+de\s+alumnos?\b|\balumnos?\s+que\s+ya\b/i, que: "casos de éxito o testimonios de alumnos" },
+    { patron: /\bdescargables?\b|\bdescargas?\s+(ilimitadas?|incluidas?)\b/i, que: "material descargable" },
+    { patron: /\bbolsa\s+de\s+empleo\b|\bsalida\s+laboral\b|\bempleo\s+garantizado\b/i, que: "salida laboral" },
   ];
   for (const p of ENTREGABLES) {
     const m = textosDelAnuncio.match(p.patron);
     if (!m) continue;
     // La raíz de la palabra alcanza: "videos"/"vídeo" comparten "ideo".
+    //
+    // La raíz sale de quitarle al match TODO lo que no es letra, así que en un
+    // match de varias palabras queda pegada ("de por vida" -> "deporv"). Por
+    // eso se compara contra el respaldo TAMBIÉN compactado: comparándola
+    // contra el texto con espacios no coincidía nunca, y un producto que sí
+    // ofrece "acceso de por vida" o "clases en vivo" quedaba bloqueado por
+    // prometer justo lo que de verdad entrega.
     const raiz = m[0].toLowerCase().replace(/[^a-záéíóúñ]/g, "").slice(0, 6);
-    if (raiz && respaldo.includes(raiz)) continue;
+    if (raiz && respaldoCompacto.includes(raiz)) continue;
     return (
       `El anuncio dice que el producto incluye ${p.que} ("${m[0]}"), y eso NO figura en los datos reales de "${prodReal.name}". ` +
       `Prometer un formato de entrega que no existe es de lo que más rápido genera un reclamo: el cliente paga esperándolo. ` +
@@ -2061,7 +2084,7 @@ export const TOOLS: ToolDef[] = [
     description: "Genera un BORRADOR de anuncio (copy, segmentación, imagen) para un producto y lo guarda localmente. Por defecto NO toca la cuenta publicitaria de Meta ni crea nada real — el admin lo revisa y decide si publicarlo después desde el panel de anuncios. Seguro de usar sin gastar dinero. REQUIERE haber investigado antes (web_search o web_fetch) en esta misma sesión, en las últimas 3 horas -- si no, la llamada falla y hay que investigar primero. " +
       "OBLIGATORIO, no opcional: SIEMPRE redactá vos mismo primaryText, headline y description COMPLETOS, con tus propias palabras, a partir de lo que investigaste -- NUNCA mandes solo hook/angle/researchNote y dejes que el sistema arme el texto por vos. Si solo pasás hook/angle, el backend arma un anuncio con una PLANTILLA FIJA (misma estructura y mismas frases siempre, solo cambia el gancho) -- eso es exactamente lo que el admin NO quiere: dijo explícitamente que el copy le sale repetido y poco dinámico. Cada producto, cada pedido, tiene que sonar distinto: variá la estructura (a veces empezá con una pregunta, a veces con una estadística, a veces con una historia corta), el ángulo (dolor vs. deseo vs. urgencia vs. prueba social) y el cierre (no repitas siempre el mismo CTA calcado). " +
       "primaryText: el anuncio completo, listo para publicar (no una plantilla con huecos). headline: título corto y de impacto (máx. ~35 caracteres, sino Meta lo recorta). description: una línea de refuerzo (precio, garantía, o el beneficio principal en pocas palabras).",
-    args: '{ "productId": number (req), "primaryText": string (req en la práctica -- el texto completo del anuncio, redactado por vos con la investigación real, NO un huequito para rellenar), "headline": string (req en la práctica -- título corto propio, no genérico), "description"?: string, "hook"?: string (opcional, solo como respaldo si por algo no pudiste redactar el texto completo), "angle"?: string (ángulo/enfoque respaldado por la investigación), "researchNote"?: string (fuente o hallazgo concreto que respalda el copy, ej: "competidores en Facebook Ads Library usan X"), "whatsapp"?: string (número CON código de país, ej "573001234567", o un enlace wa.me — si lo pasás, el anuncio lleva a una conversación de WhatsApp en vez de a la web; úsalo cuando el admin pida "tráfico a WhatsApp" o "que me escriban") }',
+    args: '{ "productId": number (req), "primaryText": string (req en la práctica -- el texto completo del anuncio, redactado por vos con la investigación real, NO un huequito para rellenar), "headline": string (req en la práctica -- título corto propio, no genérico), "description"?: string, "hook"?: string (opcional, solo como respaldo si por algo no pudiste redactar el texto completo), "angle"?: string (ángulo/enfoque respaldado por la investigación), "researchNote"?: string (fuente o hallazgo concreto que respalda el copy, ej: "competidores en Facebook Ads Library usan X"), "whatsapp"?: string (número CON código de país, ej "573001234567", o un enlace wa.me — si lo pasás, el anuncio lleva a una conversación de WhatsApp en vez de a la web; úsalo cuando el admin pida "tráfico a WhatsApp" o "que me escriban"), "dailyBudget"?: number (presupuesto diario en la moneda de la cuenta. SI EL ADMIN DICE UN PRESUPUESTO, PASALO ACÁ SIEMPRE: si no lo pasás se guarda el valor por defecto del nicho, que puede ser el doble de lo que él pidió) }',
     run: async (args, ctx) => {
       const id = num(args.productId);
       if (!id) return { ok: false, summary: "Falta 'productId'" };
@@ -2118,6 +2141,7 @@ export const TOOLS: ToolDef[] = [
         // Destino WhatsApp: cambia el tipo de campaña entera (objetivo,
         // destino del conjunto y botón), no es solo un enlace distinto.
         const wa = typeof args.whatsapp === "string" ? args.whatsapp.trim() : "";
+        const presupuestoPedido = num(args.dailyBudget) || 0;
         const draft = await new AdStrategist(tenant || undefined).createDraftAd(
           tenant?.facebook?.adAccountId || process.env.FB_AD_ACCOUNT_ID || "",
           tenant?.facebook?.userAccessToken || tenant?.facebook?.accessToken || process.env.FB_ACCESS_TOKEN || "",
@@ -2125,6 +2149,7 @@ export const TOOLS: ToolDef[] = [
           grounded,
           undefined,
           wa ? { tipo: "whatsapp", numero: wa } : undefined,
+          num(args.dailyBudget) || undefined,
         );
         // Que el admin sepa SIEMPRE sobre qué base se escribió el anuncio.
         // Si se hizo sin investigación externa (porque falló o no había), se
@@ -2155,6 +2180,15 @@ export const TOOLS: ToolDef[] = [
           `✍️ Texto principal:\n${draft.primaryText}`,
           `📄 Descripción: ${draft.description}`,
           draft.imageUrl ? `🖼️ Imagen: ${draft.imageUrl}` : `🖼️ Sin imagen asignada todavía`,
+          // El presupuesto que quedó GUARDADO, releído del borrador -- no el
+          // que el modelo creía estar guardando. Antes el summary no lo
+          // mencionaba, así que Atlas podía confirmarle al admin "$10.000/día"
+          // en prosa mientras el borrador quedaba con el default del nicho
+          // ($20.000/día) y nada lo desmentía. Sobre un objeto que gasta
+          // dinero, el número que se muestra tiene que salir del dato escrito.
+          presupuestoPedido && presupuestoPedido !== draft.strategy.budget
+            ? `💰 Presupuesto GUARDADO: $${draft.strategy.budget.toLocaleString("es-CO")}/día ⚠️ (pediste $${presupuestoPedido.toLocaleString("es-CO")}/día — decíselo al admin, no lo tapes)`
+            : `💰 Presupuesto guardado: $${draft.strategy.budget.toLocaleString("es-CO")}/día`,
           `💾 Guardado local, no se tocó la cuenta de Meta.`,
         ].join("\n\n");
         return {
@@ -2198,7 +2232,7 @@ export const TOOLS: ToolDef[] = [
   {
     name: "fb_update_draft_creative",
     description: "Cambia el TEXTO (headline/primaryText/description) de un borrador de anuncio ya existente -- si ese borrador ya es un objeto real en Meta (creadoEnMeta:true en fb_list_drafts), reconstruye el creativo real y lo repone en el anuncio (Meta no deja editar un creativo existente, así que arma uno nuevo y lo repunta; el anuncio sigue con el mismo id y el mismo estado -- PAUSED sigue PAUSED). Si el borrador todavía no existe en Meta, esto solo actualiza el borrador local. Usala cuando el admin apruebe un copy nuevo para reemplazar el de un anuncio ya creado -- no hay otra forma de lograrlo, fb_create_ad SIEMPRE crea una campaña nueva con copy autogenerado y NO acepta texto personalizado.",
-    args: '{ "draftId": number (req, id del borrador -- lo da fb_list_drafts), "headline"?: string, "primaryText"?: string, "description"?: string }',
+    args: '{ "draftId": number (req, id del borrador -- lo da fb_list_drafts), "headline"?: string, "primaryText"?: string, "description"?: string, "dailyBudget"?: number (presupuesto diario nuevo; si el anuncio ya existe en Meta también se cambia allá) }',
     run: async (_args, ctx) => {
       const draftId = Number(_args.draftId);
       if (!draftId) return { ok: false, summary: "Falta el id del borrador (usá fb_list_drafts para obtenerlo)." };
@@ -2206,13 +2240,54 @@ export const TOOLS: ToolDef[] = [
       if (typeof _args.headline === "string" && _args.headline.trim()) patch.headline = _args.headline.trim();
       if (typeof _args.primaryText === "string" && _args.primaryText.trim()) patch.primaryText = _args.primaryText.trim();
       if (typeof _args.description === "string" && _args.description.trim()) patch.description = _args.description.trim();
-      if (Object.keys(patch).length <= 1) return { ok: false, summary: "No mandaste ningún campo de texto para actualizar." };
+      // El presupuesto es editable, no solo el texto. Antes esta tool exponía
+      // únicamente campos de texto: cuando el admin pedía corregir el
+      // presupuesto de un borrador ya creado, la respuesta era "no mandaste
+      // ningún campo de texto" -- un callejón sin salida donde se le echaba la
+      // culpa al admin por pedir algo que el sistema no podía hacer.
+      const nuevoPresupuesto = num(_args.dailyBudget) || 0;
+      if (nuevoPresupuesto > 0) patch.budget = Math.round(nuevoPresupuesto);
+
+      if (Object.keys(patch).length <= 1) {
+        return { ok: false, summary: "No mandaste ningún cambio: pasá headline, primaryText, description o dailyBudget." };
+      }
 
       const [updated] = await db.update(facebookDrafts).set(patch).where(and(eq(facebookDrafts.id, draftId), eq(facebookDrafts.tenantId, ctx.tenantId))).returning();
       if (!updated) return { ok: false, summary: `No encontré el borrador ${draftId} para este negocio.` };
 
+      // El presupuesto vive en la columna `budget` y también dentro del jsonb
+      // `strategy` (de donde salió al crearse). Si se actualiza una sola, el
+      // borrador queda diciendo dos números distintos según quién lo lea.
+      if (nuevoPresupuesto > 0 && updated.strategy && typeof updated.strategy === "object") {
+        await db.update(facebookDrafts)
+          .set({ strategy: { ...(updated.strategy as any), budget: Math.round(nuevoPresupuesto) } })
+          .where(and(eq(facebookDrafts.id, draftId), eq(facebookDrafts.tenantId, ctx.tenantId)));
+      }
+
+      const cambios: string[] = [];
+      if (patch.headline || patch.primaryText || patch.description) cambios.push("el texto");
+      if (nuevoPresupuesto > 0) cambios.push(`el presupuesto a $${Math.round(nuevoPresupuesto).toLocaleString("es-CO")}/día`);
+
       if (!updated.campaignId) {
-        return { ok: true, summary: `Borrador ${draftId} actualizado (guardado local, todavía no existe en Meta).` };
+        return { ok: true, summary: `Borrador ${draftId}: se actualizó ${cambios.join(" y ")} (guardado local, todavía no existe en Meta).` };
+      }
+
+      // Si ya es un anuncio real en Meta, el presupuesto hay que cambiarlo
+      // TAMBIÉN allá: cambiarlo solo en la base dejaría al admin creyendo que
+      // bajó el gasto mientras Meta sigue gastando el monto viejo.
+      if (nuevoPresupuesto > 0 && updated.adSetId) {
+        const tenantFb = await tenantManager.getTenantById(ctx.tenantId);
+        const { FacebookService } = await import("./facebook");
+        const r = await new FacebookService(tenantFb || undefined).setAdSetBudget(updated.adSetId, Math.round(nuevoPresupuesto));
+        if (!r.ok) {
+          return {
+            ok: false,
+            summary: `Guardé el presupuesto nuevo en el borrador, pero Meta NO lo aceptó en el conjunto de anuncios: ${r.message || "error desconocido"}. La campaña real sigue gastando el monto anterior.`,
+          };
+        }
+      }
+      if (nuevoPresupuesto > 0 && !patch.headline && !patch.primaryText && !patch.description) {
+        return { ok: true, summary: `Borrador ${draftId}: presupuesto actualizado a $${Math.round(nuevoPresupuesto).toLocaleString("es-CO")}/día, también en la campaña real de Meta (sigue en ${updated.fbStatus || "PAUSED"}).` };
       }
       const { AdStrategist } = await import("./ad-strategist");
       const tenant = await tenantManager.getTenantById(ctx.tenantId);
