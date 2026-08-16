@@ -29,7 +29,13 @@ function modelosDeVision(): Array<{ proveedor: string; modelo: string }> {
     // imagenes, asi que el defecto apunta a OpenRouter, que si tiene modelos
     // multimodales gratuitos. Si no hay clave de OpenRouter, esto no resuelve
     // y el flujo cae al plan B sin romperse.
-    || "openrouter|qwen/qwen2.5-vl-72b-instruct:free,openrouter|meta-llama/llama-3.2-11b-vision-instruct:free";
+    //
+    // Estos IDs estan verificados contra el catalogo publico de OpenRouter
+    // (/api/v1/models, campo input_modalities incluye "image"). No es un
+    // detalle menor: la primera version de esta lista traia dos modelos que
+    // NO existen, y un ID inexistente falla igual de silencioso que un modelo
+    // sin vision.
+    || "openrouter|nvidia/nemotron-nano-12b-v2-vl:free,openrouter|google/gemma-4-31b-it:free";
   return crudo
     .split(",")
     .map((par) => par.trim())
