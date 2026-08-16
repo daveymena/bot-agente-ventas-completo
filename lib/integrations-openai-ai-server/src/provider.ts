@@ -70,6 +70,29 @@ function resolveOpenCodeConfig(modelOverride?: string): AIProviderConfig | null 
   return { baseUrl, apiKey, model };
 }
 
+/**
+ * Modelos que OpenCode Go LISTA en su catalogo pero que no responden.
+ * Verificado uno por uno contra la cuenta del admin (2026-08-16): de los 26
+ * que expone /models, 20 contestan y estos 6 no.
+ *
+ *   deepseek-v4-flash / -pro  403 -- solo disponibles en el host de DeepSeek
+ *   grok-4.5                  503 -- proveedor caido
+ *   hy3-preview               400 -- rechaza la peticion
+ *   mimo-v2-omni / -pro       400 -- rechazan la peticion
+ *
+ * Se listan aca para no gastar un turno del cliente descubriendolo en vivo:
+ * el catalogo del proveedor dice que existen, y solo probandolos se sabe que
+ * no sirven. Si alguno vuelve a funcionar, sacarlo de esta lista.
+ */
+const MODELOS_GO_ROTOS = new Set([
+  "deepseek-v4-flash",
+  "deepseek-v4-pro",
+  "grok-4.5",
+  "hy3-preview",
+  "mimo-v2-omni",
+  "mimo-v2-pro",
+]);
+
 export function getProviderConfig(provider: string): AIProviderConfig | null {
   switch (provider) {
     // ─── PROVEEDORES EXISTENTES ───────────────────────────────────────────────
@@ -81,10 +104,14 @@ export function getProviderConfig(provider: string): AIProviderConfig | null {
     case "opencode_go": {
       const goKey = process.env.OPENCODE_GO_API_KEY;
       if (!goKey) return null;
+      const pedido = process.env.OPENCODE_GO_MODEL || "gpt-5.6-luna";
       return {
         baseUrl: process.env.OPENCODE_GO_API_URL || "https://opencode.ai/zen/go/v1",
         apiKey: goKey,
-        model: process.env.OPENCODE_GO_MODEL || "gpt-5.6-luna",
+        // Si el modelo pedido es uno de los que Go lista pero NO responde, se
+        // cae al de referencia en vez de gastar el turno en un 403/400. Ver
+        // MODELOS_GO_ROTOS.
+        model: MODELOS_GO_ROTOS.has(pedido) ? "gpt-5.6-luna" : pedido,
       };
     }
     case "github_copilot_internal":
