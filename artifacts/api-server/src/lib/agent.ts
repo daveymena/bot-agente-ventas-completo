@@ -10,7 +10,7 @@ import {
   leads,
   settings as settingsTable,
 } from "@workspace/db";
-import { getProviderConfig, getProviderConfigFromSettings, createAIClient } from "@workspace/integrations-openai-ai-server";
+import { getProviderConfig, getProviderConfigFromSettings, createAIClient, getOpenCodeRotation } from "@workspace/integrations-openai-ai-server";
 import { logger } from "./logger";
 import { PaymentGateway } from "./payments";
 import { 
@@ -1213,10 +1213,20 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
             const cfg = getProviderConfig("opencode_go");
             if (cfg) rotationQueue.push({ config: cfg, source: "opencode_go" });
           } else if (prov === "opencode_zen") {
-            // Alias de "opencode": misma API de Zen. Estaba en la
-            // configuración del admin y tampoco tenía rama.
-            const cfg = getProviderConfig("opencode");
-            if (cfg) rotationQueue.push({ config: cfg, source: "opencode_zen" });
+            // Zen gratuito: se encolan TODOS sus modelos, no uno solo.
+            //
+            // La cuota gratuita se agota POR MODELO, no por cuenta. Medido en
+            // producción (2026-08-16): con la misma clave,
+            // deepseek-v4-flash-free devolvía 429 "cuota agotada" mientras
+            // nemotron-3-ultra-free respondía en 832ms. Usando un único
+            // modelo, agotar ese uno hacía caer TODO Zen pudiendo seguir
+            // dentro del mismo proveedor.
+            //
+            // getOpenCodeRotation() ya existía para esto y no estaba
+            // conectada a nadie.
+            for (const cfg of getOpenCodeRotation()) {
+              rotationQueue.push({ config: cfg, source: `opencode_zen/${cfg.model}` });
+            }
           } else if (prov === "nvidia_nim_bridge") {
             const cfg = getProviderConfig("nvidia_nim_bridge");
             if (cfg)
