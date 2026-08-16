@@ -626,12 +626,27 @@ export function buildMcpToolRegistry(pedido?: string): McpToolDef[] {
       };
     });
 
+  // Catálogo REAL de acciones de cambio, generado del registro.
+  //
+  // Antes la única pista de qué se podía cambiar eran tres ejemplos sueltos
+  // en este texto ("update_product, fb_create_ad, dropi_create_order"). El
+  // resto de las acciones existían pero Atlas no tenía cómo enterarse de que
+  // existían. Caso real (16-08-2026): el admin le pidió activar su campaña de
+  // piano y Atlas ni lo intentó -- `fb_resume_campaign` está implementada,
+  // pero él no sabía el nombre. Se veía como "no quiso" cuando era "no sabía
+  // que podía". Listarlas todas convierte eso en imposible.
+  const accionesDeCambio = ALL_OPERATOR_TOOLS
+    .filter((t) => !READ_ONLY_TOOLS.has(t.name) && !EXCLUDED_FROM_MCP.has(t.name))
+    .map((t) => `${t.name}: ${String(t.description || "").split(/\.\s|\. /)[0].slice(0, 110)}`);
+
   const proposeTool: McpToolDef = {
     name: "propose_action",
     description:
       "Proponer un CAMBIO real (crear/editar/eliminar algo, publicar, gastar, enviar) para que el admin lo apruebe -- NUNCA lo ejecuta. " +
-      "Pasá el nombre EXACTO de la herramienta de cambio (ej: update_product, fb_create_ad, dropi_create_order) y sus argumentos reales. " +
-      "El sistema le muestra la propuesta al admin en español llano y espera su confirmación explícita antes de aplicar nada.",
+      "Pasá el nombre EXACTO de la herramienta de cambio y sus argumentos reales. " +
+      "El sistema le muestra la propuesta al admin en español llano y espera su confirmación explícita antes de aplicar nada.\n\n" +
+      "ACCIONES DISPONIBLES (usá exactamente estos nombres; si lo que te piden está acá, PODÉS hacerlo -- no digas que no tenés cómo):\n" +
+      accionesDeCambio.map((l) => `- ${l}`).join("\n"),
     inputSchema: {
       type: "object",
       properties: {

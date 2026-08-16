@@ -2374,6 +2374,106 @@ export const TOOLS: ToolDef[] = [
     },
   },
   {
+    name: "system_diagnose",
+    description: "REVISIÓN PROFUNDA del sistema: prueba de verdad cada conexión (Facebook, WhatsApp, IA, pagos) contra el servicio real y devuelve qué está roto, POR QUÉ, y qué hacer para arreglarlo. Distinto de analyze_system, que solo cuenta filas en la base y no prueba nada. Usala cuando el admin pregunte por qué algo no funciona, qué está fallando, o si el sistema está sano. LECTURA: no cambia nada.",
+    args: "{}",
+    run: async (_args, ctx) => {
+      const fallas: Array<{ pieza: string; problema: string; arreglo: string }> = [];
+      const sanos: string[] = [];
+      const tenant = await tenantManager.getTenantById(ctx.tenantId);
+
+      // ── Facebook: se PRUEBA contra Meta, no se asume por tener token ────
+      try {
+        const { FacebookService } = await import("./facebook");
+        const fb = new FacebookService(tenant || undefined);
+        if (!fb.isConfigured()) {
+          fallas.push({ pieza: "Facebook", problema: "No está conectado (falta token o cuenta publicitaria).", arreglo: "Conectá Facebook desde la pantalla de Facebook → Configuración." });
+        } else {
+          const cams = await fb.listActiveCampaigns();
+          if (fb.lastCampaignListError) {
+            fallas.push({
+              pieza: "Facebook",
+              problema: `Meta rechazó la consulta: ${fb.lastCampaignListError}`,
+              arreglo: /expired|OAuth|190/i.test(fb.lastCampaignListError)
+                ? "El token venció. Reconectá Facebook desde Facebook → Configuración para renovarlo."
+                : "Revisá los permisos del token (ads_management, ads_read) en Facebook Developers.",
+            });
+          } else {
+            const activas = cams.filter((c) => c.effectiveStatus === "ACTIVE").length;
+            sanos.push(`Facebook conectado — ${cams.length} campaña(s), ${activas} activa(s)`);
+          }
+        }
+      } catch (e: any) {
+        fallas.push({ pieza: "Facebook", problema: e?.message || "error consultando Meta", arreglo: "Revisá la conexión de Facebook." });
+      }
+
+      // ── WhatsApp ────────────────────────────────────────────────────────
+      try {
+        const { getWhatsAppForTenant } = await import("./whatsapp-factory");
+        const s = getWhatsAppForTenant(ctx.tenantId).getStatus();
+        if (s?.state === "connected") sanos.push(`WhatsApp conectado — ${s.phone}`);
+        else fallas.push({
+          pieza: "WhatsApp",
+          problema: `No está conectado (estado: ${s?.state || "desconocido"}${s?.lastError ? `, ${s.lastError}` : ""})`,
+          arreglo: "Escaneá el código QR desde la pantalla de WhatsApp.",
+        });
+      } catch (e: any) {
+        fallas.push({ pieza: "WhatsApp", problema: e?.message || "no se pudo leer el estado", arreglo: "Revisá la pantalla de WhatsApp." });
+      }
+
+      // ── Proveedores de IA: el orden importa tanto como que existan ──────
+      try {
+        const { getProviderConfig } = await import("@workspace/integrations-openai-ai-server");
+        const orden = (process.env.AI_FALLBACK_ORDER || "").split(",").map((p) => p.trim()).filter(Boolean);
+        const conClave = orden.filter((p) => !!getProviderConfig(p)?.apiKey);
+        const sinClave = orden.filter((p) => !getProviderConfig(p)?.apiKey);
+        if (conClave.length === 0) {
+          fallas.push({ pieza: "IA", problema: "NINGÚN proveedor de IA tiene clave: el bot no puede responderle a nadie.", arreglo: "Cargá una clave en Configuración → Inteligencia Artificial." });
+        } else {
+          sanos.push(`IA: ${conClave.length} proveedor(es) con clave, primero "${conClave[0]}"`);
+          if (sinClave.length) {
+            fallas.push({
+              pieza: "IA",
+              problema: `Configurados en el orden pero SIN clave (se saltan en cada mensaje): ${sinClave.join(", ")}`,
+              arreglo: "Cargales la clave o sacalos de AI_FALLBACK_ORDER para no perder tiempo en cada respuesta.",
+            });
+          }
+        }
+      } catch (e: any) {
+        fallas.push({ pieza: "IA", problema: e?.message || "no se pudo revisar", arreglo: "Revisá Configuración → Inteligencia Artificial." });
+      }
+
+      // ── Cobros ──────────────────────────────────────────────────────────
+      try {
+        const [row] = await db.select().from(settings).limit(1);
+        const cfg: any = row?.businessConfig ? (typeof row.businessConfig === "string" ? JSON.parse(row.businessConfig) : row.businessConfig) : {};
+        const activos = ["mercadopago", "paypal", "transfer"].filter((m) => cfg?.payments?.[m]?.enabled);
+        if (activos.length === 0) {
+          fallas.push({ pieza: "Cobros", problema: "No hay ningún medio de pago activo: el cliente no tiene cómo pagar.", arreglo: "Activá al menos uno en Configuración → Cobros." });
+        } else sanos.push(`Cobros activos: ${activos.join(", ")}`);
+      } catch { /* si no se puede leer, no se inventa una falla */ }
+
+      // ── Tope de gasto en anuncios ───────────────────────────────────────
+      if (!(Number(process.env.FB_DAILY_SPEND_CAP) > 0)) {
+        fallas.push({
+          pieza: "Gasto en anuncios",
+          problema: "No hay tope diario automático: si una campaña se dispara, nada la frena sola.",
+          arreglo: "Definí FB_DAILY_SPEND_CAP con el máximo que estés dispuesto a gastar por día.",
+        });
+      } else sanos.push(`Tope de gasto diario: ${process.env.FB_DAILY_SPEND_CAP}`);
+
+      const lineas = [
+        fallas.length === 0
+          ? `✅ Todo lo que se pudo probar está funcionando (${sanos.length} piezas).`
+          : `Encontré ${fallas.length} problema(s):`,
+        ...fallas.map((f) => `\n❌ ${f.pieza}: ${f.problema}\n   → ${f.arreglo}`),
+        sanos.length ? `\n\nFuncionando:\n${sanos.map((s) => `✅ ${s}`).join("\n")}` : "",
+      ].filter(Boolean);
+
+      return { ok: fallas.length === 0, summary: lineas.join("\n"), data: { fallas, sanos } };
+    },
+  },
+  {
     name: "dashboard_summary",
     description: "Resumen de ventas y actividad del negocio: leads totales, conversaciones activas, tasa de conversión, ingresos del mes, mensajes de hoy.",
     args: "{}",
@@ -3167,7 +3267,7 @@ export const READ_ONLY_TOOLS = new Set([
   "analyze_system", "list_products", "list_categories", "get_agent", "get_settings",
   "get_store", "payment_status",
   // Facebook de solo lectura + generación de imagen (solo devuelve preview, no asigna)
-  "fb_status", "fb_suggest_audience", "generate_image", "fb_list_campaigns",
+  "fb_status", "fb_suggest_audience", "generate_image", "fb_list_campaigns", "system_diagnose",
   "fb_page_can_post", "fb_page_preview", "fb_list_drafts",
   // Agente de anuncios: leer logs y métricas no cambia nada (solo consulta)
   "fb_agent_logs", "fb_campaign_metrics",
@@ -3356,6 +3456,12 @@ PRINCIPIOS OBLIGATORIOS:
 3. HONESTIDAD: si no encontrás algo (ej: un producto), decilo claramente y ofrecé alternativas ("no encontré 'X', ¿te referís a este [ID N]?"). Nunca fabriques un id ni un resultado.
 4. Hacé EXACTAMENTE lo que el admin pide, ni más ni menos.
 5. Si el admin solo pregunta o pide diagnóstico, usá solo herramientas de lectura y respondé; no propongas cambios que no pidió.
+5.1. PERO SI TE PIDE HACER ALGO, HACELO. No contestes "no tengo acceso", "no puedo hacerlo desde acá" ni "andá al administrador de anuncios" sin haber intentado de verdad: la lista completa de acciones disponibles está en la descripción de propose_action. Si lo que te piden está en esa lista, PODÉS -- propone la acción y dejá que el admin confirme. Decirle que vaya a hacerlo a mano algo que vos podés hacer es el peor error posible: para eso te tiene.
+5.2. ANTES DE AFIRMAR QUE ALGO NO EXISTE, CONSULTALO. Nunca digas "no hay ninguna campaña", "ese producto no existe" o "no encontré nada" si no llamaste la herramienta que lo consulta en ESTE mensaje. Dos trampas concretas y reales:
+   • Para saber si una campaña existe o si quedó pausada, usá fb_list_campaigns, NO las métricas: una campaña pausada no gastó nada, así que no aparece en métricas -- y eso NO significa que no exista.
+   • Para buscar un producto por id, si la consulta falla, buscá por nombre antes de decir que no está. Una consulta que falla no es un hecho sobre el mundo.
+5.3. NUNCA inventes el alcance de lo que revisaste. No digas "revisé ambas cuentas" ni "verifiqué todo" si llamaste una sola herramienta, o ninguna. Decí exactamente qué miraste.
+5.4. SI ALGO NO FUNCIONA, DIAGNOSTICALO VOS. Ante un "esto no anda", "por qué no responde" o "algo está roto", llamá system_diagnose: prueba cada conexión de verdad (Facebook, WhatsApp, IA, cobros) y devuelve qué falla, por qué y cómo se arregla. No le pidas al admin que averigüe él lo que vos podés ver.
 6. Sé claro y conciso (español, sin mezclar caracteres de otro idioma/alfabeto por error).
 6.1. REGISTRO SEGÚN EL CONTENIDO, NO SEGÚN CÓMO PREGUNTÓ: el emoji por línea (regla 8) sigue siendo el formato normal para cualquier respuesta con contenido real -- datos, hallazgos, varios puntos, un diagnóstico, una lista, un plan -- AUNQUE la pregunta haya sido casual ("che, ¿cómo ves las ventas?", "¿y eso por qué pasa?"). El admin prefiere ese formato, ayuda a leer rápido; no lo elimines. Lo único que cambia a prosa corta y natural, sin emoji por línea, es cuando la respuesta NO tiene contenido informativo real: un saludo, un "dale", un "jaja", un agradecimiento, charla pura sin datos que transmitir -- ahí un menú o una lista no tiene nada que organizar, así que no la fuerces.
 6.2. Sea cual sea el registro: NUNCA uses encabezados markdown (##, ###) ni te firmes con una etiqueta de personaje tipo "Análisis de Situación:", "Diagnóstico:" o "Recomendación como Director de Marketing:" -- eso suena a informe de consultora, no a alguien que te está ayudando. Decí el hallazgo o la recomendación directo, con una línea de emoji si hace falta (ej: "🎯 Para cerrar esa venta, yo le mandaría...").
