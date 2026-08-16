@@ -28,9 +28,17 @@ function verifyFacebookSignature(req: Request, res: Response, next: NextFunction
     logger.warn("[Facebook] FB_APP_SECRET no configurado — firma de webhook NO verificada");
     return next();
   }
+  // Si HAY App Secret, la firma es obligatoria.
+  //
+  // Antes, un webhook sin el header `x-hub-signature-256` pasaba igual, "para
+  // no romper despliegues existentes". Eso dejaba la verificación en cero:
+  // quien quisiera inyectar eventos falsos no tenía que falsificar ninguna
+  // firma, le alcanzaba con NO mandarla. Un control que se puede saltar
+  // omitiéndolo no es un control. Facebook firma siempre sus POST, así que
+  // exigirlo no rompe nada legítimo.
   if (!signature || !rawBody) {
-    logger.warn("[Facebook] Webhook sin firma o sin body crudo — permitido pero sin verificar");
-    return next();
+    logger.warn({ tieneFirma: !!signature, tieneBody: !!rawBody }, "[Facebook] Webhook sin firma — rechazado");
+    return res.status(403).json({ error: "Missing signature" });
   }
 
   try {
@@ -55,7 +63,15 @@ router.get("/lead-ads/webhook", (req: Request, res: Response) => {
   const token = req.query["hub.verify_token"] as string;
   const challenge = req.query["hub.challenge"] as string;
 
-  const verifyToken = process.env.FB_WEBHOOK_VERIFY_TOKEN || "salesbot_verify_2024";
+  // Sin token configurado NO se verifica nada. Antes caía a un valor fijo
+  // escrito en el código ("salesbot_verify_2024"): si la variable faltaba,
+  // cualquiera que conociera ese valor público -- está en el repo -- podía
+  // suscribir su propio webhook y empezar a inyectar eventos.
+  const verifyToken = process.env.FB_WEBHOOK_VERIFY_TOKEN || "";
+  if (!verifyToken) {
+    logger.error("[Facebook] FB_WEBHOOK_VERIFY_TOKEN sin configurar — no se puede verificar el webhook");
+    return res.status(503).json({ error: "Webhook verify token not configured" });
+  }
 
   if (mode === "subscribe" && token === verifyToken) {
     logger.info("[Facebook] Webhook verificado exitosamente");
@@ -191,7 +207,12 @@ router.get("/messenger/webhook", (req: Request, res: Response) => {
   const mode = req.query["hub.mode"] as string;
   const token = req.query["hub.verify_token"] as string;
   const challenge = req.query["hub.challenge"] as string;
-  const verifyToken = process.env.FB_MESSENGER_VERIFY_TOKEN || "salesbot_messenger_2024";
+  // Mismo motivo que en lead-ads: nada de token por defecto escrito en el código.
+  const verifyToken = process.env.FB_MESSENGER_VERIFY_TOKEN || "";
+  if (!verifyToken) {
+    logger.error("[FB-Messenger] FB_MESSENGER_VERIFY_TOKEN sin configurar — no se puede verificar el webhook");
+    return res.status(503).json({ error: "Webhook verify token not configured" });
+  }
   if (mode === "subscribe" && token === verifyToken) {
     logger.info("[FB-Messenger] Webhook verified");
     return res.status(200).send(challenge);

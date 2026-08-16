@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { useStore, Product } from '../store/useStore';
-import { Search, Star, ShoppingCart, Heart, Store, Package, Download, Box, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Search, ShoppingCart, Heart, Store, Package, Download, Box, ChevronLeft, ChevronRight } from 'lucide-react';
 import { motion } from 'framer-motion';
 import Swal from 'sweetalert2';
 import { trackAddToCart, trackInitiateCheckout } from '../lib/pixel';
@@ -119,11 +119,17 @@ export const ProductCard = ({ product, slug }: { product: Product; slug: string 
           {product.name}
         </Link>
 
-        <div className="flex items-center gap-1">
-          <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
-          <span className="text-xs font-bold text-gray-700">5.0</span>
-          <span className="text-xs text-gray-400">(128)</span>
-        </div>
+        {/* Acá había un "★ 5.0 (128)" FIJO, idéntico en los 84 productos.
+            Con cero ventas registradas esas 128 reseñas no existen: es prueba
+            social fabricada. Además de que el mismo (128) repetido en todo el
+            catálogo se nota a simple vista, en Colombia cae bajo el Estatuto
+            del Consumidor y Meta puede rechazar anuncios que lleven a una
+            landing así. Se muestra solo cuando hay reseñas de verdad; mientras
+            no las haya, no se muestra nada -- un catálogo sin estrellas es más
+            creíble que uno con estrellas clonadas. */}
+        {/* No se muestra ninguna calificación: no existe sistema de reseñas,
+            así que cualquier estrella sería inventada. Cuando haya reseñas
+            reales, mostrar acá el promedio y el conteo VERDADEROS. */}
 
         <div className="mt-auto pt-2">
           <span className="text-lg font-black text-gray-900">{formatPrice(product.price)}</span>
@@ -212,6 +218,11 @@ const Shop = () => {
       }))
     : localProducts;
 
+  // Qué vende REALMENTE esta tienda, para no prometer envíos que no existen
+  // ni entrega digital de algo que se manda por correo (ver el hero abajo).
+  const hayFisicos = products.some(p => p.type === 'physical');
+  const hayDigitales = products.some(p => p.type !== 'physical');
+
   const [filter, setFilter] = useState('all');
   const [searchTerm, setSearchTerm] = useState(searchQuery || '');
 
@@ -268,10 +279,26 @@ const Shop = () => {
         <div className="relative z-10 max-w-lg">
           <p className="text-[var(--store-primary)] text-xs font-bold uppercase tracking-widest mb-2">Nueva colección</p>
           <h1 className="text-2xl sm:text-4xl font-black mb-2 leading-tight">Encuentra lo que buscas</h1>
-          <p className="text-sm text-gray-300 mb-4">Productos físicos y digitales en un solo lugar</p>
+          {/* El hero prometía "Envío a todo el país" y "productos físicos y
+              digitales" SIEMPRE, aunque el catálogo fuera 100% digital (en
+              esta tienda: 84 de 84). Prometer un envío que no existe genera
+              reclamos y disputas de pago. No se reemplaza por un texto
+              digital fijo porque otra tienda sí puede vender físico: se dice
+              lo que el catálogo REALMENTE tiene. */}
+          <p className="text-sm text-gray-300 mb-4">
+            {hayFisicos && hayDigitales
+              ? "Productos físicos y digitales en un solo lugar"
+              : hayFisicos
+                ? "Productos seleccionados, con envío a tu puerta"
+                : "Acceso inmediato, sin esperas ni envíos"}
+          </p>
           <div className="flex flex-wrap gap-2">
-            <span className="bg-[var(--store-primary)] text-[var(--store-on-primary)] px-3 py-1.5 rounded-lg text-xs font-bold">🚚 Envío a todo el país</span>
-            <span className="bg-white/10 text-white px-3 py-1.5 rounded-lg text-xs font-bold backdrop-blur-sm">⚡ Entrega digital inmediata</span>
+            {hayFisicos && (
+              <span className="bg-[var(--store-primary)] text-[var(--store-on-primary)] px-3 py-1.5 rounded-lg text-xs font-bold">🚚 Envío a todo el país</span>
+            )}
+            {hayDigitales && (
+              <span className="bg-white/10 text-white px-3 py-1.5 rounded-lg text-xs font-bold backdrop-blur-sm">⚡ Entrega digital inmediata</span>
+            )}
           </div>
         </div>
       </div>

@@ -1469,14 +1469,30 @@ export class WhatsAppManager {
                 console.log("🔍 Estructura completa del mensaje:");
                 console.log(JSON.stringify(msgObj, null, 2).substring(0, 1000));
                 
-                // Intentar extraer cualquier string que parezca texto
+                // Último recurso: rebuscar cualquier cadena del mensaje que
+                // parezca texto escrito por una persona.
+                //
+                // JSON.stringify devuelve también los NOMBRES DE LOS CAMPOS,
+                // no solo los valores, y este rebusque los tomaba como si
+                // fueran el mensaje del cliente: en el panel llegó a quedar
+                // una conversación cuyo último mensaje era, literalmente,
+                // "messageContextInfo" -- un campo del protocolo de WhatsApp
+                // mostrado como si el cliente lo hubiera escrito, y peor,
+                // metido al agente como si fuera su consulta. Se descartan las
+                // cadenas que no parecen lenguaje humano.
+                const PARECE_CAMPO_TECNICO = /^[a-z]+([A-Z][a-zA-Z0-9]*)+$/;      // messageContextInfo, deviceListMetadata
+                const PARECE_IDENTIFICADOR = /^[A-Za-z0-9+/=_-]{16,}$/;           // claves, hashes, ids en base64
                 const allStrings = JSON.stringify(msgObj).match(/"[^"]{3,}"/g);
                 if (allStrings && allStrings.length > 0) {
                   const potentialText = allStrings
                     .map(s => s.slice(1, -1)) // Remover comillas
                     .filter(s => s.length > 2 && !s.includes('http') && !s.includes('@') && !/^\d+$/.test(s))
+                    .filter(s => !PARECE_CAMPO_TECNICO.test(s) && !PARECE_IDENTIFICADOR.test(s))
+                    // Texto de verdad: tiene espacios, o es una palabra suelta
+                    // corta y en minúsculas ("hola", "si", "cuanto").
+                    .filter(s => /\s/.test(s.trim()) || /^[a-záéíóúñ¿¡?!.,]{2,15}$/i.test(s.trim()))
                     .find(s => /[a-zA-ZáéíóúÁÉÍÓÚñÑ]/.test(s)); // Contiene letras
-                  
+
                   if (potentialText) {
                     text = potentialText;
                     console.log("🎯 Texto potencial encontrado:", text);

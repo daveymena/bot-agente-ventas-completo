@@ -1030,9 +1030,23 @@ export default function FacebookAdsPage() {
                     )}
                     <div className="space-y-2">
                       <Label>Webhook Verify Token</Label>
-                      <Input value="salesbot_messenger_2024" readOnly className="font-mono text-sm" />
+                      {/* Acá había un valor FIJO escrito en el código
+                          ("salesbot_messenger_2024") que NO es el token que el
+                          servidor valida. Quien lo copiaba a Facebook
+                          Developers se quedaba con la verificación del webhook
+                          fallando sin entender por qué. Ahora se muestra el
+                          token real del negocio, y si no hay ninguno se dice
+                          en vez de inventar uno. */}
+                      <Input
+                        value={config.messengerVerifyToken || ""}
+                        readOnly
+                        placeholder="Sin configurar — poné uno en Configuración y usá ESE en Meta"
+                        className="font-mono text-sm"
+                      />
                       <p className="text-xs text-muted-foreground">
-                        Usa este token al configurar el webhook en Facebook Developers. La URL del webhook es:
+                        {config.messengerVerifyToken
+                          ? "Usa este token al configurar el webhook en Facebook Developers. La URL del webhook es:"
+                          : "Todavía no hay token propio: cargá uno arriba y usá ese mismo en Facebook Developers. La URL del webhook es:"}
                         <code className="block mt-1 p-1 bg-muted rounded text-xs break-all">{window.location.origin}/api/facebook/messenger/webhook</code>
                       </p>
                     </div>
@@ -1069,7 +1083,11 @@ export default function FacebookAdsPage() {
                       <AlertDescription>
                         Para activar la respuesta automática a comentarios, configura el webhook de Facebook en:
                         <code className="block mt-1 p-1 bg-muted rounded text-xs break-all">{window.location.origin}/api/facebook/comments/webhook</code>
-                        <span className="block mt-1 text-xs">Verify Token: <strong>salesbot_messenger_2024</strong></span>
+                        {/* Mismo caso que en Messenger: el valor fijo que
+                            estaba acá no es el que el servidor valida. */}
+                        <span className="block mt-1 text-xs">
+                          Verify Token: <strong>{config.messengerVerifyToken || "sin configurar — cargá uno en Configuración"}</strong>
+                        </span>
                       </AlertDescription>
                     </Alert>
                     <p className="text-sm text-muted-foreground">
