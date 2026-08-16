@@ -56,6 +56,29 @@ export type LeadStage =
   | "converted"
   | "lost";
 
+/**
+ * Traducción del vocabulario de PUNTAJE al del EMBUDO del CRM.
+ *
+ * Son dos vocabularios distintos que compartían la misma columna: este módulo
+ * clasifica temperatura del lead (cold/warm/hot...) y el CRM tiene etapas de
+ * embudo (new/contacted/qualified/proposal/won/lost). Escribir uno donde se
+ * espera el otro es lo que dejaba la pantalla de Prospectos en blanco.
+ *
+ * "converted" NO se traduce a "won" a propósito: que la IA crea que el cliente
+ * se convirtió no es un pago. Ganar un trato exige confirmación de la pasarela
+ * o del admin (ver los webhooks de pago y confirm_transfer_payment).
+ */
+const ETAPA_CRM_DESDE_PUNTAJE: Record<string, string> = {
+  cold: "new",
+  warm: "contacted",
+  hot: "qualified",
+  qualified: "qualified",
+  negotiating: "proposal",
+  closing: "proposal",
+  converted: "proposal",
+  lost: "lost",
+};
+
 // The structured response we ask the AI to return
 interface AILeadAnalysis {
   stage: LeadStage;
@@ -313,13 +336,26 @@ export class LeadScoringEngine {
         .where(eq(conversations.id, conversationId));
 
       if (conversation.leadId) {
-        await db
-          .update(leads)
-          .set({
-            stage: leadScore.stage,
-            value: leadScore.totalScore.toString()
-          })
-          .where(eq(leads.id, conversation.leadId));
+        // El puntaje NO se escribe en `value`.
+        //
+        // `value` es el MONTO del trato -- de ahí sale "ingresos del mes" del
+        // panel. Guardar ahí el puntaje del lead (un número de 0 a 100)
+        // mezclaba dos cosas que no tienen nada que ver: un lead con puntaje
+        // 85 figuraba como una venta de $85.
+        //
+        // Y la etapa se traduce al vocabulario del CRM. Este módulo usa el
+        // suyo (cold/warm/hot/negotiating...) y lo escribía tal cual en la
+        // MISMA columna que el CRM lee como new/contacted/qualified/... Con
+        // eso, GET /api/leads devolvía 400 y la pantalla de Prospectos
+        // quedaba en blanco: la validación rechazaba la lista ENTERA por unas
+        // pocas filas con "cold"/"warm".
+        const etapaCrm = ETAPA_CRM_DESDE_PUNTAJE[leadScore.stage];
+        if (etapaCrm) {
+          await db
+            .update(leads)
+            .set({ stage: etapaCrm })
+            .where(eq(leads.id, conversation.leadId));
+        }
       }
 
       logger.info({

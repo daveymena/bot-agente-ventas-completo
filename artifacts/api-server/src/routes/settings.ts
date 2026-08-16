@@ -23,9 +23,22 @@ router.get("/", async (_req, res, next) => {
   }
 });
 
+/** Campos que nunca vuelven completos al navegador (ver serializeSettings). */
+const SECRETOS_DE_IA = ["githubToken", "copilotSessionToken", "nvidiaApiKey"] as const;
+
 router.patch("/", async (req, res, next) => {
   try {
     const body = UpdateSettingsBody.parse(req.body);
+    // Como al leer se devuelven enmascarados, el navegador puede reenviar la
+    // MÁSCARA al guardar cualquier otro campo. Sin este filtro, guardar el
+    // nombre del negocio pisaría el token real con "••••1234" y dejaría la IA
+    // sin credenciales. Vacío o enmascarado = no lo toques.
+    for (const campo of SECRETOS_DE_IA) {
+      const v = (body as any)[campo];
+      if (typeof v === "string" && (v.includes("•") || v.trim() === "")) {
+        delete (body as any)[campo];
+      }
+    }
     const current = await getOrCreate();
     const [updated] = await db
       .update(settings)
@@ -146,6 +159,13 @@ function parseKeywords(val: unknown): string[] {
   return [];
 }
 
+/** Deja ver que hay un secreto cargado, sin entregarlo. */
+function enmascarar(valor: string | null | undefined): string {
+  const v = String(valor || "");
+  if (!v) return "";
+  return v.length <= 4 ? "••••" : `••••${v.slice(-4)}`;
+}
+
 function serialize(row: typeof settings.$inferSelect) {
   return {
     businessName: row.businessName,
@@ -157,11 +177,20 @@ function serialize(row: typeof settings.$inferSelect) {
     offHoursMessage: row.offHoursMessage,
     escalationKeywords: parseKeywords(row.escalationKeywords),
     aiProvider: row.aiProvider,
-    githubToken: row.githubToken,
+    // Los tokens de IA salían COMPLETOS al navegador: el de GitHub (40
+    // caracteres) y el de sesión de Copilot (395). Cualquier XSS o extensión
+    // instalada se los llevaba. Las credenciales de cobro de esta misma app ya
+    // se manejan bien (cifradas, y solo se muestran los últimos 4); acá no se
+    // había aplicado el mismo criterio. Se enmascaran igual, y los flags
+    // dicen si hay algo cargado sin revelar qué.
+    githubToken: enmascarar(row.githubToken),
+    hasGithubToken: !!row.githubToken,
     githubModel: row.githubModel,
-    copilotSessionToken: row.copilotSessionToken,
+    copilotSessionToken: enmascarar(row.copilotSessionToken),
+    hasCopilotSessionToken: !!row.copilotSessionToken,
     copilotSessionExpiresAt: row.copilotSessionExpiresAt,
-    nvidiaApiKey: row.nvidiaApiKey,
+    nvidiaApiKey: enmascarar(row.nvidiaApiKey),
+    hasNvidiaApiKey: !!row.nvidiaApiKey,
     nvidiaModel: row.nvidiaModel,
     ollamaUrl: row.ollamaUrl,
     ollamaModel: row.ollamaModel,

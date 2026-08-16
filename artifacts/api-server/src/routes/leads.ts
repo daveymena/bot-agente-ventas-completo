@@ -12,6 +12,7 @@ import {
   UpdateLeadResponse,
 } from "@workspace/api-zod";
 import { db, leads, activityEvents } from "@workspace/db";
+import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
 
@@ -35,7 +36,39 @@ router.get("/", async (req, res, next) => {
       .from(leads)
       .where(and(...filters))
       .orderBy(desc(leads.createdAt));
-    return res.json(ListLeadsResponse.parse(rows.map(serialize)));
+
+    // Etapas viejas guardadas con el vocabulario del puntaje de leads
+    // (cold/warm/hot...) en vez del embudo del CRM. El origen ya está
+    // corregido (leadScoring.ts traduce antes de escribir), pero las filas
+    // que quedaron de antes seguirían rompiendo la lista.
+    const EQUIVALENCIAS: Record<string, string> = {
+      cold: "new", warm: "contacted", hot: "qualified",
+      negotiating: "proposal", closing: "proposal", converted: "proposal",
+      greeting: "new", discovery: "contacted", details: "qualified",
+      presentation: "qualified", objection_handling: "proposal",
+    };
+
+    // Fila por fila: una sola inválida NO puede tumbar la lista entera.
+    //
+    // Antes era un parse del array completo: con 3 filas en "cold"/"warm",
+    // GET /api/leads devolvía 400 y la pantalla de Prospectos quedaba en
+    // blanco -- sin filas, sin error, sin "no hay prospectos" -- aunque el
+    // panel siguiera contando 5. Se perdían también las 2 filas sanas.
+    const validas: any[] = [];
+    let descartadas = 0;
+    for (const row of rows) {
+      const normalizada = serialize({
+        ...row,
+        stage: EQUIVALENCIAS[String(row.stage || "")] || row.stage,
+      });
+      const r = ListLeadsResponse.element.safeParse(normalizada);
+      if (r.success) validas.push(r.data);
+      else descartadas++;
+    }
+    if (descartadas > 0) {
+      logger.warn({ descartadas, total: rows.length, tenantId }, "[Leads] Filas con datos inválidos omitidas de la lista");
+    }
+    return res.json(validas);
   } catch (e) {
     return next(e);
   }
