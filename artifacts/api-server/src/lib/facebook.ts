@@ -962,6 +962,60 @@ Responde SOLO con este JSON exacto:
   /** Conjuntos de anuncios de una campaña, con su presupuesto y estado --
    * necesario para que el panel sepa a QUÉ conjunto cambiarle el presupuesto
    * (el presupuesto vive en el conjunto, no en la campaña). */
+  /**
+   * Estructura completa de una campaña: conjuntos y, dentro, sus anuncios.
+   *
+   * Hace falta porque el estado que muestra Meta arriba engaña. Caso real
+   * (16-08-2026): la campaña de piano figuraba ACTIVE y no entregaba nada --
+   * el único anuncio de su conjunto activo estaba pausado, y el otro anuncio
+   * colgaba de un conjunto pausado. Con solo mirar la campaña es imposible
+   * saberlo, y el admin creía estar pagando por algo que no corría.
+   */
+  async estructuraDeCampana(campaignId: string): Promise<{
+    conjuntos: Array<{
+      id: string; nombre: string; estado: string; presupuestoDiario: number;
+      anuncios: Array<{ id: string; nombre: string; estado: string; configurado: string }>;
+    }>;
+    entregando: boolean;
+  } | null> {
+    try {
+      const cs = await this.fbGet(`${campaignId}/adsets`,
+        { fields: "id,name,effective_status,daily_budget", limit: "50" }, this.config.userAccessToken);
+      const ads = await this.fbGet(`${campaignId}/ads`,
+        { fields: "id,name,effective_status,configured_status,adset_id", limit: "100" }, this.config.userAccessToken);
+
+      const conjuntos = (cs.data || []).map((c: any) => ({
+        id: c.id,
+        nombre: c.name,
+        estado: c.effective_status || c.status,
+        presupuestoDiario: Number(c.daily_budget || 0),
+        anuncios: (ads.data || [])
+          .filter((a: any) => a.adset_id === c.id)
+          .map((a: any) => ({ id: a.id, nombre: a.name, estado: a.effective_status, configurado: a.configured_status })),
+      }));
+      // Entrega de verdad solo si hay al menos un anuncio ACTIVE dentro de un
+      // conjunto ACTIVE. Cualquier otra combinación no muestra el anuncio a
+      // nadie, por más que la campaña diga "activa".
+      const entregando = conjuntos.some((c: any) =>
+        c.estado === "ACTIVE" && c.anuncios.some((a: any) => a.estado === "ACTIVE"));
+      return { conjuntos, entregando };
+    } catch (err: any) {
+      logger.warn({ err, campaignId }, "[Facebook] No se pudo leer la estructura de la campaña");
+      return null;
+    }
+  }
+
+  /** Enciende o apaga UN anuncio puntual, sin tocar su conjunto ni la campaña. */
+  async setAdStatus(adId: string, activo: boolean): Promise<{ ok: boolean; message?: string }> {
+    try {
+      await this.fbPost(adId, { status: activo ? "ACTIVE" : "PAUSED" },
+        activo ? "activar anuncio" : "pausar anuncio", this.config.userAccessToken);
+      return { ok: true };
+    } catch (err: any) {
+      return { ok: false, message: err?.message || "Meta rechazó el cambio de estado del anuncio" };
+    }
+  }
+
   async listAdSets(campaignId: string): Promise<Array<{ id: string; name: string; status: string; dailyBudget: number }>> {
     try {
       const res = await this.fbGet(

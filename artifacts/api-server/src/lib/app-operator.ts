@@ -1095,6 +1095,7 @@ export async function bloqueoDeMeta(
     fb_set_budget: "ads",
     fb_update_draft_creative: "ads",
     fb_upload_draft_to_meta: "ads",
+    fb_set_ad_status: "ads",
     fb_sync_catalog: "ads",
   };
   const necesita = NECESITAN_META[tool];
@@ -2991,6 +2992,85 @@ export const TOOLS: ToolDef[] = [
     },
   },
   {
+    name: "fb_why_not_delivering",
+    description: "Explica por qué una campaña NO está mostrando anuncios, aunque figure como activa. Abre la campaña entera (conjuntos y anuncios) y dice exactamente cuál está apagado y qué hay que encender. Usala SIEMPRE que el admin diga que una campaña no trae clientes, no gasta o 'está activa pero no pasa nada'. El estado que muestra Meta arriba engaña: una campaña puede decir ACTIVA y no entregar nada porque el anuncio de adentro está pausado. LECTURA, no cambia nada.",
+    args: '{ "campaignId": string (req, id de la campaña -- lo da fb_list_campaigns) }',
+    run: async (args, ctx) => {
+      const campaignId = String(args.campaignId || "").trim();
+      if (!campaignId) return { ok: false, summary: "Falta el id de la campaña (usá fb_list_campaigns para obtenerlo)." };
+      const tenant = await tenantManager.getTenantById(ctx.tenantId);
+      const { FacebookService } = await import("./facebook");
+      const fb = new FacebookService(tenant || undefined);
+      if (!fb.isConfigured()) return { ok: false, summary: "Facebook no está conectado." };
+
+      const est = await fb.estructuraDeCampana(campaignId);
+      if (!est) return { ok: false, summary: "No pude leer la estructura de esa campaña en Meta." };
+
+      const lineas: string[] = [];
+      const acciones: string[] = [];
+      for (const c of est.conjuntos) {
+        const pres = c.presupuestoDiario ? ` · $${c.presupuestoDiario.toLocaleString("es-CO")}/día` : "";
+        lineas.push(`📦 Conjunto ${c.estado === "ACTIVE" ? "ACTIVO" : c.estado}${pres}`);
+        if (c.anuncios.length === 0) lineas.push(`   (sin anuncios adentro)`);
+        for (const a of c.anuncios) {
+          lineas.push(`   📄 Anuncio ${a.estado}`);
+          if (c.estado === "ACTIVE" && a.estado !== "ACTIVE") {
+            acciones.push(`Activar el anuncio ${a.id} (su conjunto ya está activo: con eso empieza a entregar, gastando $${c.presupuestoDiario.toLocaleString("es-CO")}/día).`);
+          }
+        }
+      }
+
+      if (est.entregando) {
+        return { ok: true, summary: `Esta campaña SÍ está entregando: hay al menos un anuncio activo dentro de un conjunto activo.\n\n${lineas.join("\n")}`, data: est };
+      }
+
+      // Se dice qué encender, y NO se sugiere activar conjuntos pausados sin
+      // avisar del costo: cada conjunto suma su propio presupuesto diario.
+      const conjuntosApagados = est.conjuntos.filter((c) => c.estado !== "ACTIVE");
+      if (acciones.length === 0 && conjuntosApagados.length) {
+        acciones.push(
+          `Todos los conjuntos están pausados. Activar uno suma $${conjuntosApagados[0]!.presupuestoDiario.toLocaleString("es-CO")}/día; ` +
+          `si activás varios, se suman TODOS los presupuestos. Elegí uno solo salvo que quieras multiplicar el gasto.`,
+        );
+      }
+
+      return {
+        ok: true,
+        summary:
+          `❌ Esta campaña NO está entregando: no hay ningún anuncio activo dentro de un conjunto activo. ` +
+          `Por eso figura como activa y no trae clientes ni gasta.\n\n${lineas.join("\n")}\n\n` +
+          `Para que corra:\n${acciones.map((a) => `→ ${a}`).join("\n")}`,
+        data: est,
+      };
+    },
+  },
+  {
+    name: "fb_set_ad_status",
+    description: "Enciende o apaga UN anuncio puntual dentro de una campaña, sin tocar su conjunto ni la campaña. Es lo que hace falta cuando una campaña figura activa pero su anuncio está pausado (fb_resume_campaign NO alcanza: reactiva la campaña y los conjuntos, pero no los anuncios, y de paso puede encender conjuntos pausados y multiplicar el gasto). Conseguí el id del anuncio con fb_why_not_delivering. ACTIVAR HACE QUE EMPIECE A GASTAR.",
+    args: '{ "adId": string (req, id del ANUNCIO, no de la campaña), "activar": boolean (req, true para encenderlo, false para pausarlo) }',
+    run: async (args, ctx) => {
+      const adId = String(args.adId || "").trim();
+      if (!adId) return { ok: false, summary: "Falta el id del anuncio (usá fb_why_not_delivering para obtenerlo)." };
+      if (typeof args.activar !== "boolean") return { ok: false, summary: "Falta 'activar' (true para encender, false para pausar)." };
+      const bloqueo = await bloqueoDeMeta("fb_set_ad_status", ctx);
+      if (bloqueo) return { ok: false, summary: bloqueo };
+
+      const tenant = await tenantManager.getTenantById(ctx.tenantId);
+      const { FacebookService } = await import("./facebook");
+      const fb = new FacebookService(tenant || undefined);
+      if (!fb.isConfigured()) return { ok: false, summary: "Facebook no está conectado." };
+
+      const r = await fb.setAdStatus(adId, args.activar);
+      if (!r.ok) return { ok: false, summary: r.message || "Meta no aceptó el cambio." };
+      return {
+        ok: true,
+        summary: args.activar
+          ? `Anuncio ${adId} ACTIVADO: si su conjunto está activo, ya empezó a mostrarse y a gastar.`
+          : `Anuncio ${adId} pausado: dejó de mostrarse y de gastar.`,
+      };
+    },
+  },
+  {
     name: "fb_list_campaigns",
     description: "Lista TODAS las campañas de la cuenta publicitaria con su estado REAL (activa, pausada, en revisión, etc.), incluidas las PAUSADAS. Usá ESTA -- no fb_campaign_metrics -- cuando el admin pregunte si una campaña existe, si está activa o si quedó pausada. Las métricas solo muestran campañas CON GASTO en la ventana consultada: una campaña pausada no gastó nada, así que no aparece ahí, y eso NO significa que no exista. LECTURA, no cambia nada.",
     args: "{}",
@@ -3290,7 +3370,7 @@ export const READ_ONLY_TOOLS = new Set([
   "analyze_system", "list_products", "list_categories", "get_agent", "get_settings",
   "get_store", "payment_status",
   // Facebook de solo lectura + generación de imagen (solo devuelve preview, no asigna)
-  "fb_status", "fb_suggest_audience", "generate_image", "fb_list_campaigns", "system_diagnose",
+  "fb_status", "fb_suggest_audience", "generate_image", "fb_list_campaigns", "system_diagnose", "fb_why_not_delivering",
   "fb_page_can_post", "fb_page_preview", "fb_list_drafts",
   // Agente de anuncios: leer logs y métricas no cambia nada (solo consulta)
   "fb_agent_logs", "fb_campaign_metrics",
