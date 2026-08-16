@@ -1005,10 +1005,21 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
   //    presupuesto de tokens en reasoning_content y devuelve content vacío →
   //    NO sirve para chat. Se reemplaza por modelos que sí devuelven contenido.
   //  - "qwen3.6-plus-free" y "nemotron-3-super-free" NO existen en la API.
+  // Los modelos salen del entorno, no del código. Estaban incrustados acá y
+  // eso hacía que OPENCODE_MODEL no sirviera para nada: el admin cambiaba la
+  // variable en EasyPanel, reiniciaba, y el agente seguía pidiendo los mismos
+  // tres de siempre (2026-08-16).
+  //
+  // El default pasa a deepseek-v4-flash-free por pedido explícito del admin y
+  // porque los otros dos dan problemas medidos: `nemotron-3-ultra-free` es de
+  // razonamiento y gasta el presupuesto de tokens pensando (se cortaba con
+  // finish_reason "length" incluso para responder "OK"), y `mimo-v2.5-free`
+  // ya venía documentado en el proyecto por envolver la salida en bloques de
+  // código.
   const OPENCODE_FREE_MODELS = {
-    razonamiento: "nemotron-3-ultra-free",  // respuestas más completas (objeciones)
-    balanceado: "mimo-v2.5-free",            // default: limpio y conciso
-    rapido: "big-pickle",                     // respuestas cortas y rápidas
+    razonamiento: process.env.OPENCODE_MODEL_RAZONAMIENTO || process.env.OPENCODE_MODEL || "deepseek-v4-flash-free",
+    balanceado: process.env.OPENCODE_MODEL_BALANCEADO || process.env.OPENCODE_MODEL || "deepseek-v4-flash-free",
+    rapido: process.env.OPENCODE_MODEL_RAPIDO || process.env.OPENCODE_MODEL || "deepseek-v4-flash-free",
   } as const;
 
   function selectOpenCodeModel(strategy: ResponseStrategy, emotional: EmotionalState): string {
@@ -1171,6 +1182,25 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
               const modelName = opencodeEnv.model.replace("opencode/", "");
               rotationQueue.push({ config: opencodeEnv, source: `opencode/${modelName}` });
             }
+          } else if (prov === "groq") {
+            // groq estaba en AI_FALLBACK_ORDER desde siempre pero este bucle
+            // NO tenía rama para él, así que se ignoraba en silencio: el
+            // admin creía tener respaldo y no tenía ninguno.
+            //
+            // Se vio en producción (2026-08-16) con el peor resultado
+            // posible: la cuota gratuita de Zen se agotó
+            // ("FreeUsageLimitError: Rate limit exceeded" en los tres
+            // modelos), opencode devolvió vacío, y como groq nunca entraba a
+            // la cola el agente tiraba "Todos los proveedores fallaron". El
+            // cliente recibía "Estoy teniendo problemas técnicos" ante
+            // CUALQUIER pregunta -- con una campaña paga corriendo.
+            const cfg = getProviderConfig("groq");
+            if (cfg) rotationQueue.push({ config: cfg, source: "groq" });
+          } else if (prov === "opencode_zen") {
+            // Alias de "opencode": misma API de Zen. Estaba en la
+            // configuración del admin y tampoco tenía rama.
+            const cfg = getProviderConfig("opencode");
+            if (cfg) rotationQueue.push({ config: cfg, source: "opencode_zen" });
           } else if (prov === "nvidia_nim_bridge") {
             const cfg = getProviderConfig("nvidia_nim_bridge");
             if (cfg)
