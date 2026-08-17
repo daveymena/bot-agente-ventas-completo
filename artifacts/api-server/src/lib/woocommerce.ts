@@ -40,7 +40,7 @@ function extractDropiMeta(product: WooCommerceProduct): { description?: string; 
     return match?.[1]?.replace(/\\"/g, '"') || "";
   };
 
-  const imageUrls = [...raw.matchAll(/s:\d+:"(?:url|urlS3)";s:\d+:"([^"\\]+)"/gi)]
+  const imageUrls = [...raw.matchAll(/s:\d+:"urlS3";s:\d+:"([^"\\]+)"/gi)]
     .map((match) => match[1])
     .filter(Boolean)
     .map((url) => /^https?:\/\//i.test(url) ? url : `https://d39ru7awumhhs2.cloudfront.net/${encodeURI(url)}`);
