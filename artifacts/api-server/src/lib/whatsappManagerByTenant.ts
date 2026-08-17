@@ -20,6 +20,7 @@ import { logger } from "./logger";
 export class WhatsAppByTenant extends WhatsAppManager {
   public tenantAuthDir: string;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private socketGeneration = 0;
 
   constructor(tenant: TenantContext, authDir: string) {
     super(tenant);
@@ -41,6 +42,7 @@ export class WhatsAppByTenant extends WhatsAppManager {
 
     this.starting = true;
     this.state = "connecting";
+    const generation = ++this.socketGeneration;
 
     // Sistema de reintentos mejorado para QR sync
     const MAX_RETRIES = 3;
@@ -116,6 +118,7 @@ export class WhatsAppByTenant extends WhatsAppManager {
         sock.ev.on("creds.update", saveCreds);
 
         sock.ev.on("connection.update", async (update: any) => {
+          if (generation !== this.socketGeneration) return;
           const { connection, lastDisconnect, qr } = update;
 
           if (qr) {
@@ -252,6 +255,7 @@ export class WhatsAppByTenant extends WhatsAppManager {
 
   // Override stop para borrar la carpeta del tenant (no la global)
   async stop(keepAuth: boolean = true) {
+    this.socketGeneration++;
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
