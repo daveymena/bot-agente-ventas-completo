@@ -1,7 +1,7 @@
 // @ts-nocheck
 import axios, { AxiosInstance } from "axios";
 import { db, products, tenants } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { logger } from "./logger";
 
 export interface WooCommerceConfig {
@@ -179,34 +179,38 @@ export class WooCommerceService {
 
       for (const wooProduct of wooProducts) {
         try {
-          // Verificar si el producto ya existe
+          const wooSku = `woo-${wooProduct.id}`;
+
+          // Buscar por sku (clave estable e idempotente, sin depender de jsonb)
           const existingProduct = await db
             .select()
             .from(products)
-            .where(eq(products.externalId, `woo_${wooProduct.id}`))
+            .where(and(eq(products.tenantId, this.tenantId), eq(products.sku, wooSku)))
             .limit(1);
 
           const productData = {
             tenantId: this.tenantId,
             name: wooProduct.name,
-            description: wooProduct.short_description || wooProduct.description,
-            price: parseFloat(wooProduct.price) || 0,
+            description: wooProduct.short_description || wooProduct.description || wooProduct.name,
+            price: parseFloat(wooProduct.price || wooProduct.regular_price) || 0,
             currency: "COP", // Ajustar según la configuración de la tienda
             category: wooProduct.categories[0]?.name || "General",
-            imageUrl: wooProduct.images[0]?.src || null,
+            imageUrl: wooProduct.images?.[0]?.src || null,
+            sku: wooSku,
             features: wooProduct.attributes.map(attr => `${attr.name}: ${attr.options.join(", ")}`),
             isActive: wooProduct.stock_status === "instock",
-            externalId: `woo_${wooProduct.id}`,
-            externalUrl: wooProduct.permalink,
-            metadata: {
+            kind: "physical",
+            metadata: JSON.stringify({
               woocommerce: {
                 id: wooProduct.id,
                 sku: wooProduct.sku,
+                permalink: wooProduct.permalink,
                 stock_quantity: wooProduct.stock_quantity,
+                price: wooProduct.price,
                 regular_price: wooProduct.regular_price,
                 sale_price: wooProduct.sale_price,
               },
-            },
+            }),
           };
 
           if (existingProduct.length > 0) {
@@ -214,7 +218,7 @@ export class WooCommerceService {
             await db
               .update(products)
               .set(productData)
-              .where(eq(products.id, existingProduct[0].id));
+              .where(eq(products.id, existingProduct[0].id as number));
           } else {
             // Crear nuevo producto
             await db.insert(products).values(productData);
@@ -278,11 +282,16 @@ export class WooCommerceService {
         .where(eq(products.id, data.productId))
         .limit(1);
 
-      if (!localProduct || !localProduct.externalId?.startsWith("woo_")) {
+      const wooRef =
+        localProduct && localProduct.metadata
+          ? (JSON.parse(String(localProduct.metadata))?.woocommerce as any)
+          : null;
+
+      if (!localProduct || !wooRef?.id) {
         throw new Error("Producto no encontrado o no está sincronizado con WooCommerce");
       }
 
-      const wooProductId = parseInt(localProduct.externalId.replace("woo_", ""));
+      const wooProductId = parseInt(String(wooRef.id));
 
       // Separar nombre en first_name y last_name
       const nameParts = data.customerName.split(" ");
