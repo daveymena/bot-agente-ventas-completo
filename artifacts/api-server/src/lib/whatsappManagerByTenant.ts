@@ -86,10 +86,13 @@ export class WhatsAppByTenant extends WhatsAppManager {
 
         let waVersion: [number, number, number] | undefined;
         try {
-          const { version } = await fetchLatestBaileysVersion();
+          const { version } = await Promise.race([
+            fetchLatestBaileysVersion(),
+            new Promise<never>((_, reject) => setTimeout(() => reject(new Error("timeout")), 10000)),
+          ]);
           waVersion = version;
         } catch (e) {
-          logger.warn({ err: e }, "[WhatsApp] No se pudo obtener versión de Baileys, continuando sin ella");
+          logger.warn({ err: e }, "[WhatsApp] Versión de Baileys no disponible, continuando con la predeterminada");
         }
 
         const sock = makeWASocket({
