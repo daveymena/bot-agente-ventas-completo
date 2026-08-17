@@ -283,8 +283,7 @@ export class AgentOrchestrator {
       // despliegue por intento. Se guardan las primeras líneas propias del
       // proyecto (se descartan las de node_modules, que son ruido).
       const stack = error instanceof Error && error.stack
-        ? error.stack.split("
-").filter((l) => !l.includes("node_modules")).slice(0, 8).join(" | ").slice(0, 900)
+        ? error.stack.split(/\r?\n/).filter((l) => !l.includes("node_modules")).slice(0, 8).join(" | ").slice(0, 900)
         : "";
       AgentOrchestrator.ultimoError = {
         cuando: new Date().toISOString(),
