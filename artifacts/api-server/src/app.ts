@@ -11,6 +11,7 @@ import healthRouter from "./health";
 import woocommerceRouter from "./routes/woocommerce";
 import subscriptionWebhooksRouter from "./routes/subscription-webhooks";
 import activationRouter from "./routes/activation";
+import aiCatalogRouter from "./routes/ai-catalog";
 import { logger } from "./lib/logger";
 import { securityShield } from "./lib/security-shield";
 import { imageUrlFixer } from "./lib/image-url-fixer";
@@ -742,6 +743,13 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 app.use("/api/woocommerce", woocommerceRouter);
 app.use("/api/webhooks/subscription", subscriptionWebhooksRouter);
 app.use("/api/activation", activationRouter);
+// El catálogo de IA por proveedor (claves, modelos disponibles, prueba de
+// conexión) existía completo en routes/ai-catalog.ts pero NUNCA se montó: cada
+// una de sus rutas devolvía 404. Por eso en el panel "los modelos de algunos
+// proveedores no aparecen" -- no es que falten en la lista, es que la ruta que
+// los trae no existía. Un archivo de rutas sin montar es código muerto que
+// parece funcionalidad.
+app.use("/api/ai", aiCatalogRouter);
 app.use("/api", router);
 
 // Short URL redirect: /p/:productId → /tienda/:slug/producto/:productId
