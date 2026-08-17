@@ -51,6 +51,26 @@ function extractDropiMeta(product: WooCommerceProduct): { description?: string; 
   };
 }
 
+async function firstUsableImage(urls: string[]): Promise<string | null> {
+  for (const url of [...new Set(urls)]) {
+    try {
+      const response = await fetch(url, {
+        headers: { Range: "bytes=0-1023", "User-Agent": "VentasPro/1.0" },
+        redirect: "follow",
+        signal: AbortSignal.timeout(8000),
+      });
+      const contentType = response.headers.get("content-type") || "";
+      const bytes = await response.arrayBuffer();
+      if (response.ok && contentType.toLowerCase().startsWith("image/") && bytes.byteLength > 100) {
+        return url;
+      }
+    } catch {
+      // Try the next source; one broken provider image must not block sync.
+    }
+  }
+  return null;
+}
+
 export interface WooCommerceOrder {
   billing: {
     first_name: string;
@@ -207,6 +227,7 @@ export class WooCommerceService {
             ...dropiMeta.imageUrls,
             ...(wooProduct.images || []).map((image) => image.src),
           ].filter(Boolean);
+          const imageUrl = await firstUsableImage(imageUrls);
 
           // Buscar por sku (clave estable e idempotente, sin depender de jsonb)
           const existingProduct = await db
@@ -224,7 +245,7 @@ export class WooCommerceService {
             price: parseFloat(wooProduct.price || wooProduct.regular_price) || 0,
             currency: "COP", // Ajustar según la configuración de la tienda
             category: wooProduct.categories[0]?.name || "General",
-            imageUrl: imageUrls[0] || null,
+            imageUrl,
             sku: wooSku,
             features: wooProduct.attributes.map(attr => `${attr.name}: ${attr.options.join(", ")}`),
             isActive: wooProduct.stock_status === "instock",
