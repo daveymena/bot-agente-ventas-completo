@@ -176,7 +176,9 @@ export default function WhatsAppConnection() {
       );
     }
 
-    if (status.state === 'connecting') {
+    const qrCode = status.qrCode || (status as any).qrDataUrl || null;
+
+    if (status.state === 'connecting' && !qrCode) {
       // If we have a pairing code, we shouldn't hide it with the connecting spinner!
       if (pairingCode) {
         return (
@@ -221,7 +223,7 @@ export default function WhatsAppConnection() {
       );
     }
 
-    if (status.state === 'qr') {
+    if (status.state === 'qr' || qrCode) {
       return (
         <Card key="qr" className="max-w-md mx-auto w-full mt-10 rounded-3xl overflow-hidden glass-panel border-0 shadow-lg">
           <CardHeader className="text-center pt-10">
@@ -236,8 +238,8 @@ export default function WhatsAppConnection() {
             {!showPairForm ? (
               <div className="w-full flex flex-col items-center">
                 <div className="bg-white p-5 rounded-3xl shadow-[0_0_40px_rgba(var(--primary),0.15)] border border-primary/10 mb-8 transition-transform hover:scale-105 duration-500">
-                  {status.qrCode ? (
-                    <img src={status.qrCode} alt="WhatsApp QR Code" className="w-64 h-64" />
+                  {qrCode ? (
+                    <img src={qrCode} alt="WhatsApp QR Code" className="w-64 h-64" />
                   ) : (
                     <Skeleton className="w-64 h-64 rounded-xl" />
                   )}
