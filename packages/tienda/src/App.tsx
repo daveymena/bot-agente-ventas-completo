@@ -10,6 +10,7 @@ import Checkout from './pages/Checkout';
 import Wishlist from './pages/Wishlist';
 import AdminDashboard from './pages/AdminDashboard';
 import EditorPage from './pages/EditorPage';
+import LandingPageNicho from './pages/LandingPageNicho';
 import { useStore } from './store/useStore';
 
 /**
@@ -87,6 +88,20 @@ const App = () => {
               <Cart />
             </MainLayout>
           }
+        />
+
+        {/* Landing Pages - Real sales pages for dropshipping */}
+        <Route
+          path="/landing/:slug"
+          element={<LandingPageNicho />}
+        />
+        <Route
+          path="/landing"
+          element={<LandingPageNicho />}
+        />
+        <Route
+          path="/tienda/:slug/landing"
+          element={<LandingPageNicho />}
         />
 
         {/* Public Routes (clients without admin access) */}
