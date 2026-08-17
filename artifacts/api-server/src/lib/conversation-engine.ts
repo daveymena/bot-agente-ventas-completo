@@ -860,10 +860,25 @@ const GENERIC_HEADERS = new Set([
   "megapack", "mega", "pack", "curso", "programa", "master", "pack",
   "combo", "duo", "trio", "kit", "box", "serie", "coleccion",
   "paquete", "curso intensivo", "curso completo",
+  // Los PLURALES faltaban, y eso desviaba búsquedas enteras: "curso" estaba
+  // pero "cursos" no, así que en "tienes cursos de inglés?" la palabra
+  // "cursos" contaba como término ESPECÍFICO y coincidía con el producto que
+  // literalmente se llama "CURSOS DISEÑO GRÁFICO". El cliente preguntaba por
+  // inglés y recibía diseño gráfico.
+  "cursos", "packs", "megapacks", "programas", "combos", "kits", "series",
+  "colecciones", "paquetes", "masters",
 ]);
 
 function normalizeText(t: string): string {
   return t.toLowerCase()
+    // Los acentos se quitan de las DOS partes que se comparan (la pregunta del
+    // cliente y el nombre del producto, ver findBestProductMatch), así que
+    // sacarlos no rompe nada y arregla un fallo real: el cliente escribe
+    // "inglés" y el producto se llama "INGLES" -- sin esto no coincidían, y la
+    // búsqueda terminaba eligiendo un producto de otra categoría.
+    // Los reemplazos manuales de abajo (reparación, teléfono, decoración)
+    // existían justamente por esta falta; quedan por compatibilidad.
+    .normalize("NFD").replace(/[̀-ͯ]/g, "")
     .replace(/mega\s*pack/g, "megapack")
     .replace(/reparaci[oó]n/g, "reparacion")
     .replace(/celulares?\b/g, "celular")
@@ -1231,12 +1246,30 @@ export async function computeDecision(
           console.log(`💳 [DECISION] Mismo producto en pago: ${currentProduct?.name} (ID: ${memory.currentProductId})`);
         }
       } else {
-        // ── CONSULTA DE PRODUCTO/DETALLE/GENERAL: la IA decide ──
-        // Incluir el match como análisis contextual, pero no forzar card
+        // ── CONSULTA DE PRODUCTO/DETALLE/GENERAL: la IA decide la tarjeta ──
+        // Se le deja a la IA decidir si manda la tarjeta, pero SÍ se le dice
+        // cuál producto identificó la búsqueda.
+        //
+        // Antes acá se guardaba `searchReasoning` y se seguía de largo, y ese
+        // texto SOLO se imprimía dentro de `if (productSearchFailed)` -- o sea,
+        // solo cuando la búsqueda FALLABA. Cuando acertaba, el resultado se
+        // calculaba y se tiraba: la IA no recibía ni el nombre ni el id del
+        // producto que el cliente acababa de pedir, y contestaba con lo último
+        // que veía en el historial.
+        //
+        // Reportado en vivo (17-08-2026): el cliente preguntó por el curso de
+        // IDIOMAS y el bot le respondió con el de PIANO, que era el producto
+        // de la conversación anterior. El catálogo tiene tres productos de
+        // idiomas y el emparejador los encontraba bien; el problema era que
+        // nadie se lo contaba a la IA.
         productToShow = null;
         shouldSendCard = false;
-        searchReasoning = match.reasoning;
-        console.log(`🤖 [DECISION] Match encontrado pero delegado a IA: ${p.name} (score: ${match.score})`);
+        searchReasoning =
+          `El cliente está preguntando por: "${p.name}" (ID ${p.id}, ${formatPrice(Number(p.price), p.currency || "COP")}).\n` +
+          `Ese es el producto de ESTE mensaje. Respondé sobre ÉL, no sobre el que se venía hablando antes.\n` +
+          `Si querés mostrar su tarjeta, escribí [CARD: ${p.id}].\n` +
+          (match.reasoning ? `Por qué se eligió: ${match.reasoning}` : "");
+        console.log(`🤖 [DECISION] Producto identificado para la IA: ${p.name} (ID ${p.id}, score ${match.score})`);
       }
     } else if (memory.currentProductId) {
       if (intent === "payment_intent" || intent === "confirmation") {
@@ -1347,6 +1380,18 @@ function buildContextBlock(
   }
 
   // Si la búsqueda de producto no encontró nada coherente
+  // El resultado de la búsqueda llega a la IA SIEMPRE, no solo cuando falla.
+  //
+  // Este bloque estaba únicamente dentro de `if (productSearchFailed)`: si la
+  // búsqueda acertaba, la IA no recibía nada y respondía con el producto que
+  // arrastraba del historial. El razonamiento ocurría y se perdía justo antes
+  // de usarse -- que es peor que no razonar, porque parece que funciona.
+  if (!productSearchFailed && !product && searchReasoning) {
+    lines.push(`\n🔍 QUÉ ESTÁ PIDIENDO EL CLIENTE EN ESTE MENSAJE:`);
+    searchReasoning.split("\n").filter(Boolean).forEach((r) => lines.push(r));
+    lines.push(`\n⚠️ Contestá sobre ESE producto. Si el historial habla de otro, ese ya pasó: el cliente cambió de tema y hay que seguirlo.`);
+  }
+
   if (productSearchFailed) {
     lines.push(`\n🔍 RESULTADO DE BÚSQUEDA EN CATÁLOGO:`);
     lines.push(`No se identificó un producto que coincida fielmente con lo que pide el cliente.`);
