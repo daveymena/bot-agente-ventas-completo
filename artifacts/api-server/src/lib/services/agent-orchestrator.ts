@@ -17,8 +17,8 @@ import { getWhatsAppForTenant } from '../whatsapp-factory';
 import { tenantManager } from '../tenantManager';
 import { checkMessageLimit } from '../../middleware/featureLimits';
 import { db } from "@workspace/db";
-import { conversations } from "@workspace/db";
-import { eq, and, sql } from "drizzle-orm";
+import { conversations, messages } from "@workspace/db";
+import { eq, and, gt, desc } from "drizzle-orm";
 import { logger } from '../logger';
 
 export interface AgentOrchestratorConfig {
@@ -58,6 +58,13 @@ export class AgentOrchestrator {
       const idNum = Number(tenantId);
       if (Number.isFinite(idNum)) {
         setTimeout(() => { this.recuperarSinResponder(idNum).catch(() => {}); }, 20_000).unref?.();
+        // Y cada 5 minutos: un mensaje puede quedarse sin responder por
+        // cualquier motivo (el proveedor de IA falló, WhatsApp estaba
+        // reconectando, un error puntual), no solo por un reinicio. Barrer
+        // periódicamente hace que el sistema se cure solo en vez de depender
+        // de que alguien mire. Encolar de nuevo es barato: si la conversación
+        // ya fue respondida, no entra.
+        setInterval(() => { this.recuperarSinResponder(idNum).catch(() => {}); }, 5 * 60_000).unref?.();
       }
     }
   }
@@ -86,39 +93,49 @@ export class AgentOrchestrator {
    */
   private async recuperarSinResponder(tenantId: number): Promise<void> {
     try {
-      const filas = await db.execute(sql`
-        SELECT c.id, c.contact_phone
-        FROM conversations c
-        JOIN LATERAL (
-          SELECT role FROM messages m
-          WHERE m.conversation_id = c.id
-          ORDER BY m.created_at DESC, m.id DESC
-          LIMIT 1
-        ) ult ON true
-        WHERE c.tenant_id = ${tenantId}
-          AND ult.role = 'customer'
-          AND c.last_message_at > now() - interval '24 hours'
-        ORDER BY c.last_message_at ASC
-        LIMIT 20
-      `);
-      const pendientes: any[] = (filas as any).rows || (filas as any) || [];
-      if (pendientes.length === 0) return;
+      // Se usa el constructor de consultas de Drizzle, no SQL crudo con
+      // db.execute: db.execute no se usa en ningún otro lado de este código,
+      // así que la forma exacta de su resultado (¿`.rows`? ¿el array pelado?)
+      // no está probada acá -- y una recuperación que falla en silencio es
+      // peor que no tenerla, porque da falsa tranquilidad.
+      const hace24h = new Date(Date.now() - 24 * 60 * 60 * 1000);
+      const recientes = await db
+        .select({ id: conversations.id, phone: conversations.contactPhone })
+        .from(conversations)
+        .where(and(
+          eq(conversations.tenantId, tenantId),
+          gt(conversations.lastMessageAt, hace24h),
+        ))
+        .orderBy(conversations.lastMessageAt)
+        .limit(30);
 
-      for (const p of pendientes) {
+      let recuperadas = 0;
+      for (const c of recientes) {
+        // ¿El último mensaje es del cliente? Entonces quedó sin responder.
+        const [ultimo] = await db
+          .select({ role: messages.role })
+          .from(messages)
+          .where(eq(messages.conversationId, c.id))
+          .orderBy(desc(messages.createdAt), desc(messages.id))
+          .limit(1);
+        if (ultimo?.role !== "customer") continue;
+
         this.queue.enqueue({
           tenantId: String(tenantId),
-          from: `${p.contact_phone}@s.whatsapp.net`,
+          from: `${c.phone}@s.whatsapp.net`,
           to: String(tenantId),
           body: "",                       // el agente lee el historial de la BD
           timestamp: new Date(),
-          messageId: `recuperado_${p.id}_${Date.now()}`,
+          messageId: `recuperado_${c.id}_${Date.now()}`,
           isGroup: false,
-          conversationId: Number(p.id),
-          phone: String(p.contact_phone),
+          conversationId: Number(c.id),
+          phone: String(c.phone),
         });
+        recuperadas++;
       }
-      logger.warn({ tenantId, cuantas: pendientes.length },
-        "[AgentOrchestrator] Conversaciones sin responder recuperadas tras el arranque");
+      if (recuperadas > 0) {
+        logger.warn({ tenantId, recuperadas }, "[AgentOrchestrator] Conversaciones sin responder recuperadas");
+      }
     } catch (e: any) {
       logger.error({ err: e?.message, tenantId }, "[AgentOrchestrator] No se pudieron recuperar los mensajes sin responder");
     }
