@@ -28,6 +28,26 @@ export interface WooCommerceProduct {
   stock_quantity: number | null;
   sku: string;
   attributes: Array<{ id: number; name: string; options: string[] }>;
+  meta_data?: Array<{ key: string; value: string }>;
+}
+
+function extractDropiMeta(product: WooCommerceProduct): { description?: string; imageUrls: string[] } {
+  const raw = product.meta_data?.find((item) => item.key === "_dropi_product")?.value || "";
+  if (!raw || typeof raw !== "string") return { imageUrls: [] };
+
+  const readString = (key: string) => {
+    const match = raw.match(new RegExp(`s:${key.length}:"${key}";s:\\d+:"([\\s\\S]*?)";s:`, "i"));
+    return match?.[1]?.replace(/\\"/g, '"') || "";
+  };
+
+  const imageUrls = [...raw.matchAll(/s:\d+:"(?:url|urlS3)";s:\d+:"([^"\\]+)"/gi)]
+    .map((match) => match[1])
+    .filter((url) => /^https?:\/\//i.test(url));
+
+  return {
+    description: readString("description") || undefined,
+    imageUrls: [...new Set(imageUrls)],
+  };
 }
 
 export interface WooCommerceOrder {
@@ -181,6 +201,11 @@ export class WooCommerceService {
       for (const wooProduct of wooProducts) {
         try {
           const wooSku = `woo-${wooProduct.id}`;
+          const dropiMeta = extractDropiMeta(wooProduct);
+          const imageUrls = [
+            ...(wooProduct.images || []).map((image) => image.src),
+            ...dropiMeta.imageUrls,
+          ].filter(Boolean);
 
           // Buscar por sku (clave estable e idempotente, sin depender de jsonb)
           const existingProduct = await db
@@ -192,11 +217,13 @@ export class WooCommerceService {
           const productData = {
             tenantId: this.tenantId,
             name: wooProduct.name,
-            description: cleanProductCopy(wooProduct.description || wooProduct.short_description) || wooProduct.name,
+            description: cleanProductCopy(
+              wooProduct.description || wooProduct.short_description || dropiMeta.description,
+            ) || wooProduct.name,
             price: parseFloat(wooProduct.price || wooProduct.regular_price) || 0,
             currency: "COP", // Ajustar según la configuración de la tienda
             category: wooProduct.categories[0]?.name || "General",
-            imageUrl: wooProduct.images?.[0]?.src || null,
+            imageUrl: imageUrls[0] || null,
             sku: wooSku,
             features: wooProduct.attributes.map(attr => `${attr.name}: ${attr.options.join(", ")}`),
             isActive: wooProduct.stock_status === "instock",
@@ -210,7 +237,7 @@ export class WooCommerceService {
                 price: wooProduct.price,
                 regular_price: wooProduct.regular_price,
                 sale_price: wooProduct.sale_price,
-                imageUrls: (wooProduct.images || []).map((image) => image.src).filter(Boolean),
+                imageUrls: [...new Set(imageUrls)],
               },
             }),
           };
