@@ -29,9 +29,12 @@ const healthHandler = (req: any, res: any) => {
     // diagnosticar desde afuera -- no se sabe si el mensaje llegó a la cola,
     // si está esperando, o si falló los reintentos y se descartó.
     let cola: any = null;
+    let ultimoError: any = null;
     try {
       const { getMessageQueue } = require("./lib/message-queue");
       cola = getMessageQueue()?.getStats?.() || null;
+      const { AgentOrchestrator } = require("./lib/services/agent-orchestrator");
+      ultimoError = AgentOrchestrator?.ultimoError || null;
     } catch {
       /* el health nunca puede fallar por esto */
     }
@@ -42,6 +45,7 @@ const healthHandler = (req: any, res: any) => {
       uptime: process.uptime(),
       ...(whatsapp ? { whatsapp } : {}),
       ...(cola ? { cola } : {}),
+      ...(ultimoError ? { ultimoError } : {}),
     });
   } catch (error) {
     logger.error({ error }, "Health check failed");

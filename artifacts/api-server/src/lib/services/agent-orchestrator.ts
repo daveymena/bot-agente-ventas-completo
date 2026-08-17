@@ -29,6 +29,9 @@ export interface AgentOrchestratorConfig {
 
 export class AgentOrchestrator {
   private queue = getMessageQueue();
+  /** Último error real al procesar un mensaje, para poder verlo desde /api/health.
+   *  Sin esto, "el bot no contestó" solo se puede diagnosticar adivinando. */
+  static ultimoError: { cuando: string; conversacion?: number; mensaje: string } | null = null;
   private configs: Map<string, AgentOrchestratorConfig> = new Map();
   private processing = false;
   private intervalId?: NodeJS.Timeout;
@@ -275,6 +278,11 @@ export class AgentOrchestrator {
         queueId: message.id,
         tenantId: message.tenantId,
       }, '[AgentOrchestrator] Failed to process message');
+      AgentOrchestrator.ultimoError = {
+        cuando: new Date().toISOString(),
+        conversacion: message.conversationId,
+        mensaje: (error instanceof Error ? error.message : String(error)).slice(0, 300),
+      };
 
       this.queue.markFailed(message.id);
     }
