@@ -18,7 +18,7 @@ import { tenantManager } from '../tenantManager';
 import { checkMessageLimit } from '../../middleware/featureLimits';
 import { db } from "@workspace/db";
 import { conversations } from "@workspace/db";
-import { eq, and } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
 import { logger } from '../logger';
 
 export interface AgentOrchestratorConfig {
@@ -52,12 +52,78 @@ export class AgentOrchestrator {
     // Iniciar procesamiento si hay tenants configurados
     if (updated.enabled && !this.processing) {
       this.startProcessing();
+      // Los 20s son para que WhatsApp termine de reconectar: si se encolan
+      // antes, processNextMessage los difiere por "no conectado" y vuelven a
+      // quedar esperando.
+      const idNum = Number(tenantId);
+      if (Number.isFinite(idNum)) {
+        setTimeout(() => { this.recuperarSinResponder(idNum).catch(() => {}); }, 20_000).unref?.();
+      }
     }
   }
 
   /**
    * Inicia el bucle de procesamiento
    */
+  /**
+   * Recupera los mensajes de clientes que quedaron SIN responder.
+   *
+   * La cola vive en memoria (`private queue: QueuedMessage[]`), así que un
+   * reinicio del contenedor la borra entera. Todo mensaje que estuviera
+   * esperando turno en ese momento se pierde en silencio: el cliente escribe,
+   * el mensaje queda guardado en la base, y nadie le contesta nunca.
+   *
+   * Pasó de verdad (17-08-2026): un cliente de Guatemala llegó de un anuncio
+   * pago con "¡Hola! Quiero más información" y no recibió respuesta -- el
+   * despliegue reinició el proceso justo con su mensaje en la cola. Es la
+   * peor forma de perder plata: se paga el clic, el cliente escribe, y del
+   * otro lado hay silencio.
+   *
+   * Al arrancar se buscan las conversaciones cuyo ÚLTIMO mensaje es del
+   * cliente (o sea, quedaron sin respuesta) dentro de las últimas 24h, y se
+   * vuelven a encolar. Más viejo que eso no se recupera: contestarle a
+   * alguien dos días después es peor que no contestarle.
+   */
+  private async recuperarSinResponder(tenantId: number): Promise<void> {
+    try {
+      const filas = await db.execute(sql`
+        SELECT c.id, c.contact_phone
+        FROM conversations c
+        JOIN LATERAL (
+          SELECT role FROM messages m
+          WHERE m.conversation_id = c.id
+          ORDER BY m.created_at DESC, m.id DESC
+          LIMIT 1
+        ) ult ON true
+        WHERE c.tenant_id = ${tenantId}
+          AND ult.role = 'customer'
+          AND c.last_message_at > now() - interval '24 hours'
+        ORDER BY c.last_message_at ASC
+        LIMIT 20
+      `);
+      const pendientes: any[] = (filas as any).rows || (filas as any) || [];
+      if (pendientes.length === 0) return;
+
+      for (const p of pendientes) {
+        this.queue.enqueue({
+          tenantId: String(tenantId),
+          from: `${p.contact_phone}@s.whatsapp.net`,
+          to: String(tenantId),
+          body: "",                       // el agente lee el historial de la BD
+          timestamp: new Date(),
+          messageId: `recuperado_${p.id}_${Date.now()}`,
+          isGroup: false,
+          conversationId: Number(p.id),
+          phone: String(p.contact_phone),
+        });
+      }
+      logger.warn({ tenantId, cuantas: pendientes.length },
+        "[AgentOrchestrator] Conversaciones sin responder recuperadas tras el arranque");
+    } catch (e: any) {
+      logger.error({ err: e?.message, tenantId }, "[AgentOrchestrator] No se pudieron recuperar los mensajes sin responder");
+    }
+  }
+
   private startProcessing(): void {
     if (this.processing) return;
     this.processing = true;
