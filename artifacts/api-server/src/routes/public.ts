@@ -354,6 +354,40 @@ router.post("/fb-connect", async (req, res, next) => {
       tasks: page.tasks || [],
       connectedAt: new Date().toISOString(),
     };
+
+    // ── Cuenta publicitaria: se detecta sola ────────────────────────────
+    // Sin esto el "conectá con Facebook" quedaba a mitad de camino: el
+    // negocio terminaba con su página y sus tokens, pero SIN cuenta
+    // publicitaria, así que no podía crear ni un anuncio -- isConfigured()
+    // la exige, y el respaldo del .env solo aplica al dueño del servidor.
+    // El admin tenía que ir a Facebook, buscar el id de su cuenta a mano y
+    // pegarlo. Eso rompe la promesa del producto: que con conectar la cuenta
+    // ya funcione todo. El token de usuario que acabamos de obtener trae el
+    // scope ads_management, así que la cuenta se puede preguntar acá mismo.
+    try {
+      const cuentasRes = await fetch(
+        `${graph}/me/adaccounts?fields=id,account_id,name,account_status,currency&limit=25&access_token=${encodeURIComponent(longLivedUserToken)}`,
+        { signal: AbortSignal.timeout(15000) },
+      );
+      const cuentas: any = await cuentasRes.json();
+      const lista: any[] = cuentas?.data || [];
+      // account_status 1 = activa. Si hay varias se toma la primera activa;
+      // el admin puede cambiarla después desde la pantalla de Facebook.
+      const elegida = lista.find((c) => c.account_status === 1) || lista[0];
+      if (elegida?.account_id) {
+        (meta.facebook as any).adAccountId = String(elegida.account_id);
+        (meta.facebook as any).adAccountName = elegida.name || "";
+        (meta.facebook as any).adAccountCurrency = elegida.currency || "";
+        logger.info({ tenantId, adAccountId: elegida.account_id, moneda: elegida.currency },
+          "[FB-Connect] Cuenta publicitaria detectada automáticamente");
+      } else {
+        logger.warn({ tenantId }, "[FB-Connect] El usuario no tiene ninguna cuenta publicitaria: va a poder publicar en la página, pero no crear anuncios pagos");
+      }
+    } catch (e: any) {
+      // Que falle esto NO puede tumbar la conexión: la página y los tokens ya
+      // quedaron bien, que es lo que hace falta para responder mensajes.
+      logger.warn({ tenantId, err: e?.message }, "[FB-Connect] No se pudo detectar la cuenta publicitaria");
+    }
     await db.update(tenants).set({ metadata: meta as any }).where(eq(tenants.id, tenantId));
     // Sin esto, el tenant queda cacheado en memoria (hasta 5 min, ver
     // tenantManager.CACHE_TTL) con el token VIEJO — el admin reconecta,
@@ -379,6 +413,17 @@ router.post("/fb-connect", async (req, res, next) => {
       canPost: granted.includes("pages_manage_posts"),
       permissions: granted,
       otrasPaginas: pages.filter(p => p.id !== page.id).map(p => ({ id: p.id, name: p.name })),
+      // Para que la pantalla pueda decir si quedó listo para anuncios pagos o
+      // solo para responder mensajes. Sin este dato, el negocio se enteraba
+      // recién al intentar crear un anuncio y fallar.
+      cuentaPublicitaria: (meta.facebook as any)?.adAccountId
+        ? {
+            id: (meta.facebook as any).adAccountId,
+            nombre: (meta.facebook as any).adAccountName || "",
+            moneda: (meta.facebook as any).adAccountCurrency || "",
+          }
+        : null,
+      puedeCrearAnuncios: !!(meta.facebook as any)?.adAccountId,
     });
   } catch (err) {
     return next(err);
