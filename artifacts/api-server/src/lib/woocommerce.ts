@@ -228,9 +228,10 @@ export class WooCommerceService {
           const wooSku = `woo-${wooProduct.id}`;
           const dropiMeta = extractDropiMeta(wooProduct);
           const shipping = 20000;
-          const profit = 30000;
+          const profit = 20000;
           const cost = dropiMeta.cost || parseFloat(wooProduct.price || wooProduct.regular_price) || 0;
-          const finalPrice = cost + shipping + profit;
+          // El envío se cobra aparte al cliente; no se suma al precio publicado.
+          const finalPrice = cost + profit;
           const imageUrls = [
             ...dropiMeta.imageUrls,
             ...(wooProduct.images || []).map((image) => image.src),
