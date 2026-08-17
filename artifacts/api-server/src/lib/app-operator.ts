@@ -3142,25 +3142,24 @@ export const TOOLS: ToolDef[] = [
       const { probarModelosDe } = await import("./probar-modelos");
       const r = await probarModelosDe(prov, 26);
       if (!r.ok) return { ok: false, summary: r.mensaje || "No se pudo probar." };
-      if (r.sirven.length === 0) {
-        return { ok: false, summary: `Ningún modelo de ${prov} sirve ahora mismo. Motivos:
-` + r.fallan.slice(0, 8).map((f) => `❌ ${f.modelo}: ${f.motivo}`).join("
-") };
-      }
-      return {
-        ok: true,
-        summary:
-          `${r.sirven.length} de ${r.sirven.length + r.fallan.length} modelos de ${prov} sirven (ordenados del más rápido):
-` +
-          r.sirven.map((m) => `✅ ${m.modelo} — ${m.ms} ms`).join("
-") +
-          (r.fallan.length ? `
+      const linea = (m: any, bien: boolean) =>
+        bien ? `✅ ${m.modelo} — ${m.ms} ms` : `❌ ${m.modelo}: ${m.motivo}`;
 
-No sirven:
-` + r.fallan.slice(0, 10).map((f) => `❌ ${f.modelo}: ${f.motivo}`).join("
-") : ""),
-        data: r,
-      };
+      if (r.sirven.length === 0) {
+        return {
+          ok: false,
+          summary: [`Ningún modelo de ${prov} sirve ahora mismo. Motivos:`,
+            ...r.fallan.slice(0, 8).map((f) => linea(f, false))].join("\n"),
+        };
+      }
+      const partes = [
+        `${r.sirven.length} de ${r.sirven.length + r.fallan.length} modelos de ${prov} sirven (del más rápido al más lento):`,
+        ...r.sirven.map((m) => linea(m, true)),
+      ];
+      if (r.fallan.length) {
+        partes.push("", "No sirven:", ...r.fallan.slice(0, 10).map((f) => linea(f, false)));
+      }
+      return { ok: true, summary: partes.join("\n"), data: r };
     },
   },
   {
