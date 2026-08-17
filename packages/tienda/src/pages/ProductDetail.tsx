@@ -250,7 +250,7 @@ const ProductDetail = () => {
                 Descripción
               </h3>
               <div
-                className="text-sm text-gray-600 leading-relaxed space-y-3 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_strong]:font-bold"
+                className="text-sm text-gray-600 leading-relaxed whitespace-pre-line space-y-3 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_strong]:font-bold"
                 dangerouslySetInnerHTML={{ __html: descriptionHtml }}
               />
             </div>
