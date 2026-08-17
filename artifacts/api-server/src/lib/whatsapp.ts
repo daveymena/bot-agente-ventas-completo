@@ -235,7 +235,10 @@ async function buildProductBlocks(p: typeof products.$inferSelect, dynamicLinks?
   const completo = await buildProductCaption(p, null, dynamicLinks, semilla);
   // El separador es la línea en blanco doble que deja cada sección; se agrupan
   // las secciones cortas para no mandar ocho mensajes de una línea.
-  const secciones = completo.split(/\n(?=📚 |💻 |💰 |━|💳 |🛒 |🚀 )/);
+  // 🎬 incluido: el video de muestra va en su PROPIO mensaje, para que
+  // WhatsApp le arme la vista previa con miniatura. Pegado a otro texto, el
+  // enlace queda perdido en el medio y pierde todo su efecto.
+  const secciones = completo.split(/\n(?=📚 |💻 |🎬 |💰 |━|💳 |🛒 |🚀 )/);
   const bloques: string[] = [];
   let actual = "";
   for (const s of secciones) {
@@ -363,6 +366,28 @@ async function buildProductCaption(p: typeof products.$inferSelect, categoryName
     lines.push(`✅ Acceso de por vida ♾️`);
   }
   lines.push("");
+
+  // ── Video de muestra ────────────────────────────────────────────────
+  // Pedido del admin: mostrarle al cliente CÓMO son las clases, no solo
+  // contárselo. Una promesa se discute; ver la primera clase, no.
+  //
+  // Va como enlace, no como archivo: la presentación del curso de piano pesa
+  // 118 MB y WhatsApp corta en 16 MB. El enlace de Drive abre el reproductor
+  // directo en el celular y muestra vista previa con miniatura en el chat.
+  //
+  // Se ubica ANTES del precio a propósito: primero que vea lo que se lleva,
+  // después cuánto cuesta.
+  const videoMuestra = String(meta.videoIntro || meta.videoUrl || "").trim();
+  if (videoMuestra) {
+    lines.push(variante([
+      `🎬 *Mirá cómo son las clases:*`,
+      `🎬 *Así se ve el curso por dentro:*`,
+      `🎬 *Te dejo la primera clase para que veas:*`,
+      `🎬 *Mirá un pedacito antes de decidir:*`,
+    ], sem));
+    lines.push(videoMuestra);
+    lines.push("");
+  }
 
   // Precio en la moneda que el cliente entiende. La semilla trae su teléfono,
   // y el código de país es el dato más confiable de una conversación: no lo
