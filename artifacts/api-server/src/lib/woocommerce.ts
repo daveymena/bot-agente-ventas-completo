@@ -42,7 +42,8 @@ function extractDropiMeta(product: WooCommerceProduct): { description?: string; 
 
   const imageUrls = [...raw.matchAll(/s:\d+:"(?:url|urlS3)";s:\d+:"([^"\\]+)"/gi)]
     .map((match) => match[1])
-    .filter((url) => /^https?:\/\//i.test(url));
+    .filter(Boolean)
+    .map((url) => /^https?:\/\//i.test(url) ? url : `https://d39ru7awumhhs2.cloudfront.net/${encodeURI(url)}`);
 
   return {
     description: readString("description") || undefined,
@@ -203,8 +204,8 @@ export class WooCommerceService {
           const wooSku = `woo-${wooProduct.id}`;
           const dropiMeta = extractDropiMeta(wooProduct);
           const imageUrls = [
-            ...(wooProduct.images || []).map((image) => image.src),
             ...dropiMeta.imageUrls,
+            ...(wooProduct.images || []).map((image) => image.src),
           ].filter(Boolean);
 
           // Buscar por sku (clave estable e idempotente, sin depender de jsonb)
