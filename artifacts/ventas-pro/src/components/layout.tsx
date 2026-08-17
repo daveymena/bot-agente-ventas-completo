@@ -154,7 +154,18 @@ export function AppSidebar() {
   );
 }
 
-export function Layout({ children }: { children: React.ReactNode }) {
+/**
+ * `chatCompleto`: la pantalla es un CHAT y en móvil ocupa todo el alto
+ * disponible, sin el padding de página ni la reserva de 184px para la barra
+ * inferior.
+ *
+ * Sin esto, una pantalla de chat quedaba encajonada: el padding de <main> más
+ * esos 184px se comían casi la mitad del alto de un celular, y a Atlas le
+ * quedaban ~300px para los mensajes. En una lista de productos ese espacio es
+ * correcto (evita que la barra tape el final del contenido); en un chat, que
+ * tiene su propio campo de escritura abajo, sobra: el chat maneja su alto.
+ */
+export function Layout({ children, chatCompleto = false }: { children: React.ReactNode; chatCompleto?: boolean }) {
   const isMobile = useIsMobile();
 
   return (
@@ -189,8 +200,8 @@ export function Layout({ children }: { children: React.ReactNode }) {
               `md:` (CSS puro) en vez de con el hook useIsMobile (JS), para
               que el espacio no dependa de que un efecto de React ya haya
               corrido. */}
-          <main className="flex-1 p-3 sm:p-4 md:p-8 overflow-y-auto overflow-x-hidden animate-enter scroll-smooth flex flex-col h-full">
-            <div className="max-w-7xl mx-auto pb-[calc(184px+env(safe-area-inset-bottom))] md:pb-4 w-full flex-1 flex flex-col min-h-0">
+          <main className={`flex-1 ${chatCompleto ? "p-0 md:p-8 overflow-hidden md:overflow-y-auto" : "p-3 sm:p-4 md:p-8 overflow-y-auto"} overflow-x-hidden animate-enter scroll-smooth flex flex-col h-full min-h-0`}>
+            <div className={`max-w-7xl mx-auto w-full flex-1 flex flex-col min-h-0 ${chatCompleto ? "pb-[calc(72px+env(safe-area-inset-bottom))] md:pb-4" : "pb-[calc(184px+env(safe-area-inset-bottom))] md:pb-4"}`}>
               {children}
             </div>
           </main>

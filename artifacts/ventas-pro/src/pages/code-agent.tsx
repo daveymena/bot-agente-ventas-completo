@@ -269,8 +269,11 @@ export default function CodeAgent() {
     }
   };
 
+  // chatCompleto: Atlas es una pantalla de chat, no una tarjeta dentro de una
+  // página. En móvil usa todo el alto disponible en vez de quedar encajonada
+  // entre el padding de <main> y los 184px que reserva la barra inferior.
   return (
-    <Layout>
+    <Layout chatCompleto>
       {/* Antes: h-[calc(100vh-12rem)] md:h-[calc(100vh-8rem)]. Medía contra
           100vh -- el viewport ENTERO -- y le restaba a mano un chrome que el
           Layout ya había descontado (header, padding de <main>, barra
@@ -283,7 +286,7 @@ export default function CodeAgent() {
           el que sea -- el contenedor padre ya es flex-col con min-h-0. Y el
           min-h evita el otro extremo: en pantallas muy bajas el chat no se
           aplasta, mantiene un alto usable y es <main> el que scrollea. */}
-      <div className="flex flex-col gap-2 md:gap-4 animate-enter flex-1 min-h-0 md:min-h-[24rem]">
+      <div className="flex flex-col gap-2 md:gap-4 animate-enter flex-1 min-h-0 md:min-h-[24rem] h-full px-3 pt-3 md:px-0 md:pt-0">
         {/* En móvil el header va en UNA sola fila y sin subtítulo: ocupaba ~140px
             de los ~440px utiles de un celular, dejando el area de mensajes en
             ~300px. El subtitulo explica algo que ya se entiende al usarlo. */}
