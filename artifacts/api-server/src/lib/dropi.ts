@@ -255,6 +255,38 @@ export function cleanProductCopy(value: string | null | undefined): string {
     .map((line) => line.replace(/[ \t]+/g, " ").trim())
     .filter((line, index, lines) => line || lines[index - 1])
     .join("\n")
+    .replace(/\n{2,}(?=•)/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
+}
+
+/** Reduce el copy al contenido comercial que el cliente necesita leer. */
+export function customerProductCopy(value: string | null | undefined, name: string): string {
+  const lines = cleanProductCopy(value || name).split("\n").map((line) => line.trim()).filter(Boolean);
+  const result: string[] = [];
+  let bullets = 0;
+  let paragraphs = 0;
+  let skippingWarranty = false;
+
+  for (const line of lines) {
+    const normalized = line.toLowerCase();
+    if (/garant[ií]as? que|garant[ií]a:?$|compra sin riesgo/.test(normalized)) {
+      skippingWarranty = true;
+      continue;
+    }
+    if (skippingWarranty && (line.startsWith("•") || !/^[A-ZÁÉÍÓÚÑ0-9 /&-]{5,55}$/.test(line))) continue;
+    if (line.startsWith("•")) {
+      if (bullets++ >= 8) continue;
+      result.push(line);
+      continue;
+    }
+    if (line.length < 70 && /^[A-ZÁÉÍÓÚÑ0-9 /&-]{5,55}$/.test(line)) {
+      result.push(line);
+      continue;
+    }
+    if (paragraphs++ < 3) result.push(line);
+  }
+
+  const copy = result.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+  return copy.slice(0, 1200).trim() || name;
 }

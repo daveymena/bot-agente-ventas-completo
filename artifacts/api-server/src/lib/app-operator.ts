@@ -2892,7 +2892,7 @@ export const TOOLS: ToolDef[] = [
     description: "Importar un producto de Dropi al catálogo de ESTA tienda (con su foto, descripción y precio). A partir de ahí el bot lo vende como cualquier otro producto. Crea datos → requiere confirmación. El precio de venta lo decide el admin: si no lo pasa, se usa el sugerido por Dropi.",
     args: '{ "dropiProductId": number (req), "price": number (opcional, precio de venta al cliente) }',
     run: async (args, ctx) => {
-      const { cleanProductCopy, dropiGetProduct, dropiProductImages } = await import("./dropi");
+      const { customerProductCopy, dropiGetProduct, dropiProductImages } = await import("./dropi");
       const dropiId = num(args.dropiProductId);
       if (!dropiId) return { ok: false, summary: "Falta 'dropiProductId'" };
 
@@ -2909,7 +2909,7 @@ export const TOOLS: ToolDef[] = [
         .values({
           tenantId: ctx.tenantId,
           name: p.name,
-          description: cleanProductCopy(p.description) || p.name,
+          description: customerProductCopy(p.description, p.name),
           price: String(precio),
           currency: "COP",
           category: p.categories?.[0]?.name || "Dropshipping",

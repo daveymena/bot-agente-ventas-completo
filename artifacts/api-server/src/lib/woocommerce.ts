@@ -3,7 +3,7 @@ import axios, { AxiosInstance } from "axios";
 import { db, products, tenants } from "@workspace/db";
 import { and, eq } from "drizzle-orm";
 import { logger } from "./logger";
-import { cleanProductCopy } from "./dropi";
+import { customerProductCopy } from "./dropi";
 
 export interface WooCommerceConfig {
   storeUrl: string;
@@ -31,7 +31,7 @@ export interface WooCommerceProduct {
   meta_data?: Array<{ key: string; value: string }>;
 }
 
-function extractDropiMeta(product: WooCommerceProduct): { description?: string; imageUrls: string[] } {
+function extractDropiMeta(product: WooCommerceProduct): { description?: string; imageUrls: string[]; cost?: number; stock?: number } {
   const raw = product.meta_data?.find((item) => item.key === "_dropi_product")?.value || "";
   if (!raw || typeof raw !== "string") return { imageUrls: [] };
 
@@ -39,6 +39,8 @@ function extractDropiMeta(product: WooCommerceProduct): { description?: string; 
     const match = raw.match(new RegExp(`s:${key.length}:"${key}";s:\\d+:"([\\s\\S]*?)";s:`, "i"));
     return match?.[1]?.replace(/\\"/g, '"') || "";
   };
+  const readNumber = (key: string) => Number(readString(key).replace(/[^\d.-]/g, "")) || 0;
+  const stockMatch = raw.match(/s:\d+:"stock";i:(-?\d+)/i);
 
   const imageUrls = [...raw.matchAll(/s:\d+:"urlS3";s:\d+:"([^"\\]+)"/gi)]
     .map((match) => match[1])
@@ -48,6 +50,8 @@ function extractDropiMeta(product: WooCommerceProduct): { description?: string; 
   return {
     description: readString("description") || undefined,
     imageUrls: [...new Set(imageUrls)],
+    cost: readNumber("sale_price") || undefined,
+    stock: stockMatch ? Number(stockMatch[1]) : undefined,
   };
 }
 
@@ -223,6 +227,10 @@ export class WooCommerceService {
         try {
           const wooSku = `woo-${wooProduct.id}`;
           const dropiMeta = extractDropiMeta(wooProduct);
+          const shipping = 20000;
+          const profit = 30000;
+          const cost = dropiMeta.cost || parseFloat(wooProduct.price || wooProduct.regular_price) || 0;
+          const finalPrice = cost + shipping + profit;
           const imageUrls = [
             ...dropiMeta.imageUrls,
             ...(wooProduct.images || []).map((image) => image.src),
@@ -239,16 +247,17 @@ export class WooCommerceService {
           const productData = {
             tenantId: this.tenantId,
             name: wooProduct.name,
-            description: cleanProductCopy(
+            description: customerProductCopy(
               wooProduct.description || wooProduct.short_description || dropiMeta.description,
-            ) || wooProduct.name,
-            price: parseFloat(wooProduct.price || wooProduct.regular_price) || 0,
+              wooProduct.name,
+            ),
+            price: finalPrice,
             currency: "COP", // Ajustar según la configuración de la tienda
             category: wooProduct.categories[0]?.name || "General",
             imageUrl,
             sku: wooSku,
             features: wooProduct.attributes.map(attr => `${attr.name}: ${attr.options.join(", ")}`),
-            isActive: wooProduct.stock_status === "instock",
+            isActive: dropiMeta.stock == null ? wooProduct.stock_status === "instock" : dropiMeta.stock > 0,
             kind: "physical",
             metadata: JSON.stringify({
               woocommerce: {
@@ -260,6 +269,11 @@ export class WooCommerceService {
                 regular_price: wooProduct.regular_price,
                 sale_price: wooProduct.sale_price,
                 imageUrls: [...new Set(imageUrls)],
+                dropiCost: cost,
+                shipping,
+                profit,
+                finalPrice,
+                dropiStock: dropiMeta.stock ?? null,
               },
             }),
           };
