@@ -12,7 +12,7 @@
 import { getMessageQueue, QueuedMessage } from '../message-queue';
 import { db } from "@workspace/db";
 import { messages, conversations, leads } from "@workspace/db";
-import { eq, and } from "drizzle-orm";
+import { eq, and, gt } from "drizzle-orm";
 import { addTenantToInsert, type TenantContext } from '../tenantManager';
 import { logger } from '../logger';
 import { dbNow } from '../date-utils';
@@ -115,6 +115,33 @@ export class MessageHandler {
         
         convo = created!;
         logger.info(`[MessageHandler] New conversation created: ${convo.id} for phone ${phone}`);
+      }
+
+      // ¿Este mismo mensaje ya se guardó? (reenvío de WhatsApp tras reconectar)
+      //
+      // Al aceptar los mensajes tipo "append" —los que WhatsApp reenvía cuando
+      // el bot vuelve— puede llegar uno que ya se había procesado antes del
+      // reinicio. La deduplicación por id vive en memoria, así que un reinicio
+      // la borra y no sirve para este caso. Se comprueba contra la base, que
+      // es lo único que sobrevive.
+      //
+      // Ventana de 10 minutos: si el cliente escribe lo mismo dos veces con
+      // horas de diferencia ("hola" hoy y mañana), son dos mensajes reales y
+      // hay que contestar los dos.
+      const hace10min = new Date(Date.now() - 10 * 60 * 1000);
+      const [repetido] = await db
+        .select({ id: messages.id })
+        .from(messages)
+        .where(and(
+          eq(messages.conversationId, convo.id),
+          eq(messages.role, "customer"),
+          eq(messages.content, params.body),
+          gt(messages.createdAt, hace10min),
+        ))
+        .limit(1);
+      if (repetido) {
+        logger.info({ conversationId: convo.id }, "[MessageHandler] Mensaje ya recibido antes del reinicio — no se procesa de nuevo");
+        return;
       }
 
       // 2. Guardar mensaje en base de datos

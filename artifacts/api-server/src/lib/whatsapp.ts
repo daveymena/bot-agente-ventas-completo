@@ -1239,9 +1239,27 @@ export class WhatsAppManager {
         }));
 
         try {
-          if (upsert.type !== "notify") {
+          // "notify" es un mensaje que llega EN VIVO. "append" es el que
+          // WhatsApp reenvía al reconectar: los que llegaron mientras el bot
+          // estaba caído o reiniciándose.
+          //
+          // Descartar "append" hacía que cada reinicio se tragara en silencio
+          // los mensajes de esa ventana. Pasó dos veces hoy con clientes que
+          // llegaron de anuncios PAGOS: escribieron, el mensaje nunca se
+          // guardó, y nadie les contestó nunca. No hay peor forma de perder
+          // plata: se paga el clic, el cliente escribe, y del otro lado no
+          // queda ni rastro de que escribió.
+          //
+          // Se aceptan los dos. El resto (notificaciones de estado, recibos)
+          // sí se ignora. La deduplicación por id de mensaje que corre más
+          // abajo evita contestar dos veces si WhatsApp reenvía algo que ya
+          // se había procesado.
+          if (upsert.type !== "notify" && upsert.type !== "append") {
             console.log("⏭️ Ignorando evento tipo:", upsert.type);
             return;
+          }
+          if (upsert.type === "append") {
+            console.log(`📥 [RECUPERADO] ${upsert.messages?.length || 0} mensaje(s) que llegaron mientras el bot estaba desconectado`);
           }
           
           for (const msg of upsert.messages ?? []) {
