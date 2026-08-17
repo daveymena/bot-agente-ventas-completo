@@ -91,7 +91,7 @@ function resolveOpenCodeConfig(modelOverride?: string): AIProviderConfig | null 
  *
  * Si alguno mejora, se agrega aca; el orden es el que se rota.
  */
-const MODELOS_GO_UTILES = [
+export const MODELOS_GO_UTILES = [
   "gpt-5.6-luna",   // 2299 ms
   "minimax-m2.7",   // 3224 ms
   "mimo-v2.5-pro",  // 3493 ms

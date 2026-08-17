@@ -3133,6 +3133,37 @@ export const TOOLS: ToolDef[] = [
     },
   },
   {
+    name: "test_ai_models",
+    description: "Prueba EN VIVO qué modelos de un proveedor de IA sirven de verdad para atender clientes, y cuáles no. El catálogo que publica un proveedor NO dice cuáles funcionan: de los 26 que lista OpenCode Go, solo 4 sirven -- los demás contestan vacío, mandan su razonamiento al cliente o directamente fallan. Usala cuando el admin pregunte qué modelo conviene, por qué el bot no responde bien, o antes de cambiar de modelo. Tarda cerca de un minuto. LECTURA: no cambia la configuración.",
+    args: '{ "proveedor": string (req: "opencode_go", "opencode", "groq", "openrouter", "nvidia", "github") }',
+    run: async (args, ctx) => {
+      const prov = String(args.proveedor || args.provider || "").trim();
+      if (!prov) return { ok: false, summary: "Decime qué proveedor probar (opencode_go, opencode, groq, openrouter, nvidia, github)." };
+      const { probarModelosDe } = await import("./probar-modelos");
+      const r = await probarModelosDe(prov, 26);
+      if (!r.ok) return { ok: false, summary: r.mensaje || "No se pudo probar." };
+      if (r.sirven.length === 0) {
+        return { ok: false, summary: `Ningún modelo de ${prov} sirve ahora mismo. Motivos:
+` + r.fallan.slice(0, 8).map((f) => `❌ ${f.modelo}: ${f.motivo}`).join("
+") };
+      }
+      return {
+        ok: true,
+        summary:
+          `${r.sirven.length} de ${r.sirven.length + r.fallan.length} modelos de ${prov} sirven (ordenados del más rápido):
+` +
+          r.sirven.map((m) => `✅ ${m.modelo} — ${m.ms} ms`).join("
+") +
+          (r.fallan.length ? `
+
+No sirven:
+` + r.fallan.slice(0, 10).map((f) => `❌ ${f.modelo}: ${f.motivo}`).join("
+") : ""),
+        data: r,
+      };
+    },
+  },
+  {
     name: "fb_list_campaigns",
     description: "Lista TODAS las campañas de la cuenta publicitaria con su estado REAL (activa, pausada, en revisión, etc.), incluidas las PAUSADAS. Usá ESTA -- no fb_campaign_metrics -- cuando el admin pregunte si una campaña existe, si está activa o si quedó pausada. Las métricas solo muestran campañas CON GASTO en la ventana consultada: una campaña pausada no gastó nada, así que no aparece ahí, y eso NO significa que no exista. LECTURA, no cambia nada.",
     args: "{}",
@@ -3432,7 +3463,7 @@ export const READ_ONLY_TOOLS = new Set([
   "analyze_system", "list_products", "list_categories", "get_agent", "get_settings",
   "get_store", "payment_status",
   // Facebook de solo lectura + generación de imagen (solo devuelve preview, no asigna)
-  "fb_status", "fb_suggest_audience", "generate_image", "fb_list_campaigns", "system_diagnose", "fb_why_not_delivering",
+  "fb_status", "fb_suggest_audience", "generate_image", "fb_list_campaigns", "system_diagnose", "fb_why_not_delivering", "test_ai_models",
   "fb_page_can_post", "fb_page_preview", "fb_list_drafts",
   // Agente de anuncios: leer logs y métricas no cambia nada (solo consulta)
   "fb_agent_logs", "fb_campaign_metrics",

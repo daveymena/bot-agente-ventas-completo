@@ -205,6 +205,26 @@ function serialize(row: typeof settings.$inferSelect) {
  * GET /api/settings/providers
  * Listar providers configurados (keys enmascaradas)
  */
+/**
+ * POST /api/settings/probar-modelos — prueba EN VIVO qué modelos de un
+ * proveedor sirven de verdad.
+ *
+ * El catálogo que publica un proveedor no dice cuáles funcionan: de los 26 que
+ * lista OpenCode Go, solo 4 sirven. Sin esto, el panel ofrece modelos que
+ * fallan y el admin lo descubre cuando un cliente se queda sin respuesta.
+ */
+router.post("/probar-modelos", async (req, res, next) => {
+  try {
+    const proveedor = String(req.body?.proveedor || req.body?.provider || "").trim();
+    if (!proveedor) return res.status(400).json({ message: "Falta 'proveedor'" });
+    const { probarModelosDe } = await import("../lib/probar-modelos");
+    const r = await probarModelosDe(proveedor, Number(req.body?.limite) || 30);
+    return res.json(r);
+  } catch (e) {
+    return next(e);
+  }
+});
+
 router.get("/providers", async (req, res, next) => {
   try {
     const currentSettings = await getOrCreate();

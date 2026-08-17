@@ -54,6 +54,11 @@ export const ENV_POR_PROVEEDOR: Record<string, string> = {
 /** Variable del MODELO de cada proveedor (para que la elección también aplique). */
 export const ENV_MODELO_POR_PROVEEDOR: Record<string, string> = {
   opencode: "OPENCODE_MODEL",
+  // Faltaba: opencode_go tenía mapeada su CLAVE pero no su MODELO, así que
+  // elegir el modelo desde el panel no tenía ningún efecto -- se guardaba en
+  // la base y nunca llegaba al entorno. Es el proveedor de pago y hoy es el
+  // primero de la cadena, o sea el que responde casi todos los mensajes.
+  opencode_go: "OPENCODE_GO_MODEL",
   groq: "GROQ_MODEL",
   openrouter: "OPENROUTER_MODEL",
   google_ai_studio: "GOOGLE_MODEL",
