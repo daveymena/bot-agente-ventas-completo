@@ -755,9 +755,36 @@ app.use("/api", router);
 // Short URL redirect: /p/:productId → /tienda/:slug/producto/:productId
 app.get("/p/:productId", async (req, res, next) => {
   try {
-    const { db, products, tenants } = await import("@workspace/db");
-    const { eq } = await import("drizzle-orm");
-    const productId = parseInt(req.params.productId, 10);
+    const { db, products, tenants, paymentLinks } = await import("@workspace/db");
+    const { eq, sql: sqlRaw } = await import("drizzle-orm");
+    const codigo = String(req.params.productId || "");
+
+    // Los ENLACES DE PAGO también viven en /p/, con un código alfanumérico
+    // (ver URLShortener en payments.ts: `${baseUrl}/p/${shortCode}`). Esta
+    // ruta solo resolvía ids NUMÉRICOS de producto y devolvía 404 para todo lo
+    // demás, así que TODOS los enlaces de pago acortados estaban rotos: el
+    // cliente recibía por WhatsApp "Tarjeta / PSE: .../p/nvZ22t", hacía clic y
+    // le salía "no encontrado". Es el último paso antes de pagar -- ahí se
+    // pierde la venta entera.
+    if (!/^\d+$/.test(codigo)) {
+      const [enlace] = await db
+        .select()
+        .from(paymentLinks)
+        .where(eq(paymentLinks.shortCode, codigo))
+        .limit(1);
+      if (!enlace?.originalUrl) return res.status(404).send("Enlace no encontrado o vencido");
+      // Se cuenta el clic para saber cuántos llegan hasta la pasarela; que
+      // falle el conteo NUNCA puede impedir el pago.
+      db.update(paymentLinks)
+        .set({ clicks: sqlRaw`${paymentLinks.clicks} + 1` })
+        .where(eq(paymentLinks.id, enlace.id))
+        .catch(() => {});
+      // 302 y no 301: un enlace de pago puede regenerarse, y un 301 queda
+      // cacheado en el navegador del cliente apuntando a un checkout viejo.
+      return res.redirect(302, enlace.originalUrl);
+    }
+
+    const productId = parseInt(codigo, 10);
     if (isNaN(productId)) return res.status(404).send("Producto no válido");
     const [p] = await db.select().from(products).where(eq(products.id, productId)).limit(1);
     if (!p) return res.status(404).send("Producto no encontrado");
