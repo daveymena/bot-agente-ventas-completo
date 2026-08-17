@@ -24,11 +24,24 @@ const healthHandler = (req: any, res: any) => {
       /* si no se puede leer, se omite: el health nunca puede fallar por esto */
     }
 
+    // Estado de la cola de mensajes. Son conteos, no contenido: no filtra
+    // nada de ningún cliente. Sin esto, "el bot no contestó" es imposible de
+    // diagnosticar desde afuera -- no se sabe si el mensaje llegó a la cola,
+    // si está esperando, o si falló los reintentos y se descartó.
+    let cola: any = null;
+    try {
+      const { getMessageQueue } = require("./lib/message-queue");
+      cola = getMessageQueue()?.getStats?.() || null;
+    } catch {
+      /* el health nunca puede fallar por esto */
+    }
+
     res.status(200).json({
       status: "ok",
       timestamp: new Date().toISOString(),
       uptime: process.uptime(),
       ...(whatsapp ? { whatsapp } : {}),
+      ...(cola ? { cola } : {}),
     });
   } catch (error) {
     logger.error({ error }, "Health check failed");
