@@ -31,7 +31,7 @@ export class AgentOrchestrator {
   private queue = getMessageQueue();
   /** Último error real al procesar un mensaje, para poder verlo desde /api/health.
    *  Sin esto, "el bot no contestó" solo se puede diagnosticar adivinando. */
-  static ultimoError: { cuando: string; conversacion?: number; mensaje: string } | null = null;
+  static ultimoError: { cuando: string; conversacion?: number; mensaje: string; donde?: string } | null = null;
   private configs: Map<string, AgentOrchestratorConfig> = new Map();
   private processing = false;
   private intervalId?: NodeJS.Timeout;
@@ -278,10 +278,19 @@ export class AgentOrchestrator {
         queueId: message.id,
         tenantId: message.tenantId,
       }, '[AgentOrchestrator] Failed to process message');
+      // El stack, no solo el mensaje: "Maximum call stack size exceeded" sin
+      // stack no dice NADA sobre dónde está la recursión, y adivinar cuesta un
+      // despliegue por intento. Se guardan las primeras líneas propias del
+      // proyecto (se descartan las de node_modules, que son ruido).
+      const stack = error instanceof Error && error.stack
+        ? error.stack.split("
+").filter((l) => !l.includes("node_modules")).slice(0, 8).join(" | ").slice(0, 900)
+        : "";
       AgentOrchestrator.ultimoError = {
         cuando: new Date().toISOString(),
         conversacion: message.conversationId,
         mensaje: (error instanceof Error ? error.message : String(error)).slice(0, 300),
+        donde: stack,
       };
 
       this.queue.markFailed(message.id);
