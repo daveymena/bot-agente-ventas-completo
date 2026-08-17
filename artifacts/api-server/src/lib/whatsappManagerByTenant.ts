@@ -136,6 +136,7 @@ export class WhatsAppByTenant extends WhatsAppManager {
 
           if (connection === "open") {
             this.state = "connected";
+            this.lastError = null;
             this.qrDataUrl = null;
             this.connectedAt = new Date().toISOString();
             this.reconnectAttempts = 0;
