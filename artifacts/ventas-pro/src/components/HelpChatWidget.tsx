@@ -132,7 +132,14 @@ export function HelpChatWidget() {
           encima de eso, no debajo (se veían tapados/mezclados) -- no tocar
           estos valores al restylear. */}
       {open && (
-        <div className="fixed bottom-[calc(220px+env(safe-area-inset-bottom))] md:bottom-24 right-4 sm:right-6 z-40 w-[368px] max-w-[calc(100vw-2rem)] h-[520px] max-h-[calc(100vh-240px)] rounded-[22px] bg-white border border-[#eef1f6] shadow-[0_30px_70px_-14px_rgba(15,23,42,0.4)] flex flex-col overflow-hidden animate-enter">
+        // En móvil se abre a PANTALLA COMPLETA, no como tarjeta flotante.
+        // Antes usaba un tamaño fijo de escritorio (368x520) metido en una
+        // pantalla de 375px: quedaba encimado sobre las tarjetas del panel y
+        // sobre la barra de navegación de abajo, con un área de mensajes de
+        // ~110px de alto. Un chat necesita la pantalla; superponerlo a medias
+        // es lo peor de los dos mundos. z-50 para quedar POR ENCIMA de la
+        // barra inferior, no debajo.
+        <div className="fixed inset-0 z-50 w-full h-[100dvh] rounded-none md:inset-auto md:bottom-24 md:right-4 lg:right-6 md:z-40 md:w-[368px] md:h-[520px] md:max-h-[calc(100vh-240px)] md:rounded-[22px] bg-white border border-[#eef1f6] shadow-[0_30px_70px_-14px_rgba(15,23,42,0.4)] flex flex-col overflow-hidden animate-enter">
           {/* Header */}
           <div className="relative overflow-hidden shrink-0 px-5 py-[18px] flex items-center justify-between bg-[linear-gradient(135deg,#4338ca,#6d5ef0_60%,#4f46e5)]">
             <div className="absolute -top-[30px] -right-5 w-[120px] h-[120px] rounded-full bg-white/[0.08]" />

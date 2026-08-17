@@ -294,8 +294,12 @@ export default function Conversations() {
 
   return (
     <Layout>
-      <div className="flex flex-col h-full animate-enter gap-4">
-        <div>
+      <div className="flex flex-col h-full min-h-0 animate-enter gap-4">
+        {/* En móvil, dentro de una conversación el encabezado se oculta: son
+            ~90px de alto que le robaba a los mensajes en una pantalla donde
+            cada píxel cuenta, y el título "Bandeja de Entrada" no aporta nada
+            cuando ya estás leyendo un chat puntual. */}
+        <div className={selectedId ? "hidden md:block" : ""}>
           <div className="flex items-start gap-1.5">
             <h1 className="text-3xl font-bold tracking-tight">Bandeja de Entrada</h1>
             <HelpTourButton guide={HELP_GUIDE} />
@@ -303,10 +307,22 @@ export default function Conversations() {
           <p className="text-muted-foreground">Monitorea a tus agentes y toma el control cuando sea necesario.</p>
         </div>
 
-        <div className="flex flex-col md:flex-row h-auto md:h-[calc(100vh-12rem)] min-h-[500px] glass-panel rounded-2xl border overflow-hidden shadow-lg shadow-black/5 dark:shadow-black/20 relative">
+        {/* Altura ACOTADA también en móvil.
+            Antes era `h-auto ... overflow-hidden` bajo el breakpoint md: sin
+            techo de altura, el contenedor crecía a la altura natural de todos
+            los mensajes (medido: 1854px de contenido dentro de 498px visibles)
+            y, con overflow-hidden, recortaba el resto SIN dar scroll. El campo
+            para escribir quedaba en y:1963px — o sea, en el celular no se
+            podía ni leer el historial ni responder.
+            100dvh y no 100vh: en móvil la barra del navegador aparece y
+            desaparece, y vh no la contempla — el input terminaba tapado.
+            min-h-0 es imprescindible: sin él, un hijo flex nunca se encoge por
+            debajo de su contenido y el overflow-y-auto de adentro no llega a
+            activarse nunca. */}
+        <div className="flex flex-col md:flex-row flex-1 min-h-0 h-[calc(100dvh-11rem)] md:h-[calc(100vh-12rem)] md:min-h-[500px] glass-panel rounded-2xl border overflow-hidden shadow-lg shadow-black/5 dark:shadow-black/20 relative">
           
           {/* Left Pane - List */}
-          <div className={`w-full md:w-[340px] flex-col border-r bg-card/50 ${selectedId ? 'hidden md:flex' : 'flex'}`}>
+          <div className={`w-full md:w-[340px] min-h-0 flex-col border-r bg-card/50 ${selectedId ? 'hidden md:flex' : 'flex'}`}>
             <div className="p-4 border-b space-y-4 bg-background/50 backdrop-blur-md sticky top-0 z-10">
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -396,7 +412,7 @@ export default function Conversations() {
           </div>
 
           {/* Right Pane - Chat */}
-          <div className={`flex-1 flex-col bg-background/50 relative ${!selectedId ? 'hidden md:flex' : 'flex'}`}>
+          <div className={`flex-1 min-h-0 flex-col bg-background/50 relative ${!selectedId ? 'hidden md:flex' : 'flex'}`}>
             {/* Background Pattern */}
             <div className="absolute inset-0 pointer-events-none opacity-5 dark:opacity-[0.02]" style={{ backgroundImage: 'radial-gradient(circle at 2px 2px, currentColor 1px, transparent 0)', backgroundSize: '24px 24px' }}></div>
 
@@ -446,7 +462,7 @@ export default function Conversations() {
                 </div>
 
                 {/* Chat Messages */}
-                <div className="flex-1 overflow-y-auto p-4 md:p-6 relative z-10 scroll-smooth" ref={scrollRef}>
+                <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-4 md:p-6 relative z-10 scroll-smooth" ref={scrollRef}>
                   {loadingMessages ? (
                     <div className="space-y-6">
                       <Skeleton className="h-16 w-2/3 ml-auto rounded-2xl rounded-tr-sm" />

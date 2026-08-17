@@ -283,21 +283,24 @@ export default function CodeAgent() {
           el que sea -- el contenedor padre ya es flex-col con min-h-0. Y el
           min-h evita el otro extremo: en pantallas muy bajas el chat no se
           aplasta, mantiene un alto usable y es <main> el que scrollea. */}
-      <div className="flex flex-col gap-4 animate-enter flex-1 min-h-[24rem]">
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 sm:gap-3 flex-shrink-0">
+      <div className="flex flex-col gap-2 md:gap-4 animate-enter flex-1 min-h-0 md:min-h-[24rem]">
+        {/* En móvil el header va en UNA sola fila y sin subtítulo: ocupaba ~140px
+            de los ~440px utiles de un celular, dejando el area de mensajes en
+            ~300px. El subtitulo explica algo que ya se entiende al usarlo. */}
+        <div className="flex flex-row items-center justify-between gap-2 sm:gap-3 flex-shrink-0">
           <div className="flex items-center gap-3 min-w-0 w-full sm:w-auto">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-md shadow-indigo-200 shrink-0">
-              <Bot className="w-5 h-5 text-white" />
+            <div className="w-8 h-8 md:w-10 md:h-10 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-md shadow-indigo-200 shrink-0">
+              <Bot className="w-4 h-4 md:w-5 md:h-5 text-white" />
             </div>
             <div className="min-w-0">
               <div className="flex items-center gap-1.5">
-                <h1 className="text-xl md:text-2xl font-bold tracking-tight truncate">Atlas VentasPro</h1>
+                <h1 className="text-base md:text-2xl font-bold tracking-tight truncate">Atlas VentasPro</h1>
                 <HelpTourButton guide={HELP_GUIDE} />
               </div>
-              <p className="text-muted-foreground text-xs md:text-sm truncate">Tu asistente para operar la app con lenguaje natural</p>
+              <p className="hidden md:block text-muted-foreground text-xs md:text-sm truncate">Tu asistente para operar la app con lenguaje natural</p>
             </div>
           </div>
-          <div className="flex items-center gap-2 shrink-0 self-end sm:self-auto">
+          <div className="flex items-center gap-2 shrink-0">
             <Button variant="outline" size="sm" onClick={() => setConfirmingReset(true)} className="h-8 sm:h-9 text-xs px-2 sm:px-3">
               <RotateCcw className="h-3.5 w-3.5 sm:mr-1.5" /> <span className="hidden sm:inline">Nueva</span>
             </Button>
