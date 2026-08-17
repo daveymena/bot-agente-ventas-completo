@@ -1329,7 +1329,21 @@ function buildContextBlock(
   lines.push(`• Nueva sesión (>4h): ${memory.isNewSession ? "SÍ" : "NO"}`);
 
   if (memory.sentProductIds.size > 0) {
-    lines.push(`• Productos ya mostrados: [${Array.from(memory.sentProductIds).join(",")}]`);
+    // Antes acá iba solo la lista de ids, sin decirle qué hacer con ella. El
+    // modelo la leía y volvía a mandar la ficha completa igual -- mismo texto,
+    // mismo precio, mismos beneficios. Para el cliente eso es hablar con una
+    // máquina; y WhatsApp además penaliza al número que manda mensajes
+    // repetidos. Hay que decirle explícitamente qué hacer, no solo qué pasó.
+    const yaMostrados = Array.from(memory.sentProductIds).join(", ");
+    lines.push(`\n🔁 YA LE MANDASTE LA FICHA COMPLETA DE: producto(s) ${yaMostrados}`);
+    lines.push(`   El cliente YA TIENE el nombre, el precio, lo que incluye y los enlaces de pago de ese producto.`);
+    lines.push(`   ❌ NO se la repitas. Repetir lo mismo que ya dijiste te hace sonar a robot y hace que el cliente deje de leer.`);
+    lines.push(`   ✅ En vez de eso, RAZONÁ qué le falta saber a ESTE cliente para decidir, y respondé SOLO eso:`);
+    lines.push(`      · Si pregunta algo puntual (cuánto dura, si sirve para principiantes, cómo se paga), contestá ESA pregunta y nada más.`);
+    lines.push(`      · Si repite la misma pregunta, es que algo no le quedó claro o no está convencido: preguntale qué duda le queda, o tocá un ángulo distinto del que ya usaste.`);
+    lines.push(`      · Si no pregunta nada concreto, avanzá la venta: una objeción típica resuelta, o preguntá qué lo está frenando.`);
+    lines.push(`   Podés dar por sabido lo que ya le dijiste: referite a eso ("el de $60.000 que te pasé", "el que tiene los 19 módulos") en vez de volver a listarlo.`);
+    lines.push(`   Solo volvé a mandar la ficha si el cliente la PIDE explícitamente ("mandámela de nuevo", "no me llegó") o si es un producto DISTINTO.`);
   }
 
   // Si la búsqueda de producto no encontró nada coherente

@@ -271,8 +271,24 @@ async function buildProductBlocks(p: typeof products.$inferSelect, dynamicLinks?
  */
 function variante(opciones: string[], semilla: string): string {
   if (opciones.length === 0) return "";
-  let h = 0;
-  for (let i = 0; i < semilla.length; i++) h = (h * 31 + semilla.charCodeAt(i)) | 0;
+  // FNV-1a con mezcla final, en vez del clásico h*31.
+  //
+  // Con h*31 los teléfonos reales caían casi todos en la misma opción: los
+  // números de un mismo país comparten prefijo y largo, 31 ≡ 3 (mod 4) y los
+  // últimos caracteres dominan el resultado -- medido con 5 clientes reales,
+  // 4 recibieron el mismo texto. La variación existía pero no se notaba, que
+  // para el caso es lo mismo que no tenerla: WhatsApp igual ve mensajes
+  // repetidos entre contactos.
+  let h = 0x811c9dc5;
+  for (let i = 0; i < semilla.length; i++) {
+    h ^= semilla.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  // Mezcla final (avalancha): reparte los bits altos hacia los bajos, que son
+  // los únicos que sobreviven al módulo.
+  h ^= h >>> 16;
+  h = Math.imul(h, 0x85ebca6b);
+  h ^= h >>> 13;
   return opciones[Math.abs(h) % opciones.length]!;
 }
 
