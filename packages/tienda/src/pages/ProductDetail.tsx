@@ -1,3 +1,4 @@
+import { useMoneda } from '@/lib/moneda';
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useStore } from '../store/useStore';
@@ -28,9 +29,12 @@ interface RelatedProduct {
   category: string;
 }
 
+// Respaldo en pesos; el precio que ve el visitante sale de useMoneda().
 const formatPrice = (price: number) => '$' + Math.round(price).toLocaleString('es-CO');
 
 const ProductDetail = () => {
+  // Precio en la moneda del visitante (ver lib/moneda.ts).
+  const { formatear, visitante } = useMoneda();
   const { slug: paramSlug, productId } = useParams();
   const slug = paramSlug || 'sofia-premium';
   const navigate = useNavigate();
@@ -112,7 +116,7 @@ const ProductDetail = () => {
 
   const waHref = config.whatsappPhone
     ? `https://wa.me/${config.whatsappPhone}?text=${encodeURIComponent(
-        `Hola! Me interesa ${product.name} (${formatPrice(price)}). ¿Me das más información?`,
+        `Hola! Me interesa ${product.name} (${formatear(price)}). ¿Me das más información?`,
       )}`
     : null;
 
@@ -170,7 +174,7 @@ const ProductDetail = () => {
 
           <div className="mb-8">
             <div className="flex items-baseline gap-2">
-              <span className="text-5xl font-black text-gray-900">{formatPrice(price)}</span>
+              <span className="text-5xl font-black text-gray-900">{formatear(price)}</span>
               <span className="text-base font-semibold text-gray-500">{product.currency || 'COP'}</span>
             </div>
             <p className="text-sm text-emerald-600 font-bold mt-1">
@@ -292,7 +296,7 @@ const ProductDetail = () => {
                     {r.name}
                   </h3>
                   <p className="text-sm font-black text-gray-900 mt-1.5">
-                    {formatPrice(Number(r.price))}
+                    {formatear(Number(r.price))}
                   </p>
                 </div>
               </Link>

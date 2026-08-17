@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { useStore, Product } from '../store/useStore';
+import { useMoneda } from '@/lib/moneda';
 import { Search, ShoppingCart, Heart, Store, Package, Download, Box, ChevronLeft, ChevronRight } from 'lucide-react';
 import { motion } from 'framer-motion';
 import Swal from 'sweetalert2';
@@ -16,6 +17,8 @@ interface ApiProduct {
   kind: string;
 }
 
+// El precio se muestra en la moneda del visitante (ver lib/moneda.ts):
+// a un colombiano en pesos, a un extranjero en SU moneda con el dolar al lado.
 const formatPrice = (price: number) => {
   return '$' + Math.round(price).toLocaleString('es-CO');
 };
@@ -33,6 +36,8 @@ const TYPE_BADGE: Record<string, { label: string; icon: typeof Download; classNa
 // misma tarjeta -- duplicarla ahí hacía que el botón "Comprar ahora" y el
 // badge de tipo se fueran desincronizando entre las dos pantallas.
 export const ProductCard = ({ product, slug }: { product: Product; slug: string }) => {
+  // Precio en la moneda del visitante (ver lib/moneda.ts).
+  const { formatear } = useMoneda();
   const { addToCart, wishlist, toggleWishlist } = useStore();
   const [imgError, setImgError] = useState(false);
   const [buying, setBuying] = useState(false);
@@ -132,7 +137,7 @@ export const ProductCard = ({ product, slug }: { product: Product; slug: string 
             reales, mostrar acá el promedio y el conteo VERDADEROS. */}
 
         <div className="mt-auto pt-2">
-          <span className="text-lg font-black text-gray-900">{formatPrice(product.price)}</span>
+          <span className="text-lg font-black text-gray-900">{formatear(product.price)}</span>
           <div className="mt-2 flex gap-2">
             <button
               onClick={comprarAhora}
