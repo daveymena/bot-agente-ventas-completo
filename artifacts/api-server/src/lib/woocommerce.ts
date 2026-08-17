@@ -3,6 +3,7 @@ import axios, { AxiosInstance } from "axios";
 import { db, products, tenants } from "@workspace/db";
 import { and, eq } from "drizzle-orm";
 import { logger } from "./logger";
+import { cleanProductCopy } from "./dropi";
 
 export interface WooCommerceConfig {
   storeUrl: string;
@@ -191,7 +192,7 @@ export class WooCommerceService {
           const productData = {
             tenantId: this.tenantId,
             name: wooProduct.name,
-            description: wooProduct.short_description || wooProduct.description || wooProduct.name,
+            description: cleanProductCopy(wooProduct.description || wooProduct.short_description) || wooProduct.name,
             price: parseFloat(wooProduct.price || wooProduct.regular_price) || 0,
             currency: "COP", // Ajustar según la configuración de la tienda
             category: wooProduct.categories[0]?.name || "General",
@@ -209,6 +210,7 @@ export class WooCommerceService {
                 price: wooProduct.price,
                 regular_price: wooProduct.regular_price,
                 sale_price: wooProduct.sale_price,
+                imageUrls: (wooProduct.images || []).map((image) => image.src).filter(Boolean),
               },
             }),
           };

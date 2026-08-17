@@ -237,3 +237,24 @@ export function dropiProductImages(p: DropiProduct): string[] {
   sources.forEach(visit);
   return [...new Set(urls)];
 }
+
+/** Convierte el copy HTML de WooCommerce/Dropi en texto limpio para el bot. */
+export function cleanProductCopy(value: string | null | undefined): string {
+  if (!value) return "";
+  return value
+    .replace(/<\s*br\s*\/?>/gi, "\n")
+    .replace(/<\s*li\b[^>]*>/gi, "\n• ")
+    .replace(/<\s*\/(?:p|h[1-6]|ul|ol|li|div)\s*>/gi, "\n")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;|&apos;/gi, "'")
+    .replace(/\r/g, "")
+    .split("\n")
+    .map((line) => line.replace(/[ \t]+/g, " ").trim())
+    .filter((line, index, lines) => line || lines[index - 1])
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
