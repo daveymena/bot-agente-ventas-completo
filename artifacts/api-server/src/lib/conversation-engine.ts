@@ -658,12 +658,28 @@ export function detectIntent(text: string): Intent {
   // y "hola cuanto vale el curso de piano" se clasificaban como saludo: el
   // cliente que venía llegando del anuncio recibía un "¿qué estás buscando?"
   // que ignoraba justamente lo que había venido a buscar.
-  if (GREETING_PATTERNS.some(p => t.includes(p))) {
+  // El saludo se detecta por PALABRA ENTERA, igual que se borra.
+  //
+  // Antes se detectaba con `t.includes(p)` -- subcadena -- mientras que
+  // quitarSaludoYCortesias borra solo palabras enteras. Esa asimetría colgaba
+  // el proceso: "hola chicas lindas" -> se quita "hola" -> queda "chicas
+  // lindas", que TODAVÍA contiene "hi" dentro de "chicas", así que volvía a
+  // entrar acá; pero ya no hay nada que borrar, el texto no cambia, y se
+  // llama a sí mismo para siempre. Cayó de verdad (17-08-2026): un cliente
+  // de Guatemala llegado de un anuncio pago quedó sin respuesta con
+  // "Maximum call stack size exceeded". Pasa con cualquier palabra que
+  // contenga "hi", "ola" o "hey" adentro (chicas, cola, ahí, chino...).
+  const tieneSaludo = GREETING_PATTERNS.some((p) =>
+    new RegExp(`(^|[^a-záéíóúñ])${p}([^a-záéíóúñ]|$)`, "i").test(t));
+
+  if (tieneSaludo) {
     const resto = quitarSaludoYCortesias(t);
-    // `resto` ya no contiene ninguna palabra de saludo, así que la llamada
-    // recursiva no vuelve a entrar acá.
-    if (esPedidoReal(resto)) return detectIntent(resto);
-    return "greeting";
+    // Segundo candado, por si alguna combinación futura vuelve a dejar el
+    // texto igual: solo se recurre si el texto REALMENTE se achicó. Con eso
+    // la recursión termina siempre, sin depender de que los patrones y el
+    // borrado se mantengan sincronizados.
+    if (resto.length < t.length && esPedidoReal(resto)) return detectIntent(resto);
+    return esPedidoReal(resto) ? "product_query" : "greeting";
   }
 
   // Intención de pago o detalles post-pago
