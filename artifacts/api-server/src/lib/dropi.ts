@@ -149,6 +149,9 @@ export interface DropiProduct {
   suggested_price?: number;
   stock?: number;
   gallery?: Array<{ url?: string; urlS3?: string }>;
+  photos?: Array<{ url?: string; urlS3?: string; src?: string; thumbnail?: string }>;
+  images?: Array<{ url?: string; urlS3?: string; src?: string; thumbnail?: string }>;
+  image?: string | { url?: string; urlS3?: string; src?: string };
   categories?: Array<{ name?: string }>;
 }
 
@@ -210,6 +213,27 @@ export async function dropiCreateOrder(input: DropiOrderInput): Promise<DropiRes
 
 /** Primera imagen utilizable de un producto de Dropi. */
 export function dropiProductImage(p: DropiProduct): string | null {
-  const g = p.gallery?.[0];
-  return g?.urlS3 || g?.url || null;
+  return dropiProductImages(p)[0] || null;
+}
+
+/** Todas las imágenes utilizables, priorizando la principal y eliminando duplicados. */
+export function dropiProductImages(p: DropiProduct): string[] {
+  const sources: any[] = [p.gallery, p.photos, p.images, p.image];
+  const urls: string[] = [];
+  const visit = (value: any) => {
+    if (!value) return;
+    if (typeof value === "string") {
+      if (/^https?:\/\//i.test(value)) urls.push(value);
+      return;
+    }
+    if (Array.isArray(value)) {
+      value.forEach(visit);
+      return;
+    }
+    if (typeof value === "object") {
+      [value.urlS3, value.url, value.src, value.thumbnail].forEach(visit);
+    }
+  };
+  sources.forEach(visit);
+  return [...new Set(urls)];
 }

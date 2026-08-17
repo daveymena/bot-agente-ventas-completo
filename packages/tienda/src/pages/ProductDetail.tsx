@@ -7,6 +7,7 @@ import {
   Infinity as InfinityIcon, Download, MessageCircle,
 } from 'lucide-react';
 import { initPixel, trackViewContent, trackAddToCart, trackInitiateCheckout, trackContact } from '../lib/pixel';
+import { sanitizeRichHtml } from '../lib/rich-text';
 
 interface DetailProduct {
   id: number;
@@ -107,12 +108,7 @@ const ProductDetail = () => {
 
   const price = Number(product.price);
   const features = Array.isArray(product.features) ? product.features : [];
-  // Las descripciones traen saltos de línea propios (vienen del catálogo);
-  // se respetan como párrafos en vez de aplastarlas en un bloque ilegible.
-  const paragraphs = (product.description || '')
-    .split(/\r?\n/)
-    .map(s => s.trim())
-    .filter(Boolean);
+  const descriptionHtml = sanitizeRichHtml(product.description || '');
 
   const waHref = config.whatsappPhone
     ? `https://wa.me/${config.whatsappPhone}?text=${encodeURIComponent(
@@ -248,16 +244,15 @@ const ProductDetail = () => {
             </div>
           )}
 
-          {paragraphs.length > 0 && (
+          {descriptionHtml && (
             <div className="border-t border-gray-200 pt-6">
               <h3 className="text-sm font-extrabold text-gray-900 uppercase tracking-wide mb-3">
                 Descripción
               </h3>
-              <div className="space-y-2.5">
-                {paragraphs.map((p, i) => (
-                  <p key={i} className="text-sm text-gray-600 leading-relaxed">{p}</p>
-                ))}
-              </div>
+              <div
+                className="text-sm text-gray-600 leading-relaxed space-y-3 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_strong]:font-bold"
+                dangerouslySetInnerHTML={{ __html: descriptionHtml }}
+              />
             </div>
           )}
 

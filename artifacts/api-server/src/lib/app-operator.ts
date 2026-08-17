@@ -2892,7 +2892,7 @@ export const TOOLS: ToolDef[] = [
     description: "Importar un producto de Dropi al catálogo de ESTA tienda (con su foto, descripción y precio). A partir de ahí el bot lo vende como cualquier otro producto. Crea datos → requiere confirmación. El precio de venta lo decide el admin: si no lo pasa, se usa el sugerido por Dropi.",
     args: '{ "dropiProductId": number (req), "price": number (opcional, precio de venta al cliente) }',
     run: async (args, ctx) => {
-      const { dropiGetProduct, dropiProductImage } = await import("./dropi");
+      const { dropiGetProduct, dropiProductImages } = await import("./dropi");
       const dropiId = num(args.dropiProductId);
       if (!dropiId) return { ok: false, summary: "Falta 'dropiProductId'" };
 
@@ -2903,6 +2903,7 @@ export const TOOLS: ToolDef[] = [
       const precio = num(args.price) || p.suggested_price || p.sale_price || 0;
       if (!precio) return { ok: false, summary: "El producto de Dropi no trae precio y no se indicó uno. Pasa 'price'." };
 
+      const imageUrls = dropiProductImages(p);
       const [creado] = await db
         .insert(products)
         .values({
@@ -2917,13 +2918,13 @@ export const TOOLS: ToolDef[] = [
           // Queda registrado de dónde salió: sin esto es imposible saber, al
           // vender, que hay que crear la orden en Dropi en vez de entregar
           // un enlace de descarga como con los productos digitales.
-          metadata: JSON.stringify({ source: "dropi", dropiProductId: dropiId, dropiStock: p.stock ?? null }),
+          metadata: JSON.stringify({ source: "dropi", dropiProductId: dropiId, dropiStock: p.stock ?? null, imageUrls }),
         })
         .returning();
 
       // La foto se baja al volumen propio: las URLs de Dropi pueden rotar o
       // caducar, y un producto sin imagen no se puede publicar ni anunciar.
-      const img = dropiProductImage(p);
+      const img = imageUrls[0] || null;
       let imgMsg = "sin imagen en Dropi";
       if (img) {
         const { saveProductImage } = await import("./image-store");

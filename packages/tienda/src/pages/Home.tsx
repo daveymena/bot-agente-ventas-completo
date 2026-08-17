@@ -4,6 +4,7 @@ import { useStore } from '../store/useStore';
 import { ArrowRight, Star, ShieldCheck, Zap, Globe, MapPin } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import ProductWizard from '../components/ProductWizard';
+import { htmlToPlainText } from '../lib/rich-text';
 
 const Hero = () => {
   const { config } = useStore();
@@ -102,7 +103,7 @@ const ProductCard = ({ product }: { product: any }) => {
           {product.name}
         </h3>
         <p className="text-gray-500 text-xs line-clamp-2 mb-4">
-          {product.description}
+          {htmlToPlainText(product.description || '')}
         </p>
         <div className="flex items-center justify-between">
           <span className="text-xl font-bold text-gray-900">${product.price}</span>
