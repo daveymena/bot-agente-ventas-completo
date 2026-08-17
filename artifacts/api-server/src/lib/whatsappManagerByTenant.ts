@@ -144,12 +144,21 @@ export class WhatsAppByTenant extends WhatsAppManager {
           if (connection === "close") {
             const reason = (lastDisconnect?.error as any)?.output?.statusCode
               || (lastDisconnect?.error as any)?.statusCode;
+            const qrExpired = reason === 408 && this.hadQrInThisSession && !sock.user;
             const isLoggedOut = reason === DisconnectReason?.loggedOut
               || reason === 401
               || reason === 403;
             const isRestartRequired = reason === DisconnectReason?.restartRequired || reason === 515;
-            
-            if (isLoggedOut) {
+
+            if (qrExpired) {
+              // A QR that was not scanned is not a transient network failure.
+              // Stop here so the panel does not rotate QR codes forever.
+              this.state = "disconnected";
+              this.lastError = "El QR expiró. Pulsa Generar código QR para intentar de nuevo.";
+              this.reconnectAttempts = 0;
+              this.reconnectTimer = null;
+              logger.info({ tenantId: this.currentTenant?.id, reason }, "[WhatsApp] QR expirado; esperando acción manual");
+            } else if (isLoggedOut) {
               this.state = "error";
               this.lastError = "Sesión cerrada (LoggedOut). Escanea el QR nuevamente.";
               logger.warn({ tenantId: this.currentTenant.id }, "[WhatsApp] Sesión cerrada por WhatsApp");
