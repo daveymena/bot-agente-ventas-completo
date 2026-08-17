@@ -1353,11 +1353,30 @@ export const TOOLS: ToolDef[] = [
     args: '{ "name"?, "role"?, "tone"?, "systemPrompt"?, "isActive"?: boolean }',
     run: async (args, ctx) => {
       const [existing] = await db.select().from(agents).where(eq(agents.tenantId, ctx.tenantId)).limit(1);
+      // Campos que esta tool realmente soporta. Si el modelo pasa cualquier
+      // otra cosa (ej: "messages" con el primer saludo o los seguimientos,
+      // visto en vivo 2026-08-17) hoy NO se guarda como parte del agente --
+      // y responder "Nada que actualizar" es engañoso: el admin pidió algo
+      // que esta herramienta no puede hacer, no que no haya nada que cambiar.
+      // Se dice qué llegó y qué SÍ se puede editar con esta herramienta.
+      const SOPORTADOS = ["name", "role", "tone", "systemPrompt", "isActive"] as const;
+      const recibidos = Object.keys(args || {}).filter((k) => args[k] !== undefined && args[k] !== null);
+      const noSoportados = recibidos.filter((k) => !(SOPORTADOS as readonly string[]).includes(k));
       const patch: Record<string, any> = {};
       for (const k of ["name", "role", "tone", "systemPrompt"]) if (args[k] !== undefined) patch[k] = args[k];
       if (args.isActive !== undefined) patch.isActive = !!args.isActive;
+      if (Object.keys(patch).length === 0) {
+        const hayNoSoportados = noSoportados.length > 0;
+        return {
+          ok: false,
+          summary: hayNoSoportados
+            ? `No puedo actualizar ${noSoportados.join(", ")}: el agente no guarda esos mensajes con esta herramienta. ` +
+              `Solo edito el nombre, el rol, el tono, el prompt de sistema y si está activo. ` +
+              `Los mensajes de bienvenida/seguimiento se configuran con la herramienta de contexto/mensajes del agente, no acá.`
+            : "Enviá al menos un campo: name, role, tone, systemPrompt o isActive.",
+        };
+      }
       if (existing) {
-        if (Object.keys(patch).length === 0) return { ok: false, summary: "Nada que actualizar en el agente" };
         // dbNow(): en Postgres updatedAt exige un objeto Date, un string
         // revienta la escritura (ver date-utils.ts) — el Architect fallaba
         // al aplicar sus propios planes de cambio sobre el agente.
@@ -2254,6 +2273,18 @@ export const TOOLS: ToolDef[] = [
     run: async (args, ctx) => {
       const draftId = Number(args.draftId);
       if (!draftId) return { ok: false, summary: "Falta el id del borrador (usá fb_list_drafts para obtenerlo)." };
+      // Mismo candado que fb_update_draft_creative: un id de 18 dígitos no
+      // puede ser un borrador local (serial int32) y un campaignId de Meta
+      // pasado acá haría reventar la consulta. Se corta antes de la base.
+      if (!Number.isInteger(draftId) || draftId <= 0 || draftId > 2_147_483_647) {
+        return {
+          ok: false,
+          summary:
+            `El id del borrador (${args.draftId}) no es un id de borrador local: es demasiado grande. ` +
+            `Probablemente es el id de la CAMPAÑA en Meta, que no sirve acá. ` +
+            `Usá fb_list_drafts para obtener el id real del borrador (un número chico, tipo #12) y probá de nuevo con ese.`,
+        };
+      }
       const bloqueo = await bloqueoDeMeta("fb_upload_draft_to_meta", ctx);
       if (bloqueo) return { ok: false, summary: bloqueo };
 
@@ -2284,6 +2315,30 @@ export const TOOLS: ToolDef[] = [
     run: async (_args, ctx) => {
       const draftId = Number(_args.draftId);
       if (!draftId) return { ok: false, summary: "Falta el id del borrador (usá fb_list_drafts para obtenerlo)." };
+      // El id del borrador local es un serial int32 (hasta 2.147.483.647).
+      // Los ids de CAMPAÑA de Meta tienen 18 dígitos. Visto en vivo
+      // (2026-08-17): Atlas pasó un campaignId donde va un draftId, y el
+      // overflow de Postgres terminó mostrándole al admin la query entera
+      // con el copy. Un número tan grande no puede ser un borrador local:
+      // se corta acá, antes de tocar la base, con un mensaje útil.
+      if (!Number.isInteger(draftId) || draftId <= 0 || draftId > 2_147_483_647) {
+        return {
+          ok: false,
+          summary:
+            `El id del borrador (${_args.draftId}) no es un id de borrador local: es demasiado grande. ` +
+            `Probablemente es el id de la CAMPAÑA en Meta, que no sirve acá. ` +
+            `Usá fb_list_drafts para obtener el id real del borrador (un número chico, tipo #12) y probá de nuevo con ese.`,
+        };
+      }
+      // Que el borrador sea de ESTE negocio ANTES de escribir: sin el filtro,
+      // un id ajeno modificaría el anuncio de otra cuenta.
+      const [propio] = await db
+        .select({ id: facebookDrafts.id, campaignId: facebookDrafts.campaignId })
+        .from(facebookDrafts)
+        .where(and(eq(facebookDrafts.id, draftId), eq(facebookDrafts.tenantId, ctx.tenantId)))
+        .limit(1);
+      if (!propio) return { ok: false, summary: `No encontré el borrador ${draftId} para este negocio.` };
+
       const patch: Record<string, any> = { updatedAt: new Date() };
       if (typeof _args.headline === "string" && _args.headline.trim()) patch.headline = _args.headline.trim();
       if (typeof _args.primaryText === "string" && _args.primaryText.trim()) patch.primaryText = _args.primaryText.trim();
@@ -3444,14 +3499,46 @@ export function isKnownTool(name: any): boolean {
   return typeof name === "string" && TOOL_MAP.has(name);
 }
 
+/**
+ * ¿El error vino de la base de datos? Los errores de drizzle/pg crudos llevan
+ * en `message` la query completa con los parámetros interpolados (el copy de
+ * un anuncio incluido). Visto en vivo (2026-08-17): un id de campaña de Meta
+ * de 18 dígitos usado como id de borrador hizo reventar Postgres por desborde
+ * numérico, y `Error ejecutando ${tool}: ${e.message}` le mostró al admin la
+ * sentencia SQL entera con todo el texto del anuncio. Acá se detecta y se
+ * devuelve un mensaje seguro; el detalle técnico va a los logs.
+ */
+function esErrorDeBaseDeDatos(e: any): boolean {
+  if (!e) return false;
+  // Código de error PostgreSQL: 2 dígitos + 3 letras (ej: 22P02, 22003, 23505).
+  const code = String(e?.code || "");
+  if (/^\d{2}[A-Z]{3}$/.test(code)) return true;
+  // drizzle/pg también puede exponer la query cruda en estos campos.
+  if (typeof e?.query === "string" && e.query.length > 0) return true;
+  if (typeof e?.parameter === "string" && e.parameter.length > 0) return true;
+  const msg = String(e?.message || "");
+  if (/\b(invalid input (value|syntax)|out of range for type|syntax error at or near|duplicate key value|null value in column|violates (unique|foreign key)|relation ".*" does not exist)\b/i.test(msg)) return true;
+  return false;
+}
+
 export async function executeAction(tool: string, args: any, ctx: OperatorContext): Promise<ToolResult> {
   const def = TOOL_MAP.get(tool);
   if (!def) return { ok: false, summary: `Herramienta desconocida: ${tool}` };
   try {
     return await def.run(args || {}, ctx);
   } catch (e: any) {
-    logger.error({ tool, err: e?.message }, "[AppOperator] Tool error");
-    return { ok: false, summary: `Error ejecutando ${tool}: ${e?.message}` };
+    const detalle = e?.message || e?.detail || "";
+    const codigoError = String(e?.code || "");
+    logger.error({ tool, err: detalle, code: e?.code, stack: e?.stack }, "[AppOperator] Tool error");
+    if (esErrorDeBaseDeDatos(e)) {
+      return {
+        ok: false,
+        summary:
+          `La operación falló por un error de base de datos (código ${codigoError || "desconocido"}). ` +
+          `El cambio NO se aplicó y no se expusieron datos internos. Revisá la bitácora del sistema para el detalle técnico.`,
+      };
+    }
+    return { ok: false, summary: `Error ejecutando ${tool}: ${detalle}` };
   }
 }
 

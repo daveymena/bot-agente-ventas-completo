@@ -220,11 +220,34 @@ const GENERIC_FALLBACK_SCHEMA = { type: "object", additionalProperties: true } a
 // ── Descripción legible de una acción propuesta (movida acá desde
 // routes/code-agent.ts, que ahora la importa) para que la use tanto el
 // camino legado como propose_action. ──────────────────────────────────────
+
+/**
+ * Da una forma legible a un valor dentro de la descripción de una acción.
+ *
+ * Antes se usaba `String(v).slice(0, 40)`: cuando Atlas pasaba un objeto o un
+ * array (por ejemplo el campo `messages` de update_agent, un array de
+ * mensajes), el plan mostraba `messages=[object Object]` — inútil para el
+ * admin al momento de aprobar. Un objeto se serializa como JSON compacto y,
+ * si queda largo, se recorta con un elipsis para no inundar la propuesta.
+ */
+function valorLegible(v: any, max = 60): string {
+  if (v === null || v === undefined) return String(v);
+  const t = typeof v;
+  if (t === "string") return (v as string).replace(/\s+/g, " ").trim().slice(0, max) || "(vacío)";
+  if (t === "number" || t === "boolean") return String(v);
+  try {
+    const s = JSON.stringify(v);
+    return s.length > max ? s.slice(0, max) + "…" : s;
+  } catch {
+    return String(v).slice(0, max);
+  }
+}
+
 export function describePlannedAction(a: { tool: string; args: any }): string {
   const g = a.args || {};
   switch (a.tool) {
     case "update_product":
-      return `Actualizar producto ${g.id ?? g.name ?? "?"}: ${Object.entries(g).filter(([k]) => k !== "id").map(([k, v]) => `${k}=${v}`).join(", ")}`;
+      return `Actualizar producto ${g.id ?? g.name ?? "?"}: ${Object.entries(g).filter(([k]) => k !== "id").map(([k, v]) => `${k}=${valorLegible(v)}`).join(", ")}`;
     case "create_product":
       return `Crear producto "${g.name ?? "?"}" (${g.price ?? "?"} ${g.currency ?? ""})`;
     case "delete_product":
@@ -232,9 +255,9 @@ export function describePlannedAction(a: { tool: string; args: any }): string {
     case "create_category":
       return `Crear categoría "${g.name ?? "?"}"`;
     case "update_agent":
-      return `Actualizar el agente: ${Object.entries(g).map(([k, v]) => `${k}=${String(v).slice(0, 40)}`).join(", ")}`;
+      return `Actualizar el agente: ${Object.entries(g).map(([k, v]) => `${k}=${valorLegible(v)}`).join(", ")}`;
     case "update_settings":
-      return `Actualizar configuración: ${Object.entries(g).map(([k, v]) => `${k}=${String(v).slice(0, 40)}`).join(", ")}`;
+      return `Actualizar configuración: ${Object.entries(g).map(([k, v]) => `${k}=${valorLegible(v)}`).join(", ")}`;
     case "create_store":
       return `Crear tienda "${g.name ?? g.slug ?? "?"}"`;
     case "fb_create_ad":
@@ -246,9 +269,9 @@ export function describePlannedAction(a: { tool: string; args: any }): string {
     case "fb_ad_draft":
       return `Generar borrador de anuncio (copy + segmentación) para el producto ${g.productId ?? "?"} — no toca la cuenta de Meta, queda guardado local`;
     case "set_product_image":
-      return `Asignar imagen al producto ${g.productId ?? "?"} (se hospeda permanente): ${String(g.imageUrl ?? "").slice(0, 60)}`;
+      return `Asignar imagen al producto ${g.productId ?? "?"} (se hospeda permanente): ${valorLegible(g.imageUrl ?? "")}`;
     case "fb_update_draft_creative":
-      return `✏️ Actualizar el copy del anuncio (borrador ${g.draftId ?? "?"})${g.headline ? ` — nuevo título: "${String(g.headline).slice(0, 50)}"` : ""} — sigue en el mismo estado en el que estaba (pausado sigue pausado), no se activa solo`;
+      return `✏️ Actualizar el copy del anuncio (borrador ${g.draftId ?? "?"})${g.headline ? ` — nuevo título: "${valorLegible(g.headline, 50)}"` : ""} — sigue en el mismo estado en el que estaba (pausado sigue pausado), no se activa solo`;
     case "fb_pause_campaign":
       return `⏸️ Pausar la campaña ${g.campaignId ?? "?"} de Facebook — deja de gastar`;
     case "fb_resume_campaign":
