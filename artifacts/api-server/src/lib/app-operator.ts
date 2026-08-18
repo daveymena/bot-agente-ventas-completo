@@ -1103,6 +1103,7 @@ export async function bloqueoDeMeta(
   ctx: OperatorContext,
 ): Promise<string | null> {
   const NECESITAN_META: Record<string, "pagina" | "ads"> = {
+    fb_ad_draft: "ads",
     fb_page_publish: "pagina",
     fb_create_ad: "ads",
     fb_pause_campaign: "ads",
