@@ -16,7 +16,7 @@
  */
 
 import { db, products, productCategories, agents, settings, stores, tenants, conversations, leads, architectMemory, facebookDrafts, payments } from "@workspace/db";
-import { eq, desc, and, gte, sql, ilike, inArray } from "drizzle-orm";
+import { eq, desc, asc, and, gte, sql, ilike, inArray } from "drizzle-orm";
 import { logger } from "./logger";
 import { tenantManager } from "./tenantManager";
 import { dbNow } from "./date-utils";
@@ -1156,6 +1156,22 @@ export function mensajeParaAdmin(summary: string): string {
   return limpio || texto.split(/(?<=[.!?])\s+/)[0] || texto;
 }
 
+/**
+ * El agente principal de un tenant, con un criterio ESTABLE.
+ *
+ * `agents` admite varias filas por tenant y el tenant 1 tiene cuatro activas
+ * (una de ellas sin nombre y sin prompt). Las consultas hacían `limit(1)` sin
+ * ORDER BY, así que Postgres podía devolver una distinta en cada llamada:
+ * Atlas mostraba un agente, editaba otro y verificaba un tercero. El admin
+ * confirmaba un cambio que no se veía en ninguna parte.
+ *
+ * Orden: los activos primero y, entre ellos, el de id más chico (el original).
+ */
+async function agenteDelTenant(tenantId: number) {
+  return db.select().from(agents).where(eq(agents.tenantId, tenantId))
+    .orderBy(desc(agents.isActive), asc(agents.id)).limit(1);
+}
+
 // ─── Registro de herramientas ────────────────────────────────────────────────
 export const TOOLS: ToolDef[] = [
   // ── Lectura / diagnóstico ──
@@ -1236,7 +1252,12 @@ export const TOOLS: ToolDef[] = [
     description: "Ver la configuración del agente de ventas actual.",
     args: "{}",
     run: async (_args, ctx) => {
-      const [a] = await db.select().from(agents).where(eq(agents.tenantId, ctx.tenantId)).orderBy(desc(agents.isActive)).limit(1);
+      // El tenant puede tener VARIOS agentes (el 1 tiene 4 activos a la vez).
+      // Sin ORDER BY, `limit(1)` devuelve cualquiera: get_agent leía uno,
+      // update_agent escribía en otro y la verificación confirmaba un tercero.
+      // Se fija el mismo criterio en los tres: activo primero, y entre esos el
+      // más viejo (el principal). Ver agenteDelTenant.
+      const [a] = await agenteDelTenant(ctx.tenantId);
       if (!a) return { ok: true, summary: "No hay agente configurado", data: null };
       return { ok: true, summary: `Agente: ${a.name} (${a.role})`, data: { id: a.id, name: a.name, role: a.role, tone: a.tone, isActive: a.isActive } };
     },
@@ -1352,7 +1373,7 @@ export const TOOLS: ToolDef[] = [
     description: "Actualizar el agente de ventas (nombre, rol, tono, prompt, activo). Crea uno si no existe.",
     args: '{ "name"?, "role"?, "tone"?, "systemPrompt"?, "isActive"?: boolean }',
     run: async (args, ctx) => {
-      const [existing] = await db.select().from(agents).where(eq(agents.tenantId, ctx.tenantId)).limit(1);
+      const [existing] = await agenteDelTenant(ctx.tenantId);
       // Campos que esta tool realmente soporta. Si el modelo pasa cualquier
       // otra cosa (ej: "messages" con el primer saludo o los seguimientos,
       // visto en vivo 2026-08-17) hoy NO se guarda como parte del agente --
@@ -3629,7 +3650,7 @@ export async function verifyMutation(tool: string, args: any, ctx: OperatorConte
       return st ? `Verificado → negocio: ${st.businessName} · IA: ${st.aiProvider}` : "";
     }
     if (tool === "update_agent" || tool === "get_agent") {
-      const [ag] = await db.select().from(agents).where(eq(agents.tenantId, ctx.tenantId)).limit(1);
+      const [ag] = await agenteDelTenant(ctx.tenantId);
       return ag ? `Verificado → agente: ${ag.name} (${ag.role})` : "";
     }
     if (tool === "create_category" || tool === "delete_category") {
