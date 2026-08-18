@@ -114,7 +114,15 @@ const INVENTOS: Array<{ patron: RegExp; problema: string; arreglo: string }> = [
     arreglo: "Solo va si el descuento existe de verdad y tiene fecha real.",
   },
   {
-    patron: /\b(?:miles|cientos|m[aá]s de \d+)\s+(?:de\s+)?(?:personas|clientes|alumnos|usuarios)\b/i,
+    // El patrón viejo era /(?:miles|cientos|más de \d+)\s+(?:de\s+)?(?:personas|
+    // clientes|alumnos|usuarios)/ y dejaba pasar los dos casos reales del
+    // 18-08-2026: "+800 dueños ya lo lograron" (la forma "+N" no estaba) y
+    // "Más de 1,500 familias" (por partida doble: "familias" no estaba en la
+    // lista, y `\d+` cortaba en el "1" de "1,500" y ya no encajaba el espacio).
+    // La cifra la inventó el modelo entera. El sustantivo cambia con el nicho
+    // -- dueños, familias, emprendedores -- así que la lista se abre; lo que
+    // se bloquea es afirmar una cantidad de gente que nadie contó.
+    patron: /(?:\bmiles\b|\bcientos\b|\bm[aá]s\s+de\s+\d[\d.,]*|\+\s*\d[\d.,]*)\s+(?:de\s+)?(?:personas|clientes|alumnos|usuarios|due[nñ]os|familias|padres|madres|mam[aá]s|pap[aá]s|estudiantes|emprendedores|mujeres|hombres|negocios|empresas|compradores)\b/i,
     problema: "afirma cuánta gente lo compró",
     arreglo: "Sacalo: no hay dato que lo respalde.",
   },

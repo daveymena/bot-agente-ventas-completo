@@ -386,8 +386,47 @@ async function proposeAction(
     fb_resume_campaign: ["campaignId"],
     fb_set_budget: ["adSetId", "dailyBudget"],
   };
+  // Un id NUMÉRICO en cero es tan "falta el dato" como un vacío, pero la
+  // comprobación de abajo lo dejaba pasar: 0 no es undefined, ni null, ni "",
+  // ni "?".
+  //
+  // Esto es la SEGUNDA vuelta del mismo bug. El 13-08-2026 se cerró el caso
+  // "productId ausente" (el admin veía "Generar borrador para el producto ?");
+  // el modelo dejó de omitir el campo y pasó a mandarlo en 0, que es el mismo
+  // agujero con otra cara. Visto en vivo el 18-08-2026 con el PACK EDUCA A TU
+  // PERRO: no encontró el producto en el catálogo, propuso igual con
+  // `productId: 0`, el admin aprobó un plan que decía "para el producto 0", y
+  // recién ahí la ejecución devolvió "Falta 'productId'" -- toda la
+  // conversación perdida en el último paso, justo el fallo tardío que este
+  // bloque existe para cerrar. Por eso ahora no se valida "que el campo esté":
+  // se valida que el VALOR pueda ser un id de verdad.
+  //
+  // El rango es el de un serial int32 de Postgres, mismo criterio que
+  // fb_update_draft_creative/update_agent (ver app-operator): un número de 18
+  // dígitos es un id de Meta puesto donde va uno local, no un id válido acá.
+  const CAMPOS_ID = new Set(["productId", "id", "draftId", "leadId"]);
+  const esIdInvalido = (k: string, v: any) => {
+    if (!CAMPOS_ID.has(k)) return false;
+    const n = typeof v === "number" ? v : Number(String(v).trim());
+    return !Number.isInteger(n) || n <= 0 || n > 2_147_483_647;
+  };
+  // Un presupuesto en 0 es el mismo problema con otro campo, y encima
+  // silencioso: `num(0) || defaultDelNicho` termina gastando el default, así
+  // que el admin aprueba "$0/día" y se ejecuta otra cosa -- justo lo que se
+  // quiso cerrar cuando se hizo obligatorio dailyBudget (15-08-2026).
+  const esMontoInvalido = (k: string, v: any) => {
+    if (k !== "dailyBudget") return false;
+    const n = typeof v === "number" ? v : Number(String(v).trim());
+    return !Number.isFinite(n) || n <= 0;
+  };
   const faltantes = (OBLIGATORIOS[tool] || []).filter(
-    (k) => toolArgs[k] === undefined || toolArgs[k] === null || toolArgs[k] === "" || toolArgs[k] === "?",
+    (k) =>
+      toolArgs[k] === undefined ||
+      toolArgs[k] === null ||
+      toolArgs[k] === "" ||
+      toolArgs[k] === "?" ||
+      esIdInvalido(k, toolArgs[k]) ||
+      esMontoInvalido(k, toolArgs[k]),
   );
   if (faltantes.length) {
     return {
@@ -399,7 +438,9 @@ async function proposeAction(
             `no un resumen ni una referencia tipo "el copy de arriba". Sumá también "headline" (título corto) y, si lo tenés, ` +
             `"description". Sin el texto adjunto no se guarda nada y el admin se queda sin anuncio después de haberlo aprobado. `
           : `Averigualo primero con una herramienta de lectura (por ejemplo list_products para el id del producto) `) +
-        `Volvé a proponer la acción con el dato real. No la propongas con un valor vacío ni inventado.`,
+        `Volvé a proponer la acción con el dato real. No la propongas con un valor vacío ni inventado: ` +
+        `un id en 0 (o cualquier número puesto "para completar") no cuenta como id y hace fallar la acción ` +
+        `después de que el admin ya la aprobó.`,
     };
   }
 

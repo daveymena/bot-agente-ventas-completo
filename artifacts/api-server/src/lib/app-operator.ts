@@ -819,7 +819,32 @@ export async function validarContenidoAnuncio(
   ctx: OperatorContext,
 ): Promise<string | null> {
   const id = num(args.productId);
-  if (!id) return null; // el id lo validan los llamadores, cada uno a su manera
+  // Acá antes decía `if (!id) return null` ("el id lo validan los llamadores,
+  // cada uno a su manera"). No era cierto: proposeAction solo miraba que el
+  // campo no estuviera vacío, así que `productId: 0` pasaba como si fuera un
+  // dato real. Visto en vivo el 18-08-2026 con el PACK EDUCA A TU PERRO: el
+  // admin armó el anuncio a lo largo de toda la conversación, aprobó un plan
+  // que decía "para el producto 0", y recién DESPUÉS del "sí" la ejecución
+  // contestó "Falta 'productId'".
+  //
+  // Y hay un segundo efecto, peor porque es silencioso: con un id inválido
+  // esta función devolvía "todo bien" sin revisar NI UNA de las reglas de
+  // copy (prueba social, garantías, plazos, entregables). Un id malo apagaba
+  // todos los controles de contenido de una sola vez. Ese copy prometía
+  // "resultados en menos de 30 días", "garantía de satisfacción" y "soporte
+  // personalizado" -- las tres se bloquean acá abajo, y ninguna llegó a
+  // evaluarse.
+  // El rango es el del serial int32 de Postgres, igual que el candado de
+  // draftId (2026-08-17): un id de 18 dígitos es un id de Meta puesto donde
+  // va uno local, y ni siquiera entra en la consulta -- la hace reventar.
+  if (!Number.isInteger(id) || (id as number) <= 0 || (id as number) > 2_147_483_647) {
+    return (
+      `No hay un producto real detrás de este anuncio: "productId" llegó como ${JSON.stringify(args.productId)}. ` +
+      `Un 0, un vacío o un id inventado no sirven -- el anuncio se escribe sobre los datos REALES del producto ` +
+      `(nombre, descripción, características y precio guardados en el catálogo). ` +
+      `Sacá el id con list_products; si el producto todavía no existe, primero proponé create_product y recién después el anuncio.`
+    );
+  }
 
   // Marcadores sin rellenar: visto en vivo (2026-08-12), el modelo entregó
   // un anuncio listo "para confirmar" que decía literalmente
@@ -893,7 +918,27 @@ export async function validarContenidoAnuncio(
   // quedar mal. Se valida contra los datos REALES del producto y, si la
   // promesa no está respaldada, se rechaza la generación.
   const [prodReal] = await db.select().from(products).where(and(eq(products.id, id), eq(products.tenantId, ctx.tenantId))).limit(1);
-  if (!prodReal) return null;
+  // Mismo agujero que el id en cero, un paso más adelante: un id con forma
+  // válida pero que no existe en ESTA tienda salía por acá con "todo bien" y
+  // se llevaba puestos todos los controles de contenido de abajo. Además es
+  // exactamente lo que pasa cuando el modelo no encontró el producto en el
+  // catálogo y siguió igual con un número inventado.
+  if (!prodReal) {
+    const catalogo = await db
+      .select({ id: products.id, name: products.name })
+      .from(products)
+      .where(eq(products.tenantId, ctx.tenantId))
+      .limit(20);
+    const lista = catalogo.length
+      ? catalogo.map((p: { id: number; name: string }) => `${p.id} = ${p.name}`).join(" · ")
+      : "(el catálogo de esta tienda está vacío)";
+    return (
+      `El producto ${id} no existe en esta tienda, así que no hay datos reales sobre los que escribir el anuncio. ` +
+      `Productos disponibles: ${lista}. ` +
+      `Elegí el id correcto de esa lista y volvé a proponer la acción. Si el producto que te pidió el admin no está, ` +
+      `no inventes un id: decíselo y ofrecé crearlo primero con create_product.`
+    );
+  }
 
   // ── Titular más largo de lo que Meta muestra ─────────────────────────
   // Meta corta el titular alrededor de los 40 caracteres. Auditados los
