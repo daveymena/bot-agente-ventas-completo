@@ -395,6 +395,15 @@ async function proposeAction(
     update_product: ["id"],
     delete_product: ["id"],
     fb_update_draft_creative: ["draftId"],
+    // Faltaba, y dejaba pasar el mismo agujero que el "producto 0" pero con
+    // otro campo. Visto en vivo (2026-08-18): el plan que le llegó al admin
+    // decía literalmente `subir el borrador a Meta en pausa:
+    // {"draftId":null,"imageUrl":null}` -- sin `draftId` no hay nada que
+    // subir, así que la acción iba a fallar DESPUÉS de la confirmación. En el
+    // mismo turno el modelo además afirmó "✅ Borrador guardado localmente"
+    // sin haber guardado nada: si la propuesta no se frena acá, el admin
+    // aprueba un plan imposible sobre un borrador que no existe.
+    fb_upload_draft_to_meta: ["draftId"],
     fb_pause_campaign: ["campaignId"],
     fb_resume_campaign: ["campaignId"],
     // Faltaba, y es la que más importa de las tres: REDIRIGIR manda acá todo
@@ -438,6 +447,17 @@ async function proposeAction(
     const n = typeof v === "number" ? v : Number(String(v).trim());
     return !Number.isFinite(n) || n <= 0;
   };
+  // Un id vacío o en cero se rechaza en CUALQUIER herramienta, esté o no en
+  // OBLIGATORIOS. Ir agregando herramientas a esa lista de a una nos hizo
+  // perder el mismo bug tres veces (productId ausente el 13-08, productId en
+  // 0 el 18-08, draftId en null el 18-08 a la noche): cada herramienta nueva
+  // que reciba un id nace con el agujero abierto hasta que alguien se acuerde
+  // de anotarla. Esto lo cierra por defecto -- si el campo se llama como un
+  // id, tiene que ser un id.
+  const idsRotos = Object.keys(toolArgs).filter(
+    (k) => toolArgs[k] !== undefined && CAMPOS_ID.has(k) && esIdInvalido(k, toolArgs[k]),
+  );
+
   const faltantes = (OBLIGATORIOS[tool] || []).filter(
     (k) =>
       toolArgs[k] === undefined ||
@@ -447,6 +467,7 @@ async function proposeAction(
       esIdInvalido(k, toolArgs[k]) ||
       esMontoInvalido(k, toolArgs[k]),
   );
+  for (const k of idsRotos) if (!faltantes.includes(k)) faltantes.push(k);
   if (faltantes.length) {
     return {
       ok: false,
