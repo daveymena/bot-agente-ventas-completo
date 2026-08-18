@@ -102,6 +102,49 @@ async function scoreAgents(
   const messageLower = messageText.toLowerCase();
   const scores: AgentScore[] = [];
 
+  // ── Enrutado por el TIPO del producto que el cliente está pidiendo ────────
+  //
+  // Manda sobre cualquier otra señal, y por una razón concreta: el resto del
+  // scoring adivina por palabras del rol del agente ("producto", "envío") y
+  // por si el agente ya habló en la conversación. Nada de eso mira lo que el
+  // cliente realmente quiere comprar. Si pregunta por una rodillera, tiene que
+  // atenderlo el agente de dropshipping aunque el de digitales venga hablando
+  // desde hace diez mensajes: es el único que sabe pedir la dirección y crear
+  // el pedido.
+  const conEspecialidad = activeAgents.filter((a: any) => {
+    const e = String(a.especialidad || "").toLowerCase();
+    return e === "digital" || e === "dropshipping";
+  });
+  if (conEspecialidad.length > 0) {
+    try {
+      const { db: base, products } = await import("@workspace/db");
+      const { findBestProductMatch } = await import("./conversation-engine");
+      const catalogo = await base.select().from(products)
+        .where(and(eq(products.isActive, true), eq(products.tenantId, tenantId))).limit(200);
+      const match = await findBestProductMatch(messageText, catalogo as any, new Map());
+      if (match?.product && match.score >= 50) {
+        const tipo = String((match.product as any).kind || "digital") === "physical" ? "dropshipping" : "digital";
+        const elegido = conEspecialidad.find((a: any) => String(a.especialidad).toLowerCase() === tipo);
+        if (elegido) {
+          logger.info(
+            { tenantId, agente: elegido.name, producto: (match.product as any).name, tipo },
+            "[AgentRouter] Enrutado por el tipo de producto que pidió el cliente",
+          );
+          return [{
+            agentId: elegido.id,
+            agentName: elegido.name,
+            score: 100,
+            reason: `El cliente preguntó por un producto ${tipo === "dropshipping" ? "físico" : "digital"}`,
+          }];
+        }
+      }
+    } catch (e: any) {
+      // Si el catálogo falla, se sigue con el scoring de siempre: preferible
+      // un agente elegido por palabras clave que ninguna respuesta.
+      logger.warn({ tenantId, err: e?.message }, "[AgentRouter] No se pudo enrutar por tipo de producto");
+    }
+  }
+
   // Obtener historial de la conversación para contexto
   const history = await db
     .select()

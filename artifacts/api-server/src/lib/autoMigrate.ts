@@ -29,6 +29,43 @@ const MIGRATIONS = [
   // Fotos múltiples para borradores de Facebook (carrusel) -- antes solo
   // existía image_url (una sola imagen por anuncio).
   `ALTER TABLE facebook_drafts ADD COLUMN IF NOT EXISTS images JSONB DEFAULT '[]'`,
+  // ── Dropshipping ──────────────────────────────────────────────────────────
+  // Un producto fisico no se entrega con un link de Google Drive: hay que
+  // pedirle al cliente a donde se lo mandan y despachar. Hasta ahora no habia
+  // NINGUN lugar donde guardar eso -- ni `leads` ni `conversations` tenian un
+  // solo campo de direccion, y no existia tabla de pedidos. El agente podia
+  // cerrar la venta y los datos se perdian.
+  `ALTER TABLE agents ADD COLUMN IF NOT EXISTS especialidad TEXT`,
+  `CREATE TABLE IF NOT EXISTS dropshipping_orders (
+    id SERIAL PRIMARY KEY,
+    tenant_id INTEGER NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    conversation_id INTEGER REFERENCES conversations(id) ON DELETE SET NULL,
+    lead_id INTEGER,
+    product_id INTEGER,
+    product_name TEXT,
+    quantity INTEGER NOT NULL DEFAULT 1,
+    unit_price NUMERIC(12,2),
+    total NUMERIC(12,2),
+    -- Datos de envio. Nombres en el orden en que se le piden al cliente.
+    nombre TEXT,
+    telefono TEXT,
+    documento TEXT,
+    departamento TEXT,
+    ciudad TEXT,
+    direccion TEXT,
+    barrio TEXT,
+    notas TEXT,
+    -- 'contraentrega' es el metodo por defecto en dropshipping colombiano.
+    metodo_pago TEXT NOT NULL DEFAULT 'contraentrega',
+    -- borrador -> datos completos -> enviado a woocommerce -> despachado
+    estado TEXT NOT NULL DEFAULT 'borrador',
+    woo_order_id INTEGER,
+    woo_error TEXT,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now()
+  )`,
+  `CREATE INDEX IF NOT EXISTS dropshipping_orders_conv_idx ON dropshipping_orders (conversation_id)`,
+  `CREATE INDEX IF NOT EXISTS dropshipping_orders_estado_idx ON dropshipping_orders (tenant_id, estado)`,
   `CREATE TABLE IF NOT EXISTS remarketing_campaigns (
     id SERIAL PRIMARY KEY,
     tenant_id INTEGER REFERENCES tenants(id) ON DELETE CASCADE,

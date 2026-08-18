@@ -734,6 +734,32 @@ export async function runAgentReply(conversationId: number) {
         .limit(200);
       logTime(`4b. Cargar productos: ${Date.now() - t1}ms`);
 
+      // ── Cada agente ve SOLO los productos de su especialidad ──────────────
+      //
+      // Un curso digital y una rodillera térmica no se venden igual: el
+      // digital se entrega con un link al instante, el físico necesita
+      // dirección, cédula y transportadora. Mezclarlos en un mismo catálogo
+      // hace que el agente de digitales prometa envíos y el de físicos
+      // ofrezca "acceso de por vida".
+      //
+      // `especialidad` vacía = agente general, ve todo (compatibilidad con
+      // los negocios que tienen un solo agente para ambas cosas).
+      const especialidad = String((activeAgent as any).especialidad || "").toLowerCase();
+      if (especialidad === "digital" || especialidad === "dropshipping") {
+        const tipoQueVende = especialidad === "digital" ? "digital" : "physical";
+        const antes = productList.length;
+        const filtrado = productList.filter((p: any) => (p.kind || "digital") === tipoQueVende);
+        // Si el filtro deja el catálogo vacío, el negocio no tiene productos
+        // de ese tipo: se deja el catálogo completo antes que dejar al agente
+        // sin nada que ofrecer.
+        if (filtrado.length > 0) {
+          productList = filtrado;
+          console.log(`🎯 [ESPECIALIDAD] ${activeAgent.name} vende ${especialidad}: ${filtrado.length} de ${antes} productos - ${ts()}`);
+        } else {
+          console.log(`⚠️ [ESPECIALIDAD] ${activeAgent.name} es de ${especialidad} pero no hay productos de ese tipo; se deja el catálogo completo`);
+        }
+      }
+
       // Si no hay productos activos, fallback a todos los del tenant (p.ej. datos de prueba)
       if (productList.length === 0) {
         productList = await db.select().from(products)
@@ -978,11 +1004,94 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
       + `Saludá en una línea corta y pasá directo al producto del anuncio.`
     : "";
 
+  // ── Pedido de producto físico (dropshipping) ───────────────────────────────
+  //
+  // Acá vive la diferencia real con un producto digital: hay que sacarle al
+  // cliente a dónde se lo mandan, guardarlo, y cuando esté completo crear el
+  // pedido en WooCommerce (que es quien lo empuja a Dropi). Antes de esto el
+  // agente podía cerrar la venta y los datos se perdían: no existía ni un
+  // campo de dirección en toda la base.
+  let bloqueDropshipping = "";
+  try {
+    const esDropshipping =
+      String((activeAgent as any).especialidad || "").toLowerCase() === "dropshipping";
+    // El producto en juego: el que se identificó en este mensaje o el que
+    // viene en contexto.
+    const idEnJuego = decision.productoDelMensaje?.id ?? decision.productToShow?.id ?? memory.currentProductId ?? null;
+    const productoEnJuego = idEnJuego ? productList.find((p: any) => p.id === idEnJuego) : null;
+    const esFisico = String((productoEnJuego as any)?.kind || "") === "physical";
+
+    if (esDropshipping || esFisico) {
+      const ds = await import("./dropshipping");
+      let pedido = await ds.pedidoEnCurso(conversationId);
+
+      // Se abre el pedido recién cuando el cliente muestra intención de
+      // comprar. Abrirlo en la primera pregunta llenaría la tabla de
+      // borradores de gente que solo estaba mirando.
+      const quiereComprar =
+        decision.intent === "payment_intent" || decision.intent === "confirmation";
+      if (!pedido && productoEnJuego && esFisico && quiereComprar) {
+        pedido = await ds.abrirPedido({
+          tenantId: convo.tenantId,
+          conversationId,
+          leadId: convo.leadId ?? null,
+          productId: (productoEnJuego as any).id,
+          productName: (productoEnJuego as any).name,
+          unitPrice: Number((productoEnJuego as any).price) || 0,
+          telefono: convo.contactPhone || null,
+        });
+      }
+
+      if (pedido) {
+        // Lo que el cliente acaba de escribir puede traer datos de envío:
+        // se leen y se guardan sin pedirle que llene ningún formulario.
+        const nuevos = ds.extraerDatosDeEnvio(lastText, pedido);
+        if (Object.keys(nuevos).length > 0) {
+          pedido = (await ds.guardarDatos(pedido.id, nuevos)) || pedido;
+          console.log(`📋 [DROPSHIPPING] Datos capturados: ${Object.keys(nuevos).join(", ")} - ${ts()}`);
+        }
+
+        const faltan = ds.datosQueFaltan(pedido);
+        if (faltan.length === 0 && pedido.estado === "completo") {
+          const r = await ds.despacharPedido(pedido);
+          bloqueDropshipping = r.ok
+            ? `\n\n✅ PEDIDO CONFIRMADO (#${r.wooOrderId}). Ya quedó registrado y se despacha.\n`
+              + `Confirmáselo al cliente con entusiasmo, repetile la dirección a la que llega y decile que la entrega es en ${ds.HECHOS_DROPSHIPPING.diasDeEntrega} y que paga al recibir.\n`
+              + `NO le pidas más datos: ya están todos.`
+            : `\n\n⚠️ Los datos están completos pero el pedido NO se pudo registrar (${r.error}).\n`
+              + `Decile que ya tomaste sus datos y que en un momento le confirmás el despacho. NO inventes número de pedido ni de guía.`;
+          console.log(`📦 [DROPSHIPPING] Despacho: ${r.ok ? `orden Woo #${r.wooOrderId}` : `FALLÓ (${r.error})`} - ${ts()}`);
+        } else {
+          const ya = ds.CAMPOS_DE_ENVIO
+            .filter((c) => String((pedido as any)[c.campo] ?? "").trim())
+            .map((c) => `${c.campo}: ${(pedido as any)[c.campo]}`);
+          const siguiente = ds.CAMPOS_DE_ENVIO.find((c) => c.campo === faltan[0]);
+          bloqueDropshipping =
+            `\n\n📦 PEDIDO EN CURSO — ${pedido.productName}\n`
+            + (ya.length ? `Datos que YA tenés (no los vuelvas a pedir): ${ya.join(" · ")}\n` : "")
+            + `Todavía falta: ${faltan.join(", ")}.\n`
+            + (siguiente
+              ? `Pedí SOLO esto ahora, con tus palabras y en una línea: ${variante(siguiente.pregunta, `${conversationId}|${siguiente.campo}`)}\n`
+              : "")
+            + `Una cosa a la vez. Nunca mandes la lista entera de datos de golpe.`;
+        }
+      }
+
+      // Los hechos fijos (entrega 3 a 5 días, contraentrega) van siempre que
+      // haya un físico de por medio, haya pedido abierto o no.
+      bloqueDropshipping = `\n\n${ds.contextoDeDropshipping()}${bloqueDropshipping}`;
+    }
+  } catch (e: any) {
+    // Un fallo acá no puede dejar al cliente sin respuesta: se pierde el
+    // bloque de pedido y el agente contesta igual.
+    console.error(`⚠️ [DROPSHIPPING] ${e?.message || e}`);
+  }
+
   const engineContextBlock = `${decision.contextBlock}\n\n${AdvancedIntelligence.generateIntelligentContext(
     lastText,
     memory.history,
     aiProductContext.length > 0 ? aiProductContext : null
-  )}${bloqueAnuncio}${bloqueMoneda}`;
+  )}${bloqueAnuncio}${bloqueMoneda}${bloqueDropshipping}`;
 
   // ── 11. ATENDER SEGÚN ESTRATEGIA DEL CEREBRO ─────────────────────────────
 
@@ -1128,7 +1237,10 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
     // bloque del anuncio son los que cambian la respuesta; el análisis de
     // AdvancedIntelligence es el más largo y el más prescindible.
     const base = buildFinalPrompt(systemPrompt, brain, voice);
-    const esencial = `${decision.contextBlock}${bloqueAnuncio}${bloqueMoneda}`;
+    // El bloque de dropshipping va en lo esencial: si se recorta, el agente
+    // vuelve a pedir datos que el cliente ya dio, o promete una entrega que no
+    // corresponde. Es de lo último que se puede sacrificar.
+    const esencial = `${decision.contextBlock}${bloqueAnuncio}${bloqueMoneda}${bloqueDropshipping}`;
     promptArmado = `${base}\n\n${esencial}`;
     if (promptArmado.length > TOPE_PROMPT) {
       // Todavía no entra: lo que sobra es el prompt del negocio o del agente.
