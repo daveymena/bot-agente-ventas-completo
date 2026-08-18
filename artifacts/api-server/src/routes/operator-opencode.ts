@@ -37,6 +37,7 @@ import {
 import { toEmojiStyle } from "../lib/conversation-engine";
 import { paraMarkdown } from "./code-agent";
 import { describePlannedAction, buildMcpToolRegistry, drainDraftPlan, lecturasDelTurno } from "../lib/opencode-mcp-tools";
+import { MODULO_PUBLICIDAD, FORMATO_ANUNCIO } from "../lib/publicidad-persuasiva";
 import { mintTurnToken } from "../lib/opencode-turn-token";
 import { getAppUrl } from "../lib/app-url";
 import { db, products } from "@workspace/db";
@@ -378,17 +379,36 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
       const lessonsBlock = lessons.length
         ? `\n\nLECCIONES DE ERRORES PASADOS EN ESTE NEGOCIO (evita repetirlos):\n${lessons.map((l) => `- ${l}`).join("\n")}`
         : "";
-      const system = ATLAS_SYSTEM_PROMPT_V2 + lessonsBlock;
-
       const historyText = convo
         .map((m: any) => `${m.role === "user" ? "Admin" : "Atlas"}: ${m.content}`)
         .join("\n\n");
       let text = historyText ? `${historyText}\n\nAdmin: ${prompt}` : `Admin: ${prompt}`;
 
+      // ── El módulo de publicidad, SOLO cuando se está hablando de anuncios ─
+      //
+      // Estaba escrito desde el 18-08-2026 y no lo leía nadie: se usaba únicamente
+      // como validador (revisarCopy), nunca como instrucción. Atlas escribía los
+      // anuncios con la doctrina VIEJA del prompt -- que hasta hace un rato le
+      // pedía literalmente "beneficio + prueba social + CTA" -- y después el
+      // validador le rechazaba la prueba social que el propio prompt le había
+      // mandado poner. De ahí salió el "+800 dueños ya lo lograron" del PACK
+      // EDUCA A TU PERRO: el modelo estaba obedeciendo.
+      //
+      // Va condicionado y no fijo porque el prompt del operador ya roza el tope
+      // de caracteres, y pasarse no degrada la respuesta: la anula. Se mira toda
+      // la conversación, no solo el último mensaje: cuando el admin contesta "sí"
+      // o el nombre del producto, el pedido de anuncio quedó tres mensajes atrás.
+      const contextoDelTurno = `${historyText}\n${prompt}`;
+      const HABLA_DE_ANUNCIOS = /anuncio|publicidad|campa[nñ]a|copy|pauta|creativ|publicit|\bads?\b/i;
+      const moduloBlock = HABLA_DE_ANUNCIOS.test(contextoDelTurno)
+        ? `\n\n${MODULO_PUBLICIDAD}\n\n${FORMATO_ANUNCIO}`
+        : "";
+      const system = ATLAS_SYSTEM_PROMPT_V2 + lessonsBlock + moduloBlock;
+
       // Un pedido de anuncio/campaña/publicación. Se declara acá arriba
       // porque lo usan dos bloques: el que pregunta por el producto faltante
       // (abajo) y el que dispara la investigación previa.
-      const PEDIDO_DE_ANUNCIO = /(cre[aá]|prepar[aá]|arm[aá]|gener[aá]|hac[eé]|dise[ñn])\w*\s+(un\s+|el\s+|la\s+|una\s+)?(anuncio|campa|publicaci|post|ad)/i;
+      const PEDIDO_DE_ANUNCIO = /\b(cre[aá]|prepar[aá]|arm[aá]|gener[aá]|hac[eé]|dise[ñn])\w*\s+(un\s+|el\s+|la\s+|una\s+)?(anuncio|campa|publicaci|post|ad\b)/i;
 
       // ── Anuncio sin producto: preguntar ANTES de gastar un turno ─────────
       // Pedido del admin: "antes de ponerse a inventar debería pedir la

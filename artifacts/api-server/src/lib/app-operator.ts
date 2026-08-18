@@ -955,16 +955,15 @@ export async function validarContenidoAnuncio(
     );
   }
 
-  const respaldo = [
-    prodReal.name,
-    prodReal.description,
-    Array.isArray(prodReal.features) ? (prodReal.features as string[]).join(" ") : "",
-    prodReal.highlight,
-  ].filter(Boolean).join(" ").toLowerCase();
-
-  // El mismo respaldo sin espacios ni signos, para comparar raíces de matches
-  // de varias palabras (ver ENTREGABLES más abajo).
-  const respaldoCompacto = respaldo.replace(/[^a-záéíóúñ]/g, "");
+  // Las listas de afirmaciones reguladas y las reglas de respaldo viven en
+  // anuncio-inteligente.ts: el BRIEF que se le entrega al modelo ANTES de
+  // escribir (ad_brief) se arma con esas mismas listas. Duplicadas, el brief
+  // le diría "podés decir X" y el validador se lo rechazaría después -- que es
+  // justo el ida y vuelta que el brief viene a eliminar.
+  const { PROMESAS, RESULTADOS, ENTREGABLES, respaldoDe, promesaRespaldada, resultadoRespaldado, entregableRespaldado } =
+    await import("./anuncio-inteligente");
+  const respaldoProd = respaldoDe(prodReal);
+  const respaldo = respaldoProd.texto;
 
   // ── Citas puestas en boca de alguien real ────────────────────────
   // Encontrado revisando un anuncio ya generado (2026-08-12): el copy
@@ -988,29 +987,6 @@ export async function validarContenidoAnuncio(
     }
   }
 
-  const PROMESAS: { patron: RegExp; que: string }[] = [
-    // "precio especial por lanzamiento" se coló entera (2026-08-15, producto
-    // 119): el patrón solo miraba "antes $X" y "precio anterior". Cualquier
-    // adjetivo que insinúe que el precio es temporal es una promesa igual --
-    // el cliente que la lee espera que después suba.
-    { patron: /\bantes\s*\$?\s*[\d.,]+|\bprecio\s+(anterior|regular|normal)|\bde\s*\$[\d.,]+\s*a\s*\$|\bprecio\s+(especial|promocional|de\s+lanzamiento|introductorio)|\bpor\s+lanzamiento\b|\boferta\s+(especial|de\s+lanzamiento)/i, que: "un precio anterior / descuento" },
-    { patron: /\bgarant[ií]a\b|\bgarantizad/i, que: "una garantía" },
-    { patron: /\bgratis\b|\bregalo\b|\bbono\b|\bsin costo\b/i, que: "algo gratis o de regalo" },
-    { patron: /\b\d+\s*%\s*(de\s*)?(descuento|off)\b|\b2x1\b/i, que: "un descuento" },
-    // "¡30 cupos disponibles!" pasó limpio (2026-08-15, producto 119) y el
-    // caso es peor de lo que parece: Atlas venía de leer la Biblioteca de
-    // Anuncios, donde un COMPETIDOR (Glish Colombia) anuncia "30 CUPOS
-    // DISPONIBLES", y le copió el número a un producto que es un archivo
-    // digital ilimitado -- no existe ningún cupo. Investigar la competencia
-    // sirve para el ÁNGULO, nunca para copiar sus condiciones comerciales.
-    //
-    // Ahora cualquier mención de cupos/plazas/vacantes con número, y las
-    // fórmulas de urgencia por fecha, cuentan como promesa salvo que el
-    // producto real las respalde.
-    { patron: /\b\d+\s*(cupos?|plazas?|vacantes?|lugares)\b|\bcupos?\s+(limitados?|disponibles?)\b|\b[uú]ltimos?\s+(cupos?|d[ií]as?|lugares)\b|\bsolo\s+hoy\b|\bpor\s+tiempo\s+limitado\b|\btermina\s+(hoy|ma[nñ]ana|pronto)\b|\b[uú]ltima\s+oportunidad\b|\bantes\s+de\s+que\s+(suba|termine|se\s+acabe)/i, que: "una urgencia o escasez" },
-    { patron: /\breembolso\b|\bdevoluci[oó]n\s+de\s+dinero\b/i, que: "una devolución de dinero" },
-  ];
-
   // ── Promesas de RESULTADO ────────────────────────────────────────────
   // Encontradas en un borrador real recién generado (2026-08-14, id 196):
   // "Resultados en 30 días o menos, con solo 15 minutos al día" y un titular
@@ -1021,18 +997,12 @@ export async function validarContenidoAnuncio(
   // comercial sino un resultado prometido. Para quien vende esto como
   // servicio profesional de publicaciones, es justo la frase que trae
   // problemas.
-  const RESULTADOS: { patron: RegExp; que: string }[] = [
-    { patron: /\ben\s+(solo\s+)?\d+\s*(d[ií]as?|semanas?|meses|horas?)\b/i, que: "un plazo para lograr resultados" },
-    { patron: /\bresultados?\s+(en|desde|garantizad)/i, que: "resultados en un plazo" },
-    { patron: /\b\d+\s*minutos?\s+(al|por)\s+d[ií]a\b/i, que: "un tiempo diario de dedicación" },
-    { patron: /\bde\s+cero\s+a\s+(experto|avanzado|profesional)\b/i, que: "un nivel final alcanzado" },
-  ];
   for (const p of RESULTADOS) {
     const m = textosDelAnuncio.match(p.patron);
     if (!m) continue;
     // Igual que las promesas comerciales: si el producto REALMENTE lo dice,
     // el anuncio puede decirlo. Se compara la frase completa del match.
-    if (respaldo.includes(m[0].toLowerCase().trim())) continue;
+    if (resultadoRespaldado(m[0], respaldoProd)) continue;
     return (
       `El anuncio promete ${p.que} ("${m[0]}") que NO figura en los datos reales del producto "${prodReal.name}". ` +
       `Nadie puede sostener un plazo que el producto no promete: si alguien no lo logra en ese tiempo, te lo reclama a vos. ` +
@@ -1048,27 +1018,6 @@ export async function validarContenidoAnuncio(
   // datos no mencionan ni videos ni adiestradores. Prometer un formato de
   // entrega que no existe es de las cosas que más rápido genera un reclamo:
   // el cliente paga esperando video y recibe otra cosa.
-  const ENTREGABLES: { patron: RegExp; que: string }[] = [
-    { patron: /\bv[ií]deos?\b/i, que: "videos" },
-    { patron: /\baudios?\b/i, que: "audios" },
-    { patron: /\bplantillas?\b/i, que: "plantillas" },
-    { patron: /\bcertificad[oa]s?\b/i, que: "un certificado" },
-    { patron: /\basesor[ií]as?\b|\bmentor[ií]as?\b/i, que: "asesoría o mentoría" },
-    { patron: /\bcomunidad\b|\bgrupo\s+(privado|exclusivo)\b/i, que: "una comunidad o grupo" },
-    { patron: /\ben\s+vivo\b|\bclases?\s+en\s+directo\b/i, que: "clases en vivo" },
-    // Agregados tras el reporte de fallos del 16-08-2026: Atlas publicó
-    // "acceso de por vida, certificado y soporte personalizado" para el
-    // producto 124, cuyo registro tiene `features` VACÍO. De esas seis
-    // afirmaciones, el único que se atajaba era el certificado: las otras
-    // cinco pasaban libres. Son compromisos que se reclaman igual que una
-    // garantía -- el cliente paga esperando soporte de por vida y lo exige.
-    { patron: /\bacceso\s+(de\s+por\s+vida|permanente|ilimitado|vitalicio)\b|\bde\s+por\s+vida\b|\bpara\s+siempre\b/i, que: "acceso de por vida" },
-    { patron: /\bsoporte\b|\bacompa[nñ]amiento\b|\batenci[oó]n\s+personalizada\b/i, que: "soporte o acompañamiento" },
-    { patron: /\bactualizaciones?\b|\bcontenido\s+actualizable\b/i, que: "actualizaciones" },
-    { patron: /\bcasos?\s+de\s+[eé]xito\b|\btestimonios?\b|\bhistorias?\s+de\s+alumnos?\b|\balumnos?\s+que\s+ya\b/i, que: "casos de éxito o testimonios de alumnos" },
-    { patron: /\bdescargables?\b|\bdescargas?\s+(ilimitadas?|incluidas?)\b/i, que: "material descargable" },
-    { patron: /\bbolsa\s+de\s+empleo\b|\bsalida\s+laboral\b|\bempleo\s+garantizado\b/i, que: "salida laboral" },
-  ];
   for (const p of ENTREGABLES) {
     const m = textosDelAnuncio.match(p.patron);
     if (!m) continue;
@@ -1080,8 +1029,7 @@ export async function validarContenidoAnuncio(
     // contra el texto con espacios no coincidía nunca, y un producto que sí
     // ofrece "acceso de por vida" o "clases en vivo" quedaba bloqueado por
     // prometer justo lo que de verdad entrega.
-    const raiz = m[0].toLowerCase().replace(/[^a-záéíóúñ]/g, "").slice(0, 6);
-    if (raiz && respaldoCompacto.includes(raiz)) continue;
+    if (entregableRespaldado(m[0], respaldoProd)) continue;
     return (
       `El anuncio dice que el producto incluye ${p.que} ("${m[0]}"), y eso NO figura en los datos reales de "${prodReal.name}". ` +
       `Prometer un formato de entrega que no existe es de lo que más rápido genera un reclamo: el cliente paga esperándolo. ` +
@@ -1108,13 +1056,7 @@ export async function validarContenidoAnuncio(
     // También se toman las palabras de >=4 letras en vez de la primera del
     // match: para "50% descuento" la primera era "50", y comprobar si el
     // texto del producto contiene "50" en algún lado no dice nada.
-    const palabras = (m[0].toLowerCase().match(/[a-záéíóúñ]{4,}/g) || []);
-    const esPalabraEntera = (w: string) =>
-      new RegExp(`(^|[^a-záéíóúñ])${w}([^a-záéíóúñ]|$)`, "i").test(respaldo);
-    const respaldada = palabras.length > 0
-      ? palabras.some(esPalabraEntera)
-      : respaldo.includes(m[0].toLowerCase().trim()); // "2x1" y similares, sin letras
-    if (respaldada) continue; // está respaldada de verdad, se deja pasar
+    if (promesaRespaldada(m[0], respaldoProd)) continue; // está respaldada de verdad, se deja pasar
     return (
       `El anuncio promete ${p.que} ("${m[0]}") que NO figura en los datos reales del producto "${prodReal.name}". ` +
       `Una promesa así el admin tiene que cumplírsela a quien la reclame, así que no se puede inventar. ` +
@@ -2198,6 +2140,40 @@ export const TOOLS: ToolDef[] = [
     },
   },
   {
+    name: "ad_brief",
+    description: "EL PRIMER PASO OBLIGATORIO ANTES DE ESCRIBIR CUALQUIER ANUNCIO. Lectura pura, no cambia nada, no gasta nada, tarda milisegundos. " +
+      "Te devuelve el brief profesional del producto armado con sus datos REALES: qué podés afirmar (características, precio, destacado), " +
+      "QUÉ TENÉS PROHIBIDO AFIRMAR (la lista exacta de promesas que el validador te va a rechazar después: garantías, plazos, soporte, " +
+      "acceso de por vida, descuentos, cupos, testimonios...), los tres ángulos posibles, el nivel de consciencia del público y el CTA. " +
+      "Llamala SIEMPRE antes de redactar: escribir primero y rebotar después le cuesta al admin un turno entero y una confirmación por cada promesa inventada.",
+    args: '{ "productId": number (req) }',
+    run: async (args, ctx) => {
+      const id = num(args.productId);
+      if (!Number.isInteger(id) || (id as number) <= 0 || (id as number) > 2_147_483_647) {
+        return { ok: false, summary: "Falta un 'productId' real (un entero positivo del catálogo). Sacalo con list_products." };
+      }
+      const [prod] = await db.select().from(products).where(and(eq(products.id, id!), eq(products.tenantId, ctx.tenantId))).limit(1);
+      if (!prod) {
+        const catalogo = await db
+          .select({ id: products.id, name: products.name })
+          .from(products)
+          .where(eq(products.tenantId, ctx.tenantId))
+          .limit(20);
+        const lista = catalogo.length
+          ? catalogo.map((c: { id: number; name: string }) => `${c.id} = ${c.name}`).join(" · ")
+          : "(el catálogo de esta tienda está vacío)";
+        return { ok: false, summary: `El producto ${id} no existe en esta tienda. Productos disponibles: ${lista}` };
+      }
+      const tenant = await tenantManager.getTenantById(ctx.tenantId);
+      const { construirBrief } = await import("./anuncio-inteligente");
+      const brief = construirBrief(prod as any, {
+        enlace: `${getAppUrl().replace(/\/+$/, "")}/p/${prod.id}`,
+        whatsapp: (tenant as any)?.whatsappNumber || undefined,
+      });
+      return { ok: true, summary: brief.texto, data: brief };
+    },
+  },
+  {
     name: "fb_ad_draft",
     description: "[MÓDULO DE PUBLICIDAD PERSUASIVA — reglas del dueño, 18-08-2026] " +
       "El anuncio NO describe el producto: vende en este orden Problema → Deseo → Solución → Beneficio → Producto → Confianza → Acción. " +
@@ -2301,6 +2277,14 @@ export const TOOLS: ToolDef[] = [
         // visible), solo una línea EN BLANCO (doble salto) separa párrafos
         // de verdad. Con un solo "\n" todo el borrador salía como un bloque
         // aplastado sin ninguna separación visible entre título/texto/precio.
+        // La nota de calidad. El validador solo dice "miente / no miente", y
+        // un anuncio puede ser perfectamente honesto y aun así no detener a
+        // nadie. Se calcula sobre el texto que QUEDÓ GUARDADO -- no sobre el
+        // que el modelo creía estar mandando -- y se muestra junto al
+        // borrador para que el admin apruebe sabiendo qué calidad tiene, en
+        // vez de adivinarla. Ver anuncio-inteligente.ts.
+        const { puntuarCopy } = await import("./anuncio-inteligente");
+        const notaCopy = puntuarCopy({ primaryText: draft.primaryText, headline: draft.headline });
         const copyPreview = [
           `📝 Borrador de anuncio para "${draft.productName}" (nicho: ${draft.strategy.niche})${groundedNote}:`,
           `🎯 Título: ${draft.headline}`,
@@ -2316,6 +2300,9 @@ export const TOOLS: ToolDef[] = [
           presupuestoPedido && presupuestoPedido !== draft.strategy.budget
             ? `💰 Presupuesto GUARDADO: $${draft.strategy.budget.toLocaleString("es-CO")}/día ⚠️ (pediste $${presupuestoPedido.toLocaleString("es-CO")}/día — decíselo al admin, no lo tapes)`
             : `💰 Presupuesto guardado: $${draft.strategy.budget.toLocaleString("es-CO")}/día`,
+          notaCopy.puntaje >= 85
+            ? `⭐ Calidad del copy: ${notaCopy.puntaje}/100`
+            : `⭐ Calidad del copy: ${notaCopy.puntaje}/100\n${notaCopy.notas.map((n) => `   • ${n}`).join("\n")}`,
           `💾 Guardado local, no se tocó la cuenta de Meta.`,
         ].join("\n\n");
         return {
@@ -3642,6 +3629,11 @@ export const READ_ONLY_TOOLS = new Set([
   // Facebook de solo lectura + generación de imagen (solo devuelve preview, no asigna)
   "fb_status", "fb_suggest_audience", "generate_image", "fb_list_campaigns", "system_diagnose", "fb_why_not_delivering", "test_ai_models",
   "fb_page_can_post", "fb_page_preview", "fb_list_drafts",
+  // El brief de anuncio es lectura pura sobre el producto: no toca Meta ni
+  // gasta nada. Va acá para que Atlas pueda llamarlo solo, sin pedir permiso
+  // -- si tuviera que pasar por una confirmación, no lo usaría antes de
+  // escribir y volveríamos al escribir-y-rebotar.
+  "ad_brief",
   // Agente de anuncios: leer logs y métricas no cambia nada (solo consulta)
   "fb_agent_logs", "fb_campaign_metrics",
   // Monitoreo: solo consultan, no cambian nada
@@ -3888,16 +3880,16 @@ ESTRATEGIA DE OFERTA (antes de crear cualquier cosa — producto, anuncio, copy,
 
 COPYWRITING DE NIVEL AGENCIA (aplica a descripciones, anuncios y respuestas del agente):
 - 🎯 Beneficio primero, SIEMPRE: “Aprende a tocar piano en 8 semanas” vende más que “Curso de piano”. Vende el resultado, no la característica.
-- 📍 Usa el framework AIDA: capta Atención con un gancho, genera Interés, despierta Deseo y pide una Acción clara.
+- 📍 Para un anuncio, el orden es Problema → Deseo → Solución → Beneficio → Producto → Confianza → Acción. AIDA (Atención, Interés, Deseo, Acción) y PAS (Problema, Agitación, Solución) son variantes válidas del mismo esqueleto: elegí según el producto, no uses siempre la misma.
 - 🔥 Ganchos efectivos: números concretos, urgencia real, prueba social, promesa de resultado medible. Evita frases vacías tipo “método único” o “alto impacto” sin sustento.
-- 💡 En los anuncios: título corto y de impacto, texto principal que mezcla beneficio + prueba social + CTA claro, y un llamado a la acción inconfundible (WhatsApp, compra, cotización).
+- 💡 En los anuncios: título corto y de impacto (máx. 40 caracteres), y un texto principal que va Problema → Deseo → Solución → Beneficio → Producto → Confianza → UNA sola acción (WhatsApp, compra o cotización, elegí una). NUNCA metas "prueba social" (cuánta gente lo compró, testimonios, "+800 clientes"): si no está en los datos del producto es inventada, y el sistema rechaza el anuncio entero por eso.
 - ✅ Cuida la ortografía, los acentos y la puntuación en TODO lo que escribas. Un error ortográfico mata la confianza.
 
 EMOJIS CON INTENCIÓN, NO POR RELLENO (aplica a TODO lo que escribas, no solo anuncios): no llenes de emojis ni los saques todos -- cada uno tiene que significar algo puntual, siempre el mismo significado, para que el admin (y el cliente en un anuncio) los lea de un vistazo sin pensar. Diccionario de referencia (usalo con criterio, no es una lista cerrada, pero mantené el significado):
 🎯 objetivo/meta · 🎹 el producto en sí · 📚 contenido/qué incluye · 💰 precio · ✅ beneficio confirmado/hecho · ⚠️ advertencia/riesgo · 💡 recomendación · 🚀 acción/siguiente paso grande · 💬 conversación/WhatsApp · 👇 mirá lo que sigue · 🛡️ garantía/seguridad · ♾️ acceso de por vida.
 
 ESTRUCTURA DINÁMICA SEGÚN EL TIPO DE CONTENIDO — nunca uses una única plantilla fija para todo. Hay UN esqueleto de persuasión de fondo (gancho → conexión emocional → problema → solución → beneficios → precio/oferta → reducción de objeciones → llamado a la acción), pero CÓMO se presenta cambia según qué estás escribiendo -- no repitas la misma estructura visible en un anuncio que en un reporte:
-- 🎹 Anuncio (fb_ad_draft/propose_action con fb_create_ad): gancho → beneficios concretos (con números reales del producto, nunca inventados) → oferta/precio → CTA claro.
+- 🎹 Anuncio: gancho que interpela (pregunta, problema real, deseo o error común — nunca "Tenemos disponible" ni "Compra ahora") → el problema y por qué molesta → el producto como salida → beneficios traducidos desde sus características REALES → precio → una sola acción. Antes de escribir una palabra, pedí el brief del producto: te dice qué podés afirmar y qué no.
 - 💬 Mensaje de WhatsApp o chat con el admin: saludo/contexto corto → pregunta o hallazgo → respuesta → siguiente pregunta si hace falta más info. Conversacional, no un volcado de datos.
 - 📊 Reporte/diagnóstico (dashboard, métricas, estado del negocio): resultado primero → interpretación (qué significa) → recomendación → acción concreta a tomar.
 - ⚠️ Error o algo que falló: qué pasó → por qué (causa real, no jerga técnica) → solución → próximo paso que el admin puede tomar.
@@ -4045,16 +4037,16 @@ ESTRATEGIA DE OFERTA (antes de crear cualquier cosa — producto, anuncio, copy,
 
 COPYWRITING DE NIVEL AGENCIA (aplica a descripciones, anuncios y respuestas del agente):
 - 🎯 Beneficio primero, SIEMPRE: “Aprende a tocar piano en 8 semanas” vende más que “Curso de piano”. Vende el resultado, no la característica.
-- 📍 Usa el framework AIDA: capta Atención con un gancho, genera Interés, despierta Deseo y pide una Acción clara.
+- 📍 Para un anuncio, el orden es Problema → Deseo → Solución → Beneficio → Producto → Confianza → Acción. AIDA (Atención, Interés, Deseo, Acción) y PAS (Problema, Agitación, Solución) son variantes válidas del mismo esqueleto: elegí según el producto, no uses siempre la misma.
 - 🔥 Ganchos efectivos: números concretos, urgencia real, prueba social, promesa de resultado medible. Evita frases vacías tipo “método único” o “alto impacto” sin sustento.
-- 💡 En los anuncios: título corto y de impacto, texto principal que mezcla beneficio + prueba social + CTA claro, y un llamado a la acción inconfundible (WhatsApp, compra, cotización).
+- 💡 En los anuncios: título corto y de impacto (máx. 40 caracteres), y un texto principal que va Problema → Deseo → Solución → Beneficio → Producto → Confianza → UNA sola acción (WhatsApp, compra o cotización, elegí una). NUNCA metas "prueba social" (cuánta gente lo compró, testimonios, "+800 clientes"): si no está en los datos del producto es inventada, y el sistema rechaza el anuncio entero por eso.
 - ✅ Cuida la ortografía, los acentos y la puntuación en TODO lo que escribas. Un error ortográfico mata la confianza.
 
 EMOJIS CON INTENCIÓN, NO POR RELLENO (aplica a TODO lo que escribas, no solo anuncios): no llenes de emojis ni los saques todos -- cada uno tiene que significar algo puntual, siempre el mismo significado, para que el admin (y el cliente en un anuncio) los lea de un vistazo sin pensar. Diccionario de referencia (usalo con criterio, no es una lista cerrada, pero mantené el significado):
 🎯 objetivo/meta · 🎹 el producto en sí · 📚 contenido/qué incluye · 💰 precio · ✅ beneficio confirmado/hecho · ⚠️ advertencia/riesgo · 💡 recomendación · 🚀 acción/siguiente paso grande · 💬 conversación/WhatsApp · 👇 mirá lo que sigue · 🛡️ garantía/seguridad · ♾️ acceso de por vida.
 
 ESTRUCTURA DINÁMICA SEGÚN EL TIPO DE CONTENIDO — nunca uses una única plantilla fija para todo. Hay UN esqueleto de persuasión de fondo (gancho → conexión emocional → problema → solución → beneficios → precio/oferta → reducción de objeciones → llamado a la acción), pero CÓMO se presenta cambia según qué estás escribiendo -- no repitas la misma estructura visible en un anuncio que en un reporte:
-- 🎹 Anuncio (fb_ad_draft/fb_create_ad): gancho → beneficios concretos (con números reales del producto, nunca inventados) → oferta/precio → CTA claro.
+- 🎹 Anuncio: gancho que interpela (pregunta, problema real, deseo o error común — nunca "Tenemos disponible" ni "Compra ahora") → el problema y por qué molesta → el producto como salida → beneficios traducidos desde sus características REALES → precio → una sola acción. Antes de escribir una palabra, pedí el brief del producto: te dice qué podés afirmar y qué no.
 - 💬 Mensaje de WhatsApp o chat con el admin: saludo/contexto corto → pregunta o hallazgo → respuesta → siguiente pregunta si hace falta más info. Conversacional, no un volcado de datos.
 - 📊 Reporte/diagnóstico (dashboard, métricas, estado del negocio): resultado primero → interpretación (qué significa) → recomendación → acción concreta a tomar.
 - ⚠️ Error o algo que falló: qué pasó → por qué (causa real, no jerga técnica) → solución → próximo paso que el admin puede tomar.

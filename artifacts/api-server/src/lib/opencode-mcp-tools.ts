@@ -125,6 +125,12 @@ const TOOL_SCHEMAS: Record<string, object> = {
     required: ["productId"],
     additionalProperties: false,
   },
+  ad_brief: {
+    type: "object",
+    properties: { productId: { type: "number", description: "Id real del producto, sacado de list_products" } },
+    required: ["productId"],
+    additionalProperties: false,
+  },
   fb_list_drafts: { type: "object", properties: {}, additionalProperties: false },
   fb_agent_logs: {
     type: "object",
@@ -272,6 +278,13 @@ export function describePlannedAction(a: { tool: string; args: any }): string {
       return `Asignar imagen al producto ${g.productId ?? "?"} (se hospeda permanente): ${valorLegible(g.imageUrl ?? "")}`;
     case "fb_update_draft_creative":
       return `✏️ Actualizar el copy del anuncio (borrador ${g.draftId ?? "?"})${g.headline ? ` — nuevo título: "${valorLegible(g.headline, 50)}"` : ""} — sigue en el mismo estado en el que estaba (pausado sigue pausado), no se activa solo`;
+    // La herramienta a la que `propose_action` REDIRIGE todo "activá el
+    // anuncio" (ver REDIRIGIR más abajo) no tenía frase propia: caía al
+    // `default`, así que el admin veía el volcado técnico
+    // `fb_make_campaign_deliver: {"campaignId":"120..."}` justo en la acción
+    // que más plata mueve, y encima sin decirle que va a empezar a gastar.
+    case "fb_make_campaign_deliver":
+      return `▶️ Encender la campaña ${g.campaignId ?? "?"} de Facebook — el sistema decide solo qué prender (campaña, conjunto o anuncio) y prende lo mínimo. EMPIEZA A GASTAR`;
     case "fb_pause_campaign":
       return `⏸️ Pausar la campaña ${g.campaignId ?? "?"} de Facebook — deja de gastar`;
     case "fb_resume_campaign":
@@ -384,6 +397,12 @@ async function proposeAction(
     fb_update_draft_creative: ["draftId"],
     fb_pause_campaign: ["campaignId"],
     fb_resume_campaign: ["campaignId"],
+    // Faltaba, y es la que más importa de las tres: REDIRIGIR manda acá todo
+    // "activá el anuncio", así que es el camino por defecto para encender. Sin
+    // el campaignId obligatorio, el modelo podía proponerla vacía, el admin
+    // aprobaba "Encender la campaña ?" y recién ahí rebotaba con "Falta el id
+    // de la campaña" -- el mismo fallo tardío que ya se cerró para pausar.
+    fb_make_campaign_deliver: ["campaignId"],
     fb_set_budget: ["adSetId", "dailyBudget"],
   };
   // Un id NUMÉRICO en cero es tan "falta el dato" como un vacío, pero la
@@ -639,7 +658,7 @@ const GRUPOS: { patron: RegExp; herramientas: string[] }[] = [
     // anuncio SIEMPRE puede necesitar investigar. Sin ellas en el subconjunto,
     // el modelo no tenía con qué cumplir el requisito y el pedido moría con
     // "todavía no investigaste nada" (reportado en vivo por el admin).
-    herramientas: ["fb_status", "fb_suggest_audience", "fb_page_can_post", "fb_page_preview", "fb_list_drafts", "fb_agent_logs", "fb_campaign_metrics", "fb_list_adsets", "fb_ad_library", "generate_image", "search_product_images", "web_search"],
+    herramientas: ["ad_brief", "fb_status", "fb_suggest_audience", "fb_page_can_post", "fb_page_preview", "fb_list_drafts", "fb_agent_logs", "fb_campaign_metrics", "fb_list_adsets", "fb_ad_library", "generate_image", "search_product_images", "web_search"],
   },
   {
     patron: /whatsapp|wasap|conversaci|chat|mensaje|cliente|lead/i,
@@ -665,7 +684,7 @@ const GRUPOS: { patron: RegExp; herramientas: string[] }[] = [
   },
   {
     patron: /copy|texto|redact|descripci|t[ií]tulo/i,
-    herramientas: ["optimize_copy", "reason_business_decision"],
+    herramientas: ["ad_brief", "optimize_copy", "reason_business_decision"],
   },
 ];
 

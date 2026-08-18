@@ -22,6 +22,7 @@ import {
 } from "../lib/architect-store";
 import { toEmojiStyle } from "../lib/conversation-engine";
 import { describePlannedAction } from "../lib/opencode-mcp-tools";
+import { MODULO_PUBLICIDAD, FORMATO_ANUNCIO } from "../lib/publicidad-persuasiva";
 
 /**
  * El frontend del operador renderiza "reply" con ReactMarkdown (ver
@@ -1364,7 +1365,17 @@ router.post("/operator", async (req: TenantRequest, res, next) => {
     const lessonsBlock = lessons.length
       ? `\n\nLECCIONES DE ERRORES PASADOS EN ESTE NEGOCIO (evita repetirlos):\n${lessons.map((l) => `- ${l}`).join("\n")}`
       : "";
-    const sys = OPERATOR_SYSTEM_PROMPT.replace("${TOOLS}", buildToolsDoc()) + lessonsBlock;
+    // El módulo de publicidad, solo si el turno habla de anuncios. Mismo
+    // motivo que en operator-opencode.ts: estaba escrito y no lo leía nadie
+    // (se usaba únicamente como validador), así que los dos cerebros armaban
+    // los anuncios con la doctrina vieja del prompt y después el validador les
+    // rechazaba lo que el prompt les había pedido escribir. Condicionado
+    // porque este prompt ya roza el tope de caracteres.
+    const HABLA_DE_ANUNCIOS = /anuncio|publicidad|campa[nñ]a|copy|pauta|creativ|publicit|\bads?\b/i;
+    const moduloBlock = HABLA_DE_ANUNCIOS.test(String(prompt))
+      ? `\n\n${MODULO_PUBLICIDAD}\n\n${FORMATO_ANUNCIO}`
+      : "";
+    const sys = OPERATOR_SYSTEM_PROMPT.replace("${TOOLS}", buildToolsDoc()) + lessonsBlock + moduloBlock;
     const sessionId: string = (req.body?.sessionId as string) || "default";
     const ctx: OperatorContext = { tenantId, sessionId };
 
