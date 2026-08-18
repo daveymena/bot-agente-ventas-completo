@@ -833,6 +833,21 @@ export async function validarContenidoAnuncio(
   const textosDelAnuncio = [args.primaryText, args.headline, args.description, args.hook, args.message]
     .filter((t) => typeof t === "string")
     .join(" ");
+
+  // ── Módulo de publicidad persuasiva: las reglas que NO son opinables ──────
+  //
+  // Urgencia inventada ("últimas 2 unidades"), prueba social inventada
+  // ("miles ya lo compraron"), garantías de resultado y promesas de ganancia
+  // no se piden por prompt y se confía: se bloquean acá. Un modelo obedece la
+  // instrucción hasta que no la obedece, y esto sale publicado y pagado a la
+  // cara del público. Ver publicidad-persuasiva.ts.
+  if (textosDelAnuncio.trim()) {
+    const { revisarCopy, reparosEnTexto } = await import("./publicidad-persuasiva");
+    const revision = revisarCopy(textosDelAnuncio);
+    if (revision.bloquea.length > 0) {
+      return `Ese copy no se puede publicar como está:\n${reparosEnTexto({ bloquea: revision.bloquea, avisos: [] })}\n\nReescribilo sin eso y volvé a proponerlo.`;
+    }
+  }
   const marcador = textosDelAnuncio.match(/\[[^\]]{2,40}\]|\{\{[^}]{2,40}\}\}|\bXXX+\b|<[A-ZÁÉÍÓÚÑ\s_]{3,30}>/);
   if (marcador) {
     const tenant = await tenantManager.getTenantById(ctx.tenantId);
@@ -2139,7 +2154,16 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: "fb_ad_draft",
-    description: "Genera un BORRADOR de anuncio (copy, segmentación, imagen) para un producto y lo guarda localmente. Por defecto NO toca la cuenta publicitaria de Meta ni crea nada real — el admin lo revisa y decide si publicarlo después desde el panel de anuncios. Seguro de usar sin gastar dinero. REQUIERE haber investigado antes (web_search o web_fetch) en esta misma sesión, en las últimas 3 horas -- si no, la llamada falla y hay que investigar primero. " +
+    description: "[MÓDULO DE PUBLICIDAD PERSUASIVA — reglas del dueño, 18-08-2026] " +
+      "El anuncio NO describe el producto: vende en este orden Problema → Deseo → Solución → Beneficio → Producto → Confianza → Acción. " +
+      "EL GANCHO decide todo: arrancá con una pregunta, un problema real, un deseo o una curiosidad. PROHIBIDO abrir con 'Tenemos disponible', 'Nuevo producto', 'Compra ahora', 'Oferta' o 'Producto de excelente calidad'. " +
+      "Beneficio antes que característica (característica + qué significa + qué gana el cliente). Regla 80/20: hablá del CLIENTE ('podés', 'obtené', 'aprendé'), no del negocio ('nosotros tenemos', 'vendemos'). UNA sola acción por anuncio. " +
+      "FÍSICO → utilidad, comodidad, ahorro de tiempo, practicidad, cómo se compra y cómo llega. DIGITAL → transformación, acceso inmediato, aprender a tu ritmo; NUNCA prometas ganancias ni resultados garantizados. " +
+      "Ajustá al nivel de consciencia: si no conoce el problema, despertá la necesidad; si ya conoce el producto, andá a precio, disponibilidad y cierre. " +
+      "Si generás varias versiones que sean enfoques DISTINTOS (A: problema · B: beneficio · C: curiosidad), no el mismo texto con sinónimos. " +
+      "Antes de darlo por bueno: ¿por qué alguien que scrollea se detendría acá? Si no hay respuesta clara, cambiá el gancho. " +
+      "SE RECHAZA AUTOMÁTICAMENTE (no es opinable): decir cuántas unidades o cupos quedan, poner fecha límite a una oferta que no existe, afirmar cuánta gente lo compró, garantizar resultados, prometer ganancias en plata, o declararse 'el mejor'/'el más vendido'. " +
+      "Genera un BORRADOR de anuncio (copy, segmentación, imagen) para un producto y lo guarda localmente. Por defecto NO toca la cuenta publicitaria de Meta ni crea nada real — el admin lo revisa y decide si publicarlo después desde el panel de anuncios. Seguro de usar sin gastar dinero. REQUIERE haber investigado antes (web_search o web_fetch) en esta misma sesión, en las últimas 3 horas -- si no, la llamada falla y hay que investigar primero. " +
       "OBLIGATORIO, no opcional: SIEMPRE redactá vos mismo primaryText, headline y description COMPLETOS, con tus propias palabras, a partir de lo que investigaste -- NUNCA mandes solo hook/angle/researchNote y dejes que el sistema arme el texto por vos. Si solo pasás hook/angle, el backend arma un anuncio con una PLANTILLA FIJA (misma estructura y mismas frases siempre, solo cambia el gancho) -- eso es exactamente lo que el admin NO quiere: dijo explícitamente que el copy le sale repetido y poco dinámico. Cada producto, cada pedido, tiene que sonar distinto: variá la estructura (a veces empezá con una pregunta, a veces con una estadística, a veces con una historia corta), el ángulo (dolor vs. deseo vs. urgencia vs. prueba social) y el cierre (no repitas siempre el mismo CTA calcado). " +
       "primaryText: el anuncio completo, listo para publicar (no una plantilla con huecos). headline: título corto y de impacto (máx. ~35 caracteres, sino Meta lo recorta). description: una línea de refuerzo (precio, garantía, o el beneficio principal en pocas palabras).",
     args: '{ "productId": number (req), "primaryText": string (req en la práctica -- el texto completo del anuncio, redactado por vos con la investigación real, NO un huequito para rellenar), "headline": string (req en la práctica -- título corto propio, no genérico), "description"?: string, "hook"?: string (opcional, solo como respaldo si por algo no pudiste redactar el texto completo), "angle"?: string (ángulo/enfoque respaldado por la investigación), "researchNote"?: string (fuente o hallazgo concreto que respalda el copy, ej: "competidores en Facebook Ads Library usan X"), "whatsapp"?: string (número CON código de país, ej "573001234567", o un enlace wa.me — si lo pasás, el anuncio lleva a una conversación de WhatsApp en vez de a la web; úsalo cuando el admin pida "tráfico a WhatsApp" o "que me escriban"), "dailyBudget"?: number (presupuesto diario en la moneda de la cuenta. SI EL ADMIN DICE UN PRESUPUESTO, PASALO ACÁ SIEMPRE: si no lo pasás se guarda el valor por defecto del nicho, que puede ser el doble de lo que él pidió) }',
