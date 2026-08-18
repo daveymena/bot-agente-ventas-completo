@@ -16,7 +16,7 @@
  */
 
 import { db, products, productCategories, agents, settings, stores, tenants, conversations, leads, architectMemory, facebookDrafts, payments } from "@workspace/db";
-import { eq, desc, asc, and, gte, sql, ilike, inArray } from "drizzle-orm";
+import { eq, desc, asc, and, or, gte, sql, ilike, inArray } from "drizzle-orm";
 import { logger } from "./logger";
 import { tenantManager } from "./tenantManager";
 import { dbNow } from "./date-utils";
@@ -1210,11 +1210,14 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: "list_products",
-    description: "Listar productos (id, nombre, precio, categoría). Úsalo antes de editar para conocer los ids reales. Si buscás un producto puntual (ej. 'el curso de piano'), pasá 'search' -- el catálogo puede tener más productos que el límite por defecto, y sin buscar por nombre podés no ver uno que sí existe. IMPORTANTE: 'search' filtra por NOMBRE (texto), no por id -- si ya tenés el productId numérico (ej. 123), no lo pases acá como texto de búsqueda, no lo va a encontrar por el número.",
-    args: '{ "limit"?: number, "search"?: string (filtra por nombre, sin distinguir mayúsculas) }',
+    description: "Listar productos (id, nombre, precio, categoría). Úsalo antes de editar para conocer los ids reales. Si buscás un producto puntual (ej. 'el curso de piano'), pasá 'search' -- el catálogo puede tener más productos que el límite por defecto, y sin buscar por nombre podés no ver uno que sí existe. 'search' prueba primero la frase exacta en el nombre y, si no hay coincidencia, reintenta solo por palabras en nombre y descripción -- así 'curso de educación para perros' encuentra 'PACK EDUCA A TU PERRO'. ANTES de decirle al admin que un producto no existe, probá también con UNA palabra suelta ('perro', 'piano'): el nombre cargado casi nunca es el que él usa al hablar. IMPORTANTE: 'search' filtra por TEXTO, no por id -- si ya tenés el productId numérico (ej. 123), no lo pases acá como texto de búsqueda, no lo va a encontrar por el número.",
+    args: '{ "limit"?: number, "search"?: string (frase o palabra; busca en nombre y, si hace falta, en la descripción) }',
     run: async (args, ctx) => {
       const search = typeof args.search === "string" ? args.search.trim() : "";
       const conditions = [eq(products.tenantId, ctx.tenantId)];
+      // La frase COMPLETA, como subcadena del nombre. Es lo más preciso y por
+      // eso va primero -- pero si no encuentra nada, abajo se reintenta por
+      // palabras: ver el comentario de `ampliar`.
       if (search) conditions.push(ilike(products.name, `%${search}%`));
       // Antes sin orderBy: con más productos que el límite por defecto (85 en
       // este negocio, límite 50), Postgres no garantiza qué subconjunto
@@ -1223,7 +1226,42 @@ export const TOOLS: ToolDef[] = [
       // reportaba "no encontré el producto" sobre algo que sí existía.
       // orderBy(id) hace el resultado reproducible; 'search' deja encontrar
       // un producto puntual sin depender de que entre en la muestra truncada.
-      const rows = await db.select().from(products).where(and(...conditions)).orderBy(products.id).limit(num(args.limit) || 50);
+      const limite = num(args.limit) || 50;
+      let filtro = and(...conditions);
+      let rows = await db.select().from(products).where(filtro).orderBy(products.id).limit(limite);
+
+      // ── Segundo intento, por palabras sueltas ──────────────────────────
+      // Medido en vivo (2026-08-18, con el admin mirando): le pidió "mi curso
+      // de educación para perros" y Atlas contestó "no encontré un producto
+      // llamado así en tu catálogo" -- pero el producto EXISTE, es el 76,
+      // "PACK EDUCA A TU PERRO". El filtro de arriba busca la frase entera
+      // como subcadena y SOLO en el nombre: "educación para perros" no es
+      // subcadena de "PACK EDUCA A TU PERRO", así que devolvía cero.
+      //
+      // Esa respuesta es la raíz de toda la saga del "producto 0": sin id, el
+      // modelo o proponía la acción con el campo vacío, o -- peor -- ofrecía
+      // CREAR un producto nuevo, duplicando uno que ya estaba cargado.
+      //
+      // Se reintenta solo cuando el intento preciso vino vacío, así que un
+      // nombre exacto sigue devolviendo lo mismo que antes. Se mira también
+      // la descripción (ahí vive "educar a tu perro") y se corta la 's' final
+      // para que "perros" encuentre "PERRO".
+      const VACIAS = new Set(["del", "las", "los", "una", "unos", "unas", "para", "por", "con", "que", "mis", "tus", "sus", "the", "and"]);
+      let ampliado = false;
+      if (search && rows.length === 0) {
+        const raices = (search.toLowerCase().match(/[a-záéíóúñ0-9]{3,}/g) || [])
+          .filter((p) => !VACIAS.has(p))
+          .map((p) => (p.length > 4 ? p.replace(/(es|s)$/, "") : p));
+        if (raices.length > 0) {
+          const alternativas = raices.flatMap((r) => [
+            ilike(products.name, `%${r}%`),
+            ilike(products.description, `%${r}%`),
+          ]);
+          filtro = and(eq(products.tenantId, ctx.tenantId), or(...alternativas));
+          rows = await db.select().from(products).where(filtro).orderBy(products.id).limit(limite);
+          ampliado = rows.length > 0;
+        }
+      }
       // Bug real encontrado probando Atlas (2026-08-12): el summary decía
       // solo "N productos" sin aclarar que N es el tope de la página, no el
       // total -- el modelo reportaba esa página truncada como si fuera el
@@ -1231,11 +1269,11 @@ export const TOOLS: ToolDef[] = [
       // COUNT(*) aparte con el mismo filtro deja el summary inequívoco para
       // CUALQUIER modelo que rote en este turno, sin depender de que siga
       // bien la advertencia del prompt del sistema.
-      const [{ total }] = await db.select({ total: sql<number>`count(*)::int` }).from(products).where(and(...conditions));
+      const [{ total }] = await db.select({ total: sql<number>`count(*)::int` }).from(products).where(filtro);
       const truncado = total > rows.length;
       return {
         ok: true,
-        summary: `${rows.length} productos${search ? ` (filtrado por "${search}")` : ""}${truncado ? ` -- ADVERTENCIA: esto es una página parcial, hay ${total} en total. No reportes ${rows.length} como el total del catálogo; para el conteo real completo usá analyze_system.` : ""}`,
+        summary: `${rows.length} productos${search ? ` (filtrado por "${search}")` : ""}${ampliado ? ` -- no hubo coincidencia exacta, así que se buscó por palabras sueltas en nombre y descripción: ELEGÍ de esta lista el que de verdad corresponde antes de usar su id, y si ninguno encaja decilo en vez de inventar uno.` : ""}${truncado ? ` -- ADVERTENCIA: esto es una página parcial, hay ${total} en total. No reportes ${rows.length} como el total del catálogo; para el conteo real completo usá analyze_system.` : ""}`,
         data: rows.map((p) => ({ id: p.id, name: p.name, price: p.price, currency: p.currency, category: p.category, isActive: p.isActive, hasImage: !!p.imageUrl })),
       };
     },
