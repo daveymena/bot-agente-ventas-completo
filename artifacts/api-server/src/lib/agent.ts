@@ -66,6 +66,7 @@ import { getG4FResponse, initializeG4F } from "./providers/g4f-provider";
 import { G4F_ENABLED } from "../config/g4f.config";
 import { dbNow } from "./date-utils";
 import { tenantManager } from "./tenantManager";
+import { variante, varianteDistintaDe } from "./variacion";
 
 // ============================================================
 // 🎯 UNIFIED KEYWORD CONSTANTS - SINGLE SOURCE OF TRUTH
@@ -994,9 +995,15 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
     if (!memory.hasGreeted) {
       console.log(`⚡ [FAST-TRACK] Primer saludo hardcodeado - ${ts()}`);
       const business = voice.businessName || "nuestra tienda";
-      const raw = esNombreReal(customerName)
-        ? `¡Hola ${customerName}! 👋 Bienvenido a *${business}*. ¿Qué estás buscando hoy?`
-        : `¡Hola! 👋 Bienvenido a *${business}*. ¿Qué estás buscando hoy?`;
+      // Varía entre clientes: el mismo texto de bienvenida repetido a cientos
+      // de contactos distintos es el patrón que WhatsApp penaliza.
+      const quien = esNombreReal(customerName) ? ` ${customerName}` : "";
+      const raw = variante([
+        `¡Hola${quien}! 👋 Bienvenido a *${business}*. ¿Qué estás buscando hoy?`,
+        `¡Hola${quien}! 😊 Soy de *${business}*. Contame qué necesitás y te ayudo.`,
+        `¡Qué tal${quien}! 👋 Acá *${business}*. ¿En qué te puedo ayudar?`,
+        `¡Hola${quien}! 🙌 Bienvenido a *${business}*. Decime qué te interesa.`,
+      ], String(conversationId));
 
       await saveAgentMessage(conversationId, raw, "greeting", { intent: "greeting", isHardcoded: true });
       await persistStage(conversationId, "greeting");
@@ -1009,9 +1016,25 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
     console.log(`⚡ [FAST-TRACK] Saludo de retorno hardcodeado - ${ts()}`);
     const emocion = brain.emotionalState;
     const nm = (customerName && customerName !== "cliente") ? ` ${customerName}` : "";
+    // El saludo de retorno era UNA sola frase fija: el mismo cliente que
+    // vuelve tres veces recibía tres veces el mismo texto palabra por palabra
+    // (medido el 17-08-2026: idéntico a las 13:40 y a las 15:51), que es
+    // justamente el patrón por el que WhatsApp castiga una cuenta. La semilla
+    // incluye cuántos mensajes lleva la conversación, así que cambia cada vez
+    // que vuelve; y nunca repite el último texto enviado.
+    const semilla = `${conversationId}|${memory.messageCount}`;
     const raw = emocion === "frustrated"
-      ? `Hola de nuevo${nm}. Cuéntame qué pasó y lo resolvemos 🤝`
-      : `¡Hey${nm}! Qué bueno verte de nuevo 😊 ¿En qué te ayudo?`;
+      ? varianteDistintaDe([
+          `Hola de nuevo${nm}. Contame qué pasó y lo resolvemos 🤝`,
+          `${nm ? `${nm.trim()},` : "Hey,"} acá estoy 🤝 Decime qué salió mal y lo vemos.`,
+          `Hola${nm} 🙌 Contame qué pasó y te ayudo a resolverlo.`,
+        ], semilla, memory.lastAgentMessage)
+      : varianteDistintaDe([
+          `¡Hey${nm}! Qué bueno verte de nuevo 😊 ¿En qué te ayudo?`,
+          `¡Hola${nm}! 👋 ¿Qué andás buscando hoy?`,
+          `${nm ? `¡${nm.trim()}!` : "¡Hola!"} 😊 Contame en qué te puedo ayudar.`,
+          `¡Qué gusto verte${nm}! 🙌 ¿Qué necesitás?`,
+        ], semilla, memory.lastAgentMessage);
 
     await saveAgentMessage(conversationId, raw, memory.currentStage, { intent: "greeting", isHardcoded: true });
     const totalTime = Date.now() - startTime;
@@ -1516,8 +1539,24 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
         let resolvedId = -1;
 
         // ── VALIDACIÓN ESTRICTA DE PRODUCTO ──────────────────────────────────
+        // 0. El producto que la búsqueda identificó en ESTE mensaje manda sobre
+        //    el que eligió el modelo.
+        //
+        //    Antes acá solo se corregían ids INVÁLIDOS: si el modelo escribía
+        //    un id que existía en el catálogo pero era de OTRO producto, se
+        //    aceptaba sin comparar contra nada. En vivo (17-08-2026) el cliente
+        //    escribió "me interesa el curso de idiomas" y recibió el curso de
+        //    piano -- el emparejador había encontrado PACK IDIOMAS
+        //    correctamente, pero al modelo solo le llegaba una sugerencia en
+        //    texto y él siguió con el producto del historial. Una sugerencia no
+        //    es una garantía; esto sí.
+        const identificado = decision.productoDelMensaje;
+        if (identificado && validIds.has(identificado.id) && numId !== identificado.id) {
+          console.log(`🔒 [PARSER] La IA escribió ${numId} pero el cliente pidió "${identificado.name}" (ID ${identificado.id}, score ${identificado.score}). Se corrige.`);
+          resolvedId = identificado.id;
+        }
         // 1. Si el ID es válido, usarlo directamente
-        if (!isNaN(numId) && validIds.has(numId)) {
+        else if (!isNaN(numId) && validIds.has(numId)) {
           resolvedId = numId;
           console.log(`✅ [PARSER] ID válido: ${numId} (${productList.find(p => p.id === numId)?.name})`);
         }
@@ -1532,8 +1571,26 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
           resolvedId = -1;
         }
 
+        // ── NO REPETIR UNA FICHA YA ENVIADA ──────────────────────────────────
+        // Si al cliente ya se le mandó la tarjeta de ESE producto, volver a
+        // mandarla completa es lo que lo hace sonar a robot: repite precio,
+        // beneficios y enlaces que ya tiene. Se contesta SOLO lo que preguntó
+        // (el texto que la IA escribió antes de la tarjeta) y se descarta la
+        // tarjeta.
+        //
+        // Excepciones: si la pidió de nuevo, o si está por pagar (ahí la
+        // tarjeta lleva los enlaces de pago vigentes), o si la IA no escribió
+        // nada más que la tarjeta -- en ese caso quitarla dejaría un mensaje
+        // vacío y es preferible repetirla.
+        const esFlujoDePago = (decision.intent === "payment_intent" || decision.intent === "confirmation");
+        const yaEnviada = resolvedId !== -1 && memory.sentProductIds.has(resolvedId);
+        if (yaEnviada && !esFlujoDePago && !decision.pidioReenvio && textBefore) {
+          console.log(`🔁 [PARSER] La ficha de ${resolvedId} ya se envió antes: no se repite, se contesta solo lo que preguntó.`);
+          resolvedId = -1;
+        }
+
         if (resolvedId !== -1) {
-          const isPaymentFlow = (decision.intent === "payment_intent" || decision.intent === "confirmation");
+          const isPaymentFlow = esFlujoDePago;
           parts.push({ kind: "card", productId: resolvedId, paymentOnly: isPaymentFlow });
           cardProductId = resolvedId;
           cardCount++;
@@ -1564,7 +1621,21 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
         isHardcoded: false,
       };
 
-      await saveAgentMessage(conversationId, raw, decision.stage, agentMeta);
+      // Se guarda lo que el cliente REALMENTE recibió, sin el marcador interno.
+      //
+      // Dos motivos. Uno: `[CARD: 123]` se veía literal en la pantalla de
+      // Conversaciones, como si el bot hubiera mandado ese texto. Dos, y más
+      // grave: al reconstruir la memoria, `sentProductIds` se llena también
+      // buscando `[CARD: N]` dentro del texto guardado -- así que una tarjeta
+      // RECHAZADA por el parser (id inválido, o ya enviada antes) quedaba
+      // igualmente registrada como enviada, y el producto no se le mostraba
+      // nunca al cliente. La verdad de qué se envió está en `agentMeta`
+      // (cardSent + productId), que sale de las partes ya resueltas.
+      const textoGuardado = raw.replace(/\[CARD:\s*[\w-]+\s*\]/gi, "").replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+      // Si el mensaje era SOLO la tarjeta, queda vacío al quitar el marcador:
+      // se deja constancia legible de qué ficha se envió.
+      const soloFicha = agentMeta.productName ? `📦 Ficha enviada: ${agentMeta.productName}` : "📦 Ficha del producto enviada";
+      await saveAgentMessage(conversationId, textoGuardado || soloFicha, decision.stage, agentMeta);
       await persistStage(conversationId, decision.stage);
 
       // ── 11c. PROCESAR CONFIRMACIÓN DE PAGO ───────────────────────────────────

@@ -86,6 +86,30 @@ export interface EngineDecision {
   searchReasoning: string | null; // Razonamiento de la búsqueda de producto (para prompt)
   productSearchFailed: boolean;  // Si no se encontró un producto adecuado
 
+  /**
+   * El producto que la búsqueda identificó EN ESTE MENSAJE (no en el historial).
+   *
+   * Existe porque avisar a la IA no alcanza. Hasta ahora, cuando la búsqueda
+   * acertaba se hacía `productToShow = null` y a la IA solo le llegaba un texto
+   * sugiriéndole el producto; si escribía el id de otro producto del catálogo,
+   * el parser lo aceptaba sin comparar contra nada (solo corregía ids
+   * INVÁLIDOS). Resultado medido en producción el 17-08-2026: el cliente pidió
+   * el curso de IDIOMAS y recibió el de PIANO, que era el que venía en el
+   * historial. El emparejador había acertado -- nadie hacía cumplir su
+   * resultado.
+   *
+   * Con esto el parser puede corregir la tarjeta a lo que el cliente REALMENTE
+   * pidió, en vez de confiar en que el modelo obedezca.
+   */
+  productoDelMensaje: { id: number; name: string; score: number } | null;
+
+  /**
+   * El cliente pidió explícitamente que le reenvíen la ficha ("mandámela de
+   * nuevo", "no me llegó"). Sin esto, una tarjeta ya enviada no se repite:
+   * se contesta solo lo que preguntó.
+   */
+  pidioReenvio: boolean;
+
   // ── Estado de pago ─────────────────────────────────────────────────────────
   paymentStatus: string | null;  // Estado de pago detectado/actualizado
   paymentMethod: string | null;
@@ -1206,6 +1230,12 @@ export async function computeDecision(
   let shouldSendCard = false;
   let productSearchFailed = false;
   let searchReasoning: string | null = null;
+  let productoDelMensaje: EngineDecision["productoDelMensaje"] = null;
+
+  // "mandámela de nuevo", "no me llegó", "reenviame la ficha"
+  // Sin \b al final a propósito: "reenviame", "llegó", "mandámela" siguen con
+  // más letras y un cierre de palabra los dejaba afuera.
+  const pidioReenvio = /\b(de nuevo|otra vez|reenvi|re-?envi|no me lleg|no lleg|volv[eé]?[a-z]* a (mandar|enviar|pasar)|p[aá]sa(me|mela)?\s+(de nuevo|otra vez)|manda(me|mela)?\s+(de nuevo|otra vez))/i.test(t);
 
   if (!shouldGreet && intent !== "leaving") {
     // Buscar producto mencionado en el mensaje actual
@@ -1264,8 +1294,12 @@ export async function computeDecision(
         // nadie se lo contaba a la IA.
         productToShow = null;
         shouldSendCard = false;
+        productoDelMensaje = { id: p.id, name: p.name, score: match.score };
         searchReasoning =
           `El cliente está preguntando por: "${p.name}" (ID ${p.id}, ${formatPrice(Number(p.price), p.currency || "COP")}).\n` +
+          (alreadySent
+            ? `⚠️ Su ficha YA se le envió antes. NO la repitas: contestá SOLO lo que preguntó en este mensaje, en pocas líneas y sin volver a listar todo el producto.\n`
+            : "") +
           `Ese es el producto de ESTE mensaje. Respondé sobre ÉL, no sobre el que se venía hablando antes.\n` +
           `Si querés mostrar su tarjeta, escribí [CARD: ${p.id}].\n` +
           (match.reasoning ? `Por qué se eligió: ${match.reasoning}` : "");
@@ -1330,6 +1364,8 @@ export async function computeDecision(
     debugReason,
     searchReasoning,
     productSearchFailed,
+    productoDelMensaje,
+    pidioReenvio,
     paymentStatus: memory.paymentStatus,
     paymentMethod: memory.paymentMethod,
     paymentAmount: memory.paymentAmount,

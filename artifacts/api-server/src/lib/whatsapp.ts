@@ -124,6 +124,7 @@ import { PaymentGateway } from "./payments";
 import { retryWithBackoff, notifyOperatorOfFailure } from "./fallbackSystem";
 import { processMessageForLeadScoring } from "./leadScoring";
 
+import { variante } from "./variacion";
 function formatPriceForWa(price: number, currency: string) {
   try {
     return new Intl.NumberFormat("es-MX", {
@@ -255,41 +256,6 @@ async function buildProductBlocks(p: typeof products.$inferSelect, dynamicLinks?
   }
   if (actual.trim()) bloques.push(actual.trim());
   return bloques;
-}
-
-/**
- * Elige una variante de texto de forma ESTABLE para una misma semilla.
- *
- * Por qué existe: WhatsApp marca como spam las cuentas que mandan el mismo
- * texto una y otra vez a distintos contactos, y eso es lo que más rápido hace
- * que bloqueen un número. Una plantilla fija -- mismo cierre, mismos
- * encabezados en cada ficha -- es exactamente ese patrón.
- *
- * Estable y no aleatoria a propósito: dentro de una misma conversación el
- * texto no debe bailar entre mensajes (quedaría raro), pero SÍ tiene que
- * diferir entre clientes. La semilla es teléfono + producto.
- */
-function variante(opciones: string[], semilla: string): string {
-  if (opciones.length === 0) return "";
-  // FNV-1a con mezcla final, en vez del clásico h*31.
-  //
-  // Con h*31 los teléfonos reales caían casi todos en la misma opción: los
-  // números de un mismo país comparten prefijo y largo, 31 ≡ 3 (mod 4) y los
-  // últimos caracteres dominan el resultado -- medido con 5 clientes reales,
-  // 4 recibieron el mismo texto. La variación existía pero no se notaba, que
-  // para el caso es lo mismo que no tenerla: WhatsApp igual ve mensajes
-  // repetidos entre contactos.
-  let h = 0x811c9dc5;
-  for (let i = 0; i < semilla.length; i++) {
-    h ^= semilla.charCodeAt(i);
-    h = Math.imul(h, 0x01000193);
-  }
-  // Mezcla final (avalancha): reparte los bits altos hacia los bajos, que son
-  // los únicos que sobreviven al módulo.
-  h ^= h >>> 16;
-  h = Math.imul(h, 0x85ebca6b);
-  h ^= h >>> 13;
-  return opciones[Math.abs(h) % opciones.length]!;
 }
 
 async function buildProductCaption(p: typeof products.$inferSelect, categoryName: string | null, dynamicLinks?: any, semilla = ""): Promise<string> {
