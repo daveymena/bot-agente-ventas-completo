@@ -29,47 +29,84 @@ export interface AiCallOptions {
 export async function callMarketingAI<T = unknown>(
   opts: AiCallOptions,
 ): Promise<T | null> {
-  try {
-    // 1. Preferir la config guardada por el tenant (settings), como agent.ts.
-    let config = null;
-    if (opts.tenantId) {
-      try {
-        const settingsRow = (await db.select().from(settings).limit(1))[0] as any;
-        if (settingsRow) config = getProviderConfigFromSettings(settingsRow);
-      } catch { /* sin settings → fallback env */ }
+  // ── Candidatos EN ORDEN, no un único proveedor ───────────────────────────
+  // Antes se elegía UNO solo y, si fallaba, toda la llamada devolvía null.
+  // Medido en vivo el 2026-08-19: el ciclo de anuncio moría en 388ms con
+  // "El modelo no devolvió un copy utilizable" -- un fallo instantáneo, no un
+  // timeout -- y el admin se quedaba sin anuncio con la key paga ya cargada.
+  //
+  // La causa es que `settings.aiProvider` es el campo VIEJO de un solo
+  // proveedor, anterior a la pantalla de "Modelos de pago"
+  // (`businessConfig.aiProviders`, que es donde el admin carga sus claves hoy).
+  // Mientras ese campo apunte a un proveedor gratis caído, esta función lo
+  // sigue usando y ni mira las claves pagas: el mismo problema que ya tenía la
+  // cadena de Atlas en operator-opencode.ts.
+  //
+  // Los pagos van PRIMERO porque son los que el admin configuró a propósito y
+  // los que responden rápido (deepseek-chat: 807ms medidos contra la API real).
+  const candidatos: { nombre: string; cfg: any }[] = [];
+  const sumar = (nombre: string, cfg: any) => {
+    if (cfg && !candidatos.some((c) => c.cfg?.baseUrl === cfg.baseUrl && c.cfg?.model === cfg.model)) {
+      candidatos.push({ nombre, cfg });
     }
+  };
 
-    // 2. Fallback: cadena de proveedores por env.
-    const fallbackProviders = ["opencode", "groq", "github", "openrouter", "nvidia"];
-    if (!config) {
-      for (const p of fallbackProviders) {
-        const c = getProviderConfig(p);
-        if (c) { config = c; break; }
-      }
-    }
-    if (!config) return null;
+  // 1. Proveedores de pago con clave propia cargada (la clave llega a
+  //    process.env vía cargarClavesEnEntorno() apenas el admin la guarda).
+  for (const p of ["deepseek", "mistral", "openai", "anthropic"]) sumar(p, getProviderConfig(p));
 
-    const client = createAIClient(config);
-    const completion = await client.chat.completions.create({
-      model: config.model || "gpt-4o-mini",
-      temperature: 0.7,
-      max_tokens: opts.maxTokens ?? 900,
-      messages: [
-        { role: "system", content: opts.systemPrompt },
-        { role: "user", content: opts.userPrompt },
-      ],
-    });
+  // 2. La elección guardada del tenant (campo viejo, pero es una elección).
+  if (opts.tenantId) {
+    try {
+      const settingsRow = (await db.select().from(settings).limit(1))[0] as any;
+      if (settingsRow) sumar("settings", getProviderConfigFromSettings(settingsRow));
+    } catch { /* sin settings → siguen los de abajo */ }
+  }
 
-    const text = completion.choices?.[0]?.message?.content?.trim() ?? "";
-    if (!text) return null;
-    if (!opts.json) return text as unknown as T;
+  // 3. Último recurso: los gratis por env.
+  for (const p of ["opencode", "groq", "github", "openrouter", "nvidia"]) sumar(p, getProviderConfig(p));
 
-    const parsed = tryParseJson(text);
-    return parsed as T | null;
-  } catch (err) {
-    logger.warn({ err }, "[MarketingAI] Llamada a IA falló — el agente usará su fallback determinístico");
+  if (candidatos.length === 0) {
+    logger.warn("[MarketingAI] No hay ningún proveedor de IA configurado");
     return null;
   }
+
+  let ultimoError = "";
+  for (const { nombre, cfg } of candidatos) {
+    try {
+      const client = createAIClient(cfg);
+      const completion = await client.chat.completions.create({
+        model: cfg.model || "gpt-4o-mini",
+        temperature: 0.7,
+        max_tokens: opts.maxTokens ?? 900,
+        messages: [
+          { role: "system", content: opts.systemPrompt },
+          { role: "user", content: opts.userPrompt },
+        ],
+      });
+
+      const text = completion.choices?.[0]?.message?.content?.trim() ?? "";
+      // Texto vacío es un fallo REAL, no una respuesta: es justo lo que hacen
+      // los modelos de razonamiento cuando gastan el presupuesto de tokens
+      // "pensando" (ya medido dos veces en este proyecto). Rotar en vez de
+      // devolver null deja que el siguiente candidato conteste de verdad.
+      if (!text) { ultimoError = `${nombre}: respondió vacío`; continue; }
+      if (!opts.json) return text as unknown as T;
+
+      const parsed = tryParseJson(text);
+      if (parsed == null) { ultimoError = `${nombre}: no devolvió JSON parseable`; continue; }
+      return parsed as T;
+    } catch (err: any) {
+      ultimoError = `${nombre}: ${err?.message || "error desconocido"}`;
+      logger.warn({ proveedor: nombre, err: err?.message }, "[MarketingAI] Candidato falló, rotando al siguiente");
+    }
+  }
+
+  logger.warn(
+    { intentados: candidatos.map((c) => c.nombre), ultimoError },
+    "[MarketingAI] Ningún proveedor pudo responder — el agente usará su fallback determinístico",
+  );
+  return null;
 }
 
 export function tryParseJson(text: string): unknown {
