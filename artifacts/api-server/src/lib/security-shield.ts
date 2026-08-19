@@ -148,11 +148,10 @@ export class SecurityShield {
     // credenciales estuvieran configuradas -- solo se corregía si el usuario
     // apretaba manualmente "Probar conexión" (que pega a /facebook/validate,
     // un path que no contiene "config" y por eso nunca fue bloqueado).
-    const blockedPaths = [
+    // Paneles y endpoints de desarrollo: se bloquean como SEGMENTO del path.
+    const panelesDeDesarrollo = [
       "/debug",
       "/admin",
-      "/.env",
-      "/.git",
       "/admin-panel",
       "/api/internal",
       "/metrics",
@@ -162,10 +161,31 @@ export class SecurityShield {
       "/version",
       "/_internal",
     ];
+    // Archivos que no son rutas y nunca deben servirse, esten donde esten:
+    // aca si vale buscar la coincidencia en cualquier parte del camino.
+    const archivosProhibidos = ["/.env", "/.git"];
 
-    const isBlocked = blockedPaths.some((blocked) =>
-      path.toLowerCase().includes(blocked)
-    );
+    // Se compara por SEGMENTO, no por substring.
+    //
+    // Es el mismo bug que arriba ya se había pagado con "/config", y que se
+    // resolvió sacando la palabra de la lista en vez de arreglar la
+    // comparación -- así que volvió a morder con "/admin": `.includes()` hace
+    // que CUALQUIER ruta que lleve "admin" en el camino quede bloqueada, y
+    // `/api/tenants/admin/list` lo lleva. Efecto real, verificado en vivo el
+    // 2026-08-19: el dueño de la plataforma entraba al panel de administración
+    // siendo `isAdmin: true` y recibía 403 "Acceso denegado" desde ACÁ, sin
+    // llegar nunca a la ruta. O sea que el dashboard de clientes era
+    // inalcanzable para todos, siempre.
+    //
+    // Lo que esta lista quiere frenar son paneles de desarrollo colgando de la
+    // raíz (`/admin`, `/debug`, `/metrics`), no rutas de negocio que usan esa
+    // palabra por convención REST. Comparando el comienzo del path con el
+    // segmento completo, `/admin` sigue bloqueado y `/api/tenants/admin/list`
+    // pasa.
+    const limpio = path.toLowerCase().split("?")[0]!.replace(/\/+$/, "");
+    const isBlocked =
+      panelesDeDesarrollo.some((b) => limpio === b || limpio.startsWith(b + "/")) ||
+      archivosProhibidos.some((b) => limpio.includes(b));
 
     if (isBlocked) {
       logger.warn({ path }, "🚫 Acceso bloqueado a path restringido");
