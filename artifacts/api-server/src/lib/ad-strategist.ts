@@ -662,7 +662,19 @@ Este contenido digital es tu atajo directo a resultados profesionales.
           description: String(draft.description || ""),
         },
       );
-      if (!creado) return { ok: false, message: "Meta no aceptó crear la campaña." };
+      // El motivo REAL, no "no aceptó".
+      //
+      // `createAdForProduct` devuelve null en error y deja el mensaje de Graph
+      // en `lastAdError` (existe justamente para esto, y ya se usa en
+      // app-operator.ts y en routes/facebook.ts). Acá se ignoraba, así que al
+      // admin le llegaba "Meta no aceptó crear la campaña" y nada más: sin
+      // saber si es el método de pago, un límite de la cuenta, el píxel, el
+      // copy rechazado o un id mal configurado, no hay nada que hacer con esa
+      // frase. Reportado en vivo el 2026-08-19 subiendo una campaña nueva.
+      if (!creado) {
+        const motivo = fb.lastAdError ? ` Motivo que da Meta: ${fb.lastAdError}` : "";
+        return { ok: false, message: `Meta no aceptó crear la campaña.${motivo}` };
+      }
 
       await db.update(facebookDrafts)
         .set({
