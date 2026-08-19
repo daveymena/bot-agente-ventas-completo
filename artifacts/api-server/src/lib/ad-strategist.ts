@@ -883,6 +883,10 @@ Este contenido digital es tu atajo directo a resultados profesionales.
       );
     }
 
+    // Se declara FUERA del try para que el catch pueda deshacer la campaña si
+    // un paso posterior falla (ver el rollback más abajo).
+    let campaignIdCreada: string | null = null;
+
     try {
       const act = `act_${adAccount}`;
 
@@ -903,6 +907,26 @@ Este contenido digital es tu atajo directo a resultados profesionales.
       }
       const esWhatsApp = !!waLink;
 
+      // El presupuesto se valida ANTES de tocar Meta.
+      //
+      // Estaba validado recién al armar el conjunto, o sea DESPUÉS de crear la
+      // campaña: con un borrador sin presupuesto (el 88, guardado con
+      // budget:null), `presupuestoDiarioParaMetaPublico(null)` lanzaba y la
+      // campaña quedaba huérfana. Chequearlo acá arriba convierte ese caso en
+      // un error limpio, sin haber creado nada.
+      //
+      // Sin default silencioso, a propósito: es el número que va a gastar por
+      // día. Ya pasó una vez que un default del nicho reemplazara lo que el
+      // admin había aprobado (ver presupuestoDiarioParaMeta), y sobre dinero
+      // el número tiene que ser el que él dijo o ninguno.
+      const presupuestoDelBorrador = Number((strategy as any)?.budget);
+      if (!Number.isFinite(presupuestoDelBorrador) || presupuestoDelBorrador <= 0) {
+        throw new Error(
+          "Este borrador no tiene presupuesto diario, así que no se puede crear la campaña en Meta. "
+          + "Decime cuánto querés gastar por día y lo vuelvo a intentar.",
+        );
+      }
+
       const campaign = await this.fbPost(act, "campaigns", accessToken, {
         name: `[BORRADOR] ${product.name}${esWhatsApp ? " (WhatsApp)" : ""} - ${new Date().toLocaleDateString("es-CO")}`,
         // OUTCOME_SALES optimiza compras en la web y no admite destino de
@@ -918,6 +942,9 @@ Este contenido digital es tu atajo directo a resultados profesionales.
         // explícitamente que los conjuntos no comparten presupuesto entre sí.
         is_adset_budget_sharing_enabled: false,
       });
+      // A partir de acá la campaña YA existe en la cuenta real: si algo falla
+      // más abajo hay que borrarla, no dejarla huérfana.
+      campaignIdCreada = campaign?.id ? String(campaign.id) : null;
 
       // optimization_goal=CONVERSIONS sin promoted_object es rechazado por
       // Graph API (exige que el conjunto apunte a un pixel/evento). Mismo
@@ -1133,6 +1160,37 @@ Este contenido digital es tu atajo directo a resultados profesionales.
       return draftResult;
     } catch (err: any) {
       logger.error({ err, productId }, "[AdStrategist] Error creating draft ad");
+
+      // ── Deshacer la campaña que quedó a medias ───────────────────────────
+      // Reportado por el admin mirando su Ads Manager (2026-08-19): "veo que
+      // crea algo sin conjunto de anuncios". Tenía razón -- había DOS campañas
+      // huérfanas en la cuenta real, las dos sin ningún conjunto:
+      //   GET /120249109029290097/adsets → {"adSets":[]}
+      //
+      // La secuencia es campaña → conjunto → creativo → anuncio. Si falla
+      // cualquier paso después del primero, la campaña ya existe en la cuenta
+      // y este catch la dejaba ahí para siempre: un cascarón que no puede
+      // entregar nada (sin segmentación, sin presupuesto, sin anuncio) y que
+      // se acumula uno más con cada reintento.
+      //
+      // El disparador concreto acá fue un borrador sin presupuesto:
+      // presupuestoDiarioParaMetaPublico(null) lanza DESPUÉS de crear la
+      // campaña. Pero la causa de fondo es que este camino nunca tuvo el
+      // rollback que su gemelo `facebook.ts` sí tiene desde siempre.
+      //
+      // Meta borra en cascada, así que borrar la campaña se lleva conjunto y
+      // creativo si alcanzaron a crearse.
+      const campaignAMedias = (err as any)?.__campaignId || campaignIdCreada;
+      if (campaignAMedias) {
+        const borrada = await this.fbDelete(campaignAMedias, accessToken);
+        logger.warn(
+          { campaignId: campaignAMedias, borrada, productId },
+          borrada
+            ? "[AdStrategist] Campaña a medias borrada de Meta -- no queda basura en la cuenta"
+            : "[AdStrategist] Quedó una campaña a medias en Meta que no se pudo borrar -- avisar al admin",
+        );
+      }
+
       const draftResult: DraftAd = {
         productId: product.id,
         productName: product.name || "",
@@ -1180,6 +1238,28 @@ Este contenido digital es tu atajo directo a resultados profesionales.
     }
 
     return result;
+  }
+
+  /** Borra un objeto de Meta por id. Se usa para deshacer una campaña que
+   * quedó a medias: Meta borra en cascada (se lleva conjuntos y anuncios).
+   * Nunca lanza -- si el borrado falla, se deja constancia en el log y sigue,
+   * porque esto corre dentro del manejo de otro error que es el que importa. */
+  private async fbDelete(objectId: string, accessToken: string): Promise<boolean> {
+    try {
+      const res = await fetch(`${FB_GRAPH_URL}/${objectId}?access_token=${encodeURIComponent(accessToken)}`, {
+        method: "DELETE",
+        signal: AbortSignal.timeout(15000),
+      });
+      const data: any = await res.json().catch(() => ({}));
+      if (data?.error) {
+        logger.error({ fbError: data.error, objectId }, "[AdStrategist] No se pudo borrar el objeto a medias en Meta");
+        return false;
+      }
+      return true;
+    } catch (err: any) {
+      logger.error({ err, objectId }, "[AdStrategist] Falló el borrado del objeto a medias en Meta");
+      return false;
+    }
   }
 
   private async fbPost(adAccount: string, endpoint: string, accessToken: string, body: Record<string, any>): Promise<any> {
