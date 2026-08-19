@@ -215,6 +215,31 @@ export function construirBrief(
     `   ${noPuedeAfirmar.join(" · ")}`,
     `   Tampoco: cuánta gente lo compró, "el mejor"/"el más vendido", ni promesas de ganancia en plata.`,
     `   Si el admin QUIERE ofrecer algo de esa lista, primero hay que cargarlo en el producto.`,
+    // ── Cómo entrega este negocio ────────────────────────────────────────
+    // Reportado por el dueño mirando un anuncio generado (2026-08-18): decía
+    // "clases presenciales y virtuales" y "certificado" para un negocio que
+    // vende packs digitales pregrabados por Google Drive. Su frase exacta:
+    // "eso quiere decir que no tiene conocimiento de mi información".
+    //
+    // Tenía razón a nivel código: ni el brief ni el validador leían nada del
+    // negocio, así que el modelo rellenaba el formato de entrega con lo que
+    // había visto en la competencia. El dato para desmentirlo YA estaba en la
+    // fila del producto (`kind` + `deliveryLink`); solo que nadie lo miraba.
+    //
+    // Va en el brief y NO solo en el validador porque el objetivo es que no
+    // lo escriba, no rechazárselo después: rebotar cuesta un turno y una
+    // confirmación del admin por cada invento.
+    ...(esDigital
+      ? [
+          ``,
+          `📦 CÓMO ENTREGA ESTE NEGOCIO — esto es lo que el cliente recibe de verdad:`,
+          `   Es un producto DIGITAL${prod.deliveryLink ? `, entregado por enlace (${String(prod.deliveryLink).includes("drive.google") ? "Google Drive" : "descarga directa"})` : ""}, ya grabado y listo.`,
+          `   PROHIBIDO prometer: clases presenciales, sesiones en vivo, clases en directo, tutorías 1 a 1,`,
+          `   horarios de cursada, cupos por fecha, envío físico, domicilio o entrega a domicilio.`,
+          `   Nada de eso existe en este negocio, aunque la competencia lo ofrezca. Investigar a la`,
+          `   competencia sirve para el ÁNGULO, nunca para copiar cómo entregan ellos.`,
+        ]
+      : []),
     ``,
     `🎯 TRES ÁNGULOS DISTINTOS (que sean distintos de verdad, no el mismo texto con sinónimos):`,
     ...angulos.map((a) => `   ${a.letra}) ${a.enfoque}\n      ${a.comoArmarlo}`),

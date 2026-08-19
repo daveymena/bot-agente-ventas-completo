@@ -1018,6 +1018,42 @@ export async function validarContenidoAnuncio(
   // datos no mencionan ni videos ni adiestradores. Prometer un formato de
   // entrega que no existe es de las cosas que más rápido genera un reclamo:
   // el cliente paga esperando video y recibe otra cosa.
+  // ── Un producto DIGITAL no se entrega en persona ni en vivo ─────────────
+  // Reportado por el dueño (2026-08-18) sobre un anuncio ya generado: prometía
+  // "clases presenciales y virtuales" y "certificado" para un negocio que
+  // vende packs digitales pregrabados por Google Drive. Su diagnóstico fue
+  // exacto -- "no tiene conocimiento de mi información" -- y a nivel código
+  // era literal: ni el brief ni este validador leían NADA del negocio, así que
+  // el modelo copiaba el formato de entrega de la competencia que investigaba.
+  //
+  // Esto NO se compara contra el texto del producto como el resto de
+  // ENTREGABLES: un pack digital jamás puede entregar algo presencial, aunque
+  // por casualidad su descripción mencione la palabra. Es una imposibilidad
+  // del modelo de negocio, no un dato faltante.
+  //
+  // El dato sale de la fila del producto (`kind`), que ya existía: no hace
+  // falta que el admin cargue nada nuevo. Vale para CUALQUIER tenant de la
+  // plataforma, que es el punto -- esto no es solo para este negocio.
+  if (String((prodReal as any).kind || "").toLowerCase() === "digital") {
+    const IMPOSIBLES_EN_DIGITAL: { patron: RegExp; que: string }[] = [
+      { patron: /\bpresencial(es|mente)?\b|\ben\s+persona\b|\bcara\s+a\s+cara\b/i, que: "algo presencial" },
+      { patron: /\ben\s+vivo\b|\ben\s+directo\b|\bstreaming\s+en\s+vivo\b|\bsesi[oó]n(es)?\s+en\s+vivo\b|\bclases?\s+en\s+(vivo|directo)\b/i, que: "clases o sesiones en vivo" },
+      { patron: /\btutor[ií]as?\s+(1\s*a\s*1|personalizad|individual)|\bclases?\s+particulares\b|\bmentor[ií]a\s+en\s+vivo\b/i, que: "tutorías o clases particulares" },
+      { patron: /\bhorarios?\s+de\s+(clase|cursada)\b|\bcalendario\s+de\s+clases\b|\bempieza\s+el\s+\d/i, que: "un horario o fecha de cursada" },
+      { patron: /\benv[ií]o\s+(gratis|a\s+domicilio|r[aá]pido)?\b|\ba\s+domicilio\b|\bcontra\s*entrega\b|\bte\s+lo\s+enviamos\b|\brecib[ií]lo\s+en\s+tu\s+casa\b/i, que: "un envío físico o entrega a domicilio" },
+    ];
+    for (const p of IMPOSIBLES_EN_DIGITAL) {
+      const m = textosDelAnuncio.match(p.patron);
+      if (!m) continue;
+      return (
+        `El anuncio ofrece ${p.que} ("${m[0]}"), y "${prodReal.name}" es un producto DIGITAL: se entrega por enlace, ya grabado. ` +
+        `Eso no existe en este negocio, así que el cliente pagaría esperando algo que nunca va a recibir. ` +
+        `Si viste eso en anuncios de la competencia, su formato de entrega no es el tuyo: de ellos se copia el ÁNGULO, nunca las condiciones. ` +
+        `Reescribí el copy vendiendo lo que este producto SÍ entrega (acceso inmediato por enlace, a tu ritmo, sin horarios) y proponelo de nuevo.`
+      );
+    }
+  }
+
   for (const p of ENTREGABLES) {
     const m = textosDelAnuncio.match(p.patron);
     if (!m) continue;
