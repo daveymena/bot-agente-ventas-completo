@@ -40,6 +40,7 @@ import { describePlannedAction, buildMcpToolRegistry, drainDraftPlan, lecturasDe
 import { MODULO_PUBLICIDAD, FORMATO_ANUNCIO } from "../lib/publicidad-persuasiva";
 import { mintTurnToken } from "../lib/opencode-turn-token";
 import { getAppUrl } from "../lib/app-url";
+import { ENV_POR_PROVEEDOR } from "../lib/ai-keys";
 import { db, products } from "@workspace/db";
 import { eq, desc } from "drizzle-orm";
 
@@ -129,7 +130,31 @@ const MODELO_RESPALDO = { providerID: "opencode", modelID: "big-pickle" };
 // (o sin activar tras un reinicio del contenedor) nunca deja a Atlas sin
 // responder, y agregar un proveedor nuevo a esta lista es lo único que hace
 // falta en código una vez que su env var quede seteada con la key real.
+// 4. `deepseek` (activado 2026-08-19, key propia de pago del admin). Va
+//    PRIMERO por una razón medida, no por preferencia: el turno de anuncio se
+//    cortaba a los 135s sin crear nada, y el desglose por tramos mostró que el
+//    tiempo se iba en rotar entre candidatos que no resolvían
+//    (`nemotron-3-nano` 48s, `laguna` 31s, `nemotron-3-ultra` 8s, `big-pickle`
+//    17s). Con un pago rápido al frente la cadena casi nunca llega a rotar.
+//
+//    Cuál de los cuatro modelos de DeepSeek, y por qué los otros tres NO:
+//    según el catálogo real (models.dev, el mismo que consume OpenCode) los
+//    cuatro tienen `tool_call: true`, así que tool-calling no los separa. Lo
+//    que los separa es `reasoning`:
+//      - `deepseek-chat`     reasoning:NO  ← el único que sirve acá
+//      - `deepseek-reasoner` reasoning:sí
+//      - `deepseek-v4-flash` reasoning:sí
+//      - `deepseek-v4-pro`   reasoning:sí  (y 3x el precio: $0.435/$0.87)
+//    Un modelo de razonamiento en este turno es exactamente el bug que este
+//    proyecto ya midió dos veces y documentó en agent.ts: "gasta TODO el
+//    presupuesto de tokens en reasoning_content y devuelve content vacío"
+//    (`deepseek-v4-flash-free`), y `nemotron-3-ultra-free` "se cortaba con
+//    finish_reason length incluso para responder OK". Acá el presupuesto es de
+//    135s compartidos con la investigación y varias herramientas encadenadas:
+//    pensar en voz alta antes de llamar la primera herramienta es justo lo que
+//    no entra. Por eso `deepseek-chat` y no los otros tres.
 const CANDIDATOS_PAGOS: { providerID: string; modelID: string }[] = [
+  { providerID: "deepseek", modelID: "deepseek-chat" },
   { providerID: "mistral", modelID: "mistral-large-latest" },
   { providerID: "openrouter", modelID: "nvidia/nemotron-3-nano-30b-a3b:free" },
   { providerID: "openrouter", modelID: "poolside/laguna-xs-2.1:free" },
@@ -153,9 +178,54 @@ async function proveedoresConectados(host: string, authHeader: string): Promise<
 // Lista de candidatos a intentar EN ORDEN para este turno: los pagos que
 // estén realmente conectados ahora mismo (en el orden de preferencia de
 // CANDIDATOS_PAGOS), y siempre el respaldo gratis al final.
+// El motivo de descarte va al desglose que ve el ADMIN, así que tiene que
+// entrar en una línea y no arrastrar el stack ni el JSON crudo del proveedor.
+// Los casos frecuentes se nombran en castellano llano -- "sin crédito" le dice
+// al admin qué hacer, "429 {\"error\":{\"type\":...}}" no.
+function resumirMotivo(error: string): string {
+  const e = String(error || "").trim();
+  if (/timeout|abort|timed? ?out/i.test(e)) return "se quedó sin tiempo";
+  if (/429|rate.?limit|quota|cuota/i.test(e)) return "sin cupo (rate limit)";
+  if (/401|403|unauthor|forbidden|api.?key|authentication/i.test(e)) return "clave rechazada";
+  if (/credit|balance|payment|insufficient/i.test(e)) return "sin crédito";
+  if (/context|too large|overflow|length/i.test(e)) return "pedido demasiado grande";
+  if (/tool-call no ejecutado/i.test(e)) return "no ejecutó la herramienta";
+  if (/5\d\d/.test(e)) return "error del proveedor";
+  return e.replace(/\s+/g, " ").slice(0, 60);
+}
+
+// ¿Tiene ESTA app la clave de ese proveedor cargada ahora mismo? Guardar una
+// clave en Configuración → "Modelos de pago" la vuelca a `process.env` en el
+// acto (`cargarClavesEnEntorno()` en ai-catalog.ts) y además la sincroniza a
+// OpenCode con `PUT /auth/{id}`. O sea: si esto es true, la clave existe y ya
+// viajó al contenedor.
+function hayClavePropia(providerID: string): boolean {
+  const envKey = ENV_POR_PROVEEDOR[providerID];
+  return !!(envKey && process.env[envKey]);
+}
+
 async function pickOpencodeModelChain(host: string, authHeader: string): Promise<{ providerID: string; modelID: string }[]> {
   const conectados = await proveedoresConectados(host, authHeader);
-  const pagosDisponibles = CANDIDATOS_PAGOS.filter((c) => conectados.has(c.providerID));
+  // `connected` NO alcanza como único criterio, y esto costó un turno entero
+  // de anuncio perdido (2026-08-19). Está documentado arriba que ese campo solo
+  // se enciende si la env var estándar del proveedor estaba seteada en el
+  // PROCESO de OpenCode al arrancar: una clave sincronizada en caliente con
+  // `PUT /auth/{id}` queda guardada y usable, pero `connected` sigue en false
+  // hasta el próximo reinicio del contenedor. Filtrando solo por `connected`,
+  // un proveedor de pago recién configurado por el admin quedaba invisible
+  // -- y Atlas seguía rotando entre gratis lentos con la clave paga ya puesta.
+  //
+  // También lo cubre al revés: si el contenedor de OpenCode se reinicia y
+  // pierde sus env vars, `connected` se vacía y la cadena entera se caía al
+  // respaldo gratis sin que nadie se enterara.
+  //
+  // Se intenta, entonces, todo candidato que esté conectado O cuya clave
+  // tengamos nosotros. Si la llamada real falla igual, la rotación la absorbe:
+  // ese es justamente su trabajo, y un intento fallido cuesta mucho menos que
+  // no intentar el único modelo de pago disponible.
+  const pagosDisponibles = CANDIDATOS_PAGOS.filter(
+    (c) => conectados.has(c.providerID) || hayClavePropia(c.providerID),
+  );
   return [...pagosDisponibles, MODELO_RESPALDO];
 }
 
@@ -710,7 +780,6 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
             // Cada intento se mide por separado: con varios candidatos en
             // cadena, saber CUÁL se comió el tiempo es la diferencia entre
             // arreglar el modelo lento y seguir tocando presupuestos al azar.
-            marcar(`modelo:${model.modelID}`, tModelo);
             // Bug real encontrado probando en vivo (2026-08-12): un candidato
             // respondio 200 "sin error" pero el texto traia sintaxis de
             // tool-call sin ejecutar de verdad (literal "<function=nombre>...
@@ -723,14 +792,24 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
             if (pareceHerramientaFiltrada(ultimo.text)) {
               logger.warn({ tenantId, model }, "[AtlasOpenCode] Candidato filtro sintaxis de tool-call sin ejecutar, rotando al siguiente");
               ultimo = { text: "", error: "tool-call no ejecutado (sintaxis filtrada en el texto)" };
-              continue;
             }
+            // El tramo se mide DESPUÉS de saber si el candidato sirvió, y se
+            // anota con el motivo del descarte. Antes se marcaba apenas volvía
+            // la llamada, así que un candidato que devolvía 200 con un error
+            // adentro aparecía en el desglose idéntico a uno exitoso: en el
+            // corte del 2026-08-19 se leía "modelo:mistral-large-latest 4.0s"
+            // como si hubiera respondido bien, cuando en realidad se descartó
+            // y por eso la cadena siguió rotando hasta comerse los 135s. El
+            // motivo solo estaba en el log del servidor, que es justo lo que no
+            // se puede mirar desde el chat. "Falló porque X" es accionable;
+            // un número de segundos a secas manda a diagnosticar de nuevo.
+            marcar(`modelo:${model.modelID}${ultimo.error ? `(descartado: ${resumirMotivo(ultimo.error)})` : ""}`, tModelo);
             if (!ultimo.error) break; // Respuesta real -- no seguir rotando.
             logger.warn({ tenantId, model, error: ultimo.error }, "[AtlasOpenCode] Candidato falló, rotando al siguiente");
           } catch (err: any) {
             // El intento que FALLA es el que más importa medir: es el que se
             // comió el tiempo sin devolver nada.
-            marcar(`modelo:${model.modelID}(falló)`, tModelo);
+            marcar(`modelo:${model.modelID}(falló: ${resumirMotivo(err?.message || "error desconocido")})`, tModelo);
             ultimo = { text: "", error: err?.message || "error desconocido" };
             logger.warn({ tenantId, model, error: ultimo.error }, "[AtlasOpenCode] Candidato falló (excepción), rotando al siguiente");
           }
