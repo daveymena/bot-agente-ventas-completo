@@ -2359,9 +2359,25 @@ export const TOOLS: ToolDef[] = [
           // en prosa mientras el borrador quedaba con el default del nicho
           // ($20.000/día) y nada lo desmentía. Sobre un objeto que gasta
           // dinero, el número que se muestra tiene que salir del dato escrito.
-          presupuestoPedido && presupuestoPedido !== draft.strategy.budget
-            ? `💰 Presupuesto GUARDADO: $${draft.strategy.budget.toLocaleString("es-CO")}/día ⚠️ (pediste $${presupuestoPedido.toLocaleString("es-CO")}/día — decíselo al admin, no lo tapes)`
-            : `💰 Presupuesto guardado: $${draft.strategy.budget.toLocaleString("es-CO")}/día`,
+          // `draft.strategy.budget` puede venir sin definir, y entonces
+          // `.toLocaleString()` revienta. Visto en vivo (2026-08-19, borrador
+          // 88): el borrador SE GUARDÓ bien y el admin igual recibió
+          // "❌ El plan terminó con errores: Cannot read properties of
+          // undefined (reading 'toLocaleString')". Lo peor de los dos mundos --
+          // el trabajo hecho y reportado como fallido, que es exactamente la
+          // desconfianza que este proyecto viene peleando.
+          //
+          // Un resumen NUNCA puede tumbar una acción que ya se ejecutó: si
+          // falta el número, se dice que falta y listo.
+          ((): string => {
+            const guardado = Number((draft.strategy as any)?.budget);
+            if (!Number.isFinite(guardado) || guardado <= 0) {
+              return `💰 Presupuesto: sin definir en el borrador — se fija al crear la campaña (fb_create_ad exige dailyBudget).`;
+            }
+            return presupuestoPedido && presupuestoPedido !== guardado
+              ? `💰 Presupuesto GUARDADO: $${guardado.toLocaleString("es-CO")}/día ⚠️ (pediste $${presupuestoPedido.toLocaleString("es-CO")}/día — decíselo al admin, no lo tapes)`
+              : `💰 Presupuesto guardado: $${guardado.toLocaleString("es-CO")}/día`;
+          })(),
           notaCopy.puntaje >= 85
             ? `⭐ Calidad del copy: ${notaCopy.puntaje}/100`
             : `⭐ Calidad del copy: ${notaCopy.puntaje}/100\n${notaCopy.notas.map((n) => `   • ${n}`).join("\n")}`,
