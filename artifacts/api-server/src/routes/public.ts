@@ -189,9 +189,9 @@ router.get("/product/:slug/:productId", async (req, res, next) => {
         features: p.features,
       },
       related: related
-        .filter(r => r.id !== p.id)
+        .filter((r: any) => r.id !== p.id)
         .slice(0, 4)
-        .map(r => ({
+        .map((r: any) => ({
           id: r.id,
           name: r.name,
           price: r.price,

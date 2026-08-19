@@ -35,6 +35,7 @@ import architectToolsRouter from "./architect-tools";
 import architectRouter from "./architect";
 import pricingRouter from "./pricing";
 import mcpBridgeRouter from "./mcp-bridge";
+import marketingRouter from "./marketing";
 
 const router: IRouter = Router();
 
@@ -87,6 +88,9 @@ router.use("/pricing", pricingRouter);
 // Puente MCP para el cerebro OpenCode de Atlas -- tiene su propia
 // autenticación por token de turno (ver app.ts, allowlist "/internal/mcp").
 router.use("/internal/mcp", mcpBridgeRouter);
+// Equipo de Marketing & Growth -- dominio nuevo (MASTER PLAN). Todo pasa por
+// la cadena de middlewares de tenant/SaaS/limites montada en app.ts.
+router.use("/marketing", marketingRouter);
 
 // Usar el manejador de errores centralizado
 router.use(errorHandler);

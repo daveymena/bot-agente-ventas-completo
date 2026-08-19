@@ -30,7 +30,7 @@ async function restoreSkills() {
     fs.writeFileSync(path.join(skillDir, "SKILL.md"), skill.content, "utf-8");
     if (skill.files) {
       for (const [fname, fcontent] of Object.entries(skill.files)) {
-        fs.writeFileSync(path.join(skillDir, fname), fcontent, "utf-8");
+        fs.writeFileSync(path.join(skillDir, fname), fcontent as string, "utf-8");
       }
     }
     console.log(`[Restore] ✅ Skill: ${skill.name}`);
@@ -52,9 +52,9 @@ async function restoreMcpServers() {
         enabled: srv.enabled === "true",
         env: srv.env || {},
       };
+      fs.writeFileSync(configPath, JSON.stringify(config, null, 2), "utf-8");
+      console.log(`[Restore] ✅ MCP: ${srv.name}`);
     }
-    fs.writeFileSync(configPath, JSON.stringify(config, null, 2), "utf-8");
-    console.log(`[Restore] ✅ MCP: ${srv.name}`);
   } else {
     console.log("[Restore] ⚠️ No se encontró opencode.jsonc para actualizar MCPs");
   }
@@ -70,9 +70,9 @@ async function restoreCommands() {
     if (!config.command) config.command = {};
     for (const cmd of cmds) {
       config.command[cmd.name] = { description: cmd.description, template: cmd.template };
+      fs.writeFileSync(configPath, JSON.stringify(config, null, 2), "utf-8");
+      console.log(`[Restore] ✅ Comando: ${cmd.name}`);
     }
-    fs.writeFileSync(configPath, JSON.stringify(config, null, 2), "utf-8");
-    console.log(`[Restore] ✅ Comando: ${cmd.name}`);
   }
 }
 

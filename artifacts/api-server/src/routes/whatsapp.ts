@@ -204,7 +204,6 @@ router.get("/session-info", (req, res) => {
   const hasFiles = existsSync(dir);
   const status = mgr.getStatus();
   return res.json({
-    state: status.state,
     authFilesExist: hasFiles,
     authDir: dir,
     tenantId: tid,
@@ -423,7 +422,7 @@ router.get("/context", async (req, res, next) => {
     res.json({
       ok: true,
       tenantId: tid,
-      productos: prods.map(p => ({
+      productos: prods.map((p: any) => ({
         id: p.id,
         nombre: p.name,
         precio: p.price,

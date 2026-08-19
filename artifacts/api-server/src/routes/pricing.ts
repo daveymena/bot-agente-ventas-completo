@@ -53,7 +53,7 @@ router.get("/", async (req, res) => {
     });
   } catch (error) {
     logger.error({ error }, "Error fetching pricing");
-    res.status(500).json({ error: "Internal server error" });
+    return res.status(500).json({ error: "Internal server error" });
   }
 });
 
@@ -75,7 +75,7 @@ router.get("/:plan", (req, res) => {
     });
   } catch (error) {
     logger.error({ error }, "Error fetching plan details");
-    res.status(500).json({ error: "Internal server error" });
+    return res.status(500).json({ error: "Internal server error" });
   }
 });
 
@@ -182,7 +182,7 @@ router.post("/upgrade", paymentRateLimit, validateCsrfToken, async (req, res, ne
     }
   } catch (error: any) {
     logger.error({ error: error.message, stack: error.stack }, "[Pricing] Unexpected error in upgrade endpoint");
-    res.status(500).json({
+    return res.status(500).json({
       error: "Internal server error",
       message: "Error inesperado. Por favor contacta al soporte."
     });
@@ -246,7 +246,7 @@ router.get("/current/info", async (req, res, next) => {
     });
   } catch (error) {
     logger.error({ error }, "Error fetching current plan");
-    res.status(500).json({ error: "Internal server error" });
+    return res.status(500).json({ error: "Internal server error" });
   }
 });
 

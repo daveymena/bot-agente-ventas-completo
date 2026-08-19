@@ -469,7 +469,7 @@ router.post("/admin/:id/action", async (req: TenantRequest, res) => {
     // Clear cache
     tenantManager.clearCache();
 
-    logger.info({ adminId: req.tenant.id, targetId: tenantId, action }, "[Tenants Admin] Action performed");
+    logger.info({ adminId: req.tenant?.id, targetId: tenantId, action }, "[Tenants Admin] Action performed");
     return res.json({ success: true, message });
 
   } catch (error) {
@@ -478,4 +478,4 @@ router.post("/admin/:id/action", async (req: TenantRequest, res) => {
   }
 });
 
-export default router;
+export default router;

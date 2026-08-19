@@ -103,6 +103,20 @@ export class MessageHandler {
           value: "0", 
           source: "whatsapp" 
         }, tenantIdNum)).returning();
+
+        // ── ATRIBUCIÓN (GAP-1 / Fase 5) ────────────────────────────────────
+        // Si el contacto llegó desde un anuncio de Meta/Instagram, se copia el
+        // contexto al lead (adContext + source) para poder cruzar después con
+        // payments y medir CAC/ROAS reales. Sin esto, el dato se quedaba
+        // muerto en messages.metadata.
+        if (lead?.id && params.anuncio) {
+          try {
+            const { attachAdContextToLead } = await import("../marketing-team/attribution");
+            await attachAdContextToLead(lead.id, params.anuncio);
+          } catch (err) {
+            logger.error({ err }, '[MessageHandler] No se pudo adjuntar adContext al lead');
+          }
+        }
         
         const [created] = await db.insert(conversations).values(addTenantToInsert({ 
           contactName: pushName, 
@@ -169,6 +183,24 @@ export class MessageHandler {
           adTitle: params.anuncio.titulo,
           adUrl: params.anuncio.url,
         }, '[MessageHandler] Contacto llegó desde un anuncio');
+
+        // Lead ya existente (conversación previa) sin contexto de anuncio:
+        // adjuntarlo ahora para no perder la atribución.
+        if (convo.leadId) {
+          try {
+            const existing = (await db
+              .select({ id: leads.id, adContext: leads.adContext })
+              .from(leads)
+              .where(eq(leads.id, convo.leadId))
+              .limit(1))[0];
+            if (existing && !existing.adContext) {
+              const { attachAdContextToLead } = await import("../marketing-team/attribution");
+              await attachAdContextToLead(existing.id, params.anuncio);
+            }
+          } catch (err) {
+            logger.error({ err }, '[MessageHandler] No se pudo adjuntar adContext a lead existente');
+          }
+        }
       }
 
       // dbNow(): en Postgres lastMessageAt exige un objeto Date, no un

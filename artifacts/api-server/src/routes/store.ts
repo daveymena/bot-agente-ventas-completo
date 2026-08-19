@@ -148,7 +148,7 @@ router.use("/admin/:slug", (req: Request, res: Response, next: NextFunction) => 
   if (!tenant.isAdmin && tenant.id !== store?.tenantId) {
     return res.status(403).json({ message: "No sos el dueño de esta tienda" });
   }
-  next();
+  return next();
 });
 
 router.get("/admin/:slug", async (req: Request, res: Response, next: NextFunction) => {
