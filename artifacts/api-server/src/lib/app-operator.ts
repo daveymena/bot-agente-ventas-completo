@@ -2151,7 +2151,29 @@ export const TOOLS: ToolDef[] = [
       const tenant = await tenantManager.getTenantById(ctx.tenantId);
       const { FacebookService } = await import("./facebook");
       const fb = new FacebookService(tenant || undefined);
+
+      // Sin catálogo asignado, syncCatalog() vuelve enseguida con 0/0 y el
+      // summary quedaba "Catálogo sincronizado: 0 ok, 0 fallidos" -- que se
+      // lee como ÉXITO cuando en realidad no se sincronizó ni un producto.
+      // Es el mismo patrón que venimos cerrando todo el día: reportar hecho
+      // algo que no pasó. Verificado en producción (2026-08-19): el tenant
+      // tiene catalogId vacío.
+      const catalogId = (tenant as any)?.facebook?.catalogId || process.env.FB_CATALOG_ID || "";
+      if (!catalogId) {
+        return {
+          ok: false,
+          summary:
+            "No hay catálogo de Facebook configurado en este negocio, así que NO se sincronizó ningún producto -- no lo reportes como hecho. " +
+            "El catálogo se crea en el Administrador comercial de Meta (Business Manager → Catálogos) y su id se carga en la sección Facebook del panel. " +
+            "Sirve para tiendas y anuncios dinámicos; los anuncios normales funcionan sin él.",
+        };
+      }
+
       const r = await fb.syncCatalog();
+      const hubo = (r.synced || 0) + (r.failed || 0);
+      if (hubo === 0) {
+        return { ok: false, summary: "El catálogo está configurado pero no se sincronizó ningún producto (0 de 0). Revisá que haya productos activos en la tienda.", data: r };
+      }
       return { ok: r.failed === 0, summary: `Catálogo sincronizado: ${r.synced} ok, ${r.failed} fallidos`, data: r };
     },
   },
