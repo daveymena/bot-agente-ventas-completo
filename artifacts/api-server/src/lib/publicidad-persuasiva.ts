@@ -141,6 +141,28 @@ const INVENTOS: Array<{ patron: RegExp; problema: string; arreglo: string }> = [
     problema: "se declara el mejor o el más vendido",
     arreglo: "Reemplazalo por un beneficio concreto y verificable.",
   },
+  {
+    // Estadística de mercado inventada.
+    //
+    // Visto en vivo (2026-08-19) en el anuncio del curso de IA: "¿Sabías que
+    // el 80% de las personas que intentan aprender IA por su cuenta abandonan
+    // en el primer mes?". Ese dato no sale de ningún lado -- el modelo lo
+    // fabricó entero porque suena a gancho de anuncio.
+    //
+    // Las reglas de acá cubrían prueba social del PRODUCTO ("+800 clientes"),
+    // garantías, urgencia y promesas de plata, pero una cifra sobre el MERCADO
+    // se colaba limpia. Y es peor que las otras: no es una promesa comercial
+    // que el negocio pueda decidir cumplir, es una afirmación factual falsa en
+    // un anuncio pago.
+    //
+    // Se caza el patrón "N% de [gente]" y "N de cada 10", que es como se
+    // escriben siempre. Si el dato es REAL y tiene fuente, va en el copy con
+    // la fuente escrita al lado -- y entonces deja de matchear este patrón
+    // porque el admin la puso a mano.
+    patron: /\b\d{1,3}\s*%\s+de\s+(?:l[oa]s\s+)?(?:personas|gente|usuarios|emprendedores|negocios|empresas|alumnos|estudiantes|due[nñ]os|clientes|padres|madres)\b|\b\d\s+de\s+cada\s+\d{1,2}\b/i,
+    problema: "usa una estadística que nadie puede respaldar",
+    arreglo: "Sacala. Si el dato es real, escribí la fuente al lado; si no, arrancá con el problema concreto del cliente, que no necesita porcentajes.",
+  },
 ];
 
 /** Aperturas genéricas: no detienen a nadie, es la regla del gancho. */
