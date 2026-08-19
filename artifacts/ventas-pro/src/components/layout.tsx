@@ -203,7 +203,25 @@ export function Layout({ children, chatCompleto = false }: { children: React.Rea
               que el espacio no dependa de que un efecto de React ya haya
               corrido. */}
           <main className={`flex-1 ${chatCompleto ? "p-0 md:p-8 overflow-hidden md:overflow-y-auto" : "p-3 sm:p-4 md:p-8 overflow-y-auto"} overflow-x-hidden animate-enter scroll-smooth flex flex-col h-full min-h-0`}>
-            <div className={`max-w-7xl mx-auto w-full flex-1 flex flex-col min-h-0 ${chatCompleto ? "pb-[calc(72px+env(safe-area-inset-bottom))] md:pb-4" : "pb-[calc(184px+env(safe-area-inset-bottom))] md:pb-4"}`}>
+            {/* En MÓVIL este contenedor NO se limita a la altura de la
+                pantalla; en escritorio sí (md:).
+
+                Acá estaba la causa real de que lo último quedara recortado en
+                toda la app, y sobrevivió al arreglo anterior del padding:
+                `flex-1` + `min-h-0` dentro de un padre de alto fijo capan la
+                altura de este div a lo que se ve. Un contenido más largo NO lo
+                estira -- se DESBORDA fuera de él. Y el `padding-bottom` se
+                dibuja en el borde del div, o sea ARRIBA de ese desborde, no
+                después del contenido. Resultado: se scrollea, aparece lo que
+                faltaba... y el final queda debajo de la barra inferior fija,
+                sin nada que lo empuje.
+
+                Sin `flex-1`/`min-h-0` el div crece con su contenido, <main>
+                scrollea, y el espacio de abajo queda DESPUÉS de todo, que es
+                lo que hace falta. En escritorio se conserva el
+                comportamiento de siempre porque ahí no hay barra inferior y
+                varias pantallas (chat, ayuda) reparten el alto con flex. */}
+            <div className={`max-w-7xl mx-auto w-full md:flex-1 md:flex md:flex-col md:min-h-0 ${chatCompleto ? "flex-1 flex flex-col min-h-0 pb-[calc(72px+env(safe-area-inset-bottom))] md:pb-4" : "pb-[calc(184px+env(safe-area-inset-bottom))] md:pb-4"}`}>
               {children}
             </div>
           </main>
