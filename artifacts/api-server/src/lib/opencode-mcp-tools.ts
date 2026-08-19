@@ -273,11 +273,39 @@ export function describePlannedAction(a: { tool: string; args: any }): string {
     case "fb_page_publish":
       return `📢 PUBLICAR en el muro de la página de Facebook (público, gratis) el producto ${g.productId ?? "?"} — visible de inmediato para todos`;
     case "fb_ad_draft":
-      return `Generar borrador de anuncio (copy + segmentación) para el producto ${g.productId ?? "?"} — no toca la cuenta de Meta, queda guardado local`;
+      // El TEXTO REAL va en el plan, no solo "generar borrador para el
+      // producto 76".
+      //
+      // Visto en vivo (2026-08-19): Atlas anunció "voy a escribir el anuncio,
+      // guardarlo y subirlo" y pidió el sí SIN haber mostrado una sola línea
+      // del copy. El admin aprobaba un texto que todavía no existía, y recién
+      // lo veía cuando ya estaba guardado. La regla del propio sistema dice
+      // lo contrario: si lo que se guarda es CONTENIDO, el contenido real
+      // tiene que estar a la vista antes de pedir confirmación.
+      //
+      // Se arregla acá, en la descripción del plan, y no en el prompt: por
+      // esta función pasa TODO plan de TODOS los negocios de la plataforma,
+      // así que ningún modelo -- ni ninguno que venga después -- puede
+      // saltearse la regla. Pedido explícito del admin: esto no es solo para
+      // él, es para cada cliente que cree su usuario.
+      return [
+        `Generar borrador de anuncio para el producto ${g.productId ?? "?"} — no toca la cuenta de Meta, queda guardado local`,
+        g.headline ? `\n   🎯 Título: ${valorLegible(g.headline, 90)}` : "",
+        g.primaryText ? `\n   ✍️ Texto:\n${String(g.primaryText).split("\n").map((l: string) => `      ${l}`).join("\n")}` : "",
+        g.dailyBudget ? `\n   💰 Presupuesto: $${Number(g.dailyBudget).toLocaleString("es-CO")}/día` : "",
+      ].filter(Boolean).join("");
     case "set_product_image":
       return `Asignar imagen al producto ${g.productId ?? "?"} (se hospeda permanente): ${valorLegible(g.imageUrl ?? "")}`;
     case "fb_update_draft_creative":
-      return `✏️ Actualizar el copy del anuncio (borrador ${g.draftId ?? "?"})${g.headline ? ` — nuevo título: "${valorLegible(g.headline, 50)}"` : ""} — sigue en el mismo estado en el que estaba (pausado sigue pausado), no se activa solo`;
+      // Mismo motivo que fb_ad_draft: si el anuncio ya existe en Meta, esto
+      // REEMPLAZA el texto que ve el público. Aprobar eso sin leerlo entero
+      // es peor todavía que aprobar un borrador nuevo.
+      return [
+        `✏️ Reemplazar el texto del anuncio (borrador ${g.draftId ?? "?"}) — sigue en el mismo estado en el que estaba (pausado sigue pausado), no se activa solo`,
+        g.headline ? `\n   🎯 Título nuevo: ${valorLegible(g.headline, 90)}` : "",
+        g.primaryText ? `\n   ✍️ Texto nuevo:\n${String(g.primaryText).split("\n").map((l: string) => `      ${l}`).join("\n")}` : "",
+        g.dailyBudget ? `\n   💰 Presupuesto nuevo: $${Number(g.dailyBudget).toLocaleString("es-CO")}/día` : "",
+      ].filter(Boolean).join("");
     // La herramienta a la que `propose_action` REDIRIGE todo "activá el
     // anuncio" (ver REDIRIGIR más abajo) no tenía frase propia: caía al
     // `default`, así que el admin veía el volcado técnico
