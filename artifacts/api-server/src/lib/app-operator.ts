@@ -3636,6 +3636,34 @@ export const TOOLS: ToolDef[] = [
       // Buscar el producto es una consulta, armar el brief es una función,
       // guardar es un INSERT y subir son 4 llamadas a Graph. Nada de eso
       // necesita una IA. Lo único que la necesita es escribir el texto.
+      // La investigación de ESTE turno entra en el prompt del copy.
+      //
+      // Al mover el trabajo al backend dejé afuera la investigación: el copy
+      // se escribía solo con los datos del producto, ignorando lo que el
+      // servidor acababa de averiguar sobre qué funciona hoy en el nicho.
+      // Detectado por el dueño preguntando "¿pero la búsqueda sí se realiza
+      // para el análisis?" -- se realizaba, y se tiraba a la basura.
+      //
+      // El brief dice qué se PUEDE afirmar (verdad); la investigación dice qué
+      // ÁNGULO está funcionando (efectividad). Hacen falta las dos: sin la
+      // primera se inventa, sin la segunda sale un anuncio honesto que no
+      // detiene a nadie.
+      let investigacion = "";
+      try {
+        const filasInv = await db
+          .select()
+          .from(architectMemory)
+          .where(and(
+            eq(architectMemory.tenantId, ctx.tenantId),
+            eq(architectMemory.memoryType, "research_result"),
+            gte(architectMemory.createdAt, new Date(Date.now() - RESEARCH_EVIDENCE_WINDOW_MS) as any),
+          ))
+          .orderBy(desc(architectMemory.createdAt))
+          .limit(2);
+        const utiles = filasInv.filter((f: any) => f?.metadata?.estado !== "fallo" && String(f.content || "").trim().length > 80);
+        if (utiles.length) investigacion = utiles.map((f: any) => String(f.content).slice(0, 2500)).join("\n\n---\n\n");
+      } catch { /* sin investigación reciente: el copy sale igual, con el brief */ }
+
       const { callMarketingAI, tryParseJson } = await import("./marketing-team/ai");
       const pedirCopy = async (reparo?: string) => {
         const salida = await callMarketingAI<any>({
@@ -3645,6 +3673,9 @@ export const TOOLS: ToolDef[] = [
             "Respondés SOLO un JSON con las claves primaryText, headline y description. Nada más.",
           userPrompt:
             `${brief.texto}\n\n` +
+            (investigacion
+              ? `🔍 LO QUE ESTÁ FUNCIONANDO HOY EN ESTE NICHO (investigación real de este turno). Usalo para el ÁNGULO y el gancho, NUNCA para copiar condiciones comerciales de la competencia: sus garantías, cupos y formatos de entrega no son los de este negocio.\n${investigacion}\n\n`
+              : "") +
             `Escribí el anuncio para este producto.\n` +
             `- primaryText: el texto completo del anuncio. Arrancá interpelando con un problema o deseo real del cliente (nunca "Tenemos disponible" ni "Comprá ahora"). ` +
             `Después el problema, el producto como salida, los beneficios traducidos de sus características REALES, el precio y UNA sola acción.\n` +

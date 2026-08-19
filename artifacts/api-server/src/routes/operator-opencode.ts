@@ -450,7 +450,18 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
       // Un pedido de anuncio/campaña/publicación. Se declara acá arriba
       // porque lo usan dos bloques: el que pregunta por el producto faltante
       // (abajo) y el que dispara la investigación previa.
-      const PEDIDO_DE_ANUNCIO = /\b(cre[aá]|prepar[aá]|arm[aá]|gener[aá]|hac[eé]|dise[ñn])\w*\s+(un\s+|el\s+|la\s+|una\s+)?(anuncio|campa|publicaci|post|ad\b)/i;
+      // "anunciá" faltaba, y es el verbo MÁS natural para pedir un anuncio.
+      // Detectado por el dueño preguntando si la búsqueda se hacía: su mensaje
+      // era "Anunciá en Facebook mi curso..." y no matcheaba ningún verbo de
+      // la lista, así que el turno corrió SIN investigar -- y el aviso
+      // automático se lo dijo ("en este mensaje NO se hizo ninguna búsqueda
+      // web real").
+      //
+      // Tercera vez que una lista cerrada de palabras deja afuera un caso
+      // obvio. Por eso ahora "anunciá"/"publicitá" valen SOLOS, sin exigir un
+      // sustantivo detrás: quien dice "anunciá mi curso" está pidiendo un
+      // anuncio, no hace falta que además diga la palabra "anuncio".
+      const PEDIDO_DE_ANUNCIO = /\b(anunci[aá]|publicit[aá])\w*|\b(cre[aá]|prepar[aá]|arm[aá]|gener[aá]|hac[eé]|dise[ñn]|lanz[aá])\w*\s+(un\s+|el\s+|la\s+|una\s+)?(anuncio|campa|publicaci|post|ad\b)/i;
 
       // ── Anuncio sin producto: preguntar ANTES de gastar un turno ─────────
       // Pedido del admin: "antes de ponerse a inventar debería pedir la
