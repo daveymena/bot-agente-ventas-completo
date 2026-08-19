@@ -8,9 +8,18 @@
  * ventana larga para no reaccionar a un mal día aislado y solo proponer
  * escalar cuando el rendimiento es consistente.
  *
- * El agente NUNCA ejecuta una acción por su cuenta: genera una sugerencia,
- * la registra en ad_agent_logs y se la manda al admin por WhatsApp. Solo
- * actúa cuando el admin responde aprobando esa sugerencia puntual.
+ * Reparto de decisión (pedido del admin, 2026-08-19: "semi automático, casi
+ * el 70%"): **lo que AHORRA plata se hace solo y se avisa; lo que GASTA plata
+ * espera el "sí"**.
+ *
+ *   Automático  -> pausar por gastar sin resultados, pausar al llegar al tope
+ *                  diario. Ambos solo pueden REDUCIR gasto, así que el peor
+ *                  error posible es dejar de gastar de más -- y se revierte
+ *                  con un mensaje. Una proteccion que espera un "sí" a las 3
+ *                  de la mañana no protege nada.
+ *   Pide permiso -> escalar, subir o bajar presupuesto, reanudar. Todo eso
+ *                  gasta la plata del admin: se sugiere por WhatsApp y se
+ *                  aplica solo cuando responde aprobando esa sugerencia.
  */
 import { db, adAgentLogs, tenants } from "@workspace/db";
 import { eq, and, desc } from "drizzle-orm";
@@ -56,13 +65,11 @@ const TREND_SCALE_DOWN_MIN_COST_RATIO = 1.5; // costo/resultado actual >= 150% d
 // desactiva, que es el valor por defecto -- nadie se encuentra de golpe con
 // que le pausaron los anuncios por un límite que no configuró.
 //
-// ESTE ES EL ÚNICO CHEQUEO QUE ACTÚA SIN PEDIR CONFIRMACIÓN, y es a
-// propósito: un tope que espera un "sí" por WhatsApp no es un tope. Si salta
-// a las 3 de la mañana y el admin duerme, el presupuesto se sigue quemando
-// hasta que despierte. Es defendible porque solo puede REDUCIR gasto (pausa),
-// nunca aumentarlo, así que el peor error posible es dejar de gastar de más.
-// Todo lo demás -- escalar, bajar, pausar por rendimiento -- sigue esperando
-// la aprobación explícita del admin.
+// Actúa SIN pedir confirmación, igual que la protección de gasto: un tope que
+// espera un "sí" por WhatsApp no es un tope. Si salta a las 3 de la mañana y
+// el admin duerme, el presupuesto se sigue quemando hasta que despierte. Es
+// defendible porque solo puede REDUCIR gasto (pausa), nunca aumentarlo.
+// Escalar, subir/bajar presupuesto y reanudar SÍ siguen esperando aprobación.
 const DAILY_SPEND_CAP = Number(process.env.FB_DAILY_SPEND_CAP || 0);
 
 /**
@@ -305,16 +312,43 @@ async function spendProtectionForTenant(tenant: TenantContext): Promise<void> {
       // si gastó más de lo que costaría 1 resultado típico sin ningún
       // resultado, es señal de alerta aunque no sepamos el budget exacto.
       const reason = `Lleva ${fmtCOP(insights.spend)} gastados hoy con ${insights.impressions} impresiones y CERO resultados (compras/leads/mensajes). Esto sugiere que el anuncio no está convirtiendo y sigue quemando presupuesto.`;
+
+      // ── Pausar por bajo rendimiento: se HACE, y después se avisa ────────
+      // Mismo criterio que el tope de gasto diario, y por el mismo motivo:
+      // una proteccion que espera un "sí" por WhatsApp no protege nada. Si
+      // esto salta a las 3 de la mañana y el admin duerme, el presupuesto se
+      // sigue quemando hasta que despierte -- y ya sabemos que gastó sin
+      // vender NADA con muestra suficiente (500+ impresiones).
+      //
+      // Es defendible porque solo puede REDUCIR gasto: el peor error posible
+      // es dejar de gastar de mas, y se revierte con un mensaje ("reanuda la
+      // campana"). Encender, subir presupuesto o crear siguen esperando el
+      // "sí" del admin, porque esos gastan su plata.
+      const pausada = await fb.pauseCampaign(campaign.id);
       const log = await logSuggestion({
         tenantId: tenant.id,
         campaignId: campaign.id,
         productName: campaign.name,
         checkType: "spend_protection",
         suggestedAction: "pause",
+        status: pausada ? "applied" : "suggested",
         reason,
         metricsSnapshot: insights,
       });
-      await notifyAdmin(tenant.id, log.id, campaign.name, "pause", reason);
+      if (pausada) {
+        logger.warn({ tenantId: tenant.id, campaignId: campaign.id, gasto: insights.spend }, "[AdGrowthAgent] Campana pausada automaticamente: gastaba sin resultados");
+        await notifyAdminExecuted(
+          tenant,
+          log.id,
+          `${reason}
+
+La pausé para que deje de gastar. Si querés que siga corriendo igual, respondé "reanudar ${log.id}".`,
+          [campaign.name],
+        );
+      } else {
+        // No se pudo pausar: al menos avisar y ofrecer hacerlo.
+        await notifyAdmin(tenant.id, log.id, campaign.name, "pause", reason);
+      }
     }
   }
 }
