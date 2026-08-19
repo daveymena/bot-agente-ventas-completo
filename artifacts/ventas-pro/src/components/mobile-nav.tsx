@@ -1,5 +1,5 @@
 import { useLocation } from "wouter";
-import { LayoutDashboard, MessageSquare, Users, Package, MoreHorizontal, Bot, Phone, Settings, ShoppingCart, Palette, Facebook, Wand2, Store, Activity, Crown } from "lucide-react";
+import { LayoutDashboard, MessageSquare, Users, Package, MoreHorizontal, Bot, Phone, Settings, ShoppingCart, Palette, Facebook, Wand2, Store, Activity, Crown, Megaphone, HelpCircle, BadgeCheck } from "lucide-react";
 import { useState } from "react";
 import { useSession } from "@/App";
 
@@ -10,14 +10,23 @@ const mainNavItems = [
   { label: "Productos", href: "/products", icon: Package },
 ];
 
+// Tiene que ofrecer LO MISMO que el menú de escritorio (allNavItems en
+// layout.tsx). Faltaban "Marketing" y "Ayuda": las páginas existían y estaban
+// ruteadas, pero desde el celular no había forma de llegar salvo escribiendo
+// la URL a mano. Marketing es justamente donde se ven las métricas en vivo de
+// las campañas, el gasto del día y los anuncios de la competencia -- o sea, lo
+// que uno quiere mirar desde el teléfono y no sentado en la computadora.
 const baseMoreItems = [
   { label: "Atlas VentasPro", href: "/code-agent", icon: Wand2, highlight: true },
+  { label: "Marketing", href: "/marketing", icon: Megaphone },
+  { label: "Facebook", href: "/facebook", icon: Facebook },
   { label: "Agentes IA", href: "/agents", icon: Bot },
   { label: "WhatsApp", href: "/whatsapp", icon: Phone },
-  { label: "Configuración", href: "/settings", icon: Settings },
   { label: "WooCommerce", href: "/woocommerce", icon: ShoppingCart },
   { label: "Personalización", href: "/branding", icon: Palette },
-  { label: "Facebook", href: "/facebook", icon: Facebook },
+  { label: "Configuración", href: "/settings", icon: Settings },
+  { label: "Ayuda", href: "/ayuda", icon: HelpCircle },
+  { label: "Planes", href: "/pricing", icon: BadgeCheck },
 ];
 
 // "Monitor WA" muestra el estado de WhatsApp de TODOS los negocios
