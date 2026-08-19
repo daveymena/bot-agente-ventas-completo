@@ -355,6 +355,109 @@ router.patch("/experiments/:id", async (req, res, next) => {
   }
 });
 
+// ─── POST /marketing/chat — chat del orquestador (MASTER PLAN §36) ──────────
+// El usuario no necesita saber qué agente usar: dice "quiero vender más X"
+// y el orquestador decide el flujo. Soporta: growth_plan, diagnostic,
+// performance, create_campaign (deriva a MetaAdsManager).
+router.post("/chat", async (req, res, next) => {
+  try {
+    const tenantId = requireTenant(req, res);
+    if (!tenantId) return;
+    const message = String(req.body?.message ?? "").trim();
+    if (!message) return res.status(400).json({ error: "message es obligatorio" });
+
+    const { detectIntent, planGrowth, runDiagnosticCycle, formatReport } = await import("../lib/marketing-team/orchestrator");
+    const intent = detectIntent(message);
+
+    if (intent === "growth_plan") {
+      const { plan, steps } = await planGrowth({
+        tenantId,
+        businessObjective: message,
+        productId: req.body?.productId,
+        productName: req.body?.productName,
+      });
+      return res.json({
+        intent,
+        steps: steps.map((s) => s.agent),
+        report: formatReport("PLAN DE CRECIMIENTO", [
+          { emoji: "🎯", label: "Objetivo", text: plan.data.objetivo },
+          { emoji: "👥", label: "Público", text: plan.data.publico },
+          { emoji: "🎨", label: "Ángulos", text: plan.data.angulos.join(" · ") },
+          { emoji: "🧪", label: "Experimentos", text: plan.data.experimentos.join("\n") },
+          { emoji: "💰", label: "Presupuesto", text: `Diario ${plan.data.presupuestoSugerido.diario ?? "por definir"} ${plan.data.presupuestoSugerido.moneda}` },
+          { emoji: "📈", label: "KPIs", text: plan.data.kpis.join(" · ") },
+        ]),
+        plan: plan.data,
+      });
+    }
+
+    if (intent === "diagnostic") {
+      const { diagnostic: diag } = await runDiagnosticCycle({ tenantId });
+      return res.json({
+        intent,
+        report: formatReport("DIAGNÓSTICO DEL EMBUDO", [
+          ...diag.data.embudo.map((e: any) => ({ emoji: e.estado, label: e.eslabon, text: e.observacion })),
+          { emoji: "🧠", label: "Conclusión", text: diag.data.conclusion },
+          { emoji: "💬", label: "Derivaciones", text: diag.data.derivaciones.join("\n") || "Ninguna por ahora" },
+        ]),
+        diagnostic: diag.data,
+      });
+    }
+
+    if (intent === "performance") {
+      const { performance } = await runDiagnosticCycle({ tenantId });
+      return res.json({
+        intent,
+        report: formatReport("RENDIMIENTO", [
+          ...performance.data.insights.map((i: any) => ({
+            emoji: i.severity === "critical" ? "🔴" : i.severity === "warning" ? "⚠️" : "🟢",
+            label: i.metric,
+            text: i.interpretation,
+          })),
+          { emoji: "🚀", label: "Acción principal", text: performance.data.accionPrincipal },
+        ]),
+        insights: performance.data.insights,
+      });
+    }
+
+    if (intent === "create_campaign") {
+      const { createCampaignDrafts } = await import("../lib/marketing-team/agents/meta-ads-manager");
+      const result = await createCampaignDrafts((req as any).tenant, { autonomous: req.body?.autonomous === true });
+      return res.json({
+        intent,
+        result,
+        report: result.requiresApproval
+          ? formatReport("CREAR CAMPAÑA", [
+              { emoji: "🛡️", label: "Aprobación requerida", text: "Crear anuncios es una acción con riesgo. Revisá y aprobá el borrador en el panel de Facebook antes de publicar." },
+            ])
+          : formatReport("CREAR CAMPAÑA", [
+              { emoji: "📢", label: "Borradores creados", text: `Creados: ${result.result?.created ?? 0}, fallidos: ${result.result?.failed ?? 0}` },
+            ]),
+      });
+    }
+
+    return res.status(400).json({
+      intent: "unknown",
+      error: "No pude identificar una intención de marketing. Probá con: 'quiero vender más X', '¿qué está fallando?', '¿cómo vamos?' o 'crea una campaña'.",
+    });
+  } catch (e) {
+    return next(e);
+  }
+});
+
+// ─── GET /marketing/learnings — memoria de marketing (MASTER PLAN §19) ──────
+router.get("/learnings", async (req, res, next) => {
+  try {
+    const tenantId = requireTenant(req, res);
+    if (!tenantId) return;
+    const { listLearnings } = await import("../lib/marketing-team/agents/marketing-memory");
+    const rows = await listLearnings(tenantId, Math.min(Number(req.query?.limit) || 50, 200));
+    return res.json({ rows });
+  } catch (e) {
+    return next(e);
+  }
+});
+
 // ─── GET /marketing/audit ───────────────────────────────────────────────────
 router.get("/audit", async (req, res, next) => {
   try {

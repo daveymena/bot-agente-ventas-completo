@@ -174,14 +174,14 @@ que bloqueaban o ensuciaban el gate:
 |---|---|---|
 | 0. Auditoría | ✅ | Este documento + `README_INTEGRACION_MARKETING_TEAM.md` |
 | 1. Domain contract | ✅ | `lib/marketing-team/types.ts` + 5 tablas nuevas (tasks, experiments, campaigns, budgets, audit_logs) + schemas Zod manuales |
-| 2. Marketing Team | 🟡 Parcial | Estratega, Researcher, Audience, Offer, Creative, Copy, Memoria, Performance, Diagnostic (9/14). Faltan: MetaAdsManager, ExperimentManager, OptimizationAgent, BudgetManager, ScalingAgent |
-| 3. Orchestration | 🟡 Parcial | `orchestrator.ts`: detectIntent, planGrowth (cadena completa de análisis), runDiagnosticCycle, formatReport; `routes/marketing.ts` montado |
-| 4. Meta | ⏳ Pendiente | Conectar agentes a `FacebookService`/`ad-strategist` (sin duplicar) |
+| 2. Marketing Team | ✅ (14/14) | Estratega, Researcher, Audience, Offer, Creative, Copy, Memoria, Performance, Diagnostic, **MetaAdsManager, ExperimentManager, OptimizationAgent, BudgetManager, ScalingAgent** |
+| 3. Orchestration | ✅ | `orchestrator.ts`: detectIntent, planGrowth, runDiagnosticCycle, formatReport; `routes/marketing.ts` completo + **`POST /api/marketing/chat`** (intents: growth_plan, diagnostic, performance, create_campaign) |
+| 4. Meta | ✅ (delegación) | MetaAdsManager envuelve `FacebookService`/`AdStrategist` existentes (listCampaigns, insights, drafts, pause, budget). **Pendiente: verificación en vivo con cuenta real** |
 | 5. Sales feedback | ✅ | `attribution.ts` + `leads.ad_context` + copiado en message-handler + endpoints `/api/marketing/attribution` y `/funnel` |
-| 6. Optimization | ⏳ Pendiente | Experiments/Diagnostics/Recommendations/Scaling |
-| 7. Autonomía | 🟡 Parcial | RiskEngine + BudgetGuard + approval por `architect-store` existente. Falta el ApprovalEngine generalizado |
+| 6. Optimization | ✅ | ExperimentManager (hipótesis/control/variante, anti-fake por muestra), OptimizationAgent (propuestas priorizadas), ScalingAgent (ganadores con ROAS) |
+| 7. Autonomía | ✅ (núcleo) | RiskEngine (LOW/MEDIUM/HIGH/CRITICAL) + BudgetGuard (guardrails) + `canExecuteAutonomously` + audit de cada acción. El flujo de aprobación humana usa el patrón "sí 42" existente |
 | 8. Memory | ✅ | `marketing-memory.ts` sobre `architect_memory` (memoryType `marketing_learning` + tags) |
-| 9. Testing | 🟡 Parcial | 35 tests unitarios + integración. Faltan tests de agentes restantes y mocks de Meta |
+| 9. Testing | 🟡 Parcial | 35 tests pasando (unit + integración de atribución en SQLite). Falta: tests de los 5 agentes nuevos + mocks de Meta + tests del chat |
 
 ## 7. Conclusión
 

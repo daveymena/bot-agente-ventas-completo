@@ -24,3 +24,8 @@ export * from "./agents/marketing-strategist";
 export * from "./agents/marketing-memory";
 export * from "./agents/performance-analyst";
 export * from "./agents/diagnostic-agent";
+export * from "./agents/meta-ads-manager";
+export * from "./agents/experiment-manager";
+export * from "./agents/optimization-agent";
+export * from "./agents/budget-manager";
+export * from "./agents/scaling-agent";
