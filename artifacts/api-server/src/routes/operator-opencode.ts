@@ -1099,19 +1099,27 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
             // 18-08-2026: el modelo terminó proponiendo fb_upload_draft_to_meta
             // con draftId null -- intentando subir a Meta un borrador que
             // nunca había creado, porque nadie le dijo cuál era el paso 1.
+            // El camino correcto ahora es `crear_anuncio`, no la cadena vieja.
+            //
+            // Este texto seguía dictando fb_ad_draft, que obliga al modelo a
+            // haber leído el productId y a copiar el copy entero en los
+            // argumentos: justo las idas y vueltas que `crear_anuncio` viene a
+            // eliminar haciendo el trabajo en el backend. Visto en vivo el
+            // 19-08-2026: el turno YA no se corta por tiempo, pero el modelo
+            // seguía escribiendo en el chat sin llamar nada porque la
+            // insistencia lo mandaba por la ruta larga.
             text:
               "[SISTEMA] Escribiste el anuncio pero NO lo guardaste: no llamaste ninguna herramienta, " +
               "así que del lado del admin no existe nada.\n\n" +
               "Llamá AHORA `propose_action` con:\n" +
-              '  tool: "fb_ad_draft"\n' +
-              '  args: { "productId": <el id REAL del producto, el que ya leíste con list_products>, ' +
-              '"primaryText": "<el texto principal COMPLETO que acabás de escribir, palabra por palabra>", ' +
-              '"headline": "<el titular>", "description": "<la descripción, si la tenés>" }\n\n' +
+              '  tool: "crear_anuncio"\n' +
+              '  args: { "producto": "<el nombre del producto tal como lo dijo el admin>", ' +
+              '"dailyBudget": <el presupuesto diario que dijo el admin>, ' +
+              '"subirAMeta": <true solo si pidió subirlo o publicarlo, si no false> }\n\n' +
               "Reglas de este paso:\n" +
-              "- El borrador se crea con fb_ad_draft. NO propongas fb_upload_draft_to_meta ahora: sin un " +
-              "borrador creado no hay draftId que subir, y proponerlo con draftId vacío hace fallar la acción " +
-              "después de que el admin la aprobó.\n" +
-              "- Copiá el texto tal cual lo escribiste, sin resumirlo y sin dejar huecos tipo [PRECIO] o [enlace].\n" +
+              "- NO necesitás el id del producto ni copiar el copy: `crear_anuncio` busca el producto, arma el brief, " +
+              "escribe el texto con los datos reales, lo valida y guarda el borrador. Todo eso lo hace el servidor.\n" +
+              "- Si el admin NO dijo un presupuesto, no lo inventes: preguntáselo, es su plata.\n" +
               "- No vuelvas a escribir el copy en el chat ni pidas confirmación otra vez: el sistema ya le muestra " +
               "la propuesta al admin y le pide el sí. Solo hacé la llamada.",
             timeoutMs: Math.max(turnDeadline - Date.now() - 5_000, 15_000),
