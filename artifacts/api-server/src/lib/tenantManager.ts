@@ -597,10 +597,35 @@ export function resolveTenant() {
     try {
       let tenant: TenantContext | null = null;
 
-      // Method 1: Check for tenant slug in headers (for API calls)
+      // La sesión se resuelve PRIMERO, porque es la única prueba de identidad
+      // que tiene el sistema (cookie firmada; ver Method 4). Lo que venga en
+      // un header no prueba nada: lo escribe quien hace la llamada.
+      const idDeSesion = req.signedCookies?.tenant_id;
+      const sesion = idDeSesion ? await tenantManager.getTenantById(Number(idDeSesion)) : null;
+
+      // Method 1: x-tenant-slug -- SOLO respaldado por una sesión.
+      //
+      // Agujero real, verificado en producción el 2026-08-19: este bloque
+      // estaba ANTES de la sesión y aceptaba el header sin pedir nada. Con solo
+      // acertar el slug -- que es público y adivinable -- y SIN iniciar sesión,
+      // cualquiera obtenía `/api/products` entero y, peor,
+      // `/api/conversations` con los nombres y teléfonos de los clientes.
+      // Probado contra el tenant real: devolvía datos.
+      //
+      // El header no autentica: como mucho ELIGE entre los tenants a los que la
+      // sesión ya tiene derecho. Un admin de plataforma puede mirar cualquiera
+      // (es su trabajo); un cliente, solo el suyo.
       const tenantSlug = req.headers['x-tenant-slug'] as string;
-      if (tenantSlug) {
-        tenant = await tenantManager.getTenantBySlug(tenantSlug);
+      if (tenantSlug && sesion) {
+        const pedido = await tenantManager.getTenantBySlug(tenantSlug);
+        if (pedido && (sesion.isAdmin || pedido.id === sesion.id)) {
+          tenant = pedido;
+        } else if (pedido) {
+          logger.warn(
+            { sesion: sesion.id, pidio: pedido.id, path: req.path },
+            "[TenantManager] Se pidió actuar como otro cliente sin permiso -- se ignora el header",
+          );
+        }
       }
 
       // Method 2: Check for tenant in subdomain (e.g., tenant1.app.com)
@@ -628,10 +653,7 @@ export function resolveTenant() {
       // COOKIE_SECRET), cualquiera podría forjar `tenant_id=<numero>` y
       // autenticarse como cualquier tenant sin contraseña.
       if (!tenant) {
-        const tenantId = req.signedCookies?.tenant_id;
-        if (tenantId) {
-          tenant = await tenantManager.getTenantById(Number(tenantId));
-        }
+        tenant = sesion;
       }
 
       // EXCEPCIÓN TOTAL: No bloquear rutas de autenticación, login o registro
