@@ -867,10 +867,32 @@ export async function validarContenidoAnuncio(
   // instrucción hasta que no la obedece, y esto sale publicado y pagado a la
   // cara del público. Ver publicidad-persuasiva.ts.
   if (textosDelAnuncio.trim()) {
-    const { revisarCopy, reparosEnTexto } = await import("./publicidad-persuasiva");
+    const { revisarCopy, revisarFormato, reparosEnTexto } = await import("./publicidad-persuasiva");
     const revision = revisarCopy(textosDelAnuncio);
     if (revision.bloquea.length > 0) {
       return `Ese copy no se puede publicar como está:\n${reparosEnTexto({ bloquea: revision.bloquea, avisos: [] })}\n\nReescribilo sin eso y volvé a proponerlo.`;
+    }
+
+    // ── Que además se pueda LEER ─────────────────────────────────────────
+    // Lo de arriba cuida que el anuncio no mienta; esto cuida que alguien lo
+    // lea. El primer anuncio que este ciclo subió a Meta (2026-08-19) pasó
+    // todas las reglas de veracidad y era un ladrillo de seis renglones
+    // corridos, sin un solo emoji ni un salto de línea: honesto y, en un
+    // feed, invisible.
+    //
+    // Solo sobre el primaryText: el titular y la descripción son cortos por
+    // definición y pedirles estructura no tendría sentido.
+    if (typeof args.primaryText === "string" && args.primaryText.trim()) {
+      const formato = revisarFormato(args.primaryText);
+      if (formato.bloquea.length > 0) {
+        return (
+          `Ese copy dice la verdad pero no se puede escanear, y en un feed eso es plata pagada para que nadie lo lea:\n` +
+          `${reparosEnTexto({ bloquea: formato.bloquea, avisos: formato.avisos })}\n\n` +
+          `Reescribí SOLO el texto principal con esta forma, dejando una línea en blanco entre bloques:\n` +
+          `🎯 gancho de una línea\n\n(línea en blanco)\n\nbeneficio en una o dos líneas\n\n(línea en blanco)\n\n` +
+          `✅ 3 a 5 puntos, uno por línea\n\n(línea en blanco)\n\n🔥 precio\n\n(línea en blanco)\n\n👉 una sola acción`
+        );
+      }
     }
   }
   const marcador = textosDelAnuncio.match(/\[[^\]]{2,40}\]|\{\{[^}]{2,40}\}\}|\bXXX+\b|<[A-ZÁÉÍÓÚÑ\s_]{3,30}>/);
@@ -3665,20 +3687,29 @@ export const TOOLS: ToolDef[] = [
       } catch { /* sin investigación reciente: el copy sale igual, con el brief */ }
 
       const { callMarketingAI, tryParseJson } = await import("./marketing-team/ai");
+      const { FORMATO_COPY } = await import("./publicidad-persuasiva");
       const pedirCopy = async (reparo?: string) => {
         const salida = await callMarketingAI<any>({
           tenantId: ctx.tenantId,
           systemPrompt:
-            "Sos un copywriter publicitario experto en Facebook Ads. Escribís en español rioplatense, directo y sin relleno. " +
-            "Respondés SOLO un JSON con las claves primaryText, headline y description. Nada más.",
+            "Sos un copywriter senior de publicidad digital, especializado en Meta Ads (Facebook e Instagram). " +
+            "Escribís en español rioplatense, directo y sin relleno.\n\n" +
+            "Tu objetivo NO es escribir mucho: es que alguien que está haciendo scroll PARE, ENTIENDA, SE INTERESE y ACTÚE. " +
+            "Cada línea tiene que ganarse el lugar. Si una frase no aporta atención, beneficio, confianza o acción, no va.\n\n" +
+            "Claridad antes que cantidad. Beneficio antes que característica. Que se pueda escanear antes que párrafos lindos.\n\n" +
+            `${FORMATO_COPY}\n\n` +
+            "Respondés SOLO un JSON con las claves primaryText, headline y description. Nada más. " +
+            "Los saltos de línea del texto principal van como \\n dentro del JSON.",
           userPrompt:
             `${brief.texto}\n\n` +
             (investigacion
               ? `🔍 LO QUE ESTÁ FUNCIONANDO HOY EN ESTE NICHO (investigación real de este turno). Usalo para el ÁNGULO y el gancho, NUNCA para copiar condiciones comerciales de la competencia: sus garantías, cupos y formatos de entrega no son los de este negocio.\n${investigacion}\n\n`
               : "") +
             `Escribí el anuncio para este producto.\n` +
-            `- primaryText: el texto completo del anuncio. Arrancá interpelando con un problema o deseo real del cliente (nunca "Tenemos disponible" ni "Comprá ahora"). ` +
-            `Después el problema, el producto como salida, los beneficios traducidos de sus características REALES, el precio y UNA sola acción.\n` +
+            `- primaryText: el texto del anuncio EN BLOQUES separados por una línea en blanco (\\n\\n), con la forma de arriba: ` +
+            `gancho con emoji → beneficio → 3-5 puntos con ✅ → precio con 🔥 → una sola acción con 👉. ` +
+            `Arrancá interpelando con un problema o deseo real del cliente (nunca "Tenemos disponible" ni "Comprá ahora"). ` +
+            `NO lo entregues como un párrafo corrido: un bloque de texto sin saltos se rechaza automáticamente.\n` +
             `- headline: título corto, máximo 40 caracteres.\n` +
             `- description: una línea de refuerzo.\n\n` +
             `PROHIBIDO inventar: nada que no esté en el brief. Ni garantías, ni plazos, ni cupos, ni estadísticas ("el 80% de..."), ni cuánta gente lo compró, ni testimonios.` +

@@ -83,6 +83,53 @@ con "¿en qué te ayudo?": retoma el producto del anuncio desde el primer mensaj
 `.trim();
 
 /** Formato de salida cuando se pide un anuncio armado. */
+/**
+ * Cómo se ESCRIBE el texto principal de un anuncio.
+ *
+ * Va aparte de FORMATO_ANUNCIO (que es cómo se le PRESENTA el trabajo al admin
+ * en el chat): esto es la forma del copy que termina publicado y pagado.
+ *
+ * La gente no lee un anuncio, lo escanea mientras hace scroll. Por eso el copy
+ * se arma en bloques cortos separados por una línea en blanco, no en párrafos.
+ * Lo verifica revisarFormato(); acá se explica para que salga bien de una.
+ */
+export const FORMATO_COPY = `
+FORMA DEL TEXTO (no es opinable: un copy que no se pueda escanear no sirve).
+
+Escribilo en bloques cortos separados por UNA línea en blanco, en este orden:
+
+1. GANCHO — una línea, con un emoji. Pregunta, problema real o deseo concreto.
+2. BENEFICIO — una o dos líneas: qué consigue la persona (el resultado, no la ficha técnica).
+3. LISTA — 3 a 5 puntos, uno por línea, cada uno con ✅. Acá van las características REALES.
+4. PRECIO — una línea sola, con 🔥 y la moneda del negocio.
+5. ACCIÓN — una línea, con 👉. Una sola acción, no tres.
+
+Reglas de longitud y forma:
+- 70 a 130 palabras en total. Nunca más de 200.
+- Ninguna línea de más de dos renglones.
+- UN emoji por elemento importante. Ni cero, ni amontonados.
+- Nada de MAYÚSCULAS gritadas ni de introducciones ("¡Hola!", "Te presentamos").
+- Convertí cada característica en el beneficio que representa, y dejá la
+  característica como respaldo: "19 horas de contenido" es la prueba, "aprendé
+  a tu ritmo" es lo que compra la persona.
+- No repitas lo que ya se ve en la imagen: el texto suma deseo, contexto y confianza.
+
+Ejemplo de la forma buscada:
+
+🎹 ¿Siempre quisiste aprender piano?
+
+Aprendé paso a paso y avanzá a tu ritmo, desde cero.
+
+✅ 19 horas de contenido en HD
+✅ Clásico, blues, jazz y pop
+✅ 157 recursos descargables
+♾️ Acceso de por vida
+
+🔥 $60.000 COP
+
+👉 Empezá hoy
+`.trim();
+
 export const FORMATO_ANUNCIO = `
 Entregá el anuncio así:
 🎯 ÁNGULO — en una línea, qué enfoque tomaste y por qué.
@@ -231,6 +278,123 @@ export function revisarCopy(texto: string): { bloquea: ReparoDeCopy[]; avisos: R
     avisos.push({
       problema: "el anuncio habla más del negocio que del cliente",
       arreglo: "Reescribilo en segunda persona: qué gana ÉL, no qué tenemos nosotros.",
+    });
+  }
+
+  return { bloquea, avisos };
+}
+
+// ─── Formato: que se pueda ESCANEAR, no solo que sea verdad ─────────────────
+//
+// Las reglas de arriba cuidan que el anuncio no mienta. Estas cuidan que se
+// pueda leer, que es lo otro que lo hace servir o no servir.
+//
+// Motivo real (2026-08-19): el primer anuncio que el ciclo subió a Meta salió
+// verdadero, sin inventos... y era un ladrillo de seis renglones corridos, sin
+// un solo emoji, sin listas y sin saltos de línea. Nadie lee eso en un feed: la
+// gente NO lee un anuncio, lo escanea mientras hace scroll. Un copy honesto que
+// no se puede escanear es plata pagada para que nadie lo lea.
+//
+// Van acá y no solo en el prompt por lo mismo que los INVENTOS: al modelo se le
+// pide el formato y lo cumple hasta que no lo cumple. Acá se verifica, y como
+// crear_anuncio ya tiene su vuelta de corrección, un reparo de formato se
+// arregla solo sin costarle un turno al admin.
+const EMOJI = /\p{Extended_Pictographic}/gu;
+
+/** Cuenta los emojis del texto (los visuales, no los signos). */
+function contarEmojis(t: string): number {
+  return (t.match(EMOJI) || []).length;
+}
+
+/**
+ * Revisa la LEGIBILIDAD del texto principal de un anuncio.
+ *
+ * Solo se aplica al `primaryText`: el titular y la descripción son cortos por
+ * definición y pedirles estructura no tendría sentido.
+ */
+export function revisarFormato(primaryText: string): { bloquea: ReparoDeCopy[]; avisos: ReparoDeCopy[] } {
+  const t = String(primaryText || "").trim();
+  const bloquea: ReparoDeCopy[] = [];
+  const avisos: ReparoDeCopy[] = [];
+  if (!t) return { bloquea, avisos };
+
+  const lineas = t.split(/\n/).map((l) => l.trim()).filter(Boolean);
+  const palabras = (t.match(/\S+/g) || []).length;
+  const emojis = contarEmojis(t);
+
+  // 1. El ladrillo. Es el caso que motivó todo esto.
+  if (lineas.length < 3 && palabras > 45) {
+    bloquea.push({
+      problema: "es un bloque de texto corrido, imposible de escanear en un feed",
+      arreglo:
+        "Separalo en bloques cortos con UNA línea en blanco entre cada uno: gancho / beneficio / lista de 3-5 puntos con ✅ / precio / llamada a la acción.",
+      fragmento: t.slice(0, 60) + "…",
+    });
+  }
+
+  // 2. Un renglón interminable es un ladrillo aunque el resto esté cortado.
+  const gigante = lineas.find((l) => l.length > 320);
+  if (gigante) {
+    bloquea.push({
+      problema: "hay un párrafo demasiado largo para leer de un vistazo",
+      arreglo: "Partilo en frases de 1-2 líneas, con espacio entre ellas.",
+      fragmento: gigante.slice(0, 60) + "…",
+    });
+  }
+
+  // 3. Largo total. 200 palabras es el techo del copy más largo que se
+  //    justifica; más que eso es un artículo, no un anuncio.
+  if (palabras > 200) {
+    bloquea.push({
+      problema: `son ${palabras} palabras: demasiado para un anuncio`,
+      arreglo: "Dejalo en 70-130 palabras. Cada línea que no aporte atención, beneficio o acción, sacala.",
+    });
+  }
+
+  // 4. Sin anclas visuales no hay dónde apoyar la vista.
+  if (emojis === 0 && palabras > 25) {
+    bloquea.push({
+      problema: "no tiene un solo emoji, así que no hay nada que guíe la vista",
+      arreglo: "Poné UN emoji por elemento importante: el gancho, cada punto de la lista (✅), el precio (🔥) y el CTA (👉). Ni uno más.",
+    });
+  }
+
+  // 5. El exceso contrario: decoración en vez de estructura.
+  if (emojis > 14) {
+    avisos.push({
+      problema: `tiene ${emojis} emojis: son decoración, no estructura`,
+      arreglo: "Dejá aproximadamente uno por elemento importante.",
+    });
+  }
+  const seguidos = t.match(/(?:\p{Extended_Pictographic}\s*){4,}/u);
+  if (seguidos) {
+    avisos.push({
+      problema: "hay emojis amontonados",
+      arreglo: "Uno solo por línea alcanza.",
+      fragmento: seguidos[0].trim().slice(0, 20),
+    });
+  }
+
+  // 6. Gritar no persuade.
+  const gritadas = (t.match(/\b[A-ZÁÉÍÓÚÑ]{4,}\b/g) || []).filter((w) => w !== "COP" && w !== "USD");
+  if (gritadas.length > 4) {
+    avisos.push({
+      problema: "hay demasiadas palabras en mayúsculas",
+      arreglo: "Usá mayúsculas solo para el nombre del producto o una palabra suelta.",
+      fragmento: gritadas.slice(0, 3).join(", "),
+    });
+  }
+
+  // 7. Un anuncio que no pide nada no consigue nada. Aviso y no bloqueo: la
+  //    acción puede estar escrita de mil formas y no quiero frenar un copy
+  //    bueno por no reconocer la variante.
+  const cierre = lineas.slice(-2).join(" ").toLowerCase();
+  const TIENE_ACCION =
+    /(👉|escrib[íi]|escribe|ped[íi]|pide|consult[áa]|compr[áa]|llev[áa]|obten[ée]|descarg[áa]|empez[áa]|empieza|comenz[áa]|entr[áa]|toc[áa]|hac[ée] clic|clic|mensaje|whatsapp|link|enlace|m[áa]s info)/i.test(cierre);
+  if (!TIENE_ACCION && palabras > 25) {
+    avisos.push({
+      problema: "no termina pidiendo una acción concreta",
+      arreglo: 'Cerrá con UNA sola acción, por ejemplo "👉 Escribinos por WhatsApp" o "👉 Entrá al enlace".',
     });
   }
 
