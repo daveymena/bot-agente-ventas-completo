@@ -131,6 +131,7 @@ const TOOL_SCHEMAS: Record<string, object> = {
     required: ["productId"],
     additionalProperties: false,
   },
+  fb_pixel_status: { type: "object", properties: {}, additionalProperties: false },
   marketing_attribution: {
     type: "object",
     properties: { dias: { type: "number", description: "Ventana a analizar en días, por defecto 30" } },
@@ -318,6 +319,8 @@ export function describePlannedAction(a: { tool: string; args: any }): string {
     // que más plata mueve, y encima sin decirle que va a empezar a gastar.
     case "fb_make_campaign_deliver":
       return `▶️ Encender la campaña ${g.campaignId ?? "?"} de Facebook — el sistema decide solo qué prender (campaña, conjunto o anuncio) y prende lo mínimo. EMPIEZA A GASTAR`;
+    case "fb_create_pixel":
+      return `🎯 Crear un píxel NUEVO en tu cuenta de Facebook${g.nombre ? ` ("${g.nombre}")` : ""} y dejarlo configurado — es un objeto permanente en tu cuenta de Meta. Después hay que instalarlo en la web para que registre compras`;
     case "fb_delete_campaign":
       return `🗑️ BORRAR de Facebook la campaña ${g.campaignId ?? "?"} — se van también sus conjuntos y anuncios. IRREVERSIBLE, no hay papelera${g.borrarAunqueTengaGasto === true ? ", y se pierde su historial de resultados" : ""}`;
     case "fb_pause_campaign":
@@ -715,7 +718,7 @@ const GRUPOS: { patron: RegExp; herramientas: string[] }[] = [
     // anuncio SIEMPRE puede necesitar investigar. Sin ellas en el subconjunto,
     // el modelo no tenía con qué cumplir el requisito y el pedido moría con
     // "todavía no investigaste nada" (reportado en vivo por el admin).
-    herramientas: ["ad_brief", "marketing_attribution", "fb_status", "fb_suggest_audience", "fb_page_can_post", "fb_page_preview", "fb_list_drafts", "fb_agent_logs", "fb_campaign_metrics", "fb_list_adsets", "fb_ad_library", "generate_image", "search_product_images", "web_search"],
+    herramientas: ["ad_brief", "marketing_attribution", "fb_pixel_status", "fb_status", "fb_suggest_audience", "fb_page_can_post", "fb_page_preview", "fb_list_drafts", "fb_agent_logs", "fb_campaign_metrics", "fb_list_adsets", "fb_ad_library", "generate_image", "search_product_images", "web_search"],
   },
   {
     patron: /whatsapp|wasap|conversaci|chat|mensaje|cliente|lead/i,

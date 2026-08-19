@@ -1452,6 +1452,73 @@ Responde SOLO con JSON:
    * actualizar el pixel. Graph API recién avisa "Píxel no asociado" al
    * crear el anuncio final, después de gastar las llamadas de campaña y
    * conjunto. Se pregunta antes para evitar el error 100 tardío. */
+  /**
+   * Diagnóstico del píxel: qué píxeles tiene DE VERDAD la cuenta publicitaria
+   * y si el configurado es uno de ellos.
+   *
+   * Nace de un caso real (2026-08-19): el tenant tenía configurado el píxel
+   * `1193902929595904` y una cuenta `act_1041451215504206` a la que ese píxel
+   * NO pertenece. Consecuencia silenciosa: al crear anuncios, el código cae a
+   * `LINK_CLICKS` y las campañas optimizan por CLICS en vez de por COMPRAS.
+   * Nadie se entera -- los anuncios corren, gastan, y traen tráfico que no
+   * compra.
+   *
+   * Le pasa a cualquier tenant que cambie de cuenta publicitaria sin actualizar
+   * el píxel, así que el sistema tiene que poder detectarlo solo.
+   */
+  async diagnosticarPixel(): Promise<{
+    ok: boolean;
+    configurado: string;
+    pertenece: boolean;
+    disponibles: Array<{ id: string; name?: string }>;
+    mensaje: string;
+  }> {
+    const adAccount = `act_${String(this.config.adAccountId || "").replace(/^act_/, "")}`;
+    const configurado = String(this.config.pixelId || "");
+    try {
+      const res = await this.fbGet(`${adAccount}/adspixels`, { fields: "id,name" }, this.config.userAccessToken);
+      const disponibles: Array<{ id: string; name?: string }> = (res.data || []).map((p: any) => ({ id: String(p.id), name: p.name }));
+      const pertenece = !!configurado && disponibles.some((p) => p.id === configurado);
+
+      let mensaje: string;
+      if (!configurado && disponibles.length === 0) {
+        mensaje = `Esta cuenta publicitaria (${adAccount}) NO tiene ningún píxel, y tampoco hay uno configurado. Sin píxel las campañas solo pueden optimizar por clics, no por compras. Hay que crear uno.`;
+      } else if (!configurado) {
+        mensaje = `No hay píxel configurado en la app, pero la cuenta SÍ tiene ${disponibles.length}: ${disponibles.map((p) => `${p.id}${p.name ? ` (${p.name})` : ""}`).join(", ")}. Elegí uno y guardalo para optimizar por compras.`;
+      } else if (pertenece) {
+        mensaje = `El píxel ${configurado} pertenece a ${adAccount}: la optimización por compras puede funcionar.`;
+      } else if (disponibles.length > 0) {
+        mensaje = `⚠️ El píxel configurado (${configurado}) NO pertenece a ${adAccount}. Por eso las campañas optimizan por CLICS y no por COMPRAS. La cuenta sí tiene estos: ${disponibles.map((p) => `${p.id}${p.name ? ` (${p.name})` : ""}`).join(", ")}. Cambiá el píxel por uno de esos.`;
+      } else {
+        mensaje = `⚠️ El píxel configurado (${configurado}) NO pertenece a ${adAccount}, y esa cuenta no tiene NINGÚN píxel propio. Hay que crear uno en esta cuenta para poder optimizar por compras.`;
+      }
+      return { ok: true, configurado, pertenece, disponibles, mensaje };
+    } catch (e: any) {
+      return { ok: false, configurado, pertenece: false, disponibles: [], mensaje: `No se pudo consultar los píxeles de ${adAccount}: ${e?.message || e}` };
+    }
+  }
+
+  /** Crea un píxel NUEVO en la cuenta publicitaria y devuelve su id. Es un
+   * objeto real y permanente en la cuenta de Meta del negocio. */
+  async crearPixel(nombre: string): Promise<{ ok: boolean; pixelId?: string; message: string }> {
+    const adAccount = `act_${String(this.config.adAccountId || "").replace(/^act_/, "")}`;
+    try {
+      const r = await this.fbPost(`${adAccount}/adspixels`, { name: nombre }, "píxel", this.config.userAccessToken);
+      if (!r?.id) return { ok: false, message: "Meta no devolvió el id del píxel creado." };
+      // Verificar contra Meta que quedó en la cuenta, no confiar en el 200.
+      const quedo = await this.pixelBelongsToAccount(adAccount, String(r.id));
+      return {
+        ok: true,
+        pixelId: String(r.id),
+        message: quedo
+          ? `Píxel ${r.id} creado y verificado en ${adAccount}.`
+          : `Píxel ${r.id} creado, pero todavía no aparece listado en ${adAccount} (Meta puede tardar unos segundos).`,
+      };
+    } catch (e: any) {
+      return { ok: false, message: `No se pudo crear el píxel en ${adAccount}: ${e?.message || e}` };
+    }
+  }
+
   private async pixelBelongsToAccount(adAccount: string, pixelId: string): Promise<boolean> {
     try {
       const res = await this.fbGet(`${adAccount}/adspixels`, { fields: "id" }, this.config.userAccessToken);

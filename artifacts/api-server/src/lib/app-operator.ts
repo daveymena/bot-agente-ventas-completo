@@ -3513,6 +3513,63 @@ export const TOOLS: ToolDef[] = [
     },
   },
   {
+    name: "fb_pixel_status",
+    description: "Revisa si el píxel configurado pertenece DE VERDAD a la cuenta publicitaria del negocio, y lista los píxeles que esa cuenta sí tiene. Importa porque si el píxel no es de la cuenta, las campañas optimizan por CLICS en vez de por COMPRAS -- corren, gastan y traen tráfico que no compra, sin que nada avise. Usala cuando te pregunten por qué un anuncio trae visitas y no ventas, o antes de crear una campaña con objetivo de ventas. Lectura pura.",
+    args: "{}",
+    run: async (_args, ctx) => {
+      const bloqueo = await bloqueoDeMeta("fb_pixel_status", ctx);
+      if (bloqueo) return { ok: false, summary: bloqueo };
+      const tenant = await tenantManager.getTenantById(ctx.tenantId);
+      const { FacebookService } = await import("./facebook");
+      const fb = new FacebookService(tenant || undefined);
+      if (!fb.isConfigured()) return { ok: false, summary: "Facebook no está conectado." };
+      const d = await fb.diagnosticarPixel();
+      return { ok: d.ok, summary: d.mensaje, data: d };
+    },
+  },
+  {
+    name: "fb_create_pixel",
+    description: "CREA un píxel nuevo en la cuenta publicitaria del negocio y lo deja guardado en la app. Úsalo SOLO si fb_pixel_status dice que la cuenta no tiene ningún píxel propio: si ya tiene uno, no crees otro -- se configura el que existe. El píxel es un objeto permanente en la cuenta de Meta. Después de crearlo hay que instalarlo en la web para que registre compras.",
+    args: '{ "nombre"?: string (nombre del píxel; por defecto el del negocio) }',
+    run: async (args, ctx) => {
+      const bloqueo = await bloqueoDeMeta("fb_create_pixel", ctx);
+      if (bloqueo) return { ok: false, summary: bloqueo };
+      const tenant = await tenantManager.getTenantById(ctx.tenantId);
+      const { FacebookService } = await import("./facebook");
+      const fb = new FacebookService(tenant || undefined);
+      if (!fb.isConfigured()) return { ok: false, summary: "Facebook no está conectado." };
+
+      // No crear uno si la cuenta ya tiene: duplicar píxeles parte los datos
+      // de conversión en dos y arruina justamente lo que se quiere medir.
+      const previo = await fb.diagnosticarPixel();
+      if (previo.ok && previo.disponibles.length > 0) {
+        return {
+          ok: false,
+          summary: `No hace falta crear nada: la cuenta ya tiene ${previo.disponibles.length} píxel(es) — ${previo.disponibles.map((p: any) => `${p.id}${p.name ? ` (${p.name})` : ""}`).join(", ")}. Crear otro partiría los datos de conversión en dos. Configurá uno de esos en la sección Facebook del panel.`,
+        };
+      }
+
+      const nombre = String(args.nombre || (tenant as any)?.name || "Píxel del negocio").slice(0, 60);
+      const r = await fb.crearPixel(nombre);
+      if (!r.ok || !r.pixelId) return { ok: false, summary: r.message };
+
+      // Guardarlo en el tenant: crearlo sin configurarlo no sirve de nada.
+      try {
+        const meta: any = (tenant as any)?.metadata || {};
+        const fbMeta = { ...(meta.facebook || {}), pixelId: r.pixelId };
+        await db.update(tenants).set({ metadata: { ...meta, facebook: fbMeta } as any }).where(eq(tenants.id, ctx.tenantId));
+        tenantManager.invalidate?.(ctx.tenantId);
+      } catch (e: any) {
+        return { ok: true, summary: `${r.message} ⚠️ Pero NO se pudo guardar en la app (${e?.message || e}): cargá el píxel ${r.pixelId} a mano en la sección Facebook del panel.` };
+      }
+
+      return {
+        ok: true,
+        summary: `${r.message} Ya quedó configurado en la app. ⚠️ Falta un paso que NO puedo hacer yo: instalar el píxel en tu web para que registre las compras. Hasta que eso pase, el píxel existe pero no recibe eventos.`,
+      };
+    },
+  },
+  {
     name: "marketing_attribution",
     description: "LA ÚNICA FUENTE DE CAC Y ROAS REALES. Cruza el anuncio del que vino cada lead (Meta click-to-WhatsApp) con las ventas COBRADAS, y devuelve por anuncio: leads, ventas, ingresos y el embudo completo. Usala ANTES de opinar sobre si una campaña funciona: las métricas de Meta cuentan conversaciones iniciadas, no plata cobrada, y un anuncio puede traer muchos leads y cero ventas. Si te preguntan '¿qué anuncio me conviene?', '¿cuánto me cuesta cada venta?' o '¿por qué no crece el negocio?', empezá por acá. Lectura pura, no cambia nada.",
     args: '{ "dias"?: number (ventana a analizar, por defecto 30) }',
@@ -3829,6 +3886,8 @@ export const READ_ONLY_TOOLS = new Set([
   // Atribución real (CAC/ROAS cruzando anuncios con pagos cobrados): es una
   // consulta a la base del propio negocio, no toca Meta ni gasta.
   "marketing_attribution",
+  // Diagnóstico del píxel: consulta a Meta, no cambia nada.
+  "fb_pixel_status",
   // Monitoreo: solo consultan, no cambian nada
   "whatsapp_status", "dashboard_summary", "list_recent_conversations", "list_duplicate_contacts",
   // Ver qué transferencias faltan conciliar es lectura; CONFIRMAR una no lo es
@@ -3858,6 +3917,9 @@ export const DESTRUCTIVE_TOOLS = new Set([
   // dropi_create_order dispara un despacho real del proveedor con cobro
   // contra entrega: es dinero de verdad moviéndose, nunca sin el sí del admin.
   "dropi_create_order",
+  // Crear un píxel deja un objeto PERMANENTE en la cuenta de Meta del negocio
+  // y duplicarlo parte los datos de conversión en dos -- nunca sin el sí.
+  "fb_create_pixel",
   // Borrar una campaña es irreversible y Meta la borra EN CASCADA (conjuntos
   // y anuncios incluidos). No hay papelera del otro lado.
   "fb_delete_campaign",
