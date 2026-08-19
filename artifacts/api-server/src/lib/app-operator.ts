@@ -3559,6 +3559,62 @@ export const TOOLS: ToolDef[] = [
     },
   },
   {
+    name: "marketing_diagnostico",
+    description: "EL DIAGNÓSTICO DEL EMBUDO COMPLETO. Corre el analista de rendimiento y el agente de diagnóstico del equipo de marketing y te dice DÓNDE está el problema: si es adquisición (pocos leads), calidad de lead, seguimiento, oferta o precio. Usala cuando te digan 'las campañas funcionan pero no vendo', 'el negocio no crece' o antes de recomendar subir presupuesto -- si el cuello no está en los anuncios, subir el presupuesto solo quema plata más rápido. Lectura pura.",
+    args: '{ "dias"?: number (ventana a analizar, por defecto 30) }',
+    run: async (args, ctx) => {
+      const dias = Math.min(Math.max(num(args.dias) || 30, 1), 365);
+      const { runDiagnosticCycle } = await import("./marketing-team/orchestrator");
+      const r = await runDiagnosticCycle({ tenantId: ctx.tenantId, days: dias });
+      const bloque = (h: any) => {
+        if (!h) return "(sin datos)";
+        const d = h.data ?? h.output ?? h;
+        return typeof d === "string" ? d : JSON.stringify(d);
+      };
+      return {
+        ok: true,
+        summary: [
+          `🩺 Diagnóstico del embudo (últimos ${dias} días):`,
+          ``,
+          `📊 Rendimiento: ${bloque(r.performance)}`,
+          ``,
+          `🔍 Dónde está el cuello: ${bloque(r.diagnostic)}`,
+          ``,
+          `Si el problema NO está en los anuncios, decilo con todas las letras y NO recomiendes subir presupuesto: ` +
+          `traer más gente a un embudo que no cierra solo hace perder plata más rápido.`,
+        ].join("\n"),
+        data: r,
+      };
+    },
+  },
+  {
+    name: "marketing_aprendizajes",
+    description: "Lo que este negocio YA APRENDIÓ de sus campañas anteriores: qué ángulo funcionó, qué copy fracasó, qué audiencia respondió, qué experimentos ganaron o perdieron. Consultala ANTES de proponer una campaña o un copy nuevo: repetir algo que ya fracasó acá es el error más caro y más evitable. Lectura pura.",
+    args: '{ "limite"?: number (cuántos aprendizajes traer, por defecto 20) }',
+    run: async (args, ctx) => {
+      const limite = Math.min(Math.max(num(args.limite) || 20, 1), 100);
+      const { listLearnings } = await import("./marketing-team/agents/marketing-memory");
+      const rows = await listLearnings(ctx.tenantId, limite);
+      if (!rows.length) {
+        return {
+          ok: true,
+          summary:
+            `Este negocio todavía no tiene aprendizajes de marketing guardados. No es un error: se van registrando a medida que corren campañas y experimentos. ` +
+            `No inventes "lo que funcionó antes" -- si no hay historial, decilo y basá la propuesta en los datos del producto y en la investigación de hoy.`,
+          data: { rows: [] },
+        };
+      }
+      return {
+        ok: true,
+        summary: [
+          `🧠 ${rows.length} aprendizajes de campañas anteriores de este negocio:`,
+          ...rows.map((m: any) => `• ${m.title ? `${m.title}: ` : ""}${String(m.content || "").slice(0, 220)}`),
+        ].join("\n"),
+        data: { rows },
+      };
+    },
+  },
+  {
     name: "fb_pixel_status",
     description: "Revisa si el píxel configurado pertenece DE VERDAD a la cuenta publicitaria del negocio, y lista los píxeles que esa cuenta sí tiene. Importa porque si el píxel no es de la cuenta, las campañas optimizan por CLICS en vez de por COMPRAS -- corren, gastan y traen tráfico que no compra, sin que nada avise. Usala cuando te pregunten por qué un anuncio trae visitas y no ventas, o antes de crear una campaña con objetivo de ventas. Lectura pura.",
     args: "{}",
@@ -3934,6 +3990,9 @@ export const READ_ONLY_TOOLS = new Set([
   "marketing_attribution",
   // Diagnóstico del píxel: consulta a Meta, no cambia nada.
   "fb_pixel_status",
+  // Diagnostico y memoria del Marketing Team: analizan datos propios, no
+  // cambian nada ni tocan Meta.
+  "marketing_diagnostico", "marketing_aprendizajes",
   // Monitoreo: solo consultan, no cambian nada
   "whatsapp_status", "dashboard_summary", "list_recent_conversations", "list_duplicate_contacts",
   // Ver qué transferencias faltan conciliar es lectura; CONFIRMAR una no lo es
