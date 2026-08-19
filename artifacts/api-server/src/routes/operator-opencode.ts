@@ -351,6 +351,25 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
       const TURNO_TOTAL_MS = 135_000;
       const turnDeadline = Date.now() + TURNO_TOTAL_MS;
 
+      // ── Cronometro por tramos ────────────────────────────────────────────
+      // Tres cortes por tiempo seguidos y tres diagnosticos distintos, todos
+      // por deduccion: primero culpe a la subida a Meta, despues al encadenado
+      // del plan, despues al presupuesto de investigacion. Cada arreglo servia
+      // para otra cosa, pero ninguno se apoyaba en una medicion.
+      //
+      // Con esto el propio mensaje de corte dice donde se fue el tiempo, asi
+      // el proximo diagnostico sale en un intento y no en tres. Y le sirve al
+      // admin: "se fue en investigar" es accionable, "tardo mucho" no.
+      const t0 = Date.now();
+      const tramos: Array<{ etapa: string; ms: number }> = [];
+      const marcar = (etapa: string, desde: number) => {
+        tramos.push({ etapa, ms: Date.now() - desde });
+      };
+      const tramosTexto = () =>
+        tramos.length
+          ? tramos.map((t) => `${t.etapa} ${(t.ms / 1000).toFixed(1)}s`).join(" · ") + ` · total ${((Date.now() - t0) / 1000).toFixed(1)}s`
+          : `total ${((Date.now() - t0) / 1000).toFixed(1)}s`;
+
       const turnId = randomUUID();
       // La TTL del token = lo que dura el turno. Además de acotar el token,
       // su `exp` es lo que el puente MCP usa como turnDeadline para que una
@@ -581,7 +600,9 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
         const PIDE_EJECUTAR = /\b(guard[aá]|sub[ií]|public[aá]|cre[aá]\w*\s+(y|,)|deja\w*\s+list)/i.test(String(prompt));
         const PRESUPUESTO_INVESTIGACION_MS = PIDE_EJECUTAR ? 35_000 : 70_000;
         try {
+          const tInv = Date.now();
           const r = await investigacionRapida(ctx, String(prompt), Math.min(PRESUPUESTO_INVESTIGACION_MS, Math.max(turnDeadline - Date.now() - 45_000, 20_000)));
+          marcar("investigacion", tInv);
           if (r.ok) {
             huboInvestigacionReal = true;
             text += `\n\n[SISTEMA] Investigación REAL ya hecha para este pedido (hallazgos con sus fuentes). Respondé al admin USANDO ESTO, no prometas investigar después ni digas que vas a averiguar -- ya está hecho:\n${r.texto.slice(0, 6000)}`;
@@ -665,6 +686,7 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
               ? restante
               : Math.min(Math.max(restante - RESERVA_RESPALDO_MS, PISO_UTIL_MS), TECHO_POR_CANDIDATO_MS),
           );
+          const tModelo = Date.now();
           try {
             modeloUsado = model;
             ultimo = await sendOpencodeMessage(cfg.host, cfg.authHeader, opencodeSessionId, {
@@ -674,6 +696,10 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
               text,
               timeoutMs: timeoutCandidato,
             });
+            // Cada intento se mide por separado: con varios candidatos en
+            // cadena, saber CUÁL se comió el tiempo es la diferencia entre
+            // arreglar el modelo lento y seguir tocando presupuestos al azar.
+            marcar(`modelo:${model.modelID}`, tModelo);
             // Bug real encontrado probando en vivo (2026-08-12): un candidato
             // respondio 200 "sin error" pero el texto traia sintaxis de
             // tool-call sin ejecutar de verdad (literal "<function=nombre>...
@@ -691,6 +717,9 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
             if (!ultimo.error) break; // Respuesta real -- no seguir rotando.
             logger.warn({ tenantId, model, error: ultimo.error }, "[AtlasOpenCode] Candidato falló, rotando al siguiente");
           } catch (err: any) {
+            // El intento que FALLA es el que más importa medir: es el que se
+            // comió el tiempo sin devolver nada.
+            marcar(`modelo:${model.modelID}(falló)`, tModelo);
             ultimo = { text: "", error: err?.message || "error desconocido" };
             logger.warn({ tenantId, model, error: ultimo.error }, "[AtlasOpenCode] Candidato falló (excepción), rotando al siguiente");
           }
@@ -707,6 +736,7 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
         // Se responde 200 con un mensaje honesto y accionable, mismo criterio
         // que la salida "esto está tardando" de /operator.
         const seAcaboElTiempo = /timeout|abort|sin tiempo|sin candidatos/i.test(String(opencodeError));
+        logger.warn({ tenantId, tramos, totalMs: Date.now() - t0, opencodeError }, "[AtlasOpenCode] Turno cortado -- reparto real del tiempo");
 
         // Si igual alcanzó a redactar algo útil, se muestra ESO.
         //
@@ -733,7 +763,9 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
             // nada guardado: se cortó el turno. Con lo sensible que resultó
             // este punto -- Atlas diciendo "guardado" sin guardar --, este
             // mensaje tiene que ser inequívoco.
-            "⏳ Esto está tardando más de lo que aguanta una sola respuesta, así que corté acá. **No se creó ni se guardó nada.** Solo me queda la investigación que alcancé a hacer. Pedime que continúe y sigo desde ahí, o dividí el pedido en pasos más chicos.",
+            "⏳ Esto está tardando más de lo que aguanta una sola respuesta, así que corté acá. **No se creó ni se guardó nada.** "
+            + "Pedime que continúe y sigo desde ahí, o dividí el pedido en pasos más chicos."
+            + `\n\n⏱️ En qué se fue el tiempo: ${tramosTexto()}`,
           ));
           await saveArchitectTurn(tenantId, sessionId, "assistant", reply);
           return finish({ reply, status: "partial", needsContinuation: true });
