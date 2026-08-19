@@ -3513,6 +3513,52 @@ export const TOOLS: ToolDef[] = [
     },
   },
   {
+    name: "marketing_attribution",
+    description: "LA ÚNICA FUENTE DE CAC Y ROAS REALES. Cruza el anuncio del que vino cada lead (Meta click-to-WhatsApp) con las ventas COBRADAS, y devuelve por anuncio: leads, ventas, ingresos y el embudo completo. Usala ANTES de opinar sobre si una campaña funciona: las métricas de Meta cuentan conversaciones iniciadas, no plata cobrada, y un anuncio puede traer muchos leads y cero ventas. Si te preguntan '¿qué anuncio me conviene?', '¿cuánto me cuesta cada venta?' o '¿por qué no crece el negocio?', empezá por acá. Lectura pura, no cambia nada.",
+    args: '{ "dias"?: number (ventana a analizar, por defecto 30) }',
+    run: async (args, ctx) => {
+      const dias = Math.min(Math.max(num(args.dias) || 30, 1), 365);
+      const { getAttributionSummary, getFunnelSnapshot } = await import("./marketing-team/attribution");
+      const [resumen, embudo] = await Promise.all([
+        getAttributionSummary(ctx.tenantId, dias),
+        getFunnelSnapshot(ctx.tenantId, dias).catch(() => null),
+      ]);
+
+      if (!resumen.rows.length) {
+        return {
+          ok: true,
+          summary:
+            `No hay ni un lead con anuncio de origen en los últimos ${dias} días, así que todavía NO se puede calcular CAC ni ROAS reales. ` +
+            `Esto se llena solo cuando alguien te escribe por WhatsApp desde un anuncio de Meta (click-to-WhatsApp). ` +
+            `No lo interpretes como "los anuncios funcionan mal": es que aún no hay datos de origen. Decilo así de claro.`,
+          data: { rows: [], totalLeads: resumen.totalLeads, dias },
+        };
+      }
+
+      const lineas = resumen.rows.slice(0, 15).map((r: any) => {
+        const ventas = Number(r.ventas ?? r.paidLeads ?? 0);
+        const leads = Number(r.leads ?? 0);
+        const ingresos = Number(r.ingresos ?? r.revenue ?? 0);
+        const conv = leads > 0 ? ((ventas / leads) * 100).toFixed(1) : "0";
+        return `• "${r.adTitle || r.adId || "(anuncio sin título)"}": ${leads} leads → ${ventas} ventas (${conv}%) · $${ingresos.toLocaleString("es-CO")} cobrados`;
+      });
+
+      return {
+        ok: true,
+        summary: [
+          `📊 Atribución REAL de los últimos ${dias} días (leads con anuncio de origen, cruzados con pagos cobrados):`,
+          ...lineas,
+          ``,
+          `TOTAL: ${resumen.totalLeads} leads · ${resumen.totalPaid} pagaron · $${Number(resumen.totalRevenue || 0).toLocaleString("es-CO")} cobrados`,
+          embudo ? `Embudo: ${JSON.stringify(embudo)}` : "",
+          ``,
+          `Estos números salen de TU base (leads + pagos), no de lo que reporta Meta. Si difieren de Ads Manager, estos mandan para decidir.`,
+        ].filter(Boolean).join("\n"),
+        data: { ...resumen, embudo, dias },
+      };
+    },
+  },
+  {
     name: "fb_delete_campaign",
     description: "BORRA una campaña de la cuenta de Facebook. Meta la borra EN CASCADA: se lleva sus conjuntos y sus anuncios. Es IRREVERSIBLE, no hay papelera. Usala para limpiar campañas que quedaron a medias (sin conjunto de anuncios) o que el admin ya no quiere. El id lo da fb_list_campaigns. Si la campaña gastó dinero alguna vez, se niega salvo que el admin lo confirme explícitamente: borrarla también borra su historial de resultados.",
     args: '{ "campaignId": string (req, id de la CAMPAÑA -- lo da fb_list_campaigns), "borrarAunqueTengaGasto"?: boolean (solo si el admin ya dijo que sí sabiendo que pierde el historial) }',
@@ -3780,6 +3826,9 @@ export const READ_ONLY_TOOLS = new Set([
   "ad_brief",
   // Agente de anuncios: leer logs y métricas no cambia nada (solo consulta)
   "fb_agent_logs", "fb_campaign_metrics",
+  // Atribución real (CAC/ROAS cruzando anuncios con pagos cobrados): es una
+  // consulta a la base del propio negocio, no toca Meta ni gasta.
+  "marketing_attribution",
   // Monitoreo: solo consultan, no cambian nada
   "whatsapp_status", "dashboard_summary", "list_recent_conversations", "list_duplicate_contacts",
   // Ver qué transferencias faltan conciliar es lectura; CONFIRMAR una no lo es

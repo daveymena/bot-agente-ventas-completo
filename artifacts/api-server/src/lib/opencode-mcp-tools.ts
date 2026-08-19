@@ -131,6 +131,11 @@ const TOOL_SCHEMAS: Record<string, object> = {
     required: ["productId"],
     additionalProperties: false,
   },
+  marketing_attribution: {
+    type: "object",
+    properties: { dias: { type: "number", description: "Ventana a analizar en días, por defecto 30" } },
+    additionalProperties: false,
+  },
   fb_list_drafts: { type: "object", properties: {}, additionalProperties: false },
   fb_agent_logs: {
     type: "object",
@@ -710,7 +715,7 @@ const GRUPOS: { patron: RegExp; herramientas: string[] }[] = [
     // anuncio SIEMPRE puede necesitar investigar. Sin ellas en el subconjunto,
     // el modelo no tenía con qué cumplir el requisito y el pedido moría con
     // "todavía no investigaste nada" (reportado en vivo por el admin).
-    herramientas: ["ad_brief", "fb_status", "fb_suggest_audience", "fb_page_can_post", "fb_page_preview", "fb_list_drafts", "fb_agent_logs", "fb_campaign_metrics", "fb_list_adsets", "fb_ad_library", "generate_image", "search_product_images", "web_search"],
+    herramientas: ["ad_brief", "marketing_attribution", "fb_status", "fb_suggest_audience", "fb_page_can_post", "fb_page_preview", "fb_list_drafts", "fb_agent_logs", "fb_campaign_metrics", "fb_list_adsets", "fb_ad_library", "generate_image", "search_product_images", "web_search"],
   },
   {
     patron: /whatsapp|wasap|conversaci|chat|mensaje|cliente|lead/i,
