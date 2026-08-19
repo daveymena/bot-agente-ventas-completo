@@ -331,6 +331,8 @@ export function describePlannedAction(a: { tool: string; args: any }): string {
       return `▶️ Encender la campaña ${g.campaignId ?? "?"} de Facebook — el sistema decide solo qué prender (campaña, conjunto o anuncio) y prende lo mínimo. EMPIEZA A GASTAR`;
     case "fb_create_pixel":
       return `🎯 Crear un píxel NUEVO en tu cuenta de Facebook${g.nombre ? ` ("${g.nombre}")` : ""} y dejarlo configurado — es un objeto permanente en tu cuenta de Meta. Después hay que instalarlo en la web para que registre compras`;
+    case "fb_upload_draft_to_meta":
+      return `📤 Subir el borrador ${g.draftId === "auto" ? "que se acaba de crear" : (g.draftId ?? "?")} a Meta EN PAUSA — crea la campaña, el conjunto y el anuncio en tu cuenta. NO gasta: queda pausado hasta que lo actives`;
     case "fb_delete_campaign":
       return `🗑️ BORRAR de Facebook la campaña ${g.campaignId ?? "?"} — se van también sus conjuntos y anuncios. IRREVERSIBLE, no hay papelera${g.borrarAunqueTengaGasto === true ? ", y se pierde su historial de resultados" : ""}`;
     case "fb_pause_campaign":
@@ -452,6 +454,8 @@ async function proposeAction(
     // sin haber guardado nada: si la propuesta no se frena acá, el admin
     // aprueba un plan imposible sobre un borrador que no existe.
     fb_upload_draft_to_meta: ["draftId"],
+    // (ver ENCADENADO abajo: draftId puede ser "auto" si en el MISMO plan ya
+    // se propuso el fb_ad_draft que lo va a crear)
     fb_pause_campaign: ["campaignId"],
     fb_resume_campaign: ["campaignId"],
     fb_delete_campaign: ["campaignId"],
@@ -484,6 +488,9 @@ async function proposeAction(
   const CAMPOS_ID = new Set(["productId", "id", "draftId", "leadId"]);
   const esIdInvalido = (k: string, v: any) => {
     if (!CAMPOS_ID.has(k)) return false;
+    // "auto" es un marcador legitimo: lo resuelve el servidor al ejecutar,
+    // con el id del borrador creado por el paso anterior del mismo plan.
+    if (v === "auto") return false;
     const n = typeof v === "number" ? v : Number(String(v).trim());
     return !Number.isInteger(n) || n <= 0 || n > 2_147_483_647;
   };
@@ -506,6 +513,39 @@ async function proposeAction(
   const idsRotos = Object.keys(toolArgs).filter(
     (k) => toolArgs[k] !== undefined && CAMPOS_ID.has(k) && esIdInvalido(k, toolArgs[k]),
   );
+
+  // ── Encadenar crear + subir en un solo plan ──────────────────────────
+  // El pedido natural del admin es "creá el anuncio y subilo a Meta", pero eso
+  // NO entra en un turno del modelo: buscar producto + brief + escribir +
+  // guardar + subir se pasa de los 135s y el turno corta sin hacer nada
+  // (medido en vivo el 19-08-2026 con el curso de IA).
+  //
+  // La salida no es darle mas tiempo al modelo -- el proxy corta a ~150s --
+  // sino que PROPONGA los dos pasos juntos y el servidor los ejecute en orden
+  // despues del "si". Proponer es rapido; ejecutar pasa fuera del turno.
+  //
+  // El draftId todavia no existe cuando se propone, asi que se acepta "auto"
+  // y se resuelve al ejecutar con el id del borrador que acaba de crearse
+  // (ver resolverEncadenado en las ramas de aprobacion).
+  if (tool === "fb_upload_draft_to_meta") {
+    const { eq, and } = await import("drizzle-orm");
+    const yaHayDraft = await db
+      .select()
+      .from(architectMemory)
+      .where(and(
+        eq(architectMemory.tenantId, ctx.tenantId),
+        eq(architectMemory.sessionId, ctx.turnId),
+        eq(architectMemory.memoryType, "draft_plan"),
+        eq(architectMemory.title, "fb_ad_draft"),
+      ))
+      .limit(1)
+      .then((r: any[]) => r.length > 0)
+      .catch(() => false);
+    const sinId = toolArgs.draftId === undefined || toolArgs.draftId === null || toolArgs.draftId === "" || toolArgs.draftId === 0;
+    if (yaHayDraft && (sinId || toolArgs.draftId === "auto")) {
+      toolArgs.draftId = "auto";
+    }
+  }
 
   const faltantes = (OBLIGATORIOS[tool] || []).filter(
     (k) =>

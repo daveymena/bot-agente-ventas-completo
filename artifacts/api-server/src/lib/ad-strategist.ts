@@ -1155,7 +1155,14 @@ Este contenido digital es tu atajo directo a resultados profesionales.
         status: "created",
       };
 
-      await this.saveDraftToDb(draftResult);
+      // El id de la fila guardada viaja de vuelta en el objeto: sin esto,
+      // quien acaba de crear el borrador no sabe con que id subirlo a Meta
+      // despues, y el modelo terminaba proponiendo fb_upload_draft_to_meta
+      // con draftId null (visto en vivo el 18-08-2026).
+      {
+        const guardado = await this.saveDraftToDb(draftResult);
+        if ((guardado as any)?.id) (draftResult as any).id = (guardado as any).id;
+      }
 
       return draftResult;
     } catch (err: any) {
@@ -1204,7 +1211,14 @@ Este contenido digital es tu atajo directo a resultados profesionales.
         adId: null,
         status: "draft",
       };
-      await this.saveDraftToDb(draftResult);
+      // El id de la fila guardada viaja de vuelta en el objeto: sin esto,
+      // quien acaba de crear el borrador no sabe con que id subirlo a Meta
+      // despues, y el modelo terminaba proponiendo fb_upload_draft_to_meta
+      // con draftId null (visto en vivo el 18-08-2026).
+      {
+        const guardado = await this.saveDraftToDb(draftResult);
+        if ((guardado as any)?.id) (draftResult as any).id = (guardado as any).id;
+      }
       return draftResult;
     }
   }

@@ -264,10 +264,33 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
       if (isApproval(String(prompt))) {
         const executed: any[] = [];
         const lines: string[] = [];
+        // ── Encadenado: el paso 2 usa el id que produjo el paso 1 ──────────
+        // "Creá el anuncio y subilo a Meta" no entra en un turno del modelo
+        // (medido: se pasa de los 135s y corta sin hacer nada). La salida es
+        // que proponga los dos pasos juntos -- proponer es rápido -- y que la
+        // ejecución, que pasa acá afuera del turno, encadene los ids.
+        //
+        // Cuando se propuso el plan, el borrador todavía no existía, así que
+        // el draftId viaja como "auto" y se resuelve recién ahora.
+        let ultimoDraftId: number | null = null;
         for (const a of pending.actions) {
-          const r = await executeAction(a.tool, a.args || {}, ctx);
-          const verification = r.ok ? await verifyMutation(a.tool, a.args || {}, ctx) : "";
-          executed.push({ tool: a.tool, args: a.args, ok: r.ok, summary: r.summary, verification });
+          // Resolver el "auto" con el borrador que acaba de crearse.
+          const argsReales: any = { ...(a.args || {}) };
+          if (argsReales.draftId === "auto") {
+            if (!ultimoDraftId) {
+              executed.push({ tool: a.tool, args: a.args, ok: false, summary: "No se pudo subir a Meta: el paso anterior no dejó ningún borrador que subir.", verification: "" });
+              lines.push("❌ No se pudo subir a Meta: el paso anterior no dejó ningún borrador que subir.");
+              continue;
+            }
+            argsReales.draftId = ultimoDraftId;
+          }
+          const r = await executeAction(a.tool, argsReales, ctx);
+          if (a.tool === "fb_ad_draft" && r.ok) {
+            const nuevo = Number((r as any)?.data?.id);
+            if (Number.isInteger(nuevo) && nuevo > 0) ultimoDraftId = nuevo;
+          }
+          const verification = r.ok ? await verifyMutation(a.tool, argsReales, ctx) : "";
+          executed.push({ tool: a.tool, args: argsReales, ok: r.ok, summary: r.summary, verification });
           // En el fallo, el summary está escrito para el modelo -- se limpia
           // antes de mostrárselo al admin (ver mensajeParaAdmin).
           const paraElAdmin = r.ok ? r.summary : mensajeParaAdmin(r.summary);
