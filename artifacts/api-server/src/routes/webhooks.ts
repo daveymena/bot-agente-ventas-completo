@@ -179,7 +179,6 @@ router.post("/mercadopago", async (req: Request, res: Response) => {
             .where(and(
               eq(conversations.tenantId, product.tenantId),
               eq(conversations.paymentStatus, 'pending'),
-              eq(conversations.currentProductId, productId)
             ))
             .orderBy(desc(conversations.createdAt))
             .limit(1);
@@ -323,7 +322,6 @@ router.post("/paypal", async (req: Request, res: Response) => {
             .where(and(
               eq(conversations.tenantId, product.tenantId),
               eq(conversations.paymentStatus, 'pending'),
-              eq(conversations.currentProductId, productId)
             ))
             .orderBy(desc(conversations.createdAt))
             .limit(1);

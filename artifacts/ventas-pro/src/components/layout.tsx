@@ -15,7 +15,8 @@ import {
   Facebook,
   Activity,
   Crown,
-  HelpCircle
+  HelpCircle,
+  Megaphone
 } from "lucide-react";
 import { Sidebar, SidebarContent, SidebarHeader, SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarProvider, SidebarTrigger, SidebarGroup, SidebarGroupContent } from "./ui/sidebar";
 import { Badge as UiBadge } from "@/components/ui/badge";
@@ -54,6 +55,7 @@ export function AppSidebar() {
     { label: "Atlas VentasPro", href: "/code-agent", icon: Wand2 },
     { label: "Personalización", href: "/branding", icon: Palette },
     { label: "Facebook", href: "/facebook", icon: Facebook },
+    { label: "Marketing", href: "/marketing", icon: Megaphone },
     { label: "Configuración", href: "/settings", icon: Settings },
     { label: "Ayuda", href: "/ayuda", icon: HelpCircle },
     { label: "Planes", href: "/pricing", icon: Badge },

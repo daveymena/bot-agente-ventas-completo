@@ -24,6 +24,7 @@ import ActivatePage from "@/pages/activate";
 import OnboardingPage from "@/pages/onboarding";
 import WooCommercePage from "@/pages/woocommerce";
 import FacebookAdsPage from "@/pages/facebook";
+import MarketingPage from "@/pages/marketing";
 import CodeAgentPage from "@/pages/code-agent";
 import ArchitectPage from "@/pages/architect";
 import AdminStorePage from "@/pages/admin-store";
@@ -133,6 +134,7 @@ function Router() {
       <Route path="/activate" component={ActivatePage} />
       <Route path="/onboarding" component={OnboardingPage} />
       <Route path="/facebook" component={FacebookAdsPage} />
+      <Route path="/marketing" component={MarketingPage} />
       <Route path="/ayuda" component={HelpCenterPage} />
       <Route path="/code-agent" component={CodeAgentPage} />
       <Route path="/architect" component={ArchitectPage} />

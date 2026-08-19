@@ -24,3 +24,8 @@ export * from "./facebook-drafts";
 export * from "./opencode";
 export * from "./ad_agent_logs";
 export * from "./remarketing";
+export * from "./marketing-tasks";
+export * from "./marketing-experiments";
+export * from "./marketing-campaigns";
+export * from "./marketing-budgets";
+export * from "./marketing-audit-logs";

@@ -39,7 +39,7 @@ export class ApplicationError extends Error implements AppError {
 export function sendError(
   res: Response,
   code: ErrorCode,
-  details?: Record<string, any>,
+  details?: Record<string, any> | number | string,
   customMessage?: string
 ) {
   const statusCode = ERROR_HTTP_STATUS[code];
@@ -50,7 +50,9 @@ export function sendError(
     code,
   };
 
-  if (details) {
+  // Varios callers pasan el status HTTP numérico donde va `details`
+  // (sendError(res, CODE, 401)). Ese número no es metadata útil: se ignora.
+  if (details && typeof details === "object") {
     response.details = details;
   }
 

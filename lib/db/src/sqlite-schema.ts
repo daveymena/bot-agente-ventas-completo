@@ -12,6 +12,7 @@ export const tenants = sqliteTable("tenants", {
   status: text("status").notNull().default("active"),
   plan: text("plan").notNull().default("basic"),
   isAdmin: integer("is_admin", { mode: "boolean" }).notNull().default(false),
+  isActive: integer("is_active", { mode: "boolean" }).notNull().default(true),
   brandName: text("brand_name").notNull(),
   brandLogo: text("brand_logo"),
   brandColors: text("brand_colors", { mode: "json" }),
@@ -71,8 +72,10 @@ export const leads = sqliteTable("leads", {
   value: real("value").notNull().default(0),
   notes: text("notes"),
   source: text("source"),
+  adContext: text("ad_context", { mode: "json" }),
   paymentStatus: text("payment_status"),
   lifetimeValue: real("lifetime_value").default(0),
+  optOut: integer("opt_out", { mode: "boolean" }).notNull().default(false),
   createdAt: text("created_at").notNull().default(sql`(datetime('now'))`),
 });
 
@@ -431,4 +434,167 @@ export const promptVersions = sqliteTable("prompt_versions", {
   appliedBy: text("applied_by").notNull(),
   isActive: integer("is_active", { mode: "boolean" }).notNull().default(true),
   createdAt: text("created_at").notNull().default(sql`(datetime('now'))`),
+});
+
+// ── marketing_tasks (MASTER PLAN §20) ────────────────────────────────────────
+export const marketingTasks = sqliteTable("marketing_tasks", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  tenantId: integer("tenant_id").references(() => tenants.id, { onDelete: "cascade" }).notNull(),
+  parentTaskId: integer("parent_task_id"),
+  requestedBy: text("requested_by"),
+  assignedAgent: text("assigned_agent").notNull(),
+  domain: text("domain").notNull().default("marketing"),
+  action: text("action").notNull(),
+  priority: text("priority").notNull().default("medium"),
+  status: text("status").notNull().default("PENDING"),
+  input: text("input", { mode: "json" }).notNull().default({}),
+  output: text("output", { mode: "json" }),
+  dependencies: text("dependencies", { mode: "json" }).notNull().default([]),
+  risk: text("risk").notNull().default("LOW"),
+  approvalRequired: integer("approval_required", { mode: "boolean" }).notNull().default(false),
+  approvalStatus: text("approval_status"),
+  error: text("error"),
+  createdAt: text("created_at").notNull().default(sql`(datetime('now'))`),
+  updatedAt: text("updated_at").notNull().default(sql`(datetime('now'))`),
+});
+
+// ── marketing_experiments (MASTER PLAN §13) ──────────────────────────────────
+export const marketingExperiments = sqliteTable("marketing_experiments", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  tenantId: integer("tenant_id").references(() => tenants.id, { onDelete: "cascade" }).notNull(),
+  productId: integer("product_id").references(() => products.id, { onDelete: "set null" }),
+  campaignId: text("campaign_id"),
+  hypothesis: text("hypothesis").notNull(),
+  variable: text("variable").notNull(),
+  controlDraftId: integer("control_draft_id").references(() => facebookDrafts.id, { onDelete: "set null" }),
+  variantDraftId: integer("variant_draft_id").references(() => facebookDrafts.id, { onDelete: "set null" }),
+  controlLabel: text("control_label"),
+  variantLabel: text("variant_label"),
+  budget: real("budget"),
+  durationDays: integer("duration_days"),
+  minImpressions: integer("min_impressions").default(1000),
+  status: text("status").notNull().default("EN_PRUEBA"),
+  result: text("result", { mode: "json" }),
+  conclusion: text("conclusion"),
+  learning: text("learning"),
+  startedAt: text("started_at"),
+  endedAt: text("ended_at"),
+  createdAt: text("created_at").notNull().default(sql`(datetime('now'))`),
+});
+
+// ── marketing_campaigns (MASTER PLAN §12, §18) ───────────────────────────────
+export const marketingCampaigns = sqliteTable("marketing_campaigns", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  tenantId: integer("tenant_id").references(() => tenants.id, { onDelete: "cascade" }).notNull(),
+  productId: integer("product_id").references(() => products.id, { onDelete: "set null" }),
+  name: text("name").notNull(),
+  objective: text("objective").notNull(),
+  status: text("status").notNull().default("PLANNED"),
+  strategy: text("strategy", { mode: "json" }),
+  budgetPlanned: real("budget_planned"),
+  budgetSpent: real("budget_spent").default(0),
+  targetKpis: text("target_kpis", { mode: "json" }),
+  scalingState: text("scaling_state", { mode: "json" }),
+  metaIds: text("meta_ids", { mode: "json" }),
+  startedAt: text("started_at"),
+  endedAt: text("ended_at"),
+  createdAt: text("created_at").notNull().default(sql`(datetime('now'))`),
+});
+
+// ── marketing_budgets (MASTER PLAN §17, §31) ─────────────────────────────────
+export const marketingBudgets = sqliteTable("marketing_budgets", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  tenantId: integer("tenant_id").references(() => tenants.id, { onDelete: "cascade" }).notNull().unique(),
+  maxDailySpend: real("max_daily_spend").notNull().default(50000),
+  maxBudgetChangePercent: real("max_budget_change_percent").notNull().default(25),
+  maxScalePercent: real("max_scale_percent").notNull().default(30),
+  approvalRequired: integer("approval_required", { mode: "boolean" }).notNull().default(true),
+  currency: text("currency").notNull().default("COP"),
+  todaySpend: real("today_spend").notNull().default(0),
+  todayDate: text("today_date"),
+  periodSpend: real("period_spend").notNull().default(0),
+  periodStart: text("period_start"),
+  createdAt: text("created_at").notNull().default(sql`(datetime('now'))`),
+  updatedAt: text("updated_at").notNull().default(sql`(datetime('now'))`),
+});
+
+// ── marketing_audit_logs (MASTER PLAN §32) ───────────────────────────────────
+export const marketingAuditLogs = sqliteTable("marketing_audit_logs", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  tenantId: integer("tenant_id").references(() => tenants.id, { onDelete: "cascade" }).notNull(),
+  agent: text("agent").notNull(),
+  taskId: integer("task_id"),
+  action: text("action").notNull(),
+  resource: text("resource"),
+  before: text("before", { mode: "json" }),
+  after: text("after", { mode: "json" }),
+  approval: text("approval"),
+  reason: text("reason"),
+  result: text("result").notNull().default("PENDING"),
+  error: text("error"),
+  requestId: text("request_id"),
+  createdAt: text("created_at").notNull().default(sql`(datetime('now'))`),
+});
+
+// ── remarketing_campaigns ────────────────────────────────────────────────────
+export const remarketingCampaigns = sqliteTable("remarketing_campaigns", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  tenantId: integer("tenant_id").references(() => tenants.id, { onDelete: "cascade" }),
+  channel: text("channel").notNull(),
+  segment: text("segment"),
+  subject: text("subject"),
+  message: text("message").notNull(),
+  status: text("status").notNull().default("queued"),
+  pendingLeadIds: text("pending_lead_ids", { mode: "json" }).notNull().default([]),
+  totalTargeted: integer("total_targeted").notNull().default(0),
+  totalSent: integer("total_sent").notNull().default(0),
+  totalFailed: integer("total_failed").notNull().default(0),
+  totalOptedOut: integer("total_opted_out").notNull().default(0),
+  results: text("results", { mode: "json" }).default([]),
+  createdAt: text("created_at").notNull().default(sql`(datetime('now'))`),
+  completedAt: text("completed_at"),
+});
+
+// ── opencode_* ───────────────────────────────────────────────────────────────
+export const opencodeConfig = sqliteTable("opencode_config", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  key: text("key").notNull().unique(),
+  value: text("value", { mode: "json" }).notNull(),
+  updatedAt: text("updated_at").notNull().default(sql`(datetime('now'))`),
+});
+
+export const opencodeSkills = sqliteTable("opencode_skills", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  name: text("name").notNull().unique(),
+  description: text("description").notNull().default(""),
+  content: text("content").notNull(),
+  files: text("files", { mode: "json" }).default({}),
+  updatedAt: text("updated_at").notNull().default(sql`(datetime('now'))`),
+});
+
+export const opencodeMcpServers = sqliteTable("opencode_mcp_servers", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  name: text("name").notNull().unique(),
+  type: text("type").notNull().default("local"),
+  command: text("command", { mode: "json" }).notNull(),
+  enabled: text("enabled").notNull().default("true"),
+  env: text("env", { mode: "json" }).default({}),
+  updatedAt: text("updated_at").notNull().default(sql`(datetime('now'))`),
+});
+
+export const opencodeCommands = sqliteTable("opencode_commands", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  name: text("name").notNull().unique(),
+  description: text("description").notNull().default(""),
+  template: text("template").notNull(),
+  updatedAt: text("updated_at").notNull().default(sql`(datetime('now'))`),
+});
+
+export const opencodeSession = sqliteTable("opencode_session", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  sessionId: text("session_id").notNull().unique(),
+  type: text("type").notNull(),
+  data: text("data", { mode: "json" }).notNull(),
+  createdAt: text("created_at").notNull().default(sql`(datetime('now'))`),
+  updatedAt: text("updated_at").notNull().default(sql`(datetime('now'))`),
 });

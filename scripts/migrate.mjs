@@ -49,8 +49,12 @@ const ALL_TABLES = [
         slug TEXT NOT NULL UNIQUE,
         domain TEXT,
         status TEXT NOT NULL DEFAULT 'active',
-        plan TEXT NOT NULL DEFAULT 'basic',
-        is_admin BOOLEAN NOT NULL DEFAULT false,
+    name: 'tenants.is_admin',
+    sql: `ALTER TABLE tenants ADD COLUMN IF NOT EXISTS is_admin BOOLEAN NOT NULL DEFAULT false`,
+  },
+  {
+    name: 'tenants.is_active',
+    sql: `ALTER TABLE tenants ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT true`
         brand_name TEXT NOT NULL,
         brand_logo TEXT,
         brand_colors JSONB,
@@ -529,6 +533,129 @@ const ALL_TABLES = [
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       )
     `
+  },
+  {
+    name: 'marketing_tasks',
+    sql: `
+      CREATE TABLE IF NOT EXISTS marketing_tasks (
+        id SERIAL PRIMARY KEY,
+        tenant_id INTEGER REFERENCES tenants(id) ON DELETE CASCADE NOT NULL,
+        parent_task_id INTEGER,
+        requested_by TEXT,
+        assigned_agent TEXT NOT NULL,
+        domain TEXT NOT NULL DEFAULT 'marketing',
+        action TEXT NOT NULL,
+        priority TEXT NOT NULL DEFAULT 'medium',
+        status TEXT NOT NULL DEFAULT 'PENDING',
+        input JSONB NOT NULL DEFAULT '{}',
+        output JSONB,
+        dependencies JSONB NOT NULL DEFAULT '[]',
+        risk TEXT NOT NULL DEFAULT 'LOW',
+        approval_required BOOLEAN NOT NULL DEFAULT false,
+        approval_status TEXT,
+        error TEXT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `
+  },
+  {
+    name: 'marketing_experiments',
+    sql: `
+      CREATE TABLE IF NOT EXISTS marketing_experiments (
+        id SERIAL PRIMARY KEY,
+        tenant_id INTEGER REFERENCES tenants(id) ON DELETE CASCADE NOT NULL,
+        product_id INTEGER REFERENCES products(id) ON DELETE SET NULL,
+        campaign_id TEXT,
+        hypothesis TEXT NOT NULL,
+        variable TEXT NOT NULL,
+        control_draft_id INTEGER REFERENCES facebook_drafts(id) ON DELETE SET NULL,
+        variant_draft_id INTEGER REFERENCES facebook_drafts(id) ON DELETE SET NULL,
+        control_label TEXT,
+        variant_label TEXT,
+        budget NUMERIC(12,2),
+        duration_days INTEGER,
+        min_impressions INTEGER DEFAULT 1000,
+        status TEXT NOT NULL DEFAULT 'EN_PRUEBA',
+        result JSONB,
+        conclusion TEXT,
+        learning TEXT,
+        started_at TIMESTAMPTZ,
+        ended_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `
+  },
+  {
+    name: 'marketing_campaigns',
+    sql: `
+      CREATE TABLE IF NOT EXISTS marketing_campaigns (
+        id SERIAL PRIMARY KEY,
+        tenant_id INTEGER REFERENCES tenants(id) ON DELETE CASCADE NOT NULL,
+        product_id INTEGER REFERENCES products(id) ON DELETE SET NULL,
+        name TEXT NOT NULL,
+        objective TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'PLANNED',
+        strategy JSONB,
+        budget_planned NUMERIC(12,2),
+        budget_spent NUMERIC(12,2) DEFAULT 0,
+        target_kpis JSONB,
+        scaling_state JSONB,
+        meta_ids JSONB,
+        started_at TIMESTAMPTZ,
+        ended_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `
+  },
+  {
+    name: 'marketing_budgets',
+    sql: `
+      CREATE TABLE IF NOT EXISTS marketing_budgets (
+        id SERIAL PRIMARY KEY,
+        tenant_id INTEGER REFERENCES tenants(id) ON DELETE CASCADE NOT NULL UNIQUE,
+        max_daily_spend NUMERIC(12,2) NOT NULL DEFAULT 50000,
+        max_budget_change_percent NUMERIC(5,2) NOT NULL DEFAULT 25,
+        max_scale_percent NUMERIC(5,2) NOT NULL DEFAULT 30,
+        approval_required BOOLEAN NOT NULL DEFAULT true,
+        currency TEXT NOT NULL DEFAULT 'COP',
+        today_spend NUMERIC(12,2) NOT NULL DEFAULT 0,
+        today_date VARCHAR(10),
+        period_spend NUMERIC(12,2) NOT NULL DEFAULT 0,
+        period_start TIMESTAMPTZ,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `
+  },
+  {
+    name: 'marketing_audit_logs',
+    sql: `
+      CREATE TABLE IF NOT EXISTS marketing_audit_logs (
+        id SERIAL PRIMARY KEY,
+        tenant_id INTEGER REFERENCES tenants(id) ON DELETE CASCADE NOT NULL,
+        agent TEXT NOT NULL,
+        task_id INTEGER,
+        action TEXT NOT NULL,
+        resource TEXT,
+        before JSONB,
+        after JSONB,
+        approval TEXT,
+        reason TEXT,
+        result TEXT NOT NULL DEFAULT 'PENDING',
+        error TEXT,
+        request_id TEXT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `
+  },
+  {
+    name: 'tenants.is_active',
+    sql: `ALTER TABLE tenants ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT true`
+  },
+  {
+    name: 'leads.ad_context',
+    sql: `ALTER TABLE leads ADD COLUMN IF NOT EXISTS ad_context JSONB`
   }
 ];
 

@@ -17,6 +17,7 @@ export const tenants = pgTable("tenants", {
   // tenant autenticado podía ver y controlar las sesiones de WhatsApp de
   // TODOS los demás tenants con solo llamar a la API directamente.
   isAdmin: boolean("is_admin").notNull().default(false),
+  isActive: boolean("is_active").notNull().default(true),
   brandName: text("brand_name").notNull(),
   brandLogo: text("brand_logo"),
   brandColors: jsonb("brand_colors").$type<{

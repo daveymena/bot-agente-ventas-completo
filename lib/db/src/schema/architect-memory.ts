@@ -30,7 +30,12 @@ export type MemoryType =
   // turnId, no el sessionId de chat, para que turnos concurrentes/reintentos
   // nunca mezclen sus borradores. Se lee y se borra en el mismo turno
   // (drainDraftPlan), nunca queda como historial permanente.
-  | "draft_plan";
+  | "draft_plan"
+  // Aprendizaje del Marketing Team (MASTER PLAN §19): ganadores/perdedores
+  // de campañas, hooks que funcionaron, audiencias, experimentos. Tags
+  // convencionales: marketing, winner, loser, product:<nombre>,
+  // campaign:<id>, experiment:<id>.
+  | "marketing_learning";
 
 export interface ArchitectMemory {
   id: number;

@@ -59,6 +59,11 @@ export const facebookDrafts = schema.facebookDrafts;
 export const opencodeConfig = schema.opencodeConfig;
 export const adAgentLogs = schema.adAgentLogs;
 export const remarketingCampaigns = schema.remarketingCampaigns;
+export const marketingTasks = schema.marketingTasks;
+export const marketingExperiments = schema.marketingExperiments;
+export const marketingCampaigns = schema.marketingCampaigns;
+export const marketingBudgets = schema.marketingBudgets;
+export const marketingAuditLogs = schema.marketingAuditLogs;
 export const opencodeSkills = schema.opencodeSkills;
 export const opencodeMcpServers = schema.opencodeMcpServers;
 export const opencodeCommands = schema.opencodeCommands;
@@ -89,7 +94,13 @@ export type {
   ResponseAnalytics, InsertResponseAnalytics, ResponseOutcome,
   PromptVersion, InsertPromptVersion,
   FacebookDraft, InsertFacebookDraft,
+  MarketingTask, InsertMarketingTask,
+  MarketingExperiment, InsertMarketingExperiment,
+  MarketingCampaign, InsertMarketingCampaign,
+  MarketingBudget, InsertMarketingBudget,
+  MarketingAuditLog, InsertMarketingAuditLog,
 } from "./schema";
+export type { AdContext } from "./schema/leads";
 export type { AgentStage } from "./schema/agents";
 
 // ── DB INSTANCE ──────────────────────────────────────────────────────────────
@@ -260,11 +271,11 @@ async function resyncPgSequences(pgPool: any): Promise<void> {
 
 async function ensureSqliteTables(sqliteDb: import("sql.js").Database, saveDb: () => void) {
   const tables = [
-    `CREATE TABLE IF NOT EXISTS tenants (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, email TEXT NOT NULL UNIQUE, password_hash TEXT, slug TEXT NOT NULL UNIQUE, domain TEXT, status TEXT DEFAULT 'active', plan TEXT DEFAULT 'basic', is_admin INTEGER DEFAULT 0, brand_name TEXT NOT NULL, brand_logo TEXT, brand_colors TEXT, brand_theme TEXT, brand_social TEXT, agent_personality TEXT DEFAULT 'professional', agent_prompt TEXT, agent_name TEXT DEFAULT 'Asistente Virtual', contact_email TEXT, contact_phone TEXT, support_email TEXT, payment_methods TEXT, woocommerce_integration TEXT, limits TEXT, settings TEXT, subscription_id TEXT, subscription_status TEXT, trial_ends_at TEXT, subscription_ends_at TEXT, metadata TEXT, email_verified INTEGER DEFAULT 0, email_verification_code TEXT, email_verification_expiry TEXT, password_reset_code TEXT, password_reset_expiry TEXT, two_factor_enabled INTEGER DEFAULT 0, two_factor_secret TEXT, created_at TEXT DEFAULT (datetime('now')), updated_at TEXT DEFAULT (datetime('now')))`,
+    `CREATE TABLE IF NOT EXISTS tenants (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, email TEXT NOT NULL UNIQUE, password_hash TEXT, slug TEXT NOT NULL UNIQUE, domain TEXT, status TEXT DEFAULT 'active', plan TEXT DEFAULT 'basic', is_admin INTEGER DEFAULT 0, is_active INTEGER DEFAULT 1, brand_name TEXT NOT NULL, brand_logo TEXT, brand_colors TEXT, brand_theme TEXT, brand_social TEXT, agent_personality TEXT DEFAULT 'professional', agent_prompt TEXT, agent_name TEXT DEFAULT 'Asistente Virtual', contact_email TEXT, contact_phone TEXT, support_email TEXT, payment_methods TEXT, woocommerce_integration TEXT, limits TEXT, settings TEXT, subscription_id TEXT, subscription_status TEXT, trial_ends_at TEXT, subscription_ends_at TEXT, metadata TEXT, email_verified INTEGER DEFAULT 0, email_verification_code TEXT, email_verification_expiry TEXT, password_reset_code TEXT, password_reset_expiry TEXT, two_factor_enabled INTEGER DEFAULT 0, two_factor_secret TEXT, created_at TEXT DEFAULT (datetime('now')), updated_at TEXT DEFAULT (datetime('now')))`,
     `CREATE TABLE IF NOT EXISTS agents (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER REFERENCES tenants(id) ON DELETE CASCADE, name TEXT NOT NULL, role TEXT NOT NULL, tone TEXT NOT NULL, language TEXT DEFAULT 'es', model TEXT DEFAULT 'gpt-4o-mini', system_prompt TEXT NOT NULL, stages TEXT DEFAULT '[]', metadata TEXT, is_active INTEGER DEFAULT 0, created_at TEXT DEFAULT (datetime('now')), updated_at TEXT DEFAULT (datetime('now')))`,
     `CREATE TABLE IF NOT EXISTS product_categories (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER REFERENCES tenants(id) ON DELETE CASCADE NOT NULL, name TEXT NOT NULL, created_at TEXT DEFAULT (datetime('now')))`,
     `CREATE TABLE IF NOT EXISTS products (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER REFERENCES tenants(id) ON DELETE CASCADE, name TEXT NOT NULL, description TEXT NOT NULL, price REAL DEFAULT 0, currency TEXT DEFAULT 'USD', sku TEXT, category_id INTEGER REFERENCES product_categories(id) ON DELETE SET NULL, category TEXT, kind TEXT DEFAULT 'digital', image_url TEXT, highlight TEXT, features TEXT, payment_link TEXT, delivery_link TEXT, is_active INTEGER DEFAULT 1, metadata TEXT, created_at TEXT DEFAULT (datetime('now')))`,
-    `CREATE TABLE IF NOT EXISTS leads (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER REFERENCES tenants(id) ON DELETE CASCADE, name TEXT NOT NULL, phone TEXT NOT NULL, email TEXT, stage TEXT DEFAULT 'new', value REAL DEFAULT 0, notes TEXT, source TEXT, payment_status TEXT, lifetime_value REAL DEFAULT 0, created_at TEXT DEFAULT (datetime('now')))`,
+    `CREATE TABLE IF NOT EXISTS leads (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER REFERENCES tenants(id) ON DELETE CASCADE, name TEXT NOT NULL, phone TEXT NOT NULL, email TEXT, stage TEXT DEFAULT 'new', value REAL DEFAULT 0, notes TEXT, source TEXT, ad_context TEXT, payment_status TEXT, lifetime_value REAL DEFAULT 0, opt_out INTEGER DEFAULT 0, created_at TEXT DEFAULT (datetime('now')))`,
     `CREATE TABLE IF NOT EXISTS conversations (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER REFERENCES tenants(id) ON DELETE CASCADE, contact_name TEXT NOT NULL, contact_phone TEXT NOT NULL, avatar_color TEXT DEFAULT '#10b981', last_message TEXT, last_message_at TEXT, unread_count INTEGER DEFAULT 0, status TEXT DEFAULT 'ai', current_stage TEXT, channel TEXT DEFAULT 'whatsapp', agent_id INTEGER REFERENCES agents(id) ON DELETE SET NULL, lead_id INTEGER REFERENCES leads(id) ON DELETE SET NULL, payment_status TEXT, payment_method TEXT, payment_amount REAL, paid_at TEXT, created_at TEXT DEFAULT (datetime('now')))`,
     `CREATE TABLE IF NOT EXISTS messages (id INTEGER PRIMARY KEY AUTOINCREMENT, conversation_id INTEGER REFERENCES conversations(id) ON DELETE CASCADE NOT NULL, role TEXT NOT NULL, content TEXT NOT NULL, stage TEXT, metadata TEXT, created_at TEXT DEFAULT (datetime('now')))`,
     `CREATE TABLE IF NOT EXISTS activity_events (id INTEGER PRIMARY KEY AUTOINCREMENT, type TEXT NOT NULL, title TEXT NOT NULL, subtitle TEXT, created_at TEXT DEFAULT (datetime('now')))`,
@@ -285,6 +296,11 @@ async function ensureSqliteTables(sqliteDb: import("sql.js").Database, saveDb: (
     `CREATE TABLE IF NOT EXISTS prompt_versions (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER REFERENCES tenants(id) ON DELETE CASCADE, agent_id INTEGER, profile_id INTEGER, previous_prompt TEXT NOT NULL, new_prompt TEXT NOT NULL, diff_summary TEXT NOT NULL, reason TEXT NOT NULL, performance_before TEXT, performance_after TEXT, applied_by TEXT NOT NULL, is_active INTEGER DEFAULT 1, created_at TEXT DEFAULT (datetime('now')))`,
     `CREATE TABLE IF NOT EXISTS facebook_drafts (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER REFERENCES tenants(id) ON DELETE CASCADE, product_id INTEGER REFERENCES products(id) ON DELETE SET NULL, product_name TEXT NOT NULL, campaign_id TEXT, ad_set_id TEXT, ad_id TEXT, status TEXT DEFAULT 'draft' NOT NULL, strategy TEXT, primary_text TEXT, headline TEXT, description TEXT, image_url TEXT, niche TEXT, budget INTEGER, fb_status TEXT, created_at TEXT DEFAULT (datetime('now')), updated_at TEXT DEFAULT (datetime('now')))`,
     `CREATE TABLE IF NOT EXISTS ad_agent_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER REFERENCES tenants(id) ON DELETE CASCADE, campaign_id TEXT NOT NULL, ad_set_id TEXT, product_name TEXT, check_type TEXT NOT NULL, status TEXT DEFAULT 'suggested' NOT NULL, suggested_action TEXT, reason TEXT NOT NULL, metrics_snapshot TEXT, created_at TEXT DEFAULT (datetime('now')), responded_at TEXT)`,
+    `CREATE TABLE IF NOT EXISTS marketing_tasks (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER REFERENCES tenants(id) ON DELETE CASCADE NOT NULL, parent_task_id INTEGER, requested_by TEXT, assigned_agent TEXT NOT NULL, domain TEXT DEFAULT 'marketing', action TEXT NOT NULL, priority TEXT DEFAULT 'medium', status TEXT DEFAULT 'PENDING', input TEXT DEFAULT '{}', output TEXT, dependencies TEXT DEFAULT '[]', risk TEXT DEFAULT 'LOW', approval_required INTEGER DEFAULT 0, approval_status TEXT, error TEXT, created_at TEXT DEFAULT (datetime('now')), updated_at TEXT DEFAULT (datetime('now')))`,
+    `CREATE TABLE IF NOT EXISTS marketing_experiments (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER REFERENCES tenants(id) ON DELETE CASCADE NOT NULL, product_id INTEGER REFERENCES products(id) ON DELETE SET NULL, campaign_id TEXT, hypothesis TEXT NOT NULL, variable TEXT NOT NULL, control_draft_id INTEGER REFERENCES facebook_drafts(id) ON DELETE SET NULL, variant_draft_id INTEGER REFERENCES facebook_drafts(id) ON DELETE SET NULL, control_label TEXT, variant_label TEXT, budget REAL, duration_days INTEGER, min_impressions INTEGER DEFAULT 1000, status TEXT DEFAULT 'EN_PRUEBA', result TEXT, conclusion TEXT, learning TEXT, started_at TEXT, ended_at TEXT, created_at TEXT DEFAULT (datetime('now')))`,
+    `CREATE TABLE IF NOT EXISTS marketing_campaigns (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER REFERENCES tenants(id) ON DELETE CASCADE NOT NULL, product_id INTEGER REFERENCES products(id) ON DELETE SET NULL, name TEXT NOT NULL, objective TEXT NOT NULL, status TEXT DEFAULT 'PLANNED', strategy TEXT, budget_planned REAL, budget_spent REAL DEFAULT 0, target_kpis TEXT, scaling_state TEXT, meta_ids TEXT, started_at TEXT, ended_at TEXT, created_at TEXT DEFAULT (datetime('now')))`,
+    `CREATE TABLE IF NOT EXISTS marketing_budgets (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER REFERENCES tenants(id) ON DELETE CASCADE NOT NULL UNIQUE, max_daily_spend REAL DEFAULT 50000, max_budget_change_percent REAL DEFAULT 25, max_scale_percent REAL DEFAULT 30, approval_required INTEGER DEFAULT 1, currency TEXT DEFAULT 'COP', today_spend REAL DEFAULT 0, today_date TEXT, period_spend REAL DEFAULT 0, period_start TEXT, created_at TEXT DEFAULT (datetime('now')), updated_at TEXT DEFAULT (datetime('now')))`,
+    `CREATE TABLE IF NOT EXISTS marketing_audit_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER REFERENCES tenants(id) ON DELETE CASCADE NOT NULL, agent TEXT NOT NULL, task_id INTEGER, action TEXT NOT NULL, resource TEXT, before TEXT, after TEXT, approval TEXT, reason TEXT, result TEXT DEFAULT 'PENDING', error TEXT, request_id TEXT, created_at TEXT DEFAULT (datetime('now')))`,
   ];
 
   for (const sql of tables) {
@@ -297,6 +313,9 @@ async function ensureSqliteTables(sqliteDb: import("sql.js").Database, saveDb: (
   // existe (SQLite no soporta "ADD COLUMN IF NOT EXISTS").
   const columnMigrations = [
     `ALTER TABLE tenants ADD COLUMN is_admin INTEGER DEFAULT 0`,
+    `ALTER TABLE tenants ADD COLUMN is_active INTEGER DEFAULT 1`,
+    `ALTER TABLE leads ADD COLUMN ad_context TEXT`,
+    `ALTER TABLE leads ADD COLUMN opt_out INTEGER DEFAULT 0`,
   ];
   for (const sql of columnMigrations) {
     try { sqliteDb.run(sql); } catch { /* columna ya existe */ }
