@@ -63,6 +63,26 @@ async function leerClavesGuardadas(): Promise<Record<string, { apiKey?: string; 
  * Devuelve cada proveedor con: si tiene clave (del entorno o guardada), sus
  * modelos y el estado real de verificación de cada uno.
  */
+/**
+ * ¿Esta request es la del dueño del sistema?
+ *
+ * No alcanza con `isAdmin`: en este deploy el tenant del dueño (`sofia-premium`,
+ * id 1) lo tiene en false -- verificado en producción -- así que tratarlo como
+ * un cliente más le mandaba SUS claves a `tenants.apiKeys` en vez de a la
+ * configuración global. Y la global no es un lugar cualquiera: es la que se
+ * vuelca a `process.env` y de ahí la leen Atlas y la sincronización con
+ * OpenCode. O sea que el dueño guardaba una clave, la pantalla decía que sí, y
+ * su propio operador no la veía.
+ *
+ * Se identifica con PLATFORM_TENANT_ID (por defecto 1, el tenant original del
+ * deploy), o con isAdmin para cuando eso quede bien marcado.
+ */
+function esDuenoDelSistema(req: TenantRequest): boolean {
+  if (req.tenant?.isAdmin) return true;
+  const dueno = Number(process.env.PLATFORM_TENANT_ID || 1);
+  return !!req.tenant?.id && req.tenant.id === dueno;
+}
+
 router.get("/catalog", async (req: TenantRequest, res, next) => {
   try {
     const globales = await leerClavesGuardadas();
@@ -71,7 +91,7 @@ router.get("/catalog", async (req: TenantRequest, res, next) => {
     // le miente dos veces: le muestra como propia una clave que no es y le
     // esconde que la que él cargó sí quedó guardada.
     const tenantId = req.tenant?.id;
-    const propias = tenantId && !req.tenant?.isAdmin
+    const propias = tenantId && !esDuenoDelSistema(req)
       ? await (await import("../lib/ai-keys-tenant")).clavesDelTenant(tenantId)
       : {};
     // Las del cliente ganan; las globales quedan como respaldo visible.
@@ -186,8 +206,7 @@ router.put("/provider", async (req: TenantRequest, res, next) => {
     // El dueño del sistema (tenant admin) sigue escribiendo en la global: es
     // la que hace de respaldo para todo cliente que no configuró nada.
     const tenantId = req.tenant?.id;
-    const esDuenoDelSistema = !!req.tenant?.isAdmin;
-    if (tenantId && !esDuenoDelSistema) {
+    if (tenantId && !esDuenoDelSistema(req)) {
       const { guardarClaveDeTenant, clavesDelTenant } = await import("../lib/ai-keys-tenant");
       await guardarClaveDeTenant(tenantId, proveedor, { apiKey, model });
       const suyas = await clavesDelTenant(tenantId);
