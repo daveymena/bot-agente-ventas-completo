@@ -182,6 +182,7 @@ que bloqueaban o ensuciaban el gate:
 | 7. Autonomía | ✅ (núcleo) | RiskEngine (LOW/MEDIUM/HIGH/CRITICAL) + BudgetGuard (guardrails) + `canExecuteAutonomously` + audit de cada acción. El flujo de aprobación humana usa el patrón "sí 42" existente |
 | 8. Memory | ✅ | `marketing-memory.ts` sobre `architect_memory` (memoryType `marketing_learning` + tags) |
 | 9. Testing | 🟡 Parcial | 35 tests pasando (unit + integración de atribución en SQLite). Falta: tests de los 5 agentes nuevos + mocks de Meta + tests del chat |
+| Frontend | ✅ | `artifacts/ventas-pro/src/pages/marketing.tsx` (ruta `/marketing`): chat del orquestador, resumen, atribución, tareas, experimentos, presupuesto, aprendizajes y audit. Registrada en `App.tsx` + menú lateral (`layout.tsx`). Build de Vite ✅ |
 
 ## 7. Conclusión
 
