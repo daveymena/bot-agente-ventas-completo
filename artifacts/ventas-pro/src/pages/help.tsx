@@ -38,15 +38,15 @@ export default function HelpCenterPage() {
 
   return (
     <Layout>
-      <div className="flex flex-col gap-6 animate-enter h-full">
+      <div className="flex flex-col gap-6 animate-enter md:h-full">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Centro de Ayuda</h1>
+          <h1 className="text-2xl md:text-3xl font-bold tracking-tight">Centro de Ayuda</h1>
           <p className="text-muted-foreground mt-1">Guías paso a paso para sacarle el máximo provecho a VentasPro.</p>
         </div>
 
-        <div className="grid md:grid-cols-[300px_1fr] gap-6 flex-1 min-h-0">
+        <div className="grid md:grid-cols-[300px_1fr] gap-6 md:flex-1 md:min-h-0">
           {/* Lista de guías */}
-          <div className="flex flex-col gap-4 min-h-0">
+          <div className="flex flex-col gap-4 md:min-h-0">
             <div className="relative shrink-0">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
@@ -56,7 +56,7 @@ export default function HelpCenterPage() {
                 className="pl-9 rounded-full"
               />
             </div>
-            <div className="flex-1 overflow-y-auto space-y-5 pr-1">
+            <div className="space-y-5 pr-1 md:flex-1 md:overflow-y-auto">
               {HELP_CATEGORIES.map(cat => {
                 const guides = filtered.filter(g => g.category === cat.id);
                 if (guides.length === 0) return null;
@@ -95,14 +95,14 @@ export default function HelpCenterPage() {
           </div>
 
           {/* Guía seleccionada */}
-          <Card className="glass-panel border-0 shadow-md overflow-y-auto">
+          <Card className="glass-panel border-0 shadow-md md:overflow-y-auto">
             <CardHeader>
               <div className="flex items-center gap-3">
                 <div className="h-10 w-10 rounded-xl bg-primary/10 text-primary flex items-center justify-center shrink-0">
                   <Icon className="h-5 w-5" />
                 </div>
                 <div className="min-w-0">
-                  <CardTitle className="text-xl">{guide.title}</CardTitle>
+                  <CardTitle className="text-lg md:text-xl">{guide.title}</CardTitle>
                   <CardDescription>{guide.summary}</CardDescription>
                 </div>
               </div>
@@ -121,18 +121,18 @@ export default function HelpCenterPage() {
                   // móvil cuando existe, con el escritorio como respaldo.
                   const shot = (isMobile && step.screenshotMobile) || step.screenshot;
                   return (
-                    <div key={i} className="flex gap-4">
-                      <div className="h-7 w-7 rounded-full bg-muted flex items-center justify-center text-xs font-bold shrink-0 mt-0.5">
+                    <div key={i} className="flex gap-3 md:gap-4">
+                      <div className="h-8 w-8 md:h-7 md:w-7 rounded-full bg-muted flex items-center justify-center text-sm md:text-xs font-bold shrink-0 mt-0.5">
                         {i + 1}
                       </div>
                       <div className="min-w-0 flex-1">
-                        <p className="font-semibold text-sm mb-1">{step.title}</p>
-                        <p className="text-sm text-muted-foreground leading-relaxed">{step.description}</p>
+                        <p className="font-semibold text-base md:text-sm mb-1">{step.title}</p>
+                        <p className="text-base md:text-sm text-muted-foreground leading-relaxed">{step.description}</p>
                         {shot && (
                           <img
                             src={shot}
                             alt={step.title}
-                            className="mt-3 rounded-xl border shadow-sm max-w-full"
+                            className="mt-3 w-full rounded-xl border shadow-sm"
                           />
                         )}
                       </div>

@@ -2,7 +2,14 @@
 <html lang="es">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1" />
+    <!--
+      Sin `maximum-scale=1`: eso le PROHIBE al usuario agrandar con los dedos.
+      Reportado en vivo (2026-08-19): "está todo miniaturizado" en el celular y
+      no había forma de acercar. Bloquear el zoom no arregla un diseño chico,
+      solo le saca al usuario la única salida que le quedaba -- y a quien no ve
+      bien de cerca lo deja afuera directamente.
+    -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     
     <!-- Título y descripción -->
     <title>VentasPro - Sistema de Ventas con IA</title>
