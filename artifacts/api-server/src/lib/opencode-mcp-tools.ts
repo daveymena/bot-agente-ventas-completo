@@ -288,6 +288,8 @@ export function describePlannedAction(a: { tool: string; args: any }): string {
       return `Sincronizar catálogo de productos a Facebook`;
     case "fb_page_publish":
       return `📢 PUBLICAR en el muro de la página de Facebook (público, gratis) el producto ${g.productId ?? "?"} — visible de inmediato para todos`;
+    case "crear_anuncio":
+      return `📢 Crear el anuncio de "${valorLegible(g.producto, 60)}" con $${Number(g.dailyBudget || 0).toLocaleString("es-CO")}/día — el sistema busca el producto, escribe el copy con sus datos reales, lo valida y guarda el borrador${g.subirAMeta === true ? ", y ADEMÁS crea la campaña en Meta EN PAUSA (no gasta hasta que la actives)" : " (no toca Meta)"}`;
     case "fb_ad_draft":
       // El TEXTO REAL va en el plan, no solo "generar borrador para el
       // producto 76".
@@ -433,6 +435,9 @@ async function proposeAction(
     // guarda -- antes, aunque hubiera funcionado, el texto del chat y el del
     // borrador podían no coincidir.
     fb_ad_draft: ["productId", "primaryText"],
+    // crear_anuncio hace TODO el trabajo en el backend: solo necesita el
+    // nombre del producto y el presupuesto. El copy lo escribe el servidor.
+    crear_anuncio: ["producto", "dailyBudget"],
     // `dailyBudget` obligatorio. Visto en vivo (2026-08-15): Atlas le mostró
     // al admin "$50.000 COP/día" y propuso la acción SIN dailyBudget, así que
     // iba a ejecutarse con el default de 5.000 -- diez veces menos que lo que

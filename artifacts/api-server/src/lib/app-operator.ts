@@ -3581,6 +3581,143 @@ export const TOOLS: ToolDef[] = [
     },
   },
   {
+    name: "crear_anuncio",
+    description:
+      "LA FORMA CORRECTA DE CREAR UN ANUNCIO. Hace TODO el trabajo de una sola vez: busca el producto por su nombre, arma el brief con sus datos reales, escribe el copy, lo valida y guarda el borrador. " +
+      "Usala SIEMPRE que te pidan un anuncio (\"anunciá mi curso\", \"creá un anuncio para X\") en vez de encadenar list_products + ad_brief + fb_ad_draft: eso son muchas idas y vueltas y el turno se corta antes de terminar. " +
+      "Con esto solo tenés que pasar el nombre del producto tal como lo dijo el admin y el presupuesto. Todo lo demás lo resuelve el servidor.",
+    args: '{ "producto": string (req, el nombre del producto como lo dijo el admin, ej: "mi curso de inteligencia artificial"), "dailyBudget": number (req, presupuesto diario en la moneda del negocio), "subirAMeta"?: boolean (por defecto false; si es true, además crea la campaña en Meta EN PAUSA) }',
+    run: async (args, ctx) => {
+      const texto = String(args.producto || "").trim();
+      const presupuesto = num(args.dailyBudget) || 0;
+      if (!texto) return { ok: false, summary: "Falta 'producto': el nombre del producto a anunciar." };
+      if (!(presupuesto > 0)) {
+        return { ok: false, summary: "Falta 'dailyBudget'. Preguntale al admin cuánto quiere gastar por día -- no lo inventes, es su plata." };
+      }
+
+      // ── 1. El producto lo busca el SERVIDOR, no el modelo ────────────────
+      // Misma búsqueda por palabras que list_products: frase exacta primero,
+      // y si no hay nada, palabras sueltas contra nombre y descripción.
+      const soloTenant = eq(products.tenantId, ctx.tenantId);
+      let filas = await db.select().from(products).where(and(soloTenant, ilike(products.name, `%${texto}%`))).orderBy(products.id).limit(10);
+      if (filas.length === 0) {
+        const VACIAS = new Set(["del", "las", "los", "una", "unos", "unas", "para", "por", "con", "que", "mis", "tus", "sus", "curso", "producto"]);
+        const raices = (texto.toLowerCase().match(/[a-záéíóúñ0-9]{3,}/g) || [])
+          .filter((w) => !VACIAS.has(w))
+          .map((w) => (w.length > 4 ? w.replace(/(es|s)$/, "") : w));
+        if (raices.length) {
+          const alt = raices.flatMap((r) => [ilike(products.name, `%${r}%`), ilike(products.description, `%${r}%`)]);
+          filas = await db.select().from(products).where(and(soloTenant, or(...alt))).orderBy(products.id).limit(10);
+        }
+      }
+      if (filas.length === 0) {
+        return { ok: false, summary: `No encontré ningún producto que se parezca a "${texto}" en el catálogo. Pedile al admin el nombre exacto -- NO inventes un producto ni ofrezcas crear uno nuevo sin que él lo pida.` };
+      }
+      if (filas.length > 1) {
+        const lista = filas.slice(0, 8).map((p: any) => `${p.id} = ${p.name}`).join(" · ");
+        return { ok: false, summary: `Hay varios productos que encajan con "${texto}": ${lista}. Preguntale al admin cuál es y volvé a llamarme con ese nombre exacto.` };
+      }
+      const prod: any = filas[0];
+
+      // ── 2. El brief lo arma el SERVIDOR ──────────────────────────────────
+      const tenant = await tenantManager.getTenantById(ctx.tenantId);
+      const { construirBrief, puntuarCopy } = await import("./anuncio-inteligente");
+      const brief = construirBrief(prod, {
+        enlace: `${getAppUrl().replace(/\/+$/, "")}/p/${prod.id}`,
+        whatsapp: (tenant as any)?.whatsappNumber || undefined,
+      });
+
+      // ── 3. UNA sola llamada al modelo: escribir el copy ──────────────────
+      // Acá está el cambio de fondo. Antes el modelo orquestaba los cinco
+      // pasos y cada uno era una ida y vuelta contra una IA gratuita: ocho
+      // viajes para una tarea donde solo UNO aporta valor, y el turno de 135s
+      // se agotaba antes de terminar (tres veces seguidas, medido en vivo).
+      //
+      // Buscar el producto es una consulta, armar el brief es una función,
+      // guardar es un INSERT y subir son 4 llamadas a Graph. Nada de eso
+      // necesita una IA. Lo único que la necesita es escribir el texto.
+      const { callMarketingAI, tryParseJson } = await import("./marketing-team/ai");
+      const pedirCopy = async (reparo?: string) => {
+        const salida = await callMarketingAI<any>({
+          tenantId: ctx.tenantId,
+          systemPrompt:
+            "Sos un copywriter publicitario experto en Facebook Ads. Escribís en español rioplatense, directo y sin relleno. " +
+            "Respondés SOLO un JSON con las claves primaryText, headline y description. Nada más.",
+          userPrompt:
+            `${brief.texto}\n\n` +
+            `Escribí el anuncio para este producto.\n` +
+            `- primaryText: el texto completo del anuncio. Arrancá interpelando con un problema o deseo real del cliente (nunca "Tenemos disponible" ni "Comprá ahora"). ` +
+            `Después el problema, el producto como salida, los beneficios traducidos de sus características REALES, el precio y UNA sola acción.\n` +
+            `- headline: título corto, máximo 40 caracteres.\n` +
+            `- description: una línea de refuerzo.\n\n` +
+            `PROHIBIDO inventar: nada que no esté en el brief. Ni garantías, ni plazos, ni cupos, ni estadísticas ("el 80% de..."), ni cuánta gente lo compró, ni testimonios.` +
+            (reparo ? `\n\nTu intento anterior fue RECHAZADO por esto: ${reparo}\nCorregilo y devolvé el JSON de nuevo.` : ""),
+          json: true,
+          maxTokens: 1200,
+        });
+        const o: any = typeof salida === "string" ? tryParseJson(salida) : salida;
+        return o && typeof o === "object" ? o : null;
+      };
+
+      let copy = await pedirCopy();
+      if (!copy?.primaryText) return { ok: false, summary: "El modelo no devolvió un copy utilizable. Probá de nuevo en un momento." };
+
+      // ── 4. Validar, y si algo no cierra, pedirle UNA corrección ──────────
+      // El reintento vive acá adentro: al admin no le cuesta un turno ni una
+      // confirmación nueva, que era el bucle viejo de escribir-y-rebotar.
+      let problema = await validarContenidoAnuncio(
+        { productId: prod.id, primaryText: copy.primaryText, headline: copy.headline, description: copy.description },
+        ctx,
+      );
+      if (problema) {
+        const segundo = await pedirCopy(problema);
+        if (segundo?.primaryText) {
+          copy = segundo;
+          problema = await validarContenidoAnuncio(
+            { productId: prod.id, primaryText: copy.primaryText, headline: copy.headline, description: copy.description },
+            ctx,
+          );
+        }
+      }
+      if (problema) return { ok: false, summary: `No pude escribir un copy que pase la validación: ${problema}` };
+
+      // ── 5. Guardar el borrador (INSERT, sin IA) ──────────────────────────
+      const guardado = await executeAction(
+        "fb_ad_draft",
+        { productId: prod.id, primaryText: copy.primaryText, headline: copy.headline, description: copy.description, dailyBudget: presupuesto },
+        ctx,
+      );
+      if (!guardado.ok) return { ok: false, summary: `Escribí el anuncio pero no se pudo guardar: ${guardado.summary}` };
+      const draftId = Number((guardado as any)?.data?.id) || null;
+
+      // ── 6. Subir a Meta, si lo pidieron (4 llamadas a Graph, sin IA) ─────
+      let meta = "";
+      if (args.subirAMeta === true && draftId) {
+        const subida = await executeAction("fb_upload_draft_to_meta", { draftId }, ctx);
+        meta = subida.ok
+          ? `\n\n📤 ${subida.summary}`
+          : `\n\n⚠️ El borrador quedó guardado, pero NO se pudo subir a Meta: ${subida.summary}`;
+      }
+
+      const nota = puntuarCopy({ primaryText: copy.primaryText, headline: copy.headline });
+      return {
+        ok: true,
+        summary: [
+          `✅ Anuncio creado para "${prod.name}" (id ${prod.id})${draftId ? ` — borrador ${draftId}` : ""}`,
+          ``,
+          `🎯 ${copy.headline}`,
+          ``,
+          copy.primaryText,
+          ``,
+          `💰 Presupuesto: $${presupuesto.toLocaleString("es-CO")}/día`,
+          `⭐ Calidad del copy: ${nota.puntaje}/100${nota.notas.length ? `\n${nota.notas.map((n: string) => `   • ${n}`).join("\n")}` : ""}`,
+          meta,
+        ].filter(Boolean).join("\n"),
+        data: { draftId, productId: prod.id, copy },
+      };
+    },
+  },
+  {
     name: "marketing_diagnostico",
     description: "EL DIAGNÓSTICO DEL EMBUDO COMPLETO. Corre el analista de rendimiento y el agente de diagnóstico del equipo de marketing y te dice DÓNDE está el problema: si es adquisición (pocos leads), calidad de lead, seguimiento, oferta o precio. Usala cuando te digan 'las campañas funcionan pero no vendo', 'el negocio no crece' o antes de recomendar subir presupuesto -- si el cuello no está en los anuncios, subir el presupuesto solo quema plata más rápido. Lectura pura.",
     args: '{ "dias"?: number (ventana a analizar, por defecto 30) }',
@@ -4047,6 +4184,9 @@ export const DESTRUCTIVE_TOOLS = new Set([
   // Crear un píxel deja un objeto PERMANENTE en la cuenta de Meta del negocio
   // y duplicarlo parte los datos de conversión en dos -- nunca sin el sí.
   "fb_create_pixel",
+  // crear_anuncio guarda un borrador y, si se lo pide, crea la campana en
+  // Meta: son cambios reales, van con confirmacion del admin.
+  "crear_anuncio",
   // Borrar una campaña es irreversible y Meta la borra EN CASCADA (conjuntos
   // y anuncios incluidos). No hay papelera del otro lado.
   "fb_delete_campaign",
