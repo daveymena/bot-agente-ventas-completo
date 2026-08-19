@@ -428,6 +428,32 @@ Responde SOLO con este JSON exacto:
    * genera copy con IA, sube imagen, crea campaña + conjunto + anuncio.
    * Acepta targeting personalizado (ciudad, edad, intereses, etc.).
    */
+  /**
+   * ¿Meta va a poder descargar esta imagen?
+   *
+   * Comprueba lo mismo que comprueba Meta: que la URL responda y que sea una
+   * imagen de verdad (JPG/PNG/WEBP). Un SVG o un 404 hacen que rechace la
+   * creación del anuncio completa.
+   */
+  private async imagenDescargable(url: string): Promise<boolean> {
+    try {
+      const r = await fetch(url, { method: "GET", signal: AbortSignal.timeout(12_000) });
+      if (!r.ok) return false;
+      const tipo = (r.headers.get("content-type") || "").toLowerCase();
+      if (!tipo.startsWith("image/")) return false;
+      // SVG es "image/" pero Meta no lo acepta en un creativo, y además es lo
+      // que devuelve nuestra propia ruta de respaldo cuando NO encuentra el
+      // archivo ("Imagen no disponible").
+      if (tipo.includes("svg")) return false;
+      const largo = Number(r.headers.get("content-length") || 0);
+      // Un archivo de pocos bytes no es una foto: es un cartel o un error.
+      if (largo > 0 && largo < 2000) return false;
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   async createAdForProduct(
     productId: number,
     dailyBudget: number = 5000,
@@ -476,6 +502,33 @@ Responde SOLO con este JSON exacto:
       // convertirla a URL absoluta con APP_URL, igual que en Marketplace.
       let creativeImageUrl = absoluteImageUrl(product.imageUrl) || "";
       let hasRealProductImage = !!creativeImageUrl;
+
+      // ── Que la imagen EXISTA de verdad, no que el campo no esté vacío ────
+      // Meta descarga la imagen desde sus servidores. Si la URL no responde,
+      // rechaza la creación entera con "No se ha podido descargar tu imagen"
+      // (código 100, subcódigo 3858258) -- y hasta hoy eso llegaba al admin
+      // como "Meta no aceptó crear la campaña", sin decir por qué.
+      //
+      // Reproducido en vivo el 2026-08-19 con el curso de piano: el producto
+      // tenía `imageUrl = /uploads/products/123.jpg`, pero ese archivo no
+      // está en el volumen y la ruta /uploads no tiene respaldo -> 404.
+      //
+      // Un SVG tampoco sirve: Meta solo acepta JPG/PNG en un creativo. Y la
+      // ruta /images/products/ devuelve justamente un SVG de "Imagen no
+      // disponible" cuando no encuentra el archivo, así que un campo lleno
+      // puede ser igual un cartel gris.
+      //
+      // Si la imagen no sirve, se trata como si el producto NO tuviera:
+      // abajo ya existe el camino de generarla con IA. Vale más un anuncio
+      // con foto generada que una campaña que Meta rechaza entera.
+      if (creativeImageUrl) {
+        const sirve = await this.imagenDescargable(creativeImageUrl);
+        if (!sirve) {
+          logger.warn({ productId: product.id, url: creativeImageUrl }, "[Facebook] La imagen del producto no se puede descargar o no es JPG/PNG -- se genera una");
+          creativeImageUrl = "";
+          hasRealProductImage = false;
+        }
+      }
 
       // Sin foto real: se intenta generar una con IA (nombre + descripción
       // reales del producto, no un estilo genérico) antes de caer al cartel
