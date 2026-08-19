@@ -919,9 +919,27 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
       // le manda un segundo pedido corto EN LA MISMA SESIÓN: ya tiene el
       // copy que escribió, solo le falta guardarlo. Si igual no lo hace, se
       // le avisa al admin con honestidad en vez de dejarlo creyendo que sí.
-      const PEDIDO_DE_ACCION = /\b(cre[aá]|prepar[aá]|arm[aá]|gener[aá]|hac[eé]|publi[cq])/i;
+      const PEDIDO_DE_ACCION = /\b(cre[aá]|prepar[aá]|arm[aá]|gener[aá]|hac[eé]|publi[cq]|guard[aá]|segu[ií]|contin[uú])/i;
       const MENCIONA_ANUNCIO = /\b(anuncio|campa|ad\b|publicaci[oó]n|post)\b/i;
-      const pidioCrearAlgo = PEDIDO_DE_ACCION.test(String(prompt)) && MENCIONA_ANUNCIO.test(String(prompt));
+
+      // Que el modelo YA HAYA REDACTADO el anuncio vale como pedido, aunque el
+      // último mensaje del admin no lo diga.
+      //
+      // Medido en vivo (2026-08-18): el admin pidió el anuncio, Atlas preguntó
+      // cuál producto, el admin contestó "El correcto es PACK EDUCA A TU PERRO,
+      // seguí vos con todo" y Atlas redactó el anuncio ENTERO sin guardarlo.
+      // Mirando solo ese mensaje, el pedido de crear quedaba dos turnos atrás.
+      // Peor todavía con un "si, confirmo" a secas.
+      //
+      // Mirar lo que el modelo ESCRIBIÓ es más confiable que adivinar la
+      // intención del admin: si en la respuesta hay un anuncio redactado y no
+      // se guardó nada, hay que insistir, sin importar cómo se pidió.
+      const REDACTO_UN_ANUNCIO =
+        /(🔥\s*GANCHO|TEXTO PRINCIPAL|📝\s*Borrador de anuncio|borrador de anuncio (listo|preparado)|📌\s*TITULAR)/i
+          .test(String(finalReplyVerificado || ""));
+      const pidioCrearAlgo =
+        (PEDIDO_DE_ACCION.test(String(prompt)) && MENCIONA_ANUNCIO.test(String(prompt)))
+        || REDACTO_UN_ANUNCIO;
       const quedaTiempo = turnDeadline - Date.now() > 25_000;
 
       // Si Atlas está PREGUNTANDO algo, no guardar es lo correcto.
@@ -933,9 +951,36 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
       // como texto en el chat, NO se guardó como borrador". No había nada que
       // guardar: estaba pidiendo el dato que le faltaba, que es justo lo que
       // le pedimos que haga antes de inventar.
-      const PREGUNTA_AL_ADMIN =
-        /\?\s*$|¿[^?]{3,120}\?|\b(decime|dec[ií]dme|cu[aá]l de|necesito que me (digas|pases)|me falta saber|confirmame|para cu[aá]l)\b/i;
-      const estaPreguntando = PREGUNTA_AL_ADMIN.test(String(finalReplyVerificado || "").slice(-400));
+      //
+      // PERO tiene que ser una pregunta por un DATO QUE FALTA, no un "¿te
+      // gusta?" sobre algo que ya escribió. El patrón viejo se activaba con
+      // cualquier "?" o cualquier "decime", y el modelo cierra CASI SIEMPRE
+      // pidiendo confirmación -- así que la insistencia no se disparaba nunca.
+      //
+      // Medido en vivo (2026-08-18): Atlas redactó el anuncio completo y
+      // cerró con "¿Confirmás este borrador? ... Si preferís otra foto,
+      // decime y la buscamos". Eso hacía `estaPreguntando = true`, se saltaba
+      // la insistencia, y el turno terminaba con CERO borradores guardados
+      // pese a que el admin ya había confirmado dos veces. En toda esa
+      // conversación no se guardó ni un anuncio.
+      //
+      // Terminar preguntando es, en los hechos, una salida de emergencia
+      // infinita: mientras cierre con una pregunta, nunca tiene que ejecutar.
+      // Ahora solo cuenta como pregunta legítima la que pide un dato que el
+      // modelo NO puede sacar solo (cuál producto, qué nombre, cuánto
+      // presupuesto). Pedir aprobación no lo exime de guardar: para eso está
+      // el plan propuesto, que ya le pide confirmación al admin igual.
+      const PIDE_DATO_FALTANTE =
+        /¿\s*(para |de |con |a |en )?(cu[aá]l|qu[eé]|cu[aá]nto|qui[eé]n|d[oó]nde|c[oó]mo se llama)\b[^?]{0,140}\?/i;
+      // "Confirmame cuál es el correcto" es una pregunta legítima aunque no
+      // lleve signo de interrogación -- le falta un dato que solo el admin
+      // tiene. Se reconoce por el "cuál", que es lo que separa "elegí entre
+      // estos" de "¿te gusta lo que escribí?".
+      const PIDE_QUE_ELIJA =
+        /\b(decime (el|la|cu[aá]l|qu[eé]|c[oó]mo)|(confirmame|decidme|indicame|pasame) cu[aá]l|cu[aá]l (es el|de (los|las|ellos))|necesito que me (digas|pases)|me falta saber|para cu[aá]l|respond[eé] con el n[uú]mero)\b/i;
+      const cierreRespuesta = String(finalReplyVerificado || "").slice(-400);
+      const estaPreguntando =
+        PIDE_DATO_FALTANTE.test(cierreRespuesta) || PIDE_QUE_ELIJA.test(cierreRespuesta);
 
       if (pidioCrearAlgo && !estaPreguntando && plannedActions.length === 0 && sesionOpencode && modeloUsado && quedaTiempo && !opencodeError) {
         logger.info({ tenantId, sessionId }, "[AtlasOpenCode] Pidió crear algo y no llamó ninguna herramienta -- se insiste una vez");
@@ -945,12 +990,27 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
             system,
             model: modeloUsado,
             tools,
+            // El texto viejo le decía "llamá fb_ad_draft" a secas, y por acá
+            // eso NO existe: fb_ad_draft es de mutación, así que la única vía
+            // es propose_action con tool="fb_ad_draft". Verificado en vivo el
+            // 18-08-2026: el modelo terminó proponiendo fb_upload_draft_to_meta
+            // con draftId null -- intentando subir a Meta un borrador que
+            // nunca había creado, porque nadie le dijo cuál era el paso 1.
             text:
-              "[SISTEMA] Escribiste el contenido pero NO lo guardaste: no llamaste ninguna herramienta, " +
-              "así que del lado del admin no existe nada. Llamá AHORA la herramienta que corresponde " +
-              "(fb_ad_draft para un anuncio, propose_action para publicar) usando EXACTAMENTE el texto que " +
-              "acabás de redactar, completo y sin huecos. No vuelvas a escribir el copy en el chat ni pidas " +
-              "confirmación: solo hacé la llamada.",
+              "[SISTEMA] Escribiste el anuncio pero NO lo guardaste: no llamaste ninguna herramienta, " +
+              "así que del lado del admin no existe nada.\n\n" +
+              "Llamá AHORA `propose_action` con:\n" +
+              '  tool: "fb_ad_draft"\n' +
+              '  args: { "productId": <el id REAL del producto, el que ya leíste con list_products>, ' +
+              '"primaryText": "<el texto principal COMPLETO que acabás de escribir, palabra por palabra>", ' +
+              '"headline": "<el titular>", "description": "<la descripción, si la tenés>" }\n\n' +
+              "Reglas de este paso:\n" +
+              "- El borrador se crea con fb_ad_draft. NO propongas fb_upload_draft_to_meta ahora: sin un " +
+              "borrador creado no hay draftId que subir, y proponerlo con draftId vacío hace fallar la acción " +
+              "después de que el admin la aprobó.\n" +
+              "- Copiá el texto tal cual lo escribiste, sin resumirlo y sin dejar huecos tipo [PRECIO] o [enlace].\n" +
+              "- No vuelvas a escribir el copy en el chat ni pidas confirmación otra vez: el sistema ya le muestra " +
+              "la propuesta al admin y le pide el sí. Solo hacé la llamada.",
             timeoutMs: Math.max(turnDeadline - Date.now() - 5_000, 15_000),
           });
           plannedActions = await drainDraftPlan(tenantId, turnId);
