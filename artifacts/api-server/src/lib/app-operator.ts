@@ -65,7 +65,12 @@ async function recordResearchEvidence(ctx: OperatorContext, query: string): Prom
 async function hasRecentResearch(ctx: OperatorContext): Promise<boolean> {
   if (!ctx.sessionId) return false;
   try {
-    const since = new Date(Date.now() - RESEARCH_EVIDENCE_WINDOW_MS).toISOString();
+    // Date, NO string: la columna es `timestamp` y Drizzle le llama
+    // `.toISOString()` al valor. Con un string ya convertido tira
+    // "value.toISOString is not a function". Acá el catch se lo tragaba y
+    // devolvia false, o sea "no investigaste nada" SIEMPRE -- el candado de
+    // fb_ad_draft quedaba trabado sin que nada explicara por que.
+    const since = new Date(Date.now() - RESEARCH_EVIDENCE_WINDOW_MS);
     const rows = await db
       .select({ id: architectMemory.id })
       .from(architectMemory)

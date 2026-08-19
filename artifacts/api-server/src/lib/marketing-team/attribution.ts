@@ -76,7 +76,12 @@ export async function getAttributionSummary(
 ): Promise<{ rows: AdAttribution[]; totalLeads: number; totalPaid: number; totalRevenue: number }> {
   // ISO string: el driver de SQLite (sql.js) no acepta objetos Date al bindear;
   // en PostgreSQL el string ISO también es válido para columnas timestamptz.
-  const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+  // Date, NO string. La columna es `timestamp` y Drizzle le llama
+  // `.toISOString()` al valor que recibe: con un string ya convertido eso
+  // revienta con "value.toISOString is not a function" y la consulta entera
+  // devuelve 500. Verificado en vivo el 2026-08-19: el chat de Marketing
+  // fallaba con ese error en 909ms ante cualquier mensaje.
+  const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
 
   const leadRows = await db
     .select()
@@ -152,7 +157,12 @@ export async function getAttributionSummary(
  * los eslabones que el sistema puede medir de verdad.
  */
 export async function getFunnelSnapshot(tenantId: number, days = 30): Promise<FunnelSnapshot> {
-  const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+  // Date, NO string. La columna es `timestamp` y Drizzle le llama
+  // `.toISOString()` al valor que recibe: con un string ya convertido eso
+  // revienta con "value.toISOString is not a function" y la consulta entera
+  // devuelve 500. Verificado en vivo el 2026-08-19: el chat de Marketing
+  // fallaba con ese error en 909ms ante cualquier mensaje.
+  const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
 
   const [leadCount] = await db
     .select({ n: count() })
