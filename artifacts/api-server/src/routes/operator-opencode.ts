@@ -678,7 +678,18 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
         // le deja al modelo el margen que necesita para llegar a proponer.
         // Vale más un anuncio creado con investigación más corta que una
         // investigación completa que muere sin anuncio.
-        const PIDE_EJECUTAR = /\b(guard[aá]|sub[ií]|public[aá]|cre[aá]\w*\s+(y|,)|deja\w*\s+list)/i.test(String(prompt));
+        // Un pedido de anuncio SIEMPRE ejecuta: `crear_anuncio` termina
+        // guardando un borrador, lo pida el admin con esa palabra o no. Esta
+        // condición era una lista de verbos y volvía a fallar por el mismo
+        // motivo de siempre -- medido el 2026-08-19 con "Creá un anuncio ...
+        // no lo subas todavía": ni "creá" (el patrón exige "creá ... y") ni
+        // "subas" (el patrón exige "sub" + i/í) enganchaban, así que el turno
+        // se tomaba los 70s largos de investigación para un pedido que sí iba
+        // a ejecutar. Es la cuarta vez que enumerar palabras deja afuera un
+        // caso obvio; acá directamente no hace falta adivinar el verbo.
+        const PIDE_EJECUTAR =
+          PEDIDO_DE_ANUNCIO.test(String(prompt))
+          || /\b(guard[aá]|sub[ií]|public[aá]|cre[aá]\w*\s+(y|,)|deja\w*\s+list)/i.test(String(prompt));
         const PRESUPUESTO_INVESTIGACION_MS = PIDE_EJECUTAR ? 35_000 : 70_000;
         try {
           const tInv = Date.now();
