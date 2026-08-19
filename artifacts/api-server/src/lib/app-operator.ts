@@ -1910,10 +1910,12 @@ export const TOOLS: ToolDef[] = [
     name: "search_product_images",
     description:
       "BUSCAR imágenes profesionales de alta calidad en internet para un producto o tema. " +
-      "Devuelve URLs de fotos reales, aptas para Facebook Ads (mínimo 600px, sin logos/iconos/Wikipedia). " +
-      "Usa Pexels (stock gratuito), Brave Images y DuckDuckGo Images. " +
-      "Muéstrale al admin las opciones con Markdown: ![Opción 1](url) para que elija. " +
-      "Luego usa set_product_image con la URL elegida.",
+      "Devuelve URLs de fotos reales (mínimo 600px, sin logos/iconos/Wikipedia). " +
+      "⚠️ SOLO las de Pexels son PUBLICABLES: tienen licencia comercial. Las de Brave y DuckDuckGo salen de webs de terceros " +
+      "y sirven ÚNICAMENTE como referencia visual para inspirarte o para pedirle una parecida a generate_image -- " +
+      "NO las asignes como imagen del anuncio: set_product_image las va a rechazar, porque publicarlas es usar material con derechos de otro " +
+      "y el problema recae sobre la cuenta de Facebook del admin. " +
+      "Cuando le muestres opciones al admin con Markdown ![Opción 1](url), decile de cuáles puede elegir de verdad y cuáles son solo referencia.",
     args: '{ "query": string (req, ej: "curso excel online profesional"), "limit": number (opcional, default 6) }',
     run: async (args) => {
       const query = String(args.query || "").trim();
@@ -3057,12 +3059,56 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: "set_product_image",
-    description: "Asignar una imagen a un producto desde una URL (una foto que el admin provee, o una imagen generada). La sube a Cloudinary para que quede PERMANENTE (no se vence ni se pierde en redeploys) y actualiza el producto. Cambia datos → requiere confirmación.",
-    args: '{ "productId": number (req), "imageUrl": string (req, URL de la imagen a asignar) }',
+    description: "Asignar una imagen a un producto desde una URL. Solo acepta imágenes que el negocio PUEDE usar legalmente: las suyas propias, las generadas con IA (generate_image) o stock con licencia comercial (Pexels). Las fotos sacadas de webs ajenas (resultados de Brave/DuckDuckGo) se rechazan: publicarlas en un anuncio es usar material con derechos de otro. La sube a Cloudinary para que quede PERMANENTE y actualiza el producto. Cambia datos → requiere confirmación.",
+    args: '{ "productId": number (req), "imageUrl": string (req, URL de la imagen), "esMia"?: boolean (solo si el admin CONFIRMA que la foto es de su negocio o tiene derechos sobre ella) }',
     run: async (args, ctx) => {
       const id = num(args.productId);
       const src = String(args.imageUrl || "").trim();
       if (!id || !src) return { ok: false, summary: "Faltan 'productId' y/o 'imageUrl'" };
+
+      // ── De dónde puede salir legalmente la imagen de un anuncio ──────────
+      // Encontrado probando el flujo en vivo (2026-08-19): a un pedido de
+      // anuncio, Atlas ofreció 6 fotos de eukanuba.com, freepik premium y dos
+      // blogs de mascotas. Ninguna es del negocio. Si una llega a un anuncio
+      // publicado, el problema de derechos es del dueño de la cuenta, no del
+      // sitio de origen -- y el admin no tiene forma de saber que esas URLs
+      // venían de un scraping de imágenes.
+      //
+      // El candado va acá y no en la búsqueda a propósito: `search_product_images`
+      // puede seguir mostrando referencias visuales para inspirarse (es útil),
+      // pero ESTE es el único punto por el que una imagen llega a ser el
+      // creativo de un anuncio. Un solo lugar que controlar.
+      //
+      // Se permite: el propio dominio de la app, Cloudinary (ya hospedadas),
+      // Pexels (stock con licencia comercial explícita) y los generadores de
+      // IA que usa generate_image. Cualquier otra cosa exige que el admin
+      // afirme que es suya.
+      const FUENTES_PERMITIDAS = [
+        /(^|\.)cloudinary\.com$/i,
+        /(^|\.)pexels\.com$/i,
+        /(^|\.)pollinations\.ai$/i,
+        /(^|\.)openai\.com$/i,
+        /(^|\.)oaidalleapiprodscus\.blob\.core\.windows\.net$/i,
+      ];
+      if (!/^data:/i.test(src) && args.esMia !== true) {
+        let host = "";
+        try { host = new URL(src).hostname; } catch { host = ""; }
+        const propio = (() => {
+          try { return host === new URL(getAppUrl()).hostname; } catch { return false; }
+        })();
+        const permitida = propio || FUENTES_PERMITIDAS.some((r) => r.test(host));
+        if (host && !permitida) {
+          return {
+            ok: false,
+            summary:
+              `No puedo asignar esa imagen: viene de ${host}, que no es del negocio. Publicar en un anuncio una foto sacada de una web ajena ` +
+              `es usar material con derechos de otro, y el problema recae sobre la cuenta de Facebook del admin, no sobre el sitio de origen.\n\n` +
+              `Opciones válidas: generar una con generate_image, usar una de Pexels (stock con licencia comercial), o una foto propia del negocio.\n\n` +
+              `Si el admin te CONFIRMA que esa foto es suya o que tiene derechos sobre ella, volvé a proponerlo con "esMia": true. ` +
+              `No lo asumas vos: preguntáselo.`,
+          };
+        }
+      }
       // El filtro por tenant no es opcional: sin él, un negocio podía
       // cambiarle la imagen a un producto de OTRO negocio sabiendo su id
       // (corregido 2026-08-15). Los ids son correlativos y fáciles de tantear.
