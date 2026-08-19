@@ -852,15 +852,41 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
       // ejecución real ocurre en la rama de aprobación, que retorna mucho
       // antes. Así que cualquier "ya está hecho" es falso POR CONSTRUCCIÓN,
       // haya plan o no.
+      // La lista CERRADA de verbos era el agujero. Medido en vivo
+      // (2026-08-19): Atlas contestó "✅ Borrador 89 subido a Meta en pausa.
+      // 📂 La campaña quedó pausada" y Meta devolvía {"campaigns":[]} -- no
+      // existía nada. "subido" y "pausada" no estaban en la lista, así que el
+      // candado no se activó y el admin quedó creyendo que tenía un anuncio
+      // en su cuenta.
+      //
+      // Perseguir verbos uno por uno es perder siempre: cada palabra que no
+      // anticipamos es una mentira que pasa. En castellano los participios
+      // terminan en -ado/-ido (con sus femeninos y plurales), así que se
+      // reconoce la FORMA en vez de enumerar significados: subido, pausada,
+      // creado, guardada, publicados, cargado, lo que venga.
+      //
+      // Un falso positivo acá no hace daño: en este punto del código NO se
+      // ejecutó ninguna acción de escritura (la ejecución real vive en la
+      // rama de aprobación, que retorna mucho antes), así que la aclaración
+      // "todavía no se guardó nada" es cierta SIEMPRE que llegue hasta acá.
+      // Entre avisar de más y dejar pasar un "ya está hecho" falso, este
+      // proyecto ya sabe cuál duele.
+      // Las tres van como literales y NO armadas con `new RegExp` + plantilla:
+      // construyéndolas así los escapes se pierden (`\b\w` terminaba siendo
+      // `w`) y el candado quedaba mudo sin que nada avisara. Verificado con
+      // pruebas antes de dar esto por bueno.
+      const texto = String(finalReplyVerificado || "");
       const AFIRMA_HABERLO_HECHO =
-        /(✅|listo|listos)[^\n]{0,80}\b(cread[oa]s?|generad[oa]s?|guardad[oa]s?|publicad[oa]s?|activad[oa]s?|registrad[oa]s?|actualizad[oa]s?)\b/i
-        .test(String(finalReplyVerificado || ""))
-        || /\b(campos?|borrador|anuncio|producto|cambios?)\s+(guardad[oa]s?|cread[oa]s?|registrad[oa]s?|actualizad[oa]s?)\b/i
-        .test(String(finalReplyVerificado || ""))
-        // "quedó actualizado" / "fueron creados" / "ya está guardado": el "ya"
-        // no puede ser obligatorio, casi nunca aparece.
-        || /\b(qued(ó|o|aron)|fue(ron)?|est(á|á n|an?))\s+(cread|guardad|actualizad|registrad|publicad|activad)/i
-        .test(String(finalReplyVerificado || ""));
+        // "✅ ... subido", "Listo, ... publicado"
+        /(?:✅|✔️|\blistos?\b)[^\n]{0,100}?\b\w{3,}(?:ad[oa]s?|id[oa]s?)\b/i.test(texto)
+        // "quedó pausada", "fue publicado", "ya está actualizado"
+        || /\b(?:qued(?:ó|o|aron)|fue(?:ron)?|est(?:á|án|a|an))\s+(?:ya\s+)?\w{3,}(?:ad[oa]s?|id[oa]s?)\b/i.test(texto)
+        // "Borrador guardado", "campaña creada", "campos guardados"
+        // "producto" queda FUERA a propósito: "encontré estos productos
+        // relacionados" es una pregunta legítima y "relacionados" termina en
+        // -ados. Un producto realmente guardado lo cazan los dos patrones de
+        // arriba ("✅ ... guardado", "el producto ya está actualizado").
+        || /\b(?:campos?|borrador(?:es)?|anuncios?|campa[nñ]as?|cambios?|copy)\b[^\n]{0,20}?\b\w{3,}(?:ad[oa]s?|id[oa]s?)\b/i.test(texto);
 
       if (AFIRMA_HABERLO_HECHO) {
         logger.warn(
@@ -919,7 +945,11 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
       // le manda un segundo pedido corto EN LA MISMA SESIÓN: ya tiene el
       // copy que escribió, solo le falta guardarlo. Si igual no lo hace, se
       // le avisa al admin con honestidad en vez de dejarlo creyendo que sí.
-      const PEDIDO_DE_ACCION = /\b(cre[aá]|prepar[aá]|arm[aá]|gener[aá]|hac[eé]|publi[cq]|guard[aá]|segu[ií]|contin[uú])/i;
+      // "subí" faltaba, y era justo el verbo del paso que más importa.
+      // Medido en vivo (2026-08-19): a "Subí el borrador 89 a Meta EN PAUSA"
+      // Atlas contestó "✅ subido" sin llamar nada, y como el pedido no
+      // matcheaba ningún verbo de acción, la insistencia ni se intentó.
+      const PEDIDO_DE_ACCION = /\b(cre[aá]|prepar[aá]|arm[aá]|gener[aá]|hac[eé]|publi[cq]|guard[aá]|sub[ií]|carg[aá]|activ[aá]|paus[aá]|segu[ií]|contin[uú])/i;
       const MENCIONA_ANUNCIO = /\b(anuncio|campa|ad\b|publicaci[oó]n|post)\b/i;
 
       // Que el modelo YA HAYA REDACTADO el anuncio vale como pedido, aunque el
