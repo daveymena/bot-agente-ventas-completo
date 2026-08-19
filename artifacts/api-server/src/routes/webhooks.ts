@@ -12,6 +12,58 @@ import { tenantManager } from "../lib/tenantManager";
 const router = Router();
 
 /**
+ * Avisarle a Meta que hubo una COMPRA REAL (Conversions API).
+ *
+ * Hueco encontrado el 2026-08-19: `sendPurchaseEvent` ya existía y se llamaba
+ * desde `agent.ts` cuando el agente marca la venta en la conversación, pero
+ * en `routes/webhooks.ts` había CERO referencias -- justo el camino donde la
+ * plata está verificada contra la pasarela (MercadoPago re-consultado por
+ * /v1/payments/{id}, PayPal por IPN). O sea: las compras más confiables del
+ * sistema nunca llegaban a Meta.
+ *
+ * Por qué importa acá y no solo el píxel del navegador: estas ventas se
+ * cierran por WhatsApp, no en la web. Un snippet en el sitio no las ve nunca.
+ * Sin este evento, una campaña con objetivo de compras no tiene NADA de lo
+ * que aprender, por bien segmentada que esté.
+ *
+ * Nunca rompe el flujo: si falla, se loguea y la entrega del producto sigue.
+ */
+async function avisarCompraAMeta(opts: {
+  tenantId: number;
+  productId: number;
+  amount: number;
+  currency?: string;
+  customerPhone?: string;
+  customerEmail?: string;
+  origen: string;
+}): Promise<void> {
+  try {
+    const tenant = await tenantManager.getTenantById(opts.tenantId);
+    const fb: any = (tenant as any)?.facebook || {};
+    if (!fb.pixelId || !fb.accessToken) {
+      logger.debug({ tenantId: opts.tenantId }, "[Webhook→Meta] Tenant sin píxel o sin token: no se envía el evento de compra");
+      return;
+    }
+    const { sendPurchaseEvent } = await import("../lib/meta-conversions-api");
+    const ok = await sendPurchaseEvent({
+      pixelId: fb.pixelId,
+      accessToken: fb.accessToken,
+      value: Number(opts.amount) || 0,
+      currency: opts.currency || "COP",
+      contentIds: [opts.productId],
+      customerPhone: opts.customerPhone,
+      customerEmail: opts.customerEmail,
+    });
+    logger.info(
+      { tenantId: opts.tenantId, productId: opts.productId, ok, origen: opts.origen },
+      ok ? "[Webhook→Meta] Compra verificada informada a Meta" : "[Webhook→Meta] Meta no confirmó el evento de compra",
+    );
+  } catch (e: any) {
+    logger.warn({ err: e?.message, origen: opts.origen }, "[Webhook→Meta] No se pudo informar la compra a Meta");
+  }
+}
+
+/**
  * Estos webhooks ENTREGAN el producto: marcan el pago como confirmado y le
  * mandan al cliente el link de acceso real por WhatsApp. Son endpoints
  * públicos (tienen que serlo, los llama la pasarela), así que NADA de lo que
@@ -171,6 +223,18 @@ router.post("/mercadopago", async (req: Request, res: Response) => {
             logger.info({ paymentId: pendingPayment.id, productId }, "[Webhook] Pago actualizado a 'confirmed' en BD");
           }
 
+          // Compra REAL y verificada contra MercadoPago -> avisarle a Meta.
+          // No se await a proposito: la entrega del producto al cliente no
+          // puede quedar esperando a Graph API.
+          void avisarCompraAMeta({
+            tenantId: product.tenantId,
+            productId,
+            amount: Number(verificado.amount || product.price || 0),
+            currency: (product as any).currency || "COP",
+            customerPhone: phone,
+            origen: "mercadopago_webhook",
+          });
+
           // 2. Actualizar conversación relacionada
           // El filtro por tenant no es opcional: sin él, un pago podía
           // marcarle la conversación a OTRO negocio que tuviera una pendiente.
@@ -314,6 +378,18 @@ router.post("/paypal", async (req: Request, res: Response) => {
               })
               .where(eq(payments.id, pendingPayment.id));
           }
+
+          // Misma logica que en MercadoPago: la compra ya paso el IPN oficial
+          // de PayPal, asi que es plata real y Meta tiene que enterarse.
+          void avisarCompraAMeta({
+            tenantId: product.tenantId,
+            productId,
+            amount: Number(body.mc_gross || product.price || 0),
+            currency: String(body.mc_currency || (product as any).currency || "COP"),
+            customerPhone: phone,
+            customerEmail: body.payer_email ? String(body.payer_email) : undefined,
+            origen: "paypal_ipn",
+          });
 
           // Actualizar conversación (con filtro de tenant: sin él, un pago
           // podía marcarle la conversación pendiente a otro negocio)
