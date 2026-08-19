@@ -1774,8 +1774,27 @@ export const TOOLS: ToolDef[] = [
       // contra la app real el 2026-08-12. Y la página pública responde 403 a
       // clientes HTTP simples. Por eso se renderiza con un navegador real.
       const url =
+        // Ordenado por IMPRESIONES, de mayor a menor. No es un detalle: sin
+        // `sort_data` la biblioteca devuelve los anuncios en su orden por
+        // defecto, así que quedarse con los primeros 8 era quedarse con una
+        // muestra casi al azar de los +50.000 activos de un nicho. Ordenando
+        // por impresiones, esos 8 son los MÁS VISTOS -- los que tienen plata
+        // de verdad sosteniéndolos. Para decidir un ángulo, un anuncio que
+        // vieron millones vale más que uno que vieron doscientos, y el costo
+        // de traerlos es exactamente el mismo.
+        //
+        // `search_type=keyword_unordered` busca las palabras en cualquier
+        // orden en vez de exigir la frase exacta: el nicho sale de
+        // extraerNichoParaAnuncios() y suele tener varias palabras, así que
+        // pedir la frase literal dejaba fuera casi todo.
+        //
+        // `is_targeted_country=false` incluye también a quien anuncia hacia
+        // Colombia sin estar radicado acá -- que es buena parte de la
+        // competencia real en infoproductos.
         `https://www.facebook.com/ads/library/?active_status=active&ad_type=all` +
-        `&country=${encodeURIComponent(pais)}&q=${encodeURIComponent(query)}&media_type=all`;
+        `&country=${encodeURIComponent(pais)}&q=${encodeURIComponent(query)}&media_type=all` +
+        `&is_targeted_country=false&search_type=keyword_unordered` +
+        `&sort_data[mode]=total_impressions&sort_data[direction]=desc`;
 
       let navegador: any = null;
       try {
