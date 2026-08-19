@@ -235,8 +235,34 @@ router.post("/test", async (req: TenantRequest, res, next) => {
       // La guardada viene cifrada en la base: hay que descifrarla para usarla.
       apiKey: (guardada?.apiKey ? descifrar(guardada.apiKey) : null) || base?.apiKey || "",
       model: model || guardada?.model || base?.model || "",
+      // Se perdían acá. Hay proveedores que NO responden sin sus cabeceras
+      // propias -- Copilot exige Editor-Version y Copilot-Integration-Id --,
+      // así que el probador los daba por rotos por una cabecera que el
+      // proveedor sí traía y esta función tiraba a la basura.
+      defaultHeaders: base?.defaultHeaders,
     };
     if (!cfg.baseUrl) return res.json({ ok: false, error: "No se pudo resolver la URL del proveedor" });
+
+    // ── Copilot necesita un intercambio de token, no el PAT crudo ────────
+    // La API de Copilot no acepta el token de GitHub tal cual: hay que
+    // canjearlo por un token de sesión (lib/copilot.ts, ya usado por agent.ts
+    // y code-agent.ts). Acá faltaba, así que probar Copilot desde el panel
+    // devolvía SIEMPRE "400 Authorization header is badly formatted" -- o sea
+    // que el admin no tenía forma de saber si su cuenta de Copilot servía o
+    // no. Un probador que no puede dar OK nunca es peor que no tenerlo:
+    // muestra roto algo que funciona.
+    if (cfg.baseUrl === "https://api.githubcopilot.com") {
+      const { getCopilotSessionToken } = await import("../lib/copilot");
+      const sesion = await getCopilotSessionToken(cfg.apiKey);
+      if (!sesion) {
+        return res.json({
+          ok: false,
+          modelo: cfg.model,
+          error: "GitHub no aceptó el token para Copilot. Volvé a conectar la cuenta desde Configuración (autenticación por código de dispositivo).",
+        });
+      }
+      cfg.apiKey = sesion.token;
+    }
 
     const inicio = Date.now();
     try {
