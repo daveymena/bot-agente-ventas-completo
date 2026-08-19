@@ -3370,6 +3370,18 @@ export const TOOLS: ToolDef[] = [
 
       const lineas: string[] = [];
       const acciones: string[] = [];
+
+      // El estado de la CAMPAÑA va primero, porque manda sobre todo lo demás.
+      // Faltaba, y por eso el diagnóstico podía listar un conjunto "ACTIVO"
+      // sin explicar que no entregaba porque la campaña estaba en pausa. Meta
+      // lo marca como CAMPAIGN_PAUSED, que es una pista fácil de pasar por
+      // alto si no se ve el nivel de arriba.
+      const CAMPANA_ENCENDIDA = ["ACTIVE", "IN_PROCESS", "PENDING_REVIEW", "PENDING_BILLING_INFO"].includes(est.estadoCampana);
+      lineas.push(`🧩 Campaña ${CAMPANA_ENCENDIDA ? "ACTIVA" : est.estadoCampana || "sin estado"}`);
+      if (!CAMPANA_ENCENDIDA) {
+        acciones.push("Encender la CAMPAÑA: mientras esté en pausa, ningún conjunto ni anuncio de adentro se muestra, por más que figuren activos.");
+      }
+
       for (const c of est.conjuntos) {
         const pres = c.presupuestoDiario ? ` · $${c.presupuestoDiario.toLocaleString("es-CO")}/día` : "";
         lineas.push(`📦 Conjunto ${c.estado === "ACTIVE" ? "ACTIVO" : c.estado}${pres}`);

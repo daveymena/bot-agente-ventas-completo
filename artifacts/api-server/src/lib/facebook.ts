@@ -977,8 +977,16 @@ Responde SOLO con este JSON exacto:
       anuncios: Array<{ id: string; nombre: string; estado: string; configurado: string }>;
     }>;
     entregando: boolean;
+    /** Estado de la CAMPAÑA. Sin esto no se puede saber quién frena la entrega. */
+    estadoCampana: string;
   } | null> {
     try {
+      // La campaña PRIMERO. Faltaba, y era el nivel que decidía todo: con la
+      // campaña en PAUSED, encender el conjunto no sirve de nada -- Meta lo
+      // deja en CAMPAIGN_PAUSED y no se muestra a nadie.
+      const camp = await this.fbGet(campaignId, { fields: "id,name,status,effective_status" }, this.config.userAccessToken);
+      const estadoCampana = String(camp?.effective_status || camp?.status || "");
+
       const cs = await this.fbGet(`${campaignId}/adsets`,
         { fields: "id,name,effective_status,daily_budget", limit: "50" }, this.config.userAccessToken);
       const ads = await this.fbGet(`${campaignId}/ads`,
@@ -1003,9 +1011,12 @@ Responde SOLO con este JSON exacto:
       // "todavía no entrega" sobre un cambio que SÍ se había aplicado -- y al
       // admin le llegaba un mensaje de fracaso por algo que había funcionado.
       const ENCENDIDO = new Set(["ACTIVE", "IN_PROCESS", "PENDING_REVIEW", "PENDING_BILLING_INFO"]);
-      const entregando = conjuntos.some((c: any) =>
+      // La CAMPAÑA también tiene que estar encendida. Antes esta cuenta solo
+      // miraba conjunto + anuncio, así que una campaña pausada con su conjunto
+      // encendido figuraba como "entregando" sin mostrarse a nadie.
+      const entregando = ENCENDIDO.has(estadoCampana) && conjuntos.some((c: any) =>
         ENCENDIDO.has(c.estado) && c.anuncios.some((a: any) => ENCENDIDO.has(a.estado)));
-      return { conjuntos, entregando };
+      return { conjuntos, entregando, estadoCampana };
     } catch (err: any) {
       logger.warn({ err, campaignId }, "[Facebook] No se pudo leer la estructura de la campaña");
       return null;
@@ -1064,12 +1075,36 @@ Responde SOLO con este JSON exacto:
     if (!est) return { ok: false, message: "No pude leer la estructura de esa campaña en Meta." };
     if (est.entregando) return { ok: true, yaEntregaba: true, plan: "Ya está entregando: no hace falta tocar nada." };
 
+    // ── Paso 0: la CAMPAÑA ────────────────────────────────────────────────
+    // Faltaba, y era el nivel que mandaba sobre todos los demás. Esta función
+    // miraba solo conjunto y anuncio, así que con la campaña en PAUSED
+    // encendía el conjunto, Meta lo dejaba en CAMPAIGN_PAUSED, y el anuncio no
+    // se mostraba a nadie -- mientras el admin leía "✅ Hecho, Meta aceptó el
+    // cambio". Reproducido en vivo el 2026-08-19: el admin confirmó la
+    // activación, se le dijo que sí, y al revisar seguía PAUSED.
+    //
+    // Encender la campaña sola NO gasta: el gasto lo define el presupuesto del
+    // conjunto, y sin un conjunto y un anuncio encendidos no hay entrega. Por
+    // eso va primero y después sigue la lógica de siempre, que es la que
+    // elige la opción más barata.
+    const ENCENDIDO = new Set(["ACTIVE", "IN_PROCESS", "PENDING_REVIEW", "PENDING_BILLING_INFO"]);
+    let campanaEncendida = "";
+    if (!ENCENDIDO.has(est.estadoCampana)) {
+      if (!aplicar) {
+        campanaEncendida = "encender la campaña (está en pausa) y ";
+      } else {
+        const rc = await this.resumeCampaign(campaignId);
+        if (!rc) return { ok: false, message: "No pude encender la campaña en Meta: sin eso, encender el conjunto no sirve de nada." };
+        campanaEncendida = "encendí la campaña (estaba en pausa) y ";
+      }
+    }
+
     // Opción 1: anuncio apagado dentro de un conjunto que YA corre.
     const conjuntoVivo = est.conjuntos.find((c) => c.estado === "ACTIVE" && c.anuncios.length > 0);
     if (conjuntoVivo) {
       const anuncio = conjuntoVivo.anuncios.find((a) => a.estado !== "ACTIVE");
       if (anuncio) {
-        const plan = `Encender el anuncio "${anuncio.nombre}" dentro del conjunto que ya está activo`;
+        const plan = `${campanaEncendida}encender el anuncio "${anuncio.nombre}" dentro del conjunto que ya está activo`;
         if (!aplicar) return { ok: true, plan, costoDiario: conjuntoVivo.presupuestoDiario };
         const r = await this.setAdStatus(anuncio.id, true);
         if (!r.ok) return { ok: false, message: r.message };
@@ -1084,7 +1119,7 @@ Responde SOLO con este JSON exacto:
     const candidato = est.conjuntos.find((c) => c.estado !== "ACTIVE" && c.anuncios.some((a) => a.configurado === "ACTIVE"))
       || est.conjuntos.find((c) => c.estado !== "ACTIVE" && c.anuncios.length > 0);
     if (candidato) {
-      const plan = `Encender el conjunto "${candidato.nombre}" (su anuncio ya está listo adentro)`;
+      const plan = `${campanaEncendida}encender el conjunto "${candidato.nombre}" (su anuncio ya está listo adentro)`;
       if (!aplicar) return { ok: true, plan, costoDiario: candidato.presupuestoDiario };
       const r = await this.setAdSetStatus(candidato.id, true);
       if (!r.ok) return { ok: false, message: r.message };
@@ -1094,6 +1129,23 @@ Responde SOLO con este JSON exacto:
       await new Promise((res) => setTimeout(res, 2500));
       const verif = await this.estructuraDeCampana(campaignId);
       return { ok: true, aplicado: true, plan, costoDiario: candidato.presupuestoDiario, yaEntregaba: !!verif?.entregando };
+    }
+
+    // Conjunto y anuncio ya estaban encendidos: lo único que frenaba era la
+    // campaña, y eso ya se resolvió arriba. Antes se caía acá con "no tiene
+    // ningún anuncio adentro", que era falso y mandaba a crear un anuncio que
+    // ya existía.
+    if (campanaEncendida) {
+      const conjunto = est.conjuntos.find((c) => c.anuncios.length > 0);
+      await new Promise((res) => setTimeout(res, 2500));
+      const verif = await this.estructuraDeCampana(campaignId);
+      return {
+        ok: true,
+        aplicado: aplicar,
+        plan: `${campanaEncendida}listo: el conjunto y el anuncio ya estaban encendidos`,
+        costoDiario: conjunto?.presupuestoDiario,
+        yaEntregaba: !!verif?.entregando,
+      };
     }
 
     return { ok: false, message: "Esta campaña no tiene ningún anuncio adentro: hay que crear el anuncio antes de poder encenderla." };
