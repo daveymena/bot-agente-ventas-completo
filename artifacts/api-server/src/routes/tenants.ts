@@ -387,9 +387,13 @@ router.get("/admin/list", async (req: TenantRequest, res) => {
     }));
 
     return res.json({ tenants: enriched });
-  } catch (error) {
+  } catch (error: any) {
     logger.error({ error }, "[Tenants Admin] List failed");
-    return res.status(500).json({ error: "Internal server error" });
+    // El motivo real, no "Internal server error". Del otro lado esto se
+    // mostraba como "No autorizado" y mandaba a diagnosticar permisos cuando
+    // el problema era otro. Es la pantalla del dueño de la plataforma: si algo
+    // falla, tiene que poder ver qué.
+    return res.status(500).json({ error: `No se pudo listar los clientes: ${error?.message || error}` });
   }
 });
 

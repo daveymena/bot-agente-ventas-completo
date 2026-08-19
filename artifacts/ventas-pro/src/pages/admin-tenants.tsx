@@ -49,7 +49,24 @@ export default function AdminTenantsPage() {
   const loadTenants = async () => {
     try {
       const res = await fetch("/api/tenants/admin/list", { credentials: "include" });
-      if (!res.ok) throw new Error("No autorizado");
+      // El mensaje tiene que decir QUÉ pasó.
+      //
+      // Acá había un `throw new Error("No autorizado")` para cualquier
+      // respuesta que no fuera 200, así que un 500 del servidor se mostraba
+      // como un problema de permisos. Visto en vivo el 2026-08-19: el admin
+      // entraba a la página (o sea que SÍ tenía permiso) y leía "No
+      // autorizado", que lo mandaba a buscar el problema exactamente donde no
+      // estaba. Un error que miente cuesta más que no tener mensaje.
+      if (!res.ok) {
+        const crudo = await res.text().catch(() => "");
+        let detalle = "";
+        try { const j = JSON.parse(crudo); detalle = j.error || j.message || ""; } catch { detalle = crudo.slice(0, 200); }
+        throw new Error(
+          res.status === 403
+            ? (detalle || "No tenés permisos de administrador de la plataforma.")
+            : `El servidor respondió ${res.status}${detalle ? `: ${detalle}` : ""}`,
+        );
+      }
       const data = await res.json();
       setTenants(data.tenants || []);
     } catch (err: any) {
