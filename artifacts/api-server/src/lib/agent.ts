@@ -38,6 +38,7 @@ import {
 } from "./conversation-engine";
 import { getBrandVoice, formatWithBrandVoice } from "./brand-voice";
 import { analyzeBrain, buildFinalPrompt, type ResponseStrategy, type EmotionalState } from "./response-brain";
+import { learnFromLastExchange, retrieveLessons, formatLessonsForPrompt } from "./conversation-learning";
 import {
   isPaymentConfirmation,
   isPaymentMethodQuestion,
@@ -689,6 +690,30 @@ export async function runAgentReply(conversationId: number) {
       .catch((err) => console.error(`⚠️ [LEAD-SCORING] Error en scoring/follow-up para conversación ${conversationId}:`, err?.message || err));
   }
 
+  // ── 2b. APRENDIZAJE: evaluar el intercambio anterior y adaptar ─────────────
+  // El agente NO es un bot de respuestas: aprende de cada turno. Si la
+  // respuesta anterior falló (el cliente repitió la pregunta, se confundió,
+  // se frustró o se fue), se guarda la lección en la memoria del negocio y
+  // se usa en el prompt de ESTA respuesta para no repetir el error.
+  // Fire-and-forget controlado: nunca bloquea ni retrasa la respuesta.
+  if (convo.tenantId && lastText && memory.lastAgentMessage) {
+    const msgClienteAnterior =
+      [...memory.history].reverse().find((m) => m.role === "customer" && m.content !== lastText)?.content ?? null;
+
+    import("./conversation-learning")
+      .then(({ learnFromLastExchange }) =>
+        learnFromLastExchange({
+          tenantId: convo.tenantId!,
+          customerMsg: lastText,
+          prevCustomerMsg: msgClienteAnterior,
+          agentReply: memory.lastAgentMessage,
+          productName: memory.currentProductName,
+          intent: detectIntent(lastText),
+        }),
+      )
+      .catch((err) => console.error(`⚠️ [LEARNING] Error evaluando intercambio para conversación ${conversationId}:`, err?.message || err));
+  }
+
   // ── 3. Seleccionar agente activo ──────────────────────────────────────────
   t1 = Date.now();
   const { getActiveAgent } = await import("./agent-router");
@@ -955,7 +980,17 @@ ${productList.length > 0 ? productsBlock : "No hay productos disponibles."}
 [6] No repitas información que ya diste. Usa la MEMORIA de la conversación.
 [6b] El "[ID: N]" del catálogo es INTERNO, solo para que TÚ elijas la card correcta. NUNCA menciones ese número al cliente (nada de "el curso ID 82", "producto 82", etc.). Refiérete al producto SIEMPRE por su NOMBRE.
 [6c] Los datos de pago (número de Nequi/Daviplata y el NOMBRE del titular) van EXACTOS como aparecen en los datos del negocio. NUNCA cambies, adivines ni "corrijas" el nombre del titular ni el número — cópialos tal cual.
-${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo y cierra. Termina tu mensaje con [CARD: ID] del producto — el sistema adjunta AUTOMÁTICAMENTE la tarjeta con los enlaces dinámicos de MercadoPago y PayPal. NUNCA escribas [PAGAR:...], enlaces, URLs ni números de cuenta: SOLO usa [CARD: ID]." : `[7] 🧠 ANALIZA EL CONTEXTO y elige el producto CORRECTO del catálogo. Usa [CARD: ID] al final de tu mensaje para mostrar la tarjeta del producto que mejor corresponda. El ÚNICO marcador válido es [CARD: ID] — nunca uses [PAGAR:...] ni escribas enlaces. Si no estás segura, pregunta UNA cosa concreta antes de mostrar una card. NUNCA muestres un producto que no tenga relación con lo que el cliente busca.`}`).trim()
+${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo y cierra. Termina tu mensaje con [CARD: ID] del producto — el sistema adjunta AUTOMÁTICAMENTE la tarjeta con los enlaces dinámicos de MercadoPago y PayPal. NUNCA escribas [PAGAR:...], enlaces, URLs ni números de cuenta: SOLO usa [CARD: ID]." : `[7] 🧠 ANALIZA EL CONTEXTO y elige el producto CORRECTO del catálogo. Usa [CARD: ID] al final de tu mensaje para mostrar la tarjeta del producto que mejor corresponda. El ÚNICO marcador válido es [CARD: ID] — nunca uses [PAGAR:...] ni escribas enlaces. Si no estás segura, pregunta UNA cosa concreta antes de mostrar una card. NUNCA muestres un producto que no tenga relación con lo que el cliente busca.`}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🤝 PRINCIPIOS DE CONVERSACIÓN HUMANA Y PROFESIONAL (siempre)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+• Conversás, no contestás: leés TODA la conversación como contexto (no solo el último mensaje) y respondés a lo que el cliente realmente necesita en este punto. Si cambió de tema, acompañás el cambio con naturalidad.
+• SOS humano: variás el ritmo de tus respuestas (a veces corta y directa, a veces con un toque cálido), usás el nombre del cliente con moderación, reconocés lo que dijo antes ("como te decía…", "entendí que buscabas…") y NUNCA repetís textualmente una respuesta anterior.
+• Empatía primero: si el cliente no entendió, no repites lo mismo con otras palabras: cambiás el enfoque, simplificás, das un ejemplo concreto y confirmás ("¿quedó más claro así?"). Si está frustrado, disculpate breve y genuino, y pasá a UNA solución concreta.
+• Inicio y cierre natural: al saludar, preguntás de forma genuina qué busca; al despedirse el cliente, cerrás con calidez, dejás la puerta abierta ("cuando quieras, acá estoy") y no insistís ni presionás.
+• Resolvés, no te limitás a informar: cada respuesta avanza la conversación un paso (dato → siguiente paso), y si la duda del cliente no es de ventas, la resolvés con respeto y redirigís con suavidad.
+• Profesionalismo: datos exactos, sin prometer lo que no existe, sin spam de emojis, sin exclamaciones forzadas. La calidez no reemplaza la claridad.`).trim()
     // tenants.agentPrompt: instrucciones libres que el dueño escribe en su
     // dashboard ("Prompt del agente" en Configuración). Antes existían en la
     // BD pero el flujo de WhatsApp nunca las leía -- se agregan siempre al
@@ -1087,11 +1122,32 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
     console.error(`⚠️ [DROPSHIPPING] ${e?.message || e}`);
   }
 
+  // ── 10b. LECCIONES APRENDIDAS: adaptar esta respuesta con la experiencia ──
+  // Se recuperan las lecciones de conversaciones anteriores del MISMO
+  // negocio y producto (confusión, frustración, abandono, avances) y se
+  // inyectan como contexto esencial. Así el agente no repite errores y
+  // prueba alternativas. Si no hay lecciones o la memoria falla, no pasa
+  // nada: el bloque queda vacío.
+  let bloqueLecciones = "";
+  if (convo.tenantId) {
+    try {
+      const lecciones = await retrieveLessons(convo.tenantId, {
+        productName: memory.currentProductName,
+        outcome: undefined,
+        limit: 3,
+      });
+      const formateadas = formatLessonsForPrompt(lecciones, 800);
+      if (formateadas) bloqueLecciones = `\n\n${formateadas}`;
+    } catch (e: any) {
+      console.error(`⚠️ [LEARNING] No se pudieron recuperar lecciones: ${e?.message || e}`);
+    }
+  }
+
   const engineContextBlock = `${decision.contextBlock}\n\n${AdvancedIntelligence.generateIntelligentContext(
     lastText,
     memory.history,
     aiProductContext.length > 0 ? aiProductContext : null
-  )}${bloqueAnuncio}${bloqueMoneda}${bloqueDropshipping}`;
+  )}${bloqueAnuncio}${bloqueMoneda}${bloqueDropshipping}${bloqueLecciones}`;
 
   // ── 11. ATENDER SEGÚN ESTRATEGIA DEL CEREBRO ─────────────────────────────
 
@@ -1240,7 +1296,7 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
     // El bloque de dropshipping va en lo esencial: si se recorta, el agente
     // vuelve a pedir datos que el cliente ya dio, o promete una entrega que no
     // corresponde. Es de lo último que se puede sacrificar.
-    const esencial = `${decision.contextBlock}${bloqueAnuncio}${bloqueMoneda}${bloqueDropshipping}`;
+    const esencial = `${decision.contextBlock}${bloqueAnuncio}${bloqueMoneda}${bloqueDropshipping}${bloqueLecciones}`;
     promptArmado = `${base}\n\n${esencial}`;
     if (promptArmado.length > TOPE_PROMPT) {
       // Todavía no entra: lo que sobra es el prompt del negocio o del agente.

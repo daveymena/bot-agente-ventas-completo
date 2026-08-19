@@ -1498,6 +1498,28 @@ router.post("/operator", async (req: TenantRequest, res, next) => {
         }
         await clearPendingPlan(tenantId, sessionId);
         const allOk = executed.every((item) => item.ok);
+        // AUTO-EVALUACIÓN DE ATLAS: si el plan terminó con errores, se guarda
+        // la lección (qué herramienta, qué error, qué se intentó) para que el
+        // próximo turno la lea en loadRecentLessons y no tropiece dos veces
+        // con el mismo problema -- Atlas no se queda en el error, lo registra,
+        // lo analiza y busca otra alternativa la próxima vez.
+        if (!allOk) {
+          try {
+            const fallos = executed
+              .filter((item: any) => !item.ok)
+              .map((item: any) => `${item.tool}: ${String(item.summary || "").slice(0, 160)}`)
+              .join(" | ");
+            await saveRepairLesson(
+              tenantId,
+              "plan_multi_action",
+              fallos || "error desconocido en ejecución del plan",
+              "Plan ejecutado con fallos parciales; revisar el detalle por acción y ajustar el enfoque en el próximo intento",
+            );
+            logger.info({ tenantId, fallos: executed.filter((i: any) => !i.ok).length }, "[AppOperator] Lección de plan fallido guardada para auto-evaluación");
+          } catch (e: any) {
+            logger.warn({ err: e?.message }, "[AppOperator] No se pudo guardar lección del plan fallido");
+          }
+        }
         // join("\n\n"), no "\n": el frontend renderiza con ReactMarkdown, que
         // colapsa un solo salto de línea a un espacio -- con un solo plan
         // que ejecuta VARIAS acciones (ej: dos fb_ad_draft en la misma
