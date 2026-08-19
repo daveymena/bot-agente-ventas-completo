@@ -538,6 +538,47 @@ router.get("/campaigns/:id/adsets", async (req, res, next) => {
   } catch (e) { return next(e); }
 });
 
+/**
+ * GET /api/facebook/ad-library?q=&pais=&limite=
+ *
+ * Los anuncios que la competencia está pagando AHORA en ese nicho, leídos de la
+ * Biblioteca de Anuncios pública de Meta y ordenados por impresiones (o sea:
+ * los más vistos primero, que son los que alguien sostiene con plata).
+ *
+ * Existía solo como herramienta de Atlas, y se disparaba sola al crear un
+ * anuncio con el nicho que el sistema deducía del pedido. El admin no tenía
+ * forma de preguntar a mano "¿qué están anunciando en educación canina?" antes
+ * de gastar un peso. Esto lo expone tal cual, sin pasar por el modelo.
+ *
+ * Tarda ~25s: se renderiza con un navegador real porque la API oficial de Meta
+ * no sirve fuera de la UE para anuncios comerciales y la página pública
+ * responde 403 a un cliente HTTP simple (ver fb_ad_library en app-operator.ts).
+ */
+router.get("/ad-library", async (req, res, next) => {
+  try {
+    const query = String(req.query?.q || "").trim();
+    if (!query) return res.status(400).json({ error: "Falta 'q': qué nicho o marca buscar." });
+    const tenantId = (req as any).tenant?.id;
+    if (!tenantId) return res.status(401).json({ error: "No autenticado" });
+
+    const { executeAction } = await import("../lib/app-operator");
+    const r = await executeAction(
+      "fb_ad_library",
+      {
+        query,
+        pais: String(req.query?.pais || "CO"),
+        limite: Math.min(Math.max(Number(req.query?.limite) || 8, 1), 20),
+      },
+      { tenantId, sessionId: `ad-library-${tenantId}` },
+    );
+    return res.json({
+      ok: r.ok,
+      mensaje: r.summary,
+      anuncios: (r as any)?.data?.anuncios || [],
+    });
+  } catch (e) { return next(e); }
+});
+
 router.post("/campaigns/:id/pause", async (req, res, next) => {
   try {
     const { FacebookService } = await import("../lib/facebook");

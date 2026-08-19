@@ -8,6 +8,7 @@ import { Textarea } from "@/components/ui/textarea";
 import {
   Megaphone, TrendingUp, Target, FlaskConical, Wallet, BookOpen, Send,
   Loader2, AlertTriangle, CheckCircle2, ArrowRight, Sparkles,
+  Activity, Search, Play, Pause, RefreshCw,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -16,7 +17,7 @@ import { toast } from "sonner";
  * Consume /api/marketing/* (rutas tras la cadena de auth del API).
  */
 
-type TabKey = "resumen" | "atribucion" | "tareas" | "experimentos" | "presupuesto" | "memoria" | "audit";
+type TabKey = "envivo" | "resumen" | "atribucion" | "competencia" | "tareas" | "experimentos" | "presupuesto" | "memoria" | "audit";
 
 const apiRequest = async (endpoint: string, options: RequestInit = {}) => {
   const response = await fetch(`/api${endpoint}`, {
@@ -36,7 +37,7 @@ const apiRequest = async (endpoint: string, options: RequestInit = {}) => {
 const emojiFor = (s: string) => (s === "critical" ? "🔴" : s === "warning" ? "⚠️" : "🟢");
 
 export default function MarketingPage() {
-  const [tab, setTab] = useState<TabKey>("resumen");
+  const [tab, setTab] = useState<TabKey>("envivo");
   const [summary, setSummary] = useState<any>(null);
   const [attribution, setAttribution] = useState<any>(null);
   const [tasks, setTasks] = useState<any[]>([]);
@@ -93,8 +94,10 @@ export default function MarketingPage() {
   };
 
   const tabs: Array<{ key: TabKey; label: string; icon: any }> = [
+    { key: "envivo", label: "En vivo", icon: Activity },
     { key: "resumen", label: "Resumen", icon: TrendingUp },
     { key: "atribucion", label: "Atribución", icon: Target },
+    { key: "competencia", label: "Competencia", icon: Search },
     { key: "tareas", label: "Tareas", icon: Megaphone },
     { key: "experimentos", label: "Experimentos", icon: FlaskConical },
     { key: "presupuesto", label: "Presupuesto", icon: Wallet },
@@ -155,6 +158,8 @@ export default function MarketingPage() {
           </div>
         ) : (
           <>
+            {tab === "envivo" && <EnVivoTab />}
+            {tab === "competencia" && <CompetenciaTab />}
             {tab === "resumen" && summary && <ResumenTab summary={summary} />}
             {tab === "atribucion" && <AtribucionTab attribution={attribution} />}
             {tab === "tareas" && <TareasTab tasks={tasks} onChanged={loadAll} />}
@@ -459,5 +464,248 @@ function AuditTab({ audit }: { audit: any[] }) {
         ))}
       </CardContent>
     </Card>
+  );
+}
+
+/**
+ * EN VIVO — lo que están haciendo TUS anuncios ahora mismo.
+ *
+ * Los datos salen de /api/facebook/campaigns, que los pide a Meta en el
+ * momento: gasto, impresiones, clics, CTR y costo por resultado reales. Ya
+ * estaban disponibles y no los mostraba nadie, así que para saber si una
+ * campaña estaba quemando plata había que entrar al Administrador de Anuncios.
+ *
+ * El semáforo no es decoración: lo único que hay que mirar seguido es si algo
+ * gasta sin devolver nada, y eso tiene que verse sin leer una tabla.
+ */
+function EnVivoTab() {
+  const [campanas, setCampanas] = useState<any[]>([]);
+  const [totales, setTotales] = useState<any>(null);
+  const [cargando, setCargando] = useState(true);
+  const [error, setError] = useState("");
+  const [ocupada, setOcupada] = useState<string>("");
+
+  const cargar = useCallback(async () => {
+    try {
+      const r = await fetch("/api/facebook/campaigns", { credentials: "include" });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j?.message || "No se pudieron leer las campañas");
+      setCampanas(j.campaigns || []);
+      setTotales(j.totals || null);
+      setError("");
+    } catch (e: any) {
+      setError(e.message || "Error leyendo las campañas");
+    } finally {
+      setCargando(false);
+    }
+  }, []);
+
+  // Refresco automático: es una pantalla en vivo, no un informe. 60 s es el
+  // ritmo al que Meta actualiza sus métricas; pedirlas más seguido no trae
+  // datos nuevos, solo gasta cuota de la API.
+  useEffect(() => {
+    cargar();
+    const t = setInterval(cargar, 60000);
+    return () => clearInterval(t);
+  }, [cargar]);
+
+  const accion = async (id: string, verbo: "pause" | "resume") => {
+    setOcupada(id);
+    try {
+      const r = await fetch(`/api/facebook/campaigns/${id}/${verbo}`, { method: "POST", credentials: "include" });
+      const j = await r.json();
+      if (!j.ok) throw new Error(j.message || "Meta no aceptó el cambio");
+      toast.success(j.message);
+      await cargar();
+    } catch (e: any) {
+      toast.error(e.message || "No se pudo cambiar el estado");
+    } finally {
+      setOcupada("");
+    }
+  };
+
+  const money = (n: any) => "$" + Number(n || 0).toLocaleString("es-CO");
+
+  if (cargando) {
+    return (
+      <div className="flex items-center gap-2 p-6 text-sm text-muted-foreground">
+        <Loader2 className="h-4 w-4 animate-spin" /> Consultando a Meta…
+      </div>
+    );
+  }
+  if (error) return <Card><CardContent className="p-6 text-sm text-destructive">{error}</CardContent></Card>;
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <p className="text-xs text-muted-foreground">
+          Datos pedidos a Meta en el momento · se actualiza solo cada 60 s
+        </p>
+        <Button size="sm" variant="outline" onClick={cargar}>
+          <RefreshCw className="mr-1.5 h-3.5 w-3.5" /> Actualizar
+        </Button>
+      </div>
+
+      {totales && (
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
+          {[
+            { l: "Gastado", v: money(totales.spend) },
+            { l: "Impresiones", v: Number(totales.impressions || 0).toLocaleString("es-CO") },
+            { l: "Clics", v: Number(totales.clicks || 0).toLocaleString("es-CO") },
+            { l: "Resultados", v: Number(totales.results || 0).toLocaleString("es-CO") },
+            { l: "Costo x result.", v: money(totales.costPerResult) },
+          ].map((k) => (
+            <Card key={k.l}><CardContent className="p-4">
+              <p className="text-xs text-muted-foreground">{k.l}</p>
+              <p className="text-lg font-semibold">{k.v}</p>
+            </CardContent></Card>
+          ))}
+        </div>
+      )}
+
+      {campanas.length === 0 ? (
+        <Card><CardContent className="p-6 text-sm text-muted-foreground">
+          No hay campañas en la cuenta publicitaria. Creá un anuncio desde Atlas y va a aparecer acá.
+        </CardContent></Card>
+      ) : campanas.map((c) => {
+        const activa = String(c.status).toUpperCase() === "ACTIVE";
+        // Gasta y no devuelve nada: es lo único urgente de esta pantalla.
+        const quemando = activa && Number(c.spend) > 0 && Number(c.results) === 0;
+        return (
+          <Card key={c.id} className={quemando ? "border-destructive" : ""}>
+            <CardContent className="space-y-3 p-4">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="truncate font-medium">{c.name}</p>
+                  <p className="text-xs text-muted-foreground">{c.id}</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Badge variant={activa ? "default" : "secondary"}>
+                    {activa ? "🟢 Activa" : "⏸️ En pausa"}
+                  </Badge>
+                  <Button
+                    size="sm"
+                    variant={activa ? "outline" : "default"}
+                    disabled={ocupada === c.id}
+                    onClick={() => accion(c.id, activa ? "pause" : "resume")}
+                  >
+                    {ocupada === c.id ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : activa ? (
+                      <><Pause className="mr-1.5 h-3.5 w-3.5" /> Pausar</>
+                    ) : (
+                      <><Play className="mr-1.5 h-3.5 w-3.5" /> Activar</>
+                    )}
+                  </Button>
+                </div>
+              </div>
+
+              {quemando && (
+                <p className="flex items-center gap-1.5 rounded bg-destructive/10 p-2 text-xs text-destructive">
+                  <AlertTriangle className="h-3.5 w-3.5" />
+                  Lleva {money(c.spend)} gastados y ningún resultado. Revisala o pausala.
+                </p>
+              )}
+
+              <div className="grid grid-cols-3 gap-2 text-sm md:grid-cols-6">
+                {[
+                  ["Gasto", money(c.spend)],
+                  ["Impresiones", Number(c.impressions || 0).toLocaleString("es-CO")],
+                  ["Clics", Number(c.clicks || 0).toLocaleString("es-CO")],
+                  ["CTR", Number(c.ctr || 0).toFixed(2) + "%"],
+                  ["Resultados", Number(c.results || 0).toLocaleString("es-CO")],
+                  ["Costo x result.", money(c.costPerResult)],
+                ].map(([l, v]) => (
+                  <div key={String(l)}>
+                    <p className="text-xs text-muted-foreground">{l}</p>
+                    <p className="font-medium">{v}</p>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        );
+      })}
+    </div>
+  );
+}
+
+/**
+ * COMPETENCIA — qué anuncios está pagando la competencia AHORA.
+ *
+ * Lee la Biblioteca de Anuncios pública de Meta, ordenada por impresiones: los
+ * que trae son los MÁS VISTOS del nicho, o sea los que alguien sostiene con
+ * plata. Un anuncio que se mantiene al aire es un anuncio que funciona, y eso
+ * vale más que cualquier artículo sobre estrategias de marketing.
+ *
+ * Ya existía como herramienta interna y se disparaba sola al crear un anuncio,
+ * con el nicho que el sistema deducía del pedido. Acá el admin puede preguntar
+ * por el que quiera ANTES de gastar un peso.
+ */
+function CompetenciaTab() {
+  const [q, setQ] = useState("");
+  const [anuncios, setAnuncios] = useState<string[]>([]);
+  const [buscando, setBuscando] = useState(false);
+  const [mensaje, setMensaje] = useState("");
+
+  const buscar = async () => {
+    if (!q.trim()) return;
+    setBuscando(true);
+    setAnuncios([]);
+    setMensaje("");
+    try {
+      const r = await fetch(`/api/facebook/ad-library?q=${encodeURIComponent(q.trim())}&limite=10`, { credentials: "include" });
+      const j = await r.json();
+      setAnuncios(j.anuncios || []);
+      setMensaje(j.mensaje || "");
+      if (!j.ok) toast.error(j.mensaje || "No se encontraron anuncios");
+    } catch (e: any) {
+      toast.error(e.message || "No se pudo consultar la Biblioteca de Anuncios");
+    } finally {
+      setBuscando(false);
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base">Qué está pagando la competencia</CardTitle>
+          <CardDescription>
+            Anuncios ACTIVOS en Colombia, ordenados por los más vistos. Sale de la Biblioteca
+            de Anuncios pública de Meta. Tarda ~25 s porque se lee la página real.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-wrap gap-2">
+          <Input
+            className="max-w-md flex-1"
+            placeholder="Nicho o marca: educación canina, curso de piano…"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && buscar()}
+          />
+          <Button onClick={buscar} disabled={buscando || !q.trim()}>
+            {buscando ? (
+              <><Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> Buscando…</>
+            ) : (
+              <><Search className="mr-1.5 h-4 w-4" /> Buscar</>
+            )}
+          </Button>
+        </CardContent>
+      </Card>
+
+      {mensaje && anuncios.length === 0 && !buscando && (
+        <Card><CardContent className="p-4 text-sm text-muted-foreground">{mensaje}</CardContent></Card>
+      )}
+
+      {anuncios.map((a, i) => (
+        <Card key={i}>
+          <CardContent className="p-4">
+            <p className="mb-1 text-xs text-muted-foreground">Anuncio #{i + 1}</p>
+            <p className="whitespace-pre-wrap text-sm">{a}</p>
+          </CardContent>
+        </Card>
+      ))}
+    </div>
   );
 }
