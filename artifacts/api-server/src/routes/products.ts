@@ -312,6 +312,16 @@ function serialize(row: typeof products.$inferSelect) {
     paymentLink: (row as any).paymentLink ?? null,
     deliveryLink: (row as any).deliveryLink ?? null,
     isActive: row.isActive,
+    // `metadata` se podía GUARDAR (está en UpdateProductBody) pero no se
+    // devolvía nunca -- ni al leer ni como respuesta del PATCH. O sea que se
+    // escribía a ciegas: un 200 sin forma de confirmar que el dato quedó.
+    //
+    // Y no es un campo interno: acá vive `videoIntro`, el video que el agente
+    // le muestra al cliente ANTES del precio (ver lib/whatsapp.ts). Sin
+    // exponerlo, cargarlo desde el panel es imposible de verificar y de
+    // corregir. Un campo que se escribe y no se puede leer es un campo que
+    // nadie puede mantener.
+    metadata: (row as any).metadata ?? null,
     createdAt: row.createdAt instanceof Date ? row.createdAt.toISOString() : row.createdAt,
   };
 }
