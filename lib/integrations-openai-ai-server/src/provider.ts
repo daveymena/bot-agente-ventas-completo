@@ -134,6 +134,63 @@ export function getOpenCodeGoRotation(): AIProviderConfig[] {
 }
 
 /**
+ * Modelos de reserva por proveedor, EN ORDEN.
+ *
+ * Por qué existe: la cuota se agota POR MODELO, no por cuenta -- medido en
+ * producción el 2026-08-16, con la misma clave un modelo devolvía 429 mientras
+ * otro respondía en 832ms. OpenCode Zen y Go ya rotaban entre sus modelos por
+ * eso mismo; el resto de los proveedores iba con UNO fijo, así que cuando ese
+ * caía se perdía el proveedor entero aunque los demás respondieran.
+ *
+ * Los de acá abajo están MEDIDOS contra la API real el 2026-08-19, no elegidos
+ * a ojo. Varios de los que "deberían" andar no andan: en Groq,
+ * `llama-3.3-70b-versatile`, `llama-3.1-8b-instant` y `kimi-k2-instruct` dan
+ * 404, y `gemma2-9b-it` está dado de baja -- el único que respondió fue
+ * `openai/gpt-oss-20b`, en 299ms.
+ *
+ * Un modelo se agrega acá solo después de verlo contestar. Para descubrirlos
+ * está `probarModelosDe()` (artifacts/api-server/src/lib/probar-modelos.ts),
+ * que los prueba con un mensaje real de cliente y mira el CONTENIDO, no el
+ * código HTTP: hay modelos que devuelven 200 con el cuerpo vacío y otros que
+ * mandan su razonamiento al cliente.
+ */
+const MODELOS_DE_RESERVA: Record<string, string[]> = {
+  deepseek: ["deepseek-chat"],
+  groq: ["openai/gpt-oss-20b"],
+  mistral: ["codestral-latest", "mistral-large-latest"],
+  nvidia: ["meta/llama-3.1-70b-instruct", "meta/llama-3.1-8b-instruct"],
+  nvidia_nim: ["meta/llama-3.1-70b-instruct", "meta/llama-3.1-8b-instruct"],
+  openrouter: [
+    "nvidia/nemotron-3-nano-30b-a3b:free",
+    "nvidia/nemotron-3-ultra-550b-a55b:free",
+    "poolside/laguna-xs-2.1:free",
+  ],
+  github_copilot_internal: ["gpt-4o", "gpt-4o-mini"],
+};
+
+/**
+ * Todos los modelos que vale la pena intentar de un proveedor, en orden: el
+ * configurado primero, después los que el admin haya puesto en
+ * `<PROVEEDOR>_ROTATION`, y al final los de reserva medidos.
+ *
+ * Devuelve una config por modelo, para que la cola de respaldo pueda tratar
+ * cada uno como un candidato propio en vez de perder el proveedor completo al
+ * primer fallo.
+ */
+export function getProviderRotation(provider: string): AIProviderConfig[] {
+  const base = getProviderConfig(provider);
+  if (!base) return [];
+  const extra = (process.env[`${provider.toUpperCase()}_ROTATION`] || "")
+    .split(",")
+    .map((m) => m.trim())
+    .filter(Boolean);
+  const orden = [base.model, ...extra, ...(MODELOS_DE_RESERVA[provider] || [])]
+    .filter((m): m is string => !!m)
+    .filter((m, i, arr) => arr.indexOf(m) === i);
+  return orden.map((model) => ({ ...base, model }));
+}
+
+/**
  * La misma configuración de un proveedor, pero con una clave INYECTADA en vez
  * de leerla del entorno.
  *

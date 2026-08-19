@@ -10,7 +10,7 @@ import {
   leads,
   settings as settingsTable,
 } from "@workspace/db";
-import { getProviderConfig, getProviderConfigFromSettings, createAIClient, getOpenCodeRotation, getOpenCodeGoRotation } from "@workspace/integrations-openai-ai-server";
+import { getProviderConfig, getProviderRotation, getProviderConfigFromSettings, createAIClient, getOpenCodeRotation, getOpenCodeGoRotation } from "@workspace/integrations-openai-ai-server";
 import { logger } from "./logger";
 import { PaymentGateway } from "./payments";
 import { 
@@ -1408,28 +1408,34 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
         for (const { proveedor, config } of clavesPropias) {
           queue.push({ config, source: `${proveedor}_cliente` });
         }
-        const deepseekEnv = getProviderConfig("deepseek");
-        const groqEnv = getProviderConfig("groq");
-        const copilotEnv = getProviderConfig("github_copilot_internal");
-        const nvidiaEnv = getProviderConfig("nvidia");
+        // Cada proveedor entra con TODOS sus modelos, no con uno.
+        //
+        // La cuota se agota por MODELO, no por cuenta (medido: con la misma
+        // clave, uno devolvía 429 mientras otro respondía en 832ms). Zen y Go
+        // ya rotaban así; el resto iba con uno fijo, así que si ese caía se
+        // perdía el proveedor entero teniendo modelos suyos que sí responden.
+        // Ahora cada modelo es un candidato propio y la cola sigue de largo.
+        const conModelos = (proveedor: string, salud: string) => {
+          if (activeProvider === proveedor || !healthMonitor.isServiceHealthy(salud)) return [];
+          return getProviderRotation(proveedor).map((config) => ({
+            config,
+            source: `${proveedor}/${config.model}`,
+          }));
+        };
         const nvidiaFast = getProviderConfig("nvidia_fast");
         // DeepSeek primero: es de pago y responde en ~800ms medidos contra su
         // API, contra los 8-55s de los gratis. Acá cada segundo lo espera un
         // cliente real escribiendo por WhatsApp, y una venta perdida cuesta
         // miles de veces lo que cuesta el token (~2 COP por mensaje).
-        if (activeProvider !== "deepseek" && deepseekEnv && healthMonitor.isServiceHealthy("deepseek"))
-          queue.push({ config: deepseekEnv, source: "deepseek" });
+        queue.push(...conModelos("deepseek", "deepseek"));
         // Copilot: la cuenta del admin. Va antes que los gratis sueltos porque
         // es la de mejor calidad del resto. El intercambio de token (PAT ->
         // token de sesión de Copilot) lo hace más abajo quien detecta la
         // baseUrl api.githubcopilot.com.
-        if (activeProvider !== "github_copilot_internal" && copilotEnv && healthMonitor.isServiceHealthy("copilot_internal"))
-          queue.push({ config: copilotEnv, source: "copilot_internal" });
+        queue.push(...conModelos("github_copilot_internal", "copilot_internal"));
         // Groq: respaldo rápido y gratuito (antes estaba configurado pero nunca se usaba)
-        if (activeProvider !== "groq" && groqEnv && healthMonitor.isServiceHealthy("groq"))
-          queue.push({ config: groqEnv, source: "groq" });
-        if (activeProvider !== "nvidia" && nvidiaEnv && healthMonitor.isServiceHealthy("nvidia_70b"))
-          queue.push({ config: nvidiaEnv, source: "nvidia_70b" });
+        queue.push(...conModelos("groq", "groq"));
+        queue.push(...conModelos("nvidia", "nvidia_70b"));
         // GitHub Models ya NO va en la cadena: GitHub lo está retirando.
         // Verificado el 2026-08-19 contra los dos endpoints -- el viejo
         // (models.inference.ai.azure.com) devuelve 404 y el nuevo

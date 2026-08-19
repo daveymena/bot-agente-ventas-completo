@@ -66,8 +66,15 @@ export async function callMarketingAI<T = unknown>(
   }
 
   // 1. Proveedores de pago del sistema (la clave llega a process.env vía
-  //    cargarClavesEnEntorno() apenas el admin la guarda).
-  for (const p of ["deepseek", "mistral", "openai", "anthropic"]) sumar(p, getProviderConfig(p));
+  //    cargarClavesEnEntorno() apenas el admin la guarda). Con TODOS sus
+  //    modelos: la cuota se agota por modelo, no por cuenta, así que perder el
+  //    proveedor entero al primer 429 es tirar modelos que sí responden.
+  const { getProviderRotation } = await import("@workspace/integrations-openai-ai-server");
+  for (const p of ["deepseek", "mistral", "openai", "anthropic"]) {
+    const rot = getProviderRotation(p);
+    if (rot.length) rot.forEach((cfg) => sumar(`${p}/${cfg.model}`, cfg));
+    else sumar(p, getProviderConfig(p));
+  }
 
   // 2. La elección guardada del tenant (campo viejo, pero es una elección).
   if (opts.tenantId) {
