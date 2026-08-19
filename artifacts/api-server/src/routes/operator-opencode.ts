@@ -561,7 +561,25 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
         // plano que se puedan perder ni promesas que cumplir después. Se le
         // reserva algo menos de la mitad del turno; lo que sobra le queda al
         // modelo para redactar, que tarda 10-20s.
-        const PRESUPUESTO_INVESTIGACION_MS = 70_000;
+        // El presupuesto de investigación se ADAPTA a cuánto trabajo le queda
+        // al modelo después.
+        //
+        // 70s fijos era más de la mitad del turno, y el comentario de arriba
+        // asume que "redactar tarda 10-20s". Eso vale cuando el pedido es solo
+        // escribir. Pero cuando además hay que buscar el producto, pedir el
+        // brief y proponer dos acciones encadenadas, cada paso es una vuelta
+        // más contra el modelo y los ~65s restantes no alcanzan: medido dos
+        // veces seguidas con "anunciá mi curso de IA: escribí, guardá y
+        // subilo", el turno cortó sin crear nada.
+        //
+        // Si el pedido incluye EJECUTAR (guardar/subir/publicar), la
+        // investigación se recorta a la mitad. Sigue siendo tiempo real de
+        // búsqueda -- suficiente para traer ángulos de la competencia -- pero
+        // le deja al modelo el margen que necesita para llegar a proponer.
+        // Vale más un anuncio creado con investigación más corta que una
+        // investigación completa que muere sin anuncio.
+        const PIDE_EJECUTAR = /\b(guard[aá]|sub[ií]|public[aá]|cre[aá]\w*\s+(y|,)|deja\w*\s+list)/i.test(String(prompt));
+        const PRESUPUESTO_INVESTIGACION_MS = PIDE_EJECUTAR ? 35_000 : 70_000;
         try {
           const r = await investigacionRapida(ctx, String(prompt), Math.min(PRESUPUESTO_INVESTIGACION_MS, Math.max(turnDeadline - Date.now() - 45_000, 20_000)));
           if (r.ok) {
