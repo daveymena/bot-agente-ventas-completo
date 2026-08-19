@@ -3477,6 +3477,36 @@ export const TOOLS: ToolDef[] = [
     },
   },
   {
+    name: "fb_delete_campaign",
+    description: "BORRA una campaña de la cuenta de Facebook. Meta la borra EN CASCADA: se lleva sus conjuntos y sus anuncios. Es IRREVERSIBLE, no hay papelera. Usala para limpiar campañas que quedaron a medias (sin conjunto de anuncios) o que el admin ya no quiere. El id lo da fb_list_campaigns. Si la campaña gastó dinero alguna vez, se niega salvo que el admin lo confirme explícitamente: borrarla también borra su historial de resultados.",
+    args: '{ "campaignId": string (req, id de la CAMPAÑA -- lo da fb_list_campaigns), "borrarAunqueTengaGasto"?: boolean (solo si el admin ya dijo que sí sabiendo que pierde el historial) }',
+    run: async (args, ctx) => {
+      const campaignId = String(args.campaignId || args.campaign_id || args.id || "").trim();
+      if (!campaignId) return { ok: false, summary: "Falta el id de la campaña (usá fb_list_campaigns para obtenerlo)." };
+
+      const bloqueo = await bloqueoDeMeta("fb_delete_campaign", ctx);
+      if (bloqueo) return { ok: false, summary: bloqueo };
+
+      const tenant = await tenantManager.getTenantById(ctx.tenantId);
+      const { FacebookService } = await import("./facebook");
+      const fb = new FacebookService(tenant || undefined);
+      if (!fb.isConfigured()) return { ok: false, summary: "Facebook no está conectado." };
+
+      // El freno por gasto vive dentro de borrarCampana, entre leer y borrar:
+      // avisar después sería avisar de algo que ya no tiene arreglo.
+      const r = await fb.borrarCampana(campaignId, { permitirConGasto: args.borrarAunqueTengaGasto === true });
+      if (!r.ok) return { ok: false, summary: r.message };
+
+      const detalle = [
+        r.nombre ? `"${r.nombre}"` : `id ${campaignId}`,
+        r.estado ? `(estaba en ${r.estado})` : "",
+        (r.gasto || 0) > 0 ? `⚠️ había gastado $${Number(r.gasto).toLocaleString("es-CO")} — su historial de resultados se fue con ella` : "nunca gastó nada",
+      ].filter(Boolean).join(" ");
+
+      return { ok: true, summary: `🗑️ Campaña borrada de Meta: ${detalle}. Se llevó también sus conjuntos y anuncios. Verificado contra la cuenta: ya no aparece.` };
+    },
+  },
+  {
     name: "fb_set_budget",
     description: "Fijar el presupuesto DIARIO de un conjunto de anuncios, en pesos (no en porcentaje). El presupuesto vive en el conjunto de anuncios, NO en la campaña: si solo tenés el id de la campaña, usá fb_list_adsets primero para obtener el del conjunto.",
     args: '{ "adSetId": string (req, id del CONJUNTO de anuncios), "dailyBudget": number (req, monto diario en la moneda de la cuenta) }',
@@ -3743,6 +3773,9 @@ export const DESTRUCTIVE_TOOLS = new Set([
   // dropi_create_order dispara un despacho real del proveedor con cobro
   // contra entrega: es dinero de verdad moviéndose, nunca sin el sí del admin.
   "dropi_create_order",
+  // Borrar una campaña es irreversible y Meta la borra EN CASCADA (conjuntos
+  // y anuncios incluidos). No hay papelera del otro lado.
+  "fb_delete_campaign",
   // Envíos masivos reales a la base de leads -- irreversibles una vez
   // mandados, y whatsapp_broadcast_send además arriesga el número del
   // negocio si se abusa -- nunca sin confirmación explícita del admin.

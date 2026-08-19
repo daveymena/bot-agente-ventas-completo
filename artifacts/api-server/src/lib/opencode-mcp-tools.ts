@@ -285,6 +285,8 @@ export function describePlannedAction(a: { tool: string; args: any }): string {
     // que más plata mueve, y encima sin decirle que va a empezar a gastar.
     case "fb_make_campaign_deliver":
       return `▶️ Encender la campaña ${g.campaignId ?? "?"} de Facebook — el sistema decide solo qué prender (campaña, conjunto o anuncio) y prende lo mínimo. EMPIEZA A GASTAR`;
+    case "fb_delete_campaign":
+      return `🗑️ BORRAR de Facebook la campaña ${g.campaignId ?? "?"} — se van también sus conjuntos y anuncios. IRREVERSIBLE, no hay papelera${g.borrarAunqueTengaGasto === true ? ", y se pierde su historial de resultados" : ""}`;
     case "fb_pause_campaign":
       return `⏸️ Pausar la campaña ${g.campaignId ?? "?"} de Facebook — deja de gastar`;
     case "fb_resume_campaign":
@@ -406,6 +408,7 @@ async function proposeAction(
     fb_upload_draft_to_meta: ["draftId"],
     fb_pause_campaign: ["campaignId"],
     fb_resume_campaign: ["campaignId"],
+    fb_delete_campaign: ["campaignId"],
     // Faltaba, y es la que más importa de las tres: REDIRIGIR manda acá todo
     // "activá el anuncio", así que es el camino por defecto para encender. Sin
     // el campaignId obligatorio, el modelo podía proponerla vacía, el admin

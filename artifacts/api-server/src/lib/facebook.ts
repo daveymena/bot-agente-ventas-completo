@@ -1349,6 +1349,92 @@ Responde SOLO con JSON:
     return data;
   }
 
+  /**
+   * Borra una campaña de la cuenta real. Meta borra en CASCADA: se lleva sus
+   * conjuntos y anuncios. Es irreversible.
+   *
+   * Nace de una limpieza que el admin tuvo que hacer a mano (2026-08-19):
+   * quedaron dos campañas huérfanas sin conjunto y no había ninguna forma de
+   * borrarlas desde la app -- había que ir a Ads Manager. El rollback
+   * automático ya evita que se generen nuevas, pero esto permite limpiar las
+   * que ya están y cualquier campaña que el admin quiera sacar.
+   *
+   * Devuelve los datos que leyó ANTES de borrar, para que el resumen le pueda
+   * decir al admin QUÉ desapareció y no solo "ok".
+   */
+  async borrarCampana(campaignId: string, opts: { permitirConGasto?: boolean } = {}): Promise<{
+    ok: boolean;
+    message: string;
+    nombre?: string;
+    estado?: string;
+    gasto?: number;
+  }> {
+    const token = this.config.userAccessToken || this.config.accessToken;
+    let nombre: string | undefined;
+    let estado: string | undefined;
+    let gasto = 0;
+    try {
+      // Leer primero: si el id no existe, se avisa sin haber intentado nada.
+      const info = await this.fbGet(campaignId, { fields: "name,status,effective_status" }, token);
+      nombre = info?.name;
+      estado = info?.effective_status || info?.status;
+      try {
+        const ins = await this.fbGet(`${campaignId}/insights`, { fields: "spend", date_preset: "maximum" }, token);
+        gasto = Number(ins?.data?.[0]?.spend || 0) || 0;
+      } catch {
+        // Sin insights (campaña que nunca corrió) el gasto es 0 y no es un error.
+      }
+    } catch (e: any) {
+      return { ok: false, message: `No encontré la campaña ${campaignId} en la cuenta: ${e?.message || e}` };
+    }
+
+    // El freno por gasto va ACÁ, entre leer y borrar -- no después, que sería
+    // avisar de algo que ya no tiene arreglo. Una campaña que gastó lleva
+    // pegado su historial de resultados, y ese historial es lo único que
+    // permite comparar qué funcionó: se pierde con ella.
+    if (gasto > 0 && !opts.permitirConGasto) {
+      return {
+        ok: false,
+        message:
+          `La campaña ${nombre ? `"${nombre}"` : campaignId} gastó $${gasto.toLocaleString("es-CO")} alguna vez. `
+          + `Borrarla elimina también su historial de resultados, que es lo único con lo que se puede comparar qué funcionó. `
+          + `Si el admin igual la quiere borrar sabiendo eso, volvé a proponerlo con "borrarAunqueTengaGasto": true. `
+          + `Si solo quiere que deje de gastar, lo correcto es pausarla (fb_pause_campaign), no borrarla.`,
+        nombre,
+        estado,
+        gasto,
+      };
+    }
+
+    try {
+      const params = new URLSearchParams({ access_token: token });
+      const res = await fetch(`${FB_GRAPH_URL}/${campaignId}?${params}`, {
+        method: "DELETE",
+        signal: AbortSignal.timeout(15000),
+      });
+      const data: any = await res.json().catch(() => ({}));
+      if (data?.error) {
+        return { ok: false, message: `Meta rechazó el borrado: ${data.error.message} (código ${data.error.code})`, nombre, estado, gasto };
+      }
+    } catch (e: any) {
+      return { ok: false, message: `No hubo respuesta de Meta al borrar: ${e?.message || e}`, nombre, estado, gasto };
+    }
+
+    // Verificar contra Meta, no confiar en el 200. Mismo criterio que el
+    // resto del archivo: el objetivo es que la campaña NO esté, no que la
+    // llamada haya devuelto ok.
+    try {
+      const quedo = await this.fbGet(campaignId, { fields: "id,status" }, token);
+      if (quedo?.id && quedo?.status !== "DELETED") {
+        return { ok: false, message: `Meta aceptó el borrado pero la campaña sigue apareciendo (estado ${quedo.status}). Revisala en Ads Manager.`, nombre, estado, gasto };
+      }
+    } catch {
+      // Que ya no se pueda leer es la confirmación esperada de que se borró.
+    }
+
+    return { ok: true, message: "Campaña borrada", nombre, estado, gasto };
+  }
+
   /** Best-effort: no tira si falla (se usa para limpiar objetos huérfanos
    * después de un error, nunca debe tapar el error original que causó la
    * limpieza). */
