@@ -1382,20 +1382,36 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
 
       // ── Helper: pushear fallbacks disponibles ──
       const pushFallbacks = (queue: { config: any; source: string }[]) => {
+        const deepseekEnv = getProviderConfig("deepseek");
         const groqEnv = getProviderConfig("groq");
         const copilotEnv = getProviderConfig("github_copilot_internal");
         const nvidiaEnv = getProviderConfig("nvidia");
-        const githubEnv = getProviderConfig("github");
         const nvidiaFast = getProviderConfig("nvidia_fast");
+        // DeepSeek primero: es de pago y responde en ~800ms medidos contra su
+        // API, contra los 8-55s de los gratis. Acá cada segundo lo espera un
+        // cliente real escribiendo por WhatsApp, y una venta perdida cuesta
+        // miles de veces lo que cuesta el token (~2 COP por mensaje).
+        if (activeProvider !== "deepseek" && deepseekEnv && healthMonitor.isServiceHealthy("deepseek"))
+          queue.push({ config: deepseekEnv, source: "deepseek" });
+        // Copilot: la cuenta del admin. Va antes que los gratis sueltos porque
+        // es la de mejor calidad del resto. El intercambio de token (PAT ->
+        // token de sesión de Copilot) lo hace más abajo quien detecta la
+        // baseUrl api.githubcopilot.com.
+        if (activeProvider !== "github_copilot_internal" && copilotEnv && healthMonitor.isServiceHealthy("copilot_internal"))
+          queue.push({ config: copilotEnv, source: "copilot_internal" });
         // Groq: respaldo rápido y gratuito (antes estaba configurado pero nunca se usaba)
         if (activeProvider !== "groq" && groqEnv && healthMonitor.isServiceHealthy("groq"))
           queue.push({ config: groqEnv, source: "groq" });
         if (activeProvider !== "nvidia" && nvidiaEnv && healthMonitor.isServiceHealthy("nvidia_70b"))
           queue.push({ config: nvidiaEnv, source: "nvidia_70b" });
-        if (activeProvider !== "github" && githubEnv && healthMonitor.isServiceHealthy("github_env"))
-          queue.push({ config: githubEnv, source: "github_env" });
-        if (activeProvider !== "github_copilot_internal" && copilotEnv && healthMonitor.isServiceHealthy("copilot_internal"))
-          queue.push({ config: copilotEnv, source: "copilot_internal" });
+        // GitHub Models ya NO va en la cadena: GitHub lo está retirando.
+        // Verificado el 2026-08-19 contra los dos endpoints -- el viejo
+        // (models.inference.ai.azure.com) devuelve 404 y el nuevo
+        // (models.github.ai/inference) devuelve 410 Gone con
+        // "github_models_retirement_brownout". Un proveedor muerto en la cola
+        // no es neutral: se lleva su intento y su timeout mientras un cliente
+        // espera la respuesta. Copilot es OTRA API (api.githubcopilot.com),
+        // sigue viva y queda arriba.
         if (activeProvider !== "nvidia" && nvidiaFast && healthMonitor.isServiceHealthy("nvidia_8b"))
           queue.push({ config: nvidiaFast, source: "nvidia_8b" });
       };
