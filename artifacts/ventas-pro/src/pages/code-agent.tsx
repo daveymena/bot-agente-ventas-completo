@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import { Layout } from "@/components/layout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Bot, Send, User, Loader2, Sparkles, Check, X, Wrench, MessageSquare, Paperclip, RotateCcw } from "lucide-react";
@@ -326,7 +327,13 @@ export default function CodeAgent() {
 
         <div className="flex flex-1 min-h-0">
           <div className="flex-1 flex flex-col border border-border rounded-2xl bg-card overflow-hidden shadow-sm min-h-0">
-            <ScrollArea className="flex-1 p-4 md:p-6">
+            {/* El viewport interno de Radix es un `display:table` con
+                min-width:100%, y una tabla NO respeta el ancho del padre:
+                crece con su contenido. Por eso los mensajes largos --ids de
+                Meta, enlaces, bloques de codigo-- empujaban el chat hacia el
+                costado en vez de bajar de renglon. Forzarlo a `block` con
+                min-w-0 lo devuelve al ancho real disponible. */}
+            <ScrollArea className="flex-1 p-4 md:p-6 [&_[data-radix-scroll-area-viewport]>div]:!block [&_[data-radix-scroll-area-viewport]>div]:!min-w-0">
               <div className="space-y-4">
                 {messages.map((msg, i) => (
                   <div key={i} className={`flex gap-3 ${msg.role === "user" ? "justify-end" : ""}`}>
@@ -335,7 +342,7 @@ export default function CodeAgent() {
                         <Bot className="h-5 w-5 text-white" />
                       </div>
                     )}
-                    <div className={`min-w-0 ${msg.role === "user" ? "max-w-[85%] md:max-w-[70%]" : "max-w-[90%] md:max-w-[80%]"} ${msg.role === "user" ? "order-1" : ""}`}>
+                    <div className={`min-w-0 ${msg.role === "user" ? "max-w-[90%] md:max-w-[75%]" : "max-w-full md:max-w-[88%] lg:max-w-[92%]"} ${msg.role === "user" ? "order-1" : ""}`}>
                       <div
                         className={`rounded-2xl px-4 py-3 md:px-5 md:py-3.5 ${
                           msg.role === "user"
@@ -358,7 +365,7 @@ export default function CodeAgent() {
                             {msg.content}
                           </div>
                         ) : (
-                          <div className="text-sm md:text-base prose prose-sm md:prose-base dark:prose-invert prose-p:leading-relaxed max-w-none break-words [overflow-wrap:anywhere] prose-img:rounded-lg prose-img:shadow-sm prose-a:text-indigo-500 hover:prose-a:text-indigo-600 prose-a:break-all">
+                          <div className="text-sm md:text-base prose prose-sm md:prose-base dark:prose-invert prose-p:leading-relaxed max-w-none break-words [overflow-wrap:anywhere] prose-img:rounded-lg prose-img:shadow-sm prose-a:text-indigo-500 hover:prose-a:text-indigo-600 prose-a:break-all prose-pre:whitespace-pre-wrap prose-pre:break-words prose-pre:overflow-x-auto prose-code:break-words prose-table:block prose-table:overflow-x-auto">
                             <ReactMarkdown remarkPlugins={[remarkGfm]}>
                               {msg.content}
                             </ReactMarkdown>
@@ -450,18 +457,33 @@ export default function CodeAgent() {
                   </Button>
                 )}
                 <div className="flex-1 relative" data-tour="code-agent-input">
-                  <Input
+                  {/* Campo que CRECE con lo que se escribe.
+                      Antes era un <Input> de una sola linea: al escribir un
+                      pedido largo --que es lo normal con Atlas, no la
+                      excepcion-- el texto se corria hacia el costado y no se
+                      veia lo tipeado, asi que no habia forma de releerlo antes
+                      de mandarlo. Crece hasta ~6 renglones y despues scrollea
+                      solo, para no comerse el area de mensajes.
+                      Enter manda; Shift+Enter hace salto de linea. */}
+                  <Textarea
                     value={input}
                     onChange={(e) => setInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && !e.shiftKey) {
+                        e.preventDefault();
+                        if (!loading && !restoring && input.trim()) handleSubmit();
+                      }
+                    }}
+                    rows={1}
                     placeholder={mode === "operator" ? "Ej: analiza el sistema, crea un producto, configura la tienda..." : "Ej: crea un agente para vender cursos de programación..."}
                     disabled={loading}
-                    className="flex-1 h-11 rounded-xl pr-12 text-sm"
+                    className="flex-1 min-h-11 max-h-40 resize-none overflow-y-auto rounded-xl pr-12 py-2.5 text-sm leading-relaxed"
                   />
                   <Button
                     type="submit"
                     disabled={loading || restoring || !input.trim()}
                     size="icon"
-                    className="absolute right-1 top-1 h-9 w-9 rounded-lg"
+                    className="absolute right-1 bottom-1 h-9 w-9 rounded-lg"
                   >
                     {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
                   </Button>
