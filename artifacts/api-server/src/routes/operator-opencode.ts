@@ -987,6 +987,12 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
 
       let plannedActions = await drainDraftPlan(tenantId, turnId);
 
+      // ¿El modelo dio por hecho un trabajo que no ejecutó? Se decide acá
+      // abajo, pero la aclaración se REDACTA al final del turno: depende de si
+      // al cierre quedó o no un plan esperando confirmación, y eso todavía
+      // puede cambiar (la insistencia corre después).
+      let avisarQueNoEjecuto = false;
+
       // ── "Ya lo hice" cuando NO hizo nada ─────────────────────────────────
       // El problema más grave de todos, reportado por el admin con la
       // conversación entera en la mano (2026-08-12): Atlas escribía
@@ -1056,17 +1062,21 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
           { tenantId, sessionId, teniaPlan: plannedActions.length > 0 },
           "[AtlasOpenCode] El modelo dijo que ya había hecho el trabajo sin ejecutar NADA -- se corrige",
         );
-        // La corrección va ARRIBA, no al final.
+        // Solo se ANOTA que hay que aclararlo; el texto se arma al final.
         //
-        // Puesta abajo producía un mensaje que se contradecía solo: decía
-        // "Borrador guardado:" y dos líneas después "NO se guardó". El admin
-        // lee de arriba hacia abajo y se queda con lo primero.
-        const aclaracion = plannedActions.length > 0
-          ? `⚠️ **Todavía no se guardó nada.** Lo de abajo es una PROPUESTA: se ejecuta recién cuando la confirmes.`
-          : `⚠️ **Todavía no se guardó nada, y no quedó ninguna acción pendiente de confirmar.** `
-            + `Lo de abajo es solo texto: no se creó ni se modificó nada en el sistema. `
-            + `Pedímelo de nuevo para que lo registre de verdad.`;
-        finalReplyVerificado = `${aclaracion}\n\n---\n\n${finalReplyVerificado}`;
+        // Acá se redactaba la aclaración en el acto, y eso producía un mensaje
+        // que se contradecía con su propio `status` (visto en vivo el
+        // 2026-08-19): el admin leía "no quedó ninguna acción pendiente de
+        // confirmar, pedímelo de nuevo" en un turno que respondía
+        // `status: "awaiting_confirmation"` y que SÍ tenía plan esperando su
+        // sí. El motivo es de orden: en este punto `plannedActions` todavía
+        // puede estar vacío porque la insistencia -- que es la que consigue
+        // que el modelo llame a la herramienta -- corre MÁS ABAJO. La frase
+        // se escribía sobre un dato que aún no estaba decidido.
+        //
+        // Y no es cosmético: si el admin hace lo que le dice ese texto y lo
+        // pide de nuevo, termina con el anuncio duplicado.
+        avisarQueNoEjecuto = true;
       }
 
       // ── Preguntar y proponer a la vez es contradictorio ──────────────────
@@ -1219,13 +1229,31 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
           logger.warn({ tenantId, err: e?.message }, "[AtlasOpenCode] La insistencia falló");
         }
 
-        if (plannedActions.length === 0) {
+        // Si el candado de arriba ya se activó, la aclaración del cierre dice
+        // exactamente esto y con más precisión -- repetirlo son dos avisos
+        // seguidos diciendo lo mismo.
+        if (plannedActions.length === 0 && !avisarQueNoEjecuto) {
           // Que el admin NO se quede pensando que tiene algo guardado.
           finalReplyVerificado =
             `${finalReplyVerificado}\n\n⚠️ Aviso automático: esto quedó solo como texto en el chat, ` +
             `NO se guardó como borrador en el sistema. Pedímelo de nuevo (por ejemplo "guardá ese anuncio") ` +
             `y lo registro de verdad.`;
         }
+      }
+
+      // ── Recién ahora se sabe si quedó algo pendiente ─────────────────────
+      // `plannedActions` ya es definitivo: pasó el drenaje inicial, el reseteo
+      // por "termina preguntando" y la insistencia. La corrección va ARRIBA y
+      // no al final porque puesta abajo el mensaje se contradecía solo -- decía
+      // "Borrador guardado:" y dos líneas después "NO se guardó", y el admin
+      // lee de arriba hacia abajo y se queda con lo primero.
+      if (avisarQueNoEjecuto) {
+        finalReplyVerificado = (plannedActions.length > 0
+          ? `⚠️ **Todavía no se guardó nada.** Lo de abajo es una PROPUESTA: se ejecuta recién cuando la confirmes.`
+          : `⚠️ **Todavía no se guardó nada, y no quedó ninguna acción pendiente de confirmar.** `
+            + `Lo de abajo es solo texto: no se creó ni se modificó nada en el sistema. `
+            + `Pedímelo de nuevo para que lo registre de verdad.`)
+          + `\n\n---\n\n${finalReplyVerificado}`;
       }
 
       if (plannedActions.length > 0) {
