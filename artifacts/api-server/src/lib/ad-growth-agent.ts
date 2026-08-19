@@ -91,7 +91,36 @@ function fmtCOP(n: number): string {
   return new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", maximumFractionDigits: 0 }).format(n);
 }
 
-async function getAdminPhone(): Promise<string | null> {
+/**
+ * A qué teléfono avisarle. Primero el del NEGOCIO dueño de la sugerencia.
+ *
+ * Antes esto era solo `process.env.ADMIN_PHONE`, y tenía dos problemas serios:
+ *
+ * 1. Con varios clientes, una única variable de entorno significa que todas
+ *    las alertas de todos los negocios van al MISMO teléfono. El dueño de un
+ *    negocio se enteraría de las campañas de otro, y el suyo no recibiría
+ *    nada.
+ * 2. Cambiarlo exigía tocar el entorno y reiniciar. Un número de contacto es
+ *    dato del negocio, no infraestructura: tiene que poder editarse desde el
+ *    panel como cualquier otro.
+ *
+ * Efecto real medido el 2026-08-19: la variable estaba vacía, así que el
+ * agente detectaba campañas quemando plata y el log decía "no se puede
+ * notificar". Vigilaba sin poder avisarle a nadie.
+ *
+ * La variable de entorno queda como respaldo para instalaciones de un solo
+ * negocio que ya la tenían configurada.
+ */
+async function getAdminPhone(tenantId?: number | null): Promise<string | null> {
+  if (tenantId) {
+    try {
+      const [fila] = await db.select().from(tenants).where(eq(tenants.id, tenantId)).limit(1);
+      const propio = String((fila as any)?.contactPhone || "").replace(/[^0-9]/g, "");
+      if (propio.length >= 8) return propio;
+    } catch (err) {
+      logger.warn({ err, tenantId }, "[AdGrowthAgent] no se pudo leer el teléfono del negocio, se usa el del entorno");
+    }
+  }
   return process.env.ADMIN_PHONE || null;
 }
 
@@ -121,7 +150,7 @@ async function logSuggestion(entry: {
 }
 
 async function notifyAdmin(tenantId: number, logId: number, campaignName: string, action: string, reason: string) {
-  const phone = await getAdminPhone();
+  const phone = await getAdminPhone(tenantId);
   if (!phone) {
     logger.warn("[AdGrowthAgent] ADMIN_PHONE no configurado, no se puede notificar la sugerencia");
     return;
@@ -221,7 +250,7 @@ export async function runDailyBudgetGuard(): Promise<void> {
 
 /** Aviso de algo YA EJECUTADO -- no pide confirmación, informa. */
 async function notifyAdminExecuted(tenant: TenantContext, logId: number, reason: string, pausadas: string[]) {
-  const phone = await getAdminPhone();
+  const phone = await getAdminPhone(tenant.id);
   const wa = getWhatsAppForTenant(tenant.id);
   if (!phone || !wa.isConnected()) return;
   const lista = pausadas.length ? `\n\n⏸️ Pausadas:\n${pausadas.map((n) => `· ${n}`).join("\n")}` : "";
@@ -382,8 +411,19 @@ async function applySuggestion(log: typeof adAgentLogs.$inferSelect): Promise<{ 
  * sugerencia del agente (y ya se manejó), false si no tiene nada que ver
  * y debe seguir el flujo normal del bot. */
 export async function handleAdminReply(phone: string, text: string): Promise<boolean> {
-  const adminPhone = process.env.ADMIN_PHONE || "";
-  if (!adminPhone || phone.replace(/[^0-9]/g, "") !== adminPhone.replace(/[^0-9]/g, "")) return false;
+  // Se acepta el telefono del ENTORNO o el de cualquier negocio: la sugerencia
+  // concreta se busca abajo y trae su propio tenantId, asi que un admin no
+  // puede aprobar la de otro por accidente -- solo responde a la suya.
+  const delEntorno = String(process.env.ADMIN_PHONE || "").replace(/[^0-9]/g, "");
+  const quienEscribe = phone.replace(/[^0-9]/g, "");
+  let esAdmin = !!delEntorno && quienEscribe === delEntorno;
+  if (!esAdmin) {
+    try {
+      const filas = await db.select().from(tenants);
+      esAdmin = filas.some((t: any) => String(t.contactPhone || "").replace(/[^0-9]/g, "") === quienEscribe);
+    } catch { /* si no se puede leer, queda el chequeo del entorno */ }
+  }
+  if (!esAdmin) return false;
 
   const idMatch = text.match(/\b(\d+)\b/);
   const approved = isApproval(text);
