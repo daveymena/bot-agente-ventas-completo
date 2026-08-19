@@ -172,6 +172,30 @@ export async function cargarClavesEnEntorno(): Promise<number> {
       const envModelo = ENV_MODELO_POR_PROVEEDOR[proveedor];
       if (envModelo && datos?.model) process.env[envModelo] = datos.model;
     }
+    // ── El token de GitHub vive en DOS lugares y solo uno llegaba al entorno ──
+    // `settings.githubToken` es donde escribe la conexión de Copilot (el flujo
+    // de código de dispositivo, routes/settings.ts), mientras que el bucle de
+    // arriba solo mira `businessConfig.aiProviders`, que es donde escribe la
+    // pantalla de "Modelos de pago". Son dos pantallas distintas guardando en
+    // dos campos distintos.
+    //
+    // Consecuencia real, medida el 2026-08-19: el admin volvió a conectar su
+    // cuenta de Copilot, el intercambio de token funcionó y quedó guardado con
+    // 24h de vigencia... y aun así toda llamada a Copilot fallaba, porque
+    // `getProviderConfig("github_copilot_internal")` lee
+    // `process.env.GITHUB_TOKEN` y ahí seguía el token VIEJO. Autenticarse de
+    // nuevo no arreglaba nada y no había forma de darse cuenta.
+    //
+    // Gana el de la conexión de Copilot, y no al revés: el otro consumidor de
+    // GITHUB_TOKEN era GitHub Models, que GitHub está RETIRANDO (verificado el
+    // 2026-08-19: 404 en el endpoint viejo y 410 "retirement brownout" en el
+    // nuevo). O sea que el token de "Modelos de pago" ya no sirve para nada,
+    // mientras que el de Copilot es el que el admin acaba de autorizar a mano.
+    if ((row as any).githubToken) {
+      process.env.GITHUB_TOKEN = String((row as any).githubToken);
+      logger.info("[AIKeys] token de GitHub tomado de la conexión de Copilot");
+    }
+
     if (aplicadas > 0) logger.info({ aplicadas }, "[AIKeys] claves guardadas cargadas al entorno");
     return aplicadas;
   } catch (e: any) {

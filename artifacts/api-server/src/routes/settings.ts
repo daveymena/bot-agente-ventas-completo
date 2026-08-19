@@ -73,10 +73,14 @@ router.post("/copilot-token", async (req, res, next) => {
       })
       .where(eq(settings.id, currentSettings.id));
 
-    return res.json({ 
-      success: true, 
+    // Mismo motivo que en /copilot-device-token: al entorno YA, si no el
+    // token nuevo no se usa hasta el próximo reinicio.
+    process.env.GITHUB_TOKEN = githubToken;
+
+    return res.json({
+      success: true,
       token: sessionToken.token,
-      expires_at: sessionToken.expiresAt 
+      expires_at: sessionToken.expiresAt
     });
   } catch (e) {
     return next(e);
@@ -130,6 +134,14 @@ router.post("/copilot-device-token", async (req, res, next) => {
           : null,
       })
       .where(eq(settings.id, currentSettings.id));
+
+    // Al entorno YA, sin esperar un reinicio. `getProviderConfig(
+    // "github_copilot_internal")` -- que es por donde Copilot entra a la
+    // cadena del bot de ventas -- lee `process.env.GITHUB_TOKEN`, no la base.
+    // Sin esto, el admin se autenticaba, veía "autorizado", y Copilot seguía
+    // fallando con el token viejo hasta el próximo reinicio. Medido en vivo
+    // el 2026-08-19: pasó exactamente eso.
+    process.env.GITHUB_TOKEN = accessToken;
 
     console.log("✅ [BACKEND] Copilot autorizado y token guardado");
     return res.json({ status: "authorized", success: true });
