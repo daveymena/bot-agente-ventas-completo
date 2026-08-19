@@ -5,6 +5,11 @@
 Documento de traspaso. Léelo antes de tocar el flujo de anuncios: evita re-descubrir
 problemas que ya costaron una sesión entera.
 
+> **Novedad (2026-08-19 noche):** el bloqueante 7.1 quedó **RESUELTO y verificado en
+> vivo** — ver §4 y §7.1. El código de creación nunca fue el problema (ya estaba
+> completo y desplegado); el bloqueante era que Atlas afirmaba "subido a Meta" sin
+> ejecutar la subida y había dos cuentas publicitarias. Probado de raíz contra Meta.
+
 ---
 
 ## 1. Dónde vive cada cosa
@@ -74,6 +79,20 @@ de crear algo en Meta.
 ⚠️ El `FB_ACCESS_TOKEN` del `.env` **local** venció el 10-ago. Es un **falso positivo**:
 producción usa las credenciales del tenant, no ese fallback.
 
+**Verificado contra Graph el 2026-08-19 noche (token del tenant descifrado):**
+- ✅ Cuenta activa del tenant: `act_1041451215504206` "Duvier Davey Mena Mosquera",
+  moneda **COP**, `account_status: 1` (activa), con $2.990 gastados históricamente.
+- ✅ Hay una SEGUNDA cuenta: `act_1545022093928422` "VentasPro - Cursos Digitales",
+  moneda **USD** — es donde vivía la campaña histórica del 8-ago. **No confundirlas**:
+  todo lo que hace la app hoy usa la COP. `me/adaccounts` muestra ambas.
+- ✅ Pixel `1193902929595904` **NO está asociado** a la cuenta COP actual → al crear
+  anuncios la app cae a `LINK_CLICKS`/`IMPRESSIONS` (sin píxel), que es lo correcto.
+  Si algún día se quiere optimizar por conversiones reales, el píxel hay que
+  reasociarlo o crear uno en esta cuenta.
+- ✅ El `userAccessToken` del tenant es un token de **usuario** (199 chars) distinto
+  del token de página; la creación real de anuncios lo usa (el token de página no
+  sirve para ads).
+
 ---
 
 ## 5. Resuelto y verificado en vivo
@@ -91,7 +110,9 @@ producción usa las credenciales del tenant, no ese fallback.
 
 **Ciclo probado punta a punta:** un solo mensaje → encuentra el producto → escribe el
 copy anclado en datos reales → el servidor lo obliga a proponer → confirmación →
-borrador guardado (id 89, con presupuesto, sin promesas inventadas).
+borrador guardado (id 89, con presupuesto, sin promesas inventadas). El 2026-08-19
+noche ese mismo borrador #89 quedó **subido a Meta en PAUSA** y verificado contra
+Graph (ver §7.1) — el ciclo completo ya incluye la creación real.
 
 ## 6. Desplegado pero SIN probar
 
@@ -104,19 +125,39 @@ borrador guardado (id 89, con presupuesto, sin promesas inventadas).
 
 ## 7. Lo que falta
 
-### 7.1 Bloqueante: subir a Meta con su conjunto
-Atlas responde *"✅ subido a Meta en pausa"* y `GET /api/facebook/campaigns` devuelve
-`[]`. **Nada se crea.** Sin esto no hay campaña que activar ni desactivar.
+### 7.1 ~~Bloqueante~~ RESUELTO: subir a Meta con su conjunto ✅
+**Estado: resuelto y verificado en vivo el 2026-08-19 noche.**
 
-Datos útiles para retomar:
-- La jerarquía correcta (campaña → conjunto → creativo → anuncio, todo `PAUSED`) ya está
-  implementada en `facebook.ts` y en `ad-strategist.ts`.
-- El motor de **encender** (`fb_make_campaign_deliver`, `fb_pause_campaign`,
-  `fb_resume_campaign`) es del 16-ago y está en `master`. **No hay que rehacerlo.**
-- Un borrador sin presupuesto hacía fallar el conjunto y dejaba la campaña huérfana; eso
-  ya se valida antes de tocar Meta.
-- Verificación obligatoria: `/campaigns` **y** `/campaigns/:id/adsets`. Un cascarón sin
-  conjunto **no** es un resultado aceptable.
+**Causa raíz** (no era un bug de creación):
+1. **Atlas mentía**: afirmaba "✅ subido a Meta en pausa" sin ejecutar nunca la subida.
+   El borrador #89 ("PACK EDUCA A TU PERRO", $20.000) llevaba 2 días con
+   `campaign_id=null`. El candado `9041e0e` frena la mentira en la respuesta, pero no
+   la crea: la subida había que ejecutarla.
+2. **Dos cuentas**: la campaña histórica del 8-ago estaba en `act_1545022093928422`
+   (USD), pero el tenant ahora apunta a `act_1041451215504206` (COP). Por eso
+   `/campaigns` devolvía `[]` aunque "hubiera campañas": miraban la cuenta equivocada.
+
+**Prueba de raíz ejecutada (todas contra producción):**
+- Graph directo con el token descifrado del tenant: campaña→conjunto→creativo→anuncio
+  PAUSED creados y borrados en cascada OK.
+- Camino real del servidor: plan pendiente `fb_upload_draft_to_meta` (#89) → aprobación
+  "sí" vía `POST /api/code-agent/operator-opencode` → **campaña creada**.
+- Verificación contra Meta (no al chat): campaña `120249109637600097`
+  "PACK EDUCA A TU PERRO - 19/8/2026" **PAUSED**, objetivo `OUTCOME_SALES`, con su
+  conjunto (`120249109637790097`, `daily_budget=20000` COP, targeting CO 18-65, sin
+  píxel → `LINK_CLICKS`). Borrador actualizado a `status=created`, `fbStatus=PAUSED`.
+
+**Ciclo completo hoy:** mensaje → Atlas encuentra producto → copy anclado → propone →
+admin aprueba → **borrador #N** → `fb_upload_draft_to_meta` → campaña PAUSED en la
+cuenta COP → `fb_make_campaign_deliver`/`fb_pause_campaign`/`fb_resume_campaign` la
+encienden/apagan. La cuenta hoy tiene 1 campaña real (la del #89), pausada, sin gastar.
+
+**Para retomar más adelante:**
+- El píxel `1193902929595904` no pertenece a la cuenta COP → mientras tanto las
+  campañas optimizan por clics (LINK_CLICKS), no por conversiones. Reasociar/crear
+  píxel en esta cuenta si se quiere optimización por compra.
+- `catalogId` vacío en el tenant → `fb_sync_catalog` sigue sin poder funcionar
+  (pendiente aparte, no bloquea la creación).
 
 ### 7.2 Atlas no conoce el negocio
 `construirBrief()` y `validarContenidoAnuncio()` tienen **cero** referencias a los
