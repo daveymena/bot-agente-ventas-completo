@@ -60,6 +60,32 @@ async function start() {
     logger.warn({ err }, "[AIKeys] no se pudieron cargar las claves guardadas");
   }
 
+  // ── La plataforma siempre tiene que tener un dueño ─────────────────────
+  // Si NO existe ningún administrador, se promueve al tenant dueño del deploy
+  // (PLATFORM_TENANT_ID, por defecto 1). Sin esto, una instalación nueva queda
+  // sin nadie que pueda administrar clientes: el backend ya permitía crear al
+  // primer admin, pero la única pantalla que lo ofrecía exigía ser admin --
+  // el huevo y la gallina, verificado en vivo el 2026-08-19.
+  //
+  // Solo corre cuando el conteo de admins es CERO, así que no puede quitarle
+  // ni darle permisos a nadie una vez que la plataforma tiene su dueño.
+  try {
+    const { db, tenants } = await import("@workspace/db");
+    const { eq, sql } = await import("drizzle-orm");
+    const [{ n }] = await db
+      .select({ n: sql<number>`count(*)` })
+      .from(tenants)
+      .where(eq(tenants.isAdmin, true));
+    if (Number(n) === 0) {
+      const dueno = Number(process.env.PLATFORM_TENANT_ID || 1);
+      await db.update(tenants).set({ isAdmin: true }).where(eq(tenants.id, dueno));
+      logger.warn({ tenantId: dueno }, "[Bootstrap] No había ningún administrador: se promovió al dueño de la plataforma");
+    }
+  } catch (err) {
+    // Nunca impedir que el servidor arranque por esto.
+    logger.warn({ err }, "[Bootstrap] no se pudo verificar si existe un administrador");
+  }
+
   app.listen(port, "0.0.0.0", (err: any) => {
     if (err) {
       logger.error({ err }, "Error listening on port");
