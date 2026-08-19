@@ -2270,13 +2270,37 @@ export const TOOLS: ToolDef[] = [
       if (reparo) return { ok: false, summary: reparo };
 
       const { AdStrategist } = await import("./ad-strategist");
+
+      // Sacar las comillas y la coma con que el modelo envuelve el copy.
+      //
+      // Visto en el borrador 88 (2026-08-19): en el chat presentó el anuncio
+      // entrecomillado -- "¿Tu perro destruye todo...?" -- y pasó las comillas
+      // COMO PARTE del texto, más una coma final de su propio formateo. Se
+      // guardó `"\"¿Tu perro...dueño.\","` y eso se publica tal cual en Meta,
+      // con una comilla suelta al principio y `",` al final. En el chat no se
+      // nota, porque ahí las comillas se leen como si fueran del formato.
+      //
+      // Se quitan solo si envuelven el texto ENTERO: una comilla legítima en
+      // el medio del copy (una cita, un apodo) no se toca.
+      const limpiarCopy = (v: any): string | undefined => {
+        if (typeof v !== "string") return undefined;
+        let t = v.trim();
+        for (let i = 0; i < 3; i++) {
+          const antes = t;
+          t = t.replace(/,\s*$/, "").trim();
+          if (/^["“”'']/.test(t) && /["“”'']$/.test(t)) t = t.slice(1, -1).trim();
+          if (t === antes) break;
+        }
+        return t || undefined;
+      };
+
       const grounded = {
-        hook: typeof args.hook === "string" ? args.hook.trim() || undefined : undefined,
-        angle: typeof args.angle === "string" ? args.angle.trim() || undefined : undefined,
-        researchNote: typeof args.researchNote === "string" ? args.researchNote.trim() || undefined : undefined,
-        primaryText: typeof args.primaryText === "string" ? args.primaryText.trim() || undefined : undefined,
-        headline: typeof args.headline === "string" ? args.headline.trim() || undefined : undefined,
-        description: typeof args.description === "string" ? args.description.trim() || undefined : undefined,
+        hook: limpiarCopy(args.hook),
+        angle: limpiarCopy(args.angle),
+        researchNote: limpiarCopy(args.researchNote),
+        primaryText: limpiarCopy(args.primaryText),
+        headline: limpiarCopy(args.headline),
+        description: limpiarCopy(args.description),
       };
       try {
         // Destino WhatsApp: cambia el tipo de campaña entera (objetivo,
