@@ -1374,6 +1374,26 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
   const t12Start = Date.now();
   console.log(`⏱️ [TIMING] Iniciando llamada a IA - ${ts()}`);
 
+  // ── Las claves del PROPIO cliente, si cargó alguna ──────────────────────
+  // Se leen una vez por respuesta y se pasan a la cola armadas, sin tocar
+  // process.env: dos clientes distintos corren en el MISMO proceso, así que
+  // volcar una clave al entorno la haría atender conversaciones ajenas.
+  const clavesPropias: { proveedor: string; config: any }[] = [];
+  try {
+    const tenantIdDelChat = Number((convo as any)?.tenantId) || 0;
+    if (tenantIdDelChat) {
+      const { clavesDelTenant } = await import("./ai-keys-tenant");
+      const { getProviderConfigConClave } = await import("@workspace/integrations-openai-ai-server");
+      for (const [proveedor, datos] of Object.entries(await clavesDelTenant(tenantIdDelChat))) {
+        const cfg = datos?.apiKey ? getProviderConfigConClave(proveedor, datos.apiKey, datos.model) : null;
+        if (cfg) clavesPropias.push({ proveedor, config: cfg });
+      }
+    }
+  } catch (e: any) {
+    // Nunca dejar a un cliente sin respuesta por no poder leer sus claves.
+    logger.warn({ err: e?.message }, "[Agent] no se pudieron leer las claves propias del cliente");
+  }
+
   const result = await executeWithFallback(
     async () => {
       const dbConfig = appSettings ? getProviderConfigFromSettings(appSettings) : null;
@@ -1382,6 +1402,12 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
 
       // ── Helper: pushear fallbacks disponibles ──
       const pushFallbacks = (queue: { config: any; source: string }[]) => {
+        // Lo que cargó ESTE cliente manda sobre todo lo demás: es su cuenta.
+        // Se resuelve sin pasar por process.env, que es global al proceso y
+        // era justamente lo que mezclaba a un cliente con otro.
+        for (const { proveedor, config } of clavesPropias) {
+          queue.push({ config, source: `${proveedor}_cliente` });
+        }
         const deepseekEnv = getProviderConfig("deepseek");
         const groqEnv = getProviderConfig("groq");
         const copilotEnv = getProviderConfig("github_copilot_internal");

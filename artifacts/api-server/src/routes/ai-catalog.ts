@@ -65,7 +65,20 @@ async function leerClavesGuardadas(): Promise<Record<string, { apiKey?: string; 
  */
 router.get("/catalog", async (req: TenantRequest, res, next) => {
   try {
-    const guardadas = await leerClavesGuardadas();
+    const globales = await leerClavesGuardadas();
+
+    // Un cliente ve LO SUYO, no lo del sistema. Si no ve lo suyo, la pantalla
+    // le miente dos veces: le muestra como propia una clave que no es y le
+    // esconde que la que él cargó sí quedó guardada.
+    const tenantId = req.tenant?.id;
+    const propias = tenantId && !req.tenant?.isAdmin
+      ? await (await import("../lib/ai-keys-tenant")).clavesDelTenant(tenantId)
+      : {};
+    // Las del cliente ganan; las globales quedan como respaldo visible.
+    const guardadas: Record<string, any> = { ...globales };
+    for (const [prov, datos] of Object.entries(propias)) {
+      if (datos?.apiKey) guardadas[prov] = { apiKey: datos.apiKey, model: datos.model };
+    }
 
     const porProveedor = new Map<string, ModeloLibre[]>();
     for (const m of MODELOS_LIBRES) {
@@ -161,6 +174,30 @@ router.put("/provider", async (req: TenantRequest, res, next) => {
     const { proveedor, apiKey, model } = req.body || {};
     if (!proveedor || !PROVEEDORES.some((p) => p.id === proveedor)) {
       return res.status(400).json({ error: "Proveedor desconocido" });
+    }
+
+    // ── La clave de un cliente se guarda EN SU CLIENTE ────────────────────
+    // `settings` es una fila ÚNICA y global (no tiene tenantId), y encima sus
+    // claves se vuelcan a `process.env`. Guardar acá la clave de un cliente
+    // significaba pisarle la configuración a todos, hacer que su cuota pagara
+    // las conversaciones ajenas, y dejar que cualquier otro admin se la
+    // pisara. Ver lib/ai-keys-tenant.ts.
+    //
+    // El dueño del sistema (tenant admin) sigue escribiendo en la global: es
+    // la que hace de respaldo para todo cliente que no configuró nada.
+    const tenantId = req.tenant?.id;
+    const esDuenoDelSistema = !!req.tenant?.isAdmin;
+    if (tenantId && !esDuenoDelSistema) {
+      const { guardarClaveDeTenant, clavesDelTenant } = await import("../lib/ai-keys-tenant");
+      await guardarClaveDeTenant(tenantId, proveedor, { apiKey, model });
+      const suyas = await clavesDelTenant(tenantId);
+      return res.json({
+        ok: true,
+        proveedor,
+        tieneClave: !!suyas[proveedor]?.apiKey,
+        modelo: suyas[proveedor]?.model || null,
+        ambito: "cliente",
+      });
     }
 
     const [row] = await db.select().from(settings).limit(1);

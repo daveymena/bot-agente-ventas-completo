@@ -51,8 +51,22 @@ export async function callMarketingAI<T = unknown>(
     }
   };
 
-  // 1. Proveedores de pago con clave propia cargada (la clave llega a
-  //    process.env vía cargarClavesEnEntorno() apenas el admin la guarda).
+  // 0. Lo que cargó ESTE cliente va primero que nada: es su cuenta y su plata.
+  //    Se arma sin tocar process.env -- eso es lo que mantiene separados a dos
+  //    clientes que corren en el mismo proceso. Ver lib/ai-keys-tenant.ts.
+  if (opts.tenantId) {
+    try {
+      const { clavesDelTenant } = await import("../ai-keys-tenant");
+      const { getProviderConfigConClave } = await import("@workspace/integrations-openai-ai-server");
+      const suyas = await clavesDelTenant(opts.tenantId);
+      for (const [proveedor, datos] of Object.entries(suyas)) {
+        if (datos?.apiKey) sumar(`${proveedor} (del cliente)`, getProviderConfigConClave(proveedor, datos.apiKey, datos.model));
+      }
+    } catch { /* sin claves propias -> siguen las de abajo */ }
+  }
+
+  // 1. Proveedores de pago del sistema (la clave llega a process.env vía
+  //    cargarClavesEnEntorno() apenas el admin la guarda).
   for (const p of ["deepseek", "mistral", "openai", "anthropic"]) sumar(p, getProviderConfig(p));
 
   // 2. La elección guardada del tenant (campo viejo, pero es una elección).

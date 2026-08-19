@@ -133,6 +133,68 @@ export function getOpenCodeGoRotation(): AIProviderConfig[] {
   return orden.map((model) => ({ baseUrl, apiKey: goKey, model }));
 }
 
+/**
+ * La misma configuración de un proveedor, pero con una clave INYECTADA en vez
+ * de leerla del entorno.
+ *
+ * Existe por el aislamiento entre clientes: `getProviderConfig()` saca la clave
+ * de `process.env`, que es global al proceso, así que no sirve para atender a
+ * dos clientes con claves distintas en el mismo servidor. Acá la clave viaja
+ * como argumento y nunca se escribe en ningún lado.
+ *
+ * Es a propósito una lista corta y explícita: los proveedores que un cliente
+ * puede traer con su propia cuenta. Los que viven en infraestructura nuestra
+ * (opencode, opencode_go, los puentes) no entran -- ahí la clave es del
+ * sistema, no del cliente, y devolver null es la respuesta correcta.
+ */
+export function getProviderConfigConClave(
+  provider: string,
+  apiKey: string,
+  model?: string,
+): AIProviderConfig | null {
+  if (!apiKey) return null;
+  const m = (porDefecto: string) => model || porDefecto;
+  switch (provider) {
+    case "deepseek":
+      return { baseUrl: "https://api.deepseek.com/v1", apiKey, model: m("deepseek-chat") };
+    case "openai":
+      return { baseUrl: "https://api.openai.com/v1", apiKey, model: m("gpt-4o-mini") };
+    case "anthropic":
+      return { baseUrl: "https://api.anthropic.com/v1", apiKey, model: m("claude-sonnet-5") };
+    case "groq":
+      return { baseUrl: "https://api.groq.com/openai/v1", apiKey, model: m("openai/gpt-oss-20b") };
+    case "openrouter":
+      return { baseUrl: "https://openrouter.ai/api/v1", apiKey, model: m("nvidia/nemotron-3-nano-30b-a3b:free") };
+    case "mistral":
+      return { baseUrl: "https://api.mistral.ai/v1", apiKey, model: m("mistral-large-latest") };
+    case "nvidia":
+    case "nvidia_nim":
+      return { baseUrl: "https://integrate.api.nvidia.com/v1", apiKey, model: m("meta/llama-3.1-70b-instruct") };
+    case "together":
+      return { baseUrl: "https://api.together.xyz/v1", apiKey, model: m("meta-llama/Llama-3.3-70B-Instruct-Turbo") };
+    case "cerebras":
+      return { baseUrl: "https://api.cerebras.ai/v1", apiKey, model: m("llama-3.3-70b") };
+    case "xai":
+      return { baseUrl: "https://api.x.ai/v1", apiKey, model: m("grok-4.5") };
+    case "google_ai_studio":
+      return { baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai", apiKey, model: m("gemini-2.5-flash") };
+    case "github_copilot_internal":
+      return {
+        baseUrl: "https://api.githubcopilot.com",
+        apiKey,
+        model: m("gpt-4o"),
+        defaultHeaders: {
+          "Editor-Version": process.env.COPILOT_EDITOR_VERSION || "vscode/1.104.1",
+          "Editor-Plugin-Version": "copilot/1.250.0",
+          "Openai-Organization": "github-copilot",
+          "Copilot-Integration-Id": "vscode-chat",
+        },
+      };
+    default:
+      return null;
+  }
+}
+
 export function getProviderConfig(provider: string): AIProviderConfig | null {
   switch (provider) {
     // ─── PROVEEDORES EXISTENTES ───────────────────────────────────────────────
