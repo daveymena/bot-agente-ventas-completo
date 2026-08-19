@@ -702,7 +702,7 @@ export async function drainDraftPlan(tenantId: number, turnId: string): Promise<
   await db
     .delete(architectMemory)
     .where(and(eq(architectMemory.tenantId, tenantId), eq(architectMemory.sessionId, turnId), eq(architectMemory.memoryType, "draft_plan")));
-  return rows
+  const acciones = rows
     .map((r: ArchitectMemory) => {
       try {
         return JSON.parse(r.content) as { tool: string; args: any };
@@ -711,6 +711,35 @@ export async function drainDraftPlan(tenantId: number, turnId: string): Promise<
       }
     })
     .filter((x: { tool: string; args: any } | null): x is { tool: string; args: any } => !!x);
+
+  // ── Una acción repetida es una sola acción ───────────────────────────────
+  // Visto en vivo (2026-08-19) pidiendo borrar una campaña: el modelo llamó
+  // `propose_action` CINCO veces con exactamente los mismos argumentos, y el
+  // plan le mostró al admin cinco borrados idénticos. Ejecutarlo borraba la
+  // campaña una vez y las otras cuatro fallaban con "no encontré la campaña",
+  // así que un trabajo que salió bien se reportaba como fallido a medias.
+  //
+  // Dos llamadas con el MISMO tool y los MISMOS argumentos en un mismo turno
+  // no son dos intenciones: son la misma, repetida. Y en algo irreversible
+  // como borrar, mostrarle al admin cinco líneas iguales para confirmar es
+  // pedirle que apruebe algo que no entiende.
+  //
+  // Se conserva el ORDEN de la primera aparición: los planes encadenados
+  // (crear y después subir lo creado) dependen de él.
+  const vistas = new Set<string>();
+  const unicas = acciones.filter((a: { tool: string; args: any }) => {
+    const huella = `${a.tool}::${JSON.stringify(a.args ?? {})}`;
+    if (vistas.has(huella)) return false;
+    vistas.add(huella);
+    return true;
+  });
+  if (unicas.length !== acciones.length) {
+    logger.info(
+      { tenantId, propuestas: acciones.length, unicas: unicas.length },
+      "[AtlasMCP] El modelo propuso acciones repetidas -- se dejó una de cada una",
+    );
+  }
+  return unicas;
 }
 
 /** Arma el registro completo de tools MCP: las de lectura (derivadas de
