@@ -62,6 +62,13 @@ startWhatsAppMonitor(5 * 60 * 1000);
 import { startAdGrowthAgent } from "./lib/ad-growth-agent";
 startAdGrowthAgent();
 
+// Reporte diario del equipo de marketing. Los 13 agentes existian pero no
+// corria ninguno solo: habia que ir a despertarlos entrando a la pagina. Un
+// equipo que hay que despertar no hace seguimiento. Solo MIRA y avisa por
+// WhatsApp; no cambia nada, y si no hay novedades no escribe.
+import { startMarketingDailyReport } from "./lib/marketing-team/daily-report";
+startMarketingDailyReport();
+
 // Auto-start del scheduler de remarketing: procesa en tandas chicas las
 // campañas de email/WhatsApp que Atlas encoló (nunca manda nada por su
 // cuenta -- solo drena lo que el admin ya confirmó, ver remarketing.ts).

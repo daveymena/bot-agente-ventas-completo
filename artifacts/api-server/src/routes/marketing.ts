@@ -446,6 +446,30 @@ router.post("/chat", async (req, res, next) => {
 });
 
 // ─── GET /marketing/learnings — memoria de marketing (MASTER PLAN §19) ──────
+/**
+ * POST /api/marketing/daily-report/run
+ *
+ * Dispara AHORA el resumen diario que normalmente corre solo una vez al día.
+ * Existe para poder probarlo sin esperar 24 horas -- y para que el admin
+ * pueda pedirlo cuando quiera. Solo lee y avisa: no cambia ninguna campaña.
+ */
+router.post("/daily-report/run", async (req, res, next) => {
+  try {
+    const tenantId = requireTenant(req, res);
+    if (!tenantId) return;
+    const { runMarketingDailyReportNow } = await import("../lib/marketing-team/daily-report");
+    await runMarketingDailyReportNow();
+    return res.json({
+      ok: true,
+      mensaje:
+        "Resumen ejecutado. Si había algo que reportar y el negocio tiene su teléfono cargado, " +
+        "te llegó por WhatsApp. Si no llegó nada es porque no hubo novedades: el reporte no escribe por escribir.",
+    });
+  } catch (e) {
+    return next(e);
+  }
+});
+
 router.get("/learnings", async (req, res, next) => {
   try {
     const tenantId = requireTenant(req, res);
