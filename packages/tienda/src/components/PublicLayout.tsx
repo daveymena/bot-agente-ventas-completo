@@ -1,5 +1,5 @@
 import { Link, useParams } from 'react-router-dom';
-import { ShoppingCart, MessageCircle, Menu, X, Store, Heart, User, LayoutDashboard, Pencil } from 'lucide-react';
+import { ShoppingCart, MessageCircle, Menu, X, Store, Heart, User, LayoutDashboard, Pencil, Phone, Truck, ShieldCheck } from 'lucide-react';
 import { useState, useEffect, useMemo } from 'react';
 import { useStore } from '../store/useStore';
 import { initPixel } from '../lib/pixel';
@@ -69,6 +69,33 @@ const PublicLayout = ({ children }: { children: React.ReactNode }) => {
   return (
     <div className="min-h-screen flex flex-col bg-gray-50 text-slate-900" style={themeVars}>
       <nav className="sticky top-0 z-50 bg-zinc-900 text-white">
+        {/* ── Barra superior: datos de contacto reales ──────────────────
+            Es la primera de las tres capas del encabezado de una tienda
+            seria (el diseño de referencia la trae, y la tienda actual no
+            tenía ninguna). Solo se muestra lo que EXISTE de verdad: si el
+            negocio no tiene WhatsApp cargado, la franja no aparece. Poner
+            una dirección o un horario inventados para "verse profesional"
+            es justo lo que hace que una tienda se vea falsa. */}
+        {config.whatsappPhone && (
+          <div className="hidden sm:block bg-black/40 text-gray-300">
+            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-9 flex items-center gap-6 text-[11px]">
+              <a
+                href={`https://wa.me/${String(config.whatsappPhone).replace(/[^0-9]/g, '')}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-1.5 hover:text-white transition-colors"
+              >
+                <Phone className="w-3 h-3" /> {config.whatsappPhone}
+              </a>
+              <span className="hidden md:flex items-center gap-1.5">
+                <Truck className="w-3 h-3" /> Envíos a todo el país
+              </span>
+              <span className="ml-auto hidden md:flex items-center gap-1.5">
+                <ShieldCheck className="w-3 h-3" /> Compra protegida
+              </span>
+            </div>
+          </div>
+        )}
         {/* Barra de administración -- SOLO visible para el dueño logueado de
             esta tienda, nunca para el público. El cliente que compra jamás
             debería ver botones de "editar" o "panel admin" en su checkout. */}
@@ -90,11 +117,42 @@ const PublicLayout = ({ children }: { children: React.ReactNode }) => {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between h-16 items-center">
             <Link to={base} className="flex items-center gap-2 group">
-              <div className="w-9 h-9 rounded-lg bg-[var(--store-primary)] flex items-center justify-center group-hover:scale-105 transition-transform">
-                <Store className="w-5 h-5 text-[var(--store-on-primary)]" />
-              </div>
+              {/* El LOGO del negocio si lo cargo; el icono generico solo
+                  como respaldo. Una tienda con el logo de su marca en el
+                  encabezado se lee como propia; una con un icono de sistema,
+                  como una plantilla sin terminar. */}
+              {config.logoUrl ? (
+                <img
+                  src={config.logoUrl}
+                  alt={config.storeName || 'Tienda'}
+                  className="h-9 w-auto max-w-[140px] object-contain group-hover:scale-105 transition-transform"
+                />
+              ) : (
+                <div className="w-9 h-9 rounded-lg bg-[var(--store-primary)] flex items-center justify-center group-hover:scale-105 transition-transform">
+                  <Store className="w-5 h-5 text-[var(--store-on-primary)]" />
+                </div>
+              )}
               <span className="text-lg font-black tracking-tight uppercase">{config.storeName || 'Tienda'}</span>
             </Link>
+
+            {/* Menu de navegacion: la tienda no tenia ninguno -- solo el
+                logo y dos iconos. Sin menu, el visitante que entra por un
+                producto no tiene forma de ver el resto del catalogo, que es
+                justo lo que hace que una tienda parezca "muy simple". */}
+            <div className="hidden md:flex items-center gap-6 ml-8 mr-auto text-sm font-medium">
+              <Link to={base} className="text-gray-200 hover:text-white transition-colors">Inicio</Link>
+              <Link to={`${base}/shop`} className="text-gray-200 hover:text-white transition-colors">Tienda</Link>
+              {config.whatsappPhone && (
+                <a
+                  href={`https://wa.me/${String(config.whatsappPhone).replace(/[^0-9]/g, '')}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-gray-200 hover:text-white transition-colors"
+                >
+                  Contacto
+                </a>
+              )}
+            </div>
 
             <div className="hidden md:flex items-center gap-4">
               <Link to={`${base}/wishlist`} className="relative p-2 text-gray-300 hover:text-white transition-colors">
