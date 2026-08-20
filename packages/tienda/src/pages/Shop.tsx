@@ -79,13 +79,16 @@ export const ProductCard = ({ product, slug }: { product: Product; slug: string 
       animate={{ opacity: 1, y: 0 }}
       className="group relative bg-white rounded-2xl overflow-hidden flex flex-col transition-all duration-300 shadow-[0_1px_2px_rgba(0,0,0,0.04),0_4px_8px_rgba(0,0,0,0.04),0_10px_20px_-4px_rgba(0,0,0,0.05)] hover:shadow-[0_2px_4px_rgba(0,0,0,0.06),0_10px_20px_rgba(0,0,0,0.08),0_24px_40px_-8px_rgba(0,0,0,0.12)] hover:-translate-y-1"
     >
-      <div className="relative aspect-square bg-gray-50 overflow-hidden">
+      {/* Fondo tenue DERIVADO del color de marca (--store-primary-soft),
+          no un gris fijo: es lo que le da aire al producto en el diseno de
+          referencia, y cambia solo cuando el dueno cambia su color. */}
+      <div className="relative aspect-square bg-[var(--store-primary-soft)] overflow-hidden">
         <Link to={detailHref} className="block w-full h-full" aria-label={`Ver ${product.name}`}>
           {product.image && !imgError ? (
             <img
               src={product.image || `/images/products/${product.id}.jpg`}
               alt={product.name}
-              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+              className="w-full h-full object-contain p-4 group-hover:scale-105 transition-transform duration-500"
               onError={(e) => {
                 const target = e.target as HTMLImageElement;
                 if (!target.src.includes(`/images/products/${product.id}.jpg`)) {
@@ -97,7 +100,7 @@ export const ProductCard = ({ product, slug }: { product: Product; slug: string 
               loading="lazy"
             />
           ) : (
-            <div className="w-full h-full flex items-center justify-center text-gray-300 bg-gray-50">
+            <div className="w-full h-full flex items-center justify-center text-gray-300">
               <Package className="w-12 h-12" />
             </div>
           )}
@@ -115,7 +118,7 @@ export const ProductCard = ({ product, slug }: { product: Product; slug: string 
         </button>
       </div>
 
-      <div className="p-3 flex flex-col gap-1.5 flex-1">
+      <div className="p-3 flex flex-col gap-1.5 flex-1 text-center">
         <p className="text-[10px] font-bold text-[var(--store-primary)] uppercase tracking-wider">{product.category || 'General'}</p>
         <Link
           to={detailHref}
@@ -142,7 +145,7 @@ export const ProductCard = ({ product, slug }: { product: Product; slug: string 
             <button
               onClick={comprarAhora}
               disabled={buying}
-              className="flex-1 h-9 rounded-lg bg-[var(--store-primary)] text-[var(--store-on-primary)] text-xs font-bold flex items-center justify-center gap-1.5 hover:bg-[var(--store-primary-hover)] transition-all disabled:opacity-50"
+              className="flex-1 h-9 rounded-full bg-[var(--store-primary)] text-[var(--store-on-primary)] text-xs font-bold flex items-center justify-center gap-1.5 hover:bg-[var(--store-primary-hover)] transition-all disabled:opacity-50"
             >
               {buying ? 'Abriendo…' : 'Comprar ahora'}
             </button>
@@ -164,7 +167,7 @@ export const ProductCard = ({ product, slug }: { product: Product; slug: string 
               }}
               title="Agregar al carrito"
               aria-label="Agregar al carrito"
-              className="w-9 h-9 shrink-0 rounded-lg border border-gray-200 text-gray-500 bg-white flex items-center justify-center hover:bg-gray-50 hover:text-[var(--store-primary)] transition-all"
+              className="w-9 h-9 shrink-0 rounded-full border border-gray-200 text-gray-500 bg-white flex items-center justify-center hover:bg-gray-50 hover:text-[var(--store-primary)] transition-all"
             >
               <ShoppingCart className="w-4 h-4" />
             </button>

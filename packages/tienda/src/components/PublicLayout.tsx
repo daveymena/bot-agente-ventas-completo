@@ -5,7 +5,7 @@ import { useStore } from '../store/useStore';
 import { initPixel } from '../lib/pixel';
 import { FacebookIcon, InstagramIcon, TikTokIcon, XIcon, LinkedInIcon } from './SocialIcons';
 import { MercadoPagoBadge, NequiBadge, PSEBadge } from './PaymentIcons';
-import { darken, readableTextColor } from '../lib/color';
+import { darken, tint, readableTextColor } from '../lib/color';
 
 const PublicLayout = ({ children }: { children: React.ReactNode }) => {
   const { cart, wishlist, config, updateConfig, isAdmin } = useStore();
@@ -32,6 +32,7 @@ const PublicLayout = ({ children }: { children: React.ReactNode }) => {
       '--store-primary': primary,
       '--store-primary-hover': darken(primary, 0.15),
       '--store-on-primary': readableTextColor(primary),
+      '--store-primary-soft': tint(primary),
     } as React.CSSProperties;
   }, [config.primaryColor]);
 
