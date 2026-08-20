@@ -59,7 +59,7 @@ export function AppSidebar() {
     { label: "Configuración", href: "/settings", icon: Settings },
     { label: "Ayuda", href: "/ayuda", icon: HelpCircle },
     { label: "Planes", href: "/pricing", icon: Badge },
-    ...(sessionTenant?.slug ? [{ label: "Ver Tienda", href: `/tienda/${sessionTenant.slug}`, icon: Eye, external: true }] : []),
+    ...(sessionTenant?.slug ? [{ label: "Ver Tienda", href: `/tienda/${sessionTenant.slug}?from=panel`, icon: Eye, external: true }] : []),
 ];
 
   return (

@@ -50,6 +50,10 @@ const copFormatter = new Intl.NumberFormat("es-CO", {
   maximumFractionDigits: 0,
 });
 
+// Numero de ventas de la plataforma, en formato internacional sin "+"
+// (ej: 573001234567). Se define al construir el frontend.
+const SALES_WHATSAPP = String(import.meta.env.VITE_SALES_WHATSAPP || "").replace(/[^0-9]/g, "");
+
 export default function PricingPage() {
   useAutoTour(HELP_GUIDE);
   const [, setLocation] = useLocation();
@@ -390,7 +394,26 @@ export default function PricingPage() {
               <div className="absolute inset-0 bg-gradient-to-r from-primary/10 via-transparent to-accent/10 opacity-50 pointer-events-none" />
               <h3 className="text-2xl font-black mb-4 relative z-10">¿Necesitas un plan personalizado?</h3>
               <p className="text-muted-foreground mb-8 relative z-10">Si eres una gran empresa con necesidades masivas, nuestro equipo puede diseñar una solución a medida para ti.</p>
-              <Button variant="outline" className="h-12 px-8 rounded-xl relative z-10 hover:bg-white/10 transition-all">Contactar con Ventas</Button>
+              {/* Este boton no hacia NADA: no tenia onClick ni enlace, solo
+                  se veia bien. Un boton que no lleva a ningun lado es peor que
+                  no tenerlo -- el usuario lo toca, no pasa nada, y deja de
+                  confiar en el resto de los botones.
+                  Ahora abre WhatsApp con el numero de ventas. Si no hay
+                  ninguno configurado (VITE_SALES_WHATSAPP), no se muestra:
+                  mejor no ofrecerlo que ofrecer algo que no responde. */}
+              {SALES_WHATSAPP ? (
+                <Button
+                  variant="outline"
+                  className="h-12 px-8 rounded-xl relative z-10 hover:bg-white/10 transition-all"
+                  onClick={() => window.open(
+                    `https://wa.me/${SALES_WHATSAPP}?text=${encodeURIComponent("Hola, me interesa un plan personalizado para mi empresa.")}`,
+                    "_blank",
+                    "noopener",
+                  )}
+                >
+                  Contactar con Ventas
+                </Button>
+              ) : null}
             </div>
           </div>
         </div>

@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import MainLayout from './components/MainLayout';
 import PublicLayout from './components/PublicLayout';
@@ -26,6 +26,45 @@ const VolverALaTienda = () => {
   return <Navigate to={m ? `/tienda/${m[1]}` : "/tienda"} replace />;
 };
 
+/**
+ * Boton para volver al panel de administracion.
+ *
+ * La tienda se abre desde el panel en una PESTANA NUEVA, asi que esa pestana
+ * no tiene historial: al tocar "atras" el navegador no vuelve al panel -- lo
+ * saca de la app y hay que entrar de cero. Reportado por el admin.
+ *
+ * Solo aparece si se llego desde el panel (?from=panel). Un cliente que entra
+ * a comprar no ve nada: el marcador lo pone el propio panel al abrir el
+ * enlace. Se guarda en sessionStorage porque al navegar dentro de la tienda
+ * el parametro se pierde, y el boton tiene que seguir estando.
+ */
+const VolverAlPanel = () => {
+  const [visible, setVisible] = useState(false);
+
+  useEffect(() => {
+    try {
+      if (new URLSearchParams(window.location.search).get("from") === "panel") {
+        sessionStorage.setItem("vp_desde_panel", "1");
+      }
+      setVisible(sessionStorage.getItem("vp_desde_panel") === "1");
+    } catch {
+      /* sin sessionStorage (modo privado viejo): simplemente no se muestra */
+    }
+  }, []);
+
+  if (!visible) return null;
+
+  return (
+    <a
+      href="/"
+      className="fixed bottom-4 left-4 z-[9999] inline-flex items-center gap-2 rounded-full bg-slate-900/90 px-4 py-2.5 text-sm font-medium text-white shadow-lg backdrop-blur transition hover:bg-slate-900"
+      style={{ paddingBottom: "calc(0.625rem + env(safe-area-inset-bottom, 0px))" }}
+    >
+      <span aria-hidden>&larr;</span> Volver al panel
+    </a>
+  );
+};
+
 const App = () => {
   const { isAdmin, sessionChecked, checkSession } = useStore();
 
@@ -47,6 +86,7 @@ const App = () => {
 
   return (
     <Router>
+      <VolverAlPanel />
       <Routes>
         {/* Public Routes */}
         <Route

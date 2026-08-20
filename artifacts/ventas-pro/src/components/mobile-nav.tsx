@@ -56,7 +56,7 @@ export function MobileNav() {
   // que se abra en pestaña nueva en vez de reemplazar el panel admin (ver el
   // mismo tratamiento en components/layout.tsx).
   const tiendaItem = sessionTenant?.slug
-    ? [{ label: "Tienda", href: `/tienda/${sessionTenant.slug}`, icon: Store, external: true }]
+    ? [{ label: "Tienda", href: `/tienda/${sessionTenant.slug}?from=panel`, icon: Store, external: true }]
     : [];
   const moreItems = isAdmin
     ? [...tiendaItem, ...baseMoreItems, ...adminMoreItems]
