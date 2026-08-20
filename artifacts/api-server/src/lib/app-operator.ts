@@ -1759,6 +1759,70 @@ export const TOOLS: ToolDef[] = [
   },
 
   {
+    name: "plataforma_info",
+    description:
+      "QUÉ ES Y CUÁNTO CUESTA VentasProIA, la aplicación en la que vos mismo corrés. Devuelve los planes REALES con sus precios y límites, y las capacidades REALES del sistema. " +
+      "Usala SIEMPRE que te pidan vender, promocionar o explicar la aplicación (\"armá el ecosistema de ventas de la app\", \"qué gana un cliente con esto\", \"cuánto cuesta\", \"hacé un anuncio de VentasProIA\"). " +
+      "NO confundas esto con el negocio del admin: get_settings devuelve la tienda de ÉL (sus productos, su marca); esto devuelve la plataforma que él usa. Son dos cosas distintas y venderlas mezcladas confunde a todos. " +
+      "Los precios salen del código que cobra de verdad, así que son los que se le facturan al cliente: no los redondees ni los adornes.",
+    args: "{}",
+    run: async () => {
+      const { SAAS_PLANS } = await import("../middleware/saasValidation");
+
+      const planes = Object.entries(SAAS_PLANS)
+        .filter(([, p]: any) => p.visible !== false)
+        .map(([id, p]: any) => ({
+          id,
+          nombre: p.name,
+          precioMensualUSD: p.price,
+          // Los mismos descuentos que aplica routes/pricing.ts al cobrar.
+          precioTrimestralUSD: Number((p.price * 3 * 0.9).toFixed(2)),
+          precioAnualUSD: Number((p.price * 12 * 0.8).toFixed(2)),
+          mensajesPorMes: p.monthlyMessages,
+          maxConversaciones: p.maxConversations,
+          maxProductos: p.maxProducts,
+          maxAgentes: p.maxAgents,
+          diasDePrueba: p.trialDays,
+          incluye: p.features,
+        }));
+
+      return {
+        ok: true,
+        summary:
+          `VentasProIA: ${planes.length} planes desde $${Math.min(...planes.map((p) => p.precioMensualUSD))} USD/mes. ` +
+          `Descuentos reales: 10% pagando por trimestre, 20% por año.`,
+        data: {
+          producto: "VentasProIA",
+          queEs:
+            "Una plataforma que le pone un vendedor con inteligencia artificial a un negocio: atiende WhatsApp solo, " +
+            "muestra el catálogo, cobra, y además crea y administra los anuncios en Facebook e Instagram.",
+          planes,
+          // Capacidades REALES, no promesas: cada una existe hoy como
+          // herramienta de este mismo operador o como parte del sistema.
+          capacidades: [
+            "Atiende WhatsApp automáticamente: responde, muestra productos y cierra la venta sin que nadie esté del otro lado.",
+            "Catálogo con tienda propia y enlace público, con carrito y pagos.",
+            "Crea anuncios para Facebook e Instagram: escribe el texto, lo valida y los sube a Meta.",
+            "Enciende, pausa y programa campañas, y avisa por WhatsApp cuando una gasta sin vender.",
+            "Investiga qué está pagando la competencia leyendo la Biblioteca de Anuncios de Meta.",
+            "Atribución real: cuánto costó cada venta y qué anuncio la trajo, cruzando leads contra pagos.",
+            "Registro de prospectos con seguimiento por etapa y remarketing por WhatsApp y correo.",
+            "Un panel para administrar varios negocios, cada uno con su marca y sus claves.",
+          ],
+          // Lo que el sistema NO hace, para que no se prometa.
+          noHace: [
+            "No garantiza ventas ni resultados: eso depende del producto, del precio y del mercado.",
+            "No maneja envíos ni logística por sí solo.",
+            "El costo de la publicidad en Meta lo paga el negocio aparte: no está incluido en el plan.",
+          ],
+          comoCobrar:
+            "Los precios son en dólares por mes. El pago trimestral tiene 10% de descuento y el anual 20%. " +
+            "El plan de prueba dura 7 días y sirve para probar, no para operar.",
+        },
+      };
+    },
+  },
+  {
     name: "fb_ad_library",
     description:
       "Ver los anuncios que la COMPETENCIA está pagando AHORA MISMO en Facebook/Instagram, leyendo la Biblioteca de Anuncios pública de Meta. Es la mejor fuente real para saber qué está funcionando en un nicho: son anuncios activos, con plata puesta detrás, no opiniones. Usala antes de armar una campaña para basar el hook/ángulo en lo que la competencia sostiene al aire. Devuelve el texto real de cada anuncio y quién lo publica.",
@@ -4316,6 +4380,8 @@ export const READ_ONLY_TOOLS = new Set([
   "analyze_channel_performance", "reason_business_decision",
   // Lectura de web (información externa)
   "web_fetch", "web_search", "web_scrape_images", "search_product_images", "deep_research", "fb_ad_library",
+  // Que es y cuanto cuesta la plataforma: solo lectura, no cambia nada.
+  "plataforma_info",
   "research_start", "research_check",
   // Listar conjuntos es lectura pura. pause/resume/set_budget NO van acá a
   // propósito: mueven dinero real y tienen que pasar por confirmación.
@@ -4626,6 +4692,7 @@ IMÁGENES — REGLAS DE CALIDAD PARA FACEBOOK ADS:
 FACEBOOK — PUBLICAR (gratis) vs ANUNCIAR (paga), no las confundas:
 - 📢 fb_page_publish (vía propose_action): publica en el MURO de la página, orgánico, SIN costo, visible de inmediato. Proponelo cuando el admin diga "publica", "postea" o "sube esto a Facebook". SIEMPRE llamá fb_page_preview antes (es de lectura, se ejecuta sola) para que el admin vea el texto y la imagen, y fb_page_can_post si hay dudas de permisos.
 - 💰 fb_create_ad (vía propose_action): crea una CAMPAÑA PAGA en Ads Manager (se crea en pausa, pero gastará dinero al activarla). Solo proponelo cuando el admin pida explícitamente "anuncio", "campaña" o "pauta" — nunca lo ofrezcas como si fuera gratis.
+- 🏢 plataforma_info: QUÉ ES y CUÁNTO CUESTA VentasProIA, la app en la que vos mismo corrés: sus planes con precios y límites reales, lo que hace y lo que NO hace. Usala SIEMPRE que te pidan vender, promocionar o explicar la APLICACIÓN ("armá el ecosistema de ventas de la app", "cuánto cuesta", "hacé un anuncio de VentasProIA"). NO la confundas con get_settings, que devuelve el negocio del admin (sus productos, su marca): son dos cosas distintas. Antes pedías estos datos por chat como si no existieran -- existen, y salen del código que cobra de verdad.
 - 📢 crear_anuncio (vía propose_action): LA FORMA CORRECTA de crear un anuncio. Le pasás solo el NOMBRE del producto como lo dijo el admin y el presupuesto diario, y el servidor hace todo el resto: busca el producto, arma el brief con sus datos reales, escribe el copy, lo valida y guarda el borrador (y sube a Meta EN PAUSA si le pasás subirAMeta:true). No necesitás el id ni redactar el texto vos. Usala SIEMPRE en vez de encadenar list_products + ad_brief + fb_ad_draft.
 - 📝 fb_ad_draft (vía propose_action, solo para casos especiales): genera el COPY y la segmentación de un anuncio y lo guarda local, SIN tocar la cuenta de Meta ni gastar nada. Es el paso intermedio seguro. SIEMPRE basá el copy en lo que investigaste en ESTE turno (tu propio buscador) -- si lo proponés sin haber investigado, el copy sale de una plantilla genérica, no de lo que realmente funciona para ese producto.
 - ✏️ fb_update_draft_creative (vía propose_action): cuando el admin apruebe un copy NUEVO para reemplazar el texto de un anuncio que YA existe (campaña real creada, sea PAUSED o ACTIVE), esta es la única forma de aplicarlo -- fb_create_ad siempre crea una campaña NUEVA con copy autogenerado, nunca edita la existente. Usá fb_list_drafts primero (lectura) para conseguir el draftId correcto.
