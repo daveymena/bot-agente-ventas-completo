@@ -1156,6 +1156,7 @@ export async function bloqueoDeMeta(
     fb_page_publish: "pagina",
     fb_create_ad: "ads",
     fb_pause_campaign: "ads",
+    fb_schedule_pause: "ads",
     fb_resume_campaign: "ads",
     fb_set_budget: "ads",
     fb_update_draft_creative: "ads",
@@ -3599,6 +3600,59 @@ export const TOOLS: ToolDef[] = [
   // cambia), así que quedan fuera de READ_ONLY_TOOLS y pasan por el plan con
   // confirmación del admin, igual que crear un anuncio.
   {
+    name: "fb_schedule_pause",
+    description:
+      "PROGRAMA a qué hora una campaña deja de entregar (o quita esa programación). Es LA herramienta para 'pausala a las 2', 'que corra hasta el viernes', 'apagala esta noche'. NO uses fb_pause_campaign para eso: esa pausa AHORA. " +
+      "Lo corta Meta en el minuto exacto (fecha de fin nativa del conjunto de anuncios), así que sigue funcionando aunque nuestro servidor se reinicie o se caiga, y queda visible en Ads Manager para que el admin lo verifique. " +
+      "Si no te dan una hora clara, PREGUNTALA: no inventes una. La hora se interpreta en horario de Colombia.",
+    args: '{ "campaignId": string (req, id de la CAMPAÑA -- lo da fb_list_campaigns), "cuando"?: string (fecha y hora en formato "YYYY-MM-DD HH:mm", hora de Colombia, ej "2026-08-21 02:00"), "quitar"?: boolean (true para sacar la programación y que corra sin límite) }',
+    run: async (args, ctx) => {
+      const campaignId = String(args.campaignId || args.campaign_id || args.id || "").trim();
+      if (!campaignId) return { ok: false, summary: "Falta el id de la campaña (usá fb_list_campaigns para obtenerlo)." };
+
+      const bloqueo = await bloqueoDeMeta("fb_schedule_pause", ctx);
+      if (bloqueo) return { ok: false, summary: bloqueo };
+
+      const tenant = await tenantManager.getTenantById(ctx.tenantId);
+      const { FacebookService } = await import("./facebook");
+      const fb = new FacebookService(tenant || undefined);
+      if (!fb.isConfigured()) return { ok: false, summary: "Facebook no está conectado." };
+
+      if (args.quitar === true) {
+        const r = await fb.quitarFinDeEntrega(campaignId);
+        return { ok: r.ok, summary: r.message };
+      }
+
+      const crudo = String(args.cuando || args.fecha || args.when || "").trim();
+      if (!crudo) {
+        return {
+          ok: false,
+          summary: 'Falta "cuando": la fecha y hora en que tiene que dejar de entregar, en formato "YYYY-MM-DD HH:mm" (hora de Colombia). Preguntásela al admin, no la inventes.',
+        };
+      }
+
+      // Colombia es UTC-5 todo el año (no tiene horario de verano), así que la
+      // conversión es fija y no depende de la zona del servidor -- que corre
+      // en UTC y, sin esto, adelantaría el corte cinco horas.
+      const m = crudo.match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})/);
+      if (!m) {
+        return { ok: false, summary: `No entendí la fecha "${crudo}". Usá el formato "YYYY-MM-DD HH:mm", por ejemplo "2026-08-21 02:00".` };
+      }
+      const [, a, mes, d, h, min] = m;
+      const cuando = new Date(Date.UTC(Number(a), Number(mes) - 1, Number(d), Number(h) + 5, Number(min)));
+
+      if (cuando.getTime() <= Date.now()) {
+        return {
+          ok: false,
+          summary: `Esa hora ya pasó (${crudo} en Colombia). Si querés apagarla AHORA usá fb_pause_campaign; si es para mañana, escribí la fecha completa.`,
+        };
+      }
+
+      const r = await fb.programarFinDeEntrega(campaignId, cuando);
+      return { ok: r.ok, summary: r.ok ? `⏰ ${r.message}` : r.message };
+    },
+  },
+  {
     name: "fb_pause_campaign",
     description: "PAUSAR una campaña de Facebook Ads que está activa: deja de gastar de inmediato. Úsala cuando el admin pida frenar/parar/pausar un anuncio, o cuando esté gastando sin resultados. Necesita el id de la campaña -- si no lo tenés, leé primero las métricas para obtenerlo.",
     args: '{ "campaignId": string (req, id de la campaña en Meta) }',
@@ -4287,6 +4341,8 @@ export const DESTRUCTIVE_TOOLS = new Set([
   "crear_anuncio",
   // Borrar una campaña es irreversible y Meta la borra EN CASCADA (conjuntos
   // y anuncios incluidos). No hay papelera del otro lado.
+  // Programar cuando deja de entregar cambia la campana real en Meta.
+  "fb_schedule_pause",
   "fb_delete_campaign",
   // Envíos masivos reales a la base de leads -- irreversibles una vez
   // mandados, y whatsapp_broadcast_send además arriesga el número del

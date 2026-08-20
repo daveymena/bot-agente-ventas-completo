@@ -1089,6 +1089,65 @@ Responde SOLO con este JSON exacto:
 
   /** Enciende o apaga un CONJUNTO de anuncios. Es lo que faltaba: el nivel
    * intermedio entre la campaña y el anuncio, y donde vive el presupuesto. */
+  /**
+   * Programa CUANDO deja de entregar una campana, usando la programacion
+   * nativa de Meta (`end_time` del conjunto de anuncios).
+   *
+   * Por que asi y no con un temporizador nuestro: un `setTimeout` en el
+   * servidor se pierde en cada despliegue --y hoy hubo diez--, y un reloj que
+   * corre cada hora puede errarle por 59 minutos. Meta corta la entrega en el
+   * minuto exacto y lo sigue haciendo aunque nuestro servidor este caido. La
+   * fecha ademas queda VISIBLE en Ads Manager, asi que el admin puede
+   * verificarla sin creerle a nadie.
+   *
+   * Se aplica a TODOS los conjuntos de la campana: si quedara uno sin fecha,
+   * ese seguiria gastando y la programacion no habria servido de nada.
+   */
+  async programarFinDeEntrega(campaignId: string, fin: Date): Promise<{ ok: boolean; message: string; conjuntos: number }> {
+    const conjuntos = await this.listAdSets(campaignId);
+    if (conjuntos.length === 0) {
+      return { ok: false, message: "Esa campana no tiene conjuntos de anuncios: no hay nada que programar.", conjuntos: 0 };
+    }
+    // Meta acepta ISO 8601. Se manda en UTC y Meta lo interpreta contra la
+    // zona horaria de la cuenta publicitaria.
+    const cuando = fin.toISOString();
+    let aplicados = 0;
+    const errores: string[] = [];
+    for (const c of conjuntos) {
+      try {
+        await this.fbPost(c.id, { end_time: cuando }, "programar fin de entrega", this.config.userAccessToken);
+        aplicados++;
+      } catch (err: any) {
+        errores.push(`${c.name}: ${err?.message || "rechazado por Meta"}`);
+      }
+    }
+    if (aplicados === 0) {
+      return { ok: false, message: `Meta no acepto la programacion. ${errores.join(" | ")}`, conjuntos: 0 };
+    }
+    return {
+      ok: errores.length === 0,
+      message: errores.length
+        ? `Programados ${aplicados} de ${conjuntos.length} conjuntos. Fallaron: ${errores.join(" | ")}`
+        : `Deja de entregar el ${fin.toLocaleString("es-CO", { timeZone: "America/Bogota" })} (hora Colombia). Lo corta Meta, no nuestro servidor.`,
+      conjuntos: aplicados,
+    };
+  }
+
+  /** Quita la fecha de fin programada de todos los conjuntos de la campana. */
+  async quitarFinDeEntrega(campaignId: string): Promise<{ ok: boolean; message: string }> {
+    const conjuntos = await this.listAdSets(campaignId);
+    let ok = 0;
+    for (const c of conjuntos) {
+      try {
+        await this.fbPost(c.id, { end_time: "" }, "quitar fin de entrega", this.config.userAccessToken);
+        ok++;
+      } catch { /* se informa abajo por conteo */ }
+    }
+    return ok > 0
+      ? { ok: true, message: `Se quito la fecha de fin en ${ok} conjunto(s): vuelve a correr sin limite de tiempo.` }
+      : { ok: false, message: "No se pudo quitar la fecha de fin." };
+  }
+
   async setAdSetStatus(adSetId: string, activo: boolean): Promise<{ ok: boolean; message?: string }> {
     try {
       await this.fbPost(adSetId, { status: activo ? "ACTIVE" : "PAUSED" },
