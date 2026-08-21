@@ -2625,7 +2625,9 @@ export const TOOLS: ToolDef[] = [
 
       const tenant = await tenantManager.getTenantById(ctx.tenantId);
       const { AdStrategist } = await import("./ad-strategist");
-      const r = await new AdStrategist(tenant || undefined).subirBorradorAMeta(draftId);
+      const { interpretarObjetivo } = await import("./objetivos-campana");
+      const objetivo = interpretarObjetivo(String(args.objetivo || "")) || "ventas";
+      const r = await new AdStrategist(tenant || undefined).subirBorradorAMeta(draftId, objetivo);
       return {
         ok: r.ok,
         summary: r.ok

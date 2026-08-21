@@ -637,7 +637,15 @@ Este contenido digital es tu atajo directo a resultados profesionales.
    *   - subir a Meta (PAUSED): no gasta un peso, se puede revisar en Ads Manager
    *   - activar (ACTIVE): empieza a gastar, y es publishDraft
    */
-  async subirBorradorAMeta(draftId: number): Promise<{ ok: boolean; message?: string; campaignId?: string }> {
+  /**
+   * @param objetivo que tipo de campana crear. Antes TODA campana se subia
+   * como de VENTAS apuntando a la web, asi que pedir "una de trafico" o
+   * "una de mensajes" daba lo mismo.
+   */
+  async subirBorradorAMeta(
+    draftId: number,
+    objetivo: import("./objetivos-campana").ObjetivoCampana = "ventas",
+  ): Promise<{ ok: boolean; message?: string; campaignId?: string }> {
     try {
       const [draft] = await db.select().from(facebookDrafts).where(eq(facebookDrafts.id, draftId)).limit(1);
       if (!draft) return { ok: false, message: "No encontré ese borrador." };
@@ -661,6 +669,7 @@ Este contenido digital es tu atajo directo a resultados profesionales.
           headline: String(draft.headline || ""),
           description: String(draft.description || ""),
         },
+        objetivo,
       );
       // El motivo REAL, no "no aceptó".
       //

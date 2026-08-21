@@ -468,12 +468,25 @@ Responde SOLO con este JSON exacto:
      * generaba OTRO distinto. Se aprobaba una cosa y se publicaba otra.
      */
     copyAprobado?: { primaryText: string; headline: string; description: string },
+    /**
+     * Que tipo de campana. Sin esto TODA campana se creaba como de VENTAS
+     * apuntando a la web: pedir "una campana de trafico" o "de mensajes" daba
+     * exactamente lo mismo. El objetivo le dice a Meta a QUIEN mostrar el
+     * anuncio, asi que elegir mal es pagarle para que busque al publico
+     * equivocado. Por defecto sigue siendo ventas, que es lo que hacia antes.
+     */
+    objetivo: import("./objetivos-campana").ObjetivoCampana = "ventas",
   ): Promise<FbCampaignResult | null> {
     if (!this.config.adAccountId || !this.config.accessToken) return null;
 
     try {
       const [product] = await db.select().from(products).where(eq(products.id, productId)).limit(1);
       if (!product) throw new Error("Producto no encontrado");
+
+      const { OBJETIVOS } = await import("./objetivos-campana");
+      // El WhatsApp real del negocio, para las campanas de mensajes.
+      const waDelNegocio = String((this.tenant as any)?.whatsappNumber || process.env.WHATSAPP_NUMBER || "").replace(/[^0-9]/g, "");
+      const OBJ = OBJETIVOS[objetivo] || OBJETIVOS.ventas;
 
       const adAccount = `act_${this.config.adAccountId}`;
       const campaignName = `${product.name} - ${new Date().toLocaleDateString("es-CO")}`;
@@ -564,7 +577,7 @@ Responde SOLO con este JSON exacto:
       // especial" (vivienda, empleo, crédito, temas sociales/elecciones).
       const campaign = await this.fbPost(`${adAccount}/campaigns`, {
         name: campaignName,
-        objective: "OUTCOME_SALES",
+        objective: OBJ.metaObjective,
         status: "PAUSED",
         special_ad_categories: ["NONE"],
         // El presupuesto se maneja a nivel de conjunto de anuncios (no CBO),
@@ -686,7 +699,20 @@ Responde SOLO con este JSON exacto:
         status: "PAUSED",
         start_time: startDate ? new Date(startDate).toISOString() : new Date().toISOString(),
       };
-      if (hasUsablePixel) {
+      // Objetivos que NO son de venta traen su propia optimizacion: buscar
+      // conversiones de pixel en una campana de trafico o de mensajes es
+      // pedirle a Meta algo que ese objetivo no admite, y lo rechaza.
+      if (objetivo !== "ventas") {
+        adSetBody.billing_event = "IMPRESSIONS";
+        adSetBody.optimization_goal = OBJ.optimizationGoal;
+        adSetBody.bid_strategy = "LOWEST_COST_WITHOUT_CAP";
+        if (OBJ.destino === "whatsapp") {
+          // Una campana de mensajes entrega EN WhatsApp: hay que decirle a
+          // Meta cual es el destino y de que pagina sale.
+          adSetBody.destination_type = "WHATSAPP";
+          if (this.config.pageId) adSetBody.promoted_object = { page_id: this.config.pageId };
+        }
+      } else if (hasUsablePixel) {
         adSetBody.billing_event = "IMPRESSIONS";
         // "CONVERSIONS" no es un valor válido de optimization_goal en la API
         // actual (Graph API lo rechaza con error 100 listando los válidos) --
@@ -754,11 +780,17 @@ Responde SOLO con este JSON exacto:
             // (app.ts) que resuelve el tenant y redirige a
             // /tienda/:slug/producto/:id -- el mismo que ya usa
             // ad-strategist.ts para los borradores.
-            link: `${getAppUrl()}/p/${product.id}`,
+            // A donde manda el anuncio. En una campana de MENSAJES el destino
+            // es el WhatsApp del negocio con el mensaje ya escrito, no la web:
+            // mandar a la web una campana de mensajes es justo lo que el admin
+            // reporto ("todo lo lanza a la web y eso esta mal").
+            link: OBJ.destino === "whatsapp" && waDelNegocio
+              ? `https://wa.me/${waDelNegocio}?text=${encodeURIComponent(`Hola! Me interesa ${product.name}`)}`
+              : `${getAppUrl()}/p/${product.id}`,
             message: adCopy.primaryText,
             name: adCopy.headline,
             description: adCopy.description,
-            call_to_action: { type: "SHOP_NOW" },
+            call_to_action: { type: OBJ.destino === "whatsapp" ? "WHATSAPP_MESSAGE" : "SHOP_NOW" },
           },
         },
         degrees_of_freedom_spec: { creative_features_spec: creativeFeaturesSpec },
