@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Bot, Send, User, Loader2, Sparkles, Check, X, Wrench, MessageSquare, Paperclip, RotateCcw, History, Trash2 } from "lucide-react";
+import { Bot, Send, User, Loader2, Sparkles, Check, X, Wrench, MessageSquare, Paperclip, RotateCcw, History, Trash2, Copy } from "lucide-react";
 import { toast } from "sonner";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -495,7 +495,7 @@ export default function CodeAgent() {
                 {messages.map((msg, i) => (
                   <div
                     key={i}
-                    className={`py-5 ${i > 0 ? "border-t border-border/50" : ""} ${msg.role === "user" ? "flex justify-end" : "flex gap-3 md:gap-4"}`}
+                    className={`group py-5 ${i > 0 ? "border-t border-border/50" : ""} ${msg.role === "user" ? "flex justify-end" : "flex gap-3 md:gap-4"}`}
                   >
                     {msg.role === "assistant" && (
                       <div className="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shrink-0 mt-0.5 shadow-sm">
@@ -532,6 +532,27 @@ export default function CodeAgent() {
                           </div>
                         )}
                       </div>
+
+                      {/* Copiar la respuesta. Atlas devuelve copys de anuncios,
+                          descripciones y planes: cosas que el admin quiere
+                          llevarse a otro lado. Sin esto habia que seleccionar a
+                          mano un texto largo dentro de un area que scrollea, que
+                          en el celular es directamente imposible.
+                          Aparece al pasar el mouse en escritorio y siempre en
+                          celular, donde no hay hover. */}
+                      {msg.role === "assistant" && msg.content && (
+                        <button
+                          onClick={() => {
+                            navigator.clipboard.writeText(msg.content)
+                              .then(() => toast.success("Copiado"))
+                              .catch(() => toast.error("No se pudo copiar"));
+                          }}
+                          className="mt-2 inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground md:opacity-0 md:group-hover:opacity-100"
+                          title="Copiar respuesta"
+                        >
+                          <Copy className="h-3.5 w-3.5" /> Copiar
+                        </button>
+                      )}
 
                       {msg.actions && msg.actions.length > 0 && (
                         <div className="mt-2 rounded-xl border border-border bg-card/50 divide-y divide-border overflow-hidden shadow-xs">
