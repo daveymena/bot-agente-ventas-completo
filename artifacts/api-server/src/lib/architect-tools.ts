@@ -37,8 +37,40 @@ export class ArchitectTools {
       .replace(/<[^>]*>/g, " ")
       .replace(/\s+/g, " ")
       .trim();
-    const intro = introPrevia.length >= 40
-      ? introPrevia.slice(0, 600)
+    // El texto viejo se CONSERVA (es lo que escribio el admin), pero si el
+    // producto es FISICO hay que sacarle las promesas de producto digital que
+    // arrastra de la plantilla anterior: esa plantilla le ponia "Google
+    // Drive", "descargable" y "certificado" a todo el catalogo por igual.
+    // Regenerar sin limpiar esto solo cambiaria el formato y dejaria la
+    // mentira adentro.
+    //
+    // Se filtra por FRASE y no con una expresion regular: es mas facil de
+    // leer, de ampliar cuando aparezca una promesa nueva, y no se rompe con
+    // acentos ni con el escapado.
+    const PROMESAS_DIGITALES = [
+      "google drive", "drive", "descargable", "descargalo", "de por vida",
+      "certificad", "100% online", "acceso inmediato", "actualizaciones",
+      "sin conexion", "desde tu celular",
+    ];
+    const SALTO = String.fromCharCode(10);
+    const previaLimpia = esDigital
+      ? introPrevia
+      : introPrevia
+          .split(SALTO)
+          .join(". ")
+          .split(".")
+          .filter((frase) => {
+            const f = frase.toLowerCase();
+            return !PROMESAS_DIGITALES.some((mala) => f.includes(mala));
+          })
+          .join(". ")
+          .split(" ")
+          .filter(Boolean)
+          .join(" ")
+          .trim();
+
+    const intro = previaLimpia.length >= 40
+      ? previaLimpia.slice(0, 600)
       : esDigital
         ? `Aprendé ${name} paso a paso, a tu ritmo y desde donde quieras.`
         : `${name}${category ? `, de la categoría ${category}` : ""}. Práctico, listo para usar.`;
@@ -122,8 +154,18 @@ export class ArchitectTools {
     return { productId, name: product.name, changes };
   }
 
-  async bulkImproveProducts(limit = 50): Promise<{ total: number; improved: number; details: any[] }> {
-    const allProducts = await db.select().from(products).limit(limit);
+  /**
+   * @param kind si se pasa "physical" o "digital", solo toca esos. Existe
+   * porque el problema real es acotado: las descripciones de los productos
+   * FISICOS arrastran promesas de producto digital (Drive, descargable,
+   * certificado) de la plantilla vieja. Regenerar los 138 para arreglar unos
+   * pocos es tocar de mas.
+   */
+  async bulkImproveProducts(limit = 50, kind?: "physical" | "digital"): Promise<{ total: number; improved: number; details: any[] }> {
+    const todos = await db.select().from(products).limit(limit);
+    const allProducts = kind
+      ? todos.filter((p: any) => (String(p.kind || "digital") === "physical") === (kind === "physical"))
+      : todos;
     let improved = 0;
     const details: any[] = [];
 

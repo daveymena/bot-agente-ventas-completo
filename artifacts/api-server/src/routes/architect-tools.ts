@@ -111,7 +111,12 @@ router.post("/set-image/:id", async (req, res, next) => {
 router.post("/improve-all-products", async (req, res, next) => {
   try {
     const limit = Number(req.body.limit) || 100;
-    const result = await architectTools.bulkImproveProducts(limit);
+    // `kind` acota a un tipo de producto. El caso que lo motivo: las
+    // descripciones de los FISICOS arrastran promesas de producto digital
+    // (Drive, descargable, certificado) de la plantilla vieja, y regenerar
+    // los 138 del catalogo para arreglar unos pocos es tocar de mas.
+    const kind = req.body.kind === "physical" || req.body.kind === "digital" ? req.body.kind : undefined;
+    const result = await architectTools.bulkImproveProducts(limit, kind);
 
     await architectTools.logAction(
       (req as any).tenant?.id || null,
