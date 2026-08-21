@@ -1,5 +1,15 @@
+// H2 entra porque el formato acordado para las descripciones lo usa como
+// titulo principal de la ficha (con H3 para las secciones). Sin permitirlo, el
+// sanitizador le sacaba la etiqueta y ese titulo caia a texto suelto: la
+// descripcion se guardaba bien y se veia mal, que es el peor de los casos
+// porque nada avisa.
+//
+// Sigue siendo seguro: son etiquetas de estructura, sin atributos (se borran
+// todos mas abajo) y con script/style/iframe/object/embed/form eliminados
+// antes. Lo que NO entra son tablas ni nada que pueda romper el ancho en un
+// celular.
 const allowedTags = new Set([
-  "BR", "P", "STRONG", "B", "EM", "I", "UL", "OL", "LI", "H3", "H4",
+  "BR", "P", "STRONG", "B", "EM", "I", "UL", "OL", "LI", "H2", "H3", "H4",
 ]);
 
 export function sanitizeRichHtml(value: string): string {

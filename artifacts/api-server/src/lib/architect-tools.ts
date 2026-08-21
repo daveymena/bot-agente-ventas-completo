@@ -3,30 +3,87 @@ import { eq } from "drizzle-orm";
 import { logger } from "./logger";
 
 export class ArchitectTools {
+  /**
+   * Descripción de producto en HTML estructurado.
+   *
+   * Dos cosas estaban mal acá, y las dos llegaban al cliente:
+   *
+   * 1. Salía en Markdown (`**negrita**`), pero la ficha de la tienda renderiza
+   *    HTML: los asteriscos se veían crudos y el texto quedaba en un bloque
+   *    corrido, imposible de escanear en un celular.
+   * 2. Le ponía "Acceso vía Google Drive", "Actualizaciones de por vida" y
+   *    "Certificado de finalización" a TODOS los productos por igual --
+   *    incluida una rodillera térmica. Un curso y un producto físico no se
+   *    entregan igual, no se garantizan igual y no se compran por lo mismo.
+   *    Prometerle un certificado a quien compra una rodillera es mentirle.
+   *
+   * Ahora ramifica por `kind` y solo afirma lo que ese tipo de producto
+   * realmente cumple. Las etiquetas son las que el sanitizador de la tienda
+   * permite (h2, h3, p, ul, li, strong): cualquier otra se descarta al
+   * mostrarla, así que usarla sería trabajo perdido.
+   */
   async improveProductDescription(productId: number): Promise<string | null> {
     const [product] = await db.select().from(products).where(eq(products.id, productId)).limit(1);
     if (!product) return null;
 
-    const name = product.name as string;
-    const oldDesc = product.description as string;
-    const category = (product.category as string) || "";
-    const features = (product.features as string[]) || [];
+    const name = String(product.name || "");
+    const oldDesc = String(product.description || "");
+    const category = String(product.category || "");
+    const features = ((product.features as string[]) || []).filter(Boolean);
+    const esDigital = String(product.kind || "digital") !== "physical";
 
-    const newDesc = [
-      `🚀 **${name}**`,
-      ``,
-      oldDesc.length < 50 ? `Descubre el poder de ${name}. ${category ? `Categoría: ${category}.` : ""}` : oldDesc,
-      ``,
-      features.length > 0 ? "**✨ Incluye:**" : "",
-      ...features.map((f: string) => `✅ ${f}`),
-      ``,
-      "💡 **¿Por qué elegir este curso?**",
-      "✅ Acceso inmediato vía Google Drive",
-      "✅ Actualizaciones gratuitas de por vida",
-      "✅ Soporte técnico TecnoVariedades",
-      "✅ Certificado de finalización opcional",
-    ].filter(Boolean).join("\n");
+    // El texto que ya tenía, limpio de HTML y de restos de editores.
+    const introPrevia = oldDesc
+      .replace(/<[^>]*>/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    const intro = introPrevia.length >= 40
+      ? introPrevia.slice(0, 600)
+      : esDigital
+        ? `Aprendé ${name} paso a paso, a tu ritmo y desde donde quieras.`
+        : `${name}${category ? `, de la categoría ${category}` : ""}. Práctico, listo para usar.`;
 
+    const esc = (t: string) => t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    const lista = (items: string[]) => `<ul>\n${items.map((i) => `  <li>${esc(i)}</li>`).join("\n")}\n</ul>`;
+
+    const bloques: string[] = [`<h2>${esc(name)}</h2>`, `<p>${esc(intro)}</p>`];
+
+    if (features.length > 0) {
+      bloques.push(esDigital ? "<h3>Qué incluye</h3>" : "<h3>Características</h3>");
+      bloques.push(lista(features));
+    }
+
+    if (esDigital) {
+      // Lo que SÍ cumple un producto digital de este catálogo: entrega por
+      // enlace, sin vencimiento, y se puede ver desde cualquier dispositivo.
+      // No se promete certificado ni soporte personalizado: eso depende del
+      // producto y ya hubo anuncios rechazados por afirmarlo de más.
+      bloques.push("<h3>Cómo lo recibís</h3>");
+      bloques.push(
+        lista([
+          "Acceso inmediato apenas se confirma el pago",
+          "100% online: lo ves desde el celular, la computadora o la tablet",
+          "Acceso permanente, sin vencimiento",
+        ]),
+      );
+      bloques.push("<h3>Empezá hoy</h3>");
+      bloques.push("<p>Lo recibís al instante y avanzás a tu propio ritmo.</p>");
+    } else {
+      // Producto físico: nada de "descargable" ni "acceso de por vida". Y NO
+      // se inventan plazos de envío ni garantías: si el negocio los ofrece,
+      // van cargados en las características del producto y aparecen arriba.
+      bloques.push("<h3>Por qué llevarlo</h3>");
+      bloques.push(
+        lista([
+          "Producto físico, se despacha a tu dirección",
+          "Se coordina la entrega por WhatsApp después de la compra",
+        ]),
+      );
+      bloques.push("<h3>¿Lo querés?</h3>");
+      bloques.push("<p>Escribinos y coordinamos el envío.</p>");
+    }
+
+    const newDesc = `<div class="product-description">\n${bloques.map((b) => `  ${b}`).join("\n")}\n</div>`;
     await db.update(products).set({ description: newDesc }).where(eq(products.id, productId));
     return newDesc;
   }
