@@ -155,7 +155,17 @@ export default function CodeAgent() {
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (file.size > 8 * 1024 * 1024) { toast.error("La imagen supera 8MB"); return; }
+
+    // Una imagen y un documento NO se procesan igual: la imagen se guarda y se
+    // le pasa la URL a un modelo con vision; el documento se lee acá, se le
+    // saca el texto y ese texto entra en la conversación. El archivo en sí no
+    // se guarda -- interesa el contenido, no tenerlo dando vueltas.
+    const esImagen = file.type.startsWith("image/");
+    const limite = esImagen ? 8 : 15;
+    if (file.size > limite * 1024 * 1024) {
+      toast.error(`El archivo supera ${limite}MB`);
+      return;
+    }
     setUploading(true);
     try {
       const dataUrl: string = await new Promise((resolve, reject) => {
@@ -164,6 +174,25 @@ export default function CodeAgent() {
         r.onerror = reject;
         r.readAsDataURL(file);
       });
+      if (!esImagen) {
+        const r = await fetch("/api/code-agent/upload-document", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ file: dataUrl, filename: file.name }),
+          credentials: "include",
+        });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(d.error || "No se pudo leer el archivo");
+        const SALTO = String.fromCharCode(10);
+        setInput((prev) =>
+          (prev ? prev + SALTO + SALTO : "") +
+          `Te paso el contenido de "${d.nombre}" (${d.tipo})${d.recortado ? " — es largo, va la primera parte" : ""}:` +
+          SALTO + SALTO + d.texto,
+        );
+        toast.success(d.resumen || "Archivo leído");
+        return;
+      }
+
       const res = await fetch("/api/code-agent/upload", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -573,7 +602,7 @@ export default function CodeAgent() {
                 <input
                   ref={fileInputRef}
                   type="file"
-                  accept="image/*"
+                  accept="image/*,.pdf,.docx,.xlsx,.xls,.csv,.pptx,.txt,.md"
                   className="hidden"
                   onChange={handleFileUpload}
                 />
@@ -584,7 +613,7 @@ export default function CodeAgent() {
                     size="icon"
                     disabled={loading || uploading}
                     onClick={() => fileInputRef.current?.click()}
-                    title="Adjuntar imagen"
+                    title="Adjuntar imagen o documento (PDF, Word, Excel, PowerPoint)"
                     className="h-11 w-11 rounded-xl shrink-0"
                   >
                     {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Paperclip className="h-4 w-4" />}

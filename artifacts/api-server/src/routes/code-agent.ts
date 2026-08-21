@@ -1972,6 +1972,64 @@ router.delete("/history", async (req: TenantRequest, res, next) => {
  * Architect (botón 📎). Recibe la imagen como data URL base64 (sin multer),
  * la guarda permanente en el volumen y devuelve la URL absoluta para usarla.
  */
+/**
+ * POST /api/code-agent/upload-document
+ *
+ * Sube un documento de trabajo (PDF, Word, Excel, PowerPoint, texto) y
+ * devuelve su TEXTO, para que Atlas lo pueda leer y analizar.
+ *
+ * Antes el chat solo aceptaba imágenes: un catálogo de proveedor en PDF o una
+ * lista de precios en Excel había que copiarlos y pegarlos a mano.
+ *
+ * El archivo NO se guarda: se lee, se extrae el texto y se descarta. Lo que
+ * interesa es el contenido, no tener el archivo dando vueltas en el volumen --
+ * y un catálogo de proveedor puede traer datos que no hay por qué conservar.
+ */
+router.post("/upload-document", async (req: TenantRequest, res, next) => {
+  try {
+    const tenantId = req.tenant?.id;
+    if (!tenantId) return res.status(401).json({ message: "Tenant not resolved" });
+
+    const { file, filename } = req.body || {};
+    if (!file || typeof file !== "string") {
+      return res.status(400).json({ error: "Falta 'file' (data URL base64)" });
+    }
+    const nombre = String(filename || "documento");
+
+    // data:<mime>;base64,<datos>
+    const coma = file.indexOf(",");
+    const base64 = coma >= 0 ? file.slice(coma + 1) : file;
+    const buffer = Buffer.from(base64, "base64");
+
+    // Tope de 15MB: un PDF más grande que eso casi siempre es un escaneo, que
+    // igual no tiene texto extraíble.
+    if (buffer.length > 15 * 1024 * 1024) {
+      return res.status(400).json({ error: "El archivo supera 15MB. Si es un PDF escaneado, mandame la página que te interesa como imagen." });
+    }
+
+    const { leerDocumento } = await import("../lib/leer-documentos");
+    const r = await leerDocumento(buffer, nombre);
+    if (!r.ok) return res.status(400).json({ error: r.resumen });
+
+    // Para el chat se recorta más que el tope del lector: un texto enorme
+    // dentro del prompt no solo no entra, sino que le tapa al modelo la
+    // pregunta real del admin.
+    const PARA_EL_CHAT = 30_000;
+    const texto = r.texto.length > PARA_EL_CHAT ? r.texto.slice(0, PARA_EL_CHAT) : r.texto;
+
+    return res.json({
+      ok: true,
+      tipo: r.tipo,
+      nombre,
+      resumen: r.resumen,
+      recortado: r.texto.length > PARA_EL_CHAT,
+      texto,
+    });
+  } catch (e) {
+    return next(e);
+  }
+});
+
 router.post("/upload", async (req: TenantRequest, res, next) => {
   try {
     const tenantId = req.tenant?.id;
