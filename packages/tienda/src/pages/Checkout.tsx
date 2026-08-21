@@ -188,7 +188,7 @@ export default function Checkout() {
               {cart.map(item => (
                 <div key={item.id} className="flex gap-4 p-3 rounded-xl hover:bg-gray-50 transition-colors border border-transparent hover:border-gray-100">
                   <div className="w-16 h-16 rounded-lg overflow-hidden shrink-0 bg-gray-100">
-                    <img src={item.image} alt={item.name} className="w-full h-full object-cover" />
+                    <img src={item.image} alt={item.name} className="w-full h-full object-contain p-1" />
                   </div>
                   <div className="flex-1">
                     <h4 className="font-semibold text-gray-900 text-sm leading-tight mb-2 line-clamp-2">{item.name}</h4>

@@ -7,7 +7,7 @@ import {
   Infinity as InfinityIcon, Download, MessageCircle,
 } from 'lucide-react';
 import { initPixel, trackViewContent, trackAddToCart, trackInitiateCheckout, trackContact } from '../lib/pixel';
-import { sanitizeRichHtml } from '../lib/rich-text';
+import { sanitizeRichHtml, plainTextToHtml } from '../lib/rich-text';
 
 interface DetailProduct {
   id: number;
@@ -108,7 +108,10 @@ const ProductDetail = () => {
 
   const price = Number(product.price);
   const features = Array.isArray(product.features) ? product.features : [];
-  const descriptionHtml = sanitizeRichHtml(product.description || '');
+  // Primero se le devuelve la estructura al texto plano (las descripciones
+  // viejas son texto con saltos de linea, y HTML colapsa los saltos: por eso
+  // se veian como un bloque corrido), y recien despues se sanitiza.
+  const descriptionHtml = sanitizeRichHtml(plainTextToHtml(product.description || ''));
 
   const waHref = config.whatsappPhone
     ? `https://wa.me/${config.whatsappPhone}?text=${encodeURIComponent(
@@ -133,7 +136,8 @@ const ProductDetail = () => {
               <img
                 src={product.image || `/images/products/${product.id}.jpg`}
                 alt={product.name}
-                className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700"
+                /* ver nota abajo */
+                className="w-full h-full object-contain p-4 group-hover:scale-105 transition-transform duration-700"
                 onError={(e) => {
                   const target = e.target as HTMLImageElement;
                   if (!target.src.includes(`/images/products/${product.id}.jpg`)) {
@@ -277,7 +281,7 @@ const ProductDetail = () => {
                     <img
                       src={r.image}
                       alt={r.name}
-                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                      className="w-full h-full object-contain p-3 group-hover:scale-105 transition-transform duration-500"
                       loading="lazy"
                     />
                   ) : (

@@ -75,7 +75,7 @@ const Header = () => {
                     onClick={() => { navigate(`/shop?q=${encodeURIComponent(p.name)}`); setSearchTerm(''); }}
                     className="w-full flex items-center gap-3 p-2 hover:bg-slate-50 rounded-lg transition-colors text-left"
                   >
-                    <img src={p.image} className="w-10 h-10 rounded-lg object-cover" />
+                    <img src={p.image} className="w-10 h-10 rounded-lg object-contain bg-gray-50" />
                     <div>
                       <p className="text-xs font-bold text-slate-900">{p.name}</p>
                       <p className="text-[10px] text-indigo-600 font-bold">${p.price}</p>

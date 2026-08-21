@@ -99,7 +99,7 @@ const ProductWizard = () => {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 mb-10">
                 {getRecommendations().map(p => (
                   <div key={p.id} className="bg-white/5 p-4 rounded-2xl border border-white/10 flex items-center gap-4 text-left">
-                    <img src={p.image} className="w-16 h-16 rounded-lg object-cover" alt="" />
+                    <img src={p.image} className="w-16 h-16 rounded-lg object-contain bg-gray-50" alt="" />
                     <div>
                       <p className="font-bold text-sm">{p.name}</p>
                       <p className="text-indigo-400 font-bold">${p.price}</p>

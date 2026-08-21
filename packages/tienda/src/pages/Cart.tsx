@@ -38,7 +38,7 @@ const Cart = () => {
         <div className="lg:col-span-2 space-y-6">
           {cart.map((item) => (
             <div key={item.id} className="bg-white p-6 rounded-2xl border border-gray-100 flex items-center gap-6">
-              <img src={item.image} alt={item.name} className="w-24 h-24 rounded-xl object-cover" />
+              <img src={item.image} alt={item.name} className="w-24 h-24 rounded-xl object-contain bg-gray-50 p-1" />
               <div className="flex-grow">
                 <div className="flex justify-between mb-1">
                   <h3 className="font-bold text-gray-900">{item.name}</h3>
