@@ -333,22 +333,41 @@ export default function CodeAgent() {
                 Meta, enlaces, bloques de codigo-- empujaban el chat hacia el
                 costado en vez de bajar de renglon. Forzarlo a `block` con
                 min-w-0 lo devuelve al ancho real disponible. */}
-            <ScrollArea className="flex-1 p-4 md:p-6 [&_[data-radix-scroll-area-viewport]>div]:!block [&_[data-radix-scroll-area-viewport]>div]:!min-w-0">
-              <div className="space-y-4">
+            {/* Lectura tipo ChatGPT, no burbujas de mensajería.
+                Pedido del admin: "a veces me cuesta usar el chat de Atlas por
+                ser muy sencillo".
+
+                Tres cambios que hacen la diferencia y no son estéticos:
+
+                1. La RESPUESTA ocupa el ancho de una columna de lectura, sin
+                   burbuja. Una burbuja al 88% con un informe adentro --que es
+                   lo que Atlas devuelve: tablas, listas, planes-- obliga a
+                   leer en zigzag. Sin burbuja y con una medida fija de línea
+                   se lee de corrido.
+                2. Solo el mensaje del ADMIN lleva burbuja, y va a la derecha:
+                   es corto y así se distingue de un vistazo quién dijo qué.
+                3. Cada turno se separa con una línea tenue en vez de aire
+                   suelto: con respuestas largas, el aire solo no alcanza para
+                   saber dónde termina una y empieza la otra. */}
+            <ScrollArea className="flex-1 [&_[data-radix-scroll-area-viewport]>div]:!block [&_[data-radix-scroll-area-viewport]>div]:!min-w-0">
+              <div className="mx-auto w-full max-w-3xl px-4 py-6 md:px-6">
                 {messages.map((msg, i) => (
-                  <div key={i} className={`flex gap-3 ${msg.role === "user" ? "justify-end" : ""}`}>
+                  <div
+                    key={i}
+                    className={`py-5 ${i > 0 ? "border-t border-border/50" : ""} ${msg.role === "user" ? "flex justify-end" : "flex gap-3 md:gap-4"}`}
+                  >
                     {msg.role === "assistant" && (
-                      <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shrink-0 mt-1 shadow-sm">
-                        <Bot className="h-5 w-5 text-white" />
+                      <div className="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shrink-0 mt-0.5 shadow-sm">
+                        <Bot className="h-4 w-4 text-white" />
                       </div>
                     )}
-                    <div className={`min-w-0 ${msg.role === "user" ? "max-w-[90%] md:max-w-[75%]" : "max-w-full md:max-w-[88%] lg:max-w-[92%]"} ${msg.role === "user" ? "order-1" : ""}`}>
+                    <div className={`min-w-0 ${msg.role === "user" ? "max-w-[85%]" : "flex-1"}`}>
                       <div
-                        className={`rounded-2xl px-4 py-3 md:px-5 md:py-3.5 ${
+                        className={
                           msg.role === "user"
-                            ? "bg-primary text-primary-foreground rounded-br-md"
-                            : "bg-muted/50 rounded-bl-md border border-border"
-                        }`}
+                            ? "rounded-2xl rounded-br-md bg-primary px-4 py-2.5 text-primary-foreground"
+                            : ""
+                        }
                       >
                         {/* break-words + overflow-wrap:anywhere: las respuestas traen URLs largas que sin esto no se pueden partir */}
                         {msg.role === "user" ? (
@@ -365,7 +384,7 @@ export default function CodeAgent() {
                             {msg.content}
                           </div>
                         ) : (
-                          <div className="text-sm md:text-base prose prose-sm md:prose-base dark:prose-invert prose-p:leading-relaxed max-w-none break-words [overflow-wrap:anywhere] prose-img:rounded-lg prose-img:shadow-sm prose-a:text-indigo-500 hover:prose-a:text-indigo-600 prose-a:break-all prose-pre:whitespace-pre-wrap prose-pre:break-words prose-pre:overflow-x-auto prose-code:break-words prose-table:block prose-table:overflow-x-auto">
+                          <div className="text-[15px] md:text-base prose prose-sm md:prose-base dark:prose-invert max-w-none break-words [overflow-wrap:anywhere] prose-p:leading-7 prose-headings:font-semibold prose-headings:mt-5 prose-headings:mb-2 prose-li:my-0.5 prose-ul:my-2 prose-ol:my-2 prose-img:rounded-lg prose-img:shadow-sm prose-a:text-indigo-500 hover:prose-a:text-indigo-600 prose-a:break-all prose-pre:whitespace-pre-wrap prose-pre:break-words prose-pre:overflow-x-auto prose-pre:rounded-xl prose-code:break-words prose-table:block prose-table:overflow-x-auto">
                             <ReactMarkdown remarkPlugins={[remarkGfm]}>
                               {msg.content}
                             </ReactMarkdown>
@@ -410,11 +429,11 @@ export default function CodeAgent() {
                   </div>
                 ))}
                 {loading && (
-                  <div className="flex gap-3">
-                    <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shrink-0">
-                      <Bot className="h-5 w-5 text-white" />
+                  <div className="flex gap-3 md:gap-4 border-t border-border/50 py-5">
+                    <div className="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shrink-0 mt-0.5">
+                      <Bot className="h-4 w-4 text-white" />
                     </div>
-                    <div className="bg-muted/50 rounded-2xl rounded-bl-md border border-border px-5 py-4 min-w-0">
+                    <div className="min-w-0 flex-1 pt-1">
                       <div className="flex items-center gap-3 min-w-0">
                         <div className="flex gap-2 shrink-0">
                           <div className="w-2.5 h-2.5 rounded-full bg-indigo-500 animate-bounce" />
@@ -435,7 +454,10 @@ export default function CodeAgent() {
             </ScrollArea>
 
             <div className="p-3 md:p-4 border-t border-border bg-card/50">
-              <form onSubmit={(e) => { e.preventDefault(); handleSubmit(); }} className="flex gap-2">
+              {/* La caja de escribir se alinea con la columna de lectura y
+                  se apoya en un contenedor propio, como en ChatGPT: asi el ojo
+                  no salta de ancho entre lo que lee y lo que escribe. */}
+              <form onSubmit={(e) => { e.preventDefault(); handleSubmit(); }} className="mx-auto flex w-full max-w-3xl gap-2">
                 <input
                   ref={fileInputRef}
                   type="file"
@@ -477,13 +499,13 @@ export default function CodeAgent() {
                     rows={1}
                     placeholder={mode === "operator" ? "Ej: analiza el sistema, crea un producto, configura la tienda..." : "Ej: crea un agente para vender cursos de programación..."}
                     disabled={loading}
-                    className="flex-1 min-h-11 max-h-40 resize-none overflow-y-auto rounded-xl pr-12 py-2.5 text-sm leading-relaxed"
+                    className="flex-1 min-h-[52px] max-h-44 resize-none overflow-y-auto rounded-2xl border-border/70 bg-card pr-12 py-3.5 px-4 text-[15px] leading-relaxed shadow-sm focus-visible:ring-1"
                   />
                   <Button
                     type="submit"
                     disabled={loading || restoring || !input.trim()}
                     size="icon"
-                    className="absolute right-1 bottom-1 h-9 w-9 rounded-lg"
+                    className="absolute right-2 bottom-2 h-9 w-9 rounded-xl"
                   >
                     {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
                   </Button>
