@@ -340,12 +340,22 @@ async function buildProductCaption(p: typeof products.$inferSelect, categoryName
     lines.push("");
   }
 
-  lines.push(variante([`💻 *Modalidad:*`, `💻 *Cómo funciona:*`, `💻 *Acceso:*`, `💻 *Cómo lo recibís:*`], sem));
+  // Un producto FISICO no es "online y descargable" ni tiene "acceso de por
+  // vida". Este respaldo estaba fijo para TODO el catalogo, asi que una
+  // rodillera termica se ofrecia como descargable -- reportado por el admin.
+  // Se ramifica por el tipo real del producto.
+  const esDigital = String((p as any).kind || "digital") !== "physical";
+  lines.push(esDigital
+    ? variante([`💻 *Modalidad:*`, `💻 *Cómo funciona:*`, `💻 *Acceso:*`, `💻 *Cómo lo recibís:*`], sem)
+    : variante([`📦 *Cómo lo recibís:*`, `📦 *Entrega:*`, `📦 *Envío:*`], sem));
   if (estandar.length > 0) {
     for (const f of estandar.slice(0, 4)) lines.push(`✅ ${f}`);
-  } else {
+  } else if (esDigital) {
     lines.push(`✅ 100% online y descargable`);
     lines.push(`✅ Acceso de por vida ♾️`);
+  } else {
+    lines.push(`✅ Te lo enviamos a tu dirección`);
+    lines.push(`✅ Coordinamos la entrega por acá`);
   }
   lines.push("");
 

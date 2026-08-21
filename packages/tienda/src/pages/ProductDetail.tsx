@@ -2,10 +2,7 @@ import { useMoneda } from '@/lib/moneda';
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useStore } from '../store/useStore';
-import {
-  ShoppingCart, Check, Package, Star, ShieldCheck,
-  Infinity as InfinityIcon, Download, MessageCircle,
-} from 'lucide-react';
+import { ShoppingCart, Check, Package, ShieldCheck, Infinity as InfinityIcon, Download, MessageCircle, Truck } from 'lucide-react';
 import { initPixel, trackViewContent, trackAddToCart, trackInitiateCheckout, trackContact } from '../lib/pixel';
 import { sanitizeRichHtml, plainTextToHtml } from '../lib/rich-text';
 
@@ -112,6 +109,9 @@ const ProductDetail = () => {
   // viejas son texto con saltos de linea, y HTML colapsa los saltos: por eso
   // se veian como un bloque corrido), y recien despues se sanitiza.
   const descriptionHtml = sanitizeRichHtml(plainTextToHtml(product.description || ''));
+  // Un curso y una rodillera no se entregan igual: lo que se le promete al
+  // cliente cambia con esto, no es solo un texto distinto.
+  const esDigital = String(product.kind || 'digital') !== 'physical';
 
   const waHref = config.whatsappPhone
     ? `https://wa.me/${config.whatsappPhone}?text=${encodeURIComponent(
@@ -163,32 +163,51 @@ const ProductDetail = () => {
             {product.name}
           </h1>
 
+          {/* "Más Vendido" estaba fijo en TODOS los productos: es prueba
+              social inventada --el mismo problema que las estrellas clonadas
+              que ya se sacaron de las tarjetas-- y encima se nota apenas el
+              cliente ve dos fichas seguidas. Sin datos de ventas reales, no
+              se afirma. */}
           <div className="flex flex-wrap items-center gap-3 mb-6">
-            <span className="inline-flex items-center gap-1.5 bg-amber-50 border border-amber-200 text-amber-700 text-xs font-bold px-3 py-1.5 rounded-full">
-              <Star className="w-3.5 h-3.5 fill-amber-500 text-amber-500" /> Más Vendido
-            </span>
             <span className="inline-flex items-center gap-1.5 bg-[var(--store-primary)]/10 border border-[var(--store-primary)]/20 text-[var(--store-primary)] text-xs font-bold px-3 py-1.5 rounded-full">
-              <Check className="w-3.5 h-3.5" /> Acceso Inmediato
+              <Check className="w-3.5 h-3.5" /> {esDigital ? 'Acceso inmediato' : 'Envío a domicilio'}
             </span>
           </div>
 
           <div className="mb-8">
             <div className="flex items-baseline gap-2">
-              <span className="text-5xl font-black text-gray-900">{formatear(price)}</span>
+              {/* En celular text-5xl desborda con precios de siete cifras
+                  ($1.899.000): el numero se sale de la columna. */}
+              <span className="text-4xl sm:text-5xl font-black text-gray-900">{formatear(price)}</span>
               <span className="text-base font-semibold text-gray-500">{product.currency || 'COP'}</span>
             </div>
             <p className="text-sm text-emerald-600 font-bold mt-1">
-              Pago único — sin mensualidades
+              {esDigital ? 'Pago único — sin mensualidades' : 'Precio final — sin sorpresas'}
             </p>
           </div>
 
-          <div className="grid grid-cols-2 gap-3 mb-8">
-            {[
-              { icon: InfinityIcon, text: 'Acceso de por vida' },
-              { icon: Download, text: 'Descargable u online' },
-              { icon: ShieldCheck, text: 'Entrega por Google Drive' },
-              { icon: Check, text: 'Acceso inmediato' },
-            ].map(({ icon: Icon, text }) => (
+          {/* En celular UNA columna: con dos, textos como "Coordinamos por
+              WhatsApp" se parten en tres renglones y la ficha se alarga sin
+              ganar nada. Desde sm hacia arriba, dos. */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-8">
+            {/* Un producto FISICO no se descarga, no llega por Drive y no
+                tiene "acceso de por vida". Esta lista estaba fija para todo el
+                catalogo, asi que una rodillera termica mostraba "Entrega por
+                Google Drive" -- reportado por el admin. Se ramifica por kind. */}
+            {(esDigital
+              ? [
+                  { icon: InfinityIcon, text: 'Acceso de por vida' },
+                  { icon: Download, text: 'Descargable u online' },
+                  { icon: ShieldCheck, text: 'Entrega por Google Drive' },
+                  { icon: Check, text: 'Acceso inmediato' },
+                ]
+              : [
+                  { icon: Truck, text: 'Envio a tu direccion' },
+                  { icon: MessageCircle, text: 'Coordinamos por WhatsApp' },
+                  { icon: ShieldCheck, text: 'Producto original' },
+                  { icon: Check, text: 'Pagas al recibir o en linea' },
+                ]
+            ).map(({ icon: Icon, text }) => (
               <div key={text} className="flex items-center gap-2.5 text-sm text-gray-700 bg-gray-50 border border-gray-200 rounded-lg p-2">
                 <Icon className="w-4 h-4 text-[var(--store-primary)] shrink-0" />
                 <span>{text}</span>
