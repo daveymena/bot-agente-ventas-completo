@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Bot, Send, User, Loader2, Sparkles, Check, X, Wrench, MessageSquare, Paperclip, RotateCcw } from "lucide-react";
+import { Bot, Send, User, Loader2, Sparkles, Check, X, Wrench, MessageSquare, Paperclip, RotateCcw, History, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -52,6 +52,21 @@ export default function CodeAgent() {
   useAutoTour(HELP_GUIDE);
   const [mode, setMode] = useState<Mode>("operator");
   const [messages, setMessages] = useState<Message[]>([{ role: "assistant", content: GREETING.operator }]);
+  // ── Conversaciones separadas ──────────────────────────────────────────
+  // El historial SIEMPRE se guardo por sessionId, pero esta pantalla usaba
+  // una sola sesion fija ("default"): abrir una charla nueva significaba
+  // BORRAR la anterior. Reportado: "a veces quiero continuar una charla y no
+  // puedo porque ya cerre o limpie la actual".
+  //
+  // La sesion activa se guarda en localStorage y no en el estado nada mas:
+  // si se recarga la pagina o se vuelve desde otra seccion, se sigue en la
+  // misma charla en vez de saltar a otra.
+  const [sessionId, setSessionId] = useState<string>(() => {
+    try { return localStorage.getItem("atlas_sesion") || "default"; } catch { return "default"; }
+  });
+  const [sesiones, setSesiones] = useState<any[]>([]);
+  const [panelSesiones, setPanelSesiones] = useState(false);
+
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   // Lo que Atlas está haciendo ahora mismo, en lenguaje llano (llega por SSE,
@@ -70,7 +85,7 @@ export default function CodeAgent() {
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch("/api/code-agent/history?sessionId=default", { credentials: "include" });
+        const res = await fetch(`/api/code-agent/history?sessionId=${encodeURIComponent(sessionId)}`, { credentials: "include" });
         if (!res.ok) return;
         const data = await res.json();
         if (cancelled || !Array.isArray(data.history) || data.history.length === 0) return;
@@ -88,11 +103,46 @@ export default function CodeAgent() {
       }
     })();
     return () => { cancelled = true; };
-  }, []);
+  }, [sessionId]);
+
+  const cargarSesiones = async () => {
+    try {
+      const r = await fetch("/api/code-agent/sessions", { credentials: "include" });
+      if (!r.ok) return;
+      const d = await r.json();
+      setSesiones(Array.isArray(d.sesiones) ? d.sesiones : []);
+    } catch { /* si no se pueden listar, el panel queda vacio */ }
+  };
+
+  const abrirSesion = (id: string) => {
+    try { localStorage.setItem("atlas_sesion", id); } catch { /* modo privado */ }
+    setSessionId(id);
+    setPanelSesiones(false);
+    setRestoring(true);
+    setMessages([{ role: "assistant", content: GREETING[mode] }]);
+  };
+
+  // Una charla NUEVA no borra la anterior: se abre otra sesion y la vieja
+  // queda guardada. Ese era justamente el problema.
+  const nuevaConversacion = () => {
+    abrirSesion(`s-${Date.now()}`);
+    toast.success("Conversación nueva. La anterior quedó guardada.");
+  };
+
+  const borrarSesion = async (id: string) => {
+    try {
+      await fetch(`/api/code-agent/history?sessionId=${encodeURIComponent(id)}`, { method: "DELETE", credentials: "include" });
+      await cargarSesiones();
+      if (id === sessionId) abrirSesion("default");
+      toast.success("Conversación borrada");
+    } catch {
+      toast.error("No se pudo borrar");
+    }
+  };
 
   const resetConversation = async () => {
     try {
-      await fetch("/api/code-agent/history?sessionId=default", { method: "DELETE", credentials: "include" });
+      await fetch(`/api/code-agent/history?sessionId=${encodeURIComponent(sessionId)}`, { method: "DELETE", credentials: "include" });
       setMessages([{ role: "assistant", content: GREETING[mode] }]);
       toast.success("Conversación reiniciada");
     } catch {
@@ -174,7 +224,7 @@ export default function CodeAgent() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       // Solo el operador emite progreso; el modo Agente responde de una.
-      body: JSON.stringify({ prompt: promptText, history: historyForCall, ...(esOperador ? { stream: true } : {}) }),
+      body: JSON.stringify({ prompt: promptText, history: historyForCall, sessionId, ...(esOperador ? { stream: true } : {}) }),
       credentials: "include",
     });
     if (!res.ok) {
@@ -305,7 +355,19 @@ export default function CodeAgent() {
             </div>
           </div>
           <div className="flex items-center gap-2 shrink-0">
-            <Button variant="outline" size="sm" onClick={() => setConfirmingReset(true)} className="h-8 sm:h-9 text-xs px-2 sm:px-3">
+            {/* "Nueva" ya NO borra la charla actual: abre otra y la anterior
+                queda guardada. El boton de historial es el que faltaba para
+                poder volver a cualquiera. */}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => { setPanelSesiones((v) => !v); if (!panelSesiones) cargarSesiones(); }}
+              className="h-8 sm:h-9 text-xs px-2 sm:px-3"
+              title="Conversaciones guardadas"
+            >
+              <History className="h-3.5 w-3.5 sm:mr-1.5" /> <span className="hidden sm:inline">Historial</span>
+            </Button>
+            <Button variant="outline" size="sm" onClick={nuevaConversacion} className="h-8 sm:h-9 text-xs px-2 sm:px-3">
               <RotateCcw className="h-3.5 w-3.5 sm:mr-1.5" /> <span className="hidden sm:inline">Nueva</span>
             </Button>
             <div data-tour="code-agent-mode-toggle" className="inline-flex rounded-lg border border-border bg-secondary p-0.5">
@@ -324,6 +386,56 @@ export default function CodeAgent() {
             </div>
           </div>
         </div>
+
+        {/* Panel de conversaciones guardadas.
+            Se despliega sobre el chat en vez de ocupar una columna fija: en un
+            celular una columna lateral se come la mitad del ancho, y esto se
+            usa para saltar a una charla y cerrarse, no para tenerlo abierto. */}
+        {panelSesiones && (
+          <div className="rounded-2xl border border-border bg-card shadow-sm overflow-hidden">
+            <div className="flex items-center justify-between px-4 py-2.5 border-b border-border">
+              <p className="text-sm font-semibold">Conversaciones guardadas</p>
+              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setPanelSesiones(false)}>
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+            {sesiones.length === 0 ? (
+              <p className="px-4 py-6 text-center text-sm text-muted-foreground">
+                Todavía no hay conversaciones guardadas.
+              </p>
+            ) : (
+              <div className="max-h-64 overflow-y-auto divide-y divide-border">
+                {sesiones.map((s) => (
+                  <div
+                    key={s.sessionId}
+                    className={`flex items-center gap-2 px-4 py-2.5 hover:bg-muted/50 transition-colors ${s.sessionId === sessionId ? "bg-muted/60" : ""}`}
+                  >
+                    <button
+                      onClick={() => abrirSesion(s.sessionId)}
+                      className="min-w-0 flex-1 text-left"
+                    >
+                      <p className="truncate text-sm font-medium">{s.titulo}</p>
+                      <p className="text-[11px] text-muted-foreground">
+                        {s.mensajes} mensaje{s.mensajes === 1 ? "" : "s"}
+                        {s.ultimoMensaje ? ` · ${new Date(s.ultimoMensaje).toLocaleString("es-CO", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}` : ""}
+                        {s.sessionId === sessionId ? " · abierta" : ""}
+                      </p>
+                    </button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7 shrink-0 text-muted-foreground hover:text-destructive"
+                      title="Borrar esta conversación"
+                      onClick={() => borrarSesion(s.sessionId)}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
 
         <div className="flex flex-1 min-h-0">
           <div className="flex-1 flex flex-col border border-border rounded-2xl bg-card overflow-hidden shadow-sm min-h-0">

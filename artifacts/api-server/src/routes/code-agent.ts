@@ -1867,6 +1867,74 @@ router.post("/operator", async (req: TenantRequest, res, next) => {
  * Architect para que la UI la restaure al volver a la página (antes el hilo
  * vivía solo en el estado de React y se borraba al navegar).
  */
+/**
+ * GET /api/code-agent/sessions — las conversaciones guardadas del negocio.
+ *
+ * El historial SIEMPRE se guardó por sessionId, pero el panel usaba una sola
+ * sesión fija ("default"): abrir una charla nueva significaba BORRAR la
+ * anterior. El admin lo reportó -- "a veces quiero continuar una charla y no
+ * puedo porque ya cerré o limpié la actual".
+ *
+ * Los datos ya estaban ahí; lo que faltaba era poder verlos. Esto devuelve
+ * cada conversación con su primer mensaje --que funciona como título, igual
+ * que en ChatGPT-- y cuándo fue la última vez que se habló.
+ */
+router.get("/sessions", async (req: TenantRequest, res, next) => {
+  try {
+    const tenantId = req.tenant?.id;
+    if (!tenantId) return res.status(401).json({ message: "Tenant not resolved" });
+
+    const { db, architectMemory } = await import("@workspace/db");
+    const { and, eq, asc } = await import("drizzle-orm");
+
+    const filas = await db
+      .select({
+        sessionId: architectMemory.sessionId,
+        content: architectMemory.content,
+        createdAt: architectMemory.createdAt,
+      })
+      .from(architectMemory)
+      .where(
+        and(
+          eq(architectMemory.tenantId, tenantId),
+          eq(architectMemory.memoryType, "observation"),
+        ),
+      )
+      .orderBy(asc(architectMemory.createdAt));
+
+    // Se agrupa en memoria y no con SQL a propósito: son los mensajes de un
+    // solo negocio, y hacerlo acá evita un DISTINCT ON que ata la consulta a
+    // Postgres (este proyecto también corre sobre SQLite).
+    const porSesion = new Map<string, { titulo: string; mensajes: number; ultimo: any }>();
+    for (const f of filas) {
+      const id = String(f.sessionId || "default");
+      const texto = String(f.content || "").replace(/^(usuario|assistant|admin)\s*:\s*/i, "").trim();
+      const previo = porSesion.get(id);
+      if (!previo) {
+        porSesion.set(id, {
+          // El PRIMER mensaje es el título: es lo que el admin escribió al
+          // abrir la charla, así que es lo que va a reconocer después.
+          titulo: texto.slice(0, 80) || "Conversación",
+          mensajes: 1,
+          ultimo: f.createdAt,
+        });
+      } else {
+        previo.mensajes++;
+        previo.ultimo = f.createdAt;
+      }
+    }
+
+    const sesiones = Array.from(porSesion.entries())
+      .map(([id, d]) => ({ sessionId: id, titulo: d.titulo, mensajes: d.mensajes, ultimoMensaje: d.ultimo }))
+      // La más reciente primero: es la que se quiere retomar.
+      .sort((a, b) => new Date(b.ultimoMensaje as any).getTime() - new Date(a.ultimoMensaje as any).getTime());
+
+    return res.json({ sesiones });
+  } catch (e) {
+    return next(e);
+  }
+});
+
 router.get("/history", async (req: TenantRequest, res, next) => {
   try {
     const tenantId = req.tenant?.id;
