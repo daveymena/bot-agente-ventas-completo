@@ -56,7 +56,7 @@ async function recentRejectionNote(tenantId: number, campaignName: string, actio
 
 // Umbrales conservadores y auditables a propósito -- se pueden ajustar sin
 // tocar la lógica de decisión.
-const SPEND_PROTECTION_MIN_IMPRESSIONS = 500; // no juzgar con muestra chica
+const SPEND_PROTECTION_MIN_IMPRESSIONS = 200; // no juzgar con muestra chica
 const TREND_MIN_IMPRESSIONS = 1000;
 const TREND_SCALE_UP_MAX_COST_RATIO = 0.7; // costo/resultado actual <= 70% de la ventana anterior => va bien
 const TREND_SCALE_DOWN_MIN_COST_RATIO = 1.5; // costo/resultado actual >= 150% de la ventana anterior => va mal
@@ -308,7 +308,14 @@ async function spendProtectionForTenant(tenant: TenantContext): Promise<void> {
     // dinero, no las impresiones.
     const conjuntos = await fb.listAdSets(campaign.id);
     const presupuestoDia = conjuntos.reduce((t, c) => t + (Number(c.dailyBudget) || 0), 0);
-    const quemoParteSeria = presupuestoDia > 0 && insights.spend >= presupuestoDia * 0.4;
+    // 25% del presupuesto del dia, no 40%. Con $15.000/dia eso son $3.750: es
+    // plata suficiente para saber si el anuncio mueve algo, y poca suficiente
+    // para no enterarse cuando ya se fueron dos cobros. El caso real que
+    // motivo bajarlo: $4.446 gastados en una campana que no trajo ni una
+    // conversacion.
+    const quemoParteSeria = presupuestoDia > 0 && insights.spend >= presupuestoDia * 0.25;
+    // Se baja de 500 a 200 impresiones por el mismo motivo: con el volumen
+    // real de un negocio chico, esperar 500 es esperar dias.
     const muestraSuficiente = insights.impressions >= SPEND_PROTECTION_MIN_IMPRESSIONS;
     if (!muestraSuficiente && !quemoParteSeria) {
       // Igual queda RASTRO de que se reviso. Sin esto el agente trabajaba en
@@ -342,13 +349,37 @@ async function spendProtectionForTenant(tenant: TenantContext): Promise<void> {
       .orderBy(desc(adAgentLogs.createdAt)).limit(1);
     if (existing[0] && new Date(existing[0].createdAt as any) >= today) continue;
 
-    if (insights.results === 0 && insights.spend > 0) {
-      // Necesitamos el presupuesto diario del conjunto para saber el % quemado.
-      // listActiveCampaigns no trae adsets -- se consulta insights a nivel
-      // de campaña, que ya trae spend; comparamos contra un piso razonable:
-      // si gastó más de lo que costaría 1 resultado típico sin ningún
-      // resultado, es señal de alerta aunque no sepamos el budget exacto.
-      const reason = `Lleva ${fmtCOP(insights.spend)} gastados hoy con ${insights.impressions} impresiones y CERO resultados (compras/leads/mensajes). Esto sugiere que el anuncio no está convirtiendo y sigue quemando presupuesto.`;
+    // ── Lo que Meta llama "resultado" NO es una venta ─────────────────────
+    // Este es el agujero que dejó pasar $4.446 sin una sola venta, reportado
+    // por el admin el 2026-08-22 ("Facebook me ha realizado dos cobros y no
+    // hemos realizado nada de ventas").
+    //
+    // Sin píxel de conversiones asociado a la cuenta, la campaña se optimiza
+    // por LINK_CLICKS, y entonces Meta cuenta CADA CLIC como un "resultado".
+    // El vigilante miraba `insights.results` y veía 20: campaña sana, no
+    // tocar. La base decía otra cosa: 0 leads atribuidos, 0 pagos, $0.
+    //
+    // La única fuente honesta de si un anuncio vende es NUESTRA base: los
+    // pagos confirmados y las conversaciones que abrió. Meta cobra por clics;
+    // el negocio vive de ventas. Se juzga por lo segundo.
+    const { getFunnelSnapshot } = await import("./marketing-team/attribution");
+    const embudo = await getFunnelSnapshot(tenant.id, 1); // solo hoy
+    const ventasReales = embudo.paid;
+    const conversacionesReales = embudo.conversations;
+
+    // Se considera que el anuncio "movió algo" si trajo una venta o al menos
+    // una conversación. Una conversación todavía no es plata, pero es alguien
+    // real escribiendo -- y pausar por no vender en el primer día sería
+    // apagar campañas que recién empiezan.
+    const movioAlgo = ventasReales > 0 || conversacionesReales > 0;
+
+    if (!movioAlgo && insights.spend > 0) {
+      const reason =
+        `Lleva ${fmtCOP(insights.spend)} gastados hoy con ${insights.impressions} impresiones. ` +
+        `Meta reporta ${insights.results} "resultado(s)", pero en tu negocio eso no se tradujo en NADA: ` +
+        `0 ventas y 0 conversaciones nuevas. ` +
+        `Sin píxel de compras, Meta cuenta los clics como resultados -- por eso el número de allá no coincide con el de acá.`;
+
 
       // ── Pausar por bajo rendimiento: se HACE, y después se avisa ────────
       // Mismo criterio que el tope de gasto diario, y por el mismo motivo:
@@ -560,7 +591,7 @@ let started = false;
 export function startAdGrowthAgent() {
   if (started) return;
   started = true;
-  const SPEND_CHECK_MS = 60 * 60 * 1000; // cada 1h: protección de gasto, ventana corta
+  const SPEND_CHECK_MS = 30 * 60 * 1000; // cada 30 min: si protege plata, que la proteja pronto
   const TREND_CHECK_MS = 6 * 60 * 60 * 1000; // cada 6h: revisión de tendencia, ventana larga
   setInterval(() => { runSpendProtectionCheck().catch(err => logger.error({ err }, "[AdGrowthAgent] Error en protección de gasto")); }, SPEND_CHECK_MS);
   setInterval(() => { runTrendReview().catch(err => logger.error({ err }, "[AdGrowthAgent] Error en revisión de tendencia")); }, TREND_CHECK_MS);
