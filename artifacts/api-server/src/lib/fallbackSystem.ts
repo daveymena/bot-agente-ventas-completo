@@ -246,21 +246,38 @@ export async function notifyOperatorOfFailure(
   conversationId: number,
   errorType: string,
   errorDetails: string,
-  customerInfo?: { name: string; phone: string }
+  customerInfo?: { name: string; phone: string },
+  tenantId?: number | null,
 ) {
   try {
-    const title = conversationId === 0 ? `🚨 Alerta de Infraestructura: ${errorType}` : `🚨 Falla en conversación ${conversationId}`;
-    const subtitle = customerInfo 
-      ? `Cliente: ${customerInfo.name} (${customerInfo.phone}) - Error: ${errorType}`
-      : `Detalles: ${errorDetails.slice(0, 100)}`;
-    
-    await db.insert(activityEvents).values({
-      type: "system_alert",
-      title,
-      subtitle,
-    });
+    // ── Un log de servidor NO es actividad de ventas ─────────────────────
+    // Esto escribia en el MISMO feed que el cliente ve en su panel, con el
+    // texto crudo: "CIRCUIT_BREAKER_AI_GROQ_CONV_13 - 413 Request too large".
+    // Para quien paga la herramienta, leer eso entre sus seguimientos no le
+    // dice nada bueno de la plataforma -- y no puede hacer nada al respecto.
+    //
+    // El detalle tecnico sigue yendo al log, que es donde sirve para
+    // diagnosticar. Al feed va solo lo que le importa al dueno del negocio: si
+    // un cliente suyo se quedo sin respuesta.
+    logger.error(
+      { conversationId, errorType, errorDetails: errorDetails.slice(0, 300), customerInfo },
+      "[FallbackSystem] fallo de IA",
+    );
 
-    logger.info({ title, subtitle }, "[FallbackSystem] Logged failure to DB");
+    // Una falla de infraestructura sin conversacion afectada no le interesa a
+    // nadie mas que a quien mantiene el sistema.
+    if (conversationId === 0) return;
+
+    // Si SI hubo alguien esperando respuesta, se dice en su idioma. Y con
+    // tenantId: sin el, la alerta de un negocio le aparecia a TODOS los demas.
+    await db.insert(activityEvents).values({
+      tenantId: tenantId ?? null,
+      type: "conversation_failed",
+      title: "Una conversación no pudo responderse automáticamente",
+      subtitle: customerInfo
+        ? `${customerInfo.name} (${customerInfo.phone}) quedó sin respuesta. Conviene escribirle a mano.`
+        : "Un cliente quedó sin respuesta automática. Conviene revisarlo.",
+    });
   } catch (error: any) {
     logger.error({ error: error.message }, "[FallbackSystem] Failed to log failure to DB");
   }

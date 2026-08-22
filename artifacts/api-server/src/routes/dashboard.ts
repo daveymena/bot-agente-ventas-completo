@@ -1,6 +1,6 @@
 import { safeISO } from "../lib/date-utils";
 import { Router, type IRouter } from "express";
-import { and, desc, eq, gte, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNull, ne, or, sql } from "drizzle-orm";
 import {
   GetDashboardSummaryResponse,
   GetFunnelResponse,
@@ -128,10 +128,25 @@ router.get("/activity", async (req, res, next) => {
     const tenantId = tenantIdOf(req);
     if (!tenantId) return res.status(401).json({ message: "No autorizado" });
 
-    // activity_events no tiene columna tenant_id en el esquema actual — todavía
-    // se comparte entre cuentas. Requiere una migración de esquema (agregar la
-    // columna y backfill) que queda pendiente; no se resuelve con un filtro aquí.
-    const rows = await db.select().from(activityEvents).orderBy(desc(activityEvents.createdAt)).limit(20);
+    // Ya existe tenant_id (se agrega en autoMigrate): cada negocio ve LO SUYO.
+    // Las filas viejas quedaron sin dueño y se muestran igual, para no vaciarle
+    // el panel a nadie de un día para otro -- las nuevas ya vienen marcadas.
+    //
+    // Y se excluyen las alertas técnicas: "CIRCUIT_BREAKER_AI_GROQ - 413
+    // Request too large" es un log de servidor, no actividad de ventas. Al
+    // cliente que paga la herramienta no le dice nada bueno, y encima no puede
+    // hacer nada al respecto. El detalle sigue en el log del servidor.
+    const rows = await db
+      .select()
+      .from(activityEvents)
+      .where(
+        and(
+          or(isNull(activityEvents.tenantId), eq(activityEvents.tenantId, tenantId)),
+          ne(activityEvents.type, "system_alert"),
+        ),
+      )
+      .orderBy(desc(activityEvents.createdAt))
+      .limit(20);
     return res.json(
       GetRecentActivityResponse.parse(
         rows.map((r) => ({

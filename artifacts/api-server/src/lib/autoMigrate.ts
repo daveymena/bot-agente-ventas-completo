@@ -2,6 +2,10 @@ import { pool } from "@workspace/db";
 import { logger } from "./logger";
 
 const MIGRATIONS = [
+  // El feed de actividad se compartia entre TODOS los negocios: el aviso de
+  // uno le aparecia a los demas. Nullable porque las filas viejas no tienen
+  // dueno conocido y no se puede adivinar.
+  `ALTER TABLE activity_events ADD COLUMN IF NOT EXISTS tenant_id INTEGER`,
   `ALTER TABLE tenants ADD COLUMN IF NOT EXISTS brand_theme TEXT`,
   `ALTER TABLE tenants ADD COLUMN IF NOT EXISTS brand_social JSONB`,
   `ALTER TABLE tenants ADD COLUMN IF NOT EXISTS woocommerce_integration JSONB`,
