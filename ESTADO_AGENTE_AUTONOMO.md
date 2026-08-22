@@ -217,6 +217,51 @@ la lista de lo que el dueño todavía no contestó.
 
 ---
 
+## 5. Cómo desplegar esto (y cómo NO verificarlo)
+
+Dos deploys hechos el 2026-08-22 (`e878570` y `2d90496`), y de los dos salió la misma
+lección.
+
+### `deployService` NO corta solo. Nunca.
+
+Devuelve `{}`, el hash del panel se actualiza, el build termina bien… y el contenedor
+viejo puede seguir sirviendo horas. Medido: tras `deployService` el panel ya mostraba
+`2d90496`, pero `getDockerContainers` seguía devolviendo el MISMO contenedor
+(`a7d5bcb358b3`) de **254 minutos** antes.
+
+**Siempre hace falta `services.app.stopService` + `services.app.startService`.** Después de
+eso el contenedor nuevo aparece en segundos (`1ed877d7b06b`, creado 23:41:54 UTC) y la app
+levanta con WhatsApp reconectado. Son ~30s de caída: pedir permiso antes.
+
+### Lo único que dice la verdad
+
+```
+projects.getDockerContainers
+  input={"json":{"projectName":"tecnoia","service":"tecnoia_bot-agenwhatsapp"}}
+```
+
+⚠️ El parámetro es `service` (no `serviceName`) y quiere el nombre **completo de docker**
+(`tecnoia_bot-agenwhatsapp`). Con `bot-agenwhatsapp` devuelve `[]` sin error — parece que
+no hay contenedores cuando en realidad preguntaste mal.
+
+Se compara el `Id` y el `Created` contra los de antes. Si no cambiaron, el código nuevo NO
+está corriendo, diga lo que diga el panel.
+
+### Tres verificaciones que parecen servir y no sirven
+
+1. **El hash de commit del panel.** Se actualiza al disparar, no al desplegar. Ya estaba
+   anotado y se volvió a confirmar hoy.
+2. **`/api/health` y su `uptime`.** Sirve para saber que la app levantó, pero un build
+   tarda ~5 min: ver el uptime viejo justo después del POST NO significa que el deploy
+   falló, significa que el build sigue corriendo. Hay que volver a mirar.
+3. **Pegarle a un endpoint nuevo y mirar el código HTTP.** Este es el que más engaña:
+   `/api/business-profile` devuelve **401**… pero `/api/ruta-que-no-existe-xyz` devuelve
+   **401 con el mismo cuerpo** (`{"message":"No session found. Please login."}`). Hay un
+   middleware de sesión global antes del ruteo, así que sin estar logueado una ruta nueva
+   y una inexistente son indistinguibles. No prueba absolutamente nada.
+
+---
+
 ## 6. Incidente del 2026-08-22 12:06 — el bot ofreció el producto equivocado
 
 Un cliente llegó de un anuncio de Instagram del **Curso de Piano** y el bot le ofreció un
