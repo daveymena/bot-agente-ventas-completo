@@ -294,7 +294,44 @@ async function spendProtectionForTenant(tenant: TenantContext): Promise<void> {
     if (campaign.effectiveStatus !== "ACTIVE") continue; // nada que proteger si ya está pausada
 
     const insights = await fb.getCampaignInsights(campaign.id, "today");
-    if (!insights || insights.impressions < SPEND_PROTECTION_MIN_IMPRESSIONS) continue;
+    if (!insights) continue;
+
+    // ── Cuando SI hay que mirar esta campana ─────────────────────────────
+    // Antes la unica puerta era "500 impresiones". Con el volumen real de un
+    // negocio chico --68 impresiones en un dia, medido-- esa puerta no se
+    // abre nunca: el agente corria cada hora y nunca llegaba a evaluar nada.
+    // El admin lo vio como que no hacia nada, y tenia razon.
+    //
+    // Se agrega una segunda puerta por PLATA: si ya quemo una parte seria del
+    // presupuesto del dia sin un solo resultado, eso es accionable aunque
+    // haya tenido pocas impresiones. Al fin y al cabo lo que se protege es el
+    // dinero, no las impresiones.
+    const conjuntos = await fb.listAdSets(campaign.id);
+    const presupuestoDia = conjuntos.reduce((t, c) => t + (Number(c.dailyBudget) || 0), 0);
+    const quemoParteSeria = presupuestoDia > 0 && insights.spend >= presupuestoDia * 0.4;
+    const muestraSuficiente = insights.impressions >= SPEND_PROTECTION_MIN_IMPRESSIONS;
+    if (!muestraSuficiente && !quemoParteSeria) {
+      // Igual queda RASTRO de que se reviso. Sin esto el agente trabajaba en
+      // silencio y no habia forma de distinguir "reviso y esta todo bien" de
+      // "no esta corriendo" -- que es exactamente lo que reporto el admin.
+      // Una sola marca por dia y por campana: alcanza para saber que vive.
+      const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
+      const yaHay = await db.select().from(adAgentLogs)
+        .where(and(eq(adAgentLogs.campaignId, campaign.id), eq(adAgentLogs.checkType, "spend_protection")))
+        .orderBy(desc(adAgentLogs.createdAt)).limit(1);
+      if (!yaHay[0] || new Date(yaHay[0].createdAt as any) < hoy) {
+        await logSuggestion({
+          tenantId: tenant.id,
+          campaignId: campaign.id,
+          productName: campaign.name,
+          checkType: "spend_protection",
+          suggestedAction: null,
+          reason: `Revisada: ${fmtCOP(insights.spend)} gastados hoy, ${insights.impressions} impresiones, ${insights.results} resultado(s). Todavia no hay datos suficientes para juzgarla${presupuestoDia > 0 ? ` (lleva ${Math.round((insights.spend / presupuestoDia) * 100)}% del presupuesto del dia)` : ""}.`,
+          metricsSnapshot: insights,
+        });
+      }
+      continue;
+    }
 
     // Evitar repetir la misma sugerencia varias veces en el día: si ya hay
     // una de protección de gasto pendiente o aprobada hoy para esta

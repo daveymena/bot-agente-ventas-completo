@@ -563,6 +563,13 @@ function EnVivoTab() {
         </div>
       )}
 
+      {/* Lo que el agente automatico viene haciendo.
+          El admin reporto "no veo que haga nada": el agente corria cada hora
+          pero solo dejaba rastro cuando encontraba un problema, asi que no
+          habia forma de distinguir "reviso y esta todo bien" de "no esta
+          corriendo". Esto lo hace visible. */}
+      <ActividadDelAgente />
+
       {campanas.length === 0 ? (
         <Card><CardContent className="p-6 text-sm text-muted-foreground">
           No hay campañas en la cuenta publicitaria. Creá un anuncio desde Atlas y va a aparecer acá.
@@ -707,5 +714,62 @@ function CompetenciaTab() {
         </Card>
       ))}
     </div>
+  );
+}
+
+/**
+ * Lo que el vigilante automatico viene revisando.
+ *
+ * Existe porque un sistema que trabaja en silencio es indistinguible de uno
+ * apagado -- y el admin, con razon, dejo de creerle.
+ */
+function ActividadDelAgente() {
+  const [logs, setLogs] = useState<any[]>([]);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    fetch("/api/facebook/agent/logs", { credentials: "include" })
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error("no disponible"))))
+      .then((d) => setLogs(Array.isArray(d) ? d : d.logs || []))
+      .catch((e) => setError(e.message || "no se pudo leer"));
+  }, []);
+
+  if (error) return null;
+
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base flex items-center gap-2">
+          <Sparkles className="h-4 w-4 text-primary" /> Qué viene haciendo el vigilante
+        </CardTitle>
+        <CardDescription>
+          Revisa el gasto cada hora y pausa solo lo que quema plata sin vender. Te avisa por WhatsApp.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        {logs.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            Todavía no registró nada. Empieza a anotar en cuanto tus campañas tengan movimiento.
+          </p>
+        ) : (
+          <div className="space-y-2">
+            {logs.slice(0, 6).map((l: any) => (
+              <div key={l.id} className="flex items-start gap-2 rounded-lg border border-border p-2.5 text-sm">
+                <span className="shrink-0">
+                  {l.status === "applied" ? "🛑" : l.status === "suggested" ? "⚠️" : "✅"}
+                </span>
+                <div className="min-w-0">
+                  <p className="truncate font-medium">{l.productName || "Campaña"}</p>
+                  <p className="text-xs text-muted-foreground">{l.reason}</p>
+                  <p className="text-[11px] text-muted-foreground/70">
+                    {l.createdAt ? new Date(l.createdAt).toLocaleString("es-CO", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }) : ""}
+                  </p>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
