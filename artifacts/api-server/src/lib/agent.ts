@@ -578,20 +578,50 @@ function esNombreReal(n: string | null | undefined): boolean {
  * traer recibe un "que estas buscando?" -- justo lo que el ya habia dicho al
  * hacer clic.
  */
-function anuncioDeOrigen(history: Array<{ role: string; metadata?: any }>) {
+export function anuncioDeOrigen(
+  history: Array<{ role: string; metadata?: any; createdAt?: Date | string | null }>,
+) {
+  // El `externalAdReply` viaja pegado UNICAMENTE al primer mensaje del cliente.
+  // Antes esta funcion miraba solo el ultimo mensaje suyo y devolvia null si no
+  // lo tenia, asi que el anuncio se perdia apenas el cliente escribia una
+  // segunda vez ("cuanto cuesta?"). Se pagaba el clic, se sabia por que producto
+  // venia, y ese dato duraba un solo turno.
+  //
+  // Ahora se busca hacia atras entre SUS mensajes, con dos frenos para no
+  // arrastrar un anuncio viejo a una conversacion nueva:
+  //   - como mucho 10 mensajes suyos hacia atras;
+  //   - como mucho 24h de antiguedad respecto del ultimo mensaje.
+  const MAX_MENSAJES = 10;
+  const MAX_HORAS = 24;
+
+  const fecha = (v: unknown): number => {
+    const t = v instanceof Date ? v.getTime() : v ? new Date(v as string).getTime() : NaN;
+    return Number.isFinite(t) ? t : NaN;
+  };
+
+  const ultimo = fecha(history[history.length - 1]?.createdAt);
+  let vistos = 0;
+
   for (let i = history.length - 1; i >= 0; i--) {
     const m = history[i]!;
     if (m.role !== "customer") continue;
+    if (++vistos > MAX_MENSAJES) break;
+
     const md = m.metadata || {};
-    if (md.adTitle || md.adBody || md.adUrl || md.adId) {
-      return {
-        titulo: String(md.adTitle || ""),
-        cuerpo: String(md.adBody || ""),
-        url: String(md.adUrl || ""),
-        anuncioId: String(md.adId || ""),
-      };
+    if (!(md.adTitle || md.adBody || md.adUrl || md.adId)) continue;
+
+    const cuando = fecha(m.createdAt);
+    if (Number.isFinite(ultimo) && Number.isFinite(cuando)) {
+      const horas = (ultimo - cuando) / 3_600_000;
+      if (horas > MAX_HORAS) break; // anuncio de otra visita, no de esta
     }
-    return null; // solo interesa el mensaje actual, no anuncios de hace dias
+
+    return {
+      titulo: String(md.adTitle || ""),
+      cuerpo: String(md.adBody || ""),
+      url: String(md.adUrl || ""),
+      anuncioId: String(md.adId || ""),
+    };
   }
   return null;
 }

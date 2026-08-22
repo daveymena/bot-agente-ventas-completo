@@ -88,6 +88,25 @@ export interface EngineDecision {
   productSearchFailed: boolean;  // Si no se encontró un producto adecuado
 
   /**
+   * El mensaje del cliente no nombra NINGÚN producto (ni bien ni mal): es un
+   * saludo, un "quiero más información", un "gracias".
+   *
+   * No es lo mismo que `productSearchFailed`, y confundirlos fue el bug del
+   * 2026-08-22. `productSearchFailed` significa "pidió algo que no tenemos" y
+   * hace que el bot responda "no lo manejo". Esto significa "no pidió nada
+   * todavía", y lo único correcto es no suponer.
+   *
+   * Antes este caso no existía: si la búsqueda no encontraba nada pero la
+   * conversación arrastraba un producto viejo, el motor hacía
+   * `productToShow = null`, NO marcaba nada, y la IA se quedaba sola con el
+   * historial. Un cliente que llegó de un anuncio de piano recibió un cojín de
+   * moto, que era de lo que se había hablado en otra conversación. Meta manda
+   * el mismo "¡Hola! Quiero más información" para todos los anuncios, así que
+   * este caso le pasa a CADA cliente que llega de publicidad paga.
+   */
+  mensajeSinProducto: boolean;
+
+  /**
    * El producto que la búsqueda identificó EN ESTE MENSAJE (no en el historial).
    *
    * Existe porque avisar a la IA no alcanza. Hasta ahora, cuando la búsqueda
@@ -947,6 +966,30 @@ function normalizeText(t: string): string {
  *
  * Si ningún producto alcanza Nivel 2 o más, devuelve null → no hay un producto verdadero.
  */
+
+/**
+ * ¿El mensaje nombra algo concreto, o no dice nada todavía?
+ *
+ * Distingue "no tengo ese producto" de "el cliente no pidió nada". Son cosas
+ * muy distintas y confundirlas hacía que el bot le ofreciera al cliente el
+ * producto de una conversación vieja.
+ *
+ * Usa el MISMO criterio que `findBestProductMatch` para separar palabras
+ * específicas de genéricas — a propósito: si algún día cambian las listas, las
+ * dos funciones tienen que cambiar juntas o vuelven a desincronizarse.
+ */
+export function mensajeNombraProducto(text: string): boolean {
+  // Primero se sacan saludos y cortesías con el mismo helper que ya usa
+  // `detectIntent` — si no, "¡Hola! Quiero más información" contaba a "hola"
+  // como palabra específica y el mensaje parecía nombrar un producto. Ese era
+  // exactamente el mensaje que Meta autocompleta para todos los anuncios.
+  const sinSaludo = quitarSaludoYCortesias(normalizeText(text));
+  const allWords = sinSaludo.split(/\s+/).filter(w =>
+    (w.length > 2 || /^\d+$/.test(w)) && !STOP_WORDS.has(w)
+  );
+  return allWords.some(w => !GENERIC_HEADERS.has(w) && !GENERIC_WORDS.has(w));
+}
+
 export async function findBestProductMatch(
   text: string,
   productList: Array<{ id: number; name: string; description: string | null; category: string | null; categoryId: number | null }>,
@@ -1249,6 +1292,7 @@ export async function computeDecision(
   let productToShow: EngineDecision["productToShow"] = null;
   let shouldSendCard = false;
   let productSearchFailed = false;
+  let mensajeSinProducto = false;
   let searchReasoning: string | null = null;
   let productoDelMensaje: EngineDecision["productoDelMensaje"] = null;
 
@@ -1338,17 +1382,41 @@ export async function computeDecision(
         shouldSendCard = true;
         console.log(`💳 [DECISION] Producto en contexto para pago: ${currentProduct?.name} (ID: ${memory.currentProductId})`);
       } else {
-        // Mantener producto en contexto como referencia, pero IA decide
+        // Mantener producto en contexto como referencia, pero IA decide.
+        //
+        // Acá estaba el bug del 2026-08-22: esta rama hacía `productToShow =
+        // null`, logueaba, y no marcaba NADA. Al bloque de contexto no le
+        // llegaba ni el producto ni un aviso, así que la IA se quedaba sola
+        // con el historial y ofrecía lo último que veía ahí. Un cliente que
+        // llegó de un anuncio de piano recibió un cojín de moto.
+        //
+        // La distinción que faltaba: si el cliente NO nombró nada, el producto
+        // que arrastra la conversación es una suposición, no un dato — y hay
+        // que decírselo a la IA en vez de callarse.
         const currentProduct = productList.find(p2 => p2.id === memory.currentProductId);
         if (currentProduct) {
           productToShow = null;
           shouldSendCard = false;
-          console.log(`🤖 [DECISION] Producto en contexto delegado a IA: ${currentProduct?.name} (ID: ${memory.currentProductId})`);
+          mensajeSinProducto = !mensajeNombraProducto(incomingText);
+          console.log(
+            `🤖 [DECISION] Producto en contexto delegado a IA: ${currentProduct?.name} (ID: ${memory.currentProductId})` +
+            (mensajeSinProducto ? " — ⚠️ el mensaje NO nombra producto: no darlo por supuesto" : "")
+          );
         }
       }
     } else {
-      // No hay match ni producto en contexto
-      if (intent !== "payment_intent" && intent !== "confirmation") {
+      // No hay match ni producto en contexto.
+      //
+      // Ojo con la diferencia: "pidió algo que no tenemos" hace que el bot
+      // responda "no lo manejo", y eso está bien cuando el cliente pidió un
+      // saxofón. Pero "¡Hola! Quiero más información" —el texto que Meta
+      // autocompleta igual para TODOS los anuncios— no pide nada, y contestarle
+      // "no lo manejo" a alguien que acaba de costar plata en publicidad es
+      // peor que no contestar.
+      if (!mensajeNombraProducto(incomingText)) {
+        mensajeSinProducto = true;
+        console.log(`🤷 [DECISION] El mensaje no nombra ningún producto - la IA debe preguntar, no suponer`);
+      } else if (intent !== "payment_intent" && intent !== "confirmation") {
         productSearchFailed = true;
         console.log(`❌ [DECISION] Sin match y sin producto en contexto - delegado a IA`);
       } else {
@@ -1359,7 +1427,7 @@ export async function computeDecision(
   }
 
   // ── Construir bloque de contexto para el prompt ─────────────────────────────
-  const contextBlock = buildContextBlock(memory, intent, stage, productToShow, shouldSendCard, searchReasoning, productSearchFailed, t, productList, negocio);
+  const contextBlock = buildContextBlock(memory, intent, stage, productToShow, shouldSendCard, searchReasoning, productSearchFailed, t, productList, negocio, mensajeSinProducto);
 
   // ── Razón de la decisión (para logs) ────────────────────────────────────────
   const debugReason = [
@@ -1384,6 +1452,7 @@ export async function computeDecision(
     debugReason,
     searchReasoning,
     productSearchFailed,
+    mensajeSinProducto,
     productoDelMensaje,
     pidioReenvio,
     paymentStatus: memory.paymentStatus,
@@ -1404,7 +1473,8 @@ function buildContextBlock(
   productSearchFailed?: boolean,
   incomingText?: string,
   allProducts?: Array<any>,
-  negocio?: BusinessContext | null
+  negocio?: BusinessContext | null,
+  mensajeSinProducto?: boolean
 ): string {
   const lines: string[] = [];
 
@@ -1452,6 +1522,25 @@ function buildContextBlock(
     lines.push(`\n🔍 QUÉ ESTÁ PIDIENDO EL CLIENTE EN ESTE MENSAJE:`);
     searchReasoning.split("\n").filter(Boolean).forEach((r) => lines.push(r));
     lines.push(`\n⚠️ Contestá sobre ESE producto. Si el historial habla de otro, ese ya pasó: el cliente cambió de tema y hay que seguirlo.`);
+  }
+
+  // El mensaje no nombra nada. Es el caso de CADA cliente que llega de un
+  // anuncio pago, porque Meta autocompleta el mismo texto para todos.
+  // Antes acá no se decía nada y la IA ofrecía lo último que veía en el
+  // historial — que podía ser de otra conversación, de otro tema, de otro día.
+  if (mensajeSinProducto) {
+    lines.push(`\n🤷 ESTE MENSAJE NO NOMBRA NINGÚN PRODUCTO.`);
+    lines.push(`El cliente saludó o pidió información en general, pero todavía NO dijo qué le interesa.`);
+    lines.push(`\n🚨 REGLA: NO supongas que sigue interesado en el producto del que se habló antes.`);
+    lines.push(`   Ese producto puede ser de otra conversación, de otro día o de otro tema.`);
+    lines.push(`   ❌ PROHIBIDO abrir con "¿Vienes por el [producto]?" o presentar una ficha por tu cuenta.`);
+    if (memory.currentProductName) {
+      lines.push(`   (En el historial aparece "${memory.currentProductName}". Es SOLO un antecedente: no lo des por vigente.)`);
+    }
+    lines.push(`\n✅ QUÉ HACER:`);
+    lines.push(`   · Si más arriba figura un ANUNCIO del que llegó el cliente, ESE es el tema: hablá de ese producto.`);
+    lines.push(`   · Si no hay anuncio, saludá corto y preguntá UNA sola cosa concreta: qué está buscando.`);
+    lines.push(`   · Nunca inventes por dónde vino ni le atribuyas un interés que no expresó.`);
   }
 
   if (productSearchFailed) {

@@ -214,3 +214,72 @@ Del orden recomendado en §3 queda pendiente el 2 al 5. El punto 2 de la hoja de
 (un agente por tipo de negocio que entreviste al dueño) ya tiene dónde guardar las
 respuestas: `update_business_profile` y `GET /api/business-profile` devuelve `faltan[]`,
 la lista de lo que el dueño todavía no contestó.
+
+---
+
+## 6. Incidente del 2026-08-22 12:06 — el bot ofreció el producto equivocado
+
+Un cliente llegó de un anuncio de Instagram del **Curso de Piano** y el bot le ofreció un
+**Cojín Moto Viajero 3D**. Ocurrió a las 17:06 UTC, dos horas **antes** del deploy de §5,
+así que no lo causó ese cambio.
+
+### La cadena real
+
+Meta autocompleta **el mismo texto para todos los anuncios** (`"¡Hola! Quiero más
+información"`). El dato que dice a qué le hizo clic viaja aparte, en el `externalAdReply`.
+O sea que el texto del cliente **nunca** alcanza para elegir producto.
+
+El emparejador se portó bien: con ese texto devuelve `null` (verificado, no supuesto).
+El problema era qué pasaba después de ese `null`:
+
+`conversation-engine.ts`, rama "hay producto en contexto pero la búsqueda no encontró nada":
+hacía `productToShow = null`, logueaba, y **no marcaba nada más**. Al bloque de contexto no
+le llegaba ni el producto ni un aviso. La IA quedaba sola con el historial del chat y
+ofrecía lo último que veía ahí — de otra conversación, de otro tema, de otro día. La frase
+"¿Vienes por el Cojín Moto Viajero 3D, cierto?" no está en el código: la escribió la IA
+leyendo mensajes viejos.
+
+Ya había un precedente documentado en ese mismo archivo (17-08: *"el cliente preguntó por
+el curso de IDIOMAS y el bot le respondió con el de PIANO"*). Entonces se arregló la rama
+en que la búsqueda **acierta**; la rama en que **falla** quedó igual.
+
+### Los dos arreglos
+
+**1. Distinguir "no tengo eso" de "todavía no pidió nada".** Nuevo flag
+`mensajeSinProducto` + helper `mensajeNombraProducto()`. No es lo mismo `productSearchFailed`
+("pidió un saxofón, no lo manejo") que un cliente que solo saludó: contestarle "no lo
+manejo" a alguien que acaba de costar plata en publicidad es peor que no contestar. Cuando
+el mensaje no nombra nada, el prompt ahora dice explícitamente: **no supongas que sigue
+interesado en el producto anterior**, prohibido abrir con "¿Vienes por X?", y si hay un
+anuncio, ese es el tema.
+
+El helper reutiliza `quitarSaludoYCortesias()`, que ya existía — sin eso, "hola" contaba
+como palabra específica y el mensaje parecía nombrar un producto.
+
+**2. Que el anuncio dure toda la conversación.** `anuncioDeOrigen()` (agent.ts) miraba
+**solo el último mensaje del cliente**: el `return null` estaba dentro del bucle. En cuanto
+el cliente escribía por segunda vez ("¿cuánto cuesta?"), el anuncio se perdía para siempre.
+Ahora busca hacia atrás entre sus mensajes, con dos frenos para no arrastrar un anuncio
+viejo a una visita nueva: máximo 10 mensajes suyos y máximo 24h.
+
+### Pruebas
+
+14 pruebas nuevas, todas en verde:
+`__tests__/anuncio-producto.test.ts` (8) y `__tests__/anuncio-memoria.test.ts` (6).
+Reproducen el incidente con un catálogo como el real (cojín, contabilidad, piano).
+
+### Lo que quedó SIN cerrar
+
+**No pude confirmar si el `externalAdReply` llegó a guardarse.** La cadena existe entera y
+se ve correcta (`extraerContextoDeAnuncio` → `message-handler` lo guarda en `metadata` →
+`anuncioDeOrigen` lo lee → se le pega el titular al texto de búsqueda), y está probado que
+**con** el titular pegado encuentra el piano. Pero los logs de ese momento se perdieron al
+reemplazarse el contenedor a las 19:20 UTC. La conversación sigue en Postgres: mirar el
+`metadata` de ese mensaje cierra la pregunta.
+
+**Candidato siguiente, no tocado:** `findBestProductMatch` promete en su comentario de
+cabecera que "si ningún producto alcanza Nivel 2 o más, devuelve null", pero el código tiene
+un "último recurso" que acepta nivel 1. Es lo que hacen fallar a `Caso 4` y `Caso 5` de
+`product-matching.test.ts` desde antes de todo esto (score 25 donde se esperaba ≥50). No lo
+cambié acá porque el flag nuevo ya cubre el síntoma reportado y tocar el emparejador afecta
+todas las búsquedas.
