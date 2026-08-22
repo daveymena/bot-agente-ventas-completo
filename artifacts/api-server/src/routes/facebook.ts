@@ -582,16 +582,30 @@ router.get("/ad-library", async (req, res, next) => {
 router.post("/campaigns/:id/pause", async (req, res, next) => {
   try {
     const { FacebookService } = await import("../lib/facebook");
-    const ok = await new FacebookService((req as any).tenant || undefined).pauseCampaign(req.params.id);
-    return res.json({ ok, message: ok ? "Campaña pausada. Deja de gastar desde ahora." : "No se pudo pausar la campaña." });
+    // El MOTIVO, no "no se pudo": sobre una campana que esta gastando dinero,
+    // un mensaje sin causa deja al admin sin nada que hacer.
+    const svc = new FacebookService((req as any).tenant || undefined);
+    const ok = await svc.pauseCampaign(req.params.id);
+    return res.json({
+      ok,
+      message: ok
+        ? "Campaña pausada. Deja de gastar desde ahora."
+        : `No se pudo pausar la campaña.${svc.lastCampaignError ? ` Motivo: ${svc.lastCampaignError}` : ""}`,
+    });
   } catch (e) { return next(e); }
 });
 
 router.post("/campaigns/:id/resume", async (req, res, next) => {
   try {
     const { FacebookService } = await import("../lib/facebook");
-    const ok = await new FacebookService((req as any).tenant || undefined).resumeCampaign(req.params.id);
-    return res.json({ ok, message: ok ? "Campaña reactivada. Vuelve a gastar según su presupuesto." : "No se pudo reactivar la campaña." });
+    const svcR = new FacebookService((req as any).tenant || undefined);
+    const ok = await svcR.resumeCampaign(req.params.id);
+    return res.json({
+      ok,
+      message: ok
+        ? "Campaña reactivada. Vuelve a gastar según su presupuesto."
+        : `No se pudo reactivar la campaña.${svcR.lastCampaignError ? ` Motivo: ${svcR.lastCampaignError}` : ""}`,
+    });
   } catch (e) { return next(e); }
 });
 

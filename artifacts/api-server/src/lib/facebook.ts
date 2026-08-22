@@ -1316,11 +1316,35 @@ Responde SOLO con este JSON exacto:
     }
   }
 
+  /**
+   * Motivo del ultimo fallo al pausar/reanudar. Igual que `lastAdError`:
+   * estos metodos devuelven boolean --no pueden tirar sin romper a quien los
+   * llama-- asi que sin esto el llamador solo sabe "fallo", no por que.
+   *
+   * Y esto no es teorico: el 2026-08-22 el admin intento pausar dos campanas
+   * que estaban gastando, las dos respondieron "No se pudo pausar la campana"
+   * y nadie pudo saber si era el token, un permiso o un id equivocado --
+   * mientras el dinero seguia corriendo.
+   */
+  lastCampaignError: string | null = null;
+
   async pauseCampaign(campaignId: string): Promise<boolean> {
     try {
-      await this.fbPost(campaignId, { status: "PAUSED" }, "pausar campaña", this.config.userAccessToken);
+      // El token de PAGINA no sirve para operar anuncios: hace falta el de
+      // usuario. Si no esta, se dice cual falta en vez de un "no se pudo".
+      const token = this.config.userAccessToken;
+      if (!token) {
+        this.lastCampaignError =
+          "Falta el token de usuario de Facebook (el de pagina no sirve para administrar anuncios). " +
+          "Volve a conectar la cuenta de Facebook desde el panel.";
+        logger.warn({ campaignId }, "[Facebook] pausar sin userAccessToken");
+        return false;
+      }
+      await this.fbPost(campaignId, { status: "PAUSED" }, "pausar campaña", token);
+      this.lastCampaignError = null;
       return true;
     } catch (err: any) {
+      this.lastCampaignError = err?.message || "Meta rechazó el cambio";
       logger.warn({ err, campaignId }, "[Facebook] Error pausando campaña");
       return false;
     }
