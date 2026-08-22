@@ -21,6 +21,7 @@ import { eq, and, desc } from "drizzle-orm";
 import { db, conversations, messages, products, productCategories, leads } from "@workspace/db";
 import type { MessageMetadata } from "@workspace/db";
 import { dbNow } from "./date-utils";
+import { renderBloqueNegocio, type BusinessContext } from "./business-context";
 
 // ─── Tipos públicos ────────────────────────────────────────────────────────────
 
@@ -460,17 +461,31 @@ export interface HardcodedAnswer {
 export function tryHardcodedAnswer(
   text: string,
   productName: string | null,
-  voice?: { emojis: Record<string, string>; deliveryInfo?: { method: string; timeframe: string; details: string }; guaranteeInfo?: { days: number; description: string }; accessInfo?: { type: string; description: string } }
+  voice?: { emojis: Record<string, string>; deliveryInfo?: { method: string; timeframe: string; details: string }; guaranteeInfo?: { days: number; description: string }; accessInfo?: { type: string; description: string } },
+  // Este es el camino MÁS peligroso de todo el motor: devuelve texto que se le
+  // manda al cliente TAL CUAL, sin que la IA lo vea. Antes los datos salían de
+  // los valores por defecto de acá abajo ("Google Drive", 7 días, "de por
+  // vida"), que son los de TecnoVariedades: cualquier negocio del SaaS que
+  // preguntara por entrega o garantía recibía esas promesas escritas a mano.
+  //
+  // Ahora cada respuesta exige el dato REAL del negocio. Si no está
+  // configurado, devuelve null y el mensaje cae en la IA -- que ya tiene el
+  // bloque de negocio y la prohibición explícita de inventarlo. Un segundo más
+  // de latencia es mejor que prometer algo que el negocio no cumple.
+  negocio?: BusinessContext | null
 ): HardcodedAnswer | null {
   const t = text.toLowerCase();
   const prod = productName ? `*${productName}*` : "el curso";
   const e = voice?.emojis || {};
   const emoji = (key: string, fallback: string) => e[key] || fallback;
 
-  const deliveryMethod = voice?.deliveryInfo?.method || "Google Drive";
-  const deliveryTime = voice?.deliveryInfo?.timeframe || "inmediato";
-  const guaranteeDays = voice?.guaranteeInfo?.days || 7;
-  const accessType = voice?.accessInfo?.type || "de por vida";
+  const entrega = negocio?.entrega || null;
+  const garantia = negocio?.garantia || null;
+  const acceso = negocio?.acceso || null;
+
+  const deliveryMethod = entrega?.metodo || "";
+  const deliveryTime = entrega?.plazo || "";
+  const accessType = acceso?.tipo || "";
 
   // Helper: cierres conversacionales variados (a veces sin pregunta de cierre)
   // Se rota según la longitud del texto entrante para no repetir siempre lo mismo.
@@ -483,7 +498,7 @@ export function tryHardcodedAnswer(
   ];
   const closing = closingVariants[text.length % closingVariants.length];
 
-  if (DELIVERY_PATTERNS.some(p => t.includes(p))) {
+  if (entrega && DELIVERY_PATTERNS.some(p => t.includes(p))) {
     return {
       matched: true,
       intent: "details_query",
@@ -491,7 +506,7 @@ export function tryHardcodedAnswer(
     };
   }
 
-  if (ACCESS_PATTERNS.some(p => t.includes(p))) {
+  if (entrega && ACCESS_PATTERNS.some(p => t.includes(p))) {
     return {
       matched: true,
       intent: "details_query",
@@ -499,35 +514,33 @@ export function tryHardcodedAnswer(
     };
   }
 
-  if (GUARANTEE_PATTERNS.some(p => t.includes(p))) {
+  if (garantia && GUARANTEE_PATTERNS.some(p => t.includes(p))) {
     return {
       matched: true,
       intent: "details_query",
-      response: `${emoji("guarantee", "🛡️")} Tienes *${guaranteeDays} días de garantía* sin preguntas. Si no te convence por cualquier razón, te devolvemos el dinero completo. ${emoji("benefit", "✅")}${closing}`,
+      response: `${emoji("guarantee", "🛡️")} ${garantia.descripcion} ${emoji("benefit", "✅")}${closing}`,
     };
   }
 
-  if (DURATION_PATTERNS.some(p => t.includes(p))) {
+  if (acceso && DURATION_PATTERNS.some(p => t.includes(p))) {
     return {
       matched: true,
       intent: "details_query",
-      response: `${emoji("benefit", "♾️")} El acceso a ${prod} es *${accessType}*. Pagas una sola vez y queda tuyo — sin mensualidades, sin caducidad. ${emoji("benefit", "✅")}${closing}`,
+      response: `${emoji("benefit", "♾️")} El acceso a ${prod} es *${accessType}*.${acceso.descripcion ? ` ${acceso.descripcion}` : ""} ${emoji("benefit", "✅")}${closing}`,
     };
   }
 
-  if (CONTENT_PATTERNS.some(p => t.includes(p))) {
-    return {
-      matched: true,
-      intent: "details_query",
-      response: `${emoji("product", "📚")} ${prod} incluye todo el material por *${deliveryMethod}*:\n${emoji("benefit", "✅")} Videos en alta definición\n${emoji("benefit", "✅")} PDFs y recursos descargables\n${emoji("benefit", "✅")} Acceso *${accessType}*\n${emoji("benefit", "✅")} Pago único — sin suscripciones${closing}`,
-    };
-  }
+  // "Qué incluye" NO tiene respuesta enlatada posible: lo que trae cada
+  // producto está en su ficha, no en una plantilla. La versión anterior
+  // afirmaba "videos en alta definición", "PDFs descargables" y "pago único"
+  // para cualquier producto de cualquier negocio. Se manda a la IA, que sí
+  // tiene el catálogo delante.
 
-  if (SUPPORT_PATTERNS.some(p => t.includes(p))) {
+  if (entrega && SUPPORT_PATTERNS.some(p => t.includes(p))) {
     return {
       matched: true,
       intent: "details_query",
-      response: `${emoji("benefit", "💬")} ${prod} es de *auto-aprendizaje* a tu ritmo, con todo el material disponible en ${deliveryMethod} cuando quieras. Si surge alguna duda, me escribes por aquí mismo y te ayudo. ${emoji("benefit", "✅")}${closing}`,
+      response: `${emoji("benefit", "💬")} Con ${prod} tenés el material disponible por ${deliveryMethod} cuando quieras. Si surge alguna duda, me escribís por acá mismo y te ayudo. ${emoji("benefit", "✅")}${closing}`,
     };
   }
 
@@ -1195,7 +1208,14 @@ export async function computeDecision(
   memory: ConversationMemory,
   incomingText: string,
   productList: Array<any>,
-  categoryMap: Map<number, string>
+  categoryMap: Map<number, string>,
+  // El perfil REAL del negocio de este cliente (business-context.ts). Es
+  // opcional a propósito: sin él, el bloque de contexto ya no inventa nada --
+  // simplemente no afirma cómo se entrega, si hay garantía ni cuánto dura el
+  // acceso. Antes ese hueco se rellenaba con los datos de TecnoVariedades,
+  // escritos a mano acá abajo, y el agente los afirmaba con total seguridad
+  // aunque el cliente fuera un gimnasio o un restaurante.
+  negocio?: BusinessContext | null
 ): Promise<EngineDecision> {
   const intent = detectIntent(incomingText);
   const t = incomingText.toLowerCase();
@@ -1339,7 +1359,7 @@ export async function computeDecision(
   }
 
   // ── Construir bloque de contexto para el prompt ─────────────────────────────
-  const contextBlock = buildContextBlock(memory, intent, stage, productToShow, shouldSendCard, searchReasoning, productSearchFailed, t, productList);
+  const contextBlock = buildContextBlock(memory, intent, stage, productToShow, shouldSendCard, searchReasoning, productSearchFailed, t, productList, negocio);
 
   // ── Razón de la decisión (para logs) ────────────────────────────────────────
   const debugReason = [
@@ -1383,9 +1403,15 @@ function buildContextBlock(
   searchReasoning?: string | null,
   productSearchFailed?: boolean,
   incomingText?: string,
-  allProducts?: Array<any>
+  allProducts?: Array<any>,
+  negocio?: BusinessContext | null
 ): string {
   const lines: string[] = [];
+
+  // ── Para quién trabaja el agente ───────────────────────────────────────────
+  // Va PRIMERO, antes que cualquier instrucción: si el agente no sabe de qué
+  // negocio es, todo lo que siga lo va a rellenar con lo que se imagine.
+  if (negocio) lines.push(renderBloqueNegocio(negocio));
 
   // ── Estado de la conversación ──────────────────────────────────────────────
   lines.push(`\n\n━━━━━━━━━━━━━━━━━━━━━━━`);
@@ -1460,7 +1486,16 @@ function buildContextBlock(
 
   // ── Reglas según intención ─────────────────────────────────────────────────
   lines.push(`\n🚨 INSTRUCCIONES DE INTELIGENCIA AVANZADA:`);
-  lines.push(`• ACTÚA CON INTELIGENCIA Y LÓGICA: Eres Sofía, asesora de TecnoVariedades D&S. Analiza profundamente lo que el cliente está diciendo. No respondas como un robot de opciones fijas. Entiende el contexto real.`);
+  // La identidad sale del perfil del cliente, no de una constante. Antes acá
+  // decía literalmente "Eres Sofía, asesora de TecnoVariedades D&S" -- y se le
+  // pegaba DESPUÉS del prompt propio del dueño (agent.ts:921), así que ganaba
+  // esta línea: todos los negocios del SaaS se presentaban como Sofía.
+  const quienSos = negocio?.agentName
+    ? `Eres ${negocio.agentName}${negocio.businessName ? `, asesor(a) de ${negocio.businessName}` : ""}.`
+    : negocio?.businessName
+      ? `Trabajás para ${negocio.businessName}.`
+      : `Sos el asesor de ventas de este negocio.`;
+  lines.push(`• ACTÚA CON INTELIGENCIA Y LÓGICA: ${quienSos} Analiza profundamente lo que el cliente está diciendo. No respondas como un robot de opciones fijas. Entiende el contexto real.`);
   // La categoría de abajo (${intent}) la calcula detectIntent() por
   // coincidencia de PALABRAS CLAVE en el último mensaje -- no es IA, no lee
   // el historial ni entiende matices. Con un mensaje directo funciona bien,
@@ -1481,7 +1516,7 @@ function buildContextBlock(
   switch (intent) {
     case "greeting":
       if (!memory.hasGreeted) {
-        lines.push(`• Es el PRIMER contacto. Preséntate brevemente como Sofía y ofrécele ayuda sin ser invasiva (máximo 2 líneas). No menciones productos aún.`);
+        lines.push(`• Es el PRIMER contacto. Preséntate brevemente${negocio?.agentName ? ` como ${negocio.agentName}` : ""}${negocio?.businessName ? ` de ${negocio.businessName}` : ""} y ofrécele ayuda sin ser invasiva (máximo 2 líneas). No menciones productos aún.`);
       } else if (memory.isNewSession) {
         lines.push(`• El cliente regresa después de mucho tiempo. Saluda brevemente y ofrécele ayuda.`);
       } else {
@@ -1499,7 +1534,19 @@ function buildContextBlock(
       if (product) {
         lines.push(`• El cliente hace preguntas sobre "${product.name}" o sobre nuestro proceso.`);
         lines.push(`• USA LA LÓGICA EXTREMA: Lee exactamente qué está preguntando y respóndele como un humano experto. No des respuestas prefabricadas genéricas.`);
-        lines.push(`• DATOS REALES: La entrega es 100% digital e inmediata por Google Drive. Acceso de por vida. Garantía de 7 días sin preguntas.`);
+        // Estos tres datos estaban escritos a mano ("Google Drive / de por vida
+        // / 7 días") y se afirmaban para CUALQUIER cliente del SaaS. Ahora
+        // salen del perfil del negocio, y lo que no está configurado NO se
+        // afirma: el bloque de arriba ya le prohibió inventarlo.
+        const datos: string[] = [];
+        if (negocio?.entrega) datos.push(`la entrega es ${negocio.entrega.metodo} (${negocio.entrega.plazo})`);
+        if (negocio?.acceso) datos.push(`el acceso es ${negocio.acceso.tipo}`);
+        if (negocio?.garantia) datos.push(negocio.garantia.descripcion);
+        if (datos.length > 0) {
+          lines.push(`• DATOS REALES DEL NEGOCIO: ${datos.join(". ")}.`);
+        } else {
+          lines.push(`• OJO: no tenés confirmados los datos de entrega, acceso ni garantía de este negocio. Si pregunta por eso, decile con naturalidad que lo confirmás y le respondés — NO lo inventes.`);
+        }
         
         const rawText = (incomingText || "").toLowerCase();
         if (["que necesita", "que necesitas", "para entregar", "como lo envias", "como me lo entregas", "correo", "email", "datos necesitas", "que te debo enviar", "comprobante", "ya pagué", "ya transferí", "captura"].some(p => rawText.includes(p))) {
@@ -1524,8 +1571,19 @@ function buildContextBlock(
 
     case "objection":
       lines.push(`• LÓGICA DE OBJECIÓN: El cliente duda. Usa empatía extrema. Valida su preocupación (ej. "Te entiendo perfectamente").`);
-      lines.push(`• Si es precio: Recuérdale que es un pago único de por vida y la enorme cantidad de contenido que trae.`);
-      lines.push(`• Si es desconfianza: Menciona que tenemos garantía de 7 días 100% libre de riesgo.`);
+      // Antes acá se prometía "pago único de por vida" y "garantía de 7 días"
+      // a ciegas. Para un negocio con suscripción mensual o sin garantía, eso
+      // es una mentira que el cliente cobra después.
+      lines.push(
+        negocio?.acceso
+          ? `• Si es precio: recordale el valor real de lo que recibe (acceso ${negocio.acceso.tipo}) y todo lo que incluye.`
+          : `• Si es precio: recordale el valor real de lo que recibe y todo lo que incluye. NO prometas "pago único" ni "de por vida" salvo que figure en el catálogo o en los datos del negocio.`
+      );
+      lines.push(
+        negocio?.garantia
+          ? `• Si es desconfianza: mencioná la garantía real del negocio — ${negocio.garantia.descripcion}.`
+          : `• Si es desconfianza: NO inventes una garantía. Generá confianza con datos verificables (qué incluye, cómo funciona el pago, que puede preguntar lo que quiera antes de comprar).`
+      );
       break;
 
     case "confirmation":

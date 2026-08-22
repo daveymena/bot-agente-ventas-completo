@@ -37,6 +37,7 @@ import {
   type Stage,
 } from "./conversation-engine";
 import { getBrandVoice, formatWithBrandVoice } from "./brand-voice";
+import { getBusinessContext, renderBloqueNegocio, resumenContexto } from "./business-context";
 import { analyzeBrain, buildFinalPrompt, type ResponseStrategy, type EmotionalState } from "./response-brain";
 import { learnFromLastExchange, retrieveLessons, formatLessonsForPrompt } from "./conversation-learning";
 import {
@@ -818,8 +819,20 @@ export async function runAgentReply(conversationId: number) {
     }
   }
 
+  // ── 4b. El negocio REAL de este cliente ───────────────────────────────────
+  // Tiene que resolverse ANTES del motor de decisión, porque el bloque de
+  // contexto que arma computeDecision es justo donde antes estaban escritos a
+  // mano el nombre ("Sofía, de TecnoVariedades") y los datos de entrega,
+  // acceso y garantía. Cacheado 60s por tenant, así que no agrega consultas
+  // por mensaje. Si falla, devuelve un contexto vacío: el agente deja de
+  // afirmar esos datos en vez de inventarlos.
   t1 = Date.now();
-  const decision = await computeDecision(memory, textoDecision, productList, categoryMap);
+  const negocio = await getBusinessContext(convo.tenantId);
+  logTime(`4b. Contexto de negocio: ${Date.now() - t1}ms`);
+  console.log(`🏢 [NEGOCIO] ${resumenContexto(negocio)} - ${ts()}`);
+
+  t1 = Date.now();
+  const decision = await computeDecision(memory, textoDecision, productList, categoryMap, negocio);
   logTime(`5. Motor de decisión: ${Date.now() - t1}ms`);
   
   console.log(`🎯 [ENGINE-DECISION] ${decision.debugReason} - ${ts()}`);
@@ -927,7 +940,7 @@ Eres un VENDEDOR PROFESIONAL experto: cálido y humano, pero con foco claro en C
 
 • Escuchas activamente: entiendes TODO el contexto, no solo la última pregunta. Detectas qué necesita realmente el cliente.
 • Vendes por VALOR, no por presión: conectas el producto con el beneficio real para el cliente (qué logrará, qué problema resuelve), no solo listas características.
-• Precisión total: das datos exactos (precio, qué incluye, cómo se entrega). Nunca inventas productos, precios ni promesas. Si un dato NO está en el catálogo ni en los HECHOS CONFIRMADOS, lo dices con naturalidad y rediriges al valor — pero los HECHOS CONFIRMADOS (pago único, de por vida, Google Drive, sin certificado) SIEMPRE los respondes con seguridad.
+• Precisión total: das datos exactos (precio, qué incluye, cómo se entrega). Nunca inventas productos, precios ni promesas. Los datos del bloque "EL NEGOCIO PARA EL QUE TRABAJÁS" y del catálogo los respondes con total seguridad. Lo que NO esté ahí, no lo sabes: lo dices con naturalidad, ofreces confirmarlo y rediriges al valor.
 • Avanzas la venta en cada mensaje: tras dar información, das el siguiente paso natural (mostrar el producto ideal, resolver la duda que falta, o invitar a comprar). Cierra cuando el cliente muestra interés — no lo dejes en el aire.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 📋 FORMATO OBLIGATORIO (CRÍTICO)
@@ -944,26 +957,19 @@ REGLA 2: SALTOS DE LÍNEA ENTRE CADA IDEA
 REGLA 3: NUNCA párrafos largos sin emojis
 REGLA 4: NUNCA asteriscos (*) ni guiones (-) ni viñetas (•)
 
-❌ PROHIBIDO: "El curso cuesta 60mil y tiene acceso de por vida"
+❌ PROHIBIDO: "El curso cuesta 60mil e incluye todo el material"
 ✅ CORRECTO:
-💰 $60.000 pago único
-♾️ Acceso de por vida
+💰 $60.000
+📦 Incluye todo el material
 🎓 100+ horas contenido
+(El ejemplo es solo de FORMATO. Los datos reales salen del catálogo y del bloque del negocio.)
 • PREFIERE ENTREGAR INFORMACIÓN A INTERROGAR: si el cliente ya nombró un producto o categoría, entrégale la info y la card directamente. Solo pregunta UNA cosa concreta cuando el mensaje sea tan ambiguo que mostrar la opción equivocada arruinaría la venta. Nunca repitas una pregunta ya respondida.
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📋 HECHOS CONFIRMADOS DEL NEGOCIO (responde con TOTAL seguridad, son ciertos)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-• PAGO ÚNICO: se paga UNA sola vez. NO es suscripción, NO hay mensualidad, NO se renueva.
-• ACCESO DE POR VIDA: el contenido queda tuyo para siempre, no caduca.
-• ENTREGA 100% DIGITAL por Google Drive: puedes DESCARGARLO o VERLO ONLINE desde el mismo Drive, en cualquier dispositivo.
-• NO incluye certificado: son cursos/materiales de autoaprendizaje de alta calidad, pero NO emiten diploma ni certificación oficial. Si preguntan por certificado, dilo con naturalidad y redirige al VALOR del contenido (aprender la habilidad real).
-• Garantía: ${voice.guaranteeInfo.description}
-→ Estos hechos son CIERTOS para TODOS los productos. NUNCA respondas "no sé" ni "el catálogo no especifica" sobre ellos: respóndelos con seguridad.
+${renderBloqueNegocio(negocio)}
 
 📌 PROCESO DE PAGO Y ENTREGA:
-• Pago por LINK (MercadoPago o PayPal): el cliente paga con tarjeta, PSE o PayPal. El sistema GENERA el enlace automáticamente y detecta el pago solo; al confirmarse, envía el Google Drive del producto a este chat.
-• Pago por CONSIGNACIÓN (Nequi/Daviplata/transferencia): el cliente transfiere y envía el comprobante por este chat; se verifica y se envía el Drive.
+• Pago por LINK (MercadoPago o PayPal): el cliente paga con tarjeta, PSE o PayPal. El sistema GENERA el enlace automáticamente y detecta el pago solo; al confirmarse, se le entrega el producto en este chat.
+• Pago por CONSIGNACIÓN (Nequi/Daviplata/transferencia): el cliente transfiere y envía el comprobante por este chat; se verifica y se le entrega el producto.
 • Los enlaces de pago (MercadoPago/PayPal) los GENERA EL SISTEMA en el momento — tú NO los escribes ni los inventas, solo confirmas con entusiasmo y el sistema los adjunta.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -976,7 +982,7 @@ ${productList.length > 0 ? productsBlock : "No hay productos disponibles."}
 [2] NUNCA escribas links, URLs, números de cuenta, ni datos de pago. El sistema los adjunta automáticamente.
 [3] NUNCA digas "te lo envío", "te mando el link", "te llega" ni prometas tiempos de entrega.
 [4] Si el cliente pregunta algo FUERA del contexto del negocio (charla casual, opiniones, etc.), responde de forma natural y amable. Si es posible, redirige suavemente al tema de ventas.
-[5] Los HECHOS CONFIRMADOS DEL NEGOCIO (pago único, acceso de por vida, entrega por Google Drive con opción de descargar o ver online, sin certificado, garantía) respóndelos SIEMPRE con seguridad — NUNCA digas "no sé" ni "no especifica" sobre ellos. Para datos ESPECÍFICOS de un producto que no estén en el catálogo, admítelo con naturalidad y redirige al valor; no inventes.
+[5] Los datos del bloque "EL NEGOCIO PARA EL QUE TRABAJÁS" respóndelos SIEMPRE con seguridad — NUNCA digas "no sé" sobre ellos. Lo que ese bloque marque como NO confirmado (entrega, garantía, acceso) NO lo afirmes bajo ninguna circunstancia: decí que lo confirmás y le respondés. Para datos ESPECÍFICOS de un producto que no estén en el catálogo, admítelo con naturalidad y redirige al valor; no inventes.
 [6] No repitas información que ya diste. Usa la MEMORIA de la conversación.
 [6b] El "[ID: N]" del catálogo es INTERNO, solo para que TÚ elijas la card correcta. NUNCA menciones ese número al cliente (nada de "el curso ID 82", "producto 82", etc.). Refiérete al producto SIEMPRE por su NOMBRE.
 [6c] Los datos de pago (número de Nequi/Daviplata y el NOMBRE del titular) van EXACTOS como aparecen en los datos del negocio. NUNCA cambies, adivines ni "corrijas" el nombre del titular ni el número — cópialos tal cual.
@@ -1216,7 +1222,8 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
       const hardcoded = tryHardcodedAnswer(
         lastText,
         decision.productToShow?.name || memory.currentProductName,
-        voice
+        voice,
+        negocio
       );
       if (hardcoded) {
         console.log(`⚡ [FAST-TRACK] Respuesta hardcodeada para details_query - ${ts()}`);
@@ -1248,7 +1255,8 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
     const hardcoded = tryHardcodedAnswer(
       lastText,
       decision.productToShow?.name || memory.currentProductName,
-      voice
+      voice,
+      negocio
     );
     if (hardcoded && hardcoded.intent === "human_handoff") {
       const raw = hardcoded.response;

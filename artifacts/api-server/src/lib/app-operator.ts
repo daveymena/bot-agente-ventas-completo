@@ -1550,6 +1550,86 @@ export const TOOLS: ToolDef[] = [
     },
   },
 
+  // ── Perfil del negocio ──
+  // Lo que el agente de WhatsApp necesita saber para NO inventar. Vive en
+  // `tenants.metadata.businessProfile` (por cliente), no en `settings` (que es
+  // una tabla global de una sola fila para toda la plataforma).
+  //
+  // Es el punto 2 de la hoja de ruta: cuando entra un cliente nuevo, el agente
+  // lo entrevista y guarda las respuestas acá. Todo lo que no quede guardado,
+  // el agente de ventas tiene PROHIBIDO afirmarlo (ver business-context.ts).
+  {
+    name: "get_business_profile",
+    description: "Ver el perfil del negocio que usa el agente de ventas para no inventar (qué vende, alcance, entrega, garantía, qué NO puede hacer).",
+    args: "{}",
+    run: async (_args, ctx) => {
+      const { getBusinessContext, resumenContexto } = await import("./business-context");
+      const ctxNegocio = await getBusinessContext(ctx.tenantId);
+      const faltan = [
+        !ctxNegocio.descripcion && "descripcion",
+        !ctxNegocio.nicho && "nicho",
+        !ctxNegocio.cobertura && "cobertura",
+        !ctxNegocio.entrega && "entrega",
+        !ctxNegocio.garantia && "garantia",
+        !ctxNegocio.acceso && "acceso",
+        ctxNegocio.noPuede.length === 0 && "noPuede",
+      ].filter(Boolean);
+      return {
+        ok: true,
+        summary: ctxNegocio.configurado
+          ? `Perfil configurado. ${resumenContexto(ctxNegocio)}${faltan.length ? ` · Falta cargar: ${faltan.join(", ")}` : " · Completo"}`
+          : `⚠️ El negocio NO tiene perfil cargado: el agente de ventas no puede afirmar entrega, garantía ni acceso. Falta cargar: ${faltan.join(", ")}`,
+        data: ctxNegocio,
+      };
+    },
+  },
+  {
+    name: "update_business_profile",
+    description: "Guardar lo que el agente de ventas debe saber del negocio. Solo guarda lo que le pases; lo demás queda como estaba. Preguntale al dueño antes de inventar cualquier campo.",
+    args: '{ "descripcion"?: string, "nicho"?: string, "cobertura"?: string, "horario"?: string, "entrega"?: { "metodo": string, "plazo": string, "detalle"?: string }, "garantia"?: { "dias": number, "descripcion"?: string }, "acceso"?: { "tipo": string, "descripcion"?: string }, "noPuede"?: string[], "loQueDebeSaber"?: string[] }',
+    run: async (args, ctx) => {
+      const [fila] = await db
+        .select({ metadata: tenants.metadata })
+        .from(tenants)
+        .where(eq(tenants.id, ctx.tenantId))
+        .limit(1);
+      if (!fila) return { ok: false, summary: "No se encontró el negocio" };
+
+      // En SQLite `metadata` vuelve como string: sin normalizar, el spread de
+      // abajo generaba un objeto con índices numéricos y borraba el resto.
+      const { normalizarMetadata } = await import("./business-context");
+      const meta = normalizarMetadata(fila.metadata);
+      const previo = (meta.businessProfile || {}) as Record<string, any>;
+
+      const campos = [
+        "descripcion", "nicho", "cobertura", "horario",
+        "entrega", "garantia", "acceso", "noPuede", "loQueDebeSaber",
+      ];
+      const patch: Record<string, any> = {};
+      for (const k of campos) if (args[k] !== undefined) patch[k] = args[k];
+      if (Object.keys(patch).length === 0) {
+        return { ok: false, summary: "Nada que guardar: no llegó ningún campo del perfil" };
+      }
+
+      const nuevo = { ...previo, ...patch };
+      await db
+        .update(tenants)
+        .set({ metadata: { ...meta, businessProfile: nuevo } })
+        .where(eq(tenants.id, ctx.tenantId));
+
+      // Sin esto el agente sigue respondiendo con el perfil viejo hasta un
+      // minuto -- que es justo cuando el dueño está probando si funcionó.
+      const { invalidarContextoDeNegocio } = await import("./business-context");
+      invalidarContextoDeNegocio(ctx.tenantId);
+
+      return {
+        ok: true,
+        summary: `Perfil del negocio actualizado (${Object.keys(patch).join(", ")}). El agente de ventas ya lo está usando.`,
+        data: nuevo,
+      };
+    },
+  },
+
   // ── Tienda ──
   {
     name: "create_store",
@@ -4465,6 +4545,13 @@ export async function verifyMutation(tool: string, args: any, ctx: OperatorConte
     if (tool === "update_settings" || tool === "get_settings") {
       const [st] = await db.select().from(settings).limit(1);
       return st ? `Verificado → negocio: ${st.businessName} · IA: ${st.aiProvider}` : "";
+    }
+    if (tool === "update_business_profile" || tool === "get_business_profile") {
+      // Se relee de la base, no del valor que devolvió la herramienta: es la
+      // única forma de saber si el guardado ocurrió de verdad.
+      const { getBusinessContext, resumenContexto } = await import("./business-context");
+      const n = await getBusinessContext(ctx.tenantId);
+      return `Verificado → perfil del negocio: ${resumenContexto(n)}`;
     }
     if (tool === "update_agent" || tool === "get_agent") {
       const [ag] = await agenteDelTenant(ctx.tenantId);

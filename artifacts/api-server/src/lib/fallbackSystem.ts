@@ -45,7 +45,10 @@ const FAILURE_THRESHOLD = 3; // Consecutive failures before cooldown
 // Professional fallback responses for different scenarios
 const FALLBACK_RESPONSES = {
   greeting: {
-    content: "━━━━━━━━━━━━━━━━━━━━━━━━\n👋 *¡HOLA! BIENVENIDO/A*\n\nEs un placer saludarte. Soy Sofía, tu asesora de élite en *TecnoVariedades D&S*. 😊\n\n¿En qué puedo ayudarte a brillar hoy? 🎓✨\n━━━━━━━━━━━━━━━━━━━━━━━━",
+    // Sin nombre ni marca escritos a mano: esta respuesta la usa CUALQUIER
+    // negocio del SaaS. Antes decía "Soy Sofía, de TecnoVariedades D&S" y se
+    // le mandaba al cliente de otro negocio cuando la IA fallaba.
+    content: "━━━━━━━━━━━━━━━━━━━━━━━━\n👋 *¡HOLA! BIENVENIDO/A*\n\nEs un placer saludarte. 😊\n\n¿En qué puedo ayudarte hoy? ✨\n━━━━━━━━━━━━━━━━━━━━━━━━",
     stage: "greeting"
   },
   product_inquiry: {
