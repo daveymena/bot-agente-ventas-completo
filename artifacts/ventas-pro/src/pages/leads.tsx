@@ -52,6 +52,24 @@ const stageNames: Record<LeadStage, string> = {
 
 const HELP_GUIDE = getHelpGuide("leads")!;
 
+/**
+ * El mensaje que mando el servidor, no uno generico.
+ *
+ * La API ya devuelve textos redactados y en espanol ("Alcanzaste el limite de
+ * 10 agentes de tu plan", "Datos invalidos: falta el telefono"), y la pantalla
+ * los tiraba para mostrar siempre "Error al crear prospecto". El usuario le
+ * daba Guardar tres veces sin saber que le faltaba un campo.
+ *
+ * Tambien saca el detalle de validacion de zod, que dice QUE campo esta mal --
+ * que es justo lo que necesita quien esta llenando un formulario.
+ */
+function mensajeDeError(e: any, porDefecto: string): string {
+  const d = e?.response?.data ?? e?.data ?? e;
+  const detalle = d?.details?.issues?.[0];
+  if (detalle?.path && detalle?.message) return `${detalle.path}: ${detalle.message}`;
+  return d?.message || d?.error || e?.message || porDefecto;
+}
+
 export default function Leads() {
   useAutoTour(HELP_GUIDE);
   const queryClient = useQueryClient();
@@ -71,7 +89,7 @@ export default function Leads() {
         toast.success("Prospecto eliminado");
         queryClient.invalidateQueries({ queryKey: getListLeadsQueryKey() });
       },
-      onError: () => toast.error("Error al eliminar prospecto")
+      onError: (e: any) => toast.error(mensajeDeError(e, "No pudimos eliminar el prospecto.")),
     });
   };
 
@@ -276,7 +294,8 @@ function LeadModal({ mode, lead, children, open: controlledOpen, onOpenChange }:
           queryClient.invalidateQueries({ queryKey: getListLeadsQueryKey() });
           setIsOpen(false);
         },
-        onError: () => toast.error("Error al crear prospecto")
+        // El modal NO se cierra: si se cierra, se pierde todo lo que escribio.
+        onError: (e: any) => toast.error(mensajeDeError(e, "No pudimos guardar el prospecto. Intentá de nuevo.")),
       });
     } else {
       updateLead.mutate({ id: lead.id, data: payload as any }, {
@@ -285,7 +304,7 @@ function LeadModal({ mode, lead, children, open: controlledOpen, onOpenChange }:
           queryClient.invalidateQueries({ queryKey: getListLeadsQueryKey() });
           setIsOpen(false);
         },
-        onError: () => toast.error("Error al actualizar prospecto")
+        onError: (e: any) => toast.error(mensajeDeError(e, "No pudimos actualizar el prospecto.")),
       });
     }
   };

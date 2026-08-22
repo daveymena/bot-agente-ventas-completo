@@ -102,16 +102,57 @@ router.get("/:id", async (req, res, next) => {
 
 router.post("/", async (req, res, next) => {
   try {
-    const body = CreateLeadBody.parse(req.body);
+    // ── El prospecto es de QUIEN lo crea ──────────────────────────────────
+    // Este endpoint era el ÚNICO de leads.ts que no resolvía el tenant: el
+    // GET, el GET por id, el PATCH y el DELETE sí lo hacen. Resultado
+    // reportado y reproducido dos veces: el POST devolvía 200 con un id, y
+    // ese registro no aparecía nunca más -- ni en la lista ni por id. No se
+    // perdía: quedaba huérfano, sin dueño, y todas las lecturas filtran por
+    // dueño. El cliente creía que la app se había tragado su contacto.
+    const tenantId = tenantIdOf(req);
+    if (!tenantId) return res.status(401).json({ message: "No autorizado" });
+
+    // ── Un campo vacío llega como null, y el schema pedía string ──────────
+    // El formulario manda `null` cuando el admin deja vacío el correo o las
+    // notas -- que son OPCIONALES, ni siquiera tienen asterisco. El schema
+    // generado los declara `.optional()`, que acepta `undefined` pero NO
+    // `null`, así que crear un prospecto con solo nombre y teléfono (el caso
+    // más común: un contacto en frío) fallaba con 400.
+    //
+    // Se normaliza acá y no en el schema generado porque ese archivo se
+    // regenera desde la especificación: un arreglo ahí se borra solo la
+    // próxima vez.
+    const crudo: Record<string, any> = { ...(req.body || {}) };
+    for (const campo of ["phone", "email", "notes", "stage"]) {
+      if (crudo[campo] === null || crudo[campo] === "") delete crudo[campo];
+    }
+    const body = CreateLeadBody.parse(crudo);
+
+    // ── "Origen" y "Valor estimado" se estaban tirando ────────────────────
+    // El formulario los manda, pero no están en CreateLeadBody, así que zod
+    // los descartaba en silencio -- y encima el insert escribía `value: "0"`
+    // fijo, pisando lo que el admin hubiera cargado.
+    //
+    // No son cosméticos: sin `source` no se sabe qué campaña trae a los
+    // clientes que SÍ compran, y sin `value` el panel calcula "Ingresos del
+    // mes" sobre ceros. Por eso mostraba $0 con oportunidades cargadas.
+    const source = typeof crudo.source === "string" && crudo.source.trim() ? crudo.source.trim() : null;
+    const valorCrudo = Number(String(crudo.value ?? "").replace(/[^0-9.-]/g, ""));
+    const value = Number.isFinite(valorCrudo) && valorCrudo > 0 ? String(valorCrudo) : "0";
+
     const [created] = await db
       .insert(leads)
-      .values({ 
-        ...body, 
+      .values({
+        ...body,
+        tenantId,
         phone: body.phone || body.name,
-        value: "0"
+        source,
+        value,
       })
       .returning();
+
     await db.insert(activityEvents).values({
+      tenantId,
       type: "lead_created",
       title: `Nuevo lead: ${created!.name}`,
       subtitle: created!.phone,
