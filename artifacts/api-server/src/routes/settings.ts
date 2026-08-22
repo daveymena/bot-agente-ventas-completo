@@ -11,6 +11,7 @@ import { encryptionService } from "../lib/encryption-service";
 import { providerValidator } from "../lib/provider-validator";
 import { costTracker } from "../lib/cost-tracker";
 import { logger } from "../lib/logger";
+import { requirePlatformOwner } from "../middleware/requirePlatformOwner";
 
 const router: IRouter = Router();
 
@@ -26,7 +27,7 @@ router.get("/", async (_req, res, next) => {
 /** Campos que nunca vuelven completos al navegador (ver serializeSettings). */
 const SECRETOS_DE_IA = ["githubToken", "copilotSessionToken", "nvidiaApiKey"] as const;
 
-router.patch("/", async (req, res, next) => {
+router.patch("/", requirePlatformOwner(), async (req, res, next) => {
   try {
     const body = UpdateSettingsBody.parse(req.body);
     // Como al leer se devuelven enmascarados, el navegador puede reenviar la
@@ -51,7 +52,7 @@ router.patch("/", async (req, res, next) => {
   }
 });
 
-router.post("/copilot-token", async (req, res, next) => {
+router.post("/copilot-token", requirePlatformOwner(), async (req, res, next) => {
   try {
     const { githubToken } = req.body;
     if (!githubToken) {
@@ -87,7 +88,7 @@ router.post("/copilot-token", async (req, res, next) => {
   }
 });
 
-router.post("/copilot-device-code", async (_req, res, next) => {
+router.post("/copilot-device-code", requirePlatformOwner(), async (_req, res, next) => {
   try {
     const data = await getCopilotDeviceCode();
     if (!data) {
@@ -102,7 +103,7 @@ router.post("/copilot-device-code", async (_req, res, next) => {
   }
 });
 
-router.post("/copilot-device-token", async (req, res, next) => {
+router.post("/copilot-device-token", requirePlatformOwner(), async (req, res, next) => {
   try {
     const { device_code } = req.body;
     if (!device_code) return res.status(400).json({ error: "device_code requerido" });
@@ -292,7 +293,7 @@ router.post("/test-provider", async (req, res, next) => {
  * POST /api/settings/add-provider
  * Añadir nuevo provider con API key encriptada
  */
-router.post("/add-provider", async (req, res, next) => {
+router.post("/add-provider", requirePlatformOwner(), async (req, res, next) => {
   try {
     const { provider, apiKey, model, resourceName } = req.body;
 
