@@ -1509,6 +1509,15 @@ export const TOOLS: ToolDef[] = [
         await db.update(agents).set(patch).where(eq(agents.id, existing.id));
         return { ok: true, summary: `Agente #${existing.id} actualizado (${Object.keys(patch).join(", ")})` };
       }
+      // El limite del plan se comprueba ACA, no solo en la ruta HTTP.
+      // El middleware de limites cuelga de /api/agents, y este camino no pasa
+      // por ahi: por eso la cuenta llego a 11 agentes con un tope de 10. Un
+      // limite que vive en una sola ruta no es un limite del plan.
+      const { puedeCrear } = await import("./limites-plan");
+      const tenantDelLimite = await tenantManager.getTenantById(ctx.tenantId);
+      const permiso = await puedeCrear(ctx.tenantId, "agents", (tenantDelLimite as any)?.plan);
+      if (!permiso.permitido) return { ok: false, summary: permiso.motivo };
+
       const [row] = await db.insert(agents).values({
         tenantId: ctx.tenantId,
         name: args.name || "Asistente",

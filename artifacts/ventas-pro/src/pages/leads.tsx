@@ -322,12 +322,18 @@ function LeadModal({ mode, lead, children, open: controlledOpen, onOpenChange }:
       setIsOpen(o);
     }}>
       {children && <DialogTrigger asChild>{children}</DialogTrigger>}
-      <DialogContent className="max-w-xl p-0 gap-0 overflow-hidden">
-        <DialogHeader className="p-6 pb-4 border-b bg-muted/5">
+      {/* max-h + columna flex: el mismo patron que ya usan los modales de
+          Producto y Agente. Sin esto, en una pantalla de ~535px de alto el
+          modal quedaba mas alto que la ventana y el pie con Cancelar/Guardar
+          se cortaba abajo -- y la rueda del mouse no lo traia porque el
+          scroll se lo comia el textarea de Notas. Invisible en un monitor
+          grande, bloqueante en un portatil. */}
+      <DialogContent className="max-w-xl p-0 gap-0 max-h-[85vh] overflow-hidden flex flex-col">
+        <DialogHeader className="p-6 pb-4 border-b bg-muted/5 shrink-0">
           <DialogTitle className="text-xl">{mode === 'create' ? 'Nuevo Prospecto' : 'Editar Prospecto'}</DialogTitle>
         </DialogHeader>
         
-        <div className="p-6 grid gap-6">
+        <div className="p-6 grid gap-6 overflow-y-auto flex-1 min-h-0">
           <div className="grid md:grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label>Nombre completo *</Label>
@@ -378,7 +384,7 @@ function LeadModal({ mode, lead, children, open: controlledOpen, onOpenChange }:
           </div>
         </div>
 
-        <DialogFooter className="p-6 border-t bg-muted/10">
+        <DialogFooter className="p-6 border-t bg-muted/10 shrink-0">
           <Button variant="outline" onClick={() => setIsOpen(false)}>Cancelar</Button>
           <Button onClick={handleSubmit} disabled={createLead.isPending || updateLead.isPending} className="min-w-[120px]">
             <Save className="h-4 w-4 mr-2" /> Guardar

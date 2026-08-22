@@ -106,6 +106,13 @@ router.post("/", async (req, res, next) => {
       }
     }
     
+    // Un agente sin nombre queda como una tarjeta en blanco en la lista, sin
+    // forma de saber cual es cual. Reportado: el agente id 3 no tiene nombre.
+    // Se corta aca en vez de dejar entrar el vacio.
+    if (!String((agentData as any).name || "").trim()) {
+      return res.status(400).json({ message: "El agente necesita un nombre para poder distinguirlo del resto." });
+    }
+
     const [created] = await db
       .insert(agents)
       .values(agentData)
