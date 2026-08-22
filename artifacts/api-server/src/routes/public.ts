@@ -10,6 +10,7 @@ import { tenantManager } from "../lib/tenantManager";
 import { SAAS_PLANS } from "../middleware/saasValidation";
 import { encryptSecret } from "../lib/credentials-vault";
 import { credencialesDe } from "../lib/tenant-payment-credentials";
+import { rateLimitPublico } from "../middleware/rateLimitPublico";
 
 /**
  * Resuelve el número de WhatsApp asociado a la app (vía QR conectado).
@@ -235,7 +236,7 @@ router.get("/fb-app-config", async (_req, res) => {
  * de configuración puntual, no un endpoint que deba quedar abierto — sin la
  * bandera, cualquiera podría reasignar la página del tenant.
  */
-router.post("/fb-connect", async (req, res, next) => {
+router.post("/fb-connect", rateLimitPublico(10, 10 * 60 * 1000, "fb-connect"), async (req, res, next) => {
   try {
     if (process.env.FB_CONNECT_ENABLED !== "true") {
       return res.status(404).json({ message: "No disponible" });
@@ -435,7 +436,7 @@ router.post("/fb-connect", async (req, res, next) => {
  * Genera una imagen por IA a partir de un prompt.
  * Intenta OpenAI primero; si falla o no hay key, usa G4F.
  */
-router.post("/generate-image", async (req, res, next) => {
+router.post("/generate-image", rateLimitPublico(5, 10 * 60 * 1000, "generate-image"), async (req, res, next) => {
   try {
     const { prompt } = req.body;
     if (!prompt || typeof prompt !== "string" || prompt.trim().length === 0) {
@@ -997,7 +998,7 @@ FORMATO DEL TEXTO DE "reply" (el mismo que usa Atlas en el panel, para que la ap
 9. Nunca uses encabezados markdown (##, ###) ni te firmes con etiquetas tipo "Respuesta:" o "Explicación:". Decí la cosa directo.
 10. Si la respuesta NO tiene contenido estructurado —un saludo, un "dale", un agradecimiento, una sola frase— contestá en prosa corta y natural, SIN emoji por línea: ahí una lista no tiene nada que organizar y queda forzada.`;
 
-router.post("/help-chat", async (req, res, next) => {
+router.post("/help-chat", rateLimitPublico(20, 5 * 60 * 1000, "help-chat"), async (req, res, next) => {
   try {
     const { messages } = req.body as { messages?: Array<{ role: string; content: string }> };
     if (!Array.isArray(messages) || messages.length === 0) {
