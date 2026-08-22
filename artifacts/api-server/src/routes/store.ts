@@ -153,6 +153,15 @@ router.use("/admin/:slug", (req: Request, res: Response, next: NextFunction) => 
 
 router.get("/admin/:slug", async (req: Request, res: Response, next: NextFunction) => {
   try {
+    // Mismo motivo que en el PUT de abajo: el slug es publico, asi que sin
+    // esto se podia leer la configuracion de administracion de otra tienda.
+    const tenantLector = (req as any).tenant;
+    const tiendaLeida = (req as any).store;
+    if (!tenantLector?.id) return res.status(401).json({ message: "No autorizado" });
+    if (tiendaLeida?.tenantId && tiendaLeida.tenantId !== tenantLector.id) {
+      return res.status(403).json({ message: "Esa tienda no es tuya." });
+    }
+
     const store = (req as any).store;
     return res.json({ store });
   } catch (err) {
@@ -163,6 +172,15 @@ router.get("/admin/:slug", async (req: Request, res: Response, next: NextFunctio
 // Get store layout
 router.get("/admin/:slug/layout", async (req: Request, res: Response, next: NextFunction) => {
   try {
+    // Mismo motivo que en el PUT de abajo: el slug es publico, asi que sin
+    // esto se podia leer la configuracion de administracion de otra tienda.
+    const tenantLector = (req as any).tenant;
+    const tiendaLeida = (req as any).store;
+    if (!tenantLector?.id) return res.status(401).json({ message: "No autorizado" });
+    if (tiendaLeida?.tenantId && tiendaLeida.tenantId !== tenantLector.id) {
+      return res.status(403).json({ message: "Esa tienda no es tuya." });
+    }
+
     const store = (req as any).store;
     const layout = await db.select().from(store_layouts).where(eq(store_layouts.storeId, store.id)).then((r: any) => r[0]);
     return res.json({ layout: layout?.layoutData ?? null });
@@ -175,6 +193,24 @@ router.get("/admin/:slug/layout", async (req: Request, res: Response, next: Next
 router.put("/admin/:slug/layout", async (req: Request, res: Response, next: NextFunction) => {
   try {
     const store = (req as any).store;
+
+    // ── La tienda tiene que ser DE QUIEN la edita ─────────────────────────
+    // El middleware de arriba resuelve la tienda por SLUG y nada mas, y los
+    // slugs son publicos: estan en la URL de cada tienda
+    // (/tienda/sofia-premium). Sin esta comprobacion, cualquier usuario con
+    // sesion podia reescribir el diseno de la tienda de OTRO negocio con solo
+    // poner su slug en la URL. Encontrado en la auditoria previa al
+    // lanzamiento (2026-08-22).
+    //
+    // Las rutas publicas de /:slug (ver la tienda, un producto, el layout) NO
+    // llevan esta comprobacion a proposito: esas son la tienda de cara al
+    // cliente y tienen que ser visibles para cualquiera.
+    const tenant = (req as any).tenant;
+    if (!tenant?.id) return res.status(401).json({ message: "No autorizado" });
+    if (store?.tenantId && store.tenantId !== tenant.id) {
+      return res.status(403).json({ message: "Esa tienda no es tuya." });
+    }
+
     const { layoutData } = req.body;
     if (!layoutData) return res.status(400).json({ message: "layoutData is required" });
 
