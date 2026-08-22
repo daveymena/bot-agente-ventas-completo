@@ -90,7 +90,11 @@ router.delete("/:id", async (req: TenantRequest, res, next) => {
     await db
       .delete(productCategories)
       .where(and(eq(productCategories.id, id), eq(productCategories.tenantId, tenantId)));
-    return res.json(DeleteCategoryResponse.parse({ ok: true }));
+    // El esquema pide `success`, no `ok`: con `ok` el parse tiraba DESPUES
+    // de ejecutar el DELETE, asi que el registro se borraba y al usuario le
+    // llegaba un 400 "Datos invalidos". Trabajo hecho y reportado como
+    // fallido. Estaba igual en agentes, categorias, prospectos y productos.
+    return res.json(DeleteCategoryResponse.parse({ success: true }));
   } catch (e) {
     return next(e);
   }

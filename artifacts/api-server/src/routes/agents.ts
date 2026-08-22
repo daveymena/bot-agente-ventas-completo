@@ -202,7 +202,13 @@ router.delete("/:id", async (req, res, next) => {
 
     const { id } = DeleteAgentParams.parse(req.params);
     await db.delete(agents).where(and(eq(agents.id, id), eq(agents.tenantId, tenantId)));
-    return res.json(DeleteAgentResponse.parse({ ok: true }));
+    // El esquema de respuesta pide `success`, no `ok`. Con `ok` el parse
+     // tiraba DESPUES de que el DELETE ya se habia ejecutado: el agente se
+     // borraba y al admin le llegaba un 400 "Datos invalidos". Trabajo hecho
+     // y reportado como fallido -- el mismo patron que ya mordio en otros
+     // puntos de este proyecto. Verificado en vivo el 2026-08-22 borrando 9
+     // agentes: los 9 devolvieron 400 y los 9 desaparecieron.
+    return res.json(DeleteAgentResponse.parse({ success: true }));
   } catch (e) {
     return next(e);
   }

@@ -204,7 +204,11 @@ router.delete("/:id", async (req, res, next) => {
     const { id } = DeleteLeadParams.parse(req.params);
     // Acotado al tenant: sin esto, cualquiera borraba leads ajenos por id.
     await db.delete(leads).where(and(eq(leads.id, id), eq(leads.tenantId, tenantId)));
-    return res.json(DeleteLeadResponse.parse({ ok: true }));
+    // El esquema pide `success`, no `ok`: con `ok` el parse tiraba DESPUES
+    // de ejecutar el DELETE, asi que el registro se borraba y al usuario le
+    // llegaba un 400 "Datos invalidos". Trabajo hecho y reportado como
+    // fallido. Estaba igual en agentes, categorias, prospectos y productos.
+    return res.json(DeleteLeadResponse.parse({ success: true }));
   } catch (e) {
     return next(e);
   }
