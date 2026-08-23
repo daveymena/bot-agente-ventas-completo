@@ -100,25 +100,7 @@ export class WhatsAppByTenant extends WhatsAppManager {
         const sock = makeWASocket({
           auth: authState,
           browser: ["VentasPro", "Chrome", "1.0.0"],
-          // Sincronizar mensajes que llegaron mientras el bot estuvo caído
-          // (durante un deploy o reinicio). Con false, los clientes que
-          // escriben en esa ventana NO quedan registrados: pagamos el clic
-          // del anuncio, el cliente escribe, y del otro lado no queda rastro.
-          // El handler ya procesa `upsert.type === "append"` (el reenvío de
-          // Baileys al reconectar), pero sin esto no llega NADA que reenviar.
-          syncFullHistory: true,
-          // No traer TODO el historial de años: solo los mensajes de las
-          // últimas 24 h, que es la ventana real de un deploy/reinicio.
-          shouldSyncHistoryMessage: (msg: any) => {
-            try {
-              const ts = Number(msg?.messageTimestamp);
-              if (!ts) return false;
-              const antiguedadMs = Date.now() - ts * 1000;
-              return antiguedadMs < 24 * 60 * 60 * 1000; // < 24 h
-            } catch {
-              return false;
-            }
-          },
+          syncFullHistory: false,
           markOnlineOnConnect: true,
           generateHighQualityLinkPreview: false,
           connectTimeoutMs: 30000, // Timeout aumentado de 6s a 30s
