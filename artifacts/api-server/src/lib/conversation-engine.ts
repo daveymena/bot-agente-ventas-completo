@@ -1325,9 +1325,36 @@ export async function computeDecision(
   // más letras y un cierre de palabra los dejaba afuera.
   const pidioReenvio = /\b(de nuevo|otra vez|reenvi|re-?envi|no me lleg|no lleg|volv[eé]?[a-z]* a (mandar|enviar|pasar)|p[aá]sa(me|mela)?\s+(de nuevo|otra vez)|manda(me|mela)?\s+(de nuevo|otra vez))/i.test(t);
 
+  // ── "¿Cuál es la forma de pago?" NO es una búsqueda de producto ──────────
+  //
+  // Cuando el cliente pregunta CÓMO pagar, ya eligió: el producto es el que
+  // se venía hablando. Volver a buscarlo en ese texto es pedirle al matcher
+  // que encuentre un producto en una frase que no nombra ninguno -- y lo
+  // encuentra igual, porque cualquier palabra suelta le da puntaje.
+  //
+  // Pasó en vivo el 2026-08-23 (conversación 1). El cliente venía viendo el
+  // Curso de Piano:
+  //   14:40  cliente: "Hola tienes el curso de piano ?"
+  //   14:40  bot:     "Sí, claro que lo tenemos 🎹 ..."      → ficha del piano
+  //   16:12  cliente: "Cual es la forma de pago"
+  //   16:12  bot:     "...avanzar con el Aula Virtual 📚"    → ficha 93
+  // Le ofreció pagar OTRO producto en el momento exacto del cierre: la peor
+  // parte de la conversación para equivocarse, porque el cliente ya decidió.
+  //
+  // Con intención de pago o de confirmación se conserva el producto en foco y
+  // no se vuelve a resolver. Es además lo que pide el manual: cuando pregunta
+  // cómo pagar no se le vuelve a vender, se le cobra.
+  // Si el cliente ya venía con un producto en foco, no se vuelve a resolver:
+  // se deja pasar al `else if (memory.currentProductId)` de más abajo, que ya
+  // maneja bien el caso de pago (conserva el producto y manda su ficha).
+  const preguntaComoPagar =
+    (intent === "payment_intent" || intent === "confirmation") && !!memory.currentProductId;
+
   if (!shouldGreet && intent !== "leaving") {
     // Buscar producto mencionado en el mensaje actual
-    const match = await findBestProductMatch(incomingText, productList, categoryMap);
+    const match = preguntaComoPagar
+      ? null
+      : await findBestProductMatch(incomingText, productList, categoryMap);
 
     // Razonamiento de búsqueda (para inyectar en el prompt)
     searchReasoning = match?.reasoning || null;
