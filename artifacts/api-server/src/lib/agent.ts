@@ -1491,10 +1491,16 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
   }
   const finalPrompt = promptArmado;
 
-  // ── Construir mensajes para la IA (OPTIMIZADO - HISTORIAL REDUCIDO) ──────
-  // Solo últimos 2 mensajes para contexto (suficiente para entender conversación)
-  const chatHistory = buildChatHistory(memory, 2); // últimos 2 mensajes (era 5)
-  console.log(`💬 [CHAT-HISTORY] Usando últimos 2 mensajes (reducido de 5)`);
+  // ── Construir mensajes para la IA (HISTORIAL REAL DE LA CONVERSACIÓN) ─────
+  // El bot recibe los últimos N mensajes TAL CUAL (cliente y bot) para poder
+  // seguir la secuencia y releer lo que YA respondió. Antes solo se pasaban 2:
+  // el modelo no veía sus propias respuestas anteriores, así que podía
+  // contradecirse o insistir en un producto equivocado sin darse cuenta.
+  // Con más contexto se corrige solo ("acá dije Excel, pero el cliente hablaba
+  // del piano"). Configurable por CHAT_HISTORY_MESSAGES; por defecto 12.
+  const MAX_HISTORIAL_CHAT = Number(process.env.CHAT_HISTORY_MESSAGES) || 12;
+  const chatHistory = buildChatHistory(memory, MAX_HISTORIAL_CHAT);
+  console.log(`💬 [CHAT-HISTORY] Usando últimos ${chatHistory.length} mensajes`);
   const chatMessages = [
     ...chatHistory,
     {
