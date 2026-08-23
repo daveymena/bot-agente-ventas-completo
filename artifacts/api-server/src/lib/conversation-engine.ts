@@ -709,8 +709,13 @@ function esPedidoReal(resto: string): boolean {
 }
 
 export function detectIntent(text: string): Intent {
-  const t = text.toLowerCase().trim();
-  const words = t.split(/\s+/);
+  // La puntuación (¿?, ¡!, etc.) hacía que "¿qué incluye?" se leyera como "¿qué"
+  // e "incluye?" — palabras que no coinciden con las de parada/genéricas, así
+  // que una consulta de detalles se clasificaba como búsqueda de producto y el
+  // bot terminaba ofreciendo OTRO producto del catálogo. Se quita igual que en
+  // normalizeText().
+  const t = text.toLowerCase().replace(/[^\w\sáéíóúñü]/g, " ").replace(/\s+/g, " ").trim();
+  const words = t.split(/\s+/).filter(Boolean);
   const wordCount = words.length;
 
   // Un saludo es "puro" solo si al quitarle el saludo y las cortesías NO
@@ -1455,7 +1460,14 @@ export async function computeDecision(
         if (currentProduct) {
           productToShow = null;
           shouldSendCard = false;
-          mensajeSinProducto = !mensajeNombraProducto(incomingText);
+          // Una consulta de DETALLES ("¿qué incluye?", "¿cuánto dura?", "¿cómo lo
+          // recibo?") SÍ se refiere al producto en foco: el cliente pregunta por
+          // algo del curso que venía viendo. Marcarla como mensajeSinProducto le
+          // decía a la IA "no asumas que sigue interesado en el producto anterior"
+          // y el modelo terminaba contestando con OTRO producto del catálogo
+          // (ej. Excel) que el cliente jamás nombró. Solo el saludo/pregunta
+          // general sin producto es mensajeSinProducto.
+          mensajeSinProducto = intent !== "details_query" && !mensajeNombraProducto(incomingText);
           console.log(
             `🤖 [DECISION] Producto en contexto delegado a IA: ${currentProduct?.name} (ID: ${memory.currentProductId})` +
             (mensajeSinProducto ? " — ⚠️ el mensaje NO nombra producto: no darlo por supuesto" : "")

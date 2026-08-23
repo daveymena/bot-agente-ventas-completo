@@ -116,4 +116,21 @@ describe("Coherencia de producto: cambio de producto → confirmación", () => {
     expect(decision.intent).toBe("confirmation");
     expect(decision.productToShow).toBeNull();
   });
+
+  it('una consulta de detalles ("¿qué incluye?") con producto en foco NO es "mensaje sin producto"', async () => {
+    // Regresión 2026-08-23: el cliente preguntaba "¿qué incluye?" sobre el curso
+    // que venía viendo y el bot contestaba con el de EXCEL (otro producto del
+    // catálogo). Causa: la consulta de detalles se marcaba como mensajeSinProducto
+    // y la IA recibía "no asumas que sigue interesado en el producto anterior".
+    const memory = makeMemory({
+      currentProductId: 82,
+      currentProductName: "Curso de Piano Completo: De Cero a Nivel Avanzado",
+      sentProductIds: new Set([82]),
+    });
+
+    const decision = await computeDecision(memory, "¿qué incluye?", catalogo, categoryMap, null);
+
+    expect(decision.intent).toBe("details_query");
+    expect(decision.mensajeSinProducto).toBe(false);
+  });
 });
