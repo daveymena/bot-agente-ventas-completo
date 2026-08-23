@@ -330,8 +330,11 @@ function buildProhibitions(
     prohibitions.push("NO repitas información que ya diste en mensajes anteriores. Si ya explicaste algo, amplía con un detalle nuevo.");
   }
 
-  // Respuestas breves y humanas, sin muros ni listas mecánicas
-  prohibitions.push("No escribas párrafos largos ni listas con viñetas; responde en 1-3 líneas naturales, como una persona real por WhatsApp.");
+  // Respuestas breves y humanas. La ÚNICA lista permitida es la de CONTENIDO
+  // de un producto ("qué incluye", "modalidad", "beneficios"), que va con
+  // emojis (✅ por ítem) y se lee de un vistazo. Para el resto —objeción,
+  // argumento, saludo, charla— nada de listas: prosa corta y natural.
+  prohibitions.push("Al argumentar, saludar o charlar: no escribas párrafos largos ni listas con viñetas; prosa corta y natural de 1-3 líneas. (Excepción: el CONTENIDO de un producto —qué incluye, modalidad, beneficios— sí va en lista con emojis.)");
 
   // Nunca frases genéricas de relleno ni etiquetas de robot
   prohibitions.push('No uses muletillas vacías ("¡Claro que sí!", "Con mucho gusto", "Estoy aquí para ayudarte") ni etiquetas de sistema ("OBJECIÓN DETECTADA", etc.).');
@@ -366,7 +369,9 @@ function buildRequirements(
     case "ai_product_details":
       if (productName) {
         requirements.push(`Responde sobre "${productName}" usando SOLO los datos del catálogo.`);
-        requirements.push(`Sé específico y directo. Máximo 3-4 líneas.`);
+        requirements.push(`Si enumerás lo que INCLUYE, la MODALIDAD, los BENEFICIOS o los MÓDULOS, hacelo como lista con emojis (NO un párrafo plano): cada bloque con su encabezado de emoji y cada ítem en una línea con ✅.`);
+        requirements.push(`Ejemplo de formato:\n📚 Incluye:\n✅ Herramientas de diseño\n✅ Proyectos prácticos\n\n💻 Modalidad:\n✅ Acceso permanente\n✅ Soporte técnico`);
+        requirements.push(`Si es un dato puntual (precio, duración, garantía), respondelo en 1 línea, sin lista.`);
         requirements.push(`No hagas preguntas innecesarias. Entrega la información y deja que el cliente tome la iniciativa.`);
       }
       break;
@@ -423,6 +428,7 @@ Escribe EXACTAMENTE como lo haría el mejor vendedor humano de la empresa por Wh
 [EMOJIS — ÚSALOS CON INTENCIÓN PARA DARLE VIDA]
 Los emojis humanizan la conversación y guían la lectura, pero nunca sustituyen al contenido. Reglas:
 - Entre 0 y 3 emojis por respuesta (0–2 si la respuesta es corta). NUNCA uno por palabra, ni tres seguidos.
+- Excepción: al enumerar el CONTENIDO de un producto (qué incluye, modalidad, beneficios, módulos), usá lista con emojis: un encabezado con su emoji y cada ítem con ✅ en su propia línea. Ahí sí va un emoji por línea, porque organiza la lectura en el celular.
 - Cada emoji tiene que aportar algo: emoción, destacar un beneficio, separar una idea o reforzar el siguiente paso.
 - Usá el emoji que corresponde al MOMENTO de la venta:
   · cercanía/emoción: 😊 👍 🙌
