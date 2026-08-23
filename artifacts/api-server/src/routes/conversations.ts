@@ -158,6 +158,85 @@ router.get("/pendientes", async (req, res, next) => {
   }
 });
 
+/**
+ * GET /api/conversations/:id/resumen-comercial
+ *
+ * El texto que recibe el vendedor humano cuando se le transfiere el chat: con
+ * el perfil comercial del lead y la próxima acción alcanza para seguir la
+ * venta sin leerse veinte mensajes ni repetirle al cliente preguntas que ya
+ * contestó. Es la Fase 8 (handoff con contexto) del plan V2.
+ *
+ * Va en un endpoint aparte y no como campo del handoff porque ese pasa por
+ * `HandoffConversationResponse.parse()`, un esquema generado por orval que hoy
+ * no se puede regenerar (ver la nota en routes/products.ts).
+ *
+ * Declarado ANTES de "/:id" o Express tomaría "resumen-comercial" como un id.
+ */
+router.get("/:id/resumen-comercial", async (req, res, next) => {
+  try {
+    const tenantId = tenantIdOf(req);
+    if (!tenantId) return res.status(401).json({ message: "No autorizado" });
+
+    const { id } = GetConversationParams.parse(req.params);
+    const [convo] = await db
+      .select()
+      .from(conversations)
+      .where(and(eq(conversations.id, id), eq(conversations.tenantId, tenantId)))
+      .limit(1);
+    if (!convo) return res.status(404).json({ message: "Conversación no encontrada" });
+
+    const { resumenParaHumano } = await import("../lib/handoff-brief");
+    const { cargarPerfil } = await import("../lib/customer-profile");
+
+    const [ultimo] = await db
+      .select({ role: messages.role, createdAt: messages.createdAt })
+      .from(messages)
+      .where(eq(messages.conversationId, id))
+      .orderBy(desc(messages.id))
+      .limit(1);
+
+    const [ultimoDelCliente] = await db
+      .select({ content: messages.content })
+      .from(messages)
+      .where(and(eq(messages.conversationId, id), eq(messages.role, "customer")))
+      .orderBy(desc(messages.id))
+      .limit(1);
+
+    const perfil = await cargarPerfil(convo.leadId);
+    const horasSinEscribir = convo.lastMessageAt
+      ? Math.max(0, Math.floor((Date.now() - new Date(convo.lastMessageAt).getTime()) / 3600000))
+      : 0;
+
+    let puntaje: number | null = null;
+    try {
+      const leadScore = await getLeadScore(id);
+      puntaje = leadScore.totalScore;
+    } catch (e) {
+      logger.warn({ err: e, conversationId: id }, "[HandoffBrief] No se pudo calcular el puntaje");
+    }
+
+    const datos = {
+      nombre: convo.contactName ?? null,
+      telefono: convo.contactPhone ?? null,
+      ciudad: perfil.ciudad ?? null,
+      productoEnFoco: perfil.productosVistos?.[0]?.nombre ?? null,
+      ultimoMensajeDelCliente: ultimoDelCliente?.content ?? null,
+      puntaje,
+      etapa: convo.currentStage ?? null,
+      estadoDePago: convo.paymentStatus ?? null,
+      clienteEscribioUltimo: ultimo?.role === "customer",
+      horasSinEscribir,
+      productosVistos: perfil.productosVistos?.length ?? 0,
+      objecionAbierta: perfil.objeciones?.[0]?.tipo ?? null,
+      seguimientoSinRespuesta: ultimo?.role !== "customer" && horasSinEscribir > 48,
+    };
+
+    return res.json({ resumen: resumenParaHumano(datos), datos });
+  } catch (e) {
+    return next(e);
+  }
+});
+
 router.get("/:id", async (req, res, next) => {
   try {
     const tenantId = tenantIdOf(req);

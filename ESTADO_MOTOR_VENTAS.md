@@ -266,8 +266,7 @@ Tests: **192 pasan** (eran 120 al empezar). Fallan los mismos 2 archivos que
 ya fallaban antes de esta jornada (`flujo-completo-venta`, `product-matching`):
 necesitan Postgres real y arrastran ids de la SQLite compartida.
 
-**Faltan:** 5 (herramientas), 6 (intención con IA), 7 (embudo), 8 (handoff),
-8.5 (Atlas asesor), 9 (los 30 casos).
+**Faltan:** 5 (herramientas), 6 (intención con IA), 7 (embudo), 8.5 (Atlas asesor), 9 (los 30 casos).
 
 ⚠️ **El número que todavía no se movió: 0 tratos ganados.** Todo lo de arriba
 son medios. La verificación pendiente es una conversación real que llegue a
@@ -285,32 +284,31 @@ sin releer todo el historial.
 Fases **0, 1, 2, 3 y 4 hechas, commiteadas y en producción.** Fase 1.5
 cancelada (la puerta de confirmación de Atlas ya existía). 192 tests pasando.
 
-**Único trabajo a medio hacer:** `src/lib/handoff-brief.ts`. Está escrito y
-**NO lo llama nadie**. Lleva un aviso en su cabecera. Para terminarlo faltan
-dos cosas y está todo dicho ahí adentro: los tests y el endpoint
-`GET /api/conversations/:id/resumen-comercial`.
+**Fase 8 (handoff con contexto) también terminada:** `src/lib/handoff-brief.ts`
+está cableado vía `GET /api/conversations/:id/resumen-comercial` (declarado
+antes de `/:id` en `routes/conversations.ts`) y tiene tests propios
+(`__tests__/handoff-brief.test.ts`, 11 casos). El aviso de "no cableado" de su
+cabecera se quitó.
 
 ### Lo que sigue, en orden y con el porqué
 
-1. **Terminar la Fase 8** (handoff con contexto). Es lo más barato que queda:
-   el módulo ya está escrito, faltan tests y endpoint. Media hora.
-2. **Fase 7 — embudo y métricas de dinero.** Va antes que la 5 y la 6 porque
+1. **Fase 7 — embudo y métricas de dinero.** Va antes que la 5 y la 6 porque
    es de riesgo bajo y porque **la Fase 8.5 depende de ella**: sin el embudo
    de cada negocio, las sugerencias de Atlas son consejos genéricos.
-3. **Fase 8.5 — Atlas asesor.** Lo único que falta del requisito multi-tenant.
+2. **Fase 8.5 — Atlas asesor.** Lo único que falta del requisito multi-tenant.
    Todo lo demás ya está: config por negocio en la tabla `agents`, el motor la
    usa de verdad, hay pantallas, Atlas tiene las tools y la confirmación
    funciona. Falta que SUGIERA en vez de solo reaccionar, con la evidencia del
    negocio. Pendiente chico anexo: verificar que la propuesta de `update_agent`
    muestre el valor VIEJO junto al nuevo (aprobar un `systemPrompt` largo sin
    ver qué reemplaza es aprobar a ciegas).
-4. **Fase 6 — intención con IA.** El bug del 23 (cambiar de producto al
+3. **Fase 6 — intención con IA.** El bug del 23 (cambiar de producto al
    cobrar) fue un parche correcto sobre un síntoma: mientras la intención y el
    producto los decidan 8 listas de palabras, van a seguir apareciendo casos
    así. Esta fase es la cura.
-5. **Fase 5 — capa de herramientas.** La más grande y la de más riesgo: pasar
+4. **Fase 5 — capa de herramientas.** La más grande y la de más riesgo: pasar
    el vendedor de prompt puro a function-calling. Va última a propósito.
-6. **Fase 9 — los 30 casos del spec.**
+5. **Fase 9 — los 30 casos del spec.**
 
 ### Trampas conocidas (comprobadas, no teóricas)
 

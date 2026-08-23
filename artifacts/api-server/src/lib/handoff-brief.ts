@@ -1,17 +1,5 @@
 /**
- * ⚠️ TODAVÍA NO ESTÁ CABLEADO — no lo llama nadie (2026-08-23).
- *
- * Se dejó escrito y a medias por corte de sesión. Falta: tests y el endpoint
- * `GET /api/conversations/:id/resumen-comercial`, que tiene que ir declarado
- * ANTES de "/:id" (o Express toma la palabra como un id) y no como campo del
- * handoff, porque ese pasa por `HandoffConversationResponse.parse()`, un
- * esquema generado por orval que hoy no se puede regenerar.
- *
- * Este aviso está acá a propósito: cinco módulos de este repo parecían vivos y
- * no los ejecutaba nadie (ver ESTADO_MOTOR_VENTAS.md §3.2). Si se cablea, se
- * borra este bloque; si se decide no usarlo, se borra el archivo.
- *
- * ── EL RESUMEN QUE RECIBE EL VENDEDOR HUMANO ─────────────────────────────
+ * EL RESUMEN QUE RECIBE EL VENDEDOR HUMANO.
  *
  * Regla del spec de V2: no transferir diciendo "atiende este cliente". Quien
  * toma el chat tiene que poder seguir la venta sin leerse veinte mensajes ni
