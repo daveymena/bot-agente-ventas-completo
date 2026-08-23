@@ -27,6 +27,10 @@ class OptimizedProviderRotation {
   
   // Timeouts ULTRA-AGRESIVOS para EasyPanel (OPTIMIZADO PARA PRODUCCIÓN)
   private timeouts = {
+    // De pago: responden rápido, y si tardan más que esto es que algo anda
+    // mal — no conviene esperarlos con un cliente escribiendo del otro lado.
+    deepseek: 12000,
+    github_copilot_internal: 10000,
     opencode: 8000,
     opencode_go: 20000,
     opencode_zen: 15000,
@@ -46,7 +50,19 @@ class OptimizedProviderRotation {
   }
 
   private initializeProviders() {
+    // Si un proveedor no está en esta lista, `getAvailableProviders()` lo
+    // descarta aunque el admin lo haya configurado: abajo se hace
+    // `this.providers.get(provider)` y sin registro devuelve undefined.
+    //
+    // Es el mismo bug que dejó a groq afuera en agosto, repetido con los DOS
+    // proveedores de pago del sistema: `deepseek` y `github_copilot_internal`
+    // faltaban acá, faltaban en `conocidos` y faltaban en AI_FALLBACK_ORDER.
+    // El admin pagó DeepSeek, `agent.ts` lo pone primero en su cola de
+    // respaldo… y la primera fase igual se comía 6 proveedores muertos (~52s
+    // medidos) antes de llegar a él.
     const providerList = [
+      "deepseek",
+      "github_copilot_internal",
       "groq",
       "opencode_go",
       "opencode_zen",
@@ -99,7 +115,24 @@ class OptimizedProviderRotation {
     const configurado = (process.env.AI_FALLBACK_ORDER || "")
       .split(",").map((s) => s.trim()).filter(Boolean);
     const conocidos = ["opencode", "opencode_go", "opencode_zen", "groq", "nvidia", "openrouter", "github"];
-    const order = [...new Set([...configurado, ...conocidos])];
+
+    // Lo que el admin PAGA va primero, tenga o no tenga AI_FALLBACK_ORDER.
+    //
+    // Depender de esa variable para los proveedores de pago es lo que rompió
+    // esto: la variable enumera gratuitos (`opencode_go,groq,openrouter,
+    // opencode,nvidia,github`) y nadie la actualizó al cargar la clave paga
+    // desde el panel. Resultado: se paga un proveedor que responde en ~800ms y
+    // el cliente espera 52 segundos mientras se agotan los muertos.
+    //
+    // La clave puede venir del .env o del panel — `ai-keys.ts` vuelca lo
+    // guardado a process.env al arrancar —, así que se mira process.env, que
+    // es donde terminan las dos.
+    const dePago = [
+      process.env.DEEPSEEK_API_KEY ? "deepseek" : null,
+      process.env.COPILOT_SESSION_TOKEN || process.env.GITHUB_TOKEN ? "github_copilot_internal" : null,
+    ].filter(Boolean) as string[];
+
+    const order = [...new Set([...dePago, ...configurado, ...conocidos])];
     
     for (const provider of order) {
       // Saltar si ya está en la lista o en cooldown

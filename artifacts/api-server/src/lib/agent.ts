@@ -1340,8 +1340,18 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
       // Todavía no entra: lo que sobra es el prompt del negocio o del agente.
       // Se corta por el final, avisando en el propio texto para que el modelo
       // sepa que viene truncado y no complete lo que falta por su cuenta.
-      const corte = Math.max(TOPE_PROMPT - esencial.length - 200, 2000);
-      promptArmado = `${base.slice(0, corte)}\n[…instrucciones recortadas por longitud…]\n\n${esencial}`;
+      // `esencial` también se recorta. Antes no: si ya venía más largo que el
+      // tope, `TOPE_PROMPT - esencial.length - 200` daba negativo, el
+      // Math.max lo dejaba en 2000, y a esos 2000 se le anexaba `esencial`
+      // ENTERO. Por eso el log decía "Recortado de 34444 a 31644 (tope
+      // 18000)": anunciaba un recorte que no ocurría. Se le deja al menos la
+      // mitad del tope a las instrucciones base.
+      const corte = Math.max(TOPE_PROMPT - esencial.length - 200, Math.floor(TOPE_PROMPT / 2));
+      const espacioEsencial = Math.max(TOPE_PROMPT - corte - 200, 1000);
+      const esencialRecortado = esencial.length > espacioEsencial
+        ? `${esencial.slice(0, espacioEsencial)}\n[…contexto recortado por longitud…]`
+        : esencial;
+      promptArmado = `${base.slice(0, corte)}\n[…instrucciones recortadas por longitud…]\n\n${esencialRecortado}`;
     }
     console.log(`✂️ [PROMPT] Recortado de ${antes} a ${promptArmado.length} chars (tope ${TOPE_PROMPT}) - ${ts()}`);
   }

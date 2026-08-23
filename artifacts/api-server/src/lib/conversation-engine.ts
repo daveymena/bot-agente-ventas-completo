@@ -1714,13 +1714,56 @@ function buildContextBlock(
     lines.push(`📋 CATÁLOGO COMPLETO DE PRODUCTOS (usa SOLO esta información)`);
     lines.push(`━━━━━━━━━━━━━━━━━━━━━━━`);
     lines.push(`🚨 REGLA ABSOLUTA: NO inventes ningún dato que no esté aquí. Si el producto no aparece en esta lista, NO EXISTE.`);
-    allProducts.forEach((p, i) => {
-      lines.push(`\n[${i + 1}] ID:${p.id} | ${p.name}`);
-      if (p.price) lines.push(`    💰 Precio: ${formatPrice(Number(p.price), p.currency || 'COP')}`);
-      if (p.description) lines.push(`    📝 ${String(p.description).substring(0, 200)}`);
-      if (p.category) lines.push(`    🏷️ Categoría: ${p.category}`);
-    });
+
+    // El catálogo entero iba en CADA mensaje. Medido el 2026-08-22 con 83
+    // productos: 23.414 caracteres, el 74% de un prompt de 31.700. Eso
+    // desborda el límite por minuto de los proveedores (Groq da 8.000 tokens/
+    // min, o sea UN mensaje) y en los de pago se factura en cada respuesta.
+    //
+    // No hace falta mandarlo entero: quién es el producto de este mensaje ya
+    // lo decidió `findBestProductMatch` sobre la lista COMPLETA, del lado del
+    // servidor. Esta lista es para que la IA escriba un [CARD: ID] válido y
+    // sepa qué hay cerca — con el producto en foco garantizado y un presupuesto
+    // de caracteres alcanza. Las descripciones bajan de 200 a 110: en 200
+    // caracteres entra media ficha repetida, en 110 entra de qué se trata.
+    const TOPE_CATALOGO = Number(process.env.MAX_CATALOGO_CHARS || 6000);
+    const enFoco = new Set<number>();
+    if (product?.id) enFoco.add(product.id);
+    if (memory.currentProductId) enFoco.add(memory.currentProductId);
+
+    // Los relevantes primero, para que nunca los recorte el presupuesto.
+    const ordenados = [
+      ...allProducts.filter((p) => enFoco.has(p.id)),
+      ...allProducts.filter((p) => !enFoco.has(p.id)),
+    ];
+
+    let usados = 0;
+    let mostrados = 0;
+    for (const p of ordenados) {
+      const bloque = [
+        `\n[${mostrados + 1}] ID:${p.id} | ${p.name}`,
+        p.price ? `    💰 Precio: ${formatPrice(Number(p.price), p.currency || 'COP')}` : null,
+        p.description ? `    📝 ${String(p.description).substring(0, 110)}` : null,
+        p.category ? `    🏷️ Categoría: ${p.category}` : null,
+      ].filter(Boolean).join("\n");
+
+      // Un producto en foco entra aunque el presupuesto esté justo: si se
+      // recorta JUSTO el que el cliente pidió, la IA no puede mandar su ficha.
+      if (usados + bloque.length > TOPE_CATALOGO && !enFoco.has(p.id)) continue;
+
+      lines.push(bloque);
+      usados += bloque.length;
+      mostrados++;
+    }
+
     lines.push(`\n━━━━━━━━━━━━━━━━━━━━━━━`);
+    if (mostrados < allProducts.length) {
+      // Decirlo importa: sin esto la IA lee "FIN DEL CATÁLOGO" y concluye que
+      // lo que no está en la lista no existe -- y le dice al cliente que no se
+      // maneja un producto que sí está a la venta.
+      lines.push(`⚠️ Esta lista muestra ${mostrados} de ${allProducts.length} productos (se recortó por longitud).`);
+      lines.push(`   Si el cliente nombra algo que NO ves acá, NO afirmes que no existe: decile que lo verificás.`);
+    }
     lines.push(`FIN DEL CATÁLOGO. Usa [CARD: ID] con el ID exacto del producto de arriba.`);
   }
 
