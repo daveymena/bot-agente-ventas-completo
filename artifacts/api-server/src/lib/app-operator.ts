@@ -3664,10 +3664,17 @@ export const TOOLS: ToolDef[] = [
   {
     name: "test_ai_models",
     description: "Prueba EN VIVO qué modelos de un proveedor de IA sirven de verdad para atender clientes, y cuáles no. El catálogo que publica un proveedor NO dice cuáles funcionan: de los 26 que lista OpenCode Go, solo 4 sirven -- los demás contestan vacío, mandan su razonamiento al cliente o directamente fallan. Usala cuando el admin pregunte qué modelo conviene, por qué el bot no responde bien, o antes de cambiar de modelo. Tarda cerca de un minuto. LECTURA: no cambia la configuración.",
-    args: '{ "proveedor": string (req: "opencode_go", "opencode", "groq", "openrouter", "nvidia", "github") }',
+    args: '{ "proveedor": string (req: "deepseek", "github_copilot_internal", "opencode_go", "opencode", "opencode_zen", "groq", "openrouter", "nvidia", "github") }',
     run: async (args, ctx) => {
       const prov = String(args.proveedor || args.provider || "").trim();
-      if (!prov) return { ok: false, summary: "Decime qué proveedor probar (opencode_go, opencode, groq, openrouter, nvidia, github)." };
+      // La lista de acá abajo NO limita nada: `probarModelosDe` resuelve el
+      // proveedor con `getProviderConfig`, que es generico y acepta cualquiera.
+      // Aun asi, enumerarla mal SI bloquea: el 2026-08-22 el admin pidio probar
+      // DEEPSEEK -- el proveedor que paga y el que tiene seleccionado en
+      // `settings.aiProvider` -- y la herramienta contesto "decime cual"
+      // ofreciendo seis, ninguno de ellos deepseek. Cuarto lugar distinto donde
+      // una enumeracion escrita a mano escondia el proveedor de pago.
+      if (!prov) return { ok: false, summary: "Decime qué proveedor probar (deepseek, github_copilot_internal, opencode_go, opencode, opencode_zen, groq, openrouter, nvidia, github)." };
       const { probarModelosDe } = await import("./probar-modelos");
       const r = await probarModelosDe(prov, 26);
       if (!r.ok) return { ok: false, summary: r.mensaje || "No se pudo probar." };
