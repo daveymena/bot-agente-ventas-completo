@@ -506,17 +506,28 @@ function buildPaymentOnlyCaption(p: typeof products.$inferSelect, dynamicLinks?:
 
   lines.push(`💳 *PAGO — ${mainEmoji} ${nameUpper}*`);
   lines.push("━━━━━━━━━━━━━━━━━━━━━━━");
-  lines.push("");
+  // El precio SIEMPRE visible: cuando el cliente pregunta cuánto cuesta o va a
+  // pagar, la tarjeta de pago no lo mostraba y el cliente no sabía el monto.
+  const precio = Number(p.price || 0);
+  if (precio > 0) {
+    lines.push(`💰 *Precio: $${precio.toLocaleString("es-CO")} ${p.currency || "COP"}*`);
+    lines.push("");
+  }
 
   if (dynamicLinks) {
-    if (dynamicLinks.mercadopago && (dynamicLinks.mercadopago.url || dynamicLinks.mercadopago.shortUrl)) {
+    // Enlace CORTO primero. Acá se pedía `url || shortUrl`: el largo (un
+    // checkout de MercadoPago con pref_id, ~120 caracteres de tokens) ganaba
+    // siempre, y el cliente recibía un link enorme que parece sospechoso en el
+    // celular. El corto (/p/<código>) ya existe y se genera en payments.ts.
+    const corto = (m: any) => m?.shortUrl || m?.url || "";
+    if (corto(dynamicLinks.mercadopago)) {
       lines.push(`🔹 *Tarjeta de Crédito / PSE (Colombia):*`);
-      lines.push(`${dynamicLinks.mercadopago.url || dynamicLinks.mercadopago.shortUrl}`);
+      lines.push(corto(dynamicLinks.mercadopago));
       lines.push("");
     }
-    if (dynamicLinks.paypal && (dynamicLinks.paypal.url || dynamicLinks.paypal.shortUrl)) {
+    if (corto(dynamicLinks.paypal)) {
       lines.push(`🔹 *PayPal (Internacional):*`);
-      lines.push(`${dynamicLinks.paypal.url || dynamicLinks.paypal.shortUrl}`);
+      lines.push(corto(dynamicLinks.paypal));
       lines.push("");
     }
     if (dynamicLinks.transfer && dynamicLinks.transfer.options && dynamicLinks.transfer.options[0]) {

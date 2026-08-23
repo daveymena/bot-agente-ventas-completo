@@ -377,10 +377,11 @@ function buildRequirements(
       break;
 
     case "ai_payment_close":
-      requirements.push(`Confirma el producto con entusiasmo (1 línea).`);
-      requirements.push(`NO describas el producto — ni su contenido, características, beneficios ni precio.`);
+      requirements.push(`Si el cliente PREGUNTÓ el precio o cuánto vale, respondé el precio EXACTO en la primera línea con su emoji (ej: "💰 $60.000 COP"). NUNCA lo omitas ni digas "está en la tarjeta".`);
+      requirements.push(`Confirmá el producto con entusiasmo (1 línea).`);
+      requirements.push(`No describas todo el contenido — solo lo que el cliente preguntó.`);
       requirements.push(`Di que los enlaces de pago están listos abajo (el sistema los adjunta automáticamente).`);
-      requirements.push(`Sé breve: máximo 2 líneas + emoji.`);
+      requirements.push(`Sé breve: máximo 2-3 líneas + emoji.`);
       break;
 
     case "ai_objection_handle":
