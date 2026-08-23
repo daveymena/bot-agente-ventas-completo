@@ -128,11 +128,11 @@ Cada fase termina en: **build + test + verificación en conversación real.**
 
 | # | Fase | Por qué va acá | Riesgo |
 |---|---|---|---|
-| **0** | Desplegar y verificar lo ya arreglado | Son las causas medidas de las ventas perdidas. Verificar con `"¿cómo pago?"` en WhatsApp y con el tiempo de respuesta del panel dejando de decir 0s | Bajo |
-| **1** | Quitar la contradicción (`1581`) y borrar los 5 módulos muertos | Una línea y un `rm`. Elimina órdenes que se pelean dentro del mismo prompt y la trampa del `customerProfile` fantasma | Muy bajo |
-| **2** | Customer Profile persistente | Base de todo lo demás. Tabla + carga en `loadConversationMemory` + volcado al playbook | Medio |
-| **3** | Next Best Action | Con el perfil ya cargado, es la decisión explícita del turno. Reemplaza "¿qué respondo?" por "¿qué avanzo?" | Medio |
-| **4** | Abandono y recuperación | Cada lead pago que se cae hoy se pierde entero. Se apoya en el estado del perfil | Medio |
+| ✅ **0** | Desplegar y verificar lo ya arreglado | Son las causas medidas de las ventas perdidas. Verificar con `"¿cómo pago?"` en WhatsApp y con el tiempo de respuesta del panel dejando de decir 0s | Bajo |
+| ✅ **1** | Quitar la contradicción (`1581`) y borrar los 5 módulos muertos | Una línea y un `rm`. Elimina órdenes que se pelean dentro del mismo prompt y la trampa del `customerProfile` fantasma | Muy bajo |
+| ✅ **2** | Customer Profile persistente | Base de todo lo demás. Tabla + carga en `loadConversationMemory` + volcado al playbook | Medio |
+| ✅ **3** | Next Best Action | Con el perfil ya cargado, es la decisión explícita del turno. Reemplaza "¿qué respondo?" por "¿qué avanzo?" | Medio |
+| ✅ **4** | Abandono y recuperación | Cada lead pago que se cae hoy se pierde entero. Se apoya en el estado del perfil | Medio |
 | **5** | Capa de herramientas real | El cambio más grande: pasar de prompt a function-calling para stock/pedido/pago | **Alto** |
 | **6** | Intención con IA + contexto | Sustituir las 8 listas de keywords por decisión con historial y producto en foco. Va después de tener perfil y NBA, que son sus insumos | Alto |
 | **7** | Embudo y métricas de dinero | Medir dónde se pierde: impresiones → clics → leads → checkout → pagado | Bajo |
@@ -242,3 +242,33 @@ Cómo se aplica:
   Es la única pieza que hay que construir de verdad para el requisito, porque
   todo lo demás —config por tenant, uso real en el motor, pantallas, tools de
   Atlas y confirmación— ya está.
+
+
+---
+
+## 8. Avance al 2026-08-23 (fin de la jornada)
+
+**Hechas y desplegadas:** 0, 1, 2, 3, 4. Más dos cosas que no estaban en el
+plan y salieron de problemas reales:
+
+| Qué | Por qué |
+|---|---|
+| Cierre con "¿cómo pago?" | Caía en la jugada genérica con la orden de NO cobrar |
+| Producto cambiado al cobrar | Le ofreció pagar el Aula Virtual a quien venía por el piano |
+| Variedad anti-bloqueo | Todos los clientes recibían el mismo texto |
+| Métrica de tiempo de respuesta | Nunca midió: comparaba rol `"assistant"` vs el `"agent"` guardado |
+| Validación de cobrabilidad | `GET /api/products/cobrabilidad` — qué NO se puede cobrar, antes de pautar |
+| Perfil comercial | La misma ficha cinco veces al mismo cliente |
+| Recuperación con contexto | El clic pagado moría con un "¿sigues interesado?" |
+| Próxima acción | `GET /api/conversations/pendientes` — a cuál atender y qué le falta |
+
+Tests: **192 pasan** (eran 120 al empezar). Fallan los mismos 2 archivos que
+ya fallaban antes de esta jornada (`flujo-completo-venta`, `product-matching`):
+necesitan Postgres real y arrastran ids de la SQLite compartida.
+
+**Faltan:** 5 (herramientas), 6 (intención con IA), 7 (embudo), 8 (handoff),
+8.5 (Atlas asesor), 9 (los 30 casos).
+
+⚠️ **El número que todavía no se movió: 0 tratos ganados.** Todo lo de arriba
+son medios. La verificación pendiente es una conversación real que llegue a
+`closing` y cobre.
