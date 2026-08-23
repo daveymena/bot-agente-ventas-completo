@@ -39,6 +39,55 @@ function validarPrecio(valor: unknown): string | null {
   return null;
 }
 
+/**
+ * GET /api/products/cobrabilidad
+ *
+ * Qué productos se pueden COBRAR hoy y cuáles no. Pensado para mirarlo ANTES
+ * de pautar: si se paga por clics hacia un producto sin forma de cobro, cada
+ * clic muere en el cierre, que es donde más caro sale perder al cliente.
+ *
+ * Va antes de "/:id" a propósito: si fuera después, Express tomaría
+ * "cobrabilidad" como un id.
+ */
+router.get("/cobrabilidad", async (req: TenantRequest, res, next) => {
+  try {
+    const tenantId = req.tenant?.id;
+    if (!tenantId) return sendError(res, ERROR_CODES.UNAUTHORIZED);
+
+    const { evaluarCobrabilidad, resumenDeCobrabilidad } = await import("../lib/cobrabilidad");
+    const { credencialesDe } = await import("../lib/tenant-payment-credentials");
+    const cred = credencialesDe(req.tenant as any);
+
+    const rows = await db
+      .select()
+      .from(products)
+      .where(and(eq(products.tenantId, tenantId), eq(products.isActive, true)));
+
+    const evaluados = rows.map((p: any) => ({
+      producto: { id: p.id, name: p.name, kind: p.kind, price: p.price, paymentLink: p.paymentLink },
+      resultado: evaluarCobrabilidad(
+        { id: p.id, name: p.name, kind: p.kind, price: p.price, paymentLink: p.paymentLink },
+        cred,
+      ),
+    }));
+
+    return res.json({
+      ...resumenDeCobrabilidad(evaluados),
+      // Con qué se está cobrando, para que se note si son las del servidor.
+      credencialesPropias: cred.propias,
+      detalle: evaluados.map((e) => ({
+        id: e.producto.id,
+        name: e.producto.name,
+        cobrable: e.resultado.cobrable,
+        vias: e.resultado.vias,
+        problemas: e.resultado.problemas,
+      })),
+    });
+  } catch (e) {
+    return next(e);
+  }
+});
+
 // List products for the current tenant
 router.get("/", async (req: TenantRequest, res, next) => {
   try {
