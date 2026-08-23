@@ -40,6 +40,7 @@ export const ProductCard = ({ product, slug }: { product: Product; slug: string 
   // Precio en la moneda del visitante (ver lib/moneda.ts).
   const { formatear } = useMoneda();
   const { addToCart, wishlist, toggleWishlist } = useStore();
+  const navigate = useNavigate();
   const [imgError, setImgError] = useState(false);
   const [buying, setBuying] = useState(false);
   const detailHref = `/tienda/${slug}/producto/${product.id}`;
@@ -49,7 +50,18 @@ export const ProductCard = ({ product, slug }: { product: Product; slug: string 
   // "Comprar" va DIRECTO a la pasarela: antes decía Comprar pero solo metía el
   // producto al carrito, así que el cliente creía haber comprado y se quedaba
   // en la misma página. Para acumular varios productos está "Agregar".
+  //
+  // Salvo si es FÍSICO: eso se paga contra entrega, así que mandarlo a
+  // MercadoPago es cobrarle por adelantado algo que iba a pagarle al
+  // mensajero. Va al checkout, donde se le piden dirección y cédula.
   const comprarAhora = async () => {
+    if (product.type === 'physical' || product.type === 'dropshipping') {
+      addToCart(product);
+      trackInitiateCheckout({ ids: [product.id], value: product.price });
+      navigate(`/tienda/${slug}/checkout`);
+      return;
+    }
+
     setBuying(true);
     trackInitiateCheckout({ ids: [product.id], value: product.price });
     try {

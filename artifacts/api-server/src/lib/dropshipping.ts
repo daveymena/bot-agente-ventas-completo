@@ -325,7 +325,10 @@ export async function pedidoEnCurso(conversationId: number): Promise<PedidoDrops
 
 export async function abrirPedido(datos: {
   tenantId: number;
-  conversationId: number;
+  // null cuando el pedido NO viene de una conversación de WhatsApp sino del
+  // checkout de la tienda. La columna ya era nullable; el tipo pedía un número
+  // porque hasta ahora el único que abría pedidos era el bot.
+  conversationId: number | null;
   leadId?: number | null;
   productId: number;
   productName: string;

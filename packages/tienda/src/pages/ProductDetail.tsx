@@ -5,6 +5,7 @@ import { useStore } from '../store/useStore';
 import { ShoppingCart, Check, Package, ShieldCheck, Infinity as InfinityIcon, Download, MessageCircle, Truck } from 'lucide-react';
 import { initPixel, trackViewContent, trackAddToCart, trackInitiateCheckout, trackContact } from '../lib/pixel';
 import { sanitizeRichHtml, plainTextToHtml } from '../lib/rich-text';
+import TrustBar from '../components/TrustBar';
 
 interface DetailProduct {
   id: number;
@@ -27,12 +28,12 @@ interface RelatedProduct {
   category: string;
 }
 
-// Respaldo en pesos; el precio que ve el visitante sale de useMoneda().
-const formatPrice = (price: number) => '$' + Math.round(price).toLocaleString('es-CO');
+// El precio que ve el visitante lo resuelve formatear() de useMoneda().
+// Acá había un formatPrice() fijo en pesos que ya nadie llamaba.
 
 const ProductDetail = () => {
   // Precio en la moneda del visitante (ver lib/moneda.ts).
-  const { formatear, visitante } = useMoneda();
+  const { formatear } = useMoneda();
   const { slug: paramSlug, productId } = useParams();
   const slug = paramSlug || 'sofia-premium';
   const navigate = useNavigate();
@@ -225,13 +226,22 @@ const ProductDetail = () => {
                 addToCart({
                   id: String(product.id),
                   name: product.name,
+                  // Faltaba `description` y el objeto entraba al carrito con
+                  // `as any`: el ítem quedaba sin descripción y el tipo mentía.
+                  description: product.description ?? '',
                   price: Number(product.price),
                   image: product.image ?? '',
                   category: product.category,
-                  type: (product.kind || 'digital') as any,
+                  // El backend solo emite 'physical' | 'digital'; el checkout
+                  // decide contra entrega vs pasarela leyendo justo esto, así
+                  // que no puede quedar en `any`.
+                  type: product.kind === 'physical' ? 'physical' : 'digital',
                   stock: 999,
                 });
-                trackAddToCart({ id: product.id, name: product.name, price: product.price });
+                // El precio viaja como string desde la API; el píxel espera un
+                // número. Enviarlo sin convertir le manda a Meta el valor de la
+                // conversión como texto.
+                trackAddToCart({ id: product.id, name: product.name, price: Number(product.price) });
                 trackInitiateCheckout({ ids: [product.id], value: price, currency: product.currency });
                 navigate(`/tienda/${slug}/checkout`);
               }}
@@ -246,7 +256,7 @@ const ProductDetail = () => {
                 href={waHref}
                 target="_blank"
                 rel="noreferrer"
-                onClick={() => trackContact({ content_name: product.name })}
+                onClick={() => trackContact(product.name)}
                 className="w-full bg-white text-gray-900 border border-gray-200 py-3.5 rounded-full font-bold hover:bg-gray-50 transition-all flex items-center justify-center gap-2.5"
               >
                 <MessageCircle className="w-5 h-5 text-emerald-600" />
@@ -294,22 +304,30 @@ const ProductDetail = () => {
         </div>
       )}
 
+      {/* ── TAMBIÉN TE PUEDE INTERESAR ────────────────────────────────────
+          Mismo lenguaje que la tarjeta del catálogo: foto sobre el bloque de
+          color de la marca, texto centrado, esquinas redondeadas. No se
+          reutiliza el <ProductCard/> de Shop.tsx a propósito: el endpoint de
+          relacionados no devuelve `kind`, así que la tarjeta pintaría a todos
+          la etiqueta "Digital" y una rodillera aparecería como descargable.
+          Cuando el backend mande el tipo, esto se reemplaza por ProductCard. */}
       {related.length > 0 && (
         <div className="mt-16 border-t border-gray-200 pt-10">
-          <h2 className="text-lg font-extrabold text-gray-900 mb-5">También te puede interesar</h2>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <p className="text-xs font-bold uppercase tracking-[0.2em] text-[var(--store-primary)] mb-1">Más productos</p>
+          <h2 className="text-2xl sm:text-3xl font-black text-gray-900 tracking-tight mb-6">También te puede interesar</h2>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-6">
             {related.map(r => (
               <Link
                 key={r.id}
                 to={`/tienda/${slug}/producto/${r.id}`}
-                className="group bg-white border border-gray-200 rounded-lg overflow-hidden hover:shadow-md hover:border-gray-300 transition-all"
+                className="group bg-white rounded-2xl overflow-hidden flex flex-col transition-all duration-300 shadow-[0_1px_2px_rgba(0,0,0,0.04),0_4px_8px_rgba(0,0,0,0.04),0_10px_20px_-4px_rgba(0,0,0,0.05)] hover:shadow-[0_2px_4px_rgba(0,0,0,0.06),0_10px_20px_rgba(0,0,0,0.08),0_24px_40px_-8px_rgba(0,0,0,0.12)] hover:-translate-y-1"
               >
-                <div className="aspect-square bg-gray-50 overflow-hidden">
+                <div className="aspect-square bg-[var(--store-primary-soft)] overflow-hidden">
                   {r.image ? (
                     <img
                       src={r.image}
                       alt={r.name}
-                      className="w-full h-full object-contain p-3 group-hover:scale-105 transition-transform duration-500"
+                      className="w-full h-full object-contain p-4 group-hover:scale-105 transition-transform duration-500"
                       loading="lazy"
                     />
                   ) : (
@@ -318,11 +336,14 @@ const ProductDetail = () => {
                     </div>
                   )}
                 </div>
-                <div className="p-3">
-                  <h3 className="text-xs font-semibold text-gray-900 line-clamp-2 min-h-[2.5em] leading-snug">
+                <div className="p-3 flex flex-col gap-1.5 flex-1 text-center">
+                  <p className="text-[10px] font-bold text-[var(--store-primary)] uppercase tracking-wider">
+                    {r.category || 'General'}
+                  </p>
+                  <h3 className="text-sm font-bold text-gray-900 line-clamp-2 min-h-[2.5em] leading-snug group-hover:text-[var(--store-primary)] transition-colors">
                     {r.name}
                   </h3>
-                  <p className="text-sm font-black text-gray-900 mt-1.5">
+                  <p className="mt-auto pt-2 text-lg font-black text-gray-900">
                     {formatear(Number(r.price))}
                   </p>
                 </div>
@@ -331,6 +352,11 @@ const ProductDetail = () => {
           </div>
         </div>
       )}
+
+      {/* El kit cierra la ficha de producto con la misma barra de garantías
+          del catálogo. Acá se calcula sobre ESTE producto: una ficha digital
+          no promete envío, y una física no promete entrega inmediata. */}
+      <TrustBar hayFisicos={!esDigital} hayDigitales={esDigital} className="mt-16" />
     </div>
   );
 };

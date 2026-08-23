@@ -745,6 +745,102 @@ router.post("/checkout-cart/:slug", async (req, res, next) => {
       return res.status(404).json({ message: "Ningún producto del carrito existe en esta tienda" });
     }
 
+    // ── CONTRAENTREGA ───────────────────────────────────────────────────────
+    // En dropshipping colombiano el producto físico se paga al recibirlo, no
+    // en una pasarela: mandar a MercadoPago a alguien que va a pagarle al
+    // mensajero es pedirle la plata dos veces. Hasta acá la tienda solo sabía
+    // cobrar online, así que un pedido físico no tenía forma de completarse
+    // (ni siquiera se le pedía la dirección).
+    //
+    // No se inventa una validación nueva: se usan datosQueFaltan() y
+    // abrirPedido()/guardarDatos()/despacharPedido() de lib/dropshipping.ts,
+    // los MISMOS que usa el bot de WhatsApp. Si los dos canales validaran por
+    // su cuenta, un pedido tomado en la tienda podría llegar a la
+    // transportadora sin cédula mientras el del bot no.
+    if (method === "contraentrega") {
+      const {
+        datosQueFaltan,
+        abrirPedido,
+        guardarDatos,
+        despacharPedido,
+      } = await import("../lib/dropshipping");
+
+      // Un curso no se paga contra entrega: no hay nada que un mensajero
+      // pueda entregar. Se rechaza explícito en vez de crear un pedido de
+      // envío para un PDF.
+      const digitales = lines.filter(l => (l.product.kind || "digital") !== "physical");
+      if (digitales.length > 0) {
+        return res.status(400).json({
+          message:
+            "El pago contra entrega es solo para productos físicos. " +
+            `Estos se pagan en línea: ${digitales.map(l => l.product.name).join(", ")}.`,
+        });
+      }
+
+      const envio = {
+        nombre: String(customer.nombre || "").trim(),
+        telefono: String(customer.telefono || "").trim(),
+        documento: String(customer.documento || "").trim(),
+        departamento: String(customer.departamento || "").trim(),
+        ciudad: String(customer.ciudad || "").trim(),
+        direccion: String(customer.direccion || "").trim(),
+        barrio: String(customer.barrio || "").trim() || null,
+        notas: String(customer.notas || "").trim() || null,
+      };
+
+      const faltan = datosQueFaltan(envio);
+      if (faltan.length > 0) {
+        return res.status(400).json({
+          message: `Faltan datos para el envío: ${faltan.join(", ")}`,
+          faltan,
+        });
+      }
+
+      // `dropshipping_orders` guarda UN producto por fila (así lo vende el bot:
+      // una ficha, un pedido). Un carrito con varios físicos genera una fila
+      // por línea, todas con los mismos datos de envío.
+      const pedidos: { id: number; producto: string; wooOrderId?: number; error?: string }[] = [];
+      for (const { product, quantity } of lines) {
+        const pedido = await abrirPedido({
+          tenantId: tenant.id,
+          conversationId: null,
+          productId: product.id,
+          productName: product.name,
+          unitPrice: Number(product.price || 0),
+          quantity,
+          telefono: envio.telefono,
+        });
+        const conDatos = await guardarDatos(pedido.id, envio);
+        const despacho = await despacharPedido(conDatos ?? pedido);
+        if (!despacho.ok) {
+          // El pedido YA quedó guardado con todos los datos del cliente: que
+          // falle el envío a WooCommerce no puede perder la venta. Queda en la
+          // tabla para despacharlo a mano desde el panel.
+          logger.error(
+            { pedidoId: pedido.id, error: despacho.error },
+            "[CheckoutCart] Pedido contraentrega guardado pero no despachado",
+          );
+        }
+        pedidos.push({
+          id: pedido.id,
+          producto: product.name,
+          wooOrderId: despacho.wooOrderId,
+          error: despacho.ok ? undefined : despacho.error,
+        });
+      }
+
+      const total = lines.reduce((acc, l) => acc + Number(l.product.price || 0) * l.quantity, 0);
+      return res.json({
+        ok: true,
+        contraentrega: true,
+        pedidos,
+        total,
+        // Sin checkoutUrl a propósito: no hay nada que pagar ahora. El front
+        // muestra la confirmación en vez de redirigir a una pasarela.
+        mensaje: "Pedido confirmado. Pagas al recibir.",
+      });
+    }
+
     const appUrl = process.env.APP_URL || `http://localhost:${process.env.PORT || 3002}`;
     const reference = `${customer.phone || "guest"}|cart|${lines.map(l => l.product.id).join(",")}`;
 

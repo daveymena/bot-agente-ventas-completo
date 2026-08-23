@@ -831,15 +831,44 @@ export class WhatsAppManager {
    * cumple el espaciado por sí sola); solo frena los envíos en lote.
    */
   private ultimoEnvioMs = 0;
-  private async esperarEspaciadoEntreEnvios(): Promise<void> {
-    const MIN_MS = Number(process.env.WA_MIN_MS_ENTRE_ENVIOS) || 8000;
-    const JITTER_MS = Number(process.env.WA_JITTER_MS_ENTRE_ENVIOS) || 12000;
-    const objetivo = MIN_MS + Math.floor(Math.random() * JITTER_MS);
-    const transcurrido = Date.now() - this.ultimoEnvioMs;
-    if (this.ultimoEnvioMs > 0 && transcurrido < objetivo) {
-      await sleep(objetivo - transcurrido);
+  private ultimoDestino = "";
+
+  /**
+   * Espaciado entre envíos, pero SOLO al cambiar de destinatario.
+   *
+   * Lo que WhatsApp castiga es disparar a muchos contactos distintos en
+   * ráfaga. Contestarle a UNA persona con tres mensajes seguidos no es spam:
+   * es lo que hace cualquiera que manda el texto, la foto y el precio.
+   *
+   * Estaba aplicándose a cada envío sin mirar a quién, y el comentario de
+   * acá abajo decía que "no afecta la conversación normal". Sí la afectaba, y
+   * mucho: las partes de UNA respuesta (texto → ficha → medios de pago →
+   * link de la tienda) salen una detrás de otra, así que cada una pagaba
+   * entre 8 y 20 segundos. Una respuesta completa tardaba de 24 a 60
+   * segundos en terminar de llegar. El admin lo reportó como "el tiempo de
+   * envío de cada cosa es muy largo", y tenía razón: para el cliente, el bot
+   * escribe una línea y desaparece un minuto.
+   *
+   * Ahora: mismo destinatario → sin espera (queda solo el "escribiendo…",
+   * que son décimas). Destinatario distinto → el espaciado completo, que es
+   * donde de verdad protege al número.
+   */
+  private async esperarEspaciadoEntreEnvios(destino?: string): Promise<void> {
+    const jid = String(destino || "");
+    const mismaPersona = !!jid && jid === this.ultimoDestino;
+
+    if (!mismaPersona) {
+      const MIN_MS = Number(process.env.WA_MIN_MS_ENTRE_ENVIOS) || 8000;
+      const JITTER_MS = Number(process.env.WA_JITTER_MS_ENTRE_ENVIOS) || 12000;
+      const objetivo = MIN_MS + Math.floor(Math.random() * JITTER_MS);
+      const transcurrido = Date.now() - this.ultimoEnvioMs;
+      if (this.ultimoEnvioMs > 0 && transcurrido < objetivo) {
+        await sleep(objetivo - transcurrido);
+      }
     }
+
     this.ultimoEnvioMs = Date.now();
+    if (jid) this.ultimoDestino = jid;
   }
 
   private enforceSendLimits(): void {
@@ -1669,8 +1698,8 @@ export class WhatsAppManager {
     if (!this.sock || this.state !== "connected") throw new Error("WhatsApp no conectado");
     this.enforceSendLimits();
     await this.verificarProteccionesAsync(text, phone);
-    await this.esperarEspaciadoEntreEnvios();
     const targetJid = originalJid || `${phone}@s.whatsapp.net`;
+    await this.esperarEspaciadoEntreEnvios(targetJid);
 
     // Estilo emoji: sin asteriscos ni viñetas de punto (más amigable/pro)
     text = toEmojiStyle(text);
@@ -1694,8 +1723,8 @@ export class WhatsAppManager {
   async sendImage(phone: string, imageUrl: string, caption: string, originalJid?: string) {
     if (!this.sock || this.state !== "connected") throw new Error("WhatsApp no conectado");
     this.enforceSendLimits();
-    await this.esperarEspaciadoEntreEnvios();
     const jid = originalJid || `${phone}@s.whatsapp.net`;
+    await this.esperarEspaciadoEntreEnvios(jid);
 
     // Simular lectura + escritura (basado en el caption)
     await sleep(READ_DELAY_MS);
