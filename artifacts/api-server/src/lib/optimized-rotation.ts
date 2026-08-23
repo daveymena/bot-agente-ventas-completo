@@ -20,6 +20,65 @@ interface ProviderStatus {
   skipUntil?: Date;  // Skip temporalmente si falla
 }
 
+/** Por qué falló, y cuánto conviene no volver a molestarlo. */
+export type ClaseDeFallo =
+  | "sin_credito"     // no hay medio de pago / saldo: no se arregla solo
+  | "cuota_agotada"   // límite del plan gratuito: vuelve cuando resetea la ventana
+  | "modelo_caido"    // ese MODELO no existe o no está disponible; el proveedor sí
+  | "sin_clave"       // no hay credencial configurada
+  | "lento"           // timeout o red: transitorio de verdad
+  | "desconocido";
+
+const MINUTO = 60 * 1000;
+const HORA = 60 * MINUTO;
+
+/**
+ * Clasifica el error que devolvió un proveedor.
+ *
+ * Por FORMA del mensaje y no por lista cerrada de proveedores: cada gateway
+ * escribe distinto ("No payment method", "CreditsError", "FreeUsageLimitError",
+ * "Rate limit exceeded"), pero todos dicen alguna de estas cinco cosas.
+ *
+ * Los tiempos salen de lo medido el 2026-08-22:
+ *  · sin crédito → hasta que alguien pague. 6h y volvemos a mirar.
+ *  · cuota agotada → las ventanas gratuitas suelen resetear por día; el propio
+ *    admin reportó "hasta dentro de 21 horas". Se reintenta cada hora, que es
+ *    barato, en vez de en cada mensaje.
+ *  · modelo caído → NO se aparta el proveedor: puede tener otros modelos que
+ *    sirven. Cooldown corto para que la rotación pruebe otro.
+ */
+export function clasificarFallo(error?: string): {
+  clase: ClaseDeFallo;
+  cooldownMs: number;
+  /** Terminal: no hace falta un segundo fallo para apartarlo. */
+  inmediato: boolean;
+} {
+  const e = String(error || "").toLowerCase();
+
+  if (/no payment method|creditserror|billing|add a payment|insufficient (credit|balance|funds)|payment required|402/.test(e)) {
+    return { clase: "sin_credito", cooldownMs: 6 * HORA, inmediato: true };
+  }
+  if (/rate limit|freeusagelimit|quota|usage limit|too many requests|\b429\b|limit exceeded|try again (later|tomorrow)/.test(e)) {
+    return { clase: "cuota_agotada", cooldownMs: 1 * HORA, inmediato: true };
+  }
+  // VA ANTES que el chequeo de credencial, y no es un detalle de estilo: el
+  // gateway devuelve "401 Model ling-3.0-flash-free is not supported", y ese
+  // 401 leído como "credencial inválida" apartaría al proveedor ENTERO por 6
+  // horas — por UN modelo muerto de los 64 que tiene. Lo específico primero.
+  if (/model (is )?(unavailable|not found)|does not exist|not supported|model_not_found|unknown model/.test(e)) {
+    // El proveedor está vivo: se cayó ESE modelo. Apartarlo entero sería
+    // tirar a la basura los otros modelos que sí responden.
+    return { clase: "modelo_caido", cooldownMs: 30 * 1000, inmediato: false };
+  }
+  if (/no (api )?key|missing (api )?key|unauthorized|invalid api key|bad credentials|\b401\b/.test(e)) {
+    return { clase: "sin_clave", cooldownMs: 6 * HORA, inmediato: true };
+  }
+  if (/timed out|timeout|etimedout|econnreset|enotfound|socket hang up|network|fetch failed/.test(e)) {
+    return { clase: "lento", cooldownMs: 2 * MINUTO, inmediato: false };
+  }
+  return { clase: "desconocido", cooldownMs: 30 * 1000, inmediato: false };
+}
+
 class OptimizedProviderRotation {
   private providers: Map<string, ProviderStatus> = new Map();
   private blacklist: Set<string> = new Set();
@@ -179,37 +238,53 @@ class OptimizedProviderRotation {
 
   /**
    * Registra un fallo - marca para skipear temporalmente
+   *
+   * No todos los fallos son iguales, y tratarlos igual es lo que hacía que un
+   * mensaje tardara 52 segundos. Medido el 2026-08-22: `opencode_go` estaba
+   * SIN CRÉDITO ("No payment method") y `deepseek-v4-flash-free` con la cuota
+   * gratuita agotada hasta dentro de 21 horas -- y aun así el bot los volvía a
+   * intentar en CADA mensaje, porque el cooldown era de 5 segundos y recién
+   * después de 2 fallos. Cada reintento se lleva su timeout con un cliente
+   * esperando del otro lado.
+   *
+   * Un proveedor sin crédito no se arregla en 5 segundos. Uno con la cuota
+   * diaria agotada, tampoco. Hay que sacarlos del camino y usar los que sí
+   * tienen con qué responder.
    */
   reportFailure(provider: string, error?: string) {
     const status = this.providers.get(provider);
-    if (status) {
-      status.failureCount++;
-      status.lastFailTime = new Date();
+    if (!status) return;
 
-      // Después de 2 fallos seguidos, ponerlo en cooldown
-      if (status.failureCount >= 2) {
-        this.skipProvider(provider);
-        logger.warn(
-          { provider, failureCount: status.failureCount, error },
-          "[OptimizedRotation] ⏸️  Provider skipped (cooldown)"
-        );
-      } else {
-        logger.warn(
-          { provider, failureCount: status.failureCount, error },
-          "[OptimizedRotation] ⚠️  Failure detected"
-        );
-      }
+    status.failureCount++;
+    status.lastFailTime = new Date();
+
+    const { clase, cooldownMs, inmediato } = clasificarFallo(error);
+
+    // Los fallos terminales no necesitan una segunda opinión: si el proveedor
+    // dice "no tenés medio de pago" o "se te acabó la cuota", el intento
+    // siguiente va a decir exactamente lo mismo.
+    if (inmediato || status.failureCount >= 2) {
+      this.skipProvider(provider, cooldownMs);
+      logger.warn(
+        { provider, clase, minutos: Math.round(cooldownMs / 60000), failureCount: status.failureCount, error },
+        "[OptimizedRotation] ⏸️  Proveedor apartado"
+      );
+    } else {
+      logger.warn(
+        { provider, clase, failureCount: status.failureCount, error },
+        "[OptimizedRotation] ⚠️  Failure detected"
+      );
     }
   }
 
   /**
    * Pone un proveedor en cooldown temporal
    */
-  private skipProvider(provider: string) {
+  private skipProvider(provider: string, cooldownMs?: number) {
     this.blacklist.add(provider);
     const status = this.providers.get(provider);
     if (status) {
-      status.skipUntil = new Date(Date.now() + this.cooldownDuration);
+      status.skipUntil = new Date(Date.now() + (cooldownMs ?? this.cooldownDuration));
     }
   }
 
