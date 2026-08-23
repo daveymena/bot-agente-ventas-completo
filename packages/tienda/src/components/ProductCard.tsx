@@ -47,7 +47,16 @@ function Estrellas() {
   );
 }
 
-export default function ProductCard({ product, slug }: { product: Product; slug: string }) {
+export default function ProductCard({
+  product,
+  slug,
+  // Solo tiene sentido decir "Digital" o "Físico" cuando la tienda vende LAS
+  // DOS cosas. En un catálogo 100% digital, las 54 tarjetas diciendo "Digital"
+  // no informan nada: son ruido repetido que además tapa la foto.
+  //
+  // Por defecto true para no romper a quien la use sin el dato.
+  mostrarTipo = true,
+}: { product: Product; slug: string; mostrarTipo?: boolean }) {
   const { formatear } = useMoneda();
   const { addToCart, wishlist, toggleWishlist } = useStore();
   const navigate = useNavigate();
@@ -108,11 +117,14 @@ export default function ProductCard({ product, slug }: { product: Product; slug:
 
   return (
     <div className="group relative flex flex-col rounded-2xl bg-uv-lav p-4 transition-transform duration-300 hover:-translate-y-1">
-      {/* Badge: en el kit dice "Sale!". Acá dice lo que es cierto. */}
-      <span className="absolute top-3 right-3 z-10 inline-flex items-center gap-1 rounded-full bg-brand-600 px-2.5 py-1 text-[10px] font-medium text-white">
-        <TipoIcon className="h-3 w-3" />
-        {tipo.label}
-      </span>
+      {/* Badge: en el kit dice "Sale!". Acá dice lo que es cierto -- y solo
+          cuando distingue algo, o sea si la tienda mezcla digital y físico. */}
+      {mostrarTipo && (
+        <span className="absolute top-3 right-3 z-10 inline-flex items-center gap-1 rounded-full bg-brand-600 px-2.5 py-1 text-[10px] font-medium text-white">
+          <TipoIcon className="h-3 w-3" />
+          {tipo.label}
+        </span>
+      )}
 
       <Link
         to={detailHref}

@@ -90,6 +90,14 @@ const Shop = () => {
   const hayFisicos = products.some(p => p.type === 'physical');
   const hayDigitales = products.some(p => p.type !== 'physical');
 
+  // ¿Esta tienda mezcla las dos cosas?
+  //
+  // No todas las tiendas del sistema venden de los dos tipos: unas son 100%
+  // cursos digitales, otras 100% producto físico. Distinguir "Digital" vs
+  // "Físico" solo informa cuando conviven; si no, es una etiqueta repetida en
+  // cada tarjeta y cada categoría que no ayuda a decidir y tapa la foto.
+  const catalogoMixto = hayFisicos && hayDigitales;
+
   const [filter, setFilter] = useState('all');
 
   /**
@@ -150,11 +158,23 @@ const Shop = () => {
   });
 
   const categories = useMemo(() => {
-    const counts: Record<string, { key: string; name: string; type: string; count: number }> = {};
+    // Cada categoría se queda con la FOTO del primer producto suyo que tenga
+    // una. Es lo que separa este diseño de un tablero de colores: en el kit de
+    // referencia cada bloque de categoría es una foto real con el texto
+    // encima, no un rectángulo de color con una etiqueta.
+    //
+    // La imagen sale del catálogo, nunca de un banco de fotos: una tienda que
+    // ilustra "Audio" con una foto de stock que no vende se nota, y encima
+    // sería mostrar algo que el cliente no puede comprar.
+    //
+    // Si ninguna producto de la categoría tiene imagen, `image` queda vacío y
+    // la tarjeta cae al bloque de color. Preferible a inventar una.
+    const counts: Record<string, { key: string; name: string; type: string; count: number; image: string }> = {};
     products.forEach(p => {
       const key = categoryKey(p);
-      if (!counts[key]) counts[key] = { key, name: p.category || 'General', type: p.type || 'digital', count: 0 };
+      if (!counts[key]) counts[key] = { key, name: p.category || 'General', type: p.type || 'digital', count: 0, image: '' };
       counts[key].count++;
+      if (!counts[key].image && p.image) counts[key].image = p.image;
     });
     return Object.values(counts).sort((a, b) => b.count - a.count);
   }, [products]);
@@ -164,6 +184,10 @@ const Shop = () => {
   // cualquier otro valor cae a "digital" ahí, así que se replica el mismo
   // fallback acá para que el label nunca contradiga lo que el backend hace.
   const typeLabel = (type: string) => type === 'physical' ? 'Físico' : 'Digital';
+
+  // Portada: la que cargó el dueño y, si no, la foto del primer producto que
+  // tenga una. Nunca una imagen de stock: se muestra algo que está a la venta.
+  const heroImagen = config.heroImage || products.find(p => p.image)?.image || '';
 
   // El mosaico de categorías muestra 8; una tienda con muchas más las
   // despliega bajo demanda en vez de empujar el catálogo fuera de pantalla.
@@ -195,12 +219,20 @@ const Shop = () => {
               quiera: un PNG recortado se ve flotando, pero una foto rectangular
               pegada al borde se lee como un pantallazo mal pegado. Con el
               recuadro, las dos opciones se ven intencionales. */}
-          {config.heroImage && (
+          {/* Si el dueño no cargó una foto de portada, se usa la de un
+              producto real del catálogo. Un héroe sin imagen es un rectángulo
+              de color, que es justo lo que hace que la tienda no se vea
+              profesional -- y en el kit de referencia el hero SIEMPRE tiene
+              producto. Se prefiere una foto que el cliente pueda comprar
+              antes que un banco de imágenes. */}
+          {heroImagen && (
             <img
-              src={config.heroImage}
+              src={heroImagen}
               alt=""
               aria-hidden="true"
-              className="pointer-events-none absolute right-5 top-1/2 -translate-y-1/2 h-[78%] w-[42%] object-cover object-center rounded-2xl shadow-lg hidden sm:block"
+              loading="eager"
+              onError={(e) => { e.currentTarget.style.display = 'none'; }}
+              className="pointer-events-none absolute right-4 sm:right-8 top-1/2 -translate-y-1/2 h-[80%] w-[46%] object-cover object-center rounded-uv shadow-2xl hidden sm:block"
             />
           )}
           <div className="relative z-10 max-w-md">
@@ -240,12 +272,25 @@ const Shop = () => {
             onClick={() => elegirFiltro(categories[0].key)}
             className="group relative overflow-hidden rounded-uv-lg bg-[var(--store-orange)] text-white p-6 sm:p-8 min-h-[160px] sm:min-h-[320px] flex flex-col justify-center text-left"
           >
-            <p className="text-xs font-bold uppercase tracking-[0.2em] opacity-70 mb-2">Lo más surtido</p>
-            <h2 className="text-2xl sm:text-3xl font-black leading-tight mb-1">{categories[0].name}</h2>
-            <p className="text-sm opacity-80 mb-6">
+            {/* La foto de un producto real de la categoría, flotando sobre el
+                color como los audífonos del kit. Sin ella el bloque es un
+                rectángulo naranja con letras. */}
+            {categories[0].image && (
+              <img
+                src={categories[0].image}
+                alt=""
+                aria-hidden="true"
+                loading="lazy"
+                onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                className="pointer-events-none absolute -right-6 -top-6 h-40 w-40 rounded-full object-cover opacity-90 shadow-2xl transition-transform duration-500 group-hover:scale-105 sm:h-52 sm:w-52"
+              />
+            )}
+            <p className="relative text-xs font-bold uppercase tracking-[0.2em] opacity-70 mb-2">Lo más surtido</p>
+            <h2 className="relative text-2xl sm:text-3xl font-black leading-tight mb-1">{categories[0].name}</h2>
+            <p className="relative text-sm opacity-80 mb-6">
               {categories[0].count} producto{categories[0].count === 1 ? '' : 's'} · {typeLabel(categories[0].type)}
             </p>
-            <span className="inline-flex w-fit items-center gap-2 h-10 px-6 rounded-full bg-white text-gray-900 text-sm font-bold group-hover:-translate-y-0.5 transition-transform">
+            <span className="relative inline-flex w-fit items-center gap-2 h-10 px-6 rounded-full bg-white text-gray-900 text-sm font-bold group-hover:-translate-y-0.5 transition-transform">
               Ver categoría
             </span>
           </button>
@@ -300,18 +345,69 @@ const Shop = () => {
                   key={c.key}
                   onClick={() => elegirFiltro(activa ? 'all' : c.key)}
                   aria-pressed={activa}
-                  className={`group relative overflow-hidden rounded-2xl p-4 sm:p-6 min-h-[104px] sm:min-h-[132px] flex flex-col justify-between text-left transition-all hover:-translate-y-0.5 ${
-                    activa
-                      ? 'bg-[var(--store-primary)] text-[var(--store-on-primary)] shadow-md'
-                      : 'bg-[var(--store-primary-soft)] text-gray-900 hover:shadow-md'
+                  className={`group relative isolate overflow-hidden rounded-uv p-4 sm:p-6 min-h-[150px] sm:min-h-[210px] flex flex-col justify-end text-left transition-all hover:-translate-y-1 ${
+                    c.image
+                      ? 'text-white shadow-md'
+                      : activa
+                        ? 'bg-[var(--store-primary)] text-[var(--store-on-primary)] shadow-md'
+                        : 'bg-[var(--store-primary-soft)] text-gray-900 hover:shadow-md'
                   }`}
                 >
-                  <span className={`text-[10px] font-bold uppercase tracking-wider ${activa ? 'opacity-80' : 'text-[var(--store-primary)]'}`}>
-                    {typeLabel(c.type)}
-                  </span>
+                  {/* La FOTO de un producto real de la categoría, a sangre.
+                      Es lo que hace que el mosaico se lea como una tienda y
+                      no como un tablero de colores. */}
+                  {c.image && (
+                    <>
+                      <img
+                        src={c.image}
+                        alt=""
+                        aria-hidden="true"
+                        loading="lazy"
+                        onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                        className="absolute inset-0 -z-20 h-full w-full object-cover transition-transform duration-500 group-hover:scale-110"
+                      />
+                      {/* Velo de abajo hacia arriba: sin él, el texto blanco
+                          desaparece sobre las fotos claras. Se tiñe del color
+                          de marca cuando la categoría está activa, para que se
+                          note cuál está filtrando. */}
+                      <span
+                        aria-hidden="true"
+                        className={`absolute inset-0 -z-10 ${
+                          activa
+                            ? 'bg-[var(--store-primary)]/75'
+                            // Oscurece ARRIBA tambien: con el velo solo abajo,
+                            // el rotulo de tipo (DIGITAL/FISICO) quedaba
+                            // ilegible sobre las fotos claras -- visto en
+                            // "General" y "Musica" del catalogo real.
+                            : 'bg-gradient-to-t from-black/85 via-black/45 to-black/30'
+                        }`}
+                      />
+                    </>
+                  )}
+
+                  {catalogoMixto && (
+                    <span className={`text-[10px] font-bold uppercase tracking-wider ${
+                      c.image ? 'text-white/85' : activa ? 'opacity-80' : 'text-[var(--store-primary)]'
+                    }`}>
+                      {typeLabel(c.type)}
+                    </span>
+                  )}
+                  <span className="mb-auto" />
                   <span className="text-base sm:text-xl font-black leading-tight line-clamp-2">{c.name}</span>
-                  <span className={`text-xs font-semibold ${activa ? 'opacity-80' : 'text-gray-500'}`}>
+                  <span className={`text-xs font-semibold ${
+                    c.image ? 'text-white/80' : activa ? 'opacity-80' : 'text-gray-500'
+                  }`}>
                     {c.count} producto{c.count === 1 ? '' : 's'}
+                  </span>
+
+                  {/* Píldora "Ver" como en el kit: da a entender que el bloque
+                      es accionable, que era justo lo que no se leía. */}
+                  <span className={`mt-3 inline-flex w-fit items-center rounded-full px-4 py-1.5 text-[11px] font-bold transition-colors ${
+                    c.image
+                      ? 'bg-white text-[var(--store-ink)] group-hover:bg-[var(--store-yellow)]'
+                      : 'bg-[var(--store-primary)] text-white'
+                  }`}>
+                    {activa ? 'Quitar filtro' : 'Ver productos'}
                   </span>
                 </button>
               );
@@ -387,7 +483,7 @@ const Shop = () => {
         <>
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-6">
             {displayedProducts.map((product) => (
-              <ProductCard key={product.id} product={product} slug={slug} />
+              <ProductCard key={product.id} product={product} slug={slug} mostrarTipo={catalogoMixto} />
             ))}
           </div>
           {filteredProducts.length > visibleCount && (

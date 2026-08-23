@@ -17,6 +17,8 @@ const PublicLayout = ({ children }: { children: React.ReactNode }) => {
   const cartCount = cart.reduce((acc, item) => acc + item.quantity, 0);
   const base = slug ? `/tienda/${slug}` : '/tienda';
   const [mobileMenu, setMobileMenu] = useState(false);
+  // Solo se promete envío si la tienda vende algo que se envíe.
+  const [hayEnvios, setHayEnvios] = useState(false);
 
   // El usuario logueado solo ve los botones de administración cuando la
   // tienda que está viendo es LA SUYA -- isAdmin por sí solo solo dice "hay
@@ -77,6 +79,14 @@ const PublicLayout = ({ children }: { children: React.ReactNode }) => {
     fetch(`/api/public/products/${effectiveSlug}`)
       .then(r => (r.ok ? r.json() : null))
       .then(d => {
+        // ¿Esta tienda despacha algo físico? La barra superior prometía
+        // "Envíos a todo el país" SIEMPRE, aunque el catálogo fuera 100%
+        // digital -- en TecnoVariedades, 54 de 54 productos. Prometer un envío
+        // que no existe trae reclamos y disputas de pago, y es justo lo que
+        // hace que una tienda se lea como plantilla sin terminar.
+        if (Array.isArray(d?.products)) {
+          setHayEnvios(d.products.some((p: any) => (p.kind || p.type) === 'physical'));
+        }
         if (!d?.store) return;
         if (d.store.pixelId) initPixel(d.store.pixelId);
         updateConfig({
@@ -110,9 +120,11 @@ const PublicLayout = ({ children }: { children: React.ReactNode }) => {
               >
                 <Phone className="w-3 h-3" /> {config.whatsappPhone}
               </a>
-              <span className="hidden md:flex items-center gap-1.5">
-                <Truck className="w-3 h-3" /> Envíos a todo el país
-              </span>
+              {hayEnvios && (
+                <span className="hidden md:flex items-center gap-1.5">
+                  <Truck className="w-3 h-3" /> Envíos a todo el país
+                </span>
+              )}
               <span className="ml-auto hidden md:flex items-center gap-1.5">
                 <ShieldCheck className="w-3 h-3" /> Compra protegida
               </span>
@@ -164,7 +176,11 @@ const PublicLayout = ({ children }: { children: React.ReactNode }) => {
                 justo lo que hace que una tienda parezca "muy simple". */}
             <div className="hidden md:flex items-center gap-6 ml-8 mr-auto text-sm font-medium">
               <Link to={base} className="text-white/85 hover:text-white transition-colors">Inicio</Link>
-              <Link to={`${base}/shop`} className="text-white/85 hover:text-white transition-colors">Tienda</Link>
+              {/* Apuntaba a `${base}/shop`, una ruta que NO EXISTE (las reales son
+                  /tienda/:slug, /tienda/:slug/producto/:id, /carrito, /checkout
+                  y /wishlist). O sea que el enlace "Tienda" del menú caía en el
+                  comodín y no mostraba nada -- justo lo que reportó el dueño. */}
+              <Link to={`${base}#catalogo`} className="text-white/85 hover:text-white transition-colors">Tienda</Link>
               {config.whatsappPhone && (
                 <a
                   href={`https://wa.me/${String(config.whatsappPhone).replace(/[^0-9]/g, '')}`}
