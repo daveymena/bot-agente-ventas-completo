@@ -1578,7 +1578,18 @@ function buildContextBlock(
     lines.push(`\n✅ TU ACCIÓN:`);
     lines.push(`1. Dile la VERDAD: el producto que busca no está disponible.`);
     lines.push(`2. Menciona brevemente qué productos SÍ tienes más similares si los hay.`);
-    lines.push(`3. Simplemente ofrécele la información y deja que el cliente decida si le interesa. NUNCA termines con preguntas como "¿qué tipo buscas?" o "¿te interesa alguno?".`);
+    // Acá decía: NUNCA termines con preguntas como "¿qué tipo buscas?" o
+    // "¿te interesa alguno?". Contradecía la REGLA FINAL de más abajo (que ya
+    // se corrigió y solo prohíbe la pregunta VACÍA) y, peor, se aplicaba
+    // justo en el peor momento posible: el cliente pidió algo que NO está en
+    // el catálogo. Prohibir preguntar ahí convierte "no lo tengo" en un
+    // callejón sin salida y el lead --que costó dinero-- se pierde entero.
+    //
+    // Preguntar qué necesita cuando no hay producto que ofrecer no es
+    // interrogar: es la única forma de avanzar. La regla unificada es la
+    // misma del resto del motor: se pregunta cuando la respuesta hace falta
+    // para avanzar comercialmente, no para llenar campos.
+    lines.push(`3. Dale igual algo útil: si hay algo parecido, decí en una línea por qué podría servirle. Y como no tenés el producto que pidió, SÍ corresponde una sola pregunta concreta para poder ayudarlo (qué necesita exactamente, para qué lo quiere). Lo que no va es la pregunta vacía tipo "¿te interesa alguno?" sin haberle dado nada antes.`);
     lines.push(`4. Sé honesto y directo, no inventes productos ni des información falsa.`);
     lines.push(`5. NUNCA muestres una tarjeta de un producto que no tiene que ver con lo que busca.`);
   }
