@@ -2051,10 +2051,16 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
         intent: decision.intent,
         aiProvider: usedProvider,
         cardSent: cardCount > 0,
-        productId: cardProductId || decision.productToShow?.id,
+        // El producto en foco NO es solo el de la tarjeta enviada. Si el bot
+        // respondió con texto sin tarjeta ("¿querés que te pase la info?"), el
+        // producto que el cliente NOMBRÓ en este mensaje (productoDelMensaje)
+        // es lo que debe quedar en foco. Antes esto solo miraba la tarjeta o
+        // productToShow, así que una respuesta sin tarjeta dejaba el foco vacío
+        // y el "Si" de confirmación volvía al producto viejo del historial.
+        productId: cardProductId || decision.productToShow?.id || decision.productoDelMensaje?.id,
         productName: cardProductId
           ? productList.find(p => p.id === cardProductId)?.name
-          : decision.productToShow?.name,
+          : decision.productToShow?.name || decision.productoDelMensaje?.name,
         isHardcoded: false,
       };
 
@@ -2161,8 +2167,15 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
         .set({
           lastMessage: raw.substring(0, 200),
           lastMessageAt: dbNow(),
-          currentProductId: agentMeta.productId ?? null,
-          currentProductName: agentMeta.productName ?? null,
+          // No se puede BORRAR el producto en foco con una respuesta que no
+          // trae tarjeta. Antes `agentMeta.productId ?? null` ponía currentProductId
+          // en null cada vez que el bot respondía con texto suelto (un saludo,
+          // un "te paso la info"), así que el producto que se venía conversando
+          // desaparecía y la confirmación siguiente ("Si") caía en el producto
+          // viejo del historial. Si este turno no definió un producto nuevo,
+          // se conserva el que ya estaba en contexto.
+          currentProductId: agentMeta.productId ?? memory.currentProductId ?? null,
+          currentProductName: agentMeta.productName ?? memory.currentProductName ?? null,
         })
         .where(eq(conversations.id, conversationId));
 

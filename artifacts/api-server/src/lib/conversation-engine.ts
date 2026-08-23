@@ -208,6 +208,12 @@ const GENERIC_WORDS = new Set([
   "detalles", "más", "mas", "saber", "conocer", "ver",
   "interesa", "interes", "interesado", "interesada",
   "busco", "buscando", "buscas",
+  // "producto"/"servicio"/"cosa" no identifican QUÉ producto: son sustantivos
+  // genéricos que cualquier cliente usa ("quiero info del producto"). Antes
+  // "producto curso" dejaba "producto" como término específico y la búsqueda
+  // devolvía una coincidencia de nivel 1 (basura) en vez de admitir que no
+  // había nada que matchear.
+  "producto", "productos", "servicio", "servicios", "cosa", "cosas", "articulo", "articulos",
 ]);
 
 const STOP_WORDS = new Set([
@@ -1221,47 +1227,48 @@ export async function findBestProductMatch(
     reasoning.push("⚠️ Usando coincidencia genérica (nivel 1) como último recurso.");
   }
 
-  // Ordenar por nivel descendente, luego por cantidad de palabras específicas coincidentes en el nombre
+  // Ordenar por nivel descendente, luego por precisión del NOMBRE (no de la
+  // descripción). El orden importa, y acá hubo un bug que se midió en
+  // producción: dos productos con el mismo nivel (ej. "Guitarra Acústica" y
+  // "Guitarra Acústica Premium" contienen ambas "guitarra acústica") empataban
+  // en nombre, y el desempate por DESCRIPCIÓN le daba la victoria a "Premium"
+  // solo porque su descripción repetía "guitarra". El cliente pedía la guitarra
+  // acústica exacta y recibía la Premium.
+  //
+  // Cuando el nombre ya contiene la frase, la descripción no puede decidir: el
+  // nombre MÁS CORTO es el más preciso (coincidencia exacta > "X Premium").
   valid.sort((a, b) => {
     if (b.level !== a.level) return b.level - a.level;
-    
+
     // Tiebreaker 1: Palabras específicas en el nombre
     const aNameHits = specificWords.filter(w => normalizeText(a.product.name).includes(w)).length;
     const bNameHits = specificWords.filter(w => normalizeText(b.product.name).includes(w)).length;
     if (bNameHits !== aNameHits) return bNameHits - aNameHits;
-    
-    // Tiebreaker 2: Palabras específicas en la descripción
+
+    // Tiebreaker 2: Longitud del nombre — el más corto es la coincidencia más
+    // exacta (el nombre exacto le gana a "X Premium"/"X Completo"). Va ANTES de
+    // la descripción a propósito: el nombre es lo que el cliente ve y nombra.
+    const aNameLen = normalizeText(a.product.name).length;
+    const bNameLen = normalizeText(b.product.name).length;
+    if (bNameLen !== aNameLen) return aNameLen - bNameLen;
+
+    // Tiebreaker 3: Palabras específicas en la descripción (último recurso)
     const aDescHits = specificWords.filter(w => normalizeText(a.product.description || "").includes(w)).length;
     const bDescHits = specificWords.filter(w => normalizeText(b.product.description || "").includes(w)).length;
     if (bDescHits !== aDescHits) return bDescHits - aDescHits;
-    
-    // Tiebreaker 3: Longitud del nombre (productos más específicos primero)
-    return normalizeText(a.product.name).length - normalizeText(b.product.name).length;
+
+    return 0;
   });
 
   const best = valid[0];
-  
-  // ── VALIDACIÓN ADICIONAL: Si hay múltiples productos con el mismo nivel,
-  // asegurarse de que el mejor sea realmente el mejor
-  if (valid.length > 1 && valid[0].level === valid[1].level) {
-    // Si hay empate, preferir el que tenga más coincidencias en el nombre
-    const topLevel = valid[0].level;
-    const topProducts = valid.filter(e => e.level === topLevel);
-    
-    if (topProducts.length > 1) {
-      // Calcular score adicional basado en coincidencias exactas
-      const scores = topProducts.map(e => {
-        const nameHits = specificWords.filter(w => normalizeText(e.product.name).includes(w)).length;
-        const descHits = specificWords.filter(w => normalizeText(e.product.description || "").includes(w)).length;
-        return { product: e, score: nameHits * 2 + descHits };
-      });
-      
-      scores.sort((a, b) => b.score - a.score);
-      reasoning.push(`⚠️ Múltiples productos con nivel ${topLevel}. Seleccionando por coincidencias: ${scores[0].product.product.name}`);
-      return { product: scores[0].product.product, score: topLevel * 25, reasoning: reasoning.join("\n") };
-    }
-  }
-  
+
+  // (Eliminado el bloque de "validación adicional" que re-ordenaba los
+  // empates con `nameHits*2 + descHits`. Ese rescore volvía a premiar la
+  // descripción y deshacía el orden correcto calculado arriba: con
+  // "guitarra acústica" devolvía "Guitarra Acústica Premium" porque su
+  // descripción repetía "guitarra". El `valid.sort()` de arriba ya resuelve
+  // el empate correctamente con precisión del nombre.)
+
   reasoning.push(`✅ Producto seleccionado: "${best.product.name}" (nivel ${best.level})`);
   reasoning.push(`   Razón: ${best.matchDetail}`);
   if (best.categoryHit) reasoning.push("   Coincidencia de categoría confirmada.");
@@ -1893,6 +1900,39 @@ export async function saveAgentMessage(
       .where(eq(conversations.id, conversationId));
   } catch (err) {
     console.error(`[ConversationEngine] Error guardando mensaje del agente:`, err);
+  }
+}
+
+/**
+ * Guarda un mensaje del CLIENTE en la base.
+ *
+ * `saveAgentMessage` fija `role: "agent"` a propósito — es para las respuestas
+ * del bot. Los mensajes del cliente se guardan por vías distintas en producción
+ * (whatsapp.ts, facebook.ts, message-handler.ts hacen `db.insert(messages)` con
+ * `role: "customer"`). Este helper centraliza ese caso para los tests de flujo
+ * y para cualquier llamador futuro, evitando el error de intentar meter el rol
+ * por el campo `metadata` (que no lo tiene).
+ */
+export async function saveCustomerMessage(
+  conversationId: number,
+  content: string,
+  stage: Stage,
+  metadata: MessageMetadata = {}
+): Promise<void> {
+  try {
+    await db.insert(messages).values({
+      conversationId,
+      role: "customer",
+      content,
+      stage,
+      metadata,
+    });
+
+    await db.update(conversations)
+      .set({ lastMessage: content.substring(0, 200), lastMessageAt: dbNow() })
+      .where(eq(conversations.id, conversationId));
+  } catch (err) {
+    console.error(`[ConversationEngine] Error guardando mensaje del cliente:`, err);
   }
 }
 

@@ -21,6 +21,7 @@
 import { db, leads, payments, conversations, messages } from "@workspace/db";
 import { eq, and, gte, desc, isNotNull, count } from "drizzle-orm";
 import type { AdAttribution, FunnelSnapshot } from "./types";
+import { toDbDate } from "../date-utils";
 
 export interface AnuncioContext {
   titulo: string;
@@ -74,14 +75,12 @@ export async function getAttributionSummary(
   days = 30,
   spendByAd: Record<string, number> = {},
 ): Promise<{ rows: AdAttribution[]; totalLeads: number; totalPaid: number; totalRevenue: number }> {
-  // ISO string: el driver de SQLite (sql.js) no acepta objetos Date al bindear;
-  // en PostgreSQL el string ISO también es válido para columnas timestamptz.
-  // Date, NO string. La columna es `timestamp` y Drizzle le llama
-  // `.toISOString()` al valor que recibe: con un string ya convertido eso
-  // revienta con "value.toISOString is not a function" y la consulta entera
-  // devuelve 500. Verificado en vivo el 2026-08-19: el chat de Marketing
-  // fallaba con ese error en 909ms ante cualquier mensaje.
-  const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+  // La fecha va con toDbDate(), el MISMO helper que usa followUpScheduler.ts:
+  // con SQLite (sql.js) las columnas timestamp son `text` y el driver rechaza
+  // bindear un objeto Date crudo ("Wrong API use: tried to bind a value of an
+  // unknown type"). Con Postgres, Drizzle espera un Date y lo serializa él.
+  // toDbDate() devuelve el formato correcto para el motor activo en cada caso.
+  const since = toDbDate(new Date(Date.now() - days * 24 * 60 * 60 * 1000)) as any;
 
   const leadRows = await db
     .select()
@@ -157,12 +156,9 @@ export async function getAttributionSummary(
  * los eslabones que el sistema puede medir de verdad.
  */
 export async function getFunnelSnapshot(tenantId: number, days = 30): Promise<FunnelSnapshot> {
-  // Date, NO string. La columna es `timestamp` y Drizzle le llama
-  // `.toISOString()` al valor que recibe: con un string ya convertido eso
-  // revienta con "value.toISOString is not a function" y la consulta entera
-  // devuelve 500. Verificado en vivo el 2026-08-19: el chat de Marketing
-  // fallaba con ese error en 909ms ante cualquier mensaje.
-  const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+  // Mismo criterio que getAttributionSummary: toDbDate() para que la fecha
+  // bindee bien tanto en SQLite (text) como en Postgres (timestamp/Date).
+  const since = toDbDate(new Date(Date.now() - days * 24 * 60 * 60 * 1000)) as any;
 
   const [leadCount] = await db
     .select({ n: count() })

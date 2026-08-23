@@ -409,16 +409,32 @@ function buildFormatInstructions(
   // Guía de ESTILO HUMANO — corta y clara. Nada de formato mecánico:
   // los modelos débiles copian los muros de instrucciones, y los separadores/
   // viñetas hacen que suene a robot. Un gran vendedor escribe natural.
+  const e = voice.emojis;
   return `
 [CÓMO ESCRIBIR — REGLA DE ORO]
 Escribe EXACTAMENTE como lo haría el mejor vendedor humano de la empresa por WhatsApp:
 - Natural, cálido, de tú a tú. Como una persona real conversando, NO como un folleto ni un bot.
 - Muy breve: 1 a 3 líneas. Nada de párrafos largos ni discursos.
-- Como máximo 1 emoji, y solo si de verdad suma. NO uses un emoji por línea.
 - PROHIBIDO ABSOLUTO: separadores (━ ─ ═ •••), TÍTULOS EN MAYÚSCULAS, listas con viñetas (✅ •), y etiquetas de sistema tipo "OBJECIÓN DETECTADA", "INFORMACIÓN DE PRODUCTO", "DEBES HACER".
 - Varía tus palabras cada vez. Que nunca suene a plantilla.
 - Si vas a mostrar un producto, escribe UNA frase natural y luego [CARD: ID]. Nada después de la card.
-- Cuando el cliente vaya a pagar, una frase breve confirmando; el sistema adjunta los enlaces (no los escribas tú).`;
+- Cuando el cliente vaya a pagar, una frase breve confirmando; el sistema adjunta los enlaces (no los escribas tú).
+
+[EMOJIS — ÚSALOS CON INTENCIÓN PARA DARLE VIDA]
+Los emojis humanizan la conversación y guían la lectura, pero nunca sustituyen al contenido. Reglas:
+- Entre 0 y 3 emojis por respuesta (0–2 si la respuesta es corta). NUNCA uno por palabra, ni tres seguidos.
+- Cada emoji tiene que aportar algo: emoción, destacar un beneficio, separar una idea o reforzar el siguiente paso.
+- Usá el emoji que corresponde al MOMENTO de la venta:
+  · cercanía/emoción: 😊 👍 🙌
+  · mostrar producto: ${e.product}
+  · beneficios: ${e.benefit} ⭐
+  · precio: ${e.price}
+  · entrega/acceso: ${e.delivery}
+  · pago: ${e.payment} 📱
+  · confirmar/cerrar: ${e.success} 👉
+  · urgencia (solo si hay promoción, stock o fecha límite REALES): ${e.urgency}
+- NUNCA: emojis aleatorios sin relación con lo que hablan, emojis para inventar promociones o falsas urgencias, ni repetir el mismo emoji en todas las respuestas.
+- El cliente debe sentir que habla con una persona que usa emojis con naturalidad, no que lee un anuncio.`;
 }
 
 // ─── Función principal: analizar y construir el contexto completo ─────────────

@@ -845,8 +845,9 @@ router.post("/checkout-cart/:slug", async (req, res, next) => {
     const reference = `${customer.phone || "guest"}|cart|${lines.map(l => l.product.id).join(",")}`;
 
     if (method === "paypal") {
-      const clientId = process.env.PAYPAL_CLIENT_ID;
-      const clientSecret = process.env.PAYPAL_CLIENT_SECRET;
+      const credencialesCarrito = credencialesDe(await tenantManager.getTenantById(tenant.id));
+      const clientId = credencialesCarrito.paypal.clientId;
+      const clientSecret = credencialesCarrito.paypal.clientSecret;
       if (!clientId || !clientSecret) {
         return res.status(500).json({ message: "PayPal no configurado" });
       }
