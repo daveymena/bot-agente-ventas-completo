@@ -54,6 +54,19 @@ export interface EntradaPlaybook {
   negocio?: BusinessContext | null;
   /** ¿El pago ya está confirmado? Entonces no se vende, se atiende. */
   pagoConfirmado?: boolean;
+  /**
+   * Aperturas que este negocio ya usó con OTROS clientes hace poco.
+   *
+   * `aperturasUsadas()` solo mira la conversación actual, así que el PRIMER
+   * mensaje a cada cliente nuevo no tenía nada que evitar y salía siempre
+   * igual. Medido el 2026-08-23 en producción: las 10 conversaciones del panel
+   * abrían con la misma frase ("¡Hola! Claro, con gusto te cuento…").
+   *
+   * Para el cliente es "esto es un bot". Para WhatsApp es la firma exacta del
+   * envío masivo: mensajes casi idénticos a muchos contactos distintos. Es lo
+   * que el admin describió como "whatsapp me estaba botando los clientes".
+   */
+  aperturasDelNegocio?: string[];
 }
 
 // ─── Señales ──────────────────────────────────────────────────────────────────
@@ -72,8 +85,48 @@ const EVASIVAS = [
   "cuando pueda", "la otra semana", "el otro mes", "ya te confirmo",
 ];
 
+/**
+ * El cliente pregunta POR EL MEDIO DE PAGO: "¿cómo pago?", "¿dónde consigno?".
+ *
+ * Esto NO es una duda, es la señal de compra más fuerte que existe: ya decidió
+ * y solo falta decirle por dónde. Se separa aparte porque lleva un signo de
+ * pregunta y la palabra "cómo", así que `tienePreguntaAbierta` la marcaba como
+ * duda abierta -- y como la jugada de cierre exige `cerrando && !preguntaAbierta`,
+ * NO disparaba. Peor: caía en el bloque de pregunta abierta, que le ordena al
+ * modelo "NO empujes el pago en el mismo mensaje". Justo cuando el cliente
+ * estaba pidiendo pagar.
+ *
+ * Medido el 2026-08-23 con el banco de casos de `senales-de-compra.test.ts`:
+ * "¿cómo pago?", "como hago para pagarlo", "¿dónde pago?" y "listo, ¿cómo hago?"
+ * caían las cuatro en la jugada genérica.
+ */
+function preguntaPorElMedioDePago(mensaje: string): boolean {
+  const t = mensaje.toLowerCase();
+  return [
+    "cómo pago", "como pago", "cómo te pago", "como te pago",
+    "dónde pago", "donde pago", "cómo lo pago", "como lo pago",
+    "cómo hago para pagar", "como hago para pagar",
+    "dónde consigno", "donde consigno", "cómo consigno", "como consigno",
+    "medios de pago", "formas de pago", "métodos de pago", "metodos de pago",
+    "cómo hago para comprar", "como hago para comprar",
+    "dónde compro", "donde compro", "cómo lo compro", "como lo compro",
+    "a dónde te envío", "a donde te envio", "a qué cuenta", "a que cuenta",
+    "cómo procedo", "como procedo",
+  ].some((p) => t.includes(p))
+    // "listo, ¿cómo hago?" / "¿qué sigue?" -- pide el paso siguiente, que a
+    // esta altura ES pagar. Se excluye cuando pregunta cómo hacer OTRA cosa
+    // ("¿cómo hago para tocar con las dos manos?"): ahí "para X" es una duda
+    // del producto, no del pago.
+    || (["cómo hago", "como hago", "cómo sigo", "como sigo", "qué sigue",
+         "que sigue", "siguiente paso", "qué hago", "que hago"].some((p) => t.includes(p))
+        && !/\bpara\s+(?!pagar|comprar|adquirir)/.test(t));
+}
+
 /** El cliente pregunta algo concreto: hay que contestarlo antes de cerrar. */
 function tienePreguntaAbierta(mensaje: string): boolean {
+  // Preguntar por el medio de pago no deja ninguna duda pendiente que
+  // resolver: se contesta cerrando, no explicando.
+  if (preguntaPorElMedioDePago(mensaje)) return false;
   const t = mensaje.toLowerCase();
   if (t.includes("?") || t.includes("¿")) return true;
   return ["sirve", "funciona", "incluye", "cuanto", "cuánto", "como", "cómo",
@@ -90,7 +143,18 @@ function quiereComprar(mensaje: string, intencion: string): boolean {
 
 function esEvasiva(mensaje: string): boolean {
   const t = mensaje.toLowerCase();
-  return EVASIVAS.some((p) => t.includes(p));
+
+  // Pedir el medio de pago nunca es dar largas, aunque la frase traiga un
+  // "listo, después te confirmo el pago".
+  if (preguntaPorElMedioDePago(t)) return false;
+
+  // "después" estaba en EVASIVAS como subcadena suelta, así que "¿me lo puedes
+  // enviar después de las 5?" contaba como largas -- y el bot le respondía a un
+  // cliente que estaba COORDINANDO LA ENTREGA con "¿qué es lo que te hace
+  // dudar?". "después DE algo" es una referencia de tiempo concreta, no una
+  // postergación; "después te aviso" sí lo es.
+  const sinFalsoPositivo = t.replace(/\bdespu[eé]s\s+de\b/g, " ");
+  return EVASIVAS.some((p) => sinFalsoPositivo.includes(p));
 }
 
 /**
@@ -116,18 +180,20 @@ function sabemosQueQuiereLograr(historial: Array<{ role: string; content: string
  * verificar. Darle la lista de lo que YA usó, sí — es un dato concreto sobre
  * el que puede actuar.
  */
+export function extraerApertura(texto: string): string {
+  return String(texto)
+    .replace(/^[\s¡!¿?]*/, "")
+    .split(/[\s,.!?—:]+/)
+    .slice(0, 3)
+    .join(" ")
+    .trim();
+}
+
 function aperturasUsadas(historial: Array<{ role: string; content: string }>): string[] {
   return historial
     .filter((m) => m.role === "agent")
     .slice(-5)
-    .map((m) =>
-      String(m.content)
-        .replace(/^[\s¡!¿?]*/, "")
-        .split(/[\s,.!?—:]+/)
-        .slice(0, 3)
-        .join(" ")
-        .trim(),
-    )
+    .map((m) => extraerApertura(m.content))
     .filter((a) => a.length > 2);
 }
 
@@ -237,13 +303,22 @@ export function construirPlaybook(e: EntradaPlaybook): SalidaPlaybook {
   const evasiva = esEvasiva(e.mensaje);
 
   // ── Señal de compra: cerrar limpio ───────────────────────────────────────
-  if (cerrando && !preguntaAbierta) {
+  // `preguntaAbierta` ya devuelve false cuando lo que pregunta es el MEDIO de
+  // pago, pero se deja explícito acá: si el cliente está pidiendo pagar, esta
+  // rama tiene que ganarle a cualquier otra lectura del mensaje.
+  const pideMedioDePago = preguntaPorElMedioDePago(e.mensaje);
+  if (cerrando && (!preguntaAbierta || pideMedioDePago)) {
     jugada = "cierre";
     l.push(`🟢 EL CLIENTE ESTÁ CERRANDO. Es la señal que estabas esperando.`);
     l.push(`   · Confirmá con seguridad y sin euforia falsa. Una línea.`);
     l.push(`   · Decile EXACTAMENTE qué pasa ahora y qué recibe.`);
     l.push(`   · ❌ NO hagas más preguntas. NO agregues objeciones que él no puso.`);
     l.push(`   · ❌ NO ofrezcas otro producto: eso reabre la decisión que ya tomó.`);
+    if (pideMedioDePago) {
+      l.push(`   · 💳 Te está preguntando POR DÓNDE PAGAR. Dale el medio concreto YA, en este mensaje:`);
+      l.push(`     el enlace o los datos que correspondan, sin rodeos y sin volver a explicar el producto.`);
+      l.push(`     Hacerlo esperar un mensaje más por el link es donde se cae la venta que ya estaba hecha.`);
+    }
     return { bloque: l.join("\n"), jugada };
   }
 
@@ -283,6 +358,39 @@ export function construirPlaybook(e: EntradaPlaybook): SalidaPlaybook {
     l.push(`   Dale primero algo de valor (una razón concreta por la que le sirve) y DESPUÉS preguntá UNA sola cosa:`);
     l.push(`   para qué lo quiere, desde qué nivel arranca, o para quién es.`);
     l.push(`   Una pregunta. No un cuestionario.`);
+  }
+
+  // ── Ya se mostró la ficha: mostrar no es vender ──────────────────────────
+  //
+  // `fichaEnviada` y `productoEnFoco` llegaban en la entrada del playbook y NO
+  // se usaban en ninguna parte del cuerpo. El manual nunca se enteraba de que
+  // el producto YA estaba a la vista, así que nunca daba la instrucción de
+  // avanzar — y el turno siguiente volvía a presentar.
+  //
+  // Medido en producción el 2026-08-23, las 10 conversaciones del panel:
+  // etapas warm/discovery/presentation/details, NINGUNA en cierre, 0 tratos
+  // ganados. En la conversación 1, siete días y 26 mensajes en los que el bot
+  // mandó cinco fichas y no propuso comprar ni una sola vez.
+  //
+  // No se dispara si hay una pregunta sin responder (primero se contesta), ni
+  // si ya está cerrando o evadiendo: esos turnos tienen su propia jugada.
+  if (e.fichaEnviada && !cerrando && !evasiva && !preguntaAbierta) {
+    jugada = jugada === "conversacion" ? "avanzar_tras_ficha" : jugada;
+    const cual = e.productoEnFoco ? `de ${e.productoEnFoco}` : "del producto";
+    l.push(`\n📦 YA LE MANDASTE LA FICHA ${cual.toUpperCase()}. Mostrar no es vender.`);
+    l.push(`   Todo lo que dice la ficha (precio, qué incluye, cómo se entrega) YA lo tiene delante.`);
+    l.push(`   Repetírselo con otras palabras no lo acerca ni un paso: lo aburre.`);
+    l.push(`   Este mensaje tiene UNA tarea: moverlo al paso siguiente.`);
+    if (!sabeQueQuiere) {
+      l.push(`   · Todavía no sabés para qué lo quiere. Preguntáselo AHORA, en una sola pregunta concreta:`);
+      l.push(`     con esa respuesta el próximo mensaje ya puede ser un cierre en vez de otro folleto.`);
+    } else {
+      l.push(`   · Conectá el producto con lo que ÉL ya te contó que quiere lograr, en una línea.`);
+      l.push(`   · Y proponé el paso siguiente de forma concreta y sin vueltas: preguntale si lo quiere,`);
+      l.push(`     o decile qué tiene que hacer para tenerlo. Una invitación clara, no una insinuación.`);
+    }
+    l.push(`   ❌ NO vuelvas a mandar la ficha ni a listar de nuevo lo que incluye.`);
+    l.push(`   ❌ NO cierres con "cualquier cosa me avisás": eso le pasa la pelota y la conversación muere ahí.`);
   }
 
   // ── Pregunta abierta: no se cierra encima de una duda ────────────────────
@@ -332,6 +440,21 @@ export function construirPlaybook(e: EntradaPlaybook): SalidaPlaybook {
     l.push(`\n🔁 YA ABRISTE ASÍ EN ESTA CONVERSACIÓN: ${usadas.map((a) => `"${a}…"`).join(", ")}`);
     l.push(`   NO vuelvas a arrancar igual. Repetir la apertura es lo que hace que suene a robot,`);
     l.push(`   y además WhatsApp castiga al número que manda mensajes parecidos en serie.`);
+  }
+
+  // Lo mismo pero mirando a los OTROS clientes. Sin esto, el primer mensaje a
+  // cada persona nueva no tenía nada que evitar y salía siempre igual: es el
+  // caso más peligroso, porque es exactamente muchos contactos distintos
+  // recibiendo el mismo texto.
+  const delNegocio = (e.aperturasDelNegocio || [])
+    .filter((a) => a && a.length > 2 && !usadas.includes(a))
+    .slice(0, 6);
+  if (delNegocio.length > 0) {
+    l.push(`\n📵 CON OTROS CLIENTES YA ABRISTE ASÍ HACE POCO: ${delNegocio.map((a) => `"${a}…"`).join(", ")}`);
+    l.push(`   Arrancá DISTINTO. Esto no es una preferencia de estilo: mandarle el mismo texto a`);
+    l.push(`   muchos contactos distintos es la firma del envío masivo, y es por lo que WhatsApp`);
+    l.push(`   bloquea el número del negocio. Si se cae el número, se caen TODAS las ventas.`);
+    l.push(`   Cambiá el arranque de verdad — no la misma frase con otro emoji.`);
   }
 
   l.push(`\n🚫 LO QUE NUNCA:`);

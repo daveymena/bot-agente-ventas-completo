@@ -95,9 +95,19 @@ router.get("/summary", async (req, res, next) => {
       }
       if (m.role === "customer") {
         pendingAt = m.createdAt as any;
-      } else if (m.role === "assistant" && pendingAt) {
+        // El rol guardado es "agent" (ver conversation-engine.ts:1840). Acá se
+        // comparaba con "assistant", que NO lo escribe nadie en esta tabla: la
+        // rama no entraba nunca, el arreglo quedaba vacío y el panel mostraba
+        // "Tiempo de Respuesta: 0s" siempre. No es que fuera rápido — es que
+        // nunca se midió. Por eso pasó inadvertida una primera respuesta de
+        // 85 minutos (conversación 2, 2026-08-17) que costó la venta.
+      } else if (m.role === "agent" && pendingAt) {
         const diff = (new Date(m.createdAt as any).getTime() - new Date(pendingAt).getTime()) / 1000;
-        if (diff > 0 && diff < 30 * 60) responseTimesSec.push(diff);
+        // Antes se descartaba todo lo que pasara de 30 minutos, que es
+        // justamente el caso que hay que ver: filtrar los peores tiempos y
+        // promediar el resto convierte la métrica en un adorno. Se corta en 6h
+        // porque más allá de eso ya no es una respuesta sino un follow-up.
+        if (diff > 0 && diff < 6 * 3600) responseTimesSec.push(diff);
         pendingAt = null;
       }
     }
