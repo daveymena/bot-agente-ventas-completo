@@ -1,6 +1,10 @@
-import { useEffect, useParams } from 'react';
+// useParams venía importado de 'react', donde no existe: la página reventaba
+// con "useParams is not a function" apenas se renderizara. Hoy no se rompe
+// porque App.tsx no la enruta (las landings vivas son LandingPageNicho), así
+// que era una mina esperando a que alguien la conectara.
+import { useEffect, useState } from 'react';
+import { useParams } from 'react-router-dom';
 import { ArrowRight, Check, Shield, Truck, RotateCcw, Star, TrendingUp } from 'lucide-react';
-import { useState } from 'react';
 import { useStore } from '../store/useStore';
 import { darken, readableTextColor } from '../lib/color';
 

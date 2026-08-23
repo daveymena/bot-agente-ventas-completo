@@ -5,7 +5,10 @@ import { useStore } from '../store/useStore';
 import { initPixel } from '../lib/pixel';
 import { FacebookIcon, InstagramIcon, TikTokIcon, XIcon, LinkedInIcon } from './SocialIcons';
 import { MercadoPagoBadge, NequiBadge, PSEBadge } from './PaymentIcons';
-import { darken, tint, readableTextColor } from '../lib/color';
+// darken()/tint()/readableTextColor() ya no se usan acá: la paleta pasó a ser
+// fija (ver themeVars abajo) en vez de derivarse del color del dueño. Los
+// helpers siguen en lib/color.ts porque LandingPage y LandingPageNicho SÍ los
+// usan para su propio tema.
 
 const PublicLayout = ({ children }: { children: React.ReactNode }) => {
   const { cart, wishlist, config, updateConfig, isAdmin } = useStore();
