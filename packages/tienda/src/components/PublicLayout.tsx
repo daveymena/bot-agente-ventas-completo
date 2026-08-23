@@ -221,7 +221,7 @@ const PublicLayout = ({ children }: { children: React.ReactNode }) => {
 
           {mobileMenu && (
             <div className="md:hidden border-t border-gray-800 py-4 space-y-1">
-              <Link to={base} onClick={() => setMobileMenu(false)}
+              <Link to={`${base}#catalogo`} onClick={() => setMobileMenu(false)}
                 className="block px-4 py-3 text-sm font-semibold text-gray-200 rounded-lg hover:bg-gray-900 transition-colors">
                 Productos
               </Link>
@@ -258,7 +258,7 @@ const PublicLayout = ({ children }: { children: React.ReactNode }) => {
         <div className="hidden md:block bg-[var(--store-primary)]">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="flex items-center gap-6 h-10">
-              <Link to={base} className="text-sm font-semibold text-[var(--store-on-primary)] hover:opacity-80 transition-opacity">
+              <Link to={`${base}#catalogo`} className="text-sm font-semibold text-[var(--store-on-primary)] hover:opacity-80 transition-opacity">
                 Productos
               </Link>
               <a href={waHref || "#"} target="_blank" rel="noopener noreferrer"
@@ -389,7 +389,7 @@ const PublicLayout = ({ children }: { children: React.ReactNode }) => {
             <div>
               <h4 className="text-sm font-bold text-[var(--store-yellow)] mb-3">Enlaces</h4>
               <div className="space-y-2">
-                <Link to={base} className="block text-sm text-gray-400 hover:text-white transition-colors">Productos</Link>
+                <Link to={`${base}#catalogo`} className="block text-sm text-gray-400 hover:text-white transition-colors">Productos</Link>
                 <a href={waHref || "#"} target="_blank" rel="noopener noreferrer"
                   className="block text-sm text-gray-400 hover:text-white transition-colors">WhatsApp</a>
                 <Link to={`${base}/carrito`} className="block text-sm text-gray-400 hover:text-white transition-colors">Carrito</Link>

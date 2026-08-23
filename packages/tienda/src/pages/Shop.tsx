@@ -91,6 +91,47 @@ const Shop = () => {
   const hayDigitales = products.some(p => p.type !== 'physical');
 
   const [filter, setFilter] = useState('all');
+
+  /**
+   * Elegir una categoría además BAJA hasta los resultados.
+   *
+   * Antes solo cambiaba el filtro: el visitante tocaba "Físico" o una
+   * categoría, la lista de abajo se actualizaba, y él seguía viendo el mismo
+   * héroe con la pantalla igual que antes. Parecía que el botón no hacía
+   * nada, y había que descubrir a mano que la respuesta estaba más abajo.
+   *
+   * Reportado por el dueño el 2026-08-23: "al darle a productos digitales o
+   * físico debería llevarlo al producto, es muy molesto darle scroll".
+   *
+   * El ancla `#catalogo` ya existía (la usa el botón "Ver productos" del
+   * héroe); lo que faltaba era que los filtros la usaran también.
+   */
+  // Al llegar con #catalogo desde otra página, React Router cambia la ruta
+  // pero NO baja: el navegador solo resuelve el hash en una carga completa,
+  // no en una navegación de SPA. Sin esto, "Productos" desde la ficha de un
+  // producto deja al visitante arriba, que es el mismo problema.
+  useEffect(() => {
+    if (window.location.hash !== '#catalogo') return;
+    // Dos cuadros: uno para que monte la grilla, otro para que el ancla ya
+    // tenga su posición definitiva.
+    requestAnimationFrame(() =>
+      requestAnimationFrame(() =>
+        document.getElementById('catalogo')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      )
+    );
+  }, []);
+
+  const irAlCatalogo = () => {
+    // El header es sticky, así que el ancla ya lleva `scroll-mt-24` para no
+    // quedar tapada por él.
+    document.getElementById('catalogo')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+
+  const elegirFiltro = (clave: string) => {
+    setFilter(clave);
+    // Tras el re-render, para que el ancla ya esté en su posición final.
+    requestAnimationFrame(irAlCatalogo);
+  };
   const [searchTerm, setSearchTerm] = useState(searchQuery || '');
 
   // La clave de categoría es "nombre + tipo", no solo el nombre: un curso
@@ -196,7 +237,7 @@ const Shop = () => {
         {categories.length > 0 && (
           <button
             type="button"
-            onClick={() => { setFilter(categories[0].key); }}
+            onClick={() => elegirFiltro(categories[0].key)}
             className="group relative overflow-hidden rounded-uv-lg bg-[var(--store-orange)] text-white p-6 sm:p-8 min-h-[160px] sm:min-h-[320px] flex flex-col justify-center text-left"
           >
             <p className="text-xs font-bold uppercase tracking-[0.2em] opacity-70 mb-2">Lo más surtido</p>
@@ -243,7 +284,7 @@ const Shop = () => {
             </div>
             {filter !== 'all' && (
               <button
-                onClick={() => setFilter('all')}
+                onClick={() => elegirFiltro('all')}
                 className="h-9 px-5 rounded-full border border-gray-200 bg-white text-xs font-bold text-gray-700 hover:border-[var(--store-primary)] hover:text-[var(--store-primary)] transition-colors"
               >
                 Ver todo ({products.length})
@@ -257,7 +298,7 @@ const Shop = () => {
               return (
                 <button
                   key={c.key}
-                  onClick={() => setFilter(activa ? 'all' : c.key)}
+                  onClick={() => elegirFiltro(activa ? 'all' : c.key)}
                   aria-pressed={activa}
                   className={`group relative overflow-hidden rounded-2xl p-4 sm:p-6 min-h-[104px] sm:min-h-[132px] flex flex-col justify-between text-left transition-all hover:-translate-y-0.5 ${
                     activa
