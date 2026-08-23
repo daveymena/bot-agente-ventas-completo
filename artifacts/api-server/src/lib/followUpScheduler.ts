@@ -1,4 +1,4 @@
-import { eq, and, lte, asc } from "drizzle-orm";
+import { eq, and, lte, asc, inArray } from "drizzle-orm";
 import { db, conversations, messages, activityEvents, followUps, type FollowUp, type InsertFollowUp } from "@workspace/db";
 import { logger } from "./logger";
 import { leadScoringEngine, type LeadStage } from "./leadScoring";
@@ -109,9 +109,46 @@ export class FollowUpScheduler {
 
       if (dueFollowUps.length === 0) return;
 
-      logger.info({ count: dueFollowUps.length }, "[FollowUpScheduler] Processing due follow-ups from DB");
+      // UNO por conversación y por pasada.
+      //
+      // `debeEnviarse()` decide bien, pero decide sobre CADA fila por
+      // separado: si una conversación acumuló varias, las seis pasan el
+      // control y las seis se mandan, una cada 2 segundos. Fue lo que le pasó
+      // a Chuy Fernando el 2026-08-22: seis "check_in" idénticos a las 20:09.
+      // Para el cliente eso es acoso, y WhatsApp castiga al número que manda
+      // mensajes repetidos en serie.
+      //
+      // Se manda el más viejo (ya vienen ordenados por `scheduledFor`) y el
+      // resto se cierra como superado: si más adelante corresponde otro
+      // seguimiento, se agenda uno nuevo.
+      const porConversacion = new Map<number, typeof dueFollowUps>();
+      for (const f of dueFollowUps) {
+        const lista = porConversacion.get(f.conversationId) || [];
+        lista.push(f);
+        porConversacion.set(f.conversationId, lista);
+      }
 
-      for (const followUp of dueFollowUps) {
+      const aEnviar: typeof dueFollowUps = [];
+      for (const [conversationId, lista] of porConversacion) {
+        aEnviar.push(lista[0]!);
+        if (lista.length > 1) {
+          const superados = lista.slice(1).map((f) => f.id);
+          await db.update(followUps)
+            .set({ completed: true })
+            .where(inArray(followUps.id, superados));
+          logger.warn(
+            { conversationId, enviado: lista[0]!.id, superados },
+            "[FollowUpScheduler] Varios seguimientos vencidos para la misma conversación — se manda uno y se cierran los demás",
+          );
+        }
+      }
+
+      logger.info(
+        { vencidos: dueFollowUps.length, aEnviar: aEnviar.length },
+        "[FollowUpScheduler] Processing due follow-ups from DB",
+      );
+
+      for (const followUp of aEnviar) {
         await this.processFollowUp(followUp);
         await new Promise(resolve => setTimeout(resolve, 2000));
       }

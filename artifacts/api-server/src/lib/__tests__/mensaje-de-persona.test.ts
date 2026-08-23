@@ -75,3 +75,34 @@ describe("Distinguir a una persona de la plomería de WhatsApp", () => {
     expect(pareceMensajeDePersona("   ")).toBe(false);
   });
 });
+
+/**
+ * El marcador de tarjeta escrito como enlace de markdown.
+ *
+ * Conversación 5 de producción (Mauricio García, 2026-08-22): al cliente le
+ * llegó literalmente "**[MEGAPACK 81 EN 1](CARD: 122)** que incluye todos los
+ * cursos" — el parser busca corchetes, el modelo escribió paréntesis, y en vez
+ * de la ficha del producto salió markdown roto.
+ */
+describe("Marcador de tarjeta en formato enlace", () => {
+  const normalizar = (t: string) => t.replace(/\[([^\]]*)\]\s*\(\s*CARD:\s*(\d+)\s*\)/gi, "[CARD: $2]");
+
+  it("convierte el enlace de markdown en el marcador real", () => {
+    expect(normalizar("Tenemos un **[MEGAPACK 81 EN 1](CARD: 122)** que incluye todo."))
+      .toBe("Tenemos un **[CARD: 122]** que incluye todo.");
+  });
+
+  it("funciona con varios en el mismo mensaje", () => {
+    const r = normalizar("[Piano](CARD: 123) y también [Excel](CARD:118)");
+    expect(r).toBe("[CARD: 123] y también [CARD: 118]");
+  });
+
+  it("no toca el marcador que ya está bien escrito", () => {
+    expect(normalizar("Te dejo la ficha [CARD: 123]")).toBe("Te dejo la ficha [CARD: 123]");
+  });
+
+  it("no toca enlaces normales", () => {
+    const t = "Mirá [la tienda](https://ventasproia.com/p/163)";
+    expect(normalizar(t)).toBe(t);
+  });
+});

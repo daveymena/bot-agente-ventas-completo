@@ -1806,6 +1806,23 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
         raw = sinMuletilla;
       }
 
+      // El modelo a veces escribe el marcador como un ENLACE de markdown:
+      // "[MEGAPACK 81 EN 1](CARD: 122)" en vez de "[CARD: 122]". Con
+      // paréntesis el parser de abajo no lo reconoce, así que NO se manda la
+      // ficha y al cliente le llega el código crudo en el mensaje.
+      //
+      // Pasó en vivo el 2026-08-22 (conversación 5, Mauricio García): recibió
+      // literalmente "**[MEGAPACK 81 EN 1](CARD: 122)** que incluye todos los
+      // cursos" — markdown roto en lugar de la tarjeta del producto.
+      //
+      // Se normaliza en vez de prohibirlo en el prompt: la intención del
+      // modelo es clarísima y arreglarla cuesta una línea.
+      const conMarcadorSano = raw.replace(/\[([^\]]*)\]\s*\(\s*CARD:\s*(\d+)\s*\)/gi, "[CARD: $2]");
+      if (conMarcadorSano !== raw) {
+        console.log(`🔧 [CARD] Marcador en formato enlace normalizado - ${ts()}`);
+        raw = conMarcadorSano;
+      }
+
       const { limpio, quitadas } = quitarInventos(raw);
       if (quitadas.length > 0) {
         quitadas.forEach((q) =>
