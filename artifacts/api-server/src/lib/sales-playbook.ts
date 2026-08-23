@@ -428,7 +428,22 @@ export function quitarInventos(texto: string): { limpio: string; quitadas: Array
  * era todo el mensaje, se deja: sacarlo dejaría al cliente sin respuesta.
  */
 export function quitarMuletillaDeApertura(texto: string): string {
-  const MULETILLAS = /^\s*[¡!]*\s*(perfecto|genial|excelente|buenísimo|buenisimo|listo|claro|ok|okey|de una|dale)\s*[!¡.,…]*\s*/i;
+  // El signo de cierre es OBLIGATORIO, y es lo que separa una interjección
+  // suelta de una palabra que forma parte de la frase.
+  //
+  // Sin él esto rompía mensajes reales. Medido en vivo el 2026-08-22, minutos
+  // después de desplegarlo: el modelo escribió
+  //   "¡Buenísimo que preguntes por el de piano! Te lo dejo acá..."
+  // y al cliente le llegó
+  //   "Que preguntes por el de piano! Te lo dejo acá..."
+  // Se comió el "Buenísimo" porque era el arranque de la oración, no una
+  // muletilla. Quedó peor que el problema que vine a resolver.
+  //
+  // Ahora solo se saca lo que termina en "!", "." o "…" — o sea lo que el
+  // modelo escribió como exclamación aparte ("¡Perfecto! Los enlaces...").
+  // Si sigue una coma o directamente otra palabra, la muletilla es parte de
+  // la frase y se deja en paz.
+  const MULETILLAS = /^\s*[¡!]*\s*(perfecto|genial|excelente|buenísimo|buenisimo|listo|claro|ok|okey|de una|dale)\s*[!.…]+\s*/i;
   const m = texto.match(MULETILLAS);
   if (!m) return texto;
 

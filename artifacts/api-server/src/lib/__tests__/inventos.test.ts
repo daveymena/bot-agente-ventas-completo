@@ -113,3 +113,30 @@ describe("Muletillas de apertura que delatan al bot", () => {
     expect(quitarMuletillaDeApertura(t)).toBe(t);
   });
 });
+
+describe("La muletilla no puede comerse el arranque de la frase", () => {
+  it("NO toca 'Buenísimo que preguntes' — es la oración, no una muletilla", () => {
+    // Caso real, en vivo, minutos después de desplegar la primera versión:
+    // al cliente le llegó "Que preguntes por el de piano!" — sin sujeto.
+    const t = "¡Buenísimo que preguntes por el de piano! Te lo dejo acá para que lo veas con calma.";
+    expect(quitarMuletillaDeApertura(t)).toBe(t);
+  });
+
+  it("NO toca otras muletillas que arrancan una oración", () => {
+    for (const t of [
+      "Claro que sí, el curso arranca desde cero y no necesitás saber nada.",
+      "Perfecto para lo que buscás: son 19 módulos desde cero hasta avanzado.",
+      "Listo para empezar cuando quieras, el acceso llega apenas confirmás.",
+      "Dale una mirada a la ficha y me contás qué te parece.",
+    ]) {
+      expect(quitarMuletillaDeApertura(t), `no debería tocar: ${t}`).toBe(t);
+    }
+  });
+
+  it("SÍ saca la exclamación suelta, que era el problema original", () => {
+    expect(quitarMuletillaDeApertura("¡Perfecto! Los enlaces de pago están listos abajo 🎹"))
+      .toBe("Los enlaces de pago están listos abajo 🎹");
+    expect(quitarMuletillaDeApertura("¡Excelente! El curso está pensado para principiantes."))
+      .toBe("El curso está pensado para principiantes.");
+  });
+});
