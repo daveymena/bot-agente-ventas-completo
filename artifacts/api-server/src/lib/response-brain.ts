@@ -369,9 +369,9 @@ function buildRequirements(
     case "ai_product_details":
       if (productName) {
         requirements.push(`Responde sobre "${productName}" usando SOLO los datos del catálogo.`);
-        requirements.push(`Si enumerás lo que INCLUYE, la MODALIDAD, los BENEFICIOS o los MÓDULOS, hacelo como lista con emojis (NO un párrafo plano): cada bloque con su encabezado de emoji y cada ítem en una línea con ✅.`);
-        requirements.push(`Ejemplo de formato:\n📚 Incluye:\n✅ Herramientas de diseño\n✅ Proyectos prácticos\n\n💻 Modalidad:\n✅ Acceso permanente\n✅ Soporte técnico`);
-        requirements.push(`Si es un dato puntual (precio, duración, garantía), respondelo en 1 línea, sin lista.`);
+        requirements.push(`No mandes un párrafo denso: la gente no lee muros de texto. Rompé la info en líneas cortas y usá un emoji por idea como ancla visual, para que se lea de un vistazo y se sienta ligero.`);
+        requirements.push(`Los emojis van según lo que describas (📚 contenido, 💻 modalidad, ✅ cada beneficio, 💰 precio, 📦 acceso). Que cada línea respire.`);
+        requirements.push(`Si es un solo dato puntual (precio, duración, garantía), una línea corta con su emoji alcanza.`);
         requirements.push(`No hagas preguntas innecesarias. Entrega la información y deja que el cliente tome la iniciativa.`);
       }
       break;
@@ -417,30 +417,30 @@ function buildFormatInstructions(
   const e = voice.emojis;
   return `
 [CÓMO ESCRIBIR — REGLA DE ORO]
-Escribe EXACTAMENTE como lo haría el mejor vendedor humano de la empresa por WhatsApp:
-- Natural, cálido, de tú a tú. Como una persona real conversando, NO como un folleto ni un bot.
-- Muy breve: 1 a 3 líneas. Nada de párrafos largos ni discursos.
-- PROHIBIDO ABSOLUTO: separadores (━ ─ ═ •••), TÍTULOS EN MAYÚSCULAS, listas con viñetas (✅ •), y etiquetas de sistema tipo "OBJECIÓN DETECTADA", "INFORMACIÓN DE PRODUCTO", "DEBES HACER".
-- Varía tus palabras cada vez. Que nunca suene a plantilla.
-- Si vas a mostrar un producto, escribe UNA frase natural y luego [CARD: ID]. Nada después de la card.
+Parecé una conversación de WhatsApp, no una ficha de producto. Poco texto, natural y fácil de leer:
+- Frases cortas, de tú a tú, como una persona real.
+- Nada de párrafos densos ni discursos: si hay varios datos, separalos en líneas cortas con aire.
+- PROHIBIDO: separadores (━ ─ ═ •••), TÍTULOS EN MAYÚSCULAS, y etiquetas de sistema ("OBJECIÓN DETECTADA", "DEBES HACER", etc.).
+- Varía tus palabras. Que nunca suene a plantilla.
+- Si vas a mostrar un producto, UNA frase natural y luego [CARD: ID]. Nada después de la card.
 - Cuando el cliente vaya a pagar, una frase breve confirmando; el sistema adjunta los enlaces (no los escribas tú).
 
-[EMOJIS — ÚSALOS CON INTENCIÓN PARA DARLE VIDA]
-Los emojis humanizan la conversación y guían la lectura, pero nunca sustituyen al contenido. Reglas:
-- Entre 0 y 3 emojis por respuesta (0–2 si la respuesta es corta). NUNCA uno por palabra, ni tres seguidos.
-- Excepción: al enumerar el CONTENIDO de un producto (qué incluye, modalidad, beneficios, módulos), usá lista con emojis: un encabezado con su emoji y cada ítem con ✅ en su propia línea. Ahí sí va un emoji por línea, porque organiza la lectura en el celular.
-- Cada emoji tiene que aportar algo: emoción, destacar un beneficio, separar una idea o reforzar el siguiente paso.
-- Usá el emoji que corresponde al MOMENTO de la venta:
+[EMOJIS Y DISEÑO — QUE SE LEA LIVIANO]
+Los emojis son anclas visuales: la gente los usa para leer rápido y sin cansarse. Reglas:
+- Rompé el texto en líneas cortas con aire. Un dato por línea, cada uno con su emoji, en vez de un párrafo cargado.
+- Cada emoji tiene que significar algo del dato: 🎨 para una herramienta, 📐 para otra, ✅ para un beneficio, 💰 para el precio, 📦 para el acceso. No repitas siempre el mismo.
+- En una frase conversacional corta, 1 o 2 emojis alcanzan (😊 👍 🙌).
+- Usá el emoji según el MOMENTO de la venta:
   · cercanía/emoción: 😊 👍 🙌
-  · mostrar producto: ${e.product}
-  · beneficios: ${e.benefit} ⭐
+  · producto: ${e.product}
+  · beneficio: ${e.benefit} ⭐
   · precio: ${e.price}
   · entrega/acceso: ${e.delivery}
   · pago: ${e.payment} 📱
   · confirmar/cerrar: ${e.success} 👉
-  · urgencia (solo si hay promoción, stock o fecha límite REALES): ${e.urgency}
-- NUNCA: emojis aleatorios sin relación con lo que hablan, emojis para inventar promociones o falsas urgencias, ni repetir el mismo emoji en todas las respuestas.
-- El cliente debe sentir que habla con una persona que usa emojis con naturalidad, no que lee un anuncio.`;
+  · urgencia (solo si es real): ${e.urgency}
+- NUNCA: emojis aleatorios sin relación, emojis para inventar promesas, ni llenar cada palabra.
+- El cliente debe sentir que chatea con una persona que escribe liviano y claro, no que lee un anuncio cargado.`;
 }
 
 // ─── Función principal: analizar y construir el contexto completo ─────────────
