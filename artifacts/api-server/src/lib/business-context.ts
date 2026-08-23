@@ -301,10 +301,20 @@ export async function getBusinessContext(
     }
 
     // ── 2. Respaldo global (settings) — NUNCA pisa lo del cliente ────────────
-    if (!ctx.configurado) {
+    //
+    // Rellena campo por campo, no todo-o-nada. Estaba guardado bajo
+    // `if (!ctx.configurado)` y eso tenía un efecto que se vio en vivo el
+    // 2026-08-22: apenas el dueño guardó su perfil, el horario de atención
+    // que venía del respaldo global DESAPARECIÓ — no porque lo hubiera
+    // pisado, sino porque el bloque entero dejó de ejecutarse. Un respaldo
+    // que se apaga cuando aparece el primer dato propio no es un respaldo.
+    {
       const [s] = await db.select().from(settingsTable).limit(1);
       if (s) {
         const bc = (s.businessConfig as any) || {};
+        // Para no atribuirle a `settings` datos que en realidad puso el
+        // cliente: la fuente se anota solo si este bloque llenó algo.
+        const antes = JSON.stringify([ctx.descripcion, ctx.nicho, ctx.entrega, ctx.garantia, ctx.acceso, ctx.noPuede, ctx.horario]);
         ctx.descripcion = ctx.descripcion || textoLimpio(s.businessDescription);
         ctx.nicho = ctx.nicho || textoLimpio(bc.businessNiche);
         ctx.entrega = ctx.entrega || leerEntrega(bc.deliveryInfo);
@@ -313,7 +323,8 @@ export async function getBusinessContext(
         if (ctx.noPuede.length === 0) ctx.noPuede = listaLimpia(bc.noPuede);
         if (!ctx.horario) ctx.horario = formatearHorario(s.workingHoursStart, s.workingHoursEnd, s.timezone);
         if (!ctx.businessName) ctx.businessName = textoLimpio(s.businessName) || "";
-        if (ctx.descripcion || ctx.entrega || ctx.garantia) ctx.fuentes.push("settings (global)");
+        const despues = JSON.stringify([ctx.descripcion, ctx.nicho, ctx.entrega, ctx.garantia, ctx.acceso, ctx.noPuede, ctx.horario]);
+        if (antes !== despues) ctx.fuentes.push("settings (global)");
       }
     }
 
