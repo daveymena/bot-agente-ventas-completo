@@ -105,6 +105,32 @@ function sabemosQueQuiereLograr(historial: Array<{ role: string; content: string
     "mi hijo", "mi hija", "regalo", "trabajo", "negocio", "empezar", "nivel"].some((p) => delCliente.includes(p));
 }
 
+/**
+ * Con qué viene abriendo sus mensajes el agente en esta conversación.
+ *
+ * Es el delator número uno de que del otro lado hay una máquina. Medido el
+ * 2026-08-22 en una conversación de seis mensajes: abrió con "¡Perfecto!"
+ * TRES veces. Un humano no arranca tres frases seguidas igual.
+ *
+ * Pedirle "sé más natural" no sirve: es una instrucción que no se puede
+ * verificar. Darle la lista de lo que YA usó, sí — es un dato concreto sobre
+ * el que puede actuar.
+ */
+function aperturasUsadas(historial: Array<{ role: string; content: string }>): string[] {
+  return historial
+    .filter((m) => m.role === "agent")
+    .slice(-5)
+    .map((m) =>
+      String(m.content)
+        .replace(/^[\s¡!¿?]*/, "")
+        .split(/[\s,.!?—:]+/)
+        .slice(0, 3)
+        .join(" ")
+        .trim(),
+    )
+    .filter((a) => a.length > 2);
+}
+
 // ─── Jugadas por tipo de objeción ─────────────────────────────────────────────
 //
 // Salen de `objectionHandler.ts`, que ya las clasifica. Lo que faltaba era
@@ -271,14 +297,42 @@ export function construirPlaybook(e: EntradaPlaybook): SalidaPlaybook {
   if (e.anuncio?.titulo) {
     l.push(`\n📣 Este cliente costó dinero: llegó del anuncio "${e.anuncio.titulo}".`);
     l.push(`   Ya te dijo qué le interesa al hacer clic. Andá directo a eso — no le preguntes qué busca.`);
+    if (e.mensajesDelCliente <= 1) {
+      // El primer mensaje decide si la persona sigue leyendo o cierra el chat.
+      l.push(`   Es su PRIMER mensaje. Recibilo como recibirías a alguien que entra a tu local:`);
+      l.push(`   dale la bienvenida, nombrá el producto por el que vino (así sabe que le entendiste),`);
+      l.push(`   y entregale la info. Cálido y breve — no un discurso, pero tampoco un "acá tenés".`);
+      l.push(`   Algo en el espíritu de: "¡Hola! Qué bueno tenerte por acá 😊 Veo que venís por`);
+      l.push(`   [producto] — te dejo toda la info acá abajo." Con tus palabras, no copiado.`);
+    }
   }
 
-  // ── Cómo suena un vendedor de verdad ─────────────────────────────────────
-  l.push(`\n💬 CÓMO TENÉS QUE SONAR:`);
-  l.push(`   · Con convicción: vendés algo que sirve y lo sabés. Sin euforia de vendedor de feria.`);
-  l.push(`   · Concreto antes que entusiasta: un dato real convence más que tres signos de exclamación.`);
-  l.push(`   · Cada mensaje deja al cliente un paso más cerca de decidir. Nunca lo dejes en el aire.`);
-  l.push(`   · Hablás con UNA persona, no a una lista: usá lo que TE dijo en esta conversación.`);
+  // ── Cómo suena una persona y no un sistema ───────────────────────────────
+  // Este bloque va en TODOS los mensajes, no solo cuando hay objeción: lo que
+  // delata a un bot no es lo que dice, es CÓMO abre y cómo entrega.
+  l.push(`\n💬 CÓMO TENÉS QUE SONAR — esto vale para CADA mensaje:`);
+  l.push(`   La ficha del producto la manda el sistema. Lo tuyo es lo que la rodea, y ahí es donde`);
+  l.push(`   se nota si del otro lado hay una persona o una máquina.`);
+  l.push(`\n   1️⃣ RECONOCÉ antes de entregar. Que se note que leíste lo que escribió.`);
+  l.push(`      ❌ "¡Perfecto! Aquí tienes el curso de piano."   ← seco, sirve para cualquiera`);
+  l.push(`      ✅ "Buenísimo que preguntes por el de piano — te paso la info completa así la mirás con calma."`);
+  l.push(`   2️⃣ NUNCA abras con un "¡Perfecto!", "¡Genial!" o "¡Excelente!" pelado. No dicen nada`);
+  l.push(`      y son la marca registrada de un bot. Si vas a celebrar algo, celebrá algo CONCRETO.`);
+  l.push(`   3️⃣ Hablale a ESTA persona: usá sus palabras, su situación, lo que ya te contó.`);
+  l.push(`      Si dijo que tiene 52 años y nunca tocó, eso es lo que hay que responder — no un folleto.`);
+  l.push(`   4️⃣ Calidez de verdad, no decorado: la empatía se demuestra entendiendo, no poniendo emojis.`);
+  l.push(`      Una frase que muestra que entendiste vale más que cinco signos de exclamación.`);
+  l.push(`   5️⃣ Variá el largo y el ritmo. A veces una línea, a veces tres. Los mensajes que siempre`);
+  l.push(`      tienen la misma forma se leen como plantilla aunque cambien las palabras.`);
+  l.push(`   6️⃣ Terminá dejándolo un paso más cerca de decidir. Nunca lo dejes en el aire.`);
+
+  // El dato duro que hace la diferencia: con qué YA abrió antes.
+  const usadas = aperturasUsadas(e.historial);
+  if (usadas.length > 0) {
+    l.push(`\n🔁 YA ABRISTE ASÍ EN ESTA CONVERSACIÓN: ${usadas.map((a) => `"${a}…"`).join(", ")}`);
+    l.push(`   NO vuelvas a arrancar igual. Repetir la apertura es lo que hace que suene a robot,`);
+    l.push(`   y además WhatsApp castiga al número que manda mensajes parecidos en serie.`);
+  }
 
   l.push(`\n🚫 LO QUE NUNCA:`);
   l.push(`   · Inventar testimonios, cantidad de clientes, reseñas, cupos, descuentos o fechas límite.`);
@@ -314,13 +368,20 @@ export function detectarInventos(texto: string): Array<{ frase: string; motivo: 
 
   const PRUEBA_SOCIAL = /\b(tenemos|hay|conozco|muchos|varios|cientos|miles|el \d+ ?%|la mayor[ií]a)\b[^.!?\n]{0,60}\b(alumnos?|clientes?|estudiantes?|usuarios?|compradores?|personas?|gente)\b/i;
   const TESTIMONIO = /\b(nos escribi|nos cuentan|nos dicen|rese[ñn]as?|testimonios?|calificaci[oó]n de|estrellas)\b/i;
-  const PRECIO_AJENO = /\b(otros?|la competencia|otro lado|otras? (academias?|tiendas?|p[aá]ginas?)|clases? (de|particulares?))\b[^.!?\n]{0,50}(\$|\bcuesta|\bsale|\bcobran|\bvale)/i;
+  // Dos formas de inventar el precio ajeno, las dos vistas en producción:
+  //   · con monto explícito — "clases de piano que salen $30.000 mensuales";
+  //   · por equivalencia, sin decir el monto — "es el precio de unas 3-4
+  //     clases particulares presenciales". Esta segunda se coló con la primera
+  //     versión del detector, que exigía ver un "$" o un "cuesta".
+  // En las dos el agente está afirmando lo que cobra un tercero, y no lo sabe.
+  const PRECIO_AJENO = /\b(otros?|la competencia|otro lado|otras? (academias?|tiendas?|p[aá]ginas?)|clases? (de|particulares?|presenciales?)|un profesor|una academia)\b[^.!?\n]{0,60}(\$|\bcuesta|\bsale|\bcobran|\bvale|\bmensuales?\b)/i;
+  const EQUIVALE_A = /\b(es (el )?(precio|costo|valor) de|equivale a|lo mismo que|sale (como|igual que)|por lo que (cuesta|sale|pagar[ií]as))\b[^.!?\n]{0,60}\b(clases?|sesiones?|profesor|academia|mes(es)?|mensualidad)/i;
   const ESCASEZ = /\b([uú]ltim[oa]s? (cupos?|unidades?|d[ií]as?)|quedan pocos?|solo (hoy|por hoy)|por tiempo limitado|antes de que (suba|termine)|oferta que vence)\b/i;
 
   for (const f of frases) {
     if (PRUEBA_SOCIAL.test(f) || TESTIMONIO.test(f)) {
       hallazgos.push({ frase: f.trim(), motivo: "prueba social inventada (no hay clientes ni reseñas registradas)" });
-    } else if (PRECIO_AJENO.test(f)) {
+    } else if (PRECIO_AJENO.test(f) || EQUIVALE_A.test(f)) {
       hallazgos.push({ frase: f.trim(), motivo: "precio de la competencia inventado (el sistema no sabe qué cobran otros)" });
     } else if (ESCASEZ.test(f)) {
       hallazgos.push({ frase: f.trim(), motivo: "escasez o urgencia inventada (no figura en el catálogo)" });
@@ -348,4 +409,33 @@ export function quitarInventos(texto: string): { limpio: string; quitadas: Array
 
   if (limpio.length < 25) return { limpio: texto, quitadas: [] };
   return { limpio, quitadas };
+}
+
+/**
+ * Saca la muletilla de apertura vacía.
+ *
+ * "¡Perfecto!", "¡Genial!", "¡Excelente!" al principio de un mensaje no dicen
+ * absolutamente nada: sirven igual para un saludo, para una objeción de precio
+ * y para un cierre. Por eso son la marca registrada de un bot -- y por eso el
+ * admin dijo que las respuestas "parecen demasiado obvias que las envía un
+ * robot".
+ *
+ * El prompt ya las prohíbe, y el modelo las escribe igual: medido el
+ * 2026-08-22, tres mensajes de seis arrancaron así. Misma lección que con las
+ * invenciones: lo que importa se valida en la salida, no se pide.
+ *
+ * Solo se saca si DESPUÉS queda un mensaje que se sostiene solo. Si el "¡Dale!"
+ * era todo el mensaje, se deja: sacarlo dejaría al cliente sin respuesta.
+ */
+export function quitarMuletillaDeApertura(texto: string): string {
+  const MULETILLAS = /^\s*[¡!]*\s*(perfecto|genial|excelente|buenísimo|buenisimo|listo|claro|ok|okey|de una|dale)\s*[!¡.,…]*\s*/i;
+  const m = texto.match(MULETILLAS);
+  if (!m) return texto;
+
+  const resto = texto.slice(m[0].length).trimStart();
+  // Sin un resto que se sostenga solo, la muletilla ERA el mensaje.
+  if (resto.length < 20) return texto;
+
+  // Mayúscula inicial, para que no quede "los enlaces de pago están listos".
+  return resto.charAt(0).toUpperCase() + resto.slice(1);
 }

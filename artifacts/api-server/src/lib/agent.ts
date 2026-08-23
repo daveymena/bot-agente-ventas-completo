@@ -38,7 +38,7 @@ import {
 } from "./conversation-engine";
 import { getBrandVoice, formatWithBrandVoice } from "./brand-voice";
 import { getBusinessContext, renderBloqueNegocio, resumenContexto } from "./business-context";
-import { construirPlaybook, quitarInventos } from "./sales-playbook";
+import { construirPlaybook, quitarInventos, quitarMuletillaDeApertura } from "./sales-playbook";
 import { analyzeBrain, buildFinalPrompt, type ResponseStrategy, type EmotionalState } from "./response-brain";
 import { learnFromLastExchange, retrieveLessons, formatLessonsForPrompt } from "./conversation-learning";
 import {
@@ -983,11 +983,27 @@ RESPONDE SIEMPRE USANDO ESTE PATRÓN (sin excepciones):
 💰 Idea 3 corta
 🎓 Idea 4 corta
 
-Este formato es para PRESENTAR o RESUMIR un producto (qué es, qué trae, cuánto vale):
+Este formato es SOLO para enumerar lo que trae un producto (características, qué incluye):
 REGLA 1: CADA LÍNEA = UN EMOJI + TEXTO CORTO (máximo 5 palabras)
 REGLA 2: SALTOS DE LÍNEA ENTRE CADA IDEA
 REGLA 3: NUNCA párrafos largos sin emojis
 REGLA 4: NUNCA asteriscos (*) ni guiones (-) ni viñetas (•)
+
+⚠️ OJO: la lista NO es el mensaje. Casi siempre la ficha del producto la manda
+el sistema aparte, con el precio y los enlaces. Tu texto es lo que la ACOMPAÑA,
+y ahí tenés que sonar a persona, no a catálogo.
+
+❌ "¡Perfecto! Aquí tienes el curso de piano 🎹"
+   (sirve para cualquier cliente y cualquier producto: eso es exactamente el problema)
+✅ "Qué bueno que te intereses por el piano 🎹 Te dejo la info completa acá abajo
+   así la mirás con calma — y si querés te cuento por dónde conviene arrancar."
+
+Tres reglas de tono que valen para TODOS los mensajes:
+• Reconocé lo que la persona dijo ANTES de entregarle nada.
+• Nunca abras con "¡Perfecto!", "¡Genial!" o "¡Excelente!" a secas: no dicen nada
+  y son la marca registrada de un bot.
+• Variá el largo. Un mensaje de una línea y otro de tres se leen humanos;
+  cinco mensajes con la misma forma se leen como plantilla.
 
 ⚠️ PERO cuando estás ARGUMENTANDO —una objeción, una comparación con otra
 opción, una duda de confianza, un cierre— escribí como una persona: 2 a 4
@@ -1360,7 +1376,17 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
     // El bloque de dropshipping va en lo esencial: si se recorta, el agente
     // vuelve a pedir datos que el cliente ya dio, o promete una entrega que no
     // corresponde. Es de lo último que se puede sacrificar.
-    const esencial = `${decision.contextBlock}${playbook.bloque}${bloqueAnuncio}${bloqueMoneda}${bloqueDropshipping}${bloqueLecciones}`;
+    // El ORDEN acá decide qué sobrevive al recorte, porque se corta por el
+    // final. Medido el 2026-08-22: con el manual de venta al final, un prompt
+    // de 20.544 se recortó a 12.795 y se llevó justo las instrucciones de
+    // "aislá la duda" -- la jugada se detectaba y el modelo no la veía, así
+    // que el bot volvió a rendirse ante "lo voy a pensar".
+    //
+    // Ahora manda el manual, y el catálogo (que vive en la COLA del
+    // contextBlock) es lo primero que se sacrifica: es lo más largo y lo
+    // menos decisivo, porque qué producto mostrar ya se resolvió del lado del
+    // servidor.
+    const esencial = `${playbook.bloque}${bloqueAnuncio}${bloqueMoneda}${bloqueDropshipping}${bloqueLecciones}${decision.contextBlock}`;
     promptArmado = `${base}\n\n${esencial}`;
     if (promptArmado.length > TOPE_PROMPT) {
       // Todavía no entra: lo que sobra es el prompt del negocio o del agente.
@@ -1772,6 +1798,14 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
       // salen $30.000 mensuales" y "tenemos alumnos de 50, 60 y hasta 70
       // años" -- dos datos que no existen en ningún lado del sistema. Cuanto
       // mejor argumenta, más tentado está de fabricar el dato que le falta.
+      // Muletilla de apertura vacía: el prompt ya la prohíbe y el modelo la
+      // escribe igual (3 de 6 mensajes en la prueba del 2026-08-22).
+      const sinMuletilla = quitarMuletillaDeApertura(raw);
+      if (sinMuletilla !== raw) {
+        console.log(`✂️ [MULETILLA] Apertura vacía quitada: "${raw.slice(0, 30)}…" - ${ts()}`);
+        raw = sinMuletilla;
+      }
+
       const { limpio, quitadas } = quitarInventos(raw);
       if (quitadas.length > 0) {
         quitadas.forEach((q) =>

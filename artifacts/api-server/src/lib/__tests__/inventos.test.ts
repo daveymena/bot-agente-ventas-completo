@@ -8,7 +8,7 @@
  * por eso el freno va en la salida y no solo en el prompt.
  */
 import { describe, it, expect } from "vitest";
-import { detectarInventos, quitarInventos } from "../sales-playbook";
+import { detectarInventos, quitarInventos, quitarMuletillaDeApertura } from "../sales-playbook";
 
 describe("Frenar lo que el agente inventa", () => {
   it("caza el precio de la competencia que se inventó en producción", () => {
@@ -64,5 +64,52 @@ describe("Frenar lo que el agente inventa", () => {
     // Una respuesta imperfecta le gana a dejar al cliente sin respuesta.
     expect(limpio).toBe(texto);
     expect(quitadas).toEqual([]);
+  });
+});
+
+describe("Precio ajeno inventado sin decir el monto", () => {
+  it("caza la comparación por equivalencia que se coló en la segunda prueba", () => {
+    // Frase real del bot, 2026-08-22: no dice "$", así que la primera versión
+    // del detector la dejó pasar. Igual está afirmando lo que cobra un tercero.
+    const r = detectarInventos(
+      "Es el precio de unas 3-4 clases particulares presenciales y te llevas 19 módulos completos.",
+    );
+    expect(r.length).toBeGreaterThan(0);
+    expect(r[0]!.motivo).toMatch(/competencia/i);
+  });
+
+  it("caza otras formas de la misma invención", () => {
+    expect(detectarInventos("Equivale a dos meses de clases con un profesor.").length).toBeGreaterThan(0);
+    expect(detectarInventos("Por lo que pagarías en una academia, acá tenés todo.").length).toBeGreaterThan(0);
+  });
+
+  it("pero no molesta si compara contra el PROPIO producto", () => {
+    expect(detectarInventos("Es un pago único de $60.000, no una mensualidad.")).toEqual([]);
+    expect(detectarInventos("Tenés 19 módulos y acceso de por vida.")).toEqual([]);
+  });
+});
+
+describe("Muletillas de apertura que delatan al bot", () => {
+  it("saca el arranque vacío y deja el mensaje en pie", () => {
+    // Frases reales del bot, 2026-08-22.
+    expect(quitarMuletillaDeApertura("¡Perfecto! Los enlaces de pago del Curso de Piano están listos abajo 🎹"))
+      .toBe("Los enlaces de pago del Curso de Piano están listos abajo 🎹");
+    expect(quitarMuletillaDeApertura("¡Excelente! El curso está pensado para principiantes absolutos."))
+      .toBe("El curso está pensado para principiantes absolutos.");
+  });
+
+  it("no toca un mensaje que arranca con contenido", () => {
+    const bueno = "Entiendo que 60.000 pesos se sientan altos si lo ves como un gasto único.";
+    expect(quitarMuletillaDeApertura(bueno)).toBe(bueno);
+  });
+
+  it("si la muletilla ERA el mensaje, no lo deja vacío", () => {
+    expect(quitarMuletillaDeApertura("¡Perfecto!")).toBe("¡Perfecto!");
+    expect(quitarMuletillaDeApertura("Dale 👍")).toBe("Dale 👍");
+  });
+
+  it("no rompe una palabra que empieza igual", () => {
+    const t = "Claramente te sirve: arranca desde cero y no necesitás saber nada.";
+    expect(quitarMuletillaDeApertura(t)).toBe(t);
   });
 });

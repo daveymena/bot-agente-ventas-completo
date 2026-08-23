@@ -1726,7 +1726,7 @@ function buildContextBlock(
     // sepa qué hay cerca — con el producto en foco garantizado y un presupuesto
     // de caracteres alcanza. Las descripciones bajan de 200 a 110: en 200
     // caracteres entra media ficha repetida, en 110 entra de qué se trata.
-    const TOPE_CATALOGO = Number(process.env.MAX_CATALOGO_CHARS || 6000);
+    const TOPE_CATALOGO = Number(process.env.MAX_CATALOGO_CHARS || 3500);
     const enFoco = new Set<number>();
     if (product?.id) enFoco.add(product.id);
     if (memory.currentProductId) enFoco.add(memory.currentProductId);
