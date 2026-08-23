@@ -136,7 +136,7 @@ const ProductDetail = () => {
               (--store-primary-soft): en el kit el producto se apoya sobre un
               tono de la marca, no sobre un gris con borde. Es lo que hace que
               la foto "flote" -- y sigue al color que elija el dueño. */}
-          <div className="aspect-square bg-[var(--store-primary-soft)] rounded-3xl overflow-hidden relative">
+          <div className="aspect-square bg-[var(--store-primary-soft)] rounded-uv overflow-hidden relative">
             {product.image && !imgError ? (
               <img
                 src={product.image || `/images/products/${product.id}.jpg`}
@@ -164,9 +164,24 @@ const ProductDetail = () => {
           <p className="text-[11px] font-bold text-[var(--store-primary)] uppercase tracking-widest mb-3">
             {product.category}
           </p>
-          <h1 className="text-3xl sm:text-4xl font-extrabold text-gray-900 leading-tight mb-4 tracking-tight">
+          <h1 className="text-3xl sm:text-4xl font-extrabold text-gray-900 leading-tight mb-3 tracking-tight">
             {product.name}
           </h1>
+
+          {/* Estrellas VACÍAS, igual que en las tarjetas del catálogo.
+              El kit de referencia las pone con "(1 customer review)" al lado,
+              pero acá no hay reseñas: `products` no guarda valoraciones. Se
+              dibujan sin rellenar --como hace el propio kit con sus productos
+              sin valorar-- para no romper la composición, y sin número al lado
+              porque afirmar "5 reseñas" que nadie escribió es inventar prueba
+              social. El mismo criterio por el que se sacó "Más Vendido". */}
+          <div className="flex items-center gap-0.5 mb-4" aria-hidden="true">
+            {[0, 1, 2, 3, 4].map(i => (
+              <svg key={i} viewBox="0 0 20 20" className="w-4 h-4 fill-[var(--store-grey,#CAC7C7)]">
+                <path d="M10 1.5l2.6 5.3 5.9.9-4.2 4.1 1 5.8-5.3-2.8-5.3 2.8 1-5.8L1.5 7.7l5.9-.9L10 1.5z" />
+              </svg>
+            ))}
+          </div>
 
           {/* "Más Vendido" estaba fijo en TODOS los productos: es prueba
               social inventada --el mismo problema que las estrellas clonadas
@@ -213,7 +228,7 @@ const ProductDetail = () => {
                   { icon: Check, text: 'Pagas al recibir o en linea' },
                 ]
             ).map(({ icon: Icon, text }) => (
-              <div key={text} className="flex items-center gap-2.5 text-sm text-gray-700 bg-gray-50 border border-gray-200 rounded-lg p-2">
+              <div key={text} className="flex items-center gap-2.5 text-sm text-gray-700 bg-[var(--store-primary-soft)] rounded-xl px-3 py-2.5">
                 <Icon className="w-4 h-4 text-[var(--store-primary)] shrink-0" />
                 <span>{text}</span>
               </div>
@@ -320,9 +335,9 @@ const ProductDetail = () => {
               <Link
                 key={r.id}
                 to={`/tienda/${slug}/producto/${r.id}`}
-                className="group bg-white rounded-2xl overflow-hidden flex flex-col transition-all duration-300 shadow-[0_1px_2px_rgba(0,0,0,0.04),0_4px_8px_rgba(0,0,0,0.04),0_10px_20px_-4px_rgba(0,0,0,0.05)] hover:shadow-[0_2px_4px_rgba(0,0,0,0.06),0_10px_20px_rgba(0,0,0,0.08),0_24px_40px_-8px_rgba(0,0,0,0.12)] hover:-translate-y-1"
+                className="group rounded-2xl bg-[var(--store-primary-soft)] p-4 flex flex-col transition-transform duration-300 hover:-translate-y-1"
               >
-                <div className="aspect-square bg-[var(--store-primary-soft)] overflow-hidden">
+                <div className="aspect-square overflow-hidden">
                   {r.image ? (
                     <img
                       src={r.image}

@@ -92,6 +92,16 @@ const PublicLayout = ({ children }: { children: React.ReactNode }) => {
         updateConfig({
           socialLinks: d.store.socialLinks || {},
           ...(d.store.colors?.primary ? { primaryColor: d.store.colors.primary } : {}),
+          // El NOMBRE y el LOGO del negocio también se resuelven acá, no solo
+          // en Shop.
+          //
+          // Antes solo los guardaba Shop.tsx al cargar el catálogo, así que
+          // quien entraba DIRECTO a una ficha de producto, al carrito o al
+          // checkout veía en el encabezado el nombre de la tienda de demo en
+          // vez del suyo. Y entrar directo a un producto es el caso normal:
+          // es exactamente el enlace que manda el bot por WhatsApp.
+          ...(d.store.name ? { storeName: d.store.name } : {}),
+          ...(d.store.logo ? { logoUrl: d.store.logo } : {}),
         });
       })
       .catch(() => {});
