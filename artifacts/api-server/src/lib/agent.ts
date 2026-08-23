@@ -1934,6 +1934,9 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
       // mostrarían LITERALES al cliente. El [CARD: id] real se preserva.
       raw = raw.replace(/\[\s*(PAGAR|PAGO|LINK|ENLACE|PAY|URL)\s*:?[^\]]*\]/gi, "").trim();
 
+      // Intents donde NUNCA corresponde una card: saludo, despedida, handoff a humano.
+      const esChatSocial = (decision.intent === "greeting" || decision.intent === "leaving" || decision.intent === "human_handoff");
+
       // 2b. Para intents NO payment: la IA decide autónomamente si incluir [CARD: ID] o no.
       // El system prompt ya le indica que puede usar [CARD: ID] si es natural.
       // No forzamos ni eliminamos cards — confiamos en el criterio de la IA.
@@ -1979,7 +1982,6 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
       // ignora y se pone a "escribir la ficha". Acá se la forzamos: la card la
       // arma el sistema (foto + incluye + modalidad + video + precio + TODOS
       // los medios de pago); el texto de la IA queda de intro.
-      const esChatSocial = (decision.intent === "greeting" || decision.intent === "leaving" || decision.intent === "human_handoff");
       const productoPedido = decision.productoDelMensaje ?? decision.productToShow ?? null;
       const idPedido = productoPedido?.id ?? null;
       if (!isPaymentFlow && !esChatSocial && idPedido && validIds.has(idPedido) && !raw.includes("[CARD:")) {
