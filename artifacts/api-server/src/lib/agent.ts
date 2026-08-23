@@ -1242,6 +1242,27 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
     }
   }
 
+  // ── Memoria comercial del cliente, más allá de esta conversación ─────────
+  // Qué fichas ya vio y qué objeciones puso, aunque haya sido en otro chat.
+  // Sin esto el bot le manda la misma ficha cada vez que vuelve: pasó cinco
+  // veces con el mismo cliente y el mismo curso (conversación 1, 2026-08-23).
+  let perfilCliente: any = null;
+  const leadIdDelCliente = convo.leadId ?? null;
+  if (leadIdDelCliente) {
+    try {
+      const { cargarPerfil, diasDesdeLaUltimaVez } = await import("./customer-profile");
+      const p = await cargarPerfil(leadIdDelCliente);
+      perfilCliente = {
+        productosVistos: p.productosVistos,
+        objeciones: p.objeciones,
+        ciudad: p.ciudad,
+        diasSinEscribir: diasDesdeLaUltimaVez(p, new Date()),
+      };
+    } catch (e: any) {
+      logger.warn({ err: e?.message }, "[Agent] No se pudo cargar el perfil comercial del cliente");
+    }
+  }
+
   const playbook = construirPlaybook({
     mensaje: lastText,
     historial: memory.history.map((m: any) => ({ role: m.role, content: m.content })),
@@ -1253,7 +1274,33 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
     negocio,
     pagoConfirmado: memory.paymentStatus === "confirmed",
     aperturasDelNegocio,
+    perfilCliente,
   });
+
+  // Se escribe DESPUÉS de decidir la jugada y no antes: acá ya se sabe qué
+  // producto se va a mostrar y qué objeción se detectó en este turno. Va en
+  // try/catch y sin await bloqueante del resultado porque es memoria de apoyo
+  // -- que falle guardarla no puede demorar ni romper la respuesta al cliente.
+  if (leadIdDelCliente) {
+    void (async () => {
+      try {
+        const cp = await import("./customer-profile");
+        let p = await cp.cargarPerfil(leadIdDelCliente);
+        const ahora = new Date().toISOString();
+        if (decision.productToShow?.id) {
+          p = cp.agregarProductoVisto(p, { id: decision.productToShow.id, nombre: decision.productToShow.name }, ahora);
+        }
+        const tipoObjecion = playbook.jugada.startsWith("objecion:")
+          ? playbook.jugada.slice("objecion:".length)
+          : null;
+        if (tipoObjecion) p = cp.agregarObjecion(p, tipoObjecion, ahora);
+        p.ultimaInteraccion = ahora;
+        await cp.guardarPerfil(leadIdDelCliente, p);
+      } catch (e: any) {
+        logger.warn({ err: e?.message }, "[Agent] No se pudo actualizar el perfil comercial");
+      }
+    })();
+  }
   console.log(`🎯 [VENTA] Jugada: ${playbook.jugada} - ${ts()}`);
 
   const engineContextBlock = `${decision.contextBlock}${playbook.bloque}\n\n${AdvancedIntelligence.generateIntelligentContext(

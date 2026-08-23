@@ -67,6 +67,17 @@ export interface EntradaPlaybook {
    * que el admin describió como "whatsapp me estaba botando los clientes".
    */
   aperturasDelNegocio?: string[];
+  /**
+   * Memoria comercial del cliente que sobrevive a la conversación: qué fichas
+   * ya vio (aunque haya sido en otro chat), qué objeciones puso, a dónde se le
+   * envía. Ver `customer-profile.ts`.
+   */
+  perfilCliente?: {
+    productosVistos?: Array<{ id: number; nombre: string; fecha: string }>;
+    objeciones?: Array<{ tipo: string; fecha: string }>;
+    ciudad?: string | null;
+    diasSinEscribir?: number | null;
+  } | null;
 }
 
 // ─── Señales ──────────────────────────────────────────────────────────────────
@@ -296,6 +307,43 @@ export function construirPlaybook(e: EntradaPlaybook): SalidaPlaybook {
     l.push(`   Confirmá el acceso, asegurate de que pueda usarlo y ofrecé ayuda concreta.`);
     l.push(`   Nada de ofrecer otro producto en este mensaje.`);
     return { bloque: l.join("\n"), jugada: "postventa" };
+  }
+
+  // ── ESTE CLIENTE NO ES NUEVO ─────────────────────────────────────────────
+  //
+  // Va arriba de todo (después del freno de invenciones) porque cambia CÓMO se
+  // lee el resto del turno: no es lo mismo mandarle una ficha a alguien que la
+  // ve por primera vez que a alguien a quien ya se la mandaste tres veces.
+  //
+  // Medido el 2026-08-23, conversación 1: el mismo cliente pidió el curso de
+  // piano el 16, el 17, y el 23 a las 02:34, 02:46 y 03:22. Recibió la ficha
+  // las cinco veces como si fuera la primera, porque la lista de fichas
+  // enviadas vivía en la conversación y en un chat nuevo arranca vacía.
+  const perfil = e.perfilCliente;
+  if (perfil && ((perfil.productosVistos?.length ?? 0) > 0 || (perfil.objeciones?.length ?? 0) > 0 || perfil.ciudad)) {
+    l.push(`\n🧠 ESTE CLIENTE YA HABLÓ CON VOS ANTES — usalo, no lo recites:`);
+    if (typeof perfil.diasSinEscribir === "number") {
+      l.push(perfil.diasSinEscribir === 0
+        ? `   · Te escribió hoy mismo.`
+        : `   · Hacía ${perfil.diasSinEscribir} día${perfil.diasSinEscribir === 1 ? "" : "s"} que no escribía.`);
+    }
+    const vistos = perfil.productosVistos || [];
+    if (vistos.length > 0) {
+      l.push(`   · Fichas que YA le mandaste: ${vistos.map((p) => p.nombre).join(", ")}.`);
+      l.push(`     NO se las vuelvas a mandar como si fueran nuevas. Si vuelve por una de esas,`);
+      l.push(`     retomá donde quedaron ("cuando lo viste te quedó la duda de X") en vez de presentársela otra vez.`);
+    }
+    const objs = perfil.objeciones || [];
+    if (objs.length > 0) {
+      l.push(`   · Objeciones que ya puso: ${[...new Set(objs.map((o) => o.tipo))].join(", ")}.`);
+      l.push(`     Si vuelve a aparecer la misma, cambiá el ángulo: repetir el argumento que ya no funcionó`);
+      l.push(`     la primera vez no funciona la segunda.`);
+    }
+    if (perfil.ciudad) {
+      l.push(`   · Ya te dijo que está en ${perfil.ciudad}. NO se lo preguntes de nuevo.`);
+    }
+    l.push(`   ⚠️ Que sepas todo esto NO significa recitárselo. Un vendedor que se acuerda lo demuestra`);
+    l.push(`   usándolo en una frase, no leyéndole su historial.`);
   }
 
   const preguntaAbierta = tienePreguntaAbierta(e.mensaje);

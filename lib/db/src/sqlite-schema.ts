@@ -76,6 +76,8 @@ export const leads = sqliteTable("leads", {
   paymentStatus: text("payment_status"),
   lifetimeValue: real("lifetime_value").default(0),
   optOut: integer("opt_out", { mode: "boolean" }).notNull().default(false),
+  // Memoria comercial que sobrevive a la conversación (ver schema/leads.ts).
+  commercialProfile: text("commercial_profile", { mode: "json" }),
   createdAt: text("created_at").notNull().default(sql`(datetime('now'))`),
 });
 

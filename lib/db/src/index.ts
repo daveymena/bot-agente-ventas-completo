@@ -100,7 +100,7 @@ export type {
   MarketingBudget, InsertMarketingBudget,
   MarketingAuditLog, InsertMarketingAuditLog,
 } from "./schema";
-export type { AdContext } from "./schema/leads";
+export type { AdContext, CommercialProfile } from "./schema/leads";
 export type { AgentStage } from "./schema/agents";
 
 // ── DB INSTANCE ──────────────────────────────────────────────────────────────
@@ -316,6 +316,7 @@ async function ensureSqliteTables(sqliteDb: import("sql.js").Database, saveDb: (
     `ALTER TABLE tenants ADD COLUMN is_active INTEGER DEFAULT 1`,
     `ALTER TABLE leads ADD COLUMN ad_context TEXT`,
     `ALTER TABLE leads ADD COLUMN opt_out INTEGER DEFAULT 0`,
+    `ALTER TABLE leads ADD COLUMN commercial_profile TEXT`,
   ];
   for (const sql of columnMigrations) {
     try { sqliteDb.run(sql); } catch { /* columna ya existe */ }

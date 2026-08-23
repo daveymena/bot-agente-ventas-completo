@@ -21,6 +21,12 @@ const MIGRATIONS = [
   `ALTER TABLE tenants ADD COLUMN IF NOT EXISTS email_config JSONB`,
   `ALTER TABLE tenants ADD COLUMN IF NOT EXISTS api_keys JSONB`,
   `ALTER TABLE leads ADD COLUMN IF NOT EXISTS opt_out BOOLEAN NOT NULL DEFAULT false`,
+  // Memoria comercial del cliente que sobrevive a la conversacion: que fichas
+  // ya vio y que objeciones puso, aunque vuelva semanas despues y en otro
+  // chat. Antes eso vivia en sentProductIds de ConversationMemory y se perdia
+  // al abrirse una conversacion nueva, asi que el bot le volvia a presentar lo
+  // mismo. Ver CommercialProfile en lib/db/src/schema/leads.ts.
+  `ALTER TABLE leads ADD COLUMN IF NOT EXISTS commercial_profile JSONB`,
   // El admin pidió separar categorías de productos Digitales vs Físicas --
   // hoy cualquier categoría se puede usar para cualquier tipo de producto,
   // sin ninguna restricción. description/icon/color ya existían en la DB
