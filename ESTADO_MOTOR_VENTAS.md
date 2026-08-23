@@ -188,31 +188,57 @@ Pedido del dueño del producto, textual en intención:
 
 ### Lo que falta — verificado
 
-1. **`update_agent` no pide confirmación.** Las herramientas con puerta de
-   confirmación son `fb_page_publish`, `set_product_image`,
-   `dropi_import_product`, `dropi_create_order` y `email_campaign_send`.
-   `update_agent`, `update_settings` y `update_business_profile` **no**.
+> ⚠️ **CORRECCIÓN (misma fecha).** La primera versión de esta sección decía que
+> `update_agent` no pedía confirmación. **Era falso** y se corrige acá para que
+> nadie construya una puerta que ya existe. El error vino de mirar el TEXTO de
+> las descripciones (solo algunas dicen "requiere confirmación") en vez del
+> mecanismo real, que es estructural.
 
-   Cambiar el `systemPrompt` del agente altera cómo le habla el vendedor a
-   TODOS los clientes de ese negocio, de forma silenciosa y sin registro. Es
-   al menos tan sensible como publicar un post. Hoy Atlas lo puede hacer solo.
+**La puerta de confirmación YA EXISTE, en los dos caminos.** El control es el
+set `READ_ONLY_TOOLS` (`app-operator.ts:4448`): lo que está adentro se ejecuta
+libre, lo que **no** está adentro es mutación y exige confirmación.
 
-2. **Atlas no sugiere: solo reacciona.** No hay ninguna rutina que mire cómo
+- `get_agent`, `get_settings`, `get_store` → dentro (lectura).
+- `update_agent`, `update_settings`, `update_business_profile` → **fuera**, o
+  sea que ya están detrás de la puerta.
+
+Cómo se aplica:
+
+- **MCP / OpenCode**: la superficie expuesta se deriva de `READ_ONLY_TOOLS`
+  más `propose_action` (`opencode-mcp-tools.ts:879, 917`). Las mutantes **solo**
+  son alcanzables vía `propose_action`, cuya descripción es explícita:
+  *"NUNCA lo ejecuta… espera su confirmación explícita antes de aplicar nada"*.
+- **Consola**: `code-agent.ts:1658-1672` separa lecturas de mutaciones; si hay
+  mutaciones arma el plan y **para** hasta el "sí" del admin.
+
+### Lo que falta de verdad
+
+1. **Atlas no sugiere: solo reacciona.** No hay ninguna rutina que mire cómo
    viene rindiendo el negocio y proponga un ajuste. El cliente tiene que saber
    qué pedir — que es exactamente lo que el requisito quiere evitar.
 
-3. **No hay capa de "por qué te conviene".** Para que el cliente aprenda, la
+2. **No hay capa de "por qué te conviene".** Para que el cliente aprenda, la
    sugerencia tiene que venir con la evidencia de SU negocio ("tus leads se
    caen después de la ficha; te conviene subir el tono de cierre"), no con
    consejos genéricos.
 
+3. **Por confirmar (no verificado):** al proponer `update_agent`, la propuesta
+   parece armarse solo con los valores NUEVOS. El `run` lee el agente actual
+   (`existing`) pero no se comprobó que el admin vea el valor VIEJO al lado del
+   nuevo. Para un `systemPrompt` eso importa: aprobar un texto largo sin ver
+   qué reemplaza es aprobar a ciegas. Revisar al construir la Fase 8.5.
+
 ### Cómo entra en el plan
 
-- **Fase 1.5 — puerta de confirmación** (barata, y es seguridad):
-  `update_agent`, `update_settings` y `update_business_profile` pasan por
-  `proposeAction`, mostrando ANTES el valor viejo y el nuevo. Se hace ya, no
-  depende de nada.
+- ~~Fase 1.5 — puerta de confirmación~~. **Cancelada: ya existe** (ver la
+  corrección arriba). Lo único que queda de esto es el punto 3: verificar que
+  la propuesta muestre el valor viejo junto al nuevo. Es chico y va dentro de
+  la Fase 8.5.
 - **Fase 8.5 — Atlas asesor de configuración**: sugerencias proactivas con la
   evidencia del propio negocio. Va DESPUÉS de las métricas (Fase 7): sin datos
   del embudo de ese tenant, cualquier sugerencia es un consejo genérico, y eso
   es justo lo que no queremos.
+
+  Es la única pieza que hay que construir de verdad para el requisito, porque
+  todo lo demás —config por tenant, uso real en el motor, pantallas, tools de
+  Atlas y confirmación— ya está.
