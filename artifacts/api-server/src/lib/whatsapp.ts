@@ -52,8 +52,64 @@ async function sleep(ms: number): Promise<void> {
 // Caché global de IDs de mensajes procesados para evitar duplicados/bucle
 const processedMessageIds = new Set<string>();
 
+/**
+ * ¿Esta cadena la escribió una persona, o es plomería de WhatsApp?
+ *
+ * El problema que resuelve, visto en producción el 2026-08-22 en la
+ * conversación 4 (Martha Cecilia, 573145632442):
+ *
+ *   17:06:05  cliente: "¡Hola! Quiero más información"   ← venía del anuncio de PIANO
+ *   17:06:07  bot:     "¿Vienes por el Cojín Moto Viajero 3D, cierto?"
+ *   17:06:10  cliente: "215814204608627@lid"             ← NADIE escribió esto
+ *   17:06:49  bot:     "te muestro el Pack de Contabilidad"
+ *
+ * Ese `215814204608627@lid` es un LID -- el identificador interno de WhatsApp.
+ * Cuando el mensaje no traía texto extraíble, `diagnoseMessage()` rebuscaba
+ * cualquier cadena del JSON con al menos una letra, y "lid" son letras. Se
+ * guardó como mensaje del cliente y el agente le contestó con un producto al
+ * azar. Al cliente le llegaron dos productos que no tenían nada que ver con
+ * el anuncio que se pagó para traerlo.
+ *
+ * El rebusque de más abajo YA filtraba esto (descarta las cadenas con "@"),
+ * pero esta rama usaba `possibleText` crudo. Dos caminos al mismo lugar y
+ * solo uno con reja. Por eso el chequeo vive acá, en una sola función que
+ * usan los dos.
+ */
+export function pareceMensajeDePersona(s: unknown): boolean {
+  if (typeof s !== "string") return false;
+  const t = s.trim();
+  // Mínimo 2 y no 3: "sí" es el mensaje MÁS importante de toda la venta, y
+  // con el corte en 3 quedaba afuera. Igual que "ok" y "no".
+  if (t.length < 2) return false;
+
+  // Tiene que tener alguna letra: "12345" no es un mensaje.
+  if (!/[a-zA-ZáéíóúÁÉÍÓÚñÑ]/.test(t)) return false;
+
+  // JIDs y LIDs de WhatsApp: 573001234567@s.whatsapp.net, 2158142@lid,
+  // 1234-5678@g.us. Nadie escribe esto en un chat.
+  if (/@(lid|s\.whatsapp\.net|g\.us|c\.us|broadcast|newsletter)/i.test(t)) return false;
+  if (/^\+?\d[\d\s:.-]*@/.test(t)) return false;
+
+  // Nombres de campos del protocolo: messageContextInfo, deviceListMetadata.
+  if (/^[a-z]+([A-Z][a-zA-Z0-9]*)+$/.test(t)) return false;
+
+  // Claves, hashes e ids en base64.
+  if (/^[A-Za-z0-9+/=_-]{16,}$/.test(t)) return false;
+
+  // Mimetypes: image/jpeg, audio/ogg; codecs=opus.
+  if (/^(image|audio|video|application|text)\/[a-z0-9.+-]+/i.test(t)) return false;
+
+  // Mayoría de dígitos y sin espacios: casi siempre un identificador.
+  // `>=` y no `>`: un id hexadecimal como "3A1F2E4B7C9D" tiene exactamente
+  // la mitad de dígitos y se colaba por un carácter.
+  const digitos = (t.match(/\d/g) || []).length;
+  if (!/\s/.test(t) && digitos >= t.length / 2) return false;
+
+  return true;
+}
+
 // Función de diagnóstico para mensajes problemáticos
-function diagnoseMessage(msgObj: any): { 
+function diagnoseMessage(msgObj: any): {
   diagnosis: string; 
   possibleText: string | null; 
   recommendations: string[] 
@@ -65,7 +121,7 @@ function diagnoseMessage(msgObj: any): {
   // Buscar texto en cualquier lugar del objeto
   const findTextInObject = (obj: any, path = ""): string[] => {
     const texts: string[] = [];
-    if (typeof obj === 'string' && obj.length > 2 && /[a-zA-ZáéíóúÁÉÍÓÚñÑ]/.test(obj)) {
+    if (typeof obj === 'string' && pareceMensajeDePersona(obj)) {
       texts.push(`${path}: "${obj}"`);
     } else if (typeof obj === 'object' && obj !== null) {
       for (const [key, value] of Object.entries(obj)) {
@@ -1519,9 +1575,11 @@ export class WhatsAppManager {
               console.log("🔍 DIAGNÓSTICO:", diagnostic.diagnosis);
               console.log("💡 RECOMENDACIONES:", diagnostic.recommendations);
               
-              if (diagnostic.possibleText) {
+              if (diagnostic.possibleText && pareceMensajeDePersona(diagnostic.possibleText)) {
                 text = diagnostic.possibleText;
                 console.log("🎯 Usando texto encontrado en diagnóstico:", text);
+              } else if (diagnostic.possibleText) {
+                console.log(`🚫 [BASURA] El diagnóstico devolvió "${diagnostic.possibleText.slice(0, 40)}", que no lo escribió una persona — se descarta`);
               } else {
                 console.log("📋 Claves del mensaje:", Object.keys(msgObj || {}));
                 console.log("🔍 Estructura completa del mensaje:");
@@ -1551,12 +1609,12 @@ export class WhatsAppManager {
                     .filter(s => /\s/.test(s.trim()) || /^[a-záéíóúñ¿¡?!.,]{2,15}$/i.test(s.trim()))
                     .find(s => /[a-zA-ZáéíóúÁÉÍÓÚñÑ]/.test(s)); // Contiene letras
 
-                  if (potentialText) {
+                  if (potentialText && pareceMensajeDePersona(potentialText)) {
                     text = potentialText;
                     console.log("🎯 Texto potencial encontrado:", text);
                   }
                 }
-                
+
                 if (!text || !text.trim()) {
                   console.log("❌ No se pudo extraer texto del mensaje. Ignorando.");
                   continue;
