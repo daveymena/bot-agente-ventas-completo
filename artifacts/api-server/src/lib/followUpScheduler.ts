@@ -74,11 +74,43 @@ export class FollowUpScheduler {
       // El teléfono va como semilla para que dos contactos distintos no reciban
       // el mismo texto: mandar mensajes casi idénticos a muchos números es lo
       // que hace que WhatsApp bloquee la línea del negocio.
-      const message = leadScoringEngine.generateFollowUpMessage(
-        stage as LeadStage,
-        conversation.lastMessage || "",
-        String(conversation.contactPhone || conversationId),
-      );
+      const semilla = String(conversation.contactPhone || conversationId);
+
+      // ── Si es una venta ABANDONADA, el mensaje sabe de qué habla ──────────
+      //
+      // El seguimiento por etapa es genérico por diseño: sirve para cualquiera.
+      // Pero a alguien que llegó de un anuncio pago, pidió el precio y no
+      // compró, mandarle "¿cómo va el proceso?" es desperdiciar el clic que ya
+      // se cobró. Con el producto que estaba mirando (que ahora vive en el
+      // perfil comercial del lead) se puede nombrar lo que quedó a medias.
+      //
+      // Si no se sabe qué producto era, `mensajeDeRecuperacion` devuelve null y
+      // se cae al mensaje por etapa: es preferible el genérico a inventar.
+      let message: string | null = null;
+      try {
+        const { cargarPerfil } = await import("./customer-profile");
+        const { mensajeDeRecuperacion } = await import("./recuperacion");
+        const perfil = await cargarPerfil(conversation.leadId);
+        const ultimoProducto = perfil.productosVistos?.[0]?.nombre || null;
+        const ultimaObjecion = perfil.objeciones?.[0]?.tipo || null;
+        if (ultimoProducto && ["closing", "negotiating", "qualified"].includes(String(stage))) {
+          message = mensajeDeRecuperacion({
+            producto: ultimoProducto,
+            objecion: ultimaObjecion,
+            semilla,
+          });
+        }
+      } catch (err) {
+        logger.warn({ err, conversationId }, "[FollowUpScheduler] No se pudo armar el mensaje de recuperación; se usa el de la etapa");
+      }
+
+      if (!message) {
+        message = leadScoringEngine.generateFollowUpMessage(
+          stage as LeadStage,
+          conversation.lastMessage || "",
+          semilla,
+        );
+      }
 
       const [followUp] = await db.insert(followUps).values({
         conversationId,
