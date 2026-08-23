@@ -1,12 +1,9 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useStore, Product } from '../store/useStore';
-import { useMoneda } from '@/lib/moneda';
-import { Search, ShoppingCart, Heart, Store, Package, Download, Box } from 'lucide-react';
-import { motion } from 'framer-motion';
-import Swal from 'sweetalert2';
-import { trackAddToCart, trackInitiateCheckout } from '../lib/pixel';
-import { useParams, useSearchParams, useNavigate, Link } from 'react-router-dom';
+import { Search, Store } from 'lucide-react';
+import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
 import TrustBar from '../components/TrustBar';
+import ProductCard from '../components/ProductCard';
 
 interface ApiProduct {
   id: number;
@@ -24,172 +21,22 @@ interface ApiProduct {
 // pesos que ya nadie llamaba; se quitó para que no vuelva a usarse por error y
 // deje precios sin convertir.
 
-// Etiqueta visual por tipo de producto: digital se entrega al instante,
-// físico requiere envío. Solo estos dos valores existen de verdad en el
-// backend (products.kind, ver routes/products.ts) -- cualquier otro valor
-// cae a "digital" ahí, así que este mapa hace lo mismo.
-const TYPE_BADGE: Record<string, { label: string; icon: typeof Download; className: string }> = {
-  digital: { label: 'Digital', icon: Download, className: 'bg-indigo-600' },
-  physical: { label: 'Físico', icon: Box, className: 'bg-emerald-600' },
-};
+// El mapa de etiquetas por tipo (TYPE_BADGE) se fue junto con la tarjeta a
+// components/ProductCard.tsx: es el único que lo pinta. Dejarlo duplicado acá
+// era pedir que las dos copias se contradijeran.
 
 // Exportada porque la lista de deseos (Wishlist.tsx) muestra exactamente la
 // misma tarjeta -- duplicarla ahí hacía que el botón "Comprar ahora" y el
 // badge de tipo se fueran desincronizando entre las dos pantallas.
-export const ProductCard = ({ product, slug }: { product: Product; slug: string }) => {
-  // Precio en la moneda del visitante (ver lib/moneda.ts).
-  const { formatear } = useMoneda();
-  const { addToCart, wishlist, toggleWishlist } = useStore();
-  const navigate = useNavigate();
-  const [imgError, setImgError] = useState(false);
-  const [buying, setBuying] = useState(false);
-  const detailHref = `/tienda/${slug}/producto/${product.id}`;
-  const badge = TYPE_BADGE[product.type] || TYPE_BADGE.digital;
-  const BadgeIcon = badge.icon;
-
-  // "Comprar" va DIRECTO a la pasarela: antes decía Comprar pero solo metía el
-  // producto al carrito, así que el cliente creía haber comprado y se quedaba
-  // en la misma página. Para acumular varios productos está "Agregar".
-  //
-  // Salvo si es FÍSICO: eso se paga contra entrega, así que mandarlo a
-  // MercadoPago es cobrarle por adelantado algo que iba a pagarle al
-  // mensajero. Va al checkout, donde se le piden dirección y cédula.
-  const comprarAhora = async () => {
-    if (product.type === 'physical' || product.type === 'dropshipping') {
-      addToCart(product);
-      trackInitiateCheckout({ ids: [product.id], value: product.price });
-      navigate(`/tienda/${slug}/checkout`);
-      return;
-    }
-
-    setBuying(true);
-    trackInitiateCheckout({ ids: [product.id], value: product.price });
-    try {
-      const res = await fetch(`/api/public/checkout/${slug}/${product.id}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ method: 'mercadopago' }),
-      });
-      const data = await res.json();
-      if (!res.ok || !data.checkoutUrl) {
-        throw new Error(data?.message || 'No se pudo generar el enlace de pago');
-      }
-      window.location.href = data.checkoutUrl;
-    } catch (err) {
-      setBuying(false);
-      Swal.fire({
-        title: 'No pudimos abrir el pago',
-        text: err instanceof Error ? err.message : 'Intenta de nuevo.',
-        icon: 'error',
-      });
-    }
-  };
-
-  return (
-    <motion.div
-      layout
-      initial={{ opacity: 0, y: 10 }}
-      animate={{ opacity: 1, y: 0 }}
-      className="group relative bg-white rounded-2xl overflow-hidden flex flex-col transition-all duration-300 shadow-[0_1px_2px_rgba(0,0,0,0.04),0_4px_8px_rgba(0,0,0,0.04),0_10px_20px_-4px_rgba(0,0,0,0.05)] hover:shadow-[0_2px_4px_rgba(0,0,0,0.06),0_10px_20px_rgba(0,0,0,0.08),0_24px_40px_-8px_rgba(0,0,0,0.12)] hover:-translate-y-1"
-    >
-      {/* Fondo tenue DERIVADO del color de marca (--store-primary-soft),
-          no un gris fijo: es lo que le da aire al producto en el diseno de
-          referencia, y cambia solo cuando el dueno cambia su color. */}
-      <div className="relative aspect-square bg-[var(--store-primary-soft)] overflow-hidden">
-        <Link to={detailHref} className="block w-full h-full" aria-label={`Ver ${product.name}`}>
-          {product.image && !imgError ? (
-            <img
-              src={product.image || `/images/products/${product.id}.jpg`}
-              alt={product.name}
-              className="w-full h-full object-contain p-4 group-hover:scale-105 transition-transform duration-500"
-              onError={(e) => {
-                const target = e.target as HTMLImageElement;
-                if (!target.src.includes(`/images/products/${product.id}.jpg`)) {
-                  target.src = `/images/products/${product.id}.jpg`;
-                } else {
-                  setImgError(true);
-                }
-              }}
-              loading="lazy"
-            />
-          ) : (
-            <div className="w-full h-full flex items-center justify-center text-gray-300">
-              <Package className="w-12 h-12" />
-            </div>
-          )}
-        </Link>
-        <div className="absolute top-2 right-2 pointer-events-none">
-          <span className={`px-2 py-1 rounded text-[10px] font-bold text-white flex items-center gap-1 ${badge.className}`}>
-            <BadgeIcon className="w-3 h-3" /> {badge.label}
-          </span>
-        </div>
-        <button
-          onClick={() => toggleWishlist(product.id)}
-          className="absolute top-2 left-2 w-8 h-8 rounded-full bg-white/90 backdrop-blur-sm border border-gray-200 shadow-sm flex items-center justify-center text-gray-400 hover:text-[var(--store-primary)] hover:bg-white transition-all"
-        >
-          <Heart className={`w-4 h-4 ${wishlist.includes(product.id) ? 'fill-[var(--store-primary)] text-[var(--store-primary)]' : ''}`} />
-        </button>
-      </div>
-
-      <div className="p-3 flex flex-col gap-1.5 flex-1 text-center">
-        <p className="text-[10px] font-bold text-[var(--store-primary)] uppercase tracking-wider">{product.category || 'General'}</p>
-        <Link
-          to={detailHref}
-          className="text-sm font-bold leading-snug text-gray-900 line-clamp-2 min-h-[2.5em] hover:text-[var(--store-primary)] transition-colors"
-        >
-          {product.name}
-        </Link>
-
-        {/* Acá había un "★ 5.0 (128)" FIJO, idéntico en los 84 productos.
-            Con cero ventas registradas esas 128 reseñas no existen: es prueba
-            social fabricada. Además de que el mismo (128) repetido en todo el
-            catálogo se nota a simple vista, en Colombia cae bajo el Estatuto
-            del Consumidor y Meta puede rechazar anuncios que lleven a una
-            landing así. Se muestra solo cuando hay reseñas de verdad; mientras
-            no las haya, no se muestra nada -- un catálogo sin estrellas es más
-            creíble que uno con estrellas clonadas. */}
-        {/* No se muestra ninguna calificación: no existe sistema de reseñas,
-            así que cualquier estrella sería inventada. Cuando haya reseñas
-            reales, mostrar acá el promedio y el conteo VERDADEROS. */}
-
-        <div className="mt-auto pt-2">
-          <span className="text-lg font-black text-gray-900">{formatear(product.price)}</span>
-          <div className="mt-2 flex gap-2">
-            <button
-              onClick={comprarAhora}
-              disabled={buying}
-              className="flex-1 h-9 rounded-full bg-[var(--store-primary)] text-[var(--store-on-primary)] text-xs font-bold flex items-center justify-center gap-1.5 hover:bg-[var(--store-primary-hover)] transition-all disabled:opacity-50"
-            >
-              {buying ? 'Abriendo…' : 'Comprar ahora'}
-            </button>
-            <button
-              onClick={() => {
-                addToCart(product);
-                trackAddToCart({ id: product.id, name: product.name, price: product.price });
-                Swal.fire({
-                  title: '¡Agregado!',
-                  text: `${product.name} al carrito`,
-                  icon: 'success',
-                  toast: true,
-                  position: 'top-end',
-                  showConfirmButton: false,
-                  timer: 1500,
-                  background: '#18181b',
-                  color: '#fff',
-                });
-              }}
-              title="Agregar al carrito"
-              aria-label="Agregar al carrito"
-              className="w-9 h-9 shrink-0 rounded-full border border-gray-200 text-gray-500 bg-white flex items-center justify-center hover:bg-gray-50 hover:text-[var(--store-primary)] transition-all"
-            >
-              <ShoppingCart className="w-4 h-4" />
-            </button>
-          </div>
-        </div>
-      </div>
-    </motion.div>
-  );
-};
+// La tarjeta vivía escrita acá adentro. Se movió a components/ProductCard.tsx
+// con el look del kit de referencia (fondo lavanda, badge, píldora de
+// agregar) y la MISMA lógica de compra: físico al checkout, digital directo
+// a la pasarela.
+//
+// Se sigue reexportando con el mismo nombre porque Wishlist.tsx la importa
+// desde este archivo, que es justo el motivo por el que se exportó en su día:
+// que las dos pantallas no se fueran desincronizando.
+export { ProductCard };
 
 const Shop = () => {
   const { config, updateConfig, products: localProducts } = useStore();
@@ -293,12 +140,12 @@ const Shop = () => {
           El kit abre con dos tarjetas de color pegadas, no con un banner
           oscuro de ancho completo: una grande con la propuesta y el botón, y
           una angosta al lado. Es lo que le da el aire de tienda armada en vez
-          de "una foto con letras encima". Los dos bloques salen del color de
-          marca (primary y primary-deep), así que siguen cambiando con el
-          picker del panel. */}
+          de "una foto con letras encima". Los dos bloques usan el azul y el
+          naranja del kit: es el contraste que define su héroe, y el que hace
+          que no quede todo del mismo púrpura del encabezado. */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 sm:gap-4 mb-4 sm:mb-6">
         <div
-          className="lg:col-span-2 relative overflow-hidden rounded-3xl bg-[var(--store-primary)] text-[var(--store-on-primary)] p-6 sm:p-10 min-h-[240px] sm:min-h-[320px] flex flex-col justify-center"
+          className="lg:col-span-2 relative overflow-hidden rounded-uv-lg bg-[var(--store-blue)] text-white p-6 sm:p-10 min-h-[240px] sm:min-h-[320px] flex flex-col justify-center"
         >
           {/* La foto del negocio, si la cargó, se apoya a la derecha en vez de
               ocupar todo el fondo: en el kit el producto se ve entero sobre el
@@ -350,7 +197,7 @@ const Shop = () => {
           <button
             type="button"
             onClick={() => { setFilter(categories[0].key); }}
-            className="group relative overflow-hidden rounded-3xl bg-[var(--store-primary-deep)] text-white p-6 sm:p-8 min-h-[160px] sm:min-h-[320px] flex flex-col justify-center text-left"
+            className="group relative overflow-hidden rounded-uv-lg bg-[var(--store-orange)] text-white p-6 sm:p-8 min-h-[160px] sm:min-h-[320px] flex flex-col justify-center text-left"
           >
             <p className="text-xs font-bold uppercase tracking-[0.2em] opacity-70 mb-2">Lo más surtido</p>
             <h2 className="text-2xl sm:text-3xl font-black leading-tight mb-1">{categories[0].name}</h2>

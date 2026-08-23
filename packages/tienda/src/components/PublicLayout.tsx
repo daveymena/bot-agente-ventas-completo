@@ -21,26 +21,40 @@ const PublicLayout = ({ children }: { children: React.ReactNode }) => {
   // vería el botón de "Panel Admin" en la tienda pública de OTRO negocio.
   const isOwner = isAdmin && config.slug === effectiveSlug;
 
-  // El color de marca de la tienda (config.primaryColor, editable desde el
-  // panel admin) se expone como variables CSS para que todo el layout -- y
-  // las páginas hijas (Shop, ProductDetail, Cart, Checkout) -- lo lean con
-  // clases Tailwind tipo bg-[var(--store-primary)] en vez de tener el rojo
-  // de la demo hardcodeado.
+  // ── Paleta de la tienda ───────────────────────────────────────────────────
+  //
+  // Valores EXACTOS del kit de referencia (premiumm/URBANisty), leídos de su
+  // `global.json` y no estimados de las capturas.
+  //
+  // Antes esto derivaba todo del color que cada dueño elegía en su panel. Se
+  // pasó a una paleta fija por decisión explícita del dueño del producto el
+  // 2026-08-22: quería la tienda "prácticamente igual" a la referencia, y el
+  // kit apoya su identidad en la COMBINACIÓN (púrpura + navy + amarillo +
+  // naranja), no en un color suelto. Derivar esos cuatro de un primario
+  // cualquiera daba combinaciones que no se parecían al diseño.
+  //
+  // Se conservan los MISMOS nombres de variable (`--store-primary`, etc.) a
+  // propósito: Shop, ProductDetail, Cart y Checkout ya los leen en decenas de
+  // clases `bg-[var(--store-primary)]`. Cambiando el valor acá, toda la
+  // tienda adopta la paleta sin tocar una sola de esas páginas.
+  //
+  // ⚠️ Si algún día se quiere volver al color por cliente, se revierte este
+  // bloque y el resto sigue funcionando igual: nada más depende de esto.
   const themeVars = useMemo(() => {
-    const primary = config.primaryColor || '#dc2626';
     return {
-      '--store-primary': primary,
-      '--store-primary-hover': darken(primary, 0.15),
-      '--store-on-primary': readableTextColor(primary),
-      '--store-primary-soft': tint(primary),
-      // El héroe del kit son DOS bloques de color contrastados, no uno. El kit
-      // los resuelve con dos colores fijos (azul + naranja) que chocarían con
-      // el color que elija cada dueño, así que el segundo bloque es un tono
-      // profundo del MISMO primario: se conserva la composición a dos bloques
-      // sin romper la promesa de "cambias un color y la tienda te sigue".
-      '--store-primary-deep': darken(primary, 0.45),
+      '--store-primary': '#4D31B9',        // acento del kit
+      '--store-primary-hover': '#3d2794',
+      '--store-on-primary': '#FFFFFF',
+      '--store-primary-soft': '#EBEFFC',   // lavanda de las tarjetas
+      '--store-primary-deep': '#1A1E5D',   // navy: barra superior, bloques oscuros
+      // Los tres acentos que el kit usa para romper el púrpura.
+      '--store-yellow': '#FFC931',
+      '--store-orange': '#FE4327',
+      '--store-blue': '#3357D9',
+      '--store-green': '#69D23B',
+      '--store-ink': '#090909',
     } as React.CSSProperties;
-  }, [config.primaryColor]);
+  }, []);
 
   // El número de WhatsApp se resuelve aquí (no en cada página) porque el layout
   // envuelve toda la tienda. Viene del teléfono realmente conectado al bot por
@@ -73,8 +87,8 @@ const PublicLayout = ({ children }: { children: React.ReactNode }) => {
   const waHref = config.whatsappPhone ? `https://wa.me/${config.whatsappPhone}` : null;
 
   return (
-    <div className="min-h-screen flex flex-col bg-gray-50 text-slate-900" style={themeVars}>
-      <nav className="sticky top-0 z-50 bg-zinc-900 text-white">
+    <div className="min-h-screen flex flex-col bg-white text-slate-900" style={themeVars}>
+      <nav className="sticky top-0 z-50 bg-[var(--store-primary)] text-white">
         {/* ── Barra superior: datos de contacto reales ──────────────────
             Es la primera de las tres capas del encabezado de una tienda
             seria (el diseño de referencia la trae, y la tienda actual no
@@ -83,7 +97,7 @@ const PublicLayout = ({ children }: { children: React.ReactNode }) => {
             una dirección o un horario inventados para "verse profesional"
             es justo lo que hace que una tienda se vea falsa. */}
         {config.whatsappPhone && (
-          <div className="hidden sm:block bg-black/40 text-gray-300">
+          <div className="hidden sm:block bg-[var(--store-primary-deep)] text-white/70">
             <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-9 flex items-center gap-6 text-[11px]">
               <a
                 href={`https://wa.me/${String(config.whatsappPhone).replace(/[^0-9]/g, '')}`}
@@ -106,7 +120,7 @@ const PublicLayout = ({ children }: { children: React.ReactNode }) => {
             esta tienda, nunca para el público. El cliente que compra jamás
             debería ver botones de "editar" o "panel admin" en su checkout. */}
         {isOwner && (
-          <div className="bg-[var(--store-primary)] text-[var(--store-on-primary)]">
+          <div className="bg-[var(--store-primary-deep)] text-white">
             <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-9 flex items-center justify-between text-xs font-semibold">
               <span className="hidden sm:inline">Estás viendo tu tienda como dueño</span>
               <div className="flex items-center gap-4 ml-auto">
@@ -134,8 +148,8 @@ const PublicLayout = ({ children }: { children: React.ReactNode }) => {
                   className="h-9 w-auto max-w-[140px] object-contain group-hover:scale-105 transition-transform"
                 />
               ) : (
-                <div className="w-9 h-9 rounded-lg bg-[var(--store-primary)] flex items-center justify-center group-hover:scale-105 transition-transform">
-                  <Store className="w-5 h-5 text-[var(--store-on-primary)]" />
+                <div className="w-9 h-9 rounded-full bg-white/15 flex items-center justify-center group-hover:scale-105 transition-transform">
+                  <Store className="w-5 h-5 text-white" />
                 </div>
               )}
               <span className="text-lg font-black tracking-tight uppercase">{config.storeName || 'Tienda'}</span>
@@ -146,14 +160,14 @@ const PublicLayout = ({ children }: { children: React.ReactNode }) => {
                 producto no tiene forma de ver el resto del catalogo, que es
                 justo lo que hace que una tienda parezca "muy simple". */}
             <div className="hidden md:flex items-center gap-6 ml-8 mr-auto text-sm font-medium">
-              <Link to={base} className="text-gray-200 hover:text-white transition-colors">Inicio</Link>
-              <Link to={`${base}/shop`} className="text-gray-200 hover:text-white transition-colors">Tienda</Link>
+              <Link to={base} className="text-white/85 hover:text-white transition-colors">Inicio</Link>
+              <Link to={`${base}/shop`} className="text-white/85 hover:text-white transition-colors">Tienda</Link>
               {config.whatsappPhone && (
                 <a
                   href={`https://wa.me/${String(config.whatsappPhone).replace(/[^0-9]/g, '')}`}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-gray-200 hover:text-white transition-colors"
+                  className="text-white/85 hover:text-white transition-colors"
                 >
                   Contacto
                 </a>
@@ -161,32 +175,40 @@ const PublicLayout = ({ children }: { children: React.ReactNode }) => {
             </div>
 
             <div className="hidden md:flex items-center gap-4">
-              <Link to={`${base}/wishlist`} className="relative p-2 text-gray-300 hover:text-white transition-colors">
-                <Heart className="w-5 h-5" />
+              {/* Píldoras, no iconos sueltos: es lo que le da carácter al
+                  encabezado del kit. Deseados en círculo translúcido y
+                  carrito en naranja, que es el acento que el diseño usa para
+                  lo accionable. */}
+              <Link
+                to={`${base}/wishlist`}
+                aria-label="Lista de deseos"
+                className="relative flex h-9 w-9 items-center justify-center rounded-full bg-white/15 text-white transition-colors hover:bg-white/25"
+              >
+                <Heart className="w-4 h-4" />
                 {wishlist.length > 0 && (
-                  <span className="absolute -top-1 -right-1 bg-[var(--store-primary)] text-[var(--store-on-primary)] text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+                  <span className="absolute -top-1 -right-1 bg-[var(--store-yellow)] text-[var(--store-ink)] text-[10px] font-bold px-1.5 py-0.5 rounded-full">
                     {wishlist.length}
                   </span>
                 )}
               </Link>
-              <Link to={`${base}/carrito`} className="relative p-2 text-gray-300 hover:text-white transition-colors">
-                <ShoppingCart className="w-5 h-5" />
-                {cartCount > 0 && (
-                  <span className="absolute -top-1 -right-1 bg-[var(--store-primary)] text-[var(--store-on-primary)] text-[10px] font-bold px-1.5 py-0.5 rounded-full">
-                    {cartCount}
-                  </span>
-                )}
+              <Link
+                to={`${base}/carrito`}
+                aria-label="Carrito"
+                className="flex items-center gap-2 rounded-full bg-[var(--store-orange)] px-4 h-9 text-white text-xs font-semibold transition-opacity hover:opacity-90"
+              >
+                <ShoppingCart className="w-4 h-4" />
+                <span>{cartCount}</span>
               </Link>
             </div>
 
             <div className="flex md:hidden items-center gap-2">
-              <Link to={`${base}/carrito`} className="relative p-2 text-gray-300 hover:text-white">
-                <ShoppingCart className="w-5 h-5" />
-                {cartCount > 0 && (
-                  <span className="absolute -top-1 -right-1 bg-[var(--store-primary)] text-[var(--store-on-primary)] text-[10px] font-bold px-1.5 py-0.5 rounded-full">
-                    {cartCount}
-                  </span>
-                )}
+              <Link
+                to={`${base}/carrito`}
+                aria-label="Carrito"
+                className="flex items-center gap-1.5 rounded-full bg-[var(--store-orange)] px-3 h-8 text-white text-xs font-semibold"
+              >
+                <ShoppingCart className="w-4 h-4" />
+                <span>{cartCount}</span>
               </Link>
               <button onClick={() => setMobileMenu(!mobileMenu)} className="p-2 text-gray-300 hover:text-white transition-colors">
                 {mobileMenu ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
@@ -311,13 +333,13 @@ const PublicLayout = ({ children }: { children: React.ReactNode }) => {
         <MessageCircle className="w-7 h-7" />
       </a>
 
-      <footer className="bg-zinc-900 border-t-4 border-[var(--store-primary)] pb-20 md:pb-0">
+      <footer className="bg-[var(--store-ink)] pb-20 md:pb-0">
         <div className="max-w-7xl mx-auto px-4 py-12">
           <div className="grid grid-cols-1 md:grid-cols-4 gap-10">
             <div>
               <div className="flex items-center gap-2.5 mb-3">
-                <div className="w-8 h-8 rounded-lg bg-[var(--store-primary)] flex items-center justify-center">
-                  <Store className="w-4 h-4 text-[var(--store-on-primary)]" />
+                <div className="w-8 h-8 rounded-full bg-[var(--store-primary)] flex items-center justify-center">
+                  <Store className="w-4 h-4 text-white" />
                 </div>
                 <span className="text-base font-bold text-white">{config.storeName || 'Tienda'}</span>
               </div>
@@ -329,31 +351,31 @@ const PublicLayout = ({ children }: { children: React.ReactNode }) => {
                 <div className="flex items-center gap-2">
                   {config.socialLinks?.facebook && (
                     <a href={config.socialLinks.facebook} target="_blank" rel="noopener noreferrer" aria-label="Facebook"
-                      className="w-9 h-9 rounded-full bg-[var(--store-primary)]/10 hover:bg-[var(--store-primary)] text-gray-300 hover:text-[var(--store-on-primary)] flex items-center justify-center transition-colors">
+                      className="w-9 h-9 rounded-full bg-white/5 text-[var(--store-yellow)] hover:bg-[var(--store-yellow)] hover:text-[var(--store-ink)] flex items-center justify-center transition-colors">
                       <FacebookIcon className="w-4 h-4" />
                     </a>
                   )}
                   {config.socialLinks?.instagram && (
                     <a href={config.socialLinks.instagram} target="_blank" rel="noopener noreferrer" aria-label="Instagram"
-                      className="w-9 h-9 rounded-full bg-[var(--store-primary)]/10 hover:bg-[var(--store-primary)] text-gray-300 hover:text-[var(--store-on-primary)] flex items-center justify-center transition-colors">
+                      className="w-9 h-9 rounded-full bg-white/5 text-[var(--store-yellow)] hover:bg-[var(--store-yellow)] hover:text-[var(--store-ink)] flex items-center justify-center transition-colors">
                       <InstagramIcon className="w-4 h-4" />
                     </a>
                   )}
                   {config.socialLinks?.tiktok && (
                     <a href={config.socialLinks.tiktok} target="_blank" rel="noopener noreferrer" aria-label="TikTok"
-                      className="w-9 h-9 rounded-full bg-[var(--store-primary)]/10 hover:bg-[var(--store-primary)] text-gray-300 hover:text-[var(--store-on-primary)] flex items-center justify-center transition-colors">
+                      className="w-9 h-9 rounded-full bg-white/5 text-[var(--store-yellow)] hover:bg-[var(--store-yellow)] hover:text-[var(--store-ink)] flex items-center justify-center transition-colors">
                       <TikTokIcon className="w-4 h-4" />
                     </a>
                   )}
                   {config.socialLinks?.twitter && (
                     <a href={config.socialLinks.twitter} target="_blank" rel="noopener noreferrer" aria-label="X (Twitter)"
-                      className="w-9 h-9 rounded-full bg-[var(--store-primary)]/10 hover:bg-[var(--store-primary)] text-gray-300 hover:text-[var(--store-on-primary)] flex items-center justify-center transition-colors">
+                      className="w-9 h-9 rounded-full bg-white/5 text-[var(--store-yellow)] hover:bg-[var(--store-yellow)] hover:text-[var(--store-ink)] flex items-center justify-center transition-colors">
                       <XIcon className="w-4 h-4" />
                     </a>
                   )}
                   {config.socialLinks?.linkedin && (
                     <a href={config.socialLinks.linkedin} target="_blank" rel="noopener noreferrer" aria-label="LinkedIn"
-                      className="w-9 h-9 rounded-full bg-[var(--store-primary)]/10 hover:bg-[var(--store-primary)] text-gray-300 hover:text-[var(--store-on-primary)] flex items-center justify-center transition-colors">
+                      className="w-9 h-9 rounded-full bg-white/5 text-[var(--store-yellow)] hover:bg-[var(--store-yellow)] hover:text-[var(--store-ink)] flex items-center justify-center transition-colors">
                       <LinkedInIcon className="w-4 h-4" />
                     </a>
                   )}
@@ -362,7 +384,7 @@ const PublicLayout = ({ children }: { children: React.ReactNode }) => {
             </div>
 
             <div>
-              <h4 className="text-xs font-bold uppercase tracking-wider text-[var(--store-primary)] mb-3">Enlaces</h4>
+              <h4 className="text-sm font-bold text-[var(--store-yellow)] mb-3">Enlaces</h4>
               <div className="space-y-2">
                 <Link to={base} className="block text-sm text-gray-400 hover:text-white transition-colors">Productos</Link>
                 <a href={waHref || "#"} target="_blank" rel="noopener noreferrer"
@@ -372,7 +394,7 @@ const PublicLayout = ({ children }: { children: React.ReactNode }) => {
             </div>
 
             <div>
-              <h4 className="text-xs font-bold uppercase tracking-wider text-[var(--store-primary)] mb-3">Contacto</h4>
+              <h4 className="text-sm font-bold text-[var(--store-yellow)] mb-3">Contacto</h4>
               <div className="space-y-2.5">
                 {config.whatsappPhone && (
                   <a href={waHref || '#'} target="_blank" rel="noopener noreferrer"
@@ -385,7 +407,7 @@ const PublicLayout = ({ children }: { children: React.ReactNode }) => {
             </div>
 
             <div>
-              <h4 className="text-xs font-bold uppercase tracking-wider text-[var(--store-primary)] mb-3">Pagos seguros</h4>
+              <h4 className="text-sm font-bold text-[var(--store-yellow)] mb-3">Pagos seguros</h4>
               <div className="flex flex-wrap gap-2">
                 <MercadoPagoBadge />
                 <NequiBadge />
@@ -393,9 +415,11 @@ const PublicLayout = ({ children }: { children: React.ReactNode }) => {
               </div>
             </div>
           </div>
-          <div className="mt-10 pt-8 border-t border-white/10 text-center text-xs text-gray-600">
-            &copy; {new Date().getFullYear()} {config.storeName || 'Tienda'} &mdash; Todos los derechos reservados
-          </div>
+        </div>
+        {/* Barra de cierre púrpura a todo el ancho: es como termina cada
+            página del kit, y lo que separa el footer del borde del navegador. */}
+        <div className="bg-[var(--store-primary)] py-3 text-center text-xs text-white/90">
+          &copy; {new Date().getFullYear()} {config.storeName || 'Tienda'} &mdash; Todos los derechos reservados
         </div>
       </footer>
     </div>
