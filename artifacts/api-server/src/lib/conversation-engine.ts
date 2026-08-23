@@ -826,10 +826,32 @@ export async function loadConversationMemory(conversationId: number): Promise<Co
   let currentProductName: string | null = null;
   const sentProductIds = new Set<number>();
 
+  // "Ya le mandé esa ficha" vale para ESTA sesión, no para siempre.
+  //
+  // Este set decide si una tarjeta se descarta por repetida (agent.ts). Se
+  // armaba recorriendo TODO el historial sin mirar fechas, así que una ficha
+  // enviada hace días seguía contando como "ya la tiene".
+  //
+  // Medido en vivo el 2026-08-22: al admin se le había mandado la ficha del
+  // piano el 16 de agosto. Seis días después escribió "hola, quiero info del
+  // curso de piano" y recibió SOLO el texto — "te lo dejo aquí para que lo
+  // veas con calma" — sin ninguna ficha abajo. El bot le prometió algo que
+  // el propio sistema estaba descartando.
+  //
+  // Un cliente que vuelve días después no tiene la tarjeta a la vista, y esa
+  // tarjeta además lleva los enlaces de pago vigentes. Se usa el mismo corte
+  // de 4h que define `isNewSession`: dentro de la sesión no se repite, en una
+  // visita nueva sí.
+  const VENTANA_SESION_MS = 4 * 60 * 60 * 1000;
+  const ultimoMensaje = history[history.length - 1]?.createdAt;
+  const corteSesion = ultimoMensaje ? new Date(ultimoMensaje).getTime() - VENTANA_SESION_MS : 0;
+  const enEstaSesion = (msg: { createdAt: Date }) =>
+    !corteSesion || new Date(msg.createdAt).getTime() >= corteSesion;
+
   for (const msg of agentMessages) {
     const meta = msg.metadata as MessageMetadata | null;
     if (meta?.cardSent && meta.productId) {
-      sentProductIds.add(meta.productId);
+      if (enEstaSesion(msg)) sentProductIds.add(meta.productId);
       currentProductId = meta.productId;
       currentProductName = meta.productName || null;
     }
@@ -837,7 +859,9 @@ export async function loadConversationMemory(conversationId: number): Promise<Co
     const cardMatch = msg.content.match(/\[CARD:\s*(\d+)\s*\]/i);
     if (cardMatch) {
       const pid = parseInt(cardMatch[1]);
-      sentProductIds.add(pid);
+      // Mismo corte de sesión que arriba: los mensajes viejos siguen sirviendo
+      // para saber DE QUÉ se venía hablando, pero no para descartar una ficha.
+      if (enEstaSesion(msg)) sentProductIds.add(pid);
       // Actualizar ID si no lo teníamos o si es más reciente
       if (currentProductId === null || meta?.cardSent) {
         currentProductId = pid;

@@ -33,6 +33,12 @@ const PublicLayout = ({ children }: { children: React.ReactNode }) => {
       '--store-primary-hover': darken(primary, 0.15),
       '--store-on-primary': readableTextColor(primary),
       '--store-primary-soft': tint(primary),
+      // El héroe del kit son DOS bloques de color contrastados, no uno. El kit
+      // los resuelve con dos colores fijos (azul + naranja) que chocarían con
+      // el color que elija cada dueño, así que el segundo bloque es un tono
+      // profundo del MISMO primario: se conserva la composición a dos bloques
+      // sin romper la promesa de "cambias un color y la tienda te sigue".
+      '--store-primary-deep': darken(primary, 0.45),
     } as React.CSSProperties;
   }, [config.primaryColor]);
 

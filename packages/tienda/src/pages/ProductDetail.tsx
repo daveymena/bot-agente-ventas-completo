@@ -131,7 +131,11 @@ const ProductDetail = () => {
 
       <div className="grid md:grid-cols-2 gap-10 lg:gap-16">
         <div className="md:sticky md:top-24 md:self-start group">
-          <div className="aspect-square bg-gray-50 rounded-2xl overflow-hidden relative border border-gray-200">
+          {/* Mismo bloque de color pálido que la tarjeta del catálogo
+              (--store-primary-soft): en el kit el producto se apoya sobre un
+              tono de la marca, no sobre un gris con borde. Es lo que hace que
+              la foto "flote" -- y sigue al color que elija el dueño. */}
+          <div className="aspect-square bg-[var(--store-primary-soft)] rounded-3xl overflow-hidden relative">
             {product.image && !imgError ? (
               <img
                 src={product.image || `/images/products/${product.id}.jpg`}
@@ -148,7 +152,7 @@ const ProductDetail = () => {
                 }}
               />
             ) : (
-              <div className="w-full h-full flex items-center justify-center text-gray-300 bg-gray-50">
+              <div className="w-full h-full flex items-center justify-center text-gray-300">
                 <Package className="w-24 h-24" />
               </div>
             )}
@@ -231,7 +235,7 @@ const ProductDetail = () => {
                 trackInitiateCheckout({ ids: [product.id], value: price, currency: product.currency });
                 navigate(`/tienda/${slug}/checkout`);
               }}
-              className="w-full bg-[var(--store-primary)] text-[var(--store-on-primary)] py-4 rounded-xl font-bold hover:bg-[var(--store-primary-hover)] transition-all flex items-center justify-center gap-2.5"
+              className="w-full bg-[var(--store-primary)] text-[var(--store-on-primary)] py-4 rounded-full font-bold hover:bg-[var(--store-primary-hover)] transition-all flex items-center justify-center gap-2.5"
             >
               <ShoppingCart className="w-5 h-5" />
               Comprar ahora
@@ -243,7 +247,7 @@ const ProductDetail = () => {
                 target="_blank"
                 rel="noreferrer"
                 onClick={() => trackContact({ content_name: product.name })}
-                className="w-full bg-white text-gray-900 border border-gray-200 py-3.5 rounded-xl font-bold hover:bg-gray-50 transition-all flex items-center justify-center gap-2.5"
+                className="w-full bg-white text-gray-900 border border-gray-200 py-3.5 rounded-full font-bold hover:bg-gray-50 transition-all flex items-center justify-center gap-2.5"
               >
                 <MessageCircle className="w-5 h-5 text-emerald-600" />
                 Consultar por WhatsApp
@@ -267,23 +271,28 @@ const ProductDetail = () => {
             </div>
           )}
 
-          {descriptionHtml && (
-            <div className="border-t border-gray-200 pt-6">
-              <h3 className="text-sm font-extrabold text-gray-900 uppercase tracking-wide mb-3">
-                Descripción
-              </h3>
-              <div
-                className="text-sm text-gray-600 leading-relaxed whitespace-pre-line space-y-3 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_strong]:font-bold"
-                dangerouslySetInnerHTML={{ __html: descriptionHtml }}
-              />
-            </div>
-          )}
-
           {product.sku && (
             <p className="text-xs text-gray-400 mt-5">SKU: {product.sku}</p>
           )}
         </div>
       </div>
+
+      {/* ── DESCRIPCIÓN A ANCHO COMPLETO ──────────────────────────────────
+          En el kit la descripción va abajo, cruzando las dos columnas, no
+          apretada bajo el botón de compra. Con las descripciones largas en
+          HTML del catálogo, en media columna quedaban en una tira angosta de
+          texto; acá se leen. Se limita el ancho de línea (max-w-3xl) porque un
+          párrafo de 1200px de ancho tampoco se lee. */}
+      {descriptionHtml && (
+        <div className="mt-14 border-t border-gray-200 pt-10">
+          <p className="text-xs font-bold uppercase tracking-[0.2em] text-[var(--store-primary)] mb-1">Detalles</p>
+          <h2 className="text-2xl sm:text-3xl font-black text-gray-900 tracking-tight mb-5">Descripción</h2>
+          <div
+            className="max-w-3xl text-[15px] text-gray-600 leading-relaxed whitespace-pre-line space-y-3 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_strong]:font-bold"
+            dangerouslySetInnerHTML={{ __html: descriptionHtml }}
+          />
+        </div>
+      )}
 
       {related.length > 0 && (
         <div className="mt-16 border-t border-gray-200 pt-10">
