@@ -272,3 +272,76 @@ necesitan Postgres real y arrastran ids de la SQLite compartida.
 ⚠️ **El número que todavía no se movió: 0 tratos ganados.** Todo lo de arriba
 son medios. La verificación pendiente es una conversación real que llegue a
 `closing` y cobre.
+
+---
+
+## 9. CÓMO RETOMAR ESTO — traspaso del 2026-08-23
+
+Escrito para que quien siga (otra sesión, otra persona) pueda arrancar en frío
+sin releer todo el historial.
+
+### Dónde quedó exactamente
+
+Fases **0, 1, 2, 3 y 4 hechas, commiteadas y en producción.** Fase 1.5
+cancelada (la puerta de confirmación de Atlas ya existía). 192 tests pasando.
+
+**Único trabajo a medio hacer:** `src/lib/handoff-brief.ts`. Está escrito y
+**NO lo llama nadie**. Lleva un aviso en su cabecera. Para terminarlo faltan
+dos cosas y está todo dicho ahí adentro: los tests y el endpoint
+`GET /api/conversations/:id/resumen-comercial`.
+
+### Lo que sigue, en orden y con el porqué
+
+1. **Terminar la Fase 8** (handoff con contexto). Es lo más barato que queda:
+   el módulo ya está escrito, faltan tests y endpoint. Media hora.
+2. **Fase 7 — embudo y métricas de dinero.** Va antes que la 5 y la 6 porque
+   es de riesgo bajo y porque **la Fase 8.5 depende de ella**: sin el embudo
+   de cada negocio, las sugerencias de Atlas son consejos genéricos.
+3. **Fase 8.5 — Atlas asesor.** Lo único que falta del requisito multi-tenant.
+   Todo lo demás ya está: config por negocio en la tabla `agents`, el motor la
+   usa de verdad, hay pantallas, Atlas tiene las tools y la confirmación
+   funciona. Falta que SUGIERA en vez de solo reaccionar, con la evidencia del
+   negocio. Pendiente chico anexo: verificar que la propuesta de `update_agent`
+   muestre el valor VIEJO junto al nuevo (aprobar un `systemPrompt` largo sin
+   ver qué reemplaza es aprobar a ciegas).
+4. **Fase 6 — intención con IA.** El bug del 23 (cambiar de producto al
+   cobrar) fue un parche correcto sobre un síntoma: mientras la intención y el
+   producto los decidan 8 listas de palabras, van a seguir apareciendo casos
+   así. Esta fase es la cura.
+5. **Fase 5 — capa de herramientas.** La más grande y la de más riesgo: pasar
+   el vendedor de prompt puro a function-calling. Va última a propósito.
+6. **Fase 9 — los 30 casos del spec.**
+
+### Trampas conocidas (comprobadas, no teóricas)
+
+- **No confiar en el hash de commit de EasyPanel** para dar un deploy por vivo.
+  Verificar con un endpoint que haya cambiado. El canario más simple hoy:
+  `avgResponseTime` en `/api/dashboard/summary` — si vuelve a dar 0, el deploy
+  no entró.
+- **Hay otro agente trabajando en el mismo árbol** y commitea con `add -A`.
+  Tres veces se llevó trabajo ajeno dentro de commits suyos. Revisar
+  `git status` antes de commitear y no asumir que el árbol es propio.
+- **La API de producción tiene rate limit de 100 req / 900 s.** Abrir el panel
+  se come varias.
+- **`browser_control` no se engancha a un Chromium ya abierto** con su perfil:
+  hay que cerrarlo (la sesión vive en disco, no se pierde) y dejar que lo
+  lance él.
+- **Dos tests fallan desde antes** (`flujo-completo-venta`,
+  `product-matching`): necesitan Postgres real y arrastran ids de la SQLite
+  compartida entre corridas. No son regresiones.
+- ⚠️ **El token de GitHub está en texto plano en la URL del remoto.** Sale
+  completo con `git remote -v`. Rotarlo.
+
+### Cómo se mide si todo esto sirvió
+
+No por tests ni por fases cerradas. Por esto, sobre las mismas conversaciones:
+
+| | Al empezar (23-08) | Hoy |
+|---|---|---|
+| Conversaciones en `closing` | 0 de 10 | — |
+| Tratos ganados | 0 | — |
+| Tiempo de respuesta visible | `0s` (nunca midió) | 199 s reales |
+
+**El número que todavía no se movió es el de tratos ganados.** Todo lo
+construido son medios. La verificación pendiente es una conversación real que
+llegue al cierre y cobre.
