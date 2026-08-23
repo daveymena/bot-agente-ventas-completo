@@ -71,7 +71,14 @@ export class FollowUpScheduler {
 
       const followUpType = this.determineFollowUpType(stage, score);
       const priority = this.determinePriority(stage, score);
-      const message = leadScoringEngine.generateFollowUpMessage(stage as LeadStage, conversation.lastMessage || "");
+      // El teléfono va como semilla para que dos contactos distintos no reciban
+      // el mismo texto: mandar mensajes casi idénticos a muchos números es lo
+      // que hace que WhatsApp bloquee la línea del negocio.
+      const message = leadScoringEngine.generateFollowUpMessage(
+        stage as LeadStage,
+        conversation.lastMessage || "",
+        String(conversation.contactPhone || conversationId),
+      );
 
       const [followUp] = await db.insert(followUps).values({
         conversationId,

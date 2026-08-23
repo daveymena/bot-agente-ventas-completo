@@ -1,5 +1,5 @@
 // @ts-nocheck
-import { eq, and, asc, desc, sql } from "drizzle-orm";
+import { eq, and, asc, desc, ne, sql } from "drizzle-orm";
 import {
   db,
   agents,
@@ -38,7 +38,7 @@ import {
 } from "./conversation-engine";
 import { getBrandVoice, formatWithBrandVoice } from "./brand-voice";
 import { getBusinessContext, renderBloqueNegocio, resumenContexto } from "./business-context";
-import { construirPlaybook, quitarInventos, quitarMuletillaDeApertura } from "./sales-playbook";
+import { construirPlaybook, quitarInventos, quitarMuletillaDeApertura, extraerApertura } from "./sales-playbook";
 import { analyzeBrain, buildFinalPrompt, type ResponseStrategy, type EmotionalState } from "./response-brain";
 import { learnFromLastExchange, retrieveLessons, formatLessonsForPrompt } from "./conversation-learning";
 import {
@@ -1208,6 +1208,40 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
   // El manual de venta del turno. Va en lo ESENCIAL (ver el recorte más
   // abajo): si se cae cuando el prompt se pasa de largo, volvemos al bot que
   // contestaba "¡Mira esto 🎹" y se rendía ante "lo voy a pensar".
+  // Con qué viene abriendo el negocio sus mensajes a OTROS clientes.
+  //
+  // El anti-repetición existía pero solo miraba la conversación actual, así que
+  // el primer mensaje a cada cliente nuevo no tenía nada que evitar: medido el
+  // 2026-08-23, las 10 conversaciones del panel abrían con la misma frase.
+  // Muchos contactos distintos recibiendo el mismo texto es exactamente lo que
+  // hace que WhatsApp bloquee el número.
+  //
+  // Se consulta en cada turno pero es una sola lectura de 30 filas por índice
+  // de id; si llegara a pesar, es candidata a caché por tenant de un minuto.
+  let aperturasDelNegocio: string[] = [];
+  if (convo.tenantId) {
+    try {
+      const recientes = await db
+        .select({ content: messages.content })
+        .from(messages)
+        .innerJoin(conversations, eq(messages.conversationId, conversations.id))
+        .where(and(
+          eq(conversations.tenantId, convo.tenantId),
+          eq(messages.role, "agent"),
+          ne(messages.conversationId, conversationId),
+        ))
+        .orderBy(desc(messages.id))
+        .limit(30);
+      aperturasDelNegocio = [...new Set(
+        recientes.map((r: any) => extraerApertura(r.content)).filter((a: string) => a.length > 2),
+      )];
+    } catch (e: any) {
+      // Que falle esta lectura no puede dejar sin responder al cliente: es una
+      // ayuda de estilo, no parte del camino de la venta.
+      logger.warn({ err: e?.message }, "[Agent] No se pudieron leer las aperturas recientes del negocio");
+    }
+  }
+
   const playbook = construirPlaybook({
     mensaje: lastText,
     historial: memory.history.map((m: any) => ({ role: m.role, content: m.content })),
@@ -1218,6 +1252,7 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
     anuncio: anuncio ? { titulo: anuncio.titulo, cuerpo: anuncio.cuerpo } : null,
     negocio,
     pagoConfirmado: memory.paymentStatus === "confirmed",
+    aperturasDelNegocio,
   });
   console.log(`🎯 [VENTA] Jugada: ${playbook.jugada} - ${ts()}`);
 

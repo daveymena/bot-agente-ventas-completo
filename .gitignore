@@ -6,6 +6,10 @@ node_modules/
 artifacts/api-server/.env
 *.db
 *.db.bak-*
+# SQLite deja estos dos al lado del .db cuando corre en modo WAL (los generan
+# los tests). *.db no los cubre porque el sufijo va DESPUÉS de la extensión.
+*.db-wal
+*.db-shm
 .baileys-auth/
 dist/
 build/
