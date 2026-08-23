@@ -1042,7 +1042,7 @@ ${productList.length > 0 ? productsBlock : "No hay productos disponibles."}
 [6] No repitas información que ya diste. Usa la MEMORIA de la conversación.
 [6b] El "[ID: N]" del catálogo es INTERNO, solo para que TÚ elijas la card correcta. NUNCA menciones ese número al cliente (nada de "el curso ID 82", "producto 82", etc.). Refiérete al producto SIEMPRE por su NOMBRE.
 [6c] Los datos de pago (número de Nequi/Daviplata y el NOMBRE del titular) van EXACTOS como aparecen en los datos del negocio. NUNCA cambies, adivines ni "corrijas" el nombre del titular ni el número — cópialos tal cual.
-${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo y cierra. Termina tu mensaje con [CARD: ID] del producto — el sistema adjunta AUTOMÁTICAMENTE la tarjeta con los enlaces dinámicos de MercadoPago y PayPal. NUNCA escribas [PAGAR:...], enlaces, URLs ni números de cuenta: SOLO usa [CARD: ID]." : `[7] 🧠 ANALIZA EL CONTEXTO y elige el producto CORRECTO del catálogo. Usa [CARD: ID] al final de tu mensaje para mostrar la tarjeta del producto que mejor corresponda. El ÚNICO marcador válido es [CARD: ID] — nunca uses [PAGAR:...] ni escribas enlaces. Si no estás segura, pregunta UNA cosa concreta antes de mostrar una card. NUNCA muestres un producto que no tenga relación con lo que el cliente busca.`}
+${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo y cierra. Termina tu mensaje con [CARD: ID] del producto — el sistema adjunta AUTOMÁTICAMENTE la tarjeta con los enlaces dinámicos de MercadoPago y PayPal. NUNCA escribas [PAGAR:...], enlaces, URLs ni números de cuenta: SOLO usa [CARD: ID]." : `[7] 🧠 ANALIZA EL CONTEXTO y elige el producto CORRECTO del catálogo. Cuando el cliente pregunte por UN producto o pida información de él, termina SIEMPRE tu mensaje con [CARD: ID] del producto que corresponda — la tarjeta la arma el sistema con la foto, el detalle y TODOS los medios de pago; NUNCA la escribas tú a mano (no pongas precios, enlaces ni métodos de pago en tu texto: van en la tarjeta). El ÚNICO marcador válido es [CARD: ID] — nunca uses [PAGAR:...] ni escribas enlaces. Solo NO mandes la card en un saludo, una despedida o si el mensaje del cliente es tan ambiguo que mostrar el producto equivocado arruinaría la venta — en ese único caso, pregunta UNA cosa concreta antes de mostrar una card. NUNCA muestres un producto que no tenga relación con lo que el cliente busca.`}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 🤝 PRINCIPIOS DE CONVERSACIÓN HUMANA Y PROFESIONAL (siempre)
@@ -1937,9 +1937,11 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
       // 2b. Para intents NO payment: la IA decide autónomamente si incluir [CARD: ID] o no.
       // El system prompt ya le indica que puede usar [CARD: ID] si es natural.
       // No forzamos ni eliminamos cards — confiamos en el criterio de la IA.
+      // (El refuerzo 2b-bis que fuerza la card cuando la IA escribe la ficha a
+      // mano vive más abajo, tras declarar `validIds`.)
 
       // 3. Solo eliminar cards en intents donde claramente no corresponde (saludo, despedida, humano)
-      if ((decision.intent === "greeting" || decision.intent === "leaving" || decision.intent === "human_handoff") && raw.match(/\[CARD:\s*\d+\s*\]/i)) {
+      if (esChatSocial && raw.match(/\[CARD:\s*\d+\s*\]/i)) {
         console.log(`🔧 [POST] Intent=${decision.intent} no requiere card. Eliminando.`);
         raw = raw.replace(/\[CARD:\s*\d+\s*\]/gi, "").trim();
       }
@@ -1966,6 +1968,32 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
 
       // ── Parser de partes ──────────────────────────────────────────────────
       const validIds = new Set(productList.map(p => p.id));
+
+      // 2b-bis. FORZAR LA CARD en consultas de producto cuando la IA escribió
+      // la ficha a mano en texto plano sin el marcador [CARD: ID].
+      //
+      // Medido en vivo (2026-08-23): el cliente preguntó por el curso de piano
+      // y el bot respondió "Te dejo la ficha 🎹" seguido de un texto armado a
+      // mano con SOLO PayPal — incompleto, sin Nequi/Daviplata, sin contenido.
+      // El prompt ya le ordena usar [CARD: ID], pero el modelo a veces lo
+      // ignora y se pone a "escribir la ficha". Acá se la forzamos: la card la
+      // arma el sistema (foto + incluye + modalidad + video + precio + TODOS
+      // los medios de pago); el texto de la IA queda de intro.
+      const esChatSocial = (decision.intent === "greeting" || decision.intent === "leaving" || decision.intent === "human_handoff");
+      const productoPedido = decision.productoDelMensaje ?? decision.productToShow ?? null;
+      const idPedido = productoPedido?.id ?? null;
+      if (!isPaymentFlow && !esChatSocial && idPedido && validIds.has(idPedido) && !raw.includes("[CARD:")) {
+        // Solo forzar si la respuesta parece estar hablando DEL producto
+        // (menciona la primera palabra de su nombre) y no es una pregunta de
+        // clarificación genérica ("¿querés que te lo muestre?").
+        const primeraPalabra = productoPedido?.name?.toLowerCase().split(" ")[0];
+        const nombraProducto = primeraPalabra ? raw.toLowerCase().includes(primeraPalabra) : true;
+        if (nombraProducto) {
+          raw = `${raw.trim()}\n\n[CARD: ${idPedido}]`;
+          console.log(`🔧 [POST] Consulta de producto ${idPedido} sin card → forzada. La IA escribía la ficha a mano - ${ts()}`);
+        }
+      }
+
       const re = /\[CARD:\s*([\w-]+)\s*\]/gi;
       const parts: any[] = [];
       let lastIndex = 0;

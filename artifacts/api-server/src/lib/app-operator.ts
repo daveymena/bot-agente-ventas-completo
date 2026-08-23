@@ -3086,6 +3086,38 @@ export const TOOLS: ToolDef[] = [
     },
   },
   {
+    name: "terabox_list_folder",
+    description: "Lista el contenido de una carpeta de Terabox (el almacenamiento en la nube donde están los cursos). 'dir' es la ruta (ej. '/' para la raíz, o '/INGLES_TOTAL_DE_PRINCIPIANTE_A_AVANZADO_115HORAS' para ver sus módulos). Devuelve nombre, si es carpeta y la ruta de cada elemento. Útil para saber qué cursos/módulos hay antes de generar un link de entrega.",
+    args: '{ "dir"?: string (ruta; def "/" = raíz) }',
+    run: async (args, _ctx) => {
+      try {
+        const { listarCarpetaTerabox } = await import("./terabox");
+        const items = await listarCarpetaTerabox(String(args.dir || "/"));
+        if (items.length === 0) return { ok: true, summary: "La carpeta está vacía o no existe." };
+        const resumen = items.map(i => `${i.isDir ? "📁" : "📄"} ${i.name}${i.isDir ? "" : (i.size != null ? ` (${Math.round(i.size / 1048576)}MB)` : "")}`).join("\n");
+        return { ok: true, summary: `Contenido de ${String(args.dir || "/")}:\n${resumen}\n\nRutas para generar link: ${items.map(i => i.path).join(", ")}` };
+      } catch (e: any) {
+        return { ok: false, summary: `Terabox: ${e.message || e}` };
+      }
+    },
+  },
+  {
+    name: "terabox_create_share_link",
+    description: "Genera un link de compartir de Terabox para una o varias carpetas/archivos (por su RUTA, ej. '/INGLES_TOTAL_DE_PRINCIPIANTE_A_AVANZADO_115HORAS'). Ese link es el que se le entrega al cliente para descargar el curso. Se usa después de terabox_list_folder. El 'shorturl' resultante se pega como 'link de entrega' del producto.",
+    args: '{ "paths": string[] (req, rutas a compartir), "password"?: string (opcional, 4 caracteres), "days"?: number (días de validez; 0 = sin vencimiento) }',
+    run: async (args, _ctx) => {
+      const paths = Array.isArray(args.paths) ? args.paths.filter(Boolean) : [];
+      if (paths.length === 0) return { ok: false, summary: "Falta 'paths' (rutas a compartir)." };
+      try {
+        const { crearLinkTerabox } = await import("./terabox");
+        const r = await crearLinkTerabox(paths as string[], String(args.password || ""), Number(args.days) || 0);
+        return { ok: true, summary: `Link de Terabox generado:\n${r.shorturl}\n\nCopialo al campo "link de entrega" del producto.` };
+      } catch (e: any) {
+        return { ok: false, summary: `Terabox: ${e.message || e}` };
+      }
+    },
+  },
+  {
     name: "list_duplicate_contacts",
     description: "Muestra los contactos que son la MISMA persona guardada varias veces (por ejemplo el mismo número con un dígito de más, o con el sufijo ':0' del identificador interno de WhatsApp). Solo LEE y reporta: no fusiona ni borra nada. Útil cuando el admin pregunta por qué el bot no reconoce a un cliente que ya escribió antes, o por qué las métricas de prospectos no cuadran.",
     args: "{}",
