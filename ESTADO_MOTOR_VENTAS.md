@@ -159,3 +159,60 @@ No es que compile. Es esto, medido sobre las mismas 10 conversaciones:
 - ¿Cuántos leads pagos se pierden sin próxima acción? Hoy: **todos**.
 - ¿Se puede decir cuánto dinero produjo cada anuncio? La atribución existe,
   pero nadie la está mirando.
+
+---
+
+## 7. Requisito nuevo (2026-08-23): cada cliente configura SU agente, con Atlas de asesor
+
+Pedido del dueño del producto, textual en intención:
+
+> Los clientes suscritos tienen su propia tienda/emprendimiento. El agente de
+> WhatsApp debe responder según lo que **el administrador de ESE negocio** le
+> pida — instrucciones, configuraciones y estilos. Atlas debe **sugerirle** para
+> que el cliente vaya sabiendo qué le conviene, pero **solo ejecutar con su
+> confirmación** (o con lo que el cliente quiera agregarle). Es esencial para
+> que el sistema sea usable por quien no maneja una consola.
+
+### Lo que YA existe — no construirlo de nuevo
+
+| Pieza | Estado | Dónde |
+|---|---|---|
+| Config del agente por tenant | ✅ | Tabla `agents`: `tenantId`, `name`, `role`, `tone`, `language`, `model`, `systemPrompt`, `stages[]` (prompt por etapa), `metadata`, `especialidad` |
+| El motor la usa de verdad | ✅ | `agent.ts:752` `getActiveAgent(...)`; el `systemPrompt` del tenant se usa en `agent.ts:964`, la `metadata` en `881`, la `especialidad` filtra el catálogo en `804` |
+| Perfil de negocio por tenant | ✅ | `business-context.ts:227` `getBusinessContext(tenantId)` con caché e invalidación |
+| Pantallas de administración | ✅ | `ventas-pro/src/pages/agents.tsx` y `configuration.tsx` |
+| Atlas puede leer y escribir esa config | ✅ | Herramientas `get_agent`, `update_agent`, `get_settings`, `update_settings`, `get_business_profile`, `update_business_profile`, `create_store`, `update_store` |
+| Flujo proponer → confirmar | ✅ existe | `proposeAction` en `app-operator.ts`, ya usado para publicar en Facebook |
+
+**Conclusión: la plomería está. Lo que falta es comportamiento.**
+
+### Lo que falta — verificado
+
+1. **`update_agent` no pide confirmación.** Las herramientas con puerta de
+   confirmación son `fb_page_publish`, `set_product_image`,
+   `dropi_import_product`, `dropi_create_order` y `email_campaign_send`.
+   `update_agent`, `update_settings` y `update_business_profile` **no**.
+
+   Cambiar el `systemPrompt` del agente altera cómo le habla el vendedor a
+   TODOS los clientes de ese negocio, de forma silenciosa y sin registro. Es
+   al menos tan sensible como publicar un post. Hoy Atlas lo puede hacer solo.
+
+2. **Atlas no sugiere: solo reacciona.** No hay ninguna rutina que mire cómo
+   viene rindiendo el negocio y proponga un ajuste. El cliente tiene que saber
+   qué pedir — que es exactamente lo que el requisito quiere evitar.
+
+3. **No hay capa de "por qué te conviene".** Para que el cliente aprenda, la
+   sugerencia tiene que venir con la evidencia de SU negocio ("tus leads se
+   caen después de la ficha; te conviene subir el tono de cierre"), no con
+   consejos genéricos.
+
+### Cómo entra en el plan
+
+- **Fase 1.5 — puerta de confirmación** (barata, y es seguridad):
+  `update_agent`, `update_settings` y `update_business_profile` pasan por
+  `proposeAction`, mostrando ANTES el valor viejo y el nuevo. Se hace ya, no
+  depende de nada.
+- **Fase 8.5 — Atlas asesor de configuración**: sugerencias proactivas con la
+  evidencia del propio negocio. Va DESPUÉS de las métricas (Fase 7): sin datos
+  del embudo de ese tenant, cualquier sugerencia es un consejo genérico, y eso
+  es justo lo que no queremos.
