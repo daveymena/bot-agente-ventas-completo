@@ -4518,6 +4518,10 @@ export const READ_ONLY_TOOLS = new Set([
   "fb_list_adsets",
   // Dropi de solo lectura: consultar el catálogo del proveedor no crea nada.
   "dropi_status", "dropi_search_products",
+  // Terabox: listar carpetas es lectura; generar un link de compartir es
+  // benigno (solo devuelve una URL, no cambia datos del negocio ni gasta).
+  // Así Atlas puede listar y generar el link de entrega sin pedir confirmación.
+  "terabox_list_folder", "terabox_create_share_link",
 ]);
 export const DESTRUCTIVE_TOOLS = new Set([
   "delete_product",
