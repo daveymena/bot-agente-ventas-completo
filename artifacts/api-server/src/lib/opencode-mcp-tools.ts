@@ -132,6 +132,27 @@ const TOOL_SCHEMAS: Record<string, object> = {
     additionalProperties: false,
   },
   fb_pixel_status: { type: "object", properties: {}, additionalProperties: false },
+  // Faltaba, y caía al esquema genérico. Ese genérico es `additionalProperties:
+  // true` pero SIN `properties`, así que Atlas no tenía cómo saber que existe
+  // un campo `proveedor`: veía una herramienta sin parámetros, la llamaba
+  // vacía, y el handler le contestaba "decime qué proveedor probar". Lo vivió
+  // el admin el 2026-08-22 pidiendo justamente probar DeepSeek -- el proveedor
+  // que paga. Es el quinto lugar donde una lista escrita a mano lo escondía.
+  test_ai_models: {
+    type: "object",
+    properties: {
+      proveedor: {
+        type: "string",
+        enum: [
+          "deepseek", "github_copilot_internal", "opencode_go", "opencode",
+          "opencode_zen", "groq", "openrouter", "nvidia", "github",
+        ],
+        description: "Cuál probar. Es obligatorio: la herramienta prueba UN proveedor por vez.",
+      },
+    },
+    required: ["proveedor"],
+    additionalProperties: false,
+  },
   marketing_diagnostico: {
     type: "object",
     properties: { dias: { type: "number", description: "Ventana a analizar en días, por defecto 30" } },
