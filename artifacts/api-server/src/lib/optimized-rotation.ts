@@ -65,9 +65,16 @@ export function clasificarFallo(error?: string): {
   // gateway devuelve "401 Model ling-3.0-flash-free is not supported", y ese
   // 401 leído como "credencial inválida" apartaría al proveedor ENTERO por 6
   // horas — por UN modelo muerto de los 64 que tiene. Lo específico primero.
-  if (/model (is )?(unavailable|not found)|does not exist|not supported|model_not_found|unknown model/.test(e)) {
+  if (/model (is )?(unavailable|not found)|does not exist|not supported|model_not_found|unknown model|respuesta vac[ií]a/.test(e)) {
     // El proveedor está vivo: se cayó ESE modelo. Apartarlo entero sería
     // tirar a la basura los otros modelos que sí responden.
+    //
+    // Entra acá también la "respuesta vacía" (200 sin una sola letra), que es
+    // un modelo roto disfrazado de éxito. Medido el 2026-08-22 en la cuenta
+    // real: `deepseek-v4-flash-vision-exp` contesta vacío siempre, mientras
+    // `deepseek-v4-flash` y `deepseek-v4-pro` responden en ~293ms. Dejar que
+    // el vision-exp aparte a DeepSeek sería perder el proveedor de PAGO por
+    // culpa de uno de sus modelos.
     return { clase: "modelo_caido", cooldownMs: 30 * 1000, inmediato: false };
   }
   if (/no (api )?key|missing (api )?key|unauthorized|invalid api key|bad credentials|\b401\b/.test(e)) {
@@ -255,10 +262,21 @@ class OptimizedProviderRotation {
     const status = this.providers.get(provider);
     if (!status) return;
 
+    const { clase, cooldownMs, inmediato } = clasificarFallo(error);
+
+    // Un modelo caído NO es un fallo del proveedor, así que ni siquiera le
+    // cuenta: si contara, dos respuestas vacías del vision-exp bastarían para
+    // apartar a DeepSeek entero — el proveedor de PAGO, el que responde en
+    // 293ms — por culpa de uno solo de sus modelos. La rotación ya se encarga
+    // de pasar al modelo siguiente.
+    if (clase === "modelo_caido") {
+      status.lastFailTime = new Date();
+      logger.warn({ provider: clase, error }, "[OptimizedRotation] 🔀 Modelo caído — se prueba otro del mismo proveedor");
+      return;
+    }
+
     status.failureCount++;
     status.lastFailTime = new Date();
-
-    const { clase, cooldownMs, inmediato } = clasificarFallo(error);
 
     // Los fallos terminales no necesitan una segunda opinión: si el proveedor
     // dice "no tenés medio de pago" o "se te acabó la cuota", el intento

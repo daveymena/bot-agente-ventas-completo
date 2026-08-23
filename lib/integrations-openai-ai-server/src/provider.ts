@@ -155,7 +155,16 @@ export function getOpenCodeGoRotation(): AIProviderConfig[] {
  * mandan su razonamiento al cliente.
  */
 const MODELOS_DE_RESERVA: Record<string, string[]> = {
-  deepseek: ["deepseek-chat"],
+  // Medido contra la cuenta real el 2026-08-22 con `test_ai_models`:
+  //   deepseek-v4-flash            responde bien, 293 ms
+  //   deepseek-v4-pro              responde bien, 294 ms
+  //   deepseek-v4-flash-vision-exp CONTESTA VACÍO — el bot se queda mudo
+  // Los dos buenos van de reserva para que, si el modelo configurado en el
+  // panel es el vision-exp (o cualquier otro que se caiga), la rotación
+  // igual encuentre uno que responde en vez de dejar al cliente esperando.
+  // `deepseek-chat` queda último: es el nombre de la API oficial de DeepSeek,
+  // sirve si alguna vez se apunta ahí en vez de al gateway.
+  deepseek: ["deepseek-v4-flash", "deepseek-v4-pro", "deepseek-chat"],
   groq: ["openai/gpt-oss-20b"],
   mistral: ["codestral-latest", "mistral-large-latest"],
   nvidia: ["meta/llama-3.1-70b-instruct", "meta/llama-3.1-8b-instruct"],

@@ -83,3 +83,19 @@ describe("Clasificar por qué falló un proveedor", () => {
     expect(sinCredito.cooldownMs).toBeGreaterThan(lento.cooldownMs * 50);
   });
 });
+
+describe("Un modelo roto no puede tumbar al proveedor que se paga", () => {
+  it("la respuesta vacía cuenta como modelo caído, no como fallo del proveedor", () => {
+    // deepseek-v4-flash-vision-exp contesta 200 sin una sola letra (medido
+    // 2026-08-22). Es un modelo roto disfrazado de éxito.
+    const r = clasificarFallo("respuesta vacía");
+    expect(r.clase).toBe("modelo_caido");
+    expect(r.inmediato).toBe(false);
+  });
+
+  it("un modelo caído nunca dispara un cooldown largo", () => {
+    for (const e of ["respuesta vacía", "Model is unavailable", "model_not_found"]) {
+      expect(clasificarFallo(e).cooldownMs).toBeLessThan(60_000);
+    }
+  });
+});
