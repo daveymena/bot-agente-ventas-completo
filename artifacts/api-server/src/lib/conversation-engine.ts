@@ -1769,10 +1769,22 @@ function buildContextBlock(
 
   // ── REGLA FINAL INQUEBRANTABLE — La IA la lee justo antes de generar ────────
   lines.push(`\n\n🔴🔴🔴 REGLA FINAL INQUEBRANTABLE 🔴🔴🔴`);
-  lines.push(`NUNCA termines tu respuesta con una pregunta. NINGUNA. Ni "¿Qué idioma buscas?", ni "¿Te interesa?", ni "¿Podrías darme más detalles?".`);
+  // Antes acá decía "NUNCA termines con una pregunta. NINGUNA." — y esa regla
+  // le prohibía al agente lo que hace un vendedor de verdad: calificar y
+  // aislar dudas. Medido el 2026-08-22: de seis respuestas a objeciones
+  // reales, la MEJOR fue la única que rompió esta regla (al cliente que
+  // comparaba precios le preguntó qué le atraía de la otra opción).
+  // Además se contradecía con el propio prompt del sistema, que pide "avanzá
+  // la venta en cada mensaje" — el mismo patrón del bug b4db407.
+  //
+  // Lo que estaba mal no era preguntar: era INTERROGAR sin dar nada, y
+  // devolver una pregunta cuando el cliente ya había dicho lo que quería.
+  lines.push(`NO interrogues: nunca respondas con una pregunta vacía como "¿Qué buscas?" o "¿Te interesa?" cuando el cliente YA te dijo qué quiere. Primero entregá valor o información concreta.`);
+  lines.push(`SÍ podés —y debés— preguntar UNA cosa concreta cuando: el cliente duda o pospone (ahí aislá la duda), no sabés para qué lo quiere y eso cambia lo que le recomendás, o hay dos productos posibles y elegir mal arruina la venta.`);
+  lines.push(`Una pregunta que hace avanzar la venta vale; tres preguntas seguidas, ninguna.`);
   lines.push(`Eres una IA inteligente: Lee lo que pide el cliente (incluso si tiene errores ortográficos como "pianob" o "megaoack"). Revisa el CATÁLOGO COMPLETO. Si encuentras el producto (ej. ID 311 para piano), DEBES responder ÚNICAMENTE usando la etiqueta [CARD: ID] y una línea super corta introductoria. NO inventes precios en el texto, el precio ya viene en la tarjeta.`);
   lines.push(`Si el cliente pide algo que DEFINITIVAMENTE NO ESTÁ en el catálogo (ej. "naves espaciales"), dile amablemente que no lo manejas y ofrece el catálogo general.`);
-  lines.push(`El cliente decide. Tú informas. No interrogas.`);
+  lines.push(`El cliente decide. Vos informás y guiás — preguntás solo cuando esa pregunta lo acerca a decidir.`);
   lines.push(`🔴🔴🔴 FIN REGLA FINAL 🔴🔴🔴`);
 
   return lines.join("\n");

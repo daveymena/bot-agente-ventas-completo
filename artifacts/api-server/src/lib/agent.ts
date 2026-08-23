@@ -38,6 +38,7 @@ import {
 } from "./conversation-engine";
 import { getBrandVoice, formatWithBrandVoice } from "./brand-voice";
 import { getBusinessContext, renderBloqueNegocio, resumenContexto } from "./business-context";
+import { construirPlaybook, quitarInventos } from "./sales-playbook";
 import { analyzeBrain, buildFinalPrompt, type ResponseStrategy, type EmotionalState } from "./response-brain";
 import { learnFromLastExchange, retrieveLessons, formatLessonsForPrompt } from "./conversation-learning";
 import {
@@ -982,10 +983,19 @@ RESPONDE SIEMPRE USANDO ESTE PATRÓN (sin excepciones):
 💰 Idea 3 corta
 🎓 Idea 4 corta
 
+Este formato es para PRESENTAR o RESUMIR un producto (qué es, qué trae, cuánto vale):
 REGLA 1: CADA LÍNEA = UN EMOJI + TEXTO CORTO (máximo 5 palabras)
 REGLA 2: SALTOS DE LÍNEA ENTRE CADA IDEA
 REGLA 3: NUNCA párrafos largos sin emojis
 REGLA 4: NUNCA asteriscos (*) ni guiones (-) ni viñetas (•)
+
+⚠️ PERO cuando estás ARGUMENTANDO —una objeción, una comparación con otra
+opción, una duda de confianza, un cierre— escribí como una persona: 2 a 4
+frases seguidas, con lógica y calidez, sin trocear en viñetas.
+Un cliente que dice "está muy caro" necesita un argumento, no una lista.
+Medido el 2026-08-22: con el formato de viñetas aplicado a todo, a un cliente
+que dijo "vi el curso de piano" el bot le contestó "¡Mira esto 🎹" — tres
+palabras, cero razones para seguir leyendo. Eso no es un formato: es no vender.
 
 ❌ PROHIBIDO: "El curso cuesta 60mil e incluye todo el material"
 ✅ CORRECTO:
@@ -1179,7 +1189,23 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
     }
   }
 
-  const engineContextBlock = `${decision.contextBlock}\n\n${AdvancedIntelligence.generateIntelligentContext(
+  // El manual de venta del turno. Va en lo ESENCIAL (ver el recorte más
+  // abajo): si se cae cuando el prompt se pasa de largo, volvemos al bot que
+  // contestaba "¡Mira esto 🎹" y se rendía ante "lo voy a pensar".
+  const playbook = construirPlaybook({
+    mensaje: lastText,
+    historial: memory.history.map((m: any) => ({ role: m.role, content: m.content })),
+    mensajesDelCliente: memory.messageCount,
+    productoEnFoco: decision.productToShow?.name || memory.currentProductName || null,
+    fichaEnviada: memory.sentProductIds.size > 0,
+    intencion: decision.intent,
+    anuncio: anuncio ? { titulo: anuncio.titulo, cuerpo: anuncio.cuerpo } : null,
+    negocio,
+    pagoConfirmado: memory.paymentStatus === "confirmed",
+  });
+  console.log(`🎯 [VENTA] Jugada: ${playbook.jugada} - ${ts()}`);
+
+  const engineContextBlock = `${decision.contextBlock}${playbook.bloque}\n\n${AdvancedIntelligence.generateIntelligentContext(
     lastText,
     memory.history,
     aiProductContext.length > 0 ? aiProductContext : null
@@ -1334,7 +1360,7 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
     // El bloque de dropshipping va en lo esencial: si se recorta, el agente
     // vuelve a pedir datos que el cliente ya dio, o promete una entrega que no
     // corresponde. Es de lo último que se puede sacrificar.
-    const esencial = `${decision.contextBlock}${bloqueAnuncio}${bloqueMoneda}${bloqueDropshipping}${bloqueLecciones}`;
+    const esencial = `${decision.contextBlock}${playbook.bloque}${bloqueAnuncio}${bloqueMoneda}${bloqueDropshipping}${bloqueLecciones}`;
     promptArmado = `${base}\n\n${esencial}`;
     if (promptArmado.length > TOPE_PROMPT) {
       // Todavía no entra: lo que sobra es el prompt del negocio o del agente.
@@ -1739,6 +1765,20 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
 
       // 1. Sanitizar: eliminar URLs y datos de pago si no es payment_intent
       raw = sanitizeResponse(raw, decision.intent);
+
+      // Freno de invenciones, en el punto por donde pasan TODAS las respuestas
+      // generadas. Pedírselo al prompt no alcanzó: con las instrucciones de
+      // venta puestas, el modelo se sacó de la manga "clases de piano que
+      // salen $30.000 mensuales" y "tenemos alumnos de 50, 60 y hasta 70
+      // años" -- dos datos que no existen en ningún lado del sistema. Cuanto
+      // mejor argumenta, más tentado está de fabricar el dato que le falta.
+      const { limpio, quitadas } = quitarInventos(raw);
+      if (quitadas.length > 0) {
+        quitadas.forEach((q) =>
+          console.warn(`🚫 [INVENTO] Frase quitada (${q.motivo}): "${q.frase.slice(0, 120)}" - ${ts()}`)
+        );
+        raw = limpio;
+      }
 
       // 2a. Payment/Confirmation: FORZAR card con métodos de pago (requisito crítico)
       const isPaymentFlow = (decision.intent === "payment_intent" || decision.intent === "confirmation");

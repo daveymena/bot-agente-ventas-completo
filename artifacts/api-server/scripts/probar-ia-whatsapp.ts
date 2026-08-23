@@ -53,6 +53,23 @@ const CASOS: Array<{ nombre: string; mensajes: string[]; anuncio?: any }> = [
   },
 ];
 
+
+// Limpieza: estos scripts siembran en la MISMA base sqlite que usan las
+// pruebas. Sin borrar lo sembrado, `flujo-completo-venta.test.ts` empieza a
+// fallar por filas que dejó un diagnóstico, y se pierde media hora buscando
+// una regresión que no existe.
+async function limpiar(convoIds: number[], leadIds: number[]) {
+  for (const id of convoIds) {
+    await db.delete(messages).where(eq(messages.conversationId, id));
+    await db.delete(conversations).where(eq(conversations.id, id));
+  }
+  for (const id of leadIds) await db.delete(leads).where(eq(leads.id, id));
+  console.log(`
+🧹 limpiado: ${convoIds.length} conversación(es) de prueba`);
+}
+
+const creados: { convos: number[]; leads: number[] } = { convos: [], leads: [] };
+
 const catalogo = await db
   .select({ id: products.id, name: products.name })
   .from(products)
@@ -76,6 +93,9 @@ for (const [i, caso] of CASOS.entries()) {
     tenantId: TENANT, leadId: lead!.id, channel: "whatsapp",
     contactName: `Prueba ${i + 1}`, contactPhone: telefono, currentStage: "greeting", status: "active",
   } as any).returning();
+
+  creados.convos.push(convo!.id);
+  creados.leads.push(lead!.id);
 
   for (const [j, texto] of caso.mensajes.entries()) {
     await db.insert(messages).values({
@@ -129,4 +149,5 @@ for (const [i, caso] of CASOS.entries()) {
 
 console.log(`\n${"═".repeat(70)}`);
 console.log(fallos === 0 ? `✅ Los ${CASOS.length} casos respondieron` : `❌ ${fallos} fallo(s) detectado(s)`);
+await limpiar(creados.convos, creados.leads);
 process.exit(fallos === 0 ? 0 : 1);
