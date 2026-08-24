@@ -9,6 +9,7 @@
 import { config as loadDotenv } from "dotenv";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import { instalarApagadoOrdenado } from "./lib/apagado-ordenado";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 loadDotenv({ path: path.resolve(__dirname, "../../../.env") });
@@ -93,6 +94,12 @@ async function start() {
     }
 
     logger.info({ port, host: "0.0.0.0", authDir: process.env.WA_AUTH_DIR || "data/.baileys-auth" }, "Server listening — WhatsApp auth persistente");
+
+    // Cerrar el socket de WhatsApp ANTES de morir. Sin esto, un deploy mata
+    // el proceso con la sesión a medio cerrar y WhatsApp entrega los mensajes
+    // de esa ventana a un socket muerto: no se encolan y no se reenvían.
+    // Le costó al negocio dos clientes que venían de anuncios pagos.
+    instalarApagadoOrdenado();
   });
 }
 

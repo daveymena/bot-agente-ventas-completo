@@ -1996,7 +1996,22 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
         }
       }
 
-      const re = /\[CARD:\s*([\w-]+)\s*\]/gi;
+      // Captura CUALQUIER cosa dentro de [CARD: ...], no solo un id.
+      //
+      // Antes el patrón era `[\w-]+`, que no admite espacios ni comillas. Si
+      // el modelo escribía el NOMBRE del producto en vez del id, el marcador
+      // no matcheaba: no se mandaba la ficha, y como la limpieza de más abajo
+      // usaba el mismo patrón, tampoco se borraba del texto.
+      //
+      // Resultado medido, conversación 13 del 2026-08-24: al cliente le llegó
+      // literalmente `[CARD: LIQUID FIBRA "DESINTOXICACION"]` -- corchetes
+      // incluidos, y encima de un producto que no tenía nada que ver con lo
+      // que estaba preguntando.
+      //
+      // Ahora entra todo y se decide adentro: si es un id se usa; si es un
+      // nombre se busca en el catálogo; si no se resuelve, se descarta. Lo que
+      // NUNCA puede pasar es que el marcador llegue al cliente.
+      const re = /\[CARD:\s*([^\]]+?)\s*\]/gi;
       const parts: any[] = [];
       let lastIndex = 0;
       let cardCount = 0;
@@ -2032,6 +2047,42 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
         else if (!isNaN(numId) && validIds.has(numId)) {
           resolvedId = numId;
           console.log(`✅ [PARSER] ID válido: ${numId} (${productList.find(p => p.id === numId)?.name})`);
+        }
+        // 1b. El modelo escribió el NOMBRE en vez del id: resolverlo contra el
+        //     catálogo. Pasa seguido -- para el modelo es más natural escribir
+        //     "[CARD: Curso de Piano]" que acordarse del número -- y hasta
+        //     ahora eso costaba la ficha entera.
+        //
+        //     Solo se acepta una coincidencia INEQUÍVOCA (una sola). Con dos o
+        //     más candidatos se cae al paso siguiente: mandar la ficha
+        //     equivocada es peor que no mandar ninguna.
+        else if (isNaN(numId)) {
+          const escrito = String(m![1] || "").toLowerCase().replace(/["'*_]/g, "").trim();
+          const norm = (t: string) => String(t || "").toLowerCase().replace(/["'*_]/g, "").trim();
+          // Coincidencia EXACTA con cualquier largo; parcial solo si lo
+          // escrito es sustancioso.
+          //
+          // Con umbral 4 para todo, "[CARD: curso]" resolvía al curso de piano
+          // -- por ser el único nombre que contiene "curso" -- y le mandaba esa
+          // ficha a alguien que preguntaba por Excel. Una palabra genérica no
+          // identifica un producto; el nombre completo sí.
+          const candidatos = escrito.length >= 4
+            ? productList.filter((p: any) => {
+                const n = norm(p.name);
+                if (n === escrito) return true;
+                if (escrito.length < 8) return false;
+                return n.includes(escrito) || escrito.includes(n);
+              })
+            : [];
+          if (candidatos.length === 1 && validIds.has(candidatos[0].id)) {
+            resolvedId = candidatos[0].id;
+            console.log(`🔤 [PARSER] La IA escribió el nombre "${m![1]}" → resuelto a ${resolvedId} (${candidatos[0].name})`);
+          } else if (decision.productToShow && validIds.has(decision.productToShow.id)) {
+            resolvedId = decision.productToShow.id;
+            console.log(`🔧 [PARSER] Nombre "${m![1]}" ambiguo (${candidatos.length} candidatos) → usando productToShow ${resolvedId}`);
+          } else {
+            console.log(`❌ [PARSER] Nombre "${m![1]}" no resuelve a ningún producto. Card descartada (el marcador NO se le manda al cliente).`);
+          }
         }
         // 2. Si el ID es inválido, usar SOLO el productToShow de decision (no fallback)
         else if (decision.productToShow && validIds.has(decision.productToShow.id)) {
@@ -2110,7 +2161,7 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
       // igualmente registrada como enviada, y el producto no se le mostraba
       // nunca al cliente. La verdad de qué se envió está en `agentMeta`
       // (cardSent + productId), que sale de las partes ya resueltas.
-      const textoGuardado = raw.replace(/\[CARD:\s*[\w-]+\s*\]/gi, "").replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+      const textoGuardado = raw.replace(/\[CARD:\s*[^\]]*\]/gi, "").replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
       // Si el mensaje era SOLO la tarjeta, queda vacío al quitar el marcador:
       // se deja constancia legible de qué ficha se envió.
       const soloFicha = agentMeta.productName ? `📦 Ficha enviada: ${agentMeta.productName}` : "📦 Ficha del producto enviada";

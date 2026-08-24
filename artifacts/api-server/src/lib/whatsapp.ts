@@ -1636,14 +1636,39 @@ export class WhatsAppManager {
                 // mostrado como si el cliente lo hubiera escrito, y peor,
                 // metido al agente como si fuera su consulta. Se descartan las
                 // cadenas que no parecen lenguaje humano.
-                const PARECE_CAMPO_TECNICO = /^[a-z]+([A-Z][a-zA-Z0-9]*)+$/;      // messageContextInfo, deviceListMetadata
-                const PARECE_IDENTIFICADOR = /^[A-Za-z0-9+/=_-]{16,}$/;           // claves, hashes, ids en base64
-                const allStrings = JSON.stringify(msgObj).match(/"[^"]{3,}"/g);
-                if (allStrings && allStrings.length > 0) {
+                // Se recorren los VALORES del objeto, nunca el JSON como
+                // texto plano.
+                //
+                // Antes esto era `JSON.stringify(msgObj).match(/"[^"]{3,}"/g)`,
+                // que devuelve también los NOMBRES DE LOS CAMPOS. El filtro
+                // de campo técnico exigía camelCase (messageContextInfo), así
+                // que cualquier nombre de una sola palabra en minúscula
+                // pasaba derecho.
+                //
+                // Costo real, conversación 13 del 2026-08-24 (Samuel
+                // Antolinez): se guardó **"key"** como mensaje del cliente
+                // -- el campo `msg.key` de Baileys -- y el agente le contestó
+                // con un producto al azar. El cliente venía preguntando por
+                // el curso de piano.
+                //
+                // Recorriendo valores el problema desaparece de raíz: un
+                // nombre de campo no es un valor, así que nunca puede llegar
+                // acá. Es la misma lección de siempre: validar por FORMA en
+                // el punto por donde pasan todos, no enumerar lo malo.
+                const valores: string[] = [];
+                const recolectar = (o: any, prof = 0): void => {
+                  if (prof > 8 || valores.length > 200) return;
+                  if (typeof o === 'string') { valores.push(o); return; }
+                  if (o && typeof o === 'object') {
+                    for (const v of Object.values(o)) recolectar(v, prof + 1);
+                  }
+                };
+                recolectar(msgObj);
+
+                const allStrings = valores;
+                if (allStrings.length > 0) {
                   const potentialText = allStrings
-                    .map(s => s.slice(1, -1)) // Remover comillas
                     .filter(s => s.length > 2 && !s.includes('http') && !s.includes('@') && !/^\d+$/.test(s))
-                    .filter(s => !PARECE_CAMPO_TECNICO.test(s) && !PARECE_IDENTIFICADOR.test(s))
                     // Texto de verdad: tiene espacios, o es una palabra suelta
                     // corta y en minúsculas ("hola", "si", "cuanto").
                     .filter(s => /\s/.test(s.trim()) || /^[a-záéíóúñ¿¡?!.,]{2,15}$/i.test(s.trim()))
