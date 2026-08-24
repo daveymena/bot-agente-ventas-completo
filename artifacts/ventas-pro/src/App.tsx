@@ -3,6 +3,7 @@ import { Switch, Route, Router as WouterRouter, useLocation } from "wouter";
 import { AnimatePresence, motion } from "framer-motion";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
+import { Toaster as SonnerToaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/not-found";
 import { useAuth } from "@/hooks/useAuth";
@@ -199,6 +200,16 @@ function App() {
           <AppContent />
         </WouterRouter>
         <Toaster />
+        {/* El contenedor de sonner NUNCA estaba montado, y 27 archivos de la
+            app llaman a `toast` de sonner: TODOS esos avisos se dibujaban en
+            la nada. El admin lo describió como "le doy a guardar y no muestra
+            si guardó, es como estar a ciegas" -- y no era solo guardar: los
+            errores tampoco se veían, así que un fallo real parecía que no
+            pasaba nada.
+
+            Se montan los dos: el de shadcn lo usan 2 archivos (useToast) y
+            sacarlo los dejaría mudos a ellos. Conviven sin problema. */}
+        <SonnerToaster />
       </TooltipProvider>
     </QueryClientProvider>
   );

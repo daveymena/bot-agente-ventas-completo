@@ -465,7 +465,32 @@ export default function Settings() {
                             </div>
                           </div>
 
-                          {!deviceFlow.active ? (
+                          {/* Estado de ÉXITO en la pantalla, no solo en un aviso.
+                              Al autorizar se ponía `active: false` y la tarjeta
+                              volvía al botón de conectar como si nada hubiera
+                              pasado: para el admin era indistinguible de "sigue
+                              esperando". Un aviso que se desvanece no alcanza
+                              para confirmar algo que se hace una vez. */}
+                          {deviceFlow.status === "success" ? (
+                            <div className="space-y-3 animate-in fade-in duration-500">
+                              <div className="flex items-center gap-2 rounded-2xl border border-green-500/30 bg-green-500/5 p-4">
+                                <div className="h-2 w-2 rounded-full bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)]" />
+                                <div>
+                                  <p className="text-sm font-bold">Cuenta de GitHub vinculada</p>
+                                  <p className="text-[11px] text-muted-foreground">
+                                    El token quedó guardado en el servidor. Probá el modelo abajo para confirmar que responde.
+                                  </p>
+                                </div>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => setDeviceFlow({ active: false, userCode: "", deviceCode: "", verificationUri: "", status: "idle" })}
+                                className="text-[10px] font-black uppercase text-muted-foreground hover:text-foreground"
+                              >
+                                Vincular otra cuenta
+                              </button>
+                            </div>
+                          ) : !deviceFlow.active ? (
                             <div className="space-y-6 animate-in fade-in duration-500">
                               <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
                                 {["GPT-4o", "Claude 3.5", "o1", "o3", "Llama 3"].map(m => (
