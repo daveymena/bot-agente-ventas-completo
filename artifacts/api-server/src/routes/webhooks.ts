@@ -194,7 +194,26 @@ router.post("/mercadopago", async (req: Request, res: Response) => {
       const [product] = await db.select().from(products).where(eq(products.id, productId));
 
       if (product && product.deliveryLink) {
-        const message = `━━━━━━━━━━━━━━━━━━━━━━\n✅ *¡PAGO CONFIRMADO!* 🎉\n━━━━━━━━━━━━━━━━━━━━━━\n\n¡Hola! Tu pago por *${product.name}* ha sido verificado automáticamente.\n\nAquí tienes tu acceso de por vida:\n🚀 ${product.deliveryLink}\n\n¡Espero que disfrutes mucho el contenido! Si tienes dudas, aquí estoy.`;
+        // Acceso PROPIO de este comprador cuando el producto tiene cargada su
+        // ruta de Terabox: enlace nuevo con clave de 4 caracteres, distinta
+        // para cada venta. Si Terabox no responde --la cookie ndus vence en
+        // días-- cae solo al enlace fijo de siempre: se pierde la clave, nunca
+        // la venta. Ver lib/entrega-personalizada.ts.
+        const { prepararEntrega, textoDeEntrega } = await import("../lib/entrega-personalizada");
+        const metaProd: any = typeof product.metadata === "string"
+          ? (() => { try { return JSON.parse(product.metadata as string); } catch { return {}; } })()
+          : (product.metadata || {});
+        const entrega = await prepararEntrega({
+          id: product.id,
+          name: product.name,
+          deliveryLink: product.deliveryLink,
+          teraboxPath: metaProd?.teraboxPath || null,
+        });
+        if (entrega?.origen === "fija" && entrega.motivo) {
+          logger.warn({ productId: product.id, motivo: entrega.motivo }, "[Entrega] Se entregó con el enlace fijo");
+        }
+        const bloqueAcceso = entrega ? textoDeEntrega(entrega) : `🚀 ${product.deliveryLink}`;
+        const message = `━━━━━━━━━━━━━━━━━━━━━━\n✅ *¡PAGO CONFIRMADO!* 🎉\n━━━━━━━━━━━━━━━━━━━━━━\n\n¡Hola! Tu pago por *${product.name}* ha sido verificado automáticamente.\n\nAquí tienes tu acceso de por vida:\n${bloqueAcceso}\n\n¡Espero que disfrutes mucho el contenido! Si tienes dudas, aquí estoy.`;
 
         let relatedConvo: any = null;
 
@@ -353,7 +372,26 @@ router.post("/paypal", async (req: Request, res: Response) => {
       const [product] = await db.select().from(products).where(eq(products.id, productId));
 
       if (product && product.deliveryLink) {
-        const message = `━━━━━━━━━━━━━━━━━━━━━━\n✅ *¡PAGO CONFIRMADO!* 🎉\n━━━━━━━━━━━━━━━━━━━━━━\n\n¡Hola! Tu pago por *${product.name}* ha sido verificado automáticamente.\n\nAquí tienes tu acceso de por vida:\n🚀 ${product.deliveryLink}\n\n¡Espero que disfrutes mucho el contenido! Si tienes dudas, aquí estoy.`;
+        // Acceso PROPIO de este comprador cuando el producto tiene cargada su
+        // ruta de Terabox: enlace nuevo con clave de 4 caracteres, distinta
+        // para cada venta. Si Terabox no responde --la cookie ndus vence en
+        // días-- cae solo al enlace fijo de siempre: se pierde la clave, nunca
+        // la venta. Ver lib/entrega-personalizada.ts.
+        const { prepararEntrega, textoDeEntrega } = await import("../lib/entrega-personalizada");
+        const metaProd: any = typeof product.metadata === "string"
+          ? (() => { try { return JSON.parse(product.metadata as string); } catch { return {}; } })()
+          : (product.metadata || {});
+        const entrega = await prepararEntrega({
+          id: product.id,
+          name: product.name,
+          deliveryLink: product.deliveryLink,
+          teraboxPath: metaProd?.teraboxPath || null,
+        });
+        if (entrega?.origen === "fija" && entrega.motivo) {
+          logger.warn({ productId: product.id, motivo: entrega.motivo }, "[Entrega] Se entregó con el enlace fijo");
+        }
+        const bloqueAcceso = entrega ? textoDeEntrega(entrega) : `🚀 ${product.deliveryLink}`;
+        const message = `━━━━━━━━━━━━━━━━━━━━━━\n✅ *¡PAGO CONFIRMADO!* 🎉\n━━━━━━━━━━━━━━━━━━━━━━\n\n¡Hola! Tu pago por *${product.name}* ha sido verificado automáticamente.\n\nAquí tienes tu acceso de por vida:\n${bloqueAcceso}\n\n¡Espero que disfrutes mucho el contenido! Si tienes dudas, aquí estoy.`;
         let relatedConvo: any = null;
 
         // Actualizar pago en BD

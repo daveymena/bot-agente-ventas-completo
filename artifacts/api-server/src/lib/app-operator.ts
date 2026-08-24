@@ -1408,7 +1408,7 @@ export const TOOLS: ToolDef[] = [
   {
     name: "update_product",
     description: "Actualizar campos de un producto existente por id. Solo se cambian los campos enviados. Si mandás 'category' (texto) sin 'categoryId' puntual, se resuelve/crea automáticamente la categoría real y se re-vincula -- nunca queda la etiqueta de texto desconectada de la categoría real.",
-    args: '{ "id": number (req), "name"?, "price"?, "currency"?, "description"?, "category"?, "categoryId"?, "kind"?, "imageUrl"?, "features"?: string[], "deliveryLink"?, "paymentLink"?, "highlight"?, "isActive"?: boolean }',
+    args: '{ "id": number (req), "name"?, "price"?, "currency"?, "description"?, "category"?, "categoryId"?, "kind"?, "imageUrl"?, "features"?: string[], "deliveryLink"?, "paymentLink"?, "highlight"?, "isActive"?: boolean, "teraboxPath"?: string (ruta de la carpeta en Terabox, ej. "/INGLES_TOTAL..."; habilita entregarle a cada comprador un enlace con SU clave) }',
     run: async (args, ctx) => {
       const id = num(args.id);
       if (!id) return { ok: false, summary: "Falta 'id'" };
@@ -1427,6 +1427,17 @@ export const TOOLS: ToolDef[] = [
       }
       if (args.features !== undefined) patch.features = Array.isArray(args.features) ? args.features : existing.features;
       if (args.isActive !== undefined) patch.isActive = !!args.isActive;
+      // Ruta de la carpeta en Terabox (ej. "/INGLES_TOTAL..."). Sin esto la
+      // entrega con clave por comprador no se puede generar: para crear un
+      // share nuevo hace falta la RUTA, y el producto solo guarda la URL del
+      // share viejo. Va en metadata y no en una columna porque es un dato de
+      // un proveedor concreto, no del catálogo. Ver lib/entrega-personalizada.
+      if (typeof args.teraboxPath === "string") {
+        const metaActual: any = typeof existing.metadata === "string"
+          ? (() => { try { return JSON.parse(existing.metadata as string); } catch { return {}; } })()
+          : (existing.metadata || {});
+        patch.metadata = { ...metaActual, teraboxPath: args.teraboxPath.trim() };
+      }
       if (Object.keys(patch).length === 0) return { ok: false, summary: "Nada que actualizar" };
       await db.update(products).set(patch).where(eq(products.id, id));
       return { ok: true, summary: `Producto #${id} actualizado (${Object.keys(patch).join(", ")})` };
