@@ -38,6 +38,7 @@ import {
 } from "./conversation-engine";
 import { getBrandVoice, formatWithBrandVoice } from "./brand-voice";
 import { getBusinessContext, renderBloqueNegocio, resumenContexto } from "./business-context";
+import { cuentasDeCopilot, expandirPorCuenta } from "./copilot-cuentas";
 import { construirPlaybook, quitarInventos, quitarMuletillaDeApertura, extraerApertura } from "./sales-playbook";
 import { analyzeBrain, buildFinalPrompt, type ResponseStrategy, type EmotionalState } from "./response-brain";
 import { learnFromLastExchange, retrieveLessons, formatLessonsForPrompt } from "./conversation-learning";
@@ -1605,6 +1606,9 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
         // ya rotaban así; el resto iba con uno fijo, así que si ese caía se
         // perdía el proveedor entero teniendo modelos suyos que sí responden.
         // Ahora cada modelo es un candidato propio y la cola sigue de largo.
+        // Se lee UNA vez por turno, no por candidato: son varias cuentas pero
+        // una sola consulta. Si falla, cae a lista vacía y todo sigue como antes.
+        const cuentasCopilot = cuentasDeCopilot();
         const conModelos = (proveedor: string, salud: string) => {
           if (activeProvider === proveedor || !healthMonitor.isServiceHealthy(salud)) return [];
           return getProviderRotation(proveedor).map((config) => ({
@@ -1622,7 +1626,25 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
         // es la de mejor calidad del resto. El intercambio de token (PAT ->
         // token de sesión de Copilot) lo hace más abajo quien detecta la
         // baseUrl api.githubcopilot.com.
-        queue.push(...conModelos("github_copilot_internal", "copilot_internal"));
+        // Y si el admin tiene VARIAS cuentas de Copilot, cada una entra como
+        // su propio candidato con su propia clave. Pedido el 2026-08-24: son
+        // cuentas suyas y activas, y la idea es que cuando una se queda sin
+        // cuota siga la siguiente en vez de quedarse sin proveedor.
+        //
+        // La rotación ya sabía hacerlo: `clasificarFallo` aparta 1 hora al que
+        // devuelve "cuota agotada" y sigue. Lo que faltaba era que hubiera más
+        // de un candidato de Copilot que rotar -- la configuración guardaba UN
+        // token y conectar la segunda cuenta pisaba la primera.
+        //
+        // Si hay 0 o 1 cuenta esto se comporta igual que antes.
+        const candidatosCopilot = conModelos("github_copilot_internal", "copilot_internal");
+        if (candidatosCopilot.length > 0 && cuentasCopilot.length > 1) {
+          for (const cand of candidatosCopilot) {
+            queue.push(...expandirPorCuenta(cand.config, cuentasCopilot));
+          }
+        } else {
+          queue.push(...candidatosCopilot);
+        }
         // Groq: respaldo rápido y gratuito (antes estaba configurado pero nunca se usaba)
         queue.push(...conModelos("groq", "groq"));
         queue.push(...conModelos("nvidia", "nvidia_70b"));
@@ -1973,12 +1995,17 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
       // respondió "Ah, ¿te interesa el de pastas? 🍝 es un producto físico" —
       // otra mentira. Los emojis de comida (🍝🍕🌮) SON la señal: ningún
       // producto del catálogo tiene comida, y la IA los usa justo cuando
-      // inventa. Si el mensaje trae esos emojis y NO hay card de producto
-      // real, es invento seguro.
-      const tieneCardValida = raw.includes("[CARD:");
+      // inventa. Y aunque escriba "[CARD: ID]" (sin número) o "[CARD: algo
+      // inválido]", eso NO es una card real: el parser la rechaza y al
+      // cliente le llega el invento sin ficha.
       const emojiComidaInvento = /🍝|🍕|🥘|🌮|🍜|🍔|🍰/.test(raw);
       const inventoPorFrase = /(te ense[ñn]a|es otro nivel|es un producto f[ií]sico|lo maneja otra persona|te paso con mi compa[ñn]ero)/i.test(raw);
-      if (!tieneCardValida && (emojiComidaInvento || inventoPorFrase || (decision.productSearchFailed && /(te ense[ñn]a|incluye|te paso la ficha|lo tenemos|s[ií] (lo )?(tenemos|manejamos|tenés)|tenés (un|el|el curso))/i.test(raw)))) {
+      const cardReal = /\[CARD:\s*[\d\w][^\]]*\]/i.test(raw); // card con contenido (número o nombre)
+      const inventoConfirmado = emojiComidaInvento || inventoPorFrase || (decision.productSearchFailed && /(te ense[ñn]a|incluye|te paso la ficha|lo tenemos|s[ií] (lo )?(tenemos|manejamos|tenés)|tenés (un|el|el curso))/i.test(raw));
+      // Para emojis de comida: la señal es tan fuerte que manda incluso con
+      // un [CARD: ...] inválido delante. Solo se respeta si la card es REAL
+      // (resuelve a un producto) -- pero ninguna card real acompaña a un 🍝.
+      if (emojiComidaInvento || (inventoPorFrase && !cardReal) || (decision.productSearchFailed && !cardReal && /(te ense[ñn]a|incluye|te paso la ficha|lo tenemos|s[ií] (lo )?(tenemos|manejamos|tenés)|tenés (un|el|el curso))/i.test(raw))) {
         const similares = productList.slice(0, 5).map(p => p.name).join(", ");
         raw = `Hmm, creo que no tengo ese producto en el catálogo 😅. Lo que sí manejo es: ${similares}. ¿Te interesa alguno de esos, o me contás un poco más qué buscás exactamente?`;
         console.log(`🛡️ [PRODUCTO-INVENTADO] La IA fabricó un producto inexistente. Se reemplaza por respuesta honesta - ${ts()}`);

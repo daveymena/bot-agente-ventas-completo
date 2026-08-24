@@ -196,6 +196,29 @@ export async function cargarClavesEnEntorno(): Promise<number> {
       logger.info("[AIKeys] token de GitHub tomado de la conexión de Copilot");
     }
 
+    // VARIAS cuentas de Copilot. El admin tiene varias propias y activas, y la
+    // idea es que cuando una se queda sin cuota siga la siguiente: la rotación
+    // ya aparta 1 hora al que devuelve "cuota agotada", solo faltaba que
+    // hubiera más de un candidato que rotar (ver copilot-cuentas.ts).
+    //
+    // Va al entorno, como el resto de las claves, porque la cadena se arma en
+    // un contexto sincrónico y una consulta a la base por turno para leer algo
+    // que ya está en memoria sería puro costo.
+    const cuentas = (row as any).copilotTokens;
+    if (cuentas) {
+      try {
+        const { normalizarTokensDeCopilot } = await import("./copilot-cuentas");
+        const lista = normalizarTokensDeCopilot(cuentas);
+        if (lista.length > 0) {
+          process.env.COPILOT_TOKENS = JSON.stringify(lista);
+          // Cuántas, nunca cuáles: son credenciales.
+          logger.info({ cuentas: lista.length }, "[AIKeys] cuentas de Copilot cargadas");
+        }
+      } catch (e: any) {
+        logger.warn({ err: e?.message }, "[AIKeys] no se pudieron leer las cuentas de Copilot");
+      }
+    }
+
     if (aplicadas > 0) logger.info({ aplicadas }, "[AIKeys] claves guardadas cargadas al entorno");
     return aplicadas;
   } catch (e: any) {
