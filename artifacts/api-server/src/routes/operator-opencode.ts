@@ -440,6 +440,38 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
           ? tramos.map((t) => `${t.etapa} ${(t.ms / 1000).toFixed(1)}s`).join(" · ") + ` · total ${((Date.now() - t0) / 1000).toFixed(1)}s`
           : `total ${((Date.now() - t0) / 1000).toFixed(1)}s`;
 
+      /**
+       * Por qué se cayó el turno, dicho en una línea y arriba de todo.
+       *
+       * El desglose de tramos ya traía el motivo, pero enterrado: el admin veía
+       * "⏱️ modelo:deepseek-chat(descartado: sin crédito) 1.2s · ..." y leía un
+       * problema de lentitud. La causa real era que sus DOS modelos de pago
+       * estaban sin saldo, y por eso la cadena caía a los gratis --que no
+       * alcanzan a resolver un pedido de anuncio-- y se comía los 135s.
+       *
+       * Reportado el 2026-08-24 con ese trace exacto. Recargar el saldo es algo
+       * que el admin puede hacer YA; "está tardando" no le dice qué hacer.
+       *
+       * Se distingue sin saldo de clave mala a propósito: son dos arreglos
+       * distintos (pagar vs. volver a pegar la clave) y `resumirMotivo` ya los
+       * separa.
+       */
+      const causaDeFondo = (): string | null => {
+        const dePago = tramos.filter((t) => /sin crédito|clave rechazada/i.test(t.etapa));
+        if (dePago.length === 0) return null;
+        const nombres = dePago
+          .map((t) => (t.etapa.match(/^modelo:([^(]+)/) || [])[1]?.trim())
+          .filter(Boolean)
+          .join(", ");
+        const sinSaldo = dePago.some((t) => /sin crédito/i.test(t.etapa));
+        return sinSaldo
+          ? `\n\n⚠️ **La causa es el saldo, no la lentitud.** Tus modelos de pago (${nombres}) están sin crédito, `
+            + `así que el pedido cayó a los modelos gratis, que no alcanzan a resolver algo de este tamaño a tiempo. `
+            + `Recargá el saldo de ese proveedor y esto vuelve a andar en segundos.`
+          : `\n\n⚠️ **La causa es la clave, no la lentitud.** El proveedor rechazó la clave de ${nombres}. `
+            + `Volvé a cargarla en Configuración → Modelos de pago.`;
+      };
+
       const turnId = randomUUID();
       // La TTL del token = lo que dura el turno. Además de acotar el token,
       // su `exp` es lo que el puente MCP usa como turnDeadline para que una
@@ -866,6 +898,7 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
             // mensaje tiene que ser inequívoco.
             "⏳ Esto está tardando más de lo que aguanta una sola respuesta, así que corté acá. **No se creó ni se guardó nada.** "
             + "Pedime que continúe y sigo desde ahí, o dividí el pedido en pasos más chicos."
+            + (causaDeFondo() || "")
             + `\n\n⏱️ En qué se fue el tiempo: ${tramosTexto()}`,
           ));
           await saveArchitectTurn(tenantId, sessionId, "assistant", reply);
