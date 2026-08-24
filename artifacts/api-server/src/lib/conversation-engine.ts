@@ -107,6 +107,14 @@ export interface EngineDecision {
   mensajeSinProducto: boolean;
 
   /**
+   * El cliente pidió VER EL CATÁLOGO ("¿qué cursos tienen?"), no un producto
+   * puntual. Ni `productSearchFailed` (que haría contestar "no lo tengo") ni
+   * `mensajeSinProducto` (que haría devolverle la pregunta): pidió algo
+   * concreto y lo que corresponde es mostrarle la oferta.
+   */
+  pidioVerCatalogo: boolean;
+
+  /**
    * El producto que la búsqueda identificó EN ESTE MENSAJE (no en el historial).
    *
    * Existe porque avisar a la IA no alcanza. Hasta ahora, cuando la búsqueda
@@ -157,7 +165,12 @@ const PAYMENT_PATTERNS = [
   "nequi", "daviplata", "transferencia", "transferir",
   "cuenta", "link", "enlace", "precio", "cuánto cuesta",
   "cuanto cuesta", "costo", "vale", "confirmo", "confirmar",
-  "procedo", "adelante", "vamos", "dale", "lo quiero", "lo compro"
+  "procedo", "adelante", "vamos", "dale", "lo quiero", "lo compro",
+  // "lo quiero" ya estaba, pero el orden con demostrativo se escapaba: medido
+  // con la simulación, "ese quiero" y "quiero ese" caían en intención genérica
+  // y el bot volvía a preguntar qué buscaba a alguien que acababa de decidir.
+  "ese quiero", "esa quiero", "quiero ese", "quiero esa",
+  "ese me llevo", "me llevo ese", "ese mismo quiero",
 ];
 
 const OBJECTION_PATTERNS = [
@@ -1077,6 +1090,62 @@ export function mensajeNombraProducto(text: string): boolean {
   return allWords.some(w => !GENERIC_HEADERS.has(w) && !GENERIC_WORDS.has(w));
 }
 
+/**
+ * El cliente pide VER QUÉ HAY, no un producto puntual.
+ *
+ * "¿qué cursos tienen?", "muéstrame el catálogo", "¿qué más manejan?".
+ *
+ * Existe porque estos mensajes caían en `productSearchFailed`, que es la rama
+ * de "pidió algo que NO está en el catálogo". Medido con la simulación de
+ * conversación: las seis formas más comunes de preguntar por el catálogo
+ * terminaban ahí, y esa rama le ordena al modelo:
+ *
+ *   "El cliente está buscando algo que NO existe en el catálogo actual.
+ *    Dile la VERDAD: el producto que busca no está disponible."
+ *
+ * O sea que a quien pedía ver el catálogo se le contestaba que no hay. Es de
+ * los primeros mensajes más frecuentes que existen, y ese lead se pierde
+ * entero. La causa: la frase trae alguna palabra suelta ("bueno", "mas") que
+ * `mensajeNombraProducto` cuenta como término específico, así que tampoco caía
+ * en "no nombró nada".
+ *
+ * Tampoco corresponde devolverle la pregunta al cliente: pidió algo concreto
+ * --ver la oferta-- y contestar "¿qué estás buscando?" es el interrogatorio que
+ * hay que evitar.
+ */
+const CATALOGO_PATTERNS = [
+  "que cursos", "cuales cursos", "que productos", "cuales productos",
+  "que packs", "que mas tienen", "que mas manejan", "que mas hay",
+  "que tienen", "que manejan", "que venden", "que ofrecen", "que hay",
+  "catalogo", "lista de cursos", "listado", "todos los cursos",
+  "ver los cursos", "opciones tienen", "variedad",
+];
+
+export function pidePlantillaDeCatalogo(text: string): boolean {
+  const t = normalizeText(text);
+  return CATALOGO_PATTERNS.some(p => t.includes(normalizeText(p)));
+}
+
+/**
+ * El mensaje señala al producto que ya está sobre la mesa: "ese quiero",
+ * "quiero ese", "ese mismo".
+ *
+ * Un demostrativo solo puede referirse a algo ya mencionado. Sin esto,
+ * "ese quiero" no nombra ninguna palabra específica --"ese" es palabra de
+ * parada y "quiero" es genérica-- así que el motor lo marcaba como "el mensaje
+ * no nombra producto" y le ordenaba al modelo: "NO supongas que sigue
+ * interesado en el producto del que se habló antes. PROHIBIDO abrir con
+ * ¿vienes por el [producto]?".
+ *
+ * Es decir: el cliente decía "ese quiero" --una decisión de compra-- y el bot
+ * volvía a preguntarle qué buscaba. "lo quiero" y "dale ese" sí funcionaban;
+ * se escapaba justo el orden con demostrativo.
+ */
+function señalaAlProductoEnFoco(text: string): boolean {
+  const t = normalizeText(text);
+  return /\b(ese|esa|eso|esos|esas|este|esta|esto|aquel|aquella)\b/.test(t);
+}
+
 export async function findBestProductMatch(
   text: string,
   productList: Array<{ id: number; name: string; description: string | null; category: string | null; categoryId: number | null }>,
@@ -1434,6 +1503,7 @@ export async function computeDecision(
   let shouldSendCard = false;
   let productSearchFailed = false;
   let mensajeSinProducto = false;
+  let pidioVerCatalogo = false;
   let searchReasoning: string | null = null;
   // ¿La búsqueda IDENTIFICÓ el producto, o solo encontró algo parecido? Decide
   // si a la IA se le ordena contestar sobre ese producto o solo ofrecerlo.
@@ -1617,7 +1687,12 @@ export async function computeDecision(
           // y el modelo terminaba contestando con OTRO producto del catálogo
           // (ej. Excel) que el cliente jamás nombró. Solo el saludo/pregunta
           // general sin producto es mensajeSinProducto.
-          mensajeSinProducto = intent !== "details_query" && !mensajeNombraProducto(incomingText);
+          // Un demostrativo ("ese quiero") señala el producto que ya está sobre
+          // la mesa: no es un mensaje "sin producto", es una referencia a él.
+          mensajeSinProducto =
+            intent !== "details_query" &&
+            !mensajeNombraProducto(incomingText) &&
+            !señalaAlProductoEnFoco(incomingText);
           console.log(
             `🤖 [DECISION] Producto en contexto delegado a IA: ${currentProduct?.name} (ID: ${memory.currentProductId})` +
             (mensajeSinProducto ? " — ⚠️ el mensaje NO nombra producto: no darlo por supuesto" : "")
@@ -1633,7 +1708,12 @@ export async function computeDecision(
       // autocompleta igual para TODOS los anuncios— no pide nada, y contestarle
       // "no lo manejo" a alguien que acaba de costar plata en publicidad es
       // peor que no contestar.
-      if (!mensajeNombraProducto(incomingText)) {
+      if (pidePlantillaDeCatalogo(incomingText)) {
+        // Pidió ver la oferta. No es "no tengo lo que buscás" ni "no dijo nada":
+        // dijo algo concreto y la respuesta correcta es mostrarle qué hay.
+        pidioVerCatalogo = true;
+        console.log(`📚 [DECISION] El cliente pide ver el catálogo - mostrar opciones, no negar`);
+      } else if (!mensajeNombraProducto(incomingText)) {
         mensajeSinProducto = true;
         console.log(`🤷 [DECISION] El mensaje no nombra ningún producto - la IA debe preguntar, no suponer`);
       } else if (intent !== "payment_intent" && intent !== "confirmation") {
@@ -1647,7 +1727,7 @@ export async function computeDecision(
   }
 
   // ── Construir bloque de contexto para el prompt ─────────────────────────────
-  const contextBlock = buildContextBlock(memory, intent, stage, productToShow, shouldSendCard, searchReasoning, productSearchFailed, t, productList, negocio, mensajeSinProducto, coincidenciaFiel);
+  const contextBlock = buildContextBlock(memory, intent, stage, productToShow, shouldSendCard, searchReasoning, productSearchFailed, t, productList, negocio, mensajeSinProducto, coincidenciaFiel, pidioVerCatalogo);
 
   // ── Razón de la decisión (para logs) ────────────────────────────────────────
   const debugReason = [
@@ -1673,6 +1753,7 @@ export async function computeDecision(
     searchReasoning,
     productSearchFailed,
     mensajeSinProducto,
+    pidioVerCatalogo,
     productoDelMensaje,
     pidioReenvio,
     paymentStatus: memory.paymentStatus,
@@ -1695,7 +1776,8 @@ function buildContextBlock(
   allProducts?: Array<any>,
   negocio?: BusinessContext | null,
   mensajeSinProducto?: boolean,
-  coincidenciaFiel?: boolean
+  coincidenciaFiel?: boolean,
+  pidioVerCatalogo?: boolean
 ): string {
   const lines: string[] = [];
 
@@ -1770,6 +1852,18 @@ function buildContextBlock(
     lines.push(`   · Si más arriba figura un ANUNCIO del que llegó el cliente, ESE es el tema: hablá de ese producto.`);
     lines.push(`   · Si no hay anuncio, saludá corto y preguntá UNA sola cosa concreta: qué está buscando.`);
     lines.push(`   · Nunca inventes por dónde vino ni le atribuyas un interés que no expresó.`);
+  }
+
+  // El cliente pidió ver la oferta. Antes esto caía en `productSearchFailed` y
+  // el modelo recibía la orden de decirle que lo que busca no existe — a
+  // alguien que no pidió nada puntual, solo quería ver qué hay.
+  if (pidioVerCatalogo) {
+    lines.push(`\n📚 EL CLIENTE PIDIÓ VER QUÉ HAY. No pidió un producto puntual.`);
+    lines.push(`\n🚨 NO le digas que no tenés lo que busca: no pidió nada que puedas no tener.`);
+    lines.push(`🚨 NO le devuelvas la pregunta ("¿qué estás buscando?"). Ya te dijo qué quiere: ver la oferta.`);
+    lines.push(`\n✅ QUÉ HACER: mostrale entre 3 y 5 opciones concretas del catálogo de arriba, con nombre y precio,`);
+    lines.push(`   en una lista corta. Elegí las más distintas entre sí para que se vea la variedad.`);
+    lines.push(`   Cerrá con UNA sola pregunta para que elija ("¿cuál te llama la atención?"). Una. No un cuestionario.`);
   }
 
   if (productSearchFailed) {
