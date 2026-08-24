@@ -1921,6 +1921,33 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
         raw = limpio;
       }
 
+      // 1c. PRODUCTO INEXISTENTE: la IA no puede inventarlo.
+      //
+      // `productSearchFailed` = el cliente pidió algo que NO está en el
+      // catálogo. El prompt le ordena decir la verdad, pero el modelo a veces
+      // lo ignora y FABRICA el producto con contenido falso. Medido en vivo
+      // (2026-08-23): el cliente pidió "el de pastas" y el bot respondió
+      // "¡Ah, el de pastas! 🍝 te enseña desde la masa base hasta rellenos y
+      // salsas" — un curso que no existe, con detalles inventados. No hay peor
+      // error para un bot de ventas: la mentira es la única que el cliente
+      // puede verificar fácil.
+      //
+      // El detector: si no hay producto en el catálogo (productSearchFailed),
+      // el mensaje no trae card de ningún producto real (sin [CARD:]), y la IA
+      // afirmó tener algo ("te enseña", "incluye", "es otro nivel" sobre el
+      // producto que pidió), se reemplaza la respuesta entera por una honesta
+      // que diga que no lo maneja. El refuerzo es en la SALIDA, igual que
+      // quitarInventos: pedírselo al prompt ya se intentó y no alcanzó.
+      if (decision.productSearchFailed && !raw.includes("[CARD:")) {
+        const inventaProducto = /(te ense[ñn]a|incluye|es otro nivel|te paso la ficha|te ense[ñn]o|lo tenemos|s[ií] (lo )?(tenemos|manejamos|tenés)|tenés (un|el|el curso))/i.test(raw)
+          || /🍝|🍕|🥘|🌮/i.test(raw); // emojis de comida = invento típico
+        if (inventaProducto) {
+          const similares = productList.slice(0, 5).map(p => p.name).join(", ");
+          raw = `Hmm, creo que no tengo ese producto en el catálogo 😅. Lo que sí manejo es: ${similares}. ¿Te interesa alguno de esos, o me contás un poco más qué buscás exactamente?`;
+          console.log(`🛡️ [PRODUCTO-INVENTADO] La IA fabricó un producto inexistente. Se reemplaza por respuesta honesta - ${ts()}`);
+        }
+      }
+
       // 2a. Payment/Confirmation: FORZAR card con métodos de pago (requisito crítico)
       const isPaymentFlow = (decision.intent === "payment_intent" || decision.intent === "confirmation");
       if (isPaymentFlow && decision.shouldSendCard && decision.productToShow) {
