@@ -126,3 +126,59 @@ export function armarCadena(entrada: {
 
   return [...pagos, ...descubiertos, ...gratisLentos, respaldo];
 }
+
+// ─── Memoria de fallos: que no reintente lo que ya se sabe que no anda ──────
+//
+// La rotación automática ya existía: por eso el trace del 2026-08-24 muestra
+// SEIS candidatos probados en un turno. Lo que NO existía es memoria. Atlas
+// reintentaba deepseek --sin saldo-- en CADA mensaje, para siempre. Barato por
+// turno (1,2s), pero nunca aprende: el usuario lo dijo bien, "si uno no
+// funciona que pruebe otro" tiene que incluir "y que se acuerde".
+//
+// El clasificador con enfriamientos ya estaba escrito y probado en
+// optimized-rotation.ts (sin_credito 6h, cuota_agotada 1h, modelo_caido 30s),
+// pero lo usaba solo el bot de ventas: el operador de Atlas no lo llamaba ni
+// una vez. Acá se reutiliza, no se reescribe.
+
+interface Castigo { hasta: number; motivo: string }
+
+/** Clave por MODELO, no por proveedor: que un modelo esté muerto no significa
+ *  que el proveedor lo esté (ya costó apartar DeepSeek entero por culpa de su
+ *  modelo `vision-exp`, ver optimized-rotation.ts). */
+const enPenitencia = new Map<string, Castigo>();
+
+const claveDe = (c: Candidato) => `${c.providerID}|${c.modelID}`;
+
+/** Registra que este candidato falló, con el enfriamiento que corresponda. */
+export function anotarFallo(
+  candidato: Candidato,
+  error: string,
+  clasificar: (e?: string) => { cooldownMs: number; inmediato: boolean },
+  ahora = Date.now(),
+): void {
+  const { cooldownMs, inmediato } = clasificar(error);
+  // Los no-terminales (un timeout suelto, un 500) no apartan a nadie: pueden
+  // ser un mal momento del proveedor y castigarlo por eso deja a Atlas con
+  // menos opciones de las que tiene.
+  if (!inmediato) return;
+  enPenitencia.set(claveDe(candidato), { hasta: ahora + cooldownMs, motivo: error.slice(0, 80) });
+}
+
+/** Saca los que están enfriándose, SIN dejar la cadena vacía. */
+export function filtrarEnfriados(cadena: Candidato[], ahora = Date.now()): Candidato[] {
+  const vivos = cadena.filter((c) => {
+    const p = enPenitencia.get(claveDe(c));
+    if (!p) return true;
+    if (p.hasta <= ahora) { enPenitencia.delete(claveDe(c)); return true; }
+    return false;
+  });
+  // Si TODOS están castigados, se intenta igual con la cadena completa: es
+  // preferible perder unos segundos reintentando a dejar al admin sin ninguna
+  // respuesta. El enfriamiento es una optimización, no un candado.
+  return vivos.length > 0 ? vivos : cadena;
+}
+
+/** Para diagnóstico y para los tests. */
+export function olvidarFallos(): void {
+  enPenitencia.clear();
+}

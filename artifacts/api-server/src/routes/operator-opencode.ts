@@ -223,6 +223,26 @@ async function proveedoresConectados(host: string, authHeader: string): Promise<
  */
 const catalogoPorProveedor = new Map<string, unknown>();
 
+/**
+ * Anota que un candidato fallo, con el enfriamiento que corresponda.
+ *
+ * Reutiliza `clasificarFallo` de optimized-rotation.ts, que ya distingue "sin
+ * credito" (6h) de "cuota agotada" (1h) de "modelo caido" (30s) -- y que hasta
+ * ahora solo usaba el bot de ventas: el operador de Atlas no lo llamaba nunca.
+ */
+async function anotarFalloDeCandidato(
+  model: { providerID: string; modelID: string },
+  error?: string,
+): Promise<void> {
+  try {
+    const { anotarFallo } = await import("../lib/cadena-modelos");
+    const { clasificarFallo } = await import("../lib/optimized-rotation");
+    anotarFallo(model, String(error || ""), clasificarFallo);
+  } catch {
+    // Recordar el fallo es una mejora, no parte del camino de la respuesta.
+  }
+}
+
 // Lista de candidatos a intentar EN ORDEN para este turno: los pagos que
 // estén realmente conectados ahora mismo (en el orden de preferencia de
 // CANDIDATOS_PAGOS), y siempre el respaldo gratis al final.
@@ -281,14 +301,17 @@ async function pickOpencodeModelChain(host: string, authHeader: string): Promise
   //
   // El modelo sale del catálogo que OpenCode ya devuelve, no de un id
   // hardcodeado: un id inventado es un candidato más que quemar.
-  const { armarCadena } = await import("../lib/cadena-modelos");
-  return armarCadena({
+  const { armarCadena, filtrarEnfriados } = await import("../lib/cadena-modelos");
+  // Se saca lo que ya se sabe que no anda: sin esto Atlas reintentaba deepseek
+  // sin saldo en CADA mensaje, para siempre. Si TODOS estan enfriandose se
+  // intentan igual -- es una optimizacion, no un candado.
+  return filtrarEnfriados(armarCadena({
     curados: CANDIDATOS_PAGOS,
     conectados,
     tenemosClave: hayClavePropia,
     modelosPorProveedor: catalogoPorProveedor,
     respaldo: MODELO_RESPALDO,
-  });
+  }));
 }
 
 async function registerMcpBridge(host: string, authHeader: string, mcpUrl: string): Promise<void> {
@@ -911,12 +934,14 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
             marcar(`modelo:${model.modelID}${ultimo.error ? `(descartado: ${resumirMotivo(ultimo.error)})` : ""}`, tModelo);
             if (!ultimo.error) break; // Respuesta real -- no seguir rotando.
             logger.warn({ tenantId, model, error: ultimo.error }, "[AtlasOpenCode] Candidato falló, rotando al siguiente");
+            void anotarFalloDeCandidato(model, ultimo.error);
           } catch (err: any) {
             // El intento que FALLA es el que más importa medir: es el que se
             // comió el tiempo sin devolver nada.
             marcar(`modelo:${model.modelID}(falló: ${resumirMotivo(err?.message || "error desconocido")})`, tModelo);
             ultimo = { text: "", error: err?.message || "error desconocido" };
             logger.warn({ tenantId, model, error: ultimo.error }, "[AtlasOpenCode] Candidato falló (excepción), rotando al siguiente");
+            void anotarFalloDeCandidato(model, ultimo.error);
           }
         }
         return ultimo;

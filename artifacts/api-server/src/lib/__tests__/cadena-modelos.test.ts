@@ -127,3 +127,58 @@ describe("la cadena del turno", () => {
     expect(c.some((x) => x.providerID === "mistral")).toBe(true);
   });
 });
+
+import { anotarFallo, filtrarEnfriados, olvidarFallos } from "../cadena-modelos";
+
+/** Réplica mínima de clasificarFallo (optimized-rotation.ts) para no acoplar
+ *  el test a ese módulo: lo que se prueba acá es la MEMORIA, no el clasificador. */
+const clasificar = (e?: string) =>
+  /402|sin saldo|insufficient/i.test(String(e))
+    ? { cooldownMs: 6 * 3600_000, inmediato: true }
+    : /429|quota/i.test(String(e))
+      ? { cooldownMs: 3600_000, inmediato: true }
+      : { cooldownMs: 30_000, inmediato: false };
+
+describe("no reintentar lo que ya se sabe que no anda", () => {
+  const A = { providerID: "deepseek", modelID: "deepseek-chat" };
+  const B = { providerID: "groq", modelID: "openai/gpt-oss-120b" };
+
+  it("aparta al que se quedó sin saldo", () => {
+    olvidarFallos();
+    anotarFallo(A, "402 Insufficient Balance", clasificar);
+    expect(filtrarEnfriados([A, B]).map((c) => c.providerID)).toEqual(["groq"]);
+  });
+
+  /** Un timeout suelto puede ser un mal momento: castigarlo deja a Atlas con
+   *  menos opciones de las que tiene. */
+  it("NO aparta por un fallo pasajero", () => {
+    olvidarFallos();
+    anotarFallo(A, "timeout", clasificar);
+    expect(filtrarEnfriados([A, B])).toHaveLength(2);
+  });
+
+  it("lo vuelve a intentar cuando pasó el enfriamiento", () => {
+    olvidarFallos();
+    const t = Date.now();
+    anotarFallo(A, "402 Insufficient Balance", clasificar, t);
+    expect(filtrarEnfriados([A, B], t + 6 * 3600_000 + 1)).toHaveLength(2);
+  });
+
+  /** Es una optimización, no un candado: mejor perder segundos reintentando
+   *  que dejar al admin sin ninguna respuesta. */
+  it("si TODOS están castigados, los intenta igual", () => {
+    olvidarFallos();
+    anotarFallo(A, "402 sin saldo", clasificar);
+    anotarFallo(B, "429 quota", clasificar);
+    expect(filtrarEnfriados([A, B])).toHaveLength(2);
+  });
+
+  /** Un modelo muerto no significa proveedor muerto: ya costó apartar DeepSeek
+   *  entero por culpa de su modelo vision-exp. */
+  it("castiga el MODELO, no el proveedor entero", () => {
+    olvidarFallos();
+    const otroModelo = { providerID: "deepseek", modelID: "deepseek-v4-pro" };
+    anotarFallo(A, "402 sin saldo", clasificar);
+    expect(filtrarEnfriados([A, otroModelo])).toEqual([otroModelo]);
+  });
+});
