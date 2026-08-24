@@ -61,7 +61,21 @@ router.post("/copilot-token", requirePlatformOwner(), async (req, res, next) => 
 
     const sessionToken = await getCopilotSessionToken(githubToken);
     if (!sessionToken) {
-      return res.status(401).json({ error: "Token inválido. Verifica tu PAT e intenta de nuevo." });
+      // El mensaje decía "Verifica tu PAT", y un PAT es JUSTO lo que no sirve
+      // acá: el intercambio va contra api.github.com/copilot_internal/v2/token,
+      // el endpoint INTERNO de Copilot, que solo acepta un token OAuth emitido
+      // al cliente autorizado de Copilot (el de VS Code, client_id
+      // Iv1.b507a08c87ecfe98) y obtenido por el flujo de dispositivo.
+      //
+      // Un ghp_... clásico o uno de grano fino se rechazan siempre, hagas lo
+      // que hagas con sus permisos. El admin perdió tiempo probando tokens
+      // buenos contra una puerta que no los acepta (reportado 2026-08-24).
+      const pareceePat = /^gh[pousr]_/.test(String(githubToken).trim());
+      return res.status(401).json({
+        error: pareceePat
+          ? "Ese es un token personal (PAT) y Copilot no los acepta: su endpoint interno solo admite el token que entrega la autorización de GitHub. Usá el botón \"Autorización Inteligente\" de arriba — te da un código, lo pegás en github.com/login/device y listo."
+          : "GitHub rechazó ese token para Copilot. La forma que funciona es el botón \"Autorización Inteligente\" de arriba, que hace la autorización por código.",
+      });
     }
 
     // Guardar en DB
