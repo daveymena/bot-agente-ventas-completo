@@ -156,3 +156,52 @@ Antes de eso, las fases 0-4 y 8 del plan de SalesBot V2 (ver
 
 Todo lo construido son medios. La verificación pendiente sigue siendo la misma:
 una conversación real que llegue al cierre y cobre.
+
+---
+
+## 8. Pista abierta: `oc-groq` podría estar apuntando a un modelo que ya no existe
+
+Encontrado al final de la sesión, **sin terminar de verificar**.
+
+Hay un pool de tres OpenCode standalone para INVESTIGACIÓN (websearch), aparte
+de la cadena principal de Atlas — `EXTERNAL_RESEARCH_AGENTS` en
+`app-operator.ts:120`:
+
+| Instancia | Proveedor | Modelo configurado |
+|---|---|---|
+| `oc-zen` | opencode | `nemotron-3-ultra-free` |
+| `oc-groq` | groq | **`llama-3.3-70b-versatile`** |
+| `oc-router` | openrouter | `google/gemma-4-26b-a4b-it:free` |
+
+**El problema:** `llama-3.3-70b-versatile` NO aparece entre los 13 modelos que
+Groq ofrece hoy, según `/api/ai/models/groq`:
+
+```
+allam-2-7b · canopylabs/orpheus-* · groq/compound · groq/compound-mini
+meta-llama/llama-prompt-guard-2-* · openai/gpt-oss-120b · openai/gpt-oss-20b
+openai/gpt-oss-safeguard-20b · qwen/qwen3.6-27b · whisper-large-v3*
+```
+
+Groq lo dio de baja en algún momento y la configuración quedó vieja.
+
+⚠️ **Es una sospecha fuerte, no un hecho comprobado.** Ese catálogo sale de la
+config de proveedores de la app (models.dev), que puede diferir de lo que la
+API de Groq acepta de verdad. Lo que SÍ está verificado con llamada real es que
+`openai/gpt-oss-120b` (0,8 s) y `openai/gpt-oss-20b` (0,3 s) funcionan.
+
+**Cómo cerrarlo en la sesión siguiente** — una sola llamada:
+
+```js
+await fetch('/api/ai/test', { method:'POST',
+  headers:{'Content-Type':'application/json'},
+  body: JSON.stringify({ proveedor:'groq', model:'llama-3.3-70b-versatile' }) })
+```
+
+Si falla con "model not found", hay que cambiar ese `modelID` por
+`openai/gpt-oss-120b` en `app-operator.ts:121`. Importa porque estas instancias
+son las que hacen la investigación REAL con websearch — y la investigación
+inventada ya fue el peor problema encontrado en este proyecto (ver el comentario
+del "desmentido automático" en `operator-opencode.ts`).
+
+Los otros dos del pool tampoco se verificaron: `nemotron-3-ultra-free` y
+`gemma-4-26b-a4b-it:free`. Vale probar los tres de una.
