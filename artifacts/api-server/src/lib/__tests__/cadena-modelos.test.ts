@@ -66,12 +66,37 @@ describe("elegir un modelo del catálogo, sin inventar ids", () => {
 
 describe("la cadena del turno", () => {
   /**
-   * El caso reportado: GitHub no estaba en la lista curada, así que por más
-   * que su clave estuviera cargada Atlas NUNCA lo intentaba.
+   * El caso reportado: había proveedores con la clave cargada que no estaban
+   * en la lista curada, así que Atlas NUNCA los intentaba.
    */
   it("incluye un proveedor del que tenemos clave aunque no esté en la lista curada", () => {
+    const c = armar({ claves: ["groq"], catalogo: { groq: [{ id: "gpt-oss-20b" }] } });
+    expect(c.some((x) => x.providerID === "groq" && x.modelID === "gpt-oss-20b")).toBe(true);
+  });
+
+  /**
+   * Copilot es la cuenta de PAGO del admin y la de mejor calidad del resto. La
+   * cadena del bot de ventas ya lo tenía segundo; la de Atlas no lo tenía.
+   * El id real depende de cómo lo nombre OpenCode, por eso se aceptan varias.
+   */
+  it.each(["github-copilot", "github_copilot", "copilot"])(
+    'intenta Copilot cuando OpenCode lo expone como "%s"',
+    (id) => {
+      const c = armar({ claves: [id], catalogo: { [id]: [{ id: "gpt-4o" }] } });
+      expect(c.some((x) => x.providerID === id)).toBe(true);
+    },
+  );
+
+  /**
+   * GitHub Models NO: GitHub lo está retirando (404 en el endpoint viejo, 410
+   * "retirement brownout" en el nuevo, verificado el 2026-08-19; y el
+   * 2026-08-24 `github/gpt-4o-mini` dio error de conexión). Intentarlo es
+   * quemar un candidato en cada turno para nada. Copilot, que SÍ funciona, es
+   * otro proveedor distinto.
+   */
+  it("NO intenta GitHub Models aunque la clave esté cargada: está retirado", () => {
     const c = armar({ claves: ["github"], catalogo: { github: [{ id: "gpt-4o-mini" }] } });
-    expect(c.some((x) => x.providerID === "github" && x.modelID === "gpt-4o-mini")).toBe(true);
+    expect(c.some((x) => x.providerID === "github")).toBe(false);
   });
 
   /**

@@ -34,7 +34,22 @@ export interface Candidato {
  *
  * Los que ya están en la lista curada no se repiten.
  */
-export const PROVEEDORES_RAPIDOS = ["groq", "cerebras", "github", "nvidia_nim", "opencode_go"];
+export const PROVEEDORES_RAPIDOS = [
+  // Copilot primero: es la cuenta de PAGO del admin y la de mejor calidad del
+  // resto. La cadena del bot de ventas ya lo tiene segundo (agent.ts:1625);
+  // la de Atlas no lo tenia. Se listan varias grafias porque el id depende de
+  // como lo nombre OpenCode, y no se puede verificar desde aca: el que no
+  // exista simplemente no aparece en el catalogo y se ignora.
+  "github-copilot", "github_copilot", "copilot",
+  "groq", "cerebras", "nvidia_nim", "opencode_go",
+  // "github" (GitHub Models) queda FUERA a proposito: GitHub lo esta
+  // retirando. Verificado el 2026-08-19 contra los dos endpoints -- el viejo
+  // devuelve 404 y el nuevo 410 "retirement brownout" -- y confirmado el
+  // 2026-08-24 probando `github/gpt-4o-mini`, que da error de conexion. No es
+  // configuracion del admin: el proveedor esta apagado. Lo que SI sirve es
+  // Copilot, que es otra cosa y usa el token de la conexion, no GITHUB_TOKEN
+  // de "Modelos de pago" (ver ai-keys.ts:180).
+];
 
 /**
  * Modelos que NO sirven para Atlas aunque el catálogo los ofrezca.
