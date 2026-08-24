@@ -169,11 +169,38 @@ async function proveedoresConectados(host: string, authHeader: string): Promise<
     });
     if (!res.ok) return new Set();
     const data = (await res.json()) as any;
+    // El catálogo de modelos venía en la MISMA respuesta y se tiraba. Por eso
+    // GitHub, Groq y compañía nunca entraban a la cadena aunque su clave
+    // estuviera cargada: no había de dónde sacar un modelo suyo sin inventarle
+    // el id. Se guarda acá y lo usa `pickOpencodeModelChain`.
+    catalogoPorProveedor.clear();
+    const provs = data?.providers ?? data?.all ?? [];
+    if (Array.isArray(provs)) {
+      for (const p of provs) {
+        const id = String(p?.id ?? p?.providerID ?? "");
+        if (id && p?.models) catalogoPorProveedor.set(id, p.models);
+      }
+    } else if (provs && typeof provs === "object") {
+      for (const [id, p] of Object.entries(provs as Record<string, any>)) {
+        if (p?.models) catalogoPorProveedor.set(id, p.models);
+      }
+    }
     return new Set<string>(data?.connected || []);
   } catch {
     return new Set();
   }
 }
+
+/**
+ * Catálogo de modelos por proveedor, como lo devolvió OpenCode en la última
+ * consulta a `/provider`. Vive fuera de la función porque se llena ahí y se
+ * lee al armar la cadena, en el mismo turno.
+ *
+ * Si OpenCode cambia el shape de esa respuesta, esto queda vacío y la cadena
+ * vuelve sola al comportamiento anterior (solo los curados + respaldo): se
+ * pierde el descubrimiento, no el servicio.
+ */
+const catalogoPorProveedor = new Map<string, unknown>();
 
 // Lista de candidatos a intentar EN ORDEN para este turno: los pagos que
 // estén realmente conectados ahora mismo (en el orden de preferencia de
@@ -223,10 +250,24 @@ async function pickOpencodeModelChain(host: string, authHeader: string): Promise
   // tengamos nosotros. Si la llamada real falla igual, la rotación la absorbe:
   // ese es justamente su trabajo, y un intento fallido cuesta mucho menos que
   // no intentar el único modelo de pago disponible.
-  const pagosDisponibles = CANDIDATOS_PAGOS.filter(
-    (c) => conectados.has(c.providerID) || hayClavePropia(c.providerID),
-  );
-  return [...pagosDisponibles, MODELO_RESPALDO];
+  //
+  // Y además de los curados se DESCUBREN los proveedores rápidos que el admin
+  // tenga configurados y que no estén en la lista (GitHub, Groq, Cerebras...).
+  // Reportado el 2026-08-24: el turno se cortó a los 135s y el admin objetó
+  // "tenemos github, tenemos opencode zen, tenemos nvidia, imposible que
+  // ninguno sirva". Tenía razón: la lista era fija y GitHub no estaba, así que
+  // con la clave cargada Atlas igual no lo intentaba nunca.
+  //
+  // El modelo sale del catálogo que OpenCode ya devuelve, no de un id
+  // hardcodeado: un id inventado es un candidato más que quemar.
+  const { armarCadena } = await import("../lib/cadena-modelos");
+  return armarCadena({
+    curados: CANDIDATOS_PAGOS,
+    conectados,
+    tenemosClave: hayClavePropia,
+    modelosPorProveedor: catalogoPorProveedor,
+    respaldo: MODELO_RESPALDO,
+  });
 }
 
 async function registerMcpBridge(host: string, authHeader: string, mcpUrl: string): Promise<void> {
