@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { evaluarCobrabilidad, enlaceDePagoValido, resumenDeCobrabilidad } from "../cobrabilidad";
+import { evaluarCobrabilidad, enlaceDePagoValido, resumenDeCobrabilidad, evaluarEntregabilidad, linkAlcanzablePorElCliente } from "../cobrabilidad";
 import type { CredencialesDePago } from "../tenant-payment-credentials";
 
 const SIN_NADA: CredencialesDePago = {
@@ -90,5 +90,60 @@ describe("resumen para el dueño antes de pautar", () => {
     expect(r.cobrables).toBe(1);
     expect(r.noCobrables).toHaveLength(1);
     expect(r.noCobrables[0]!.name).toBe("Pack sin precio");
+  });
+});
+
+/**
+ * Cobrar y entregar fallan por separado. Un curso con MercadoPago configurado
+ * pero sin link de entrega se cobra perfecto y deja al cliente pagando por
+ * nada -- la peor forma de perderlo, porque ya dio la plata.
+ */
+describe("poder ENTREGAR es otra cosa que poder cobrar", () => {
+  it("un digital sin link de entrega no es entregable", () => {
+    const r = evaluarEntregabilidad({ kind: "digital", deliveryLink: null });
+    expect(r.entregable).toBe(false);
+    expect(r.problemas.join(" ")).toContain("paga y no recibe nada");
+  });
+
+  it("un digital con link válido sí", () => {
+    expect(evaluarEntregabilidad({ kind: "digital", deliveryLink: "https://1024terabox.com/s/abc" }).entregable).toBe(true);
+  });
+
+  it("un link mal escrito no cuenta como entrega", () => {
+    expect(evaluarEntregabilidad({ kind: "digital", deliveryLink: "terabox.com/s/abc" }).entregable).toBe(false);
+  });
+
+  it("un físico no necesita enlace: lo lleva la transportadora", () => {
+    expect(evaluarEntregabilidad({ kind: "physical", deliveryLink: null }).entregable).toBe(true);
+  });
+});
+
+describe("¿el cliente podría abrir el enlace?", () => {
+  const resp = (status: number) => async () => ({ status } as Response);
+
+  it("200 sin sesión: puede abrirlo", async () => {
+    const r = await linkAlcanzablePorElCliente("https://x.test/s/1", resp(200) as any);
+    expect(r.ok).toBe(true);
+  });
+
+  it.each([401, 403])("%s: le va a pedir sesión", async (s) => {
+    const r = await linkAlcanzablePorElCliente("https://x.test/s/1", resp(s) as any);
+    expect(r.ok).toBe(false);
+    expect(r.detalle).toContain("sesión");
+  });
+
+  it.each([404, 410])("%s: el enlace ya no existe", async (s) => {
+    expect((await linkAlcanzablePorElCliente("https://x.test/s/1", resp(s) as any)).detalle).toContain("ya no existe");
+  });
+
+  it("si la red falla lo dice, no lo da por bueno", async () => {
+    const cae = async () => { throw new Error("ENOTFOUND"); };
+    const r = await linkAlcanzablePorElCliente("https://x.test/s/1", cae as any);
+    expect(r.ok).toBe(false);
+    expect(r.detalle).toContain("ENOTFOUND");
+  });
+
+  it("una dirección mal escrita ni se intenta", async () => {
+    expect((await linkAlcanzablePorElCliente("terabox.com/s/1")).ok).toBe(false);
   });
 });

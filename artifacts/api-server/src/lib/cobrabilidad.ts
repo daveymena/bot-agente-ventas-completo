@@ -97,6 +97,65 @@ export function evaluarCobrabilidad(
   return { cobrable, vias, problemas };
 }
 
+/**
+ * ¿Este producto se puede ENTREGAR?
+ *
+ * Cobrar y entregar son dos cosas distintas y fallan por separado. Un curso
+ * con MercadoPago configurado pero sin link de entrega se cobra perfecto y
+ * deja al cliente pagando por nada -- que es la peor forma de perderlo, porque
+ * ya dio la plata.
+ *
+ * Solo aplica a lo digital: un producto físico se entrega por transportadora
+ * y no necesita ningún enlace.
+ */
+export function evaluarEntregabilidad(
+  producto: { kind?: string | null; deliveryLink?: string | null },
+): { entregable: boolean; problemas: string[] } {
+  const esFisico = String(producto.kind || "digital") === "physical";
+  if (esFisico) return { entregable: true, problemas: [] };
+
+  const link = String(producto.deliveryLink || "").trim();
+  if (!link) {
+    return { entregable: false, problemas: ["Es digital y no tiene link de entrega: el cliente paga y no recibe nada."] };
+  }
+  if (!enlaceDePagoValido(link)) {
+    return { entregable: false, problemas: ["El link de entrega no es una dirección web válida."] };
+  }
+  return { entregable: true, problemas: [] };
+}
+
+/**
+ * ¿Un cliente podría abrir este enlace?
+ *
+ * Se pide SIN cookies ni sesión, que es como lo va a abrir él. Comprobado con
+ * Terabox el 2026-08-23: un share creado sin clave y sin vencimiento devuelve
+ * 200 y muestra el contenido sin pedir login.
+ *
+ * Es una comprobación de alcance, no de contenido: que responda 200 no dice
+ * que adentro esté el curso correcto. Eso lo tiene que mirar una persona.
+ */
+export async function linkAlcanzablePorElCliente(
+  url: string,
+  fetchImpl: typeof fetch = fetch,
+): Promise<{ ok: boolean; status: number | null; detalle: string }> {
+  if (!enlaceDePagoValido(url)) return { ok: false, status: null, detalle: "No es una dirección web válida." };
+  try {
+    const r = await fetchImpl(url, { redirect: "follow", headers: { "User-Agent": "Mozilla/5.0" } });
+    if (r.status >= 200 && r.status < 300) {
+      return { ok: true, status: r.status, detalle: "Responde y no pide sesión." };
+    }
+    if (r.status === 401 || r.status === 403) {
+      return { ok: false, status: r.status, detalle: "Pide permiso o sesión: el cliente no va a poder abrirlo." };
+    }
+    if (r.status === 404 || r.status === 410) {
+      return { ok: false, status: r.status, detalle: "El enlace ya no existe." };
+    }
+    return { ok: false, status: r.status, detalle: `Respondió ${r.status}.` };
+  } catch (e: any) {
+    return { ok: false, status: null, detalle: `No se pudo abrir: ${e?.message || e}` };
+  }
+}
+
 /** Resumen corto para el dueño: qué NO podría cobrar hoy si lo pauta. */
 export function resumenDeCobrabilidad(
   evaluados: Array<{ producto: ProductoCobrable; resultado: Cobrabilidad }>,

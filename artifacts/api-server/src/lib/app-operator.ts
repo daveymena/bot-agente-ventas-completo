@@ -3102,6 +3102,27 @@ export const TOOLS: ToolDef[] = [
     },
   },
   {
+    name: "verificar_link_entrega",
+    description:
+      "Comprueba si un link de entrega lo podría abrir el CLIENTE: lo pide sin sesión ni cookies, que es como lo va a abrir él. " +
+      "Usalo SIEMPRE antes de guardar un link de entrega en un producto, y cuando el admin pregunte si un curso 'se puede entregar'. " +
+      "Solo verifica que responda y no pida login: que abra NO garantiza que adentro esté el curso correcto, eso lo tiene que mirar una persona.",
+    args: '{ "url": string (req, el link de entrega a probar) }',
+    run: async (args, _ctx) => {
+      const url = String(args.url || "").trim();
+      if (!url) return { ok: false, summary: "Falta 'url'." };
+      const { linkAlcanzablePorElCliente } = await import("./cobrabilidad");
+      const r = await linkAlcanzablePorElCliente(url);
+      return {
+        ok: r.ok,
+        summary: r.ok
+          ? `El cliente SÍ puede abrirlo (${r.status}). ${r.detalle}`
+          : `El cliente NO va a poder abrirlo. ${r.detalle}`,
+        data: r,
+      };
+    },
+  },
+  {
     name: "terabox_create_share_link",
     description: "Genera un link de compartir de Terabox para una o varias carpetas/archivos (por su RUTA, ej. '/INGLES_TOTAL_DE_PRINCIPIANTE_A_AVANZADO_115HORAS'). Ese link es el que se le entrega al cliente para descargar el curso. Se usa después de terabox_list_folder. El 'shorturl' resultante se pega como 'link de entrega' del producto.",
     args: '{ "paths": string[] (req, rutas a compartir), "password"?: string (opcional, 4 caracteres), "days"?: number (días de validez; 0 = sin vencimiento) }',
@@ -4518,10 +4539,26 @@ export const READ_ONLY_TOOLS = new Set([
   "fb_list_adsets",
   // Dropi de solo lectura: consultar el catálogo del proveedor no crea nada.
   "dropi_status", "dropi_search_products",
-  // Terabox: listar carpetas es lectura; generar un link de compartir es
-  // benigno (solo devuelve una URL, no cambia datos del negocio ni gasta).
-  // Así Atlas puede listar y generar el link de entrega sin pedir confirmación.
-  "terabox_list_folder", "terabox_create_share_link",
+  // Terabox: listar carpetas es lectura pura, no cambia nada.
+  //
+  // terabox_create_share_link NO va acá, aunque estuvo un rato. Se justificaba
+  // con "solo devuelve una URL, no cambia datos del negocio ni gasta", y es
+  // falso: se comprobó ejecutándolo el 2026-08-23. shareSet() publica la
+  // carpeta de verdad -- el link resultante abre SIN login y SIN clave, con
+  // `days = 0` no vence nunca, y del otro lado hay un curso que el negocio
+  // vende. Cualquiera con esa URL se lo descarga.
+  //
+  // Es la misma categoría que fb_page_publish ("público e irreversible desde
+  // la app"), que sí pide confirmación. Y peor en un aspecto: acá se regala el
+  // producto. Además `paths` es libre, así que una llamada sobre "/" publicaría
+  // el catálogo entero de una.
+  //
+  // Queda fuera del set → solo se alcanza por propose_action, con el dueño
+  // aprobando qué carpeta se publica. Es una confirmación por curso, una vez.
+  "terabox_list_folder",
+  // Verificar un link de entrega es un GET sin cookies: no cambia nada y hay
+  // que poder correrlo antes de guardar cada link, sin pedir permiso.
+  "verificar_link_entrega",
 ]);
 export const DESTRUCTIVE_TOOLS = new Set([
   "delete_product",

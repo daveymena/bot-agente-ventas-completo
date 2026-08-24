@@ -54,7 +54,7 @@ router.get("/cobrabilidad", async (req: TenantRequest, res, next) => {
     const tenantId = req.tenant?.id;
     if (!tenantId) return sendError(res, ERROR_CODES.UNAUTHORIZED);
 
-    const { evaluarCobrabilidad, resumenDeCobrabilidad } = await import("../lib/cobrabilidad");
+    const { evaluarCobrabilidad, resumenDeCobrabilidad, evaluarEntregabilidad } = await import("../lib/cobrabilidad");
     const { credencialesDe } = await import("../lib/tenant-payment-credentials");
     const cred = credencialesDe(req.tenant as any);
 
@@ -75,13 +75,23 @@ router.get("/cobrabilidad", async (req: TenantRequest, res, next) => {
       ...resumenDeCobrabilidad(evaluados),
       // Con qué se está cobrando, para que se note si son las del servidor.
       credencialesPropias: cred.propias,
-      detalle: evaluados.map((e) => ({
-        id: e.producto.id,
-        name: e.producto.name,
-        cobrable: e.resultado.cobrable,
-        vias: e.resultado.vias,
-        problemas: e.resultado.problemas,
-      })),
+      // Cobrar y entregar fallan por separado: un curso con pasarela pero sin
+      // link de entrega se cobra perfecto y deja al cliente pagando por nada.
+      noEntregables: rows
+        .map((p: any) => ({ p, e: evaluarEntregabilidad({ kind: p.kind, deliveryLink: p.deliveryLink }) }))
+        .filter((x: any) => !x.e.entregable)
+        .map((x: any) => ({ id: x.p.id, name: x.p.name, problemas: x.e.problemas })),
+      detalle: evaluados.map((e) => {
+        const p: any = rows.find((r: any) => r.id === e.producto.id);
+        return {
+          id: e.producto.id,
+          name: e.producto.name,
+          cobrable: e.resultado.cobrable,
+          vias: e.resultado.vias,
+          problemas: e.resultado.problemas,
+          entregable: evaluarEntregabilidad({ kind: p?.kind, deliveryLink: p?.deliveryLink }).entregable,
+        };
+      }),
     });
   } catch (e) {
     return next(e);
