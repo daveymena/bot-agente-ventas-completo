@@ -343,3 +343,40 @@ No por tests ni por fases cerradas. Por esto, sobre las mismas conversaciones:
 **El número que todavía no se movió es el de tratos ganados.** Todo lo
 construido son medios. La verificación pendiente es una conversación real que
 llegue al cierre y cobre.
+
+---
+
+## 10. Proveedores de IA: qué token sirve y cuál no (medido 2026-08-24)
+
+Probado uno por uno con `POST /api/ai/test` contra la instalación real, que usa
+exactamente las claves cargadas en EasyPanel. **No es lectura de configuración:
+es una llamada real a cada proveedor.**
+
+| Proveedor / modelo | Resultado | Tiempo |
+|---|---|---|
+| `groq/openai/gpt-oss-20b` | ✅ **OK** | 0,3 s |
+| `groq/openai/gpt-oss-120b` | ✅ **OK** | 0,8 s |
+| `groq/compound-mini` | ✅ **OK** | 0,8 s |
+| `deepseek/deepseek-chat` | ❌ 402 sin saldo | 0,9 s |
+| `mistral/mistral-large-latest` | ❌ sin crédito (del trace) | — |
+| `opencode/claude-haiku-4-5` | ❌ 401 sin método de pago | 0,6 s |
+| `opencode/big-pickle` ← **RESPALDO** | ❌ 429 cuota agotada | 1,2 s |
+| `opencode_go/deepseek-v4-flash` | ❌ 403 solo alojado en China | 0,4 s |
+| `anthropic/claude-haiku-4-5` | ❌ **401 clave inválida** | 0,5 s |
+| `github/gpt-4o-mini` | ❌ error de conexión | 0,8 s |
+
+**Groq es lo único que responde.** Ya quedó en la cadena de Atlas con el id
+verificado (`openai/gpt-oss-120b`).
+
+Dos cosas que conviene arreglar en EasyPanel:
+
+1. **La clave de Anthropic es inválida** (401, no "sin saldo"). Está cargada
+   pero mal: hay que volver a pegarla. Sería el mejor modelo de la lista.
+2. **`big-pickle`, el respaldo, está sin cuota.** Es la red que existe para que
+   Atlas nunca quede mudo. Hoy Groq lo cubre, pero el respaldo debería tener
+   cupo propio.
+
+**Sin verificar todavía:** `nvidia_nim` y `mimo` (tienen clave cargada; la
+prueba se cortó por tiempo). `github` falló con `gpt-4o-mini`, pero puede ser
+el id del modelo y no el token — su catálogo vino vacío, así que hay que
+averiguar qué modelo expone antes de descartarlo.
