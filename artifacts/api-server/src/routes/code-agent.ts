@@ -3,6 +3,7 @@ import { createAIClient, getProviderConfig, getProviderConfigFromSettings, getOp
 import { db, agents, settings, products, productCategories, conversations, messages } from "@workspace/db";
 import { eq, and, desc } from "drizzle-orm";
 import { logger } from "../lib/logger";
+import { extraerJSON } from "../lib/respuesta-json";
 import { dbNow } from "../lib/date-utils";
 import type { TenantRequest } from "../lib/tenantManager";
 import { getCopilotSessionToken } from "../lib/copilot";
@@ -1622,10 +1623,18 @@ router.post("/operator", async (req: TenantRequest, res, next) => {
         return finish({ error: "Todos los proveedores de IA fallaron" }, 502);
       }
       let content = rawAI.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
+      // `extraerJSON` rescata el objeto aunque venga envuelto en palabras
+      // ("Claro, aquí tienes: {...}"). Se manda response_format json_object,
+      // pero el operador ROTA entre proveedores y no todos lo respetan: con
+      // uno que siempre antepone una frase, cada paso se gastaba pidiéndole
+      // reformatear y el anuncio no se publicaba nunca. Para el admin eso se
+      // ve como "a veces publica y a veces no" -- y es literal: depende de qué
+      // proveedor de la rotación contestó ese turno.
+      const rescatado = extraerJSON(content);
       let parsed: any;
-      try {
-        parsed = JSON.parse(content);
-      } catch {
+      if (rescatado) {
+        parsed = rescatado;
+      } else {
         // Un JSON roto no significa que el modelo no tenga nada útil que
         // decir -- antes se rendía al primer error. Se le devuelve el error
         // exacto y se le pide reformatear, con los pasos que queden.
@@ -1653,6 +1662,26 @@ router.post("/operator", async (req: TenantRequest, res, next) => {
       const invalidActions = rawActions.filter((a: any) => !isKnownTool(a?.tool));
       if (invalidActions.length > 0) {
         logger.warn({ invalidActions }, "[AppOperator] El modelo devolvió acciones con 'tool' inválido/faltante, descartadas");
+        // Si SOBREVIVIÓ alguna acción válida, antes se seguía de largo: se
+        // ejecutaba la parte que se entendió y la otra desaparecía sin que
+        // nadie se enterara. Ese es el "publicó a medias" -- por ejemplo
+        // guardó el borrador y nunca lo subió a Meta, con el admin creyendo
+        // que sí. Se le devuelve al modelo qué nombres no existen para que
+        // corrija en el paso siguiente, en vez de perder la mitad del pedido.
+        if (actions.length > 0 && step < MAX_STEPS - 1) {
+          const nombresMalos = invalidActions
+            .map((a: any) => String(a?.tool ?? "(sin nombre)"))
+            .join(", ");
+          messages.push({ role: "assistant", content });
+          messages.push({
+            role: "user",
+            content:
+              `Estas herramientas que nombraste no existen y se descartaron: ${nombresMalos}. ` +
+              `Volvé a proponer ESE paso usando los nombres exactos de la lista de herramientas. ` +
+              `Lo que ya era válido no hace falta repetirlo.`,
+          });
+          continue;
+        }
       }
 
       const reads = actions.filter((a: any) => isReadOnlyTool(a.tool));
