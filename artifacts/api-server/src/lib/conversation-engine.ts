@@ -1362,9 +1362,25 @@ export async function computeDecision(
   const preguntaComoPagar =
     (intent === "payment_intent" || intent === "confirmation") && !!memory.currentProductId;
 
+  // ── Preguntas de DETALLE sobre el producto en foco tampoco son búsqueda ──
+  //
+  // "¿qué trae?", "¿qué incluye?", "¿cómo lo recibo?", "¿tiene garantía?",
+  // "¿cuánto cuesta?" — todas preguntan por el producto QUE SE VIENE HABLANDO.
+  // Volver a correr el matcher en esas frases genéricas encuentra un producto
+  // al azar por palabras sueltas ("contenido", "producto") y le cambia el
+  // producto al cliente en plena conversación.
+  //
+  // Pasó en vivo el 2026-08-23 (conversación 1): Duvier venía viendo el curso
+  // de DISEÑO GRÁFICO y preguntó "¿qué trae el producto? que contenido?" —
+  // el bot respondió con el curso de EXCEL. El cliente dijo "no sé de qué me
+  // hablas". Mismo patrón que el bug de "¿cómo pago?": una pregunta sobre el
+  // producto actual no es una búsqueda de producto nuevo.
+  const preguntaDeDetalleSobreFoco =
+    (intent === "details_query" || intent === "objection") && !!memory.currentProductId;
+
   if (!shouldGreet && intent !== "leaving") {
     // Buscar producto mencionado en el mensaje actual
-    const match = preguntaComoPagar
+    const match = (preguntaComoPagar || preguntaDeDetalleSobreFoco)
       ? null
       : await findBestProductMatch(incomingText, productList, categoryMap);
 
