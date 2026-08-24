@@ -1967,14 +1967,21 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
       // producto que pidió), se reemplaza la respuesta entera por una honesta
       // que diga que no lo maneja. El refuerzo es en la SALIDA, igual que
       // quitarInventos: pedírselo al prompt ya se intentó y no alcanzó.
-      if (decision.productSearchFailed && !raw.includes("[CARD:")) {
-        const inventaProducto = /(te ense[ñn]a|incluye|es otro nivel|te paso la ficha|te ense[ñn]o|lo tenemos|s[ií] (lo )?(tenemos|manejamos|tenés)|tenés (un|el|el curso))/i.test(raw)
-          || /🍝|🍕|🥘|🌮/i.test(raw); // emojis de comida = invento típico
-        if (inventaProducto) {
-          const similares = productList.slice(0, 5).map(p => p.name).join(", ");
-          raw = `Hmm, creo que no tengo ese producto en el catálogo 😅. Lo que sí manejo es: ${similares}. ¿Te interesa alguno de esos, o me contás un poco más qué buscás exactamente?`;
-          console.log(`🛡️ [PRODUCTO-INVENTADO] La IA fabricó un producto inexistente. Se reemplaza por respuesta honesta - ${ts()}`);
-        }
+      //
+      // Ampliado (2026-08-23): "pastas" pasó el matcher como falso positivo
+      // (score >= 50) así que productSearchFailed quedó en false y la IA
+      // respondió "Ah, ¿te interesa el de pastas? 🍝 es un producto físico" —
+      // otra mentira. Los emojis de comida (🍝🍕🌮) SON la señal: ningún
+      // producto del catálogo tiene comida, y la IA los usa justo cuando
+      // inventa. Si el mensaje trae esos emojis y NO hay card de producto
+      // real, es invento seguro.
+      const tieneCardValida = raw.includes("[CARD:");
+      const emojiComidaInvento = /🍝|🍕|🥘|🌮|🍜|🍔|🍰/.test(raw);
+      const inventoPorFrase = /(te ense[ñn]a|es otro nivel|es un producto f[ií]sico|lo maneja otra persona|te paso con mi compa[ñn]ero)/i.test(raw);
+      if (!tieneCardValida && (emojiComidaInvento || inventoPorFrase || (decision.productSearchFailed && /(te ense[ñn]a|incluye|te paso la ficha|lo tenemos|s[ií] (lo )?(tenemos|manejamos|tenés)|tenés (un|el|el curso))/i.test(raw)))) {
+        const similares = productList.slice(0, 5).map(p => p.name).join(", ");
+        raw = `Hmm, creo que no tengo ese producto en el catálogo 😅. Lo que sí manejo es: ${similares}. ¿Te interesa alguno de esos, o me contás un poco más qué buscás exactamente?`;
+        console.log(`🛡️ [PRODUCTO-INVENTADO] La IA fabricó un producto inexistente. Se reemplaza por respuesta honesta - ${ts()}`);
       }
 
       // 2a. Payment/Confirmation: FORZAR card con métodos de pago (requisito crítico)
