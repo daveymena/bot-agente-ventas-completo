@@ -1913,6 +1913,35 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
         raw = conMarcadorSano;
       }
 
+      // El modelo a veces escribe "[NOMBRE DEL PRODUCTO]" a secas, sin el
+      // prefijo "CARD:". El parser de abajo solo matchea "[CARD: ...]", así
+      // que ese marcador quedaba CRUDO en el mensaje y al cliente le llegaba
+      // "[PACK CONTABILIDAD]" como texto suelto, sin ficha.
+      //
+      // Pasó en vivo (2026-08-23): el cliente pidió el de Excel, el bot
+      // respondió "Te paso la info del de Excel 👇\n\n[PACK CONTABILIDAD]" —
+      // el nombre crudo en vez de la tarjeta. Se normaliza si el texto entre
+      // corchetes coincide INEQUÍVOCAMENTE (una sola coincidencia) con un
+      // producto del catálogo; si es ambiguo, se deja (el parser lo descartará
+      // o usará productToShow).
+      const marcaNombreSueltos = raw.match(/\[([^\][]+)\]/g) ?? [];
+      for (const m of marcaNombreSueltos) {
+        if (/^\[\s*CARD:/i.test(m)) continue; // ya es una card válida
+        const escrito = m.replace(/[\[\]"'*_]/g, "").toLowerCase().trim();
+        if (!escrito || escrito.length < 4) continue;
+        const norm = (t: string) => String(t || "").toLowerCase().replace(/["'*_]/g, "").trim();
+        const candidatos = productList.filter((p: any) => {
+          const n = norm(p.name);
+          if (n === escrito) return true;
+          if (escrito.length < 8) return false;
+          return n.includes(escrito) || escrito.includes(n);
+        });
+        if (candidatos.length === 1) {
+          raw = raw.replace(m, `[CARD: ${candidatos[0].id}]`);
+          console.log(`🔧 [CARD] Nombre suelto "[${escrito}]" → normalizado a [CARD: ${candidatos[0].id}] (${candidatos[0].name}) - ${ts()}`);
+        }
+      }
+
       const { limpio, quitadas } = quitarInventos(raw);
       if (quitadas.length > 0) {
         quitadas.forEach((q) =>
