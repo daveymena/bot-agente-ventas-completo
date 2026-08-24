@@ -156,6 +156,27 @@ const MODELO_RESPALDO = { providerID: "opencode", modelID: "big-pickle" };
 const CANDIDATOS_PAGOS: { providerID: string; modelID: string }[] = [
   { providerID: "deepseek", modelID: "deepseek-chat" },
   { providerID: "mistral", modelID: "mistral-large-latest" },
+  // Groq, MEDIDO en vivo el 2026-08-24 contra la instalación real, no elegido
+  // por preferencia. El admin objetó "tenemos github, zen, nvidia, imposible
+  // que ninguno sirva" y tenía razón: probando uno por uno con /api/ai/test,
+  // TODO lo demás estaba caído y Groq era lo único que contestaba.
+  //
+  //   opencode/claude-haiku-4-5      401 sin método de pago     0.6s
+  //   opencode/big-pickle (respaldo) 429 cuota agotada          1.2s
+  //   opencode_go/deepseek-v4-flash  403 solo alojado en China  0.4s
+  //   deepseek/deepseek-chat         402 sin saldo              0.9s
+  //   groq/openai/gpt-oss-120b       OK                         0.8s
+  //   groq/openai/gpt-oss-20b        OK                         0.3s
+  //
+  // Va acá, después de los dos de pago (que fallan en ~1s cada uno cuando no
+  // hay saldo, costo despreciable) y ANTES de los gratis de OpenRouter, que
+  // son los que se comen 55s cada uno.
+  //
+  // ⚠️ La medición fue contra el proveedor a través de ESTA app. Atlas habla
+  // con el contenedor de OpenCode, que resuelve los modelos por su cuenta: si
+  // allá el id no existiera, este candidato falla rápido y la rotación sigue
+  // -- mucho más barato que los 55s de un gratis que sí existe pero no llega.
+  { providerID: "groq", modelID: "openai/gpt-oss-120b" },
   { providerID: "openrouter", modelID: "nvidia/nemotron-3-nano-30b-a3b:free" },
   { providerID: "openrouter", modelID: "poolside/laguna-xs-2.1:free" },
   { providerID: "openrouter", modelID: "nvidia/nemotron-3-ultra-550b-a55b:free" },
