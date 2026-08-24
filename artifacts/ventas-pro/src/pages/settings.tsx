@@ -44,7 +44,10 @@ export default function Settings() {
     autoReplyEnabled: false,
     offHoursMessage: "",
     escalationKeywords: [] as string[],
-    aiProvider: "github" as "github" | "github_copilot_internal" | "ollama_local" | "openai_default" | "nvidia" | "g4f" | "opencode",
+    // "github" sigue en el tipo porque hay negocios guardados con ese valor y
+    // hay que poder mostrarlos, pero ya no es el valor inicial: GitHub retiró
+    // GitHub Models y arrancar apuntando ahí deja al negocio sin IA.
+    aiProvider: "github_copilot_internal" as "github" | "github_copilot_internal" | "ollama_local" | "openai_default" | "nvidia" | "g4f" | "opencode",
     githubToken: "",
     githubModel: "gpt-4o-mini",
     copilotSessionToken: "",
@@ -56,6 +59,9 @@ export default function Settings() {
   });
 
   const [keywordInput, setKeywordInput] = useState("");
+  // Estado del botón "Probar" del modelo: evita dobles clics mientras la
+  // llamada real al proveedor está en curso.
+  const [probandoModelo, setProbandoModelo] = useState(false);
 
   const [deviceFlow, setDeviceFlow] = useState({
     active: false,
@@ -77,12 +83,26 @@ export default function Settings() {
             body: JSON.stringify({ device_code: deviceFlow.deviceCode })
           });
           const data = await res.json();
-          if (data.success && data.token) {
-            setFormData(prev => ({ ...prev, githubToken: data.token }));
+          // El backend, al autorizar, responde { status: "authorized",
+          // success: true } y NO devuelve `token`: ya lo guardó él en la base
+          // y lo puso en el entorno. Acá se exigía `data.token`, así que la
+          // rama de éxito NO entraba nunca... y la de error tampoco, porque
+          // exige `!data.success`. Ninguna de las dos corría: el polling
+          // giraba para siempre y el admin veía "esperando autorización"
+          // cuando en el servidor ya estaba todo hecho.
+          //
+          // Reportado en vivo: "lo autentico y se queda ahí sin confirmar si
+          // fue autenticado, cuando el proceso con Copilot ya se realizó".
+          if (data.success || data.status === "authorized") {
             setDeviceFlow(prev => ({ ...prev, active: false, status: "success" }));
+            // El token ya está guardado del lado del servidor: se relee la
+            // configuración para mostrarlo (enmascarado) en vez de meterlo a
+            // mano en el formulario, que además obligaba a darle "Guardar"
+            // para no perderlo.
+            queryClient.invalidateQueries({ queryKey: getGetSettingsQueryKey() });
             toast.success("¡Cuenta de GitHub vinculada exitosamente!");
             clearInterval(interval);
-          } else if (!data.success && data.status !== "pending") {
+          } else if (data.status !== "pending") {
             // Un error real ocurrió (ej: expiró o fue denegado)
             setDeviceFlow(prev => ({ ...prev, active: false, status: "error" }));
             toast.error(data.error || "La autorización falló o expiró.");
@@ -107,7 +127,11 @@ export default function Settings() {
         autoReplyEnabled: settings.autoReplyEnabled ?? false,
         offHoursMessage: settings.offHoursMessage || "",
         escalationKeywords: settings.escalationKeywords || [],
-        aiProvider: (settings as any).aiProvider || "github",
+        // El default ya no puede ser "github": GitHub RETIRÓ GitHub Models
+        // (404 en el endpoint viejo, 410 "retirement brownout" en el nuevo,
+        // verificado el 2026-08-19). Un negocio nuevo arrancaba apuntando a un
+        // proveedor apagado. Copilot es otra cosa y sí funciona.
+        aiProvider: (settings as any).aiProvider || "github_copilot_internal",
         githubToken: (settings as any).githubToken || "",
         githubModel: (settings as any).githubModel || "gpt-4o-mini",
         copilotSessionToken: (settings as any).copilotSessionToken || "",
@@ -288,7 +312,6 @@ export default function Settings() {
                       <option value="opencode">OpenCode Zen (Gratis, con rotación de modelos)</option>
                       <option value="mimo">Xiaomi MiMo (requiere MIMO_API_KEY)</option>
                       <option value="github_copilot_internal">GitHub Copilot Internal (VS Code Flow)</option>
-                      <option value="github">GitHub Models (Azure)</option>
                       <option value="nvidia">NVIDIA NIM (High Performance)</option>
                       <option value="ollama_local">Ollama (Local)</option>
                       <option value="openai_default">OpenAI Direct</option>
@@ -322,12 +345,15 @@ export default function Settings() {
                           </>
                         );
                       } else if (formData.aiProvider === "github") {
-                        const hasToken = !!formData.githubToken;
+                        // Se deja la rama para los negocios que quedaron
+                        // guardados con este proveedor: hay que decirles por
+                        // qué no responde, no mostrarles "Conectado" en verde
+                        // sobre un servicio que GitHub apagó.
                         return (
                           <>
-                            <div className={`h-2 w-2 rounded-full ${hasToken ? 'bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.5)]' : 'bg-red-500'}`} />
+                            <div className="h-2 w-2 rounded-full bg-red-500" />
                             <span className="text-[10px] font-bold uppercase tracking-wider">
-                              {hasToken ? 'Conectado a GitHub Models' : 'Sin Conexión (Falta Token)'}
+                              GitHub Models fue descontinuado — elegí Copilot
                             </span>
                           </>
                         );
@@ -543,13 +569,50 @@ export default function Settings() {
 
 
                       <div className="space-y-2">
-                        <Label className="text-muted-foreground font-semibold uppercase tracking-wider text-[10px]">Modelo de GitHub</Label>
-                        <Input 
-                          value={formData.githubModel} 
-                          onChange={e => setFormData({...formData, githubModel: e.target.value})} 
-                          placeholder="gpt-4o-mini"
-                          className="bg-muted/30 font-mono"
-                        />
+                        <Label className="text-muted-foreground font-semibold uppercase tracking-wider text-[10px]">
+                          {formData.aiProvider === "github_copilot_internal" ? "Modelo de Copilot" : "Modelo de GitHub"}
+                        </Label>
+                        <div className="flex gap-2">
+                          <Input
+                            value={formData.githubModel}
+                            onChange={e => setFormData({...formData, githubModel: e.target.value})}
+                            placeholder={formData.aiProvider === "github_copilot_internal" ? "gpt-4o" : "gpt-4o-mini"}
+                            className="bg-muted/30 font-mono"
+                          />
+                          {/* Autenticarse NO garantiza que el modelo responda: el
+                              token puede estar bien y el modelo no existir o no
+                              estar habilitado en esa cuenta. Este botón hace una
+                              llamada REAL al proveedor y dice qué pasó, en vez de
+                              dejar que se descubra recién cuando un cliente
+                              escribe por WhatsApp y el bot no contesta. */}
+                          <Button
+                            type="button"
+                            variant="outline"
+                            disabled={probandoModelo}
+                            onClick={async () => {
+                              setProbandoModelo(true);
+                              try {
+                                const res = await fetch("/api/ai/test", {
+                                  method: "POST",
+                                  headers: { "Content-Type": "application/json" },
+                                  body: JSON.stringify({
+                                    proveedor: formData.aiProvider,
+                                    model: formData.githubModel,
+                                  }),
+                                });
+                                const d = await res.json();
+                                if (d.ok) toast.success(`Responde: ${formData.githubModel || "modelo por defecto"}`);
+                                else toast.error(String(d.error || "No respondió").slice(0, 140));
+                              } catch (e: any) {
+                                toast.error(`No se pudo probar: ${e?.message || e}`);
+                              } finally {
+                                setProbandoModelo(false);
+                              }
+                            }}
+                          >
+                            {probandoModelo ? "Probando…" : "Probar"}
+                          </Button>
+                        </div>
                       </div>
                     </div>
                   )}
