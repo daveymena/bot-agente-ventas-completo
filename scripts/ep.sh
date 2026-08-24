@@ -27,7 +27,11 @@ set -euo pipefail
 EP_HOST="${EP_HOST:-https://144.91.112.79}"
 PROJECT="${EP_PROJECT:-tecnoia}"
 SERVICE="${EP_SERVICE:-bot-agenwhatsapp}"
-APP_URL="${EP_APP_URL:-https://tecnoia-bot-agenwhatsapp.2xs2bu.easypanel.host}"
+# La app se sirve por el dominio propio. El subdominio *.easypanel.host NO esta
+# ruteado: devuelve el 404 de Easypanel, no la app. Si se apunta ahi, uptime_now
+# no encuentra ningun "uptime" y wait_new gira hasta el timeout de 15 minutos
+# aunque el deploy haya salido bien.
+APP_URL="${EP_APP_URL:-https://ventasproia.com}"
 
 # Token: variable de entorno, o archivo fuera del repo. Nunca hardcodeado.
 if [ -z "${EP_TOKEN:-}" ] && [ -f "$HOME/.easypanel.env" ]; then

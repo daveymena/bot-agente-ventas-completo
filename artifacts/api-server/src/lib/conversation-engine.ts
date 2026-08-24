@@ -223,6 +223,13 @@ const STOP_WORDS = new Set([
   "este", "esta", "ese", "esa", "mi", "tu", "si", "hay",
   "también", "tambien", "tienes", "tiene", "tengo", "son",
   "muy", "más", "mas", "ya", "fue", "fui", "era",
+  // Relleno puro. No son inocuos: contaban como palabras ESPECÍFICAS y hacían
+  // daño por los dos lados. "¿tienen algo de veterinaria?" emparejaba "algo"
+  // contra "algoritmos" y devolvía PACK PROGRAMACIÓN; y en "algo de excel
+  // avanzado" inflaban la cuenta de términos, de modo que EXCEL —que está en el
+  // catálogo— no llegaba al umbral y el cliente no recibía nada.
+  "algo", "algun", "alguno", "alguna", "algunos", "algunas",
+  "otro", "otra", "otros", "otras", "sobre", "acerca",
 ]);
 
 // ─── Respuestas hardcodeadas para preguntas frecuentes ───────────────────────
@@ -958,6 +965,14 @@ const GENERIC_HEADERS = new Set([
   // inglés y recibía diseño gráfico.
   "cursos", "packs", "megapacks", "programas", "combos", "kits", "series",
   "colecciones", "paquetes", "masters",
+  // "curso completo" ya figuraba arriba, pero como FRASE — y la búsqueda parte
+  // el mensaje en palabras sueltas, así que "completo" nunca caía acá y contaba
+  // como término específico. Con el catálogo real eso hacía que "quiero el
+  // completo" diera nivel 4 (¡frase exacta!) contra CURSO DE PIANO COMPLETO,
+  // cuando casi siempre el cliente se refiere al MEGAPACK COMPLETO 81 EN 1.
+  // Un adjetivo de tamaño no identifica un producto: si eso es todo lo que
+  // dijo, hay que preguntarle cuál.
+  "completo", "completa", "completos", "completas",
 ]);
 
 function normalizeText(t: string): string {
@@ -983,6 +998,43 @@ function normalizeText(t: string): string {
     .replace(/[^\w\sáéíóúñü]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+/**
+ * Raíz de una palabra, para que singular y plural coincidan.
+ *
+ * No es un lematizador: solo saca la "s"/"es" final. Alcanza porque las DOS
+ * partes que se comparan pasan por acá, así que basta con que caigan en la
+ * misma forma ("ingles" y "ingles" → "ingl"): no importa que la raíz no sea
+ * una palabra real. El largo mínimo evita destrozar palabras cortas ("mes").
+ */
+function raizPalabra(p: string): string {
+  if (p.length > 4 && p.endsWith("es")) return p.slice(0, -2);
+  if (p.length > 3 && p.endsWith("s")) return p.slice(0, -1);
+  return p;
+}
+
+/**
+ * ¿El texto contiene esta frase como PALABRAS COMPLETAS?
+ *
+ * Antes se comparaba con `includes()` sobre el texto entero, y eso emparejaba
+ * pedazos de otras palabras. Medido con el catálogo real: "¿tienen algo de
+ * veterinaria?" devolvía PACK PROGRAMACIÓN, porque "algo" está dentro de
+ * "algoritmos" en su descripción. El cliente preguntaba por veterinaria y el
+ * bot le ofrecía programación con total seguridad.
+ *
+ * Se compara por raíz para no perder los plurales, que sí son coincidencias
+ * legítimas: el cliente escribe "libros" y el producto se llama "PACK DE
+ * LIBROS", o pide "perros" y el pack se llama "EDUCA A TU PERRO".
+ */
+function contieneFrase(texto: string, frase: string): boolean {
+  const t = texto.split(/\s+/).filter(Boolean).map(raizPalabra);
+  const f = frase.split(/\s+/).filter(Boolean).map(raizPalabra);
+  if (f.length === 0) return false;
+  for (let i = 0; i + f.length <= t.length; i++) {
+    if (f.every((w, j) => t[i + j] === w)) return true;
+  }
+  return false;
 }
 
 /**
@@ -1029,9 +1081,24 @@ export async function findBestProductMatch(
   text: string,
   productList: Array<{ id: number; name: string; description: string | null; category: string | null; categoryId: number | null }>,
   categoryMap: Map<number, string>
-): Promise<{ product: typeof productList[0]; score: number; reasoning: string } | null> {
+  // `fiel` separa "esto ES lo que pidió" de "esto es lo más parecido que hay".
+  // Sin esa distinción el llamador trataba igual a los dos, y una coincidencia
+  // hallada en la letra chica de una descripción se le afirmaba a la IA como si
+  // el cliente la hubiera nombrado.
+): Promise<{ product: typeof productList[0]; score: number; reasoning: string; fiel: boolean } | null> {
   const reasoning: string[] = [];
-  const normalized = normalizeText(text);
+  // Se sacan saludos y cortesías ANTES de contar, igual que en
+  // `mensajeNombraProducto` — que ya lo hacía, y el comentario de esa función
+  // avisa que las dos tienen que usar el mismo criterio o se desincronizan.
+  // Acá faltaba, y el efecto no era perder un saludo: era diluir la cuenta.
+  //
+  // "hola quiero saber del curso de piano porfa" dejaba "hola" y "porfa" como
+  // palabras ESPECÍFICAS. Con 3 específicas, el nivel 3 exige 2 en el nombre y
+  // "piano" es una sola: el producto correcto no llegaba al umbral. Antes eso
+  // no se notaba porque lo rescataba el fallback de nivel 1 — es decir, el caso
+  // bueno acertaba por el mismo camino que hacía contestar INGLES a quien
+  // preguntaba por cocina. Al sacar el fallback quedó a la vista.
+  const normalized = normalizeText(quitarSaludoYCortesias(normalizeText(text)));
   const allWords = normalized.split(/\s+/).filter(w =>
     (w.length > 2 || /^\d+$/.test(w)) && !STOP_WORDS.has(w)
   );
@@ -1126,7 +1193,7 @@ export async function findBestProductMatch(
     // Nivel 4: La frase completa de la consulta aparece en el NOMBRE del producto
     {
       const fullPhrase = specificWords.join(" ");
-      if (productName.includes(fullPhrase)) {
+      if (contieneFrase(productName, fullPhrase)) {
         level = 4;
         matchDetail = `frase exacta "${fullPhrase}" en el nombre`;
       }
@@ -1135,7 +1202,7 @@ export async function findBestProductMatch(
     // Nivel 3.5: TODAS las palabras específicas están en el NOMBRE (tiebreaker mejorado)
     // Esto prioriza "Piano Mega Pack" sobre "DJ Producción Mega Pack" cuando se busca "piano mega pack"
     if (level < 3.5) {
-      const nameHits = specificWords.filter(w => productName.includes(w));
+      const nameHits = specificWords.filter(w => contieneFrase(productName, w));
       if (nameHits.length === specificWords.length && specificWords.length > 1) {
         level = 3.5;
         matchDetail = `TODAS las palabras específicas en el nombre: ${nameHits.join(", ")}`;
@@ -1144,7 +1211,7 @@ export async function findBestProductMatch(
 
     // Nivel 3: Coincidencia directa de palabras específicas en el NOMBRE
     if (level < 3) {
-      const nameHits = specificWords.filter(w => productName.includes(w));
+      const nameHits = specificWords.filter(w => contieneFrase(productName, w));
       if (nameHits.length >= Math.max(1, Math.ceil(specificWords.length * 0.5))) {
         level = 3;
         matchDetail = `${nameHits.length}/${specificWords.length} palabras específicas en el nombre: ${nameHits.join(", ")}`;
@@ -1155,10 +1222,10 @@ export async function findBestProductMatch(
     if (level < 3 && catName) {
       const catKeywords = categoryHints[catName] || [catName];
       const categoryMatch = specificWords.some(w =>
-        catKeywords.some(ck => normalizeText(ck).includes(w) || w.includes(normalizeText(ck)))
+        catKeywords.some(ck => contieneFrase(normalizeText(ck), w) || contieneFrase(w, normalizeText(ck)))
       );
       if (categoryMatch) {
-        const contentHits = specificWords.filter(w => combined.includes(w));
+        const contentHits = specificWords.filter(w => contieneFrase(combined, w));
         if (contentHits.length > 0) {
           level = 3;
           matchDetail = `categoría "${catName}" detectada + coincidencia en contenido: ${contentHits.join(", ")}`;
@@ -1168,7 +1235,7 @@ export async function findBestProductMatch(
 
     // Nivel 2: Coincidencia de palabras específicas solo en DESCRIPCIÓN
     if (level < 2) {
-      const descHits = specificWords.filter(w => productDesc.includes(w));
+      const descHits = specificWords.filter(w => contieneFrase(productDesc, w));
       if (descHits.length >= Math.max(1, Math.ceil(specificWords.length * 0.6))) {
         level = 2;
         matchDetail = `${descHits.length}/${specificWords.length} palabras en descripción: ${descHits.join(", ")}`;
@@ -1185,12 +1252,12 @@ export async function findBestProductMatch(
     if (level === 0 && specificWords.length > 0 && catName) {
       const normalizedAliases = [...(categoryAliasLower[catName] || [])].map(s => normalizeText(s));
       // Coincidencia exacta: alias contiene la palabra de la consulta (no al revés)
-      const exactAliasHits = specificWords.filter(w => normalizedAliases.some(a => a.includes(w)));
+      const exactAliasHits = specificWords.filter(w => normalizedAliases.some(a => contieneFrase(a, w)));
       if (exactAliasHits.length >= Math.max(1, Math.ceil(specificWords.length * 0.6))) {
         // ✅ VALIDACIÓN CRUZADA: que al menos 1 palabra específica aparezca
         // en el NOMBRE o DESCRIPCIÓN real del producto (no solo en alias)
         const hasContentMatch = specificWords.some(w =>
-          productName.includes(w) || productDesc.includes(w)
+          contieneFrase(productName, w) || contieneFrase(productDesc, w)
         );
         if (hasContentMatch) {
           level = 2;
@@ -1202,9 +1269,10 @@ export async function findBestProductMatch(
       }
     }
 
-    // Nivel 1 (insuficiente): Solo palabras genéricas — ÚLTIMO RECURSO después de agotar nivel 2+
+    // Nivel 1 (insuficiente): solo palabras genéricas. Se calcula ÚNICAMENTE
+    // para poder explicarlo en el log; nunca se devuelve como producto.
     if (level === 0) {
-      const anyHit = allWords.filter(w => combined.includes(w));
+      const anyHit = allWords.filter(w => contieneFrase(combined, w));
       if (anyHit.length > 0) {
         level = 1;
         matchDetail = `solo coincidencia genérica: ${anyHit.join(", ")}`;
@@ -1214,22 +1282,37 @@ export async function findBestProductMatch(
     evaluations.push({ product: p, level, matchDetail, categoryHit: level >= 3 && catName !== "" });
   }
 
-  // Filtrar: descartar nivel 1 (insuficiente)
-  // PERO: Si no hay nivel 2+, permitir nivel 1 como último recurso
-  let valid = evaluations.filter(e => e.level >= 2);
+  // Filtrar: el nivel 1 NUNCA es un resultado. Si nada llega a nivel 2, la
+  // respuesta honesta es "no lo tengo".
+  //
+  // Acá vivía el peor bug del buscador, y no se veía en los tests porque el
+  // catálogo de prueba tenía 5 productos genéricos. Con el catálogo REAL (83
+  // cursos) el nivel 1 se activaba con la palabra "curso" -- que está marcada
+  // como GENÉRICA, pero el último recurso usaba `allWords`, no `specificWords`.
+  // Resultado: "¿tienen curso de cocina?" emparejaba con los 83 productos por
+  // la palabra "curso", el desempate elegía el nombre más corto y el bot
+  // contestaba INGLES. Lo mismo con "un curso de derecho penal" → INGLES.
+  //
+  // Y no quedaba en un log: el llamador descarta el nivel 1 como producto pero
+  // igual guarda `reasoning`, que dice "✅ Producto seleccionado: INGLES", y ese
+  // texto se le inyecta a la IA junto a "el cliente pide algo que no existe".
+  // Con un producto en contexto entra por la otra rama, que le ordena al modelo
+  // "Contestá sobre ESE producto". De ahí salían las respuestas con el producto
+  // equivocado dichas con total seguridad.
+  //
+  // Un "no lo manejo" hace perder una venta que no existía. Ofrecerle inglés a
+  // quien pregunta por cocina hace perder al cliente.
+  const valid = evaluations.filter(e => e.level >= 2);
 
   if (valid.length === 0) {
-    // Último recurso: permitir nivel 1 si hay coincidencia genérica
-    valid = evaluations.filter(e => e.level >= 1);
-    
-    if (valid.length === 0) {
-      reasoning.push("❌ Ningún producto alcanza el criterio mínimo de coincidencia (nivel 1).");
-      reasoning.push(`   Productos revisados: ${productList.length}.`);
-      reasoning.push("   Respuesta: informar que no se encontró el producto buscado y listar productos similares.");
-      return null;
+    const casiMatch = evaluations.filter(e => e.level === 1).length;
+    reasoning.push("❌ Ningún producto coincide de verdad con lo que pide el cliente.");
+    reasoning.push(`   Productos revisados: ${productList.length}.`);
+    if (casiMatch > 0) {
+      reasoning.push(`   (${casiMatch} coincidían solo por palabras genéricas como "curso" o "pack" — eso no identifica nada.)`);
     }
-    
-    reasoning.push("⚠️ Usando coincidencia genérica (nivel 1) como último recurso.");
+    reasoning.push("   Respuesta: decir la verdad (no está en el catálogo) y ofrecer lo más parecido que SÍ exista.");
+    return null;
   }
 
   // Ordenar por nivel descendente, luego por precisión del NOMBRE (no de la
@@ -1246,8 +1329,8 @@ export async function findBestProductMatch(
     if (b.level !== a.level) return b.level - a.level;
 
     // Tiebreaker 1: Palabras específicas en el nombre
-    const aNameHits = specificWords.filter(w => normalizeText(a.product.name).includes(w)).length;
-    const bNameHits = specificWords.filter(w => normalizeText(b.product.name).includes(w)).length;
+    const aNameHits = specificWords.filter(w => contieneFrase(normalizeText(a.product.name), w)).length;
+    const bNameHits = specificWords.filter(w => contieneFrase(normalizeText(b.product.name), w)).length;
     if (bNameHits !== aNameHits) return bNameHits - aNameHits;
 
     // Tiebreaker 2: Longitud del nombre — el más corto es la coincidencia más
@@ -1258,8 +1341,8 @@ export async function findBestProductMatch(
     if (bNameLen !== aNameLen) return aNameLen - bNameLen;
 
     // Tiebreaker 3: Palabras específicas en la descripción (último recurso)
-    const aDescHits = specificWords.filter(w => normalizeText(a.product.description || "").includes(w)).length;
-    const bDescHits = specificWords.filter(w => normalizeText(b.product.description || "").includes(w)).length;
+    const aDescHits = specificWords.filter(w => contieneFrase(normalizeText(a.product.description || ""), w)).length;
+    const bDescHits = specificWords.filter(w => contieneFrase(normalizeText(b.product.description || ""), w)).length;
     if (bDescHits !== aDescHits) return bDescHits - aDescHits;
 
     return 0;
@@ -1274,11 +1357,33 @@ export async function findBestProductMatch(
   // descripción repetía "guitarra". El `valid.sort()` de arriba ya resuelve
   // el empate correctamente con precisión del nombre.)
 
-  reasoning.push(`✅ Producto seleccionado: "${best.product.name}" (nivel ${best.level})`);
-  reasoning.push(`   Razón: ${best.matchDetail}`);
-  if (best.categoryHit) reasoning.push("   Coincidencia de categoría confirmada.");
+  // El nivel 2 NO es una identificación: es un parecido encontrado en la letra
+  // chica de la descripción. Medido con el catálogo real: "me interesa un curso
+  // de soldadura" daba nivel 2 contra CURSO REPARACIÓN DE CELULARES, porque esa
+  // descripción menciona soldadura. No existe un curso de soldadura, y el bot lo
+  // presentaba como si fuera lo que el cliente pidió.
+  //
+  // El texto de acá abajo NO es solo un log: se le inyecta al prompt de la IA.
+  // Decirle "✅ Producto seleccionado" en un caso así es pedirle que afirme algo
+  // que no es cierto. Se nombra por lo que es, para que ofrezca y pregunte en
+  // vez de dar por hecho.
+  if (best.level >= 3) {
+    reasoning.push(`✅ Producto seleccionado: "${best.product.name}" (nivel ${best.level})`);
+    reasoning.push(`   Razón: ${best.matchDetail}`);
+    if (best.categoryHit) reasoning.push("   Coincidencia de categoría confirmada.");
+  } else {
+    reasoning.push(`⚠️ SIN coincidencia fiel. Lo más parecido: "${best.product.name}" (nivel ${best.level}).`);
+    reasoning.push(`   Razón: ${best.matchDetail}`);
+    reasoning.push(`   ⛔ NO afirmes que es lo que pidió: el parecido está en la descripción, no en el nombre.`);
+    reasoning.push(`   ✅ Ofrecelo como alternativa y preguntá si le sirve.`);
+  }
 
-  return { product: best.product, score: best.level * 25, reasoning: reasoning.join("\n") };
+  return {
+    product: best.product,
+    score: best.level * 25,
+    reasoning: reasoning.join("\n"),
+    fiel: best.level >= 3,
+  };
 }
 
 // ─── Motor de decisión principal ──────────────────────────────────────────────
@@ -1330,6 +1435,9 @@ export async function computeDecision(
   let productSearchFailed = false;
   let mensajeSinProducto = false;
   let searchReasoning: string | null = null;
+  // ¿La búsqueda IDENTIFICÓ el producto, o solo encontró algo parecido? Decide
+  // si a la IA se le ordena contestar sobre ese producto o solo ofrecerlo.
+  let coincidenciaFiel = false;
   let productoDelMensaje: EngineDecision["productoDelMensaje"] = null;
 
   // "mandámela de nuevo", "no me llegó", "reenviame la ficha"
@@ -1380,18 +1488,44 @@ export async function computeDecision(
 
   if (!shouldGreet && intent !== "leaving") {
     // Buscar producto mencionado en el mensaje actual
-    const match = (preguntaComoPagar || preguntaDeDetalleSobreFoco)
-      ? null
-      : await findBestProductMatch(incomingText, productList, categoryMap);
+    const encontrado = await findBestProductMatch(incomingText, productList, categoryMap);
+
+    // Preguntar POR el producto en foco no es buscar otro producto… salvo que el
+    // cliente haya nombrado otro. Las dos guardas de arriba cancelaban la
+    // búsqueda entera, y con eso se llevaban puesto el caso más común de todos:
+    //
+    //   (viendo el curso de piano) "¿y el curso de inglés cuánto vale?"
+    //
+    // "cuánto vale" se clasifica como intención de PAGO, así que la búsqueda ni
+    // corría: el cliente preguntaba el precio del inglés y el bot le contestaba
+    // el del piano. Con la ficha de pago del piano. Es el mismo desenlace que ya
+    // documenta `coherencia-cambio-producto.test.ts`, donde el bot terminó
+    // cobrando un producto que el cliente nunca pidió.
+    //
+    // Las guardas existían porque el buscador devolvía cualquier cosa ante
+    // frases genéricas ("¿qué trae? ¿qué contenido?" daba EXCEL). Eso ya no
+    // pasa: esas frases devuelven null, y un parecido de descripción viene con
+    // fiel=false. Así que ahora la búsqueda SIEMPRE corre, y solo una
+    // coincidencia FIEL —el producto nombrado por su nombre— puede mover el
+    // foco. "¿cómo pago?" y "¿qué incluye?" siguen sin moverlo, que era el
+    // punto original.
+    const preguntaSobreElFoco = preguntaComoPagar || preguntaDeDetalleSobreFoco;
+    const match = preguntaSobreElFoco && !encontrado?.fiel ? null : encontrado;
 
     // Razonamiento de búsqueda (para inyectar en el prompt)
     searchReasoning = match?.reasoning || null;
+    coincidenciaFiel = !!match?.fiel;
 
     // 🤖 DECISIÓN DE PRODUCTO DELEGADA A LA IA
     // La IA recibe el catálogo completo y analiza el contexto de la conversación
     // para elegir qué producto mostrar. El keyword matching solo sirve como
     // sugerencia/advertencia, no como decisión final.
-    if (match && match.score >= 50) {
+    // Antes el umbral era `score >= 50`, que es exactamente el nivel 2: una
+    // coincidencia hallada SOLO en la descripción entraba acá y se le presentaba
+    // a la IA como "el cliente está preguntando por X". Ahora el nivel 2 cae al
+    // camino de "no lo tengo, pero mirá esto parecido", que es la respuesta
+    // honesta y además la que puede salvar la venta.
+    if (match && match.fiel) {
       const p: any = match.product;
       const alreadySent = memory.sentProductIds.has(p.id);
 
@@ -1513,7 +1647,7 @@ export async function computeDecision(
   }
 
   // ── Construir bloque de contexto para el prompt ─────────────────────────────
-  const contextBlock = buildContextBlock(memory, intent, stage, productToShow, shouldSendCard, searchReasoning, productSearchFailed, t, productList, negocio, mensajeSinProducto);
+  const contextBlock = buildContextBlock(memory, intent, stage, productToShow, shouldSendCard, searchReasoning, productSearchFailed, t, productList, negocio, mensajeSinProducto, coincidenciaFiel);
 
   // ── Razón de la decisión (para logs) ────────────────────────────────────────
   const debugReason = [
@@ -1560,7 +1694,8 @@ function buildContextBlock(
   incomingText?: string,
   allProducts?: Array<any>,
   negocio?: BusinessContext | null,
-  mensajeSinProducto?: boolean
+  mensajeSinProducto?: boolean,
+  coincidenciaFiel?: boolean
 ): string {
   const lines: string[] = [];
 
@@ -1607,7 +1742,15 @@ function buildContextBlock(
   if (!productSearchFailed && !product && searchReasoning) {
     lines.push(`\n🔍 QUÉ ESTÁ PIDIENDO EL CLIENTE EN ESTE MENSAJE:`);
     searchReasoning.split("\n").filter(Boolean).forEach((r) => lines.push(r));
-    lines.push(`\n⚠️ Contestá sobre ESE producto. Si el historial habla de otro, ese ya pasó: el cliente cambió de tema y hay que seguirlo.`);
+    // Esta orden solo vale si la búsqueda IDENTIFICÓ el producto. Cuando apenas
+    // encontró un parecido, mandarla dejaba el prompt diciendo las dos cosas a la
+    // vez ("no afirmes que es lo que pidió" + "contestá sobre ESE producto"), y
+    // ante esa contradicción el modelo termina afirmando.
+    if (coincidenciaFiel) {
+      lines.push(`\n⚠️ Contestá sobre ESE producto. Si el historial habla de otro, ese ya pasó: el cliente cambió de tema y hay que seguirlo.`);
+    } else {
+      lines.push(`\n⚠️ OJO: eso es lo más parecido del catálogo, NO lo que el cliente nombró. Ofrecelo como alternativa y preguntá si le sirve; no lo des por hecho.`);
+    }
   }
 
   // El mensaje no nombra nada. Es el caso de CADA cliente que llega de un
