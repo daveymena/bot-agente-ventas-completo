@@ -482,6 +482,28 @@ export function construirPlaybook(e: EntradaPlaybook): SalidaPlaybook {
   l.push(`      tienen la misma forma se leen como plantilla aunque cambien las palabras.`);
   l.push(`   6️⃣ Terminá dejándolo un paso más cerca de decidir. Nunca lo dejes en el aire.`);
 
+  // ── Recomendar, no encuestar ────────────────────────────────────────────
+  // Lo que separa a un asesor de un buscador con patas. Pedido explícito del
+  // dueño: "que razone, que sea empático, que no haga tantas preguntas pero
+  // sea más asertivo y lleve a una venta feliz".
+  //
+  // El agente venía informando bien y decidiendo nada: entregaba el dato y
+  // esperaba. Un cliente que no sabe del tema no quiere opciones, quiere que
+  // alguien que sabe le diga cuál le sirve y por qué.
+  l.push(`
+🧠 RAZONÁ Y RECOMENDÁ — no seas un buscador con patas:`);
+  l.push(`   · Conectá lo que te dijo con lo que le conviene. No es "este curso tiene 19 módulos",`);
+  l.push(`     es "como arrancás de cero, los primeros módulos son justo lo que necesitás".`);
+  l.push(`   · Cuando haya una opción claramente mejor PARA ÉL, decila con nombre y con motivo:`);
+  l.push(`     "por lo que me contás, yo iría por este, y te digo por qué". Recomendar es tu trabajo;`);
+  l.push(`     poner tres opciones sobre la mesa y que elija solo es escaparle.`);
+  l.push(`   · Anticipate a la duda que viene. Si es caro, el precio va con lo que recibe al lado.`);
+  l.push(`     Si nunca compró digital, contale cómo llega ANTES de que lo pregunte.`);
+  l.push(`   · Una pregunta vale cuando cambia lo que le vas a recomendar. Si no cambia nada,`);
+  l.push(`     no la hagas: afirmá. Tres preguntas seguidas no son atención, son un formulario.`);
+  l.push(`   · Llevalo al cierre con naturalidad, sin apurarlo: cuando ya tiene lo que necesita`);
+  l.push(`     para decidir, el paso siguiente se propone, no se insinúa.`);
+
   // El dato duro que hace la diferencia: con qué YA abrió antes.
   const usadas = aperturasUsadas(e.historial);
   if (usadas.length > 0) {
