@@ -3,7 +3,7 @@ import { z } from "zod";
 import { db, tenants, stores } from "@workspace/db";
 import crypto from "crypto";
 import bcrypt from "bcryptjs";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { tenantManager } from "../lib/tenantManager";
 import { logger } from "../lib/logger";
 import { generateVerificationCode, sendPasswordResetEmail, sendPasswordChangeConfirmationEmail } from "../lib/email";
@@ -16,6 +16,10 @@ import { generateRecoveryCodes, generateTotpSecret, hashRecoveryCode, verifyTotp
 import { twoFactorLimiter } from "../lib/rate-limiter";
 
 const router = Router();
+
+export function normalizeEmail(value: string): string {
+  return String(value ?? "").trim().toLowerCase();
+}
 
 async function hashPassword(password: string): Promise<string> {
   return bcrypt.hash(password, 10);
@@ -46,28 +50,28 @@ const strongPassword = z
 
 const registerSchema = z.object({
   name: z.string().min(1),
-  email: z.string().email(),
+  email: z.string().trim().email().transform(normalizeEmail),
   password: strongPassword,
   brandName: z.string().min(1),
   slug: z.string().min(1).regex(/^[a-z0-9-]+$/),
 });
 
 const loginSchema = z.object({
-  email: z.string().email(),
+  email: z.string().trim().email().transform(normalizeEmail),
   password: z.string(),
 });
 
 const requestResetSchema = z.object({
-  email: z.string().email(),
+  email: z.string().trim().email().transform(normalizeEmail),
 });
 
 const verifyResetCodeSchema = z.object({
-  email: z.string().email(),
+  email: z.string().trim().email().transform(normalizeEmail),
   code: z.string().length(6),
 });
 
 const resetPasswordSchema = z.object({
-  email: z.string().email(),
+  email: z.string().trim().email().transform(normalizeEmail),
   code: z.string().length(6),
   newPassword: strongPassword,
 });
@@ -107,6 +111,7 @@ function withRecoveryHashes(metadata: unknown, hashes: string[]) {
 }
 
 async function findValidResetCode(email: string, code: string) {
+  const normalizedEmail = normalizeEmail(email);
   const [tenant] = await db
     .select({
       id: tenants.id,
@@ -116,7 +121,7 @@ async function findValidResetCode(email: string, code: string) {
       passwordResetExpiry: tenants.passwordResetExpiry,
     })
     .from(tenants)
-    .where(eq(tenants.email, email))
+    .where(sql`lower(${tenants.email}) = ${normalizedEmail}`)
     .limit(1);
 
   if (!tenant || !tenant.passwordResetCode || !tenant.passwordResetExpiry) return null;
@@ -131,7 +136,8 @@ router.post("/register", async (req, res, next) => {
   try {
     const { name, email, password, brandName, slug } = registerSchema.parse(req.body);
 
-    const existingEmail = await db.select({ id: tenants.id }).from(tenants).where(eq(tenants.email, email)).limit(1);
+    const normalizedEmail = normalizeEmail(email);
+    const existingEmail = await db.select({ id: tenants.id }).from(tenants).where(sql`lower(${tenants.email}) = ${normalizedEmail}`).limit(1);
     if (existingEmail.length > 0) return res.status(400).json({ error: "El email ya está registrado" });
 
     const existingSlug = await db.select({ id: tenants.id }).from(tenants).where(eq(tenants.slug, slug)).limit(1);
@@ -179,7 +185,8 @@ router.post("/login", authRateLimit, async (req, res, next) => {
     const { email, password } = loginSchema.parse(req.body);
     console.log(`🔐 Intento de login: ${email}`);
 
-      const [tenant] = await db.select({
+      const normalizedEmail = normalizeEmail(email);
+    const [tenant] = await db.select({
       id: tenants.id,
       name: tenants.name,
       email: tenants.email,
@@ -194,7 +201,7 @@ router.post("/login", authRateLimit, async (req, res, next) => {
         settings: tenants.settings,
         twoFactorEnabled: tenants.twoFactorEnabled,
       createdAt: tenants.createdAt,
-    }).from(tenants).where(eq(tenants.email, email)).limit(1);
+    }).from(tenants).where(sql`lower(${tenants.email}) = ${normalizedEmail}`).limit(1);
 
     if (!tenant) {
       console.log(`❌ Login fallido: Usuario ${email} no encontrado en DB.`);
@@ -371,10 +378,11 @@ router.post("/request-password-reset", passwordResetRateLimit, async (req, res, 
   try {
     const { email } = requestResetSchema.parse(req.body);
 
+    const normalizedEmail = normalizeEmail(email);
     const [tenant] = await db
       .select({ id: tenants.id, name: tenants.name, email: tenants.email })
       .from(tenants)
-      .where(eq(tenants.email, email))
+      .where(sql`lower(${tenants.email}) = ${normalizedEmail}`)
       .limit(1);
 
     // Respuesta genérica siempre, exista o no el correo -- si el mensaje

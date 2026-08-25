@@ -3,6 +3,7 @@ import request from "supertest";
 import { db, tenants } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import crypto from "crypto";
+import authRouter, { normalizeEmail } from "./auth";
 
 // Mock del servidor Express
 const mockApp = {
@@ -282,6 +283,13 @@ describe("Authentication API Tests", () => {
       const oldToken = "token123";
       const isInvalid = true;
       expect(isInvalid).toBe(true);
+    });
+  });
+
+  describe("normalización de email", () => {
+    it("✅ Normaliza emails para login y recuperación de contraseña", () => {
+      expect(normalizeEmail("  USER@EXAMPLE.COM\n")).toBe("user@example.com");
+      expect(normalizeEmail("Mi.Tienda@Gmail.com")).toBe("mi.tienda@gmail.com");
     });
   });
 

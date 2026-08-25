@@ -238,9 +238,8 @@ logger.info("[MessageHandler] Message receiver configured for default tenant");
       } catch (err) {
         console.warn("⚠️ Could not auto-fix product images on startup:", err);
       }
-    })();
-    */
-  } catch (error) {
+})();
+   } catch (error) {
     console.error("❌ Error en auto-seed:", error);
   }
 })();
