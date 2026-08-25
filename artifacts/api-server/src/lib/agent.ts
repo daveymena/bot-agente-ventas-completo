@@ -13,7 +13,7 @@ import {
 } from "@workspace/db";
 import { getProviderConfig, getProviderRotation, getProviderConfigFromSettings, createAIClient, getOpenCodeRotation, getOpenCodeGoRotation } from "@workspace/integrations-openai-ai-server";
 import { logger } from "./logger";
-import { verificarPrecios } from "./precio-verificado";
+import { supervisarRespuesta } from "./supervisor";
 import { PaymentGateway } from "./payments";
 import { 
   healthMonitor,
@@ -2301,15 +2301,18 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
       // Limpiar flag interno _beforeCard
       const finalParts = parts.map((p: any) => { delete p._beforeCard; return p; });
 
-      // ── Candado de precios: ningun monto sale si no es de un producto real ──
+      // ── SUPERVISOR: nada sale sin pasar por acá ─────────────────────────────
       //
-      // El prompt ya dice "NUNCA escribas precios, van en la tarjeta". Es una
-      // instruccion blanda y el modelo la ignora: en la prueba en vivo del
-      // 2026-08-25 cotizo el mismo curso de Excel a $60.000, a $45.000 y a
-      // $20.000, y ofrecio un combo de $85.000 que no existe como producto --
-      // o sea sin link de pago ni forma de entregarlo.
+      // El prompt ya trae todas estas reglas escritas ("nunca escribas
+      // precios", "fijate si es físico o digital", "no muestres un producto
+      // que no tenga relación con lo que el cliente busca"). Son instrucciones
+      // BLANDAS y el modelo las ignora; el servidor sabía el dato exacto en
+      // los cuatro casos y lo dejaba pasar igual.
       //
-      // El catalogo es la fuente de verdad. La IA redacta; no cotiza.
+      // Acá se revisa la respuesta YA REDACTADA contra el catálogo y contra lo
+      // que el cliente acaba de escribir. Lo corregible se corrige; lo que
+      // afirma algo falso no se envía. La IA redacta: no cotiza, no elige
+      // producto y no promete operaciones que nadie hace.
       try {
         const idsEnContexto = [
           ...finalParts.filter((p: any) => p.kind === "card").map((p: any) => p.productId),
@@ -2318,17 +2321,48 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
           memory.currentProductId,
         ].filter((n: any): n is number => typeof n === "number");
 
+        const hayCard = finalParts.some((p: any) => p.kind === "card");
+
         for (const parte of finalParts) {
           if (parte.kind !== "text" || !parte.content) continue;
-          const revision = verificarPrecios(parte.content, productList as any, idsEnContexto);
-          if (revision.inventados.length > 0) {
-            logger.warn(
-              { conversationId, inventados: revision.inventados, idsEnContexto },
-              "[Precios] Se bloquearon montos que no son de ningun producto real",
-            );
-            console.log(`🔒 [PRECIOS] Bloqueados: ${revision.inventados.join(", ")} - ${ts()}`);
+
+          const revision = supervisarRespuesta({
+            respuesta: parte.content,
+            mensajeCliente: lastText,
+            productos: productList as any,
+            idsEnContexto,
+          });
+
+          if (revision.hallazgos.length === 0) continue;
+
+          logger.warn(
+            { conversationId, hallazgos: revision.hallazgos, bloquear: revision.bloquear, idsEnContexto },
+            "[Supervisor] La respuesta no pasó la revisión",
+          );
+          console.log(
+            `🔍 [SUPERVISOR] ${revision.hallazgos.map((h) => h.regla).join(", ")}` +
+            `${revision.bloquear ? " (BLOQUEADA)" : ""} - ${ts()}`,
+          );
+
+          if (!revision.bloquear) {
+            // Corregible: sale el texto ya saneado.
             parte.content = revision.texto;
+            continue;
           }
+
+          // Bloqueada: la respuesta afirma algo que el servidor sabe que no
+          // corresponde -- otro producto, o una fórmula en vez de contestar.
+          // Enviarla igual es lo que costó clientes, así que NO sale.
+          //
+          // No se regenera acá a propósito: otra llamada al modelo duplica la
+          // latencia de CADA mensaje que falle y puede volver a equivocarse.
+          // Sale un texto que no afirma nada, y la verdad la lleva la ficha,
+          // que la elige el servidor. Sin ficha, se pregunta en vez de
+          // inventar: preguntar una cosa concreta no pierde la venta;
+          // contestar sobre el producto equivocado, sí.
+          parte.content = hayCard
+            ? "Te paso la ficha acá abajo con todos los detalles 👇"
+            : "Para no darte un dato equivocado, ¿me confirmás de cuál producto querés que te cuente?";
         }
       } catch (e: any) {
         // Un fallo del candado no puede dejar al cliente sin respuesta.
