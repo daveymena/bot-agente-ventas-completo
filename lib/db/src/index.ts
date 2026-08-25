@@ -192,6 +192,20 @@ async function initDb() {
       sqliteDb.run("PRAGMA foreign_keys=ON;");
       db = drizzleSqlJs(sqliteDb, { schema: sqliteSchema });
       pool = null;
+
+      function saveFallbackDb() {
+        try {
+          const data = sqliteDb.export();
+          fs.writeFileSync(fullPath, Buffer.from(data));
+        } catch {}
+      }
+      saveDbToDisk = saveFallbackDb;
+      setInterval(saveFallbackDb, 15000);
+      process.on("exit", saveFallbackDb);
+      process.on("SIGINT", () => { saveFallbackDb(); process.exit(0); });
+      process.on("SIGTERM", () => { saveFallbackDb(); process.exit(0); });
+
+      await ensureSqliteTables(sqliteDb, saveFallbackDb);
       dbReady = true;
       return;
     }
