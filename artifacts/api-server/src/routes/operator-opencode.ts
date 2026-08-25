@@ -268,6 +268,17 @@ function resumirMotivo(error: string): string {
 // OpenCode con `PUT /auth/{id}`. O sea: si esto es true, la clave existe y ya
 // viajó al contenedor.
 function hayClavePropia(providerID: string): boolean {
+  // Copilot no está en ENV_POR_PROVEEDOR y no puede estarlo: su credencial no
+  // es una API key de "Modelos de pago" sino el token de la CONEXIÓN (flujo de
+  // dispositivo), que `cargarClavesEnEntorno` deja en COPILOT_TOKENS.
+  //
+  // Sin esto `tenemosClave("github-copilot")` era SIEMPRE false, así que
+  // Copilot solo podía entrar a la cadena si OpenCode lo reportaba conectado
+  // -- y el admin, que acaba de vincular su cuenta, seguía sin verlo aparecer
+  // en ningún turno.
+  if (/copilot/i.test(providerID)) {
+    return !!(process.env.COPILOT_TOKENS || process.env.GITHUB_COPILOT_TOKEN);
+  }
   const envKey = ENV_POR_PROVEEDOR[providerID];
   return !!(envKey && process.env[envKey]);
 }
@@ -301,7 +312,16 @@ async function pickOpencodeModelChain(host: string, authHeader: string): Promise
   //
   // El modelo sale del catálogo que OpenCode ya devuelve, no de un id
   // hardcodeado: un id inventado es un candidato más que quemar.
-  const { armarCadena, filtrarEnfriados } = await import("../lib/cadena-modelos");
+  const { armarCadena, filtrarEnfriados, diagnosticarRapidos } = await import("../lib/cadena-modelos");
+
+  // Los rápidos que el admin configuró y que igual quedaron afuera se DICEN.
+  // Antes desaparecían sin dejar rastro y no había forma de distinguir "no lo
+  // tengo configurado" de "lo configuré y el sistema no lo ve".
+  const rapidosFuera = diagnosticarRapidos({ conectados, tenemosClave: hayClavePropia, modelosPorProveedor: catalogoPorProveedor });
+  if (rapidosFuera.length > 0) {
+    logger.warn({ rapidosFuera }, "[AtlasOpenCode] Proveedores rápidos configurados que NO entraron a la cadena");
+  }
+
   // Se saca lo que ya se sabe que no anda: sin esto Atlas reintentaba deepseek
   // sin saldo en CADA mensaje, para siempre. Si TODOS estan enfriandose se
   // intentan igual -- es una optimizacion, no un candado.
@@ -542,12 +562,37 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
        * separa.
        */
       const causaDeFondo = (): string | null => {
+        const nombresDe = (ts: Array<{ etapa: string }>) =>
+          ts.map((t) => (t.etapa.match(/^modelo:([^(]+)/) || [])[1]?.trim()).filter(Boolean).join(", ");
+
         const dePago = tramos.filter((t) => /sin crédito|clave rechazada/i.test(t.etapa));
+
+        // La causa se decide por DÓNDE SE FUE EL TIEMPO, no por la mera
+        // presencia de un fallo de saldo.
+        //
+        // Antes alcanzaba con que UN modelo de pago apareciera sin crédito para
+        // afirmar "la causa es el saldo, recargá y anda en segundos". Trace real
+        // del admin (2026-08-25): los dos de pago se descartaron en 2,3s
+        // -- gratis, en la práctica -- y el turno se lo comieron dos modelos que
+        // se colgaron (55s + 42s) y uno con rate limit (31,5s). O sea 128 de los
+        // 135 segundos. Recargar saldo no arregla NADA de eso, y mandar al admin
+        // a pagar por un problema que no es el suyo es peor que no decir nada:
+        // gasta plata y el corte sigue igual.
+        const colgados = tramos.filter((t) => /se quedó sin tiempo/i.test(t.etapa));
+        const msColgados = colgados.reduce((a, t) => a + t.ms, 0);
+        const msPago = dePago.reduce((a, t) => a + t.ms, 0);
+
+        if (msColgados > msPago && msColgados > 30_000) {
+          const cuales = nombresDe(colgados);
+          return `\n\n⚠️ **La causa es que ${colgados.length === 1 ? "un modelo se colgó" : "unos modelos se colgaron"}, no el saldo.** `
+            + `${cuales} se quedaron con ${(msColgados / 1000).toFixed(0)}s del turno sin contestar una letra`
+            + (dePago.length > 0 ? ` (los de pago se descartaron en ${(msPago / 1000).toFixed(1)}s, así que ahí no se fue el tiempo)` : "")
+            + `. Ya quedaron apartados: el próximo intento no los prueba. `
+            + `Si vuelve a pasar, conectá un proveedor rápido (Copilot o Groq) en Configuración → Modelos de pago.`;
+        }
+
         if (dePago.length === 0) return null;
-        const nombres = dePago
-          .map((t) => (t.etapa.match(/^modelo:([^(]+)/) || [])[1]?.trim())
-          .filter(Boolean)
-          .join(", ");
+        const nombres = nombresDe(dePago);
         const sinSaldo = dePago.some((t) => /sin crédito/i.test(t.etapa));
         return sinSaldo
           ? `\n\n⚠️ **La causa es el saldo, no la lentitud.** Tus modelos de pago (${nombres}) están sin crédito, `

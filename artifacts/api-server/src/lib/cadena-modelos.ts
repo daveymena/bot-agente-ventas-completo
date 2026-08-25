@@ -142,6 +142,47 @@ export function armarCadena(entrada: {
   return [...pagos, ...descubiertos, ...gratisLentos, respaldo];
 }
 
+/**
+ * Por qué un proveedor rápido NO entró a la cadena.
+ *
+ * Hasta ahora esto se descartaba en silencio. Si el admin tiene la clave de
+ * Groq cargada pero OpenCode no lista ese proveedor en `/provider`, no hay de
+ * dónde sacarle un modelo y el candidato desaparece: ni log, ni aviso, ni
+ * rastro en el desglose de tiempos. El admin ve seis candidatos lentos y no
+ * tiene forma de saber que el rápido que él configuró fue considerado y
+ * tirado — ni por qué.
+ *
+ * Reportado en vivo: "tenemos github, tenemos opencode zen, tenemos nvidia,
+ * imposible que ninguno sirva". La respuesta a esa objeción vive acá.
+ */
+export function diagnosticarRapidos(entrada: {
+  conectados: Set<string>;
+  tenemosClave: (providerID: string) => boolean;
+  modelosPorProveedor: Map<string, unknown>;
+}): Array<{ providerID: string; motivo: string }> {
+  const fuera: Array<{ providerID: string; motivo: string }> = [];
+  for (const providerID of PROVEEDORES_RAPIDOS) {
+    const hayClave = entrada.tenemosClave(providerID);
+    const conectado = entrada.conectados.has(providerID);
+    if (!hayClave && !conectado) continue; // No configurado: no es una sorpresa.
+
+    if (!entrada.modelosPorProveedor.has(providerID)) {
+      fuera.push({
+        providerID,
+        motivo: "tenés la credencial, pero OpenCode no lista ese proveedor: no hay de dónde sacarle un modelo",
+      });
+      continue;
+    }
+    if (!elegirModelo(entrada.modelosPorProveedor.get(providerID))) {
+      fuera.push({
+        providerID,
+        motivo: "OpenCode lo lista pero ninguno de sus modelos sirve para conversar con herramientas",
+      });
+    }
+  }
+  return fuera;
+}
+
 // ─── Memoria de fallos: que no reintente lo que ya se sabe que no anda ──────
 //
 // La rotación automática ya existía: por eso el trace del 2026-08-24 muestra

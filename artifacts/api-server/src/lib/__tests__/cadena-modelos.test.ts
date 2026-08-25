@@ -153,7 +153,7 @@ describe("la cadena del turno", () => {
   });
 });
 
-import { anotarFallo, filtrarEnfriados, olvidarFallos } from "../cadena-modelos";
+import { anotarFallo, filtrarEnfriados, olvidarFallos, diagnosticarRapidos } from "../cadena-modelos";
 
 /** Réplica mínima de clasificarFallo (optimized-rotation.ts) para no acoplar
  *  el test a ese módulo: lo que se prueba acá es la MEMORIA, no el clasificador. */
@@ -272,5 +272,59 @@ describe("Memoria de los modelos que se cuelgan", () => {
       anotarFallo(m, "timeout", clasificarReal, t + 1000);
     }
     expect(filtrarEnfriados([LENTO, OTRO], t + 2000)).toHaveLength(2);
+  });
+});
+
+/**
+ * Un proveedor rápido configurado que queda afuera tiene que DECIRSE.
+ *
+ * El admin objetó dos veces lo mismo: "tenemos github, tenemos opencode zen,
+ * tenemos nvidia, imposible que ninguno sirva". Y las dos veces tenía razón:
+ * el candidato se descartaba en silencio. No había forma de distinguir "no lo
+ * tengo configurado" de "lo configuré y el sistema no lo ve", que son dos
+ * problemas con arreglos distintos.
+ */
+describe("Por qué un proveedor rápido no entró", () => {
+  it("avisa cuando tenemos la credencial pero OpenCode no lista el proveedor", () => {
+    const fuera = diagnosticarRapidos({
+      conectados: new Set<string>(),
+      tenemosClave: (p) => p === "groq",
+      modelosPorProveedor: new Map(), // OpenCode no devolvió groq
+    });
+    expect(fuera).toHaveLength(1);
+    expect(fuera[0]!.providerID).toBe("groq");
+    expect(fuera[0]!.motivo).toContain("no lista");
+  });
+
+  it("avisa cuando el proveedor está pero ninguno de sus modelos sirve", () => {
+    const fuera = diagnosticarRapidos({
+      conectados: new Set(["groq"]),
+      tenemosClave: () => false,
+      // Solo modelos que no conversan: embeddings.
+      modelosPorProveedor: new Map([["groq", ["text-embedding-3", "whisper-large"]]]),
+    });
+    expect(fuera).toHaveLength(1);
+    expect(fuera[0]!.motivo).toContain("ninguno de sus modelos sirve");
+  });
+
+  // Lo que NO está configurado no es una sorpresa y no se reporta: llenar el
+  // log de proveedores que el admin nunca conectó es ruido, y el ruido tapa.
+  it("no se queja de lo que el admin nunca configuró", () => {
+    expect(
+      diagnosticarRapidos({
+        conectados: new Set<string>(),
+        tenemosClave: () => false,
+        modelosPorProveedor: new Map(),
+      }),
+    ).toHaveLength(0);
+  });
+
+  it("si entra bien, no reporta nada", () => {
+    const fuera = diagnosticarRapidos({
+      conectados: new Set(["groq"]),
+      tenemosClave: () => false,
+      modelosPorProveedor: new Map([["groq", ["llama-3.3-70b-versatile"]]]),
+    });
+    expect(fuera).toHaveLength(0);
   });
 });
