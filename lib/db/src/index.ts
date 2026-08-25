@@ -201,9 +201,22 @@ async function initDb() {
       }
       saveDbToDisk = saveFallbackDb;
       setInterval(saveFallbackDb, 15000);
+      // Solo GUARDAR, nunca salir.
+      //
+      // Estos manejadores llamaban `process.exit(0)` en el acto. Como
+      // `lib/db` se importa antes que nada, su listener de SIGTERM queda
+      // registrado PRIMERO, y al salir de inmediato mataba el cierre ordenado
+      // de WhatsApp (`lib/apagado-ordenado.ts`) antes de que alcanzara a
+      // cerrar el socket.
+      //
+      // Eso reabre el bug que costo clientes: si el socket no se cierra
+      // limpio, WhatsApp cree que el telefono sigue en linea y entrega al
+      // vacio los mensajes que llegan durante el deploy -- no los encola ni
+      // los reenvia. Guardar es correcto; decidir la salida no le toca a este
+      // modulo.
       process.on("exit", saveFallbackDb);
-      process.on("SIGINT", () => { saveFallbackDb(); process.exit(0); });
-      process.on("SIGTERM", () => { saveFallbackDb(); process.exit(0); });
+      process.on("SIGINT", saveFallbackDb);
+      process.on("SIGTERM", saveFallbackDb);
 
       await ensureSqliteTables(sqliteDb, saveFallbackDb);
       dbReady = true;
