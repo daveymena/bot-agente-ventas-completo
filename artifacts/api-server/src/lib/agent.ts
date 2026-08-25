@@ -13,6 +13,7 @@ import {
 } from "@workspace/db";
 import { getProviderConfig, getProviderRotation, getProviderConfigFromSettings, createAIClient, getOpenCodeRotation, getOpenCodeGoRotation } from "@workspace/integrations-openai-ai-server";
 import { logger } from "./logger";
+import { verificarPrecios } from "./precio-verificado";
 import { PaymentGateway } from "./payments";
 import { 
   healthMonitor,
@@ -2299,6 +2300,40 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
 
       // Limpiar flag interno _beforeCard
       const finalParts = parts.map((p: any) => { delete p._beforeCard; return p; });
+
+      // ── Candado de precios: ningun monto sale si no es de un producto real ──
+      //
+      // El prompt ya dice "NUNCA escribas precios, van en la tarjeta". Es una
+      // instruccion blanda y el modelo la ignora: en la prueba en vivo del
+      // 2026-08-25 cotizo el mismo curso de Excel a $60.000, a $45.000 y a
+      // $20.000, y ofrecio un combo de $85.000 que no existe como producto --
+      // o sea sin link de pago ni forma de entregarlo.
+      //
+      // El catalogo es la fuente de verdad. La IA redacta; no cotiza.
+      try {
+        const idsEnContexto = [
+          ...finalParts.filter((p: any) => p.kind === "card").map((p: any) => p.productId),
+          decision.productToShow?.id,
+          decision.productoDelMensaje?.id,
+          memory.currentProductId,
+        ].filter((n: any): n is number => typeof n === "number");
+
+        for (const parte of finalParts) {
+          if (parte.kind !== "text" || !parte.content) continue;
+          const revision = verificarPrecios(parte.content, productList as any, idsEnContexto);
+          if (revision.inventados.length > 0) {
+            logger.warn(
+              { conversationId, inventados: revision.inventados, idsEnContexto },
+              "[Precios] Se bloquearon montos que no son de ningun producto real",
+            );
+            console.log(`🔒 [PRECIOS] Bloqueados: ${revision.inventados.join(", ")} - ${ts()}`);
+            parte.content = revision.texto;
+          }
+        }
+      } catch (e: any) {
+        // Un fallo del candado no puede dejar al cliente sin respuesta.
+        logger.error({ err: e?.message }, "[Precios] fallo el verificador");
+      }
 
       console.log(`📋 [PARSER] partes:${finalParts.length} cards:${cardCount} - ${ts()}`);
 
