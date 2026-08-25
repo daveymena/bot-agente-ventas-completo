@@ -93,11 +93,6 @@ logger.info("[MessageHandler] Message receiver configured for default tenant");
   try {
     await ensureDbReady();
 
-    // AUTO-SEED DESHABILITADO temporalmente por schema mismatch
-    // TODO: migrar schema de BD antes de habilitar
-    return;
-
-    /*
     // Auto-seed tenant (admin user) if not exists.
     // Email/password vienen de ADMIN_EMAIL/ADMIN_PASSWORD -- nunca hardcodeados
     // aquí: un valor fijo en el código es la misma cuenta admin conocida en
