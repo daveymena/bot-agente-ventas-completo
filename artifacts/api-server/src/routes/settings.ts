@@ -158,6 +158,21 @@ router.post("/copilot-device-token", requirePlatformOwner(), async (req, res, ne
     // el 2026-08-19: pasó exactamente eso.
     process.env.GITHUB_TOKEN = accessToken;
 
+    // Y a OpenCode, que es de donde Atlas saca sus modelos. Sin esto el admin
+    // vincula su cuenta, la app guarda el token, y OpenCode nunca se entera:
+    // sus 36 modelos de Copilot fallan con "Unexpected server error" en 0,4 s
+    // --los 36, medidos uno por uno el 2026-08-25-- porque no tiene ninguna
+    // credencial para ese proveedor. No bloquea la respuesta.
+    void import("../lib/opencode-provider-sync")
+      .then(({ sincronizarCopilotConOpencode }) =>
+        sincronizarCopilotConOpencode({
+          refresh: accessToken,
+          access: sessionToken?.token,
+          expiraEnMs: sessionToken?.expiresAt ? sessionToken.expiresAt * 1000 : null,
+        }),
+      )
+      .catch(() => {});
+
     console.log("✅ [BACKEND] Copilot autorizado y token guardado");
     return res.json({ status: "authorized", success: true });
   } catch (e: any) {

@@ -194,6 +194,24 @@ export async function cargarClavesEnEntorno(): Promise<number> {
     if ((row as any).githubToken) {
       process.env.GITHUB_TOKEN = String((row as any).githubToken);
       logger.info("[AIKeys] token de GitHub tomado de la conexión de Copilot");
+
+      // Y se le pasa a OpenCode, que es de donde Atlas saca sus modelos.
+      //
+      // Va acá además de en el momento de vincular, y no es redundante: el
+      // admin ya tiene su cuenta vinculada desde antes de que esto existiera, y
+      // sin este empujón al arrancar habría que pedirle que la vuelva a
+      // vincular para nada. También cubre que OpenCode se reinicie y pierda su
+      // configuración, que ya pasó antes con las otras claves.
+      const expira = (row as any).copilotSessionExpiresAt;
+      void import("./opencode-provider-sync")
+        .then(({ sincronizarCopilotConOpencode }) =>
+          sincronizarCopilotConOpencode({
+            refresh: String((row as any).githubToken),
+            access: (row as any).copilotSessionToken || null,
+            expiraEnMs: expira ? new Date(expira).getTime() : null,
+          }),
+        )
+        .catch(() => {});
     }
 
     // VARIAS cuentas de Copilot. El admin tiene varias propias y activas, y la

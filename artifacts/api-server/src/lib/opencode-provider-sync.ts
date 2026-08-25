@@ -71,6 +71,67 @@ export async function sincronizarProveedorConOpencode(proveedorId: string, apiKe
 }
 
 /**
+ * Sincroniza la conexión de COPILOT hacia OpenCode.
+ *
+ * Copilot está en NO_SINCRONIZABLES porque no acepta `PUT /auth/{id}` con
+ * `{type:"api"}` -- eso era cierto, pero la conclusión que se sacó ("no se
+ * puede sincronizar") no lo era: acepta el MISMO endpoint con la otra forma.
+ * Verificado contra el OpenCode real (2026-08-25), consultando su propia
+ * especificación:
+ *
+ *   GET /provider/auth  ->  github-copilot: [{ "type": "oauth", ... }]
+ *   schema OAuth        ->  { type:"oauth", refresh, access, expires }  (todos requeridos)
+ *
+ * Por qué importa: se probaron los 36 modelos de Copilot uno por uno contra
+ * producción y los 36 fallan idéntico, en 0,4 s, con "Unexpected server error".
+ * No es un problema de modelos -- es que OpenCode no tiene ninguna credencial
+ * para ese proveedor, y por eso `github-copilot` tampoco figura en su lista de
+ * `connected`. El admin vincula su cuenta en el panel, la app guarda el token,
+ * y OpenCode nunca se entera.
+ *
+ * Las tres piezas ya existen del flujo de dispositivo:
+ *   refresh -> el token de GitHub (largo, sirve para renovar)
+ *   access  -> el token de sesión de Copilot (corto)
+ *   expires -> cuándo vence ese token de sesión, en milisegundos
+ *
+ * Best-effort como el resto: si falla, se loguea y no rompe nada.
+ */
+export async function sincronizarCopilotConOpencode(cred: {
+  refresh: string;
+  access?: string | null;
+  expiraEnMs?: number | null;
+}): Promise<boolean> {
+  const cfg = opencodeConfig();
+  if (!cfg || !cred.refresh) return false;
+
+  try {
+    const res = await fetch(`${cfg.host}/auth/github-copilot`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", Authorization: cfg.authHeader },
+      body: JSON.stringify({
+        type: "oauth",
+        refresh: cred.refresh,
+        // `access` y `expires` son obligatorios en el schema. Si todavía no se
+        // intercambió el token de sesión, se manda el de GitHub y vencido: con
+        // el refresh válido, OpenCode renueva solo en el primer uso.
+        access: cred.access || cred.refresh,
+        expires: cred.expiraEnMs && cred.expiraEnMs > 0 ? cred.expiraEnMs : 0,
+      }),
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (!res.ok) {
+      logger.warn({ status: res.status }, "[AtlasMCP] OpenCode rechazó la credencial de Copilot");
+      return false;
+    }
+    logger.info("[AtlasMCP] Copilot sincronizado a OpenCode (oauth)");
+    return true;
+  } catch (err: any) {
+    logger.warn({ err: err?.message }, "[AtlasMCP] No se pudo sincronizar Copilot a OpenCode");
+    return false;
+  }
+}
+
+/**
  * Sincroniza TODAS las claves ya guardadas -- para el respaldo inicial (las
  * que el admin ya había cargado antes de que existiera esta sincronización)
  * y para volver a alinear todo si operato se reinicia y pierde su config.
