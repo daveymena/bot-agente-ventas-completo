@@ -75,6 +75,31 @@ export function clasificarFallo(error?: string): {
     // `deepseek-v4-flash` y `deepseek-v4-pro` responden en ~293ms. Dejar que
     // el vision-exp aparte a DeepSeek sería perder el proveedor de PAGO por
     // culpa de uno de sus modelos.
+    //
+    // Pero dentro de esta clase hay dos cosas MUY distintas, y darles el mismo
+    // enfriamiento de 30 segundos era tratar como pasajero algo que es
+    // definitivo:
+    //
+    //   · "no existe / no tenés acceso" es PERMANENTE. Un modelo que la cuenta
+    //     no puede usar no va a empezar a existir en 30 segundos. Medido contra
+    //     la cuenta real (2026-08-25): `llama-3.1-8b-instant` y
+    //     `llama-3.3-70b-versatile` devuelven 404 "does not exist or you do not
+    //     have access to it" en TODOS los intentos. Con 30 s de enfriamiento se
+    //     reintentan en cada turno, para siempre.
+    //
+    //   · "respuesta vacía" sí puede ser un mal momento del modelo.
+    //
+    // El enfriamiento largo es seguro porque la penitencia es por MODELO
+    // (proveedor|modelo), no por proveedor: apartar 6 h a un modelo inexistente
+    // no toca a los demás modelos de esa misma cuenta.
+    // "unavailable" queda AFUERA a propósito: el mensaje real que se vio es
+    // "Upstream request failed: Model is unavailable", que suena a tropiezo del
+    // proveedor de arriba y puede volver solo. Acá van las que dicen, sin
+    // ambigüedad, que ese modelo no está disponible para ESTA cuenta.
+    const inexistente = /does not exist|do not have access|not supported|model_not_found|unknown model/.test(e);
+    if (inexistente) {
+      return { clase: "modelo_caido", cooldownMs: 6 * HORA, inmediato: true };
+    }
     return { clase: "modelo_caido", cooldownMs: 30 * 1000, inmediato: false };
   }
   if (/no (api )?key|missing (api )?key|unauthorized|invalid api key|bad credentials|\b401\b/.test(e)) {
