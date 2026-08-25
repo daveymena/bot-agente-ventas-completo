@@ -213,15 +213,31 @@ function parseFacebookMeta(metadata: unknown): TenantContext["facebook"] {
 }
 
 /**
- * Extrae las credenciales SMTP de tenants.metadata.emailCredentials.
+ * Extrae las credenciales SMTP de tenants.metadata.email.
+ *
+ * OJO con el nombre de la clave: la pantalla de Configuracion -> Email guarda
+ * en `metadata.email` (construirMetaCorreo, lib/tenant-email.ts), que es
+ * ademas lo que documenta tenant-email-credentials.ts. Esta funcion leia
+ * `metadata.emailCredentials`, una clave que NADIE escribe nunca.
+ *
+ * Consecuencia real, medida el 2026-08-25: el admin cargaba su SMTP, la
+ * pantalla de estado lo daba por configurado y el boton de probar conexion
+ * funcionaba -- porque ESOS dos leen `metadata.email` por configCorreoDe().
+ * Pero el correo de recuperacion de clave resuelve por credencialesEmailDe()
+ * -> tenant.emailCredentials -> esta funcion, asi que recibia user y pass
+ * vacios, crearTransporter() devolvia null y el envio se abortaba en
+ * silencio. El usuario veia "revisa tu correo" y no llegaba nada, ni a el ni
+ * a ningun cliente suyo.
  * Misma regla que parseFacebookMeta: metadata puede venir como string JSON
  * según el motor de BD y la password puede estar cifrada con credentials-vault.
  */
-function parseEmailMeta(metadata: unknown): TenantContext["emailCredentials"] {
+export function parseEmailMeta(metadata: unknown): TenantContext["emailCredentials"] {
   if (!metadata) return undefined;
   try {
     const meta = typeof metadata === "string" ? JSON.parse(metadata) : (metadata as any);
-    const em = meta?.emailCredentials;
+    // `emailCredentials` se mantiene como respaldo por si quedo algun dato
+    // guardado con la forma vieja, pero la fuente real es `email`.
+    const em = meta?.email || meta?.emailCredentials;
     if (!em) return undefined;
     return {
       ...em,
