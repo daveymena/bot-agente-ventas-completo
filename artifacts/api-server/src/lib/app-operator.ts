@@ -2321,8 +2321,8 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: "fb_create_ad",
-    description: "Crear una campaña de anuncios en Facebook/Instagram para un producto. Se crea SIEMPRE en PAUSA (no gasta hasta que el admin la active en Ads Manager). Meta adapta el creativo a cada tamaño/dispositivo automáticamente. GASTA DINERO al activarse.",
-    args: '{ "productId": number (req), "dailyBudget": number (opcional, en la moneda de la cuenta, def 5000), "startDate": string opcional ISO, "cities": string[] opcional, "ageMin": number opcional, "ageMax": number opcional }',
+    description: "Crear una campaña de anuncios en Facebook/Instagram para un producto. Se crea SIEMPRE en PAUSA (no gasta hasta que el admin la active en Ads Manager). Meta adapta el creativo a cada tamaño/dispositivo automáticamente. GASTA DINERO al activarse. ⚠️ El 'objetivo' decide A DÓNDE va la gente y A QUIÉN le muestra Meta el anuncio: si el admin dijo WhatsApp, mensajes, tráfico o alcance, PASALO — sin ese dato se crea de ventas apuntando a la web, que es otra campaña distinta.",
+    args: '{ "productId": number (req), "objetivo": "ventas"|"trafico"|"mensajes"|"reconocimiento" (opcional pero IMPORTANTE — "mensajes" abre WhatsApp, "trafico" lleva a la web buscando clics, "ventas" lleva a la web buscando compradores, def "ventas"), "dailyBudget": number (opcional, en la moneda de la cuenta, def 5000), "startDate": string opcional ISO, "cities": string[] opcional, "ageMin": number opcional, "ageMax": number opcional }',
     run: async (args, ctx) => {
       if (!args.productId) return { ok: false, summary: "Falta 'productId'" };
       const tenant = await tenantManager.getTenantById(ctx.tenantId);
@@ -2333,11 +2333,26 @@ export const TOOLS: ToolDef[] = [
       if (args.cities) targeting.geoLocations = { cities: args.cities };
       if (args.ageMin) targeting.ageMin = Number(args.ageMin);
       if (args.ageMax) targeting.ageMax = Number(args.ageMax);
+
+      // El objetivo NO se pasaba: `createAdForProduct` lo recibe desde hace
+      // rato (facebook.ts) y esta herramienta simplemente no se lo mandaba, así
+      // que TODA campaña creada por Atlas salía de ventas apuntando a la web.
+      //
+      // Reportado por el admin: "le pido de tráfico y me manda a otro lado".
+      // Tenía razón y no era el modelo: el parámetro tampoco estaba declarado
+      // en `args`, así que no había forma de expresarlo aunque quisiera. El
+      // módulo entero de objetivos --con WhatsApp, tráfico y alcance-- estaba
+      // escrito y era inalcanzable desde acá.
+      const { interpretarObjetivo, OBJETIVOS } = await import("./objetivos-campana");
+      const objetivo = interpretarObjetivo(String(args.objetivo || "")) || "ventas";
+
       const r = await fb.createAdForProduct(
         Number(args.productId),
         num(args.dailyBudget) ?? 5000,
         args.startDate,
         Object.keys(targeting).length ? targeting : undefined,
+        undefined,
+        objetivo,
       );
       if (!r) {
         // createAdForProduct devuelve null en cualquier error (para no
@@ -2351,7 +2366,20 @@ export const TOOLS: ToolDef[] = [
         const detalle = fb.lastAdError ? ` Motivo real: ${fb.lastAdError}` : "";
         return { ok: false, summary: `No se pudo crear la campaña.${detalle}` };
       }
-      return { ok: true, summary: `Campaña creada EN PAUSA para el producto ${args.productId}. Actívala en Ads Manager. Preview: ${r.previewUrl}`, data: r };
+      // El destino se DICE. Antes el resumen no lo mencionaba, así que una
+      // campaña creada de ventas cuando el admin pidió WhatsApp se reportaba
+      // igual que una correcta: "Campaña creada EN PAUSA". Nombrar el destino
+      // convierte un error silencioso en uno que se ve antes de activar.
+      const OBJ = OBJETIVOS[objetivo];
+      const aDonde = OBJ.destino === "whatsapp" ? "abre WhatsApp" : "lleva a la web";
+      return {
+        ok: true,
+        summary:
+          `Campaña creada EN PAUSA para el producto ${args.productId}. ` +
+          `Tipo: ${objetivo} — ${aDonde} (${OBJ.metaObjective}). ` +
+          `Actívala en Ads Manager. Preview: ${r.previewUrl}`,
+        data: r,
+      };
     },
   },
   {
@@ -2695,7 +2723,7 @@ export const TOOLS: ToolDef[] = [
   {
     name: "fb_upload_draft_to_meta",
     description: "Sube a Meta un borrador que hoy solo existe local, CON SU PROPIO TEXTO, y lo deja en PAUSA (no gasta un peso). Es el paso intermedio entre 'borrador guardado acá' y 'campaña gastando': después de esto el admin puede verlo en Ads Manager y activarlo cuando quiera. Usá fb_list_drafts para conseguir el draftId. NO confundir con publicar/activar: esto NO enciende la campaña.",
-    args: '{ "draftId": number (req, id del borrador -- lo da fb_list_drafts) }',
+    args: '{ "draftId": number (req, id del borrador -- lo da fb_list_drafts), "objetivo": "ventas"|"trafico"|"mensajes"|"reconocimiento" (opcional pero IMPORTANTE — decide A DÓNDE va la gente: "mensajes" abre WhatsApp, "trafico" y "ventas" llevan a la web. Si el admin dijo WhatsApp o tráfico, PASALO; sin ese dato sube como campaña de ventas a la web) }',
     run: async (args, ctx) => {
       const draftId = Number(args.draftId);
       if (!draftId) return { ok: false, summary: "Falta el id del borrador (usá fb_list_drafts para obtenerlo)." };
@@ -2725,13 +2753,20 @@ export const TOOLS: ToolDef[] = [
 
       const tenant = await tenantManager.getTenantById(ctx.tenantId);
       const { AdStrategist } = await import("./ad-strategist");
-      const { interpretarObjetivo } = await import("./objetivos-campana");
+      const { interpretarObjetivo, OBJETIVOS } = await import("./objetivos-campana");
+      // `objetivo` se leía acá desde el principio, pero NO estaba declarado en
+      // `args`: el modelo no tenía cómo saber que existía, así que nunca lo
+      // mandaba y esto caía siempre en "ventas" → web.
       const objetivo = interpretarObjetivo(String(args.objetivo || "")) || "ventas";
       const r = await new AdStrategist(tenant || undefined).subirBorradorAMeta(draftId, objetivo);
+      const OBJ = OBJETIVOS[objetivo];
+      const aDonde = OBJ.destino === "whatsapp" ? "abre WhatsApp" : "lleva a la web";
       return {
         ok: r.ok,
         summary: r.ok
-          ? `Borrador ${draftId} subido a Meta en PAUSA (campaña ${r.campaignId}). NO está gastando: quedó pausado para que lo revises en Ads Manager y lo actives vos cuando quieras.`
+          ? `Borrador ${draftId} subido a Meta en PAUSA (campaña ${r.campaignId}). ` +
+            `Tipo: ${objetivo} — ${aDonde} (${OBJ.metaObjective}). ` +
+            `NO está gastando: quedó pausado para que lo revises en Ads Manager y lo actives vos cuando quieras.`
           : (r.message || "No se pudo subir el borrador a Meta."),
       };
     },

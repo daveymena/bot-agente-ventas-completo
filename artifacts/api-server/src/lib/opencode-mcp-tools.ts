@@ -286,6 +286,30 @@ function valorLegible(v: any, max = 60): string {
   }
 }
 
+/**
+ * Cómo se lee el destino de una campaña en el plan que aprueba el admin.
+ *
+ * El destino NO aparecía en ningún plan. El admin pedía "tráfico a WhatsApp",
+ * aprobaba un plan que decía solo "crear campaña, presupuesto X/día", y recién
+ * en Ads Manager descubría que apuntaba a la web. Reportado tal cual: "le pido
+ * de tráfico y me manda a otro lado".
+ *
+ * La causa de fondo estaba en las herramientas (el parámetro `objetivo` ni
+ * siquiera estaba declarado, así que el modelo no podía pasarlo), pero mostrarlo
+ * acá es la red que queda para siempre: por esta función pasa TODO plan de TODOS
+ * los negocios, así que el admin puede frenar un destino equivocado ANTES del
+ * "sí" — sin depender de que el modelo acierte.
+ */
+function destinoLegible(objetivo: unknown): string {
+  const o = String(objetivo || "").toLowerCase();
+  if (/mensaje|whatsapp|convers/.test(o)) return "📱 abre WhatsApp (campaña de mensajes)";
+  if (/tr[aá]fico|traffic/.test(o)) return "🔗 lleva a la web buscando clics (campaña de tráfico)";
+  if (/reconoc|alcance|awareness/.test(o)) return "📣 solo alcance, ni clics ni ventas (reconocimiento)";
+  if (/venta|sales/.test(o)) return "🛒 lleva a la web buscando compradores (campaña de ventas)";
+  // Que no lo haya dicho es un dato, no un detalle: se crea de ventas a la web.
+  return "🛒 lleva a la web buscando compradores (ventas — NO se pidió otro destino)";
+}
+
 export function describePlannedAction(a: { tool: string; args: any }): string {
   const g = a.args || {};
   switch (a.tool) {
@@ -304,7 +328,9 @@ export function describePlannedAction(a: { tool: string; args: any }): string {
     case "create_store":
       return `Crear tienda "${g.name ?? g.slug ?? "?"}"`;
     case "fb_create_ad":
-      return `💰 Crear campaña de Facebook para producto ${g.productId ?? "?"} (presupuesto ${g.dailyBudget ?? 5000}/día) — se crea EN PAUSA, no gasta hasta que la actives`;
+      return `💰 Crear campaña de Facebook para producto ${g.productId ?? "?"} (presupuesto ${g.dailyBudget ?? 5000}/día)
+   ➡️ Destino: ${destinoLegible(g.objetivo)}
+   Se crea EN PAUSA, no gasta hasta que la actives`;
     case "fb_sync_catalog":
       return `Sincronizar catálogo de productos a Facebook`;
     case "fb_page_publish":
@@ -355,7 +381,9 @@ export function describePlannedAction(a: { tool: string; args: any }): string {
     case "fb_create_pixel":
       return `🎯 Crear un píxel NUEVO en tu cuenta de Facebook${g.nombre ? ` ("${g.nombre}")` : ""} y dejarlo configurado — es un objeto permanente en tu cuenta de Meta. Después hay que instalarlo en la web para que registre compras`;
     case "fb_upload_draft_to_meta":
-      return `📤 Subir el borrador ${g.draftId === "auto" ? "que se acaba de crear" : (g.draftId ?? "?")} a Meta EN PAUSA — crea la campaña, el conjunto y el anuncio en tu cuenta. NO gasta: queda pausado hasta que lo actives`;
+      return `📤 Subir el borrador ${g.draftId === "auto" ? "que se acaba de crear" : (g.draftId ?? "?")} a Meta EN PAUSA — crea la campaña, el conjunto y el anuncio en tu cuenta.
+   ➡️ Destino: ${destinoLegible(g.objetivo)}
+   NO gasta: queda pausado hasta que lo actives`;
     case "fb_delete_campaign":
       return `🗑️ BORRAR de Facebook la campaña ${g.campaignId ?? "?"} — se van también sus conjuntos y anuncios. IRREVERSIBLE, no hay papelera${g.borrarAunqueTengaGasto === true ? ", y se pierde su historial de resultados" : ""}`;
     case "fb_pause_campaign":
