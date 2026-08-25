@@ -328,3 +328,75 @@ describe("Por qué un proveedor rápido no entró", () => {
     expect(fuera).toHaveLength(0);
   });
 });
+
+/**
+ * Qué modelo se elige de cada proveedor, contra el catálogo REAL.
+ *
+ * Los ids de abajo se leyeron del `/provider` de producción el 2026-08-25
+ * (solo nombres de modelos: no hay nada secreto acá). Importa que sean los de
+ * verdad, porque el bug que esto fija solo aparece con el catálogo real: en uno
+ * inventado uno pone tres modelos plausibles y la elección siempre parece bien.
+ */
+describe("Qué modelo se elige del catálogo real de Groq", () => {
+  // Tal cual los devuelve OpenCode, en su orden real.
+  const GROQ_REAL = [
+    "whisper-large-v3",
+    "llama-3.3-70b-versatile",
+    "allam-2-7b",
+    "llama-3.1-8b-instant",
+    "whisper-large-v3-turbo",
+    "openai/gpt-oss-120b",
+    "openai/gpt-oss-safeguard-20b",
+    "openai/gpt-oss-20b",
+    "qwen/qwen3.6-27b",
+    "meta-llama/llama-prompt-guard-2-86m",
+    "meta-llama/llama-prompt-guard-2-22m",
+    "groq/compound-mini",
+    "groq/compound",
+    "canopylabs/orpheus-arabic-saudi",
+    "canopylabs/orpheus-v1-english",
+  ];
+
+  /**
+   * REGRESIÓN. La regla anterior era una sola lista donde "7b" pesaba igual que
+   * "instant", y ganaba el primero que apareciera en el catálogo. Con estos ids
+   * reales el turno de Groq se lo llevaba `allam-2-7b` --un modelo en árabe--
+   * mientras `llama-3.1-8b-instant` quedaba sin usar.
+   *
+   * Groq es justo el proveedor que se agregó para tener algo que conteste en
+   * segundos: gastarle el turno a un modelo que no sirve deja al admin
+   * esperando los 135s igual.
+   */
+  it("elige el rápido de verdad, no el que solo tiene un número chico", () => {
+    expect(elegirModelo(GROQ_REAL)).toBe("llama-3.1-8b-instant");
+  });
+
+  it("descarta lo que no conversa: audio, whisper y los guard", () => {
+    const elegido = elegirModelo(GROQ_REAL)!;
+    expect(elegido).not.toMatch(/whisper|orpheus|guard/i);
+  });
+
+  // Si no hay ninguno que anuncie velocidad, el tamaño sigue sirviendo como
+  // segunda pista: es mejor que quedarse con el primero de la lista.
+  it("sin marcas de velocidad, cae al más chico", () => {
+    expect(elegirModelo(["llama-3.3-70b-versatile", "allam-2-7b"])).toBe("allam-2-7b");
+  });
+
+  /**
+   * REGRESIÓN. Los ids de PROVEEDORES_RAPIDOS son los del CATÁLOGO de OpenCode,
+   * no los que usa esta app. Estaban escritos "opencode_go" y "nvidia_nim"
+   * --como los nombra este código-- pero OpenCode los llama "opencode-go" y
+   * "nvidia". Al no coincidir con nada, esos dos proveedores no se podían
+   * descubrir NUNCA, aunque el admin tuviera la clave cargada.
+   */
+  it("usa los ids con los que OpenCode nombra a los proveedores", () => {
+    const cadena = armarCadena({
+      curados: [],
+      conectados: new Set<string>(),
+      tenemosClave: (p) => p === "opencode-go",
+      modelosPorProveedor: new Map([["opencode-go", ["deepseek-v4-flash"]]]),
+      respaldo: { providerID: "opencode", modelID: "big-pickle" },
+    });
+    expect(cadena.map((c) => c.providerID)).toContain("opencode-go");
+  });
+});

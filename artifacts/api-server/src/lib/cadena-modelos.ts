@@ -41,7 +41,12 @@ export const PROVEEDORES_RAPIDOS = [
   // como lo nombre OpenCode, y no se puede verificar desde aca: el que no
   // exista simplemente no aparece en el catalogo y se ignora.
   "github-copilot", "github_copilot", "copilot",
-  "groq", "cerebras", "nvidia_nim", "opencode_go",
+  // Los ids son los del CATÁLOGO de OpenCode, no los de esta app. Verificado
+  // el 2026-08-25 contra el /provider real: son "opencode-go" con guion y
+  // "nvidia" a secas. Estaban escritos como los nombra esta app
+  // ("opencode_go", "nvidia_nim"), así que no coincidían con nada y esos dos
+  // proveedores no se podían descubrir nunca, aunque el admin tuviera la clave.
+  "groq", "cerebras", "nvidia", "opencode-go",
   // "github" (GitHub Models) queda FUERA a proposito: GitHub lo esta
   // retirando. Verificado el 2026-08-19 contra los dos endpoints -- el viejo
   // devuelve 404 y el nuevo 410 "retirement brownout" -- y confirmado el
@@ -58,7 +63,7 @@ export const PROVEEDORES_RAPIDOS = [
  * devuelven `content` vacío (documentado en operator-opencode.ts). Los de
  * imagen/audio/embedding directamente no conversan.
  */
-const NO_SIRVEN = /(embed|whisper|tts|audio|image|vision|guard|rerank|reasoner|thinking)/i;
+const NO_SIRVEN = /(embed|whisper|tts|audio|image|vision|guard|rerank|reasoner|thinking|orpheus|speech|voice)/i;
 
 /** ¿Este modelo puede llamar herramientas? Sin eso Atlas no ejecuta nada. */
 function usaHerramientas(m: any): boolean {
@@ -91,10 +96,27 @@ export function elegirModelo(modelos: unknown): string | null {
   const utiles = entradas.filter((e) => !NO_SIRVEN.test(e.id) && usaHerramientas(e.def));
   if (utiles.length === 0) return null;
 
-  // Ante varios, el más chico suele ser el más rápido -- y acá el problema es
-  // el tiempo, no la profundidad del razonamiento.
-  const preferido = utiles.find((e) => /mini|small|fast|flash|instant|8b|7b/i.test(e.id));
-  return (preferido || utiles[0]!).id;
+  // Ante varios, el más rápido -- acá el problema es el tiempo, no la
+  // profundidad del razonamiento. Pero "chico" y "rápido" no son lo mismo, y
+  // mezclarlos en una sola regla salía caro.
+  //
+  // Medido contra el catálogo REAL de producción (2026-08-25): con la regla
+  // anterior --una sola lista donde "7b" valía igual que "instant"-- el turno
+  // de Groq se lo llevaba `allam-2-7b`, un modelo en árabe, solo porque su
+  // nombre trae "7b" y aparece antes en el catálogo. Mientras tanto
+  // `llama-3.1-8b-instant` y `llama-3.3-70b-versatile` --los que de verdad
+  // sirven para trabajar con herramientas-- quedaban sin usar.
+  //
+  // Ahora en dos escalones: primero los que DICEN ser rápidos, después los que
+  // solo son chicos. Un nombre que anuncia velocidad es mejor evidencia que un
+  // número de parámetros suelto.
+  const rapido = utiles.find((e) => /instant|flash|turbo|mini|lite|fast|small/i.test(e.id));
+  if (rapido) return rapido.id;
+  // El rango importa: "70b" también son dos dígitos seguidos de "b", así que
+  // una regla floja daba por CHICO a un modelo de 70 mil millones de
+  // parámetros. Se acota a 1B-19B, que es donde "chico" y "rápido" coinciden.
+  const chico = utiles.find((e) => /[-_/]([1-9]|1[0-9])b\b/i.test(e.id));
+  return (chico || utiles[0]!).id;
 }
 
 /**
