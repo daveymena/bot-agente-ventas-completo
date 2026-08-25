@@ -213,11 +213,57 @@ const CONFIRMATION_PATTERNS = [
   "me sirve", "eso busco", "eso mismo",
 ];
 
+// OJO: "gracias" a secas NO va aca, y es deliberado.
+//
+// Estuvo en esta lista y convertia en despedida CUALQUIER mensaje que la
+// contuviera. En Colombia casi todo cliente educado cierra con "Gracias", asi
+// que "Me interesa el curso de piano. Gracias." y "¿Tiene garantia? Gracias"
+// se leian como que el cliente se iba, y el bot le contestaba "fue un placer
+// atenderte" a alguien que acababa de decir que le interesaba.
+//
+// Caso real (conversacion 19, 2026-08-25): el cliente pregunto "Donde es la
+// academia. Gracias." y recibio una despedida. Insistio, no lo atendieron, y
+// termino yendose. Venta perdida.
+//
+// El agradecimiento a secas ("gracias", "muchas gracias", "ok gracias") si es
+// una despedida, y eso lo resuelve esGraciasASecas(): mira si queda algo mas
+// en el mensaje, en vez de buscar la palabra suelta.
 const LEAVING_PATTERNS = [
-  "adiós", "adios", "chao", "chau", "gracias", "hasta luego",
+  "adiós", "adios", "chao", "chau", "hasta luego",
   "no gracias", "no me interesa", "no quiero", "déjame",
-  "molestando", "bye", "hasta pronto"
+  "molestando", "bye", "hasta pronto",
+  // "Gracias por ahora no" dejo de matchear al sacar "gracias" de la lista:
+  // el cliente igual se esta yendo, asi que va la frase que lo dice de verdad.
+  "por ahora no", "por el momento no", "ahora no",
 ];
+
+/**
+ * true si el mensaje es SOLO un agradecimiento, sin nada mas que responder.
+ *
+ * Es la diferencia entre "gracias" (se despide) y "¿cuanto dura? gracias"
+ * (pregunta y ademas es amable). Se saca el agradecimiento y la cortesia; si
+ * no queda ninguna palabra con contenido, era una despedida.
+ */
+function esGraciasASecas(texto: string): boolean {
+  const limpio = texto
+    .toLowerCase()
+    .normalize("NFD").replace(/[̀-ͯ]/g, "")
+    // Fuera puntuacion y emojis: "¡Gracias! 🙏" es igual de despedida.
+    .replace(/[^a-z0-9ñ\s]/gi, " ");
+  const RELLENO = new Set([
+    "gracias", "gracia", "grasias", "graciass",
+    "muchas", "mucha", "muchisimas", "mil",
+    "ok", "oka", "okay", "okey", "listo", "lista", "vale", "bueno", "buenas",
+    "de", "nada", "igual", "igualmente", "amable", "amigo", "amiga",
+    "senor", "senora", "bye", "saludos",
+    // Intensificadores de cortesia: "gracias, muy amable" es tan despedida
+    // como "gracias" a secas.
+    "muy", "tan", "super", "atencion", "atento", "atenta", "amablemente",
+  ]);
+  const restantes = limpio.split(/\s+/).filter(Boolean).filter((p) => !RELLENO.has(p));
+  // Menciono "gracias" y no quedo nada mas: se esta despidiendo.
+  return restantes.length === 0 && /graci|grasi/.test(limpio);
+}
 
 // Patrones que activan el desvío a humano
 const HUMAN_HANDOFF_PATTERNS = [
@@ -842,7 +888,7 @@ export function detectIntent(text: string): Intent {
   if (OBJECTION_PATTERNS.some(p => contieneFrase(t, p))) return "objection";
 
   // Despedida
-  if (LEAVING_PATTERNS.some(p => contieneFrase(t, p))) return "leaving";
+  if (esGraciasASecas(t) || LEAVING_PATTERNS.some(p => contieneFrase(t, p))) return "leaving";
 
   // Desvío a humano
   if (HUMAN_HANDOFF_PATTERNS.some(p => contieneFrase(t, p))) return "human_handoff";
