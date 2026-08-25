@@ -79,7 +79,7 @@ export interface EngineDecision {
   intent: Intent;
   stage: Stage;
   shouldSendCard: boolean;
-  productToShow: { id: number; name: string; price: number; currency: string; description: string; features: string[] } | null;
+  productToShow: { id: number; name: string; price: number; currency: string; description: string; features: string[]; kind?: string | null } | null;
   shouldGreet: boolean;
   isRepeatGreeting: boolean;
   contextBlock: string;          // Bloque de contexto para inyectar en el prompt
@@ -1707,6 +1707,7 @@ export async function computeDecision(
             id: p.id, name: p.name, price: Number(p.price),
             currency: p.currency || "COP", description: p.description || "",
             features: (p.features as string[]) || [],
+            kind: (p as any).kind ?? null,
           };
           shouldSendCard = true;
           console.log(`💳 [DECISION] Producto para pago sugerido: ${p.name} (ID: ${p.id})`);
@@ -1717,6 +1718,7 @@ export async function computeDecision(
               id: currentProduct.id, name: currentProduct.name, price: Number(currentProduct.price),
               currency: currentProduct.currency || "COP", description: currentProduct.description || "",
               features: (currentProduct.features as string[]) || [],
+            kind: (currentProduct as any).kind ?? null,
             };
           }
           shouldSendCard = true;
@@ -1760,6 +1762,7 @@ export async function computeDecision(
             id: currentProduct.id, name: currentProduct.name, price: Number(currentProduct.price),
             currency: currentProduct.currency || "COP", description: currentProduct.description || "",
             features: (currentProduct.features as string[]) || [],
+            kind: (currentProduct as any).kind ?? null,
           };
         }
         shouldSendCard = true;
@@ -1864,7 +1867,7 @@ export async function computeDecision(
 
 // ─── Constructor del bloque de contexto ───────────────────────────────────────
 
-function buildContextBlock(
+export function buildContextBlock(
   memory: ConversationMemory,
   intent: Intent,
   stage: Stage,
@@ -2136,7 +2139,37 @@ function buildContextBlock(
       lines.push(`• Características:`);
       product.features.forEach(f => lines.push(`  ✅ ${f}`));
     }
+    // ── Cómo se entrega ESTE producto: se afirma, no se deja deducir ────────
+    //
+    // El perfil del negocio ya decía "el catálogo tiene digitales y físicos,
+    // fijate cuál es antes de hablar de entrega". Eso es una instruccion
+    // blanda y el modelo la ignoro: con un catalogo mixto (56 fisicos y 84
+    // digitales) leyo la linea de los digitales, que va primera, y se la
+    // aplico a un producto fisico.
+    //
+    // Caso real (conversacion 19, 2026-08-25): al Renovador Negro Perfecto
+    // x 200ml -- un frasco que se envia por mensajeria -- le prometio "acceso
+    // inmediato por Google Drive". Quien pague eso espera una descarga y no
+    // le llega nada: es una devolucion, o un reclamo.
+    //
+    // El `kind` del producto lo sabe el servidor. Se afirma acá, y se prohibe
+    // explicitamente lo del otro tipo, en vez de confiar en que lo deduzca.
+    const tipoProducto = String((product as any).kind || "digital");
+    if (tipoProducto === "physical") {
+      lines.push(`• Tipo: PRODUCTO FÍSICO 📦`);
+      lines.push(`\n🚨 ENTREGA DE ESTE PRODUCTO — es FÍSICO, se ENVÍA:`);
+      lines.push(`   ✅ Se envía a la dirección del cliente y la entrega se coordina por WhatsApp.`);
+      lines.push(`   ❌ NUNCA digas Google Drive, enlace, descarga, "acceso inmediato", "acceso de por vida" ni nada digital: este producto NO se descarga.`);
+      lines.push(`   ❌ NO prometas plazos de envío que no figuren arriba. Si te preguntan cuánto tarda y no lo sabés, decí que lo confirmás.`);
+      lines.push(`   ✅ Para enviarlo hace falta dirección y ciudad: pedilas cuando el cliente quiera comprar.`);
+    } else {
+      lines.push(`• Tipo: PRODUCTO DIGITAL 💻`);
+      lines.push(`\n🚨 ENTREGA DE ESTE PRODUCTO — es DIGITAL:`);
+      lines.push(`   ❌ NUNCA prometas envío físico, paquete, domicilio ni dirección de entrega: no se manda nada por correo.`);
+    }
+
     lines.push(`\n🚨 USA SOLO los datos de arriba. NO inventes características ni precios.`);
+    lines.push(`🚨 La descripción de arriba es la ÚNICA verdad sobre QUÉ ES este producto. Si no dice para qué sirve, NO lo deduzcas del nombre: preguntá o decí que lo confirmás. (Un "Renovador Negro Perfecto x 200ml" es para el carro, no para el cabello — adivinar por el nombre le costó una venta a este negocio.)`);
     if (!shouldSendCard) {
       lines.push(`🚨 NO envíes [CARD: ${product.id}] — ya se mostró antes.`);
     }
@@ -2179,6 +2212,11 @@ function buildContextBlock(
         p.price ? `    💰 Precio: ${formatPrice(Number(p.price), p.currency || 'COP')}` : null,
         p.description ? `    📝 ${String(p.description).substring(0, 110)}` : null,
         p.category ? `    🏷️ Categoría: ${p.category}` : null,
+        // El catalogo es mixto. Sin marcarlo, la IA elige un producto de esta
+        // lista y le aplica la entrega del otro tipo.
+        String((p as any).kind || "digital") === "physical"
+          ? `    📦 FÍSICO (se envía)`
+          : `    💻 DIGITAL (enlace)`,
       ].filter(Boolean).join("\n");
 
       // Un producto en foco entra aunque el presupuesto esté justo: si se
