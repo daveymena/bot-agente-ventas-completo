@@ -154,6 +154,30 @@ const MODELO_RESPALDO = { providerID: "opencode", modelID: "big-pickle" };
 //    pensar en voz alta antes de llamar la primera herramienta es justo lo que
 //    no entra. Por eso `deepseek-chat` y no los otros tres.
 const CANDIDATOS_PAGOS: { providerID: string; modelID: string }[] = [
+  // PRIMERO los que están MEDIDOS respondiendo, no los que deberían responder.
+  //
+  // El 2026-08-25 se probó la cadena entera contra el OpenCode real, modelo por
+  // modelo. De todo lo que había configurado, esto es lo único que contesta:
+  //
+  //   openrouter/openai/gpt-4o-mini      1.8s  "OK"
+  //   openrouter/openai/gpt-4.1-nano     1.7s  "OK"
+  //   opencode/big-pickle (respaldo)     6.5s  "OK"
+  //
+  // Y esto NO contesta, aunque figure en los catálogos:
+  //
+  //   groq/llama-3.1-8b-instant     404 la cuenta no tiene acceso
+  //   groq/gpt-oss-120b y -20b      "context exceeds model limit"
+  //   github-copilot (36 modelos)   500, OpenCode no tiene credencial propia
+  //   opencode-go (2 modelos)       500
+  //   deepseek y mistral            sin crédito
+  //   openrouter/openai/gpt-4o      "requires more credits" (los caros no entran)
+  //
+  // Lo dijo el admin y la medición lo confirmó: "solo sé que funciona gpt-4o".
+  // La cuenta de OpenRouter TIENE saldo -- alcanza para los mini, no para los
+  // grandes. Poner el que responde primero es la diferencia entre contestar en
+  // 2 segundos y cortar a los 135 sin crear nada.
+  { providerID: "openrouter", modelID: "openai/gpt-4o-mini" },
+  { providerID: "openrouter", modelID: "openai/gpt-4.1-nano" },
   { providerID: "deepseek", modelID: "deepseek-chat" },
   { providerID: "mistral", modelID: "mistral-large-latest" },
   // Groq, MEDIDO en vivo el 2026-08-24 contra la instalación real, no elegido
@@ -176,6 +200,20 @@ const CANDIDATOS_PAGOS: { providerID: string; modelID: string }[] = [
   // con el contenedor de OpenCode, que resuelve los modelos por su cuenta: si
   // allá el id no existiera, este candidato falla rápido y la rotación sigue
   // -- mucho más barato que los 55s de un gratis que sí existe pero no llega.
+  //
+  // 🔻 DESMENTIDO el 2026-08-25, midiendo contra OpenCode (que es por donde
+  // pasa Atlas de verdad, no por esta app): `openai/gpt-oss-120b` responde
+  // "Session too large to compact - context exceeds model limit" incluso en una
+  // sesión NUEVA con un mensaje de cuatro palabras. O sea que el contexto base
+  // que inyecta OpenCode no le entra a este modelo, y por acá nunca sirvió.
+  // Ningún modelo de Groq de esta cuenta contesta: los llama dan 404 "does not
+  // exist or you do not have access", los gpt-oss y qwen se pasan de contexto,
+  // y compound-mini no soporta herramientas.
+  //
+  // Se deja en la lista --detrás de los que SÍ responden-- porque falla en
+  // menos de 1s y porque la cuenta podría recuperar acceso; la memoria de
+  // fallos lo aparta sola cuando no anda. El admin además lo prefiere último:
+  // "groq no me gusta porque se agota rápido".
   { providerID: "groq", modelID: "openai/gpt-oss-120b" },
   { providerID: "openrouter", modelID: "nvidia/nemotron-3-nano-30b-a3b:free" },
   { providerID: "openrouter", modelID: "poolside/laguna-xs-2.1:free" },
