@@ -177,14 +177,40 @@ const OBJECTION_PATTERNS = [
   "caro", "costoso", "muy caro", "mucho dinero", "pensarlo",
   "no sé", "no se", "duda", "dudas", "inseguro", "desconfío", "desconfio",
   "estafa", "devolución", "devolucion",
-  "reembolso", "no tengo", "sin dinero", "después", "luego",
-  "lo pienso", "déjame pensar", "más barato", "descuento", "promoción", "promocion"
+  "reembolso", "no tengo", "sin dinero",
+  // "después" y "luego" estaban sueltos, y eso convertía "hasta luego" en una
+  // objeción: el cliente se despedía y el bot le trabajaba una duda que no
+  // puso. Van como frase, que es lo que realmente significa posponer.
+  "para despues", "para después", "mas adelante", "más adelante",
+  "lo dejo para", "luego lo veo", "luego te digo", "despues te digo",
+  "lo pienso", "déjame pensar", "más barato", "descuento", "promoción", "promocion",
+  // Las objeciones más comunes del manual de venta no estaban en la lista, así
+  // que `objectionHandler.ts` --11 tipos, 8 estrategias-- nunca se activaba
+  // para ellas: caían en "consulta de producto" y el bot contestaba como si le
+  // hubieran preguntado una característica. "Lo voy a pensar" es LA objeción
+  // clásica y no estaba: solo estaban "pensarlo" y "lo pienso".
+  "lo voy a pensar", "voy a pensarlo", "lo tengo que pensar",
+  "no estoy seguro", "no estoy segura", "no me convence",
+  "realmente funciona", "de verdad funciona", "si funciona",
+  "si no me gusta", "y si no funciona",
+  "es confiable", "sera confiable", "será confiable", "son confiables",
+  "como se que llega", "cómo sé que llega", "como se que llegara",
+  "desconfianza", "me da cosa", "es seguro",
 ];
 
 const CONFIRMATION_PATTERNS = [
   "sí", "si", "ok", "dale", "bueno", "perfecto", "listo",
   "me gustaría", "me gustaria", "adelante", "vamos",
-  "de acuerdo", "claro", "por supuesto"
+  "de acuerdo", "claro", "por supuesto",
+  // Formas de decir que sí que faltaban. Sin ellas, el cliente aceptaba y el
+  // motor lo leía como "consulta de producto": se quedaba en presentación en
+  // vez de cerrar. Medido: de 11 formas de confirmar, 5 no se reconocían.
+  "hazlo", "correcto", "esta bien", "está bien", "envialo", "envíalo",
+  "confirmado", "de una", "obvio", "exacto", "asi es", "así es",
+  // "me sirve" parecía estar cubierto, pero lo cubría el bug: "sirve" contiene
+  // "si" como subcadena. Al comparar por palabra entera quedó a la vista que
+  // esta forma de aceptar nunca estuvo en la lista.
+  "me sirve", "eso busco", "eso mismo",
 ];
 
 const LEAVING_PATTERNS = [
@@ -779,7 +805,7 @@ export function detectIntent(text: string): Intent {
     "te llega el", "como sabes", "como confirmo",
     "que necesita", "que necesitas", "para entregar", "como lo envias",
     "como me lo entregas", "correo", "email", "datos necesitas", "entregarselo", "entregárselo"];
-  const isPostPaymentProcess = postPaymentProc.some(p => t.includes(p));
+  const isPostPaymentProcess = postPaymentProc.some(p => contieneFrase(t, p));
 
   if (isPostPaymentProcess) {
     return "details_query";
@@ -788,29 +814,57 @@ export function detectIntent(text: string): Intent {
   // Post-pago: cliente pregunta sobre entrega/garantía después del pago
   const afterPayment = ["después de pagar", "despues de pagar", "luego de pagar", "cuando pague", "cuando paga",
     "después del pago", "despues del pago", "luego del pago"];
-  const isPostPaymentQuestion = afterPayment.some(p => t.includes(p));
+  const isPostPaymentQuestion = afterPayment.some(p => contieneFrase(t, p));
   const alsoHasDeliveryDetails = (["entrega", "entregan", "recibir", "acceso", "garantía", "garantia",
-    "incluye", "trae", "qué me", "que me", "me entregan"].some(d => t.includes(d)));
+    "incluye", "trae", "qué me", "que me", "me entregan"].some(d => contieneFrase(t, d)));
   if (isPostPaymentQuestion || (alsoHasDeliveryDetails && t.length > 30)) {
     return "details_query";
   }
 
-  const hasPayment = PAYMENT_PATTERNS.some(p => t.includes(p));
+  // Posponer le gana a pagar. "Más adelante lo compro" trae el verbo de compra,
+  // pero lo que dice es que NO ahora; como el pago se evalúa primero, se leía
+  // como intención de compra y el bot le mandaba los datos para pagar a alguien
+  // que acababa de pedir tiempo. Eso es presionar, y es lo que hace que el
+  // cliente deje de contestar.
+  const POSTERGACION = [
+    "para despues", "para después", "mas adelante", "más adelante",
+    "lo dejo para", "luego lo veo", "lo voy a pensar", "voy a pensarlo",
+    "lo tengo que pensar",
+  ];
+  const posterga = POSTERGACION.some(p => contieneFrase(t, p));
+
+  const hasPayment = !posterga && PAYMENT_PATTERNS.some(p => contieneFrase(t, p));
   if (hasPayment) {
     return "payment_intent";
   }
 
   // Objeción
-  if (OBJECTION_PATTERNS.some(p => t.includes(p))) return "objection";
+  if (OBJECTION_PATTERNS.some(p => contieneFrase(t, p))) return "objection";
 
   // Despedida
-  if (LEAVING_PATTERNS.some(p => t.includes(p))) return "leaving";
+  if (LEAVING_PATTERNS.some(p => contieneFrase(t, p))) return "leaving";
 
   // Desvío a humano
-  if (HUMAN_HANDOFF_PATTERNS.some(p => t.includes(p))) return "human_handoff";
+  if (HUMAN_HANDOFF_PATTERNS.some(p => contieneFrase(t, p))) return "human_handoff";
 
   // Confirmación
-  if (CONFIRMATION_PATTERNS.some(p => t.includes(p)) && !t.includes("no ")) return "confirmation";
+  //
+  // Una confirmación es un mensaje CORTO que acepta: "dale", "está bien",
+  // "envíalo". En una frase larga, "si" casi siempre es el condicional --"quiero
+  // saber SI sirve para principiantes"--, no un sí.
+  //
+  // Comparar por palabra entera no alcanza acá, porque la palabra ES "si": la
+  // que distingue es el largo. Sin este límite, esa pregunta se leía como
+  // aceptación y el motor saltaba al CIERRE: el cliente preguntaba si el curso
+  // le servía y recibía los datos de pago.
+  //
+  // El límite vale también para los patrones de varias palabras: "me sirve" es
+  // aceptación en "ese me sirve", pero es una pregunta en "quiero saber si me
+  // sirve para principiantes".
+  const patronConfirmacion = CONFIRMATION_PATTERNS.find(p => contieneFrase(t, p));
+  if (patronConfirmacion && !t.includes("no ") && wordCount <= 4) {
+    return "confirmation";
+  }
 
   // Pregunta sobre producto (tiene palabras que no son genéricas)
   // Va ANTES de details_query para que "tienes curso de guitarra" no se malinterprete como detalle
@@ -818,7 +872,7 @@ export function detectIntent(text: string): Intent {
   if (productWords.length > 0) return "product_query";
 
   // Pregunta de detalles (sobre entrega, garantía, acceso, etc.)
-  if (DETAILS_PATTERNS.some(p => t.includes(p))) return "details_query";
+  if (DETAILS_PATTERNS.some(p => contieneFrase(t, p))) return "details_query";
 
   return "general";
 }
