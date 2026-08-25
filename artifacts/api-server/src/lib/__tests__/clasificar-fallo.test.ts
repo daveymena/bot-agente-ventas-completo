@@ -54,14 +54,32 @@ describe("Clasificar por qué falló un proveedor", () => {
     }
   });
 
-  it("timeout y red son transitorios de verdad: cooldown corto", () => {
-    for (const e of [
-      "Request timed out.",
-      "Connection error.: fetch failed: getaddrinfo ENOTFOUND models.inference.ai.azure.com",
-    ]) {
+  // Este caso estaba junto con el timeout bajo "cooldown corto", y son dos
+  // cosas distintas: un tropiezo de red falla en el acto, así que reintentarlo
+  // es barato y suele ser de verdad pasajero. Ese es el que conserva el
+  // enfriamiento corto original.
+  it("un tropiezo de red es transitorio de verdad: cooldown corto", () => {
+    const r = clasificarFallo("Connection error.: fetch failed: getaddrinfo ENOTFOUND models.inference.ai.azure.com");
+    expect(r.clase).toBe("lento");
+    expect(r.cooldownMs).toBeLessThanOrEqual(5 * MINUTO);
+  });
+
+  // El timeout NO es barato, y por eso se separó del caso de arriba.
+  //
+  // Trace real del admin (2026-08-24) pidiéndole a Atlas crear un anuncio: de
+  // los 135 s del turno, 131 se fueron en tres modelos que agotaron su ventana
+  // sin devolver una letra (55 s + 51 s + 25 s). El turno se cortó sin crear
+  // nada, dos veces seguidas.
+  //
+  // Con el enfriamiento de 2 minutos, esos modelos volvían a estar disponibles
+  // antes de que el admin terminara de leer la respuesta anterior. Un fallo que
+  // cuesta 55 s no puede tener un castigo más blando que uno que cuesta 0,3 s
+  // ("sin crédito" aparta 6 horas).
+  it("un modelo que se cuelga la ventana entera se aparta de verdad", () => {
+    for (const e of ["Request timed out.", "The operation was aborted due to timeout"]) {
       const r = clasificarFallo(e);
       expect(r.clase).toBe("lento");
-      expect(r.cooldownMs).toBeLessThanOrEqual(5 * MINUTO);
+      expect(r.cooldownMs).toBeGreaterThanOrEqual(10 * MINUTO);
     }
   });
 
@@ -77,10 +95,15 @@ describe("Clasificar por qué falló un proveedor", () => {
     expect(clasificarFallo("").clase).toBe("desconocido");
   });
 
+  // El orden se mantiene --sin crédito espera mucho más que uno lento-- pero la
+  // distancia se acortó a propósito: el factor 50 salía de cuando un timeout
+  // esperaba 2 minutos, y ese castigo resultó ser demasiado blando para el
+  // fallo que MÁS tiempo cuesta (ver el test del modelo que se cuelga). Con 6 h
+  // contra 15 min la diferencia sigue siendo de 24 veces.
   it("un proveedor sin crédito espera MUCHO más que uno lento", () => {
     const sinCredito = clasificarFallo("No payment method");
     const lento = clasificarFallo("Request timed out.");
-    expect(sinCredito.cooldownMs).toBeGreaterThan(lento.cooldownMs * 50);
+    expect(sinCredito.cooldownMs).toBeGreaterThan(lento.cooldownMs * 10);
   });
 });
 

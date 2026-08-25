@@ -162,6 +162,40 @@ interface Castigo { hasta: number; motivo: string }
  *  modelo `vision-exp`, ver optimized-rotation.ts). */
 const enPenitencia = new Map<string, Castigo>();
 
+/**
+ * Fallos NO terminales acumulados por candidato.
+ *
+ * Acá faltaba una pieza entera. `anotarFallo` hacía `if (!inmediato) return;`
+ * y no registraba NADA: el enfriamiento se calculaba y se tiraba. O sea que un
+ * modelo que se queda sin tiempo no se apartaba nunca — se reintentaba en cada
+ * mensaje, para siempre.
+ *
+ * Y ese es justo el fallo MÁS CARO. El reparto es al revés de lo que conviene:
+ *
+ *   sin crédito     → 6 horas apartado, y cuesta 0,3 s detectarlo
+ *   cuota agotada   → 1 hora apartado, y cuesta ~1 s
+ *   sin tiempo      → NUNCA se apartaba, y cuesta 55 s
+ *
+ * Trace real del admin (2026-08-24): de los 135 s del turno, 131 se fueron en
+ * tres modelos gratis que agotaron su ventana sin contestar una letra —
+ * 55 s + 51 s + 25 s. Los dos que se descartaron por saldo costaron 1,6 s
+ * entre los dos. El turno se cortó sin crear nada, dos veces seguidas.
+ *
+ * El criterio de perdonar el primer fallo se conserva a propósito (lo fija el
+ * test "NO aparta por un fallo pasajero"): un timeout suelto puede ser un mal
+ * momento del proveedor. Lo que faltaba era el SEGUNDO golpe, que los propios
+ * comentarios del clasificador daban por existente ("Terminal: no hace falta un
+ * segundo fallo para apartarlo" — implicando que a los otros sí).
+ */
+interface Reincidencia { golpes: number; ultimo: number }
+const fallosNoTerminales = new Map<string, Reincidencia>();
+
+/** Dos fallos separados por más que esto no son una racha: es mala suerte. */
+const VENTANA_REINCIDENCIA_MS = 15 * 60 * 1000;
+
+/** Golpes no terminales que hacen falta para apartar al candidato. */
+const GOLPES_PARA_APARTAR = 2;
+
 const claveDe = (c: Candidato) => `${c.providerID}|${c.modelID}`;
 
 /** Registra que este candidato falló, con el enfriamiento que corresponda. */
@@ -172,11 +206,24 @@ export function anotarFallo(
   ahora = Date.now(),
 ): void {
   const { cooldownMs, inmediato } = clasificar(error);
-  // Los no-terminales (un timeout suelto, un 500) no apartan a nadie: pueden
-  // ser un mal momento del proveedor y castigarlo por eso deja a Atlas con
-  // menos opciones de las que tiene.
-  if (!inmediato) return;
-  enPenitencia.set(claveDe(candidato), { hasta: ahora + cooldownMs, motivo: error.slice(0, 80) });
+  const clave = claveDe(candidato);
+
+  if (inmediato) {
+    enPenitencia.set(clave, { hasta: ahora + cooldownMs, motivo: error.slice(0, 80) });
+    return;
+  }
+
+  // No terminal: se perdona el primero, se aparta al segundo de la racha.
+  const previo = fallosNoTerminales.get(clave);
+  const golpes = previo && ahora - previo.ultimo <= VENTANA_REINCIDENCIA_MS ? previo.golpes + 1 : 1;
+
+  if (golpes >= GOLPES_PARA_APARTAR) {
+    fallosNoTerminales.delete(clave);
+    enPenitencia.set(clave, { hasta: ahora + cooldownMs, motivo: error.slice(0, 80) });
+    return;
+  }
+
+  fallosNoTerminales.set(clave, { golpes, ultimo: ahora });
 }
 
 /** Saca los que están enfriándose, SIN dejar la cadena vacía. */
@@ -196,4 +243,5 @@ export function filtrarEnfriados(cadena: Candidato[], ahora = Date.now()): Candi
 /** Para diagnóstico y para los tests. */
 export function olvidarFallos(): void {
   enPenitencia.clear();
+  fallosNoTerminales.clear();
 }

@@ -81,7 +81,27 @@ export function clasificarFallo(error?: string): {
     return { clase: "sin_clave", cooldownMs: 6 * HORA, inmediato: true };
   }
   if (/timed out|timeout|etimedout|econnreset|enotfound|socket hang up|network|fetch failed/.test(e)) {
-    return { clase: "lento", cooldownMs: 2 * MINUTO, inmediato: false };
+    // Acá había DOS fallos distintos con el mismo castigo, y no cuestan lo
+    // mismo ni por asomo:
+    //
+    //   · Un tropiezo de red (ENOTFOUND, fetch failed, socket hang up) falla
+    //     en el acto. Reintentarlo es barato, y suele ser de verdad pasajero:
+    //     ese es el caso para el que se eligió el enfriamiento corto.
+    //
+    //   · Un TIMEOUT es lo contrario: el modelo se queda con la conexión toda
+    //     la ventana --55 s medidos-- y no devuelve una letra. Es el fallo más
+    //     caro que existe en la rotación, y tenía el castigo más blando de
+    //     todos: un "sin crédito" se detecta en 0,3 s y aparta 6 horas.
+    //
+    // Trace del admin (2026-08-24): 131 de los 135 s del turno se fueron en
+    // tres modelos que agotaron su ventana. Con 2 minutos de enfriamiento
+    // volvían a estar disponibles antes de que terminara de leer la respuesta.
+    //
+    // Pasarse de castigo no es riesgoso: `filtrarEnfriados` nunca devuelve la
+    // cadena vacía --si todos están apartados los intenta igual--, así que el
+    // enfriamiento solo puede cambiar el ORDEN, nunca dejar a Atlas sin nada.
+    const seColgo = /timed out|timeout|etimedout|abort/.test(e);
+    return { clase: "lento", cooldownMs: seColgo ? 15 * MINUTO : 2 * MINUTO, inmediato: false };
   }
   return { clase: "desconocido", cooldownMs: 30 * 1000, inmediato: false };
 }

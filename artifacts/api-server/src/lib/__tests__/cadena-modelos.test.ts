@@ -207,3 +207,70 @@ describe("no reintentar lo que ya se sabe que no anda", () => {
     expect(filtrarEnfriados([A, otroModelo])).toEqual([otroModelo]);
   });
 });
+
+/**
+ * El modelo que se queda sin tiempo NO se puede reintentar para siempre.
+ *
+ * Trace real del admin (2026-08-24), pidiéndole a Atlas crear un anuncio: el
+ * turno se cortó a los 135 s sin crear nada, DOS veces seguidas. De esos 135 s,
+ * 131 se fueron en tres modelos gratis que agotaron su ventana sin devolver una
+ * letra (55 s + 51 s + 25 s). Los dos que se descartaron por saldo costaron
+ * 1,6 s entre los dos.
+ *
+ * La causa: `anotarFallo` hacía `if (!inmediato) return;` — no registraba nada.
+ * El enfriamiento de los fallos no terminales se calculaba y se tiraba, así que
+ * un modelo colgado volvía a intentarse en cada mensaje, para siempre. El fallo
+ * MÁS caro era el único que no se recordaba.
+ */
+describe("Memoria de los modelos que se cuelgan", () => {
+  const LENTO = { providerID: "openrouter", modelID: "poolside/laguna-xs-2.1:free" };
+  const OTRO = { providerID: "openrouter", modelID: "nvidia/nemotron-3-ultra:free" };
+
+  // El mismo clasificador real, en lo que importa acá.
+  const clasificarReal = (e?: string) =>
+    /timeout|timed out/i.test(String(e))
+      ? { cooldownMs: 15 * 60_000, inmediato: false }
+      : { cooldownMs: 6 * 3600_000, inmediato: true };
+
+  it("al SEGUNDO plantón lo aparta (antes no lo apartaba nunca)", () => {
+    olvidarFallos();
+    const t = Date.now();
+
+    anotarFallo(LENTO, "timeout", clasificarReal, t);
+    expect(filtrarEnfriados([LENTO, OTRO], t)).toHaveLength(2); // el primero se perdona
+
+    anotarFallo(LENTO, "timeout", clasificarReal, t + 1000);
+    const vivos = filtrarEnfriados([LENTO, OTRO], t + 2000);
+    expect(vivos).toHaveLength(1);
+    expect(vivos[0]!.modelID).toBe(OTRO.modelID);
+  });
+
+  it("dos plantones lejanos en el tiempo no son una racha", () => {
+    olvidarFallos();
+    const t = Date.now();
+    anotarFallo(LENTO, "timeout", clasificarReal, t);
+    // 20 minutos después: mala suerte, no reincidencia.
+    anotarFallo(LENTO, "timeout", clasificarReal, t + 20 * 60_000);
+    expect(filtrarEnfriados([LENTO, OTRO], t + 20 * 60_000)).toHaveLength(2);
+  });
+
+  it("lo vuelve a intentar cuando pasó el enfriamiento", () => {
+    olvidarFallos();
+    const t = Date.now();
+    anotarFallo(LENTO, "timeout", clasificarReal, t);
+    anotarFallo(LENTO, "timeout", clasificarReal, t + 1000);
+    expect(filtrarEnfriados([LENTO, OTRO], t + 15 * 60_000 + 2000)).toHaveLength(2);
+  });
+
+  // La red de seguridad: el enfriamiento cambia el ORDEN, nunca deja a Atlas
+  // sin nada que intentar.
+  it("si TODOS están apartados, los intenta igual", () => {
+    olvidarFallos();
+    const t = Date.now();
+    for (const m of [LENTO, OTRO]) {
+      anotarFallo(m, "timeout", clasificarReal, t);
+      anotarFallo(m, "timeout", clasificarReal, t + 1000);
+    }
+    expect(filtrarEnfriados([LENTO, OTRO], t + 2000)).toHaveLength(2);
+  });
+});
