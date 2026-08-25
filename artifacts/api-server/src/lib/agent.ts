@@ -9,6 +9,7 @@ import {
   productCategories,
   leads,
   settings as settingsTable,
+  facebookDrafts,
 } from "@workspace/db";
 import { getProviderConfig, getProviderRotation, getProviderConfigFromSettings, createAIClient, getOpenCodeRotation, getOpenCodeGoRotation } from "@workspace/integrations-openai-ai-server";
 import { logger } from "./logger";
@@ -628,6 +629,78 @@ export function anuncioDeOrigen(
   return null;
 }
 
+/** El slug de un link de producto: /producto/<slug>/ -> "<slug>". */
+function slugDeUrl(u: string): string {
+  return (String(u || "").match(/\/(?:p|producto|product|products)\/([^/?#]+)/i)?.[1] || "").toLowerCase();
+}
+
+/**
+ * Que producto vino a buscar el cliente que llego de un anuncio.
+ *
+ * Antes esto se resolvia SOLO por parecido de texto: se pegaba el titular y
+ * el cuerpo del anuncio al mensaje y decidia el motor de coincidencias. El
+ * unico dato duro que se miraba era un link con ID numerico (/p/123).
+ *
+ * Con el catalogo real eso falla, porque los productos vienen de WooCommerce
+ * y sus links son por SLUG, no por numero:
+ *   https://.../producto/renovador-negro-perfecto-x-200ml/
+ * El `(\d+)` nunca engancha ahi, asi que se caia al parecido de texto -- y con
+ * dos productos del mismo nombre en el catalogo (ids 125 y 128, precios
+ * distintos) el parecido no puede acertar: es una moneda al aire sobre cual de
+ * los dos cotizar.
+ *
+ * Se resuelve en escalera, de mas duro a mas blando, y solo se cae al texto si
+ * ninguna resuelve:
+ *   1. El adId de Meta contra facebook_drafts, que guarda el producto con el
+ *      que se creo ESE anuncio. Es exacto: identifica al anuncio, no se parece.
+ *   2. Link con ID numerico (/p/123).
+ *   3. Link por slug, comparado como segmento COMPLETO contra el permalink de
+ *      WooCommerce -- "…-x-200ml" no puede matchear "…-x-200ml-2".
+ */
+export async function productoDelAnuncio(
+  anuncio: { anuncioId?: string; url?: string } | null,
+  productList: Array<any>,
+): Promise<{ id: number; name: string; via: string } | null> {
+  if (!anuncio) return null;
+
+  const adId = String(anuncio.anuncioId || "").trim();
+  if (adId) {
+    try {
+      const [d] = await db
+        .select({ productId: facebookDrafts.productId })
+        .from(facebookDrafts)
+        .where(eq(facebookDrafts.adId, adId))
+        .limit(1);
+      if (d?.productId) {
+        const p = productList.find((x: any) => x.id === d.productId);
+        if (p) return { id: p.id, name: p.name, via: "adId" };
+      }
+    } catch {
+      // Si la consulta falla se sigue por las otras vias: un problema de BD no
+      // puede dejar al cliente sin respuesta.
+    }
+  }
+
+  const url = String(anuncio.url || "");
+
+  const num = Number(url.match(/\/(?:p|producto|product)\/(\d+)(?:[/?#]|$)/)?.[1] || 0);
+  if (num) {
+    const p = productList.find((x: any) => x.id === num);
+    if (p) return { id: p.id, name: p.name, via: "url-id" };
+  }
+
+  const slug = slugDeUrl(url);
+  if (slug && !/^\d+$/.test(slug)) {
+    const p = productList.find((x: any) => {
+      const perma = (x?.metadata as any)?.woocommerce?.permalink;
+      return perma ? slugDeUrl(perma) === slug : false;
+    });
+    if (p) return { id: p.id, name: p.name, via: "url-slug" };
+  }
+
+  return null;
+}
+
 export async function runAgentReply(conversationId: number) {
   const startTime = Date.now();
   const ts = () => new Date().toISOString();
@@ -842,13 +915,17 @@ export async function runAgentReply(conversationId: number) {
   // si resuelve, se le suma el nombre real del producto al texto con el que
   // decide el motor, para que no se equivoque de curso.
   let textoDecision = textoParaDecidir;
-  const idEnLink = Number(String(anuncio?.url || "").match(/\/(?:p|producto|product)\/(\d+)/)?.[1] || 0);
-  if (idEnLink) {
-    const delAnuncio = productList.find((p: any) => p.id === idEnLink);
-    if (delAnuncio) {
-      textoDecision = `${textoParaDecidir} ${delAnuncio.name}`;
-      console.log(`📣 [ANUNCIO] Link resuelto al producto #${idEnLink} "${delAnuncio.name}"`);
-    }
+  // Se resuelve por dato duro (adId de Meta, link por id o por slug). Si
+  // ninguna via engancha, `delAnuncio` es null y decide el motor por texto,
+  // que es el comportamiento de siempre.
+  const delAnuncio = await productoDelAnuncio(anuncio, productList);
+  if (delAnuncio) {
+    textoDecision = `${textoParaDecidir} ${delAnuncio.name}`;
+    console.log(`📣 [ANUNCIO] Producto resuelto por ${delAnuncio.via}: #${delAnuncio.id} "${delAnuncio.name}"`);
+  } else if (anuncio) {
+    // Vale la pena verlo en el log: es justo el caso en que el bot puede
+    // terminar hablando del producto equivocado.
+    console.log(`⚠️ [ANUNCIO] No se pudo resolver el producto por dato duro (adId="${anuncio.anuncioId}", url="${anuncio.url}"): decide el parecido de texto.`);
   }
 
   // ── 4b. El negocio REAL de este cliente ───────────────────────────────────
