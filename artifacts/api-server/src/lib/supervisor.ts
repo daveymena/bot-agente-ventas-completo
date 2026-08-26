@@ -43,6 +43,15 @@ export interface EntradaSupervisor {
   idsEnContexto: number[];
   /** Metodos de pago que el negocio verifica A MANO (Nequi, Daviplata...). */
   pagosManuales?: string[];
+
+  /**
+   * Si ESTE mensaje lleva de verdad una ficha/tarjeta adjunta.
+   *
+   * Es la verdad del servidor, y sirve para cazar la mentira mas peligrosa que
+   * sabe decir el modelo: afirmar que ya mando algo. Si el texto dice "ya te
+   * mande el link" y aca no viene ninguna ficha, no hubo ningun link.
+   */
+  llevaCard?: boolean;
 }
 
 export interface RevisionSupervisor {
@@ -248,8 +257,88 @@ export function supervisarRespuesta(e: EntradaSupervisor): RevisionSupervisor {
     };
   }
 
+  // ── R6 · El modelo NO puede narrar acciones que no ejecuta ─────────────────
+  //
+  // Medido el 2026-08-25, 19:15-19:23, ya con R5 desplegada -- y R5 no cazo
+  // ninguna de estas, porque solo miraba promesas en FUTURO ("te paso", "te
+  // mando"). Los fallos reales son afirmaciones en PASADO:
+  //
+  //   "Perfecto, ya confirmé tu pago del PACK IDIOMAS. Te acabo de liberar
+  //    el acceso a la carpeta de Google Drive"   (nadie pago nada)
+  //   "Ya te mandé el link por acá mismo 👇"      (nunca mando ningun link)
+  //   "Te lo reenvío: es el mismo de siempre"     (no habia ninguno)
+  //
+  // Es una clase distinta y peor que prometer de mas: el cliente cree que la
+  // compra esta hecha. Cinco minutos despues, el mismo bot decia "hoy no
+  // compraste nada todavia".
+  //
+  // Van dos frenos, y el segundo se apoya en la verdad del SERVIDOR:
+  //
+  //  a) Confirmar un pago no es una decision del modelo. Nunca. El dinero lo
+  //     confirma la pasarela o una persona que lo vio en la cuenta.
+  //  b) Decir "ya te lo mande" solo puede ser cierto si ESTE mensaje lleva la
+  //     ficha adjunta. Si no la lleva, no se mando nada: es mentira, y el
+  //     servidor lo sabe sin tener que interpretar el texto.
+  if (AFIRMA_PAGO_CONFIRMADO.test(texto)) {
+    bloquear = true;
+    hallazgos.push({
+      regla: "confirmacion-de-pago-inventada",
+      gravedad: "bloquea",
+      detalle: "Afirmaba que un pago está confirmado. Eso no lo decide el modelo: lo confirma la pasarela o una persona.",
+    });
+    return {
+      texto,
+      hallazgos,
+      bloquear,
+      reemplazoSugerido:
+        "Para activarte el acceso necesito el comprobante de la transferencia 🙏 " +
+        "Mandámelo por acá y apenas lo revisemos te confirmo.",
+    };
+  }
+
+  if (AFIRMA_YA_ENTREGADO.test(texto) && !e.llevaCard) {
+    bloquear = true;
+    hallazgos.push({
+      regla: "accion-narrada",
+      gravedad: "bloquea",
+      detalle: "Decía haber enviado algo, pero este mensaje no lleva ninguna ficha adjunta: no se envió nada.",
+    });
+    return {
+      texto,
+      hallazgos,
+      bloquear,
+      reemplazoSugerido: "Dejame verificarlo y te confirmo por acá enseguida 🙏",
+    };
+  }
+
   return { texto, hallazgos, bloquear };
 }
+
+/**
+ * Afirmar que un pago quedo confirmado. Se bloquea SIEMPRE: el modelo no ve
+ * la cuenta bancaria ni la pasarela, asi que nunca puede saberlo.
+ */
+const AFIRMA_PAGO_CONFIRMADO =
+  /\b(ya\s+)?(confirm[eé]|verifiqu[eé]|valid[eé]|registr[eé])\s+(tu|el|su)\s+pago\b|\b(tu|el|su)\s+pago\s+(ya\s+)?(est[aá]|qued[oó])\s+(confirmado|verificado|registrado|acreditado)\b|\bpago\s+confirmado\b|\bya\s+qued[oó]\s+(pago|pagado|confirmada\s+la\s+compra)\b/i;
+
+/**
+ * Afirmar que YA se entrego algo. Solo puede ser cierto si el mensaje lleva
+ * la ficha adjunta; si no, no se mando nada.
+ */
+// OJO con `\b` despues de vocal acentuada: en JS `\b` se define sobre \w, que
+// NO incluye "é". Asi que /mand[eé]\b/ NUNCA matchea "mandé" -- justo el caso
+// que se queria cazar. Se cierra con (?![a-záéíóúñ]), que si funciona.
+const FIN = "(?![a-záéíóúñ])";
+const AFIRMA_YA_ENTREGADO = new RegExp(
+  [
+    `\\bya\\s+te\\s+(lo\\s+|la\\s+)?(mand[eé]|envi[eé]|pas[eé]|di|entregu[eé]|liber[eé])${FIN}`,
+    `\\bte\\s+acabo\\s+de\\s+(mandar|enviar|pasar|liberar|dar|entregar|compartir)${FIN}`,
+    `\\bte\\s+lo\\s+reenv[ií]o${FIN}`,
+    `\\bya\\s+(ten[eé]s|tienes)\\s+(el\\s+|tu\\s+)?(acceso|link|enlace)${FIN}`,
+    `\\bya\\s+est[aá]\\s+(enviado|liberado|activo)${FIN}`,
+  ].join("|"),
+  "i",
+);
 
 /** "ya te pague", "ya hice la transferencia", "ya realice el pago". */
 const AFIRMA_HABER_PAGADO =

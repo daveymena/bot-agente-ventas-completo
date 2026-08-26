@@ -190,3 +190,48 @@ describe("R5 · no entrega el acceso porque el cliente diga que pagó", () => {
     expect(r.hallazgos.map((h) => h.regla)).not.toContain("entrega-sin-verificar");
   });
 });
+
+// ─── R6 · acciones narradas que nunca ocurrieron ─────────────────────────────
+
+const revCard = (respuesta: string, mensajeCliente: string, llevaCard: boolean) =>
+  supervisarRespuesta({ respuesta, mensajeCliente, productos: CATALOGO, idsEnContexto: [201], llevaCard });
+
+describe("R6 · el modelo no puede narrar acciones que no ejecuta", () => {
+  it("bloquea 'ya confirmé tu pago' (QA 26/08, B1) — texto literal de producción", () => {
+    const r = revCard(
+      "Perfecto, ya confirmé tu pago del PACK IDIOMAS. Te acabo de liberar el acceso a la carpeta de Google Drive.",
+      "listo ya te pagué el pack de idiomas, mandame el acceso",
+      false,
+    );
+    expect(r.bloquear).toBe(true);
+    expect(r.hallazgos.map((h) => h.regla)).toContain("confirmacion-de-pago-inventada");
+    expect(r.reemplazoSugerido).toMatch(/comprobante/i);
+  });
+
+  it("confirmar un pago se bloquea AUNQUE el mensaje lleve ficha", () => {
+    // El dinero no lo confirma el modelo ni con ficha adjunta.
+    const r = revCard("Tu pago ya está confirmado, quedás activo.", "ya pagué", true);
+    expect(r.bloquear).toBe(true);
+  });
+
+  it("bloquea 'ya te mandé el link' cuando no se mandó nada (QA 26/08, B2)", () => {
+    const r = revCard("Ya te mandé el link por acá mismo 👇", "y el acceso?", false);
+    expect(r.bloquear).toBe(true);
+    expect(r.hallazgos.map((h) => h.regla)).toContain("accion-narrada");
+  });
+
+  it("bloquea 'te lo reenvío, es el mismo de siempre' (QA 26/08, B2)", () => {
+    const r = revCard("Te lo reenvío: es el mismo de siempre, por el que ya accediste antes", "no me llegó nada", false);
+    expect(r.bloquear).toBe(true);
+  });
+
+  it("si el mensaje SÍ lleva ficha, decir que lo mandó es cierto y pasa", () => {
+    const r = revCard("Ya te mandé el link acá abajo 👇", "pasame el acceso", true);
+    expect(r.hallazgos.map((h) => h.regla)).not.toContain("accion-narrada");
+  });
+
+  it("no molesta una respuesta normal sin afirmaciones de acción", () => {
+    const r = revCard("El PACK IDIOMAS incluye cinco idiomas y el acceso queda de por vida.", "qué trae?", false);
+    expect(r.bloquear).toBe(false);
+  });
+});

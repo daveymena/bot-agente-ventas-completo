@@ -2331,6 +2331,9 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
             mensajeCliente: lastText,
             productos: productList as any,
             idsEnContexto,
+            // La verdad del servidor: si no hay ficha, no se mandó nada, por
+            // más que el texto diga "ya te lo mandé".
+            llevaCard: hayCard,
           });
 
           if (revision.hallazgos.length === 0) continue;
