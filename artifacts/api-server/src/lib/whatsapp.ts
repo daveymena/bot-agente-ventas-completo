@@ -1,6 +1,7 @@
 import { eq, inArray, desc, and } from "drizzle-orm";
 import { transcribirAudio, describirImagen } from "./media-entrante";
 import { contextoDeMoneda } from "./moneda-por-pais";
+import { invitacionDe, type SeccionFicha } from "./ficha-parcial";
 import path from "node:path";
 import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { HttpProxyAgent } from "http-proxy-agent";
@@ -175,6 +176,11 @@ export type AgentReplyPart = {
   content?: string;
   productId?: number;
   paymentOnly?: boolean;
+  /**
+   * Qué pedazo de la ficha corresponde mandar. Cuando viene, manda sobre
+   * `paymentOnly`, que queda solo por compatibilidad con lo ya encolado.
+   */
+  seccion?: SeccionFicha;
 };
 import { PaymentGateway } from "./payments";
 import { retryWithBackoff, notifyOperatorOfFailure } from "./fallbackSystem";
@@ -216,6 +222,16 @@ function formatPriceForWa(price: number, currency: string) {
  * Devuelve null si no se pudo obtener: quien llama debe mandar solo texto,
  * nunca una imagen sustituta.
  */
+/** El tipo real de la imagen, leído de sus primeros bytes. */
+export function tipoDeImagen(b: Buffer): string | null {
+  if (b.length < 12) return null;
+  if (b[0] === 0xff && b[1] === 0xd8) return "image/jpeg";
+  if (b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47) return "image/png";
+  if (b.toString("ascii", 0, 4) === "RIFF" && b.toString("ascii", 8, 12) === "WEBP") return "image/webp";
+  if (b[0] === 0x47 && b[1] === 0x49 && b[2] === 0x46) return "image/gif";
+  return null;
+}
+
 async function loadProductImage(imageUrl: string): Promise<Buffer | null> {
   if (!imageUrl) return null;
 
@@ -224,9 +240,35 @@ async function loadProductImage(imageUrl: string): Promise<Buffer | null> {
   // URL absoluta: se descarga tal cual.
   if (/^https?:\/\//i.test(imageUrl)) {
     try {
-      const r = await axios.get(imageUrl, { responseType: "arraybuffer", timeout: 8000 });
-      return Buffer.from(r.data);
-    } catch {
+      const r = await axios.get(imageUrl, {
+        responseType: "arraybuffer",
+        // Las fotos de los productos FÍSICOS viven en el CDN de Dropi
+        // (d39ru7awumhhs2.cloudfront.net) y algunas pesan más de medio mega;
+        // 8s alcanzaban justo, y un pico de latencia dejaba al cliente sin
+        // foto. Los digitales no lo notaban porque salen de disco.
+        timeout: 20000,
+        maxContentLength: 12 * 1024 * 1024,
+        // Sin User-Agent, CloudFront responde 403 (verificado con curl -A "").
+        // Axios manda uno propio, pero no hay que depender de ese detalle.
+        headers: {
+          "User-Agent": "Mozilla/5.0 (compatible; VentasProBot/1.0)",
+          Accept: "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
+        },
+      });
+      const buf = Buffer.from(r.data);
+      if (buf.length === 0) {
+        console.error(`[WhatsApp] La imagen vino vacía: ${imageUrl}`);
+        return null;
+      }
+      return buf;
+    } catch (e: any) {
+      // El motivo importa: 403 del CDN, timeout y "no existe" se arreglan de
+      // formas distintas, y antes los tres se veían igual (silencio).
+      const status = e?.response?.status;
+      console.error(
+        `[WhatsApp] No se pudo descargar la imagen (${imageUrl}): ` +
+        `${status ? "HTTP " + status : e?.code || e?.message}`,
+      );
       return null;
     }
   }
@@ -493,6 +535,122 @@ async function buildProductCaption(p: typeof products.$inferSelect, categoryName
   lines.push(variante([`🚀 *¿Querés comprarlo ahora o tenés alguna pregunta?*`, `🚀 *¿Lo querés llevar o te resuelvo alguna duda primero?*`, `🚀 *¿Arrancamos hoy o te queda alguna pregunta?*`, `🚀 *¿Te lo activo ahora o querés saber algo más?*`, `🚀 *¿Seguimos con la compra o te ayudo con algo más?*`], sem));
   
   return lines.join("\n");
+}
+
+/**
+ * Los mensajes que corresponden a UNA sección de la ficha.
+ *
+ * La ficha salía siempre entera: título, resumen, contenido, modalidad, video,
+ * precio, TRES medios de pago y el link de la tienda. Preguntaras lo que
+ * preguntaras, y también cuando solo dijiste "me interesa el curso de X".
+ *
+ * Medido en la conversación real del 17-19 de agosto: un "me interesa el curso
+ * de educa a tu perro" recibía cinco mensajes seguidos que terminaban con tres
+ * enlaces de pago y el número de Nequi -- antes de que el cliente preguntara
+ * siquiera el precio. Eso no es atender, es volcar un folleto: al cliente no le
+ * queda nada que preguntar, y una conversación que se termina no se cierra.
+ *
+ * Acá se arma solo el pedazo que el cliente pidió, y se cierra con una puerta
+ * abierta (ver `invitacionDe`). El resto se queda para el turno siguiente.
+ *
+ * Devuelve `{ conFoto, mensajes }`: la foto solo va cuando presenta el
+ * producto, no cuando responde "¿cuánto vale?".
+ */
+async function construirSeccion(
+  p: typeof products.$inferSelect,
+  seccion: SeccionFicha,
+  dynamicLinks: any,
+  semilla: string,
+): Promise<{ conFoto: boolean; mensajes: string[] }> {
+  const mon = await contextoDeMoneda(String(semilla).split("|")[0], Number(p.price), p.currency);
+  const esFisico = String((p as any).kind || "digital") === "physical";
+  const corto = (m: any) => m?.shortUrl || m?.url || "";
+  const cierre = invitacionDe(seccion, esFisico);
+  const L: string[] = [];
+
+  // ── Solo el precio ────────────────────────────────────────────────────────
+  if (seccion === "precio") {
+    return { conFoto: false, mensajes: [`💰 *${mon.precioTexto}*\n\n${cierre}`] };
+  }
+
+  // ── Cómo se entrega ───────────────────────────────────────────────────────
+  if (seccion === "entrega") {
+    const texto = esFisico
+      ? `📦 Te lo enviamos a tu dirección y coordinamos la entrega por acá.\n\n${cierre}`
+      : `💻 Es digital: apenas confirmamos el pago te llega el acceso por acá, y te queda de por vida ♾️\n\n${cierre}`;
+    return { conFoto: false, mensajes: [texto] };
+  }
+
+  // ── Un medio de pago concreto ─────────────────────────────────────────────
+  if (seccion === "pago_transferencia") {
+    const t = dynamicLinks?.transfer?.options?.[0];
+    if (!t) return { conFoto: false, mensajes: [`Ahora mismo no tengo el dato de transferencia a mano, dejame confirmarlo 🙏`] };
+    return {
+      conFoto: false,
+      mensajes: [`🔹 *Nequi / Daviplata*\n📱 ${t.number}\n👤 ${t.name}\n💰 ${mon.precioTexto}\n\n${cierre}`],
+    };
+  }
+
+  if (seccion === "pago_link") {
+    const link = corto(dynamicLinks?.mercadopago) || corto(dynamicLinks?.paypal);
+    if (!link) return { conFoto: false, mensajes: [`Dejame confirmarte el enlace de pago y te lo paso 🙏`] };
+    return { conFoto: false, mensajes: [`🔹 *Tarjeta / PSE*\n${link}\n💰 ${mon.precioTexto}\n\n${cierre}`] };
+  }
+
+  // ── Todos los medios: acá SÍ corresponde, porque los pidió ────────────────
+  if (seccion === "pago") {
+    L.push(`💰 *${mon.precioTexto}*`);
+    L.push("");
+    if (mon.aceptaPagosLocales && corto(dynamicLinks?.mercadopago)) {
+      L.push(`🔹 *Tarjeta / PSE:*`, corto(dynamicLinks.mercadopago), "");
+    }
+    if (corto(dynamicLinks?.paypal)) {
+      L.push(mon.esColombia ? `🔹 *PayPal:*` : `🔹 *Tarjeta o PayPal:*`, corto(dynamicLinks.paypal), "");
+    }
+    if (mon.aceptaPagosLocales && dynamicLinks?.transfer?.options?.[0]) {
+      const t = dynamicLinks.transfer.options[0];
+      L.push(`🔹 *Nequi / Daviplata:*`, `📱 ${t.number}`, `👤 ${t.name}`, "");
+    }
+    L.push(cierre);
+    return { conFoto: false, mensajes: [L.join("\n").trim()] };
+  }
+
+  // ── Qué es y qué trae, SIN precio ─────────────────────────────────────────
+  // El precio es la pregunta siguiente: dárselo acá cierra la conversación.
+  const nameUpper = p.name.toUpperCase();
+  const crudo = String(p.description || "").replace(/\s+/g, " ").trim();
+  let resumen = crudo;
+  if (crudo.length > 180) {
+    const corte = crudo.lastIndexOf(".", 180);
+    resumen = corte > 60 ? crudo.slice(0, corte + 1) : crudo.slice(0, crudo.lastIndexOf(" ", 180)) + "…";
+  }
+
+  const ESTANDAR = /acceso (permanente|de por vida|inmediato|ilimitado)|de por vida|contenido actualizable|actualizaciones|soporte (t[eé]cnico|incluido)|descargas? (ilimitadas?|incluidas?)|descargable|alta definici[oó]n|\bHD\b|google drive|100% online|certificaci[oó]n de participaci[oó]n/i;
+  const propias = ((p.features ?? []) as string[]).filter((f) => !ESTANDAR.test(String(f)));
+
+  L.push(`*${nameUpper}*`);
+  L.push("");
+  L.push(resumen || "Formación práctica para llevar tus habilidades al siguiente nivel.");
+
+  if (propias.length > 0) {
+    L.push("");
+    // Cuatro, no ocho: lo que sigue es la razón para preguntar más.
+    for (const f of propias.slice(0, 4)) L.push(`✅ ${f}`);
+    if (propias.length > 4) L.push(`✅ …y ${propias.length - 4} más`);
+  }
+
+  const mensajes = [L.join("\n").trim()];
+
+  // En "completa" el precio SÍ va -- es la presentación del producto -- pero
+  // en un segundo mensaje corto, y sin ningún enlace de pago. Los enlaces
+  // salen cuando el cliente pregunta cómo pagar, no antes.
+  if (seccion === "completa") {
+    mensajes.push(`💰 *${mon.precioTexto}*\n\n${cierre}`);
+  } else {
+    mensajes.push(cierre);
+  }
+
+  return { conFoto: true, mensajes };
 }
 
 function buildPaymentOnlyCaption(p: typeof products.$inferSelect, dynamicLinks?: any) {
@@ -1770,9 +1928,38 @@ export class WhatsAppManager {
 
     let sentSomething = false;
     try {
-      const buffer = await loadProductImage(imageUrl);
+      let buffer = await loadProductImage(imageUrl);
       if (!buffer) throw new Error(`no se pudo obtener la imagen (${imageUrl})`);
-      await this.sock.sendMessage(jid, { image: buffer, caption });
+
+      // El tipo se declara SIEMPRE, y sale de los bytes -- no de la extensión
+      // de la URL, que puede mentir.
+      //
+      // Sin `mimetype`, Baileys lo deduce, y con WEBP lo trata como STICKER:
+      // el cliente recibe una calcomanía sin descripción en vez de la foto del
+      // producto con su ficha. De los 56 productos físicos, 5 son .webp -- y
+      // son justo los físicos, porque sus fotos vienen del CDN de Dropi
+      // mientras las de los digitales salen de disco en JPG/PNG.
+      let mimetype = tipoDeImagen(buffer) || "image/jpeg";
+
+      if (mimetype === "image/webp") {
+        // Se reencoda a JPEG: WhatsApp acepta webp como STICKER, no como foto
+        // con caption, así que mandarlo tal cual pierde la ficha entera.
+        //
+        // `sharp` está externalizada en build.mjs pero NO declarada en ningún
+        // package.json, así que puede no existir en el contenedor. Si no está,
+        // se manda igual declarando image/jpeg: Baileys reencoda por su cuenta
+        // y, en el peor caso, la foto sale como sticker -- que es exactamente
+        // lo que pasa hoy. Nunca peor que ahora, y mejor si sharp está.
+        try {
+          const sharp = (await import("sharp")).default;
+          buffer = await sharp(buffer).jpeg({ quality: 85 }).toBuffer();
+        } catch (e: any) {
+          console.warn(`[WhatsApp] sin sharp para convertir webp (${imageUrl}): ${e?.message}`);
+        }
+        mimetype = "image/jpeg";
+      }
+
+      await this.sock.sendMessage(jid, { image: buffer, caption, mimetype });
       sentSomething = true;
     } catch (e: any) {
       // NO se manda una imagen "parecida" cuando falla la real.
@@ -1841,12 +2028,31 @@ export class WhatsAppManager {
           const dynamicLinks = await pg.getAllLinks(product, { phone, name: pushName });
           console.log(`🔗 [WA-CARD] Enlaces generados - MercadoPago: ${!!dynamicLinks.mercadopago?.url}, PayPal: ${!!dynamicLinks.paypal?.url}, Transfer: ${dynamicLinks.transfer.options.length} - ${timestamp}`);
           
-          const isPaymentOnly = part.paymentOnly === true;
           // Solo la imagen REAL del producto. Si no la tiene, sendImage manda
           // el texto solo — nunca una foto de otro producto (ver sendImage).
           const imageToUse = product.imageUrl || "";
 
-          if (isPaymentOnly) {
+          // ── Se manda SOLO el pedazo que el cliente pidió ──────────────────
+          // La ficha entera en cada turno es lo que hacía ver al bot como un
+          // folleto automático: al cliente no le quedaba nada que preguntar.
+          const seccion: SeccionFicha | null = (part as any).seccion ?? null;
+
+          if (seccion) {
+            const { conFoto, mensajes } = await construirSeccion(product, seccion, dynamicLinks, phone);
+            console.log(`🎯 [WA-CARD] Sección "${seccion}" — ${mensajes.length} mensaje(s), foto: ${conFoto} - ${timestamp}`);
+            if (conFoto) {
+              await this.sendImage(phone, imageToUse, mensajes[0] || product.name, originalJid);
+              for (const m of mensajes.slice(1)) {
+                await sleep(900);
+                await this.sendText(phone, m, originalJid);
+              }
+            } else {
+              for (const [i, m] of mensajes.entries()) {
+                if (i > 0) await sleep(900);
+                await this.sendText(phone, m, originalJid);
+              }
+            }
+          } else if (part.paymentOnly === true) {
             const caption = buildPaymentOnlyCaption(product, dynamicLinks);
             console.log(`🖼️ [WA-CARD] Enviando pago - Caption: ${caption.length} caracteres - ${timestamp}`);
             await this.sendImage(phone, imageToUse, caption, originalJid);

@@ -15,6 +15,7 @@ import { getProviderConfig, getProviderRotation, getProviderConfigFromSettings, 
 import { logger } from "./logger";
 import { supervisarRespuesta } from "./supervisor";
 import { calcularEstado, renderEstado } from "./estado-cognitivo";
+import { seccionQueCorresponde } from "./ficha-parcial";
 import { PaymentGateway } from "./payments";
 import { 
   healthMonitor,
@@ -2315,7 +2316,16 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
 
         if (resolvedId !== -1) {
           const isPaymentFlow = esFlujoDePago;
-          parts.push({ kind: "card", productId: resolvedId, paymentOnly: isPaymentFlow });
+          // Qué pedazo de la ficha pidió el cliente. Volcarla entera en cada
+          // turno es lo que hacía ver al bot como un folleto automático: si
+          // preguntó el precio, va el precio.
+          const seccion = seccionQueCorresponde({
+            mensaje: lastText,
+            intent: decision.intent,
+            fichaYaEnviada: memory.sentProductIds.has(resolvedId),
+          });
+          console.log(`🎯 [FICHA] Sección elegida: ${seccion} (intent: ${decision.intent}) - ${ts()}`);
+          parts.push({ kind: "card", productId: resolvedId, paymentOnly: isPaymentFlow, seccion });
           cardProductId = resolvedId;
           cardCount++;
         }
