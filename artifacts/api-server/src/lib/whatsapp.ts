@@ -642,8 +642,21 @@ async function construirSeccion(
 
   const mensajes = [L.join("\n").trim()];
 
+  // ── El video de muestra va SIEMPRE que exista ─────────────────────────────
+  //
+  // Regla del admin (2026-08-26): cuando el cliente pide información, lo que
+  // corresponde es el saludo, lo básico y el video introductorio. Una promesa
+  // se discute; ver la primera clase, no.
+  //
+  // Va en su PROPIO mensaje para que WhatsApp le arme la vista previa con
+  // miniatura: pegado a otro texto, el enlace queda perdido en el medio.
+  let meta: any = {};
+  try { meta = typeof p.metadata === "string" ? JSON.parse(p.metadata) : (p.metadata || {}); } catch { /* sin metadata */ }
+  const video = String(meta?.videoIntro || meta?.videoUrl || "").trim();
+  if (video) mensajes.push(`🎬 Mirá cómo son las clases:\n${video}`);
+
   // En "completa" el precio SÍ va -- es la presentación del producto -- pero
-  // en un segundo mensaje corto, y sin ningún enlace de pago. Los enlaces
+  // en un mensaje corto aparte, y sin ningún enlace de pago. Los enlaces
   // salen cuando el cliente pregunta cómo pagar, no antes.
   if (seccion === "completa") {
     mensajes.push(`💰 *${mon.precioTexto}*\n\n${cierre}`);
