@@ -53,6 +53,44 @@ if (smtpConfigured && transporter) {
 /**
  * Genera un código de 6 dígitos
  */
+/**
+ * Un correo de texto plano, con adjuntos opcionales.
+ *
+ * Los correos de esta casa son todos plantillas cerradas (verificación,
+ * recuperación, confirmación de compra). Hacía falta uno genérico para avisar
+ * al admin de un comprobante de pago, con la foto adjunta.
+ *
+ * Devuelve false en vez de tirar: un aviso que no sale no puede tumbar el
+ * flujo de WhatsApp que lo disparó.
+ */
+export async function enviarCorreoSimple(
+  para: string,
+  asunto: string,
+  texto: string,
+  smtp?: { host: string; port: number; secure: boolean; user: string; pass: string; from?: string },
+  adjuntos?: Array<{ filename: string; content: Buffer }>,
+): Promise<boolean> {
+  const tr = smtp ? crearTransporter(smtp) : transporter;
+  if (!tr) {
+    logger.warn({ para, asunto }, "[Email] SMTP no configurado: no se pudo enviar el aviso");
+    return false;
+  }
+  try {
+    await tr.sendMail({
+      from: smtp?.from || process.env.SMTP_USER,
+      to: para,
+      subject: asunto,
+      text: texto,
+      attachments: adjuntos,
+    });
+    logger.info({ para, asunto }, "[Email] Aviso enviado");
+    return true;
+  } catch (err: any) {
+    logger.error({ err: err?.message, para }, "[Email] No se pudo enviar el aviso");
+    return false;
+  }
+}
+
 export function generateVerificationCode(): string {
   return Math.floor(100000 + Math.random() * 900000).toString();
 }

@@ -15,6 +15,7 @@ import {
   leads,
   products,
   productCategories,
+  tenants,
 } from "@workspace/db";
 import { logger } from "./logger";
 import { runAgentReply } from "./agent";
@@ -1632,6 +1633,10 @@ export class WhatsAppManager {
 
             // Extraer texto de TODAS las formas posibles con mejor logging
             let text = "";
+            // La foto entrante, por si resulta ser un comprobante de pago.
+            let comprobanteBuf: Buffer | null = null;
+            let comprobanteMime = "";
+            let comprobanteVisto: string | null = null;
             const msgObj = msg.message;
             
             console.log("🔍 Analizando mensaje. Claves disponibles:", Object.keys(msgObj || {}));
@@ -1757,6 +1762,14 @@ export class WhatsAppManager {
                       ? `[el cliente mandó una foto: ${visto}]`
                       : "[el cliente mandó una foto que no se pudo ver]";
                     console.log(`🖼️ [IMAGEN] ${visto ? "descrita" : "sin modelo que la vea"}`);
+
+                    // Si es un comprobante de pago hay que GUARDARLO y avisarle
+                    // al admin. Antes la foto se describía y se tiraba: no
+                    // quedaba nada que aprobar, así que la "verificación" que
+                    // el bot prometía no podía existir.
+                    comprobanteBuf = buf;
+                    comprobanteMime = mime;
+                    comprobanteVisto = visto;
                   }
                 } catch (e: any) {
                   console.error("❌ [MEDIA] No se pudo procesar la media:", e?.message);
@@ -1853,6 +1866,32 @@ export class WhatsAppManager {
              // por el mismo número de WhatsApp.
              try {
                const { handleAdminReply } = await import("./ad-growth-agent");
+               // ── ¿El admin está aprobando un comprobante? ─────────────────
+               // Va PRIMERO, y cede si el número no corresponde a ningún pago
+               // pendiente: así un "aprobar 47" dirigido a una sugerencia de
+               // anuncios sigue llegando a su handler.
+               try {
+                 const { atenderDecisionDelAdmin } = await import("./verificacion-pago");
+                 const r = await atenderDecisionDelAdmin(phone, text.trim());
+                 if (r) {
+                   await this.sendText(phone, r.paraElAdmin, originalJid);
+                   if (r.paraElCliente) {
+                     const [c] = await db
+                       .select({ phone: conversations.contactPhone })
+                       .from(conversations)
+                       .where(eq(conversations.id, r.paraElCliente.conversationId))
+                       .limit(1);
+                     if (c?.phone) {
+                       await this.sendText(c.phone, r.paraElCliente.texto);
+                       console.log(`💬 [PAGO] Cliente ${c.phone} avisado: ${r.paraElCliente.entregar ? "aprobado" : "rechazado"}`);
+                     }
+                   }
+                   continue;
+                 }
+               } catch (e: any) {
+                 console.error("[Pago] fallo atendiendo la decisión del admin:", e?.message);
+               }
+
                const handled = await handleAdminReply(phone, text.trim());
                if (handled) continue;
              } catch (err) {
@@ -1879,6 +1918,14 @@ export class WhatsAppManager {
                  anuncio: extraerContextoDeAnuncio(msgObj) ?? undefined,
                });
                console.log(`📤 [WA-QUEUE] Mensaje encolado exitosamente a MessageHandler: ${text.substring(0, 30)}...`);
+
+               // Un comprobante no se contesta con IA: se guarda y se le pasa
+               // a una persona. Va DESPUÉS de encolar para que la conversación
+               // ya exista cuando se busque por teléfono.
+               if (comprobanteBuf) {
+                 this.procesarComprobante(phone, pushName, comprobanteBuf, comprobanteMime, comprobanteVisto)
+                   .catch((e) => console.error("[Pago] fallo procesando el comprobante:", e?.message));
+               }
              } catch (error) {
                console.error(`❌ [WA-QUEUE] Error encolando mensaje en MessageHandler:`, error);
              }
@@ -1912,6 +1959,128 @@ export class WhatsAppManager {
     }
     this.recordSendSuccess();
     trackWhatsAppCost(this.currentTenant.id.toString());
+  }
+
+  /**
+   * El cliente mandó una foto que parece un comprobante de pago.
+   *
+   * Se guarda en disco, queda un pago `pending` y le llega el aviso al admin
+   * por WhatsApp con la imagen. Antes la foto se describía y se tiraba: no
+   * quedaba nada que aprobar, así que la "verificación" que el bot prometía
+   * no podía existir.
+   *
+   * Nada de esto entrega el producto. Solo lo hace el admin respondiendo
+   * APROBAR: el dinero lo confirma quien lo ve en su cuenta.
+   */
+  private async procesarComprobante(
+    phone: string,
+    pushName: string,
+    buf: Buffer,
+    mime: string,
+    visto: string | null,
+  ): Promise<void> {
+    const {
+      pareceComprobante, registrarComprobante, avisoParaElAdmin, telefonoDelAdmin,
+    } = await import("./verificacion-pago");
+
+    const [convo] = await db
+      .select()
+      .from(conversations)
+      .where(and(eq(conversations.tenantId, this.currentTenant.id), eq(conversations.contactPhone, phone)))
+      .orderBy(desc(conversations.id))
+      .limit(1);
+    if (!convo) return;
+
+    // La etapa dice si se estaba cobrando: con eso, una señal débil alcanza.
+    const cobrando = ["closing", "qualified", "hot", "negotiating", "converted"].includes(
+      String(convo.currentStage || ""),
+    );
+    if (!pareceComprobante(visto, cobrando)) return;
+
+    console.log(`💸 [PAGO] Comprobante detectado de ${phone} — se guarda y se avisa al admin`);
+
+    // Se guarda en el volumen de subidas, que sobrevive a los deploys.
+    let proofUrl: string | null = null;
+    try {
+      const dir = process.env.IMAGE_STORE_DIR || path.resolve(process.cwd(), "uploads");
+      const destino = path.join(dir, "comprobantes");
+      if (!existsSync(destino)) mkdirSync(destino, { recursive: true });
+      const ext = mime.includes("png") ? "png" : mime.includes("webp") ? "webp" : "jpg";
+      const nombre = `c${convo.id}_${Date.now()}.${ext}`;
+      (await import("node:fs")).writeFileSync(path.join(destino, nombre), buf);
+      proofUrl = `/uploads/comprobantes/${nombre}`;
+    } catch (e: any) {
+      // Sin la imagen guardada el aviso igual sale: es preferible que el admin
+      // revise su cuenta sin la foto, a que nadie se entere del pago.
+      console.error(`[Pago] no se pudo guardar el comprobante: ${e?.message}`);
+    }
+
+    let producto: any = null;
+    if (convo.currentProductId) {
+      const [p] = await db.select().from(products).where(eq(products.id, convo.currentProductId)).limit(1);
+      producto = p ?? null;
+    }
+
+    const pagoId = await registrarComprobante({
+      tenantId: this.currentTenant.id,
+      conversationId: convo.id,
+      leadId: convo.leadId ?? null,
+      productId: producto?.id ?? null,
+      monto: producto ? Number(producto.price) : null,
+      moneda: producto?.currency || "COP",
+      telefono: phone,
+      nombre: pushName || convo.contactName || phone,
+      proofUrl,
+      descripcion: visto,
+    });
+    if (!pagoId) return;
+
+    const adminPhone = await telefonoDelAdmin(this.currentTenant.id);
+    if (!adminPhone) {
+      console.error("[Pago] No hay teléfono de admin configurado: el comprobante quedó pendiente y NADIE se enteró");
+      return;
+    }
+
+    const aviso = avisoParaElAdmin({
+      pagoId,
+      cliente: pushName || convo.contactName || phone,
+      telefono: phone,
+      producto: producto?.name || "producto sin identificar",
+      monto: producto ? Number(producto.price) : 0,
+      moneda: producto?.currency || "COP",
+      descripcion: visto,
+    });
+
+    try {
+      // La imagen va con el aviso: el admin decide viendo el comprobante.
+      await this.sock!.sendMessage(`${adminPhone}@s.whatsapp.net`, {
+        image: buf,
+        caption: aviso,
+        mimetype: tipoDeImagen(buf) || "image/jpeg",
+      });
+      console.log(`📨 [PAGO] Aviso enviado al admin (${adminPhone}) — comprobante ${pagoId}`);
+    } catch (e: any) {
+      console.error(`[Pago] no se pudo avisar al admin por WhatsApp: ${e?.message}`);
+    }
+
+    // Y por correo, que es el respaldo cuando el admin no tiene el WhatsApp a
+    // mano. Si el SMTP no está configurado, esto no rompe nada.
+    try {
+      const { credencialesEmailDe } = await import("./tenant-email-credentials");
+      const { enviarCorreoSimple } = await import("./email");
+      const [t] = await db.select().from(tenants).where(eq(tenants.id, this.currentTenant.id)).limit(1);
+      if (t?.email) {
+        await enviarCorreoSimple(
+          t.email,
+          `💸 Comprobante para revisar — ${pushName || phone}`,
+          aviso.replace(/\*/g, ""),
+          credencialesEmailDe(this.currentTenant as any),
+          proofUrl ? [{ filename: `comprobante-${pagoId}.jpg`, content: buf }] : undefined,
+        );
+      }
+    } catch (e: any) {
+      console.error(`[Pago] no se pudo avisar al admin por correo: ${e?.message}`);
+    }
   }
 
   async sendImage(phone: string, imageUrl: string, caption: string, originalJid?: string) {
