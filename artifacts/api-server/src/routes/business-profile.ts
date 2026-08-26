@@ -58,6 +58,14 @@ const guardarSchema = z.object({
   acceso: accesoSchema.nullable().optional(),
   noPuede: z.array(z.string()).optional(),
   loQueDebeSaber: z.array(z.string()).optional(),
+  /**
+   * Qué tipo de producto vende este negocio.
+   *
+   * "digital" o "fisico" dejan el otro tipo FUERA del catálogo que ve el
+   * agente, así que no puede confundirlos. "mixto" es el comportamiento de
+   * siempre y el valor por defecto: nadie cambia de catálogo sin pedirlo.
+   */
+  modoCatalogo: z.enum(["digital", "fisico", "mixto"]).optional(),
 });
 
 router.get("/", async (req, res, next) => {

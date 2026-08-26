@@ -86,6 +86,22 @@ export interface BusinessContext {
   garantia: DatoGarantia | null;
   acceso: DatoAcceso | null;
 
+  /**
+   * Qué tipo de producto vende ESTE negocio.
+   *
+   * Un curso digital y una rodillera térmica no se venden igual: el digital se
+   * entrega con un enlace al instante, el físico necesita dirección, ciudad y
+   * transportadora. Con los dos mezclados en el mismo catálogo, el agente
+   * promete envíos de un curso y "acceso de por vida" de un frasco -- pasó
+   * las dos veces, y son de los errores que más caro salen.
+   *
+   * "digital" o "fisico" dejan fuera del catálogo el otro tipo, así que el
+   * agente ni siquiera puede confundirse. "mixto" es el comportamiento de
+   * siempre, y sigue siendo el valor por defecto para no cambiarle el
+   * catálogo a nadie sin que lo pida.
+   */
+  modoCatalogo: "digital" | "fisico" | "mixto";
+
   /** Lo que el negocio NO hace. Se renderiza como prohibición dura. */
   noPuede: string[];
   /** Datos sueltos que el dueño quiera que el agente sepa (FAQ del negocio). */
@@ -245,6 +261,9 @@ export async function getBusinessContext(
     entrega: null,
     garantia: null,
     acceso: null,
+    // Por defecto NO se filtra nada: cambiarle el catálogo a un negocio que no
+    // lo pidió sería peor que el problema que esto resuelve.
+    modoCatalogo: "mixto",
     noPuede: [],
     loQueDebeSaber: [],
     fuentes: [],
@@ -289,6 +308,8 @@ export async function getBusinessContext(
       ctx.acceso = leerAcceso(perfil.acceso ?? perfil.accessInfo);
       ctx.noPuede = listaLimpia(perfil.noPuede ?? perfil.cannotDo);
       ctx.loQueDebeSaber = listaLimpia(perfil.loQueDebeSaber ?? perfil.mustKnow);
+      const modo = String(perfil.modoCatalogo || "").toLowerCase();
+      if (modo === "digital" || modo === "fisico") ctx.modoCatalogo = modo;
       if (perfil.horario) ctx.horario = textoLimpio(perfil.horario) || ctx.horario;
 
       const algo =

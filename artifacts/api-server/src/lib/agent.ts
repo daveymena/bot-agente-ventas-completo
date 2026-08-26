@@ -878,6 +878,32 @@ export async function runAgentReply(conversationId: number) {
       //
       // `especialidad` vacía = agente general, ve todo (compatibilidad con
       // los negocios que tienen un solo agente para ambas cosas).
+      // ── Modo de catálogo del NEGOCIO: manda sobre todo lo demás ───────────
+      //
+      // Se resuelve antes que la especialidad del agente porque es una
+      // decisión del dueño, no del agente: si el negocio dice "acá solo vendo
+      // digital", ningún agente suyo puede ofrecer un producto físico.
+      //
+      // El filtro es duro a propósito. Instruir al modelo para que "no
+      // confunda" físicos con digitales ya se intentó y falló las dos veces
+      // (prometió Google Drive de un frasco, y envío a domicilio de un curso).
+      // Si el producto no está en la lista, no hay nada que confundir.
+      // `getBusinessContext` está cacheado 60s por tenant, así que pedirlo acá
+      // y otra vez más abajo no agrega consultas.
+      const negocioParaCatalogo = await getBusinessContext(convo.tenantId).catch(() => null);
+      const modoNegocio = negocioParaCatalogo?.modoCatalogo ?? "mixto";
+      if (modoNegocio !== "mixto") {
+        const quiere = modoNegocio === "digital" ? "digital" : "physical";
+        const antesModo = productList.length;
+        const soloDelModo = productList.filter((p: any) => String(p.kind || "digital") === quiere);
+        if (soloDelModo.length > 0) {
+          productList = soloDelModo;
+          console.log(`🏷️ [MODO] El negocio vende solo ${modoNegocio}: ${soloDelModo.length} de ${antesModo} productos - ${ts()}`);
+        } else {
+          console.log(`⚠️ [MODO] El negocio dice vender solo ${modoNegocio} pero no tiene productos de ese tipo; se deja el catálogo completo`);
+        }
+      }
+
       const especialidad = String((activeAgent as any).especialidad || "").toLowerCase();
       if (especialidad === "digital" || especialidad === "dropshipping") {
         const tipoQueVende = especialidad === "digital" ? "digital" : "physical";
@@ -1201,7 +1227,13 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
     const productoEnJuego = idEnJuego ? productList.find((p: any) => p.id === idEnJuego) : null;
     const esFisico = String((productoEnJuego as any)?.kind || "") === "physical";
 
-    if (esDropshipping || esFisico) {
+    // Un negocio que declaró vender solo digital no tiene pedidos que
+    // despachar: el módulo de dropshipping queda apagado entero. Sin esto,
+    // bastaba un agente marcado como "dropshipping" para que le empezara a
+    // pedir dirección y cédula a alguien que compra un curso.
+    const soloDigital = (negocio?.modoCatalogo ?? "mixto") === "digital";
+
+    if (!soloDigital && (esDropshipping || esFisico)) {
       const ds = await import("./dropshipping");
       let pedido = await ds.pedidoEnCurso(conversationId);
 
