@@ -152,3 +152,41 @@ describe("cuándo escalar a un crítico con IA", () => {
     expect(necesitaCriterio(e, supervisarRespuesta(e))).toBe(false);
   });
 });
+
+// ─── R5 · entregar contra la palabra del cliente ─────────────────────────────
+
+describe("R5 · no entrega el acceso porque el cliente diga que pagó", () => {
+  it("bloquea la entrega sin comprobante (banco de pruebas E2)", () => {
+    const r = rev(
+      "Entendido, ya hiciste el pago por Nequi. Te lo paso por Google Drive. ¿Me confirmás el número al que querés recibir el enlace?",
+      "ya te pagué, mandame el acceso",
+      [123],
+    );
+    expect(r.bloquear).toBe(true);
+    expect(r.hallazgos.map((h) => h.regla)).toContain("entrega-sin-verificar");
+    expect(r.reemplazoSugerido).toMatch(/comprobante/i);
+  });
+
+  it("una promesa CONDICIONADA sí puede salir", () => {
+    const r = rev(
+      "¡Genial! Apenas confirmemos el pago te mando el acceso al curso 🙌",
+      "ya hice la transferencia",
+      [123],
+    );
+    expect(r.bloquear).toBe(false);
+  });
+
+  it("pedir el comprobante es la respuesta correcta y no se bloquea", () => {
+    const r = rev(
+      "¡Gracias! Mandame el comprobante por acá y te lo activo enseguida.",
+      "ya pagué",
+      [123],
+    );
+    expect(r.bloquear).toBe(false);
+  });
+
+  it("no molesta si el cliente no dijo que pagó", () => {
+    const r = rev("Te lo paso por Google Drive apenas se confirme.", "cómo lo recibo?", [123]);
+    expect(r.hallazgos.map((h) => h.regla)).not.toContain("entrega-sin-verificar");
+  });
+});

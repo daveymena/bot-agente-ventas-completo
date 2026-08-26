@@ -241,22 +241,35 @@ export class AgentOrchestrator {
         return;
       }
 
-      // Ejecutar el agente (lógica de IA) - usa runAgentReply con conversationId
-      const reply = await runAgentReply(convo.id);
+      // ── Redactar ────────────────────────────────────────────────────────
+      // Si un intento anterior ya obtuvo la respuesta y solo falló el envío,
+      // se reusa. Volver a llamar al agente lo haria guardar OTRA respuesta en
+      // la base sin haber entregado la primera.
+      let partes = message.parts as AgentReplyPart[] | undefined;
 
-      // Si la respuesta es nula o no tiene partes, no hay nada que enviar
-      if (!reply || !reply.parts) {
-        logger.warn({
-          conversationId: convo.id,
-          queueId: message.id,
-        }, '[AgentOrchestrator] Agent returned null reply or no parts');
-        this.queue.markProcessed(message.id);
-        return;
+      if (!partes) {
+        const reply = await runAgentReply(convo.id);
+
+        // Si la respuesta es nula o no tiene partes, no hay nada que enviar
+        if (!reply || !reply.parts) {
+          logger.warn({
+            conversationId: convo.id,
+            queueId: message.id,
+          }, '[AgentOrchestrator] Agent returned null reply or no parts');
+          this.queue.markProcessed(message.id);
+          return;
+        }
+        partes = reply.parts as AgentReplyPart[];
+        // Se guardan ANTES de enviar: si el envio falla, el reintento ya no
+        // necesita al agente.
+        this.queue.guardarPartes(message.id, partes);
+      } else {
+        logger.info({ queueId: message.id }, '[AgentOrchestrator] Reenviando respuesta ya redactada');
       }
 
-      // Enviar respuesta via WhatsApp (Soporta Texto y Tarjetas Multimedia)
+      // ── Enviar ──────────────────────────────────────────────────────────
       const pushName = convo.contactName || phone;
-      await waInstance.sendAgentParts(phone, pushName, reply.parts as AgentReplyPart[], message.from);
+      await waInstance.sendAgentParts(phone, pushName, partes, message.from);
 
       // NO se persiste aquí: runAgentReply ya guardó la respuesta con
       // saveAgentMessage (con su metadata y actualizando lastMessage) en todos
@@ -272,6 +285,39 @@ export class AgentOrchestrator {
       }, '[AgentOrchestrator] Message processed successfully');
 
     } catch (error) {
+      const detalle = error instanceof Error ? error.message : String(error);
+
+      // ── Cortes que se resuelven SOLOS con el tiempo ─────────────────────
+      //
+      // El tope de mensajes/hora de WhatsApp y la pausa de proteccion del
+      // numero no son fallos: son frenos a proposito. Pero llegaban aca como
+      // una excepcion cualquiera, se gastaban los tres reintentos en segundos
+      // y el mensaje del cliente se perdia para siempre, en silencio.
+      //
+      // Medido el 2026-08-25 en una tanda de pruebas: tras ~35 mensajes
+      // seguidos el bot dejo de responder y no volvio. En produccion eso es un
+      // cliente que escribe y nunca recibe nada.
+      //
+      // Se pospone sin gastar reintento: el tope se libera con el reloj, no
+      // insistiendo.
+      const esFrenoTemporal = /l[ií]mite de \d+ mensajes|Env[ií]os en pausa de protecci[oó]n/i.test(detalle);
+      if (esFrenoTemporal) {
+        const ESPERA_MS = 5 * 60 * 1000;
+        this.queue.posponer(message.id, ESPERA_MS);
+        AgentOrchestrator.ultimoError = {
+          cuando: new Date().toISOString(),
+          conversacion: message.conversationId,
+          mensaje: detalle.slice(0, 300),
+          donde: "envio pospuesto 5 min (freno de proteccion, no es un fallo)",
+        };
+        logger.warn({
+          queueId: message.id,
+          tenantId: message.tenantId,
+          detalle,
+        }, '[AgentOrchestrator] Envío frenado por protección: se reintenta en 5 min, sin perder el mensaje');
+        return;
+      }
+
       logger.error({
         error: error instanceof Error ? { message: error.message, stack: error.stack } : error,
         errorString: String(error),

@@ -34,6 +34,28 @@ export interface QueuedMessage {
   processing?: boolean;
   retryCount: number;
   createdAt: Date;
+
+  /**
+   * La respuesta YA generada, cuando falló solo el envío.
+   *
+   * Sin esto, cada reintento volvía a llamar al agente -- y el agente GUARDA
+   * su respuesta antes de que se envíe. Un fallo de envío dejaba hasta tres
+   * respuestas casi idénticas en la base, ninguna entregada. Como el historial
+   * alimenta el contexto de la IA, en el turno siguiente el agente se veía a
+   * sí mismo repitiéndose y volvía a repetir.
+   *
+   * Con las partes guardadas, el reintento vuelve a ENVIAR, no a redactar.
+   */
+  parts?: unknown[];
+
+  /**
+   * No tocar este mensaje antes de este instante (epoch ms).
+   *
+   * Cuando el envío se corta por el tope horario de WhatsApp, reintentar en el
+   * acto quema los tres intentos en segundos y el mensaje del cliente se
+   * pierde para siempre. El tope se libera con el tiempo, no con insistencia.
+   */
+  noAntesDe?: number;
 }
 
 export type MessageQueueEvent = 
@@ -78,11 +100,43 @@ export class MessageQueue extends EventEmitter {
    * Obtiene el siguiente mensaje pendiente
    */
   dequeue(): QueuedMessage | null {
-    const pending = this.queue.find(m => !m.processed && !m.processing && m.retryCount < this.maxRetries);
+    const ahora = Date.now();
+    const pending = this.queue.find(m =>
+      !m.processed &&
+      !m.processing &&
+      m.retryCount < this.maxRetries &&
+      // Un mensaje en espera por el tope horario no se toca hasta su hora.
+      (!m.noAntesDe || m.noAntesDe <= ahora)
+    );
     if (pending) {
       pending.processing = true;
     }
     return pending || null;
+  }
+
+  /**
+   * Guarda la respuesta ya redactada para que el reintento la ENVÍE en vez de
+   * volver a pedírsela al agente (que la guardaría de nuevo en la base).
+   */
+  guardarPartes(messageId: string, parts: unknown[]): void {
+    const msg = this.queue.find(m => m.id === messageId);
+    if (msg) msg.parts = parts;
+  }
+
+  /**
+   * Posterga un mensaje SIN gastarle un reintento.
+   *
+   * Es para los cortes que se resuelven solos con el tiempo -- el tope de
+   * mensajes por hora de WhatsApp, la pausa de protección del número. Gastar
+   * los tres intentos en tres segundos contra un límite horario es perder el
+   * mensaje del cliente por nada.
+   */
+  posponer(messageId: string, ms: number): void {
+    const msg = this.queue.find(m => m.id === messageId);
+    if (msg) {
+      msg.noAntesDe = Date.now() + ms;
+      msg.processing = false;
+    }
   }
 
   /**

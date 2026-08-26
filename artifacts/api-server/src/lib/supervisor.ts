@@ -50,6 +50,12 @@ export interface RevisionSupervisor {
   hallazgos: Hallazgo[];
   /** true = esto no se envia tal cual; hay que regenerar o escalar. */
   bloquear: boolean;
+  /**
+   * Qué decir en lugar de lo bloqueado, cuando la regla sabe cuál es la
+   * respuesta correcta. Sin esto, bloquear obliga a un texto generico que a
+   * veces deja al cliente peor que antes.
+   */
+  reemplazoSugerido?: string;
 }
 
 // ─── Utilidades de texto ─────────────────────────────────────────────────────
@@ -212,8 +218,50 @@ export function supervisarRespuesta(e: EntradaSupervisor): RevisionSupervisor {
     });
   }
 
+  // ── R5 · No entregar contra la palabra del cliente ─────────────────────────
+  // Medido (banco de pruebas E2, 2026-08-25): el cliente escribio "ya te
+  // pague, mandame el acceso" -- sin comprobante y sin haber pagado -- y el
+  // bot contesto "Entendido, ya hiciste el pago... te lo paso por Google
+  // Drive. ¿Me confirmas el numero al que queres recibir el enlace?".
+  //
+  // La politica correcta YA estaba escrita en el sistema: se entrega "solo
+  // cuando el admin confirme que vio el dinero -- nunca porque el cliente diga
+  // que ya pago ni porque haya mandado un comprobante". Pero vivia como texto
+  // dirigido al admin, no como una regla que alguien hiciera cumplir.
+  //
+  // Prometer condicionado esta bien ("apenas confirmemos, te lo mando"). Lo
+  // que no puede salir es la promesa a secas: eso regala producto.
+  if (AFIRMA_HABER_PAGADO.test(e.mensajeCliente) && PROMETE_ENTREGA.test(texto) && !ES_CONDICIONAL.test(texto)) {
+    bloquear = true;
+    hallazgos.push({
+      regla: "entrega-sin-verificar",
+      gravedad: "bloquea",
+      detalle: "Iba a entregar el acceso porque el cliente dijo que pagó, sin comprobante ni verificación.",
+    });
+    return {
+      texto,
+      hallazgos,
+      bloquear,
+      reemplazoSugerido:
+        "¡Gracias! 🙌 Para activarte el acceso necesito el comprobante de la transferencia. " +
+        "Mandámelo por acá y apenas confirmemos el pago te lo envío.",
+    };
+  }
+
   return { texto, hallazgos, bloquear };
 }
+
+/** "ya te pague", "ya hice la transferencia", "ya realice el pago". */
+const AFIRMA_HABER_PAGADO =
+  /\bya\s+(te\s+)?(pagu[eé]|pag[uo]|hice\s+(el\s+pago|la\s+transferencia|la\s+consignaci[oó]n)|realic[eé]\s+el\s+pago|transfer[ií])\b|\bpago\s+(hecho|realizado|listo)\b/i;
+
+/** Promesas de entregar el producto. */
+const PROMETE_ENTREGA =
+  /\b(te\s+(lo\s+)?(paso|mando|env[ií]o|comparto|hago\s+llegar)|te\s+llega|ac[aá]\s+te\s+dejo)\b[^.!?\n]{0,60}\b(acceso|enlace|link|drive|curso|material|carpeta)\b|\b(acceso|enlace|link)\b[^.!?\n]{0,40}\b(te\s+(lo\s+)?(paso|mando|env[ií]o))\b/i;
+
+/** Marcadores de que la entrega queda CONDICIONADA a verificar el pago. */
+const ES_CONDICIONAL =
+  /\b(apenas|cuando|en\s+cuanto|una\s+vez|ni\s+bien|luego\s+de|despu[eé]s\s+de)\b[^.!?\n]{0,60}\b(confirm\w+|verific\w+|revis\w+|valid\w+|recib\w+\s+el\s+comprobante)\b|\bnecesito\s+el\s+comprobante\b|\bmand[aá]\w*\s+el\s+comprobante\b/i;
 
 /**
  * Vale la pena un segundo par de ojos con IA?

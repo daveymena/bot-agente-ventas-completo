@@ -2360,9 +2360,12 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
           // que la elige el servidor. Sin ficha, se pregunta en vez de
           // inventar: preguntar una cosa concreta no pierde la venta;
           // contestar sobre el producto equivocado, sí.
-          parte.content = hayCard
-            ? "Te paso la ficha acá abajo con todos los detalles 👇"
-            : "Para no darte un dato equivocado, ¿me confirmás de cuál producto querés que te cuente?";
+          // Si la regla sabe cuál era la respuesta correcta, se usa esa: un
+          // texto genérico a veces deja al cliente peor que antes.
+          parte.content = revision.reemplazoSugerido
+            ?? (hayCard
+              ? "Te paso la ficha acá abajo con todos los detalles 👇"
+              : "Para no darte un dato equivocado, ¿me confirmás de cuál producto querés que te cuente?");
         }
       } catch (e: any) {
         // Un fallo del candado no puede dejar al cliente sin respuesta.
