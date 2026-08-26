@@ -302,6 +302,53 @@ router.get("/:id/messages", async (req, res, next) => {
   }
 });
 
+/**
+ * Borra el historial de UNA conversación, sin tocar las demás.
+ *
+ * El modelo ve los últimos 12 mensajes y aprende de ellos. Medido el
+ * 2026-08-26 en la conversación de pruebas: de esos 12, SEIS tenían voseo y
+ * dos traían un número de Nequi inventado que el bot había escrito antes. O
+ * sea que seguía copiándose a sí mismo haciéndolo mal, y no había forma de
+ * saber si un arreglo funcionaba o si solo estaba imitando lo viejo.
+ *
+ * `deep-clean` no sirve para esto: barre TODO el negocio, y ahí adentro está
+ * el historial de clientes reales, que es un registro que no se puede perder.
+ *
+ * La conversación se conserva; se van sus mensajes y el producto en foco.
+ */
+router.delete("/:id/messages", async (req, res, next) => {
+  try {
+    const tenantId = tenantIdOf(req);
+    if (!tenantId) return res.status(401).json({ message: "No autorizado" });
+
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id)) return res.status(400).json({ message: "Id inválido" });
+
+    // Mismo cuidado que arriba: messages no guarda tenantId, así que se
+    // comprueba la propiedad ANTES de borrar nada.
+    const [owner] = await db
+      .select({ id: conversations.id })
+      .from(conversations)
+      .where(and(eq(conversations.id, id), eq(conversations.tenantId, tenantId)))
+      .limit(1);
+    if (!owner) return res.status(404).json({ message: "Conversación no encontrada" });
+
+    const borrados = await db.delete(messages).where(eq(messages.conversationId, id)).returning({ id: messages.id });
+
+    // El estado también se reinicia: dejar la etapa en "closing" y un producto
+    // en foco de una conversación que ya no existe haría que el bot arrancara
+    // a mitad de una venta que nadie tuvo.
+    await db
+      .update(conversations)
+      .set({ currentStage: "greeting", currentProductId: null, lastMessage: null, unreadCount: 0 })
+      .where(eq(conversations.id, id));
+
+    return res.json({ ok: true, borrados: borrados.length });
+  } catch (e) {
+    return next(e);
+  }
+});
+
 router.post("/:id/messages", conversationRateLimit, validateMessageLimit(), aiCostTracker, async (req, res, next) => {
   try {
     const tenantId = tenantIdOf(req);
