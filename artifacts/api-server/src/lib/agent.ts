@@ -2424,7 +2424,19 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
           if (conocida) {
             const primera = finalParts.find((p: any) => p.kind === "text");
             if (primera) {
-              primera.content = `${aperturaPara(convo.contactPhone || "")}\n\n${conocida.texto}`;
+              // La apertura va PEGADA cuando la respuesta es de una línea.
+              //
+              // Con el salto doble, un dato de un renglón ocupaba tres bloques
+              // ("Claro que sí 😊" / vacío / "Tienes 7 días de garantía…") y se
+              // leía como un mensaje largo para algo simple. El admin lo dijo
+              // así: "a veces se desborda al responder algo sencillo".
+              //
+              // Cuando la respuesta trae lista de viñetas, el bloque aparte sí
+              // se lee mejor y se conserva.
+              const apertura = aperturaPara(convo.contactPhone || "");
+              primera.content = conocida.texto.includes("\n")
+                ? `${apertura}\n\n${conocida.texto}`
+                : `${apertura} ${conocida.texto}`;
               respondidoDeConocimiento = true;
               console.log(
                 `📖 [CONOCIMIENTO] "${conocida.id}"${conocida.sinResponder ? " (sin respuesta cargada)" : ""} - ${ts()}`,

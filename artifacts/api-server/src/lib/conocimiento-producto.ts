@@ -52,50 +52,50 @@ const COMUNES: PreguntaConocida[] = [
     patrones: /\b(certificad\w+|diploma|titul\w+|constancia|acredita\w*)\b/i,
     // Verificado: el perfil del negocio lo declara en "lo que NO hace".
     respuesta:
-      "El curso no emite certificado ni diploma 🙏\n\nEs formación práctica: te llevas el conocimiento y el material, para aplicarlo por tu cuenta.",
+      "No emite certificado 🙏 Es formación práctica: te llevas el contenido.",
   },
   {
     id: "garantia",
     patrones: /\b(garant[ií]a|devoluci[oó]n|reembolso|me devuelven|si no me gusta|si no sirve)\b/i,
     // Verificado en el perfil: 7 días, devolución completa.
     respuesta:
-      "Tienes 7 días de garantía ✅\n\nSi no te convence, te devolvemos el 100% del dinero. Así lo puedes revisar con tranquilidad.",
+      "Tienes 7 días de garantía ✅ Si no te convence, te devolvemos el 100%.",
   },
   {
     id: "acceso_tiempo",
     patrones: /\b(cu[aá]nto tiempo|por cu[aá]nto|caduca|vence|expira|de por vida|para siempre|se me va)\b/i,
     respuesta:
-      "El acceso te queda de por vida ♾️\n\nPagas una sola vez y lo consultas cuando quieras, las veces que quieras.",
+      "El acceso te queda de por vida ♾️ Pagas una sola vez.",
   },
   {
     id: "como_llega",
     patrones: /\b(c[oó]mo (me )?(llega|lo recibo|lo veo)|d[oó]nde (lo veo|queda)|drive|descarg\w+)\b/i,
     respuesta:
-      "Te llega por Google Drive 📁\n\nApenas confirmamos el pago te paso el acceso por aquí mismo. Lo puedes ver en línea o descargarlo.",
+      "Te llega por Google Drive 📁 Apenas confirmamos el pago te paso el acceso por aquí.",
   },
   {
     id: "dispositivos",
     patrones: /\b(celular|m[oó]vil|computador|pc|tablet|desde el tel[eé]fono|android|iphone)\b/i,
     respuesta:
-      "Lo puedes ver desde donde quieras 📱💻\n\nCelular, tablet o computador. Solo necesitas internet para abrirlo.",
+      "Desde celular, tablet o computador 📱 Solo necesitas internet.",
   },
   {
     id: "es_presencial",
     patrones: /\b(presencial|sede|direcci[oó]n|academia|d[oó]nde (est[aá]n|queda)|clases en vivo|profesor en vivo)\b/i,
     respuesta:
-      "Es 100% online y grabado 💻\n\nNo hay sede ni clases en vivo: son videos que ves a tu ritmo, cuando puedas.",
+      "Es 100% online 💻 Videos grabados que ves a tu ritmo, sin sede ni horarios.",
   },
   {
     id: "soporte",
     patrones: /\b(soporte|ayuda|dudas|si tengo problemas|acompa[ñn]amiento|tutor)\b/i,
     respuesta:
-      "Tienes soporte incluido 🙌\n\nCualquier duda me escribes por aquí y te ayudo.",
+      "Tienes soporte incluido 🙌 Cualquier duda me escribes por aquí.",
   },
   {
     id: "horario_atencion",
     patrones: /\b(a qu[eé] hora|horario|hasta qu[eé] hora|atienden)\b/i,
     // Verificado en el perfil: 09:00–18:00 America/Bogota.
-    respuesta: "Atendemos de 9:00 a 6:00 de la tarde, hora de Colombia 🕘",
+    respuesta: "De 9:00 a 6:00 de la tarde, hora de Colombia 🕘",
   },
 ];
 
@@ -109,7 +109,7 @@ const PIANO: ConocimientoProducto = {
       id: "piano_nivel",
       patrones: /\b(soy principiante|desde cero|no s[eé] nada|nunca he tocado|sin experiencia|para principiantes|avanzado)\b/i,
       respuesta:
-        "Va desde cero hasta nivel avanzado 🎹\n\nNo necesitas saber nada previo: arranca por los fundamentos y sube de a poco, a tu ritmo.",
+        "Va desde cero hasta avanzado 🎹 No necesitas saber nada previo.",
     },
     {
       id: "piano_incluye",
@@ -121,7 +121,7 @@ const PIANO: ConocimientoProducto = {
       id: "piano_partituras",
       patrones: /\b(partitura|leer m[uú]sica|solfeo|notas)\b/i,
       respuesta:
-        "Sí, incluye partituras y ejercicios 🎼\n\nY te enseña a leerlas desde el principio, aunque nunca hayas visto una.",
+        "Sí, trae partituras y ejercicios 🎼 Y te enseña a leerlas desde cero.",
     },
     {
       id: "piano_duracion",
@@ -131,20 +131,20 @@ const PIANO: ConocimientoProducto = {
       // los marcadores que coinciden exacto (19 módulos + los 5 valses de
       // Alberto Martínez).
       respuesta:
-        "Son 19 módulos, 283 clases en video 🎹\n\nComo 19 horas de contenido en total, pero lo ves a tu ritmo: no hay fechas ni horarios.",
+        "19 módulos y 283 clases en video 🎹 Unas 19 horas, a tu ritmo.",
     },
     {
       id: "piano_requiere_teclado",
       patrones: /\b(necesito (un )?(piano|teclado)|hay que tener|se necesita instrumento|cu[aá]ntas teclas|sin piano)\b/i,
       respuesta:
-        "Sí, necesitas un piano o teclado para practicar 🎹\n\nPara empezar te sirve cualquiera que tengas a mano.",
+        "Sí, necesitas piano o teclado 🎹 Para empezar te sirve cualquiera.",
     },
     {
       id: "piano_edad",
       patrones: /\b(para ni[ñn]os|edad|mi hijo|mi hija|para adultos|soy mayor|muy viejo|muy grande)\b/i,
       // "para todas las edades" está literal en la descripción del catálogo.
       respuesta:
-        "Sirve para todas las edades 😊\n\nArranca desde cero, así que da igual si es para ti o para un niño: se avanza al ritmo de cada uno.",
+        "Sirve para todas las edades 😊 Arranca desde cero, cada quien a su ritmo.",
     },
     {
       id: "piano_estilos",
@@ -172,27 +172,29 @@ const EDUCANINO: ConocimientoProducto = {
       id: "perro_problemas",
       patrones: /\b(muerde|agresiv\w+|ladra|ansiedad|destruye|se orina|jala|hala|no obedece|reactiv\w+|posesiv\w+)\b/i,
       respuesta:
-        "El curso trata justamente eso 🐕\n\nTiene módulos para agresividad y posesividad, ansiedad por separación, reactividad y control de conductas problemáticas.\n\n¿Qué está haciendo tu perro?",
+        "El curso trata justamente eso 🐕 Tiene módulos para agresividad y posesividad, ansiedad por separación, reactividad y control de conductas problemáticas. ¿Qué está haciendo tu perro?",
     },
     {
       id: "perro_experiencia",
       patrones: /\b(sin experiencia|nunca he entrenado|no s[eé] nada|primera vez|es dif[ií]cil)\b/i,
       respuesta:
-        "No necesitas experiencia previa 🐾\n\nEstá pensado para hacerlo desde casa, paso a paso, aunque sea tu primera vez.",
+        "No necesitas experiencia 🐾 Es paso a paso, desde casa.",
     },
     {
       id: "perro_edad",
-      patrones: /\b(cachorro|qu[eé] edad|meses|a[ñn]os|es viejo|ya est[aá] grande|adulto)\b/i,
+      // Plurales incluidos: "sirve para cachorros?" no matcheaba con
+      // `\bcachorro\b`, y es exactamente como lo escribe un cliente.
+      patrones: /\bcachorr\w*|\bqu[eé] edad\b|\bmeses\b|\ba[ñn]os\b|\bes viejo\b|\bya est[aá] grande\b|\badult\w*/i,
       // Del curso original (Álvaro Osorio / Hotmart): cubre desde cachorro
       // hasta adulto mayor, con la capacidad de aprendizaje de cada etapa.
       respuesta:
-        "Sirve a cualquier edad 🐶\n\nEstá pensado desde cachorro hasta perro adulto mayor: cada etapa aprende distinto y el curso lo tiene en cuenta.",
+        "Sirve a cualquier edad 🐶 Desde cachorro hasta adulto mayor.",
     },
     {
       id: "perro_raza",
       patrones: /\b(raza|pitbull|labrador|criollo|mestizo|sirve para mi perro|chihuahua|pastor|french|poodle)\b/i,
       respuesta:
-        "Funciona con cualquier raza 🐕\n\nY también con criollos. Las técnicas son las mismas, se adaptan al carácter de cada perro.",
+        "Funciona con cualquier raza 🐕 Criollos incluidos.",
     },
     {
       id: "perro_duracion",
@@ -200,13 +202,13 @@ const EDUCANINO: ConocimientoProducto = {
       // Del curso original: lecciones cortas en HD; la mayoría lo completa
       // entre 1 y 3 meses, y el acceso es permanente.
       respuesta:
-        "Son lecciones cortas en video, para ver a tu ritmo 🎬\n\nLa mayoría lo completa entre 1 y 3 meses, pero el acceso te queda de por vida: puedes tomarte el tiempo que quieras.",
+        "Lecciones cortas en video 🎬 La mayoría lo termina en 1 a 3 meses, y el acceso es de por vida.",
     },
     {
       id: "perro_practico",
       patrones: /\b(es pr[aá]ctico|solo teor[ií]a|c[oó]mo se hace|ejercicios|demostraci\w+)\b/i,
       respuesta:
-        "Es puro práctico 🐾\n\nSon demostraciones en video de los ejercicios, paso a paso, para que los repitas con tu perro en casa.",
+        "Es puro práctico 🐾 Demostraciones en video para repetir con tu perro.",
     },
   ],
 };
@@ -233,13 +235,13 @@ const IA: ConocimientoProducto = {
       id: "ia_herramientas",
       patrones: /\b(chatgpt|gemini|claude|perplexity|copilot|midjourney|dall|leonardo|n8n|crewai|langgraph|autogpt|qu[eé] herramientas)\b/i,
       respuesta:
-        "Cubre las principales 🤖\n\nChatGPT, Gemini, Claude, Perplexity y Copilot para el día a día; Midjourney, DALL·E 4 y Leonardo AI para crear imágenes y video; y n8n, CrewAI, LangGraph y AutoGPT para armar agentes que trabajen solos.",
+        "Cubre las principales 🤖 ChatGPT, Gemini, Claude, Perplexity y Copilot para el día a día; Midjourney, DALL·E 4 y Leonardo AI para crear imágenes y video; y n8n, CrewAI, LangGraph y AutoGPT para armar agentes que trabajen solos.",
     },
     {
       id: "ia_negocio",
       patrones: /\b(para mi negocio|automatizar|chatbot|whatsapp|vender|monetizar|ganar dinero|emprend\w+)\b/i,
       respuesta:
-        "Tiene un módulo entero para eso 💼\n\nAutomatizar WhatsApp, email y ventas, crear chatbots inteligentes y monetizar con IA. Y vienen plantillas listas para usar 🎁",
+        "Tiene un módulo entero para eso 💼 Automatizar WhatsApp, email y ventas, crear chatbots inteligentes y monetizar con IA. Y vienen plantillas listas para usar 🎁",
     },
     {
       id: "ia_programar",
@@ -248,7 +250,7 @@ const IA: ConocimientoProducto = {
       patrones: /\bprogram\w+\b|\bc[oó]digo\b|\bsoy t[eé]cnico\b|\bsin experiencia\b|\bno s[eé] de (tecnolog[ií]a|computador)/i,
       // "sin código" está literal en la descripción, referido a n8n.
       respuesta:
-        "No necesitas programar 🙌\n\nLa automatización se arma con n8n, que es sin código. Se trabaja con herramientas visuales.",
+        "No necesitas programar 🙌 Se arma con n8n, que es sin código.",
     },
     // Sin responder: no está en su descripción y no se puede verificar afuera
     // porque es un pack armado, no un curso publicado.

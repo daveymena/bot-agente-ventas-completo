@@ -28,7 +28,7 @@ describe("las preguntas de siempre tienen respuesta verificada", () => {
     // "¿Dónde es la academia?" fue el mensaje que costó un cliente real.
     const r = responderPregunta(PIANO, "donde es la academia?");
     expect(r?.texto).toMatch(/online/i);
-    expect(r?.texto).toMatch(/no hay sede/i);
+    expect(r?.texto).toMatch(/sin sede|no hay sede/i);
   });
 
   it("cómo llega: Google Drive, no un envío", () => {
@@ -165,5 +165,31 @@ describe("curso de IA: solo lo que dice su propia descripción", () => {
   it("cada curso responde lo suyo, sin mezclarse", () => {
     expect(responderPregunta(IA, "que incluye?")?.texto).not.toMatch(/partitura|perro/i);
     expect(responderPregunta(PIANO, "que incluye?")?.texto).not.toMatch(/n8n|chatgpt/i);
+  });
+});
+
+describe("responde lo justo, sin desbordarse", () => {
+  it("un dato simple cabe en una línea", () => {
+    // "a veces se desborda al responder algo sencillo" (admin, 26/08).
+    for (const [pid, m] of [[PIANO,"tiene garantia?"], [PIANO,"trae certificado?"],
+                            [PIANO,"donde es la academia?"], [PERRO,"que raza sirve?"]] as const) {
+      const t = responderPregunta(pid, m)!.texto;
+      expect(t.includes("\n"), m).toBe(false);
+      expect(t.length, m).toBeLessThan(110);
+    }
+  });
+
+  it("las listas SÍ conservan su bloque aparte", () => {
+    const t = responderPregunta(PIANO, "que incluye?")!.texto;
+    expect(t).toContain("\n");
+    expect(t.split("\n").filter(l=>l.trim().startsWith("✅")).length).toBeGreaterThan(2);
+  });
+
+  it("toda respuesta lleva al menos un emoji", () => {
+    const conEmoji = /\p{Extended_Pictographic}/u;
+    for (const [pid, m] of [[PIANO,"tiene garantia?"], [PERRO,"sirve para cachorros?"],
+                            [124,"hay que programar?"]] as const) {
+      expect(conEmoji.test(responderPregunta(pid, m)!.texto), m).toBe(true);
+    }
   });
 });
