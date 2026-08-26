@@ -46,7 +46,31 @@ import { eq, desc } from "drizzle-orm";
 
 const router = Router();
 
-// ── Configuración del contenedor OpenCode (operato) ─────────────────────────
+// ── Configuración del contenedor OpenCode ───────────────────────────────────
+//
+// OJO con cuál contenedor es: acá decía "(operato)" y era MENTIRA. En
+// producción `ATLAS_OPENCODE_HOST` apunta a
+// `https://opencode1-opencode-clean.2xs2bu.easypanel.host`, o sea al
+// contenedor **opencode-clean** del proyecto `opencode1`. `operato` es otro
+// servicio del mismo proyecto (el dashboard de Operator Pro), y quien leyera
+// este comentario para depurar un turno de Atlas iba a mirar los logs del
+// contenedor equivocado.
+//
+// El circuito completo, para no tener que reconstruirlo cada vez:
+//
+//   admin en el panel
+//     → POST /api/code-agent/operator-opencode      (esta ruta, en tecnoia)
+//     → Basic auth contra opencode-clean            (ATLAS_OPENCODE_USER/PASS)
+//        · POST /mcp                     registra el puente de vuelta
+//        · POST /session                 abre la sesión
+//        · POST /session/{id}/message    manda el mensaje del admin
+//     → opencode-clean llama de vuelta a ventasproia.com/api/internal/mcp/atlas
+//       con un token por turno, y ahí se ejecutan las herramientas de verdad.
+//
+// No confundir con `OPENCODE_API_URL` (https://opencode.ai/zen/v1): esa es la
+// nube de OpenCode Zen y la usa el bot de WhatsApp para responderle a los
+// CLIENTES. Son dos caminos independientes que comparten el nombre "opencode".
+//
 // Nunca hardcodear la credencial acá -- si faltan las env vars, esta ruta
 // falla con un mensaje claro en vez de silenciosamente usar un valor
 // insertado en el código fuente (que terminaría en git).

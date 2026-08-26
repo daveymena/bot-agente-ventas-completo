@@ -35,6 +35,11 @@ const ID_HACIA_OPENCODE: Record<string, string> = {
 // y ensuciar el log con un 404 esperado en cada guardado.
 const NO_SINCRONIZABLES = new Set(["github", "mimo"]);
 
+/**
+ * Apunta al contenedor **opencode-clean** (proyecto `opencode1`), no a
+ * `operato` -- son dos servicios distintos del mismo proyecto. El circuito
+ * completo está documentado en routes/operator-opencode.ts.
+ */
 function opencodeConfig(): { host: string; authHeader: string } | null {
   const host = process.env.ATLAS_OPENCODE_HOST;
   const user = process.env.ATLAS_OPENCODE_USER;
