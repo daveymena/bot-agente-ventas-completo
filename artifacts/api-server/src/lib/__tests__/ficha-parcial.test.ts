@@ -81,27 +81,54 @@ describe("no vuelve a volcar la ficha entera", () => {
   });
 });
 
-describe("cada respuesta deja una puerta abierta", () => {
-  it("el precio invita a saber qué incluye", () => {
-    expect(invitacionDe("precio", false)).toMatch(/incluye/i);
+describe("cada respuesta apunta a algo que el cliente todavía no vio", () => {
+  it("tras el precio, invita a ver qué incluye", () => {
+    // La curiosidad sale de que quede algo concreto por saber, no de
+    // adjetivos ni de urgencia inventada.
+    expect(invitacionDe("precio", false)).toMatch(/incluye|trae|adentro/i);
   });
 
-  it("la info invita a preguntar el precio", () => {
-    expect(invitacionDe("info", false)).toMatch(/precio/i);
+  it("tras la info, invita a preguntar el precio", () => {
+    expect(invitacionDe("info", false)).toMatch(/precio|cuesta|cu[aá]nto/i);
   });
 
-  it("después de dar el medio de pago, pide el comprobante", () => {
-    expect(invitacionDe("pago_transferencia", false)).toMatch(/comprobante/i);
+  it("tras dar el medio de pago, pide el comprobante", () => {
+    // Acá no se genera curiosidad: se cierra, y se dice el paso exacto.
+    expect(invitacionDe("pago_transferencia", false)).toMatch(/comprobante|soporte/i);
   });
 
   it("la invitación de entrega cambia según sea físico o digital", () => {
-    expect(invitacionDe("entrega", true)).toMatch(/pedido/i);
-    expect(invitacionDe("entrega", false)).toMatch(/acceso/i);
+    expect(invitacionDe("entrega", true)).toMatch(/pedido|pedimos/i);
+    expect(invitacionDe("entrega", false)).toMatch(/acceso|arrancamos/i);
   });
 
   it("ninguna sección se queda sin invitación", () => {
     for (const s of ["precio", "pago", "pago_transferencia", "pago_link", "info", "entrega", "completa"] as const) {
-      expect(invitacionDe(s, false).length).toBeGreaterThan(0);
+      expect(invitacionDe(s, false).length, s).toBeGreaterThan(0);
     }
+  });
+
+  it("NO promete nada que el bot no pueda saber", () => {
+    // "te va a encantar" / "el más vendido" son inventos: ya hubo que sacarlos
+    // de las respuestas (ver supervisor.ts).
+    const prohibido = /te va a encantar|el m[aá]s vendido|no te lo pierdas|[uú]ltima oportunidad|garantizado/i;
+    for (const s of ["precio", "pago", "pago_transferencia", "pago_link", "info", "entrega", "completa"] as const) {
+      for (const fisico of [true, false]) {
+        for (const semilla of ["573001", "573002", "573003", ""]) {
+          expect(invitacionDe(s, fisico, semilla), s).not.toMatch(prohibido);
+        }
+      }
+    }
+  });
+
+  it("dos clientes distintos no reciben siempre el mismo guion", () => {
+    const vistos = new Set(
+      ["573001", "573002", "573003", "573004", "573005", "573006"].map((t) => invitacionDe("precio", false, t)),
+    );
+    expect(vistos.size).toBeGreaterThan(1);
+  });
+
+  it("el mismo cliente recibe siempre el mismo, para no sonar inestable", () => {
+    expect(invitacionDe("info", false, "573136174267")).toBe(invitacionDe("info", false, "573136174267"));
   });
 });

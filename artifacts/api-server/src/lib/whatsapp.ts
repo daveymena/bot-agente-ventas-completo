@@ -566,7 +566,7 @@ async function construirSeccion(
   const mon = await contextoDeMoneda(String(semilla).split("|")[0], Number(p.price), p.currency);
   const esFisico = String((p as any).kind || "digital") === "physical";
   const corto = (m: any) => m?.shortUrl || m?.url || "";
-  const cierre = invitacionDe(seccion, esFisico);
+  const cierre = invitacionDe(seccion, esFisico, semilla);
   const L: string[] = [];
 
   // ── Solo el precio ────────────────────────────────────────────────────────

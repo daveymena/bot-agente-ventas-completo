@@ -138,19 +138,67 @@ export function seccionQueCorresponde(e: EntradaSeccion): SeccionFicha {
  * corta ahí, la conversación muere igual. La pregunta corta invita a seguir
  * sin presionar, y le dice al cliente qué más hay para saber.
  */
-export function invitacionDe(s: SeccionFicha, esFisico: boolean): string {
+export function invitacionDe(s: SeccionFicha, esFisico: boolean, semilla = ""): string {
+  const opciones = invitacionesDe(s, esFisico);
+  if (opciones.length === 0) return "";
+  // Varía por cliente: dos personas distintas no reciben el mismo guion, y la
+  // misma persona siempre recibe el mismo (así no parece que el bot cambia de
+  // personalidad a mitad de conversación).
+  let h = 0;
+  for (let i = 0; i < String(semilla).length; i++) h = (h * 31 + String(semilla).charCodeAt(i)) >>> 0;
+  return opciones[h % opciones.length]!;
+}
+
+/**
+ * Cada cierre apunta a algo REAL que el cliente todavía no vio.
+ *
+ * Ahí está la curiosidad: no en adjetivos ni en urgencia inventada, sino en
+ * que quede algo concreto por saber. "¿Te muestro cómo son las clases?" tira
+ * de una clase que existe; "¡no te lo pierdas!" no tira de nada.
+ *
+ * Por eso ninguna de estas frases afirma nada sobre el producto: prometer
+ * "te va a encantar" o "es el más vendido" son cosas que el bot no puede
+ * saber, y ya hubo que sacar inventos de ese tipo (ver supervisor.ts).
+ */
+function invitacionesDe(s: SeccionFicha, esFisico: boolean): string[] {
   switch (s) {
     case "precio":
-      return "¿Te cuento qué incluye?";
+      // Ya sabe cuánto cuesta. Lo que falta es qué se lleva por eso.
+      return [
+        "¿Te muestro todo lo que trae? 👀",
+        "¿Querés ver qué incluye?",
+        "¿Te cuento qué viene adentro? 👀",
+      ];
+
     case "info":
-      return "¿Te paso el precio?";
+      // Vio de qué se trata. Falta el precio, que es la pregunta natural.
+      return [
+        "¿Te paso el precio? 💰",
+        "¿Querés saber cuánto está?",
+        "¿Te digo cuánto cuesta?",
+      ];
+
     case "entrega":
-      return esFisico ? "¿Te ayudo a hacer el pedido?" : "¿Te paso el acceso?";
+      return esFisico
+        ? ["¿Lo pedimos? 📦", "¿Te ayudo con el pedido?"]
+        : ["¿Arrancamos? 🚀", "¿Te dejo listo el acceso?"];
+
     case "pago_transferencia":
     case "pago_link":
     case "pago":
-      return "Cuando hagas el pago, mándame el comprobante por acá 🙌";
+      // Acá no se genera curiosidad: se cierra. Y se dice el paso exacto,
+      // porque un pago sin comprobante queda en el limbo.
+      return [
+        "Apenas transfieras, mandame el comprobante por acá y te activo el acceso 🙌",
+        "Cuando lo hagas, pasame el soporte por acá y te lo dejo listo 🙌",
+      ];
+
     case "completa":
-      return "¿Qué te gustaría saber?";
+      // Recién lo conoce. Se le ofrece lo que más tira: ver el curso por dentro.
+      return [
+        "¿Te muestro cómo son las clases? 🎬",
+        "¿Querés ver qué trae por dentro? 👀",
+        "¿Te cuento más o preferís que te pase el precio?",
+      ];
   }
 }
