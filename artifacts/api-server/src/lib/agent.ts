@@ -2563,7 +2563,27 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
       // igualmente registrada como enviada, y el producto no se le mostraba
       // nunca al cliente. La verdad de qué se envió está en `agentMeta`
       // (cardSent + productId), que sale de las partes ya resueltas.
-      const textoGuardado = raw.replace(/\[CARD:\s*[^\]]*\]/gi, "").replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+      // ── Se guarda lo que SE ENVIÓ, no lo que el modelo escribió ───────────
+      //
+      // Acá se guardaba `raw`: el texto crudo, ANTES del supervisor. O sea que
+      // la base conservaba justo la versión que se habia decidido no mandar.
+      //
+      // Y eso no es un problema de registro, es un problema que se retroalimenta:
+      // el modelo lee los últimos 12 mensajes de la conversación para armar su
+      // contexto. Si ahí está su propio texto SIN corregir, aprende del error
+      // que el supervisor le tapó.
+      //
+      // Medido el 2026-08-26: el cliente vio "$60.000 COP" (corregido), pero en
+      // la base quedó "💰 $149.000 COP" -- un precio que no existe en el
+      // catálogo. En el turno siguiente el modelo lo lee como si fuera suyo y
+      // bueno. Lo mismo con el voseo y con el número de Nequi inventado: se
+      // bloqueaban al salir y volvían por la memoria.
+      const textoEnviado = finalParts
+        .filter((p: any) => p.kind === "text" && p.content)
+        .map((p: any) => p.content)
+        .join("\n\n");
+      const textoGuardado = (textoEnviado || raw)
+        .replace(/\[CARD:\s*[^\]]*\]/gi, "").replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
       // Si el mensaje era SOLO la tarjeta, queda vacío al quitar el marcador:
       // se deja constancia legible de qué ficha se envió.
       const soloFicha = agentMeta.productName ? `📦 Ficha enviada: ${agentMeta.productName}` : "📦 Ficha del producto enviada";
