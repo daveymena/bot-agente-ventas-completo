@@ -124,7 +124,7 @@ export function verificarPrecios(
 
   let limpio = quedan.join("").replace(/[ \t]+/g, " ").replace(/\n{3,}/g, "\n\n").trim();
   if (inventados.length > 0 && !limpio) {
-    limpio = "Te paso la ficha acá abajo con el precio exacto 👇";
+    limpio = "Te paso la ficha aquí abajo con el precio exacto 👇";
   }
   return { texto: limpio, inventados };
 }

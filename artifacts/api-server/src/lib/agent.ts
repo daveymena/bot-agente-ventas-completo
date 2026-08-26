@@ -2483,7 +2483,7 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
           const ultimaDelAgente = [...(memory.history as any[])]
             .reverse()
             .find((m) => m.role !== "customer")?.content ?? "";
-          const yaVeniaBloqueado = /dato equivocado|ficha acá abajo con todos los detalles|Dejame verificarlo/i.test(
+          const yaVeniaBloqueado = /dato equivocado|ficha aquí abajo con todos los detalles|Dejame verificarlo/i.test(
             String(ultimaDelAgente),
           );
 
@@ -2496,7 +2496,7 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
           } else {
             parte.content = revision.reemplazoSugerido
               ?? (hayCard
-                ? "Te paso la ficha acá abajo con todos los detalles 👇"
+                ? "Te paso la ficha aquí abajo con todos los detalles 👇"
                 : "Para no darte un dato equivocado, ¿me confirmas de cuál producto quieres que te cuente?");
           }
         }

@@ -2186,7 +2186,29 @@ export class WhatsAppManager {
     
     const cardIds = parts.flatMap((p) => (p.kind === "card" ? [p.productId] : []));
     let cardCache: Map<number, any> = new Map();
-    const pg = new PaymentGateway(this.currentTenant);
+    // ── El tenant REAL, no el de fábrica ───────────────────────────────────
+    //
+    // `getWhatsAppForTenant` cae a `tenantManager.getDefaultTenant()` cuando
+    // nadie le pasa un contexto, y ese tenant de fábrica arma las cuentas de
+    // transferencia desde `TRANSFER_NUMBER`/`TRANSFER_NAME` -- variables que
+    // NO existen en producción. Resultado, medido en vivo el 2026-08-26: el
+    // cliente preguntó "cómo pago por Nequi" y el bot contestó "ahora mismo no
+    // tengo el dato de transferencia a mano", con el número correcto guardado
+    // en la base todo el tiempo.
+    //
+    // Es el mismo patrón que ya mordió con el AdStrategist y con las
+    // credenciales de correo: la instancia compartida se construye sin tenant
+    // y termina leyendo el entorno en vez de la base.
+    //
+    // `getTenantById` está cacheado 5 min, así que no agrega consultas.
+    let tenantParaCobrar = this.currentTenant;
+    try {
+      const real = await tenantManager.getTenantById(this.currentTenant.id);
+      if (real) tenantParaCobrar = real;
+    } catch (e: any) {
+      console.error(`[Pagos] no se pudo leer el tenant real, se usa el de la sesión: ${e?.message}`);
+    }
+    const pg = new PaymentGateway(tenantParaCobrar);
     
     console.log(`🃏 [WA-PARTS] Tarjetas a procesar: ${cardIds.length} - IDs: [${cardIds.join(', ')}] - ${timestamp}`);
     
