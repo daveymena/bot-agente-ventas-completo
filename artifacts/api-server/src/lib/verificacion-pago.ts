@@ -164,16 +164,30 @@ export function avisoParaElAdmin(p: {
   l.push(`Revisá que el dinero esté en tu cuenta y respondé:`);
   l.push(`✅ *APROBAR ${p.pagoId}*`);
   l.push(`❌ *RECHAZAR ${p.pagoId}*`);
+  l.push(``);
+  l.push(`_Para mandarle el acceso también por correo:_ *APROBAR ${p.pagoId} correo@cliente.com*`);
   return l.join("\n");
 }
 
-/** "APROBAR 47" / "aprobar #47" / "ok 47" → { accion, pagoId } */
-export function leerDecisionDelAdmin(texto: string): { accion: "aprobar" | "rechazar"; pagoId: number } | null {
+/**
+ * "APROBAR 47" / "aprobar #47" / "ok 47" → { accion, pagoId }
+ *
+ * Y opcionalmente un correo al final -- "APROBAR 47 juan@correo.com" -- para
+ * mandarle el acceso TAMBIÉN por email. En los pagos por pasarela el correo lo
+ * da la pasarela; en Nequi no lo tenemos, y un enlace en WhatsApp se pierde
+ * entre mensajes. Si el admin lo sabe, lo escribe y el cliente lo recibe por
+ * los dos lados.
+ */
+export function leerDecisionDelAdmin(
+  texto: string,
+): { accion: "aprobar" | "rechazar"; pagoId: number; correo?: string } | null {
   const t = String(texto || "").trim().toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
-  const m = t.match(/^(aprobar|aprobado|apruebo|ok|confirmar|confirmo|rechazar|rechazo|rechazado|no)\s*#?\s*(\d{1,9})\b/);
+  const m = t.match(
+    /^(aprobar|aprobado|apruebo|ok|confirmar|confirmo|rechazar|rechazo|rechazado|no)\s*#?\s*(\d{1,9})\b\s*([^\s@]+@[^\s@]+\.[^\s@]+)?/,
+  );
   if (!m) return null;
   const accion = /^(rechaz|no)/.test(m[1]!) ? "rechazar" : "aprobar";
-  return { accion, pagoId: Number(m[2]) };
+  return { accion, pagoId: Number(m[2]), correo: m[3] || undefined };
 }
 
 export interface ResultadoDecision {
@@ -183,6 +197,7 @@ export interface ResultadoDecision {
   mensajeParaElCliente: string | null;
   conversationId: number | null;
   productId: number | null;
+  tenantId: number | null;
   aprobado: boolean;
 }
 
@@ -204,6 +219,7 @@ export async function aplicarDecision(
     mensajeParaElCliente: null,
     conversationId: null,
     productId: null,
+    tenantId: null,
     aprobado: false,
   };
 
@@ -243,6 +259,7 @@ export async function aplicarDecision(
         : `Revisé el comprobante y todavía no veo el pago reflejado 🤔 ¿Podés verificar que la transferencia haya salido y mandarme el soporte de nuevo?`,
       conversationId: pago.conversationId ?? null,
       productId: pago.productId ?? null,
+      tenantId: pago.tenantId ?? null,
       aprobado,
     };
   } catch (e: any) {
@@ -349,10 +366,42 @@ export async function atenderDecisionDelAdmin(
     }
   }
 
+  // ── Y por correo, si el admin dijo a dónde ────────────────────────────────
+  // Un enlace en WhatsApp se pierde entre mensajes; en el correo queda.
+  if (r.aprobado && decision.correo) {
+    const enviado = await enviarAccesoPorCorreo(decision.correo, paraCliente, r.tenantId);
+    avisoExtra += enviado
+      ? `\n📧 También se lo mandé a ${decision.correo}.`
+      : `\n⚠️ No pude mandarlo a ${decision.correo} (revisá el SMTP en Configuración → Email).`;
+  }
+
   return {
     paraElAdmin: r.mensajeParaElAdmin + avisoExtra,
     paraElCliente: { conversationId: r.conversationId, texto: paraCliente, entregar: r.aprobado },
   };
+}
+
+/** Manda el acceso por correo. Devuelve false en vez de tirar. */
+async function enviarAccesoPorCorreo(
+  correo: string,
+  cuerpo: string,
+  tenantId: number | null,
+): Promise<boolean> {
+  try {
+    const { enviarCorreoSimple } = await import("./email");
+    const { credencialesEmailDe } = await import("./tenant-email-credentials");
+    const { tenantManager } = await import("./tenantManager");
+    const tenant = tenantId ? await tenantManager.getTenantById(tenantId) : null;
+    return await enviarCorreoSimple(
+      correo,
+      "✅ Tu acceso — pago confirmado",
+      cuerpo.replace(/\*/g, ""),
+      credencialesEmailDe(tenant as any),
+    );
+  } catch (e: any) {
+    logger.error({ err: e?.message, correo }, "[Entrega] No se pudo mandar el acceso por correo");
+    return false;
+  }
 }
 
 /**

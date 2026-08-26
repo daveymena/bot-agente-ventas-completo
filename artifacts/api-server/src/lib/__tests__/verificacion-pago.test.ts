@@ -115,3 +115,20 @@ describe("aprobar entrega de verdad, o lo dice claro", () => {
     expect(r).toBeNull();
   });
 });
+
+describe("aprobar indicando a dónde mandar el acceso por correo", () => {
+  it("captura el correo después del número", () => {
+    expect(leerDecisionDelAdmin("APROBAR 12 daveymena16@gmail.com"))
+      .toEqual({ accion: "aprobar", pagoId: 12, correo: "daveymena16@gmail.com" });
+  });
+
+  it("sin correo sigue funcionando igual", () => {
+    expect(leerDecisionDelAdmin("APROBAR 12"))
+      .toEqual({ accion: "aprobar", pagoId: 12, correo: undefined });
+  });
+
+  it("el aviso le dice al admin que puede hacerlo", () => {
+    const a = avisoParaElAdmin({ pagoId: 12, cliente: "X", telefono: "1", producto: "Y", monto: 1000, moneda: "COP" });
+    expect(a).toMatch(/correo@cliente\.com/);
+  });
+});
