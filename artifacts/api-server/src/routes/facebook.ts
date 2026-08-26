@@ -748,6 +748,30 @@ router.put("/strategist/draft/:id", async (req, res, next) => {
   } catch (e) { return next(e); }
 });
 
+/**
+ * Sube un borrador a Meta EN PAUSA. No gasta un peso.
+ *
+ * `subirBorradorAMeta` existía en ad-strategist desde que se separaron las dos
+ * acciones (subir ≠ activar), pero NINGUNA ruta la exponía: solo se podía
+ * llegar a ella pidiéndoselo a Atlas en lenguaje natural. Desde el panel, un
+ * borrador local no tenía forma de llegar a Meta -- `publish` solo ACTIVA una
+ * campaña que ya exista, y con un borrador local devuelve "revisa que el
+ * borrador tenga campaña creada", que no dice qué hacer.
+ *
+ * `objetivo` por defecto es "mensajes": estos anuncios mandan al WhatsApp del
+ * negocio, que es donde atiende el bot. Con "ventas" (el default de la
+ * función) apuntarían a la web, que no es el flujo de este negocio.
+ */
+router.post("/strategist/draft/:id/upload", async (req, res, next) => {
+  try {
+    const draftId = parseInt(req.params.id as string);
+    const objetivo = String((req.body || {}).objetivo || "mensajes") as any;
+    const { AdStrategist } = await import("../lib/ad-strategist");
+    const r = await new AdStrategist((req as any).tenant || undefined).subirBorradorAMeta(draftId, objetivo);
+    return res.status(r.ok ? 200 : 400).json(r);
+  } catch (e) { return next(e); }
+});
+
 router.post("/strategist/draft/:id/publish", async (req, res, next) => {
   try {
     const draftId = parseInt(req.params.id);
