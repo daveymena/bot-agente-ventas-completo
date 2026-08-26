@@ -263,7 +263,13 @@ export async function getBusinessContext(
     acceso: null,
     // Por defecto NO se filtra nada: cambiarle el catálogo a un negocio que no
     // lo pidió sería peor que el problema que esto resuelve.
-    modoCatalogo: "mixto",
+    //
+    // `MODO_CATALOGO` es el respaldo para instalaciones de UN solo negocio,
+    // mismo criterio que `ADMIN_PHONE` en ad-growth-agent: el perfil del
+    // negocio manda, y el entorno solo sirve cuando todavía no se configuró
+    // desde el panel. Con varios negocios hay que usar el perfil, porque una
+    // variable de entorno les cambiaría el catálogo a todos por igual.
+    modoCatalogo: modoDelEntorno(),
     noPuede: [],
     loQueDebeSaber: [],
     fuentes: [],
@@ -408,6 +414,12 @@ function aplicarNombres(
  * una garantía que nadie definió. Se extrae acá para que lo use tanto el
  * bloque del negocio como el estado cognitivo, sin duplicar la regla.
  */
+/** El modo de catálogo del entorno. Solo vale "digital" o "fisico". */
+function modoDelEntorno(): "digital" | "fisico" | "mixto" {
+  const m = String(process.env.MODO_CATALOGO || "").trim().toLowerCase();
+  return m === "digital" || m === "fisico" ? m : "mixto";
+}
+
 export function datosQueFaltan(ctx: BusinessContext | null | undefined): string[] {
   if (!ctx) return [];
   const faltan: string[] = [];
