@@ -704,10 +704,15 @@ router.delete("/strategist/draft/:id", async (req, res, next) => {
 router.put("/strategist/draft/:id", async (req, res, next) => {
   try {
     const draftId = parseInt(req.params.id);
-    const { headline, primaryText, budget, images } = req.body || {};
+    const { headline, primaryText, description, budget, images } = req.body || {};
     const patch: Record<string, any> = { updatedAt: new Date() };
     if (typeof headline === "string") patch.headline = headline;
     if (typeof primaryText === "string") patch.primaryText = primaryText;
+    // `description` faltaba, y es un campo que SE MUESTRA en el anuncio (la
+    // línea del enlace). Al subir todos los cursos a $60.000 el 2026-08-26,
+    // el borrador 90 quedó con "$20.000" ahí y no había forma de corregirlo
+    // desde la API: el precio viejo seguía publicado en Meta.
+    if (typeof description === "string") patch.description = description;
     if (budget !== undefined && budget !== null && budget !== "") {
       const n = Number(budget);
       if (!Number.isNaN(n)) patch.budget = n;
@@ -725,7 +730,17 @@ router.put("/strategist/draft/:id", async (req, res, next) => {
     // datos, Facebook no se entera solo. Falla suave: el "Guardar" en sí
     // funcionó igual, se avisa aparte si Meta rechazó la actualización.
     let metaSync: { ok: boolean; message?: string } | null = null;
-    if (updated.adId && (Array.isArray(images) || typeof headline === "string" || typeof primaryText === "string")) {
+    // `description` va en la lista: sin él, cambiar SOLO la descripción
+    // guardaba en la base y dejaba el texto viejo publicado en Meta -- que es
+    // el peor de los dos mundos, porque el panel muestra el precio nuevo y el
+    // anuncio sigue mostrando el viejo.
+    if (
+      updated.adId &&
+      (Array.isArray(images) ||
+        typeof headline === "string" ||
+        typeof primaryText === "string" ||
+        typeof description === "string")
+    ) {
       const { AdStrategist } = await import("../lib/ad-strategist");
       metaSync = await new AdStrategist((req as any).tenant || undefined).updateDraftCreative(draftId);
     }
