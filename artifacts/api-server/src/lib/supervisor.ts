@@ -45,6 +45,14 @@ export interface EntradaSupervisor {
   pagosManuales?: string[];
 
   /**
+   * Los numeros de cuenta REALES del negocio (Nequi, Daviplata, banco).
+   *
+   * Cualquier otro numero que el modelo escriba como cuenta de cobro es plata
+   * que se va a la cuenta equivocada.
+   */
+  cuentasReales?: string[];
+
+  /**
    * Si ESTE mensaje lleva de verdad una ficha/tarjeta adjunta.
    *
    * Es la verdad del servidor, y sirve para cazar la mentira mas peligrosa que
@@ -294,6 +302,52 @@ export function supervisarRespuesta(e: EntradaSupervisor): RevisionSupervisor {
         "Para activarte el acceso necesito el comprobante de la transferencia 🙏 " +
         "Mándamelo por aquí y apenas lo revisemos te confirmo.",
     };
+  }
+
+  // ── R8 · Un numero de cuenta que no es del negocio NO puede salir ──────────
+  //
+  // Medido en vivo el 2026-08-26, escribiendole al bot desde WhatsApp Web:
+  //
+  //   YO:  como pago por nequi
+  //   BOT: "Podés pagar por Nequi con el número que te paso en este mensaje:
+  //         300 123 4567"
+  //
+  // Ese numero NO EXISTE. El del negocio es 3136174267. El modelo lo invento
+  // con la forma de un celular colombiano, que es lo que lo hace peligroso:
+  // parece de verdad, y el cliente transfiere.
+  //
+  // Es el peor error posible de este bot. No es una respuesta fea ni un dato
+  // impreciso: es plata que se va a una cuenta ajena y no vuelve.
+  //
+  // El numero real lo sabe el servidor, asi que esto no se interpreta: se
+  // compara. Cualquier celular de 10 digitos que no sea una cuenta cargada, en
+  // un mensaje que habla de pagar, no sale.
+  const cuentas = (e.cuentasReales || []).map((c) => String(c).replace(/[^0-9]/g, "")).filter(Boolean);
+  const hablaDeCobro = /\bnequi|daviplata|transferenc|consigna|cuenta|celular|n[uú]mero\b/i.test(texto);
+  if (hablaDeCobro) {
+    // 10 digitos seguidos, con o sin espacios/puntos de por medio.
+    const posibles = texto.match(/\b\d[\d\s.\-]{8,14}\d\b/g) || [];
+    const ajenos = posibles
+      .map((n) => ({ crudo: n, limpio: n.replace(/[^0-9]/g, "") }))
+      .filter((n) => n.limpio.length === 10 && n.limpio.startsWith("3"))
+      .filter((n) => !cuentas.includes(n.limpio));
+
+    if (ajenos.length > 0) {
+      bloquear = true;
+      hallazgos.push({
+        regla: "cuenta-inventada",
+        gravedad: "bloquea",
+        detalle: `Escribió un número de cuenta que NO es del negocio: ${ajenos.map((a) => a.crudo).join(", ")}`,
+      });
+      return {
+        texto,
+        hallazgos,
+        bloquear,
+        reemplazoSugerido: cuentas.length
+          ? "Te paso los datos de pago aquí abajo 👇"
+          : "Dejame confirmarte los datos de pago y te los envío enseguida 🙏",
+      };
+    }
   }
 
   // ── R7 · No inventar incentivos que el negocio tendra que honrar ───────────

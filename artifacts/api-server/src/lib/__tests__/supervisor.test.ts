@@ -255,3 +255,45 @@ describe("R7 · no inventa bonus que el negocio tendrá que honrar", () => {
     expect(rev(t, "qué trae?", [201]).texto).toBe(t);
   });
 });
+
+// ─── R8 · números de cuenta inventados ───────────────────────────────────────
+
+const revCuenta = (respuesta: string, mensajeCliente: string, cuentasReales: string[] = ["3136174267"]) =>
+  supervisarRespuesta({ respuesta, mensajeCliente, productos: CATALOGO, idsEnContexto: [123], cuentasReales });
+
+describe("R8 · un número de cuenta que no es del negocio NO sale", () => {
+  it("bloquea el Nequi inventado (medido en vivo 26/08)", () => {
+    // Texto literal que mandó el bot. El número real es 3136174267.
+    const r = revCuenta(
+      "Podés pagar por Nequi con el número que te paso en este mensaje: 300 123 4567.",
+      "como pago por nequi",
+    );
+    expect(r.bloquear).toBe(true);
+    expect(r.hallazgos.map((h) => h.regla)).toContain("cuenta-inventada");
+  });
+
+  it("el número REAL del negocio sí puede salir", () => {
+    const r = revCuenta("Te paso el Nequi: 3136174267, a nombre de Duvier Mena.", "como pago por nequi");
+    expect(r.bloquear).toBe(false);
+  });
+
+  it("lo caza aunque venga con espacios o puntos", () => {
+    for (const n of ["300 123 4567", "300.123.4567", "3001234567", "300-123-4567"]) {
+      expect(revCuenta(`Mi Nequi es ${n}`, "nequi?").bloquear, n).toBe(true);
+    }
+  });
+
+  it("no molesta cuando el mensaje no habla de cobrar", () => {
+    // Un número largo en otro contexto no es una cuenta.
+    const r = revCuenta("El curso tiene 3001234567 estudiantes, es un decir.", "cuantos alumnos hay?");
+    expect(r.hallazgos.map((h) => h.regla)).not.toContain("cuenta-inventada");
+  });
+
+  it("sin cuentas cargadas, cualquier número de cobro se bloquea igual", () => {
+    // Es el caso peligroso: si el negocio no configuró su cuenta, el modelo
+    // no puede rellenar el hueco con una inventada.
+    const r = revCuenta("Consigna al Nequi 3001234567", "como pago", []);
+    expect(r.bloquear).toBe(true);
+    expect(r.reemplazoSugerido).toMatch(/confirmar/i);
+  });
+});

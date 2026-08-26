@@ -2404,6 +2404,19 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
         //
         // Se reemplaza el texto del modelo, no se le suma: dos respuestas a la
         // misma pregunta se contradicen tarde o temprano.
+        // Las cuentas de cobro reales de ESTE negocio, para que el supervisor
+        // pueda distinguir el número verdadero de uno inventado.
+        let cuentasDelNegocio: string[] = [];
+        try {
+          const { credencialesDe } = await import("./tenant-payment-credentials");
+          const tReal = await tenantManager.getTenantById(convo.tenantId);
+          cuentasDelNegocio = (credencialesDe(tReal as any)?.transfer?.accounts || [])
+            .map((c: any) => String(c?.number || ""))
+            .filter(Boolean);
+        } catch (e: any) {
+          logger.warn({ err: e?.message }, "[Supervisor] no se pudieron leer las cuentas del negocio");
+        }
+
         let respondidoDeConocimiento = false;
         try {
           const idFoco = idsEnContexto[0] ?? null;
@@ -2436,6 +2449,9 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
             // La verdad del servidor: si no hay ficha, no se mandó nada, por
             // más que el texto diga "ya te lo mandé".
             llevaCard: hayCard,
+            // Las cuentas de cobro REALES. Todo lo que el modelo escriba como
+            // número de cuenta y no esté acá, es plata a una cuenta ajena.
+            cuentasReales: cuentasDelNegocio,
           });
 
           if (revision.hallazgos.length === 0) continue;
