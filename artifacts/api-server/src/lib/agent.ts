@@ -2352,10 +2352,29 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
           // Qué pedazo de la ficha pidió el cliente. Volcarla entera en cada
           // turno es lo que hacía ver al bot como un folleto automático: si
           // preguntó el precio, va el precio.
+          // ── Qué sabemos del video en esta conversación ───────────────────
+          //
+          // Se lee del historial en vez de guardar una bandera aparte: el
+          // historial ya es la verdad de qué se envió, y una bandera se
+          // desincroniza en cuanto algo falla a mitad de camino.
+          //
+          //   · ofrecimos: el último mensaje del bot ofreció mostrarlo, así
+          //     que un "dale" suelto significa que sí quiere verlo.
+          //   · yaEnviado: si el enlace ya salió, no se repite -- que lo pidan
+          //     de nuevo suele ser que no lo abrieron, y remandarlo no ayuda.
+          const delAgente = (memory.history as any[]).filter((m) => m.role !== "customer");
+          const ultimaDelBot = String(delAgente[delAgente.length - 1]?.content || "");
+          const ofrecimosVideo = /video introductorio|c[oó]mo son las clases|te muestro el video/i.test(ultimaDelBot);
+          const videoYaEnviado = delAgente.some((m) =>
+            /🎬 Mira c[oó]mo son las clases|drive\.google\.com\/file/i.test(String(m.content || "")),
+          );
+
           const seccion = seccionQueCorresponde({
             mensaje: lastText,
             intent: decision.intent,
             fichaYaEnviada: memory.sentProductIds.has(resolvedId),
+            ofrecimosVideo,
+            videoYaEnviado,
           });
           console.log(`🎯 [FICHA] Sección elegida: ${seccion} (intent: ${decision.intent}) - ${ts()}`);
           parts.push({ kind: "card", productId: resolvedId, paymentOnly: isPaymentFlow, seccion });

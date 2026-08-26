@@ -38,6 +38,8 @@ export type SeccionFicha =
   | "info"
   /** Cómo se entrega / cuándo llega. */
   | "entrega"
+  /** El video de muestra, porque lo pidió o aceptó verlo. */
+  | "video"
   /** La ficha entera. Solo cuando de verdad corresponde. */
   | "completa";
 
@@ -48,6 +50,10 @@ export interface EntradaSeccion {
   intent?: string | null;
   /** true si a este cliente ya se le mandó la ficha de este producto. */
   fichaYaEnviada?: boolean;
+  /** true si en el turno anterior se le ofreció ver el video. */
+  ofrecimosVideo?: boolean;
+  /** true si el video de este producto ya se envió en esta conversación. */
+  videoYaEnviado?: boolean;
 }
 
 const N = (s: string) =>
@@ -91,6 +97,21 @@ const PIDE_LINK = /\b(tarjeta|credito|debito|pse|paypal|link de pago|enlace de p
 const PIDE_INFO =
   /\b(que (trae|incluye|contiene|tiene|es|viene)|de que (trata|es)|informacion|info|contenido|temario|modulos|como funciona|para que sirve|me cuentas|cuentame|detalles)\b/;
 
+/**
+ * Pidió ver el video, o aceptó la oferta de verlo.
+ *
+ * El video es la carnada mejor que tenemos: una promesa se discute, ver la
+ * primera clase no. Pero mandarlo sin que lo pidan lo gasta -- por eso se
+ * OFRECE en la presentación y se manda acá, cuando el cliente dice que sí.
+ *
+ * "dale", "sí", "bueno" entran porque casi siempre son la respuesta a la
+ * oferta; el que decide si aplica es `ofrecimosVideo`, no este patrón.
+ */
+const PIDE_VIDEO =
+  /\bvideo\b|\bvidio\b|\bmu[eé]stra\w*\b|\bme lo ense[ñn]as\b|\bver (una|la) clase\b|\bdemo\b|\bc[oó]mo (son|es) (las|la) clase/i;
+
+const ACEPTA = /^(s[ií]|sii+|dale|bueno|ok|okay|okey|listo|claro|por favor|porfa|de una|obvio|hazlo|mu[eé]strame\w*)\b/i;
+
 /** Preguntó por la entrega. */
 // Igual que arriba: las formas reales en que la gente pregunta esto son más
 // variadas que la lista corta que había. "como lo voy a recibir", "me lo
@@ -111,6 +132,16 @@ const PIDE_ENTREGA =
 export function seccionQueCorresponde(e: EntradaSeccion): SeccionFicha {
   const m = N(e.mensaje);
   const intent = String(e.intent || "");
+
+  // ── El video ──────────────────────────────────────────────────────────────
+  // Va primero porque "muéstrame cómo son las clases" también huele a info, y
+  // lo que el cliente quiere es el video.
+  //
+  // Si ya se lo mandamos, NO se repite: pedirlo de nuevo suele significar que
+  // no lo abrió, y remandarlo no ayuda. Se sigue por el camino normal.
+  if (!e.videoYaEnviado && (PIDE_VIDEO.test(m) || (e.ofrecimosVideo && ACEPTA.test(m)))) {
+    return "video";
+  }
 
   // ── Medio de pago concreto: lo más específico que puede pedir ─────────────
   if (PIDE_TRANSFERENCIA.test(m)) return "pago_transferencia";
@@ -149,8 +180,20 @@ export function seccionQueCorresponde(e: EntradaSeccion): SeccionFicha {
  * corta ahí, la conversación muere igual. La pregunta corta invita a seguir
  * sin presionar, y le dice al cliente qué más hay para saber.
  */
-export function invitacionDe(s: SeccionFicha, esFisico: boolean, semilla = ""): string {
-  const opciones = invitacionesDe(s, esFisico);
+export function invitacionDe(
+  s: SeccionFicha,
+  esFisico: boolean,
+  semilla = "",
+  /**
+   * Si ESTE producto tiene video cargado.
+   *
+   * Solo 9 de los 84 cursos lo tienen (medido el 2026-08-26). Ofrecer "te
+   * muestro el video" en los otros 75 es prometer algo que no existe -- el
+   * mismo error que venimos sacando de todos lados, solo que en el cierre.
+   */
+  tieneVideo = true,
+): string {
+  const opciones = invitacionesDe(s, esFisico, tieneVideo);
   if (opciones.length === 0) return "";
   // Varía por cliente: dos personas distintas no reciben el mismo guion, y la
   // misma persona siempre recibe el mismo (así no parece que el bot cambia de
@@ -171,7 +214,15 @@ export function invitacionDe(s: SeccionFicha, esFisico: boolean, semilla = ""): 
  * "te va a encantar" o "es el más vendido" son cosas que el bot no puede
  * saber, y ya hubo que sacar inventos de ese tipo (ver supervisor.ts).
  */
-function invitacionesDe(s: SeccionFicha, esFisico: boolean): string[] {
+function invitacionesDe(s: SeccionFicha, esFisico: boolean, tieneVideo = true): string[] {
+  // Sin video cargado, el cierre apunta a otra cosa real. Nunca se ofrece lo
+  // que no se puede entregar.
+  if (!tieneVideo && (s === "info" || s === "completa")) {
+    return s === "info"
+      ? ["¿Te paso el precio? 💰", "¿Quieres saber cuánto está?"]
+      : ["¿Te cuento qué incluye? 👀", "¿Qué te gustaría saber?"];
+  }
+
   switch (s) {
     case "precio":
       // Ya sabe cuánto cuesta. Lo que falta es qué se lleva por eso.
@@ -182,11 +233,12 @@ function invitacionesDe(s: SeccionFicha, esFisico: boolean): string[] {
       ];
 
     case "info":
-      // Vio de qué se trata. Falta el precio, que es la pregunta natural.
+      // Quiso detalle: acá es donde el video amplía mejor que cualquier texto.
+      // Ofrecerlo justo en este punto es lo que engancha; mandarlo antes lo
+      // gasta, y mandarlo después llega tarde.
       return [
-        "¿Te paso el precio? 💰",
-        "¿Querés saber cuánto está?",
-        "¿Te digo cuánto cuesta?",
+        "Si quieres ampliar, te muestro el video introductorio 🎬",
+        "¿Te muestro el video para que veas cómo son las clases? 🎬",
       ];
 
     case "entrega":
@@ -204,12 +256,15 @@ function invitacionesDe(s: SeccionFicha, esFisico: boolean): string[] {
         "Cuando lo hagas, pásame el soporte por aquí y te lo dejo listo 🙌",
       ];
 
+    case "video":
+      // Ya vio la clase. Ahí es donde más cerca está de decidir.
+      return ["¿Qué te pareció?"];
+
     case "completa":
       // Recién lo conoce. Se le ofrece lo que más tira: ver el curso por dentro.
       return [
-        "¿Te muestro cómo son las clases? 🎬",
-        "¿Querés ver qué trae por dentro? 👀",
-        "¿Te cuento más o preferís que te pase el precio?",
+        "¿Te muestro el video introductorio? 🎬",
+        "¿Quieres ver cómo son las clases? 🎬",
       ];
   }
 }

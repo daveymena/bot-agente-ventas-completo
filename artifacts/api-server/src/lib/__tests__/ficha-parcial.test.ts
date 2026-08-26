@@ -88,8 +88,10 @@ describe("cada respuesta apunta a algo que el cliente todavía no vio", () => {
     expect(invitacionDe("precio", false)).toMatch(/incluye|trae|adentro/i);
   });
 
-  it("tras la info, invita a preguntar el precio", () => {
-    expect(invitacionDe("info", false)).toMatch(/precio|cuesta|cu[aá]nto/i);
+  it("tras la info, ofrece el video para ampliar", () => {
+    // Antes invitaba a preguntar el precio. Ahora el video: es lo que de
+    // verdad amplia, y es el momento en que el cliente pidio mas detalle.
+    expect(invitacionDe("info", false)).toMatch(/video/i);
   });
 
   it("tras dar el medio de pago, pide el comprobante", () => {
@@ -130,5 +132,66 @@ describe("cada respuesta apunta a algo que el cliente todavía no vio", () => {
 
   it("el mismo cliente recibe siempre el mismo, para no sonar inestable", () => {
     expect(invitacionDe("info", false, "573136174267")).toBe(invitacionDe("info", false, "573136174267"));
+  });
+});
+
+/**
+ * El video es la carnada mas fuerte que hay: una promesa se discute, ver la
+ * primera clase no. Por eso se OFRECE en la presentacion y se manda cuando el
+ * cliente dice que si -- mandarlo antes lo gasta con quien todavia no mostro
+ * interes, y mandarlo dos veces no aporta.
+ */
+const secV = (mensaje: string, extra: any = {}) =>
+  seccionQueCorresponde({ mensaje, ...extra });
+
+describe("el video se manda en el momento preciso, no en cualquiera", () => {
+  it("cuando lo piden con sus palabras", () => {
+    for (const m of ["tienes algun video?", "muestrame como son las clases", "hay demo?", "me lo enseñas?"]) {
+      expect(secV(m), m).toBe("video");
+    }
+  });
+
+  it("un 'dale' suelto SOLO cuenta si se lo ofrecimos", () => {
+    expect(secV("dale", { ofrecimosVideo: true })).toBe("video");
+    // Sin la oferta previa, "dale" es otra cosa (confirmar, seguir).
+    expect(secV("dale", { ofrecimosVideo: false })).not.toBe("video");
+  });
+
+  it("no se remanda si ya se envio", () => {
+    expect(secV("tienes video?", { videoYaEnviado: true })).not.toBe("video");
+    expect(secV("dale", { ofrecimosVideo: true, videoYaEnviado: true })).not.toBe("video");
+  });
+
+  it("la presentacion OFRECE el video, no lo da por hecho", () => {
+    expect(invitacionDe("completa", false)).toMatch(/video|clases/i);
+  });
+
+  it("pedir detalle lleva al video, que es lo que amplia", () => {
+    expect(invitacionDe("info", false)).toMatch(/video/i);
+  });
+
+  it("despues de verlo, se pregunta que le parecio", () => {
+    expect(invitacionDe("video", false)).toMatch(/pareci/i);
+  });
+});
+
+describe("no ofrece video en los cursos que no lo tienen", () => {
+  it("con video, el cierre lo ofrece", () => {
+    expect(invitacionDe("completa", false, "", true)).toMatch(/video|clases/i);
+    expect(invitacionDe("info", false, "", true)).toMatch(/video/i);
+  });
+
+  it("SIN video, el cierre apunta a otra cosa real", () => {
+    // 75 de los 84 cursos no tienen video cargado. Ofrecerlo ahi es prometer
+    // algo que no existe -- el mismo error de siempre, pero en el cierre.
+    for (const s of ["completa", "info"] as const) {
+      expect(invitacionDe(s, false, "", false), s).not.toMatch(/video/i);
+      expect(invitacionDe(s, false, "", false).length, s).toBeGreaterThan(0);
+    }
+  });
+
+  it("las demas secciones no cambian por el video", () => {
+    expect(invitacionDe("pago_transferencia", false, "", false)).toMatch(/comprobante|soporte/i);
+    expect(invitacionDe("precio", false, "", false)).toMatch(/incluye|trae|adentro/i);
   });
 });
