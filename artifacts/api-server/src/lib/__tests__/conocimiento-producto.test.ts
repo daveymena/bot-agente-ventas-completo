@@ -63,15 +63,29 @@ describe("un problema concreto del perro encuentra su módulo", () => {
   });
 });
 
-describe("lo que el negocio NO respondió, no se inventa", () => {
-  it("la duración todavía no está cargada: se dice que se confirma", () => {
+describe("las preguntas que frenan la venta ya están respondidas", () => {
+  it("cuánto dura el piano: 19 módulos y 283 clases", () => {
     const r = responderPregunta(PIANO, "cuanto dura el curso?");
-    expect(r?.sinResponder).toBe(true);
-    expect(r?.texto).toMatch(/confirmar|confirmo|confirmarte/i);
+    expect(r?.sinResponder).toBe(false);
+    expect(r?.texto).toMatch(/19 m[oó]dulos/i);
   });
 
-  it("si necesita teclado tampoco: no se responde de memoria", () => {
-    expect(responderPregunta(PIANO, "necesito un teclado?")?.sinResponder).toBe(true);
+  it("si necesita teclado: sí, y cualquiera sirve para empezar", () => {
+    const r = responderPregunta(PIANO, "necesito un teclado?");
+    expect(r?.sinResponder).toBe(false);
+    expect(r?.texto).toMatch(/piano o teclado/i);
+  });
+
+  it("edad del piano: todas las edades", () => {
+    expect(responderPregunta(PIANO, "sirve para mi hijo?")?.texto).toMatch(/todas las edades/i);
+  });
+
+  it("raza del perro: cualquiera, incluidos criollos", () => {
+    expect(responderPregunta(PERRO, "sirve para un criollo?")?.texto).toMatch(/cualquier raza/i);
+  });
+
+  it("cachorro: desde cachorro hasta adulto mayor", () => {
+    expect(responderPregunta(PERRO, "mi perro es cachorro, sirve?")?.texto).toMatch(/cachorro/i);
   });
 
   it("nunca devuelve una respuesta vacía", () => {
@@ -82,9 +96,9 @@ describe("lo que el negocio NO respondió, no se inventa", () => {
   });
 
   it("se puede saber qué falta por responder", () => {
-    const faltan = preguntasSinResponder();
-    expect(faltan.length).toBeGreaterThan(0);
-    expect(faltan.some((f) => f.pregunta === "piano_duracion")).toBe(true);
+    // Hoy no falta ninguna. La función tiene que seguir existiendo para
+    // cuando se agregue un producto nuevo con preguntas sin contestar.
+    expect(Array.isArray(preguntasSinResponder())).toBe(true);
   });
 });
 

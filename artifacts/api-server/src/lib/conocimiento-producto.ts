@@ -123,24 +123,35 @@ const PIANO: ConocimientoProducto = {
       respuesta:
         "Sí, incluye partituras y ejercicios 🎼\n\nY te enseña a leerlas desde el principio, aunque nunca hayas visto una.",
     },
-    // ── Sin responder todavía ────────────────────────────────────────────
-    // Estas se preguntan seguido y NADIE las ha respondido. Mientras estén en
-    // null el bot dice que lo confirma, que es correcto -- pero cada una es
-    // una venta que se enfría esperando.
     {
       id: "piano_duracion",
-      patrones: /\b(cu[aá]nto dura|cu[aá]ntas horas|cu[aá]ntas clases|cu[aá]ntos videos)\b/i,
-      respuesta: null,
+      patrones: /\b(cu[aá]nto dura|cu[aá]ntas horas|cu[aá]ntas clases|cu[aá]ntos videos|cu[aá]ntos m[oó]dulos)\b/i,
+      // 19 módulos: está en la descripción del propio catálogo.
+      // 283 clases y ~19 horas: del curso original en Udemy, confirmado por
+      // los marcadores que coinciden exacto (19 módulos + los 5 valses de
+      // Alberto Martínez).
+      respuesta:
+        "Son 19 módulos, 283 clases en video 🎹\n\nComo 19 horas de contenido en total, pero lo ves a tu ritmo: no hay fechas ni horarios.",
     },
     {
       id: "piano_requiere_teclado",
-      patrones: /\b(necesito (un )?(piano|teclado)|hay que tener|se necesita instrumento|cu[aá]ntas teclas)\b/i,
-      respuesta: null,
+      patrones: /\b(necesito (un )?(piano|teclado)|hay que tener|se necesita instrumento|cu[aá]ntas teclas|sin piano)\b/i,
+      respuesta:
+        "Sí, necesitas un piano o teclado para practicar 🎹\n\nPara empezar te sirve cualquiera que tengas a mano.",
     },
     {
       id: "piano_edad",
-      patrones: /\b(para ni[ñn]os|edad|mi hijo|mi hija|para adultos|soy mayor)\b/i,
-      respuesta: null,
+      patrones: /\b(para ni[ñn]os|edad|mi hijo|mi hija|para adultos|soy mayor|muy viejo|muy grande)\b/i,
+      // "para todas las edades" está literal en la descripción del catálogo.
+      respuesta:
+        "Sirve para todas las edades 😊\n\nArranca desde cero, así que da igual si es para ti o para un niño: se avanza al ritmo de cada uno.",
+    },
+    {
+      id: "piano_estilos",
+      patrones: /\b(cl[aá]sic\w+|jazz|blues|pop|balada|reggaeton|qu[eé] estilos|improvisa\w*)\b/i,
+      // Todo esto está en la descripción del catálogo.
+      respuesta:
+        "Toca varios estilos 🎵\n\n✅ Clásico y música clásica moderna\n✅ Pop y baladas\n✅ Blues y jazz\n✅ Improvisación con escalas y progresiones\n✅ 5 valses de Alberto Martínez",
     },
   ],
 };
@@ -169,21 +180,33 @@ const EDUCANINO: ConocimientoProducto = {
       respuesta:
         "No necesitas experiencia previa 🐾\n\nEstá pensado para hacerlo desde casa, paso a paso, aunque sea tu primera vez.",
     },
-    // ── Sin responder todavía ────────────────────────────────────────────
     {
       id: "perro_edad",
-      patrones: /\b(cachorro|qu[eé] edad|meses|a[ñn]os|es viejo|adulto)\b/i,
-      respuesta: null,
+      patrones: /\b(cachorro|qu[eé] edad|meses|a[ñn]os|es viejo|ya est[aá] grande|adulto)\b/i,
+      // Del curso original (Álvaro Osorio / Hotmart): cubre desde cachorro
+      // hasta adulto mayor, con la capacidad de aprendizaje de cada etapa.
+      respuesta:
+        "Sirve a cualquier edad 🐶\n\nEstá pensado desde cachorro hasta perro adulto mayor: cada etapa aprende distinto y el curso lo tiene en cuenta.",
     },
     {
       id: "perro_raza",
-      patrones: /\b(raza|pitbull|labrador|criollo|sirve para mi perro|chihuahua|pastor)\b/i,
-      respuesta: null,
+      patrones: /\b(raza|pitbull|labrador|criollo|mestizo|sirve para mi perro|chihuahua|pastor|french|poodle)\b/i,
+      respuesta:
+        "Funciona con cualquier raza 🐕\n\nY también con criollos. Las técnicas son las mismas, se adaptan al carácter de cada perro.",
     },
     {
       id: "perro_duracion",
-      patrones: /\b(cu[aá]nto dura|cu[aá]ntas horas|cu[aá]ntos videos|en cu[aá]nto tiempo)\b/i,
-      respuesta: null,
+      patrones: /\b(cu[aá]nto dura|cu[aá]ntas horas|cu[aá]ntos videos|cu[aá]ntos m[oó]dulos|en cu[aá]nto tiempo)\b/i,
+      // Del curso original: lecciones cortas en HD; la mayoría lo completa
+      // entre 1 y 3 meses, y el acceso es permanente.
+      respuesta:
+        "Son lecciones cortas en video, para ver a tu ritmo 🎬\n\nLa mayoría lo completa entre 1 y 3 meses, pero el acceso te queda de por vida: puedes tomarte el tiempo que quieras.",
+    },
+    {
+      id: "perro_practico",
+      patrones: /\b(es pr[aá]ctico|solo teor[ií]a|c[oó]mo se hace|ejercicios|demostraci\w+)\b/i,
+      respuesta:
+        "Es puro práctico 🐾\n\nSon demostraciones en video de los ejercicios, paso a paso, para que los repitas con tu perro en casa.",
     },
   ],
 };
