@@ -322,13 +322,77 @@ export async function atenderDecisionDelAdmin(
   if (!pago || pago.status !== "pending") return null;
 
   const r = await aplicarDecision(decision.pagoId, decision.accion, `whatsapp:${phone}`);
+  if (!r.conversationId || !r.mensajeParaElCliente) {
+    return { paraElAdmin: r.mensajeParaElAdmin, paraElCliente: null };
+  }
+
+  // ── Aprobado: el acceso va en el MISMO mensaje ────────────────────────────
+  //
+  // Decirle "confirmado, te paso el acceso enseguida" y que el acceso llegue
+  // en otro momento -- o no llegue -- es la misma promesa incumplida que este
+  // proceso vino a arreglar. Si hay con qué entregar, se entrega ahora.
+  let paraCliente = r.mensajeParaElCliente;
+  let avisoExtra = "";
+
+  if (r.aprobado) {
+    const entrega = r.productId ? await mensajeDeEntrega(r.productId) : null;
+    if (entrega) {
+      paraCliente = entrega;
+    } else {
+      // Sin enlace de entrega NO se le dice al cliente que ya lo tiene: se le
+      // confirma el pago y se le avisa al admin, que es quien puede resolverlo.
+      paraCliente = `✅ ¡Confirmado tu pago! 🎉 Estoy preparando tu acceso y te lo paso por acá en un momento.`;
+      avisoExtra = r.productId
+        ? `\n\n⚠️ Ese producto no tiene enlace de entrega cargado: el acceso se lo tenés que mandar vos.`
+        : `\n\n⚠️ No pude identificar el producto de esa venta: el acceso se lo tenés que mandar vos.`;
+      logger.warn({ pagoId: decision.pagoId, productId: r.productId }, "[Entrega] Pago aprobado SIN enlace de entrega");
+    }
+  }
+
   return {
-    paraElAdmin: r.mensajeParaElAdmin,
-    paraElCliente:
-      r.conversationId && r.mensajeParaElCliente
-        ? { conversationId: r.conversationId, texto: r.mensajeParaElCliente, entregar: r.aprobado }
-        : null,
+    paraElAdmin: r.mensajeParaElAdmin + avisoExtra,
+    paraElCliente: { conversationId: r.conversationId, texto: paraCliente, entregar: r.aprobado },
   };
+}
+
+/**
+ * El mensaje de entrega de un producto ya pagado.
+ *
+ * Es la misma lógica que usa el webhook de la pasarela (routes/webhooks.ts):
+ * si el producto tiene su ruta de Terabox cargada, se genera un enlace con
+ * clave propia para ESTA venta; si Terabox no responde -- su cookie vence en
+ * días -- cae al enlace fijo de siempre. Se pierde la clave, nunca la venta.
+ *
+ * Devuelve null si el producto no tiene forma de entregarse: ahí NO se le
+ * puede decir al cliente que le llegó nada.
+ */
+export async function mensajeDeEntrega(productId: number): Promise<string | null> {
+  try {
+    const [producto] = await db.select().from(products).where(eq(products.id, productId)).limit(1);
+    if (!producto?.deliveryLink) return null;
+
+    const { prepararEntrega, textoDeEntrega } = await import("./entrega-personalizada");
+    const meta: any =
+      typeof producto.metadata === "string"
+        ? (() => { try { return JSON.parse(producto.metadata as string); } catch { return {}; } })()
+        : (producto.metadata || {});
+
+    const entrega = await prepararEntrega({
+      id: producto.id,
+      name: producto.name,
+      deliveryLink: producto.deliveryLink,
+      teraboxPath: meta?.teraboxPath || null,
+    });
+    if (entrega?.origen === "fija" && entrega.motivo) {
+      logger.warn({ productId, motivo: entrega.motivo }, "[Entrega] Se entregó con el enlace fijo");
+    }
+
+    const acceso = entrega ? textoDeEntrega(entrega) : `🚀 ${producto.deliveryLink}`;
+    return `✅ *¡Pago confirmado!* 🎉\n\nAcá tienes tu acceso a *${producto.name}*:\n\n${acceso}\n\n¡Que lo disfrutes! Si tienes dudas, escríbeme por acá.`;
+  } catch (e: any) {
+    logger.error({ err: e?.message, productId }, "[Entrega] No se pudo preparar la entrega");
+    return null;
+  }
 }
 
 /** Los comprobantes que están esperando decisión. */

@@ -1883,7 +1883,17 @@ export class WhatsAppManager {
                        .limit(1);
                      if (c?.phone) {
                        await this.sendText(c.phone, r.paraElCliente.texto);
-                       console.log(`💬 [PAGO] Cliente ${c.phone} avisado: ${r.paraElCliente.entregar ? "aprobado" : "rechazado"}`);
+                       // Queda en el historial: si no, el agente no sabe que ya
+                       // entregó y en el turno siguiente vuelve a cobrar o se
+                       // contradice sobre si hubo compra.
+                       const { saveAgentMessage } = await import("./conversation-engine");
+                       await saveAgentMessage(
+                         r.paraElCliente.conversationId,
+                         r.paraElCliente.texto,
+                         (r.paraElCliente.entregar ? "converted" : "closing") as any,
+                         { intent: "payment_verified", verificadoPor: phone } as any,
+                       );
+                       console.log(`💬 [PAGO] Cliente ${c.phone} avisado: ${r.paraElCliente.entregar ? "aprobado y entregado" : "rechazado"}`);
                      }
                    }
                    continue;

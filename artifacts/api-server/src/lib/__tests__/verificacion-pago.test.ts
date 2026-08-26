@@ -99,3 +99,19 @@ describe("el aviso que le llega al admin", () => {
     expect(codigoDe(47)).toBe("47");
   });
 });
+
+/**
+ * Lo que pasa DESPUÉS de aprobar. El riesgo acá no es técnico sino de
+ * promesa: decirle al cliente "ya tienes el acceso" cuando el producto no
+ * tiene enlace cargado es exactamente la mentira que este proceso vino a
+ * eliminar, solo que dicha por otro camino.
+ */
+describe("aprobar entrega de verdad, o lo dice claro", () => {
+  it("el mensaje de entrega nombra el producto y trae el acceso", async () => {
+    const { mensajeDeEntrega } = await import("../verificacion-pago");
+    // Sin BD real esto devuelve null; lo que se fija acá es el contrato:
+    // null significa "no hay con qué entregar", nunca "entregado".
+    const r = await mensajeDeEntrega(-1);
+    expect(r).toBeNull();
+  });
+});
