@@ -1889,6 +1889,28 @@ export function buildContextBlock(
   // negocio es, todo lo que siga lo va a rellenar con lo que se imagine.
   if (negocio) lines.push(renderBloqueNegocio(negocio));
 
+  // ── Qué vende este negocio: el índice va ARRIBA, y es deliberado ──────────
+  //
+  // El prompt se recorta por el FINAL cuando pasa el tope (ver agent.ts), y el
+  // catálogo vivía en la cola. Con el catálogo real el contextBlock mide
+  // ~10.000 caracteres, así que el recorte es una posibilidad real -- y lo
+  // primero en morir sería justo el dato que evita que el bot niegue un
+  // producto que sí vende.
+  //
+  // Solo id y nombre: 140 productos en ~4.400 caracteres, medido. El detalle
+  // (precio, descripción) va más abajo y ESE sí se puede recortar, porque el
+  // precio real lo pone la ficha, que la arma el servidor.
+  if (allProducts && allProducts.length > 0) {
+    lines.push(`\n\n━━━━━━━━━━━━━━━━━━━━━━━`);
+    lines.push(`📇 TODO LO QUE VENDE ESTE NEGOCIO (${allProducts.length} productos)`);
+    lines.push(`━━━━━━━━━━━━━━━━━━━━━━━`);
+    lines.push(`Si está en esta lista, EXISTE y se vende. Mandá su ficha con [CARD: ID].`);
+    for (const p of allProducts) {
+      lines.push(`[${p.id}] ${p.name}`);
+    }
+    lines.push(`Si el cliente nombra algo que NO está acá, no lo tenemos: decíselo con naturalidad y ofrecé lo más parecido que sí esté. Nunca inventes un producto.`);
+  }
+
   // ── Estado de la conversación ──────────────────────────────────────────────
   lines.push(`\n\n━━━━━━━━━━━━━━━━━━━━━━━`);
   lines.push(`🧠 CONTEXTO DE CONVERSACIÓN`);
@@ -2180,7 +2202,22 @@ export function buildContextBlock(
     lines.push(`\n\n━━━━━━━━━━━━━━━━━━━━━━━`);
     lines.push(`📋 CATÁLOGO COMPLETO DE PRODUCTOS (usa SOLO esta información)`);
     lines.push(`━━━━━━━━━━━━━━━━━━━━━━━`);
-    lines.push(`🚨 REGLA ABSOLUTA: NO inventes ningún dato que no esté aquí. Si el producto no aparece en esta lista, NO EXISTE.`);
+    // OJO: acá decía "Si el producto no aparece en esta lista, NO EXISTE".
+    //
+    // Era falso y caro. Con 140 productos reales, en el presupuesto de 3.500
+    // caracteres entraban 16: el 11%. O sea que la "REGLA ABSOLUTA" le estaba
+    // diciendo al modelo que el 89% del catálogo no existe. Cincuenta líneas
+    // más abajo el mismo bloque aclaraba lo contrario ("no afirmes que no
+    // existe"), pero la primera es la que dice ABSOLUTA y es la que ganó.
+    //
+    // Medido el 2026-08-25: dos listas de productos distintas con un minuto de
+    // diferencia, y "Hmm, creo que no tengo ese producto 😅" sobre el Renovador
+    // Negro Perfecto -- que el mismo bot había cotizado una hora antes.
+    //
+    // Ahora hay dos niveles: el ÍNDICE de abajo trae los 140 nombres (cuesta
+    // ~4.400 caracteres, medido) y las fichas detalladas van solo para lo
+    // relevante. El modelo ya no tiene que adivinar qué existe.
+    lines.push(`🚨 REGLA ABSOLUTA: NO inventes datos. Precio, contenido y entrega salen de acá o de la ficha, nunca de tu memoria.`);
 
     // El catálogo entero iba en CADA mensaje. Medido el 2026-08-22 con 83
     // productos: 23.414 caracteres, el 74% de un prompt de 31.700. Eso
@@ -2193,7 +2230,11 @@ export function buildContextBlock(
     // sepa qué hay cerca — con el producto en foco garantizado y un presupuesto
     // de caracteres alcanza. Las descripciones bajan de 200 a 110: en 200
     // caracteres entra media ficha repetida, en 110 entra de qué se trata.
-    const TOPE_CATALOGO = Number(process.env.MAX_CATALOGO_CHARS || 3500);
+    // Baja de 3.500 a 1.200 porque el índice de arriba ya cubre QUÉ existe, y
+    // el producto en foco ya trae su descripción completa en el bloque
+    // "PRODUCTO EN CONTEXTO". Estas fichas solo aportan el vecindario, así que
+    // no vale la pena pagarlas dos veces.
+    const TOPE_CATALOGO = Number(process.env.MAX_CATALOGO_CHARS || 1200);
     const enFoco = new Set<number>();
     if (product?.id) enFoco.add(product.id);
     if (memory.currentProductId) enFoco.add(memory.currentProductId);
@@ -2229,15 +2270,26 @@ export function buildContextBlock(
     }
 
     lines.push(`\n━━━━━━━━━━━━━━━━━━━━━━━`);
-    if (mostrados < allProducts.length) {
-      // Decirlo importa: sin esto la IA lee "FIN DEL CATÁLOGO" y concluye que
-      // lo que no está en la lista no existe -- y le dice al cliente que no se
-      // maneja un producto que sí está a la venta.
-      lines.push(`⚠️ Esta lista muestra ${mostrados} de ${allProducts.length} productos (se recortó por longitud).`);
-      lines.push(`   Si el cliente nombra algo que NO ves acá, NO afirmes que no existe: decile que lo verificás.`);
-    }
-    lines.push(`FIN DEL CATÁLOGO. Usa [CARD: ID] con el ID exacto del producto de arriba.`);
+    lines.push(`FIN DEL CATÁLOGO. Usa [CARD: ID] con el ID exacto del índice.`);
   }
+
+  // ── Dónde está parado el agente ────────────────────────────────────────────
+  //
+  // Medido el 2026-08-25: el bot escribió "El link de acceso lo tenés que
+  // recibir por WhatsApp, no por aquí" -- POR WHATSAPP. No sabía en qué canal
+  // estaba, así que mandaba al cliente a otro lado desde el lado correcto.
+  //
+  // Y el voseo: el negocio vende en Colombia, cobra por Nequi y Daviplata, y
+  // el agente hablaba en argentino ("podés", "querés", "te tiro un bonus").
+  // Suena a que no es de acá, que es lo último que conviene cuando el cliente
+  // está decidiendo si te transfiere plata.
+  lines.push(`\n\n━━━━━━━━━━━━━━━━━━━━━━━`);
+  lines.push(`📍 DÓNDE ESTÁS`);
+  lines.push(`━━━━━━━━━━━━━━━━━━━━━━━`);
+  lines.push(`Estás hablando por WHATSAPP, en este mismo chat. Todo lo que mandes le llega acá.`);
+  lines.push(`❌ NUNCA digas "te llega por WhatsApp", "recibilo por WhatsApp" ni "no por aquí": ESTO es WhatsApp.`);
+  lines.push(`🇨🇴 Hablá en español COLOMBIANO neutro, de "tú" o impersonal: "puedes", "quieres", "tienes".`);
+  lines.push(`❌ Nada de voseo argentino (podés, querés, tenés, recibís) ni de "che", "tranqui", "te tiro".`);
 
   // ── REGLA FINAL INQUEBRANTABLE — La IA la lee justo antes de generar ────────
   lines.push(`\n\n🔴🔴🔴 REGLA FINAL INQUEBRANTABLE 🔴🔴🔴`);

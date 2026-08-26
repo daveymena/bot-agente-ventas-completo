@@ -235,3 +235,23 @@ describe("R6 · el modelo no puede narrar acciones que no ejecuta", () => {
     expect(r.bloquear).toBe(false);
   });
 });
+
+// ─── R7 · incentivos inventados ──────────────────────────────────────────────
+
+describe("R7 · no inventa bonus que el negocio tendrá que honrar", () => {
+  it("saca el bonus inventado (QA 26/08, M1) — texto literal", () => {
+    const r = rev(
+      "El PACK IDIOMAS queda de por vida. Si confirmás pago ahora mismo, te tiro un bonus extra que no está en la ficha habitual.",
+      "me interesa",
+      [201],
+    );
+    expect(r.hallazgos.map((h) => h.regla)).toContain("bonus-inventado");
+    expect(r.texto).not.toMatch(/bonus/i);
+    expect(r.texto).toContain("de por vida");
+  });
+
+  it("no molesta una respuesta sin regalos inventados", () => {
+    const t = "El PACK IDIOMAS incluye cinco idiomas y queda de por vida.";
+    expect(rev(t, "qué trae?", [201]).texto).toBe(t);
+  });
+});

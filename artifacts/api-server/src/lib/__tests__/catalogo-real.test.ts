@@ -233,9 +233,14 @@ describe("Motor de decisión: lo que se le dice a la IA", () => {
       null
     );
 
+    // El catálogo entero (id + nombre) ahora SÍ va en el prompt, a propósito:
+    // antes se recortaba al 11% y el bot terminaba negando productos que sí
+    // vende. Así que "el nombre no aparece en el bloque" dejó de ser la forma
+    // de comprobar esto. Lo que importa sigue igual: que el servidor no lo
+    // haya elegido, ni se lo presente a la IA como el producto en juego.
     expect(decision.productoDelMensaje).toBeNull();
-    expect(decision.contextBlock).not.toContain("INGLES");
     expect(decision.contextBlock).not.toContain("Producto seleccionado");
+    expect(decision.contextBlock).not.toMatch(/• Nombre:.*INGLES/i);
   });
 
   it("no convierte en producto una coincidencia de descripción", async () => {
@@ -247,8 +252,9 @@ describe("Motor de decisión: lo que se le dice a la IA", () => {
       null
     );
 
+    // Mismo cambio de mecanismo que arriba: el índice completo va a propósito.
     expect(decision.productoDelMensaje).toBeNull();
-    expect(decision.contextBlock).not.toContain("CURSO REPARACIÓN DE CELULARES");
+    expect(decision.contextBlock).not.toMatch(/• Nombre:.*REPARACIÓN DE CELULARES/i);
   });
 
   // Lo de arriba no puede lograrse volviendo mudo al bot: cuando el cliente SÍ

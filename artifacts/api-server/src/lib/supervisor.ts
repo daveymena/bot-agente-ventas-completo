@@ -296,6 +296,27 @@ export function supervisarRespuesta(e: EntradaSupervisor): RevisionSupervisor {
     };
   }
 
+  // ── R7 · No inventar incentivos que el negocio tendra que honrar ───────────
+  // Medido el 2026-08-25: "si confirmás pago ahora mismo, te tiro un bonus
+  // extra que no está en la ficha habitual". Un bonus que nadie definio, que
+  // no existe en ningun lado, y que si el cliente reclama alguien tiene que
+  // responder. Lo mismo con regalos y meses gratis inventados en el momento.
+  if (PROMETE_BONUS_INVENTADO.test(texto)) {
+    const antes = texto;
+    texto = texto
+      .split(/(?<=[.!?])(?=\s)|(?<=\n)/)
+      .filter((t) => !PROMETE_BONUS_INVENTADO.test(t))
+      .join("")
+      .replace(/[ \t]+/g, " ")
+      .trim();
+    if (!texto) texto = "Te paso la ficha acá abajo con todo lo que incluye 👇";
+    hallazgos.push({
+      regla: "bonus-inventado",
+      gravedad: "corrige",
+      detalle: `Ofrecía un extra que no existe en el catálogo: "${antes.slice(0, 80)}"`,
+    });
+  }
+
   if (AFIRMA_YA_ENTREGADO.test(texto) && !e.llevaCard) {
     bloquear = true;
     hallazgos.push({
@@ -339,6 +360,14 @@ const AFIRMA_YA_ENTREGADO = new RegExp(
   ].join("|"),
   "i",
 );
+
+/**
+ * Extras inventados en el momento: bonus, regalos y sorpresas que no salen de
+ * ningun catalogo. Si el cliente los reclama, alguien del negocio tiene que
+ * responder por ellos.
+ */
+const PROMETE_BONUS_INVENTADO =
+  /\b(te\s+(tiro|doy|regalo|sumo|agrego|meto)|te\s+va\s+de\s+regalo|de\s+regalo\s+te)\b[^.!?\n]{0,50}\b(bonus|extra|regalo|sorpresa|obsequio|adicional|gratis)\b|\bbonus\s+extra\b|\bte\s+lo\s+dejo\s+de\s+regalo\b/i;
 
 /** "ya te pague", "ya hice la transferencia", "ya realice el pago". */
 const AFIRMA_HABER_PAGADO =
