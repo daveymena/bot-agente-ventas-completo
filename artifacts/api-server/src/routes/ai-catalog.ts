@@ -30,6 +30,11 @@ const PROVEEDORES = [
   { id: "cerebras", nombre: "Cerebras", gratis: true, envKey: "CEREBRAS_API_KEY", alta: "https://cloud.cerebras.ai", nota: "5 req/min · 1M tokens/hora" },
   { id: "cohere", nombre: "Cohere", gratis: true, envKey: "COHERE_API_KEY", alta: "https://dashboard.cohere.com/api-keys", nota: "20 req/min · 1.000 req/mes" },
   { id: "nvidia_nim", nombre: "NVIDIA NIM", gratis: true, envKey: "NVIDIA_API_KEY", alta: "https://build.nvidia.com", nota: "40 req/min · pide verificar teléfono" },
+  // Ollama en la NUBE: los modelos corren del lado de ellos, así que no gasta
+  // RAM del servidor. La capa gratis va por cuota de uso, no por token: cuando
+  // se agota corta hasta que rota la ventana, así que sirve de respaldo y no
+  // como proveedor principal.
+  { id: "ollama_cloud", nombre: "Ollama Cloud", gratis: true, envKey: "OLLAMA_CLOUD_API_KEY", alta: "https://ollama.com/settings/keys", nota: "Modelos grandes (120B, 671B) · cuota diaria gratis" },
   { id: "github", nombre: "GitHub Models", gratis: true, envKey: "GITHUB_TOKEN", alta: "https://github.com/settings/tokens", nota: "Modelos de Azure con token de GitHub" },
   { id: "mimo", nombre: "Xiaomi MiMo", gratis: false, envKey: "MIMO_API_KEY", alta: "https://platform.xiaomimimo.com/#/console/api-keys", nota: "De pago · 1M de contexto · fuerte en código" },
   { id: "openai", nombre: "OpenAI (ChatGPT)", gratis: false, envKey: "OPENAI_API_KEY", alta: "https://platform.openai.com/api-keys", nota: "GPT · también genera imágenes con DALL·E" },

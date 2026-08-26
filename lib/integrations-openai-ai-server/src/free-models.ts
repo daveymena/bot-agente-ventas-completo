@@ -67,6 +67,14 @@ export const MODELOS_LIBRES: ModeloLibre[] = [
   // ── NVIDIA NIM (clave NVIDIA_API_KEY) ── 40 req/min ───────────────────────
   { proveedor: "nvidia_nim", modelo: "meta/llama-3.1-70b-instruct", especialidad: "razonar", estado: "sin probar" },
 
+  // ── Ollama Cloud ── modelos grandes con cuota diaria gratis ───────────────
+  // Los nombres llevan el sufijo "-cloud": es como los expone su API, y sin el
+  // sufijo responde 404.
+  { proveedor: "ollama_cloud", modelo: "gpt-oss:120b-cloud", especialidad: "razonar", estado: "sin probar" },
+  { proveedor: "ollama_cloud", modelo: "gpt-oss:20b-cloud", especialidad: "rapido", estado: "sin probar" },
+  { proveedor: "ollama_cloud", modelo: "deepseek-v3.1:671b-cloud", especialidad: "razonar", estado: "sin probar" },
+  { proveedor: "ollama_cloud", modelo: "qwen3-coder:480b-cloud", especialidad: "codigo", estado: "sin probar" },
+
   // ── Xiaomi MiMo (falta MIMO_API_KEY, de pago) ─────────────────────────────
   { proveedor: "mimo", modelo: "mimo-v2.5-pro", especialidad: "codigo", estado: "sin probar", contexto: 1050000 },
 

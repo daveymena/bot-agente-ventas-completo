@@ -33,6 +33,8 @@ export const ENV_POR_PROVEEDOR: Record<string, string> = {
   cerebras: "CEREBRAS_API_KEY",
   cohere: "COHERE_API_KEY",
   nvidia_nim: "NVIDIA_API_KEY",
+  // Ollama en la NUBE, no el local: los modelos corren del lado de ellos.
+  ollama_cloud: "OLLAMA_CLOUD_API_KEY",
   github: "GITHUB_TOKEN",
   mimo: "MIMO_API_KEY",
   openai: "OPENAI_API_KEY",
@@ -61,6 +63,7 @@ export const ENV_MODELO_POR_PROVEEDOR: Record<string, string> = {
   opencode_go: "OPENCODE_GO_MODEL",
   groq: "GROQ_MODEL",
   openrouter: "OPENROUTER_MODEL",
+  ollama_cloud: "OLLAMA_CLOUD_MODEL",
   google_ai_studio: "GOOGLE_MODEL",
   cerebras: "CEREBRAS_MODEL",
   cohere: "COHERE_MODEL",

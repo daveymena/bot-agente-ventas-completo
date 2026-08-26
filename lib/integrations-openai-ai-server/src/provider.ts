@@ -326,6 +326,29 @@ export function getProviderConfig(provider: string): AIProviderConfig | null {
         apiKey: ghcToken,
         model: process.env.GITHUB_MODEL_CLAUDE || "Claude-3.5-Sonnet",
       };
+    // ── Ollama CLOUD ── https://ollama.com/settings/keys
+    //
+    // No confundir con `ollama_local`, que apunta a un Ollama corriendo en una
+    // máquina propia. Este es el servicio en la nube: los modelos corren del
+    // lado de ellos, así que no consume RAM del servidor -- que es justo el
+    // motivo por el que NO se instaló Ollama local en el VPS (15 servicios
+    // corriendo, y un modelo de 7B se come 8 GB mientras responde).
+    //
+    // La capa compatible con OpenAI vive en /v1, no en /api. Da acceso a
+    // modelos grandes (gpt-oss:120b, deepseek-v3.1:671b, qwen3-coder:480b)
+    // con una capa gratuita de uso diario.
+    //
+    // OJO con la capa gratis: es por CUOTA de uso, no por token. Cuando se
+    // agota, corta hasta que rota la ventana -- así que sirve de respaldo o
+    // para tareas puntuales, no como proveedor principal de las ventas.
+    case "ollama_cloud":
+      if (!process.env.OLLAMA_CLOUD_API_KEY) return null;
+      return {
+        baseUrl: process.env.OLLAMA_CLOUD_URL || "https://ollama.com/v1",
+        apiKey: process.env.OLLAMA_CLOUD_API_KEY,
+        model: process.env.OLLAMA_CLOUD_MODEL || "gpt-oss:120b-cloud",
+      };
+
     case "ollama_local":
       if (!process.env.OLLAMA_LOCAL_URL) return null;
       return {
