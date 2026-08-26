@@ -56,7 +56,11 @@ function leerMeta(metadata: unknown): any {
 export function configCorreoDe(tenant: any): ConfigCorreoNegocio {
   const meta = leerMeta(tenant?.metadata);
   const e = meta?.email || {};
-  const pass = decryptSecret(e.pass);
+  // Sin espacios: Google muestra la clave de aplicación agrupada de a cuatro
+  // ("abcd efgh ijkl mnop") y así se copia, pero la clave real son 16
+  // caracteres seguidos. Con los espacios, Gmail rechaza la autenticación y el
+  // correo no sale -- y la pantalla no lo delata, porque ahí solo se guarda.
+  const pass = decryptSecret(e.pass).replace(/\s+/g, "");
   const propio = !!(e.user && pass);
 
   // El respaldo del .env vale SOLO para el negocio dueño del servidor.

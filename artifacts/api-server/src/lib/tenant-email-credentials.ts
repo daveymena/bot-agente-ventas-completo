@@ -63,8 +63,18 @@ export function credencialesEmailDe(tenant: TenantContext | null | undefined): C
   const host = em.host || process.env.SMTP_HOST || "smtp.gmail.com";
   const port = Number(em.port || process.env.SMTP_PORT || "587");
   const secure = em.secure ?? process.env.SMTP_SECURE === "true";
-  const user = em.user || process.env.SMTP_USER || "";
-  const pass = leerSecreto(em.pass) || process.env.SMTP_PASS || "";
+  const user = (em.user || process.env.SMTP_USER || "").trim();
+  // Los espacios se van SIEMPRE, y no es cosmética.
+  //
+  // Google muestra la clave de aplicación agrupada de a cuatro
+  // ("abcd efgh ijkl mnop") y eso es lo que uno copia. La clave real son 16
+  // caracteres sin espacios; con ellos, Gmail rechaza la autenticación y el
+  // correo no sale -- sin ningún error visible en la pantalla de
+  // configuración, porque ahí solo se guarda.
+  //
+  // Medido el 2026-08-25: SMTP_PASS llegó con 19 caracteres, o sea los 16 más
+  // los 3 espacios de la agrupación.
+  const pass = (leerSecreto(em.pass) || process.env.SMTP_PASS || "").replace(/\s+/g, "");
   const from = em.from || `"${tenant?.brandName || "VentasPro"}" <${user}>`;
 
   const tienePropias = !!em.host || !!em.user || !!em.pass;

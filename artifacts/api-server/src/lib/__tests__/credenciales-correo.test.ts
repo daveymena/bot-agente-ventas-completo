@@ -46,3 +46,38 @@ describe("credenciales de correo: lo que se guarda es lo que se envia", () => {
     expect(cfg.user).toBe(credencialesEmailDe(tenant).user);
   });
 });
+
+/**
+ * Google muestra la clave de aplicación agrupada de a cuatro
+ * ("abcd efgh ijkl mnop") y eso es lo que uno copia y pega. La clave real son
+ * 16 caracteres seguidos: con los espacios, Gmail rechaza la autenticación y
+ * el correo no sale, sin ningún error visible en la pantalla de configuración.
+ *
+ * Medido el 2026-08-25: SMTP_PASS llegó a producción con 19 caracteres — los
+ * 16 más los 3 espacios de la agrupación.
+ */
+describe("la clave de aplicación de Gmail se limpia sola", () => {
+  it("por el camino del entorno", async () => {
+    const previo = process.env.SMTP_PASS;
+    const previoUser = process.env.SMTP_USER;
+    process.env.SMTP_PASS = "abcd efgh ijkl mnop";
+    process.env.SMTP_USER = " ventas@ejemplo.com ";
+    try {
+      const creds = credencialesEmailDe(null);
+      expect(creds.pass).toBe("abcdefghijklmnop");
+      expect(creds.pass).toHaveLength(16);
+      expect(creds.user).toBe("ventas@ejemplo.com");
+    } finally {
+      if (previo === undefined) delete process.env.SMTP_PASS; else process.env.SMTP_PASS = previo;
+      if (previoUser === undefined) delete process.env.SMTP_USER; else process.env.SMTP_USER = previoUser;
+    }
+  });
+
+  it("por el camino de las credenciales guardadas en el panel", () => {
+    const guardado = construirMetaCorreo({}, {
+      host: "smtp.gmail.com", port: 587, user: "ventas@ejemplo.com",
+      pass: "abcd efgh ijkl mnop", enabled: true,
+    });
+    expect(configCorreoDe({ id: "1", metadata: guardado }).pass).toBe("abcdefghijklmnop");
+  });
+});
