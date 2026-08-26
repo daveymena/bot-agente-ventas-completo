@@ -16,6 +16,7 @@ import { logger } from "./logger";
 import { supervisarRespuesta } from "./supervisor";
 import { calcularEstado, renderEstado } from "./estado-cognitivo";
 import { seccionQueCorresponde } from "./ficha-parcial";
+import { responderPregunta, aperturaPara } from "./conocimiento-producto";
 import { PaymentGateway } from "./payments";
 import { 
   healthMonitor,
@@ -2395,8 +2396,37 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
 
         const hayCard = finalParts.some((p: any) => p.kind === "card");
 
+        // ── Si la pregunta ya tiene respuesta escrita, gana esa ──────────────
+        //
+        // "¿Trae certificado?", "¿tiene garantía?", "¿dónde es la academia?" son
+        // preguntas que el negocio YA respondió. Dejarlas en manos del modelo es
+        // de donde salieron el certificado inventado y la academia con sede.
+        //
+        // Se reemplaza el texto del modelo, no se le suma: dos respuestas a la
+        // misma pregunta se contradicen tarde o temprano.
+        let respondidoDeConocimiento = false;
+        try {
+          const idFoco = idsEnContexto[0] ?? null;
+          const conocida = responderPregunta(idFoco, lastText);
+          if (conocida) {
+            const primera = finalParts.find((p: any) => p.kind === "text");
+            if (primera) {
+              primera.content = `${aperturaPara(convo.contactPhone || "")}\n\n${conocida.texto}`;
+              respondidoDeConocimiento = true;
+              console.log(
+                `📖 [CONOCIMIENTO] "${conocida.id}"${conocida.sinResponder ? " (sin respuesta cargada)" : ""} - ${ts()}`,
+              );
+            }
+          }
+        } catch (e: any) {
+          logger.warn({ err: e?.message }, "[Conocimiento] no se pudo resolver la pregunta");
+        }
+
         for (const parte of finalParts) {
           if (parte.kind !== "text" || !parte.content) continue;
+          // Lo que salió de la base de conocimiento ya está verificado: no hay
+          // nada que supervisar y el supervisor solo podría estropearlo.
+          if (respondidoDeConocimiento) continue;
 
           const revision = supervisarRespuesta({
             respuesta: parte.content,
@@ -2437,10 +2467,38 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
           // contestar sobre el producto equivocado, sí.
           // Si la regla sabe cuál era la respuesta correcta, se usa esa: un
           // texto genérico a veces deja al cliente peor que antes.
-          parte.content = revision.reemplazoSugerido
-            ?? (hayCard
-              ? "Te paso la ficha acá abajo con todos los detalles 👇"
-              : "Para no darte un dato equivocado, ¿me confirmás de cuál producto querés que te cuente?");
+          // ── Nunca dos veces la misma salida ────────────────────────────
+          //
+          // Medido el 2026-08-27: el supervisor bloqueó tres turnos seguidos y
+          // las tres veces salió EXACTAMENTE el mismo texto. El cliente nombró
+          // el producto, después pegó el nombre completo de la ficha, y recibió
+          // la misma frase palabra por palabra. Se destrabó con un "hola".
+          //
+          // Cambiar una alucinación por un bucle no es arreglar: es mover el
+          // problema. Un bucle además es peor, porque el cliente entiende que
+          // del otro lado no hay nadie.
+          //
+          // Si la salida anterior ya fue un bloqueo, se escala: se le muestra
+          // lo que sí se puede ofrecer en vez de repetir la pregunta.
+          const ultimaDelAgente = [...(memory.history as any[])]
+            .reverse()
+            .find((m) => m.role !== "customer")?.content ?? "";
+          const yaVeniaBloqueado = /dato equivocado|ficha acá abajo con todos los detalles|Dejame verificarlo/i.test(
+            String(ultimaDelAgente),
+          );
+
+          if (yaVeniaBloqueado) {
+            const cercanos = (productList as any[]).slice(0, 5).map((p) => `• ${p.name}`).join("\n");
+            parte.content = cercanos
+              ? `Perdona, no te estoy entendiendo bien 🙏\n\nEstos son algunos de los cursos que tenemos:\n\n${cercanos}\n\n¿Alguno de estos, o buscas otra cosa?`
+              : `Perdona, no te estoy entendiendo bien 🙏 ¿Me dices con otras palabras qué necesitas?`;
+            console.log(`🔁 [SUPERVISOR] Segundo bloqueo seguido: se escala a menú en vez de repetir - ${ts()}`);
+          } else {
+            parte.content = revision.reemplazoSugerido
+              ?? (hayCard
+                ? "Te paso la ficha acá abajo con todos los detalles 👇"
+                : "Para no darte un dato equivocado, ¿me confirmas de cuál producto quieres que te cuente?");
+          }
         }
       } catch (e: any) {
         // Un fallo del candado no puede dejar al cliente sin respuesta.

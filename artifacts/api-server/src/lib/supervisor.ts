@@ -120,7 +120,7 @@ export function esPregunta(texto: string): boolean {
 const VACIAS = [
   "fue un placer atenderte", "cualquier duda aqui estoy", "cualquier duda aca estoy",
   "gracias a vos", "gracias a ti", "que tengas buen dia", "que estes muy bien",
-  "en que te puedo ayudar", "en que te ayudo", "contame en que te puedo ayudar",
+  "en que te puedo ayudar", "en que te ayudo", "cuentame en que te puedo ayudar",
   "que andas buscando", "que estas buscando",
 ];
 
@@ -253,7 +253,7 @@ export function supervisarRespuesta(e: EntradaSupervisor): RevisionSupervisor {
       bloquear,
       reemplazoSugerido:
         "¡Gracias! 🙌 Para activarte el acceso necesito el comprobante de la transferencia. " +
-        "Mandámelo por acá y apenas confirmemos el pago te lo envío.",
+        "Mándamelo por aquí y apenas confirmemos el pago te lo envío.",
     };
   }
 
@@ -292,7 +292,7 @@ export function supervisarRespuesta(e: EntradaSupervisor): RevisionSupervisor {
       bloquear,
       reemplazoSugerido:
         "Para activarte el acceso necesito el comprobante de la transferencia 🙏 " +
-        "Mandámelo por acá y apenas lo revisemos te confirmo.",
+        "Mándamelo por aquí y apenas lo revisemos te confirmo.",
     };
   }
 
@@ -309,7 +309,7 @@ export function supervisarRespuesta(e: EntradaSupervisor): RevisionSupervisor {
       .join("")
       .replace(/[ \t]+/g, " ")
       .trim();
-    if (!texto) texto = "Te paso la ficha acá abajo con todo lo que incluye 👇";
+    if (!texto) texto = "Te paso la ficha aquí abajo con todo lo que incluye 👇";
     hallazgos.push({
       regla: "bonus-inventado",
       gravedad: "corrige",
@@ -328,7 +328,7 @@ export function supervisarRespuesta(e: EntradaSupervisor): RevisionSupervisor {
       texto,
       hallazgos,
       bloquear,
-      reemplazoSugerido: "Dejame verificarlo y te confirmo por acá enseguida 🙏",
+      reemplazoSugerido: "Déjame verificarlo y te confirmo por aquí enseguida 🙏",
     };
   }
 

@@ -471,7 +471,7 @@ async function buildProductCaption(p: typeof products.$inferSelect, categoryName
   const videoMuestra = String(meta.videoIntro || meta.videoUrl || "").trim();
   if (videoMuestra) {
     lines.push(variante([
-      `🎬 *Mirá cómo son las clases:*`,
+      `🎬 *Mira cómo son las clases:*`,
       `🎬 *Así se ve el curso por dentro:*`,
       `🎬 *Te dejo la primera clase para que veas:*`,
       `🎬 *Mirá un pedacito antes de decidir:*`,
@@ -577,15 +577,15 @@ async function construirSeccion(
   // ── Cómo se entrega ───────────────────────────────────────────────────────
   if (seccion === "entrega") {
     const texto = esFisico
-      ? `📦 Te lo enviamos a tu dirección y coordinamos la entrega por acá.\n\n${cierre}`
-      : `💻 Es digital: apenas confirmamos el pago te llega el acceso por acá, y te queda de por vida ♾️\n\n${cierre}`;
+      ? `📦 Te lo enviamos a tu dirección y coordinamos la entrega por aquí.\n\n${cierre}`
+      : `💻 Es digital: apenas confirmamos el pago te llega el acceso por aquí, y te queda de por vida ♾️\n\n${cierre}`;
     return { conFoto: false, mensajes: [texto] };
   }
 
   // ── Un medio de pago concreto ─────────────────────────────────────────────
   if (seccion === "pago_transferencia") {
     const t = dynamicLinks?.transfer?.options?.[0];
-    if (!t) return { conFoto: false, mensajes: [`Ahora mismo no tengo el dato de transferencia a mano, dejame confirmarlo 🙏`] };
+    if (!t) return { conFoto: false, mensajes: [`Ahora mismo no tengo el dato de transferencia a mano, déjame confirmarlo 🙏`] };
     return {
       conFoto: false,
       mensajes: [`🔹 *Nequi / Daviplata*\n📱 ${t.number}\n👤 ${t.name}\n💰 ${mon.precioTexto}\n\n${cierre}`],
@@ -594,7 +594,7 @@ async function construirSeccion(
 
   if (seccion === "pago_link") {
     const link = corto(dynamicLinks?.mercadopago) || corto(dynamicLinks?.paypal);
-    if (!link) return { conFoto: false, mensajes: [`Dejame confirmarte el enlace de pago y te lo paso 🙏`] };
+    if (!link) return { conFoto: false, mensajes: [`Déjame confirmarte el enlace de pago y te lo paso 🙏`] };
     return { conFoto: false, mensajes: [`🔹 *Tarjeta / PSE*\n${link}\n💰 ${mon.precioTexto}\n\n${cierre}`] };
   }
 
@@ -653,7 +653,7 @@ async function construirSeccion(
   let meta: any = {};
   try { meta = typeof p.metadata === "string" ? JSON.parse(p.metadata) : (p.metadata || {}); } catch { /* sin metadata */ }
   const video = String(meta?.videoIntro || meta?.videoUrl || "").trim();
-  if (video) mensajes.push(`🎬 Mirá cómo son las clases:\n${video}`);
+  if (video) mensajes.push(`🎬 Mira cómo son las clases:\n${video}`);
 
   // En "completa" el precio SÍ va -- es la presentación del producto -- pero
   // en un mensaje corto aparte, y sin ningún enlace de pago. Los enlaces

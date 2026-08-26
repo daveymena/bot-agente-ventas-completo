@@ -161,7 +161,7 @@ export function avisoParaElAdmin(p: {
   ];
   if (p.descripcion) l.push(`🔎 ${String(p.descripcion).slice(0, 200)}`);
   l.push(``);
-  l.push(`Revisá que el dinero esté en tu cuenta y respondé:`);
+  l.push(`Revisa que el dinero esté en tu cuenta y responde:`);
   l.push(`✅ *APROBAR ${p.pagoId}*`);
   l.push(`❌ *RECHAZAR ${p.pagoId}*`);
   l.push(``);
@@ -256,7 +256,7 @@ export async function aplicarDecision(
         : `❌ Comprobante ${pagoId} rechazado. Le aviso al cliente con tacto.`,
       mensajeParaElCliente: aprobado
         ? `¡Confirmado tu pago! 🎉 Te paso el acceso enseguida.`
-        : `Revisé el comprobante y todavía no veo el pago reflejado 🤔 ¿Podés verificar que la transferencia haya salido y mandarme el soporte de nuevo?`,
+        : `Revisé el comprobante y todavía no veo el pago reflejado 🤔 ¿Puedes verificar que la transferencia haya salido y mandarme el soporte de nuevo?`,
       conversationId: pago.conversationId ?? null,
       productId: pago.productId ?? null,
       tenantId: pago.tenantId ?? null,
@@ -360,8 +360,8 @@ export async function atenderDecisionDelAdmin(
       // confirma el pago y se le avisa al admin, que es quien puede resolverlo.
       paraCliente = `✅ ¡Confirmado tu pago! 🎉 Estoy preparando tu acceso y te lo paso por acá en un momento.`;
       avisoExtra = r.productId
-        ? `\n\n⚠️ Ese producto no tiene enlace de entrega cargado: el acceso se lo tenés que mandar vos.`
-        : `\n\n⚠️ No pude identificar el producto de esa venta: el acceso se lo tenés que mandar vos.`;
+        ? `\n\n⚠️ Ese producto no tiene enlace de entrega cargado: el acceso se lo tienes que mandar tú.`
+        : `\n\n⚠️ No pude identificar el producto de esa venta: el acceso se lo tienes que mandar tú.`;
       logger.warn({ pagoId: decision.pagoId, productId: r.productId }, "[Entrega] Pago aprobado SIN enlace de entrega");
     }
   }
@@ -437,7 +437,7 @@ export async function mensajeDeEntrega(productId: number): Promise<string | null
     }
 
     const acceso = entrega ? textoDeEntrega(entrega) : `🚀 ${producto.deliveryLink}`;
-    return `✅ *¡Pago confirmado!* 🎉\n\nAcá tienes tu acceso a *${producto.name}*:\n\n${acceso}\n\n¡Que lo disfrutes! Si tienes dudas, escríbeme por acá.`;
+    return `✅ *¡Pago confirmado!* 🎉\n\nAcá tienes tu acceso a *${producto.name}*:\n\n${acceso}\n\n¡Que lo disfrutes! Si tienes dudas, escríbeme por aquí.`;
   } catch (e: any) {
     logger.error({ err: e?.message, productId }, "[Entrega] No se pudo preparar la entrega");
     return null;

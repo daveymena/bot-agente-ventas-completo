@@ -59,9 +59,20 @@ const N = (s: string) =>
     .replace(/\s+/g, " ")
     .trim();
 
-/** Preguntó por el precio, y por nada más. */
+/**
+ * Preguntó por el precio.
+ *
+ * OJO con las palabras sueltas: acá había `cuanto` y `valor` a secas, y eso
+ * matchea media conversación -- "cuánto dura", "cuántos módulos", "el valor de
+ * aprender". Medido el 2026-08-27: aparecio tres veces un "💰 $60.000 COP"
+ * huérfano, pegado al final de respuestas que no hablaban de plata, y el
+ * cliente preguntó "60 mil de qué? yo no te pregunté precio de nada".
+ *
+ * `cuanto` ahora exige el verbo de precio al lado, y `valor`/`precio` exigen
+ * ser el tema, no una palabra suelta.
+ */
 const PIDE_PRECIO =
-  /\b(cuanto (vale|cuesta|sale|es)|que (precio|valor)|precio|valor|costo|cuanto|a como)\b/;
+  /\bcuanto\s+(vale|cuesta|sale|es|seria|me\s+sale)\b|\bque\s+(precio|valor)\b|\b(el\s+)?precio\b|\bcuanto\s+(esta|estan)\b|\ba\s+como\s+(lo|la|esta)\b|\bcosto\b|\bvale\b/;
 
 /** Preguntó CÓMO pagar (no cuánto). */
 // El "lo/la" del medio se hace opcional a propósito: "como lo puedo adquirir"
@@ -189,8 +200,8 @@ function invitacionesDe(s: SeccionFicha, esFisico: boolean): string[] {
       // Acá no se genera curiosidad: se cierra. Y se dice el paso exacto,
       // porque un pago sin comprobante queda en el limbo.
       return [
-        "Apenas transfieras, mandame el comprobante por acá y te activo el acceso 🙌",
-        "Cuando lo hagas, pasame el soporte por acá y te lo dejo listo 🙌",
+        "Apenas transfieras, mándame el comprobante por aquí y te activo el acceso 🙌",
+        "Cuando lo hagas, pásame el soporte por aquí y te lo dejo listo 🙌",
       ];
 
     case "completa":
