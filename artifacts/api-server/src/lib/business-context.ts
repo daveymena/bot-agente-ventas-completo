@@ -380,6 +380,22 @@ function aplicarNombres(
  * una prohibición explícita: es la diferencia entre un agente que confirma y
  * uno que inventa.
  */
+/**
+ * Los datos que este negocio NO tiene cargados.
+ *
+ * Son los que el agente rellenaba de memoria: un plazo de entrega inventado,
+ * una garantía que nadie definió. Se extrae acá para que lo use tanto el
+ * bloque del negocio como el estado cognitivo, sin duplicar la regla.
+ */
+export function datosQueFaltan(ctx: BusinessContext | null | undefined): string[] {
+  if (!ctx) return [];
+  const faltan: string[] = [];
+  if (!ctx.entrega) faltan.push("cómo se entrega o cuánto tarda");
+  if (!ctx.garantia) faltan.push("si hay garantía o devolución");
+  if (!ctx.acceso) faltan.push("por cuánto tiempo dura el acceso");
+  return faltan;
+}
+
 export function renderBloqueNegocio(ctx: BusinessContext): string {
   const l: string[] = [];
   const quien = ctx.businessName || "este negocio";

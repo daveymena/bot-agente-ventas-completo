@@ -203,8 +203,44 @@ class URLShortener {
 
   static async createShortLink(originalUrl: string, method: string, productId: number, clientPhone: string): Promise<string> {
     try {
-      const shortCode = this.generateShortCode();
       const baseUrl = getAppUrl();
+
+      // ── Un solo link por (producto, cliente, medio) ──────────────────────
+      //
+      // Antes esto generaba un código aleatorio NUEVO en cada llamada, y la
+      // ficha se muestra varias veces por conversación. Medido el 2026-08-25:
+      // el cliente pidió el acceso tres veces y recibió cuatro URLs distintas
+      // (/p/DBFblS, /p/IXPU69, /p/xdczZc, /p/PeB513) para la misma compra.
+      //
+      // Para el cliente son cuatro links y ninguna certeza de cuál pagar; para
+      // el negocio, órdenes huérfanas en la pasarela y una conciliación que no
+      // cuadra. Reusar el que ya existe es lo correcto: la orden es la misma.
+      const [existente] = await db
+        .select({ shortCode: paymentLinks.shortCode })
+        .from(paymentLinks)
+        .where(
+          and(
+            eq(paymentLinks.productId, productId),
+            eq(paymentLinks.clientPhone, clientPhone),
+            eq(paymentLinks.method, method),
+            eq(paymentLinks.isActive, true),
+          ),
+        )
+        .limit(1);
+
+      if (existente?.shortCode) {
+        // Se refresca el destino y se conserva el código. La pasarela genera
+        // una preferencia nueva en cada llamada, así que el destino puede
+        // haber cambiado; el LINK que ve el cliente, no. Así tiene una sola
+        // URL, y siempre lleva a un pago válido.
+        await db
+          .update(paymentLinks)
+          .set({ originalUrl })
+          .where(eq(paymentLinks.shortCode, existente.shortCode));
+        return `${baseUrl}/p/${existente.shortCode}`;
+      }
+
+      const shortCode = this.generateShortCode();
       const shortUrl = `${baseUrl}/p/${shortCode}`;
 
       // Store in database for redirection

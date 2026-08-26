@@ -14,6 +14,7 @@ import {
 import { getProviderConfig, getProviderRotation, getProviderConfigFromSettings, createAIClient, getOpenCodeRotation, getOpenCodeGoRotation } from "@workspace/integrations-openai-ai-server";
 import { logger } from "./logger";
 import { supervisarRespuesta } from "./supervisor";
+import { calcularEstado, renderEstado } from "./estado-cognitivo";
 import { PaymentGateway } from "./payments";
 import { 
   healthMonitor,
@@ -39,7 +40,7 @@ import {
   type Stage,
 } from "./conversation-engine";
 import { getBrandVoice, formatWithBrandVoice } from "./brand-voice";
-import { getBusinessContext, renderBloqueNegocio, resumenContexto } from "./business-context";
+import { getBusinessContext, renderBloqueNegocio, resumenContexto, datosQueFaltan } from "./business-context";
 import { cuentasDeCopilot, expandirPorCuenta } from "./copilot-cuentas";
 import { construirPlaybook, quitarInventos, quitarMuletillaDeApertura, extraerApertura } from "./sales-playbook";
 import { analyzeBrain, buildFinalPrompt, type ResponseStrategy, type EmotionalState } from "./response-brain";
@@ -1528,8 +1529,37 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
   // Pasarse no degrada la respuesta: la ANULA, y el cliente recibe "problemas
   // técnicos" en el momento en que estaba interesado. Por eso se recorta antes
   // de mandar, empezando por lo menos crítico.
+  // ── Estado cognitivo: en qué punto va, calculado del historial ────────────
+  //
+  // El agente respondía sin saber en qué punto iba la conversación. Medido el
+  // 2026-08-25: a las 19:18 dijo "ya confirmé tu pago del PACK IDIOMAS" y a
+  // las 19:23 "hoy no compraste nada todavía". Los dos son coherentes con SU
+  // turno; se contradicen entre sí porque no había estado, había memoria.
+  //
+  // Esto no es un recuerdo del modelo: lo calcula el servidor con reglas
+  // fijas y se lo afirma. Va en `esencial`, así que sobrevive al recorte.
+  let bloqueEstado = "";
+  try {
+    const productoEstado = decision.productToShow
+      ?? (decision.productoDelMensaje
+        ? { id: decision.productoDelMensaje.id, name: decision.productoDelMensaje.name }
+        : null);
+    const estado = calcularEstado({
+      historial: memory.history as any,
+      producto: productoEstado as any,
+      fichasEnviadas: memory.sentProductIds,
+      loQueNoSabe: datosQueFaltan(negocio),
+    });
+    bloqueEstado = renderEstado(estado);
+    console.log(`🧭 [ESTADO] ${estado.etapa} — ${estado.porQue}${estado.preguntaPendiente ? " | pregunta pendiente" : ""} - ${ts()}`);
+  } catch (e: any) {
+    // Sin estado el agente sigue respondiendo como antes: es una mejora, no
+    // una dependencia.
+    logger.warn({ err: e?.message, conversationId }, "[Estado] no se pudo calcular");
+  }
+
   const TOPE_PROMPT = Number(process.env.MAX_PROMPT_CHARS || 18000);
-  let promptArmado = buildFinalPrompt(systemPrompt, brain, voice) + `\n\n${engineContextBlock}`;
+  let promptArmado = buildFinalPrompt(systemPrompt, brain, voice) + `\n\n${bloqueEstado}\n\n${engineContextBlock}`;
   if (promptArmado.length > TOPE_PROMPT) {
     const antes = promptArmado.length;
     // El contexto del motor (qué producto mostrar, en qué etapa va) y el
@@ -1549,7 +1579,7 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
     // contextBlock) es lo primero que se sacrifica: es lo más largo y lo
     // menos decisivo, porque qué producto mostrar ya se resolvió del lado del
     // servidor.
-    const esencial = `${playbook.bloque}${bloqueAnuncio}${bloqueMoneda}${bloqueDropshipping}${bloqueLecciones}${decision.contextBlock}`;
+    const esencial = `${bloqueEstado}${playbook.bloque}${bloqueAnuncio}${bloqueMoneda}${bloqueDropshipping}${bloqueLecciones}${decision.contextBlock}`;
     promptArmado = `${base}\n\n${esencial}`;
     if (promptArmado.length > TOPE_PROMPT) {
       // Todavía no entra: lo que sobra es el prompt del negocio o del agente.

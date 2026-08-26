@@ -1,0 +1,277 @@
+/**
+ * ============================================================
+ * ESTADO COGNITIVO — lo que el agente SABE antes de hablar
+ * ============================================================
+ *
+ * El agente respondía sin saber en qué punto iba la conversación. No es una
+ * metáfora: no existía ningún objeto que dijera si hubo pago, qué se pidió, o
+ * qué había prometido antes. Cada turno lo improvisaba leyendo texto suelto.
+ *
+ * Lo que eso produjo, medido el 2026-08-25 en una sola conversación:
+ *
+ *   19:18  "ya confirmé tu pago del PACK IDIOMAS"
+ *   19:23  "Hoy no compraste nada todavía, así que no hay nada que resumir"
+ *
+ * Cinco minutos. Los dos mensajes son coherentes con SU turno y se contradicen
+ * entre sí, porque no había un estado: había dos improvisaciones.
+ *
+ * Este módulo lo calcula del lado del servidor, leyendo el historial con
+ * reglas fijas, y se lo afirma al modelo. La diferencia de fondo:
+ *
+ *   antes → el modelo RECUERDA (y por lo tanto inventa)
+ *   ahora → el modelo LEE un estado que otro calculó
+ *
+ * Tres cosas que el agente necesita saber, y que antes deducía:
+ *   1. QUÉ SÉ         — hechos duros: producto, ficha enviada, pedido abierto
+ *   2. QUÉ NO SÉ      — lo que el negocio declara no tener; se dice, no se rellena
+ *   3. QUÉ RESOLVER   — la pregunta que quedó sin contestar, y la acción siguiente
+ */
+
+export type EtapaTrato =
+  | "explorando"        // mira, pregunta, todavía no eligió
+  | "interesado"        // hay un producto concreto en juego
+  | "decidido"          // dijo que lo quiere
+  | "pago_reportado"    // dice que pagó; NADIE lo verificó todavía
+  | "pago_verificado"   // lo confirmó la pasarela o una persona
+  | "entregado";        // ya se le entregó
+
+export interface MensajeHist {
+  role: string;
+  content: string;
+  createdAt?: Date | string | null;
+  metadata?: any;
+}
+
+export interface EntradaEstado {
+  historial: MensajeHist[];
+  /** Producto que el servidor resolvió para este mensaje. */
+  producto?: { id: number; name: string; price?: number | string | null; kind?: string | null } | null;
+  /** Fichas ya enviadas en esta conversación. */
+  fichasEnviadas?: Set<number> | number[];
+  /** Datos que el negocio declara NO tener (plazo de entrega, etc.). */
+  loQueNoSabe?: string[];
+  /** true si el pago de esta conversación fue verificado de verdad. */
+  pagoVerificado?: boolean;
+}
+
+export interface EstadoCognitivo {
+  etapa: EtapaTrato;
+  /** Por qué esa etapa: para el log y para poder discutirlo. */
+  porQue: string;
+  /** La pregunta del cliente que quedó sin responder, si hay una. */
+  preguntaPendiente: string | null;
+  loQueNoSe: string[];
+  /** Contradicciones que el agente NO puede cometer, dadas por el estado. */
+  prohibido: string[];
+  /** La única cosa que corresponde hacer ahora. */
+  accionSiguiente: string;
+}
+
+// ─── Señales en el texto del cliente ─────────────────────────────────────────
+
+const DICE_QUE_PAGO =
+  /\bya\s+(te\s+)?(pagu[eé]|pag[uo]|hice\s+(el\s+pago|la\s+transferencia|la\s+consignaci[oó]n)|transfer[ií]|realic[eé]\s+el\s+pago)|\b(hice|mand[eé])\s+la\s+transferencia|\bpago\s+(hecho|realizado|listo)|\bte\s+(mand[eé]|env[ií]o|paso)\s+el\s+comprobante/i;
+
+const DICE_QUE_LO_QUIERE =
+  /\b(lo\s+quiero|la\s+quiero|me\s+lo\s+llevo|dale\s+lo\s+compro|quiero\s+comprarlo|lo\s+compro|listo\s+lo\s+quiero|c[oó]mo\s+(lo\s+)?(compro|pago)|d[oó]nde\s+(lo\s+)?pago)/i;
+
+function normalizar(s: string): string {
+  return String(s || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .replace(/[^a-z0-9ñ\s?¿]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+const INTERROGATIVAS = [
+  "donde", "cuando", "como", "que", "cual", "cuanto", "cuanta", "quien",
+  "por que", "tienes", "tiene", "tienen", "hay", "puedo", "sirve", "incluye",
+];
+
+/** ¿Este mensaje del cliente contiene una pregunta? */
+export function contienePregunta(texto: string): boolean {
+  if (/[?¿]/.test(texto)) return true;
+  const n = normalizar(texto);
+  return INTERROGATIVAS.some((w) => n === w || n.startsWith(w + " "));
+}
+
+/**
+ * Palabras con contenido de una pregunta: sirven para ver si la respuesta
+ * siquiera toca el tema. No mide si la respuesta es BUENA -- eso no se puede
+ * medir sin criterio -- sino si habla de otra cosa por completo.
+ */
+const VACIAS_ES = new Set([
+  "que", "cual", "como", "donde", "cuando", "cuanto", "cuanta", "quien", "por",
+  "el", "la", "los", "las", "un", "una", "de", "del", "y", "o", "a", "en",
+  "es", "son", "esta", "estan", "me", "te", "se", "lo", "le", "su", "tu", "mi",
+  "para", "con", "sin", "hay", "tiene", "tienes", "tienen", "puedo", "gracias",
+  "hola", "buenas", "porfa", "favor", "si", "no", "ya", "muy", "mas", "pero",
+]);
+
+function contenido(texto: string): string[] {
+  return normalizar(texto).split(" ").filter((p) => p.length > 2 && !VACIAS_ES.has(p));
+}
+
+/**
+ * La última pregunta del cliente que la respuesta siguiente NO tocó.
+ *
+ * Es lo que produjo, el 2026-08-25:
+ *   cliente: "cuánto vale al final y de cuántos idiomas es, porque la imagen
+ *             dice 12 y tú dijiste 5"
+ *   bot:     repitió textual un bloque anterior sobre el pago.
+ *
+ * No juzga la calidad de la respuesta: solo detecta que habla de otra cosa.
+ */
+export function preguntaSinResponder(
+  historial: MensajeHist[],
+  /**
+   * Nombres de los productos en juego. Sus palabras NO cuentan como haber
+   * tocado el tema: nombrar el producto es lo mínimo que hace cualquier
+   * respuesta, incluso una que no contesta nada.
+   *
+   * Sin esto, "¿de cuántos IDIOMAS es?" respondido con "ya confirmé tu pago
+   * del PACK IDIOMAS" contaba como respondido -- por la palabra del nombre.
+   * Es exactamente el caso B4 del QA.
+   */
+  nombresProducto: string[] = [],
+): string | null {
+  const delNombre = new Set(nombresProducto.flatMap((n) => contenido(n)));
+
+  for (let i = historial.length - 1; i >= 0; i--) {
+    const m = historial[i]!;
+    if (m.role !== "customer") continue;
+    if (!contienePregunta(m.content)) return null;
+
+    const respuesta = historial.slice(i + 1).find((x) => x.role !== "customer");
+    if (!respuesta) return m.content; // todavía sin responder
+
+    const claves = contenido(m.content).filter((c) => !delNombre.has(c));
+    if (claves.length === 0) return null;
+    const enRespuesta = new Set(contenido(respuesta.content));
+    const tocadas = claves.filter((c) => enRespuesta.has(c)).length;
+    // Si no comparte NI UNA palabra con contenido, la respuesta fue sobre otra
+    // cosa. Con una alcanza para no marcar falsos positivos.
+    return tocadas === 0 ? m.content : null;
+  }
+  return null;
+}
+
+/**
+ * En qué punto va el trato, calculado del historial. No lo decide el modelo.
+ *
+ * Regla dura: `pago_verificado` NO se puede alcanzar leyendo texto. Que el
+ * cliente diga que pagó lo deja en `pago_reportado` y nada más; el salto a
+ * verificado lo da la pasarela o una persona que vio el dinero. Es lo que
+ * impide que el bot "confirme" pagos, que fue el defecto más caro del QA.
+ */
+export function calcularEtapa(e: EntradaEstado): { etapa: EtapaTrato; porQue: string } {
+  if (e.pagoVerificado) {
+    return { etapa: "pago_verificado", porQue: "el pago fue verificado fuera del chat" };
+  }
+
+  const delCliente = e.historial.filter((m) => m.role === "customer");
+  const ultimos = delCliente.slice(-8);
+
+  if (ultimos.some((m) => DICE_QUE_PAGO.test(m.content))) {
+    return {
+      etapa: "pago_reportado",
+      porQue: "el cliente dice que pagó, pero NADIE lo verificó todavía",
+    };
+  }
+  if (ultimos.some((m) => DICE_QUE_LO_QUIERE.test(m.content))) {
+    return { etapa: "decidido", porQue: "el cliente dijo que lo quiere" };
+  }
+  if (e.producto) {
+    return { etapa: "interesado", porQue: `hay un producto concreto en juego: ${e.producto.name}` };
+  }
+  return { etapa: "explorando", porQue: "todavía no hay un producto definido" };
+}
+
+/** Lo que el estado PROHÍBE decir. Son contradicciones, no estilo. */
+function prohibidoSegunEtapa(etapa: EtapaTrato, fichaEnviada: boolean): string[] {
+  const p: string[] = [];
+
+  if (etapa === "pago_reportado") {
+    p.push("NO digas que el pago está confirmado, ni que lo confirmaste vos: todavía nadie lo verificó.");
+    p.push("NO entregues el acceso ni prometas entregarlo sin condición. Pedí el comprobante.");
+    p.push("NO digas que el sistema lo verifica solo: a Nequi/Daviplata los revisa una persona.");
+  }
+  if (etapa !== "entregado") {
+    p.push("NO digas que ya mandaste el acceso, el link ni el material: no se mandó.");
+  }
+  if (etapa === "explorando" || etapa === "interesado") {
+    p.push("NO hables de una compra hecha ni de un pago recibido: no hubo ninguno.");
+  }
+  if (fichaEnviada) {
+    p.push("NO repitas la ficha completa: ya la tiene. Respondé solo lo puntual.");
+  }
+  return p;
+}
+
+function accionDe(etapa: EtapaTrato, pregunta: string | null): string {
+  if (pregunta) return `Respondé PRIMERO lo que te preguntó y quedó sin contestar: "${pregunta.trim().slice(0, 90)}"`;
+  switch (etapa) {
+    case "explorando":
+      return "Averiguá qué busca con UNA pregunta concreta, o mostrale lo más parecido a lo que nombró.";
+    case "interesado":
+      return "Resolvé la duda que lo frena y avanzá hacia el cierre. La ficha lleva el precio y los medios de pago.";
+    case "decidido":
+      return "Facilitá el pago: la ficha de abajo lleva los enlaces. No escribas vos los links ni las cuentas.";
+    case "pago_reportado":
+      return "Pedí el comprobante si no lo mandó, y decile que lo revisamos y le confirmamos. Nada más.";
+    case "pago_verificado":
+      return "El pago está verificado: corresponde entregar el acceso.";
+    case "entregado":
+      return "Ya se entregó: confirmá que le llegó y ofrecé ayuda para empezar.";
+  }
+}
+
+export function calcularEstado(e: EntradaEstado): EstadoCognitivo {
+  const { etapa, porQue } = calcularEtapa(e);
+  const pregunta = preguntaSinResponder(e.historial, e.producto ? [e.producto.name] : []);
+  const fichas = e.fichasEnviadas instanceof Set
+    ? e.fichasEnviadas
+    : new Set(e.fichasEnviadas || []);
+  const fichaEnviada = !!(e.producto && fichas.has(e.producto.id));
+
+  return {
+    etapa,
+    porQue,
+    preguntaPendiente: pregunta,
+    loQueNoSe: e.loQueNoSabe || [],
+    prohibido: prohibidoSegunEtapa(etapa, fichaEnviada),
+    accionSiguiente: accionDe(etapa, pregunta),
+  };
+}
+
+/** El bloque que lee el modelo. Corto a propósito: es para actuar, no para leer. */
+export function renderEstado(s: EstadoCognitivo): string {
+  const l: string[] = [];
+  l.push(`\n\n━━━━━━━━━━━━━━━━━━━━━━━`);
+  l.push(`🧭 EN QUÉ PUNTO VA ESTA CONVERSACIÓN`);
+  l.push(`━━━━━━━━━━━━━━━━━━━━━━━`);
+  l.push(`Esto NO lo estás recordando: lo calculó el sistema leyendo el historial. Es la verdad.`);
+  l.push(`• Etapa: ${s.etapa.toUpperCase()} — ${s.porQue}`);
+
+  if (s.preguntaPendiente) {
+    l.push(`\n❓ QUEDÓ UNA PREGUNTA SIN RESPONDER:`);
+    l.push(`   "${s.preguntaPendiente.trim().slice(0, 140)}"`);
+    l.push(`   Contestala ANTES que cualquier otra cosa. Si no la sabés, decí que la confirmás.`);
+  }
+
+  if (s.loQueNoSe.length > 0) {
+    l.push(`\n🤷 DATOS QUE NO TENÉS (no los rellenes, decí que los confirmás):`);
+    for (const d of s.loQueNoSe) l.push(`   · ${d}`);
+  }
+
+  if (s.prohibido.length > 0) {
+    l.push(`\n🚫 CONTRADICCIONES QUE NO PODÉS COMETER:`);
+    for (const p of s.prohibido) l.push(`   ❌ ${p}`);
+  }
+
+  l.push(`\n👉 LO QUE CORRESPONDE HACER AHORA:`);
+  l.push(`   ${s.accionSiguiente}`);
+  return l.join("\n");
+}
