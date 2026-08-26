@@ -136,3 +136,34 @@ describe("la apertura varía pero no promete nada", () => {
     expect(aperturaPara("573136174267").length).toBeLessThan(30);
   });
 });
+
+const IA = 124;
+
+describe("curso de IA: solo lo que dice su propia descripción", () => {
+  it("qué incluye lista los 4 módulos", () => {
+    const r = responderPregunta(IA, "que incluye?")?.texto ?? "";
+    expect(r).toMatch(/agentes aut[oó]nomos/i);
+    expect(r).toMatch(/n8n/i);
+  });
+
+  it("preguntar por una herramienta concreta la encuentra", () => {
+    for (const m of ["trae midjourney?", "enseña n8n?", "incluye chatgpt"]) {
+      expect(responderPregunta(IA, m), m).not.toBeNull();
+    }
+  });
+
+  it("si hay que programar: no, n8n es sin código", () => {
+    expect(responderPregunta(IA, "hay que saber programar?")?.texto).toMatch(/no necesitas programar/i);
+  });
+
+  it("la duración NO se inventó: no está en su descripción", () => {
+    // A diferencia del piano, este es un pack armado: no hay curso publicado
+    // contra el cual verificar las horas.
+    expect(responderPregunta(IA, "cuanto dura?")?.sinResponder).toBe(true);
+  });
+
+  it("cada curso responde lo suyo, sin mezclarse", () => {
+    expect(responderPregunta(IA, "que incluye?")?.texto).not.toMatch(/partitura|perro/i);
+    expect(responderPregunta(PIANO, "que incluye?")?.texto).not.toMatch(/n8n|chatgpt/i);
+  });
+});

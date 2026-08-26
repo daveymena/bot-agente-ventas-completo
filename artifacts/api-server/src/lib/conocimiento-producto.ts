@@ -211,7 +211,56 @@ const EDUCANINO: ConocimientoProducto = {
   ],
 };
 
-const CATALOGO: ConocimientoProducto[] = [PIANO, EDUCANINO];
+// ─── INTELIGENCIA ARTIFICIAL 2026 ────────────────────────────────────────────
+//
+// Este NO se buscó afuera, y es a propósito. Se buscó en Udemy y no hay
+// coincidencia: es una compilación propia, no la copia de un curso único
+// (a diferencia del piano, donde "19 módulos" + "5 valses de Alberto
+// Martínez" coincidían exacto). Todo lo de acá sale de su propia descripción,
+// que para un pack armado es la fuente más fiable que existe.
+
+const IA: ConocimientoProducto = {
+  productId: 124,
+  nombre: "INTELIGENCIA ARTIFICIAL 2026: HERRAMIENTAS + AGENTES AUTÓNOMOS",
+  preguntas: [
+    {
+      id: "ia_incluye",
+      patrones: /\b(qu[eé] (incluye|trae|contiene)|contenido|temario|m[oó]dulos)\b/i,
+      respuesta:
+        "Son 4 módulos + bonus 🤖\n\n🔥 Fundamentos: ChatGPT, Gemini, Claude, Perplexity y Copilot\n🎨 IA creativa: Midjourney, DALL·E 4, Leonardo AI\n🤖 Agentes autónomos: n8n, CrewAI, LangGraph, AutoGPT\n💼 IA para negocios: automatizar WhatsApp, email y ventas\n🎁 Plantillas listas para usar",
+    },
+    {
+      id: "ia_herramientas",
+      patrones: /\b(chatgpt|gemini|claude|perplexity|copilot|midjourney|dall|leonardo|n8n|crewai|langgraph|autogpt|qu[eé] herramientas)\b/i,
+      respuesta:
+        "Cubre las principales 🤖\n\nChatGPT, Gemini, Claude, Perplexity y Copilot para el día a día; Midjourney, DALL·E 4 y Leonardo AI para crear imágenes y video; y n8n, CrewAI, LangGraph y AutoGPT para armar agentes que trabajen solos.",
+    },
+    {
+      id: "ia_negocio",
+      patrones: /\b(para mi negocio|automatizar|chatbot|whatsapp|vender|monetizar|ganar dinero|emprend\w+)\b/i,
+      respuesta:
+        "Tiene un módulo entero para eso 💼\n\nAutomatizar WhatsApp, email y ventas, crear chatbots inteligentes y monetizar con IA. Y vienen plantillas listas para usar 🎁",
+    },
+    {
+      id: "ia_programar",
+      // "hay que SABER programar" es como se pregunta de verdad: el verbo del
+      // medio hacía que no matcheara.
+      patrones: /\bprogram\w+\b|\bc[oó]digo\b|\bsoy t[eé]cnico\b|\bsin experiencia\b|\bno s[eé] de (tecnolog[ií]a|computador)/i,
+      // "sin código" está literal en la descripción, referido a n8n.
+      respuesta:
+        "No necesitas programar 🙌\n\nLa automatización se arma con n8n, que es sin código. Se trabaja con herramientas visuales.",
+    },
+    // Sin responder: no está en su descripción y no se puede verificar afuera
+    // porque es un pack armado, no un curso publicado.
+    {
+      id: "ia_duracion",
+      patrones: /\b(cu[aá]nto dura|cu[aá]ntas horas|cu[aá]ntas clases|cu[aá]ntos videos)\b/i,
+      respuesta: null,
+    },
+  ],
+};
+
+const CATALOGO: ConocimientoProducto[] = [PIANO, EDUCANINO, IA];
 
 // ─── Búsqueda ────────────────────────────────────────────────────────────────
 
