@@ -26,6 +26,8 @@
  */
 
 export type SeccionFicha =
+  /** El enlace del producto en la tienda, para verlo con calma. */
+  | "tienda"
   /** Solo el precio. Nada más. */
   | "precio"
   /** Precio + los medios de pago. */
@@ -100,7 +102,10 @@ const PIDE_PAGO =
 const PIDE_TRANSFERENCIA = /\b(nequi|daviplata|transferencia|consignacion|bancolombia)\b/;
 
 /** Nombró tarjeta / pasarela. */
-const PIDE_LINK = /\b(tarjeta|credito|debito|pse|paypal|link de pago|enlace de pago|mercadopago)\b/;
+const PIDE_LINK =
+  // "link para pagar" no entraba: solo estaba "link de pago". Quien pide por
+  // donde pagar ya decidio comprar -- es el peor momento para no entenderle.
+  /\b(tarjeta|credito|debito|pse|paypal|mercadopago)\b|\b(link|enlace)\s+(de\s+(pago|compra)|para\s+(pagar|comprar)|pa\s+pagar)\b/;
 
 /** Preguntó qué es o qué trae. */
 const PIDE_INFO =
@@ -120,6 +125,15 @@ const PIDE_VIDEO =
   /\bvideo\b|\bvidio\b|\bmu[eé]stra\w*\b|\bme lo ense[ñn]as\b|\bver (una|la) clase\b|\bdemo\b|\bc[oó]mo (son|es) (las|la) clase/i;
 
 const ACEPTA = /^(s[ií]|sii+|dale|bueno|ok|okay|okey|listo|claro|por favor|porfa|de una|obvio|hazlo|mu[eé]strame\w*)\b/i;
+
+/**
+ * Pedir la tienda, o el producto EN la tienda.
+ *
+ * "página" y "catálogo" entran porque es como lo dice la gente. "link" suelto
+ * NO: ese casi siempre es el de pago, y ya tiene su propia sección.
+ */
+const PIDE_TIENDA =
+  /\btiendas?\b|\bcat[aá]logo\b|\bp[aá]gina web\b|\bsitio web\b|\bweb\b|link (de|del|en la) (tienda|producto|p[aá]gina)|d[oó]nde (lo )?(veo|puedo ver)\b|verlo en la (tienda|web)|enlace (de|del) producto/i;
 
 /** Preguntó por la entrega. */
 // Igual que arriba: las formas reales en que la gente pregunta esto son más
@@ -151,6 +165,14 @@ export function seccionQueCorresponde(e: EntradaSeccion): SeccionFicha {
   if (!e.videoYaEnviado && (PIDE_VIDEO.test(m) || (e.ofrecimosVideo && ACEPTA.test(m)))) {
     return "video";
   }
+
+  // ── La tienda ────────────────────────────────────────────────────────────
+  // El admin preguntó "¿tienes tienda?" y el bot contestó "¿de cuál producto
+  // querés que te cuente?" -- no respondió nada, teniendo la tienda publicada.
+  // Va arriba porque "el link de la tienda" también matchea PIDE_LINK, que es
+  // el link de PAGO: mandarle a pagar a quien pidió ver la tienda es cobrarle
+  // antes de tiempo.
+  if (PIDE_TIENDA.test(m)) return "tienda";
 
   // ── Medio de pago concreto: lo más específico que puede pedir ─────────────
   if (PIDE_TRANSFERENCIA.test(m)) return "pago_transferencia";

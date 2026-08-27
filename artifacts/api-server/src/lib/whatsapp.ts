@@ -1,4 +1,5 @@
 import { eq, inArray, desc, and } from "drizzle-orm";
+import { getAppUrl } from "./app-url";
 import { transcribirAudio, describirImagen } from "./media-entrante";
 import { contextoDeMoneda } from "./moneda-por-pais";
 import { invitacionDe, type SeccionFicha } from "./ficha-parcial";
@@ -430,8 +431,11 @@ async function buildProductCaption(p: typeof products.$inferSelect, categoryName
   if (propias.length > 0) {
     lines.push(variante([`📚 *Incluye:*`, `📚 *Qué vas a recibir:*`, `📚 *Contenido:*`, `📚 *Esto trae:*`], sem));
     // Tope de 8: más que eso vuelve a ser un muro. Si hay más, se dice.
-    for (const f of propias.slice(0, 8)) lines.push(`✅ ${f}`);
-    if (propias.length > 8) lines.push(`✅ …y ${propias.length - 8} módulos más`);
+    for (const f of propias.slice(0, 8)) lines.push(`${emojiDeCaracteristica(f)} ${f}`);
+    // Antes decía "…y 1 más" a secas y quedaba cortado, sin decir más de qué.
+    if (propias.length > 8) {
+      lines.push(`➕ Y ${propias.length - 8} cosas más que te cuento por aquí`);
+    }
     lines.push("");
   } else if (meta.classes) {
     lines.push(variante([`📚 *Incluye:*`, `📚 *Qué vas a recibir:*`, `📚 *Contenido:*`, `📚 *Esto trae:*`], sem));
@@ -448,7 +452,7 @@ async function buildProductCaption(p: typeof products.$inferSelect, categoryName
     ? variante([`💻 *Modalidad:*`, `💻 *Cómo funciona:*`, `💻 *Acceso:*`, `💻 *Cómo lo recibís:*`], sem)
     : variante([`📦 *Cómo lo recibís:*`, `📦 *Entrega:*`, `📦 *Envío:*`], sem));
   if (estandar.length > 0) {
-    for (const f of estandar.slice(0, 4)) lines.push(`✅ ${f}`);
+    for (const f of estandar.slice(0, 4)) lines.push(`${emojiDeCaracteristica(f)} ${f}`);
   } else if (esDigital) {
     lines.push(`✅ 100% online y descargable`);
     lines.push(`✅ Acceso de por vida ♾️`);
@@ -557,6 +561,51 @@ async function buildProductCaption(p: typeof products.$inferSelect, categoryName
  * Devuelve `{ conFoto, mensajes }`: la foto solo va cuando presenta el
  * producto, no cuando responde "¿cuánto vale?".
  */
+/**
+ * El emoji que le corresponde a UNA característica, por lo que dice.
+ *
+ * Antes toda la lista salía con el mismo ✅. Con 5 viñetas iguales el ojo no
+ * distingue una de otra y la ficha se lee como un bloque -- el admin lo pidió
+ * explícito: "usar el emoji de cada característica del producto".
+ *
+ * Se elige por PALABRA, no por posición: así el mismo producto siempre da la
+ * misma cara, y dos productos distintos no comparten un emoji que no les
+ * corresponde. Lo que no reconoce se queda con ✅, que nunca queda mal.
+ */
+export function emojiDeCaracteristica(texto: string): string {
+  const t = String(texto).toLowerCase();
+  const REGLAS: Array<[RegExp, string]> = [
+    [/certificad|diploma/, "📜"],
+    [/garant[ií]a|devoluci[oó]n|reembolso/, "🛡️"],
+    [/de por vida|permanente|ilimitad/, "♾️"],
+    [/soporte|acompa[ñn]amiento|asesor/, "🙌"],
+    [/partitura|m[uú]sica|piano|teclado|acorde/, "🎼"],
+    [/perro|cachorr|mascota|canin|adiestra/, "🐶"],
+    [/ingl[eé]s|idioma|franc[eé]s|alem[aá]n|italian|portugu/, "🌍"],
+    [/dise[ñn]o|gr[aá]fic|imagen|logo|visual|foto/, "🎨"],
+    // El orden importa: una linea suele nombrar varias cosas a la vez ("n8n:
+    // agente IA, APIs y webhooks"). Gana lo mas ESPECIFICO, que es lo que
+    // distingue esa caracteristica de las demas del mismo producto -- si
+    // ganara "agente", medio curso de IA saldria con la misma carita.
+    [/automatiz|n8n|flujo|webhook|\bapi\b|sin c[oó]digo/, "⚙️"],
+    [/servidor|\bvps\b|nube|hosting|montar/, "🚀"],
+    [/whatsapp|telegram|slack|conect/, "🔗"],
+    [/c[oó]digo|programa|\bapp\b|supabase|render/, "💻"],
+    [/agente|\bia\b|inteligencia artificial|chatbot|\bbot\b/, "🤖"],
+    [/excel|office|word|powerpoint|outlook|planilla/, "📊"],
+    [/plantilla|recurso|descarga|archivo/, "📁"],
+    [/video|clase|m[oó]dulo|lecci[oó]n|curso/, "🎬"],
+    [/alta definici[oó]n|\bhd\b|calidad/, "📺"],
+    [/env[ií]o|direcci[oó]n|domicilio|entrega/, "📦"],
+    [/precio|pago|cuota|descuento/, "💰"],
+    [/actualiza|nuevo|novedad/, "🆕"],
+    [/desde cero|principiante|paso a paso|f[aá]cil/, "🌱"],
+    [/negocio|vender|cliente|monetiz/, "💼"],
+  ];
+  for (const [patron, emoji] of REGLAS) if (patron.test(t)) return emoji;
+  return "✅";
+}
+
 async function construirSeccion(
   p: typeof products.$inferSelect,
   seccion: SeccionFicha,
@@ -565,6 +614,11 @@ async function construirSeccion(
 ): Promise<{ conFoto: boolean; mensajes: string[] }> {
   const mon = await contextoDeMoneda(String(semilla).split("|")[0], Number(p.price), p.currency);
   const esFisico = String((p as any).kind || "digital") === "physical";
+  // El producto EN la tienda. Se usa el enlace corto /p/:id y no la ruta larga
+  // /tienda/:slug/producto/:id a propósito: el corto resuelve solo qué negocio
+  // es (app.ts redirige), así que no hay que pasarle el slug hasta acá ni
+  // arriesgar que quede viejo si el admin lo cambia.
+  const urlEnTienda = `${getAppUrl().replace(/\/$/, "")}/p/${p.id}`;
   const corto = (m: any) => m?.shortUrl || m?.url || "";
 
   // ¿ESTE producto tiene video? Solo 9 de los 84 cursos lo tienen (medido el
@@ -577,6 +631,21 @@ async function construirSeccion(
   const L: string[] = [];
 
   // ── Solo el precio ────────────────────────────────────────────────────────
+  // ── El producto en la tienda ──────────────────────────────────────────────
+  //
+  // El admin preguntó "¿tienes tienda?" y el bot contestó "¿de cuál producto
+  // querés que te cuente?": no respondió, teniendo la tienda publicada y el
+  // producto adentro.
+  //
+  // Va en su propio mensaje para que WhatsApp le arme la vista previa con la
+  // foto; pegado a otro texto el enlace se pierde en el medio.
+  if (seccion === "tienda") {
+    return {
+      conFoto: false,
+      mensajes: [`🛒 Míralo en la tienda, con fotos y todo el detalle:\n${urlEnTienda}`, cierre],
+    };
+  }
+
   if (seccion === "precio") {
     return { conFoto: false, mensajes: [`💰 *${mon.precioTexto}*\n\n${cierre}`] };
   }
