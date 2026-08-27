@@ -31,8 +31,13 @@ describe("las preguntas de siempre tienen respuesta verificada", () => {
     expect(r?.texto).toMatch(/sin sede|no hay sede/i);
   });
 
-  it("cómo llega: Google Drive, no un envío", () => {
-    expect(responderPregunta(PERRO, "como me llega?")?.texto).toMatch(/drive/i);
+  // Esta prueba pedía /drive/i y con eso fijaba una promesa FALSA: los
+  // productos con `teraboxPath` se entregan por Terabox, no por Drive. Ahora
+  // verifica lo que de verdad tiene que cumplirse -- que no se nombre ningún
+  // servicio, porque depende del producto.
+  it("cómo llega: un enlace de acceso, sin nombrar el servicio", () => {
+    expect(responderPregunta(PERRO, "como me llega?")?.texto).toMatch(/enlace de acceso/i);
+    expect(responderPregunta(PERRO, "como me llega?")?.texto).not.toMatch(/drive|terabox|mega|dropbox/i);
   });
 });
 
@@ -307,7 +312,8 @@ describe("curso de IA: los patrones nuevos no le roban la respuesta a otra pregu
 
   it("las comunes siguen ganando cuando la pregunta es de ellas", () => {
     expect(responderPregunta(IA, "trae certificado?")?.texto).toMatch(/no emite certificado/i);
-    expect(responderPregunta(IA, "como me llega?")?.texto).toMatch(/drive/i);
+    expect(responderPregunta(IA, "como me llega?")?.texto).toMatch(/enlace de acceso/i);
+    expect(responderPregunta(IA, "como me llega?")?.texto).not.toMatch(/drive|terabox|mega|dropbox/i);
     expect(responderPregunta(IA, "tiene garantia?")?.texto).toMatch(/7 d[ií]as/);
   });
 });

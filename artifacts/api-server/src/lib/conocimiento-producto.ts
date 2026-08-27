@@ -70,8 +70,13 @@ const COMUNES: PreguntaConocida[] = [
   {
     id: "como_llega",
     patrones: /\b(c[oó]mo (me )?(llega|lo recibo|lo veo)|d[oó]nde (lo veo|queda)|drive|descarg\w+)\b/i,
+    // ⚠️ NO se nombra el servicio. Decía "Google Drive" para TODOS, y no todos
+    // se entregan por ahí: los que tienen `teraboxPath` van por Terabox, con
+    // un enlace propio para cada comprador (ver entrega-personalizada.ts).
+    // Era una promesa falsa dicha justamente por el módulo que existe para
+    // evitarlas -- el mismo patrón del "certificado" inventado.
     respuesta:
-      "Te llega por Google Drive 📁 Apenas confirmamos el pago te paso el acceso por aquí.",
+      "Te llega por un enlace de acceso 📁 Apenas confirmamos el pago te lo paso por aquí.",
   },
   {
     id: "dispositivos",
