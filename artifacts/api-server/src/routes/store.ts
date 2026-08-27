@@ -109,6 +109,89 @@ router.post("/admin/fix-images", async (req: Request, res: Response, next: NextF
   }
 });
 
+// POST /store/admin/fix-physical-images -- Re-descargar imágenes de productos físicos
+// Las imágenes de productos físicos se perdían porque IMAGE_STORE_DIR no estaba
+// configurado. Este endpoint re-descarga desde las URLs originales (Dropi/WooCommerce)
+// y las guarda en el volumen persistente.
+router.post("/admin/fix-physical-images", async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const tenant = (req as any).tenant;
+    if (!tenant) return res.status(401).json({ message: "No session found. Please login." });
+
+    // Traer todos los productos físicos del tenant
+    const allProducts = await db
+      .select()
+      .from(products)
+      .where(eq(products.tenantId, tenant.id));
+
+    const physicalProducts = allProducts.filter((p: any) => p.kind === "physical");
+    const { saveProductImage } = await import("../lib/image-store");
+    const { existsSync } = await import("node:fs");
+    const path = await import("node:path");
+
+    let fixed = 0;
+    let skipped = 0;
+    let failed = 0;
+    const errors: string[] = [];
+
+    for (const product of physicalProducts) {
+      // Verificar si ya tiene imagen válida en disco
+      const imgPath = path.resolve(process.env.IMAGE_STORE_DIR || "data/images", "products", `${product.id}.jpg`);
+      if (existsSync(imgPath)) {
+        skipped++;
+        continue;
+      }
+
+      // Intentar obtener URL original del metadata (Dropi/WooCommerce)
+      let originalUrl: string | null = null;
+      try {
+        const meta = JSON.parse(product.metadata || "{}");
+        if (meta.imageUrls && Array.isArray(meta.imageUrls) && meta.imageUrls.length > 0) {
+          originalUrl = meta.imageUrls[0];
+        } else if (meta.source === "dropi" && meta.dropiProductId) {
+          // Si no tiene imageUrls en metadata, intentar traer de Dropi
+          const { dropiGetProduct, dropiProductImages } = await import("../lib/dropi");
+          const dropiResult = await dropiGetProduct(meta.dropiProductId);
+          if (dropiResult.ok && dropiResult.data) {
+            const urls = dropiProductImages(dropiResult.data);
+            if (urls.length > 0) originalUrl = urls[0];
+          }
+        }
+      } catch (e) {
+        // Metadata inválido, ignorar
+      }
+
+      if (!originalUrl) {
+        failed++;
+        errors.push(`ID ${product.id}: sin URL original en metadata`);
+        continue;
+      }
+
+      // Descargar y guardar
+      const saved = await saveProductImage(originalUrl, product.id);
+      if (saved) {
+        await db.update(products).set({ imageUrl: saved }).where(eq(products.id, product.id));
+        fixed++;
+        console.log(`✅ ID ${product.id}: imagen re-descargada`);
+      } else {
+        failed++;
+        errors.push(`ID ${product.id}: no se pudo descargar desde ${originalUrl.substring(0, 50)}`);
+      }
+    }
+
+    return res.json({
+      ok: true,
+      message: `📦 Imágenes físicas: ${fixed} corregidas, ${skipped} ya ok, ${failed} fallidas`,
+      fixed,
+      skipped,
+      failed,
+      errors: errors.slice(0, 10),
+    });
+  } catch (err) {
+    return next(err);
+  }
+});
+
 // POST /store/admin/bootstrap -- crea la tienda del tenant logueado si
 // todavía no tiene una. Los tenants nuevos ya la reciben automáticamente al
 // registrarse (ver routes/auth.ts), pero los que existían ANTES de ese fix
