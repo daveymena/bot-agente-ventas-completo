@@ -3,11 +3,14 @@
  * IMAGE URL FIXER - Corregir URLs de imágenes en productos
  * ============================================================
  * Asegura que todos los productos tengan imageUrl correcto
+ * y que las imágenes existan en disco.
  */
 
 import { db, products } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { logger } from "./logger";
+import { existsSync } from "node:fs";
+import path from "node:path";
 
 export class ImageUrlFixer {
   /**
@@ -73,6 +76,7 @@ export class ImageUrlFixer {
     fixed: number;
     withImages: number;
     withoutImages: number;
+    downloaded: number;
   }> {
     try {
       const allProducts = await db
@@ -83,6 +87,7 @@ export class ImageUrlFixer {
       let fixed = 0;
       let withImages = 0;
       let withoutImages = 0;
+      let downloaded = 0;
 
       for (const product of allProducts) {
         if (product.imageUrl && product.imageUrl.startsWith("/images/")) {
@@ -105,15 +110,84 @@ export class ImageUrlFixer {
       }
 
       logger.info(
-        { tenantId, fixed, withImages, withoutImages },
+        { tenantId, fixed, withImages, withoutImages, downloaded },
         "✅ Product image URLs fixed"
       );
 
-      return { fixed, withImages, withoutImages };
+      return { fixed, withImages, withoutImages, downloaded };
     } catch (error) {
       logger.error({ error, tenantId }, "❌ Error fixing all product images");
       throw error;
     }
+  }
+
+  /**
+   * Re-descargar imágenes de productos físicos desde metadata (Dropi/WooCommerce)
+   */
+  async downloadPhysicalImages(tenantId: number): Promise<{
+    downloaded: number;
+    failed: number;
+    skipped: number;
+  }> {
+    const IMAGES_DIR = process.env.IMAGE_STORE_DIR || path.resolve(process.cwd(), "data/images");
+    
+    const allProducts = await db
+      .select()
+      .from(products)
+      .where(eq(products.tenantId, tenantId));
+
+    const physicalProducts = allProducts.filter(p => p.kind === "physical");
+    let downloaded = 0;
+    let failed = 0;
+    let skipped = 0;
+
+    for (const product of physicalProducts) {
+      // Verificar si ya tiene imagen en disco
+      const imgPath = path.join(IMAGES_DIR, "products", `${product.id}.jpg`);
+      if (existsSync(imgPath)) {
+        skipped++;
+        continue;
+      }
+
+      // Intentar obtener URL original del metadata
+      let originalUrl: string | null = null;
+      try {
+        const meta = JSON.parse(product.metadata || "{}");
+        if (meta.imageUrls && Array.isArray(meta.imageUrls) && meta.imageUrls.length > 0) {
+          originalUrl = meta.imageUrls[0];
+        }
+      } catch (e) {
+        // Metadata inválido
+      }
+
+      if (!originalUrl) {
+        failed++;
+        continue;
+      }
+
+      // Descargar imagen
+      try {
+        const { saveProductImage } = await import("./image-store");
+        const saved = await saveProductImage(originalUrl, product.id);
+        if (saved) {
+          await db.update(products).set({ imageUrl: saved }).where(eq(products.id, product.id));
+          downloaded++;
+          logger.info({ productId: product.id }, "✅ Image downloaded from source");
+        } else {
+          failed++;
+        }
+      } catch (e) {
+        failed++;
+        logger.error({ productId: product.id, error: e }, "❌ Failed to download image");
+      }
+    }
+
+    logger.info(
+      { tenantId, downloaded, failed, skipped },
+      "📦 Physical image download complete"
+    );
+
+    return { downloaded, failed, skipped };
   }
 
   /**

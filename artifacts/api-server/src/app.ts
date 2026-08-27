@@ -224,6 +224,7 @@ logger.info("[MessageHandler] Message receiver configured for default tenant");
     }
 
     // Auto-fix product image URLs (convert to /images/products/{id}.jpg format)
+    // AND download missing physical product images from metadata
     (async () => {
       try {
         const allProducts = await db.select().from(products).limit(1);
@@ -232,6 +233,13 @@ logger.info("[MessageHandler] Message receiver configured for default tenant");
           if (result.fixed > 0) {
             console.log(
               `✅ ${result.fixed} product image URLs fixed (was ${result.withoutImages} without images)`
+            );
+          }
+          // Re-download missing physical product images
+          const downloadResult = await imageUrlFixer.downloadPhysicalImages(1);
+          if (downloadResult.downloaded > 0) {
+            console.log(
+              `✅ ${downloadResult.downloaded} physical product images downloaded (${downloadResult.failed} failed)`
             );
           }
         }
