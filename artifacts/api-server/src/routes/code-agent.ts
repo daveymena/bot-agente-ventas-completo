@@ -14,6 +14,7 @@ import {
 } from "../lib/optimized-rotation";
 import { getG4FResponse } from "../lib/providers/g4f-provider";
 import { G4F_ENABLED } from "../config/g4f.config";
+import { PROVEEDORES } from "./ai-catalog";
 import { OPERATOR_SYSTEM_PROMPT, buildToolsDoc, executeAction, isReadOnlyTool, isKnownTool, verifyMutation, mensajeParaAdmin, validarContenidoAnuncio, bloqueoDeMeta, type OperatorContext } from "../lib/app-operator";
 import { leerBusinessConfig } from "../lib/ai-keys";
 import {
@@ -1242,10 +1243,39 @@ router.post("/operator", async (req: TenantRequest, res, next) => {
     // pero era letra muerta. Van primero: fue una decisión explícita del
     // admin, más reciente y más específica que cualquier fallback genérico.
     const catalogoGuardado = leerBusinessConfig((dbSettings as any)?.businessConfig).aiProviders || {};
-    for (const proveedor of Object.keys(catalogoGuardado)) {
+
+    // ⚠️ El ORDEN acá decide si Atlas usa herramientas o inventa.
+    //
+    // Medido en vivo (2026-08-27): a "¿cuántos productos tengo?" Atlas
+    // contestó "2" -- con 138 cargados -- y a "buscá PACK IDIOMAS" contestó
+    // "no existe, ¿lo creo?" sobre un producto que sí está. El stream no
+    // mostró NINGÚN paso de herramienta: pasaba de "Entendiendo tu pedido"
+    // directo al resultado.
+    //
+    // La causa no es el prompt ni las herramientas: es qué modelo contesta.
+    // Un modelo débil devuelve JSON PERFECTAMENTE VÁLIDO con "actions": []
+    // y un "reply" inventado. Para el bucle de abajo eso es una respuesta
+    // buena -- no hay error que dispare el fallback, así que la cadena nunca
+    // llega a los modelos fuertes que están más abajo. El comentario de acá
+    // ya lo advertía ("un modelo débil genera JSON mal formado o 'listo' sin
+    // haber llamado ninguna herramienta"), pero los gratis guardados por el
+    // admin se probaban ANTES y le ganaban de mano.
+    //
+    // Se respeta lo que el admin eligió -- eso no cambia -- pero se separa lo
+    // que eligió: primero su proveedor seleccionado, después los DE PAGO que
+    // guardó, después los fuertes de siempre, y los gratis al final, que es
+    // donde sirven: de respaldo cuando lo bueno no responde.
+    //
+    // La marca `gratis` sale del propio catálogo (PROVEEDORES), no de una
+    // lista repetida acá: una segunda lista se desincroniza al primer
+    // proveedor nuevo, y ya pasó en este archivo.
+    const ES_GRATIS = new Set(PROVEEDORES.filter((p) => p.gratis).map((p) => p.id));
+    const guardados = Object.keys(catalogoGuardado);
+    // Su elección explícita va primero: es la más específica de todas.
+    if (dbSettings?.aiProvider) pushCfg(dbSettings.aiProvider, getProviderConfigFromSettings(dbSettings));
+    for (const proveedor of guardados.filter((p) => !ES_GRATIS.has(p))) {
       pushCfg(proveedor, getProviderConfig(proveedor));
     }
-    if (dbSettings?.aiProvider) pushCfg(dbSettings.aiProvider, getProviderConfigFromSettings(dbSettings));
     // El operador EJECUTA acciones reales (BD, Facebook) a partir de un JSON
     // estricto — a diferencia del bot de ventas (alto volumen, tolera un
     // modelo chico), acá un modelo débil genera JSON mal formado o "listo"
@@ -1257,6 +1287,11 @@ router.post("/operator", async (req: TenantRequest, res, next) => {
     pushCfg("github_copilot_internal", getProviderConfig("github_copilot_internal"));
     pushCfg("github", getProviderConfig("github"));
     pushCfg("mimo", getProviderConfig("mimo")); // API propia de Xiaomi, si hay clave
+    // Recién acá los gratis que el admin guardó: sirven de respaldo, no de
+    // primera opción (ver el bloque de arriba).
+    for (const proveedor of guardados.filter((p) => ES_GRATIS.has(p))) {
+      pushCfg(proveedor, getProviderConfig(proveedor));
+    }
     // Rotación DENTRO de OpenCode Zen: la cuota gratis se agota por modelo,
     // así que al recibir 429 se pasa al siguiente modelo antes de abandonar Zen.
     for (const cfg of getOpenCodeRotation()) pushCfg(`opencode:${cfg.model}`, cfg);

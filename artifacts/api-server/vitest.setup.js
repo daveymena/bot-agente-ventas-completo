@@ -20,15 +20,25 @@
 // lo único que separa un cambio bueno de una promesa falsa saliendo a
 // producción. Si vuelve a aparecer, es una carrera nueva, no "el test flaky".
 
+import fs from "node:fs";
 import path from "node:path";
 
 const worker = process.env.VITEST_WORKER_ID || "1";
 
 if (!process.env.SQLITE_PATH) {
-  process.env.SQLITE_PATH = path.resolve(
+  const archivo = path.resolve(
     process.cwd(),
     "data",
     ".test",
     `pruebas-w${worker}.db`,
   );
+  // Y se BORRA antes de empezar. Darle un archivo propio a cada worker quitó
+  // el pisoteo entre workers, pero el archivo sobrevivía a la corrida: la
+  // siguiente arrancaba con las filas que dejó la anterior y los conteos
+  // volvían a fallar. Una base de pruebas que recuerda la corrida pasada no
+  // es una base de pruebas.
+  try {
+    fs.rmSync(archivo, { force: true });
+  } catch {}
+  process.env.SQLITE_PATH = archivo;
 }

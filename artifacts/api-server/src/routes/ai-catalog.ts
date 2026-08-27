@@ -21,7 +21,7 @@ import type { TenantRequest } from "../lib/tenantManager";
 const router = Router();
 
 /** Proveedores que la app sabe usar, con dónde se saca la clave. */
-const PROVEEDORES = [
+export const PROVEEDORES = [
   { id: "opencode", nombre: "OpenCode Zen", gratis: true, envKey: "OPENCODE_API_KEY", alta: "https://opencode.ai", nota: "Gratis con rotación automática entre modelos" },
   { id: "opencode_go", nombre: "OpenCode Go", gratis: false, envKey: "OPENCODE_GO_API_KEY", alta: "https://opencode.ai", nota: "De pago · sin cuota diaria · requiere método de pago en el workspace" },
   { id: "groq", nombre: "Groq", gratis: true, envKey: "GROQ_API_KEY", alta: "https://console.groq.com/keys", nota: "Muy rápido · 14.400 peticiones/día" },
