@@ -34,7 +34,7 @@ const PROVEEDORES = [
   // RAM del servidor. La capa gratis va por cuota de uso, no por token: cuando
   // se agota corta hasta que rota la ventana, así que sirve de respaldo y no
   // como proveedor principal.
-  { id: "ollama_cloud", nombre: "Ollama Cloud", gratis: true, envKey: "OLLAMA_CLOUD_API_KEY", alta: "https://ollama.com/settings/keys", nota: "Modelos grandes (120B, 671B) · cuota diaria gratis" },
+  { id: "ollama_cloud", nombre: "Ollama Cloud", gratis: true, envKey: "OLLAMA_CLOUD_API_KEY", alta: "https://ollama.com/settings/keys", nota: "Modelos grandes · cuota diaria gratis · el catálogo rota" },
   { id: "github", nombre: "GitHub Models", gratis: true, envKey: "GITHUB_TOKEN", alta: "https://github.com/settings/tokens", nota: "Modelos de Azure con token de GitHub" },
   { id: "mimo", nombre: "Xiaomi MiMo", gratis: false, envKey: "MIMO_API_KEY", alta: "https://platform.xiaomimimo.com/#/console/api-keys", nota: "De pago · 1M de contexto · fuerte en código" },
   { id: "openai", nombre: "OpenAI (ChatGPT)", gratis: false, envKey: "OPENAI_API_KEY", alta: "https://platform.openai.com/api-keys", nota: "GPT · también genera imágenes con DALL·E" },
@@ -146,6 +146,14 @@ router.get("/catalog", async (req: TenantRequest, res, next) => {
 });
 
 /**
+ * Proveedores cuyo /models responde sin clave. Solo la RAÍZ, para no depender
+ * de que haya configuración cargada.
+ */
+const CATALOGO_PUBLICO: Record<string, string> = {
+  ollama_cloud: "https://ollama.com/v1",
+};
+
+/**
  * GET /api/ai/models/:proveedor — pregunta al proveedor QUÉ modelos ofrece.
  *
  * Se consulta en vivo su endpoint /models en vez de fijar aquí una lista: los
@@ -164,12 +172,20 @@ router.get("/models/:proveedor", async (req: TenantRequest, res, next) => {
     const base = getProviderConfig(proveedor);
     const guardada = guardadas[proveedor];
     const apiKey = (guardada?.apiKey ? descifrar(guardada.apiKey) : null) || base?.apiKey;
-    if (!base?.baseUrl || !apiKey) {
+    // Ollama publica su catálogo SIN autenticación. Se permite consultarlo sin
+    // clave a propósito: sus modelos rotan (los que había al escribir esto ya
+    // no existen), así que el admin necesita ver qué hay HOY antes de darse de
+    // alta, no después.
+    const urlPublica = CATALOGO_PUBLICO[proveedor];
+    const raiz = base?.baseUrl || urlPublica;
+    if (!raiz || (!apiKey && !urlPublica)) {
       return res.json({ modelos: [], error: "Configura primero la clave de este proveedor" });
     }
 
-    const url = base.baseUrl.replace(/\/$/, "") + "/models";
-    const r = await fetch(url, { headers: { Authorization: `Bearer ${apiKey}` } });
+    const url = raiz.replace(/\/$/, "") + "/models";
+    const r = await fetch(url, {
+      headers: apiKey ? { Authorization: `Bearer ${apiKey}` } : {},
+    });
     if (!r.ok) {
       return res.json({ modelos: [], error: `El proveedor respondió ${r.status}` });
     }

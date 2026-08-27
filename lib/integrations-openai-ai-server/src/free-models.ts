@@ -70,10 +70,26 @@ export const MODELOS_LIBRES: ModeloLibre[] = [
   // ── Ollama Cloud ── modelos grandes con cuota diaria gratis ───────────────
   // Los nombres llevan el sufijo "-cloud": es como los expone su API, y sin el
   // sufijo responde 404.
-  { proveedor: "ollama_cloud", modelo: "gpt-oss:120b-cloud", especialidad: "razonar", estado: "sin probar" },
-  { proveedor: "ollama_cloud", modelo: "gpt-oss:20b-cloud", especialidad: "rapido", estado: "sin probar" },
-  { proveedor: "ollama_cloud", modelo: "deepseek-v3.1:671b-cloud", especialidad: "razonar", estado: "sin probar" },
-  { proveedor: "ollama_cloud", modelo: "qwen3-coder:480b-cloud", especialidad: "codigo", estado: "sin probar" },
+  //
+  // ⚠️ ESTE CATÁLOGO ROTA. La primera versión de esta lista se escribió con los
+  // nombres de la documentación (gpt-oss:120b-cloud, deepseek-v3.1:671b-cloud,
+  // qwen3-coder:480b-cloud) y al contrastarla contra el servidor el 2026-08-26
+  // NINGUNO existía ya: el sufijo "-cloud" desapareció de los ids, y deepseek
+  // v3.1 y qwen3-coder salieron de la nube (ahora hay v4 y qwen3.5).
+  //
+  // Por eso acá se prefieren los nombres SIN etiqueta de versión: los que
+  // llevan fecha (":0813") o ":preview" caducan antes. Y por eso la pantalla
+  // de Configuración pregunta la lista en vivo -- ver GET /api/ai/models.
+  //
+  // Ids verificados contra https://ollama.com/v1/models el 2026-08-26.
+  // "sin probar" porque responder requiere clave, y todavía no hay una: lo
+  // confirmado es que el modelo EXISTE, no cómo responde.
+  { proveedor: "ollama_cloud", modelo: "nemotron-3-ultra", especialidad: "razonar", estado: "sin probar" },
+  { proveedor: "ollama_cloud", modelo: "gpt-oss:120b", especialidad: "razonar", estado: "sin probar" },
+  { proveedor: "ollama_cloud", modelo: "glm-5.3-flash", especialidad: "rapido", estado: "sin probar" },
+  { proveedor: "ollama_cloud", modelo: "gpt-oss:20b", especialidad: "rapido", estado: "sin probar" },
+  { proveedor: "ollama_cloud", modelo: "kimi-k2.7-code", especialidad: "codigo", estado: "sin probar" },
+  { proveedor: "ollama_cloud", modelo: "minimax-m3", especialidad: "general", estado: "sin probar" },
 
   // ── Xiaomi MiMo (falta MIMO_API_KEY, de pago) ─────────────────────────────
   { proveedor: "mimo", modelo: "mimo-v2.5-pro", especialidad: "codigo", estado: "sin probar", contexto: 1050000 },

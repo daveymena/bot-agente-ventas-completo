@@ -346,7 +346,7 @@ export function getProviderConfig(provider: string): AIProviderConfig | null {
       return {
         baseUrl: process.env.OLLAMA_CLOUD_URL || "https://ollama.com/v1",
         apiKey: process.env.OLLAMA_CLOUD_API_KEY,
-        model: process.env.OLLAMA_CLOUD_MODEL || "gpt-oss:120b-cloud",
+        model: process.env.OLLAMA_CLOUD_MODEL || "gpt-oss:120b",
       };
 
     case "ollama_local":
