@@ -2365,6 +2365,12 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
           const delAgente = (memory.history as any[]).filter((m) => m.role !== "customer");
           const ultimaDelBot = String(delAgente[delAgente.length - 1]?.content || "");
           const ofrecimosVideo = /video introductorio|c[oó]mo son las clases|te muestro el video/i.test(ultimaDelBot);
+          // Los cierres que ofrecen contenido los genera `invitacionesDe` en
+          // ficha-parcial.ts: si cambian allá, este patrón tiene que seguirlos.
+          const ofrecimosContenido =
+            /te cuento qu[eé] (incluye|viene|trae)|te muestro todo lo que trae|qu[eé]r[eé]s ver qu[eé] incluye|quieres ver qu[eé] incluye/i.test(
+              ultimaDelBot,
+            );
           const videoYaEnviado = delAgente.some((m) =>
             /🎬 Mira c[oó]mo son las clases|drive\.google\.com\/file/i.test(String(m.content || "")),
           );
@@ -2374,6 +2380,7 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
             intent: decision.intent,
             fichaYaEnviada: memory.sentProductIds.has(resolvedId),
             ofrecimosVideo,
+            ofrecimosContenido,
             videoYaEnviado,
           });
           console.log(`🎯 [FICHA] Sección elegida: ${seccion} (intent: ${decision.intent}) - ${ts()}`);

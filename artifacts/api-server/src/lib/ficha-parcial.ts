@@ -52,6 +52,15 @@ export interface EntradaSeccion {
   fichaYaEnviada?: boolean;
   /** true si en el turno anterior se le ofreció ver el video. */
   ofrecimosVideo?: boolean;
+  /**
+   * El mensaje anterior del bot terminó ofreciendo contar QUÉ INCLUYE.
+   *
+   * Sin esto, un "Si" pelado cae en `intent === "confirmation"` y se lee como
+   * "sí, quiero comprar" -- así que devolvía los enlaces de pago a alguien que
+   * solo dijo que sí a "¿Te cuento qué incluye?". Ver el caso real en
+   * `respuesta-a-lo-ofrecido.test.ts`.
+   */
+  ofrecimosContenido?: boolean;
   /** true si el video de este producto ya se envió en esta conversación. */
   videoYaEnviado?: boolean;
 }
@@ -158,6 +167,15 @@ export function seccionQueCorresponde(e: EntradaSeccion): SeccionFicha {
   if (PIDE_PAGO.test(m)) return "pago";
   if (PIDE_ENTREGA.test(m)) return "entrega";
   if (PIDE_INFO.test(m)) return "info";
+
+  // Un "sí" contesta lo ÚLTIMO que se preguntó. Si el cierre anterior ofreció
+  // contar qué incluye, eso es lo que quiere -- no pagar.
+  //
+  // Va DESPUÉS de los pedidos explícitos y antes de la intención: "si, ¿cómo
+  // pago?" es un sí que ya dice qué quiere y manda él; un "sí" pelado no dice
+  // nada por sí mismo, y ahí el servidor SABE qué ofreció, en vez de dejar
+  // que el modelo lo adivine como `confirmation` (= "sí, quiero comprar").
+  if (e.ofrecimosContenido && ACEPTA.test(m)) return "info";
 
   // ── Por intención, cuando el texto no lo dice de forma literal ────────────
   if (intent === "payment_intent" || intent === "confirmation") return "pago";

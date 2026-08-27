@@ -37,8 +37,13 @@ export interface EntradaSupervisor {
   respuesta: string;
   /** Lo ultimo que escribio el cliente. */
   mensajeCliente: string;
-  /** Catalogo completo: la fuente de verdad. */
-  productos: Array<ProductoParaPrecio & { kind?: string | null }>;
+  /**
+   * Catalogo completo: la fuente de verdad.
+   *
+   * `deliveryLink` importa tanto como el precio: es POR DONDE se entrega, y
+   * el modelo lo inventa igual que inventaba montos (ver R9).
+   */
+  productos: Array<ProductoParaPrecio & { kind?: string | null; deliveryLink?: string | null }>;
   /** Ids del producto del que se esta hablando. */
   idsEnContexto: number[];
   /** Metodos de pago que el negocio verifica A MANO (Nequi, Daviplata...). */
@@ -369,6 +374,60 @@ export function supervisarRespuesta(e: EntradaSupervisor): RevisionSupervisor {
       gravedad: "corrige",
       detalle: `Ofrecía un extra que no existe en el catálogo: "${antes.slice(0, 80)}"`,
     });
+  }
+
+  // ── R9 · Prometer una entrega por un servicio que no es ──────────────────
+  //
+  // Conversacion real (2026-08-27, el admin probando de punta a punta): el
+  // curso de IA se entrega por Terabox y el bot escribio "Acceso inmediato por
+  // Google Drive" y "Enlace de descarga por Google Drive", dos veces en la
+  // misma charla. El cliente paga esperando un Drive y recibe otra cosa.
+  //
+  // La respuesta a "¿como me llega?" ya estaba arreglada en el conocimiento,
+  // pero eso solo cubre cuando lo PREGUNTAN. Aca el modelo lo mete de adorno
+  // dentro de una ficha que el mismo redacta, y por ahi se colaba igual.
+  //
+  // No se borra la frase entera -- "Acceso inmediato" es cierto y vende --,
+  // se le saca solo el servicio equivocado.
+  const entregasEnContexto = e.productos
+    .filter((p) => e.idsEnContexto.includes(p.id))
+    .map((p) => String(p.deliveryLink || "").toLowerCase())
+    .filter(Boolean);
+  if (entregasEnContexto.length > 0) {
+    const SERVICIOS: Array<{ nombre: string; enUrl: RegExp; enTexto: RegExp }> = [
+      { nombre: "Google Drive", enUrl: /drive\.google|docs\.google/, enTexto: /google\s*drive|g[- ]?drive|drive de google/gi },
+      { nombre: "Terabox", enUrl: /terabox/, enTexto: /terabox/gi },
+      { nombre: "Dropbox", enUrl: /dropbox/, enTexto: /dropbox/gi },
+      { nombre: "MEGA", enUrl: /mega\.nz|mega\.io/, enTexto: /\bmega\.nz\b|\bmega\b(?=\s+(?:o|,|\.|$))/gi },
+      { nombre: "OneDrive", enUrl: /onedrive|1drv\.ms/, enTexto: /onedrive|one\s*drive/gi },
+      { nombre: "WeTransfer", enUrl: /wetransfer/, enTexto: /wetransfer|we\s*transfer/gi },
+    ];
+    const ajenos = SERVICIOS.filter(
+      (srv) => srv.enTexto.test(texto) && !entregasEnContexto.some((u) => srv.enUrl.test(u)),
+    );
+    // .test() con /g deja el lastIndex movido; sin esto el replace de abajo
+    // arranca a mitad del texto y se salta la primera aparicion.
+    for (const srv of SERVICIOS) srv.enTexto.lastIndex = 0;
+    if (ajenos.length > 0) {
+      const antes = texto;
+      for (const srv of ajenos) {
+        texto = texto
+          // "por Google Drive", "via Drive", "a traves de Dropbox": se va la
+          // preposicion con el servicio, que si no queda "Acceso inmediato por".
+          .replace(new RegExp(`\\s*(?:por|v[ií]a|via|en|desde|a trav[eé]s de|mediante)\\s+${srv.enTexto.source}`, "gi"), "")
+          .replace(srv.enTexto, "")
+          .replace(/[ \t]{2,}/g, " ")
+          .replace(/[ \t]+([,.:;])/g, "$1")
+          .trim();
+      }
+      hallazgos.push({
+        regla: "entrega-inventada",
+        gravedad: "corrige",
+        detalle:
+          `Prometia la entrega por ${ajenos.map((a) => a.nombre).join(", ")}, ` +
+          `y no es por donde se entrega este producto: "${antes.slice(0, 90)}"`,
+      });
+    }
   }
 
   if (AFIRMA_YA_ENTREGADO.test(texto) && !e.llevaCard) {
