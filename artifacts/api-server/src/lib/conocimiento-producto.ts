@@ -279,7 +279,7 @@ const IA: ConocimientoProducto = {
       // ya tiene su respuesta en las comunes.
       patrones: /\bagentes\b|agentes? aut[oó]nom\w*|trabajen? por m[ií]\b|trabajan solos|piensan solos|multi.?tarea/i,
       respuesta:
-        "Sí, aprendes a crear agentes que trabajan por ti 🤖 Con n8n (automatizaciones, webhooks, RAG) y OpenClaw (agentes con tools, skills y memoria). 39 módulos con proyectos prácticos.",
+        "Sí 🤖 Aprendes a crear agentes con n8n y OpenClaw (tools, skills, memoria). 39 módulos.",
     },
     {
       id: "ia_creativa",
@@ -287,13 +287,13 @@ const IA: ConocimientoProducto = {
       // ("¿el curso viene en videos?", "mándame una imagen del curso").
       patrones: /\b(crea\w*|hace\w*|haga\w*|gener\w*|dise[ñn]\w*|edita\w*)[^?!.]{0,15}(im[aá]gen|video|logo|contenido|foto|arte)|\b(dise[ñn]o gr[aá]fico|contenido visual|miniaturas?|ia creativa|edici[oó]n de video)/i,
       respuesta:
-        "Sí, tiene Claude Design 🎨 Diseño gráfico profesional con Claude AI. También aprendes a crear contenido visual con Gemini de Google.",
+        "Sí 🎨 Claude Design para diseño gráfico y Gemini para contenido visual.",
     },
     {
       id: "ia_prompts",
       patrones: /\bprompt\w*|ingenier[ií]a de prompt|\bc[oó]mo (le )?(pregunto|hablo|escribo|pido) a (la ia|chatgpt)/i,
       respuesta:
-        "Sí 🔥 El curso enseña a escribir prompts efectivos en Claude AI y Claude Code. También cubre MCP (Model Context Protocol) para conectar Claude con herramientas externas.",
+        "Sí 🔥 Aprende a crear prompts efectivos con Claude AI y Claude Code.",
     },
     {
       id: "ia_negocio",
@@ -305,7 +305,7 @@ const IA: ConocimientoProducto = {
       id: "ia_plantillas",
       patrones: /\b(plantillas?|templates?|bonus)/i,
       respuesta:
-        "El curso incluye proyectos prácticos y recursos descargables 🎁 Cada módulo tiene ejercicios reales que puedes aplicar directamente.",
+        "Sí, trae plantillas y recursos descargables 🎁",
     },
     {
       id: "ia_programar",

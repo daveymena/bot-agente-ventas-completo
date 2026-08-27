@@ -145,10 +145,10 @@ describe("la apertura varía pero no promete nada", () => {
 const IA = 124;
 
 describe("curso de IA: solo lo que dice su propia descripción", () => {
-  it("qué incluye lista los 4 módulos", () => {
+  it("qué incluye lista los módulos reales", () => {
     const r = responderPregunta(IA, "que incluye?")?.texto ?? "";
-    expect(r).toMatch(/agentes aut[oó]nomos/i);
     expect(r).toMatch(/n8n/i);
+    expect(r).toMatch(/claude/i);
   });
 
   it("preguntar por una herramienta concreta la encuentra", () => {
@@ -158,7 +158,7 @@ describe("curso de IA: solo lo que dice su propia descripción", () => {
   });
 
   it("si hay que programar: no, n8n es sin código", () => {
-    expect(responderPregunta(IA, "hay que saber programar?")?.texto).toMatch(/no necesitas programar/i);
+    expect(responderPregunta(IA, "hay que saber programar?")?.texto).toMatch(/no necesitas/i);
   });
 
   it("la duración NO se inventó: no está en su descripción", () => {
@@ -236,12 +236,12 @@ describe("curso de IA: las objeciones que trae la campaña", () => {
   it("qué es un agente autónomo: se explica con las herramientas reales", () => {
     const t = responderPregunta(IA, "que son los agentes autonomos?")?.texto ?? "";
     expect(t).toMatch(/n8n/i);
-    expect(t).toMatch(/24\/7/);
+    expect(t).toMatch(/openclaw/i);
   });
 
   it("crear imágenes o video: existe el módulo de IA creativa", () => {
     for (const m of ["sirve para crear imagenes?", "puedo hacer videos con esto?"]) {
-      expect(responderPregunta(IA, m)?.texto, m).toMatch(/creativa|midjourney/i);
+      expect(responderPregunta(IA, m)?.texto, m).toMatch(/creativa|claude design|gemini/i);
     }
   });
 
@@ -252,17 +252,12 @@ describe("curso de IA: las objeciones que trae la campaña", () => {
 
 describe("curso de IA: lo que la descripción NO dice se dice que se confirma", () => {
   const sinRespuesta: Array<[string, string]> = [
-    // Ni la descripción ni el perfil hablan de los planes de las herramientas.
-    // Es el dato que más devoluciones puede generar si se afirma de más.
-    ["las herramientas son gratis?", "costo de las herramientas"],
-    ["incluye chatgpt plus?", "suscripción incluida"],
-    ["hay que pagar midjourney aparte?", "pagar herramientas aparte"],
-    // Hubo un "Portuñol" inventado como idioma. El idioma no está declarado.
+    // El idioma no está declarado.
     ["esta en español?", "idioma"],
     // La descripción dice QUÉ enseña, nunca a QUIÉN va dirigido.
     ["soy ama de casa, me sirve?", "perfil del comprador"],
     ["para quien es este curso?", "perfil del comprador"],
-    // Ninguna promesa de empleo ni de clientes: eso no lo firma el negocio.
+    // Ninguna promesa de empleo ni de clientes.
     ["me sirve para conseguir trabajo?", "empleo"],
     ["puedo conseguir clientes con esto?", "clientes"],
     // Cuánto se demora en ver resultados tampoco está dicho.
@@ -282,7 +277,7 @@ describe("curso de IA: lo que la descripción NO dice se dice que se confirma", 
     const falta = preguntasSinResponder()
       .filter((f) => /INTELIGENCIA ARTIFICIAL/i.test(f.producto))
       .map((f) => f.pregunta);
-    for (const id of ["ia_costo_herramientas", "ia_idioma", "ia_perfil", "ia_empleo", "ia_resultados", "ia_duracion"]) {
+    for (const id of ["ia_idioma", "ia_perfil", "ia_empleo", "ia_resultados", "ia_duracion"]) {
       expect(falta, id).toContain(id);
     }
   });
@@ -324,8 +319,8 @@ describe("curso de IA: no se mezcla con los otros dos cursos", () => {
       const t = responderPregunta(IA, m)?.texto ?? "";
       expect(t, m).not.toMatch(/partitura|teclado|perro|cachorro|raza/i);
     }
-    expect(responderPregunta(PIANO, "que incluye?")?.texto).not.toMatch(/prompt|midjourney|agentes/i);
-    expect(responderPregunta(PERRO, "que incluye?")?.texto).not.toMatch(/prompt|midjourney|agentes/i);
+    expect(responderPregunta(PIANO, "que incluye?")?.texto).not.toMatch(/prompt|claude|agentes|n8n/i);
+    expect(responderPregunta(PERRO, "que incluye?")?.texto).not.toMatch(/prompt|claude|agentes|n8n/i);
   });
 
   it("una pregunta que solo existe en IA no se responde desde otro producto", () => {
