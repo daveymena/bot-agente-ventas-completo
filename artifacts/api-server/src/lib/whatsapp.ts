@@ -431,7 +431,7 @@ async function buildProductCaption(p: typeof products.$inferSelect, categoryName
   if (propias.length > 0) {
     lines.push(variante([`📚 *Incluye:*`, `📚 *Qué vas a recibir:*`, `📚 *Contenido:*`, `📚 *Esto trae:*`], sem));
     // Tope de 8: más que eso vuelve a ser un muro. Si hay más, se dice.
-    for (const f of propias.slice(0, 8)) lines.push(`${emojiDeCaracteristica(f)} ${f}`);
+    for (const f of propias.slice(0, 8)) lines.push(`${emojiDeCaracteristica(f, p.name)} ${f}`);
     // Antes decía "…y 1 más" a secas y quedaba cortado, sin decir más de qué.
     if (propias.length > 8) {
       lines.push(`➕ Y ${propias.length - 8} cosas más que te cuento por aquí`);
@@ -439,7 +439,7 @@ async function buildProductCaption(p: typeof products.$inferSelect, categoryName
     lines.push("");
   } else if (meta.classes) {
     lines.push(variante([`📚 *Incluye:*`, `📚 *Qué vas a recibir:*`, `📚 *Contenido:*`, `📚 *Esto trae:*`], sem));
-    lines.push(`✅ ${meta.classes} en Alta Definición`);
+    lines.push(`🎬 ${meta.classes} en Alta Definición`);
     lines.push("");
   }
 
@@ -452,13 +452,13 @@ async function buildProductCaption(p: typeof products.$inferSelect, categoryName
     ? variante([`💻 *Modalidad:*`, `💻 *Cómo funciona:*`, `💻 *Acceso:*`, `💻 *Cómo lo recibís:*`], sem)
     : variante([`📦 *Cómo lo recibís:*`, `📦 *Entrega:*`, `📦 *Envío:*`], sem));
   if (estandar.length > 0) {
-    for (const f of estandar.slice(0, 4)) lines.push(`${emojiDeCaracteristica(f)} ${f}`);
+    for (const f of estandar.slice(0, 4)) lines.push(`${emojiDeCaracteristica(f, p.name)} ${f}`);
   } else if (esDigital) {
-    lines.push(`✅ 100% online y descargable`);
-    lines.push(`✅ Acceso de por vida ♾️`);
+    lines.push(`💻 100% online y descargable`);
+    lines.push(`♾️ Acceso de por vida`);
   } else {
-    lines.push(`✅ Te lo enviamos a tu dirección`);
-    lines.push(`✅ Coordinamos la entrega por acá`);
+    lines.push(`📦 Te lo enviamos a tu dirección`);
+    lines.push(`📲 Coordinamos la entrega por aquí`);
   }
   lines.push("");
 
@@ -572,7 +572,7 @@ async function buildProductCaption(p: typeof products.$inferSelect, categoryName
  * misma cara, y dos productos distintos no comparten un emoji que no les
  * corresponde. Lo que no reconoce se queda con ✅, que nunca queda mal.
  */
-export function emojiDeCaracteristica(texto: string): string {
+export function emojiDeCaracteristica(texto: string, deQueProducto = ""): string {
   const t = String(texto).toLowerCase();
   const REGLAS: Array<[RegExp, string]> = [
     [/certificad|diploma/, "📜"],
@@ -603,7 +603,18 @@ export function emojiDeCaracteristica(texto: string): string {
     [/negocio|vender|cliente|monetiz/, "💼"],
   ];
   for (const [patron, emoji] of REGLAS) if (patron.test(t)) return emoji;
-  return "✅";
+
+  // El comodín. Antes era ✅ y el admin lo marcó: "no dejas de usar chuleta
+  // habiendo tanto emoji". Tenía razón -- con ✅ de relleno la ficha vuelve a
+  // ser una columna de tildes iguales, que es justo lo que se quería sacar.
+  //
+  // Así que cuando la frase no dice de qué habla, se mira DE QUÉ PRODUCTO es:
+  // una línea suelta del curso de piano sigue siendo del curso de piano.
+  const prod = String(deQueProducto).toLowerCase();
+  for (const [patron, emoji] of REGLAS) if (patron.test(prod)) return emoji;
+  // Y si tampoco el producto lo dice, un punto neutro: no afirma nada y no
+  // ensucia. ✅ solo queda para lo que de verdad es una confirmación.
+  return "•";
 }
 
 async function construirSeccion(
@@ -730,8 +741,8 @@ async function construirSeccion(
   if (propias.length > 0) {
     L.push("");
     // Cuatro, no ocho: lo que sigue es la razón para preguntar más.
-    for (const f of propias.slice(0, 4)) L.push(`✅ ${f}`);
-    if (propias.length > 4) L.push(`✅ …y ${propias.length - 4} más`);
+    for (const f of propias.slice(0, 4)) L.push(`${emojiDeCaracteristica(f, p.name)} ${f}`);
+    if (propias.length > 4) L.push(`➕ Y ${propias.length - 4} cosas más`);
   }
 
   const mensajes = [L.join("\n").trim()];

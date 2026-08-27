@@ -63,8 +63,16 @@ describe("cada característica lleva el emoji que le corresponde", () => {
     }
   });
 
-  it("lo que no reconoce se queda con ✅, que nunca queda mal", () => {
-    expect(emojiDeCaracteristica("Lorem ipsum dolor")).toBe("✅");
+  it("cuando la frase no dice de qué habla, lo dice el producto", () => {
+    // Una línea suelta del curso de piano sigue siendo del curso de piano.
+    expect(emojiDeCaracteristica("Material de apoyo", "Curso de Piano Completo")).toBe("🎼");
+    expect(emojiDeCaracteristica("Material de apoyo", "PACK EDUCA A TU PERRO")).toBe("🐶");
+  });
+
+  it("sin nada que lo diga usa un punto neutro, NO una chuleta de relleno", () => {
+    // "no dejas de usar chuleta habiendo tanto emoji" (admin, 27/08). Con ✅ de
+    // relleno la ficha vuelve a ser una columna de tildes iguales.
+    expect(emojiDeCaracteristica("Lorem ipsum dolor")).toBe("•");
   });
 
   it("es estable: el mismo texto da siempre la misma cara", () => {
