@@ -193,3 +193,177 @@ describe("responde lo justo, sin desbordarse", () => {
     }
   });
 });
+
+/**
+ * El admin prendió la campaña de Facebook del curso de IA. Los mensajes que
+ * llegan por ahí no son los de un catálogo: son objeciones. "¿Y si no sé nada
+ * de tecnología?", "¿las herramientas son gratis?", "¿está en español?".
+ *
+ * Cada una de estas pruebas es una pregunta que llega de verdad, y lo que se
+ * verifica en las dos direcciones: que la que SÍ está en la descripción salga
+ * respondida, y que la que NO está salga como "lo confirmo" -- porque el
+ * "grupo privado de Discord" y las "24 lecciones" que costaron devoluciones
+ * salieron justo de contestar lo segundo como si fuera lo primero.
+ */
+describe("curso de IA: las objeciones que trae la campaña", () => {
+  it("si sirve sin saber de tecnología: arranca por fundamentos, sin prometer más", () => {
+    for (const m of ["sirvo si empiezo desde cero?", "soy principiante", "es dificil?"]) {
+      const r = responderPregunta(IA, m);
+      expect(r?.sinResponder, m).toBe(false);
+      expect(r?.texto, m).toMatch(/fundamentos/i);
+    }
+  });
+
+  it("si está actualizado: es de 2026, que es lo que dice la descripción", () => {
+    for (const m of ["esta actualizado?", "no esta viejo el contenido?"]) {
+      expect(responderPregunta(IA, m)?.texto, m).toMatch(/2026/);
+    }
+  });
+
+  it("las plantillas: existen, y no se inventa cuáles son", () => {
+    const t = responderPregunta(IA, "trae plantillas?")?.texto ?? "";
+    expect(t).toMatch(/plantillas/i);
+    // La descripción dice "Plantillas listas para usar" y nada más. Si algún
+    // día alguien enumera cuáles, esto lo frena.
+    expect(t).not.toMatch(/\d+ plantillas/i);
+  });
+
+  it("qué es un agente autónomo: se explica con las herramientas reales", () => {
+    const t = responderPregunta(IA, "que son los agentes autonomos?")?.texto ?? "";
+    expect(t).toMatch(/n8n/i);
+    expect(t).toMatch(/24\/7/);
+  });
+
+  it("crear imágenes o video: existe el módulo de IA creativa", () => {
+    for (const m of ["sirve para crear imagenes?", "puedo hacer videos con esto?"]) {
+      expect(responderPregunta(IA, m)?.texto, m).toMatch(/creativa|midjourney/i);
+    }
+  });
+
+  it("prompts: el módulo 1 los enseña", () => {
+    expect(responderPregunta(IA, "enseña a hacer prompts?")?.texto).toMatch(/prompts/i);
+  });
+});
+
+describe("curso de IA: lo que la descripción NO dice se dice que se confirma", () => {
+  const sinRespuesta: Array<[string, string]> = [
+    // Ni la descripción ni el perfil hablan de los planes de las herramientas.
+    // Es el dato que más devoluciones puede generar si se afirma de más.
+    ["las herramientas son gratis?", "costo de las herramientas"],
+    ["incluye chatgpt plus?", "suscripción incluida"],
+    ["hay que pagar midjourney aparte?", "pagar herramientas aparte"],
+    // Hubo un "Portuñol" inventado como idioma. El idioma no está declarado.
+    ["esta en español?", "idioma"],
+    // La descripción dice QUÉ enseña, nunca a QUIÉN va dirigido.
+    ["soy ama de casa, me sirve?", "perfil del comprador"],
+    ["para quien es este curso?", "perfil del comprador"],
+    // Ninguna promesa de empleo ni de clientes: eso no lo firma el negocio.
+    ["me sirve para conseguir trabajo?", "empleo"],
+    ["puedo conseguir clientes con esto?", "clientes"],
+    // Cuánto se demora en ver resultados tampoco está dicho.
+    ["en cuanto tiempo veo resultados?", "tiempo hasta resultados"],
+  ];
+
+  it("todas devuelven sinResponder, nunca una cifra inventada", () => {
+    for (const [m, quE] of sinRespuesta) {
+      const r = responderPregunta(IA, m);
+      expect(r, `${quE}: ${m}`).not.toBeNull();
+      expect(r!.sinResponder, `${quE}: ${m}`).toBe(true);
+      expect(r!.texto, `${quE}: ${m}`).toMatch(/confirmar/i);
+    }
+  });
+
+  it("el panel puede ver qué falta por responder del curso de IA", () => {
+    const falta = preguntasSinResponder()
+      .filter((f) => /INTELIGENCIA ARTIFICIAL/i.test(f.producto))
+      .map((f) => f.pregunta);
+    for (const id of ["ia_costo_herramientas", "ia_idioma", "ia_perfil", "ia_empleo", "ia_resultados", "ia_duracion"]) {
+      expect(falta, id).toContain(id);
+    }
+  });
+});
+
+describe("curso de IA: los patrones nuevos no le roban la respuesta a otra pregunta", () => {
+  // Cada uno de estos mensajes contiene una palabra de las nuevas, pero está
+  // preguntando OTRA cosa. Como el conocimiento REEMPLAZA lo que redactó el
+  // modelo, un patrón de más se lleva por delante la respuesta correcta.
+  it("el precio con '2026' en el nombre no se contesta con la fecha", () => {
+    const r = responderPregunta(IA, "cuanto vale el curso de ia 2026?");
+    expect(r?.id).not.toBe("ia_actualizado");
+  });
+
+  it("preguntar por la forma de pago del curso no cae en el costo de las herramientas", () => {
+    const r = responderPregunta(IA, "es pago mensual o una sola vez?");
+    expect(r?.id).not.toBe("ia_costo_herramientas");
+  });
+
+  it("'atienden 24/7?' es el horario de atención, no los agentes", () => {
+    expect(responderPregunta(IA, "atienden 24/7?")?.id).toBe("horario_atencion");
+  });
+
+  it("preguntar por una herramienta suelta sigue listando las herramientas", () => {
+    expect(responderPregunta(IA, "incluye chatgpt")?.id).toBe("ia_herramientas");
+  });
+
+  it("las comunes siguen ganando cuando la pregunta es de ellas", () => {
+    expect(responderPregunta(IA, "trae certificado?")?.texto).toMatch(/no emite certificado/i);
+    expect(responderPregunta(IA, "como me llega?")?.texto).toMatch(/drive/i);
+    expect(responderPregunta(IA, "tiene garantia?")?.texto).toMatch(/7 d[ií]as/);
+  });
+});
+
+describe("curso de IA: no se mezcla con los otros dos cursos", () => {
+  it("lo del piano no aparece en las respuestas de IA, ni al revés", () => {
+    for (const m of ["que incluye?", "trae plantillas?", "que son los agentes?", "esta actualizado?"]) {
+      const t = responderPregunta(IA, m)?.texto ?? "";
+      expect(t, m).not.toMatch(/partitura|teclado|perro|cachorro|raza/i);
+    }
+    expect(responderPregunta(PIANO, "que incluye?")?.texto).not.toMatch(/prompt|midjourney|agentes/i);
+    expect(responderPregunta(PERRO, "que incluye?")?.texto).not.toMatch(/prompt|midjourney|agentes/i);
+  });
+
+  it("una pregunta que solo existe en IA no se responde desde otro producto", () => {
+    // Si estas dejaran de ser null, es que un patrón de IA se filtró a las
+    // comunes -- y el cliente del piano recibiría una respuesta de IA.
+    expect(responderPregunta(PIANO, "trae plantillas?")).toBeNull();
+    expect(responderPregunta(PERRO, "enseña a hacer prompts?")).toBeNull();
+    expect(responderPregunta(PIANO, "que son los agentes autonomos?")).toBeNull();
+  });
+});
+
+describe("curso de IA: las respuestas nuevas cumplen la forma acordada", () => {
+  const nuevas = ["soy principiante", "esta actualizado?", "trae plantillas?",
+                  "que son los agentes autonomos?", "sirve para crear imagenes?",
+                  "enseña a hacer prompts?"];
+
+  it("un dato simple cabe en una línea", () => {
+    for (const m of nuevas) {
+      const t = responderPregunta(IA, m)!.texto;
+      expect(t.includes("\n"), m).toBe(false);
+      expect(t.length, m).toBeLessThan(110);
+    }
+  });
+
+  it("todas llevan emoji", () => {
+    const conEmoji = /\p{Extended_Pictographic}/u;
+    for (const m of nuevas) {
+      expect(conEmoji.test(responderPregunta(IA, m)!.texto), m).toBe(true);
+    }
+  });
+
+  it("hablan como en Colombia: nada de voseo", () => {
+    // "podés/querés/tenés" no lo dice un cliente colombiano, y suena a bot
+    // importado. La lista incluye las respuestas y el fallback.
+    const voseo = /\b(pod[eé]s|quer[eé]s|ten[eé]s|sab[eé]s|and[aá]|ten[eé]|fijate)\b/i;
+    for (const m of [...nuevas, "las herramientas son gratis?", "esta en español?", "hay que programar?"]) {
+      expect(voseo.test(responderPregunta(IA, m)!.texto), m).toBe(false);
+    }
+  });
+
+  it("no promete lo que el negocio no puede sostener", () => {
+    const prohibido = /te va a encantar|el m[aá]s vendido|garantizad\w+|el mejor curso|resultados asegurados|vas a ganar/i;
+    for (const m of [...nuevas, "me sirve para conseguir trabajo?", "sirve para mi negocio?"]) {
+      expect(responderPregunta(IA, m)!.texto, m).not.toMatch(prohibido);
+    }
+  });
+});

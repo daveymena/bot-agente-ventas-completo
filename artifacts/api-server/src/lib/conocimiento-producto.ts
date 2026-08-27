@@ -225,11 +225,42 @@ const IA: ConocimientoProducto = {
   productId: 124,
   nombre: "INTELIGENCIA ARTIFICIAL 2026: HERRAMIENTAS + AGENTES AUTÓNOMOS",
   preguntas: [
+    // Va primero: "¿no está viejo el contenido?" matchea "contenido" en
+    // ia_incluye, y le llegaba el temario a quien preguntaba si el curso
+    // está vigente. No es la misma pregunta.
+    {
+      id: "ia_actualizado",
+      // "2026" suelto NO: el nombre del curso lo lleva, y el cliente lo
+      // escribe también cuando pregunta el precio ("cuánto vale el de IA
+      // 2026"). Ahí la respuesta correcta es el precio, no esta.
+      // "viejo" suelto tampoco: "estoy muy viejo para esto" es la edad del
+      // cliente, no la del curso. Por eso el verbo va pegado.
+      patrones: /\b(actualizad\w*|desactualizad\w*|est[aá] al d[ií]a|(es|est[aá]|estar[aá]) (muy )?(viej\w+|antigu\w+)|contenido (viej\w+|antigu\w+)|versi[oó]n vieja|es del? 2026|de este a[ñn]o|sirve (para|en) 2026|para el 2026)/i,
+      // "las mejores herramientas de IA de 2026", literal en la descripción.
+      // Ojo: NO se promete que se actualice después; eso no está dicho.
+      respuesta: "Sí, es de 2026 📅 Cubre las herramientas de IA de este año.",
+    },
     {
       id: "ia_incluye",
       patrones: /\b(qu[eé] (incluye|trae|contiene)|contenido|temario|m[oó]dulos)\b/i,
       respuesta:
         "Son 4 módulos + bonus 🤖\n\n🔥 Fundamentos: ChatGPT, Gemini, Claude, Perplexity y Copilot\n🎨 IA creativa: Midjourney, DALL·E 4, Leonardo AI\n🤖 Agentes autónomos: n8n, CrewAI, LangGraph, AutoGPT\n💼 IA para negocios: automatizar WhatsApp, email y ventas\n🎁 Plantillas listas para usar",
+    },
+    // Va ANTES de ia_herramientas a propósito: "¿incluye ChatGPT Plus?"
+    // matchea "chatgpt", y la respuesta de herramientas contesta otra cosa
+    // (qué herramientas se ven), no si hay que pagarlas. Eso sería peor que
+    // no responder.
+    {
+      id: "ia_costo_herramientas",
+      // Las palabras de plata tienen que ir PEGADAS a una herramienta. Suelto,
+      // "suscripción" o "mensualidad" es la pregunta por la forma de pago del
+      // curso -- que sí tiene respuesta (pago único) y no se puede tapar con
+      // un "déjame confirmarte".
+      patrones: /\b(chatgpt plus|pagar (aparte|las herramientas|algo m[aá]s|otra cosa)|pagarlas aparte|se pagan? aparte|toca pagar aparte|versi[oó]n (paga|premium|de pago)|cuenta (paga|premium))|(suscripci[oó]n|mensualidad|licencia\w*|gratis|gratuit\w*|de pago|hay que pagar|cuestan|tienen costo|se pagan?)[^?!.]{0,30}(herramienta|chatgpt|midjourney|gemini|copilot|leonardo|dall|n8n|autogpt|crewai|perplexity)|(herramienta|chatgpt|midjourney|gemini|copilot|leonardo|dall|n8n|autogpt|crewai|perplexity)\w*[^?!.]{0,30}(gratis|gratuit\w*|de pago|cuestan|hay que pagar|tienen costo|se pagan?|suscripci[oó]n|mensualidad|licencia)/i,
+      // Sin responder: la descripción nombra las herramientas pero NO dice
+      // nada de sus planes ni de si el curso incluye alguna suscripción. Es
+      // exactamente el dato que genera devoluciones si se afirma de más.
+      respuesta: null,
     },
     {
       id: "ia_herramientas",
@@ -238,10 +269,45 @@ const IA: ConocimientoProducto = {
         "Cubre las principales 🤖 ChatGPT, Gemini, Claude, Perplexity y Copilot para el día a día; Midjourney, DALL·E 4 y Leonardo AI para crear imágenes y video; y n8n, CrewAI, LangGraph y AutoGPT para armar agentes que trabajen solos.",
     },
     {
+      id: "ia_agentes",
+      // "agentes" en plural: el singular lo escribe quien pide hablar con una
+      // persona ("me pasas un agente"), y esa no es esta pregunta.
+      // Sin "24/7" suelto: así se pregunta por el horario de atención, y esa
+      // ya tiene su respuesta en las comunes.
+      patrones: /\bagentes\b|agentes? aut[oó]nom\w*|trabajen? por m[ií]\b|trabajan solos|piensan solos|multi.?tarea/i,
+      // "agentes autónomos que trabajen por ti 24/7" y las 4 herramientas
+      // están literales en la descripción.
+      respuesta:
+        "Sí, aprendes a crear agentes que trabajan por ti 24/7 🤖 Con n8n, CrewAI, LangGraph y AutoGPT.",
+    },
+    {
+      id: "ia_creativa",
+      // Pide el VERBO al lado: "video" o "imagen" sueltos son otra cosa
+      // ("¿el curso viene en videos?", "mándame una imagen del curso").
+      patrones: /\b(crea\w*|hace\w*|haga\w*|gener\w*|dise[ñn]\w*|edita\w*)[^?!.]{0,15}(im[aá]gen|video|logo|contenido|foto|arte)|\b(dise[ñn]o gr[aá]fico|contenido visual|miniaturas?|ia creativa|edici[oó]n de video)/i,
+      respuesta:
+        "Sí, tiene un módulo de IA creativa 🎨 Imágenes y video con Midjourney, DALL·E 4 y Leonardo AI.",
+    },
+    {
+      id: "ia_prompts",
+      patrones: /\bprompt\w*|ingenier[ií]a de prompt|\bc[oó]mo (le )?(pregunto|hablo|escribo|pido) a (la ia|chatgpt)/i,
+      // "Cómo escribir prompts que generen resultados reales", literal.
+      respuesta:
+        "Sí 🔥 El módulo 1 enseña a escribir prompts que generen resultados reales.",
+    },
+    {
       id: "ia_negocio",
       patrones: /\b(para mi negocio|automatizar|chatbot|whatsapp|vender|monetizar|ganar dinero|emprend\w+)\b/i,
       respuesta:
         "Tiene un módulo entero para eso 💼 Automatizar WhatsApp, email y ventas, crear chatbots inteligentes y monetizar con IA. Y vienen plantillas listas para usar 🎁",
+    },
+    {
+      id: "ia_plantillas",
+      patrones: /\b(plantillas?|templates?|bonus)/i,
+      // "🎁 BONUS: Plantillas listas para usar". Cuáles son NO está dicho, y
+      // por eso la respuesta no las enumera.
+      respuesta:
+        "Sí, trae plantillas listas para usar 🎁 Vienen incluidas como bonus.",
     },
     {
       id: "ia_programar",
@@ -251,6 +317,48 @@ const IA: ConocimientoProducto = {
       // "sin código" está literal en la descripción, referido a n8n.
       respuesta:
         "No necesitas programar 🙌 Se arma con n8n, que es sin código.",
+    },
+    {
+      id: "ia_nivel",
+      patrones: /\b(desde cero|principiante|novat\w*|soy nuevo|no s[eé] nada|nunca he (usado|trabajado|manejado)|es dif[ií]cil|es complicado|ser[aá] muy dif[ií]cil)/i,
+      // Lo único verificable acá es que el curso ARRANCA por fundamentos: el
+      // módulo 1 lo dice. NO se afirma "no necesitas saber nada previo": eso
+      // la descripción no lo dice en ninguna parte.
+      respuesta:
+        "Arranca por los fundamentos 🤖 El módulo 1 es ChatGPT, Gemini, Claude y cómo escribir prompts.",
+    },
+    // ── De acá para abajo: preguntas que el cliente SÍ hace y que la
+    // descripción no responde. Van escritas igual, con su patrón, para que el
+    // bot diga "lo confirmo" en vez de improvisar -- que es de donde salieron
+    // el Discord y las 24 lecciones que no existen.
+    {
+      id: "ia_idioma",
+      // Las herramientas del curso son gringas; preguntar por el idioma es de
+      // lo primero que hace un cliente. Y ya hubo un "Portuñol" inventado.
+      patrones: /\b(idioma|en espa[ñn]ol|en ingl[eé]s|est[aá] en espa[ñn]ol|subt[ií]tul\w*|traducid\w*|doblad\w*)/i,
+      respuesta: null,
+    },
+    {
+      id: "ia_perfil",
+      // La descripción dice QUÉ enseña, nunca A QUIÉN va dirigido. Decir
+      // "sirve para estudiantes" o "para amas de casa" sería inventarlo.
+      patrones: /\b(para qui[eé]n es|a qui[eé]n le sirve|qu[eé] perfil|sirve para cualquier persona|soy (estudiante|ama de casa|contador\w*|profesor\w*|independiente|pensionad\w*|desemplead\w*))/i,
+      respuesta: null,
+    },
+    {
+      id: "ia_empleo",
+      // Va DESPUÉS de ia_negocio: si preguntan por vender o monetizar, gana
+      // el módulo 4, que sí existe. Lo que no existe es una promesa de
+      // trabajo o de clientes, y esa no se firma.
+      patrones: /\b(consigo|conseguir|encontrar|para) (trabajo|empleo|clientes)|freelance|ofrecer servicios|me contraten|bolsa de empleo|salir a vender esto|puedo cobrar/i,
+      respuesta: null,
+    },
+    {
+      id: "ia_resultados",
+      // Cuánto se demora en ver resultados no está dicho, y es justo el dato
+      // que si se infla vuelve como devolución.
+      patrones: /\b(en cu[aá]nto tiempo (veo|logro|aprendo|empiezo)|cu[aá]ndo (veo|voy a ver) resultados|qu[eé] tan r[aá]pido|cu[aá]nto me demoro|resultados garantiz\w*|funciona de verdad)/i,
+      respuesta: null,
     },
     // Sin responder: no está en su descripción y no se puede verificar afuera
     // porque es un pack armado, no un curso publicado.
