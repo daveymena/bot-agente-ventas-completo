@@ -199,7 +199,7 @@ router.get("/models/:proveedor", async (req: TenantRequest, res, next) => {
     // Se devuelve también la URL consultada: variables de entorno como
     // OPENAI_BASE_URL pueden redirigir un proveedor a otro distinto, y sin
     // esto el admin vería modelos ajenos sin entender por qué.
-    return res.json({ modelos: lista, total: lista.length, consultado: base.baseUrl });
+    return res.json({ modelos: lista, total: lista.length, consultado: raiz });
   } catch (e: any) {
     return res.json({ modelos: [], error: String(e?.message || e).slice(0, 140) });
   }
