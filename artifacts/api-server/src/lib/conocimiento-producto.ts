@@ -244,14 +244,16 @@ const IA: ConocimientoProducto = {
       // "las mejores herramientas de IA de 2026", literal en la descripción.
       // Ojo: NO se promete que se actualice después; eso no está dicho.
       respuesta:
-        "Cubre lo que se está usando ahora 📅 Claude Cowork, Claude Code, n8n y OpenClaw.",
+        "Cubre lo que se está usando ahora 📅 Claude Cowork, Claude Code, n8n, OpenClaw y Gemini.",
     },
     {
       id: "ia_incluye",
       patrones: /\b(qu[eé] (incluye|trae|contiene)|contenido|temario|m[oó]dulos)\b/i,
-      // Verificado carpeta por carpeta contra lo que se ENTREGA: 39 módulos.
+      // Verificado carpeta por carpeta contra el enlace de entrega, que
+      // comparte los TRES: Master en Agentes (39), Curso Claude AI (13) y
+      // el curso de Gemini.
       respuesta:
-        "Son 39 módulos en video 🤖\n\n🤖 Claude Desktop y Cowork: proyectos, skills y conectores\n💻 Claude Code: MCP, apps web, Supabase y Render\n⚙️ 16 módulos de n8n: agente IA, APIs, webhooks y RAG\n🔗 Conecta WhatsApp, Telegram, Slack y Google\n🚀 8 módulos de OpenClaw, hasta montarlo en un VPS",
+        "Son 3 cursos, 52 módulos en video 🤖\n\n⚙️ Agentes y automatización: n8n, OpenClaw y Claude Code\n🎨 Claude AI completo: Design, Excel, Chrome y conectores\n🔮 Curso de Gemini de Google\n🔗 Conecta WhatsApp, Telegram, Slack y Google\n🚀 Hasta montar tus agentes en un servidor",
     },
     // Va ANTES de ia_herramientas a propósito: "¿incluye ChatGPT Plus?"
     // matchea "chatgpt", y la respuesta de herramientas contesta otra cosa
@@ -273,9 +275,9 @@ const IA: ConocimientoProducto = {
     },
     {
       id: "ia_herramientas",
-      patrones: /\b(claude|cowork|claude code|n8n|openclaw|mcp|supabase|render|rag|qu[eé] herramientas)\b/i,
+      patrones: /\b(claude|cowork|claude code|n8n|openclaw|mcp|supabase|render|rag|gemini|excel|qu[eé] herramientas)\b/i,
       respuesta:
-        "Trabaja con Claude a fondo 🤖 Claude Desktop, Cowork y Claude Code; n8n para automatizar sin código; y OpenClaw para montar agentes propios.",
+        "Claude a fondo 🤖 Desktop, Cowork, Code y Design; n8n para automatizar sin código; OpenClaw para tus agentes; y Gemini de Google.",
     },
     // ⚠️ Existe porque el anuncio viejo prometía estas herramientas y NINGUNA
     // está en el curso que se entrega (verificado carpeta por carpeta). Si
@@ -285,7 +287,7 @@ const IA: ConocimientoProducto = {
       id: "ia_no_incluye",
       patrones: /\b(midjourney|dall|leonardo|crewai|langgraph|autogpt|perplexity|copilot|stable diffusion|runway|sora)\b/i,
       respuesta:
-        "Esa herramienta no la cubre 🙏 El curso trabaja con Claude, n8n y OpenClaw.",
+        "Esa herramienta no la cubre 🙏 Trabaja con Claude, n8n, OpenClaw y Gemini.",
     },
     {
       id: "ia_agentes",
@@ -304,10 +306,11 @@ const IA: ConocimientoProducto = {
       // Pide el VERBO al lado: "video" o "imagen" sueltos son otra cosa
       // ("¿el curso viene en videos?", "mándame una imagen del curso").
       patrones: /\b(crea\w*|hace\w*|haga\w*|gener\w*|dise[ñn]\w*|edita\w*)[^?!.]{0,15}(im[aá]gen|video|logo|contenido|foto|arte)|\b(dise[ñn]o gr[aá]fico|contenido visual|miniaturas?|ia creativa|edici[oó]n de video)/i,
-      // Decía que sí. No hay NINGÚN módulo de imagen ni video entre los 39.
-      // Afirmarlo acá es la devolución más cara del catálogo.
+      // Sí, pero NO con las del anuncio viejo: el módulo 10 del curso de
+      // Claude AI es "Claude Design, Diseño Gráfico Profesional", y el curso
+      // de Gemini también hace contenido. Midjourney y DALL·E no están.
       respuesta:
-        "Ese no es el enfoque 🙏 El curso es de agentes y automatización, no de crear imágenes ni video.",
+        "Sí 🎨 Con Claude Design para diseño gráfico y con Gemini de Google.",
     },
     {
       id: "ia_prompts",
@@ -388,7 +391,7 @@ const IA: ConocimientoProducto = {
     {
       id: "ia_duracion",
       patrones: /\b(cu[aá]nto dura|cu[aá]ntas horas|cu[aá]ntas clases|cu[aá]ntos videos|cu[aá]ntos m[oó]dulos)\b/i,
-      respuesta: "Son 39 módulos en video 🎬 Los ves a tu ritmo, sin horarios.",
+      respuesta: "Son 3 cursos, 52 módulos en video 🎬 A tu ritmo, sin horarios.",
     },
   ],
 };

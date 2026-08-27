@@ -147,9 +147,10 @@ const IA = 124;
 describe("curso de IA: solo lo que dice su propia descripción", () => {
   it("qué incluye lista lo que de verdad se entrega", () => {
     const r = responderPregunta(IA, "que incluye?")?.texto ?? "";
-    expect(r).toMatch(/39 m[oó]dulos/i);
+    expect(r).toMatch(/52 m[oó]dulos/i);
     expect(r).toMatch(/n8n/i);
     expect(r).toMatch(/openclaw/i);
+    expect(r).toMatch(/gemini/i);
     // El anuncio viejo prometía estas y NINGUNA está en el curso.
     expect(r).not.toMatch(/midjourney|dall|leonardo|crewai|langgraph|autogpt/i);
   });
@@ -172,7 +173,7 @@ describe("curso de IA: solo lo que dice su propia descripción", () => {
     // carpeta en la entrega; las HORAS siguen sin saberse.
     const r = responderPregunta(IA, "cuanto dura?");
     expect(r?.sinResponder).toBe(false);
-    expect(r?.texto).toMatch(/39 m[oó]dulos/i);
+    expect(r?.texto).toMatch(/52 m[oó]dulos/i);
     expect(r?.texto).not.toMatch(/\d+\s*horas/i);
   });
 
@@ -253,15 +254,18 @@ describe("curso de IA: las objeciones que trae la campaña", () => {
     expect(t).not.toMatch(/crewai|langgraph|autogpt/i);
   });
 
-  it("crear imágenes o video: el curso NO lo cubre, y se dice antes de cobrar", () => {
-    // Esta prueba exigía lo contrario y por eso pasaba en verde mientras el
-    // bot prometía un módulo de IA creativa que no existe. Quien llegue del
-    // anuncio viejo buscando eso tiene que enterarse ANTES de pagar.
-    for (const m of ["sirve para crear imagenes?", "puedo hacer videos con esto?"]) {
+  it("crear imágenes: sí, pero con las herramientas que de verdad se entregan", () => {
+    // La entrega comparte también el curso de Claude AI, cuyo módulo 10 es
+    // "Claude Design, Diseño Gráfico Profesional", y el de Gemini. O sea que
+    // ahora la respuesta es que sí -- pero jamás con Midjourney ni DALL·E,
+    // que siguen sin estar.
+    for (const m of ["sirve para crear imagenes?", "puedo hacer diseño grafico?"]) {
       const t = responderPregunta(IA, m)?.texto ?? "";
       expect(t, m).not.toMatch(/midjourney|dall|leonardo/i);
-      expect(t, m).toMatch(/no es el enfoque|no la cubre/i);
+      expect(t, m).toMatch(/claude design|gemini/i);
     }
+    // Y si preguntan por la herramienta del anuncio viejo, se dice que no.
+    expect(responderPregunta(IA, "trae midjourney?")?.texto).toMatch(/no la cubre/i);
   });
 
   it("prompts: ninguno de los 39 módulos es de prompting", () => {
