@@ -145,26 +145,35 @@ describe("la apertura varía pero no promete nada", () => {
 const IA = 124;
 
 describe("curso de IA: solo lo que dice su propia descripción", () => {
-  it("qué incluye lista los módulos reales", () => {
+  it("qué incluye lista lo que de verdad se entrega", () => {
     const r = responderPregunta(IA, "que incluye?")?.texto ?? "";
+    expect(r).toMatch(/39 m[oó]dulos/i);
     expect(r).toMatch(/n8n/i);
-    expect(r).toMatch(/claude/i);
+    expect(r).toMatch(/openclaw/i);
+    // El anuncio viejo prometía estas y NINGUNA está en el curso.
+    expect(r).not.toMatch(/midjourney|dall|leonardo|crewai|langgraph|autogpt/i);
   });
 
   it("preguntar por una herramienta concreta la encuentra", () => {
-    for (const m of ["trae midjourney?", "enseña n8n?", "incluye chatgpt"]) {
+    // Las del curso y las que NO están: ambas tienen que dar respuesta, y la
+    // de las que no están tiene que decir que no.
+    for (const m of ["enseña n8n?", "trabaja con claude?", "trae openclaw?"]) {
       expect(responderPregunta(IA, m), m).not.toBeNull();
     }
+    expect(responderPregunta(IA, "trae midjourney?")?.id).toBe("ia_no_incluye");
   });
 
   it("si hay que programar: no, n8n es sin código", () => {
-    expect(responderPregunta(IA, "hay que saber programar?")?.texto).toMatch(/no necesitas/i);
+    expect(responderPregunta(IA, "hay que saber programar?")?.texto).toMatch(/no necesitas programar/i);
   });
 
-  it("la duración NO se inventó: no está en su descripción", () => {
-    // A diferencia del piano, este es un pack armado: no hay curso publicado
-    // contra el cual verificar las horas.
-    expect(responderPregunta(IA, "cuanto dura?")?.sinResponder).toBe(true);
+  it("la duración sale del conteo real, y las horas siguen sin prometerse", () => {
+    // Antes iba sin responder. Ahora los módulos están contados carpeta por
+    // carpeta en la entrega; las HORAS siguen sin saberse.
+    const r = responderPregunta(IA, "cuanto dura?");
+    expect(r?.sinResponder).toBe(false);
+    expect(r?.texto).toMatch(/39 m[oó]dulos/i);
+    expect(r?.texto).not.toMatch(/\d+\s*horas/i);
   });
 
   it("cada curso responde lo suyo, sin mezclarse", () => {
@@ -211,53 +220,63 @@ describe("responde lo justo, sin desbordarse", () => {
  * salieron justo de contestar lo segundo como si fuera lo primero.
  */
 describe("curso de IA: las objeciones que trae la campaña", () => {
-  it("si sirve sin saber de tecnología: arranca por fundamentos, sin prometer más", () => {
+  it("si sirve sin saber de tecnología: arranca por la introducción, sin prometer más", () => {
     for (const m of ["sirvo si empiezo desde cero?", "soy principiante", "es dificil?"]) {
       const r = responderPregunta(IA, m);
       expect(r?.sinResponder, m).toBe(false);
-      expect(r?.texto, m).toMatch(/fundamentos/i);
+      expect(r?.texto, m).toMatch(/introducci[oó]n/i);
+      // Lo verificable es que ARRANCA desde el principio. "No necesitas saber
+      // nada" no lo dice nadie, y por eso no se firma.
+      expect(r?.texto, m).not.toMatch(/no necesitas saber/i);
     }
   });
 
-  it("si está actualizado: es de 2026, que es lo que dice la descripción", () => {
+  it("si está actualizado: se nombran las herramientas vigentes, no el año", () => {
+    // Decía "es de 2026". Envejece solo, y además el año salía del nombre del
+    // anuncio, no del contenido. Ahora se sostiene en lo que trae el curso.
     for (const m of ["esta actualizado?", "no esta viejo el contenido?"]) {
-      expect(responderPregunta(IA, m)?.texto, m).toMatch(/2026/);
+      expect(responderPregunta(IA, m)?.texto, m).toMatch(/claude|n8n|openclaw/i);
     }
   });
 
-  it("las plantillas: existen, y no se inventa cuáles son", () => {
-    const t = responderPregunta(IA, "trae plantillas?")?.texto ?? "";
-    expect(t).toMatch(/plantillas/i);
-    // La descripción dice "Plantillas listas para usar" y nada más. Si algún
-    // día alguien enumera cuáles, esto lo frena.
-    expect(t).not.toMatch(/\d+ plantillas/i);
+  it("las plantillas del bonus: no están, así que no se prometen", () => {
+    // El "BONUS: Plantillas listas para usar" era del anuncio viejo. Entre los
+    // 39 módulos que se entregan no hay ninguna carpeta de plantillas.
+    const r = responderPregunta(IA, "trae plantillas?");
+    expect(r?.sinResponder).toBe(true);
   });
 
   it("qué es un agente autónomo: se explica con las herramientas reales", () => {
     const t = responderPregunta(IA, "que son los agentes autonomos?")?.texto ?? "";
     expect(t).toMatch(/n8n/i);
     expect(t).toMatch(/openclaw/i);
+    expect(t).not.toMatch(/crewai|langgraph|autogpt/i);
   });
 
-  it("crear imágenes o video: existe el módulo de IA creativa", () => {
+  it("crear imágenes o video: el curso NO lo cubre, y se dice antes de cobrar", () => {
+    // Esta prueba exigía lo contrario y por eso pasaba en verde mientras el
+    // bot prometía un módulo de IA creativa que no existe. Quien llegue del
+    // anuncio viejo buscando eso tiene que enterarse ANTES de pagar.
     for (const m of ["sirve para crear imagenes?", "puedo hacer videos con esto?"]) {
-      expect(responderPregunta(IA, m)?.texto, m).toMatch(/creativa|claude design|gemini/i);
+      const t = responderPregunta(IA, m)?.texto ?? "";
+      expect(t, m).not.toMatch(/midjourney|dall|leonardo/i);
+      expect(t, m).toMatch(/no es el enfoque|no la cubre/i);
     }
   });
 
-  it("prompts: el módulo 1 los enseña", () => {
-    expect(responderPregunta(IA, "enseña a hacer prompts?")?.texto).toMatch(/prompts/i);
+  it("prompts: ninguno de los 39 módulos es de prompting", () => {
+    expect(responderPregunta(IA, "enseña a hacer prompts?")?.sinResponder).toBe(true);
   });
 });
 
 describe("curso de IA: lo que la descripción NO dice se dice que se confirma", () => {
   const sinRespuesta: Array<[string, string]> = [
-    // El idioma no está declarado.
+    // Hubo un "Portuñol" inventado como idioma. El idioma no está declarado.
     ["esta en español?", "idioma"],
     // La descripción dice QUÉ enseña, nunca a QUIÉN va dirigido.
     ["soy ama de casa, me sirve?", "perfil del comprador"],
     ["para quien es este curso?", "perfil del comprador"],
-    // Ninguna promesa de empleo ni de clientes.
+    // Ninguna promesa de empleo ni de clientes: eso no lo firma el negocio.
     ["me sirve para conseguir trabajo?", "empleo"],
     ["puedo conseguir clientes con esto?", "clientes"],
     // Cuánto se demora en ver resultados tampoco está dicho.
@@ -273,11 +292,24 @@ describe("curso de IA: lo que la descripción NO dice se dice que se confirma", 
     }
   });
 
+  it("el costo de las herramientas se avisa ANTES de cobrar", () => {
+    // Va respondida, no en null: que las suscripciones corran por cuenta del
+    // cliente es la dirección prudente. Callarlo es lo que genera la
+    // devolución, porque el cliente se entera después de pagar.
+    for (const m of ["las herramientas son gratis?", "hay que pagar chatgpt plus aparte?"]) {
+      const r = responderPregunta(IA, m);
+      expect(r?.sinResponder, m).toBe(false);
+      expect(r?.texto, m).toMatch(/por tu cuenta/i);
+    }
+  });
+
   it("el panel puede ver qué falta por responder del curso de IA", () => {
     const falta = preguntasSinResponder()
       .filter((f) => /INTELIGENCIA ARTIFICIAL/i.test(f.producto))
       .map((f) => f.pregunta);
-    for (const id of ["ia_idioma", "ia_perfil", "ia_empleo", "ia_resultados", "ia_duracion"]) {
+    // ia_duracion salió de la lista: ya tiene respuesta verificada. Entraron
+    // ia_prompts y ia_plantillas, que el anuncio viejo daba por hechas.
+    for (const id of ["ia_idioma", "ia_perfil", "ia_empleo", "ia_resultados", "ia_prompts", "ia_plantillas"]) {
       expect(falta, id).toContain(id);
     }
   });
@@ -302,7 +334,7 @@ describe("curso de IA: los patrones nuevos no le roban la respuesta a otra pregu
   });
 
   it("preguntar por una herramienta suelta sigue listando las herramientas", () => {
-    expect(responderPregunta(IA, "incluye chatgpt")?.id).toBe("ia_herramientas");
+    expect(responderPregunta(IA, "incluye n8n")?.id).toBe("ia_herramientas");
   });
 
   it("las comunes siguen ganando cuando la pregunta es de ellas", () => {
@@ -319,8 +351,8 @@ describe("curso de IA: no se mezcla con los otros dos cursos", () => {
       const t = responderPregunta(IA, m)?.texto ?? "";
       expect(t, m).not.toMatch(/partitura|teclado|perro|cachorro|raza/i);
     }
-    expect(responderPregunta(PIANO, "que incluye?")?.texto).not.toMatch(/prompt|claude|agentes|n8n/i);
-    expect(responderPregunta(PERRO, "que incluye?")?.texto).not.toMatch(/prompt|claude|agentes|n8n/i);
+    expect(responderPregunta(PIANO, "que incluye?")?.texto).not.toMatch(/prompt|midjourney|agentes/i);
+    expect(responderPregunta(PERRO, "que incluye?")?.texto).not.toMatch(/prompt|midjourney|agentes/i);
   });
 
   it("una pregunta que solo existe en IA no se responde desde otro producto", () => {

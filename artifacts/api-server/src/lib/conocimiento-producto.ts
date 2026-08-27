@@ -243,13 +243,15 @@ const IA: ConocimientoProducto = {
       patrones: /\b(actualizad\w*|desactualizad\w*|est[aá] al d[ií]a|(es|est[aá]|estar[aá]) (muy )?(viej\w+|antigu\w+)|contenido (viej\w+|antigu\w+)|versi[oó]n vieja|es del? 2026|de este a[ñn]o|sirve (para|en) 2026|para el 2026)/i,
       // "las mejores herramientas de IA de 2026", literal en la descripción.
       // Ojo: NO se promete que se actualice después; eso no está dicho.
-      respuesta: "Sí, es de 2026 📅 Cubre las herramientas de IA de este año.",
+      respuesta:
+        "Cubre lo que se está usando ahora 📅 Claude Cowork, Claude Code, n8n y OpenClaw.",
     },
     {
       id: "ia_incluye",
       patrones: /\b(qu[eé] (incluye|trae|contiene)|contenido|temario|m[oó]dulos)\b/i,
+      // Verificado carpeta por carpeta contra lo que se ENTREGA: 39 módulos.
       respuesta:
-        "Es un pack completo de IA 🤖\n\n📚 Master en Agentes IA: Claude Code, Claude Cowork, n8n (automatizaciones, agentes, RAG, webhooks) y OpenClaw (agentes, tools, skills, memoria) — 39 módulos\n📚 Curso Claude AI: Claude Desktop, Cowork, Design (diseño gráfico), Excel, Chrome, MCP y Plugins — 13 módulos\n📚 Curso Gemini IA de Google\n\nTodo grabado, a tu ritmo, acceso permanente.",
+        "Son 39 módulos en video 🤖\n\n🤖 Claude Desktop y Cowork: proyectos, skills y conectores\n💻 Claude Code: MCP, apps web, Supabase y Render\n⚙️ 16 módulos de n8n: agente IA, APIs, webhooks y RAG\n🔗 Conecta WhatsApp, Telegram, Slack y Google\n🚀 8 módulos de OpenClaw, hasta montarlo en un VPS",
     },
     // Va ANTES de ia_herramientas a propósito: "¿incluye ChatGPT Plus?"
     // matchea "chatgpt", y la respuesta de herramientas contesta otra cosa
@@ -262,14 +264,28 @@ const IA: ConocimientoProducto = {
       // curso -- que sí tiene respuesta (pago único) y no se puede tapar con
       // un "déjame confirmarte".
       patrones: /\b(chatgpt plus|pagar (aparte|las herramientas|algo m[aá]s|otra cosa)|pagarlas aparte|se pagan? aparte|toca pagar aparte|versi[oó]n (paga|premium|de pago)|cuenta (paga|premium))|(suscripci[oó]n|mensualidad|licencia\w*|gratis|gratuit\w*|de pago|hay que pagar|cuestan|tienen costo|se pagan?)[^?!.]{0,30}(herramienta|chatgpt|midjourney|gemini|copilot|leonardo|dall|n8n|autogpt|crewai|perplexity)|(herramienta|chatgpt|midjourney|gemini|copilot|leonardo|dall|n8n|autogpt|crewai|perplexity)\w*[^?!.]{0,30}(gratis|gratuit\w*|de pago|cuestan|hay que pagar|tienen costo|se pagan?|suscripci[oó]n|mensualidad|licencia)/i,
+      // Se responde en la dirección PRUDENTE: se avisa que las suscripciones
+      // corren por cuenta del cliente. Decirlo de más no genera devoluciones;
+      // callarlo sí, porque el cliente se entera después de pagar.
+      // (Viene de la otra sesión que trabajó este archivo en paralelo.)
       respuesta:
-        "Las suscripciones de las herramientas van por tu cuenta 🙏 El curso te enseña a usarlas, pero cada herramienta tiene su propio plan (Claude, n8n, Gemini, etc.). El precio del curso es solo por la formación.",
+        "Las suscripciones de las herramientas van por tu cuenta 🙏 El curso te enseña a usarlas; el precio es solo por la formación.",
     },
     {
       id: "ia_herramientas",
-      patrones: /\b(chatgpt|gemini|claude|perplexity|copilot|midjourney|dall|leonardo|n8n|crewai|langgraph|autogpt|qu[eé] herramientas)\b/i,
+      patrones: /\b(claude|cowork|claude code|n8n|openclaw|mcp|supabase|render|rag|qu[eé] herramientas)\b/i,
       respuesta:
-        "Las herramientas reales del pack son 🤖 Claude AI (Desktop, Cowork, Code, Design), n8n para automatizaciones, OpenClaw para agentes autónomos, y Gemini de Google. Todo grabado con proyectos prácticos.",
+        "Trabaja con Claude a fondo 🤖 Claude Desktop, Cowork y Claude Code; n8n para automatizar sin código; y OpenClaw para montar agentes propios.",
+    },
+    // ⚠️ Existe porque el anuncio viejo prometía estas herramientas y NINGUNA
+    // está en el curso que se entrega (verificado carpeta por carpeta). Si
+    // alguien llega con esa idea, se le dice que no ANTES de que pague.
+    // Va antes de ia_agentes: "CrewAI" también matchea agentes.
+    {
+      id: "ia_no_incluye",
+      patrones: /\b(midjourney|dall|leonardo|crewai|langgraph|autogpt|perplexity|copilot|stable diffusion|runway|sora)\b/i,
+      respuesta:
+        "Esa herramienta no la cubre 🙏 El curso trabaja con Claude, n8n y OpenClaw.",
     },
     {
       id: "ia_agentes",
@@ -278,42 +294,52 @@ const IA: ConocimientoProducto = {
       // Sin "24/7" suelto: así se pregunta por el horario de atención, y esa
       // ya tiene su respuesta en las comunes.
       patrones: /\bagentes\b|agentes? aut[oó]nom\w*|trabajen? por m[ií]\b|trabajan solos|piensan solos|multi.?tarea/i,
+      // Verificado: el nodo Agente IA de n8n (módulo 19) y los 8 módulos de
+      // OpenClaw, incluido montarlo en un VPS.
       respuesta:
-        "Sí 🤖 Aprendes a crear agentes con n8n y OpenClaw (tools, skills, memoria). 39 módulos.",
+        "Sí, es el corazón del curso 🤖 Con el nodo Agente IA de n8n y con OpenClaw.",
     },
     {
       id: "ia_creativa",
       // Pide el VERBO al lado: "video" o "imagen" sueltos son otra cosa
       // ("¿el curso viene en videos?", "mándame una imagen del curso").
       patrones: /\b(crea\w*|hace\w*|haga\w*|gener\w*|dise[ñn]\w*|edita\w*)[^?!.]{0,15}(im[aá]gen|video|logo|contenido|foto|arte)|\b(dise[ñn]o gr[aá]fico|contenido visual|miniaturas?|ia creativa|edici[oó]n de video)/i,
+      // Decía que sí. No hay NINGÚN módulo de imagen ni video entre los 39.
+      // Afirmarlo acá es la devolución más cara del catálogo.
       respuesta:
-        "Sí 🎨 Claude Design para diseño gráfico y Gemini para contenido visual.",
+        "Ese no es el enfoque 🙏 El curso es de agentes y automatización, no de crear imágenes ni video.",
     },
     {
       id: "ia_prompts",
       patrones: /\bprompt\w*|ingenier[ií]a de prompt|\bc[oó]mo (le )?(pregunto|hablo|escribo|pido) a (la ia|chatgpt)/i,
-      respuesta:
-        "Sí 🔥 Aprende a crear prompts efectivos con Claude AI y Claude Code.",
+      // Ninguno de los 39 módulos es de prompts. Se trabaja con Claude todo
+      // el curso, pero prometer un módulo de prompting sería inventarlo.
+      respuesta: null,
     },
     {
       id: "ia_negocio",
       patrones: /\b(para mi negocio|automatizar|chatbot|whatsapp|vender|monetizar|ganar dinero|emprend\w+)\b/i,
+      // Verificado: módulo 24 (WhatsApp + n8n), 22 (Google), 23 (Slack) y
+      // 25 (Telegram). Lo de "monetizar" NO está, y por eso no se promete.
       respuesta:
-        "Sí 💼 Tiene módulos completos de automatización con n8n: webhooks, Google, Slack, WhatsApp, Telegram, y creación de apps full stack con Supabase. También agentes IA con OpenClaw.",
+        "Sí 💼 Tiene módulos para conectar n8n con WhatsApp, Telegram, Slack y Google, y armar los flujos de tu negocio.",
     },
     {
       id: "ia_plantillas",
       patrones: /\b(plantillas?|templates?|bonus)/i,
-      respuesta:
-        "Sí, trae plantillas y recursos descargables 🎁",
+      // El "BONUS: Plantillas listas para usar" era del anuncio viejo: entre
+      // los 39 módulos no hay ninguna carpeta de plantillas. Sin confirmar.
+      respuesta: null,
     },
     {
       id: "ia_programar",
       // "hay que SABER programar" es como se pregunta de verdad: el verbo del
       // medio hacía que no matcheara.
       patrones: /\bprogram\w+\b|\bc[oó]digo\b|\bsoy t[eé]cnico\b|\bsin experiencia\b|\bno s[eé] de (tecnolog[ií]a|computador)/i,
+      // n8n es sin código: verificado. Pero el curso SÍ trae Claude Code y
+      // apps web, así que no se promete que nada requiera tocar código.
       respuesta:
-        "No necesitas saber programar 🙌 n8n es sin código, y Claude Code te escribe el código si lo necesitas. El curso arranca desde cero.",
+        "La automatización con n8n es sin código 🙌 No necesitas programar para armar los agentes.",
     },
     {
       id: "ia_nivel",
@@ -322,7 +348,7 @@ const IA: ConocimientoProducto = {
       // módulo 1 lo dice. NO se afirma "no necesitas saber nada previo": eso
       // la descripción no lo dice en ninguna parte.
       respuesta:
-        "Arranca por los fundamentos 🤖 El módulo 1 es Claude AI y Claude Desktop, desde cero.",
+        "Arranca desde la introducción 🤖 El módulo 1 presenta Claude, Claude Code y Cowork.",
     },
     // ── De acá para abajo: preguntas que el cliente SÍ hace y que la
     // descripción no responde. Van escritas igual, con su patrón, para que el
@@ -357,12 +383,12 @@ const IA: ConocimientoProducto = {
       patrones: /\b(en cu[aá]nto tiempo (veo|logro|aprendo|empiezo)|cu[aá]ndo (veo|voy a ver) resultados|qu[eé] tan r[aá]pido|cu[aá]nto me demoro|resultados garantiz\w*|funciona de verdad)/i,
       respuesta: null,
     },
-    // Sin responder: no está en su descripción y no se puede verificar afuera
-    // porque es un pack armado, no un curso publicado.
+    // Ya no va en null: se contaron los módulos que se entregan de verdad.
+    // Las HORAS siguen sin saberse, así que no se nombran.
     {
       id: "ia_duracion",
-      patrones: /\b(cu[aá]nto dura|cu[aá]ntas horas|cu[aá]ntas clases|cu[aá]ntos videos)\b/i,
-      respuesta: null,
+      patrones: /\b(cu[aá]nto dura|cu[aá]ntas horas|cu[aá]ntas clases|cu[aá]ntos videos|cu[aá]ntos m[oó]dulos)\b/i,
+      respuesta: "Son 39 módulos en video 🎬 Los ves a tu ritmo, sin horarios.",
     },
   ],
 };
