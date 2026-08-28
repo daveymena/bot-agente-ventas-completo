@@ -336,7 +336,11 @@ export function describePlannedAction(a: { tool: string; args: any }): string {
     case "fb_page_publish":
       return `📢 PUBLICAR en el muro de la página de Facebook (público, gratis) el producto ${g.productId ?? "?"} — visible de inmediato para todos`;
     case "crear_anuncio":
-      return `📢 Crear el anuncio de "${valorLegible(g.producto, 60)}" con $${Number(g.dailyBudget || 0).toLocaleString("es-CO")}/día — el sistema busca el producto, escribe el copy con sus datos reales, lo valida y guarda el borrador${g.subirAMeta === true ? ", y ADEMÁS crea la campaña en Meta EN PAUSA (no gasta hasta que la actives)" : " (no toca Meta)"}`;
+      // El destino se muestra solo cuando de verdad se crea la campaña en
+      // Meta: si `subirAMeta` no va, esto guarda un borrador local y el
+      // objetivo todavía no decide nada. Anunciar un destino ahí sería
+      // prometer algo que este paso no hace.
+      return `📢 Crear el anuncio de "${valorLegible(g.producto, 60)}" con $${Number(g.dailyBudget || 0).toLocaleString("es-CO")}/día — el sistema busca el producto, escribe el copy con sus datos reales, lo valida y guarda el borrador${g.subirAMeta === true ? `, y ADEMÁS crea la campaña en Meta EN PAUSA (no gasta hasta que la actives)\n   ➡️ Destino: ${destinoLegible(g.objetivo)}` : " (no toca Meta)"}`;
     case "fb_ad_draft":
       // El TEXTO REAL va en el plan, no solo "generar borrador para el
       // producto 76".

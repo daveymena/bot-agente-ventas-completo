@@ -96,3 +96,62 @@ describe("El plan que aprueba el admin dice a dónde manda", () => {
     expect(plan).toContain("WhatsApp");
   });
 });
+
+/**
+ * La puerta principal, que había quedado abierta.
+ *
+ * Medido en producción el 2026-08-28 con el pedido real "quiero publicar un
+ * anuncio de INTELIGENCIA ARTIFICIAL 2026, que la gente me escriba por
+ * WhatsApp". Atlas hizo TODO bien: eligió `crear_anuncio` (la herramienta que
+ * su propio prompt le ordena usar siempre para anuncios) y propuso
+ * `objetivo: "whatsapp"`.
+ *
+ * Y no servía de nada. `crear_anuncio` no declaraba `objetivo` en sus args, no
+ * lo leía, y su llamada final era `executeAction("fb_upload_draft_to_meta",
+ * { draftId })` -- sin objetivo. Río abajo eso es interpretarObjetivo("") ->
+ * "ventas" -> web.
+ *
+ * El arreglo del 2026-08-27 cableó `fb_create_ad` y `fb_upload_draft_to_meta`,
+ * las dos puertas laterales, y dejó pasando de largo la que el prompt manda
+ * usar. Por eso el admin seguía viendo "un solo tipo de anuncio" DESPUÉS de
+ * que el módulo de objetivos estuviera entero y probado.
+ */
+describe("crear_anuncio: la herramienta que el prompt manda usar siempre", () => {
+  it("declara 'objetivo' en su contrato -- si no, el modelo no puede mandarlo", async () => {
+    const { TOOLS } = await import("../app-operator");
+    const tool = TOOLS.find((t: any) => t.name === "crear_anuncio");
+    expect(tool, "crear_anuncio tiene que existir").toBeTruthy();
+    expect(tool.args).toContain("objetivo");
+    // Los cuatro destinos por nombre: un contrato que solo diga "objetivo"
+    // deja al modelo adivinando qué valores valen.
+    expect(tool.args).toContain("mensajes");
+    expect(tool.args).toContain("trafico");
+  });
+
+  it("cuando sube a Meta, el plan dice a dónde manda ANTES del sí", () => {
+    const plan = describePlannedAction({
+      tool: "crear_anuncio",
+      args: { producto: "INTELIGENCIA ARTIFICIAL 2026", dailyBudget: 20000, objetivo: "mensajes", subirAMeta: true },
+    });
+    expect(plan).toContain("WhatsApp");
+  });
+
+  it("si no se pidió destino, el plan avisa que va a la web igual", () => {
+    const plan = describePlannedAction({
+      tool: "crear_anuncio",
+      args: { producto: "Curso de Piano", dailyBudget: 20000, subirAMeta: true },
+    });
+    expect(plan).toContain("NO se pidió otro destino");
+  });
+
+  it("un borrador que NO sube a Meta no promete ningún destino", () => {
+    // El objetivo solo decide algo cuando se crea la campaña. Anunciar un
+    // destino en un paso que solo guarda texto local sería prometer de más.
+    const plan = describePlannedAction({
+      tool: "crear_anuncio",
+      args: { producto: "Curso de Piano", dailyBudget: 20000 },
+    });
+    expect(plan).toContain("no toca Meta");
+    expect(plan).not.toContain("Destino:");
+  });
+});

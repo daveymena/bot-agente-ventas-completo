@@ -118,7 +118,12 @@ async function hasRecentResearch(ctx: OperatorContext): Promise<boolean> {
 // la red interna no resuelve, se cae a la URL pública, que también funciona.
 const EXTERNAL_RESEARCH_AGENTS: { url: string; internalUrl?: string; providerID: string; modelID: string }[] = [
   { url: "https://oc-zen.2xs2bu.easypanel.host", internalUrl: "http://opencode1_oc-zen:4000", providerID: "opencode", modelID: "nemotron-3-ultra-free" },
-  { url: "https://oc-groq.2xs2bu.easypanel.host", internalUrl: "http://opencode1_oc-groq:4000", providerID: "groq", modelID: "llama-3.3-70b-versatile" },
+  // `llama-3.3-70b-versatile` YA NO EXISTE en Groq. Se comprobo contra su API
+  // el 2026-08-27 (commit e0c7423): Groq dio de baja llama-3.3-70b-versatile,
+  // llama-3.1-8b-instant y gemma2-9b-it. Este agente pedia un modelo muerto,
+  // asi que fallaba en silencio en CADA investigacion -- un tercio del pool de
+  // investigacion estaba apagado sin que nada lo dijera.
+  { url: "https://oc-groq.2xs2bu.easypanel.host", internalUrl: "http://opencode1_oc-groq:4000", providerID: "groq", modelID: "openai/gpt-oss-120b" },
   { url: "https://oc-router.2xs2bu.easypanel.host", internalUrl: "http://opencode1_oc-router:4000", providerID: "openrouter", modelID: "google/gemma-4-26b-a4b-it:free" },
 ];
 
@@ -3959,7 +3964,7 @@ export const TOOLS: ToolDef[] = [
       "LA FORMA CORRECTA DE CREAR UN ANUNCIO. Hace TODO el trabajo de una sola vez: busca el producto por su nombre, arma el brief con sus datos reales, escribe el copy, lo valida y guarda el borrador. " +
       "Usala SIEMPRE que te pidan un anuncio (\"anunciá mi curso\", \"creá un anuncio para X\") en vez de encadenar list_products + ad_brief + fb_ad_draft: eso son muchas idas y vueltas y el turno se corta antes de terminar. " +
       "Con esto solo tenés que pasar el nombre del producto tal como lo dijo el admin y el presupuesto. Todo lo demás lo resuelve el servidor.",
-    args: '{ "producto": string (req, el nombre del producto como lo dijo el admin, ej: "mi curso de inteligencia artificial"), "dailyBudget": number (req, presupuesto diario en la moneda del negocio), "subirAMeta"?: boolean (por defecto false; si es true, además crea la campaña en Meta EN PAUSA) }',
+    args: '{ "producto": string (req, el nombre del producto como lo dijo el admin, ej: "mi curso de inteligencia artificial"), "dailyBudget": number (req, presupuesto diario en la moneda del negocio), "objetivo"?: "ventas"|"trafico"|"mensajes"|"reconocimiento" (opcional pero IMPORTANTE — decide A DÓNDE va la gente y A QUIÉN le muestra Meta el anuncio: "mensajes" abre WhatsApp, "trafico" lleva a la web buscando clics, "ventas" lleva a la web buscando compradores. Si el admin dijo WhatsApp, mensajes, tráfico o alcance, PASALO; sin ese dato sale de ventas a la web, que es otra campaña distinta), "subirAMeta"?: boolean (por defecto false; si es true, además crea la campaña en Meta EN PAUSA) }',
     run: async (args, ctx) => {
       const texto = String(args.producto || "").trim();
       const presupuesto = num(args.dailyBudget) || 0;
@@ -4106,7 +4111,19 @@ export const TOOLS: ToolDef[] = [
       // ── 6. Subir a Meta, si lo pidieron (4 llamadas a Graph, sin IA) ─────
       let meta = "";
       if (args.subirAMeta === true && draftId) {
-        const subida = await executeAction("fb_upload_draft_to_meta", { draftId }, ctx);
+        // El objetivo VIAJA. Sin esto, `fb_upload_draft_to_meta` recibía
+        // `objetivo: undefined` -> interpretarObjetivo("") -> "ventas" -> web.
+        //
+        // Era la puerta principal y estaba abierta: el arreglo del 2026-08-27
+        // cableó `fb_create_ad` y `fb_upload_draft_to_meta`, pero `crear_anuncio`
+        // --que es la herramienta que el prompt le ordena usar SIEMPRE para
+        // anuncios-- ni siquiera declaraba el parámetro. Medido en producción
+        // (2026-08-28) con el pedido "que la gente me escriba por WhatsApp":
+        // Atlas propuso correctamente `objetivo: "whatsapp"` y acá se caía al
+        // piso. Toda campaña creada por este camino salía de ventas a la web,
+        // que es exactamente lo que el admin viene reportando ("todo lo lanza
+        // a la web y eso está mal").
+        const subida = await executeAction("fb_upload_draft_to_meta", { draftId, objetivo: args.objetivo }, ctx);
         meta = subida.ok
           ? `\n\n📤 ${subida.summary}`
           : `\n\n⚠️ El borrador quedó guardado, pero NO se pudo subir a Meta: ${subida.summary}`;
