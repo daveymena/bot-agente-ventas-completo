@@ -405,7 +405,19 @@ export function getProviderConfig(provider: string): AIProviderConfig | null {
       return {
         baseUrl: "https://api.groq.com/openai/v1",
         apiKey: process.env.GROQ_API_KEY,
-        model: process.env.GROQ_MODEL || "llama-3.1-8b-instant",
+        // `llama-3.1-8b-instant` NO EXISTE: Groq lo dio de baja junto con
+        // llama-3.3-70b-versatile y gemma2-9b-it (comprobado contra su API el
+        // 2026-08-27, commit e0c7423). Ese commit arreglo el default de
+        // getProviderConfigConClave (arriba) y dejo ESTE sin tocar -- y este es
+        // justo el que usa el bot de ventas de WhatsApp (agent.ts:1939).
+        //
+        // Medido en produccion el 2026-08-28: a "que incluye el curso de piano
+        // y cuanto sale?" el bot contesto "Te confirmo lo que incluye y el
+        // precio. Te parece bien?" -- no respondio nada. Es el sintoma del
+        // modelo chico atendiendo.
+        //
+        // Verificado en vivo el mismo dia: gpt-oss-120b responde en 442ms.
+        model: process.env.GROQ_MODEL || "openai/gpt-oss-120b",
       };
 
     // ── XIAOMI MiMo ── API propia, independiente de OpenCode Zen.

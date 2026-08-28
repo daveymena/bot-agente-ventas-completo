@@ -1670,16 +1670,26 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
   // variable en EasyPanel, reiniciaba, y el agente seguía pidiendo los mismos
   // tres de siempre (2026-08-16).
   //
-  // El default pasa a deepseek-v4-flash-free por pedido explícito del admin y
-  // porque los otros dos dan problemas medidos: `nemotron-3-ultra-free` es de
-  // razonamiento y gasta el presupuesto de tokens pensando (se cortaba con
+  // El default ERA deepseek-v4-flash-free, por pedido explícito del admin y
+  // porque los otros dos daban problemas medidos: `nemotron-3-ultra-free` es
+  // de razonamiento y gasta el presupuesto de tokens pensando (se cortaba con
   // finish_reason "length" incluso para responder "OK"), y `mimo-v2.5-free`
-  // ya venía documentado en el proyecto por envolver la salida en bloques de
-  // código.
+  // ya venía documentado por envolver la salida en bloques de código.
+  //
+  // ⚠️ Pero deepseek-v4-flash-free fue DESCONTINUADO del tier gratuito de Zen
+  // (confirmado por el admin el 2026-08-28, y medido el mismo día: la API
+  // responde "Upstream request failed: Model is unavailable"). No es una caída
+  // pasajera, así que dejarlo de default era dejar un modelo muerto como
+  // respaldo -- justo el patrón que hoy explicó los 105s por turno: la cadena
+  // descubriendo cadáveres uno por uno.
+  //
+  // Pasa a `big-pickle`, que el admin prefiere y que SÍ existe en el catálogo
+  // (probado hoy: devolvió 429 "cuota agotada", que es la respuesta de un
+  // modelo vivo sin cupo en ese momento, no la de uno que no existe).
   const OPENCODE_FREE_MODELS = {
-    razonamiento: process.env.OPENCODE_MODEL_RAZONAMIENTO || process.env.OPENCODE_MODEL || "deepseek-v4-flash-free",
-    balanceado: process.env.OPENCODE_MODEL_BALANCEADO || process.env.OPENCODE_MODEL || "deepseek-v4-flash-free",
-    rapido: process.env.OPENCODE_MODEL_RAPIDO || process.env.OPENCODE_MODEL || "deepseek-v4-flash-free",
+    razonamiento: process.env.OPENCODE_MODEL_RAZONAMIENTO || process.env.OPENCODE_MODEL || "big-pickle",
+    balanceado: process.env.OPENCODE_MODEL_BALANCEADO || process.env.OPENCODE_MODEL || "big-pickle",
+    rapido: process.env.OPENCODE_MODEL_RAPIDO || process.env.OPENCODE_MODEL || "big-pickle",
   } as const;
 
   function selectOpenCodeModel(strategy: ResponseStrategy, emotional: EmotionalState): string {
