@@ -4,7 +4,11 @@ import { logger } from "./logger";
 import { tenantManager, type TenantContext } from "./tenantManager";
 import { getWhatsAppForTenant } from "./whatsapp-factory";
 
-const AI_PROVIDERS_CONFIGURED = (process.env.AI_FALLBACK_ORDER || "groq,opencode_zen,opencode,github")
+// Mismo default que config/g4f.config.ts, y por el mismo motivo: `github`
+// está apagado (connection error) y `opencode_zen` no es un id de proveedor
+// que esta app resuelva. Contar como "configurados" a proveedores muertos
+// hacía que el panel de salud informara una cadena más sana de la que hay.
+const AI_PROVIDERS_CONFIGURED = (process.env.AI_FALLBACK_ORDER || "groq,opencode")
   .split(",")
   .map((p) => p.trim())
   .filter(Boolean);

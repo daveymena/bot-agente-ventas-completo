@@ -384,19 +384,64 @@ describe("Qué modelo se elige del catálogo real de Groq", () => {
 
   /**
    * REGRESIÓN. Los ids de PROVEEDORES_RAPIDOS son los del CATÁLOGO de OpenCode,
-   * no los que usa esta app. Estaban escritos "opencode_go" y "nvidia_nim"
-   * --como los nombra este código-- pero OpenCode los llama "opencode-go" y
-   * "nvidia". Al no coincidir con nada, esos dos proveedores no se podían
-   * descubrir NUNCA, aunque el admin tuviera la clave cargada.
+   * no los que usa esta app: OpenCode escribe "github-copilot" con guion,
+   * mientras este código nombra a sus proveedores con guion bajo. Un id que no
+   * coincide no falla con error: simplemente no aparece en el catálogo y el
+   * proveedor no se descubre NUNCA, aunque el admin tenga la clave cargada.
+   *
+   * El ejemplo original era "opencode-go", pero esa cuenta se dio de baja
+   * (2026-08-28) y salió de la lista. La lección no cambia, así que se prueba
+   * con el otro id con guion que sigue vivo en la lista.
    */
   it("usa los ids con los que OpenCode nombra a los proveedores", () => {
     const cadena = armarCadena({
       curados: [],
       conectados: new Set<string>(),
-      tenemosClave: (p) => p === "opencode-go",
-      modelosPorProveedor: new Map([["opencode-go", ["deepseek-v4-flash"]]]),
+      tenemosClave: (p) => p === "github-copilot",
+      modelosPorProveedor: new Map([["github-copilot", ["gpt-4o"]]]),
       respaldo: { providerID: "opencode", modelID: "big-pickle" },
     });
-    expect(cadena.map((c) => c.providerID)).toContain("opencode-go");
+    expect(cadena.map((c) => c.providerID)).toContain("github-copilot");
+  });
+
+  /**
+   * La otra mitad de lo mismo: un proveedor que SÍ tiene clave pero que está
+   * apagado no debe encabezar --ni integrar-- la cadena, porque cada intento
+   * cuesta una llamada real antes de descubrir que no responde.
+   *
+   * Medido el 2026-08-28: `nvidia` devuelve 410 (modelo retirado) y la cuenta
+   * de `opencode-go` se dio de baja. Los dos tenían clave cargada, así que se
+   * intentaban en cada turno.
+   */
+  it("no intenta los proveedores que se comprobó que están apagados", () => {
+    for (const muerto of ["nvidia", "opencode-go"]) {
+      const cadena = armarCadena({
+        curados: [],
+        conectados: new Set<string>(),
+        tenemosClave: (p) => p === muerto,
+        modelosPorProveedor: new Map([[muerto, ["cualquiera"]]]),
+        respaldo: { providerID: "opencode", modelID: "big-pickle" },
+      });
+      expect(cadena.map((c) => c.providerID), muerto).not.toContain(muerto);
+    }
+  });
+
+  /**
+   * Y Groq va PRIMERO: es el único que respondió en la ronda de pruebas del
+   * 2026-08-28 (442ms). Antes encabezaba Copilot, una cuenta que nunca llegó
+   * a configurarse -- empezar cada turno por la puerta que no abre.
+   */
+  it("Groq encabeza la cadena: es el único que contesta", () => {
+    const cadena = armarCadena({
+      curados: [],
+      conectados: new Set<string>(),
+      tenemosClave: (p) => p === "groq" || p === "copilot",
+      modelosPorProveedor: new Map([
+        ["groq", ["openai/gpt-oss-120b"]],
+        ["copilot", ["gpt-4o"]],
+      ]),
+      respaldo: { providerID: "opencode", modelID: "big-pickle" },
+    });
+    expect(cadena[0]?.providerID).toBe("groq");
   });
 });

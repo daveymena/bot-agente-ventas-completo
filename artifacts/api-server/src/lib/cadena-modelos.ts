@@ -35,18 +35,28 @@ export interface Candidato {
  * Los que ya están en la lista curada no se repiten.
  */
 export const PROVEEDORES_RAPIDOS = [
-  // Copilot primero: es la cuenta de PAGO del admin y la de mejor calidad del
-  // resto. La cadena del bot de ventas ya lo tiene segundo (agent.ts:1625);
-  // la de Atlas no lo tenia. Se listan varias grafias porque el id depende de
-  // como lo nombre OpenCode, y no se puede verificar desde aca: el que no
-  // exista simplemente no aparece en el catalogo y se ignora.
+  // Groq PRIMERO. Medido contra produccion el 2026-08-28, con llamada real
+  // proveedor por proveedor: es el unico que responde, y responde rapido
+  // (openai/gpt-oss-120b en 442ms, qwen3.8-27b en 348ms).
+  //
+  // Antes el primero era Copilot, "la cuenta de pago del admin". Esa cuenta
+  // NUNCA llego a configurarse: no hay token de Copilot en ningun lado -- ni
+  // en el auth.json local de OpenCode, ni en las variables de EasyPanel, ni
+  // en el equipo. El sistema caia al GITHUB_TOKEN, que es un PAT clasico
+  // (ghp_) y no sirve para canjear un token de Copilot. Encabezar la cadena
+  // con un proveedor inexistente es empezar cada turno por la puerta que no
+  // abre.
+  "groq", "cerebras",
+  // Copilot queda DESPUES, no afuera: un proveedor sin clave se saltea gratis
+  // (no cuesta ni una llamada), asi que tenerlo listado no gasta nada y el dia
+  // que el admin cargue el token entra solo. Las tres grafias siguen porque el
+  // id depende de como lo nombre OpenCode.
   "github-copilot", "github_copilot", "copilot",
-  // Los ids son los del CATÁLOGO de OpenCode, no los de esta app. Verificado
-  // el 2026-08-25 contra el /provider real: son "opencode-go" con guion y
-  // "nvidia" a secas. Estaban escritos como los nombra esta app
-  // ("opencode_go", "nvidia_nim"), así que no coincidían con nada y esos dos
-  // proveedores no se podían descubrir nunca, aunque el admin tuviera la clave.
-  "groq", "cerebras", "nvidia", "opencode-go",
+  // FUERA, y esto si costaba: los dos TIENEN clave cargada, asi que cada turno
+  // gastaba una llamada real en descubrir que no responden.
+  //   nvidia       410, modelo retirado (2026-08-28)
+  //   opencode-go  la cuenta se dio de baja (confirmado por el admin)
+  // Si alguna vuelve, se la agrega aca y entra sola.
   // "github" (GitHub Models) queda FUERA a proposito: GitHub lo esta
   // retirando. Verificado el 2026-08-19 contra los dos endpoints -- el viejo
   // devuelve 404 y el nuevo 410 "retirement brownout" -- y confirmado el
