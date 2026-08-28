@@ -826,7 +826,29 @@ export async function drainDraftPlan(tenantId: number, turnId: string): Promise<
 // hay razón de seguridad para esconder una lectura. El recorte se mantiene
 // solo para las que MUTAN, que además pasan por propose_action.
 const NUCLEO = new Set<string>([
-  ...READ_ONLY_TOOLS,
+  // ⚠️ Acá había un `...READ_ONLY_TOOLS` que ANULABA todo este archivo.
+  //
+  // `buildMcpToolRegistry` filtra las herramientas de lectura POR este núcleo.
+  // Si el núcleo arranca metiéndolas todas, el filtro no filtra nada: los
+  // GRUPOS de abajo no agregan nada porque ya estaban, y GENERAL_EXTRA
+  // tampoco. Cada pedido recibía el mismo paquete completo.
+  //
+  // Medido el 2026-08-28 con las dos puntas del rango:
+  //
+  //   "publicá un anuncio en Facebook..."  46 tools, 6.414 tokens
+  //   "cuántos productos tengo"            46 tools, 6.414 tokens  ← idéntico
+  //
+  // Y `buildToolsDoc`, que hace el mismo trabajo para /operator y NO tiene
+  // este bug, daba 6.853 y 1.662 para esos mismos dos pedidos. O sea que el
+  // recorte del 2026-08-27 (commit fb29755) funcionó en una ruta y quedó
+  // neutralizado en la otra -- justo en la que usa el panel.
+  //
+  // Ese es el costo real: contra el tope de 8.000 tokens por minuto de Groq,
+  // 6.414 tokens de esquemas no dejan lugar para el system, el perfil del
+  // negocio, el catálogo y la conversación. El pedido no entra, Groq lo
+  // descarta en medio segundo y el turno se va a los modelos chicos.
+  //
+  // El núcleo es lo que sigue: lo que hace falta para CUALQUIER pregunta.
   "analyze_system", "list_products", "list_categories", "dashboard_summary",
   "get_agent", "get_settings", "get_store",
   // `web_search`/`web_fetch` van en el núcleo, no en un grupo. Motivo medido
