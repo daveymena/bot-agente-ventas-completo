@@ -14,6 +14,7 @@ import {
 import { getProviderConfig, getProviderRotation, getProviderConfigFromSettings, createAIClient, getOpenCodeRotation, getOpenCodeGoRotation } from "@workspace/integrations-openai-ai-server";
 import { logger } from "./logger";
 import { supervisarRespuesta } from "./supervisor";
+import { hablarColombiano } from "./hablar-colombiano";
 import { calcularEstado, renderEstado } from "./estado-cognitivo";
 import { seccionQueCorresponde } from "./ficha-parcial";
 import { responderPregunta, aperturaPara } from "./conocimiento-producto";
@@ -2593,6 +2594,21 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
       } catch (e: any) {
         // Un fallo del candado no puede dejar al cliente sin respuesta.
         logger.error({ err: e?.message }, "[Precios] fallo el verificador");
+      }
+
+      // ── Último filtro: el cliente lee colombiano ──────────────────────────
+      //
+      // El voseo lleva CUATRO rondas de QA sin caer, con la regla escrita en
+      // mayúsculas en el prompt y con el prompt ya corregido. Medido después
+      // de ese arreglo: "Si DECIDÍS comprar, te envío el link de pago".
+      //
+      // Pedirle al modelo no alcanza. Se traduce acá, que es lo único que en
+      // este sistema funcionó siempre: lo que se puede decidir en el servidor,
+      // se decide en el servidor.
+      for (const parte of finalParts) {
+        if (parte.kind === "text" && (parte as any).content) {
+          (parte as any).content = hablarColombiano(String((parte as any).content));
+        }
       }
 
       console.log(`📋 [PARSER] partes:${finalParts.length} cards:${cardCount} - ${ts()}`);
