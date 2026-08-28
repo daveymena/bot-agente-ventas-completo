@@ -87,3 +87,47 @@ describe("el bot no negocia el precio", () => {
     expect(r.hallazgos.map((h) => h.regla)).not.toContain("descuento-aceptado");
   });
 });
+
+/**
+ * Ronda 4 (2026-08-27): el MISMO mensaje de la ronda 3 volvió a fallar igual,
+ * con R10 ya escrita y desplegada.
+ *
+ * La regla nunca se ejecutó: `agent.ts` se saltaba el supervisor entero cuando
+ * contestaba la base de conocimiento (`if (respondidoDeConocimiento) continue`).
+ * El razonamiento era correcto a medias -- la RESPUESTA está verificada -- pero
+ * la apertura "Claro que sí" no sale del conocimiento, la elige `aperturaPara`.
+ *
+ * Una regla que existe y no corre es peor que no tenerla: da por cerrado un
+ * defecto que sigue abierto.
+ */
+describe("una respuesta verificada también se revisa por pertinencia", () => {
+  const PIANO2 = { id: 123, name: "Curso de Piano Completo", price: 60000, kind: "digital" };
+
+  it("el caso de la ronda 4: apertura afirmativa sobre una respuesta del conocimiento", () => {
+    const r = supervisarRespuesta({
+      respuesta: "Claro que sí 😊 Tienes 7 días de garantía ✅ Si no te convence, te devolvemos el 100%.",
+      respuestaVerificada: true,
+      mensajeCliente: "me lo dejas en 30 mil? y si no me gusta me devuelves la plata?",
+      productos: [PIANO2],
+      idsEnContexto: [123],
+      llevaCard: false,
+    });
+    expect(r.bloquear).toBe(true);
+    expect(r.hallazgos.map((h) => h.regla)).toContain("descuento-aceptado");
+  });
+
+  it("pero NO se le revisa la veracidad: el texto del negocio se respeta", () => {
+    // Un precio dentro de una respuesta verificada no se toca: lo escribió el
+    // negocio, no el modelo.
+    const r = supervisarRespuesta({
+      respuesta: "El curso vale $60.000 y tiene 7 días de garantía.",
+      respuestaVerificada: true,
+      mensajeCliente: "cuanto vale y que garantia tiene?",
+      productos: [PIANO2],
+      idsEnContexto: [123],
+      llevaCard: false,
+    });
+    expect(r.bloquear).toBe(false);
+    expect(r.texto).toMatch(/60\.000/);
+  });
+});

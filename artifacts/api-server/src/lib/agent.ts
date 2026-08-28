@@ -2475,12 +2475,30 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
 
         for (const parte of finalParts) {
           if (parte.kind !== "text" || !parte.content) continue;
-          // Lo que salió de la base de conocimiento ya está verificado: no hay
-          // nada que supervisar y el supervisor solo podría estropearlo.
-          if (respondidoDeConocimiento) continue;
-
+          // ⚠️ Acá decía `if (respondidoDeConocimiento) continue;` -- se
+          // saltaba el supervisor ENTERO. El razonamiento era correcto a
+          // medias: la RESPUESTA está verificada, sí. Pero dos cosas no.
+          //
+          // La primera es la apertura: no sale del conocimiento, la elige
+          // `aperturaPara()`, y una de las que puede tocar es "Claro que sí".
+          // Medido en la ronda 4 (2026-08-27) con el mismo mensaje que ya
+          // había fallado en la ronda 3:
+          //
+          //   cliente: "me lo dejas en 30 mil? ... me devuelves la plata?
+          //             ... tienes algo físico con envío a Quibdó?"
+          //   bot:     "Claro que sí 😊 Tienes 7 días de garantía ✅"
+          //
+          // La regla que existe para eso (R10) estaba escrita y desplegada, y
+          // no se ejecutó nunca porque este `continue` la saltaba.
+          //
+          // La segunda es que "verificado" habla de si el texto es CIERTO, no
+          // de si viene al caso: acá contestó una de tres preguntas.
+          //
+          // Ahora se supervisa igual, avisando que el texto está verificado
+          // para que no se revise su veracidad -- solo su pertinencia.
           const revision = supervisarRespuesta({
             respuesta: parte.content,
+            respuestaVerificada: respondidoDeConocimiento,
             mensajeCliente: lastText,
             productos: productList as any,
             idsEnContexto,

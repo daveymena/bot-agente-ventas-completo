@@ -47,6 +47,22 @@ export interface EntradaSupervisor {
   productos: Array<ProductoParaPrecio & { kind?: string | null; deliveryLink?: string | null }>;
   /** Ids del producto del que se esta hablando. */
   idsEnContexto: number[];
+  /**
+   * El texto NO lo redacto el modelo: salio de la base de conocimiento, que
+   * ya esta verificada por el negocio.
+   *
+   * Con esto se saltan las reglas que juzgan si el texto DICE la verdad --
+   * revisarlas seria desconfiar de lo que el propio negocio escribio, y de
+   * paso podrian estropearlo.
+   *
+   * Lo que NO se salta son las reglas que juzgan si la respuesta VIENE AL
+   * CASO: que no acepte una rebaja, que no deje preguntas sin contestar, que
+   * no nombre una entrega que no es. Esas no miran la verdad del texto sino
+   * su relacion con lo que el cliente pregunto, y una respuesta verificada
+   * puede fallar ahi igual.
+   */
+  respuestaVerificada?: boolean;
+
   /** Metodos de pago que el negocio verifica A MANO (Nequi, Daviplata...). */
   pagosManuales?: string[];
 
@@ -160,6 +176,10 @@ export function supervisarRespuesta(e: EntradaSupervisor): RevisionSupervisor {
   const hallazgos: Hallazgo[] = [];
   let texto = e.respuesta || "";
   let bloquear = false;
+
+  // Las reglas que siguen juzgan si el texto dice la VERDAD, y por eso solo
+  // aplican a lo que redacto el modelo. Ver `respuestaVerificada`.
+  if (!e.respuestaVerificada) {
 
   // ── R1 · Ningun monto que no sea de un producto real ───────────────────────
   // Medido (conversacion 1, mensajes 258-264): Excel cotizado a $45.000
@@ -376,6 +396,8 @@ export function supervisarRespuesta(e: EntradaSupervisor): RevisionSupervisor {
       detalle: `Ofrecía un extra que no existe en el catálogo: "${antes.slice(0, 80)}"`,
     });
   }
+
+  } // fin de las reglas que solo aplican a lo que redacto el modelo
 
   // ── R11 · Contestar una de tres y descartar el resto ─────────────────────
   //
