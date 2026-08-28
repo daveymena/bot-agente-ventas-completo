@@ -496,7 +496,7 @@ async function buildProductCaption(p: typeof products.$inferSelect, categoryName
   lines.push("");
 
   if (dynamicLinks) {
-    lines.push(variante([`💳 *FORMAS DE PAGO*`, `💳 *Podés pagar así*`, `💳 *Medios de pago*`, `💳 *Cómo pagar*`], sem));
+    lines.push(variante([`💳 *FORMAS DE PAGO*`, `💳 *Puedes pagar así*`, `💳 *Medios de pago*`, `💳 *Cómo pagar*`], sem));
     lines.push("");
 
     // Enlace CORTO primero. El acortador ya existía y generaba /p/<código>,
@@ -533,11 +533,11 @@ async function buildProductCaption(p: typeof products.$inferSelect, categoryName
   // ahí ve el producto con su foto y su ficha completa. El enlace corto /p/<id>
   // redirige a la página real y ya trae vista previa con imagen al compartirse.
   const urlTienda = `${(process.env.APP_URL || "https://ventasproia.com").replace(/\/+$/, "")}/p/${p.id}`;
-  lines.push(variante([`🛒 *O comprá directo en la tienda:*`, `🛒 *También podés comprarlo acá:*`, `🛒 *Directo desde la web:*`, `🛒 *Si preferís, desde la tienda:*`], sem));
+  lines.push(variante([`🛒 *O comprá directo en la tienda:*`, `🛒 *También puedes comprarlo acá:*`, `🛒 *Directo desde la web:*`, `🛒 *Si preferís, desde la tienda:*`], sem));
   lines.push(urlTienda);
   lines.push("");
 
-  lines.push(variante([`🚀 *¿Querés comprarlo ahora o tenés alguna pregunta?*`, `🚀 *¿Lo querés llevar o te resuelvo alguna duda primero?*`, `🚀 *¿Arrancamos hoy o te queda alguna pregunta?*`, `🚀 *¿Te lo activo ahora o querés saber algo más?*`, `🚀 *¿Seguimos con la compra o te ayudo con algo más?*`], sem));
+  lines.push(variante([`🚀 *¿Quieres comprarlo ahora o tienes alguna pregunta?*`, `🚀 *¿Lo quieres llevar o te resuelvo alguna duda primero?*`, `🚀 *¿Arrancamos hoy o te queda alguna pregunta?*`, `🚀 *¿Te lo activo ahora o quieres saber algo más?*`, `🚀 *¿Seguimos con la compra o te ayudo con algo más?*`], sem));
   
   return lines.join("\n");
 }

@@ -1101,12 +1101,12 @@ un emoji por línea, texto corto, sin asteriscos ni guiones.
 
 ⚠️ La ficha del producto la manda el sistema aparte, con foto, precio y
 enlaces. Tu texto es lo que la ACOMPAÑA: nunca repitas lo que ya va en la
-ficha, y no la anuncies con un "acá tenés" pelado.
+ficha, y no la anuncies con un "acá tienes" pelado.
 
 ❌ "¡Perfecto! Aquí tienes el curso de piano 🎹"
    (sirve para cualquier cliente y cualquier producto: eso es exactamente el problema)
 ✅ "Qué bueno que te intereses por el piano 🎹 Te dejo la info completa acá abajo
-   así la mirás con calma — y si querés te cuento por dónde conviene arrancar."
+   así la mirás con calma — y si quieres te cuento por dónde conviene arrancar."
 
 Tres reglas de tono que valen para TODOS los mensajes:
 • Reconocé lo que la persona dijo ANTES de entregarle nada.
@@ -1196,7 +1196,7 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
   const bloqueMoneda = monedaCliente.esColombia
     ? ""
     : `\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n🌎 ESTE CLIENTE NO ES DE COLOMBIA${monedaCliente.pais ? ` (${monedaCliente.pais})` : ""}\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`
-      + `Los precios del catálogo están en PESOS COLOMBIANOS. Cuando le digas un precio, aclarale SIEMPRE que es en pesos colombianos y, si sabés el equivalente, dáselo en dólares. Nunca digas "$60.000" a secas: lo va a leer como su propia moneda.\n`
+      + `Los precios del catálogo están en PESOS COLOMBIANOS. Cuando le digas un precio, aclarale SIEMPRE que es en pesos colombianos y, si sabes el equivalente, dáselo en dólares. Nunca digas "$60.000" a secas: lo va a leer como su propia moneda.\n`
       + `Para pagar, ofrecele SOLO PayPal o tarjeta internacional. NO le ofrezcas Nequi ni Daviplata (son billeteras colombianas, no las tiene) ni el checkout de MercadoPago Colombia (le rechaza la tarjeta).\n`
       + `El producto es digital: lo recibe igual esté donde esté, sin envíos ni aduana. Decíselo, es de las primeras dudas que tiene alguien comprando de otro país.`;
 
@@ -1206,7 +1206,7 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
       + (anuncio.cuerpo ? `Texto del anuncio: "${anuncio.cuerpo}"\n` : "")
       + (anuncio.url ? `Link del anuncio: ${anuncio.url}\n` : "")
       + `\nEl mensaje que ves ("${lastText}") lo autocompletó Facebook al hacer clic — NO lo escribió él.\n`
-      + `Ya sabés qué vino a buscar: hablale DE ESE PRODUCTO desde el primer mensaje.\n`
+      + `Ya sabes qué vino a buscar: hablale DE ESE PRODUCTO desde el primer mensaje.\n`
       + `NO le preguntes "¿qué estás buscando?" ni "¿en qué te ayudo?" — ya te lo dijo con el clic.\n`
       + `Saludá en una línea corta y pasá directo al producto del anuncio.`
     : "";
@@ -1281,7 +1281,7 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
           const siguiente = ds.CAMPOS_DE_ENVIO.find((c) => c.campo === faltan[0]);
           bloqueDropshipping =
             `\n\n📦 PEDIDO EN CURSO — ${pedido.productName}\n`
-            + (ya.length ? `Datos que YA tenés (no los vuelvas a pedir): ${ya.join(" · ")}\n` : "")
+            + (ya.length ? `Datos que YA tienes (no los vuelvas a pedir): ${ya.join(" · ")}\n` : "")
             + `Todavía falta: ${faltan.join(", ")}.\n`
             + (siguiente
               ? `Pedí SOLO esto ahora, con tus palabras y en una línea: ${variante(siguiente.pregunta, `${conversationId}|${siguiente.campo}`)}\n`
@@ -1441,9 +1441,9 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
       const quien = esNombreReal(customerName) ? ` ${customerName}` : "";
       const raw = variante([
         `¡Hola${quien}! 👋 Bienvenido a *${business}*. ¿Qué estás buscando hoy?`,
-        `¡Hola${quien}! 😊 Soy de *${business}*. Contame qué necesitás y te ayudo.`,
+        `¡Hola${quien}! 😊 Soy de *${business}*. Cuéntame qué necesitas y te ayudo.`,
         `¡Qué tal${quien}! 👋 Acá *${business}*. ¿En qué te puedo ayudar?`,
-        `¡Hola${quien}! 🙌 Bienvenido a *${business}*. Decime qué te interesa.`,
+        `¡Hola${quien}! 🙌 Bienvenido a *${business}*. Dime qué te interesa.`,
       ], String(conversationId));
 
       await saveAgentMessage(conversationId, raw, "greeting", { intent: "greeting", isHardcoded: true });
@@ -1466,15 +1466,15 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
     const semilla = `${conversationId}|${memory.messageCount}`;
     const raw = emocion === "frustrated"
       ? varianteDistintaDe([
-          `Hola de nuevo${nm}. Contame qué pasó y lo resolvemos 🤝`,
-          `${nm ? `${nm.trim()},` : "Hey,"} acá estoy 🤝 Decime qué salió mal y lo vemos.`,
-          `Hola${nm} 🙌 Contame qué pasó y te ayudo a resolverlo.`,
+          `Hola de nuevo${nm}. Cuéntame qué pasó y lo resolvemos 🤝`,
+          `${nm ? `${nm.trim()},` : "Hey,"} acá estoy 🤝 Dime qué salió mal y lo vemos.`,
+          `Hola${nm} 🙌 Cuéntame qué pasó y te ayudo a resolverlo.`,
         ], semilla, memory.lastAgentMessage)
       : varianteDistintaDe([
           `¡Hey${nm}! Qué bueno verte de nuevo 😊 ¿En qué te ayudo?`,
           `¡Hola${nm}! 👋 ¿Qué andás buscando hoy?`,
-          `${nm ? `¡${nm.trim()}!` : "¡Hola!"} 😊 Contame en qué te puedo ayudar.`,
-          `¡Qué gusto verte${nm}! 🙌 ¿Qué necesitás?`,
+          `${nm ? `¡${nm.trim()}!` : "¡Hola!"} 😊 Cuéntame en qué te puedo ayudar.`,
+          `¡Qué gusto verte${nm}! 🙌 ¿Qué necesitas?`,
         ], semilla, memory.lastAgentMessage);
 
     await saveAgentMessage(conversationId, raw, memory.currentStage, { intent: "greeting", isHardcoded: true });
@@ -2221,7 +2221,7 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
       if (!isPaymentFlow && !esChatSocial && idPedido && validIds.has(idPedido) && !raw.includes("[CARD:")) {
         // Solo forzar si la respuesta parece estar hablando DEL producto
         // (menciona la primera palabra de su nombre) y no es una pregunta de
-        // clarificación genérica ("¿querés que te lo muestre?").
+        // clarificación genérica ("¿quieres que te lo muestre?").
         const primeraPalabra = productoPedido?.name?.toLowerCase().split(" ")[0];
         const nombraProducto = primeraPalabra ? raw.toLowerCase().includes(primeraPalabra) : true;
         if (nombraProducto) {
@@ -2585,7 +2585,7 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
         aiProvider: usedProvider,
         cardSent: cardCount > 0,
         // El producto en foco NO es solo el de la tarjeta enviada. Si el bot
-        // respondió con texto sin tarjeta ("¿querés que te pase la info?"), el
+        // respondió con texto sin tarjeta ("¿quieres que te pase la info?"), el
         // producto que el cliente NOMBRÓ en este mensaje (productoDelMensaje)
         // es lo que debe quedar en foco. Antes esto solo miraba la tarjeta o
         // productToShow, así que una respuesta sin tarjeta dejaba el foco vacío

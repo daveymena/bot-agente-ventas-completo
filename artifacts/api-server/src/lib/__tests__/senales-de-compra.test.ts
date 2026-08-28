@@ -105,7 +105,7 @@ describe("después de mandar la ficha hay que avanzar, no repetir", () => {
 
   it("si no sabe para qué lo quiere, manda preguntarlo", () => {
     expect(conFicha("ah ok, se ve bien").bloque).toContain(
-      "Todavía no sabés para qué lo quiere",
+      "Todavía no sabes para qué lo quiere",
     );
   });
 

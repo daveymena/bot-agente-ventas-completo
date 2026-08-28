@@ -29,7 +29,7 @@ Problema → Deseo → Solución → Beneficio → Producto → Confianza → Ac
 
 EL GANCHO (primeras palabras) decide si alguien sigue leyendo.
 Tipos que funcionan: pregunta · problema · deseo · curiosidad · error común ·
-identificación ("si sos de los que...") · beneficio directo.
+identificación ("si eres de los que...") · beneficio directo.
 NUNCA arranques con "Tenemos disponible", "Nuevo producto", "Compra ahora",
 "Oferta" ni "Producto de excelente calidad": son genéricos y no detienen a nadie.
 
@@ -44,7 +44,7 @@ característica + qué significa + qué gana el cliente.
 
 REGLA 80/20: hablá del CLIENTE, no de la empresa.
 Evitá "nosotros tenemos", "somos una empresa", "vendemos".
-Preferí "podés", "obtené", "aprendé", "organizá", "solucioná", "descubrí".
+Preferí "puedes", "obtené", "aprendé", "organizá", "solucioná", "descubrí".
 
 UNA SOLA ACCIÓN por anuncio. Nada de "compra, comparte, comenta y seguinos".
 

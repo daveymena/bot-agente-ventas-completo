@@ -73,7 +73,7 @@ export const CAMPOS_DE_ENVIO: Array<{
     pregunta: [
       "¿A qué ciudad lo enviamos? 🏙️",
       "¿En qué ciudad estás? Así calculo la entrega 📍",
-      "Contame la ciudad y te digo cuánto se demora 🚚",
+      "Cuéntame la ciudad y te digo cuánto se demora 🚚",
     ],
   },
   {
@@ -140,7 +140,7 @@ export function contextoDeDropshipping(): string {
     "  Es un dato FIJO del negocio: decilo con seguridad y NUNCA lo cambies según la ciudad ni lo estimes.",
     "• Pago CONTRA ENTREGA: el cliente paga en efectivo cuando recibe el paquete. No se cobra por adelantado.",
     "• NO se entrega por Google Drive ni por link: esto se despacha físicamente.",
-    "• Para despacharlo necesitás: nombre completo, ciudad, departamento, dirección, celular y cédula.",
+    "• Para despacharlo necesitas: nombre completo, ciudad, departamento, dirección, celular y cédula.",
     "  Pedí UNO a la vez, con naturalidad. Nunca mandes la lista completa de golpe.",
     "• Nunca inventes número de guía ni fecha exacta de llegada: solo el rango de arriba.",
   ].join("\n");

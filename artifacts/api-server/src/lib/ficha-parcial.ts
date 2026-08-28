@@ -268,7 +268,7 @@ function invitacionesDe(s: SeccionFicha, esFisico: boolean, tieneVideo = true): 
       // Ya sabe cuánto cuesta. Lo que falta es qué se lleva por eso.
       return [
         "¿Te muestro todo lo que trae? 👀",
-        "¿Querés ver qué incluye?",
+        "¿Quieres ver qué incluye?",
         "¿Te cuento qué viene adentro? 👀",
       ];
 

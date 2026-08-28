@@ -76,12 +76,12 @@ export function mensajeDeRecuperacion(ctx: ContextoDeRecuperacion): string | nul
   // volver con el mismo argumento que no funcionó no funciona la segunda vez.
   const porObjecion: Record<string, string[]> = {
     price: [
-      `Quedamos con ${producto} pendiente por el precio. Si querés lo vemos de nuevo con calma, sin compromiso.`,
+      `Quedamos con ${producto} pendiente por el precio. Si quieres lo vemos de nuevo con calma, sin compromiso.`,
       `Sé que el precio de ${producto} te hizo dudar. ¿Te sirve si te cuento bien qué incluye para que decidas?`,
     ],
     trust: [
       `Quedó pendiente ${producto}. Si te quedó alguna duda de cómo funciona, preguntame lo que sea.`,
-      `Sobre ${producto}: cualquier cosa que quieras verificar antes de decidir, decime y te la muestro.`,
+      `Sobre ${producto}: cualquier cosa que quieras verificar antes de decidir, dime y te la muestro.`,
     ],
     timing: [
       `Me quedó ${producto} pendiente de tu lado. ¿Lo retomamos ahora o preferís más adelante?`,
@@ -92,7 +92,7 @@ export function mensajeDeRecuperacion(ctx: ContextoDeRecuperacion): string | nul
   const generales = [
     `Quedamos a mitad de camino con ${producto} 😊 ¿Te ayudo a terminarlo?`,
     `Vi que quedó pendiente ${producto}. Si te falta algún dato para decidir, preguntame.`,
-    `¿Seguimos con ${producto}? Si algo no te cerró, contame qué fue.`,
+    `¿Seguimos con ${producto}? Si algo no te cerró, cuéntame qué fue.`,
     `Te escribo por ${producto}, que quedó a medias. ¿Lo retomamos?`,
     `Quedó ${producto} sin cerrar. ¿Hay algo puntual que te frene?`,
     `Sobre ${producto}: quedé esperando tu respuesta. ¿Lo vemos?`,

@@ -294,7 +294,7 @@ export function puntuarCopy(args: { primaryText?: string; headline?: string }): 
   const primeraLinea = texto.split("\n").find((l) => l.trim())?.trim() || "";
 
   // El gancho: ¿la apertura hace algo, o es relleno? Una pregunta, una escena,
-  // una cifra o una identificación ("si sos de los que...") detienen; anunciar
+  // una cifra o una identificación ("si eres de los que...") detienen; anunciar
   // el producto, no.
   const ganchoActivo =
     /\?/.test(primeraLinea) ||

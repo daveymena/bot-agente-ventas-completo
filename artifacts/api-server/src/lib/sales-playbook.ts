@@ -235,7 +235,7 @@ const JUGADAS: Record<ObjectionType, string[]> = {
   ],
   competitor_preference: [
     "Preguntá qué le atrae de la otra opción antes de argumentar.",
-    "Diferenciá solo con lo que podés probar del catálogo. Si la otra es mejor en algo, no lo niegues: mostrá dónde ganás vos.",
+    "Diferenciá solo con lo que puedes probar del catálogo. Si la otra es mejor en algo, no lo niegues: mostrá dónde ganás vos.",
   ],
   trust_concerns: [
     "La desconfianza no se responde con entusiasmo: se responde con hechos concretos y verificables.",
@@ -248,7 +248,7 @@ const JUGADAS: Record<ObjectionType, string[]> = {
   ],
   timing_not_right: [
     "Aceptá el momento, pero PACTÁ el próximo paso con fecha: '¿Te escribo el lunes?'",
-    "Dejar 'cuando quieras avisame' es perder el hilo: nadie vuelve solo.",
+    "Dejar 'cuando quieras avísame' es perder el hilo: nadie vuelve solo.",
   ],
   decision_maker_absent: [
     "Preguntá qué le va a preguntar la otra persona y dale ESA respuesta lista para mostrar.",
@@ -259,8 +259,8 @@ const JUGADAS: Record<ObjectionType, string[]> = {
     "Preguntá qué lo hizo escribirte: algo lo trajo hasta acá.",
   ],
   technical_concerns: [
-    "Respondé lo técnico con precisión y sin vueltas: dudar acá se lee como que no sabés.",
-    "Si no tenés el dato, decí que lo confirmás. No improvises especificaciones.",
+    "Respondé lo técnico con precisión y sin vueltas: dudar acá se lee como que no sabes.",
+    "Si no tienes el dato, decí que lo confirmás. No improvises especificaciones.",
   ],
   none: [],
 };
@@ -293,7 +293,7 @@ export function construirPlaybook(e: EntradaPlaybook): SalidaPlaybook {
   // dato del sistema. Persuadir sube la tentación de fabricar: el freno tiene
   // que leerse ANTES que las jugadas, no después.
   l.push(`🔒 ANTES QUE NADA — LO QUE NO PODÉS INVENTAR NUNCA, ni para ganar la venta:`);
-  l.push(`   ❌ Precios, planes o defectos de la COMPETENCIA. No sabés cuánto cobran otros. Prohibido "comparado con X que sale $Y".`);
+  l.push(`   ❌ Precios, planes o defectos de la COMPETENCIA. No sabes cuánto cobran otros. Prohibido "comparado con X que sale $Y".`);
   l.push(`   ❌ Clientes, alumnos, casos de éxito, cantidades, reseñas o testimonios. Prohibido "tenemos alumnos que...", "muchos clientes...", "el 90% de...".`);
   l.push(`   ❌ Cupos, stock limitado, fechas límite, descuentos o promociones que no figuren en el catálogo.`);
   l.push(`   ❌ Características, duraciones, resultados o garantías que no estén en el catálogo ni en los datos del negocio.`);
@@ -402,7 +402,7 @@ export function construirPlaybook(e: EntradaPlaybook): SalidaPlaybook {
   const sabeQueQuiere = sabemosQueQuiereLograr(e.historial);
   if (!sabeQueQuiere && !evasiva && e.mensajesDelCliente <= 3 && !cerrando) {
     l.push(`\n🔎 TODAVÍA NO SABÉS PARA QUÉ LO QUIERE.`);
-    l.push(`   Sabés qué producto mira, no qué quiere lograr con él — y sin eso solo podés recitar características.`);
+    l.push(`   Sabes qué producto mira, no qué quiere lograr con él — y sin eso solo puedes recitar características.`);
     l.push(`   Dale primero algo de valor (una razón concreta por la que le sirve) y DESPUÉS preguntá UNA sola cosa:`);
     l.push(`   para qué lo quiere, desde qué nivel arranca, o para quién es.`);
     l.push(`   Una pregunta. No un cuestionario.`);
@@ -430,7 +430,7 @@ export function construirPlaybook(e: EntradaPlaybook): SalidaPlaybook {
     l.push(`   Repetírselo con otras palabras no lo acerca ni un paso: lo aburre.`);
     l.push(`   Este mensaje tiene UNA tarea: moverlo al paso siguiente.`);
     if (!sabeQueQuiere) {
-      l.push(`   · Todavía no sabés para qué lo quiere. Preguntáselo AHORA, en una sola pregunta concreta:`);
+      l.push(`   · Todavía no sabes para qué lo quiere. Preguntáselo AHORA, en una sola pregunta concreta:`);
       l.push(`     con esa respuesta el próximo mensaje ya puede ser un cierre en vez de otro folleto.`);
     } else {
       l.push(`   · Conectá el producto con lo que ÉL ya te contó que quiere lograr, en una línea.`);
@@ -457,7 +457,7 @@ export function construirPlaybook(e: EntradaPlaybook): SalidaPlaybook {
       // El primer mensaje decide si la persona sigue leyendo o cierra el chat.
       l.push(`   Es su PRIMER mensaje. Recibilo como recibirías a alguien que entra a tu local:`);
       l.push(`   dale la bienvenida, nombrá el producto por el que vino (así sabe que le entendiste),`);
-      l.push(`   y entregale la info. Cálido y breve — no un discurso, pero tampoco un "acá tenés".`);
+      l.push(`   y entregale la info. Cálido y breve — no un discurso, pero tampoco un "acá tienes".`);
       l.push(`   Algo en el espíritu de: "¡Hola! Qué bueno tenerte por acá 😊 Veo que venís por`);
       l.push(`   [producto] — te dejo toda la info acá abajo." Con tus palabras, no copiado.`);
     }
@@ -493,7 +493,7 @@ export function construirPlaybook(e: EntradaPlaybook): SalidaPlaybook {
   l.push(`
 🧠 RAZONÁ Y RECOMENDÁ — no seas un buscador con patas:`);
   l.push(`   · Conectá lo que te dijo con lo que le conviene. No es "este curso tiene 19 módulos",`);
-  l.push(`     es "como arrancás de cero, los primeros módulos son justo lo que necesitás".`);
+  l.push(`     es "como arrancás de cero, los primeros módulos son justo lo que necesitas".`);
   l.push(`   · Cuando haya una opción claramente mejor PARA ÉL, decila con nombre y con motivo:`);
   l.push(`     "por lo que me contás, yo iría por este, y te digo por qué". Recomendar es tu trabajo;`);
   l.push(`     poner tres opciones sobre la mesa y que elija solo es escaparle.`);
