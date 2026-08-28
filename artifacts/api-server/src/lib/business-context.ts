@@ -46,7 +46,7 @@
  * este módulo es dónde vive esa respuesta una vez que el dueño la da.
  */
 import { db, tenants, settings as settingsTable, products } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import { logger } from "./logger";
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
@@ -360,7 +360,14 @@ export async function getBusinessContext(
       const filas = await db
         .select({ kind: products.kind, deliveryLink: products.deliveryLink })
         .from(products)
-        .where(eq(products.tenantId, tenantId))
+        // ⚠️ Solo los ACTIVOS. Antes miraba el catálogo entero, así que los 56
+        // productos físicos desactivados seguían diciéndole al agente que el
+        // negocio hace envíos -- y por eso el bot contestaba distinto según el
+        // día sobre si vende físico, cuatro rondas de QA seguidas.
+        //
+        // Apagar un producto tiene que apagarlo en TODAS partes; si no, queda
+        // vivo en el único lugar que nadie mira.
+        .where(and(eq(products.tenantId, tenantId), eq(products.isActive, true)))
         .limit(200);
 
       const derivado = derivarDeProductos(filas as any[]);
