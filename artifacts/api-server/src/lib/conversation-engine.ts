@@ -1610,7 +1610,7 @@ export async function computeDecision(
   let coincidenciaFiel = false;
   let productoDelMensaje: EngineDecision["productoDelMensaje"] = null;
 
-  // "mandámela de nuevo", "no me llegó", "reenviame la ficha"
+  // "mándamela de nuevo", "no me llegó", "reenviame la ficha"
   // Sin \b al final a propósito: "reenviame", "llegó", "mandámela" siguen con
   // más letras y un cierre de palabra los dejaba afuera.
   const pidioReenvio = /\b(de nuevo|otra vez|reenvi|re-?envi|no me lleg|no lleg|volv[eé]?[a-z]* a (mandar|enviar|pasar)|p[aá]sa(me|mela)?\s+(de nuevo|otra vez)|manda(me|mela)?\s+(de nuevo|otra vez))/i.test(t);
@@ -1904,11 +1904,11 @@ export function buildContextBlock(
     lines.push(`\n\n━━━━━━━━━━━━━━━━━━━━━━━`);
     lines.push(`📇 TODO LO QUE VENDE ESTE NEGOCIO (${allProducts.length} productos)`);
     lines.push(`━━━━━━━━━━━━━━━━━━━━━━━`);
-    lines.push(`Si está en esta lista, EXISTE y se vende. Mandá su ficha con [CARD: ID].`);
+    lines.push(`Si está en esta lista, EXISTE y se vende. Manda su ficha con [CARD: ID].`);
     for (const p of allProducts) {
       lines.push(`[${p.id}] ${p.name}`);
     }
-    lines.push(`Si el cliente nombra algo que NO está acá, no lo tenemos: decíselo con naturalidad y ofrecé lo más parecido que sí esté. Nunca inventes un producto.`);
+    lines.push(`Si el cliente nombra algo que NO está acá, no lo tenemos: díselo con naturalidad y ofrece lo más parecido que sí esté. Nunca inventes un producto.`);
   }
 
   // ── Estado de la conversación ──────────────────────────────────────────────
@@ -1931,12 +1931,12 @@ export function buildContextBlock(
     lines.push(`\n🔁 YA LE MANDASTE LA FICHA COMPLETA DE: producto(s) ${yaMostrados}`);
     lines.push(`   El cliente YA TIENE el nombre, el precio, lo que incluye y los enlaces de pago de ese producto.`);
     lines.push(`   ❌ NO se la repitas. Repetir lo mismo que ya dijiste te hace sonar a robot y hace que el cliente deje de leer.`);
-    lines.push(`   ✅ En vez de eso, RAZONÁ qué le falta saber a ESTE cliente para decidir, y respondé SOLO eso:`);
-    lines.push(`      · Si pregunta algo puntual (cuánto dura, si sirve para principiantes, cómo se paga), contestá ESA pregunta y nada más.`);
-    lines.push(`      · Si repite la misma pregunta, es que algo no le quedó claro o no está convencido: preguntale qué duda le queda, o tocá un ángulo distinto del que ya usaste.`);
-    lines.push(`      · Si no pregunta nada concreto, avanzá la venta: una objeción típica resuelta, o preguntá qué lo está frenando.`);
-    lines.push(`   Podés dar por sabido lo que ya le dijiste: referite a eso ("el de $60.000 que te pasé", "el que tiene los 19 módulos") en vez de volver a listarlo.`);
-    lines.push(`   Solo volvé a mandar la ficha si el cliente la PIDE explícitamente ("mandámela de nuevo", "no me llegó") o si es un producto DISTINTO.`);
+    lines.push(`   ✅ En vez de eso, RAZONA qué le falta saber a ESTE cliente para decidir, y responde SOLO eso:`);
+    lines.push(`      · Si pregunta algo puntual (cuánto dura, si sirve para principiantes, cómo se paga), contesta ESA pregunta y nada más.`);
+    lines.push(`      · Si repite la misma pregunta, es que algo no le quedó claro o no está convencido: pregúntale qué duda le queda, o toca un ángulo distinto del que ya usaste.`);
+    lines.push(`      · Si no pregunta nada concreto, avanza la venta: una objeción típica resuelta, o pregunta qué lo está frenando.`);
+    lines.push(`   Puedes dar por sabido lo que ya le dijiste: refiérete a eso ("el de $60.000 que te pasé", "el que tiene los 19 módulos") en vez de volver a listarlo.`);
+    lines.push(`   Solo vuelve a mandar la ficha si el cliente la PIDE explícitamente ("mándamela de nuevo", "no me llegó") o si es un producto DISTINTO.`);
   }
 
   // Si la búsqueda de producto no encontró nada coherente
@@ -1954,9 +1954,9 @@ export function buildContextBlock(
     // vez ("no afirmes que es lo que pidió" + "contestá sobre ESE producto"), y
     // ante esa contradicción el modelo termina afirmando.
     if (coincidenciaFiel) {
-      lines.push(`\n⚠️ Contestá sobre ESE producto. Si el historial habla de otro, ese ya pasó: el cliente cambió de tema y hay que seguirlo.`);
+      lines.push(`\n⚠️ Contesta sobre ESE producto. Si el historial habla de otro, ese ya pasó: el cliente cambió de tema y hay que seguirlo.`);
     } else {
-      lines.push(`\n⚠️ OJO: eso es lo más parecido del catálogo, NO lo que el cliente nombró. Ofrecelo como alternativa y preguntá si le sirve; no lo des por hecho.`);
+      lines.push(`\n⚠️ OJO: eso es lo más parecido del catálogo, NO lo que el cliente nombró. Ofrecelo como alternativa y pregunta si le sirve; no lo des por hecho.`);
     }
   }
 
@@ -1974,8 +1974,8 @@ export function buildContextBlock(
       lines.push(`   (En el historial aparece "${memory.currentProductName}". Es SOLO un antecedente: no lo des por vigente.)`);
     }
     lines.push(`\n✅ QUÉ HACER:`);
-    lines.push(`   · Si más arriba figura un ANUNCIO del que llegó el cliente, ESE es el tema: hablá de ese producto.`);
-    lines.push(`   · Si no hay anuncio, saludá corto y preguntá UNA sola cosa concreta: qué está buscando.`);
+    lines.push(`   · Si más arriba figura un ANUNCIO del que llegó el cliente, ESE es el tema: habla de ese producto.`);
+    lines.push(`   · Si no hay anuncio, saludá corto y pregunta UNA sola cosa concreta: qué está buscando.`);
     lines.push(`   · Nunca inventes por dónde vino ni le atribuyas un interés que no expresó.`);
   }
 
@@ -1984,10 +1984,10 @@ export function buildContextBlock(
   // alguien que no pidió nada puntual, solo quería ver qué hay.
   if (pidioVerCatalogo) {
     lines.push(`\n📚 EL CLIENTE PIDIÓ VER QUÉ HAY. No pidió un producto puntual.`);
-    lines.push(`\n🚨 NO le digas que no tenés lo que busca: no pidió nada que puedas no tener.`);
+    lines.push(`\n🚨 NO le digas que no tienes lo que busca: no pidió nada que puedas no tener.`);
     lines.push(`🚨 NO le devuelvas la pregunta ("¿qué estás buscando?"). Ya te dijo qué quiere: ver la oferta.`);
     lines.push(`\n✅ QUÉ HACER: mostrale entre 3 y 5 opciones concretas del catálogo de arriba, con nombre y precio,`);
-    lines.push(`   en una lista corta. Elegí las más distintas entre sí para que se vea la variedad.`);
+    lines.push(`   en una lista corta. Elige las más distintas entre sí para que se vea la variedad.`);
     lines.push(`   Cerrá con UNA sola pregunta para que elija ("¿cuál te llama la atención?"). Una. No un cuestionario.`);
   }
 
@@ -2013,7 +2013,7 @@ export function buildContextBlock(
     // interrogar: es la única forma de avanzar. La regla unificada es la
     // misma del resto del motor: se pregunta cuando la respuesta hace falta
     // para avanzar comercialmente, no para llenar campos.
-    lines.push(`3. Dale igual algo útil: si hay algo parecido, decí en una línea por qué podría servirle. Y como no tenés el producto que pidió, SÍ corresponde una sola pregunta concreta para poder ayudarlo (qué necesita exactamente, para qué lo quiere). Lo que no va es la pregunta vacía tipo "¿te interesa alguno?" sin haberle dado nada antes.`);
+    lines.push(`3. Dale igual algo útil: si hay algo parecido, di en una línea por qué podría servirle. Y como no tienes el producto que pidió, SÍ corresponde una sola pregunta concreta para poder ayudarlo (qué necesita exactamente, para qué lo quiere). Lo que no va es la pregunta vacía tipo "¿te interesa alguno?" sin haberle dado nada antes.`);
     lines.push(`4. Sé honesto y directo, no inventes productos ni des información falsa.`);
     lines.push(`5. NUNCA muestres una tarjeta de un producto que no tiene que ver con lo que busca.`);
   }
@@ -2054,8 +2054,8 @@ export function buildContextBlock(
   // Esta instrucción es la salvaguarda: la IA sí tiene el historial completo
   // (más abajo) y puede razonar de verdad, así que la categoría es solo un
   // punto de partida, nunca la última palabra.
-  lines.push(`• La categoría detectada abajo ("${intent}") es un cálculo automático por palabras clave del ÚLTIMO mensaje -- útil como punto de partida, pero puede estar mal si el cliente preguntó indirecto, mezcló dos temas en el mismo mensaje, o dijo algo que a primera vista no encaja con la conversación. NUNCA sigas ciegamente esa categoría si el HISTORIAL COMPLETO de la conversación (más abajo) sugiere algo distinto -- leé todo el hilo, conectá lo que el cliente dice ahora con lo que ya habló antes, y respondé a la intención REAL, no a la etiqueta automática.`);
-  lines.push(`• Un mensaje puede tocar MÁS DE UNA COSA a la vez (ej: duda + pregunta de precio en la misma frase). Respondé a todo lo relevante que el cliente planteó, no solo a la primera parte que coincida con una categoría.`);
+  lines.push(`• La categoría detectada abajo ("${intent}") es un cálculo automático por palabras clave del ÚLTIMO mensaje -- útil como punto de partida, pero puede estar mal si el cliente preguntó indirecto, mezcló dos temas en el mismo mensaje, o dijo algo que a primera vista no encaja con la conversación. NUNCA sigas ciegamente esa categoría si el HISTORIAL COMPLETO de la conversación (más abajo) sugiere algo distinto -- leé todo el hilo, conectá lo que el cliente dice ahora con lo que ya habló antes, y responde a la intención REAL, no a la etiqueta automática.`);
+  lines.push(`• Un mensaje puede tocar MÁS DE UNA COSA a la vez (ej: duda + pregunta de precio en la misma frase). Responde a todo lo relevante que el cliente planteó, no solo a la primera parte que coincida con una categoría.`);
 
   if (memory.hasGreeted) {
     lines.push(`• PROHIBIDO saludar ("Hola", "Buenos días", etc.). Ya saludaste en esta conversación. Ve directo a la respuesta.`);
@@ -2093,7 +2093,7 @@ export function buildContextBlock(
         if (datos.length > 0) {
           lines.push(`• DATOS REALES DEL NEGOCIO: ${datos.join(". ")}.`);
         } else {
-          lines.push(`• OJO: no tenés confirmados los datos de entrega, acceso ni garantía de este negocio. Si pregunta por eso, decile con naturalidad que lo confirmás y le respondés — NO lo inventes.`);
+          lines.push(`• OJO: no tienes confirmados los datos de entrega, acceso ni garantía de este negocio. Si pregunta por eso, dile con naturalidad que lo confirmas y le respondes — NO lo inventes.`);
         }
         
         const rawText = (incomingText || "").toLowerCase();
@@ -2182,7 +2182,7 @@ export function buildContextBlock(
       lines.push(`\n🚨 ENTREGA DE ESTE PRODUCTO — es FÍSICO, se ENVÍA:`);
       lines.push(`   ✅ Se envía a la dirección del cliente y la entrega se coordina por WhatsApp.`);
       lines.push(`   ❌ NUNCA digas Google Drive, enlace, descarga, "acceso inmediato", "acceso de por vida" ni nada digital: este producto NO se descarga.`);
-      lines.push(`   ❌ NO prometas plazos de envío que no figuren arriba. Si te preguntan cuánto tarda y no lo sabés, decí que lo confirmás.`);
+      lines.push(`   ❌ NO prometas plazos de envío que no figuren arriba. Si te preguntan cuánto tarda y no lo sabes, di que lo confirmas.`);
       lines.push(`   ✅ Para enviarlo hace falta dirección y ciudad: pedilas cuando el cliente quiera comprar.`);
     } else {
       lines.push(`• Tipo: PRODUCTO DIGITAL 💻`);
@@ -2191,7 +2191,7 @@ export function buildContextBlock(
     }
 
     lines.push(`\n🚨 USA SOLO los datos de arriba. NO inventes características ni precios.`);
-    lines.push(`🚨 La descripción de arriba es la ÚNICA verdad sobre QUÉ ES este producto. Si no dice para qué sirve, NO lo deduzcas del nombre: preguntá o decí que lo confirmás. (Un "Renovador Negro Perfecto x 200ml" es para el carro, no para el cabello — adivinar por el nombre le costó una venta a este negocio.)`);
+    lines.push(`🚨 La descripción de arriba es la ÚNICA verdad sobre QUÉ ES este producto. Si no dice para qué sirve, NO lo deduzcas del nombre: pregunta o di que lo confirmas. (Un "Renovador Negro Perfecto x 200ml" es para el carro, no para el cabello — adivinar por el nombre le costó una venta a este negocio.)`);
     if (!shouldSendCard) {
       lines.push(`🚨 NO envíes [CARD: ${product.id}] — ya se mostró antes.`);
     }
@@ -2288,8 +2288,8 @@ export function buildContextBlock(
   lines.push(`━━━━━━━━━━━━━━━━━━━━━━━`);
   lines.push(`Estás hablando por WHATSAPP, en este mismo chat. Todo lo que mandes le llega acá.`);
   lines.push(`❌ NUNCA digas "te llega por WhatsApp", "recibilo por WhatsApp" ni "no por aquí": ESTO es WhatsApp.`);
-  lines.push(`🇨🇴 Hablá en español COLOMBIANO neutro, de "tú" o impersonal: "puedes", "quieres", "tienes".`);
-  lines.push(`❌ Nada de voseo argentino (podés, querés, tenés, recibís) ni de "che", "tranqui", "te tiro".`);
+  lines.push(`🇨🇴 Habla en español COLOMBIANO neutro, de "tú" o impersonal: "puedes", "quieres", "tienes".`);
+  lines.push(`❌ Nada de voseo argentino (puedes, quieres, tienes, recibís) ni de "che", "tranqui", "te tiro".`);
 
   // ── REGLA FINAL INQUEBRANTABLE — La IA la lee justo antes de generar ────────
   lines.push(`\n\n🔴🔴🔴 REGLA FINAL INQUEBRANTABLE 🔴🔴🔴`);
