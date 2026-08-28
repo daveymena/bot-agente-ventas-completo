@@ -5,6 +5,21 @@ export default defineConfig({
     globals: true,
     environment: "node",
     setupFiles: ["./vitest.setup.js"],
+    // ── Por qué se limita la concurrencia ────────────────────────────────
+    //
+    // Cada archivo de pruebas levanta su propia base SQLite y corre las
+    // migraciones (ver vitest.setup.js: compartirla causaba que un worker
+    // pisara los datos de otro). Eso es correcto pero cuesta, y con 57
+    // archivos arrancando a la vez el hook de arranque se pasaba de los 10
+    // segundos por defecto -- `Hook timed out in ensureDbReady`.
+    //
+    // O sea que el rojo dejó de ser corrupción y pasó a ser contención. Un
+    // rojo intermitente por infraestructura es igual de dañino: enseña a
+    // ignorar la suite, y en esta sesión ya hubo tres defectos reales que
+    // pasaron porque una prueba en verde decía lo contrario.
+    hookTimeout: 30_000,
+    testTimeout: 20_000,
+    poolOptions: { threads: { maxThreads: 6, minThreads: 1 } },
     coverage: {
       provider: "v8",
       reporter: ["text", "json", "html"],
