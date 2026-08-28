@@ -91,6 +91,7 @@ router.post("/test-ia", async (req, res, next) => {
       ok: true,
       message: msg,
       stage: reply?.stage,
+      proveedor: (reply as any)?.aiProvider ?? null,
       response: reply?.content?.substring(0, 500),
       parts: reply?.parts?.map(p => p.kind === "card" ? { card: p.productId } : { text: (p as any).content?.substring(0, 100) }),
     });

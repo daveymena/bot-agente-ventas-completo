@@ -2775,6 +2775,12 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
         content: raw,
         stage: decision.stage,
         parts: finalParts,
+        // Qué modelo contestó de verdad. No es lo mismo que el elegido en el
+        // panel: la cadena rota cuando uno falla, y sin esto no hay forma de
+        // saber desde afuera si respondió el modelo bueno o el de respaldo.
+        // Justo la pregunta que hubo que responder para entender por qué el
+        // bot "hace lo que quiere" con un formato ya escrito.
+        aiProvider: usedProvider,
         cardProductIds: finalParts.filter((p: any) => p.kind === "card").map((p: any) => p.productId),
       };
     },
