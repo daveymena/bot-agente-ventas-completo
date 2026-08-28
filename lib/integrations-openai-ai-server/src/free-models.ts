@@ -41,9 +41,16 @@ export const MODELOS_LIBRES: ModeloLibre[] = [
   { proveedor: "opencode", modelo: "laguna-s-2.1-free", especialidad: "general", estado: "verificado", nota: "~6,4 s, el más lento" },
 
   // ── Groq (clave GROQ_API_KEY, ya configurada) ── 14.400 req/día ────────────
-  { proveedor: "groq", modelo: "llama-3.1-8b-instant", especialidad: "rapido", estado: "verificado", contexto: 131072 },
-  { proveedor: "groq", modelo: "llama-3.3-70b-versatile", especialidad: "razonar", estado: "sin probar", contexto: 131072 },
-  { proveedor: "groq", modelo: "gemma2-9b-it", especialidad: "rapido", estado: "sin probar" },
+  // ⚠️ Catalogo contrastado contra su API el 2026-08-27: los llama-3.x y
+  // gemma2 que habia aca YA NO EXISTEN en Groq. Apuntar ahi era un 404
+  // silencioso -- el proveedor "estaba configurado" y no respondia nunca.
+  //
+  // El 120b y el qwen se probaron con una pregunta trampa de venta: los dos
+  // contestaron en colombiano y ninguno invento capacidades del producto.
+  { proveedor: "groq", modelo: "openai/gpt-oss-120b", especialidad: "razonar", estado: "verificado", nota: "el mayor de Groq" },
+  { proveedor: "groq", modelo: "qwen/qwen3.8-27b", especialidad: "general", estado: "verificado" },
+  { proveedor: "groq", modelo: "openai/gpt-oss-20b", especialidad: "rapido", estado: "verificado" },
+  { proveedor: "groq", modelo: "groq/compound-mini", especialidad: "rapido", estado: "sin probar" },
 
   // ── OpenRouter (falta OPENROUTER_API_KEY real) ── 20 req/min · 50 req/día ──
   { proveedor: "openrouter", modelo: "nvidia/nemotron-3-ultra-550b-a55b:free", especialidad: "razonar", estado: "sin probar", contexto: 1000000 },

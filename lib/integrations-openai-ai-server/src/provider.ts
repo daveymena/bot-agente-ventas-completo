@@ -165,7 +165,22 @@ const MODELOS_DE_RESERVA: Record<string, string[]> = {
   // `deepseek-chat` queda último: es el nombre de la API oficial de DeepSeek,
   // sirve si alguna vez se apunta ahí en vez de al gateway.
   deepseek: ["deepseek-v4-flash", "deepseek-v4-pro", "deepseek-chat"],
-  groq: ["openai/gpt-oss-20b"],
+  // ── Rotación escalonada de Groq ────────────────────────────────────────
+  //
+  // Groq limita por TOKENS POR MINUTO, no por día: se agota en un pico de
+  // tráfico y se recupera solo al minuto siguiente. Por eso no conviene
+  // saltar de Groq al primer 429 -- conviene BAJAR de modelo dentro de Groq,
+  // que sigue siendo mejor que irse a otro proveedor mas chico.
+  //
+  // De mayor a menor, verificados contra su API el 2026-08-27 (los nombres
+  // viejos ya no existen: llama-3.3-70b y llama-3.1-8b salieron del catalogo,
+  // asi que apuntar ahi era un 404 silencioso).
+  //
+  // El 120b y el qwen se probaron con la pregunta trampa ("tengo una
+  // panaderia, me sirve?"): los dos contestaron en colombiano y NINGUNO
+  // invento capacidades del curso -- que es justo lo que hacia el modelo que
+  // atendia hasta hoy.
+  groq: ["qwen/qwen3.8-27b", "openai/gpt-oss-20b", "groq/compound-mini"],
   mistral: ["codestral-latest", "mistral-large-latest"],
   nvidia: ["meta/llama-3.1-70b-instruct", "meta/llama-3.1-8b-instruct"],
   nvidia_nim: ["meta/llama-3.1-70b-instruct", "meta/llama-3.1-8b-instruct"],
@@ -228,7 +243,10 @@ export function getProviderConfigConClave(
     case "anthropic":
       return { baseUrl: "https://api.anthropic.com/v1", apiKey, model: m("claude-sonnet-5") };
     case "groq":
-      return { baseUrl: "https://api.groq.com/openai/v1", apiKey, model: m("openai/gpt-oss-20b") };
+      // El GRANDE de Groq. Estaba en el de 20B, que es el que no sostiene una
+      // instruccion larga. Verificado contra su API el 2026-08-27: de los que
+      // ofrecen hoy, este es el mayor.
+      return { baseUrl: "https://api.groq.com/openai/v1", apiKey, model: m("openai/gpt-oss-120b") };
     case "openrouter":
       return { baseUrl: "https://openrouter.ai/api/v1", apiKey, model: m("nvidia/nemotron-3-nano-30b-a3b:free") };
     case "mistral":
