@@ -1411,7 +1411,10 @@ router.post("/operator", async (req: TenantRequest, res, next) => {
     const moduloBlock = HABLA_DE_ANUNCIOS.test(String(prompt))
       ? `\n\n${MODULO_PUBLICIDAD}\n\n${FORMATO_ANUNCIO}`
       : "";
-    const sys = OPERATOR_SYSTEM_PROMPT.replace("${TOOLS}", buildToolsDoc()) + lessonsBlock + moduloBlock;
+    // Se le pasa el pedido para que mande solo las herramientas que hacen
+    // falta: las 82 no entran en el límite por minuto de Groq, y por eso el
+    // modelo bueno se descartaba y contestaba uno chico. Ver buildToolsDoc.
+    const sys = OPERATOR_SYSTEM_PROMPT.replace("${TOOLS}", buildToolsDoc(String(prompt || ""))) + lessonsBlock + moduloBlock;
     const sessionId: string = (req.body?.sessionId as string) || "default";
     const ctx: OperatorContext = { tenantId, sessionId };
 

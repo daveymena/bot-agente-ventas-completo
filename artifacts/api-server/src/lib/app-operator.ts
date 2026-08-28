@@ -4697,8 +4697,65 @@ export async function verifyMutation(tool: string, args: any, ctx: OperatorConte
   return "";
 }
 
-export function buildToolsDoc(): string {
-  return TOOLS.map((t) => `- ${t.name}: ${t.description}\n  args: ${t.args}`).join("\n");
+/**
+ * Las herramientas que Atlas SIEMPRE tiene que poder usar, pida lo que pida.
+ *
+ * Son las de leer el estado y las de responder: sin estas no puede ni mirar el
+ * catálogo antes de decir que algo no existe -- que es exactamente el error
+ * que reportó el admin ("no encontré curso de programación" con DOS cursos de
+ * programación cargados).
+ */
+const TOOLS_SIEMPRE = new Set([
+  // Solo LEER. Crear y editar entran por familia, cuando el pedido lo pide:
+  // cargarlas siempre sumaba ~1.500 tokens que casi nunca se usan.
+  "list_products", "list_categories", "get_settings", "analyze_system",
+]);
+
+/** Qué familia de herramientas pide cada tipo de pedido. */
+const FAMILIAS: Array<{ cuando: RegExp; prefijos: string[] }> = [
+  { cuando: /facebook|anuncio|campa[ñn]a|meta|publicar|p[uú]blico|audiencia|instagram|ads?\b/i,
+    prefijos: ["fb_", "ad_", "crear_anuncio", "optimize_copy", "generate_image"] },
+  { cuando: /producto|precio|cat[aá]logo|curso|pack|stock|categor[ií]a|imagen/i,
+    prefijos: ["product", "categor", "create_product", "update_product", "delete_product", "generate_image", "optimize_copy", "terabox"] },
+  { cuando: /tienda|store|dominio|landing|web/i, prefijos: ["store", "domain", "landing"] },
+  { cuando: /agente|prompt|personalidad|bot|whatsapp|conversaci[oó]n|chat|lead|cliente/i,
+    prefijos: ["agent", "conversa", "lead", "whatsapp", "seguimiento", "followup"] },
+  { cuando: /pago|cobr|nequi|transferen|suscripci|plan|factur/i, prefijos: ["payment", "pago", "subscription", "plan"] },
+  { cuando: /modelo|ia\b|proveedor|clave|api key/i, prefijos: ["ai_", "test_ai", "model"] },
+];
+
+/**
+ * La documentación de herramientas para ESTE pedido.
+ *
+ * ── Por qué no van las 82 ────────────────────────────────────────────────
+ *
+ * Medido el 2026-08-27: describir las 82 herramientas cuesta 30.144
+ * caracteres, unos 7.536 tokens. El límite de Groq es 8.000 tokens POR MINUTO,
+ * así que el prompt no entraba ni antes de sumarle el catálogo, el perfil del
+ * negocio y la conversación.
+ *
+ * El síntoma que veía el admin no era "lento": era que el modelo bueno se
+ * descartaba en medio segundo con "pedido demasiado grande", y el turno se iba
+ * a los que sí aceptan cualquier tamaño -- que son los chicos. Del informe de
+ * tiempos de un turno real:
+ *
+ *   gpt-oss-120b        descartado: pedido demasiado grande   0,5s
+ *   laguna-xs-2.1:free  falló: se quedó sin tiempo           55,0s
+ *   big-pickle          falló: se quedó sin tiempo           28,0s
+ *   total                                                   135,0s
+ *
+ * Y con un modelo chico atendiendo, Atlas contestó "no encontré curso de
+ * programación" teniendo dos cargados: ni siquiera llamó a list_products.
+ *
+ * Así que se manda lo que el pedido necesita. Si no se reconoce de qué habla,
+ * van todas -- perder una herramienta es peor que un prompt largo.
+ */
+export function buildToolsDoc(pedido = ""): string {
+  const relevantes = FAMILIAS.filter((f) => f.cuando.test(pedido)).flatMap((f) => f.prefijos);
+  const usar = !pedido || relevantes.length === 0
+    ? TOOLS
+    : TOOLS.filter((t) => TOOLS_SIEMPRE.has(t.name) || relevantes.some((p) => t.name.startsWith(p) || t.name.includes(p)));
+  return usar.map((t) => `- ${t.name}: ${t.description}\n  args: ${t.args}`).join("\n");
 }
 
 /**
