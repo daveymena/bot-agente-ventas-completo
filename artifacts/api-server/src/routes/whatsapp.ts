@@ -100,6 +100,99 @@ router.post("/test-ia", async (req, res, next) => {
   }
 });
 
+/**
+ * POST /api/whatsapp/comparar-modelos
+ *
+ * Le hace las MISMAS preguntas de venta a todos los modelos disponibles y
+ * devuelve las respuestas con sus señales medidas. Existe porque la elección
+ * del modelo se venía haciendo a ojo, y medirla explicó de una cuatro rondas
+ * de QA: el que contestaba era `laguna-s-2.1-free`, no el que decía el panel.
+ *
+ * Body opcional: { modelos?: string[], pregunta?: string }
+ */
+router.post("/comparar-modelos", async (req: TenantRequest, res, next) => {
+  try {
+    const {
+      ESTILO_DE_PRUEBA, FICHA_DE_PRUEBA, PREGUNTAS_DE_PRUEBA, medirSenales,
+    } = await import("../lib/comparar-modelos-venta");
+    const {
+      getProviderConfig, getProviderRotation, getOpenCodeRotation, createAIClient,
+    } = await import("@workspace/integrations-openai-ai-server");
+
+    const preguntas: string[] = Array.isArray(req.body?.preguntas) && req.body.preguntas.length
+      ? req.body.preguntas.slice(0, 4)
+      : PREGUNTAS_DE_PRUEBA;
+
+    // Los candidatos: la rotación de OpenCode (que es la que hoy atiende) más
+    // un modelo por cada proveedor que tenga clave. Sin repetir.
+    const vistos = new Set<string>();
+    const candidatos: Array<{ etiqueta: string; cfg: any }> = [];
+    const sumar = (etiqueta: string, cfg: any) => {
+      if (!cfg?.model) return;
+      const k = cfg.baseUrl + "|" + cfg.model;
+      if (vistos.has(k)) return;
+      vistos.add(k);
+      candidatos.push({ etiqueta, cfg });
+    };
+    for (const cfg of getOpenCodeRotation()) sumar(`opencode/${cfg.model}`, cfg);
+    for (const prov of ["groq", "openrouter", "nvidia", "nvidia_nim", "github", "mimo", "cerebras", "google_ai_studio"]) {
+      for (const cfg of getProviderRotation(prov).slice(0, 2)) sumar(`${prov}/${cfg.model}`, cfg);
+      sumar(prov, getProviderConfig(prov));
+    }
+    // Los de pago van solo si se piden por nombre: cuestan plata real.
+    for (const prov of (req.body?.dePago || [])) sumar(prov, getProviderConfig(String(prov)));
+
+    const tope = Math.min(Number(req.body?.limite) || 12, candidatos.length);
+    const elegidos = candidatos.slice(0, tope);
+
+    const resultados = await Promise.all(elegidos.map(async ({ etiqueta, cfg }) => {
+      const respuestas: any[] = [];
+      for (const pregunta of preguntas) {
+        const t0 = Date.now();
+        try {
+          const client = createAIClient({ ...cfg, timeout: 25_000, maxRetries: 0 } as any);
+          const r = await client.chat.completions.create({
+            model: cfg.model,
+            max_tokens: 400,
+            temperature: 0.6,
+            messages: [
+              { role: "system", content: `${ESTILO_DE_PRUEBA}\n\n${FICHA_DE_PRUEBA}` },
+              { role: "user", content: pregunta },
+            ],
+          } as any);
+          const texto = String((r as any)?.choices?.[0]?.message?.content || "").trim();
+          respuestas.push({
+            pregunta, ms: Date.now() - t0, texto,
+            senales: medirSenales(texto, FICHA_DE_PRUEBA),
+          });
+        } catch (e: any) {
+          respuestas.push({ pregunta, ms: Date.now() - t0, texto: "", error: String(e?.message || e).slice(0, 90) });
+        }
+      }
+      const ok = respuestas.filter((x) => x.texto);
+      return {
+        modelo: etiqueta,
+        respondio: `${ok.length}/${preguntas.length}`,
+        // El resumen que permite ordenar sin leer los 40 textos.
+        voseo: ok.reduce((a, x) => a + (x.senales?.voseo?.length || 0), 0),
+        invento: ok.reduce((a, x) => a + (x.senales?.invento?.length || 0), 0),
+        largoPromedio: ok.length ? Math.round(ok.reduce((a, x) => a + x.texto.length, 0) / ok.length) : 0,
+        msPromedio: ok.length ? Math.round(ok.reduce((a, x) => a + x.ms, 0) / ok.length) : 0,
+        respuestas,
+      };
+    }));
+
+    // Primero los que respondieron todo, sin voseo y sin inventar.
+    resultados.sort((a, b) =>
+      (b.respondio.localeCompare(a.respondio)) ||
+      (a.invento - b.invento) || (a.voseo - b.voseo) || (a.msPromedio - b.msPromedio));
+
+    res.json({ ok: true, probados: resultados.length, resultados });
+  } catch (e: any) {
+    next(e);
+  }
+});
+
 router.post("/pair-phone", async (req, res, next) => {
   try {
     const raw = req.body?.phoneNumber || "";
