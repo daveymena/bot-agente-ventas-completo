@@ -2548,10 +2548,28 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
               : `Perdona, no te estoy entendiendo bien 🙏 ¿Me dices con otras palabras qué necesitas?`;
             console.log(`🔁 [SUPERVISOR] Segundo bloqueo seguido: se escala a menú en vez de repetir - ${ts()}`);
           } else {
+            // ⚠️ No preguntar lo que el servidor YA SABE.
+            //
+            // Ronda 3 de QA (2026-08-27), dos veces en trece minutos: el bot
+            // escribió "Para confirmarte el acceso AL CURSO DE PIANO…", el
+            // cliente mandó el comprobante, y el turno siguiente salió con
+            // "¿me confirmas de cuál producto quieres que te cuente?".
+            //
+            // El producto no se había perdido -- está en `idsEnContexto`, que
+            // es lo mismo que acaba de usar el supervisor para revisar. Lo que
+            // fallaba era el texto de salida: preguntaba de cuál producto se
+            // hablaba teniéndolo en la mano. Para el cliente eso se lee como
+            // que del otro lado no lo están escuchando, y es lo que hacía
+            // parecer que el bot "arranca de cero en cada mensaje".
+            const nombreEnFoco = (productList as any[]).find(
+              (pr: any) => pr.id === idsEnContexto[0],
+            )?.name;
             parte.content = revision.reemplazoSugerido
               ?? (hayCard
                 ? "Te paso la ficha aquí abajo con todos los detalles 👇"
-                : "Para no darte un dato equivocado, ¿me confirmas de cuál producto quieres que te cuente?");
+                : nombreEnFoco
+                  ? `Déjame confirmarte ese dato del ${nombreEnFoco} y te respondo enseguida 🙏`
+                  : "Para no darte un dato equivocado, ¿me confirmas de cuál producto quieres que te cuente?");
           }
         }
       } catch (e: any) {

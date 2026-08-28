@@ -25,20 +25,31 @@ import path from "node:path";
 
 const worker = process.env.VITEST_WORKER_ID || "1";
 
-if (!process.env.SQLITE_PATH) {
-  const archivo = path.resolve(
-    process.cwd(),
-    "data",
-    ".test",
-    `pruebas-w${worker}.db`,
-  );
-  // Y se BORRA antes de empezar. Darle un archivo propio a cada worker quitó
-  // el pisoteo entre workers, pero el archivo sobrevivía a la corrida: la
-  // siguiente arrancaba con las filas que dejó la anterior y los conteos
-  // volvían a fallar. Una base de pruebas que recuerda la corrida pasada no
-  // es una base de pruebas.
-  try {
-    fs.rmSync(archivo, { force: true });
-  } catch {}
-  process.env.SQLITE_PATH = archivo;
-}
+// Un worker no corre UN archivo de pruebas: corre varios, uno tras otro, en el
+// mismo proceso. Por eso no alcanza con "una base por worker":
+//
+//   · el `if (!process.env.SQLITE_PATH)` de la primera versión hacía que solo
+//     el PRIMER archivo del worker creara la ruta y borrara la base; el
+//     segundo heredaba las filas que dejó el primero;
+//   · y el autoguardado del primero podía escribir DESPUÉS de que el segundo
+//     ya hubiera leído, pisándole los datos a mitad de camino.
+//
+// Con un contador que vive en `globalThis` (que sí persiste entre archivos del
+// mismo worker) cada archivo se lleva su propia base. Nadie hereda ni pisa
+// nada, y deja de haber una carrera que aparecía una de cada tres corridas.
+globalThis.__baseDePruebas = (globalThis.__baseDePruebas || 0) + 1;
+
+const archivo = path.resolve(
+  process.cwd(),
+  "data",
+  ".test",
+  `pruebas-w${worker}-${globalThis.__baseDePruebas}.db`,
+);
+
+// Y se borra antes de empezar: una base de pruebas que recuerda la corrida
+// pasada no es una base de pruebas.
+try {
+  fs.rmSync(archivo, { force: true });
+} catch {}
+
+process.env.SQLITE_PATH = archivo;

@@ -23,6 +23,7 @@
  */
 
 import { verificarPrecios, type ProductoParaPrecio } from "./precio-verificado";
+import { preguntasSueltas } from "./estado-cognitivo";
 
 export type Gravedad = "bloquea" | "corrige";
 
@@ -374,6 +375,97 @@ export function supervisarRespuesta(e: EntradaSupervisor): RevisionSupervisor {
       gravedad: "corrige",
       detalle: `Ofrecía un extra que no existe en el catálogo: "${antes.slice(0, 80)}"`,
     });
+  }
+
+  // ── R11 · Contestar una de tres y descartar el resto ─────────────────────
+  //
+  // Ronda 3 de QA (2026-08-27): de cinco preguntas repartidas en dos mensajes,
+  // el bot contestó UNA. Las otras cuatro no las contestó ni dijo que no las
+  // iba a contestar -- simplemente desaparecieron.
+  //
+  // Para el cliente eso es peor que un "no sé": preguntó por el envío a
+  // Quibdó dos veces y las dos veces se hizo el desentendido.
+  //
+  // Acá NO se bloquea: lo que el bot sí contestó está bien y sirve. Se le
+  // agrega una línea nombrando lo que quedó pendiente, que es lo que hace
+  // una persona cuando le tiran tres cosas juntas.
+  const sueltas = preguntasSueltas(e.mensajeCliente);
+  if (sueltas.length > 1 && !bloquear) {
+    const enRespuesta = new Set(normalizar(texto).split(" ").filter((p) => p.length > 2));
+    const sinTocar = sueltas.filter((q) => {
+      const claves = normalizar(q).split(" ").filter((p) => p.length > 3 && !RELLENO_NOMBRE.has(p));
+      return claves.length > 0 && claves.every((c) => !enRespuesta.has(c));
+    });
+    if (sinTocar.length > 0 && !/tambi[eé]n|y sobre|lo otro|lo dem[aá]s/i.test(texto)) {
+      const pendiente = sinTocar[0]!.slice(0, 60);
+      texto = `${texto.trim()}\n\nY sobre lo otro que preguntaste ("${pendiente}"), déjame confirmártelo y te digo 🙏`;
+      hallazgos.push({
+        regla: "pregunta-a-medias",
+        gravedad: "corrige",
+        detalle: `Quedaron ${sinTocar.length} de ${sueltas.length} preguntas sin contestar: "${pendiente}"`,
+      });
+    }
+  }
+
+  // ── R10 · Aceptar un descuento sin querer ────────────────────────────────
+  //
+  // De la ronda 3 de QA (2026-08-27). El cliente escribió tres cosas juntas:
+  //   "me lo dejas en 30 mil? y si no me gusta me devuelves la plata?
+  //    y tienes algo físico con envío a Quibdó?"
+  // y el bot contestó:
+  //   "Claro que sí 😊 Tienes 7 días de garantía ✅ ..."
+  //
+  // Él quería contestar lo de la garantía. Pero "Claro que sí" pegado a "me lo
+  // dejas en 30 mil" se lee como que le aceptaron el precio -- y cuando el
+  // cliente lo confirmó ("entonces quedamos en 30 mil, cierto?") tampoco lo
+  // desmintió. Queda por escrito, en WhatsApp, un sí a la mitad de precio.
+  //
+  // Ninguna regla anterior lo agarraba: R1 saca montos inventados del texto
+  // del BOT, y acá el monto lo puso el CLIENTE. El bot solo dijo que sí.
+  //
+  // El precio no se negocia. Y como la respuesta correcta se sabe -- es el
+  // precio del catálogo -- se reemplaza por texto fijo en vez de bloquear a
+  // secas: bloquear dejaría al cliente sin respuesta justo cuando está
+  // regateando, que es cuando más atención necesita.
+  const PIDE_REBAJA =
+    /\b(descuento|rebaja|rebajar|me lo dejas?|lo dejas? en|me lo das? en|precio especial|m[aá]s barato|promoci[oó]n|oferta especial|hac[eé]s? precio|[uú]ltimo precio|en cu[aá]nto me lo dejas?)\b/i;
+  const ACEPTA_SIN_PENSAR =
+    /^\s*(?:[¡!]*\s*)?(claro que s[ií]|claro|listo|dale|de una|por supuesto|hecho|obvio|perfecto|s[ií]\s*[,.!]|ok|okey|okay|va|trato hecho|cerrado)\b/i;
+  if (PIDE_REBAJA.test(e.mensajeCliente)) {
+    const enFoco = e.productos.filter((p) => e.idsEnContexto.includes(p.id));
+    const precio = Number(enFoco[0]?.price ?? NaN);
+    // El texto del bot NO puede abrir afirmando, y tiene que decir el precio
+    // real. Si no dice ninguno de los dos, el cliente completa el hueco solo.
+    const abreAfirmando = ACEPTA_SIN_PENSAR.test(texto);
+    const diceElPrecio =
+      Number.isFinite(precio) && precio > 0 &&
+      new RegExp(String(Math.round(precio)).replace(/\B(?=(\d{3})+(?!\d))/g, "[.,]?")).test(
+        texto.replace(/[^0-9.,]/g, " "),
+      );
+    if (abreAfirmando || !diceElPrecio) {
+      bloquear = true;
+      hallazgos.push({
+        regla: "descuento-aceptado",
+        gravedad: "bloquea",
+        detalle:
+          `El cliente pidió rebaja y la respuesta ${abreAfirmando ? "abría afirmando" : "no decía el precio real"}: ` +
+          `"${texto.slice(0, 80)}"`,
+      });
+      const precioTexto = Number.isFinite(precio) && precio > 0
+        ? `$${Math.round(precio).toLocaleString("es-CO")}`
+        : "el del catálogo";
+      return {
+        texto,
+        hallazgos,
+        bloquear,
+        // Texto FIJO: no lo redacta el modelo. Dice el precio, no regatea, y
+        // deja la puerta abierta -- que es lo que hace un vendedor de verdad
+        // cuando le piden rebaja.
+        reemplazoSugerido:
+          `El precio es ${precioTexto} y es fijo 🙏 No manejo descuentos, pero es pago único ` +
+          `y el acceso te queda de por vida. ¿Te cuento qué incluye?`,
+      };
+    }
   }
 
   // ── R9 · Prometer una entrega por un servicio que no es ──────────────────

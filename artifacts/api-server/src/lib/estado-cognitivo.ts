@@ -115,6 +115,30 @@ function contenido(texto: string): string[] {
 }
 
 /**
+ * Las preguntas SUELTAS que trae un mensaje.
+ *
+ * Un cliente no manda una pregunta por mensaje: manda tres de una.
+ *
+ *   "me lo dejas en 30 mil? y si no me gusta me devuelves la plata?
+ *    y tienes algo físico con envío a Quibdó?"
+ *
+ * Medido en la ronda 3 de QA: de cinco preguntas así, el bot contestó UNA y
+ * descartó el resto sin avisar. Y no se detectaba, porque el chequeo miraba
+ * el mensaje entero como si fuera una sola pregunta: con que la respuesta
+ * tocara una palabra de cualquiera de las tres, lo daba por contestado.
+ *
+ * Se corta por el signo de cierre, que es la marca real de dónde termina una
+ * pregunta. Los pedazos muy cortos ("y?", "no?") se descartan: son coletillas,
+ * no preguntas.
+ */
+export function preguntasSueltas(texto: string): string[] {
+  return String(texto)
+    .split(/\?+/)
+    .map((t) => t.replace(/^[\s¿,;.y]+/i, "").trim())
+    .filter((t) => t.length >= 8 && contenido(t).length > 0);
+}
+
+/**
  * La última pregunta del cliente que la respuesta siguiente NO tocó.
  *
  * Es lo que produjo, el 2026-08-25:
@@ -147,13 +171,20 @@ export function preguntaSinResponder(
     const respuesta = historial.slice(i + 1).find((x) => x.role !== "customer");
     if (!respuesta) return m.content; // todavía sin responder
 
-    const claves = contenido(m.content).filter((c) => !delNombre.has(c));
-    if (claves.length === 0) return null;
     const enRespuesta = new Set(contenido(respuesta.content));
-    const tocadas = claves.filter((c) => enRespuesta.has(c)).length;
-    // Si no comparte NI UNA palabra con contenido, la respuesta fue sobre otra
-    // cosa. Con una alcanza para no marcar falsos positivos.
-    return tocadas === 0 ? m.content : null;
+    // Cada pregunta se juzga por separado: si vinieron tres y la respuesta
+    // tocó una, las otras dos siguen sin contestar. Antes se miraba el
+    // mensaje entero y una sola palabra en común lo daba todo por respondido.
+    const partes = preguntasSueltas(m.content);
+    const aRevisar = partes.length > 1 ? partes : [m.content];
+    for (const parte of aRevisar) {
+      const claves = contenido(parte).filter((c) => !delNombre.has(c));
+      if (claves.length === 0) continue;
+      // Si no comparte NI UNA palabra con contenido, la respuesta fue sobre
+      // otra cosa. Con una alcanza para no marcar falsos positivos.
+      if (claves.every((c) => !enRespuesta.has(c))) return parte;
+    }
+    return null;
   }
   return null;
 }
