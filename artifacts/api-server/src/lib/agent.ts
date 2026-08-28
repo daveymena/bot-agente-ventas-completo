@@ -2611,6 +2611,44 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
         }
       }
 
+      // ── La ficha ya lo dice: el texto no lo repite ────────────────────────
+      //
+      // Reportado por el admin (2026-08-27): "le pregunté por el precio y
+      // mandó una cantidad de cosas y repitió el precio".
+      //
+      // Es literal: el mensaje sale con DOS partes. El modelo redacta un texto
+      // y el servidor adjunta la sección de la ficha -- y las dos traen el
+      // precio. El cliente lee $60.000, después un párrafo, y otra vez
+      // $60.000. A una pregunta de tres palabras.
+      //
+      // Ninguna de las dos partes está mal por separado; el problema es que
+      // nadie miraba el mensaje COMPLETO. Así que acá se mira: si va una
+      // sección corta -- de esas que ya se bastan solas -- el texto se recorta
+      // a su primera frase y se le quitan los montos, que los pone la ficha.
+      const seccionAdjunta = (finalParts.find((p: any) => p.kind === "card") as any)?.seccion;
+      const SE_BASTA_SOLA = new Set(["precio", "pago", "pago_link", "pago_transferencia", "entrega", "video", "tienda"]);
+      if (seccionAdjunta && SE_BASTA_SOLA.has(String(seccionAdjunta))) {
+        for (const parte of finalParts) {
+          if (parte.kind !== "text" || !(parte as any).content) continue;
+          const original = String((parte as any).content);
+          // Solo la primera frase: lo demás es el desborde.
+          let corto = original.split(/(?<=[.!?])\s+/)[0] ?? original;
+          // Y sin montos: el número lo pone la ficha, una sola vez.
+          corto = corto.replace(/\$\s?\d[\d.,]*\s?(COP)?/gi, "").replace(/\s{2,}/g, " ").trim();
+          // Si al sacarle el monto no queda nada que aporte, se va entero: un
+          // "Claro 😊" suelto antes de la ficha se lee mejor que una frase
+          // mocha.
+          (parte as any).content = corto.replace(/[\s,:;.-]+$/, "").length >= 6 ? corto : "";
+        }
+        const antes = finalParts.length;
+        for (let i = finalParts.length - 1; i >= 0; i--) {
+          if (finalParts[i].kind === "text" && !(finalParts[i] as any).content) finalParts.splice(i, 1);
+        }
+        if (antes !== finalParts.length || true) {
+          console.log(`✂️ [DESBORDE] Sección "${seccionAdjunta}": el texto se recortó para no repetir la ficha - ${ts()}`);
+        }
+      }
+
       console.log(`📋 [PARSER] partes:${finalParts.length} cards:${cardCount} - ${ts()}`);
 
       // ── Guardar mensaje del agente en BD ──────────────────────────────────
