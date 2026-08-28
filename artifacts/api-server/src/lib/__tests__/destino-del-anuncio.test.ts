@@ -120,7 +120,7 @@ describe("crear_anuncio: la herramienta que el prompt manda usar siempre", () =>
   it("declara 'objetivo' en su contrato -- si no, el modelo no puede mandarlo", async () => {
     const { TOOLS } = await import("../app-operator");
     const tool = TOOLS.find((t: any) => t.name === "crear_anuncio");
-    expect(tool, "crear_anuncio tiene que existir").toBeTruthy();
+    if (!tool) throw new Error("crear_anuncio tiene que existir en TOOLS");
     expect(tool.args).toContain("objetivo");
     // Los cuatro destinos por nombre: un contrato que solo diga "objetivo"
     // deja al modelo adivinando qué valores valen.

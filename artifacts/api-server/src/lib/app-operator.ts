@@ -1534,18 +1534,45 @@ export const TOOLS: ToolDef[] = [
       const permiso = await puedeCrear(ctx.tenantId, "agents", (tenantDelLimite as any)?.plan);
       if (!permiso.permitido) return { ok: false, summary: permiso.motivo };
 
+      // ── Un agente nace EXPERTO, no con cinco palabras ────────────────────
+      // Antes esto era `systemPrompt: args.systemPrompt || "Eres un asistente
+      // de ventas."` con `stages: []`. Un agente creado por Atlas salía sin
+      // embudo y con un prompt de cinco palabras, mientras las once plantillas
+      // completas de agent-templates.ts (cada una con su prompt de vendedor y
+      // sus etapas) estaban al lado sin que este camino las mirara nunca.
+      //
+      // El agente que crea Atlas atiende a CLIENTES REALES por WhatsApp: tiene
+      // que salir tan bueno como los que siembra la app, no como un borrador.
+      // Si el admin dicta su propio prompt, manda el suyo -- pero las etapas
+      // igual salen de la plantilla, porque un embudo vacío no es una decisión
+      // del admin, es un campo que nadie llenó.
+      const { plantillaMasParecida } = await import("./agent-templates");
+      const plantilla = plantillaMasParecida(
+        [args.role, args.name, args.especialidad, args.descripcion].filter(Boolean).join(" "),
+      );
       const [row] = await db.insert(agents).values({
         tenantId: ctx.tenantId,
-        name: args.name || "Asistente",
-        role: args.role || "Vendedor",
-        tone: args.tone || "profesional",
+        name: args.name || plantilla.name,
+        role: args.role || plantilla.role,
+        tone: args.tone || plantilla.tone,
         language: "es",
-        model: "gpt-4o-mini",
-        systemPrompt: args.systemPrompt || "Eres un asistente de ventas.",
-        stages: [],
+        // `model` se omite a propósito: la columna ya tiene su default y el
+        // runtime de WhatsApp NO lo lee -- rota entre los proveedores
+        // configurados del negocio (ver la cola de rotación en agent.ts). Lo
+        // que había acá era el mismo valor del default repetido a mano, que se
+        // lee como si alguien hubiera elegido ese modelo para este agente.
+        systemPrompt: args.systemPrompt || plantilla.systemPrompt,
+        stages: plantilla.stages,
         isActive: args.isActive !== false,
       } as any).returning();
-      return { ok: true, summary: `Agente creado: #${row.id} ${row.name}`, data: { id: row.id } };
+      return {
+        ok: true,
+        summary:
+          `Agente creado: #${row.id} ${row.name} (${row.role}) — ` +
+          `${args.systemPrompt ? "con el prompt que dictaste" : `basado en la plantilla experta "${plantilla.name}"`}, ` +
+          `con ${plantilla.stages.length} etapas de venta configuradas.`,
+        data: { id: row.id, plantilla: plantilla.agentType },
+      };
     },
   },
 

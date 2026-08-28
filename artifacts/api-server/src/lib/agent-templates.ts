@@ -676,3 +676,45 @@ export function getTemplateByType(type: string): AgentTemplate | undefined {
 export function getAllTemplates(): AgentTemplate[] {
   return AGENT_TEMPLATES;
 }
+
+/**
+ * La plantilla experta que mejor encaja con lo que el admin pidió.
+ *
+ * Por qué existe: un agente creado por Atlas nacía con
+ * `systemPrompt: "Eres un asistente de ventas."` y `stages: []` -- cinco
+ * palabras y sin embudo -- mientras estas once plantillas, cada una con su
+ * prompt completo y sus etapas, estaban acá al lado sin que ese camino las
+ * mirara nunca. El admin lo pidió en estos términos: "cuando Atlas cree un
+ * agente debe ser igual de bueno para el tema de WhatsApp, dejándolos
+ * expertos".
+ *
+ * Nunca devuelve undefined: si nada coincide, cae en la general (Sofía), que
+ * maneja todos los tipos de producto. Un agente genérico experto es mejor que
+ * un agente específico vacío.
+ */
+export function plantillaMasParecida(texto: string): AgentTemplate {
+  const t = String(texto || "").toLowerCase();
+  // Se mira primero lo más específico: "curso de dropshipping" es un agente
+  // de dropshipping, no de cursos. Por eso el orden acá importa y no es
+  // alfabético -- las categorías que se pisan van con la más concreta primero.
+  const PISTAS: { tipo: string; re: RegExp }[] = [
+    { tipo: "dropshipping",     re: /dropship|producto f[ií]sico|env[ií]o|contraentrega|contra entrega|mercanc[ií]a/ },
+    { tipo: "followup",         re: /seguimiento|recuperaci[oó]n|recuperar|reactiva|carrito abandonado|no compr/ },
+    { tipo: "subscriptions",    re: /suscripci[oó]n|membres[ií]a|recurrente|mensualidad|fideliza/ },
+    { tipo: "telecom",          re: /telecom|internet|telefon[ií]a|celular|plan de datos|combo|conectividad/ },
+    { tipo: "b2b",              re: /b2b|empresa|corporativ|pyme|mayorista|licitaci[oó]n/ },
+    { tipo: "marketing",        re: /marketing|publicidad|redes sociales|anuncios|contenido|viral/ },
+    { tipo: "courses",          re: /curso|formaci[oó]n|educaci[oó]n|capacitaci[oó]n|taller|clase|academia/ },
+    { tipo: "services",         re: /servicio|consultor|dise[nñ]o|desarrollo web|agencia/ },
+    { tipo: "digital_products", re: /digital|megapack|pack|bundle|ebook|plantilla|descargable/ },
+  ];
+  for (const { tipo, re } of PISTAS) {
+    if (re.test(t)) {
+      const encontrada = getTemplateByType(tipo);
+      if (encontrada) return encontrada;
+    }
+  }
+  // El Arquitecto NO es candidato: no es un vendedor de WhatsApp, y ofrecerlo
+  // como agente de ventas sería poner la persona equivocada a atender clientes.
+  return getTemplateByType("general") || AGENT_TEMPLATES[0];
+}
