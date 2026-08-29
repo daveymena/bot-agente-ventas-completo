@@ -29,6 +29,7 @@ import { isApproval, isRejection } from "./architect-store";
 import { FacebookService } from "./facebook";
 import { tenantManager, type TenantContext } from "./tenantManager";
 import { architectMemoryService } from "./architect-memory-service";
+import { estaEnAprendizaje, MAX_ESCALADA_PORCENTAJE } from "./reglas-de-pauta";
 
 /**
  * Confianza basada en el tamaño de muestra REAL de la campaña, no un número
@@ -457,8 +458,31 @@ async function trendReviewForTenant(tenant: TenantContext): Promise<void> {
     const ratio = recent.costPerResult / previous.costPerResult;
 
     if (ratio <= TREND_SCALE_UP_MAX_COST_RATIO) {
+      // ── No se sugiere escalar algo que todavía está aprendiendo ─────────
+      //
+      // Meta necesita ~50 eventos de optimización en 7 días para estabilizar
+      // la entrega. Antes de eso, la mejora del costo que dispara esta rama
+      // puede ser el algoritmo tanteando, no rendimiento real -- y cualquier
+      // cambio de presupuesto REINICIA el aprendizaje.
+      //
+      // O sea que la sugerencia bien intencionada ("va bien, escalémoslo")
+      // era, en ese caso, la que tiraba abajo lo aprendido. Es la regla que
+      // más plata ahorra en compra de medios y la que más se rompe, porque el
+      // impulso natural es premiar lo que se ve bien a los tres días.
+      //
+      // Ver reglas-de-pauta.ts: las mismas constantes que usa la herramienta
+      // de consulta `que_hago_con_la_campana`, compartidas a propósito para
+      // que el agente autónomo y la respuesta a mano nunca digan cosas
+      // distintas.
+      if (estaEnAprendizaje(previous.results)) {
+        logger.info(
+          { tenantId: tenant.id, campaign: campaign.name, conversiones: previous.results },
+          "[AdGrowthAgent] Va bien pero sigue en fase de aprendizaje: no se sugiere escalar todavía",
+        );
+        continue;
+      }
       const memoryNote = await recentRejectionNote(tenant.id, campaign.name, "increase_budget");
-      const reason = `Los últimos 3 días el costo por resultado bajó a ${fmtCOP(recent.costPerResult)} (antes ${fmtCOP(previous.costPerResult)} en la semana) -- tendencia consistente positiva, no un día suelto. Se sugiere subir el presupuesto 20% para escalar mientras funciona.${memoryNote}`;
+      const reason = `Los últimos 3 días el costo por resultado bajó a ${fmtCOP(recent.costPerResult)} (antes ${fmtCOP(previous.costPerResult)} en la semana) -- tendencia consistente positiva, no un día suelto. Ya salió de la fase de aprendizaje (${previous.results} conversiones en 7 días), así que se puede tocar sin reiniciarla: se sugiere subir el presupuesto ${MAX_ESCALADA_PORCENTAJE}% para escalar mientras funciona.${memoryNote}`;
       const log = await logSuggestion({
         tenantId: tenant.id, campaignId: campaign.id, productName: campaign.name,
         checkType: "trend_review", suggestedAction: "increase_budget", reason,
