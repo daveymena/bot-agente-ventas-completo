@@ -451,19 +451,41 @@ async function proposeAction(
   // anuncio y acertar el id no es trabajo del modelo: es una decisión
   // mecánica que el servidor toma leyendo la estructura. Se le saca la opción
   // de equivocarse y se lo manda a la herramienta que solo pide la campaña.
-  const REDIRIGIR: Record<string, { hacia: string; porque: string }> = {
+  const REDIRIGIR: Record<string, { hacia: string; porque: string; comoUsarlo: string }> = {
     fb_set_ad_status: {
       hacia: "fb_make_campaign_deliver",
       porque: "necesita el id exacto de un anuncio o conjunto, y elegirlo mal hace fallar la acción después de que el admin confirmó",
+      comoUsarlo:
+        "pasándole SOLO el id de la CAMPAÑA (el que devuelve fb_list_campaigns). Esa herramienta averigua sola qué hay "
+        + "que encender y prende lo mínimo necesario.",
+    },
+    // Medido en producción el 2026-08-28, con el pedido "publicá un anuncio,
+    // que me escriban por WhatsApp": Atlas eligió `fb_ad_draft` y el destino a
+    // WhatsApp se perdió, porque esa herramienta NO tiene parámetro
+    // `objetivo` -- solo guarda texto. La campaña habría salido de ventas a la
+    // web, que es justo lo que el admin viene reportando.
+    //
+    // No es que el modelo eligiera mal a propósito: las dos herramientas
+    // suenan igual de razonables para "hacé un anuncio". La que sirve es
+    // `crear_anuncio`, que hace el trabajo entero (busca el producto, arma el
+    // brief, escribe el copy, lo valida, lo guarda y lo sube a Meta) y SÍ
+    // acepta el objetivo.
+    fb_ad_draft: {
+      hacia: "crear_anuncio",
+      porque:
+        "solo guarda el texto y NO acepta el objetivo de la campaña, así que un pedido de anuncio a WhatsApp termina "
+        + "publicándose a la web",
+      comoUsarlo:
+        'pasándole el nombre del producto como lo dijo el admin, el presupuesto diario, y el "objetivo" '
+        + '("mensajes" si pidió WhatsApp, "trafico" si pidió visitas, "ventas" si pidió vender). Escribe el copy sola '
+        + "con los datos reales del producto: no hace falta que lo redactes vos.",
     },
   };
   const redir = REDIRIGIR[tool];
   if (redir) {
     return {
       ok: false,
-      summary:
-        `No uses "${tool}": ${redir.porque}. Usá "${redir.hacia}" pasándole SOLO el id de la CAMPAÑA `
-        + `(el que devuelve fb_list_campaigns). Esa herramienta averigua sola qué hay que encender y prende lo mínimo necesario.`,
+      summary: `No uses "${tool}": ${redir.porque}. Usá "${redir.hacia}" ${redir.comoUsarlo}`,
     };
   }
 
@@ -993,10 +1015,24 @@ export function buildMcpToolRegistry(pedido?: string): McpToolDef[] {
   // que podía". Listarlas todas convierte eso en imposible.
   const familiaDelPedido = herramientasDeLaFamilia(pedido || "");
   const accionesDeCambio = ALL_OPERATOR_TOOLS
-    // fb_set_ad_status no se anuncia: existe, pero para el modelo el camino es
-    // fb_make_campaign_deliver (ver REDIRIGIR en proposeAction). Mostrarla solo
-    // le da una forma de equivocarse con ids que no leyó.
-    .filter((t) => !READ_ONLY_TOOLS.has(t.name) && !EXCLUDED_FROM_MCP.has(t.name) && t.name !== "fb_set_ad_status")
+    // Dos herramientas NO se anuncian, las dos por el mismo motivo: existen,
+    // pero para el modelo hay un camino mejor, y mostrarlas solo le da una
+    // forma de equivocarse. Las dos están en REDIRIGIR (ver proposeAction),
+    // así que si igual las propone se le explica cuál usar en vez de fallar.
+    //
+    //   fb_set_ad_status  -> fb_make_campaign_deliver
+    //       Pide el id exacto de un anuncio o conjunto; elegirlo mal hace
+    //       fallar la acción DESPUÉS de que el admin confirmó.
+    //
+    //   fb_ad_draft       -> crear_anuncio
+    //       Medido en producción el 2026-08-28: con el pedido "publicá un
+    //       anuncio, que me escriban por WhatsApp", Atlas eligió fb_ad_draft y
+    //       el destino se perdió -- esa herramienta solo guarda texto y no
+    //       acepta `objetivo`. Las dos suenan igual de razonables para "hacé
+    //       un anuncio", así que la solución no es pedirle que elija bien: es
+    //       no ofrecerle la que no sirve.
+    .filter((t) => !READ_ONLY_TOOLS.has(t.name) && !EXCLUDED_FROM_MCP.has(t.name)
+      && t.name !== "fb_set_ad_status" && t.name !== "fb_ad_draft")
     // ── El CONTRATO de argumentos viaja, no solo el nombre ────────────────
     //
     // Antes esto era solo `nombre: primera frase de la descripción`. El modelo

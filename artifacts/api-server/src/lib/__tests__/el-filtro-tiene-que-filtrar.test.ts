@@ -175,3 +175,40 @@ describe("Crear un anuncio no arrastra las herramientas de analizarlo", () => {
     }
   });
 });
+
+/**
+ * Que el modelo no pueda elegir la herramienta que pierde el destino.
+ *
+ * Medido en producción el 2026-08-28 con "publicá un anuncio, que me escriban
+ * por WhatsApp": Atlas eligió `fb_ad_draft`. Esa herramienta solo guarda el
+ * texto y NO acepta `objetivo`, así que la campaña habría salido de ventas a
+ * la web -- el fallo que el admin viene reportando.
+ *
+ * Las dos herramientas suenan igual de razonables para "hacé un anuncio", así
+ * que la solución no es pedirle al modelo que elija bien: es no ofrecerle la
+ * que no sirve, y redirigirlo si igual la propone.
+ */
+describe("Publicar un anuncio pasa por la herramienta que acepta el objetivo", () => {
+  it("fb_ad_draft no se le ofrece al modelo", async () => {
+    const propose: any = buildMcpToolRegistry("publica un anuncio en Facebook a WhatsApp").find(
+      (t: any) => t.name === "propose_action",
+    );
+    const desc = String(propose?.description || "");
+    expect(desc).not.toContain("fb_ad_draft:");
+    // Pero la que SÍ sirve tiene que estar, o se queda sin forma de crear.
+    expect(desc).toContain("crear_anuncio:");
+  });
+
+  it("si igual la propone, se lo redirige en vez de fallar", async () => {
+    const { buildMcpToolRegistry: build } = await import("../opencode-mcp-tools");
+    const propose: any = build("publica un anuncio").find((t: any) => t.name === "propose_action");
+    const r = await propose.handler(
+      { tool: "fb_ad_draft", args: { productId: 124, primaryText: "hola" } },
+      { tenantId: 1, turnId: "t1" } as any,
+    );
+    expect(r.ok).toBe(false);
+    // El mensaje tiene que decirle QUÉ usar y CÓMO, no solo que no.
+    expect(r.summary).toContain("crear_anuncio");
+    expect(r.summary).toContain("objetivo");
+  });
+});
