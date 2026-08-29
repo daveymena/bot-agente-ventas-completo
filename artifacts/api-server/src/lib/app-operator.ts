@@ -1011,7 +1011,7 @@ export async function validarContenidoAnuncio(
   // escribir (ad_brief) se arma con esas mismas listas. Duplicadas, el brief
   // le diría "podés decir X" y el validador se lo rechazaría después -- que es
   // justo el ida y vuelta que el brief viene a eliminar.
-  const { PROMESAS, RESULTADOS, ENTREGABLES, respaldoDe, promesaRespaldada, resultadoRespaldado, entregableRespaldado } =
+  const { PROMESAS, RESULTADOS, ENTREGABLES, respaldoDe, promesaRespaldada, resultadoRespaldado, entregableRespaldado, marcasSinRespaldo } =
     await import("./anuncio-inteligente");
   const respaldoProd = respaldoDe(prodReal);
   const respaldo = respaldoProd.texto;
@@ -1024,6 +1024,35 @@ export async function validarContenidoAnuncio(
   // a una persona real es más delicado que inventar un descuento: puede
   // ser un problema legal y de reputación, y sale publicado pagando.
   // El validador de promesas no lo cubría porque no es una oferta.
+  // ── Herramientas y marcas que el producto no tiene ───────────────
+  //
+  // Caso real, borrador #92 (19-08-2026), curso de IA. El producto enseña
+  // Claude, n8n, OpenClaw y Gemini. El anuncio salió prometiendo además
+  // ChatGPT, Perplexity, Copilot, Midjourney, DALL·E 4, Leonardo AI, CrewAI
+  // y AutoGPT: ocho herramientas que el curso no toca.
+  //
+  // El modelo no las copió de ningún lado -- rellenó con lo que "debería"
+  // traer un curso de IA. Y es la mentira más cara: el que compra buscando
+  // ChatGPT pide la devolución, y con razón.
+  //
+  // El validador de promesas no lo agarraba porque un nombre de herramienta
+  // no es una promesa comercial.
+  const marcasInventadas = marcasSinRespaldo(textosDelAnuncio, respaldoProd);
+  if (marcasInventadas.length > 0) {
+    return (
+      `El anuncio nombra ${marcasInventadas.length === 1 ? "algo que no está" : "cosas que no están"} en el producto "${prodReal.name}": ` +
+      `${marcasInventadas.slice(0, 8).map((x) => `"${x}"`).join(", ")}.
+
+` +
+      `Quien compre esperando eso va a pedir la devolución, y va a tener razón.
+
+` +
+      `Reescribí el copy usando SOLO lo que el producto sí trae: ` +
+      `${Array.isArray(prodReal.features) && prodReal.features.length ? (prodReal.features as string[]).slice(0, 5).join(" · ") : String(prodReal.description || "").slice(0, 200)}. ` +
+      `Si alguna de esas sí está incluida, cargala primero en el producto y volvé a intentar.`
+    );
+  }
+
   const CITA_ATRIBUIDA = /["“”«][^"“”«»]{10,200}["“”»]\s*[—\-–]\s*([A-ZÁÉÍÓÚÑ][\wáéíóúñ]+(?:\s+[A-ZÁÉÍÓÚÑ][\wáéíóúñ]+){0,3})/;
   const cita = textosDelAnuncio.match(CITA_ATRIBUIDA);
   if (cita) {

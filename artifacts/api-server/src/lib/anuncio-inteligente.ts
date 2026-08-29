@@ -117,6 +117,82 @@ export function entregableRespaldado(match: string, respaldo: RespaldoDelProduct
   return !!raiz && respaldo.compacto.includes(raiz);
 }
 
+/**
+ * Marcas y herramientas que el copy nombra y el producto NO tiene.
+ *
+ * El caso real, borrador #92 del 19-08-2026, curso de IA. El producto dice:
+ *
+ *   Claude · n8n · OpenClaw · Gemini · Claude Code · Claude Design
+ *
+ * y el anuncio salió diciendo:
+ *
+ *   ChatGPT · Gemini · Claude · Perplexity · Copilot · Midjourney ·
+ *   DALL·E 4 · Leonardo AI · CrewAI · AutoGPT
+ *
+ * Ocho herramientas que el curso no enseña. El modelo no las copió de ningún
+ * lado: rellenó con lo que "debería" traer un curso de IA. Y es la mentira más
+ * cara de todas, porque el que compra buscando ChatGPT pide la devolución.
+ *
+ * El validador que ya existía cubre PROMESAS (garantía, acceso de por vida,
+ * testimonios). Un nombre de herramienta no es una promesa, así que pasaba
+ * entero.
+ *
+ * Se detecta por la forma, no por una lista de marcas: una lista habría que
+ * mantenerla y solo serviría para este nicho -- el SaaS vende de todo. Lo que
+ * se busca es una palabra en Mayúscula EN MEDIO de una frase, que es como se
+ * escribe un nombre propio y no una palabra común del español.
+ */
+
+/** Nombres que SIEMPRE puede usar: son del sistema, no del producto. */
+const MARCAS_DEL_SISTEMA = new Set([
+  "whatsapp", "paypal", "nequi", "daviplata", "mercadopago", "mercado", "pago",
+  "facebook", "instagram", "messenger", "meta", "telegram", "drive", "google",
+  "colombia", "cop", "usd", "iva", "pse", "ia", "pdf",
+]);
+
+export function marcasSinRespaldo(copy: string, respaldo: RespaldoDelProducto): string[] {
+  const texto = String(copy || "");
+  const fuera: string[] = [];
+  const vistas = new Set<string>();
+
+  // Una palabra con mayúscula que NO abre frase ni renglón. Se admite el punto
+  // y el punto medio de adentro (DALL·E, GPT-4) porque son parte del nombre.
+  const RE = /(\S+[ 	]+)([A-ZÁÉÍÓÚÑ][\wÁÉÍÓÚÑáéíóúñ]*(?:[·.\-][\wÁÉÍÓÚÑáéíóúñ]+)*)/g;
+  let m: RegExpExecArray | null;
+  while ((m = RE.exec(texto)) !== null) {
+    const anterior = m[1]!.trim();
+    const palabra = m[2]!.replace(/[.,;:!?)]+$/, "");
+    if (palabra.length < 3) continue;
+
+    // Después de un punto o de una viñeta, una mayúscula suele ser el
+    // principio de la frase ("Plantillas listas para usar"), no un nombre
+    // propio. Ahí se exige que TENGA FORMA de marca: una mayúscula interna
+    // (ChatGPT, AutoGPT, CrewAI), un número o un punto adentro (DALL·E 4).
+    // Ninguna palabra común del español se escribe así.
+    //
+    // Sin esta distinción se escapaba justo el peor caso: "✅ ChatGPT, Gemini,
+    // Claude..." abre renglón, así que ChatGPT se saltaba como si fuera el
+    // comienzo de una oración.
+    const abreFrase = /[.!?:¡¿•✅🔥👉➡️⭐📌]$/.test(anterior) || anterior === "";
+    const pareceMarca = /[a-záéíóúñ][A-ZÁÉÍÓÚÑ]/.test(palabra) || /\d/.test(palabra) || /[·.]/.test(palabra);
+    if (abreFrase && !pareceMarca) continue;
+    const clave = palabra.toLowerCase();
+    if (vistas.has(clave)) continue;
+    vistas.add(clave);
+    if (MARCAS_DEL_SISTEMA.has(clave)) continue;
+
+    // ¿La nombra el producto? Se compara sin signos, para que "DALL·E" case
+    // con "dalle" y "GPT-4" con "gpt4".
+    const plano = clave.replace(/[^a-z0-9áéíóúñ]/g, "");
+    if (!plano) continue;
+    if (respaldo.texto.includes(clave) || respaldo.compacto.includes(plano)) continue;
+    if (respaldo.texto.replace(/[^a-z0-9áéíóúñ]/g, "").includes(plano)) continue;
+
+    fuera.push(palabra);
+  }
+  return fuera;
+}
+
 // ─── El brief ────────────────────────────────────────────────────────────────
 
 export interface BriefDeAnuncio {
