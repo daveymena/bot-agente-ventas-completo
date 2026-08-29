@@ -21,6 +21,7 @@ import { logger } from "./logger";
 import { tenantManager } from "./tenantManager";
 import { dbNow } from "./date-utils";
 import { getAppUrl } from "./app-url";
+import { videoDeProducto, leerMetadata, normalizarEnlaceDeVideo } from "./video-de-producto";
 
 export interface OperatorContext {
   tenantId: number;
@@ -1284,11 +1285,15 @@ export const TOOLS: ToolDef[] = [
       const [tenantRow] = await db.select({ slug: tenants.slug }).from(tenants).where(eq(tenants.id, ctx.tenantId)).limit(1);
       const publicStoreUrl = tenantRow?.slug ? `/tienda/${tenantRow.slug}` : null;
       const noImg = prods.filter((p) => !p.imageUrl).length;
+      // El video de muestra se cuenta acá porque no se veía en ningún lado:
+      // el agente sabía mandarlo y el catálogo entero estaba sin cargar, sin
+      // que nada lo dijera. Un dato que nadie mide es un dato que nadie carga.
+      const sinVideo = prods.filter((p) => !videoDeProducto(p.metadata)).length;
       return {
         ok: true,
-        summary: `Productos: ${prods.length} (${noImg} sin imagen) · Categorías: ${cats.length} · Agentes: ${ags.length} · Tienda pública: ${publicStoreUrl ? `activa en ${publicStoreUrl}` : "sin slug, no accesible"} (fila en tabla stores: ${stors.length})`,
+        summary: `Productos: ${prods.length} (${noImg} sin imagen, ${sinVideo} sin video de muestra) · Categorías: ${cats.length} · Agentes: ${ags.length} · Tienda pública: ${publicStoreUrl ? `activa en ${publicStoreUrl}` : "sin slug, no accesible"} (fila en tabla stores: ${stors.length})`,
         data: {
-          products: prods.length, productsWithoutImage: noImg, categories: cats.length,
+          products: prods.length, productsWithoutImage: noImg, productsWithoutVideo: sinVideo, categories: cats.length,
           agents: ags.length, stores: stors.length, publicStoreUrl,
           businessName: st?.businessName, aiProvider: st?.aiProvider,
         },
@@ -1361,7 +1366,7 @@ export const TOOLS: ToolDef[] = [
       return {
         ok: true,
         summary: `${rows.length} productos${search ? ` (filtrado por "${search}")` : ""}${ampliado ? ` -- no hubo coincidencia exacta, así que se buscó por palabras sueltas en nombre y descripción: ELEGÍ de esta lista el que de verdad corresponde antes de usar su id, y si ninguno encaja decilo en vez de inventar uno.` : ""}${truncado ? ` -- ADVERTENCIA: esto es una página parcial, hay ${total} en total. No reportes ${rows.length} como el total del catálogo; para el conteo real completo usá analyze_system.` : ""}`,
-        data: rows.map((p) => ({ id: p.id, name: p.name, price: p.price, currency: p.currency, category: p.category, isActive: p.isActive, hasImage: !!p.imageUrl })),
+        data: rows.map((p) => ({ id: p.id, name: p.name, price: p.price, currency: p.currency, category: p.category, isActive: p.isActive, hasImage: !!p.imageUrl, hasVideo: !!videoDeProducto(p.metadata) })),
       };
     },
   },
@@ -3516,6 +3521,96 @@ export const TOOLS: ToolDef[] = [
         ok: true,
         summary: `Imagen asignada al producto ${id} (${prod.name}) — hospedada permanente en ${where} ✅`,
         data: { id, imageUrl: finalUrl, where },
+      };
+    },
+  },
+  {
+    name: "set_product_video",
+    description:
+      "Cargar el video de muestra de un producto: el que el agente le manda al cliente para que VEA cómo es el curso antes de saber el precio. " +
+      "Es la carnada más fuerte del catálogo y hoy no se usa: el agente sabe mandarlo desde hace días, pero medido el 2026-08-29 NINGUNO de los productos activos tenía el enlace cargado, así que a todo el que pide video se le contesta que no hay. " +
+      "Se guarda el ENLACE, no el archivo (WhatsApp corta en 16 MB y los videos de curso pesan más de 100). Un enlace de Google Drive se convierte solo al del reproductor. " +
+      "Antes de guardar comprueba que el enlace ABRA de verdad: un video en Drive sin compartir le muestra al cliente una pantalla de login, que es peor que no mandar nada. " +
+      "Para QUITAR el video de un producto, mandá videoUrl vacío. Cambia datos → requiere confirmación.",
+    args: '{ "productId": number (req), "videoUrl": string (req; el enlace, o "" para quitarlo), "forzar"?: boolean (guardar aunque el enlace no responda -- solo si el admin insiste) }',
+    run: async (args, ctx) => {
+      const id = num(args.productId);
+      if (!id) return { ok: false, summary: "Falta 'productId'" };
+      if (args.videoUrl === undefined) return { ok: false, summary: "Falta 'videoUrl'. Si querés QUITAR el video, mandalo como cadena vacía." };
+      const crudo = String(args.videoUrl ?? "").trim();
+
+      // El filtro por tenant no es opcional: sin él un negocio le cambia el
+      // video a un producto de OTRO negocio tanteando ids, que son
+      // correlativos. Es el mismo agujero que ya se tapó en set_product_image.
+      const [prod] = await db
+        .select()
+        .from(products)
+        .where(and(eq(products.id, id), eq(products.tenantId, ctx.tenantId)))
+        .limit(1);
+      if (!prod) return { ok: false, summary: `Producto ${id} no existe` };
+
+      // Se MEZCLA sobre el metadata que ya está. Ahí viven los datos de Dropi
+      // (source, dropiProductId, imageUrls): pisar el objeto entero por
+      // guardar un video dejaría productos importados sin su origen.
+      const meta = leerMetadata(prod.metadata);
+
+      if (!crudo) {
+        if (!videoDeProducto(meta)) return { ok: true, summary: `"${prod.name}" ya no tenía video, no hay nada que quitar.` };
+        delete meta.videoIntro;
+        delete meta.videoUrl;
+        await db.update(products).set({ metadata: JSON.stringify(meta) }).where(eq(products.id, id));
+        return { ok: true, summary: `Video quitado de "${prod.name}". A partir de ahora, a quien pida ver el curso se le va a contestar que todavía no hay video.`, data: { id, videoUrl: null } };
+      }
+
+      const enlace = normalizarEnlaceDeVideo(crudo);
+      if (!enlace.ok) return { ok: false, summary: enlace.motivo };
+
+      // ── ¿El enlace abre de verdad? ────────────────────────────────────
+      // Esta comprobación es el punto de todo el tool. El fallo real no es
+      // escribir mal la URL: es cargar un video de Drive que quedó en
+      // "restringido". El admin lo ve porque está logueado con su cuenta; el
+      // cliente ve una pantalla de "solicitar acceso". Guardarlo sin
+      // comprobar convierte la mejor carnada del catálogo en una puerta
+      // cerrada, y nadie se entera hasta que se pierde la venta.
+      let aviso = "";
+      if (args.forzar !== true) {
+        let problema = "";
+        try {
+          const r = await fetch(enlace.url, { redirect: "follow", headers: { Range: "bytes=0-0" }, signal: AbortSignal.timeout(12000) });
+          const destino = String(r.url || "");
+          if (/accounts\.google\.com|ServiceLogin|\/signin/i.test(destino)) {
+            problema =
+              "ese video de Drive NO es público: el enlace termina en la pantalla de login de Google. Vos lo ves porque estás con tu cuenta abierta, " +
+              "pero el cliente va a ver 'solicitar acceso'. Abrí el archivo en Drive → Compartir → Acceso general → 'Cualquier persona con el enlace' → Lector, y volvé a pasármelo.";
+          } else if (!r.ok && r.status !== 206) {
+            problema = `el enlace respondió ${r.status}. Revisá que sea el correcto y que esté público.`;
+          }
+        } catch {
+          problema = "no pude abrir el enlace (no respondió a tiempo). Puede ser que el servidor esté caído o que la URL esté mal.";
+        }
+        if (problema) {
+          return {
+            ok: false,
+            summary:
+              `No guardé el video: ${problema}\n\n` +
+              `Si estás seguro de que igual funciona para el cliente, volvé a proponerlo con "forzar": true.`,
+          };
+        }
+      } else {
+        aviso = " (guardado SIN comprobar que abra, porque se pidió forzar)";
+      }
+
+      meta.videoIntro = enlace.url;
+      delete meta.videoUrl; // el alias viejo dejaría dos verdades para el mismo dato
+      await db.update(products).set({ metadata: JSON.stringify(meta) }).where(eq(products.id, id));
+
+      return {
+        ok: true,
+        summary:
+          `Video cargado en "${prod.name}" (${enlace.fuente})${aviso} ✅\n${enlace.url}` +
+          (enlace.nota ? `\n\n${enlace.nota}` : "") +
+          `\n\nDesde ahora el agente se lo muestra al cliente ANTES del precio, y a quien pregunte "¿tenés video?" ya le puede decir que sí.`,
+        data: { id, videoUrl: enlace.url, fuente: enlace.fuente },
       };
     },
   },

@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   nombreDeTransferencia,
+  etiquetaDeTransferencia,
   detectChosenPaymentMethod,
   tryPaymentSubIntentAnswer,
 } from "../conversation-engine";
@@ -31,6 +32,27 @@ describe("El medio de transferencia sale del negocio, no del país donde se escr
     expect(nombreDeTransferencia(["Nequi", "Daviplata"])).toBe("Nequi/Daviplata");
     expect(nombreDeTransferencia(["Pix"])).toBe("Pix");
     expect(nombreDeTransferencia(["Bizum"])).toBe("Bizum");
+  });
+
+  it("la ficha de WhatsApp saca el nombre de las cuentas del negocio", () => {
+    // `lib/whatsapp.ts` seguía con "Nequi / Daviplata" escrito a mano en
+    // CUATRO lugares aunque conversation-engine ya estaba arreglado: la ficha
+    // completa, los dos cierres y el bloque de pago. El dato correcto ya venía
+    // en cada cuenta (`type`) y no se leía nunca.
+    const peru = { options: [{ type: "Yape", number: "999", name: "Ana" }, { type: "Plin", number: "999", name: "Ana" }] };
+    expect(etiquetaDeTransferencia(peru)).toBe("Yape/Plin");
+
+    const colombia = { options: [{ type: "Nequi", number: "300", name: "Luis" }, { type: "Daviplata", number: "300", name: "Luis" }] };
+    expect(etiquetaDeTransferencia(colombia)).toBe("Nequi/Daviplata");
+  });
+
+  it("si la cuenta no dice de qué app es, no se inventa una", () => {
+    // Una cuenta bancaria a secas es lo normal fuera de Colombia. Antes ese
+    // caso mostraba "Nequi / Daviplata" igual, con el número del banco al lado.
+    expect(etiquetaDeTransferencia({ options: [{ number: "1234", name: "Ana" }] })).toBe("transferencia");
+    expect(etiquetaDeTransferencia({ options: [] })).toBe("transferencia");
+    expect(etiquetaDeTransferencia(undefined)).toBe("transferencia");
+    expect(etiquetaDeTransferencia(null)).toBe("transferencia");
   });
 
   it("no lista media docena de medios en un mensaje de WhatsApp", () => {

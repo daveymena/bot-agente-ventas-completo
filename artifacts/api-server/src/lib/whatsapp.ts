@@ -3,6 +3,9 @@ import { getAppUrl } from "./app-url";
 import { transcribirAudio, describirImagen } from "./media-entrante";
 import { contextoDeMoneda } from "./moneda-por-pais";
 import { invitacionDe, type SeccionFicha } from "./ficha-parcial";
+import { videoDeProducto } from "./video-de-producto";
+import { etiquetaDeTransferencia } from "./conversation-engine";
+
 import path from "node:path";
 import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { HttpProxyAgent } from "http-proxy-agent";
@@ -18,6 +21,7 @@ import {
   productCategories,
   tenants,
 } from "@workspace/db";
+
 import { logger } from "./logger";
 import { runAgentReply } from "./agent";
 import { toEmojiStyle } from "./conversation-engine";
@@ -472,7 +476,7 @@ async function buildProductCaption(p: typeof products.$inferSelect, categoryName
   //
   // Se ubica ANTES del precio a propósito: primero que vea lo que se lleva,
   // después cuánto cuesta.
-  const videoMuestra = String(meta.videoIntro || meta.videoUrl || "").trim();
+  const videoMuestra = videoDeProducto(meta);
   if (videoMuestra) {
     lines.push(variante([
       `🎬 *Mira cómo son las clases:*`,
@@ -521,7 +525,7 @@ async function buildProductCaption(p: typeof products.$inferSelect, categoryName
       lines.push("");
     }
     if (mon.aceptaPagosLocales && dynamicLinks.transfer?.options?.[0]) {
-      lines.push(`🔹 *Nequi / Daviplata:*`);
+      lines.push(`🔹 *${etiquetaDeTransferencia(dynamicLinks.transfer)}:*`);
       lines.push(`📱 ${dynamicLinks.transfer.options[0].number}`);
       lines.push(`👤 ${dynamicLinks.transfer.options[0].name}`);
       lines.push("");
@@ -632,11 +636,9 @@ async function construirSeccion(
   const urlEnTienda = `${getAppUrl().replace(/\/$/, "")}/p/${p.id}`;
   const corto = (m: any) => m?.shortUrl || m?.url || "";
 
-  // ¿ESTE producto tiene video? Solo 9 de los 84 cursos lo tienen (medido el
-  // 2026-08-26). El cierre no puede ofrecer lo que no existe.
-  let metaProd: any = {};
-  try { metaProd = typeof p.metadata === "string" ? JSON.parse(p.metadata) : (p.metadata || {}); } catch { /* sin metadata */ }
-  const urlVideo = String(metaProd?.videoIntro || metaProd?.videoUrl || "").trim();
+  // ¿ESTE producto tiene video? Medido en produccion el 2026-08-29: NINGUNO de
+  // los 84 activos lo tenia cargado. El cierre no puede ofrecer lo que no existe.
+  const urlVideo = videoDeProducto(p.metadata);
 
   const cierre = invitacionDe(seccion, esFisico, semilla, !!urlVideo);
   const L: string[] = [];
@@ -693,7 +695,7 @@ async function construirSeccion(
     if (!t) return { conFoto: false, mensajes: [`Ahora mismo no tengo el dato de transferencia a mano, déjame confirmarlo 🙏`] };
     return {
       conFoto: false,
-      mensajes: [`🔹 *Nequi / Daviplata*\n📱 ${t.number}\n👤 ${t.name}\n💰 ${mon.precioTexto}\n\n${cierre}`],
+      mensajes: [`🔹 *${etiquetaDeTransferencia(dynamicLinks?.transfer)}*\n📱 ${t.number}\n👤 ${t.name}\n💰 ${mon.precioTexto}\n\n${cierre}`],
     };
   }
 
@@ -715,7 +717,7 @@ async function construirSeccion(
     }
     if (mon.aceptaPagosLocales && dynamicLinks?.transfer?.options?.[0]) {
       const t = dynamicLinks.transfer.options[0];
-      L.push(`🔹 *Nequi / Daviplata:*`, `📱 ${t.number}`, `👤 ${t.name}`, "");
+      L.push(`🔹 *${etiquetaDeTransferencia(dynamicLinks?.transfer)}:*`, `📱 ${t.number}`, `👤 ${t.name}`, "");
     }
     L.push(cierre);
     return { conFoto: false, mensajes: [L.join("\n").trim()] };
@@ -800,7 +802,7 @@ function buildPaymentOnlyCaption(p: typeof products.$inferSelect, dynamicLinks?:
     }
     if (dynamicLinks.transfer && dynamicLinks.transfer.options && dynamicLinks.transfer.options[0]) {
       lines.push(`🔹 *Transferencia Directa:*`);
-      lines.push(`📍 *Nequi/Daviplata:* ${dynamicLinks.transfer.options[0].number}`);
+      lines.push(`📍 *${etiquetaDeTransferencia(dynamicLinks.transfer)}:* ${dynamicLinks.transfer.options[0].number}`);
       lines.push(`👤 *Titular:* ${dynamicLinks.transfer.options[0].name}`);
       lines.push("");
     }

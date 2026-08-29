@@ -487,6 +487,26 @@ export function detectChosenPaymentMethod(text: string, billeteras?: string[]): 
  * "transferencia" a secas -- que es cierto en cualquier país y no promete una
  * app que el cliente no tiene. Nunca se inventa una marca.
  */
+/**
+ * Cómo se llama la transferencia PARA ESTE negocio.
+ *
+ * Estaba escrito "Nequi / Daviplata" a mano en cuatro lugares de este
+ * archivo. Son billeteras COLOMBIANAS: a un negocio peruano el bot le decía
+ * a sus clientes que transfirieran a una app que allá no existe, con el
+ * número del negocio peruano al lado. El cliente abre Nequi, no lo tiene, y
+ * se cae la venta en el último paso.
+ *
+ * El nombre real ya venía cargado en cada cuenta (`type`: Nequi, Yape, Pix,
+ * Bancolombia...). Nunca se leía. Es el mismo arreglo que ya se hizo en
+ * conversation-engine.ts, y por eso usa SU función y no una copia: dos
+ * implementaciones de "cómo se llama esto" es cómo se llega a que un mensaje
+ * diga Yape y el siguiente Nequi en la misma conversación.
+ */
+export function etiquetaDeTransferencia(transfer: any): string {
+  const tipos = (transfer?.options || []).map((o: any) => String(o?.type || "").trim()).filter(Boolean);
+  return nombreDeTransferencia(tipos);
+}
+
 export function nombreDeTransferencia(billeteras?: string[]): string {
   const limpias = (billeteras || [])
     .map((b) => String(b || "").trim())

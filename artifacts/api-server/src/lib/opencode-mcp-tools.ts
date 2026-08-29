@@ -401,6 +401,13 @@ export function describePlannedAction(a: { tool: string; args: any }): string {
       ].filter(Boolean).join("");
     case "set_product_image":
       return `Asignar imagen al producto ${g.productId ?? "?"} (se hospeda permanente): ${valorLegible(g.imageUrl ?? "")}`;
+    case "set_product_video":
+      // El admin tiene que ver el ENLACE entero antes de aprobar. Es lo
+      // único que va a ver el cliente: si está mal, se entera el cliente.
+      return String(g.videoUrl ?? "").trim()
+        ? `Cargar el video de muestra del producto ${g.productId ?? "?"} (se lo va a ver el cliente antes del precio):
+   🎬 ${valorLegible(g.videoUrl, 200)}`
+        : `Quitar el video de muestra del producto ${g.productId ?? "?"} — a quien pida ver el curso se le va a decir que no hay`;
     case "fb_update_draft_creative":
       // Mismo motivo que fb_ad_draft: si el anuncio ya existe en Meta, esto
       // REEMPLAZA el texto que ve el público. Aprobar eso sin leerlo entero
@@ -558,6 +565,7 @@ async function proposeAction(
     fb_create_ad: ["productId", "dailyBudget"],
     fb_page_publish: ["productId"],
     set_product_image: ["productId", "imageUrl"],
+    set_product_video: ["productId", "videoUrl"],
     update_product: ["id"],
     delete_product: ["id"],
     fb_update_draft_creative: ["draftId"],
