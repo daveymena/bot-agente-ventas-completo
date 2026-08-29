@@ -631,7 +631,10 @@ export function tryHardcodedAnswer(
   negocio?: BusinessContext | null
 ): HardcodedAnswer | null {
   const t = text.toLowerCase();
-  const prod = productName ? `*${productName}*` : "el curso";
+  // "el curso" era el nombre por defecto, y este SaaS se vende a cualquier
+  // negocio: uno de bolsos leía "la entrega de el curso". "El producto" es
+  // cierto siempre.
+  const prod = productName ? `*${productName}*` : "el producto";
   const e = voice?.emojis || {};
   const emoji = (key: string, fallback: string) => e[key] || fallback;
 
@@ -658,7 +661,16 @@ export function tryHardcodedAnswer(
     return {
       matched: true,
       intent: "details_query",
-      response: `${emoji("delivery", "📦")} La entrega de ${prod} es *100% digital por ${deliveryMethod}*. Tenemos 2 formas:\n\n1️⃣ *Pago por link* (MercadoPago/PayPal): El sistema detecta tu pago automáticamente y te envía el link de ${deliveryMethod} aquí mismo.\n\n2️⃣ *Pago por consignación* (Nequi/Daviplata): Después de transferir, reenvías la captura del comprobante por este chat y te enviamos el link.\n\nAmbos métodos te dan acceso *${deliveryTime}* desde cualquier dispositivo. ${emoji("benefit", "✅")}${closing}`,
+      // Decía "100% digital", nombraba "Nequi/Daviplata" y prometía acceso
+      // "desde cualquier dispositivo". Tres supuestos de un solo negocio, en
+      // el camino MÁS peligroso del motor: este texto se le manda al cliente
+      // tal cual, sin que la IA lo vea.
+      //
+      // Un negocio de productos físicos le contestaba a alguien preguntando
+      // por el envío de un bolso que "la entrega es 100% digital". Ahora usa
+      // solo el método que el negocio configuró, que es cierto sea cual sea
+      // el producto, y no nombra billeteras de un país.
+      response: `${emoji("delivery", "📦")} La entrega de ${prod} es *por ${deliveryMethod}*. Tenemos 2 formas:\n\n1️⃣ *Pago por link*: el sistema detecta tu pago automáticamente y te lo enviamos por acá.\n\n2️⃣ *Pago por transferencia*: después de transferir, mandás la captura del comprobante por este chat y te lo enviamos.\n\nEn los dos casos lo recibís *${deliveryTime}*. ${emoji("benefit", "✅")}${closing}`,
     };
   }
 
@@ -666,7 +678,9 @@ export function tryHardcodedAnswer(
     return {
       matched: true,
       intent: "details_query",
-      response: `${emoji("delivery", "🔗")} El acceso a ${prod} es por *${deliveryMethod}*. Una vez confirmado el pago (automático si pagas por link, o manual si envías comprobante), recibirás el enlace directo aquí. Lo abres desde el celular o computador, sin descargas obligatorias. ${emoji("benefit", "✅")}${closing}`,
+      // "sin descargas obligatorias" y "desde el celular o computador" son
+      // promesas que solo tienen sentido en un producto digital.
+      response: `${emoji("delivery", "🔗")} El acceso a ${prod} es por *${deliveryMethod}*. Una vez confirmado el pago (automático si pagás por link, o manual si mandás comprobante), lo recibís acá mismo. ${emoji("benefit", "✅")}${closing}`,
     };
   }
 
