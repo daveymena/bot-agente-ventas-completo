@@ -1014,9 +1014,25 @@ function herramientasRelevantes(pedido?: string): Set<string> | null {
   const set = new Set(NUCLEO);
   if (activos.length === 0) {
     for (const h of GENERAL_EXTRA) set.add(h);
-    return set;
+  } else {
+    for (const g of activos) for (const h of g.herramientas) set.add(h);
   }
-  for (const g of activos) for (const h of g.herramientas) set.add(h);
+
+  // ── Si el pedido NOMBRA una herramienta, se la mandamos ──────────────────
+  //
+  // Los grupos matchean palabras en español (facebook, anuncio, campaña), no
+  // nombres de herramientas. Así que la forma MÁS directa de pedir algo era
+  // justo la que fallaba. Visto en producción el 2026-08-29:
+  //
+  //   pedido:  "Ejecuta fb_status y pegame textual el summary"
+  //   Atlas:   "no tengo acceso a esas herramientas en este turno"
+  //
+  // Y con "revisá la conexión con facebook" --lo mismo, dicho peor-- funcionó.
+  // Nombrar la herramienta es una pista más fuerte que cualquier palabra
+  // suelta: no hay forma de escribir `fb_status` por casualidad.
+  for (const nombre of READ_ONLY_TOOLS) {
+    if (!set.has(nombre) && pedido.includes(nombre)) set.add(nombre);
+  }
   return set;
 }
 
