@@ -871,13 +871,40 @@ const NUCLEO = new Set<string>([
 
 const GRUPOS: { patron: RegExp; herramientas: string[] }[] = [
   {
+    // ── Anuncios: CREAR ──────────────────────────────────────────────────
+    //
+    // Crear un anuncio y analizar campañas eran UN solo grupo de 17 tools, así
+    // que "publicá este anuncio" arrastraba métricas, atribución, diagnóstico,
+    // biblioteca de anuncios y logs: 1.537 tokens de esquemas que ese pedido
+    // no usa nunca.
+    //
+    // No es cosmético. Medido contra producción el 2026-08-28: el pedido de
+    // lectura (2.019 tokens de esquemas) se resolvía bien --"140 productos",
+    // correcto-- y el de anuncio (4.197) se colgaba pasados los 4 minutos sin
+    // proponer nada. Sumando lo que OpenCode reserva para la respuesta más el
+    // system, el catálogo y la conversación, el de anuncio no entra en los
+    // 8.000 tokens por minuto de Groq. Y Groq es hoy el ÚNICO proveedor vivo.
+    //
+    // Queda lo que de verdad se usa para crear: si Facebook está conectado, si
+    // hay píxel (decide si el objetivo de ventas es viable), qué borradores
+    // existen y a qué público apuntar. El trabajo pesado --buscar el producto,
+    // armar el brief, escribir el copy, validarlo, guardarlo y subirlo-- lo
+    // hace `crear_anuncio` ENTERO del lado del servidor, y las herramientas de
+    // escritura ni siquiera viajan por acá: pasan por `propose_action`.
+    //
+    // `web_search`/`web_fetch` no hace falta listarlas: están en el NÚCLEO y
+    // viajan siempre. Eso cubre el caso que reportó el admin en su momento,
+    // cuando un pedido de anuncio moría con "todavía no investigaste nada".
     patron: /facebook|anuncio|campa|meta|ads?\b|publicit|p[uú]blico|audiencia|creativ/i,
-    // `web_search`/`research_*` van acá A PROPÓSITO aunque parezcan de otro
-    // grupo: `fb_ad_draft` exige investigación reciente, así que un pedido de
-    // anuncio SIEMPRE puede necesitar investigar. Sin ellas en el subconjunto,
-    // el modelo no tenía con qué cumplir el requisito y el pedido moría con
-    // "todavía no investigaste nada" (reportado en vivo por el admin).
-    herramientas: ["ad_brief", "marketing_attribution", "marketing_diagnostico", "marketing_aprendizajes", "fb_pixel_status", "fb_status", "fb_suggest_audience", "fb_page_can_post", "fb_page_preview", "fb_list_drafts", "fb_agent_logs", "fb_campaign_metrics", "fb_list_adsets", "fb_ad_library", "generate_image", "search_product_images", "web_search"],
+    herramientas: ["fb_status", "fb_pixel_status", "fb_suggest_audience", "fb_list_drafts", "fb_page_can_post", "fb_page_preview"],
+  },
+  {
+    // ── Anuncios: ANALIZAR ───────────────────────────────────────────────
+    // Se activa cuando el pedido pregunta CÓMO VA algo, no cuando pide crear.
+    // Un "¿cómo va mi campaña de Facebook?" matchea los dos grupos y recibe la
+    // unión, que es lo correcto: ahí sí hacen falta las dos mitades.
+    patron: /m[eé]trica|rendimiento|resultado|c[oó]mo va|c[oó]mo est[aá]|gast|roas|cpa|cpc|conversion|analiz|diagn[oó]stic|atribuci|aprendiz|optimiz|competencia|competidor/i,
+    herramientas: ["fb_campaign_metrics", "fb_list_adsets", "fb_agent_logs", "fb_ad_library", "marketing_attribution", "marketing_diagnostico", "marketing_aprendizajes", "ad_brief"],
   },
   {
     patron: /whatsapp|wasap|conversaci|chat|mensaje|cliente|lead/i,

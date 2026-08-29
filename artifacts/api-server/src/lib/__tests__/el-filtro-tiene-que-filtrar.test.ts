@@ -83,3 +83,59 @@ describe("El filtro de herramientas del puente MCP", () => {
     expect(sinPista.length).toBeGreaterThan(conPista.length);
   });
 });
+
+/**
+ * Crear un anuncio y analizar campañas eran UN grupo de 17 herramientas.
+ *
+ * Medido contra producción el 2026-08-28: el pedido de lectura (2.019 tokens
+ * de esquemas) se resolvía correcto en 60 s, y el de anuncio (4.197) se colgó
+ * pasados los 4 minutos sin proponer nada. La diferencia entre los dos es lo
+ * que entra y lo que no entra en los 8.000 tokens por minuto de Groq --
+ * el único proveedor vivo -- una vez que se suman lo que OpenCode reserva para
+ * la respuesta, el system, el catálogo y la conversación.
+ *
+ * "Publicá este anuncio" no necesita métricas, atribución, diagnóstico,
+ * biblioteca de anuncios ni logs: eso es analizar, no crear.
+ */
+describe("Crear un anuncio no arrastra las herramientas de analizarlo", () => {
+  const CREAR = "publica un anuncio en Facebook del curso de piano a WhatsApp con presupuesto 20000 al dia";
+  const ANALIZAR = "como va mi campana de Facebook, dame las metricas";
+
+  it("el pedido de CREAR no trae las de análisis", () => {
+    const nombres = buildMcpToolRegistry(CREAR).map((t: any) => t.name);
+    for (const analitica of ["fb_campaign_metrics", "marketing_attribution", "marketing_diagnostico", "fb_ad_library", "fb_agent_logs"]) {
+      expect(nombres, `${analitica} no hace falta para crear`).not.toContain(analitica);
+    }
+  });
+
+  it("pero sí trae lo que de verdad usa para crear", () => {
+    // Perder una herramienta es peor que un prompt largo: si esto se recorta
+    // de más, Atlas no puede ni comprobar si Facebook está conectado.
+    const nombres = buildMcpToolRegistry(CREAR).map((t: any) => t.name);
+    for (const necesaria of ["fb_status", "fb_pixel_status", "fb_suggest_audience", "fb_list_drafts", "list_products", "propose_action"]) {
+      expect(nombres, necesaria).toContain(necesaria);
+    }
+  });
+
+  it("el pedido de ANALIZAR sí trae las métricas", () => {
+    const nombres = buildMcpToolRegistry(ANALIZAR).map((t: any) => t.name);
+    expect(nombres).toContain("fb_campaign_metrics");
+    expect(nombres).toContain("marketing_attribution");
+  });
+
+  it("pedir las dos cosas trae las dos mitades", () => {
+    // "¿cómo va mi campaña y creá otra?" matchea los dos grupos: la unión es
+    // lo correcto, no la intersección.
+    const nombres = buildMcpToolRegistry("como va mi campana y crea otra nueva").map((t: any) => t.name);
+    expect(nombres).toContain("fb_campaign_metrics");
+    expect(nombres).toContain("fb_suggest_audience");
+  });
+
+  it("el pedido de crear entra en el presupuesto de un minuto de Groq", () => {
+    // Con lo que OpenCode reserva para la respuesta (4.000) más el system, el
+    // perfil del negocio, el catálogo y la conversación, los esquemas no
+    // pueden pasar de ~2.800 si el turno tiene que entrar en 8.000/min.
+    const t = tokens(buildMcpToolRegistry(CREAR));
+    expect(t, `los esquemas de crear un anuncio pesan ~${t} tokens`).toBeLessThan(2800);
+  });
+});
