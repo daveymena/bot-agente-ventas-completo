@@ -448,12 +448,40 @@ const PAYMENT_INSTRUCTION_PATTERNS = [
  * Detecta si el cliente está eligiendo un método de pago específico.
  * Devuelve el método normalizado o null.
  */
-export function detectChosenPaymentMethod(text: string): string | null {
+export function detectChosenPaymentMethod(text: string, billeteras?: string[]): string | null {
   const t = text.toLowerCase();
+  // Las billeteras que el negocio configuró se detectan primero: si un negocio
+  // peruano cobra por Yape y el cliente escribe "te pago por Yape", eso tiene
+  // que reconocerse igual que "por Nequi" en Colombia. Sin esto, el SaaS solo
+  // entiende los medios de pago del país donde se escribió el código.
+  for (const b of billeteras || []) {
+    const nombre = String(b || "").trim().toLowerCase();
+    if (nombre.length >= 3 && t.includes(nombre)) return "transferencia";
+  }
   for (const { method, patterns } of PAYMENT_METHOD_CHOICE_MAP) {
     if (patterns.some(p => t.includes(p))) return method;
   }
   return null;
+}
+
+/**
+ * Cómo nombrar el pago por transferencia para ESTE negocio.
+ *
+ * Estaba escrito "Nequi/Daviplata" a mano en tres lugares. Son billeteras
+ * colombianas: a un negocio de otro país le decía a sus clientes que
+ * transfirieran a una app que allá no existe.
+ *
+ * Si el negocio configuró sus medios, se usan los suyos. Si no, se cae a
+ * "transferencia" a secas -- que es cierto en cualquier país y no promete una
+ * app que el cliente no tiene. Nunca se inventa una marca.
+ */
+export function nombreDeTransferencia(billeteras?: string[]): string {
+  const limpias = (billeteras || [])
+    .map((b) => String(b || "").trim())
+    .filter((b) => b.length > 0)
+    .slice(0, 3);
+  if (limpias.length === 0) return "transferencia";
+  return limpias.join("/");
 }
 
 /**
@@ -494,10 +522,21 @@ export function tryPaymentSubIntentAnswer(
   text: string,
   customerName: string | null,
   productName: string | null,
-  transferInfo?: { number?: string; owner?: string }
+  transferInfo?: { number?: string; owner?: string; billeteras?: string[] }
 ): { matched: true; response: string; subIntent: "method_chosen" | "proof_sending" | "instructions"; chosenMethod?: string } | null {
   const number = transferInfo?.number || DEFAULT_TRANSFER_NUMBER;
   const owner = transferInfo?.owner || DEFAULT_TRANSFER_OWNER;
+  // ── Cómo se llama acá el pago por transferencia ──────────────────────
+  //
+  // Estaba escrito "Nequi/Daviplata" a mano. Son billeteras COLOMBIANAS: a un
+  // negocio mexicano, argentino o español le decía a sus clientes que
+  // transfirieran a una app que en su país no existe. Y este SaaS se vende a
+  // "cualquier tipo de negocio", que es justo lo que eso rompe.
+  //
+  // Ahora sale de la configuración de cobros del negocio, y el default es
+  // genérico: "transferencia" funciona en todos lados aunque no diga la marca.
+  // Ver `nombreDeTransferencia` abajo.
+  const billeteras = nombreDeTransferencia(transferInfo?.billeteras);
   const name = (customerName && customerName !== "cliente") ? customerName.split(" ")[0] : null;
   const greet = name ? `${name}` : "";
   const prod = productName ? ` por *${productName}*` : "";
@@ -521,7 +560,7 @@ export function tryPaymentSubIntentAnswer(
       case "transferencia": {
         response =
           `¡Listo${greet ? `, ${greet}` : ""}! 🙌\n\n` +
-          `Puedes transferir a *Nequi/Daviplata*:\n` +
+          `Puedes transferir a *${billeteras}*:\n` +
           `📱 *${number}*\n` +
           `👤 A nombre de *${owner}*\n\n` +
           `Apenas me envíes el comprobante, lo valido y te activo el acceso${prod}. ✅`;
@@ -561,7 +600,7 @@ export function tryPaymentSubIntentAnswer(
   if (isPaymentInstructionIntent(text)) {
     const response =
       `Solo necesito la *captura del pago*${greet ? `, ${greet}` : ""} 📸\n\n` +
-      `Si pagas por *Nequi/Daviplata*, transfiere a *${number}* (a nombre de *${owner}*) y mándame el comprobante por aquí.\n\n` +
+      `Si pagas por *${billeteras}*, transfiere a *${number}* (a nombre de *${owner}*) y mándame el comprobante por aquí.\n\n` +
       `Si usas *Tarjeta/PSE* o *PayPal*, la confirmación llega sola — no necesitas enviar nada. ✨`;
     return { matched: true, response, subIntent: "instructions" };
   }

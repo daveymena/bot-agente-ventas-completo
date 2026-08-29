@@ -82,3 +82,30 @@ try {
 } catch {}
 
 process.env.SQLITE_PATH = archivo;
+
+// ── Y se ESPERA a que la base exista antes de correr nada ────────────────
+//
+// El uuid de arriba arregló que dos archivos compartieran base, pero quedaba
+// otra carrera, y era la que de verdad rompía: los tests que siembran datos en
+// un `beforeEach` hacen `db.insert(...)` sin haber esperado a que la base
+// termine de inicializar. Cuando ganaban la carrera pasaban; cuando no:
+//
+//   TypeError: Cannot read properties of undefined (reading 'insert')
+//
+// Los 7 fallos siempre eran del MISMO archivo y todos del mismo hook, que es
+// la firma de esto: no es que siete pruebas estén mal, es que su `beforeEach`
+// reventó una vez y se llevó las siete.
+//
+// `ensureDbReady()` ya existía y la llaman `app.ts` e `index.ts` al arrancar;
+// simplemente nadie la llamaba en las pruebas. Ponerla acá la aplica a los 65
+// archivos de una vez, en vez de pedirle a cada test que se acuerde.
+//
+// El `hookTimeout: 30_000` de vitest.config.ts existe justamente para esto:
+// con muchos archivos arrancando a la vez, inicializar SQLite y correr las
+// migraciones se pasaba de los 10 s por defecto.
+import { beforeAll } from "vitest";
+
+beforeAll(async () => {
+  const { ensureDbReady } = await import("@workspace/db");
+  await ensureDbReady();
+});
