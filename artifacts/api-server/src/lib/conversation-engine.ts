@@ -803,11 +803,56 @@ export function toEmojiStyle(text: string): string {
   return t;
 }
 
+/**
+ * Markdown → formato de WhatsApp.
+ *
+ * WhatsApp NO entiende markdown. Usa `*negrita*` con UN asterisco, `_cursiva_`
+ * y `~tachado~`; todo lo demás se muestra literal, con sus asteriscos y sus
+ * corchetes a la vista.
+ *
+ * Los modelos escriben markdown por defecto, y eso llegaba crudo al cliente.
+ * Visto en conversaciones REALES de leads pagados (2026-08-29):
+ *
+ *   "El **Pack Contabilidad** es justo lo que necesitás"
+ *   "**[Curso de Piano Completo: De Cero a Nivel Avanzado](CARD: 123)**"
+ *   "el precio del curso es fijo en **$60.000 COP**"
+ *
+ * El segundo es el peor: el cliente ve corchetes, paréntesis y la palabra
+ * CARD. Parece un error de sistema, y alguien que está por pagar y ve un error
+ * de sistema no paga.
+ *
+ * Se convierte en vez de borrar: la intención de resaltar el precio o el
+ * nombre del producto es correcta, lo que estaba mal era la sintaxis.
+ */
+export function markdownAWhatsapp(texto: string): string {
+  return texto
+    // Enlaces markdown: se queda el texto visible. Incluye el caso del
+    // "[...](CARD: 123)" que el modelo inventa, donde el destino no es
+    // siquiera una URL.
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
+    // **negrita** y __negrita__ -> *negrita*. El orden importa: primero los
+    // dobles, porque si no el primer paso se comería un asterisco y dejaría
+    // el otro suelto.
+    .replace(/\*\*\*([^*]+)\*\*\*/g, "*$1*")
+    .replace(/\*\*([^*]+)\*\*/g, "*$1*")
+    .replace(/__([^_]+)__/g, "*$1*")
+    // Encabezados: WhatsApp no los tiene. Se deja el texto en negrita, que es
+    // lo que el modelo quería decir.
+    .replace(/^#{1,6}\s+(.+)$/gm, "*$1*")
+    // Bloques de código: el modelo a veces envuelve un precio o un número.
+    .replace(/```[a-z]*\n?([\s\S]*?)```/g, "$1")
+    .replace(/`([^`]+)`/g, "$1");
+}
+
 export function sanitizeResponse(text: string, intent: Intent): string {
-  if (intent === "payment_intent" || intent === "confirmation") return text;
+  // El markdown se limpia SIEMPRE, incluso en pago y confirmación: son
+  // justamente los mensajes donde el cliente está por transferir plata, y
+  // donde un "**$60.000**" mal formateado hace dudar.
+  const enFormatoWhatsapp = markdownAWhatsapp(text);
+  if (intent === "payment_intent" || intent === "confirmation") return enFormatoWhatsapp;
 
   // Eliminar URLs (http/https)
-  let clean = text.replace(/https?:\/\/[^\s\n]+/g, "").trim();
+  let clean = enFormatoWhatsapp.replace(/https?:\/\/[^\s\n]+/g, "").trim();
 
   // Eliminar líneas que solo contienen datos de pago
   const paymentLinePatterns = [
