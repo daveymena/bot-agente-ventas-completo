@@ -30,6 +30,7 @@ import {
   getSystemHealthSummary
 } from "./fallbackSystem";
 import {
+  cardConRespaldo,
   loadConversationMemory,
   computeDecision,
   saveAgentMessage,
@@ -2389,6 +2390,28 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
         else {
           console.log(`❌ [PARSER] ID inválido "${m![1]}" y sin productToShow válido. Card rechazada.`);
           resolvedId = -1;
+        }
+
+        // ── ¿ALGO RESPALDA ESTA FICHA? ───────────────────────────────────────
+        // Cuando el servidor no identificó producto y la conversación no
+        // traía ninguno, el id que escribió el modelo no lo respalda nada:
+        // existe en el catálogo, y con eso alcanzaba para publicarlo. Así fue
+        // como un cliente que escribió "información" recibió un Cojín Moto
+        // Viajero y otro que escribió "key" recibió LIQUID FIBRA -- los dos,
+        // leads pagos, en su primer mensaje.
+        if (resolvedId !== -1) {
+          const elegido = productList.find((p: any) => p.id === resolvedId);
+          const respaldada = cardConRespaldo({
+            nombreElegido: elegido?.name || "",
+            textoDelCliente: textoDecision,
+            productoDelMensajeId: decision.productoDelMensaje?.id ?? null,
+            currentProductId: memory.currentProductId ?? null,
+            esFlujoDePago: decision.intent === "payment_intent" || decision.intent === "confirmation",
+          });
+          if (!respaldada) {
+            console.log(`🛡️ [PARSER] La IA eligió "${elegido?.name}" (ID ${resolvedId}) pero nada lo respalda: el cliente no lo nombró y no hay producto en la conversación. Card descartada -- se manda solo el texto.`);
+            resolvedId = -1;
+          }
         }
 
         // ── NO REPETIR UNA FICHA YA ENVIADA ──────────────────────────────────

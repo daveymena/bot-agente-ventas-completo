@@ -1376,6 +1376,68 @@ function señalaAlProductoEnFoco(text: string): boolean {
   return /\b(ese|esa|eso|esos|esas|este|esta|esto|aquel|aquella)\b/.test(t);
 }
 
+/**
+ * ¿Hay ALGO que respalde la ficha que el modelo eligió mandar?
+ *
+ * El parser de `agent.ts` corregía la card cuando el servidor SÍ había
+ * identificado un producto en el mensaje. Lo que no miraba era el caso
+ * contrario: cuando el servidor no identificó nada, el id que escribió el
+ * modelo se aceptaba tal cual, sin comparar contra nada, solo por existir en
+ * el catálogo.
+ *
+ * Ahí salían los dos casos peores medidos en conversaciones de leads PAGOS:
+ *
+ *   · el cliente escribió "información" y recibió un Cojín Moto Viajero
+ *   · el cliente escribió "key" y recibió [CARD: LIQUID FIBRA]
+ *
+ * Ninguno de los dos nombró un producto, y ninguno tenía uno en la
+ * conversación. El modelo elegía uno del índice --el que le quedaba a mano--
+ * y el servidor lo publicaba como si fuera una decisión. Que el id exista no
+ * quiere decir que corresponda.
+ *
+ * Un anuncio bien pago trae al cliente hasta el chat; mostrarle el producto
+ * equivocado en el primer mensaje lo pierde ahí mismo. Sin respaldo se manda
+ * el TEXTO del modelo y no la ficha: contestar de más es recuperable,
+ * mostrar el producto equivocado no.
+ */
+export function cardConRespaldo(args: {
+  /** El producto que el parser resolvió. */
+  nombreElegido: string;
+  /** Lo que escribió el cliente en ESTE mensaje. */
+  textoDelCliente: string;
+  /** El producto que el servidor identificó en este mensaje, si lo hizo. */
+  productoDelMensajeId: number | null;
+  /** El producto que viene arrastrando la conversación, si hay. */
+  currentProductId: number | null;
+  /** El cliente está pagando: ahí el producto ya se decidió antes. */
+  esFlujoDePago: boolean;
+}): boolean {
+  // En el flujo de pago el producto ya quedó fijado en pasos anteriores, y
+  // quitarle la ficha a alguien que está por transferir le saca los medios de
+  // pago de las manos. No se toca.
+  if (args.esFlujoDePago) return true;
+
+  // El servidor identificó el producto de este mensaje: el parser ya lo
+  // impone por encima del que eligió el modelo. Hay respaldo de sobra.
+  if (args.productoDelMensajeId) return true;
+
+  // Hay un producto sobre la mesa. Un "sí, dale" o un "cuánto vale" se
+  // refieren a ÉSE, y bloquear la ficha ahí rompería el cierre.
+  if (args.currentProductId) return true;
+
+  // Última chance: que el cliente haya nombrado algo del producto aunque el
+  // emparejador no lo haya alcanzado (un apodo, un typo, media palabra). Se
+  // exige una palabra con contenido: las genéricas son justamente las que
+  // producían el fallo ("información", "curso", "precio").
+  const palabrasDelCliente = normalizeText(quitarSaludoYCortesias(normalizeText(args.textoDelCliente)))
+    .split(/\s+/)
+    .filter((w) => w.length >= 4 && !STOP_WORDS.has(w) && !GENERIC_WORDS.has(w) && !GENERIC_HEADERS.has(w));
+  if (palabrasDelCliente.length === 0) return false;
+
+  const nombre = normalizeText(args.nombreElegido);
+  return palabrasDelCliente.some((w) => contieneFrase(nombre, w));
+}
+
 export async function findBestProductMatch(
   text: string,
   productList: Array<{ id: number; name: string; description: string | null; category: string | null; categoryId: number | null }>,

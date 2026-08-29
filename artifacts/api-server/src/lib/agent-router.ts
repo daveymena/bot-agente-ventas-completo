@@ -145,6 +145,40 @@ async function scoreAgents(
     }
   }
 
+  // ── ¿Esta conversación ya tiene agente? ───────────────────────────────────
+  //
+  // `conversations.agentId` existe en el esquema desde siempre y NADIE lo leía
+  // ni lo escribía. Sin él, quién atiende se recalculaba en CADA mensaje a
+  // partir de palabras clave, así que dos agentes activos se turnaban dentro
+  // de la misma conversación: el cliente hablaba con Camila, mandaba otro
+  // mensaje y le contestaba Sofía, con otro nombre, otra personalidad y sin
+  // saber lo que la otra había prometido.
+  //
+  // Va DESPUÉS del enrutado por tipo de producto y ANTES del scoring por
+  // palabras, y ese orden es la regla entera: cambiar de agente se permite
+  // por un motivo duro (el cliente pasó de un digital a un físico, y solo uno
+  // de los dos sabe pedir la dirección), nunca porque el mensaje de turno
+  // tenga la palabra "envío".
+  //
+  // El bonus de continuidad de más abajo intentaba esto mismo buscando el
+  // NOMBRE del agente dentro del texto de los mensajes. El agente no firma
+  // sus mensajes, así que casi nunca daba positivo.
+  const [convo] = await db
+    .select({ agentId: conversations.agentId })
+    .from(conversations)
+    .where(eq(conversations.id, conversationId))
+    .limit(1);
+  if (convo?.agentId) {
+    const dueño = activeAgents.find((a: any) => a.id === convo.agentId);
+    if (dueño) {
+      logger.info({ tenantId, conversationId, agente: dueño.name }, "[AgentRouter] Sigue el agente que ya venía atendiendo esta conversación");
+      return [{ agentId: dueño.id, agentName: dueño.name, score: 100, reason: "Ya venía atendiendo esta conversación" }];
+    }
+    // El agente asignado se desactivó o se borró: se vuelve a elegir, y el
+    // nuevo queda asignado al final de `getActiveAgent`.
+    logger.warn({ tenantId, conversationId, agentId: convo.agentId }, "[AgentRouter] El agente asignado ya no está activo — se reasigna");
+  }
+
   // Obtener historial de la conversación para contexto
   const history = await db
     .select()
@@ -176,8 +210,14 @@ async function scoreAgents(
       reasons.push("Continuidad de conversación");
     }
 
-    // 3. Bonus para agente general (Sofía) si no hay match claro
-    if (agent.name === "Sofía" && score < 10) {
+    // 3. Bonus para el agente GENERAL si no hay match claro.
+    //
+    // Acá decía `agent.name === "Sofía"`. Sofía es el agente de UN negocio:
+    // en cualquier otro tenant ese bonus no se aplicaba nunca, así que el
+    // desempate que existe para el caso ambiguo --el más común, un cliente
+    // que escribe "hola"-- simplemente no funcionaba fuera de esa cuenta.
+    // El tipo del agente sale de su rol, que es el dato del negocio.
+    if (agentType === "general" && score < 10) {
       score += 15;
       reasons.push("Agente general por defecto");
     }
@@ -261,6 +301,32 @@ export async function selectBestAgent(
 }
 
 /**
+ * Deja asentado qué agente atiende esta conversación.
+ *
+ * Sin esto, quién responde se recalcula en cada mensaje y el cliente ve
+ * cambiar de nombre y de tono a mitad de charla. Se escribe solo si cambió,
+ * para no tocar la fila en cada mensaje.
+ *
+ * Un fallo acá no puede tumbar la respuesta: el cliente está esperando. Se
+ * registra y se sigue -- el peor caso es que el próximo mensaje lo vuelva a
+ * elegir, que es exactamente como funcionaba antes.
+ */
+async function recordarQuienAtiende(conversationId: number, agentId: number): Promise<void> {
+  try {
+    const [actual] = await db
+      .select({ agentId: conversations.agentId })
+      .from(conversations)
+      .where(eq(conversations.id, conversationId))
+      .limit(1);
+    if (actual?.agentId === agentId) return;
+    await db.update(conversations).set({ agentId }).where(eq(conversations.id, conversationId));
+    logger.info({ conversationId, agentId }, "[AgentRouter] Conversación asignada");
+  } catch (e: any) {
+    logger.warn({ conversationId, agentId, err: e?.message }, "[AgentRouter] No se pudo asentar el agente de la conversación");
+  }
+}
+
+/**
  * Obtiene el agente activo (para compatibilidad con código existente)
  * Si hay múltiples activos, usa el router
  */
@@ -290,7 +356,10 @@ export async function getActiveAgent(
       .where(and(eq(agents.id, selected.agentId), eq(agents.tenantId, tenantId)))
       .limit(1);
 
-    if (sirve(agent)) return agent;
+    if (sirve(agent)) {
+      await recordarQuienAtiende(conversationId, agent.id);
+      return agent;
+    }
     logger.warn({ tenantId, agentId: selected.agentId }, "[AgentRouter] El agente elegido no sirve (sin nombre o de otro negocio) — se busca otro");
   }
 
@@ -304,6 +373,7 @@ export async function getActiveAgent(
     ));
 
   const usable = activos.find(sirve);
+  if (usable) await recordarQuienAtiende(conversationId, usable.id);
   if (!usable && activos.length) {
     logger.error({ tenantId, cuantos: activos.length }, "[AgentRouter] Hay agentes activos pero NINGUNO tiene nombre");
   }
