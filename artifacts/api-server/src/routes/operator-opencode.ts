@@ -229,10 +229,43 @@ const CANDIDATOS_PAGOS: { providerID: string; modelID: string }[] = [
   // es mejor que cuatro que no contestan nunca. Cuando vuelva a haber una
   // cuenta con saldo, va arriba de Groq y esto se revierte.
   { providerID: "groq", modelID: "openai/gpt-oss-120b" },
-  { providerID: "openrouter", modelID: "openai/gpt-4o-mini" },
-  { providerID: "openrouter", modelID: "openai/gpt-4.1-nano" },
-  { providerID: "deepseek", modelID: "deepseek-chat" },
-  { providerID: "mistral", modelID: "mistral-large-latest" },
+  // ── Los que se sacaron, y por qué importa tanto ──────────────────────────
+  //
+  // El admin pegó el desglose de un turno real el 2026-08-29, pidiendo un
+  // anuncio del producto 124:
+  //
+  //   gpt-oss-120b   falló: se quedó sin tiempo        55,0s
+  //   gpt-4o-mini    descartado: sin crédito           37,6s   <-
+  //   gpt-4.1-nano   descartado: sin crédito            0,8s   <-
+  //   deepseek-chat  falló: error del proveedor         0,1s   <-
+  //   3 gratis de OpenRouter                           38,6s   <-
+  //   total                                           135,0s
+  //
+  // CINCO de los ocho candidatos estaban muertos, y medidos como muertos el
+  // día anterior con /api/ai/test: openrouter 429 sin crédito, deepseek 402
+  // sin saldo, mistral 402 sin saldo. Se comieron ~60 segundos de un turno de
+  // 135 -- casi la mitad -- para no contestar nada.
+  //
+  // La memoria de fallos los aparta sola... pero vive en el PROCESO. Cada
+  // deploy la resetea, y el primer turno después vuelve a pagar el
+  // descubrimiento completo. Con varios deploys por día, ese "primer turno"
+  // es el que le toca a un cliente real.
+  //
+  // Así que no alcanza con que la rotación aprenda: la lista no debe traer de
+  // fábrica proveedores que ya sabemos muertos. Es lo mismo que se hizo con
+  // PROVEEDORES_RAPIDOS (cadena-modelos.ts) el mismo día -- y dejar esta lista
+  // sin tocar fue exactamente el patrón que este proyecto repite: arreglado en
+  // una lista, vivo en la otra.
+  //
+  //   { providerID: "openrouter", modelID: "openai/gpt-4o-mini" },
+  //   { providerID: "openrouter", modelID: "openai/gpt-4.1-nano" },
+  //   { providerID: "deepseek",   modelID: "deepseek-chat" },
+  //   { providerID: "mistral",    modelID: "mistral-large-latest" },
+  //
+  // ⚠️ Vuelven en cuanto la cuenta tenga saldo, y valen la pena: gpt-4o-mini
+  // respondía en 1,8s cuando OpenRouter tenía crédito, y deepseek-chat en
+  // ~800ms. El día que se cargue saldo, se descomentan y van ARRIBA de Groq.
+  // Ver PENDIENTE_ADMIN.md §5.
   // Groq, MEDIDO en vivo el 2026-08-24 contra la instalación real, no elegido
   // por preferencia. El admin objetó "tenemos github, zen, nvidia, imposible
   // que ninguno sirva" y tenía razón: probando uno por uno con /api/ai/test,
@@ -265,9 +298,19 @@ const CANDIDATOS_PAGOS: { providerID: string; modelID: string }[] = [
   //
   // (Ese desmentido quedó explicado y resuelto: ver la nota de REORDENADO
   //  arriba. Groq subió al primer lugar el 2026-08-28.)
-  { providerID: "openrouter", modelID: "nvidia/nemotron-3-nano-30b-a3b:free" },
-  { providerID: "openrouter", modelID: "poolside/laguna-xs-2.1:free" },
-  { providerID: "openrouter", modelID: "nvidia/nemotron-3-ultra-550b-a55b:free" },
+  // Los tres gratis de OpenRouter salen por lo mismo que los de pago: la
+  // cuenta NO TIENE CRÉDITO, y sin crédito tampoco sirven los `:free`. En el
+  // desglose del 2026-08-29 se llevaron 38,6s de los 135 entre los tres, y
+  // laguna es el que el admin vio reportado dos veces ("temporarily
+  // rate-limited upstream") -- lo veía porque el turno LLEGABA hasta ahí.
+  //
+  //   { providerID: "openrouter", modelID: "nvidia/nemotron-3-nano-30b-a3b:free" },
+  //   { providerID: "openrouter", modelID: "poolside/laguna-xs-2.1:free" },
+  //   { providerID: "openrouter", modelID: "nvidia/nemotron-3-ultra-550b-a55b:free" },
+  //
+  // Vuelven cuando OpenRouter tenga crédito. Queda `big-pickle` como respaldo
+  // final (MODELO_RESPALDO), que es de otra cuenta y sí responde -- lento, pero
+  // responde.
 ];
 
 async function proveedoresConectados(host: string, authHeader: string): Promise<Set<string>> {
