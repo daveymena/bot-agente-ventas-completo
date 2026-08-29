@@ -104,3 +104,52 @@ describe("Advantage+ Audience: gana el algoritmo salvo que el admin pida otra co
     expect(usarAdvantagePlus({ interests: [], genders: [] })).toBe(true);
   });
 });
+
+/**
+ * Ubicaciones: el silencio ES la instrucción.
+ *
+ * No mandar `publisher_platforms` ni las posiciones es la forma de pedir
+ * Advantage+ Placements, que reparte entre las 25+ ubicaciones de Meta
+ * buscando la impresión más barata. Es su default y su recomendación.
+ *
+ * Antes se fijaban a mano en los DOS caminos que crean anuncios:
+ *
+ *   facebook.ts     feed, story, marketplace + las tres de Instagram
+ *   ad-strategist   las mismas + facebook_reels, y ademas habia que sacarle
+ *                   marketplace en las campanas de mensajes porque Meta
+ *                   rechazaba el conjunto entero
+ *
+ * Seis de veinticinco, elegidas por alguien, no medidas. Y contradecía lo que
+ * se activó el mismo día: con Advantage+ Audience se le dice al algoritmo
+ * "elegí vos a quién" y acto seguido se le ataba a seis lugares.
+ *
+ * Esta prueba mira el CÓDIGO FUENTE, no el resultado, porque la ausencia de un
+ * campo no se puede afirmar desde afuera sin llamar a Meta de verdad. Lo que
+ * hay que impedir es que alguien vuelva a escribir la lista.
+ */
+describe("Ubicaciones: no se fijan a mano salvo que el admin las pida", () => {
+  it("ningún camino de creación declara ubicaciones por su cuenta", () => {
+    const { readFileSync } = require("node:fs") as typeof import("node:fs");
+    const { join } = require("node:path") as typeof import("node:path");
+    const culpables: string[] = [];
+
+    for (const archivo of ["facebook.ts", "ad-strategist.ts"]) {
+      const texto = readFileSync(join(__dirname, "..", archivo), "utf-8");
+      for (const [i, linea] of texto.split("\n").entries()) {
+        const t = linea.trim();
+        if (t.startsWith("//") || t.startsWith("*") || t.startsWith("/*")) continue;
+        // Una lista literal de ubicaciones: `["feed", "story", ...]`. Asignar
+        // lo que pidió el admin (`= placements.facebook`) es legítimo; escribir
+        // los nombres a mano es lo que no.
+        if (/(facebook|instagram|messenger)_positions\s*[:=]\s*\[\s*"/.test(linea)
+            || /publisher_platforms\s*[:=]\s*\[\s*"/.test(linea)) {
+          culpables.push(`${archivo}:${i + 1}  ${t.slice(0, 70)}`);
+        }
+      }
+    }
+    expect(
+      culpables,
+      `no declares ubicaciones: sin ellas Meta usa Advantage+ Placements.\n${culpables.join("\n")}`,
+    ).toEqual([]);
+  });
+});

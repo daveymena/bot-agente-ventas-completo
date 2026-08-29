@@ -688,7 +688,33 @@ Responde SOLO con este JSON exacto:
         }];
       }
 
-      // Placements
+      // ── Ubicaciones (placements) ───────────────────────────────────────
+      //
+      // Si el admin no pidió ubicaciones concretas, NO se manda ninguna. Ese
+      // silencio es lo que activa Advantage+ Placements: Meta reparte entre
+      // sus 25+ ubicaciones y busca la impresión más barata. Es su default y
+      // lo que recomienda para la mayoría de los anunciantes.
+      //
+      // Antes, sin pedido del admin, se fijaban SEIS a mano:
+      //
+      //   publisher_platforms = ["facebook", "instagram"]
+      //   facebook_positions  = ["feed", "story", "marketplace"]
+      //   instagram_positions = ["stream", "story", "reels"]
+      //
+      // Eso dejaba afuera Reels de Facebook, Audience Network, Messenger,
+      // resultados de búsqueda y todo lo que Meta agregue de acá en adelante.
+      // Y sobre todo se contradecía con lo que se activó el mismo día: con
+      // Advantage+ Audience se le dice al algoritmo "elegí vos a quién" y acto
+      // seguido se le ataba a seis lugares. La lista de seis, además, era una
+      // elección de alguien, no una medición.
+      //
+      // Dirección de la plataforma: Meta está RETIRANDO los controles de
+      // exclusión de ubicaciones de los conjuntos. Fijarlas a mano es nadar
+      // contra la corriente del producto.
+      //
+      // Si el admin SÍ pide ubicaciones, mandan las suyas: pidió algo concreto
+      // y el sistema no se lo ensancha por su cuenta. Es la misma regla que
+      // gobierna Advantage+ Audience (ver usarAdvantagePlus).
       const placements = targeting?.placements;
       if (placements?.facebook || placements?.instagram || placements?.messenger) {
         fbTargeting.publisher_platforms = [];
@@ -705,14 +731,18 @@ Responde SOLO con este JSON exacto:
           fbTargeting.instagram_positions = placements.instagram;
         }
         if (placements.messenger) {
-          fbTargeting.publisher_platforms.push("messenger");
-          fbTargeting.messenger_positions = placements.messenger;
+          // `story` sale de messenger_positions: Meta retiró Messenger Stories
+          // el 2026-08-27 y desde v26.0 lo borra en silencio, sin devolver
+          // error. Mandarlo sería pedir algo que no existe y no enterarse.
+          const posiciones = placements.messenger.filter((p) => p !== "story");
+          if (posiciones.length > 0) {
+            fbTargeting.publisher_platforms.push("messenger");
+            fbTargeting.messenger_positions = posiciones;
+          }
         }
-      } else {
-        fbTargeting.publisher_platforms = ["facebook", "instagram"];
-        fbTargeting.facebook_positions = ["feed", "story", "marketplace"];
-        fbTargeting.instagram_positions = ["stream", "story", "reels"];
       }
+      // (sin `else`: la ausencia de estos campos ES la forma de pedir
+      //  Advantage+ Placements. Ver el comentario de arriba.)
 
       // ── Advantage+ Audience ────────────────────────────────────────────
       //

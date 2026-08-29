@@ -3,7 +3,7 @@ import { getAppUrl } from "./app-url";
 import { db, products, productCategories, facebookDrafts } from "@workspace/db";
 import { eq, desc, and } from "drizzle-orm";
 import { tenantManager, type TenantContext } from "./tenantManager";
-import { resolveInterestIds } from "./facebook";
+import { resolveInterestIds, usarAdvantagePlus } from "./facebook";
 import { generateProductImage } from "./ai-product-image";
 
 import { FB_GRAPH_BASE } from "./meta-api-version";
@@ -999,21 +999,42 @@ Este contenido digital es tu atajo directo a resultados profesionales.
           age_min: strategy.ageMin,
           age_max: strategy.ageMax,
           ...(resolvedInterests.length > 0 ? { flexible_spec: [{ interests: resolvedInterests }] } : {}),
-          publisher_platforms: ["facebook", "instagram"],
-          // "reels" no es una ubicación válida para facebook_positions (probado
-          // en vivo contra la cuenta real: error #100/1815433 "Posición en
-          // Facebook no válida"). El equivalente correcto en Facebook es
-          // "facebook_reels" -- "reels" a secas sí es válido, pero solo dentro
-          // de instagram_positions (línea de abajo).
-          facebook_positions: ["feed", "story", "marketplace", "facebook_reels"],
-          instagram_positions: ["stream", "story", "reels"],
-          // Meta exige declarar explícitamente esta bandera desde que introdujo
-          // Advantage+ Audience -- sin ella, /adsets rechaza la creación entera
-          // con error #100/1870227 ("Se requiere la marca de audiencia de
-          // Advantage"), probado en vivo. En 0 para respetar el targeting
-          // explícito (edad/intereses) en vez de dejar que Meta lo expanda
-          // automáticamente sin avisar.
-          targeting_automation: { advantage_audience: 0 },
+          // ── Ubicaciones: NINGUNA a propósito ─────────────────────────────
+          //
+          // No mandar ubicaciones ES la forma de pedir Advantage+ Placements:
+          // Meta reparte entre sus 25+ y busca la impresión más barata. Es su
+          // default y lo que recomienda.
+          //
+          // Acá se fijaban cinco a mano (feed, story, marketplace,
+          // facebook_reels, y las tres de Instagram), y encima había que
+          // sacarle marketplace en las campañas de mensajes porque Meta
+          // rechazaba el conjunto entero. Toda esa cirugía desaparece: si no
+          // se declara ninguna, Meta usa solo las ELEGIBLES para el objetivo
+          // que sea. El caso de marketplace se resuelve solo.
+          //
+          // (El detalle de que "reels" es válido en instagram_positions pero
+          // en Facebook se llama "facebook_reels" --error #100/1815433, probado
+          // en vivo-- queda anotado acá por si algún día vuelve a hacer falta
+          // declararlas a mano.)
+          //
+          // ── Advantage+ Audience ──────────────────────────────────────────
+          //
+          // Meta exige declarar esta bandera -- sin ella /adsets rechaza la
+          // creación entera con error #100/1870227. Estaba fija en 0 "para
+          // respetar el targeting explícito", con el mismo efecto que tenía en
+          // facebook.ts: como siempre hay un rango de edad, la condición era
+          // siempre verdadera y Advantage+ quedaba apagado SIEMPRE.
+          //
+          // Ahora decide `usarAdvantagePlus`, compartida con facebook.ts para
+          // que las dos rutas no diverjan -- que es exactamente lo que pasó con
+          // el recorte de herramientas y con el objetivo de la campaña.
+          targeting_automation: {
+            advantage_audience: usarAdvantagePlus({
+              interests: resolvedInterests,
+              ageMin: strategy.ageMin,
+              ageMax: strategy.ageMax,
+            }) ? 1 : 0,
+          },
         },
         status: "PAUSED",
         start_time: new Date().toISOString(),
@@ -1032,9 +1053,9 @@ Este contenido digital es tu atajo directo a resultados profesionales.
         adSetBody.billing_event = "IMPRESSIONS";
         adSetBody.optimization_goal = "CONVERSATIONS";
         adSetBody.bid_strategy = "LOWEST_COST_WITHOUT_CAP";
-        // Marketplace no admite anuncios de mensajería: dejarlo hace que Meta
-        // rechace el conjunto entero.
-        adSetBody.targeting.facebook_positions = ["feed", "story", "facebook_reels"];
+        // Ya no hace falta sacarle marketplace a mano ("no admite anuncios de
+        // mensajería: dejarlo hace que Meta rechace el conjunto entero"). Sin
+        // ubicaciones declaradas, Meta usa solo las elegibles para mensajes.
       } else if (hasUsablePixel) {
         adSetBody.billing_event = "IMPRESSIONS";
         // "CONVERSIONS" no es un valor válido de optimization_goal -- el

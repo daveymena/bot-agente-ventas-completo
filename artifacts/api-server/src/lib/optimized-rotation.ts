@@ -58,7 +58,53 @@ export function clasificarFallo(error?: string): {
   if (/no payment method|creditserror|billing|add a payment|insufficient (credit|balance|funds)|payment required|402/.test(e)) {
     return { clase: "sin_credito", cooldownMs: 6 * HORA, inmediato: true };
   }
-  if (/rate limit|freeusagelimit|quota|usage limit|too many requests|\b429\b|limit exceeded|try again (later|tomorrow)/.test(e)) {
+  // `try again in <n>` entra acá aunque el mensaje no diga "rate limit": es
+  // literalmente lo que contesta un limitador cuando te pasaste de la ventana.
+  // Sin esto, "Please try again in 4 minutes" caía en la rama de modelo caído
+  // y se reintentaba a los 30 s, dentro de la misma ventana que lo rechazó.
+  if (/rate limit|freeusagelimit|quota|usage limit|too many requests|\b429\b|limit exceeded|try again (later|tomorrow|in [\d.]+)/.test(e)) {
+    // ── No todo 429 dura lo mismo ──────────────────────────────────────
+    //
+    // Apartar UNA HORA a quien se pasó de un límite POR MINUTO es cambiar un
+    // minuto malo por una hora mala. El tope de Groq son 8.000 tokens por
+    // minuto y se recupera solo al minuto siguiente; con una hora de castigo,
+    // un pico de tráfico dejaba al único proveedor vivo fuera de juego y TODOS
+    // los turnos de esa hora caían en los modelos muertos de más abajo.
+    //
+    // Es lo que el admin veía una y otra vez: "poolside/laguna-xs-2.1:free is
+    // temporarily rate-limited upstream" -- laguna es el SÉPTIMO candidato, y
+    // el turno solo llega ahí si los seis de arriba no contestaron.
+    //
+    // Y la respuesta trae el dato: Groq contesta "Please try again in 5.3s",
+    // OpenAI y OpenRouter usan la misma forma. Si el proveedor dice cuánto
+    // esperar, se le hace caso -- con un mínimo de 60s para no volver a
+    // golpear la misma ventana, y un techo de 10 min por si el número viene
+    // raro.
+    const dijoCuanto = e.match(/try again in ([\d.]+)\s*(ms|s|m|second|minute|hour)/);
+    if (dijoCuanto) {
+      const n = Number(dijoCuanto[1]);
+      const unidad = dijoCuanto[2];
+      const ms = unidad === "ms" ? n
+        : unidad.startsWith("m") && unidad !== "ms" && unidad !== "minute" ? n * 60_000
+        : unidad === "minute" ? n * 60_000
+        : unidad === "hour" ? n * 60 * 60_000
+        : n * 1000;
+      if (Number.isFinite(ms) && ms > 0) {
+        return { clase: "cuota_agotada", cooldownMs: Math.min(Math.max(ms, 60_000), 10 * 60_000), inmediato: true };
+      }
+    }
+    // Un límite POR MINUTO declarado como tal también se reintenta pronto:
+    // "tokens per minute", "TPM", "requests per minute". Es el tope de Groq.
+    if (/per minute|per-minute|\btpm\b|\brpm\b/.test(e)) {
+      return { clase: "cuota_agotada", cooldownMs: 90_000, inmediato: true };
+    }
+    // Y sin ninguna pista, LA HORA. Es deliberadamente conservador: las
+    // ventanas gratuitas suelen resetear por día --el admin llegó a ver "hasta
+    // dentro de 21 horas" en OpenCode Zen-- y reintentar cada 90 s algo que
+    // vuelve mañana es gastar turnos de un cliente real esperando.
+    //
+    // O sea: se acorta el castigo solo cuando hay EVIDENCIA de que la ventana
+    // es corta, no por sospecha.
     return { clase: "cuota_agotada", cooldownMs: 1 * HORA, inmediato: true };
   }
   // VA ANTES que el chequeo de credencial, y no es un detalle de estilo: el
