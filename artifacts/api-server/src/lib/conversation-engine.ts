@@ -381,10 +381,22 @@ const PAYMENT_METHOD_CHOICE_MAP: Array<{ method: string; patterns: string[] }> =
   },
   {
     method: "transferencia",
+    // ⚠️ Estas formas estaban a medias, y el motivo es el sesgo de haber
+    // escrito el motor para UN negocio: `nequi` y `daviplata` --lo que usaban
+    // SUS clientes-- tienen "prefiero X", "me voy por X", "pagaré X"; la
+    // opción genérica se quedó con cuatro variantes secas.
+    //
+    // Consecuencia: una clienta mexicana escribiendo "prefiero transferencia"
+    // no era entendida, mientras "prefiero nequi" sí. El camino del negocio
+    // original quedó pulido y el de todos los demás, no.
     patterns: [
       "por transferencia", "con transferencia", "via transferencia", "vía transferencia",
       "transferencia bancaria", "transferencia directa",
       "voy a transferir", "voy con transferencia",
+      "prefiero transferencia", "prefiero transferir", "me voy por transferencia",
+      "quiero transferir", "hago transferencia", "hago la transferencia",
+      "pagaré por transferencia", "pagare por transferencia", "te transfiero",
+      "deposito", "depósito", "te deposito",
     ],
   },
   {
