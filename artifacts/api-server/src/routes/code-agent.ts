@@ -1416,7 +1416,16 @@ router.post("/operator", async (req: TenantRequest, res, next) => {
     // modelo bueno se descartaba y contestaba uno chico. Ver buildToolsDoc.
     const sys = OPERATOR_SYSTEM_PROMPT.replace("${TOOLS}", buildToolsDoc(String(prompt || ""))) + lessonsBlock + moduloBlock;
     const sessionId: string = (req.body?.sessionId as string) || "default";
-    const ctx: OperatorContext = { tenantId, sessionId };
+    // Mismo criterio que la ruta del puente: el tipo de campaña sale del
+    // mensaje del admin, no de que el modelo se acuerde de pasarlo. Las dos
+    // rutas comparten `interpretarObjetivo` para que no diverjan -- que es lo
+    // que ya pasó una vez con el recorte de herramientas.
+    const { interpretarObjetivo: leerObjetivo } = await import("../lib/objetivos-campana");
+    const ctx: OperatorContext = {
+      tenantId,
+      sessionId,
+      objetivoDelAdmin: leerObjetivo(String(prompt || "")) || undefined,
+    };
 
     // Errores de CUENTA de Meta (certificación de política de no
     // discriminación, método de pago, verificación de identidad/negocio) no

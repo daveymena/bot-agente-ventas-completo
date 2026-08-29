@@ -702,7 +702,19 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
       // opencode-mcp-tools.ts sobre por qué esto importa tanto (69s → objetivo
       // de segundos para un pedido simple).
       const nombresPermitidos = toolRegistry.map((t) => t.name).join(",");
-      const mcpUrl = `${getAppUrl()}/api/internal/mcp/atlas?token=${token}&tools=${encodeURIComponent(nombresPermitidos)}`;
+      // El tipo de campaña se resuelve ACÁ, del mensaje del admin, y viaja al
+      // puente. No se le pregunta al modelo: "WhatsApp" está escrito en el
+      // pedido, en castellano, y leerlo con una regex es determinista.
+      //
+      // Medido el 2026-08-28, tres corridas del MISMO pedido a WhatsApp: una
+      // pasó `objetivo` bien, otra se inventó `whatsappContact` (que no
+      // existe) y otra eligió `fb_ad_draft`, que ni acepta el parámetro. Dos
+      // de tres habrían publicado a la web. El dato existe en el texto: no
+      // tiene por qué depender de que el modelo lo recuerde.
+      const { interpretarObjetivo } = await import("../lib/objetivos-campana");
+      const objetivoDelAdmin = interpretarObjetivo(String(prompt || ""));
+      const mcpUrl = `${getAppUrl()}/api/internal/mcp/atlas?token=${token}&tools=${encodeURIComponent(nombresPermitidos)}`
+        + (objetivoDelAdmin ? `&objetivo=${encodeURIComponent(objetivoDelAdmin)}` : "");
       const tools: Record<string, boolean> = {};
       for (const t of toolRegistry) tools[t.name] = true;
 

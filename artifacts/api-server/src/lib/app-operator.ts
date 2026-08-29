@@ -34,6 +34,24 @@ export interface OperatorContext {
   // que el turno completo cortara la conexión, y el error se reportaba
   // como "sin cuota" cuando en realidad era que se quedó sin tiempo.
   turnDeadline?: number;
+  /**
+   * El tipo de campaña que pidió el ADMIN, leído de su propio mensaje por
+   * `interpretarObjetivo` del lado del servidor.
+   *
+   * Por qué existe: el destino de un anuncio --WhatsApp, web con clics, web
+   * con compradores, alcance-- decide a quién le muestra Meta el anuncio.
+   * Elegir mal es pagarle para que busque al público equivocado. Y hasta
+   * ahora ese dato dependía de que el MODELO se acordara de pasar
+   * `objetivo`, cosa que falló de tres formas distintas el mismo día
+   * (2026-08-28): lo pasó bien una vez, se inventó `whatsappContact` otra, y
+   * eligió una herramienta que ni siquiera acepta el parámetro la tercera.
+   *
+   * "WhatsApp" está en el mensaje del admin, en castellano. Leerlo con una
+   * regex es determinista y gratis; pedírselo al modelo es una apuesta que ya
+   * se perdió tres veces. Esto es la red: si el modelo lo pasa bien, manda lo
+   * suyo; si no lo pasa o lo pasa mal, manda lo que el admin dijo.
+   */
+  objetivoDelAdmin?: string;
 }
 
 // Ventana de vigencia de una investigación: una búsqueda de hace 3 horas ya
@@ -2376,7 +2394,11 @@ export const TOOLS: ToolDef[] = [
       // módulo entero de objetivos --con WhatsApp, tráfico y alcance-- estaba
       // escrito y era inalcanzable desde acá.
       const { interpretarObjetivo, OBJETIVOS } = await import("./objetivos-campana");
-      const objetivo = interpretarObjetivo(String(args.objetivo || "")) || "ventas";
+      // El objetivo sale de lo que el ADMIN dijo cuando el modelo no lo pasa
+      // o lo pasa mal. Ver `objetivoDelAdmin` en OperatorContext.
+      const objetivo = interpretarObjetivo(String(args.objetivo || ""))
+        || interpretarObjetivo(String(ctx.objetivoDelAdmin || ""))
+        || "ventas";
 
       const r = await fb.createAdForProduct(
         Number(args.productId),
@@ -2789,7 +2811,11 @@ export const TOOLS: ToolDef[] = [
       // `objetivo` se leía acá desde el principio, pero NO estaba declarado en
       // `args`: el modelo no tenía cómo saber que existía, así que nunca lo
       // mandaba y esto caía siempre en "ventas" → web.
-      const objetivo = interpretarObjetivo(String(args.objetivo || "")) || "ventas";
+      // Idem: la palabra "WhatsApp" del mensaje del admin manda sobre el
+      // olvido del modelo.
+      const objetivo = interpretarObjetivo(String(args.objetivo || ""))
+        || interpretarObjetivo(String(ctx.objetivoDelAdmin || ""))
+        || "ventas";
       const r = await new AdStrategist(tenant || undefined).subirBorradorAMeta(draftId, objetivo);
       const OBJ = OBJETIVOS[objetivo];
       const aDonde = OBJ.destino === "whatsapp" ? "abre WhatsApp" : "lleva a la web";

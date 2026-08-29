@@ -118,6 +118,12 @@ router.post("/atlas", async (req: Request, res: Response) => {
         sessionId: auth.sessionId,
         turnId: auth.turnId,
         turnDeadline: auth.exp,
+        // El tipo de campaña que pidió el admin, ya resuelto del lado del
+        // servidor a partir de SU mensaje (ver operator-opencode.ts, que arma
+        // esta URL). Viaja por la URL igual que el filtro de herramientas
+        // porque el puente no ve la conversación: solo recibe llamadas
+        // sueltas del modelo.
+        objetivoDelAdmin: typeof req.query.objetivo === "string" ? req.query.objetivo : undefined,
       };
 
       logger.info({ tenantId: auth.tenantId, turnId: auth.turnId, tool: toolName }, "[AtlasMCP] tools/call");

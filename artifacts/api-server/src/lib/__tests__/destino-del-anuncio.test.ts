@@ -155,3 +155,60 @@ describe("crear_anuncio: la herramienta que el prompt manda usar siempre", () =>
     expect(plan).not.toContain("Destino:");
   });
 });
+
+/**
+ * La red que NO depende del modelo.
+ *
+ * Medido el 2026-08-28, tres corridas del MISMO pedido ("publicá un anuncio,
+ * que me escriban por WhatsApp"):
+ *
+ *   1ª  pasó `objetivo: "whatsapp"`            ✅ bien
+ *   2ª  se inventó `whatsappContact: true`     ❌ ese parámetro no existe
+ *   3ª  eligió `fb_ad_draft`                   ❌ esa herramienta ni lo acepta
+ *
+ * Dos de tres habrían publicado a la web pidiendo WhatsApp. Y el dato estaba
+ * ahí todo el tiempo: la palabra "WhatsApp", escrita por el admin, en su
+ * propio mensaje. Leerla con una regex es determinista y gratis; pedírsela al
+ * modelo es una apuesta que ya se perdió dos de cada tres veces.
+ *
+ * Por eso el objetivo se resuelve del lado del SERVIDOR, sobre el texto del
+ * admin, y viaja en el contexto (`objetivoDelAdmin`). Si el modelo lo pasa
+ * bien, manda lo suyo; si no lo pasa o lo pasa mal, manda lo que el admin dijo.
+ */
+describe("El destino sale del mensaje del admin, no de la memoria del modelo", () => {
+  it("lee el destino de un pedido escrito como lo escribe un admin", () => {
+    const pedidos: Array<[string, string]> = [
+      ["Quiero publicar un anuncio del curso de piano, que la gente me escriba por WhatsApp, 20000 al día", "mensajes"],
+      ["publicá un anuncio y que me manden mensaje", "mensajes"],
+      ["hacé una campaña de tráfico a la web del curso", "trafico"],
+      ["quiero vender más con un anuncio del pack", "ventas"],
+      ["una campaña para que me conozcan, alcance de marca", "reconocimiento"],
+    ];
+    for (const [texto, esperado] of pedidos) {
+      expect(interpretarObjetivo(texto), texto).toBe(esperado);
+    }
+  });
+
+  it("si el admin no dijo destino, no lo inventa", () => {
+    // Devolver null es la respuesta correcta: ahí sí manda el default de la
+    // herramienta (ventas), y el plan se lo AVISA al admin antes del sí.
+    expect(interpretarObjetivo("creame el anuncio del curso de piano con 20000 al dia")).toBeNull();
+  });
+
+  it("el pedido del admin gana cuando el modelo manda basura", () => {
+    // El caso exacto de la 2ª corrida: el modelo inventó `whatsappContact`, o
+    // sea que `args.objetivo` viene vacío. La cadena real es
+    // interpretarObjetivo(args.objetivo) || interpretarObjetivo(ctx.objetivoDelAdmin) || "ventas"
+    const delModelo = "";
+    const delAdmin = "publicá un anuncio, que me escriban por WhatsApp";
+    const resuelto = interpretarObjetivo(delModelo) || interpretarObjetivo(delAdmin) || "ventas";
+    expect(resuelto).toBe("mensajes");
+  });
+
+  it("pero si el modelo acierta, se respeta lo suyo", () => {
+    // No es que el modelo estorbe: cuando pasa el dato, es más preciso que la
+    // regex sobre un mensaje largo. La red es respaldo, no reemplazo.
+    const resuelto = interpretarObjetivo("trafico") || interpretarObjetivo("mandame gente por whatsapp") || "ventas";
+    expect(resuelto).toBe("trafico");
+  });
+});
