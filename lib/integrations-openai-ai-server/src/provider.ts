@@ -164,7 +164,20 @@ const MODELOS_DE_RESERVA: Record<string, string[]> = {
   // igual encuentre uno que responde en vez de dejar al cliente esperando.
   // `deepseek-chat` queda último: es el nombre de la API oficial de DeepSeek,
   // sirve si alguna vez se apunta ahí en vez de al gateway.
-  deepseek: ["deepseek-v4-flash", "deepseek-v4-pro", "deepseek-chat"],
+  // ⚠️ Acá había `["deepseek-v4-flash", "deepseek-v4-pro", "deepseek-chat"]`,
+  // y los dos primeros NO EXISTEN en la API de DeepSeek: son nombres del
+  // catálogo de OpenCode Zen, que es otro proveedor. La API propia de DeepSeek
+  // (api.deepseek.com) solo tiene `deepseek-chat` y `deepseek-reasoner`.
+  //
+  // Consecuencia: al cargar saldo, el primer fallo de `deepseek-chat` mandaba
+  // a dos modelos inexistentes y se gastaba el turno descubriéndolo -- el
+  // mismo bug de los modelos muertos de Groq, en otro proveedor.
+  //
+  // `deepseek-reasoner` queda FUERA a propósito: es de razonamiento, y este
+  // proyecto ya los excluye por regla (ver NO_SIRVEN en cadena-modelos.ts)
+  // porque gastan el presupuesto de tokens en `reasoning_content` y devuelven
+  // `content` vacío. Sin reserva es mejor que con una reserva que no responde.
+  deepseek: ["deepseek-chat"],
   // ── Rotación escalonada de Groq ────────────────────────────────────────
   //
   // Groq limita por TOKENS POR MINUTO, no por día: se agota en un pico de
