@@ -13,6 +13,15 @@ import type { ProductInfo, ResearchResult } from "./market-researcher";
 import type { AudienceResult } from "./audience-strategist";
 import type { OfferAnalysis } from "./offer-strategist";
 import type { CreativeBrief } from "./creative-director";
+import {
+  EVENTOS_PARA_SALIR_DE_APRENDIZAJE,
+  VENTANA_APRENDIZAJE_DIAS,
+  MAX_ESCALADA_PORCENTAJE,
+  HORAS_ENTRE_CAMBIOS,
+  MULTIPLO_DE_GASTO_SIN_VENTAS,
+  DIAS_DE_CPA_ALTO_PARA_CORTAR,
+  SUBIDA_CPA_QUE_PREOCUPA,
+} from "../../reglas-de-pauta";
 
 export interface MarketingPlan {
   objetivo: string;
@@ -61,10 +70,21 @@ export async function marketingStrategy(
       moneda: currency,
     },
     kpis: ["CTR", "CPC", "Leads", "Conversaciones", "Ventas", "CPA real", "ROAS real"],
+    // El plan sigue las reglas reales de compra de medios, no una intuición.
+    // Decía "máx. 30% por paso", y un 30% RESETEA la fase de aprendizaje de
+    // Meta: ese consejo, aplicado, tiraba abajo lo aprendido en cada escalada.
+    // Los números salen de `reglas-de-pauta.ts`, que los tiene en un solo
+    // lugar y probados.
     planDeOptimizacion: [
-      "Semana 1-2: probar ángulos con presupuesto bajo y muestra suficiente.",
-      "Semana 3: escalar el ganador gradualmente (máx. 30% por paso).",
+      `Semana 1-2: probar ángulos con presupuesto bajo. NO tocar nada hasta las `
+        + `${EVENTOS_PARA_SALIR_DE_APRENDIZAJE} conversiones en ${VENTANA_APRENDIZAJE_DIAS} días: antes de eso `
+        + `lo que se ve es el algoritmo tanteando, no rendimiento real.`,
+      `Semana 3: escalar el ganador ${MAX_ESCALADA_PORCENTAJE}% por paso, con ${HORAS_ENTRE_CAMBIOS} h entre pasos. `
+        + `Más que eso reinicia el aprendizaje y hay que volver a empezar.`,
       "Semana 4: renovar creativos antes de fatiga; revisar calidad de leads con ventas.",
+      `Cortar sin esperar si gasta ${MULTIPLO_DE_GASTO_SIN_VENTAS}x el presupuesto diario sin una sola conversión, `
+        + `o si el costo por resultado lleva ${DIAS_DE_CPA_ALTO_PARA_CORTAR} días seguidos más de `
+        + `${SUBIDA_CPA_QUE_PREOCUPA}% por encima del objetivo.`,
     ],
     riesgos: ["Gasto sin atribución real", "Fatiga creativa", "Oferta poco diferenciada"],
   };

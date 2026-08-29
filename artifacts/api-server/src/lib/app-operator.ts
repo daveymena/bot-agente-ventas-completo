@@ -4201,6 +4201,88 @@ export const TOOLS: ToolDef[] = [
     },
   },
   {
+    name: "que_hago_con_la_campana",
+    description:
+      "QUÉ HACER CON UNA CAMPAÑA QUE YA ESTÁ CORRIENDO: escalar, esperar, revisar o cortar. Aplica las reglas con las que trabaja una agencia de compra de medios, no una opinión: fase de aprendizaje (50 conversiones en 7 días antes de tocar nada), escalada del 20% con 48h entre pasos (más reinicia el aprendizaje), y los dos criterios de corte (gastar 2x el presupuesto diario sin una sola conversión, o 3 días seguidos con el costo por resultado 25% arriba del objetivo). " +
+      "Usala cuando te pregunten '¿subo el presupuesto?', '¿esta campaña anda?', '¿la corto?' o '¿cómo la escalo?'. Lectura pura: no cambia nada, solo dice qué conviene y por qué.",
+    args: '{ "campaignId": string (req, el id de la campaña -- lo da fb_list_campaigns), "cpaObjetivo"?: number (cuánto puede pagar el negocio por resultado; sin esto no se puede juzgar si el costo se fue de precio) }',
+    run: async (args, ctx) => {
+      const campaignId = String(args.campaignId || "").trim();
+      if (!campaignId) return { ok: false, summary: "Falta 'campaignId'. Usá fb_list_campaigns para obtenerlo." };
+
+      const tenant = await tenantManager.getTenantById(ctx.tenantId);
+      const { FacebookService } = await import("./facebook");
+      const fb = new FacebookService(tenant || undefined);
+      if (!fb.isConfigured()) return { ok: false, summary: "Facebook no está conectado." };
+
+      // Los números salen de Meta, no del modelo. Es la misma regla que rige
+      // todo el sistema: el modelo escribe, el servidor decide sobre datos.
+      // Se piden 7 días porque es la ventana de la fase de aprendizaje.
+      const datos = await fb.getCampaignMetrics({ campaignIds: [campaignId], days: 7 }).catch(() => null);
+      const m = datos?.campaigns?.[0];
+      if (!m) {
+        return {
+          ok: false,
+          summary: `No pude leer las métricas de la campaña ${campaignId}. Comprobá que el id sea correcto con fb_list_campaigns.`,
+        };
+      }
+
+      // El presupuesto diario NO viene en las métricas: vive en el CONJUNTO de
+      // anuncios, no en la campaña (esta cuenta no usa CBO). Sin él no se puede
+      // calcular ni el escalón ni el techo de gasto, así que se lee aparte.
+      const conjuntos = await fb.listAdSets(campaignId).catch((): Awaited<ReturnType<typeof fb.listAdSets>> => []);
+      const presupuesto = conjuntos.reduce((s: number, a) => s + (Number(a.dailyBudget) || 0), 0);
+      if (!(presupuesto > 0)) {
+        return {
+          ok: false,
+          summary:
+            `Leí las métricas de la campaña ${campaignId}, pero no pude leer su presupuesto diario `
+            + `(no encontré conjuntos de anuncios con presupuesto). Sin ese número no puedo decirte cuánto escalar `
+            + `ni cuándo cortar, que es justo lo que se te iba a responder.`,
+        };
+      }
+
+      const { decidirSobreConjunto, planDeEscalada } = await import("./reglas-de-pauta");
+      const conversiones = Number(m.results ?? 0);
+      const gasto = Number(m.spend ?? 0);
+      const cpa = conversiones > 0 ? gasto / conversiones : null;
+
+      const d = decidirSobreConjunto({
+        conversiones7d: conversiones,
+        presupuestoDiario: presupuesto,
+        // Sin historial de cambios se asume que hay margen: la decisión de
+        // esperar 48h la toma el admin al ver la fecha del último cambio en
+        // Ads Manager. Suponer lo contrario bloquearía escaladas legítimas.
+        horasDesdeUltimoCambio: null,
+        cpaActual: cpa,
+        cpaObjetivo: num(args.cpaObjetivo) ?? null,
+        diasConCpaAlto: 0,
+        gastoAcumulado: gasto,
+      });
+
+      const emoji = { escalar: "📈", esperar: "⏳", revisar: "🔍", cortar: "🛑" }[d.accion];
+      let texto = `${emoji} ${d.accion.toUpperCase()}\n\n${d.motivo}`;
+
+      if (d.accion === "escalar" && d.presupuestoSugerido) {
+        texto += `\n\n💰 Siguiente paso: $${d.presupuestoSugerido.toLocaleString("es-CO")}/día.`;
+        const plan = planDeEscalada(presupuesto, presupuesto * 3);
+        if (plan.length > 1) {
+          texto +=
+            `\n\nY si querés llegar más alto, es un plan y no un cambio: `
+            + plan.slice(0, 4).map((p) => `$${p.presupuesto.toLocaleString("es-CO")}`).join(" → ")
+            + ` (48 h entre cada uno).`;
+        }
+      }
+      if (args.cpaObjetivo == null) {
+        texto +=
+          `\n\n⚠️ No me dijiste cuánto podés pagar por resultado, así que no puedo juzgar si el costo se fue `
+          + `de precio. Pasame 'cpaObjetivo' y te lo digo.`;
+      }
+
+      return { ok: true, summary: texto, data: { decision: d, metricas: m } };
+    },
+  },
+  {
     name: "marketing_diagnostico",
     description: "EL DIAGNÓSTICO DEL EMBUDO COMPLETO. Corre el analista de rendimiento y el agente de diagnóstico del equipo de marketing y te dice DÓNDE está el problema: si es adquisición (pocos leads), calidad de lead, seguimiento, oferta o precio. Usala cuando te digan 'las campañas funcionan pero no vendo', 'el negocio no crece' o antes de recomendar subir presupuesto -- si el cuello no está en los anuncios, subir el presupuesto solo quema plata más rápido. Lectura pura.",
     args: '{ "dias"?: number (ventana a analizar, por defecto 30) }',
@@ -4620,6 +4702,8 @@ export const READ_ONLY_TOOLS = new Set([
   // Facebook de solo lectura + generación de imagen (solo devuelve preview, no asigna)
   "fb_status", "fb_suggest_audience", "generate_image", "fb_list_campaigns", "system_diagnose", "fb_why_not_delivering", "test_ai_models",
   "fb_page_can_post", "fb_page_preview", "fb_list_drafts",
+  // Lee métricas y devuelve una recomendación. No toca nada: decide el admin.
+  "que_hago_con_la_campana",
   // El brief de anuncio es lectura pura sobre el producto: no toca Meta ni
   // gasta nada. Va acá para que Atlas pueda llamarlo solo, sin pedir permiso
   // -- si tuviera que pasar por una confirmación, no lo usaría antes de
