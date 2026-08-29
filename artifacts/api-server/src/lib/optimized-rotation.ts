@@ -5,6 +5,7 @@
  */
 
 import { logger } from "./logger";
+import { registrarProveedorCastigado } from "./monitoring";
 
 // ============================================================================
 // 🔥 AGGRESSIVE TIMEOUT CONFIG - Sin perder tiempo
@@ -374,6 +375,11 @@ class OptimizedProviderRotation {
     // siguiente va a decir exactamente lo mismo.
     if (inmediato || status.failureCount >= 2) {
       this.skipProvider(provider, cooldownMs);
+      // Además del log, queda REGISTRADO. Un warn en los logs no sirve cuando
+      // los logs del contenedor no son accesibles por API --que es el caso de
+      // este EasyPanel-- y el admin pregunta "¿por qué contesta raro?". Esto
+      // es lo que le responde: hace 40 minutos que Groq está apartado.
+      registrarProveedorCastigado(provider, clase, cooldownMs, error);
       logger.warn(
         { provider, clase, minutos: Math.round(cooldownMs / 60000), failureCount: status.failureCount, error },
         "[OptimizedRotation] ⏸️  Proveedor apartado"

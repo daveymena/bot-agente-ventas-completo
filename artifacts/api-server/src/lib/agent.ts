@@ -43,6 +43,7 @@ import {
   type Stage,
 } from "./conversation-engine";
 import { getBrandVoice, formatWithBrandVoice } from "./brand-voice";
+import { registrarTurnoAtendido } from "./monitoring";
 import { getBusinessContext, renderBloqueNegocio, resumenContexto, datosQueFaltan } from "./business-context";
 import { cuentasDeCopilot, expandirPorCuenta } from "./copilot-cuentas";
 import { construirPlaybook, quitarInventos, quitarMuletillaDeApertura, extraerApertura } from "./sales-playbook";
@@ -1815,7 +1816,14 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
 
       // ── Helper: probar cola de proveedores ──
       const tryQueue = async (queue: { config: any; source: string }[]): Promise<{ raw: string; usedProvider: string }> => {
+        // La posición en la cola es el dato que faltaba: si contestó el
+        // primero, la cadena está sana; si contestó el cuarto, tres fallaron
+        // antes y nadie se entera. Todo lo que se rompió el 2026-08-29 se veía
+        // así --degradación, no error-- y el admin lo descubría por una
+        // respuesta rara. Ver saludDeLaCadena() en monitoring.ts.
+        let posicion = 0;
         for (const { config, source } of queue) {
+          posicion++;
           // G4F: manejo especial (no usa OpenAI client)
           if (source === "g4f") {
             if (!G4F_ENABLED) continue;
@@ -1877,6 +1885,7 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
             if (result) {
               const elapsed = Date.now() - startTime;
               reportProviderResult(providerName, true, elapsed);
+              registrarTurnoAtendido(providerName, source.split("/").slice(1).join("/") || source, posicion > 1);
               console.log(`✅ [AI] Respuesta de ${source} - ${result.length}chars (${elapsed}ms) - ${ts()}`);
               return { raw: result, usedProvider: source };
             }

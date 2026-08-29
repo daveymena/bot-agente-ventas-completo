@@ -344,3 +344,162 @@ export function logBusinessMetric(
     timestamp: new Date().toISOString()
   }, "[MONITOR] Business Metric");
 }
+// ════════════════════════════════════════════════════════════════════════
+// SALUD DE LA CADENA DE IA
+// ════════════════════════════════════════════════════════════════════════
+//
+// Este archivo entero llevaba 345 líneas sin que nadie lo importara, mientras
+// `analytics.ts:336` decía en un comentario que "no existe infraestructura de
+// monitoreo" y devolvía `errorRate = 0 // not tracked`.
+//
+// Lo que había escrito acá vigila tiempo de respuesta y confianza. Está bien,
+// pero NO habría cazado nada de lo que se rompió el 2026-08-29, porque nada de
+// eso falló: todo DEGRADÓ en silencio.
+//
+//   · GROQ_MODEL apuntaba a llama-3.1-8b-instant, dado de baja
+//   · el filtro de herramientas del puente MCP estaba anulado por un spread
+//   · Advantage+ Audience estaba apagado en TODAS las campañas
+//   · oc-groq pedía un modelo que Groq retiró
+//   · el bot de ventas contestaba con el modelo chico teniendo el grande
+//   · un 429 de un minuto apartaba al proveedor una hora
+//
+// Ninguno devolvió un error. Todos devolvieron una respuesta peor, más lenta o
+// más barata, y el admin lo descubrió por el resultado -- o no lo descubrió.
+//
+// Lo que sigue registra exactamente eso: QUÉ contestó de verdad y QUIÉN está
+// castigado. Es el dato que convierte "el bot anda raro" en "hace 40 minutos
+// que contesta el modelo de respaldo porque Groq está apartado".
+
+interface TurnoAtendido {
+  proveedor: string;
+  modelo: string;
+  /** true si NO fue el primero de la cadena: alguien de más arriba falló. */
+  fueRespaldo: boolean;
+  cuando: number;
+}
+
+interface ProveedorCastigado {
+  proveedor: string;
+  clase: string;
+  motivo: string;
+  hasta: number;
+  cuando: number;
+}
+
+const VENTANA_MS = 60 * 60 * 1000; // se mira la última hora
+const MAX_TURNOS = 200;
+
+const turnos: TurnoAtendido[] = [];
+const castigos: ProveedorCastigado[] = [];
+
+/** Qué modelo atendió el turno de verdad. Lo llama la cadena, no el modelo. */
+export function registrarTurnoAtendido(proveedor: string, modelo: string, fueRespaldo: boolean): void {
+  turnos.push({ proveedor, modelo, fueRespaldo, cuando: Date.now() });
+  if (turnos.length > MAX_TURNOS) turnos.splice(0, turnos.length - MAX_TURNOS);
+}
+
+/** Un proveedor que se aparta. El dato que faltaba para explicar la lentitud. */
+export function registrarProveedorCastigado(
+  proveedor: string,
+  clase: string,
+  cooldownMs: number,
+  motivo?: string,
+): void {
+  castigos.push({
+    proveedor,
+    clase,
+    motivo: String(motivo || "").slice(0, 200),
+    hasta: Date.now() + cooldownMs,
+    cuando: Date.now(),
+  });
+  if (castigos.length > MAX_TURNOS) castigos.splice(0, castigos.length - MAX_TURNOS);
+}
+
+/**
+ * El estado de la cadena en una sola llamada, en castellano.
+ *
+ * Pensado para que se lea de un vistazo y responda la pregunta que el admin
+ * hace de verdad --"¿por qué está contestando raro?"-- sin abrir logs.
+ */
+export function saludDeLaCadena(): {
+  estado: "bien" | "degradado" | "critico";
+  resumen: string;
+  turnosUltimaHora: number;
+  porcentajeConRespaldo: number;
+  modeloMasUsado: string | null;
+  castigadosAhora: Array<{ proveedor: string; clase: string; minutosRestantes: number; motivo: string }>;
+} {
+  const ahora = Date.now();
+  const recientes = turnos.filter((t) => ahora - t.cuando < VENTANA_MS);
+  const activos = castigos
+    .filter((c) => c.hasta > ahora)
+    // Un proveedor puede aparecer varias veces: interesa su castigo más largo.
+    .reduce((acc: ProveedorCastigado[], c) => {
+      const yaEsta = acc.find((x) => x.proveedor === c.proveedor);
+      if (!yaEsta) acc.push(c);
+      else if (c.hasta > yaEsta.hasta) Object.assign(yaEsta, c);
+      return acc;
+    }, []);
+
+  const conRespaldo = recientes.filter((t) => t.fueRespaldo).length;
+  const porcentaje = recientes.length > 0 ? Math.round((conRespaldo / recientes.length) * 100) : 0;
+
+  const cuenta = new Map<string, number>();
+  for (const t of recientes) {
+    const k = `${t.proveedor}/${t.modelo}`;
+    cuenta.set(k, (cuenta.get(k) || 0) + 1);
+  }
+  const modeloMasUsado = [...cuenta.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+
+  // El umbral no es un número redondo: si MÁS DE LA MITAD de los turnos los
+  // atiende un respaldo, el proveedor principal no está sirviendo y eso ya no
+  // es un pico, es el estado normal.
+  const estado: "bien" | "degradado" | "critico" =
+    porcentaje > 50 || activos.length >= 3 ? "critico"
+    : porcentaje > 15 || activos.length > 0 ? "degradado"
+    : "bien";
+
+  const castigadosAhora = activos.map((c) => ({
+    proveedor: c.proveedor,
+    clase: c.clase,
+    minutosRestantes: Math.max(1, Math.round((c.hasta - ahora) / 60000)),
+    motivo: c.motivo,
+  }));
+
+  const quienesCastigados = castigadosAhora
+    .map((c) => `${c.proveedor} (${c.clase}, ${c.minutosRestantes} min)`)
+    .join(", ");
+
+  let resumen: string;
+  if (recientes.length === 0) {
+    // ⚠️ Sin turnos NO quiere decir sin problemas, y decir "no hay nada que
+    // medir" mientras hay proveedores apartados es justo el silencio que este
+    // módulo existe para romper. Es más: cero turnos CON castigos es el peor
+    // escenario posible -- puede significar que no contesta nadie.
+    resumen = quienesCastigados
+      ? `Sin turnos en la última hora, y hay proveedores apartados: ${quienesCastigados}.`
+      : "Sin turnos en la última hora: no hay nada que medir todavía.";
+  } else if (estado === "bien") {
+    resumen = `${recientes.length} turnos en la última hora, atendidos por ${modeloMasUsado}. Nadie apartado.`;
+  } else {
+    resumen =
+      `${porcentaje}% de los ${recientes.length} turnos de la última hora los atendió un modelo de respaldo`
+      + (modeloMasUsado ? `; el que más contestó fue ${modeloMasUsado}` : "")
+      + (quienesCastigados ? `. Apartados ahora: ${quienesCastigados}` : ".");
+  }
+
+  return {
+    estado,
+    resumen,
+    turnosUltimaHora: recientes.length,
+    porcentajeConRespaldo: porcentaje,
+    modeloMasUsado,
+    castigadosAhora,
+  };
+}
+
+/** Solo para las pruebas: deja el registro en blanco. */
+export function _reiniciarSaludDeLaCadena(): void {
+  turnos.length = 0;
+  castigos.length = 0;
+}
