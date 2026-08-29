@@ -2409,15 +2409,37 @@ export function buildContextBlock(
   return lines.join("\n");
 }
 
-function formatPrice(price: number, currency: string): string {
+/**
+ * El idioma con el que se escribe un precio, deducido de su moneda.
+ *
+ * Estaba fijo en "es-CO", que es el formato colombiano: sin decimales y con
+ * punto de miles. Aplicado a otras monedas da precios raros --un producto de
+ * 890.50 MXN se mostraba como "$891"-- y en las que sí usan centavos eso no es
+ * un detalle de estilo, es un precio equivocado.
+ *
+ * No se busca cubrir el mundo: se cubren las monedas de los países donde este
+ * SaaS se vende, y cualquier otra cae en un formato neutro que al menos no
+ * miente.
+ */
+const IDIOMA_POR_MONEDA: Record<string, string> = {
+  COP: "es-CO", MXN: "es-MX", ARS: "es-AR", CLP: "es-CL", PEN: "es-PE",
+  UYU: "es-UY", BOB: "es-BO", PYG: "es-PY", CRC: "es-CR", GTQ: "es-GT",
+  DOP: "es-DO", USD: "en-US", EUR: "es-ES", BRL: "pt-BR",
+};
+
+/** Monedas sin centavos: mostrarlos sería inventar precisión que no existe. */
+const MONEDAS_SIN_CENTAVOS = new Set(["COP", "CLP", "PYG", "ARS", "JPY", "KRW"]);
+
+export function formatPrice(price: number, currency: string): string {
+  const moneda = (currency || "COP").toUpperCase();
   try {
-    return new Intl.NumberFormat("es-CO", {
+    return new Intl.NumberFormat(IDIOMA_POR_MONEDA[moneda] || "es", {
       style: "currency",
-      currency: currency || "COP",
-      maximumFractionDigits: 0,
+      currency: moneda,
+      maximumFractionDigits: MONEDAS_SIN_CENTAVOS.has(moneda) ? 0 : 2,
     }).format(price);
   } catch {
-    return `${currency} ${price.toLocaleString()}`;
+    return `${moneda} ${price.toLocaleString()}`;
   }
 }
 

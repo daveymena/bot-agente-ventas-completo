@@ -9,6 +9,7 @@ import {
   tryHardcodedAnswer,
   tryPaymentSubIntentAnswer,
   detectChosenPaymentMethod,
+  formatPrice,
 } from "../conversation-engine";
 
 /**
@@ -185,5 +186,42 @@ describe("Un negocio distinto: mochilas físicas, en México, cobrando en MXN", 
     // puede inventar: "transferencia" es cierto en cualquier país.
     const r = tryPaymentSubIntentAnswer("cómo te pago?", "Lucía", "Mochila Antirrobo Impermeable", {});
     if (r) sinRastrosDeOtroNegocio(r.response, "la respuesta sin cobros configurados");
+  });
+});
+
+/**
+ * El precio se escribe en el idioma de SU moneda.
+ *
+ * `formatPrice` estaba fijo en "es-CO": sin decimales y con punto de miles,
+ * que es el formato colombiano. Aplicado a otras monedas da precios raros, y
+ * en las que sí usan centavos no es un detalle de estilo -- es un precio
+ * equivocado dicho con tono de dato verificado.
+ */
+describe("El precio se escribe como se escribe en su país", () => {
+  // ⚠️ El primer intento de esta prueba reimplementaba el formato acá adentro
+  // porque `formatPrice` no estaba exportada. Eso no prueba nada: verifica una
+  // COPIA de la lógica, así que habría seguido en verde aunque el código real
+  // se rompiera. Se exportó la función y ahora se prueba la de verdad.
+  const precioEn = (monto: number, moneda: string) => formatPrice(monto, moneda);
+
+  it("los pesos colombianos no llevan centavos", () => {
+    // 60.000 COP son 60.000, no 60.000,00.
+    expect(precioEn(60000, "COP")).not.toContain(",00");
+  });
+
+  it("los pesos mexicanos SÍ los llevan", () => {
+    // Una mochila de 890.50 mostrada como "$891" es un precio equivocado.
+    const p = precioEn(890.5, "MXN");
+    expect(p).toMatch(/890[.,]5/);
+  });
+
+  it("cada moneda usa su propio símbolo", () => {
+    expect(precioEn(100, "EUR")).toContain("€");
+    expect(precioEn(100, "BRL")).toContain("R$");
+  });
+
+  it("una moneda que no está en la lista no rompe nada", () => {
+    // Cae a un formato neutro que al menos no miente.
+    expect(() => precioEn(100, "PEN")).not.toThrow();
   });
 });
