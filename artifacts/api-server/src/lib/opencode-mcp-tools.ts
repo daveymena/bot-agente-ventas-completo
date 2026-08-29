@@ -44,6 +44,42 @@ import { logger } from "./logger";
 // lo único que lo corta de raíz.
 const EXCLUDED_FROM_MCP = new Set<string>(["research_start", "research_check", "deep_research"]);
 
+/**
+ * A qué acciones de cambio se les manda el CONTRATO de argumentos completo.
+ *
+ * Mandárselo a todas las de la familia costaba 889 tokens de más y volvía a
+ * pasarse del presupuesto. Medido en producción el 2026-08-28, mismo pedido de
+ * anuncio, tres corridas:
+ *
+ *   sin contratos          2.585 tk  -> propuso el plan (134 s), pero inventó
+ *                                       el nombre del parámetro
+ *   contratos de la familia 3.474 tk -> NO propuso nada, y contestó que "las
+ *                                       imágenes que compartiste eran
+ *                                       demasiado grandes y fueron eliminadas"
+ *                                       -- no había ninguna imagen: es lo que
+ *                                       dice un modelo cuando le truncaron el
+ *                                       contexto y racionaliza el hueco
+ *
+ * Estas son las herramientas GORDAS: las que el prompt del sistema le manda
+ * usar, las que resuelven el pedido entero de una llamada, y por eso las
+ * únicas cuyos parámetros necesita acertar. Para el resto alcanza con el
+ * nombre -- que es lo que evita el otro fallo conocido, Atlas diciendo "no
+ * tengo cómo" sobre algo que sí puede.
+ */
+const CONTRATO_COMPLETO = new Set<string>([
+  // Anuncios: `crear_anuncio` hace el trabajo entero y es donde viaja el
+  // `objetivo` que decide si el anuncio va a WhatsApp o a la web -- el dato
+  // que el modelo venía inventando.
+  "crear_anuncio",
+  "fb_upload_draft_to_meta",
+  "fb_create_ad",
+  // Productos y agente: los otros dos lugares donde un campo mal nombrado
+  // termina en un plan que el admin aprueba y falla después.
+  "create_product",
+  "update_product",
+  "update_agent",
+]);
+
 /** JSON Schema mínimo por herramienta, a mano -- son datos sensibles
  * (scoping, montos, ids), preferible explícito a inferido del string libre
  * `args` que usa el loop legado. Si se agrega una herramienta de lectura
@@ -1064,7 +1100,7 @@ export function buildMcpToolRegistry(pedido?: string): McpToolDef[] {
       // GRUPOS de este archivo, porque esos solo listan lecturas). Devuelve
       // null cuando no hay pista y ahí van todos los contratos.
       const enFamilia = !familiaDelPedido || familiaDelPedido.has(t.name);
-      if (!enFamilia || !t.args) return `${t.name}: ${resumen}`;
+      if (!enFamilia || !t.args || !CONTRATO_COMPLETO.has(t.name)) return `${t.name}: ${resumen}`;
       // El contrato se acorta a 200 caracteres. Lo que hace falta para no
       // inventar --los NOMBRES de los campos, cuáles son obligatorios y los
       // valores válidos de los enums-- va al principio de cada `args`; lo que

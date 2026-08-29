@@ -132,17 +132,22 @@ describe("Crear un anuncio no arrastra las herramientas de analizarlo", () => {
   });
 
   it("el pedido de crear entra en el presupuesto de un minuto de Groq", () => {
-    // El techo NO es un número elegido: sale de lo medido en producción.
+    // El techo NO es un número elegido: sale de tres corridas medidas contra
+    // producción, con el MISMO pedido de anuncio.
     //
-    //   2.585 tk  ->  resolvió, 134 s, plan propuesto
-    //   4.197 tk  ->  colgado, 4+ minutos, ni un plan
+    //   2.585 tk  ->  ✅ propuso el plan en 134 s
+    //   2.867 tk  ->  el tamaño actual
+    //   3.474 tk  ->  ❌ ni un plan, y contestó que "las imágenes que
+    //                 compartiste eran demasiado grandes y fueron eliminadas"
+    //                 -- no había ninguna imagen. Es lo que dice un modelo
+    //                 cuando le truncaron el contexto y racionaliza el hueco.
+    //   4.197 tk  ->  ❌ colgado, 4+ minutos, sin una sola respuesta
     //
-    // El punto exacto de corte entre esos dos no está verificado, así que este
-    // límite se fija apenas por encima de lo que hoy cuesta el pedido (3.474)
-    // para que cualquier crecimiento futuro se note acá antes que en un turno
-    // colgado. Si en producción se vuelve a colgar, el número a bajar es este.
+    // 3.000 deja margen sobre lo que hoy cuesta y queda MUY por debajo del
+    // primer tamaño que se sabe que falla. Si esto empieza a fallar, la
+    // pregunta no es subir el número: es qué se agregó al pedido.
     const t = tokens(buildMcpToolRegistry(CREAR));
-    expect(t, `los esquemas de crear un anuncio pesan ~${t} tokens`).toBeLessThan(3600);
+    expect(t, `los esquemas de crear un anuncio pesan ~${t} tokens`).toBeLessThan(3000);
   });
 
   /**
