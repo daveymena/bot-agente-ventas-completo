@@ -17,10 +17,11 @@
  * El cliente lo noto y lo dijo: "pero hace un rato me dijiste que Excel valia
  * 20.000, no 45.000. cual es el precio real?".
  *
- * `response-validator.ts` ya tenia un verificador de precios, pero solo miraba
- * que el monto fuera "razonable" (entre 1.000 y 100.000.000). Los tres precios
- * inventados de arriba pasan ese filtro sin problema. Y ademas ese archivo no
- * lo importa NADIE: son 301 lineas de codigo muerto.
+ * Habia un `response-validator.ts` con un verificador de precios, pero solo
+ * miraba que el monto fuera "razonable" (entre 1.000 y 100.000.000): los tres
+ * precios inventados de arriba pasan ese filtro sin problema. Y no lo importaba
+ * nadie -- 301 lineas de codigo muerto. Se borro el 2026-08-29 junto con otras
+ * cinco que tampoco corrian (ver CODIGO_MUERTO.md).
  *
  * Acá el criterio es el unico que no se puede alucinar: **un monto solo puede
  * salir si es el precio de un producto real**. El catalogo es la fuente de
