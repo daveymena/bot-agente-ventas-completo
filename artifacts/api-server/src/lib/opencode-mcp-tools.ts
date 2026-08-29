@@ -415,7 +415,7 @@ export interface McpToolDef {
  * executeAction, que ya sabe despachar por nombre). Solo necesitamos la
  * descripción visible para el handshake MCP `tools/list`; se toma de
  * TOOL_MAP indirectamente pidiéndole a executeAction que corra la lectura. */
-import { TOOLS as ALL_OPERATOR_TOOLS } from "./app-operator";
+import { TOOLS as ALL_OPERATOR_TOOLS, herramientasDeLaFamilia } from "./app-operator";
 
 function readOnlyToolDescriptions(): Map<string, string> {
   const map = new Map<string, string>();
@@ -991,12 +991,67 @@ export function buildMcpToolRegistry(pedido?: string): McpToolDef[] {
   // piano y Atlas ni lo intentó -- `fb_resume_campaign` está implementada,
   // pero él no sabía el nombre. Se veía como "no quiso" cuando era "no sabía
   // que podía". Listarlas todas convierte eso en imposible.
+  const familiaDelPedido = herramientasDeLaFamilia(pedido || "");
   const accionesDeCambio = ALL_OPERATOR_TOOLS
     // fb_set_ad_status no se anuncia: existe, pero para el modelo el camino es
     // fb_make_campaign_deliver (ver REDIRIGIR en proposeAction). Mostrarla solo
     // le da una forma de equivocarse con ids que no leyó.
     .filter((t) => !READ_ONLY_TOOLS.has(t.name) && !EXCLUDED_FROM_MCP.has(t.name) && t.name !== "fb_set_ad_status")
-    .map((t) => `${t.name}: ${String(t.description || "").split(/\.\s|\. /)[0].slice(0, 110)}`);
+    // ── El CONTRATO de argumentos viaja, no solo el nombre ────────────────
+    //
+    // Antes esto era solo `nombre: primera frase de la descripción`. El modelo
+    // veía QUÉ puede hacer y nunca CÓMO se llaman los parámetros, así que los
+    // adivinaba.
+    //
+    // Medido en producción el 2026-08-28, pidiendo un anuncio a WhatsApp:
+    // Atlas propuso `fb_create_ad` con `{ productId: 124, dailyBudget: 20000,
+    // whatsappContact: true }`. `whatsappContact` NO EXISTE -- el parámetro
+    // real es `objetivo: "mensajes"`. La campaña habría salido de ventas a la
+    // web, que es justo lo que el admin viene reportando.
+    //
+    // Y explica la familia entera de bugs de ids inválidos que volvió tres
+    // veces (productId ausente, draftId con un id de campaña de Meta de 18
+    // dígitos, productId en 0): el modelo nunca vio el contrato, así que
+    // completaba los campos con lo que le parecía. Tapar cada agujero con una
+    // validación nueva trataba el síntoma; esto es la causa.
+    //
+    // Los `args` van SOLO para las herramientas de la familia del pedido. Es
+    // el mismo criterio que ya usa el recorte de arriba y por el mismo motivo:
+    // mandar el contrato de las ~40 herramientas de cambio costaría más de lo
+    // que entra en el presupuesto por minuto. Para las demás sigue yendo el
+    // nombre, que es lo que evita el otro fallo ya conocido -- Atlas diciendo
+    // "no tengo cómo" sobre algo que sí puede (caso del 16-08-2026).
+    .map((t) => {
+      const resumen = String(t.description || "").split(/\.\s|\. /)[0].slice(0, 110);
+      // `herramientasDeLaFamilia` es el mismo criterio que usa buildToolsDoc,
+      // compartido a propósito: cubre las de CAMBIO (que no están en los
+      // GRUPOS de este archivo, porque esos solo listan lecturas). Devuelve
+      // null cuando no hay pista y ahí van todos los contratos.
+      const enFamilia = !familiaDelPedido || familiaDelPedido.has(t.name);
+      if (!enFamilia || !t.args) return `${t.name}: ${resumen}`;
+      // El contrato se acorta a 200 caracteres. Lo que hace falta para no
+      // inventar --los NOMBRES de los campos, cuáles son obligatorios y los
+      // valores válidos de los enums-- va al principio de cada `args`; lo que
+      // se corta es la explicación larga del final.
+      //
+      // No es una economía cosmética: mandar los contratos completos llevó el
+      // pedido de anuncio de 2.585 a 3.994 tokens, y 4.197 es el tamaño con el
+      // que se colgaba en producción.
+      //
+      // 200 sale de medir, no de elegir un número redondo. Barrido sobre el
+      // mismo pedido de anuncio, mirando el costo y si el modelo sigue viendo
+      // el parámetro `objetivo` (el que se estaba inventando):
+      //
+      //   300 -> 3.652 tk   objetivo visible en crear_anuncio y fb_create_ad
+      //   200 -> 3.474 tk   objetivo visible en las dos          <- acá
+      //   160 -> 3.379 tk   crear_anuncio YA NO lo ve
+      //   120 -> 3.257 tk   crear_anuncio YA NO lo ve
+      //
+      // Por debajo de 200 se ahorran ~100 tokens y se pierde justamente el
+      // dato por el que existe todo esto.
+      const contrato = String(t.args);
+      return `${t.name}: ${resumen}\n    args: ${contrato.length > 200 ? contrato.slice(0, 200) + " …}" : contrato}`;
+    });
 
   const proposeTool: McpToolDef = {
     name: "propose_action",

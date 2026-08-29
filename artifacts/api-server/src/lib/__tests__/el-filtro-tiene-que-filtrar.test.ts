@@ -132,10 +132,46 @@ describe("Crear un anuncio no arrastra las herramientas de analizarlo", () => {
   });
 
   it("el pedido de crear entra en el presupuesto de un minuto de Groq", () => {
-    // Con lo que OpenCode reserva para la respuesta (4.000) más el system, el
-    // perfil del negocio, el catálogo y la conversación, los esquemas no
-    // pueden pasar de ~2.800 si el turno tiene que entrar en 8.000/min.
+    // El techo NO es un número elegido: sale de lo medido en producción.
+    //
+    //   2.585 tk  ->  resolvió, 134 s, plan propuesto
+    //   4.197 tk  ->  colgado, 4+ minutos, ni un plan
+    //
+    // El punto exacto de corte entre esos dos no está verificado, así que este
+    // límite se fija apenas por encima de lo que hoy cuesta el pedido (3.474)
+    // para que cualquier crecimiento futuro se note acá antes que en un turno
+    // colgado. Si en producción se vuelve a colgar, el número a bajar es este.
     const t = tokens(buildMcpToolRegistry(CREAR));
-    expect(t, `los esquemas de crear un anuncio pesan ~${t} tokens`).toBeLessThan(2800);
+    expect(t, `los esquemas de crear un anuncio pesan ~${t} tokens`).toBeLessThan(3600);
+  });
+
+  /**
+   * La causa raíz de los parámetros inventados.
+   *
+   * Al modelo se le mandaba, por cada acción de cambio, el nombre y la primera
+   * frase de la descripción cortada a 110 caracteres. Nunca el contrato de
+   * argumentos. Así que sabía QUÉ podía hacer y jamás CÓMO se llaman los
+   * campos: los completaba con lo que le parecía.
+   *
+   * Medido en producción el 2026-08-28, pidiendo un anuncio a WhatsApp: Atlas
+   * propuso `fb_create_ad` con `{ productId: 124, whatsappContact: true }`.
+   * `whatsappContact` no existe -- el parámetro real es `objetivo: "mensajes"`.
+   *
+   * Es la misma causa de la familia de bugs de ids inválidos que volvió tres
+   * veces (productId ausente, draftId con un id de Meta de 18 dígitos,
+   * productId en 0). Cada una se tapó con una validación nueva; ninguna atacó
+   * el motivo por el que el modelo inventaba.
+   */
+  it("el modelo ve el contrato real de las acciones de su familia", () => {
+    const propose: any = buildMcpToolRegistry(CREAR).find((t: any) => t.name === "propose_action");
+    const desc = String(propose?.description || "");
+    for (const tool of ["crear_anuncio", "fb_create_ad"]) {
+      const i = desc.indexOf(`${tool}:`);
+      expect(i, `${tool} tiene que estar listado`).toBeGreaterThan(-1);
+      const bloque = desc.slice(i, i + 400);
+      expect(bloque, `${tool} sin su contrato de args`).toContain("args:");
+      // El dato concreto que se estaba inventando.
+      expect(bloque, `${tool} no le muestra el parámetro 'objetivo'`).toContain("objetivo");
+    }
   });
 });

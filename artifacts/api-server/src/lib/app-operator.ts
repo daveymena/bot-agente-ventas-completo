@@ -4794,11 +4794,30 @@ const FAMILIAS: Array<{ cuando: RegExp; prefijos: string[] }> = [
  * Así que se manda lo que el pedido necesita. Si no se reconoce de qué habla,
  * van todas -- perder una herramienta es peor que un prompt largo.
  */
-export function buildToolsDoc(pedido = ""): string {
+/**
+ * Qué herramientas toca este pedido, por familia.
+ *
+ * Se separó de `buildToolsDoc` porque el puente MCP necesita el MISMO criterio
+ * para otra cosa: decidir a qué herramientas de CAMBIO les manda su contrato de
+ * argumentos. Sin compartir el criterio, las dos rutas empezarían a divergir
+ * -- que es exactamente lo que pasó con el recorte de herramientas, arreglado
+ * en una ruta y neutralizado en la otra.
+ *
+ * Devuelve null cuando no hay pista suficiente: eso significa "van todas", y
+ * es deliberado. Perder una herramienta es peor que un prompt largo.
+ */
+export function herramientasDeLaFamilia(pedido = ""): Set<string> | null {
   const relevantes = FAMILIAS.filter((f) => f.cuando.test(pedido)).flatMap((f) => f.prefijos);
-  const usar = !pedido || relevantes.length === 0
-    ? TOOLS
-    : TOOLS.filter((t) => TOOLS_SIEMPRE.has(t.name) || relevantes.some((p) => t.name.startsWith(p) || t.name.includes(p)));
+  if (!pedido || relevantes.length === 0) return null;
+  return new Set(
+    TOOLS.filter((t) => TOOLS_SIEMPRE.has(t.name) || relevantes.some((p) => t.name.startsWith(p) || t.name.includes(p)))
+      .map((t) => t.name),
+  );
+}
+
+export function buildToolsDoc(pedido = ""): string {
+  const deLaFamilia = herramientasDeLaFamilia(pedido);
+  const usar = deLaFamilia ? TOOLS.filter((t) => deLaFamilia.has(t.name)) : TOOLS;
   return usar.map((t) => `- ${t.name}: ${t.description}\n  args: ${t.args}`).join("\n");
 }
 
