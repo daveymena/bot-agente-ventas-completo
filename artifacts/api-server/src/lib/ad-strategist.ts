@@ -6,7 +6,8 @@ import { tenantManager, type TenantContext } from "./tenantManager";
 import { resolveInterestIds } from "./facebook";
 import { generateProductImage } from "./ai-product-image";
 
-const FB_GRAPH_URL = "https://graph.facebook.com/v21.0";
+import { FB_GRAPH_BASE } from "./meta-api-version";
+const FB_GRAPH_URL = FB_GRAPH_BASE;
 
 // Corta en el último espacio dentro del límite en vez de a lo bruto -- un
 // substring ciego partía nombres de producto a mitad de palabra (ej: "Curso

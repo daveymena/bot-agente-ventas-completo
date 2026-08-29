@@ -1,5 +1,6 @@
 import { logger } from "./logger";
 import type { TenantContext } from "./tenantManager";
+import { FB_GRAPH_BASE } from "./meta-api-version";
 
 /**
  * Credenciales de Facebook POR NEGOCIO.
@@ -90,7 +91,7 @@ export async function probarFacebook(
   if (!accessToken) return { ok: false, detalle: "Falta el access token" };
   try {
     // Primero valida el token contra /me (solo lectura).
-    const me = await fetch(`https://graph.facebook.com/v21.0/me?fields=id,name&access_token=${accessToken}`, {
+    const me = await fetch(`${FB_GRAPH_BASE}/me?fields=id,name&access_token=${accessToken}`, {
       signal: AbortSignal.timeout(12000),
     });
     const meData: any = await me.json();
@@ -104,7 +105,7 @@ export async function probarFacebook(
       // made a valid token look broken. Identity and page access are enough to
       // validate the publishing configuration here.
       const page = await fetch(
-        `https://graph.facebook.com/v21.0/${pageId}?fields=id,name&access_token=${accessToken}`,
+        `${FB_GRAPH_BASE}/${pageId}?fields=id,name&access_token=${accessToken}`,
         { signal: AbortSignal.timeout(12000) },
       );
       const pageData: any = await page.json();

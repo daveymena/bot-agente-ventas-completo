@@ -11,6 +11,7 @@ import { SAAS_PLANS } from "../middleware/saasValidation";
 import { encryptSecret } from "../lib/credentials-vault";
 import { credencialesDe } from "../lib/tenant-payment-credentials";
 import { rateLimitPublico } from "../middleware/rateLimitPublico";
+import { FB_GRAPH_BASE } from "../lib/meta-api-version";
 
 /**
  * Resuelve el número de WhatsApp asociado a la app (vía QR conectado).
@@ -260,7 +261,7 @@ router.post("/fb-connect", rateLimitPublico(10, 10 * 60 * 1000, "fb-connect"), a
       return res.status(500).json({ message: "FB_APP_ID / FB_APP_SECRET no configurados" });
     }
 
-    const graph = "https://graph.facebook.com/v21.0";
+    const graph = FB_GRAPH_BASE;
 
     // Authorization Code flow (no Implicit): el frontend manda `code` (de un
     // solo uso, de la query string) en vez de `userToken` -- con

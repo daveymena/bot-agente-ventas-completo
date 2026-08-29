@@ -11,6 +11,7 @@ import { buildPostDraft, publishToPage, checkPostingPermission } from "../lib/fa
 import { whatsapp } from "../lib/whatsapp-singleton";
 import { logger } from "../lib/logger";
 import { encryptSecret, decryptSecret } from "../lib/credentials-vault";
+import { FB_GRAPH_BASE } from "../lib/meta-api-version";
 
 const router: IRouter = Router();
 
@@ -113,7 +114,7 @@ router.post("/lead-ads/webhook", verifyFacebookSignature, async (req: Request, r
           let leadData: any = null;
           try {
             const response = await fetch(
-              `https://graph.facebook.com/v21.0/${leadgenId}?access_token=${accessToken}`
+              `${FB_GRAPH_BASE}/${leadgenId}?access_token=${accessToken}`
             );
             leadData = await response.json();
             logger.info({ leadData }, "[Facebook] Datos del lead obtenidos");
@@ -880,7 +881,7 @@ router.get("/debug-pixels", async (req, res, next) => {
     if (!cfg?.accessToken || !cfg?.adAccountId) {
       return res.status(422).json({ error: "Falta accessToken o adAccountId en la configuración" });
     }
-    const url = `https://graph.facebook.com/v21.0/act_${cfg.adAccountId}/adspixels?fields=id,name&access_token=${cfg.accessToken}`;
+    const url = `${FB_GRAPH_BASE}/act_${cfg.adAccountId}/adspixels?fields=id,name&access_token=${cfg.accessToken}`;
     const r = await fetch(url, { signal: AbortSignal.timeout(15000) });
     const data = await r.json();
     return res.json(data);

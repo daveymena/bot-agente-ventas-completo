@@ -14,6 +14,7 @@
  */
 import crypto from "crypto";
 import { logger } from "./logger";
+import { FB_GRAPH_BASE } from "./meta-api-version";
 
 function sha256(value: string): string {
   return crypto.createHash("sha256").update(value.trim().toLowerCase()).digest("hex");
@@ -55,7 +56,7 @@ export async function sendPurchaseEvent(input: PurchaseEventInput): Promise<bool
       logger.warn({ pixelId: input.pixelId }, "[MetaCAPI] Compra sin email ni teléfono del cliente -- Meta no va a poder emparejar este evento con nadie, se manda igual pero sin valor real");
     }
 
-    const res = await fetch(`https://graph.facebook.com/v21.0/${input.pixelId}/events`, {
+    const res = await fetch(`${FB_GRAPH_BASE}/${input.pixelId}/events`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
