@@ -2337,7 +2337,51 @@ export const TOOLS: ToolDef[] = [
       const { credencialesFacebookDe, probarFacebook } = await import("./tenant-facebook-credentials");
       const cred = credencialesFacebookDe(tenant);
       const v = await probarFacebook(cred.accessToken, cred.pageId || undefined);
-      return { ok: v.ok, summary: `Facebook: ${v.detalle}`, data: { ...v, pageId: cred.pageId, adAccountId: cred.adAccountId, catalogId: cred.catalogId } };
+
+      // ── La CUENTA PUBLICITARIA, que es lo que faltaba ────────────────────
+      //
+      // Antes esto validaba el token y la página y contestaba "Facebook: ✅
+      // conectado". Con eso Atlas daba por buena la conexión y seguía
+      // adelante -- pero una cuenta restringida deja crear la campaña y NO la
+      // entrega: se ve todo bien y no sale ni una impresión.
+      //
+      // Y no es hipotético: la cuenta que está en producción figura en las
+      // notas del admin como restringida por saldo pendiente.
+      let cuenta = "";
+      let puedeGastar: boolean | undefined;
+      if (v.ok && cred.adAccountId) {
+        try {
+          const { ESTADO_DE_CUENTA_META } = await import("./facebook");
+          const { FB_GRAPH_BASE } = await import("./meta-api-version");
+          const id = `act_${String(cred.adAccountId).replace(/^act_/, "")}`;
+          const r = await fetch(
+            `${FB_GRAPH_BASE}/${id}?fields=name,account_status,balance,currency&access_token=${cred.accessToken}`,
+            { signal: AbortSignal.timeout(12000) },
+          );
+          const j: any = await r.json();
+          if (j?.error) {
+            cuenta = ` · ⚠️ no se pudo leer la cuenta publicitaria: ${j.error.message}`;
+          } else {
+            const est = ESTADO_DE_CUENTA_META[Number(j.account_status)];
+            puedeGastar = est?.puedeGastar ?? false;
+            cuenta = puedeGastar
+              ? ` · Cuenta ${j.name} activa`
+              : ` · 🚨 La cuenta publicitaria "${j.name}" está ${est?.texto || `en estado ${j.account_status}`}` +
+                `${Number(j.balance) > 0 ? ` (saldo pendiente: ${j.balance})` : ""}.` +
+                ` Se pueden crear campañas pero NO van a entregar hasta resolverlo en el Administrador de Anuncios.`;
+          }
+        } catch (e: any) {
+          cuenta = ` · no se pudo verificar la cuenta publicitaria (${e?.message || "sin respuesta"})`;
+        }
+      }
+
+      return {
+        // Que el token sirva no alcanza: si la cuenta no puede gastar, esto
+        // NO es un "ok" -- es justo el caso que hay que contarle al admin.
+        ok: v.ok && puedeGastar !== false,
+        summary: `Facebook: ${v.detalle}${cuenta}`,
+        data: { ...v, pageId: cred.pageId, adAccountId: cred.adAccountId, catalogId: cred.catalogId, cuentaPuedeGastar: puedeGastar },
+      };
     },
   },
   {

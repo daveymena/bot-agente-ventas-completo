@@ -52,6 +52,87 @@ export function usarAdvantagePlus(targeting?: {
   return !pidioPublicoConcreto;
 }
 
+/**
+ * Qué le pasó de verdad a la conexión con Meta, dicho para el admin.
+ *
+ * Graph API contesta en inglés y en su propio vocabulario:
+ *
+ *   "Error validating access token: Session has expired on Monday,
+ *    10-Aug-26 18:00:00 PDT" (código 190, subcódigo 463)
+ *
+ * Ese texto salía tal cual al panel y a Atlas. El admin no tiene forma de
+ * saber que eso significa "entrá a Configuración y volvé a conectar", así que
+ * el sistema queda roto sin que nadie sepa qué hacer.
+ *
+ * Y no es un caso raro: los tokens de Meta VENCEN. Le va a pasar a todos los
+ * que usen la app, y les va a pasar callado -- los anuncios simplemente dejan
+ * de publicarse. Medido en la cuenta de producción el 2026-08-29: el token
+ * del entorno había vencido el 10 de agosto, diecinueve días antes, y nada
+ * en el sistema lo decía.
+ */
+export function diagnosticoDeErrorDeMeta(error: any): { motivo: string; hayQueReconectar: boolean } | null {
+  if (!error) return null;
+  const e = error?.fbError ?? error;
+  const codigo = Number(e?.code);
+  const sub = Number(e?.error_subcode);
+  const msg = String(e?.message || "");
+
+  // Token vencido o revocado. Reintentar no sirve: hay que reconectar.
+  if (codigo === 190 || codigo === 102 || /validating access token|session has expired/i.test(msg)) {
+    const cuando = msg.match(/expired on ([^."]+)/i)?.[1]?.trim();
+    if (sub === 458 || /app_not_installed|not authorized/i.test(msg)) {
+      return { motivo: "La app de Facebook fue desautorizada desde la cuenta. Hay que volver a conectarla desde Configuración → Facebook.", hayQueReconectar: true };
+    }
+    if (sub === 460 || /password/i.test(msg)) {
+      return { motivo: "La sesión de Facebook se cerró (suele ser por un cambio de contraseña). Hay que reconectar desde Configuración → Facebook.", hayQueReconectar: true };
+    }
+    return {
+      motivo:
+        `La conexión con Facebook VENCIÓ${cuando ? ` el ${cuando}` : ""} y hay que renovarla desde Configuración → Facebook. ` +
+        `Hasta que se reconecte no se puede publicar ni medir ningún anuncio.`,
+      hayQueReconectar: true,
+    };
+  }
+
+  // Permisos: el token vive, pero no alcanza para anuncios.
+  if (codigo === 200 || codigo === 10 || /permission|ads_management|ads_read/i.test(msg)) {
+    return {
+      motivo: "La conexión con Facebook está viva pero le faltan permisos de anuncios (ads_management). Hay que reconectar aceptando los permisos de publicidad.",
+      hayQueReconectar: true,
+    };
+  }
+
+  // La cuenta publicitaria no puede gastar.
+  if (codigo === 2635 || /ad account.*(disabled|restricted|closed)|cuenta publicitaria.*(inhabilit|restring)/i.test(msg)) {
+    return {
+      motivo: "La cuenta publicitaria está restringida o inhabilitada en Meta. Se pueden crear campañas, pero NO van a entregar hasta resolverlo en el Administrador de Anuncios.",
+      hayQueReconectar: false,
+    };
+  }
+
+  return null;
+}
+
+/**
+ * Qué significa cada `account_status` de una cuenta publicitaria.
+ *
+ * `fb_status` validaba el token y la página, y nunca la CUENTA. Así podía
+ * contestar "Facebook conectado ✅" mientras ningún anuncio entregaba: la
+ * cuenta de producción figura en las notas del admin como restringida por
+ * saldo pendiente. Un estado que dice OK cuando no lo está es peor que no
+ * tener estado.
+ */
+export const ESTADO_DE_CUENTA_META: Record<number, { texto: string; puedeGastar: boolean }> = {
+  1: { texto: "activa", puedeGastar: true },
+  2: { texto: "DESACTIVADA", puedeGastar: false },
+  3: { texto: "SIN MÉTODO DE PAGO", puedeGastar: false },
+  7: { texto: "en revisión de Meta", puedeGastar: false },
+  8: { texto: "pendiente de cierre", puedeGastar: false },
+  9: { texto: "EN PERIODO DE GRACIA (hay saldo pendiente de pago)", puedeGastar: false },
+  100: { texto: "CERRADA POR FALTA DE PAGO", puedeGastar: false },
+  101: { texto: "CERRADA", puedeGastar: false },
+};
+
 export function esErrorTransitorioDeMeta(err: any): boolean {
   const code = Number(err?.code ?? err?.fbError?.code);
   if ([1, 2, 4, 17, 32, 341, 613].includes(code)) return true;
@@ -451,7 +532,7 @@ Responde SOLO con este JSON exacto:
         }),
         signal: AbortSignal.timeout(20000),
       });
-      const data = await res.json();
+      const data: any = await res.json();
       const text = data.choices?.[0]?.message?.content || "";
       const jsonMatch = text.match(/\{[\s\S]*\}/);
       if (jsonMatch) {
@@ -1601,7 +1682,7 @@ Responde SOLO con JSON:
         signal: AbortSignal.timeout(20000),
       });
 
-      const data = await res.json();
+      const data: any = await res.json();
       const text = data.choices?.[0]?.message?.content || "";
       const jsonMatch = text.match(/\{[\s\S]*\}/);
       if (jsonMatch) {
@@ -1686,7 +1767,7 @@ Responde SOLO con JSON:
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(20000),
     });
-    const data = await res.json();
+    const data: any = await res.json();
     if (data.error) {
       const prefix = step ? `[${step}] ` : "";
       // error_user_msg / blame_field_specs son el detalle real y accionable
@@ -1699,7 +1780,15 @@ Responde SOLO con JSON:
         : data.error.error_data?.blame_field_specs
         ? ` -- campo(s): ${JSON.stringify(data.error.error_data.blame_field_specs)}`
         : "";
-      const e: any = new Error(`${prefix}${data.error.message}${detail} (código ${data.error.code}${data.error.error_subcode ? `, subcódigo ${data.error.error_subcode}` : ""})`);
+      // Si es uno de los fallos que el admin PUEDE arreglar (conexión
+      // vencida, permisos, cuenta restringida), se dice en castellano y con
+      // el paso a seguir. El texto de Graph queda igual detrás, para el log.
+      const diag = diagnosticoDeErrorDeMeta(data.error);
+      const e: any = new Error(
+        diag
+          ? `${prefix}${diag.motivo} (Meta: ${data.error.message}, código ${data.error.code})`
+          : `${prefix}${data.error.message}${detail} (código ${data.error.code}${data.error.error_subcode ? `, subcódigo ${data.error.error_subcode}` : ""})`,
+      );
       // El error de Graph viaja pegado al Error para que `fbPost` pueda
       // decidir si reintenta. Sin esto habría que adivinar por el texto del
       // mensaje, que cambia de idioma y de redacción según el endpoint.
@@ -1712,7 +1801,7 @@ Responde SOLO con JSON:
   private async fbGet(endpoint: string, query: Record<string, string> = {}, token?: string): Promise<any> {
     const params = new URLSearchParams({ access_token: token || this.config.accessToken, ...query });
     const res = await fetch(`${FB_GRAPH_URL}/${endpoint}?${params}`, { signal: AbortSignal.timeout(15000) });
-    const data = await res.json();
+    const data: any = await res.json();
     if (data.error) throw new Error(`${data.error.message} (código ${data.error.code})`);
     return data;
   }

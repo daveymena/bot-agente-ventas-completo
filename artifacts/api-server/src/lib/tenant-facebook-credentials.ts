@@ -87,7 +87,7 @@ export function credencialesFacebookDe(tenant: TenantContext | null | undefined)
 export async function probarFacebook(
   accessToken: string,
   pageId?: string,
-): Promise<{ ok: boolean; detalle: string; page?: { id: string; name: string; tasks?: string[] } }> {
+): Promise<{ ok: boolean; detalle: string; page?: { id: string; name: string; tasks?: string[] }; hayQueReconectar?: boolean; cuentaPuedeGastar?: boolean }> {
   if (!accessToken) return { ok: false, detalle: "Falta el access token" };
   try {
     // Primero valida el token contra /me (solo lectura).
@@ -96,7 +96,11 @@ export async function probarFacebook(
     });
     const meData: any = await me.json();
     if (meData.error) {
-      return { ok: false, detalle: meData.error?.message || "Token inválido" };
+      // El texto de Graph es en inglés y no dice qué hacer. Si es uno de los
+      // fallos que el admin puede resolver, se traduce al paso concreto.
+      const { diagnosticoDeErrorDeMeta } = await import("./facebook");
+      const diag = diagnosticoDeErrorDeMeta(meData.error);
+      return { ok: false, detalle: diag?.motivo || meData.error?.message || "Token inválido", hayQueReconectar: diag?.hayQueReconectar };
     }
 
     // Si se indicó una página, verificar que el token la administre.
