@@ -44,6 +44,23 @@ import {
 } from "./conversation-engine";
 import { getBrandVoice, formatWithBrandVoice } from "./brand-voice";
 import { registrarTurnoAtendido } from "./monitoring";
+
+/**
+ * Modelos de RAZONAMIENTO: no pueden atender a un cliente.
+ *
+ * Medido en producción el 2026-08-29, con DeepSeek recién habilitado: el bot
+ * contestó con `deepseek/deepseek-reasoner` y tardó 26 y 30 SEGUNDOS. Las
+ * respuestas eran buenas -- el problema es que nadie espera medio minuto en
+ * WhatsApp: para cuando llega, el cliente cerró el chat.
+ *
+ * `deepseek-chat`, el MISMO proveedor, responde en ~800 ms. La diferencia no
+ * es el proveedor: es que un modelo de razonamiento gasta el presupuesto
+ * pensando antes de escribir.
+ *
+ * Se exporta para que la prueba use ESTA expresión y no una copia: una prueba
+ * que reimplementa la regla sigue en verde aunque el código real se rompa.
+ */
+export const MODELO_DE_RAZONAMIENTO = /reasoner|thinking|-r1\b|reasoning/i;
 import { getBusinessContext, renderBloqueNegocio, resumenContexto, datosQueFaltan } from "./business-context";
 import { cuentasDeCopilot, expandirPorCuenta } from "./copilot-cuentas";
 import { construirPlaybook, quitarInventos, quitarMuletillaDeApertura, extraerApertura } from "./sales-playbook";
@@ -1815,7 +1832,32 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
       };
 
       // ── Helper: probar cola de proveedores ──
-      const tryQueue = async (queue: { config: any; source: string }[]): Promise<{ raw: string; usedProvider: string }> => {
+      // ── Ningún modelo de RAZONAMIENTO atiende a un cliente ───────────────
+      //
+      // Medido en producción el 2026-08-29, con DeepSeek recién habilitado:
+      // el bot contestó con `deepseek/deepseek-reasoner` y tardó 26 y 30
+      // SEGUNDOS. Las respuestas eran buenas; el problema es que nadie espera
+      // medio minuto en WhatsApp -- para cuando llega, el cliente cerró el
+      // chat.
+      //
+      // `deepseek-chat`, el mismo proveedor, responde en ~800ms. La diferencia
+      // no es el proveedor: es que un modelo de razonamiento gasta el
+      // presupuesto pensando antes de escribir.
+      //
+      // Este proyecto ya los excluía en la cadena de Atlas (NO_SIRVEN en
+      // cadena-modelos.ts) por otro motivo --devuelven `content` vacío-- pero
+      // el bot de ventas no tenía esa regla, y el modelo puede llegar desde la
+      // configuración del tenant en la base, no solo del entorno. Filtrar acá
+      // lo cubre venga de donde venga.
+      const sinModelosLentos = (queue: { config: any; source: string }[]) =>
+        queue.filter(({ config, source }) => {
+          if (!MODELO_DE_RAZONAMIENTO.test(String(config?.model || "")) && !MODELO_DE_RAZONAMIENTO.test(source)) return true;
+          console.log(`⏭️  [AI] ${source} descartado: es de razonamiento y tarda demasiado para WhatsApp - ${ts()}`);
+          return false;
+        });
+
+      const tryQueue = async (queueOriginal: { config: any; source: string }[]): Promise<{ raw: string; usedProvider: string }> => {
+        const queue = sinModelosLentos(queueOriginal);
         // La posición en la cola es el dato que faltaba: si contestó el
         // primero, la cadena está sana; si contestó el cuarto, tres fallaron
         // antes y nadie se entera. Todo lo que se rompió el 2026-08-29 se veía

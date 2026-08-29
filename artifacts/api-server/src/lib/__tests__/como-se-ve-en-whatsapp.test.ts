@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { markdownAWhatsapp, sanitizeResponse } from "../conversation-engine";
+import { MODELO_DE_RAZONAMIENTO } from "../agent";
 
 /**
  * WhatsApp NO entiende markdown.
@@ -70,5 +71,44 @@ describe("Lo que el cliente ve de verdad en WhatsApp", () => {
     expect(r).toContain("*Curso de Piano*");
     expect(r).not.toContain("**");
     expect(r).not.toContain("http");
+  });
+});
+
+/**
+ * Ningún modelo de RAZONAMIENTO atiende a un cliente.
+ *
+ * Medido en producción el 2026-08-29, con DeepSeek recién habilitado: el bot
+ * contestó con `deepseek/deepseek-reasoner` y tardó 26 y 30 SEGUNDOS. Las
+ * respuestas eran buenas -- el problema es que nadie espera medio minuto en
+ * WhatsApp. Para cuando llega, el cliente cerró el chat.
+ *
+ * `deepseek-chat`, el MISMO proveedor, responde en ~800ms. La diferencia no es
+ * el proveedor: es que un modelo de razonamiento gasta el presupuesto pensando
+ * antes de escribir.
+ */
+describe("Qué modelos pueden atender a un cliente", () => {
+  // La misma expresión que filtra la cola en agent.ts.
+  // Se usa la expresión REAL de agent.ts, no una copia. Una prueba que
+  // reimplementa la regla sigue en verde aunque el código real se rompa -- es
+  // el mismo error que ya se cometió en esta sesión con `formatPrice`.
+  const pasa = (modelo: string) => !MODELO_DE_RAZONAMIENTO.test(modelo);
+
+  it("los de razonamiento quedan afuera", () => {
+    for (const m of ["deepseek-reasoner", "qwen-thinking", "deepseek-r1", "o1-reasoning"]) {
+      expect(pasa(m), m).toBe(false);
+    }
+  });
+
+  it("los de conversación pasan", () => {
+    // Incluido `deepseek-chat`, que es el que SÍ hay que usar de ese proveedor.
+    for (const m of ["deepseek-chat", "openai/gpt-oss-120b", "qwen/qwen3.8-27b", "big-pickle", "gpt-4o-mini"]) {
+      expect(pasa(m), m).toBe(true);
+    }
+  });
+
+  it("no confunde un nombre que solo CONTIENE letras parecidas", () => {
+    // "r1" suelto dentro de otra palabra no debería descartar un modelo bueno.
+    expect(pasa("mistral-large-latest")).toBe(true);
+    expect(pasa("claude-sonnet-4")).toBe(true);
   });
 });
