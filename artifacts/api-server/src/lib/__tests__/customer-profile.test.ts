@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import {
+import { variantesDeTelefono,
   agregarProductoVisto, agregarObjecion, guardarUbicacion,
   diasDesdeLaUltimaVez, tieneAlgoQueRecordar, PERFIL_VACIO,
 } from "../customer-profile";
@@ -102,5 +102,43 @@ describe("solo se le cuenta al agente si hay algo real que decir", () => {
 
   it("con una objeción, sí", () => {
     expect(tieneAlgoQueRecordar(agregarObjecion(PERFIL_VACIO, "price", T1))).toBe(true);
+  });
+});
+
+/**
+ * El mismo cliente, dos conversaciones, media memoria en cada una.
+ *
+ * `conversations` se busca por `contactPhone` en cuatro lugares y cada uno
+ * traía el número como le llegaba: Baileys lo entrega en dígitos
+ * (573042748687), pero por la API y por el panel entra como lo escribió una
+ * persona (+57 304 274 8687). Como la comparación era exacta, el mismo cliente
+ * terminaba con DOS filas.
+ *
+ * Visto desde afuera es esto: el cliente vuelve a escribir y el bot arranca de
+ * cero, sin acordarse de nada. No perdió la memoria — está leyendo la otra fila.
+ */
+describe("el mismo teléfono escrito de varias formas es el mismo cliente", () => {
+  it("compara las dos formas, no una", () => {
+    const v = variantesDeTelefono("+57 304 274 8687");
+    expect(v).toContain("573042748687");
+    expect(v).toContain("+57 304 274 8687");
+  });
+
+  it("un número ya limpio no genera una variante de más", () => {
+    expect(variantesDeTelefono("573042748687")).toEqual(["573042748687"]);
+  });
+
+  it("se buscan las dos porque en la base YA hay filas de las dos formas", () => {
+    // Normalizar solo al escribir arregla lo que viene y deja huérfano lo que
+    // ya está guardado: justo las conversaciones con historial.
+    expect(variantesDeTelefono("+573042748687")).toHaveLength(2);
+  });
+
+  it("un identificador que no es un teléfono sobrevive igual", () => {
+    // La ruta de diagnóstico usa "test-ia" como contacto. Normalizar a dígitos
+    // lo dejaría vacío y buscaría por cadena vacía.
+    expect(variantesDeTelefono("test-ia")).toEqual(["test-ia"]);
+    expect(variantesDeTelefono("")).toEqual([]);
+    expect(variantesDeTelefono(null)).toEqual([]);
   });
 });

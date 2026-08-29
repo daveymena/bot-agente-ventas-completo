@@ -31,6 +31,33 @@ export function normalizarTelefono(tel: string | null | undefined): string {
   return String(tel || "").replace(/\D/g, "");
 }
 
+
+/**
+ * Las formas en que el MISMO teléfono puede estar guardado.
+ *
+ * `conversations` se busca por `contactPhone` en tres lugares distintos y cada
+ * uno traía el número como le llegaba: Baileys lo entrega en dígitos
+ * (573042748687), pero por la API y por el panel entra como lo escribió una
+ * persona (+57 304 274 8687). Como la comparación es exacta, el mismo cliente
+ * terminaba con DOS conversaciones -- y cada una con su historial.
+ *
+ * Ese es el efecto que se ve desde afuera: el cliente vuelve a escribir y el
+ * bot arranca de cero, sin acordarse de nada de lo anterior. No perdió la
+ * memoria: está leyendo la otra fila.
+ *
+ * Devuelve las variantes a comparar en vez de normalizar y listo, porque en la
+ * base YA hay filas guardadas de las dos formas. Normalizar solo al escribir
+ * arregla lo que viene y deja huérfano lo que ya está.
+ */
+export function variantesDeTelefono(tel: string | null | undefined): string[] {
+  const crudo = String(tel || "").trim();
+  const solaDigitos = normalizarTelefono(crudo);
+  const variantes = new Set<string>();
+  if (crudo) variantes.add(crudo);
+  if (solaDigitos) variantes.add(solaDigitos);
+  return [...variantes];
+}
+
 // ─── Mezcla (lógica pura, testeable sin base) ────────────────────────────────
 
 /**

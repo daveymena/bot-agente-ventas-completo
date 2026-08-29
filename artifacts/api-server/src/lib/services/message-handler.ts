@@ -12,7 +12,7 @@
 import { getMessageQueue, QueuedMessage } from '../message-queue';
 import { db } from "@workspace/db";
 import { messages, conversations, leads } from "@workspace/db";
-import { eq, and, gt } from "drizzle-orm";
+import { eq, and, gt, inArray } from "drizzle-orm";
 import { addTenantToInsert, type TenantContext } from '../tenantManager';
 import { logger } from '../logger';
 import { dbNow } from '../date-utils';
@@ -82,12 +82,16 @@ export class MessageHandler {
       // Preferir el número ya resuelto (params.phone) -- para JIDs @lid,
       // remoteJid NO es un teléfono real (ver whatsapp.ts). Solo si no
       // llega resuelto, se cae al parseo directo del JID (compatibilidad).
-      const phone = (params.phone || params.remoteJid.split('@')[0]).replace(/\D/g, '');
+      // La misma función que usan la ruta de la API y el orquestador: tres
+      // formas distintas de limpiar el número es como el mismo cliente
+      // terminaba con dos conversaciones.
+      const { normalizarTelefono, variantesDeTelefono } = await import("../customer-profile");
+      const phone = normalizarTelefono(params.phone || params.remoteJid.split('@')[0]);
       const tenantIdNum = tenantId;
       
       let convo = (await db.select().from(conversations)
         .where(and(
-          eq(conversations.contactPhone, phone),
+          inArray(conversations.contactPhone, variantesDeTelefono(phone)),
           eq(conversations.tenantId, tenantIdNum)
         ))
         .limit(1))[0];

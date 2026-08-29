@@ -5,7 +5,7 @@ import { getMetricsForAll, healthSummary, cleanupInactiveInstances } from "../li
 import { requireAdmin, tenantManager } from "../lib/tenantManager";
 import { runAgentReply } from "../lib/agent";
 import { db, conversations, messages } from "@workspace/db";
-import { and, eq, desc } from "drizzle-orm";
+import { and, eq, desc, inArray } from "drizzle-orm";
 import { logger } from "../lib/logger";
 import { existsSync, rmSync } from "node:fs";
 import path from "node:path";
@@ -65,10 +65,11 @@ router.post("/test-ia", async (req, res, next) => {
     // mensaje. Una herramienta de diagnóstico que miente sobre el sistema es
     // peor que no tenerla.
     const telefono = req.body.phone || "test-ia";
+    const { variantesDeTelefono } = await import("../lib/customer-profile");
     const [existente] = await db
       .select()
       .from(conversations)
-      .where(and(eq(conversations.tenantId, tenantId), eq(conversations.contactPhone, telefono)))
+      .where(and(eq(conversations.tenantId, tenantId), inArray(conversations.contactPhone, variantesDeTelefono(telefono))))
       .orderBy(desc(conversations.id))
       .limit(1);
 
@@ -394,10 +395,14 @@ router.post("/capture", async (req, res, next) => {
     const tid = tenantIdFromReq(req);
     const { analyzeWhatsAppMessage } = await import("../lib/whatsapp-brain");
 
-    // Buscar o crear conversación
+    // Buscar o crear conversación.
+    // Por acá el número entra como lo escribió una persona ("+57 304 274
+    // 8687"); por Baileys entra en dígitos. Comparando exacto, el mismo
+    // cliente quedaba con dos conversaciones y el bot le arrancaba de cero.
+    const { variantesDeTelefono, normalizarTelefono } = await import("../lib/customer-profile");
     const convos = await db.select().from(conversations)
       .where(and(
-        eq(conversations.contactPhone, phone),
+        inArray(conversations.contactPhone, variantesDeTelefono(phone)),
         eq(conversations.tenantId, tid)
       ));
     let convo = convos[0];
@@ -406,7 +411,7 @@ router.post("/capture", async (req, res, next) => {
       [convo] = await db.insert(conversations).values({
         tenantId: tid,
         contactName: `Cliente ${phone}`,
-        contactPhone: phone,
+        contactPhone: normalizarTelefono(phone) || phone,
         channel: "whatsapp",
         status: "ai"
       }).returning();

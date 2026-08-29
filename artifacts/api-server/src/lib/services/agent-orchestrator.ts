@@ -18,7 +18,7 @@ import { tenantManager } from '../tenantManager';
 import { checkMessageLimit } from '../../middleware/featureLimits';
 import { db } from "@workspace/db";
 import { conversations, messages } from "@workspace/db";
-import { eq, and, gt, desc } from "drizzle-orm";
+import { eq, and, gt, desc, inArray } from "drizzle-orm";
 import { logger } from '../logger';
 
 export interface AgentOrchestratorConfig {
@@ -362,10 +362,14 @@ export class AgentOrchestrator {
     try {
       const tenantIdNum = typeof tenantId === 'string' ? parseInt(tenantId) : tenantId;
 
-      // Buscar conversación existente (filtrar por tenantId + phone)
+      // Buscar conversación existente (filtrar por tenantId + phone).
+      // El mismo número puede estar guardado en dígitos (como lo entrega
+      // Baileys) o como lo escribió una persona: se comparan las dos formas o
+      // el cliente termina con dos conversaciones y media memoria en cada una.
+      const { variantesDeTelefono, normalizarTelefono } = await import("../customer-profile");
       const existing = await db.select().from(conversations)
         .where(and(
-          eq(conversations.contactPhone, phone),
+          inArray(conversations.contactPhone, variantesDeTelefono(phone)),
           eq(conversations.tenantId, tenantIdNum)
         ))
         .limit(1);
@@ -380,7 +384,8 @@ export class AgentOrchestrator {
 
       const [convo] = await db.insert(conversations).values(addTenantToInsert({
         contactName: phone,
-        contactPhone: phone,
+        // Se GUARDA normalizado: una sola forma en la base de acá en adelante.
+        contactPhone: normalizarTelefono(phone) || phone,
         status: "ai",
         currentStage: "greeting",
         unreadCount: 0
