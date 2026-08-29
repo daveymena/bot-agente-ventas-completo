@@ -7,6 +7,33 @@ import { tenantManager, type TenantContext } from "./tenantManager";
 const FB_GRAPH_URL = "https://graph.facebook.com/v21.0";
 
 /**
+ * ¿Vale la pena reintentar este error de Graph API?
+ *
+ * Solo los TRANSITORIOS. Un token inválido, un copy rechazado o una cuenta sin
+ * método de pago no mejoran reintentando: repetirlos solo hace esperar al
+ * admin para darle el mismo error.
+ *
+ * Los códigos son los que Meta documenta como temporales:
+ *   1, 2     problema temporal o desconocido del lado de Meta
+ *   4, 17    límite de llamadas de la app o del usuario
+ *   32, 613  límite de la página / demasiadas llamadas
+ *   341      límite temporal alcanzado
+ *
+ * Importa más de lo que parece: subir un anuncio a Meta son CUATRO llamadas
+ * encadenadas --campaña, conjunto, creativo, anuncio-- y si falla cualquiera
+ * después de la primera se borra la campaña y no queda nada. El admin lo
+ * describió así: "a veces manda el anuncio pero no realiza el conjunto de
+ * anuncios, y sin eso no hay nada". Un parpadeo de Meta en el paso 2 tiraba
+ * abajo el trabajo de los cuatro.
+ */
+export function esErrorTransitorioDeMeta(err: any): boolean {
+  const code = Number(err?.code ?? err?.fbError?.code);
+  if ([1, 2, 4, 17, 32, 341, 613].includes(code)) return true;
+  const msg = String(err?.message || "").toLowerCase();
+  return /temporar|try again|rate limit|please retry|timeout|tiempo de espera/.test(msg);
+}
+
+/**
  * Convierte una ruta relativa del catálogo (/uploads/products/42.jpg) en URL
  * pública absoluta -- Facebook descarga la imagen desde sus servidores, una
  * ruta relativa no le sirve. Mismo helper que facebook-marketplace.ts.
@@ -1534,7 +1561,42 @@ Responde SOLO con JSON:
 
   // ── Utilidad: llamada a Graph API ──────────────────────────────────────────
 
+  private esErrorTransitorio(err: any): boolean {
+    return esErrorTransitorioDeMeta(err);
+  }
+
+  /**
+   * Un POST a Graph API, con reintento en los errores transitorios.
+   *
+   * Por qué el reintento: la subida a Meta son CUATRO llamadas encadenadas
+   * --campaña, conjunto, creativo, anuncio-- y si falla cualquiera después de
+   * la primera, se borra la campaña y no queda nada. El admin lo describió
+   * así: "a veces manda el anuncio pero no realiza el conjunto de anuncios, y
+   * sin eso no hay nada".
+   *
+   * Un parpadeo de Meta en el paso 2 tiraba abajo el trabajo de los cuatro. El
+   * reintento cuesta un par de segundos y evita perder la subida entera por
+   * algo que se resuelve solo. No se reintenta lo que no mejora reintentando
+   * (token inválido, copy rechazado, sin método de pago).
+   */
   private async fbPost(endpoint: string, body: Record<string, any>, step?: string, token?: string): Promise<any> {
+    const ESPERAS_MS = [1200, 3000];
+    for (let intento = 0; ; intento++) {
+      try {
+        return await this.fbPostUnaVez(endpoint, body, step, token);
+      } catch (err: any) {
+        const quedan = intento < ESPERAS_MS.length;
+        if (!quedan || !this.esErrorTransitorio(err?.fbError ?? err)) throw err;
+        logger.warn(
+          { endpoint, step, intento: intento + 1, motivo: err?.message },
+          "[Facebook] Error transitorio de Graph API -- se reintenta",
+        );
+        await new Promise((r) => setTimeout(r, ESPERAS_MS[intento]));
+      }
+    }
+  }
+
+  private async fbPostUnaVez(endpoint: string, body: Record<string, any>, step?: string, token?: string): Promise<any> {
     const url = `${FB_GRAPH_URL}/${endpoint}`;
     const params = new URLSearchParams({ access_token: token || this.config.accessToken });
     const res = await fetch(`${url}?${params}`, {
@@ -1556,7 +1618,12 @@ Responde SOLO con JSON:
         : data.error.error_data?.blame_field_specs
         ? ` -- campo(s): ${JSON.stringify(data.error.error_data.blame_field_specs)}`
         : "";
-      throw new Error(`${prefix}${data.error.message}${detail} (código ${data.error.code}${data.error.error_subcode ? `, subcódigo ${data.error.error_subcode}` : ""})`);
+      const e: any = new Error(`${prefix}${data.error.message}${detail} (código ${data.error.code}${data.error.error_subcode ? `, subcódigo ${data.error.error_subcode}` : ""})`);
+      // El error de Graph viaja pegado al Error para que `fbPost` pueda
+      // decidir si reintenta. Sin esto habría que adivinar por el texto del
+      // mensaje, que cambia de idioma y de redacción según el endpoint.
+      e.fbError = data.error;
+      throw e;
     }
     return data;
   }
