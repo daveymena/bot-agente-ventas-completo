@@ -26,6 +26,31 @@ const FB_GRAPH_URL = "https://graph.facebook.com/v21.0";
  * anuncios, y sin eso no hay nada". Un parpadeo de Meta en el paso 2 tiraba
  * abajo el trabajo de los cuatro.
  */
+/**
+ * ¿Este anuncio deja que Meta elija el público (Advantage+) o manda el admin?
+ *
+ * Gana el algoritmo por defecto, y el admin cuando pidió algo concreto. La
+ * regla es esa y el resto es cómo se detecta "concreto": intereses, género, o
+ * un rango de edad más angosto que el 18-65 que se usa cuando nadie dijo nada.
+ *
+ * Un rango de edad DEFAULT (18-65) no cuenta como pedido: es lo que pone el
+ * sistema cuando el admin no habló de edad, y tomarlo por una decisión suya
+ * apagaría Advantage+ en todas las campañas -- que es justo lo que pasaba.
+ */
+export function usarAdvantagePlus(targeting?: {
+  interests?: unknown[];
+  genders?: unknown[];
+  ageMin?: number;
+  ageMax?: number;
+}): boolean {
+  const pidioPublicoConcreto =
+    (targeting?.interests?.length ?? 0) > 0
+    || (targeting?.genders?.length ?? 0) > 0
+    || (targeting?.ageMin != null && targeting.ageMin > 18)
+    || (targeting?.ageMax != null && targeting.ageMax < 65);
+  return !pidioPublicoConcreto;
+}
+
 export function esErrorTransitorioDeMeta(err: any): boolean {
   const code = Number(err?.code ?? err?.fbError?.code);
   if ([1, 2, 4, 17, 32, 341, 613].includes(code)) return true;
@@ -688,12 +713,37 @@ Responde SOLO con este JSON exacto:
         fbTargeting.instagram_positions = ["stream", "story", "reels"];
       }
 
+      // ── Advantage+ Audience ────────────────────────────────────────────
+      //
       // Meta exige declarar esta bandera desde que introdujo Advantage+
       // Audience -- sin ella, /adsets rechaza la creación completa con error
       // #100/1870227 ("Se requiere la marca de audiencia de Advantage"),
-      // probado en vivo contra la cuenta real. En 0 para respetar el
-      // targeting explícito en vez de dejar que Meta lo expanda solo.
-      fbTargeting.targeting_automation = { advantage_audience: 0 };
+      // probado en vivo contra la cuenta real.
+      //
+      // Estaba fija en 0 "para respetar el targeting explícito". La intención
+      // era buena y el resultado, al revés de lo que hacen hoy las agencias:
+      //
+      //  · Meta trata el targeting por intereses como SUGERENCIA, no como
+      //    filtro, en los 11 objetivos de rendimiento más comunes -- sin
+      //    importar cómo se configure el conjunto. En junio de 2025 consolidó
+      //    categorías enteras de intereses en grupos amplios.
+      //  · Advantage+ Audience es el motor principal del 65% de los
+      //    anunciantes de EE.UU.: se le da el creativo y el objetivo de
+      //    conversión, y su modelo encuentra a quién le muestra.
+      //  · La guía que repiten las agencias es "amplio + buena señal le gana
+      //    a estrecho + señal débil", y la señal que importa es el píxel/CAPI
+      //    y el creativo, no la pila de intereses.
+      //
+      // Y hay una razón práctica además de la estratégica: desde la API v23.0
+      // este parámetro pasa a ser OBLIGATORIO al crear conjuntos. Esta cuenta
+      // corre en v21.0, que expira el 21 de enero de 2027, así que la subida
+      // de versión hay que hacerla igual -- mejor con esto ya resuelto.
+      //
+      // Cuándo se apaga: SOLO si el admin pidió un público concreto
+      // (intereses, género, o un rango de edad más angosto que el 18-65 por
+      // defecto). Ahí manda él: pidió algo específico y el sistema no se lo
+      // va a ensanchar por su cuenta. Sin pedido explícito, gana el algoritmo.
+      fbTargeting.targeting_automation = { advantage_audience: usarAdvantagePlus(targeting) ? 1 : 0 };
 
       // Conjunto de anuncios.
       // optimization_goal=CONVERSIONS SIN promoted_object es rechazado por
