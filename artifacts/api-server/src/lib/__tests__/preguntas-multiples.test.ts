@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { preguntasSueltas, preguntaSinResponder } from "../estado-cognitivo";
 import { supervisarRespuesta } from "../supervisor";
+import { buildContextBlock } from "../conversation-engine";
 
 /**
  * Ronda 3 de QA (2026-08-27), defecto S3: de cinco preguntas repartidas en dos
@@ -98,5 +99,72 @@ describe("lo que quedó pendiente se dice, no se descarta en silencio", () => {
       llevaCard: false,
     });
     expect(r.hallazgos.map((h) => h.regla)).not.toContain("pregunta-a-medias");
+  });
+});
+
+/**
+ * Lo que faltaba: la mitad TEMPRANA, y el cliente que no usa signos.
+ *
+ * Todo lo de arriba es el parche tardío -- R11 detecta después lo que quedó sin
+ * contestar y agrega "y sobre lo otro...". Nunca se le avisaba al modelo ANTES
+ * de escribir, así que el bot seguía eligiendo una pregunta y descartando el
+ * resto; el parche solo tapaba el hueco.
+ *
+ * Y había un cliente que ni siquiera llegaba al parche: el que pregunta dos
+ * cosas en un renglón, sin signos. `preguntasSueltas` corta por "?", así que
+ * devolvía un solo pedazo y para todo el sistema era una sola pregunta.
+ *
+ * Ese es el caso que costó un lead PAGO: Mauricio escribió "quiero saber la
+ * metodología y el precio", lo repitió TRES veces y no recibió ninguna de las
+ * dos.
+ */
+describe("el cliente que pregunta dos cosas sin signos de interrogación", () => {
+  it("el caso de Mauricio, que antes contaba como una sola pregunta", () => {
+    expect(preguntasSueltas("quiero saber la metodología y el precio")).toEqual([
+      "el precio",
+      "la metodología",
+    ]);
+  });
+
+  it("los signos siguen mandando cuando están", () => {
+    // El corte por "?" es más fiel que una etiqueta: dice lo que el cliente
+    // escribió. Los temas son solo el respaldo para cuando no hay signos.
+    const qs = preguntasSueltas(EL_MENSAJE_REAL);
+    expect(qs).toHaveLength(3);
+    expect(qs[0]).toMatch(/30 mil/);
+  });
+
+  it("un solo tema no convierte el mensaje en múltiple", () => {
+    for (const t of ["cuanto vale?", "que garantia tiene", "hola buenas tardes"]) {
+      expect(preguntasSueltas(t).length, t).toBeLessThanOrEqual(1);
+    }
+  });
+});
+
+describe("y el modelo lo ve ANTES de escribir, no después", () => {
+  const memoriaVacia = {
+    conversationId: 1, contactName: "Mauricio", contactPhone: "573000000001",
+    history: [], stage: "greeting", currentProductId: null, sentProductIds: new Set<number>(),
+    paymentStatus: null, paymentMethod: null, paymentAmount: null, paidAt: null,
+  } as any;
+
+  it("el prompt lista las preguntas numeradas", () => {
+    const ctx = buildContextBlock(
+      memoriaVacia, "details_query" as any, "greeting" as any, null, false, null, false,
+      "quiero saber la metodología y el precio",
+    );
+    expect(ctx).toContain("1. el precio");
+    expect(ctx).toContain("2. la metodología");
+    expect(ctx).toMatch(/Respóndelas TODAS/);
+  });
+
+  it("con una sola pregunta el bloque no aparece", () => {
+    // Ocupa lugar en el prompt, y el prompt de este proyecto ya no entra en el
+    // tope por minuto de Groq. Solo cuando hace falta.
+    const ctx = buildContextBlock(
+      memoriaVacia, "details_query" as any, "greeting" as any, null, false, null, false,
+      "cuánto vale el curso de piano?",
+    );
+    expect(ctx).not.toContain("EN UN SOLO MENSAJE");
   });
 });

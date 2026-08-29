@@ -131,11 +131,48 @@ function contenido(texto: string): string[] {
  * pregunta. Los pedazos muy cortos ("y?", "no?") se descartan: son coletillas,
  * no preguntas.
  */
+/**
+ * Los temas que un cliente pregunta, cuando NO usa signos de interrogación.
+ *
+ * Cortar por "?" cubre al que escribe tres preguntas seguidas, pero deja
+ * afuera al que pregunta dos cosas en un renglón. Y ese es justo el caso que
+ * costó un lead pago: Mauricio escribió "quiero saber la metodología y el
+ * precio", lo repitió TRES veces y no recibió ninguna de las dos. Sin signo
+ * de pregunta, el corte de arriba devolvía un solo pedazo y para todo el
+ * sistema era una sola pregunta.
+ *
+ * Las etiquetas son cortas y con una palabra fuerte cada una a propósito: la
+ * regla R11 del supervisor compara esas palabras contra la respuesta para
+ * decidir qué quedó sin contestar, y una etiqueta larga mete palabras de
+ * relleno que ensucian esa comparación.
+ */
+const TEMAS_QUE_SE_PREGUNTAN: Array<{ tema: string; patron: RegExp }> = [
+  { tema: "el precio", patron: /\bprecio|\bvale\b|\bcuesta\b|cu[aá]nto (es|sale|cuesta|vale)|\bvalor\b/i },
+  { tema: "el descuento", patron: /descuent|rebaj|m[aá]s barato|me lo dej[aá]s|promoci[oó]n/i },
+  { tema: "la garantía", patron: /garant[ií]a|devoluci[oó]n|si no me gusta|reembols/i },
+  { tema: "el envío", patron: /env[ií]o|env[ií]an|domicilio|despach|llega a|mandan a/i },
+  { tema: "la entrega", patron: /c[oó]mo (lo |me )?(recibo|llega|entregan|accedo)|acceso|descarg/i },
+  { tema: "el contenido", patron: /qu[eé] incluye|contenido|qu[eé] trae|temario|m[oó]dulos|lecciones/i },
+  { tema: "la metodología", patron: /metodolog|c[oó]mo son las clases|en vivo|grabad|c[oó]mo se estudia/i },
+  { tema: "la duración", patron: /cu[aá]nto dura|duraci[oó]n|\bhoras\b|cu[aá]nto tiempo/i },
+  { tema: "las formas de pago", patron: /c[oó]mo (pago|puedo pagar)|formas? de pago|m[eé]todos? de pago|tarjeta|paypal/i },
+  { tema: "el certificado", patron: /certificad|diploma/i },
+];
+
 export function preguntasSueltas(texto: string): string[] {
-  return String(texto)
+  const porSignos = String(texto)
     .split(/\?+/)
     .map((t) => t.replace(/^[\s¿,;.y]+/i, "").trim())
     .filter((t) => t.length >= 8 && contenido(t).length > 0);
+  if (porSignos.length >= 2) return porSignos;
+
+  // Un solo pedazo puede seguir trayendo dos preguntas adentro. Solo se
+  // reemplaza si hay DOS temas o más: con uno, el corte de arriba ya
+  // describe el mensaje mejor que una etiqueta.
+  const temas = TEMAS_QUE_SE_PREGUNTAN.filter(({ patron }) => patron.test(texto)).map(({ tema }) => tema);
+  if (temas.length >= 2) return temas;
+
+  return porSignos;
 }
 
 /**

@@ -21,6 +21,7 @@ import { eq, and, desc } from "drizzle-orm";
 import { db, conversations, messages, products, productCategories, leads } from "@workspace/db";
 import type { MessageMetadata } from "@workspace/db";
 import { dbNow } from "./date-utils";
+import { preguntasSueltas } from "./estado-cognitivo";
 import { renderBloqueNegocio, type BusinessContext } from "./business-context";
 
 // ─── Tipos públicos ────────────────────────────────────────────────────────────
@@ -2225,6 +2226,30 @@ export function buildContextBlock(
   }
 
   // ── Reglas según intención ─────────────────────────────────────────────────
+  // ── El cliente preguntó VARIAS cosas ────────────────────────────────────
+  //
+  // Va justo antes de las instrucciones y después de todo el contexto, para
+  // que sea lo último que el modelo lee antes de escribir. Es el defecto que
+  //
+  // Usa `preguntasSueltas`, que ya existía para el supervisor: la regla R11
+  // detecta DESPUÉS lo que quedó sin contestar y agrega "y sobre lo otro...".
+  // Eso es el parche tardío; esto es la mitad que faltaba, la de avisarle
+  // antes de escribir. Un segundo detector paralelo habría sido el mismo
+  // error que este proyecto ya pagó con `formatPrice`: dos verdades para el
+  // mismo dato, y una que se queda vieja.
+  // más rondas de QA lleva sin moverse: contesta una pregunta y descarta el
+  // resto sin avisar, y el cliente la vuelve a hacer hasta que se cansa.
+  const preguntas = preguntasSueltas(incomingText || "");
+  if (preguntas.length >= 2) {
+    lines.push(`\n\n━━━━━━━━━━━━━━━━━━━━━━━`);
+    lines.push(`🧩 EL CLIENTE PREGUNTÓ ${preguntas.length} COSAS EN UN SOLO MENSAJE`);
+    lines.push(`━━━━━━━━━━━━━━━━━━━━━━━`);
+    preguntas.forEach((p, i) => lines.push(`${i + 1}. ${p}`));
+    lines.push(`Respóndelas TODAS antes de cerrar, en ese orden y en renglones separados.`);
+    lines.push(`Si de alguna NO tienes el dato, dilo con esas palabras ("eso te lo confirmo") en vez de saltearla.`);
+    lines.push(`Saltear una pregunta es lo que hace que el cliente la repita: ya pasó, y a la tercera vez se fue.`);
+  }
+
   lines.push(`\n🚨 INSTRUCCIONES DE INTELIGENCIA AVANZADA:`);
   // La identidad sale del perfil del cliente, no de una constante. Antes acá
   // decía literalmente "Eres Sofía, asesora de TecnoVariedades D&S" -- y se le
