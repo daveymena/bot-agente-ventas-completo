@@ -200,6 +200,35 @@ const CANDIDATOS_PAGOS: { providerID: string; modelID: string }[] = [
   // La cuenta de OpenRouter TIENE saldo -- alcanza para los mini, no para los
   // grandes. Poner el que responde primero es la diferencia entre contestar en
   // 2 segundos y cortar a los 135 sin crear nada.
+  // ── REORDENADO el 2026-08-28 ───────────────────────────────────────────
+  //
+  // Groq pasa de quinto a PRIMERO. Dos cosas cambiaron desde la medición del
+  // 2026-08-25 que lo había mandado al fondo:
+  //
+  // 1. Se cayó todo lo demás. Probado uno por uno con /api/ai/test:
+  //      openrouter  429, cuota agotada y la cuenta sin crédito
+  //      deepseek    402 sin saldo     mistral  402 sin saldo
+  //    Siete de los ocho candidatos de esta lista estaban muertos, y el único
+  //    vivo era el quinto. Por eso el turno tardaba ~60s: la cadena gastaba
+  //    los cuatro primeros en descubrir que nadie contesta, y despues caia en
+  //    los `:free` de OpenRouter -- que es de donde salia el
+  //    "poolside/laguna-xs-2.1:free rate-limited" que reporto el admin.
+  //
+  // 2. El motivo por el que Groq estaba descartado tenía causa, y se arregló.
+  //    El desmentido de abajo dice que responde "context exceeds model limit"
+  //    incluso en una sesión NUEVA de cuatro palabras. Eso no era el prompt:
+  //    OpenCode RESERVA `OPENCODE_EXPERIMENTAL_OUTPUT_TOKEN_MAX` tokens de la
+  //    ventana de contexto para la respuesta, y `opencode-clean` no tenía esa
+  //    variable puesta, así que usaba el default gigante -- los 16.384/32.000
+  //    que se veían en su terminal. Con eso reservado, en la ventana de Groq
+  //    no entraba nada, ni cuatro palabras. Se fijó en 4000 el 2026-08-28.
+  //
+  // ⚠️ El admin había pedido Groq último ("no me gusta porque se agota
+  // rápido"), y esa objeción sigue siendo cierta: se agota. Se sube igual
+  // porque hoy es lo único que responde, y un proveedor que se agota a veces
+  // es mejor que cuatro que no contestan nunca. Cuando vuelva a haber una
+  // cuenta con saldo, va arriba de Groq y esto se revierte.
+  { providerID: "groq", modelID: "openai/gpt-oss-120b" },
   { providerID: "openrouter", modelID: "openai/gpt-4o-mini" },
   { providerID: "openrouter", modelID: "openai/gpt-4.1-nano" },
   { providerID: "deepseek", modelID: "deepseek-chat" },
@@ -234,11 +263,8 @@ const CANDIDATOS_PAGOS: { providerID: string; modelID: string }[] = [
   // exist or you do not have access", los gpt-oss y qwen se pasan de contexto,
   // y compound-mini no soporta herramientas.
   //
-  // Se deja en la lista --detrás de los que SÍ responden-- porque falla en
-  // menos de 1s y porque la cuenta podría recuperar acceso; la memoria de
-  // fallos lo aparta sola cuando no anda. El admin además lo prefiere último:
-  // "groq no me gusta porque se agota rápido".
-  { providerID: "groq", modelID: "openai/gpt-oss-120b" },
+  // (Ese desmentido quedó explicado y resuelto: ver la nota de REORDENADO
+  //  arriba. Groq subió al primer lugar el 2026-08-28.)
   { providerID: "openrouter", modelID: "nvidia/nemotron-3-nano-30b-a3b:free" },
   { providerID: "openrouter", modelID: "poolside/laguna-xs-2.1:free" },
   { providerID: "openrouter", modelID: "nvidia/nemotron-3-ultra-550b-a55b:free" },
