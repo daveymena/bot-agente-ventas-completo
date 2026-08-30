@@ -114,11 +114,31 @@ export default function CodeAgent() {
   // ver callAtlas). Sin esto el admin solo veía tres puntitos rebotando y no
   // podía distinguir "está trabajando" de "se colgó".
   const [progreso, setProgreso] = useState("");
+  /**
+   * Cuántos segundos lleva esperando el turno actual.
+   *
+   * Un pedido de anuncio tarda ~98 s (medido el 2026-08-30). Con solo tres
+   * puntitos rebotando, el admin no puede distinguir "va por la mitad" de "se
+   * colgó hace un minuto" -- y lo que hace es recargar la página, que corta el
+   * turno justo antes de que llegue la respuesta.
+   *
+   * El número no acelera nada, pero convierte una espera muda en una espera
+   * que se entiende.
+   */
+  const [segundos, setSegundos] = useState(0);
   const [uploading, setUploading] = useState(false);
   const [restoring, setRestoring] = useState(true);
   const [confirmingReset, setConfirmingReset] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // El cronómetro corre solo mientras se espera, y se reinicia en cada turno.
+  useEffect(() => {
+    if (!loading) { setSegundos(0); return; }
+    const desde = Date.now();
+    const id = setInterval(() => setSegundos(Math.floor((Date.now() - desde) / 1000)), 1000);
+    return () => clearInterval(id);
+  }, [loading]);
 
   // El hilo vive en el servidor (architect_memory). Al montar la página lo
   // restauramos para que cambiar de sección no borre la conversación.
@@ -661,6 +681,16 @@ export default function CodeAgent() {
                             trabaja: sin él, un turno de 40s parecía colgado. */}
                         {progreso && (
                           <span className="text-sm text-muted-foreground break-words">{progreso}…</span>
+                        )}
+                        {/* Cuánto lleva. Un pedido de anuncio tarda ~98s: sin
+                            este número, la espera se lee como una pantalla
+                            colgada y el admin recarga justo antes del final. */}
+                        {segundos > 2 && (
+                          <span className="text-xs text-muted-foreground/70 tabular-nums shrink-0">
+                            {segundos < 60
+                              ? `${segundos}s`
+                              : `${Math.floor(segundos / 60)}:${String(segundos % 60).padStart(2, "0")}`}
+                          </span>
                         )}
                       </div>
                     </div>
