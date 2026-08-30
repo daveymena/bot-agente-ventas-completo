@@ -434,14 +434,29 @@ export class AdStrategist {
     const priceDisplay = priceFormatted === "Consulta" ? "Consulta disponible" : `$${priceFormatted} ${currency}`;
 
     // Formato PAS (Problem - Agitate - Solve) de alta conversión (2025)
+    //
+    // ── Un emoji por lo que ES cada renglón, no el mismo tres veces ────────
+    //
+    // Las tres viñetas eran ✅ ✅ ✅. El admin lo pidió así: "usar los emoji
+    // para cada cosa, no los mismos, sino el que identifica a cada ítem, como
+    // ya lo habíamos configurado" (2026-08-30).
+    //
+    // Y tenía razón en lo de "ya configurado": el diccionario existe desde
+    // antes, en el prompt de Atlas (app-operator.ts) -- 📚 contenido · 💰
+    // precio · ♾️ acceso de por vida. El generador de copy no lo miraba, así
+    // que el anuncio contradecía la convención del propio sistema.
+    //
+    // Tres ✅ seguidos además no aportan nada: el ojo los saltea. Un emoji que
+    // dice de qué habla el renglón se lee de un vistazo, que es exactamente
+    // para lo que sirve un emoji en un anuncio.
     const primaryText = `${strategy.hook}
 
 Si no tomas acción hoy, seguirás perdiendo tiempo y dinero con métodos que no funcionan.
 Este contenido digital es tu atajo directo a resultados profesionales.
 
-✅ ${featuresLine}
-✅ Pago único de ${priceDisplay} (Cero mensualidades)
-✅ Acceso inmediato y permanente
+📚 ${featuresLine}
+💰 Pago único de ${priceDisplay} (Cero mensualidades)
+♾️ Acceso inmediato y permanente
 
 👇 Haz clic abajo para descargar todo el contenido ahora.`;
 
