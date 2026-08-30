@@ -228,6 +228,25 @@ const CANDIDATOS_PAGOS: { providerID: string; modelID: string }[] = [
   // porque hoy es lo único que responde, y un proveedor que se agota a veces
   // es mejor que cuatro que no contestan nunca. Cuando vuelva a haber una
   // cuenta con saldo, va arriba de Groq y esto se revierte.
+  //
+  // 🔻 REORDENADO el 2026-08-30, con la cuenta de DeepSeek de pago activa y
+  // verificada en vivo contra el contenedor opencode-clean:
+  //
+  //   deepseek/deepseek-v4-pro   OK   1.9s   (modelo real de esta build:
+  //                                          /provider default.deepseek
+  //                                          = "deepseek-v4-pro")
+  //   groq/openai/gpt-oss-120b   OK   ~1s   (free, se agota)
+  //   opencode/big-pickle        respaldo   (gratis)
+  //
+  // OJO con el id: NO usar `deepseek-chat`. En esta versión de opencode-ai
+  // (1.18.x) ese id NO existe y el servidor devuelve 500
+  // "Unexpected server error" en el primer candidato, quemando el inicio del
+  // turno; el id real del proveedor deepseek es `deepseek-v4-pro`. Medido:
+  // deepseek-chat → 500 (1.5s), deepseek-v4-pro → OK (1.9s).
+  // (En el bot de WhatsApp los ids directos de la API de DeepSeek siguen
+  // siendo deepseek-chat/deepseek-reasoner: esto es solo del camino Atlas →
+  // servidor OpenCode.)
+  { providerID: "deepseek", modelID: "deepseek-v4-pro" },
   { providerID: "groq", modelID: "openai/gpt-oss-120b" },
   // ── Los que se sacaron, y por qué importa tanto ──────────────────────────
   //
