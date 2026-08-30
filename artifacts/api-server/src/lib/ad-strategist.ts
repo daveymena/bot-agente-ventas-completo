@@ -360,7 +360,17 @@ export class AdStrategist {
     return { ...WINNING_STRATEGIES_BY_NICHE.educacion_general };
   }
 
-  async generateAdCopy(strategy: AdStrategy, product: any, grounded?: ResearchGroundedCopy): Promise<{ primaryText: string; headline: string; description: string }> {
+  // Devuelve TAMBIÉN la estrategia, porque acá adentro se corrige el gancho y
+  // esa corrección se perdía: el llamador guardaba en el borrador la
+  // estrategia ORIGINAL, con el hook de la plantilla del nicho.
+  //
+  // Visto en el borrador recién generado del curso de IA (2026-08-29): el copy
+  // salía bien ("3 cursos de IA en uno: domina Claude...") y la estrategia
+  // guardada al lado decía "MegaPack con 81 cursos digitales por menos de $3
+  // USD". Nadie publica ese texto, pero el admin lo ve en el panel y no tiene
+  // forma de saber cuál de los dos sale. Lo que se guarda tiene que ser lo que
+  // se usa.
+  async generateAdCopy(strategy: AdStrategy, product: any, grounded?: ResearchGroundedCopy): Promise<{ primaryText: string; headline: string; description: string; strategy: AdStrategy }> {
     // Si el agente investigó y aportó su propio hook/ángulo, se usa ESE en
     // vez del texto fijo del nicho -- el hook es literalmente lo que separa
     // un anuncio "genérico por categoría" de uno anclado en lo que se
@@ -466,6 +476,9 @@ Este contenido digital es tu atajo directo a resultados profesionales.
       primaryText: sinMarkdown(grounded?.primaryText || primaryText),
       headline: sinMarkdown(grounded?.headline || headline),
       description: sinMarkdown(grounded?.description || description),
+      // La estrategia con el gancho YA corregido. Sin esto, el llamador
+      // guardaba la original y el borrador quedaba con dos verdades.
+      strategy,
     };
   }
 
@@ -808,7 +821,7 @@ Este contenido digital es tu atajo directo a resultados profesionales.
     const [product] = await db.select().from(products).where(eq(products.id, productId)).limit(1);
     if (!product) throw new Error("Producto no encontrado");
 
-    const strategy = this.getStrategyForProduct(product);
+    let strategy = this.getStrategyForProduct(product);
     // El presupuesto que pidió el admin MANDA sobre el de la estrategia.
     //
     // Antes no había forma de pasarlo: el borrador se guardaba siempre con el
@@ -823,6 +836,8 @@ Este contenido digital es tu atajo directo a resultados profesionales.
     }
     if (grounded?.researchNote) strategy.researchNote = grounded.researchNote;
     const adCopy = await this.generateAdCopy(strategy, product, grounded);
+    // El gancho corregido vuelve acá: lo que se guarda es lo que se publica.
+    strategy = adCopy.strategy;
 
     // Fotos propias del admin (ya subidas, ver saveUploadedImage): si las
     // trae, van primero y NO se genera nada con IA -- es el caso "ya diseñé

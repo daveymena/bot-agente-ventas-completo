@@ -841,7 +841,11 @@ router.get("/strategist/strategy/:productId", async (req, res, next) => {
     if (!product) return res.status(404).json({ error: "Producto no encontrado" });
     const strategy = adStrategist.getStrategyForProduct(product);
     const copy = await adStrategist.generateAdCopy(strategy, product);
-    return res.json({ product: product.name, strategy, adCopy: copy });
+    // La estrategia que se muestra es la CORREGIDA (la que lleva el copy,
+    // con el hook real del producto), no la original de la plantilla del
+    // nicho -- ver generateAdCopy: el mismo bug de "dos verdades" que ya se
+    // arregló donde se GUARDA el borrador (createDraftAd).
+    return res.json({ product: product.name, strategy: copy.strategy, adCopy: copy });
   } catch (e) { return next(e); }
 });
 
