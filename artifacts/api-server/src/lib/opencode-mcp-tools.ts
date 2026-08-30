@@ -998,6 +998,13 @@ const GRUPOS: { patron: RegExp; herramientas: string[] }[] = [
     patron: /copy|texto|redact|descripci|t[ií]tulo/i,
     herramientas: ["ad_brief", "optimize_copy", "reason_business_decision"],
   },
+  {
+    // Contenido organico y estrategia. Va aparte del grupo de anuncios porque
+    // un plan de publicaciones no toca Meta ni gasta: es lo que una agencia
+    // entrega ANTES de pautar.
+    patron: /contenido|publicacion|publicar|org[aá]nic|calendario|estrategia|agencia|redes|instagram|posteo|postear/i,
+    herramientas: ["plan_de_contenido", "list_products", "marketing_aprendizajes"],
+  },
 ];
 
 // Cuando el pedido no cae en ningún grupo (ej. "¿cómo está el sistema?"), NO

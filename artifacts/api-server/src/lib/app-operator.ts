@@ -1219,6 +1219,29 @@ export async function validarContenidoAnuncio(
  * Sin puntos suspensivos: el titular no es un texto que siga en otro lado, es
  * la frase completa que ve el cliente. Unos puntos ahí sugieren que falta algo.
  */
+/** El formato, dicho como lo diría una persona. */
+function etiquetaFormato(f: string): string {
+  const m: Record<string, string> = {
+    reel: "🎬 Reel",
+    video: "🎥 Video",
+    carrusel: "🖼️ Carrusel",
+    imagen: "📷 Imagen",
+    texto: "✍️ Texto",
+  };
+  return m[f] || f;
+}
+
+/** Para qué sirve la pieza. Es lo que separa un calendario de una lista de temas. */
+function etiquetaEtapa(e: string): string {
+  const m: Record<string, string> = {
+    atraer: "[atraer]",
+    educar: "[educar]",
+    demostrar: "[demostrar]",
+    vender: "[VENDER]",
+  };
+  return m[e] || e;
+}
+
 export function acortarTitular(texto: string, tope = 40): string {
   const t = String(texto || "").trim();
   if (t.length <= tope) return t;
@@ -4399,6 +4422,61 @@ export const TOOLS: ToolDef[] = [
     },
   },
   {
+    name: "plan_de_contenido",
+    description:
+      "El plan de publicaciones ORGÁNICAS del mes, como lo entrega una agencia: qué se publica, qué día, en qué formato y para qué. " +
+      "Cuatro semanas, con la cadencia que sostiene el alcance (4-5 por semana, mínimo 1 video) y la regla 80/20: cuatro publicaciones dan algo y una vende. " +
+      "Usa los productos REALES del catálogo y los rota entre semanas. Solo LEE: no publica nada ni toca Facebook. " +
+      "Úsalo cuando el admin pida una estrategia de marketing, un plan de contenido, o qué publicar.",
+    args: '{ "postsPorSemana"?: number (4 o 5; por defecto 4), "semanas"?: number (1 a 4; por defecto 4) }',
+    run: async (args, ctx) => {
+      const { planDelMes, revisarPlan } = await import("./calendario-de-contenido");
+
+      // Los productos REALES, activos. Si el catálogo está vacío el plan se
+      // arma igual pero sin nombrar nada: preferible un calendario genérico
+      // a uno que inventa lo que vende el negocio.
+      const activos = await db
+        .select({ id: products.id, name: products.name })
+        .from(products)
+        .where(and(eq(products.tenantId, ctx.tenantId), eq(products.isActive, true)))
+        .limit(40);
+
+      const cuantas = Math.min(Math.max(num(args.semanas) || 4, 1), 4);
+      const porSemana = num(args.postsPorSemana) || 4;
+      const mes = planDelMes(activos as any, porSemana).slice(0, cuantas);
+
+      // Se revisa el plan GENERADO, no la intención. Si algo no cumple, se
+      // dice: un calendario que promete 80/20 y entrega otra cosa es peor
+      // que no tenerlo, porque el admin lo publica confiando.
+      const problemas = mes.flatMap((s) => revisarPlan(s).problemas);
+
+      const texto = mes
+        .map((s) => {
+          const filas = s.piezas
+            .map(
+              (p) =>
+                `   ${p.diaNombre.padEnd(10)} ${etiquetaFormato(p.formato)} ${etiquetaEtapa(p.etapa)}` +
+                `${p.producto ? ` · ${p.producto.nombre.slice(0, 34)}` : ""}` +
+                `\n      ${p.queHacer}`,
+            )
+            .join("\n");
+          return `📅 *SEMANA ${s.semana}* — ${s.foco}\n${filas}`;
+        })
+        .join("\n\n");
+
+      return {
+        ok: true,
+        summary:
+          `Plan de contenido de ${cuantas} semana(s), ${porSemana} publicaciones por semana.\n\n${texto}\n\n` +
+          (problemas.length
+            ? `⚠️ El plan no cumple: ${problemas.join(" · ")}`
+            : `✅ Cumple la cadencia (${porSemana}/semana), el mínimo de video y la regla 80/20 (una sola publicación vende por semana).`) +
+          `\n\n📌 Esto es el plan, todavía no se publicó nada.`,
+        data: { semanas: mes, problemas, productosUsados: activos.length },
+      };
+    },
+  },
+  {
     name: "que_hago_con_la_campana",
     description:
       "QUÉ HACER CON UNA CAMPAÑA QUE YA ESTÁ CORRIENDO: escalar, esperar, revisar o cortar. Aplica las reglas con las que trabaja una agencia de compra de medios, no una opinión: fase de aprendizaje (50 conversiones en 7 días antes de tocar nada), escalada del 20% con 48h entre pasos (más reinicia el aprendizaje), y los dos criterios de corte (gastar 2x el presupuesto diario sin una sola conversión, o 3 días seguidos con el costo por resultado 25% arriba del objetivo). " +
@@ -4902,6 +4980,10 @@ export const READ_ONLY_TOOLS = new Set([
   "fb_page_can_post", "fb_page_preview", "fb_list_drafts",
   // Lee métricas y devuelve una recomendación. No toca nada: decide el admin.
   "que_hago_con_la_campana",
+  // El plan de contenido organico: solo LEE el catalogo y arma el calendario.
+  // Va como lectura para que Atlas lo pueda usar sin pedir confirmacion -- si
+  // tuviera que aprobarse, el admin aprobaria algo que todavia no vio.
+  "plan_de_contenido",
   // El brief de anuncio es lectura pura sobre el producto: no toca Meta ni
   // gasta nada. Va acá para que Atlas pueda llamarlo solo, sin pedir permiso
   // -- si tuviera que pasar por una confirmación, no lo usaría antes de
