@@ -2429,6 +2429,51 @@ export const TOOLS: ToolDef[] = [
       //
       // Y no es hipotético: la cuenta que está en producción figura en las
       // notas del admin como restringida por saldo pendiente.
+      // ── Qué se PUEDE hacer con esta conexión ─────────────────────────────
+      //
+      // El admin preguntó "esos permisos existen, y si existen cómo lo hago"
+      // (2026-08-30), hablando de publicar historias y reels. La respuesta no
+      // puede ser una explicación general: tiene que decir qué permisos tiene
+      // HOY su conexión y cuáles le faltan.
+      //
+      // Sin esto, la única forma de saberlo era intentar publicar y leer el
+      // error de Meta -- que llega en inglés y sin decir qué hacer.
+      let permisos = "";
+      if (v.ok) {
+        try {
+          const { FB_GRAPH_BASE } = await import("./meta-api-version");
+          const r = await fetch(`${FB_GRAPH_BASE}/me/permissions?access_token=${cred.accessToken}`, {
+            signal: AbortSignal.timeout(12000),
+          });
+          const j: any = await r.json();
+          const dados = new Set(
+            (j?.data || []).filter((p: any) => p.status === "granted").map((p: any) => p.permission),
+          );
+          const NECESARIOS: Array<{ permiso: string; para: string }> = [
+            { permiso: "pages_manage_posts", para: "publicar en la página de Facebook" },
+            { permiso: "pages_read_engagement", para: "leer comentarios y alcance" },
+            { permiso: "instagram_basic", para: "ver la cuenta de Instagram" },
+            { permiso: "instagram_content_publish", para: "publicar en Instagram: feed, reels e historias" },
+            { permiso: "ads_management", para: "crear y pausar anuncios" },
+          ];
+          const faltan = NECESARIOS.filter((n) => !dados.has(n.permiso));
+          permisos = faltan.length === 0
+            ? ` · Permisos completos: se puede publicar en Facebook e Instagram`
+            : `
+
+⚠️ Faltan permisos para: ${faltan.map((f) => f.para).join(" · ")}.` +
+              `
+Se arreglan reconectando Facebook desde Configuración y ACEPTANDO todos los permisos que pide la pantalla de Meta.` +
+              (faltan.some((f) => f.permiso.startsWith("instagram"))
+                ? `
+Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vinculada a la página de Facebook (se hace desde la app de Instagram, en Configuración → Herramientas de empresa).`
+                : "");
+        } catch {
+          // No poder leer los permisos no es un fallo del estado general: se
+          // omite en vez de ensuciar el resumen con un error que no aporta.
+        }
+      }
+
       let cuenta = "";
       let puedeGastar: boolean | undefined;
       if (v.ok && cred.adAccountId) {
@@ -2461,7 +2506,7 @@ export const TOOLS: ToolDef[] = [
         // Que el token sirva no alcanza: si la cuenta no puede gastar, esto
         // NO es un "ok" -- es justo el caso que hay que contarle al admin.
         ok: v.ok && puedeGastar !== false,
-        summary: `Facebook: ${v.detalle}${cuenta}`,
+        summary: `Facebook: ${v.detalle}${cuenta}${permisos}`,
         data: { ...v, pageId: cred.pageId, adAccountId: cred.adAccountId, catalogId: cred.catalogId, cuentaPuedeGastar: puedeGastar },
       };
     },
