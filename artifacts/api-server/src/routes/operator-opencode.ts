@@ -1019,6 +1019,12 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
           const tInv = Date.now();
           const r = await investigacionRapida(ctx, String(prompt), Math.min(PRESUPUESTO_INVESTIGACION_MS, Math.max(turnDeadline - Date.now() - 45_000, 20_000)));
           marcar("investigacion", tInv);
+          // Se avisa el CAMBIO de etapa. Hasta acá el único aviso concreto era
+          // "Investigando en internet..." y después solo latidos genéricos cada
+          // 15 s, así que una espera de 60 s se leía como una investigación de
+          // 60 s -- tanto para el admin como para quien intenta diagnosticarla.
+          // Sin saber cuándo termina una etapa no se puede decir cuál es la cara.
+          progreso(`Ya investigué (${((Date.now() - tInv) / 1000).toFixed(0)}s). Ahora escribo la propuesta...`);
           if (r.ok) {
             huboInvestigacionReal = true;
             text += `\n\n[SISTEMA] Investigación REAL ya hecha para este pedido (hallazgos con sus fuentes). Respondé al admin USANDO ESTO, no prometas investigar después ni digas que vas a averiguar -- ya está hecho:\n${r.texto.slice(0, 6000)}`;
@@ -1606,7 +1612,7 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
           { tenantId, tramos, totalMs: Date.now() - t0, acciones: plannedActions.length },
           "[AtlasOpenCode] Turno COMPLETO -- reparto real del tiempo",
         );
-        return finish({ reply, plan: plannedActions, status: "awaiting_confirmation" });
+        return finish({ reply, plan: plannedActions, status: "awaiting_confirmation", tramos, totalMs: Date.now() - t0 });
       }
 
       const reply = paraMarkdown(toEmojiStyle(finalReplyVerificado || "No tengo una respuesta para eso todavía."));
@@ -1626,7 +1632,7 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
         { tenantId, tramos, totalMs: Date.now() - t0 },
         "[AtlasOpenCode] Turno COMPLETO -- reparto real del tiempo",
       );
-      return finish({ reply, status: "info", needsContinuation: false });
+      return finish({ reply, status: "info", needsContinuation: false, tramos, totalMs: Date.now() - t0 });
     } finally {
       clearInterval(heartbeat);
     }
