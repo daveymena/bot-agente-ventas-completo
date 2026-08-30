@@ -246,6 +246,19 @@ const CANDIDATOS_PAGOS: { providerID: string; modelID: string }[] = [
   // (En el bot de WhatsApp los ids directos de la API de DeepSeek siguen
   // siendo deepseek-chat/deepseek-reasoner: esto es solo del camino Atlas →
   // servidor OpenCode.)
+  // 🔻 MEDIDO el 2026-08-30 con el desglose por tramos de un pedido de anuncio
+  // real. `deepseek-v4-pro` se comió 55 SEGUNDOS y fallo con "se quedo sin
+  // tiempo"; la respuesta la termino dando `big-pickle`, que es GRATIS. O sea:
+  // el proveedor que el admin paga consumia medio turno y no contestaba.
+  //
+  // `pro` es el modelo grande. Para un pedido con herramientas y catalogo no
+  // llega. La misma cuenta tiene `deepseek-v4-flash`, que es el rapido -- y la
+  // API directa de DeepSeek responde el mismo pedido en 414 ms.
+  //
+  // Va flash primero y pro de respaldo. Si el servidor no acepta el id de
+  // flash, el costo es el mismo que midio OpenCode para `deepseek-chat`: un 500
+  // en ~1,5 s y sigue al siguiente. Barato comparado con los 55 s de pro.
+  { providerID: "deepseek", modelID: "deepseek-v4-flash" },
   { providerID: "deepseek", modelID: "deepseek-v4-pro" },
   { providerID: "groq", modelID: "openai/gpt-oss-120b" },
   // ── Los que se sacaron, y por qué importa tanto ──────────────────────────
@@ -1081,7 +1094,16 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
         // terminaba viendo "esto está tardando". Acotando el primero a 55s,
         // la cadena entera tiene margen real: si el preferido no puede, el
         // respaldo gratis (rápido) SÍ llega a contestar algo útil.
-        const TECHO_POR_CANDIDATO_MS = 55_000;
+        // Bajado de 55s a 30s el 2026-08-30, con la medicion en la mano: el
+        // primer candidato uso los 55s COMPLETOS y fallo por tiempo, dejando
+        // solo 17s para los otros tres. Un candidato que no contesto en 30s con
+        // este prompt no va a contestar en 55: lo unico que agrega es que el
+        // admin espere 25 s mas antes de recibir la respuesta del respaldo.
+        //
+        // El turno completo medido fue de 97s; con este tope el mismo turno
+        // deberia cerrar cerca de 70s aun en el peor caso, y mucho antes si
+        // flash contesta.
+        const TECHO_POR_CANDIDATO_MS = 30_000;
         let ultimo: { text: string; error?: string } = { text: "", error: "sin candidatos" };
         for (let i = 0; i < cadena.length; i++) {
           const model = cadena[i];
