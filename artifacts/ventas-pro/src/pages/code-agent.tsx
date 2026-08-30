@@ -36,9 +36,50 @@ interface ActionEntry {
 interface Message {
   role: "user" | "assistant";
   content: string;
+  /**
+   * Cuándo se dijo, en milisegundos.
+   *
+   * Pedido del admin: "que se vea la hora y la fecha de cada mensaje, como
+   * los chats reales". Sin esto una conversación con Atlas es un bloque sin
+   * tiempo -- y como un pedido de anuncio puede tardar minutos, no había
+   * forma de saber si lo que estás leyendo es de hace un rato o de recién.
+   */
+  at?: number;
   configApplied?: boolean;
   advancedFeaturesEnabled?: boolean;
   actions?: ActionEntry[];
+}
+
+/**
+ * La hora de un mensaje, como la escribe un chat de verdad.
+ *
+ * Hoy es solo la hora; ayer, "Ayer 14:32"; más atrás, la fecha con el día.
+ * Un timestamp completo en cada renglón es ruido: lo que uno quiere saber de
+ * un mensaje de hace diez minutos es la hora, y de uno de la semana pasada,
+ * el día.
+ */
+function cuandoSeDijo(at?: number): string {
+  if (!at) return "";
+  const d = new Date(at);
+  if (Number.isNaN(d.getTime())) return "";
+  const hora = d.toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit" });
+  const hoy = new Date();
+  const mismoDia = (a: Date, b: Date) =>
+    a.getDate() === b.getDate() && a.getMonth() === b.getMonth() && a.getFullYear() === b.getFullYear();
+  if (mismoDia(d, hoy)) return hora;
+  const ayer = new Date(hoy);
+  ayer.setDate(hoy.getDate() - 1);
+  if (mismoDia(d, ayer)) return `Ayer ${hora}`;
+  const fecha = d.toLocaleDateString("es-CO", { day: "2-digit", month: "short" });
+  const conAno = d.getFullYear() === hoy.getFullYear() ? fecha : `${fecha} ${d.getFullYear()}`;
+  return `${conAno}, ${hora}`;
+}
+
+/** El texto completo para el tooltip: ahí sí va la fecha y hora exactas. */
+function cuandoExacto(at?: number): string {
+  if (!at) return "";
+  const d = new Date(at);
+  return Number.isNaN(d.getTime()) ? "" : d.toLocaleString("es-CO", { dateStyle: "full", timeStyle: "medium" });
 }
 
 const GREETING: Record<Mode, string> = {
@@ -51,7 +92,7 @@ const GREETING: Record<Mode, string> = {
 export default function CodeAgent() {
   useAutoTour(HELP_GUIDE);
   const [mode, setMode] = useState<Mode>("operator");
-  const [messages, setMessages] = useState<Message[]>([{ role: "assistant", content: GREETING.operator }]);
+  const [messages, setMessages] = useState<Message[]>([{ role: "assistant", content: GREETING.operator, at: Date.now() }]);
   // ── Conversaciones separadas ──────────────────────────────────────────
   // El historial SIEMPRE se guardo por sessionId, pero esta pantalla usaba
   // una sola sesion fija ("default"): abrir una charla nueva significaba
@@ -90,8 +131,8 @@ export default function CodeAgent() {
         const data = await res.json();
         if (cancelled || !Array.isArray(data.history) || data.history.length === 0) return;
         setMessages([
-          { role: "assistant", content: GREETING.operator },
-          ...data.history.map((t: any) => ({ role: t.role, content: t.content })),
+          { role: "assistant", content: GREETING.operator, at: Date.now() },
+          ...data.history.map((t: any) => ({ role: t.role, content: t.content, at: typeof t.at === "number" ? t.at : undefined })),
         ]);
         if (data.awaitingConfirmation) {
           toast.info("Tienes un plan pendiente de confirmar");
@@ -119,7 +160,7 @@ export default function CodeAgent() {
     setSessionId(id);
     setPanelSesiones(false);
     setRestoring(true);
-    setMessages([{ role: "assistant", content: GREETING[mode] }]);
+    setMessages([{ role: "assistant", content: GREETING[mode], at: Date.now() }]);
   };
 
   // Una charla NUEVA no borra la anterior: se abre otra sesion y la vieja
@@ -143,7 +184,7 @@ export default function CodeAgent() {
   const resetConversation = async () => {
     try {
       await fetch(`/api/code-agent/history?sessionId=${encodeURIComponent(sessionId)}`, { method: "DELETE", credentials: "include" });
-      setMessages([{ role: "assistant", content: GREETING[mode] }]);
+      setMessages([{ role: "assistant", content: GREETING[mode], at: Date.now() }]);
       toast.success("Conversación reiniciada");
     } catch {
       toast.error("No se pudo reiniciar");
@@ -218,7 +259,7 @@ export default function CodeAgent() {
   const switchMode = (m: Mode) => {
     if (m === mode) return;
     setMode(m);
-    setMessages([{ role: "assistant", content: GREETING[m] }]);
+    setMessages([{ role: "assistant", content: GREETING[m], at: Date.now() }]);
   };
 
   // Quien usa esto no es programador: un pedido pesado (investigar + armar
@@ -303,7 +344,7 @@ export default function CodeAgent() {
     if (!input.trim() || loading) return;
     const userMsg = input.trim();
     setInput("");
-    setMessages((prev) => [...prev, { role: "user", content: userMsg }]);
+    setMessages((prev) => [...prev, { role: "user", content: userMsg, at: Date.now() }]);
     setLoading(true);
     setProgreso("");
 
@@ -314,6 +355,7 @@ export default function CodeAgent() {
       for (let round = 0; round < MAX_AUTO_CONTINUATIONS && data?.needsContinuation; round++) {
         const partial: Message = {
           role: "assistant",
+          at: Date.now(),
           content: data.reply || "Sigo trabajando en esto...",
           configApplied: data.configApplied,
           advancedFeaturesEnabled: data.advancedFeaturesEnabled,
@@ -326,6 +368,7 @@ export default function CodeAgent() {
 
       const newMsg: Message = {
         role: "assistant",
+        at: Date.now(),
         content: data?.reply || (mode === "operator" ? "Listo." : "Configuración generada."),
         configApplied: data?.configApplied,
         advancedFeaturesEnabled: data?.advancedFeaturesEnabled,
@@ -342,7 +385,7 @@ export default function CodeAgent() {
       // Nunca se muestra el mensaje técnico crudo (network error, status
       // HTTP, etc.) -- para un admin no programador eso no significa nada,
       // solo lo asusta. Un tono neutral y una acción concreta (reintentar).
-      setMessages((prev) => [...prev, { role: "assistant", content: "No pude terminar de responder. ¿Podés intentarlo de nuevo?" }]);
+      setMessages((prev) => [...prev, { role: "assistant", content: "No pude terminar de responder. ¿Podés intentarlo de nuevo?", at: Date.now() }]);
     } finally {
       setLoading(false);
       setProgreso("");
@@ -532,6 +575,18 @@ export default function CodeAgent() {
                           </div>
                         )}
                       </div>
+
+                      {/* La hora del mensaje. Alineada al lado que corresponde:
+                          a la derecha lo que escribió el admin, a la izquierda
+                          lo que contestó Atlas -- igual que en WhatsApp. */}
+                      {msg.at && (
+                        <div
+                          title={cuandoExacto(msg.at)}
+                          className={`mt-1 text-[11px] text-muted-foreground/70 tabular-nums ${msg.role === "user" ? "text-right" : ""}`}
+                        >
+                          {cuandoSeDijo(msg.at)}
+                        </div>
+                      )}
 
                       {/* Copiar la respuesta. Atlas devuelve copys de anuncios,
                           descripciones y planes: cosas que el admin quiere

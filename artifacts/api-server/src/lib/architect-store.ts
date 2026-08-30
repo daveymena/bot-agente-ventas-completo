@@ -15,6 +15,15 @@ import { and, eq, asc, desc, inArray } from "drizzle-orm";
 export interface ChatTurn {
   role: "user" | "assistant";
   content: string;
+  /**
+   * Cuándo se dijo, en milisegundos.
+   *
+   * La fila ya guardaba `createdAt` --de hecho el historial se ORDENA por él--
+   * y al devolverlo se tiraba. Sin esto, al recargar la página el chat perdía
+   * las horas: todo lo viejo quedaba sin fecha y solo lo de la sesión actual
+   * la tenía. Un dato que ya está guardado y no se expone es un dato perdido.
+   */
+  at?: number;
 }
 
 export interface PlannedAction {
@@ -44,6 +53,7 @@ export async function loadArchitectHistory(
   return rows.map((r: any) => ({
     role: (r.metadata?.role as "user" | "assistant") || "user",
     content: r.content,
+    at: r.createdAt ? new Date(r.createdAt).getTime() : undefined,
   }));
 }
 
