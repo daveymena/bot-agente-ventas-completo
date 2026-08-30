@@ -251,6 +251,18 @@ export function invitacionDe(
 }
 
 /**
+ * ⚠️ Y a algo que EXISTE para ESTE producto.
+ *
+ * Los cierres decían "¿te muestro cómo son las clases?" para todo. Este
+ * negocio vende además Cojín Moto Viajero y LIQUID FIBRA: a quien pregunta
+ * por un cojín se le ofrecía ver sus clases. Y es un SaaS -- una ferretería
+ * o una veterinaria reciben lo mismo.
+ *
+ * `esFisico` ya venía en la función y no se usaba para esto. Un texto que
+ * contradice lo que el cliente está mirando le dice que del otro lado hay un
+ * guion, no alguien que sepa qué vende.
+ *
+
  * Cada cierre apunta a algo REAL que el cliente todavía no vio.
  *
  * Ahí está la curiosidad: no en adjetivos ni en urgencia inventada, sino en
@@ -285,7 +297,9 @@ function invitacionesDe(s: SeccionFicha, esFisico: boolean, tieneVideo = true, y
       // único que todavía no tiene.
       return yaVioContenido
         ? (tieneVideo
-            ? ["¿Te muestro cómo son las clases? 🎬", "¿Querés ver un pedacito antes de decidir? 🎬"]
+            ? (esFisico
+                ? ["¿Te muestro cómo se ve en uso? 🎬", "¿Querés verlo en video antes de decidir? 🎬"]
+                : ["¿Te muestro cómo es por dentro? 🎬", "¿Querés ver un pedacito antes de decidir? 🎬"])
             : ["¿Te resuelvo alguna duda antes de decidir?", "¿Hay algo puntual que quieras saber?"])
         : [
             "¿Te muestro todo lo que trae? 👀",
@@ -298,8 +312,10 @@ function invitacionesDe(s: SeccionFicha, esFisico: boolean, tieneVideo = true, y
       // Ofrecerlo justo en este punto es lo que engancha; mandarlo antes lo
       // gasta, y mandarlo después llega tarde.
       return [
-        "Si quieres ampliar, te muestro el video introductorio 🎬",
-        "¿Te muestro el video para que veas cómo son las clases? 🎬",
+        "Si quieres ampliar, te muestro el video 🎬",
+        esFisico
+          ? "¿Te muestro el video para que lo veas en uso? 🎬"
+          : "¿Te muestro el video para que veas cómo es por dentro? 🎬",
       ];
 
     case "entrega":
@@ -324,8 +340,10 @@ function invitacionesDe(s: SeccionFicha, esFisico: boolean, tieneVideo = true, y
     case "completa":
       // Recién lo conoce. Se le ofrece lo que más tira: ver el curso por dentro.
       return [
-        "¿Te muestro el video introductorio? 🎬",
-        "¿Quieres ver cómo son las clases? 🎬",
+        "¿Te muestro el video? 🎬",
+        esFisico
+          ? "¿Quieres verlo en video antes de decidir? 🎬"
+          : "¿Quieres ver cómo es por dentro? 🎬",
       ];
   }
 

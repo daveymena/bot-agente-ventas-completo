@@ -484,7 +484,7 @@ async function buildProductCaption(p: typeof products.$inferSelect, categoryName
   if (videoMuestra) {
     lines.push(variante([
       `🎬 *Mira cómo son las clases:*`,
-      `🎬 *Así se ve el curso por dentro:*`,
+      `🎬 *Así se ve por dentro:*`,
       `🎬 *Te dejo la primera clase para que veas:*`,
       `🎬 *Mirá un pedacito antes de decidir:*`,
     ], sem));
@@ -680,7 +680,7 @@ async function construirSeccion(
     // por su cuenta ("¿tienes video?"), no solo aceptando la oferta. Se dice
     // la verdad y se le da una salida, en vez de inventar uno.
     if (!urlVideo) {
-      return { conFoto: false, mensajes: [`De este curso todavía no tengo video 🙏 ¿Te cuento qué incluye?`] };
+      return { conFoto: false, mensajes: [`De este ${esFisico ? "producto" : "curso"} todavía no tengo video 🙏 ¿Te cuento qué incluye?`] };
     }
     return { conFoto: false, mensajes: [`🎬 Mira cómo son las clases:\n${urlVideo}`, cierre] };
   }
