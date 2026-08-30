@@ -497,6 +497,38 @@ async function pickOpencodeModelChain(host: string, authHeader: string): Promise
   }));
 }
 
+/**
+ * Quita del plan las acciones repetidas.
+ *
+ * Dos acciones son la misma si llaman a la misma herramienta con los mismos
+ * argumentos, comparados sin acentos ni mayúsculas. Se conserva la primera,
+ * que es la que el modelo propuso con más contexto.
+ */
+export function sinAccionesRepetidas<T extends { tool: string; args?: any }>(acciones: T[]): T[] {
+  const plano = (v: any): string =>
+    String(v ?? "")
+      .normalize("NFD")
+      .replace(/[̀-ͯ]/g, "")
+      .toLowerCase()
+      .trim();
+  const clave = (a: T) => {
+    const args = a.args && typeof a.args === "object" ? a.args : {};
+    const partes = Object.keys(args)
+      .sort()
+      .map((k) => `${k}=${plano(typeof args[k] === "object" ? JSON.stringify(args[k]) : args[k])}`);
+    return `${a.tool}|${partes.join("&")}`;
+  };
+  const vistas = new Set<string>();
+  const salida: T[] = [];
+  for (const a of acciones || []) {
+    const k = clave(a);
+    if (vistas.has(k)) continue;
+    vistas.add(k);
+    salida.push(a);
+  }
+  return salida;
+}
+
 async function registerMcpBridge(host: string, authHeader: string, mcpUrl: string): Promise<void> {
   const res = await fetch(`${host}/mcp`, {
     method: "POST",
@@ -568,9 +600,39 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
       res.setHeader("X-Accel-Buffering", "no");
       res.flushHeaders?.();
     }
+    // ── Que el admin se vaya NO cancela su pedido ──────────────────────────
+    //
+    // Lo describió así: "que la app siga en segundo plano si me salgo, porque a
+    // veces para y cuando vuelvo a entrar me toca darle de nuevo".
+    //
+    // Pasaba esto: al cerrar la pestaña el socket muere, y el siguiente aviso
+    // de progreso --hay uno cada 15 s-- escribía sobre una conexión destruida.
+    // `writableEnded` no cubre ese caso (la respuesta no terminó, el socket se
+    // rompió), así que la excepción se llevaba puesto el turno ENTERO: el
+    // trabajo ya hecho se perdía y al volver había que pedirlo de nuevo.
+    //
+    // Ahora escribir es "si se puede": si el cliente ya no está se deja de
+    // escribir y el turno SIGUE hasta el final. La respuesta se guarda igual
+    // con `saveArchitectTurn`, así que al volver a entrar está en el historial.
+    let clienteSeFue = false;
+    req.on("close", () => {
+      if (!res.writableEnded) {
+        clienteSeFue = true;
+        logger.info(
+          { tenantId: req.tenant?.id },
+          "[AtlasOpenCode] El admin cerró la pestaña -- el turno sigue y se guarda igual",
+        );
+      }
+    });
     const sse = (event: string, data: any) => {
-      if (!streaming || res.writableEnded) return;
-      res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+      if (!streaming || clienteSeFue || res.writableEnded || res.destroyed) return;
+      try {
+        res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+      } catch {
+        // El socket se rompió entre el chequeo y la escritura. No es un error
+        // del pedido: es que el admin cerró. Se deja de escribir y se sigue.
+        clienteSeFue = true;
+      }
     };
     const progreso = (texto: string) => sse("progress", { texto });
     const finish = (payload: any, status = 200) => {
@@ -1622,6 +1684,23 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
             `y lo registro de verdad.`;
         }
       }
+
+      // ── La misma acción, una sola vez ──────────────────────────────────
+      //
+      // Al admin le salió un plan con TRES acciones para el mismo anuncio
+      // (2026-08-30), dos de ellas idénticas salvo por un acento:
+      //
+      //   Crear el anuncio de "...AGENTES AUTONOM" con $15.000/día
+      //   Crear el anuncio de "...AGENTES AUTONOM" con $15.000/día
+      //   Crear el anuncio de "...AGENTES AUTÓNOM" con $15.000/día
+      //
+      // Confirmar eso crea tres campañas cuando pidió una. El plan se arma
+      // sumando lo que el modelo propone en varias vueltas del turno, y nadie
+      // miraba si ya estaba propuesto.
+      //
+      // Se compara sin acentos ni mayúsculas a propósito: el modelo escribe el
+      // mismo nombre de producto de las dos formas y son la MISMA acción.
+      plannedActions = sinAccionesRepetidas(plannedActions);
 
       // ── Recién ahora se sabe si quedó algo pendiente ─────────────────────
       // `plannedActions` ya es definitivo: pasó el drenaje inicial, el reseteo
