@@ -81,6 +81,25 @@ try {
   }
 } catch {}
 
+// ── Se parte de la PLANTILLA, no se crea el esquema de nuevo ─────────────
+//
+// El esquema lo construyo una sola vez `vitest.globalSetup.js`. Acá solo se
+// copia. Medido: crear las ~30 tablas costaba 5,95 s POR ARCHIVO -- con 81
+// archivos, ocho minutos de trabajo idéntico repetido, y bajo paralelismo el
+// hook se pasaba de los 30 s y la suite se ponía roja sin que nada estuviera
+// mal.
+//
+// Cada archivo sigue teniendo su base propia: eso es lo que impide que se
+// pisen entre ellos. Lo único que cambia es que se fabrica copiando en vez de
+// migrando.
+//
+// Si la plantilla no está, no pasa nada: `ensureDbReady()` crea el esquema
+// como siempre. Es una optimización, no una dependencia.
+try {
+  const plantilla = path.resolve(process.cwd(), "data", ".test", "_plantilla.db");
+  if (fs.existsSync(plantilla)) fs.copyFileSync(plantilla, archivo);
+} catch {}
+
 process.env.SQLITE_PATH = archivo;
 
 // ── Y se ESPERA a que la base exista antes de correr nada ────────────────

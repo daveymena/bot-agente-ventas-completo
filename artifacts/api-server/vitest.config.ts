@@ -5,6 +5,10 @@ export default defineConfig({
     globals: true,
     environment: "node",
     setupFiles: ["./vitest.setup.js"],
+    // El esquema se construye UNA vez acá y cada archivo se lleva una copia.
+    // Ver el comentario del archivo: crearlo por archivo costaba 5,95 s, y con
+    // 81 archivos eso saturaba y ponía la suite roja sin defecto real.
+    globalSetup: ["./vitest.globalSetup.js"],
     // ── Por qué se limita la concurrencia ────────────────────────────────
     //
     // Cada archivo de pruebas levanta su propia base SQLite y corre las
