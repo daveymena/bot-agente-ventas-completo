@@ -1602,11 +1602,30 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
         await setPendingPlan(tenantId, sessionId, plannedActions, reply);
         await saveArchitectTurn(tenantId, sessionId, "assistant", reply);
         logger.info({ tenantId, planned: plannedActions.length }, "[AtlasOpenCode] Plan propuesto, esperando confirmación");
+        logger.info(
+          { tenantId, tramos, totalMs: Date.now() - t0, acciones: plannedActions.length },
+          "[AtlasOpenCode] Turno COMPLETO -- reparto real del tiempo",
+        );
         return finish({ reply, plan: plannedActions, status: "awaiting_confirmation" });
       }
 
       const reply = paraMarkdown(toEmojiStyle(finalReplyVerificado || "No tengo una respuesta para eso todavía."));
       await saveArchitectTurn(tenantId, sessionId, "assistant", reply);
+      // ── Cuánto tardó y en qué ───────────────────────────────────────────
+      //
+      // El desglose de tramos existía desde el 2026-08-19 pero SOLO se
+      // registraba cuando el turno se cortaba. Un turno que termina bien pero
+      // tarda 98 segundos --medido hoy con un pedido de anuncio-- no dejaba
+      // ninguna medición: para el sistema fue un éxito y punto.
+      //
+      // Y es el caso que más importa, porque es el que ve el admin: la
+      // respuesta llega, pero llega tan tarde que la pantalla parece muerta.
+      // Sin este log, diagnosticar la lentitud vuelve a ser adivinar -- que es
+      // exactamente lo que el comentario de arriba dice que hay que evitar.
+      logger.info(
+        { tenantId, tramos, totalMs: Date.now() - t0 },
+        "[AtlasOpenCode] Turno COMPLETO -- reparto real del tiempo",
+      );
       return finish({ reply, status: "info", needsContinuation: false });
     } finally {
       clearInterval(heartbeat);
