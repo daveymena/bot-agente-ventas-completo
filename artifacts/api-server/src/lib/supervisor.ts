@@ -63,6 +63,20 @@ export interface EntradaSupervisor {
    */
   respuestaVerificada?: boolean;
 
+  /**
+   * Lo que el agente YA le mando a este cliente en esta conversacion.
+   *
+   * Sin esto el agente no compara lo que va a decir contra lo que ya dijo. El
+   * admin lo puso asi: "no esta teniendo uso de razon a la hora de enviar la
+   * informacion, no analiza si lo que esta enviando esta bien, y no tiene
+   * memoria de lo que pasa".
+   *
+   * El caso que lo destapo (2026-08-30): la ficha listo las caracteristicas
+   * del curso y el mensaje siguiente pregunto "¿Te cuento que incluye? 👀" --
+   * ofreciendole algo que acababa de recibir.
+   */
+  yaEnviado?: string[];
+
   /** Metodos de pago que el negocio verifica A MANO (Nequi, Daviplata...). */
   pagosManuales?: string[];
 
@@ -398,6 +412,39 @@ export function supervisarRespuesta(e: EntradaSupervisor): RevisionSupervisor {
   }
 
   } // fin de las reglas que solo aplican a lo que redacto el modelo
+
+  // ── R12 · Ofrecer lo que ya entrego ──────────────────────────────────────
+  //
+  // Conversacion real (2026-08-30):
+  //
+  //   bot: [ficha con las 4 caracteristicas del curso]
+  //   bot: "💰 $60.000 COP — ¿Te cuento que incluye? 👀"
+  //
+  // Le pregunto si le contaba lo que le acababa de contar. Para el cliente eso
+  // no es un detalle de redaccion: es la prueba de que del otro lado nadie
+  // esta leyendo. Y es lo que el admin describio como "no se siente humano".
+  //
+  // No se bloquea: lo que el mensaje dice esta bien, lo que sobra es el cierre.
+  // Se le quita el ofrecimiento y listo -- un mensaje sin pregunta final es
+  // mejor que uno que pregunta algo absurdo.
+  if (Array.isArray(e.yaEnviado) && e.yaEnviado.length > 0) {
+    const OFRECE_CONTENIDO = /¿?\s*(te cuento qu[eé] (incluye|viene|trae)|te muestro todo lo que trae|qu(er[eé]s|ieres) ver qu[eé] incluye)[^\n]*/gi;
+    // "Ya lo vio" = un mensaje anterior enumero caracteristicas: dos o mas
+    // renglones que abren con vinieta o emoji. Es como se ve una ficha.
+    const yaListoElContenido = e.yaEnviado.some((m) => {
+      const renglones = String(m || "").split("\n").filter((l) => /^\s*(?:[-•*]|\p{Extended_Pictographic})/u.test(l));
+      return renglones.length >= 2;
+    });
+    if (yaListoElContenido && OFRECE_CONTENIDO.test(texto)) {
+      const limpio = texto.replace(OFRECE_CONTENIDO, "").replace(/\n{3,}/g, "\n\n").trim();
+      hallazgos.push({
+        regla: "ofrece-lo-ya-enviado",
+        gravedad: "corrige",
+        detalle: "Ofrecia contarle el contenido que ya se le habia enviado en esta conversacion.",
+      });
+      texto = limpio;
+    }
+  }
 
   // ── R11 · Contestar una de tres y descartar el resto ─────────────────────
   //

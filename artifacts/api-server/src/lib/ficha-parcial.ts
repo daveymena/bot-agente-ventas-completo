@@ -232,8 +232,15 @@ export function invitacionDe(
    * mismo error que venimos sacando de todos lados, solo que en el cierre.
    */
   tieneVideo = true,
+  /**
+   * Si al cliente YA se le mostraron las características del producto.
+   *
+   * Sin esto, el cierre de la sección de precio le ofrecía contarle lo que
+   * acababa de leer. Ver el comentario en `invitacionesDe`.
+   */
+  yaVioContenido = false,
 ): string {
-  const opciones = invitacionesDe(s, esFisico, tieneVideo);
+  const opciones = invitacionesDe(s, esFisico, tieneVideo, yaVioContenido);
   if (opciones.length === 0) return "";
   // Varía por cliente: dos personas distintas no reciben el mismo guion, y la
   // misma persona siempre recibe el mismo (así no parece que el bot cambia de
@@ -254,7 +261,7 @@ export function invitacionDe(
  * "te va a encantar" o "es el más vendido" son cosas que el bot no puede
  * saber, y ya hubo que sacar inventos de ese tipo (ver supervisor.ts).
  */
-function invitacionesDe(s: SeccionFicha, esFisico: boolean, tieneVideo = true): string[] {
+function invitacionesDe(s: SeccionFicha, esFisico: boolean, tieneVideo = true, yaVioContenido = false): string[] {
   // Sin video cargado, el cierre apunta a otra cosa real. Nunca se ofrece lo
   // que no se puede entregar.
   if (!tieneVideo && (s === "info" || s === "completa")) {
@@ -266,11 +273,25 @@ function invitacionesDe(s: SeccionFicha, esFisico: boolean, tieneVideo = true): 
   switch (s) {
     case "precio":
       // Ya sabe cuánto cuesta. Lo que falta es qué se lleva por eso.
-      return [
-        "¿Te muestro todo lo que trae? 👀",
-        "¿Quieres ver qué incluye?",
-        "¿Te cuento qué viene adentro? 👀",
-      ];
+      //
+      // Salvo que YA se lo hayan contado. Conversación real (2026-08-30): la
+      // ficha completa listó las características y el mensaje siguiente
+      // preguntó "¿Te cuento qué incluye? 👀" -- ofreciéndole algo que acababa
+      // de recibir. Eso le dice al cliente que del otro lado no hay nadie
+      // leyendo, y es justo lo que el admin señaló: "no está manejando las
+      // etapas, responde de una y no se siente humano".
+      //
+      // Si ya vio el contenido, el paso siguiente es el video -- que es lo
+      // único que todavía no tiene.
+      return yaVioContenido
+        ? (tieneVideo
+            ? ["¿Te muestro cómo son las clases? 🎬", "¿Querés ver un pedacito antes de decidir? 🎬"]
+            : ["¿Te resuelvo alguna duda antes de decidir?", "¿Hay algo puntual que quieras saber?"])
+        : [
+            "¿Te muestro todo lo que trae? 👀",
+            "¿Quieres ver qué incluye?",
+            "¿Te cuento qué viene adentro? 👀",
+          ];
 
     case "info":
       // Quiso detalle: acá es donde el video amplía mejor que cualquier texto.
@@ -307,4 +328,50 @@ function invitacionesDe(s: SeccionFicha, esFisico: boolean, tieneVideo = true): 
         "¿Quieres ver cómo son las clases? 🎬",
       ];
   }
+
+  // Una sección nueva que nadie contempló acá NO puede hacer que el mensaje
+  // salga sin cierre ni que el turno se caiga: sale sin invitación, que es
+  // silencioso y correcto. `invitacionDe` ya trata la lista vacía como "sin
+  // cierre".
+  return [];
+}
+
+/**
+ * ¿Ese "sí" contesta lo que el bot acaba de ofrecer?
+ *
+ * Conversación real (2026-08-30):
+ *
+ *   bot:     "💰 $60.000 COP — ¿Te cuento qué incluye? 👀"
+ *   cliente: "Sí"
+ *   bot:     [los tres medios de pago, con el número de Nequi]
+ *
+ * Le prometió el contenido y le mandó el checkout. `detectIntent` lee un "sí"
+ * suelto como confirmación de compra, y esa bandera pisaba la sección que este
+ * archivo ya había elegido bien ("info").
+ *
+ * Pedirle plata a quien todavía está averiguando es de las pocas formas de
+ * perder una venta que venía encaminada: el cliente lee que no lo escucharon y
+ * que solo le quieren cobrar.
+ *
+ * La regla: si el mensaje anterior del bot OFRECIÓ algo y el cliente contestó
+ * con una afirmación suelta, ese "sí" es para la oferta. Un "sí, lo compro" o
+ * un "dale, mándame el link de pago" traen más palabras y no entran acá.
+ */
+const AFIRMACION_SUELTA =
+  // Sin `\b` al final: es ASCII, y después de una vocal acentuada ("sí",
+  // "cuéntame") NO hay borde de palabra, así que el patrón no casaba
+  // justamente con la forma más común de decir que sí en español. Es la
+  // tercera vez que este proyecto tropieza con lo mismo.
+  /^\s*(s[ií]|sip|sii+|dale|listo|ok|okey|okay|claro|obvio|de una|por supuesto|bueno|va|hazlo|hacelo|mu[eé]strame|mostrame|cu[eé]ntame|contame|perfecto|genial)(?![a-zA-ZáéíóúñÁÉÍÓÚÑ])[\s.!¡👍😊🙌]*$/i;
+
+export function elSiContestaLaOferta(e: {
+  /** Lo que escribió el cliente. */
+  mensaje: string;
+  /** El bot ofreció contarle el contenido en su mensaje anterior. */
+  ofrecimosContenido?: boolean;
+  /** El bot ofreció mostrarle el video en su mensaje anterior. */
+  ofrecimosVideo?: boolean;
+}): boolean {
+  if (!e.ofrecimosContenido && !e.ofrecimosVideo) return false;
+  return AFIRMACION_SUELTA.test(String(e.mensaje || ""));
 }

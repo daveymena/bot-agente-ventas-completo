@@ -1089,8 +1089,34 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
         const PIDE_EJECUTAR =
           PEDIDO_DE_ANUNCIO.test(String(prompt))
           || /\b(guard[aá]|sub[ií]|public[aá]|cre[aá]\w*\s+(y|,)|deja\w*\s+list)/i.test(String(prompt));
-        const PRESUPUESTO_INVESTIGACION_MS = PIDE_EJECUTAR ? 35_000 : 70_000;
-        try {
+        // ── En un pedido de ANUNCIO no se investiga: no lo usa nadie ─────────
+        //
+        // Medido con el desglose por tramos (2026-08-30), turno real de
+        // anuncio: investigación 22,6 s de 33 s totales. El 68% del turno.
+        //
+        // Y ese trabajo no llega al anuncio. `crear_anuncio` hace TODO del lado
+        // del servidor -- busca el producto, arma el brief con sus datos
+        // reales, escribe el copy y lo valida -- y ni siquiera recibe el texto
+        // de la investigación: se le pasa el NOMBRE del producto y el
+        // presupuesto, nada más. O sea que esos 22 s alimentaban únicamente la
+        // frase de conversación, no el anuncio que se publica.
+        //
+        // El admin lo puso en estos términos: "Atlas se está colgando mucho y
+        // tardando mucho, y eso a una empresa no le gusta". Tiene razón, y
+        // ésta es la parte cara que no compra nada.
+        //
+        // Se sigue investigando cuando el pedido NO es de anuncio (una
+        // consulta de competencia, de mercado, de tendencias): ahí el hallazgo
+        // ES la respuesta, y sin él no hay nada que contestar.
+        const investigar = !PIDE_EJECUTAR;
+        const PRESUPUESTO_INVESTIGACION_MS = 70_000;
+        if (!investigar) {
+          // Se le dice al modelo, para que no prometa una investigación que no
+          // va a llegar ni afirme haberla hecho -- el guardián de más abajo lo
+          // corregiría, pero es mejor no darle el pie.
+          text += `\n\n[SISTEMA] Para este pedido NO hace falta investigar: el copy lo escribe el servidor con los datos REALES del producto (nombre, características y precio del catálogo) y lo valida antes de guardar. Proponé la acción directamente; no digas que vas a investigar ni que investigaste.`;
+        }
+        if (investigar) try {
           const tInv = Date.now();
           const r = await investigacionRapida(ctx, String(prompt), Math.min(PRESUPUESTO_INVESTIGACION_MS, Math.max(turnDeadline - Date.now() - 45_000, 20_000)));
           marcar("investigacion", tInv);

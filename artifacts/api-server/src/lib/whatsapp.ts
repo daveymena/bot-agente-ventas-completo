@@ -437,8 +437,12 @@ async function buildProductCaption(p: typeof products.$inferSelect, categoryName
     // Tope de 8: más que eso vuelve a ser un muro. Si hay más, se dice.
     for (const f of propias.slice(0, 8)) lines.push(`${emojiDeCaracteristica(f, p.name)} ${f}`);
     // Antes decía "…y 1 más" a secas y quedaba cortado, sin decir más de qué.
+    // Mismo cuidado con el singular que en la ficha parcial: "1 cosas más" es
+    // una falta de ortografía que el cliente lee justo cuando está evaluando
+    // si confiar.
     if (propias.length > 8) {
-      lines.push(`➕ Y ${propias.length - 8} cosas más que te cuento por aquí`);
+      const restantes = propias.length - 8;
+      lines.push(`➕ Y ${restantes} ${restantes === 1 ? "cosa más" : "cosas más"} que te cuento por aquí`);
     }
     lines.push("");
   } else if (meta.classes) {
@@ -743,8 +747,16 @@ async function construirSeccion(
   if (propias.length > 0) {
     L.push("");
     // Cuatro, no ocho: lo que sigue es la razón para preguntar más.
-    for (const f of propias.slice(0, 4)) L.push(`${emojiDeCaracteristica(f, p.name)} ${f}`);
-    if (propias.length > 4) L.push(`➕ Y ${propias.length - 4} cosas más`);
+    //
+    // Pero si sobra UNA sola, se muestra. Esconder la quinta detrás de "y 1
+    // cosas más" no genera curiosidad -- genera la sensación de que le están
+    // escondiendo algo, y encima con una falta de ortografía. Visto en una
+    // conversación real (2026-08-30): el curso tiene 5 características, el
+    // cliente vio 4 y "➕ Y 1 cosas más".
+    const cuantasMostrar = propias.length === 5 ? 5 : 4;
+    for (const f of propias.slice(0, cuantasMostrar)) L.push(`${emojiDeCaracteristica(f, p.name)} ${f}`);
+    const restantes = propias.length - cuantasMostrar;
+    if (restantes > 0) L.push(`➕ Y ${restantes} ${restantes === 1 ? "cosa más" : "cosas más"}`);
   }
 
   const mensajes = [L.join("\n").trim()];

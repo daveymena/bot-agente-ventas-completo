@@ -16,7 +16,7 @@ import { logger } from "./logger";
 import { supervisarRespuesta } from "./supervisor";
 import { hablarColombiano } from "./hablar-colombiano";
 import { calcularEstado, renderEstado } from "./estado-cognitivo";
-import { seccionQueCorresponde } from "./ficha-parcial";
+import { seccionQueCorresponde, elSiContestaLaOferta } from "./ficha-parcial";
 import { responderPregunta, aperturaPara } from "./conocimiento-producto";
 import { PaymentGateway } from "./payments";
 import { 
@@ -2468,8 +2468,32 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
             ofrecimosContenido,
             videoYaEnviado,
           });
+          // ── Un "sí" contesta la pregunta ANTERIOR, no pide el checkout ─────
+          //
+          // Conversación real (2026-08-30):
+          //
+          //   bot:  "💰 $60.000 COP — ¿Te cuento qué incluye? 👀"
+          //   cliente: "Sí"
+          //   bot:  [los tres medios de pago con el número de Nequi]
+          //
+          // Le prometió el contenido y le mandó el checkout. `detectIntent`
+          // lee un "sí" suelto como confirmación de compra, y `isPaymentFlow`
+          // pisaba la sección que `seccionQueCorresponde` ya había elegido
+          // bien.
+          //
+          // Pedirle plata a quien todavía está averiguando es de las pocas
+          // formas de perder una venta que venía encaminada. Si el mensaje
+          // anterior del bot OFRECIÓ algo, el "sí" es para eso.
+          const contestaLaOferta = elSiContestaLaOferta({
+            mensaje: String(lastText || ""),
+            ofrecimosContenido,
+            ofrecimosVideo,
+          });
+          if (contestaLaOferta && isPaymentFlow) {
+            console.log(`🛡️ [FICHA] "${String(lastText).trim()}" contesta lo que el bot ofreció, no pide pagar. No se manda el checkout - ${ts()}`);
+          }
           console.log(`🎯 [FICHA] Sección elegida: ${seccion} (intent: ${decision.intent}) - ${ts()}`);
-          parts.push({ kind: "card", productId: resolvedId, paymentOnly: isPaymentFlow, seccion });
+          parts.push({ kind: "card", productId: resolvedId, paymentOnly: isPaymentFlow && !contestaLaOferta, seccion });
           cardProductId = resolvedId;
           cardCount++;
         }
@@ -2593,6 +2617,12 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
             // Las cuentas de cobro REALES. Todo lo que el modelo escriba como
             // número de cuenta y no esté acá, es plata a una cuenta ajena.
             cuentasReales: cuentasDelNegocio,
+            // Lo que YA se le mandó a este cliente. Sin esto el agente no
+            // compara lo que va a decir contra lo que ya dijo -- y le ofrece
+            // contarle el contenido que acaba de enviarle.
+            yaEnviado: (memory.history as any[])
+              .filter((m) => m.role !== "customer")
+              .map((m) => String(m.content || "")),
           });
 
           if (revision.hallazgos.length === 0) continue;
