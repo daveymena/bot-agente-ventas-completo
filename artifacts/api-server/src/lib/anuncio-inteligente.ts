@@ -401,9 +401,19 @@ export function puntuarCopy(args: { primaryText?: string; headline?: string }): 
   }
 
   // Una sola acción. Dos CTA compiten entre sí y bajan las dos.
-  const ctas = texto.match(/\b(?:escrib[ií](?:me|nos)?|coment[aá]|comparti|comparte|segu[ií](?:nos|me)|dale me gusta|hac[eé] clic|haz clic|entr[aá]|compr[aá]|inscrib[ií]te|reserv[aá]|descarg[aá])\b/gi) || [];
+  // La lista de verbos dejaba afuera casos obvios. Medido en vivo el
+  // 2026-08-30: el copy cerraba con "👉 Empezá a automatizar hoy" --un llamado
+  // a la acción perfecto-- y el sistema le reportó al admin "No hay llamado a
+  // la acción: el anuncio no pide nada". "Empezá" no estaba en la lista.
+  //
+  // Es la misma trampa que este proyecto ya documentó cuatro veces: enumerar
+  // palabras siempre deja afuera un caso obvio. Por eso además del listado se
+  // acepta el RENGLÓN QUE ABRE CON 👉, que en un anuncio es, por convención de
+  // este mismo sistema, el que pide la acción.
+  const ctas = texto.match(/\b(?:escrib[ií](?:me|nos)?|coment[aá]|comparti|comparte|segu[ií](?:nos|me)|dale me gusta|hac[eé] clic|haz clic|entr[aá]|compr[aá]|inscrib[ií]te|reserv[aá]|descarg[aá]|empez[aá]|empieza|prob[aá]|prueba|mir[aá]|ped[ií]|pide|aprovech[aá]|agend[aá]|obten[eé]|consegu[ií]|activ[aá]|un[ií]te|[uú]nete|sum[aá]te|cotiz[aá]|pregunt[aá]|apart[aá]|ven[ií])(?![a-zA-ZáéíóúñÁÉÍÓÚÑ])/gi) || [];
+  const pideConFlecha = /^\s*👉/m.test(texto);
   const ctasUnicas = new Set(ctas.map((c) => c.toLowerCase()));
-  if (ctasUnicas.size === 0) {
+  if (ctasUnicas.size === 0 && !pideConFlecha) {
     puntaje -= 15;
     notas.push("No hay llamado a la acción: el anuncio no pide nada.");
   } else if (ctasUnicas.size > 2) {

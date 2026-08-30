@@ -2841,7 +2841,7 @@ export const TOOLS: ToolDef[] = [
           })(),
           notaCopy.puntaje >= 85
             ? `⭐ Calidad del copy: ${notaCopy.puntaje}/100`
-            : `⭐ Calidad del copy: ${notaCopy.puntaje}/100\n${notaCopy.notas.map((n) => `   • ${n}`).join("\n")}`,
+            : `⭐ Calidad del copy: ${notaCopy.puntaje}/100\n${notaCopy.notas.map((n) => `   ⚠️ ${n}`).join("\n")}`,
           `💾 Guardado local, no se tocó la cuenta de Meta.`,
         ].join("\n\n");
         return {
@@ -4391,7 +4391,7 @@ export const TOOLS: ToolDef[] = [
           copy.primaryText,
           ``,
           `💰 Presupuesto: $${presupuesto.toLocaleString("es-CO")}/día`,
-          `⭐ Calidad del copy: ${nota.puntaje}/100${nota.notas.length ? `\n${nota.notas.map((n: string) => `   • ${n}`).join("\n")}` : ""}`,
+          `⭐ Calidad del copy: ${nota.puntaje}/100${nota.notas.length ? `\n${nota.notas.map((n: string) => `   ⚠️ ${n}`).join("\n")}` : ""}`,
           meta,
         ].filter(Boolean).join("\n"),
         data: { draftId, productId: prod.id, copy },
