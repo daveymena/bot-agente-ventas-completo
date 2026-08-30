@@ -61,6 +61,26 @@ export function montoANumero(txt: string): number {
   if (seps.length === 1 && (cola === 1 || cola === 2)) {
     return Number(limpio.slice(0, ultimo) + "." + limpio.slice(ultimo + 1));
   }
+  // ── Miles Y centavos juntos: "$60.000,00" ────────────────────────────────
+  //
+  // Con dos o más separadores, el último manda si deja 1-2 dígitos: ahí es el
+  // decimal y los otros son de miles. Antes se borraban TODOS, así que
+  // "60.000,00" daba 6.000.000 -- cien veces el precio real.
+  //
+  // Y eso no quedaba en un número mal leído: el monto no coincidía con el del
+  // catálogo, el verificador lo daba por INVENTADO y borraba la frase entera.
+  // Medido contra producción el 2026-08-30, con el curso de $60.000, al
+  // cliente le llegó:
+  //
+  //   "💰 — pago único."          ← sin el número
+  //   "💰 El pago es único, ."    ← coma suelta
+  //
+  // Un mensaje mutilado justo cuando está por decidir parece un error del
+  // sistema, y eso frena una compra más que no decir el precio.
+  if (seps.length >= 2 && (cola === 1 || cola === 2)) {
+    const enteros = limpio.slice(0, ultimo).replace(/[.,]/g, "");
+    return Number(`${enteros}.${limpio.slice(ultimo + 1)}`);
+  }
   return Number(limpio.replace(/[.,]/g, ""));
 }
 

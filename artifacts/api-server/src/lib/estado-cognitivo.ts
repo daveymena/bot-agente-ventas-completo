@@ -377,6 +377,25 @@ export function renderEstado(s: EstadoCognitivo): string {
 const PIDE_PAGAR =
   /\b(c[oó]mo (pago|puedo pagar|hago para pagar)|d[oó]nde (pago|consigno|transfiero)|formas? de pago|m[eé]todos? de pago|medios? de pago|datos? (de|para) (pago|transferencia)|mand[aá]me? (el|los) (link|enlace|datos)|link de pago|quiero (pagar|comprarlo|llevarlo)|lo (compro|llevo)|d[oó]nde (le )?consigno|n[uú]mero de (nequi|cuenta))/i;
 
+/**
+ * ¿El cliente PIDIÓ los datos de pago, con todas las letras?
+ *
+ * Se exporta aparte porque hacen falta las dos direcciones:
+ *
+ *   · para NO cobrarle a quien está averiguando (ver `puedeMandarPago`)
+ *   · y para SÍ dárselos a quien los pide, aunque el clasificador de
+ *     intenciones no lo haya marcado como intención de pago.
+ *
+ * Lo segundo se descubrió probando en vivo (2026-08-30): el cliente escribió
+ * "como pago?" y NO recibió los medios de pago, porque `detectIntent` no lo
+ * clasificó como `payment_intent`. Es el error opuesto al que se acababa de
+ * arreglar, y tan malo: negarle los datos a quien quiere pagar pierde la venta
+ * en el último paso.
+ */
+export function pidePagar(mensaje: string): boolean {
+  return PIDE_PAGAR.test(String(mensaje || ""));
+}
+
 export function puedeMandarPago(e: {
   etapa: EtapaTrato;
   /** Lo que escribió el cliente en este mensaje. */

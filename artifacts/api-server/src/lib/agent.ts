@@ -2517,7 +2517,14 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
           parts.push({
             kind: "card",
             productId: resolvedId,
-            paymentOnly: isPaymentFlow && !contestaLaOferta && permiso.puede,
+            // Si lo PIDIÓ, se le da aunque el clasificador no lo haya marcado
+            // como intención de pago. Visto en vivo (2026-08-30): "como pago?"
+            // NO recibía los medios de pago porque `detectIntent` no lo
+            // clasificaba como `payment_intent`. Negarle los datos a quien
+            // quiere pagar pierde la venta en el último paso -- es el error
+            // opuesto al de cobrarle al que está averiguando, y sale igual de
+            // caro.
+            paymentOnly: (isPaymentFlow || pidePagar(String(lastText || ""))) && !contestaLaOferta && permiso.puede,
             seccion,
           });
           cardProductId = resolvedId;

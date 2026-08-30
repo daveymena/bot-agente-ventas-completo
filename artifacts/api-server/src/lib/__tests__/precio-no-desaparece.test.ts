@@ -41,3 +41,30 @@ describe("El precio REAL no se puede borrar del mensaje", () => {
     expect(r.texto).not.toContain("30.000");
   });
 });
+
+describe("Reproducir el caso de produccion", () => {
+  it("el precio llega como TEXTO desde Postgres, no como numero", () => {
+    // `products.price` es numeric en Postgres: el driver lo devuelve "60000.00".
+    // Mi primera prueba lo pasó como número y por eso pasó en verde mientras
+    // producción fallaba. La prueba tiene que usar la forma REAL del dato.
+    const comoLlega = [{ id: 124, name: "IA 2026", price: "60000.00", currency: "COP" }] as any;
+    const r = verificarPrecios("💰 $60.000 COP — pago único.", comoLlega, [124]);
+    expect(r.inventados).toEqual([]);
+    expect(r.texto).toContain("60.000");
+  });
+
+  it("sin producto en contexto tampoco lo borra", () => {
+    // Si `idsEnContexto` viene vacío, el precio sigue siendo real: está en el
+    // catálogo. Borrarlo ahí sería mutilar un mensaje correcto.
+    const cat = [{ id: 124, name: "IA 2026", price: "60000.00", currency: "COP" }] as any;
+    const r = verificarPrecios("💰 El pago es único, $60.000 COP.", cat, []);
+    expect(r.texto).toContain("60.000");
+  });
+
+  it("un precio con centavos escrito por el modelo se reconoce", () => {
+    const cat = [{ id: 124, name: "IA 2026", price: "60000.00", currency: "COP" }] as any;
+    for (const t of ["Son $60.000,00 COP.", "Cuesta $60000 COP."]) {
+      expect(verificarPrecios(t, cat, [124]).inventados, t).toEqual([]);
+    }
+  });
+});
