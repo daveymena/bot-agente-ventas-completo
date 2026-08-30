@@ -132,3 +132,69 @@ Probadas una por una con llamada real el 2026-08-29:
 
 Todo lo construido son medios. La verificación que falta es una conversación
 real que llegue al cierre y cobre.
+
+---
+
+## Los MCP de `opencode-clean`: 4 de 7 rotos (medido 2026-08-30)
+
+OpenCode instaló herramientas dentro del contenedor por MCP. **No están
+funcionando**, y conviene saber exactamente qué pasa antes de tocarlas.
+
+```
+operator     ❌ timeout 30 s      ← el que daría poder sobre la app
+ventaspro    ❌ timeout 30 s      ← el otro que importa
+filesystem   ❌ conexión cerrada
+git          ❌ conexión cerrada
+brain        ✅ conectado
+fetch        ✅ conectado
+commands     ✅ conectado
+```
+
+### Lo que NO es
+
+**No causan lentitud.** Medido: el fallo se cachea al arrancar, así que
+`/mcp` responde en 0,2-0,6 s y crear sesión en 0,7 s. Los 98 segundos que
+tardaba un anuncio no salían de acá.
+
+**No es que los archivos se hayan perdido.** El patrón de error lo dice: un
+archivo inexistente hace que `node` muera al instante y el cliente reporta
+"conexión cerrada" (es lo que pasa con `filesystem` y `git`). Un **timeout**
+significa lo contrario: el proceso arranca, vive, y nunca contesta el saludo
+del protocolo.
+
+**No es la credencial.** El `VENTASPRO_PASSWORD` del MCP se probó contra el
+login real y es válido.
+
+### Lo que sí es
+
+Los dos scripts (`/opt/operator/operator/mcp-server.mjs` y
+`/root/.local/share/opencode/ventaspro-mcp.mjs`) arrancan y se cuelgan antes
+del handshake. La causa habitual en un servidor MCP por stdio es escribir en
+`stdout` — un solo `console.log` corrompe el canal JSON-RPC y el cliente espera
+para siempre. La otra es hacer trabajo asíncrono antes de conectar el
+transporte.
+
+`git` no va a funcionar nunca así: `mcp-server-git` es un paquete de **Python**
+(se corre con `uvx`), no de npm. Con `npx` siempre va a cerrar la conexión.
+
+### Recomendación: no arreglarlos
+
+`operator` y `ventaspro` harían lo que **ya hace el puente MCP propio**
+(`routes/mcp-bridge.ts`, endpoint `/api/internal/mcp/atlas`), que sí funciona,
+filtra las herramientas por pedido y pasa toda escritura por `propose_action`
+para que el admin apruebe. Duplicarlo por fuera deja dos caminos hacia la misma
+app, uno de ellos **sin esos candados**.
+
+Si aun así se quieren, hay que hornearlos en la imagen: `opencode-clean` no
+tiene volumen y no se puede reconstruir (ver §2 de `TRASPASO_SESION.md`).
+
+### 🔴 Urgente y aparte: credenciales en texto plano
+
+`OPENCODE_CONFIG_CONTENT` de `opencode-clean` lleva, en claro:
+
+- la contraseña de VentasPro del admin (verificada: **funciona**)
+- usuario y URL de EasyPanel
+
+Cualquiera que lea esa variable entra a la app como el admin. **Cambiar la
+contraseña de VentasPro** y sacarlas de ahí. Va junto a lo ya pendiente:
+`GROQ_API_KEY`, `OPENROUTER_API_KEY` y el `GITHUB_TOKEN` del historial de git.
