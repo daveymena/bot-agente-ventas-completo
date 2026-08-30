@@ -45,13 +45,14 @@ Aprende a dominar las herramientas de IA de 2026 y a crear agentes autónomos.
 describe("Nombrar una herramienta que el producto no tiene", () => {
   it("agarra las del caso real", () => {
     const fuera = marcasSinRespaldo(COPY_REAL, CURSO_IA).map((s) => s.toLowerCase());
-    // Las que tienen forma de marca (mayúscula interna, número o punto) se
-    // detectan aunque abran renglón; las demás, cuando van en medio de la
-    // frase. No hace falta cazarlas todas: con que caiga UNA, el copy se
-    // rechaza entero y el modelo lo reescribe.
-    for (const inventada of ["chatgpt", "perplexity", "copilot", "leonardo", "crewai", "autogpt"]) {
+    // Solo se detectan las que tienen FORMA DE MARCA: mayúscula interna,
+    // número o punto adentro. No hace falta cazarlas todas -- con que caiga
+    // UNA, el copy se rechaza entero y el modelo lo reescribe.
+    for (const inventada of ["chatgpt", "crewai", "autogpt"]) {
       expect(fuera.some((f) => f.includes(inventada)), `no detectó ${inventada}`).toBe(true);
     }
+    // Y con eso el copy real queda rechazado, que es lo que importa.
+    expect(fuera.length).toBeGreaterThan(0);
   });
 
   it("y NO marca las que el producto sí tiene", () => {
@@ -77,5 +78,17 @@ describe("Nombrar una herramienta que el producto no tiene", () => {
     // anuncio los nombra legítimamente aunque el producto no los liste.
     const copy = "Escribime por WhatsApp y pagá con PayPal o Nequi desde Colombia.";
     expect(marcasSinRespaldo(copy, respaldoDe({ name: "Curso X", description: "un curso" }))).toEqual([]);
+  });
+
+  it("NO bloquea un verbo español con mayúscula — el caso que rompió un anuncio real", () => {
+    // 2026-08-30: al admin se le rechazó el anuncio DOS veces por la palabra
+    // "Aprendé", y el mensaje le decía que el cliente iba a pedir la
+    // devolución por eso. Es un verbo del castellano escrito con mayúscula
+    // porque encabezaba una idea.
+    //
+    // Bloquear un anuncio legítimo es peor que dejar pasar una marca dudosa:
+    // lo primero rompe la función, lo segundo lo corrige el admin leyendo.
+    const copy = "Dominá Claude y Aprendé a crear agentes. Automatizá tu negocio Hoy y Empezá ya.";
+    expect(marcasSinRespaldo(copy, CURSO_IA)).toEqual([]);
   });
 });

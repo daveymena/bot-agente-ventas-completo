@@ -173,9 +173,21 @@ export function marcasSinRespaldo(copy: string, respaldo: RespaldoDelProducto): 
     // Sin esta distinción se escapaba justo el peor caso: "✅ ChatGPT, Gemini,
     // Claude..." abre renglón, así que ChatGPT se saltaba como si fuera el
     // comienzo de una oración.
-    const abreFrase = /[.!?:¡¿•✅🔥👉➡️⭐📌]$/.test(anterior) || anterior === "";
+    // Se exige FORMA DE MARCA siempre, no solo al abrir frase.
+    //
+    // Al principio alcanzaba con "mayúscula en medio de la frase". Eso bloqueó
+    // un anuncio real del admin (2026-08-30) por la palabra **"Aprendé"**: un
+    // verbo español común, escrito con mayúscula porque encabezaba una idea.
+    // El anuncio no se creó, dos veces, y el mensaje le decía que iba a pedir
+    // la devolución por una palabra del castellano.
+    //
+    // Bloquear un anuncio legítimo es peor que dejar pasar una marca dudosa:
+    // lo primero rompe la función, lo segundo lo corrige el admin leyendo. Y
+    // las inventadas que importan TIENEN esta forma: ChatGPT y AutoGPT llevan
+    // mayúscula interna, DALL·E 4 lleva punto y número. Ninguna palabra común
+    // del español se escribe así, y por eso este filtro no puede confundirlas.
     const pareceMarca = /[a-záéíóúñ][A-ZÁÉÍÓÚÑ]/.test(palabra) || /\d/.test(palabra) || /[·.]/.test(palabra);
-    if (abreFrase && !pareceMarca) continue;
+    if (!pareceMarca) continue;
     const clave = palabra.toLowerCase();
     if (vistas.has(clave)) continue;
     vistas.add(clave);

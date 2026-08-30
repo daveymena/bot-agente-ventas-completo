@@ -997,14 +997,22 @@ export async function validarContenidoAnuncio(
   // anuncio sale igual, pero el cliente ve la frase cortada a la mitad --
   // justo el titular, que es lo único que muchos leen. La descripción de la
   // herramienta ya pedía "máx. ~35", pero nada lo verificaba.
-  const titular = typeof args.headline === "string" ? args.headline.trim() : "";
-  if (titular.length > 40) {
-    return (
-      `El titular tiene ${titular.length} caracteres y Meta corta alrededor de los 40: al cliente le va a llegar cortado. ` +
-      `Titular actual: "${titular}". ` +
-      `Reescribilo en 40 caracteres o menos -- que el gancho entre entero -- y volvé a llamar la herramienta.`
-    );
+  // ── El titular largo se ACORTA, no se rechaza ──────────────────────────
+  //
+   // Antes esto devolvía un error y el turno entero se caía. Al admin le pasó
+  // el 2026-08-30 con un titular de 41 caracteres --UNO de más-- y perdió el
+  // anuncio: "IA 2026: herramientas + agentes autónomos". Él lo dijo así: "me
+  // dijo que era muy largo, debería reducirlo en automático".
+  //
+  // Tiene razón. Recortar en el último espacio antes de 40 es una decisión
+  // mecánica que no necesita al modelo: el gancho ya está en las primeras
+  // palabras. Devolver el turno entero por un carácter es hacerle pagar al
+  // admin un problema de formato que el servidor sabe resolver solo.
+  const titularOriginal = typeof args.headline === "string" ? args.headline.trim() : "";
+  if (titularOriginal.length > 40) {
+    args.headline = acortarTitular(titularOriginal, 40);
   }
+  const titular = String(args.headline || "").trim();
 
   // Las listas de afirmaciones reguladas y las reglas de respaldo viven en
   // anuncio-inteligente.ts: el BRIEF que se le entrega al modelo ANTES de
@@ -1201,6 +1209,28 @@ export async function validarContenidoAnuncio(
  * es justamente el paso que sirve para tener el anuncio listo mientras
  * tanto.
  */
+/**
+ * Deja el titular dentro de lo que Meta muestra, cortando por palabra.
+ *
+ * Meta corta alrededor de los 40 caracteres y el resto no se ve. Cortar en el
+ * último espacio antes del tope deja una frase que se lee; cortar por caracter
+ * deja "IA 2026: herramientas + agentes autóno", que se ve roto.
+ *
+ * Sin puntos suspensivos: el titular no es un texto que siga en otro lado, es
+ * la frase completa que ve el cliente. Unos puntos ahí sugieren que falta algo.
+ */
+export function acortarTitular(texto: string, tope = 40): string {
+  const t = String(texto || "").trim();
+  if (t.length <= tope) return t;
+  const corte = t.slice(0, tope + 1);
+  const ultimoEspacio = corte.lastIndexOf(" ");
+  // Una sola palabra más larga que el tope: no hay por dónde cortar sin
+  // partirla, así que se parte -- es preferible a devolverla entera y que la
+  // corte Meta en cualquier lado.
+  const base = ultimoEspacio > tope * 0.5 ? corte.slice(0, ultimoEspacio) : t.slice(0, tope);
+  return base.replace(/[\s\-–—:+,.]+$/, "").trim();
+}
+
 export async function bloqueoDeMeta(
   tool: string,
   ctx: OperatorContext,

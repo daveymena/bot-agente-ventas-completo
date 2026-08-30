@@ -1218,13 +1218,29 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
             // nada guardado: se cortó el turno. Con lo sensible que resultó
             // este punto -- Atlas diciendo "guardado" sin guardar --, este
             // mensaje tiene que ser inequívoco.
-            "⏳ Esto está tardando más de lo que aguanta una sola respuesta, así que corté acá. **No se creó ni se guardó nada.** "
-            + "Pedime que continúe y sigo desde ahí, o dividí el pedido en pasos más chicos."
-            + (causaDeFondo() || "")
-            + `\n\n⏱️ En qué se fue el tiempo: ${tramosTexto()}`,
+            // ── Al admin NO se le cuentan las tripas ─────────────────────
+            //
+            // Acá salían el reparto por tramos y la lista de modelos que se
+            // colgaron, con nombres de proveedores y segundos. El admin lo
+            // dijo así: "los errores internos no deberían mostrarse, solo
+            // decir que estamos tardando un poco".
+            //
+            // Tiene razón: que un modelo tarde o falle es problema NUESTRO.
+            // El que lee esto quiere su anuncio, no un diagnóstico de
+            // infraestructura que además no puede arreglar.
+            //
+            // El detalle NO se pierde: va completo al log y al campo `tramos`
+            // de la respuesta, que es donde sirve. Cambia quién lo lee, no si
+            // se registra.
+            "⏳ Esto me está tomando más de lo normal. **Todavía no se creó ni se guardó nada.** "
+            + "Seguimos trabajando en tu pedido: decime *continuá* y sigo desde donde iba.",
           ));
+          logger.warn(
+            { tenantId, tramos, totalMs: Date.now() - t0, causa: causaDeFondo() || null },
+            "[AtlasOpenCode] Turno cortado por tiempo -- el detalle va al log, no al admin",
+          );
           await saveArchitectTurn(tenantId, sessionId, "assistant", reply);
-          return finish({ reply, status: "partial", needsContinuation: true });
+          return finish({ reply, status: "partial", needsContinuation: true, tramos, totalMs: Date.now() - t0 });
         }
         return finish({ error: "No pude terminar de responder. ¿Podés intentarlo de nuevo?" }, 502);
       }
