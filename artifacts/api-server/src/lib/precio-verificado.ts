@@ -149,3 +149,67 @@ export function verificarPrecios(
   }
   return { texto: limpio, inventados };
 }
+
+/**
+ * Qué contestarle a quien pide rebaja.
+ *
+ * El admin lo planteó así, y es doctrina de venta correcta: "el precio no
+ * tiene rebaja, no es negociable. Solo debe mostrar POR QUÉ debería comprarlo
+ * y por qué es una gran oportunidad. Si rebajas, le pierde el valor al precio
+ * y a todo".
+ *
+ * Tiene razón en lo comercial, no solo en lo económico:
+ *
+ *   · Un precio que baja al primer pedido enseña que el de la lista era falso,
+ *     y a partir de ahí TODO el catálogo se lee como inflado.
+ *   · Quien consiguió rebaja lo cuenta. El siguiente entra pidiendo la misma.
+ *   · Y el que pagó completo la semana pasada se entera.
+ *
+ * ── Lo que hacía antes ───────────────────────────────────────────────────
+ *
+ * "El precio es $60.000 y es fijo 🙏 No manejo descuentos, pero es pago único
+ * y el acceso te queda de por vida."
+ *
+ * Niega dos veces --"es fijo", "no manejo descuentos"-- y no da UNA razón para
+ * comprarlo. Al cliente que pide rebaja no lo convence un "no": lo convence
+ * ver que lo vale.
+ *
+ * ── Lo que hace ahora ────────────────────────────────────────────────────
+ *
+ * Dice el precio una vez, sin disculparse, y lo sostiene con lo que el
+ * producto REALMENTE tiene. Nada de comparar con la competencia: el sistema no
+ * sabe qué cobran otros, y el detector de invenciones ya rechaza esas frases
+ * (ver `PRECIO_AJENO` en sales-playbook.ts).
+ */
+export function defenderElPrecio(p: {
+  name?: string | null;
+  price?: number | string | null;
+  currency?: string | null;
+  features?: string[] | null;
+}): string {
+  const monto = Number(p?.price);
+  const precioTexto =
+    Number.isFinite(monto) && monto > 0
+      ? `$${Math.round(monto).toLocaleString("es-CO")}${p?.currency ? ` ${String(p.currency).toUpperCase()}` : ""}`
+      : "el del catálogo";
+
+  // Lo que de verdad se lleva. Solo del producto: si no hay características
+  // cargadas, no se inventa ninguna -- se sostiene el precio sin adornarlo.
+  const rasgos = (Array.isArray(p?.features) ? p!.features! : [])
+    .map((f) => String(f || "").trim())
+    .filter(Boolean)
+    .slice(0, 3);
+
+  const razon = rasgos.length
+    ? `Por ${precioTexto} te llevás ${rasgos.join(", ")}.`
+    : `Ese precio es el mismo para todos los que ya lo compraron.`;
+
+  return (
+    // Se dice el precio UNA vez y sin pedir perdón. "Es el mismo para todos"
+    // explica el porqué sin sonar a negativa: no es que no quiera, es que el
+    // precio es serio.
+    `El precio es ${precioTexto}, el mismo para todos 🙏 ` +
+    `${razon} ` +
+    `Prefiero sostenerlo y que valga lo que cuesta, antes que rebajarlo y que no valga nada.`
+  );
+}

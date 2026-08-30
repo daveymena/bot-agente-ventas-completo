@@ -22,7 +22,7 @@
  * para poder volver a la conversacion y verificarlo.
  */
 
-import { verificarPrecios, type ProductoParaPrecio } from "./precio-verificado";
+import { verificarPrecios, defenderElPrecio, type ProductoParaPrecio } from "./precio-verificado";
 import { preguntasSueltas } from "./estado-cognitivo";
 
 export type Gravedad = "bloquea" | "corrige";
@@ -530,9 +530,11 @@ export function supervisarRespuesta(e: EntradaSupervisor): RevisionSupervisor {
         // Texto FIJO: no lo redacta el modelo. Dice el precio, no regatea, y
         // deja la puerta abierta -- que es lo que hace un vendedor de verdad
         // cuando le piden rebaja.
-        reemplazoSugerido:
-          `El precio es ${precioTexto} y es fijo 🙏 No manejo descuentos, pero es pago único ` +
-          `y el acceso te queda de por vida. ¿Te cuento qué incluye?`,
+        // El texto lo arma `defenderElPrecio` con los datos REALES del
+        // producto. El anterior negaba dos veces --"es fijo", "no manejo
+        // descuentos"-- y no daba una sola razón para comprarlo. Al que pide
+        // rebaja no lo convence un "no": lo convence ver que lo vale.
+        reemplazoSugerido: defenderElPrecio(enFoco[0] as any),
       };
     }
   }

@@ -43,7 +43,16 @@ describe("el bot no negocia el precio", () => {
     expect(r.hallazgos.map((h) => h.regla)).toContain("descuento-aceptado");
     // Y lo que sale en su lugar dice el precio real, no un "déjame verificar".
     expect(r.reemplazoSugerido).toMatch(/60\.000/);
-    expect(r.reemplazoSugerido).toMatch(/fijo|no manejo descuentos/i);
+    // El contrato cambió a pedido del admin (2026-08-30): "si rebajas, le
+    // pierde el valor al precio y a todo. Debe mostrar POR QUÉ comprarlo".
+    //
+    // Antes la respuesta negaba dos veces --"es fijo", "no manejo
+    // descuentos"-- y no daba una sola razón para pagarlo. Ahora sostiene el
+    // precio y lo respalda con lo que el producto REALMENTE trae. Lo que no
+    // cambia, y es lo que esta prueba cuida, es que NO se acepte la rebaja y
+    // que el precio real aparezca.
+    expect(r.reemplazoSugerido).toMatch(/el mismo para todos/i);
+    expect(r.reemplazoSugerido).not.toMatch(/\b30\.?000\b/);
   });
 
   it("agarra las formas en que se pide rebaja", () => {
