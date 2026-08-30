@@ -343,3 +343,62 @@ export function renderEstado(s: EstadoCognitivo): string {
   l.push(`   ${s.accionSiguiente}`);
   return l.join("\n");
 }
+
+/**
+ * ¿Corresponde mandarle los medios de pago AHORA?
+ *
+ * Es la regla que le faltaba a la máquina de etapas, y la que más caro sale.
+ *
+ * Conversación real (2026-08-30), con la etapa bien calculada en `interesado`:
+ *
+ *   bot:     [ficha del curso]
+ *   bot:     "💰 $60.000 COP — ¿Te cuento qué incluye? 👀"
+ *   cliente: "Sí"
+ *   bot:     [los tres medios de pago, con el número de Nequi]
+ *
+ * `prohibidoSegunEtapa` ya decía "no hables de una compra hecha" para esa
+ * etapa, pero NADA prohibía mandar el checkout. Y aunque lo hubiera prohibido,
+ * era texto en el prompt: una sugerencia al modelo, no una regla del sistema.
+ *
+ * El admin lo dijo así, y tenía razón: "no está manejando las etapas, responde
+ * de una". Pedirle plata a quien está averiguando le dice que no lo
+ * escucharon, y es de las pocas formas de perder una venta encaminada.
+ *
+ * ── Cuándo SÍ ────────────────────────────────────────────────────────────
+ *
+ * 1. Cuando el cliente ya decidió (`decidido`) o ya dijo que pagó.
+ * 2. Cuando lo PIDIÓ explícitamente, en cualquier etapa. Si pregunta "¿cómo
+ *    pago?" hay que contestarle: negárselo por estar en la etapa 2 sería el
+ *    error opuesto, y tan malo como el otro.
+ *
+ * En todo lo demás, no. La ficha ya lleva el precio; los medios de pago son
+ * el último paso, no el primero.
+ */
+const PIDE_PAGAR =
+  /\b(c[oó]mo (pago|puedo pagar|hago para pagar)|d[oó]nde (pago|consigno|transfiero)|formas? de pago|m[eé]todos? de pago|medios? de pago|datos? (de|para) (pago|transferencia)|mand[aá]me? (el|los) (link|enlace|datos)|link de pago|quiero (pagar|comprarlo|llevarlo)|lo (compro|llevo)|d[oó]nde (le )?consigno|n[uú]mero de (nequi|cuenta))/i;
+
+export function puedeMandarPago(e: {
+  etapa: EtapaTrato;
+  /** Lo que escribió el cliente en este mensaje. */
+  mensaje: string;
+}): { puede: boolean; porQue: string } {
+  if (PIDE_PAGAR.test(String(e.mensaje || ""))) {
+    return { puede: true, porQue: "el cliente pidió los datos de pago" };
+  }
+  switch (e.etapa) {
+    case "decidido":
+      return { puede: true, porQue: "el cliente ya dijo que lo quiere" };
+    case "pago_reportado":
+    case "pago_verificado":
+    case "entregado":
+      return { puede: true, porQue: `la etapa es ${e.etapa}` };
+    case "explorando":
+    case "interesado":
+      return {
+        puede: false,
+        porQue:
+          `está ${e.etapa} y no pidió pagar: mandarle el checkout ahora es cobrarle a alguien ` +
+          `que todavía está averiguando`,
+      };
+  }
+}

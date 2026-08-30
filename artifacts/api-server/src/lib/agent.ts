@@ -15,7 +15,7 @@ import { getProviderConfig, getProviderRotation, getProviderConfigFromSettings, 
 import { logger } from "./logger";
 import { supervisarRespuesta } from "./supervisor";
 import { hablarColombiano } from "./hablar-colombiano";
-import { calcularEstado, renderEstado } from "./estado-cognitivo";
+import { calcularEstado, renderEstado, puedeMandarPago, type EtapaTrato } from "./estado-cognitivo";
 import { seccionQueCorresponde, elSiContestaLaOferta } from "./ficha-parcial";
 import { responderPregunta, aperturaPara } from "./conocimiento-producto";
 import { PaymentGateway } from "./payments";
@@ -1593,6 +1593,9 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
   // Esto no es un recuerdo del modelo: lo calcula el servidor con reglas
   // fijas y se lo afirma. Va en `esencial`, así que sobrevive al recorte.
   let bloqueEstado = "";
+  // La etapa del trato, para que decida del lado del servidor y no solo en el
+  // prompt. Ver `puedeMandarPago`.
+  let etapaDelTrato: EtapaTrato | null = null;
   try {
     const productoEstado = decision.productToShow
       ?? (decision.productoDelMensaje
@@ -1605,6 +1608,7 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
       loQueNoSabe: datosQueFaltan(negocio),
     });
     bloqueEstado = renderEstado(estado);
+    etapaDelTrato = estado.etapa;
     console.log(`🧭 [ESTADO] ${estado.etapa} — ${estado.porQue}${estado.preguntaPendiente ? " | pregunta pendiente" : ""} - ${ts()}`);
   } catch (e: any) {
     // Sin estado el agente sigue respondiendo como antes: es una mejora, no
@@ -2493,7 +2497,29 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
             console.log(`🛡️ [FICHA] "${String(lastText).trim()}" contesta lo que el bot ofreció, no pide pagar. No se manda el checkout - ${ts()}`);
           }
           console.log(`🎯 [FICHA] Sección elegida: ${seccion} (intent: ${decision.intent}) - ${ts()}`);
-          parts.push({ kind: "card", productId: resolvedId, paymentOnly: isPaymentFlow && !contestaLaOferta, seccion });
+          // ── La etapa decide si corresponde cobrar ───────────────────────────
+          //
+          // `calcularEtapa` ya sabía en qué punto va el trato, y lo sabía
+          // BIEN. Lo que faltaba era que eso mandara: su resultado viajaba al
+          // prompt como texto, o sea como sugerencia al modelo. Y una
+          // sugerencia no es una garantía -- es la misma lección que ya costó
+          // el producto equivocado y el objetivo del anuncio.
+          //
+          // Ahora la etapa es una regla del servidor. En `explorando` o
+          // `interesado` no sale el checkout, salvo que el cliente lo haya
+          // pedido con todas las letras.
+          const permiso = etapaDelTrato
+            ? puedeMandarPago({ etapa: etapaDelTrato, mensaje: String(lastText || "") })
+            : { puede: true, porQue: "sin etapa calculada, se deja pasar" };
+          if (isPaymentFlow && !permiso.puede) {
+            console.log(`🧭 [ETAPA] No se manda el pago: ${permiso.porQue} - ${ts()}`);
+          }
+          parts.push({
+            kind: "card",
+            productId: resolvedId,
+            paymentOnly: isPaymentFlow && !contestaLaOferta && permiso.puede,
+            seccion,
+          });
           cardProductId = resolvedId;
           cardCount++;
         }
