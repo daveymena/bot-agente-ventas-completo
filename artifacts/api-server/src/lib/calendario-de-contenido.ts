@@ -235,3 +235,109 @@ export function revisarPlan(plan: PlanSemanal): { ok: boolean; problemas: string
   }
   return { ok: problemas.length === 0, problemas };
 }
+
+/**
+ * ============================================================
+ * EL TEXTO DE CADA PUBLICACIÓN
+ * ============================================================
+ *
+ * El calendario dice QUÉ hacer; esto escribe lo que se publica. Sin esta
+ * parte, el plan le deja al admin el trabajo que justamente venía a sacarle:
+ * "hacé un carrusel con tres cosas que se aprenden" sigue siendo tarea suya.
+ *
+ * ── Por qué lo arma el servidor y no el modelo ───────────────────────────
+ *
+ * Es la regla que este proyecto ya pagó cara: el modelo escribe bien, pero
+ * cuando le falta un dato lo inventa. Hoy mismo un anuncio salió prometiendo
+ * ChatGPT, Perplexity y Midjourney en un curso que no las enseña.
+ *
+ * Acá el texto se arma con lo que el producto REALMENTE tiene --nombre,
+ * características, precio-- y el modelo queda para pulir la redacción, no para
+ * decidir qué se promete. Lo que no está en el producto, no se escribe.
+ *
+ * ── El precio aparece UNA sola vez a la semana ───────────────────────────
+ *
+ * Solo en la pieza de venta. Ponerlo en las cuatro convierte el calendario en
+ * cuatro anuncios seguidos, que es exactamente lo que la regla 80/20 evita.
+ */
+
+export interface ProductoParaContenido {
+  id: number;
+  name: string;
+  price?: number | string | null;
+  currency?: string | null;
+  features?: string[] | null;
+  description?: string | null;
+}
+
+/** Las características reales, limpias y acotadas. Nunca inventadas. */
+function caracteristicas(p?: ProductoParaContenido): string[] {
+  const fs = Array.isArray(p?.features) ? p!.features! : [];
+  return fs.map((f) => String(f || "").trim()).filter(Boolean).slice(0, 3);
+}
+
+/**
+ * El texto listo para publicar de una pieza.
+ *
+ * Devuelve `null` cuando la pieza necesita datos del producto y no los hay: es
+ * preferible dejar la instrucción sin texto a publicar una promesa vacía.
+ */
+export function textoDeLaPieza(
+  pieza: PiezaDeContenido,
+  producto?: ProductoParaContenido,
+): string | null {
+  const nombre = producto?.name?.trim();
+  const rasgos = caracteristicas(producto);
+
+  switch (pieza.etapa) {
+    case "atraer": {
+      // Sin producto a propósito: tiene que servirle a alguien que no sabe que
+      // el negocio existe. Por eso es lo único que NO se apoya en el catálogo.
+      return [
+        "El error que casi todos cometen al empezar 👇",
+        "",
+        "No es falta de tiempo ni de talento: es empezar por donde no se debe.",
+        "",
+        "Guardá esto para cuando te toque 📌",
+      ].join("\n");
+    }
+    case "educar": {
+      if (!nombre || rasgos.length === 0) return null;
+      return [
+        `3 cosas que casi nadie te cuenta 👇`,
+        "",
+        ...rasgos.map((r, i) => `${i + 1}. ${r}`),
+        "",
+        "¿Cuál te sirve más? Contame en los comentarios 💬",
+      ].join("\n");
+    }
+    case "demostrar": {
+      if (!nombre) return null;
+      return [
+        `Así se ve por dentro 👇`,
+        "",
+        rasgos.length ? `Lo que se lleva quien entra: ${rasgos.join(" · ")}` : "Te muestro el contenido real, sin recortes.",
+        "",
+        "Preguntá lo que quieras acá abajo 💬",
+      ].join("\n");
+    }
+    case "vender": {
+      if (!nombre) return null;
+      // La ÚNICA pieza de la semana que lleva precio.
+      const moneda = String(producto?.currency || "COP").toUpperCase();
+      const monto = Number(producto?.price);
+      const precio = Number.isFinite(monto) && monto > 0
+        ? `$${monto.toLocaleString("es-CO", { maximumFractionDigits: 0 })} ${moneda}`
+        : null;
+      return [
+        `📦 ${nombre}`,
+        "",
+        ...(rasgos.length ? rasgos.map((r) => `📚 ${r}`) : []),
+        ...(precio ? [`💰 ${precio} · pago único`] : []),
+        "♾️ Acceso permanente",
+        "",
+        "💬 Escribime por WhatsApp y te cuento cómo empezar.",
+      ].join("\n");
+    }
+  }
+}

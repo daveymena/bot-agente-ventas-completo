@@ -25,6 +25,7 @@ import { FB_GRAPH_BASE } from "./meta-api-version";
 
 export interface CredencialesFacebook {
   accessToken: string;
+  userAccessToken?: string;
   pageId: string;
   adAccountId: string;
   pixelId: string;
@@ -66,6 +67,7 @@ export function credencialesFacebookDe(tenant: TenantContext | null | undefined)
 
   return {
     accessToken,
+    userAccessToken: fb.userAccessToken || process.env.FB_USER_ACCESS_TOKEN || process.env.FB_ACCESS_TOKEN || "",
     pageId: fb.pageId || process.env.FB_PAGE_ID || "",
     adAccountId: fb.adAccountId || process.env.FB_AD_ACCOUNT_ID || "",
     pixelId: fb.pixelId || process.env.FB_PIXEL_ID || "",

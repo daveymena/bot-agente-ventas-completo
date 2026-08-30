@@ -2442,7 +2442,12 @@ export const TOOLS: ToolDef[] = [
       if (v.ok) {
         try {
           const { FB_GRAPH_BASE } = await import("./meta-api-version");
-          const r = await fetch(`${FB_GRAPH_BASE}/me/permissions?access_token=${cred.accessToken}`, {
+          // /me/permissions SOLO funciona con el token de USUARIO -- un token
+          // de página devuelve la lista vacía (ver facebook-page-posts.ts:91).
+          // Si no hay user token caemos al de página: con ese casi seguro va a
+          // decir "faltan todos", pero es mejor que mentir diciendo "ok".
+          const tokenPermisos = cred.userAccessToken || cred.accessToken;
+          const r = await fetch(`${FB_GRAPH_BASE}/me/permissions?access_token=${tokenPermisos}`, {
             signal: AbortSignal.timeout(12000),
           });
           const j: any = await r.json();
@@ -4475,13 +4480,21 @@ Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vincu
       "Úsalo cuando el admin pida una estrategia de marketing, un plan de contenido, o qué publicar.",
     args: '{ "postsPorSemana"?: number (4 o 5; por defecto 4), "semanas"?: number (1 a 4; por defecto 4) }',
     run: async (args, ctx) => {
-      const { planDelMes, revisarPlan } = await import("./calendario-de-contenido");
+      const { planDelMes, revisarPlan, textoDeLaPieza } = await import("./calendario-de-contenido");
 
       // Los productos REALES, activos. Si el catálogo está vacío el plan se
       // arma igual pero sin nombrar nada: preferible un calendario genérico
       // a uno que inventa lo que vende el negocio.
+      // Se traen precio y características además del nombre: el texto de cada
+      // publicación se arma con datos REALES, y sin ellos no se escribe nada.
       const activos = await db
-        .select({ id: products.id, name: products.name })
+        .select({
+          id: products.id,
+          name: products.name,
+          price: products.price,
+          currency: products.currency,
+          features: products.features,
+        })
         .from(products)
         .where(and(eq(products.tenantId, ctx.tenantId), eq(products.isActive, true)))
         .limit(40);
@@ -4502,7 +4515,16 @@ Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vincu
               (p) =>
                 `   ${p.diaNombre.padEnd(10)} ${etiquetaFormato(p.formato)} ${etiquetaEtapa(p.etapa)}` +
                 `${p.producto ? ` · ${p.producto.nombre.slice(0, 34)}` : ""}` +
-                `\n      ${p.queHacer}`,
+                `\n      ${p.queHacer}` +
+                // El texto LISTO PARA PUBLICAR, cuando hay datos reales para
+                // armarlo. Sin esto el plan le devolvía al admin el trabajo que
+                // venía a sacarle: "hacé un carrusel con tres cosas que se
+                // aprenden" sigue siendo tarea suya.
+                (() => {
+                  const prod = activos.find((x: any) => x.id === p.producto?.id);
+                  const t = textoDeLaPieza(p, prod as any);
+                  return t ? `\n      ─────\n${t.split("\n").map((l) => `      ${l}`).join("\n")}` : "";
+                })(),
             )
             .join("\n");
           return `📅 *SEMANA ${s.semana}* — ${s.foco}\n${filas}`;

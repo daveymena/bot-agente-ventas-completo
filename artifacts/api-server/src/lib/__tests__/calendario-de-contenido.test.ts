@@ -112,3 +112,73 @@ describe("La revisión detecta un plan que incumple", () => {
     expect(revisarPlan(malo).problemas.join(" ")).toMatch(/videos/);
   });
 });
+
+/**
+ * El texto listo para publicar.
+ *
+ * Sin esto el plan le deja al admin el trabajo que venía a sacarle: "hacé un
+ * carrusel con tres cosas que se aprenden" sigue siendo tarea suya.
+ *
+ * Lo que se prueba es la disciplina que este proyecto pagó cara: el texto sale
+ * de lo que el producto REALMENTE tiene. Hoy mismo un anuncio salió prometiendo
+ * ChatGPT, Perplexity y Midjourney en un curso que no las enseña.
+ */
+import { textoDeLaPieza } from "../calendario-de-contenido";
+
+const CURSO = {
+  id: 124,
+  name: "INTELIGENCIA ARTIFICIAL 2026",
+  price: 60000,
+  currency: "COP",
+  features: ["3 cursos: Agentes IA, Claude y Gemini", "n8n sin código", "Claude Code y Claude Design"],
+};
+
+const pieza = (etapa: any) => ({
+  dia: 1, diaNombre: "lunes", formato: "reel" as const, etapa, objetivo: "", queHacer: "",
+});
+
+describe("El texto de cada publicación sale del producto real", () => {
+  it("la pieza de venta lleva precio, características y a dónde escribir", () => {
+    const t = textoDeLaPieza(pieza("vender"), CURSO)!;
+    expect(t).toContain("INTELIGENCIA ARTIFICIAL 2026");
+    expect(t).toContain("$60.000 COP");
+    expect(t).toContain("n8n sin código");
+    expect(t).toMatch(/WhatsApp/i);
+  });
+
+  it("el precio aparece SOLO en la pieza de venta", () => {
+    // Ponerlo en las cuatro convierte el calendario en cuatro anuncios
+    // seguidos, que es justo lo que la regla 80/20 evita.
+    for (const etapa of ["atraer", "educar", "demostrar"]) {
+      const t = textoDeLaPieza(pieza(etapa), CURSO) || "";
+      expect(t, etapa).not.toContain("60.000");
+    }
+  });
+
+  it("la que atrae no nombra el producto ni lo necesita", () => {
+    const t = textoDeLaPieza(pieza("atraer"), CURSO)!;
+    expect(t).not.toContain("INTELIGENCIA ARTIFICIAL");
+    // Y funciona aunque no haya catálogo: es la única que no depende de él.
+    expect(textoDeLaPieza(pieza("atraer"), undefined)).toBeTruthy();
+  });
+
+  it("usa las características REALES, no inventa ninguna", () => {
+    const t = textoDeLaPieza(pieza("educar"), CURSO)!;
+    for (const f of CURSO.features) expect(t).toContain(f);
+    // La prueba que de verdad importa: nada que el producto no tenga.
+    expect(t).not.toMatch(/ChatGPT|Perplexity|Midjourney|Copilot/i);
+  });
+
+  it("sin datos del producto NO escribe nada, en vez de prometer al aire", () => {
+    // Preferible dejar la instrucción sin texto a publicar una promesa vacía.
+    expect(textoDeLaPieza(pieza("educar"), { id: 1, name: "X" })).toBeNull();
+    expect(textoDeLaPieza(pieza("vender"), undefined)).toBeNull();
+  });
+
+  it("sin precio cargado no se lo inventa, y el resto del texto sale igual", () => {
+    const t = textoDeLaPieza(pieza("vender"), { ...CURSO, price: 0 })!;
+    expect(t).toContain("INTELIGENCIA ARTIFICIAL 2026");
+    expect(t).not.toMatch(/\$\s*0/);
+    expect(t).toMatch(/Acceso permanente/);
+  });
+});
