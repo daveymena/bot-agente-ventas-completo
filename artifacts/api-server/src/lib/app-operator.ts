@@ -4542,6 +4542,86 @@ Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vincu
     },
   },
   {
+    name: "negocio_que_falta",
+    description:
+      "Qué datos del negocio NO están cargados y qué le cuesta cada uno al bot de WhatsApp. Solo LEE. " +
+      "Úsalo cuando el admin pregunte por qué el bot no contesta algo, cuando diga que el bot 'no sabe', " +
+      "y SIEMPRE al empezar con un negocio nuevo: un negocio sin estos datos tiene un bot que calla o improvisa.",
+    args: "{}",
+    run: async (_args, ctx) => {
+      const { getBusinessContext } = await import("./business-context");
+      const negocio = await getBusinessContext(ctx.tenantId);
+      const p: any = negocio || {};
+
+      // Cada hueco se explica por LO QUE CUESTA, no por el nombre del campo.
+      // "Falta acceso" no le dice nada a nadie; "cuando le pregunten cuánto
+      // dura, el bot va a decir que lo confirma" sí.
+      const huecos = [
+        !p.entrega && { campo: "entrega", falta: "cómo se entrega y cuánto tarda", cuesta: "Ante '¿cómo me llega?' el bot dice que lo confirma. Es la pregunta más común antes de pagar." },
+        !p.garantia && { campo: "garantia", falta: "si hay garantía o devolución", cuesta: "No puede contestar al cliente que desconfía, que es la objeción que más ventas frena." },
+        !p.acceso && { campo: "acceso", falta: "por cuánto tiempo dura el acceso", cuesta: "Ante '¿es de por vida?' no puede responder, y prometerlo sin saberlo sería mentir." },
+        !p.tono && { campo: "tono", falta: "cómo habla este negocio", cuesta: "El bot usa el tono por defecto, que puede no parecerse en nada a cómo habla la marca." },
+        p.negociaPrecio === undefined && { campo: "negociaPrecio", falta: "si el precio se negocia o no", cuesta: "Ante un '¿me lo dejás más barato?' el bot no sabe si puede ceder." },
+        !p.noPuede?.length && { campo: "noPuede", falta: "qué NO hace el negocio", cuesta: "Sin esto el bot puede prometer algo que el negocio no ofrece, y eso termina en reclamo." },
+      ].filter(Boolean) as any[];
+
+      return {
+        ok: true,
+        summary: huecos.length === 0
+          ? "El negocio tiene cargado todo lo que el bot necesita para no improvisar."
+          : `Faltan ${huecos.length} dato${huecos.length === 1 ? "" : "s"}: ${huecos.map((h) => h.falta).join("; ")}.`,
+        data: {
+          faltan: huecos,
+          comoSeCarga: "Preguntáselos al admin de a UNO, en lenguaje llano, y guardalos con negocio_configurar. No los inventes ni le pidas que llene un formulario.",
+          yaCargado: {
+            entrega: p.entrega ?? null, garantia: p.garantia ?? null, acceso: p.acceso ?? null,
+            tono: p.tono ?? null, negociaPrecio: p.negociaPrecio ?? null, noPuede: p.noPuede ?? [],
+          },
+        },
+      };
+    },
+  },
+  {
+    name: "negocio_configurar",
+    description:
+      "Guarda entrega, garantía, acceso, tono, si negocia precio y qué NO hace el negocio. Es lo que el bot usa para no improvisar. " +
+      "Mandá solo los campos que el admin te dijo; lo que no mandes NO se toca. " +
+      "⚠️ Va por propose_action: cambia lo que el bot le dice a TODOS los clientes. " +
+      "Nunca completes un campo por tu cuenta: si el admin no lo dijo, preguntáselo. Un dato inventado acá se convierte en una promesa falsa repetida en cada conversación.",
+    args: '{ "entrega"?: { "metodo": string, "plazo": string, "detalle"?: string }, "garantia"?: { "dias": number, "descripcion"?: string }, "acceso"?: { "tipo": string, "descripcion"?: string }, "tono"?: string, "negociaPrecio"?: boolean, "noPuede"?: string[] }',
+    run: async (args, ctx) => {
+      const [t] = await db.select().from(tenants).where(eq(tenants.id, ctx.tenantId)).limit(1);
+      if (!t) return { ok: false, summary: "No se encontró el negocio." };
+
+      const meta = ((t as any).metadata || {}) as Record<string, any>;
+      const previo = (meta.businessProfile || {}) as Record<string, any>;
+      const cambios: Record<string, any> = {};
+
+      for (const campo of ["entrega", "garantia", "acceso", "tono", "negociaPrecio", "noPuede"]) {
+        if (args[campo] !== undefined) cambios[campo] = args[campo];
+      }
+      if (Object.keys(cambios).length === 0) {
+        return { ok: false, summary: "No mandaste ningún campo para guardar." };
+      }
+
+      await db
+        .update(tenants)
+        .set({ metadata: { ...meta, businessProfile: { ...previo, ...cambios } } })
+        .where(eq(tenants.id, ctx.tenantId));
+
+      // El contexto del negocio está cacheado: sin invalidarlo, el bot seguiría
+      // contestando con lo viejo y el admin creería que no se guardó nada.
+      const { invalidarContextoDeNegocio } = await import("./business-context");
+      invalidarContextoDeNegocio(ctx.tenantId);
+
+      return {
+        ok: true,
+        summary: `Guardado: ${Object.keys(cambios).join(", ")}. El bot ya lo usa en la próxima conversación.`,
+        data: { guardado: cambios },
+      };
+    },
+  },
+  {
     name: "automatizacion_estado",
     description:
       "Qué está automatizado hoy y qué va a pasar: publicaciones orgánicas ya agendadas con su día y hora, " +
@@ -4610,7 +4690,7 @@ Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vincu
   {
     name: "automatizacion_organica",
     description:
-      "ENCIENDE la publicación automática en la página de Facebook: agenda la semana de contenido y la publica sola, día y hora. " +
+      "Enciende la publicación automática en la página: agenda la semana y publica sola. " +
       "⚠️ Va SIEMPRE por propose_action. No gasta pauta, pero publica solo y en público durante semanas: " +
       "es el mismo criterio que fb_page_publish, que pide confirmación por ser público e irreversible desde la app. " +
       "Mostrale al admin el plan de la semana (plan_de_contenido) ANTES de proponerlo: aprobar publicaciones que no vio es aprobar a ciegas. " +
@@ -4642,7 +4722,7 @@ Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vincu
   {
     name: "automatizacion_franjas",
     description:
-      "Pone campañas bajo GUARDIA HORARIA: se apagan solas en las franjas que gastan sin traer resultados y se reactivan en las buenas. " +
+      "Pone campañas bajo guardia horaria: se apagan en las franjas muertas y se reactivan en las buenas. " +
       "Las franjas salen del historial REAL de la cuenta, no de suponer que de noche no se vende. " +
       "⚠️ Esto CAMBIA cómo se gasta la plata del admin: va SIEMPRE por propose_action, nunca directo. " +
       "Mandá la lista COMPLETA de campañas que quedan bajo guardia: una lista vacía la apaga. " +
@@ -5300,6 +5380,9 @@ export const READ_ONLY_TOOLS = new Set([
   // tocar Meta. Tiene que poder correrse sin permiso: es justamente lo que el
   // admin necesita ver ANTES de decidir si enciende la automatización.
   "automatizacion_estado",
+  // Solo mira qué falta cargar. Pedir permiso para diagnosticar haría que
+  // nadie diagnostique.
+  "negocio_que_falta",
 ]);
 export const DESTRUCTIVE_TOOLS = new Set([
   "delete_product",
