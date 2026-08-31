@@ -303,7 +303,34 @@ export async function executeWithFallback<T>(
       `AI_OP_CONV_${context.conversationId}`
     );
   } catch (error: any) {
-    logger.error({ conversationId: context.conversationId, error: error.message }, "[FallbackSystem] AI failed, activating fallback");
+    logger.error({ conversationId: context.conversationId, error: error.message, stack: error?.stack }, "[FallbackSystem] AI failed, activating fallback");
+
+    // ── Y que se VEA desde afuera ──────────────────────────────────────────
+    //
+    // Este catch es el que produce el "🛡️ Estoy teniendo problemas técnicos"
+    // que recibe el cliente. Hasta ahora solo dejaba rastro en los logs del
+    // contenedor, que no se pueden leer desde ningún lado: EasyPanel no expone
+    // API de logs. Resultado: el 2026-08-31 el bot contestó ese mensaje durante
+    // horas y desde afuera se veía "todo bien" -- WhatsApp conectado, la cola
+    // en 0 fallados, `ultimoError` en null. El fallo estaba PRECISAMENTE en el
+    // único lugar invisible.
+    //
+    // La cola marca 0 fallados a propósito y no es un bug: acá el error se
+    // atrapa y se devuelve una respuesta, así que para el orquestador el
+    // mensaje se procesó bien. Por eso hace falta este registro aparte.
+    try {
+      const { AgentOrchestrator } = await import("./services/agent-orchestrator");
+      (AgentOrchestrator as any).ultimoError = {
+        cuando: new Date().toISOString(),
+        conversacion: context.conversationId,
+        mensaje: String(error?.message || error).slice(0, 300),
+        donde: "respuesta de emergencia al cliente (executeWithFallback) -- " +
+          String(error?.stack || "").split(/\r?\n/).slice(0, 4).join(" | ").slice(0, 500),
+      };
+    } catch {
+      // Si ni esto se puede registrar, no se rompe el flujo: el cliente igual
+      // recibe su respuesta de emergencia.
+    }
     
     // Notify operator of the failure
     await notifyOperatorOfFailure(
