@@ -1444,10 +1444,24 @@ export const TOOLS: ToolDef[] = [
       // CUALQUIER modelo que rote en este turno, sin depender de que siga
       // bien la advertencia del prompt del sistema.
       const [{ total }] = await db.select({ total: sql<number>`count(*)::int` }).from(products).where(filtro);
+      // ── El conteo de ACTIVOS, dicho y no deducido ─────────────────────────
+      //
+      // Visto en vivo (2026-08-30): Atlas contestó "104 productos activos (de
+      // 140 totales), los 16 restantes están inactivos". Los reales son 84, y
+      // el propio mensaje se contradice: 140 menos 104 son 36, no 16.
+      //
+      // No lo invento de la nada: contó las filas de la página que recibió. La
+      // advertencia de "página parcial" ya estaba y no alcanzó, porque le pedía
+      // al modelo que NO hiciera algo -- y eso nunca funciona tan bien como
+      // darle el número hecho.
+      const [{ activos }] = await db
+        .select({ activos: sql<number>`count(*)::int` })
+        .from(products)
+        .where(and(eq(products.tenantId, ctx.tenantId), eq(products.isActive, true)));
       const truncado = total > rows.length;
       return {
         ok: true,
-        summary: `${rows.length} productos${search ? ` (filtrado por "${search}")` : ""}${ampliado ? ` -- no hubo coincidencia exacta, así que se buscó por palabras sueltas en nombre y descripción: ELEGÍ de esta lista el que de verdad corresponde antes de usar su id, y si ninguno encaja decilo en vez de inventar uno.` : ""}${truncado ? ` -- ADVERTENCIA: esto es una página parcial, hay ${total} en total. No reportes ${rows.length} como el total del catálogo; para el conteo real completo usá analyze_system.` : ""}`,
+        summary: `${rows.length} productos en esta lista · EN EL CATÁLOGO HAY ${total} EN TOTAL, ${activos} ACTIVOS y ${total - activos} inactivos (usá estos números, no cuentes las filas)${search ? ` (filtrado por "${search}")` : ""}${ampliado ? ` -- no hubo coincidencia exacta, así que se buscó por palabras sueltas en nombre y descripción: ELEGÍ de esta lista el que de verdad corresponde antes de usar su id, y si ninguno encaja decilo en vez de inventar uno.` : ""}${truncado ? ` -- ADVERTENCIA: esto es una página parcial, hay ${total} en total. No reportes ${rows.length} como el total del catálogo; para el conteo real completo usá analyze_system.` : ""}`,
         data: rows.map((p) => ({ id: p.id, name: p.name, price: p.price, currency: p.currency, category: p.category, isActive: p.isActive, hasImage: !!p.imageUrl, hasVideo: !!videoDeProducto(p.metadata) })),
       };
     },
@@ -5358,6 +5372,13 @@ Cada una de estas se rompió de verdad en pruebas reales. No son teoría.
    algo que suene bien. El admin toma decisiones de plata con lo que le decís:
    un dato inventado le cuesta dinero real.
 
+REGLA CERO, ANTES QUE CUALQUIER OTRA: CONTESTÁS SIEMPRE EN ESPAÑOL.
+Sin excepción y sin importar en qué idioma estén los datos que leíste. Las
+herramientas devuelven nombres de campo, errores de Facebook y textos de la web
+en inglés: eso es MATERIA PRIMA, no el idioma de tu respuesta. Traducilo. Si la
+pregunta viene en inglés, igual contestás en español -- el admin es
+hispanohablante y no lo va a pedir cada vez.
+
 PRINCIPIOS OBLIGATORIOS:
 1. MIRA ANTES DE ACTUAR: nunca inventes ids, precios ni datos. Si no los conocés con certeza, primero llamá las herramientas de LECTURA (list_products, list_categories, analyze_system, get_agent, get_settings, etc.) para obtener los datos REALES. Las lecturas se ejecutan solas, sin pedir permiso; usalas libremente.
 2. PLANIFICÁ, NO EJECUTES A CIEGAS: cuando vayas a CAMBIAR algo (crear/editar/borrar un producto, categoría, agente, configuración, tienda, campaña, anuncio, pedido, envío masivo), la ÚNICA forma de hacerlo es llamar la herramienta "propose_action" con el nombre EXACTO de la herramienta de cambio real y sus argumentos ya resueltos (ids reales, no inventados). "propose_action" NUNCA aplica el cambio -- solo lo deja preparado para que el sistema se lo muestre al admin y pida su confirmación explícita en un mensaje futuro. Nunca digas que ya hiciste un cambio antes de llamar "propose_action" y recibir su resultado. Si lo que vas a crear es CONTENIDO (copy de un anuncio, descripción de un producto, mensaje de una campaña), tu respuesta al admin tiene que incluir el CONTENIDO REAL completo ANTES de llamar "propose_action" -- el admin no puede aprobar a ciegas algo que no vio.
@@ -5532,6 +5553,13 @@ ${"${TOOLS}"}
 
 FORMATO: Responde SIEMPRE en JSON válido:
 { "reply": "mensaje claro para el admin", "actions": [ { "tool": "nombre", "args": { ... } } ], "done": true|false }
+
+REGLA CERO, ANTES QUE CUALQUIER OTRA: CONTESTÁS SIEMPRE EN ESPAÑOL.
+Sin excepción y sin importar en qué idioma estén los datos que leíste. Las
+herramientas devuelven nombres de campo, errores de Facebook y textos de la web
+en inglés: eso es MATERIA PRIMA, no el idioma de tu respuesta. Traducilo. Si la
+pregunta viene en inglés, igual contestás en español -- el admin es
+hispanohablante y no lo va a pedir cada vez.
 
 PRINCIPIOS OBLIGATORIOS:
 1. MIRA ANTES DE ACTUAR: nunca inventes ids, precios ni datos. Si no los conoces con certeza, primero usa herramientas de LECTURA (list_products, list_categories, analyze_system, get_agent, get_settings) para obtener los datos REALES. Las lecturas se ejecutan solas; úsalas libremente.
