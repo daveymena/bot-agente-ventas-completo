@@ -1,0 +1,55 @@
+- generic [ref=f7e2]:
+  - generic [ref=f7e3]:
+    - complementary [ref=f7e4]:
+      - generic [ref=f7e5]: Sofía AI Sales
+      - generic [ref=f7e13]:
+        - heading "Vendé por WhatsApp mientras dormís." [level=2] [ref=f7e14]: Vendé por WhatsAppmientras dormís.
+        - paragraph [ref=f7e15]: Un agente de IA atiende, recomienda y cierra ventas por vos. Tu tienda y tus anuncios, en un solo lugar.
+        - generic [ref=f7e16]:
+          - generic [ref=f7e17]: Sofía · en línea
+          - generic [ref=f7e20]:
+            - generic [ref=f7e21]: Hola, ¿el curso de piano tiene certificado?
+            - generic [ref=f7e22]: ¡Sí! Incluye certificado y acceso de por vida. Te dejo el link de pago 👇
+            - generic [ref=f7e23]:
+              - paragraph [ref=f7e24]: Curso de Piano Completo
+              - paragraph [ref=f7e25]: $60.000
+        - list [ref=f7e26]:
+          - listitem [ref=f7e27]:
+            - generic [ref=f7e32]: Atiende 24/7
+          - listitem [ref=f7e33]:
+            - generic [ref=f7e39]: Cobra y entrega solo
+          - listitem [ref=f7e40]:
+            - generic [ref=f7e45]: Datos cifrados
+      - paragraph [ref=f7e46]: © 2026 Sofía AI Sales
+    - generic [ref=f7e48]:
+      - generic [ref=f7e49]:
+        - heading "Sofía AI Sales" [level=1] [ref=f7e50]
+        - paragraph [ref=f7e51]: La plataforma de ventas autónoma de élite
+      - generic [ref=f7e52]:
+        - tablist [ref=f7e53]:
+          - tab "Iniciar Sesión" [selected] [ref=f7e54]
+          - tab "Crear Cuenta" [ref=f7e55]
+        - tabpanel "Iniciar Sesión" [ref=f7e56]:
+          - generic [ref=f7e57]:
+            - generic [ref=f7e58]:
+              - generic [ref=f7e59]: Bienvenido
+              - generic [ref=f7e60]: Ingresa tus credenciales para acceder a tu panel.
+            - generic [ref=f7e61]:
+              - generic [ref=f7e62]:
+                - generic [ref=f7e63]:
+                  - text: Email
+                  - textbox "Email" [ref=f7e65]:
+                    - /placeholder: tu@email.com
+                - generic [ref=f7e66]:
+                  - generic [ref=f7e67]:
+                    - generic [ref=f7e68]: Contraseña
+                    - button "¿Olvidaste tu contraseña?" [ref=f7e69]
+                  - generic [ref=f7e70]:
+                    - textbox "Contraseña" [ref=f7e71]:
+                      - /placeholder: ••••••••
+                    - button "Mostrar contraseña" [ref=f7e72]
+              - button "Acceder al Panel" [ref=f7e77]
+      - paragraph [ref=f7e78]: Al continuar, aceptas nuestros términos de servicio y políticas de privacidad. Tu información viaja cifrada.
+  - region "Notifications (F8)":
+    - list
+  - region "Notifications alt+T"

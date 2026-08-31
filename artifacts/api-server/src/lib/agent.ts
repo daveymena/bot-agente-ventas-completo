@@ -1575,6 +1575,73 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
     console.log(`🧠 [BRAIN] No se encontró patrón de human_handoff, usando IA general`);
   }
 
+  // ⚠️ ESTO VA ACÁ ARRIBA, Y NO MÁS ABAJO, POR UN MOTIVO CONCRETO.
+  //
+  // Vivía después del bloque 11c-bis, que lee `etapaDelTrato`. Como `let`
+  // tiene zona muerta temporal, leerla antes de su declaración no da
+  // `undefined`: lanza ReferenceError. O sea que TODO mensaje que llegaba
+  // hasta ahí reventaba antes de contestar.
+  //
+  // Visto en producción el 2026-08-31: la cola marcaba 3 de 4 mensajes
+  // fallados y el admin reportó "WhatsApp no está respondiendo". El error
+  // era "Cannot access 'etapaDelTrato' before initialization" en agent.ts:1591.
+  // Las pruebas no lo agarraron porque ninguna recorre runAgentReply entero
+  // hasta esa línea.
+  //
+  // Calcularlo temprano además es lo correcto: `memory`, `negocio` y
+  // `decision` están listos desde la línea ~1001, y todo lo de abajo puede
+  // decidir sabiendo en qué punto va la conversación.
+
+  let bloqueEstado = "";
+  // La etapa del trato, para que decida del lado del servidor y no solo en el
+  // prompt. Ver `puedeMandarPago`.
+  let etapaDelTrato: EtapaTrato | null = null;
+  try {
+    const productoEstado = decision.productToShow
+      ?? (decision.productoDelMensaje
+        ? { id: decision.productoDelMensaje.id, name: decision.productoDelMensaje.name }
+        : null);
+    const estado = calcularEstado({
+      historial: memory.history as any,
+      producto: productoEstado as any,
+      fichasEnviadas: memory.sentProductIds,
+      loQueNoSabe: datosQueFaltan(negocio),
+    });
+    bloqueEstado = renderEstado(estado);
+
+    // ── Y QUÉ HACER con ese estado ────────────────────────────────────────
+    //
+    // `renderEstado` dice DÓNDE está la conversación; esto dice qué
+    // corresponde hacer ahora. Estaban juntos y no alcanzaba: la acción de la
+    // etapa "interesado" era "avanzá hacia el cierre", y como esa etapa se
+    // activa con el PRIMER mensaje que nombra un producto, el cliente escribía
+    // "me interesa el de piano" y recibía ficha, precio y medios de pago de
+    // una. El admin lo describió como "va de me interesa a caja en dos
+    // mensajes".
+    //
+    // Ver embudo.ts. Lo que más cambia: antes de presentar se hace UNA
+    // pregunta -- salvo que el cliente haya pedido un dato concreto, y ahí se
+    // le da el dato en vez de interrogarlo.
+    const paso = proximoPaso({
+      etapa: estado.etapa,
+      historial: memory.history as any,
+      preguntaPendiente: estado.preguntaPendiente,
+      fichaEnviada: !!(productoEstado && memory.sentProductIds?.has((productoEstado as any).id)),
+      // Se deduce del historial, no se guarda: el historial ya es la fuente de
+      // verdad y no puede quedar desincronizado con lo que se dijo de verdad.
+      necesidad: necesidadDeclarada(memory.history as any),
+    });
+    bloqueEstado += `\n${renderPaso(paso)}`;
+    console.log(`🎯 [EMBUDO] ${paso.movimiento} — ${paso.porQue} - ${ts()}`);
+
+    etapaDelTrato = estado.etapa;
+    console.log(`🧭 [ESTADO] ${estado.etapa} — ${estado.porQue}${estado.preguntaPendiente ? " | pregunta pendiente" : ""} - ${ts()}`);
+  } catch (e: any) {
+    // Sin estado el agente sigue respondiendo como antes: es una mejora, no
+    // una dependencia.
+    logger.warn({ err: e?.message, conversationId }, "[Estado] no se pudo calcular");
+  }
+
   // ── 11c-bis. DICE QUE PAGÓ sin mandar comprobante ───────────────────────
   //
   // El flujo por IMAGEN ya existe completo en `verificacion-pago.ts` y está
@@ -1681,55 +1748,6 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
   //
   // Esto no es un recuerdo del modelo: lo calcula el servidor con reglas
   // fijas y se lo afirma. Va en `esencial`, así que sobrevive al recorte.
-  let bloqueEstado = "";
-  // La etapa del trato, para que decida del lado del servidor y no solo en el
-  // prompt. Ver `puedeMandarPago`.
-  let etapaDelTrato: EtapaTrato | null = null;
-  try {
-    const productoEstado = decision.productToShow
-      ?? (decision.productoDelMensaje
-        ? { id: decision.productoDelMensaje.id, name: decision.productoDelMensaje.name }
-        : null);
-    const estado = calcularEstado({
-      historial: memory.history as any,
-      producto: productoEstado as any,
-      fichasEnviadas: memory.sentProductIds,
-      loQueNoSabe: datosQueFaltan(negocio),
-    });
-    bloqueEstado = renderEstado(estado);
-
-    // ── Y QUÉ HACER con ese estado ────────────────────────────────────────
-    //
-    // `renderEstado` dice DÓNDE está la conversación; esto dice qué
-    // corresponde hacer ahora. Estaban juntos y no alcanzaba: la acción de la
-    // etapa "interesado" era "avanzá hacia el cierre", y como esa etapa se
-    // activa con el PRIMER mensaje que nombra un producto, el cliente escribía
-    // "me interesa el de piano" y recibía ficha, precio y medios de pago de
-    // una. El admin lo describió como "va de me interesa a caja en dos
-    // mensajes".
-    //
-    // Ver embudo.ts. Lo que más cambia: antes de presentar se hace UNA
-    // pregunta -- salvo que el cliente haya pedido un dato concreto, y ahí se
-    // le da el dato en vez de interrogarlo.
-    const paso = proximoPaso({
-      etapa: estado.etapa,
-      historial: memory.history as any,
-      preguntaPendiente: estado.preguntaPendiente,
-      fichaEnviada: !!(productoEstado && memory.sentProductIds?.has((productoEstado as any).id)),
-      // Se deduce del historial, no se guarda: el historial ya es la fuente de
-      // verdad y no puede quedar desincronizado con lo que se dijo de verdad.
-      necesidad: necesidadDeclarada(memory.history as any),
-    });
-    bloqueEstado += `\n${renderPaso(paso)}`;
-    console.log(`🎯 [EMBUDO] ${paso.movimiento} — ${paso.porQue} - ${ts()}`);
-
-    etapaDelTrato = estado.etapa;
-    console.log(`🧭 [ESTADO] ${estado.etapa} — ${estado.porQue}${estado.preguntaPendiente ? " | pregunta pendiente" : ""} - ${ts()}`);
-  } catch (e: any) {
-    // Sin estado el agente sigue respondiendo como antes: es una mejora, no
-    // una dependencia.
-    logger.warn({ err: e?.message, conversationId }, "[Estado] no se pudo calcular");
-  }
 
   const TOPE_PROMPT = Number(process.env.MAX_PROMPT_CHARS || 18000);
   let promptArmado = buildFinalPrompt(systemPrompt, brain, voice) + `\n\n${bloqueEstado}\n\n${engineContextBlock}`;
