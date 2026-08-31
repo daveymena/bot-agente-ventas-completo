@@ -62,6 +62,23 @@ startWhatsAppMonitor(5 * 60 * 1000);
 import { startAdGrowthAgent } from "./lib/ad-growth-agent";
 startAdGrowthAgent();
 
+// El reloj del sistema: lo que hay que hacer A UNA HORA determinada.
+//
+// `setInterval` sirve para "cada 30 minutos" pero no para "el martes a las
+// 19:00", y además cada despliegue lo reinicia -- por eso el guardián de gasto
+// llegó a marcar "0 revisiones" en su historial. Acá la hora vive en la base,
+// así que un reinicio no pierde nada: ver lib/programador.ts.
+//
+// Los manejadores se registran solos cuando el agente que los usa se activa;
+// un trabajo cuyo tipo todavía no registró nadie queda PENDIENTE y corre en la
+// vuelta siguiente, nunca se marca "hecho" en falso.
+import { iniciarProgramador } from "./lib/programador";
+import { registrarOrganico } from "./lib/agente-organico";
+import { registrarGuardia } from "./lib/agente-horario";
+registrarOrganico();
+registrarGuardia();
+iniciarProgramador();
+
 // Reporte diario del equipo de marketing. Los 13 agentes existian pero no
 // corria ninguno solo: habia que ir a despertarlos entrando a la pagina. Un
 // equipo que hay que despertar no hace seguimiento. Solo MIRA y avisa por

@@ -1087,6 +1087,34 @@ Responde SOLO con este JSON exacto:
    * valores estándar de Graph API ("today", "yesterday", "last_3d",
    * "last_7d", "last_14d", etc.) -- se usan ventanas cortas para proteger
    * gasto y largas para decidir si escalar por tendencia. */
+  /**
+   * El rendimiento HORA POR HORA de una campaña.
+   *
+   * Es lo que permite apagar las franjas que solo gastan sin inventarse cuáles
+   * son. Meta devuelve una fila por cada día y cada hora; el agrupado y la
+   * decisión viven en `franjas-horarias.ts`, que es puro y se puede probar sin
+   * red -- acá solo se trae el dato.
+   *
+   * El desglose es `..._by_advertiser_time_zone` y no el del usuario a
+   * propósito: la campaña se pausa según el reloj de la CUENTA de anuncios, así
+   * que las dos puntas tienen que hablar del mismo huso. Mezclarlos apagaría
+   * con horas de corrimiento.
+   */
+  async getHourlyInsights(campaignId: string, datePreset = "last_14d"): Promise<any[] | null> {
+    try {
+      const res = await this.fbGet(`${campaignId}/insights`, {
+        fields: "spend,impressions,clicks,actions",
+        breakdowns: "hourly_stats_aggregated_by_advertiser_time_zone",
+        date_preset: datePreset,
+        limit: "500",
+      }, this.config.userAccessToken);
+      return Array.isArray(res?.data) ? res.data : [];
+    } catch (err: any) {
+      logger.warn({ err, campaignId }, "[Facebook] Error leyendo el desglose por hora");
+      return null;
+    }
+  }
+
   async getCampaignInsights(campaignId: string, datePreset: string): Promise<{
     spend: number; impressions: number; clicks: number; ctr: number;
     results: number; costPerResult: number; reach: number;
