@@ -4486,6 +4486,126 @@ Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vincu
     },
   },
   {
+    name: "automatizacion_estado",
+    description:
+      "Qué está automatizado hoy y qué va a pasar: publicaciones orgánicas ya agendadas con su día y hora, " +
+      "campañas bajo guardia horaria, y qué haría esa guardia AHORA MISMO sin tocar nada. Solo LEE. " +
+      "Úsalo cuando el admin pregunte por las automatizaciones, qué se va a publicar, o si sus anuncios se apagan de noche.",
+    args: "{}",
+    run: async (_args, ctx) => {
+      const { db, trabajosProgramados } = await import("@workspace/db");
+      const { and, eq, asc } = await import("drizzle-orm");
+
+      const pendientes = await db
+        .select()
+        .from(trabajosProgramados)
+        .where(and(eq(trabajosProgramados.tenantId, ctx.tenantId), eq(trabajosProgramados.estado, "pendiente")))
+        .orderBy(asc(trabajosProgramados.correAt))
+        .limit(30);
+
+      const publicaciones = pendientes.filter((t: any) => t.tipo === "organico:publicar");
+      const guardia = pendientes.find((t: any) => t.tipo === "franjas:guardia");
+      const bajoGuardia: string[] = (guardia?.datos as any)?.campaignIds || [];
+
+      // Qué haría la guardia ahora, SIN aplicar nada. Un admin que no puede ver
+      // qué va a hacer la automatización antes de encenderla, no la enciende.
+      const simulaciones: any[] = [];
+      if (bajoGuardia.length) {
+        const { revisarCampana } = await import("./agente-horario");
+        for (const id of bajoGuardia.slice(0, 5)) {
+          try {
+            const r = await revisarCampana(ctx.tenantId, id, { simular: true });
+            simulaciones.push({
+              campaignId: id,
+              horaAhora: r.hora,
+              deberiaEstarEncendida: r.porQue,
+              franjasMuertas: r.veredicto.muertas,
+              mejoresFranjas: r.veredicto.pico,
+              analisis: r.veredicto.porQue,
+            });
+          } catch (err) {
+            simulaciones.push({ campaignId: id, error: err instanceof Error ? err.message : String(err) });
+          }
+        }
+      }
+
+      return {
+        ok: true,
+        summary:
+          `${publicaciones.length} publicación${publicaciones.length === 1 ? "" : "es"} agendada${publicaciones.length === 1 ? "" : "s"}, ` +
+          `${bajoGuardia.length} campaña${bajoGuardia.length === 1 ? "" : "s"} bajo guardia horaria` +
+          (publicaciones.length === 0 && bajoGuardia.length === 0
+            ? " -- o sea: NO hay nada automatizado todavía. Se enciende con automatizacion_organica y automatizacion_franjas."
+            : ""),
+        data: {
+          publicacionesAgendadas: publicaciones.map((t: any) => ({
+            cuando: t.correAt,
+            dia: t.datos?.diaNombre,
+            etapa: t.datos?.etapa,
+            formato: t.datos?.formato,
+            producto: t.datos?.productName,
+          })),
+          guardiaHoraria: { activa: bajoGuardia.length > 0, campanas: bajoGuardia, proximaRevision: guardia?.correAt ?? null },
+          queHariaLaGuardiaAhora: simulaciones,
+        },
+      };
+    },
+  },
+  {
+    name: "automatizacion_organica",
+    description:
+      "ENCIENDE la publicación automática en la página de Facebook: agenda la semana de contenido y la publica sola, día y hora. " +
+      "⚠️ Va SIEMPRE por propose_action. No gasta pauta, pero publica solo y en público durante semanas: " +
+      "es el mismo criterio que fb_page_publish, que pide confirmación por ser público e irreversible desde la app. " +
+      "Mostrale al admin el plan de la semana (plan_de_contenido) ANTES de proponerlo: aprobar publicaciones que no vio es aprobar a ciegas. " +
+      "Devuelve qué quedó agendado y qué se omitió y por qué. " +
+      "Úsalo cuando el admin pida automatizar las publicaciones o que el contenido salga solo.",
+    args: "{}",
+    run: async (_args, ctx) => {
+      const { activarAgenteOrganico, programarLaSemana } = await import("./agente-organico");
+      await activarAgenteOrganico(ctx.tenantId);
+      const r = await programarLaSemana(ctx.tenantId);
+
+      if (r.bloqueo) {
+        return {
+          ok: false,
+          summary: `No se pudo encender: ${r.bloqueo}`,
+          data: { comoSeArregla: "Conectá la página de Facebook desde el panel y volvé a intentarlo." },
+        };
+      }
+      return {
+        ok: true,
+        summary:
+          `Publicación automática ENCENDIDA. Quedaron ${r.agendadas} publicación${r.agendadas === 1 ? "" : "es"} agendada${r.agendadas === 1 ? "" : "s"} para esta semana` +
+          (r.omitidas.length ? `; ${r.omitidas.length} no se agendaron` : "") +
+          ". Se reprograma sola cada día a las 6 de la mañana.",
+        data: { agendadas: r.agendadas, omitidas: r.omitidas },
+      };
+    },
+  },
+  {
+    name: "automatizacion_franjas",
+    description:
+      "Pone campañas bajo GUARDIA HORARIA: se apagan solas en las franjas que gastan sin traer resultados y se reactivan en las buenas. " +
+      "Las franjas salen del historial REAL de la cuenta, no de suponer que de noche no se vende. " +
+      "⚠️ Esto CAMBIA cómo se gasta la plata del admin: va SIEMPRE por propose_action, nunca directo. " +
+      "Mandá la lista COMPLETA de campañas que quedan bajo guardia: una lista vacía la apaga. " +
+      "Antes de proponerlo, mostrá con automatizacion_estado qué franjas detectó, para que el admin apruebe viendo los números.",
+    args: '{ "campaignIds": string[] }',
+    run: async (args, ctx) => {
+      const ids = Array.isArray(args?.campaignIds) ? args.campaignIds.map(String) : [];
+      const { activarGuardiaHoraria } = await import("./agente-horario");
+      await activarGuardiaHoraria(ctx.tenantId, ids);
+      return {
+        ok: true,
+        summary: ids.length
+          ? `Guardia horaria activa sobre ${ids.length} campaña${ids.length === 1 ? "" : "s"}. Revisa cada 30 minutos.`
+          : "Guardia horaria APAGADA: ninguna campaña se va a pausar ni reactivar por horario.",
+        data: { campanas: ids },
+      };
+    },
+  },
+  {
     name: "plan_de_contenido",
     description:
       "El plan de publicaciones ORGÁNICAS del mes, como lo entrega una agencia: qué se publica, qué día, en qué formato y para qué. " +
@@ -5120,6 +5240,10 @@ export const READ_ONLY_TOOLS = new Set([
   // Verificar un link de entrega es un GET sin cookies: no cambia nada y hay
   // que poder correrlo antes de guardar cada link, sin pedir permiso.
   "verificar_link_entrega",
+  // Mira los trabajos agendados y SIMULA qué haría la guardia horaria, sin
+  // tocar Meta. Tiene que poder correrse sin permiso: es justamente lo que el
+  // admin necesita ver ANTES de decidir si enciende la automatización.
+  "automatizacion_estado",
 ]);
 export const DESTRUCTIVE_TOOLS = new Set([
   "delete_product",

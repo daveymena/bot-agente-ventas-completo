@@ -194,12 +194,14 @@ async function ronda(ctx: { tenantId: number; datos: Record<string, any> }) {
  * anuncios encendidos toda la noche y nadie se enteraría hasta ver la factura.
  */
 export function registrarGuardia(): void {
-  if (registrado) return;
   registrarManejador(TIPO_GUARDIA, ronda as any);
-  registrado = true;
+  // Sin bandera de "ya registré": `registrarManejador` guarda en un Map, así
+  // que llamarlo dos veces es inofensivo. La bandera SÍ hacía daño -- quedaba
+  // en true aunque el registro se hubiera vaciado, y entonces esta función
+  // volvía sin registrar nada y los trabajos agendados se quedaban sin quién
+  // los atienda. Lo encontró `automatizacion-enganchada.test.ts`.
 }
 
-let registrado = false;
 
 /**
  * Pone campañas bajo guardia horaria. Es el "sí" del admin, y es explícito.
@@ -229,7 +231,3 @@ export async function activarGuardiaHoraria(tenantId: number, campaignIds: strin
   logger.info({ tenantId, campanas: campaignIds.length }, "[Guardia] Activada");
 }
 
-/** Solo para las pruebas. */
-export function _resetGuardia() {
-  registrado = false;
-}

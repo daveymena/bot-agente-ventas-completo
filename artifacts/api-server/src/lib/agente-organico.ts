@@ -233,13 +233,15 @@ async function revisarLaSemana(ctx: { tenantId: number }) {
  * agenda nada; activar es lo que agenda.
  */
 export function registrarOrganico(): void {
-  if (registrado) return;
   registrarManejador(TIPO_PUBLICAR, publicarPieza as any);
   registrarManejador(TIPO_PROGRAMAR_SEMANA, revisarLaSemana as any);
-  registrado = true;
+  // Sin bandera de "ya registré": `registrarManejador` guarda en un Map, así
+  // que llamarlo dos veces es inofensivo. La bandera SÍ hacía daño -- quedaba
+  // en true aunque el registro se hubiera vaciado, y entonces esta función
+  // volvía sin registrar nada y los trabajos agendados se quedaban sin quién
+  // los atienda. Lo encontró `automatizacion-enganchada.test.ts`.
 }
 
-let registrado = false;
 
 /**
  * Enciende el agente para un negocio.
@@ -267,7 +269,3 @@ export async function activarAgenteOrganico(tenantId: number): Promise<void> {
   await programarLaSemana(tenantId);
 }
 
-/** Solo para las pruebas. */
-export function _resetOrganico() {
-  registrado = false;
-}
