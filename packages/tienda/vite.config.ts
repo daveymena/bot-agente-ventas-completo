@@ -22,12 +22,15 @@ export default defineConfig({
     strictPort: true,
     proxy: {
       '/api': {
-        target: 'http://localhost:3002',
+        // API_REMOTO permite apuntar el proxy a un servidor ya desplegado para
+        // ver la tienda con el catálogo real sin levantar el backend local.
+        // Sin la variable, el comportamiento es el de siempre.
+        target: process.env.API_REMOTO || 'http://localhost:3002',
         changeOrigin: true,
         secure: false,
       },
       '/images': {
-        target: 'http://localhost:3002',
+        target: process.env.API_REMOTO || 'http://localhost:3002',
         changeOrigin: true,
         secure: false,
       },

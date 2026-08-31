@@ -1,62 +1,41 @@
-import https from 'https';
+/**
+ * Redespliega un servicio en EasyPanel.
+ *
+ * Antes intentaba loguearse con usuario y contraseña contra un endpoint que ya
+ * no existe: devolvía 404 y moría en "Login failed". EasyPanel expone una API
+ * con token --la misma que usa el resto del proyecto-- y así no hay que guardar
+ * credenciales de sesión en ningún lado.
+ *
+ *   node scripts/redeploy-easypanel.mjs [servicio]   (por defecto bot-agenwhatsapp)
+ */
+import { readFileSync } from "node:fs";
 
-const BASE = '2xs2bu.easypanel.io';
+const env = Object.fromEntries(
+  readFileSync(new URL("../.env", import.meta.url), "utf8")
+    .split(/\r?\n/)
+    .filter((l) => /^[A-Z_]+=/.test(l))
+    .map((l) => [l.slice(0, l.indexOf("=")), l.slice(l.indexOf("=") + 1).trim()]),
+);
 
-function request(method, path, body, token) {
-  return new Promise((resolve, reject) => {
-    const opts = {
-      hostname: BASE,
-      path: '/api' + path,
-      method,
-      headers: {
-        'Content-Type': 'application/json',
-        ...(token ? { Authorization: 'Bearer ' + token } : {}),
-      },
-      rejectUnauthorized: false,
-    };
-    const req = https.request(opts, (res) => {
-      let data = '';
-      res.on('data', c => data += c);
-      res.on('end', () => resolve({ status: res.statusCode, body: data }));
-    });
-    req.on('error', reject);
-    if (body) req.write(JSON.stringify(body));
-    req.end();
-  });
+const base = String(env.EASYPANEL_URL || "").replace(/\/$/, "");
+const key = env.EASYPANEL_API_KEY;
+if (!base || !key) {
+  console.error("Faltan EASYPANEL_URL o EASYPANEL_API_KEY en .env");
+  process.exit(1);
 }
 
-async function main() {
-  // Login
-  console.log('Logging in to Easypanel...');
-  const login = await request('POST', '/auth/login', {
-    email: process.env.EASYPANEL_EMAIL || '',
-    password: process.env.EASYPANEL_PASSWORD || '',
-  });
-  console.log('Login:', login.status, login.body.substring(0, 200));
+const servicio = process.argv[2] || "bot-agenwhatsapp";
+const proyecto = env.EASYPANEL_PROJECT || "tecnoia";
 
-  if (login.status !== 200) {
-    console.error('Login failed');
-    return;
-  }
+const r = await fetch(`${base}/api/trpc/services.app.deployService`, {
+  method: "POST",
+  headers: { Authorization: `Bearer ${key}`, "content-type": "application/json" },
+  body: JSON.stringify({ json: { projectName: proyecto, serviceName: servicio } }),
+  signal: AbortSignal.timeout(120000),
+});
 
-  const data = JSON.parse(login.body);
-  // Token might be in data.token or in set-cookie header
-  let token = data.token;
-  console.log('Token found:', token ? token.substring(0, 20) + '...' : 'no token');
-  console.log('Full login response:', JSON.stringify(data, null, 2));
-
-  if (!token) {
-    console.log('No token in response body, trying with cookie...');
-  }
-
-  // Get services
-  const services = await request('GET', '/services', null, token);
-  console.log('\nServices:', services.status, services.body.substring(0, 500));
-
-  if (services.status === 200) {
-    const svcs = JSON.parse(services.body);
-    console.log('\nAll services:', JSON.stringify(svcs, null, 2).substring(0, 2000));
-  }
+if (!r.ok) {
+  console.error(`Falló el despliegue de ${servicio}: ${r.status} ${(await r.text()).slice(0, 300)}`);
+  process.exit(1);
 }
-
-main().catch(console.error);
+console.log(`Desplegando ${proyecto}/${servicio}... pedido aceptado.`);

@@ -1,10 +1,12 @@
 import { Link, useParams } from 'react-router-dom';
-import { ShoppingCart, MessageCircle, Menu, X, Store, Heart, User, LayoutDashboard, Pencil, Phone, Truck, ShieldCheck } from 'lucide-react';
+import { ShoppingCart, MessageCircle, Store, Heart, User, LayoutDashboard } from 'lucide-react';
 import { useState, useEffect, useMemo } from 'react';
 import { useStore } from '../store/useStore';
 import { initPixel } from '../lib/pixel';
 import { FacebookIcon, InstagramIcon, TikTokIcon, XIcon, LinkedInIcon } from './SocialIcons';
 import { MercadoPagoBadge, NequiBadge, PSEBadge } from './PaymentIcons';
+import Encabezado, { CategoriaDelMenu } from './market/Encabezado';
+import { skinDeLaTienda } from '../lib/skin';
 // darken()/tint()/readableTextColor() ya no se usan acá: la paleta pasó a ser
 // fija (ver themeVars abajo) en vez de derivarse del color del dueño. Los
 // helpers siguen en lib/color.ts porque LandingPage y LandingPageNicho SÍ los
@@ -16,9 +18,6 @@ const PublicLayout = ({ children }: { children: React.ReactNode }) => {
   const effectiveSlug = slug || 'sofia-premium';
   const cartCount = cart.reduce((acc, item) => acc + item.quantity, 0);
   const base = slug ? `/tienda/${slug}` : '/tienda';
-  const [mobileMenu, setMobileMenu] = useState(false);
-  // Solo se promete envío si la tienda vende algo que se envíe.
-  const [hayEnvios, setHayEnvios] = useState(false);
 
   // El usuario logueado solo ve los botones de administración cuando la
   // tienda que está viendo es LA SUYA -- isAdmin por sí solo solo dice "hay
@@ -26,40 +25,18 @@ const PublicLayout = ({ children }: { children: React.ReactNode }) => {
   // vería el botón de "Panel Admin" en la tienda pública de OTRO negocio.
   const isOwner = isAdmin && config.slug === effectiveSlug;
 
-  // ── Paleta de la tienda ───────────────────────────────────────────────────
+  const [categorias, setCategorias] = useState<CategoriaDelMenu[]>([]);
+
+  // ── El skin de la tienda ──────────────────────────────────────────────
   //
-  // Valores EXACTOS del kit de referencia (premiumm/URBANisty), leídos de su
-  // `global.json` y no estimados de las capturas.
-  //
-  // Antes esto derivaba todo del color que cada dueño elegía en su panel. Se
-  // pasó a una paleta fija por decisión explícita del dueño del producto el
-  // 2026-08-22: quería la tienda "prácticamente igual" a la referencia, y el
-  // kit apoya su identidad en la COMBINACIÓN (púrpura + navy + amarillo +
-  // naranja), no en un color suelto. Derivar esos cuatro de un primario
-  // cualquiera daba combinaciones que no se parecían al diseño.
-  //
-  // Se conservan los MISMOS nombres de variable (`--store-primary`, etc.) a
-  // propósito: Shop, ProductDetail, Cart y Checkout ya los leen en decenas de
-  // clases `bg-[var(--store-primary)]`. Cambiando el valor acá, toda la
-  // tienda adopta la paleta sin tocar una sola de esas páginas.
-  //
-  // ⚠️ Si algún día se quiere volver al color por cliente, se revierte este
-  // bloque y el resto sigue funcionando igual: nada más depende de esto.
-  const themeVars = useMemo(() => {
-    return {
-      '--store-primary': '#4D31B9',        // acento del kit
-      '--store-primary-hover': '#3d2794',
-      '--store-on-primary': '#FFFFFF',
-      '--store-primary-soft': '#EBEFFC',   // lavanda de las tarjetas
-      '--store-primary-deep': '#1A1E5D',   // navy: barra superior, bloques oscuros
-      // Los tres acentos que el kit usa para romper el púrpura.
-      '--store-yellow': '#FFC931',
-      '--store-orange': '#FE4327',
-      '--store-blue': '#3357D9',
-      '--store-green': '#69D23B',
-      '--store-ink': '#090909',
-    } as React.CSSProperties;
-  }, []);
+  // Acá vivían quince colores escritos a mano, copiados del kit URBANisty e
+  // IGUALES para todos los negocios del SaaS. Se mudaron a lib/skin.ts, que
+  // arma la estructura de Market con el color que cada dueño ya eligió en su
+  // panel -- que es como Market se vende: una sola maqueta, cinco skins.
+  const themeVars = useMemo(
+    () => skinDeLaTienda(config.primaryColor),
+    [config.primaryColor],
+  );
 
   // El número de WhatsApp se resuelve aquí (no en cada página) porque el layout
   // envuelve toda la tienda. Viene del teléfono realmente conectado al bot por
@@ -84,8 +61,20 @@ const PublicLayout = ({ children }: { children: React.ReactNode }) => {
         // digital -- en TecnoVariedades, 54 de 54 productos. Prometer un envío
         // que no existe trae reclamos y disputas de pago, y es justo lo que
         // hace que una tienda se lea como plantilla sin terminar.
+        // Las categorías REALES del catálogo alimentan el menú vertical y el
+        // selector del buscador. La clave es `nombre__tipo`: la MISMA que usa
+        // el filtro de Shop.tsx. Si las dos no coincidieran, tocar una
+        // categoría en el encabezado no filtraría nada.
         if (Array.isArray(d?.products)) {
-          setHayEnvios(d.products.some((p: any) => (p.kind || p.type) === 'physical'));
+          const porCategoria: Record<string, CategoriaDelMenu> = {};
+          for (const p of d.products as any[]) {
+            const tipo = (p.kind || p.type) === 'physical' ? 'physical' : 'digital';
+            const nombre = p.category || 'General';
+            const key = `${nombre}__${tipo}`;
+            if (!porCategoria[key]) porCategoria[key] = { key, name: nombre, count: 0 };
+            porCategoria[key].count++;
+          }
+          setCategorias(Object.values(porCategoria).sort((a, b) => b.count - a.count));
         }
         if (!d?.store) return;
         if (d.store.pixelId) initPixel(d.store.pixelId);
@@ -111,190 +100,23 @@ const PublicLayout = ({ children }: { children: React.ReactNode }) => {
 
   return (
     <div className="min-h-screen flex flex-col bg-white text-slate-900" style={themeVars}>
-      <nav className="sticky top-0 z-50 bg-[var(--store-primary)] text-white">
-        {/* ── Barra superior: datos de contacto reales ──────────────────
-            Es la primera de las tres capas del encabezado de una tienda
-            seria (el diseño de referencia la trae, y la tienda actual no
-            tenía ninguna). Solo se muestra lo que EXISTE de verdad: si el
-            negocio no tiene WhatsApp cargado, la franja no aparece. Poner
-            una dirección o un horario inventados para "verse profesional"
-            es justo lo que hace que una tienda se vea falsa. */}
-        {config.whatsappPhone && (
-          <div className="hidden sm:block bg-[var(--store-primary-deep)] text-white/70">
-            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-9 flex items-center gap-6 text-[11px]">
-              <a
-                href={`https://wa.me/${String(config.whatsappPhone).replace(/[^0-9]/g, '')}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center gap-1.5 hover:text-white transition-colors"
-              >
-                <Phone className="w-3 h-3" /> {config.whatsappPhone}
-              </a>
-              {hayEnvios && (
-                <span className="hidden md:flex items-center gap-1.5">
-                  <Truck className="w-3 h-3" /> Envíos a todo el país
-                </span>
-              )}
-              <span className="ml-auto hidden md:flex items-center gap-1.5">
-                <ShieldCheck className="w-3 h-3" /> Compra protegida
-              </span>
-            </div>
-          </div>
-        )}
-        {/* Barra de administración -- SOLO visible para el dueño logueado de
-            esta tienda, nunca para el público. El cliente que compra jamás
-            debería ver botones de "editar" o "panel admin" en su checkout. */}
-        {isOwner && (
-          <div className="bg-[var(--store-primary-deep)] text-white">
-            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-9 flex items-center justify-between text-xs font-semibold">
-              <span className="hidden sm:inline">Estás viendo tu tienda como dueño</span>
-              <div className="flex items-center gap-4 ml-auto">
-                <Link to="/editor" className="flex items-center gap-1.5 hover:opacity-80 transition-opacity">
-                  <Pencil className="w-3.5 h-3.5" /> Editar página
-                </Link>
-                <Link to="/admin" className="flex items-center gap-1.5 hover:opacity-80 transition-opacity">
-                  <LayoutDashboard className="w-3.5 h-3.5" /> Panel Admin
-                </Link>
-              </div>
-            </div>
-          </div>
-        )}
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between h-16 items-center">
-            <Link to={base} className="flex items-center gap-2 group">
-              {/* El LOGO del negocio si lo cargo; el icono generico solo
-                  como respaldo. Una tienda con el logo de su marca en el
-                  encabezado se lee como propia; una con un icono de sistema,
-                  como una plantilla sin terminar. */}
-              {config.logoUrl ? (
-                <img
-                  src={config.logoUrl}
-                  alt={config.storeName || 'Tienda'}
-                  className="h-9 w-auto max-w-[140px] object-contain group-hover:scale-105 transition-transform"
-                />
-              ) : (
-                <div className="w-9 h-9 rounded-full bg-white/15 flex items-center justify-center group-hover:scale-105 transition-transform">
-                  <Store className="w-5 h-5 text-white" />
-                </div>
-              )}
-              <span className="text-lg font-black tracking-tight uppercase">{config.storeName || 'Tienda'}</span>
-            </Link>
-
-            {/* Menu de navegacion: la tienda no tenia ninguno -- solo el
-                logo y dos iconos. Sin menu, el visitante que entra por un
-                producto no tiene forma de ver el resto del catalogo, que es
-                justo lo que hace que una tienda parezca "muy simple". */}
-            <div className="hidden md:flex items-center gap-6 ml-8 mr-auto text-sm font-medium">
-              <Link to={base} className="text-white/85 hover:text-white transition-colors">Inicio</Link>
-              {/* Apuntaba a `${base}/shop`, una ruta que NO EXISTE (las reales son
-                  /tienda/:slug, /tienda/:slug/producto/:id, /carrito, /checkout
-                  y /wishlist). O sea que el enlace "Tienda" del menú caía en el
-                  comodín y no mostraba nada -- justo lo que reportó el dueño. */}
-              <Link to={`${base}#catalogo`} className="text-white/85 hover:text-white transition-colors">Tienda</Link>
-              {config.whatsappPhone && (
-                <a
-                  href={`https://wa.me/${String(config.whatsappPhone).replace(/[^0-9]/g, '')}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-white/85 hover:text-white transition-colors"
-                >
-                  Contacto
-                </a>
-              )}
-            </div>
-
-            <div className="hidden md:flex items-center gap-4">
-              {/* Píldoras, no iconos sueltos: es lo que le da carácter al
-                  encabezado del kit. Deseados en círculo translúcido y
-                  carrito en naranja, que es el acento que el diseño usa para
-                  lo accionable. */}
-              <Link
-                to={`${base}/wishlist`}
-                aria-label="Lista de deseos"
-                className="relative flex h-9 w-9 items-center justify-center rounded-full bg-white/15 text-white transition-colors hover:bg-white/25"
-              >
-                <Heart className="w-4 h-4" />
-                {wishlist.length > 0 && (
-                  <span className="absolute -top-1 -right-1 bg-[var(--store-yellow)] text-[var(--store-ink)] text-[10px] font-bold px-1.5 py-0.5 rounded-full">
-                    {wishlist.length}
-                  </span>
-                )}
-              </Link>
-              <Link
-                to={`${base}/carrito`}
-                aria-label="Carrito"
-                className="flex items-center gap-2 rounded-full bg-[var(--store-orange)] px-4 h-9 text-white text-xs font-semibold transition-opacity hover:opacity-90"
-              >
-                <ShoppingCart className="w-4 h-4" />
-                <span>{cartCount}</span>
-              </Link>
-            </div>
-
-            <div className="flex md:hidden items-center gap-2">
-              <Link
-                to={`${base}/carrito`}
-                aria-label="Carrito"
-                className="flex items-center gap-1.5 rounded-full bg-[var(--store-orange)] px-3 h-8 text-white text-xs font-semibold"
-              >
-                <ShoppingCart className="w-4 h-4" />
-                <span>{cartCount}</span>
-              </Link>
-              <button onClick={() => setMobileMenu(!mobileMenu)} className="p-2 text-gray-300 hover:text-white transition-colors">
-                {mobileMenu ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
-              </button>
-            </div>
-          </div>
-
-          {mobileMenu && (
-            <div className="md:hidden border-t border-gray-800 py-4 space-y-1">
-              <Link to={`${base}#catalogo`} onClick={() => setMobileMenu(false)}
-                className="block px-4 py-3 text-sm font-semibold text-gray-200 rounded-lg hover:bg-gray-900 transition-colors">
-                Productos
-              </Link>
-              <a href={waHref || "#"} target="_blank" rel="noopener noreferrer"
-                onClick={() => setMobileMenu(false)}
-                className="flex items-center gap-2 px-4 py-3 text-sm font-semibold text-[var(--store-primary)] rounded-lg hover:bg-gray-900 transition-colors">
-                <MessageCircle className="w-4 h-4" /> Línea WhatsApp
-              </a>
-              <Link to={`${base}/wishlist`} onClick={() => setMobileMenu(false)}
-                className="flex items-center gap-2 px-4 py-3 text-sm font-semibold text-gray-200 rounded-lg hover:bg-gray-900 transition-colors">
-                <Heart className="w-4 h-4" /> Lista de deseos
-              </Link>
-              {isOwner && (
-                <>
-                  <Link to="/editor" onClick={() => setMobileMenu(false)}
-                    className="flex items-center gap-2 px-4 py-3 text-sm font-semibold text-gray-200 rounded-lg hover:bg-gray-900 transition-colors">
-                    <Pencil className="w-4 h-4" /> Editar página
-                  </Link>
-                  <Link to="/admin" onClick={() => setMobileMenu(false)}
-                    className="flex items-center gap-2 px-4 py-3 text-sm font-semibold text-gray-200 rounded-lg hover:bg-gray-900 transition-colors">
-                    <LayoutDashboard className="w-4 h-4" /> Panel Admin
-                  </Link>
-                </>
-              )}
-            </div>
-          )}
-        </div>
-
-        {/* Franja de categorías -- estilo Smartjoys: el header queda negro
-            (marca/carrito/deseos), pero la fila de navegación real vive en
-            un bloque sólido con el color de marca, no en gris apagado sobre
-            negro. Solo en escritorio: en mobile "Productos" y "WhatsApp" ya
-            están cubiertos por la barra inferior fija y el FAB de WhatsApp. */}
-        <div className="hidden md:block bg-[var(--store-primary)]">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="flex items-center gap-6 h-10">
-              <Link to={`${base}#catalogo`} className="text-sm font-semibold text-[var(--store-on-primary)] hover:opacity-80 transition-opacity">
-                Productos
-              </Link>
-              <a href={waHref || "#"} target="_blank" rel="noopener noreferrer"
-                className="flex items-center gap-1.5 text-sm font-semibold text-[var(--store-on-primary)] hover:opacity-80 transition-opacity">
-                <MessageCircle className="w-4 h-4" /> WhatsApp
-              </a>
-            </div>
-          </div>
-        </div>
-      </nav>
+      {/* ── El encabezado de tres pisos de Market ─────────────────────────
+          Reemplaza al anterior, que era una sola barra de color con el logo y
+          dos iconos. El cambio que más pesa no es el color: es que el BUSCADOR
+          pasó a vivir en el encabezado, o sea en TODAS las páginas. Antes
+          estaba dentro del catálogo, así que quien entraba por el enlace de un
+          producto --el caso normal, es el enlace que manda el bot por
+          WhatsApp-- no tenía forma de buscar otra cosa sin volver atrás. */}
+      <Encabezado
+        base={base}
+        storeName={config.storeName || 'Tienda'}
+        logoUrl={config.logoUrl}
+        whatsappPhone={config.whatsappPhone}
+        cartCount={cartCount}
+        wishlistCount={wishlist.length}
+        isOwner={isOwner}
+        categorias={categorias}
+      />
 
       <main className="flex-grow">
         {children}
@@ -372,7 +194,7 @@ const PublicLayout = ({ children }: { children: React.ReactNode }) => {
                 </div>
                 <span className="text-base font-bold text-white">{config.storeName || 'Tienda'}</span>
               </div>
-              <p className="text-sm text-gray-400 leading-relaxed mb-5">Tu tienda de confianza con los mejores productos digitales y físicos.</p>
+              <p className="text-sm text-gray-400 leading-relaxed mb-5">{`Comprá en ${config.storeName || "nuestra tienda"} y escribinos por WhatsApp si necesitás ayuda.`}</p>
 
               {/* Redes sociales -- solo se listan las que la tienda configuró
                   de verdad; sin URL no hay ícono, para no mostrar enlaces rotos */}

@@ -39,7 +39,7 @@ function Estrellas() {
   return (
     <div className="flex items-center justify-center gap-0.5" aria-hidden="true">
       {[0, 1, 2, 3, 4].map((i) => (
-        <svg key={i} viewBox="0 0 20 20" className="w-3 h-3 fill-uv-grey">
+        <svg key={i} viewBox="0 0 20 20" className="w-3 h-3 fill-[var(--mk-border)]">
           <path d="M10 1.5l2.6 5.3 5.9.9-4.2 4.1 1 5.8-5.3-2.8-5.3 2.8 1-5.8L1.5 7.7l5.9-.9L10 1.5z" />
         </svg>
       ))}
@@ -116,21 +116,37 @@ export default function ProductCard({
   };
 
   return (
-    <div className="group relative flex flex-col rounded-2xl bg-uv-lav p-4 transition-transform duration-300 hover:-translate-y-1">
-      {/* Badge: en el kit dice "Sale!". Acá dice lo que es cierto -- y solo
-          cuando distingue algo, o sea si la tienda mezcla digital y físico. */}
+    <div className="group relative flex flex-col border border-[var(--mk-border)] bg-white transition-all duration-200 hover:border-[var(--store-primary)] hover:shadow-[0_6px_20px_rgba(0,0,0,0.10)]">
+      {/* Market pone acá un globo rojo de "Sale!" con el precio anterior
+          tachado. No se copia, y no por descuido: el catálogo no tiene campo
+          de precio anterior (ver store/useStore.ts), así que cada "Sale!"
+          sería un descuento inventado impreso en la tienda. Ese espacio lo usa
+          el dato REAL que sí cambia la decisión de compra --si lo recibe al
+          instante o se lo envían-- y solo cuando la tienda vende de los dos
+          tipos; si no, es una etiqueta repetida que solo tapa la foto. */}
       {mostrarTipo && (
-        <span className="absolute top-3 right-3 z-10 inline-flex items-center gap-1 rounded-full bg-brand-600 px-2.5 py-1 text-[10px] font-medium text-white">
+        <span className="absolute top-0 left-0 z-10 inline-flex items-center gap-1 bg-[var(--store-primary)] px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-[var(--store-on-primary)]">
           <TipoIcon className="h-3 w-3" />
           {tipo.label}
         </span>
       )}
 
-      <Link
-        to={detailHref}
-        className="block aspect-square w-full"
-        aria-label={`Ver ${product.name}`}
+      <button
+        onClick={() => toggleWishlist(product.id)}
+        aria-label={enDeseados ? 'Quitar de deseados' : 'Guardar en deseados'}
+        className="absolute top-2 right-2 z-10 flex h-8 w-8 items-center justify-center rounded-full bg-white/90 text-[var(--mk-muted)] transition-colors hover:text-[var(--store-primary)]"
       >
+        <Heart className={`h-4 w-4 ${enDeseados ? 'fill-[var(--store-primary)] text-[var(--store-primary)]' : ''}`} />
+      </button>
+
+      {/* ── Alto FIJO, no `aspect-square` ─────────────────────────────────
+          Con la proporción cuadrada, la grilla real salía despareja: la foto
+          vertical de un curso empujaba su tarjeta 90px más abajo que la
+          horizontal de al lado, y las cuatro de la fila terminaban con el
+          nombre y el precio a distinta altura. Market usa un recuadro de alto
+          fijo justamente por eso -- el catálogo de un negocio real trae fotos
+          de cualquier proporción y la grilla tiene que absorberlas. */}
+      <Link to={detailHref} className="block h-[190px] w-full p-4 md:h-[215px]" aria-label={`Ver ${product.name}`}>
         {product.image && !imgError ? (
           <img
             src={product.image}
@@ -148,49 +164,45 @@ export default function ProductCard({
           />
         ) : (
           <div className="flex h-full w-full items-center justify-center">
-            <TipoIcon className="h-10 w-10 text-uv-grey" />
+            <TipoIcon className="h-10 w-10 text-[var(--mk-border)]" />
           </div>
         )}
       </Link>
 
-      <div className="mt-3 flex flex-1 flex-col items-center text-center">
+      <div className="flex flex-1 flex-col border-t border-[var(--mk-border)] px-4 py-3 text-center">
         <Link
           to={detailHref}
-          className="line-clamp-2 text-sm font-medium text-uv-ink hover:text-brand-600"
+          className="line-clamp-2 h-[2.4rem] overflow-hidden text-[13px] leading-[1.2rem] text-[var(--mk-ink)] hover:text-[var(--store-primary)]"
         >
           {product.name}
         </Link>
 
-        <div className="mt-1.5">
+        <div className="mt-2">
           <Estrellas />
         </div>
 
-        <p className="mt-1.5 text-sm font-bold text-uv-ink">{formatear(product.price)}</p>
+        <p className="mt-2 text-[17px] font-black text-[var(--store-primary)]">{formatear(product.price)}</p>
 
-        <div className="mt-3 flex w-full items-center justify-center gap-2">
-          <button
-            onClick={() => toggleWishlist(product.id)}
-            aria-label={enDeseados ? 'Quitar de deseados' : 'Guardar en deseados'}
-            className="shrink-0 rounded-full p-1.5 text-uv-text transition-colors hover:text-brand-600"
-          >
-            <Heart className={`h-4 w-4 ${enDeseados ? 'fill-brand-600 text-brand-600' : ''}`} />
-          </button>
-
+        {/* Market revela estos botones al pasar el mouse. Se descartó: como el
+            hover solo cambia la OPACIDAD, el espacio queda reservado igual y
+            dejaba una banda muerta debajo de cada precio (visto en la captura
+            de las 84 fichas). Y en el teléfono no hay hover, que es por donde
+            entra casi todo el tráfico del bot. Van siempre visibles. */}
+        <div className="mt-3 flex flex-col gap-1.5">
           <button
             onClick={agregar}
-            className="rounded-full bg-brand-600 px-5 py-2 text-xs font-medium text-white transition-colors hover:bg-brand-700"
+            className="h-9 w-full bg-[var(--store-primary)] text-[11px] font-bold uppercase tracking-wide text-[var(--store-on-primary)] transition-colors hover:bg-[var(--store-primary-hover)]"
           >
-            Agregar
+            Agregar al carrito
+          </button>
+          <button
+            onClick={comprarAhora}
+            disabled={buying}
+            className="h-8 w-full border border-[var(--mk-border)] text-[11px] font-semibold text-[var(--mk-ink)] transition-colors hover:border-[var(--store-primary)] hover:text-[var(--store-primary)] disabled:opacity-50"
+          >
+            {buying ? 'Abriendo pago…' : 'Comprar ahora'}
           </button>
         </div>
-
-        <button
-          onClick={comprarAhora}
-          disabled={buying}
-          className="mt-2 text-[11px] font-medium text-brand-600 underline-offset-2 hover:underline disabled:opacity-50"
-        >
-          {buying ? 'Abriendo pago…' : 'Comprar ahora'}
-        </button>
       </div>
     </div>
   );

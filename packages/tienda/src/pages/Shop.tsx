@@ -2,8 +2,8 @@ import { useState, useEffect, useMemo } from 'react';
 import { useStore, Product } from '../store/useStore';
 import { Search, Store } from 'lucide-react';
 import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
-import TrustBar from '../components/TrustBar';
 import ProductCard from '../components/ProductCard';
+import Portada, { TituloDeSeccion } from '../components/market/Portada';
 
 interface ApiProduct {
   id: number;
@@ -46,6 +46,7 @@ const Shop = () => {
   const DEFAULT_SLUG = 'sofia-premium';
   const slug = paramSlug || DEFAULT_SLUG;
   const searchQuery = searchParams.get('q') || '';
+  const categoriaDeLaUrl = searchParams.get('cat') || '';
 
   const [apiProducts, setApiProducts] = useState<ApiProduct[]>([]);
   const [loading, setLoading] = useState(true);
@@ -98,7 +99,16 @@ const Shop = () => {
   // cada tarjeta y cada categoría que no ayuda a decidir y tapa la foto.
   const catalogoMixto = hayFisicos && hayDigitales;
 
-  const [filter, setFilter] = useState('all');
+  const [filter, setFilter] = useState(categoriaDeLaUrl || 'all');
+
+  // El encabezado navega con ?q= y ?cat=, así que el catálogo tiene que
+  // reaccionar a la URL y no solo a su estado interno. Sin esto, buscar desde
+  // el encabezado cambia la barra de direcciones y la grilla no se mueve --
+  // que se lee como que el buscador está roto.
+  useEffect(() => {
+    setFilter(categoriaDeLaUrl || 'all');
+    setSearchTerm(searchQuery);
+  }, [categoriaDeLaUrl, searchQuery]);
 
   /**
    * Elegir una categoría además BAJA hasta los resultados.
@@ -179,19 +189,18 @@ const Shop = () => {
     return Object.values(counts).sort((a, b) => b.count - a.count);
   }, [products]);
 
-  // El backend solo reconoce "digital" | "physical" en products.kind (ver
-  // routes/products.ts: row.kind === "physical" ? "physical" : "digital") --
-  // cualquier otro valor cae a "digital" ahí, así que se replica el mismo
-  // fallback acá para que el label nunca contradiga lo que el backend hace.
-  const typeLabel = (type: string) => type === 'physical' ? 'Físico' : 'Digital';
 
   // Portada: la que cargó el dueño y, si no, la foto del primer producto que
   // tenga una. Nunca una imagen de stock: se muestra algo que está a la venta.
-  const heroImagen = config.heroImage || products.find(p => p.image)?.image || '';
+  // Las de relleno NO cuentan. `placeholderBanner()` devuelve un SVG en un
+  // data: URI, y el config por defecto trae uno con el texto "Tu tienda": sin
+  // este filtro, el banner de apertura mostraba un rectángulo verde con una
+  // "T" gigante encima del nombre del negocio. Un relleno sirve como hueco a
+  // completar en el editor, no como portada de una tienda que está vendiendo.
+  const esRelleno = (u: string) => u.startsWith('data:image/svg');
+  const heroImagen = [config.heroImage, products.find(p => p.image)?.image]
+    .find((u): u is string => !!u && !esRelleno(u)) || '';
 
-  // El mosaico de categorías muestra 8; una tienda con muchas más las
-  // despliega bajo demanda en vez de empujar el catálogo fuera de pantalla.
-  const [mostrarTodasCategorias, setMostrarTodasCategorias] = useState(false);
 
   const [visibleCount, setVisibleCount] = useState(12);
 
@@ -201,246 +210,48 @@ const Shop = () => {
 
   return (
     <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-8 pb-24 md:pb-8">
-      {/* ── HERO A DOS BLOQUES (kit Urbanisty) ────────────────────────────
-          El kit abre con dos tarjetas de color pegadas, no con un banner
-          oscuro de ancho completo: una grande con la propuesta y el botón, y
-          una angosta al lado. Es lo que le da el aire de tienda armada en vez
-          de "una foto con letras encima". Los dos bloques usan el azul y el
-          naranja del kit: es el contraste que define su héroe, y el que hace
-          que no quede todo del mismo púrpura del encabezado. */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 sm:gap-4 mb-4 sm:mb-6">
-        <div
-          className="lg:col-span-2 relative overflow-hidden rounded-uv-lg bg-[var(--store-blue)] text-white p-6 sm:p-10 min-h-[240px] sm:min-h-[320px] flex flex-col justify-center"
-        >
-          {/* La foto del negocio, si la cargó, se apoya a la derecha en vez de
-              ocupar todo el fondo: en el kit el producto se ve entero sobre el
-              bloque de color, no recortado detrás de un velo negro.
-              Va con margen y esquinas redondeadas porque el dueño sube lo que
-              quiera: un PNG recortado se ve flotando, pero una foto rectangular
-              pegada al borde se lee como un pantallazo mal pegado. Con el
-              recuadro, las dos opciones se ven intencionales. */}
-          {/* Si el dueño no cargó una foto de portada, se usa la de un
-              producto real del catálogo. Un héroe sin imagen es un rectángulo
-              de color, que es justo lo que hace que la tienda no se vea
-              profesional -- y en el kit de referencia el hero SIEMPRE tiene
-              producto. Se prefiere una foto que el cliente pueda comprar
-              antes que un banco de imágenes. */}
-          {heroImagen && (
-            <img
-              src={heroImagen}
-              alt=""
-              aria-hidden="true"
-              loading="eager"
-              onError={(e) => { e.currentTarget.style.display = 'none'; }}
-              className="pointer-events-none absolute right-4 sm:right-8 top-1/2 -translate-y-1/2 h-[80%] w-[46%] object-cover object-center rounded-uv shadow-2xl hidden sm:block"
-            />
-          )}
-          <div className="relative z-10 max-w-md">
-            <p className="text-xs font-bold uppercase tracking-[0.2em] opacity-80 mb-3">Nueva colección</p>
-            <h1 className="text-3xl sm:text-5xl font-black leading-[1.05] tracking-tight mb-3">
-              {config.storeName || 'Encuentra lo que buscas'}
-            </h1>
-            {/* El héroe prometía "Envío a todo el país" y "productos físicos y
-                digitales" SIEMPRE, aunque el catálogo fuera 100% digital (en
-                esta tienda: 84 de 84). Prometer un envío que no existe genera
-                reclamos y disputas de pago. No se reemplaza por un texto
-                digital fijo porque otra tienda sí puede vender físico: se dice
-                lo que el catálogo REALMENTE tiene. */}
-            <p className="text-sm sm:text-base opacity-90 mb-6 leading-relaxed">
-              {hayFisicos && hayDigitales
-                ? "Productos físicos y digitales en un solo lugar"
-                : hayFisicos
-                  ? "Productos seleccionados, con envío a tu puerta"
-                  : "Acceso inmediato, sin esperas ni envíos"}
-            </p>
-            <a
-              href="#catalogo"
-              className="inline-flex items-center gap-2 h-11 px-7 rounded-full bg-white text-gray-900 text-sm font-bold shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all"
-            >
-              Ver productos
-            </a>
-          </div>
-        </div>
+      {/* ── PORTADA ────────────────────────────────────────────────────
+          La fila de apertura de Market --columna de categorías, banner grande,
+          dos banners chicos-- más la tira de garantías.
 
-        {/* Bloque angosto: en el kit anuncia una categoría destacada. Acá
-            muestra la categoría con MÁS productos de esta tienda -- dato real,
-            no un "Best Seller" inventado -- y filtra al tocarla. Si la tienda
-            todavía no tiene categorías, el bloque no se dibuja. */}
-        {categories.length > 0 && (
-          <button
-            type="button"
-            onClick={() => elegirFiltro(categories[0].key)}
-            className="group relative overflow-hidden rounded-uv-lg bg-[var(--store-orange)] text-white p-6 sm:p-8 min-h-[160px] sm:min-h-[320px] flex flex-col justify-center text-left"
-          >
-            {/* La foto de un producto real de la categoría, flotando sobre el
-                color como los audífonos del kit. Sin ella el bloque es un
-                rectángulo naranja con letras. */}
-            {categories[0].image && (
-              <img
-                src={categories[0].image}
-                alt=""
-                aria-hidden="true"
-                loading="lazy"
-                onError={(e) => { e.currentTarget.style.display = 'none'; }}
-                className="pointer-events-none absolute -right-6 -top-6 h-40 w-40 rounded-full object-cover opacity-90 shadow-2xl transition-transform duration-500 group-hover:scale-105 sm:h-52 sm:w-52"
-              />
-            )}
-            <p className="relative text-xs font-bold uppercase tracking-[0.2em] opacity-70 mb-2">Lo más surtido</p>
-            <h2 className="relative text-2xl sm:text-3xl font-black leading-tight mb-1">{categories[0].name}</h2>
-            <p className="relative text-sm opacity-80 mb-6">
-              {categories[0].count} producto{categories[0].count === 1 ? '' : 's'} · {typeLabel(categories[0].type)}
-            </p>
-            <span className="relative inline-flex w-fit items-center gap-2 h-10 px-6 rounded-full bg-white text-gray-900 text-sm font-bold group-hover:-translate-y-0.5 transition-transform">
-              Ver categoría
-            </span>
-          </button>
-        )}
-      </div>
-
-      {/* Barra de garantías del kit, justo bajo el héroe. */}
-      <TrustBar hayFisicos={hayFisicos} hayDigitales={hayDigitales} className="mb-6 sm:mb-8" />
-
-      {/* SEARCH BAR */}
-      <div className="relative mb-6">
-        <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-        <input
-          type="text"
-          placeholder="Buscar productos..."
-          value={searchTerm}
-          onChange={e => setSearchTerm(e.target.value)}
-          className="w-full h-12 pl-12 pr-4 rounded-xl border border-gray-200 bg-white text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[var(--store-primary)]/30 focus:border-[var(--store-primary)] transition-all shadow-sm"
-        />
-      </div>
-
-      {/* ── CATEGORÍAS EN MOSAICO (kit Urbanisty) ─────────────────────────
-          Antes eran pastillas grises en un carrusel horizontal con flechas:
-          en móvil la mitad quedaba fuera de pantalla y no se veía que hubiera
-          más. El kit las trata como bloques grandes de color, que es lo que
-          invita a entrar. Se mantiene exactamente el mismo comportamiento de
-          filtro (setFilter con la misma clave nombre+tipo), solo cambia cómo
-          se ven. Se muestran 8 y el resto se despliega, para que una tienda
-          con 30 categorías no empuje el catálogo fuera de la pantalla. */}
-      {categories.length > 0 && (
-        <div className="mb-8">
-          <div className="flex items-end justify-between mb-4">
-            <div>
-              <p className="text-xs font-bold uppercase tracking-[0.2em] text-[var(--store-primary)] mb-1">Explora</p>
-              <h3 className="text-xl sm:text-2xl font-black text-gray-900 tracking-tight">Categorías</h3>
-            </div>
-            {filter !== 'all' && (
-              <button
-                onClick={() => elegirFiltro('all')}
-                className="h-9 px-5 rounded-full border border-gray-200 bg-white text-xs font-bold text-gray-700 hover:border-[var(--store-primary)] hover:text-[var(--store-primary)] transition-colors"
-              >
-                Ver todo ({products.length})
-              </button>
-            )}
-          </div>
-
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-4">
-            {(mostrarTodasCategorias ? categories : categories.slice(0, 8)).map((c) => {
-              const activa = filter === c.key;
-              return (
-                <button
-                  key={c.key}
-                  onClick={() => elegirFiltro(activa ? 'all' : c.key)}
-                  aria-pressed={activa}
-                  className={`group relative isolate overflow-hidden rounded-uv p-4 sm:p-6 min-h-[150px] sm:min-h-[210px] flex flex-col justify-end text-left transition-all hover:-translate-y-1 ${
-                    c.image
-                      ? 'text-white shadow-md'
-                      : activa
-                        ? 'bg-[var(--store-primary)] text-[var(--store-on-primary)] shadow-md'
-                        : 'bg-[var(--store-primary-soft)] text-gray-900 hover:shadow-md'
-                  }`}
-                >
-                  {/* La FOTO de un producto real de la categoría, a sangre.
-                      Es lo que hace que el mosaico se lea como una tienda y
-                      no como un tablero de colores. */}
-                  {c.image && (
-                    <>
-                      <img
-                        src={c.image}
-                        alt=""
-                        aria-hidden="true"
-                        loading="lazy"
-                        onError={(e) => { e.currentTarget.style.display = 'none'; }}
-                        className="absolute inset-0 -z-20 h-full w-full object-cover transition-transform duration-500 group-hover:scale-110"
-                      />
-                      {/* Velo de abajo hacia arriba: sin él, el texto blanco
-                          desaparece sobre las fotos claras. Se tiñe del color
-                          de marca cuando la categoría está activa, para que se
-                          note cuál está filtrando. */}
-                      <span
-                        aria-hidden="true"
-                        className={`absolute inset-0 -z-10 ${
-                          activa
-                            ? 'bg-[var(--store-primary)]/75'
-                            // Oscurece ARRIBA tambien: con el velo solo abajo,
-                            // el rotulo de tipo (DIGITAL/FISICO) quedaba
-                            // ilegible sobre las fotos claras -- visto en
-                            // "General" y "Musica" del catalogo real.
-                            : 'bg-gradient-to-t from-black/85 via-black/45 to-black/30'
-                        }`}
-                      />
-                    </>
-                  )}
-
-                  {catalogoMixto && (
-                    <span className={`text-[10px] font-bold uppercase tracking-wider ${
-                      c.image ? 'text-white/85' : activa ? 'opacity-80' : 'text-[var(--store-primary)]'
-                    }`}>
-                      {typeLabel(c.type)}
-                    </span>
-                  )}
-                  <span className="mb-auto" />
-                  <span className="text-base sm:text-xl font-black leading-tight line-clamp-2">{c.name}</span>
-                  <span className={`text-xs font-semibold ${
-                    c.image ? 'text-white/80' : activa ? 'opacity-80' : 'text-gray-500'
-                  }`}>
-                    {c.count} producto{c.count === 1 ? '' : 's'}
-                  </span>
-
-                  {/* Píldora "Ver" como en el kit: da a entender que el bloque
-                      es accionable, que era justo lo que no se leía. */}
-                  <span className={`mt-3 inline-flex w-fit items-center rounded-full px-4 py-1.5 text-[11px] font-bold transition-colors ${
-                    c.image
-                      ? 'bg-white text-[var(--store-ink)] group-hover:bg-[var(--store-yellow)]'
-                      : 'bg-[var(--store-primary)] text-white'
-                  }`}>
-                    {activa ? 'Quitar filtro' : 'Ver productos'}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-
-          {categories.length > 8 && (
-            <div className="flex justify-center mt-4">
-              <button
-                onClick={() => setMostrarTodasCategorias(v => !v)}
-                className="h-10 px-6 rounded-full border border-gray-200 bg-white text-xs font-bold text-gray-700 hover:border-[var(--store-primary)] hover:text-[var(--store-primary)] transition-colors"
-              >
-                {mostrarTodasCategorias
-                  ? 'Ver menos categorías'
-                  : `Ver las ${categories.length} categorías`}
-              </button>
-            </div>
-          )}
-        </div>
-      )}
+          Reemplaza al héroe de dos bloques del kit anterior, al buscador
+          suelto (ahora vive en el encabezado, o sea en todas las páginas) y al
+          mosaico de ocho categorías con foto. El mosaico no se pierde: sus
+          categorías son las mismas y con los mismos conteos reales, pero ya no
+          empujan el catálogo fuera de la pantalla -- en Market la lista de
+          categorías es una columna angosta al costado, y el producto se ve
+          desde el primer scroll. */}
+      <Portada
+        storeName={config.storeName || 'Tienda'}
+        heroImagen={heroImagen}
+        categorias={categories}
+        hayFisicos={hayFisicos}
+        hayDigitales={hayDigitales}
+        totalProductos={products.length}
+        onCategoria={elegirFiltro}
+        onVerCatalogo={irAlCatalogo}
+      />
 
       {/* ── CATÁLOGO ──────────────────────────────────────────────────────
           El ancla que usa el botón "Ver productos" del héroe. */}
-      <div id="catalogo" className="scroll-mt-24 flex items-end justify-between mb-4">
-        <div>
-          <p className="text-xs font-bold uppercase tracking-[0.2em] text-[var(--store-primary)] mb-1">Catálogo</p>
-          <h3 className="text-xl sm:text-2xl font-black text-gray-900 tracking-tight">
-            {filter === 'all' ? 'Todos los productos' : categories.find(c => c.key === filter)?.name || 'Productos'}
-          </h3>
-        </div>
-        <p className="text-xs text-gray-500 pb-1">
-          Mostrando <strong className="text-gray-900">{displayedProducts.length}</strong> de <strong className="text-gray-900">{filteredProducts.length}</strong>
-        </p>
+      <div id="catalogo" className="scroll-mt-28">
+        <TituloDeSeccion
+          titulo={filter === 'all' ? 'Todos los productos' : categories.find(c => c.key === filter)?.name || 'Productos'}
+          derecha={
+            <span className="text-[12px] text-[var(--mk-muted)]">
+              Mostrando <strong className="text-[var(--mk-ink)]">{displayedProducts.length}</strong> de{' '}
+              <strong className="text-[var(--mk-ink)]">{filteredProducts.length}</strong>
+              {filter !== 'all' && (
+                <button
+                  onClick={() => elegirFiltro('all')}
+                  className="ml-3 text-[var(--store-primary)] font-semibold hover:underline"
+                >
+                  Quitar filtro
+                </button>
+              )}
+            </span>
+          }
+        />
       </div>
 
       {loading ? (
