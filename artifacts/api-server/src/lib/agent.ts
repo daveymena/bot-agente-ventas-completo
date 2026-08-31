@@ -2865,12 +2865,40 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
             const nombreEnFoco = (productList as any[]).find(
               (pr: any) => pr.id === idsEnContexto[0],
             )?.name;
-            parte.content = revision.reemplazoSugerido
-              ?? (hayCard
-                ? "Te paso la ficha aquí abajo con todos los detalles 👇"
-                : nombreEnFoco
-                  ? `Déjame confirmarte ese dato del ${nombreEnFoco} y te respondo enseguida 🙏`
-                  : "Para no darte un dato equivocado, ¿me confirmas de cuál producto quieres que te cuente?");
+            // ── NO PROMETAS LO QUE NADIE VA A CUMPLIR ─────────────────────
+            //
+            // Acá decía "Déjame confirmarte ese dato del X y te respondo
+            // enseguida 🙏". Visto en vivo el 2026-08-31: el cliente preguntó
+            // "¿tienes curso de inteligencia artificial?", recibió esa frase,
+            // y la conversación se murió ahí. No hay ningún mecanismo que
+            // responda después -- no existe un trabajo pendiente, nadie avisa
+            // al admin, nadie vuelve. Es una promesa rota por construcción, y
+            // encima sobre una pregunta que el servidor SÍ podía contestar:
+            // el producto estaba identificado, tenía su nombre en la mano.
+            //
+            // Cuando el supervisor bloquea lo que escribió el modelo, lo que
+            // corresponde no es prometer: es mandar la FICHA, que la arma el
+            // servidor con datos verificados y contesta "¿lo tenés?" mejor que
+            // cualquier frase.
+            const idEnFoco = idsEnContexto[0];
+            const yaLaVio = typeof idEnFoco === "number" && memory.sentProductIds?.has(idEnFoco);
+
+            if (revision.reemplazoSugerido) {
+              parte.content = revision.reemplazoSugerido;
+            } else if (hayCard) {
+              parte.content = "Te paso la ficha aquí abajo con todos los detalles 👇";
+            } else if (nombreEnFoco && typeof idEnFoco === "number" && !yaLaVio) {
+              finalParts.push({ kind: "card", productId: idEnFoco, paymentOnly: false } as any);
+              parte.content = `¡Sí! Mirá 👇`;
+              console.log(`🧯 [SUPERVISOR] Bloqueó el texto: se manda la ficha de ${idEnFoco} en vez de prometer - ${ts()}`);
+            } else if (nombreEnFoco) {
+              // Ya tiene la ficha delante: repetirla es el defecto que el admin
+              // ya reportó ("me ofrece lo que acaba de mandarme"). Se pregunta
+              // algo concreto, que sí lleva a alguna parte.
+              parte.content = `Sí, tenemos el ${nombreEnFoco} 🙌 ¿Qué te gustaría saber puntualmente?`;
+            } else {
+              parte.content = "Para no darte un dato equivocado, ¿me confirmas de cuál producto quieres que te cuente?";
+            }
           }
         }
       } catch (e: any) {
