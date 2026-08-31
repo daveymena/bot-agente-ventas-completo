@@ -1,9 +1,65 @@
-# Estado del proyecto y qué falta — 30 de agosto de 2026
+# Estado del proyecto y qué falta — 31 de agosto de 2026
 
 Documento de traspaso. Lo que quedó funcionando, lo que falta, y **por qué**
 cada cosa importa. Escrito para retomar sin releer toda la conversación.
 
-Al empezar el día: **987 pruebas**. Al cerrar: **1.088**.
+Pruebas: **987** al empezar el 30 · **1.088** al cerrarlo · **1.191** hoy.
+
+---
+
+## 0. Lo último que se hizo (31 de agosto, de madrugada)
+
+### El reloj, que era el hueco de fondo
+
+El sistema sabía hacer las cosas pero no **a qué hora**. Publicar en la página
+funcionaba, el plan de contenido se armaba solo, las reglas de pauta estaban
+escritas — y nada las unía.
+
+`setInterval` no alcanzaba, por dos motivos: no sirve para "el martes a las
+19:00", y **cada despliegue lo reinicia**. Eso último ya se había pagado: el
+guardián de gasto llegó a marcar "0 revisiones" en su historial porque entre
+despliegues seguidos nunca llegaba a correr. Ahora la hora vive en la base
+(`trabajos_programados`) y un reinicio no pierde nada.
+
+Clave única por trabajo: publicar dos veces el mismo post ensucia la página del
+negocio y no se deshace con elegancia.
+
+### Agente orgánico
+
+Deja la semana agendada y publica sola. Si una pieza necesita datos que el
+negocio no cargó, **esa pieza no se agenda**: un calendario con un hueco es
+honesto, una publicación que promete lo que no hay no lo es.
+
+### Guardia horaria (dayparting)
+
+Apaga las franjas que gastan sin devolver y reactiva en las buenas. Las horas
+salen del **historial real de la cuenta**, nunca de suponer.
+
+Escribir "de 1 a 7 está muerto" habría sido un error caro y mudo: hay negocios
+donde la madrugada es la mejor franja, y apagársela les corta lo mejor mientras
+el panel se ve más eficiente. Hay una prueba dedicada a ese caso.
+
+Tres frenos: sin muestra (menos de 10 resultados) no toca nada; nunca apaga más
+de 10 de las 24 horas; y **nunca reanuda lo que apagó una persona**.
+
+**Sobre el permiso**: apagar ahorra y corre solo; encender gasta. Pedir permiso
+cada mañana a las 8 y que contesten a las 11 son tres horas de la mejor franja
+perdidas todos los días, así que el admin aprueba **una vez** la campaña y
+después encender es cumplir lo ya decidido. Apagada por omisión.
+
+### El embudo de WhatsApp — el punto 🔴 1 de este documento, resuelto
+
+`calcularEtapa` pasaba a "interesado" con el primer mensaje que nombra un
+producto, y esa etapa decía "avanzá hacia el cierre". De ahí salía el "va de me
+interesa a caja en dos mensajes".
+
+Ahora antes de presentar se hace **una** pregunta. Las dos sobrecorrecciones
+están cubiertas con pruebas, porque la segunda es peor que el defecto original:
+si el cliente pregunta el precio se le da el precio, y se califica una sola vez.
+
+La memoria de lo que el cliente dijo que necesita **se deduce del historial**,
+no se guarda: el historial ya es la fuente de verdad y una copia guardada es una
+cosa más que puede mentir.
 
 ---
 
@@ -82,7 +138,12 @@ Meta **no cobra** la conversación durante **3 días** si entró por anuncio.
 
 ## 2. Lo que falta — en orden de impacto
 
-### 🔴 1. Las etapas de venta (lo más importante)
+### ✅ 1. Las etapas de venta — RESUELTO el 31/08 (ver sección 0)
+
+Queda como registro de qué era el problema. El diseño del embudo vive ahora en
+`embudo.ts` y está conectado en `agent.ts`.
+
+### 🔴 1-bis. Lo que era el problema
 
 **El problema:** el bot va de *"me interesa"* a caja en dos mensajes. La
 estructura existe (`currentStage`, fichas parciales en `ficha-parcial.ts`) pero
@@ -112,11 +173,16 @@ Sí requieren que la cuenta de Instagram sea **Empresa/Creador** y esté
 Preguntarle a Atlas *"revisá la conexión con facebook"* — ahora informa qué
 falta.
 
-### 🟠 3. Conectar el estándar al diagnóstico de Atlas
+### ✅ 3. Conectar el estándar al diagnóstico de Atlas — HECHO el 31/08
 
-`dondeSePierde()` existe y está probado, pero Atlas todavía no lo usa. Cuando
-el admin pregunte *"¿cómo va mi campaña?"*, debería responder con estos
-umbrales en vez de números sueltos.
+`fb_campaign_metrics` ahora devuelve además **dónde se pierde**: si el eslabón
+flojo es el anuncio, el paso del clic al chat, o el cierre en la conversación.
+Son tres arreglos completamente distintos, y antes Atlas repetía números sueltos
+con los que el admin sabía cuánto gastó pero no qué arreglar.
+
+Con una advertencia dicha en la propia respuesta: las conversaciones y ventas
+son las del negocio en esa ventana, no solo las que vinieron de esos anuncios.
+Sirve para ver el eslabón flojo, no para atribuir.
 
 ### 🟡 4. La investigación se come 22 s de 33
 

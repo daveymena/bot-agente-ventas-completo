@@ -4196,7 +4196,63 @@ Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vincu
       if (!r) return { ok: false, summary: "No se pudieron leer las métricas (¿la cuenta de ads no tiene campañas o el token no tiene permiso?)." };
       const cams = r.campaigns || r;
       const n = Array.isArray(cams) ? cams.length : 0;
-      return { ok: n > 0, summary: n > 0 ? `${n} campaña(s) con datos.` : "No hay campañas con datos en la ventana seleccionada.", data: r };
+
+      // ── DÓNDE se pierde la plata, no solo cuánta ─────────────────────────
+      //
+      // Antes esta herramienta devolvía números sueltos --gasto, clics, CTR--
+      // y Atlas los repetía. Con eso el admin sabe que gastó, no qué arreglar.
+      // `dondeSePierde` compara contra las medianas del oficio y señala el
+      // ESLABÓN que falla: el anuncio, el paso del clic al chat, o el cierre
+      // en la conversación. Son tres arreglos completamente distintos.
+      let diagnostico: any = null;
+      try {
+        const { dondeSePierde } = await import("./estandar-que-funciona");
+        const totales = (Array.isArray(cams) ? cams : []).reduce(
+          (acc: any, c: any) => ({
+            clics: acc.clics + (Number(c.clicks) || 0),
+            gasto: acc.gasto + (Number(c.spend) || 0),
+          }),
+          { clics: 0, gasto: 0 },
+        );
+
+        if (totales.clics > 0) {
+          const desde = new Date(Date.now() - days * 86_400_000);
+          const [conv] = await db
+            .select({ n: sql<number>`count(*)::int` })
+            .from(conversations)
+            .where(and(eq(conversations.tenantId, ctx.tenantId), gte(conversations.createdAt, desde as any)));
+          const [vent] = await db
+            .select({ n: sql<number>`count(*)::int` })
+            .from(payments)
+            .where(and(eq(payments.tenantId, ctx.tenantId), eq(payments.status, "confirmed"), gte(payments.createdAt, desde as any)));
+
+          const d = dondeSePierde({
+            clics: totales.clics,
+            conversaciones: Number(conv?.n) || 0,
+            ventas: Number(vent?.n) || 0,
+            gasto: totales.gasto,
+          });
+          diagnostico = {
+            ...d,
+            // Se dice el límite del dato en vez de presentarlo como exacto: las
+            // conversaciones del período son TODAS las del negocio, no solo las
+            // que vinieron del anuncio. Sirve para ver el eslabón flojo; no
+            // sirve para atribuir. Callarlo haría que el admin tome una cifra
+            // aproximada por una medición.
+            ojo: "Las conversaciones y ventas son las del negocio en esa ventana, no solo las que vinieron de estos anuncios. Sirve para ver qué eslabón falla, no para atribuir con precisión.",
+          };
+        }
+      } catch (e) {
+        // El diagnóstico es un extra: si falla, las métricas se devuelven igual.
+      }
+
+      return {
+        ok: n > 0,
+        summary: n > 0
+          ? `${n} campaña(s) con datos.` + (diagnostico ? ` Dónde se pierde: ${diagnostico.etapa} -- ${diagnostico.diagnostico}` : "")
+          : "No hay campañas con datos en la ventana seleccionada.",
+        data: { ...r, diagnostico },
+      };
     },
   },
   // Control real de campañas desde el chat. NO son de solo lectura: mueven
