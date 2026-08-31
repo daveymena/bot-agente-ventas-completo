@@ -10,7 +10,6 @@ import {
   leads,
   settings as settingsTable,
   facebookDrafts,
-  tenants,
 } from "@workspace/db";
 import { getProviderConfig, getProviderRotation, getProviderConfigFromSettings, createAIClient, getOpenCodeRotation, getOpenCodeGoRotation } from "@workspace/integrations-openai-ai-server";
 import { logger } from "./logger";
@@ -19,10 +18,6 @@ import { hablarColombiano } from "./hablar-colombiano";
 import { calcularEstado, renderEstado, puedeMandarPago, type EtapaTrato } from "./estado-cognitivo";
 import { seccionQueCorresponde, elSiContestaLaOferta } from "./ficha-parcial";
 import { videoDeProducto } from "./video-de-producto";
-// Para avisarle al admin cuando un cliente dice que pago: hay que mandarle un
-// WhatsApp desde la instancia REAL del tenant, no desde el singleton (que
-// nunca esta conectado -- ver el comentario de ad-growth-agent.ts).
-import { getWhatsAppForTenant } from "./whatsapp-factory";
 
 /** El video de este producto, sin reventar si el metadata viene raro. */
 function videoDeProductoSeguro(p: any): string {
@@ -1579,78 +1574,30 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
     console.log(`🧠 [BRAIN] No se encontró patrón de human_handoff, usando IA general`);
   }
 
-  // ── 11c-bis. DICE QUE PAGÓ: se le avisa al admin y NO se entrega nada ────
+  // ── 11c-bis. DICE QUE PAGÓ sin mandar comprobante ───────────────────────
   //
-  // Pedido del admin: "el cliente manda el comprobante, tú me lo envías y
-  // esperas mi confirmación con un sí; si no, no le entregas".
+  // El flujo por IMAGEN ya existe completo en `verificacion-pago.ts` y está
+  // conectado en whatsapp.ts: detecta la captura, avisa al admin, lee su
+  // decisión y entrega. Esto NO lo duplica.
   //
-  // Una transferencia NO se puede verificar leyendo un chat: el cliente puede
-  // mandar una captura vieja, editada o de otra persona. El único que sabe si
-  // el dinero llegó es quien mira la cuenta.
+  // Lo que cubre es el caso que ese flujo no puede ver: el cliente que escribe
+  // "ya te pagué" SIN mandar nada. `pareceComprobante` trabaja sobre la
+  // descripción de una imagen, así que un texto pelado no lo activa -- y ese
+  // es justo el mensaje del defecto B1, donde el bot contestó "ya confirmé tu
+  // pago, te libero el acceso" a alguien que no mandó nada.
   //
-  // Es el defecto más grave que registró el QA (B1, 2026-08-26): "listo ya te
-  // pagué, mandame el acceso" --sin comprobante-- y el bot contestó "ya
-  // confirmé tu pago, te libero el acceso". Cualquiera obtenía el producto
-  // escribiendo una frase.
-  //
-  // `isPaymentConfirmation` y `formatConfirmationForCompany` ya existían en
-  // payment-confirmation.ts. La primera se importaba y NUNCA se llamaba; la
-  // segunda no se usaba en ningún lado. O sea que el admin no se enteraba.
+  // Acá no se avisa al admin: no hay comprobante que revisar todavía. Se le
+  // PIDE al cliente, y no se entrega nada.
   if (etapaDelTrato === "pago_reportado") {
-    try {
-      const { avisarAlAdminDelPago, esperaParaElCliente } = await import("./cobro-y-entrega");
-      const prod = decision.productToShow ?? decision.productoDelMensaje ?? null;
-      const completo = prod ? productList.find((p: any) => p.id === (prod as any).id) : null;
-      // ¿Mandó de verdad una imagen? Es la diferencia entre pedirle el
-      // comprobante y decirle que ya se está verificando.
-      const mandoComprobante = (memory.history as any[]).some(
-        (m) => m.role === "customer" && /\[imagen\]|comprobante|captura/i.test(String(m.content || "")),
-      );
-
-      const aviso = await avisarAlAdminDelPago(
-        convo.tenantId,
-        {
-          cliente: memory.contactName || convo.contactName || "Sin nombre",
-          telefono: convo.contactPhone,
-          producto: completo ? { id: (completo as any).id, name: (completo as any).name } : null,
-          monto: (completo as any)?.price ?? null,
-          moneda: (completo as any)?.currency ?? null,
-          conversationId,
-          mandoComprobante,
-        },
-        {
-          telefonoDelAdmin: async (tid) => {
-            try {
-              const [fila] = await db.select().from(tenants).where(eq(tenants.id, tid)).limit(1);
-              const propio = String((fila as any)?.contactPhone || "").replace(/[^0-9]/g, "");
-              if (propio.length >= 8) return propio;
-            } catch { /* se cae al del entorno */ }
-            const delEntorno = String(process.env.ADMIN_PHONE || "").replace(/[^0-9]/g, "");
-            return delEntorno.length >= 8 ? delEntorno : null;
-          },
-          enviar: async (tel, txt) => {
-            const wa = getWhatsAppForTenant(convo.tenantId);
-            if (!wa.isConnected()) throw new Error("WhatsApp no conectado");
-            return wa.sendText(tel, txt);
-          },
-        },
-      );
-
-      if (!aviso.avisado) {
-        // Que el admin no se haya enterado NO se le oculta a nadie: el cliente
-        // quedaría esperando una confirmación que nunca va a llegar.
-        logger.error(
-          { conversationId, motivo: aviso.motivo },
-          "[Pago] El cliente dice que pagó y NO se pudo avisar al admin",
-        );
-      } else {
-        console.log(`💳 [PAGO] ${convo.contactPhone} dice que pagó -- avisado el admin, NO se entregó nada - ${ts()}`);
-      }
-
-      const respuesta = esperaParaElCliente(mandoComprobante);
+    const mandoComprobante = (memory.history as any[]).some(
+      (m) => m.role === "customer" && /\[imagen\]|comprobante|captura/i.test(String(m.content || "")),
+    );
+    if (!mandoComprobante) {
+      const { esperaParaElCliente } = await import("./cobro-y-entrega");
+      const respuesta = esperaParaElCliente(false);
+      console.log(`💳 [PAGO] Dice que pagó sin comprobante: se le pide, no se entrega nada - ${ts()}`);
       await saveAgentMessage(conversationId, respuesta, "payment_reported", {
         intent: "payment_reported",
-        avisadoAlAdmin: aviso.avisado,
         isHardcoded: true,
       });
       return {
@@ -1659,17 +1606,8 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
         parts: [{ kind: "text", content: respuesta }],
         cardProductIds: [],
       };
-    } catch (e: any) {
-      // Si algo falla acá NO se sigue de largo hacia la IA: es justo el turno
-      // en el que el modelo diría "ya confirmé tu pago". Se contesta lo mínimo
-      // seguro y se registra.
-      logger.error({ err: e?.message, conversationId }, "[Pago] Falló el aviso de pago reportado");
-      const seguro = "¡Recibido! 🙏 Lo estoy verificando y te aviso por acá apenas lo confirmemos.";
-      await saveAgentMessage(conversationId, seguro, "payment_reported", { intent: "payment_reported", isHardcoded: true });
-      return { content: seguro, stage: memory.stage, parts: [{ kind: "text", content: seguro }], cardProductIds: [] };
     }
   }
-
   // ── 11d. LA OBJECIÓN QUE FRENA LA VENTA ─────────────────────────────────
   //
   // Va ANTES de la ruta de IA y del lado del servidor, por la misma razón que

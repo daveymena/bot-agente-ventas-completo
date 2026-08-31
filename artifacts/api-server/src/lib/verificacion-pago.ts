@@ -366,6 +366,51 @@ export async function atenderDecisionDelAdmin(
     }
   }
 
+  // ── El comprobante de compra ──────────────────────────────────────────────
+  //
+  // Pedido del admin: "necesito que al cliente pagar generes una factura".
+  // Aclarado después: "solo es como un comprobante de que pagó y ya".
+  //
+  // Va DESPUÉS de la entrega y en el mismo mensaje: el cliente acaba de pagar
+  // y lo primero que quiere es su acceso, no un papel. Pero le queda el número
+  // para poder referenciar la compra si algo sale mal.
+  //
+  // Se llama COMPROBANTE y no factura a propósito: este sistema no emite
+  // facturación electrónica ni tiene resolución de la DIAN, y llamar factura a
+  // algo que no lo es le crea un problema legal al negocio que lo manda.
+  if (r.aprobado) {
+    try {
+      const { reciboDeVenta, numeroDeRecibo } = await import("./cobro-y-entrega");
+      // Los datos salen de la fila del pago y del catálogo, no del resultado
+      // de la decisión: ahí solo viajan los ids. El monto REAL es el que quedó
+      // registrado en el pago, no el precio de lista -- si el admin cobró otra
+      // cosa, el comprobante tiene que decir lo que se pagó.
+      const [fila] = await db.select().from(payments).where(eq(payments.id, decision.pagoId)).limit(1);
+      const [conv] = r.conversationId
+        ? await db.select({ nombre: conversations.contactName }).from(conversations).where(eq(conversations.id, r.conversationId)).limit(1)
+        : [undefined as any];
+      const [prod] = r.productId
+        ? await db.select({ nombre: products.name }).from(products).where(eq(products.id, r.productId)).limit(1)
+        : [undefined as any];
+
+      const recibo = reciboDeVenta({
+        numero: numeroDeRecibo(decision.pagoId),
+        cliente: conv?.nombre || "Cliente",
+        producto: prod?.nombre || null,
+        monto: (fila as any)?.amount ?? null,
+        moneda: (fila as any)?.currency ?? null,
+        metodo: (fila as any)?.method || "Transferencia",
+      });
+      paraCliente = `${paraCliente}
+
+${recibo}`;
+    } catch (e: any) {
+      // Sin comprobante la venta igual se entrega: es un extra, no un
+      // requisito. Pero queda registrado que no salió.
+      logger.warn({ err: e?.message, pagoId: decision.pagoId }, "[Entrega] No se pudo armar el comprobante");
+    }
+  }
+
   // ── Y por correo, si el admin dijo a dónde ────────────────────────────────
   // Un enlace en WhatsApp se pierde entre mensajes; en el correo queda.
   if (r.aprobado && decision.correo) {
