@@ -39,10 +39,30 @@ const healthHandler = (req: any, res: any) => {
       /* el health nunca puede fallar por esto */
     }
 
+    // ── QUÉ BUILD ESTÁ CORRIENDO ──────────────────────────────────────────
+    //
+    // El 2026-08-31 se perdieron horas por no poder responder esta pregunta.
+    // Se arregló un fallo, se subió, el bot siguió contestando "problemas
+    // técnicos", y no había forma de saber si el arreglo estaba arriba o no:
+    // `uptime` solo dice cuándo arrancó el proceso, y un reinicio cualquiera
+    // --una caída, un ajuste de entorno-- lo pone a cero igual que un
+    // despliegue. Sin distinguirlos, "ya se desplegó" es una suposición.
+    //
+    // La fecha del archivo compilado sí lo distingue: dentro del contenedor es
+    // el momento en que se armó la imagen. Si no cambia entre dos consultas,
+    // el código es el mismo por más que el proceso se haya reiniciado.
+    let build: string | null = null;
+    try {
+      build = require("node:fs").statSync(__filename).mtime.toISOString();
+    } catch {
+      /* el health nunca puede fallar por esto */
+    }
+
     res.status(200).json({
       status: "ok",
       timestamp: new Date().toISOString(),
       uptime: process.uptime(),
+      ...(build ? { build } : {}),
       ...(whatsapp ? { whatsapp } : {}),
       ...(cola ? { cola } : {}),
       ...(ultimoError ? { ultimoError } : {}),
