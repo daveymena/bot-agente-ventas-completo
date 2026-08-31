@@ -17,6 +17,7 @@ import { supervisarRespuesta } from "./supervisor";
 import { hablarColombiano } from "./hablar-colombiano";
 import { calcularEstado, renderEstado, puedeMandarPago, type EtapaTrato } from "./estado-cognitivo";
 import { seccionQueCorresponde, elSiContestaLaOferta } from "./ficha-parcial";
+import { videoDeProducto } from "./video-de-producto";
 import { responderPregunta, aperturaPara } from "./conocimiento-producto";
 import { PaymentGateway } from "./payments";
 import { 
@@ -681,6 +682,11 @@ function slugDeUrl(u: string): string {
  *   3. Link por slug, comparado como segmento COMPLETO contra el permalink de
  *      WooCommerce -- "…-x-200ml" no puede matchear "…-x-200ml-2".
  */
+/** El video de este producto, sin reventar si el metadata viene raro. */
+function videoDeProductoSeguro(p: any): string {
+  try { return videoDeProducto(p?.metadata); } catch { return ""; }
+}
+
 export async function productoDelAnuncio(
   anuncio: { anuncioId?: string; url?: string } | null,
   productList: Array<any>,
@@ -1566,6 +1572,50 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
     }
     // Si no coincide con un patrón de human_handoff, caer en IA general
     console.log(`🧠 [BRAIN] No se encontró patrón de human_handoff, usando IA general`);
+  }
+
+  // ── 11d. LA OBJECIÓN QUE FRENA LA VENTA ─────────────────────────────────
+  //
+  // Va ANTES de la ruta de IA y del lado del servidor, por la misma razón que
+  // el precio: son las respuestas donde improvisar sale caro. A quien dice "lo
+  // voy a pensar" el modelo le contestaba con urgencia inventada; a quien
+  // desconfía, con "somos serios" -- que es lo que dice el que estafa.
+  //
+  // `responderObjecion` devuelve null cuando el negocio no cargó el dato que
+  // haría creíble la respuesta (la garantía, por ejemplo). En ese caso NO se
+  // atraviesa: contesta la IA con su contexto, que es mejor que una frase
+  // hecha prometiendo lo que no existe.
+  try {
+    const { detectarObjecion, responderObjecion } = await import("./objeciones");
+    const objecion = detectarObjecion(lastText);
+    if (objecion) {
+      const prod = decision.productToShow ?? decision.productoDelMensaje ?? null;
+      const completo = prod ? productList.find((p: any) => p.id === (prod as any).id) : null;
+      const respuesta = responderObjecion(objecion, {
+        producto: completo as any,
+        garantia: negocio?.garantia || null,
+        entrega: negocio?.entrega || null,
+        tieneVideo: !!(completo && videoDeProductoSeguro(completo)),
+      });
+      if (respuesta) {
+        console.log(`🛡️ [OBJECIÓN] "${objecion}" contestada con datos del negocio - ${ts()}`);
+        await saveAgentMessage(conversationId, respuesta, "objection_handling", {
+          intent: "objection_handling",
+          objecion,
+          isHardcoded: true,
+        });
+        return {
+          content: respuesta,
+          stage: memory.stage,
+          parts: [{ kind: "text", content: respuesta }],
+          cardProductIds: [],
+        };
+      }
+      console.log(`🛡️ [OBJECIÓN] "${objecion}" detectada, sin datos para contestarla: la responde la IA - ${ts()}`);
+    }
+  } catch (e: any) {
+    // Una objeción sin contestar por acá no rompe nada: sigue la ruta normal.
+    logger.warn({ err: e?.message, conversationId }, "[Objecion] no se pudo evaluar");
   }
 
   // ── 11c. RUTA IA — construir prompt final con cerebro + contexto del motor ─
