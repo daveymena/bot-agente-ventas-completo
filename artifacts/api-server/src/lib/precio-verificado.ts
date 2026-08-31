@@ -200,16 +200,20 @@ export function defenderElPrecio(p: {
     .filter(Boolean)
     .slice(0, 3);
 
+  // Sin caracteristicas cargadas NO se repite "el mismo para todos", que ya se
+  // dice en la primera frase. Visto en produccion (2026-08-30): "El precio es
+  // el del catalogo, el mismo para todos. Ese precio es el mismo para todos
+  // los que ya lo compraron." -- dos veces lo mismo en dos renglones.
   const razon = rasgos.length
     ? `Por ${precioTexto} te llevás ${rasgos.join(", ")}.`
-    : `Ese precio es el mismo para todos los que ya lo compraron.`;
+    : "";
 
   return (
     // Se dice el precio UNA vez y sin pedir perdón. "Es el mismo para todos"
     // explica el porqué sin sonar a negativa: no es que no quiera, es que el
     // precio es serio.
     `El precio es ${precioTexto}, el mismo para todos 🙏 ` +
-    `${razon} ` +
+    (razon ? `${razon} ` : "") +
     `Prefiero sostenerlo y que valga lo que cuesta, antes que rebajarlo y que no valga nada.`
   );
 }
