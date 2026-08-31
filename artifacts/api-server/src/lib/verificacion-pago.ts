@@ -31,7 +31,7 @@
  */
 
 import { db, payments, conversations, tenants, products } from "@workspace/db";
-import { eq, and, desc } from "drizzle-orm";
+import { eq, and, desc, inArray } from "drizzle-orm";
 import { logger } from "./logger";
 
 export interface ComprobanteEntrante {
@@ -295,15 +295,57 @@ export async function telefonoDelAdmin(tenantId: number): Promise<string | null>
  * admin como subcadena pasaría el chequeo -- y ese chequeo aprueba dinero.
  */
 export async function esTelefonoDeAdmin(phone: string): Promise<boolean> {
+  return (await tenantsQueAdministra(phone)).length > 0;
+}
+
+/**
+ * DE QUÉ negocios es admin este número.
+ *
+ * Antes esto era un booleano suelto, y ahí estaba el agujero: la consulta
+ * comparaba contra el `contact_phone` de TODOS los negocios sin filtrar, así
+ * que en un SaaS con varios clientes el admin del negocio A podía aprobar un
+ * pago del negocio B escribiendo "aprobar 47". Nadie lo notaba: el cliente de
+ * B recibía su producto y el dueño de B nunca supo quién lo autorizó.
+ *
+ * Hoy no expone a nadie --hay un solo negocio real-- pero el producto se está
+ * vendiendo a otros, y este es exactamente el tipo de cosa que no se arregla
+ * después: para cuando se nota, ya hubo entregas aprobadas por quien no debía.
+ *
+ * ── El caso del ADMIN_PHONE del entorno ─────────────────────────────────
+ *
+ * Es un respaldo global, así que por sí solo no dice de QUÉ negocio es admin.
+ * Se le conceden únicamente los negocios cuyo `contact_phone` está vacío --que
+ * son exactamente aquellos a los que `telefonoDelAdmin` le mandaría el aviso a
+ * ese mismo número. Si un negocio cargó su teléfono, el del entorno ya no
+ * recibe sus avisos y tampoco puede aprobar sus pagos.
+ */
+export async function tenantsQueAdministra(phone: string): Promise<number[]> {
   const quien = String(phone || "").replace(/[^0-9]/g, "");
-  if (quien.length < 8) return false;
-  const delEntorno = String(process.env.ADMIN_PHONE || "").replace(/[^0-9]/g, "");
-  if (delEntorno && quien === delEntorno) return true;
+  if (quien.length < 8) return [];
+
   try {
-    const filas = await db.select({ contactPhone: tenants.contactPhone }).from(tenants);
-    return filas.some((t: any) => String(t.contactPhone || "").replace(/[^0-9]/g, "") === quien);
+    const filas = await db
+      .select({ id: tenants.id, contactPhone: tenants.contactPhone })
+      .from(tenants);
+
+    // La comparación es EXACTA a propósito: `isAdminPhone` (admin-commands.ts)
+    // usa `includes()` en las dos direcciones, así que un número que contenga
+    // al del admin como subcadena pasaría el chequeo -- y este chequeo aprueba
+    // dinero.
+    const propios = filas
+      .filter((t: any) => String(t.contactPhone || "").replace(/[^0-9]/g, "") === quien)
+      .map((t: any) => Number(t.id));
+    if (propios.length > 0) return propios;
+
+    const delEntorno = String(process.env.ADMIN_PHONE || "").replace(/[^0-9]/g, "");
+    if (delEntorno && quien === delEntorno) {
+      return filas
+        .filter((t: any) => String(t.contactPhone || "").replace(/[^0-9]/g, "").length < 8)
+        .map((t: any) => Number(t.id));
+    }
+    return [];
   } catch {
-    return false;
+    return [];
   }
 }
 
@@ -328,13 +370,18 @@ export async function atenderDecisionDelAdmin(
 ): Promise<RespuestaAdmin | null> {
   const decision = leerDecisionDelAdmin(texto);
   if (!decision) return null;
-  if (!(await esTelefonoDeAdmin(phone))) return null;
 
-  // Solo se toma si HAY un comprobante pendiente con ese número.
+  const suyos = await tenantsQueAdministra(phone);
+  if (suyos.length === 0) return null;
+
+  // Solo se toma si HAY un comprobante pendiente con ese número Y ES DE UN
+  // NEGOCIO SUYO. El filtro por tenant faltaba: sin él, cualquier admin del
+  // sistema podía aprobar la entrega de un pago ajeno con solo acertarle al
+  // número del comprobante, que además va impreso en el aviso.
   const [pago] = await db
     .select({ id: payments.id, status: payments.status })
     .from(payments)
-    .where(eq(payments.id, decision.pagoId))
+    .where(and(eq(payments.id, decision.pagoId), inArray(payments.tenantId, suyos)))
     .limit(1);
   if (!pago || pago.status !== "pending") return null;
 

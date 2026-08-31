@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { pareceComprobante, leerDecisionDelAdmin, avisoParaElAdmin, codigoDe } from "../verificacion-pago";
+import { pareceComprobante, leerDecisionDelAdmin, avisoParaElAdmin, codigoDe, tenantsQueAdministra } from "../verificacion-pago";
 
 /**
  * Los pagos por Nequi/Daviplata no tienen webhook: nadie le avisa al sistema
@@ -130,5 +130,47 @@ describe("aprobar indicando a dónde mandar el acceso por correo", () => {
   it("el aviso le dice al admin que puede hacerlo", () => {
     const a = avisoParaElAdmin({ pagoId: 12, cliente: "X", telefono: "1", producto: "Y", monto: 1000, moneda: "COP" });
     expect(a).toMatch(/correo@cliente\.com/);
+  });
+});
+
+/**
+ * ¿Quién puede aprobar una entrega?
+ *
+ * El agujero era de multi-tenant: `esTelefonoDeAdmin` comparaba contra el
+ * `contact_phone` de TODOS los negocios sin filtrar, y la búsqueda del pago
+ * tampoco filtraba. Así, el admin del negocio A podía aprobar un pago del
+ * negocio B escribiendo "aprobar 47" -- y el número del comprobante va impreso
+ * en el aviso, así que ni siquiera había que adivinarlo.
+ *
+ * Nadie lo habría notado: el cliente de B recibe su producto y el dueño de B
+ * nunca sabe quién lo autorizó.
+ */
+describe("un admin solo aprueba pagos de SU negocio", () => {
+
+  it("un número que no es de nadie no administra nada", async () => {
+    expect(await tenantsQueAdministra("573001112233")).toEqual([]);
+  });
+
+  it("un número corto o vacío se rechaza sin consultar la base", async () => {
+    for (const malo of ["", "123", null, undefined]) {
+      expect(await tenantsQueAdministra(malo as any), String(malo)).toEqual([]);
+    }
+  });
+
+  it("la comparación es EXACTA, no por subcadena", async () => {
+    // `isAdminPhone` compara con includes() en las dos direcciones: un número
+    // que contenga al del admin pasaría el chequeo. Y este chequeo aprueba
+    // dinero.
+    const admin = process.env.ADMIN_PHONE;
+    process.env.ADMIN_PHONE = "573042748687";
+    try {
+      // Un número que CONTIENE al del admin no debe administrar nada.
+      expect(await tenantsQueAdministra("5730427486871")).toEqual([]);
+      // Y uno contenido POR el del admin, tampoco.
+      expect(await tenantsQueAdministra("3042748687")).toEqual([]);
+    } finally {
+      if (admin === undefined) delete process.env.ADMIN_PHONE;
+      else process.env.ADMIN_PHONE = admin;
+    }
   });
 });
