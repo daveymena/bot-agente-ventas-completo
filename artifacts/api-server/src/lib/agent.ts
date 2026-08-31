@@ -16,6 +16,7 @@ import { logger } from "./logger";
 import { supervisarRespuesta } from "./supervisor";
 import { hablarColombiano } from "./hablar-colombiano";
 import { calcularEstado, renderEstado, puedeMandarPago, type EtapaTrato } from "./estado-cognitivo";
+import { proximoPaso, renderPaso, necesidadDeclarada } from "./embudo";
 import { seccionQueCorresponde, elSiContestaLaOferta } from "./ficha-parcial";
 import { videoDeProducto } from "./video-de-producto";
 
@@ -1696,6 +1697,32 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
       loQueNoSabe: datosQueFaltan(negocio),
     });
     bloqueEstado = renderEstado(estado);
+
+    // ── Y QUÉ HACER con ese estado ────────────────────────────────────────
+    //
+    // `renderEstado` dice DÓNDE está la conversación; esto dice qué
+    // corresponde hacer ahora. Estaban juntos y no alcanzaba: la acción de la
+    // etapa "interesado" era "avanzá hacia el cierre", y como esa etapa se
+    // activa con el PRIMER mensaje que nombra un producto, el cliente escribía
+    // "me interesa el de piano" y recibía ficha, precio y medios de pago de
+    // una. El admin lo describió como "va de me interesa a caja en dos
+    // mensajes".
+    //
+    // Ver embudo.ts. Lo que más cambia: antes de presentar se hace UNA
+    // pregunta -- salvo que el cliente haya pedido un dato concreto, y ahí se
+    // le da el dato en vez de interrogarlo.
+    const paso = proximoPaso({
+      etapa: estado.etapa,
+      historial: memory.history as any,
+      preguntaPendiente: estado.preguntaPendiente,
+      fichaEnviada: !!(productoEstado && memory.sentProductIds?.has((productoEstado as any).id)),
+      // Se deduce del historial, no se guarda: el historial ya es la fuente de
+      // verdad y no puede quedar desincronizado con lo que se dijo de verdad.
+      necesidad: necesidadDeclarada(memory.history as any),
+    });
+    bloqueEstado += `\n${renderPaso(paso)}`;
+    console.log(`🎯 [EMBUDO] ${paso.movimiento} — ${paso.porQue} - ${ts()}`);
+
     etapaDelTrato = estado.etapa;
     console.log(`🧭 [ESTADO] ${estado.etapa} — ${estado.porQue}${estado.preguntaPendiente ? " | pregunta pendiente" : ""} - ${ts()}`);
   } catch (e: any) {
