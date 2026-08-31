@@ -57,6 +57,25 @@ const guardarSchema = z.object({
   garantia: garantiaSchema.nullable().optional(),
   acceso: accesoSchema.nullable().optional(),
   noPuede: z.array(z.string()).optional(),
+  /**
+   * Cómo habla este negocio.
+   *
+   * Es lo que más rompe al cambiar de cliente y no se podía configurar: una
+   * funeraria no vende como una tienda de zapatillas, y el agente hablaba
+   * igual para las dos. Texto libre a propósito -- una lista cerrada de tonos
+   * nunca alcanza, y el dueño describe el suyo mejor que cualquier etiqueta.
+   */
+  tono: z.string().max(300).nullable().optional(),
+  /**
+   * Si el negocio acepta negociar el precio.
+   *
+   * Por defecto NO, y es deliberado: un precio que baja al primer pedido
+   * enseña que el de la lista era falso, y de ahí en más todo el catálogo se
+   * lee como inflado. Pero un concesionario o una mueblería sí regatean, y el
+   * SaaS tiene que servirles: con esto en true, el candado de
+   * `defenderElPrecio` deja de aplicarse.
+   */
+  negociaPrecio: z.boolean().nullable().optional(),
   loQueDebeSaber: z.array(z.string()).optional(),
   /**
    * Qué tipo de producto vende este negocio.

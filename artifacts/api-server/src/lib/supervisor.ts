@@ -77,6 +77,15 @@ export interface EntradaSupervisor {
    */
   yaEnviado?: string[];
 
+  /**
+   * Si ESTE negocio acepta negociar el precio.
+   *
+   * Por defecto false. Con true, la regla que impide aceptar rebajas deja de
+   * aplicarse: hay rubros donde regatear es como se vende, y el candado seria
+   * el bot negandose a trabajar.
+   */
+  negociaPrecio?: boolean;
+
   /** Metodos de pago que el negocio verifica A MANO (Nequi, Daviplata...). */
   pagosManuales?: string[];
 
@@ -500,7 +509,16 @@ export function supervisarRespuesta(e: EntradaSupervisor): RevisionSupervisor {
     /\b(descuento|rebaja|rebajar|me lo dejas?|lo dejas? en|me lo das? en|precio especial|m[aá]s barato|promoci[oó]n|oferta especial|hac[eé]s? precio|[uú]ltimo precio|en cu[aá]nto me lo dejas?)\b/i;
   const ACEPTA_SIN_PENSAR =
     /^\s*(?:[¡!]*\s*)?(claro que s[ií]|claro|listo|dale|de una|por supuesto|hecho|obvio|perfecto|s[ií]\s*[,.!]|ok|okey|okay|va|trato hecho|cerrado)\b/i;
-  if (PIDE_REBAJA.test(e.mensajeCliente)) {
+  // ── Salvo que ESTE negocio si negocie ──────────────────────────────────
+  //
+  // El default es no negociar, y es deliberado: un precio que baja al primer
+  // pedido ensena que el de la lista era falso, y de ahi en mas todo el
+  // catalogo se lee como inflado.
+  //
+  // Pero esto es un SaaS. Un concesionario, una mueblería o un mayorista SI
+  // regatean, y para ellos este candado seria el bot negandose a hacer su
+  // trabajo. Se configura en el perfil del negocio (`negociaPrecio`).
+  if (PIDE_REBAJA.test(e.mensajeCliente) && !e.negociaPrecio) {
     const enFoco = e.productos.filter((p) => e.idsEnContexto.includes(p.id));
     const precio = Number(enFoco[0]?.price ?? NaN);
     // El texto del bot NO puede abrir afirmando, y tiene que decir el precio

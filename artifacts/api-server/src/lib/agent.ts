@@ -2738,6 +2738,8 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
             // Las cuentas de cobro REALES. Todo lo que el modelo escriba como
             // número de cuenta y no esté acá, es plata a una cuenta ajena.
             cuentasReales: cuentasDelNegocio,
+            // Hay rubros donde regatear es como se vende. El default es no.
+            negociaPrecio: negocio?.negociaPrecio === true,
             // Lo que YA se le mandó a este cliente. Sin esto el agente no
             // compara lo que va a decir contra lo que ya dijo -- y le ofrece
             // contarle el contenido que acaba de enviarle.

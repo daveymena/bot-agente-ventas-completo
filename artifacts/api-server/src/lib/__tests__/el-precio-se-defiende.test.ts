@@ -71,3 +71,32 @@ describe("Y el supervisor lo usa cuando le piden rebaja", () => {
     expect(r.reemplazoSugerido).toMatch(/3 cursos en uno/);
   });
 });
+
+describe("Pero hay rubros donde regatear ES como se vende", () => {
+  it("con negociaPrecio en true, el candado no se aplica", () => {
+    // Esto es un SaaS. Un concesionario, una mueblería o un mayorista regatean,
+    // y para ellos el candado sería el bot negándose a hacer su trabajo.
+    const r = supervisarRespuesta({
+      respuesta: "¡Claro que sí! Te lo dejo en 30 mil 😊",
+      mensajeCliente: "me lo dejas en 30 mil?",
+      productos: [CURSO],
+      idsEnContexto: [124],
+      llevaCard: false,
+      negociaPrecio: true,
+    });
+    expect(r.hallazgos.map((h) => h.regla)).not.toContain("descuento-aceptado");
+  });
+
+  it("y el default sigue siendo NO negociar", () => {
+    // Un precio que baja al primer pedido enseña que el de la lista era falso.
+    // Por eso el default es el candado, no la excepción.
+    const r = supervisarRespuesta({
+      respuesta: "¡Claro que sí! Te lo dejo en 30 mil 😊",
+      mensajeCliente: "me lo dejas en 30 mil?",
+      productos: [CURSO],
+      idsEnContexto: [124],
+      llevaCard: false,
+    });
+    expect(r.hallazgos.map((h) => h.regla)).toContain("descuento-aceptado");
+  });
+});

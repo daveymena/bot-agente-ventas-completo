@@ -84,6 +84,16 @@ export interface BusinessContext {
   /** Los tres datos que el agente afirmaba de memoria. `null` = NO afirmar. */
   entrega: DatoEntrega | null;
   garantia: DatoGarantia | null;
+  /** Cómo habla este negocio. Lo describe el dueño; no hay lista cerrada. */
+  tono: string | null;
+  /**
+   * Si acepta negociar el precio. Por defecto NO.
+   *
+   * Un concesionario o una muebleria si regatean, y el SaaS tiene que
+   * servirles. Pero el default es no: rebajar al primer pedido ensena que el
+   * precio de lista era falso.
+   */
+  negociaPrecio: boolean;
   acceso: DatoAcceso | null;
 
   /**
@@ -260,6 +270,8 @@ export async function getBusinessContext(
     horario: null,
     entrega: null,
     garantia: null,
+    tono: null,
+    negociaPrecio: false,
     acceso: null,
     // Por defecto NO se filtra nada: cambiarle el catálogo a un negocio que no
     // lo pidió sería peor que el problema que esto resuelve.
@@ -311,6 +323,8 @@ export async function getBusinessContext(
       ctx.cobertura = textoLimpio(perfil.cobertura ?? perfil.coverage);
       ctx.entrega = leerEntrega(perfil.entrega ?? perfil.deliveryInfo);
       ctx.garantia = leerGarantia(perfil.garantia ?? perfil.guaranteeInfo);
+      ctx.tono = textoLimpio(perfil.tono);
+      ctx.negociaPrecio = perfil.negociaPrecio === true;
       ctx.acceso = leerAcceso(perfil.acceso ?? perfil.accessInfo);
       ctx.noPuede = listaLimpia(perfil.noPuede ?? perfil.cannotDo);
       ctx.loQueDebeSaber = listaLimpia(perfil.loQueDebeSaber ?? perfil.mustKnow);
@@ -463,6 +477,11 @@ export function renderBloqueNegocio(ctx: BusinessContext): string {
 
   if (ctx.garantia) {
     l.push(`• Garantía: ${ctx.garantia.descripcion}`);
+  }
+  if (ctx.tono) {
+    // El tono va en el bloque del negocio, no en el prompt fijo: es lo que
+    // cambia entre una funeraria y una tienda de zapatillas.
+    l.push(`• Tono: ${ctx.tono}`);
   } else {
     sinConfirmar.push("si hay garantía o devolución");
   }

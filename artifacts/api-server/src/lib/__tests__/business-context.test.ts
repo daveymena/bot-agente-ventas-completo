@@ -26,6 +26,9 @@ const VACIO: BusinessContext = {
   noPuede: [],
   loQueDebeSaber: [],
   fuentes: [],
+  modoCatalogo: "mixto" as const,
+  tono: null,
+  negociaPrecio: false,
   configurado: false,
 };
 
