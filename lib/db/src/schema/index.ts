@@ -29,3 +29,4 @@ export * from "./marketing-experiments";
 export * from "./marketing-campaigns";
 export * from "./marketing-budgets";
 export * from "./marketing-audit-logs";
+export * from "./trabajos-programados";

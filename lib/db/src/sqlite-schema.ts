@@ -438,6 +438,26 @@ export const promptVersions = sqliteTable("prompt_versions", {
   createdAt: text("created_at").notNull().default(sql`(datetime('now'))`),
 });
 
+// ── trabajos_programados: el reloj ───────────────────────────────────────────
+// Espejo sqlite de schema/trabajos-programados.ts. Las pruebas corren sobre
+// sqlite, y un reloj sin pruebas es justo el componente que uno NO quiere
+// descubrir roto en producción a las 3 de la mañana.
+export const trabajosProgramados = sqliteTable("trabajos_programados", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  tenantId: integer("tenant_id").references(() => tenants.id, { onDelete: "cascade" }).notNull(),
+  tipo: text("tipo").notNull(),
+  clave: text("clave").notNull().unique(),
+  correAt: text("corre_at").notNull(),
+  estado: text("estado").notNull().default("pendiente"),
+  datos: text("datos", { mode: "json" }).notNull().default({}),
+  resultado: text("resultado", { mode: "json" }),
+  intentos: integer("intentos").notNull().default(0),
+  error: text("error"),
+  repiteCadaMin: integer("repite_cada_min"),
+  creadoAt: text("creado_at").notNull().default(sql`(datetime('now'))`),
+  actualizadoAt: text("actualizado_at").notNull().default(sql`(datetime('now'))`),
+});
+
 // ── marketing_tasks (MASTER PLAN §20) ────────────────────────────────────────
 export const marketingTasks = sqliteTable("marketing_tasks", {
   id: integer("id").primaryKey({ autoIncrement: true }),

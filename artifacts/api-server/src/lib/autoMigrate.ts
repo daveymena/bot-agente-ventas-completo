@@ -195,6 +195,31 @@ const MIGRATIONS = [
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
     completed_at TIMESTAMP WITH TIME ZONE
   )`,
+  // ── El reloj del sistema ────────────────────────────────────────────────
+  // Ver lib/db/src/schema/trabajos-programados.ts. Va acá y no por
+  // `drizzle-kit push` porque push compara TODO el esquema y puede proponer
+  // cambios destructivos en tablas que nadie pidió tocar; esto crea lo nuevo
+  // sin mirar lo viejo.
+  `CREATE TABLE IF NOT EXISTS trabajos_programados (
+    id SERIAL PRIMARY KEY,
+    tenant_id INTEGER NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    tipo TEXT NOT NULL,
+    clave TEXT NOT NULL,
+    corre_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    estado TEXT NOT NULL DEFAULT 'pendiente',
+    datos JSONB NOT NULL DEFAULT '{}',
+    resultado JSONB DEFAULT NULL,
+    intentos INTEGER NOT NULL DEFAULT 0,
+    error TEXT,
+    repite_cada_min INTEGER,
+    creado_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
+    actualizado_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now()
+  )`,
+  // Único de verdad: es lo que hace imposible publicar dos veces el mismo post
+  // aunque la semana se reprograme o corran dos instancias del servidor.
+  `CREATE UNIQUE INDEX IF NOT EXISTS trabajos_programados_clave_idx ON trabajos_programados (clave)`,
+  // El índice que usa el buscador de trabajos vencidos en cada vuelta.
+  `CREATE INDEX IF NOT EXISTS trabajos_programados_pendientes_idx ON trabajos_programados (estado, corre_at)`,
 ];
 
 export async function runAutoMigrations(): Promise<void> {
