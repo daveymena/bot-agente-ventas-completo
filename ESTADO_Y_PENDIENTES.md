@@ -217,3 +217,94 @@ Vale la pena leerlas antes de tocar nada:
   `GET {host}/file/content?path=...` con Basic auth. Sirve para diagnosticar.
 - **Los logs del contenedor NO se pueden leer** desde afuera: EasyPanel no
   expone endpoint. Por eso el desglose de tiempos viaja en la respuesta HTTP.
+
+---
+
+# Segunda parte del 30 de agosto
+
+Todo lo de abajo salió después de escribir lo de arriba. Cierre: **1.119
+pruebas** en 85 archivos.
+
+## Lo que se cerró
+
+### La columna vertebral de la venta
+
+**No hubo que reescribir nada.** `calcularEtapa` ya existía y calculaba bien en
+qué punto va el trato. El problema era que su resultado viajaba al prompt
+**como texto** — una sugerencia al modelo. Y faltaba la regla que más caro
+sale: ninguna etapa prohibía mandar el checkout.
+
+Ahora `puedeMandarPago` es regla del servidor: en `explorando` o `interesado`
+no sale el cobro, **salvo que el cliente lo pida** — negárselo a quien quiere
+pagar es el error opuesto y sale igual de caro.
+
+### El precio se defiende, no se rebaja
+
+Antes: *"El precio es $60.000 y es fijo 🙏 No manejo descuentos"* — niega dos
+veces y no da una razón.
+
+Ahora `defenderElPrecio` lo sostiene con lo que el producto **realmente trae**,
+sin compararse con la competencia (el sistema no sabe qué cobran otros).
+
+### Las cuatro objeciones
+
+`objeciones.ts`: "lo voy a pensar", "¿es confiable?", "¿me sirve a mí?", "no
+tengo tiempo". Ninguna se contesta con adjetivos —*"somos serios"* lo dice
+igual el que estafa— y si el negocio no cargó la garantía, **devuelve `null`**
+en vez de inventarla.
+
+### El comprobante de compra
+
+Se manda pegado a la entrega cuando el admin aprueba, con el monto **real del
+pago registrado**, no el precio de lista.
+
+⚠️ Se llama **comprobante**, no factura: este sistema no emite facturación
+electrónica ni tiene resolución de la DIAN.
+
+### La suite dejó de ser intermitente
+
+**No tenía ningún defecto.** Un archivo con seis funciones puras tardaba
+5,95 s: `ensureDbReady()` creaba las 30 tablas desde cero **en cada archivo**.
+Con 85 archivos son ocho minutos de trabajo idéntico, y bajo paralelismo el
+hook se pasaba de los 30 s.
+
+Ahora el esquema se construye **una vez** (`vitest.globalSetup.js`) y cada
+archivo se lleva una copia.
+
+### Multi-tenant: el texto asumía cursos
+
+Los cierres decían *"¿Te muestro cómo son las clases?"* — y le fallaba al
+propio admin, que vende Cojín Moto Viajero. `esFisico` ya estaba en la función
+y no se usaba.
+
+## Dos correcciones mías, anotadas a propósito
+
+**1. Reescribí la verificación de pagos que ya existía.** Construí el aviso al
+admin, la lectura del "sí" y la búsqueda de su teléfono sin mirar antes — las
+tres ya estaban en `verificacion-pago.ts`, conectadas. Miré
+`payment-confirmation.ts`, vi que no estaba conectado, y **nunca busqué si
+había otro módulo**. Borrado el duplicado.
+
+**2. Casi entrego las objeciones sin conectar.** Las funciones estaban escritas
+y probadas, y **nadie las llamaba**. El bot habría seguido improvisando igual.
+
+Las dos son el mismo error que este documento ya nombraba en su lección #1.
+Escribir la función es la mitad del trabajo.
+
+## Lo que falta ahora
+
+1. **Que cada negocio configure lo suyo** — garantía, entrega, tono, si negocia
+   precio. Hoy, si no lo carga, el bot calla. Es lo que separa "funciona para
+   usted" de "se lo puedo vender a otro".
+2. **Un negocio nuevo arranca en blanco.** No hay asistente que le pregunte qué
+   vende y cómo entrega.
+3. **Auditar los prompts**, donde todavía queda texto que asume cursos.
+4. Fase 3 de la estrategia: publicar y programar el contenido.
+5. Conectar `dondeSePierde()` al diagnóstico de Atlas.
+
+## Lección que se agrega a las siete
+
+**8. Buscar en TODO el repo antes de construir, no en el archivo que uno
+supone.** Las dos correcciones de hoy salieron de mirar un módulo y no el que
+de verdad hacía el trabajo. `grep -rn` sobre `src/` completo, no sobre el
+archivo que suena parecido.
