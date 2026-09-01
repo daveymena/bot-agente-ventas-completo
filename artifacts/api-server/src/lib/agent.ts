@@ -2895,6 +2895,38 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
         .filter((p: any) => !(p.kind === "text" && !String(p.content || "").trim()))
         .map((p: any) => { delete p._beforeCard; return p; });
 
+      // -- UNA PREGUNTA SOBRE EL NEGOCIO NO CAMBIA DE PRODUCTO -----------
+      //
+      // Medido en produccion el 2026-09-01, hablando del curso de piano:
+      //
+      //   cliente: "¿tienes pagina web?"
+      //   bot:     "Si, tenemos pagina web" + [ficha de DESARROLLO WEB]
+      //
+      // El modelo caso las palabras "pagina web" con el NOMBRE de otro curso
+      // del catalogo y emitio su tarjeta. "¿tienes pagina web?", "¿cuanto
+      // vale?" y "¿como pago?" son preguntas sobre lo que se viene hablando,
+      // no pedidos de un producto nuevo.
+      //
+      // La regla: si el cliente NO nombro un producto y hay uno en foco, la
+      // tarjeta es la del que esta en foco. Un cambio de producto de verdad
+      // ('contame del de ingles') si llena `productoDelMensaje`, asi que
+      // esos no entran aca.
+      if (
+        pideAlgoEntregable(String(lastText || ""))
+        && !decision.productoDelMensaje?.id
+        && typeof memory.currentProductId === "number"
+      ) {
+        for (const parte of finalParts as any[]) {
+          if (parte.kind !== "card") continue;
+          if (parte.productId === memory.currentProductId) continue;
+          const traido = (productList as any[]).find((x: any) => x.id === parte.productId);
+          const enFoco = (productList as any[]).find((x: any) => x.id === memory.currentProductId);
+          console.log(`[FOCO] El modelo trajo "${traido?.name ?? parte.productId}" para una pregunta sobre "${enFoco?.name ?? memory.currentProductId}": se corrige - ${ts()}`);
+          parte.productId = memory.currentProductId;
+          cardProductId = memory.currentProductId;
+        }
+      }
+
       // -- SI EL CLIENTE LO PIDIO Y EL SERVIDOR LO TIENE, SALE ------------
       //
       // La ficha solo se adjuntaba si el MODELO escribia el marcador
