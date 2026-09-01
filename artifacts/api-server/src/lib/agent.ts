@@ -19,6 +19,7 @@ import { calcularEstado, renderEstado, puedeMandarPago, pidePagar, type EtapaTra
 // justo al confirmar una compra -- el peor momento posible.
 import { processPurchaseConfirmation } from "./payment-confirmation";
 import { proximoPaso, renderPaso, necesidadDeclarada, type Paso } from "./embudo";
+import { opcionesPendientes, preguntaPorLaOpcion } from "./opciones-del-producto";
 import { preguntasSueltas } from "./estado-cognitivo";
 import { seccionQueCorresponde, elSiContestaLaOferta, elCierreOfrece } from "./ficha-parcial";
 import { videoDeProducto } from "./video-de-producto";
@@ -1667,6 +1668,18 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
       // Se deduce del historial, no se guarda: el historial ya es la fuente de
       // verdad y no puede quedar desincronizado con lo que se dijo de verdad.
       necesidad: necesidadDeclarada(memory.history as any),
+      // Talla, color, para cuántas personas. Vacío en todo catálogo que no las
+      // usa, así que no le cambia nada a los negocios que hoy están vendiendo.
+      faltaElegir: (() => {
+        if (!productoEstado) return null;
+        const completo = (productList as any[]).find((pr: any) => pr.id === (productoEstado as any).id);
+        if (!completo) return null;
+        const pendientes = opcionesPendientes(completo, memory.history as any);
+        if (pendientes.length === 0) return null;
+        // Una por vez: preguntar talla, color y cantidad en el mismo mensaje es
+        // un formulario, y a un formulario por WhatsApp la gente no contesta.
+        return { nombre: pendientes[0].nombre, pregunta: preguntaPorLaOpcion(pendientes[0]) };
+      })(),
     });
     pasoDelEmbudo = paso;
     bloqueEstado += `\n${renderPaso(paso)}`;

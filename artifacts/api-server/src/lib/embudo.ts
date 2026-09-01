@@ -64,6 +64,14 @@ export interface EntradaEmbudo {
   fichaEnviada?: boolean;
   /** Lo que el cliente dijo que necesita, si ya se sabe. */
   necesidad?: string | null;
+  /**
+   * La opción obligatoria que el cliente todavía no eligió: talla, color,
+   * para cuántas personas. Ya viene con su pregunta armada.
+   *
+   * Vacío en todo catálogo que no usa opciones --los 84 cursos, por ejemplo--
+   * y ahí nada de esto cambia una coma.
+   */
+  faltaElegir?: { nombre: string; pregunta: string } | null;
 }
 
 export interface Paso {
@@ -203,6 +211,25 @@ export function proximoPaso(e: EntradaEmbudo): Paso {
         instruccion: "Confirmá que le llegó y ofrecé ayuda para empezar. No vuelvas a vender.",
       };
     case "decidido":
+      // ── NO SE CIERRA SIN SABER CUÁL QUIERE ────────────────────────────
+      //
+      // Dijo que lo quiere, pero no dijo la talla. Cobrarle ahora es
+      // despachar la prenda equivocada: llega mal, hay devolución, y el
+      // negocio paga el envío dos veces. Es de los pocos errores que salen
+      // más caros que no vender.
+      //
+      // Va DENTRO de "decidido" y no antes, a propósito: preguntarle la talla
+      // a quien todavía está averiguando es un formulario, y a un formulario
+      // por WhatsApp la gente no contesta.
+      if (e.faltaElegir) {
+        return {
+          movimiento: "calificar",
+          porQue: `quiere comprarlo pero falta elegir: ${e.faltaElegir.nombre}`,
+          instruccion:
+            `Antes de pasarle el pago, preguntá ESTO y nada más: "${e.faltaElegir.pregunta}". ` +
+            `Sin ese dato el pedido sale mal, y eso cuesta más que una venta perdida.`,
+        };
+      }
       return {
         movimiento: "cerrar",
         porQue: "el cliente dijo que lo quiere",
@@ -239,6 +266,17 @@ export function proximoPaso(e: EntradaEmbudo): Paso {
   }
 
   // ── 5. La calificación: UNA vez, y solo antes de presentar ─────────────
+  // Si falta elegir algo concreto, ESA es la pregunta: es mejor que la
+  // genérica de calificación, porque el negocio ya dijo cuáles son las
+  // opciones y el cliente solo tiene que apuntar a una.
+  if (e.faltaElegir) {
+    return {
+      movimiento: "calificar",
+      porQue: `falta que elija: ${e.faltaElegir.nombre}`,
+      instruccion: `Preguntá esto, con las opciones a la vista: "${e.faltaElegir.pregunta}". Una sola pregunta.`,
+    };
+  }
+
   const yaSabemos = !!String(e.necesidad || "").trim();
   if (!yaSabemos && !elAgenteYaPregunto(e.historial)) {
     return {

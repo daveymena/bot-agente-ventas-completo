@@ -101,6 +101,10 @@ export const products = sqliteTable("products", {
   categoryId: integer("category_id").references(() => productCategories.id, { onDelete: "set null" }),
   category: text("category"),
   kind: text("kind").notNull().default("digital"),
+  // Espejo de schema/products.ts. Nullables los dos: null = "este negocio no
+  // lleva control", que es distinto de "no hay".
+  stock: integer("stock"),
+  opciones: text("opciones", { mode: "json" }),
   imageUrl: text("image_url"),
   highlight: text("highlight"),
   features: text("features", { mode: "json" }),

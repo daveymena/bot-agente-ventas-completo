@@ -195,6 +195,19 @@ const MIGRATIONS = [
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
     completed_at TIMESTAMP WITH TIME ZONE
   )`,
+  // ── Lo que un negocio que NO vende cursos necesita el día uno ───────────
+  //
+  // El admin lo planteó bien el 2026-09-01: "si un cliente nuevo entra al
+  // negocio tenés que tener habilitado todo eso, como lo hace WordPress".
+  // Tiene razón, y WooCommerce no es más inteligente: trae el MODELO DE DATOS
+  // con estos campos desde la instalación. Eso es lo que faltaba acá -- los
+  // campos, no la lógica.
+  //
+  // Los dos van nullable a propósito. `stock = 0` por defecto haría que el bot
+  // dijera "agotado" sobre 84 cursos disponibles; `null` significa "este
+  // negocio no lleva control", que es distinto de "no hay".
+  `ALTER TABLE products ADD COLUMN IF NOT EXISTS stock INTEGER`,
+  `ALTER TABLE products ADD COLUMN IF NOT EXISTS opciones JSONB DEFAULT NULL`,
   // ── El reloj del sistema ────────────────────────────────────────────────
   // Ver lib/db/src/schema/trabajos-programados.ts. Va acá y no por
   // `drizzle-kit push` porque push compara TODO el esquema y puede proponer
