@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { eq, and, sql } from "drizzle-orm";
 import { db, tenants, conversations, leads, products, productCategories } from "@workspace/db";
 import { logger } from "./logger";

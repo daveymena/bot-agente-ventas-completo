@@ -821,7 +821,13 @@ export async function sendOrderConfirmationEmail(
     }).format(amount);
 
     const mailOptions = {
-      from: smtp?.from || `"VentasPro" <${process.env.SMTP_USER}>`,
+      // Acá decía `smtp?.from || ...`, y `smtp` NO EXISTE en esta función --
+      // se coló copiando de otra de más arriba que sí lo recibe. El `?.` no
+      // protege: sobre un identificador no declarado, JavaScript lanza
+      // ReferenceError igual. O sea que el correo de PAGO CONFIRMADO se caía
+      // justo en el último paso de la entrega. Cuando hay tenantId, el
+      // remitente del negocio se resuelve más abajo y pisa a este.
+      from: `"VentasPro" <${process.env.SMTP_USER}>`,
       to: email,
       subject: `✅ ¡Pago Confirmado! - ${productName}`,
       html: `

@@ -1,4 +1,3 @@
-// @ts-nocheck
 /**
  * Sistema de Inteligencia Avanzada para el Bot de Ventas
  * 

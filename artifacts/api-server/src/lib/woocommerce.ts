@@ -1,4 +1,3 @@
-// @ts-nocheck
 import axios, { AxiosInstance } from "axios";
 import { db, products, tenants } from "@workspace/db";
 import { and, eq } from "drizzle-orm";

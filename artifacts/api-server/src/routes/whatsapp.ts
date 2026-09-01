@@ -2,7 +2,7 @@ import { Router, type IRouter } from "express";
 import { GetWhatsAppStatusResponse } from "@workspace/api-zod";
 import { getWhatsAppForTenant, listWhatsAppInstances, disposeWhatsAppForTenant } from "../lib/whatsapp-factory";
 import { getMetricsForAll, healthSummary, cleanupInactiveInstances } from "../lib/whatsapp-monitor";
-import { requireAdmin, tenantManager } from "../lib/tenantManager";
+import { requireAdmin, tenantManager, type TenantRequest } from "../lib/tenantManager";
 import { runAgentReply } from "../lib/agent";
 import { db, conversations, messages } from "@workspace/db";
 import { and, eq, desc, inArray } from "drizzle-orm";

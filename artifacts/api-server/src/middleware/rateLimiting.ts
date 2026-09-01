@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { Request, Response, NextFunction } from "express";
 import { logger } from "../lib/logger";
 import { tenantManager, type TenantRequest } from "../lib/tenantManager";

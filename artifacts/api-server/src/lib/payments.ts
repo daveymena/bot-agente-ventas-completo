@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { logger } from "./logger";
 import { getAppUrl } from "./app-url";
 import { dbNow } from "./date-utils";

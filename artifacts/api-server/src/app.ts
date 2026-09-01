@@ -192,10 +192,16 @@ logger.info("[MessageHandler] Message receiver configured for default tenant");
       console.log("📦 No hay productos, sembrando desde products-full.json...");
       // El archivo vive en la raíz del monorepo, no en cwd (que varía según
       // cómo se lance el proceso) — probar varias rutas cubre local y Docker.
+      // `__dirname` se declara MÁS ABAJO (línea ~356). Leerlo acá lanzaba
+      // ReferenceError por zona muerta temporal. No se notaba porque este
+      // bloque solo corre cuando el catálogo está VACÍO: o sea que reventaba
+      // exactamente en la instalación de un cliente nuevo, que es el peor
+      // momento para fallar. Se resuelve local, sin depender del orden.
+      const aqui = path.dirname(fileURLToPath(import.meta.url));
       const possiblePaths = [
         path.resolve(process.cwd(), "products-full.json"),
-        path.resolve(__dirname, "../../products-full.json"),
-        path.resolve(__dirname, "../../../products-full.json"),
+        path.resolve(aqui, "../../products-full.json"),
+        path.resolve(aqui, "../../../products-full.json"),
         "/app/products-full.json",
       ];
       const jsonPath = possiblePaths.find(p => existsSync(p));
