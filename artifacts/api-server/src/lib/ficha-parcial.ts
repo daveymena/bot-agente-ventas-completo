@@ -492,3 +492,37 @@ export function elSiContestaLaOferta(e: {
   if (!e.ofrecimosContenido && !e.ofrecimosVideo) return false;
   return esAfirmacionSuelta(e.mensaje);
 }
+
+/**
+ * El producto que se creyo nombrado sale de las palabras de la PREGUNTA, no
+ * de una eleccion del cliente.
+ *
+ * Medido en produccion el 2026-09-01, hablando del curso de piano:
+ *
+ *   cliente: "¿tienes pagina web?"
+ *   bot:     "Si, tenemos pagina web" + [ficha de DESARROLLO WEB]
+ *
+ * El catalogo tiene un curso llamado "DESARROLLO WEB", y el resolvedor caso
+ * la palabra "web" --que es parte de COMO se pregunta por la tienda-- con su
+ * nombre. El cliente nunca lo nombro.
+ *
+ * La regla: si lo unico que comparten el mensaje y el nombre del producto son
+ * palabras que pertenecen a la pregunta ("web", "pagina", "tienda",
+ * "catalogo", "link", "precio", "pago"), no es una eleccion del cliente.
+ * "¿Tienes la pagina del curso de INGLES?" si comparte "ingles", que no es
+ * una de esas palabras, y por eso si cuenta.
+ */
+const PALABRAS_DE_LA_PREGUNTA = new Set([
+  "web", "pagina", "paginas", "sitio", "tienda", "tiendas", "catalogo",
+  "link", "enlace", "precio", "valor", "costo", "pago", "pagos", "envio",
+  "entrega", "video", "videos", "curso", "cursos", "producto", "productos",
+]);
+
+export function elProductoSaleDeLaPreguntaMisma(nombreProducto: string, mensaje: string): boolean {
+  const enMensaje = new Set(N(mensaje).match(/[a-zñ0-9]{3,}/g) ?? []);
+  const delNombre = (N(nombreProducto).match(/[a-zñ0-9]{3,}/g) ?? []);
+  const compartidas = delNombre.filter((w) => enMensaje.has(w));
+  if (compartidas.length === 0) return false;
+  // Si TODO lo que comparten son palabras de la pregunta, el cliente no lo nombro.
+  return compartidas.every((w) => PALABRAS_DE_LA_PREGUNTA.has(w));
+}

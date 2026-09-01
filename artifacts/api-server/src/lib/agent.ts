@@ -21,7 +21,7 @@ import { processPurchaseConfirmation } from "./payment-confirmation";
 import { proximoPaso, renderPaso, necesidadDeclarada, type Paso } from "./embudo";
 import { opcionesPendientes, preguntaPorLaOpcion } from "./opciones-del-producto";
 import { preguntasSueltas } from "./estado-cognitivo";
-import { seccionQueCorresponde, elSiContestaLaOferta, elCierreOfrece, pideAlgoEntregable } from "./ficha-parcial";
+import { seccionQueCorresponde, elSiContestaLaOferta, elCierreOfrece, pideAlgoEntregable, elProductoSaleDeLaPreguntaMisma } from "./ficha-parcial";
 import { promesasIncumplidas, sinLaPromesa, sinElMontoQueVaEnLaFicha, niegaLoQueSiSale, loQueEntregaLaSeccion, NOMBRE_DE_PROMESA } from "./promesas";
 import { videoDeProducto } from "./video-de-producto";
 
@@ -2913,7 +2913,13 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
       // esos no entran aca.
       if (
         pideAlgoEntregable(String(lastText || ""))
-        && !decision.productoDelMensaje?.id
+        // El cliente no lo nombro, o lo que se creyo nombrado sale de las
+        // palabras de la pregunta misma ("pagina web" -> el curso DESARROLLO
+        // WEB). Las dos cosas significan lo mismo: no eligio otro producto.
+        && (
+          !decision.productoDelMensaje?.id
+          || elProductoSaleDeLaPreguntaMisma(String(decision.productoDelMensaje?.name || ""), String(lastText || ""))
+        )
         && typeof memory.currentProductId === "number"
       ) {
         for (const parte of finalParts as any[]) {
