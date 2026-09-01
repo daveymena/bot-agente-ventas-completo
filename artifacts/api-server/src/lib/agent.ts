@@ -2895,6 +2895,53 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
         .filter((p: any) => !(p.kind === "text" && !String(p.content || "").trim()))
         .map((p: any) => { delete p._beforeCard; return p; });
 
+      // -- SI EL CLIENTE LO PIDIO Y EL SERVIDOR LO TIENE, SALE ------------
+      //
+      // La ficha solo se adjuntaba si el MODELO escribia el marcador
+      // `[CARD: id]`. O sea que entregar un dato verificado dependia de que
+      // al modelo se le ocurriera pedirlo. Medido en produccion el
+      // 2026-09-01, con el video cargado en el producto:
+      //
+      //   cliente: "muestrame el video"
+      //   bot:     "no tengo uno disponible para enviar por aca"
+      //
+      //   cliente: "¿tienes pagina web?"
+      //   bot:     "si tenemos. ¿Queres que te pase el enlace?"
+      //
+      // Las dos cosas existian y estaban a una linea de distancia. El modelo
+      // improviso porque nadie le puso el dato en la mano.
+      //
+      // Es la misma leccion que este proyecto ya aprendio con el precio, con
+      // la cuenta de cobro, con la entrega y con el producto: lo que se puede
+      // decidir en el servidor, se decide en el servidor. Pedirselo al modelo
+      // no es una garantia.
+      if (!finalParts.some((p: any) => p.kind === "card") && pideAlgoEntregable(String(lastText || ""))) {
+        const idParaEntregar = decision.productoDelMensaje?.id ?? memory.currentProductId ?? null;
+        if (typeof idParaEntregar === "number") {
+          const prod = (productList as any[]).find((x: any) => x.id === idParaEntregar);
+          const seccionPedida = seccionQueCorresponde({
+            mensaje: String(lastText || ""),
+            intent: decision.intent,
+            fichaYaEnviada: memory.sentProductIds.has(idParaEntregar),
+            videoYaEnviado: (memory.history as any[]).some((m) =>
+              m.role !== "customer" && /drive\.google\.com\/file|Mira c[oó]mo son las clases/i.test(String(m.content || ""))),
+          });
+          // Solo las secciones que ENTREGAN algo. "completa" e "info" no se
+          // fuerzan: si el cliente ya la vio, repetirla es el defecto opuesto.
+          const ENTREGAN = new Set(["video", "tienda", "precio", "pago", "pago_link", "pago_transferencia", "entrega"]);
+          if (ENTREGAN.has(String(seccionPedida))) {
+            finalParts.push({
+              kind: "card", productId: idParaEntregar, paymentOnly: false,
+              yaVioContenido: memory.sentProductIds.has(idParaEntregar),
+              seccion: seccionPedida,
+            } as any);
+            cardProductId = idParaEntregar;
+            cardCount++;
+            console.log(`[SERVIDOR] "${String(lastText).trim().slice(0, 40)}" pide ${seccionPedida} y ${prod?.name ?? idParaEntregar} lo tiene: se entrega sin esperar al modelo - ${ts()}`);
+          }
+        }
+      }
+
       // ── SUPERVISOR: nada sale sin pasar por acá ─────────────────────────────
       //
       // El prompt ya trae todas estas reglas escritas ("nunca escribas
