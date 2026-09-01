@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { eq, and, asc, desc, ne, sql } from "drizzle-orm";
 import {
   db,
@@ -15,7 +14,10 @@ import { getProviderConfig, getProviderRotation, getProviderConfigFromSettings, 
 import { logger } from "./logger";
 import { supervisarRespuesta } from "./supervisor";
 import { hablarColombiano } from "./hablar-colombiano";
-import { calcularEstado, renderEstado, puedeMandarPago, type EtapaTrato } from "./estado-cognitivo";
+import { calcularEstado, renderEstado, puedeMandarPago, pidePagar, type EtapaTrato } from "./estado-cognitivo";
+// Se usaba sin importar: con `@ts-nocheck` puesto nadie lo notaba, y reventaba
+// justo al confirmar una compra -- el peor momento posible.
+import { processPurchaseConfirmation } from "./payment-confirmation";
 import { proximoPaso, renderPaso, necesidadDeclarada } from "./embudo";
 import { seccionQueCorresponde, elSiContestaLaOferta } from "./ficha-parcial";
 import { videoDeProducto } from "./video-de-producto";
@@ -278,6 +280,10 @@ function analyzeConversationContext(history: any[]): ConversationContext {
     hasIntroduced,
     currentTopic: topicAnalysis.currentTopic,
     previousTopics: topicAnalysis.previousTopics,
+    // Faltaban los dos campos de control de fichas. Sin ellos el objeto no
+    // cumple el tipo, y quien lo lea encuentra undefined donde espera datos.
+    cardsSentFor: new Set<number>(),
+    lastCardSentAt: null,
     leadBehavior,
     interactionCount: customerMessages.length,
     lastInteractionTime: history.length > 0 ? new Date(history[history.length - 1].createdAt) : null
@@ -958,7 +964,7 @@ export async function runAgentReply(conversationId: number) {
       
       t1 = Date.now();
       const allCategories = await db.select().from(productCategories).where(eq(productCategories.tenantId, convo.tenantId));
-      categoryMap = new Map(allCategories.map(c => [c.id, c.name.toLowerCase()]));
+      categoryMap = new Map(allCategories.map((c: any) => [c.id, c.name.toLowerCase()]));
       logTime(`4c. Cargar categorías: ${Date.now() - t1}ms`);
       
       console.log(`📦 [AGENT-INFO] Productos cargados: ${productList.length} (selectivo) - ${ts()}`);
@@ -1377,7 +1383,7 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
         .limit(30);
       aperturasDelNegocio = [...new Set(
         recientes.map((r: any) => extraerApertura(r.content)).filter((a: string) => a.length > 2),
-      )];
+      )] as string[];
     } catch (e: any) {
       // Que falle esta lectura no puede dejar sin responder al cliente: es una
       // ayuda de estilo, no parte del camino de la venta.
@@ -1557,11 +1563,11 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
     );
     if (hardcoded && hardcoded.intent === "human_handoff") {
       const raw = hardcoded.response;
-      await saveAgentMessage(conversationId, raw, "human_handoff", {
+      await saveAgentMessage(conversationId, raw, "human_handoff" as any, {
         intent: "human_handoff",
         isHardcoded: true,
       });
-      await persistStage(conversationId, "human_handoff");
+      await persistStage(conversationId, "human_handoff" as any);
       const totalTime = Date.now() - startTime;
       console.log(`🏁 [AGENT-END] Completado en ${totalTime}ms (hardcoded human_handoff) - ${ts()}`);
       return {
@@ -1664,13 +1670,16 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
       const { esperaParaElCliente } = await import("./cobro-y-entrega");
       const respuesta = esperaParaElCliente(false);
       console.log(`💳 [PAGO] Dice que pagó sin comprobante: se le pide, no se entrega nada - ${ts()}`);
-      await saveAgentMessage(conversationId, respuesta, "payment_reported", {
+      await saveAgentMessage(conversationId, respuesta, "payment_reported" as any, {
         intent: "payment_reported",
         isHardcoded: true,
       });
       return {
         content: respuesta,
-        stage: memory.stage,
+        // `memory.stage` NO existe -- el campo es `currentStage`. Devolvia
+        // undefined, o sea que esta rama borraba la etapa de la conversacion
+        // sin que nadie se enterara.
+        stage: memory.currentStage,
         parts: [{ kind: "text", content: respuesta }],
         cardProductIds: [],
       };
@@ -1707,12 +1716,13 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
         console.log(`🛡️ [OBJECIÓN] "${objecion}" contestada con datos del negocio - ${ts()}`);
         await saveAgentMessage(conversationId, respuesta, "objection_handling", {
           intent: "objection_handling",
-          objecion,
+          ...({ objecion } as any),
           isHardcoded: true,
         });
         return {
           content: respuesta,
-          stage: memory.stage,
+          // Mismo caso que arriba: era `memory.stage`, que no existe.
+          stage: memory.currentStage,
           parts: [{ kind: "text", content: respuesta }],
           cardProductIds: [],
         };
@@ -3056,7 +3066,9 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
             customerId: customer?.contactPhone || 'desconocido',
             customerEmail,
             customerPhone: customer?.contactPhone || 'sin_telefono',
-            timestamp: new Date().toISOString(),
+            // La firma pide un Date, no su texto. Con `@ts-nocheck` esto pasaba
+            // y del otro lado quedaba una fecha inservible.
+            timestamp: new Date(),
           });
           // Marcar conversación como estado pagado
           await db.update(conversations)
@@ -3145,7 +3157,10 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
         content: fallbackText,
         stage: memory.currentStage,
         parts: [{ kind: "text", content: fallbackText }],
-        cardProductIds: [],
+        // El camino normal informa qué modelo contestó; el de emergencia
+        // tiene que decir que NO contestó ninguno, no omitir el dato.
+        aiProvider: "fallback",
+        cardProductIds: [] as any[],
       };
     },
     { conversationId, customerMessage: lastText, customerInfo }
