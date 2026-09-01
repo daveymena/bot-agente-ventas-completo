@@ -65,6 +65,13 @@ export interface EntradaSeccion {
   ofrecimosContenido?: boolean;
   /** true si el video de este producto ya se envió en esta conversación. */
   videoYaEnviado?: boolean;
+  /**
+   * El cierre anterior ofreció decirle el precio ("¿Te paso el precio? 💰").
+   *
+   * Sin esto, un "Si" a esa pregunta caía en `intent: confirmation` y salía el
+   * checkout completo. Al que pregunta cuánto vale se le dice cuánto vale.
+   */
+  ofrecimosPrecio?: boolean;
 }
 
 const N = (s: string) =>
@@ -243,6 +250,7 @@ export function seccionQueCorresponde(e: EntradaSeccion): SeccionFicha {
   // nada por sí mismo, y ahí el servidor SABE qué ofreció, en vez de dejar
   // que el modelo lo adivine como `confirmation` (= "sí, quiero comprar").
   if (e.ofrecimosContenido && esAfirmacionSuelta(e.mensaje)) return "info";
+  if (e.ofrecimosPrecio && esAfirmacionSuelta(e.mensaje)) return "precio";
 
   // ── Por intención, cuando el texto no lo dice de forma literal ────────────
   if (intent === "payment_intent" || intent === "confirmation") return "pago";
@@ -290,10 +298,16 @@ export function elCierreOfrece(
   esFisico: boolean,
   tieneVideo = true,
   yaVioContenido = false,
-): "video" | "contenido" | "otro" {
+): "video" | "contenido" | "precio" | "otro" {
   const t = invitacionesDe(s, esFisico, tieneVideo, yaVioContenido).join(" ").toLowerCase();
   if (/video|c[oó]mo es por dentro|c[oó]mo se ve en uso|pedacito/.test(t)) return "video";
   if (/qu[eé] trae|qu[eé] incluye|qu[eé] viene|todo lo que trae/.test(t)) return "contenido";
+  // El cierre de una ficha SIN video ofrece el precio ("¿Te paso el precio?").
+  // Sin esta rama devolvia "otro", y un "Si" a esa pregunta caia en
+  // `intent: confirmation` -> checkout completo. Medido en produccion el
+  // 2026-09-01: el cierre pregunto el precio y salieron los tres medios de
+  // pago. Al que pregunta cuanto vale se le dice cuanto vale.
+  if (/precio|cu[aá]nto est[aá]|cu[aá]nto sale/.test(t)) return "precio";
   return "otro";
 }
 

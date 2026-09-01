@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { queOfrecioElBot, seccionQueCorresponde } from "../ficha-parcial";
+import { queOfrecioElBot, seccionQueCorresponde, elCierreOfrece, invitacionDe } from "../ficha-parcial";
 
 /**
  * ============================================================
@@ -104,5 +104,42 @@ describe("Con la oferta bien leida, el 'Si' ya no cobra", () => {
       ofrecimosVideo: ofrecio === "video",
     });
     expect(seccion).toBe("pago");
+  });
+});
+
+/**
+ * El cierre de una ficha sin video ofrece el PRECIO. Un "Si" a eso pide el
+ * precio, no el checkout entero.
+ *
+ * Medido en produccion el 2026-09-01 con el curso de IA (sin video cargado):
+ * la ficha cerro con "¿Te paso el precio? 💰", el cliente dijo "Si" y salieron
+ * los tres medios de pago y el numero de Nequi.
+ */
+describe("Un 'si' al ofrecimiento del precio pide el precio", () => {
+  it("la ficha sin video ofrece el precio, y se clasifica como tal", () => {
+    expect(elCierreOfrece("completa", false, false, true)).toBe("precio");
+    expect(invitacionDe("completa", false, "semilla", false, true)).toMatch(/precio|cu[aá]nto est[aá]/i);
+  });
+
+  it("y ese 'Si' devuelve el precio, no el checkout", () => {
+    expect(seccionQueCorresponde({
+      mensaje: "Si",
+      intent: "confirmation",
+      fichaYaEnviada: true,
+      ofrecimosPrecio: true,
+    })).toBe("precio");
+  });
+
+  it("con video cargado el cierre sigue ofreciendo el video", () => {
+    expect(elCierreOfrece("completa", false, true, true)).toBe("video");
+  });
+
+  it("un 'si, como pago?' sigue yendo al pago", () => {
+    expect(seccionQueCorresponde({
+      mensaje: "si, ¿cómo pago?",
+      intent: "confirmation",
+      fichaYaEnviada: true,
+      ofrecimosPrecio: true,
+    })).toBe("pago");
   });
 });

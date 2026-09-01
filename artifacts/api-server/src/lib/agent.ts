@@ -2710,6 +2710,11 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
           const ofrecimosVideo = ofrecioAntes === "video" || ofrecidoEnTexto === "video";
           const ofrecimosContenido = ofrecioAntes === "contenido"
             || ofrecidoEnTexto === "contenido" || ofrecidoEnTexto === "precio";
+          // Un "si" a "¿Te paso el precio?" pide el PRECIO. Antes esa oferta
+          // se clasificaba como "otro", el "si" caia en `confirmation` y salia
+          // el checkout entero: al que pregunta cuanto vale se le tiraban los
+          // tres medios de pago y el numero de Nequi.
+          const ofrecimosPrecio = ofrecioAntes === "precio" || ofrecidoEnTexto === "precio";
           const videoYaEnviado = delAgente.some((m) =>
             /🎬 Mira c[oó]mo son las clases|drive\.google\.com\/file/i.test(String(m.content || "")),
           );
@@ -2720,6 +2725,7 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
             fichaYaEnviada: memory.sentProductIds.has(resolvedId),
             ofrecimosVideo,
             ofrecimosContenido,
+            ofrecimosPrecio,
             videoYaEnviado,
           });
           // ── Un "sí" contesta la pregunta ANTERIOR, no pide el checkout ─────
