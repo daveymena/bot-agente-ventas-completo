@@ -22,6 +22,7 @@ import { proximoPaso, renderPaso, necesidadDeclarada, type Paso } from "./embudo
 import { opcionesPendientes, preguntaPorLaOpcion } from "./opciones-del-producto";
 import { preguntasSueltas } from "./estado-cognitivo";
 import { seccionQueCorresponde, elSiContestaLaOferta, elCierreOfrece } from "./ficha-parcial";
+import { promesasIncumplidas, sinLaPromesa, NOMBRE_DE_PROMESA } from "./promesas";
 import { videoDeProducto } from "./video-de-producto";
 
 /**
@@ -3188,6 +3189,41 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
         }
         if (antes !== finalParts.length || true) {
           console.log(`✂️ [DESBORDE] Sección "${seccionAdjunta}": el texto se recortó para no repetir la ficha - ${ts()}`);
+        }
+      }
+
+      // -- ULTIMO CANDADO: no prometas lo que no va a salir -----------------
+      //
+      // Los cuatro defectos del 2026-09-01 eran el mismo defecto visto desde
+      // cuatro lados: el texto anuncia una cosa y sale otra. Cada uno se
+      // arreglo en su sitio, y esta bien. Pero haber arreglado cuatro veces lo
+      // mismo en cuatro lugares distintos significa que faltaba el candado que
+      // los cubre a todos -- nadie comparaba lo que el mensaje DICE contra lo
+      // que el mensaje LLEVA.
+      //
+      // Corre al final, sobre lo que ya quedo decidido, porque la unica prueba
+      // de que algo se entrega es que este en la salida.
+      {
+        const seccionQueSale = (finalParts.find((p: any) => p.kind === "card") as any)?.seccion ?? null;
+        const hayFicha = finalParts.some((p: any) => p.kind === "card");
+        const textos = finalParts
+          .filter((p: any) => p.kind === "text")
+          .map((p: any) => String(p.content || ""));
+
+        for (const parte of finalParts as any[]) {
+          if (parte.kind !== "text" || !String(parte.content || "").trim()) continue;
+          const incumplidas = promesasIncumplidas(String(parte.content), {
+            hayFicha, seccion: seccionQueSale, mensajes: textos,
+          });
+          if (!incumplidas.length) continue;
+
+          const limpio = sinLaPromesa(String(parte.content), incumplidas);
+          console.log(
+            `[PROMESAS] El texto prometia ${incumplidas.map((x) => NOMBRE_DE_PROMESA[x]).join(", ")} y no sale en este turno: se quita la frase - ${ts()}`,
+          );
+          // Si al sacar la promesa no queda nada, mejor una pregunta honesta
+          // que un mensaje mocho: el turno tiene que seguir la conversacion.
+          parte.content = limpio || "¿Qué te gustaría saber puntualmente? 🙌";
         }
       }
 
