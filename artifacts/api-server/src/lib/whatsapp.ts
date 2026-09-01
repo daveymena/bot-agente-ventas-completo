@@ -374,10 +374,7 @@ async function buildProductCaption(p: typeof products.$inferSelect, categoryName
   try { meta = JSON.parse(p.metadata || "{}"); } catch(e) {}
 
   const nameUpper = p.name.toUpperCase();
-  const mainEmoji = nameUpper.includes("PIANO") ? "🎹" : 
-                    nameUpper.includes("GUITARRA") ? "🎸" : 
-                    nameUpper.includes("CANTO") ? "🎤" : 
-                    nameUpper.includes("EXCEL") ? "📊" : "💻";
+  const mainEmoji = emojiDelProducto(p.name, categoryName);
 
   // ── Formato corto y escaneable ────────────────────────────────────────────
   // Regla explícita del admin (2026-08-16): "no quiero texto tan grande, eso
@@ -580,6 +577,46 @@ async function buildProductCaption(p: typeof products.$inferSelect, categoryName
  * misma cara, y dos productos distintos no comparten un emoji que no les
  * corresponde. Lo que no reconoce se queda con ✅, que nunca queda mal.
  */
+/**
+ * El emoji que encabeza la ficha de un producto.
+ *
+ * Antes esto eran DOS cadenas de cuatro reglas escritas a mano --piano,
+ * guitarra, canto, excel-- que caían en 💻. O sea que en cualquier negocio que
+ * no fuera este, la ficha abría con un ícono de laptop: una panadería vendiendo
+ * una torta, una tienda de ropa vendiendo una camisa, un taller vendiendo un
+ * repuesto. Todos, 💻.
+ *
+ * El admin lo preguntó así el 2026-09-01: "un negocio que no tenga maqueta,
+ * ¿no debería la IA reorganizar las cosas, de forma real y racional?".
+ *
+ * ── La respuesta, y por qué NO la decide el modelo ───────────────────────
+ *
+ * Se reusa el mismo diccionario que ya clasifica las CARACTERÍSTICAS: son
+ * reglas sobre datos reales del catálogo (el nombre y la categoría que cargó
+ * el dueño), así que se adaptan solas a cualquier rubro sin que nadie arme una
+ * maqueta.
+ *
+ * Dejárselo al modelo sería más flexible y peor: es la misma puerta por la que
+ * este proyecto ya vio entrar precios inventados, garantías que no existían y
+ * un número de Nequi que no era de nadie. El reparto que funciona --y que ya
+ * gobierna el resto del sistema-- es que el servidor decide lo que tiene que
+ * salir exacto, y el modelo escribe lo que es flexible. Un emoji es cosmético,
+ * pero encabeza una ficha con precio: si se equivoca, la ficha entera se lee
+ * como de otro negocio.
+ *
+ * El respaldo es 📦 y no 💻: una caja no afirma nada sobre qué se vende. El
+ * ícono de laptop sí, y para el 90% de los negocios afirma algo falso.
+ */
+export function emojiDelProducto(nombre: string, categoria?: string | null): string {
+  const porNombre = emojiDeCaracteristica(nombre, "");
+  if (porNombre !== "•") return porNombre;
+  if (categoria) {
+    const porCategoria = emojiDeCaracteristica(String(categoria), "");
+    if (porCategoria !== "•") return porCategoria;
+  }
+  return "📦";
+}
+
 export function emojiDeCaracteristica(texto: string, deQueProducto = ""): string {
   const t = String(texto).toLowerCase();
   const REGLAS: Array<[RegExp, string]> = [
@@ -609,6 +646,27 @@ export function emojiDeCaracteristica(texto: string, deQueProducto = ""): string
     [/actualiza|nuevo|novedad/, "🆕"],
     [/desde cero|principiante|paso a paso|f[aá]cil/, "🌱"],
     [/negocio|vender|cliente|monetiz/, "💼"],
+    // ── Rubros que este catálogo NO tiene ────────────────────────────────
+    //
+    // Todo lo de arriba se escribió mirando un catálogo de cursos digitales.
+    // Para el SaaS eso es la mitad del problema: una panadería, una tienda de
+    // ropa o un taller son negocios igual de válidos y ninguno aparecía acá.
+    [/torta|pastel|postre|panader|pan|galleta|reposter/, "🍰"],
+    [/pizza|hamburgues|comida|almuerzo|restaurante|men[uú]/, "🍽️"],
+    [/caf[eé]|bebida|jugo|cerveza|vino/, "☕"],
+    [/camisa|blusa|vestido|pantal[oó]n|ropa|prenda|moda/, "👕"],
+    [/zapato|tenis|calzado|sandalia|bota/, "👟"],
+    [/bolso|cartera|mochila|maleta/, "👜"],
+    [/anillo|collar|arete|joya|pulsera|reloj/, "💍"],
+    [/u[ñn]a|manicur|cabello|peluquer|maquillaje|belleza|cosm[eé]tic/, "💅"],
+    [/gimnasio|fitness|ejercicio|entrenamiento|pesas|deporte/, "💪"],
+    [/mueble|sof[aá]|colch[oó]n|hogar|cocina|decoraci[oó]n/, "🛋️"],
+    [/herramienta|repuesto|mec[aá]nic|taller|motor|llanta/, "🔧"],
+    [/celular|tel[eé]fono|tablet|audifon|cargador|smartphone/, "📱"],
+    [/juguete|ni[ñn]o|beb[eé]|infantil/, "🧸"],
+    [/planta|jard[ií]n|flor|semilla|maceta/, "🌿"],
+    [/libro|revista|lectura/, "📚"],
+    [/limpieza|detergente|jab[oó]n|aseo/, "🧼"],
   ];
   for (const [patron, emoji] of REGLAS) if (patron.test(t)) return emoji;
 
@@ -798,10 +856,7 @@ function buildPaymentOnlyCaption(p: typeof products.$inferSelect, dynamicLinks?:
   const lines: string[] = [];
 
   const nameUpper = p.name.toUpperCase();
-  const mainEmoji = nameUpper.includes("PIANO") ? "🎹" : 
-                    nameUpper.includes("GUITARRA") ? "🎸" : 
-                    nameUpper.includes("CANTO") ? "🎤" : 
-                    nameUpper.includes("EXCEL") ? "📊" : "💻";
+  const mainEmoji = emojiDelProducto(p.name, (p as any).category);
 
   lines.push(`💳 *PAGO — ${mainEmoji} ${nameUpper}*`);
   lines.push("━━━━━━━━━━━━━━━━━━━━━━━");
