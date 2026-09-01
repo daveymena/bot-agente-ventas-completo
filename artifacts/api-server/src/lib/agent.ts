@@ -19,6 +19,7 @@ import { calcularEstado, renderEstado, puedeMandarPago, pidePagar, type EtapaTra
 // justo al confirmar una compra -- el peor momento posible.
 import { processPurchaseConfirmation } from "./payment-confirmation";
 import { proximoPaso, renderPaso, necesidadDeclarada } from "./embudo";
+import { preguntasSueltas } from "./estado-cognitivo";
 import { seccionQueCorresponde, elSiContestaLaOferta, elCierreOfrece } from "./ficha-parcial";
 import { videoDeProducto } from "./video-de-producto";
 
@@ -1521,7 +1522,29 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
   if (brain.strategy === "hardcoded_detail") {
     const hcIntent = detectHardcodedIntent(lastText);
     const needsReasoning = hcIntent === "delivery" || hcIntent === "guarantee" || hcIntent === "access";
-    if (!needsReasoning) {
+
+    // ── SI PREGUNTÓ VARIAS COSAS, NO SE TOMA EL ATAJO ──────────────────────
+    //
+    // Este camino contesta al instante y hace `return` ahí mismo: una sola
+    // respuesta, sin ficha y sin mirar el resto del mensaje. Para "¿trae
+    // certificado?" es perfecto. Para "¿trae certificado y cuánto vale?"
+    // contestaba lo del certificado y DESCARTABA el precio, sin avisar.
+    //
+    // El admin lo pidió así el 2026-09-01: "el sistema debe estar preparado
+    // para desmenuzar cada pregunta y dar respuesta".
+    //
+    // El aviso al modelo para que las conteste todas ya existía
+    // (conversation-engine.ts) y el supervisor revisa después cuáles quedaron
+    // sueltas -- pero ninguno de los dos llegaba a correr, porque el atajo
+    // devolvía antes. Con dos o más preguntas se sigue por el camino completo:
+    // la respuesta verificada igual viaja en el contexto, así que no se pierde
+    // exactitud, solo se gana el resto de las respuestas.
+    const cuantasPregunto = preguntasSueltas(String(lastText || "")).length;
+    if (cuantasPregunto >= 2) {
+      console.log(`🧩 [MULTI] El cliente preguntó ${cuantasPregunto} cosas: no se toma el atajo, se contestan todas - ${ts()}`);
+    }
+
+    if (!needsReasoning && cuantasPregunto < 2) {
       const hardcoded = tryHardcodedAnswer(
         lastText,
         decision.productToShow?.name || memory.currentProductName,

@@ -2230,6 +2230,8 @@ export function buildContextBlock(
   //
   // Va justo antes de las instrucciones y después de todo el contexto, para
   // que sea lo último que el modelo lee antes de escribir. Es el defecto que
+  // más rondas de QA lleva sin moverse: contesta una pregunta y descarta el
+  // resto sin avisar, y el cliente la vuelve a hacer hasta que se cansa.
   //
   // Usa `preguntasSueltas`, que ya existía para el supervisor: la regla R11
   // detecta DESPUÉS lo que quedó sin contestar y agrega "y sobre lo otro...".
@@ -2237,8 +2239,11 @@ export function buildContextBlock(
   // antes de escribir. Un segundo detector paralelo habría sido el mismo
   // error que este proyecto ya pagó con `formatPrice`: dos verdades para el
   // mismo dato, y una que se queda vieja.
-  // más rondas de QA lleva sin moverse: contesta una pregunta y descarta el
-  // resto sin avisar, y el cliente la vuelve a hacer hasta que se cansa.
+  //
+  // ⚠️ Y hay un TERCER camino que se saltaba a los dos: el atajo de respuestas
+  // verificadas en agent.ts contestaba al instante y hacía `return` ahí mismo,
+  // sin llegar nunca a este bloque. Ya está condicionado a que haya una sola
+  // pregunta -- si no, ninguna de estas dos mitades servía de nada.
   const preguntas = preguntasSueltas(incomingText || "");
   if (preguntas.length >= 2) {
     lines.push(`\n\n━━━━━━━━━━━━━━━━━━━━━━━`);
