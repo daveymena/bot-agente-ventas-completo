@@ -4,6 +4,8 @@ import { transcribirAudio, describirImagen } from "./media-entrante";
 import { contextoDeMoneda } from "./moneda-por-pais";
 import { invitacionDe, type SeccionFicha } from "./ficha-parcial";
 import { videoDeProducto } from "./video-de-producto";
+import { leerFicha } from "./ficha-del-producto";
+import { hablarColombiano } from "./hablar-colombiano";
 import { etiquetaDeTransferencia } from "./conversation-engine";
 
 import path from "node:path";
@@ -398,10 +400,10 @@ async function buildProductCaption(p: typeof products.$inferSelect, categoryName
   // Se corta en la primera frase que cierre antes de los 180 caracteres; si
   // no hay punto, en el último espacio. La idea es que el cliente lea DE QUÉ
   // ES en dos segundos y el detalle lo vea en las viñetas.
-  const crudo = String(p.description || "")
-    .split(/\r?\n/)[0]
-    .replace(/^[^\p{L}\p{N}]+/u, "")
-    .trim();
+  // Tomaba `description.split(/\r?\n/)[0]`, o sea la PRIMERA linea -- que en
+  // estas fichas es el titulo. Resultado: el nombre del producto impreso dos
+  // veces, uno debajo del otro. Se lee igual que en construirSeccion.
+  const crudo = leerFicha(p.description, p.name).intro;
   let resumen = crudo;
   if (crudo.length > 180) {
     const corteFrase = crudo.slice(0, 180).lastIndexOf(". ");
@@ -805,21 +807,40 @@ async function construirSeccion(
   // ── Qué es y qué trae, SIN precio ─────────────────────────────────────────
   // El precio es la pregunta siguiente: dárselo acá cierra la conversación.
   const nameUpper = p.name.toUpperCase();
-  const crudo = String(p.description || "").replace(/\s+/g, " ").trim();
-  let resumen = crudo;
-  if (crudo.length > 180) {
-    const corte = crudo.lastIndexOf(".", 180);
-    resumen = corte > 60 ? crudo.slice(0, corte + 1) : crudo.slice(0, crudo.lastIndexOf(" ", 180)) + "…";
+  // -- La ficha la escribio el dueño: aca se LEE, no se aplana ----------
+  //
+  // Antes: `description.replace(/\s+/g," ")` + corte a 180 caracteres. Eso
+  // borraba los bloques y los emojis que el producto ya traia escritos, y
+  // como la descripcion empieza por su propio titulo --que la tarjeta ya
+  // pone arriba-- al cliente le llegaba el nombre dos veces seguidas y
+  // despues media frase. Ver ficha-del-producto.ts.
+  const suFicha = leerFicha(p.description, p.name);
+
+  let resumen = suFicha.intro;
+  if (resumen.length > 240) {
+    const corte = resumen.lastIndexOf(".", 240);
+    resumen = corte > 80 ? resumen.slice(0, corte + 1) : resumen.slice(0, resumen.lastIndexOf(" ", 240)) + "…";
   }
 
   const ESTANDAR = /acceso (permanente|de por vida|inmediato|ilimitado)|de por vida|contenido actualizable|actualizaciones|soporte (t[eé]cnico|incluido)|descargas? (ilimitadas?|incluidas?)|descargable|alta definici[oó]n|\bHD\b|google drive|100% online|certificaci[oó]n de participaci[oó]n/i;
   const propias = ((p.features ?? []) as string[]).filter((f) => !ESTANDAR.test(String(f)));
 
-  L.push(`*${nameUpper}*`);
+  // El emoji sale del titulo que el dueño escribio; si no puso, se adivina.
+  const emojiTitulo = suFicha.emoji || emojiDelProducto(p.name, (p as any).category);
+  L.push(`${emojiTitulo} *${nameUpper}*`);
   L.push("");
   L.push(resumen || "Formación práctica para llevar tus habilidades al siguiente nivel.");
 
-  if (propias.length > 0) {
+  // Los puntos que el dueño escribio, con SUS emojis, ganan siempre: dicen
+  // mas que una caracteristica suelta ("19 modulos en video con teoria y
+  // lenguaje musical" contra "Clases en video HD") y no dependen de que una
+  // tabla de palabras adivine bien.
+  if (suFicha.puntos.length > 0) {
+    L.push("");
+    for (const punto of suFicha.puntos.slice(0, 5)) L.push(`${punto.emoji} ${punto.texto}`);
+    const sobran = suFicha.puntos.length - 5;
+    if (sobran > 0) L.push(`➕ Y ${sobran} ${sobran === 1 ? "cosa más" : "cosas más"}`);
+  } else if (propias.length > 0) {
     L.push("");
     // Cuatro, no ocho: lo que sigue es la razón para preguntar más.
     //
@@ -834,7 +855,11 @@ async function construirSeccion(
     if (restantes > 0) L.push(`➕ Y ${restantes} ${restantes === 1 ? "cosa más" : "cosas más"}`);
   }
 
-  const mensajes = [L.join("\n").trim()];
+  // El voseo llega por la descripcion del producto ("Aprende", "Estudia"),
+  // no solo por el modelo. El filtro se aplicaba unicamente al texto que
+  // escribe la IA, asi que la ficha --que es lo que mas se lee-- salia sin
+  // traducir.
+  const mensajes = [hablarColombiano(L.join("\n").trim())];
 
   // El video YA NO se manda acá. Se OFRECE en el cierre y se manda en la
   // sección "video", cuando el cliente dice que sí. Ver el comentario de esa

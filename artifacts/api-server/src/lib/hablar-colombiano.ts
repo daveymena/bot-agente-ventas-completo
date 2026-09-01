@@ -62,6 +62,22 @@ const TRADUCCION: Array<[RegExp, string]> = (
     ["acordate", "acuérdate"], ["llevá", "lleva"], ["sacá", "saca"],
     ["cerrá", "cierra"], ["abrí", "abre"], ["sumá", "suma"],
 
+    // -- Las que llegan por la DESCRIPCION del producto, no por el modelo --
+    //
+    // Varias fichas del catalogo estan escritas en voseo argentino, y el
+    // filtro solo corria sobre el texto que escribe la IA. La ficha --que es
+    // lo que mas se lee-- salia sin traducir: "Estudia desde tu celular"
+    // llegaba como "Estudia" con tilde en la a.
+    ["estudiá", "estudia"], ["estudiás", "estudias"],
+    ["practicá", "practica"], ["practicás", "practicas"],
+    ["disfrutá", "disfruta"], ["disfrutás", "disfrutas"],
+    ["descargá", "descarga"], ["descargás", "descargas"],
+    ["accedé", "accede"], ["accedés", "accedes"],
+    ["ingresá", "ingresa"], ["comenzá", "comienza"],
+    ["mejorá", "mejora"], ["dominá", "domina"],
+    ["creá", "crea"], ["armá", "arma"], ["sumate", "súmate"],
+    ["animate", "anímate"], ["llevate", "llévate"], ["unite", "únete"],
+
     // ── Imperativo + pronombre, que es como se cuela más seguido ──────────
     ["contame", "cuéntame"], ["decime", "dime"], ["avisame", "avísame"],
     ["escribime", "escríbeme"], ["mandame", "mándame"], ["pasame", "pásame"],
