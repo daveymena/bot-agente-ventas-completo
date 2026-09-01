@@ -309,9 +309,26 @@ function invitacionesDe(s: SeccionFicha, esFisico: boolean, tieneVideo = true, y
   // Sin video cargado, el cierre apunta a otra cosa real. Nunca se ofrece lo
   // que no se puede entregar.
   if (!tieneVideo && (s === "info" || s === "completa")) {
+    // ⚠️ Acá "completa" ofrecía "¿Te cuento qué incluye? 👀" -- en la MISMA
+    // ficha que acaba de listar las características. El admin lo marcó dos
+    // veces: "sigue diciendo qué incluye cuando en la información principal ya
+    // lo dijo".
+    //
+    // Y este atajo corre ANTES que la lógica de `yaVioContenido` de más abajo,
+    // así que el arreglo del 2026-09-01 no lo alcanzaba: se seguía viendo en
+    // todo producto sin video cargado.
+    //
+    // Las dos secciones muestran el contenido, así que las dos cierran igual:
+    // ofreciendo el precio, que es lo único que todavía no se dijo.
+    // Las dos variantes llevan al MISMO paso siguiente, con distinta
+    // redacción. Antes una de las de "completa" era "¿Hay algo puntual que
+    // quieras saber?", que no avanza a ningún lado: deja al cliente eligiendo
+    // en el vacío justo después de la presentación. Ahora que la ficha ya no
+    // trae el precio, el paso siguiente es ése -- y las dos personas que
+    // reciban una u otra terminan en el mismo lugar.
     return s === "info"
       ? ["¿Te paso el precio? 💰", "¿Quieres saber cuánto está?"]
-      : ["¿Te cuento qué incluye? 👀", "¿Qué te gustaría saber?"];
+      : ["¿Te paso el precio? 💰", "¿Te digo cuánto está? 💰"];
   }
 
   switch (s) {

@@ -840,14 +840,22 @@ async function construirSeccion(
   // sección "video", cuando el cliente dice que sí. Ver el comentario de esa
   // sección más arriba.
 
-  // En "completa" el precio SÍ va -- es la presentación del producto -- pero
-  // en un mensaje corto aparte, y sin ningún enlace de pago. Los enlaces
-  // salen cuando el cliente pregunta cómo pagar, no antes.
-  if (seccion === "completa") {
-    mensajes.push(`💰 *${mon.precioTexto}*\n\n${cierre}`);
-  } else {
-    mensajes.push(cierre);
-  }
+  // ── El precio NO va acá ──────────────────────────────────────────────────
+  //
+  // Antes "completa" lo agregaba, contradiciendo el comentario que encabeza
+  // esta misma sección treinta líneas más arriba: "qué es y qué trae, SIN
+  // precio -- el precio es la pregunta siguiente, dárselo acá cierra la
+  // conversación".
+  //
+  // El admin lo señaló el 2026-09-01: "precio dando, no lo han preguntado".
+  // Un "¿tienes el curso de piano?" pregunta si EXISTE, no cuánto sale.
+  // Contestar con el número salta dos pasos del embudo y deja la conversación
+  // sin nada que preguntar.
+  //
+  // Quien quiera el precio lo pide, y ahí sale entero: PIDE_PRECIO lleva a la
+  // sección "precio" (ver seccionQueCorresponde). Eso no cambia -- el arreglo
+  // de "preguntaba el precio y no se lo daban" sigue en pie.
+  mensajes.push(cierre);
 
   return { conFoto: true, mensajes };
 }
