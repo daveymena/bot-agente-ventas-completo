@@ -526,3 +526,55 @@ export function elProductoSaleDeLaPreguntaMisma(nombreProducto: string, mensaje:
   // Si TODO lo que comparten son palabras de la pregunta, el cliente no lo nombro.
   return compartidas.every((w) => PALABRAS_DE_LA_PREGUNTA.has(w));
 }
+
+/**
+ * ============================================================
+ * QUE OFRECIO EL BOT EN SU MENSAJE ANTERIOR, LO ESCRIBA COMO LO ESCRIBA
+ * ============================================================
+ *
+ * Habia dos expresiones regulares con las frases EXACTAS que arma el
+ * servidor ("¿te cuento que incluye?", "¿te muestro el video?"). Pero el
+ * modelo redacta libre, e inventa las suyas. Medido en produccion el
+ * 2026-09-01 a las 17:11:
+ *
+ *   bot:     "¿Te gustaria que te pase toda la informacion con el precio
+ *              y los modulos? 😊"
+ *   cliente: "Si"
+ *   bot:     [los tres medios de pago]
+ *
+ * Ninguna de las dos expresiones casaba esa frase, asi que el "Si" cayo en
+ * `intent: confirmation` y salio el checkout. Le ofrecio los modulos y le
+ * cobro.
+ *
+ * Enumerar frases no funciona: son infinitas. Lo que se puede reconocer es
+ * la FORMA -- el bot ofrecio ENTREGAR algo y pregunto-- y de ahi sacar QUE
+ * ofrecio. Si ofrecio pagar, el "si" es para pagar; si ofrecio cualquier
+ * otra cosa, el "si" es para esa cosa y NUNCA para el checkout.
+ */
+export type LoOfrecido = "video" | "contenido" | "precio" | "pago" | "tienda" | null;
+
+export function queOfrecioElBot(mensajeDelBot: string): LoOfrecido {
+  const t = String(mensajeDelBot || "");
+  // Sin pregunta no hubo oferta: un "si" contesta preguntas.
+  if (!/[?？]/.test(t)) return null;
+
+  // Se mira SOLO la ultima pregunta: el mensaje puede hablar de varias
+  // cosas y la que el cliente contesta es la que quedo al final.
+  const partes = t.split(/(?<=[?？])/);
+  const ultima = (partes.filter((p) => /[?？]/.test(p)).pop() || t);
+  const m = N(ultima);
+
+  // El orden importa: si ofrecio pagar, gana el pago aunque nombre otra cosa
+  // ("¿te paso el precio y los datos de pago?").
+  if (/\b(datos de pago|medios de pago|formas de pago|link de pago|enlace de pago|como pagar|lo pedimos|lo llevas|te lo dejo listo|arrancamos)\b/.test(m)) return "pago";
+  if (/\bvideo|clase de muestra|como es por dentro|como se ve en uso|un pedacito\b/.test(m)) return "video";
+  if (/\b(tienda|catalogo|pagina web|sitio web)\b/.test(m)) return "tienda";
+  // Informacion, modulos, contenido, la ficha entera: todo eso es contenido.
+  // Va DESPUES del precio a proposito? No: si ofrece las dos cosas gana el
+  // contenido, porque el precio ya viaja dentro de la ficha y lo contrario
+  // --mandar solo el precio a quien pidio los modulos-- es la falla que se
+  // esta corrigiendo.
+  if (/\b(informacion|info|modulos|temario|contenido|que incluye|que trae|que viene|detalles|la ficha|todo lo que)\b/.test(m)) return "contenido";
+  if (/\b(precio|valor|cuanto (vale|cuesta|esta))\b/.test(m)) return "precio";
+  return null;
+}

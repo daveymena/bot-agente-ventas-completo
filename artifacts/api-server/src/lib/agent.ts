@@ -21,7 +21,7 @@ import { processPurchaseConfirmation } from "./payment-confirmation";
 import { proximoPaso, renderPaso, necesidadDeclarada, type Paso } from "./embudo";
 import { opcionesPendientes, preguntaPorLaOpcion } from "./opciones-del-producto";
 import { preguntasSueltas } from "./estado-cognitivo";
-import { seccionQueCorresponde, elSiContestaLaOferta, elCierreOfrece, pideAlgoEntregable, elProductoSaleDeLaPreguntaMisma } from "./ficha-parcial";
+import { seccionQueCorresponde, elSiContestaLaOferta, elCierreOfrece, pideAlgoEntregable, elProductoSaleDeLaPreguntaMisma, queOfrecioElBot } from "./ficha-parcial";
 import { promesasIncumplidas, sinLaPromesa, sinElMontoQueVaEnLaFicha, niegaLoQueSiSale, loQueEntregaLaSeccion, NOMBRE_DE_PROMESA } from "./promesas";
 import { videoDeProducto } from "./video-de-producto";
 
@@ -2703,14 +2703,13 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
           //
           // Si el texto guardado dice que se ofreció el video, se ofreció:
           // eso es un hecho observable, no una deducción.
-          const ofrecimosVideo = ofrecioAntes === "video"
-            || /video introductorio|c[oó]mo son las clases|te muestro el video|verlo en video|c[oó]mo es por dentro|c[oó]mo se ve en uso/i.test(ultimaDelBot);
-          // Los cierres que ofrecen contenido los genera `invitacionesDe` en
-          // ficha-parcial.ts: si cambian allá, este patrón tiene que seguirlos.
+          // Lo que el bot ofrecio, venga de la metadata que dejo la ficha o
+          // leido de su propio texto -- porque el modelo redacta libre y sus
+          // frases no estan en ninguna lista. Ver queOfrecioElBot.
+          const ofrecidoEnTexto = queOfrecioElBot(ultimaDelBot);
+          const ofrecimosVideo = ofrecioAntes === "video" || ofrecidoEnTexto === "video";
           const ofrecimosContenido = ofrecioAntes === "contenido"
-            || /te cuento qu[eé] (incluye|viene|trae)|te muestro todo lo que trae|qu[eé]r[eé]s ver qu[eé] incluye|quieres ver qu[eé] incluye/i.test(
-              ultimaDelBot,
-            );
+            || ofrecidoEnTexto === "contenido" || ofrecidoEnTexto === "precio";
           const videoYaEnviado = delAgente.some((m) =>
             /🎬 Mira c[oó]mo son las clases|drive\.google\.com\/file/i.test(String(m.content || "")),
           );
