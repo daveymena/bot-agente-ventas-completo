@@ -18,7 +18,7 @@ import { calcularEstado, renderEstado, puedeMandarPago, pidePagar, type EtapaTra
 // Se usaba sin importar: con `@ts-nocheck` puesto nadie lo notaba, y reventaba
 // justo al confirmar una compra -- el peor momento posible.
 import { processPurchaseConfirmation } from "./payment-confirmation";
-import { proximoPaso, renderPaso, necesidadDeclarada } from "./embudo";
+import { proximoPaso, renderPaso, necesidadDeclarada, type Paso } from "./embudo";
 import { preguntasSueltas } from "./estado-cognitivo";
 import { seccionQueCorresponde, elSiContestaLaOferta, elCierreOfrece } from "./ficha-parcial";
 import { videoDeProducto } from "./video-de-producto";
@@ -1629,6 +1629,10 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
   // "otro". Va a los metadatos del mensaje para que el turno SIGUIENTE lo sepa
   // sin tener que adivinarlo sobre un texto que no se guarda.
   let ofrecimientoDeLaFicha: string | undefined;
+  // El paso del embudo vive FUERA del try a propósito: no alcanza con que el
+  // modelo lo lea en el prompt, tiene que poder frenar la ficha. Ver el bloque
+  // donde se arma la tarjeta.
+  let pasoDelEmbudo: Paso | null = null;
   try {
     const productoEstado = decision.productToShow
       ?? (decision.productoDelMensaje
@@ -1664,6 +1668,7 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
       // verdad y no puede quedar desincronizado con lo que se dijo de verdad.
       necesidad: necesidadDeclarada(memory.history as any),
     });
+    pasoDelEmbudo = paso;
     bloqueEstado += `\n${renderPaso(paso)}`;
     console.log(`🎯 [EMBUDO] ${paso.movimiento} — ${paso.porQue} - ${ts()}`);
 
@@ -2700,6 +2705,29 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
           if (isPaymentFlow && !permiso.puede) {
             console.log(`🧭 [ETAPA] No se manda el pago: ${permiso.porQue} - ${ts()}`);
           }
+          // ── EL EMBUDO TAMBIÉN FRENA LA FICHA ──────────────────────────────
+          //
+          // Vale la misma lección que el comentario de arriba: "una sugerencia
+          // no es una garantía". El embudo escribía su instrucción en el prompt
+          // y la ficha salía igual, porque la empuja el servidor por su cuenta.
+          //
+          // Visto en vivo el 2026-09-01 05:17, con el embudo ya desplegado:
+          //
+          //   cliente: "Me interesa el curso de piano"
+          //   bot:     "¡Buenísimo que preguntes por el de piano! 🎹 Te paso la
+          //             ficha completa así lo miras con calma."
+          //
+          // El modelo hasta ANUNCIÓ la ficha, y hacía bien: iba a salir sí o
+          // sí. Pedirle que primero pregunte mientras el servidor manda el
+          // producto entero debajo es pedirle algo imposible.
+          //
+          // Con `calificar` la ficha espera UN turno: el cliente dice para qué
+          // lo quiere y recién ahí se presenta, conectando con eso. Es el único
+          // movimiento que la frena; los demás (presentar, cerrar, destrabar)
+          // la necesitan.
+          if (pasoDelEmbudo?.movimiento === "calificar") {
+            console.log(`🎯 [EMBUDO] Ficha retenida un turno: primero se pregunta para qué lo quiere - ${ts()}`);
+          } else {
           parts.push({
             kind: "card",
             productId: resolvedId,
@@ -2718,6 +2746,7 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
           });
           cardProductId = resolvedId;
           cardCount++;
+          }
         }
         lastIndex = m.index + m[0].length;
       }
