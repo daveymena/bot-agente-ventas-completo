@@ -106,6 +106,23 @@ const COMUNES: PreguntaConocida[] = [
 
 // ─── Curso de Piano ──────────────────────────────────────────────────────────
 
+/**
+ * ⚠️ ESTAS LISTAS SE DESINCRONIZAN DE `products.features`.
+ *
+ * Son una copia a mano de lo que el producto trae, escrita acá para poder
+ * contestar al instante. Medido el 2026-09-01 contra produccion: la del
+ * piano tenia 5 de las 6 caracteristicas reales (faltaba "Online y
+ * descargable") y la de EDUCANINO 6 de 8 (faltaba "Curso estructurado por
+ * modulos"). El admin lo reporto asi: "no las esta entregando todo".
+ *
+ * No se borran y se deja que conteste la ficha porque estas respuestas
+ * garantizan algo que la ficha no: que un curso NUNCA mencione el contenido
+ * de otro (ver conocimiento-producto.test.ts). Pero cada vez que cambien las
+ * caracteristicas de uno de estos 3 productos, hay que actualizarlas acá.
+ *
+ * Los otros 81 productos activos no tienen entrada propia y ya caen a la
+ * ficha, que lee los datos reales.
+ */
 const PIANO: ConocimientoProducto = {
   productId: 123,
   nombre: "Curso de Piano Completo",
@@ -120,7 +137,7 @@ const PIANO: ConocimientoProducto = {
       id: "piano_incluye",
       patrones: /\b(qu[eé] (incluye|trae|contiene)|contenido|temario|m[oó]dulos)\b/i,
       respuesta:
-        "Esto es lo que incluye 🎹\n\n✅ Clases en video HD\n✅ De cero a avanzado\n✅ Partituras y ejercicios\n✅ Acceso de por vida\n✅ Soporte incluido",
+        "Esto es lo que incluye 🎹\n\n✅ Clases en video HD\n✅ De cero a avanzado\n✅ Partituras y ejercicios\n✅ Acceso de por vida\n✅ Online y descargable\n✅ Soporte incluido",
     },
     {
       id: "piano_partituras",
@@ -171,7 +188,7 @@ const EDUCANINO: ConocimientoProducto = {
       id: "perro_incluye",
       patrones: /\b(qu[eé] (incluye|trae|contiene)|contenido|temario|m[oó]dulos)\b/i,
       respuesta:
-        "Esto es lo que incluye 🐶\n\n✅ Obediencia básica y avanzada\n✅ Control de conductas problemáticas\n✅ Agresividad y posesividad\n✅ Ansiedad por separación\n✅ Reactividad\n✅ Entrenamiento paso a paso, en video",
+        "Esto es lo que incluye 🐶\n\n✅ Curso estructurado por módulos\n✅ Obediencia básica y avanzada\n✅ Control de conductas problemáticas\n✅ Agresividad y posesividad\n✅ Ansiedad por separación\n✅ Reactividad\n✅ Entrenamiento paso a paso, en video",
     },
     {
       id: "perro_problemas",
