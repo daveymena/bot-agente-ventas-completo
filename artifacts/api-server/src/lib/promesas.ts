@@ -157,3 +157,37 @@ export function sinLaPromesa(texto: string, incumplidas: Promesa[]): string {
   });
   return quedan.join(" ").replace(/\s+/g, " ").trim();
 }
+
+/**
+ * Quita el monto de una frase, y descarta la frase entera si al quitarlo queda
+ * anunciando un precio que ya no dice.
+ *
+ * Cuando la ficha lleva el precio, el texto que la acompaña no debe repetirlo:
+ * el numero va una sola vez. Esa limpieza ya existia y solo comprobaba que
+ * quedaran seis caracteres. Medido en produccion el 2026-09-01:
+ *
+ *   cliente: "¿cuánto vale?"
+ *   bot:     "💰 El curso de piano completo tiene un valor de , pago único."
+ *
+ * Quedaron cincuenta caracteres, asi que la frase paso -- con el precio en el
+ * aire. La regla correcta no es de longitud: si se quito un monto y la frase
+ * SIGUE anunciando un precio, la frase ya no se sostiene y se descarta. La
+ * ficha lo dice bien; una frase rota solo puede restar.
+ *
+ * Devuelve "" cuando hay que descartarla.
+ */
+export function sinElMontoQueVaEnLaFicha(texto: string): string {
+  const original = String(texto || "");
+  const sinMonto = original
+    .replace(/\$\s?\d[\d.,]*\s?(COP|USD)?/gi, "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+
+  if (sinMonto === original) return original;
+
+  // Se quito un monto. Si la frase todavia anuncia un precio, le falta el dato
+  // que la sostenia.
+  if (/\b(valor|precio|vale|cuesta|sale|queda|cobr\w+)\b/i.test(sinMonto)) return "";
+
+  return sinMonto.replace(/[\s,:;.-]+$/, "").length >= 6 ? sinMonto : "";
+}

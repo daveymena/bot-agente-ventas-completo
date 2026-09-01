@@ -21,8 +21,8 @@ import { processPurchaseConfirmation } from "./payment-confirmation";
 import { proximoPaso, renderPaso, necesidadDeclarada, type Paso } from "./embudo";
 import { opcionesPendientes, preguntaPorLaOpcion } from "./opciones-del-producto";
 import { preguntasSueltas } from "./estado-cognitivo";
-import { seccionQueCorresponde, elSiContestaLaOferta, elCierreOfrece } from "./ficha-parcial";
-import { promesasIncumplidas, sinLaPromesa, NOMBRE_DE_PROMESA } from "./promesas";
+import { seccionQueCorresponde, elSiContestaLaOferta, elCierreOfrece, pideAlgoEntregable } from "./ficha-parcial";
+import { promesasIncumplidas, sinLaPromesa, sinElMontoQueVaEnLaFicha, NOMBRE_DE_PROMESA } from "./promesas";
 import { videoDeProducto } from "./video-de-producto";
 
 /**
@@ -1286,7 +1286,30 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
     // pedir dirección y cédula a alguien que compra un curso.
     const soloDigital = (negocio?.modoCatalogo ?? "mixto") === "digital";
 
-    if (!soloDigital && (esDropshipping || esFisico)) {
+    // ── El bloque de envio SIGUE AL PRODUCTO, no a la especialidad ───────
+    //
+    // Estaba `(esDropshipping || esFisico)`: bastaba que el AGENTE estuviera
+    // marcado como dropshipping para inyectar "PRODUCTO FISICO - ENTREGA A
+    // DOMICILIO / pago contra entrega / 3 a 5 dias habiles" aunque el producto
+    // en juego fuera un curso. `soloDigital` no lo tapaba porque este catalogo
+    // es mixto (140 productos, cursos y fisicos conviviendo).
+    //
+    // Medido en produccion el 2026-09-01, sobre el curso de piano (digital):
+    //
+    //   cliente: "kuanto bale el kurso d piano"
+    //   bot:     "Y lo mejor: no pagas nada hasta tenerlo en la mano."
+    //   bot:     "Pagas solo cuando lo recibes en tu puerta. Nada por
+    //             adelantado. Llega en 3 a 5 dias habiles a cualquier ciudad."
+    //
+    // Y catorce minutos antes, el MISMO bot le habia dicho que le llegaba por
+    // un enlace de acceso. Dos entregas incompatibles para el mismo producto,
+    // y la que gana es la que le pide la direccion de su casa por un curso.
+    //
+    // Si hay un producto identificado, manda su `kind`. La especialidad del
+    // agente solo decide cuando todavia no se sabe de que producto se habla.
+    const corresponde = productoEnJuego ? esFisico : esDropshipping;
+
+    if (!soloDigital && corresponde) {
       const ds = await import("./dropshipping");
       let pedido = await ds.pedidoEnCurso(conversationId);
 
@@ -2638,7 +2661,12 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
         // vacío y es preferible repetirla.
         const esFlujoDePago = (decision.intent === "payment_intent" || decision.intent === "confirmation");
         const yaEnviada = resolvedId !== -1 && memory.sentProductIds.has(resolvedId);
-        if (yaEnviada && !esFlujoDePago && !decision.pidioReenvio && textBefore) {
+        // Que la ficha ya se haya enviado no bloquea lo que el cliente pide
+        // ahora: el video, la tienda, el precio y los medios de pago no son
+        // repeticiones de la ficha, son cosas que todavia no vio. Bloquearlas
+        // dejaba al modelo improvisando sobre datos que el servidor tenia.
+        const pideOtraCosa = pideAlgoEntregable(String(lastText || ""));
+        if (yaEnviada && !esFlujoDePago && !decision.pidioReenvio && !pideOtraCosa && textBefore) {
           console.log(`🔁 [PARSER] La ficha de ${resolvedId} ya se envió antes: no se repite, se contesta solo lo que preguntó.`);
           resolvedId = -1;
         }
@@ -3177,11 +3205,9 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
           // Solo la primera frase: lo demás es el desborde.
           let corto = original.split(/(?<=[.!?])\s+/)[0] ?? original;
           // Y sin montos: el número lo pone la ficha, una sola vez.
-          corto = corto.replace(/\$\s?\d[\d.,]*\s?(COP)?/gi, "").replace(/\s{2,}/g, " ").trim();
-          // Si al sacarle el monto no queda nada que aporte, se va entero: un
-          // "Claro 😊" suelto antes de la ficha se lee mejor que una frase
-          // mocha.
-          (parte as any).content = corto.replace(/[\s,:;.-]+$/, "").length >= 6 ? corto : "";
+          // Si al quitarlo la frase queda anunciando un precio que ya no dice
+          // ("tiene un valor de , pago único"), se descarta entera.
+          (parte as any).content = sinElMontoQueVaEnLaFicha(corto);
         }
         const antes = finalParts.length;
         for (let i = finalParts.length - 1; i >= 0; i--) {

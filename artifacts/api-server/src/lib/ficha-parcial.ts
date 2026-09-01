@@ -89,7 +89,11 @@ const N = (s: string) =>
  * ser el tema, no una palabra suelta.
  */
 const PIDE_PRECIO =
-  /\bcuanto\s+(vale|cuesta|sale|es|seria|me\s+sale)\b|\bque\s+(precio|valor)\b|\b(el\s+)?precio\b|\bcuanto\s+(esta|estan)\b|\ba\s+como\s+(lo|la|esta)\b|\bcosto\b|\bvale\b/;
+  // La "k" por "c" y la "b" por "v" no son casos raros: "kuanto bale el kurso
+  // d piano" es un mensaje REAL de produccion (2026-09-01 15:20) que no
+  // matcheaba, y el cliente recibio una respuesta que no hablaba del precio.
+  // Asi escribe una parte grande de la gente desde el celular.
+  /\b[ck]uanto\s+([bv]ale|[ck]uesta|sale|es|seria|me\s+sale)\b|\bque\s+(precio|[bv]alor)\b|\b(el\s+)?precio\b|\b[ck]uanto\s+(esta|estan)\b|\ba\s+como\s+(lo|la|esta)\b|\b[ck]osto\b|\b[bv]ale\b|\b[ck]uesta\b/;
 
 /** Preguntó CÓMO pagar (no cuánto). */
 // El "lo/la" del medio se hace opcional a propósito: "como lo puedo adquirir"
@@ -165,6 +169,34 @@ const PIDE_ENTREGA =
  * "¿cómo pago por Nequi?" cumple tres patrones a la vez y lo que el cliente
  * quiere es el número de Nequi, no el catálogo de medios.
  */
+/**
+ * El cliente pidio EXPLICITAMENTE algo que el servidor sabe entregar.
+ *
+ * Existe para una decision de mas arriba (agent.ts): cuando a alguien ya se le
+ * mando la ficha de un producto, la ficha no se repite. Correcto. Pero eso
+ * estaba tirando abajo TODAS las secciones, no solo la repetida -- y el video,
+ * la tienda, el precio y los medios de pago no son repeticiones: son cosas que
+ * el cliente todavia no vio.
+ *
+ * Medido en produccion el 2026-09-01, con la ficha ya enviada:
+ *
+ *   "muestrame el video"   -> "por aqui no puedo enviarte el video de muestra"
+ *                             (el producto TIENE video cargado en su metadata)
+ *   "¿tienes pagina web?"  -> "si, tenemos" y nunca mando el enlace
+ *   "¿cuanto vale?"        -> "tiene un valor de , pago unico"
+ *
+ * Ninguna de esas tres las contesto el servidor: las improviso el modelo,
+ * porque el dato verificado no llego a salir.
+ */
+export function pideAlgoEntregable(mensaje: string): boolean {
+  const m = N(mensaje);
+  return (
+    PIDE_VIDEO.test(m) || PIDE_TIENDA.test(m) || PIDE_TRANSFERENCIA.test(m)
+    || PIDE_LINK.test(m) || PIDE_PRECIO.test(m) || PIDE_PAGO.test(m)
+    || PIDE_ENTREGA.test(m)
+  );
+}
+
 export function seccionQueCorresponde(e: EntradaSeccion): SeccionFicha {
   const m = N(e.mensaje);
   const intent = String(e.intent || "");
