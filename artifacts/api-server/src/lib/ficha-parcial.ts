@@ -124,7 +124,20 @@ const PIDE_INFO =
 const PIDE_VIDEO =
   /\bvideo\b|\bvidio\b|\bmu[eé]stra\w*\b|\bme lo ense[ñn]as\b|\bver (una|la) clase\b|\bdemo\b|\bc[oó]mo (son|es) (las|la) clase/i;
 
-const ACEPTA = /^(s[ií]|sii+|dale|bueno|ok|okay|okey|listo|claro|por favor|porfa|de una|obvio|hazlo|mu[eé]strame\w*)\b/i;
+/**
+ * ⚠ Aca vivia `ACEPTA`, un patron de PREFIJO: bastaba que el mensaje
+ * EMPEZARA con "si" para contar como aceptacion. Y en el mismo archivo,
+ * `AFIRMACION_SUELTA` --que decide si el "si" bloquea el checkout-- exige que
+ * el mensaje sea SOLO la afirmacion.
+ *
+ * O sea que "si, cuanto vale?" era un si pelado para una funcion y no lo era
+ * para la otra: se devolvia el video ignorando la pregunta de precio que el
+ * cliente acababa de escribir en el mismo renglon.
+ *
+ * El razonamiento correcto ya estaba escrito mas abajo, para el caso del
+ * contenido: "«si, como pago?» es un si que ya dice que quiere y manda el".
+ * Faltaba aplicarlo tambien al video. Ahora hay UNA sola regla.
+ */
 
 /**
  * Pedir la tienda, o el producto EN la tienda.
@@ -162,7 +175,7 @@ export function seccionQueCorresponde(e: EntradaSeccion): SeccionFicha {
   //
   // Si ya se lo mandamos, NO se repite: pedirlo de nuevo suele significar que
   // no lo abrió, y remandarlo no ayuda. Se sigue por el camino normal.
-  if (!e.videoYaEnviado && (PIDE_VIDEO.test(m) || (e.ofrecimosVideo && ACEPTA.test(m)))) {
+  if (!e.videoYaEnviado && (PIDE_VIDEO.test(m) || (e.ofrecimosVideo && esAfirmacionSuelta(e.mensaje)))) {
     return "video";
   }
 
@@ -197,7 +210,7 @@ export function seccionQueCorresponde(e: EntradaSeccion): SeccionFicha {
   // pago?" es un sí que ya dice qué quiere y manda él; un "sí" pelado no dice
   // nada por sí mismo, y ahí el servidor SABE qué ofreció, en vez de dejar
   // que el modelo lo adivine como `confirmation` (= "sí, quiero comprar").
-  if (e.ofrecimosContenido && ACEPTA.test(m)) return "info";
+  if (e.ofrecimosContenido && esAfirmacionSuelta(e.mensaje)) return "info";
 
   // ── Por intención, cuando el texto no lo dice de forma literal ────────────
   if (intent === "payment_intent" || intent === "confirmation") return "pago";
@@ -429,7 +442,12 @@ const AFIRMACION_SUELTA =
   // "cuéntame") NO hay borde de palabra, así que el patrón no casaba
   // justamente con la forma más común de decir que sí en español. Es la
   // tercera vez que este proyecto tropieza con lo mismo.
-  /^\s*(s[ií]|sip|sii+|dale|listo|ok|okey|okay|claro|obvio|de una|por supuesto|bueno|va|hazlo|hacelo|mu[eé]strame|mostrame|cu[eé]ntame|contame|perfecto|genial)(?![a-zA-ZáéíóúñÁÉÍÓÚÑ])[\s.!¡👍😊🙌]*$/i;
+  /^\s*(s[ií]|sip|sii+|dale|listo|ok|okey|okay|claro|obvio|de una|por supuesto|bueno|va|hazlo|hacelo|mu[eé]strame|mostrame|cu[eé]ntame|contame|perfecto|genial|por favor|porfa|porfis)(?![a-zA-ZáéíóúñÁÉÍÓÚÑ])[\s.!¡👍😊🙌]*$/i;
+
+/** Es SOLO una afirmacion, sin nada mas pegado? */
+export function esAfirmacionSuelta(mensaje: string): boolean {
+  return AFIRMACION_SUELTA.test(String(mensaje || ""));
+}
 
 export function elSiContestaLaOferta(e: {
   /** Lo que escribió el cliente. */
@@ -440,5 +458,5 @@ export function elSiContestaLaOferta(e: {
   ofrecimosVideo?: boolean;
 }): boolean {
   if (!e.ofrecimosContenido && !e.ofrecimosVideo) return false;
-  return AFIRMACION_SUELTA.test(String(e.mensaje || ""));
+  return esAfirmacionSuelta(e.mensaje);
 }

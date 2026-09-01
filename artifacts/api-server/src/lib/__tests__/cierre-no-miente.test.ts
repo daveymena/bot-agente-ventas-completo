@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { elCierreOfrece, invitacionDe } from "../ficha-parcial";
+import { elCierreOfrece, invitacionDe, seccionQueCorresponde, elSiContestaLaOferta } from "../ficha-parcial";
 import { videoDeProducto } from "../video-de-producto";
 
 /**
@@ -87,6 +87,42 @@ describe("El cierre de la ficha no puede mentir sobre lo que ofreció", () => {
     for (const s of ["completa", "info", "precio"] as const) {
       const texto = invitacionDe(s, false, "semilla", false, false);
       expect(texto, `sección ${s}`).not.toMatch(/video|pedacito/i);
+    }
+  });
+});
+
+/**
+ * Un "si" pelado acepta la oferta. Un "si" con una pregunta pegada manda la
+ * pregunta.
+ *
+ * Habia DOS reglas para decidir eso: `ACEPTA` (prefijo) en
+ * `seccionQueCorresponde`, y `AFIRMACION_SUELTA` (mensaje completo) en
+ * `elSiContestaLaOferta`. El mismo mensaje era un si suelto para una y no
+ * para la otra, asi que "si, cuanto vale?" devolvia el video e ignoraba la
+ * pregunta de precio escrita en el mismo renglon.
+ */
+describe("Un 'si' con una pregunta pegada manda la pregunta", () => {
+  const ofrecimos = { ofrecimosVideo: true, ofrecimosContenido: false };
+
+  it("el 'si' pelado si acepta la oferta del video", () => {
+    expect(seccionQueCorresponde({ mensaje: "Si", ...ofrecimos })).toBe("video");
+    expect(seccionQueCorresponde({ mensaje: "dale", ...ofrecimos })).toBe("video");
+    expect(seccionQueCorresponde({ mensaje: "si!", ...ofrecimos })).toBe("video");
+  });
+
+  it("si ademas pregunta el precio, gana el precio", () => {
+    expect(seccionQueCorresponde({ mensaje: "si, cuanto vale?", ...ofrecimos })).toBe("precio");
+    expect(seccionQueCorresponde({ mensaje: "dale, y como pago?", ...ofrecimos })).toBe("pago");
+  });
+
+  it("las dos funciones que leen el 'si' no pueden contradecirse", () => {
+    for (const mensaje of ["Si", "dale", "si, cuanto vale?", "dale, y como pago?", "si lo quiero comprar"]) {
+      const esSueltoParaElGuardia = elSiContestaLaOferta({ mensaje, ...ofrecimos });
+      const seccion = seccionQueCorresponde({ mensaje, ...ofrecimos });
+      // Si el guardia dice que el "si" contesta la oferta, la seccion tiene
+      // que ser la ofrecida. Si dice que no, no puede ser la ofrecida.
+      if (esSueltoParaElGuardia) expect(seccion, mensaje).toBe("video");
+      else expect(seccion, mensaje).not.toBe("video");
     }
   });
 });
