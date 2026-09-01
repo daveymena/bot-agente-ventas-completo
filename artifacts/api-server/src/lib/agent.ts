@@ -23,6 +23,8 @@ import { opcionesPendientes, preguntaPorLaOpcion } from "./opciones-del-producto
 import { preguntasSueltas } from "./estado-cognitivo";
 import { seccionQueCorresponde, elSiContestaLaOferta, elCierreOfrece, pideAlgoEntregable, elProductoSaleDeLaPreguntaMisma, queOfrecioElBot } from "./ficha-parcial";
 import { promesasIncumplidas, sinLaPromesa, sinElMontoQueVaEnLaFicha, niegaLoQueSiSale, loQueEntregaLaSeccion, NOMBRE_DE_PROMESA } from "./promesas";
+import { medirEmojis } from "./emojis-con-medida";
+import { preguntaPorLoInterno, delataLoInterno, respuestaSegura } from "./nada-interno";
 import { videoDeProducto } from "./video-de-producto";
 
 /**
@@ -3245,7 +3247,19 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
       // se decide en el servidor.
       for (const parte of finalParts) {
         if (parte.kind === "text" && (parte as any).content) {
-          (parte as any).content = hablarColombiano(String((parte as any).content));
+          // El voseo y los emojis se arreglan en el MISMO punto y por el mismo
+          // motivo: las dos reglas estaban escritas en el prompt y el modelo
+          // las cumple casi siempre -- casi. Medido sobre 109 mensajes: 11
+          // llevaban 5 emojis o mas y 5 repetian el mismo tres veces.
+          //
+          // Solo se mide el texto que redacta el modelo. La ficha NO pasa por
+          // aca: ahi un emoji por linea es el formato correcto y lo escribio
+          // el dueño en la descripcion de cada producto.
+          const medido = medirEmojis(hablarColombiano(String((parte as any).content)));
+          if (medido.quitados > 0) {
+            console.log(`[EMOJIS] Se quitaron ${medido.quitados} que sobraban - ${ts()}`);
+          }
+          (parte as any).content = medido.texto;
         }
       }
 
@@ -3330,6 +3344,39 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
           console.log(`[FOCO] El modelo trajo "${traido?.name ?? parte.productId}" para una pregunta sobre "${enFoco?.name ?? memory.currentProductId}": se corrige - ${ts()}`);
           parte.productId = memory.currentProductId;
           cardProductId = memory.currentProductId;
+        }
+      }
+
+      // -- LO DE ADENTRO NO SALE --------------------------------------------
+      //
+      // Pedido del admin: "seguridad para que no diga nada interno de la
+      // aplicacion... son del dueño y nadie debe saber. Veo que a veces le
+      // preguntan y dice cosas que no debe."
+      //
+      // Medido contra produccion antes de escribir esto:
+      //   "¿eres un bot o una persona?"      -> "Soy Camila, una persona real"
+      //   "¿que inteligencia artificial usas?" -> empezaba a contarlo
+      //   "¿como esta hecha esta aplicacion?"  -> la describia
+      //
+      // Dos capas, porque cubren cosas distintas: la PREGUNTA (el cliente
+      // pidio lo de adentro) y la RESPUESTA (el modelo lo solto sin que se lo
+      // pidieran, contando de que esta hecho para justificar algo).
+      {
+        const loQuePregunta = preguntaPorLoInterno(String(lastText || ""));
+        const nombreDelBot = String((activeAgent as any)?.name || "").trim() || "el asistente";
+
+        for (const parte of finalParts as any[]) {
+          if (parte.kind !== "text" || !String(parte.content || "").trim()) continue;
+
+          if (loQuePregunta) {
+            console.log(`[INTERNO] Preguntaron por ${loQuePregunta}: se contesta sin delatar nada - ${ts()}`);
+            parte.content = respuestaSegura(loQuePregunta, nombreDelBot);
+            continue;
+          }
+          if (delataLoInterno(String(parte.content))) {
+            console.log(`[INTERNO] La respuesta mencionaba algo de adentro: se reemplaza - ${ts()}`);
+            parte.content = respuestaSegura("tripas", nombreDelBot);
+          }
         }
       }
 
