@@ -195,3 +195,37 @@ describe("no ofrece video en los cursos que no lo tienen", () => {
     expect(invitacionDe("precio", false, "", false)).toMatch(/incluye|trae|adentro/i);
   });
 });
+
+/**
+ * El cierre no ofrece lo que el cliente ACABA de leer.
+ *
+ * El admin lo señaló el 2026-09-01: "sigue diciendo qué incluye cuando en la
+ * información principal ya lo dijo, y el de piano igual".
+ *
+ * El parámetro para evitarlo (`yaVioContenido`) ya existía, con un comentario
+ * describiendo este mismo defecto -- y `whatsapp.ts` nunca se lo pasaba, así
+ * que siempre valía false. Un arreglo escrito a medias: la mitad difícil
+ * hecha, la fácil olvidada, y el bug intacto. Esta prueba cubre la mitad que
+ * faltaba.
+ */
+describe("el cierre no repite lo que ya se mostró", () => {
+  it("si ya vio las características, el precio NO ofrece contárselas", () => {
+    const c = invitacionDe("precio", false, "sem", true, true);
+    expect(c).not.toMatch(/qu[eé] (incluye|trae|viene)/i);
+  });
+
+  it("y en su lugar ofrece el video, que es lo único que le falta", () => {
+    expect(invitacionDe("precio", false, "sem", true, true)).toMatch(/video|por dentro|pedacito/i);
+  });
+
+  it("sin video cargado, ofrece resolver dudas en vez de prometer uno", () => {
+    // Nunca se ofrece lo que no se puede entregar.
+    const c = invitacionDe("precio", false, "sem", false, true);
+    expect(c).not.toMatch(/video/i);
+    expect(c).toMatch(/duda|puntual/i);
+  });
+
+  it("si TODAVÍA no las vio, sí se las ofrece", () => {
+    expect(invitacionDe("precio", false, "sem", true, false)).toMatch(/incluye|trae|adentro/i);
+  });
+});

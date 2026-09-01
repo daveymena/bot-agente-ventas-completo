@@ -630,6 +630,20 @@ async function construirSeccion(
   seccion: SeccionFicha,
   dynamicLinks: any,
   semilla: string,
+  /**
+   * Si al cliente YA se le mostraron las características de este producto.
+   *
+   * Sin esto, el cierre de la sección de precio le ofrecía "¿Te cuento qué
+   * incluye? 👀" a alguien que acababa de recibir la ficha con la lista de
+   * características. El admin lo señaló el 2026-09-01: "sigue diciendo qué
+   * incluye cuando en la información principal ya lo dijo".
+   *
+   * El parámetro para arreglarlo YA existía en `invitacionDe` --con su
+   * comentario describiendo este mismo defecto-- y nunca se pasaba, así que
+   * siempre valía false. Es el caso clásico de un arreglo escrito a medias:
+   * la mitad difícil hecha, la fácil olvidada, y el bug intacto.
+   */
+  yaVioContenido = false,
 ): Promise<{ conFoto: boolean; mensajes: string[] }> {
   const mon = await contextoDeMoneda(String(semilla).split("|")[0], Number(p.price), p.currency);
   const esFisico = String((p as any).kind || "digital") === "physical";
@@ -644,7 +658,10 @@ async function construirSeccion(
   // los 84 activos lo tenia cargado. El cierre no puede ofrecer lo que no existe.
   const urlVideo = videoDeProducto(p.metadata);
 
-  const cierre = invitacionDe(seccion, esFisico, semilla, !!urlVideo);
+  // Las secciones que LISTAN las características tampoco pueden cerrar
+  // ofreciéndolas: ahí el cliente las está leyendo en el mismo mensaje.
+  const estaFichaMuestraContenido = seccion === "completa" || seccion === "info";
+  const cierre = invitacionDe(seccion, esFisico, semilla, !!urlVideo, yaVioContenido || estaFichaMuestraContenido);
   const L: string[] = [];
 
   // ── Solo el precio ────────────────────────────────────────────────────────
@@ -2362,7 +2379,11 @@ export class WhatsAppManager {
           const seccion: SeccionFicha | null = (part as any).seccion ?? null;
 
           if (seccion) {
-            const { conFoto, mensajes } = await construirSeccion(product, seccion, dynamicLinks, phone);
+            const { conFoto, mensajes } = await construirSeccion(
+              product, seccion, dynamicLinks, phone,
+              // Lo decide el agente, que es el que tiene el historial.
+              !!(part as any).yaVioContenido,
+            );
             console.log(`🎯 [WA-CARD] Sección "${seccion}" — ${mensajes.length} mensaje(s), foto: ${conFoto} - ${timestamp}`);
             if (conFoto) {
               await this.sendImage(phone, imageToUse, mensajes[0] || product.name, originalJid);

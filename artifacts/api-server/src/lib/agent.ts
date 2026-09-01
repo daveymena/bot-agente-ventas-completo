@@ -2688,6 +2688,9 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
             // opuesto al de cobrarle al que está averiguando, y sale igual de
             // caro.
             paymentOnly: (isPaymentFlow || pidePagar(String(lastText || ""))) && !contestaLaOferta && permiso.puede,
+            // Si ya recibió la ficha de ESTE producto, ya vio la lista de
+            // características: el cierre no puede ofrecerle contárselas.
+            yaVioContenido: memory.sentProductIds.has(resolvedId),
             seccion,
           });
           cardProductId = resolvedId;
