@@ -4,7 +4,7 @@ import { transcribirAudio, describirImagen } from "./media-entrante";
 import { contextoDeMoneda } from "./moneda-por-pais";
 import { invitacionDe, type SeccionFicha } from "./ficha-parcial";
 import { videoDeProducto } from "./video-de-producto";
-import { leerFicha } from "./ficha-del-producto";
+import { leerFicha, repartirPuntos, PRESUPUESTO_PIE_DE_FOTO } from "./ficha-del-producto";
 import { hablarColombiano } from "./hablar-colombiano";
 import { etiquetaDeTransferencia } from "./conversation-engine";
 
@@ -685,6 +685,11 @@ export function emojiDeCaracteristica(texto: string, deQueProducto = ""): string
   return "•";
 }
 
+/** Lo que ya ocupan el titulo y el resumen, para no pasarse del pie de foto. */
+function presupuestoUsadoPorElEncabezado(lineas: string[]): number {
+  return lineas.join("\n").length;
+}
+
 async function construirSeccion(
   p: typeof products.$inferSelect,
   seccion: SeccionFicha,
@@ -837,11 +842,26 @@ async function construirSeccion(
   // tabla de palabras adivine bien.
   if (suFicha.puntos.length > 0) {
     L.push("");
-    for (const punto of suFicha.puntos.slice(0, 5)) L.push(`${punto.emoji} ${punto.texto}`);
-    const sobran = suFicha.puntos.length - 5;
-    if (sobran > 0) L.push(`➕ Y ${sobran} ${sobran === 1 ? "cosa más" : "cosas más"}`);
-  } else if (propias.length > 0) {
-    L.push("");
+    // Se sintetiza: entran los puntos COMPLETOS que caben en el pie de foto.
+    // Nunca se parte uno por la mitad ni se anuncia "y N cosas mas" -- eso es
+    // justo lo que se lee como informacion a medias. Lo que falta se cuenta
+    // cuando el cliente pregunta (seccion "info", mas abajo).
+    const yaMostrados = presupuestoUsadoPorElEncabezado(L);
+    const yaMostradosLargo = presupuestoUsadoPorElEncabezado(L);
+    const reparto = repartirPuntos(suFicha.puntos, PRESUPUESTO_PIE_DE_FOTO - yaMostradosLargo);
+
+    // -- Si vuelve a preguntar, se le cuenta LO QUE FALTA -----------------
+    //
+    // Pedido del admin: "si el cliente pide mas informacion ya no le responde
+    // con eso, debe entender que busca el cliente". Repetirle el mismo bloque
+    // es tratarlo como si no hubiera leido el anterior.
+    //
+    // La ficha completa sintetiza; esta seccion cuenta el resto. Si ya lo vio
+    // todo, no hay resto y se muestra igual la sintesis, que es mejor que un
+    // mensaje vacio.
+    const pideMas = seccion === "info" && yaVioContenido && reparto.resto.length > 0;
+    const aMostrar = pideMas ? reparto.resto.slice(0, 6) : reparto.entran;
+    for (const punto of aMostrar) L.push(`${punto.emoji} ${punto.texto}`);
     // Cuatro, no ocho: lo que sigue es la razón para preguntar más.
     //
     // Pero si sobra UNA sola, se muestra. Esconder la quinta detrás de "y 1

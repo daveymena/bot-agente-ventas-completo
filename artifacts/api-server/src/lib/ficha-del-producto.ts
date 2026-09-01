@@ -119,7 +119,16 @@ function esEncabezado(texto: string): boolean {
  * repetírselo ahí lo trata como si no estuviera en la conversación.
  */
 function esLlamadoAEscribir(texto: string): boolean {
-  return /escr[ií]b[eií]|cont[aá]ctanos|escribinos|whatsapp|empezar hoy|no te lo pierdas|ap[uú]rate/i.test(texto);
+  // ⚠️ Aca estaba la palabra "whatsapp" suelta, y eso borraba features reales:
+  // el curso de IA tiene una linea "🔗 Conecta WhatsApp, Telegram, Slack y
+  // Google" que desaparecia de la ficha sin que nadie se enterara. Justo el
+  // defecto que se estaba arreglando --informacion a medias-- introducido por
+  // el arreglo.
+  //
+  // Ahora se exige el VERBO de invitacion dirigido al cliente. "Escribenos por
+  // WhatsApp" es un llamado; "Conecta WhatsApp" es lo que el curso enseña.
+  return /\b(escr[ií]b[ei]nos|escr[ií]beme|cont[aá]ctanos|contactenos|escribinos)\b/i.test(texto)
+    || /\b(empezar|comenzar) hoy\b|\bno te lo pierdas\b|\bap[uú]rate\b|\b[uú]ltimos cupos\b/i.test(texto);
 }
 
 /**
@@ -162,4 +171,55 @@ export function leerFicha(descripcion: string | null | undefined, nombre: string
   }
 
   return { emoji, intro, puntos };
+}
+
+/**
+ * Cuanto texto entra en un pie de foto de WhatsApp.
+ *
+ * El limite real ronda los 1024 caracteres y WhatsApp corta EN SECO lo que
+ * sobra: sin aviso, a mitad de palabra. La ficha va como pie de la imagen del
+ * producto, asi que una descripcion rica se entregaba mutilada.
+ *
+ * Se deja margen porque encima del cuerpo van el titulo, el resumen y el
+ * cierre, y porque los emojis pesan mas de un caracter.
+ */
+export const PRESUPUESTO_PIE_DE_FOTO = 900;
+
+/**
+ * Reparte los puntos entre los que ENTRAN y los que quedan para despues.
+ *
+ * Nunca parte un punto por la mitad: o entra entero o pasa al resto. Un punto
+ * cortado es peor que uno ausente, porque el cliente lee una frase que no
+ * termina y no sabe si el problema es del producto o del bot.
+ *
+ * Y no se muestra un "y N cosas mas": eso es justo lo que se siente como
+ * informacion a medias. Lo que falta se cuenta cuando el cliente pregunta,
+ * que es cuando de verdad lo quiere saber.
+ */
+export function repartirPuntos(
+  puntos: PuntoDeFicha[],
+  presupuesto = PRESUPUESTO_PIE_DE_FOTO,
+  maximo = 6,
+): { entran: PuntoDeFicha[]; resto: PuntoDeFicha[] } {
+  const entran: PuntoDeFicha[] = [];
+  const resto: PuntoDeFicha[] = [];
+  let usado = 0;
+
+  for (const p of puntos) {
+    const cuesta = p.emoji.length + 1 + p.texto.length + 1;
+    if (entran.length < maximo && usado + cuesta <= presupuesto) {
+      entran.push(p);
+      usado += cuesta;
+    } else {
+      resto.push(p);
+    }
+  }
+
+  // Si no entro ninguno --puntos larguisimos-- entra el primero igual: una
+  // ficha sin nada debajo del titulo no dice nada del producto.
+  if (entran.length === 0 && puntos.length > 0) {
+    entran.push(puntos[0]);
+    resto.shift();
+  }
+  return { entran, resto };
 }
