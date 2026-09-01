@@ -19,7 +19,7 @@ import { calcularEstado, renderEstado, puedeMandarPago, pidePagar, type EtapaTra
 // justo al confirmar una compra -- el peor momento posible.
 import { processPurchaseConfirmation } from "./payment-confirmation";
 import { proximoPaso, renderPaso, necesidadDeclarada } from "./embudo";
-import { seccionQueCorresponde, elSiContestaLaOferta } from "./ficha-parcial";
+import { seccionQueCorresponde, elSiContestaLaOferta, elCierreOfrece } from "./ficha-parcial";
 import { videoDeProducto } from "./video-de-producto";
 
 /** El video de este producto, sin reventar si el metadata viene raro. */
@@ -1602,6 +1602,10 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
   // La etapa del trato, para que decida del lado del servidor y no solo en el
   // prompt. Ver `puedeMandarPago`.
   let etapaDelTrato: EtapaTrato | null = null;
+  // Qué ofreció el cierre de la ficha que se envió: "video", "contenido" u
+  // "otro". Va a los metadatos del mensaje para que el turno SIGUIENTE lo sepa
+  // sin tener que adivinarlo sobre un texto que no se guarda.
+  let ofrecimientoDeLaFicha: string | undefined;
   try {
     const productoEstado = decision.productToShow
       ?? (decision.productoDelMensaje
@@ -2596,13 +2600,20 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
           //     de nuevo suele ser que no lo abrieron, y remandarlo no ayuda.
           const delAgente = (memory.history as any[]).filter((m) => m.role !== "customer");
           const ultimaDelBot = String(delAgente[delAgente.length - 1]?.content || "");
-          const ofrecimosVideo = /video introductorio|c[oó]mo son las clases|te muestro el video/i.test(ultimaDelBot);
+          // Lo que la ficha ofreció de verdad, leído de los metadatos que dejó
+          // el turno anterior. La expresión sobre el texto queda como respaldo
+          // para las conversaciones viejas, que no tienen ese metadato.
+          const metaAnterior = (delAgente[delAgente.length - 1] as any)?.metadata || {};
+          const ofrecioAntes = String(metaAnterior?.ofreceLaFicha || "");
+          const ofrecimosVideo = ofrecioAntes === "video"
+            || (!ofrecioAntes && /video introductorio|c[oó]mo son las clases|te muestro el video/i.test(ultimaDelBot));
           // Los cierres que ofrecen contenido los genera `invitacionesDe` en
           // ficha-parcial.ts: si cambian allá, este patrón tiene que seguirlos.
-          const ofrecimosContenido =
-            /te cuento qu[eé] (incluye|viene|trae)|te muestro todo lo que trae|qu[eé]r[eé]s ver qu[eé] incluye|quieres ver qu[eé] incluye/i.test(
-              ultimaDelBot,
-            );
+          const ofrecimosContenido = ofrecioAntes === "contenido"
+            || (!ofrecioAntes &&
+              /te cuento qu[eé] (incluye|viene|trae)|te muestro todo lo que trae|qu[eé]r[eé]s ver qu[eé] incluye|quieres ver qu[eé] incluye/i.test(
+                ultimaDelBot,
+              ));
           const videoYaEnviado = delAgente.some((m) =>
             /🎬 Mira c[oó]mo son las clases|drive\.google\.com\/file/i.test(String(m.content || "")),
           );
@@ -2639,7 +2650,16 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
           if (contestaLaOferta && isPaymentFlow) {
             console.log(`🛡️ [FICHA] "${String(lastText).trim()}" contesta lo que el bot ofreció, no pide pagar. No se manda el checkout - ${ts()}`);
           }
-          console.log(`🎯 [FICHA] Sección elegida: ${seccion} (intent: ${decision.intent}) - ${ts()}`);
+          // Se clasifica con la MISMA función que arma el cierre al enviar, así
+          // no pueden separarse. `tieneVideo` se resuelve igual que allá: del
+          // metadata del producto.
+          const productoDeLaFicha = (productList as any[]).find((pr: any) => pr.id === resolvedId);
+          ofrecimientoDeLaFicha = elCierreOfrece(
+            seccion as any,
+            String(productoDeLaFicha?.kind || "digital") === "physical",
+            !!videoDeProductoSeguro(productoDeLaFicha?.metadata),
+          );
+          console.log(`🎯 [FICHA] Sección elegida: ${seccion}, el cierre ofrece: ${ofrecimientoDeLaFicha} (intent: ${decision.intent}) - ${ts()}`);
           // ── La etapa decide si corresponde cobrar ───────────────────────────
           //
           // `calcularEtapa` ya sabía en qué punto va el trato, y lo sabía
@@ -2987,6 +3007,25 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
           ? productList.find(p => p.id === cardProductId)?.name
           : decision.productToShow?.name || decision.productoDelMensaje?.name,
         isHardcoded: false,
+        // ── QUÉ OFRECIÓ ESTA FICHA ────────────────────────────────────────
+        //
+        // El "¿Te muestro el video? 🎬" no viaja en una parte de texto: lo
+        // arma la FICHA al enviarse. Y `textoGuardado` (más abajo) solo guarda
+        // las partes de texto, así que en el historial quedaba nada más
+        // "¡Claro que sí! Te paso la ficha…" y la oferta desaparecía.
+        //
+        // Consecuencia medida el 2026-08-31, con el mecanismo anti-checkout ya
+        // escrito y sin poder actuar:
+        //
+        //   bot:     "💰 $60.000 COP — ¿Te muestro el video? 🎬"
+        //   cliente: "Si"
+        //   bot:     [los tres medios de pago]
+        //
+        // El detector busca la oferta con una expresión sobre el último
+        // mensaje guardado del bot, y ahí no estaba. Guardarla en los metadatos
+        // la vuelve un HECHO en vez de algo a adivinar sobre un texto que
+        // además puede cambiar de redacción en cualquier momento.
+        ofreceLaFicha: cardCount > 0 ? ofrecimientoDeLaFicha : undefined,
       };
 
       // Se guarda lo que el cliente REALMENTE recibió, sin el marcador interno.

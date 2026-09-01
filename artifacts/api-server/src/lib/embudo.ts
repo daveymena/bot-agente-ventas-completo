@@ -104,9 +104,20 @@ export function pideUnDato(mensaje: string): boolean {
  * y se pasa a vender.
  */
 export function elAgenteYaPregunto(historial: MensajeHist[]): boolean {
-  return (historial || [])
-    .filter((m) => m.role !== "customer")
-    .some((m) => /[?¿]/.test(String(m.content || "")));
+  const delAgente = (historial || []).filter((m) => m.role !== "customer");
+
+  // ⚠️ EL SALUDO NO CUENTA COMO PREGUNTA.
+  //
+  // El primer mensaje del bot SIEMPRE pregunta algo -- "¡Qué gusto verte! 🙌
+  // ¿Qué necesitas?" -- así que con la regla anterior la calificación quedaba
+  // desactivada en TODAS las conversaciones, sin excepción. Se vio en vivo el
+  // 2026-08-31: "Tienes el curso de piano" recibió ficha, precio y medios de
+  // pago de una, que es exactamente el defecto que el embudo venía a corregir.
+  //
+  // Un "¿Qué necesitas?" no averigua nada: el cliente contesta con el nombre
+  // de un producto, no con para qué lo quiere. La pregunta que sí califica es
+  // la que viene DESPUÉS, cuando ya se sabe de qué se está hablando.
+  return delAgente.slice(1).some((m) => /[?¿]/.test(String(m.content || "")));
 }
 
 /**

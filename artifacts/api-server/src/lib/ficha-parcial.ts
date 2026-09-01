@@ -220,6 +220,38 @@ export function seccionQueCorresponde(e: EntradaSeccion): SeccionFicha {
  * corta ahí, la conversación muere igual. La pregunta corta invita a seguir
  * sin presionar, y le dice al cliente qué más hay para saber.
  */
+/**
+ * QUÉ ofrece el cierre de esta sección: el video, el contenido, u otra cosa.
+ *
+ * Existe porque el turno siguiente necesita saberlo y no puede deducirlo del
+ * historial. El cierre lo arma `construirSeccion` al ENVIAR (whatsapp.ts), y
+ * lo que se guarda en la base son solo las partes de texto -- la ficha no. Así
+ * que el '¿Te muestro el video? 🎬' desaparecía, y el 'Sí' del cliente se leía
+ * como intención de compra.
+ *
+ * Medido el 2026-08-31, con el mecanismo anti-checkout ya escrito y sin poder
+ * actuar porque no encontraba la oferta:
+ *
+ *   bot:     '💰 $60.000 COP — ¿Te muestro el video? 🎬'
+ *   cliente: 'Si'
+ *   bot:     [los tres medios de pago]
+ *
+ * ⚠️ Clasifica sobre el RESULTADO de `invitacionesDe`, no sobre una copia de
+ * sus reglas. Duplicarlas era la forma segura de que las dos se separaran
+ * en el próximo cambio de redacción y el bug volviera sin que nadie lo note.
+ */
+export function elCierreOfrece(
+  s: SeccionFicha,
+  esFisico: boolean,
+  tieneVideo = true,
+  yaVioContenido = false,
+): "video" | "contenido" | "otro" {
+  const t = invitacionesDe(s, esFisico, tieneVideo, yaVioContenido).join(" ").toLowerCase();
+  if (/video|c[oó]mo es por dentro|c[oó]mo se ve en uso|pedacito/.test(t)) return "video";
+  if (/qu[eé] trae|qu[eé] incluye|qu[eé] viene|todo lo que trae/.test(t)) return "contenido";
+  return "otro";
+}
+
 export function invitacionDe(
   s: SeccionFicha,
   esFisico: boolean,

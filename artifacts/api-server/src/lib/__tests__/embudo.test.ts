@@ -71,12 +71,26 @@ describe("califica UNA vez, al principio", () => {
     const p = proximoPaso({
       etapa: "interesado",
       historial: [
+        cliente("hola"),
+        bot("¡Qué gusto verte! 🙌 ¿Qué necesitas?"),
         cliente("me interesa el de piano"),
         bot("¡Buenísimo! ¿Arrancás de cero o ya tocás algo?"),
         cliente("de cero"),
       ],
     });
     expect(p.movimiento).toBe("presentar");
+  });
+
+  it("el SALUDO no cuenta como pregunta: si no, no califica nunca", () => {
+    // El defecto visto en vivo el 2026-08-31. El primer mensaje del bot siempre
+    // pregunta algo --"¿Qué necesitas?"-- así que contarlo dejaba la
+    // calificación desactivada en TODAS las conversaciones. "Tienes el curso de
+    // piano" recibía ficha, precio y medios de pago de una.
+    const p = proximoPaso({
+      etapa: "interesado",
+      historial: [cliente("hola"), bot("¡Qué gusto verte! 🙌 ¿Qué necesitas?"), cliente("tienes el curso de piano")],
+    });
+    expect(p.movimiento).toBe("calificar");
   });
 
   it("si ya se sabe qué necesita, no se vuelve a preguntar", () => {
@@ -92,7 +106,13 @@ describe("califica UNA vez, al principio", () => {
   it("presentar conecta con lo que dijo, no recita el producto", () => {
     const p = proximoPaso({
       etapa: "interesado",
-      historial: [cliente("me interesa"), bot("¿para qué lo querés?"), cliente("para mi trabajo")],
+      historial: [
+        cliente("hola"),
+        bot("¡Qué gusto verte! 🙌 ¿Qué necesitas?"),
+        cliente("me interesa"),
+        bot("¿para qué lo querés?"),
+        cliente("para mi trabajo"),
+      ],
     });
     expect(p.instruccion).toMatch(/conectándolo|necesita/i);
   });
@@ -159,7 +179,13 @@ describe("explorando", () => {
   it("sin producto definido, ofrece opciones concretas y no una lista entera", () => {
     const p = proximoPaso({
       etapa: "explorando",
-      historial: [cliente("hola"), bot("¿qué buscás?"), cliente("no sé, algo para aprender")],
+      historial: [
+        cliente("hola"),
+        bot("¡Qué gusto verte! 🙌 ¿Qué necesitas?"),
+        cliente("hola de nuevo"),
+        bot("¿qué buscás?"),
+        cliente("no sé, algo para aprender"),
+      ],
     });
     expect(p.movimiento).toBe("presentar");
     expect(p.instruccion).toMatch(/dos opciones|no una lista entera/i);
@@ -181,8 +207,13 @@ describe("los detectores, con acentos", () => {
     expect(pideUnDato("me interesa")).toBe(false);
   });
 
-  it("detecta si el agente ya preguntó, con ¿ o con ?", () => {
-    expect(elAgenteYaPregunto([cliente("hola"), bot("¡Hola! ¿Qué buscás?")])).toBe(true);
+  it("el saludo NO cuenta, la pregunta que viene después SÍ", () => {
+    // Solo el primer mensaje del bot queda exento: es el saludo automático.
+    expect(elAgenteYaPregunto([cliente("hola"), bot("¡Hola! ¿Qué buscás?")])).toBe(false);
+    expect(elAgenteYaPregunto([
+      cliente("hola"), bot("¡Hola! ¿Qué buscás?"),
+      cliente("piano"), bot("¿Arrancás de cero?"),
+    ])).toBe(true);
     expect(elAgenteYaPregunto([cliente("hola?"), bot("Buenas.")])).toBe(false);
     expect(elAgenteYaPregunto([])).toBe(false);
   });

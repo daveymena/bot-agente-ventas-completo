@@ -31,7 +31,11 @@ const r = await fetch(`${base}/api/trpc/services.app.deployService`, {
   method: "POST",
   headers: { Authorization: `Bearer ${key}`, "content-type": "application/json" },
   body: JSON.stringify({ json: { projectName: proyecto, serviceName: servicio } }),
-  signal: AbortSignal.timeout(120000),
+  // 10 minutos, no 2: EasyPanel mantiene la conexión abierta mientras
+  // reconstruye la imagen, y una reconstrucción completa pasa largo de los dos
+  // minutos. Con el tope viejo el despliegue SÍ arrancaba, pero el script
+  // moría con TimeoutError y parecía que había fallado.
+  signal: AbortSignal.timeout(600000),
 });
 
 if (!r.ok) {
