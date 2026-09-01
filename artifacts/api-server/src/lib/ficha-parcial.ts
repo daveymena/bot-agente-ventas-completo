@@ -72,6 +72,15 @@ export interface EntradaSeccion {
    * checkout completo. Al que pregunta cuánto vale se le dice cuánto vale.
    */
   ofrecimosPrecio?: boolean;
+  /**
+   * Si a este cliente ya se le mostraron las caracteristicas del producto.
+   *
+   * Distinto de `fichaYaEnviada`: se puede haber mandado la seccion de precio
+   * sin que haya visto nunca lo que trae.
+   */
+  yaVioContenido?: boolean;
+  /** Si ESTE producto tiene video cargado. Solo 9 de 84 lo tienen. */
+  tieneVideo?: boolean;
 }
 
 const N = (s: string) =>
@@ -120,7 +129,7 @@ const PIDE_LINK =
 
 /** Preguntó qué es o qué trae. */
 const PIDE_INFO =
-  /\b(que (trae|incluye|contiene|tiene|es|viene)|de que (trata|es)|informacion|info|contenido|temario|modulos|como funciona|para que sirve|me cuentas|cuentame|detalles)\b/;
+  /\b(que (?:mas |otra cosa |mas cosas )?(trae|incluye|contiene|tiene|es|viene)|de que (trata|es)|informacion|info|contenido|temario|modulos|como funciona|para que sirve|me cuentas|cuentame|detalles|cuenta?me mas|algo mas|mas info|que mas hay)\b/;
 
 /**
  * Pidió ver el video, o aceptó la oferta de verlo.
@@ -240,7 +249,23 @@ export function seccionQueCorresponde(e: EntradaSeccion): SeccionFicha {
 
   if (PIDE_PAGO.test(m)) return "pago";
   if (PIDE_ENTREGA.test(m)) return "entrega";
-  if (PIDE_INFO.test(m)) return "info";
+  // -- "Mas informacion" no puede ser lo mismo otra vez -----------------
+  //
+  // Pedido del admin: "cuando pregunte por mas informacion le mandas el
+  // video... si ya preguntaron y el cliente tiene la informacion, por que le
+  // da informacion que ya tiene".
+  //
+  // La conversacion avanza: primero se presenta, despues se muestra el video
+  // --que es lo que mas convence y todavia no vio-- y solo entonces el
+  // precio. Repetirle el mismo bloque es tratarlo como si no lo hubiera
+  // leido, y encima gasta el turno sin avanzar hacia el cierre.
+  //
+  // Si el producto no tiene video, `info` igual no repite: whatsapp.ts manda
+  // los puntos que NO entraron la primera vez (ver construirSeccion).
+  if (PIDE_INFO.test(m)) {
+    if (e.yaVioContenido && e.tieneVideo && !e.videoYaEnviado) return "video";
+    return "info";
+  }
 
   // Un "sí" contesta lo ÚLTIMO que se preguntó. Si el cierre anterior ofreció
   // contar qué incluye, eso es lo que quiere -- no pagar.

@@ -2727,6 +2727,8 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
             ofrecimosContenido,
             ofrecimosPrecio,
             videoYaEnviado,
+            yaVioContenido: memory.sentProductIds.has(resolvedId),
+            tieneVideo: !!videoDeProductoSeguro((productList as any[]).find((pr: any) => pr.id === resolvedId)),
           });
           // ── Un "sí" contesta la pregunta ANTERIOR, no pide el checkout ─────
           //
