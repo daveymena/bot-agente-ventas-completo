@@ -902,7 +902,16 @@ async function construirSeccion(
   // de "preguntaba el precio y no se lo daban" sigue en pie.
   mensajes.push(cierre);
 
-  return { conFoto: true, mensajes };
+  // -- La foto va con la PRESENTACION, y una sola vez ------------------
+  //
+  // Pedido del admin: "cuando vayas a presentar la informacion mandala con
+  // la imagen". Va, y es este retorno.
+  //
+  // Pero solo la PRIMERA vez. Si el cliente ya vio la ficha de este producto
+  // y vuelve a preguntar, reenviarle los 2 MB de la misma foto es repetirle
+  // lo que ya tiene --lo mismo que se corrigio con el texto-- y encima lo
+  // hace esperar la descarga para leer dos renglones nuevos.
+  return { conFoto: !yaVioContenido, mensajes };
 }
 
 function buildPaymentOnlyCaption(p: typeof products.$inferSelect, dynamicLinks?: any) {
