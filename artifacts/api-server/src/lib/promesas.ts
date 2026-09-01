@@ -191,3 +191,38 @@ export function sinElMontoQueVaEnLaFicha(texto: string): string {
 
   return sinMonto.replace(/[\s,:;.-]+$/, "").length >= 6 ? sinMonto : "";
 }
+
+/**
+ * El texto NIEGA tener algo que este mismo turno si va a entregar.
+ *
+ * Es el reverso de `promesasIncumplidas`, y aparecio al arreglar aquello:
+ * cuando el servidor pasa a entregar el video que el producto tiene, el
+ * modelo --que no sabia que existia-- ya habia escrito que no lo tenia. El
+ * cliente leia "no tengo videos para mostrarte" y justo debajo le llegaba
+ * el video.
+ *
+ * Negar algo y entregarlo en el mismo mensaje es peor que cualquiera de las
+ * dos cosas por separado: deja al cliente sin saber cual de las dos es
+ * cierta.
+ */
+const NIEGA: Record<Promesa, RegExp> = {
+  ficha: /\bno (tengo|dispongo de|cuento con|puedo (pasarte|mandarte|enviarte))\b[^.!?\n]{0,40}\b(ficha|info|informaci[oó]n|detalles)\b/i,
+  video: /\bno (tengo|hay|dispongo de|cuento con|puedo (mostrarte|pasarte|mandarte|enviarte))\b[^.!?\n]{0,40}\b(video|videos|clase de muestra)\b|\bno (tengo|hay|dispongo de|cuento con)\b[^.!?\n]{0,20}\b(uno|ninguno|nada)\b|\bno [^.!?\n]{0,20}video[^.!?\n]{0,30}(disponible|para (mostrar|enviar|pasar))/i,
+  precio: /\bno (tengo|puedo (darte|pasarte|decirte))\b[^.!?\n]{0,30}\b(precio|valor)\b/i,
+  pago: /\bno (tengo|manejo|dispongo de)\b[^.!?\n]{0,40}\b(medios de pago|formas de pago|link de pago|enlace de pago)\b/i,
+  tienda: /\bno (tenemos|tengo|hay)\b[^.!?\n]{0,40}\b(tienda|p[aá]gina web|sitio web|cat[aá]logo)\b/i,
+};
+
+export function niegaLoQueSiSale(texto: string, queSale: Promesa): boolean {
+  return NIEGA[queSale].test(String(texto || ""));
+}
+
+/** La seccion que se va a mandar, traducida a lo que promete entregar. */
+export function loQueEntregaLaSeccion(seccion: string): Promesa | null {
+  if (seccion === "video") return "video";
+  if (seccion === "tienda") return "tienda";
+  if (seccion === "precio") return "precio";
+  if (seccion === "pago" || seccion === "pago_link" || seccion === "pago_transferencia") return "pago";
+  if (seccion === "completa" || seccion === "info") return "ficha";
+  return null;
+}

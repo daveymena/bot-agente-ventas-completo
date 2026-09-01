@@ -22,7 +22,7 @@ import { proximoPaso, renderPaso, necesidadDeclarada, type Paso } from "./embudo
 import { opcionesPendientes, preguntaPorLaOpcion } from "./opciones-del-producto";
 import { preguntasSueltas } from "./estado-cognitivo";
 import { seccionQueCorresponde, elSiContestaLaOferta, elCierreOfrece, pideAlgoEntregable } from "./ficha-parcial";
-import { promesasIncumplidas, sinLaPromesa, sinElMontoQueVaEnLaFicha, NOMBRE_DE_PROMESA } from "./promesas";
+import { promesasIncumplidas, sinLaPromesa, sinElMontoQueVaEnLaFicha, niegaLoQueSiSale, loQueEntregaLaSeccion, NOMBRE_DE_PROMESA } from "./promesas";
 import { videoDeProducto } from "./video-de-producto";
 
 /**
@@ -2938,6 +2938,18 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
             cardProductId = idParaEntregar;
             cardCount++;
             console.log(`[SERVIDOR] "${String(lastText).trim().slice(0, 40)}" pide ${seccionPedida} y ${prod?.name ?? idParaEntregar} lo tiene: se entrega sin esperar al modelo - ${ts()}`);
+            // El modelo no sabia que esto existia y pudo haber escrito que
+            // NO lo tiene. Negarlo y entregarlo en el mismo mensaje deja al
+            // cliente sin saber cual de las dos cosas es cierta.
+            const entrega = loQueEntregaLaSeccion(String(seccionPedida));
+            if (entrega) {
+              for (const parte of finalParts as any[]) {
+                if (parte.kind !== "text" || !String(parte.content || "").trim()) continue;
+                if (!niegaLoQueSiSale(String(parte.content), entrega)) continue;
+                console.log(`[SERVIDOR] El texto negaba ${NOMBRE_DE_PROMESA[entrega]} que si sale: se reemplaza - ${ts()}`);
+                parte.content = "¡Claro que sí! Mira 👇";
+              }
+            }
           }
         }
       }
