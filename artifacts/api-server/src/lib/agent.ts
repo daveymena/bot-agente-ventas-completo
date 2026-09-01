@@ -2520,6 +2520,8 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
       const parts: any[] = [];
       let lastIndex = 0;
       let cardCount = 0;
+      /** La ficha se retuvo para calificar primero. Guarda el producto, para poder preguntar por su nombre. */
+      let fichaRetenida: { id: number; nombre: string; esFisico: boolean } | null = null;
       let cardProductId: number | null = null;
       let m: RegExpExecArray | null;
 
@@ -2788,6 +2790,12 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
           // movimiento que la frena; los demás (presentar, cerrar, destrabar)
           // la necesitan.
           if (pasoDelEmbudo?.movimiento === "calificar") {
+            const pr = (productList as any[]).find((x: any) => x.id === resolvedId);
+            fichaRetenida = {
+              id: resolvedId,
+              nombre: String(pr?.name || ""),
+              esFisico: String(pr?.kind || "digital") === "physical",
+            };
             console.log(`🎯 [EMBUDO] Ficha retenida un turno: primero se pregunta para qué lo quiere - ${ts()}`);
           } else {
           parts.push({
@@ -2819,8 +2827,44 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
         parts.push({ kind: "text", content: textAfter });
       }
 
+      // ── Si la ficha se retuvo, el texto no puede prometerla ──────────────
+      //
+      // El embudo frena la ficha un turno para preguntar primero para qué lo
+      // quiere. Pero el modelo ya habia escrito su texto, y ese texto anuncia
+      // la ficha -- porque hasta ese momento iba a salir. Nadie lo corregia.
+      //
+      // Conversacion real (2026-09-01):
+      //
+      //   05:17 cliente: "Me interesa el curso de piano"
+      //   05:17 bot:     "Te paso la ficha completa asi lo miras con calma."
+      //   06:23 cliente: "?"          <-- una hora esperando algo que no venia
+      //
+      // Retener la ficha sin tocar el texto no es media solucion: es peor que
+      // no retenerla. El cliente queda esperando, y el unico que sabe que no
+      // va a llegar es el servidor. Si se retuvo, se pregunta -- y se pregunta
+      // de verdad, no se anuncia un envio.
+      const PROMETE_FICHA =
+        /te (paso|mando|env[ií]o|comparto|dejo)\b[^.!?]*\b(ficha|info|informaci[oó]n|detalles|todo)|aqu[ií] (abajo|te dejo)|ya te (la|lo) (paso|mando|env[ií]o)|mira 👇|mir[aá] 👇/i;
+      if (fichaRetenida && cardCount === 0) {
+        const conPromesa = parts.filter((p: any) => p.kind === "text" && PROMETE_FICHA.test(String(p.content || "")));
+        if (conPromesa.length) {
+          const nombre = fichaRetenida.nombre;
+          const pregunta = fichaRetenida.esFisico
+            ? `¡Buena elección! 🙌 Antes de pasarte todo, ¿para qué lo necesitas? Así te digo si de verdad te sirve.`
+            : `¡Buena elección! 🙌 Antes de pasarte todo, ¿qué te gustaría lograr con el ${nombre}? Así te cuento lo que a ti te sirve y no un folleto entero.`;
+          // Se reemplaza el PRIMER texto que promete y se descartan los demás:
+          // dos mensajes seguidos, uno preguntando y otro anunciando, se
+          // contradicen igual.
+          conPromesa[0].content = pregunta;
+          for (const extra of conPromesa.slice(1)) extra.content = "";
+          console.log(`🩹 [EMBUDO] El texto prometía la ficha retenida: se reemplazó por la pregunta de calificación - ${ts()}`);
+        }
+      }
+
       // Limpiar flag interno _beforeCard
-      const finalParts = parts.map((p: any) => { delete p._beforeCard; return p; });
+      const finalParts = parts
+        .filter((p: any) => !(p.kind === "text" && !String(p.content || "").trim()))
+        .map((p: any) => { delete p._beforeCard; return p; });
 
       // ── SUPERVISOR: nada sale sin pasar por acá ─────────────────────────────
       //

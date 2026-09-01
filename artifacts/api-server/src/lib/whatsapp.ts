@@ -651,7 +651,7 @@ export function emojiDeCaracteristica(texto: string, deQueProducto = ""): string
     // Todo lo de arriba se escribió mirando un catálogo de cursos digitales.
     // Para el SaaS eso es la mitad del problema: una panadería, una tienda de
     // ropa o un taller son negocios igual de válidos y ninguno aparecía acá.
-    [/torta|pastel|postre|panader|pan|galleta|reposter/, "🍰"],
+    [/torta|pastel|postre|panader|pan\b|galleta|reposter/, "🍰"],
     [/pizza|hamburgues|comida|almuerzo|restaurante|men[uú]/, "🍽️"],
     [/caf[eé]|bebida|jugo|cerveza|vino/, "☕"],
     [/camisa|blusa|vestido|pantal[oó]n|ropa|prenda|moda/, "👕"],
