@@ -24,8 +24,24 @@ import { preguntasSueltas } from "./estado-cognitivo";
 import { seccionQueCorresponde, elSiContestaLaOferta, elCierreOfrece } from "./ficha-parcial";
 import { videoDeProducto } from "./video-de-producto";
 
-/** El video de este producto, sin reventar si el metadata viene raro. */
+/**
+ * El video de este producto, sin reventar si el metadata viene raro.
+ *
+ * ⚠️ Recibe el PRODUCTO, no su metadata. La diferencia costó una venta: en el
+ * clasificador del cierre se le pasaba `producto.metadata`, así que adentro
+ * hacía `metadata.metadata` -> undefined y devolvía "" para TODO producto.
+ * Como devolver "" es una respuesta válida ("no tiene video"), nada fallaba:
+ * el bot ofrecía el video y después no lo reconocía cuando el cliente decía
+ * que sí.
+ *
+ * Por eso el aviso: si llega algo que ya parece un metadata, se avisa fuerte
+ * en vez de contestar "" como si el producto no tuviera video.
+ */
 function videoDeProductoSeguro(p: any): string {
+  if (p && typeof p === "object" && !("metadata" in p) && ("videoIntro" in p || "videoUrl" in p)) {
+    console.warn("⚠️ [VIDEO] videoDeProductoSeguro recibió un metadata, no un producto. Se lee igual, pero el llamador está mal.");
+    try { return videoDeProducto(p); } catch { return ""; }
+  }
   try { return videoDeProducto(p?.metadata); } catch { return ""; }
 }
 import { responderPregunta, aperturaPara } from "./conocimiento-producto";
@@ -2646,15 +2662,24 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
           // para las conversaciones viejas, que no tienen ese metadato.
           const metaAnterior = (delAgente[delAgente.length - 1] as any)?.metadata || {};
           const ofrecioAntes = String(metaAnterior?.ofreceLaFicha || "");
+          // El respaldo por texto va en OR, no como alternativa a la metadata.
+          //
+          // Estaba escrito `!ofrecioAntes && /regex/`, o sea que la metadata
+          // DESACTIVABA el respaldo. Cuando la metadata salía mal --y salía
+          // mal siempre, por el bug de `videoDeProductoSeguro` de más abajo--
+          // el respaldo que habría salvado el turno quedaba apagado
+          // justamente en el caso para el que existía.
+          //
+          // Si el texto guardado dice que se ofreció el video, se ofreció:
+          // eso es un hecho observable, no una deducción.
           const ofrecimosVideo = ofrecioAntes === "video"
-            || (!ofrecioAntes && /video introductorio|c[oó]mo son las clases|te muestro el video/i.test(ultimaDelBot));
+            || /video introductorio|c[oó]mo son las clases|te muestro el video|verlo en video|c[oó]mo es por dentro|c[oó]mo se ve en uso/i.test(ultimaDelBot);
           // Los cierres que ofrecen contenido los genera `invitacionesDe` en
           // ficha-parcial.ts: si cambian allá, este patrón tiene que seguirlos.
           const ofrecimosContenido = ofrecioAntes === "contenido"
-            || (!ofrecioAntes &&
-              /te cuento qu[eé] (incluye|viene|trae)|te muestro todo lo que trae|qu[eé]r[eé]s ver qu[eé] incluye|quieres ver qu[eé] incluye/i.test(
-                ultimaDelBot,
-              ));
+            || /te cuento qu[eé] (incluye|viene|trae)|te muestro todo lo que trae|qu[eé]r[eé]s ver qu[eé] incluye|quieres ver qu[eé] incluye/i.test(
+              ultimaDelBot,
+            );
           const videoYaEnviado = delAgente.some((m) =>
             /🎬 Mira c[oó]mo son las clases|drive\.google\.com\/file/i.test(String(m.content || "")),
           );
@@ -2695,10 +2720,34 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
           // no pueden separarse. `tieneVideo` se resuelve igual que allá: del
           // metadata del producto.
           const productoDeLaFicha = (productList as any[]).find((pr: any) => pr.id === resolvedId);
+          // ⚠️ Los CUATRO argumentos tienen que ser los mismos que usa el
+          // render en whatsapp.ts, o la metadata miente sobre lo que el
+          // cliente leyó -- y miente en la dirección peor, porque un
+          // `ofreceLaFicha` equivocado APAGA el respaldo por expresión regular
+          // de más arriba (`!ofrecioAntes && /te muestro el video/`). O sea:
+          // el dato malo es peor que no tener dato.
+          //
+          // Medido en la conversación del 2026-09-01:
+          //
+          //   bot:     "¿Te muestro el video? 🎬"
+          //   cliente: "Si"
+          //   bot:     [los tres medios de pago]
+          //
+          // `videoDeProductoSeguro` recibe el PRODUCTO y adentro lee
+          // `p.metadata`. Acá se le pasaba `productoDeLaFicha.metadata`, así
+          // que hacía `metadata.metadata` -> undefined -> "" -> `tieneVideo`
+          // era SIEMPRE false. Con eso, `invitacionesDe` tomaba el atajo de
+          // "sin video" y clasificaba el cierre como "otro", mientras el
+          // render -- que sí leía el video bien -- ofrecía verlo.
+          //
+          // `yaVioContenido` se calcula igual que allá: whatsapp.ts le suma
+          // `seccion === "completa" || seccion === "info"`, porque esas dos
+          // secciones muestran el contenido en el mismo mensaje.
           ofrecimientoDeLaFicha = elCierreOfrece(
             seccion as any,
             String(productoDeLaFicha?.kind || "digital") === "physical",
-            !!videoDeProductoSeguro(productoDeLaFicha?.metadata),
+            !!videoDeProductoSeguro(productoDeLaFicha),
+            memory.sentProductIds.has(resolvedId) || seccion === "completa" || seccion === "info",
           );
           console.log(`🎯 [FICHA] Sección elegida: ${seccion}, el cierre ofrece: ${ofrecimientoDeLaFicha} (intent: ${decision.intent}) - ${ts()}`);
           // ── La etapa decide si corresponde cobrar ───────────────────────────
@@ -2960,9 +3009,10 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
             // hablaba teniéndolo en la mano. Para el cliente eso se lee como
             // que del otro lado no lo están escuchando, y es lo que hacía
             // parecer que el bot "arranca de cero en cada mensaje".
-            const nombreEnFoco = (productList as any[]).find(
-              (pr: any) => pr.id === idsEnContexto[0],
-            )?.name;
+            // Se resuelve más abajo, cuando ya se eligió `idEnFoco`: antes
+            // miraba `idsEnContexto[0]`, que podía ser otro producto distinto
+            // del que se termina mandando -- el texto nombraba uno y la ficha
+            // era de otro.
             // ── NO PROMETAS LO QUE NADIE VA A CUMPLIR ─────────────────────
             //
             // Acá decía "Déjame confirmarte ese dato del X y te respondo
@@ -2978,17 +3028,57 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
             // corresponde no es prometer: es mandar la FICHA, que la arma el
             // servidor con datos verificados y contesta "¿lo tenés?" mejor que
             // cualquier frase.
-            const idEnFoco = idsEnContexto[0];
+            // ── CUÁL ficha se manda: la que el cliente pidió ──────────────
+            //
+            // Acá estaba `idsEnContexto[0]`, y ese arreglo empieza por
+            // `decision.productToShow` -- una elección del MODELO. Para un
+            // mensaje sin producto nombrado ("?", "y eso", "cuánto") el modelo
+            // igual elige alguno, y esa corazonada le ganaba al producto que
+            // la conversación venía tratando.
+            //
+            // Conversación real (2026-09-01):
+            //
+            //   cliente: "Me interesa el curso de piano"
+            //   bot:     "Te paso la ficha completa así lo miras con calma."   (y no mandó ninguna)
+            //   cliente: "?"
+            //   bot:     "¡Sí! Mira 👇" + [ficha de INTELIGENCIA ARTIFICIAL 2026]
+            //
+            // Preguntó por piano dos veces y recibió otro curso, anunciado con
+            // un "¡Sí!" que da a entender que es lo que pidió. Peor que no
+            // contestar: contradice al cliente con confianza.
+            //
+            // El orden correcto es el de la evidencia, de más fuerte a más
+            // débil: lo que el cliente NOMBRÓ en este mensaje, después el
+            // producto que la conversación viene tratando, y sólo al final la
+            // elección del modelo.
+            const idEnFoco =
+              decision.productoDelMensaje?.id
+              ?? memory.currentProductId
+              ?? decision.productToShow?.id
+              ?? idsEnContexto[0];
+            // ¿Lo eligió el cliente, o lo estamos deduciendo? Si nadie lo
+            // nombró y no es el producto en curso, mandarlo con un "¡Sí!" es
+            // afirmar algo que no consta.
+            const loPidioElCliente =
+              typeof idEnFoco === "number"
+              && (decision.productoDelMensaje?.id === idEnFoco || memory.currentProductId === idEnFoco);
             const yaLaVio = typeof idEnFoco === "number" && memory.sentProductIds?.has(idEnFoco);
+
+            const nombreEnFoco = (productList as any[]).find((pr: any) => pr.id === idEnFoco)?.name;
 
             if (revision.reemplazoSugerido) {
               parte.content = revision.reemplazoSugerido;
             } else if (hayCard) {
               parte.content = "Te paso la ficha aquí abajo con todos los detalles 👇";
-            } else if (nombreEnFoco && typeof idEnFoco === "number" && !yaLaVio) {
+            } else if (nombreEnFoco && typeof idEnFoco === "number" && !yaLaVio && loPidioElCliente) {
               finalParts.push({ kind: "card", productId: idEnFoco, paymentOnly: false } as any);
               parte.content = `¡Sí! Mirá 👇`;
-              console.log(`🧯 [SUPERVISOR] Bloqueó el texto: se manda la ficha de ${idEnFoco} en vez de prometer - ${ts()}`);
+              console.log(`🧯 [SUPERVISOR] Bloqueó el texto: se manda la ficha de ${idEnFoco} (${nombreEnFoco}) en vez de prometer - ${ts()}`);
+            } else if (nombreEnFoco && typeof idEnFoco === "number" && !yaLaVio) {
+              // Hay un candidato, pero nadie lo nombró: se ofrece, no se afirma.
+              finalParts.push({ kind: "card", productId: idEnFoco, paymentOnly: false } as any);
+              parte.content = `¿Te referís al ${nombreEnFoco}? Te dejo la ficha 👇`;
+              console.log(`🧯 [SUPERVISOR] Ficha de ${idEnFoco} (${nombreEnFoco}) ofrecida sin afirmar: el cliente no lo nombró - ${ts()}`);
             } else if (nombreEnFoco) {
               // Ya tiene la ficha delante: repetirla es el defecto que el admin
               // ya reportó ("me ofrece lo que acaba de mandarme"). Se pregunta
