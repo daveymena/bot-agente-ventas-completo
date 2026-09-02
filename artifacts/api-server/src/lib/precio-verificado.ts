@@ -108,11 +108,12 @@ function preciosReales(productos: ProductoParaPrecio[]): Set<number> {
  * siempre es el real.
  */
 export function verificarPrecios(
-  texto: string,
+  textoEntrante: string,
   productos: ProductoParaPrecio[],
   enContexto: number[] = [],
 ): RevisionDePrecios {
-  if (!texto) return { texto, inventados: [] };
+  if (!textoEntrante) return { texto: textoEntrante, inventados: [] };
+  let texto = textoEntrante;
 
   const delContexto = enContexto.length
     ? preciosReales(productos.filter((p) => enContexto.includes(p.id)))
@@ -127,6 +128,29 @@ export function verificarPrecios(
   // El corte exige que despues del punto venga un espacio o el final. Cortar
   // en cualquier punto parte "$45.000" por la mitad y deja "$45." como si
   // fuera una oracion: el monto se vuelve ilegible y el filtro no lo reconoce.
+  // ── Un precio partido por un espacio se repara ANTES de juzgarlo ────────
+  //
+  // Visto en produccion el 2026-09-02, dos veces, en mensajes que le llegaron
+  // a un cliente:
+  //
+  //   "El curso tiene un valor de $60. 000 COP"
+  //
+  // Lo escribe asi el modelo (se comprobo que no lo rompe ninguno de los pasos
+  // de limpieza). Y es peligroso por partida doble:
+  //
+  //   · El cliente lee "$60." y despues "000". Un precio partido se lee mal, y
+  //     este proyecto ya pago caro un numero mal leido -- "60.000,00" que se
+  //     entendia como seis millones.
+  //   · El candado de abajo corta el monto en "$60." y lo evalua como SESENTA
+  //     PESOS. Sesenta no es el precio de nada, asi que la frase entera se
+  //     daba por inventada y se borraba: el cliente se quedaba sin el precio.
+  //
+  // Se junta el numero antes de medirlo. Asi vale lo que vale, se verifica
+  // bien, y sale escrito como se debe.
+  texto = texto
+    .replace(/(\d)[ \t]+([.,]\d)/g, "$1$2")
+    .replace(/([.,])[ \t]+(\d{3}\b)/g, "$1$2");
+
   const trozos = texto.split(/(?<=[.!?])(?=\s)|(?<=\n)/);
   const quedan: string[] = [];
 

@@ -91,10 +91,23 @@ export function medirEmojis(texto: string): Medida {
   });
 
   // Al quitar emojis quedan espacios dobles y espacios antes de un signo.
+  //
+  // ⚠️ Y también DESPUÉS de los signos de apertura, que en español van pegados
+  // a la palabra. Medido en producción el 2026-09-02, en mensajes reales que
+  // recibió un cliente:
+  //
+  //   "¡🎉 Buenísimo que preguntes!"  →  "¡ Buenísimo que preguntes!"
+  //   "¿🚀 Listo para empezar?"       →  "¿ Listo para empezar?"
+  //
+  // El emoji se iba y el espacio se quedaba. La limpieza cubría el espacio
+  // ANTES de un signo de cierre, pero no el de después de uno de apertura --
+  // y ese es justo el que se ve, porque queda al principio de la frase. Un bot
+  // que escribe "¡ Hola" parece roto, y es lo primero que el cliente lee.
   const limpio = salida
     .join("\n")
     .replace(/[ \t]{2,}/g, " ")
     .replace(/ +([,.;:!?])/g, "$1")
+    .replace(/([¡¿])[ \t]+/g, "$1")
     .replace(/[ \t]+$/gm, "");
 
   return { texto: limpio, quitados };
