@@ -31,6 +31,7 @@ import { verificarPrecios } from "./precio-verificado";
 import { productoEnFoco } from "./producto-en-foco";
 import { entenderAlCliente, type Entendimiento } from "./entender-al-cliente";
 import { sinLoQueYaLeyo } from "./no-repetir";
+import { prometeEntregaFisica, sinLaPromesaFisica, sinElTemarioInventado, lineasDeTemarioInventadas, comoSeEntregaDeVerdad } from "./solo-lo-que-dice-la-ficha";
 
 /**
  * El video de este producto, sin reventar si el metadata viene raro.
@@ -3691,6 +3692,64 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
         }
       } catch (e) {
         console.log(`⚠️ [PRECIO] No se pudo verificar contra la ficha: ${String(e)} - ${ts()}`);
+      }
+
+      // ── DEL PRODUCTO SOLO SE AFIRMA LO QUE DICE SU FICHA ─────────────────
+      //
+      // Conversacion real del 2026-09-02, 09:45, sobre el curso de IA
+      // (digital, con enlace de entrega):
+      //
+      //   "Modulo 1 - Fundamentos de IA / Modulo 2 - Herramientas esenciales
+      //    Modulo 3 - Agentes autonomos / Modulo 4 - Proyectos practicos
+      //    Pago contra entrega: pagas cuando recibes el material"
+      //
+      // Ese temario NO EXISTE: el curso real es "MASTER EN AGENTES IA, 39
+      // modulos", "CLAUDE AI, 13 modulos", n8n, OpenClaw. Se invento un plan
+      // de estudios y se lo describio al cliente como si fuera el producto. Y
+      // un mensaje despues mando la ficha de verdad, contradiciendose solo.
+      //
+      // El "contra entrega" no venia del codigo: el agente activo lo tiene
+      // escrito en SU PROMPT, en la base --"PAGO CONTRA ENTREGA... datos
+      // FIJOS, nunca los cambies"--, una plantilla de dropshipping puesta
+      // sobre un negocio de cursos. Ningun arreglo del camino de envios lo
+      // podia tapar.
+      //
+      // Y ese es el punto: la personalidad del agente es un dato que escribe
+      // el dueño, y puede estar mal. El servidor tiene que poder desmentirla
+      // cuando contradice al producto. Un curso que llega por enlace no se
+      // paga contra entrega, lo diga quien lo diga.
+      try {
+        const prodFicha = productoEnFoco({
+          delMensaje: decision.productoDelMensaje as any,
+          aMostrar: decision.productToShow as any,
+          idActivo: memory.currentProductId,
+          historial: memory.history as any,
+          catalogo: productList as any[],
+        });
+        if (prodFicha) {
+          for (const parte of finalParts as any[]) {
+            if (parte.kind !== "text" || !String(parte.content || "").trim()) continue;
+            let txt = String(parte.content);
+
+            const inventadas = lineasDeTemarioInventadas(txt, prodFicha as any);
+            if (inventadas.length > 0) {
+              console.log(`📋 [FICHA] ${inventadas.length} linea(s) de temario que no estan en la ficha del producto ${(prodFicha as any).id}: se sacan - ${ts()}`);
+              txt = sinElTemarioInventado(txt, prodFicha as any);
+            }
+
+            if (prometeEntregaFisica(txt, prodFicha as any)) {
+              console.log(`🚚 [FICHA] Prometia entrega fisica de un producto digital (${(prodFicha as any).id}): se corrige - ${ts()}`);
+              const limpio = sinLaPromesaFisica(txt);
+              txt = limpio ? `${limpio}
+
+${comoSeEntregaDeVerdad(prodFicha as any)}` : comoSeEntregaDeVerdad(prodFicha as any);
+            }
+
+            if (txt.trim()) parte.content = txt;
+          }
+        }
+      } catch (e: any) {
+        console.log(`⚠️ [FICHA] No se pudo revisar contra la ficha: ${e?.message} - ${ts()}`);
       }
 
       // ── NADA DE LO QUE YA LEYO SE VUELVE A MANDAR ────────────────────────
