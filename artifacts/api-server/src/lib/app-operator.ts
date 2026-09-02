@@ -1367,15 +1367,36 @@ export const TOOLS: ToolDef[] = [
       const [tenantRow] = await db.select({ slug: tenants.slug }).from(tenants).where(eq(tenants.id, ctx.tenantId)).limit(1);
       const publicStoreUrl = tenantRow?.slug ? `/tienda/${tenantRow.slug}` : null;
       const noImg = prods.filter((p) => !p.imageUrl).length;
+      // ── CUANTOS ESTAN ACTIVOS, dicho y no deducido ────────────────────────
+      //
+      // Visto en vivo el 2026-09-02, y es la SEGUNDA vez que pasa lo mismo:
+      //
+      //   admin: "cuantos productos activos tengo en el catalogo?"
+      //   Atlas: "104 activos (de 140 totales). Los 16 restantes estan
+      //           inactivos."
+      //
+      // 140 menos 104 son 36, no 16. Se contradice en la misma frase.
+      //
+      // Y no lo invento de la nada: esta herramienta le daba "Productos: 140"
+      // y NADA sobre cuantos estan activos. La pregunta no se podia contestar
+      // con lo que recibia, asi que la completo.
+      //
+      // El commit 189b60e ya habia arreglado esto mismo en `list_products` --
+      // pero la descripcion de ESA herramienta manda a usar `analyze_system`
+      // "para el conteo real completo", y aca el dato nunca se agrego. Se
+      // reparo la puerta y se dejo la ventana.
+      const activos = prods.filter((p) => p.isActive).length;
+      const inactivos = prods.length - activos;
       // El video de muestra se cuenta acá porque no se veía en ningún lado:
       // el agente sabía mandarlo y el catálogo entero estaba sin cargar, sin
       // que nada lo dijera. Un dato que nadie mide es un dato que nadie carga.
       const sinVideo = prods.filter((p) => !videoDeProducto(p.metadata)).length;
       return {
         ok: true,
-        summary: `Productos: ${prods.length} (${noImg} sin imagen, ${sinVideo} sin video de muestra) · Categorías: ${cats.length} · Agentes: ${ags.length} · Tienda pública: ${publicStoreUrl ? `activa en ${publicStoreUrl}` : "sin slug, no accesible"} (fila en tabla stores: ${stors.length})`,
+        summary: `Productos: ${prods.length} en total — ${activos} ACTIVOS y ${inactivos} inactivos (usá estos tres números tal cual; no los deduzcas ni los restes) · ${noImg} sin imagen, ${sinVideo} sin video de muestra · Categorías: ${cats.length} · Agentes: ${ags.length} · Tienda pública: ${publicStoreUrl ? `activa en ${publicStoreUrl}` : "sin slug, no accesible"} (fila en tabla stores: ${stors.length})`,
         data: {
-          products: prods.length, productsWithoutImage: noImg, productsWithoutVideo: sinVideo, categories: cats.length,
+          products: prods.length, activeProducts: activos, inactiveProducts: inactivos,
+          productsWithoutImage: noImg, productsWithoutVideo: sinVideo, categories: cats.length,
           agents: ags.length, stores: stors.length, publicStoreUrl,
           businessName: st?.businessName, aiProvider: st?.aiProvider,
         },
