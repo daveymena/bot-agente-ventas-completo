@@ -28,6 +28,7 @@ import { preguntaPorLoInterno, delataLoInterno, respuestaSegura, vocabularioDelN
 import { videoDeProducto } from "./video-de-producto";
 import { seDespachaPorTransportadora } from "./entrega-del-producto";
 import { verificarPrecios } from "./precio-verificado";
+import { productoEnFoco } from "./producto-en-foco";
 
 /**
  * El video de este producto, sin reventar si el metadata viene raro.
@@ -1280,8 +1281,17 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
       String((activeAgent as any).especialidad || "").toLowerCase() === "dropshipping";
     // El producto en juego: el que se identificó en este mensaje o el que
     // viene en contexto.
-    const idEnJuego = decision.productoDelMensaje?.id ?? decision.productToShow?.id ?? memory.currentProductId ?? null;
-    const productoEnJuego = idEnJuego ? productList.find((p: any) => p.id === idEnJuego) : null;
+    // Una sola respuesta a "de que producto hablamos", y mira tambien la
+    // ultima ficha enviada. Antes la cadena terminaba en currentProductId: si
+    // el cliente escribia "Exelente" --que no nombra nada-- el producto se
+    // perdia aunque la ficha se hubiera mandado dos mensajes antes.
+    const productoEnJuego = productoEnFoco({
+      delMensaje: decision.productoDelMensaje as any,
+      aMostrar: decision.productToShow as any,
+      idActivo: memory.currentProductId,
+      historial: memory.history as any,
+      catalogo: productList as any[],
+    });
     // ── No alcanza con que la bandera diga "physical" ────────────────────
     //
     // El 2026-09-02 el bot le pidio CEDULA, ciudad y departamento a un cliente
@@ -1760,6 +1770,9 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
       producto: productoEstado as any,
       fichasEnviadas: memory.sentProductIds,
       loQueNoSabe: datosQueFaltan(negocio),
+      // Si volvio despues de horas, no arrastra la etapa de pago de la sesion
+      // anterior: le pedia el comprobante a quien solo venia a preguntar.
+      sesionNueva: !!memory.isNewSession,
     });
     bloqueEstado = renderEstado(estado);
 
@@ -3051,11 +3064,24 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
       // afirma algo falso no se envía. La IA redacta: no cotiza, no elige
       // producto y no promete operaciones que nadie hace.
       try {
+        // El candado de precios AFLOJA cuando esto viene vacio: pasa de "tiene
+        // que ser el precio de ESTE producto" a "de alguno del catalogo", y
+        // con 140 productos eso no filtra nada. Por eso entra tambien el
+        // producto en foco, que mira la ultima ficha enviada: asi la lista
+        // deja de quedar vacia en los mensajes que no nombran nada.
+        const enFocoAhora = productoEnFoco({
+          delMensaje: decision.productoDelMensaje as any,
+          aMostrar: decision.productToShow as any,
+          idActivo: memory.currentProductId,
+          historial: memory.history as any,
+          catalogo: productList as any[],
+        });
         const idsEnContexto = [
           ...finalParts.filter((p: any) => p.kind === "card").map((p: any) => p.productId),
           decision.productToShow?.id,
           decision.productoDelMensaje?.id,
           memory.currentProductId,
+          enFocoAhora?.id,
         ].filter((n: any): n is number => typeof n === "number");
 
         const hayCard = finalParts.some((p: any) => p.kind === "card");

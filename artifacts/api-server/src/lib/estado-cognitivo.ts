@@ -52,6 +52,12 @@ export interface EntradaEstado {
   loQueNoSabe?: string[];
   /** true si el pago de esta conversación fue verificado de verdad. */
   pagoVerificado?: boolean;
+  /**
+   * true si pasaron horas desde el último mensaje: el cliente vuelve nuevo.
+   *
+   * Sin esto, "dice que pagó" no caducaba nunca. Ver `calcularEtapa`.
+   */
+  sesionNueva?: boolean;
 }
 
 export interface EstadoCognitivo {
@@ -242,7 +248,21 @@ export function calcularEtapa(e: EntradaEstado): { etapa: EtapaTrato; porQue: st
   const delCliente = e.historial.filter((m) => m.role === "customer");
   const ultimos = delCliente.slice(-8);
 
-  if (ultimos.some((m) => DICE_QUE_PAGO.test(m.content))) {
+  // ── "Dice que pagó" CADUCA ──────────────────────────────────────────────
+  //
+  // Esto miraba los últimos 8 mensajes del cliente sin importar cuándo se
+  // escribieron. Un cliente que ayer llegó hasta el pago y hoy vuelve a
+  // preguntar por OTRO producto seguía en "pago_reportado", así que lo primero
+  // que recibía era "necesito el comprobante de la transferencia" -- caja
+  // antes de información, a alguien que solo estaba preguntando.
+  //
+  // Visto el 2026-09-02: el mismo teléfono venía de una conversación de la
+  // madrugada terminada en "mandame el comprobante"; horas después preguntó
+  // "¿tienes el curso de piano?" y le pidieron el comprobante de entrada.
+  //
+  // Con una sesión nueva la etapa no se hereda. El pago de verdad no se pierde
+  // por esto: `pagoVerificado` se consulta ANTES y viene de fuera del chat.
+  if (!e.sesionNueva && ultimos.some((m) => DICE_QUE_PAGO.test(m.content))) {
     return {
       etapa: "pago_reportado",
       porQue: "el cliente dice que pagó, pero NADIE lo verificó todavía",
