@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { createAIClient, getProviderConfig, getProviderConfigFromSettings, getOpenCodeRotation, modelosPara, type AIProviderConfig } from "@workspace/integrations-openai-ai-server";
 import { db, agents, settings, products, productCategories, conversations, messages } from "@workspace/db";
-import { eq, and, desc } from "drizzle-orm";
+import { eq, and, desc, sql } from "drizzle-orm";
 import { logger } from "../lib/logger";
 import { extraerJSON } from "../lib/respuesta-json";
 import { dbNow } from "../lib/date-utils";
@@ -1415,7 +1415,52 @@ router.post("/operator", async (req: TenantRequest, res, next) => {
     // Se le pasa el pedido para que mande solo las herramientas que hacen
     // falta: las 82 no entran en el límite por minuto de Groq, y por eso el
     // modelo bueno se descartaba y contestaba uno chico. Ver buildToolsDoc.
-    const sys = OPERATOR_SYSTEM_PROMPT.replace("${TOOLS}", buildToolsDoc(String(prompt || ""))) + lessonsBlock + moduloBlock;
+    // ── LOS NUMEROS DE AHORA, MEDIDOS EN ESTE TURNO ──────────────────────
+    //
+    // Medido el 2026-09-02, dos veces con horas de diferencia:
+    //
+    //   admin: "cuantos productos activos tengo?"
+    //   Atlas: "104 activos (de 140 totales). Los 16 restantes estan
+    //           inactivos."
+    //
+    // 140 menos 104 son 36. Y la segunda vez devolvio la MISMA frase byte por
+    // byte, incluso cuando se le pidio explicitamente el texto crudo de la
+    // herramienta. No estaba contando: estaba recordando.
+    //
+    // El motivo es de diseño, no del modelo. `sessionId` cae a "default" y
+    // `loadArchitectHistory` le devuelve la conversacion guardada, con su
+    // respuesta vieja adentro. Una vez que Atlas dice un numero equivocado, lo
+    // repite para siempre -- no tiene ningun motivo para volver a llamar la
+    // herramienta si la respuesta ya esta en su historial.
+    //
+    // Un conteo no es un recuerdo. Se mide cada turno y se le pone delante,
+    // mas fresco que cualquier cosa que tenga guardada. Es una consulta barata
+    // y cierra la clase entera, no el caso.
+    let estadoBlock = "";
+    try {
+      const [{ tot }] = await db.select({ tot: sql<number>`count(*)::int` }).from(products).where(eq(products.tenantId, tenantId));
+      const [{ act }] = await db.select({ act: sql<number>`count(*)::int` }).from(products)
+        .where(and(eq(products.tenantId, tenantId), eq(products.isActive, true)));
+      estadoBlock =
+        `
+
+ESTADO REAL DEL CATALOGO, MEDIDO AHORA MISMO (${new Date().toISOString()}):
+` +
+        `- Productos en total: ${tot}
+` +
+        `- ACTIVOS: ${act}
+` +
+        `- Inactivos: ${tot - act}
+` +
+        `Estos tres numeros son la verdad de este momento. Usalos TAL CUAL si te preguntan ` +
+        `por cantidades del catalogo, aunque en la conversacion guardada figure otro numero: ` +
+        `lo de arriba se acaba de contar y lo del historial puede estar vencido. No los restes ` +
+        `ni los deduzcas.`;
+    } catch (e: any) {
+      logger.warn({ tenantId, err: e?.message }, "[Atlas] no se pudo medir el catalogo para este turno");
+    }
+
+    const sys = OPERATOR_SYSTEM_PROMPT.replace("${TOOLS}", buildToolsDoc(String(prompt || ""))) + lessonsBlock + moduloBlock + estadoBlock;
     const sessionId: string = (req.body?.sessionId as string) || "default";
     // Mismo criterio que la ruta del puente: el tipo de campaña sale del
     // mensaje del admin, no de que el modelo se acuerde de pasarlo. Las dos
