@@ -26,6 +26,7 @@ import { promesasIncumplidas, sinLaPromesa, sinElMontoQueVaEnLaFicha, niegaLoQue
 import { medirEmojis } from "./emojis-con-medida";
 import { preguntaPorLoInterno, delataLoInterno, respuestaSegura, vocabularioDelNegocio } from "./nada-interno";
 import { videoDeProducto } from "./video-de-producto";
+import { seDespachaPorTransportadora } from "./entrega-del-producto";
 
 /**
  * El video de este producto, sin reventar si el metadata viene raro.
@@ -1280,7 +1281,19 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
     // viene en contexto.
     const idEnJuego = decision.productoDelMensaje?.id ?? decision.productToShow?.id ?? memory.currentProductId ?? null;
     const productoEnJuego = idEnJuego ? productList.find((p: any) => p.id === idEnJuego) : null;
-    const esFisico = String((productoEnJuego as any)?.kind || "") === "physical";
+    // ── No alcanza con que la bandera diga "physical" ────────────────────
+    //
+    // El 2026-09-02 el bot le pidio CEDULA, ciudad y departamento a un cliente
+    // que compraba un curso de IA que llega por enlace. No fue el modelo: el
+    // producto estaba marcado `kind = "physical"` en la base, porque el
+    // importador de WooCommerce escribia eso en TODOS los que sincronizaba.
+    //
+    // Corregir el importador (ya esta hecho) no arregla las filas que quedaron
+    // mal, ni evita la proxima fuente de datos malos. Para pedirle la cedula a
+    // alguien hay que estar seguro, y el sistema ya tiene con que estarlo: si
+    // el producto tiene enlace de entrega, o se llama curso, o la descripcion
+    // habla de modulos en video, no se despacha por transportadora.
+    const esFisico = seDespachaPorTransportadora(productoEnJuego as any);
 
     // Un negocio que declaró vender solo digital no tiene pedidos que
     // despachar: el módulo de dropshipping queda apagado entero. Sin esto,

@@ -28,6 +28,11 @@ export interface WooCommerceProduct {
   sku: string;
   attributes: Array<{ id: number; name: string; options: string[] }>;
   meta_data?: Array<{ key: string; value: string }>;
+  // WooCommerce los devuelve siempre; faltaba declararlos, y por eso
+  // nadie los miraba al decidir si el producto se despacha o no.
+  type?: string;
+  virtual?: boolean;
+  downloadable?: boolean;
 }
 
 function extractDropiMeta(product: WooCommerceProduct): { description?: string; imageUrls: string[]; cost?: number; stock?: number } {
@@ -258,7 +263,17 @@ export class WooCommerceService {
             sku: wooSku,
             features: wooProduct.attributes.map(attr => `${attr.name}: ${attr.options.join(", ")}`),
             isActive: dropiMeta.stock == null ? wooProduct.stock_status === "instock" : dropiMeta.stock > 0,
-            kind: "physical",
+            // ── El tipo SALE DE WOO, no se asume ──────────────────────────
+            //
+            // Esto decia `kind: "physical"` fijo, para TODOS. En la base el
+            // default es "digital", asi que cada sincronizacion convertia los
+            // cursos en productos que se despachan por transportadora -- y el
+            // bot les pedia cedula, ciudad y departamento a clientes que
+            // compraban un curso que llega por correo (visto el 2026-09-02).
+            //
+            // Woo ya lo dice: `virtual` es "no se envia" y `downloadable` es
+            // "es un archivo". Solo habia que leerlo.
+            kind: (wooProduct.virtual || wooProduct.downloadable) ? "digital" : "physical",
             metadata: JSON.stringify({
               woocommerce: {
                 id: wooProduct.id,
