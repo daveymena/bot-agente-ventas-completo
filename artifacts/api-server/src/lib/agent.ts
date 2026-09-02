@@ -24,7 +24,7 @@ import { preguntasSueltas } from "./estado-cognitivo";
 import { seccionQueCorresponde, elSiContestaLaOferta, elCierreOfrece, pideAlgoEntregable, elProductoSaleDeLaPreguntaMisma, queOfrecioElBot } from "./ficha-parcial";
 import { promesasIncumplidas, sinLaPromesa, sinElMontoQueVaEnLaFicha, niegaLoQueSiSale, loQueEntregaLaSeccion, NOMBRE_DE_PROMESA } from "./promesas";
 import { medirEmojis } from "./emojis-con-medida";
-import { preguntaPorLoInterno, delataLoInterno, respuestaSegura } from "./nada-interno";
+import { preguntaPorLoInterno, delataLoInterno, respuestaSegura, vocabularioDelNegocio } from "./nada-interno";
 import { videoDeProducto } from "./video-de-producto";
 
 /**
@@ -3362,20 +3362,36 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
       // pidio lo de adentro) y la RESPUESTA (el modelo lo solto sin que se lo
       // pidieran, contando de que esta hecho para justificar algo).
       {
-        const loQuePregunta = preguntaPorLoInterno(String(lastText || ""));
+        // El catalogo de ESTE negocio. Sin el, el guardia asume que nadie
+        // vende tecnologia y le corta la conversacion a la academia de
+        // programacion, al hosting y al curso de IA: medido el 2026-09-02,
+        // 5 de 19 preguntas normales de cliente y 2 de 9 mensajes de venta.
+        // Con el catalogo delante, el negocio siempre puede hablar de lo que
+        // vende, y ningun dueño tiene que configurar nada en Atlas.
+        const vocabNegocio = vocabularioDelNegocio(productList as any[]);
+        const loQuePregunta = preguntaPorLoInterno(String(lastText || ""), vocabNegocio);
         const nombreDelBot = String((activeAgent as any)?.name || "").trim() || "el asistente";
 
-        for (const parte of finalParts as any[]) {
-          if (parte.kind !== "text" || !String(parte.content || "").trim()) continue;
-
-          if (loQuePregunta) {
-            console.log(`[INTERNO] Preguntaron por ${loQuePregunta}: se contesta sin delatar nada - ${ts()}`);
-            parte.content = respuestaSegura(loQuePregunta, nombreDelBot);
-            continue;
+        if (loQuePregunta) {
+          // UNA respuesta, no una por cada parte. Antes este bucle le ponia la
+          // misma frase a TODAS las partes de texto, asi que si el turno traia
+          // dos o tres, al cliente le llegaba la misma linea repetida.
+          console.log(`[INTERNO] Preguntaron por ${loQuePregunta}: se contesta sin delatar nada - ${ts()}`);
+          const partes = finalParts as any[];
+          const textos = partes.filter((p) => p.kind === "text" && String(p.content || "").trim());
+          if (textos.length > 0) {
+            textos[0].content = respuestaSegura(loQuePregunta, nombreDelBot);
+            for (let i = partes.length - 1; i >= 0; i--) {
+              if (partes[i].kind === "text" && partes[i] !== textos[0]) partes.splice(i, 1);
+            }
           }
-          if (delataLoInterno(String(parte.content))) {
-            console.log(`[INTERNO] La respuesta mencionaba algo de adentro: se reemplaza - ${ts()}`);
-            parte.content = respuestaSegura("tripas", nombreDelBot);
+        } else {
+          for (const parte of finalParts as any[]) {
+            if (parte.kind !== "text" || !String(parte.content || "").trim()) continue;
+            if (delataLoInterno(String(parte.content), vocabNegocio)) {
+              console.log(`[INTERNO] La respuesta mencionaba algo de adentro: se reemplaza - ${ts()}`);
+              parte.content = respuestaSegura("tripas", nombreDelBot);
+            }
           }
         }
       }
