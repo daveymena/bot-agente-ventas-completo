@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { createAIClient, getProviderConfig, getProviderConfigFromSettings, getOpenCodeRotation, modelosPara, type AIProviderConfig } from "@workspace/integrations-openai-ai-server";
 import { db, agents, settings, products, productCategories, conversations, messages } from "@workspace/db";
-import { eq, and, desc, sql } from "drizzle-orm";
+import { eq, and, desc, sql, inArray } from "drizzle-orm";
 import { logger } from "../lib/logger";
 import { extraerJSON } from "../lib/respuesta-json";
 import { dbNow } from "../lib/date-utils";
@@ -199,8 +199,14 @@ router.post("/architect", async (req: TenantRequest, res, next) => {
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     
     // 1. Obtener configuración actual del negocio
+    // `settings` es una tabla GLOBAL: una sola fila para toda la plataforma,
+    // sin tenant_id. Usarla para el nombre hacia que Atlas creyera que TODOS
+    // los negocios se llaman igual. El nombre real es el del tenant, igual que
+    // ya se resolvio en agent.ts.
     const [dbSettings] = await db.select().from(settings).limit(1);
-    const businessName = dbSettings?.businessName || "Mi Negocio";
+    const { tenantManager } = await import("../lib/tenantManager");
+    const tenantPropio = await tenantManager.getTenantById(tenantId);
+    const businessName = tenantPropio?.brandName || dbSettings?.businessName || "Mi Negocio";
     const businessType = dbSettings?.businessType || "digital_products";
 
     // 2. Obtener agente actual (si existe)
@@ -210,15 +216,37 @@ router.post("/architect", async (req: TenantRequest, res, next) => {
       .where(eq(agents.tenantId, tenantId))
       .limit(1);
 
-    // 3. Obtener productos activos
+    // ── 3. Productos activos DE ESTE NEGOCIO ──────────────────────────────
+    //
+    // Estas dos consultas no filtraban por tenant. En un SaaS eso significa
+    // que el perfil con el que Atlas DISEÑA el agente de un cliente se armaba
+    // con los productos y las categorías de TODOS -- le diseñaba el vendedor a
+    // uno con el catálogo de otro. Nadie se enteraba: el perfil se ve
+    // razonable igual, solo que habla de mercancía ajena.
+    //
+    // Es el mismo defecto que ya se corrigió en la búsqueda del catálogo del
+    // bot (ver agent.ts, "mezclaba productos de TODOS los tenants -- con un
+    // solo tenant real activo no se notaba"). Acá quedó sin corregir.
     const activeProducts = await db
       .select()
       .from(products)
-      .where(eq(products.isActive, true))
+      .where(and(eq(products.tenantId, tenantId), eq(products.isActive, true)))
       .limit(20);
 
-    // 4. Obtener categorías de productos
-    const categories = await db.select().from(productCategories).limit(10);
+    // Y el CONTEO va aparte del listado. `activeProducts` está limitado a 20,
+    // así que usar su `.length` como "productos activos" tapaba el número real
+    // en cualquier negocio con más de 20 -- este tiene 84.
+    const [{ activosReales }] = await db
+      .select({ activosReales: sql<number>`count(*)::int` })
+      .from(products)
+      .where(and(eq(products.tenantId, tenantId), eq(products.isActive, true)));
+
+    // 4. Categorías de productos, también de este negocio
+    const categories = await db
+      .select()
+      .from(productCategories)
+      .where(eq(productCategories.tenantId, tenantId))
+      .limit(10);
 
     // 5. Analizar conversaciones recientes (últimas 50)
     const recentConversations = await db
@@ -234,7 +262,12 @@ router.post("/architect", async (req: TenantRequest, res, next) => {
       .from(messages)
       .where(
         and(
-          eq(messages.conversationId, recentConversations[0]?.id || 0),
+          // Estaba `recentConversations[0]?.id`: se traian las ultimas 50
+          // conversaciones y despues se leian los mensajes de UNA SOLA. Las
+          // "objeciones comunes" y las "preguntas frecuentes" con las que
+          // Atlas disena el agente salian de un unico chat, y de ahi que
+          // parecieran tan pobres.
+          inArray(messages.conversationId, recentConversations.length ? recentConversations.map((c) => c.id) : [0]),
           eq(messages.role, "customer")
         )
       )
@@ -266,7 +299,7 @@ router.post("/architect", async (req: TenantRequest, res, next) => {
     const businessProfile = {
       name: businessName,
       type: businessType,
-      productsCount: activeProducts.length,
+      productsCount: activosReales,
       categoriesCount: categories.length,
       conversationsCount: recentConversations.length,
       topProducts: Array.from(productMentions.entries())
