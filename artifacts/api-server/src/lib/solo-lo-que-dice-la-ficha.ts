@@ -99,6 +99,52 @@ const VACIAS = new Set([
   "paso", "cero", "avanzado", "completo", "principales", "esenciales",
 ]);
 
+/**
+ * El marcador de temario, EN CUALQUIER PARTE del texto -- no solo al principio
+ * de un renglón.
+ *
+ * ⚠️ La primera versión medía por línea, y se le escapó el caso del curso de
+ * piano (2026-09-02, 10:42): el mensaje llegó casi entero en UNA sola línea, y
+ * ahí "Nivel 1 – Fundamentos... Nivel 2 – Lectura musical..." quedaba mezclado
+ * con el resto del texto, que sí está respaldado. El renglón entero pasaba.
+ *
+ * WhatsApp junta líneas, y el modelo escribe corrido tan seguido como en
+ * bloques. Medir por renglón es medir por como quedó formateado, no por lo que
+ * dice.
+ */
+const MARCADOR_DE_TEMARIO =
+  /(m[oó]dulo|clase|unidad|lecci[oó]n|cap[ií]tulo|nivel)\s*n?[°º]?\s*\d+/giu;
+
+/**
+ * Cuánto de un bloque está respaldado por la ficha.
+ *
+ * Antes alcanzaba con UNA palabra, y para un renglón corto estaba bien. Para un
+ * bloque entero no: cualquier párrafo largo acierta una palabra por casualidad.
+ * El "Nivel 1 – Fundamentos: conoce el teclado y las notas, postura correcta de
+ * manos y cuerpo" tiene ocho palabras con peso y solo "manos" está en la ficha
+ * -- una de ocho, y con el criterio viejo pasaba.
+ *
+ * Un tercio es el corte: un temario de verdad reusa el vocabulario del
+ * producto; uno inventado casi no lo toca.
+ */
+const RESPALDO_MINIMO = 1 / 3;
+
+function respaldo(bloque: string, ficha: string): { ratio: number; conPeso: number } {
+  const palabras = N(bloque)
+    .split(/[^a-z0-9]+/)
+    .filter((w) => w.length >= 4 && !VACIAS.has(w));
+  if (palabras.length === 0) return { ratio: 1, conPeso: 0 };
+  const apoyadas = palabras.filter((w) => ficha.includes(w)).length;
+  return { ratio: apoyadas / palabras.length, conPeso: palabras.length };
+}
+
+/**
+ * Los pedazos de temario que el producto no respalda.
+ *
+ * Se corta el texto EN los marcadores: cada bloque va desde un "Módulo N" o
+ * "Nivel N" hasta el siguiente. Así da igual si el modelo escribió en renglones
+ * o de corrido.
+ */
 export function lineasDeTemarioInventadas(
   texto: string,
   producto: ProductoConFicha | null | undefined,
@@ -107,32 +153,73 @@ export function lineasDeTemarioInventadas(
   // Sin ficha no hay contra qué comparar: no se acusa a nadie sin prueba.
   if (ficha.trim().length < 40) return [];
 
+  const t = String(texto || "");
+  const marcas: number[] = [];
+  for (const m of t.matchAll(MARCADOR_DE_TEMARIO)) {
+    if (typeof m.index === "number") marcas.push(m.index);
+  }
+  if (marcas.length === 0) return [];
+
   const inventadas: string[] = [];
-  for (const linea of String(texto || "").split("\n")) {
-    if (!LINEA_DE_TEMARIO.test(linea)) continue;
-    const palabras = N(linea)
-      .split(/[^a-z0-9]+/)
-      .filter((w) => w.length >= 4 && !VACIAS.has(w));
-    if (palabras.length === 0) continue;
-    // Con que UNA palabra con peso esté en la ficha, se acepta.
-    const respaldada = palabras.some((w) => ficha.includes(w));
-    if (!respaldada) inventadas.push(linea);
+  for (let i = 0; i < marcas.length; i++) {
+    const desde = marcas[i];
+    const hasta = i + 1 < marcas.length ? marcas[i + 1] : t.length;
+    const bloque = t.slice(desde, hasta).trim();
+    if (!bloque) continue;
+    const { ratio, conPeso } = respaldo(bloque, ficha);
+    // Un bloque sin ninguna palabra con peso es solo un encabezado: no afirma
+    // nada, no se toca.
+    if (conPeso === 0) continue;
+    if (ratio < RESPALDO_MINIMO) inventadas.push(bloque);
   }
   return inventadas;
 }
 
+/**
+ * Saca el temario cuando alguna parte está inventada.
+ *
+ * Cae ENTERO, no solo los bloques marcados. Sacando los inventados y dejando
+ * los demás quedaba un "Nivel 2" suelto, sin 1, 3 ni 4 -- una lista con
+ * huecos se lee peor que ninguna, y el cliente se pregunta qué le falta.
+ *
+ * Y hay un motivo de fondo: si el modelo se invento parte del plan de
+ * estudios, la lista entera dejó de ser confiable. El contenido real ya va en
+ * la ficha, que la escribió el dueño.
+ *
+ * Si NADA está inventado no se toca nada: un temario que sale de la ficha sale
+ * completo.
+ */
 export function sinElTemarioInventado(
   texto: string,
   producto: ProductoConFicha | null | undefined,
 ): string {
-  const malas = new Set(lineasDeTemarioInventadas(texto, producto));
-  if (malas.size === 0) return texto;
-  return String(texto || "")
-    .split("\n")
-    .filter((l) => !malas.has(l))
-    .join("\n")
+  const malas = lineasDeTemarioInventadas(texto, producto);
+  if (malas.length === 0) return texto;
+
+  const t = String(texto || "");
+  const marcas: number[] = [];
+  for (const m of t.matchAll(MARCADOR_DE_TEMARIO)) {
+    if (typeof m.index === "number") marcas.push(m.index);
+  }
+  if (marcas.length === 0) return texto;
+
+  // Desde el primer marcador hasta donde termina el ultimo bloque.
+  const desde = marcas[0];
+  const ultimo = t.slice(marcas[marcas.length - 1]);
+  const hasta = t.length - (ultimo.length - ultimo.trimEnd().length);
+
+  const salida = (t.slice(0, desde) + " " + t.slice(hasta))
+    .replace(/[ \t]{2,}/g, " ")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
+
+  // Sacar la lista deja al mensaje prometiendo un contenido que ya no está --
+  // "Te paso el contenido completo:" y después nada. Se remite a la ficha, que
+  // es donde el contenido SÍ es el que escribió el dueño, y que el servidor
+  // manda en este mismo turno. Es el mismo remedio que usa el candado de
+  // precios cuando tiene que sacar un monto.
+  const pie = "Te dejo la ficha completa acá abajo 👇";
+  return salida ? `${salida}\n\n${pie}` : pie;
 }
 
 /**

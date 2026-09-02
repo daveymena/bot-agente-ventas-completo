@@ -67,9 +67,9 @@ describe("Un curso que llega por enlace no se paga contra entrega", () => {
 });
 
 describe("El temario tiene que estar en la ficha del dueño", () => {
-  it("los cuatro módulos inventados del caso real se detectan", () => {
+  it("los módulos inventados del caso real se detectan", () => {
     const malas = lineasDeTemarioInventadas(MENSAJE_REAL, CURSO_IA);
-    expect(malas.length).toBe(2); // "Fundamentos de IA" y "Proyectos prácticos"
+    expect(malas.length).toBeGreaterThan(0);
     expect(malas.join(" ")).toMatch(/Fundamentos/);
   });
 
@@ -80,11 +80,15 @@ Módulo 3 – n8n sin código`;
     expect(lineasDeTemarioInventadas(bueno, CURSO_IA)).toEqual([]);
   });
 
-  it("se sacan solo las líneas inventadas, no el mensaje entero", () => {
+  it("cae el temario entero, y el mensaje remite a la ficha", () => {
+    // Sacar solo los inventados dejaba una lista con huecos --"Nivel 2" suelto,
+    // sin 1, 3 ni 4-- que se lee peor que ninguna. Y si el modelo invento parte
+    // del plan, la lista entera dejo de ser confiable.
     const limpio = sinElTemarioInventado(MENSAJE_REAL, CURSO_IA);
-    expect(limpio).toMatch(/Herramientas esenciales/); // respaldada: "herramientas"
     expect(limpio).not.toMatch(/Fundamentos de IA/);
+    expect(limpio).not.toMatch(/Módulo 4/);
     expect(limpio).toMatch(/Te muestro el contenido/);
+    expect(limpio).toMatch(/ficha completa/i);
   });
 
   it("sin ficha no se acusa a nadie", () => {
@@ -96,5 +100,46 @@ Módulo 3 – n8n sin código`;
     const normal = "El curso cuesta $60.000 y el acceso es de por vida. ¿Te lo dejo listo?";
     expect(lineasDeTemarioInventadas(normal, CURSO_IA)).toEqual([]);
     expect(sinElTemarioInventado(normal, CURSO_IA)).toBe(normal);
+  });
+});
+
+/**
+ * El caso del curso de piano (2026-09-02, 10:42) que se le escapo a la primera
+ * version: el mensaje llego casi entero en UNA sola linea, y midiendo por
+ * renglon el temario inventado quedaba mezclado con texto que si esta
+ * respaldado. El renglon entero pasaba.
+ */
+describe("Da igual si el modelo escribe en renglones o de corrido", () => {
+  const PIANO = {
+    id: 123, kind: "digital",
+    name: "Curso de Piano Completo: De Cero a Nivel Avanzado",
+    description:
+      "Tocar piano: independencia y coordinacion de ambas manos, lectura de partituras y dominio del " +
+      "instrumento. 19 modulos en video con teoria y lenguaje musical, lectura ritmica, fraseo y expresion. " +
+      "Repertorio: 5 valses de Alberto Martinez, baladas, pop, blues y jazz, e improvisacion con progresiones " +
+      "y escalas. Tecnicas de acompanamiento y musica clasica moderna. Partituras y ejercicios.",
+  };
+
+  const UNA_SOLA_LINEA =
+    "Te paso el contenido completo del curso de piano: 🎼 Nivel 1 – Fundamentos ✅ Conoce el teclado y las " +
+    "notas ✅ Postura correcta de manos y cuerpo 🎵 Nivel 2 – Lectura musical ✅ Lee partituras desde cero " +
+    "🎶 Nivel 3 – Tecnica intermedia ✅ Acordes mayores y menores Nivel 4 – Avanzado ✅ Repertorio completo";
+
+  it("el temario inventado se detecta aunque venga todo en una linea", () => {
+    expect(lineasDeTemarioInventadas(UNA_SOLA_LINEA, PIANO).length).toBeGreaterThan(0);
+  });
+
+  it("y no queda ningun nivel suelto en el mensaje", () => {
+    const limpio = sinElTemarioInventado(UNA_SOLA_LINEA, PIANO);
+    expect(limpio).not.toMatch(/Nivel \d/);
+    expect(limpio).toMatch(/Te paso el contenido/);
+  });
+
+  it("pero un temario sacado de la ficha sale completo", () => {
+    const bueno =
+      "Modulo 1: lectura de partituras y coordinacion de ambas manos. " +
+      "Modulo 2: repertorio con valses de Alberto Martinez, blues y jazz.";
+    expect(lineasDeTemarioInventadas(bueno, PIANO)).toEqual([]);
+    expect(sinElTemarioInventado(bueno, PIANO)).toBe(bueno);
   });
 });
