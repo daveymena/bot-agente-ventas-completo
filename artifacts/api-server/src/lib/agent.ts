@@ -30,6 +30,7 @@ import { seDespachaPorTransportadora } from "./entrega-del-producto";
 import { verificarPrecios } from "./precio-verificado";
 import { productoEnFoco } from "./producto-en-foco";
 import { entenderAlCliente, type Entendimiento } from "./entender-al-cliente";
+import { sinLoQueYaLeyo } from "./no-repetir";
 
 /**
  * El video de este producto, sin reventar si el metadata viene raro.
@@ -3690,6 +3691,45 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
         }
       } catch (e) {
         console.log(`⚠️ [PRECIO] No se pudo verificar contra la ficha: ${String(e)} - ${ts()}`);
+      }
+
+      // ── NADA DE LO QUE YA LEYO SE VUELVE A MANDAR ────────────────────────
+      //
+      // Medido el 2026-09-02: el cliente pidio "mas informacion" y recibio la
+      // MISMA ficha que le habian mandado dos minutos antes, seguida del mismo
+      // "Te paso el precio?" palabra por palabra.
+      //
+      // El guardia que ya existia tenia una excepcion para el cliente que pide
+      // el video o el precio --cosas que todavia no vio-- y "tienes mas
+      // informacion?" entraba por ahi. La excepcion se comia la regla.
+      //
+      // Va acá, sobre lo que esta por salir, porque la repeticion no llega por
+      // un solo camino: la ficha viene del parser, el cierre de `invitacionDe`,
+      // el saludo de su propia funcion. Cada uno con su regla y su hueco.
+      try {
+        const revisado = sinLoQueYaLeyo(finalParts as any[], memory.history as any);
+        if (revisado.quitadas > 0) {
+          console.log(`🔁 [REPETIDO] Se quitaron ${revisado.quitadas} parte(s) que el cliente ya habia leido - ${ts()}`);
+          finalParts.length = 0;
+          (finalParts as any[]).push(...revisado.partes);
+        }
+
+        // Y la ficha: si ya se envio y ademas hay texto nuevo, no se repite.
+        // Sola si se deja -- un mensaje vacio es peor que una ficha repetida.
+        const hayTexto = (finalParts as any[]).some((p: any) => p.kind === "text" && String(p.content || "").trim());
+        if (hayTexto) {
+          const repetidas = (finalParts as any[]).filter(
+            (p: any) => p.kind === "card" && memory.sentProductIds?.has(p.productId),
+          );
+          if (repetidas.length > 0 && decision.intent !== "payment_intent" && decision.intent !== "confirmation" && !decision.pidioReenvio) {
+            console.log(`🔁 [REPETIDO] La ficha de ${repetidas.map((p: any) => p.productId).join(",")} ya la tenia: no se reenvia - ${ts()}`);
+            const quedan = (finalParts as any[]).filter((p: any) => !repetidas.includes(p));
+            finalParts.length = 0;
+            (finalParts as any[]).push(...quedan);
+          }
+        }
+      } catch (e: any) {
+        console.log(`⚠️ [REPETIDO] No se pudo revisar: ${e?.message} - ${ts()}`);
       }
 
       const textoEnviado = finalParts
