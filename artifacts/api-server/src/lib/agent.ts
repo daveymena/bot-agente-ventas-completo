@@ -1516,6 +1516,39 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
     aiProductContext.length > 0 ? aiProductContext : null
   )}${bloqueAnuncio}${bloqueMoneda}${bloqueDropshipping}${bloqueLecciones}`;
 
+  // ── LO DE ADENTRO SE DECIDE ANTES QUE NADA ───────────────────────────────
+  //
+  // El guardia de "nada interno" ya existe, pero vive al final del camino
+  // largo -- y seis de las ocho salidas hacen `return` antes de llegar ahí.
+  //
+  // Medido contra producción el 2026-09-02:
+  //
+  //   cliente: "¿eres un bot o una persona real?"
+  //   bot:     "✅ Claro, te conecto con un asesor humano en unos momentos."
+  //
+  // `detectIntent` leyó la palabra "persona" como un pedido de asesor humano,
+  // tomó el atajo de `human_handoff` y devolvió antes de que el guardia
+  // corriera. El cliente preguntó CON QUIÉN habla y el bot lo esquivó.
+  //
+  // Por eso sube acá, delante del reparto de estrategias: la respuesta a "¿sos
+  // un bot?" no depende de qué atajo se tome después, y no puede quedar del
+  // lado equivocado de un `return`.
+  {
+    const queQuiereSaber = preguntaPorLoInterno(
+      String(lastText || ""),
+      vocabularioDelNegocio(productList as any[]),
+    );
+    if (queQuiereSaber) {
+      const nombreDelBot = String((activeAgent as any)?.name || "").trim() || "el asistente";
+      const raw = respuestaSegura(queQuiereSaber, nombreDelBot);
+      console.log(`🛡️ [INTERNO] Preguntaron por ${queQuiereSaber} antes del reparto: se contesta sin delatar nada - ${ts()}`);
+      await saveAgentMessage(conversationId, raw, memory.currentStage, { intent: "nada_interno", isHardcoded: true });
+      const totalTime = Date.now() - startTime;
+      console.log(`🏁 [AGENT-END] Completado en ${totalTime}ms (nada interno) - ${ts()}`);
+      return { content: raw, stage: memory.currentStage, parts: [{ kind: "text", content: raw }], cardProductIds: [] };
+    }
+  }
+
   // ── 11. ATENDER SEGÚN ESTRATEGIA DEL CEREBRO ─────────────────────────────
 
   // ── 11a. SALUDO (si el cerebro decidió hardcoded_greeting) ────────────────
