@@ -710,6 +710,14 @@ async function construirSeccion(
    */
   yaVioContenido = false,
   sesionNueva = false,
+  /**
+   * Si el video de este producto ya salio en esta conversacion.
+   *
+   * Hace falta para que el video que cierra la entrega del contenido no se
+   * repita: el cliente ya lo tiene, y remandarlo es lo mismo que remandarle la
+   * ficha.
+   */
+  videoYaEnviado = false,
 ): Promise<{ conFoto: boolean; mensajes: string[] }> {
   const mon = await contextoDeMoneda(String(semilla).split("|")[0], Number(p.price), p.currency);
   const esFisico = String((p as any).kind || "digital") === "physical";
@@ -902,6 +910,33 @@ async function construirSeccion(
   // sección "precio" (ver seccionQueCorresponde). Eso no cambia -- el arreglo
   // de "preguntaba el precio y no se lo daban" sigue en pie.
   mensajes.push(cierre);
+
+  // ── EL VIDEO CIERRA LA ENTREGA DEL CONTENIDO ─────────────────────────
+  //
+  // Pedido del admin (2026-09-02): "cuando se entrega el contenido añádele el
+  // video al final con un mensaje que les enganche, ya que el video habla de
+  // todo lo que se va a tratar".
+  //
+  // Tiene razón comercial: el video es lo que más convence y es lo único que
+  // el cliente todavía no vio. Antes solo salía si lo pedía o si aceptaba un
+  // ofrecimiento -- o sea, casi nunca, porque el cierre tenía que acordarse de
+  // ofrecerlo y el cliente de decir que sí.
+  //
+  // Va en su propio mensaje y DESPUÉS del cierre: pegado al texto se pierde
+  // entre las líneas, y solo. Y una vez: si ya se mandó no se repite, que es
+  // la misma regla de todo lo demás.
+  if (estaFichaMuestraContenido && urlVideo && !videoYaEnviado) {
+    mensajes.push(
+      variante(
+        [
+          `🎬 Mirá este video antes de decidir: te muestra por dentro TODO lo que vas a ver.\n${urlVideo}`,
+          `🎬 Te dejo el video para que veas de qué se trata, así no compras a ciegas 👇\n${urlVideo}`,
+          `🎬 Acá lo ves por dentro: el video recorre todo lo que trae.\n${urlVideo}`,
+        ],
+        `${semilla}|video-con-contenido`,
+      ),
+    );
+  }
 
   // -- La foto va con la PRESENTACION, y una sola vez ------------------
   //
@@ -2520,6 +2555,7 @@ export class WhatsAppManager {
               // Si volvio despues de horas, la presentacion arranca de nuevo
               // con su foto: la ficha pelada no es una presentacion.
               !!(part as any).sesionNueva,
+              !!(part as any).videoYaEnviado,
             );
             console.log(`🎯 [WA-CARD] Sección "${seccion}" — ${mensajes.length} mensaje(s), foto: ${conFoto} - ${timestamp}`);
             if (conFoto) {

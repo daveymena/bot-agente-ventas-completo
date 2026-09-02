@@ -594,13 +594,45 @@ export type LoOfrecido = "video" | "contenido" | "precio" | "pago" | "tienda" | 
 
 export function queOfrecioElBot(mensajeDelBot: string): LoOfrecido {
   const t = String(mensajeDelBot || "");
-  // Sin pregunta no hubo oferta: un "si" contesta preguntas.
-  if (!/[?？]/.test(t)) return null;
 
-  // Se mira SOLO la ultima pregunta: el mensaje puede hablar de varias
-  // cosas y la que el cliente contesta es la que quedo al final.
-  const partes = t.split(/(?<=[?？])/);
-  const ultima = (partes.filter((p) => /[?？]/.test(p)).pop() || t);
+  // ── Se ofrece afirmando tanto como preguntando ──────────────────────────
+  //
+  // Acá había `if (!/[?]/.test(t)) return null;` -- sin signo de interrogación,
+  // no hubo oferta. Y en español eso no es cierto: "Te muestro el contenido
+  // detallado" es un ofrecimiento igual de claro que "¿Te lo muestro?".
+  //
+  // Conversación real del 2026-09-02, 10:42:
+  //
+  //   bot:     "...Ideal si nunca has tocado. Te muestro el contenido detallado"
+  //   cliente: "Si"
+  //   bot:     [el contenido]  +  [💰 $60.000 + Tarjeta + PayPal + el Nequi]
+  //
+  // Como el cierre no llevaba "?", esta función devolvió null, el "Si" cayó en
+  // `intent: confirmation` -- que es "sí, quiero comprar" -- y salió el
+  // checkout completo. El cliente había aceptado VER EL CONTENIDO.
+  //
+  // El admin lo zanjó así: los medios de pago solo cuando pide pagar. Y esta
+  // es la forma correcta de cumplirlo: no mutilando la regla de intención
+  // --que acierta cuando de verdad no se ofreció nada-- sino leyendo bien lo
+  // que el bot acababa de ofrecer.
+  const OFRECE_AFIRMANDO =
+    /\bte\s+(muestro|paso|cuento|dejo|envio|env[ií]o|comparto|mando|explico|detallo)\b|\bmira\s+lo\s+que\b|\bacá?\s+te\s+va\b/i;
+
+  const hayPregunta = /[?？]/.test(t);
+  let ultima: string;
+  if (hayPregunta) {
+    // Se mira SOLO la ultima pregunta: el mensaje puede hablar de varias
+    // cosas y la que el cliente contesta es la que quedo al final.
+    const partes = t.split(/(?<=[?？])/);
+    ultima = partes.filter((p) => /[?？]/.test(p)).pop() || t;
+  } else {
+    // Sin pregunta, la oferta tiene que estar dicha con todas las letras. Se
+    // mira el ÚLTIMO renglón con texto, que es lo que el cliente contesta.
+    const renglones = t.split("\n").map((r) => r.trim()).filter(Boolean);
+    const cola = renglones[renglones.length - 1] || t;
+    if (!OFRECE_AFIRMANDO.test(cola)) return null;
+    ultima = cola;
+  }
   const m = N(ultima);
 
   // El orden importa: si ofrecio pagar, gana el pago aunque nombre otra cosa
