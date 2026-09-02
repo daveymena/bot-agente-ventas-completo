@@ -35,6 +35,7 @@ import {
   clearPendingPlan, isApproval, isRejection, loadRecentLessons,
 } from "../lib/architect-store";
 import { toEmojiStyle } from "../lib/conversation-engine";
+import { esResumenInterno, pareceIngles, avisoDeTurnoIncompleto } from "../lib/respuesta-al-admin";
 import { paraMarkdown } from "./code-agent";
 import { describePlannedAction, buildMcpToolRegistry, drainDraftPlan, lecturasDelTurno } from "../lib/opencode-mcp-tools";
 import { MODULO_PUBLICIDAD, FORMATO_ANUNCIO } from "../lib/publicidad-persuasiva";
@@ -1741,6 +1742,28 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
             + `Lo de abajo es solo texto: no se creó ni se modificó nada en el sistema. `
             + `Pedímelo de nuevo para que lo registre de verdad.`)
           + `\n\n---\n\n${finalReplyVerificado}`;
+      }
+
+      // ── LO QUE SALE TIENE QUE SER UNA RESPUESTA ─────────────────────────
+      //
+      // Visto en vivo el 2026-09-02: el admin pidió un análisis de mercado, el
+      // motor se quedó sin contexto a mitad del turno, se compactó, y le
+      // publicó el RESUMEN DE TRASPASO -- "Goal / Discoveries / Remaining
+      // Tasks / Relevant files / Prompt for next agent", en inglés y con notas
+      // de sistema adentro. El propio texto decía "Market analysis summary was
+      // NOT yet delivered to the admin".
+      //
+      // La REGLA CERO del prompt ("contestás siempre en español") no puede
+      // atajar esto: ese resumen no lo escribe Atlas siguiendo su prompt, lo
+      // escribe el motor con SU plantilla interna, que nunca vio la regla. Por
+      // eso el chequeo va acá, sobre el texto ya terminado, y no como otra
+      // instrucción al modelo.
+      if (esResumenInterno(finalReplyVerificado) || pareceIngles(finalReplyVerificado)) {
+        logger.warn(
+          { tenantId, sessionId, largo: finalReplyVerificado.length, resumen: esResumenInterno(finalReplyVerificado) },
+          "[AtlasOpenCode] La respuesta era un resumen interno o quedó en inglés: no se publica",
+        );
+        finalReplyVerificado = avisoDeTurnoIncompleto();
       }
 
       if (plannedActions.length > 0) {

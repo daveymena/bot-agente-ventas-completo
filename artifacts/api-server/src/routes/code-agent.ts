@@ -23,6 +23,7 @@ import {
   saveRepairLesson, loadRecentLessons,
 } from "../lib/architect-store";
 import { toEmojiStyle } from "../lib/conversation-engine";
+import { esResumenInterno, pareceIngles, avisoDeTurnoIncompleto } from "../lib/respuesta-al-admin";
 import { describePlannedAction } from "../lib/opencode-mcp-tools";
 import { MODULO_PUBLICIDAD, FORMATO_ANUNCIO } from "../lib/publicidad-persuasiva";
 
@@ -1902,6 +1903,24 @@ router.post("/operator", async (req: TenantRequest, res, next) => {
           ? `${finalReply}\n\nDejame seguir un poco más con esto...`
           : "Dejame investigar esto un poco más...",
       ));
+    }
+
+    // ── LO QUE SALE TIENE QUE SER UNA RESPUESTA ─────────────────────────────
+    //
+    // El mismo candado que en operator-opencode.ts, y por el mismo motivo: un
+    // resumen interno de traspaso ("Goal / Remaining Tasks / Prompt for next
+    // agent") no es una respuesta para el admin, y la REGLA CERO del prompt no
+    // puede atajarlo porque ese texto no lo escribe Atlas siguiendo su prompt.
+    //
+    // Va en los dos motores a propósito: /operator y /operator-opencode
+    // publican por caminos distintos, y arreglarlo en uno solo deja el otro
+    // abierto -- que es exactamente como este proyecto ya perdió tiempo antes.
+    if (esResumenInterno(finalReply) || pareceIngles(finalReply)) {
+      logger.warn(
+        { tenantId, sessionId, largo: String(finalReply || "").length },
+        "[AppOperator] La respuesta era un resumen interno o quedó en inglés: no se publica",
+      );
+      finalReply = avisoDeTurnoIncompleto();
     }
 
     // ── ¿Quedó un plan de cambios? → guardar como pendiente y pedir confirmación ──
