@@ -27,6 +27,7 @@ import { medirEmojis } from "./emojis-con-medida";
 import { preguntaPorLoInterno, delataLoInterno, respuestaSegura, vocabularioDelNegocio } from "./nada-interno";
 import { videoDeProducto } from "./video-de-producto";
 import { seDespachaPorTransportadora } from "./entrega-del-producto";
+import { verificarPrecios } from "./precio-verificado";
 
 /**
  * El video de este producto, sin reventar si el metadata viene raro.
@@ -3508,6 +3509,50 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
       // catálogo. En el turno siguiente el modelo lo lee como si fuera suyo y
       // bueno. Lo mismo con el voseo y con el número de Nequi inventado: se
       // bloqueaban al salir y volvían por la memoria.
+      // ── EL PRECIO, VERIFICADO CONTRA LA FICHA QUE DE VERDAD SALE ─────────
+      //
+      // El candado de precios ya corre en el supervisor, pero ahí el producto
+      // todavía puede no estar identificado -- y cuando `idsEnContexto` viene
+      // vacío afloja el criterio de "tiene que ser el precio de ESTE producto"
+      // a "de ALGÚN producto del catálogo". Con 140 productos eso no filtra
+      // nada: casi toda cifra redonda es el precio de alguno.
+      //
+      // Medido contra producción el 2026-09-02. A "¿cuánto vale y cómo me
+      // llega?" el bot contestó "💰 El valor es de $45.000 COP" sobre el curso
+      // de $60.000. Los $45.000 son el precio de OTRO producto, y por eso
+      // pasaron: quince mil pesos regalados.
+      //
+      // Acá abajo el dato ya no falta. La ficha está resuelta y corregida, así
+      // que se sabe EXACTAMENTE de qué producto habla el mensaje, y el mismo
+      // candado se puede aplicar en su versión estricta.
+      //
+      // Va acá y no antes por la regla que este proyecto ya pagó tres veces:
+      // cualquier cosa que corrija la salida tiene que correr después de todo
+      // lo que puede cambiarla. Y solo actúa cuando HAY ficha -- sin ficha no
+      // se toca nada, porque borrar un precio que era correcto es el otro bug,
+      // el de "💰 — pago único" sin el número.
+      try {
+        const idsDeLaFicha = finalParts
+          .filter((p: any) => p.kind === "card")
+          .map((p: any) => p.productId)
+          .filter((n: any): n is number => typeof n === "number");
+
+        if (idsDeLaFicha.length > 0) {
+          for (const parte of finalParts as any[]) {
+            if (parte.kind !== "text" || !String(parte.content || "").trim()) continue;
+            const rev = verificarPrecios(String(parte.content), productList as any[], idsDeLaFicha);
+            if (rev.inventados.length > 0) {
+              console.log(
+                `💰 [PRECIO] Monto que no es el de la ficha (${idsDeLaFicha.join(",")}): ${rev.inventados.join(", ")} - se saca la frase - ${ts()}`,
+              );
+              parte.content = rev.texto;
+            }
+          }
+        }
+      } catch (e) {
+        console.log(`⚠️ [PRECIO] No se pudo verificar contra la ficha: ${String(e)} - ${ts()}`);
+      }
+
       const textoEnviado = finalParts
         .filter((p: any) => p.kind === "text" && p.content)
         .map((p: any) => p.content)
