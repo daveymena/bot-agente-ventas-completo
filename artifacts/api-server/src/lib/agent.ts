@@ -1323,7 +1323,34 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
     //
     // Si hay un producto identificado, manda su `kind`. La especialidad del
     // agente solo decide cuando todavia no se sabe de que producto se habla.
-    const corresponde = productoEnJuego ? esFisico : esDropshipping;
+    // ── Sin producto fisico probado, NO se piden datos de envio ───────────
+    //
+    // Acá estaba `productoEnJuego ? esFisico : esDropshipping`: si no se sabía
+    // de qué producto se habla, decidía la ESPECIALIDAD DEL AGENTE. Y la
+    // especialidad no dice nada de esta conversación.
+    //
+    // Medido contra produccion el 2026-09-02, curso de piano (id 123, kind
+    // digital, con enlace de entrega). Cinco mensajes hablando del curso, y al
+    // "Exelente" del cliente --que no nombra ningun producto-- se cayo por el
+    // `else` y se inyecto el bloque de envios. Lo que recibio:
+    //
+    //   Para dejarte el acceso listo, solo necesito que me confirmes:
+    //   ✅ Nombre completo  ✅ Ciudad y departamento  ✅ Direccion
+    //   ✅ Celular  ✅ Cedula
+    //
+    // Esa es, palabra por palabra, la lista de CAMPOS_DE_ENVIO. Direccion y
+    // cedula para un curso que llega por Google Drive.
+    //
+    // El arreglo anterior (seDespachaPorTransportadora) endurecio `esFisico`
+    // pero dejo el `else` intacto, asi que no atajaba este caso.
+    //
+    // Ahora hace falta un producto que se PRUEBE fisico. Sin eso no se inyecta
+    // nada: ni la lista de datos, ni el "pago contraentrega", ni los "3 a 5
+    // dias" -- que sobre un curso digital son las tres cosas equivocadas.
+    const corresponde = productoEnJuego ? esFisico : false;
+    if (!corresponde && esDropshipping && !productoEnJuego) {
+      console.log(`📦 [DROPSHIPPING] Agente de dropshipping pero sin producto identificado: no se piden datos de envio - ${ts()}`);
+    }
 
     if (!soloDigital && corresponde) {
       const ds = await import("./dropshipping");
