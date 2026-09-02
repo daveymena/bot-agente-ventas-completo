@@ -1112,10 +1112,37 @@ export async function loadConversationMemory(conversationId: number): Promise<Co
 
   for (const msg of agentMessages) {
     const meta = msg.metadata as MessageMetadata | null;
-    if (meta?.cardSent && meta.productId) {
-      if (enEstaSesion(msg)) sentProductIds.add(meta.productId);
+    // La FICHA enviada: eso sí exige `cardSent`, porque `sentProductIds` es
+    // "de qué productos ya vio la tarjeta" y sirve para no repetirla.
+    if (meta?.cardSent && meta.productId && enEstaSesion(msg)) {
+      sentProductIds.add(meta.productId);
+    }
+    // ── El producto EN FOCO no depende de que haya salido una ficha ────────
+    //
+    // Acá estaba pegado al `cardSent` de arriba, y el lado que ESCRIBE ya
+    // guardaba el producto aunque el turno fuera solo texto (ver `agentMeta`
+    // en agent.ts, con su comentario explicando este mismo problema). Se
+    // arregló la mitad de escribir y se dejó la de leer.
+    //
+    // Medido contra producción el 2026-09-02, teléfono limpio:
+    //
+    //   cliente: "Me interesa el curso de inteligencia artificial"
+    //   bot:     "¿Ya tienes experiencia con IA o empiezas desde cero?"   (texto)
+    //   cliente: "Si"
+    //   bot:     "Perfecto, el curso arranca desde lo básico..."          (texto)
+    //   cliente: "cuanto vale?"
+    //   bot:     "Hmm, creo que NO TENGO ESE PRODUCTO en el catálogo 😅"
+    //
+    // Tres turnos hablando del curso, y al preguntar el precio lo negó. El bot
+    // SABÍA de qué hablaba --lo dijo en el turno 2-- pero eso vivía solo en la
+    // cabeza del modelo: nada lo guardaba, porque ninguno de los dos turnos
+    // llevó tarjeta.
+    //
+    // Y es el caso normal, no el raro: preguntar antes de volcar la ficha es
+    // justo lo que se le pidió al bot que hiciera.
+    if (meta?.productId) {
       currentProductId = meta.productId;
-      currentProductName = meta.productName || null;
+      currentProductName = meta.productName || currentProductName;
     }
     // También detectar por patrón [CARD: N] en el contenido (retrocompatibilidad)
     const cardMatch = msg.content.match(/\[CARD:\s*(\d+)\s*\]/i);
