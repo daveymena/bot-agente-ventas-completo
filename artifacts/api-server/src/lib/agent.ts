@@ -2872,6 +2872,7 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
             ofrecimosPrecio,
             videoYaEnviado,
             yaVioContenido: memory.sentProductIds.has(resolvedId),
+            sesionNueva: !!memory.isNewSession,
             tieneVideo: !!videoDeProductoSeguro((productList as any[]).find((pr: any) => pr.id === resolvedId)),
           });
           // ── Un "sí" contesta la pregunta ANTERIOR, no pide el checkout ─────
@@ -2992,6 +2993,7 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
             // Si ya recibió la ficha de ESTE producto, ya vio la lista de
             // características: el cierre no puede ofrecerle contárselas.
             yaVioContenido: memory.sentProductIds.has(resolvedId),
+            sesionNueva: !!memory.isNewSession,
             seccion,
           });
           cardProductId = resolvedId;
@@ -3085,6 +3087,7 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
             finalParts.push({
               kind: "card", productId: idParaEntregar, paymentOnly: false,
               yaVioContenido: memory.sentProductIds.has(idParaEntregar),
+              sesionNueva: !!memory.isNewSession,
               seccion: seccionPedida,
             } as any);
             cardProductId = idParaEntregar;

@@ -709,6 +709,7 @@ async function construirSeccion(
    * la mitad difícil hecha, la fácil olvidada, y el bug intacto.
    */
   yaVioContenido = false,
+  sesionNueva = false,
 ): Promise<{ conFoto: boolean; mensajes: string[] }> {
   const mon = await contextoDeMoneda(String(semilla).split("|")[0], Number(p.price), p.currency);
   const esFisico = String((p as any).kind || "digital") === "physical";
@@ -911,7 +912,23 @@ async function construirSeccion(
   // y vuelve a preguntar, reenviarle los 2 MB de la misma foto es repetirle
   // lo que ya tiene --lo mismo que se corrigio con el texto-- y encima lo
   // hace esperar la descarga para leer dos renglones nuevos.
-  return { conFoto: !yaVioContenido, mensajes };
+  // ── La foto vuelve cuando el cliente vuelve ───────────────────────────
+  //
+  // Esto era `!yaVioContenido` a secas, y `yaVioContenido` es "la ficha de
+  // este producto ya salio ALGUNA VEZ en esta conversacion". O sea: la foto
+  // salia una sola vez y no volvia nunca mas.
+  //
+  // El motivo original era bueno --no reenviarle 2 MB de la misma imagen a
+  // quien acaba de verla, que ademas lo hace esperar la descarga para leer dos
+  // renglones nuevos-- pero el efecto es que un cliente que vuelve mañana a
+  // preguntar por el mismo curso recibe la ficha PELADA, sin foto. Y el admin
+  // lo pidio dos veces: "cuando vayas a presentar la informacion mandala con
+  // la imagen".
+  //
+  // Con `sesionNueva` se separan los dos casos: dentro de la misma charla la
+  // foto no se repite (el motivo original sigue en pie), pero si el cliente
+  // vuelve despues de horas, la presentacion arranca de nuevo con su imagen.
+  return { conFoto: !yaVioContenido || sesionNueva, mensajes };
 }
 
 function buildPaymentOnlyCaption(p: typeof products.$inferSelect, dynamicLinks?: any) {
@@ -2500,6 +2517,9 @@ export class WhatsAppManager {
               product, seccion, dynamicLinks, phone,
               // Lo decide el agente, que es el que tiene el historial.
               !!(part as any).yaVioContenido,
+              // Si volvio despues de horas, la presentacion arranca de nuevo
+              // con su foto: la ficha pelada no es una presentacion.
+              !!(part as any).sesionNueva,
             );
             console.log(`🎯 [WA-CARD] Sección "${seccion}" — ${mensajes.length} mensaje(s), foto: ${conFoto} - ${timestamp}`);
             if (conFoto) {
