@@ -240,7 +240,26 @@ export class WooCommerceService {
             ...dropiMeta.imageUrls,
             ...(wooProduct.images || []).map((image) => image.src),
           ].filter(Boolean);
-          const imageUrl = await firstUsableImage(imageUrls);
+          // ── Una URL sin verificar vale mas que ninguna ────────────────
+          //
+          // `firstUsableImage` comprueba la foto BAJANDOLA DESDE EL SERVIDOR.
+          // Las de Dropi viven en un CloudFront, y ese chequeo falla por
+          // motivos que no tienen nada que ver con si la foto existe: un
+          // timeout de 8s, un 403 al datacenter, una CDN lenta. Cuando fallan
+          // todas devolvia null, y el cliente terminaba viendo el producto sin
+          // foto aunque en su navegador la URL cargue perfecto.
+          //
+          // Verificada es mejor. Pero entre "sin verificar" y "ninguna", gana
+          // sin verificar: el navegador del cliente sale a internet desde otra
+          // IP y por otra ruta que este servidor.
+          const imagenVerificada = await firstUsableImage(imageUrls);
+          const imageUrl = imagenVerificada || imageUrls.find(Boolean) || null;
+          if (!imagenVerificada && imageUrl) {
+            logger.warn(
+              { tenantId: this.tenantId, productId: wooProduct.id },
+              "[WooCommerce] Ninguna imagen se pudo verificar desde el servidor: se guarda la primera igual",
+            );
+          }
 
           // Buscar por sku (clave estable e idempotente, sin depender de jsonb)
           const existingProduct = await db
@@ -294,10 +313,29 @@ export class WooCommerceService {
           };
 
           if (existingProduct.length > 0) {
-            // Actualizar producto existente
+            // ── Nunca se pisa una foto que YA funciona con nada ────────────
+            //
+            // Esto hacia `.set(productData)` entero, con `imageUrl: null`
+            // adentro cuando la verificacion fallaba. O sea que un timeout de
+            // la CDN borraba la foto buena que ya estaba guardada, y como la
+            // sincronizacion corre sola, se volvia a borrar cada vez.
+            //
+            // Es el mismo defecto que `fixAllProductImages` (bcb972a): un
+            // "arreglador" que, cuando no puede comprobar, destruye el dato en
+            // vez de dejarlo quieto. Borrar lo que funciona nunca es el paso
+            // seguro.
+            const anterior = existingProduct[0] as any;
+            const aGuardar: any = { ...productData };
+            if (!aGuardar.imageUrl && anterior.imageUrl) {
+              delete aGuardar.imageUrl;
+              logger.warn(
+                { tenantId: this.tenantId, productId: wooProduct.id },
+                "[WooCommerce] Sin imagen nueva: se conserva la que ya tenia",
+              );
+            }
             await db
               .update(products)
-              .set(productData)
+              .set(aGuardar)
               .where(eq(products.id, existingProduct[0].id as number));
           } else {
             // Crear nuevo producto

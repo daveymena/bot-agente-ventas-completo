@@ -195,13 +195,28 @@ export class ImageUrlFixer {
         logger.warn({ productId: product.id }, "Imagen en disco pero vacía o corrupta: se vuelve a bajar");
       }
 
-      // Intentar obtener URL original del metadata
+      // ── Las URLs originales estaban, una llave mas adentro ─────────────
+      //
+      // Esto leia `meta.imageUrls`. El sincronizador de WooCommerce las
+      // guarda en `meta.woocommerce.imageUrls` (ver woocommerce.ts, el bloque
+      // `metadata: JSON.stringify({ woocommerce: { ... imageUrls } })`).
+      //
+      // Las dos llaves nunca coincidieron, asi que para TODO producto de
+      // Woo/Dropi `originalUrl` quedaba null, el codigo concluia que no habia
+      // forma de recuperar la foto, y bajaba al bloque de abajo que BORRA la
+      // URL. En cada arranque. Las fotos nunca se habian perdido: nadie las
+      // estaba buscando donde estaban.
+      //
+      // Se miran las tres formas porque el dato viajo por varias versiones.
       let originalUrl: string | null = null;
       try {
         const meta = JSON.parse(product.metadata || "{}");
-        if (meta.imageUrls && Array.isArray(meta.imageUrls) && meta.imageUrls.length > 0) {
-          originalUrl = meta.imageUrls[0];
-        }
+        const candidatas: string[] = [
+          ...(Array.isArray(meta?.woocommerce?.imageUrls) ? meta.woocommerce.imageUrls : []),
+          ...(Array.isArray(meta?.imageUrls) ? meta.imageUrls : []),
+          ...(Array.isArray(meta?.dropi?.imageUrls) ? meta.dropi.imageUrls : []),
+        ].filter((u) => typeof u === "string" && /^https?:\/\//i.test(u));
+        originalUrl = candidatas[0] || null;
       } catch (e) {
         // Metadata inválido
       }
@@ -216,9 +231,23 @@ export class ImageUrlFixer {
         //
         // Solo se limpia lo que apunta AFUERA: un `/images/products/N.jpg`
         // se deja, porque el archivo puede volver en la próxima ronda.
-        if (product.imageUrl && /^https?:\/\//i.test(String(product.imageUrl))) {
+        // ⚠️ Pero NO se borra una URL remota solo porque este servidor no
+        // haya podido bajarla. Las fotos de Dropi viven en un CloudFront que
+        // puede rechazar la IP del datacenter y contestarle perfecto al
+        // navegador del cliente. Borrarla ahi cambia "quiza se ve" por
+        // "seguro no se ve", que es justo lo que estaba pasando.
+        //
+        // Solo se limpia lo que NO puede ser una foto de ningun modo.
+        const actual = String(product.imageUrl || "");
+        const pareceFoto = /^https?:\/\//i.test(actual);
+        if (actual && !pareceFoto) {
           await db.update(products).set({ imageUrl: null }).where(eq(products.id, product.id));
           limpiados++;
+        } else if (pareceFoto) {
+          logger.warn(
+            { productId: product.id },
+            "No se pudo bajar la foto, pero la URL remota se conserva: el navegador del cliente puede alcanzarla",
+          );
         }
         failed++;
         continue;
