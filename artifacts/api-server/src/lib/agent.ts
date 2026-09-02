@@ -29,6 +29,7 @@ import { videoDeProducto } from "./video-de-producto";
 import { seDespachaPorTransportadora } from "./entrega-del-producto";
 import { verificarPrecios } from "./precio-verificado";
 import { productoEnFoco } from "./producto-en-foco";
+import { entenderAlCliente, type Entendimiento } from "./entender-al-cliente";
 
 /**
  * El video de este producto, sin reventar si el metadata viene raro.
@@ -1032,6 +1033,58 @@ export async function runAgentReply(conversationId: number) {
   logTime(`5. Motor de decisión: ${Date.now() - t1}ms`);
   
   console.log(`🎯 [ENGINE-DECISION] ${decision.debugReason} - ${ts()}`);
+
+  // ── 5-bis. QUE LO ENTIENDA LA IA, NO UNA LISTA DE PALABRAS ──────────────
+  //
+  // El admin: "esto no solo depende de frases, es que no parece que estemos
+  // usando la IA para eso". Tenia razon, y los numeros tambien: `detectIntent`
+  // --122 lineas de patrones, cero llamadas al modelo-- acierta el 45% sobre
+  // 20 mensajes reales de cliente; el mismo modelo que ya esta pagado y
+  // corriendo acierta el 80%, y acierta JUSTO los que cuestan plata ("ya te
+  // hice la transferencia", "no me ha llegado nada", "me lo deja en 40?").
+  //
+  // Esto NO le da al modelo el mando sobre los hechos: el precio, el enlace,
+  // la ficha y la cuenta los sigue poniendo el servidor, y todos los candados
+  // de salida siguen corriendo despues. Reemplaza la ADIVINANZA de que quiere
+  // el cliente, que es lo unico que las listas hacian mal.
+  //
+  // Si no contesta, tarda o devuelve basura, `entenderAlCliente` da null y
+  // todo sigue como hoy. No puede quedar peor: solo puede quedar mejor.
+  let entendimiento: Entendimiento | null = null;
+  try {
+    const focoPrevio = productoEnFoco({
+      delMensaje: decision.productoDelMensaje as any,
+      aMostrar: decision.productToShow as any,
+      idActivo: memory.currentProductId,
+      historial: memory.history as any,
+      catalogo: productList as any[],
+    });
+    entendimiento = await entenderAlCliente({
+      mensaje: String(lastText || ""),
+      historial: memory.history as any,
+      catalogo: (productList as any[]).map((p: any) => ({ id: p.id, name: p.name })),
+      productoEnFocoId: focoPrevio?.id ?? null,
+    });
+  } catch (e: any) {
+    console.log(`[ENTENDER] no se pudo, se sigue con los patrones: ${e?.message} - ${ts()}`);
+  }
+
+  if (entendimiento && entendimiento.confianza >= 0.5) {
+    if (entendimiento.intencion !== decision.intent) {
+      console.log(`🧠 [ENTENDER] los patrones leyeron "${decision.intent}" y el cliente pedia "${entendimiento.intencion}": ${entendimiento.esperando} - ${ts()}`);
+      (decision as any).intent = entendimiento.intencion;
+    }
+    // El producto SOLO se rellena si los patrones no encontraron ninguno.
+    // Cuando ya hay uno resuelto por el servidor, ese manda: el modelo elige
+    // mal el id seguido (visto hoy: escribio 115 y 101 para el producto 124).
+    if (!decision.productToShow && !decision.productoDelMensaje && entendimiento.productoId) {
+      const p = (productList as any[]).find((x: any) => x.id === entendimiento!.productoId);
+      if (p) {
+        (decision as any).productToShow = p;
+        console.log(`🧠 [ENTENDER] el mensaje no nombra producto pero la conversacion iba del ${p.id}: ${p.name} - ${ts()}`);
+      }
+    }
+  }
 
   // ── 6. Obtener la voz del negocio (ANTES de cualquier respuesta) ─────────
   t1 = Date.now();
