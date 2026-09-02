@@ -140,3 +140,58 @@ describe("una respuesta verificada también se revisa por pertinencia", () => {
     expect(r.texto).toMatch(/60\.000/);
   });
 });
+
+/**
+ * Medido contra producción el 2026-09-02, y es el mismo error que `llama`:
+ * una lista de patrones que no cubre cómo escribe la gente.
+ *
+ *   cliente: "me dejas el curso de inteligencia artificial en 40 mil?"
+ *   bot:     "¡ Hola!"
+ *
+ * Todas las formas de "dejar en" exigían el pronombre --"me LO dejas"--, así
+ * que el cliente que NOMBRA el producto en vez de pronombrarlo se caía por el
+ * hueco. Al no entrar en la regla, `defenderElPrecio` nunca corría; otro
+ * guardia le borró al modelo lo que había inventado y al cliente le llegó un
+ * saludo suelto, en plena negociación.
+ *
+ * Que el guardia borre no alcanza: tiene que SUSTITUIR.
+ */
+describe("el regateo se reconoce aunque el cliente nombre el producto", () => {
+  it("el caso real: «me dejas el curso ... en 40 mil»", () => {
+    const r = revisar(
+      "¡Claro! Te lo puedo dejar en ese precio, no hay problema 😊",
+      "me dejas el curso de inteligencia artificial en 40 mil?",
+    );
+    expect(r.bloquear).toBe(true);
+    expect(r.hallazgos.map((h) => h.regla)).toContain("descuento-aceptado");
+    // Y en su lugar sale la defensa del precio con el número real.
+    expect(r.reemplazoSugerido).toMatch(/60\.000/);
+  });
+
+  it("las otras formas de pedir rebaja que se usan de verdad", () => {
+    for (const m of [
+      "me lo deja en 50 mil",
+      "me das el pack en $45000",
+      "¿cuánto es lo menos que me lo deja?",
+      "¿hasta cuánto me lo deja?",
+      "¿me hace precio?",
+      "¿me da mejor precio si llevo dos?",
+    ]) {
+      const r = revisar("¡Claro que sí! Te lo dejo así.", m);
+      expect(r.bloquear, m).toBe(true);
+    }
+  });
+
+  it("pero preguntar por tiempos NO es regatear", () => {
+    // "me das el acceso en 24 horas" tiene la misma forma que "me lo dejas en
+    // 40 mil". Lo que las separa es que una termina en plata y la otra no.
+    for (const m of [
+      "¿me das el acceso en 24 horas?",
+      "¿me lo mandas en 5 minutos?",
+      "¿en cuánto tiempo llega?",
+    ]) {
+      const r = revisar("Te llega apenas confirmes el pago. El curso vale $60.000.", m);
+      expect(r.hallazgos.map((h) => h.regla), m).not.toContain("descuento-aceptado");
+    }
+  });
+});

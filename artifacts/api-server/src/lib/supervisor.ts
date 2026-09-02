@@ -505,8 +505,19 @@ export function supervisarRespuesta(e: EntradaSupervisor): RevisionSupervisor {
   // precio del catálogo -- se reemplaza por texto fijo en vez de bloquear a
   // secas: bloquear dejaría al cliente sin respuesta justo cuando está
   // regateando, que es cuando más atención necesita.
+  // ⚠️ Medido contra produccion el 2026-09-02: "me dejas el curso de
+  // inteligencia artificial en 40 mil?" NO casaba. Todas las formas de
+  // "dejar en" exigian el pronombre --"me LO dejas"-- y el cliente que nombra
+  // el producto en vez de pronombrarlo se caia por el hueco. Como no entraba
+  // acá, `defenderElPrecio` nunca corria; otro guardia borraba lo que el
+  // modelo habia inventado y al cliente le llegaba "¡ Hola!" a secas, en
+  // plena negociacion.
+  //
+  // La segunda mitad admite el objeto nombrado en el medio, pero exige que lo
+  // que viene despues del "en" sea PLATA -- "$40", "40.000", "40 mil". Sin eso
+  // se comia "¿me das el acceso en 24 horas?", que no es un regateo.
   const PIDE_REBAJA =
-    /\b(descuento|rebaja|rebajar|me lo dejas?|lo dejas? en|me lo das? en|precio especial|m[aá]s barato|promoci[oó]n|oferta especial|hac[eé]s? precio|[uú]ltimo precio|en cu[aá]nto me lo dejas?)\b/i;
+    /\b(descuento|rebaja|rebajar|rebajita|me lo dejas?|lo dejas? en|me lo das? en|precio especial|mejor precio|m[aá]s barato|promoci[oó]n|oferta especial|hac[eé]s? precio|hace precio|[uú]ltimo precio|lo menos que|cu[aá]nto es lo menos|hasta cu[aá]nto|en cu[aá]nto me lo dejas?)\b|\bme\s+(?:lo\s+|la\s+|los\s+|las\s+)?(?:dej[aá]s?|deja|d[aá]s?|da)\b[^?.!\n]{0,40}?\ben\s*(?:\$\s*\d+|\d{1,3}(?:[.,]\d{3})+|\d{2,3}\s*(?:mil|k|lucas))\b/i;
   const ACEPTA_SIN_PENSAR =
     /^\s*(?:[¡!]*\s*)?(claro que s[ií]|claro|listo|dale|de una|por supuesto|hecho|obvio|perfecto|s[ií]\s*[,.!]|ok|okey|okay|va|trato hecho|cerrado)\b/i;
   // ── Salvo que ESTE negocio si negocie ──────────────────────────────────
