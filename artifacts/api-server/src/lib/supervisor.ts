@@ -44,7 +44,13 @@ export interface EntradaSupervisor {
    * `deliveryLink` importa tanto como el precio: es POR DONDE se entrega, y
    * el modelo lo inventa igual que inventaba montos (ver R9).
    */
-  productos: Array<ProductoParaPrecio & { kind?: string | null; deliveryLink?: string | null }>;
+  productos: Array<ProductoParaPrecio & {
+    kind?: string | null;
+    deliveryLink?: string | null;
+    /** Lo que el producto DICE que trae. Es contra esto que se mide un temario. */
+    description?: string | null;
+    features?: string[] | null;
+  }>;
   /** Ids del producto del que se esta hablando. */
   idsEnContexto: number[];
   /**
@@ -618,6 +624,84 @@ export function supervisarRespuesta(e: EntradaSupervisor): RevisionSupervisor {
         detalle:
           `Prometia la entrega por ${ajenos.map((a) => a.nombre).join(", ")}, ` +
           `y no es por donde se entrega este producto: "${antes.slice(0, 90)}"`,
+      });
+    }
+  }
+
+  // ── R13. EL TEMARIO INVENTADO ─────────────────────────────────────────
+  //
+  // Conversación real del 2026-09-02. El cliente preguntó por el curso de IA y
+  // el bot le detalló cuatro módulos con nombre propio:
+  //
+  //   "🤖 Módulo 1 – Fundamentos de IA
+  //    🛠️ Módulo 2 – Herramientas esenciales
+  //    ⚙️ Módulo 3 – Agentes autónomos
+  //    Módulo 4 – Proyectos prácticos"
+  //
+  // El producto REAL, que llegó en la ficha dos mensajes después, dice otra
+  // cosa: 39 módulos de Master en Agentes IA, 13 de Claude AI, n8n, OpenClaw,
+  // Gemini. O sea que el bot le vendió un temario que no existe, y el cliente
+  // se entera al abrir el curso.
+  //
+  // Las reglas anteriores no lo tocaban: ninguna mira el CONTENIDO. R1 cuida
+  // los precios, R9 la entrega, R5 los bonos. El temario es lo que el cliente
+  // de verdad compra.
+  //
+  // Se juzga solo lo que tiene NOMBRE: un "4 módulos" suelto puede salir de la
+  // descripción, pero "Módulo 2 – Herramientas esenciales" es una afirmación
+  // concreta y verificable contra el catálogo.
+  const enFocoAhora = e.productos.filter((p) => e.idsEnContexto.includes(p.id));
+  if (enFocoAhora.length > 0) {
+    const verdad = normalizar(
+      enFocoAhora
+        .map((p) => `${p.name} ${p.description || ""} ${(p.features || []).join(" ")}`)
+        .join(" "),
+    );
+    const inventados: string[] = [];
+    const NOMBRA_MODULO = /(?:m[oó]dulo|lecci[oó]n|clase|unidad)\s*\d+\s*[–—:-]\s*([^\r\n]{4,60})/gi;
+    let m: RegExpExecArray | null;
+    while ((m = NOMBRA_MODULO.exec(texto)) !== null) {
+      const titulo = normalizar(m[1]);
+      // Las palabras que de verdad distinguen a ese módulo, sin las de relleno.
+      const claves = titulo.split(" ").filter((w) => w.length >= 5);
+      if (claves.length === 0) continue;
+      const respaldadas = claves.filter((w) => verdad.includes(w)).length;
+      // Con menos de la mitad respaldada, ese título no sale del catálogo.
+      if (respaldadas * 2 < claves.length) inventados.push(m[1].trim());
+    }
+
+    if (inventados.length > 0) {
+      bloquear = true;
+      hallazgos.push({
+        regla: "temario-inventado",
+        gravedad: "bloquea",
+        detalle:
+          `Detalló un temario que no está en el catálogo: ${inventados.slice(0, 3).map((t) => `"${t}"`).join(", ")}. ` +
+          `El cliente compra eso y no lo encuentra.`,
+      });
+      return { texto, hallazgos, bloquear, reemplazoSugerido: undefined };
+    }
+  }
+
+  // ── R14. CONTRAENTREGA EN UN PRODUCTO DIGITAL ─────────────────────────
+  //
+  // De la misma conversación: "Pago contra entrega: pagas cuando recibes el
+  // material en tu WhatsApp", sobre un curso digital que se cobra por
+  // adelantado. Es una condición de pago falsa, y de las que el cliente
+  // reclama con razón.
+  //
+  // Sale del texto y no se bloquea el mensaje entero: el resto de la respuesta
+  // suele estar bien, y quitar la línea alcanza.
+  const hayDigitalEnFoco = enFocoAhora.some((p) => String(p.kind || "digital") !== "physical");
+  if (hayDigitalEnFoco && !enFocoAhora.some((p) => String(p.kind) === "physical")) {
+    const CONTRAENTREGA =
+      /^.*\b(contra\s*entrega|contraentrega|pagas?\s+cuando\s+(lo\s+)?recib\w+|paga\s+al\s+recibir)\b.*$/gim;
+    if (CONTRAENTREGA.test(texto)) {
+      texto = texto.replace(CONTRAENTREGA, "").replace(/\n{3,}/g, "\n\n").trim();
+      hallazgos.push({
+        regla: "contraentrega-en-digital",
+        gravedad: "corrige",
+        detalle: "Prometía pago contra entrega en un producto digital, que se cobra por adelantado.",
       });
     }
   }
