@@ -2994,6 +2994,7 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
             yaVioContenido: memory.sentProductIds.has(resolvedId),
             sesionNueva: !!memory.isNewSession,
             videoYaEnviado,
+            mensajeDelCliente: String(lastText || ""),
             seccion,
           });
           cardProductId = resolvedId;
@@ -3088,6 +3089,7 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
               kind: "card", productId: idParaEntregar, paymentOnly: false,
               yaVioContenido: memory.sentProductIds.has(idParaEntregar),
               sesionNueva: !!memory.isNewSession,
+              mensajeDelCliente: String(lastText || ""),
               seccion: seccionPedida,
             } as any);
             cardProductId = idParaEntregar;

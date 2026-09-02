@@ -7,6 +7,7 @@ import { videoDeProducto } from "./video-de-producto";
 import { leerFicha, repartirPuntos, PRESUPUESTO_PIE_DE_FOTO } from "./ficha-del-producto";
 import { hablarColombiano } from "./hablar-colombiano";
 import { etiquetaDeTransferencia } from "./conversation-engine";
+import { mediosDePago, loQuePidio, renderMediosDePago, noManejamosEse } from "./hechos-de-pago";
 
 import path from "node:path";
 import { existsSync, mkdirSync, rmSync } from "node:fs";
@@ -718,6 +719,13 @@ async function construirSeccion(
    * ficha.
    */
   videoYaEnviado = false,
+  /**
+   * Lo que escribio el cliente en este turno.
+   *
+   * Hace falta para elegir el medio de pago concreto: "daviplata" tiene que
+   * traer Daviplata, no la primera cuenta cargada.
+   */
+  mensajeDelCliente = "",
 ): Promise<{ conFoto: boolean; mensajes: string[] }> {
   const mon = await contextoDeMoneda(String(semilla).split("|")[0], Number(p.price), p.currency);
   const esFisico = String((p as any).kind || "digital") === "physical";
@@ -784,38 +792,50 @@ async function construirSeccion(
     return { conFoto: false, mensajes: [texto] };
   }
 
-  // ── Un medio de pago concreto ─────────────────────────────────────────────
-  if (seccion === "pago_transferencia") {
-    const t = dynamicLinks?.transfer?.options?.[0];
-    if (!t) return { conFoto: false, mensajes: [`Ahora mismo no tengo el dato de transferencia a mano, déjame confirmarlo 🙏`] };
-    return {
-      conFoto: false,
-      mensajes: [`🔹 *${etiquetaDeTransferencia(dynamicLinks?.transfer)}*\n📱 ${t.number}\n👤 ${t.name}\n💰 ${mon.precioTexto}\n\n${cierre}`],
-    };
-  }
+  // ── LOS MEDIOS DE PAGO SALEN DE LA HOJA DE HECHOS ────────────────────────
+  //
+  // Las tres ramas de pago armaban el texto a mano, y las tres usaban
+  // `transfer.options[0]`. Si el negocio tiene Nequi Y Daviplata cargados y el
+  // cliente pedía Daviplata, le llegaba el número de Nequi -- plata a la
+  // cuenta equivocada.
+  //
+  // Ahora el servidor arma la lista de lo que este negocio DE VERDAD tiene, se
+  // elige de ahí, y el mensaje lo escribe él. El modelo no teclea un número de
+  // cuenta ni un enlace: los señala.
+  //
+  // Medido el 2026-09-02, el cliente pidió pagar por Nequi y recibió:
+  //   "💳 Para que te llegue el LINK DE PAGO POR NEQUI, necesito que me
+  //    confirmes estos datos: 1️⃣ Tu nombre..."
+  // Un "link de pago por Nequi" no existe, pidió datos que no hacen falta, y
+  // no dio el número. La sección que lo renderiza bien ya existía y no se usó.
+  if (seccion === "pago" || seccion === "pago_transferencia" || seccion === "pago_link") {
+    const medios = mediosDePago({
+      dynamicLinks,
+      aceptaPagosLocales: mon.aceptaPagosLocales,
+      esColombia: mon.esColombia,
+    });
+    if (medios.length === 0) {
+      return { conFoto: false, mensajes: [`Déjame confirmarte cómo hacemos el pago y te aviso 🙏`] };
+    }
 
-  if (seccion === "pago_link") {
-    const link = corto(dynamicLinks?.mercadopago) || corto(dynamicLinks?.paypal);
-    if (!link) return { conFoto: false, mensajes: [`Déjame confirmarte el enlace de pago y te lo paso 🙏`] };
-    return { conFoto: false, mensajes: [`🔹 *Tarjeta / PSE*\n${link}\n💰 ${mon.precioTexto}\n\n${cierre}`] };
-  }
+    // Lo que el cliente nombró manda sobre la sección: "daviplata" tiene que
+    // traer Daviplata, no la primera cuenta que haya.
+    const pedido = loQuePidio(String(mensajeDelCliente || ""), medios);
+    if (pedido.noConfigurado) {
+      return { conFoto: false, mensajes: [noManejamosEse(pedido.noConfigurado, medios)] };
+    }
 
-  // ── Todos los medios: acá SÍ corresponde, porque los pidió ────────────────
-  if (seccion === "pago") {
-    L.push(`💰 *${mon.precioTexto}*`);
-    L.push("");
-    if (mon.aceptaPagosLocales && corto(dynamicLinks?.mercadopago)) {
-      L.push(`🔹 *Tarjeta / PSE:*`, corto(dynamicLinks.mercadopago), "");
+    let elegidos = pedido.pedidos;
+    if (elegidos.length === 0) {
+      // No nombró ninguno: la sección decide de qué clase van.
+      elegidos =
+        seccion === "pago_transferencia" ? medios.filter((m) => m.tipo === "transferencia")
+        : seccion === "pago_link" ? medios.filter((m) => m.tipo === "link")
+        : medios;
     }
-    if (corto(dynamicLinks?.paypal)) {
-      L.push(mon.esColombia ? `🔹 *PayPal:*` : `🔹 *Tarjeta o PayPal:*`, corto(dynamicLinks.paypal), "");
-    }
-    if (mon.aceptaPagosLocales && dynamicLinks?.transfer?.options?.[0]) {
-      const t = dynamicLinks.transfer.options[0];
-      L.push(`🔹 *${etiquetaDeTransferencia(dynamicLinks?.transfer)}:*`, `📱 ${t.number}`, `👤 ${t.name}`, "");
-    }
-    L.push(cierre);
-    return { conFoto: false, mensajes: [L.join("\n").trim()] };
+    if (elegidos.length === 0) elegidos = medios;
+
+    return { conFoto: false, mensajes: [renderMediosDePago(elegidos, mon.precioTexto, cierre)] };
   }
 
   // ── Qué es y qué trae, SIN precio ─────────────────────────────────────────
@@ -2556,6 +2576,7 @@ export class WhatsAppManager {
               // con su foto: la ficha pelada no es una presentacion.
               !!(part as any).sesionNueva,
               !!(part as any).videoYaEnviado,
+              String((part as any).mensajeDelCliente || ""),
             );
             console.log(`🎯 [WA-CARD] Sección "${seccion}" — ${mensajes.length} mensaje(s), foto: ${conFoto} - ${timestamp}`);
             if (conFoto) {
