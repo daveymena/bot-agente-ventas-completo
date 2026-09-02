@@ -273,3 +273,70 @@ describe("Afirmar que es una persona", () => {
     expect(delataLoInterno("Si prefieres, te paso con una persona del equipo.")).toBe(false);
   });
 });
+
+/**
+ * Medido contra producción el 2026-09-02, 07:53. El cliente preguntó
+ * "¿tienes más información?" sobre el curso de IA y el bot le contestó:
+ *
+ *   "Uy, de la parte técnica no te puedo contar 🙈"
+ *
+ * Sobre el producto que vende. Cuyo nombre literal es "Curso completo de
+ * CLAUDE AI" y que menciona Gemini, n8n, APIs, webhooks y un servidor.
+ *
+ * La frase que se reemplazó era esta:
+ *
+ *   "Aprendes a usar las herramientas que USAN los profesionales:
+ *    Claude, Gemini y n8n."
+ *
+ * La palabra "usan" estaba en la lista de "habla de sí mismo", y en esa rama
+ * el catálogo ni se consultaba. Pero "usan" es como se describe cualquier
+ * curso -- no es el bot hablando de sus tripas.
+ */
+describe("El bot no se censura su propio catálogo", () => {
+  const CURSO_DE_IA = vocabularioDelNegocio([
+    {
+      name: "INTELIGENCIA ARTIFICIAL 2026: HERRAMIENTAS + AGENTES AUTÓNOMOS",
+      description:
+        "3 cursos de IA en uno: domina Claude, automatiza sin código y crea agentes que trabajen por ti 24/7. " +
+        "MASTER EN AGENTES IA — 39 módulos. CURSO COMPLETO DE CLAUDE AI — 13 módulos. Gemini. " +
+        "n8n sin código: agente IA, APIs, webhooks y RAG. Claude Code y Claude Design. " +
+        "Agentes con OpenClaw, hasta montarlos en un servidor.",
+    },
+  ]);
+
+  it("la frase exacta que se censuró en producción", () => {
+    expect(
+      delataLoInterno("Aprendes a usar las herramientas que usan los profesionales: Claude, Gemini y n8n.", CURSO_DE_IA),
+    ).toBe(false);
+  });
+
+  it("el resto del copy de ese curso tampoco se toca", () => {
+    for (const t of [
+      "Incluye APIs, webhooks y RAG, y aprendes a montar tus agentes en un servidor.",
+      "domina Claude, automatiza sin código y crea agentes que trabajen por ti 24/7",
+      "Te muestro el contenido completo: 39 módulos de agentes y 13 de Claude AI.",
+      "El curso te enseña cómo funciona un agente autónomo por dentro.",
+    ]) {
+      expect(delataLoInterno(t, CURSO_DE_IA), t).toBe(false);
+    }
+  });
+
+  it("y «¿tienes más información?» no es una pregunta por las tripas", () => {
+    for (const m of ["¿Tienes más información?", "¿qué incluye el curso?", "¿me puedes dar más detalles?"]) {
+      expect(preguntaPorLoInterno(m, CURSO_DE_IA), m).toBe(null);
+    }
+  });
+
+  it("pero el bot sigue sin poder contar de qué está hecho ÉL", () => {
+    // Vender cursos de Claude no autoriza esto, ni con el catálogo delante.
+    for (const t of [
+      "Estoy hecha con Node y TypeScript",
+      "Corro sobre un servidor con Docker",
+      "Mi prompt dice que te ayude",
+      "Usamos GPT-4 para responderte",
+      "La info está en nuestra base de datos",
+    ]) {
+      expect(delataLoInterno(t, CURSO_DE_IA), t).toBe(true);
+    }
+  });
+});

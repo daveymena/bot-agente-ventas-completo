@@ -197,8 +197,37 @@ const TECNICA_AMBIGUA =
  * Node" es el catálogo. Por eso el posesivo va pegado a lo que puede ser de la
  * app, y no suelto.
  */
+/**
+ * El bot hablando de SÍ MISMO, sin ninguna duda posible.
+ *
+ * Estas no las salva el catálogo: vender cursos de Node no autoriza a decir
+ * con qué está hecho el bot. Van en primera persona a propósito -- ahí no hay
+ * ambigüedad con la mercancía.
+ */
+const SE_DELATA_SOLO =
+  /\bestoy (hecho|hecha|programado|programada|construido|construida)\b|\bme (programaron|construyeron|entrenaron)\b|\bmi (prompt|modelo|codigo|sistema)\b|\bmis instrucciones\b|\binternamente\b|\b(corro|corremos|corre) (en|sobre)\b|\b(uso|usamos|utilizo|utilizamos) [^.!?\n]{0,30}?para (responder|responderte|atenderte|contestarte|contestar)\b|\bnuestr[oa]s? (sistema|servidor|servidores|base de datos|infraestructura|codigo)\b/;
+
+/**
+ * Suena a que habla de sí mismo, pero puede ser el catálogo.
+ *
+ * ⚠️ Acá estaban "usan", "usamos", "utilizan" y "manejamos", y NO podían
+ * estar: son las palabras con las que se describe cualquier curso. Medido
+ * contra producción el 2026-09-02, sobre el curso de IA del propio negocio:
+ *
+ *   "Aprendes a usar las herramientas que USAN los profesionales:
+ *    Claude, Gemini y n8n."
+ *
+ * Esa frase se reemplazaba entera por "de la parte técnica no te puedo
+ * contar". El cliente había preguntado "¿tienes más información?" y el bot le
+ * contestó que no podía hablar del tema -- sobre el producto que vende, cuyo
+ * nombre literal es "Curso completo de Claude AI".
+ *
+ * Por eso esta lista es ambigua por definición y SÍ consulta el catálogo: "el
+ * curso está hecho con ejemplos reales" es mercancía; "estoy hecha con Node"
+ * es el bot, y esa va arriba.
+ */
 const HABLA_DE_SI_MISMO =
-  /\b(uso|usamos|usan|utilizo|utilizamos|utilizan|manejamos|corro|corre en|corre con|corremos|funciona con|funciono con|esta hecho|esta hecha|estoy hecho|estoy hecha|construido con|construida con|programado en|programada en|me programaron|me construyeron|internamente)\b|\bnuestr[oa]s? (sistema|servidor|servidores|base de datos|app|aplicacion|plataforma|codigo|infraestructura)\b|\bmi (prompt|modelo|codigo|sistema)\b/;
+  /\b(esta hecho|esta hecha|construido con|construida con|programado en|programada en|funciona con)\b/;
 
 /**
  * Afirmar que es una persona.
@@ -230,17 +259,22 @@ const AFIRMA_SER_HUMANO =
 export function delataLoInterno(texto: string, vocab?: Vocabulario): boolean {
   const t = N(texto);
 
-  // Mentir sobre ser humano no depende de ningún catálogo.
+  // 1. Lo que no puede ser mercancía de nadie. El catálogo no lo salva.
   if (AFIRMA_SER_HUMANO.test(t)) return true;
+  if (SE_DELATA_SOLO.test(t)) return true;
 
-  const hablaDeSi = HABLA_DE_SI_MISMO.test(t);
   const nombre = t.match(NOMBRES_DE_ADENTRO);
+  const tecnica = t.match(TECNICA_AMBIGUA);
 
-  // Si habla de sí mismo, cualquiera de las dos listas lo delata.
-  if (hablaDeSi && (nombre || TECNICA_AMBIGUA.test(t))) return true;
+  // 2. Suena a que habla de sí mismo Y hay una palabra técnica. Puede ser el
+  //    bot ("está hecho con React") o el producto ("el curso está hecho con
+  //    ejemplos de React"). Lo decide el catálogo de ESTE negocio.
+  if (HABLA_DE_SI_MISMO.test(t) && (nombre || tecnica)) {
+    return !esMercancia((nombre || tecnica)![0], vocab);
+  }
 
-  // Si no habla de sí mismo, solo delata un nombre propio de lo de adentro --
-  // y únicamente si este negocio no lo vende.
+  // 3. Un nombre propio de proveedor, suelto. Fuga, salvo que sea lo que el
+  //    negocio vende -- que es el caso del curso de Claude y Gemini.
   if (nombre) return !esMercancia(nombre[0], vocab);
 
   return false;
