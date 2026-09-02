@@ -252,17 +252,28 @@ logger.info("[MessageHandler] Message receiver configured for default tenant");
       try {
         const allProducts = await db.select().from(products).limit(1);
         if (allProducts.length > 0) {
-          const result = await imageUrlFixer.fixAllProductImages(1);
+          // Sin argumento: todos los negocios. Con el 1 escrito a mano, en un
+          // SaaS solo se atendía al primero.
+          const result = await imageUrlFixer.fixAllProductImages();
           if (result.fixed > 0) {
             console.log(
               `✅ ${result.fixed} product image URLs fixed (was ${result.withoutImages} without images)`
             );
           }
-          // Re-download missing physical product images
-          const downloadResult = await imageUrlFixer.downloadPhysicalImages(1);
-          if (downloadResult.downloaded > 0) {
+          // ── Las fotos rotas, de TODOS los negocios ──────────────────────
+          //
+          // Acá decía `downloadPhysicalImages(1)`, con el 1 escrito a mano. En
+          // un SaaS eso significa que solo se reparan las imágenes del primer
+          // negocio: los productos de Dropi de cualquier otro cliente quedan
+          // rotos para siempre, y nadie se entera porque el arranque igual
+          // dice que todo salió bien.
+          //
+          // Sin argumento, va por todos.
+          const downloadResult = await imageUrlFixer.downloadPhysicalImages();
+          if (downloadResult.downloaded > 0 || downloadResult.limpiados > 0) {
             console.log(
-              `✅ ${downloadResult.downloaded} physical product images downloaded (${downloadResult.failed} failed)`
+              `✅ Fotos de productos físicos: ${downloadResult.downloaded} recuperadas, ` +
+              `${downloadResult.limpiados} enlaces muertos limpiados, ${downloadResult.failed} sin arreglar`
             );
           }
         }
