@@ -245,7 +245,25 @@ export function isApproval(text: string): boolean {
   // el admin confirmó tres veces seguidas y nunca pasó nada. Delante de un
   // plan pendiente que pregunta "responde sí para ejecutar", una "s" sola no
   // puede significar otra cosa. Mismo criterio para "sii", "yes" y "ya está".
-  if (/^(s|s[ií]+|sip|yes|ok(ay)?|dale|confirmo|confirmado|apruebo|adelante|proced[eo]|listo|claro|hazlo|ejec[uú]talo|correcto|perfecto|va|eso)(\s+(porfa|por\s+favor|pues|ya|nomas|no\s+m[aá]s))?$/i.test(t)) {
+  // El admin aprueba COMBINANDO palabras: "dale confirmado", "listo dale",
+  // "ok dale", "si señor", "confirmado dale". Medido el 2026-09-01 sobre 41
+  // formas reales: el patron anterior reconocia 23. Las 18 que faltaban eran
+  // todas combinaciones o frases de dos palabras ("esta bien", "de una",
+  // "hagale", "subelo", "ya esta").
+  //
+  // Se acepta una o mas unidades de aprobacion seguidas, y nada mas. Un
+  // "si pero cambia el titulo" no entra, porque "pero" no es ninguna de
+  // ellas -- que es justo lo que hay que seguir rechazando.
+  // El admin aprueba COMBINANDO palabras: "dale confirmado", "listo dale",
+  // "ok dale", "si señor", "confirmado dale". Medido el 2026-09-01 sobre 41
+  // formas reales de aprobar: el patron anterior reconocia 23. Las 18 que
+  // faltaban eran combinaciones o frases de dos palabras ("esta bien",
+  // "de una", "hagale", "subelo", "ya esta").
+  //
+  // Se acepta una o mas unidades de aprobacion seguidas, y NADA mas. Un
+  // "si pero cambia el titulo" no entra, porque "pero" no es ninguna de
+  // ellas -- que es justo lo que hay que seguir rechazando.
+  if (/^(?:s|s[ií]+|sip|yes|ok(ay|ey)?|dale|listo|confirmo|confirmado|confirmada|confirma|apruebo|aprobado|adelante|proced[eo]|hazlo|h[aá]gale|ejec[uú]talo|correcto|perfecto|va|eso|sale|excelente|genial|publica|publ[ií]calo|s[uú]belo|s[uú]bela|aprueba|porfa|por\s+favor|pues|ya|nomas|nom[aá]s|no\s+m[aá]s|se[nñ]or|se[nñ]ora|que\s+s[ií]|todo|hermano|parce|de\s+una|est[aá]\s+bien|as[ií]\s+est[aá]\s+bien|as[ií]\s+dale|est[aá]|me\s+gusta|ya\s+est[aá]|todo\s+bien|muy\s+bien|as[ií]\s+qued[oó]|d[eé]jalo\s+as[ií])(?:[\s,]+(?:s|s[ií]+|sip|yes|ok(ay|ey)?|dale|listo|confirmo|confirmado|confirmada|confirma|apruebo|aprobado|adelante|proced[eo]|hazlo|h[aá]gale|ejec[uú]talo|correcto|perfecto|va|eso|sale|excelente|genial|publica|public[aá]lo|s[uú]belo|s[uú]bela|aprueba|porfa|por\s+favor|pues|ya|nomas|nom[aá]s|no\s+m[aá]s|se[nñ]or|se[nñ]ora|que\s+s[ií]|todo|hermano|parce|de\s+una|est[aá]\s+bien|as[ií]\s+est[aá]\s+bien|as[ií]\s+dale|me\s+gusta|ya\s+est[aá]|todo\s+bien|muy\s+bien|as[ií]\s+qued[oó]|d[eé]jalo\s+as[ií]))*$/i.test(t)) {
     return true;
   }
   return /^\s*(s[ií]\s+(haz|por\s+favor|adelante|dale|ejecuta|procede|confirm(o|a|ado|ada)|apruebo|estoy\s+de\s+acuerdo)|dale\s+haz|ejecuta\s+(el\s+)?plan|apruebo\s+(el\s+)?plan|confirm(o|a|ado|ada)\s+(la\s+)?ejecuci|procede\s+con\s+todo|publ[ií]calo(\s+ya)?)/i.test(t);

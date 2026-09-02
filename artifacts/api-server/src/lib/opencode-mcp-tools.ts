@@ -346,6 +346,52 @@ function destinoLegible(objetivo: unknown): string {
   return "🛒 lleva a la web buscando compradores (ventas — NO se pidió otro destino)";
 }
 
+/**
+ * El anuncio COMPLETO que se va a publicar, leido de la base.
+ *
+ * `describePlannedAction` es sincrona, asi que para las acciones que solo
+ * traen un id --subir el borrador N a Meta-- lo unico que el admin veia era
+ * el numero:
+ *
+ *   📤 Subir el borrador 89 a Meta EN PAUSA
+ *
+ * Eso es aprobar un numero, no un anuncio. El pedido del admin fue explicito:
+ * "antes de publicar los copy me de detalles y el comportamiento me lo
+ * muestre y pida si necesita ajustes".
+ *
+ * Es la misma regla que este sistema ya aplico al CREAR el borrador (commit
+ * cc916e5): si lo que se aprueba es contenido, el contenido tiene que estar a
+ * la vista. Faltaba el otro momento, que es el que de verdad publica.
+ *
+ * Si el borrador no existe o la consulta falla, devuelve "": el plan sale sin
+ * el detalle, pero sale. Nunca se cae por no poder mostrarlo.
+ */
+async function detalleDelBorrador(draftId: unknown, tenantId: number): Promise<string> {
+  const id = Number(draftId);
+  if (!Number.isFinite(id) || id <= 0) return "";
+  try {
+    const { facebookDrafts } = await import("@workspace/db");
+    const { and, eq } = await import("drizzle-orm");
+    const [d] = await db.select().from(facebookDrafts)
+      .where(and(eq(facebookDrafts.id, id), eq(facebookDrafts.tenantId, tenantId)))
+      .limit(1);
+    if (!d) return "";
+
+    const partes = [
+      d.productName ? `\n   📦 Producto: ${d.productName}` : "",
+      d.headline ? `\n   🎯 Titulo: ${valorLegible(d.headline, 90)}` : "",
+      d.primaryText
+        ? `\n   ✍️ Texto que va a ver la gente:\n${String(d.primaryText).split("\n").map((l: string) => `      ${l}`).join("\n")}`
+        : "",
+      d.budget ? `\n   💰 Presupuesto: $${Number(d.budget).toLocaleString("es-CO")}/dia` : "",
+      d.imageUrl ? `\n   🖼️ Con imagen` : "\n   ⚠️ SIN imagen",
+    ];
+    return partes.filter(Boolean).join("");
+  } catch {
+    return "";
+  }
+}
+
 export function describePlannedAction(a: { tool: string; args: any }): string {
   const g = a.args || {};
   switch (a.tool) {
@@ -738,7 +784,15 @@ async function proposeAction(
   const bloqueo = await bloqueoDeMeta(tool, ctx);
   if (bloqueo) return { ok: false, summary: bloqueo };
 
-  const description = describePlannedAction({ tool, args: toolArgs });
+  let description = describePlannedAction({ tool, args: toolArgs });
+
+  // Las acciones que PUBLICAN traen solo un id. El admin tiene que leer lo
+  // que se va a publicar antes de aprobarlo, no despues.
+  if (tool === "fb_upload_draft_to_meta" && toolArgs?.draftId !== "auto") {
+    const detalle = await detalleDelBorrador(toolArgs?.draftId, ctx.tenantId);
+    if (detalle) description += detalle;
+  }
+  description += "\n   ➡️ Si algo no te cuadra, decime que cambie y lo ajusto antes de publicar.";
 
   await db.insert(architectMemory).values({
     tenantId: ctx.tenantId,
