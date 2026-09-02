@@ -3,6 +3,7 @@ import { createAIClient, getProviderConfig, getProviderConfigFromSettings, getOp
 import { db, agents, settings, products, productCategories, conversations, messages } from "@workspace/db";
 import { eq, and, desc, sql, inArray } from "drizzle-orm";
 import { logger } from "../lib/logger";
+import { esUnSiParaEstePlan } from "../lib/es-un-si";
 import { extraerJSON } from "../lib/respuesta-json";
 import { dbNow } from "../lib/date-utils";
 import type { TenantRequest } from "../lib/tenantManager";
@@ -1597,7 +1598,32 @@ ESTADO REAL DEL CATALOGO, MEDIDO AHORA MISMO (${new Date().toISOString()}):
     // ── ¿Hay un PLAN PENDIENTE esperando confirmación? ──
     const pending = await getPendingPlan(tenantId, sessionId);
     if (pending && pending.actions.length > 0) {
-      if (isApproval(String(prompt))) {
+      // ── Y si la lista no lo reconocio, que lo lea el modelo ──────────────
+      //
+      // `isApproval` es una lista de palabras que crecio una por vez, cada vez
+      // que el admin uso una que no estaba. Hoy reconoce 21 de 24 formas
+      // medidas. Pero hay respuestas que ninguna lista puede cubrir, porque el
+      // sentido no esta en las palabras sino en la pregunta que contestan:
+      //
+      //   Atlas: "PUBLICAR en el muro de la pagina. Confirmas?"
+      //   admin: "En el muro"
+      //   Atlas: "No me quedo claro si queres que lo haga."
+      //
+      // "En el muro" solo significa que si EN RELACION con lo que se pregunto.
+      //
+      // Se consulta unicamente cuando la lista ya dijo que no y tampoco es un
+      // rechazo, asi que lo barato se sigue resolviendo gratis. Y el modulo
+      // esta escrito para equivocarse hacia el NO: ante duda, error o demora
+      // devuelve false y Atlas vuelve a preguntar, que es lo que hace hoy.
+      // Acá un falso positivo publica en la pagina o crea una campaña que
+      // gasta: preguntar de nuevo cuesta un mensaje.
+      const aprobadoPorElModelo =
+        !isRejection(String(prompt)) &&
+        (await esUnSiParaEstePlan(String(prompt), pending.actions.map((a: any) => describePlannedAction(a)).join(" · ")));
+      if (aprobadoPorElModelo) {
+        logger.info({ tenantId, prompt: String(prompt).slice(0, 60) }, "[Atlas] la lista no lo reconocio pero el modelo lo leyo como un si");
+      }
+      if (isApproval(String(prompt)) || aprobadoPorElModelo) {
         // EJECUTAR el plan aprobado, con VERIFICACIÓN tras cada cambio y
         // AUTO-REPARACIÓN si algo falla (ver attemptSelfRepair arriba).
         const executed: any[] = [];

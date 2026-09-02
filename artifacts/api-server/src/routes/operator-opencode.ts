@@ -29,6 +29,7 @@ import { Router } from "express";
 import { randomUUID } from "node:crypto";
 import type { TenantRequest } from "../lib/tenantManager";
 import { logger } from "../lib/logger";
+import { esUnSiParaEstePlan } from "../lib/es-un-si";
 import { ATLAS_SYSTEM_PROMPT_V2, executeAction, verifyMutation, investigacionRapida, mensajeParaAdmin, type OperatorContext } from "../lib/app-operator";
 import {
   loadArchitectHistory, saveArchitectTurn, getPendingPlan, setPendingPlan,
@@ -662,7 +663,32 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
     // /operator, sin cambios -- confirmar/rechazar nunca pasa por OpenCode. ──
     const pending = await getPendingPlan(tenantId, sessionId);
     if (pending && pending.actions.length > 0) {
-      if (isApproval(String(prompt))) {
+      // ── Y si la lista no lo reconocio, que lo lea el modelo ──────────────
+      //
+      // `isApproval` es una lista de palabras que crecio una por vez, cada vez
+      // que el admin uso una que no estaba. Hoy reconoce 21 de 24 formas
+      // medidas. Pero hay respuestas que ninguna lista puede cubrir, porque el
+      // sentido no esta en las palabras sino en la pregunta que contestan:
+      //
+      //   Atlas: "PUBLICAR en el muro de la pagina. Confirmas?"
+      //   admin: "En el muro"
+      //   Atlas: "No me quedo claro si queres que lo haga."
+      //
+      // "En el muro" solo significa que si EN RELACION con lo que se pregunto.
+      //
+      // Se consulta unicamente cuando la lista ya dijo que no y tampoco es un
+      // rechazo, asi que lo barato se sigue resolviendo gratis. Y el modulo
+      // esta escrito para equivocarse hacia el NO: ante duda, error o demora
+      // devuelve false y Atlas vuelve a preguntar, que es lo que hace hoy.
+      // Acá un falso positivo publica en la pagina o crea una campaña que
+      // gasta: preguntar de nuevo cuesta un mensaje.
+      const aprobadoPorElModelo =
+        !isRejection(String(prompt)) &&
+        (await esUnSiParaEstePlan(String(prompt), pending.actions.map((a: any) => describePlannedAction(a)).join(" · ")));
+      if (aprobadoPorElModelo) {
+        logger.info({ tenantId, prompt: String(prompt).slice(0, 60) }, "[Atlas] la lista no lo reconocio pero el modelo lo leyo como un si");
+      }
+      if (isApproval(String(prompt)) || aprobadoPorElModelo) {
         const executed: any[] = [];
         const lines: string[] = [];
         // ── Encadenado: el paso 2 usa el id que produjo el paso 1 ──────────
