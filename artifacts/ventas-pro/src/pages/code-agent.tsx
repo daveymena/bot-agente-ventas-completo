@@ -493,6 +493,20 @@ export default function CodeAgent() {
         let payload: any;
         try { payload = JSON.parse(datos); } catch { continue; }
         if (evento === "progress" && payload?.texto) setProgreso(String(payload.texto));
+        // Una parte del pedido que ya está terminada. Entra al chat como un
+        // mensaje más, sin cerrar el turno: Atlas sigue con la parte siguiente
+        // y el indicador queda prendido.
+        //
+        // Antes las partes se acumulaban y salían todas juntas al final, así
+        // que un turno que se cortaba en la tercera entregaba CERO -- las dos
+        // que ya estaban hechas se perdían con él. Ahora lo entregado queda
+        // entregado.
+        else if (evento === "avance" && payload?.reply) {
+          setMessages((prev) => [
+            ...prev,
+            { role: "assistant", content: String(payload.reply), at: Date.now() },
+          ]);
+        }
         else if (evento === "result") resultado = payload;
         else if (evento === "error") throw new Error(payload?.error || "turno interrumpido");
       }

@@ -45,6 +45,7 @@ import { getAppUrl } from "../lib/app-url";
 import { ENV_POR_PROVEEDOR } from "../lib/ai-keys";
 import { claveDeTurno, empezarTurno, terminarTurno, pedirDetener, hayTurnoEnVuelo, fueDetenido } from "../lib/turnos-en-vuelo";
 import { afirmaHaberloHecho } from "../lib/afirma-haberlo-hecho";
+import { mensajeDeCierre } from "../lib/entrega-por-partes";
 import { db, products } from "@workspace/db";
 import { eq, desc } from "drizzle-orm";
 
@@ -1056,6 +1057,12 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
       // el tiempo disponible y el admin ve avance real en vez de una
       // disculpa. No depende de que el modelo se autolimite.
       let partesPendientes: string[] = [];
+      /**
+       * Las partes que ya se le mandaron al admin por separado, tal como las
+       * vio. Se restan del mensaje de cierre para no repetirle en pantalla lo
+       * que acaba de leer.
+       */
+      const partesEntregadas: string[] = [];
       const CONECTORES = /,| y (?=el |la |los |las |un |una )/i;
       const crudo = String(prompt).trim();
       if (crudo.length > 60) {
@@ -1511,7 +1518,28 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
             partesPendientes.unshift(siguiente);
             break;
           }
-          if (r.text) finalReplyVerificado = `${finalReplyVerificado}\n\n${r.text}`.trim();
+          if (r.text) {
+            // ── Se entrega AHORA, no al final del turno ───────────────────
+            //
+            // Con ~45s por parte y 135s de presupuesto, un turno que se cortaba
+            // en la parte 3 entregaba CERO: las dos que YA estaban hechas se
+            // perdían con él. Ahora cada una sale apenas está lista, y lo
+            // entregado queda entregado aunque el turno se muera después.
+            //
+            // Se sigue acumulando en `finalReplyVerificado` igual que antes,
+            // porque los candados del final (el de "ya lo hice" sin haberlo
+            // hecho, el de las promesas, el supervisor) tienen que juzgar TODO
+            // lo que se dijo en el turno y no solo el último pedazo. Al cerrar
+            // se resta lo ya entregado para no repetirlo en pantalla.
+            // Ver lib/entrega-por-partes.ts.
+            const textoParte = r.text.trim();
+            finalReplyVerificado = `${finalReplyVerificado}\n\n${textoParte}`.trim();
+            const paraMostrar = paraMarkdown(toEmojiStyle(textoParte));
+            partesEntregadas.push(paraMostrar);
+            sse("avance", { reply: paraMostrar });
+            await saveArchitectTurn(tenantId, sessionId, "assistant", paraMostrar);
+            logger.info({ tenantId, largo: paraMostrar.length }, "[AtlasOpenCode] Parte entregada en el momento");
+          }
         } catch (e: any) {
           logger.warn({ tenantId, err: e?.message }, "[AtlasOpenCode] Excepción en la parte siguiente, corto acá");
           partesPendientes.unshift(siguiente);
@@ -1895,7 +1923,15 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
         return finish({ reply, plan: plannedActions, status: "awaiting_confirmation", tramos, totalMs: Date.now() - t0 });
       }
 
-      const reply = paraMarkdown(toEmojiStyle(finalReplyVerificado || "No tengo una respuesta para eso todavía."));
+      // Lo que ya se entregó parte por parte no se repite en el cierre: el
+      // admin acaba de leerlo. Los avisos que los candados agregaron arriba o
+      // abajo SÍ van, porque son nuevos -- por eso se resta el texto exacto de
+      // cada parte y no se corta por longitud. Ver lib/entrega-por-partes.ts.
+      const textoDeCierre = mensajeDeCierre(String(finalReplyVerificado || ""), partesEntregadas);
+      const reply = paraMarkdown(toEmojiStyle(textoDeCierre || "No tengo una respuesta para eso todavía."));
+      // Las partes ya se guardaron una por una al entregarlas; guardar el
+      // cierre otra vez con el texto completo dejaría la conversación con todo
+      // duplicado, y esa conversación es la memoria que Atlas relee después.
       await saveArchitectTurn(tenantId, sessionId, "assistant", reply);
       // ── Cuánto tardó y en qué ───────────────────────────────────────────
       //

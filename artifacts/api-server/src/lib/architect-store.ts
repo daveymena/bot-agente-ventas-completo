@@ -10,7 +10,7 @@
  *  - Plan pendiente  → memoryType "decision",   title "pending_plan", content = JSON de acciones
  */
 import { db, architectMemory } from "@workspace/db";
-import { and, eq, asc, desc, inArray } from "drizzle-orm";
+import { and, eq, desc, inArray } from "drizzle-orm";
 
 export interface ChatTurn {
   role: "user" | "assistant";
@@ -58,8 +58,36 @@ export async function loadArchitectHistory(
         eq(architectMemory.memoryType, "observation"),
       ),
     )
-    .orderBy(asc(architectMemory.createdAt))
+    // ── LOS ÚLTIMOS 40, NO LOS PRIMEROS 40 ──────────────────────────────
+    //
+    // Acá decía `asc(...)` + `limit(40)`, y eso es "los cuarenta mensajes MÁS
+    // VIEJOS de la charla". Mientras la conversación era corta daba lo mismo
+    // --si hay 12 mensajes, los primeros 40 son los 12--, así que funcionó
+    // hasta que alguien pasó de 40. A partir de ahí Atlas releía para siempre
+    // el ARRANQUE de la charla y no volvía a ver nada reciente: cada mensaje
+    // nuevo que el admin escribía entraba a la base y nunca salía.
+    //
+    // Reportado como "Atlas perdió contexto" el 2026-09-03. No es que se le
+    // olvide: es que estaba leyendo el principio del libro cada vez, y el
+    // problema EMPEORA cuanto más se conversa, que es lo contrario de lo que
+    // uno espera de una memoria.
+    //
+    // Se piden los últimos por fecha descendente y se dan vuelta, porque el
+    // modelo necesita leerlos en el orden en que pasaron.
+    // ── Y el desempate por `id`, que no es un detalle ────────────────────
+    //
+    // `created_at` se guarda con `datetime('now')`: granularidad de UN SEGUNDO.
+    // Varios mensajes del mismo turno caen en el MISMO instante y empatan, y
+    // con el empate el motor devuelve lo que se le antoja. Encontrado con una
+    // prueba de 45 mensajes: pidiendo los últimos 40 por fecha, devolvía los
+    // PRIMEROS 40 igual -- el arreglo del orden no servía de nada sin esto.
+    //
+    // `id` es autoincremental, así que es el orden real en que se dijeron las
+    // cosas, y no depende de la precisión del reloj.
+    .orderBy(desc(architectMemory.createdAt), desc(architectMemory.id))
     .limit(MAX_HISTORY);
+
+  rows.reverse();
 
   return rows.map((r: any) => ({
     role: (r.metadata?.role as "user" | "assistant") || "user",

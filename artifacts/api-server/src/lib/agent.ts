@@ -127,6 +127,7 @@ import {
   getProviderTimeout,
   resetProviderRotation,
 } from "./optimized-rotation";
+import { deepseekVaPrimero } from "./deepseek-al-frente";
 import { getG4FResponse, initializeG4F } from "./providers/g4f-provider";
 import { G4F_ENABLED } from "../config/g4f.config";
 import { dbNow } from "./date-utils";
@@ -2142,6 +2143,28 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
       const activeProvider = appSettings?.aiProvider || "none";
       const isUserSelected = activeProvider !== "opencode" && activeProvider !== "none" && !!dbConfig;
 
+      /**
+       * DeepSeek al frente de la cola, con TODOS sus modelos.
+       *
+       * Orden del admin (2026-09-03): "la IA por defecto principal siempre va a
+       * ser DeepSeek". Ver lib/deepseek-al-frente.ts para por qué es una regla
+       * con pruebas y no una línea suelta.
+       *
+       * No se usa `getProviderConfig("deepseek")` (que da UN modelo) sino la
+       * rotación entera: la cuota se agota por modelo, no por cuenta.
+       */
+      const candidatosDeepSeek = () => {
+        if (!deepseekVaPrimero({
+          hayClave: !!process.env.DEEPSEEK_API_KEY,
+          sano: healthMonitor.isServiceHealthy("deepseek"),
+          proveedorElegido: activeProvider,
+        })) return [];
+        return getProviderRotation("deepseek").map((config) => ({
+          config,
+          source: `deepseek/${config.model}`,
+        }));
+      };
+
       // ── Helper: pushear fallbacks disponibles ──
       const pushFallbacks = (queue: { config: any; source: string }[]) => {
         // Lo que cargó ESTE cliente manda sobre todo lo demás: es su cuenta.
@@ -2350,14 +2373,36 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
         console.log(`🎯 [AI] G4F seleccionado como proveedor principal - ${ts()}`);
         // G4F se maneja por separado (no usa OpenAI client), se prueba primero
       } else if (isUserSelected) {
+        // ── DeepSeek va PRIMERO, y lo elegido queda justo detrás ───────────
+        //
+        // Acá la cola era EXCLUSIVAMENTE lo que el admin eligió en
+        // Configuración, y DeepSeek recién aparecía en la fase 2 -- o sea
+        // después de que el elegido fallara y se gastara su tiempo, con un
+        // cliente escribiendo del otro lado. Con la clave paga cargada y
+        // medida en 1,16s, eso es hacer esperar por gusto.
+        //
+        // La elección del admin NO se borra: queda segunda. Si DeepSeek se
+        // queda sin saldo, lo que él eligió contesta igual.
+        const deLaCasa = candidatosDeepSeek();
+        rotationQueue.push(...deLaCasa);
         rotationQueue.push({ config: dbConfig, source: activeProvider });
-        console.log(`🎯 [AI] Proveedor seleccionado: ${activeProvider} (exclusivo) - ${ts()}`);
+        console.log(`🎯 [AI] DeepSeek al frente (${deLaCasa.length}) + elegido: ${activeProvider} - ${ts()}`);
       } else {
+        // Mismo criterio que arriba. `getOptimizedProviderOrder()` ya devuelve
+        // deepseek primero, pero por la rama genérica del bucle entra con UN
+        // modelo (`getProviderConfig`) en vez de con su rotación completa, y
+        // la cuota se agota por modelo. Poniéndolo acá entra entero, y el
+        // bucle lo saltea para no intentarlo dos veces.
+        rotationQueue.push(...candidatosDeepSeek());
         const optimizedOrder = getOptimizedProviderOrder();
         console.log(`🎯 [AI] Orden optimizado: [${optimizedOrder.join(", ")}] - ${ts()}`);
 
         for (const prov of optimizedOrder) {
           if (prov === "g4f") continue; // G4F va al final
+          // DeepSeek ya se encoló arriba, con su rotación completa. Sin este
+          // salto entraría una segunda vez por la rama genérica y el turno
+          // intentaría el mismo modelo dos veces seguidas.
+          if (prov === "deepseek" && rotationQueue.some((c) => c.source.startsWith("deepseek/"))) continue;
           if (prov === "opencode") {
             const opencodeEnv = getProviderConfig("opencode");
             if (opencodeEnv) {
