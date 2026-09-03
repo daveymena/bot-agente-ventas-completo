@@ -28,6 +28,16 @@ describe("Atlas puede ver las automatizaciones", () => {
     }
   });
 
+  it("y el asistente de configuración también está enganchado", () => {
+    // El pedido del admin (2026-09-02): que Atlas guíe a un cliente que no
+    // sabe de esto. Si la herramienta existe y no está en la lista, el modelo
+    // no la ve nunca -- que es el error que este archivo entero vigila.
+    expect(nombres()).toContain("configurar_mi_agente");
+    // Solo lee: pedir permiso para preguntarle al dueño qué prefiere sería
+    // absurdo, y haría que nadie configure nada.
+    expect(READ_ONLY_TOOLS.has("configurar_mi_agente")).toBe(true);
+  });
+
   it("cada una explica cuándo usarla", () => {
     // Sin esto el modelo no las llama nunca: una herramienta que no dice para
     // qué sirve es una herramienta invisible.

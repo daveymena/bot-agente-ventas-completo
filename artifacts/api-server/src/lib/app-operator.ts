@@ -4563,6 +4563,64 @@ Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vincu
     },
   },
   {
+    name: "configurar_mi_agente",
+    description:
+      "EL ASISTENTE DE CONFIGURACIÓN, guiado paso a paso. Devuelve LA SIGUIENTE decisión que le falta al negocio, " +
+      "con opciones concretas para elegir, cuál conviene y por qué. Solo LEE. " +
+      "Úsalo cuando el admin diga que quiere configurar su agente, cuando pregunte cómo dejarlo listo, " +
+      "y SIEMPRE con un negocio nuevo antes de que empiece a vender. " +
+      "Presentá la pregunta y las opciones TAL COMO vienen en `preguntaListaParaLeer` --están escritas para que alguien que no sabe de esto pueda elegir-- " +
+      "y esperá su respuesta. Cuando elija, guardá con negocio_configurar y volvé a llamar esta herramienta para la siguiente. " +
+      "De a UNA por vez: mandarle las seis juntas es un formulario, y a un formulario nadie contesta.",
+    args: "{}",
+    run: async (_args, ctx) => {
+      const { getBusinessContext } = await import("./business-context");
+      const { loQueFalta, comoPreguntarla, cuantoFalta } = await import("./configuracion-guiada");
+
+      const negocio = await getBusinessContext(ctx.tenantId);
+      const filas = await db
+        .select({ kind: products.kind })
+        .from(products)
+        .where(and(eq(products.tenantId, ctx.tenantId), eq(products.isActive, true)));
+
+      const catalogo = {
+        digitales: filas.filter((f: any) => String(f.kind || "digital") === "digital").length,
+        fisicos: filas.filter((f: any) => String(f.kind) === "physical").length,
+        servicios: filas.filter((f: any) => String(f.kind) === "servicio").length,
+      };
+
+      const estado = { perfil: (negocio || {}) as any, catalogo, nombreDelNegocio: (negocio as any)?.businessName };
+      const faltan = loQueFalta(estado);
+      const avance = cuantoFalta(estado);
+
+      if (faltan.length === 0) {
+        return {
+          ok: true,
+          summary: `El agente está configurado al ${avance.porcentaje}%: no queda ninguna decisión pendiente.`,
+          data: { avance, siguiente: null },
+        };
+      }
+
+      const siguiente = faltan[0];
+      return {
+        ok: true,
+        summary:
+          `Configuración al ${avance.porcentaje}% (${avance.listas} de ${avance.total}). ` +
+          `Falta definir: ${siguiente.campo}. Quedan ${faltan.length}.`,
+        data: {
+          avance,
+          preguntaListaParaLeer: comoPreguntarla(siguiente),
+          campo: siguiente.campo,
+          opciones: siguiente.opciones.map((o: any) => ({ id: o.id, etiqueta: o.etiqueta, recomendada: !!o.recomendada })),
+          pendientesDespues: faltan.slice(1).map((d: any) => d.campo),
+          comoGuardar:
+            "Cuando el admin elija, guardá con negocio_configurar el campo correspondiente. " +
+            "Si dice algo distinto a las opciones, guardá lo que dijo: las opciones son una ayuda, no un límite.",
+        },
+      };
+    },
+  },
+  {
     name: "negocio_que_falta",
     description:
       "Qué datos del negocio NO están cargados y qué le cuesta cada uno al bot de WhatsApp. Solo LEE. " +
@@ -5404,6 +5462,8 @@ export const READ_ONLY_TOOLS = new Set([
   // Solo mira qué falta cargar. Pedir permiso para diagnosticar haría que
   // nadie diagnostique.
   "negocio_que_falta",
+  // Solo dice qué decisión sigue. Pedir permiso para preguntar sería absurdo.
+  "configurar_mi_agente",
 ]);
 export const DESTRUCTIVE_TOOLS = new Set([
   "delete_product",
