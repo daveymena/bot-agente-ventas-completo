@@ -424,6 +424,28 @@ const frontendPath = findFrontendPath();
 const IMAGES_DIR = getImageStoreDir();
 mkdirSync(IMAGES_DIR, { recursive: true });
 
+// ── El video del producto, servido por la app ────────────────────────────
+//
+// Pedido del admin: "descargalo y alojalo en la app". El enlace de Terabox
+// funciona pero le pide al cliente instalar la app o registrarse, y poner una
+// barrera de registro justo cuando esta decidiendo comprar es perder la venta.
+//
+// `sendFile` responde peticiones de rango solo, asi que el cliente puede
+// adelantar el video sin bajarlo entero.
+//
+// ⚠️ Esto NO reproduce dentro del chat de WhatsApp: para eso el video tiene
+// que ir como archivo adjunto y pesar menos de 16 MB. Lo que da es una URL
+// propia que abre el video sin apps ni cuentas de por medio.
+app.get("/videos/products/:filename", (req, res) => {
+  const filename = req.params.filename;
+  if (path.basename(filename) !== filename || !/^\d+\.(?:mp4|webm|mov|m4v)$/i.test(filename)) {
+    return res.status(404).end();
+  }
+  const filePath = path.resolve(IMAGES_DIR, "videos", filename);
+  if (!existsSync(filePath)) return res.status(404).json({ message: "Video no disponible" });
+  return res.sendFile(filePath);
+});
+
 // Servir imágenes de productos desde el volumen persistente primero
 app.get("/images/products/:filename", (req, res, next) => {
   const filename = req.params.filename;

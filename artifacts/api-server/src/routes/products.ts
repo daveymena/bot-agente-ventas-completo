@@ -204,6 +204,70 @@ router.post("/", async (req: TenantRequest, res, next) => {
 });
 
 // Update a product (ensure it belongs to the tenant)
+/**
+ * POST /api/products/:id/video-desde-terabox  { path }
+ *
+ * Baja el video de presentacion desde Terabox y lo deja alojado en la app.
+ *
+ * Pedido del admin (2026-09-02): "descargalo y alojalo en la app, es el unico
+ * que esta en Terabox". El enlace de Terabox funciona pero le pide al cliente
+ * instalar la app o registrarse -- una barrera de registro justo cuando esta
+ * decidiendo comprar es perder la venta.
+ *
+ * El `dlink` que devuelve Terabox caduca en 1 a 8 horas, asi que NO se puede
+ * guardar como el video del producto: hay que bajar el archivo una vez y
+ * quedarselo. Eso es lo que hace esto.
+ *
+ * Corre en el servidor a proposito: es ahi donde vive la cookie de sesion de
+ * Terabox y donde esta el volumen persistente.
+ */
+router.post("/:id/video-desde-terabox", async (req: TenantRequest, res, next) => {
+  try {
+    const tenantId = req.tenant?.id;
+    if (!tenantId) return sendError(res, ERROR_CODES.UNAUTHORIZED);
+
+    const id = Number(req.params.id);
+    const ruta = String(req.body?.path || "").trim();
+    if (!id || !ruta) return res.status(400).json({ message: "Faltan 'id' o 'path'" });
+
+    const [prod] = await db.select().from(products)
+      .where(and(eq(products.tenantId, tenantId), eq(products.id, id))).limit(1);
+    if (!prod) return res.status(404).json({ message: "Producto no encontrado" });
+
+    // 1. El enlace directo, que dura horas.
+    const { default: TeraBoxApp } = await import("terabox-api");
+    const ndus = (process.env.TERABOX_NDUS || "").trim();
+    if (!ndus) return res.status(400).json({ message: "TERABOX_NDUS no configurado" });
+    const tb = new TeraBoxApp(ndus);
+    const meta: any = await (tb as any).getFileMeta([ruta]);
+    const dlink = meta?.info?.[0]?.dlink;
+    if (meta?.errno !== 0 || !dlink) {
+      return res.status(502).json({ message: `Terabox no devolvio enlace (errno=${meta?.errno})` });
+    }
+
+    // 2. Se baja UNA vez y se guarda.
+    const { guardarVideoDeProducto } = await import("../lib/video-store");
+    const guardado = await guardarVideoDeProducto(String(dlink), id);
+    if (!guardado) return res.status(502).json({ message: "No se pudo descargar el video" });
+
+    // 3. Y queda como el video del producto.
+    let m: any = {};
+    try { m = typeof prod.metadata === "string" ? JSON.parse(prod.metadata) : (prod.metadata || {}); } catch { m = {}; }
+    m.videoIntro = guardado.url;
+    m.videoOrigenTerabox = ruta;
+    await db.update(products).set({ metadata: JSON.stringify(m) }).where(eq(products.id, id));
+
+    return res.json({
+      ok: true,
+      url: guardado.url,
+      mb: Math.round(guardado.bytes / 1048576),
+      nota: "Alojado en la app. NO se reproduce dentro de WhatsApp (tope 16 MB): abre el video en el navegador.",
+    });
+  } catch (e) {
+    return next(e);
+  }
+});
+
 router.patch("/:id", async (req: TenantRequest, res, next) => {
   try {
     const tenantId = req.tenant?.id;
