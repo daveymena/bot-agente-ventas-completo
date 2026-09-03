@@ -170,8 +170,19 @@ describe("el video se manda en el momento preciso, no en cualquiera", () => {
     expect(invitacionDe("info", false)).toMatch(/video/i);
   });
 
-  it("despues de verlo, se pregunta que le parecio", () => {
-    expect(invitacionDe("video", false)).toMatch(/pareci/i);
+  it("despues de verlo, el cierre lleva a algun lado", () => {
+    // Aca se exigia "¿Que te parecio?". Es una encuesta: el cliente contesta
+    // "bien" y la conversacion queda en el mismo punto. Se vio el 2026-09-02,
+    // con el precio ya sobre la mesa y dos "si" del cliente: el chat termino
+    // en esa pregunta y nadie le dijo nunca como pagar.
+    //
+    // Si todavia no sabe cuanto cuesta, eso es lo que falta.
+    expect(invitacionDe("video", false)).toMatch(/precio|cu[aá]nto/i);
+    // Y si ya lo sabe, se le pregunta que lo frena -- que el bot SI puede
+    // contestar. Ofrecerle el checkout no: el servidor lo bloquea mientras la
+    // etapa sea "interesado" (ver puedeMandarPago), asi que seria prometer
+    // algo que no va a llegar.
+    expect(invitacionDe("video", false, "", true, false, true)).toMatch(/duda|frena/i);
   });
 });
 

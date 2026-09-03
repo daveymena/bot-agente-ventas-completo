@@ -21,7 +21,7 @@ import { processPurchaseConfirmation } from "./payment-confirmation";
 import { proximoPaso, renderPaso, necesidadDeclarada, type Paso } from "./embudo";
 import { opcionesPendientes, preguntaPorLaOpcion } from "./opciones-del-producto";
 import { preguntasSueltas } from "./estado-cognitivo";
-import { seccionQueCorresponde, elSiContestaLaOferta, elCierreOfrece, pideAlgoEntregable, elProductoSaleDeLaPreguntaMisma, queOfrecioElBot } from "./ficha-parcial";
+import { seccionQueCorresponde, elSiContestaLaOferta, elCierreOfrece, pideAlgoEntregable, elProductoSaleDeLaPreguntaMisma, queOfrecioElBot, elVideoYaSalio, sePuedeOfrecerElVideo } from "./ficha-parcial";
 import { promesasIncumplidas, sinLaPromesa, sinElMontoQueVaEnLaFicha, niegaLoQueSiSale, loQueEntregaLaSeccion, NOMBRE_DE_PROMESA } from "./promesas";
 import { medirEmojis } from "./emojis-con-medida";
 import { preguntaPorLoInterno, delataLoInterno, respuestaSegura, vocabularioDelNegocio } from "./nada-interno";
@@ -2862,8 +2862,22 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
           // el checkout entero: al que pregunta cuanto vale se le tiraban los
           // tres medios de pago y el numero de Nequi.
           const ofrecimosPrecio = ofrecioAntes === "precio" || ofrecidoEnTexto === "precio";
-          const videoYaEnviado = delAgente.some((m) =>
-            /🎬 Mira c[oó]mo son las clases|drive\.google\.com\/file/i.test(String(m.content || "")),
+          // ⚠️ Esto era una frase y un dominio: `/🎬 Mira cómo son las clases|
+          // drive.google.com\/file/`. El video que acompaña a la ficha se manda
+          // con otras TRES redacciones y, en el negocio que está vendiendo hoy,
+          // con un enlace de Terabox -- así que la guarda no reconocía el video
+          // que el propio sistema acababa de enviar, y el bot lo ofrecía de
+          // nuevo y lo remandaba. Ahora se pregunta por el ENLACE de este
+          // producto, que es el hecho. Ver `elVideoYaSalio`.
+          const urlVideoDeEsteProducto = videoDeProductoSeguro(
+            (productList as any[]).find((pr: any) => pr.id === resolvedId),
+          );
+          const videoYaEnviado = elVideoYaSalio(delAgente as any, urlVideoDeEsteProducto);
+
+          // ¿Ya se dijo cuánto cuesta? El cierre del video lo necesita para no
+          // ofrecerle el precio a quien acaba de preguntarlo.
+          const yaSabeElPrecio = (memory.history as any[]).some(
+            (m) => m.role !== "customer" && /💰/.test(String(m.content || "")),
           );
 
           const seccion = seccionQueCorresponde({
@@ -2928,11 +2942,20 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
           // `yaVioContenido` se calcula igual que allá: whatsapp.ts le suma
           // `seccion === "completa" || seccion === "info"`, porque esas dos
           // secciones muestran el contenido en el mismo mensaje.
+          // El tercer argumento NO es "el producto tiene video": es "el cierre
+          // PUEDE ofrecerlo", que además exige que no haya salido ya y que no
+          // vaya a salir en este mismo mensaje. whatsapp.ts usa esta misma
+          // función para armarlo, así que los dos lados no pueden separarse.
           ofrecimientoDeLaFicha = elCierreOfrece(
             seccion as any,
             String(productoDeLaFicha?.kind || "digital") === "physical",
-            !!videoDeProductoSeguro(productoDeLaFicha),
+            sePuedeOfrecerElVideo({
+              seccion: seccion as any,
+              tieneVideo: !!videoDeProductoSeguro(productoDeLaFicha),
+              videoYaEnviado,
+            }),
             memory.sentProductIds.has(resolvedId) || seccion === "completa" || seccion === "info",
+            yaSabeElPrecio,
           );
           console.log(`🎯 [FICHA] Sección elegida: ${seccion}, el cierre ofrece: ${ofrecimientoDeLaFicha} (intent: ${decision.intent}) - ${ts()}`);
           // ── La etapa decide si corresponde cobrar ───────────────────────────
@@ -2997,6 +3020,7 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
             yaVioContenido: memory.sentProductIds.has(resolvedId),
             sesionNueva: !!memory.isNewSession,
             videoYaEnviado,
+            yaSabeElPrecio,
             mensajeDelCliente: String(lastText || ""),
             seccion,
           });
@@ -3081,8 +3105,9 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
             mensaje: String(lastText || ""),
             intent: decision.intent,
             fichaYaEnviada: memory.sentProductIds.has(idParaEntregar),
-            videoYaEnviado: (memory.history as any[]).some((m) =>
-              m.role !== "customer" && /drive\.google\.com\/file|Mira c[oó]mo son las clases/i.test(String(m.content || ""))),
+            // Misma corrección que arriba: por el enlace del producto, no por
+            // una frase que solo cubre una de las cuatro redacciones.
+            videoYaEnviado: elVideoYaSalio(memory.history as any, videoDeProductoSeguro(prod)),
           });
           // Solo las secciones que ENTREGAN algo. "completa" e "info" no se
           // fuerzan: si el cliente ya la vio, repetirla es el defecto opuesto.
@@ -3092,6 +3117,12 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
               kind: "card", productId: idParaEntregar, paymentOnly: false,
               yaVioContenido: memory.sentProductIds.has(idParaEntregar),
               sesionNueva: !!memory.isNewSession,
+              // Este camino tampoco puede remandar el video ni cerrar con una
+              // encuesta: es el mismo render.
+              videoYaEnviado: elVideoYaSalio(memory.history as any, videoDeProductoSeguro(prod)),
+              yaSabeElPrecio: (memory.history as any[]).some(
+                (m) => m.role !== "customer" && /💰/.test(String(m.content || "")),
+              ),
               mensajeDelCliente: String(lastText || ""),
               seccion: seccionPedida,
             } as any);

@@ -299,6 +299,80 @@ export function seccionQueCorresponde(e: EntradaSeccion): SeccionFicha {
  * sin presionar, y le dice al cliente qué más hay para saber.
  */
 /**
+ * ¿El video de este producto YA salió en esta conversación?
+ *
+ * Antes esto se decidía con `/drive\.google\.com\/file|Mira cómo son las
+ * clases/` -- una frase y un dominio. Y el video que acompaña a la ficha se
+ * manda con OTRAS tres redacciones ("Acá lo ves por dentro", "Mirá este video
+ * antes de decidir", "Te dejo el video...") y, en el negocio que está vendiendo
+ * hoy, con un enlace de Terabox. O sea: la guarda no reconocía el 100% de los
+ * videos que el propio sistema manda.
+ *
+ * Se vio en producción el 2026-09-02: el video salió a las 21:17 con la ficha,
+ * a las 21:19 el bot lo OFRECIÓ de nuevo, y al "Si" lo mandó por tercera vez.
+ *
+ * Ahora se pregunta por el enlace, que es el hecho: si la URL del video de
+ * ESTE producto aparece en algo que dijo el bot, ya salió. Las frases quedan
+ * de respaldo para el historial viejo, donde el enlace puede haber sido otro.
+ */
+export function elVideoYaSalio(
+  historial: { role?: string; content?: string }[] | null | undefined,
+  urlVideo?: string | null,
+): boolean {
+  const delBot = (historial || []).filter((m) => m.role !== "customer");
+  const url = String(urlVideo || "").trim();
+  return delBot.some((m) => {
+    const t = String(m.content || "");
+    if (url && t.includes(url)) return true;
+    // Respaldo: un mensaje del bot que abre con 🎬 y lleva un enlace es un
+    // video mandado, sea cual sea la redacción y el dominio.
+    if (/🎬/.test(t) && /https?:\/\//.test(t)) return true;
+    return /drive\.google\.com\/file|Mira c[oó]mo son las clases/i.test(t);
+  });
+}
+
+/**
+ * ¿Se puede OFRECER el video en el cierre de esta sección?
+ *
+ * Son tres condiciones y las tres se olvidaban en algún lado:
+ *
+ *   1. que el producto tenga uno cargado (solo 9 de 84);
+ *   2. que no haya salido ya -- ofrecer lo que el cliente tiene arriba en la
+ *      pantalla le dice que del otro lado no hay nadie leyendo;
+ *   3. que no vaya a salir EN ESTE MISMO MENSAJE.
+ *
+ * La tercera es la que produjo esto en vivo (2026-09-02, 21:17):
+ *
+ *   bot: "¿Te muestro el video? 🎬"
+ *   bot: "🎬 Acá lo ves por dentro: ..." [el video]
+ *
+ * El bot preguntó y se contestó solo. Son dos pedidos distintos del admin
+ * --"ofrecé el video como gancho" y "cuando entregues el contenido añadile el
+ * video al final"-- que nadie cruzó. Las fichas que muestran el contenido lo
+ * MANDAN, así que ésas no lo ofrecen.
+ *
+ * Vive acá y no en cada llamador porque la regla la necesitan los dos lados: el
+ * que arma el cierre (whatsapp.ts) y el que clasifica qué ofreció para leer el
+ * "sí" siguiente (agent.ts). Separados, se desincronizan -- ya pasó, y el
+ * comentario de `elCierreOfrece` lo cuenta.
+ */
+export function sePuedeOfrecerElVideo(e: {
+  seccion: SeccionFicha;
+  tieneVideo: boolean;
+  videoYaEnviado: boolean;
+}): boolean {
+  if (!e.tieneVideo) return false;
+  if (e.videoYaEnviado) return false;
+  if (e.seccion === "completa" || e.seccion === "info") return false;
+  return true;
+}
+
+/** ¿El cliente está pidiendo el video con todas las letras? */
+export function pidioElVideo(mensaje: string): boolean {
+  return PIDE_VIDEO.test(String(mensaje || ""));
+}
+
+/**
  * QUÉ ofrece el cierre de esta sección: el video, el contenido, u otra cosa.
  *
  * Existe porque el turno siguiente necesita saberlo y no puede deducirlo del
@@ -323,8 +397,9 @@ export function elCierreOfrece(
   esFisico: boolean,
   tieneVideo = true,
   yaVioContenido = false,
+  yaSabeElPrecio = false,
 ): "video" | "contenido" | "precio" | "otro" {
-  const t = invitacionesDe(s, esFisico, tieneVideo, yaVioContenido).join(" ").toLowerCase();
+  const t = invitacionesDe(s, esFisico, tieneVideo, yaVioContenido, yaSabeElPrecio).join(" ").toLowerCase();
   if (/video|c[oó]mo es por dentro|c[oó]mo se ve en uso|pedacito/.test(t)) return "video";
   if (/qu[eé] trae|qu[eé] incluye|qu[eé] viene|todo lo que trae/.test(t)) return "contenido";
   // El cierre de una ficha SIN video ofrece el precio ("¿Te paso el precio?").
@@ -355,8 +430,15 @@ export function invitacionDe(
    * acababa de leer. Ver el comentario en `invitacionesDe`.
    */
   yaVioContenido = false,
+  /**
+   * Si el precio de este producto ya salió en la conversación.
+   *
+   * Sin esto, el cierre del video ofrecía el precio a quien acababa de
+   * preguntarlo -- o peor, no ofrecía nada y preguntaba "¿qué te pareció?".
+   */
+  yaSabeElPrecio = false,
 ): string {
-  const opciones = invitacionesDe(s, esFisico, tieneVideo, yaVioContenido);
+  const opciones = invitacionesDe(s, esFisico, tieneVideo, yaVioContenido, yaSabeElPrecio);
   if (opciones.length === 0) return "";
   // Varía por cliente: dos personas distintas no reciben el mismo guion, y la
   // misma persona siempre recibe el mismo (así no parece que el bot cambia de
@@ -389,7 +471,13 @@ export function invitacionDe(
  * "te va a encantar" o "es el más vendido" son cosas que el bot no puede
  * saber, y ya hubo que sacar inventos de ese tipo (ver supervisor.ts).
  */
-function invitacionesDe(s: SeccionFicha, esFisico: boolean, tieneVideo = true, yaVioContenido = false): string[] {
+function invitacionesDe(
+  s: SeccionFicha,
+  esFisico: boolean,
+  tieneVideo = true,
+  yaVioContenido = false,
+  yaSabeElPrecio = false,
+): string[] {
   // Sin video cargado, el cierre apunta a otra cosa real. Nunca se ofrece lo
   // que no se puede entregar.
   if (!tieneVideo && (s === "info" || s === "completa")) {
@@ -467,8 +555,24 @@ function invitacionesDe(s: SeccionFicha, esFisico: boolean, tieneVideo = true, y
       ];
 
     case "video":
-      // Ya vio la clase. Ahí es donde más cerca está de decidir.
-      return ["¿Qué te pareció?"];
+      // Ya vio la clase. Ahí es donde más cerca está de decidir -- y por eso
+      // mismo el cierre tiene que llevar a algún lado.
+      //
+      // Acá había un "¿Qué te pareció?" y nada más. Es una encuesta: el
+      // cliente contesta "bien" y la conversación queda en el mismo punto.
+      // Se vio el 2026-09-02: el cliente había preguntado el precio, había
+      // dicho que sí dos veces, y el chat terminó ahí, sin que nadie le
+      // dijera nunca cómo pagar.
+      //
+      // El paso siguiente real depende de lo único que falta. Si todavía no
+      // sabe cuánto cuesta, eso es lo que falta. Si ya lo sabe, lo que queda
+      // es lo que lo esté frenando -- y esa pregunta el bot SÍ la puede
+      // contestar, mientras que ofrecerle el checkout no: el servidor lo
+      // bloquea mientras la etapa sea "interesado" (ver puedeMandarPago), así
+      // que prometerlo sería ofrecer algo que no va a llegar.
+      return yaSabeElPrecio
+        ? ["¿Te resuelvo alguna duda antes de decidir?", "¿Hay algo que te esté frenando?"]
+        : ["¿Te paso el precio? 💰", "¿Te digo cuánto está? 💰"];
 
     case "completa":
       // Recién lo conoce. Se le ofrece lo que más tira: ver el curso por dentro.

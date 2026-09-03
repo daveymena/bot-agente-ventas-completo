@@ -2,7 +2,7 @@ import { eq, inArray, desc, and } from "drizzle-orm";
 import { getAppUrl } from "./app-url";
 import { transcribirAudio, describirImagen } from "./media-entrante";
 import { contextoDeMoneda } from "./moneda-por-pais";
-import { invitacionDe, type SeccionFicha } from "./ficha-parcial";
+import { invitacionDe, sePuedeOfrecerElVideo, pidioElVideo, type SeccionFicha } from "./ficha-parcial";
 import { videoDeProducto } from "./video-de-producto";
 import { leerFicha, repartirPuntos, PRESUPUESTO_PIE_DE_FOTO } from "./ficha-del-producto";
 import { hablarColombiano } from "./hablar-colombiano";
@@ -726,6 +726,13 @@ async function construirSeccion(
    * traer Daviplata, no la primera cuenta cargada.
    */
   mensajeDelCliente = "",
+  /**
+   * Si el precio de este producto ya salio en la conversacion.
+   *
+   * Solo lo usa el cierre, para no ofrecerle el precio a quien acaba de
+   * preguntarlo ni cerrar con una encuesta a quien ya lo sabe.
+   */
+  yaSabeElPrecio = false,
 ): Promise<{ conFoto: boolean; mensajes: string[] }> {
   const mon = await contextoDeMoneda(String(semilla).split("|")[0], Number(p.price), p.currency);
   const esFisico = String((p as any).kind || "digital") === "physical";
@@ -743,7 +750,25 @@ async function construirSeccion(
   // Las secciones que LISTAN las características tampoco pueden cerrar
   // ofreciéndolas: ahí el cliente las está leyendo en el mismo mensaje.
   const estaFichaMuestraContenido = seccion === "completa" || seccion === "info";
-  const cierre = invitacionDe(seccion, esFisico, semilla, !!urlVideo, yaVioContenido || estaFichaMuestraContenido);
+
+  // ⚠️ NO es `!!urlVideo`. Una ficha que muestra el contenido MANDA el video
+  // unas lineas mas abajo, asi que ofrecerlo en el cierre es preguntar y
+  // contestarse solo en el mismo turno -- que es lo que salio en produccion el
+  // 2026-09-02. Y si el video ya salio antes, tampoco se ofrece.
+  //
+  // La regla vive en ficha-parcial porque agent.ts tiene que clasificar el
+  // cierre con EXACTAMENTE el mismo criterio: si los dos lados no coinciden, la
+  // metadata miente sobre lo que el cliente leyo y el "si" del turno siguiente
+  // se lee mal.
+  const seOfreceElVideo = sePuedeOfrecerElVideo({ seccion, tieneVideo: !!urlVideo, videoYaEnviado });
+  const cierre = invitacionDe(
+    seccion,
+    esFisico,
+    semilla,
+    seOfreceElVideo,
+    yaVioContenido || estaFichaMuestraContenido,
+    yaSabeElPrecio,
+  );
   const L: string[] = [];
 
   // ── Solo el precio ────────────────────────────────────────────────────────
@@ -780,6 +805,18 @@ async function construirSeccion(
     // la verdad y se le da una salida, en vez de inventar uno.
     if (!urlVideo) {
       return { conFoto: false, mensajes: [`De este ${esFisico ? "producto" : "curso"} todavía no tengo video 🙏 ¿Te cuento qué incluye?`] };
+    }
+    // ── El mismo enlace, tres veces en dos minutos ────────────────────────
+    //
+    // Pasó el 2026-09-02: el video salió con la ficha, y este bloque lo mandó
+    // dos veces más sin mirar nunca si ya había salido. El ruteo de arriba SÍ
+    // lo miraba, pero con una guarda que no reconocía el enlace de este
+    // negocio (ver elVideoYaSalio), así que llegaba igual.
+    //
+    // Se reenvía en un solo caso: que el cliente lo pida de nuevo con todas
+    // las letras. Ahí no es repetir, es contestar.
+    if (videoYaEnviado && !pidioElVideo(mensajeDelCliente)) {
+      return { conFoto: false, mensajes: [`Te lo mandé recién, mirá un poquito más arriba 👆 ${cierre}`] };
     }
     return { conFoto: false, mensajes: [`🎬 Mira cómo son las clases:\n${urlVideo}`, cierre] };
   }
@@ -2577,6 +2614,7 @@ export class WhatsAppManager {
               !!(part as any).sesionNueva,
               !!(part as any).videoYaEnviado,
               String((part as any).mensajeDelCliente || ""),
+              !!(part as any).yaSabeElPrecio,
             );
             console.log(`🎯 [WA-CARD] Sección "${seccion}" — ${mensajes.length} mensaje(s), foto: ${conFoto} - ${timestamp}`);
             if (conFoto) {
