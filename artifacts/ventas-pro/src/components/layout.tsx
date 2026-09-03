@@ -221,13 +221,13 @@ export function Layout({ children, chatCompleto = false }: { children: React.Rea
                 lo que hace falta. En escritorio se conserva el
                 comportamiento de siempre porque ahí no hay barra inferior y
                 varias pantallas (chat, ayuda) reparten el alto con flex. */}
-            <div className={`max-w-7xl mx-auto w-full md:flex-1 md:flex md:flex-col md:min-h-0 ${chatCompleto ? "flex-1 flex flex-col min-h-0 pb-[calc(72px+env(safe-area-inset-bottom))] md:pb-4" : "pb-[calc(184px+env(safe-area-inset-bottom))] md:pb-4"}`}>
+            <div className={`max-w-7xl mx-auto w-full md:flex-1 md:flex md:flex-col md:min-h-0 ${chatCompleto ? "flex-1 flex flex-col min-h-0 pb-[calc(80px+env(safe-area-inset-bottom))] md:pb-4" : "pb-[calc(184px+env(safe-area-inset-bottom))] md:pb-4"}`}>
               {children}
             </div>
           </main>
         </div>
         <MobileNav />
-        <HelpChatWidget />
+        <HelpChatWidget ocultoEnMovil={chatCompleto} />
       </div>
     </SidebarProvider>
   );

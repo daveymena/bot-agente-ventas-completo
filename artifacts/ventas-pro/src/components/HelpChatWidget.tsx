@@ -57,7 +57,20 @@ function loadPersistedMessages(): ChatMessage[] {
  * sugerencia, CTA de WhatsApp en pastilla verde. Mismo comportamiento de
  * siempre, solo cambió el vestido visual.
  */
-export function HelpChatWidget() {
+/**
+ * `ocultoEnMovil`: la pantalla ya tiene su propio campo de escritura abajo.
+ *
+ * El botón flotante vive en `bottom: 132px`, y en una pantalla de chat esos
+ * 132px caen JUSTO sobre la caja de escribir --que ocupa de los 72px de la
+ * barra hasta unos 160px--. Se veía en un celular el 2026-09-02: la burbuja
+ * de ayuda tapaba media caja de texto de Atlas.
+ *
+ * No se resuelve moviéndolo: cualquier lugar por encima de la barra pisa la
+ * caja, y por debajo pisa la barra. En una pantalla que YA es un chat, el
+ * botón para abrir otro chat encima no aporta nada. En escritorio no hay
+ * conflicto --va abajo a la derecha, lejos de todo-- así que ahí se queda.
+ */
+export function HelpChatWidget({ ocultoEnMovil = false }: { ocultoEnMovil?: boolean } = {}) {
   const [, setLocation] = useLocation();
   const [open, setOpen] = useState(false);
   const [hasOpenedOnce, setHasOpenedOnce] = useState(false);
@@ -266,7 +279,7 @@ export function HelpChatWidget() {
 
       <button
         onClick={handleToggle}
-        className="fixed bottom-[calc(132px+env(safe-area-inset-bottom))] md:bottom-6 right-4 sm:right-6 z-40 w-[60px] h-[60px] rounded-full bg-[linear-gradient(135deg,#4338ca,#4f46e5)] shadow-[0_14px_32px_-8px_rgba(79,70,229,0.5)] flex items-center justify-center hover:scale-[1.06] transition-transform"
+        className={`fixed bottom-[calc(132px+env(safe-area-inset-bottom))] md:bottom-6 right-4 sm:right-6 z-40 w-[60px] h-[60px] rounded-full bg-[linear-gradient(135deg,#4338ca,#4f46e5)] shadow-[0_14px_32px_-8px_rgba(79,70,229,0.5)] items-center justify-center hover:scale-[1.06] transition-transform ${ocultoEnMovil ? "hidden md:flex" : "flex"}`}
         title="Ayuda"
       >
         {open ? <X className="w-[25px] h-[25px] text-white" /> : <Sparkles className="w-[25px] h-[25px] text-white" />}

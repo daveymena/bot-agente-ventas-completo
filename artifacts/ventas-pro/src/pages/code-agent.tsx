@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { Layout } from "@/components/layout";
+import { useCajaQueCrece } from "@/hooks/use-caja-que-crece";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -131,6 +132,9 @@ export default function CodeAgent() {
   const [confirmingReset, setConfirmingReset] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // La caja de escribir crece con lo que se escribe. Ver el hook: acá
+  // había un comentario prometiéndolo y ni una línea que lo hiciera.
+  const textareaRef = useCajaQueCrece(input);
 
   // El cronómetro corre solo mientras se espera, y se reinicia en cada turno.
   useEffect(() => {
@@ -700,7 +704,7 @@ export default function CodeAgent() {
               </div>
             </ScrollArea>
 
-            <div className="p-3 md:p-4 border-t border-border bg-card/50">
+            <div className="px-3 pt-3 pb-4 md:p-4 border-t border-border bg-card/50">
               {/* La caja de escribir se alinea con la columna de lectura y
                   se apoya en un contenedor propio, como en ChatGPT: asi el ojo
                   no salta de ancho entre lo que lee y lo que escribe. */}
@@ -726,15 +730,12 @@ export default function CodeAgent() {
                   </Button>
                 )}
                 <div className="flex-1 relative" data-tour="code-agent-input">
-                  {/* Campo que CRECE con lo que se escribe.
-                      Antes era un <Input> de una sola linea: al escribir un
-                      pedido largo --que es lo normal con Atlas, no la
-                      excepcion-- el texto se corria hacia el costado y no se
-                      veia lo tipeado, asi que no habia forma de releerlo antes
-                      de mandarlo. Crece hasta ~6 renglones y despues scrollea
-                      solo, para no comerse el area de mensajes.
-                      Enter manda; Shift+Enter hace salto de linea. */}
+                  {/* Campo que CRECE con lo que se escribe: el alto lo mide el
+                      efecto de arriba, que es lo que faltaba. Crece hasta ~6
+                      renglones y después scrollea solo.
+                      Enter manda; Shift+Enter hace salto de línea. */}
                   <Textarea
+                    ref={textareaRef}
                     value={input}
                     onChange={(e) => setInput(e.target.value)}
                     onKeyDown={(e) => {
@@ -744,9 +745,14 @@ export default function CodeAgent() {
                       }
                     }}
                     rows={1}
-                    placeholder={mode === "operator" ? "Ej: analiza el sistema, crea un producto, configura la tienda..." : "Ej: crea un agente para vender cursos de programación..."}
+                    /* Corto a propósito: el anterior ocupaba dos renglones y
+                       en un celular quedaba cortado por la mitad, tapado
+                       además por el botón de enviar. Un ejemplo alcanza. */
+                    placeholder={mode === "operator" ? "Ej: analizá el sistema o creá un producto…" : "Ej: creá un agente de ventas…"}
                     disabled={loading}
-                    className="flex-1 min-h-[52px] max-h-44 resize-none overflow-y-auto rounded-2xl border-border/70 bg-card pr-12 py-3.5 px-4 text-[15px] leading-relaxed shadow-sm focus-visible:ring-1"
+                    /* pr-14: el botón de enviar flota adentro de la caja, así
+                       que el texto necesita ese margen o le pasa por debajo. */
+                    className="flex-1 min-h-[52px] max-h-44 resize-none overflow-y-auto rounded-2xl border-border/70 bg-card pr-14 py-3.5 px-4 text-[15px] leading-relaxed shadow-sm focus-visible:ring-1"
                   />
                   <Button
                     type="submit"

@@ -13,6 +13,8 @@ import {
 } from "@workspace/api-client-react";
 import { Layout } from "@/components/layout";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { useCajaQueCrece } from "@/hooks/use-caja-que-crece";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -36,6 +38,10 @@ export default function Conversations() {
   const queryClient = useQueryClient();
   const scrollRef = useRef<HTMLDivElement>(null);
   const [messageText, setMessageText] = useState("");
+  // La caja de respuesta crece con lo que se escribe. Tope mas bajo que el de
+  // Atlas (max-h-40): aca el historial del cliente es lo que hay que tener a la
+  // vista para poder contestarle.
+  const cajaDeRespuesta = useCajaQueCrece(messageText, 160);
 
   const { data: conversations, isLoading: loadingConversations } = useListConversations(
     { search: search || undefined },
@@ -563,11 +569,33 @@ export default function Conversations() {
                         onSubmit={(e) => { e.preventDefault(); handleSend(); }}
                       >
                         <div className="flex-1 relative min-w-0">
-                          <Input 
-                            placeholder="Escribe un mensaje..." 
-                            className="w-full rounded-full bg-card border-border/50 shadow-sm pl-4 sm:pl-6 pr-4 h-12 sm:h-14 text-sm sm:text-base focus-visible:ring-primary/30"
+                          {/* Acá había un <Input> de UNA línea, y es el peor
+                              lugar de la app para tenerlo: es donde una persona
+                              le escribe a un cliente de verdad. Una respuesta
+                              de tres renglones se iba de costado y no se podía
+                              releer antes de mandarla.
+
+                              Ahora crece con el texto (hasta ~5 renglones y
+                              después scrollea). El radio pasa de `rounded-full`
+                              a `rounded-3xl`: una cápsula perfecta solo se ve
+                              bien con una línea; con tres, las esquinas se
+                              comen el texto.
+
+                              Enter manda, Shift+Enter hace salto de línea:
+                              antes no había forma de escribir dos párrafos. */}
+                          <Textarea
+                            ref={cajaDeRespuesta}
+                            placeholder="Escribe un mensaje..."
+                            rows={1}
+                            className="w-full resize-none overflow-y-auto rounded-3xl bg-card border-border/50 shadow-sm pl-4 sm:pl-6 pr-4 py-3 sm:py-4 min-h-[48px] sm:min-h-[56px] max-h-40 text-sm sm:text-base leading-relaxed focus-visible:ring-primary/30"
                             value={messageText}
                             onChange={(e) => setMessageText(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter" && !e.shiftKey) {
+                                e.preventDefault();
+                                if (messageText.trim() && activeConv.status !== "ai" && !sendMessage.isPending) handleSend();
+                              }
+                            }}
                             disabled={activeConv.status === "ai" || sendMessage.isPending}
                           />
                         </div>
