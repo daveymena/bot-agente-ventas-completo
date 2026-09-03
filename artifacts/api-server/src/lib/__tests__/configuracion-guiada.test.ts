@@ -92,6 +92,9 @@ describe("lo ya configurado no se vuelve a preguntar", () => {
         tono: "cercano",
         negociaPrecio: false,
         noPuede: ["No emitimos factura electrónica"],
+        // La séptima decisión: cómo vende. Va guardada como las perillas que
+        // el servidor obedece, no como el id del perfil.
+        estiloDeVenta: { calificacion: "salvo_si_pidio_dato", ganchoVideo: true, anteLaDuda: "algo_concreto" },
       },
       catalogo: digital,
     };
@@ -108,7 +111,7 @@ describe("lo ya configurado no se vuelve a preguntar", () => {
 
   it("el avance se mide y da un número que el dueño entiende", () => {
     const a = cuantoFalta(vacio(digital));
-    expect(a.total).toBe(6);
+    expect(a.total).toBe(7);
     expect(a.listas).toBe(0);
     const b = cuantoFalta({ perfil: { tono: "cercano", garantia: { dias: 7 } }, catalogo: digital });
     expect(b.listas).toBe(2);

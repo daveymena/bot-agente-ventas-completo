@@ -4642,6 +4642,7 @@ Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vincu
         !p.tono && { campo: "tono", falta: "cómo habla este negocio", cuesta: "El bot usa el tono por defecto, que puede no parecerse en nada a cómo habla la marca." },
         p.negociaPrecio === undefined && { campo: "negociaPrecio", falta: "si el precio se negocia o no", cuesta: "Ante un '¿me lo dejás más barato?' el bot no sabe si puede ceder." },
         !p.noPuede?.length && { campo: "noPuede", falta: "qué NO hace el negocio", cuesta: "Sin esto el bot puede prometer algo que el negocio no ofrece, y eso termina en reclamo." },
+        !p.estiloDeVenta && { campo: "estiloDeVenta", falta: "cómo querés que venda", cuesta: "Vende con el estilo por defecto: averigua una cosa antes de presentar y no interroga a quien pidió el precio. Funciona, pero puede no ser tu forma." },
       ].filter(Boolean) as any[];
 
       return {
@@ -4655,6 +4656,7 @@ Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vincu
           yaCargado: {
             entrega: p.entrega ?? null, garantia: p.garantia ?? null, acceso: p.acceso ?? null,
             tono: p.tono ?? null, negociaPrecio: p.negociaPrecio ?? null, noPuede: p.noPuede ?? [],
+            estiloDeVenta: p.estiloDeVenta ?? null,
           },
         },
       };
@@ -4667,7 +4669,7 @@ Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vincu
       "Mandá solo los campos que el admin te dijo; lo que no mandes NO se toca. " +
       "⚠️ Va por propose_action: cambia lo que el bot le dice a TODOS los clientes. " +
       "Nunca completes un campo por tu cuenta: si el admin no lo dijo, preguntáselo. Un dato inventado acá se convierte en una promesa falsa repetida en cada conversación.",
-    args: '{ "entrega"?: { "metodo": string, "plazo": string, "detalle"?: string }, "garantia"?: { "dias": number, "descripcion"?: string }, "acceso"?: { "tipo": string, "descripcion"?: string }, "tono"?: string, "negociaPrecio"?: boolean, "noPuede"?: string[] }',
+    args: '{ "entrega"?: { "metodo": string, "plazo": string, "detalle"?: string }, "garantia"?: { "dias": number, "descripcion"?: string }, "acceso"?: { "tipo": string, "descripcion"?: string }, "tono"?: string, "negociaPrecio"?: boolean, "noPuede"?: string[], "estiloDeVenta"?: "consultivo" | "equilibrado" | "directo" }',
     run: async (args, ctx) => {
       const [t] = await db.select().from(tenants).where(eq(tenants.id, ctx.tenantId)).limit(1);
       if (!t) return { ok: false, summary: "No se encontró el negocio." };
@@ -4678,6 +4680,22 @@ Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vincu
 
       for (const campo of ["entrega", "garantia", "acceso", "tono", "negociaPrecio", "noPuede"]) {
         if (args[campo] !== undefined) cambios[campo] = args[campo];
+      }
+
+      // El estilo llega como el id del perfil que el dueño eligió ("equilibrado"),
+      // no como las tres perillas. Se traduce ACÁ y no al leerlo: lo que queda
+      // guardado son las perillas, así que el día que un perfil cambie de
+      // contenido no le cambia la venta por debajo a quien ya lo eligió.
+      if (args.estiloDeVenta !== undefined) {
+        const { estiloElegido } = await import("./estilo-de-venta");
+        const estilo = estiloElegido(args.estiloDeVenta);
+        if (!estilo) {
+          return {
+            ok: false,
+            summary: `No reconozco el estilo "${String(args.estiloDeVenta)}". Los que hay son: consultivo, equilibrado o directo. Preguntale al admin cuál quiere en vez de elegir vos.`,
+          };
+        }
+        cambios.estiloDeVenta = estilo;
       }
       if (Object.keys(cambios).length === 0) {
         return { ok: false, summary: "No mandaste ningún campo para guardar." };

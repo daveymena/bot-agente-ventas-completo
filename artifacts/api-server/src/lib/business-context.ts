@@ -48,6 +48,7 @@
 import { db, tenants, settings as settingsTable, products } from "@workspace/db";
 import { eq, and } from "drizzle-orm";
 import { logger } from "./logger";
+import { ESTILO_POR_DEFECTO, estiloDelNegocio, type EstiloDeVenta } from "./estilo-de-venta";
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -95,6 +96,15 @@ export interface BusinessContext {
    */
   negociaPrecio: boolean;
   acceso: DatoAcceso | null;
+
+  /**
+   * Cómo vende este negocio: si califica antes de presentar, si usa el video
+   * como gancho, y qué hace ante un "lo voy a pensar". Ver `estilo-de-venta.ts`.
+   *
+   * Nunca es null: un negocio que no eligió nada vende con el estilo por
+   * defecto, que no es "neutro" sino el que este proyecto midió que funciona.
+   */
+  estiloDeVenta: EstiloDeVenta;
 
   /**
    * Qué tipo de producto vende ESTE negocio.
@@ -273,6 +283,7 @@ export async function getBusinessContext(
     tono: null,
     negociaPrecio: false,
     acceso: null,
+    estiloDeVenta: { ...ESTILO_POR_DEFECTO },
     // Por defecto NO se filtra nada: cambiarle el catálogo a un negocio que no
     // lo pidió sería peor que el problema que esto resuelve.
     //
@@ -325,6 +336,9 @@ export async function getBusinessContext(
       ctx.garantia = leerGarantia(perfil.garantia ?? perfil.guaranteeInfo);
       ctx.tono = textoLimpio(perfil.tono);
       ctx.negociaPrecio = perfil.negociaPrecio === true;
+      // Tolera lo viejo y lo inventado: `estiloDelNegocio` cae al defecto
+      // valor por valor. Este campo lo escribe una IA a pedido del dueño.
+      ctx.estiloDeVenta = estiloDelNegocio(perfil);
       ctx.acceso = leerAcceso(perfil.acceso ?? perfil.accessInfo);
       ctx.noPuede = listaLimpia(perfil.noPuede ?? perfil.cannotDo);
       ctx.loQueDebeSaber = listaLimpia(perfil.loQueDebeSaber ?? perfil.mustKnow);

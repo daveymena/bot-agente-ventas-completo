@@ -1,4 +1,5 @@
 import type { EtapaTrato, MensajeHist } from "./estado-cognitivo";
+import { ESTILO_POR_DEFECTO, type EstiloDeVenta } from "./estilo-de-venta";
 
 /**
  * ============================================================
@@ -72,6 +73,15 @@ export interface EntradaEmbudo {
    * y ahí nada de esto cambia una coma.
    */
   faltaElegir?: { nombre: string; pregunta: string } | null;
+  /**
+   * Cómo eligió vender ESTE negocio. Ver `estilo-de-venta.ts`.
+   *
+   * Opcional a propósito: todo lo que llame al embudo sin pasarlo --las
+   * pruebas viejas, cualquier camino que todavía no lo tenga a mano-- sigue
+   * comportándose igual que antes, porque el defecto ES el comportamiento
+   * anterior. Una perilla no puede cambiarle la venta a quien no la tocó.
+   */
+  estilo?: EstiloDeVenta;
 }
 
 export interface Paso {
@@ -180,6 +190,7 @@ function ultimoDelCliente(historial: MensajeHist[]): string {
  */
 export function proximoPaso(e: EntradaEmbudo): Paso {
   const mensaje = ultimoDelCliente(e.historial);
+  const estilo = e.estilo || ESTILO_POR_DEFECTO;
 
   // ── 1. Lo que quedó sin contestar ──────────────────────────────────────
   if (e.preguntaPendiente) {
@@ -241,7 +252,14 @@ export function proximoPaso(e: EntradaEmbudo): Paso {
   //
   // Antes que calificar. Un "¿cuánto vale?" contestado con "¿y para qué lo
   // querés?" es exactamente lo que hace que la gente deje de escribir.
-  if (pideUnDato(mensaje)) {
+  //
+  // La perilla `calificacion` manda acá. Con "siempre" el negocio pidió
+  // averiguar ANTES de presentar aunque le hayan preguntado el precio, así que
+  // este atajo no corre y la calificación de más abajo se queda con el turno.
+  // Es una decisión defendible --hay negocios donde el precio sin contexto
+  // espanta-- pero NO es el defecto: el defecto sigue siendo contestar, porque
+  // es lo que este proyecto midió que funciona por WhatsApp.
+  if (pideUnDato(mensaje) && estilo.calificacion !== "siempre") {
     return {
       movimiento: "presentar",
       porQue: "preguntó un dato concreto del producto",
@@ -256,12 +274,22 @@ export function proximoPaso(e: EntradaEmbudo): Paso {
   // se lee como que no se leyó nada de lo anterior. Calificar es un paso previo
   // a presentar, no un comodín. Lo encontró la prueba, que daba `calificar`.
   if (e.fichaEnviada) {
+    // Qué hacer con el que no avanza lo eligió el negocio: hay quien prefiere
+    // no incomodar a su cliente y quien quiere saber qué lo frena. Las tres
+    // salidas son legítimas; la del medio es la que viene puesta.
+    const comoDestrabar =
+      estilo.anteLaDuda === "dar_espacio"
+        ? "Ya tiene la ficha: NO la repitas. Dejale espacio: decile que lo piense con calma y que acá estás para lo que necesite. " +
+          "No preguntes qué lo frena ni ofrezcas nada más: este negocio eligió no insistir."
+        : estilo.anteLaDuda === "preguntar_que_frena"
+          ? "Ya tiene la ficha: NO la repitas. Preguntale DERECHO qué lo está frenando --el precio, el tiempo, alguna duda concreta-- " +
+            "para poder resolverlo. Una sola pregunta, sin rodeos."
+          : "Ya tiene la ficha: NO la repitas. Dejale UNA cosa concreta para pensar --algo del producto que le sirva a ÉL, no la lista entera-- " +
+            "y ofrecé el paso siguiente sin presionar.";
     return {
       movimiento: "destrabar",
-      porQue: "ya vio la ficha y no avanzó: hay algo que lo frena",
-      instruccion:
-        "Ya tiene la ficha: NO la repitas. Averiguá qué lo frena o resolvé la duda concreta, " +
-        "y ofrecé el paso siguiente sin presionar.",
+      porQue: `ya vio la ficha y no avanzó: hay algo que lo frena (ante la duda: ${estilo.anteLaDuda})`,
+      instruccion: comoDestrabar,
     };
   }
 
@@ -277,8 +305,10 @@ export function proximoPaso(e: EntradaEmbudo): Paso {
     };
   }
 
+  // Con `nunca` el negocio pidió presentar de una. No se llega ni a evaluar si
+  // ya se preguntó: se cae directo a presentar.
   const yaSabemos = !!String(e.necesidad || "").trim();
-  if (!yaSabemos && !elAgenteYaPregunto(e.historial)) {
+  if (estilo.calificacion !== "nunca" && !yaSabemos && !elAgenteYaPregunto(e.historial)) {
     return {
       movimiento: "calificar",
       porQue: "todavía no se sabe para qué lo quiere, y no se le preguntó nada aún",
@@ -290,13 +320,21 @@ export function proximoPaso(e: EntradaEmbudo): Paso {
   }
 
   // ── 6. Presentar ───────────────────────────────────────────────────────
+  //
+  // El gancho del video va acá y no en el prompt general, porque es parte de
+  // CÓMO se presenta. "(si el producto tiene uno cargado)" no es una cortesía:
+  // sin esa condición el bot promete un video que no existe, y prometer de más
+  // es el defecto que este proyecto ya corrigió con el temario inventado.
+  const gancho = estilo.ganchoVideo
+    ? " Si el producto tiene video cargado, cerrá ofreciéndoselo: es el gancho que más engancha. Si no tiene, no lo menciones."
+    : "";
   return {
     movimiento: "presentar",
     porQue: e.etapa === "explorando" ? "todavía no hay un producto definido" : "hay un producto en juego y ya se sabe algo del cliente",
     instruccion:
       e.etapa === "explorando"
         ? "Mostrale lo más parecido a lo que nombró. Si no nombró nada, ofrecé dos opciones concretas del catálogo, no una lista entera."
-        : "Presentá el producto conectándolo con lo que te dijo que necesita. La ficha lleva el precio.",
+        : `Presentá el producto conectándolo con lo que te dijo que necesita. La ficha lleva el precio.${gancho}`,
   };
 }
 

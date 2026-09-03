@@ -10,6 +10,7 @@
  */
 import { describe, it, expect } from "vitest";
 import { renderBloqueNegocio, type BusinessContext } from "../business-context";
+import { ESTILO_POR_DEFECTO } from "../estilo-de-venta";
 import { tryHardcodedAnswer } from "../conversation-engine";
 
 const VACIO: BusinessContext = {
@@ -28,6 +29,9 @@ const VACIO: BusinessContext = {
   fuentes: [],
   modoCatalogo: "mixto" as const,
   tono: null,
+  // Un negocio sin configurar igual vende con un estilo: el por defecto. Nunca
+  // es null, así que el contexto vacío tampoco puede tenerlo en null.
+  estiloDeVenta: { ...ESTILO_POR_DEFECTO },
   negociaPrecio: false,
   configurado: false,
 };

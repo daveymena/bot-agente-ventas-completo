@@ -31,6 +31,8 @@
  * lo que separa un asistente de un formulario con estilo.
  */
 
+import { PERFILES } from "./estilo-de-venta";
+
 export interface Opcion {
   /** Lo que el dueño ve y elige. */
   id: string;
@@ -221,6 +223,40 @@ export function loQueFalta(e: EstadoDelNegocio): Decision[] {
     });
   }
 
+  // ── 7. Cómo vende ────────────────────────────────────────────────────
+  //
+  // Va última a propósito. Las seis de arriba son DATOS que el bot no puede
+  // inventar --sin ellos improvisa o miente--; ésta es una preferencia, y el
+  // defecto ya vende bien. Preguntarla primero sería cambiar el estilo de un
+  // agente que todavía no sabe cuánto dura su propio acceso.
+  if (!p.estiloDeVenta) {
+    const total = e.catalogo.digitales + e.catalogo.fisicos + e.catalogo.servicios;
+    // La recomendación sale de SUS datos, igual que en las decisiones de
+    // arriba. Con un solo producto no hay nada que averiguar antes de
+    // presentarlo: preguntar ahí es una traba, no una consulta.
+    const recomendado = total === 1 ? "directo" : "equilibrado";
+    const porQue =
+      total === 1
+        ? "Tenés un solo producto cargado: no hay riesgo de que el cliente elija mal, así que preguntarle antes de mostrárselo solo lo demora."
+        : total > 0
+          ? `Tenés ${total} productos: averiguar UNA cosa antes de presentar es lo que evita mostrarle el que no era. Y si te piden el precio, lo da sin rodeos.`
+          : "Es lo que mejor funciona por WhatsApp: averigua una cosa antes de presentar, pero no interroga a quien ya pidió el precio.";
+
+    pendientes.push({
+      campo: "estiloDeVenta",
+      pregunta: "¿Cómo querés que venda tu asesor?",
+      siNoSeConfigura:
+        "Vende con el estilo por defecto: averigua una cosa antes de presentar, ofrece el video como gancho, y ante un “lo voy a pensar” deja algo concreto. Se puede cambiar cuando quieras.",
+      opciones: PERFILES.map((perfil) => ({
+        id: perfil.id,
+        etiqueta: perfil.etiqueta,
+        queCambia: `${perfil.comoSeSiente} ${perfil.cuandoConviene}`,
+        recomendada: perfil.id === recomendado,
+        porQue: perfil.id === recomendado ? porQue : undefined,
+      })),
+    });
+  }
+
   return pendientes;
 }
 
@@ -249,8 +285,8 @@ export function comoPreguntarla(d: Decision): string {
 /** Cuánto falta para que el negocio esté listo para vender solo. */
 export function cuantoFalta(e: EstadoDelNegocio): { listas: number; total: number; porcentaje: number } {
   const faltan = loQueFalta(e).length;
-  // Seis decisiones en total; el acceso solo aplica si vende digital.
-  const total = e.catalogo.digitales > 0 ? 6 : 5;
+  // Siete decisiones en total; el acceso solo aplica si vende digital.
+  const total = e.catalogo.digitales > 0 ? 7 : 6;
   const listas = Math.max(0, total - faltan);
   return { listas, total, porcentaje: Math.round((listas / total) * 100) };
 }

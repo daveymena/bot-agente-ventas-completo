@@ -1864,6 +1864,9 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
         // un formulario, y a un formulario por WhatsApp la gente no contesta.
         return { nombre: pendientes[0].nombre, pregunta: preguntaPorLaOpcion(pendientes[0]) };
       })(),
+      // Cómo eligió vender ESTE negocio. Si no eligió nada viene el defecto,
+      // que es exactamente el comportamiento que había antes de esta perilla.
+      estilo: (negocio as any)?.estiloDeVenta,
     });
     pasoDelEmbudo = paso;
     bloqueEstado += `\n${renderPaso(paso)}`;
