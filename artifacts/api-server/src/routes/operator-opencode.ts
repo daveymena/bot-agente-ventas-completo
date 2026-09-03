@@ -262,7 +262,29 @@ const CANDIDATOS_PAGOS: { providerID: string; modelID: string }[] = [
   // en ~1,5 s y sigue al siguiente. Barato comparado con los 55 s de pro.
   { providerID: "deepseek", modelID: "deepseek-v4-flash" },
   { providerID: "deepseek", modelID: "deepseek-v4-pro" },
-  { providerID: "groq", modelID: "openai/gpt-oss-120b" },
+  // 🔻 REMEDIDO el 2026-09-03 contra ESTE contenedor, candidato por candidato,
+  // leyendo el texto devuelto (no solo el HTTP 200, que llega igual cuando el
+  // cuerpo trae `info.error`):
+  //
+  //   deepseek/deepseek-v4-flash      1,68s  texto "ok"        ✅
+  //   deepseek/deepseek-v4-pro        2,47s  texto "ok"        ✅
+  //   mistral/mistral-small-latest    1,53s  texto "ok"        ✅  ← nuevo
+  //   github-copilot/claude-haiku-4.5 1,63s  Unauthorized      (sin token)
+  //   opencode-go/deepseek-v4-flash   1,32s  solo en China
+  //   groq/openai/gpt-oss-120b        SE CUELGA: HTTP 000 a los 45s ❌
+  //
+  // groq SALE de la cadena. Es el fallo más caro que existe acá: no devuelve
+  // error, se queda con la conexión hasta que la corta TECHO_POR_CANDIDATO_MS
+  // (30s), y eso se paga en CADA tramo del turno, no una vez. Ya estaba
+  // documentado el 2026-08-25 ("context exceeds model limit" incluso en sesión
+  // nueva); la medición de hoy lo confirma y agrega que ahora ni siquiera
+  // responde. Contra su API directa sí anda (0,56s), así que sigue estando
+  // bien en la cadena del bot de WhatsApp -- lo que no sirve es por acá.
+  //
+  // mistral ENTRA: el 2026-08-24 daba 402 sin saldo y por eso se había sacado;
+  // hoy responde en 1,53s con texto real. Va detrás de los dos de DeepSeek
+  // porque es lo único vivo que queda si la cuenta paga se cae.
+  { providerID: "mistral", modelID: "mistral-small-latest" },
   // ── Los que se sacaron, y por qué importa tanto ──────────────────────────
   //
   // El admin pegó el desglose de un turno real el 2026-08-29, pidiendo un

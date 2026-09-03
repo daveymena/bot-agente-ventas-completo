@@ -250,14 +250,6 @@ class OptimizedProviderRotation {
     const now = new Date();
     const available: string[] = [];
 
-    // Priorizar el último que funcionó
-    if (this.lastSuccessfulProvider) {
-      const status = this.providers.get(this.lastSuccessfulProvider);
-      if (status && !this.isInCooldown(this.lastSuccessfulProvider)) {
-        available.push(this.lastSuccessfulProvider);
-      }
-    }
-
     // El orden sale de AI_FALLBACK_ORDER, no de una lista fija.
     //
     // Estaba incrustado como ["opencode","nvidia","openrouter","github"] y
@@ -290,8 +282,27 @@ class OptimizedProviderRotation {
       process.env.COPILOT_SESSION_TOKEN || process.env.GITHUB_TOKEN ? "github_copilot_internal" : null,
     ].filter(Boolean) as string[];
 
-    const order = [...new Set([...dePago, ...configurado, ...conocidos])];
-    
+    // ── El último que funcionó va DESPUÉS de lo que se paga, no antes ──────
+    //
+    // Priorizar al último que contestó es razonable entre gratuitos: evita
+    // volver a probar el que acaba de fallar. Pero estaba ANTES de `dePago`, y
+    // ahí se vuelve una trampa que se cierra sola: basta con que un gratuito
+    // conteste UNA vez para que quede primero en todos los turnos siguientes,
+    // porque cada éxito suyo lo vuelve a poner en la cabeza. DeepSeek --que es
+    // lo que el admin paga y lo único medido rápido y vivo hoy (1,16 s contra
+    // su API, saldo USD 18,02)-- quedaba segundo para siempre sin que nada
+    // fallara ni se registrara: el cliente esperaba a un gratuito lento y la
+    // cuenta paga no se usaba.
+    //
+    // Ahora encabeza lo de pago; el último exitoso conserva su preferencia
+    // sobre el resto de la lista, que es donde de verdad sirve.
+    const ultimoExitoso =
+      this.lastSuccessfulProvider && !this.isInCooldown(this.lastSuccessfulProvider)
+        ? [this.lastSuccessfulProvider]
+        : [];
+
+    const order = [...new Set([...dePago, ...ultimoExitoso, ...configurado, ...conocidos])];
+
     for (const provider of order) {
       // Saltar si ya está en la lista o en cooldown
       if (available.includes(provider)) continue;

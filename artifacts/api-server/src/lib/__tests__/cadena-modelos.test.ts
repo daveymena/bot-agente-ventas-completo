@@ -70,8 +70,8 @@ describe("la cadena del turno", () => {
    * en la lista curada, así que Atlas NUNCA los intentaba.
    */
   it("incluye un proveedor del que tenemos clave aunque no esté en la lista curada", () => {
-    const c = armar({ claves: ["groq"], catalogo: { groq: [{ id: "gpt-oss-20b" }] } });
-    expect(c.some((x) => x.providerID === "groq" && x.modelID === "gpt-oss-20b")).toBe(true);
+    const c = armar({ claves: ["cerebras"], catalogo: { cerebras: [{ id: "gpt-oss-20b" }] } });
+    expect(c.some((x) => x.providerID === "cerebras" && x.modelID === "gpt-oss-20b")).toBe(true);
   });
 
   /**
@@ -106,22 +106,22 @@ describe("la cadena del turno", () => {
    */
   it("pone los rápidos ANTES de los gratis lentos", () => {
     const c = armar({
-      claves: ["deepseek", "openrouter", "groq"],
-      catalogo: { groq: [{ id: "llama-3.3-70b-versatile" }] },
+      claves: ["deepseek", "openrouter", "cerebras"],
+      catalogo: { cerebras: [{ id: "llama-3.3-70b-versatile" }] },
     });
-    const iGroq = c.findIndex((x) => x.providerID === "groq");
+    const iCerebras = c.findIndex((x) => x.providerID === "cerebras");
     const iLento = c.findIndex((x) => /:free$/.test(x.modelID));
-    expect(iGroq).toBeGreaterThan(-1);
-    expect(iGroq).toBeLessThan(iLento);
+    expect(iCerebras).toBeGreaterThan(-1);
+    expect(iCerebras).toBeLessThan(iLento);
   });
 
   it("el pago sigue primero de todo", () => {
-    const c = armar({ claves: ["deepseek", "groq"], catalogo: { groq: [{ id: "x" }] } });
+    const c = armar({ claves: ["deepseek", "cerebras"], catalogo: { cerebras: [{ id: "x" }] } });
     expect(c[0]!.providerID).toBe("deepseek");
   });
 
   it("el respaldo gratis siempre va último", () => {
-    const c = armar({ claves: ["groq"], catalogo: { groq: [{ id: "x" }] } });
+    const c = armar({ claves: ["cerebras"], catalogo: { cerebras: [{ id: "x" }] } });
     expect(c[c.length - 1]).toEqual(RESPALDO);
   });
 
@@ -131,14 +131,14 @@ describe("la cadena del turno", () => {
   });
 
   it("no agrega un proveedor sin clave ni conexión", () => {
-    const c = armar({ catalogo: { groq: [{ id: "x" }] } });
-    expect(c.some((x) => x.providerID === "groq")).toBe(false);
+    const c = armar({ catalogo: { cerebras: [{ id: "x" }] } });
+    expect(c.some((x) => x.providerID === "cerebras")).toBe(false);
   });
 
   /** Si el catálogo no trae nada usable, no se inventa un id. */
   it("no agrega un proveedor cuyo catálogo no sirve", () => {
-    const c = armar({ claves: ["groq"], catalogo: { groq: [{ id: "solo-embeddings-embed" }] } });
-    expect(c.some((x) => x.providerID === "groq")).toBe(false);
+    const c = armar({ claves: ["cerebras"], catalogo: { cerebras: [{ id: "solo-embeddings-embed" }] } });
+    expect(c.some((x) => x.providerID === "cerebras")).toBe(false);
   });
 
   it("sin nada configurado, queda solo el respaldo", () => {
@@ -288,20 +288,20 @@ describe("Por qué un proveedor rápido no entró", () => {
   it("avisa cuando tenemos la credencial pero OpenCode no lista el proveedor", () => {
     const fuera = diagnosticarRapidos({
       conectados: new Set<string>(),
-      tenemosClave: (p) => p === "groq",
-      modelosPorProveedor: new Map(), // OpenCode no devolvió groq
+      tenemosClave: (p) => p === "cerebras",
+      modelosPorProveedor: new Map(), // OpenCode no devolvió cerebras
     });
     expect(fuera).toHaveLength(1);
-    expect(fuera[0]!.providerID).toBe("groq");
+    expect(fuera[0]!.providerID).toBe("cerebras");
     expect(fuera[0]!.motivo).toContain("no lista");
   });
 
   it("avisa cuando el proveedor está pero ninguno de sus modelos sirve", () => {
     const fuera = diagnosticarRapidos({
-      conectados: new Set(["groq"]),
+      conectados: new Set(["cerebras"]),
       tenemosClave: () => false,
       // Solo modelos que no conversan: embeddings.
-      modelosPorProveedor: new Map([["groq", ["text-embedding-3", "whisper-large"]]]),
+      modelosPorProveedor: new Map([["cerebras", ["text-embedding-3", "whisper-large"]]]),
     });
     expect(fuera).toHaveLength(1);
     expect(fuera[0]!.motivo).toContain("ninguno de sus modelos sirve");
@@ -321,9 +321,9 @@ describe("Por qué un proveedor rápido no entró", () => {
 
   it("si entra bien, no reporta nada", () => {
     const fuera = diagnosticarRapidos({
-      conectados: new Set(["groq"]),
+      conectados: new Set(["cerebras"]),
       tenemosClave: () => false,
-      modelosPorProveedor: new Map([["groq", ["llama-3.3-70b-versatile"]]]),
+      modelosPorProveedor: new Map([["cerebras", ["llama-3.3-70b-versatile"]]]),
     });
     expect(fuera).toHaveLength(0);
   });
@@ -427,14 +427,22 @@ describe("Qué modelo se elige del catálogo real de Groq", () => {
   });
 
   /**
-   * Y Groq va PRIMERO: es el único que respondió en la ronda de pruebas del
-   * 2026-08-28 (442ms). Antes encabezaba Copilot, una cuenta que nunca llegó
-   * a configurarse -- empezar cada turno por la puerta que no abre.
+   * Y Groq NO entra, aunque la clave esté cargada y OpenCode lo liste.
+   *
+   * Encabezó la cadena desde el 2026-08-28, cuando era el único que respondía
+   * (442ms). Remedido el 2026-09-03 contra el mismo contenedor: ya no
+   * responde -- la conexión se queda colgada y el curl corta a los 45s sin
+   * recibir una letra. Ese es el fallo más caro de todos: cuesta los 30s
+   * enteros de TECHO_POR_CANDIDATO_MS, y los cuesta en CADA tramo del turno,
+   * no una vez.
+   *
+   * Es distinto de Copilot, que sigue listado a propósito: sin credencial se
+   * saltea gratis, y con un 401 cuesta un segundo.
    */
-  it("Groq encabeza la cadena: es el único que contesta", () => {
+  it("Groq NO entra a la cadena aunque esté configurado: se cuelga 30s por tramo", () => {
     const cadena = armarCadena({
       curados: [],
-      conectados: new Set<string>(),
+      conectados: new Set(["groq"]),
       tenemosClave: (p) => p === "groq" || p === "copilot",
       modelosPorProveedor: new Map([
         ["groq", ["openai/gpt-oss-120b"]],
@@ -442,7 +450,7 @@ describe("Qué modelo se elige del catálogo real de Groq", () => {
       ]),
       respaldo: { providerID: "opencode", modelID: "big-pickle" },
     });
-    expect(cadena[0]?.providerID).toBe("groq");
+    expect(cadena.map((c) => c.providerID)).not.toContain("groq");
   });
 });
 

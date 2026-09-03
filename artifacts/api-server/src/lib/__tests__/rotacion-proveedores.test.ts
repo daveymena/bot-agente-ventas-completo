@@ -11,7 +11,7 @@
  * proveedores de pago del sistema.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { getOptimizedProviderOrder, resetProviderRotation } from "../optimized-rotation";
+import { getOptimizedProviderOrder, reportProviderResult, resetProviderRotation } from "../optimized-rotation";
 
 // vi.stubEnv y no mutar process.env a mano: este archivo corre junto a otros
 // que leen el entorno, y borrarles GITHUB_TOKEN de abajo les rompia pruebas
@@ -61,6 +61,39 @@ describe("Orden de proveedores de IA", () => {
     for (const p of ["opencode_go", "groq", "openrouter", "opencode", "nvidia", "github"]) {
       expect(orden).toContain(p);
     }
+  });
+
+  /**
+   * El gratuito que contesta una vez se quedaba con la cabeza de la cola.
+   *
+   * `getAvailableProviders` ponía a `lastSuccessfulProvider` ANTES que a los de
+   * pago, y cada éxito suyo lo volvía a poner ahí: bastaba UN acierto de un
+   * gratuito para que DeepSeek --lo que el admin paga-- quedara segundo en
+   * todos los turnos siguientes. Sin error, sin log y sin nada que fallara,
+   * que es por qué nadie lo veía: el cliente simplemente esperaba al lento.
+   *
+   * Reportado el 2026-09-03: "no está respondiendo como debería cuando
+   * tenemos una IA de paga".
+   */
+  it("un gratuito que acertó no le gana el primer puesto a DeepSeek", () => {
+    vi.stubEnv("AI_FALLBACK_ORDER", "deepseek,groq,opencode");
+    vi.stubEnv("DEEPSEEK_API_KEY", "sk-de-mentira");
+
+    reportProviderResult("groq", true, 800);
+
+    const orden = getOptimizedProviderOrder();
+    expect(orden[0]).toBe("deepseek");
+  });
+
+  /** Pero entre los que NO son de pago sigue mandando el último que acertó:
+   *  esa preferencia es útil, lo que estaba mal era dónde se aplicaba. */
+  it("el último que acertó sigue ganándole al resto de la lista", () => {
+    vi.stubEnv("AI_FALLBACK_ORDER", "opencode,openrouter,groq");
+
+    reportProviderResult("groq", true, 800);
+
+    const orden = getOptimizedProviderOrder();
+    expect(orden[0]).toBe("groq");
   });
 
   it("no repite proveedores", () => {

@@ -46,7 +46,15 @@ export const PROVEEDORES_RAPIDOS = [
   // (ghp_) y no sirve para canjear un token de Copilot. Encabezar la cadena
   // con un proveedor inexistente es empezar cada turno por la puerta que no
   // abre.
-  "groq", "cerebras",
+  // 🔻 groq FUERA el 2026-09-03. Estaba primero acá y además como candidato
+  // curado, así que entraba dos veces. Remedido contra el contenedor real:
+  // `groq/openai/gpt-oss-120b` no contesta -- HTTP 000 a los 45s. Un candidato
+  // que se cuelga cuesta los 30s enteros de TECHO_POR_CANDIDATO_MS en cada
+  // tramo del turno; uno que devuelve 401 cuesta 1s. Por eso sale de la lista
+  // en vez de quedarse "por las dudas" como github-copilot.
+  // (Su API directa sí responde en 0,56s: el problema es el puente OpenCode,
+  // que le inyecta ~10,8k tokens de contexto base y se pasa del límite.)
+  "cerebras",
   // Copilot queda DESPUES, no afuera: un proveedor sin clave se saltea gratis
   // (no cuesta ni una llamada), asi que tenerlo listado no gasta nada y el dia
   // que el admin cargue el token entra solo. Las tres grafias siguen porque el
