@@ -16,6 +16,17 @@ export interface ChatTurn {
   role: "user" | "assistant";
   content: string;
   /**
+   * El turno se cortó por tiempo y quedó a medio hacer.
+   *
+   * Hace falta al RESTAURAR. El encadenado de continuaciones vive en la
+   * página: si el admin se va, esa cadena muere con ella y el trabajo queda
+   * frenado en el último tramo, aunque el servidor lo haya guardado. Al volver
+   * se veía un mensaje que decía "decime continuá" y nadie lo continuaba.
+   *
+   * Con esto, la página que restaura sabe que hay algo pendiente y sigue sola.
+   */
+  parcial?: boolean;
+  /**
    * Cuándo se dijo, en milisegundos.
    *
    * La fila ya guardaba `createdAt` --de hecho el historial se ORDENA por él--
@@ -54,6 +65,7 @@ export async function loadArchitectHistory(
     role: (r.metadata?.role as "user" | "assistant") || "user",
     content: r.content,
     at: r.createdAt ? new Date(r.createdAt).getTime() : undefined,
+    parcial: r.metadata?.parcial === true,
   }));
 }
 
@@ -62,6 +74,13 @@ export async function saveArchitectTurn(
   sessionId: string,
   role: "user" | "assistant",
   content: string,
+  /**
+   * `parcial`: el turno se cortó por tiempo y falta seguirlo. Queda GUARDADO
+   * en la fila, no solo en la respuesta HTTP, porque quien lo necesita es la
+   * página que restaura después -- y para ella la respuesta de aquel turno ya
+   * no existe.
+   */
+  extra?: { parcial?: boolean },
 ): Promise<void> {
   if (!content || !content.trim()) return;
   await db.insert(architectMemory).values({
@@ -71,7 +90,7 @@ export async function saveArchitectTurn(
     title: `turn:${role}`,
     content: content.slice(0, 8000),
     tags: [],
-    metadata: { role },
+    metadata: { role, ...(extra?.parcial ? { parcial: true } : {}) },
   });
 }
 

@@ -2144,7 +2144,16 @@ router.get("/history", async (req: TenantRequest, res, next) => {
       loadArchitectHistory(tenantId, sessionId),
       getPendingPlan(tenantId, sessionId),
     ]);
-    return res.json({ history, awaitingConfirmation: !!pending });
+    // `hayAlgoPendiente`: el último turno guardado quedó a medio hacer. La
+    // página que restaura lo usa para seguir sola en vez de dejarlo frenado
+    // -- el encadenado de continuaciones vive en la página, así que si el
+    // admin se fue, murió con ella.
+    const ultimo = history[history.length - 1];
+    return res.json({
+      history,
+      awaitingConfirmation: !!pending,
+      hayAlgoPendiente: ultimo?.role === "assistant" && ultimo?.parcial === true,
+    });
   } catch (e) {
     return next(e);
   }

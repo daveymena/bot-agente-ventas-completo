@@ -188,6 +188,20 @@ export default function CodeAgent() {
           toast.info("Tienes un plan pendiente de confirmar");
         }
 
+        // ── Quedó a medio hacer: se sigue, no se espera a que lo pida ────
+        //
+        // El encadenado de continuaciones vive en ESTA página. Si el admin se
+        // fue, murió con ella: el servidor terminó el tramo que estaba
+        // corriendo, lo guardó como parcial, y ahí quedó. Al volver veía un
+        // mensaje diciendo que seguía trabajando... y nadie seguía.
+        //
+        // Se retoma solo. Escribirlo a mano no solo es innecesario: arranca un
+        // turno NUEVO y paga la vuelta entera otra vez.
+        if (data.hayAlgoPendiente) {
+          void seguirPendiente(data.history);
+          return;
+        }
+
         if (data.history[data.history.length - 1]?.role !== "user") return;
 
         // Se reusa `loading` a propósito: prende el mismo indicador de
@@ -367,6 +381,29 @@ export default function CodeAgent() {
   // "escribiendo" queda prendido todo el tiempo) hasta un tope razonable de
   // vueltas -- nunca se le muestra al admin nada que suene a error técnico.
   const MAX_AUTO_CONTINUATIONS = 4;
+  const CONTINUAR = "Continuá con lo que ya tenías, sin repetir lo que ya investigaste o hiciste.";
+
+  /**
+   * Se acabaron las continuaciones automáticas: recién ACÁ tiene sentido
+   * pedirle al admin que lo pida él.
+   *
+   * El servidor decía "decime *continuá* y sigo desde donde iba" en CADA
+   * tramo cortado -- mientras esta misma página ya lo estaba continuando
+   * sola, hasta cuatro veces. El admin lo vio el 2026-09-03 y lo leyó como
+   * que Atlas se había colgado. Y si le hacía caso, escribir "continuá"
+   * arrancaba un turno nuevo y pagaba la vuelta otra vez.
+   */
+  const avisarQueHayQuePedirlo = (data: any) => {
+    if (!data?.needsContinuation) return;
+    setMessages((prev) => [
+      ...prev,
+      {
+        role: "assistant",
+        at: Date.now(),
+        content: "Este pedido está llevando bastante más de lo normal. Si querés que siga, decime **continuá**.",
+      },
+    ]);
+  };
   // El backend igual recorta a los últimos 30 turnos (defensa real contra
   // colgadas en hilos largos, ver code-agent.ts) -- este límite acá evita
   // mandar un payload gigante de entrada en primer lugar en conversaciones
@@ -436,6 +473,44 @@ export default function CodeAgent() {
     return resultado;
   };
 
+  /**
+   * Retoma un pedido que quedó cortado por tiempo.
+   *
+   * Es el mismo encadenado que hace `handleSubmit`, pero arrancando desde lo
+   * que ya está guardado en vez de desde un mensaje nuevo del admin.
+   */
+  const seguirPendiente = async (historyGuardado: any[]) => {
+    setLoading(true);
+    setProgreso("Retomando tu pedido donde había quedado");
+    try {
+      let history = historyGuardado.slice(-HISTORY_LIMIT).map((m: any) => ({ role: m.role, content: m.content }));
+      let data: any = null;
+      for (let round = 0; round < MAX_AUTO_CONTINUATIONS; round++) {
+        data = await callAtlas(CONTINUAR, history);
+        const parcial: Message = {
+          role: "assistant",
+          at: Date.now(),
+          content: data?.reply || "Sigo trabajando en esto...",
+          configApplied: data?.configApplied,
+          advancedFeaturesEnabled: data?.advancedFeaturesEnabled,
+          actions: Array.isArray(data?.actions) ? data.actions : undefined,
+        };
+        setMessages((prev) => [...prev, parcial]);
+        if (!data?.needsContinuation) return;
+        history = [...history, { role: "assistant", content: parcial.content }].slice(-HISTORY_LIMIT);
+      }
+      avisarQueHayQuePedirlo(data);
+    } catch {
+      setMessages((prev) => [
+        ...prev,
+        { role: "assistant", content: "No pude retomar lo que estaba haciendo. ¿Lo intentamos de nuevo?", at: Date.now() },
+      ]);
+    } finally {
+      setLoading(false);
+      setProgreso("");
+    }
+  };
+
   const handleSubmit = async () => {
     if (!input.trim() || loading) return;
     const userMsg = input.trim();
@@ -459,7 +534,7 @@ export default function CodeAgent() {
         };
         setMessages((prev) => [...prev, partial]);
         history = [...history, { role: "user", content: userMsg }, { role: "assistant", content: partial.content }].slice(-HISTORY_LIMIT);
-        data = await callAtlas("Continuá con lo que ya tenías, sin repetir lo que ya investigaste o hiciste.", history);
+        data = await callAtlas(CONTINUAR, history);
       }
 
       const newMsg: Message = {
@@ -471,6 +546,10 @@ export default function CodeAgent() {
         actions: Array.isArray(data?.actions) ? data.actions : undefined,
       };
       setMessages((prev) => [...prev, newMsg]);
+
+      // Si después de las cuatro vueltas SIGUE pidiendo continuar, ahí sí se
+      // le dice al admin -- porque ahora sí depende de él.
+      avisarQueHayQuePedirlo(data);
 
       if (mode === "operator" && data?.actionsCount > 0) {
         toast.success(`${data.actionsCount} acción(es) ejecutada(s)`);

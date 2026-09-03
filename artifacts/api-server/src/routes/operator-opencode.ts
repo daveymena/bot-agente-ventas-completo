@@ -1322,7 +1322,7 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
           const reply = paraMarkdown(toEmojiStyle(
             `${parcial}\n\n⏳ (Me quedé sin tiempo para seguir: lo de arriba es lo que alcancé. Si falta algo, pedime que continúe.)`,
           ));
-          await saveArchitectTurn(tenantId, sessionId, "assistant", reply);
+          await saveArchitectTurn(tenantId, sessionId, "assistant", reply, { parcial: true });
           return finish({ reply, status: "partial", needsContinuation: true });
         }
 
@@ -1347,14 +1347,24 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
             // El detalle NO se pierde: va completo al log y al campo `tramos`
             // de la respuesta, que es donde sirve. Cambia quién lo lee, no si
             // se registra.
+            // ⚠️ Acá decía "decime *continuá* y sigo desde donde iba" -- y la
+            // página YA continúa sola, hasta 4 veces. O sea: el mensaje le
+            // pedía al admin algo que el sistema hacía por su cuenta. Lo vio
+            // en vivo el 2026-09-03 y lo leyó como que se había colgado, que
+            // es exactamente la impresión que este mensaje tenía que evitar.
+            // Peor: si lo escribe, arranca un turno NUEVO y paga la vuelta de
+            // nuevo.
+            //
+            // La instrucción la agrega la página, y solo cuando de verdad se
+            // le acabaron las continuaciones automáticas.
             "⏳ Esto me está tomando más de lo normal. **Todavía no se creó ni se guardó nada.** "
-            + "Seguimos trabajando en tu pedido: decime *continuá* y sigo desde donde iba.",
+            + "Sigo trabajando en tu pedido.",
           ));
           logger.warn(
             { tenantId, tramos, totalMs: Date.now() - t0, causa: causaDeFondo() || null },
             "[AtlasOpenCode] Turno cortado por tiempo -- el detalle va al log, no al admin",
           );
-          await saveArchitectTurn(tenantId, sessionId, "assistant", reply);
+          await saveArchitectTurn(tenantId, sessionId, "assistant", reply, { parcial: true });
           return finish({ reply, status: "partial", needsContinuation: true, tramos, totalMs: Date.now() - t0 });
         }
         return finish({ error: "No pude terminar de responder. ¿Podés intentarlo de nuevo?" }, 502);
