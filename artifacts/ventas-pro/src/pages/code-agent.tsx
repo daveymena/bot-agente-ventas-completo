@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Bot, Send, User, Loader2, Sparkles, Check, X, Wrench, MessageSquare, Paperclip, RotateCcw, History, Trash2, Copy } from "lucide-react";
+import { Bot, Send, User, Loader2, Sparkles, Check, X, Wrench, MessageSquare, Paperclip, RotateCcw, History, Trash2, Copy, Square } from "lucide-react";
 import { toast } from "sonner";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -132,6 +132,32 @@ export default function CodeAgent() {
   const [confirmingReset, setConfirmingReset] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  /**
+   * Cómo se para a Atlas.
+   *
+   * Reportado el 2026-09-03 con la captura: "no hay forma de detener a Atlas,
+   * se queda trabajando y si uno quiere detenerlo no se puede porque no hay
+   * cómo". Y era exacto: mientras el turno corría, el botón de enviar se
+   * volvía un spinner DESHABILITADO. La única salida era recargar -- que no
+   * para nada, solo deja de mirar.
+   *
+   * Hacen falta las dos cosas, y por eso son dos:
+   *
+   *  · `cortarRef` aborta el fetch de ESTA pantalla, para que el botón
+   *    responda en el acto y no cuando termine el tramo.
+   *  · `detenidoRef` frena el encadenado automático. Es lo que más importa:
+   *    la página encadena hasta CUATRO continuaciones sola, así que sin esto
+   *    abortar una sola llamada no servía de nada -- arrancaba la siguiente.
+   *
+   * Y además se le avisa al servidor (`/detener`), que es el único que puede
+   * dejar de gastar el turno de verdad. Abortar acá cierra la conexión, no el
+   * trabajo del otro lado.
+   *
+   * Es un ref y no estado a propósito: lo leen bucles que ya están corriendo,
+   * y un `useState` les dejaría el valor viejo de su render.
+   */
+  const cortarRef = useRef<AbortController | null>(null);
+  const detenidoRef = useRef(false);
   // La caja de escribir crece con lo que se escribe. Ver el hook: acá
   // había un comentario prometiéndolo y ni una línea que lo hiciera.
   const textareaRef = useCajaQueCrece(input);
@@ -423,12 +449,17 @@ export default function CodeAgent() {
     // las herramientas del pedido en vez de las 34 (que era lo que lo hacía
     // tardar 69s en algo tan simple como listar 3 productos).
     const endpoint = esOperador ? "/api/code-agent/operator-opencode" : "/api/code-agent/architect";
+    // Un controlador por llamada: el encadenado hace varias seguidas, y
+    // reusar el mismo dejaría abortada la segunda antes de empezar.
+    const controlador = new AbortController();
+    cortarRef.current = controlador;
     const res = await fetch(endpoint, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       // Solo el operador emite progreso; el modo Agente responde de una.
       body: JSON.stringify({ prompt: promptText, history: historyForCall, sessionId, ...(esOperador ? { stream: true } : {}) }),
       credentials: "include",
+      signal: controlador.signal,
     });
     if (!res.ok) {
       await res.json().catch(() => null);
@@ -482,10 +513,11 @@ export default function CodeAgent() {
   const seguirPendiente = async (historyGuardado: any[]) => {
     setLoading(true);
     setProgreso("Retomando tu pedido donde había quedado");
+    detenidoRef.current = false;
     try {
       let history = historyGuardado.slice(-HISTORY_LIMIT).map((m: any) => ({ role: m.role, content: m.content }));
       let data: any = null;
-      for (let round = 0; round < MAX_AUTO_CONTINUATIONS; round++) {
+      for (let round = 0; round < MAX_AUTO_CONTINUATIONS && !detenidoRef.current; round++) {
         data = await callAtlas(CONTINUAR, history);
         const parcial: Message = {
           role: "assistant",
@@ -501,15 +533,56 @@ export default function CodeAgent() {
       }
       avisarQueHayQuePedirlo(data);
     } catch {
+      // Igual que en handleSubmit: si lo paró el admin, no se le ofrece
+      // reintentar algo que acaba de pedir que no siga.
       setMessages((prev) => [
         ...prev,
-        { role: "assistant", content: "No pude retomar lo que estaba haciendo. ¿Lo intentamos de nuevo?", at: Date.now() },
+        loDetuveYo()
+          ? { role: "assistant" as const, content: "⏹️ Listo, lo detuve. Lo que ya se había hecho queda como estaba.", at: Date.now() }
+          : { role: "assistant" as const, content: "No pude retomar lo que estaba haciendo. ¿Lo intentamos de nuevo?", at: Date.now() },
       ]);
     } finally {
       setLoading(false);
       setProgreso("");
     }
   };
+
+  /**
+   * El botón de parar.
+   *
+   * Hace las tres cosas que hacen falta, en este orden: frena el encadenado
+   * (para que no arranque la vuelta siguiente), le avisa al servidor (que es
+   * el único que puede dejar de gastar el turno) y recién ahí aborta la
+   * conexión de esta pantalla.
+   *
+   * El aviso al servidor NO se espera con await antes de abortar: si el
+   * backend tarda en contestar, el admin seguiría mirando el spinner después
+   * de haber apretado, que es justo lo que se está arreglando.
+   */
+  const detener = () => {
+    if (!loading) return;
+    detenidoRef.current = true;
+    setProgreso("Deteniendo…");
+    fetch("/api/code-agent/operator-opencode/detener", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sessionId }),
+      credentials: "include",
+    }).catch(() => {
+      // Que falle el aviso no cambia lo que ve el admin: la pantalla corta
+      // igual. Solo significa que el servidor termina el tramo que tenía.
+    });
+    cortarRef.current?.abort();
+  };
+
+  /**
+   * ¿El fallo que acaba de saltar es "lo detuvo el admin"?
+   *
+   * Un fetch abortado tira `AbortError`, y sin distinguirlo el catch mostraba
+   * "No pude responder, ¿lo intentamos de nuevo?" -- un mensaje de error para
+   * algo que salió exactamente como se pidió.
+   */
+  const loDetuveYo = () => detenidoRef.current;
 
   const handleSubmit = async () => {
     if (!input.trim() || loading) return;
@@ -518,12 +591,15 @@ export default function CodeAgent() {
     setMessages((prev) => [...prev, { role: "user", content: userMsg, at: Date.now() }]);
     setLoading(true);
     setProgreso("");
+    // Cada pedido nuevo arranca sin la marca del anterior: si no, un turno
+    // detenido dejaba a Atlas incapaz de encadenar nunca más en esta pantalla.
+    detenidoRef.current = false;
 
     try {
       let history = messages.slice(-HISTORY_LIMIT).map((m) => ({ role: m.role, content: m.content }));
       let data = await callAtlas(userMsg, history);
 
-      for (let round = 0; round < MAX_AUTO_CONTINUATIONS && data?.needsContinuation; round++) {
+      for (let round = 0; round < MAX_AUTO_CONTINUATIONS && data?.needsContinuation && !detenidoRef.current; round++) {
         const partial: Message = {
           role: "assistant",
           at: Date.now(),
@@ -557,10 +633,25 @@ export default function CodeAgent() {
         toast.success("Agente configurado");
       }
     } catch {
-      // Nunca se muestra el mensaje técnico crudo (network error, status
-      // HTTP, etc.) -- para un admin no programador eso no significa nada,
-      // solo lo asusta. Un tono neutral y una acción concreta (reintentar).
-      setMessages((prev) => [...prev, { role: "assistant", content: "No pude terminar de responder. ¿Podés intentarlo de nuevo?", at: Date.now() }]);
+      // Detenerlo no es un fallo. Abortar el fetch tira `AbortError` y caía
+      // acá, así que apretar el botón contestaba "no pude responder,
+      // ¿intentamos de nuevo?" -- un mensaje de error para algo que salió
+      // exactamente como se pidió, y encima invitando a repetir el pedido.
+      if (loDetuveYo()) {
+        setMessages((prev) => [
+          ...prev,
+          {
+            role: "assistant",
+            at: Date.now(),
+            content: "⏹️ Listo, lo detuve. Lo que ya se había hecho queda como estaba.",
+          },
+        ]);
+      } else {
+        // Nunca se muestra el mensaje técnico crudo (network error, status
+        // HTTP, etc.) -- para un admin no programador eso no significa nada,
+        // solo lo asusta. Un tono neutral y una acción concreta (reintentar).
+        setMessages((prev) => [...prev, { role: "assistant", content: "No pude terminar de responder. ¿Podés intentarlo de nuevo?", at: Date.now() }]);
+      }
     } finally {
       setLoading(false);
       setProgreso("");
@@ -905,14 +996,33 @@ export default function CodeAgent() {
                        que el texto necesita ese margen o le pasa por debajo. */
                     className="flex-1 min-h-[52px] max-h-44 resize-none overflow-y-auto rounded-2xl border-border/70 bg-card pr-14 py-3.5 px-4 text-[15px] leading-relaxed shadow-sm focus-visible:ring-1"
                   />
-                  <Button
-                    type="submit"
-                    disabled={loading || restoring || !input.trim()}
-                    size="icon"
-                    className="absolute right-2 bottom-2 h-9 w-9 rounded-xl"
-                  >
-                    {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-                  </Button>
+                  {/* Mientras trabaja, el mismo botón es el de PARAR.
+                      Antes acá había un spinner deshabilitado: el admin veía
+                      el único control de la pantalla apagado justo cuando lo
+                      necesitaba. Se queda en el mismo lugar a propósito --
+                      es donde ya está el pulgar. */}
+                  {loading ? (
+                    <Button
+                      type="button"
+                      onClick={detener}
+                      size="icon"
+                      variant="destructive"
+                      title="Detener a Atlas"
+                      aria-label="Detener a Atlas"
+                      className="absolute right-2 bottom-2 h-9 w-9 rounded-xl"
+                    >
+                      <Square className="h-4 w-4 fill-current" />
+                    </Button>
+                  ) : (
+                    <Button
+                      type="submit"
+                      disabled={restoring || !input.trim()}
+                      size="icon"
+                      className="absolute right-2 bottom-2 h-9 w-9 rounded-xl"
+                    >
+                      <Send className="h-4 w-4" />
+                    </Button>
+                  )}
                 </div>
               </form>
             </div>

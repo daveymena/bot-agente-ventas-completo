@@ -43,6 +43,7 @@ import { MODULO_PUBLICIDAD, FORMATO_ANUNCIO } from "../lib/publicidad-persuasiva
 import { mintTurnToken } from "../lib/opencode-turn-token";
 import { getAppUrl } from "../lib/app-url";
 import { ENV_POR_PROVEEDOR } from "../lib/ai-keys";
+import { claveDeTurno, empezarTurno, terminarTurno, pedirDetener, hayTurnoEnVuelo, fueDetenido } from "../lib/turnos-en-vuelo";
 import { db, products } from "@workspace/db";
 import { eq, desc } from "drizzle-orm";
 
@@ -582,8 +583,22 @@ async function sendOpencodeMessage(
   host: string,
   authHeader: string,
   sessionId: string,
-  opts: { system: string; model: { providerID: string; modelID: string }; tools: Record<string, boolean>; text: string; timeoutMs: number },
+  opts: {
+    system: string;
+    model: { providerID: string; modelID: string };
+    tools: Record<string, boolean>;
+    text: string;
+    timeoutMs: number;
+    /**
+     * El admin apretó "Detener". Va junto al timeout, no en su lugar: sin
+     * esto, parar en mitad de una llamada no hacía nada visible hasta que
+     * venciera el reloj del candidato -- hasta 30s mirando un botón que ya
+     * apretaste. `AbortSignal.any` corta con la primera de las dos.
+     */
+    cancelSignal?: AbortSignal;
+  },
 ): Promise<{ text: string; error?: string }> {
+  const porTiempo = AbortSignal.timeout(opts.timeoutMs);
   const res = await fetch(`${host}/session/${sessionId}/message`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: authHeader },
@@ -594,7 +609,7 @@ async function sendOpencodeMessage(
       tools: opts.tools,
       parts: [{ type: "text", text: opts.text }],
     }),
-    signal: AbortSignal.timeout(opts.timeoutMs),
+    signal: opts.cancelSignal ? AbortSignal.any([porTiempo, opts.cancelSignal]) : porTiempo,
   });
   if (!res.ok) throw new Error(`OpenCode respondió ${res.status}`);
   const data = (await res.json()) as any;
@@ -648,6 +663,15 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
         );
       }
     });
+    // ── Y el botón de "Detener", que es OTRA cosa que cerrar la pestaña ─────
+    //
+    // Cerrar la pestaña deja el turno corriendo a propósito (arriba). Apretar
+    // "Detener" dice lo contrario, y hasta hoy no existía: el spinner no tenía
+    // botón y recargar la página solo dejaba de mirar mientras el servidor
+    // seguía gastando los 135s del turno.
+    const claveTurno = claveDeTurno(tenantId, sessionId);
+    const senalDeCorte = empezarTurno(claveTurno);
+
     const sse = (event: string, data: any) => {
       if (!streaming || clienteSeFue || res.writableEnded || res.destroyed) return;
       try {
@@ -1257,6 +1281,13 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
             logger.warn({ tenantId, model: model.modelID, restante }, "[AtlasOpenCode] Sin tiempo útil restante, se corta la rotación y se responde con lo que haya");
             break;
           }
+          // Detenido: no se empieza un candidato más. Sin este corte, apretar
+          // el botón esperaba a que la cadena entera se agotara -- cuatro
+          // candidatos por hasta 30s cada uno.
+          if (fueDetenido(senalDeCorte)) {
+            logger.info({ tenantId, model: model.modelID }, "[AtlasOpenCode] Detenido por el admin -- no se prueba otro candidato");
+            break;
+          }
           // Un candidato NO-último puede quedarse con casi todo el turno (menos
           // la reserva): un pedido con investigación real necesita ~60-90s de
           // corrido, y trocearlo en ventanas cortas hacía que el primer
@@ -1276,6 +1307,7 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
               tools,
               text,
               timeoutMs: timeoutCandidato,
+              cancelSignal: senalDeCorte,
             });
             // Cada intento se mide por separado: con varios candidatos en
             // cadena, saber CUÁL se comió el tiempo es la diferencia entre
@@ -1318,6 +1350,29 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
         }
         return ultimo;
       });
+
+      // ── Lo detuvo el admin: eso no es un error y no se cuenta como uno ────
+      //
+      // Va ANTES de la rama de error porque abortar la llamada en vuelo hace
+      // que el candidato falle con un "abort", y esa palabra cae justo en el
+      // patrón de `seAcaboElTiempo`. Sin este corte, apretar Detener contestaba
+      // "me quedé sin tiempo... pedime que continúe" -- y encima con
+      // `needsContinuation: true`, o sea que la página volvía a arrancar sola
+      // lo que el admin acababa de parar.
+      //
+      // Lo que sí se dice, porque es verdad y hace falta: lo que ya se ejecutó
+      // quedó hecho. Parar es dejar de avanzar, no deshacer.
+      if (fueDetenido(senalDeCorte)) {
+        const parcial = String(finalReply || "").trim();
+        const reply = paraMarkdown(toEmojiStyle(
+          parcial.length > 80
+            ? `${parcial}\n\n⏹️ Lo detuve acá, como pediste. Lo que ya había hecho quedó guardado.`
+            : `⏹️ Listo, lo detuve. No seguí con el resto del pedido. Lo que ya se había hecho antes de parar queda como estaba.`,
+        ));
+        await saveArchitectTurn(tenantId, sessionId, "assistant", reply);
+        logger.info({ tenantId, tramos, totalMs: Date.now() - t0 }, "[AtlasOpenCode] Turno DETENIDO por el admin");
+        return finish({ reply, status: "stopped", needsContinuation: false, tramos, totalMs: Date.now() - t0 });
+      }
 
       if (opencodeError) {
         logger.error({ tenantId, opencodeError }, "[AtlasOpenCode] Error del motor OpenCode");
@@ -1429,6 +1484,9 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
         sesionOpencode &&
         modeloUsado &&
         !opencodeError &&
+        // Detenido: no se arranca otra parte. Es el tramo que más se nota,
+        // porque cada parte pendiente se lleva sus propios ~45s.
+        !fueDetenido(senalDeCorte) &&
         turnDeadline - Date.now() > MARGEN_POR_PARTE_MS
       ) {
         const siguiente = partesPendientes.shift()!;
@@ -1445,6 +1503,7 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
               `No le pidas permiso al admin para continuar: resolvela y, si hay que crear o cambiar algo, ` +
               `proponelo con propose_action.`,
             timeoutMs: Math.max(turnDeadline - Date.now() - 10_000, 20_000),
+            cancelSignal: senalDeCorte,
           });
           if (r.error) {
             logger.warn({ tenantId, err: r.error }, "[AtlasOpenCode] La parte siguiente falló, corto acá");
@@ -1752,6 +1811,7 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
               "- No vuelvas a escribir el copy en el chat ni pidas confirmación otra vez: el sistema ya le muestra " +
               "la propuesta al admin y le pide el sí. Solo hacé la llamada.",
             timeoutMs: Math.max(turnDeadline - Date.now() - 5_000, 15_000),
+            cancelSignal: senalDeCorte,
           });
           plannedActions = await drainDraftPlan(tenantId, turnId);
         } catch (e: any) {
@@ -1859,6 +1919,9 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
       return finish({ reply, status: "info", needsContinuation: false, tramos, totalMs: Date.now() - t0 });
     } finally {
       clearInterval(heartbeat);
+      // El turno dejó de estar en vuelo pase lo que pase: si esto no corre, el
+      // botón de Detener queda ofrecido para un turno que ya no existe.
+      terminarTurno(claveTurno);
     }
   } catch (e) {
     logger.error(e, "[AtlasOpenCode] Error inesperado");
@@ -1873,6 +1936,28 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
     if (!res.writableEnded) res.end();
     return;
   }
+});
+
+/**
+ * POST /api/code-agent/operator-opencode/detener
+ *
+ * Lo que faltaba para que el botón sea un botón. Sin esto, "parar" era cerrar
+ * la pestaña: la pantalla dejaba de mirar y el servidor seguía gastando el
+ * turno entero igual.
+ *
+ * Contesta `detenido: false` cuando no había nada corriendo, en vez de un
+ * "listo" a ciegas: si el turno ya había terminado justo antes, la pantalla
+ * tiene que poder decir eso y no fingir que cortó algo.
+ */
+router.post("/operator-opencode/detener", async (req: TenantRequest, res) => {
+  const tenantId = req.tenant?.id;
+  if (!tenantId) return res.status(401).json({ message: "Tenant not resolved" });
+  const sessionId: string = (req.body?.sessionId as string) || "default";
+  const clave = claveDeTurno(tenantId, sessionId);
+  const habia = hayTurnoEnVuelo(clave);
+  const detenido = pedirDetener(clave);
+  logger.info({ tenantId, sessionId, habia }, "[AtlasOpenCode] El admin pidió detener el turno");
+  return res.json({ detenido });
 });
 
 export default router;
