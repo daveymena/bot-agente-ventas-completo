@@ -44,6 +44,7 @@ import { mintTurnToken } from "../lib/opencode-turn-token";
 import { getAppUrl } from "../lib/app-url";
 import { ENV_POR_PROVEEDOR } from "../lib/ai-keys";
 import { claveDeTurno, empezarTurno, terminarTurno, pedirDetener, hayTurnoEnVuelo, fueDetenido } from "../lib/turnos-en-vuelo";
+import { afirmaHaberloHecho } from "../lib/afirma-haberlo-hecho";
 import { db, products } from "@workspace/db";
 import { eq, desc } from "drizzle-orm";
 
@@ -1622,28 +1623,23 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
       // reconoce la FORMA en vez de enumerar significados: subido, pausada,
       // creado, guardada, publicados, cargado, lo que venga.
       //
-      // Un falso positivo acá no hace daño: en este punto del código NO se
-      // ejecutó ninguna acción de escritura (la ejecución real vive en la
-      // rama de aprobación, que retorna mucho antes), así que la aclaración
-      // "todavía no se guardó nada" es cierta SIEMPRE que llegue hasta acá.
-      // Entre avisar de más y dejar pasar un "ya está hecho" falso, este
-      // proyecto ya sabe cuál duele.
-      // Las tres van como literales y NO armadas con `new RegExp` + plantilla:
-      // construyéndolas así los escapes se pierden (`\b\w` terminaba siendo
-      // `w`) y el candado quedaba mudo sin que nada avisara. Verificado con
-      // pruebas antes de dar esto por bueno.
-      const texto = String(finalReplyVerificado || "");
-      const AFIRMA_HABERLO_HECHO =
-        // "✅ ... subido", "Listo, ... publicado"
-        /(?:✅|✔️|\blistos?\b)[^\n]{0,100}?\b\w{3,}(?:ad[oa]s?|id[oa]s?)\b/i.test(texto)
-        // "quedó pausada", "fue publicado", "ya está actualizado"
-        || /\b(?:qued(?:ó|o|aron)|fue(?:ron)?|est(?:á|án|a|an))\s+(?:ya\s+)?\w{3,}(?:ad[oa]s?|id[oa]s?)\b/i.test(texto)
-        // "Borrador guardado", "campaña creada", "campos guardados"
-        // "producto" queda FUERA a propósito: "encontré estos productos
-        // relacionados" es una pregunta legítima y "relacionados" termina en
-        // -ados. Un producto realmente guardado lo cazan los dos patrones de
-        // arriba ("✅ ... guardado", "el producto ya está actualizado").
-        || /\b(?:campos?|borrador(?:es)?|anuncios?|campa[nñ]as?|cambios?|copy)\b[^\n]{0,20}?\b\w{3,}(?:ad[oa]s?|id[oa]s?)\b/i.test(texto);
+      // 🔻 CORREGIDO el 2026-09-03. Acá decía "un falso positivo no hace daño:
+      // la aclaración es cierta SIEMPRE que llegue hasta acá". Lo primero es
+      // verdad y lo segundo también, pero juntos llevaron a la conclusión
+      // equivocada: el aviso no solo aclara, además le ORDENA al admin
+      // "pedímelo de nuevo para que lo registre de verdad". Sobre un mensaje
+      // que sí tenía plan esperando el sí, hacerle caso termina en el anuncio
+      // duplicado -- lo mismo contra lo que advierte `sinAccionesRepetidas`
+      // treinta líneas más abajo. Y un aviso que sale siempre deja de leerse.
+      //
+      // La regla vive en `lib/afirma-haberlo-hecho.ts`, con pruebas contra el
+      // chat real. Estaba escrita acá adentro y no distinguía el participio
+      // del SUSTANTIVO: "copy + estado", "✅ Problema identificado" y hasta
+      // "Sigo trabajando en tu pedido" --que lo escribe el propio latido del
+      // servidor-- disparaban el aviso. Se vio dos veces en una sola pantalla
+      // el 2026-09-03, una de ellas encabezando un mensaje que SÍ tenía plan y
+      // terminaba en "¿Confirmás?".
+      const AFIRMA_HABERLO_HECHO = afirmaHaberloHecho(String(finalReplyVerificado || ""));
 
       if (AFIRMA_HABERLO_HECHO) {
         logger.warn(
