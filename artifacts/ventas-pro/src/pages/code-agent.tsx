@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Bot, Send, User, Loader2, Sparkles, Check, X, Wrench, MessageSquare, Paperclip, RotateCcw, History, Trash2, Copy, Square } from "lucide-react";
+import { Bot, Send, User, Loader2, Sparkles, Check, X, Wrench, MessageSquare, Paperclip, RotateCcw, History, Trash2, Copy, Square, Mic } from "lucide-react";
 import { toast } from "sonner";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -158,6 +158,17 @@ export default function CodeAgent() {
    */
   const cortarRef = useRef<AbortController | null>(null);
   const detenidoRef = useRef(false);
+  /**
+   * Hablarle a Atlas por micrófono.
+   *
+   * `grabando` prende el botón en rojo; `transcribiendo` cubre el rato entre
+   * que soltás y llega el texto, que con Whisper es un segundo o dos pero sin
+   * indicador se lee como que no pasó nada.
+   */
+  const [grabando, setGrabando] = useState(false);
+  const [transcribiendo, setTranscribiendo] = useState(false);
+  const grabadorRef = useRef<MediaRecorder | null>(null);
+  const pedazosRef = useRef<Blob[]>([]);
   // La caja de escribir crece con lo que se escribe. Ver el hook: acá
   // había un comentario prometiéndolo y ni una línea que lo hiciera.
   const textareaRef = useCajaQueCrece(input);
@@ -316,6 +327,108 @@ export default function CodeAgent() {
       toast.error("No se pudo borrar");
     }
   };
+
+  /**
+   * ── HABLARLE A ATLAS ──────────────────────────────────────────────────
+   *
+   * Se aprieta para empezar y se aprieta para terminar. NO es "mantener
+   * apretado": en un celular, mantener el dedo sobre un botón mientras se
+   * habla obliga a sostener el teléfono en una postura incómoda, y si el dedo
+   * resbala se pierde lo dicho. Apretar dos veces es más perdonador.
+   *
+   * El texto NO se manda solo: cae en la caja de escribir para leerlo antes.
+   * Whisper se equivoca con nombres de producto y con cifras, y acá una cifra
+   * mal entendida es un presupuesto de anuncio equivocado. El pedido fue que
+   * "entienda de forma correcta", y la forma de garantizarlo no es confiar en
+   * la transcripción: es poder corregirla cuando todavía es gratis.
+   */
+  const empezarAGrabar = async () => {
+    if (grabando || loading) return;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          // Lo que hace la diferencia entre entender y no entender: el eco y
+          // el ruido del ambiente son lo que le arruina la transcripción a
+          // Whisper, mucho más que el acento.
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+      });
+      // Chrome graba webm/opus, Safari mp4. Se deja elegir al navegador en vez
+      // de imponer un formato: forzar uno que no soporta devuelve un grabador
+      // mudo, sin error visible.
+      const rec = new MediaRecorder(stream);
+      pedazosRef.current = [];
+      rec.ondataavailable = (e) => { if (e.data.size > 0) pedazosRef.current.push(e.data); };
+      rec.onstop = async () => {
+        // El micrófono se apaga SIEMPRE, aunque la transcripción falle: si no,
+        // queda la luz del micro prendida y el navegador diciendo que la
+        // página te está escuchando.
+        stream.getTracks().forEach((t) => t.stop());
+        const blob = new Blob(pedazosRef.current, { type: rec.mimeType || "audio/webm" });
+        pedazosRef.current = [];
+        await transcribir(blob);
+      };
+      rec.start();
+      grabadorRef.current = rec;
+      setGrabando(true);
+    } catch {
+      // El navegador dice "NotAllowedError" y eso no le sirve a nadie: lo que
+      // hay que decir es qué hacer.
+      toast.error("No pude usar el micrófono. Dale permiso al sitio y probá de nuevo.");
+    }
+  };
+
+  const pararDeGrabar = () => {
+    const rec = grabadorRef.current;
+    if (!rec) return;
+    grabadorRef.current = null;
+    setGrabando(false);
+    try { rec.stop(); } catch { /* ya estaba parado */ }
+  };
+
+  const transcribir = async (blob: Blob) => {
+    setTranscribiendo(true);
+    try {
+      const dataUrl: string = await new Promise((resolve, reject) => {
+        const r = new FileReader();
+        r.onload = () => resolve(r.result as string);
+        r.onerror = reject;
+        r.readAsDataURL(blob);
+      });
+      const r = await fetch("/api/code-agent/transcribir", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ audio: dataUrl, mime: blob.type }),
+        credentials: "include",
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok || !d?.texto) {
+        toast.error(d?.error || "No pude entender el audio. ¿Lo repetís?");
+        return;
+      }
+      // Se AGREGA a lo que ya había escrito en vez de pisarlo: se puede
+      // escribir una parte, dictar el resto, y seguir corrigiendo.
+      setInput((prev) => (prev ? `${prev} ${d.texto}` : d.texto));
+      // El foco vuelve a la caja para poder corregir sin buscar dónde tocar.
+      setTimeout(() => textareaRef.current?.focus(), 0);
+    } catch {
+      toast.error("No se pudo enviar el audio.");
+    } finally {
+      setTranscribiendo(false);
+    }
+  };
+
+  // Si la pantalla se cierra en mitad de una grabación, el micrófono tiene que
+  // apagarse igual. Sin esto queda escuchando después de salir de la sección.
+  useEffect(() => {
+    return () => {
+      const rec = grabadorRef.current;
+      grabadorRef.current = null;
+      try { rec?.stop(); } catch { /* noop */ }
+    };
+  }, []);
 
   const resetConversation = async () => {
     try {
@@ -993,6 +1106,23 @@ export default function CodeAgent() {
                     {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Paperclip className="h-4 w-4" />}
                   </Button>
                 )}
+                {/* Micrófono: se aprieta para hablar y se aprieta para
+                    terminar. En rojo mientras graba, para que se vea de un
+                    vistazo que el micro está abierto. */}
+                <Button
+                  type="button"
+                  variant={grabando ? "destructive" : "outline"}
+                  size="icon"
+                  disabled={loading || uploading || transcribiendo}
+                  onClick={grabando ? pararDeGrabar : empezarAGrabar}
+                  title={grabando ? "Tocá para terminar de hablar" : "Hablarle a Atlas"}
+                  aria-label={grabando ? "Terminar de hablar" : "Hablarle a Atlas"}
+                  className="h-11 w-11 rounded-xl shrink-0"
+                >
+                  {transcribiendo
+                    ? <Loader2 className="h-4 w-4 animate-spin" />
+                    : <Mic className={`h-4 w-4 ${grabando ? "animate-pulse" : ""}`} />}
+                </Button>
                 <div className="flex-1 relative" data-tour="code-agent-input">
                   {/* Campo que CRECE con lo que se escribe: el alto lo mide el
                       efecto de arriba, que es lo que faltaba. Crece hasta ~6

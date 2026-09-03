@@ -48,6 +48,25 @@ function modelosDeVision(): Array<{ proveedor: string; modelo: string }> {
 }
 
 /**
+ * La extensión que le corresponde a un tipo de audio.
+ *
+ * Exportada para poder probarla: es una tabla chica y aburrida, y justo por
+ * eso es donde se cuela el caso que nadie miró -- `webm` faltaba, que es lo
+ * que graba Chrome.
+ */
+export function extensionDeAudio(mime: string): string {
+  const m = String(mime || "").toLowerCase();
+  if (m.includes("webm")) return "webm";
+  if (m.includes("wav")) return "wav";
+  if (m.includes("mp4") || m.includes("m4a") || m.includes("aac")) return "m4a";
+  if (m.includes("mpeg") || m.includes("mp3")) return "mp3";
+  if (m.includes("flac")) return "flac";
+  // ogg/opus y lo que no se reconozca: es lo que manda WhatsApp y era el
+  // único caso cuando esto se escribió.
+  return "ogg";
+}
+
+/**
  * Transcribe una nota de voz con Whisper (Groq).
  * Devuelve null si no hay clave o si el audio no se pudo transcribir.
  */
@@ -58,7 +77,16 @@ export async function transcribirAudio(audio: Buffer, mime = "audio/ogg"): Promi
     return null;
   }
   try {
-    const ext = mime.includes("mp4") ? "m4a" : mime.includes("mpeg") ? "mp3" : "ogg";
+    // ── La extensión tiene que coincidir con lo que va adentro ────────────
+    //
+    // Whisper decide cómo decodificar mirando el nombre del archivo, así que
+    // mandar audio webm llamado `nota.ogg` es pedirle que lo lea mal.
+    //
+    // `webm` y `wav` no estaban, y son justamente lo que graba un NAVEGADOR:
+    // `MediaRecorder` da `audio/webm;codecs=opus` en Chrome y `audio/mp4` en
+    // Safari. Mientras esto solo recibía notas de voz de WhatsApp (ogg) no
+    // importaba; con el micrófono de Atlas, es la ruta normal.
+    const ext = extensionDeAudio(mime);
     const form = new FormData();
     form.append("file", new Blob([new Uint8Array(audio)], { type: mime }), `nota.${ext}`);
     form.append("model", process.env.WHISPER_MODEL || "whisper-large-v3");
