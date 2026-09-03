@@ -664,7 +664,15 @@ export default function CodeAgent() {
         // Nunca se muestra el mensaje técnico crudo (network error, status
         // HTTP, etc.) -- para un admin no programador eso no significa nada,
         // solo lo asusta. Un tono neutral y una acción concreta (reintentar).
-        setMessages((prev) => [...prev, { role: "assistant", content: "No pude terminar de responder. ¿Podés intentarlo de nuevo?", at: Date.now() }]);
+        // ── El texto es DISTINTO del que manda el servidor, a propósito ────
+        //
+        // El backend contesta "No pude terminar de responder. ¿Podés
+        // intentarlo de nuevo?" en su 502, y acá se mostraba EXACTAMENTE lo
+        // mismo. Dos fallas de naturaleza opuesta --una es "el motor devolvió
+        // error", la otra es "la respuesta nunca llegó a esta pantalla"-- se
+        // veían idénticas, así que ante una captura del admin no había forma
+        // de saber cuál de las dos pasó. Y se necesitan arreglos distintos.
+        setMessages((prev) => [...prev, { role: "assistant", content: "Se cortó la conexión antes de que llegara la respuesta. ¿Lo intentamos de nuevo?", at: Date.now() }]);
       }
     } finally {
       setLoading(false);

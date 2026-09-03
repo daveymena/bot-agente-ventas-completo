@@ -46,6 +46,7 @@ import { ENV_POR_PROVEEDOR } from "../lib/ai-keys";
 import { claveDeTurno, empezarTurno, terminarTurno, pedirDetener, hayTurnoEnVuelo, fueDetenido } from "../lib/turnos-en-vuelo";
 import { afirmaHaberloHecho } from "../lib/afirma-haberlo-hecho";
 import { mensajeDeCierre } from "../lib/entrega-por-partes";
+import { anotarTurno, ultimosTurnos, resumirTurnos } from "../lib/diagnostico-de-turnos";
 import { db, products } from "@workspace/db";
 import { eq, desc } from "drizzle-orm";
 
@@ -1379,6 +1380,7 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
         ));
         await saveArchitectTurn(tenantId, sessionId, "assistant", reply);
         logger.info({ tenantId, tramos, totalMs: Date.now() - t0 }, "[AtlasOpenCode] Turno DETENIDO por el admin");
+        anotarTurno(tenantId, sessionId, { estado: "detenido", totalMs: Date.now() - t0, tramos, pedido: String(prompt) });
         return finish({ reply, status: "stopped", needsContinuation: false, tramos, totalMs: Date.now() - t0 });
       }
 
@@ -1450,8 +1452,27 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
             "[AtlasOpenCode] Turno cortado por tiempo -- el detalle va al log, no al admin",
           );
           await saveArchitectTurn(tenantId, sessionId, "assistant", reply, { parcial: true });
-          return finish({ reply, status: "partial", needsContinuation: true, tramos, totalMs: Date.now() - t0 });
+          anotarTurno(tenantId, sessionId, { estado: "cortado", totalMs: Date.now() - t0, tramos, error: String(opencodeError), pedido: String(prompt) });
+        return finish({ reply, status: "partial", needsContinuation: true, tramos, totalMs: Date.now() - t0 });
         }
+        // ── Este 502 es el "falló de verdad", no el "se quedó sin tiempo" ──
+        //
+        // Se llega acá cuando `opencodeError` NO es un timeout: un proveedor
+        // que devolvió error, una clave rechazada, un modelo que no existe.
+        // Y el turno se iba sin dejar rastro del motivo: el admin veía una
+        // línea que no dice nada y el detalle moría en un log que en este
+        // EasyPanel no se puede leer.
+        //
+        // El texto para el admin no cambia --no se le cuentan las tripas--,
+        // pero ahora el motivo queda anotado y se lee por
+        // GET /api/code-agent/atlas-diagnostico.
+        anotarTurno(tenantId, sessionId, {
+          estado: "error",
+          totalMs: Date.now() - t0,
+          tramos,
+          error: String(opencodeError),
+          pedido: String(prompt),
+        });
         return finish({ error: "No pude terminar de responder. ¿Podés intentarlo de nuevo?" }, 502);
       }
 
@@ -1948,6 +1969,7 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
         { tenantId, tramos, totalMs: Date.now() - t0 },
         "[AtlasOpenCode] Turno COMPLETO -- reparto real del tiempo",
       );
+      anotarTurno(tenantId, sessionId, { estado: "completo", totalMs: Date.now() - t0, tramos, modelo: modeloUsado?.modelID ?? null, pedido: String(prompt) });
       return finish({ reply, status: "info", needsContinuation: false, tramos, totalMs: Date.now() - t0 });
     } finally {
       clearInterval(heartbeat);
@@ -1967,6 +1989,32 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
     } catch { /* la conexión ya estaba cerrada */ }
     if (!res.writableEnded) res.end();
     return;
+  }
+});
+
+/**
+ * GET /api/code-agent/atlas-diagnostico
+ *
+ * Dónde se le va el tiempo a Atlas, en un lugar que se pueda leer.
+ *
+ * Existe porque el desglose por tramos se escribía SOLO en el log del
+ * contenedor, y en este EasyPanel el log no se alcanza por la API: diez
+ * endpoints probados en dos sesiones, todos 404. Con la medición inalcanzable,
+ * la lentitud se diagnosticó tres veces por deducción y las tres se arregló
+ * otra cosa.
+ *
+ * El caso que lo detonó: "¿tenés el curso de inteligencia artificial?" -- una
+ * pregunta de una línea -- terminó cinco minutos después en "No pude terminar
+ * de responder", sin ningún rastro de por qué.
+ */
+router.get("/atlas-diagnostico", async (req: TenantRequest, res, next) => {
+  try {
+    const tenantId = req.tenant?.id;
+    if (!tenantId) return res.status(401).json({ message: "Tenant not resolved" });
+    const turnos = await ultimosTurnos(tenantId);
+    return res.json({ resumen: resumirTurnos(turnos), turnos });
+  } catch (e) {
+    return next(e);
   }
 });
 
