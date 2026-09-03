@@ -92,6 +92,28 @@ function usaHerramientas(m: any): boolean {
  * id → definición: el shape cambió entre versiones de OpenCode y no se puede
  * verificar desde acá. Se aceptan las tres formas en vez de asumir una.
  */
+/**
+ * Los ids que el proveedor DE VERDAD ofrece, o null si no sabemos.
+ *
+ * La diferencia entre "no lo tiene" y "no sabemos" es la que importa: si
+ * OpenCode cambia el shape de `/provider` el catálogo queda vacío, y ahí hay
+ * que dejar pasar los curados como siempre. Descartar por falta de información
+ * apagaría la cadena entera de golpe.
+ */
+export function idsDelCatalogo(modelos: unknown): Set<string> | null {
+  if (Array.isArray(modelos)) {
+    const ids = modelos
+      .map((m: any) => (typeof m === "string" ? m : String(m?.id ?? m?.name ?? "")))
+      .filter(Boolean);
+    return ids.length > 0 ? new Set(ids) : null;
+  }
+  if (modelos && typeof modelos === "object") {
+    const ids = Object.keys(modelos as Record<string, any>);
+    return ids.length > 0 ? new Set(ids) : null;
+  }
+  return null;
+}
+
 export function elegirModelo(modelos: unknown): string | null {
   let entradas: Array<{ id: string; def: any }> = [];
 
@@ -152,7 +174,51 @@ export function armarCadena(entrada: {
   // Un candidato curado se intenta si está conectado O si tenemos su clave:
   // `connected` solo se enciende tras reiniciar el contenedor, así que una
   // clave recién cargada quedaría invisible (ya costó un turno el 2026-08-19).
-  const disponibles = curados.filter((c) => conectados.has(c.providerID) || tenemosClave(c.providerID));
+  // ── Y el MODELO tiene que existir de verdad ────────────────────────────
+  //
+  // Acá solo se miraba el proveedor. El id del modelo se daba por bueno porque
+  // estaba escrito a mano en la lista curada -- y un id escrito a mano es una
+  // suposición, no un hecho.
+  //
+  // Lo que cuesta: el primer candidato de la cadena es
+  // `deepseek/deepseek-v4-flash`, y su propio comentario admite que no está
+  // verificado ("si el servidor no acepta el id de flash, el costo es un 500
+  // en ~1,5s"). Si ese id no existe en esta build, CADA turno de Atlas empieza
+  // quemando un 500 y cae en `deepseek-v4-pro`, que está medido en 55s y
+  // fallando. Eso es medio turno perdido, en todos los turnos, para siempre.
+  //
+  // El catálogo real ya estaba acá: `modelosPorProveedor` es lo que devolvió
+  // `/provider` en este mismo turno, y se usaba solo para los proveedores
+  // DESCUBIERTOS. La lista curada --la que corre primero-- no se validaba
+  // contra nada. Es el patrón que este proyecto repite: arreglado en una
+  // rama, vivo en la otra.
+  //
+  // Con catálogo a la vista: si el id existe, va; si no existe, se reemplaza
+  // por el mejor modelo REAL de ese mismo proveedor (que es exactamente lo que
+  // ya se hace con los descubiertos) y, si no hay ninguno servible, se cae.
+  // Sin catálogo no se toca nada: no saber no es motivo para descartar.
+  const conProveedor = curados.filter((c) => conectados.has(c.providerID) || tenemosClave(c.providerID));
+  const disponibles: Candidato[] = [];
+  // El reemplazo puede chocar con un curado posterior del MISMO proveedor:
+  // si `flash` no existe y se cae a `pro`, y `pro` ya venía en la lista, la
+  // cadena quedaba intentando lo mismo dos veces seguidas. Se deduplica por
+  // proveedor+modelo, no solo en la rama del reemplazo.
+  const yaEnLaCadena = new Set<string>();
+  const sumar = (c: Candidato) => {
+    const clave = `${c.providerID}/${c.modelID}`;
+    if (yaEnLaCadena.has(clave)) return;
+    yaEnLaCadena.add(clave);
+    disponibles.push(c);
+  };
+  for (const c of conProveedor) {
+    const ids = idsDelCatalogo(modelosPorProveedor.get(c.providerID));
+    if (!ids || ids.has(c.modelID)) {
+      sumar(c);
+      continue;
+    }
+    const real = elegirModelo(modelosPorProveedor.get(c.providerID));
+    if (real) sumar({ providerID: c.providerID, modelID: real });
+  }
 
   const yaEstan = new Set(disponibles.map((c) => c.providerID));
   const descubiertos: Candidato[] = [];

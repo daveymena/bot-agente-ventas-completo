@@ -445,3 +445,97 @@ describe("Qué modelo se elige del catálogo real de Groq", () => {
     expect(cadena[0]?.providerID).toBe("groq");
   });
 });
+
+/**
+ * El id del modelo curado tampoco se cree de palabra.
+ *
+ * El primer candidato de Atlas es `deepseek/deepseek-v4-flash`, y el comentario
+ * que lo puso ahí admite que no está verificado contra el servidor. Si ese id
+ * no existe en esta build de OpenCode, cada turno arranca quemando un 500 y cae
+ * en `deepseek-v4-pro`, medido en 55s y fallando: medio turno perdido, en todos
+ * los turnos.
+ *
+ * El catálogo real ya llegaba en la misma respuesta de `/provider`. Solo se
+ * usaba para los proveedores descubiertos; la lista curada --la que corre
+ * primero-- no se validaba contra nada.
+ */
+describe("un id curado que no existe no se intenta", () => {
+  const respaldo = { providerID: "opencode", modelID: "big-pickle" };
+  const conectados = new Set<string>(["deepseek"]);
+  const tenemosClave = () => false;
+
+  it("si el id existe en el catálogo, se usa tal cual", () => {
+    const cadena = armarCadena({
+      curados: [{ providerID: "deepseek", modelID: "deepseek-v4-flash" }],
+      conectados,
+      tenemosClave,
+      modelosPorProveedor: new Map([["deepseek", ["deepseek-v4-flash", "deepseek-v4-pro"]]]),
+      respaldo,
+    });
+    expect(cadena[0]).toEqual({ providerID: "deepseek", modelID: "deepseek-v4-flash" });
+  });
+
+  it("si NO existe, se reemplaza por el mejor real del mismo proveedor", () => {
+    const cadena = armarCadena({
+      curados: [{ providerID: "deepseek", modelID: "deepseek-v4-flash" }],
+      conectados,
+      tenemosClave,
+      modelosPorProveedor: new Map([["deepseek", ["deepseek-v4-pro"]]]),
+      respaldo,
+    });
+    expect(cadena[0]).toEqual({ providerID: "deepseek", modelID: "deepseek-v4-pro" });
+    expect(cadena.some((c) => c.modelID === "deepseek-v4-flash")).toBe(false);
+  });
+
+  it("dos curados del mismo proveedor no colapsan en el mismo modelo dos veces", () => {
+    const cadena = armarCadena({
+      curados: [
+        { providerID: "deepseek", modelID: "deepseek-v4-flash" },
+        { providerID: "deepseek", modelID: "deepseek-v4-pro" },
+      ],
+      conectados,
+      tenemosClave,
+      modelosPorProveedor: new Map([["deepseek", ["deepseek-v4-pro"]]]),
+      respaldo,
+    });
+    const deepseeks = cadena.filter((c) => c.providerID === "deepseek");
+    expect(deepseeks).toHaveLength(1);
+  });
+
+  it("si el proveedor no tiene NINGÚN modelo servible, el candidato se cae", () => {
+    const cadena = armarCadena({
+      curados: [{ providerID: "deepseek", modelID: "deepseek-v4-flash" }],
+      conectados,
+      tenemosClave,
+      // Solo modelos de razonamiento y embeddings: ninguno conversa.
+      modelosPorProveedor: new Map([["deepseek", ["deepseek-reasoner", "text-embedding-3"]]]),
+      respaldo,
+    });
+    expect(cadena.some((c) => c.providerID === "deepseek")).toBe(false);
+    expect(cadena).toContainEqual(respaldo);
+  });
+
+  it("⚠️ SIN catálogo no se descarta nada: no saber no es motivo para apagar la cadena", () => {
+    // Si OpenCode cambia el shape de /provider, el mapa queda vacío. Descartar
+    // ahí dejaría a Atlas con el respaldo gratis y nadie se enteraría.
+    const cadena = armarCadena({
+      curados: [{ providerID: "deepseek", modelID: "deepseek-v4-flash" }],
+      conectados,
+      tenemosClave,
+      modelosPorProveedor: new Map(),
+      respaldo,
+    });
+    expect(cadena[0]).toEqual({ providerID: "deepseek", modelID: "deepseek-v4-flash" });
+  });
+
+  it("un catálogo vacío se trata como falta de información, no como “no tiene nada”", () => {
+    const cadena = armarCadena({
+      curados: [{ providerID: "deepseek", modelID: "deepseek-v4-flash" }],
+      conectados,
+      tenemosClave,
+      modelosPorProveedor: new Map([["deepseek", []]]),
+      respaldo,
+    });
+    expect(cadena[0]).toEqual({ providerID: "deepseek", modelID: "deepseek-v4-flash" });
+  });
+});

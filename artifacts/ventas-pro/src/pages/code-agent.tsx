@@ -146,21 +146,93 @@ export default function CodeAgent() {
 
   // El hilo vive en el servidor (architect_memory). Al montar la página lo
   // restauramos para que cambiar de sección no borre la conversación.
+  //
+  // ── Y si Atlas todavía está trabajando, se lo espera ────────────────────
+  //
+  // El admin lo describió así: *"si me salgo se pega, y también me pide que le
+  // dé la información de nuevo"*.
+  //
+  // El servidor ya hacía su parte desde el 2026-08-30: cerrar la pestaña no
+  // cancela el turno, sigue hasta el final y guarda la respuesta. Lo que
+  // faltaba estaba de este lado: al volver se leía el historial UNA vez y se
+  // paraba. Si el turno seguía corriendo, lo último guardado era el mensaje
+  // del admin y nada más -- así que veía su propio pedido sin respuesta, sin
+  // ningún indicio de que algo estaba pasando, y lo lógico era concluir que se
+  // colgó y escribirlo de nuevo. Pagando el turno dos veces.
+  //
+  // Ahora, si lo último guardado es del admin, es que la respuesta está en
+  // camino: se muestra el indicador de siempre y se relee el historial hasta
+  // que aparezca. No hace falta ningún estado nuevo en el servidor -- la
+  // respuesta se guarda igual, solo había que ir a buscarla.
   useEffect(() => {
     let cancelled = false;
+
+    const leerHistorial = async () => {
+      const res = await fetch(`/api/code-agent/history?sessionId=${encodeURIComponent(sessionId)}`, { credentials: "include" });
+      if (!res.ok) throw new Error(`status ${res.status}`);
+      return res.json();
+    };
+
+    const pintar = (history: any[]) =>
+      setMessages([
+        { role: "assistant", content: GREETING.operator, at: Date.now() },
+        ...history.map((t: any) => ({ role: t.role, content: t.content, at: typeof t.at === "number" ? t.at : undefined })),
+      ]);
+
     (async () => {
       try {
-        const res = await fetch(`/api/code-agent/history?sessionId=${encodeURIComponent(sessionId)}`, { credentials: "include" });
-        if (!res.ok) return;
-        const data = await res.json();
+        const data = await leerHistorial();
         if (cancelled || !Array.isArray(data.history) || data.history.length === 0) return;
-        setMessages([
-          { role: "assistant", content: GREETING.operator, at: Date.now() },
-          ...data.history.map((t: any) => ({ role: t.role, content: t.content, at: typeof t.at === "number" ? t.at : undefined })),
-        ]);
+        pintar(data.history);
         if (data.awaitingConfirmation) {
           toast.info("Tienes un plan pendiente de confirmar");
         }
+
+        if (data.history[data.history.length - 1]?.role !== "user") return;
+
+        // Se reusa `loading` a propósito: prende el mismo indicador de
+        // "escribiendo" con su cronómetro y bloquea el campo de escribir, que
+        // es lo correcto -- mandar otro pedido encima del que está corriendo
+        // los cruza.
+        setLoading(true);
+        setProgreso("Retomando lo que Atlas estaba haciendo");
+
+        // Un turno pesado puede encadenar hasta 4 continuaciones de ~150s, así
+        // que el techo son ~10 min. Pasado eso se suelta el campo en vez de
+        // dejar al admin mirando un reloj para siempre: si de verdad se cayó,
+        // tiene que poder volver a pedirlo.
+        const CADA = 4000;
+        const INTENTOS = 150;
+        for (let i = 0; i < INTENTOS && !cancelled; i++) {
+          await new Promise((r) => setTimeout(r, CADA));
+          if (cancelled) return;
+          let ahora: any;
+          try {
+            ahora = await leerHistorial();
+          } catch {
+            continue; // un error de red suelto no cancela la espera
+          }
+          const h = Array.isArray(ahora?.history) ? ahora.history : [];
+          if (h.length === 0) continue;
+          if (h[h.length - 1]?.role === "assistant") {
+            if (cancelled) return;
+            pintar(h);
+            setLoading(false);
+            setProgreso("");
+            return;
+          }
+        }
+        if (cancelled) return;
+        setLoading(false);
+        setProgreso("");
+        setMessages((prev) => [
+          ...prev,
+          {
+            role: "assistant",
+            content: "Estuve un rato largo con esto y no llegué a terminarlo. ¿Lo intentamos de nuevo?",
+            at: Date.now(),
+          },
+        ]);
       } catch {
         // sin historial: se queda el saludo
       } finally {
