@@ -212,26 +212,37 @@ export default function CodeAgent() {
   // camino: se muestra el indicador de siempre y se relee el historial hasta
   // que aparezca. No hace falta ningún estado nuevo en el servidor -- la
   // respuesta se guarda igual, solo había que ir a buscarla.
+  //
+  // ── Y lo mismo tiene que valer SIN recargar la página ──────────────────
+  //
+  // Todo lo de arriba cuelga del MONTAJE de la pantalla, así que solo cubre
+  // "cierro la pestaña y vuelvo a entrar". No cubría el caso del celular, que
+  // es el que el admin vive todos los días: salirse a otra app **no desmonta
+  // nada**. La página queda viva y lo único que se muere es el socket.
+  //
+  // Por eso estas dos piezas se sacaron acá afuera: las usa también
+  // `recuperarDelCorte`, que es esta misma recuperación pero disparada por el
+  // corte de conexión en vez de por el montaje.
+  const leerHistorial = async () => {
+    const res = await fetch(`/api/code-agent/history?sessionId=${encodeURIComponent(sessionId)}`, { credentials: "include" });
+    if (!res.ok) throw new Error(`status ${res.status}`);
+    return res.json();
+  };
+
+  const pintarHistorial = (history: any[]) =>
+    setMessages([
+      { role: "assistant", content: GREETING.operator, at: Date.now() },
+      ...history.map((t: any) => ({ role: t.role, content: t.content, at: typeof t.at === "number" ? t.at : undefined })),
+    ]);
+
   useEffect(() => {
     let cancelled = false;
-
-    const leerHistorial = async () => {
-      const res = await fetch(`/api/code-agent/history?sessionId=${encodeURIComponent(sessionId)}`, { credentials: "include" });
-      if (!res.ok) throw new Error(`status ${res.status}`);
-      return res.json();
-    };
-
-    const pintar = (history: any[]) =>
-      setMessages([
-        { role: "assistant", content: GREETING.operator, at: Date.now() },
-        ...history.map((t: any) => ({ role: t.role, content: t.content, at: typeof t.at === "number" ? t.at : undefined })),
-      ]);
 
     (async () => {
       try {
         const data = await leerHistorial();
         if (cancelled || !Array.isArray(data.history) || data.history.length === 0) return;
-        pintar(data.history);
+        pintarHistorial(data.history);
         if (data.awaitingConfirmation) {
           toast.info("Tienes un plan pendiente de confirmar");
         }
@@ -278,7 +289,7 @@ export default function CodeAgent() {
           if (h.length === 0) continue;
           if (h[h.length - 1]?.role === "assistant") {
             if (cancelled) return;
-            pintar(h);
+            pintarHistorial(h);
             setLoading(false);
             setProgreso("");
             return;
@@ -773,6 +784,75 @@ export default function CodeAgent() {
   };
 
   /**
+   * Se cortó la conexión. NO se cortó el trabajo.
+   *
+   * ⚠️ Esa distinción es todo el arreglo. El admin lo dijo así: *"cuando me
+   * salgo de la app no sigue trabajando, se corta, y eso es grave: debe
+   * trabajar en segundo plano y cuando yo vuelva debe haber terminado o
+   * seguir trabajando, por eso es una app, no depende de si yo la tengo
+   * abierta o no"*.
+   *
+   * Tenía razón en el síntoma, pero la causa no era la que parecía. El
+   * servidor ya hacía su parte desde el 2026-08-30: el turno sobrevive a que
+   * se caiga el socket, sigue hasta el final y guarda la respuesta. Lo que
+   * fallaba era la VUELTA, y por un detalle muy concreto: la recuperación
+   * existía, pero colgaba del montaje de la pantalla. O sea que solo servía
+   * si el admin recargaba la página.
+   *
+   * Y en el celular, salirse a otra app no desmonta nada. La pantalla sigue
+   * montada y solo se muere el socket: el fetch falla, ningún montaje dispara
+   * la recuperación, y se le contestaba "se cortó la conexión, ¿lo intentamos
+   * de nuevo?" -- pidiéndole repetir un trabajo que en el servidor seguía
+   * corriendo. Pagando el turno dos veces, que es justo lo que el arreglo de
+   * agosto quería evitar.
+   *
+   * Devuelve `true` si consiguió reengancharse. Solo si devuelve `false` --el
+   * servidor no contesta en 10 min, o de verdad no quedó nada-- se le dice al
+   * admin que algo salió mal.
+   */
+  const recuperarDelCorte = async (): Promise<boolean> => {
+    setProgreso("Se cayó la conexión, pero Atlas sigue trabajando. Recuperando…");
+
+    // El mismo techo que al montar: un turno pesado encadena hasta 4
+    // continuaciones de ~150s, así que ~10 min.
+    const CADA = 4000;
+    const INTENTOS = 150;
+    for (let i = 0; i < INTENTOS; i++) {
+      if (detenidoRef.current) return false;
+
+      let data: any;
+      try {
+        data = await leerHistorial();
+      } catch {
+        // Todavía sin red. Eso no es una respuesta: es no haber podido
+        // preguntar, así que no cuenta como que no quedó nada.
+        await new Promise((r) => setTimeout(r, CADA));
+        continue;
+      }
+      const h = Array.isArray(data?.history) ? data.history : [];
+
+      // Quedó a medio hacer: se sigue solo, igual que al montar. Se espera con
+      // await --y no `void`-- porque el `finally` de quien llama apaga el
+      // spinner: soltándolo, la pantalla se veía quieta mientras Atlas seguía.
+      if (data?.hayAlgoPendiente) {
+        pintarHistorial(h);
+        await seguirPendiente(h);
+        return true;
+      }
+
+      // La respuesta ya está guardada: terminó mientras el admin no estaba,
+      // que es exactamente lo que pedía que pasara.
+      if (h.length > 0 && h[h.length - 1]?.role === "assistant") {
+        pintarHistorial(h);
+        return true;
+      }
+
+      await new Promise((r) => setTimeout(r, CADA));
+    }
+    return false;
+  };
+
+  /**
    * El botón de parar.
    *
    * Hace las tres cosas que hacen falta, en este orden: frena el encadenado
@@ -884,7 +964,14 @@ export default function CodeAgent() {
             content: "⏹️ Listo, lo detuve. Lo que ya se había hecho queda como estaba.",
           },
         ]);
-      } else {
+      } else if (!(await recuperarDelCorte())) {
+        // ── Solo se llega acá si NI SIQUIERA se pudo recuperar ─────────────
+        //
+        // Antes este era el camino normal de cualquier corte, y por eso el
+        // admin veía "se cortó la conexión" cada vez que se salía de la app.
+        // Ahora primero se va a buscar el trabajo al servidor, que sigue
+        // corriendo; este mensaje quedó para lo que de verdad es un fallo.
+        //
         // Nunca se muestra el mensaje técnico crudo (network error, status
         // HTTP, etc.) -- para un admin no programador eso no significa nada,
         // solo lo asusta. Un tono neutral y una acción concreta (reintentar).
