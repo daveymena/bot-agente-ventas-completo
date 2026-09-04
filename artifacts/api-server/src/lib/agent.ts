@@ -1760,7 +1760,25 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
 
       if (hardcoded && !repetido) {
         console.log(`⚡ [FAST-TRACK] Respuesta hardcodeada para details_query - ${ts()}`);
-        const raw = hardcoded.response;
+        // ── Los HECHOS los pone el servidor; la forma, el modelo ──────────
+        //
+        // `tryHardcodedAnswer` arma la respuesta con los datos REALES del
+        // negocio (entrega, garantía, acceso) y devuelve null si el dueño no
+        // los cargó, así que el contenido es de fiar. Lo que no era de fiar es
+        // que saliera siempre con las mismas palabras: es el camino por el que
+        // el admin reportó que "responde como por inercia".
+        //
+        // Misma receta que la objeción y con el mismo piso: `entregaFinal`
+        // rechaza la redacción si tocó un monto, un enlace, una cuenta o un
+        // porcentaje, y entonces sale la plantilla -- exactamente lo que salía
+        // antes. El piso no baja.
+        const { redactarObjecion } = await import("./redactar-objecion");
+        const raw = await redactarObjecion(hardcoded.response, {
+          mensajeDelCliente: lastText,
+          producto: decision.productToShow?.name || memory.currentProductName || null,
+          historia: (memory.history || []).slice(-4).map((m: any) => `${m.role === "customer" ? "Cliente" : "Vos"}: ${m.content}`),
+          situacion: "Un cliente preguntó un detalle del producto (entrega, garantía o acceso)",
+        });
         await saveAgentMessage(conversationId, raw, "details", {
           intent: hardcoded.intent,
           productId: decision.productToShow?.id || memory.currentProductId || undefined,

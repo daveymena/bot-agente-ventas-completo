@@ -360,7 +360,26 @@ function buildRequirements(
       break;
 
     case "ai_product_discovery":
-      requirements.push(`Escribe SOLO 1 línea corta y entusiasta antes de la card (ej: "¡Aquí lo tienes! 👇" o "Mira esto 🔥").`);
+      // ── La línea de entrada NOMBRA el producto ─────────────────────────
+      //
+      // Acá decía: 1 línea corta y entusiasta, ej. "¡Aquí lo tienes! 👇". Y
+      // eso, en un catálogo real, es ambiguo hasta el punto de ser peligroso.
+      // Medido el 2026-09-04 sobre el catálogo de producción: CUATRO productos
+      // distintos tienen "MARKETING" en el nombre --MARKETING DIGITAL, LIBROS
+      // MARKETING, PACK SEO MARKETING DESDE CERO, PACK MARKETING DIGITAL-- y
+      // los cuatro cuestan $60.000. "¡Aquí lo tienes! $60.000" no le dice al
+      // cliente cuál de los cuatro está comprando.
+      //
+      // Y hay un antecedente peor documentado en este repo: dos productos con
+      // el nombre IDÉNTICO y precios distintos ($37.950 y $33.000). Ahí la
+      // línea sin nombre no es solo ambigua: tapa cuál es el precio correcto.
+      //
+      // Nombrarlo cuesta cuatro palabras y quita toda la duda.
+      requirements.push(
+        productName
+          ? `Escribe SOLO 1 línea corta que NOMBRE el producto antes de la card (ej: "¡Acá está *${productName}*! 👇").`
+          : `Escribe SOLO 1 línea corta y entusiasta antes de la card (ej: "¡Aquí lo tienes! 👇").`,
+      );
       requirements.push(`NO menciones el precio, el contenido ni los detalles — todo eso ya está en la card.`);
       requirements.push(`Incluye [CARD: ID] justo después de esa línea.`);
       requirements.push(`NADA después de [CARD: ID].`);

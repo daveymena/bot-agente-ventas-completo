@@ -56,12 +56,23 @@ export interface ContextoDeObjecion {
   historia?: string[];
   /** Cómo se presenta el negocio (tono, tratamiento). */
   tono?: string | null;
+  /**
+   * Qué está pasando, en una línea.
+   *
+   * Esto empezó sirviendo solo para objeciones, y la receta --el servidor pone
+   * los hechos, el modelo pone la forma, la aduana revisa-- sirve igual para
+   * cualquier respuesta que hoy salga de una plantilla: entrega, garantía,
+   * acceso, desvío a un humano. Cambiar una línea del prompt es más honesto
+   * que decirle "un cliente puso una objeción" cuando preguntó cómo se
+   * entrega.
+   */
+  situacion?: string | null;
 }
 
 function construirPrompt(plantilla: string, ctx: ContextoDeObjecion): string {
   const historia = (ctx.historia || []).slice(-4).join("\n");
   return [
-    "Sos un vendedor por WhatsApp. Un cliente puso una objeción y el sistema ya",
+    `Sos un vendedor por WhatsApp. ${ctx.situacion || "Un cliente puso una objeción"} y el sistema ya`,
     "preparó la respuesta CORRECTA en cuanto al contenido. Tu trabajo es decir",
     "eso mismo, pero como se lo dirías a ESTA persona.",
     "",
@@ -80,6 +91,18 @@ function construirPrompt(plantilla: string, ctx: ContextoDeObjecion): string {
     "  eso lo dice igual el que estafa. Solo hechos que estén arriba.",
     "- Mismo largo o más corto. Es WhatsApp, no un folleto.",
     "- Hablale de vos, natural, como una persona. Un emoji como mucho.",
+    // ── Y lo que ya contó, no se le vuelve a preguntar ──────────────────
+    //
+    // Medido contra producción el 2026-09-04: el cliente escribió "tengo un
+    // negocio de ropa y quiero automatizar las ventas por WhatsApp, ¿cuál de
+    // sus cursos me sirve?" y recibió "¿Para qué lo querés usar exactamente?".
+    //
+    // La plantilla pregunta eso porque, en el caso general, no se sabe. Pero
+    // acá el cliente acababa de decirlo en el mismo mensaje. Preguntarlo otra
+    // vez le dice que no lo leyeron, que es lo peor que puede pasar justo
+    // cuando se está abriendo.
+    "- Si el cliente YA dijo para qué lo quiere, qué vende o qué necesita, NO se lo",
+    "  preguntes de nuevo: usá lo que dijo y seguí desde ahí.",
     "- Respondé SOLO con el mensaje para el cliente, sin comillas ni comentarios.",
     ctx.tono ? `- Tono del negocio: ${ctx.tono}` : "",
   ].filter(Boolean).join("\n");
