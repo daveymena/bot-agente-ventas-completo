@@ -30,7 +30,7 @@ import { seDespachaPorTransportadora } from "./entrega-del-producto";
 import { verificarPrecios } from "./precio-verificado";
 import { productoEnFoco } from "./producto-en-foco";
 import { entenderAlCliente, type Entendimiento } from "./entender-al-cliente";
-import { sinLoQueYaLeyo } from "./no-repetir";
+import { sinLoQueYaLeyo, yaLoDijo } from "./no-repetir";
 import { prometeEntregaFisica, sinLaPromesaFisica, sinElTemarioInventado, lineasDeTemarioInventadas, comoSeEntregaDeVerdad } from "./solo-lo-que-dice-la-ficha";
 
 /**
@@ -1734,7 +1734,30 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
         voice,
         negocio
       );
-      if (hardcoded) {
+      // ── Y si eso YA se lo dijimos, se suelta el atajo ──────────────────
+      //
+      // Reportado el 2026-09-03: "mirá cuántas veces le pregunto otra cosa y
+      // respondió lo mismo... el bot va a tirar a lo loco".
+      //
+      // La causa no es que el modelo no vea la conversación (la ve: se le
+      // pasan 12 mensajes). Es que este atajo es DETERMINISTA: la misma
+      // intención detectada devuelve la misma cadena, byte por byte, siempre.
+      // Dos preguntas distintas que caen en la misma gaveta reciben dos veces
+      // la misma frase.
+      //
+      // Cuando eso pasa, el atajo dejó de servir: lo que hace falta es
+      // justamente lo que el atajo evita, alguien que lea la conversación. Se
+      // paga el segundo de la IA, que es exactamente lo que vale la pena pagar.
+      // `yaLoDijo` ya existia en `no-repetir.ts`, con su historia: nacio de una
+      // conversacion real donde el cliente pidio MAS informacion y recibio la
+      // misma ficha dos minutos despues. Lo que faltaba no era el detector:
+      // era llamarlo tambien ACA, donde el atajo devuelve antes de todo.
+      const repetido = hardcoded ? yaLoDijo(hardcoded.response, memory.history as any) : false;
+      if (repetido) {
+        console.log(`🔁 [FAST-TRACK] Esa misma respuesta ya se envió: no se repite, contesta la IA - ${ts()}`);
+      }
+
+      if (hardcoded && !repetido) {
         console.log(`⚡ [FAST-TRACK] Respuesta hardcodeada para details_query - ${ts()}`);
         const raw = hardcoded.response;
         await saveAgentMessage(conversationId, raw, "details", {
@@ -1901,7 +1924,26 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
     );
     if (!mandoComprobante) {
       const { esperaParaElCliente } = await import("./cobro-y-entrega");
-      const respuesta = esperaParaElCliente(false);
+      let respuesta = esperaParaElCliente(false);
+      // ── El HECHO no se negocia; la forma de decirlo, sí ────────────────
+      //
+      // Que no se entregue nada sin comprobante es una regla dura y se queda:
+      // el caso D3 del derrotero (dice que pagó sin haber pagado) es de los
+      // dos más caros que tiene este sistema.
+      //
+      // Pero el TEXTO era una cadena fija, así que el cliente que insiste
+      // recibe dos veces la misma frase -- "el bot va a tirar a lo loco",
+      // reportado el 2026-09-03. Si ya se dijo, lo reescribe el modelo con la
+      // aduana de hechos: el pedido de comprobante sigue, dicho de otro modo.
+      if (yaLoDijo(respuesta, memory.history as any)) {
+        const { redactarObjecion } = await import("./redactar-objecion");
+        respuesta = await redactarObjecion(respuesta, {
+          mensajeDelCliente: lastText,
+          producto: memory.currentProductName || null,
+          historia: (memory.history || []).slice(-4).map((m: any) => `${m.role === "customer" ? "Cliente" : "Vos"}: ${m.content}`),
+        });
+        console.log(`🔁 [PAGO] Ya se le había pedido el comprobante: se lo pide de otra forma - ${ts()}`);
+      }
       console.log(`💳 [PAGO] Dice que pagó sin comprobante: se le pide, no se entrega nada - ${ts()}`);
       await saveAgentMessage(conversationId, respuesta, "payment_reported" as any, {
         intent: "payment_reported",

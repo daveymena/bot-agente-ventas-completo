@@ -249,6 +249,95 @@ const AFIRMA_SER_HUMANO =
   /\b(soy|somos) (una |un )?(persona|humano|humana|ser humano)\b|\b(soy|somos)\b[^.!?\n]{0,30}\b(persona|humano|humana) (real|de verdad|de carne y hueso)\b|\bno soy (un |una )?(bot|robot|maquina|ia|inteligencia artificial|programa)\b|\bsoy real\b|\bte (habla|atiende) una persona\b/;
 
 /**
+ * HABLAR COMO SOFTWARE EN VEZ DE COMO EL VENDEDOR DEL NEGOCIO.
+ *
+ * 🔻 AGREGADO el 2026-09-03. El admin pidió endurecer contra fugas, y en vez
+ * de suponer qué faltaba se pasó una batería de 20 frases que el bot podría
+ * llegar a decir. **Pasaron 19.**
+ *
+ * Lo que había cubría dos familias --nombres de proveedores ("GPT-4") y
+ * "estoy hecho con"-- y dejaba afuera la más común de todas: el asistente
+ * hablando de su propia maquinaria con palabras que no nombran a ningún
+ * proveedor.
+ *
+ *   "Como modelo de lenguaje, no puedo hacer eso."
+ *   "Mi entrenamiento llega hasta 2024."
+ *   "No tengo acceso a esa información en mi base de conocimientos."
+ *   "Deja reviso en el panel de administración."
+ *   "El administrador configuró este catálogo."
+ *   "Perdón, tuve un error 500."
+ *   "Estoy en fase de pruebas todavía."
+ *
+ * Ninguna nombra un proveedor y todas delatan. Y varias hacen algo peor que
+ * filtrar: le dicen al cliente que del otro lado hay un programa con fallas,
+ * justo cuando está por pagar.
+ *
+ * ── Por qué estas NO consultan el catálogo ───────────────────────────────
+ *
+ * Porque van en PRIMERA PERSONA sobre el propio funcionamiento. Un negocio
+ * puede vender un curso de modelos de lenguaje; eso no autoriza a decir "como
+ * modelo de lenguaje, no puedo". La ambigüedad con la mercancía aparece cuando
+ * se habla del producto ("el curso enseña modelos de lenguaje"), y esa forma
+ * no casa acá: se exige el "yo" o una referencia a la administración.
+ */
+const HABLA_COMO_SOFTWARE =
+  /\bcomo (un |una )?(modelo de lenguaje|ia\b|inteligencia artificial|asistente virtual|chatbot|bot\b)|\bsoy (un |una )?(asistente virtual|chatbot|bot|ia|inteligencia artificial|modelo de lenguaje)\b/;
+
+/**
+ * Cada familia va en su propia constante y no todas en una regex gigante.
+ *
+ * Una sola expresión con veinte alternativas no se puede leer ni corregir, y
+ * este archivo ya tiene el precedente de una regex que quedó muda por un
+ * escape mal puesto sin que nadie lo notara.
+ */
+const DE_SI_MISMO_TECNICO =
+  /\bmi(s)? (entrenamiento|conocimiento|base de (datos|conocimientos)|configuracion|programacion|version|sistema|motor|desarrollador|creador|contexto|memoria|capacidades|limitaciones)\b|\bfui (entrenado|entrenada|programado|programada|creado|creada|disenado|disenada)\b|\bmi entrenamiento\b/;
+
+/** Lo que solo existe del lado de adentro: paneles, admins, configuraciones. */
+const COCINA_DEL_NEGOCIO =
+  /\b(panel de (administracion|control|admin)|backoffice|administrador|el dueno configuro|configuro (el|este) (catalogo|sistema|bot)|base de datos del negocio)\b|\b(reviso|revisar|consultar|consulto|mirar|miro) (en )?(el|mi) (sistema|panel|backend|base de datos|catalogo interno)\b/;
+
+/** Fallas de software contadas al cliente. */
+const CONFIESA_FALLAS =
+  // El "me" del medio ("se ME cayo la conexion") rompia la coincidencia: en
+  // castellano el pronombre se mete entre el "se" y el verbo, y una regex que
+  // no lo contempla falla justo con la forma que la gente escribe.
+  /\berror \d{3}\b|\b(error interno|fallo el servidor|se (me |nos )?cayo (el|la) (servidor|conexion|sistema)|no puedo acceder (a|al) (la )?(base de datos|sistema|servidor)|estoy en (fase de )?(pruebas|beta|mantenimiento)|version (actual|beta) no (soporta|permite))\b/;
+
+/** Nombrar la plataforma o el andamiaje que sostiene al bot. */
+const NOMBRA_LA_PLATAFORMA =
+  /\b(ventaspro|plataforma del dueno|el prompt que me dieron|mis instrucciones|procesando tu solicitud|estoy usando el modelo|segun mi contexto|no esta en mi (contexto|prompt))\b/;
+
+/**
+ * La frase habla de lo que se VENDE, no del bot.
+ *
+ * "Aprendes a...", "el curso incluye...", "vas a poder..." son la voz del
+ * catalogo. Un proveedor nombrado dentro de una oracion asi es contenido del
+ * producto, no una confesion sobre la maquinaria.
+ *
+ * ⚠️ A proposito NO alcanza con que aparezca la palabra "curso": tiene que
+ * estar el verbo que la convierte en mercancia. "El curso corre en mi
+ * servidor" nombra el curso y sigue siendo una fuga.
+ */
+const HABLA_DE_LA_MERCANCIA =
+  /\b(aprendes|aprende|aprenderas|aprenderan|te ensena|te ensenamos|ensena a|incluye|trae|vas a poder|vas a aprender|veras|veras como|contiene|abarca|cubre)\b/;
+
+/**
+ * ¿La frase toca el terreno de este negocio, más allá del nombre marcado?
+ *
+ * Se excluye el propio término señalado --si no, se rescataría a sí mismo-- y
+ * las palabras cortas, que son artículos y preposiciones y las tiene cualquier
+ * catálogo.
+ */
+function compartePalabraConElCatalogo(texto: string, marcado: string, vocab?: Vocabulario): boolean {
+  if (!vocab || vocab.size === 0) return false;
+  const delMarcado = new Set(marcado.split(/[^a-z0-9]+/));
+  return texto
+    .split(/[^a-z0-9]+/)
+    .some((w) => w.length >= 3 && !delMarcado.has(w) && vocab.has(w));
+}
+
+/**
  * ¿Este mensaje delata lo de adentro?
  *
  * `vocab` es el catálogo del negocio: si la palabra marcada es mercancía que
@@ -262,6 +351,14 @@ export function delataLoInterno(texto: string, vocab?: Vocabulario): boolean {
   // 1. Lo que no puede ser mercancía de nadie. El catálogo no lo salva.
   if (AFIRMA_SER_HUMANO.test(t)) return true;
   if (SE_DELATA_SOLO.test(t)) return true;
+  // Las cinco familias nuevas: van acá arriba, con las duras, porque todas
+  // hablan en primera persona del propio funcionamiento o nombran la cocina
+  // del negocio. Vender un curso de IA no autoriza a decir "mi entrenamiento".
+  if (HABLA_COMO_SOFTWARE.test(t)) return true;
+  if (DE_SI_MISMO_TECNICO.test(t)) return true;
+  if (COCINA_DEL_NEGOCIO.test(t)) return true;
+  if (CONFIESA_FALLAS.test(t)) return true;
+  if (NOMBRA_LA_PLATAFORMA.test(t)) return true;
 
   const nombre = t.match(NOMBRES_DE_ADENTRO);
   const tecnica = t.match(TECNICA_AMBIGUA);
@@ -275,7 +372,31 @@ export function delataLoInterno(texto: string, vocab?: Vocabulario): boolean {
 
   // 3. Un nombre propio de proveedor, suelto. Fuga, salvo que sea lo que el
   //    negocio vende -- que es el caso del curso de Claude y Gemini.
-  if (nombre) return !esMercancia(nombre[0], vocab);
+  //
+  //    Y salvo que la FRASE lo enmarque como mercancia. El catalogo por si
+  //    solo no alcanza: "aprendes a crear agentes con n8n y OpenAI" quedaba
+  //    bloqueado porque el dueno no habia escrito "OpenAI" en la descripcion,
+  //    aunque la oracion diga con todas las letras que es lo que el cliente va
+  //    a APRENDER. Es la misma idea que `PREGUNTA_POR_LA_MERCANCIA` ya aplica
+  //    a las preguntas, ahora tambien sobre lo que sale.
+  if (nombre) {
+    if (esMercancia(nombre[0], vocab)) return false;
+    // La frase enmarcada como catálogo rescata SOLO si este negocio de verdad
+    // trabaja en ese terreno.
+    //
+    // ⚠️ Acá bastaba con el enmarcado ("aprendes...") y estaba mal: con esa
+    // regla, un adiestrador canino podía decir "aprendes a escribir prompts
+    // para ChatGPT" y pasaba. La prueba que ya existía lo cazó, y tenía razón
+    // -- el marco de la oración no puede comprar permiso solo.
+    //
+    // Lo que sí lo compra es que la oración comparta alguna palabra con el
+    // catálogo REAL: en "aprendes a crear agentes con n8n y OpenAI", `n8n` está
+    // en la ficha del curso, así que el negocio evidentemente vende de eso
+    // aunque el dueño nunca haya escrito "OpenAI". En la frase del adiestrador
+    // no hay una sola palabra suya, y por eso sigue siendo fuga.
+    if (HABLA_DE_LA_MERCANCIA.test(t) && compartePalabraConElCatalogo(t, nombre[0], vocab)) return false;
+    return true;
+  }
 
   return false;
 }
