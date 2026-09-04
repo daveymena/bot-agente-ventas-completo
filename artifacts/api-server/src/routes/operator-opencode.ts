@@ -46,6 +46,7 @@ import { ENV_POR_PROVEEDOR } from "../lib/ai-keys";
 import { claveDeTurno, empezarTurno, terminarTurno, pedirDetener, hayTurnoEnVuelo, fueDetenido } from "../lib/turnos-en-vuelo";
 import { afirmaHaberloHecho } from "../lib/afirma-haberlo-hecho";
 import { mensajeDeCierre } from "../lib/entrega-por-partes";
+import { partirElPedido } from "../lib/partir-el-pedido";
 import { anotarTurno, ultimosTurnos, resumirTurnos } from "../lib/diagnostico-de-turnos";
 import { db, products } from "@workspace/db";
 import { eq, desc } from "drizzle-orm";
@@ -1134,49 +1135,33 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
        * que acaba de leer.
        */
       const partesEntregadas: string[] = [];
-      const CONECTORES = /,| y (?=el |la |los |las |un |una )/i;
-      const crudo = String(prompt).trim();
-      if (crudo.length > 60) {
-        const partes = crudo
-          .split(CONECTORES)
-          .map((p) => p.trim())
-          .filter((p) => p.length > 3);
-        // Solo se divide si cada parte pide algo ENTREGABLE distinto. Sin
-        // esto se rompía un pedido normal: "creá el anuncio con ángulo de fe,
-        // destino WhatsApp, presupuesto 10000" son PARÁMETROS de una sola
-        // tarea, no tres tareas -- y al partirlo, Atlas contestaba solo el
-        // ángulo y dejaba "destino WhatsApp" y "presupuesto" como pendientes,
-        // que es absurdo (visto en vivo, 2026-08-12).
-        const ENTREGABLE = /\b(copy|texto|estrategia|segmentaci|seguimiento|presupuesto|an[aá]lisis|informe|reporte|plan\b|campa|anuncio|publicaci|imagen|p[uú]blico|audiencia|m[eé]tricas?)\b/i;
-        // Además del entregable, cada parte tiene que ser una ORDEN entera y
-        // por sí sola: empezar con un verbo de acción y estar bien formada.
-        //
-        // Sin esto, partir por comas producía pedazos de frase que después se
-        // le mostraban al admin como tareas pendientes. Caso real (reporte del
-        // 16-08-2026): apareció como pendiente el texto
-        //   "descripcion y CTA) y crealo como BORRADOR ... NO lo publiques"
-        // -- un fragmento cortado dentro de un paréntesis, con la instrucción
-        // "NO lo publiques" convertida en un ítem de trabajo. Contar palabras
-        // de entregable no alcanzaba porque los PARÁMETROS de una sola tarea
-        // (presupuesto, texto, imagen) las traen igual.
-        const ACCION = /^(?:y\s+)?(?:me\s+)?(?:por\s+favor\s+)?(cre[aá]|arm[aá]|gener[aá]|analiz[aá]|investig[aá]|busc[aá]|revis[aá]|public[aá]|activ[aá]|paus[aá]|escrib[ií]|redact[aá]|list[aá]|mostr[aá]|actualiz[aá]|corrig|cambi[aá]|elimin[aá]|borr[aá]|program[aá]|calcul[aá])/i;
-        const balanceada = (p: string) =>
-          (p.match(/\(/g) || []).length === (p.match(/\)/g) || []).length;
-        const partesUtiles = partes.filter((p) => ENTREGABLE.test(p) && ACCION.test(p) && balanceada(p));
-        // Se parte SOLO si todas las partes con entregable son órdenes bien
-        // formadas: si aunque sea una es un fragmento, se trata el pedido como
-        // una sola tarea. Es preferible tardar más en un pedido que mostrarle
-        // al admin basura como si fuera trabajo pendiente.
-        const conEntregable = partes.filter((p) => ENTREGABLE.test(p));
-        if (partes.length >= 3 && partesUtiles.length >= 3 && partesUtiles.length === conEntregable.length) {
-          const primera = partes[0];
-          partesPendientes = partes.slice(1);
-          text +=
-            `\n\n[SISTEMA] El admin pidió VARIAS cosas en un solo mensaje. Resolvé SOLO esta primera: "${primera}". ` +
-            `NO abordes las demás todavía (${partesPendientes.join(", ")}) -- el sistema se las va a ofrecer después. ` +
-            `Hacer todo junto no entra en una sola respuesta y termina fallando. Concentrate en esa primera parte y hacela bien.`;
-          progreso(`Resolviendo lo primero: ${primera.slice(0, 40)}...`);
-        }
+      // ── Partir el pedido: la regla vive en lib/partir-el-pedido.ts ──────
+      //
+      // Estaba escrita acá adentro, y por eso nadie pudo comprobar nunca que
+      // NO FUNCIONABA. Medido el 2026-09-04 contra las formas en que el admin
+      // pide de verdad: cuatro de cuatro pedidos reales NO se partían.
+      //
+      //   "mostrame el copy, la estrategia, la segmentacion y el presupuesto"
+      //   "dame el copy, el publico y las metricas"
+      //   "necesito el copy, la segmentacion y el plan de seguimiento"
+      //
+      // La regla exigía un verbo de acción en CADA parte, y así no habla
+      // nadie: en una enumeración el verbo se dice UNA vez y gobierna a todas.
+      // O sea que el mecanismo de partes --y la entrega parte por parte que se
+      // conectó esta misma sesión-- no se disparaba nunca.
+      //
+      // Las dos regresiones caras que la regla estricta protegía siguen
+      // cubiertas y con prueba: los parámetros de una sola tarea ("con ángulo
+      // de fe, destino WhatsApp, presupuesto 10000") no son tres tareas, y un
+      // fragmento con paréntesis sin cerrar frena todo el partido.
+      const partido = partirElPedido(String(prompt));
+      if (partido) {
+        partesPendientes = partido.pendientes;
+        text +=
+          `\n\n[SISTEMA] El admin pidió VARIAS cosas en un solo mensaje. Resolvé SOLO esta primera: "${partido.primera}". ` +
+          `NO abordes las demás todavía (${partesPendientes.join(", ")}) -- el sistema se las va a ofrecer después. ` +
+          `Hacer todo junto no entra en una sola respuesta y termina fallando. Concentrate en esa primera parte y hacela bien.`;
+        progreso(`Resolviendo lo primero: ${partido.primera.slice(0, 40)}...`);
       }
 
       // ── Investigación garantizada por el SERVIDOR, no por el modelo ──────
