@@ -846,13 +846,45 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
           // En el fallo, el summary está escrito para el modelo -- se limpia
           // antes de mostrárselo al admin (ver mensajeParaAdmin).
           const paraElAdmin = r.ok ? r.summary : mensajeParaAdmin(r.summary);
-          lines.push(`${r.ok ? "✅" : "❌"} ${paraElAdmin}${verification ? `\n   ${verification}` : ""}`);
+          const linea = `${r.ok ? "✅" : "❌"} ${paraElAdmin}${verification ? `\n   ${verification}` : ""}`;
+          lines.push(linea);
+
+          // ── Cada accion se entrega APENAS TERMINA ─────────────────────────
+          //
+          // Pedido del admin: "Atlas no tiene que entregar todo al mismo
+          // tiempo, puede ir entregando parte por parte para que no se
+          // cuelgue".
+          //
+          // Este bucle ejecutaba las acciones una por una y guardaba los
+          // resultados en `lines` para mandarlos TODOS al final. Con tres
+          // acciones --crear el anuncio, subirlo, activarlo-- el admin no veia
+          // nada hasta que terminaba la ultima, aunque la primera hubiera
+          // terminado en cinco segundos. Y si el turno moria en la tercera, se
+          // perdian las dos que ya estaban hechas.
+          //
+          // El resultado de cada accion EXISTE apenas termina: no hay ninguna
+          // razon para retenerlo. Sale por el mismo canal que ya usan las
+          // partes de un pedido grande, asi que la pantalla ya sabe mostrarlo.
+          //
+          // Solo cuando hay mas de una: con una sola, mandarla dos veces
+          // --como avance y despues en el cierre-- seria repetirsela.
+          if (pending.actions.length > 1) {
+            sse("avance", { reply: paraMarkdown(toEmojiStyle(linea)) });
+            await saveArchitectTurn(tenantId, sessionId, "assistant", paraMarkdown(toEmojiStyle(linea)));
+          }
         }
         await clearPendingPlan(tenantId, sessionId);
         const allOk = executed.every((item) => item.ok);
-        const reply = paraMarkdown(toEmojiStyle(
-          `${allOk ? "✅ Plan ejecutado y verificado" : "⚠️ El plan terminó con errores; no voy a decir que quedó listo"}:\n\n${lines.join("\n\n")}`,
-        ));
+        // Lo que ya se entrego accion por accion no se repite en el cierre: el
+        // admin acaba de leerlo. Con una sola accion nada se entrego antes, asi
+        // que el cierre la lleva completa, como siempre.
+        const cuerpo = pending.actions.length > 1
+          ? "" // ya salieron una por una
+          : `\n\n${lines.join("\n\n")}`;
+        const encabezado = allOk
+          ? "✅ Plan ejecutado y verificado"
+          : "⚠️ El plan terminó con errores; no voy a decir que quedó listo";
+        const reply = paraMarkdown(toEmojiStyle(`${encabezado}${cuerpo || "."}`));
         await saveArchitectTurn(tenantId, sessionId, "assistant", reply);
         logger.info({ tenantId, executed: executed.length }, "[AtlasOpenCode] Plan aprobado y ejecutado");
         return finish({ reply, executed, actionsCount: executed.length, status: allOk ? "executed" : "partial_failure" });
