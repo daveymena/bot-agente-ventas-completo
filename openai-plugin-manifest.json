@@ -1,0 +1,258 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "VentasPro Bot API",
+    "description": "API del bot de ventas de WhatsApp. Permite consultar conversaciones, leads, productos y enviar mensajes.",
+    "version": "1.0.0",
+    "contact": {
+      "name": "VentasPro Support",
+      "email": "daveymena16@gmail.com"
+    }
+  },
+  "servers": [
+    {
+      "url": "http://144.91.112.79:8080",
+      "description": "Production Server (EasyPanel)"
+    }
+  ],
+  "paths": {
+    "/api/health": {
+      "get": {
+        "operationId": "healthCheck",
+        "summary": "Health check del bot",
+        "description": "Verifica si el bot está funcionando correctamente",
+        "tags": ["System"],
+        "responses": {
+          "200": {
+            "description": "Bot funcionando",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": { "type": "string", "example": "ok" },
+                    "whatsapp": {
+                      "type": "object",
+                      "properties": {
+                        "conectado": { "type": "boolean" },
+                        "estado": { "type": "string" }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/conversations": {
+      "get": {
+        "operationId": "getConversations",
+        "summary": "Obtener conversaciones",
+        "description": "Lista todas las conversaciones activas del bot de WhatsApp",
+        "tags": ["Conversations"],
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Número máximo de conversaciones a retornar",
+            "required": false,
+            "schema": { "type": "integer", "default": 50 }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Lista de conversaciones",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": { "type": "number" },
+                      "contactPhone": { "type": "string" },
+                      "contactName": { "type": "string" },
+                      "lastMessage": { "type": "string" },
+                      "status": { "type": "string", "enum": ["ai", "human"] },
+                      "currentStage": { "type": "string" },
+                      "createdAt": { "type": "string", "format": "date-time" }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/conversations/{id}/messages": {
+      "get": {
+        "operationId": "getConversationMessages",
+        "summary": "Obtener mensajes de una conversación",
+        "description": "Retorna el historial completo de mensajes de una conversación específica",
+        "tags": ["Conversations"],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "ID de la conversación",
+            "required": true,
+            "schema": { "type": "number" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Historial de mensajes",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "role": { "type": "string", "enum": ["customer", "agent"] },
+                      "content": { "type": "string" },
+                      "timestamp": { "type": "string", "format": "date-time" }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/conversations/{id}/messages": {
+      "post": {
+        "operationId": "sendMessage",
+        "summary": "Enviar mensaje a una conversación",
+        "description": "Envía un mensaje manual a una conversación específica (override del AI)",
+        "tags": ["Conversations"],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "ID de la conversación",
+            "required": true,
+            "schema": { "type": "number" }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["content"],
+                "properties": {
+                  "content": { "type": "string", "description": "Mensaje a enviar" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Mensaje enviado"
+          }
+        }
+      }
+    },
+    "/api/conversations/{id}/handoff": {
+      "post": {
+        "operationId": "handoffToHuman",
+        "summary": "Transferir a humano",
+        "description": "Transfiere una conversación del AI a un asesor humano",
+        "tags": ["Conversations"],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "ID de la conversación",
+            "required": true,
+            "schema": { "type": "number" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Conversación transferida"
+          }
+        }
+      }
+    },
+    "/api/conversations/{id}/lead-score": {
+      "get": {
+        "operationId": "getLeadScore",
+        "summary": "Obtener score de un lead",
+        "description": "Retorna el score de probabilidad de compra de un lead específico",
+        "tags": ["Leads"],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "ID de la conversación",
+            "required": true,
+            "schema": { "type": "number" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Score del lead",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "score": { "type": "number", "description": "Score de 0-100" },
+                    "factors": { "type": "array", "items": { "type": "string" } }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/dashboard/lead-scoring": {
+      "get": {
+        "operationId": "getDashboardLeadScoring",
+        "summary": "Dashboard de lead scoring",
+        "description": "Retorna estadísticas generales de leads y scoring",
+        "tags": ["Dashboard"],
+        "responses": {
+          "200": {
+            "description": "Estadísticas del dashboard"
+          }
+        }
+      }
+    },
+    "/api/conversations/follow-ups/due": {
+      "get": {
+        "operationId": "getFollowUpsDue",
+        "summary": "Follow-ups pendientes",
+        "description": "Lista de follow-ups que vencen hoy o están pendientes",
+        "tags": ["Follow-ups"],
+        "responses": {
+          "200": {
+            "description": "Lista de follow-ups"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "sessionAuth": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "session",
+        "description": "Session cookie obtenida al hacer login en /api/auth/login"
+      }
+    }
+  },
+  "security": [
+    { "sessionAuth": [] }
+  ]
+}
