@@ -37,6 +37,7 @@ import architectRouter from "./architect";
 import pricingRouter from "./pricing";
 import mcpBridgeRouter from "./mcp-bridge";
 import marketingRouter from "./marketing";
+import landingPagesRouter from "./landing-pages";
 
 const router: IRouter = Router();
 
@@ -51,8 +52,6 @@ router.use("/dashboard", dashboardRouter);
 router.use("/settings", settingsRouter);
 router.use("/branding", brandingRouter);
 router.use("/code-agent", codeAgentRouter);
-// Fase A del plan "Reemplazar el cerebro de Atlas por OpenCode" -- ruta
-// nueva y separada, no toca /operator. Ver operator-opencode.ts.
 router.use("/code-agent", operatorOpencodeRouter);
 router.use("/ai", aiCatalogRouter);
 router.use("/webhooks", webhooksRouter);
@@ -69,34 +68,17 @@ router.use("/auth", authRouter);
 router.use("/store", storeRouter);
 router.use("/public", publicRouter);
 router.use("/facebook", facebookRouter);
-// Credenciales por tenant: debe montarse explícitamente; el router general de
-// Facebook no contiene /credentials y antes el frontend recibía 404.
 router.use("/facebook", facebookCredentialsRouter);
-// Lo que el agente de ventas sabe del negocio (y lo que tiene prohibido
-// afirmar porque el dueño no lo cargó). Por tenant, no global.
 router.use("/business-profile", businessProfileRouter);
 router.use("/personality-profiles", personalityProfilesRouter);
 router.use("/architect-memory", architectMemoryRouter);
 router.use("/response-analytics", responseAnalyticsRouter);
 router.use("/architect-tools", architectToolsRouter);
 router.use("/architect", architectRouter);
-// Antes montado directamente en app.ts ANTES de resolveTenantMiddleware
-// (línea ~276, con el comentario "sin autenticación para GET, con
-// autenticación para POST" -- pero al montarse tan temprano, NINGUNA ruta
-// de este router pasaba nunca por resolveTenantMiddleware, ni siquiera
-// POST /pricing/upgrade). Acá, dentro de la cadena protegida normal,
-// isPublicRoute() en app.ts sigue dejando pasar sin sesión los GET
-// públicos (listado de planes), pero /upgrade y /current/info sí reciben
-// req.tenant real.
 router.use("/pricing", pricingRouter);
-// Puente MCP para el cerebro OpenCode de Atlas -- tiene su propia
-// autenticación por token de turno (ver app.ts, allowlist "/internal/mcp").
 router.use("/internal/mcp", mcpBridgeRouter);
-// Equipo de Marketing & Growth -- dominio nuevo (MASTER PLAN). Todo pasa por
-// la cadena de middlewares de tenant/SaaS/limites montada en app.ts.
 router.use("/marketing", marketingRouter);
-
-// Usar el manejador de errores centralizado
+router.use("/landing-pages", landingPagesRouter);
 router.use(errorHandler);
 
 export default router;
