@@ -2022,12 +2022,21 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
       // exige que todas las palabras identificatorias del nombre estén en el
       // mensaje. O que sea el producto que ya viene en foco, porque entonces
       // se viene hablando de él.
-      const loNombroElCliente = productosNombrados(String(lastText || ""), productList as any).length > 0;
-      const productoConRespaldo = loNombroElCliente
-        ? (decision.productoDelMensaje ?? null)
-        : (memory.currentProductId
-            ? productList.find((p: any) => p.id === memory.currentProductId) ?? null
-            : null);
+      // ⚠️ Y el nombre se resuelve DESDE lo que el cliente escribió, sin
+      // pedirle además que `productoDelMensaje` coincida. Verificado el
+      // 2026-09-04: con las dos condiciones juntas, "no sé si el curso de
+      // MARKETING DIGITAL me sirve" --donde el cliente lo nombra con todas las
+      // letras-- dejaba de nombrarlo, porque el matcher no había llenado ese
+      // campo. Exigir dos pruebas para un hecho que ya está probado es perder
+      // el caso bueno por cuidar el malo.
+      const nombrados = productosNombrados(String(lastText || ""), productList as any);
+      const productoConRespaldo =
+        (nombrados.length > 0
+          ? productList.find((p: any) => p.name === nombrados[0]) ?? null
+          : null) ??
+        (memory.currentProductId
+          ? productList.find((p: any) => p.id === memory.currentProductId) ?? null
+          : null);
       const completo = prod ? productList.find((p: any) => p.id === (prod as any).id) : null;
       // "no sé si me sirve" es la única que NOMBRA el producto en su texto
       // ("te digo si «X» te sirve"). Para esa se usa solo el respaldado: en las
