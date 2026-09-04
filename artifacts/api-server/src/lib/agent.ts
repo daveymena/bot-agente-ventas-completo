@@ -1935,7 +1935,7 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
     if (objecion) {
       const prod = decision.productToShow ?? decision.productoDelMensaje ?? null;
       const completo = prod ? productList.find((p: any) => p.id === (prod as any).id) : null;
-      const respuesta = responderObjecion(objecion, {
+      let respuesta = responderObjecion(objecion, {
         producto: completo as any,
         // `garantia` y `entrega` son OBJETOS ({dias, descripcion}), no textos.
         // Pasarlos crudos le mandó al cliente "la garantía es [object Object]"
@@ -1946,6 +1946,31 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
         tieneVideo: !!(completo && videoDeProductoSeguro(completo)),
       });
       if (respuesta) {
+        // ── Y ACÁ LA REDACTA ALGUIEN, EN VEZ DE SALIR TAL CUAL ────────────
+        //
+        // Reportado el 2026-09-03 leyendo una conversación real: "no usa
+        // razonamiento ni nada, está respondiendo como por inercia". Era
+        // literal -- esta rama devolvía la cadena fija y el modelo NO corría.
+        //
+        // La plantilla sigue mandando en el CONTENIDO (por eso se arma
+        // primero): los hechos los pone el servidor. Lo que cambia es que el
+        // modelo la dice para este cliente, y `entregaFinal` --la aduana de
+        // hechos-intocables.ts, que hasta hoy no llamaba nadie fuera de sus
+        // pruebas-- la deja pasar solo si no inventó ni cambió un monto, un
+        // enlace, una cuenta o un porcentaje.
+        //
+        // Lo peor que puede pasar es que salga la plantilla, o sea exactamente
+        // lo que salía antes. El piso no baja.
+        const { redactarObjecion } = await import("./redactar-objecion");
+        respuesta = await redactarObjecion(respuesta, {
+          mensajeDelCliente: lastText,
+          producto: (completo as any)?.name || (prod as any)?.name || null,
+          // `memory.history` y no `memory.messages`: el campo se llama así en
+          // todo el resto del archivo, y un nombre inventado acá habría dado
+          // `undefined` -- o sea, el modelo redactando SIN la conversación,
+          // que es la mitad de lo que hace falta para no sonar a plantilla.
+          historia: (memory.history || []).slice(-4).map((m: any) => `${m.role === "customer" ? "Cliente" : "Vos"}: ${m.content}`),
+        });
         console.log(`🛡️ [OBJECIÓN] "${objecion}" contestada con datos del negocio - ${ts()}`);
         await saveAgentMessage(conversationId, respuesta, "objection_handling", {
           intent: "objection_handling",
