@@ -1649,8 +1649,34 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
       // viejo o los inventó. Y el admin toma decisiones con eso.
       const AFIRMA_NUMEROS = /\b\d+\s*(leads?|prospectos?|conversaciones?|ventas?\s+cerradas?|tratos?)\b|\bconversi[oó]n\b[^.\n]{0,20}?\d+\s*%|\bingresos?\s+(?:de|del mes)?\s*\$?\s*[\d.,]+/i;
       const lecturas = await lecturasDelTurno(tenantId, turnId);
-      const leyoMetricas = lecturas.some((t) =>
-        ["dashboard_summary", "list_recent_conversations", "list_leads", "sales_report"].includes(t));
+      // ── La lista nombraba DOS herramientas que no existen ────────────────
+      //
+      // Preguntado por el admin el 2026-09-03: "Atlas dice que esto no fue
+      // consultado cuando sí; ¿cómo saber si consultó algo o no?".
+      //
+      // Acá decía `["dashboard_summary", "list_recent_conversations",
+      // "list_leads", "sales_report"]`. Las dos últimas NO EXISTEN: buscadas
+      // en todo el repo, aparecen únicamente en esta línea. Son nombres que
+      // alguien supuso, no herramientas registradas.
+      //
+      // O sea que el aviso se disparaba en un caso perfectamente legítimo: si
+      // Atlas leía los datos con cualquier otra herramienta real, la lista no
+      // la reconocía y el mensaje quedaba marcado como "no consultado" aunque
+      // sí lo estuviera. Un aviso que se dispara sobre trabajo bien hecho es
+      // peor que ninguno: enseña a ignorarlo.
+      //
+      // Ahora la lista sale de las herramientas de lectura que EXISTEN de
+      // verdad (ver opencode-mcp-tools.ts).
+      const LEE_DATOS_DEL_NEGOCIO = [
+        "dashboard_summary",
+        "list_recent_conversations",
+        "list_products",
+        "list_categories",
+        "get_agent",
+        "get_settings",
+        "get_store",
+      ];
+      const leyoMetricas = lecturas.some((t) => LEE_DATOS_DEL_NEGOCIO.includes(t));
       if (!leyoMetricas && AFIRMA_NUMEROS.test(finalReplyVerificado || "")) {
         logger.warn({ tenantId, sessionId, lecturas }, "[AtlasOpenCode] Dio números del negocio sin consultarlos -- se corrige la respuesta");
         finalReplyVerificado =
@@ -2024,7 +2050,16 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
         { tenantId, tramos, totalMs: Date.now() - t0 },
         "[AtlasOpenCode] Turno COMPLETO -- reparto real del tiempo",
       );
-      anotarTurno(tenantId, sessionId, { estado: "completo", totalMs: Date.now() - t0, tramos, modelo: modeloUsado?.modelID ?? null, pedido: String(prompt) });
+      anotarTurno(tenantId, sessionId, {
+        estado: "completo",
+        totalMs: Date.now() - t0,
+        tramos,
+        modelo: modeloUsado?.modelID ?? null,
+        pedido: String(prompt),
+        // Qué consultó de verdad este turno. Es la respuesta a "¿cómo sé si
+        // consultó algo o no?": se mira, no se discute.
+        lecturas,
+      });
       return finish({ reply, status: "info", needsContinuation: false, tramos, totalMs: Date.now() - t0 });
     } finally {
       clearInterval(heartbeat);

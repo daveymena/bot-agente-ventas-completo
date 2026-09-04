@@ -52,6 +52,19 @@ export interface DiagnosticoDeTurno {
   error?: string | null;
   /** Las primeras palabras del pedido: sin esto no se sabe si el turno lento fue el pesado o el simple. */
   pedido?: string | null;
+  /**
+   * Qué CONSULTÓ este turno, por nombre de herramienta.
+   *
+   * Lo preguntó el admin el 2026-09-03: "Atlas dice que esto no fue consultado
+   * cuando sí; ¿cómo saber si consultó algo o no?". El sistema lo registraba
+   * desde antes --hay una fila `tool_used` por lectura-- pero el dato moría en
+   * el log del contenedor, que en este EasyPanel no se puede leer.
+   *
+   * Registrado y no registrado no son lo mismo que visible. Acá se vuelve
+   * visible: la lista sale por `GET /api/code-agent/atlas-diagnostico` junto al
+   * resto del turno, así que ante la duda se mira en vez de discutirla.
+   */
+  lecturas?: string[];
 }
 
 /**
@@ -80,6 +93,9 @@ export function anotarTurno(
           tramos: d.tramos,
           modelo: d.modelo ?? null,
           error: d.error ? String(d.error).slice(0, 300) : null,
+          // Sin repetidos: si el turno llamó tres veces a `list_products`, lo
+          // que importa es que lo consultó, no cuántas.
+          lecturas: Array.from(new Set(d.lecturas || [])),
           // Recortado a propósito: alcanza para reconocer el pedido y no
           // duplica la conversación, que ya está guardada aparte.
           pedido: d.pedido ? String(d.pedido).slice(0, 120) : null,
