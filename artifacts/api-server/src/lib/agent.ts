@@ -1994,10 +1994,39 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
     const { detectarObjecion, responderObjecion } = await import("./objeciones");
     const objecion = detectarObjecion(lastText);
     if (objecion) {
-      const prod = decision.productToShow ?? decision.productoDelMensaje ?? null;
+      // ── El producto que el SERVIDOR identificó va primero ────────────────
+      //
+      // Acá estaba `productToShow ?? productoDelMensaje`, o sea la corazonada
+      // del modelo por delante de lo que el servidor leyó en el mensaje. Es
+      // exactamente el bug que este repo ya documentó en el supervisor
+      // ("`idsEnContexto[0]` empieza por `decision.productToShow`... pediste
+      // piano, te mando el curso de IA"), repetido en otra línea.
+      //
+      // Se ve en producción: al cliente que dijo "tengo un negocio de ROPA" la
+      // respuesta le ofrecía evaluar "LIBROS MARKETING" -- un producto que él
+      // nunca nombró, elegido por parecido. Nombrar un producto al azar hace
+      // que la respuesta se lea como si no hubiera entendido nada.
+      const prod = decision.productoDelMensaje ?? decision.productToShow ?? null;
+      // Y para la objeción "no sé si me sirve" solo se NOMBRA el producto
+      // cuando hay respaldo real: que el cliente lo haya nombrado en este
+      // mensaje, o que sea el que viene en foco. Una corazonada no se nombra:
+      // se pregunta y listo, que es lo que esa respuesta hace igual.
+      const productoConRespaldo =
+        decision.productoDelMensaje ??
+        (memory.currentProductId
+          ? productList.find((p: any) => p.id === memory.currentProductId) ?? null
+          : null);
       const completo = prod ? productList.find((p: any) => p.id === (prod as any).id) : null;
+      // "no sé si me sirve" es la única que NOMBRA el producto en su texto
+      // ("te digo si «X» te sirve"). Para esa se usa solo el respaldado: en las
+      // demás el producto se usa para las características, no para nombrarlo,
+      // y ahí una corazonada no hace daño.
+      const paraLaObjecion =
+        objecion === "no_se_si_me_sirve"
+          ? (productoConRespaldo ? productList.find((p: any) => p.id === (productoConRespaldo as any).id) ?? null : null)
+          : completo;
       let respuesta = responderObjecion(objecion, {
-        producto: completo as any,
+        producto: paraLaObjecion as any,
         // `garantia` y `entrega` son OBJETOS ({dias, descripcion}), no textos.
         // Pasarlos crudos le mandó al cliente "la garantía es [object Object]"
         // en la prueba contra producción (2026-08-30). Se toma la descripción,
