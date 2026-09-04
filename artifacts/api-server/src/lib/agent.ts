@@ -2011,11 +2011,23 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
       // cuando hay respaldo real: que el cliente lo haya nombrado en este
       // mensaje, o que sea el que viene en foco. Una corazonada no se nombra:
       // se pregunta y listo, que es lo que esa respuesta hace igual.
-      const productoConRespaldo =
-        decision.productoDelMensaje ??
-        (memory.currentProductId
-          ? productList.find((p: any) => p.id === memory.currentProductId) ?? null
-          : null);
+      // ⚠️ Y "respaldo" NO es `productoDelMensaje`: ese campo también sale de
+      // un PARECIDO de texto. Verificado contra producción el 2026-09-04 --
+      // con el primer arreglo puesto, al mensaje "tengo un negocio de ROPA y
+      // quiero automatizar las ventas por whatsapp, ¿cuál de sus cursos me
+      // sirve?" el servidor igual resolvió "LIBROS MARKETING" y lo nombró.
+      //
+      // El único respaldo que sirve para NOMBRAR un producto es que el cliente
+      // lo haya nombrado. Eso se mide, no se supone: `productosNombrados`
+      // exige que todas las palabras identificatorias del nombre estén en el
+      // mensaje. O que sea el producto que ya viene en foco, porque entonces
+      // se viene hablando de él.
+      const loNombroElCliente = productosNombrados(String(lastText || ""), productList as any).length > 0;
+      const productoConRespaldo = loNombroElCliente
+        ? (decision.productoDelMensaje ?? null)
+        : (memory.currentProductId
+            ? productList.find((p: any) => p.id === memory.currentProductId) ?? null
+            : null);
       const completo = prod ? productList.find((p: any) => p.id === (prod as any).id) : null;
       // "no sé si me sirve" es la única que NOMBRA el producto en su texto
       // ("te digo si «X» te sirve"). Para esa se usa solo el respaldado: en las
