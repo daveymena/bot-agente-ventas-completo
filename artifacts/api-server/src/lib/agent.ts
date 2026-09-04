@@ -1941,7 +1941,31 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
     const mandoComprobante = (memory.history as any[]).some(
       (m) => m.role === "customer" && /\[imagen\]|comprobante|captura/i.test(String(m.content || "")),
     );
-    if (!mandoComprobante) {
+    // ── Una PREGUNTA nueva se contesta, no se le cobra ────────────────────
+    //
+    // Este bloque devuelve el pedido de comprobante y corta el turno, sin
+    // mirar qué escribió el cliente. Conversación real del 4-09-2026:
+    //
+    //   cliente: "¿Tenés el curso de inteligencia artificial?"
+    //   bot:     "...¿Ya pudiste hacer la transferencia?"
+    //   cliente: "Contame, ¿tenés curso de diseño gráfico?"
+    //   bot:     "...¿Ya pudiste hacer la transferencia?"
+    //
+    // El bot dejó de vender. A cada pregunta contestaba pidiendo plata, y le
+    // pedía el comprobante de una compra a alguien que estaba preguntando por
+    // OTRO producto. El admin: "el WhatsApp cada vez peor".
+    //
+    // La regla dura --no entregar nada sin comprobante-- se queda intacta: es
+    // el caso más caro del sistema. Lo que no puede seguir es que tape la
+    // conversación. Si el cliente PREGUNTA algo, se le contesta por el camino
+    // normal, que ya tiene prohibido entregar o confirmar el pago en esta
+    // etapa (ver `prohibidoSegunEtapa` en estado-cognitivo.ts).
+    const estaPreguntando = /\?|^(ten[eé]s|tienes|hay|cu[aá]l|cu[aá]nto|c[oó]mo|qu[eé]|d[oó]nde|me sirve|sirve|incluye|trae|contame|cont[aá]me|cuentame)\b/i
+      .test(String(lastText || "").trim());
+    if (estaPreguntando) {
+      console.log(`💬 [PAGO] Dice que pagó pero está PREGUNTANDO otra cosa: se le contesta, no se le cobra - ${ts()}`);
+    }
+    if (!mandoComprobante && !estaPreguntando) {
       const { esperaParaElCliente } = await import("./cobro-y-entrega");
       let respuesta = esperaParaElCliente(false);
       // ── El HECHO no se negocia; la forma de decirlo, sí ────────────────

@@ -262,7 +262,37 @@ export function calcularEtapa(e: EntradaEstado): { etapa: EtapaTrato; porQue: st
   //
   // Con una sesión nueva la etapa no se hereda. El pago de verdad no se pierde
   // por esto: `pagoVerificado` se consulta ANTES y viene de fuera del chat.
-  if (!e.sesionNueva && ultimos.some((m) => DICE_QUE_PAGO.test(m.content))) {
+  // ⚠️ Y `sesionNueva` NO alcanzaba, porque se calcula entre los DOS ÚLTIMOS
+  // mensajes: en cuanto el cliente escribe el segundo mensaje de la visita
+  // nueva, vuelve a ser false y la etapa de pago resucita.
+  //
+  // Medido con una conversación real (4-09-2026):
+  //
+  //   03/09 20:03  cliente: "ya pagué"
+  //   04/09 03:41  cliente: "Hola"                        -> saludo, bien
+  //   04/09 03:41  cliente: "Tenés el curso de IA?"       -> "¿Ya pudiste hacer
+  //                                                          la transferencia?"
+  //   04/09 07:13  cliente: "¿tenés curso de diseño gráfico?" -> lo mismo
+  //
+  // El "ya pagué" tenía SIETE horas y media, y el bot dejó de vender: a cada
+  // pregunta contestaba pidiendo el comprobante. El admin lo resumió así: "el
+  // WhatsApp cada vez peor".
+  //
+  // La caducidad tiene que mirar CUÁNDO SE DIJO, no si este mensaje viene
+  // después de una pausa. Un "ya pagué" de hace un rato sigue vigente; uno de
+  // ayer no puede seguir tapando toda la conversación.
+  const VIGENCIA_HORAS = 6;
+  const ahora = Date.now();
+  const diceQuePagoReciente = ultimos.some((m) => {
+    if (!DICE_QUE_PAGO.test(m.content)) return false;
+    const cuando = m.createdAt ? new Date(m.createdAt).getTime() : NaN;
+    // Sin fecha se cuenta como vigente: es lo que hacía antes, y perder un
+    // "ya pagué" de verdad es peor que arrastrarlo de más.
+    if (!Number.isFinite(cuando)) return true;
+    return (ahora - cuando) / 3_600_000 <= VIGENCIA_HORAS;
+  });
+
+  if (!e.sesionNueva && diceQuePagoReciente) {
     return {
       etapa: "pago_reportado",
       porQue: "el cliente dice que pagó, pero NADIE lo verificó todavía",
