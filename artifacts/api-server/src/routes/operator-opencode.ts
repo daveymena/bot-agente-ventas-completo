@@ -38,7 +38,7 @@ import {
 import { toEmojiStyle } from "../lib/conversation-engine";
 import { esResumenInterno, pareceIngles, avisoDeTurnoIncompleto } from "../lib/respuesta-al-admin";
 import { paraMarkdown } from "./code-agent";
-import { describePlannedAction, buildMcpToolRegistry, drainDraftPlan, lecturasDelTurno } from "../lib/opencode-mcp-tools";
+import { describePlannedAction, buildMcpToolRegistry, drainDraftPlan, lecturasDelTurno, catalogoDeCapacidades } from "../lib/opencode-mcp-tools";
 import { MODULO_PUBLICIDAD, FORMATO_ANUNCIO } from "../lib/publicidad-persuasiva";
 import { mintTurnToken } from "../lib/opencode-turn-token";
 import { getAppUrl } from "../lib/app-url";
@@ -1045,7 +1045,22 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
       const moduloBlock = HABLA_DE_ANUNCIOS.test(contextoDelTurno)
         ? `\n\n${MODULO_PUBLICIDAD}\n\n${FORMATO_ANUNCIO}`
         : "";
-      const system = ATLAS_SYSTEM_PROMPT_V2 + lessonsBlock + moduloBlock;
+      // ── Que sepa TODO lo que puede consultar, no solo lo de este turno ──
+      //
+      // Pedido del admin: "hasta que no le pregunto no se da cuenta -- no tiene
+      // contexto de todo lo que puede y sabe hacer".
+      //
+      // El recorte de herramientas de arriba está bien y se queda (mandar las
+      // 53 completas es lo que llevaba un pedido simple a 69s). Lo que faltaba
+      // es que al recortar no quedaba NINGÚN rastro de las demás: Atlas no veía
+      // una lista más corta, veía un mundo más chico, y contestaba "no tengo
+      // acceso" sobre cosas implementadas y funcionando.
+      //
+      // Con las acciones de CAMBIO esto ya estaba resuelto desde el 2026-08-16
+      // por el mismo fallo; las de lectura quedaron sin ese tratamiento.
+      const system = ATLAS_SYSTEM_PROMPT_V2
+        + catalogoDeCapacidades(new Set(toolRegistry.map((t) => t.name)))
+        + lessonsBlock + moduloBlock;
 
       // Un pedido de anuncio/campaña/publicación. Se declara acá arriba
       // porque lo usan dos bloques: el que pregunta por el producto faltante

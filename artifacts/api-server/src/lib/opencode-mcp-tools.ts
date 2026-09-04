@@ -1232,3 +1232,75 @@ export function buildMcpToolRegistry(pedido?: string): McpToolDef[] {
 
   return [...readTools, proposeTool];
 }
+
+/**
+ * ============================================================
+ * TODO LO QUE ATLAS PUEDE CONSULTAR, SEPA O NO USARLO HOY
+ * ============================================================
+ *
+ * Pedido del admin el 2026-09-04: "dale a conocer todas las herramientas, todo
+ * lo que es capaz; hasta que no le pregunto no se da cuenta -- no tiene
+ * contexto de todo lo que puede y sabe hacer".
+ *
+ * Y es exactamente lo que pasa, por una razon buena que tuvo una consecuencia
+ * mala. `herramientasRelevantes` recorta las herramientas de LECTURA a las que
+ * hacen falta para el pedido de este turno, y eso esta bien: mandar las 53
+ * completas es lo que llevaba un pedido simple a 69 segundos.
+ *
+ * Pero al recortarlas no queda NINGUN rastro de las otras. Atlas no ve una
+ * lista mas corta: ve un mundo mas chico. Y contesta "no tengo acceso a eso" o
+ * "no puedo hacerlo" sobre cosas que estan implementadas y andan.
+ *
+ * Con las acciones de CAMBIO esto ya estaba resuelto --se anuncian todas por
+ * nombre y solo se recorta el contrato de argumentos-- justamente porque el
+ * mismo fallo aparecio el 2026-08-16: el admin pidio reanudar una campaña y
+ * Atlas ni lo intento, teniendo `fb_resume_campaign` implementada. Se veia
+ * como "no quiso" cuando era "no sabia que podia". Las LECTURAS quedaron sin
+ * ese tratamiento.
+ *
+ * ── Por que agrupado y no una lista de 53 ────────────────────────────────
+ *
+ * Por costo y por utilidad. Los nombres sueltos son ~53 renglones; agrupados
+ * por tema son ocho, se leen de un vistazo y le dicen al modelo algo que la
+ * lista plana no dice: en que TERRENOS puede meterse. El presupuesto de este
+ * turno es real -- 4.197 tokens es el tamaño con el que se colgaba en
+ * produccion --, asi que esto va sin descripciones: solo nombres.
+ */
+const FAMILIAS_DE_CONSULTA: Array<{ tema: string; herramientas: string[] }> = [
+  { tema: "Catalogo y tienda", herramientas: ["list_products", "list_categories", "get_store", "search_product_images", "optimize_price", "optimize_copy"] },
+  { tema: "Ventas y clientes", herramientas: ["dashboard_summary", "list_recent_conversations", "list_pending_transfers", "list_duplicate_contacts", "predict_customer", "analyze_channel_performance"] },
+  { tema: "WhatsApp y agente", herramientas: ["whatsapp_status", "get_agent", "configurar_mi_agente", "get_settings"] },
+  { tema: "Facebook Ads", herramientas: ["fb_status", "fb_list_campaigns", "fb_list_adsets", "fb_list_drafts", "fb_campaign_metrics", "fb_why_not_delivering", "fb_page_can_post", "fb_page_preview", "fb_suggest_audience", "fb_pixel_status", "fb_ad_library", "fb_agent_logs", "que_hago_con_la_campana", "ad_brief"] },
+  { tema: "Marketing y contenido", herramientas: ["marketing_diagnostico", "marketing_aprendizajes", "marketing_attribution", "plan_de_contenido", "generate_image", "web_scrape_images"] },
+  { tema: "Investigacion en internet", herramientas: ["web_search", "web_fetch", "deep_research", "research_start", "research_check"] },
+  { tema: "Entrega y proveedores", herramientas: ["dropi_status", "dropi_search_products", "terabox_list_folder", "verificar_link_entrega", "payment_status"] },
+  { tema: "Estado del sistema", herramientas: ["analyze_system", "system_diagnose", "automatizacion_estado", "negocio_que_falta", "plataforma_info", "test_ai_models", "reason_business_decision"] },
+];
+
+/**
+ * El bloque que se agrega al prompt. `habilitadas` son las que de verdad puede
+ * llamar en este turno, para poder marcarlas y que la diferencia quede clara.
+ */
+export function catalogoDeCapacidades(habilitadas: Set<string>): string {
+  const lineas = FAMILIAS_DE_CONSULTA.map(({ tema, herramientas }) => {
+    const existentes = herramientas.filter((h) => READ_ONLY_TOOLS.has(h));
+    if (existentes.length === 0) return "";
+    const marcadas = existentes.map((h) => (habilitadas.has(h) ? `${h}*` : h));
+    return `• ${tema}: ${marcadas.join(", ")}`;
+  }).filter(Boolean);
+
+  // El texto va al hueso: cada renglon de instruccion sale del mismo
+  // presupuesto que los datos del negocio, y 4.197 tokens es el tamaño con el
+  // que el turno se colgaba en produccion.
+  return [
+    "",
+    "═══ TODO LO QUE PODES CONSULTAR ═══",
+    "Tus herramientas de lectura. Con * = activas en este turno; el resto existe igual.",
+    "",
+    ...lineas,
+    "",
+    "⛔ NUNCA digas que NO PODES algo de esta lista. Si te falta una sin *,",
+    "NOMBRALA tal cual: nombrarla la habilita para tu siguiente mensaje.",
+    "",
+  ].join("\n");
+}
