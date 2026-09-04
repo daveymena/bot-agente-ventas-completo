@@ -92,3 +92,47 @@ describe("Lo que se publica en su lugar", () => {
     expect(a).toMatch(/de nuevo/i);
   });
 });
+
+/**
+ * El cierre vacío, con el caso real que lo motivó.
+ *
+ * 2026-09-04, 11:19. Había un plan esperando confirmación --reescribir el copy
+ * del borrador 109--. El admin contestó "sí pero no estás usando los emoji
+ * característicos de cada ítem": un SÍ CON CORRECCIÓN. Se leyó como pedido
+ * nuevo (bien), el plan se descartó (bien), el turno nuevo no produjo nada
+ * (mal) y el admin terminó sin respuesta Y sin plan.
+ */
+import { avisoDeCierreVacio } from "../respuesta-al-admin";
+
+describe("cuando el turno no produjo ni una palabra", () => {
+  const PLAN = ["✏️ Reemplazar el texto del anuncio (borrador 109)"];
+
+  it("no es un callejón sin salida: dice qué pasó", () => {
+    const a = avisoDeCierreVacio([]);
+    expect(a).not.toMatch(/No tengo una respuesta para eso/i);
+    expect(a.length).toBeGreaterThan(60);
+  });
+
+  /** Lo importante: el plan vuelve, y se ve entero. */
+  it("devuelve el plan que el turno había descartado", () => {
+    const a = avisoDeCierreVacio(PLAN);
+    expect(a).toContain("borrador 109");
+    expect(a).toMatch(/pendiente/i);
+    // Y le dice las DOS salidas: confirmarlo tal cual, o repetir el cambio.
+    expect(a).toMatch(/s[ií]/i);
+    expect(a).toMatch(/repetime|de nuevo/i);
+  });
+
+  /** Sin plan que devolver no puede prometer uno que no existe. */
+  it("sin plan, no menciona ninguno", () => {
+    const a = avisoDeCierreVacio([]);
+    expect(a).not.toContain("borrador");
+    expect(a).toMatch(/de nuevo/i);
+  });
+
+  /** "se fue en investigar" es accionable; "tardó mucho" no. */
+  it("incluye en qué se fue el tiempo cuando se sabe", () => {
+    expect(avisoDeCierreVacio(PLAN, "investigar 90.2s · total 134.8s")).toContain("investigar 90.2s");
+    expect(avisoDeCierreVacio(PLAN)).not.toContain("⏱️");
+  });
+});

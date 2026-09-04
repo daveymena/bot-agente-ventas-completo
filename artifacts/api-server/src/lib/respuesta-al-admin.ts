@@ -122,3 +122,57 @@ export function avisoDeTurnoIncompleto(): string {
     `(por ejemplo un análisis de mercado entero), partímelo en dos y te lo entrego mejor.`
   );
 }
+
+/**
+ * El turno terminó sin UNA SOLA palabra que entregar.
+ *
+ * ⚠️ Antes esto salía como *"No tengo una respuesta para eso todavía."* y era
+ * un callejón sin salida: no dice qué pasó, no dice qué hacer, y suena a que
+ * el pedido era raro cuando el pedido estaba perfecto. El admin lo describió
+ * como "se quedó pegado con algo básico".
+ *
+ * El caso real (2026-09-04, 11:19): había un plan esperando confirmación --el
+ * copy reescrito del borrador 109--. El admin contestó *"sí pero no estás
+ * usando los emoji característicos de cada ítem"*, que es un SÍ CON
+ * CORRECCIÓN. Se leyó como pedido nuevo, y eso está bien: descartar el plan
+ * viejo es lo correcto cuando el mensaje pide otra cosa.
+ *
+ * Lo que NO está bien es lo que vino después. El turno nuevo no produjo nada,
+ * así que el admin terminó sin respuesta **y sin el plan** que llevaba dos
+ * minutos esperando su confirmación. Perdió las dos cosas de una, y la única
+ * salida que le quedaba era escribir todo el pedido otra vez.
+ *
+ * Por eso acá el plan descartado se DEVUELVE. Descartarlo tenía sentido
+ * mientras el turno nuevo iba a reemplazarlo; si el turno nuevo no entregó
+ * nada, no hay con qué reemplazarlo y quedarse con las manos vacías es peor
+ * que quedarse con el plan viejo.
+ *
+ * @param planDevuelto  Las acciones que vuelven a quedar pendientes, ya
+ *                      descritas para leer. Vacío si no había ninguna.
+ * @param tramos        En qué se fue el tiempo. "se fue en investigar" es
+ *                      accionable; "tardó mucho" no.
+ */
+export function avisoDeCierreVacio(planDevuelto: string[], tramos?: string): string {
+  const partes = [
+    `😕 Este turno se me fue entero y no llegué a redactarte la respuesta. ` +
+      `No es que no haya entendido el pedido: no alcancé a terminarlo.`,
+  ];
+
+  if (planDevuelto.length > 0) {
+    partes.push(
+      `Lo que sí hice fue no perderte lo que estaba esperando confirmación. ` +
+        `Te lo dejo pendiente de nuevo, tal como estaba:\n\n` +
+        planDevuelto.map((a, i) => `${i + 1}. ${a}`).join("\n"),
+      `Respondé *sí* para que lo ejecute así como está, o repetime el cambio que querías ` +
+        `y lo rehago con eso.`,
+    );
+  } else {
+    partes.push(
+      `Pedímelo de nuevo. Si es un pedido grande, partímelo en dos: ` +
+        `entregado por partes me da tiempo de terminarlo.`,
+    );
+  }
+
+  if (tramos) partes.push(`⏱️ ${tramos}`);
+  return partes.join("\n\n");
+}

@@ -100,7 +100,12 @@ Escribilo en bloques cortos separados por UNA línea en blanco, en este orden:
 
 1. GANCHO — una línea, con un emoji. Pregunta, problema real o deseo concreto.
 2. BENEFICIO — una o dos líneas: qué consigue la persona (el resultado, no la ficha técnica).
-3. LISTA — 3 a 5 puntos, uno por línea, cada uno con ✅. Acá van las características REALES.
+3. LISTA — 3 a 5 puntos, uno por línea. Acá van las características REALES.
+   EL EMOJI DE CADA PUNTO SALE DEL CATÁLOGO, no de vos: si la característica ya
+   viene con el suyo en el brief (🤖, 🔗, 🎨, ♾️…), usá ESE, porque es el que el
+   dueño eligió para representarla. ✅ es SOLO para las que no traen ninguno.
+   Cuatro ✅ seguidos cuando el catálogo tenía cuatro emoji distintos es un
+   error: borra información que el negocio ya se tomó el trabajo de cargar.
 4. PRECIO — una línea sola, con 🔥 y la moneda del negocio.
 5. ACCIÓN — una línea, con 👉. Una sola acción, no tres.
 
@@ -114,15 +119,16 @@ Reglas de longitud y forma:
   a tu ritmo" es lo que compra la persona.
 - No repitas lo que ya se ve en la imagen: el texto suma deseo, contexto y confianza.
 
-Ejemplo de la forma buscada:
+Ejemplo de la forma buscada. Mirá la lista: cada punto lleva el emoji que le
+corresponde a ESA característica, no el mismo repetido cuatro veces.
 
 🎹 ¿Siempre quisiste aprender piano?
 
 Aprendé paso a paso y avanzá a tu ritmo, desde cero.
 
-✅ 19 horas de contenido en HD
-✅ Clásico, blues, jazz y pop
-✅ 157 recursos descargables
+🎬 19 horas de contenido en HD
+🎼 Clásico, blues, jazz y pop
+📥 157 recursos descargables
 ♾️ Acceso de por vida
 
 🔥 $60.000 COP
@@ -327,7 +333,7 @@ export function revisarFormato(primaryText: string): { bloquea: ReparoDeCopy[]; 
     bloquea.push({
       problema: "es un bloque de texto corrido, imposible de escanear en un feed",
       arreglo:
-        "Separalo en bloques cortos con UNA línea en blanco entre cada uno: gancho / beneficio / lista de 3-5 puntos con ✅ / precio / llamada a la acción.",
+        "Separalo en bloques cortos con UNA línea en blanco entre cada uno: gancho / beneficio / lista de 3-5 puntos / precio / llamada a la acción. El emoji de cada punto de la lista es el que esa característica ya trae en el catálogo; ✅ solo si no trae ninguno.",
       fragmento: t.slice(0, 60) + "…",
     });
   }
@@ -355,7 +361,7 @@ export function revisarFormato(primaryText: string): { bloquea: ReparoDeCopy[]; 
   if (emojis === 0 && palabras > 25) {
     bloquea.push({
       problema: "no tiene un solo emoji, así que no hay nada que guíe la vista",
-      arreglo: "Poné UN emoji por elemento importante: el gancho, cada punto de la lista (✅), el precio (🔥) y el CTA (👉). Ni uno más.",
+      arreglo: "Poné UN emoji por elemento importante: el gancho, cada punto de la lista (el que esa característica trae en el catálogo, o ✅ si no trae), el precio (🔥) y el CTA (👉). Ni uno más.",
     });
   }
 

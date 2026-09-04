@@ -4497,7 +4497,10 @@ Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vincu
               : "") +
             `Escribí el anuncio para este producto.\n` +
             `- primaryText: el texto del anuncio EN BLOQUES separados por una línea en blanco (\\n\\n), con la forma de arriba: ` +
-            `gancho con emoji → beneficio → 3-5 puntos con ✅ → precio con 🔥 → una sola acción con 👉. ` +
+            // El emoji de cada punto NO se fija acá: sale del catálogo. Ver el
+            // punto 3 de FORMATO_COPY -- este renglón decía "3-5 puntos con ✅"
+            // y era la cuarta instrucción que empujaba al mismo ✅ repetido.
+            `gancho con emoji → beneficio → 3-5 puntos (cada uno con el emoji que esa característica trae en el catálogo, ✅ solo si no trae) → precio con 🔥 → una sola acción con 👉. ` +
             `Arrancá interpelando con un problema o deseo real del cliente (nunca "Tenemos disponible" ni "Comprá ahora"). ` +
             `NO lo entregues como un párrafo corrido: un bloque de texto sin saltos se rechaza automáticamente.\n` +
             `- headline: título corto, máximo 40 caracteres.\n` +

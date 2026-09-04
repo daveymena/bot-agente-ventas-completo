@@ -36,7 +36,7 @@ import {
   clearPendingPlan, isApproval, isRejection, loadRecentLessons,
 } from "../lib/architect-store";
 import { toEmojiStyle } from "../lib/conversation-engine";
-import { esResumenInterno, pareceIngles, avisoDeTurnoIncompleto } from "../lib/respuesta-al-admin";
+import { esResumenInterno, pareceIngles, avisoDeTurnoIncompleto, avisoDeCierreVacio } from "../lib/respuesta-al-admin";
 import { paraMarkdown } from "./code-agent";
 import { describePlannedAction, buildMcpToolRegistry, drainDraftPlan, lecturasDelTurno, catalogoDeCapacidades } from "../lib/opencode-mcp-tools";
 import { MODULO_PUBLICIDAD, FORMATO_ANUNCIO } from "../lib/publicidad-persuasiva";
@@ -769,6 +769,10 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
     // ── ¿Hay un plan pendiente esperando confirmación? Mismo mecanismo que
     // /operator, sin cambios -- confirmar/rechazar nunca pasa por OpenCode. ──
     const pending = await getPendingPlan(tenantId, sessionId);
+    // El plan que este turno descartó, por si el turno termina sin nada que
+    // entregar y hay que devolvérselo al admin (ver el cierre vacío, abajo).
+    // Un rechazo explícito NO se devuelve: ahí el admin dijo que no lo quiere.
+    let planDescartado: any[] | null = null;
     if (pending && pending.actions.length > 0) {
       // ── Y si la lista no lo reconocio, que lo lea el modelo ──────────────
       //
@@ -950,6 +954,13 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
 
       // Rechazo explícito o pedido nuevo de verdad: recién ahí se descarta el
       // plan viejo y se planifica con el mensaje nuevo.
+      //
+      // Se guarda una copia antes de borrarlo. Descartarlo tiene sentido
+      // mientras el turno nuevo vaya a reemplazarlo; si el turno nuevo no
+      // entrega NADA, el admin se queda sin respuesta y sin el plan que
+      // llevaba minutos esperando su confirmación --perdiendo las dos cosas de
+      // una--, y ahí el cierre lo devuelve. Ver avisoDeCierreVacio().
+      planDescartado = isRejection(respuesta) ? null : pending.actions;
       await clearPendingPlan(tenantId, sessionId);
     }
 
@@ -2154,7 +2165,32 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
       // abajo SÍ van, porque son nuevos -- por eso se resta el texto exacto de
       // cada parte y no se corta por longitud. Ver lib/entrega-por-partes.ts.
       const textoDeCierre = mensajeDeCierre(String(finalReplyVerificado || ""), partesEntregadas);
-      const reply = paraMarkdown(toEmojiStyle(textoDeCierre || "No tengo una respuesta para eso todavía."));
+
+      // ── El turno terminó sin una sola palabra que entregar ───────────────
+      //
+      // Acá salía "No tengo una respuesta para eso todavía." -- un callejón
+      // sin salida que no dice qué pasó ni qué hacer, y que encima suena a que
+      // el pedido era raro cuando el pedido estaba perfecto. Visto en vivo el
+      // 2026-09-04: el admin pidió que el copy usara los emoji del catálogo en
+      // vez de cuatro ✅ iguales, y recibió eso.
+      //
+      // Y lo peor no se veía en el chat: su mensaje descartó el plan que
+      // esperaba confirmación, así que se quedó sin respuesta Y sin el
+      // borrador. Se le devuelve el plan, porque quedarse con el viejo es
+      // mejor que quedarse sin nada.
+      let cierreParaElAdmin = textoDeCierre;
+      if (!cierreParaElAdmin) {
+        const devuelto = Array.isArray(planDescartado) ? planDescartado : [];
+        if (devuelto.length > 0) {
+          await setPendingPlan(tenantId, sessionId, devuelto, "").catch(() => undefined);
+        }
+        cierreParaElAdmin = avisoDeCierreVacio(devuelto.map((a: any) => describePlannedAction(a)), tramosTexto());
+        logger.warn(
+          { tenantId, sessionId, planDevuelto: devuelto.length, tramos },
+          "[AtlasOpenCode] El turno no produjo texto: se avisa con el motivo y se devuelve el plan pendiente",
+        );
+      }
+      const reply = paraMarkdown(toEmojiStyle(cierreParaElAdmin));
       // Las partes ya se guardaron una por una al entregarlas; guardar el
       // cierre otra vez con el texto completo dejaría la conversación con todo
       // duplicado, y esa conversación es la memoria que Atlas relee después.
