@@ -11,7 +11,9 @@ import { paraLeerEnVoz, armarSsml, recortarParaHablar, VOZ_POR_DEFECTO } from ".
 
 describe("dejar el texto listo para hablarlo", () => {
   it("saca las negritas y deja las palabras", () => {
-    expect(paraLeerEnVoz("El **curso de piano** cuesta $60.000")).toBe("El curso de piano cuesta $60.000");
+    // El precio sale como "pesos" a propósito: ver el bloque de abajo sobre lo
+    // que se escuchó mal en producción.
+    expect(paraLeerEnVoz("El **curso de piano** cuesta $60.000")).toBe("El curso de piano cuesta 60.000 pesos");
   });
 
   /** Un enlace se lee por su TEXTO. La dirección leída en voz alta es tortura. */
@@ -51,6 +53,80 @@ describe("dejar el texto listo para hablarlo", () => {
     const r = paraLeerEnVoz("| Producto | Precio |\n|---|---|\n| Piano | 60000 |");
     expect(r).not.toContain("---");
     expect(r).toContain("Piano");
+  });
+});
+
+/**
+ * Lo que el admin ESCUCHÓ y reportó el 2026-09-03, con sus palabras: "lee las
+ * barras y los diagonales, y los valores los lee en dólares".
+ *
+ * Los tres son el mismo tipo de defecto: símbolos que en la pantalla se
+ * entienden solos, y hablados salen como palabras que nadie dijo.
+ */
+describe("lo que se escuchó mal en producción", () => {
+  /**
+   * Las barras de los extremos quedaban como comas sueltas al principio y al
+   * final de cada fila: ", Producto , Precio ,".
+   */
+  it("una fila de tabla se escucha como enumeración, sin comas de sobra", () => {
+    const r = paraLeerEnVoz("| Producto | Precio |\n|---|---|\n| Piano | $60.000 |");
+    expect(r).not.toContain("|");
+    expect(r.startsWith(",")).toBe(false);
+    expect(r).toContain("Producto, Precio");
+  });
+
+  /** Una `/` entre palabras la voz la pronuncia "barra". */
+  it("las diagonales no se pronuncian", () => {
+    const r = paraLeerEnVoz("Atendemos de lunes/viernes.");
+    expect(r).not.toContain("/");
+    expect(r).toContain("lunes, viernes");
+  });
+
+  /** 24/7 no es una enumeración: "veinticuatro, siete" no se entiende. */
+  it("24/7 se dice como se dice", () => {
+    expect(paraLeerEnVoz("Atendemos 24/7.")).toContain("24 horas, los 7 días");
+  });
+
+  /**
+   * EL MÁS CARO DE LOS TRES. La voz pronuncia `$` como "dólares" y acá los
+   * precios son PESOS: "sesenta mil dólares" por un curso de $60.000 no es un
+   * problema de pronunciación, es un precio equivocado dicho con total
+   * naturalidad, que el admin puede repetirle a un cliente.
+   */
+  it("los pesos se dicen pesos, no dólares", () => {
+    const r = paraLeerEnVoz("El curso vale $60.000");
+    expect(r).toContain("60.000 pesos");
+    expect(r).not.toContain("$");
+    expect(r).not.toContain("dólares");
+  });
+
+  /** Y el dólar de verdad sigue siendo dólar. */
+  it("los dólares de verdad se dicen dólares", () => {
+    expect(paraLeerEnVoz("El envío cuesta US$12")).toContain("12 dólares");
+    expect(paraLeerEnVoz("Son $50 USD")).toContain("50 dólares");
+  });
+
+  /**
+   * REGRESIÓN: con un patrón flojo (`[\d.,]+`) el número se llevaba puesto el
+   * punto de la FRASE -- "US$12." salía "doce punto dólares", con la pausa en
+   * el lugar equivocado.
+   */
+  it("el punto final de la frase no se mete adentro del número", () => {
+    const r = paraLeerEnVoz("El envío US$12. Total $1.250.000.");
+    expect(r).toContain("12 dólares.");
+    expect(r).toContain("1.250.000 pesos.");
+  });
+
+  /**
+   * REGRESIÓN DE ORDEN: una URL está llena de `/`. Si las diagonales se
+   * convierten en comas primero, el enlace queda hecho pedazos
+   * ("https:, , ventasproia.com, p, 41") y ya no hay nada que reconocer como
+   * dirección.
+   */
+  it("la URL se reemplaza antes de tocar sus diagonales", () => {
+    const r = paraLeerEnVoz("Entrá a https://ventasproia.com/p/41 y fijate.");
+    expect(r).toContain("el enlace que te dejé");
+    expect(r).not.toContain("ventasproia");
   });
 
   it("texto vacío no rompe", () => {

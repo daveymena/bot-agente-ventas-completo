@@ -128,16 +128,71 @@ export function paraLeerEnVoz(markdown: string): string {
   t = t.replace(/^#{1,6}\s*/gm, "");
   t = t.replace(/^\s*[-*•]\s+/gm, "");
   t = t.replace(/^\s*>\s?/gm, "");
-  // Separadores de tabla y reglas horizontales: puro ruido hablado.
+  // ── Tablas ────────────────────────────────────────────────────────────
+  //
+  // Reportado por el admin al escucharlo: "lee las barras". Y era cierto: la
+  // línea separadora se limpiaba, pero cada fila quedaba como
+  // ", Producto , Precio ," -- con la barra del principio y la del final
+  // convertidas en comas sueltas, que la voz lee como pausas absurdas.
+  //
+  // Ahora la fila se parte en campos y se une con comas: las barras de los
+  // extremos no existen, no sobran comas, y se escucha como una enumeración.
   t = t.replace(/^\s*\|?[\s:|-]{4,}\|?\s*$/gm, " ");
-  t = t.replace(/\|/g, ", ");
+  t = t.replace(/^[^\n]*\|[^\n]*$/gm, (fila) =>
+    fila.split("|").map((c) => c.trim()).filter(Boolean).join(", "),
+  );
+  // Y por si quedó alguna barra suelta fuera de una tabla.
+  t = t.replace(/\s*\|\s*/g, ", ");
+
+  // Una URL suelta, sin texto que la envuelva, tampoco se lee.
+  //
+  // Va ANTES de tocar las diagonales, y el orden no es casual: una URL está
+  // llena de `/`, así que si primero se convierten en comas el enlace queda
+  // hecho pedazos ("https:, , ventasproia.com, p, 41") y ya no hay nada que
+  // reconocer como dirección. Es la misma lección que este proyecto aprendió
+  // con el supervisor de Atlas: lo que corrige la salida tiene que correr
+  // después de todo lo que puede cambiarla, y lo que la destruye, antes.
+  t = t.replace(/https?:\/\/\S+/g, " el enlace que te dejé ");
+
+  // ── Diagonales ────────────────────────────────────────────────────────
+  //
+  // El otro reporte: "y los diagonales". Una `/` entre palabras la voz la
+  // pronuncia "barra", así que "lunes/viernes" se escucha "lunes barra
+  // viernes".
+  //
+  // `24/7` va aparte porque es de las pocas que significa algo distinto de una
+  // enumeración: leerla "veinticuatro, siete" no se entiende, y es una forma
+  // que aparece todo el tiempo en textos de venta.
+  t = t.replace(/\b24\s*\/\s*7\b/g, "24 horas, los 7 días");
+  t = t.replace(/(\w)\s*\/\s*(\w)/g, "$1, $2");
 
   // Emojis y símbolos sueltos. Se van del habla, se quedan en la pantalla:
   // "⚠️" leído es un silencio raro, y el aviso ya está en las palabras.
   t = t.replace(/[\u{1F000}-\u{1FAFF}\u{2190}-\u{27BF}\u{FE0F}\u{2B00}-\u{2BFF}]/gu, " ");
 
-  // Una URL suelta, sin texto que la envuelva, tampoco se lee.
-  t = t.replace(/https?:\/\/\S+/g, " el enlace que te dejé ");
+  // ── PLATA: el error que más caro sale ─────────────────────────────────
+  //
+  // Reportado: "los valores los lee en dólares". La voz pronuncia el símbolo
+  // `$` como "dólares", y en este negocio los precios son PESOS colombianos.
+  // Escuchar "sesenta mil dólares" por un curso de $60.000 no es un detalle de
+  // pronunciación: es un precio equivocado dicho con total naturalidad, y el
+  // admin puede repetírselo a un cliente.
+  //
+  // Se pone la moneda en PALABRAS y se saca el símbolo. Primero el dólar de
+  // verdad (US$, USD), que sí existe y hay que respetarlo; recién después el
+  // `$` pelado, que acá siempre es peso.
+  //
+  // El número se escribe `\d+(?:[.,]\d+)*` y NO `[\d.,]+`: con la versión
+  // floja, "US$12." se llevaba puesto el punto de la FRASE y salía "doce punto
+  // dólares", con la pausa en el lugar equivocado. Acá el separador solo
+  // cuenta si tiene dígitos detrás, así que el punto final queda afuera.
+  t = t.replace(/\b(?:US\s*\$|USD\s*\$?)\s*(\d+(?:[.,]\d+)*)/gi, "$1 dólares");
+  t = t.replace(/\$\s*(\d+(?:[.,]\d+)*)\s*(?:USD|d[oó]lares)\b/gi, "$1 dólares");
+  t = t.replace(/\$\s*(\d+(?:[.,]\d+)*)/g, "$1 pesos");
+  // Un `$` que quedó sin número al lado no se lee: decir "dólares" suelto en
+  // medio de una frase es peor que no decir nada.
+  t = t.replace(/\$/g, " ");
+
 
   return t.replace(/[ \t]+/g, " ").replace(/\n{2,}/g, ". ").replace(/\s*\n\s*/g, ". ").trim();
 }
