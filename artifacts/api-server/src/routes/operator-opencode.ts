@@ -1362,11 +1362,51 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
           // la reserva): un pedido con investigación real necesita ~60-90s de
           // corrido, y trocearlo en ventanas cortas hacía que el primer
           // candidato -- el preferido -- fallara SIEMPRE en esos casos.
+          // ── Un TIMEOUT no significa lo mismo que un error ─────────────────
+          //
+          // Medido el 2026-09-04 con el diagnóstico, sobre el pedido real
+          // "Dame el copi para saber que vas a publicar":
+          //
+          //   deepseek-v4-flash      falló: se quedó sin tiempo   30.0s
+          //   deepseek-v4-pro        falló: se quedó sin tiempo   30.0s
+          //   mistral-small-latest   falló: se quedó sin tiempo   30.0s
+          //   claude-opus-4.8-fast   descartado: clave rechazada  11.2s
+          //   big-pickle             falló: se quedó sin tiempo   30.5s
+          //   -> turno cortado a los 135s, sin entregar NADA
+          //
+          // Los cinco se cortaron en el techo, no por fallar. Y el mismo día,
+          // un pedido que solo consultaba una herramienta tardó 5,7s. La
+          // diferencia no es el proveedor: es que ESCRIBIR un anuncio entero
+          // lleva más de 30 segundos, y ninguno llegaba nunca.
+          //
+          // La estrategia de "cortar rápido y probar otro" sirve cuando el
+          // siguiente candidato PUEDE contestar rápido -- o sea cuando el
+          // anterior falló por algo suyo (sin saldo, clave mala, 500). Ahí
+          // rotar es gratis y correcto.
+          //
+          // Pero si el anterior se cayó POR TIEMPO, el problema es la tarea,
+          // no el proveedor: darle al siguiente los mismos 30s es repetir el
+          // experimento esperando otro resultado. Cinco veces treinta son 150
+          // segundos y cero respuestas; uno solo con ochenta habría terminado.
+          //
+          // Así que un timeout ASCIENDE al siguiente: se le da todo lo que
+          // queda menos la reserva del respaldo. Se prueban menos candidatos y
+          // se termina el trabajo.
+          const anteriorSeQuedoSinTiempo = /timeout|timed out|abort|sin tiempo/i.test(String(ultimo.error || ""));
+          const techo = anteriorSeQuedoSinTiempo
+            ? Math.max(restante - RESERVA_RESPALDO_MS, PISO_UTIL_MS)
+            : TECHO_POR_CANDIDATO_MS;
+          if (anteriorSeQuedoSinTiempo) {
+            logger.info(
+              { tenantId, model: model.modelID, techo },
+              "[AtlasOpenCode] El candidato anterior se quedó sin tiempo: la tarea es larga, no el proveedor. Se le da más margen a este.",
+            );
+          }
           const timeoutCandidato = Math.min(
             restante,
             esUltimo
               ? restante
-              : Math.min(Math.max(restante - RESERVA_RESPALDO_MS, PISO_UTIL_MS), TECHO_POR_CANDIDATO_MS),
+              : Math.min(Math.max(restante - RESERVA_RESPALDO_MS, PISO_UTIL_MS), techo),
           );
           const tModelo = Date.now();
           try {
