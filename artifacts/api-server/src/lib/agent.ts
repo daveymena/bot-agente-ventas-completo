@@ -31,6 +31,7 @@ import { verificarPrecios } from "./precio-verificado";
 import { productoEnFoco } from "./producto-en-foco";
 import { entenderAlCliente, type Entendimiento } from "./entender-al-cliente";
 import { sinLoQueYaLeyo, yaLoDijo } from "./no-repetir";
+import { negarloSeriaMentira, productosNombrados } from "./nombra-productos-reales";
 import { prometeEntregaFisica, sinLaPromesaFisica, sinElTemarioInventado, lineasDeTemarioInventadas, comoSeEntregaDeVerdad } from "./solo-lo-que-dice-la-ficha";
 
 /**
@@ -2701,10 +2702,38 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
       // Para emojis de comida: la señal es tan fuerte que manda incluso con
       // un [CARD: ...] inválido delante. Solo se respeta si la card es REAL
       // (resuelve a un producto) -- pero ninguna card real acompaña a un 🍝.
+      // ── Y NO se niega algo que el cliente nombró y SÍ existe ─────────────
+      //
+      // Medido contra producción el 2026-09-04, con el agente completo:
+      //
+      //   cliente: "¿cuál es la diferencia entre el curso de marketing digital
+      //             y el de desarrollo web?"
+      //   bot:     "Hmm, creo que no tengo ese producto en el catálogo 😅. Lo
+      //             que sí manejo es: INGLES, MARKETING DIGITAL, FX PREMIERE,
+      //             DESARROLLO WEB, ..."
+      //
+      // Niega los dos y los lista en la misma frase.
+      //
+      // La causa: `productSearchFailed` significa "no pude resolver UN
+      // producto", y cuando el cliente nombra DOS para compararlos el buscador
+      // falla igual. Ahí el candado --que existe para atajar productos
+      // INVENTADOS-- tapa una comparación legítima de mercancía real. Y el
+      // momento en que un cliente compara dos productos es el momento en que
+      // está por decidir.
+      //
+      // Se comprueba contra el catálogo, no contra una intuición: si el cliente
+      // nombró algo que existe, negarlo es demostrablemente falso.
+      const nombroAlgoReal = negarloSeriaMentira(String(lastText || ""), productList as any);
       if (emojiComidaInvento || (inventoPorFrase && !cardReal) || (decision.productSearchFailed && !cardReal && /(te ense[ñn]a|incluye|te paso la ficha|lo tenemos|s[ií] (lo )?(tenemos|manejamos|tenés)|tenés (un|el|el curso))/i.test(raw))) {
-        const similares = productList.slice(0, 5).map(p => p.name).join(", ");
-        raw = `Hmm, creo que no tengo ese producto en el catálogo 😅. Lo que sí manejo es: ${similares}. ¿Te interesa alguno de esos, o me contás un poco más qué buscás exactamente?`;
-        console.log(`🛡️ [PRODUCTO-INVENTADO] La IA fabricó un producto inexistente. Se reemplaza por respuesta honesta - ${ts()}`);
+        if (nombroAlgoReal && !emojiComidaInvento) {
+          // El emoji de comida sigue mandando: esa señal es tan fuerte que
+          // gana igual (ver el comentario de arriba). Lo demás, no.
+          console.log(`🔎 [PRODUCTO-INVENTADO] No se reemplaza: el cliente nombró productos que SÍ existen (${productosNombrados(String(lastText || ""), productList as any).join(", ")}) - ${ts()}`);
+        } else {
+          const similares = productList.slice(0, 5).map(p => p.name).join(", ");
+          raw = `Hmm, creo que no tengo ese producto en el catálogo 😅. Lo que sí manejo es: ${similares}. ¿Te interesa alguno de esos, o me contás un poco más qué buscás exactamente?`;
+          console.log(`🛡️ [PRODUCTO-INVENTADO] La IA fabricó un producto inexistente. Se reemplaza por respuesta honesta - ${ts()}`);
+        }
       }
 
       // 2a. Payment/Confirmation: FORZAR card con métodos de pago (requisito crítico)
