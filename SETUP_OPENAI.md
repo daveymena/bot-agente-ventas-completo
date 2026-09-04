@@ -1,54 +1,87 @@
 # Configuración de OpenAI (ChatGPT) en EasyPanel
 
-## Requisito
-Necesitas una API key de OpenAI: https://platform.openai.com/api-keys
+## Opción 1: Directo (más simple)
+Solo agrega la API key a opencode-clean.
 
-## Pasos en EasyPanel
+## Opción 2: Proxy Bridge (recomendado para múltiples servicios)
+Un servicio independiente que sirve de puente entre OpenAI y todos tus servicios.
 
-### 1. Agregar la variable de entorno
+---
+
+## Opción 1: Directo
+
+### 1. Agregar variable de entorno
 Ve a: **opencode1 → opencode-clean → Environment**
-
-Agrega estas variables:
 
 ```
 OPENAI_API_KEY=sk-tu-api-key-aqui
 OPENAI_MODEL=gpt-4o-mini
 ```
 
-Opcional (si quieres usar un modelo específico):
+### 2. Reiniciar
+opencode-clean → Actions → Restart
+
+---
+
+## Opción 2: Proxy Bridge
+
+### 1. Crear servicio en EasyPanel
+- **Project**: opencode1
+- **Service name**: openai-proxy
+- **Source**: Git → `daveymena/bot-agente-ventas-completo`
+- **Dockerfile**: `Dockerfile.openai-proxy`
+- **Port**: 4000
+
+### 2. Variables de entorno
 ```
-OPENAI_BASE_URL=https://api.openai.com/v1
+OPENAI_API_KEY=sk-tu-api-key-aqui
+OPENAI_MODEL=gpt-4o-mini
+PROXY_PORT=4000
+PROXY_SECRET=tu-secreto-opcional
 ```
 
-### 2. Agregar al fallback order
-En la variable `AI_FALLBACK_ORDER`, agrega `openai`:
+### 3. Desde otros servicios
+Los servicios en EasyPanel se conectan así:
 
+```javascript
+// En opencode-clean o bot-agenwhatsapp
+const OPENAI_BASE_URL = "http://openai-proxy:4000/v1";
+const OPENAI_API_KEY = "tu-secreto-opcional"; // o vacío si no usas auth
+
+const response = await fetch(`${OPENAI_BASE_URL}/chat/completions`, {
+  method: "POST",
+  headers: {
+    "Content-Type": "application/json",
+    "Authorization": `Bearer ${OPENAI_API_KEY}`,
+    "X-Proxy-Secret": "tu-secreto-opcional"
+  },
+  body: JSON.stringify({
+    model: "gpt-4o-mini",
+    messages: [{ role: "user", content: "Hola" }]
+  })
+});
 ```
-AI_FALLBACK_ORDER=deepseek,groq,openai
-```
 
-### 3. Reiniciar el servicio
-Ve a opencode-clean → Actions → Restart
-
-## Modelos disponibles
-- `gpt-4o` — El mejor, más caro (~$5/1M tokens)
-- `gpt-4o-mini` — Bueno y barato (~$0.15/1M tokens) ← **Recomendado**
-- `gpt-3.5-turbo` — El más barato, menos capaz
-
-## Costo estimado
-Con gpt-4o-mini y ~1000 mensajes/día:
-- ~$0.15-0.50/día
-- ~$5-15/mes
-
-## Verificar que funciona
-Desde la consola de opencode-clean:
+### 4. Verificar
 ```bash
-curl -X POST https://api.openai.com/v1/chat/completions \
-  -H "Authorization: Bearer sk-tu-api-key" \
+# Health check
+curl http://openai-proxy:4000/health
+
+# List models
+curl http://openai-proxy:4000/v1/models
+
+# Chat completion
+curl -X POST http://openai-proxy:4000/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{"model":"gpt-4o-mini","messages":[{"role":"user","content":"test"}]}'
 ```
 
-## Nota
-El bot ya tiene configurado el proveedor "openai" en `provider.ts:455-461`.
-Solo necesita la API key para activarse.
+---
+
+## Modelos disponibles
+- `gpt-4o` — El mejor (~$5/1M tokens)
+- `gpt-4o-mini` — Bueno y barato (~$0.15/1M tokens) ← **Recomendado**
+- `gpt-3.5-turbo` — El más barato
+
+## Costo estimado
+Con gpt-4o-mini y ~1000 mensajes/día: ~$5-15/mes
