@@ -22,7 +22,7 @@ import { proximoPaso, renderPaso, necesidadDeclarada, type Paso } from "./embudo
 import { opcionesPendientes, preguntaPorLaOpcion } from "./opciones-del-producto";
 import { preguntasSueltas } from "./estado-cognitivo";
 import { seccionQueCorresponde, elSiContestaLaOferta, elCierreOfrece, pideAlgoEntregable, elProductoSaleDeLaPreguntaMisma, queOfrecioElBot, elVideoYaSalio, sePuedeOfrecerElVideo } from "./ficha-parcial";
-import { promesasIncumplidas, sinLaPromesa, sinElMontoQueVaEnLaFicha, niegaLoQueSiSale, loQueEntregaLaSeccion, NOMBRE_DE_PROMESA } from "./promesas";
+import { promesasDe, promesasIncumplidas, sinLaPromesa, sinElMontoQueVaEnLaFicha, niegaLoQueSiSale, loQueEntregaLaSeccion, NOMBRE_DE_PROMESA } from "./promesas";
 import { medirEmojis } from "./emojis-con-medida";
 import { preguntaPorLoInterno, delataLoInterno, respuestaSegura, vocabularioDelNegocio } from "./nada-interno";
 import { videoDeProducto } from "./video-de-producto";
@@ -2807,7 +2807,29 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
         // clarificación genérica ("¿quieres que te lo muestre?").
         const primeraPalabra = productoPedido?.name?.toLowerCase().split(" ")[0];
         const nombraProducto = primeraPalabra ? raw.toLowerCase().includes(primeraPalabra) : true;
-        if (nombraProducto) {
+        // ── O si el texto ANUNCIA que algo viene abajo ────────────────────
+        //
+        // Medido contra producción el 2026-09-04:
+        //
+        //   cliente: "vi su anuncio del curso de marketing digital, cuanto vale?"
+        //   bot:     "¡Buenísimo que te haya llamado la atención! 👇"
+        //
+        // Y nada más. Sin ficha, sin precio: una flecha apuntando al vacío.
+        //
+        // Pasó porque DOS candados buenos se encadenaron mal. El modelo
+        // escribió la intro esperando que la ficha saliera sola y no puso el
+        // marcador; este forzado no la puso porque exige que el texto NOMBRE
+        // el producto, y "¡Buenísimo!" no lo nombra; y después el candado de
+        // promesas --que hace bien su trabajo-- borró el "👇" por prometer
+        // algo que no salía. Resultado: el cliente preguntó el precio y
+        // recibió un saludo.
+        //
+        // Apuntar hacia abajo ES nombrar la ficha: es exactamente lo que el
+        // detector de promesas ya reconoce como "acá viene algo". Si el
+        // servidor SABE cuál es el producto, se adjunta en vez de borrar la
+        // frase. Cumplir la promesa es mejor que taparla.
+        const anunciaAlgoAbajo = promesasDe(raw).includes("ficha");
+        if (nombraProducto || anunciaAlgoAbajo) {
           raw = `${raw.trim()}\n\n[CARD: ${idPedido}]`;
           console.log(`🔧 [POST] Consulta de producto ${idPedido} sin card → forzada. La IA escribía la ficha a mano - ${ts()}`);
         }

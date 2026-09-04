@@ -149,13 +149,38 @@ export function promesasIncumplidas(texto: string, sale: LoQueVaASalir): Promesa
  */
 export function sinLaPromesa(texto: string, incumplidas: Promesa[]): string {
   if (!incumplidas.length) return texto;
-  const frases = String(texto).split(/(?<=[.!?¡¿]|\n)\s*/);
+  // ── Se corta después de los signos de CIERRE, no de los de apertura ────
+  //
+  // Acá el separador incluía `¡` y `¿`, y eso es un error de puntuación con
+  // consecuencia visible: una frase no TERMINA en un signo de apertura,
+  // empieza. Cortar después de él dejaba el signo solo, como un pedazo aparte:
+  //
+  //   "¡Buenísimo que te haya llamado la atención! 👇"
+  //     -> ["¡", "Buenísimo que te haya llamado la atención!", "👇"]
+  //
+  // Se descartaba el "👇" (que era la promesa incumplida) y el resto se volvía
+  // a unir con un espacio, así que al cliente le llegaba:
+  //
+  //   "¡ Buenísimo que te haya llamado la atención!"
+  //
+  // Medido en producción el 2026-09-04. Es el mismo defecto que ya se había
+  // corregido en `emojis-con-medida.ts` -- "un bot que escribe '¡ Hola' parece
+  // roto, y es lo primero que el cliente lee" -- reaparecido por otra puerta.
+  const frases = String(texto).split(/(?<=[.!?])\s*|\n+/);
   const quedan = frases.filter((f) => {
-    if (!f.trim()) return false;
+    if (!f || !f.trim()) return false;
     const p = promesasDe(f);
     return !p.some((x) => incumplidas.includes(x));
   });
-  return quedan.join(" ").replace(/\s+/g, " ").trim();
+  return quedan
+    .join(" ")
+    .replace(/\s+/g, " ")
+    // Por si el texto original ya traía el signo separado, o queda un signo de
+    // apertura huérfano al descartar la frase que lo seguía.
+    .replace(/([¡¿])\s+/g, "$1")
+    .replace(/\s+([,.;:!?])/g, "$1")
+    .replace(/[¡¿]\s*$/g, "")
+    .trim();
 }
 
 /**
