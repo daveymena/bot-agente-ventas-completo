@@ -275,6 +275,45 @@ router.post("/architect", async (req: TenantRequest, res, next) => {
       .orderBy(desc(messages.createdAt))
       .limit(100);
 
+    // ── 6b. Y LO QUE CONTESTO EL BOT, que es donde estan los errores ──────
+    //
+    // Reportado el 2026-09-03: el admin escribio "revisa las conversaciones,
+    // ahi podras ver los errores" y Atlas le contesto pidiendole "acceso o
+    // ejemplos concretos de las conversaciones".
+    //
+    // Parte de eso es el modelo ignorando su contexto (ver la regla dura mas
+    // abajo), pero habia un hueco REAL: la consulta de arriba filtra
+    // `role: "customer"`, asi que el perfil traia solo lo que escribieron los
+    // CLIENTES. Los errores del bot estan en las respuestas del BOT, y esas
+    // nunca se cargaban. Atlas no podia revisarlas ni queriendo.
+    //
+    // Se traen los ultimos intercambios completos --pregunta y respuesta, en
+    // orden-- porque una respuesta suelta no se puede juzgar: "$60.000" esta
+    // bien o mal segun que le hayan preguntado.
+    const intercambios = await db
+      .select()
+      .from(messages)
+      .where(inArray(messages.conversationId, recentConversations.length ? recentConversations.slice(0, 10).map((c: any) => c.id) : [0]))
+      .orderBy(desc(messages.createdAt))
+      .limit(60);
+
+    const conversacionesReales = (() => {
+      const porChat = new Map<number, any[]>();
+      for (const m of [...intercambios].reverse()) {
+        const lista = porChat.get(m.conversationId) || [];
+        lista.push(m);
+        porChat.set(m.conversationId, lista);
+      }
+      return Array.from(porChat.values())
+        .slice(0, 4)
+        .map((msgs) =>
+          msgs
+            .slice(-8)
+            .map((m) => `${m.role === "customer" ? "Cliente" : "Bot"}: ${String(m.content || "").slice(0, 240)}`)
+            .join("\n"),
+        );
+    })();
+
     // 7. Detectar objeciones comunes
     const objectionKeywords = ["caro", "costoso", "no sé", "duda", "garantía", "funciona", "estafa"];
     const objectionMessages = allMessages.filter(m => 
@@ -309,6 +348,7 @@ router.post("/architect", async (req: TenantRequest, res, next) => {
         .map(([name]) => name),
       commonObjections: objectionMessages.slice(0, 10).map(m => m.content),
       frequentQuestions: faqMessages.slice(0, 10).map(m => m.content),
+      conversacionesReales,
       hasActiveAgent: !!currentAgent,
       currentAgentConfig: currentAgent ? {
         name: currentAgent.name,
@@ -391,6 +431,9 @@ ${businessProfile.commonObjections.length > 0 ? businessProfile.commonObjections
 **PREGUNTAS FRECUENTES DETECTADAS:**
 ${businessProfile.frequentQuestions.length > 0 ? businessProfile.frequentQuestions.slice(0, 5).map((q, i) => `${i + 1}. "${q}"`).join('\n') : "• No hay datos suficientes aún"}
 
+**COMO ESTA CONTESTANDO HOY (conversaciones reales, textuales):**
+${businessProfile.conversacionesReales.length > 0 ? businessProfile.conversacionesReales.map((c, i) => `--- Conversacion ${i + 1} ---\n${c}`).join("\n\n") : "• Todavia no hay conversaciones para revisar"}
+
 **AGENTE ACTUAL:**
 ${businessProfile.hasActiveAgent ? `
 • Nombre: ${businessProfile.currentAgentConfig?.name}
@@ -410,6 +453,35 @@ ${businessProfile.hasActiveAgent ? `
 5. **APRENDE DEL AGENTE ACTUAL** (si existe) y mejora lo que ya funciona
 6. **NO REPITAS** configuraciones que ya están activas — mejora o complementa
 7. **SÉ ESPECÍFICA** — usa nombres reales de productos, objeciones reales, preguntas reales
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+⛔ NO LE PIDAS AL ADMIN LO QUE YA TENÉS ARRIBA
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Esto pasó de verdad el 2026-09-03 y es el peor defecto que podés tener acá:
+
+  admin: "revisá las conversaciones que hemos tenido, ahí podrás ver los errores"
+  vos:   "necesitaría acceso o ejemplos concretos de las conversaciones..."
+
+Las conversaciones están ARRIBA, textuales. Pedirlas le dice al admin que no
+leíste lo que ya tenés en la mano, y lo obliga a hacer tu trabajo.
+
+REGLAS DURAS:
+
+• Si el dato está en el bloque de arriba, NO SE PREGUNTA. Se usa y se cita.
+  Ya tenés: el nombre del negocio, cuántos productos hay, los más vendidos,
+  las objeciones reales, las preguntas frecuentes, LAS CONVERSACIONES TEXTUALES
+  y la configuración actual del agente (nombre, rol, tono).
+
+• Cuando el admin diga "revisá las conversaciones" o "mirá los errores":
+  ABRÍ las conversaciones de arriba, señalá renglones CONCRETOS y decí qué está
+  mal en cada uno. Nada de listas de preguntas.
+
+• Como mucho UNA pregunta, y solo si de verdad no podés avanzar sin ella.
+  Cinco preguntas seguidas no son una consulta: son un formulario.
+
+• Si ya preguntaste algo en este mismo chat y no te contestaron, NO lo vuelvas
+  a preguntar con otras palabras. Avanzá con lo que tenés y decí qué asumiste.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 🧠 CAPACIDADES AVANZADAS QUE PUEDES CONFIGURAR
