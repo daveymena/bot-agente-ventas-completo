@@ -629,8 +629,26 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
     const tenantId = req.tenant?.id;
     if (!tenantId) return res.status(401).json({ message: "Tenant not resolved" });
 
-    const { prompt, history: historialCrudo = [] } = req.body;
-    if (!prompt) return res.status(400).json({ error: "prompt requerido" });
+    // ── Se puede mandar TEXTO o AUDIO ─────────────────────────────────────
+    //
+    // Propuesta del admin: "que el sistema reciba el audio automáticamente en
+    // el servidor, lo transcriba internamente y luego responda, así no
+    // hacemos doble proceso".
+    //
+    // Tiene razón. La versión anterior transcribía en una llamada, dejaba el
+    // texto en la caja y esperaba que el admin apretara Enviar: dos viajes y
+    // dos toques para una sola intención. Y el motivo por el que se había
+    // hecho así --que Whisper se equivoca con cifras y nombres de producto--
+    // resultó más débil de lo que parecía: Atlas **no ejecuta**, propone y
+    // espera el "sí". Una transcripción mal entendida produce una propuesta
+    // equivocada, que está a la vista y sin confirmar.
+    //
+    // Lo que sí hace falta es que se VEA lo que se entendió, y por eso el
+    // texto sale por SSE (evento `transcripcion`) apenas está, antes de que el
+    // turno arranque: si escuchó mal, se ve en el acto y está el botón de
+    // Detener. Transcribir a ciegas y contestar sería el mal negocio; esto no.
+    const { prompt: promptCrudo, audio, mimeAudio, history: historialCrudo = [] } = req.body;
+    if (!promptCrudo && !audio) return res.status(400).json({ error: "prompt o audio requerido" });
     const sessionId: string = (req.body?.sessionId as string) || "default";
     const ctx: OperatorContext = { tenantId, sessionId };
 
@@ -702,6 +720,43 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
     if (!cfg) {
       logger.error("[AtlasOpenCode] Faltan ATLAS_OPENCODE_HOST/USER/PASS -- el motor no puede arrancar");
       return finish({ error: "Atlas no está disponible en este momento. Avisale al soporte técnico si sigue así." }, 500);
+    }
+
+    // ── Si vino audio, se transcribe ACÁ y el turno sigue igual ───────────
+    //
+    // Va después de abrir el stream para poder avisar por SSE, y antes de
+    // guardar el turno del admin: lo que se guarda en la conversación es lo
+    // que se entendió, no "[audio]". Así la memoria de Atlas queda legible y
+    // el historial sirve para releerlo después.
+    let prompt = promptCrudo;
+    if (!prompt && audio) {
+      progreso("Escuchando lo que dijiste...");
+      const coma = String(audio).indexOf(",");
+      const cabecera = coma >= 0 ? String(audio).slice(0, coma) : "";
+      const base64 = coma >= 0 ? String(audio).slice(coma + 1) : String(audio);
+      const tipo = /^data:([^;,]+)/.exec(cabecera)?.[1] || String(mimeAudio || "audio/webm");
+      const buffer = Buffer.from(base64, "base64");
+
+      // Menos de 1KB es el botón apretado sin querer. Gastar una llamada a
+      // Whisper para que devuelva vacío es tiempo del admin, no del sistema.
+      if (buffer.length < 1024) {
+        return finish({ error: "No alcancé a escuchar nada. Probá de nuevo hablando un poco más." }, 400);
+      }
+
+      const { transcribirAudio } = await import("../lib/media-entrante");
+      const texto = await transcribirAudio(buffer, tipo);
+      if (!texto) {
+        // `transcribirAudio` devuelve null a propósito cuando NO hay
+        // información, en vez de inventar. Se respeta: nada de seguir con una
+        // cadena vacía, que haría que Atlas conteste cualquier cosa a un
+        // pedido que nunca se entendió.
+        return finish({ error: "No pude entender el audio. ¿Lo repetís?" }, 422);
+      }
+      prompt = texto;
+      // Que se VEA lo que se entendió, ya mismo y antes de trabajar. Si
+      // escuchó mal, el admin lo ve en el acto y tiene el botón de Detener.
+      sse("transcripcion", { texto });
+      logger.info({ tenantId, largo: texto.length }, "[AtlasOpenCode] Pedido por voz transcrito");
     }
 
     const persisted = await loadArchitectHistory(tenantId, sessionId);

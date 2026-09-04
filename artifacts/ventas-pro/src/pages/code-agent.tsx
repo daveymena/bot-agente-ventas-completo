@@ -368,7 +368,7 @@ export default function CodeAgent() {
         stream.getTracks().forEach((t) => t.stop());
         const blob = new Blob(pedazosRef.current, { type: rec.mimeType || "audio/webm" });
         pedazosRef.current = [];
-        await transcribir(blob);
+        await enviarAudio(blob);
       };
       rec.start();
       grabadorRef.current = rec;
@@ -388,7 +388,18 @@ export default function CodeAgent() {
     try { rec.stop(); } catch { /* ya estaba parado */ }
   };
 
-  const transcribir = async (blob: Blob) => {
+  /**
+   * El audio se manda DERECHO al turno: el servidor lo transcribe adentro y
+   * contesta.
+   *
+   * Antes esto llamaba a `/transcribir`, dejaba el texto en la caja y esperaba
+   * que el admin apretara Enviar. Dos viajes y dos toques para una sola
+   * intención, como él mismo señaló. Lo que se conserva de aquel diseño es lo
+   * que de verdad importaba: que se VEA lo entendido -- llega por SSE apenas
+   * está y antes de que Atlas trabaje, así que si escuchó mal se ve en el acto
+   * y está el botón de Detener.
+   */
+  const enviarAudio = async (blob: Blob) => {
     setTranscribiendo(true);
     try {
       const dataUrl: string = await new Promise((resolve, reject) => {
@@ -397,22 +408,7 @@ export default function CodeAgent() {
         r.onerror = reject;
         r.readAsDataURL(blob);
       });
-      const r = await fetch("/api/code-agent/transcribir", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ audio: dataUrl, mime: blob.type }),
-        credentials: "include",
-      });
-      const d = await r.json().catch(() => ({}));
-      if (!r.ok || !d?.texto) {
-        toast.error(d?.error || "No pude entender el audio. ¿Lo repetís?");
-        return;
-      }
-      // Se AGREGA a lo que ya había escrito en vez de pisarlo: se puede
-      // escribir una parte, dictar el resto, y seguir corrigiendo.
-      setInput((prev) => (prev ? `${prev} ${d.texto}` : d.texto));
-      // El foco vuelve a la caja para poder corregir sin buscar dónde tocar.
-      setTimeout(() => textareaRef.current?.focus(), 0);
+      await handleSubmit({ dataUrl, mime: blob.type || "audio/webm" });
     } catch {
       toast.error("No se pudo enviar el audio.");
     } finally {
@@ -549,7 +545,17 @@ export default function CodeAgent() {
   // de varios días como la que causó el cuelgue original (2026-08-10).
   const HISTORY_LIMIT = 30;
 
-  const callAtlas = async (promptText: string, historyForCall: { role: string; content: string }[]) => {
+  /**
+   * `audio` es el camino por voz: se manda el audio y el SERVIDOR lo
+   * transcribe y contesta en el mismo turno. Antes se transcribia en una
+   * llamada aparte, el texto caia en la caja y habia que apretar Enviar --
+   * dos viajes y dos toques para una sola intencion.
+   */
+  const callAtlas = async (
+    promptText: string,
+    historyForCall: { role: string; content: string }[],
+    audio?: { dataUrl: string; mime: string },
+  ) => {
     const esOperador = mode === "operator";
     // Corte al motor nuevo (2026-08-12). Medido en vivo con el MISMO pedido
     // ("investigá la competencia y creá el anuncio"): la ruta vieja
@@ -570,7 +576,12 @@ export default function CodeAgent() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       // Solo el operador emite progreso; el modo Agente responde de una.
-      body: JSON.stringify({ prompt: promptText, history: historyForCall, sessionId, ...(esOperador ? { stream: true } : {}) }),
+      body: JSON.stringify({
+        ...(audio ? { audio: audio.dataUrl, mimeAudio: audio.mime } : { prompt: promptText }),
+        history: historyForCall,
+        sessionId,
+        ...(esOperador ? { stream: true } : {}),
+      }),
       credentials: "include",
       signal: controlador.signal,
     });
@@ -614,6 +625,15 @@ export default function CodeAgent() {
         // que un turno que se cortaba en la tercera entregaba CERO -- las dos
         // que ya estaban hechas se perdían con él. Ahora lo entregado queda
         // entregado.
+        // Lo que el servidor ENTENDIO del audio. Entra al chat como el mensaje
+        // del admin, apenas esta y antes de que Atlas se ponga a trabajar: si
+        // escucho mal se ve en el acto, y esta el boton de Detener.
+        else if (evento === "transcripcion" && payload?.texto) {
+          setMessages((prev) => [
+            ...prev,
+            { role: "user", content: String(payload.texto), at: Date.now() },
+          ]);
+        }
         else if (evento === "avance" && payload?.reply) {
           setMessages((prev) => [
             ...prev,
@@ -711,20 +731,30 @@ export default function CodeAgent() {
    */
   const loDetuveYo = () => detenidoRef.current;
 
-  const handleSubmit = async () => {
-    if (!input.trim() || loading) return;
-    const userMsg = input.trim();
-    setInput("");
-    setMessages((prev) => [...prev, { role: "user", content: userMsg, at: Date.now() }]);
+  /**
+   * `audio` es el pedido hablado: el servidor lo transcribe y contesta en el
+   * mismo turno.
+   *
+   * El mensaje del admin NO se agrega acá cuando es audio: todavía no se sabe
+   * qué dijo. Lo agrega el evento `transcripcion` con lo que el servidor
+   * entendió de verdad, que es lo único honesto para mostrar en su nombre.
+   */
+  const handleSubmit = async (audio?: { dataUrl: string; mime: string }) => {
+    if ((!audio && !input.trim()) || loading) return;
+    const userMsg = audio ? "" : input.trim();
+    if (!audio) {
+      setInput("");
+      setMessages((prev) => [...prev, { role: "user", content: userMsg, at: Date.now() }]);
+    }
     setLoading(true);
-    setProgreso("");
+    setProgreso(audio ? "Escuchando lo que dijiste..." : "");
     // Cada pedido nuevo arranca sin la marca del anterior: si no, un turno
     // detenido dejaba a Atlas incapaz de encadenar nunca más en esta pantalla.
     detenidoRef.current = false;
 
     try {
       let history = messages.slice(-HISTORY_LIMIT).map((m) => ({ role: m.role, content: m.content }));
-      let data = await callAtlas(userMsg, history);
+      let data = await callAtlas(userMsg, history, audio);
 
       for (let round = 0; round < MAX_AUTO_CONTINUATIONS && data?.needsContinuation && !detenidoRef.current; round++) {
         const partial: Message = {
