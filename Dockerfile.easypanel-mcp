@@ -1,0 +1,9 @@
+FROM node:22-slim
+
+WORKDIR /app
+
+COPY easypanel-mcp-server.mjs .
+
+EXPOSE 4001
+
+CMD ["node", "easypanel-mcp-server.mjs"]
