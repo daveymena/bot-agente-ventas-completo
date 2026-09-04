@@ -5,10 +5,6 @@
  *
  * Usage:
  *   MCP_URL=https://your-domain.example/mcp MCP_SECRET=... node scripts/test-easypanel-mcp.mjs
- *
- * This test validates the exact JSON-RPC flow used by the bridge:
- * initialize -> tools/list -> tools/call.
- * It never prints MCP_SECRET or any EasyPanel credential.
  */
 
 const MCP_URL = (process.env.MCP_URL || "").replace(/\/$/, "");
@@ -19,7 +15,7 @@ if (!MCP_SECRET) throw new Error("MCP_SECRET is required");
 
 let id = 0;
 
-async function rpc(method, params = undefined) {
+async function rpc(method, params = undefined, expectEmpty = false) {
   const body = { jsonrpc: "2.0", id: ++id, method };
   if (params !== undefined) body.params = params;
 
@@ -34,6 +30,12 @@ async function rpc(method, params = undefined) {
   });
 
   const text = await response.text();
+  
+  // Notifications return 202 with empty body
+  if (expectEmpty || response.status === 202 || text.trim() === "") {
+    return null;
+  }
+
   if (!response.ok) {
     throw new Error(`HTTP ${response.status}: ${text.slice(0, 500)}`);
   }
@@ -65,7 +67,7 @@ const init = await rpc("initialize", {
 assert(init?.serverInfo?.name === "easypanel-mcp-bridge", "Unexpected MCP serverInfo");
 console.log(`✓ initialize (${init.protocolVersion})`);
 
-await rpc("notifications/initialized");
+await rpc("notifications/initialized", {}, true);
 console.log("✓ notifications/initialized");
 
 const listed = await rpc("tools/list");
