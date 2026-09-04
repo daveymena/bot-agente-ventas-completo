@@ -831,7 +831,14 @@ async function proposeAction(
 /** Lee y borra las propuestas acumuladas de un turno (llamado UNA vez, al
  * terminar la respuesta de OpenCode, desde routes/code-agent.ts). */
 /** Deja anotado que en ESTE turno se ejecutó realmente una herramienta de lectura. */
-async function registrarLecturaDelTurno(ctx: any, tool: string): Promise<void> {
+/**
+ * Se exporta SOLO para poder probarlo contra la base de verdad.
+ *
+ * Esta función estuvo rota desde que existe --le faltaba un campo `notNull`--
+ * y nadie se enteró porque el `catch` se comía el error y no había forma de
+ * llamarla desde una prueba. Lo segundo es lo que hizo posible lo primero.
+ */
+export async function registrarLecturaDelTurno(ctx: any, tool: string): Promise<void> {
   const tenantId = Number(ctx?.tenantId);
   const turnId = String(ctx?.turnId || "");
   if (!Number.isFinite(tenantId) || !turnId) return;
@@ -840,10 +847,29 @@ async function registrarLecturaDelTurno(ctx: any, tool: string): Promise<void> {
       tenantId,
       sessionId: turnId,
       memoryType: "tool_used",
+      // ⚠️ `title` es notNull en los DOS esquemas (pg y sqlite) y acá no se
+      // mandaba. Cada inserción fallaba con violación de NOT NULL, y el catch
+      // de abajo se la tragaba en silencio.
+      //
+      // O sea: el registro de qué herramientas usó Atlas NUNCA guardó nada.
+      // Y eso no era solo telemetría perdida -- `lecturasDelTurno` devolvía
+      // SIEMPRE una lista vacía, así que el aviso "los números de arriba NO se
+      // consultaron" se disparaba aunque Atlas hubiera consultado de verdad.
+      // Es exactamente lo que reportó el admin: "dice que esto no fue
+      // consultado cuando sí".
+      //
+      // Encontrado el 2026-09-04 leyendo el diagnóstico nuevo: diez turnos
+      // seguidos con `lecturas: []`, incluido uno que pedía "consulta los
+      // números". Ninguna herramienta figuraba, y no era que Atlas no las
+      // llamara: era que nadie podía anotarlo.
+      title: `tool:${tool}`,
       content: tool,
     } as any);
-  } catch {
+  } catch (e: any) {
     // Es telemetría de apoyo: si falla, no puede tumbar la herramienta real.
+    // Pero se deja rastro: el silencio absoluto es lo que hizo que esto
+    // estuviera roto sin que nadie se enterara.
+    logger.warn({ tool, err: e?.message }, "[AtlasMCP] No se pudo anotar la lectura del turno");
   }
 }
 
