@@ -67,3 +67,31 @@ describe("lo que SÍ es un intento de confirmar", () => {
     expect(arrancaPedidoNuevo("creo que si")).toBe(false);
   });
 });
+
+/**
+ * Auditoría del propio módulo, el mismo día que se escribió.
+ *
+ * Buscaba las raíces en CUALQUIER parte de la palabra, y con eso cinco de nueve
+ * confirmaciones reales se leían como pedido nuevo -- o sea que el plan se
+ * descartaba, que es la regresión de agosto que este archivo dice proteger.
+ *
+ * La respuesta correcta no era ni buscar suelto (demasiado flojo) ni exigir
+ * límite de palabra al principio (demasiado duro: ese era el bug original con
+ * "DEmuéstrale"). Es la morfología: la raíz lleva su vocal temática y solo
+ * admite terminaciones de verbo, con el pronombre pegado si lo hay.
+ */
+describe("la raíz tiene que terminar como un verbo", () => {
+  it.each([
+    ["dale, que quede bien creativo", "creativo no es del verbo crear"],
+    ["ok generalmente si", "generalmente no es del verbo generar"],
+  ])("%s — %s", (msg) => {
+    expect(arrancaPedidoNuevo(msg)).toBe(false);
+  });
+
+  it.each(["creame otro anuncio", "generame el copy", "Demuéstrale el copi", "pasámelo"])(
+    "pero el verbo de verdad sigue contando: %s",
+    (msg) => {
+      expect(arrancaPedidoNuevo(msg)).toBe(true);
+    },
+  );
+});

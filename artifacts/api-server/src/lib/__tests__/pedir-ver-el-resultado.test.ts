@@ -79,3 +79,30 @@ describe("ver el resultado es autorizarlo, cuando verlo es gratis", () => {
     expect(verloEsAutorizarlo("dale", BORRADOR)).toBe(false);
   });
 });
+
+/**
+ * Auditoría del propio módulo, el mismo día que se escribió.
+ *
+ * Ignoraba la negación por completo: las cuatro formas de decir que NO quería
+ * verlo ejecutaban la acción igual. Es el peor error que puede tener esta
+ * regla -- hacer algo cuando le dijeron que no. Que la acción sea barata no lo
+ * justifica: obedecer lo contrario de lo que se pidió rompe la confianza
+ * aunque no cueste plata.
+ */
+describe("una negación no es un permiso", () => {
+  it.each([
+    "no quiero ver el copy todavia",
+    "no me muestres el anuncio",
+    "nunca me mostraste el copy",
+    "el copy no me gusta",
+  ])("no ejecuta: %s", (m) => {
+    expect(pideVerElResultado(m)).toBe(false);
+  });
+
+  /** Y pedir un CAMBIO no es pedir ver lo que ya hay: ejecutar ahí entrega
+   *  justo lo que el admin quería corregir. */
+  it("pedir un cambio no autoriza a mostrar lo viejo", () => {
+    expect(pideVerElResultado("cambia el copy antes de mostrarmelo")).toBe(false);
+    expect(pideVerElResultado("hacelo mas corto y despues mostramelo")).toBe(false);
+  });
+});

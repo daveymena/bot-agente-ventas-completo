@@ -79,12 +79,44 @@ const VERBOS_DE_VER =
 const LO_QUE_SE_VA_A_VER =
   /(copy|copi|copo|texto|anuncio|borrador|muestra|redacci[oó]n|lo que vas a publicar|que vas a publicar|c[oó]mo queda|como queda)/i;
 
+/**
+ * NO es pedir verlo.
+ *
+ * ⚠️ Correccion de un defecto MIO, encontrado auditando este modulo el mismo
+ * dia que lo escribi. Sin esto, las CUATRO formas de decir que no queria verlo
+ * ejecutaban la accion igual:
+ *
+ *   "no quiero ver el copy todavia"        -> ejecutaba
+ *   "no me muestres el anuncio"            -> ejecutaba
+ *   "nunca me mostraste el copy"           -> ejecutaba
+ *   "cambia el copy antes de mostrarmelo"  -> ejecutaba con el copy VIEJO
+ *
+ * Es el peor tipo de error que puede tener esta regla: hace algo cuando le
+ * dijeron que no. Que la accion sea barata no lo justifica -- obedecer lo
+ * contrario de lo que se pidio rompe la confianza aunque no cueste plata.
+ *
+ * Y el ultimo caso es distinto de una negacion: pedir un CAMBIO no es pedir
+ * ver lo que ya hay. Ejecutar ahi entrega justo lo que el admin queria
+ * corregir.
+ */
+const NO_ES_PEDIR_VERLO =
+  /\b(no|nunca|jamas|todavia no|aun no|sin)\b/;
+
+const PIDE_UN_CAMBIO =
+  /\b(cambia|cambiar|ajusta|ajustar|corrige|corregir|mejora|mejorar|modifica|modificar|otro|otra|distinto|diferente|mas corto|mas largo)\b/;
+
 export function pideVerElResultado(mensaje: string): boolean {
   const t = String(mensaje || "")
     .toLowerCase()
     .replace(/[áéíóúü]/g, (c) => ({ á: "a", é: "e", í: "i", ó: "o", ú: "u", ü: "u" }[c] ?? c));
   if (!t.trim()) return false;
-  // "¿qué vas a publicar?" es pedir verlo aunque no lleve verbo de mostrar.
+
+  // Una negacion o un pedido de cambio descartan TODO lo demas: ante la duda
+  // se pregunta, que es lo que hacia antes de esta regla.
+  if (NO_ES_PEDIR_VERLO.test(t)) return false;
+  if (PIDE_UN_CAMBIO.test(t)) return false;
+
+  // "¿que vas a publicar?" es pedir verlo aunque no lleve verbo de mostrar.
   if (/(que|cual)\s+(vas a|vamos a|se va a)\s+publicar/.test(t)) return true;
   return VERBOS_DE_VER.test(t) && LO_QUE_SE_VA_A_VER.test(t);
 }

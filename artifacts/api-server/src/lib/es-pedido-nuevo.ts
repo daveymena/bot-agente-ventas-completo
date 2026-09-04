@@ -53,20 +53,41 @@ function comoSeLee(texto: string): string {
  * cualquiera -- "muestra" no aparece por accidente en castellano.
  */
 const RAICES = [
-  "muestr", "mostra", "ensena", "entrega", "prepar", "gener", "arma",
-  "dame", "pasame", "pasalo", "manda", "envia", "busc", "investig",
-  "cambi", "edit", "borr", "elimin", "public", "analiz", "configur", "revis",
-  "activ", "paus", "corrig", "calcul", "consult", "verific", "redact",
-  // ⚠️ Estas tres se eligieron con la prueba en la mano, porque chocan con
-  // confirmaciones de verdad y romperlas volvería al defecto de agosto (borrar
-  // un plan que el admin quería ejecutar):
-  //
-  //   "crea"  y no "cre"   -> "creo que sí" es un SÍ, no un pedido
-  //   "lista" y no "list"  -> "listo" es un SÍ, no "listá los productos"
-  //   y "haz"/"hace" quedan FUERA -> "hazlo pues" es la forma más natural de
-  //   decir que sí en Colombia
-  "crea", "lista",
+  "muestra", "mostra", "ensena", "entrega", "prepara", "genera", "arma",
+  "dame", "pasame", "pasalo", "manda", "envia", "busca", "investiga",
+  "cambia", "edita", "borra", "elimina", "publica", "analiza", "configura",
+  "revisa", "activa", "pausa", "corrige", "calcula", "consulta", "verifica",
+  "redacta", "crea", "lista",
 ];
+
+/**
+ * Terminaciones que puede llevar un verbo de pedido en castellano.
+ *
+ * ⚠️ Esto es la correccion de un defecto MIO, encontrado auditando el modulo
+ * el mismo dia que lo escribi. Buscaba las raices en cualquier parte de la
+ * palabra, y con eso CINCO de nueve confirmaciones reales se leian como pedido
+ * nuevo -- o sea que el plan se descartaba, que es exactamente la regresion de
+ * agosto que este archivo dice proteger:
+ *
+ *   "dale, que quede bien creativo"  ->  "crea" dentro de CREAtivo
+ *   "listo, activalo"                ->  "activ"
+ *   "si, publicalo"                  ->  "public"
+ *   "perfecto, mandale"              ->  "manda"
+ *   "ok generalmente si"             ->  "gener" dentro de GENERalmente
+ *
+ * Buscar la raiz suelta era demasiado flojo; exigir limite de palabra al
+ * principio era demasiado duro (ese era el bug original, "DEmuestrale"). La
+ * respuesta correcta es la morfologia: la raiz LLEVA su vocal tematica y solo
+ * admite las terminaciones de un verbo, con el pronombre pegado si lo hay.
+ *
+ *   creativo   = crea + "tivo"  -> "tivo" no es terminacion verbal  -> NO
+ *   creame     = crea + "me"                                        -> SI
+ *   activalo   = activa + "lo"                                      -> SI
+ *   actividad  = activi...                                          -> NO
+ *   publicidad = publici...                                         -> NO
+ *   mandato    = manda + "to"                                       -> NO
+ */
+const TERMINACIONES = "(?:me|te|le|lo|la|nos|los|las|selo|sela|r|rme|rlo|rle|s|n)?";
 
 /**
  * Palabras que abren una pregunta. Una pregunta NO es una confirmación, aunque
@@ -95,8 +116,8 @@ export function arrancaPedidoNuevo(texto: string): boolean {
   // Una pregunta nunca es un "sí".
   if (PREGUNTA.test(t)) return true;
 
-  // Todas las raíces tienen 4 letras o más justamente para poder buscarlas
-  // dentro de la palabra sin falsos positivos: es lo que hace que
-  // "DEmuéstrale" y "muéstraME" cuenten, que era el defecto.
-  return RAICES.some((r) => t.includes(r));
+  // La raiz puede venir con el prefijo "de" pegado --"DEmuestrale"-- que era
+  // el defecto original, pero tiene que TERMINAR como un verbo: eso es lo que
+  // separa "creame" de "creativo".
+  return RAICES.some((r) => new RegExp(`\\b(?:de)?${r}${TERMINACIONES}\\b`).test(t));
 }
