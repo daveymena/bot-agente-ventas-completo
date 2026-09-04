@@ -40,6 +40,7 @@
     "protobufjs": "^7.2.4",
     "qrcode": "^1.5.4",
     "terabox-api": "^2.9.5",
+    "ws": "8.21.1",
     "xlsx": "^0.18.5",
     "zod": "catalog:"
   },
@@ -49,6 +50,7 @@
     "@types/express": "^5.0.6",
     "@types/nodemailer": "^6.4.23",
     "@types/qrcode": "^1.5.6",
+    "@types/ws": "^8.18.1",
     "esbuild": "^0.27.3",
     "esbuild-plugin-pino": "^2.3.3",
     "nodemon": "^3.1.14",

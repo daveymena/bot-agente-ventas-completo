@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Bot, Send, User, Loader2, Sparkles, Check, X, Wrench, MessageSquare, Paperclip, RotateCcw, History, Trash2, Copy, Square, Mic } from "lucide-react";
+import { Bot, Send, User, Loader2, Sparkles, Check, X, Wrench, MessageSquare, Paperclip, RotateCcw, History, Trash2, Copy, Square, Mic, Volume2, VolumeX } from "lucide-react";
 import { toast } from "sonner";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -169,6 +169,17 @@ export default function CodeAgent() {
   const [transcribiendo, setTranscribiendo] = useState(false);
   const grabadorRef = useRef<MediaRecorder | null>(null);
   const pedazosRef = useRef<Blob[]>([]);
+  /**
+   * Que Atlas conteste HABLADO.
+   *
+   * Apagado por defecto y recordado en el navegador: una pantalla que se pone
+   * a hablar sola la primera vez que la abrís, en una oficina o al lado de
+   * alguien, es una sorpresa desagradable. Se prende una vez y queda.
+   */
+  const [vozActiva, setVozActiva] = useState<boolean>(() => {
+    try { return localStorage.getItem("atlas_voz") === "1"; } catch { return false; }
+  });
+  const audioRef = useRef<HTMLAudioElement | null>(null);
   // La caja de escribir crece con lo que se escribe. Ver el hook: acá
   // había un comentario prometiéndolo y ni una línea que lo hiciera.
   const textareaRef = useCajaQueCrece(input);
@@ -329,6 +340,65 @@ export default function CodeAgent() {
   };
 
   /**
+   * Callar a Atlas ya mismo.
+   *
+   * Se usa en los dos momentos en que hablar de más molesta: cuando el admin
+   * empieza a hablar (no puede haber dos voces encima) y cuando aprieta
+   * Detener. Es una función y no una línea suelta porque el olvido de llamarla
+   * en UNO de esos lugares es justo el defecto que se nota.
+   */
+  const callarAtlas = () => {
+    const a = audioRef.current;
+    if (!a) return;
+    audioRef.current = null;
+    try { a.pause(); a.src = ""; } catch { /* ya estaba cortado */ }
+  };
+
+  /**
+   * Dice en voz alta la respuesta de Atlas.
+   *
+   * El audio lo genera el SERVIDOR (voz de Microsoft, gratis, es-CO). Podría
+   * usarse `speechSynthesis` del navegador sin pedirle nada a nadie, pero esa
+   * voz suena a máquina y el pedido fue voz humana.
+   *
+   * Nunca molesta si falla: si el servicio no contesta, devuelve 204 y esto no
+   * hace nada. La respuesta escrita ya está en pantalla, que es lo que importa.
+   */
+  const decirEnVozAlta = async (texto: string) => {
+    if (!vozActiva || !texto.trim()) return;
+    callarAtlas();
+    try {
+      const r = await fetch("/api/code-agent/voz", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ texto }),
+        credentials: "include",
+      });
+      if (!r.ok || r.status === 204) return;
+      const blob = await r.blob();
+      // Si mientras se generaba el audio el admin empezó a hablar o apretó
+      // Detener, ya no se reproduce: llegó tarde a una conversación que
+      // siguió sin él.
+      if (!vozActiva || grabadorRef.current) return;
+      const a = new Audio(URL.createObjectURL(blob));
+      audioRef.current = a;
+      // La URL del blob se libera al terminar: sin esto cada respuesta hablada
+      // deja un objeto en memoria hasta que se recargue la página.
+      a.onended = () => { URL.revokeObjectURL(a.src); if (audioRef.current === a) audioRef.current = null; };
+      await a.play().catch(() => { /* el navegador puede exigir un toque previo */ });
+    } catch {
+      // Sin voz se sigue igual. No se le avisa al admin: no perdió nada.
+    }
+  };
+
+  // Al apagar la voz, lo que esté sonando se calla en el acto. Dejar terminar
+  // la frase después de apretar "silenciar" es no obedecer.
+  useEffect(() => {
+    try { localStorage.setItem("atlas_voz", vozActiva ? "1" : "0"); } catch { /* modo privado */ }
+    if (!vozActiva) callarAtlas();
+  }, [vozActiva]);
+
+  /**
    * ── HABLARLE A ATLAS ──────────────────────────────────────────────────
    *
    * Se aprieta para empezar y se aprieta para terminar. NO es "mantener
@@ -344,6 +414,10 @@ export default function CodeAgent() {
    */
   const empezarAGrabar = async () => {
     if (grabando || loading) return;
+    // Que no se hablen encima: si Atlas está diciendo algo, se calla apenas el
+    // admin abre el micrófono. Es lo que hace una persona cuando la
+    // interrumpen, y sin esto el micrófono grabaría la propia voz de Atlas.
+    callarAtlas();
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
@@ -639,6 +713,10 @@ export default function CodeAgent() {
             ...prev,
             { role: "assistant", content: String(payload.reply), at: Date.now() },
           ]);
+          // Cada parte se dice al llegar, igual que se muestra: esperar al
+          // final para hablar desharía justamente lo que la entrega por partes
+          // vino a arreglar.
+          void decirEnVozAlta(String(payload.reply));
         }
         else if (evento === "result") resultado = payload;
         else if (evento === "error") throw new Error(payload?.error || "turno interrumpido");
@@ -708,6 +786,8 @@ export default function CodeAgent() {
    */
   const detener = () => {
     if (!loading) return;
+    // Parar es parar todo, también la voz.
+    callarAtlas();
     detenidoRef.current = true;
     setProgreso("Deteniendo…");
     fetch("/api/code-agent/operator-opencode/detener", {
@@ -779,6 +859,7 @@ export default function CodeAgent() {
         actions: Array.isArray(data?.actions) ? data.actions : undefined,
       };
       setMessages((prev) => [...prev, newMsg]);
+      void decirEnVozAlta(newMsg.content);
 
       // Si después de las cuatro vueltas SIGUE pidiendo continuar, ahí sí se
       // le dice al admin -- porque ahora sí depende de él.
@@ -1152,6 +1233,21 @@ export default function CodeAgent() {
                   {transcribiendo
                     ? <Loader2 className="h-4 w-4 animate-spin" />
                     : <Mic className={`h-4 w-4 ${grabando ? "animate-pulse" : ""}`} />}
+                </Button>
+                {/* Que Atlas conteste hablado. Apagado por defecto: una
+                    pantalla que se pone a hablar sola la primera vez que la
+                    abrís, al lado de alguien, es una sorpresa desagradable. */}
+                <Button
+                  type="button"
+                  variant={vozActiva ? "default" : "outline"}
+                  size="icon"
+                  onClick={() => setVozActiva((v) => !v)}
+                  title={vozActiva ? "Atlas te está contestando hablado. Tocá para silenciarlo." : "Que Atlas te conteste hablado"}
+                  aria-label={vozActiva ? "Silenciar a Atlas" : "Que Atlas hable"}
+                  aria-pressed={vozActiva}
+                  className="h-11 w-11 rounded-xl shrink-0"
+                >
+                  {vozActiva ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
                 </Button>
                 <div className="flex-1 relative" data-tour="code-agent-input">
                   {/* Campo que CRECE con lo que se escribe: el alto lo mide el

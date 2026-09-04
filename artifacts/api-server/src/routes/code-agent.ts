@@ -2238,6 +2238,49 @@ router.post("/upload-document", async (req: TenantRequest, res, next) => {
   }
 });
 
+/**
+ * POST /api/code-agent/voz
+ *
+ * Devuelve la respuesta de Atlas hablada, en MP3.
+ *
+ * Se genera bajo pedido y no se guarda en ningún lado: el audio de una
+ * respuesta ya leída no le sirve a nadie, y guardarlo llenaría el volumen con
+ * archivos que nadie vuelve a abrir.
+ *
+ * Si el servicio de voz falla se devuelve 204 (sin contenido) y NO un error:
+ * quedarse sin voz es un problema menor y la pantalla ya tiene la respuesta
+ * escrita. Un 500 acá haría que la página muestre un error por algo que no
+ * afecta al trabajo.
+ */
+router.post("/voz", async (req: TenantRequest, res, next) => {
+  try {
+    const tenantId = req.tenant?.id;
+    if (!tenantId) return res.status(401).json({ message: "Tenant not resolved" });
+
+    const { texto, voz } = req.body || {};
+    if (!texto || typeof texto !== "string") {
+      return res.status(400).json({ error: "Falta 'texto'" });
+    }
+
+    const { hablar, VOZ_POR_DEFECTO } = await import("../lib/voz-de-atlas");
+    // Solo las dos voces colombianas, y no lo que venga en el cuerpo: el nombre
+    // de la voz viaja al SSML, y aceptar cualquier cadena del cliente es
+    // dejarle armar el XML a alguien de afuera.
+    const VOCES = new Set(["es-CO-SalomeNeural", "es-CO-GonzaloNeural"]);
+    const elegida = VOCES.has(String(voz)) ? String(voz) : VOZ_POR_DEFECTO;
+
+    const mp3 = await hablar(String(texto), elegida);
+    if (!mp3) return res.status(204).end();
+
+    res.setHeader("Content-Type", "audio/mpeg");
+    res.setHeader("Content-Length", String(mp3.length));
+    res.setHeader("Cache-Control", "no-store");
+    return res.end(mp3);
+  } catch (e) {
+    return next(e);
+  }
+});
+
 router.post("/upload", async (req: TenantRequest, res, next) => {
   try {
     const tenantId = req.tenant?.id;
