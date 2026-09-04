@@ -1,0 +1,503 @@
+/**
+ * ============================================================
+ * DESIGN SYSTEM — las familias visuales de Landing AI Studio
+ * ============================================================
+ *
+ * La regla que define este archivo, dicha por el dueño: *"cada familia debe
+ * modificar realmente la COMPOSICIÓN, no solamente color = diferente"*.
+ *
+ * Por eso ninguna familia se distingue solo por su paleta. Lo que cambia de
+ * una a otra es lo que un diseñador cambiaría de verdad:
+ *
+ *   · el ancho del contenido y el aire vertical (densidad)
+ *   · la alineación --centrado, a la izquierda, alterno--
+ *   · la escala tipográfica y el peso del display
+ *   · cómo se tratan las imágenes (enmarcadas, a sangre, recortadas)
+ *   · la forma del CTA y cuánto pesa en la página
+ *   · QUÉ LAYOUT prefiere cada sección
+ *
+ * Dos landings de familias distintas tienen que verse como trabajo de dos
+ * estudios distintos, no como la misma plantilla repintada.
+ *
+ * ── Por qué los tokens y no CSS suelto ────────────────────────────────────
+ *
+ * El renderer consume ESTOS objetos. Un estilo nuevo se agrega acá y funciona
+ * en todas las secciones sin tocar el renderer, que es justo lo que pedía el
+ * punto 1 del plan: "no hardcodear todos los estilos dentro de los
+ * componentes".
+ *
+ * ── Lo que este archivo NO hace ───────────────────────────────────────────
+ *
+ * No renderiza, no llama a ningún modelo y no toca la base. Es data pura y
+ * determinística: por eso se puede probar entera sin red, y por eso el
+ * "Sorpréndeme" (elegirFamilia) da un resultado explicable en vez de una
+ * tirada de dados.
+ */
+
+/** Las familias visuales disponibles. Agregar una acá la habilita en todo el sistema. */
+export type FamiliaVisual =
+  | "premium"
+  | "respuesta-directa"
+  | "minimal"
+  | "editorial"
+  | "ecommerce"
+  | "belleza"
+  | "fitness"
+  | "educacion"
+  | "tecnologia"
+  | "familiar"
+  | "creativa"
+  | "oscura";
+
+export const FAMILIAS: readonly FamiliaVisual[] = [
+  "premium", "respuesta-directa", "minimal", "editorial", "ecommerce", "belleza",
+  "fitness", "educacion", "tecnologia", "familiar", "creativa", "oscura",
+] as const;
+
+/** Cómo se integran las fotos. Cambia la composición, no un filtro. */
+export type TratamientoDeImagen =
+  | "enmarcada"        // con borde/radio, separada del fondo
+  | "a-sangre"         // ocupa todo el ancho, sin margen
+  | "recorte-alto"     // vertical, tipo editorial de revista
+  | "flotante"         // producto recortado sobre color, con sombra
+  | "en-contexto";     // escena de uso, la foto manda sobre el texto
+
+/** La forma del llamado a la acción. */
+export type EstiloDeCTA =
+  | "solido"           // botón lleno, el estándar
+  | "contorno"         // borde, sin relleno: discreto
+  | "pastilla"         // muy redondeado, suave
+  | "bloque"           // ancho completo, imposible de no ver
+  | "subrayado";       // casi un enlace, para lo editorial
+
+/** Cómo se alternan los fondos a lo largo de la página. */
+export type EstrategiaDeFondo = "plano" | "alterno" | "oscuro" | "degradado-sutil";
+
+export type Alineacion = "centrado" | "izquierda" | "alterno";
+
+export interface TokensDeDiseno {
+  familia: FamiliaVisual;
+  /** Nombre para mostrarle al admin, en su idioma. */
+  nombre: string;
+  /** Cuándo conviene esta familia, en una línea. Se muestra en el selector. */
+  cuando: string;
+
+  tipografia: {
+    display: string;
+    texto: string;
+    /** Multiplicador de la escala base. >1 agranda todos los títulos. */
+    escala: number;
+    pesoDisplay: number;
+    /** letter-spacing del título: negativo aprieta, positivo abre. */
+    espaciadoTitulo: string;
+    /** Altura de línea del cuerpo. Más alto = más aire, se lee más lento. */
+    interlineado: number;
+  };
+
+  color: {
+    fondo: string;
+    superficie: string;
+    texto: string;
+    textoSuave: string;
+    acento: string;
+    /** Texto que va ENCIMA del acento. Si no contrasta, el CTA no se lee. */
+    sobreAcento: string;
+    borde: string;
+  };
+
+  ritmo: {
+    /** Ancho máximo del contenido. Angosto = más editorial, ancho = más comercial. */
+    anchoContenido: string;
+    /** Aire vertical de cada sección. Es lo que más cambia la sensación de "premium". */
+    padSeccionY: string;
+    padSeccionX: string;
+    /** Separación entre bloques dentro de una sección. */
+    separacion: string;
+  };
+
+  forma: {
+    radio: string;
+    sombra: string;
+    borde: string;
+  };
+
+  alineacion: Alineacion;
+  fondos: EstrategiaDeFondo;
+  imagen: TratamientoDeImagen;
+  cta: EstiloDeCTA;
+
+  /**
+   * Qué layout prefiere cada sección en esta familia.
+   *
+   * El primero es el favorito; los demás son alternativas válidas para que el
+   * Design Agent pueda variar sin salirse de la identidad. Los nombres los
+   * consume el catálogo de layouts (FASE C); acá viven las PREFERENCIAS, que
+   * es lo que hace que la familia cambie la composición y no solo el color.
+   */
+  layoutsPreferidos: Record<string, string[]>;
+}
+
+/**
+ * Las 12 familias.
+ *
+ * Cada una se escribió mirando qué la distingue COMPOSITIVAMENTE de las otras.
+ * Si dos familias terminaran con el mismo ritmo, alineación y layouts, una de
+ * las dos sobra -- y hay una prueba que lo verifica.
+ */
+export const TOKENS: Record<FamiliaVisual, TokensDeDiseno> = {
+  premium: {
+    familia: "premium",
+    nombre: "Premium",
+    cuando: "Productos caros donde la calma comunica valor. Mucho aire, poco ruido.",
+    tipografia: { display: "'Playfair Display', Georgia, serif", texto: "'Inter', system-ui, sans-serif", escala: 1.15, pesoDisplay: 500, espaciadoTitulo: "-0.02em", interlineado: 1.75 },
+    color: { fondo: "#FBFAF8", superficie: "#FFFFFF", texto: "#1A1815", textoSuave: "#6B6560", acento: "#8C7A5B", sobreAcento: "#FFFFFF", borde: "#E8E3DC" },
+    ritmo: { anchoContenido: "1080px", padSeccionY: "120px", padSeccionX: "32px", separacion: "28px" },
+    forma: { radio: "4px", sombra: "0 1px 2px rgba(26,24,21,.04)", borde: "1px solid #E8E3DC" },
+    alineacion: "centrado",
+    fondos: "alterno",
+    imagen: "enmarcada",
+    cta: "contorno",
+    layoutsPreferidos: {
+      hero: ["hero_editorial", "hero_center", "hero_split"],
+      benefits: ["benefits_editorial", "benefits_split"],
+      offer: ["offer_minimal", "offer_card"],
+      testimonials: ["testimonial_quote", "testimonial_large"],
+      faq: ["faq_minimal", "faq_accordion"],
+    },
+  },
+
+  "respuesta-directa": {
+    familia: "respuesta-directa",
+    nombre: "Respuesta directa",
+    cuando: "Cuando la landing recibe tráfico pago y cada scroll cuesta plata.",
+    tipografia: { display: "'Archivo', Impact, sans-serif", texto: "'Inter', system-ui, sans-serif", escala: 1.3, pesoDisplay: 800, espaciadoTitulo: "-0.03em", interlineado: 1.6 },
+    color: { fondo: "#FFFFFF", superficie: "#FFF8E7", texto: "#0B0B0C", textoSuave: "#4A4A50", acento: "#E5342A", sobreAcento: "#FFFFFF", borde: "#E3E3E6" },
+    ritmo: { anchoContenido: "820px", padSeccionY: "56px", padSeccionX: "20px", separacion: "18px" },
+    forma: { radio: "8px", sombra: "0 4px 14px rgba(229,52,42,.16)", borde: "2px solid #0B0B0C" },
+    alineacion: "centrado",
+    fondos: "alterno",
+    imagen: "flotante",
+    cta: "bloque",
+    layoutsPreferidos: {
+      hero: ["hero_offer", "hero_center", "hero_product_focus"],
+      benefits: ["benefits_numbered", "benefits_cards"],
+      offer: ["offer_urgency", "offer_card"],
+      testimonials: ["testimonial_cards", "testimonial_slider"],
+      faq: ["faq_accordion", "faq_cards"],
+    },
+  },
+
+  minimal: {
+    familia: "minimal",
+    nombre: "Minimal",
+    cuando: "Cuando el producto se explica solo y todo lo demás estorba.",
+    tipografia: { display: "'Inter', system-ui, sans-serif", texto: "'Inter', system-ui, sans-serif", escala: 1.0, pesoDisplay: 600, espaciadoTitulo: "-0.025em", interlineado: 1.7 },
+    color: { fondo: "#FFFFFF", superficie: "#FAFAFA", texto: "#111111", textoSuave: "#767676", acento: "#111111", sobreAcento: "#FFFFFF", borde: "#EDEDED" },
+    ritmo: { anchoContenido: "720px", padSeccionY: "104px", padSeccionX: "24px", separacion: "24px" },
+    forma: { radio: "0px", sombra: "none", borde: "1px solid #EDEDED" },
+    alineacion: "izquierda",
+    fondos: "plano",
+    imagen: "a-sangre",
+    cta: "subrayado",
+    layoutsPreferidos: {
+      hero: ["hero_left", "hero_full_visual"],
+      benefits: ["benefits_split", "benefits_icon_grid"],
+      offer: ["offer_minimal"],
+      testimonials: ["testimonial_quote"],
+      faq: ["faq_minimal"],
+    },
+  },
+
+  editorial: {
+    familia: "editorial",
+    nombre: "Editorial",
+    cuando: "Marcas con historia que contar: se lee como una revista.",
+    tipografia: { display: "'Fraunces', Georgia, serif", texto: "'Source Serif 4', Georgia, serif", escala: 1.2, pesoDisplay: 600, espaciadoTitulo: "-0.015em", interlineado: 1.8 },
+    color: { fondo: "#F7F5F0", superficie: "#FFFFFF", texto: "#221F1A", textoSuave: "#5F594F", acento: "#1F4E42", sobreAcento: "#FFFFFF", borde: "#DED8CC" },
+    ritmo: { anchoContenido: "960px", padSeccionY: "112px", padSeccionX: "28px", separacion: "32px" },
+    forma: { radio: "2px", sombra: "none", borde: "1px solid #DED8CC" },
+    alineacion: "alterno",
+    fondos: "alterno",
+    imagen: "recorte-alto",
+    cta: "subrayado",
+    layoutsPreferidos: {
+      hero: ["hero_editorial", "hero_split"],
+      benefits: ["benefits_editorial", "benefits_numbered"],
+      offer: ["offer_split", "offer_minimal"],
+      testimonials: ["testimonial_editorial", "testimonial_quote"],
+      faq: ["faq_split", "faq_minimal"],
+    },
+  },
+
+  ecommerce: {
+    familia: "ecommerce",
+    nombre: "Ecommerce",
+    cuando: "Producto físico: foto, beneficios, comparación y prueba social.",
+    tipografia: { display: "'Inter', system-ui, sans-serif", texto: "'Inter', system-ui, sans-serif", escala: 1.05, pesoDisplay: 700, espaciadoTitulo: "-0.02em", interlineado: 1.65 },
+    color: { fondo: "#FFFFFF", superficie: "#F5F7FA", texto: "#14181F", textoSuave: "#5A6472", acento: "#1B6EF3", sobreAcento: "#FFFFFF", borde: "#E1E6ED" },
+    ritmo: { anchoContenido: "1140px", padSeccionY: "72px", padSeccionX: "24px", separacion: "20px" },
+    forma: { radio: "12px", sombra: "0 2px 10px rgba(20,24,31,.07)", borde: "1px solid #E1E6ED" },
+    alineacion: "izquierda",
+    fondos: "alterno",
+    imagen: "flotante",
+    cta: "solido",
+    layoutsPreferidos: {
+      hero: ["hero_product_focus", "hero_split"],
+      benefits: ["benefits_icon_grid", "benefits_cards"],
+      offer: ["offer_product", "offer_card"],
+      testimonials: ["testimonial_cards", "testimonial_slider"],
+      faq: ["faq_accordion", "faq_cards"],
+    },
+  },
+
+  belleza: {
+    familia: "belleza",
+    nombre: "Belleza",
+    cuando: "Aspiracional: la foto manda y el texto acompaña.",
+    tipografia: { display: "'Cormorant Garamond', Georgia, serif", texto: "'Inter', system-ui, sans-serif", escala: 1.25, pesoDisplay: 400, espaciadoTitulo: "0.01em", interlineado: 1.8 },
+    color: { fondo: "#FDF8F5", superficie: "#FFFFFF", texto: "#2B2320", textoSuave: "#8A7A72", acento: "#C08573", sobreAcento: "#FFFFFF", borde: "#EFE2DA" },
+    ritmo: { anchoContenido: "1020px", padSeccionY: "116px", padSeccionX: "28px", separacion: "26px" },
+    forma: { radio: "20px", sombra: "0 6px 24px rgba(192,133,115,.12)", borde: "none" },
+    alineacion: "centrado",
+    fondos: "degradado-sutil",
+    imagen: "en-contexto",
+    cta: "pastilla",
+    layoutsPreferidos: {
+      hero: ["hero_full_visual", "hero_editorial"],
+      benefits: ["benefits_visual", "benefits_editorial"],
+      offer: ["offer_split", "offer_minimal"],
+      testimonials: ["testimonial_large", "testimonial_editorial"],
+      faq: ["faq_minimal", "faq_accordion"],
+    },
+  },
+
+  fitness: {
+    familia: "fitness",
+    nombre: "Fitness",
+    cuando: "Transformación: contraste fuerte y energía.",
+    tipografia: { display: "'Archivo', Impact, sans-serif", texto: "'Inter', system-ui, sans-serif", escala: 1.35, pesoDisplay: 800, espaciadoTitulo: "-0.035em", interlineado: 1.55 },
+    color: { fondo: "#0E1114", superficie: "#181D22", texto: "#F6F8FA", textoSuave: "#9AA6B2", acento: "#C8FF3D", sobreAcento: "#0E1114", borde: "#242B32" },
+    ritmo: { anchoContenido: "1080px", padSeccionY: "88px", padSeccionX: "22px", separacion: "22px" },
+    forma: { radio: "6px", sombra: "0 8px 28px rgba(0,0,0,.45)", borde: "1px solid #242B32" },
+    alineacion: "izquierda",
+    fondos: "oscuro",
+    imagen: "a-sangre",
+    cta: "bloque",
+    layoutsPreferidos: {
+      hero: ["hero_dark", "hero_full_visual"],
+      benefits: ["benefits_numbered", "benefits_split"],
+      offer: ["offer_dark", "offer_urgency"],
+      testimonials: ["testimonial_cards", "testimonial_large"],
+      faq: ["faq_accordion"],
+    },
+  },
+
+  educacion: {
+    familia: "educacion",
+    nombre: "Educación",
+    cuando: "Cursos y formación: confianza, claridad y estructura.",
+    tipografia: { display: "'Inter', system-ui, sans-serif", texto: "'Inter', system-ui, sans-serif", escala: 1.1, pesoDisplay: 700, espaciadoTitulo: "-0.02em", interlineado: 1.75 },
+    color: { fondo: "#FFFFFF", superficie: "#F4F7FB", texto: "#101828", textoSuave: "#5B667A", acento: "#2A5BD7", sobreAcento: "#FFFFFF", borde: "#DFE6F0" },
+    ritmo: { anchoContenido: "980px", padSeccionY: "80px", padSeccionX: "24px", separacion: "22px" },
+    forma: { radio: "10px", sombra: "0 2px 8px rgba(16,24,40,.06)", borde: "1px solid #DFE6F0" },
+    alineacion: "izquierda",
+    fondos: "alterno",
+    imagen: "enmarcada",
+    cta: "solido",
+    layoutsPreferidos: {
+      hero: ["hero_split", "hero_left"],
+      benefits: ["benefits_numbered", "benefits_icon_grid"],
+      offer: ["offer_card", "offer_split"],
+      testimonials: ["testimonial_cards", "testimonial_quote"],
+      faq: ["faq_accordion", "faq_split"],
+    },
+  },
+
+  tecnologia: {
+    familia: "tecnologia",
+    nombre: "Tecnología",
+    cuando: "Software y herramientas: moderno, limpio, preciso.",
+    tipografia: { display: "'Space Grotesk', system-ui, sans-serif", texto: "'Inter', system-ui, sans-serif", escala: 1.1, pesoDisplay: 600, espaciadoTitulo: "-0.03em", interlineado: 1.7 },
+    color: { fondo: "#FCFCFD", superficie: "#F2F4F7", texto: "#0C111D", textoSuave: "#667085", acento: "#5B4BE8", sobreAcento: "#FFFFFF", borde: "#E4E7EC" },
+    ritmo: { anchoContenido: "1120px", padSeccionY: "92px", padSeccionX: "24px", separacion: "24px" },
+    forma: { radio: "14px", sombra: "0 4px 16px rgba(12,17,29,.06)", borde: "1px solid #E4E7EC" },
+    alineacion: "centrado",
+    fondos: "plano",
+    imagen: "enmarcada",
+    cta: "solido",
+    layoutsPreferidos: {
+      hero: ["hero_center", "hero_product_focus"],
+      benefits: ["benefits_icon_grid", "benefits_cards"],
+      offer: ["offer_card", "offer_minimal"],
+      testimonials: ["testimonial_slider", "testimonial_cards"],
+      faq: ["faq_accordion", "faq_minimal"],
+    },
+  },
+
+  familiar: {
+    familia: "familiar",
+    nombre: "Familiar",
+    cuando: "Productos del día a día: cálido, cercano, sin solemnidad.",
+    tipografia: { display: "'Nunito', system-ui, sans-serif", texto: "'Nunito', system-ui, sans-serif", escala: 1.05, pesoDisplay: 700, espaciadoTitulo: "-0.01em", interlineado: 1.75 },
+    color: { fondo: "#FFFDF9", superficie: "#FFF4E8", texto: "#2E2A26", textoSuave: "#7A716A", acento: "#E8792B", sobreAcento: "#FFFFFF", borde: "#F2E3D2" },
+    ritmo: { anchoContenido: "1000px", padSeccionY: "76px", padSeccionX: "24px", separacion: "22px" },
+    forma: { radio: "18px", sombra: "0 4px 16px rgba(232,121,43,.10)", borde: "none" },
+    alineacion: "centrado",
+    fondos: "alterno",
+    imagen: "en-contexto",
+    cta: "pastilla",
+    layoutsPreferidos: {
+      hero: ["hero_center", "hero_split"],
+      benefits: ["benefits_cards", "benefits_visual"],
+      offer: ["offer_card", "offer_product"],
+      testimonials: ["testimonial_cards", "testimonial_large"],
+      faq: ["faq_cards", "faq_accordion"],
+    },
+  },
+
+  creativa: {
+    familia: "creativa",
+    nombre: "Creativa",
+    cuando: "Cuando destacar importa más que encajar. Composición experimental.",
+    tipografia: { display: "'Bricolage Grotesque', system-ui, sans-serif", texto: "'Inter', system-ui, sans-serif", escala: 1.4, pesoDisplay: 800, espaciadoTitulo: "-0.04em", interlineado: 1.6 },
+    color: { fondo: "#FFFCF2", superficie: "#FFE94A", texto: "#141414", textoSuave: "#5A5648", acento: "#3B1FD9", sobreAcento: "#FFFFFF", borde: "#141414" },
+    ritmo: { anchoContenido: "1200px", padSeccionY: "96px", padSeccionX: "20px", separacion: "30px" },
+    forma: { radio: "24px", sombra: "6px 6px 0 #141414", borde: "2px solid #141414" },
+    alineacion: "alterno",
+    fondos: "alterno",
+    imagen: "recorte-alto",
+    cta: "solido",
+    layoutsPreferidos: {
+      hero: ["hero_split", "hero_editorial", "hero_full_visual"],
+      benefits: ["benefits_visual", "benefits_numbered"],
+      offer: ["offer_split", "offer_product"],
+      testimonials: ["testimonial_editorial", "testimonial_large"],
+      faq: ["faq_cards", "faq_split"],
+    },
+  },
+
+  oscura: {
+    familia: "oscura",
+    nombre: "Oscura",
+    cuando: "Fondo oscuro con el producto iluminado. Lujo, gaming, tecnología cara.",
+    tipografia: { display: "'Space Grotesk', system-ui, sans-serif", texto: "'Inter', system-ui, sans-serif", escala: 1.2, pesoDisplay: 700, espaciadoTitulo: "-0.03em", interlineado: 1.7 },
+    color: { fondo: "#08090B", superficie: "#121418", texto: "#F2F4F7", textoSuave: "#98A2B3", acento: "#00D3A7", sobreAcento: "#08090B", borde: "#1E2229" },
+    ritmo: { anchoContenido: "1080px", padSeccionY: "104px", padSeccionX: "24px", separacion: "26px" },
+    forma: { radio: "16px", sombra: "0 10px 40px rgba(0,211,167,.10)", borde: "1px solid #1E2229" },
+    alineacion: "centrado",
+    fondos: "oscuro",
+    imagen: "flotante",
+    cta: "solido",
+    layoutsPreferidos: {
+      hero: ["hero_dark", "hero_product_focus"],
+      benefits: ["benefits_icon_grid", "benefits_split"],
+      offer: ["offer_dark", "offer_card"],
+      testimonials: ["testimonial_slider", "testimonial_quote"],
+      faq: ["faq_minimal", "faq_accordion"],
+    },
+  },
+};
+
+/** ¿Es una familia conocida? Sirve para no confiar en lo que mande el modelo. */
+export function esFamilia(valor: unknown): valor is FamiliaVisual {
+  return typeof valor === "string" && (FAMILIAS as readonly string[]).includes(valor);
+}
+
+/**
+ * Devuelve los tokens de una familia, cayendo a una segura si no se reconoce.
+ *
+ * Nunca lanza: esto lo alimenta un modelo, y un nombre inventado no puede
+ * dejar sin landing al admin. `ecommerce` es el respaldo porque es la familia
+ * más neutra -- funciona para casi cualquier producto sin verse fuera de lugar.
+ */
+export function tokensDe(familia: unknown): TokensDeDiseno {
+  return esFamilia(familia) ? TOKENS[familia] : TOKENS.ecommerce;
+}
+
+/** Lo que se sabe del producto a la hora de elegir un estilo. */
+export interface PistasDelProducto {
+  categoria?: string | null;
+  nombre?: string | null;
+  descripcion?: string | null;
+  /** "digital" | "physical" | ... tal como lo guarda la tabla de productos. */
+  tipo?: string | null;
+  precio?: number | null;
+  /** El ángulo/estrategia si ya se definió. */
+  angulo?: string | null;
+}
+
+/**
+ * Palabras que delatan un rubro. En español y en inglés porque los catálogos
+ * reales tienen de las dos, y sin acentos porque se compara normalizado.
+ */
+const SENALES: Array<{ familia: FamiliaVisual; palabras: string[] }> = [
+  { familia: "belleza", palabras: ["belleza", "beauty", "piel", "skin", "cabello", "pelo", "maquillaje", "cosmetic", "crema", "serum", "facial", "perfume", "unas"] },
+  { familia: "fitness", palabras: ["fitness", "gym", "gimnasio", "entrenamiento", "workout", "musculo", "adelgazar", "proteina", "deporte", "yoga", "rutina"] },
+  { familia: "educacion", palabras: ["curso", "clase", "taller", "masterclass", "capacitacion", "diplomado", "aprende", "aprender", "ensena", "tutorial", "academia", "leccion"] },
+  { familia: "tecnologia", palabras: ["software", "app", "saas", "plataforma", "automatizacion", "inteligencia artificial", "ia ", "bot", "api", "digital tool", "sistema"] },
+  { familia: "familiar", palabras: ["hogar", "cocina", "familia", "bebe", "nino", "mascota", "casa", "limpieza", "organizador"] },
+  { familia: "oscura", palabras: ["gaming", "gamer", "premium tech", "audio", "auricular", "reloj inteligente", "smartwatch", "drone"] },
+];
+
+/** Quita acentos y baja a minúsculas, para comparar sin sorpresas. */
+function normalizar(v: unknown): string {
+  return String(v ?? "")
+    .toLowerCase()
+    .replace(/[áàä]/g, "a").replace(/[éèë]/g, "e").replace(/[íìï]/g, "i")
+    .replace(/[óòö]/g, "o").replace(/[úùü]/g, "u").replace(/ñ/g, "n");
+}
+
+export interface EleccionDeEstilo {
+  familia: FamiliaVisual;
+  /** Por qué se eligió, en una línea. Se le muestra al admin: elegir sin explicar es una caja negra. */
+  porque: string;
+}
+
+/**
+ * "✨ Sorpréndeme": elegir la dirección visual a partir del producto.
+ *
+ * No es azar. Se decide en este orden, y el primero que resuelve gana:
+ *
+ *   1. El rubro, por las palabras del nombre/categoría/descripción.
+ *   2. El precio: lo caro pide calma (premium), lo barato pide claridad.
+ *   3. El tipo: un digital sin más señales es formación; un físico, ecommerce.
+ *
+ * Devuelve también el POR QUÉ. Un selector automático que no puede explicar su
+ * elección es imposible de corregir cuando se equivoca -- y se va a equivocar.
+ */
+export function elegirFamilia(pistas: PistasDelProducto): EleccionDeEstilo {
+  const texto = normalizar([pistas.categoria, pistas.nombre, pistas.descripcion, pistas.angulo].filter(Boolean).join(" "));
+
+  for (const { familia, palabras } of SENALES) {
+    const encontrada = palabras.find((p) => texto.includes(p));
+    if (encontrada) {
+      return { familia, porque: `El producto habla de "${encontrada.trim()}", así que va con la línea ${TOKENS[familia].nombre.toLowerCase()}.` };
+    }
+  }
+
+  const precio = Number(pistas.precio ?? 0);
+  if (precio >= 500_000) {
+    return { familia: "premium", porque: "Es un producto de precio alto: la composición con aire comunica valor mejor que la urgencia." };
+  }
+
+  const tipo = normalizar(pistas.tipo);
+  const esDigital = !["physical", "fisico", "dropshipping"].includes(tipo);
+  if (esDigital) {
+    return { familia: "educacion", porque: "Es un producto digital sin un rubro más específico: la línea de formación prioriza confianza y estructura." };
+  }
+
+  return { familia: "ecommerce", porque: "Producto físico: foto grande, beneficios y prueba social, que es lo que decide una compra." };
+}
+
+/**
+ * El layout que corresponde a una sección dentro de una familia.
+ *
+ * `preferido` es el favorito de la familia; `alternativas` son las otras que
+ * respetan su identidad. El Design Agent puede variar entre ellas sin que la
+ * landing deje de parecer del mismo estudio.
+ */
+export function layoutDe(familia: FamiliaVisual, seccion: string): { preferido: string; alternativas: string[] } {
+  const lista = TOKENS[familia].layoutsPreferidos[seccion];
+  if (!lista || lista.length === 0) return { preferido: `${seccion}_default`, alternativas: [] };
+  return { preferido: lista[0], alternativas: lista.slice(1) };
+}
