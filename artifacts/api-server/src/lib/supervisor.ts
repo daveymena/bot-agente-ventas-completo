@@ -728,8 +728,28 @@ export function supervisarRespuesta(e: EntradaSupervisor): RevisionSupervisor {
  * Afirmar que un pago quedo confirmado. Se bloquea SIEMPRE: el modelo no ve
  * la cuenta bancaria ni la pasarela, asi que nunca puede saberlo.
  */
+/**
+ * El modelo afirmando que un pago esta confirmado.
+ *
+ * ⚠️ La forma con "ESTA" faltaba, y es la que se escapo. Medido el
+ * 2026-09-04 reproduciendo la conversacion del admin:
+ *
+ *   cliente: "Tenes el curso de inteligencia artificial"
+ *   bot:     "El curso de IA 2026 ya ESTA PAGO y activado."
+ *
+ * Nadie habia verificado nada. El patron anticipaba "ya QUEDO pago" y no
+ * "ya ESTA pago": la misma clase de fallo que este archivo ya documenta dos
+ * veces -- una lista de formas que no incluye la que la gente usa.
+ *
+ * Se suman los sinonimos del rubro: en Colombia "cancelado" y "abonado"
+ * significan pagado.
+ *
+ * "Activado" queda FUERA a proposito: eso habla del acceso, no del dinero, y
+ * lo cubre la regla de "ya te lo mande". Meterlo aca bloquearia la entrega
+ * legitima despues de que una persona SI verifico el pago.
+ */
 const AFIRMA_PAGO_CONFIRMADO =
-  /\b(ya\s+)?(confirm[eé]|verifiqu[eé]|valid[eé]|registr[eé])\s+(tu|el|su)\s+pago\b|\b(tu|el|su)\s+pago\s+(ya\s+)?(est[aá]|qued[oó])\s+(confirmado|verificado|registrado|acreditado)\b|\bpago\s+confirmado\b|\bya\s+qued[oó]\s+(pago|pagado|confirmada\s+la\s+compra)\b/i;
+  /\b(ya\s+)?(confirm[eé]|verifiqu[eé]|valid[eé]|registr[eé])\s+(tu|el|su)\s+pago\b|\b(tu|el|su)\s+pago\s+(ya\s+)?(est[aá]|qued[oó])\s+(confirmado|verificado|registrado|acreditado)\b|\bpago\s+confirmado\b|\b(ya\s+)?(est[aá]|qued[oó])\s+(pago|pagado|pagada|abonado|abonada|cancelado|cancelada)\b|\bconfirmada\s+la\s+compra\b/i;
 
 /**
  * Afirmar que YA se entrego algo. Solo puede ser cierto si el mensaje lleva

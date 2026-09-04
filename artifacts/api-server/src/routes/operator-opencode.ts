@@ -47,6 +47,7 @@ import { claveDeTurno, empezarTurno, terminarTurno, pedirDetener, hayTurnoEnVuel
 import { afirmaHaberloHecho } from "../lib/afirma-haberlo-hecho";
 import { mensajeDeCierre } from "../lib/entrega-por-partes";
 import { partirElPedido } from "../lib/partir-el-pedido";
+import { arrancaPedidoNuevo } from "../lib/es-pedido-nuevo";
 import { anotarTurno, ultimosTurnos, resumirTurnos } from "../lib/diagnostico-de-turnos";
 import { db, products } from "@workspace/db";
 import { eq, desc } from "drizzle-orm";
@@ -850,8 +851,13 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
       // que erró la tecla) y se le pregunta, MANTENIENDO el plan vivo. Si es
       // un rechazo claro o un pedido nuevo de verdad, ahí sí se descarta.
       const respuesta = String(prompt).trim();
-      const arrancaPedidoNuevo = /\b(cre[aá]|prepar[aá]|arm[aá]|gener[aá]|hac[eé]|mostr|mu[eé]stra|dame|list[aá]|busc|investig|cambi|edit|borr|elimin|public|analiz|configur|cu[aá]nt|qu[eé]|c[oó]mo|por\s+qu[eé])/i.test(respuesta);
-      const pareceIntentoDeConfirmar = respuesta.length <= 30 && !arrancaPedidoNuevo && !isRejection(respuesta);
+      // La regla vive en lib/es-pedido-nuevo.ts, con los mensajes reales del
+      // admin como prueba. Estaba en esta linea y exigia limite de palabra, asi
+      // que "DEmuestrale el copi" no contaba como pedido: se leia como un "si"
+      // mal escrito y Atlas volvia a preguntar. El admin lo resumio asi: "Atlas
+      // solo entiende si".
+      const esPedidoNuevo = arrancaPedidoNuevo(respuesta);
+      const pareceIntentoDeConfirmar = respuesta.length <= 30 && !esPedidoNuevo && !isRejection(respuesta);
 
       if (pareceIntentoDeConfirmar) {
         const planTexto = pending.actions.map((a, i) => `${i + 1}. ${describePlannedAction(a)}`).join("\n");
