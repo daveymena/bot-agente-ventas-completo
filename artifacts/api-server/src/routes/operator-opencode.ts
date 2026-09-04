@@ -876,7 +876,34 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
       // mal escrito y Atlas volvia a preguntar. El admin lo resumio asi: "Atlas
       // solo entiende si".
       const esPedidoNuevo = arrancaPedidoNuevo(respuesta);
-      const pareceIntentoDeConfirmar = respuesta.length <= 30 && !esPedidoNuevo && !isRejection(respuesta);
+
+      // ── Y si la lista no lo resolvio, que lo LEA el modelo ──────────────
+      //
+      // Pedido del admin: "que entienda las preguntas, los terminos; que no
+      // sea tan robotico, que razone".
+      //
+      // Hasta aca todo se decide con listas de palabras, y cuando fallan la
+      // unica consulta al modelo pregunta SI o NO. Con dos opciones, un
+      // mensaje que no es ninguna termina en "no me quedo claro" -- el bucle
+      // que el admin sufrio cuatro veces.
+      //
+      // Las situaciones son cuatro, no dos: puede estar diciendo que si, que
+      // no, pidiendo otra cosa, o preguntando algo sobre el plan. Las dos
+      // ultimas no son ambiguedad, son conversacion, y merecen respuesta.
+      //
+      // Se consulta SOLO si las listas no resolvieron: lo obvio se sigue
+      // decidiendo gratis. Y ante error o duda devuelve "duda", que produce
+      // exactamente el comportamiento de antes.
+      let intencion: string = esPedidoNuevo ? "pedido" : "";
+      if (!intencion && !isApproval(respuesta) && !isRejection(respuesta) && !aprobadoPorElModelo && !verEsAutorizar) {
+        const { queQuiereElAdmin } = await import("../lib/es-un-si");
+        intencion = await queQuiereElAdmin(respuesta, pending.actions.map((a: any) => describePlannedAction(a)).join(" · "));
+        logger.info({ tenantId, respuesta: respuesta.slice(0, 50), intencion }, "[Atlas] la lista no lo resolvio: lo leyo el modelo");
+      }
+      const loLeyoComoPedido = intencion === "pedido" || intencion === "pregunta";
+
+      const pareceIntentoDeConfirmar =
+        !loLeyoComoPedido && respuesta.length <= 30 && !esPedidoNuevo && !isRejection(respuesta);
 
       if (pareceIntentoDeConfirmar) {
         const planTexto = pending.actions.map((a, i) => `${i + 1}. ${describePlannedAction(a)}`).join("\n");

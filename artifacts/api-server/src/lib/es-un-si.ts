@@ -118,3 +118,113 @@ export async function esUnSiParaEstePlan(
   // Sin ningún proveedor: se comporta como hoy, volviendo a preguntar.
   return false;
 }
+
+
+/**
+ * ============================================================
+ * QUE QUIERE EL ADMIN, CUANDO NO ES UN SI NI UN NO
+ * ============================================================
+ *
+ * Pedido del admin el 2026-09-04: "que entienda las preguntas, los terminos;
+ * que no sea tan robotico, que razone: si no es algo que se parece a lo que
+ * esperas pero se asemeja, que comprenda los terminos del usuario".
+ *
+ * Hoy la decision se toma con DOS LISTAS de palabras --`isApproval` y
+ * `arrancaPedidoNuevo`-- y solo cuando las dos fallan se le pregunta al
+ * modelo... para que conteste SI o NO. Con eso, un mensaje que no es ninguna
+ * de las dos cosas termina en "no me quedo claro", que es el bucle que el
+ * admin sufrio cuatro veces seguidas.
+ *
+ * El problema no es que falte una palabra en la lista: es que las opciones
+ * eran dos y las situaciones son cuatro. Un admin con un plan pendiente puede
+ * estar diciendo que si, que no, pidiendo otra cosa, o preguntando algo sobre
+ * el plan. Las dos ultimas no son ambiguedad -- son conversacion, y merecen
+ * respuesta, no otra pregunta.
+ *
+ * ── Por que sigue siendo barato ──────────────────────────────────────────
+ *
+ * Se consulta SOLO cuando las listas no resolvieron, igual que antes: lo obvio
+ * se sigue decidiendo gratis. Y ante error, demora o respuesta rara devuelve
+ * "duda", que produce exactamente el comportamiento de hoy -- volver a
+ * preguntar manteniendo el plan vivo. El piso no baja.
+ */
+export type QueQuiere = "si" | "no" | "pedido" | "pregunta" | "duda";
+
+function promptDeIntencion(mensaje: string, plan: string): string {
+  return [
+    "Un administrador esta usando un panel de ventas. El sistema le propuso esta",
+    "accion y le pidio que la confirme:",
+    "",
+    `ACCION PROPUESTA: ${String(plan || "(sin descripcion)").slice(0, 600)}`,
+    "",
+    `LO QUE RESPONDIO: ${String(mensaje || "").slice(0, 300)}`,
+    "",
+    "Clasifica su respuesta en UNA de estas cuatro:",
+    "",
+    "SI       - acepta que se ejecute la accion tal como esta.",
+    "NO       - la rechaza, o pide cancelarla.",
+    "PEDIDO   - esta pidiendo OTRA cosa (que le muestres algo, que cambies algo,",
+    "           que hagas otra tarea). Aunque este mal escrito o dictado por voz.",
+    "PREGUNTA - esta preguntando algo sobre el plan o sobre el negocio.",
+    "",
+    "Reglas:",
+    "- Si esta mal escrito pero se entiende que pide algo, es PEDIDO.",
+    "- Si solo dice una palabra de aliento o cortesia ('dale', 'oka', 'listo',",
+    "  'hazlo pues'), es SI.",
+    "- Si no se entiende NADA de lo que dijo, responde DUDA.",
+    "- Ante cualquier vacilacion entre SI y otra, elegi la otra: ejecutar sin",
+    "  permiso es peor que volver a preguntar.",
+    "",
+    "Responde SOLO con una palabra: SI, NO, PEDIDO, PREGUNTA o DUDA.",
+  ].join("\n");
+}
+
+/**
+ * Que quiere el admin con este mensaje, dado el plan pendiente.
+ *
+ * Nunca lanza. Ante error, demora o respuesta que no se entienda devuelve
+ * "duda", que es el comportamiento actual: volver a preguntar sin descartar
+ * el plan.
+ */
+export async function queQuiereElAdmin(
+  mensaje: string,
+  plan: string,
+  opciones: { timeoutMs?: number } = {},
+): Promise<QueQuiere> {
+  const texto = String(mensaje || "").trim();
+  if (!texto) return "duda";
+
+  const timeout = opciones.timeoutMs ?? 6000;
+  const prompt = promptDeIntencion(texto, plan);
+
+  for (const proveedor of PROVEEDORES) {
+    let config: any = null;
+    try {
+      config = getProviderConfig(proveedor as any);
+    } catch {
+      continue;
+    }
+    if (!config?.apiKey) continue;
+
+    try {
+      const client = createAIClient(config);
+      const completion = await client.chat.completions.create(
+        { model: config.model, messages: [{ role: "user", content: prompt }], temperature: 0, max_tokens: 8 },
+        { timeout, maxRetries: 0 },
+      );
+      const bruto = String(completion.choices?.[0]?.message?.content || "")
+        .trim()
+        .toUpperCase()
+        .replace(/[^A-ZI]/g, "");
+      const mapa: Record<string, QueQuiere> = {
+        SI: "si", NO: "no", PEDIDO: "pedido", PREGUNTA: "pregunta", DUDA: "duda",
+      };
+      const leido = mapa[bruto] ?? "duda";
+      logger.info({ proveedor, mensaje: texto.slice(0, 60), leido }, "[QueQuiere] intencion leida contra el plan pendiente");
+      return leido;
+    } catch (err: any) {
+      logger.warn({ proveedor, err: err?.message }, "[QueQuiere] no se pudo preguntar, sigo con el siguiente");
+    }
+  }
+  return "duda";
+}
