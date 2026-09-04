@@ -1196,7 +1196,23 @@ export default function CodeAgent() {
               {/* La caja de escribir se alinea con la columna de lectura y
                   se apoya en un contenedor propio, como en ChatGPT: asi el ojo
                   no salta de ancho entre lo que lee y lo que escribe. */}
-              <form onSubmit={(e) => { e.preventDefault(); handleSubmit(); }} className="mx-auto flex w-full max-w-3xl gap-2">
+              {/* ── UNA SOLA CAPSULA, COMO WHATSAPP ─────────────────────
+                  Pedido del admin con una captura de WhatsApp al lado: "me
+                  gustaria que fuera asi, se ve mas profesional".
+
+                  Antes eran CUATRO botones cuadrados sueltos al lado de la
+                  caja (clip, microfono, altavoz, y el de enviar adentro). En un
+                  celular eso es media pantalla de botones y ninguna jerarquia:
+                  todos pesan lo mismo, y lo que de verdad importa --escribir--
+                  queda apretado en lo que sobra.
+
+                  Ahora es un solo recuadro redondeado con los accesorios
+                  adentro, en gris y sin borde, y la accion principal a la
+                  derecha en color. El campo manda; los iconos acompanan. */}
+              <form
+                onSubmit={(e) => { e.preventDefault(); handleSubmit(); }}
+                className="mx-auto w-full max-w-3xl"
+              >
                 <input
                   ref={fileInputRef}
                   type="file"
@@ -1204,56 +1220,49 @@ export default function CodeAgent() {
                   className="hidden"
                   onChange={handleFileUpload}
                 />
-                {mode === "operator" && (
+                {/* `items-end` y no `items-center`: cuando el texto crece a
+                    varios renglones, los iconos tienen que quedarse abajo,
+                    alineados con la ultima linea. Centrados, se van flotando al
+                    medio de un bloque alto y se ve torcido. */}
+                <div
+                  data-tour="code-agent-input"
+                  className="flex items-end gap-1 rounded-[26px] border border-border/70 bg-card px-2 py-1.5 shadow-sm transition-colors focus-within:border-primary/50"
+                >
+                  {mode === "operator" && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      disabled={loading || uploading}
+                      onClick={() => fileInputRef.current?.click()}
+                      title="Adjuntar imagen o documento (PDF, Word, Excel, PowerPoint)"
+                      aria-label="Adjuntar archivo"
+                      className="h-9 w-9 shrink-0 rounded-full text-muted-foreground hover:text-foreground"
+                    >
+                      {uploading ? <Loader2 className="h-[18px] w-[18px] animate-spin" /> : <Paperclip className="h-[18px] w-[18px]" />}
+                    </Button>
+                  )}
+                  {/* Que Atlas conteste hablado. Apagado por defecto: una
+                      pantalla que se pone a hablar sola la primera vez que la
+                      abris, al lado de alguien, es una sorpresa desagradable.
+                      Prendido se pinta del color de la marca: asi se ve que
+                      esta encendido sin tener que leer nada. */}
                   <Button
                     type="button"
-                    variant="outline"
+                    variant="ghost"
                     size="icon"
-                    disabled={loading || uploading}
-                    onClick={() => fileInputRef.current?.click()}
-                    title="Adjuntar imagen o documento (PDF, Word, Excel, PowerPoint)"
-                    className="h-11 w-11 rounded-xl shrink-0"
+                    onClick={() => setVozActiva((v) => !v)}
+                    title={vozActiva ? "Atlas te esta contestando hablado. Toca para silenciarlo." : "Que Atlas te conteste hablado"}
+                    aria-label={vozActiva ? "Silenciar a Atlas" : "Que Atlas hable"}
+                    aria-pressed={vozActiva}
+                    className={`h-9 w-9 shrink-0 rounded-full ${vozActiva ? "text-primary hover:text-primary" : "text-muted-foreground hover:text-foreground"}`}
                   >
-                    {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Paperclip className="h-4 w-4" />}
+                    {vozActiva ? <Volume2 className="h-[18px] w-[18px]" /> : <VolumeX className="h-[18px] w-[18px]" />}
                   </Button>
-                )}
-                {/* Micrófono: se aprieta para hablar y se aprieta para
-                    terminar. En rojo mientras graba, para que se vea de un
-                    vistazo que el micro está abierto. */}
-                <Button
-                  type="button"
-                  variant={grabando ? "destructive" : "outline"}
-                  size="icon"
-                  disabled={loading || uploading || transcribiendo}
-                  onClick={grabando ? pararDeGrabar : empezarAGrabar}
-                  title={grabando ? "Tocá para terminar de hablar" : "Hablarle a Atlas"}
-                  aria-label={grabando ? "Terminar de hablar" : "Hablarle a Atlas"}
-                  className="h-11 w-11 rounded-xl shrink-0"
-                >
-                  {transcribiendo
-                    ? <Loader2 className="h-4 w-4 animate-spin" />
-                    : <Mic className={`h-4 w-4 ${grabando ? "animate-pulse" : ""}`} />}
-                </Button>
-                {/* Que Atlas conteste hablado. Apagado por defecto: una
-                    pantalla que se pone a hablar sola la primera vez que la
-                    abrís, al lado de alguien, es una sorpresa desagradable. */}
-                <Button
-                  type="button"
-                  variant={vozActiva ? "default" : "outline"}
-                  size="icon"
-                  onClick={() => setVozActiva((v) => !v)}
-                  title={vozActiva ? "Atlas te está contestando hablado. Tocá para silenciarlo." : "Que Atlas te conteste hablado"}
-                  aria-label={vozActiva ? "Silenciar a Atlas" : "Que Atlas hable"}
-                  aria-pressed={vozActiva}
-                  className="h-11 w-11 rounded-xl shrink-0"
-                >
-                  {vozActiva ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
-                </Button>
-                <div className="flex-1 relative" data-tour="code-agent-input">
-                  {/* Campo que CRECE con lo que se escribe: el alto lo mide el
-                      efecto de arriba, que es lo que faltaba. Crece hasta ~6
-                      renglones y después scrollea solo.
-                      Enter manda; Shift+Enter hace salto de línea. */}
+
+                  {/* El campo pierde su propio marco: el marco ahora es la
+                      capsula. Dos bordes anidados es lo que hacia que se viera
+                      "de formulario" en vez de "de chat". */}
                   <Textarea
                     ref={textareaRef}
                     value={input}
@@ -1265,20 +1274,21 @@ export default function CodeAgent() {
                       }
                     }}
                     rows={1}
-                    /* Corto a propósito: el anterior ocupaba dos renglones y
-                       en un celular quedaba cortado por la mitad, tapado
-                       además por el botón de enviar. Un ejemplo alcanza. */
-                    placeholder={mode === "operator" ? "Ej: analizá el sistema o creá un producto…" : "Ej: creá un agente de ventas…"}
+                    placeholder={grabando ? "Te escucho..." : mode === "operator" ? "Escribi o habla..." : "Ej: crea un agente de ventas..."}
                     disabled={loading}
-                    /* pr-14: el botón de enviar flota adentro de la caja, así
-                       que el texto necesita ese margen o le pasa por debajo. */
-                    className="flex-1 min-h-[52px] max-h-44 resize-none overflow-y-auto rounded-2xl border-border/70 bg-card pr-14 py-3.5 px-4 text-[15px] leading-relaxed shadow-sm focus-visible:ring-1"
+                    className="min-h-[38px] max-h-44 flex-1 resize-none overflow-y-auto border-0 bg-transparent px-2 py-2 text-[15px] leading-relaxed shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
                   />
-                  {/* Mientras trabaja, el mismo botón es el de PARAR.
-                      Antes acá había un spinner deshabilitado: el admin veía
-                      el único control de la pantalla apagado justo cuando lo
-                      necesitaba. Se queda en el mismo lugar a propósito --
-                      es donde ya está el pulgar. */}
+
+                  {/* ── LA ACCION PRINCIPAL: UNA SOLA, Y SIEMPRE EN EL MISMO
+                      LUGAR ──────────────────────────────────────────────────
+                      Igual que WhatsApp: con la caja vacia es el microfono, y
+                      apenas escribis algo se vuelve el avion de enviar. Mismo
+                      sitio y mismo tamano, asi que el pulgar no busca: cambia
+                      lo que hace, no donde esta.
+
+                      Y mientras Atlas trabaja, ese mismo boton es el de PARAR.
+                      Antes ahi habia un spinner apagado, o sea el unico control
+                      de la pantalla deshabilitado justo cuando hace falta. */}
                   {loading ? (
                     <Button
                       type="button"
@@ -1287,18 +1297,35 @@ export default function CodeAgent() {
                       variant="destructive"
                       title="Detener a Atlas"
                       aria-label="Detener a Atlas"
-                      className="absolute right-2 bottom-2 h-9 w-9 rounded-xl"
+                      className="h-9 w-9 shrink-0 rounded-full"
                     >
                       <Square className="h-4 w-4 fill-current" />
                     </Button>
-                  ) : (
+                  ) : input.trim() ? (
                     <Button
                       type="submit"
-                      disabled={restoring || !input.trim()}
+                      disabled={restoring}
                       size="icon"
-                      className="absolute right-2 bottom-2 h-9 w-9 rounded-xl"
+                      title="Enviar"
+                      aria-label="Enviar"
+                      className="h-9 w-9 shrink-0 rounded-full"
                     >
                       <Send className="h-4 w-4" />
+                    </Button>
+                  ) : (
+                    <Button
+                      type="button"
+                      variant={grabando ? "destructive" : "ghost"}
+                      size="icon"
+                      disabled={uploading || transcribiendo}
+                      onClick={grabando ? pararDeGrabar : empezarAGrabar}
+                      title={grabando ? "Toca para terminar de hablar" : "Hablarle a Atlas"}
+                      aria-label={grabando ? "Terminar de hablar" : "Hablarle a Atlas"}
+                      className={`h-9 w-9 shrink-0 rounded-full ${grabando ? "" : "text-muted-foreground hover:text-foreground"}`}
+                    >
+                      {transcribiendo
+                        ? <Loader2 className="h-[18px] w-[18px] animate-spin" />
+                        : <Mic className={`h-[18px] w-[18px] ${grabando ? "animate-pulse" : ""}`} />}
                     </Button>
                   )}
                 </div>
