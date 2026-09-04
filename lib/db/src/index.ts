@@ -56,6 +56,20 @@ export const architectMemory = schema.architectMemory;
 export const responseAnalytics = schema.responseAnalytics;
 export const promptVersions = schema.promptVersions;
 export const facebookDrafts = schema.facebookDrafts;
+// ── Landing AI Studio ──────────────────────────────────────────────────────
+//
+// ⚠️ Esto FALTABA, y dejaba a Landing Studio roto de raíz. Sus rutas hacen
+// `import { db, landingPages, products } from "@workspace/db"`, o sea de ESTE
+// archivo -- y acá las tablas se re-exportan UNA POR UNA, no con `export *`.
+// El commit que "exportó el schema" la agregó a schema/index.ts, que es otra
+// cosa: alimenta el namespace pgSchema, no el punto de entrada del paquete.
+//
+// Resultado: `landingPages` valía `undefined` en ejecución, y todo
+// `db.select().from(landingPages)` reventaba. Guardar, cargar, listar y el
+// comando de IA --que primero lee la landing-- fallaban los cuatro. El
+// typecheck lo venía diciendo ("has no exported member 'landingPages'") y se
+// leía como un artefacto de compilación viejo.
+export const landingPages = schema.landingPages;
 export const opencodeConfig = schema.opencodeConfig;
 export const adAgentLogs = schema.adAgentLogs;
 export const remarketingCampaigns = schema.remarketingCampaigns;

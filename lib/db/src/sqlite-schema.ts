@@ -624,3 +624,31 @@ export const opencodeSession = sqliteTable("opencode_session", {
   createdAt: text("created_at").notNull().default(sql`(datetime('now'))`),
   updatedAt: text("updated_at").notNull().default(sql`(datetime('now'))`),
 });
+
+/**
+ * Proyectos de Landing AI Studio -- espejo SQLite de schema/landing-pages.ts.
+ *
+ * ⚠️ Esta tabla FALTABA acá, y por eso `landingPages` no se podía exportar del
+ * punto de entrada del paquete: `src/index.ts` elige el esquema con
+ * `USE_SQLITE ? sqliteSchema : pgSchema` y re-exporta tabla por tabla, así que
+ * una tabla que existe en un solo lado queda `undefined` del otro. Las pruebas
+ * corren con USE_SQLITE=true.
+ *
+ * Los jsonb de Postgres son text(mode json) acá, que es como este archivo
+ * modela el resto de las columnas JSON (ver facebookDrafts.strategy).
+ */
+export const landingPages = sqliteTable("landing_pages", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  tenantId: integer("tenant_id").references(() => tenants.id, { onDelete: "cascade" }).notNull(),
+  productId: integer("product_id").references(() => products.id, { onDelete: "set null" }),
+  name: text("name").notNull(),
+  slug: text("slug").notNull(),
+  status: text("status").notNull().default("draft"),
+  strategy: text("strategy", { mode: "json" }).$type<Record<string, any>>().notNull().default({}),
+  sections: text("sections", { mode: "json" }).$type<Array<Record<string, any>>>().notNull().default([]),
+  design: text("design", { mode: "json" }).$type<Record<string, any>>().notNull().default({}),
+  source: text("source", { mode: "json" }).$type<Record<string, any>>().notNull().default({}),
+  publishedUrl: text("published_url"),
+  createdAt: text("created_at").notNull().default(sql`(datetime('now'))`),
+  updatedAt: text("updated_at").notNull().default(sql`(datetime('now'))`),
+});

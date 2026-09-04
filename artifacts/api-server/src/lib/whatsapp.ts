@@ -2428,14 +2428,29 @@ export class WhatsAppManager {
     });
 
     try {
-      // La imagen va con el aviso: el admin decide viendo el comprobante.
+      // ── Este aviso también gasta cupo del número ────────────────────────
+      //
+      // No pasa por enforceSendLimits() A PROPÓSITO: ese método LANZA, y
+      // bloquear el aviso de un pago que el cliente ya hizo es peor que el
+      // riesgo que evita. Pero sí se espacia y sí se cuenta.
+      //
+      // Contarlo importa: antes estos envíos no entraban en `sentTimestampsMs`,
+      // así que los contadores de 60/hora y 400/día veían MENOS tráfico del
+      // que el número mandaba de verdad. Un límite que no cuenta todo lo que
+      // sale no protege de nada.
+      await this.esperarEspaciadoEntreEnvios(`${adminPhone}@s.whatsapp.net`);
       await this.sock!.sendMessage(`${adminPhone}@s.whatsapp.net`, {
         image: buf,
         caption: aviso,
         mimetype: tipoDeImagen(buf) || "image/jpeg",
       });
+      this.recordSendSuccess();
       console.log(`📨 [PAGO] Aviso enviado al admin (${adminPhone}) — comprobante ${pagoId}`);
     } catch (e: any) {
+      // Y NO se llama recordSendFailure(): un teléfono de admin mal cargado
+      // fallaría siempre, y a los 5 fallos el circuit breaker pausaría TODOS
+      // los envíos 30 minutos -- dejando sin respuesta a los clientes por un
+      // dato de configuración que no tiene nada que ver con ellos.
       console.error(`[Pago] no se pudo avisar al admin por WhatsApp: ${e?.message}`);
     }
 
@@ -2462,6 +2477,24 @@ export class WhatsAppManager {
   async sendImage(phone: string, imageUrl: string, caption: string, originalJid?: string) {
     if (!this.sock || this.state !== "connected") throw new Error("WhatsApp no conectado");
     this.enforceSendLimits();
+    // ── Las protecciones fuertes también valen para las imágenes ──────────
+    //
+    // ⚠️ Esto FALTABA, y era el hueco más caro de todos. `sendImage` llamaba a
+    // enforceSendLimits() y al espaciado, pero nunca a verificarProteccionesAsync(),
+    // así que mandar una imagen se salteaba las tres protecciones de verdad:
+    // el envío en frío --que el comentario de esa función describe como "la
+    // causa número uno de que Meta bloquee un número"--, el tope de
+    // calentamiento del número nuevo, y el control de mismo texto a muchos
+    // destinatarios.
+    //
+    // Y no es un camino raro: las fichas de producto se mandan como imagen con
+    // caption, así que es de los envíos MÁS frecuentes del bot. La protección
+    // principal tenía el agujero justo donde pasa el tráfico.
+    //
+    // Va ANTES del try a propósito: si esto lanza, no tiene que caer al
+    // respaldo de "mando solo el texto" -- eso enviaría igual el mensaje que
+    // la protección acaba de prohibir, por otro camino.
+    await this.verificarProteccionesAsync(caption, phone);
     const jid = originalJid || `${phone}@s.whatsapp.net`;
     await this.esperarEspaciadoEntreEnvios(jid);
 

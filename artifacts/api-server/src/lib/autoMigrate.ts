@@ -233,6 +233,32 @@ const MIGRATIONS = [
   `CREATE UNIQUE INDEX IF NOT EXISTS trabajos_programados_clave_idx ON trabajos_programados (clave)`,
   // El índice que usa el buscador de trabajos vencidos en cada vuelta.
   `CREATE INDEX IF NOT EXISTS trabajos_programados_pendientes_idx ON trabajos_programados (estado, corre_at)`,
+  // ── Landing AI Studio ───────────────────────────────────────────────────
+  // Sin esto la tabla no existe en produccion y TODA la API de landings
+  // revienta en runtime: guardar, cargar, listar y el comando de IA --que
+  // primero lee la landing-- fallan los cuatro. Definirla en el schema de
+  // Drizzle NO la crea; `db:push` se corre a mano y la Postgres de produccion
+  // vive en la red interna de EasyPanel, que es justo lo que explica el
+  // comentario de las tablas de marketing mas arriba.
+  `CREATE TABLE IF NOT EXISTS landing_pages (
+    id SERIAL PRIMARY KEY,
+    tenant_id INTEGER NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    product_id INTEGER REFERENCES products(id) ON DELETE SET NULL,
+    name TEXT NOT NULL,
+    slug TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'draft',
+    strategy JSONB NOT NULL DEFAULT '{}',
+    sections JSONB NOT NULL DEFAULT '[]',
+    design JSONB NOT NULL DEFAULT '{}',
+    source JSONB NOT NULL DEFAULT '{}',
+    published_url TEXT,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now()
+  )`,
+  `CREATE INDEX IF NOT EXISTS landing_pages_tenant_idx ON landing_pages (tenant_id)`,
+  // El slug es la URL publica: unico POR INQUILINO, no global -- dos negocios
+  // distintos pueden querer "curso-de-ia" y ninguno tiene por que ceder.
+  `CREATE UNIQUE INDEX IF NOT EXISTS landing_pages_tenant_slug_idx ON landing_pages (tenant_id, slug)`,
 ];
 
 export async function runAutoMigrations(): Promise<void> {
