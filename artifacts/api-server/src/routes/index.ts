@@ -38,6 +38,7 @@ import pricingRouter from "./pricing";
 import mcpBridgeRouter from "./mcp-bridge";
 import marketingRouter from "./marketing";
 import landingPagesRouter from "./landing-pages";
+import landingPagesAiRouter from "./landing-pages-ai";
 
 const router: IRouter = Router();
 
@@ -78,6 +79,7 @@ router.use("/architect", architectRouter);
 router.use("/pricing", pricingRouter);
 router.use("/internal/mcp", mcpBridgeRouter);
 router.use("/marketing", marketingRouter);
+router.use("/landing-pages", landingPagesAiRouter);
 router.use("/landing-pages", landingPagesRouter);
 router.use(errorHandler);
 
