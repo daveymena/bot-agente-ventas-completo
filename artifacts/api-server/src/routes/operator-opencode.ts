@@ -48,6 +48,7 @@ import { afirmaHaberloHecho } from "../lib/afirma-haberlo-hecho";
 import { mensajeDeCierre } from "../lib/entrega-por-partes";
 import { partirElPedido } from "../lib/partir-el-pedido";
 import { arrancaPedidoNuevo } from "../lib/es-pedido-nuevo";
+import { verloEsAutorizarlo } from "../lib/pedir-ver-el-resultado";
 import { anotarTurno, ultimosTurnos, resumirTurnos } from "../lib/diagnostico-de-turnos";
 import { db, products } from "@workspace/db";
 import { eq, desc } from "drizzle-orm";
@@ -794,7 +795,25 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
       if (aprobadoPorElModelo) {
         logger.info({ tenantId, prompt: String(prompt).slice(0, 60) }, "[Atlas] la lista no lo reconocio pero el modelo lo leyo como un si");
       }
-      if (isApproval(String(prompt)) || aprobadoPorElModelo) {
+      // ── Pedir VER el resultado, cuando verlo no cuesta nada, es un si ───
+      //
+      // El admin lo pidio cuatro veces el 2026-09-04 --"Demuestrale el copi",
+      // "Dame el copi para saber que vas a publicar"-- y las cuatro recibio
+      // "¿Confirmas para que lo genere?". Pero `crear_anuncio` DEVUELVE el copy
+      // en su resultado, y esa accion guarda un borrador LOCAL en pausa: no
+      // sube a Meta, no gasta, no le llega a nadie.
+      //
+      // El texto que pedia estaba siempre a un "si" de distancia. Ver el
+      // resultado de algo sin consecuencia ES querer que se haga.
+      //
+      // Se acota con cuidado: si CUALQUIERA de las acciones toca el mundo real
+      // --subir a Meta, activar, cambiar un precio-- se sigue preguntando, que
+      // es lo que protege la plata del admin. Ver lib/pedir-ver-el-resultado.ts
+      const verEsAutorizar = verloEsAutorizarlo(String(prompt), pending.actions as any);
+      if (verEsAutorizar) {
+        logger.info({ tenantId, prompt: String(prompt).slice(0, 60) }, "[Atlas] pidio ver el resultado de una accion sin consecuencia: se ejecuta y se le muestra");
+      }
+      if (isApproval(String(prompt)) || aprobadoPorElModelo || verEsAutorizar) {
         const executed: any[] = [];
         const lines: string[] = [];
         // ── Encadenado: el paso 2 usa el id que produjo el paso 1 ──────────
