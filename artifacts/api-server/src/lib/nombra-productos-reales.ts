@@ -116,3 +116,49 @@ export function negarloSeriaMentira(
 ): boolean {
   return productosNombrados(mensaje, productos).length > 0;
 }
+
+
+/**
+ * ============================================================
+ * CUANDO VARIOS PRODUCTOS "ENCAJAN", GANA EL DEL NOMBRE
+ * ============================================================
+ *
+ * Medido contra produccion el 2026-09-04. El admin pidio el anuncio del "curso
+ * de inteligencia artificial" y `crear_anuncio` se freno:
+ *
+ *   "Hay varios productos que encajan: 92 PSICOLOGIA PROFESIONAL ·
+ *    124 INTELIGENCIA ARTIFICIAL 2026: HERRAMIENTAS + AGENTES AUTONOMOS.
+ *    Preguntale al admin cual es."
+ *
+ * Uno de los dos se llama exactamente asi. El otro solo menciona "inteligencia"
+ * en su descripcion --seguramente "inteligencia emocional"--. El buscador los
+ * trataba como empate porque miraba nombre Y descripcion con el mismo peso, y
+ * ante dos resultados se rendia.
+ *
+ * Para el admin eso es el bot preguntando lo obvio: dijo el nombre del curso
+ * con todas las letras.
+ *
+ * ── La regla, y por que es conservadora ──────────────────────────────────
+ *
+ * Gana el producto cuyo NOMBRE contiene TODAS las palabras con contenido de lo
+ * que se pidio. Y solo si hay UNO solo asi: con dos, la duda es real y
+ * preguntar es lo correcto -- este catalogo tiene cuatro productos con
+ * "MARKETING" en el nombre y dos con el nombre identico y distinto precio, asi
+ * que adivinar cual cobrar no es una opcion.
+ */
+export function elegirPorNombre<T extends { name?: string | null }>(
+  loQueSePidio: string,
+  candidatos: T[],
+): T | null {
+  const claves = comoSeLee(loQueSePidio)
+    .split(" ")
+    .filter((p) => p.length >= 4 && !GENERICAS.has(p));
+  if (claves.length === 0) return null;
+
+  const porNombre = (candidatos || []).filter((p) => {
+    const nombre = ` ${comoSeLee(String(p?.name || ""))} `;
+    return claves.every((k) => nombre.includes(` ${k} `));
+  });
+
+  return porNombre.length === 1 ? porNombre[0]! : null;
+}

@@ -14,7 +14,7 @@
  * resolver UN producto" -- y nombrar DOS para compararlos también falla.
  */
 import { describe, it, expect } from "vitest";
-import { productosNombrados, negarloSeriaMentira } from "../nombra-productos-reales";
+import { productosNombrados, negarloSeriaMentira, elegirPorNombre } from "../nombra-productos-reales";
 
 /** El catálogo real del negocio que se sondeó. */
 const CATALOGO = [
@@ -79,5 +79,51 @@ describe("qué productos nombró el cliente", () => {
     expect(productosNombrados("", CATALOGO)).toEqual([]);
     expect(productosNombrados("hola", [])).toEqual([]);
     expect(productosNombrados("hola", [null as any, { name: null }])).toEqual([]);
+  });
+});
+
+/**
+ * "Hay varios productos que encajan": el bot preguntando lo obvio.
+ *
+ * Medido contra producción el 2026-09-04. El admin pidió el anuncio del "curso
+ * de inteligencia artificial" y la creación se frenó con dos candidatos --uno
+ * que se llama exactamente así, y otro que solo menciona "inteligencia" en su
+ * descripción--. El buscador miraba nombre y descripción con el mismo peso.
+ */
+describe("cuando varios encajan, gana el del nombre", () => {
+  const CANDIDATOS = [
+    { id: 92, name: "PSICOLOGIA PROFESIONAL" },
+    { id: 124, name: "INTELIGENCIA ARTIFICIAL 2026: HERRAMIENTAS + AGENTES AUTONOMOS" },
+  ];
+
+  it("EL CASO: elige el que se llama así", () => {
+    const r = elegirPorNombre("curso de inteligencia artificial", CANDIDATOS);
+    expect(r?.id).toBe(124);
+  });
+
+  /** "curso" es genérica y no debe pesar. */
+  it("las palabras genéricas no deciden", () => {
+    expect(elegirPorNombre("el curso", CANDIDATOS)).toBeNull();
+  });
+
+  /**
+   * LO QUE NO PUEDE PASAR: adivinar cuando la duda es real. Este catálogo tiene
+   * cuatro productos con "MARKETING" en el nombre y dos con nombre idéntico y
+   * distinto precio.
+   */
+  it("con dos que se llaman igual, se sigue preguntando", () => {
+    const ambiguos = [
+      { id: 114, name: "MARKETING DIGITAL" },
+      { id: 73, name: "PACK MARKETING DIGITAL" },
+    ];
+    expect(elegirPorNombre("marketing digital", ambiguos)).toBeNull();
+  });
+
+  it("si ninguno lo tiene en el nombre, no inventa", () => {
+    expect(elegirPorNombre("curso de pastelería", CANDIDATOS)).toBeNull();
+  });
+
+  it("no rompe con lista vacía", () => {
+    expect(elegirPorNombre("lo que sea", [])).toBeNull();
   });
 });

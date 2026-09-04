@@ -4407,8 +4407,27 @@ Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vincu
         return { ok: false, summary: `No encontré ningún producto que se parezca a "${texto}" en el catálogo. Pedile al admin el nombre exacto -- NO inventes un producto ni ofrezcas crear uno nuevo sin que él lo pida.` };
       }
       if (filas.length > 1) {
-        const lista = filas.slice(0, 8).map((p: any) => `${p.id} = ${p.name}`).join(" · ");
-        return { ok: false, summary: `Hay varios productos que encajan con "${texto}": ${lista}. Preguntale al admin cuál es y volvé a llamarme con ese nombre exacto.` };
+        // ── Antes de rendirse: gana el que se LLAMA asi ───────────────────
+        //
+        // Medido el 2026-09-04. El admin pidio el anuncio del "curso de
+        // inteligencia artificial" y esto se freno con dos candidatos:
+        // PSICOLOGIA PROFESIONAL (que solo menciona "inteligencia" en su
+        // descripcion) e INTELIGENCIA ARTIFICIAL 2026, que se llama
+        // exactamente asi. La busqueda de arriba mira nombre Y descripcion con
+        // el mismo peso, asi que los trataba como empate.
+        //
+        // Para el admin eso es el bot preguntando lo obvio: dijo el nombre con
+        // todas las letras. Si UNO SOLO lo tiene entero en el nombre, es ese.
+        // Con dos, la duda es real y se sigue preguntando -- este catalogo
+        // tiene cuatro productos con "MARKETING" en el nombre y dos con el
+        // nombre identico y distinto precio.
+        const { elegirPorNombre } = await import("./nombra-productos-reales");
+        const porNombre = elegirPorNombre(texto, filas as any);
+        if (!porNombre) {
+          const lista = filas.slice(0, 8).map((p: any) => `${p.id} = ${p.name}`).join(" · ");
+          return { ok: false, summary: `Hay varios productos que encajan con "${texto}": ${lista}. Preguntale al admin cuál es y volvé a llamarme con ese nombre exacto.` };
+        }
+        filas = [porNombre as any];
       }
       const prod: any = filas[0];
 
