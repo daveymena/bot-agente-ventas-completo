@@ -6,7 +6,8 @@ import { toEmojiStyle } from "./conversation-engine";
 import { tenantManager, type TenantContext } from "./tenantManager";
 import { createHmac } from "crypto";
 
-const FB_GRAPH_URL = "https://graph.facebook.com/v21.0";
+import { FB_GRAPH_BASE } from "./meta-api-version";
+const FB_GRAPH_URL = FB_GRAPH_BASE;
 
 export interface FacebookPageToken {
   pageId: string;
@@ -31,7 +32,7 @@ export class FacebookMessengerService {
     return {
       pageAccessToken: fb.accessToken || fb.messengerPageToken || process.env.FB_ACCESS_TOKEN || process.env.FB_MESSENGER_PAGE_TOKEN || "",
       appSecret: fb.appSecret || process.env.FB_APP_SECRET || "",
-      appId: fb.appId || process.env.FB_APP_ID || "4238613976451604",
+      appId: fb.appId || process.env.FB_APP_ID || "",
       pageId: fb.pageId || process.env.FB_PAGE_ID || "",
     };
   }

@@ -62,7 +62,7 @@ const ECOSYSTEM_STEPS = [
 ];
 
 const TOOLS = [
-  { icon: Bot, title: "Agentes IA multi-personalidad", desc: "Configurá el tono, el nombre y hasta 8 agentes especializados según el plan." },
+  { icon: Bot, title: "Agentes IA multi-personalidad", desc: "Configurá el tono, el nombre y hasta 8 agentes especializados en el plan Pro (2 en Starter, 5 en Growth)." },
   { icon: Store, title: "Tienda online propia", desc: "Catálogo, categorías, importación por Excel con IA y checkout integrado." },
   { icon: MessageCircle, title: "Bandeja de conversaciones", desc: "Mirá cada charla en vivo y tomá el control manual en cualquier momento." },
   { icon: Facebook, title: "Facebook Ads con IA", desc: "Borradores de campaña, segmentación sugerida y publicación desde el panel." },
@@ -671,9 +671,20 @@ export default function LandingPage() {
       {/* ── Stats ── */}
       <section className="border-y bg-muted/30 relative overflow-hidden">
         <div className="max-w-5xl mx-auto px-4 sm:px-6 py-10 grid grid-cols-2 sm:grid-cols-4 gap-8">
-          <StatCounter value={8} label="Agentes IA especializados" />
-          <StatCounter value={15000} suffix="+" label="Mensajes/mes en el plan Pro" />
-          <StatCounter value={3} label="Canales integrados en uno" />
+          {/* Cada numero sale de SAAS_PLANS (middleware/saasValidation.ts), que
+              es el codigo que cobra de verdad. Verificado uno por uno el
+              2026-08-22:
+                Pro = 8 agentes, 15.000 mensajes/mes
+                Prueba gratis = 7 dias, 30 mensajes
+                Canales donde el cliente puede comprar: WhatsApp, Messenger y
+                la tienda web (los dos primeros los atiende el agente, ver
+                lib/channel-manager.ts).
+              El "+" salio de 15.000 porque el plan da 15.000 EXACTOS: un mas
+              sobre una cifra exacta es inventarse lo que no hay, y es
+              justamente lo que el cliente puede contar y desmentir. */}
+          <StatCounter value={8} label="Agentes IA en el plan Pro" />
+          <StatCounter value={15000} label="Mensajes/mes en el plan Pro" />
+          <StatCounter value={3} label="Canales: WhatsApp, Messenger y tienda" />
           <StatCounter value={7} label="Días de prueba gratis" />
         </div>
       </section>

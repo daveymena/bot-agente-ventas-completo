@@ -1,7 +1,7 @@
 import { Router, type IRouter, type Request, type Response, type NextFunction } from "express";
 import { createHmac, timingSafeEqual } from "crypto";
-import { eq } from "drizzle-orm";
-import { db, tenants, leads, conversations, messages, products } from "@workspace/db";
+import { eq, and } from "drizzle-orm";
+import { db, tenants, leads, conversations, messages, products, facebookDrafts } from "@workspace/db";
 import { facebookMessengerService as fbMessenger } from "../lib/facebook-messenger";
 import { facebookCommentsService as fbComments } from "../lib/facebook-comments";
 import { channelManager } from "../lib/channel-manager";
@@ -11,6 +11,7 @@ import { buildPostDraft, publishToPage, checkPostingPermission } from "../lib/fa
 import { whatsapp } from "../lib/whatsapp-singleton";
 import { logger } from "../lib/logger";
 import { encryptSecret, decryptSecret } from "../lib/credentials-vault";
+import { FB_GRAPH_BASE } from "../lib/meta-api-version";
 
 const router: IRouter = Router();
 
@@ -28,9 +29,17 @@ function verifyFacebookSignature(req: Request, res: Response, next: NextFunction
     logger.warn("[Facebook] FB_APP_SECRET no configurado — firma de webhook NO verificada");
     return next();
   }
+  // Si HAY App Secret, la firma es obligatoria.
+  //
+  // Antes, un webhook sin el header `x-hub-signature-256` pasaba igual, "para
+  // no romper despliegues existentes". Eso dejaba la verificación en cero:
+  // quien quisiera inyectar eventos falsos no tenía que falsificar ninguna
+  // firma, le alcanzaba con NO mandarla. Un control que se puede saltar
+  // omitiéndolo no es un control. Facebook firma siempre sus POST, así que
+  // exigirlo no rompe nada legítimo.
   if (!signature || !rawBody) {
-    logger.warn("[Facebook] Webhook sin firma o sin body crudo — permitido pero sin verificar");
-    return next();
+    logger.warn({ tieneFirma: !!signature, tieneBody: !!rawBody }, "[Facebook] Webhook sin firma — rechazado");
+    return res.status(403).json({ error: "Missing signature" });
   }
 
   try {
@@ -55,7 +64,15 @@ router.get("/lead-ads/webhook", (req: Request, res: Response) => {
   const token = req.query["hub.verify_token"] as string;
   const challenge = req.query["hub.challenge"] as string;
 
-  const verifyToken = process.env.FB_WEBHOOK_VERIFY_TOKEN || "salesbot_verify_2024";
+  // Sin token configurado NO se verifica nada. Antes caía a un valor fijo
+  // escrito en el código ("salesbot_verify_2024"): si la variable faltaba,
+  // cualquiera que conociera ese valor público -- está en el repo -- podía
+  // suscribir su propio webhook y empezar a inyectar eventos.
+  const verifyToken = process.env.FB_WEBHOOK_VERIFY_TOKEN || "";
+  if (!verifyToken) {
+    logger.error("[Facebook] FB_WEBHOOK_VERIFY_TOKEN sin configurar — no se puede verificar el webhook");
+    return res.status(503).json({ error: "Webhook verify token not configured" });
+  }
 
   if (mode === "subscribe" && token === verifyToken) {
     logger.info("[Facebook] Webhook verificado exitosamente");
@@ -97,7 +114,7 @@ router.post("/lead-ads/webhook", verifyFacebookSignature, async (req: Request, r
           let leadData: any = null;
           try {
             const response = await fetch(
-              `https://graph.facebook.com/v21.0/${leadgenId}?access_token=${accessToken}`
+              `${FB_GRAPH_BASE}/${leadgenId}?access_token=${accessToken}`
             );
             leadData = await response.json();
             logger.info({ leadData }, "[Facebook] Datos del lead obtenidos");
@@ -191,7 +208,12 @@ router.get("/messenger/webhook", (req: Request, res: Response) => {
   const mode = req.query["hub.mode"] as string;
   const token = req.query["hub.verify_token"] as string;
   const challenge = req.query["hub.challenge"] as string;
-  const verifyToken = process.env.FB_MESSENGER_VERIFY_TOKEN || "salesbot_messenger_2024";
+  // Mismo motivo que en lead-ads: nada de token por defecto escrito en el código.
+  const verifyToken = process.env.FB_MESSENGER_VERIFY_TOKEN || "";
+  if (!verifyToken) {
+    logger.error("[FB-Messenger] FB_MESSENGER_VERIFY_TOKEN sin configurar — no se puede verificar el webhook");
+    return res.status(503).json({ error: "Webhook verify token not configured" });
+  }
   if (mode === "subscribe" && token === verifyToken) {
     logger.info("[FB-Messenger] Webhook verified");
     return res.status(200).send(challenge);
@@ -489,6 +511,135 @@ router.post("/page/publish/:productId", async (req, res, next) => {
   }
 });
 
+// ── Centro de control de campañas ───────────────────────────────────────────
+// Estas capacidades ya existían en FacebookService, pero SOLO las usaba el
+// agente automático (ad-growth-agent, que además pide aprobación por
+// WhatsApp): el admin no tenía forma de ver sus campañas en vivo ni de
+// pausar, reactivar o cambiar el presupuesto desde el panel. Tenía que
+// entrar al Administrador de Anuncios de Meta para cualquier cosa.
+
+/** Campañas reales de la cuenta, con métricas de la ventana pedida. */
+router.get("/campaigns", async (req, res, next) => {
+  try {
+    const { FacebookService } = await import("../lib/facebook");
+    const svc = new FacebookService((req as any).tenant || undefined);
+    if (!svc.isConfigured()) return res.json({ campaigns: [], totals: null, connected: false });
+    const days = Math.min(Math.max(Number(req.query.days) || 7, 1), 30);
+    const data = await svc.getCampaignMetrics({ days });
+    return res.json({ ...(data || { campaigns: [], totals: null }), connected: true, days });
+  } catch (e) { return next(e); }
+});
+
+/** Conjuntos de una campaña: el presupuesto se fija acá, no en la campaña. */
+router.get("/campaigns/:id/adsets", async (req, res, next) => {
+  try {
+    const { FacebookService } = await import("../lib/facebook");
+    const svc = new FacebookService((req as any).tenant || undefined);
+    return res.json({ adSets: await svc.listAdSets(req.params.id) });
+  } catch (e) { return next(e); }
+});
+
+/**
+ * GET /api/facebook/ad-library?q=&pais=&limite=
+ *
+ * Los anuncios que la competencia está pagando AHORA en ese nicho, leídos de la
+ * Biblioteca de Anuncios pública de Meta y ordenados por impresiones (o sea:
+ * los más vistos primero, que son los que alguien sostiene con plata).
+ *
+ * Existía solo como herramienta de Atlas, y se disparaba sola al crear un
+ * anuncio con el nicho que el sistema deducía del pedido. El admin no tenía
+ * forma de preguntar a mano "¿qué están anunciando en educación canina?" antes
+ * de gastar un peso. Esto lo expone tal cual, sin pasar por el modelo.
+ *
+ * Tarda ~25s: se renderiza con un navegador real porque la API oficial de Meta
+ * no sirve fuera de la UE para anuncios comerciales y la página pública
+ * responde 403 a un cliente HTTP simple (ver fb_ad_library en app-operator.ts).
+ */
+router.get("/ad-library", async (req, res, next) => {
+  try {
+    const query = String(req.query?.q || "").trim();
+    if (!query) return res.status(400).json({ error: "Falta 'q': qué nicho o marca buscar." });
+    const tenantId = (req as any).tenant?.id;
+    if (!tenantId) return res.status(401).json({ error: "No autenticado" });
+
+    const { executeAction } = await import("../lib/app-operator");
+    const r = await executeAction(
+      "fb_ad_library",
+      {
+        query,
+        pais: String(req.query?.pais || "CO"),
+        limite: Math.min(Math.max(Number(req.query?.limite) || 8, 1), 20),
+      },
+      { tenantId, sessionId: `ad-library-${tenantId}` },
+    );
+    return res.json({
+      ok: r.ok,
+      mensaje: r.summary,
+      anuncios: (r as any)?.data?.anuncios || [],
+    });
+  } catch (e) { return next(e); }
+});
+
+router.post("/campaigns/:id/pause", async (req, res, next) => {
+  try {
+    const { FacebookService } = await import("../lib/facebook");
+    // El MOTIVO, no "no se pudo": sobre una campana que esta gastando dinero,
+    // un mensaje sin causa deja al admin sin nada que hacer.
+    const svc = new FacebookService((req as any).tenant || undefined);
+    const ok = await svc.pauseCampaign(req.params.id);
+    return res.json({
+      ok,
+      message: ok
+        ? "Campaña pausada. Deja de gastar desde ahora."
+        : `No se pudo pausar la campaña.${svc.lastCampaignError ? ` Motivo: ${svc.lastCampaignError}` : ""}`,
+    });
+  } catch (e) { return next(e); }
+});
+
+router.post("/campaigns/:id/resume", async (req, res, next) => {
+  try {
+    const { FacebookService } = await import("../lib/facebook");
+    const svcR = new FacebookService((req as any).tenant || undefined);
+    const ok = await svcR.resumeCampaign(req.params.id);
+    return res.json({
+      ok,
+      message: ok
+        ? "Campaña reactivada. Vuelve a gastar según su presupuesto."
+        : `No se pudo reactivar la campaña.${svcR.lastCampaignError ? ` Motivo: ${svcR.lastCampaignError}` : ""}`,
+    });
+  } catch (e) { return next(e); }
+});
+
+/** Presupuesto diario exacto de un conjunto de anuncios (en pesos, no %). */
+router.put("/adsets/:id/budget", async (req, res, next) => {
+  try {
+    const monto = Number(req.body?.dailyBudget);
+    const { FacebookService } = await import("../lib/facebook");
+    const r = await new FacebookService((req as any).tenant || undefined).setAdSetBudget(req.params.id, monto);
+    return res.json({
+      ok: r.ok,
+      message: r.ok ? `Presupuesto diario actualizado a $${monto.toLocaleString("es-CO")}.` : r.message,
+    });
+  } catch (e) { return next(e); }
+});
+
+/**
+ * POST /strategist/upload-image — sube una foto propia del admin (data URL
+ * base64, mismo patrón que /api/code-agent/upload) para usarla en un
+ * borrador de Facebook (sola o como parte de un carrusel de varias).
+ */
+router.post("/strategist/upload-image", async (req, res, next) => {
+  try {
+    const { image, filename } = req.body || {};
+    if (!image || typeof image !== "string") return res.status(400).json({ error: "Falta 'image' (data URL base64)" });
+    const { saveUploadedImage } = await import("../lib/image-store");
+    const rel = await saveUploadedImage(image, filename);
+    if (!rel) return res.status(400).json({ error: "No se pudo guardar la imagen" });
+    const base = (process.env.APP_URL || "").replace(/\/$/, "");
+    return res.json({ ok: true, url: base ? `${base}${rel}` : rel, path: rel });
+  } catch (e) { return next(e); }
+});
+
 router.get("/strategist/drafts", async (req, res, next) => {
   try {
     const tenantId = (req as any).tenant?.id || 1;
@@ -497,11 +648,128 @@ router.get("/strategist/drafts", async (req, res, next) => {
   } catch (e) { return next(e); }
 });
 
+/**
+ * Un borrador por id. Faltaba, como las de producto y prospecto: quien la
+ * llamaba recibía el 404 de Express en HTML y lo interpretaba como "ese
+ * borrador no existe".
+ */
+router.get("/strategist/drafts/:id", async (req, res, next) => {
+  try {
+    const tenantId = (req as any).tenant?.id || 1;
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id)) return res.status(400).json({ message: "Id inválido" });
+
+    const [draft] = await db
+      .select()
+      .from(facebookDrafts)
+      .where(and(eq(facebookDrafts.id, id), eq(facebookDrafts.tenantId, tenantId)))
+      .limit(1);
+    if (!draft) return res.status(404).json({ message: "Borrador no encontrado" });
+
+    return res.json(draft);
+  } catch (e) { return next(e); }
+});
+
+/**
+ * GET /strategist/draft/:id/insights — métricas reales de Meta (gasto,
+ * impresiones, clics, resultados) para un borrador ya publicado, así el
+ * admin ve cómo va gastando/rindiendo el anuncio sin salir del panel.
+ */
+router.get("/strategist/draft/:id/insights", async (req, res, next) => {
+  try {
+    const draftId = parseInt(req.params.id);
+    const [draft] = await db.select().from(facebookDrafts).where(eq(facebookDrafts.id, draftId)).limit(1);
+    if (!draft) return res.status(404).json({ message: "Borrador no encontrado" });
+    if (!draft.campaignId) return res.status(400).json({ message: "Este borrador todavía no tiene campaña creada en Meta" });
+
+    const { FacebookService } = await import("../lib/facebook");
+    const svc = new FacebookService((req as any).tenant || undefined);
+    const allowed = ["today", "yesterday", "last_3d", "last_7d", "last_14d", "last_30d"];
+    const datePreset = allowed.includes(String(req.query.datePreset)) ? String(req.query.datePreset) : "last_7d";
+    const insights = await svc.getCampaignInsights(draft.campaignId, datePreset);
+    return res.json({ insights, datePreset, fbStatus: draft.fbStatus });
+  } catch (e) { return next(e); }
+});
+
 router.delete("/strategist/draft/:id", async (req, res, next) => {
   try {
     const draftId = parseInt(req.params.id);
     const ok = await adStrategist.deleteDraft(draftId);
     return res.json({ ok });
+  } catch (e) { return next(e); }
+});
+
+// El frontend (facebook.tsx, editar borrador) ya llamaba a este PUT desde
+// hace tiempo -- la ruta nunca existió del lado del servidor, así que
+// "Guardar" en el modal de edición siempre daba 404 en silencio.
+router.put("/strategist/draft/:id", async (req, res, next) => {
+  try {
+    const draftId = parseInt(req.params.id);
+    const { headline, primaryText, description, budget, images } = req.body || {};
+    const patch: Record<string, any> = { updatedAt: new Date() };
+    if (typeof headline === "string") patch.headline = headline;
+    if (typeof primaryText === "string") patch.primaryText = primaryText;
+    // `description` faltaba, y es un campo que SE MUESTRA en el anuncio (la
+    // línea del enlace). Al subir todos los cursos a $60.000 el 2026-08-26,
+    // el borrador 90 quedó con "$20.000" ahí y no había forma de corregirlo
+    // desde la API: el precio viejo seguía publicado en Meta.
+    if (typeof description === "string") patch.description = description;
+    if (budget !== undefined && budget !== null && budget !== "") {
+      const n = Number(budget);
+      if (!Number.isNaN(n)) patch.budget = n;
+    }
+    if (Array.isArray(images)) {
+      const list = images.filter((u: any) => typeof u === "string" && u);
+      patch.images = list;
+      if (list[0]) patch.imageUrl = list[0];
+    }
+    const [updated] = await db.update(facebookDrafts).set(patch).where(eq(facebookDrafts.id, draftId)).returning();
+    if (!updated) return res.status(404).json({ ok: false, message: "Borrador no encontrado" });
+
+    // Si el borrador ya tiene anuncio real en Meta y se tocó imagen/texto,
+    // hay que reconstruir el creativo -- guardar acá solo cambia la base de
+    // datos, Facebook no se entera solo. Falla suave: el "Guardar" en sí
+    // funcionó igual, se avisa aparte si Meta rechazó la actualización.
+    let metaSync: { ok: boolean; message?: string } | null = null;
+    // `description` va en la lista: sin él, cambiar SOLO la descripción
+    // guardaba en la base y dejaba el texto viejo publicado en Meta -- que es
+    // el peor de los dos mundos, porque el panel muestra el precio nuevo y el
+    // anuncio sigue mostrando el viejo.
+    if (
+      updated.adId &&
+      (Array.isArray(images) ||
+        typeof headline === "string" ||
+        typeof primaryText === "string" ||
+        typeof description === "string")
+    ) {
+      const { AdStrategist } = await import("../lib/ad-strategist");
+      metaSync = await new AdStrategist((req as any).tenant || undefined).updateDraftCreative(draftId);
+    }
+    return res.json({ ok: true, draft: updated, metaSync });
+  } catch (e) { return next(e); }
+});
+
+/**
+ * Sube un borrador a Meta EN PAUSA. No gasta un peso.
+ *
+ * `subirBorradorAMeta` existía en ad-strategist desde que se separaron las dos
+ * acciones (subir ≠ activar), pero NINGUNA ruta la exponía: solo se podía
+ * llegar a ella pidiéndoselo a Atlas en lenguaje natural. Desde el panel, un
+ * borrador local no tenía forma de llegar a Meta -- `publish` solo ACTIVA una
+ * campaña que ya exista, y con un borrador local devuelve "revisa que el
+ * borrador tenga campaña creada", que no dice qué hacer.
+ *
+ * `objetivo` por defecto es "mensajes": estos anuncios mandan al WhatsApp del
+ * negocio, que es donde atiende el bot. Con "ventas" (el default de la
+ * función) apuntarían a la web, que no es el flujo de este negocio.
+ */
+router.post("/strategist/draft/:id/upload", async (req, res, next) => {
+  try {
+    const draftId = parseInt(req.params.id as string);
+    const objetivo = String((req.body || {}).objetivo || "mensajes") as any;
+    const { AdStrategist } = await import("../lib/ad-strategist");
+    const r = await new AdStrategist((req as any).tenant || undefined).subirBorradorAMeta(draftId, objetivo);
+    return res.status(r.ok ? 200 : 400).json(r);
   } catch (e) { return next(e); }
 });
 
@@ -525,14 +793,36 @@ router.post("/strategist/draft/:productId", async (req, res, next) => {
     const productId = parseInt(req.params.productId);
     const tenant = (req as any).tenant;
     const adAccountId = tenant?.facebook?.adAccountId || process.env.FB_AD_ACCOUNT_ID || "";
-    const accessToken = tenant?.facebook?.accessToken || process.env.FB_ACCESS_TOKEN || "";
+    const accessToken = tenant?.facebook?.userAccessToken || tenant?.facebook?.accessToken || process.env.FB_ACCESS_TOKEN || "";
     const { AdStrategist } = await import("../lib/ad-strategist");
-    const draft = await new AdStrategist(tenant || undefined).createDraftAd(
-      adAccountId,
-      accessToken,
-      productId
-    );
-    return res.json(draft);
+    // Copy grounded en investigación real, opcional -- mismos campos que usa
+    // el Arquitecto vía fb_ad_draft (ver ResearchGroundedCopy). Sin esto la
+    // ruta solo podía generar desde la plantilla fija por nicho; con esto
+    // también sirve para publicar campañas armadas con research hecho fuera
+    // del loop del Arquitecto (que puede tardar demasiado en pedidos largos).
+    const { hook, angle, primaryText, headline, description, researchNote, images, publishNow } = req.body || {};
+    const grounded = (hook || angle || primaryText || headline || description || researchNote)
+      ? { hook, angle, primaryText, headline, description, researchNote }
+      : undefined;
+    // images: fotos que el admin ya subió con su propio diseño (ver
+    // POST /strategist/upload-image) -- cuando vienen, createDraftAd las usa
+    // tal cual y no genera nada con IA. publishNow activa el anuncio (ya
+    // creado pausado) en el mismo paso, para "ya tengo mi imagen, publicar
+    // de una vez" en vez de dejarlo como borrador a revisar.
+    const manualImages = Array.isArray(images) ? images.filter((u: any) => typeof u === "string" && u) : undefined;
+    // whatsapp: número (o enlace wa.me) al que debe llevar el anuncio. Cambia
+    // el tipo de campaña entera, no solo el botón -- ver createDraftAd.
+    const wa = req.body?.whatsapp ? String(req.body.whatsapp) : "";
+    const destino = wa ? ({ tipo: "whatsapp", numero: wa } as const) : undefined;
+    const strategist = new AdStrategist(tenant || undefined);
+    const draft = await strategist.createDraftAd(adAccountId, accessToken, productId, grounded, manualImages, destino);
+    let published = false;
+    if (publishNow && draft.status === "created") {
+      const rows = await db.select().from(facebookDrafts).where(eq(facebookDrafts.productId, productId));
+      const saved = rows[rows.length - 1];
+      if (saved) published = await strategist.publishDraft(saved.id);
+    }
+    return res.json({ ...draft, published });
   } catch (e) { return next(e); }
 });
 
@@ -551,13 +841,18 @@ router.get("/strategist/strategy/:productId", async (req, res, next) => {
     if (!product) return res.status(404).json({ error: "Producto no encontrado" });
     const strategy = adStrategist.getStrategyForProduct(product);
     const copy = await adStrategist.generateAdCopy(strategy, product);
-    return res.json({ product: product.name, strategy, adCopy: copy });
+    // La estrategia que se muestra es la CORREGIDA (la que lleva el copy,
+    // con el hook real del producto), no la original de la plantilla del
+    // nicho -- ver generateAdCopy: el mismo bug de "dos verdades" que ya se
+    // arregló donde se GUARDA el borrador (createDraftAd).
+    return res.json({ product: product.name, strategy: copy.strategy, adCopy: copy });
   } catch (e) { return next(e); }
 });
 
-router.get("/channels/status", async (_req, res, next) => {
+router.get("/channels/status", async (req, res, next) => {
   try {
-    const status = await channelManager.getStatus();
+    const tenantId = (req as any).tenant?.id || 1;
+    const status = await channelManager.getStatus(tenantId);
     return res.json({ channels: status });
   } catch (e) { return next(e); }
 });
@@ -590,7 +885,7 @@ router.get("/debug-pixels", async (req, res, next) => {
     if (!cfg?.accessToken || !cfg?.adAccountId) {
       return res.status(422).json({ error: "Falta accessToken o adAccountId en la configuración" });
     }
-    const url = `https://graph.facebook.com/v21.0/act_${cfg.adAccountId}/adspixels?fields=id,name&access_token=${cfg.accessToken}`;
+    const url = `${FB_GRAPH_BASE}/act_${cfg.adAccountId}/adspixels?fields=id,name&access_token=${cfg.accessToken}`;
     const r = await fetch(url, { signal: AbortSignal.timeout(15000) });
     const data = await r.json();
     return res.json(data);
@@ -622,6 +917,19 @@ router.get("/config", async (req, res, next) => {
       pageId,
       adAccountId,
       hasToken: !!accessToken,
+      // App ID y App Secret PROPIOS del negocio. El appId no es secreto (viaja
+      // en la URL de cualquier login de Facebook), así que se devuelve tal
+      // cual; del secret solo se informa si existe, nunca su valor.
+      //
+      // A diferencia de los campos de arriba, acá NO se cae al .env: eso
+      // mostraría la app de la plataforma como si fuera la del negocio, y el
+      // dueño creería que ya cargó la suya.
+      appId: cfg.appId || "",
+      hasAppSecret: !!decryptSecret(cfg.appSecret),
+      // Tampoco caen al .env, por el mismo motivo que appId/appSecret.
+      hasMessengerToken: !!decryptSecret(cfg.messengerPageToken),
+      messengerVerifyToken: cfg.messengerVerifyToken || "",
+      loginConfigId: cfg.loginConfigId || "",
     });
   } catch (e) { return next(e); }
 });
@@ -651,6 +959,11 @@ router.put("/config", async (req, res, next) => {
     // encriptado de `current` como si fuera texto plano nuevo.
     const newAccessToken = "accessToken" in body ? encryptSecret(body.accessToken) : current.accessToken || "";
     const newAppSecret = "appSecret" in body ? encryptSecret(body.appSecret) : current.appSecret || "";
+    // El token de página de Messenger también es un secreto: permite escribir
+    // en nombre de la página. Se cifra igual que los otros dos.
+    const newMessengerToken = "messengerPageToken" in body
+      ? encryptSecret(body.messengerPageToken)
+      : current.messengerPageToken || "";
     meta.facebook = {
       ...current,
       accessToken: newAccessToken,
@@ -660,6 +973,15 @@ router.put("/config", async (req, res, next) => {
       adAccountId: field("adAccountId"),
       appId: field("appId"),
       appSecret: newAppSecret,
+      // Estaban en TenantContext pero no se podían cargar desde el panel:
+      // dependían de que el flujo de OAuth los dejara, o del .env del
+      // servidor. Sin poder editarlos, un negocio con su propia app no tenía
+      // forma de conectar Messenger ni de validar sus webhooks.
+      messengerPageToken: newMessengerToken,
+      messengerVerifyToken: field("messengerVerifyToken"),
+      // Necesario si la app usa "Facebook Login for Business": ese producto
+      // ignora los permisos sueltos y exige el id de una configuración.
+      loginConfigId: field("loginConfigId"),
     };
     await db.update(tenants).set({ metadata: meta as any }).where(eq(tenants.id, tenantId));
     tenantManager.clearCache();

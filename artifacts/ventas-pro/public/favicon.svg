@@ -1,15 +1,9 @@
-<svg width="180" height="180" viewBox="0 0 180 180" fill="none" xmlns="http://www.w3.org/2000/svg">
-  
-  <defs>
-    <linearGradient id="faviconGrad" x1="0" y1="0" x2="180" y2="180">
-      <stop offset="0%" stop-color="#6366f1"></stop>
-      <stop offset="100%" stop-color="#8b5cf6"></stop>
-    </linearGradient>
-  </defs>
-  
-  
-  <rect width="180" height="180" rx="40" fill="url(#faviconGrad)"></rect>
-  
-  
-  <path d="M 50 60 L 90 140 L 130 60" stroke="white" stroke-width="16" stroke-linecap="round" stroke-linejoin="round" fill="none"></path>
+<svg width="64" height="64" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="VentasPro">
+  <title>VentasPro</title>
+  <!-- Version optica para tamano chico: la burbuja llena mas el cuadrado y el
+       trazo de la V es mas grueso. A 16px (el tamano real de la pestana) la
+       version con margenes generosos se veia como una mancha sin V. -->
+  <rect width="64" height="64" rx="14" fill="#173A6D"/>
+  <path d="M16 11 H48 A9 9 0 0 1 57 20 V39 A9 9 0 0 1 48 48 H38 L32 58 L26 48 H16 A9 9 0 0 1 7 39 V20 A9 9 0 0 1 16 11 Z" fill="#FFFFFF"/>
+  <path d="M20 21 L32 42 L44 21" fill="none" stroke="#173A6D" stroke-width="7.5" stroke-linecap="round" stroke-linejoin="round"/>
 </svg>

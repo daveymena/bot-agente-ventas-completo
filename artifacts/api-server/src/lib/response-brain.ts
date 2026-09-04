@@ -330,8 +330,11 @@ function buildProhibitions(
     prohibitions.push("NO repitas información que ya diste en mensajes anteriores. Si ya explicaste algo, amplía con un detalle nuevo.");
   }
 
-  // Respuestas breves y humanas, sin muros ni listas mecánicas
-  prohibitions.push("No escribas párrafos largos ni listas con viñetas; responde en 1-3 líneas naturales, como una persona real por WhatsApp.");
+  // Respuestas breves y humanas. La ÚNICA lista permitida es la de CONTENIDO
+  // de un producto ("qué incluye", "modalidad", "beneficios"), que va con
+  // emojis (✅ por ítem) y se lee de un vistazo. Para el resto —objeción,
+  // argumento, saludo, charla— nada de listas: prosa corta y natural.
+  prohibitions.push("Al argumentar, saludar o charlar: no escribas párrafos largos ni listas con viñetas; prosa corta y natural de 1-3 líneas. (Excepción: el CONTENIDO de un producto —qué incluye, modalidad, beneficios— sí va en lista con emojis.)");
 
   // Nunca frases genéricas de relleno ni etiquetas de robot
   prohibitions.push('No uses muletillas vacías ("¡Claro que sí!", "Con mucho gusto", "Estoy aquí para ayudarte") ni etiquetas de sistema ("OBJECIÓN DETECTADA", etc.).');
@@ -357,7 +360,26 @@ function buildRequirements(
       break;
 
     case "ai_product_discovery":
-      requirements.push(`Escribe SOLO 1 línea corta y entusiasta antes de la card (ej: "¡Aquí lo tienes! 👇" o "Mira esto 🔥").`);
+      // ── La línea de entrada NOMBRA el producto ─────────────────────────
+      //
+      // Acá decía: 1 línea corta y entusiasta, ej. "¡Aquí lo tienes! 👇". Y
+      // eso, en un catálogo real, es ambiguo hasta el punto de ser peligroso.
+      // Medido el 2026-09-04 sobre el catálogo de producción: CUATRO productos
+      // distintos tienen "MARKETING" en el nombre --MARKETING DIGITAL, LIBROS
+      // MARKETING, PACK SEO MARKETING DESDE CERO, PACK MARKETING DIGITAL-- y
+      // los cuatro cuestan $60.000. "¡Aquí lo tienes! $60.000" no le dice al
+      // cliente cuál de los cuatro está comprando.
+      //
+      // Y hay un antecedente peor documentado en este repo: dos productos con
+      // el nombre IDÉNTICO y precios distintos ($37.950 y $33.000). Ahí la
+      // línea sin nombre no es solo ambigua: tapa cuál es el precio correcto.
+      //
+      // Nombrarlo cuesta cuatro palabras y quita toda la duda.
+      requirements.push(
+        productName
+          ? `Escribe SOLO 1 línea corta que NOMBRE el producto antes de la card (ej: "¡Acá está *${productName}*! 👇").`
+          : `Escribe SOLO 1 línea corta y entusiasta antes de la card (ej: "¡Aquí lo tienes! 👇").`,
+      );
       requirements.push(`NO menciones el precio, el contenido ni los detalles — todo eso ya está en la card.`);
       requirements.push(`Incluye [CARD: ID] justo después de esa línea.`);
       requirements.push(`NADA después de [CARD: ID].`);
@@ -366,16 +388,19 @@ function buildRequirements(
     case "ai_product_details":
       if (productName) {
         requirements.push(`Responde sobre "${productName}" usando SOLO los datos del catálogo.`);
-        requirements.push(`Sé específico y directo. Máximo 3-4 líneas.`);
+        requirements.push(`No mandes un párrafo denso: la gente no lee muros de texto. Rompé la info en líneas cortas y usá un emoji por idea como ancla visual, para que se lea de un vistazo y se sienta ligero.`);
+        requirements.push(`Los emojis van según lo que describas (📚 contenido, 💻 modalidad, ✅ cada beneficio, 💰 precio, 📦 acceso). Que cada línea respire.`);
+        requirements.push(`Si es un solo dato puntual (precio, duración, garantía), una línea corta con su emoji alcanza.`);
         requirements.push(`No hagas preguntas innecesarias. Entrega la información y deja que el cliente tome la iniciativa.`);
       }
       break;
 
     case "ai_payment_close":
-      requirements.push(`Confirma el producto con entusiasmo (1 línea).`);
-      requirements.push(`NO describas el producto — ni su contenido, características, beneficios ni precio.`);
+      requirements.push(`Si el cliente PREGUNTÓ el precio o cuánto vale, respondé el precio EXACTO en la primera línea con su emoji (ej: "💰 $60.000 COP"). NUNCA lo omitas ni digas "está en la tarjeta".`);
+      requirements.push(`Confirmá el producto con entusiasmo (1 línea).`);
+      requirements.push(`No describas todo el contenido — solo lo que el cliente preguntó.`);
       requirements.push(`Di que los enlaces de pago están listos abajo (el sistema los adjunta automáticamente).`);
-      requirements.push(`Sé breve: máximo 2 líneas + emoji.`);
+      requirements.push(`Sé breve: máximo 2-3 líneas + emoji.`);
       break;
 
     case "ai_objection_handle":
@@ -409,16 +434,33 @@ function buildFormatInstructions(
   // Guía de ESTILO HUMANO — corta y clara. Nada de formato mecánico:
   // los modelos débiles copian los muros de instrucciones, y los separadores/
   // viñetas hacen que suene a robot. Un gran vendedor escribe natural.
+  const e = voice.emojis;
   return `
 [CÓMO ESCRIBIR — REGLA DE ORO]
-Escribe EXACTAMENTE como lo haría el mejor vendedor humano de la empresa por WhatsApp:
-- Natural, cálido, de tú a tú. Como una persona real conversando, NO como un folleto ni un bot.
-- Muy breve: 1 a 3 líneas. Nada de párrafos largos ni discursos.
-- Como máximo 1 emoji, y solo si de verdad suma. NO uses un emoji por línea.
-- PROHIBIDO ABSOLUTO: separadores (━ ─ ═ •••), TÍTULOS EN MAYÚSCULAS, listas con viñetas (✅ •), y etiquetas de sistema tipo "OBJECIÓN DETECTADA", "INFORMACIÓN DE PRODUCTO", "DEBES HACER".
-- Varía tus palabras cada vez. Que nunca suene a plantilla.
-- Si vas a mostrar un producto, escribe UNA frase natural y luego [CARD: ID]. Nada después de la card.
-- Cuando el cliente vaya a pagar, una frase breve confirmando; el sistema adjunta los enlaces (no los escribas tú).`;
+Parecé una conversación de WhatsApp, no una ficha de producto. Poco texto, natural y fácil de leer:
+- Frases cortas, de tú a tú, como una persona real.
+- Nada de párrafos densos ni discursos: si hay varios datos, separalos en líneas cortas con aire.
+- PROHIBIDO: separadores (━ ─ ═ •••), TÍTULOS EN MAYÚSCULAS, y etiquetas de sistema ("OBJECIÓN DETECTADA", "DEBES HACER", etc.).
+- Varía tus palabras. Que nunca suene a plantilla.
+- Si vas a mostrar un producto, UNA frase natural y luego [CARD: ID]. Nada después de la card.
+- Cuando el cliente vaya a pagar, una frase breve confirmando; el sistema adjunta los enlaces (no los escribas tú).
+
+[EMOJIS Y DISEÑO — QUE SE LEA LIVIANO]
+Los emojis son anclas visuales: la gente los usa para leer rápido y sin cansarse. Reglas:
+- Rompé el texto en líneas cortas con aire. Un dato por línea, cada uno con su emoji, en vez de un párrafo cargado.
+- Cada emoji tiene que significar algo del dato: 🎨 para una herramienta, 📐 para otra, ✅ para un beneficio, 💰 para el precio, 📦 para el acceso. No repitas siempre el mismo.
+- En una frase conversacional corta, 1 o 2 emojis alcanzan (😊 👍 🙌).
+- Usá el emoji según el MOMENTO de la venta:
+  · cercanía/emoción: 😊 👍 🙌
+  · producto: ${e.product}
+  · beneficio: ${e.benefit} ⭐
+  · precio: ${e.price}
+  · entrega/acceso: ${e.delivery}
+  · pago: ${e.payment} 📱
+  · confirmar/cerrar: ${e.success} 👉
+  · urgencia (solo si es real): ${e.urgency}
+- NUNCA: emojis aleatorios sin relación, emojis para inventar promesas, ni llenar cada palabra.
+- El cliente debe sentir que chatea con una persona que escribe liviano y claro, no que lee un anuncio cargado.`;
 }
 
 // ─── Función principal: analizar y construir el contexto completo ─────────────

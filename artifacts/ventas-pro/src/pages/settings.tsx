@@ -5,6 +5,9 @@ import {
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Layout } from "@/components/layout";
+import { PaymentCredentials } from "@/components/payment-credentials";
+import { EmailCredentials } from "@/components/email-credentials";
+import { FacebookCredentials } from "@/components/facebook-credentials";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -16,8 +19,15 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Save, X, Plus, Settings as SettingsIcon, ShieldCheck, Terminal, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { AIProviders } from "@/components/ai-providers";
+import { TwoFactorSettings } from "@/components/two-factor-settings";
+import { HelpTourButton } from "@/components/HelpTourButton";
+import { useAutoTour } from "@/hooks/use-auto-tour";
+import { getHelpGuide } from "@/data/help-guides";
+
+const HELP_GUIDE = getHelpGuide("settings")!;
 
 export default function Settings() {
+  useAutoTour(HELP_GUIDE);
   const queryClient = useQueryClient();
   const { data: settings, isLoading } = useGetSettings({
     query: { queryKey: getGetSettingsQueryKey() }
@@ -34,7 +44,10 @@ export default function Settings() {
     autoReplyEnabled: false,
     offHoursMessage: "",
     escalationKeywords: [] as string[],
-    aiProvider: "github" as "github" | "github_copilot_internal" | "ollama_local" | "openai_default" | "nvidia" | "g4f" | "opencode",
+    // "github" sigue en el tipo porque hay negocios guardados con ese valor y
+    // hay que poder mostrarlos, pero ya no es el valor inicial: GitHub retiró
+    // GitHub Models y arrancar apuntando ahí deja al negocio sin IA.
+    aiProvider: "github_copilot_internal" as "github" | "github_copilot_internal" | "ollama_local" | "openai_default" | "nvidia" | "g4f" | "opencode",
     githubToken: "",
     githubModel: "gpt-4o-mini",
     copilotSessionToken: "",
@@ -46,6 +59,9 @@ export default function Settings() {
   });
 
   const [keywordInput, setKeywordInput] = useState("");
+  // Estado del botón "Probar" del modelo: evita dobles clics mientras la
+  // llamada real al proveedor está en curso.
+  const [probandoModelo, setProbandoModelo] = useState(false);
 
   const [deviceFlow, setDeviceFlow] = useState({
     active: false,
@@ -67,12 +83,26 @@ export default function Settings() {
             body: JSON.stringify({ device_code: deviceFlow.deviceCode })
           });
           const data = await res.json();
-          if (data.success && data.token) {
-            setFormData(prev => ({ ...prev, githubToken: data.token }));
+          // El backend, al autorizar, responde { status: "authorized",
+          // success: true } y NO devuelve `token`: ya lo guardó él en la base
+          // y lo puso en el entorno. Acá se exigía `data.token`, así que la
+          // rama de éxito NO entraba nunca... y la de error tampoco, porque
+          // exige `!data.success`. Ninguna de las dos corría: el polling
+          // giraba para siempre y el admin veía "esperando autorización"
+          // cuando en el servidor ya estaba todo hecho.
+          //
+          // Reportado en vivo: "lo autentico y se queda ahí sin confirmar si
+          // fue autenticado, cuando el proceso con Copilot ya se realizó".
+          if (data.success || data.status === "authorized") {
             setDeviceFlow(prev => ({ ...prev, active: false, status: "success" }));
+            // El token ya está guardado del lado del servidor: se relee la
+            // configuración para mostrarlo (enmascarado) en vez de meterlo a
+            // mano en el formulario, que además obligaba a darle "Guardar"
+            // para no perderlo.
+            queryClient.invalidateQueries({ queryKey: getGetSettingsQueryKey() });
             toast.success("¡Cuenta de GitHub vinculada exitosamente!");
             clearInterval(interval);
-          } else if (!data.success && data.status !== "pending") {
+          } else if (data.status !== "pending") {
             // Un error real ocurrió (ej: expiró o fue denegado)
             setDeviceFlow(prev => ({ ...prev, active: false, status: "error" }));
             toast.error(data.error || "La autorización falló o expiró.");
@@ -97,7 +127,11 @@ export default function Settings() {
         autoReplyEnabled: settings.autoReplyEnabled ?? false,
         offHoursMessage: settings.offHoursMessage || "",
         escalationKeywords: settings.escalationKeywords || [],
-        aiProvider: (settings as any).aiProvider || "github",
+        // El default ya no puede ser "github": GitHub RETIRÓ GitHub Models
+        // (404 en el endpoint viejo, 410 "retirement brownout" en el nuevo,
+        // verificado el 2026-08-19). Un negocio nuevo arrancaba apuntando a un
+        // proveedor apagado. Copilot es otra cosa y sí funciona.
+        aiProvider: (settings as any).aiProvider || "github_copilot_internal",
         githubToken: (settings as any).githubToken || "",
         githubModel: (settings as any).githubModel || "gpt-4o-mini",
         copilotSessionToken: (settings as any).copilotSessionToken || "",
@@ -143,7 +177,10 @@ export default function Settings() {
       <div className="flex flex-col gap-8 max-w-5xl mx-auto animate-enter">
         <div className="flex flex-col md:flex-row md:justify-between md:items-end gap-4">
           <div>
-            <h1 className="text-3xl font-bold tracking-tight">Configuración</h1>
+            <div className="flex items-start gap-1.5">
+              <h1 className="text-3xl font-bold tracking-tight">Configuración</h1>
+              <HelpTourButton guide={HELP_GUIDE} />
+            </div>
             <p className="text-muted-foreground mt-1">Preferencias generales del negocio y comportamiento de IA.</p>
           </div>
         </div>
@@ -156,6 +193,13 @@ export default function Settings() {
           </div>
         ) : (
           <div className="grid gap-6 md:grid-cols-2">
+            {/* Primero de la lista a propósito: sin esto configurado, las
+                ventas del negocio se cobran en la cuenta del servidor. */}
+            <PaymentCredentials />
+            <EmailCredentials />
+            <FacebookCredentials />
+            <TwoFactorSettings />
+
             <Card className="rounded-3xl border-0 shadow-lg glass-panel overflow-hidden relative">
               <div className="absolute top-0 right-0 w-full h-2 bg-gradient-to-r from-primary to-accent" />
               <CardHeader className="pt-8">
@@ -250,7 +294,7 @@ export default function Settings() {
               </CardContent>
             </Card>
 
-            <Card className="rounded-3xl border-0 shadow-lg glass-panel overflow-hidden relative md:col-span-2">
+            <Card data-tour="settings-ai-provider" className="rounded-3xl border-0 shadow-lg glass-panel overflow-hidden relative md:col-span-2">
               <div className="absolute top-0 right-0 w-full h-2 bg-gradient-to-r from-blue-500 to-primary" />
               <CardHeader className="pt-8">
                 <CardTitle className="text-xl">Configuración de Inteligencia Artificial</CardTitle>
@@ -268,7 +312,6 @@ export default function Settings() {
                       <option value="opencode">OpenCode Zen (Gratis, con rotación de modelos)</option>
                       <option value="mimo">Xiaomi MiMo (requiere MIMO_API_KEY)</option>
                       <option value="github_copilot_internal">GitHub Copilot Internal (VS Code Flow)</option>
-                      <option value="github">GitHub Models (Azure)</option>
                       <option value="nvidia">NVIDIA NIM (High Performance)</option>
                       <option value="ollama_local">Ollama (Local)</option>
                       <option value="openai_default">OpenAI Direct</option>
@@ -302,12 +345,15 @@ export default function Settings() {
                           </>
                         );
                       } else if (formData.aiProvider === "github") {
-                        const hasToken = !!formData.githubToken;
+                        // Se deja la rama para los negocios que quedaron
+                        // guardados con este proveedor: hay que decirles por
+                        // qué no responde, no mostrarles "Conectado" en verde
+                        // sobre un servicio que GitHub apagó.
                         return (
                           <>
-                            <div className={`h-2 w-2 rounded-full ${hasToken ? 'bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.5)]' : 'bg-red-500'}`} />
+                            <div className="h-2 w-2 rounded-full bg-red-500" />
                             <span className="text-[10px] font-bold uppercase tracking-wider">
-                              {hasToken ? 'Conectado a GitHub Models' : 'Sin Conexión (Falta Token)'}
+                              GitHub Models fue descontinuado — elegí Copilot
                             </span>
                           </>
                         );
@@ -419,9 +465,34 @@ export default function Settings() {
                             </div>
                           </div>
 
-                          {!deviceFlow.active ? (
+                          {/* Estado de ÉXITO en la pantalla, no solo en un aviso.
+                              Al autorizar se ponía `active: false` y la tarjeta
+                              volvía al botón de conectar como si nada hubiera
+                              pasado: para el admin era indistinguible de "sigue
+                              esperando". Un aviso que se desvanece no alcanza
+                              para confirmar algo que se hace una vez. */}
+                          {deviceFlow.status === "success" ? (
+                            <div className="space-y-3 animate-in fade-in duration-500">
+                              <div className="flex items-center gap-2 rounded-2xl border border-green-500/30 bg-green-500/5 p-4">
+                                <div className="h-2 w-2 rounded-full bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)]" />
+                                <div>
+                                  <p className="text-sm font-bold">Cuenta de GitHub vinculada</p>
+                                  <p className="text-[11px] text-muted-foreground">
+                                    El token quedó guardado en el servidor. Probá el modelo abajo para confirmar que responde.
+                                  </p>
+                                </div>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => setDeviceFlow({ active: false, userCode: "", deviceCode: "", verificationUri: "", status: "idle" })}
+                                className="text-[10px] font-black uppercase text-muted-foreground hover:text-foreground"
+                              >
+                                Vincular otra cuenta
+                              </button>
+                            </div>
+                          ) : !deviceFlow.active ? (
                             <div className="space-y-6 animate-in fade-in duration-500">
-                              <div className="grid grid-cols-5 gap-2">
+                              <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
                                 {["GPT-4o", "Claude 3.5", "o1", "o3", "Llama 3"].map(m => (
                                   <div key={m} className="flex flex-col items-center gap-1">
                                     <div className="w-full h-1 bg-gradient-to-r from-transparent via-primary/30 to-transparent rounded-full" />
@@ -523,13 +594,50 @@ export default function Settings() {
 
 
                       <div className="space-y-2">
-                        <Label className="text-muted-foreground font-semibold uppercase tracking-wider text-[10px]">Modelo de GitHub</Label>
-                        <Input 
-                          value={formData.githubModel} 
-                          onChange={e => setFormData({...formData, githubModel: e.target.value})} 
-                          placeholder="gpt-4o-mini"
-                          className="bg-muted/30 font-mono"
-                        />
+                        <Label className="text-muted-foreground font-semibold uppercase tracking-wider text-[10px]">
+                          {formData.aiProvider === "github_copilot_internal" ? "Modelo de Copilot" : "Modelo de GitHub"}
+                        </Label>
+                        <div className="flex gap-2">
+                          <Input
+                            value={formData.githubModel}
+                            onChange={e => setFormData({...formData, githubModel: e.target.value})}
+                            placeholder={formData.aiProvider === "github_copilot_internal" ? "gpt-4o" : "gpt-4o-mini"}
+                            className="bg-muted/30 font-mono"
+                          />
+                          {/* Autenticarse NO garantiza que el modelo responda: el
+                              token puede estar bien y el modelo no existir o no
+                              estar habilitado en esa cuenta. Este botón hace una
+                              llamada REAL al proveedor y dice qué pasó, en vez de
+                              dejar que se descubra recién cuando un cliente
+                              escribe por WhatsApp y el bot no contesta. */}
+                          <Button
+                            type="button"
+                            variant="outline"
+                            disabled={probandoModelo}
+                            onClick={async () => {
+                              setProbandoModelo(true);
+                              try {
+                                const res = await fetch("/api/ai/test", {
+                                  method: "POST",
+                                  headers: { "Content-Type": "application/json" },
+                                  body: JSON.stringify({
+                                    proveedor: formData.aiProvider,
+                                    model: formData.githubModel,
+                                  }),
+                                });
+                                const d = await res.json();
+                                if (d.ok) toast.success(`Responde: ${formData.githubModel || "modelo por defecto"}`);
+                                else toast.error(String(d.error || "No respondió").slice(0, 140));
+                              } catch (e: any) {
+                                toast.error(`No se pudo probar: ${e?.message || e}`);
+                              } finally {
+                                setProbandoModelo(false);
+                              }
+                            }}
+                          >
+                            {probandoModelo ? "Probando…" : "Probar"}
+                          </Button>
+                        </div>
                       </div>
                     </div>
                   )}
@@ -702,9 +810,9 @@ export default function Settings() {
               </CardHeader>
               <CardContent className="space-y-6">
                 <div className="flex flex-col md:flex-row gap-4">
-                  <div className="flex-1">
+                  <div className="flex-1" data-tour="settings-escalation-keywords">
                     <div className="flex gap-2">
-                      <Input 
+                      <Input
                         value={keywordInput}
                         onChange={e => setKeywordInput(e.target.value)}
                         onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), addKeyword())}
@@ -740,10 +848,11 @@ export default function Settings() {
         )}
         
         {/* Fixed Save Button Bottom */}
-        <div className="sticky bottom-6 flex justify-end z-20 mt-4 pointer-events-none">
-          <Button 
-            className="rounded-full shadow-xl shadow-primary/20 h-14 px-8 text-base pointer-events-auto transition-transform hover:scale-105" 
-            onClick={handleSubmit} 
+        <div className="sticky bottom-[calc(88px+env(safe-area-inset-bottom))] md:bottom-6 flex justify-center md:justify-end z-20 mt-4 pointer-events-none">
+          <Button
+            data-tour="settings-save-button"
+            className="rounded-full shadow-xl shadow-primary/20 h-14 px-8 text-base pointer-events-auto transition-transform hover:scale-105"
+            onClick={handleSubmit}
             disabled={updateSettings.isPending}
           >
             <Save className="h-5 w-5 mr-2" /> Guardar Todos los Cambios

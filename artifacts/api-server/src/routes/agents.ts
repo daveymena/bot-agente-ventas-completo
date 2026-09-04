@@ -86,7 +86,9 @@ router.post("/", async (req, res, next) => {
       model: "gpt-4o-mini",
       systemPrompt: body.systemPrompt || "Eres un agente de ventas profesional",
       stages: [],
-      isActive: (body as any).isActive ?? false
+      // Mismo motivo que en PATCH: nada sin nombre queda atendiendo clientes.
+      // Si viene sin nombre se crea igual, pero desactivado.
+      isActive: String(body.name || "").trim() ? ((body as any).isActive ?? false) : false,
     };
     
     // Si hay un templateType, sobrescribir con datos del template
@@ -104,6 +106,13 @@ router.post("/", async (req, res, next) => {
       }
     }
     
+    // Un agente sin nombre queda como una tarjeta en blanco en la lista, sin
+    // forma de saber cual es cual. Reportado: el agente id 3 no tiene nombre.
+    // Se corta aca en vez de dejar entrar el vacio.
+    if (!String((agentData as any).name || "").trim()) {
+      return res.status(400).json({ message: "El agente necesita un nombre para poder distinguirlo del resto." });
+    }
+
     const [created] = await db
       .insert(agents)
       .values(agentData)
@@ -147,6 +156,27 @@ router.patch("/:id", async (req, res, next) => {
 
     const { id } = UpdateAgentParams.parse(req.params);
     const body = UpdateAgentBody.parse(req.body);
+
+    // Un agente sin nombre NO puede quedar atendiendo clientes.
+    //
+    // Se encontró uno operando así (auditoría del 16-08-2026): sin nombre y
+    // sin etapas de conversación. Si el enrutador lo elige, le contesta al
+    // cliente sin persona ni flujo, y no hay forma de saber quién respondió
+    // qué. El nombre no es decorativo: es con lo que el agente se presenta.
+    if ((body as any).isActive) {
+      const [actual] = await db
+        .select({ name: agents.name })
+        .from(agents)
+        .where(and(eq(agents.id, id), eq(agents.tenantId, tenantId)))
+        .limit(1);
+      const nombreFinal = String((body as any).name ?? actual?.name ?? "").trim();
+      if (!nombreFinal) {
+        return res.status(400).json({
+          message: "Este agente no tiene nombre, así que no se puede activar. Ponele un nombre y volvé a intentarlo.",
+        });
+      }
+    }
+
     const [updated] = await db
       .update(agents)
       .set(body as any)
@@ -172,7 +202,13 @@ router.delete("/:id", async (req, res, next) => {
 
     const { id } = DeleteAgentParams.parse(req.params);
     await db.delete(agents).where(and(eq(agents.id, id), eq(agents.tenantId, tenantId)));
-    return res.json(DeleteAgentResponse.parse({ ok: true }));
+    // El esquema de respuesta pide `success`, no `ok`. Con `ok` el parse
+     // tiraba DESPUES de que el DELETE ya se habia ejecutado: el agente se
+     // borraba y al admin le llegaba un 400 "Datos invalidos". Trabajo hecho
+     // y reportado como fallido -- el mismo patron que ya mordio en otros
+     // puntos de este proyecto. Verificado en vivo el 2026-08-22 borrando 9
+     // agentes: los 9 devolvieron 400 y los 9 desaparecieron.
+    return res.json(DeleteAgentResponse.parse({ success: true }));
   } catch (e) {
     return next(e);
   }

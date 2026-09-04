@@ -11,6 +11,7 @@ import { encryptionService } from "../lib/encryption-service";
 import { providerValidator } from "../lib/provider-validator";
 import { costTracker } from "../lib/cost-tracker";
 import { logger } from "../lib/logger";
+import { requirePlatformOwner } from "../middleware/requirePlatformOwner";
 
 const router: IRouter = Router();
 
@@ -23,9 +24,22 @@ router.get("/", async (_req, res, next) => {
   }
 });
 
-router.patch("/", async (req, res, next) => {
+/** Campos que nunca vuelven completos al navegador (ver serializeSettings). */
+const SECRETOS_DE_IA = ["githubToken", "copilotSessionToken", "nvidiaApiKey"] as const;
+
+router.patch("/", requirePlatformOwner(), async (req, res, next) => {
   try {
     const body = UpdateSettingsBody.parse(req.body);
+    // Como al leer se devuelven enmascarados, el navegador puede reenviar la
+    // MÁSCARA al guardar cualquier otro campo. Sin este filtro, guardar el
+    // nombre del negocio pisaría el token real con "••••1234" y dejaría la IA
+    // sin credenciales. Vacío o enmascarado = no lo toques.
+    for (const campo of SECRETOS_DE_IA) {
+      const v = (body as any)[campo];
+      if (typeof v === "string" && (v.includes("•") || v.trim() === "")) {
+        delete (body as any)[campo];
+      }
+    }
     const current = await getOrCreate();
     const [updated] = await db
       .update(settings)
@@ -38,7 +52,7 @@ router.patch("/", async (req, res, next) => {
   }
 });
 
-router.post("/copilot-token", async (req, res, next) => {
+router.post("/copilot-token", requirePlatformOwner(), async (req, res, next) => {
   try {
     const { githubToken } = req.body;
     if (!githubToken) {
@@ -47,7 +61,21 @@ router.post("/copilot-token", async (req, res, next) => {
 
     const sessionToken = await getCopilotSessionToken(githubToken);
     if (!sessionToken) {
-      return res.status(401).json({ error: "Token inválido. Verifica tu PAT e intenta de nuevo." });
+      // El mensaje decía "Verifica tu PAT", y un PAT es JUSTO lo que no sirve
+      // acá: el intercambio va contra api.github.com/copilot_internal/v2/token,
+      // el endpoint INTERNO de Copilot, que solo acepta un token OAuth emitido
+      // al cliente autorizado de Copilot (el de VS Code, client_id
+      // Iv1.b507a08c87ecfe98) y obtenido por el flujo de dispositivo.
+      //
+      // Un ghp_... clásico o uno de grano fino se rechazan siempre, hagas lo
+      // que hagas con sus permisos. El admin perdió tiempo probando tokens
+      // buenos contra una puerta que no los acepta (reportado 2026-08-24).
+      const pareceePat = /^gh[pousr]_/.test(String(githubToken).trim());
+      return res.status(401).json({
+        error: pareceePat
+          ? "Ese es un token personal (PAT) y Copilot no los acepta: su endpoint interno solo admite el token que entrega la autorización de GitHub. Usá el botón \"Autorización Inteligente\" de arriba — te da un código, lo pegás en github.com/login/device y listo."
+          : "GitHub rechazó ese token para Copilot. La forma que funciona es el botón \"Autorización Inteligente\" de arriba, que hace la autorización por código.",
+      });
     }
 
     // Guardar en DB
@@ -60,17 +88,21 @@ router.post("/copilot-token", async (req, res, next) => {
       })
       .where(eq(settings.id, currentSettings.id));
 
-    return res.json({ 
-      success: true, 
+    // Mismo motivo que en /copilot-device-token: al entorno YA, si no el
+    // token nuevo no se usa hasta el próximo reinicio.
+    process.env.GITHUB_TOKEN = githubToken;
+
+    return res.json({
+      success: true,
       token: sessionToken.token,
-      expires_at: sessionToken.expiresAt 
+      expires_at: sessionToken.expiresAt
     });
   } catch (e) {
     return next(e);
   }
 });
 
-router.post("/copilot-device-code", async (_req, res, next) => {
+router.post("/copilot-device-code", requirePlatformOwner(), async (_req, res, next) => {
   try {
     const data = await getCopilotDeviceCode();
     if (!data) {
@@ -85,7 +117,7 @@ router.post("/copilot-device-code", async (_req, res, next) => {
   }
 });
 
-router.post("/copilot-device-token", async (req, res, next) => {
+router.post("/copilot-device-token", requirePlatformOwner(), async (req, res, next) => {
   try {
     const { device_code } = req.body;
     if (!device_code) return res.status(400).json({ error: "device_code requerido" });
@@ -118,6 +150,29 @@ router.post("/copilot-device-token", async (req, res, next) => {
       })
       .where(eq(settings.id, currentSettings.id));
 
+    // Al entorno YA, sin esperar un reinicio. `getProviderConfig(
+    // "github_copilot_internal")` -- que es por donde Copilot entra a la
+    // cadena del bot de ventas -- lee `process.env.GITHUB_TOKEN`, no la base.
+    // Sin esto, el admin se autenticaba, veía "autorizado", y Copilot seguía
+    // fallando con el token viejo hasta el próximo reinicio. Medido en vivo
+    // el 2026-08-19: pasó exactamente eso.
+    process.env.GITHUB_TOKEN = accessToken;
+
+    // Y a OpenCode, que es de donde Atlas saca sus modelos. Sin esto el admin
+    // vincula su cuenta, la app guarda el token, y OpenCode nunca se entera:
+    // sus 36 modelos de Copilot fallan con "Unexpected server error" en 0,4 s
+    // --los 36, medidos uno por uno el 2026-08-25-- porque no tiene ninguna
+    // credencial para ese proveedor. No bloquea la respuesta.
+    void import("../lib/opencode-provider-sync")
+      .then(({ sincronizarCopilotConOpencode }) =>
+        sincronizarCopilotConOpencode({
+          refresh: accessToken,
+          access: sessionToken?.token,
+          expiraEnMs: sessionToken?.expiresAt ? sessionToken.expiresAt * 1000 : null,
+        }),
+      )
+      .catch(() => {});
+
     console.log("✅ [BACKEND] Copilot autorizado y token guardado");
     return res.json({ status: "authorized", success: true });
   } catch (e: any) {
@@ -146,6 +201,13 @@ function parseKeywords(val: unknown): string[] {
   return [];
 }
 
+/** Deja ver que hay un secreto cargado, sin entregarlo. */
+function enmascarar(valor: string | null | undefined): string {
+  const v = String(valor || "");
+  if (!v) return "";
+  return v.length <= 4 ? "••••" : `••••${v.slice(-4)}`;
+}
+
 function serialize(row: typeof settings.$inferSelect) {
   return {
     businessName: row.businessName,
@@ -157,11 +219,20 @@ function serialize(row: typeof settings.$inferSelect) {
     offHoursMessage: row.offHoursMessage,
     escalationKeywords: parseKeywords(row.escalationKeywords),
     aiProvider: row.aiProvider,
-    githubToken: row.githubToken,
+    // Los tokens de IA salían COMPLETOS al navegador: el de GitHub (40
+    // caracteres) y el de sesión de Copilot (395). Cualquier XSS o extensión
+    // instalada se los llevaba. Las credenciales de cobro de esta misma app ya
+    // se manejan bien (cifradas, y solo se muestran los últimos 4); acá no se
+    // había aplicado el mismo criterio. Se enmascaran igual, y los flags
+    // dicen si hay algo cargado sin revelar qué.
+    githubToken: enmascarar(row.githubToken),
+    hasGithubToken: !!row.githubToken,
     githubModel: row.githubModel,
-    copilotSessionToken: row.copilotSessionToken,
+    copilotSessionToken: enmascarar(row.copilotSessionToken),
+    hasCopilotSessionToken: !!row.copilotSessionToken,
     copilotSessionExpiresAt: row.copilotSessionExpiresAt,
-    nvidiaApiKey: row.nvidiaApiKey,
+    nvidiaApiKey: enmascarar(row.nvidiaApiKey),
+    hasNvidiaApiKey: !!row.nvidiaApiKey,
     nvidiaModel: row.nvidiaModel,
     ollamaUrl: row.ollamaUrl,
     ollamaModel: row.ollamaModel,
@@ -176,6 +247,26 @@ function serialize(row: typeof settings.$inferSelect) {
  * GET /api/settings/providers
  * Listar providers configurados (keys enmascaradas)
  */
+/**
+ * POST /api/settings/probar-modelos — prueba EN VIVO qué modelos de un
+ * proveedor sirven de verdad.
+ *
+ * El catálogo que publica un proveedor no dice cuáles funcionan: de los 26 que
+ * lista OpenCode Go, solo 4 sirven. Sin esto, el panel ofrece modelos que
+ * fallan y el admin lo descubre cuando un cliente se queda sin respuesta.
+ */
+router.post("/probar-modelos", async (req, res, next) => {
+  try {
+    const proveedor = String(req.body?.proveedor || req.body?.provider || "").trim();
+    if (!proveedor) return res.status(400).json({ message: "Falta 'proveedor'" });
+    const { probarModelosDe } = await import("../lib/probar-modelos");
+    const r = await probarModelosDe(proveedor, Number(req.body?.limite) || 30);
+    return res.json(r);
+  } catch (e) {
+    return next(e);
+  }
+});
+
 router.get("/providers", async (req, res, next) => {
   try {
     const currentSettings = await getOrCreate();
@@ -231,7 +322,7 @@ router.post("/test-provider", async (req, res, next) => {
  * POST /api/settings/add-provider
  * Añadir nuevo provider con API key encriptada
  */
-router.post("/add-provider", async (req, res, next) => {
+router.post("/add-provider", requirePlatformOwner(), async (req, res, next) => {
   try {
     const { provider, apiKey, model, resourceName } = req.body;
 

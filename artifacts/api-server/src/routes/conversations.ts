@@ -1,6 +1,6 @@
 import { safeISO, dbNow } from "../lib/date-utils";
 import { Router, type IRouter } from "express";
-import { and, asc, desc, eq, ilike, lte, or } from "drizzle-orm";
+import { and, asc, desc, eq, ilike, lte, ne, or } from "drizzle-orm";
 import {
   GetConversationParams,
   GetConversationResponse,
@@ -80,6 +80,163 @@ router.get("/", async (req, res, next) => {
   }
 });
 
+/**
+ * GET /api/conversations/pendientes
+ *
+ * La bandeja ordenada por lo que hay que hacer, no por fecha: de estos diez,
+ * a cuál atender primero y qué le falta para que compre. Es la regla del spec
+ * de V2 -- "no dejar leads sin siguiente acción".
+ *
+ * Va en un endpoint aparte y no como campo del listado porque ese pasa por
+ * `ListConversationsResponse.parse()`, un esquema generado por orval que hoy
+ * no se puede regenerar (ver la nota en routes/products.ts): agregarle un
+ * campo lo haría fallar o se perdería en la próxima regeneración.
+ *
+ * La próxima acción se calcula al vuelo. Guardarla en una columna crearía una
+ * segunda verdad que queda vieja apenas el cliente escribe.
+ *
+ * Declarado ANTES de "/:id" o Express tomaría "pendientes" como un id.
+ */
+router.get("/pendientes", async (req, res, next) => {
+  try {
+    const tenantId = tenantIdOf(req);
+    if (!tenantId) return res.status(401).json({ message: "No autorizado" });
+
+    const { siguienteAccion } = await import("../lib/next-best-action");
+    const { cargarPerfil } = await import("../lib/customer-profile");
+
+    const convos = await db
+      .select()
+      .from(conversations)
+      .where(and(eq(conversations.tenantId, tenantId), ne(conversations.status, "closed")))
+      .orderBy(desc(conversations.lastMessageAt))
+      .limit(100);
+
+    const ahora = Date.now();
+    const items = [];
+    for (const c of convos as any[]) {
+      // Quién habló último decide si le debemos una respuesta, que es la
+      // acción que le gana a todas.
+      const [ultimo] = await db
+        .select({ role: messages.role, createdAt: messages.createdAt })
+        .from(messages)
+        .where(eq(messages.conversationId, c.id))
+        .orderBy(desc(messages.id))
+        .limit(1);
+
+      const perfil = await cargarPerfil(c.leadId);
+      const horasSinEscribir = c.lastMessageAt
+        ? Math.max(0, Math.floor((ahora - new Date(c.lastMessageAt).getTime()) / 3600000))
+        : 0;
+
+      const nba = siguienteAccion({
+        etapa: c.currentStage ?? null,
+        estadoDePago: c.paymentStatus ?? null,
+        clienteEscribioUltimo: ultimo?.role === "customer",
+        horasSinEscribir,
+        productosVistos: perfil.productosVistos?.length ?? 0,
+        objecionAbierta: perfil.objeciones?.[0]?.tipo ?? null,
+        // Sin respuesta del cliente después de que el agente escribió último.
+        seguimientoSinRespuesta: ultimo?.role !== "customer" && horasSinEscribir > 48,
+      });
+
+      items.push({
+        id: c.id,
+        contactName: c.contactName,
+        contactPhone: c.contactPhone,
+        etapa: c.currentStage,
+        horasSinEscribir,
+        productoEnFoco: perfil.productosVistos?.[0]?.nombre ?? null,
+        ...nba,
+      });
+    }
+
+    items.sort((a, b) => a.prioridad - b.prioridad || b.horasSinEscribir - a.horasSinEscribir);
+    return res.json({ total: items.length, items });
+  } catch (e) {
+    return next(e);
+  }
+});
+
+/**
+ * GET /api/conversations/:id/resumen-comercial
+ *
+ * El texto que recibe el vendedor humano cuando se le transfiere el chat: con
+ * el perfil comercial del lead y la próxima acción alcanza para seguir la
+ * venta sin leerse veinte mensajes ni repetirle al cliente preguntas que ya
+ * contestó. Es la Fase 8 (handoff con contexto) del plan V2.
+ *
+ * Va en un endpoint aparte y no como campo del handoff porque ese pasa por
+ * `HandoffConversationResponse.parse()`, un esquema generado por orval que hoy
+ * no se puede regenerar (ver la nota en routes/products.ts).
+ *
+ * Declarado ANTES de "/:id" o Express tomaría "resumen-comercial" como un id.
+ */
+router.get("/:id/resumen-comercial", async (req, res, next) => {
+  try {
+    const tenantId = tenantIdOf(req);
+    if (!tenantId) return res.status(401).json({ message: "No autorizado" });
+
+    const { id } = GetConversationParams.parse(req.params);
+    const [convo] = await db
+      .select()
+      .from(conversations)
+      .where(and(eq(conversations.id, id), eq(conversations.tenantId, tenantId)))
+      .limit(1);
+    if (!convo) return res.status(404).json({ message: "Conversación no encontrada" });
+
+    const { resumenParaHumano } = await import("../lib/handoff-brief");
+    const { cargarPerfil } = await import("../lib/customer-profile");
+
+    const [ultimo] = await db
+      .select({ role: messages.role, createdAt: messages.createdAt })
+      .from(messages)
+      .where(eq(messages.conversationId, id))
+      .orderBy(desc(messages.id))
+      .limit(1);
+
+    const [ultimoDelCliente] = await db
+      .select({ content: messages.content })
+      .from(messages)
+      .where(and(eq(messages.conversationId, id), eq(messages.role, "customer")))
+      .orderBy(desc(messages.id))
+      .limit(1);
+
+    const perfil = await cargarPerfil(convo.leadId);
+    const horasSinEscribir = convo.lastMessageAt
+      ? Math.max(0, Math.floor((Date.now() - new Date(convo.lastMessageAt).getTime()) / 3600000))
+      : 0;
+
+    let puntaje: number | null = null;
+    try {
+      const leadScore = await getLeadScore(id);
+      puntaje = leadScore.totalScore;
+    } catch (e) {
+      logger.warn({ err: e, conversationId: id }, "[HandoffBrief] No se pudo calcular el puntaje");
+    }
+
+    const datos = {
+      nombre: convo.contactName ?? null,
+      telefono: convo.contactPhone ?? null,
+      ciudad: perfil.ciudad ?? null,
+      productoEnFoco: perfil.productosVistos?.[0]?.nombre ?? null,
+      ultimoMensajeDelCliente: ultimoDelCliente?.content ?? null,
+      puntaje,
+      etapa: convo.currentStage ?? null,
+      estadoDePago: convo.paymentStatus ?? null,
+      clienteEscribioUltimo: ultimo?.role === "customer",
+      horasSinEscribir,
+      productosVistos: perfil.productosVistos?.length ?? 0,
+      objecionAbierta: perfil.objeciones?.[0]?.tipo ?? null,
+      seguimientoSinRespuesta: ultimo?.role !== "customer" && horasSinEscribir > 48,
+    };
+
+    return res.json({ resumen: resumenParaHumano(datos), datos });
+  } catch (e) {
+    return next(e);
+  }
+});
+
 router.get("/:id", async (req, res, next) => {
   try {
     const tenantId = tenantIdOf(req);
@@ -140,6 +297,53 @@ router.get("/:id/messages", async (req, res, next) => {
       .where(eq(messages.conversationId, id))
       .orderBy(asc(messages.createdAt));
     return res.json(ListMessagesResponse.parse(rows.map(serializeMessage)));
+  } catch (e) {
+    return next(e);
+  }
+});
+
+/**
+ * Borra el historial de UNA conversación, sin tocar las demás.
+ *
+ * El modelo ve los últimos 12 mensajes y aprende de ellos. Medido el
+ * 2026-08-26 en la conversación de pruebas: de esos 12, SEIS tenían voseo y
+ * dos traían un número de Nequi inventado que el bot había escrito antes. O
+ * sea que seguía copiándose a sí mismo haciéndolo mal, y no había forma de
+ * saber si un arreglo funcionaba o si solo estaba imitando lo viejo.
+ *
+ * `deep-clean` no sirve para esto: barre TODO el negocio, y ahí adentro está
+ * el historial de clientes reales, que es un registro que no se puede perder.
+ *
+ * La conversación se conserva; se van sus mensajes y el producto en foco.
+ */
+router.delete("/:id/messages", async (req, res, next) => {
+  try {
+    const tenantId = tenantIdOf(req);
+    if (!tenantId) return res.status(401).json({ message: "No autorizado" });
+
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id)) return res.status(400).json({ message: "Id inválido" });
+
+    // Mismo cuidado que arriba: messages no guarda tenantId, así que se
+    // comprueba la propiedad ANTES de borrar nada.
+    const [owner] = await db
+      .select({ id: conversations.id })
+      .from(conversations)
+      .where(and(eq(conversations.id, id), eq(conversations.tenantId, tenantId)))
+      .limit(1);
+    if (!owner) return res.status(404).json({ message: "Conversación no encontrada" });
+
+    const borrados = await db.delete(messages).where(eq(messages.conversationId, id)).returning({ id: messages.id });
+
+    // El estado también se reinicia: dejar la etapa en "closing" y un producto
+    // en foco de una conversación que ya no existe haría que el bot arrancara
+    // a mitad de una venta que nadie tuvo.
+    await db
+      .update(conversations)
+      .set({ currentStage: "greeting", currentProductId: null, lastMessage: null, unreadCount: 0 })
+      .where(eq(conversations.id, id));
+
+    return res.json({ ok: true, borrados: borrados.length });
   } catch (e) {
     return next(e);
   }

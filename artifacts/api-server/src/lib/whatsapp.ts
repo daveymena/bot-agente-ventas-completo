@@ -1,6 +1,18 @@
-import { eq, inArray, desc } from "drizzle-orm";
+import { eq, inArray, desc, and } from "drizzle-orm";
+import { getAppUrl } from "./app-url";
+import { transcribirAudio, describirImagen } from "./media-entrante";
+import { contextoDeMoneda } from "./moneda-por-pais";
+import { invitacionDe, sePuedeOfrecerElVideo, pidioElVideo, type SeccionFicha } from "./ficha-parcial";
+import { videoDeProducto } from "./video-de-producto";
+import { leerFicha, repartirPuntos, PRESUPUESTO_PIE_DE_FOTO } from "./ficha-del-producto";
+import { hablarColombiano } from "./hablar-colombiano";
+import { etiquetaDeTransferencia } from "./conversation-engine";
+import { mediosDePago, loQuePidio, renderMediosDePago, noManejamosEse } from "./hechos-de-pago";
+
 import path from "node:path";
 import { existsSync, mkdirSync, rmSync } from "node:fs";
+import { HttpProxyAgent } from "http-proxy-agent";
+import { HttpsProxyAgent } from "https-proxy-agent";
 import QRCode from "qrcode";
 import {
   db,
@@ -10,7 +22,9 @@ import {
   leads,
   products,
   productCategories,
+  tenants,
 } from "@workspace/db";
+
 import { logger } from "./logger";
 import { runAgentReply } from "./agent";
 import { toEmojiStyle } from "./conversation-engine";
@@ -48,8 +62,64 @@ async function sleep(ms: number): Promise<void> {
 // Caché global de IDs de mensajes procesados para evitar duplicados/bucle
 const processedMessageIds = new Set<string>();
 
+/**
+ * ¿Esta cadena la escribió una persona, o es plomería de WhatsApp?
+ *
+ * El problema que resuelve, visto en producción el 2026-08-22 en la
+ * conversación 4 (Martha Cecilia, 573145632442):
+ *
+ *   17:06:05  cliente: "¡Hola! Quiero más información"   ← venía del anuncio de PIANO
+ *   17:06:07  bot:     "¿Vienes por el Cojín Moto Viajero 3D, cierto?"
+ *   17:06:10  cliente: "215814204608627@lid"             ← NADIE escribió esto
+ *   17:06:49  bot:     "te muestro el Pack de Contabilidad"
+ *
+ * Ese `215814204608627@lid` es un LID -- el identificador interno de WhatsApp.
+ * Cuando el mensaje no traía texto extraíble, `diagnoseMessage()` rebuscaba
+ * cualquier cadena del JSON con al menos una letra, y "lid" son letras. Se
+ * guardó como mensaje del cliente y el agente le contestó con un producto al
+ * azar. Al cliente le llegaron dos productos que no tenían nada que ver con
+ * el anuncio que se pagó para traerlo.
+ *
+ * El rebusque de más abajo YA filtraba esto (descarta las cadenas con "@"),
+ * pero esta rama usaba `possibleText` crudo. Dos caminos al mismo lugar y
+ * solo uno con reja. Por eso el chequeo vive acá, en una sola función que
+ * usan los dos.
+ */
+export function pareceMensajeDePersona(s: unknown): boolean {
+  if (typeof s !== "string") return false;
+  const t = s.trim();
+  // Mínimo 2 y no 3: "sí" es el mensaje MÁS importante de toda la venta, y
+  // con el corte en 3 quedaba afuera. Igual que "ok" y "no".
+  if (t.length < 2) return false;
+
+  // Tiene que tener alguna letra: "12345" no es un mensaje.
+  if (!/[a-zA-ZáéíóúÁÉÍÓÚñÑ]/.test(t)) return false;
+
+  // JIDs y LIDs de WhatsApp: 573001234567@s.whatsapp.net, 2158142@lid,
+  // 1234-5678@g.us. Nadie escribe esto en un chat.
+  if (/@(lid|s\.whatsapp\.net|g\.us|c\.us|broadcast|newsletter)/i.test(t)) return false;
+  if (/^\+?\d[\d\s:.-]*@/.test(t)) return false;
+
+  // Nombres de campos del protocolo: messageContextInfo, deviceListMetadata.
+  if (/^[a-z]+([A-Z][a-zA-Z0-9]*)+$/.test(t)) return false;
+
+  // Claves, hashes e ids en base64.
+  if (/^[A-Za-z0-9+/=_-]{16,}$/.test(t)) return false;
+
+  // Mimetypes: image/jpeg, audio/ogg; codecs=opus.
+  if (/^(image|audio|video|application|text)\/[a-z0-9.+-]+/i.test(t)) return false;
+
+  // Mayoría de dígitos y sin espacios: casi siempre un identificador.
+  // `>=` y no `>`: un id hexadecimal como "3A1F2E4B7C9D" tiene exactamente
+  // la mitad de dígitos y se colaba por un carácter.
+  const digitos = (t.match(/\d/g) || []).length;
+  if (!/\s/.test(t) && digitos >= t.length / 2) return false;
+
+  return true;
+}
+
 // Función de diagnóstico para mensajes problemáticos
-function diagnoseMessage(msgObj: any): { 
+function diagnoseMessage(msgObj: any): {
   diagnosis: string; 
   possibleText: string | null; 
   recommendations: string[] 
@@ -61,7 +131,7 @@ function diagnoseMessage(msgObj: any): {
   // Buscar texto en cualquier lugar del objeto
   const findTextInObject = (obj: any, path = ""): string[] => {
     const texts: string[] = [];
-    if (typeof obj === 'string' && obj.length > 2 && /[a-zA-ZáéíóúÁÉÍÓÚñÑ]/.test(obj)) {
+    if (typeof obj === 'string' && pareceMensajeDePersona(obj)) {
       texts.push(`${path}: "${obj}"`);
     } else if (typeof obj === 'object' && obj !== null) {
       for (const [key, value] of Object.entries(obj)) {
@@ -115,11 +185,17 @@ export type AgentReplyPart = {
   content?: string;
   productId?: number;
   paymentOnly?: boolean;
+  /**
+   * Qué pedazo de la ficha corresponde mandar. Cuando viene, manda sobre
+   * `paymentOnly`, que queda solo por compatibilidad con lo ya encolado.
+   */
+  seccion?: SeccionFicha;
 };
 import { PaymentGateway } from "./payments";
 import { retryWithBackoff, notifyOperatorOfFailure } from "./fallbackSystem";
 import { processMessageForLeadScoring } from "./leadScoring";
 
+import { variante } from "./variacion";
 function formatPriceForWa(price: number, currency: string) {
   try {
     return new Intl.NumberFormat("es-MX", {
@@ -155,6 +231,16 @@ function formatPriceForWa(price: number, currency: string) {
  * Devuelve null si no se pudo obtener: quien llama debe mandar solo texto,
  * nunca una imagen sustituta.
  */
+/** El tipo real de la imagen, leído de sus primeros bytes. */
+export function tipoDeImagen(b: Buffer): string | null {
+  if (b.length < 12) return null;
+  if (b[0] === 0xff && b[1] === 0xd8) return "image/jpeg";
+  if (b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47) return "image/png";
+  if (b.toString("ascii", 0, 4) === "RIFF" && b.toString("ascii", 8, 12) === "WEBP") return "image/webp";
+  if (b[0] === 0x47 && b[1] === 0x49 && b[2] === 0x46) return "image/gif";
+  return null;
+}
+
 async function loadProductImage(imageUrl: string): Promise<Buffer | null> {
   if (!imageUrl) return null;
 
@@ -163,9 +249,35 @@ async function loadProductImage(imageUrl: string): Promise<Buffer | null> {
   // URL absoluta: se descarga tal cual.
   if (/^https?:\/\//i.test(imageUrl)) {
     try {
-      const r = await axios.get(imageUrl, { responseType: "arraybuffer", timeout: 8000 });
-      return Buffer.from(r.data);
-    } catch {
+      const r = await axios.get(imageUrl, {
+        responseType: "arraybuffer",
+        // Las fotos de los productos FÍSICOS viven en el CDN de Dropi
+        // (d39ru7awumhhs2.cloudfront.net) y algunas pesan más de medio mega;
+        // 8s alcanzaban justo, y un pico de latencia dejaba al cliente sin
+        // foto. Los digitales no lo notaban porque salen de disco.
+        timeout: 20000,
+        maxContentLength: 12 * 1024 * 1024,
+        // Sin User-Agent, CloudFront responde 403 (verificado con curl -A "").
+        // Axios manda uno propio, pero no hay que depender de ese detalle.
+        headers: {
+          "User-Agent": "Mozilla/5.0 (compatible; VentasProBot/1.0)",
+          Accept: "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
+        },
+      });
+      const buf = Buffer.from(r.data);
+      if (buf.length === 0) {
+        console.error(`[WhatsApp] La imagen vino vacía: ${imageUrl}`);
+        return null;
+      }
+      return buf;
+    } catch (e: any) {
+      // El motivo importa: 403 del CDN, timeout y "no existe" se arreglan de
+      // formas distintas, y antes los tres se veían igual (silencio).
+      const status = e?.response?.status;
+      console.error(
+        `[WhatsApp] No se pudo descargar la imagen (${imageUrl}): ` +
+        `${status ? "HTTP " + status : e?.code || e?.message}`,
+      );
       return null;
     }
   }
@@ -213,93 +325,739 @@ async function loadProductImage(imageUrl: string): Promise<Buffer | null> {
   return null;
 }
 
-function buildProductCaption(p: typeof products.$inferSelect, categoryName: string | null, dynamicLinks?: any) {
+/**
+ * La ficha partida en BLOQUES, para mandarla como varios mensajes seguidos en
+ * vez de un solo muro.
+ *
+ * Pedido del admin (2026-08-16): "que el texto vaya partido, que no se vea tan
+ * lleno... sabiendo que no es lo mismo en PC que en móvil". Tiene razón: en el
+ * celular un mensaje de 30 líneas ocupa la pantalla entera y da pereza; cuatro
+ * mensajes cortos se leen de un vistazo y además se siente humano, que es como
+ * escribe un vendedor de verdad.
+ *
+ * El corte es por SECCIÓN, no cada N renglones fijos: partir a ciegas cada 3
+ * líneas cortaría una lista de módulos por la mitad y quedaría peor que el
+ * muro. Cada bloque es una idea completa.
+ */
+async function buildProductBlocks(p: typeof products.$inferSelect, dynamicLinks?: any, semilla = ""): Promise<string[]> {
+  const completo = await buildProductCaption(p, null, dynamicLinks, semilla);
+  // El separador es la línea en blanco doble que deja cada sección; se agrupan
+  // las secciones cortas para no mandar ocho mensajes de una línea.
+  // 🎬 incluido: el video de muestra va en su PROPIO mensaje, para que
+  // WhatsApp le arme la vista previa con miniatura. Pegado a otro texto, el
+  // enlace queda perdido en el medio y pierde todo su efecto.
+  const secciones = completo.split(/\n(?=📚 |💻 |🎬 |💰 |━|💳 |🛒 |🚀 )/);
+  const bloques: string[] = [];
+  let actual = "";
+  for (const s of secciones) {
+    const limpio = s.replace(/^\n+|\n+$/g, "");
+    if (!limpio || limpio === "━━━━━━━━━━━━━━━━━━") continue;
+    // Un bloque se cierra cuando ya tiene 3+ renglones con contenido.
+    const renglones = (actual + "\n" + limpio).split("\n").filter((l) => l.trim()).length;
+    if (actual && renglones > 8) {
+      bloques.push(actual.trim());
+      actual = limpio;
+    } else {
+      actual = actual ? `${actual}\n\n${limpio}` : limpio;
+    }
+  }
+  if (actual.trim()) bloques.push(actual.trim());
+  return bloques;
+}
+
+async function buildProductCaption(p: typeof products.$inferSelect, categoryName: string | null, dynamicLinks?: any, semilla = ""): Promise<string> {
   const lines: string[] = [];
-  
+  const sem = `${semilla}|${p.id}`;
+  // La semilla viene como "telefono|productId": el teléfono dice de qué país
+  // es el cliente, y de ahí salen la moneda y los medios de pago que le
+  // sirven de verdad.
+  const mon = await contextoDeMoneda(String(semilla).split("|")[0], Number(p.price), p.currency);
+
   let meta: any = {};
   try { meta = JSON.parse(p.metadata || "{}"); } catch(e) {}
 
   const nameUpper = p.name.toUpperCase();
-  const mainEmoji = nameUpper.includes("PIANO") ? "🎹" : 
-                    nameUpper.includes("GUITARRA") ? "🎸" : 
-                    nameUpper.includes("CANTO") ? "🎤" : 
-                    nameUpper.includes("EXCEL") ? "📊" : "💻";
+  const mainEmoji = emojiDelProducto(p.name, categoryName);
 
-  lines.push(`✨ ${mainEmoji} *PROGRAMA PROFESIONAL: ${nameUpper}*`);
-  lines.push("━━━━━━━━━━━━━━━━━━━━━━━");
+  // ── Formato corto y escaneable ────────────────────────────────────────────
+  // Regla explícita del admin (2026-08-16): "no quiero texto tan grande, eso
+  // da pereza leer". Antes esta ficha volcaba la DESCRIPCIÓN COMPLETA -- que
+  // desde la restauración del catálogo incluye el bloque de beneficios -- y
+  // justo debajo repetía esos mismos beneficios como "BENEFICIOS INCLUIDOS".
+  // El cliente recibía el mismo contenido dos veces y un muro de texto.
+  //
+  // Ahora: título, UNA línea de qué es, qué incluye (lo específico del curso),
+  // modalidad (lo estándar), precio y pago. Cada bloque corto y separado.
+  lines.push(`${mainEmoji} *${nameUpper}*`);
   lines.push("");
-  lines.push(`*DESCRIPCIÓN:*`);
-  lines.push(`${p.description || 'Formación estructurada para llevar tus habilidades al siguiente nivel con metodología probada y práctica.'}`);
-  lines.push("");
-  
-  lines.push(`*BENEFICIOS INCLUIDOS:*`);
-  const features = (p.features ?? []);
-  if (features.length > 0) {
-    for (const f of features) lines.push(`✅ ${f}`);
-  } else {
-    lines.push(`✅ ${meta.classes || "Contenido completo"} en Alta Definición`);
-    lines.push(`✅ Acceso inmediato y de por vida`);
+
+  // Resumen: la primera línea, y CORTADA.
+  //
+  // Quedarse con la primera línea no alcanza: hay productos cuyo texto
+  // original trae el temario entero en un solo párrafo (el curso de piano
+  // son 550 caracteres de corrido). Eso es exactamente el muro que el admin
+  // no quiere -- y encima repite lo que ya va listado en "Incluye" abajo.
+  //
+  // Se corta en la primera frase que cierre antes de los 180 caracteres; si
+  // no hay punto, en el último espacio. La idea es que el cliente lea DE QUÉ
+  // ES en dos segundos y el detalle lo vea en las viñetas.
+  // Tomaba `description.split(/\r?\n/)[0]`, o sea la PRIMERA linea -- que en
+  // estas fichas es el titulo. Resultado: el nombre del producto impreso dos
+  // veces, uno debajo del otro. Se lee igual que en construirSeccion.
+  const crudo = leerFicha(p.description, p.name).intro;
+  let resumen = crudo;
+  if (crudo.length > 180) {
+    const corteFrase = crudo.slice(0, 180).lastIndexOf(". ");
+    if (corteFrase > 60) {
+      resumen = crudo.slice(0, corteFrase + 1);
+    } else {
+      const corteEspacio = crudo.slice(0, 180).lastIndexOf(" ");
+      resumen = crudo.slice(0, corteEspacio > 60 ? corteEspacio : 180).trimEnd() + "…";
+    }
   }
-  
+  lines.push(resumen || "Formación práctica para llevar tus habilidades al siguiente nivel.");
   lines.push("");
-  lines.push(`💰 *PRECIO ESPECIAL:*`);
-  lines.push(`*${formatPriceForWa(Number(p.price), p.currency)}*`);
-  lines.push("━━━━━━━━━━━━━━━━━━━━━━━");
+
+  // Lo ESPECÍFICO de este curso va en "Incluye"; lo estándar (que es igual en
+  // todos) va aparte en "Modalidad", para no mezclar temario con condiciones.
+  // Condiciones de entrega y acceso: van en "Modalidad", no en el temario.
+  //
+  // El patrón cubre las VARIANTES de redacción porque cada producto las
+  // escribe distinto. Con una lista corta se colaban a "Incluye" y el bloque
+  // de Modalidad las repetía debajo -- el admin lo detectó en el curso de
+  // piano: "Acceso de por vida" y "Online y descargable" aparecían dos veces
+  // en la misma ficha.
+  const ESTANDAR = /acceso (permanente|de por vida|inmediato|ilimitado)|de por vida|contenido actualizable|actualizaciones|soporte (t[eé]cnico|incluido)|descargas? (ilimitadas?|incluidas?)|descargable|alta definici[oó]n|\bHD\b|google drive|100% online|certificaci[oó]n de participaci[oó]n/i;
+  const features = (p.features ?? []) as string[];
+  const propias = features.filter((f) => !ESTANDAR.test(String(f)));
+  const estandar = features.filter((f) => ESTANDAR.test(String(f)));
+
+  if (propias.length > 0) {
+    lines.push(variante([`📚 *Incluye:*`, `📚 *Qué vas a recibir:*`, `📚 *Contenido:*`, `📚 *Esto trae:*`], sem));
+    // Tope de 8: más que eso vuelve a ser un muro. Si hay más, se dice.
+    for (const f of propias.slice(0, 8)) lines.push(`${emojiDeCaracteristica(f, p.name)} ${f}`);
+    // Antes decía "…y 1 más" a secas y quedaba cortado, sin decir más de qué.
+    // Mismo cuidado con el singular que en la ficha parcial: "1 cosas más" es
+    // una falta de ortografía que el cliente lee justo cuando está evaluando
+    // si confiar.
+    if (propias.length > 8) {
+      const restantes = propias.length - 8;
+      lines.push(`➕ Y ${restantes} ${restantes === 1 ? "cosa más" : "cosas más"} que te cuento por aquí`);
+    }
+    lines.push("");
+  } else if (meta.classes) {
+    lines.push(variante([`📚 *Incluye:*`, `📚 *Qué vas a recibir:*`, `📚 *Contenido:*`, `📚 *Esto trae:*`], sem));
+    lines.push(`🎬 ${meta.classes} en Alta Definición`);
+    lines.push("");
+  }
+
+  // Un producto FISICO no es "online y descargable" ni tiene "acceso de por
+  // vida". Este respaldo estaba fijo para TODO el catalogo, asi que una
+  // rodillera termica se ofrecia como descargable -- reportado por el admin.
+  // Se ramifica por el tipo real del producto.
+  const esDigital = String((p as any).kind || "digital") !== "physical";
+  lines.push(esDigital
+    ? variante([`💻 *Modalidad:*`, `💻 *Cómo funciona:*`, `💻 *Acceso:*`, `💻 *Cómo lo recibís:*`], sem)
+    : variante([`📦 *Cómo lo recibís:*`, `📦 *Entrega:*`, `📦 *Envío:*`], sem));
+  if (estandar.length > 0) {
+    for (const f of estandar.slice(0, 4)) lines.push(`${emojiDeCaracteristica(f, p.name)} ${f}`);
+  } else if (esDigital) {
+    lines.push(`💻 100% online y descargable`);
+    lines.push(`♾️ Acceso de por vida`);
+  } else {
+    lines.push(`📦 Te lo enviamos a tu dirección`);
+    lines.push(`📲 Coordinamos la entrega por aquí`);
+  }
+  lines.push("");
+
+  // ── Video de muestra ────────────────────────────────────────────────
+  // Pedido del admin: mostrarle al cliente CÓMO son las clases, no solo
+  // contárselo. Una promesa se discute; ver la primera clase, no.
+  //
+  // Va como enlace, no como archivo: la presentación del curso de piano pesa
+  // 118 MB y WhatsApp corta en 16 MB. El enlace de Drive abre el reproductor
+  // directo en el celular y muestra vista previa con miniatura en el chat.
+  //
+  // Se ubica ANTES del precio a propósito: primero que vea lo que se lleva,
+  // después cuánto cuesta.
+  const videoMuestra = videoDeProducto(meta);
+  if (videoMuestra) {
+    lines.push(variante([
+      `🎬 *Mira cómo son las clases:*`,
+      `🎬 *Así se ve por dentro:*`,
+      `🎬 *Te dejo la primera clase para que veas:*`,
+      `🎬 *Mirá un pedacito antes de decidir:*`,
+    ], sem));
+    lines.push(videoMuestra);
+    lines.push("");
+  }
+
+  // Precio en la moneda que el cliente entiende. La semilla trae su teléfono,
+  // y el código de país es el dato más confiable de una conversación: no lo
+  // eligió para una encuesta, es su línea real.
+  lines.push(`💰 *PRECIO: ${mon.precioTexto}*`);
+  if (!mon.esColombia && mon.pais) {
+    lines.push(`🌎 Precio para ${mon.pais} — pagás en línea, acceso inmediato.`);
+  }
+  lines.push("");
+  lines.push("━━━━━━━━━━━━━━━━━━");
   lines.push("");
 
   if (dynamicLinks) {
-    lines.push(`💳 *ENLACES DE PAGO SEGURO:*`);
+    lines.push(variante([`💳 *FORMAS DE PAGO*`, `💳 *Puedes pagar así*`, `💳 *Medios de pago*`, `💳 *Cómo pagar*`], sem));
     lines.push("");
-    if (dynamicLinks.mercadopago && (dynamicLinks.mercadopago.url || dynamicLinks.mercadopago.shortUrl)) {
-      lines.push(`🔹 *Tarjeta de Crédito / PSE (Colombia):*`);
-      lines.push(`${dynamicLinks.mercadopago.url || dynamicLinks.mercadopago.shortUrl}`);
+
+    // Enlace CORTO primero. El acortador ya existía y generaba /p/<código>,
+    // pero acá se pedía `url || shortUrl`: el largo ganaba siempre y el corto
+    // solo aparecía si el largo faltaba. Un checkout de MercadoPago crudo son
+    // ~120 caracteres de ruido con tokens adentro; en el celular ocupa cuatro
+    // renglones y parece un enlace sospechoso.
+    const corto = (m: any) => m?.shortUrl || m?.url || "";
+
+    // A un cliente de otro país, MercadoPago Colombia le rechaza la tarjeta y
+    // Nequi/Daviplata directamente no existen para él: son billeteras
+    // colombianas. Mostrarle esas opciones es hacerle perder el tiempo y
+    // pedirle que confíe en algo que no puede usar. Afuera cobra PayPal.
+    if (mon.aceptaPagosLocales && corto(dynamicLinks.mercadopago)) {
+      lines.push(`🔹 *Tarjeta / PSE:*`);
+      lines.push(corto(dynamicLinks.mercadopago));
       lines.push("");
     }
-    if (dynamicLinks.paypal && (dynamicLinks.paypal.url || dynamicLinks.paypal.shortUrl)) {
-      lines.push(`🔹 *PayPal (Internacional):*`);
-      lines.push(`${dynamicLinks.paypal.url || dynamicLinks.paypal.shortUrl}`);
+    if (corto(dynamicLinks.paypal)) {
+      lines.push(mon.esColombia ? `🔹 *PayPal (Internacional):*` : `🔹 *Tarjeta o PayPal:*`);
+      lines.push(corto(dynamicLinks.paypal));
       lines.push("");
     }
-    if (dynamicLinks.transfer && dynamicLinks.transfer.options && dynamicLinks.transfer.options[0]) {
-      lines.push(`🔹 *Transferencia Directa:*`);
-      lines.push(`📍 *Nequi/Daviplata:* ${dynamicLinks.transfer.options[0].number}`);
-      lines.push(`👤 *Titular:* ${dynamicLinks.transfer.options[0].name}`);
+    if (mon.aceptaPagosLocales && dynamicLinks.transfer?.options?.[0]) {
+      lines.push(`🔹 *${etiquetaDeTransferencia(dynamicLinks.transfer)}:*`);
+      lines.push(`📱 ${dynamicLinks.transfer.options[0].number}`);
+      lines.push(`👤 ${dynamicLinks.transfer.options[0].name}`);
       lines.push("");
     }
   }
 
-  lines.push(`_¿Deseas confirmar tu compra ahora o tienes alguna pregunta adicional?_`);
+  // Comprar desde la tienda: pedido del admin (2026-08-16). Es la salida
+  // cuando el cliente no quiere ninguno de los métodos de arriba, y además
+  // ahí ve el producto con su foto y su ficha completa. El enlace corto /p/<id>
+  // redirige a la página real y ya trae vista previa con imagen al compartirse.
+  const urlTienda = `${(process.env.APP_URL || "https://ventasproia.com").replace(/\/+$/, "")}/p/${p.id}`;
+  lines.push(variante([`🛒 *O comprá directo en la tienda:*`, `🛒 *También puedes comprarlo acá:*`, `🛒 *Directo desde la web:*`, `🛒 *Si preferís, desde la tienda:*`], sem));
+  lines.push(urlTienda);
+  lines.push("");
+
+  lines.push(variante([`🚀 *¿Quieres comprarlo ahora o tienes alguna pregunta?*`, `🚀 *¿Lo quieres llevar o te resuelvo alguna duda primero?*`, `🚀 *¿Arrancamos hoy o te queda alguna pregunta?*`, `🚀 *¿Te lo activo ahora o quieres saber algo más?*`, `🚀 *¿Seguimos con la compra o te ayudo con algo más?*`], sem));
   
   return lines.join("\n");
+}
+
+/**
+ * Los mensajes que corresponden a UNA sección de la ficha.
+ *
+ * La ficha salía siempre entera: título, resumen, contenido, modalidad, video,
+ * precio, TRES medios de pago y el link de la tienda. Preguntaras lo que
+ * preguntaras, y también cuando solo dijiste "me interesa el curso de X".
+ *
+ * Medido en la conversación real del 17-19 de agosto: un "me interesa el curso
+ * de educa a tu perro" recibía cinco mensajes seguidos que terminaban con tres
+ * enlaces de pago y el número de Nequi -- antes de que el cliente preguntara
+ * siquiera el precio. Eso no es atender, es volcar un folleto: al cliente no le
+ * queda nada que preguntar, y una conversación que se termina no se cierra.
+ *
+ * Acá se arma solo el pedazo que el cliente pidió, y se cierra con una puerta
+ * abierta (ver `invitacionDe`). El resto se queda para el turno siguiente.
+ *
+ * Devuelve `{ conFoto, mensajes }`: la foto solo va cuando presenta el
+ * producto, no cuando responde "¿cuánto vale?".
+ */
+/**
+ * El emoji que le corresponde a UNA característica, por lo que dice.
+ *
+ * Antes toda la lista salía con el mismo ✅. Con 5 viñetas iguales el ojo no
+ * distingue una de otra y la ficha se lee como un bloque -- el admin lo pidió
+ * explícito: "usar el emoji de cada característica del producto".
+ *
+ * Se elige por PALABRA, no por posición: así el mismo producto siempre da la
+ * misma cara, y dos productos distintos no comparten un emoji que no les
+ * corresponde. Lo que no reconoce se queda con ✅, que nunca queda mal.
+ */
+/**
+ * El emoji que encabeza la ficha de un producto.
+ *
+ * Antes esto eran DOS cadenas de cuatro reglas escritas a mano --piano,
+ * guitarra, canto, excel-- que caían en 💻. O sea que en cualquier negocio que
+ * no fuera este, la ficha abría con un ícono de laptop: una panadería vendiendo
+ * una torta, una tienda de ropa vendiendo una camisa, un taller vendiendo un
+ * repuesto. Todos, 💻.
+ *
+ * El admin lo preguntó así el 2026-09-01: "un negocio que no tenga maqueta,
+ * ¿no debería la IA reorganizar las cosas, de forma real y racional?".
+ *
+ * ── La respuesta, y por qué NO la decide el modelo ───────────────────────
+ *
+ * Se reusa el mismo diccionario que ya clasifica las CARACTERÍSTICAS: son
+ * reglas sobre datos reales del catálogo (el nombre y la categoría que cargó
+ * el dueño), así que se adaptan solas a cualquier rubro sin que nadie arme una
+ * maqueta.
+ *
+ * Dejárselo al modelo sería más flexible y peor: es la misma puerta por la que
+ * este proyecto ya vio entrar precios inventados, garantías que no existían y
+ * un número de Nequi que no era de nadie. El reparto que funciona --y que ya
+ * gobierna el resto del sistema-- es que el servidor decide lo que tiene que
+ * salir exacto, y el modelo escribe lo que es flexible. Un emoji es cosmético,
+ * pero encabeza una ficha con precio: si se equivoca, la ficha entera se lee
+ * como de otro negocio.
+ *
+ * El respaldo es 📦 y no 💻: una caja no afirma nada sobre qué se vende. El
+ * ícono de laptop sí, y para el 90% de los negocios afirma algo falso.
+ */
+export function emojiDelProducto(nombre: string, categoria?: string | null): string {
+  const porNombre = emojiDeCaracteristica(nombre, "");
+  if (porNombre !== "•") return porNombre;
+  if (categoria) {
+    const porCategoria = emojiDeCaracteristica(String(categoria), "");
+    if (porCategoria !== "•") return porCategoria;
+  }
+  return "📦";
+}
+
+export function emojiDeCaracteristica(texto: string, deQueProducto = ""): string {
+  const t = String(texto).toLowerCase();
+  const REGLAS: Array<[RegExp, string]> = [
+    [/certificad|diploma/, "📜"],
+    [/garant[ií]a|devoluci[oó]n|reembolso/, "🛡️"],
+    [/de por vida|permanente|ilimitad/, "♾️"],
+    [/soporte|acompa[ñn]amiento|asesor/, "🙌"],
+    [/partitura|m[uú]sica|piano|teclado|acorde/, "🎼"],
+    [/perro|cachorr|mascota|canin|adiestra/, "🐶"],
+    [/ingl[eé]s|idioma|franc[eé]s|alem[aá]n|italian|portugu/, "🌍"],
+    [/dise[ñn]o|gr[aá]fic|imagen|logo|visual|foto/, "🎨"],
+    // El orden importa: una linea suele nombrar varias cosas a la vez ("n8n:
+    // agente IA, APIs y webhooks"). Gana lo mas ESPECIFICO, que es lo que
+    // distingue esa caracteristica de las demas del mismo producto -- si
+    // ganara "agente", medio curso de IA saldria con la misma carita.
+    [/automatiz|n8n|flujo|webhook|\bapi\b|sin c[oó]digo/, "⚙️"],
+    [/servidor|\bvps\b|nube|hosting|montar/, "🚀"],
+    [/whatsapp|telegram|slack|conect/, "🔗"],
+    [/c[oó]digo|programa|\bapp\b|supabase|render/, "💻"],
+    [/agente|\bia\b|inteligencia artificial|chatbot|\bbot\b/, "🤖"],
+    [/excel|office|word|powerpoint|outlook|planilla/, "📊"],
+    [/plantilla|recurso|descarga|archivo/, "📁"],
+    [/video|clase|m[oó]dulo|lecci[oó]n|curso/, "🎬"],
+    [/alta definici[oó]n|\bhd\b|calidad/, "📺"],
+    [/env[ií]o|direcci[oó]n|domicilio|entrega/, "📦"],
+    [/precio|pago|cuota|descuento/, "💰"],
+    [/actualiza|nuevo|novedad/, "🆕"],
+    [/desde cero|principiante|paso a paso|f[aá]cil/, "🌱"],
+    [/negocio|vender|cliente|monetiz/, "💼"],
+    // ── Rubros que este catálogo NO tiene ────────────────────────────────
+    //
+    // Todo lo de arriba se escribió mirando un catálogo de cursos digitales.
+    // Para el SaaS eso es la mitad del problema: una panadería, una tienda de
+    // ropa o un taller son negocios igual de válidos y ninguno aparecía acá.
+    [/torta|pastel|postre|panader|pan\b|galleta|reposter/, "🍰"],
+    [/pizza|hamburgues|comida|almuerzo|restaurante|men[uú]/, "🍽️"],
+    [/caf[eé]|bebida|jugo|cerveza|vino/, "☕"],
+    [/camisa|blusa|vestido|pantal[oó]n|ropa|prenda|moda/, "👕"],
+    [/zapato|tenis|calzado|sandalia|bota/, "👟"],
+    [/bolso|cartera|mochila|maleta/, "👜"],
+    [/anillo|collar|arete|joya|pulsera|reloj/, "💍"],
+    [/u[ñn]a|manicur|cabello|peluquer|maquillaje|belleza|cosm[eé]tic/, "💅"],
+    [/gimnasio|fitness|ejercicio|entrenamiento|pesas|deporte/, "💪"],
+    [/mueble|sof[aá]|colch[oó]n|hogar|cocina|decoraci[oó]n/, "🛋️"],
+    [/herramienta|repuesto|mec[aá]nic|taller|motor|llanta/, "🔧"],
+    [/celular|tel[eé]fono|tablet|audifon|cargador|smartphone/, "📱"],
+    [/juguete|ni[ñn]o|beb[eé]|infantil/, "🧸"],
+    [/planta|jard[ií]n|flor|semilla|maceta/, "🌿"],
+    [/libro|revista|lectura/, "📚"],
+    [/limpieza|detergente|jab[oó]n|aseo/, "🧼"],
+  ];
+  for (const [patron, emoji] of REGLAS) if (patron.test(t)) return emoji;
+
+  // El comodín. Antes era ✅ y el admin lo marcó: "no dejas de usar chuleta
+  // habiendo tanto emoji". Tenía razón -- con ✅ de relleno la ficha vuelve a
+  // ser una columna de tildes iguales, que es justo lo que se quería sacar.
+  //
+  // Así que cuando la frase no dice de qué habla, se mira DE QUÉ PRODUCTO es:
+  // una línea suelta del curso de piano sigue siendo del curso de piano.
+  const prod = String(deQueProducto).toLowerCase();
+  for (const [patron, emoji] of REGLAS) if (patron.test(prod)) return emoji;
+  // Y si tampoco el producto lo dice, un punto neutro: no afirma nada y no
+  // ensucia. ✅ solo queda para lo que de verdad es una confirmación.
+  return "•";
+}
+
+/** Lo que ya ocupan el titulo y el resumen, para no pasarse del pie de foto. */
+function presupuestoUsadoPorElEncabezado(lineas: string[]): number {
+  return lineas.join("\n").length;
+}
+
+async function construirSeccion(
+  p: typeof products.$inferSelect,
+  seccion: SeccionFicha,
+  dynamicLinks: any,
+  semilla: string,
+  /**
+   * Si al cliente YA se le mostraron las características de este producto.
+   *
+   * Sin esto, el cierre de la sección de precio le ofrecía "¿Te cuento qué
+   * incluye? 👀" a alguien que acababa de recibir la ficha con la lista de
+   * características. El admin lo señaló el 2026-09-01: "sigue diciendo qué
+   * incluye cuando en la información principal ya lo dijo".
+   *
+   * El parámetro para arreglarlo YA existía en `invitacionDe` --con su
+   * comentario describiendo este mismo defecto-- y nunca se pasaba, así que
+   * siempre valía false. Es el caso clásico de un arreglo escrito a medias:
+   * la mitad difícil hecha, la fácil olvidada, y el bug intacto.
+   */
+  yaVioContenido = false,
+  sesionNueva = false,
+  /**
+   * Si el video de este producto ya salio en esta conversacion.
+   *
+   * Hace falta para que el video que cierra la entrega del contenido no se
+   * repita: el cliente ya lo tiene, y remandarlo es lo mismo que remandarle la
+   * ficha.
+   */
+  videoYaEnviado = false,
+  /**
+   * Lo que escribio el cliente en este turno.
+   *
+   * Hace falta para elegir el medio de pago concreto: "daviplata" tiene que
+   * traer Daviplata, no la primera cuenta cargada.
+   */
+  mensajeDelCliente = "",
+  /**
+   * Si el precio de este producto ya salio en la conversacion.
+   *
+   * Solo lo usa el cierre, para no ofrecerle el precio a quien acaba de
+   * preguntarlo ni cerrar con una encuesta a quien ya lo sabe.
+   */
+  yaSabeElPrecio = false,
+): Promise<{ conFoto: boolean; mensajes: string[] }> {
+  const mon = await contextoDeMoneda(String(semilla).split("|")[0], Number(p.price), p.currency);
+  const esFisico = String((p as any).kind || "digital") === "physical";
+  // El producto EN la tienda. Se usa el enlace corto /p/:id y no la ruta larga
+  // /tienda/:slug/producto/:id a propósito: el corto resuelve solo qué negocio
+  // es (app.ts redirige), así que no hay que pasarle el slug hasta acá ni
+  // arriesgar que quede viejo si el admin lo cambia.
+  const urlEnTienda = `${getAppUrl().replace(/\/$/, "")}/p/${p.id}`;
+  const corto = (m: any) => m?.shortUrl || m?.url || "";
+
+  // ¿ESTE producto tiene video? Medido en produccion el 2026-08-29: NINGUNO de
+  // los 84 activos lo tenia cargado. El cierre no puede ofrecer lo que no existe.
+  const urlVideo = videoDeProducto(p.metadata);
+
+  // Las secciones que LISTAN las características tampoco pueden cerrar
+  // ofreciéndolas: ahí el cliente las está leyendo en el mismo mensaje.
+  const estaFichaMuestraContenido = seccion === "completa" || seccion === "info";
+
+  // ⚠️ NO es `!!urlVideo`. Una ficha que muestra el contenido MANDA el video
+  // unas lineas mas abajo, asi que ofrecerlo en el cierre es preguntar y
+  // contestarse solo en el mismo turno -- que es lo que salio en produccion el
+  // 2026-09-02. Y si el video ya salio antes, tampoco se ofrece.
+  //
+  // La regla vive en ficha-parcial porque agent.ts tiene que clasificar el
+  // cierre con EXACTAMENTE el mismo criterio: si los dos lados no coinciden, la
+  // metadata miente sobre lo que el cliente leyo y el "si" del turno siguiente
+  // se lee mal.
+  const seOfreceElVideo = sePuedeOfrecerElVideo({ seccion, tieneVideo: !!urlVideo, videoYaEnviado });
+  const cierre = invitacionDe(
+    seccion,
+    esFisico,
+    semilla,
+    seOfreceElVideo,
+    yaVioContenido || estaFichaMuestraContenido,
+    yaSabeElPrecio,
+  );
+  const L: string[] = [];
+
+  // ── Solo el precio ────────────────────────────────────────────────────────
+  // ── El producto en la tienda ──────────────────────────────────────────────
+  //
+  // El admin preguntó "¿tienes tienda?" y el bot contestó "¿de cuál producto
+  // querés que te cuente?": no respondió, teniendo la tienda publicada y el
+  // producto adentro.
+  //
+  // Va en su propio mensaje para que WhatsApp le arme la vista previa con la
+  // foto; pegado a otro texto el enlace se pierde en el medio.
+  if (seccion === "tienda") {
+    return {
+      conFoto: false,
+      mensajes: [`🛒 Míralo en la tienda, con fotos y todo el detalle:\n${urlEnTienda}`, cierre],
+    };
+  }
+
+  if (seccion === "precio") {
+    return { conFoto: false, mensajes: [`💰 *${mon.precioTexto}*\n\n${cierre}`] };
+  }
+
+  // ── El video de muestra ───────────────────────────────────────────────────
+  //
+  // Solo llega acá cuando el cliente lo pidió o aceptó verlo. Antes se mandaba
+  // en toda presentación, y eso lo gasta: la carnada más fuerte que hay se
+  // quemaba con quien todavía no había mostrado interés.
+  //
+  // Va en su PROPIO mensaje para que WhatsApp le arme la vista previa con
+  // miniatura; pegado a otro texto, el enlace se pierde en el medio.
+  if (seccion === "video") {
+    // Puede llegar acá aunque el producto no tenga video: el cliente lo pide
+    // por su cuenta ("¿tienes video?"), no solo aceptando la oferta. Se dice
+    // la verdad y se le da una salida, en vez de inventar uno.
+    if (!urlVideo) {
+      return { conFoto: false, mensajes: [`De este ${esFisico ? "producto" : "curso"} todavía no tengo video 🙏 ¿Te cuento qué incluye?`] };
+    }
+    // ── El mismo enlace, tres veces en dos minutos ────────────────────────
+    //
+    // Pasó el 2026-09-02: el video salió con la ficha, y este bloque lo mandó
+    // dos veces más sin mirar nunca si ya había salido. El ruteo de arriba SÍ
+    // lo miraba, pero con una guarda que no reconocía el enlace de este
+    // negocio (ver elVideoYaSalio), así que llegaba igual.
+    //
+    // Se reenvía en un solo caso: que el cliente lo pida de nuevo con todas
+    // las letras. Ahí no es repetir, es contestar.
+    if (videoYaEnviado && !pidioElVideo(mensajeDelCliente)) {
+      return { conFoto: false, mensajes: [`Te lo mandé recién, mirá un poquito más arriba 👆 ${cierre}`] };
+    }
+    return { conFoto: false, mensajes: [`🎬 Mira cómo son las clases:\n${urlVideo}`, cierre] };
+  }
+
+  // ── Cómo se entrega ───────────────────────────────────────────────────────
+  if (seccion === "entrega") {
+    const texto = esFisico
+      ? `📦 Te lo enviamos a tu dirección y coordinamos la entrega por aquí.\n\n${cierre}`
+      : `💻 Es digital: apenas confirmamos el pago te llega el acceso por aquí, y te queda de por vida ♾️\n\n${cierre}`;
+    return { conFoto: false, mensajes: [texto] };
+  }
+
+  // ── LOS MEDIOS DE PAGO SALEN DE LA HOJA DE HECHOS ────────────────────────
+  //
+  // Las tres ramas de pago armaban el texto a mano, y las tres usaban
+  // `transfer.options[0]`. Si el negocio tiene Nequi Y Daviplata cargados y el
+  // cliente pedía Daviplata, le llegaba el número de Nequi -- plata a la
+  // cuenta equivocada.
+  //
+  // Ahora el servidor arma la lista de lo que este negocio DE VERDAD tiene, se
+  // elige de ahí, y el mensaje lo escribe él. El modelo no teclea un número de
+  // cuenta ni un enlace: los señala.
+  //
+  // Medido el 2026-09-02, el cliente pidió pagar por Nequi y recibió:
+  //   "💳 Para que te llegue el LINK DE PAGO POR NEQUI, necesito que me
+  //    confirmes estos datos: 1️⃣ Tu nombre..."
+  // Un "link de pago por Nequi" no existe, pidió datos que no hacen falta, y
+  // no dio el número. La sección que lo renderiza bien ya existía y no se usó.
+  if (seccion === "pago" || seccion === "pago_transferencia" || seccion === "pago_link") {
+    const medios = mediosDePago({
+      dynamicLinks,
+      aceptaPagosLocales: mon.aceptaPagosLocales,
+      esColombia: mon.esColombia,
+    });
+    if (medios.length === 0) {
+      return { conFoto: false, mensajes: [`Déjame confirmarte cómo hacemos el pago y te aviso 🙏`] };
+    }
+
+    // Lo que el cliente nombró manda sobre la sección: "daviplata" tiene que
+    // traer Daviplata, no la primera cuenta que haya.
+    const pedido = loQuePidio(String(mensajeDelCliente || ""), medios);
+    if (pedido.noConfigurado) {
+      return { conFoto: false, mensajes: [noManejamosEse(pedido.noConfigurado, medios)] };
+    }
+
+    let elegidos = pedido.pedidos;
+    if (elegidos.length === 0) {
+      // No nombró ninguno: la sección decide de qué clase van.
+      elegidos =
+        seccion === "pago_transferencia" ? medios.filter((m) => m.tipo === "transferencia")
+        : seccion === "pago_link" ? medios.filter((m) => m.tipo === "link")
+        : medios;
+    }
+    if (elegidos.length === 0) elegidos = medios;
+
+    return { conFoto: false, mensajes: [renderMediosDePago(elegidos, mon.precioTexto, cierre)] };
+  }
+
+  // ── Qué es y qué trae, SIN precio ─────────────────────────────────────────
+  // El precio es la pregunta siguiente: dárselo acá cierra la conversación.
+  const nameUpper = p.name.toUpperCase();
+  // -- La ficha la escribio el dueño: aca se LEE, no se aplana ----------
+  //
+  // Antes: `description.replace(/\s+/g," ")` + corte a 180 caracteres. Eso
+  // borraba los bloques y los emojis que el producto ya traia escritos, y
+  // como la descripcion empieza por su propio titulo --que la tarjeta ya
+  // pone arriba-- al cliente le llegaba el nombre dos veces seguidas y
+  // despues media frase. Ver ficha-del-producto.ts.
+  const suFicha = leerFicha(p.description, p.name);
+
+  let resumen = suFicha.intro;
+  if (resumen.length > 240) {
+    const corte = resumen.lastIndexOf(".", 240);
+    resumen = corte > 80 ? resumen.slice(0, corte + 1) : resumen.slice(0, resumen.lastIndexOf(" ", 240)) + "…";
+  }
+
+  const ESTANDAR = /acceso (permanente|de por vida|inmediato|ilimitado)|de por vida|contenido actualizable|actualizaciones|soporte (t[eé]cnico|incluido)|descargas? (ilimitadas?|incluidas?)|descargable|alta definici[oó]n|\bHD\b|google drive|100% online|certificaci[oó]n de participaci[oó]n/i;
+  const propias = ((p.features ?? []) as string[]).filter((f) => !ESTANDAR.test(String(f)));
+
+  // El emoji sale del titulo que el dueño escribio; si no puso, se adivina.
+  const emojiTitulo = suFicha.emoji || emojiDelProducto(p.name, (p as any).category);
+  L.push(`${emojiTitulo} *${nameUpper}*`);
+  L.push("");
+  L.push(resumen || "Formación práctica para llevar tus habilidades al siguiente nivel.");
+
+  // Los puntos que el dueño escribio, con SUS emojis, ganan siempre: dicen
+  // mas que una caracteristica suelta ("19 modulos en video con teoria y
+  // lenguaje musical" contra "Clases en video HD") y no dependen de que una
+  // tabla de palabras adivine bien.
+  if (suFicha.puntos.length > 0) {
+    L.push("");
+    // Se sintetiza: entran los puntos COMPLETOS que caben en el pie de foto.
+    // Nunca se parte uno por la mitad ni se anuncia "y N cosas mas" -- eso es
+    // justo lo que se lee como informacion a medias. Lo que falta se cuenta
+    // cuando el cliente pregunta (seccion "info", mas abajo).
+    const yaMostrados = presupuestoUsadoPorElEncabezado(L);
+    const yaMostradosLargo = presupuestoUsadoPorElEncabezado(L);
+    const reparto = repartirPuntos(suFicha.puntos, PRESUPUESTO_PIE_DE_FOTO - yaMostradosLargo);
+
+    // -- Si vuelve a preguntar, se le cuenta LO QUE FALTA -----------------
+    //
+    // Pedido del admin: "si el cliente pide mas informacion ya no le responde
+    // con eso, debe entender que busca el cliente". Repetirle el mismo bloque
+    // es tratarlo como si no hubiera leido el anterior.
+    //
+    // La ficha completa sintetiza; esta seccion cuenta el resto. Si ya lo vio
+    // todo, no hay resto y se muestra igual la sintesis, que es mejor que un
+    // mensaje vacio.
+    const pideMas = seccion === "info" && yaVioContenido && reparto.resto.length > 0;
+    const aMostrar = pideMas ? reparto.resto.slice(0, 6) : reparto.entran;
+    for (const punto of aMostrar) L.push(`${punto.emoji} ${punto.texto}`);
+    // Cuatro, no ocho: lo que sigue es la razón para preguntar más.
+    //
+    // Pero si sobra UNA sola, se muestra. Esconder la quinta detrás de "y 1
+    // cosas más" no genera curiosidad -- genera la sensación de que le están
+    // escondiendo algo, y encima con una falta de ortografía. Visto en una
+    // conversación real (2026-08-30): el curso tiene 5 características, el
+    // cliente vio 4 y "➕ Y 1 cosas más".
+    const cuantasMostrar = propias.length === 5 ? 5 : 4;
+    for (const f of propias.slice(0, cuantasMostrar)) L.push(`${emojiDeCaracteristica(f, p.name)} ${f}`);
+    const restantes = propias.length - cuantasMostrar;
+    if (restantes > 0) L.push(`➕ Y ${restantes} ${restantes === 1 ? "cosa más" : "cosas más"}`);
+  }
+
+  // El voseo llega por la descripcion del producto ("Aprende", "Estudia"),
+  // no solo por el modelo. El filtro se aplicaba unicamente al texto que
+  // escribe la IA, asi que la ficha --que es lo que mas se lee-- salia sin
+  // traducir.
+  const mensajes = [hablarColombiano(L.join("\n").trim())];
+
+  // El video YA NO se manda acá. Se OFRECE en el cierre y se manda en la
+  // sección "video", cuando el cliente dice que sí. Ver el comentario de esa
+  // sección más arriba.
+
+  // ── El precio NO va acá ──────────────────────────────────────────────────
+  //
+  // Antes "completa" lo agregaba, contradiciendo el comentario que encabeza
+  // esta misma sección treinta líneas más arriba: "qué es y qué trae, SIN
+  // precio -- el precio es la pregunta siguiente, dárselo acá cierra la
+  // conversación".
+  //
+  // El admin lo señaló el 2026-09-01: "precio dando, no lo han preguntado".
+  // Un "¿tienes el curso de piano?" pregunta si EXISTE, no cuánto sale.
+  // Contestar con el número salta dos pasos del embudo y deja la conversación
+  // sin nada que preguntar.
+  //
+  // Quien quiera el precio lo pide, y ahí sale entero: PIDE_PRECIO lleva a la
+  // sección "precio" (ver seccionQueCorresponde). Eso no cambia -- el arreglo
+  // de "preguntaba el precio y no se lo daban" sigue en pie.
+  mensajes.push(cierre);
+
+  // ── EL VIDEO CIERRA LA ENTREGA DEL CONTENIDO ─────────────────────────
+  //
+  // Pedido del admin (2026-09-02): "cuando se entrega el contenido añádele el
+  // video al final con un mensaje que les enganche, ya que el video habla de
+  // todo lo que se va a tratar".
+  //
+  // Tiene razón comercial: el video es lo que más convence y es lo único que
+  // el cliente todavía no vio. Antes solo salía si lo pedía o si aceptaba un
+  // ofrecimiento -- o sea, casi nunca, porque el cierre tenía que acordarse de
+  // ofrecerlo y el cliente de decir que sí.
+  //
+  // Va en su propio mensaje y DESPUÉS del cierre: pegado al texto se pierde
+  // entre las líneas, y solo. Y una vez: si ya se mandó no se repite, que es
+  // la misma regla de todo lo demás.
+  if (estaFichaMuestraContenido && urlVideo && !videoYaEnviado) {
+    mensajes.push(
+      variante(
+        [
+          `🎬 Mirá este video antes de decidir: te muestra por dentro TODO lo que vas a ver.\n${urlVideo}`,
+          `🎬 Te dejo el video para que veas de qué se trata, así no compras a ciegas 👇\n${urlVideo}`,
+          `🎬 Acá lo ves por dentro: el video recorre todo lo que trae.\n${urlVideo}`,
+        ],
+        `${semilla}|video-con-contenido`,
+      ),
+    );
+  }
+
+  // -- La foto va con la PRESENTACION, y una sola vez ------------------
+  //
+  // Pedido del admin: "cuando vayas a presentar la informacion mandala con
+  // la imagen". Va, y es este retorno.
+  //
+  // Pero solo la PRIMERA vez. Si el cliente ya vio la ficha de este producto
+  // y vuelve a preguntar, reenviarle los 2 MB de la misma foto es repetirle
+  // lo que ya tiene --lo mismo que se corrigio con el texto-- y encima lo
+  // hace esperar la descarga para leer dos renglones nuevos.
+  // ── La foto vuelve cuando el cliente vuelve ───────────────────────────
+  //
+  // Esto era `!yaVioContenido` a secas, y `yaVioContenido` es "la ficha de
+  // este producto ya salio ALGUNA VEZ en esta conversacion". O sea: la foto
+  // salia una sola vez y no volvia nunca mas.
+  //
+  // El motivo original era bueno --no reenviarle 2 MB de la misma imagen a
+  // quien acaba de verla, que ademas lo hace esperar la descarga para leer dos
+  // renglones nuevos-- pero el efecto es que un cliente que vuelve mañana a
+  // preguntar por el mismo curso recibe la ficha PELADA, sin foto. Y el admin
+  // lo pidio dos veces: "cuando vayas a presentar la informacion mandala con
+  // la imagen".
+  //
+  // Con `sesionNueva` se separan los dos casos: dentro de la misma charla la
+  // foto no se repite (el motivo original sigue en pie), pero si el cliente
+  // vuelve despues de horas, la presentacion arranca de nuevo con su imagen.
+  return { conFoto: !yaVioContenido || sesionNueva, mensajes };
 }
 
 function buildPaymentOnlyCaption(p: typeof products.$inferSelect, dynamicLinks?: any) {
   const lines: string[] = [];
 
   const nameUpper = p.name.toUpperCase();
-  const mainEmoji = nameUpper.includes("PIANO") ? "🎹" : 
-                    nameUpper.includes("GUITARRA") ? "🎸" : 
-                    nameUpper.includes("CANTO") ? "🎤" : 
-                    nameUpper.includes("EXCEL") ? "📊" : "💻";
+  const mainEmoji = emojiDelProducto(p.name, (p as any).category);
 
   lines.push(`💳 *PAGO — ${mainEmoji} ${nameUpper}*`);
   lines.push("━━━━━━━━━━━━━━━━━━━━━━━");
-  lines.push("");
+  // El precio SIEMPRE visible: cuando el cliente pregunta cuánto cuesta o va a
+  // pagar, la tarjeta de pago no lo mostraba y el cliente no sabía el monto.
+  const precio = Number(p.price || 0);
+  if (precio > 0) {
+    lines.push(`💰 *Precio: $${precio.toLocaleString("es-CO")} ${p.currency || "COP"}*`);
+    lines.push("");
+  }
 
   if (dynamicLinks) {
-    if (dynamicLinks.mercadopago && (dynamicLinks.mercadopago.url || dynamicLinks.mercadopago.shortUrl)) {
+    // Enlace CORTO primero. Acá se pedía `url || shortUrl`: el largo (un
+    // checkout de MercadoPago con pref_id, ~120 caracteres de tokens) ganaba
+    // siempre, y el cliente recibía un link enorme que parece sospechoso en el
+    // celular. El corto (/p/<código>) ya existe y se genera en payments.ts.
+    const corto = (m: any) => m?.shortUrl || m?.url || "";
+    if (corto(dynamicLinks.mercadopago)) {
       lines.push(`🔹 *Tarjeta de Crédito / PSE (Colombia):*`);
-      lines.push(`${dynamicLinks.mercadopago.url || dynamicLinks.mercadopago.shortUrl}`);
+      lines.push(corto(dynamicLinks.mercadopago));
       lines.push("");
     }
-    if (dynamicLinks.paypal && (dynamicLinks.paypal.url || dynamicLinks.paypal.shortUrl)) {
+    if (corto(dynamicLinks.paypal)) {
       lines.push(`🔹 *PayPal (Internacional):*`);
-      lines.push(`${dynamicLinks.paypal.url || dynamicLinks.paypal.shortUrl}`);
+      lines.push(corto(dynamicLinks.paypal));
       lines.push("");
     }
     if (dynamicLinks.transfer && dynamicLinks.transfer.options && dynamicLinks.transfer.options[0]) {
       lines.push(`🔹 *Transferencia Directa:*`);
-      lines.push(`📍 *Nequi/Daviplata:* ${dynamicLinks.transfer.options[0].number}`);
+      lines.push(`📍 *${etiquetaDeTransferencia(dynamicLinks.transfer)}:* ${dynamicLinks.transfer.options[0].number}`);
       lines.push(`👤 *Titular:* ${dynamicLinks.transfer.options[0].name}`);
       lines.push("");
     }
@@ -327,7 +1085,83 @@ const AUTH_DIR = process.env.WA_AUTH_DIR
   ? path.resolve(process.env.WA_AUTH_DIR)
   : path.resolve(process.cwd(), "data", ".baileys-auth");
 
+/**
+ * Deja SOLO el numero de un JID de WhatsApp.
+ *
+ * Un JID puede venir como "573001234567:12@s.whatsapp.net": el ":12" es el
+ * identificador de DISPOSITIVO, no parte del telefono. Cortando solo por "@"
+ * quedaba "573001234567:12" como si fuera el numero.
+ *
+ * Lo vio el admin en un cliente que llego de un anuncio pago: el bot lo
+ * saludo con "Hola 51908825398:0". Ademas ensuciaba la identidad -- el mismo
+ * contacto podia quedar en dos conversaciones segun si el JID traia sufijo.
+ */
+function soloNumero(jid: string | null | undefined): string {
+  return String(jid || "").split("@")[0]!.split(":")[0]!.replace(/\D/g, "");
+}
+
+/** Lo que viaja pegado al primer mensaje de alguien que llego por un anuncio. */
+export interface ContextoDeAnuncio {
+  titulo: string;
+  cuerpo: string;
+  url: string;
+  anuncioId: string;
+}
+
+/**
+ * Cuando alguien hace clic en "Enviar mensaje" de un anuncio de Facebook o
+ * Instagram, WhatsApp adjunta al primer mensaje un `externalAdReply` con el
+ * titular del anuncio, su texto y el link de destino. Ese bloque dice a QUE
+ * producto le hizo clic el cliente -- que es exactamente lo que el mensaje de
+ * texto NO dice, porque Meta lo autocompleta con "Hola! Quiero mas
+ * informacion" para todos los anuncios por igual.
+ *
+ * Hasta ahora el backend no lo leia en ningun lado: se pagaba el clic, llegaba
+ * el dato de que producto lo genero, y se tiraba a la basura.
+ */
+export function extraerContextoDeAnuncio(msgObj: any): ContextoDeAnuncio | null {
+  if (!msgObj || typeof msgObj !== "object") return null;
+  // El contextInfo cuelga del sub-mensaje (extendedTextMessage, imageMessage,
+  // videoMessage...) segun con que formato haya salido el anuncio.
+  const candidatos = [msgObj, ...Object.values(msgObj)];
+  for (const c of candidatos) {
+    const ad = (c as any)?.contextInfo?.externalAdReply;
+    if (!ad) continue;
+    const ctx: ContextoDeAnuncio = {
+      titulo: String(ad.title || "").trim(),
+      cuerpo: String(ad.body || "").trim(),
+      url: String(ad.sourceUrl || "").trim(),
+      anuncioId: String(ad.sourceId || ad.ctwaClid || "").trim(),
+    };
+    if (ctx.titulo || ctx.cuerpo || ctx.url || ctx.anuncioId) return ctx;
+  }
+  return null;
+}
+
 export class WhatsAppManager {
+  /**
+   * Ids de mensajes de WhatsApp ya procesados, para no contestar dos veces el
+   * mismo. Es ESTÁTICO a propósito: compartido entre todas las instancias
+   * (una por tenant, más el proxy del singleton), porque la duplicación
+   * justamente viene de tener más de un socket vivo a la vez. Si viviera en
+   * la instancia, cada socket duplicado tendría su propio registro y no
+   * serviría de nada.
+   */
+  protected static mensajesVistos = new Set<string>();
+
+  /**
+   * LID (identificador interno de WhatsApp) → teléfono real, recordado.
+   *
+   * `getPNForLID` falla de forma intermitente para el mismo contacto. Sin
+   * memoria, un mensaje se guardaba con el número real y el siguiente con el
+   * id interno: la misma persona quedaba partida en dos conversaciones, y el
+   * agente respondía leyendo el hilo equivocado.
+   *
+   * Estático por el mismo motivo que `mensajesVistos`: lo comparten todas las
+   * instancias (una por tenant, más el proxy del singleton).
+   */
+  protected static lidAPhone = new Map<string, string>();
+
   // protected (no private): WhatsAppByTenant hereda de esta clase y necesita
   // tocar estos campos directamente en su propio start()/stop() para aislar
   // la sesión por tenant.
@@ -342,8 +1176,307 @@ export class WhatsAppManager {
   protected _usePairingCode = false;
   protected currentTenant: TenantContext;
 
+  // ── Límite real de envíos salientes (anti-bloqueo de número) ──────────────
+  // WA_MAX_MSGS_PER_HOUR/DAY estaban documentados en .env pero nunca se leían
+  // en ningún archivo -- cero protección real contra que Meta marque el
+  // número por volumen alto. Cada WhatsAppManager es por tenant/número (ver
+  // WhatsAppByTenant), así que un array de timestamps por instancia ya aísla
+  // el conteo correctamente sin necesitar keyear por tenantId.
+  // En memoria (se resetea si el proceso reinicia) -- igual que el resto del
+  // rate limiting de este backend (ver middleware/rateLimiting.ts); para un
+  // límite que sobreviva reinicios habría que moverlo a Redis/DB más adelante.
+  private sentTimestampsMs: number[] = [];
+  private consecutiveSendFailures = 0;
+  private sendingPausedUntil: number | null = null;
+
+  // ── Calentamiento del número ──────────────────────────────────────────────
+  // Un chip recién activado que manda 400 mensajes el primer día es la receta
+  // más directa para que WhatsApp lo restrinja: los números nuevos arrancan
+  // con reputación cero y el volumen alto de entrada es la señal más fuerte.
+  // El tope real es el MENOR entre el límite del plan y el del calentamiento,
+  // que sube solo con los días de operación.
+  private diasOperandoCache: { valor: number; expira: number } | null = null;
+
+  // Texto normalizado -> destinatarios distintos a los que ya se le mandó.
+  // Mandar el MISMO mensaje palabra por palabra a mucha gente es otra señal
+  // fuerte de automatización (más que el volumen en sí).
+  private textosEnviados = new Map<string, { destinos: Set<string>; desde: number }>();
+
   constructor(tenant?: TenantContext) {
     this.currentTenant = tenant || tenantManager.getDefaultTenant();
+  }
+
+  /** Días que lleva operando este número, según su primer mensaje saliente. */
+  private async diasOperando(): Promise<number> {
+    const ahora = Date.now();
+    if (this.diasOperandoCache && ahora < this.diasOperandoCache.expira) return this.diasOperandoCache.valor;
+    let dias = 999; // ante la duda, NO restringir a un número que ya venía operando
+    try {
+      const tenantId = this.currentTenant?.id;
+      const [fila] = await db
+        .select({ primero: messages.createdAt })
+        .from(messages)
+        .innerJoin(conversations, eq(messages.conversationId, conversations.id))
+        .where(eq(conversations.tenantId, tenantId as number))
+        .orderBy(messages.createdAt)
+        .limit(1);
+      if (fila?.primero) {
+        dias = Math.floor((ahora - new Date(fila.primero).getTime()) / 86_400_000);
+      } else {
+        dias = 0; // sin historial: número nuevo, arranca en la franja más baja
+      }
+    } catch {
+      /* si falla la consulta se deja 999 -- no bloquear por un problema de BD */
+    }
+    this.diasOperandoCache = { valor: dias, expira: ahora + 60 * 60 * 1000 };
+    return dias;
+  }
+
+  /** Tope diario del calentamiento según los días operando. */
+  private topeCalentamiento(dias: number): number {
+    if (dias <= 2) return 20;
+    if (dias <= 6) return 50;
+    if (dias <= 13) return 120;
+    if (dias <= 20) return 250;
+    return Number.MAX_SAFE_INTEGER; // ya "caliente": manda el límite del plan
+  }
+
+  /**
+   * ¿Este contacto nos escribió alguna vez? Es LA pregunta que más importa
+   * para no perder el número.
+   *
+   * La causa número uno de bloqueo en WhatsApp NO es el volumen: son los
+   * REPORTES y bloqueos de gente que nunca pidió el mensaje. Un bot que solo
+   * responde a quien le escribió primero casi nunca cae; uno que inicia
+   * conversaciones en frío cae aunque respete todos los límites de volumen.
+   *
+   * Por eso, por defecto, solo se permite escribirle a alguien que ya nos
+   * escribió. Se puede desactivar con WA_PERMITIR_ENVIO_EN_FRIO=true, pero
+   * es una decisión consciente del dueño de la plataforma, no el default.
+   */
+  private async contactoNosEscribio(telefono: string): Promise<boolean> {
+    const soloDigitos = String(telefono).replace(/\D/g, "");
+    if (!soloDigitos) return false;
+    try {
+      const tenantId = this.currentTenant?.id;
+      const [fila] = await db
+        .select({ id: messages.id })
+        .from(messages)
+        .innerJoin(conversations, eq(messages.conversationId, conversations.id))
+        .where(
+          and(
+            eq(conversations.tenantId, tenantId as number),
+            eq(conversations.contactPhone, soloDigitos),
+            // "customer" es el valor REAL con el que se guarda un mensaje
+            // entrante en toda la app (conversation-engine, message-handler,
+            // facebook-messenger, facebook-comments). "user" no existe en
+            // ninguna fila.
+            //
+            // BUG DE PRODUCCIÓN (2026-08-16): al preguntar por "user" esta
+            // consulta nunca encontraba nada, así que la función concluía
+            // "este contacto nunca nos escribió" para TODO el mundo y
+            // bloqueaba TODAS las respuestas. El bot quedó completamente
+            // mudo desde que se agregó la protección. Verificado con la fila
+            // real: {"role":"customer","content":"Tienes el curso de piano"},
+            // una consulta de un cliente que se quedó sin respuesta mientras
+            // había una campaña paga corriendo.
+            eq(messages.role, "customer"),
+          ),
+        )
+        .limit(1);
+      return !!fila;
+    } catch (e: any) {
+      // Ante un fallo de consulta NO se bloquea: dejar mudo el bot de un
+      // cliente que sí pagó es peor que dejar pasar un mensaje.
+      logger.warn({ err: e?.message }, "[WhatsApp] No se pudo verificar si el contacto escribió; se permite el envío");
+      return true;
+    }
+  }
+
+  /**
+   * Controles que necesitan consultar datos (envío en frío, calentamiento y
+   * repetición de contenido). Van aparte de enforceSendLimits() porque esa es
+   * síncrona. Lanza con un mensaje entendible: quien llama decide si avisar
+   * al admin.
+   */
+  private async verificarProteccionesAsync(texto: string, destino: string): Promise<void> {
+    // 0) Envío en frío -- el control que más protege el número
+    if (process.env.WA_PERMITIR_ENVIO_EN_FRIO !== "true") {
+      if (!(await this.contactoNosEscribio(destino))) {
+        throw new Error(
+          `No se envía: ${destino} nunca escribió a este WhatsApp. Escribirle a alguien que no lo pidió es la causa ` +
+            `número uno de que Meta bloquee un número (los reportes pesan más que el volumen). ` +
+            `Si el contacto responde una vez, la conversación queda habilitada sola. ` +
+            `Para permitir envíos en frío bajo tu responsabilidad: WA_PERMITIR_ENVIO_EN_FRIO=true.`,
+        );
+      }
+    }
+
+    // 1) Calentamiento
+    const dias = await this.diasOperando();
+    const tope = this.topeCalentamiento(dias);
+    if (tope !== Number.MAX_SAFE_INTEGER) {
+      const desdeHace24h = Date.now() - 86_400_000;
+      const enviadosHoy = this.sentTimestampsMs.filter((t) => t >= desdeHace24h).length;
+      if (enviadosHoy >= tope) {
+        throw new Error(
+          `Este número lleva ${dias} día(s) operando, así que está en período de calentamiento: máximo ${tope} mensajes por día. ` +
+            `Mandar más de entrada es la causa más común de que WhatsApp restrinja un número nuevo. El tope sube solo con los días.`,
+        );
+      }
+    }
+
+    // 2) Mismo texto a muchos destinatarios distintos
+    const MAX_DESTINOS_MISMO_TEXTO = Number(process.env.WA_MAX_DESTINOS_MISMO_TEXTO) || 5;
+    const clave = texto.toLowerCase().replace(/\s+/g, " ").replace(/[^\p{L}\p{N} ]/gu, "").trim().slice(0, 160);
+    if (clave.length >= 25) { // los mensajes muy cortos ("ok", "gracias") se repiten naturalmente
+      const haceUnaHora = Date.now() - 60 * 60 * 1000;
+      for (const [k, v] of this.textosEnviados) if (v.desde < haceUnaHora) this.textosEnviados.delete(k);
+
+      const reg = this.textosEnviados.get(clave) || { destinos: new Set<string>(), desde: Date.now() };
+      if (!reg.destinos.has(destino) && reg.destinos.size >= MAX_DESTINOS_MISMO_TEXTO) {
+        throw new Error(
+          `Este MISMO texto ya se envió a ${reg.destinos.size} personas distintas en la última hora. ` +
+            `Repetir un mensaje palabra por palabra es una de las señales más fuertes de automatización para WhatsApp. ` +
+            `Variá el mensaje (saludo, orden de las ideas, cierre) antes de seguir.`,
+        );
+      }
+      reg.destinos.add(destino);
+      this.textosEnviados.set(clave, reg);
+    }
+  }
+
+  /**
+   * Gate real antes de cualquier envío: corta si se supera el límite por
+   * hora/día, o si el circuito está abierto por fallos recientes seguidos
+   * (señal de que WhatsApp ya está rechazando/restringiendo el número).
+   * Lanza en vez de enviar en silencio -- no queremos que un límite superado
+   * pase desapercibido.
+   */
+  /**
+   * Espera lo necesario para que NUNCA salgan dos mensajes pegados a menos de
+   * ~8-20s uno del otro (con variación aleatoria, no un intervalo fijo).
+   *
+   * Por qué importa: el límite por hora/día no impide mandar 60 mensajes en
+   * 60 segundos y después parar -- y esa ráfaga es exactamente el patrón que
+   * delata a un bot y hace que WhatsApp restrinja el número. Un humano no
+   * escribe a 60 personas en un minuto. La variación aleatoria evita el otro
+   * patrón delator: intervalos perfectamente regulares.
+   *
+   * No afecta la conversación normal (una respuesta cada varios segundos ya
+   * cumple el espaciado por sí sola); solo frena los envíos en lote.
+   */
+  private ultimoEnvioMs = 0;
+  private ultimoDestino = "";
+
+  /**
+   * Espaciado entre envíos, pero SOLO al cambiar de destinatario.
+   *
+   * Lo que WhatsApp castiga es disparar a muchos contactos distintos en
+   * ráfaga. Contestarle a UNA persona con tres mensajes seguidos no es spam:
+   * es lo que hace cualquiera que manda el texto, la foto y el precio.
+   *
+   * Estaba aplicándose a cada envío sin mirar a quién, y el comentario de
+   * acá abajo decía que "no afecta la conversación normal". Sí la afectaba, y
+   * mucho: las partes de UNA respuesta (texto → ficha → medios de pago →
+   * link de la tienda) salen una detrás de otra, así que cada una pagaba
+   * entre 8 y 20 segundos. Una respuesta completa tardaba de 24 a 60
+   * segundos en terminar de llegar. El admin lo reportó como "el tiempo de
+   * envío de cada cosa es muy largo", y tenía razón: para el cliente, el bot
+   * escribe una línea y desaparece un minuto.
+   *
+   * Ahora: mismo destinatario → sin espera (queda solo el "escribiendo…",
+   * que son décimas). Destinatario distinto → el espaciado completo, que es
+   * donde de verdad protege al número.
+   */
+  private async esperarEspaciadoEntreEnvios(destino?: string): Promise<void> {
+    const jid = String(destino || "");
+    const mismaPersona = !!jid && jid === this.ultimoDestino;
+
+    if (!mismaPersona) {
+      const MIN_MS = Number(process.env.WA_MIN_MS_ENTRE_ENVIOS) || 8000;
+      const JITTER_MS = Number(process.env.WA_JITTER_MS_ENTRE_ENVIOS) || 12000;
+      const objetivo = MIN_MS + Math.floor(Math.random() * JITTER_MS);
+      const transcurrido = Date.now() - this.ultimoEnvioMs;
+      if (this.ultimoEnvioMs > 0 && transcurrido < objetivo) {
+        await sleep(objetivo - transcurrido);
+      }
+    }
+
+    this.ultimoEnvioMs = Date.now();
+    if (jid) this.ultimoDestino = jid;
+  }
+
+  private enforceSendLimits(): void {
+    const now = Date.now();
+
+    if (this.sendingPausedUntil && now < this.sendingPausedUntil) {
+      const mins = Math.ceil((this.sendingPausedUntil - now) / 60000);
+      throw new Error(
+        `Envíos en pausa de protección por ${mins} min más: hubo ${this.consecutiveSendFailures} fallos seguidos al enviar, probable señal de restricción del número. Revisa el estado de la sesión de WhatsApp antes de reintentar.`,
+      );
+    }
+
+    // Valores por DEFECTO, no "sin límite". Antes, si nadie configuraba las
+    // env vars, esto devolvía sin forzar nada -- y en producción no estaban
+    // configuradas (verificado 2026-08-12), así que la protección existía en
+    // el código pero NUNCA se aplicaba: el número podía mandar miles de
+    // mensajes de corrido. Un límite que hay que acordarse de encender no es
+    // una protección.
+    //
+    // Los números son conservadores a propósito: Baileys es un cliente NO
+    // oficial y el volumen alto es la causa #1 de bloqueo. 60/hora y 400/día
+    // permiten una operación de ventas normal (conversaciones reales,
+    // seguimientos) y cortan el envío masivo, que es lo que quema números.
+    // Se pueden subir por env var si un negocio lo justifica.
+    const maxPerHour = Number(process.env.WA_MAX_MSGS_PER_HOUR) || 60;
+    const maxPerDay = Number(process.env.WA_MAX_MSGS_PER_DAY) || 400;
+
+    const oneHourAgo = now - 60 * 60 * 1000;
+    const oneDayAgo = now - 24 * 60 * 60 * 1000;
+    // Podar mientras contamos, así el array no crece sin límite en una sesión larga.
+    this.sentTimestampsMs = this.sentTimestampsMs.filter((t) => t >= oneDayAgo);
+
+    const sentLastHour = this.sentTimestampsMs.filter((t) => t >= oneHourAgo).length;
+    const sentLastDay = this.sentTimestampsMs.length;
+
+    if (maxPerHour > 0 && sentLastHour >= maxPerHour) {
+      throw new Error(`Límite de ${maxPerHour} mensajes/hora alcanzado (${sentLastHour} enviados en la última hora). Se corta el envío para no arriesgar el número -- espera antes de seguir.`);
+    }
+    if (maxPerDay > 0 && sentLastDay >= maxPerDay) {
+      throw new Error(`Límite de ${maxPerDay} mensajes/día alcanzado. Se corta el envío para no arriesgar el número -- espera a que rote la ventana de 24h.`);
+    }
+  }
+
+  private recordSendSuccess(): void {
+    this.sentTimestampsMs.push(Date.now());
+    this.consecutiveSendFailures = 0;
+  }
+
+  /**
+   * Varios fallos de envío seguidos son la señal más directa de que WhatsApp
+   * ya está restringiendo el número -- mejor pausar todo el envío un rato y
+   * que alguien lo revise, que seguir insistiendo y empeorar el bloqueo.
+   */
+  private recordSendFailure(): void {
+    this.consecutiveSendFailures++;
+    const CIRCUIT_BREAKER_THRESHOLD = 5;
+    const CIRCUIT_BREAKER_PAUSE_MS = 30 * 60 * 1000;
+    if (this.consecutiveSendFailures >= CIRCUIT_BREAKER_THRESHOLD) {
+      this.sendingPausedUntil = Date.now() + CIRCUIT_BREAKER_PAUSE_MS;
+      logger.error(
+        { tenantId: this.currentTenant.id, failures: this.consecutiveSendFailures },
+        "[WhatsApp] Circuito abierto: demasiados fallos de envío seguidos, pausando 30 min por protección del número",
+      );
+    }
+  }
+
+  // Getter de compatibilidad: el código heredado (y subclases) referenciaba
+  // this.tenant, pero la propiedad real es currentTenant. Este getter evita
+  // TypeError "Cannot read properties of undefined (reading 'id')" cuando un
+  // método usa this.tenant.id sin haberlo declarado.
+  get tenant(): TenantContext {
+    return this.currentTenant;
   }
 
   setTenant(tenant: TenantContext): void {
@@ -381,7 +1514,11 @@ export class WhatsAppManager {
     try {
       if (this.sock) {
         this.sock.ev.removeAllListeners();
-        await this.sock.logout().catch(() => {});
+        // logout() invalidates the WhatsApp session. A normal stop must only
+        // close the socket so the persisted credentials remain usable.
+        if (!keepAuth) {
+          await this.sock.logout().catch(() => {});
+        }
         this.sock.end(undefined);
         this.sock = null;
       }
@@ -413,55 +1550,75 @@ export class WhatsAppManager {
   }
 
    async requestPairingCode(phoneNumber: string): Promise<string> {
-      if (!this.sock) throw new Error("WhatsApp no está iniciado. Llama a start() primero.");
-      
+      if (!this.sock) throw new Error("WhatsApp no está iniciado. Llama a startWithPairing() primero.");
+
       let lastError = null;
-      // Reintentar hasta 5 veces (esperando a que el socket WS termine de conectar)
-      for (let i = 0; i < 5; i++) {
+      const maxRetries = 8;
+      const waitTimes = [2000, 3000, 4000, 5000, 6000, 7000, 8000, 10000];
+
+      for (let i = 0; i < maxRetries; i++) {
         try {
-          // Esperar progresivamente (1s, 2s, etc) para asegurar que Noise Handshake terminó
-          await new Promise(r => setTimeout(r, 1500 + (i * 1000)));
-          
+          const waitMs = waitTimes[i] || 10000;
+          console.log(`⏳ [PAIRING] Intento ${i+1}/${maxRetries} - esperando ${waitMs}ms para handshake Noise...`);
+          await new Promise(r => setTimeout(r, waitMs));
+
+          console.log(`🔄 [PAIRING] Solicitando código de emparejamiento para ${phoneNumber}...`);
           const code = await this.sock.requestPairingCode(phoneNumber);
           const formatted = code.match(/.{1,4}/g)?.join("-") || code;
-          logger.info({ phoneNumber }, "[WhatsApp] Pairing code generated");
+
+          logger.info({ phoneNumber, code: formatted }, "[WhatsApp] Pairing code generated successfully");
+          console.log(`✅ [PAIRING] Código generado: ${formatted}`);
           return formatted;
         } catch (e: any) {
           lastError = e;
-          console.warn(`⚠️ [WhatsApp] Intento ${i+1} de obtener PIN falló:`, e.message);
-          // Si el error no es de conexión o timeout, lanzar inmediatamente
-          if (!e.message?.includes("Connection Closed") && !e.message?.includes("Timeout")) {
-             throw e;
+          const msg = e.message || String(e);
+          console.warn(`⚠️ [PAIRING] Intento ${i+1}/${maxRetries} falló - ${msg}`);
+
+          // Si es un error irrecuperable, no reintentar
+          if (msg.includes("Invalid") || msg.includes("Unauthorized") || msg.includes("Bad request")) {
+            logger.error({ phoneNumber, error: msg }, "[WhatsApp] Pairing code request failed - not retrying");
+            throw e;
+          }
+
+          if (i === maxRetries - 1) {
+            const finalError = `No se pudo generar código de emparejamiento tras ${maxRetries} intentos. Último error: ${msg}`;
+            logger.error({ phoneNumber, lastError: msg }, "[WhatsApp] Max pairing retries reached");
+            throw new Error(finalError);
           }
         }
       }
       throw lastError || new Error("No se pudo obtener el código después de varios intentos");
     }
 
-  // Igual que start() pero marca el socket para modo pairing-code en vez de QR.
-  // Baileys REQUIERE que usePairingCode:true esté en makeWASocket() desde el
-  // primer momento — no se puede cambiar en caliente. Por eso tenemos dos
-  // métodos separados en vez de un paramétro opcional en start().
   async startWithPairing() {
+    // NO setear `this.starting` ni `this.state` acá: start() tiene guards
+    // (`if (this.starting)` / `if (state === "connected" || "qr")`) que hacían
+    // que retornara inmediatamente sin crear el socket → requestPairingCode()
+    // fallaba con "WhatsApp no está iniciado". Dejar que start() gestione
+    // starting/state normalmente.
     this._usePairingCode = true;
-    this.starting = true;
-    this.state = "connecting";
-    console.log("🔄 [PAIRING] Iniciando sesión en modo pairing code...");
+    console.log("🔄 [PAIRING] Iniciando sesión en modo pairing code (Baileys 7.0.0-rc14)...");
+    logger.info("[WhatsApp] Starting with pairing code mode");
 
     try {
-      // Esperar a que start() complete
       const result = await this.start();
 
-      // Esperar un poco más para asegurar que el handshake Noise terminó
-      // antes de permitir requestPairingCode()
-      await new Promise(r => setTimeout(r, 3000));
-
-      console.log("✅ [PAIRING] Socket listo para pairing code");
+      // Pairing is requested before WhatsApp becomes authenticated/connected.
+      // Waiting for state === connected here deadlocks the flow.
+      console.log("⏳ [PAIRING] Esperando inicialización del socket...");
+      await new Promise(r => setTimeout(r, 1500));
+      if (!this.sock || this.state === "error" || this.state === "disconnected") {
+        throw new Error(`Socket no está disponible para pairing (estado: ${this.state})`);
+      }
+      console.log("✅ [PAIRING] Socket listo para solicitar código de emparejamiento");
+      logger.info("[WhatsApp] Pairing socket ready");
       return result;
     } catch (e) {
       console.error("❌ [PAIRING] Error iniciando pairing:", e);
       this.state = "error";
-      this.lastError = `Error en pairing: ${e instanceof Error ? e.message : String(e)}`;
+      const errMsg = e instanceof Error ? e.message : String(e);
+      this.lastError = `Error en pairing: ${errMsg}`;
+      logger.error({ error: errMsg }, "[WhatsApp] Pairing initialization failed");
       throw e;
     } finally {
       this._usePairingCode = false;
@@ -483,17 +1640,16 @@ export class WhatsAppManager {
       this.state = "connecting";
       console.log("🔄 [START] Iniciando conexión WhatsApp...");
 
-      // Timeout de 25 segundos — si no hay evento de conexión en este tiempo,
-      // asumimos que la red/WhatsApp no está accesible y marcamos error.
+      const connectionTimeoutMs = this._usePairingCode ? 45000 : 30000;
       const startTimeout = setTimeout(() => {
         if (this.state === "connecting" && this.starting) {
           this.starting = false;
           this.state = "disconnected";
-          this.lastError = "Timeout: No se pudo conectar con WhatsApp en 25 segundos. Revisa tu conexión a internet o que web.whatsapp.com esté accesible.";
-          console.error("❌ [TIMEOUT] La conexión a WhatsApp tardó demasiado tiempo");
-          logger.error("[WhatsApp] Connection timeout - suspected network issue");
+          this.lastError = `Timeout: No se pudo conectar con WhatsApp en ${connectionTimeoutMs / 1000}s. Revisa tu conexión a internet, firewall, o que web.whatsapp.com esté accesible.`;
+          console.error(`❌ [TIMEOUT] Timeout de ${connectionTimeoutMs}ms alcanzado`);
+          logger.error({ timeoutMs: connectionTimeoutMs, mode: this._usePairingCode ? "pairing" : "qr" }, "[WhatsApp] Connection timeout");
         }
-      }, 25000);
+      }, connectionTimeoutMs);
 
      try {
        if (!existsSync(AUTH_DIR)) {
@@ -528,6 +1684,35 @@ export class WhatsAppManager {
          console.warn("⚠️ [VERSION] No se pudo obtener la versión más reciente de WhatsApp, usando la del paquete:", e instanceof Error ? e.message : e);
        }
 
+      // Configurar proxy si está disponible (para Floppy Data u otros servicios)
+      let httpAgent: any = undefined;
+      let httpsAgent: any = undefined;
+      const proxyUrl = process.env.PROXY_URL; // ej: http://user:pass@proxy.host:port
+      if (proxyUrl) {
+        console.log("[PROXY] Configurando proxy para WhatsApp...");
+        try {
+          const proxyUri = new URL(proxyUrl);
+          const proxyAuth = proxyUri.username && proxyUri.password
+            ? `${proxyUri.username}:${proxyUri.password}`
+            : undefined;
+
+          httpAgent = new HttpProxyAgent({
+            host: proxyUri.hostname || undefined,
+            port: proxyUri.port ? Number(proxyUri.port) : undefined,
+            proxyAuth: proxyAuth,
+          });
+
+          httpsAgent = new HttpsProxyAgent({
+            host: proxyUri.hostname || undefined,
+            port: proxyUri.port ? Number(proxyUri.port) : undefined,
+            proxyAuth: proxyAuth,
+          });
+          console.log("✅ [PROXY] Proxy configurado correctamente");
+        } catch (err) {
+          console.warn("⚠️ [PROXY] Error al configurar proxy:", err instanceof Error ? err.message : err);
+        }
+      }
+
       const sock = makeWASocket({
          auth: authState,
          browser: ["VentasPro", "Chrome", "1.0.0"],
@@ -539,6 +1724,7 @@ export class WhatsAppManager {
          // requestPairingCode() falla con "Connection Failure" del noise-handler.
          ...(this._usePairingCode ? { usePairingCode: true } : {}),
          ...(waVersion ? { version: waVersion } : {}),
+         ...(httpAgent ? { agent: { http: httpAgent, https: httpsAgent } } : {}),
        });
        this.sock = sock;
        console.log("✅ [INIT] Socket WhatsApp inicializado correctamente");
@@ -650,13 +1836,55 @@ export class WhatsAppManager {
         }));
 
         try {
-          if (upsert.type !== "notify") {
+          // "notify" es un mensaje que llega EN VIVO. "append" es el que
+          // WhatsApp reenvía al reconectar: los que llegaron mientras el bot
+          // estaba caído o reiniciándose.
+          //
+          // Descartar "append" hacía que cada reinicio se tragara en silencio
+          // los mensajes de esa ventana. Pasó dos veces hoy con clientes que
+          // llegaron de anuncios PAGOS: escribieron, el mensaje nunca se
+          // guardó, y nadie les contestó nunca. No hay peor forma de perder
+          // plata: se paga el clic, el cliente escribe, y del otro lado no
+          // queda ni rastro de que escribió.
+          //
+          // Se aceptan los dos. El resto (notificaciones de estado, recibos)
+          // sí se ignora. La deduplicación por id de mensaje que corre más
+          // abajo evita contestar dos veces si WhatsApp reenvía algo que ya
+          // se había procesado.
+          if (upsert.type !== "notify" && upsert.type !== "append") {
             console.log("⏭️ Ignorando evento tipo:", upsert.type);
             return;
           }
+          if (upsert.type === "append") {
+            console.log(`📥 [RECUPERADO] ${upsert.messages?.length || 0} mensaje(s) que llegaron mientras el bot estaba desconectado`);
+          }
           
           for (const msg of upsert.messages ?? []) {
-            console.log("📨 Procesando mensaje:", { 
+            // ── Un mensaje se contesta UNA sola vez ──────────────────────
+            // Segunda línea de defensa, independiente de cuántos listeners
+            // haya montados. La primera es desmontar el socket viejo antes
+            // de reconectar (ver whatsappManagerByTenant.start), pero esto
+            // cubre cualquier otro camino de duplicación: reintentos de
+            // Baileys, dos instancias del proceso, un upsert repetido.
+            //
+            // Motivo real (2026-08-16): el admin escribió "Hola" una vez y
+            // recibió SEIS veces la misma respuesta. Para el cliente es spam
+            // y para el número es riesgo de reporte, que es justo lo que más
+            // hay que cuidar.
+            const idMensaje = msg?.key?.id ? String(msg.key.id) : "";
+            if (idMensaje) {
+              if (WhatsAppManager.mensajesVistos.has(idMensaje)) {
+                console.log("⏭️ Mensaje ya procesado, se ignora:", idMensaje);
+                continue;
+              }
+              WhatsAppManager.mensajesVistos.add(idMensaje);
+              // Se recorta para no crecer sin límite en un proceso largo.
+              if (WhatsAppManager.mensajesVistos.size > 5000) {
+                const it = WhatsAppManager.mensajesVistos.values();
+                for (let i = 0; i < 1000; i++) WhatsAppManager.mensajesVistos.delete(it.next().value as string);
+              }
+            }
+            console.log("📨 Procesando mensaje:", {
               msgKey: msg.key,
               fromMe: msg.key.fromMe,
               remoteJid: msg.key.remoteJid,
@@ -689,15 +1917,14 @@ export class WhatsAppManager {
               continue;
             }
             
-            // ANTI-LOOP: Ignorar mensajes que son exclusivamente imágenes o documentos
-            // enviados por el bot (el caption de sendImage re-entra como evento)
+            // Acá vivía un filtro que descartaba TODO mensaje que fuera solo
+            // imagen, documento, sticker o audio, diciendo que era media del
+            // bot que volvía a entrar. Pero el reingreso propio ya se ataja
+            // arriba con fromMe, así que lo único que llegaba a este filtro
+            // era media del CLIENTE: la foto sin texto, el pantallazo del
+            // comprobante y la nota de voz se tiraban en silencio y el bot
+            // nunca contestaba. Ahora la media se entiende (ver más abajo).
             const msgKeys = Object.keys(msg.message || {});
-            const isBotMediaOnly = msgKeys.length === 1 && 
-              (msgKeys[0] === "imageMessage" || msgKeys[0] === "documentMessage" || msgKeys[0] === "stickerMessage" || msgKeys[0] === "audioMessage");
-            if (isBotMediaOnly) {
-              console.log("⏭️ [ANTI-LOOP] Ignorando mensaje de solo-media reenviado:", msgKeys[0]);
-              continue;
-            }
 
             // DEDUPLICACIÓN DE MENSAJES (Evita que el bot responda varias veces al mismo mensaje)
             const msgId = msg.key.id;
@@ -724,19 +1951,58 @@ export class WhatsAppManager {
               continue;
             }
             
-            // Para LID, usar el número alternativo si está disponible
+            // Para LID (@lid), el JID NO contiene el número real -- es un
+            // identificador interno de privacidad que WhatsApp usa desde el
+            // rollout de "phone number privacy". Antes esto se guardaba tal
+            // cual como si fuera el teléfono (ver bug: leads con "teléfono"
+            // tipo 6988129931330). Hay que resolverlo al número real vía el
+            // LIDMappingStore de Baileys; participant solo sirve en grupos.
             let phone: string;
             let originalJid: string = remoteJid; // Guardar el JID original para responder
-            if (remoteJid.endsWith("@lid") && msg.key.participant) {
-              // Usar el participant como número de teléfono para LID
-              phone = msg.key.participant.split("@")[0]!;
+            if (remoteJid.endsWith("@lid")) {
+              let resolvedPn: string | null = null;
+              try {
+                resolvedPn = (await this.sock?.signalRepository?.lidMapping?.getPNForLID(remoteJid)) ?? null;
+              } catch (err) {
+                console.error("⚠️ Error resolviendo LID a número real:", err);
+              }
+              if (resolvedPn) {
+                phone = soloNumero(resolvedPn);
+                // Se recuerda: la resolución falla de forma INTERMITENTE para
+                // el mismo contacto, y ahí estaba el bug (ver abajo).
+                WhatsAppManager.lidAPhone.set(remoteJid, phone);
+              } else if (msg.key.participant) {
+                phone = soloNumero(msg.key.participant);
+                WhatsAppManager.lidAPhone.set(remoteJid, phone);
+              } else if (WhatsAppManager.lidAPhone.has(remoteJid)) {
+                // Ya lo resolvimos antes en esta sesión: se reusa.
+                phone = WhatsAppManager.lidAPhone.get(remoteJid)!;
+                console.log("↩️ LID resuelto desde memoria:", remoteJid, "->", phone);
+              } else {
+                // BUG DE PRODUCCIÓN (2026-08-16): acá se usaba el LID como si
+                // fuera el teléfono, sin más. Como la resolución falla de
+                // forma intermitente, el MISMO cliente terminaba en dos
+                // conversaciones: una con su número real y otra con el id
+                // interno. Medido en la base: conv 8 (1 mensaje del cliente,
+                // 0 respuestas) contra conv 9 (0 mensajes, 3 respuestas) --
+                // el mismo par partido en dos. Y el peor efecto: sus
+                // mensajes entraban en un hilo y el agente respondía leyendo
+                // el OTRO, que tenía historia vieja. Por eso el admin veía
+                // que "solo saluda": contestaba con el contexto equivocado.
+                console.warn("⚠️ No se pudo resolver LID a número real, usando ID interno como fallback:", remoteJid);
+                phone = soloNumero(remoteJid);
+              }
             } else {
-              phone = remoteJid.split("@")[0]!;
+              phone = soloNumero(remoteJid);
             }
             const pushName: string = msg.pushName ?? phone;
 
             // Extraer texto de TODAS las formas posibles con mejor logging
             let text = "";
+            // La foto entrante, por si resulta ser un comprobante de pago.
+            let comprobanteBuf: Buffer | null = null;
+            let comprobanteMime = "";
+            let comprobanteVisto: string | null = null;
             const msgObj = msg.message;
             
             console.log("🔍 Analizando mensaje. Claves disponibles:", Object.keys(msgObj || {}));
@@ -831,34 +2097,126 @@ export class WhatsAppManager {
             
             if (!text || !text.trim()) {
               console.log("⚠️ MENSAJE SIN TEXTO EXTRAÍBLE");
-              
+
+              // ── Nota de voz o foto del cliente ────────────────────────────
+              // Va ANTES del rebusque de más abajo: ese rebusque agarra
+              // cualquier cadena del JSON del mensaje, y en una foto eso puede
+              // terminar siendo un mimetype ("image/jpeg") entrando al agente
+              // como si fuera lo que dijo el cliente.
+              const esAudio = !!(msgObj?.audioMessage || msgObj?.pttMessage);
+              const esImagen = !!msgObj?.imageMessage;
+              if (esAudio || esImagen) {
+                try {
+                  const buf = (await downloadMediaMessage(msg, "buffer", {})) as Buffer;
+                  const mime = String(
+                    msgObj?.audioMessage?.mimetype || msgObj?.imageMessage?.mimetype || ""
+                  ).split(";")[0] || (esAudio ? "audio/ogg" : "image/jpeg");
+
+                  if (esAudio) {
+                    const dicho = await transcribirAudio(buf, mime);
+                    if (dicho) {
+                      text = dicho;
+                      console.log(`🎙️ [AUDIO] Nota de voz transcrita: "${dicho.slice(0, 60)}"`);
+                    } else {
+                      // Sin transcripción no se adivina: se le dice al cliente
+                      // la verdad y se le da una salida, en vez de callarse.
+                      text = "[el cliente mandó una nota de voz que no se pudo escuchar]";
+                    }
+                  } else {
+                    const visto = await describirImagen(buf, mime);
+                    text = visto
+                      ? `[el cliente mandó una foto: ${visto}]`
+                      : "[el cliente mandó una foto que no se pudo ver]";
+                    console.log(`🖼️ [IMAGEN] ${visto ? "descrita" : "sin modelo que la vea"}`);
+
+                    // Si es un comprobante de pago hay que GUARDARLO y avisarle
+                    // al admin. Antes la foto se describía y se tiraba: no
+                    // quedaba nada que aprobar, así que la "verificación" que
+                    // el bot prometía no podía existir.
+                    comprobanteBuf = buf;
+                    comprobanteMime = mime;
+                    comprobanteVisto = visto;
+                  }
+                } catch (e: any) {
+                  console.error("❌ [MEDIA] No se pudo procesar la media:", e?.message);
+                  text = esAudio
+                    ? "[el cliente mandó una nota de voz que no se pudo escuchar]"
+                    : "[el cliente mandó una foto que no se pudo ver]";
+                }
+              }
+            }
+
+            if (!text || !text.trim()) {
               // Usar función de diagnóstico
               const diagnostic = diagnoseMessage(msgObj);
               console.log("🔍 DIAGNÓSTICO:", diagnostic.diagnosis);
               console.log("💡 RECOMENDACIONES:", diagnostic.recommendations);
               
-              if (diagnostic.possibleText) {
+              if (diagnostic.possibleText && pareceMensajeDePersona(diagnostic.possibleText)) {
                 text = diagnostic.possibleText;
                 console.log("🎯 Usando texto encontrado en diagnóstico:", text);
+              } else if (diagnostic.possibleText) {
+                console.log(`🚫 [BASURA] El diagnóstico devolvió "${diagnostic.possibleText.slice(0, 40)}", que no lo escribió una persona — se descarta`);
               } else {
                 console.log("📋 Claves del mensaje:", Object.keys(msgObj || {}));
                 console.log("🔍 Estructura completa del mensaje:");
                 console.log(JSON.stringify(msgObj, null, 2).substring(0, 1000));
                 
-                // Intentar extraer cualquier string que parezca texto
-                const allStrings = JSON.stringify(msgObj).match(/"[^"]{3,}"/g);
-                if (allStrings && allStrings.length > 0) {
+                // Último recurso: rebuscar cualquier cadena del mensaje que
+                // parezca texto escrito por una persona.
+                //
+                // JSON.stringify devuelve también los NOMBRES DE LOS CAMPOS,
+                // no solo los valores, y este rebusque los tomaba como si
+                // fueran el mensaje del cliente: en el panel llegó a quedar
+                // una conversación cuyo último mensaje era, literalmente,
+                // "messageContextInfo" -- un campo del protocolo de WhatsApp
+                // mostrado como si el cliente lo hubiera escrito, y peor,
+                // metido al agente como si fuera su consulta. Se descartan las
+                // cadenas que no parecen lenguaje humano.
+                // Se recorren los VALORES del objeto, nunca el JSON como
+                // texto plano.
+                //
+                // Antes esto era `JSON.stringify(msgObj).match(/"[^"]{3,}"/g)`,
+                // que devuelve también los NOMBRES DE LOS CAMPOS. El filtro
+                // de campo técnico exigía camelCase (messageContextInfo), así
+                // que cualquier nombre de una sola palabra en minúscula
+                // pasaba derecho.
+                //
+                // Costo real, conversación 13 del 2026-08-24 (Samuel
+                // Antolinez): se guardó **"key"** como mensaje del cliente
+                // -- el campo `msg.key` de Baileys -- y el agente le contestó
+                // con un producto al azar. El cliente venía preguntando por
+                // el curso de piano.
+                //
+                // Recorriendo valores el problema desaparece de raíz: un
+                // nombre de campo no es un valor, así que nunca puede llegar
+                // acá. Es la misma lección de siempre: validar por FORMA en
+                // el punto por donde pasan todos, no enumerar lo malo.
+                const valores: string[] = [];
+                const recolectar = (o: any, prof = 0): void => {
+                  if (prof > 8 || valores.length > 200) return;
+                  if (typeof o === 'string') { valores.push(o); return; }
+                  if (o && typeof o === 'object') {
+                    for (const v of Object.values(o)) recolectar(v, prof + 1);
+                  }
+                };
+                recolectar(msgObj);
+
+                const allStrings = valores;
+                if (allStrings.length > 0) {
                   const potentialText = allStrings
-                    .map(s => s.slice(1, -1)) // Remover comillas
                     .filter(s => s.length > 2 && !s.includes('http') && !s.includes('@') && !/^\d+$/.test(s))
+                    // Texto de verdad: tiene espacios, o es una palabra suelta
+                    // corta y en minúsculas ("hola", "si", "cuanto").
+                    .filter(s => /\s/.test(s.trim()) || /^[a-záéíóúñ¿¡?!.,]{2,15}$/i.test(s.trim()))
                     .find(s => /[a-zA-ZáéíóúÁÉÍÓÚñÑ]/.test(s)); // Contiene letras
-                  
-                  if (potentialText) {
+
+                  if (potentialText && pareceMensajeDePersona(potentialText)) {
                     text = potentialText;
                     console.log("🎯 Texto potencial encontrado:", text);
                   }
                 }
-                
+
                 if (!text || !text.trim()) {
                   console.log("❌ No se pudo extraer texto del mensaje. Ignorando.");
                   continue;
@@ -874,6 +2232,42 @@ export class WhatsAppManager {
              // por el mismo número de WhatsApp.
              try {
                const { handleAdminReply } = await import("./ad-growth-agent");
+               // ── ¿El admin está aprobando un comprobante? ─────────────────
+               // Va PRIMERO, y cede si el número no corresponde a ningún pago
+               // pendiente: así un "aprobar 47" dirigido a una sugerencia de
+               // anuncios sigue llegando a su handler.
+               try {
+                 const { atenderDecisionDelAdmin } = await import("./verificacion-pago");
+                 const r = await atenderDecisionDelAdmin(phone, text.trim());
+                 if (r) {
+                   await this.sendText(phone, r.paraElAdmin, originalJid);
+                   if (r.paraElCliente) {
+                     const [c] = await db
+                       .select({ phone: conversations.contactPhone })
+                       .from(conversations)
+                       .where(eq(conversations.id, r.paraElCliente.conversationId))
+                       .limit(1);
+                     if (c?.phone) {
+                       await this.sendText(c.phone, r.paraElCliente.texto);
+                       // Queda en el historial: si no, el agente no sabe que ya
+                       // entregó y en el turno siguiente vuelve a cobrar o se
+                       // contradice sobre si hubo compra.
+                       const { saveAgentMessage } = await import("./conversation-engine");
+                       await saveAgentMessage(
+                         r.paraElCliente.conversationId,
+                         r.paraElCliente.texto,
+                         (r.paraElCliente.entregar ? "converted" : "closing") as any,
+                         { intent: "payment_verified", verificadoPor: phone } as any,
+                       );
+                       console.log(`💬 [PAGO] Cliente ${c.phone} avisado: ${r.paraElCliente.entregar ? "aprobado y entregado" : "rechazado"}`);
+                     }
+                   }
+                   continue;
+                 }
+               } catch (e: any) {
+                 console.error("[Pago] fallo atendiendo la decisión del admin:", e?.message);
+               }
+
                const handled = await handleAdminReply(phone, text.trim());
                if (handled) continue;
              } catch (err) {
@@ -888,13 +2282,26 @@ export class WhatsAppManager {
                await messageHandler.handleIncomingMessage({
                  tenantId: String(this.currentTenant.id),
                  remoteJid: originalJid,
+                 phone,
                  fromMe: false,
                  messageId: msg.key.id || `msg_${Date.now()}`,
                  body: text.trim(),
                  timestamp: new Date(msg.messageTimestamp ? msg.messageTimestamp * 1000 : Date.now()),
                  pushName,
+                 // De que anuncio llego (si llego de uno). El texto que manda
+                 // Meta es siempre el mismo para todos los anuncios, asi que
+                 // esto es lo unico que dice que producto vino a buscar.
+                 anuncio: extraerContextoDeAnuncio(msgObj) ?? undefined,
                });
                console.log(`📤 [WA-QUEUE] Mensaje encolado exitosamente a MessageHandler: ${text.substring(0, 30)}...`);
+
+               // Un comprobante no se contesta con IA: se guarda y se le pasa
+               // a una persona. Va DESPUÉS de encolar para que la conversación
+               // ya exista cuando se busque por teléfono.
+               if (comprobanteBuf) {
+                 this.procesarComprobante(phone, pushName, comprobanteBuf, comprobanteMime, comprobanteVisto)
+                   .catch((e) => console.error("[Pago] fallo procesando el comprobante:", e?.message));
+               }
              } catch (error) {
                console.error(`❌ [WA-QUEUE] Error encolando mensaje en MessageHandler:`, error);
              }
@@ -906,7 +2313,10 @@ export class WhatsAppManager {
 
   async sendText(phone: string, text: string, originalJid?: string) {
     if (!this.sock || this.state !== "connected") throw new Error("WhatsApp no conectado");
+    this.enforceSendLimits();
+    await this.verificarProteccionesAsync(text, phone);
     const targetJid = originalJid || `${phone}@s.whatsapp.net`;
+    await this.esperarEspaciadoEntreEnvios(targetJid);
 
     // Estilo emoji: sin asteriscos ni viñetas de punto (más amigable/pro)
     text = toEmojiStyle(text);
@@ -917,13 +2327,143 @@ export class WhatsAppManager {
     await sleep(calcTypingDelay(text));
     await this.sock.sendPresenceUpdate("paused", targetJid);
 
-    await this.sock.sendMessage(targetJid, { text });
+    try {
+      await this.sock.sendMessage(targetJid, { text });
+    } catch (e) {
+      this.recordSendFailure();
+      throw e;
+    }
+    this.recordSendSuccess();
     trackWhatsAppCost(this.currentTenant.id.toString());
+  }
+
+  /**
+   * El cliente mandó una foto que parece un comprobante de pago.
+   *
+   * Se guarda en disco, queda un pago `pending` y le llega el aviso al admin
+   * por WhatsApp con la imagen. Antes la foto se describía y se tiraba: no
+   * quedaba nada que aprobar, así que la "verificación" que el bot prometía
+   * no podía existir.
+   *
+   * Nada de esto entrega el producto. Solo lo hace el admin respondiendo
+   * APROBAR: el dinero lo confirma quien lo ve en su cuenta.
+   */
+  private async procesarComprobante(
+    phone: string,
+    pushName: string,
+    buf: Buffer,
+    mime: string,
+    visto: string | null,
+  ): Promise<void> {
+    const {
+      pareceComprobante, registrarComprobante, avisoParaElAdmin, telefonoDelAdmin,
+    } = await import("./verificacion-pago");
+
+    const [convo] = await db
+      .select()
+      .from(conversations)
+      .where(and(eq(conversations.tenantId, this.currentTenant.id), eq(conversations.contactPhone, phone)))
+      .orderBy(desc(conversations.id))
+      .limit(1);
+    if (!convo) return;
+
+    // La etapa dice si se estaba cobrando: con eso, una señal débil alcanza.
+    const cobrando = ["closing", "qualified", "hot", "negotiating", "converted"].includes(
+      String(convo.currentStage || ""),
+    );
+    if (!pareceComprobante(visto, cobrando)) return;
+
+    console.log(`💸 [PAGO] Comprobante detectado de ${phone} — se guarda y se avisa al admin`);
+
+    // Se guarda en el volumen de subidas, que sobrevive a los deploys.
+    let proofUrl: string | null = null;
+    try {
+      const dir = process.env.IMAGE_STORE_DIR || path.resolve(process.cwd(), "uploads");
+      const destino = path.join(dir, "comprobantes");
+      if (!existsSync(destino)) mkdirSync(destino, { recursive: true });
+      const ext = mime.includes("png") ? "png" : mime.includes("webp") ? "webp" : "jpg";
+      const nombre = `c${convo.id}_${Date.now()}.${ext}`;
+      (await import("node:fs")).writeFileSync(path.join(destino, nombre), buf);
+      proofUrl = `/uploads/comprobantes/${nombre}`;
+    } catch (e: any) {
+      // Sin la imagen guardada el aviso igual sale: es preferible que el admin
+      // revise su cuenta sin la foto, a que nadie se entere del pago.
+      console.error(`[Pago] no se pudo guardar el comprobante: ${e?.message}`);
+    }
+
+    let producto: any = null;
+    if (convo.currentProductId) {
+      const [p] = await db.select().from(products).where(eq(products.id, convo.currentProductId)).limit(1);
+      producto = p ?? null;
+    }
+
+    const pagoId = await registrarComprobante({
+      tenantId: this.currentTenant.id,
+      conversationId: convo.id,
+      leadId: convo.leadId ?? null,
+      productId: producto?.id ?? null,
+      monto: producto ? Number(producto.price) : null,
+      moneda: producto?.currency || "COP",
+      telefono: phone,
+      nombre: pushName || convo.contactName || phone,
+      proofUrl,
+      descripcion: visto,
+    });
+    if (!pagoId) return;
+
+    const adminPhone = await telefonoDelAdmin(this.currentTenant.id);
+    if (!adminPhone) {
+      console.error("[Pago] No hay teléfono de admin configurado: el comprobante quedó pendiente y NADIE se enteró");
+      return;
+    }
+
+    const aviso = avisoParaElAdmin({
+      pagoId,
+      cliente: pushName || convo.contactName || phone,
+      telefono: phone,
+      producto: producto?.name || "producto sin identificar",
+      monto: producto ? Number(producto.price) : 0,
+      moneda: producto?.currency || "COP",
+      descripcion: visto,
+    });
+
+    try {
+      // La imagen va con el aviso: el admin decide viendo el comprobante.
+      await this.sock!.sendMessage(`${adminPhone}@s.whatsapp.net`, {
+        image: buf,
+        caption: aviso,
+        mimetype: tipoDeImagen(buf) || "image/jpeg",
+      });
+      console.log(`📨 [PAGO] Aviso enviado al admin (${adminPhone}) — comprobante ${pagoId}`);
+    } catch (e: any) {
+      console.error(`[Pago] no se pudo avisar al admin por WhatsApp: ${e?.message}`);
+    }
+
+    // Y por correo, que es el respaldo cuando el admin no tiene el WhatsApp a
+    // mano. Si el SMTP no está configurado, esto no rompe nada.
+    try {
+      const { credencialesEmailDe } = await import("./tenant-email-credentials");
+      const { enviarCorreoSimple } = await import("./email");
+      const [t] = await db.select().from(tenants).where(eq(tenants.id, this.currentTenant.id)).limit(1);
+      if (t?.email) {
+        await enviarCorreoSimple(
+          t.email,
+          `💸 Comprobante para revisar — ${pushName || phone}`,
+          aviso.replace(/\*/g, ""),
+          credencialesEmailDe(this.currentTenant as any),
+          proofUrl ? [{ filename: `comprobante-${pagoId}.jpg`, content: buf }] : undefined,
+        );
+      }
+    } catch (e: any) {
+      console.error(`[Pago] no se pudo avisar al admin por correo: ${e?.message}`);
+    }
   }
 
   async sendImage(phone: string, imageUrl: string, caption: string, originalJid?: string) {
     if (!this.sock || this.state !== "connected") throw new Error("WhatsApp no conectado");
+    this.enforceSendLimits();
     const jid = originalJid || `${phone}@s.whatsapp.net`;
+    await this.esperarEspaciadoEntreEnvios(jid);
 
     // Simular lectura + escritura (basado en el caption)
     await sleep(READ_DELAY_MS);
@@ -931,10 +2471,41 @@ export class WhatsAppManager {
     await sleep(calcTypingDelay(caption));
     await this.sock.sendPresenceUpdate("paused", jid);
 
+    let sentSomething = false;
     try {
-      const buffer = await loadProductImage(imageUrl);
+      let buffer = await loadProductImage(imageUrl);
       if (!buffer) throw new Error(`no se pudo obtener la imagen (${imageUrl})`);
-      await this.sock.sendMessage(jid, { image: buffer, caption });
+
+      // El tipo se declara SIEMPRE, y sale de los bytes -- no de la extensión
+      // de la URL, que puede mentir.
+      //
+      // Sin `mimetype`, Baileys lo deduce, y con WEBP lo trata como STICKER:
+      // el cliente recibe una calcomanía sin descripción en vez de la foto del
+      // producto con su ficha. De los 56 productos físicos, 5 son .webp -- y
+      // son justo los físicos, porque sus fotos vienen del CDN de Dropi
+      // mientras las de los digitales salen de disco en JPG/PNG.
+      let mimetype = tipoDeImagen(buffer) || "image/jpeg";
+
+      if (mimetype === "image/webp") {
+        // Se reencoda a JPEG: WhatsApp acepta webp como STICKER, no como foto
+        // con caption, así que mandarlo tal cual pierde la ficha entera.
+        //
+        // `sharp` está externalizada en build.mjs pero NO declarada en ningún
+        // package.json, así que puede no existir en el contenedor. Si no está,
+        // se manda igual declarando image/jpeg: Baileys reencoda por su cuenta
+        // y, en el peor caso, la foto sale como sticker -- que es exactamente
+        // lo que pasa hoy. Nunca peor que ahora, y mejor si sharp está.
+        try {
+          const sharp = (await import("sharp")).default;
+          buffer = await sharp(buffer).jpeg({ quality: 85 }).toBuffer();
+        } catch (e: any) {
+          console.warn(`[WhatsApp] sin sharp para convertir webp (${imageUrl}): ${e?.message}`);
+        }
+        mimetype = "image/jpeg";
+      }
+
+      await this.sock.sendMessage(jid, { image: buffer, caption, mimetype });
+      sentSomething = true;
     } catch (e: any) {
       // NO se manda una imagen "parecida" cuando falla la real.
       //
@@ -946,10 +2517,19 @@ export class WhatsAppManager {
       console.error(
         `[WhatsApp] Imagen no disponible (${imageUrl}): ${e.message}. Se envía solo el texto para no mostrar una foto que no es del producto.`,
       );
-      await this.sock.sendMessage(jid, { text: caption }).catch((err: any) => {
+      try {
+        await this.sock.sendMessage(jid, { text: caption });
+        sentSomething = true;
+      } catch (err: any) {
         console.error(`[WhatsApp] Error fatal enviando texto: ${err.message}`);
-      });
+      }
     }
+    // Solo cuenta como fallo de ENVÍO (para el circuit breaker) si ni la
+    // imagen ni el texto de respaldo lograron salir por el socket -- que
+    // falte la imagen del producto no es una señal de que WhatsApp esté
+    // restringiendo el número.
+    if (sentSomething) this.recordSendSuccess();
+    else this.recordSendFailure();
     trackWhatsAppCost(this.currentTenant.id.toString());
   }
 
@@ -959,7 +2539,29 @@ export class WhatsAppManager {
     
     const cardIds = parts.flatMap((p) => (p.kind === "card" ? [p.productId] : []));
     let cardCache: Map<number, any> = new Map();
-    const pg = new PaymentGateway(this.currentTenant);
+    // ── El tenant REAL, no el de fábrica ───────────────────────────────────
+    //
+    // `getWhatsAppForTenant` cae a `tenantManager.getDefaultTenant()` cuando
+    // nadie le pasa un contexto, y ese tenant de fábrica arma las cuentas de
+    // transferencia desde `TRANSFER_NUMBER`/`TRANSFER_NAME` -- variables que
+    // NO existen en producción. Resultado, medido en vivo el 2026-08-26: el
+    // cliente preguntó "cómo pago por Nequi" y el bot contestó "ahora mismo no
+    // tengo el dato de transferencia a mano", con el número correcto guardado
+    // en la base todo el tiempo.
+    //
+    // Es el mismo patrón que ya mordió con el AdStrategist y con las
+    // credenciales de correo: la instancia compartida se construye sin tenant
+    // y termina leyendo el entorno en vez de la base.
+    //
+    // `getTenantById` está cacheado 5 min, así que no agrega consultas.
+    let tenantParaCobrar = this.currentTenant;
+    try {
+      const real = await tenantManager.getTenantById(this.currentTenant.id);
+      if (real) tenantParaCobrar = real;
+    } catch (e: any) {
+      console.error(`[Pagos] no se pudo leer el tenant real, se usa el de la sesión: ${e?.message}`);
+    }
+    const pg = new PaymentGateway(tenantParaCobrar);
     
     console.log(`🃏 [WA-PARTS] Tarjetas a procesar: ${cardIds.length} - IDs: [${cardIds.join(', ')}] - ${timestamp}`);
     
@@ -993,16 +2595,61 @@ export class WhatsAppManager {
           const dynamicLinks = await pg.getAllLinks(product, { phone, name: pushName });
           console.log(`🔗 [WA-CARD] Enlaces generados - MercadoPago: ${!!dynamicLinks.mercadopago?.url}, PayPal: ${!!dynamicLinks.paypal?.url}, Transfer: ${dynamicLinks.transfer.options.length} - ${timestamp}`);
           
-          const isPaymentOnly = part.paymentOnly === true;
-          const caption = isPaymentOnly
-            ? buildPaymentOnlyCaption(product, dynamicLinks)
-            : buildProductCaption(product, null, dynamicLinks);
           // Solo la imagen REAL del producto. Si no la tiene, sendImage manda
           // el texto solo — nunca una foto de otro producto (ver sendImage).
           const imageToUse = product.imageUrl || "";
 
-          console.log(`🖼️ [WA-CARD] Enviando imagen con caption - URL: ${imageToUse?.substring(0, 50) || "(sin imagen)"}, PaymentOnly: ${isPaymentOnly}, Caption: ${caption.length} caracteres - ${timestamp}`);
-          await this.sendImage(phone, imageToUse, caption, originalJid);
+          // ── Se manda SOLO el pedazo que el cliente pidió ──────────────────
+          // La ficha entera en cada turno es lo que hacía ver al bot como un
+          // folleto automático: al cliente no le quedaba nada que preguntar.
+          const seccion: SeccionFicha | null = (part as any).seccion ?? null;
+
+          if (seccion) {
+            const { conFoto, mensajes } = await construirSeccion(
+              product, seccion, dynamicLinks, phone,
+              // Lo decide el agente, que es el que tiene el historial.
+              !!(part as any).yaVioContenido,
+              // Si volvio despues de horas, la presentacion arranca de nuevo
+              // con su foto: la ficha pelada no es una presentacion.
+              !!(part as any).sesionNueva,
+              !!(part as any).videoYaEnviado,
+              String((part as any).mensajeDelCliente || ""),
+              !!(part as any).yaSabeElPrecio,
+            );
+            console.log(`🎯 [WA-CARD] Sección "${seccion}" — ${mensajes.length} mensaje(s), foto: ${conFoto} - ${timestamp}`);
+            if (conFoto) {
+              await this.sendImage(phone, imageToUse, mensajes[0] || product.name, originalJid);
+              for (const m of mensajes.slice(1)) {
+                await sleep(900);
+                await this.sendText(phone, m, originalJid);
+              }
+            } else {
+              for (const [i, m] of mensajes.entries()) {
+                if (i > 0) await sleep(900);
+                await this.sendText(phone, m, originalJid);
+              }
+            }
+          } else if (part.paymentOnly === true) {
+            const caption = buildPaymentOnlyCaption(product, dynamicLinks);
+            console.log(`🖼️ [WA-CARD] Enviando pago - Caption: ${caption.length} caracteres - ${timestamp}`);
+            await this.sendImage(phone, imageToUse, caption, originalJid);
+          } else {
+            // La ficha va PARTIDA: la foto con el título y el resumen, y el
+            // resto como mensajes cortos seguidos. En el celular un solo
+            // mensaje de 30 líneas tapa la pantalla; así se lee de un vistazo
+            // y se siente como alguien escribiendo, no como un folleto.
+            // El teléfono va de semilla: dos clientes distintos reciben
+            // redacciones distintas, y el mismo cliente siempre la misma.
+            const bloques = await buildProductBlocks(product, dynamicLinks, phone);
+            console.log(`🖼️ [WA-CARD] Enviando ficha en ${bloques.length} bloques - ${timestamp}`);
+            await this.sendImage(phone, imageToUse, bloques[0] || product.name, originalJid);
+            for (const bloque of bloques.slice(1)) {
+              // Pausa entre bloques: sin esto llegan todos juntos y se pierde
+              // el efecto de mensajes separados.
+              await sleep(900);
+              await this.sendText(phone, bloque, originalJid);
+            }
+          }
           console.log(`✅ [WA-CARD] Tarjeta enviada exitosamente para ${product.name} - ${timestamp}`);
         } catch (err: any) {
           console.log(`❌ [WA-CARD] Error enviando tarjeta para ${product.name}: ${err.message} - ${timestamp}`);

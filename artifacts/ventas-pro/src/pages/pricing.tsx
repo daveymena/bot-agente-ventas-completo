@@ -13,6 +13,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { HelpTourButton } from "@/components/HelpTourButton";
+import { useAutoTour } from "@/hooks/use-auto-tour";
+import { getHelpGuide } from "@/data/help-guides";
+
+const HELP_GUIDE = getHelpGuide("pricing")!;
 import { useSaasStatus } from "@/hooks/useSaasStatus";
 
 interface Plan {
@@ -39,7 +44,18 @@ const PLAN_TAGLINES: Record<string, string> = {
   professional: "Para negocios en crecimiento que necesitan más volumen",
 };
 
+const copFormatter = new Intl.NumberFormat("es-CO", {
+  style: "currency",
+  currency: "COP",
+  maximumFractionDigits: 0,
+});
+
+// Numero de ventas de la plataforma, en formato internacional sin "+"
+// (ej: 573001234567). Se define al construir el frontend.
+const SALES_WHATSAPP = String(import.meta.env.VITE_SALES_WHATSAPP || "").replace(/[^0-9]/g, "");
+
 export default function PricingPage() {
+  useAutoTour(HELP_GUIDE);
   const [, setLocation] = useLocation();
   const [plans, setPlans] = useState<Plan[]>([]);
   const [loading, setLoading] = useState(true);
@@ -47,6 +63,7 @@ export default function PricingPage() {
   const [billingCycle, setBillingCycle] = useState<"monthly" | "quarterly" | "annual">("monthly");
   const [paymentMethod, setPaymentMethod] = useState<"mercadopago" | "paypal">("mercadopago");
   const [processingPayment, setProcessingPayment] = useState(false);
+  const [usdToCop, setUsdToCop] = useState<number | null>(null);
   const { saasStatus } = useSaasStatus();
 
   useEffect(() => {
@@ -58,6 +75,7 @@ export default function PricingPage() {
       const response = await fetch("/api/pricing");
       const data = await response.json();
       setPlans(data.plans);
+      if (typeof data.usdToCop === "number") setUsdToCop(data.usdToCop);
     } catch (error) {
       console.error("Error fetching plans:", error);
     } finally {
@@ -111,9 +129,18 @@ export default function PricingPage() {
       }
 
       if (data.paymentUrl) {
-        toast.success(`Redirigiendo a ${paymentMethod === "mercadopago" ? "MercadoPago" : "PayPal"}...`);
+        const gateway = paymentMethod === "mercadopago" ? "MercadoPago" : "PayPal";
+        const chargeNote =
+          data.chargedCurrency === "COP"
+            ? ` Se cobrarán ${copFormatter.format(data.chargedAmount)}.`
+            : typeof data.copEquivalent === "number"
+              ? ` Se cobrarán $${data.chargedAmount} USD (≈ ${copFormatter.format(data.copEquivalent)}).`
+              : "";
+        toast.success(`Abriendo ${gateway} en una pestaña nueva...${chargeNote}`);
         setTimeout(() => {
-          window.location.href = data.paymentUrl;
+          window.open(data.paymentUrl, "_blank", "noopener,noreferrer");
+          setProcessingPayment(false);
+          setSelectedPlan(null);
         }, 1500);
       }
     } catch (error: any) {
@@ -156,9 +183,12 @@ export default function PricingPage() {
             <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-primary/10 text-primary border border-primary/20 text-xs font-bold uppercase tracking-widest mb-6">
               <Star className="h-3 w-3 fill-primary" /> Membresías Elite
             </div>
-            <h1 className="text-4xl md:text-5xl font-black tracking-tight mb-6 bg-gradient-to-br from-foreground via-foreground to-foreground/70 bg-clip-text text-transparent">
-              Escala tu Negocio con IA
-            </h1>
+            <div className="flex items-start justify-center gap-1.5 mb-6">
+              <h1 className="text-4xl md:text-5xl font-black tracking-tight bg-gradient-to-br from-foreground via-foreground to-foreground/70 bg-clip-text text-transparent">
+                Escala tu Negocio con IA
+              </h1>
+              <HelpTourButton guide={HELP_GUIDE} />
+            </div>
             <p className="text-lg text-muted-foreground max-w-2xl mx-auto mb-10 leading-relaxed">
               Elige la potencia de fuego que tu departamento de ventas necesita. Sin contratos, cancela cuando quieras.
             </p>
@@ -169,7 +199,7 @@ export default function PricingPage() {
                 ocupaba toda la pantalla antes de llegar a ver un solo plan, y
                 el nombre del método quedaba dicho 3 veces. */}
             <div className="flex flex-wrap items-center justify-center gap-3">
-              <div className="flex p-1 bg-muted/30 backdrop-blur-xl border border-white/5 rounded-2xl shadow-xl">
+              <div data-tour="pricing-billing-cycle" className="flex p-1 bg-muted/30 backdrop-blur-xl border border-white/5 rounded-2xl shadow-xl">
                 <button
                   onClick={() => setBillingCycle("monthly")}
                   className={`px-5 py-2.5 rounded-xl text-sm font-bold transition-all duration-300 ${billingCycle === "monthly" ? "bg-white text-black shadow-lg" : "text-muted-foreground hover:text-foreground"}`}
@@ -240,7 +270,7 @@ export default function PricingPage() {
                   )}
                   
                   {isCurrent && (
-                    <div className="absolute top-4 left-4">
+                    <div className="absolute top-4 left-4" data-tour="pricing-current-plan">
                       <Badge className="bg-primary text-white border-none shadow-lg shadow-primary/20">Tu Plan Actual</Badge>
                     </div>
                   )}
@@ -267,6 +297,19 @@ export default function PricingPage() {
                       <div className="text-[10px] font-bold text-blue-500 mt-2 uppercase tracking-widest bg-blue-500/10 py-1 px-3 rounded-full mx-auto w-fit">
                         Facturado trimestralmente (${(plan.quarterlyPrice ?? plan.price * 3 * 0.9).toFixed(0)})
                       </div>
+                    )}
+                    {plan.price > 0 && usdToCop && (
+                      <p className="text-[11px] text-muted-foreground mt-2">
+                        ≈{" "}
+                        {copFormatter.format(
+                          (billingCycle === "annual"
+                            ? plan.annualPrice ?? plan.price * 12 * 0.8
+                            : billingCycle === "quarterly"
+                              ? plan.quarterlyPrice ?? plan.price * 3 * 0.9
+                              : plan.price) * usdToCop,
+                        )}{" "}
+                        {paymentMethod === "mercadopago" ? "(cobro real vía MercadoPago)" : "(referencial · se cobra en USD vía PayPal)"}
+                      </p>
                     )}
                   </div>
 
@@ -351,7 +394,26 @@ export default function PricingPage() {
               <div className="absolute inset-0 bg-gradient-to-r from-primary/10 via-transparent to-accent/10 opacity-50 pointer-events-none" />
               <h3 className="text-2xl font-black mb-4 relative z-10">¿Necesitas un plan personalizado?</h3>
               <p className="text-muted-foreground mb-8 relative z-10">Si eres una gran empresa con necesidades masivas, nuestro equipo puede diseñar una solución a medida para ti.</p>
-              <Button variant="outline" className="h-12 px-8 rounded-xl relative z-10 hover:bg-white/10 transition-all">Contactar con Ventas</Button>
+              {/* Este boton no hacia NADA: no tenia onClick ni enlace, solo
+                  se veia bien. Un boton que no lleva a ningun lado es peor que
+                  no tenerlo -- el usuario lo toca, no pasa nada, y deja de
+                  confiar en el resto de los botones.
+                  Ahora abre WhatsApp con el numero de ventas. Si no hay
+                  ninguno configurado (VITE_SALES_WHATSAPP), no se muestra:
+                  mejor no ofrecerlo que ofrecer algo que no responde. */}
+              {SALES_WHATSAPP ? (
+                <Button
+                  variant="outline"
+                  className="h-12 px-8 rounded-xl relative z-10 hover:bg-white/10 transition-all"
+                  onClick={() => window.open(
+                    `https://wa.me/${SALES_WHATSAPP}?text=${encodeURIComponent("Hola, me interesa un plan personalizado para mi empresa.")}`,
+                    "_blank",
+                    "noopener",
+                  )}
+                >
+                  Contactar con Ventas
+                </Button>
+              ) : null}
             </div>
           </div>
         </div>

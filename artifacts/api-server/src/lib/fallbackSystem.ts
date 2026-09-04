@@ -45,7 +45,10 @@ const FAILURE_THRESHOLD = 3; // Consecutive failures before cooldown
 // Professional fallback responses for different scenarios
 const FALLBACK_RESPONSES = {
   greeting: {
-    content: "━━━━━━━━━━━━━━━━━━━━━━━━\n👋 *¡HOLA! BIENVENIDO/A*\n\nEs un placer saludarte. Soy Sofía, tu asesora de élite en *TecnoVariedades D&S*. 😊\n\n¿En qué puedo ayudarte a brillar hoy? 🎓✨\n━━━━━━━━━━━━━━━━━━━━━━━━",
+    // Sin nombre ni marca escritos a mano: esta respuesta la usa CUALQUIER
+    // negocio del SaaS. Antes decía "Soy Sofía, de TecnoVariedades D&S" y se
+    // le mandaba al cliente de otro negocio cuando la IA fallaba.
+    content: "━━━━━━━━━━━━━━━━━━━━━━━━\n👋 *¡HOLA! BIENVENIDO/A*\n\nEs un placer saludarte. 😊\n\n¿En qué puedo ayudarte hoy? ✨\n━━━━━━━━━━━━━━━━━━━━━━━━",
     stage: "greeting"
   },
   product_inquiry: {
@@ -246,21 +249,38 @@ export async function notifyOperatorOfFailure(
   conversationId: number,
   errorType: string,
   errorDetails: string,
-  customerInfo?: { name: string; phone: string }
+  customerInfo?: { name: string; phone: string },
+  tenantId?: number | null,
 ) {
   try {
-    const title = conversationId === 0 ? `🚨 Alerta de Infraestructura: ${errorType}` : `🚨 Falla en conversación ${conversationId}`;
-    const subtitle = customerInfo 
-      ? `Cliente: ${customerInfo.name} (${customerInfo.phone}) - Error: ${errorType}`
-      : `Detalles: ${errorDetails.slice(0, 100)}`;
-    
-    await db.insert(activityEvents).values({
-      type: "system_alert",
-      title,
-      subtitle,
-    });
+    // ── Un log de servidor NO es actividad de ventas ─────────────────────
+    // Esto escribia en el MISMO feed que el cliente ve en su panel, con el
+    // texto crudo: "CIRCUIT_BREAKER_AI_GROQ_CONV_13 - 413 Request too large".
+    // Para quien paga la herramienta, leer eso entre sus seguimientos no le
+    // dice nada bueno de la plataforma -- y no puede hacer nada al respecto.
+    //
+    // El detalle tecnico sigue yendo al log, que es donde sirve para
+    // diagnosticar. Al feed va solo lo que le importa al dueno del negocio: si
+    // un cliente suyo se quedo sin respuesta.
+    logger.error(
+      { conversationId, errorType, errorDetails: errorDetails.slice(0, 300), customerInfo },
+      "[FallbackSystem] fallo de IA",
+    );
 
-    logger.info({ title, subtitle }, "[FallbackSystem] Logged failure to DB");
+    // Una falla de infraestructura sin conversacion afectada no le interesa a
+    // nadie mas que a quien mantiene el sistema.
+    if (conversationId === 0) return;
+
+    // Si SI hubo alguien esperando respuesta, se dice en su idioma. Y con
+    // tenantId: sin el, la alerta de un negocio le aparecia a TODOS los demas.
+    await db.insert(activityEvents).values({
+      tenantId: tenantId ?? null,
+      type: "conversation_failed",
+      title: "Una conversación no pudo responderse automáticamente",
+      subtitle: customerInfo
+        ? `${customerInfo.name} (${customerInfo.phone}) quedó sin respuesta. Conviene escribirle a mano.`
+        : "Un cliente quedó sin respuesta automática. Conviene revisarlo.",
+    });
   } catch (error: any) {
     logger.error({ error: error.message }, "[FallbackSystem] Failed to log failure to DB");
   }
@@ -283,7 +303,34 @@ export async function executeWithFallback<T>(
       `AI_OP_CONV_${context.conversationId}`
     );
   } catch (error: any) {
-    logger.error({ conversationId: context.conversationId, error: error.message }, "[FallbackSystem] AI failed, activating fallback");
+    logger.error({ conversationId: context.conversationId, error: error.message, stack: error?.stack }, "[FallbackSystem] AI failed, activating fallback");
+
+    // ── Y que se VEA desde afuera ──────────────────────────────────────────
+    //
+    // Este catch es el que produce el "🛡️ Estoy teniendo problemas técnicos"
+    // que recibe el cliente. Hasta ahora solo dejaba rastro en los logs del
+    // contenedor, que no se pueden leer desde ningún lado: EasyPanel no expone
+    // API de logs. Resultado: el 2026-08-31 el bot contestó ese mensaje durante
+    // horas y desde afuera se veía "todo bien" -- WhatsApp conectado, la cola
+    // en 0 fallados, `ultimoError` en null. El fallo estaba PRECISAMENTE en el
+    // único lugar invisible.
+    //
+    // La cola marca 0 fallados a propósito y no es un bug: acá el error se
+    // atrapa y se devuelve una respuesta, así que para el orquestador el
+    // mensaje se procesó bien. Por eso hace falta este registro aparte.
+    try {
+      const { AgentOrchestrator } = await import("./services/agent-orchestrator");
+      (AgentOrchestrator as any).ultimoError = {
+        cuando: new Date().toISOString(),
+        conversacion: context.conversationId,
+        mensaje: String(error?.message || error).slice(0, 300),
+        donde: "respuesta de emergencia al cliente (executeWithFallback) -- " +
+          String(error?.stack || "").split(/\r?\n/).slice(0, 4).join(" | ").slice(0, 500),
+      };
+    } catch {
+      // Si ni esto se puede registrar, no se rompe el flujo: el cliente igual
+      // recibe su respuesta de emergencia.
+    }
     
     // Notify operator of the failure
     await notifyOperatorOfFailure(

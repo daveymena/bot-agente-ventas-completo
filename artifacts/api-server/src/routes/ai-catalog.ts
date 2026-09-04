@@ -15,19 +15,26 @@ import { eq } from "drizzle-orm";
 import { MODELOS_LIBRES, type ModeloLibre } from "@workspace/integrations-openai-ai-server";
 import { logger } from "../lib/logger";
 import { cifrar, descifrar, cargarClavesEnEntorno, leerBusinessConfig } from "../lib/ai-keys";
+import { sincronizarProveedorConOpencode, sincronizarTodasLasClavesConOpencode } from "../lib/opencode-provider-sync";
 import type { TenantRequest } from "../lib/tenantManager";
 
 const router = Router();
 
 /** Proveedores que la app sabe usar, con dónde se saca la clave. */
-const PROVEEDORES = [
+export const PROVEEDORES = [
   { id: "opencode", nombre: "OpenCode Zen", gratis: true, envKey: "OPENCODE_API_KEY", alta: "https://opencode.ai", nota: "Gratis con rotación automática entre modelos" },
+  { id: "opencode_go", nombre: "OpenCode Go", gratis: false, envKey: "OPENCODE_GO_API_KEY", alta: "https://opencode.ai", nota: "De pago · sin cuota diaria · requiere método de pago en el workspace" },
   { id: "groq", nombre: "Groq", gratis: true, envKey: "GROQ_API_KEY", alta: "https://console.groq.com/keys", nota: "Muy rápido · 14.400 peticiones/día" },
   { id: "openrouter", nombre: "OpenRouter", gratis: true, envKey: "OPENROUTER_API_KEY", alta: "https://openrouter.ai/keys", nota: "18 modelos gratis, incluidos los de visión" },
   { id: "google_ai_studio", nombre: "Google AI Studio", gratis: true, envKey: "GOOGLE_API_KEY", alta: "https://aistudio.google.com/apikey", nota: "250k tokens/min · multimodal" },
   { id: "cerebras", nombre: "Cerebras", gratis: true, envKey: "CEREBRAS_API_KEY", alta: "https://cloud.cerebras.ai", nota: "5 req/min · 1M tokens/hora" },
   { id: "cohere", nombre: "Cohere", gratis: true, envKey: "COHERE_API_KEY", alta: "https://dashboard.cohere.com/api-keys", nota: "20 req/min · 1.000 req/mes" },
   { id: "nvidia_nim", nombre: "NVIDIA NIM", gratis: true, envKey: "NVIDIA_API_KEY", alta: "https://build.nvidia.com", nota: "40 req/min · pide verificar teléfono" },
+  // Ollama en la NUBE: los modelos corren del lado de ellos, así que no gasta
+  // RAM del servidor. La capa gratis va por cuota de uso, no por token: cuando
+  // se agota corta hasta que rota la ventana, así que sirve de respaldo y no
+  // como proveedor principal.
+  { id: "ollama_cloud", nombre: "Ollama Cloud", gratis: true, envKey: "OLLAMA_CLOUD_API_KEY", alta: "https://ollama.com/settings/keys", nota: "Modelos grandes · cuota diaria gratis · el catálogo rota" },
   { id: "github", nombre: "GitHub Models", gratis: true, envKey: "GITHUB_TOKEN", alta: "https://github.com/settings/tokens", nota: "Modelos de Azure con token de GitHub" },
   { id: "mimo", nombre: "Xiaomi MiMo", gratis: false, envKey: "MIMO_API_KEY", alta: "https://platform.xiaomimimo.com/#/console/api-keys", nota: "De pago · 1M de contexto · fuerte en código" },
   { id: "openai", nombre: "OpenAI (ChatGPT)", gratis: false, envKey: "OPENAI_API_KEY", alta: "https://platform.openai.com/api-keys", nota: "GPT · también genera imágenes con DALL·E" },
@@ -61,9 +68,42 @@ async function leerClavesGuardadas(): Promise<Record<string, { apiKey?: string; 
  * Devuelve cada proveedor con: si tiene clave (del entorno o guardada), sus
  * modelos y el estado real de verificación de cada uno.
  */
+/**
+ * ¿Esta request es la del dueño del sistema?
+ *
+ * No alcanza con `isAdmin`: en este deploy el tenant del dueño (`sofia-premium`,
+ * id 1) lo tiene en false -- verificado en producción -- así que tratarlo como
+ * un cliente más le mandaba SUS claves a `tenants.apiKeys` en vez de a la
+ * configuración global. Y la global no es un lugar cualquiera: es la que se
+ * vuelca a `process.env` y de ahí la leen Atlas y la sincronización con
+ * OpenCode. O sea que el dueño guardaba una clave, la pantalla decía que sí, y
+ * su propio operador no la veía.
+ *
+ * Se identifica con PLATFORM_TENANT_ID (por defecto 1, el tenant original del
+ * deploy), o con isAdmin para cuando eso quede bien marcado.
+ */
+function esDuenoDelSistema(req: TenantRequest): boolean {
+  if (req.tenant?.isAdmin) return true;
+  const dueno = Number(process.env.PLATFORM_TENANT_ID || 1);
+  return !!req.tenant?.id && req.tenant.id === dueno;
+}
+
 router.get("/catalog", async (req: TenantRequest, res, next) => {
   try {
-    const guardadas = await leerClavesGuardadas();
+    const globales = await leerClavesGuardadas();
+
+    // Un cliente ve LO SUYO, no lo del sistema. Si no ve lo suyo, la pantalla
+    // le miente dos veces: le muestra como propia una clave que no es y le
+    // esconde que la que él cargó sí quedó guardada.
+    const tenantId = req.tenant?.id;
+    const propias = tenantId && !esDuenoDelSistema(req)
+      ? await (await import("../lib/ai-keys-tenant")).clavesDelTenant(tenantId)
+      : {};
+    // Las del cliente ganan; las globales quedan como respaldo visible.
+    const guardadas: Record<string, any> = { ...globales };
+    for (const [prov, datos] of Object.entries(propias)) {
+      if (datos?.apiKey) guardadas[prov] = { apiKey: datos.apiKey, model: datos.model };
+    }
 
     const porProveedor = new Map<string, ModeloLibre[]>();
     for (const m of MODELOS_LIBRES) {
@@ -78,7 +118,14 @@ router.get("/catalog", async (req: TenantRequest, res, next) => {
         ...p,
         // Nunca se devuelve la clave, solo si existe y de dónde sale.
         tieneClave: enEntorno || !!guardada?.apiKey,
-        origenClave: enEntorno ? "entorno" : guardada?.apiKey ? "guardada" : null,
+        // "guardada" tiene prioridad en el chequeo: cargarClavesEnEntorno()
+        // vuelca la clave guardada AL entorno del proceso, así que para el
+        // momento en que esto se lee, process.env[envKey] también es true
+        // cuando la fuente real fue la base -- sin este orden, el admin vería
+        // "entorno" (como si fuera la clave de fábrica del servidor) incluso
+        // después de guardar la suya propia, que es justamente la que se está
+        // usando de verdad.
+        origenClave: guardada?.apiKey ? "guardada" : enEntorno ? "entorno" : null,
         modeloElegido: guardada?.model || null,
         modelos: (porProveedor.get(p.id) || []).map((m) => ({
           id: m.modelo,
@@ -99,6 +146,14 @@ router.get("/catalog", async (req: TenantRequest, res, next) => {
 });
 
 /**
+ * Proveedores cuyo /models responde sin clave. Solo la RAÍZ, para no depender
+ * de que haya configuración cargada.
+ */
+const CATALOGO_PUBLICO: Record<string, string> = {
+  ollama_cloud: "https://ollama.com/v1",
+};
+
+/**
  * GET /api/ai/models/:proveedor — pregunta al proveedor QUÉ modelos ofrece.
  *
  * Se consulta en vivo su endpoint /models en vez de fijar aquí una lista: los
@@ -117,12 +172,20 @@ router.get("/models/:proveedor", async (req: TenantRequest, res, next) => {
     const base = getProviderConfig(proveedor);
     const guardada = guardadas[proveedor];
     const apiKey = (guardada?.apiKey ? descifrar(guardada.apiKey) : null) || base?.apiKey;
-    if (!base?.baseUrl || !apiKey) {
+    // Ollama publica su catálogo SIN autenticación. Se permite consultarlo sin
+    // clave a propósito: sus modelos rotan (los que había al escribir esto ya
+    // no existen), así que el admin necesita ver qué hay HOY antes de darse de
+    // alta, no después.
+    const urlPublica = CATALOGO_PUBLICO[proveedor];
+    const raiz = base?.baseUrl || urlPublica;
+    if (!raiz || (!apiKey && !urlPublica)) {
       return res.json({ modelos: [], error: "Configura primero la clave de este proveedor" });
     }
 
-    const url = base.baseUrl.replace(/\/$/, "") + "/models";
-    const r = await fetch(url, { headers: { Authorization: `Bearer ${apiKey}` } });
+    const url = raiz.replace(/\/$/, "") + "/models";
+    const r = await fetch(url, {
+      headers: apiKey ? { Authorization: `Bearer ${apiKey}` } : {},
+    });
     if (!r.ok) {
       return res.json({ modelos: [], error: `El proveedor respondió ${r.status}` });
     }
@@ -136,7 +199,7 @@ router.get("/models/:proveedor", async (req: TenantRequest, res, next) => {
     // Se devuelve también la URL consultada: variables de entorno como
     // OPENAI_BASE_URL pueden redirigir un proveedor a otro distinto, y sin
     // esto el admin vería modelos ajenos sin entender por qué.
-    return res.json({ modelos: lista, total: lista.length, consultado: base.baseUrl });
+    return res.json({ modelos: lista, total: lista.length, consultado: raiz });
   } catch (e: any) {
     return res.json({ modelos: [], error: String(e?.message || e).slice(0, 140) });
   }
@@ -152,6 +215,29 @@ router.put("/provider", async (req: TenantRequest, res, next) => {
     const { proveedor, apiKey, model } = req.body || {};
     if (!proveedor || !PROVEEDORES.some((p) => p.id === proveedor)) {
       return res.status(400).json({ error: "Proveedor desconocido" });
+    }
+
+    // ── La clave de un cliente se guarda EN SU CLIENTE ────────────────────
+    // `settings` es una fila ÚNICA y global (no tiene tenantId), y encima sus
+    // claves se vuelcan a `process.env`. Guardar acá la clave de un cliente
+    // significaba pisarle la configuración a todos, hacer que su cuota pagara
+    // las conversaciones ajenas, y dejar que cualquier otro admin se la
+    // pisara. Ver lib/ai-keys-tenant.ts.
+    //
+    // El dueño del sistema (tenant admin) sigue escribiendo en la global: es
+    // la que hace de respaldo para todo cliente que no configuró nada.
+    const tenantId = req.tenant?.id;
+    if (tenantId && !esDuenoDelSistema(req)) {
+      const { guardarClaveDeTenant, clavesDelTenant } = await import("../lib/ai-keys-tenant");
+      await guardarClaveDeTenant(tenantId, proveedor, { apiKey, model });
+      const suyas = await clavesDelTenant(tenantId);
+      return res.json({
+        ok: true,
+        proveedor,
+        tieneClave: !!suyas[proveedor]?.apiKey,
+        modelo: suyas[proveedor]?.model || null,
+        ambito: "cliente",
+      });
     }
 
     const [row] = await db.select().from(settings).limit(1);
@@ -178,7 +264,28 @@ router.put("/provider", async (req: TenantRequest, res, next) => {
     await cargarClavesEnEntorno();
     logger.info({ proveedor, conClave: !!actual.apiKey, modelo: actual.model }, "[AICatalog] proveedor guardado");
 
+    // Sincroniza la clave (recién guardada, en texto plano en esta misma
+    // request) hacia OpenCode -- best-effort, nunca bloquea la respuesta.
+    if (typeof apiKey === "string" && apiKey.trim()) {
+      sincronizarProveedorConOpencode(proveedor, apiKey.trim()).catch(() => {});
+    }
+
     return res.json({ ok: true, proveedor, tieneClave: !!actual.apiKey, modelo: actual.model || null });
+  } catch (e) {
+    return next(e);
+  }
+});
+
+/**
+ * POST /api/ai/sync-opencode — reenvía TODAS las claves ya guardadas hacia
+ * OpenCode (backfill para las que se guardaron antes de que existiera esta
+ * sincronización, o para realinear si operato perdió su config). Nunca
+ * devuelve ni loguea las claves en sí, solo cuántas se sincronizaron.
+ */
+router.post("/sync-opencode", async (_req: TenantRequest, res, next) => {
+  try {
+    const resultado = await sincronizarTodasLasClavesConOpencode();
+    return res.json({ ok: true, ...resultado });
   } catch (e) {
     return next(e);
   }
@@ -205,8 +312,34 @@ router.post("/test", async (req: TenantRequest, res, next) => {
       // La guardada viene cifrada en la base: hay que descifrarla para usarla.
       apiKey: (guardada?.apiKey ? descifrar(guardada.apiKey) : null) || base?.apiKey || "",
       model: model || guardada?.model || base?.model || "",
+      // Se perdían acá. Hay proveedores que NO responden sin sus cabeceras
+      // propias -- Copilot exige Editor-Version y Copilot-Integration-Id --,
+      // así que el probador los daba por rotos por una cabecera que el
+      // proveedor sí traía y esta función tiraba a la basura.
+      defaultHeaders: base?.defaultHeaders,
     };
     if (!cfg.baseUrl) return res.json({ ok: false, error: "No se pudo resolver la URL del proveedor" });
+
+    // ── Copilot necesita un intercambio de token, no el PAT crudo ────────
+    // La API de Copilot no acepta el token de GitHub tal cual: hay que
+    // canjearlo por un token de sesión (lib/copilot.ts, ya usado por agent.ts
+    // y code-agent.ts). Acá faltaba, así que probar Copilot desde el panel
+    // devolvía SIEMPRE "400 Authorization header is badly formatted" -- o sea
+    // que el admin no tenía forma de saber si su cuenta de Copilot servía o
+    // no. Un probador que no puede dar OK nunca es peor que no tenerlo:
+    // muestra roto algo que funciona.
+    if (cfg.baseUrl === "https://api.githubcopilot.com") {
+      const { getCopilotSessionToken } = await import("../lib/copilot");
+      const sesion = await getCopilotSessionToken(cfg.apiKey);
+      if (!sesion) {
+        return res.json({
+          ok: false,
+          modelo: cfg.model,
+          error: "GitHub no aceptó el token para Copilot. Volvé a conectar la cuenta desde Configuración (autenticación por código de dispositivo).",
+        });
+      }
+      cfg.apiKey = sesion.token;
+    }
 
     const inicio = Date.now();
     try {

@@ -16,6 +16,11 @@ import { Button } from "@/components/ui/button";
 import { SaasStatusBanner } from "@/components/saas-status-banner";
 import { MobileDashboard } from "@/components/mobile-dashboard";
 import { motion } from "framer-motion";
+import { HelpTourButton } from "@/components/HelpTourButton";
+import { useAutoTour } from "@/hooks/use-auto-tour";
+import { getHelpGuide } from "@/data/help-guides";
+
+const HELP_GUIDE = getHelpGuide("panel")!;
 
 function MetricCard({ title, value, icon: Icon, description, className = "" }: { title: string, value: string | number, icon: any, description?: string, className?: string }) {
   return (
@@ -51,6 +56,8 @@ export default function Dashboard() {
     query: { queryKey: getGetMessagesTimelineQueryKey(), refetchInterval: 5000 }
   });
 
+  useAutoTour(HELP_GUIDE);
+
 const containerVariants = {
   hidden: { opacity: 0 },
   show: { opacity: 1, transition: { staggerChildren: 0.1 } }
@@ -71,10 +78,13 @@ const itemVariants = {
         {/* Hero Section */}
         <motion.div variants={itemVariants} className="flex flex-col md:flex-row gap-6 md:items-end justify-between glass-panel p-6 md:p-7 rounded-xl shadow-md border-0">
           <div>
-            <h1 className="text-2xl font-semibold tracking-tight">Hola, bienvenido de nuevo</h1>
+            <div className="flex items-start gap-1.5">
+              <h1 className="text-2xl font-semibold tracking-tight">Hola, bienvenido de nuevo</h1>
+              <HelpTourButton guide={HELP_GUIDE} />
+            </div>
             <p className="text-muted-foreground mt-1.5 mb-5">Aquí está el resumen de tu operación en WhatsApp.</p>
-            
-            <div className="flex flex-wrap items-center gap-3">
+
+            <div className="flex flex-wrap items-center gap-3" data-tour="dashboard-whatsapp-status">
               {summary?.whatsappConnected ? (
                 <div className="flex items-center gap-2 bg-green-500/10 text-green-600 dark:text-green-400 px-4 py-2 rounded-full text-sm font-semibold border border-green-500/20">
                   <span className="relative flex h-2 w-2">
@@ -94,7 +104,7 @@ const itemVariants = {
             </div>
           </div>
           
-          <div className="flex flex-col sm:flex-row gap-3">
+          <div className="flex flex-col sm:flex-row gap-3" data-tour="dashboard-quick-actions">
             <Link href="/agents" className="inline-flex h-10 items-center justify-center rounded-lg border border-border bg-secondary text-secondary-foreground hover:bg-muted font-medium px-5 transition-colors gap-2 text-sm">
               <Bot className="h-4 w-4" /> Nuevo Agente
             </Link>
@@ -286,7 +296,7 @@ const itemVariants = {
               <CardTitle className="text-lg">Actividad Reciente</CardTitle>
               <CardDescription>Lo que está sucediendo ahora mismo</CardDescription>
             </div>
-            <Link href="/conversations" className="text-sm text-primary hover:underline font-medium flex items-center gap-1">
+            <Link href="/conversations" className="text-sm text-primary hover:underline font-medium flex items-center gap-1" data-tour="dashboard-recent-activity">
               Ver todas <ArrowRight className="h-4 w-4" />
             </Link>
           </CardHeader>

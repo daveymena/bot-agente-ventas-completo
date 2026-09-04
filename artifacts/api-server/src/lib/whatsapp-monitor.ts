@@ -45,8 +45,10 @@ export function getMetricsForAll(): InstanceMetrics[] {
 }
 
 /**
- * Detiene instancias en estado "error" que llevan mucho tiempo en ese estado,
- * para liberar memoria. NO desconecta instancias activas o con QR pendiente.
+ * Detiene instancias con sesión realmente muerta: logout confirmado, o
+ * "disconnected" sin haber llegado a conectar nunca. NO desconecta instancias
+ * activas, con QR pendiente, ni instancias en "error" reintentando la
+ * reconexión (esas se resuelven solas via el backoff del manager).
  */
 export async function cleanupInactiveInstances(): Promise<{ removed: number[]; kept: number[] }> {
   const list = listWhatsAppInstances();
@@ -54,8 +56,15 @@ export async function cleanupInactiveInstances(): Promise<{ removed: number[]; k
   const kept: number[] = [];
 
   for (const { tenantId, status } of list) {
+    // "error" ya NO se trata como obsoleto por sí solo: es también el estado
+    // mientras el manager está reintentando la reconexión con backoff (ver
+    // whatsappManagerByTenant.ts) -- tratarlo como "stale" incondicionalmente
+    // hacía que esta limpieza, que corre cada 5 min, matara reconexiones que
+    // estaban en curso y a punto de resolverse solas, obligando a reiniciar
+    // desde cero (o a intervención manual) en vez de dejarlas terminar. Solo
+    // se limpia si el motivo es un logout real (sesión cerrada, no hay nada
+    // que reintentar) o si nunca llegó a conectar.
     const isStale =
-      status.state === "error" ||
       (status.state === "disconnected" && !status.connectedAt) ||
       status.lastError?.toLowerCase().includes("loggedout");
 

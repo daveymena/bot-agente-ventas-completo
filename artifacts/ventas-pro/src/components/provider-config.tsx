@@ -7,6 +7,7 @@
 
 import React, { useState, useEffect } from "react";
 import { toast } from "sonner";
+import { describeError } from "@/lib/utils";
 
 interface Provider {
   id: string;
@@ -152,10 +153,10 @@ export default function ProviderConfig() {
         });
         loadProviders();
       } else {
-        toast.error(`Error: ${data.error}`);
+        toast.error(describeError(new Error(data.error), "No se pudo configurar el proveedor"));
       }
     } catch (error) {
-      toast.error("Error añadiendo provider");
+      toast.error("No se pudo agregar el proveedor. Intentá de nuevo.");
       console.error(error);
     } finally {
       setLoading(false);

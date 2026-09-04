@@ -16,6 +16,10 @@ export const facebookDrafts = pgTable("facebook_drafts", {
   headline: text("headline"),
   description: text("description"),
   imageUrl: text("image_url"),
+  // Imágenes adicionales para anuncios carrusel (2+ fotos). imageUrl sigue
+  // siendo la principal/primera para compatibilidad con lo que ya lee este
+  // campo; images incluye TODAS (incluida la primera) cuando hay más de una.
+  images: jsonb("images").$type<string[]>().default([]),
   niche: text("niche"),
   budget: integer("budget"),
   fbStatus: text("fb_status"),

@@ -14,7 +14,9 @@ import {
   Eye,
   Facebook,
   Activity,
-  Crown
+  Crown,
+  HelpCircle,
+  Megaphone
 } from "lucide-react";
 import { Sidebar, SidebarContent, SidebarHeader, SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarProvider, SidebarTrigger, SidebarGroup, SidebarGroupContent } from "./ui/sidebar";
 import { Badge as UiBadge } from "@/components/ui/badge";
@@ -50,12 +52,14 @@ export function AppSidebar() {
       { label: "Administrador", href: "/admin/tenants", icon: Crown },
     ] : []),
     { label: "WooCommerce", href: "/woocommerce", icon: ShoppingCart },
-    { label: "Arquitecto IA", href: "/code-agent", icon: Wand2 },
+    { label: "Atlas VentasPro", href: "/code-agent", icon: Wand2 },
     { label: "Personalización", href: "/branding", icon: Palette },
     { label: "Facebook", href: "/facebook", icon: Facebook },
+    { label: "Marketing", href: "/marketing", icon: Megaphone },
     { label: "Configuración", href: "/settings", icon: Settings },
+    { label: "Ayuda", href: "/ayuda", icon: HelpCircle },
     { label: "Planes", href: "/pricing", icon: Badge },
-    ...(sessionTenant?.slug ? [{ label: "Ver Tienda", href: `/mi-tienda`, icon: Eye }] : []),
+    ...(sessionTenant?.slug ? [{ label: "Ver Tienda", href: `/tienda/${sessionTenant.slug}?from=panel`, icon: Eye, external: true }] : []),
 ];
 
   return (
@@ -81,6 +85,13 @@ export function AppSidebar() {
             <SidebarMenu className="gap-2">
               {allNavItems.map((item) => {
                 const isActive = location === item.href;
+                const linkClassName = "flex items-center gap-3 px-3 w-full";
+                const linkContent = (
+                  <>
+                    <item.icon className={`h-[18px] w-[18px] shrink-0 ${isActive ? 'text-white' : 'text-sidebar-foreground group-hover:text-white'}`} />
+                    <span>{item.label}</span>
+                  </>
+                );
                 return (
                   <SidebarMenuItem key={item.href}>
                     <SidebarMenuButton
@@ -95,10 +106,20 @@ export function AppSidebar() {
                         }
                       `}
                     >
-                      <Link href={item.href} className="flex items-center gap-3 px-3 w-full">
-                        <item.icon className={`h-[18px] w-[18px] shrink-0 ${isActive ? 'text-white' : 'text-sidebar-foreground group-hover:text-white'}`} />
-                        <span>{item.label}</span>
-                      </Link>
+                      {/* "external" son destinos fuera de esta SPA (la tienda
+                          pública, otra app entera) -- un <Link> de wouter ahí
+                          termina reemplazando toda la página admin en la misma
+                          pestaña. Se abren en pestaña nueva para mantener el
+                          panel vivo al mismo tiempo. */}
+                      {(item as any).external ? (
+                        <a href={item.href} target="_blank" rel="noopener noreferrer" className={linkClassName}>
+                          {linkContent}
+                        </a>
+                      ) : (
+                        <Link href={item.href} className={linkClassName}>
+                          {linkContent}
+                        </Link>
+                      )}
                     </SidebarMenuButton>
                   </SidebarMenuItem>
                 )
@@ -135,7 +156,18 @@ export function AppSidebar() {
   );
 }
 
-export function Layout({ children }: { children: React.ReactNode }) {
+/**
+ * `chatCompleto`: la pantalla es un CHAT y en móvil ocupa todo el alto
+ * disponible, sin el padding de página ni la reserva de 184px para la barra
+ * inferior.
+ *
+ * Sin esto, una pantalla de chat quedaba encajonada: el padding de <main> más
+ * esos 184px se comían casi la mitad del alto de un celular, y a Atlas le
+ * quedaban ~300px para los mensajes. En una lista de productos ese espacio es
+ * correcto (evita que la barra tape el final del contenido); en un chat, que
+ * tiene su propio campo de escritura abajo, sobra: el chat maneja su alto.
+ */
+export function Layout({ children, chatCompleto = false }: { children: React.ReactNode; chatCompleto?: boolean }) {
   const isMobile = useIsMobile();
 
   return (
@@ -156,14 +188,46 @@ export function Layout({ children }: { children: React.ReactNode }) {
               <UiBadge variant="outline" className="bg-primary/5 text-primary border-primary/20 hidden sm:flex text-xs">V1.5 PREMIUM</UiBadge>
             </div>
           </header>
-          <main className={`flex-1 p-3 sm:p-4 md:p-8 overflow-y-auto overflow-x-hidden animate-enter scroll-smooth flex flex-col h-full ${isMobile ? 'pb-[88px]' : ''}`}>
-            <div className="max-w-7xl mx-auto pb-8 md:pb-4 w-full flex-1 flex flex-col min-h-0">
+          {/* El espacio que reserva la barra inferior fija va en el div de
+              adentro, NO en <main>. <main> es el contenedor que scrollea
+              (overflow-y-auto) y WebKit -- o sea Safari en iPhone, que es
+              justamente donde se veía el problema -- descarta el
+              padding-bottom de un contenedor scrolleable cuando el contenido
+              desborda. Resultado: lo último de cada pantalla (botones de
+              guardar, selects, el final de las listas) quedaba tapado por la
+              barra. En un hijo que no scrollea el padding se respeta siempre.
+
+               El cálculo: 72px de la barra + 112px de aire para acciones y chat + el inset del
+              home indicator en los teléfonos con notch. Y se resuelve con
+              `md:` (CSS puro) en vez de con el hook useIsMobile (JS), para
+              que el espacio no dependa de que un efecto de React ya haya
+              corrido. */}
+          <main className={`flex-1 ${chatCompleto ? "p-0 md:p-8 overflow-hidden md:overflow-y-auto" : "p-3 sm:p-4 md:p-8 overflow-y-auto"} overflow-x-hidden animate-enter scroll-smooth flex flex-col h-full min-h-0`}>
+            {/* En MÓVIL este contenedor NO se limita a la altura de la
+                pantalla; en escritorio sí (md:).
+
+                Acá estaba la causa real de que lo último quedara recortado en
+                toda la app, y sobrevivió al arreglo anterior del padding:
+                `flex-1` + `min-h-0` dentro de un padre de alto fijo capan la
+                altura de este div a lo que se ve. Un contenido más largo NO lo
+                estira -- se DESBORDA fuera de él. Y el `padding-bottom` se
+                dibuja en el borde del div, o sea ARRIBA de ese desborde, no
+                después del contenido. Resultado: se scrollea, aparece lo que
+                faltaba... y el final queda debajo de la barra inferior fija,
+                sin nada que lo empuje.
+
+                Sin `flex-1`/`min-h-0` el div crece con su contenido, <main>
+                scrollea, y el espacio de abajo queda DESPUÉS de todo, que es
+                lo que hace falta. En escritorio se conserva el
+                comportamiento de siempre porque ahí no hay barra inferior y
+                varias pantallas (chat, ayuda) reparten el alto con flex. */}
+            <div className={`max-w-7xl mx-auto w-full md:flex-1 md:flex md:flex-col md:min-h-0 ${chatCompleto ? "flex-1 flex flex-col min-h-0 pb-[calc(80px+env(safe-area-inset-bottom))] md:pb-4" : "pb-[calc(184px+env(safe-area-inset-bottom))] md:pb-4"}`}>
               {children}
             </div>
           </main>
         </div>
         <MobileNav />
-        <HelpChatWidget />
+        <HelpChatWidget ocultoEnMovil={chatCompleto} />
       </div>
     </SidebarProvider>
   );

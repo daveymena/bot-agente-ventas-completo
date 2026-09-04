@@ -15,6 +15,9 @@ import { Plus, MoreVertical, Edit, Trash2, Save, Phone, Mail, Users, Tag } from 
 import { toast } from "sonner";
 import { format, parseISO } from "date-fns";
 import { es } from "date-fns/locale";
+import { HelpTourButton } from "@/components/HelpTourButton";
+import { useAutoTour } from "@/hooks/use-auto-tour";
+import { getHelpGuide } from "@/data/help-guides";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -47,7 +50,28 @@ const stageNames: Record<LeadStage, string> = {
   lost: "Perdido ❌",
 };
 
+const HELP_GUIDE = getHelpGuide("leads")!;
+
+/**
+ * El mensaje que mando el servidor, no uno generico.
+ *
+ * La API ya devuelve textos redactados y en espanol ("Alcanzaste el limite de
+ * 10 agentes de tu plan", "Datos invalidos: falta el telefono"), y la pantalla
+ * los tiraba para mostrar siempre "Error al crear prospecto". El usuario le
+ * daba Guardar tres veces sin saber que le faltaba un campo.
+ *
+ * Tambien saca el detalle de validacion de zod, que dice QUE campo esta mal --
+ * que es justo lo que necesita quien esta llenando un formulario.
+ */
+function mensajeDeError(e: any, porDefecto: string): string {
+  const d = e?.response?.data ?? e?.data ?? e;
+  const detalle = d?.details?.issues?.[0];
+  if (detalle?.path && detalle?.message) return `${detalle.path}: ${detalle.message}`;
+  return d?.message || d?.error || e?.message || porDefecto;
+}
+
 export default function Leads() {
+  useAutoTour(HELP_GUIDE);
   const queryClient = useQueryClient();
   const [filterStage, setFilterStage] = useState<LeadStage | "all">("all");
   
@@ -65,7 +89,7 @@ export default function Leads() {
         toast.success("Prospecto eliminado");
         queryClient.invalidateQueries({ queryKey: getListLeadsQueryKey() });
       },
-      onError: () => toast.error("Error al eliminar prospecto")
+      onError: (e: any) => toast.error(mensajeDeError(e, "No pudimos eliminar el prospecto.")),
     });
   };
 
@@ -76,16 +100,19 @@ export default function Leads() {
       <div className="flex flex-col gap-6 animate-enter">
         <div className="flex flex-col md:flex-row md:justify-between md:items-end gap-4">
           <div>
-            <h1 className="text-3xl font-bold tracking-tight">Prospectos (CRM)</h1>
+            <div className="flex items-start gap-1.5">
+              <h1 className="text-3xl font-bold tracking-tight">Prospectos (CRM)</h1>
+              <HelpTourButton guide={HELP_GUIDE} />
+            </div>
             <p className="text-muted-foreground mt-1">Gestiona tus contactos y oportunidades de venta.</p>
           </div>
           <LeadModal mode="create" open={isNewModalOpen} onOpenChange={setIsNewModalOpen}>
-            <Button className="shadow-lg shadow-primary/20"><Plus className="h-4 w-4 mr-2"/> Nuevo Prospecto</Button>
+            <Button data-tour="leads-new-button" className="shadow-lg shadow-primary/20"><Plus className="h-4 w-4 mr-2"/> Nuevo Prospecto</Button>
           </LeadModal>
         </div>
 
         {/* Filter Bar */}
-        <div className="glass-panel p-2 rounded-2xl flex gap-4 items-center sticky top-[80px] z-10 overflow-hidden">
+        <div data-tour="leads-stage-filter" className="glass-panel p-2 rounded-2xl flex gap-4 items-center sticky top-[80px] z-10 overflow-hidden">
           {/* Móvil: desplegable de una línea. Las 7 etapas en fila se salían
               del ancho del teléfono y quedaban ocultas a la derecha. */}
           <div className="md:hidden w-full px-1">
@@ -267,7 +294,8 @@ function LeadModal({ mode, lead, children, open: controlledOpen, onOpenChange }:
           queryClient.invalidateQueries({ queryKey: getListLeadsQueryKey() });
           setIsOpen(false);
         },
-        onError: () => toast.error("Error al crear prospecto")
+        // El modal NO se cierra: si se cierra, se pierde todo lo que escribio.
+        onError: (e: any) => toast.error(mensajeDeError(e, "No pudimos guardar el prospecto. Intentá de nuevo.")),
       });
     } else {
       updateLead.mutate({ id: lead.id, data: payload as any }, {
@@ -276,7 +304,7 @@ function LeadModal({ mode, lead, children, open: controlledOpen, onOpenChange }:
           queryClient.invalidateQueries({ queryKey: getListLeadsQueryKey() });
           setIsOpen(false);
         },
-        onError: () => toast.error("Error al actualizar prospecto")
+        onError: (e: any) => toast.error(mensajeDeError(e, "No pudimos actualizar el prospecto.")),
       });
     }
   };
@@ -294,12 +322,18 @@ function LeadModal({ mode, lead, children, open: controlledOpen, onOpenChange }:
       setIsOpen(o);
     }}>
       {children && <DialogTrigger asChild>{children}</DialogTrigger>}
-      <DialogContent className="max-w-xl p-0 gap-0 overflow-hidden">
-        <DialogHeader className="p-6 pb-4 border-b bg-muted/5">
+      {/* max-h + columna flex: el mismo patron que ya usan los modales de
+          Producto y Agente. Sin esto, en una pantalla de ~535px de alto el
+          modal quedaba mas alto que la ventana y el pie con Cancelar/Guardar
+          se cortaba abajo -- y la rueda del mouse no lo traia porque el
+          scroll se lo comia el textarea de Notas. Invisible en un monitor
+          grande, bloqueante en un portatil. */}
+      <DialogContent className="max-w-xl p-0 gap-0 max-h-[85vh] overflow-hidden flex flex-col">
+        <DialogHeader className="p-6 pb-4 border-b bg-muted/5 shrink-0">
           <DialogTitle className="text-xl">{mode === 'create' ? 'Nuevo Prospecto' : 'Editar Prospecto'}</DialogTitle>
         </DialogHeader>
         
-        <div className="p-6 grid gap-6">
+        <div className="p-6 grid gap-6 overflow-y-auto flex-1 min-h-0">
           <div className="grid md:grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label>Nombre completo *</Label>
@@ -350,7 +384,7 @@ function LeadModal({ mode, lead, children, open: controlledOpen, onOpenChange }:
           </div>
         </div>
 
-        <DialogFooter className="p-6 border-t bg-muted/10">
+        <DialogFooter className="p-6 border-t bg-muted/10 shrink-0">
           <Button variant="outline" onClick={() => setIsOpen(false)}>Cancelar</Button>
           <Button onClick={handleSubmit} disabled={createLead.isPending || updateLead.isPending} className="min-w-[120px]">
             <Save className="h-4 w-4 mr-2" /> Guardar

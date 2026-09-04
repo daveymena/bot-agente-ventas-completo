@@ -7,9 +7,15 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
-import { Loader2, CheckCircle2, XCircle, RefreshCw, Megaphone, Package, Target, MapPin, Settings2, MessageCircle, MessageSquare, Radio, Globe, FileText, Trash2, Play, Pencil } from "lucide-react";
+import { Loader2, CheckCircle2, XCircle, RefreshCw, Megaphone, Package, Target, MapPin, Settings2, MessageCircle, MessageSquare, Radio, Globe, FileText, Trash2, Play, Pencil, BarChart3 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Layout } from "@/components/layout";
+import { HelpTourButton } from "@/components/HelpTourButton";
+import { useAutoTour } from "@/hooks/use-auto-tour";
+import { getHelpGuide } from "@/data/help-guides";
+import { describeError } from "@/lib/utils";
+
+const HELP_GUIDE = getHelpGuide("facebook")!;
 
 const apiRequest = async (endpoint: string, options: RequestInit = {}) => {
   const response = await fetch(`/api${endpoint}`, {
@@ -48,6 +54,11 @@ interface FbConfig {
   pageId: string;
   adAccountId: string;
   hasToken: boolean;
+  appId?: string;
+  hasAppSecret?: boolean;
+  hasMessengerToken?: boolean;
+  messengerVerifyToken?: string;
+  loginConfigId?: string;
 }
 
 interface Product {
@@ -89,6 +100,7 @@ interface DraftAd {
   headline: string;
   description: string;
   imageUrl: string | null;
+  images: string[] | null;
   niche: string | null;
   budget: number | null;
   createdAt: string;
@@ -110,6 +122,7 @@ interface AgentLog {
 }
 
 export default function FacebookAdsPage() {
+  useAutoTour(HELP_GUIDE);
   const { toast } = useToast();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -117,9 +130,14 @@ export default function FacebookAdsPage() {
   const [connected, setConnected] = useState<boolean | null>(null);
 
   const [config, setConfig] = useState<FbConfig>({
-    accessToken: "", pixelId: "", catalogId: "", pageId: "", adAccountId: "", hasToken: false,
+    accessToken: "", pixelId: "", catalogId: "", pageId: "", adAccountId: "", hasToken: false, appId: "", hasAppSecret: false, hasMessengerToken: false, messengerVerifyToken: "", loginConfigId: "",
   });
   const [rawToken, setRawToken] = useState("");
+  const [rawAppSecret, setRawAppSecret] = useState("");
+  const [rawMessengerToken, setRawMessengerToken] = useState("");
+  // Mostrar/ocultar secretos: escribir a ciegas un token largo es la causa
+  // numero uno de "no me lo acepta" cuando en realidad hubo un caracter de mas.
+  const [verSecretos, setVerSecretos] = useState(false);
 
   const [products, setProducts] = useState<Product[]>([]);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
@@ -142,6 +160,14 @@ export default function FacebookAdsPage() {
   const [creatingAllDrafts, setCreatingAllDrafts] = useState(false);
   const [selectedDraftProduct, setSelectedDraftProduct] = useState<number | null>(null);
 
+  // Métricas en vivo por borrador publicado (gasto, impresiones, clics...)
+  // -- ver loadInsights(). Se piden bajo demanda, no todas de una, para no
+  // gastar rate limit de Meta si hay muchos borradores en la lista.
+  interface DraftInsights { spend: number; impressions: number; clicks: number; ctr: number; results: number; costPerResult: number; reach: number; }
+  const [insights, setInsights] = useState<Record<number, DraftInsights | "error">>({});
+  const [loadingInsights, setLoadingInsights] = useState<Record<number, boolean>>({});
+  const [insightsRange, setInsightsRange] = useState<Record<number, string>>({});
+
   // Modal de detalle de producto (pestaña Anuncios)
   const [productDetail, setProductDetail] = useState<Product | null>(null);
 
@@ -150,6 +176,8 @@ export default function FacebookAdsPage() {
   const [editHeadline, setEditHeadline] = useState("");
   const [editPrimaryText, setEditPrimaryText] = useState("");
   const [editBudget, setEditBudget] = useState<number>(5000);
+  const [editImages, setEditImages] = useState<string[]>([]);
+  const [uploadingImage, setUploadingImage] = useState(false);
   const [savingDraft, setSavingDraft] = useState(false);
 
 
@@ -174,25 +202,71 @@ export default function FacebookAdsPage() {
     handleOAuthRedirectIfAny();
   }, []);
 
-  // Facebook redirige de vuelta con #access_token=... en el fragmento de la
-  // URL (nunca llega al servidor). Se lee una sola vez al cargar la página.
+  // Estado de canales, derivado de la configuración que ya se cargó.
+  //
+  // `channelStatus` estaba declarado pero NUNCA se llenaba: no existía una
+  // sola llamada a setChannelStatus en toda la página. Como la lista siempre
+  // quedaba vacía, la pestaña Canales mostraba "Conecta Facebook primero"
+  // incluso con Facebook conectado y funcionando, contradiciendo a la pestaña
+  // de al lado que decía "Conexión exitosa".
+  useEffect(() => {
+    const canales: ChannelStatus[] = [
+      {
+        channel: "facebook",
+        label: "Facebook (página y anuncios)",
+        connected: !!config.hasToken && !!config.pageId,
+        error: !config.hasToken ? "Falta el token de acceso" : !config.pageId ? "Falta elegir la página" : undefined,
+      },
+      {
+        channel: "messenger",
+        label: "Messenger",
+        connected: !!config.hasMessengerToken,
+        error: config.hasMessengerToken ? undefined : "Falta el token de la página para Messenger",
+      },
+      {
+        channel: "comentarios",
+        label: "Comentarios en publicaciones",
+        connected: !!config.hasMessengerToken && !!config.messengerVerifyToken,
+        error: config.messengerVerifyToken ? undefined : "Falta el verify token del webhook",
+      },
+      {
+        channel: "anuncios",
+        label: "Cuenta publicitaria",
+        connected: !!config.adAccountId,
+        error: config.adAccountId ? undefined : "Falta la cuenta publicitaria",
+      },
+    ];
+    setChannelStatus(canales);
+  }, [config.hasToken, config.pageId, config.hasMessengerToken, config.messengerVerifyToken, config.adAccountId]);
+
+  // Facebook redirige de vuelta con ?code=... en la QUERY STRING (nunca en
+  // el fragmento) -- Authorization Code flow, no Implicit. Con el flujo
+  // anterior (response_type=token) el access_token de verdad viajaba en el
+  // fragmento de la URL (#access_token=...) y quedaba visible un instante
+  // en la barra de direcciones del navegador; el código de acá es de un
+  // solo uso y no sirve sin el App Secret (que nunca sale del servidor), así
+  // que no expone nada sensible aunque se vea en la URL o quede en el
+  // historial del navegador.
   const handleOAuthRedirectIfAny = async () => {
-    const hash = window.location.hash;
-    if (!hash || !hash.includes("access_token=")) return;
-    const params = new URLSearchParams(hash.replace(/^#/, ""));
-    const userToken = params.get("access_token");
-    // Limpiar el hash de la URL para no reprocesar el mismo token al recargar.
-    window.history.replaceState(null, "", window.location.pathname + window.location.search);
-    if (!userToken) return;
-    await connectWithUserToken(userToken);
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get("code");
+    if (!code) return;
+    // Limpiar el ?code= de la URL para no reprocesarlo al recargar.
+    window.history.replaceState(null, "", window.location.pathname);
+    await connectWithAuthCode(code);
   };
 
-  const connectWithUserToken = async (userToken: string, pageId?: string) => {
+  const connectWithAuthCode = async (code: string, pageId?: string) => {
     try {
       setConnectingOAuth(true);
+      const redirectUri = window.location.origin + window.location.pathname;
+      // El tenant lo resuelve el backend a partir de la sesión (cookie
+      // firmada) -- antes se mandaba un tenantId: 1 fijo acá, así que TODO
+      // negocio que conectaba su Facebook terminaba pisando la conexión del
+      // dueño de la plataforma en vez de la suya propia.
       const res = await apiRequest("/public/fb-connect", {
         method: "POST",
-        body: JSON.stringify({ userToken, tenantId: 1, pageId }),
+        body: JSON.stringify({ code, redirectUri, pageId }),
       });
       toast({ title: "Facebook conectado", description: `Página: ${res.page?.name || res.page?.id}${res.canPost ? "" : " (falta el permiso para publicar en el muro)"}` });
       setOtherPages(res.otrasPaginas || []);
@@ -200,46 +274,34 @@ export default function FacebookAdsPage() {
       const cfg = await apiRequest("/facebook/config");
       if (cfg) setConfig(cfg);
     } catch (e: any) {
-      toast({ title: "Error conectando Facebook", description: e.message, variant: "destructive" });
+      toast({ title: "Error conectando Facebook", description: describeError(e, "No se pudo conectar con Facebook. Volvé a intentarlo en unos segundos."), variant: "destructive" });
     } finally {
       setConnectingOAuth(false);
     }
   };
 
-  // PROBADO EN VIVO (jul-2026) — este flujo NO funciona todavía con la app
-  // actual y hay que arreglarlo del lado de Meta, no acá:
-  //
-  // Facebook devuelve "El dominio de esta URL no está incluido en los dominios
-  // de la aplicación" aunque el dominio SÍ esté cargado en App Domains y con la
-  // plataforma Website agregada (ambas cosas se verificaron). La causa real es
-  // que la app está configurada como "Inicio de sesión con Facebook para
-  // empresas" (Facebook Login for Business), y ese producto IGNORA `scope`:
-  // exige un `config_id` que apunte a una configuración de Business Login
-  // creada en el panel (Casos de uso → configuración), donde además se
-  // registran los redirect URIs válidos.
-  //
-  // Para habilitarlo: crear esa configuración en developers.facebook.com,
-  // exponer su id como FB_LOGIN_CONFIG_ID en el backend (junto a FB_APP_ID en
-  // /api/public/fb-app-config) y cambiar `scope=` por `config_id=` abajo.
-  //
-  // Mientras tanto el sistema funciona con el token de página permanente
-  // cargado a mano en "Credenciales (manual/avanzado)" — que al ser de página
-  // y de larga duración no se vence, así que esto es una comodidad, no un
-  // bloqueante.
+  // La app usa "Inicio de sesión con Facebook para empresas" (Facebook Login
+  // for Business), que ignora `scope` y exige un `config_id` de una
+  // configuración creada en developers.facebook.com → Inicio de sesión con
+  // Facebook para empresas → Ajustes (ahí también se registra el redirect
+  // URI válido). Confirmado funcionando en producción (ago-2026) con
+  // FB_LOGIN_CONFIG_ID configurado. response_type=code (no `token`): el
+  // código de un solo uso se canjea del lado del servidor, así el access
+  // token real nunca pasa por la URL del navegador.
   const startFacebookLogin = () => {
     if (!fbAppConfig.appId) return;
     const redirectUri = window.location.origin + window.location.pathname;
     const configId = (fbAppConfig as any).loginConfigId;
-    const base = `https://www.facebook.com/v21.0/dialog/oauth?client_id=${encodeURIComponent(fbAppConfig.appId)}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=token`;
+    const base = `https://www.facebook.com/v21.0/dialog/oauth?client_id=${encodeURIComponent(fbAppConfig.appId)}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code`;
     if (configId) {
-      window.location.href = `${base}&config_id=${encodeURIComponent(configId)}`;
+      window.open(`${base}&config_id=${encodeURIComponent(configId)}`, "_blank", "noopener,noreferrer");
       return;
     }
     const scope = [
       "pages_show_list", "pages_read_engagement", "pages_manage_posts",
       "pages_manage_metadata", "pages_messaging", "ads_management", "catalog_management",
     ].join(",");
-    window.location.href = `${base}&scope=${encodeURIComponent(scope)}`;
+    window.open(`${base}&scope=${encodeURIComponent(scope)}`, "_blank", "noopener,noreferrer");
   };
 
   const loadData = async () => {
@@ -247,7 +309,7 @@ export default function FacebookAdsPage() {
       setLoading(true);
       const [cfg, prods] = await Promise.all([
         apiRequest("/facebook/config").catch(() => ({
-          accessToken: "", pixelId: "", catalogId: "", pageId: "", adAccountId: "", hasToken: false,
+          accessToken: "", pixelId: "", catalogId: "", pageId: "", adAccountId: "", hasToken: false, appId: "", hasAppSecret: false, hasMessengerToken: false, messengerVerifyToken: "", loginConfigId: "",
         })),
         apiRequest("/products").catch(() => []),
       ]);
@@ -270,14 +332,22 @@ export default function FacebookAdsPage() {
           catalogId: config.catalogId,
           pageId: config.pageId,
           adAccountId: config.adAccountId,
+          appId: config.appId || "",
+          // Vacío = no lo cambies: el GET nunca devuelve el secret.
+          ...(rawAppSecret ? { appSecret: rawAppSecret } : {}),
+          ...(rawMessengerToken ? { messengerPageToken: rawMessengerToken } : {}),
+          messengerVerifyToken: config.messengerVerifyToken || "",
+          loginConfigId: config.loginConfigId || "",
         }),
       });
       toast({ title: "Guardado", description: "Configuración de Facebook guardada" });
       setRawToken("");
+      setRawAppSecret("");
+      setRawMessengerToken("");
       const cfg = await apiRequest("/facebook/config");
       if (cfg) setConfig(cfg);
     } catch (e: any) {
-      toast({ title: "Error", description: e.message, variant: "destructive" });
+      toast({ title: "Error", description: describeError(e, "No se pudo guardar la configuración de Facebook."), variant: "destructive" });
     } finally { setSaving(false); }
   };
 
@@ -289,7 +359,7 @@ export default function FacebookAdsPage() {
       toast({ title: res.ok ? "Conectado" : "Error", description: res.message });
     } catch (e: any) {
       setConnected(false);
-      toast({ title: "Error", description: e.message, variant: "destructive" });
+      toast({ title: "Error", description: describeError(e, "No se pudo verificar la conexión con Facebook."), variant: "destructive" });
     } finally { setTesting(false); }
   };
 
@@ -302,7 +372,7 @@ export default function FacebookAdsPage() {
       const res = await apiRequest(`/facebook/suggest-audience/${product.id}`);
       setAudience(res);
     } catch (e: any) {
-      toast({ title: "Error", description: e.message, variant: "destructive" });
+      toast({ title: "Error", description: describeError(e, "No se pudo sugerir una audiencia para este producto."), variant: "destructive" });
     }
   };
 
@@ -321,7 +391,7 @@ export default function FacebookAdsPage() {
       setResult(res);
       toast({ title: "Anuncio creado", description: `Anuncio para ${selectedProduct.name} creado (pausado)` });
     } catch (e: any) {
-      toast({ title: "Error", description: e.message, variant: "destructive" });
+      toast({ title: "Error", description: describeError(e, "No se pudo crear el anuncio. Revisá que Facebook esté conectado."), variant: "destructive" });
     } finally { setCreating(false); }
   };
 
@@ -331,7 +401,7 @@ export default function FacebookAdsPage() {
       const res = await apiRequest("/facebook/sync-catalog", { method: "POST" });
       toast({ title: "Catálogo sincronizado", description: `${res.synced} productos, ${res.failed} fallos` });
     } catch (e: any) {
-      toast({ title: "Error", description: e.message, variant: "destructive" });
+      toast({ title: "Error", description: describeError(e, "No se pudo sincronizar el catálogo con Facebook."), variant: "destructive" });
     } finally { setSyncing(false); }
   };
 
@@ -348,7 +418,7 @@ export default function FacebookAdsPage() {
       const res = await apiRequest("/facebook/messenger/subscribe", { method: "POST" });
       toast({ title: res.ok ? "Suscrito" : "Error", description: res.message });
     } catch (e: any) {
-      toast({ title: "Error", description: e.message, variant: "destructive" });
+      toast({ title: "Error", description: describeError(e, "No se pudo activar el bot de Messenger."), variant: "destructive" });
     } finally { setSubscribing(false); }
   };
 
@@ -375,7 +445,7 @@ export default function FacebookAdsPage() {
       toast({ title: "Revisión ejecutada", description: res.message });
       loadAgentLogs();
     } catch (e: any) {
-      toast({ title: "Error", description: e.message, variant: "destructive" });
+      toast({ title: "Error", description: describeError(e, "No se pudo ejecutar el agente de anuncios ahora."), variant: "destructive" });
     } finally { setRunningAgentNow(false); }
   };
 
@@ -385,7 +455,7 @@ export default function FacebookAdsPage() {
       setPollingActive(true);
       toast({ title: "Polling iniciado", description: "Monitoreo automático de comentarios activado" });
     } catch (e: any) {
-      toast({ title: "Error", description: e.message, variant: "destructive" });
+      toast({ title: "Error", description: describeError(e, "No se pudo activar la revisión automática de mensajes."), variant: "destructive" });
     }
   };
 
@@ -395,7 +465,7 @@ export default function FacebookAdsPage() {
       setPollingActive(false);
       toast({ title: "Polling detenido" });
     } catch (e: any) {
-      toast({ title: "Error", description: e.message, variant: "destructive" });
+      toast({ title: "Error", description: describeError(e, "No se pudo detener la revisión automática de mensajes."), variant: "destructive" });
     }
   };
 
@@ -416,7 +486,7 @@ export default function FacebookAdsPage() {
       toast({ title: "Borrador creado", description: "Borrador de anuncio creado exitosamente" });
       loadDrafts();
     } catch (e: any) {
-      toast({ title: "Error", description: e.message, variant: "destructive" });
+      toast({ title: "Error", description: describeError(e, "No se pudo crear el borrador del anuncio."), variant: "destructive" });
     } finally { setCreatingDraft(false); }
   };
 
@@ -435,7 +505,7 @@ export default function FacebookAdsPage() {
       });
       loadDrafts();
     } catch (e: any) {
-      toast({ title: "Error", description: e.message, variant: "destructive" });
+      toast({ title: "Error", description: describeError(e, "No se pudieron crear los borradores de todos los productos."), variant: "destructive" });
     } finally { setCreatingAllDrafts(false); }
   };
 
@@ -445,7 +515,21 @@ export default function FacebookAdsPage() {
       toast({ title: "Borrador eliminado" });
       loadDrafts();
     } catch (e: any) {
-      toast({ title: "Error", description: e.message, variant: "destructive" });
+      toast({ title: "Error", description: describeError(e, "No se pudo eliminar el borrador."), variant: "destructive" });
+    }
+  };
+
+  const loadInsights = async (draftId: number, datePreset?: string) => {
+    const range = datePreset || insightsRange[draftId] || "last_7d";
+    setInsightsRange((r) => ({ ...r, [draftId]: range }));
+    setLoadingInsights((l) => ({ ...l, [draftId]: true }));
+    try {
+      const res = await apiRequest(`/facebook/strategist/draft/${draftId}/insights?datePreset=${range}`);
+      setInsights((i) => ({ ...i, [draftId]: res.insights }));
+    } catch (e: any) {
+      setInsights((i) => ({ ...i, [draftId]: "error" }));
+    } finally {
+      setLoadingInsights((l) => ({ ...l, [draftId]: false }));
     }
   };
 
@@ -455,7 +539,7 @@ export default function FacebookAdsPage() {
       toast({ title: res.ok ? "Publicado" : "Error", description: res.message });
       loadDrafts();
     } catch (e: any) {
-      toast({ title: "Error", description: e.message, variant: "destructive" });
+      toast({ title: "Error", description: describeError(e, "No se pudo publicar el anuncio en Facebook."), variant: "destructive" });
     }
   };
 
@@ -465,6 +549,34 @@ export default function FacebookAdsPage() {
     setEditHeadline(d.headline || "");
     setEditPrimaryText(d.primaryText || "");
     setEditBudget(d.budget || 5000);
+    setEditImages(d.images && d.images.length > 0 ? d.images : (d.imageUrl ? [d.imageUrl] : []));
+  };
+
+  // Sube una foto (archivo local -> data URL -> servidor) y la agrega a la
+  // lista del borrador que se está editando. 2+ fotos = anuncio carrusel.
+  const addDraftImage = async (file: File) => {
+    setUploadingImage(true);
+    try {
+      const dataUrl: string = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+      const res = await apiRequest("/facebook/strategist/upload-image", {
+        method: "POST",
+        body: JSON.stringify({ image: dataUrl, filename: file.name }),
+      });
+      setEditImages((imgs) => [...imgs, res.url]);
+    } catch (e: any) {
+      toast({ title: "Error subiendo la imagen", description: describeError(e, "No se pudo subir la imagen. Probá con otra foto o un archivo más liviano."), variant: "destructive" });
+    } finally {
+      setUploadingImage(false);
+    }
+  };
+
+  const removeDraftImage = (index: number) => {
+    setEditImages((imgs) => imgs.filter((_, i) => i !== index));
   };
 
   // Guarda los cambios del borrador editado
@@ -472,15 +584,19 @@ export default function FacebookAdsPage() {
     if (!editingDraft) return;
     try {
       setSavingDraft(true);
-      await apiRequest(`/facebook/strategist/draft/${editingDraft.id}`, {
+      const res = await apiRequest(`/facebook/strategist/draft/${editingDraft.id}`, {
         method: "PUT",
-        body: JSON.stringify({ headline: editHeadline, primaryText: editPrimaryText, budget: editBudget }),
+        body: JSON.stringify({ headline: editHeadline, primaryText: editPrimaryText, budget: editBudget, images: editImages }),
       });
-      toast({ title: "Borrador actualizado" });
+      if (res.metaSync && !res.metaSync.ok) {
+        toast({ title: "Guardado, pero Facebook no aceptó el cambio de imagen", description: res.metaSync.message, variant: "destructive" });
+      } else {
+        toast({ title: "Borrador actualizado", description: res.metaSync?.ok ? "El anuncio en Facebook ya muestra las fotos nuevas." : undefined });
+      }
       setEditingDraft(null);
       loadDrafts();
     } catch (e: any) {
-      toast({ title: "Error", description: e.message, variant: "destructive" });
+      toast({ title: "Error", description: describeError(e, "No se pudieron guardar los cambios del borrador."), variant: "destructive" });
     } finally {
       setSavingDraft(false);
     }
@@ -511,7 +627,10 @@ export default function FacebookAdsPage() {
       <div className="space-y-6 p-6">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold tracking-tight">Facebook Multi-Canal</h1>
+            <div className="flex items-start gap-1.5">
+              <h1 className="text-3xl font-bold tracking-tight">Facebook Multi-Canal</h1>
+              <HelpTourButton guide={HELP_GUIDE} />
+            </div>
             <p className="text-muted-foreground">Conecta todos los canales de Facebook: Ads, Messenger y Comentarios</p>
           </div>
         </div>
@@ -570,7 +689,7 @@ export default function FacebookAdsPage() {
                     </CardDescription>
                   </CardHeader>
                   <CardContent className="space-y-3">
-                    <Button onClick={startFacebookLogin} disabled={!fbAppConfig.enabled || connectingOAuth} className="w-full sm:w-auto">
+                    <Button data-tour="facebook-connect-button" onClick={startFacebookLogin} disabled={!fbAppConfig.enabled || connectingOAuth} className="w-full sm:w-auto">
                       {connectingOAuth ? <Loader2 className="mr-2 h-4 w-4 animate-spin shrink-0" /> : <Globe className="mr-2 h-4 w-4 shrink-0" />}
                       Conectar con Facebook
                     </Button>
@@ -589,7 +708,7 @@ export default function FacebookAdsPage() {
                       <Alert>
                         <MessageSquare className="h-4 w-4" />
                         <AlertDescription>
-                          También administrás: {otherPages.map(p => p.name).join(", ")}. Para conectar otra en vez de la actual, decíselo al Arquitecto o volvé a hacer login y elegí otra.
+                          También administrás: {otherPages.map(p => p.name).join(", ")}. Para conectar otra en vez de la actual, decíselo a Atlas o volvé a hacer login y elegí otra.
                         </AlertDescription>
                       </Alert>
                     )}
@@ -612,8 +731,57 @@ export default function FacebookAdsPage() {
                       <div><Label>Catalog ID</Label><Input value={config.catalogId} onChange={e => setConfig({...config, catalogId: e.target.value})} placeholder="FB_CATALOG_ID" /></div>
                       <div><Label>Page ID</Label><Input value={config.pageId} onChange={e => setConfig({...config, pageId: e.target.value})} placeholder="FB_PAGE_ID" /></div>
                       <div><Label>Ad Account ID</Label><Input value={config.adAccountId} onChange={e => setConfig({...config, adAccountId: e.target.value})} placeholder="FB_AD_ACCOUNT_ID (solo números)" /></div>
+
+                      {/* App ID y App Secret DE ESTE NEGOCIO. El backend ya los
+                          guardaba por tenant (PUT /config los persiste) y
+                          facebook-messenger.ts ya los lee, pero no había dónde
+                          cargarlos: quedaban dependiendo del .env del servidor,
+                          o sea de la app de Facebook del dueño de la plataforma.
+                          Con estos campos, cada negocio puede usar SU propia app
+                          -- necesario para verificar la firma de sus webhooks y
+                          para operar con sus propios permisos. */}
+                      <div>
+                        <Label>App ID</Label>
+                        <Input value={config.appId || ""} onChange={e => setConfig({...config, appId: e.target.value})} placeholder="Tu App ID de Meta" />
+                        <p className="text-xs text-muted-foreground mt-1">Opcional: solo si usás tu propia app de Facebook.</p>
+                      </div>
+                      <div>
+                        <Label>App Secret</Label>
+                        <Input type={verSecretos ? "text" : "password"} value={rawAppSecret || (config.hasAppSecret ? "••••••••" : "")} onChange={e => setRawAppSecret(e.target.value)} placeholder="Tu App Secret de Meta" />
+                        {config.hasAppSecret && !rawAppSecret && <p className="text-xs text-muted-foreground mt-1">Ya configurado</p>}
+                      </div>
+
+                      {/* Messenger y Login for Business: estaban en el modelo
+                          pero no se podían cargar desde el panel, así que un
+                          negocio con su propia app no tenía forma de conectar
+                          Messenger ni de validar sus webhooks. */}
+                      <div>
+                        <Label>Messenger Page Token</Label>
+                        <Input type={verSecretos ? "text" : "password"} value={rawMessengerToken || (config.hasMessengerToken ? "••••••••" : "")} onChange={e => setRawMessengerToken(e.target.value)} placeholder="Token de página para Messenger" />
+                        {config.hasMessengerToken && !rawMessengerToken && <p className="text-xs text-muted-foreground mt-1">Ya configurado</p>}
+                      </div>
+                      <div>
+                        <Label>Messenger Verify Token</Label>
+                        <Input value={config.messengerVerifyToken || ""} onChange={e => setConfig({...config, messengerVerifyToken: e.target.value})} placeholder="El que pusiste en el webhook de Meta" />
+                      </div>
+                      <div>
+                        <Label>Login Config ID</Label>
+                        <Input value={config.loginConfigId || ""} onChange={e => setConfig({...config, loginConfigId: e.target.value})} placeholder="Solo si usás Login for Business" />
+                        <p className="text-xs text-muted-foreground mt-1">Meta → Inicio de sesión para empresas → Configuraciones.</p>
+                      </div>
                     </div>
-                    <div className="flex flex-wrap gap-2">
+
+                    <label className="flex items-center gap-2 text-sm text-muted-foreground cursor-pointer w-fit">
+                      <input type="checkbox" checked={verSecretos} onChange={e => setVerSecretos(e.target.checked)} className="accent-primary" />
+                      Mostrar los valores ocultos
+                    </label>
+                    {/* bottom: el menú móvil (mobile-nav.tsx) mide 72px (min-h) +
+                        8px (pb-2) = 80px reales antes de sumar el safe-area del
+                        propio nav -- con solo 76px de offset acá, esta barra
+                        quedaba con 4px de margen (0 en pantallas con notch) y su
+                        parte de abajo terminaba tapada por el nav. 92px deja un
+                        respiro real por encima del nav en cualquier dispositivo. */}
+                    <div className="fixed md:static bottom-[calc(92px+env(safe-area-inset-bottom))] left-3 right-3 md:left-auto md:right-auto z-[55] flex flex-wrap gap-2 p-3 rounded-xl bg-background/95 backdrop-blur-md border border-border/60 shadow-2xl md:border-0 md:bg-transparent md:backdrop-blur-none md:shadow-none md:p-0 md:mx-0">
                       <Button onClick={saveConfig} disabled={saving}>{saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}Guardar</Button>
                       <Button variant="outline" onClick={testConnection} disabled={testing}>
                         {testing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
@@ -737,7 +905,7 @@ export default function FacebookAdsPage() {
                       </div>
                     </div>
                     <div className="flex flex-wrap gap-2">
-                      <Button variant="outline" onClick={createAllDrafts} disabled={creatingAllDrafts} className="w-full sm:w-auto">
+                      <Button data-tour="facebook-megapack-button" variant="outline" onClick={createAllDrafts} disabled={creatingAllDrafts} className="w-full sm:w-auto">
                         {creatingAllDrafts ? <Loader2 className="mr-2 h-4 w-4 animate-spin shrink-0" /> : <Package className="mr-2 h-4 w-4 shrink-0" />}
                         Crear borradores para TODOS los productos (Megapacks)
                       </Button>
@@ -781,6 +949,65 @@ export default function FacebookAdsPage() {
                               <p className="text-xs text-muted-foreground mt-2">
                                 Creado: {new Date(d.createdAt).toLocaleDateString("es-CO", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}
                               </p>
+                              {d.campaignId && (
+                                <div className="mt-3 pt-3 border-t border-border/50">
+                                  {!insights[d.id] ? (
+                                    <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={() => loadInsights(d.id)} disabled={loadingInsights[d.id]}>
+                                      {loadingInsights[d.id] ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <BarChart3 className="h-3.5 w-3.5 mr-1" />}
+                                      Ver métricas
+                                    </Button>
+                                  ) : insights[d.id] === "error" ? (
+                                    <p className="text-xs text-red-500">No se pudieron cargar las métricas. <button className="underline" onClick={() => loadInsights(d.id)}>Reintentar</button></p>
+                                  ) : (
+                                    <div>
+                                      <div className="flex items-center justify-between mb-2">
+                                        <span className="text-xs font-medium text-muted-foreground">Rendimiento del anuncio</span>
+                                        <div className="flex items-center gap-1">
+                                          <select
+                                            className="text-xs bg-background border rounded px-1 py-0.5"
+                                            value={insightsRange[d.id] || "last_7d"}
+                                            onChange={(e) => loadInsights(d.id, e.target.value)}
+                                          >
+                                            <option value="today">Hoy</option>
+                                            <option value="last_3d">3 días</option>
+                                            <option value="last_7d">7 días</option>
+                                            <option value="last_30d">30 días</option>
+                                          </select>
+                                          <Button size="sm" variant="ghost" className="h-6 w-6 p-0" onClick={() => loadInsights(d.id)} disabled={loadingInsights[d.id]} title="Actualizar">
+                                            <RefreshCw className={`h-3 w-3 ${loadingInsights[d.id] ? "animate-spin" : ""}`} />
+                                          </Button>
+                                        </div>
+                                      </div>
+                                      <div className="grid grid-cols-3 sm:grid-cols-6 gap-2 text-center">
+                                        <div className="bg-background/50 rounded p-1.5">
+                                          <p className="text-sm font-semibold">${(insights[d.id] as DraftInsights).spend.toLocaleString("es-CO")}</p>
+                                          <p className="text-[10px] text-muted-foreground">Gastado</p>
+                                        </div>
+                                        <div className="bg-background/50 rounded p-1.5">
+                                          <p className="text-sm font-semibold">{(insights[d.id] as DraftInsights).impressions.toLocaleString("es-CO")}</p>
+                                          <p className="text-[10px] text-muted-foreground">Impresiones</p>
+                                        </div>
+                                        <div className="bg-background/50 rounded p-1.5">
+                                          <p className="text-sm font-semibold">{(insights[d.id] as DraftInsights).clicks.toLocaleString("es-CO")}</p>
+                                          <p className="text-[10px] text-muted-foreground">Clics</p>
+                                        </div>
+                                        <div className="bg-background/50 rounded p-1.5">
+                                          <p className="text-sm font-semibold">{(insights[d.id] as DraftInsights).ctr.toFixed(2)}%</p>
+                                          <p className="text-[10px] text-muted-foreground">CTR</p>
+                                        </div>
+                                        <div className="bg-background/50 rounded p-1.5">
+                                          <p className="text-sm font-semibold">{(insights[d.id] as DraftInsights).results}</p>
+                                          <p className="text-[10px] text-muted-foreground">Resultados</p>
+                                        </div>
+                                        <div className="bg-background/50 rounded p-1.5">
+                                          <p className="text-sm font-semibold">${(insights[d.id] as DraftInsights).costPerResult.toLocaleString("es-CO")}</p>
+                                          <p className="text-[10px] text-muted-foreground">Costo/resultado</p>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              )}
                             </div>
                             <div className="flex md:flex-col gap-2 shrink-0">
                               {d.status !== "published" && (
@@ -840,9 +1067,23 @@ export default function FacebookAdsPage() {
                     )}
                     <div className="space-y-2">
                       <Label>Webhook Verify Token</Label>
-                      <Input value="salesbot_messenger_2024" readOnly className="font-mono text-sm" />
+                      {/* Acá había un valor FIJO escrito en el código
+                          ("salesbot_messenger_2024") que NO es el token que el
+                          servidor valida. Quien lo copiaba a Facebook
+                          Developers se quedaba con la verificación del webhook
+                          fallando sin entender por qué. Ahora se muestra el
+                          token real del negocio, y si no hay ninguno se dice
+                          en vez de inventar uno. */}
+                      <Input
+                        value={config.messengerVerifyToken || ""}
+                        readOnly
+                        placeholder="Sin configurar — poné uno en Configuración y usá ESE en Meta"
+                        className="font-mono text-sm"
+                      />
                       <p className="text-xs text-muted-foreground">
-                        Usa este token al configurar el webhook en Facebook Developers. La URL del webhook es:
+                        {config.messengerVerifyToken
+                          ? "Usa este token al configurar el webhook en Facebook Developers. La URL del webhook es:"
+                          : "Todavía no hay token propio: cargá uno arriba y usá ese mismo en Facebook Developers. La URL del webhook es:"}
                         <code className="block mt-1 p-1 bg-muted rounded text-xs break-all">{window.location.origin}/api/facebook/messenger/webhook</code>
                       </p>
                     </div>
@@ -879,7 +1120,11 @@ export default function FacebookAdsPage() {
                       <AlertDescription>
                         Para activar la respuesta automática a comentarios, configura el webhook de Facebook en:
                         <code className="block mt-1 p-1 bg-muted rounded text-xs break-all">{window.location.origin}/api/facebook/comments/webhook</code>
-                        <span className="block mt-1 text-xs">Verify Token: <strong>salesbot_messenger_2024</strong></span>
+                        {/* Mismo caso que en Messenger: el valor fijo que
+                            estaba acá no es el que el servidor valida. */}
+                        <span className="block mt-1 text-xs">
+                          Verify Token: <strong>{config.messengerVerifyToken || "sin configurar — cargá uno en Configuración"}</strong>
+                        </span>
                       </AlertDescription>
                     </Alert>
                     <p className="text-sm text-muted-foreground">
@@ -1005,7 +1250,12 @@ export default function FacebookAdsPage() {
                             {ch.connected ? <CheckCircle2 className="h-5 w-5 text-green-500" /> : <XCircle className="h-5 w-5 text-destructive" />}
                             <div>
                               <p className="font-medium">{ch.label}</p>
-                              <p className="text-sm text-muted-foreground">{ch.connected ? "Conectado" : "Desconectado"}</p>
+                              {/* El motivo se venía calculando y tirando: decir
+                                  "Desconectado" sin decir qué falta obliga a
+                                  adivinar cuál de cinco campos es. */}
+                              <p className="text-sm text-muted-foreground">
+                                {ch.connected ? "Conectado" : (ch.error || "Desconectado")}
+                              </p>
                             </div>
                           </div>
                         </div>
@@ -1125,12 +1375,38 @@ export default function FacebookAdsPage() {
                 <Label>Presupuesto diario (COP)</Label>
                 <Input type="number" value={editBudget} onChange={(e) => setEditBudget(Number(e.target.value))} min={1000} />
               </div>
-              {editingDraft && editingDraft.imageUrl && (
-                <div className="rounded-lg overflow-hidden border">
-                  <img src={editingDraft.imageUrl} alt="Imagen del anuncio" className="w-full max-h-48 object-cover" />
-                  <p className="text-xs text-muted-foreground p-2 bg-muted/50">La imagen proviene del producto. Para cambiarla, edita el producto en la seccion Productos.</p>
+              <div>
+                <Label>Fotos del anuncio ({editImages.length}{editImages.length > 1 ? " · se publica como carrusel" : ""})</Label>
+                <div className="flex flex-wrap gap-2 mt-2">
+                  {editImages.map((url, i) => (
+                    <div key={i} className="relative w-24 h-24 rounded-lg overflow-hidden border group">
+                      <img src={url} alt={`Foto ${i + 1}`} className="w-full h-full object-cover" />
+                      <button
+                        type="button"
+                        onClick={() => removeDraftImage(i)}
+                        className="absolute top-1 right-1 bg-black/60 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs opacity-0 group-hover:opacity-100 transition-opacity"
+                      >
+                        ✕
+                      </button>
+                      {i === 0 && <span className="absolute bottom-0 inset-x-0 bg-black/60 text-white text-[10px] text-center py-0.5">Principal</span>}
+                    </div>
+                  ))}
+                  <label className="w-24 h-24 rounded-lg border-2 border-dashed flex flex-col items-center justify-center cursor-pointer text-muted-foreground hover:border-primary hover:text-primary transition-colors">
+                    {uploadingImage ? <Loader2 className="h-5 w-5 animate-spin" /> : <span className="text-2xl leading-none">+</span>}
+                    <span className="text-[10px] mt-1">Agregar</span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      disabled={uploadingImage}
+                      onChange={(e) => { const f = e.target.files?.[0]; if (f) addDraftImage(f); e.target.value = ""; }}
+                    />
+                  </label>
                 </div>
-              )}
+                <p className="text-xs text-muted-foreground mt-2">
+                  Subí tu propia foto (o varias — se publican como carrusel, la persona desliza entre ellas). Si no subís ninguna, se usa la del producto.
+                </p>
+              </div>
             </div>
             <DialogFooter className="flex gap-2">
               <Button variant="outline" onClick={() => setEditingDraft(null)}>Cancelar</Button>

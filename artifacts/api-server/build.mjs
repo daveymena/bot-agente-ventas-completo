@@ -46,6 +46,10 @@ async function buildAll() {
     // - use path traversal to read files (e.g. @google-cloud/secret-manager loads sibling .proto files)
     external: [
       "*.node",
+      // puppeteer trae su propio lanzador y rutas a binarios: bundlearlo lo
+      // rompe. Se resuelve en runtime desde el node_modules de la raíz del
+      // monorepo (ya está en el lockfile, no hace falta agregarlo acá).
+      "puppeteer",
       "sharp",
       "better-sqlite3",
       "sqlite3",

@@ -18,18 +18,36 @@ export class ResponseAnalyticsEngine {
     return record;
   }
 
-  async updateOutcome(id: number, outcome: ResponseOutcome, metadata?: Record<string, any>): Promise<void> {
+  /** `tenantId` acota el update al negocio dueño del registro: sin él,
+   * cualquiera podía reescribir el resultado de una analítica ajena. */
+  async updateOutcome(id: number, outcome: ResponseOutcome, metadata?: Record<string, any>, tenantId?: number): Promise<void> {
     await db
       .update(responseAnalytics)
       .set({ outcome, metadata: metadata || null })
-      .where(eq(responseAnalytics.id, id));
+      .where(
+        tenantId
+          ? and(eq(responseAnalytics.id, id), eq(responseAnalytics.tenantId, tenantId))
+          : eq(responseAnalytics.id, id),
+      );
   }
 
-  async getStats(agentId?: number, days = 30) {
+  /**
+   * `tenantId` es OBLIGATORIO en todas las consultas de abajo: estas
+   * analíticas se exponen por HTTP y antes no filtraban por negocio, así que
+   * cualquier cliente logueado podía ver las métricas y el ranking de agentes
+   * de otros negocios con solo pedirlas.
+   */
+  async getStats(tenantId: number, agentId?: number, days = 30) {
     const since = new Date();
     since.setDate(since.getDate() - days);
 
-    let query = db
+    // Un solo `and(...)`: encadenar dos `.where()` en Drizzle REEMPLAZA el
+    // primero en vez de sumarlo -- pasando agentId se perdía el filtro de
+    // fecha y las estadísticas salían sobre todo el historial.
+    const filtros = [eq(responseAnalytics.tenantId, tenantId), gte(responseAnalytics.createdAt, since)];
+    if (agentId) filtros.push(eq(responseAnalytics.agentId, agentId));
+
+    const [stats] = await db
       .select({
         total: sql<number>`count(*)`,
         withCard: sql<number>`sum(case when ${responseAnalytics.hadCard} then 1 else 0 end)`,
@@ -42,37 +60,27 @@ export class ResponseAnalyticsEngine {
         avgSentiment: sql<number>`avg(${responseAnalytics.sentimentScore})`,
       })
       .from(responseAnalytics)
-      .where(gte(responseAnalytics.createdAt, since));
+      .where(and(...filtros));
 
-    if (agentId) {
-      query = query.where(eq(responseAnalytics.agentId, agentId));
-    }
-
-    const [stats] = await query;
     return stats;
   }
 
-  async getConversionRate(agentId?: number, days = 30) {
+  async getConversionRate(tenantId: number, agentId?: number, days = 30) {
     const since = new Date();
     since.setDate(since.getDate() - days);
+
+    const base = [eq(responseAnalytics.tenantId, tenantId), gte(responseAnalytics.createdAt, since)];
+    if (agentId) base.push(eq(responseAnalytics.agentId, agentId));
 
     const total = await db
       .select({ count: sql<number>`count(*)` })
       .from(responseAnalytics)
-      .where(
-        agentId
-          ? and(eq(responseAnalytics.agentId, agentId), gte(responseAnalytics.createdAt, since))
-          : gte(responseAnalytics.createdAt, since)
-      );
+      .where(and(...base));
 
     const sales = await db
       .select({ count: sql<number>`count(*)` })
       .from(responseAnalytics)
-      .where(
-        agentId
-          ? and(eq(responseAnalytics.agentId, agentId), eq(responseAnalytics.outcome, "sale_completed"), gte(responseAnalytics.createdAt, since))
-          : and(eq(responseAnalytics.outcome, "sale_completed"), gte(responseAnalytics.createdAt, since))
-      );
+      .where(and(...base, eq(responseAnalytics.outcome, "sale_completed")));
 
     const totalCount = Number(total[0]?.count || 0);
     const salesCount = Number(sales[0]?.count || 0);
@@ -83,7 +91,7 @@ export class ResponseAnalyticsEngine {
     };
   }
 
-  async getAgentRanking(days = 30) {
+  async getAgentRanking(tenantId: number, days = 30) {
     const since = new Date();
     since.setDate(since.getDate() - days);
 
@@ -96,17 +104,17 @@ export class ResponseAnalyticsEngine {
         avgSentiment: sql<number>`avg(${responseAnalytics.sentimentScore})`,
       })
       .from(responseAnalytics)
-      .where(gte(responseAnalytics.createdAt, since))
+      .where(and(eq(responseAnalytics.tenantId, tenantId), gte(responseAnalytics.createdAt, since)))
       .groupBy(responseAnalytics.agentId)
       .orderBy(desc(sql<number>`sum(case when ${responseAnalytics.outcome} = 'sale_completed' then 1 else 0 end)`));
   }
 
-  async getWeeklyReport() {
+  async getWeeklyReport(tenantId: number) {
     const weekAgo = new Date();
     weekAgo.setDate(weekAgo.getDate() - 7);
 
-    const stats = await this.getStats(undefined, 7);
-    const ranking = await this.getAgentRanking(7);
+    const stats = await this.getStats(tenantId, undefined, 7);
+    const ranking = await this.getAgentRanking(tenantId, 7);
 
     const topAgent = ranking[0] || null;
     const worstAgent = ranking.length > 0 ? ranking[ranking.length - 1] : null;

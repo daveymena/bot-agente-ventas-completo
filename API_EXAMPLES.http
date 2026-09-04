@@ -1,0 +1,327 @@
+###
+# VentasPro SaaS Multi-Tenant - API Examples
+# Usa este archivo con REST Client extension de VS Code
+# O copia los curl commands a tu terminal
+###
+
+@baseUrl = http://localhost:3002/api
+@cookie = tenant_id=s:1.XXXX  # Reemplaza con tu cookie real después de login
+
+### ═══════════════════════════════════════════════════════════════════
+### AUTH - Autenticación
+### ═══════════════════════════════════════════════════════════════════
+
+### Login
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{
+  "email": "daveymena16@gmail.com",
+  "password": "tu_password"
+}
+
+### Get current user (verifica si eres admin)
+GET {{baseUrl}}/auth/me
+Cookie: {{cookie}}
+
+### ═══════════════════════════════════════════════════════════════════
+### TENANT CONFIG - Configuración Multi-Tenant
+### ═══════════════════════════════════════════════════════════════════
+
+### Get all configuration
+GET {{baseUrl}}/tenant-config/all
+Cookie: {{cookie}}
+
+### Get Facebook configuration
+GET {{baseUrl}}/tenant-config/facebook
+Cookie: {{cookie}}
+
+### Update Facebook configuration
+PUT {{baseUrl}}/tenant-config/facebook
+Cookie: {{cookie}}
+Content-Type: application/json
+
+{
+  "appId": "tu_app_id",
+  "appSecret": "tu_app_secret",
+  "pageId": "tu_page_id",
+  "pageAccessToken": "tu_page_token",
+  "adAccountId": "tu_ad_account_id",
+  "webhookVerifyToken": "tu_webhook_token",
+  "messengerVerifyToken": "tu_messenger_token",
+  "enabled": true
+}
+
+### Get Payment configuration
+GET {{baseUrl}}/tenant-config/payments
+Cookie: {{cookie}}
+
+### Update Payment configuration
+PUT {{baseUrl}}/tenant-config/payments
+Cookie: {{cookie}}
+Content-Type: application/json
+
+{
+  "mercadopago": {
+    "accessToken": "APP_USR-tu_token",
+    "publicKey": "APP_USR-tu_public_key",
+    "enabled": true
+  },
+  "paypal": {
+    "clientId": "tu_client_id",
+    "clientSecret": "tu_client_secret",
+    "mode": "live",
+    "enabled": true
+  },
+  "transfer": {
+    "enabled": true,
+    "accounts": [
+      {
+        "type": "Nequi",
+        "number": "573136174267",
+        "name": "Deiner Mena"
+      }
+    ]
+  }
+}
+
+### Get Email configuration
+GET {{baseUrl}}/tenant-config/email
+Cookie: {{cookie}}
+
+### Update Email configuration
+PUT {{baseUrl}}/tenant-config/email
+Cookie: {{cookie}}
+Content-Type: application/json
+
+{
+  "smtpHost": "smtp.gmail.com",
+  "smtpPort": 587,
+  "smtpUser": "tu_email@gmail.com",
+  "smtpPassword": "tu_app_password",
+  "emailFrom": "noreply@tudominio.com",
+  "emailTo": "notificaciones@tudominio.com",
+  "enabled": true
+}
+
+### Get API Keys
+GET {{baseUrl}}/tenant-config/api-keys
+Cookie: {{cookie}}
+
+### Update API Keys
+PUT {{baseUrl}}/tenant-config/api-keys
+Cookie: {{cookie}}
+Content-Type: application/json
+
+{
+  "openai": "sk-tu_openai_key",
+  "groq": "gsk_tu_groq_key",
+  "nvidia": "nvapi-tu_nvidia_key",
+  "opencode": "sk-tu_opencode_key",
+  "opencodeZen": "sk-tu_zen_key",
+  "github": "ghp_tu_github_token",
+  "pexels": "tu_pexels_key"
+}
+
+### ═══════════════════════════════════════════════════════════════════
+### WHATSAPP - Gestión de WhatsApp
+### ═══════════════════════════════════════════════════════════════════
+
+### Get WhatsApp status
+GET {{baseUrl}}/whatsapp/status
+Cookie: {{cookie}}
+
+### Network check (diagnóstico)
+GET {{baseUrl}}/whatsapp/network-check
+Cookie: {{cookie}}
+
+### Session info
+GET {{baseUrl}}/whatsapp/session-info
+Cookie: {{cookie}}
+
+### Connect WhatsApp (con reintentos)
+POST {{baseUrl}}/whatsapp/connect
+Cookie: {{cookie}}
+
+### Pair with phone number
+POST {{baseUrl}}/whatsapp/pair-phone
+Cookie: {{cookie}}
+Content-Type: application/json
+
+{
+  "phoneNumber": "573001234567"
+}
+
+### Reset session
+POST {{baseUrl}}/whatsapp/reset-session
+Cookie: {{cookie}}
+
+### Disconnect
+POST {{baseUrl}}/whatsapp/disconnect
+Cookie: {{cookie}}
+
+### ═══════════════════════════════════════════════════════════════════
+### ADMIN ONLY - Requiere isAdmin=true
+### ═══════════════════════════════════════════════════════════════════
+
+### List all WhatsApp instances (todas las sesiones)
+GET {{baseUrl}}/whatsapp/instances
+Cookie: {{cookie}}
+
+### Get metrics (métricas por tenant)
+GET {{baseUrl}}/whatsapp/metrics
+Cookie: {{cookie}}
+
+### Get health summary
+GET {{baseUrl}}/whatsapp/health
+Cookie: {{cookie}}
+
+### Cleanup inactive instances
+POST {{baseUrl}}/whatsapp/cleanup
+Cookie: {{cookie}}
+
+### Start specific tenant instance
+POST {{baseUrl}}/whatsapp/instances/1/start
+Cookie: {{cookie}}
+
+### Dispose specific tenant instance
+POST {{baseUrl}}/whatsapp/instances/2/dispose
+Cookie: {{cookie}}
+
+### ═══════════════════════════════════════════════════════════════════
+### CURL EXAMPLES - Para usar en terminal
+### ═══════════════════════════════════════════════════════════════════
+
+# Login y guardar cookie
+# curl -X POST http://localhost:3002/api/auth/login \
+#   -H "Content-Type: application/json" \
+#   -d '{"email":"daveymena16@gmail.com","password":"tu_pass"}' \
+#   -c cookies.txt
+
+# Get all config (usando cookie guardada)
+# curl http://localhost:3002/api/tenant-config/all \
+#   -b cookies.txt | jq
+
+# Network check
+# curl http://localhost:3002/api/whatsapp/network-check \
+#   -b cookies.txt | jq
+
+# WhatsApp connect
+# curl -X POST http://localhost:3002/api/whatsapp/connect \
+#   -b cookies.txt | jq
+
+# Update Facebook config
+# curl -X PUT http://localhost:3002/api/tenant-config/facebook \
+#   -b cookies.txt \
+#   -H "Content-Type: application/json" \
+#   -d '{
+#     "appId": "tu_app_id",
+#     "appSecret": "tu_secret",
+#     "enabled": true
+#   }' | jq
+
+### ═══════════════════════════════════════════════════════════════════
+### TESTING SCENARIOS
+### ═══════════════════════════════════════════════════════════════════
+
+### Scenario 1: Admin verifica su status
+# 1. Login
+# 2. GET /api/auth/me
+# 3. Verificar que isAdmin = true
+
+### Scenario 2: Configurar integraciones de Facebook
+# 1. Login
+# 2. GET /api/tenant-config/facebook (ver config actual)
+# 3. PUT /api/tenant-config/facebook (actualizar)
+# 4. GET /api/tenant-config/facebook (verificar cambios)
+
+### Scenario 3: Conectar WhatsApp con QR mejorado
+# 1. Login
+# 2. GET /api/whatsapp/network-check (diagnóstico previo)
+# 3. POST /api/whatsapp/connect (timeout 30s, 3 reintentos)
+# 4. GET /api/whatsapp/status (ver QR o estado)
+
+### Scenario 4: Admin ve todas las instancias
+# 1. Login como admin
+# 2. GET /api/whatsapp/instances (todas las sesiones)
+# 3. GET /api/whatsapp/metrics (métricas detalladas)
+# 4. POST /api/whatsapp/cleanup (limpiar inactivas)
+
+### ═══════════════════════════════════════════════════════════════════
+### RESPONSE EXAMPLES
+### ═══════════════════════════════════════════════════════════════════
+
+### GET /api/tenant-config/all
+# {
+#   "tenant": {
+#     "id": 1,
+#     "email": "daveymena16@gmail.com",
+#     "name": "Admin",
+#     "plan": "enterprise",
+#     "isAdmin": true
+#   },
+#   "facebook": {
+#     "appId": "4238613976451604",
+#     "appSecret": "***9294",
+#     "enabled": true
+#   },
+#   "payments": {
+#     "mercadopago": {
+#       "accessToken": "***1453",
+#       "enabled": true
+#     }
+#   },
+#   "validations": {
+#     "facebook": { "valid": true, "missing": [] },
+#     "payments": { "valid": true, "message": "OK" }
+#   }
+# }
+
+### GET /api/whatsapp/network-check
+# {
+#   "dns": { "ok": true, "addrs": ["31.13.84.51"] },
+#   "tcp443_web_whatsapp": { "ok": true, "ms": 245 },
+#   "tls443_web_whatsapp": { "ok": true, "ms": 310 },
+#   "diagnosis": "Conectividad de red OK — si el QR sigue sin aparecer..."
+# }
+
+### GET /api/whatsapp/status
+# {
+#   "state": "qr",
+#   "qrDataUrl": "data:image/png;base64,...",
+#   "phoneNumber": null,
+#   "connectedAt": null,
+#   "lastError": null
+# }
+
+### GET /api/whatsapp/instances (admin only)
+# {
+#   "ok": true,
+#   "instances": [
+#     {
+#       "tenantId": 1,
+#       "state": "connected",
+#       "phoneNumber": "573042748687",
+#       "connectedAt": "2026-08-02T10:30:00Z"
+#     },
+#     {
+#       "tenantId": 2,
+#       "state": "qr",
+#       "phoneNumber": null,
+#       "connectedAt": null
+#     }
+#   ]
+# }
+
+### ═══════════════════════════════════════════════════════════════════
+### NOTES
+### ═══════════════════════════════════════════════════════════════════
+
+# - Reemplaza {{cookie}} con tu cookie real después de login
+# - Las credenciales sensibles se muestran parcialmente (***últimos4)
+# - Los endpoints /tenant-config/* requieren autenticación
+# - Los endpoints /whatsapp/instances, /metrics, /cleanup requieren isAdmin=true
+# - El QR de WhatsApp tiene timeout de 30s y 3 reintentos automáticos
+# - Usa /network-check si el QR no aparece o se queda cargando
+
+### ═══════════════════════════════════════════════════════════════════

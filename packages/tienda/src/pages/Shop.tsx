@@ -1,10 +1,9 @@
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useStore, Product } from '../store/useStore';
-import { Search, Star, ShoppingCart, Heart, Store, Package, Download, Box, ChevronLeft, ChevronRight } from 'lucide-react';
-import { motion } from 'framer-motion';
-import Swal from 'sweetalert2';
-import { trackAddToCart, trackInitiateCheckout } from '../lib/pixel';
-import { useParams, useSearchParams, useNavigate, Link } from 'react-router-dom';
+import { Search, Store } from 'lucide-react';
+import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
+import ProductCard from '../components/ProductCard';
+import Portada, { TituloDeSeccion } from '../components/market/Portada';
 
 interface ApiProduct {
   id: number;
@@ -16,153 +15,28 @@ interface ApiProduct {
   kind: string;
 }
 
-const formatPrice = (price: number) => {
-  return '$' + Math.round(price).toLocaleString('es-CO');
-};
+// El precio se muestra en la moneda del visitante: lo resuelve formatear() de
+// useMoneda() (ver lib/moneda.ts) -- a un colombiano en pesos, a un extranjero
+// en SU moneda con el dólar al lado. Acá había además un formatPrice() fijo en
+// pesos que ya nadie llamaba; se quitó para que no vuelva a usarse por error y
+// deje precios sin convertir.
 
-// Etiqueta visual por tipo de producto: digital se entrega al instante,
-// físico requiere envío. Solo estos dos valores existen de verdad en el
-// backend (products.kind, ver routes/products.ts) -- cualquier otro valor
-// cae a "digital" ahí, así que este mapa hace lo mismo.
-const TYPE_BADGE: Record<string, { label: string; icon: typeof Download; className: string }> = {
-  digital: { label: 'Digital', icon: Download, className: 'bg-indigo-600' },
-  physical: { label: 'Físico', icon: Box, className: 'bg-emerald-600' },
-};
+// El mapa de etiquetas por tipo (TYPE_BADGE) se fue junto con la tarjeta a
+// components/ProductCard.tsx: es el único que lo pinta. Dejarlo duplicado acá
+// era pedir que las dos copias se contradijeran.
 
 // Exportada porque la lista de deseos (Wishlist.tsx) muestra exactamente la
 // misma tarjeta -- duplicarla ahí hacía que el botón "Comprar ahora" y el
 // badge de tipo se fueran desincronizando entre las dos pantallas.
-export const ProductCard = ({ product, slug }: { product: Product; slug: string }) => {
-  const { addToCart, wishlist, toggleWishlist } = useStore();
-  const [imgError, setImgError] = useState(false);
-  const [buying, setBuying] = useState(false);
-  const detailHref = `/tienda/${slug}/producto/${product.id}`;
-  const badge = TYPE_BADGE[product.type] || TYPE_BADGE.digital;
-  const BadgeIcon = badge.icon;
-
-  // "Comprar" va DIRECTO a la pasarela: antes decía Comprar pero solo metía el
-  // producto al carrito, así que el cliente creía haber comprado y se quedaba
-  // en la misma página. Para acumular varios productos está "Agregar".
-  const comprarAhora = async () => {
-    setBuying(true);
-    trackInitiateCheckout({ ids: [product.id], value: product.price });
-    try {
-      const res = await fetch(`/api/public/checkout/${slug}/${product.id}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ method: 'mercadopago' }),
-      });
-      const data = await res.json();
-      if (!res.ok || !data.checkoutUrl) {
-        throw new Error(data?.message || 'No se pudo generar el enlace de pago');
-      }
-      window.location.href = data.checkoutUrl;
-    } catch (err) {
-      setBuying(false);
-      Swal.fire({
-        title: 'No pudimos abrir el pago',
-        text: err instanceof Error ? err.message : 'Intenta de nuevo.',
-        icon: 'error',
-      });
-    }
-  };
-
-  return (
-    <motion.div
-      layout
-      initial={{ opacity: 0, y: 10 }}
-      animate={{ opacity: 1, y: 0 }}
-      className="group relative bg-white rounded-2xl overflow-hidden flex flex-col transition-all duration-300 shadow-[0_1px_2px_rgba(0,0,0,0.04),0_4px_8px_rgba(0,0,0,0.04),0_10px_20px_-4px_rgba(0,0,0,0.05)] hover:shadow-[0_2px_4px_rgba(0,0,0,0.06),0_10px_20px_rgba(0,0,0,0.08),0_24px_40px_-8px_rgba(0,0,0,0.12)] hover:-translate-y-1"
-    >
-      <div className="relative aspect-square bg-gray-50 overflow-hidden">
-        <Link to={detailHref} className="block w-full h-full" aria-label={`Ver ${product.name}`}>
-          {product.image && !imgError ? (
-            <img
-              src={product.image || `/images/products/${product.id}.jpg`}
-              alt={product.name}
-              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-              onError={(e) => {
-                const target = e.target as HTMLImageElement;
-                if (!target.src.includes(`/images/products/${product.id}.jpg`)) {
-                  target.src = `/images/products/${product.id}.jpg`;
-                } else {
-                  setImgError(true);
-                }
-              }}
-              loading="lazy"
-            />
-          ) : (
-            <div className="w-full h-full flex items-center justify-center text-gray-300 bg-gray-50">
-              <Package className="w-12 h-12" />
-            </div>
-          )}
-        </Link>
-        <div className="absolute top-2 right-2 pointer-events-none">
-          <span className={`px-2 py-1 rounded text-[10px] font-bold text-white flex items-center gap-1 ${badge.className}`}>
-            <BadgeIcon className="w-3 h-3" /> {badge.label}
-          </span>
-        </div>
-        <button
-          onClick={() => toggleWishlist(product.id)}
-          className="absolute top-2 left-2 w-8 h-8 rounded-full bg-white/90 backdrop-blur-sm border border-gray-200 shadow-sm flex items-center justify-center text-gray-400 hover:text-[var(--store-primary)] hover:bg-white transition-all"
-        >
-          <Heart className={`w-4 h-4 ${wishlist.includes(product.id) ? 'fill-[var(--store-primary)] text-[var(--store-primary)]' : ''}`} />
-        </button>
-      </div>
-
-      <div className="p-3 flex flex-col gap-1.5 flex-1">
-        <p className="text-[10px] font-bold text-[var(--store-primary)] uppercase tracking-wider">{product.category || 'General'}</p>
-        <Link
-          to={detailHref}
-          className="text-sm font-bold leading-snug text-gray-900 line-clamp-2 min-h-[2.5em] hover:text-[var(--store-primary)] transition-colors"
-        >
-          {product.name}
-        </Link>
-
-        <div className="flex items-center gap-1">
-          <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
-          <span className="text-xs font-bold text-gray-700">5.0</span>
-          <span className="text-xs text-gray-400">(128)</span>
-        </div>
-
-        <div className="mt-auto pt-2">
-          <span className="text-lg font-black text-gray-900">{formatPrice(product.price)}</span>
-          <div className="mt-2 flex gap-2">
-            <button
-              onClick={comprarAhora}
-              disabled={buying}
-              className="flex-1 h-9 rounded-lg bg-[var(--store-primary)] text-[var(--store-on-primary)] text-xs font-bold flex items-center justify-center gap-1.5 hover:bg-[var(--store-primary-hover)] transition-all disabled:opacity-50"
-            >
-              {buying ? 'Abriendo…' : 'Comprar ahora'}
-            </button>
-            <button
-              onClick={() => {
-                addToCart(product);
-                trackAddToCart({ id: product.id, name: product.name, price: product.price });
-                Swal.fire({
-                  title: '¡Agregado!',
-                  text: `${product.name} al carrito`,
-                  icon: 'success',
-                  toast: true,
-                  position: 'top-end',
-                  showConfirmButton: false,
-                  timer: 1500,
-                  background: '#18181b',
-                  color: '#fff',
-                });
-              }}
-              title="Agregar al carrito"
-              aria-label="Agregar al carrito"
-              className="w-9 h-9 shrink-0 rounded-lg border border-gray-200 text-gray-500 bg-white flex items-center justify-center hover:bg-gray-50 hover:text-[var(--store-primary)] transition-all"
-            >
-              <ShoppingCart className="w-4 h-4" />
-            </button>
-          </div>
-        </div>
-      </div>
-    </motion.div>
-  );
-};
+// La tarjeta vivía escrita acá adentro. Se movió a components/ProductCard.tsx
+// con el look del kit de referencia (fondo lavanda, badge, píldora de
+// agregar) y la MISMA lógica de compra: físico al checkout, digital directo
+// a la pasarela.
+//
+// Se sigue reexportando con el mismo nombre porque Wishlist.tsx la importa
+// desde este archivo, que es justo el motivo por el que se exportó en su día:
+// que las dos pantallas no se fueran desincronizando.
+export { ProductCard };
 
 const Shop = () => {
   const { config, updateConfig, products: localProducts } = useStore();
@@ -172,7 +46,7 @@ const Shop = () => {
   const DEFAULT_SLUG = 'sofia-premium';
   const slug = paramSlug || DEFAULT_SLUG;
   const searchQuery = searchParams.get('q') || '';
-  const scrollerRef = useRef<HTMLDivElement>(null);
+  const categoriaDeLaUrl = searchParams.get('cat') || '';
 
   const [apiProducts, setApiProducts] = useState<ApiProduct[]>([]);
   const [loading, setLoading] = useState(true);
@@ -212,7 +86,70 @@ const Shop = () => {
       }))
     : localProducts;
 
-  const [filter, setFilter] = useState('all');
+  // Qué vende REALMENTE esta tienda, para no prometer envíos que no existen
+  // ni entrega digital de algo que se manda por correo (ver el hero abajo).
+  const hayFisicos = products.some(p => p.type === 'physical');
+  const hayDigitales = products.some(p => p.type !== 'physical');
+
+  // ¿Esta tienda mezcla las dos cosas?
+  //
+  // No todas las tiendas del sistema venden de los dos tipos: unas son 100%
+  // cursos digitales, otras 100% producto físico. Distinguir "Digital" vs
+  // "Físico" solo informa cuando conviven; si no, es una etiqueta repetida en
+  // cada tarjeta y cada categoría que no ayuda a decidir y tapa la foto.
+  const catalogoMixto = hayFisicos && hayDigitales;
+
+  const [filter, setFilter] = useState(categoriaDeLaUrl || 'all');
+
+  // El encabezado navega con ?q= y ?cat=, así que el catálogo tiene que
+  // reaccionar a la URL y no solo a su estado interno. Sin esto, buscar desde
+  // el encabezado cambia la barra de direcciones y la grilla no se mueve --
+  // que se lee como que el buscador está roto.
+  useEffect(() => {
+    setFilter(categoriaDeLaUrl || 'all');
+    setSearchTerm(searchQuery);
+  }, [categoriaDeLaUrl, searchQuery]);
+
+  /**
+   * Elegir una categoría además BAJA hasta los resultados.
+   *
+   * Antes solo cambiaba el filtro: el visitante tocaba "Físico" o una
+   * categoría, la lista de abajo se actualizaba, y él seguía viendo el mismo
+   * héroe con la pantalla igual que antes. Parecía que el botón no hacía
+   * nada, y había que descubrir a mano que la respuesta estaba más abajo.
+   *
+   * Reportado por el dueño el 2026-08-23: "al darle a productos digitales o
+   * físico debería llevarlo al producto, es muy molesto darle scroll".
+   *
+   * El ancla `#catalogo` ya existía (la usa el botón "Ver productos" del
+   * héroe); lo que faltaba era que los filtros la usaran también.
+   */
+  // Al llegar con #catalogo desde otra página, React Router cambia la ruta
+  // pero NO baja: el navegador solo resuelve el hash en una carga completa,
+  // no en una navegación de SPA. Sin esto, "Productos" desde la ficha de un
+  // producto deja al visitante arriba, que es el mismo problema.
+  useEffect(() => {
+    if (window.location.hash !== '#catalogo') return;
+    // Dos cuadros: uno para que monte la grilla, otro para que el ancla ya
+    // tenga su posición definitiva.
+    requestAnimationFrame(() =>
+      requestAnimationFrame(() =>
+        document.getElementById('catalogo')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      )
+    );
+  }, []);
+
+  const irAlCatalogo = () => {
+    // El header es sticky, así que el ancla ya lleva `scroll-mt-24` para no
+    // quedar tapada por él.
+    document.getElementById('catalogo')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+
+  const elegirFiltro = (clave: string) => {
+    setFilter(clave);
+    // Tras el re-render, para que el ancla ya esté en su posición final.
+    requestAnimationFrame(irAlCatalogo);
+  };
   const [searchTerm, setSearchTerm] = useState(searchQuery || '');
 
   // La clave de categoría es "nombre + tipo", no solo el nombre: un curso
@@ -231,20 +168,39 @@ const Shop = () => {
   });
 
   const categories = useMemo(() => {
-    const counts: Record<string, { key: string; name: string; type: string; count: number }> = {};
+    // Cada categoría se queda con la FOTO del primer producto suyo que tenga
+    // una. Es lo que separa este diseño de un tablero de colores: en el kit de
+    // referencia cada bloque de categoría es una foto real con el texto
+    // encima, no un rectángulo de color con una etiqueta.
+    //
+    // La imagen sale del catálogo, nunca de un banco de fotos: una tienda que
+    // ilustra "Audio" con una foto de stock que no vende se nota, y encima
+    // sería mostrar algo que el cliente no puede comprar.
+    //
+    // Si ninguna producto de la categoría tiene imagen, `image` queda vacío y
+    // la tarjeta cae al bloque de color. Preferible a inventar una.
+    const counts: Record<string, { key: string; name: string; type: string; count: number; image: string }> = {};
     products.forEach(p => {
       const key = categoryKey(p);
-      if (!counts[key]) counts[key] = { key, name: p.category || 'General', type: p.type || 'digital', count: 0 };
+      if (!counts[key]) counts[key] = { key, name: p.category || 'General', type: p.type || 'digital', count: 0, image: '' };
       counts[key].count++;
+      if (!counts[key].image && p.image) counts[key].image = p.image;
     });
     return Object.values(counts).sort((a, b) => b.count - a.count);
   }, [products]);
 
-  // El backend solo reconoce "digital" | "physical" en products.kind (ver
-  // routes/products.ts: row.kind === "physical" ? "physical" : "digital") --
-  // cualquier otro valor cae a "digital" ahí, así que se replica el mismo
-  // fallback acá para que el label nunca contradiga lo que el backend hace.
-  const typeLabel = (type: string) => type === 'physical' ? 'Físico' : 'Digital';
+
+  // Portada: la que cargó el dueño y, si no, la foto del primer producto que
+  // tenga una. Nunca una imagen de stock: se muestra algo que está a la venta.
+  // Las de relleno NO cuentan. `placeholderBanner()` devuelve un SVG en un
+  // data: URI, y el config por defecto trae uno con el texto "Tu tienda": sin
+  // este filtro, el banner de apertura mostraba un rectángulo verde con una
+  // "T" gigante encima del nombre del negocio. Un relleno sirve como hueco a
+  // completar en el editor, no como portada de una tienda que está vendiendo.
+  const esRelleno = (u: string) => u.startsWith('data:image/svg');
+  const heroImagen = [config.heroImage, products.find(p => p.image)?.image]
+    .find((u): u is string => !!u && !esRelleno(u)) || '';
+
 
   const [visibleCount, setVisibleCount] = useState(12);
 
@@ -252,84 +208,50 @@ const Shop = () => {
 
   const displayedProducts = filteredProducts.slice(0, visibleCount);
 
-  const scrollCategories = (dir: 'left' | 'right') => {
-    scrollerRef.current?.scrollBy({ left: dir === 'left' ? -240 : 240, behavior: 'smooth' });
-  };
-
   return (
     <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-8 pb-24 md:pb-8">
-      {/* HERO BANNER */}
-      <div
-        className="rounded-2xl text-white p-6 sm:p-10 mb-6 relative overflow-hidden bg-gray-900 bg-cover bg-center"
-        style={config.heroImage ? { backgroundImage: `url(${config.heroImage})` } : undefined}
-      >
-        {/* Overlay oscuro para que el texto quede legible sobre la foto */}
-        <div className="absolute inset-0 bg-gradient-to-r from-black via-black/80 to-black/20" />
-        <div className="relative z-10 max-w-lg">
-          <p className="text-[var(--store-primary)] text-xs font-bold uppercase tracking-widest mb-2">Nueva colección</p>
-          <h1 className="text-2xl sm:text-4xl font-black mb-2 leading-tight">Encuentra lo que buscas</h1>
-          <p className="text-sm text-gray-300 mb-4">Productos físicos y digitales en un solo lugar</p>
-          <div className="flex flex-wrap gap-2">
-            <span className="bg-[var(--store-primary)] text-[var(--store-on-primary)] px-3 py-1.5 rounded-lg text-xs font-bold">🚚 Envío a todo el país</span>
-            <span className="bg-white/10 text-white px-3 py-1.5 rounded-lg text-xs font-bold backdrop-blur-sm">⚡ Entrega digital inmediata</span>
-          </div>
-        </div>
-      </div>
+      {/* ── PORTADA ────────────────────────────────────────────────────
+          La fila de apertura de Market --columna de categorías, banner grande,
+          dos banners chicos-- más la tira de garantías.
 
-      {/* SEARCH BAR */}
-      <div className="relative mb-6">
-        <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-        <input
-          type="text"
-          placeholder="Buscar productos..."
-          value={searchTerm}
-          onChange={e => setSearchTerm(e.target.value)}
-          className="w-full h-12 pl-12 pr-4 rounded-xl border border-gray-200 bg-white text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[var(--store-primary)]/30 focus:border-[var(--store-primary)] transition-all shadow-sm"
+          Reemplaza al héroe de dos bloques del kit anterior, al buscador
+          suelto (ahora vive en el encabezado, o sea en todas las páginas) y al
+          mosaico de ocho categorías con foto. El mosaico no se pierde: sus
+          categorías son las mismas y con los mismos conteos reales, pero ya no
+          empujan el catálogo fuera de la pantalla -- en Market la lista de
+          categorías es una columna angosta al costado, y el producto se ve
+          desde el primer scroll. */}
+      <Portada
+        storeName={config.storeName || 'Tienda'}
+        heroImagen={heroImagen}
+        categorias={categories}
+        hayFisicos={hayFisicos}
+        hayDigitales={hayDigitales}
+        totalProductos={products.length}
+        onCategoria={elegirFiltro}
+        onVerCatalogo={irAlCatalogo}
+      />
+
+      {/* ── CATÁLOGO ──────────────────────────────────────────────────────
+          El ancla que usa el botón "Ver productos" del héroe. */}
+      <div id="catalogo" className="scroll-mt-28">
+        <TituloDeSeccion
+          titulo={filter === 'all' ? 'Todos los productos' : categories.find(c => c.key === filter)?.name || 'Productos'}
+          derecha={
+            <span className="text-[12px] text-[var(--mk-muted)]">
+              Mostrando <strong className="text-[var(--mk-ink)]">{displayedProducts.length}</strong> de{' '}
+              <strong className="text-[var(--mk-ink)]">{filteredProducts.length}</strong>
+              {filter !== 'all' && (
+                <button
+                  onClick={() => elegirFiltro('all')}
+                  className="ml-3 text-[var(--store-primary)] font-semibold hover:underline"
+                >
+                  Quitar filtro
+                </button>
+              )}
+            </span>
+          }
         />
-      </div>
-
-      {/* CATEGORIES CAROUSEL */}
-      {categories.length > 0 && (
-        <div className="mb-8 relative">
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="text-base font-bold text-gray-900">Categorías</h3>
-            <div className="hidden sm:flex gap-1">
-              <button onClick={() => scrollCategories('left')} className="w-8 h-8 rounded-full border border-gray-200 flex items-center justify-center hover:bg-gray-50 text-gray-500">
-                <ChevronLeft className="w-4 h-4" />
-              </button>
-              <button onClick={() => scrollCategories('right')} className="w-8 h-8 rounded-full border border-gray-200 flex items-center justify-center hover:bg-gray-50 text-gray-500">
-                <ChevronRight className="w-4 h-4" />
-              </button>
-            </div>
-          </div>
-          <div ref={scrollerRef} className="flex gap-2 overflow-x-auto pb-2 scroll-smooth [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-            <button
-              onClick={() => setFilter('all')}
-              className={`flex-shrink-0 px-4 py-2 rounded-lg font-semibold whitespace-nowrap text-sm transition-colors ${
-                filter === 'all' ? 'bg-[var(--store-primary)] text-[var(--store-on-primary)]' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-              }`}
-            >
-              Todos ({products.length})
-            </button>
-            {categories.map((c) => (
-              <button
-                key={c.key}
-                onClick={() => setFilter(c.key)}
-                className={`flex-shrink-0 px-4 py-2 rounded-lg font-semibold whitespace-nowrap text-sm transition-colors ${
-                  filter === c.key ? 'bg-[var(--store-primary)] text-[var(--store-on-primary)]' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                }`}
-              >
-                {c.name} <span className="opacity-70 font-normal">· {typeLabel(c.type)}</span> ({c.count})
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-
-      <div className="mb-4">
-        <p className="text-xs text-gray-500">
-          Mostrando <strong className="text-gray-900">{displayedProducts.length}</strong> de <strong className="text-gray-900">{filteredProducts.length}</strong> producto(s)
-        </p>
       </div>
 
       {loading ? (
@@ -372,7 +294,7 @@ const Shop = () => {
         <>
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-6">
             {displayedProducts.map((product) => (
-              <ProductCard key={product.id} product={product} slug={slug} />
+              <ProductCard key={product.id} product={product} slug={slug} mostrarTipo={catalogoMixto} />
             ))}
           </div>
           {filteredProducts.length > visibleCount && (

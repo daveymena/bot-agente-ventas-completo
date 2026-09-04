@@ -7,10 +7,18 @@
  */
 
 import { logger } from "./logger";
+import { db, conversations, payments, products } from "@workspace/db";
+import { eq, and, inArray } from "drizzle-orm";
 import { architectMemoryService } from "./architect-memory-service";
 import { architectPredictor } from "./architect-predictor";
 import { architectReasoner } from "./architect-reasoner";
 import { architectOptimizer } from "./architect-optimizer";
+
+// Los únicos canales que este backend realmente escribe en conversations.channel
+// hoy (confirmado en whatsapp.ts, facebook-messenger.ts, facebook-comments.ts).
+// Email y SMS no tienen integración de envío real todavía -- no reportar
+// métricas de canales que no existen.
+const IMPLEMENTED_CHANNELS = ["whatsapp", "facebook_messenger", "facebook_comment"] as const;
 
 export interface MultichannelStrategy {
   whatsapp: {
@@ -56,69 +64,52 @@ export class ArchitectMultichannel {
   }): Promise<MultichannelStrategy> {
     logger.info({ productName: context.productName }, "🎯 Creating multichannel strategy");
 
+    const [product] = await db.select().from(products).where(eq(products.id, context.productId));
+    const realFeatures = (product?.features || []).filter(Boolean);
+    const featureLines = realFeatures.length > 0
+      ? realFeatures.map((f) => `✅ ${f}`).join("\n")
+      : "(sin features cargadas en el producto -- agrégalas para que el copy las use en vez de quedar genérico)";
+    const highlightLine = product?.highlight ? `\n🚀 ${product.highlight}\n` : "\n";
+
     return {
       whatsapp: {
         messageTemplate: `
 ✨ ${context.productName}
-
-🚀 Ahora con acceso inmediato
-
-✅ Acceso de por vida
-✅ Soporte técnico incluido
-✅ Garantía 30 días
+${highlightLine}
+${featureLines}
 
 🔗 Compra ahora: [link]
 
 ¿Preguntas? Estoy aquí 👋
         `.trim(),
-        bestTime: "14:00-16:00 (martes a jueves)",
+        bestTime: "14:00-16:00 (martes a jueves) -- estimación general; usa architectPredictor.predictBestContactTime por cliente para un horario real",
         frequency: "1 mensaje inicial + 2 follow-ups (24h, 72h si no responde)",
         personalization: "Usar nombre, referencia a búsquedas previas, ofrecer descuento exclusivo",
       },
 
       email: {
-        subject: `🚀 ${context.productName} | Acceso Inmediato [NOMBRE]`,
-        bodyTemplate: `
-Hola [NOMBRE],
-
-Excelente noticia: ${context.productName} está listo para ti.
-
-📥 Tu acceso: [LINK]
-
-Incluye:
-✅ Acceso permanente
-✅ Actualizaciones de por vida
-✅ Soporte técnico 24/7
-✅ Garantía 30 días
-
-Cualquier duda: [CONTACT]
-
-¡A disfrutar!
-[NOMBRE_NEGOCIO]
-        `.trim(),
-        sendTime: "09:00-11:00 (jueves)",
-        segmentation: "Segmentado por comportamiento previo, primer comprador vs repeat",
+        subject: `⚠️ CANAL NO IMPLEMENTADO: no hay envío de email integrado en este backend todavía`,
+        bodyTemplate: `Plantilla de referencia únicamente -- no hay proveedor de email conectado (no se encontró integración de envío en el código). No usar en producción hasta implementar el envío real.`,
+        sendTime: "N/A",
+        segmentation: "N/A -- canal no implementado",
       },
 
       facebook: {
-        adCopy: `🔥 Domina ${context.productName} en 30 días
-
-Aprende de expertos, contenido descargable, acceso de por vida.
-
-✅ Miles de estudiantes satisfechos
-✅ 100% dinero de vuelta si no te encanta
+        adCopy: `🔥 ${context.productName}
+${highlightLine}
+${featureLines}
 
 Oferta limitada: [CTA]`,
         imagePrompt:
-          "Professional product showcase, student success stories, testimonials, before/after transformation",
-        audience: `${context.targetAudience} | 25-45 años | Interés en ${context.productName} | Income mediano-alto`,
+          "Professional product showcase relacionado a las features reales del producto arriba -- no genéricas de stock",
+        audience: `${context.targetAudience} | Interés en ${context.productName}`,
         budget: `$${context.budget} distribuido en 4 semanas`,
       },
 
       sms: {
-        message: `🎉 ${context.productName} listo para ti. Acceso inmediato 🔗 [LINK]. 30 días garantía ✅`,
-        sendTime: "19:00-20:00 (cuando más abierto)",
-        callToAction: "COMPRAR AHORA",
+        message: `⚠️ CANAL NO IMPLEMENTADO: no hay envío de SMS integrado en este backend todavía.`,
+        sendTime: "N/A",
+        callToAction: "N/A -- canal no implementado",
       },
 
       orchestration: {
@@ -147,68 +138,95 @@ Oferta limitada: [CTA]`,
   }
 
   /**
-   * Coordinar campña multicanal
+   * Genera el PLAN de una campaña multicanal (copy + secuencia). Importante:
+   * esta función no envía nada por ningún canal todavía -- no hay llamada real
+   * a whatsapp.ts/facebook.ts aquí. No debe reportar "active" ni métricas
+   * esperadas fabricadas; eso requiere conectarla de verdad al envío real.
    */
   async orchestrateCampaign(context: {
     productId: number;
     tenantId: number;
-    campaign Name: string;
+    campaignName: string;
     startDate: Date;
   }): Promise<{
     campaignId: string;
     status: string;
     channels: Record<string, any>;
-    metrics: {
-      expectedReach: number;
-      expectedConversion: number;
-      expectedRevenue: number;
-    };
+    note: string;
   }> {
     const campaignId = `camp_${Date.now()}`;
 
-    logger.info({ campaignId, campaign: context.campaignName }, "📢 Campaign orchestrated");
+    logger.info({ campaignId, campaign: context.campaignName }, "📢 Campaign plan generated (not yet dispatched)");
 
     return {
       campaignId,
-      status: "active",
+      status: "planned", // no "active": esta función no dispara envíos reales todavía
       channels: {
-        whatsapp: { status: "ready", messages_queued: 5, ctr: "35%" },
-        email: { status: "ready", recipients: 1200, ctr: "18%" },
-        facebook: { status: "running", spend: "$500/week", cpc: "$0.85" },
-        sms: { status: "ready", recipients: 500, ctr: "22%" },
+        whatsapp: { status: "implemented -- requiere llamar a whatsapp.ts para enviar" },
+        facebook: { status: "implemented -- requiere llamar a facebook.ts para publicar/anunciar" },
+        email: { status: "not_implemented" },
+        sms: { status: "not_implemented" },
       },
-      metrics: {
-        expectedReach: 15000,
-        expectedConversion: "2.5-3.5%",
-        expectedRevenue: 3750,
-      },
+      note: "Métricas esperadas (alcance/conversión/revenue) no se reportan aquí porque no hay campaña real corriendo todavía -- usa architect-multichannel.analyzePerformance() una vez que la campaña esté activa y tenga datos reales.",
     };
   }
 
   /**
-   * Analizar performance multicanal
+   * Analizar performance multicanal real: agrupa conversations.channel (el único
+   * dato real de canal que existe) y cruza con pagos confirmados reales.
+   * campaignId no se usa para filtrar todavía porque no existe una columna que
+   * asocie conversaciones a una campaña -- se reporta a nivel tenant.
    */
-  async analyzePerformance(campaignId: string): Promise<{
+  async analyzePerformance(tenantId: number): Promise<{
     channel_performance: Record<string, any>;
-    top_performer: string;
-    bottom_performer: string;
+    top_performer: string | null;
+    bottom_performer: string | null;
     optimization_recommendations: string[];
   }> {
+    const channelPerformance: Record<string, any> = {};
+    const roiByChannel: Array<{ channel: string; conversionRate: number }> = [];
+
+    for (const channel of IMPLEMENTED_CHANNELS) {
+      const convos = await db
+        .select({ id: conversations.id })
+        .from(conversations)
+        .where(and(eq(conversations.tenantId, tenantId), eq(conversations.channel, channel)));
+
+      const convoIds = convos.map((c) => c.id);
+      let confirmedCount = 0;
+      if (convoIds.length > 0) {
+        const confirmed = await db
+          .select({ id: payments.id })
+          .from(payments)
+          .where(and(inArray(payments.conversationId, convoIds), eq(payments.status, "confirmed")));
+        confirmedCount = confirmed.length;
+      }
+
+      const conversionRate = convos.length > 0 ? (confirmedCount / convos.length) * 100 : 0;
+      channelPerformance[channel] = {
+        conversations: convos.length,
+        confirmedSales: confirmedCount,
+        conversionRate: `${conversionRate.toFixed(1)}%`,
+      };
+      if (convos.length >= 5) roiByChannel.push({ channel, conversionRate }); // ignorar canales con muestra insuficiente
+    }
+    channelPerformance.email = { status: "not_implemented" };
+    channelPerformance.sms = { status: "not_implemented" };
+
+    roiByChannel.sort((a, b) => b.conversionRate - a.conversionRate);
+    const top = roiByChannel[0] || null;
+    const bottom = roiByChannel.length > 1 ? roiByChannel[roiByChannel.length - 1] : null;
+
+    const recommendations: string[] = [];
+    if (top) recommendations.push(`📈 ${top.channel} tiene la mayor conversión real (${top.conversionRate.toFixed(1)}%) -- priorizar inversión ahí`);
+    if (bottom) recommendations.push(`📉 ${bottom.channel} tiene la menor conversión real (${bottom.conversionRate.toFixed(1)}%) -- revisar copy/targeting`);
+    if (roiByChannel.length === 0) recommendations.push("Volumen insuficiente en todos los canales (mínimo 5 conversaciones) para comparar performance con confianza todavía.");
+
     return {
-      channel_performance: {
-        whatsapp: { ctr: "42%", conversion: "8.5%", cpc: "free", roi: "340%" },
-        email: { ctr: "18%", conversion: "3.2%", cpc: "$0.12", roi: "220%" },
-        facebook: { ctr: "2.1%", conversion: "1.8%", cpc: "$0.85", roi: "85%" },
-        sms: { ctr: "22%", conversion: "4.1%", cpc: "free", roi: "250%" },
-      },
-      top_performer: "WhatsApp (340% ROI)",
-      bottom_performer: "Facebook (85% ROI)",
-      optimization_recommendations: [
-        "📈 Aumentar presupuesto WhatsApp (mejor ROI)",
-        "📱 SMS frequency optimal, mantener",
-        "📧 Email mejorar subject line (+20% ctr potencial)",
-        "📘 Facebook: A/B test nuevas audiencias vs pausar",
-      ],
+      channel_performance: channelPerformance,
+      top_performer: top ? top.channel : null,
+      bottom_performer: bottom ? bottom.channel : null,
+      optimization_recommendations: recommendations,
     };
   }
 

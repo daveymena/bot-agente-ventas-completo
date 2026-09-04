@@ -16,6 +16,9 @@ import { Bot, Plus, Star, MoreVertical, Edit, Trash2, Save, X, Sparkles, Message
 import { toast } from "sonner";
 import { format, parseISO } from "date-fns";
 import { es } from "date-fns/locale";
+import { HelpTourButton } from "@/components/HelpTourButton";
+import { useAutoTour } from "@/hooks/use-auto-tour";
+import { getHelpGuide } from "@/data/help-guides";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -38,7 +41,10 @@ const getStageGradient = (index: number) => {
   return gradients[index % gradients.length];
 };
 
+const HELP_GUIDE = getHelpGuide("agents")!;
+
 export default function Agents() {
+  useAutoTour(HELP_GUIDE);
   const queryClient = useQueryClient();
   const { data: agents, isLoading } = useListAgents({
     query: { queryKey: getListAgentsQueryKey() }
@@ -75,11 +81,14 @@ export default function Agents() {
       <div className="flex flex-col gap-6 animate-enter">
         <div className="flex flex-col md:flex-row md:justify-between md:items-end gap-4">
           <div>
-            <h1 className="text-3xl font-bold tracking-tight">Agentes IA</h1>
+            <div className="flex items-start gap-1.5">
+              <h1 className="text-3xl font-bold tracking-tight">Agentes IA</h1>
+              <HelpTourButton guide={HELP_GUIDE} />
+            </div>
             <p className="text-muted-foreground mt-1">Configura y entrena a los agentes que automatizan tus ventas.</p>
           </div>
           <AgentModal mode="create" open={isNewModalOpen} onOpenChange={setIsNewModalOpen}>
-            <Button className="shadow-lg shadow-primary/20"><Plus className="h-4 w-4 mr-2"/> Nuevo Agente</Button>
+            <Button data-tour="agents-new-button" className="shadow-lg shadow-primary/20"><Plus className="h-4 w-4 mr-2"/> Nuevo Agente</Button>
           </AgentModal>
         </div>
 
@@ -163,7 +172,7 @@ export default function Agents() {
                   <div className="w-full flex justify-between items-center gap-4">
                     <span className="text-xs text-muted-foreground font-medium">Creado {format(parseISO(agent.createdAt), "d MMM yyyy", { locale: es })}</span>
                     {!agent.isActive ? (
-                      <Button variant="default" size="sm" className="rounded-full shadow-md" onClick={() => handleActivate(agent.id)} disabled={activateAgent.isPending}>
+                      <Button data-tour="agents-activate-button" variant="default" size="sm" className="rounded-full shadow-md" onClick={() => handleActivate(agent.id)} disabled={activateAgent.isPending}>
                         <Star className="h-3.5 w-3.5 mr-1.5" /> Activar
                       </Button>
                     ) : (

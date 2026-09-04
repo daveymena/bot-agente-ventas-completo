@@ -70,11 +70,249 @@ function resolveOpenCodeConfig(modelOverride?: string): AIProviderConfig | null 
   return { baseUrl, apiKey, model };
 }
 
+/**
+ * Modelos de OpenCode Go que sirven para atender a un cliente, en orden de
+ * velocidad medida.
+ *
+ * Medido con el trabajo real (mensaje de cliente en espanol pidiendo precio),
+ * no con un ping: de los 26 que expone /models, SOLO 4 sirven. La medicion
+ * anterior decia "20 contestan" porque miraba el HTTP; mirando el CONTENIDO,
+ * la mayoria no sirve:
+ *
+ *   - 8 devuelven HTTP 200 con el contenido VACIO (glm-5, glm-5.1, glm-5.2,
+ *     glm-5.3, minimax-m2.5, hy3, kimi-k2.7-code, kimi-k3). Un 200 vacio es
+ *     peor que un error: el bot se queda mudo y nada avisa que fallo.
+ *   - kimi-k2.5, kimi-k2.6 y minimax-m3 mandan su RAZONAMIENTO como respuesta
+ *     ("El usuario me pide que actue como vendedor...") e incluso inventan
+ *     precios ("Tenemos desde $49", "esta en $XX"). Eso llegando a un cliente
+ *     es peor que no responder.
+ *   - deepseek-v4: 403 RegionError. qwen y grok-4.5: 503. hy3-preview,
+ *     mimo-v2-omni, mimo-v2-pro: 400.
+ *
+ * Si alguno mejora, se agrega aca; el orden es el que se rota.
+ */
+export const MODELOS_GO_UTILES = [
+  "gpt-5.6-luna",   // 2299 ms
+  "minimax-m2.7",   // 3224 ms
+  "mimo-v2.5-pro",  // 3493 ms
+  "mimo-v2.5",      // 4445 ms
+];
+
+/**
+ * Modelos que Go LISTA pero que NO sirven (ver el detalle arriba). Se listan
+ * para no gastar un turno del cliente descubriendolo en vivo.
+ */
+const MODELOS_GO_ROTOS = new Set([
+  // no responden
+  "deepseek-v4-flash", "deepseek-v4-pro", "grok-4.5", "hy3-preview",
+  "mimo-v2-omni", "mimo-v2-pro",
+  "qwen3.5-plus", "qwen3.6-plus", "qwen3.7-plus", "qwen3.7-max", "qwen3.8-max",
+  // responden 200 pero con el contenido vacio
+  "glm-5", "glm-5.1", "glm-5.2", "glm-5.3", "hy3", "kimi-k3",
+  "kimi-k2.7-code", "minimax-m2.5",
+  // filtran su razonamiento al cliente e inventan precios
+  "kimi-k2.5", "kimi-k2.6", "minimax-m3",
+]);
+
+/**
+ * Todos los modelos utiles de Go, para rotar dentro del proveedor.
+ *
+ * Antes Go era un solo modelo (Luna): si Luna fallaba o se quedaba sin cuota,
+ * se abandonaba el proveedor entero y se pasaba al siguiente, desperdiciando
+ * los otros modelos pagos que si funcionan.
+ */
+export function getOpenCodeGoRotation(): AIProviderConfig[] {
+  const goKey = process.env.OPENCODE_GO_API_KEY;
+  if (!goKey) return [];
+  const baseUrl = process.env.OPENCODE_GO_API_URL || "https://opencode.ai/zen/go/v1";
+  const preferido = process.env.OPENCODE_GO_MODEL || MODELOS_GO_UTILES[0]!;
+  const extra = (process.env.OPENCODE_GO_ROTATION || "").split(",").map((m) => m.trim()).filter(Boolean);
+  const orden = [preferido, ...extra, ...MODELOS_GO_UTILES]
+    .filter((m) => m && !MODELOS_GO_ROTOS.has(m))
+    .filter((m, i, arr) => arr.indexOf(m) === i);
+  return orden.map((model) => ({ baseUrl, apiKey: goKey, model }));
+}
+
+/**
+ * Modelos de reserva por proveedor, EN ORDEN.
+ *
+ * Por qué existe: la cuota se agota POR MODELO, no por cuenta -- medido en
+ * producción el 2026-08-16, con la misma clave un modelo devolvía 429 mientras
+ * otro respondía en 832ms. OpenCode Zen y Go ya rotaban entre sus modelos por
+ * eso mismo; el resto de los proveedores iba con UNO fijo, así que cuando ese
+ * caía se perdía el proveedor entero aunque los demás respondieran.
+ *
+ * Los de acá abajo están MEDIDOS contra la API real el 2026-08-19, no elegidos
+ * a ojo. Varios de los que "deberían" andar no andan: en Groq,
+ * `llama-3.3-70b-versatile`, `llama-3.1-8b-instant` y `kimi-k2-instruct` dan
+ * 404, y `gemma2-9b-it` está dado de baja -- el único que respondió fue
+ * `openai/gpt-oss-20b`, en 299ms.
+ *
+ * Un modelo se agrega acá solo después de verlo contestar. Para descubrirlos
+ * está `probarModelosDe()` (artifacts/api-server/src/lib/probar-modelos.ts),
+ * que los prueba con un mensaje real de cliente y mira el CONTENIDO, no el
+ * código HTTP: hay modelos que devuelven 200 con el cuerpo vacío y otros que
+ * mandan su razonamiento al cliente.
+ */
+const MODELOS_DE_RESERVA: Record<string, string[]> = {
+  // Medido contra la cuenta real el 2026-08-22 con `test_ai_models`:
+  //   deepseek-v4-flash            responde bien, 293 ms
+  //   deepseek-v4-pro              responde bien, 294 ms
+  //   deepseek-v4-flash-vision-exp CONTESTA VACÍO — el bot se queda mudo
+  // Los dos buenos van de reserva para que, si el modelo configurado en el
+  // panel es el vision-exp (o cualquier otro que se caiga), la rotación
+  // igual encuentre uno que responde en vez de dejar al cliente esperando.
+  // `deepseek-chat` queda último: es el nombre de la API oficial de DeepSeek,
+  // sirve si alguna vez se apunta ahí en vez de al gateway.
+  // ⚠️ Acá había `["deepseek-v4-flash", "deepseek-v4-pro", "deepseek-chat"]`,
+  // y los dos primeros NO EXISTEN en la API de DeepSeek: son nombres del
+  // catálogo de OpenCode Zen, que es otro proveedor. La API propia de DeepSeek
+  // (api.deepseek.com) solo tiene `deepseek-chat` y `deepseek-reasoner`.
+  //
+  // Consecuencia: al cargar saldo, el primer fallo de `deepseek-chat` mandaba
+  // a dos modelos inexistentes y se gastaba el turno descubriéndolo -- el
+  // mismo bug de los modelos muertos de Groq, en otro proveedor.
+  //
+  // `deepseek-reasoner` queda FUERA a propósito: es de razonamiento, y este
+  // proyecto ya los excluye por regla (ver NO_SIRVEN en cadena-modelos.ts)
+  // porque gastan el presupuesto de tokens en `reasoning_content` y devuelven
+  // `content` vacío. Sin reserva es mejor que con una reserva que no responde.
+  deepseek: ["deepseek-chat"],
+  // ── Rotación escalonada de Groq ────────────────────────────────────────
+  //
+  // Groq limita por TOKENS POR MINUTO, no por día: se agota en un pico de
+  // tráfico y se recupera solo al minuto siguiente. Por eso no conviene
+  // saltar de Groq al primer 429 -- conviene BAJAR de modelo dentro de Groq,
+  // que sigue siendo mejor que irse a otro proveedor mas chico.
+  //
+  // De mayor a menor, verificados contra su API el 2026-08-27 (los nombres
+  // viejos ya no existen: llama-3.3-70b y llama-3.1-8b salieron del catalogo,
+  // asi que apuntar ahi era un 404 silencioso).
+  //
+  // El 120b y el qwen se probaron con la pregunta trampa ("tengo una
+  // panaderia, me sirve?"): los dos contestaron en colombiano y NINGUNO
+  // invento capacidades del curso -- que es justo lo que hacia el modelo que
+  // atendia hasta hoy.
+  groq: ["qwen/qwen3.8-27b", "openai/gpt-oss-20b", "groq/compound-mini"],
+  mistral: ["codestral-latest", "mistral-large-latest"],
+  nvidia: ["meta/llama-3.1-70b-instruct", "meta/llama-3.1-8b-instruct"],
+  nvidia_nim: ["meta/llama-3.1-70b-instruct", "meta/llama-3.1-8b-instruct"],
+  openrouter: [
+    "nvidia/nemotron-3-nano-30b-a3b:free",
+    "nvidia/nemotron-3-ultra-550b-a55b:free",
+    "poolside/laguna-xs-2.1:free",
+  ],
+  github_copilot_internal: ["gpt-4o", "gpt-4o-mini"],
+};
+
+/**
+ * Todos los modelos que vale la pena intentar de un proveedor, en orden: el
+ * configurado primero, después los que el admin haya puesto en
+ * `<PROVEEDOR>_ROTATION`, y al final los de reserva medidos.
+ *
+ * Devuelve una config por modelo, para que la cola de respaldo pueda tratar
+ * cada uno como un candidato propio en vez de perder el proveedor completo al
+ * primer fallo.
+ */
+export function getProviderRotation(provider: string): AIProviderConfig[] {
+  const base = getProviderConfig(provider);
+  if (!base) return [];
+  const extra = (process.env[`${provider.toUpperCase()}_ROTATION`] || "")
+    .split(",")
+    .map((m) => m.trim())
+    .filter(Boolean);
+  const orden = [base.model, ...extra, ...(MODELOS_DE_RESERVA[provider] || [])]
+    .filter((m): m is string => !!m)
+    .filter((m, i, arr) => arr.indexOf(m) === i);
+  return orden.map((model) => ({ ...base, model }));
+}
+
+/**
+ * La misma configuración de un proveedor, pero con una clave INYECTADA en vez
+ * de leerla del entorno.
+ *
+ * Existe por el aislamiento entre clientes: `getProviderConfig()` saca la clave
+ * de `process.env`, que es global al proceso, así que no sirve para atender a
+ * dos clientes con claves distintas en el mismo servidor. Acá la clave viaja
+ * como argumento y nunca se escribe en ningún lado.
+ *
+ * Es a propósito una lista corta y explícita: los proveedores que un cliente
+ * puede traer con su propia cuenta. Los que viven en infraestructura nuestra
+ * (opencode, opencode_go, los puentes) no entran -- ahí la clave es del
+ * sistema, no del cliente, y devolver null es la respuesta correcta.
+ */
+export function getProviderConfigConClave(
+  provider: string,
+  apiKey: string,
+  model?: string,
+): AIProviderConfig | null {
+  if (!apiKey) return null;
+  const m = (porDefecto: string) => model || porDefecto;
+  switch (provider) {
+    case "deepseek":
+      return { baseUrl: "https://api.deepseek.com/v1", apiKey, model: m("deepseek-chat") };
+    case "openai":
+      return { baseUrl: "https://api.openai.com/v1", apiKey, model: m("gpt-4o-mini") };
+    case "anthropic":
+      return { baseUrl: "https://api.anthropic.com/v1", apiKey, model: m("claude-sonnet-5") };
+    case "groq":
+      // El GRANDE de Groq. Estaba en el de 20B, que es el que no sostiene una
+      // instruccion larga. Verificado contra su API el 2026-08-27: de los que
+      // ofrecen hoy, este es el mayor.
+      return { baseUrl: "https://api.groq.com/openai/v1", apiKey, model: m("openai/gpt-oss-120b") };
+    case "openrouter":
+      return { baseUrl: "https://openrouter.ai/api/v1", apiKey, model: m("nvidia/nemotron-3-nano-30b-a3b:free") };
+    case "mistral":
+      return { baseUrl: "https://api.mistral.ai/v1", apiKey, model: m("mistral-large-latest") };
+    case "nvidia":
+    case "nvidia_nim":
+      return { baseUrl: "https://integrate.api.nvidia.com/v1", apiKey, model: m("meta/llama-3.1-70b-instruct") };
+    case "together":
+      return { baseUrl: "https://api.together.xyz/v1", apiKey, model: m("meta-llama/Llama-3.3-70B-Instruct-Turbo") };
+    case "cerebras":
+      return { baseUrl: "https://api.cerebras.ai/v1", apiKey, model: m("llama-3.3-70b") };
+    case "xai":
+      return { baseUrl: "https://api.x.ai/v1", apiKey, model: m("grok-4.5") };
+    case "google_ai_studio":
+      return { baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai", apiKey, model: m("gemini-2.5-flash") };
+    case "github_copilot_internal":
+      return {
+        baseUrl: "https://api.githubcopilot.com",
+        apiKey,
+        model: m("gpt-4o"),
+        defaultHeaders: {
+          "Editor-Version": process.env.COPILOT_EDITOR_VERSION || "vscode/1.104.1",
+          "Editor-Plugin-Version": "copilot/1.250.0",
+          "Openai-Organization": "github-copilot",
+          "Copilot-Integration-Id": "vscode-chat",
+        },
+      };
+    default:
+      return null;
+  }
+}
+
 export function getProviderConfig(provider: string): AIProviderConfig | null {
   switch (provider) {
     // ─── PROVEEDORES EXISTENTES ───────────────────────────────────────────────
     case "opencode":
       return resolveOpenCodeConfig();
+    // Nivel de pago de OpenCode. Endpoint distinto del gratuito y clave
+    // propia, para que convivan: el free se queda sin cuota a mitad del día
+    // y Go sigue respondiendo.
+    case "opencode_go": {
+      const goKey = process.env.OPENCODE_GO_API_KEY;
+      if (!goKey) return null;
+      const pedido = process.env.OPENCODE_GO_MODEL || "gpt-5.6-luna";
+      return {
+        baseUrl: process.env.OPENCODE_GO_API_URL || "https://opencode.ai/zen/go/v1",
+        apiKey: goKey,
+        // Si el modelo pedido es uno de los que Go lista pero NO responde, se
+        // cae al de referencia en vez de gastar el turno en un 403/400. Ver
+        // MODELOS_GO_ROTOS.
+        model: MODELOS_GO_ROTOS.has(pedido) ? "gpt-5.6-luna" : pedido,
+      };
+    }
     case "github_copilot_internal":
       const rawCopilotToken = process.env.GITHUB_COPILOT_TOKEN || process.env.GITHUB_TOKEN;
       if (!rawCopilotToken) return null;
@@ -119,6 +357,29 @@ export function getProviderConfig(provider: string): AIProviderConfig | null {
         apiKey: ghcToken,
         model: process.env.GITHUB_MODEL_CLAUDE || "Claude-3.5-Sonnet",
       };
+    // ── Ollama CLOUD ── https://ollama.com/settings/keys
+    //
+    // No confundir con `ollama_local`, que apunta a un Ollama corriendo en una
+    // máquina propia. Este es el servicio en la nube: los modelos corren del
+    // lado de ellos, así que no consume RAM del servidor -- que es justo el
+    // motivo por el que NO se instaló Ollama local en el VPS (15 servicios
+    // corriendo, y un modelo de 7B se come 8 GB mientras responde).
+    //
+    // La capa compatible con OpenAI vive en /v1, no en /api. Da acceso a
+    // modelos grandes (gpt-oss:120b, deepseek-v3.1:671b, qwen3-coder:480b)
+    // con una capa gratuita de uso diario.
+    //
+    // OJO con la capa gratis: es por CUOTA de uso, no por token. Cuando se
+    // agota, corta hasta que rota la ventana -- así que sirve de respaldo o
+    // para tareas puntuales, no como proveedor principal de las ventas.
+    case "ollama_cloud":
+      if (!process.env.OLLAMA_CLOUD_API_KEY) return null;
+      return {
+        baseUrl: process.env.OLLAMA_CLOUD_URL || "https://ollama.com/v1",
+        apiKey: process.env.OLLAMA_CLOUD_API_KEY,
+        model: process.env.OLLAMA_CLOUD_MODEL || "gpt-oss:120b",
+      };
+
     case "ollama_local":
       if (!process.env.OLLAMA_LOCAL_URL) return null;
       return {
@@ -157,7 +418,19 @@ export function getProviderConfig(provider: string): AIProviderConfig | null {
       return {
         baseUrl: "https://api.groq.com/openai/v1",
         apiKey: process.env.GROQ_API_KEY,
-        model: process.env.GROQ_MODEL || "llama-3.1-8b-instant",
+        // `llama-3.1-8b-instant` NO EXISTE: Groq lo dio de baja junto con
+        // llama-3.3-70b-versatile y gemma2-9b-it (comprobado contra su API el
+        // 2026-08-27, commit e0c7423). Ese commit arreglo el default de
+        // getProviderConfigConClave (arriba) y dejo ESTE sin tocar -- y este es
+        // justo el que usa el bot de ventas de WhatsApp (agent.ts:1939).
+        //
+        // Medido en produccion el 2026-08-28: a "que incluye el curso de piano
+        // y cuanto sale?" el bot contesto "Te confirmo lo que incluye y el
+        // precio. Te parece bien?" -- no respondio nada. Es el sintoma del
+        // modelo chico atendiendo.
+        //
+        // Verificado en vivo el mismo dia: gpt-oss-120b responde en 442ms.
+        model: process.env.GROQ_MODEL || "openai/gpt-oss-120b",
       };
 
     // ── XIAOMI MiMo ── API propia, independiente de OpenCode Zen.

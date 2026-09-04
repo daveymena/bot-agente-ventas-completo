@@ -115,10 +115,28 @@ export async function dropiRequest<T = any>(
         };
       }
 
-      // Token vencido: es lo esperable con un token de sesión y tiene arreglo
-      // concreto, así que se dice qué hacer en vez de devolver un 401 pelado.
+      // "Token not issued to this api": NO está vencido ni mal copiado.
+      //
+      // Comprobado el 17-08-2026 sacando el token de adentro del propio
+      // plugin Dropify (el que el admin dice, con razón, que está bien
+      // integrado): es un JWT válido hasta 2126, emitido por app.dropi.co
+      // para el usuario 471208, y con él Dropify lista los 9.999 productos
+      // sin problema. api.dropi.co lo rechaza igual, por diseño: separa los
+      // tokens de la app de los tokens de su API.
+      //
+      // Decirle al admin "generá uno nuevo" lo manda a repetir algo que ya
+      // hizo y que no puede funcionar. La integración real no pasa por acá.
+      if (/not issued to this api/i.test(msg)) {
+        return {
+          ok: false,
+          error:
+            "El token de Dropi está bien y no venció: es el mismo que usa Dropify, que funciona. Lo que pasa es que api.dropi.co no acepta tokens emitidos por el panel (app.dropi.co) — son dos puertas distintas y Dropi las separa a propósito. No hay token nuevo que lo arregle. La integración real va por WooCommerce: los productos se importan desde Dropify en WordPress y los pedidos se crean en WooCommerce, que es quien los empuja a Dropi.",
+        };
+      }
+
+      // Token de sesión realmente vencido (otro mensaje distinto).
       if (res.status === 401 || /token|unauthenticated|unauthorized/i.test(msg)) {
-        return { ok: false, error: `Dropi no aceptó el token (${msg}). Probablemente venció: entra al panel de Dropi, copia el nuevo DROPI_token del localStorage y actualiza la variable de entorno.` };
+        return { ok: false, error: `Dropi no aceptó el token (${msg}). Puede haber vencido: entra al panel de Dropi, copia el nuevo DROPI_token del localStorage y actualiza la variable de entorno. Si el mensaje habla de "not issued to this api", NO es eso: ese token no sirve para esta API y hay que ir por WooCommerce.` };
       }
 
       return { ok: false, error: msg };
@@ -149,6 +167,9 @@ export interface DropiProduct {
   suggested_price?: number;
   stock?: number;
   gallery?: Array<{ url?: string; urlS3?: string }>;
+  photos?: Array<{ url?: string; urlS3?: string; src?: string; thumbnail?: string }>;
+  images?: Array<{ url?: string; urlS3?: string; src?: string; thumbnail?: string }>;
+  image?: string | { url?: string; urlS3?: string; src?: string };
   categories?: Array<{ name?: string }>;
 }
 
@@ -210,6 +231,120 @@ export async function dropiCreateOrder(input: DropiOrderInput): Promise<DropiRes
 
 /** Primera imagen utilizable de un producto de Dropi. */
 export function dropiProductImage(p: DropiProduct): string | null {
-  const g = p.gallery?.[0];
-  return g?.urlS3 || g?.url || null;
+  return dropiProductImages(p)[0] || null;
+}
+
+/** Todas las imágenes utilizables, priorizando la principal y eliminando duplicados. */
+export function dropiProductImages(p: DropiProduct): string[] {
+  const sources: any[] = [p.gallery, p.photos, p.images, p.image];
+  const urls: string[] = [];
+  const visit = (value: any) => {
+    if (!value) return;
+    if (typeof value === "string") {
+      if (/^https?:\/\//i.test(value)) urls.push(value);
+      return;
+    }
+    if (Array.isArray(value)) {
+      value.forEach(visit);
+      return;
+    }
+    if (typeof value === "object") {
+      [value.urlS3, value.url, value.src, value.thumbnail].forEach(visit);
+    }
+  };
+  sources.forEach(visit);
+  return [...new Set(urls)];
+}
+
+/** Convierte el copy HTML de WooCommerce/Dropi en texto limpio para el bot. */
+export function cleanProductCopy(value: string | null | undefined): string {
+  if (!value) return "";
+  return value
+    .replace(/<\s*br\s*\/?>/gi, "\n")
+    .replace(/<\s*li\b[^>]*>/gi, "\n• ")
+    .replace(/<\s*\/(?:p|h[1-6]|ul|ol|li|div)\s*>/gi, "\n")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;|&apos;/gi, "'")
+    .replace(/\r/g, "")
+    .split("\n")
+    .map((line) => line.replace(/[ \t]+/g, " ").trim())
+    .filter((line, index, lines) => line || lines[index - 1])
+    .join("\n")
+    .replace(/\n{2,}(?=•)/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+/**
+ * Frases que el proveedor le escribe AL REVENDEDOR, no al comprador final.
+ *
+ * Los textos de Dropi vienen redactados para quien va a revender: hablan de
+ * "cargar tus pedidos en la plataforma", dan una linea de proveeduria, citan
+ * precios sugeridos y margenes. Eso se importaba tal cual y quedaba visible
+ * en la tienda publica. Encontrado en vivo el 17-08-2026 en el producto
+ * "A612 Cinturon Termico": la descripcion que veia cualquier cliente incluia
+ * el telefono de soporte del proveedor y la instruccion de contactarlo antes
+ * de cargar pedidos.
+ *
+ * Se descarta la linea entera, no solo la frase: son lineas que en su
+ * totalidad hablan del negocio mayorista y no le dicen nada al comprador.
+ */
+const PARA_EL_REVENDEDOR: RegExp[] = [
+  /carg(?:ar|a|ues|as)\s+(?:tus?\s+)?pedidos/i,
+  /proveedur[ií]a/i,
+  /\bdropshipper|dropship|drop\s?shipping/i,
+  /pol[ií]ticas?\s+de\s+(?:despacho|garant[ií]a)\s+vigentes?/i,
+  /precio\s+sugerido|precio\s+de\s+venta\s+sugerido/i,
+  /margen\s+de\s+ganancia|tu\s+utilidad|tu\s+ganancia/i,
+  /\btu\s+cliente\s+final\b/i,
+  /(?:contactar|comunicarse|escribir)\s+(?:a|con)\s+(?:nuestra?|la)\s+l[ií]nea/i,
+  /antes\s+de\s+(?:cargar|publicar|vender|ofrecer)/i,
+  /requisito\s+indispensable/i,
+  /\bcat[aá]logo\s+mayorista\b|\bmayorista\b|\bdistribuidor\b/i,
+  /\bstock\s+disponible\s+en\s+bodega\b|\bbodega\b/i,
+  /\bdropi\b/i,
+];
+
+/** Telefonos colombianos sueltos: en una ficha de producto solo pueden ser del proveedor. */
+const TELEFONO_SUELTO = /(?:\+?57[\s.-]?)?\b3\d{2}[\s.-]?\d{3}[\s.-]?\d{4}\b/;
+
+/** ¿Esta linea esta escrita para el revendedor y no para el comprador? */
+export function esLineaDeProveedor(linea: string): boolean {
+  return PARA_EL_REVENDEDOR.some((rx) => rx.test(linea)) || TELEFONO_SUELTO.test(linea);
+}
+
+/** Reduce el copy al contenido comercial que el cliente necesita leer. */
+export function customerProductCopy(value: string | null | undefined, name: string): string {
+  const lines = cleanProductCopy(value || name).split("\n").map((line) => line.trim()).filter(Boolean);
+  const result: string[] = [];
+  let bullets = 0;
+  let paragraphs = 0;
+  let skippingWarranty = false;
+
+  for (const line of lines) {
+    // Lo que el proveedor le escribe al revendedor no llega nunca al cliente.
+    if (esLineaDeProveedor(line)) continue;
+    const normalized = line.toLowerCase();
+    if (/garant[ií]as? que|garant[ií]a:?$|compra sin riesgo/.test(normalized)) {
+      skippingWarranty = true;
+      continue;
+    }
+    if (skippingWarranty && (line.startsWith("•") || !/^[A-ZÁÉÍÓÚÑ0-9 /&-]{5,55}$/.test(line))) continue;
+    if (line.startsWith("•")) {
+      if (bullets++ >= 8) continue;
+      result.push(line);
+      continue;
+    }
+    if (line.length < 70 && /^[A-ZÁÉÍÓÚÑ0-9 /&-]{5,55}$/.test(line)) {
+      result.push(line);
+      continue;
+    }
+    if (paragraphs++ < 3) result.push(line);
+  }
+
+  const copy = result.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+  return copy.slice(0, 1200).trim() || name;
 }

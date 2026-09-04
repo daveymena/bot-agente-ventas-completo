@@ -1,3 +1,4 @@
+import { placeholderImage } from "../lib/placeholder-image";
 import React, { useState, useEffect } from 'react';
 import { Editor, Frame, Element } from '@craftjs/core';
 
@@ -123,7 +124,7 @@ const EditorPage = () => {
                 <Element
                   canvas
                   is={ImageComponent}
-                  src="https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=800"
+                  src={placeholderImage("Imagen")}
                   height="300px"
                 />
                 <Element

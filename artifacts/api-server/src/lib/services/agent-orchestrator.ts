@@ -17,8 +17,8 @@ import { getWhatsAppForTenant } from '../whatsapp-factory';
 import { tenantManager } from '../tenantManager';
 import { checkMessageLimit } from '../../middleware/featureLimits';
 import { db } from "@workspace/db";
-import { conversations } from "@workspace/db";
-import { eq, and } from "drizzle-orm";
+import { conversations, messages } from "@workspace/db";
+import { eq, and, gt, desc, inArray } from "drizzle-orm";
 import { logger } from '../logger';
 
 export interface AgentOrchestratorConfig {
@@ -29,6 +29,9 @@ export interface AgentOrchestratorConfig {
 
 export class AgentOrchestrator {
   private queue = getMessageQueue();
+  /** Último error real al procesar un mensaje, para poder verlo desde /api/health.
+   *  Sin esto, "el bot no contestó" solo se puede diagnosticar adivinando. */
+  static ultimoError: { cuando: string; conversacion?: number; mensaje: string; donde?: string } | null = null;
   private configs: Map<string, AgentOrchestratorConfig> = new Map();
   private processing = false;
   private intervalId?: NodeJS.Timeout;
@@ -52,12 +55,95 @@ export class AgentOrchestrator {
     // Iniciar procesamiento si hay tenants configurados
     if (updated.enabled && !this.processing) {
       this.startProcessing();
+      // Los 20s son para que WhatsApp termine de reconectar: si se encolan
+      // antes, processNextMessage los difiere por "no conectado" y vuelven a
+      // quedar esperando.
+      const idNum = Number(tenantId);
+      if (Number.isFinite(idNum)) {
+        setTimeout(() => { this.recuperarSinResponder(idNum).catch(() => {}); }, 20_000).unref?.();
+        // Y cada 5 minutos: un mensaje puede quedarse sin responder por
+        // cualquier motivo (el proveedor de IA falló, WhatsApp estaba
+        // reconectando, un error puntual), no solo por un reinicio. Barrer
+        // periódicamente hace que el sistema se cure solo en vez de depender
+        // de que alguien mire. Encolar de nuevo es barato: si la conversación
+        // ya fue respondida, no entra.
+        setInterval(() => { this.recuperarSinResponder(idNum).catch(() => {}); }, 5 * 60_000).unref?.();
+      }
     }
   }
 
   /**
    * Inicia el bucle de procesamiento
    */
+  /**
+   * Recupera los mensajes de clientes que quedaron SIN responder.
+   *
+   * La cola vive en memoria (`private queue: QueuedMessage[]`), así que un
+   * reinicio del contenedor la borra entera. Todo mensaje que estuviera
+   * esperando turno en ese momento se pierde en silencio: el cliente escribe,
+   * el mensaje queda guardado en la base, y nadie le contesta nunca.
+   *
+   * Pasó de verdad (17-08-2026): un cliente de Guatemala llegó de un anuncio
+   * pago con "¡Hola! Quiero más información" y no recibió respuesta -- el
+   * despliegue reinició el proceso justo con su mensaje en la cola. Es la
+   * peor forma de perder plata: se paga el clic, el cliente escribe, y del
+   * otro lado hay silencio.
+   *
+   * Al arrancar se buscan las conversaciones cuyo ÚLTIMO mensaje es del
+   * cliente (o sea, quedaron sin respuesta) dentro de las últimas 24h, y se
+   * vuelven a encolar. Más viejo que eso no se recupera: contestarle a
+   * alguien dos días después es peor que no contestarle.
+   */
+  private async recuperarSinResponder(tenantId: number): Promise<void> {
+    try {
+      // Se usa el constructor de consultas de Drizzle, no SQL crudo con
+      // db.execute: db.execute no se usa en ningún otro lado de este código,
+      // así que la forma exacta de su resultado (¿`.rows`? ¿el array pelado?)
+      // no está probada acá -- y una recuperación que falla en silencio es
+      // peor que no tenerla, porque da falsa tranquilidad.
+      const hace24h = new Date(Date.now() - 24 * 60 * 60 * 1000);
+      const recientes = await db
+        .select({ id: conversations.id, phone: conversations.contactPhone })
+        .from(conversations)
+        .where(and(
+          eq(conversations.tenantId, tenantId),
+          gt(conversations.lastMessageAt, hace24h),
+        ))
+        .orderBy(conversations.lastMessageAt)
+        .limit(30);
+
+      let recuperadas = 0;
+      for (const c of recientes) {
+        // ¿El último mensaje es del cliente? Entonces quedó sin responder.
+        const [ultimo] = await db
+          .select({ role: messages.role })
+          .from(messages)
+          .where(eq(messages.conversationId, c.id))
+          .orderBy(desc(messages.createdAt), desc(messages.id))
+          .limit(1);
+        if (ultimo?.role !== "customer") continue;
+
+        this.queue.enqueue({
+          tenantId: String(tenantId),
+          from: `${c.phone}@s.whatsapp.net`,
+          to: String(tenantId),
+          body: "",                       // el agente lee el historial de la BD
+          timestamp: new Date(),
+          messageId: `recuperado_${c.id}_${Date.now()}`,
+          isGroup: false,
+          conversationId: Number(c.id),
+          phone: String(c.phone),
+        });
+        recuperadas++;
+      }
+      if (recuperadas > 0) {
+        logger.warn({ tenantId, recuperadas }, "[AgentOrchestrator] Conversaciones sin responder recuperadas");
+      }
+    } catch (e: any) {
+      logger.error({ err: e?.message, tenantId }, "[AgentOrchestrator] No se pudieron recuperar los mensajes sin responder");
+    }
+  }
+
   private startProcessing(): void {
     if (this.processing) return;
     this.processing = true;
@@ -139,9 +225,15 @@ export class AgentOrchestrator {
         from: message.from,
       }, '[AgentOrchestrator] Processing message');
 
-      // Obtener conversación basada en el número de teléfono
-      const phone = message.from.split('@')[0];
-      const convo = await this.getOrCreateConversation(message.tenantId, phone);
+      // La conversación viene resuelta desde el MessageHandler. Deducirla otra
+      // vez del JID crudo era lo que partía al cliente en dos hilos: los
+      // mensajes entrantes iban a la conversación del número REAL y las
+      // respuestas a otra creada con el id interno de WhatsApp. Solo se
+      // recalcula si el mensaje viene sin ella (colas viejas, otros canales).
+      const phone = message.phone || message.from.split('@')[0];
+      const convo = message.conversationId
+        ? await this.getConversationById(message.conversationId)
+        : await this.getOrCreateConversation(message.tenantId, phone);
       
       if (!convo) {
         logger.error(`[AgentOrchestrator] No se pudo obtener conversación para ${message.from}`);
@@ -149,22 +241,35 @@ export class AgentOrchestrator {
         return;
       }
 
-      // Ejecutar el agente (lógica de IA) - usa runAgentReply con conversationId
-      const reply = await runAgentReply(convo.id);
+      // ── Redactar ────────────────────────────────────────────────────────
+      // Si un intento anterior ya obtuvo la respuesta y solo falló el envío,
+      // se reusa. Volver a llamar al agente lo haria guardar OTRA respuesta en
+      // la base sin haber entregado la primera.
+      let partes = message.parts as AgentReplyPart[] | undefined;
 
-      // Si la respuesta es nula o no tiene partes, no hay nada que enviar
-      if (!reply || !reply.parts) {
-        logger.warn({
-          conversationId: convo.id,
-          queueId: message.id,
-        }, '[AgentOrchestrator] Agent returned null reply or no parts');
-        this.queue.markProcessed(message.id);
-        return;
+      if (!partes) {
+        const reply = await runAgentReply(convo.id);
+
+        // Si la respuesta es nula o no tiene partes, no hay nada que enviar
+        if (!reply || !reply.parts) {
+          logger.warn({
+            conversationId: convo.id,
+            queueId: message.id,
+          }, '[AgentOrchestrator] Agent returned null reply or no parts');
+          this.queue.markProcessed(message.id);
+          return;
+        }
+        partes = reply.parts as AgentReplyPart[];
+        // Se guardan ANTES de enviar: si el envio falla, el reintento ya no
+        // necesita al agente.
+        this.queue.guardarPartes(message.id, partes);
+      } else {
+        logger.info({ queueId: message.id }, '[AgentOrchestrator] Reenviando respuesta ya redactada');
       }
 
-      // Enviar respuesta via WhatsApp (Soporta Texto y Tarjetas Multimedia)
+      // ── Enviar ──────────────────────────────────────────────────────────
       const pushName = convo.contactName || phone;
-      await waInstance.sendAgentParts(phone, pushName, reply.parts as AgentReplyPart[], message.from);
+      await waInstance.sendAgentParts(phone, pushName, partes, message.from);
 
       // NO se persiste aquí: runAgentReply ya guardó la respuesta con
       // saveAgentMessage (con su metadata y actualizando lastMessage) en todos
@@ -180,12 +285,58 @@ export class AgentOrchestrator {
       }, '[AgentOrchestrator] Message processed successfully');
 
     } catch (error) {
+      const detalle = error instanceof Error ? error.message : String(error);
+
+      // ── Cortes que se resuelven SOLOS con el tiempo ─────────────────────
+      //
+      // El tope de mensajes/hora de WhatsApp y la pausa de proteccion del
+      // numero no son fallos: son frenos a proposito. Pero llegaban aca como
+      // una excepcion cualquiera, se gastaban los tres reintentos en segundos
+      // y el mensaje del cliente se perdia para siempre, en silencio.
+      //
+      // Medido el 2026-08-25 en una tanda de pruebas: tras ~35 mensajes
+      // seguidos el bot dejo de responder y no volvio. En produccion eso es un
+      // cliente que escribe y nunca recibe nada.
+      //
+      // Se pospone sin gastar reintento: el tope se libera con el reloj, no
+      // insistiendo.
+      const esFrenoTemporal = /l[ií]mite de \d+ mensajes|Env[ií]os en pausa de protecci[oó]n/i.test(detalle);
+      if (esFrenoTemporal) {
+        const ESPERA_MS = 5 * 60 * 1000;
+        this.queue.posponer(message.id, ESPERA_MS);
+        AgentOrchestrator.ultimoError = {
+          cuando: new Date().toISOString(),
+          conversacion: message.conversationId,
+          mensaje: detalle.slice(0, 300),
+          donde: "envio pospuesto 5 min (freno de proteccion, no es un fallo)",
+        };
+        logger.warn({
+          queueId: message.id,
+          tenantId: message.tenantId,
+          detalle,
+        }, '[AgentOrchestrator] Envío frenado por protección: se reintenta en 5 min, sin perder el mensaje');
+        return;
+      }
+
       logger.error({
         error: error instanceof Error ? { message: error.message, stack: error.stack } : error,
         errorString: String(error),
         queueId: message.id,
         tenantId: message.tenantId,
       }, '[AgentOrchestrator] Failed to process message');
+      // El stack, no solo el mensaje: "Maximum call stack size exceeded" sin
+      // stack no dice NADA sobre dónde está la recursión, y adivinar cuesta un
+      // despliegue por intento. Se guardan las primeras líneas propias del
+      // proyecto (se descartan las de node_modules, que son ruido).
+      const stack = error instanceof Error && error.stack
+        ? error.stack.split(/\r?\n/).filter((l) => !l.includes("node_modules")).slice(0, 8).join(" | ").slice(0, 900)
+        : "";
+      AgentOrchestrator.ultimoError = {
+        cuando: new Date().toISOString(),
+        conversacion: message.conversationId,
+        mensaje: (error instanceof Error ? error.message : String(error)).slice(0, 300),
+        donde: stack,
+      };
 
       this.queue.markFailed(message.id);
     }
@@ -194,14 +345,31 @@ export class AgentOrchestrator {
   /**
    * Obtiene o crea una conversación para un mensaje
    */
+  /** La conversación exacta que resolvió el MessageHandler, por id. */
+  private async getConversationById(
+    id: number,
+  ): Promise<{ id: number; currentStage: string | null; contactName: string; contactPhone: string } | null> {
+    try {
+      const [row] = await db.select().from(conversations).where(eq(conversations.id, id)).limit(1);
+      return row ?? null;
+    } catch (e: any) {
+      logger.error({ err: e?.message, conversationId: id }, "[AgentOrchestrator] No se pudo leer la conversación");
+      return null;
+    }
+  }
+
   private async getOrCreateConversation(tenantId: string, phone: string): Promise<{ id: number; currentStage: string | null; contactName: string; contactPhone: string } | null> {
     try {
       const tenantIdNum = typeof tenantId === 'string' ? parseInt(tenantId) : tenantId;
 
-      // Buscar conversación existente (filtrar por tenantId + phone)
+      // Buscar conversación existente (filtrar por tenantId + phone).
+      // El mismo número puede estar guardado en dígitos (como lo entrega
+      // Baileys) o como lo escribió una persona: se comparan las dos formas o
+      // el cliente termina con dos conversaciones y media memoria en cada una.
+      const { variantesDeTelefono, normalizarTelefono } = await import("../customer-profile");
       const existing = await db.select().from(conversations)
         .where(and(
-          eq(conversations.contactPhone, phone),
+          inArray(conversations.contactPhone, variantesDeTelefono(phone)),
           eq(conversations.tenantId, tenantIdNum)
         ))
         .limit(1);
@@ -216,7 +384,8 @@ export class AgentOrchestrator {
 
       const [convo] = await db.insert(conversations).values(addTenantToInsert({
         contactName: phone,
-        contactPhone: phone,
+        // Se GUARDA normalizado: una sola forma en la base de acá en adelante.
+        contactPhone: normalizarTelefono(phone) || phone,
         status: "ai",
         currentStage: "greeting",
         unreadCount: 0

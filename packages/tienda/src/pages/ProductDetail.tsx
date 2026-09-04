@@ -1,11 +1,11 @@
+import { useMoneda } from '@/lib/moneda';
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useStore } from '../store/useStore';
-import {
-  ShoppingCart, Check, Package, Star, ShieldCheck,
-  Infinity as InfinityIcon, Download, MessageCircle,
-} from 'lucide-react';
+import { ShoppingCart, Check, Package, ShieldCheck, Infinity as InfinityIcon, Download, MessageCircle, Truck } from 'lucide-react';
 import { initPixel, trackViewContent, trackAddToCart, trackInitiateCheckout, trackContact } from '../lib/pixel';
+import { sanitizeRichHtml, plainTextToHtml } from '../lib/rich-text';
+import TrustBar from '../components/TrustBar';
 
 interface DetailProduct {
   id: number;
@@ -28,9 +28,12 @@ interface RelatedProduct {
   category: string;
 }
 
-const formatPrice = (price: number) => '$' + Math.round(price).toLocaleString('es-CO');
+// El precio que ve el visitante lo resuelve formatear() de useMoneda().
+// Acá había un formatPrice() fijo en pesos que ya nadie llamaba.
 
 const ProductDetail = () => {
+  // Precio en la moneda del visitante (ver lib/moneda.ts).
+  const { formatear } = useMoneda();
   const { slug: paramSlug, productId } = useParams();
   const slug = paramSlug || 'sofia-premium';
   const navigate = useNavigate();
@@ -103,16 +106,17 @@ const ProductDetail = () => {
 
   const price = Number(product.price);
   const features = Array.isArray(product.features) ? product.features : [];
-  // Las descripciones traen saltos de línea propios (vienen del catálogo);
-  // se respetan como párrafos en vez de aplastarlas en un bloque ilegible.
-  const paragraphs = (product.description || '')
-    .split(/\r?\n/)
-    .map(s => s.trim())
-    .filter(Boolean);
+  // Primero se le devuelve la estructura al texto plano (las descripciones
+  // viejas son texto con saltos de linea, y HTML colapsa los saltos: por eso
+  // se veian como un bloque corrido), y recien despues se sanitiza.
+  const descriptionHtml = sanitizeRichHtml(plainTextToHtml(product.description || ''));
+  // Un curso y una rodillera no se entregan igual: lo que se le promete al
+  // cliente cambia con esto, no es solo un texto distinto.
+  const esDigital = String(product.kind || 'digital') !== 'physical';
 
   const waHref = config.whatsappPhone
     ? `https://wa.me/${config.whatsappPhone}?text=${encodeURIComponent(
-        `Hola! Me interesa ${product.name} (${formatPrice(price)}). ¿Me das más información?`,
+        `Hola! Me interesa ${product.name} (${formatear(price)}). ¿Me das más información?`,
       )}`
     : null;
 
@@ -128,12 +132,17 @@ const ProductDetail = () => {
 
       <div className="grid md:grid-cols-2 gap-10 lg:gap-16">
         <div className="md:sticky md:top-24 md:self-start group">
-          <div className="aspect-square bg-gray-50 rounded-2xl overflow-hidden relative border border-gray-200">
+          {/* Mismo bloque de color pálido que la tarjeta del catálogo
+              (--store-primary-soft): en el kit el producto se apoya sobre un
+              tono de la marca, no sobre un gris con borde. Es lo que hace que
+              la foto "flote" -- y sigue al color que elija el dueño. */}
+          <div className="aspect-square bg-[var(--store-primary-soft)] rounded-uv overflow-hidden relative">
             {product.image && !imgError ? (
               <img
                 src={product.image || `/images/products/${product.id}.jpg`}
                 alt={product.name}
-                className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700"
+                /* ver nota abajo */
+                className="w-full h-full object-contain p-4 group-hover:scale-105 transition-transform duration-700"
                 onError={(e) => {
                   const target = e.target as HTMLImageElement;
                   if (!target.src.includes(`/images/products/${product.id}.jpg`)) {
@@ -144,7 +153,7 @@ const ProductDetail = () => {
                 }}
               />
             ) : (
-              <div className="w-full h-full flex items-center justify-center text-gray-300 bg-gray-50">
+              <div className="w-full h-full flex items-center justify-center text-gray-300">
                 <Package className="w-24 h-24" />
               </div>
             )}
@@ -155,37 +164,71 @@ const ProductDetail = () => {
           <p className="text-[11px] font-bold text-[var(--store-primary)] uppercase tracking-widest mb-3">
             {product.category}
           </p>
-          <h1 className="text-3xl sm:text-4xl font-extrabold text-gray-900 leading-tight mb-4 tracking-tight">
+          <h1 className="text-3xl sm:text-4xl font-extrabold text-gray-900 leading-tight mb-3 tracking-tight">
             {product.name}
           </h1>
 
+          {/* Estrellas VACÍAS, igual que en las tarjetas del catálogo.
+              El kit de referencia las pone con "(1 customer review)" al lado,
+              pero acá no hay reseñas: `products` no guarda valoraciones. Se
+              dibujan sin rellenar --como hace el propio kit con sus productos
+              sin valorar-- para no romper la composición, y sin número al lado
+              porque afirmar "5 reseñas" que nadie escribió es inventar prueba
+              social. El mismo criterio por el que se sacó "Más Vendido". */}
+          <div className="flex items-center gap-0.5 mb-4" aria-hidden="true">
+            {[0, 1, 2, 3, 4].map(i => (
+              <svg key={i} viewBox="0 0 20 20" className="w-4 h-4 fill-[var(--store-grey,#CAC7C7)]">
+                <path d="M10 1.5l2.6 5.3 5.9.9-4.2 4.1 1 5.8-5.3-2.8-5.3 2.8 1-5.8L1.5 7.7l5.9-.9L10 1.5z" />
+              </svg>
+            ))}
+          </div>
+
+          {/* "Más Vendido" estaba fijo en TODOS los productos: es prueba
+              social inventada --el mismo problema que las estrellas clonadas
+              que ya se sacaron de las tarjetas-- y encima se nota apenas el
+              cliente ve dos fichas seguidas. Sin datos de ventas reales, no
+              se afirma. */}
           <div className="flex flex-wrap items-center gap-3 mb-6">
-            <span className="inline-flex items-center gap-1.5 bg-amber-50 border border-amber-200 text-amber-700 text-xs font-bold px-3 py-1.5 rounded-full">
-              <Star className="w-3.5 h-3.5 fill-amber-500 text-amber-500" /> Más Vendido
-            </span>
             <span className="inline-flex items-center gap-1.5 bg-[var(--store-primary)]/10 border border-[var(--store-primary)]/20 text-[var(--store-primary)] text-xs font-bold px-3 py-1.5 rounded-full">
-              <Check className="w-3.5 h-3.5" /> Acceso Inmediato
+              <Check className="w-3.5 h-3.5" /> {esDigital ? 'Acceso inmediato' : 'Envío a domicilio'}
             </span>
           </div>
 
           <div className="mb-8">
             <div className="flex items-baseline gap-2">
-              <span className="text-5xl font-black text-gray-900">{formatPrice(price)}</span>
+              {/* En celular text-5xl desborda con precios de siete cifras
+                  ($1.899.000): el numero se sale de la columna. */}
+              <span className="text-4xl sm:text-5xl font-black text-gray-900">{formatear(price)}</span>
               <span className="text-base font-semibold text-gray-500">{product.currency || 'COP'}</span>
             </div>
             <p className="text-sm text-emerald-600 font-bold mt-1">
-              Pago único — sin mensualidades
+              {esDigital ? 'Pago único — sin mensualidades' : 'Precio final — sin sorpresas'}
             </p>
           </div>
 
-          <div className="grid grid-cols-2 gap-3 mb-8">
-            {[
-              { icon: InfinityIcon, text: 'Acceso de por vida' },
-              { icon: Download, text: 'Descargable u online' },
-              { icon: ShieldCheck, text: 'Entrega por Google Drive' },
-              { icon: Check, text: 'Acceso inmediato' },
-            ].map(({ icon: Icon, text }) => (
-              <div key={text} className="flex items-center gap-2.5 text-sm text-gray-700 bg-gray-50 border border-gray-200 rounded-lg p-2">
+          {/* En celular UNA columna: con dos, textos como "Coordinamos por
+              WhatsApp" se parten en tres renglones y la ficha se alarga sin
+              ganar nada. Desde sm hacia arriba, dos. */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-8">
+            {/* Un producto FISICO no se descarga, no llega por Drive y no
+                tiene "acceso de por vida". Esta lista estaba fija para todo el
+                catalogo, asi que una rodillera termica mostraba "Entrega por
+                Google Drive" -- reportado por el admin. Se ramifica por kind. */}
+            {(esDigital
+              ? [
+                  { icon: InfinityIcon, text: 'Acceso de por vida' },
+                  { icon: Download, text: 'Descargable u online' },
+                  { icon: ShieldCheck, text: 'Entrega por Google Drive' },
+                  { icon: Check, text: 'Acceso inmediato' },
+                ]
+              : [
+                  { icon: Truck, text: 'Envio a tu direccion' },
+                  { icon: MessageCircle, text: 'Coordinamos por WhatsApp' },
+                  { icon: ShieldCheck, text: 'Producto original' },
+                  { icon: Check, text: 'Pagas al recibir o en linea' },
+                ]
+            ).map(({ icon: Icon, text }) => (
+              <div key={text} className="flex items-center gap-2.5 text-sm text-gray-700 bg-[var(--store-primary-soft)] rounded-xl px-3 py-2.5">
                 <Icon className="w-4 h-4 text-[var(--store-primary)] shrink-0" />
                 <span>{text}</span>
               </div>
@@ -198,17 +241,26 @@ const ProductDetail = () => {
                 addToCart({
                   id: String(product.id),
                   name: product.name,
+                  // Faltaba `description` y el objeto entraba al carrito con
+                  // `as any`: el ítem quedaba sin descripción y el tipo mentía.
+                  description: product.description ?? '',
                   price: Number(product.price),
                   image: product.image ?? '',
                   category: product.category,
-                  type: (product.kind || 'digital') as any,
+                  // El backend solo emite 'physical' | 'digital'; el checkout
+                  // decide contra entrega vs pasarela leyendo justo esto, así
+                  // que no puede quedar en `any`.
+                  type: product.kind === 'physical' ? 'physical' : 'digital',
                   stock: 999,
                 });
-                trackAddToCart({ id: product.id, name: product.name, price: product.price });
+                // El precio viaja como string desde la API; el píxel espera un
+                // número. Enviarlo sin convertir le manda a Meta el valor de la
+                // conversión como texto.
+                trackAddToCart({ id: product.id, name: product.name, price: Number(product.price) });
                 trackInitiateCheckout({ ids: [product.id], value: price, currency: product.currency });
                 navigate(`/tienda/${slug}/checkout`);
               }}
-              className="w-full bg-[var(--store-primary)] text-[var(--store-on-primary)] py-4 rounded-xl font-bold hover:bg-[var(--store-primary-hover)] transition-all flex items-center justify-center gap-2.5"
+              className="w-full bg-[var(--store-primary)] text-[var(--store-on-primary)] py-4 rounded-full font-bold hover:bg-[var(--store-primary-hover)] transition-all flex items-center justify-center gap-2.5"
             >
               <ShoppingCart className="w-5 h-5" />
               Comprar ahora
@@ -219,8 +271,8 @@ const ProductDetail = () => {
                 href={waHref}
                 target="_blank"
                 rel="noreferrer"
-                onClick={() => trackContact({ content_name: product.name })}
-                className="w-full bg-white text-gray-900 border border-gray-200 py-3.5 rounded-xl font-bold hover:bg-gray-50 transition-all flex items-center justify-center gap-2.5"
+                onClick={() => trackContact(product.name)}
+                className="w-full bg-white text-gray-900 border border-gray-200 py-3.5 rounded-full font-bold hover:bg-gray-50 transition-all flex items-center justify-center gap-2.5"
               >
                 <MessageCircle className="w-5 h-5 text-emerald-600" />
                 Consultar por WhatsApp
@@ -244,41 +296,53 @@ const ProductDetail = () => {
             </div>
           )}
 
-          {paragraphs.length > 0 && (
-            <div className="border-t border-gray-200 pt-6">
-              <h3 className="text-sm font-extrabold text-gray-900 uppercase tracking-wide mb-3">
-                Descripción
-              </h3>
-              <div className="space-y-2.5">
-                {paragraphs.map((p, i) => (
-                  <p key={i} className="text-sm text-gray-600 leading-relaxed">{p}</p>
-                ))}
-              </div>
-            </div>
-          )}
-
           {product.sku && (
             <p className="text-xs text-gray-400 mt-5">SKU: {product.sku}</p>
           )}
         </div>
       </div>
 
+      {/* ── DESCRIPCIÓN A ANCHO COMPLETO ──────────────────────────────────
+          En el kit la descripción va abajo, cruzando las dos columnas, no
+          apretada bajo el botón de compra. Con las descripciones largas en
+          HTML del catálogo, en media columna quedaban en una tira angosta de
+          texto; acá se leen. Se limita el ancho de línea (max-w-3xl) porque un
+          párrafo de 1200px de ancho tampoco se lee. */}
+      {descriptionHtml && (
+        <div className="mt-14 border-t border-gray-200 pt-10">
+          <p className="text-xs font-bold uppercase tracking-[0.2em] text-[var(--store-primary)] mb-1">Detalles</p>
+          <h2 className="text-2xl sm:text-3xl font-black text-gray-900 tracking-tight mb-5">Descripción</h2>
+          <div
+            className="max-w-3xl text-[15px] text-gray-600 leading-relaxed whitespace-pre-line space-y-3 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_strong]:font-bold"
+            dangerouslySetInnerHTML={{ __html: descriptionHtml }}
+          />
+        </div>
+      )}
+
+      {/* ── TAMBIÉN TE PUEDE INTERESAR ────────────────────────────────────
+          Mismo lenguaje que la tarjeta del catálogo: foto sobre el bloque de
+          color de la marca, texto centrado, esquinas redondeadas. No se
+          reutiliza el <ProductCard/> de Shop.tsx a propósito: el endpoint de
+          relacionados no devuelve `kind`, así que la tarjeta pintaría a todos
+          la etiqueta "Digital" y una rodillera aparecería como descargable.
+          Cuando el backend mande el tipo, esto se reemplaza por ProductCard. */}
       {related.length > 0 && (
         <div className="mt-16 border-t border-gray-200 pt-10">
-          <h2 className="text-lg font-extrabold text-gray-900 mb-5">También te puede interesar</h2>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <p className="text-xs font-bold uppercase tracking-[0.2em] text-[var(--store-primary)] mb-1">Más productos</p>
+          <h2 className="text-2xl sm:text-3xl font-black text-gray-900 tracking-tight mb-6">También te puede interesar</h2>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-6">
             {related.map(r => (
               <Link
                 key={r.id}
                 to={`/tienda/${slug}/producto/${r.id}`}
-                className="group bg-white border border-gray-200 rounded-lg overflow-hidden hover:shadow-md hover:border-gray-300 transition-all"
+                className="group rounded-2xl bg-[var(--store-primary-soft)] p-4 flex flex-col transition-transform duration-300 hover:-translate-y-1"
               >
-                <div className="aspect-square bg-gray-50 overflow-hidden">
+                <div className="aspect-square overflow-hidden">
                   {r.image ? (
                     <img
                       src={r.image}
                       alt={r.name}
-                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                      className="w-full h-full object-contain p-4 group-hover:scale-105 transition-transform duration-500"
                       loading="lazy"
                     />
                   ) : (
@@ -287,12 +351,15 @@ const ProductDetail = () => {
                     </div>
                   )}
                 </div>
-                <div className="p-3">
-                  <h3 className="text-xs font-semibold text-gray-900 line-clamp-2 min-h-[2.5em] leading-snug">
+                <div className="p-3 flex flex-col gap-1.5 flex-1 text-center">
+                  <p className="text-[10px] font-bold text-[var(--store-primary)] uppercase tracking-wider">
+                    {r.category || 'General'}
+                  </p>
+                  <h3 className="text-sm font-bold text-gray-900 line-clamp-2 min-h-[2.5em] leading-snug group-hover:text-[var(--store-primary)] transition-colors">
                     {r.name}
                   </h3>
-                  <p className="text-sm font-black text-gray-900 mt-1.5">
-                    {formatPrice(Number(r.price))}
+                  <p className="mt-auto pt-2 text-lg font-black text-gray-900">
+                    {formatear(Number(r.price))}
                   </p>
                 </div>
               </Link>
@@ -300,6 +367,11 @@ const ProductDetail = () => {
           </div>
         </div>
       )}
+
+      {/* El kit cierra la ficha de producto con la misma barra de garantías
+          del catálogo. Acá se calcula sobre ESTE producto: una ficha digital
+          no promete envío, y una física no promete entrega inmediata. */}
+      <TrustBar hayFisicos={!esDigital} hayDigitales={esDigital} className="mt-16" />
     </div>
   );
 };

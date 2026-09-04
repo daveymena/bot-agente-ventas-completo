@@ -22,6 +22,15 @@ export interface MessageMetadata {
   aiProvider?: string;       // Proveedor IA que generó la respuesta
   isHardcoded?: boolean;     // Si fue una respuesta hardcodeada (no IA)
   sessionId?: string;        // ID de sesión para agrupar mensajes de una misma sesión
+  // ── Origen: anuncio de Facebook / Instagram ────────────────────────────
+  // WhatsApp adjunta esto al primer mensaje de quien hace clic en un anuncio.
+  // Meta autocompleta el texto ("¡Hola! Quiero más información") igual para
+  // todos los anuncios, así que el titular y el link son el ÚNICO dato de qué
+  // producto vino a buscar el cliente.
+  adTitle?: string;          // Titular del anuncio al que le hizo clic
+  adBody?: string;           // Texto del anuncio
+  adUrl?: string;            // Link de destino (suele traer el id del producto)
+  adId?: string;             // sourceId / ctwaClid, para atribuir la venta
 }
 
 export type Message = typeof messages.$inferSelect;

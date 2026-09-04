@@ -12,6 +12,7 @@ import {
 import { db, products } from "@workspace/db";
 import * as XLSX from "xlsx";
 import { getSmartColumnMapping, processRowsWithMapping } from "../lib/smartImport";
+import { resolveCategoryId } from "../lib/product-categories";
 import { sendError } from "../lib/error-handler";
 import { ERROR_CODES } from "../lib/error-codes";
 import { logger } from "../lib/logger";
@@ -19,6 +20,83 @@ import { saveProductImage } from "../lib/image-store";
 import type { TenantRequest } from "../lib/tenantManager";
 
 const router = Router();
+
+/**
+ * El precio viaja como string (columna numeric de Postgres) y el esquema
+ * generado por orval lo tipa como `zod.string()` sin ningún refinamiento --
+ * o sea que "abc", "-100" o "" pasaban la validación y llegaban tal cual a
+ * la base, al checkout y al link de pago. La validación va acá y no en el
+ * esquema porque ese archivo es generado (orval está roto con la versión de
+ * zod instalada) y se perdería en la próxima regeneración.
+ *
+ * Devuelve un mensaje listo para mostrarle al admin, o null si está bien.
+ */
+function validarPrecio(valor: unknown): string | null {
+  if (valor === undefined || valor === null || valor === "") return null; // opcional: cae al default
+  const n = Number(valor);
+  if (!Number.isFinite(n)) return "El precio debe ser un número.";
+  if (n < 0) return "El precio no puede ser negativo.";
+  return null;
+}
+
+/**
+ * GET /api/products/cobrabilidad
+ *
+ * Qué productos se pueden COBRAR hoy y cuáles no. Pensado para mirarlo ANTES
+ * de pautar: si se paga por clics hacia un producto sin forma de cobro, cada
+ * clic muere en el cierre, que es donde más caro sale perder al cliente.
+ *
+ * Va antes de "/:id" a propósito: si fuera después, Express tomaría
+ * "cobrabilidad" como un id.
+ */
+router.get("/cobrabilidad", async (req: TenantRequest, res, next) => {
+  try {
+    const tenantId = req.tenant?.id;
+    if (!tenantId) return sendError(res, ERROR_CODES.UNAUTHORIZED);
+
+    const { evaluarCobrabilidad, resumenDeCobrabilidad, evaluarEntregabilidad } = await import("../lib/cobrabilidad");
+    const { credencialesDe } = await import("../lib/tenant-payment-credentials");
+    const cred = credencialesDe(req.tenant as any);
+
+    const rows = await db
+      .select()
+      .from(products)
+      .where(and(eq(products.tenantId, tenantId), eq(products.isActive, true)));
+
+    const evaluados = rows.map((p: any) => ({
+      producto: { id: p.id, name: p.name, kind: p.kind, price: p.price, paymentLink: p.paymentLink },
+      resultado: evaluarCobrabilidad(
+        { id: p.id, name: p.name, kind: p.kind, price: p.price, paymentLink: p.paymentLink },
+        cred,
+      ),
+    }));
+
+    return res.json({
+      ...resumenDeCobrabilidad(evaluados),
+      // Con qué se está cobrando, para que se note si son las del servidor.
+      credencialesPropias: cred.propias,
+      // Cobrar y entregar fallan por separado: un curso con pasarela pero sin
+      // link de entrega se cobra perfecto y deja al cliente pagando por nada.
+      noEntregables: rows
+        .map((p: any) => ({ p, e: evaluarEntregabilidad({ kind: p.kind, deliveryLink: p.deliveryLink }) }))
+        .filter((x: any) => !x.e.entregable)
+        .map((x: any) => ({ id: x.p.id, name: x.p.name, problemas: x.e.problemas })),
+      detalle: evaluados.map((e) => {
+        const p: any = rows.find((r: any) => r.id === e.producto.id);
+        return {
+          id: e.producto.id,
+          name: e.producto.name,
+          cobrable: e.resultado.cobrable,
+          vias: e.resultado.vias,
+          problemas: e.resultado.problemas,
+          entregable: evaluarEntregabilidad({ kind: p?.kind, deliveryLink: p?.deliveryLink }).entregable,
+        };
+      }),
+    });
+  } catch (e) {
+    return next(e);
+  }
+});
 
 // List products for the current tenant
 router.get("/", async (req: TenantRequest, res, next) => {
@@ -38,12 +116,45 @@ router.get("/", async (req: TenantRequest, res, next) => {
   }
 });
 
+/**
+ * Un producto por id.
+ *
+ * No existía, y eso frenaba a Atlas de una forma engañosa: al pedirle un
+ * anuncio para el producto 124 llamaba a GET /api/products/124, recibía el 404
+ * de Express (HTML, "Cannot GET /api/products/124") y le contestaba al admin
+ * "no encontré el producto con ID 124 en tu catálogo" -- cuando el producto
+ * existe y está en el listado. El agente no puede distinguir "no existe el
+ * recurso" de "no existe la ruta" si la ruta ni siquiera responde JSON.
+ */
+router.get("/:id", async (req: TenantRequest, res, next) => {
+  try {
+    const tenantId = req.tenant?.id;
+    if (!tenantId) return sendError(res, ERROR_CODES.UNAUTHORIZED);
+
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id)) return sendError(res, ERROR_CODES.VALIDATION_INVALID_DATA);
+
+    const [row] = await db
+      .select()
+      .from(products)
+      .where(and(eq(products.id, id), eq(products.tenantId, tenantId)))
+      .limit(1);
+    if (!row) return sendError(res, ERROR_CODES.PRODUCT_NOT_FOUND);
+
+    return res.json(serialize(row));
+  } catch (e) {
+    return next(e);
+  }
+});
+
 // Create a product for the current tenant
 router.post("/", async (req: TenantRequest, res, next) => {
   try {
      const tenantId = req.tenant?.id;
      if (!tenantId) return sendError(res, ERROR_CODES.UNAUTHORIZED);
 
+     const errorPrecio = validarPrecio(req.body.price);
+     if (errorPrecio) return res.status(400).json({ message: errorPrecio });
      if (req.body.price !== undefined) {
        req.body.price = String(req.body.price);
      }
@@ -93,12 +204,78 @@ router.post("/", async (req: TenantRequest, res, next) => {
 });
 
 // Update a product (ensure it belongs to the tenant)
+/**
+ * POST /api/products/:id/video-desde-terabox  { path }
+ *
+ * Baja el video de presentacion desde Terabox y lo deja alojado en la app.
+ *
+ * Pedido del admin (2026-09-02): "descargalo y alojalo en la app, es el unico
+ * que esta en Terabox". El enlace de Terabox funciona pero le pide al cliente
+ * instalar la app o registrarse -- una barrera de registro justo cuando esta
+ * decidiendo comprar es perder la venta.
+ *
+ * El `dlink` que devuelve Terabox caduca en 1 a 8 horas, asi que NO se puede
+ * guardar como el video del producto: hay que bajar el archivo una vez y
+ * quedarselo. Eso es lo que hace esto.
+ *
+ * Corre en el servidor a proposito: es ahi donde vive la cookie de sesion de
+ * Terabox y donde esta el volumen persistente.
+ */
+router.post("/:id/video-desde-terabox", async (req: TenantRequest, res, next) => {
+  try {
+    const tenantId = req.tenant?.id;
+    if (!tenantId) return sendError(res, ERROR_CODES.UNAUTHORIZED);
+
+    const id = Number(req.params.id);
+    const ruta = String(req.body?.path || "").trim();
+    if (!id || !ruta) return res.status(400).json({ message: "Faltan 'id' o 'path'" });
+
+    const [prod] = await db.select().from(products)
+      .where(and(eq(products.tenantId, tenantId), eq(products.id, id))).limit(1);
+    if (!prod) return res.status(404).json({ message: "Producto no encontrado" });
+
+    // 1. El enlace directo, que dura horas.
+    const { default: TeraBoxApp } = await import("terabox-api");
+    const ndus = (process.env.TERABOX_NDUS || "").trim();
+    if (!ndus) return res.status(400).json({ message: "TERABOX_NDUS no configurado" });
+    const tb = new TeraBoxApp(ndus);
+    const meta: any = await (tb as any).getFileMeta([ruta]);
+    const dlink = meta?.info?.[0]?.dlink;
+    if (meta?.errno !== 0 || !dlink) {
+      return res.status(502).json({ message: `Terabox no devolvio enlace (errno=${meta?.errno})` });
+    }
+
+    // 2. Se baja UNA vez y se guarda.
+    const { guardarVideoDeProducto } = await import("../lib/video-store");
+    const guardado = await guardarVideoDeProducto(String(dlink), id);
+    if (!guardado) return res.status(502).json({ message: "No se pudo descargar el video" });
+
+    // 3. Y queda como el video del producto.
+    let m: any = {};
+    try { m = typeof prod.metadata === "string" ? JSON.parse(prod.metadata) : (prod.metadata || {}); } catch { m = {}; }
+    m.videoIntro = guardado.url;
+    m.videoOrigenTerabox = ruta;
+    await db.update(products).set({ metadata: JSON.stringify(m) }).where(eq(products.id, id));
+
+    return res.json({
+      ok: true,
+      url: guardado.url,
+      mb: Math.round(guardado.bytes / 1048576),
+      nota: "Alojado en la app. NO se reproduce dentro de WhatsApp (tope 16 MB): abre el video en el navegador.",
+    });
+  } catch (e) {
+    return next(e);
+  }
+});
+
 router.patch("/:id", async (req: TenantRequest, res, next) => {
   try {
     const tenantId = req.tenant?.id;
     if (!tenantId) return sendError(res, ERROR_CODES.UNAUTHORIZED);
 
     const { id } = UpdateProductParams.parse(req.params);
+    const errorPrecio = validarPrecio(req.body.price);
+    if (errorPrecio) return res.status(400).json({ message: errorPrecio });
     if (req.body.price !== undefined) {
       req.body.price = String(req.body.price);
     }
@@ -141,7 +318,11 @@ router.delete("/:id", async (req: TenantRequest, res, next) => {
       .returning();
 
     if (!deleted) return sendError(res, ERROR_CODES.PRODUCT_NOT_FOUND);
-    return res.json(DeleteProductResponse.parse({ ok: true }));
+    // El esquema pide `success`, no `ok`: con `ok` el parse tiraba DESPUES
+    // de ejecutar el DELETE, asi que el registro se borraba y al usuario le
+    // llegaba un 400 "Datos invalidos". Trabajo hecho y reportado como
+    // fallido. Estaba igual en agentes, categorias, prospectos y productos.
+    return res.json(DeleteProductResponse.parse({ success: true }));
   } catch (e) {
     return next(e);
   }
@@ -179,9 +360,32 @@ router.post("/bulk-smart", async (req: TenantRequest, res, next) => {
     const processedProducts = processRowsWithMapping(rawRows, mapping);
 
     // Insert into database
+    // La categoría (texto de la columna "Categoría" del Excel) se resuelve a
+    // la fila REAL de product_categories -- antes esta ruta ni siquiera
+    // guardaba item.category (se calculaba y se descartaba), así que un
+    // import masivo dejaba TODOS los productos sin categoría real, sin
+    // importar lo que dijera la planilla. Se cachea por nombre normalizado
+    // dentro de este import puntual para no repetir el lookup/insert por
+    // cada fila que comparte categoría.
+    const categoryIdCache = new Map<string, number | null>();
     const results = [];
     for (const item of processedProducts) {
       try {
+        let categoryId: number | null = null;
+        if (item.category) {
+          // La importación por Excel todavía no detecta Digital/Físico por
+          // fila (siempre inserta "digital" más abajo) -- se resuelve la
+          // categoría con ese mismo kind para no desalinearse. Si en el
+          // futuro esta importación aprende a leer una columna "Tipo", este
+          // kind debe pasar a venir de esa columna en vez de estar fijo.
+          const key = `digital:${item.category.trim().toLowerCase()}`;
+          if (categoryIdCache.has(key)) {
+            categoryId = categoryIdCache.get(key)!;
+          } else {
+            categoryId = await resolveCategoryId(tenantId, item.category, "digital");
+            categoryIdCache.set(key, categoryId);
+          }
+        }
         const [created] = await db
           .insert(products)
           .values({
@@ -190,6 +394,8 @@ router.post("/bulk-smart", async (req: TenantRequest, res, next) => {
             description: item.description,
             price: String(item.price),
             currency: item.currency,
+            category: item.category || null,
+            categoryId,
             kind: "digital",
             imageUrl: item.imageUrl,
             isActive: true,
@@ -233,6 +439,16 @@ function serialize(row: typeof products.$inferSelect) {
     paymentLink: (row as any).paymentLink ?? null,
     deliveryLink: (row as any).deliveryLink ?? null,
     isActive: row.isActive,
+    // `metadata` se podía GUARDAR (está en UpdateProductBody) pero no se
+    // devolvía nunca -- ni al leer ni como respuesta del PATCH. O sea que se
+    // escribía a ciegas: un 200 sin forma de confirmar que el dato quedó.
+    //
+    // Y no es un campo interno: acá vive `videoIntro`, el video que el agente
+    // le muestra al cliente ANTES del precio (ver lib/whatsapp.ts). Sin
+    // exponerlo, cargarlo desde el panel es imposible de verificar y de
+    // corregir. Un campo que se escribe y no se puede leer es un campo que
+    // nadie puede mantener.
+    metadata: (row as any).metadata ?? null,
     createdAt: row.createdAt instanceof Date ? row.createdAt.toISOString() : row.createdAt,
   };
 }

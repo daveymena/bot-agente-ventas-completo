@@ -1,8 +1,8 @@
-// @ts-nocheck
 import axios, { AxiosInstance } from "axios";
 import { db, products, tenants } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { logger } from "./logger";
+import { customerProductCopy } from "./dropi";
 
 export interface WooCommerceConfig {
   storeUrl: string;
@@ -27,6 +27,56 @@ export interface WooCommerceProduct {
   stock_quantity: number | null;
   sku: string;
   attributes: Array<{ id: number; name: string; options: string[] }>;
+  meta_data?: Array<{ key: string; value: string }>;
+  // WooCommerce los devuelve siempre; faltaba declararlos, y por eso
+  // nadie los miraba al decidir si el producto se despacha o no.
+  type?: string;
+  virtual?: boolean;
+  downloadable?: boolean;
+}
+
+function extractDropiMeta(product: WooCommerceProduct): { description?: string; imageUrls: string[]; cost?: number; stock?: number } {
+  const raw = product.meta_data?.find((item) => item.key === "_dropi_product")?.value || "";
+  if (!raw || typeof raw !== "string") return { imageUrls: [] };
+
+  const readString = (key: string) => {
+    const match = raw.match(new RegExp(`s:${key.length}:"${key}";s:\\d+:"([\\s\\S]*?)";s:`, "i"));
+    return match?.[1]?.replace(/\\"/g, '"') || "";
+  };
+  const readNumber = (key: string) => Number(readString(key).replace(/[^\d.-]/g, "")) || 0;
+  const stockMatch = raw.match(/s:\d+:"stock";i:(-?\d+)/i);
+
+  const imageUrls = [...raw.matchAll(/s:\d+:"urlS3";s:\d+:"([^"\\]+)"/gi)]
+    .map((match) => match[1])
+    .filter(Boolean)
+    .map((url) => /^https?:\/\//i.test(url) ? url : `https://d39ru7awumhhs2.cloudfront.net/${encodeURI(url)}`);
+
+  return {
+    description: readString("description") || undefined,
+    imageUrls: [...new Set(imageUrls)],
+    cost: readNumber("sale_price") || undefined,
+    stock: stockMatch ? Number(stockMatch[1]) : undefined,
+  };
+}
+
+async function firstUsableImage(urls: string[]): Promise<string | null> {
+  for (const url of [...new Set(urls)]) {
+    try {
+      const response = await fetch(url, {
+        headers: { Range: "bytes=0-1023", "User-Agent": "VentasPro/1.0" },
+        redirect: "follow",
+        signal: AbortSignal.timeout(8000),
+      });
+      const contentType = response.headers.get("content-type") || "";
+      const bytes = await response.arrayBuffer();
+      if (response.ok && contentType.toLowerCase().startsWith("image/") && bytes.byteLength > 100) {
+        return url;
+      }
+    } catch {
+      // Try the next source; one broken provider image must not block sync.
+    }
+  }
+  return null;
 }
 
 export interface WooCommerceOrder {
@@ -179,42 +229,114 @@ export class WooCommerceService {
 
       for (const wooProduct of wooProducts) {
         try {
-          // Verificar si el producto ya existe
+          const wooSku = `woo-${wooProduct.id}`;
+          const dropiMeta = extractDropiMeta(wooProduct);
+          const shipping = 20000;
+          const profit = 20000;
+          const cost = dropiMeta.cost || parseFloat(wooProduct.price || wooProduct.regular_price) || 0;
+          // El envío se cobra aparte al cliente; no se suma al precio publicado.
+          const finalPrice = cost + profit;
+          const imageUrls = [
+            ...dropiMeta.imageUrls,
+            ...(wooProduct.images || []).map((image) => image.src),
+          ].filter(Boolean);
+          // ── Una URL sin verificar vale mas que ninguna ────────────────
+          //
+          // `firstUsableImage` comprueba la foto BAJANDOLA DESDE EL SERVIDOR.
+          // Las de Dropi viven en un CloudFront, y ese chequeo falla por
+          // motivos que no tienen nada que ver con si la foto existe: un
+          // timeout de 8s, un 403 al datacenter, una CDN lenta. Cuando fallan
+          // todas devolvia null, y el cliente terminaba viendo el producto sin
+          // foto aunque en su navegador la URL cargue perfecto.
+          //
+          // Verificada es mejor. Pero entre "sin verificar" y "ninguna", gana
+          // sin verificar: el navegador del cliente sale a internet desde otra
+          // IP y por otra ruta que este servidor.
+          const imagenVerificada = await firstUsableImage(imageUrls);
+          const imageUrl = imagenVerificada || imageUrls.find(Boolean) || null;
+          if (!imagenVerificada && imageUrl) {
+            logger.warn(
+              { tenantId: this.tenantId, productId: wooProduct.id },
+              "[WooCommerce] Ninguna imagen se pudo verificar desde el servidor: se guarda la primera igual",
+            );
+          }
+
+          // Buscar por sku (clave estable e idempotente, sin depender de jsonb)
           const existingProduct = await db
             .select()
             .from(products)
-            .where(eq(products.externalId, `woo_${wooProduct.id}`))
+            .where(and(eq(products.tenantId, this.tenantId), eq(products.sku, wooSku)))
             .limit(1);
 
           const productData = {
             tenantId: this.tenantId,
             name: wooProduct.name,
-            description: wooProduct.short_description || wooProduct.description,
-            price: parseFloat(wooProduct.price) || 0,
+            description: customerProductCopy(
+              wooProduct.description || wooProduct.short_description || dropiMeta.description,
+              wooProduct.name,
+            ),
+            price: finalPrice,
             currency: "COP", // Ajustar según la configuración de la tienda
             category: wooProduct.categories[0]?.name || "General",
-            imageUrl: wooProduct.images[0]?.src || null,
+            imageUrl,
+            sku: wooSku,
             features: wooProduct.attributes.map(attr => `${attr.name}: ${attr.options.join(", ")}`),
-            isActive: wooProduct.stock_status === "instock",
-            externalId: `woo_${wooProduct.id}`,
-            externalUrl: wooProduct.permalink,
-            metadata: {
+            isActive: dropiMeta.stock == null ? wooProduct.stock_status === "instock" : dropiMeta.stock > 0,
+            // ── El tipo SALE DE WOO, no se asume ──────────────────────────
+            //
+            // Esto decia `kind: "physical"` fijo, para TODOS. En la base el
+            // default es "digital", asi que cada sincronizacion convertia los
+            // cursos en productos que se despachan por transportadora -- y el
+            // bot les pedia cedula, ciudad y departamento a clientes que
+            // compraban un curso que llega por correo (visto el 2026-09-02).
+            //
+            // Woo ya lo dice: `virtual` es "no se envia" y `downloadable` es
+            // "es un archivo". Solo habia que leerlo.
+            kind: (wooProduct.virtual || wooProduct.downloadable) ? "digital" : "physical",
+            metadata: JSON.stringify({
               woocommerce: {
                 id: wooProduct.id,
                 sku: wooProduct.sku,
+                permalink: wooProduct.permalink,
                 stock_quantity: wooProduct.stock_quantity,
+                price: wooProduct.price,
                 regular_price: wooProduct.regular_price,
                 sale_price: wooProduct.sale_price,
+                imageUrls: [...new Set(imageUrls)],
+                dropiCost: cost,
+                shipping,
+                profit,
+                finalPrice,
+                dropiStock: dropiMeta.stock ?? null,
               },
-            },
+            }),
           };
 
           if (existingProduct.length > 0) {
-            // Actualizar producto existente
+            // ── Nunca se pisa una foto que YA funciona con nada ────────────
+            //
+            // Esto hacia `.set(productData)` entero, con `imageUrl: null`
+            // adentro cuando la verificacion fallaba. O sea que un timeout de
+            // la CDN borraba la foto buena que ya estaba guardada, y como la
+            // sincronizacion corre sola, se volvia a borrar cada vez.
+            //
+            // Es el mismo defecto que `fixAllProductImages` (bcb972a): un
+            // "arreglador" que, cuando no puede comprobar, destruye el dato en
+            // vez de dejarlo quieto. Borrar lo que funciona nunca es el paso
+            // seguro.
+            const anterior = existingProduct[0] as any;
+            const aGuardar: any = { ...productData };
+            if (!aGuardar.imageUrl && anterior.imageUrl) {
+              delete aGuardar.imageUrl;
+              logger.warn(
+                { tenantId: this.tenantId, productId: wooProduct.id },
+                "[WooCommerce] Sin imagen nueva: se conserva la que ya tenia",
+              );
+            }
             await db
               .update(products)
-              .set(productData)
-              .where(eq(products.id, existingProduct[0].id));
+              .set(aGuardar)
+              .where(eq(products.id, existingProduct[0].id as number));
           } else {
             // Crear nuevo producto
             await db.insert(products).values(productData);
@@ -278,11 +400,16 @@ export class WooCommerceService {
         .where(eq(products.id, data.productId))
         .limit(1);
 
-      if (!localProduct || !localProduct.externalId?.startsWith("woo_")) {
+      const wooRef =
+        localProduct && localProduct.metadata
+          ? (JSON.parse(String(localProduct.metadata))?.woocommerce as any)
+          : null;
+
+      if (!localProduct || !wooRef?.id) {
         throw new Error("Producto no encontrado o no está sincronizado con WooCommerce");
       }
 
-      const wooProductId = parseInt(localProduct.externalId.replace("woo_", ""));
+      const wooProductId = parseInt(String(wooRef.id));
 
       // Separar nombre en first_name y last_name
       const nameParts = data.customerName.split(" ");

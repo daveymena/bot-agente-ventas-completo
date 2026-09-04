@@ -1,9 +1,12 @@
 import { logger } from "./logger";
+import { getAppUrl } from "./app-url";
 import { dbNow } from "./date-utils";
 import { db, subscriptions, paymentTransactions, tenants } from "@workspace/db";
 import { eq, and, desc } from "drizzle-orm";
 import { SAAS_PLANS, SaasPlan, getMonthlyPrice } from "../middleware/saasValidation";
 import * as crypto from "crypto";
+import { tenantManager } from "./tenantManager";
+import { credencialesDe } from "./tenant-payment-credentials";
 
 /**
  * Genera un token único de activación
@@ -28,8 +31,15 @@ export interface PaymentLinkResult {
   paymentUrl: string;
   paymentId: string;
   subscriptionId: number;
+  /** Precio de referencia del plan, siempre en USD. */
   amount: number;
   currency: string;
+  /** Lo que realmente se le cobra al usuario (COP vía MercadoPago, USD vía PayPal). */
+  chargedAmount: number;
+  chargedCurrency: string;
+  /** Equivalente en pesos colombianos al monto de referencia, para mostrarlo
+   * siempre junto al precio aunque se cobre en USD (PayPal). */
+  copEquivalent: number;
 }
 
 /**
@@ -99,21 +109,33 @@ export class SubscriptionPaymentService {
       "[SubscriptionPayment] Suscripción creada en BD con token de activación"
     );
 
+    // Tasa real (una sola vez, se reusa para el cobro en MercadoPago y para
+    // mostrar el equivalente en pesos aunque se cobre en USD vía PayPal).
+    const { getExchangeRate } = await import("./exchange-rate");
+    const rate = await getExchangeRate();
+    const copEquivalent = Math.round(amount * rate);
+
     // Generar enlace de pago según el método
     let paymentUrl: string;
     let paymentId: string;
+    let chargedAmount: number;
+    let chargedCurrency: string;
 
     logger.info({ paymentMethod }, "[SubscriptionPayment] Generando enlace de pago...");
 
     try {
       if (paymentMethod === "mercadopago") {
-        const result = await this.createMercadoPagoPayment(tenant, subscription, amount, currency, returnUrl, cancelUrl);
+        const result = await this.createMercadoPagoPayment(tenant, subscription, amount, currency, rate, returnUrl, cancelUrl);
         paymentUrl = result.paymentUrl;
         paymentId = result.paymentId;
+        chargedAmount = copEquivalent;
+        chargedCurrency = "COP";
       } else if (paymentMethod === "paypal") {
         const result = await this.createPayPalPayment(tenant, subscription, amount, currency, returnUrl, cancelUrl);
         paymentUrl = result.paymentUrl;
         paymentId = result.paymentId;
+        chargedAmount = amount;
+        chargedCurrency = currency;
       } else {
         throw new Error(`Método de pago no soportado: ${paymentMethod}`);
       }
@@ -149,6 +171,9 @@ export class SubscriptionPaymentService {
       subscriptionId: subscription.id,
       amount,
       currency,
+      chargedAmount,
+      chargedCurrency,
+      copEquivalent,
     };
   }
 
@@ -160,24 +185,24 @@ export class SubscriptionPaymentService {
     subscription: any,
     amount: number,
     currency: string,
+    rate: number,
     returnUrl?: string,
     cancelUrl?: string
   ): Promise<{ paymentUrl: string; paymentId: string }> {
-    const accessToken = process.env.MERCADO_PAGO_ACCESS_TOKEN;
-    
+    const tenantContext = await tenantManager.getTenantById(subscription.tenantId);
+    const accessToken = credencialesDe(tenantContext).mercadopago.accessToken;
+
     logger.info("[SubscriptionPayment] Iniciando creación de pago MercadoPago");
-    
+
     if (!accessToken) {
       logger.error("[SubscriptionPayment] MercadoPago access token no configurado");
       throw new Error("MercadoPago no está configurado. Por favor contacta al administrador.");
     }
 
-    const appUrl = process.env.APP_URL || "https://tecnovariedades.easypanel.host";
+    const appUrl = getAppUrl();
     const planDetails = SAAS_PLANS[subscription.plan as SaasPlan];
 
-    // Convertir a COP si es necesario (MercadoPago Colombia usa COP)
-    const { getExchangeRate } = await import("./exchange-rate");
-    const rate = await getExchangeRate();
+    // Convertir a COP (MercadoPago Colombia liquida en COP, no en USD)
     const amountCOP = Math.round(amount * rate);
 
     const requestBody = {
@@ -200,7 +225,7 @@ export class SubscriptionPaymentService {
         failure: cancelUrl || `${appUrl}/subscription-failure`,
         pending: `${appUrl}/subscription-pending`,
       },
-      notification_url: `${appUrl}/api/webhooks/subscription/mercadopago`,
+      notification_url: `${appUrl}/api/webhooks/subscription/mercadopago?tenantId=${tenant.id}`,
       external_reference: `subscription_${subscription.id}`,
       auto_return: "approved",
       metadata: {
@@ -261,19 +286,22 @@ export class SubscriptionPaymentService {
     returnUrl?: string,
     cancelUrl?: string
   ): Promise<{ paymentUrl: string; paymentId: string }> {
-    const clientId = process.env.PAYPAL_CLIENT_ID;
-    const clientSecret = process.env.PAYPAL_CLIENT_SECRET;
+    const paymentCreds = credencialesDe(await tenantManager.getTenantById(subscription.tenantId));
+    const clientId = paymentCreds.paypal.clientId;
+    const clientSecret = paymentCreds.paypal.clientSecret;
+    const paypalMode = paymentCreds.paypal.mode;
 
     if (!clientId || !clientSecret) {
       throw new Error("PayPal credentials no configuradas");
     }
 
-    const appUrl = process.env.APP_URL || "https://tecnovariedades.easypanel.host";
+    const appUrl = getAppUrl();
     const planDetails = SAAS_PLANS[subscription.plan as SaasPlan];
 
     try {
       // Obtener token de acceso
-      const authResponse = await fetch("https://api-m.paypal.com/v1/oauth2/token", {
+      const paypalBase = paypalMode === "sandbox" ? "https://api-m.sandbox.paypal.com" : "https://api-m.paypal.com";
+      const authResponse = await fetch(`${paypalBase}/v1/oauth2/token`, {
         method: "POST",
         headers: {
           Accept: "application/json",
@@ -291,7 +319,7 @@ export class SubscriptionPaymentService {
       }
 
       // Crear orden de pago
-      const orderResponse = await fetch("https://api-m.paypal.com/v2/checkout/orders", {
+      const orderResponse = await fetch(`${paypalBase}/v2/checkout/orders`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

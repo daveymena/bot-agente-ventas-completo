@@ -1,8 +1,10 @@
-<svg width="196" height="44" viewBox="0 0 196 44" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <g transform="translate(0,3) scale(0.59375)">
-    <path d="M18 2H46A16 16 0 0 1 62 18V46A16 16 0 0 1 46 62H8A6 6 0 0 1 2 56V18A16 16 0 0 1 18 2Z" fill="#4F46E5"></path>
-    <path d="M19 20.5L32 43.5" stroke="#FFFFFF" stroke-width="6.5" stroke-linecap="round"></path>
-    <path d="M32 43.5L45 20.5" stroke="#A5B4FC" stroke-width="6.5" stroke-linecap="round"></path>
+<svg width="196" height="48" viewBox="0 0 196 48" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="VentasPro">
+  <title>VentasPro</title>
+  <!-- Version para FONDO CLARO. Para fondo oscuro usar logo-white.svg. -->
+  <g transform="translate(0,4) scale(0.625)">
+    <rect width="64" height="64" rx="15" fill="#173A6D"/>
+    <path d="M20 15 H44 A9 9 0 0 1 53 24 V37 A9 9 0 0 1 44 46 H36 L32 54 L28 46 H20 A9 9 0 0 1 11 37 V24 A9 9 0 0 1 20 15 Z" fill="#FFFFFF"/>
+    <path d="M23.5 25 L32 40.5 L40.5 25" fill="none" stroke="#173A6D" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
   </g>
-  <text x="50" y="29" font-family="Inter, -apple-system, system-ui, sans-serif" font-size="21" font-weight="700" letter-spacing="-0.65" fill="#0F172B">Ventas<tspan fill="#4F46E5">Pro</tspan></text>
+  <text x="52" y="31" font-family="Inter, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="23" font-weight="800" letter-spacing="-0.8" fill="#14171E">Ventas<tspan fill="#5C7BA8">Pro</tspan></text>
 </svg>

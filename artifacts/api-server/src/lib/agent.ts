@@ -1,5 +1,4 @@
-// @ts-nocheck
-import { eq, and, asc, desc, sql } from "drizzle-orm";
+import { eq, and, asc, desc, ne, sql } from "drizzle-orm";
 import {
   db,
   agents,
@@ -9,9 +8,53 @@ import {
   productCategories,
   leads,
   settings as settingsTable,
+  facebookDrafts,
 } from "@workspace/db";
-import { getProviderConfig, getProviderConfigFromSettings, createAIClient } from "@workspace/integrations-openai-ai-server";
+import { getProviderConfig, getProviderRotation, getProviderConfigFromSettings, createAIClient, getOpenCodeRotation, getOpenCodeGoRotation } from "@workspace/integrations-openai-ai-server";
 import { logger } from "./logger";
+import { supervisarRespuesta } from "./supervisor";
+import { hablarColombiano } from "./hablar-colombiano";
+import { calcularEstado, renderEstado, puedeMandarPago, pidePagar, type EtapaTrato } from "./estado-cognitivo";
+// Se usaba sin importar: con `@ts-nocheck` puesto nadie lo notaba, y reventaba
+// justo al confirmar una compra -- el peor momento posible.
+import { processPurchaseConfirmation } from "./payment-confirmation";
+import { proximoPaso, renderPaso, necesidadDeclarada, type Paso } from "./embudo";
+import { opcionesPendientes, preguntaPorLaOpcion } from "./opciones-del-producto";
+import { preguntasSueltas } from "./estado-cognitivo";
+import { seccionQueCorresponde, elSiContestaLaOferta, elCierreOfrece, pideAlgoEntregable, elProductoSaleDeLaPreguntaMisma, queOfrecioElBot, elVideoYaSalio, sePuedeOfrecerElVideo } from "./ficha-parcial";
+import { promesasDe, promesasIncumplidas, sinLaPromesa, sinElMontoQueVaEnLaFicha, niegaLoQueSiSale, loQueEntregaLaSeccion, NOMBRE_DE_PROMESA } from "./promesas";
+import { medirEmojis } from "./emojis-con-medida";
+import { preguntaPorLoInterno, delataLoInterno, respuestaSegura, vocabularioDelNegocio } from "./nada-interno";
+import { videoDeProducto } from "./video-de-producto";
+import { seDespachaPorTransportadora } from "./entrega-del-producto";
+import { verificarPrecios } from "./precio-verificado";
+import { productoEnFoco } from "./producto-en-foco";
+import { entenderAlCliente, type Entendimiento } from "./entender-al-cliente";
+import { sinLoQueYaLeyo, yaLoDijo } from "./no-repetir";
+import { negarloSeriaMentira, productosNombrados } from "./nombra-productos-reales";
+import { prometeEntregaFisica, sinLaPromesaFisica, sinElTemarioInventado, lineasDeTemarioInventadas, comoSeEntregaDeVerdad } from "./solo-lo-que-dice-la-ficha";
+
+/**
+ * El video de este producto, sin reventar si el metadata viene raro.
+ *
+ * ⚠️ Recibe el PRODUCTO, no su metadata. La diferencia costó una venta: en el
+ * clasificador del cierre se le pasaba `producto.metadata`, así que adentro
+ * hacía `metadata.metadata` -> undefined y devolvía "" para TODO producto.
+ * Como devolver "" es una respuesta válida ("no tiene video"), nada fallaba:
+ * el bot ofrecía el video y después no lo reconocía cuando el cliente decía
+ * que sí.
+ *
+ * Por eso el aviso: si llega algo que ya parece un metadata, se avisa fuerte
+ * en vez de contestar "" como si el producto no tuviera video.
+ */
+function videoDeProductoSeguro(p: any): string {
+  if (p && typeof p === "object" && !("metadata" in p) && ("videoIntro" in p || "videoUrl" in p)) {
+    console.warn("⚠️ [VIDEO] videoDeProductoSeguro recibió un metadata, no un producto. Se lee igual, pero el llamador está mal.");
+    try { return videoDeProducto(p); } catch { return ""; }
+  }
+  try { return videoDeProducto(p?.metadata); } catch { return ""; }
+}
+import { responderPregunta, aperturaPara } from "./conocimiento-producto";
 import { PaymentGateway } from "./payments";
 import { 
   healthMonitor,
@@ -24,6 +67,7 @@ import {
   getSystemHealthSummary
 } from "./fallbackSystem";
 import {
+  cardConRespaldo,
   loadConversationMemory,
   computeDecision,
   saveAgentMessage,
@@ -37,7 +81,29 @@ import {
   type Stage,
 } from "./conversation-engine";
 import { getBrandVoice, formatWithBrandVoice } from "./brand-voice";
+import { registrarTurnoAtendido } from "./monitoring";
+
+/**
+ * Modelos de RAZONAMIENTO: no pueden atender a un cliente.
+ *
+ * Medido en producción el 2026-08-29, con DeepSeek recién habilitado: el bot
+ * contestó con `deepseek/deepseek-reasoner` y tardó 26 y 30 SEGUNDOS. Las
+ * respuestas eran buenas -- el problema es que nadie espera medio minuto en
+ * WhatsApp: para cuando llega, el cliente cerró el chat.
+ *
+ * `deepseek-chat`, el MISMO proveedor, responde en ~800 ms. La diferencia no
+ * es el proveedor: es que un modelo de razonamiento gasta el presupuesto
+ * pensando antes de escribir.
+ *
+ * Se exporta para que la prueba use ESTA expresión y no una copia: una prueba
+ * que reimplementa la regla sigue en verde aunque el código real se rompa.
+ */
+export const MODELO_DE_RAZONAMIENTO = /reasoner|thinking|-r1\b|reasoning/i;
+import { getBusinessContext, renderBloqueNegocio, resumenContexto, datosQueFaltan } from "./business-context";
+import { cuentasDeCopilot, expandirPorCuenta } from "./copilot-cuentas";
+import { construirPlaybook, quitarInventos, quitarMuletillaDeApertura, extraerApertura } from "./sales-playbook";
 import { analyzeBrain, buildFinalPrompt, type ResponseStrategy, type EmotionalState } from "./response-brain";
+import { learnFromLastExchange, retrieveLessons, formatLessonsForPrompt } from "./conversation-learning";
 import {
   isPaymentConfirmation,
   isPaymentMethodQuestion,
@@ -62,10 +128,12 @@ import {
   getProviderTimeout,
   resetProviderRotation,
 } from "./optimized-rotation";
+import { deepseekVaPrimero } from "./deepseek-al-frente";
 import { getG4FResponse, initializeG4F } from "./providers/g4f-provider";
 import { G4F_ENABLED } from "../config/g4f.config";
 import { dbNow } from "./date-utils";
 import { tenantManager } from "./tenantManager";
+import { variante, varianteDistintaDe } from "./variacion";
 
 // ============================================================
 // 🎯 UNIFIED KEYWORD CONSTANTS - SINGLE SOURCE OF TRUTH
@@ -241,6 +309,10 @@ function analyzeConversationContext(history: any[]): ConversationContext {
     hasIntroduced,
     currentTopic: topicAnalysis.currentTopic,
     previousTopics: topicAnalysis.previousTopics,
+    // Faltaban los dos campos de control de fichas. Sin ellos el objeto no
+    // cumple el tipo, y quien lo lea encuentra undefined donde espera datos.
+    cardsSentFor: new Set<number>(),
+    lastCardSentAt: null,
     leadBehavior,
     interactionCount: customerMessages.length,
     lastInteractionTime: history.length > 0 ? new Date(history[history.length - 1].createdAt) : null
@@ -545,6 +617,156 @@ IMPORTANTE: Usa esta información para responder de manera empática y estratég
   return personalizedInstructions;
 }
 
+/**
+ * ¿Esto es un nombre de persona, o el telefono disfrazado?
+ *
+ * WhatsApp no siempre manda el pushName, y el sistema caia al numero como
+ * nombre. Resultado, visto con un cliente que llego de un ANUNCIO PAGO:
+ *   "¡Hola 51908825398:0! 👋 Bienvenido a TecnoVariedades"
+ *
+ * Un saludo asi quema el lead en el primer mensaje. Ante la duda es mejor
+ * saludar sin nombre: "¡Hola! 👋" es neutro y correcto, decirle el numero no.
+ */
+function esNombreReal(n: string | null | undefined): boolean {
+  const v = String(n || "").trim();
+  if (!v || v.length < 2 || v.toLowerCase() === "cliente") return false;
+  // Mayoria de digitos, o con el sufijo de dispositivo de un JID: es telefono.
+  const digitos = (v.match(/\d/g) || []).length;
+  if (digitos >= 6 || digitos > v.length / 2 || /^\+?\d[\d\s:-]*$/.test(v)) return false;
+  return true;
+}
+
+/**
+ * El anuncio del que llego el cliente, leido del ultimo mensaje suyo.
+ *
+ * Cuando alguien hace clic en un anuncio de Facebook/Instagram, Meta
+ * autocompleta el mensaje con un texto identico para TODOS los anuncios
+ * ("Hola! Quiero mas informacion"), y adjunta aparte el titular y el link del
+ * anuncio real. O sea: el texto no dice nada y el dato que si dice a que le
+ * hizo clic viaja en la metadata. Si se ignora, el cliente que costo dinero
+ * traer recibe un "que estas buscando?" -- justo lo que el ya habia dicho al
+ * hacer clic.
+ */
+export function anuncioDeOrigen(
+  history: Array<{ role: string; metadata?: any; createdAt?: Date | string | null }>,
+) {
+  // El `externalAdReply` viaja pegado UNICAMENTE al primer mensaje del cliente.
+  // Antes esta funcion miraba solo el ultimo mensaje suyo y devolvia null si no
+  // lo tenia, asi que el anuncio se perdia apenas el cliente escribia una
+  // segunda vez ("cuanto cuesta?"). Se pagaba el clic, se sabia por que producto
+  // venia, y ese dato duraba un solo turno.
+  //
+  // Ahora se busca hacia atras entre SUS mensajes, con dos frenos para no
+  // arrastrar un anuncio viejo a una conversacion nueva:
+  //   - como mucho 10 mensajes suyos hacia atras;
+  //   - como mucho 24h de antiguedad respecto del ultimo mensaje.
+  const MAX_MENSAJES = 10;
+  const MAX_HORAS = 24;
+
+  const fecha = (v: unknown): number => {
+    const t = v instanceof Date ? v.getTime() : v ? new Date(v as string).getTime() : NaN;
+    return Number.isFinite(t) ? t : NaN;
+  };
+
+  const ultimo = fecha(history[history.length - 1]?.createdAt);
+  let vistos = 0;
+
+  for (let i = history.length - 1; i >= 0; i--) {
+    const m = history[i]!;
+    if (m.role !== "customer") continue;
+    if (++vistos > MAX_MENSAJES) break;
+
+    const md = m.metadata || {};
+    if (!(md.adTitle || md.adBody || md.adUrl || md.adId)) continue;
+
+    const cuando = fecha(m.createdAt);
+    if (Number.isFinite(ultimo) && Number.isFinite(cuando)) {
+      const horas = (ultimo - cuando) / 3_600_000;
+      if (horas > MAX_HORAS) break; // anuncio de otra visita, no de esta
+    }
+
+    return {
+      titulo: String(md.adTitle || ""),
+      cuerpo: String(md.adBody || ""),
+      url: String(md.adUrl || ""),
+      anuncioId: String(md.adId || ""),
+    };
+  }
+  return null;
+}
+
+/** El slug de un link de producto: /producto/<slug>/ -> "<slug>". */
+function slugDeUrl(u: string): string {
+  return (String(u || "").match(/\/(?:p|producto|product|products)\/([^/?#]+)/i)?.[1] || "").toLowerCase();
+}
+
+/**
+ * Que producto vino a buscar el cliente que llego de un anuncio.
+ *
+ * Antes esto se resolvia SOLO por parecido de texto: se pegaba el titular y
+ * el cuerpo del anuncio al mensaje y decidia el motor de coincidencias. El
+ * unico dato duro que se miraba era un link con ID numerico (/p/123).
+ *
+ * Con el catalogo real eso falla, porque los productos vienen de WooCommerce
+ * y sus links son por SLUG, no por numero:
+ *   https://.../producto/renovador-negro-perfecto-x-200ml/
+ * El `(\d+)` nunca engancha ahi, asi que se caia al parecido de texto -- y con
+ * dos productos del mismo nombre en el catalogo (ids 125 y 128, precios
+ * distintos) el parecido no puede acertar: es una moneda al aire sobre cual de
+ * los dos cotizar.
+ *
+ * Se resuelve en escalera, de mas duro a mas blando, y solo se cae al texto si
+ * ninguna resuelve:
+ *   1. El adId de Meta contra facebook_drafts, que guarda el producto con el
+ *      que se creo ESE anuncio. Es exacto: identifica al anuncio, no se parece.
+ *   2. Link con ID numerico (/p/123).
+ *   3. Link por slug, comparado como segmento COMPLETO contra el permalink de
+ *      WooCommerce -- "…-x-200ml" no puede matchear "…-x-200ml-2".
+ */
+export async function productoDelAnuncio(
+  anuncio: { anuncioId?: string; url?: string } | null,
+  productList: Array<any>,
+): Promise<{ id: number; name: string; via: string } | null> {
+  if (!anuncio) return null;
+
+  const adId = String(anuncio.anuncioId || "").trim();
+  if (adId) {
+    try {
+      const [d] = await db
+        .select({ productId: facebookDrafts.productId })
+        .from(facebookDrafts)
+        .where(eq(facebookDrafts.adId, adId))
+        .limit(1);
+      if (d?.productId) {
+        const p = productList.find((x: any) => x.id === d.productId);
+        if (p) return { id: p.id, name: p.name, via: "adId" };
+      }
+    } catch {
+      // Si la consulta falla se sigue por las otras vias: un problema de BD no
+      // puede dejar al cliente sin respuesta.
+    }
+  }
+
+  const url = String(anuncio.url || "");
+
+  const num = Number(url.match(/\/(?:p|producto|product)\/(\d+)(?:[/?#]|$)/)?.[1] || 0);
+  if (num) {
+    const p = productList.find((x: any) => x.id === num);
+    if (p) return { id: p.id, name: p.name, via: "url-id" };
+  }
+
+  const slug = slugDeUrl(url);
+  if (slug && !/^\d+$/.test(slug)) {
+    const p = productList.find((x: any) => {
+      const perma = (x?.metadata as any)?.woocommerce?.permalink;
+      return perma ? slugDeUrl(perma) === slug : false;
+    });
+    if (p) return { id: p.id, name: p.name, via: "url-slug" };
+  }
+
+  return null;
+}
+
 export async function runAgentReply(conversationId: number) {
   const startTime = Date.now();
   const ts = () => new Date().toISOString();
@@ -565,6 +787,43 @@ export async function runAgentReply(conversationId: number) {
     return null;
   }
 
+  // ── Límite del plan contratado ────────────────────────────────────────────
+  // AGUJERO REAL cerrado el 2026-08-12: el límite mensual de mensajes existía
+  // solo como middleware HTTP, pero los mensajes de WhatsApp entran por el
+  // socket de Baileys y NUNCA pasan por una ruta HTTP -- así que el bot
+  // respondía sin límite alguno. Un cliente del plan más barato podía generar
+  // decenas de miles de respuestas con IA que paga el dueño de la plataforma,
+  // sin ningún tope. Es fuga de dinero directa, no un detalle de producto.
+  //
+  // Este es el punto ÚNICO por donde pasan todas las respuestas del agente
+  // (WhatsApp, Messenger y comentarios de Facebook), así que el candado va
+  // acá y cubre todos los canales de una.
+  if (convo.tenantId) {
+    try {
+      const { checkMessageLimit } = await import("../middleware/featureLimits");
+      const { tenantManager } = await import("./tenantManager");
+      const tenant = await tenantManager.getTenantById(convo.tenantId);
+      const plan = (tenant as any)?.plan || (tenant as any)?.subscriptionPlan || "basic";
+      const limite = await checkMessageLimit(convo.tenantId, plan);
+      if (!limite.allowed) {
+        logger.warn(
+          { tenantId: convo.tenantId, plan, usados: limite.current, tope: limite.limit },
+          "[Agent] Límite mensual del plan alcanzado -- no se genera respuesta con IA",
+        );
+        // Se devuelve null (no responde) en vez de lanzar: el mensaje del
+        // cliente igual queda guardado, y el dueño del negocio ve el aviso en
+        // su panel. Contestarle al cliente final "tu plan se acabó" sería
+        // exponerle al comprador un problema comercial que no es suyo.
+        return null;
+      }
+    } catch (e: any) {
+      // Ante un fallo del chequeo NO se bloquea la respuesta: dejar mudo al
+      // bot de un cliente que sí pagó es peor que dejar pasar algunos
+      // mensajes de más.
+      logger.warn({ err: e?.message, tenantId: convo.tenantId }, "[Agent] No se pudo verificar el límite del plan; se responde igual");
+    }
+  }
+
   // ── 2. Cargar memoria estructurada desde BD (fuente única de verdad) ──────
   t1 = Date.now();
   const memory = await loadConversationMemory(conversationId);
@@ -573,7 +832,59 @@ export async function runAgentReply(conversationId: number) {
   const lastText = memory.lastCustomerMessage;
   const customerName = convo.contactName || "cliente";
 
+  // ¿Llegó de un anuncio? El titular del anuncio dice qué producto vino a
+  // buscar; el texto que escribió no (Meta lo autocompleta igual para todos).
+  // Se usa SOLO para decidir producto y etapa: para hablarle se sigue usando
+  // lo que el cliente realmente escribió.
+  const anuncio = anuncioDeOrigen(memory.history as any);
+  const textoParaDecidir = anuncio
+    ? `${lastText} ${anuncio.titulo} ${anuncio.cuerpo}`.trim()
+    : lastText;
+  if (anuncio) {
+    console.log(`📣 [ANUNCIO] Cliente llegó del anuncio "${anuncio.titulo}" (${anuncio.url || "sin link"})`);
+  }
+
   console.log(`🧠 [ENGINE] Memoria cargada - hasGreeted:${memory.hasGreeted} stage:${memory.currentStage} product:${memory.currentProductName || "none"} sentCards:[${Array.from(memory.sentProductIds).join(",")}] isNewSession:${memory.isNewSession} - ${ts()}`);
+
+  // Puntuación de lead + seguimiento inteligente automático (leadScoring.ts /
+  // followUpScheduler.ts). Estaba completamente construido pero NUNCA se
+  // llamaba desde el flujo real de WhatsApp -- el único import que existía
+  // era en whatsapp.ts (la clase base), pero ninguna llamada real lo
+  // invocaba en ningún lado del código (confirmado: cero resultados al
+  // buscar "processMessageForLeadScoring(" en todo el repo salvo su propia
+  // definición). Por eso `follow_ups` seguía en 0 filas aunque ya había
+  // conversaciones reales. Fire-and-forget: no debe bloquear ni retrasar la
+  // respuesta real al cliente, y processMessageForScoring ya atrapa sus
+  // propios errores internamente (documentado como "no crítico").
+  if (lastText) {
+    import("./leadScoring")
+      .then(({ processMessageForLeadScoring }) => processMessageForLeadScoring(conversationId, lastText))
+      .catch((err) => console.error(`⚠️ [LEAD-SCORING] Error en scoring/follow-up para conversación ${conversationId}:`, err?.message || err));
+  }
+
+  // ── 2b. APRENDIZAJE: evaluar el intercambio anterior y adaptar ─────────────
+  // El agente NO es un bot de respuestas: aprende de cada turno. Si la
+  // respuesta anterior falló (el cliente repitió la pregunta, se confundió,
+  // se frustró o se fue), se guarda la lección en la memoria del negocio y
+  // se usa en el prompt de ESTA respuesta para no repetir el error.
+  // Fire-and-forget controlado: nunca bloquea ni retrasa la respuesta.
+  if (convo.tenantId && lastText && memory.lastAgentMessage) {
+    const msgClienteAnterior =
+      [...memory.history].reverse().find((m) => m.role === "customer" && m.content !== lastText)?.content ?? null;
+
+    import("./conversation-learning")
+      .then(({ learnFromLastExchange }) =>
+        learnFromLastExchange({
+          tenantId: convo.tenantId!,
+          customerMsg: lastText,
+          prevCustomerMsg: msgClienteAnterior,
+          agentReply: memory.lastAgentMessage,
+          productName: memory.currentProductName,
+          intent: detectIntent(lastText),
+        }),
+      )
+      .catch((err) => console.error(`⚠️ [LEARNING] Error evaluando intercambio para conversación ${conversationId}:`, err?.message || err));
+  }
 
   // ── 3. Seleccionar agente activo ──────────────────────────────────────────
   t1 = Date.now();
@@ -620,6 +931,58 @@ export async function runAgentReply(conversationId: number) {
         .limit(200);
       logTime(`4b. Cargar productos: ${Date.now() - t1}ms`);
 
+      // ── Cada agente ve SOLO los productos de su especialidad ──────────────
+      //
+      // Un curso digital y una rodillera térmica no se venden igual: el
+      // digital se entrega con un link al instante, el físico necesita
+      // dirección, cédula y transportadora. Mezclarlos en un mismo catálogo
+      // hace que el agente de digitales prometa envíos y el de físicos
+      // ofrezca "acceso de por vida".
+      //
+      // `especialidad` vacía = agente general, ve todo (compatibilidad con
+      // los negocios que tienen un solo agente para ambas cosas).
+      // ── Modo de catálogo del NEGOCIO: manda sobre todo lo demás ───────────
+      //
+      // Se resuelve antes que la especialidad del agente porque es una
+      // decisión del dueño, no del agente: si el negocio dice "acá solo vendo
+      // digital", ningún agente suyo puede ofrecer un producto físico.
+      //
+      // El filtro es duro a propósito. Instruir al modelo para que "no
+      // confunda" físicos con digitales ya se intentó y falló las dos veces
+      // (prometió Google Drive de un frasco, y envío a domicilio de un curso).
+      // Si el producto no está en la lista, no hay nada que confundir.
+      // `getBusinessContext` está cacheado 60s por tenant, así que pedirlo acá
+      // y otra vez más abajo no agrega consultas.
+      const negocioParaCatalogo = await getBusinessContext(convo.tenantId).catch(() => null);
+      const modoNegocio = negocioParaCatalogo?.modoCatalogo ?? "mixto";
+      if (modoNegocio !== "mixto") {
+        const quiere = modoNegocio === "digital" ? "digital" : "physical";
+        const antesModo = productList.length;
+        const soloDelModo = productList.filter((p: any) => String(p.kind || "digital") === quiere);
+        if (soloDelModo.length > 0) {
+          productList = soloDelModo;
+          console.log(`🏷️ [MODO] El negocio vende solo ${modoNegocio}: ${soloDelModo.length} de ${antesModo} productos - ${ts()}`);
+        } else {
+          console.log(`⚠️ [MODO] El negocio dice vender solo ${modoNegocio} pero no tiene productos de ese tipo; se deja el catálogo completo`);
+        }
+      }
+
+      const especialidad = String((activeAgent as any).especialidad || "").toLowerCase();
+      if (especialidad === "digital" || especialidad === "dropshipping") {
+        const tipoQueVende = especialidad === "digital" ? "digital" : "physical";
+        const antes = productList.length;
+        const filtrado = productList.filter((p: any) => (p.kind || "digital") === tipoQueVende);
+        // Si el filtro deja el catálogo vacío, el negocio no tiene productos
+        // de ese tipo: se deja el catálogo completo antes que dejar al agente
+        // sin nada que ofrecer.
+        if (filtrado.length > 0) {
+          productList = filtrado;
+          console.log(`🎯 [ESPECIALIDAD] ${activeAgent.name} vende ${especialidad}: ${filtrado.length} de ${antes} productos - ${ts()}`);
+        } else {
+          console.log(`⚠️ [ESPECIALIDAD] ${activeAgent.name} es de ${especialidad} pero no hay productos de ese tipo; se deja el catálogo completo`);
+        }
+      }
+
       // Si no hay productos activos, fallback a todos los del tenant (p.ej. datos de prueba)
       if (productList.length === 0) {
         productList = await db.select().from(products)
@@ -630,7 +993,7 @@ export async function runAgentReply(conversationId: number) {
       
       t1 = Date.now();
       const allCategories = await db.select().from(productCategories).where(eq(productCategories.tenantId, convo.tenantId));
-      categoryMap = new Map(allCategories.map(c => [c.id, c.name.toLowerCase()]));
+      categoryMap = new Map(allCategories.map((c: any) => [c.id, c.name.toLowerCase()]));
       logTime(`4c. Cargar categorías: ${Date.now() - t1}ms`);
       
       console.log(`📦 [AGENT-INFO] Productos cargados: ${productList.length} (selectivo) - ${ts()}`);
@@ -639,11 +1002,93 @@ export async function runAgentReply(conversationId: number) {
     }
 
   // ── 5. Motor de decisión ──────────────────────────────────────────────────
+  // El link del anuncio suele apuntar al producto exacto (/p/123 o
+  // /producto/123). Eso es un dato duro, no una adivinanza sobre el titular:
+  // si resuelve, se le suma el nombre real del producto al texto con el que
+  // decide el motor, para que no se equivoque de curso.
+  let textoDecision = textoParaDecidir;
+  // Se resuelve por dato duro (adId de Meta, link por id o por slug). Si
+  // ninguna via engancha, `delAnuncio` es null y decide el motor por texto,
+  // que es el comportamiento de siempre.
+  const delAnuncio = await productoDelAnuncio(anuncio, productList);
+  if (delAnuncio) {
+    textoDecision = `${textoParaDecidir} ${delAnuncio.name}`;
+    console.log(`📣 [ANUNCIO] Producto resuelto por ${delAnuncio.via}: #${delAnuncio.id} "${delAnuncio.name}"`);
+  } else if (anuncio) {
+    // Vale la pena verlo en el log: es justo el caso en que el bot puede
+    // terminar hablando del producto equivocado.
+    console.log(`⚠️ [ANUNCIO] No se pudo resolver el producto por dato duro (adId="${anuncio.anuncioId}", url="${anuncio.url}"): decide el parecido de texto.`);
+  }
+
+  // ── 4b. El negocio REAL de este cliente ───────────────────────────────────
+  // Tiene que resolverse ANTES del motor de decisión, porque el bloque de
+  // contexto que arma computeDecision es justo donde antes estaban escritos a
+  // mano el nombre ("Sofía, de TecnoVariedades") y los datos de entrega,
+  // acceso y garantía. Cacheado 60s por tenant, así que no agrega consultas
+  // por mensaje. Si falla, devuelve un contexto vacío: el agente deja de
+  // afirmar esos datos en vez de inventarlos.
   t1 = Date.now();
-  const decision = await computeDecision(memory, lastText, productList, categoryMap);
+  const negocio = await getBusinessContext(convo.tenantId);
+  logTime(`4b. Contexto de negocio: ${Date.now() - t1}ms`);
+  console.log(`🏢 [NEGOCIO] ${resumenContexto(negocio)} - ${ts()}`);
+
+  t1 = Date.now();
+  const decision = await computeDecision(memory, textoDecision, productList, categoryMap, negocio);
   logTime(`5. Motor de decisión: ${Date.now() - t1}ms`);
   
   console.log(`🎯 [ENGINE-DECISION] ${decision.debugReason} - ${ts()}`);
+
+  // ── 5-bis. QUE LO ENTIENDA LA IA, NO UNA LISTA DE PALABRAS ──────────────
+  //
+  // El admin: "esto no solo depende de frases, es que no parece que estemos
+  // usando la IA para eso". Tenia razon, y los numeros tambien: `detectIntent`
+  // --122 lineas de patrones, cero llamadas al modelo-- acierta el 45% sobre
+  // 20 mensajes reales de cliente; el mismo modelo que ya esta pagado y
+  // corriendo acierta el 80%, y acierta JUSTO los que cuestan plata ("ya te
+  // hice la transferencia", "no me ha llegado nada", "me lo deja en 40?").
+  //
+  // Esto NO le da al modelo el mando sobre los hechos: el precio, el enlace,
+  // la ficha y la cuenta los sigue poniendo el servidor, y todos los candados
+  // de salida siguen corriendo despues. Reemplaza la ADIVINANZA de que quiere
+  // el cliente, que es lo unico que las listas hacian mal.
+  //
+  // Si no contesta, tarda o devuelve basura, `entenderAlCliente` da null y
+  // todo sigue como hoy. No puede quedar peor: solo puede quedar mejor.
+  let entendimiento: Entendimiento | null = null;
+  try {
+    const focoPrevio = productoEnFoco({
+      delMensaje: decision.productoDelMensaje as any,
+      aMostrar: decision.productToShow as any,
+      idActivo: memory.currentProductId,
+      historial: memory.history as any,
+      catalogo: productList as any[],
+    });
+    entendimiento = await entenderAlCliente({
+      mensaje: String(lastText || ""),
+      historial: memory.history as any,
+      catalogo: (productList as any[]).map((p: any) => ({ id: p.id, name: p.name })),
+      productoEnFocoId: focoPrevio?.id ?? null,
+    });
+  } catch (e: any) {
+    console.log(`[ENTENDER] no se pudo, se sigue con los patrones: ${e?.message} - ${ts()}`);
+  }
+
+  if (entendimiento && entendimiento.confianza >= 0.5) {
+    if (entendimiento.intencion !== decision.intent) {
+      console.log(`🧠 [ENTENDER] los patrones leyeron "${decision.intent}" y el cliente pedia "${entendimiento.intencion}": ${entendimiento.esperando} - ${ts()}`);
+      (decision as any).intent = entendimiento.intencion;
+    }
+    // El producto SOLO se rellena si los patrones no encontraron ninguno.
+    // Cuando ya hay uno resuelto por el servidor, ese manda: el modelo elige
+    // mal el id seguido (visto hoy: escribio 115 y 101 para el producto 124).
+    if (!decision.productToShow && !decision.productoDelMensaje && entendimiento.productoId) {
+      const p = (productList as any[]).find((x: any) => x.id === entendimiento!.productoId);
+      if (p) {
+        (decision as any).productToShow = p;
+        console.log(`🧠 [ENTENDER] el mensaje no nombra producto pero la conversacion iba del ${p.id}: ${p.name} - ${ts()}`);
+      }
+    }
+  }
 
   // ── 6. Obtener la voz del negocio (ANTES de cualquier respuesta) ─────────
   t1 = Date.now();
@@ -748,43 +1193,63 @@ Eres un VENDEDOR PROFESIONAL experto: cálido y humano, pero con foco claro en C
 
 • Escuchas activamente: entiendes TODO el contexto, no solo la última pregunta. Detectas qué necesita realmente el cliente.
 • Vendes por VALOR, no por presión: conectas el producto con el beneficio real para el cliente (qué logrará, qué problema resuelve), no solo listas características.
-• Precisión total: das datos exactos (precio, qué incluye, cómo se entrega). Nunca inventas productos, precios ni promesas. Si un dato NO está en el catálogo ni en los HECHOS CONFIRMADOS, lo dices con naturalidad y rediriges al valor — pero los HECHOS CONFIRMADOS (pago único, de por vida, Google Drive, sin certificado) SIEMPRE los respondes con seguridad.
+• Precisión total: das datos exactos (precio, qué incluye, cómo se entrega). Nunca inventas productos, precios ni promesas. Los datos del bloque "EL NEGOCIO PARA EL QUE TRABAJÁS" y del catálogo los respondes con total seguridad. Lo que NO esté ahí, no lo sabes: lo dices con naturalidad, ofreces confirmarlo y rediriges al valor.
 • Avanzas la venta en cada mensaje: tras dar información, das el siguiente paso natural (mostrar el producto ideal, resolver la duda que falta, o invitar a comprar). Cierra cuando el cliente muestra interés — no lo dejes en el aire.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📋 FORMATO OBLIGATORIO (CRÍTICO)
+💬 CÓMO ESCRIBÍS
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-RESPONDE SIEMPRE USANDO ESTE PATRÓN (sin excepciones):
+Escribís como una asesora de verdad por WhatsApp: en frases, no en fichas.
+2 a 4 frases, con lógica y calidez. Ese es el modo NORMAL, el de casi todos
+los mensajes.
 
-🎹 Idea 1 corta
-✅ Idea 2 corta
-💰 Idea 3 corta
-🎓 Idea 4 corta
+Antes acá decía "RESPONDE SIEMPRE USANDO ESTE PATRÓN (sin excepciones)"
+seguido de cuatro líneas de emoji + 5 palabras, y tres renglones después
+decía que ese formato era "SOLO para enumerar". El modelo obedecía lo
+primero que leía, así que contestaba en viñetas hasta cuando el cliente
+pedía un argumento. Un cliente que dice "está muy caro" necesita una razón,
+no una lista de cuatro renglones.
 
-REGLA 1: CADA LÍNEA = UN EMOJI + TEXTO CORTO (máximo 5 palabras)
-REGLA 2: SALTOS DE LÍNEA ENTRE CADA IDEA
-REGLA 3: NUNCA párrafos largos sin emojis
-REGLA 4: NUNCA asteriscos (*) ni guiones (-) ni viñetas (•)
+La lista de emojis es la EXCEPCIÓN, y sirve para una sola cosa: enumerar lo
+que trae un producto cuando te lo preguntan ("¿qué incluye?"). Ahí sí:
+un emoji por línea, texto corto, sin asteriscos ni guiones.
 
-❌ PROHIBIDO: "El curso cuesta 60mil y tiene acceso de por vida"
+⚠️ La ficha del producto la manda el sistema aparte, con foto, precio y
+enlaces. Tu texto es lo que la ACOMPAÑA: nunca repitas lo que ya va en la
+ficha, y no la anuncies con un "acá tienes" pelado.
+
+❌ "¡Perfecto! Aquí tienes el curso de piano 🎹"
+   (sirve para cualquier cliente y cualquier producto: eso es exactamente el problema)
+✅ "Qué bueno que te intereses por el piano 🎹 Te dejo la info completa acá abajo
+   así la mirás con calma — y si quieres te cuento por dónde conviene arrancar."
+
+Tres reglas de tono que valen para TODOS los mensajes:
+• Reconocé lo que la persona dijo ANTES de entregarle nada.
+• Nunca abras con "¡Perfecto!", "¡Genial!" o "¡Excelente!" a secas: no dicen nada
+  y son la marca registrada de un bot.
+• Variá el largo. Un mensaje de una línea y otro de tres se leen humanos;
+  cinco mensajes con la misma forma se leen como plantilla.
+
+⚠️ PERO cuando estás ARGUMENTANDO —una objeción, una comparación con otra
+opción, una duda de confianza, un cierre— escribí como una persona: 2 a 4
+frases seguidas, con lógica y calidez, sin trocear en viñetas.
+Un cliente que dice "está muy caro" necesita un argumento, no una lista.
+Medido el 2026-08-22: con el formato de viñetas aplicado a todo, a un cliente
+que dijo "vi el curso de piano" el bot le contestó "¡Mira esto 🎹" — tres
+palabras, cero razones para seguir leyendo. Eso no es un formato: es no vender.
+
+❌ PROHIBIDO: "El curso cuesta 60mil e incluye todo el material"
 ✅ CORRECTO:
-💰 $60.000 pago único
-♾️ Acceso de por vida
+💰 $60.000
+📦 Incluye todo el material
 🎓 100+ horas contenido
-• PREFIERE ENTREGAR INFORMACIÓN A INTERROGAR: si el cliente ya nombró un producto o categoría, entrégale la info y la card directamente. Solo pregunta UNA cosa concreta cuando el mensaje sea tan ambiguo que mostrar la opción equivocada arruinaría la venta. Nunca repitas una pregunta ya respondida.
+(El ejemplo es solo de FORMATO. Los datos reales salen del catálogo y del bloque del negocio.)
+• PREFIERE ENTREGAR INFORMACIÓN A INTERROGAR: si el cliente ya nombró un producto o categoría, O pide "información" de un producto, entrégale la info y la card DIRECTAMENTE — si pidió información, lo que quiere es recibirla, no que le preguntes. Termina con [CARD: ID] de ese producto. Solo pregunta UNA cosa concreta cuando el mensaje sea tan ambiguo que mostrar la opción equivocada arruinaría la venta. Nunca repitas una pregunta ya respondida.
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📋 HECHOS CONFIRMADOS DEL NEGOCIO (responde con TOTAL seguridad, son ciertos)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-• PAGO ÚNICO: se paga UNA sola vez. NO es suscripción, NO hay mensualidad, NO se renueva.
-• ACCESO DE POR VIDA: el contenido queda tuyo para siempre, no caduca.
-• ENTREGA 100% DIGITAL por Google Drive: puedes DESCARGARLO o VERLO ONLINE desde el mismo Drive, en cualquier dispositivo.
-• NO incluye certificado: son cursos/materiales de autoaprendizaje de alta calidad, pero NO emiten diploma ni certificación oficial. Si preguntan por certificado, dilo con naturalidad y redirige al VALOR del contenido (aprender la habilidad real).
-• Garantía: ${voice.guaranteeInfo.description}
-→ Estos hechos son CIERTOS para TODOS los productos. NUNCA respondas "no sé" ni "el catálogo no especifica" sobre ellos: respóndelos con seguridad.
+${renderBloqueNegocio(negocio)}
 
 📌 PROCESO DE PAGO Y ENTREGA:
-• Pago por LINK (MercadoPago o PayPal): el cliente paga con tarjeta, PSE o PayPal. El sistema GENERA el enlace automáticamente y detecta el pago solo; al confirmarse, envía el Google Drive del producto a este chat.
-• Pago por CONSIGNACIÓN (Nequi/Daviplata/transferencia): el cliente transfiere y envía el comprobante por este chat; se verifica y se envía el Drive.
+• Pago por LINK (MercadoPago o PayPal): el cliente paga con tarjeta, PSE o PayPal. El sistema GENERA el enlace automáticamente y detecta el pago solo; al confirmarse, se le entrega el producto en este chat.
+• Pago por CONSIGNACIÓN (Nequi/Daviplata/transferencia): el cliente transfiere y envía el comprobante por este chat; se verifica y se le entrega el producto.
 • Los enlaces de pago (MercadoPago/PayPal) los GENERA EL SISTEMA en el momento — tú NO los escribes ni los inventas, solo confirmas con entusiasmo y el sistema los adjunta.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -797,11 +1262,21 @@ ${productList.length > 0 ? productsBlock : "No hay productos disponibles."}
 [2] NUNCA escribas links, URLs, números de cuenta, ni datos de pago. El sistema los adjunta automáticamente.
 [3] NUNCA digas "te lo envío", "te mando el link", "te llega" ni prometas tiempos de entrega.
 [4] Si el cliente pregunta algo FUERA del contexto del negocio (charla casual, opiniones, etc.), responde de forma natural y amable. Si es posible, redirige suavemente al tema de ventas.
-[5] Los HECHOS CONFIRMADOS DEL NEGOCIO (pago único, acceso de por vida, entrega por Google Drive con opción de descargar o ver online, sin certificado, garantía) respóndelos SIEMPRE con seguridad — NUNCA digas "no sé" ni "no especifica" sobre ellos. Para datos ESPECÍFICOS de un producto que no estén en el catálogo, admítelo con naturalidad y redirige al valor; no inventes.
+[5] Los datos del bloque "EL NEGOCIO PARA EL QUE TRABAJÁS" respóndelos SIEMPRE con seguridad — NUNCA digas "no sé" sobre ellos. Lo que ese bloque marque como NO confirmado (entrega, garantía, acceso) NO lo afirmes bajo ninguna circunstancia: decí que lo confirmás y le respondés. Para datos ESPECÍFICOS de un producto que no estén en el catálogo, admítelo con naturalidad y redirige al valor; no inventes.
 [6] No repitas información que ya diste. Usa la MEMORIA de la conversación.
 [6b] El "[ID: N]" del catálogo es INTERNO, solo para que TÚ elijas la card correcta. NUNCA menciones ese número al cliente (nada de "el curso ID 82", "producto 82", etc.). Refiérete al producto SIEMPRE por su NOMBRE.
 [6c] Los datos de pago (número de Nequi/Daviplata y el NOMBRE del titular) van EXACTOS como aparecen en los datos del negocio. NUNCA cambies, adivines ni "corrijas" el nombre del titular ni el número — cópialos tal cual.
-${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo y cierra. Termina tu mensaje con [CARD: ID] del producto — el sistema adjunta AUTOMÁTICAMENTE la tarjeta con los enlaces dinámicos de MercadoPago y PayPal. NUNCA escribas [PAGAR:...], enlaces, URLs ni números de cuenta: SOLO usa [CARD: ID]." : `[7] 🧠 ANALIZA EL CONTEXTO y elige el producto CORRECTO del catálogo. Usa [CARD: ID] al final de tu mensaje para mostrar la tarjeta del producto que mejor corresponda. El ÚNICO marcador válido es [CARD: ID] — nunca uses [PAGAR:...] ni escribas enlaces. Si no estás segura, pregunta UNA cosa concreta antes de mostrar una card. NUNCA muestres un producto que no tenga relación con lo que el cliente busca.`}`).trim()
+${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo y cierra. Termina tu mensaje con [CARD: ID] del producto — el sistema adjunta AUTOMÁTICAMENTE la tarjeta con los enlaces dinámicos de MercadoPago y PayPal. NUNCA escribas [PAGAR:...], enlaces, URLs ni números de cuenta: SOLO usa [CARD: ID]." : `[7] 🧠 ANALIZA EL CONTEXTO y elige el producto CORRECTO del catálogo. Cuando el cliente pregunte por UN producto, pida información de él, o diga "sí"/"dame la información" tras ofrecerle la ficha, termina SIEMPRE tu mensaje con [CARD: ID] del producto que corresponda — la tarjeta la arma el sistema con la foto, el detalle y TODOS los medios de pago; NUNCA la escribas tú a mano (no pongas precios, enlaces ni métodos de pago en tu texto: van en la tarjeta). Si el cliente PIDIÓ información, entregásela YA con la card: NO le hagas preguntas de calificación antes ("¿nunca has tocado piano?") — eso es interrogar a alguien que solo quiere que le muestres el curso. Puedes pedir UN dato útil DESPUÉS de entregar la card, si hace falta, pero la ficha va primero. El ÚNICO marcador válido es [CARD: ID] — nunca uses [PAGAR:...] ni escribas enlaces. Solo NO mandes la card en un saludo, una despedida o si el mensaje del cliente es tan ambiguo que mostrar el producto equivocado arruinaría la venta — en ese único caso, pregunta UNA cosa concreta antes de mostrar una card. NUNCA muestres un producto que no tenga relación con lo que el cliente busca.`}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🤝 PRINCIPIOS DE CONVERSACIÓN HUMANA Y PROFESIONAL (siempre)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+• Conversás, no contestás: leés TODA la conversación como contexto (no solo el último mensaje) y respondés a lo que el cliente realmente necesita en este punto. Si cambió de tema, acompañás el cambio con naturalidad.
+• SOS humano: variás el ritmo de tus respuestas (a veces corta y directa, a veces con un toque cálido), usás el nombre del cliente con moderación, reconocés lo que dijo antes ("como te decía…", "entendí que buscabas…") y NUNCA repetís textualmente una respuesta anterior.
+• Empatía primero: si el cliente no entendió, no repites lo mismo con otras palabras: cambiás el enfoque, simplificás, das un ejemplo concreto y confirmás ("¿quedó más claro así?"). Si está frustrado, disculpate breve y genuino, y pasá a UNA solución concreta.
+• Inicio y cierre natural: al saludar, preguntás de forma genuina qué busca; al despedirse el cliente, cerrás con calidez, dejás la puerta abierta ("cuando quieras, acá estoy") y no insistís ni presionás.
+• Resolvés, no te limitás a informar: cada respuesta avanza la conversación un paso (dato → siguiente paso), y si la duda del cliente no es de ventas, la resolvés con respeto y redirigís con suavidad.
+• Profesionalismo: datos exactos, sin prometer lo que no existe, sin spam de emojis, sin exclamaciones forzadas. La calidez no reemplaza la claridad.`).trim()
     // tenants.agentPrompt: instrucciones libres que el dueño escribe en su
     // dashboard ("Prompt del agente" en Configuración). Antes existían en la
     // BD pero el flujo de WhatsApp nunca las leía -- se agregan siempre al
@@ -826,22 +1301,368 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
   // para que el prompt final tenga TODA la información disponible
   // Pasar todos los productos a AdvancedIntelligence para mejor análisis contextual
   const aiProductContext = productList.length > 0 ? productList.slice(0, 10) : [];
-  const engineContextBlock = `${decision.contextBlock}\n\n${AdvancedIntelligence.generateIntelligentContext(
+  // El cliente puede no ser colombiano: la ficha de producto ya le muestra el
+  // precio en su moneda, pero el agente también habla de precios en texto
+  // libre y ahí decía "$60.000" a secas -- que un mexicano lee como 60 mil
+  // pesos MEXICANOS. Y le ofrecía Nequi, que afuera no existe.
+  const { contextoDeMoneda: ctxMoneda } = await import("./moneda-por-pais");
+  const monedaCliente = await ctxMoneda(convo.contactPhone, 0);
+  const bloqueMoneda = monedaCliente.esColombia
+    ? ""
+    : `\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n🌎 ESTE CLIENTE NO ES DE COLOMBIA${monedaCliente.pais ? ` (${monedaCliente.pais})` : ""}\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`
+      + `Los precios del catálogo están en PESOS COLOMBIANOS. Cuando le digas un precio, aclarale SIEMPRE que es en pesos colombianos y, si sabes el equivalente, dáselo en dólares. Nunca digas "$60.000" a secas: lo va a leer como su propia moneda.\n`
+      + `Para pagar, ofrecele SOLO PayPal o tarjeta internacional. NO le ofrezcas Nequi ni Daviplata (son billeteras colombianas, no las tiene) ni el checkout de MercadoPago Colombia (le rechaza la tarjeta).\n`
+      + `El producto es digital: lo recibe igual esté donde esté, sin envíos ni aduana. Decíselo, es de las primeras dudas que tiene alguien comprando de otro país.`;
+
+  const bloqueAnuncio = anuncio
+    ? `\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n📣 ESTE CLIENTE LLEGÓ DESDE UN ANUNCIO\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`
+      + `Anuncio: "${anuncio.titulo}"\n`
+      + (anuncio.cuerpo ? `Texto del anuncio: "${anuncio.cuerpo}"\n` : "")
+      + (anuncio.url ? `Link del anuncio: ${anuncio.url}\n` : "")
+      + `\nEl mensaje que ves ("${lastText}") lo autocompletó Facebook al hacer clic — NO lo escribió él.\n`
+      + `Ya sabes qué vino a buscar: hablale DE ESE PRODUCTO desde el primer mensaje.\n`
+      + `NO le preguntes "¿qué estás buscando?" ni "¿en qué te ayudo?" — ya te lo dijo con el clic.\n`
+      + `Saludá en una línea corta y pasá directo al producto del anuncio.`
+    : "";
+
+  // ── Pedido de producto físico (dropshipping) ───────────────────────────────
+  //
+  // Acá vive la diferencia real con un producto digital: hay que sacarle al
+  // cliente a dónde se lo mandan, guardarlo, y cuando esté completo crear el
+  // pedido en WooCommerce (que es quien lo empuja a Dropi). Antes de esto el
+  // agente podía cerrar la venta y los datos se perdían: no existía ni un
+  // campo de dirección en toda la base.
+  let bloqueDropshipping = "";
+  try {
+    const esDropshipping =
+      String((activeAgent as any).especialidad || "").toLowerCase() === "dropshipping";
+    // El producto en juego: el que se identificó en este mensaje o el que
+    // viene en contexto.
+    // Una sola respuesta a "de que producto hablamos", y mira tambien la
+    // ultima ficha enviada. Antes la cadena terminaba en currentProductId: si
+    // el cliente escribia "Exelente" --que no nombra nada-- el producto se
+    // perdia aunque la ficha se hubiera mandado dos mensajes antes.
+    const productoEnJuego = productoEnFoco({
+      delMensaje: decision.productoDelMensaje as any,
+      aMostrar: decision.productToShow as any,
+      idActivo: memory.currentProductId,
+      historial: memory.history as any,
+      catalogo: productList as any[],
+    });
+    // ── No alcanza con que la bandera diga "physical" ────────────────────
+    //
+    // El 2026-09-02 el bot le pidio CEDULA, ciudad y departamento a un cliente
+    // que compraba un curso de IA que llega por enlace. No fue el modelo: el
+    // producto estaba marcado `kind = "physical"` en la base, porque el
+    // importador de WooCommerce escribia eso en TODOS los que sincronizaba.
+    //
+    // Corregir el importador (ya esta hecho) no arregla las filas que quedaron
+    // mal, ni evita la proxima fuente de datos malos. Para pedirle la cedula a
+    // alguien hay que estar seguro, y el sistema ya tiene con que estarlo: si
+    // el producto tiene enlace de entrega, o se llama curso, o la descripcion
+    // habla de modulos en video, no se despacha por transportadora.
+    const esFisico = seDespachaPorTransportadora(productoEnJuego as any);
+
+    // Un negocio que declaró vender solo digital no tiene pedidos que
+    // despachar: el módulo de dropshipping queda apagado entero. Sin esto,
+    // bastaba un agente marcado como "dropshipping" para que le empezara a
+    // pedir dirección y cédula a alguien que compra un curso.
+    const soloDigital = (negocio?.modoCatalogo ?? "mixto") === "digital";
+
+    // ── El bloque de envio SIGUE AL PRODUCTO, no a la especialidad ───────
+    //
+    // Estaba `(esDropshipping || esFisico)`: bastaba que el AGENTE estuviera
+    // marcado como dropshipping para inyectar "PRODUCTO FISICO - ENTREGA A
+    // DOMICILIO / pago contra entrega / 3 a 5 dias habiles" aunque el producto
+    // en juego fuera un curso. `soloDigital` no lo tapaba porque este catalogo
+    // es mixto (140 productos, cursos y fisicos conviviendo).
+    //
+    // Medido en produccion el 2026-09-01, sobre el curso de piano (digital):
+    //
+    //   cliente: "kuanto bale el kurso d piano"
+    //   bot:     "Y lo mejor: no pagas nada hasta tenerlo en la mano."
+    //   bot:     "Pagas solo cuando lo recibes en tu puerta. Nada por
+    //             adelantado. Llega en 3 a 5 dias habiles a cualquier ciudad."
+    //
+    // Y catorce minutos antes, el MISMO bot le habia dicho que le llegaba por
+    // un enlace de acceso. Dos entregas incompatibles para el mismo producto,
+    // y la que gana es la que le pide la direccion de su casa por un curso.
+    //
+    // Si hay un producto identificado, manda su `kind`. La especialidad del
+    // agente solo decide cuando todavia no se sabe de que producto se habla.
+    // ── Sin producto fisico probado, NO se piden datos de envio ───────────
+    //
+    // Acá estaba `productoEnJuego ? esFisico : esDropshipping`: si no se sabía
+    // de qué producto se habla, decidía la ESPECIALIDAD DEL AGENTE. Y la
+    // especialidad no dice nada de esta conversación.
+    //
+    // Medido contra produccion el 2026-09-02, curso de piano (id 123, kind
+    // digital, con enlace de entrega). Cinco mensajes hablando del curso, y al
+    // "Exelente" del cliente --que no nombra ningun producto-- se cayo por el
+    // `else` y se inyecto el bloque de envios. Lo que recibio:
+    //
+    //   Para dejarte el acceso listo, solo necesito que me confirmes:
+    //   ✅ Nombre completo  ✅ Ciudad y departamento  ✅ Direccion
+    //   ✅ Celular  ✅ Cedula
+    //
+    // Esa es, palabra por palabra, la lista de CAMPOS_DE_ENVIO. Direccion y
+    // cedula para un curso que llega por Google Drive.
+    //
+    // El arreglo anterior (seDespachaPorTransportadora) endurecio `esFisico`
+    // pero dejo el `else` intacto, asi que no atajaba este caso.
+    //
+    // Ahora hace falta un producto que se PRUEBE fisico. Sin eso no se inyecta
+    // nada: ni la lista de datos, ni el "pago contraentrega", ni los "3 a 5
+    // dias" -- que sobre un curso digital son las tres cosas equivocadas.
+    const corresponde = productoEnJuego ? esFisico : false;
+    if (!corresponde && esDropshipping && !productoEnJuego) {
+      console.log(`📦 [DROPSHIPPING] Agente de dropshipping pero sin producto identificado: no se piden datos de envio - ${ts()}`);
+    }
+
+    if (!soloDigital && corresponde) {
+      const ds = await import("./dropshipping");
+      let pedido = await ds.pedidoEnCurso(conversationId);
+
+      // Se abre el pedido recién cuando el cliente muestra intención de
+      // comprar. Abrirlo en la primera pregunta llenaría la tabla de
+      // borradores de gente que solo estaba mirando.
+      const quiereComprar =
+        decision.intent === "payment_intent" || decision.intent === "confirmation";
+      if (!pedido && productoEnJuego && esFisico && quiereComprar) {
+        pedido = await ds.abrirPedido({
+          tenantId: convo.tenantId,
+          conversationId,
+          leadId: convo.leadId ?? null,
+          productId: (productoEnJuego as any).id,
+          productName: (productoEnJuego as any).name,
+          unitPrice: Number((productoEnJuego as any).price) || 0,
+          telefono: convo.contactPhone || null,
+        });
+      }
+
+      if (pedido) {
+        // Lo que el cliente acaba de escribir puede traer datos de envío:
+        // se leen y se guardan sin pedirle que llene ningún formulario.
+        const nuevos = ds.extraerDatosDeEnvio(lastText, pedido);
+        if (Object.keys(nuevos).length > 0) {
+          pedido = (await ds.guardarDatos(pedido.id, nuevos)) || pedido;
+          console.log(`📋 [DROPSHIPPING] Datos capturados: ${Object.keys(nuevos).join(", ")} - ${ts()}`);
+        }
+
+        const faltan = ds.datosQueFaltan(pedido);
+        if (faltan.length === 0 && pedido.estado === "completo") {
+          const r = await ds.despacharPedido(pedido);
+          bloqueDropshipping = r.ok
+            ? `\n\n✅ PEDIDO CONFIRMADO (#${r.wooOrderId}). Ya quedó registrado y se despacha.\n`
+              + `Confirmáselo al cliente con entusiasmo, repetile la dirección a la que llega y decile que la entrega es en ${ds.HECHOS_DROPSHIPPING.diasDeEntrega} y que paga al recibir.\n`
+              + `NO le pidas más datos: ya están todos.`
+            : `\n\n⚠️ Los datos están completos pero el pedido NO se pudo registrar (${r.error}).\n`
+              + `Decile que ya tomaste sus datos y que en un momento le confirmás el despacho. NO inventes número de pedido ni de guía.`;
+          console.log(`📦 [DROPSHIPPING] Despacho: ${r.ok ? `orden Woo #${r.wooOrderId}` : `FALLÓ (${r.error})`} - ${ts()}`);
+        } else {
+          const ya = ds.CAMPOS_DE_ENVIO
+            .filter((c) => String((pedido as any)[c.campo] ?? "").trim())
+            .map((c) => `${c.campo}: ${(pedido as any)[c.campo]}`);
+          const siguiente = ds.CAMPOS_DE_ENVIO.find((c) => c.campo === faltan[0]);
+          bloqueDropshipping =
+            `\n\n📦 PEDIDO EN CURSO — ${pedido.productName}\n`
+            + (ya.length ? `Datos que YA tienes (no los vuelvas a pedir): ${ya.join(" · ")}\n` : "")
+            + `Todavía falta: ${faltan.join(", ")}.\n`
+            + (siguiente
+              ? `Pedí SOLO esto ahora, con tus palabras y en una línea: ${variante(siguiente.pregunta, `${conversationId}|${siguiente.campo}`)}\n`
+              : "")
+            + `Una cosa a la vez. Nunca mandes la lista entera de datos de golpe.`;
+        }
+      }
+
+      // Los hechos fijos (entrega 3 a 5 días, contraentrega) van siempre que
+      // haya un físico de por medio, haya pedido abierto o no.
+      bloqueDropshipping = `\n\n${ds.contextoDeDropshipping()}${bloqueDropshipping}`;
+    }
+  } catch (e: any) {
+    // Un fallo acá no puede dejar al cliente sin respuesta: se pierde el
+    // bloque de pedido y el agente contesta igual.
+    console.error(`⚠️ [DROPSHIPPING] ${e?.message || e}`);
+  }
+
+  // ── 10b. LECCIONES APRENDIDAS: adaptar esta respuesta con la experiencia ──
+  // Se recuperan las lecciones de conversaciones anteriores del MISMO
+  // negocio y producto (confusión, frustración, abandono, avances) y se
+  // inyectan como contexto esencial. Así el agente no repite errores y
+  // prueba alternativas. Si no hay lecciones o la memoria falla, no pasa
+  // nada: el bloque queda vacío.
+  let bloqueLecciones = "";
+  if (convo.tenantId) {
+    try {
+      const lecciones = await retrieveLessons(convo.tenantId, {
+        productName: memory.currentProductName,
+        outcome: undefined,
+        limit: 3,
+      });
+      const formateadas = formatLessonsForPrompt(lecciones, 800);
+      if (formateadas) bloqueLecciones = `\n\n${formateadas}`;
+    } catch (e: any) {
+      console.error(`⚠️ [LEARNING] No se pudieron recuperar lecciones: ${e?.message || e}`);
+    }
+  }
+
+  // El manual de venta del turno. Va en lo ESENCIAL (ver el recorte más
+  // abajo): si se cae cuando el prompt se pasa de largo, volvemos al bot que
+  // contestaba "¡Mira esto 🎹" y se rendía ante "lo voy a pensar".
+  // Con qué viene abriendo el negocio sus mensajes a OTROS clientes.
+  //
+  // El anti-repetición existía pero solo miraba la conversación actual, así que
+  // el primer mensaje a cada cliente nuevo no tenía nada que evitar: medido el
+  // 2026-08-23, las 10 conversaciones del panel abrían con la misma frase.
+  // Muchos contactos distintos recibiendo el mismo texto es exactamente lo que
+  // hace que WhatsApp bloquee el número.
+  //
+  // Se consulta en cada turno pero es una sola lectura de 30 filas por índice
+  // de id; si llegara a pesar, es candidata a caché por tenant de un minuto.
+  let aperturasDelNegocio: string[] = [];
+  if (convo.tenantId) {
+    try {
+      const recientes = await db
+        .select({ content: messages.content })
+        .from(messages)
+        .innerJoin(conversations, eq(messages.conversationId, conversations.id))
+        .where(and(
+          eq(conversations.tenantId, convo.tenantId),
+          eq(messages.role, "agent"),
+          ne(messages.conversationId, conversationId),
+        ))
+        .orderBy(desc(messages.id))
+        .limit(30);
+      aperturasDelNegocio = [...new Set(
+        recientes.map((r: any) => extraerApertura(r.content)).filter((a: string) => a.length > 2),
+      )] as string[];
+    } catch (e: any) {
+      // Que falle esta lectura no puede dejar sin responder al cliente: es una
+      // ayuda de estilo, no parte del camino de la venta.
+      logger.warn({ err: e?.message }, "[Agent] No se pudieron leer las aperturas recientes del negocio");
+    }
+  }
+
+  // ── Memoria comercial del cliente, más allá de esta conversación ─────────
+  // Qué fichas ya vio y qué objeciones puso, aunque haya sido en otro chat.
+  // Sin esto el bot le manda la misma ficha cada vez que vuelve: pasó cinco
+  // veces con el mismo cliente y el mismo curso (conversación 1, 2026-08-23).
+  let perfilCliente: any = null;
+  const leadIdDelCliente = convo.leadId ?? null;
+  if (leadIdDelCliente) {
+    try {
+      const { cargarPerfil, diasDesdeLaUltimaVez } = await import("./customer-profile");
+      const p = await cargarPerfil(leadIdDelCliente);
+      perfilCliente = {
+        productosVistos: p.productosVistos,
+        objeciones: p.objeciones,
+        ciudad: p.ciudad,
+        diasSinEscribir: diasDesdeLaUltimaVez(p, new Date()),
+      };
+    } catch (e: any) {
+      logger.warn({ err: e?.message }, "[Agent] No se pudo cargar el perfil comercial del cliente");
+    }
+  }
+
+  const playbook = construirPlaybook({
+    mensaje: lastText,
+    historial: memory.history.map((m: any) => ({ role: m.role, content: m.content })),
+    mensajesDelCliente: memory.messageCount,
+    productoEnFoco: decision.productToShow?.name || memory.currentProductName || null,
+    fichaEnviada: memory.sentProductIds.size > 0,
+    intencion: decision.intent,
+    anuncio: anuncio ? { titulo: anuncio.titulo, cuerpo: anuncio.cuerpo } : null,
+    negocio,
+    pagoConfirmado: memory.paymentStatus === "confirmed",
+    aperturasDelNegocio,
+    perfilCliente,
+  });
+
+  // Se escribe DESPUÉS de decidir la jugada y no antes: acá ya se sabe qué
+  // producto se va a mostrar y qué objeción se detectó en este turno. Va en
+  // try/catch y sin await bloqueante del resultado porque es memoria de apoyo
+  // -- que falle guardarla no puede demorar ni romper la respuesta al cliente.
+  if (leadIdDelCliente) {
+    void (async () => {
+      try {
+        const cp = await import("./customer-profile");
+        let p = await cp.cargarPerfil(leadIdDelCliente);
+        const ahora = new Date().toISOString();
+        if (decision.productToShow?.id) {
+          p = cp.agregarProductoVisto(p, { id: decision.productToShow.id, nombre: decision.productToShow.name }, ahora);
+        }
+        const tipoObjecion = playbook.jugada.startsWith("objecion:")
+          ? playbook.jugada.slice("objecion:".length)
+          : null;
+        if (tipoObjecion) p = cp.agregarObjecion(p, tipoObjecion, ahora);
+        p.ultimaInteraccion = ahora;
+        await cp.guardarPerfil(leadIdDelCliente, p);
+      } catch (e: any) {
+        logger.warn({ err: e?.message }, "[Agent] No se pudo actualizar el perfil comercial");
+      }
+    })();
+  }
+  console.log(`🎯 [VENTA] Jugada: ${playbook.jugada} - ${ts()}`);
+
+  const engineContextBlock = `${decision.contextBlock}${playbook.bloque}\n\n${AdvancedIntelligence.generateIntelligentContext(
     lastText,
     memory.history,
     aiProductContext.length > 0 ? aiProductContext : null
-  )}`;
+  )}${bloqueAnuncio}${bloqueMoneda}${bloqueDropshipping}${bloqueLecciones}`;
+
+  // ── LO DE ADENTRO SE DECIDE ANTES QUE NADA ───────────────────────────────
+  //
+  // El guardia de "nada interno" ya existe, pero vive al final del camino
+  // largo -- y seis de las ocho salidas hacen `return` antes de llegar ahí.
+  //
+  // Medido contra producción el 2026-09-02:
+  //
+  //   cliente: "¿eres un bot o una persona real?"
+  //   bot:     "✅ Claro, te conecto con un asesor humano en unos momentos."
+  //
+  // `detectIntent` leyó la palabra "persona" como un pedido de asesor humano,
+  // tomó el atajo de `human_handoff` y devolvió antes de que el guardia
+  // corriera. El cliente preguntó CON QUIÉN habla y el bot lo esquivó.
+  //
+  // Por eso sube acá, delante del reparto de estrategias: la respuesta a "¿sos
+  // un bot?" no depende de qué atajo se tome después, y no puede quedar del
+  // lado equivocado de un `return`.
+  {
+    const queQuiereSaber = preguntaPorLoInterno(
+      String(lastText || ""),
+      vocabularioDelNegocio(productList as any[]),
+    );
+    if (queQuiereSaber) {
+      const nombreDelBot = String((activeAgent as any)?.name || "").trim() || "el asistente";
+      const raw = respuestaSegura(queQuiereSaber, nombreDelBot);
+      console.log(`🛡️ [INTERNO] Preguntaron por ${queQuiereSaber} antes del reparto: se contesta sin delatar nada - ${ts()}`);
+      await saveAgentMessage(conversationId, raw, memory.currentStage, { intent: "nada_interno", isHardcoded: true });
+      const totalTime = Date.now() - startTime;
+      console.log(`🏁 [AGENT-END] Completado en ${totalTime}ms (nada interno) - ${ts()}`);
+      return { content: raw, stage: memory.currentStage, parts: [{ kind: "text", content: raw }], cardProductIds: [] };
+    }
+  }
 
   // ── 11. ATENDER SEGÚN ESTRATEGIA DEL CEREBRO ─────────────────────────────
 
   // ── 11a. SALUDO (si el cerebro decidió hardcoded_greeting) ────────────────
-  if (brain.strategy === "hardcoded_greeting") {
+  // Si el cliente llegó de un anuncio NO entra acá aunque solo haya escrito
+  // "hola": ya sabemos a qué le hizo clic, y contestarle "¿qué estás buscando?"
+  // es tirar a la basura el clic que se pagó. Esos van por el camino normal,
+  // que sí muestra el producto del anuncio.
+  if (brain.strategy === "hardcoded_greeting" && !anuncio) {
     if (!memory.hasGreeted) {
       console.log(`⚡ [FAST-TRACK] Primer saludo hardcodeado - ${ts()}`);
       const business = voice.businessName || "nuestra tienda";
-      const raw = (customerName && customerName !== "cliente")
-        ? `¡Hola ${customerName}! 👋 Bienvenido a *${business}*. ¿Qué estás buscando hoy?`
-        : `¡Hola! 👋 Bienvenido a *${business}*. ¿Qué estás buscando hoy?`;
+      // Varía entre clientes: el mismo texto de bienvenida repetido a cientos
+      // de contactos distintos es el patrón que WhatsApp penaliza.
+      const quien = esNombreReal(customerName) ? ` ${customerName}` : "";
+      const raw = variante([
+        `¡Hola${quien}! 👋 Bienvenido a *${business}*. ¿Qué estás buscando hoy?`,
+        `¡Hola${quien}! 😊 Soy de *${business}*. Cuéntame qué necesitas y te ayudo.`,
+        `¡Qué tal${quien}! 👋 Acá *${business}*. ¿En qué te puedo ayudar?`,
+        `¡Hola${quien}! 🙌 Bienvenido a *${business}*. Dime qué te interesa.`,
+      ], String(conversationId));
 
       await saveAgentMessage(conversationId, raw, "greeting", { intent: "greeting", isHardcoded: true });
       await persistStage(conversationId, "greeting");
@@ -854,9 +1675,25 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
     console.log(`⚡ [FAST-TRACK] Saludo de retorno hardcodeado - ${ts()}`);
     const emocion = brain.emotionalState;
     const nm = (customerName && customerName !== "cliente") ? ` ${customerName}` : "";
+    // El saludo de retorno era UNA sola frase fija: el mismo cliente que
+    // vuelve tres veces recibía tres veces el mismo texto palabra por palabra
+    // (medido el 17-08-2026: idéntico a las 13:40 y a las 15:51), que es
+    // justamente el patrón por el que WhatsApp castiga una cuenta. La semilla
+    // incluye cuántos mensajes lleva la conversación, así que cambia cada vez
+    // que vuelve; y nunca repite el último texto enviado.
+    const semilla = `${conversationId}|${memory.messageCount}`;
     const raw = emocion === "frustrated"
-      ? `Hola de nuevo${nm}. Cuéntame qué pasó y lo resolvemos 🤝`
-      : `¡Hey${nm}! Qué bueno verte de nuevo 😊 ¿En qué te ayudo?`;
+      ? varianteDistintaDe([
+          `Hola de nuevo${nm}. Cuéntame qué pasó y lo resolvemos 🤝`,
+          `${nm ? `${nm.trim()},` : "Hey,"} acá estoy 🤝 Dime qué salió mal y lo vemos.`,
+          `Hola${nm} 🙌 Cuéntame qué pasó y te ayudo a resolverlo.`,
+        ], semilla, memory.lastAgentMessage)
+      : varianteDistintaDe([
+          `¡Hey${nm}! Qué bueno verte de nuevo 😊 ¿En qué te ayudo?`,
+          `¡Hola${nm}! 👋 ¿Qué andás buscando hoy?`,
+          `${nm ? `¡${nm.trim()}!` : "¡Hola!"} 😊 Cuéntame en qué te puedo ayudar.`,
+          `¡Qué gusto verte${nm}! 🙌 ¿Qué necesitas?`,
+        ], semilla, memory.lastAgentMessage);
 
     await saveAgentMessage(conversationId, raw, memory.currentStage, { intent: "greeting", isHardcoded: true });
     const totalTime = Date.now() - startTime;
@@ -869,15 +1706,79 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
   if (brain.strategy === "hardcoded_detail") {
     const hcIntent = detectHardcodedIntent(lastText);
     const needsReasoning = hcIntent === "delivery" || hcIntent === "guarantee" || hcIntent === "access";
-    if (!needsReasoning) {
+
+    // ── SI PREGUNTÓ VARIAS COSAS, NO SE TOMA EL ATAJO ──────────────────────
+    //
+    // Este camino contesta al instante y hace `return` ahí mismo: una sola
+    // respuesta, sin ficha y sin mirar el resto del mensaje. Para "¿trae
+    // certificado?" es perfecto. Para "¿trae certificado y cuánto vale?"
+    // contestaba lo del certificado y DESCARTABA el precio, sin avisar.
+    //
+    // El admin lo pidió así el 2026-09-01: "el sistema debe estar preparado
+    // para desmenuzar cada pregunta y dar respuesta".
+    //
+    // El aviso al modelo para que las conteste todas ya existía
+    // (conversation-engine.ts) y el supervisor revisa después cuáles quedaron
+    // sueltas -- pero ninguno de los dos llegaba a correr, porque el atajo
+    // devolvía antes. Con dos o más preguntas se sigue por el camino completo:
+    // la respuesta verificada igual viaja en el contexto, así que no se pierde
+    // exactitud, solo se gana el resto de las respuestas.
+    const cuantasPregunto = preguntasSueltas(String(lastText || "")).length;
+    if (cuantasPregunto >= 2) {
+      console.log(`🧩 [MULTI] El cliente preguntó ${cuantasPregunto} cosas: no se toma el atajo, se contestan todas - ${ts()}`);
+    }
+
+    if (!needsReasoning && cuantasPregunto < 2) {
       const hardcoded = tryHardcodedAnswer(
         lastText,
         decision.productToShow?.name || memory.currentProductName,
-        voice
+        voice,
+        negocio
       );
-      if (hardcoded) {
+      // ── Y si eso YA se lo dijimos, se suelta el atajo ──────────────────
+      //
+      // Reportado el 2026-09-03: "mirá cuántas veces le pregunto otra cosa y
+      // respondió lo mismo... el bot va a tirar a lo loco".
+      //
+      // La causa no es que el modelo no vea la conversación (la ve: se le
+      // pasan 12 mensajes). Es que este atajo es DETERMINISTA: la misma
+      // intención detectada devuelve la misma cadena, byte por byte, siempre.
+      // Dos preguntas distintas que caen en la misma gaveta reciben dos veces
+      // la misma frase.
+      //
+      // Cuando eso pasa, el atajo dejó de servir: lo que hace falta es
+      // justamente lo que el atajo evita, alguien que lea la conversación. Se
+      // paga el segundo de la IA, que es exactamente lo que vale la pena pagar.
+      // `yaLoDijo` ya existia en `no-repetir.ts`, con su historia: nacio de una
+      // conversacion real donde el cliente pidio MAS informacion y recibio la
+      // misma ficha dos minutos despues. Lo que faltaba no era el detector:
+      // era llamarlo tambien ACA, donde el atajo devuelve antes de todo.
+      const repetido = hardcoded ? yaLoDijo(hardcoded.response, memory.history as any) : false;
+      if (repetido) {
+        console.log(`🔁 [FAST-TRACK] Esa misma respuesta ya se envió: no se repite, contesta la IA - ${ts()}`);
+      }
+
+      if (hardcoded && !repetido) {
         console.log(`⚡ [FAST-TRACK] Respuesta hardcodeada para details_query - ${ts()}`);
-        const raw = hardcoded.response;
+        // ── Los HECHOS los pone el servidor; la forma, el modelo ──────────
+        //
+        // `tryHardcodedAnswer` arma la respuesta con los datos REALES del
+        // negocio (entrega, garantía, acceso) y devuelve null si el dueño no
+        // los cargó, así que el contenido es de fiar. Lo que no era de fiar es
+        // que saliera siempre con las mismas palabras: es el camino por el que
+        // el admin reportó que "responde como por inercia".
+        //
+        // Misma receta que la objeción y con el mismo piso: `entregaFinal`
+        // rechaza la redacción si tocó un monto, un enlace, una cuenta o un
+        // porcentaje, y entonces sale la plantilla -- exactamente lo que salía
+        // antes. El piso no baja.
+        const { redactarObjecion } = await import("./redactar-objecion");
+        const raw = await redactarObjecion(hardcoded.response, {
+          mensajeDelCliente: lastText,
+          producto: decision.productToShow?.name || memory.currentProductName || null,
+          historia: (memory.history || []).slice(-4).map((m: any) => `${m.role === "customer" ? "Cliente" : "Vos"}: ${m.content}`),
+          situacion: "Un cliente preguntó un detalle del producto (entrega, garantía o acceso)",
+        });
         await saveAgentMessage(conversationId, raw, "details", {
           intent: hardcoded.intent,
           productId: decision.productToShow?.id || memory.currentProductId || undefined,
@@ -905,15 +1806,16 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
     const hardcoded = tryHardcodedAnswer(
       lastText,
       decision.productToShow?.name || memory.currentProductName,
-      voice
+      voice,
+      negocio
     );
     if (hardcoded && hardcoded.intent === "human_handoff") {
       const raw = hardcoded.response;
-      await saveAgentMessage(conversationId, raw, "human_handoff", {
+      await saveAgentMessage(conversationId, raw, "human_handoff" as any, {
         intent: "human_handoff",
         isHardcoded: true,
       });
-      await persistStage(conversationId, "human_handoff");
+      await persistStage(conversationId, "human_handoff" as any);
       const totalTime = Date.now() - startTime;
       console.log(`🏁 [AGENT-END] Completado en ${totalTime}ms (hardcoded human_handoff) - ${ts()}`);
       return {
@@ -927,13 +1829,383 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
     console.log(`🧠 [BRAIN] No se encontró patrón de human_handoff, usando IA general`);
   }
 
-  // ── 11c. RUTA IA — construir prompt final con cerebro + contexto del motor ─
-  const finalPrompt = buildFinalPrompt(systemPrompt, brain, voice) + `\n\n${engineContextBlock}`;
+  // ⚠️ ESTO VA ACÁ ARRIBA, Y NO MÁS ABAJO, POR UN MOTIVO CONCRETO.
+  //
+  // Vivía después del bloque 11c-bis, que lee `etapaDelTrato`. Como `let`
+  // tiene zona muerta temporal, leerla antes de su declaración no da
+  // `undefined`: lanza ReferenceError. O sea que TODO mensaje que llegaba
+  // hasta ahí reventaba antes de contestar.
+  //
+  // Visto en producción el 2026-08-31: la cola marcaba 3 de 4 mensajes
+  // fallados y el admin reportó "WhatsApp no está respondiendo". El error
+  // era "Cannot access 'etapaDelTrato' before initialization" en agent.ts:1591.
+  // Las pruebas no lo agarraron porque ninguna recorre runAgentReply entero
+  // hasta esa línea.
+  //
+  // Calcularlo temprano además es lo correcto: `memory`, `negocio` y
+  // `decision` están listos desde la línea ~1001, y todo lo de abajo puede
+  // decidir sabiendo en qué punto va la conversación.
 
-  // ── Construir mensajes para la IA (OPTIMIZADO - HISTORIAL REDUCIDO) ──────
-  // Solo últimos 2 mensajes para contexto (suficiente para entender conversación)
-  const chatHistory = buildChatHistory(memory, 2); // últimos 2 mensajes (era 5)
-  console.log(`💬 [CHAT-HISTORY] Usando últimos 2 mensajes (reducido de 5)`);
+  let bloqueEstado = "";
+  // La etapa del trato, para que decida del lado del servidor y no solo en el
+  // prompt. Ver `puedeMandarPago`.
+  let etapaDelTrato: EtapaTrato | null = null;
+  // Qué ofreció el cierre de la ficha que se envió: "video", "contenido" u
+  // "otro". Va a los metadatos del mensaje para que el turno SIGUIENTE lo sepa
+  // sin tener que adivinarlo sobre un texto que no se guarda.
+  let ofrecimientoDeLaFicha: string | undefined;
+  // El paso del embudo vive FUERA del try a propósito: no alcanza con que el
+  // modelo lo lea en el prompt, tiene que poder frenar la ficha. Ver el bloque
+  // donde se arma la tarjeta.
+  let pasoDelEmbudo: Paso | null = null;
+  try {
+    const productoEstado = decision.productToShow
+      ?? (decision.productoDelMensaje
+        ? { id: decision.productoDelMensaje.id, name: decision.productoDelMensaje.name }
+        : null);
+    const estado = calcularEstado({
+      historial: memory.history as any,
+      producto: productoEstado as any,
+      fichasEnviadas: memory.sentProductIds,
+      loQueNoSabe: datosQueFaltan(negocio),
+      // Si volvio despues de horas, no arrastra la etapa de pago de la sesion
+      // anterior: le pedia el comprobante a quien solo venia a preguntar.
+      sesionNueva: !!memory.isNewSession,
+    });
+    bloqueEstado = renderEstado(estado);
+
+    // ── Y QUÉ HACER con ese estado ────────────────────────────────────────
+    //
+    // `renderEstado` dice DÓNDE está la conversación; esto dice qué
+    // corresponde hacer ahora. Estaban juntos y no alcanzaba: la acción de la
+    // etapa "interesado" era "avanzá hacia el cierre", y como esa etapa se
+    // activa con el PRIMER mensaje que nombra un producto, el cliente escribía
+    // "me interesa el de piano" y recibía ficha, precio y medios de pago de
+    // una. El admin lo describió como "va de me interesa a caja en dos
+    // mensajes".
+    //
+    // Ver embudo.ts. Lo que más cambia: antes de presentar se hace UNA
+    // pregunta -- salvo que el cliente haya pedido un dato concreto, y ahí se
+    // le da el dato en vez de interrogarlo.
+    const paso = proximoPaso({
+      etapa: estado.etapa,
+      historial: memory.history as any,
+      preguntaPendiente: estado.preguntaPendiente,
+      fichaEnviada: !!(productoEstado && memory.sentProductIds?.has((productoEstado as any).id)),
+      // Se deduce del historial, no se guarda: el historial ya es la fuente de
+      // verdad y no puede quedar desincronizado con lo que se dijo de verdad.
+      necesidad: necesidadDeclarada(memory.history as any),
+      // Talla, color, para cuántas personas. Vacío en todo catálogo que no las
+      // usa, así que no le cambia nada a los negocios que hoy están vendiendo.
+      faltaElegir: (() => {
+        if (!productoEstado) return null;
+        const completo = (productList as any[]).find((pr: any) => pr.id === (productoEstado as any).id);
+        if (!completo) return null;
+        const pendientes = opcionesPendientes(completo, memory.history as any);
+        if (pendientes.length === 0) return null;
+        // Una por vez: preguntar talla, color y cantidad en el mismo mensaje es
+        // un formulario, y a un formulario por WhatsApp la gente no contesta.
+        return { nombre: pendientes[0].nombre, pregunta: preguntaPorLaOpcion(pendientes[0]) };
+      })(),
+      // Cómo eligió vender ESTE negocio. Si no eligió nada viene el defecto,
+      // que es exactamente el comportamiento que había antes de esta perilla.
+      estilo: (negocio as any)?.estiloDeVenta,
+    });
+    pasoDelEmbudo = paso;
+    bloqueEstado += `\n${renderPaso(paso)}`;
+    console.log(`🎯 [EMBUDO] ${paso.movimiento} — ${paso.porQue} - ${ts()}`);
+
+    etapaDelTrato = estado.etapa;
+    console.log(`🧭 [ESTADO] ${estado.etapa} — ${estado.porQue}${estado.preguntaPendiente ? " | pregunta pendiente" : ""} - ${ts()}`);
+  } catch (e: any) {
+    // Sin estado el agente sigue respondiendo como antes: es una mejora, no
+    // una dependencia.
+    logger.warn({ err: e?.message, conversationId }, "[Estado] no se pudo calcular");
+  }
+
+  // ── 11c-bis. DICE QUE PAGÓ sin mandar comprobante ───────────────────────
+  //
+  // El flujo por IMAGEN ya existe completo en `verificacion-pago.ts` y está
+  // conectado en whatsapp.ts: detecta la captura, avisa al admin, lee su
+  // decisión y entrega. Esto NO lo duplica.
+  //
+  // Lo que cubre es el caso que ese flujo no puede ver: el cliente que escribe
+  // "ya te pagué" SIN mandar nada. `pareceComprobante` trabaja sobre la
+  // descripción de una imagen, así que un texto pelado no lo activa -- y ese
+  // es justo el mensaje del defecto B1, donde el bot contestó "ya confirmé tu
+  // pago, te libero el acceso" a alguien que no mandó nada.
+  //
+  // Acá no se avisa al admin: no hay comprobante que revisar todavía. Se le
+  // PIDE al cliente, y no se entrega nada.
+  if (etapaDelTrato === "pago_reportado") {
+    const mandoComprobante = (memory.history as any[]).some(
+      (m) => m.role === "customer" && /\[imagen\]|comprobante|captura/i.test(String(m.content || "")),
+    );
+    // ── Una PREGUNTA nueva se contesta, no se le cobra ────────────────────
+    //
+    // Este bloque devuelve el pedido de comprobante y corta el turno, sin
+    // mirar qué escribió el cliente. Conversación real del 4-09-2026:
+    //
+    //   cliente: "¿Tenés el curso de inteligencia artificial?"
+    //   bot:     "...¿Ya pudiste hacer la transferencia?"
+    //   cliente: "Contame, ¿tenés curso de diseño gráfico?"
+    //   bot:     "...¿Ya pudiste hacer la transferencia?"
+    //
+    // El bot dejó de vender. A cada pregunta contestaba pidiendo plata, y le
+    // pedía el comprobante de una compra a alguien que estaba preguntando por
+    // OTRO producto. El admin: "el WhatsApp cada vez peor".
+    //
+    // La regla dura --no entregar nada sin comprobante-- se queda intacta: es
+    // el caso más caro del sistema. Lo que no puede seguir es que tape la
+    // conversación. Si el cliente PREGUNTA algo, se le contesta por el camino
+    // normal, que ya tiene prohibido entregar o confirmar el pago en esta
+    // etapa (ver `prohibidoSegunEtapa` en estado-cognitivo.ts).
+    const estaPreguntando = /\?|^(ten[eé]s|tienes|hay|cu[aá]l|cu[aá]nto|c[oó]mo|qu[eé]|d[oó]nde|me sirve|sirve|incluye|trae|contame|cont[aá]me|cuentame)\b/i
+      .test(String(lastText || "").trim());
+    if (estaPreguntando) {
+      console.log(`💬 [PAGO] Dice que pagó pero está PREGUNTANDO otra cosa: se le contesta, no se le cobra - ${ts()}`);
+    }
+    if (!mandoComprobante && !estaPreguntando) {
+      const { esperaParaElCliente } = await import("./cobro-y-entrega");
+      let respuesta = esperaParaElCliente(false);
+      // ── El HECHO no se negocia; la forma de decirlo, sí ────────────────
+      //
+      // Que no se entregue nada sin comprobante es una regla dura y se queda:
+      // el caso D3 del derrotero (dice que pagó sin haber pagado) es de los
+      // dos más caros que tiene este sistema.
+      //
+      // Pero el TEXTO era una cadena fija, así que el cliente que insiste
+      // recibe dos veces la misma frase -- "el bot va a tirar a lo loco",
+      // reportado el 2026-09-03. Si ya se dijo, lo reescribe el modelo con la
+      // aduana de hechos: el pedido de comprobante sigue, dicho de otro modo.
+      if (yaLoDijo(respuesta, memory.history as any)) {
+        const { redactarObjecion } = await import("./redactar-objecion");
+        respuesta = await redactarObjecion(respuesta, {
+          mensajeDelCliente: lastText,
+          producto: memory.currentProductName || null,
+          historia: (memory.history || []).slice(-4).map((m: any) => `${m.role === "customer" ? "Cliente" : "Vos"}: ${m.content}`),
+        });
+        console.log(`🔁 [PAGO] Ya se le había pedido el comprobante: se lo pide de otra forma - ${ts()}`);
+      }
+      console.log(`💳 [PAGO] Dice que pagó sin comprobante: se le pide, no se entrega nada - ${ts()}`);
+      await saveAgentMessage(conversationId, respuesta, "payment_reported" as any, {
+        intent: "payment_reported",
+        isHardcoded: true,
+      });
+      return {
+        content: respuesta,
+        // `memory.stage` NO existe -- el campo es `currentStage`. Devolvia
+        // undefined, o sea que esta rama borraba la etapa de la conversacion
+        // sin que nadie se enterara.
+        stage: memory.currentStage,
+        parts: [{ kind: "text", content: respuesta }],
+        cardProductIds: [],
+      };
+    }
+  }
+  // ── 11d. LA OBJECIÓN QUE FRENA LA VENTA ─────────────────────────────────
+  //
+  // Va ANTES de la ruta de IA y del lado del servidor, por la misma razón que
+  // el precio: son las respuestas donde improvisar sale caro. A quien dice "lo
+  // voy a pensar" el modelo le contestaba con urgencia inventada; a quien
+  // desconfía, con "somos serios" -- que es lo que dice el que estafa.
+  //
+  // `responderObjecion` devuelve null cuando el negocio no cargó el dato que
+  // haría creíble la respuesta (la garantía, por ejemplo). En ese caso NO se
+  // atraviesa: contesta la IA con su contexto, que es mejor que una frase
+  // hecha prometiendo lo que no existe.
+  try {
+    const { detectarObjecion, responderObjecion } = await import("./objeciones");
+    const objecion = detectarObjecion(lastText);
+    if (objecion) {
+      // ── El producto que el SERVIDOR identificó va primero ────────────────
+      //
+      // Acá estaba `productToShow ?? productoDelMensaje`, o sea la corazonada
+      // del modelo por delante de lo que el servidor leyó en el mensaje. Es
+      // exactamente el bug que este repo ya documentó en el supervisor
+      // ("`idsEnContexto[0]` empieza por `decision.productToShow`... pediste
+      // piano, te mando el curso de IA"), repetido en otra línea.
+      //
+      // Se ve en producción: al cliente que dijo "tengo un negocio de ROPA" la
+      // respuesta le ofrecía evaluar "LIBROS MARKETING" -- un producto que él
+      // nunca nombró, elegido por parecido. Nombrar un producto al azar hace
+      // que la respuesta se lea como si no hubiera entendido nada.
+      const prod = decision.productoDelMensaje ?? decision.productToShow ?? null;
+      // Y para la objeción "no sé si me sirve" solo se NOMBRA el producto
+      // cuando hay respaldo real: que el cliente lo haya nombrado en este
+      // mensaje, o que sea el que viene en foco. Una corazonada no se nombra:
+      // se pregunta y listo, que es lo que esa respuesta hace igual.
+      // ⚠️ Y "respaldo" NO es `productoDelMensaje`: ese campo también sale de
+      // un PARECIDO de texto. Verificado contra producción el 2026-09-04 --
+      // con el primer arreglo puesto, al mensaje "tengo un negocio de ROPA y
+      // quiero automatizar las ventas por whatsapp, ¿cuál de sus cursos me
+      // sirve?" el servidor igual resolvió "LIBROS MARKETING" y lo nombró.
+      //
+      // El único respaldo que sirve para NOMBRAR un producto es que el cliente
+      // lo haya nombrado. Eso se mide, no se supone: `productosNombrados`
+      // exige que todas las palabras identificatorias del nombre estén en el
+      // mensaje. O que sea el producto que ya viene en foco, porque entonces
+      // se viene hablando de él.
+      // ⚠️ Y el nombre se resuelve DESDE lo que el cliente escribió, sin
+      // pedirle además que `productoDelMensaje` coincida. Verificado el
+      // 2026-09-04: con las dos condiciones juntas, "no sé si el curso de
+      // MARKETING DIGITAL me sirve" --donde el cliente lo nombra con todas las
+      // letras-- dejaba de nombrarlo, porque el matcher no había llenado ese
+      // campo. Exigir dos pruebas para un hecho que ya está probado es perder
+      // el caso bueno por cuidar el malo.
+      const nombrados = productosNombrados(String(lastText || ""), productList as any);
+      const productoConRespaldo =
+        (nombrados.length > 0
+          ? productList.find((p: any) => p.name === nombrados[0]) ?? null
+          : null) ??
+        (memory.currentProductId
+          ? productList.find((p: any) => p.id === memory.currentProductId) ?? null
+          : null);
+      const completo = prod ? productList.find((p: any) => p.id === (prod as any).id) : null;
+      // "no sé si me sirve" es la única que NOMBRA el producto en su texto
+      // ("te digo si «X» te sirve"). Para esa se usa solo el respaldado: en las
+      // demás el producto se usa para las características, no para nombrarlo,
+      // y ahí una corazonada no hace daño.
+      const paraLaObjecion =
+        objecion === "no_se_si_me_sirve"
+          ? (productoConRespaldo ? productList.find((p: any) => p.id === (productoConRespaldo as any).id) ?? null : null)
+          : completo;
+      let respuesta = responderObjecion(objecion, {
+        producto: paraLaObjecion as any,
+        // `garantia` y `entrega` son OBJETOS ({dias, descripcion}), no textos.
+        // Pasarlos crudos le mandó al cliente "la garantía es [object Object]"
+        // en la prueba contra producción (2026-08-30). Se toma la descripción,
+        // que es lo que el negocio escribió para leerse.
+        garantia: negocio?.garantia?.descripcion || null,
+        entrega: typeof negocio?.entrega === "string" ? negocio.entrega : (negocio?.entrega as any)?.descripcion || null,
+        tieneVideo: !!(completo && videoDeProductoSeguro(completo)),
+      });
+      if (respuesta) {
+        // ── Y ACÁ LA REDACTA ALGUIEN, EN VEZ DE SALIR TAL CUAL ────────────
+        //
+        // Reportado el 2026-09-03 leyendo una conversación real: "no usa
+        // razonamiento ni nada, está respondiendo como por inercia". Era
+        // literal -- esta rama devolvía la cadena fija y el modelo NO corría.
+        //
+        // La plantilla sigue mandando en el CONTENIDO (por eso se arma
+        // primero): los hechos los pone el servidor. Lo que cambia es que el
+        // modelo la dice para este cliente, y `entregaFinal` --la aduana de
+        // hechos-intocables.ts, que hasta hoy no llamaba nadie fuera de sus
+        // pruebas-- la deja pasar solo si no inventó ni cambió un monto, un
+        // enlace, una cuenta o un porcentaje.
+        //
+        // Lo peor que puede pasar es que salga la plantilla, o sea exactamente
+        // lo que salía antes. El piso no baja.
+        const { redactarObjecion } = await import("./redactar-objecion");
+        respuesta = await redactarObjecion(respuesta, {
+          mensajeDelCliente: lastText,
+          producto: (completo as any)?.name || (prod as any)?.name || null,
+          // `memory.history` y no `memory.messages`: el campo se llama así en
+          // todo el resto del archivo, y un nombre inventado acá habría dado
+          // `undefined` -- o sea, el modelo redactando SIN la conversación,
+          // que es la mitad de lo que hace falta para no sonar a plantilla.
+          historia: (memory.history || []).slice(-4).map((m: any) => `${m.role === "customer" ? "Cliente" : "Vos"}: ${m.content}`),
+        });
+        console.log(`🛡️ [OBJECIÓN] "${objecion}" contestada con datos del negocio - ${ts()}`);
+        await saveAgentMessage(conversationId, respuesta, "objection_handling", {
+          intent: "objection_handling",
+          ...({ objecion } as any),
+          isHardcoded: true,
+        });
+        return {
+          content: respuesta,
+          // Mismo caso que arriba: era `memory.stage`, que no existe.
+          stage: memory.currentStage,
+          parts: [{ kind: "text", content: respuesta }],
+          cardProductIds: [],
+        };
+      }
+      console.log(`🛡️ [OBJECIÓN] "${objecion}" detectada, sin datos para contestarla: la responde la IA - ${ts()}`);
+    }
+  } catch (e: any) {
+    // Una objeción sin contestar por acá no rompe nada: sigue la ruta normal.
+    logger.warn({ err: e?.message, conversationId }, "[Objecion] no se pudo evaluar");
+  }
+
+  // ── 11c. RUTA IA — construir prompt final con cerebro + contexto del motor ─
+  //
+  // Tope de tamaño del prompt. Medido contra la API real de Groq con el modelo
+  // que usa el bot (llama-3.1-8b-instant, 16-08-2026):
+  //   15.000 caracteres (3.648 tokens) -> responde bien
+  //   ~22.000 en adelante              -> 429 por límite de tokens por minuto
+  //   32.000 en adelante               -> 413 "Request too large"
+  // El tier gratis corta en 6.000 tokens, y la plantilla del system prompt
+  // sola ya son 11.422 caracteres: alcanza con que el negocio tenga su propio
+  // prompt largo para pasarse. Los 413/429 que se veían en el panel salen de
+  // acá -- NO de inyectar el catálogo, que no se inyecta.
+  //
+  // Pasarse no degrada la respuesta: la ANULA, y el cliente recibe "problemas
+  // técnicos" en el momento en que estaba interesado. Por eso se recorta antes
+  // de mandar, empezando por lo menos crítico.
+  // ── Estado cognitivo: en qué punto va, calculado del historial ────────────
+  //
+  // El agente respondía sin saber en qué punto iba la conversación. Medido el
+  // 2026-08-25: a las 19:18 dijo "ya confirmé tu pago del PACK IDIOMAS" y a
+  // las 19:23 "hoy no compraste nada todavía". Los dos son coherentes con SU
+  // turno; se contradicen entre sí porque no había estado, había memoria.
+  //
+  // Esto no es un recuerdo del modelo: lo calcula el servidor con reglas
+  // fijas y se lo afirma. Va en `esencial`, así que sobrevive al recorte.
+
+  const TOPE_PROMPT = Number(process.env.MAX_PROMPT_CHARS || 18000);
+  let promptArmado = buildFinalPrompt(systemPrompt, brain, voice) + `\n\n${bloqueEstado}\n\n${engineContextBlock}`;
+  if (promptArmado.length > TOPE_PROMPT) {
+    const antes = promptArmado.length;
+    // El contexto del motor (qué producto mostrar, en qué etapa va) y el
+    // bloque del anuncio son los que cambian la respuesta; el análisis de
+    // AdvancedIntelligence es el más largo y el más prescindible.
+    const base = buildFinalPrompt(systemPrompt, brain, voice);
+    // El bloque de dropshipping va en lo esencial: si se recorta, el agente
+    // vuelve a pedir datos que el cliente ya dio, o promete una entrega que no
+    // corresponde. Es de lo último que se puede sacrificar.
+    // El ORDEN acá decide qué sobrevive al recorte, porque se corta por el
+    // final. Medido el 2026-08-22: con el manual de venta al final, un prompt
+    // de 20.544 se recortó a 12.795 y se llevó justo las instrucciones de
+    // "aislá la duda" -- la jugada se detectaba y el modelo no la veía, así
+    // que el bot volvió a rendirse ante "lo voy a pensar".
+    //
+    // Ahora manda el manual, y el catálogo (que vive en la COLA del
+    // contextBlock) es lo primero que se sacrifica: es lo más largo y lo
+    // menos decisivo, porque qué producto mostrar ya se resolvió del lado del
+    // servidor.
+    const esencial = `${bloqueEstado}${playbook.bloque}${bloqueAnuncio}${bloqueMoneda}${bloqueDropshipping}${bloqueLecciones}${decision.contextBlock}`;
+    promptArmado = `${base}\n\n${esencial}`;
+    if (promptArmado.length > TOPE_PROMPT) {
+      // Todavía no entra: lo que sobra es el prompt del negocio o del agente.
+      // Se corta por el final, avisando en el propio texto para que el modelo
+      // sepa que viene truncado y no complete lo que falta por su cuenta.
+      // `esencial` también se recorta. Antes no: si ya venía más largo que el
+      // tope, `TOPE_PROMPT - esencial.length - 200` daba negativo, el
+      // Math.max lo dejaba en 2000, y a esos 2000 se le anexaba `esencial`
+      // ENTERO. Por eso el log decía "Recortado de 34444 a 31644 (tope
+      // 18000)": anunciaba un recorte que no ocurría. Se le deja al menos la
+      // mitad del tope a las instrucciones base.
+      const corte = Math.max(TOPE_PROMPT - esencial.length - 200, Math.floor(TOPE_PROMPT / 2));
+      const espacioEsencial = Math.max(TOPE_PROMPT - corte - 200, 1000);
+      const esencialRecortado = esencial.length > espacioEsencial
+        ? `${esencial.slice(0, espacioEsencial)}\n[…contexto recortado por longitud…]`
+        : esencial;
+      promptArmado = `${base.slice(0, corte)}\n[…instrucciones recortadas por longitud…]\n\n${esencialRecortado}`;
+    }
+    console.log(`✂️ [PROMPT] Recortado de ${antes} a ${promptArmado.length} chars (tope ${TOPE_PROMPT}) - ${ts()}`);
+  }
+  const finalPrompt = promptArmado;
+
+  // ── Construir mensajes para la IA (HISTORIAL REAL DE LA CONVERSACIÓN) ─────
+  // El bot recibe los últimos N mensajes TAL CUAL (cliente y bot) para poder
+  // seguir la secuencia y releer lo que YA respondió. Antes solo se pasaban 2:
+  // el modelo no veía sus propias respuestas anteriores, así que podía
+  // contradecirse o insistir en un producto equivocado sin darse cuenta.
+  // Con más contexto se corrige solo ("acá dije Excel, pero el cliente hablaba
+  // del piano"). Configurable por CHAT_HISTORY_MESSAGES; por defecto 12.
+  const MAX_HISTORIAL_CHAT = Number(process.env.CHAT_HISTORY_MESSAGES) || 12;
+  const chatHistory = buildChatHistory(memory, MAX_HISTORIAL_CHAT);
+  console.log(`💬 [CHAT-HISTORY] Usando últimos ${chatHistory.length} mensajes`);
   const chatMessages = [
     ...chatHistory,
     {
@@ -952,10 +2224,31 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
   //    presupuesto de tokens en reasoning_content y devuelve content vacío →
   //    NO sirve para chat. Se reemplaza por modelos que sí devuelven contenido.
   //  - "qwen3.6-plus-free" y "nemotron-3-super-free" NO existen en la API.
+  // Los modelos salen del entorno, no del código. Estaban incrustados acá y
+  // eso hacía que OPENCODE_MODEL no sirviera para nada: el admin cambiaba la
+  // variable en EasyPanel, reiniciaba, y el agente seguía pidiendo los mismos
+  // tres de siempre (2026-08-16).
+  //
+  // El default ERA deepseek-v4-flash-free, por pedido explícito del admin y
+  // porque los otros dos daban problemas medidos: `nemotron-3-ultra-free` es
+  // de razonamiento y gasta el presupuesto de tokens pensando (se cortaba con
+  // finish_reason "length" incluso para responder "OK"), y `mimo-v2.5-free`
+  // ya venía documentado por envolver la salida en bloques de código.
+  //
+  // ⚠️ Pero deepseek-v4-flash-free fue DESCONTINUADO del tier gratuito de Zen
+  // (confirmado por el admin el 2026-08-28, y medido el mismo día: la API
+  // responde "Upstream request failed: Model is unavailable"). No es una caída
+  // pasajera, así que dejarlo de default era dejar un modelo muerto como
+  // respaldo -- justo el patrón que hoy explicó los 105s por turno: la cadena
+  // descubriendo cadáveres uno por uno.
+  //
+  // Pasa a `big-pickle`, que el admin prefiere y que SÍ existe en el catálogo
+  // (probado hoy: devolvió 429 "cuota agotada", que es la respuesta de un
+  // modelo vivo sin cupo en ese momento, no la de uno que no existe).
   const OPENCODE_FREE_MODELS = {
-    razonamiento: "nemotron-3-ultra-free",  // respuestas más completas (objeciones)
-    balanceado: "mimo-v2.5-free",            // default: limpio y conciso
-    rapido: "big-pickle",                     // respuestas cortas y rápidas
+    razonamiento: process.env.OPENCODE_MODEL_RAZONAMIENTO || process.env.OPENCODE_MODEL || "big-pickle",
+    balanceado: process.env.OPENCODE_MODEL_BALANCEADO || process.env.OPENCODE_MODEL || "big-pickle",
+    rapido: process.env.OPENCODE_MODEL_RAPIDO || process.env.OPENCODE_MODEL || "big-pickle",
   } as const;
 
   function selectOpenCodeModel(strategy: ResponseStrategy, emotional: EmotionalState): string {
@@ -984,35 +2277,158 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
   const t12Start = Date.now();
   console.log(`⏱️ [TIMING] Iniciando llamada a IA - ${ts()}`);
 
+  // ── Las claves del PROPIO cliente, si cargó alguna ──────────────────────
+  // Se leen una vez por respuesta y se pasan a la cola armadas, sin tocar
+  // process.env: dos clientes distintos corren en el MISMO proceso, así que
+  // volcar una clave al entorno la haría atender conversaciones ajenas.
+  const clavesPropias: { proveedor: string; config: any }[] = [];
+  try {
+    const tenantIdDelChat = Number((convo as any)?.tenantId) || 0;
+    if (tenantIdDelChat) {
+      const { clavesDelTenant } = await import("./ai-keys-tenant");
+      const { getProviderConfigConClave } = await import("@workspace/integrations-openai-ai-server");
+      for (const [proveedor, datos] of Object.entries(await clavesDelTenant(tenantIdDelChat))) {
+        const cfg = datos?.apiKey ? getProviderConfigConClave(proveedor, datos.apiKey, datos.model) : null;
+        if (cfg) clavesPropias.push({ proveedor, config: cfg });
+      }
+    }
+  } catch (e: any) {
+    // Nunca dejar a un cliente sin respuesta por no poder leer sus claves.
+    logger.warn({ err: e?.message }, "[Agent] no se pudieron leer las claves propias del cliente");
+  }
+
   const result = await executeWithFallback(
     async () => {
       const dbConfig = appSettings ? getProviderConfigFromSettings(appSettings) : null;
       const activeProvider = appSettings?.aiProvider || "none";
       const isUserSelected = activeProvider !== "opencode" && activeProvider !== "none" && !!dbConfig;
 
+      /**
+       * DeepSeek al frente de la cola, con TODOS sus modelos.
+       *
+       * Orden del admin (2026-09-03): "la IA por defecto principal siempre va a
+       * ser DeepSeek". Ver lib/deepseek-al-frente.ts para por qué es una regla
+       * con pruebas y no una línea suelta.
+       *
+       * No se usa `getProviderConfig("deepseek")` (que da UN modelo) sino la
+       * rotación entera: la cuota se agota por modelo, no por cuenta.
+       */
+      const candidatosDeepSeek = () => {
+        if (!deepseekVaPrimero({
+          hayClave: !!process.env.DEEPSEEK_API_KEY,
+          sano: healthMonitor.isServiceHealthy("deepseek"),
+          proveedorElegido: activeProvider,
+        })) return [];
+        return getProviderRotation("deepseek").map((config) => ({
+          config,
+          source: `deepseek/${config.model}`,
+        }));
+      };
+
       // ── Helper: pushear fallbacks disponibles ──
       const pushFallbacks = (queue: { config: any; source: string }[]) => {
-        const groqEnv = getProviderConfig("groq");
-        const copilotEnv = getProviderConfig("github_copilot_internal");
-        const nvidiaEnv = getProviderConfig("nvidia");
-        const githubEnv = getProviderConfig("github");
+        // Lo que cargó ESTE cliente manda sobre todo lo demás: es su cuenta.
+        // Se resuelve sin pasar por process.env, que es global al proceso y
+        // era justamente lo que mezclaba a un cliente con otro.
+        for (const { proveedor, config } of clavesPropias) {
+          queue.push({ config, source: `${proveedor}_cliente` });
+        }
+        // Cada proveedor entra con TODOS sus modelos, no con uno.
+        //
+        // La cuota se agota por MODELO, no por cuenta (medido: con la misma
+        // clave, uno devolvía 429 mientras otro respondía en 832ms). Zen y Go
+        // ya rotaban así; el resto iba con uno fijo, así que si ese caía se
+        // perdía el proveedor entero teniendo modelos suyos que sí responden.
+        // Ahora cada modelo es un candidato propio y la cola sigue de largo.
+        // Se lee UNA vez por turno, no por candidato: son varias cuentas pero
+        // una sola consulta. Si falla, cae a lista vacía y todo sigue como antes.
+        const cuentasCopilot = cuentasDeCopilot();
+        const conModelos = (proveedor: string, salud: string) => {
+          if (activeProvider === proveedor || !healthMonitor.isServiceHealthy(salud)) return [];
+          return getProviderRotation(proveedor).map((config) => ({
+            config,
+            source: `${proveedor}/${config.model}`,
+          }));
+        };
         const nvidiaFast = getProviderConfig("nvidia_fast");
+        // DeepSeek primero: es de pago y responde en ~800ms medidos contra su
+        // API, contra los 8-55s de los gratis. Acá cada segundo lo espera un
+        // cliente real escribiendo por WhatsApp, y una venta perdida cuesta
+        // miles de veces lo que cuesta el token (~2 COP por mensaje).
+        queue.push(...conModelos("deepseek", "deepseek"));
+        // Copilot: la cuenta del admin. Va antes que los gratis sueltos porque
+        // es la de mejor calidad del resto. El intercambio de token (PAT ->
+        // token de sesión de Copilot) lo hace más abajo quien detecta la
+        // baseUrl api.githubcopilot.com.
+        // Y si el admin tiene VARIAS cuentas de Copilot, cada una entra como
+        // su propio candidato con su propia clave. Pedido el 2026-08-24: son
+        // cuentas suyas y activas, y la idea es que cuando una se queda sin
+        // cuota siga la siguiente en vez de quedarse sin proveedor.
+        //
+        // La rotación ya sabía hacerlo: `clasificarFallo` aparta 1 hora al que
+        // devuelve "cuota agotada" y sigue. Lo que faltaba era que hubiera más
+        // de un candidato de Copilot que rotar -- la configuración guardaba UN
+        // token y conectar la segunda cuenta pisaba la primera.
+        //
+        // Si hay 0 o 1 cuenta esto se comporta igual que antes.
+        const candidatosCopilot = conModelos("github_copilot_internal", "copilot_internal");
+        if (candidatosCopilot.length > 0 && cuentasCopilot.length > 1) {
+          for (const cand of candidatosCopilot) {
+            queue.push(...expandirPorCuenta(cand.config, cuentasCopilot));
+          }
+        } else {
+          queue.push(...candidatosCopilot);
+        }
         // Groq: respaldo rápido y gratuito (antes estaba configurado pero nunca se usaba)
-        if (activeProvider !== "groq" && groqEnv && healthMonitor.isServiceHealthy("groq"))
-          queue.push({ config: groqEnv, source: "groq" });
-        if (activeProvider !== "nvidia" && nvidiaEnv && healthMonitor.isServiceHealthy("nvidia_70b"))
-          queue.push({ config: nvidiaEnv, source: "nvidia_70b" });
-        if (activeProvider !== "github" && githubEnv && healthMonitor.isServiceHealthy("github_env"))
-          queue.push({ config: githubEnv, source: "github_env" });
-        if (activeProvider !== "github_copilot_internal" && copilotEnv && healthMonitor.isServiceHealthy("copilot_internal"))
-          queue.push({ config: copilotEnv, source: "copilot_internal" });
+        queue.push(...conModelos("groq", "groq"));
+        queue.push(...conModelos("nvidia", "nvidia_70b"));
+        // GitHub Models ya NO va en la cadena: GitHub lo está retirando.
+        // Verificado el 2026-08-19 contra los dos endpoints -- el viejo
+        // (models.inference.ai.azure.com) devuelve 404 y el nuevo
+        // (models.github.ai/inference) devuelve 410 Gone con
+        // "github_models_retirement_brownout". Un proveedor muerto en la cola
+        // no es neutral: se lleva su intento y su timeout mientras un cliente
+        // espera la respuesta. Copilot es OTRA API (api.githubcopilot.com),
+        // sigue viva y queda arriba.
         if (activeProvider !== "nvidia" && nvidiaFast && healthMonitor.isServiceHealthy("nvidia_8b"))
           queue.push({ config: nvidiaFast, source: "nvidia_8b" });
       };
 
       // ── Helper: probar cola de proveedores ──
-      const tryQueue = async (queue: { config: any; source: string }[]): Promise<{ raw: string; usedProvider: string }> => {
+      // ── Ningún modelo de RAZONAMIENTO atiende a un cliente ───────────────
+      //
+      // Medido en producción el 2026-08-29, con DeepSeek recién habilitado:
+      // el bot contestó con `deepseek/deepseek-reasoner` y tardó 26 y 30
+      // SEGUNDOS. Las respuestas eran buenas; el problema es que nadie espera
+      // medio minuto en WhatsApp -- para cuando llega, el cliente cerró el
+      // chat.
+      //
+      // `deepseek-chat`, el mismo proveedor, responde en ~800ms. La diferencia
+      // no es el proveedor: es que un modelo de razonamiento gasta el
+      // presupuesto pensando antes de escribir.
+      //
+      // Este proyecto ya los excluía en la cadena de Atlas (NO_SIRVEN en
+      // cadena-modelos.ts) por otro motivo --devuelven `content` vacío-- pero
+      // el bot de ventas no tenía esa regla, y el modelo puede llegar desde la
+      // configuración del tenant en la base, no solo del entorno. Filtrar acá
+      // lo cubre venga de donde venga.
+      const sinModelosLentos = (queue: { config: any; source: string }[]) =>
+        queue.filter(({ config, source }) => {
+          if (!MODELO_DE_RAZONAMIENTO.test(String(config?.model || "")) && !MODELO_DE_RAZONAMIENTO.test(source)) return true;
+          console.log(`⏭️  [AI] ${source} descartado: es de razonamiento y tarda demasiado para WhatsApp - ${ts()}`);
+          return false;
+        });
+
+      const tryQueue = async (queueOriginal: { config: any; source: string }[]): Promise<{ raw: string; usedProvider: string }> => {
+        const queue = sinModelosLentos(queueOriginal);
+        // La posición en la cola es el dato que faltaba: si contestó el
+        // primero, la cadena está sana; si contestó el cuarto, tres fallaron
+        // antes y nadie se entera. Todo lo que se rompió el 2026-08-29 se veía
+        // así --degradación, no error-- y el admin lo descubría por una
+        // respuesta rara. Ver saludDeLaCadena() en monitoring.ts.
+        let posicion = 0;
         for (const { config, source } of queue) {
+          posicion++;
           // G4F: manejo especial (no usa OpenAI client)
           if (source === "g4f") {
             if (!G4F_ENABLED) continue;
@@ -1029,7 +2445,12 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
             continue;
           }
 
-          const providerName = source.split("/")[0].split("_")[0];
+          // El nombre con el que se reporta salud al rotador. Se corta en "/"
+          // (opencode/mimo-v2.5-free → opencode) pero NO en "_": recortar ahí
+          // convertía "opencode_go" y "opencode_zen" en "opencode", así que
+          // un fallo del gratuito ponía en cooldown al de pago y viceversa --
+          // justo los dos que existen para cubrirse entre sí.
+          const providerName = source.split("/")[0];
           const timeout = getProviderTimeout(providerName);
           const startTime = Date.now();
           try {
@@ -1069,9 +2490,18 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
             if (result) {
               const elapsed = Date.now() - startTime;
               reportProviderResult(providerName, true, elapsed);
+              registrarTurnoAtendido(providerName, source.split("/").slice(1).join("/") || source, posicion > 1);
               console.log(`✅ [AI] Respuesta de ${source} - ${result.length}chars (${elapsed}ms) - ${ts()}`);
               return { raw: result, usedProvider: source };
             }
+            // Un 200 con el contenido VACÍO es un fallo, aunque no tire error.
+            // Antes solo se contaba como fallo lo que caía en el catch, así que
+            // un modelo que siempre devuelve vacío nunca se marcaba enfermo y
+            // seguía siendo el primero de la cola en CADA mensaje, quemando un
+            // viaje de ida y vuelta por cliente. Hay varios así: 8 de los 26
+            // modelos de OpenCode Go contestan 200 sin una sola letra.
+            reportProviderResult(providerName, false, Date.now() - startTime, "respuesta vacía");
+            console.log(`⚠️ [AI] ${source} contestó 200 pero VACÍO — se pasa al siguiente - ${ts()}`);
           } catch (err: any) {
             const elapsed = Date.now() - startTime;
             reportProviderResult(providerName, false, undefined, err.message);
@@ -1103,20 +2533,89 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
         console.log(`🎯 [AI] G4F seleccionado como proveedor principal - ${ts()}`);
         // G4F se maneja por separado (no usa OpenAI client), se prueba primero
       } else if (isUserSelected) {
+        // ── DeepSeek va PRIMERO, y lo elegido queda justo detrás ───────────
+        //
+        // Acá la cola era EXCLUSIVAMENTE lo que el admin eligió en
+        // Configuración, y DeepSeek recién aparecía en la fase 2 -- o sea
+        // después de que el elegido fallara y se gastara su tiempo, con un
+        // cliente escribiendo del otro lado. Con la clave paga cargada y
+        // medida en 1,16s, eso es hacer esperar por gusto.
+        //
+        // La elección del admin NO se borra: queda segunda. Si DeepSeek se
+        // queda sin saldo, lo que él eligió contesta igual.
+        const deLaCasa = candidatosDeepSeek();
+        rotationQueue.push(...deLaCasa);
         rotationQueue.push({ config: dbConfig, source: activeProvider });
-        console.log(`🎯 [AI] Proveedor seleccionado: ${activeProvider} (exclusivo) - ${ts()}`);
+        console.log(`🎯 [AI] DeepSeek al frente (${deLaCasa.length}) + elegido: ${activeProvider} - ${ts()}`);
       } else {
+        // Mismo criterio que arriba. `getOptimizedProviderOrder()` ya devuelve
+        // deepseek primero, pero por la rama genérica del bucle entra con UN
+        // modelo (`getProviderConfig`) en vez de con su rotación completa, y
+        // la cuota se agota por modelo. Poniéndolo acá entra entero, y el
+        // bucle lo saltea para no intentarlo dos veces.
+        rotationQueue.push(...candidatosDeepSeek());
         const optimizedOrder = getOptimizedProviderOrder();
         console.log(`🎯 [AI] Orden optimizado: [${optimizedOrder.join(", ")}] - ${ts()}`);
 
         for (const prov of optimizedOrder) {
           if (prov === "g4f") continue; // G4F va al final
+          // DeepSeek ya se encoló arriba, con su rotación completa. Sin este
+          // salto entraría una segunda vez por la rama genérica y el turno
+          // intentaría el mismo modelo dos veces seguidas.
+          if (prov === "deepseek" && rotationQueue.some((c) => c.source.startsWith("deepseek/"))) continue;
           if (prov === "opencode") {
             const opencodeEnv = getProviderConfig("opencode");
             if (opencodeEnv) {
               opencodeEnv.model = selectOpenCodeModel(brain.strategy, brain.emotionalState);
               const modelName = opencodeEnv.model.replace("opencode/", "");
               rotationQueue.push({ config: opencodeEnv, source: `opencode/${modelName}` });
+            }
+          } else if (prov === "groq") {
+            // groq estaba en AI_FALLBACK_ORDER desde siempre pero este bucle
+            // NO tenía rama para él, así que se ignoraba en silencio: el
+            // admin creía tener respaldo y no tenía ninguno.
+            //
+            // Se vio en producción (2026-08-16) con el peor resultado
+            // posible: la cuota gratuita de Zen se agotó
+            // ("FreeUsageLimitError: Rate limit exceeded" en los tres
+            // modelos), opencode devolvió vacío, y como groq nunca entraba a
+            // la cola el agente tiraba "Todos los proveedores fallaron". El
+            // cliente recibía "Estoy teniendo problemas técnicos" ante
+            // CUALQUIER pregunta -- con una campaña paga corriendo.
+            const cfg = getProviderConfig("groq");
+            if (cfg) rotationQueue.push({ config: cfg, source: "groq" });
+          } else if (prov === "openrouter") {
+            // Mismo caso que groq: getProviderConfig("openrouter") existe
+            // desde siempre, pero sin rama acá nunca entraba a la cola. El
+            // admin lo tiene configurado y funcionando.
+            const cfg = getProviderConfig("openrouter");
+            if (cfg) rotationQueue.push({ config: cfg, source: "openrouter" });
+          } else if (prov === "opencode_go") {
+            // Nivel de pago: no se queda sin cuota a mitad del día como el
+            // gratuito, así que sirve de red cuando el free se agota.
+            //
+            // Se encolan TODOS sus modelos útiles, no solo Luna. Antes, si
+            // Luna fallaba, se abandonaba Go entero y se saltaba al siguiente
+            // proveedor, desperdiciando los otros modelos pagos que sí
+            // responden. Cuáles son "útiles" está medido en provider.ts: de
+            // los 26 que Go lista, solo 4 sirven de verdad.
+            for (const cfg of getOpenCodeGoRotation()) {
+              rotationQueue.push({ config: cfg, source: `opencode_go/${cfg.model}` });
+            }
+          } else if (prov === "opencode_zen") {
+            // Zen gratuito: se encolan TODOS sus modelos, no uno solo.
+            //
+            // La cuota gratuita se agota POR MODELO, no por cuenta. Medido en
+            // producción (2026-08-16): con la misma clave,
+            // deepseek-v4-flash-free devolvía 429 "cuota agotada" mientras
+            // nemotron-3-ultra-free respondía en 832ms. Usando un único
+            // modelo, agotar ese uno hacía caer TODO Zen pudiendo seguir
+            // dentro del mismo proveedor.
+            //
+            // getOpenCodeRotation() ya existía para esto y no estaba
+            // conectada a nadie.
+            for (const cfg of getOpenCodeRotation()) {
+              rotationQueue.push({ config: cfg, source: `opencode_zen/${cfg.model}` });
             }
           } else if (prov === "nvidia_nim_bridge") {
             const cfg = getProviderConfig("nvidia_nim_bridge");
@@ -1130,6 +2629,19 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
             const cfg = getProviderConfig("github");
             if (cfg && healthMonitor.isServiceHealthy("github_env"))
               rotationQueue.push({ config: cfg, source: "github_env" });
+          } else {
+            // Cualquier otro proveedor que el admin ponga en
+            // AI_FALLBACK_ORDER entra solo, sin necesidad de una rama propia.
+            //
+            // La causa raíz del apagón del 2026-08-16 fue justamente esto:
+            // groq y openrouter estaban configurados, resolvían bien, y aun
+            // así el bot contestaba "problemas técnicos" porque nadie había
+            // escrito su `else if`. Se ignoraban EN SILENCIO. Con este caso
+            // por defecto, agregar un proveedor pasa a ser configuración y no
+            // un cambio de código -- y sobre todo, deja de haber proveedores
+            // invisibles.
+            const cfg = getProviderConfig(prov);
+            if (cfg) rotationQueue.push({ config: cfg, source: prov });
           }
         }
         if (dbConfig && activeProvider !== "opencode")
@@ -1181,6 +2693,141 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
       // 1. Sanitizar: eliminar URLs y datos de pago si no es payment_intent
       raw = sanitizeResponse(raw, decision.intent);
 
+      // Freno de invenciones, en el punto por donde pasan TODAS las respuestas
+      // generadas. Pedírselo al prompt no alcanzó: con las instrucciones de
+      // venta puestas, el modelo se sacó de la manga "clases de piano que
+      // salen $30.000 mensuales" y "tenemos alumnos de 50, 60 y hasta 70
+      // años" -- dos datos que no existen en ningún lado del sistema. Cuanto
+      // mejor argumenta, más tentado está de fabricar el dato que le falta.
+      // Muletilla de apertura vacía: el prompt ya la prohíbe y el modelo la
+      // escribe igual (3 de 6 mensajes en la prueba del 2026-08-22).
+      const sinMuletilla = quitarMuletillaDeApertura(raw);
+      if (sinMuletilla !== raw) {
+        console.log(`✂️ [MULETILLA] Apertura vacía quitada: "${raw.slice(0, 30)}…" - ${ts()}`);
+        raw = sinMuletilla;
+      }
+
+      // El modelo a veces escribe el marcador como un ENLACE de markdown:
+      // "[MEGAPACK 81 EN 1](CARD: 122)" en vez de "[CARD: 122]". Con
+      // paréntesis el parser de abajo no lo reconoce, así que NO se manda la
+      // ficha y al cliente le llega el código crudo en el mensaje.
+      //
+      // Pasó en vivo el 2026-08-22 (conversación 5, Mauricio García): recibió
+      // literalmente "**[MEGAPACK 81 EN 1](CARD: 122)** que incluye todos los
+      // cursos" — markdown roto en lugar de la tarjeta del producto.
+      //
+      // Se normaliza en vez de prohibirlo en el prompt: la intención del
+      // modelo es clarísima y arreglarla cuesta una línea.
+      const conMarcadorSano = raw.replace(/\[([^\]]*)\]\s*\(\s*CARD:\s*(\d+)\s*\)/gi, "[CARD: $2]");
+      if (conMarcadorSano !== raw) {
+        console.log(`🔧 [CARD] Marcador en formato enlace normalizado - ${ts()}`);
+        raw = conMarcadorSano;
+      }
+
+      // El modelo a veces escribe "[NOMBRE DEL PRODUCTO]" a secas, sin el
+      // prefijo "CARD:". El parser de abajo solo matchea "[CARD: ...]", así
+      // que ese marcador quedaba CRUDO en el mensaje y al cliente le llegaba
+      // "[PACK CONTABILIDAD]" como texto suelto, sin ficha.
+      //
+      // Pasó en vivo (2026-08-23): el cliente pidió el de Excel, el bot
+      // respondió "Te paso la info del de Excel 👇\n\n[PACK CONTABILIDAD]" —
+      // el nombre crudo en vez de la tarjeta. Se normaliza si el texto entre
+      // corchetes coincide INEQUÍVOCAMENTE (una sola coincidencia) con un
+      // producto del catálogo; si es ambiguo, se deja (el parser lo descartará
+      // o usará productToShow).
+      const marcaNombreSueltos = raw.match(/\[([^\][]+)\]/g) ?? [];
+      for (const m of marcaNombreSueltos) {
+        if (/^\[\s*CARD:/i.test(m)) continue; // ya es una card válida
+        const escrito = m.replace(/[\[\]"'*_]/g, "").toLowerCase().trim();
+        if (!escrito || escrito.length < 4) continue;
+        const norm = (t: string) => String(t || "").toLowerCase().replace(/["'*_]/g, "").trim();
+        const candidatos = productList.filter((p: any) => {
+          const n = norm(p.name);
+          if (n === escrito) return true;
+          if (escrito.length < 8) return false;
+          return n.includes(escrito) || escrito.includes(n);
+        });
+        if (candidatos.length === 1) {
+          raw = raw.replace(m, `[CARD: ${candidatos[0].id}]`);
+          console.log(`🔧 [CARD] Nombre suelto "[${escrito}]" → normalizado a [CARD: ${candidatos[0].id}] (${candidatos[0].name}) - ${ts()}`);
+        }
+      }
+
+      const { limpio, quitadas } = quitarInventos(raw);
+      if (quitadas.length > 0) {
+        quitadas.forEach((q) =>
+          console.warn(`🚫 [INVENTO] Frase quitada (${q.motivo}): "${q.frase.slice(0, 120)}" - ${ts()}`)
+        );
+        raw = limpio;
+      }
+
+      // 1c. PRODUCTO INEXISTENTE: la IA no puede inventarlo.
+      //
+      // `productSearchFailed` = el cliente pidió algo que NO está en el
+      // catálogo. El prompt le ordena decir la verdad, pero el modelo a veces
+      // lo ignora y FABRICA el producto con contenido falso. Medido en vivo
+      // (2026-08-23): el cliente pidió "el de pastas" y el bot respondió
+      // "¡Ah, el de pastas! 🍝 te enseña desde la masa base hasta rellenos y
+      // salsas" — un curso que no existe, con detalles inventados. No hay peor
+      // error para un bot de ventas: la mentira es la única que el cliente
+      // puede verificar fácil.
+      //
+      // El detector: si no hay producto en el catálogo (productSearchFailed),
+      // el mensaje no trae card de ningún producto real (sin [CARD:]), y la IA
+      // afirmó tener algo ("te enseña", "incluye", "es otro nivel" sobre el
+      // producto que pidió), se reemplaza la respuesta entera por una honesta
+      // que diga que no lo maneja. El refuerzo es en la SALIDA, igual que
+      // quitarInventos: pedírselo al prompt ya se intentó y no alcanzó.
+      //
+      // Ampliado (2026-08-23): "pastas" pasó el matcher como falso positivo
+      // (score >= 50) así que productSearchFailed quedó en false y la IA
+      // respondió "Ah, ¿te interesa el de pastas? 🍝 es un producto físico" —
+      // otra mentira. Los emojis de comida (🍝🍕🌮) SON la señal: ningún
+      // producto del catálogo tiene comida, y la IA los usa justo cuando
+      // inventa. Y aunque escriba "[CARD: ID]" (sin número) o "[CARD: algo
+      // inválido]", eso NO es una card real: el parser la rechaza y al
+      // cliente le llega el invento sin ficha.
+      const emojiComidaInvento = /🍝|🍕|🥘|🌮|🍜|🍔|🍰/.test(raw);
+      const inventoPorFrase = /(te ense[ñn]a|es otro nivel|es un producto f[ií]sico|lo maneja otra persona|te paso con mi compa[ñn]ero)/i.test(raw);
+      const cardReal = /\[CARD:\s*[\d\w][^\]]*\]/i.test(raw); // card con contenido (número o nombre)
+      const inventoConfirmado = emojiComidaInvento || inventoPorFrase || (decision.productSearchFailed && /(te ense[ñn]a|incluye|te paso la ficha|lo tenemos|s[ií] (lo )?(tenemos|manejamos|tenés)|tenés (un|el|el curso))/i.test(raw));
+      // Para emojis de comida: la señal es tan fuerte que manda incluso con
+      // un [CARD: ...] inválido delante. Solo se respeta si la card es REAL
+      // (resuelve a un producto) -- pero ninguna card real acompaña a un 🍝.
+      // ── Y NO se niega algo que el cliente nombró y SÍ existe ─────────────
+      //
+      // Medido contra producción el 2026-09-04, con el agente completo:
+      //
+      //   cliente: "¿cuál es la diferencia entre el curso de marketing digital
+      //             y el de desarrollo web?"
+      //   bot:     "Hmm, creo que no tengo ese producto en el catálogo 😅. Lo
+      //             que sí manejo es: INGLES, MARKETING DIGITAL, FX PREMIERE,
+      //             DESARROLLO WEB, ..."
+      //
+      // Niega los dos y los lista en la misma frase.
+      //
+      // La causa: `productSearchFailed` significa "no pude resolver UN
+      // producto", y cuando el cliente nombra DOS para compararlos el buscador
+      // falla igual. Ahí el candado --que existe para atajar productos
+      // INVENTADOS-- tapa una comparación legítima de mercancía real. Y el
+      // momento en que un cliente compara dos productos es el momento en que
+      // está por decidir.
+      //
+      // Se comprueba contra el catálogo, no contra una intuición: si el cliente
+      // nombró algo que existe, negarlo es demostrablemente falso.
+      const nombroAlgoReal = negarloSeriaMentira(String(lastText || ""), productList as any);
+      if (emojiComidaInvento || (inventoPorFrase && !cardReal) || (decision.productSearchFailed && !cardReal && /(te ense[ñn]a|incluye|te paso la ficha|lo tenemos|s[ií] (lo )?(tenemos|manejamos|tenés)|tenés (un|el|el curso))/i.test(raw))) {
+        if (nombroAlgoReal && !emojiComidaInvento) {
+          // El emoji de comida sigue mandando: esa señal es tan fuerte que
+          // gana igual (ver el comentario de arriba). Lo demás, no.
+          console.log(`🔎 [PRODUCTO-INVENTADO] No se reemplaza: el cliente nombró productos que SÍ existen (${productosNombrados(String(lastText || ""), productList as any).join(", ")}) - ${ts()}`);
+        } else {
+          const similares = productList.slice(0, 5).map(p => p.name).join(", ");
+          raw = `Hmm, creo que no tengo ese producto en el catálogo 😅. Lo que sí manejo es: ${similares}. ¿Te interesa alguno de esos, o me contás un poco más qué buscás exactamente?`;
+          console.log(`🛡️ [PRODUCTO-INVENTADO] La IA fabricó un producto inexistente. Se reemplaza por respuesta honesta - ${ts()}`);
+        }
+      }
+
       // 2a. Payment/Confirmation: FORZAR card con métodos de pago (requisito crítico)
       const isPaymentFlow = (decision.intent === "payment_intent" || decision.intent === "confirmation");
       if (isPaymentFlow && decision.shouldSendCard && decision.productToShow) {
@@ -1196,12 +2843,17 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
       // mostrarían LITERALES al cliente. El [CARD: id] real se preserva.
       raw = raw.replace(/\[\s*(PAGAR|PAGO|LINK|ENLACE|PAY|URL)\s*:?[^\]]*\]/gi, "").trim();
 
+      // Intents donde NUNCA corresponde una card: saludo, despedida, handoff a humano.
+      const esChatSocial = (decision.intent === "greeting" || decision.intent === "leaving" || decision.intent === "human_handoff");
+
       // 2b. Para intents NO payment: la IA decide autónomamente si incluir [CARD: ID] o no.
       // El system prompt ya le indica que puede usar [CARD: ID] si es natural.
       // No forzamos ni eliminamos cards — confiamos en el criterio de la IA.
+      // (El refuerzo 2b-bis que fuerza la card cuando la IA escribe la ficha a
+      // mano vive más abajo, tras declarar `validIds`.)
 
       // 3. Solo eliminar cards en intents donde claramente no corresponde (saludo, despedida, humano)
-      if ((decision.intent === "greeting" || decision.intent === "leaving" || decision.intent === "human_handoff") && raw.match(/\[CARD:\s*\d+\s*\]/i)) {
+      if (esChatSocial && raw.match(/\[CARD:\s*\d+\s*\]/i)) {
         console.log(`🔧 [POST] Intent=${decision.intent} no requiere card. Eliminando.`);
         raw = raw.replace(/\[CARD:\s*\d+\s*\]/gi, "").trim();
       }
@@ -1228,10 +2880,74 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
 
       // ── Parser de partes ──────────────────────────────────────────────────
       const validIds = new Set(productList.map(p => p.id));
-      const re = /\[CARD:\s*([\w-]+)\s*\]/gi;
+
+      // 2b-bis. FORZAR LA CARD en consultas de producto cuando la IA escribió
+      // la ficha a mano en texto plano sin el marcador [CARD: ID].
+      //
+      // Medido en vivo (2026-08-23): el cliente preguntó por el curso de piano
+      // y el bot respondió "Te dejo la ficha 🎹" seguido de un texto armado a
+      // mano con SOLO PayPal — incompleto, sin Nequi/Daviplata, sin contenido.
+      // El prompt ya le ordena usar [CARD: ID], pero el modelo a veces lo
+      // ignora y se pone a "escribir la ficha". Acá se la forzamos: la card la
+      // arma el sistema (foto + incluye + modalidad + video + precio + TODOS
+      // los medios de pago); el texto de la IA queda de intro.
+      const productoPedido = decision.productoDelMensaje ?? decision.productToShow ?? null;
+      const idPedido = productoPedido?.id ?? null;
+      if (!isPaymentFlow && !esChatSocial && idPedido && validIds.has(idPedido) && !raw.includes("[CARD:")) {
+        // Solo forzar si la respuesta parece estar hablando DEL producto
+        // (menciona la primera palabra de su nombre) y no es una pregunta de
+        // clarificación genérica ("¿quieres que te lo muestre?").
+        const primeraPalabra = productoPedido?.name?.toLowerCase().split(" ")[0];
+        const nombraProducto = primeraPalabra ? raw.toLowerCase().includes(primeraPalabra) : true;
+        // ── O si el texto ANUNCIA que algo viene abajo ────────────────────
+        //
+        // Medido contra producción el 2026-09-04:
+        //
+        //   cliente: "vi su anuncio del curso de marketing digital, cuanto vale?"
+        //   bot:     "¡Buenísimo que te haya llamado la atención! 👇"
+        //
+        // Y nada más. Sin ficha, sin precio: una flecha apuntando al vacío.
+        //
+        // Pasó porque DOS candados buenos se encadenaron mal. El modelo
+        // escribió la intro esperando que la ficha saliera sola y no puso el
+        // marcador; este forzado no la puso porque exige que el texto NOMBRE
+        // el producto, y "¡Buenísimo!" no lo nombra; y después el candado de
+        // promesas --que hace bien su trabajo-- borró el "👇" por prometer
+        // algo que no salía. Resultado: el cliente preguntó el precio y
+        // recibió un saludo.
+        //
+        // Apuntar hacia abajo ES nombrar la ficha: es exactamente lo que el
+        // detector de promesas ya reconoce como "acá viene algo". Si el
+        // servidor SABE cuál es el producto, se adjunta en vez de borrar la
+        // frase. Cumplir la promesa es mejor que taparla.
+        const anunciaAlgoAbajo = promesasDe(raw).includes("ficha");
+        if (nombraProducto || anunciaAlgoAbajo) {
+          raw = `${raw.trim()}\n\n[CARD: ${idPedido}]`;
+          console.log(`🔧 [POST] Consulta de producto ${idPedido} sin card → forzada. La IA escribía la ficha a mano - ${ts()}`);
+        }
+      }
+
+      // Captura CUALQUIER cosa dentro de [CARD: ...], no solo un id.
+      //
+      // Antes el patrón era `[\w-]+`, que no admite espacios ni comillas. Si
+      // el modelo escribía el NOMBRE del producto en vez del id, el marcador
+      // no matcheaba: no se mandaba la ficha, y como la limpieza de más abajo
+      // usaba el mismo patrón, tampoco se borraba del texto.
+      //
+      // Resultado medido, conversación 13 del 2026-08-24: al cliente le llegó
+      // literalmente `[CARD: LIQUID FIBRA "DESINTOXICACION"]` -- corchetes
+      // incluidos, y encima de un producto que no tenía nada que ver con lo
+      // que estaba preguntando.
+      //
+      // Ahora entra todo y se decide adentro: si es un id se usa; si es un
+      // nombre se busca en el catálogo; si no se resuelve, se descarta. Lo que
+      // NUNCA puede pasar es que el marcador llegue al cliente.
+      const re = /\[CARD:\s*([^\]]+?)\s*\]/gi;
       const parts: any[] = [];
       let lastIndex = 0;
       let cardCount = 0;
+      /** La ficha se retuvo para calificar primero. Guarda el producto, para poder preguntar por su nombre. */
+      let fichaRetenida: { id: number; nombre: string; esFisico: boolean } | null = null;
       let cardProductId: number | null = null;
       let m: RegExpExecArray | null;
 
@@ -1244,10 +2960,62 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
         let resolvedId = -1;
 
         // ── VALIDACIÓN ESTRICTA DE PRODUCTO ──────────────────────────────────
+        // 0. El producto que la búsqueda identificó en ESTE mensaje manda sobre
+        //    el que eligió el modelo.
+        //
+        //    Antes acá solo se corregían ids INVÁLIDOS: si el modelo escribía
+        //    un id que existía en el catálogo pero era de OTRO producto, se
+        //    aceptaba sin comparar contra nada. En vivo (17-08-2026) el cliente
+        //    escribió "me interesa el curso de idiomas" y recibió el curso de
+        //    piano -- el emparejador había encontrado PACK IDIOMAS
+        //    correctamente, pero al modelo solo le llegaba una sugerencia en
+        //    texto y él siguió con el producto del historial. Una sugerencia no
+        //    es una garantía; esto sí.
+        const identificado = decision.productoDelMensaje;
+        if (identificado && validIds.has(identificado.id) && numId !== identificado.id) {
+          console.log(`🔒 [PARSER] La IA escribió ${numId} pero el cliente pidió "${identificado.name}" (ID ${identificado.id}, score ${identificado.score}). Se corrige.`);
+          resolvedId = identificado.id;
+        }
         // 1. Si el ID es válido, usarlo directamente
-        if (!isNaN(numId) && validIds.has(numId)) {
+        else if (!isNaN(numId) && validIds.has(numId)) {
           resolvedId = numId;
           console.log(`✅ [PARSER] ID válido: ${numId} (${productList.find(p => p.id === numId)?.name})`);
+        }
+        // 1b. El modelo escribió el NOMBRE en vez del id: resolverlo contra el
+        //     catálogo. Pasa seguido -- para el modelo es más natural escribir
+        //     "[CARD: Curso de Piano]" que acordarse del número -- y hasta
+        //     ahora eso costaba la ficha entera.
+        //
+        //     Solo se acepta una coincidencia INEQUÍVOCA (una sola). Con dos o
+        //     más candidatos se cae al paso siguiente: mandar la ficha
+        //     equivocada es peor que no mandar ninguna.
+        else if (isNaN(numId)) {
+          const escrito = String(m![1] || "").toLowerCase().replace(/["'*_]/g, "").trim();
+          const norm = (t: string) => String(t || "").toLowerCase().replace(/["'*_]/g, "").trim();
+          // Coincidencia EXACTA con cualquier largo; parcial solo si lo
+          // escrito es sustancioso.
+          //
+          // Con umbral 4 para todo, "[CARD: curso]" resolvía al curso de piano
+          // -- por ser el único nombre que contiene "curso" -- y le mandaba esa
+          // ficha a alguien que preguntaba por Excel. Una palabra genérica no
+          // identifica un producto; el nombre completo sí.
+          const candidatos = escrito.length >= 4
+            ? productList.filter((p: any) => {
+                const n = norm(p.name);
+                if (n === escrito) return true;
+                if (escrito.length < 8) return false;
+                return n.includes(escrito) || escrito.includes(n);
+              })
+            : [];
+          if (candidatos.length === 1 && validIds.has(candidatos[0].id)) {
+            resolvedId = candidatos[0].id;
+            console.log(`🔤 [PARSER] La IA escribió el nombre "${m![1]}" → resuelto a ${resolvedId} (${candidatos[0].name})`);
+          } else if (decision.productToShow && validIds.has(decision.productToShow.id)) {
+            resolvedId = decision.productToShow.id;
+            console.log(`🔧 [PARSER] Nombre "${m![1]}" ambiguo (${candidatos.length} candidatos) → usando productToShow ${resolvedId}`);
+          } else {
+            console.log(`❌ [PARSER] Nombre "${m![1]}" no resuelve a ningún producto. Card descartada (el marcador NO se le manda al cliente).`);
+          }
         }
         // 2. Si el ID es inválido, usar SOLO el productToShow de decision (no fallback)
         else if (decision.productToShow && validIds.has(decision.productToShow.id)) {
@@ -1260,11 +3028,260 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
           resolvedId = -1;
         }
 
+        // ── ¿ALGO RESPALDA ESTA FICHA? ───────────────────────────────────────
+        // Cuando el servidor no identificó producto y la conversación no
+        // traía ninguno, el id que escribió el modelo no lo respalda nada:
+        // existe en el catálogo, y con eso alcanzaba para publicarlo. Así fue
+        // como un cliente que escribió "información" recibió un Cojín Moto
+        // Viajero y otro que escribió "key" recibió LIQUID FIBRA -- los dos,
+        // leads pagos, en su primer mensaje.
         if (resolvedId !== -1) {
-          const isPaymentFlow = (decision.intent === "payment_intent" || decision.intent === "confirmation");
-          parts.push({ kind: "card", productId: resolvedId, paymentOnly: isPaymentFlow });
+          const elegido = productList.find((p: any) => p.id === resolvedId);
+          const respaldada = cardConRespaldo({
+            nombreElegido: elegido?.name || "",
+            textoDelCliente: textoDecision,
+            productoDelMensajeId: decision.productoDelMensaje?.id ?? null,
+            currentProductId: memory.currentProductId ?? null,
+            esFlujoDePago: decision.intent === "payment_intent" || decision.intent === "confirmation",
+          });
+          if (!respaldada) {
+            console.log(`🛡️ [PARSER] La IA eligió "${elegido?.name}" (ID ${resolvedId}) pero nada lo respalda: el cliente no lo nombró y no hay producto en la conversación. Card descartada -- se manda solo el texto.`);
+            resolvedId = -1;
+          }
+        }
+
+        // ── NO REPETIR UNA FICHA YA ENVIADA ──────────────────────────────────
+        // Si al cliente ya se le mandó la tarjeta de ESE producto, volver a
+        // mandarla completa es lo que lo hace sonar a robot: repite precio,
+        // beneficios y enlaces que ya tiene. Se contesta SOLO lo que preguntó
+        // (el texto que la IA escribió antes de la tarjeta) y se descarta la
+        // tarjeta.
+        //
+        // Excepciones: si la pidió de nuevo, o si está por pagar (ahí la
+        // tarjeta lleva los enlaces de pago vigentes), o si la IA no escribió
+        // nada más que la tarjeta -- en ese caso quitarla dejaría un mensaje
+        // vacío y es preferible repetirla.
+        const esFlujoDePago = (decision.intent === "payment_intent" || decision.intent === "confirmation");
+        const yaEnviada = resolvedId !== -1 && memory.sentProductIds.has(resolvedId);
+        // Que la ficha ya se haya enviado no bloquea lo que el cliente pide
+        // ahora: el video, la tienda, el precio y los medios de pago no son
+        // repeticiones de la ficha, son cosas que todavia no vio. Bloquearlas
+        // dejaba al modelo improvisando sobre datos que el servidor tenia.
+        const pideOtraCosa = pideAlgoEntregable(String(lastText || ""));
+        if (yaEnviada && !esFlujoDePago && !decision.pidioReenvio && !pideOtraCosa && textBefore) {
+          console.log(`🔁 [PARSER] La ficha de ${resolvedId} ya se envió antes: no se repite, se contesta solo lo que preguntó.`);
+          resolvedId = -1;
+        }
+
+        if (resolvedId !== -1) {
+          const isPaymentFlow = esFlujoDePago;
+          // Qué pedazo de la ficha pidió el cliente. Volcarla entera en cada
+          // turno es lo que hacía ver al bot como un folleto automático: si
+          // preguntó el precio, va el precio.
+          // ── Qué sabemos del video en esta conversación ───────────────────
+          //
+          // Se lee del historial en vez de guardar una bandera aparte: el
+          // historial ya es la verdad de qué se envió, y una bandera se
+          // desincroniza en cuanto algo falla a mitad de camino.
+          //
+          //   · ofrecimos: el último mensaje del bot ofreció mostrarlo, así
+          //     que un "dale" suelto significa que sí quiere verlo.
+          //   · yaEnviado: si el enlace ya salió, no se repite -- que lo pidan
+          //     de nuevo suele ser que no lo abrieron, y remandarlo no ayuda.
+          const delAgente = (memory.history as any[]).filter((m) => m.role !== "customer");
+          const ultimaDelBot = String(delAgente[delAgente.length - 1]?.content || "");
+          // Lo que la ficha ofreció de verdad, leído de los metadatos que dejó
+          // el turno anterior. La expresión sobre el texto queda como respaldo
+          // para las conversaciones viejas, que no tienen ese metadato.
+          const metaAnterior = (delAgente[delAgente.length - 1] as any)?.metadata || {};
+          const ofrecioAntes = String(metaAnterior?.ofreceLaFicha || "");
+          // El respaldo por texto va en OR, no como alternativa a la metadata.
+          //
+          // Estaba escrito `!ofrecioAntes && /regex/`, o sea que la metadata
+          // DESACTIVABA el respaldo. Cuando la metadata salía mal --y salía
+          // mal siempre, por el bug de `videoDeProductoSeguro` de más abajo--
+          // el respaldo que habría salvado el turno quedaba apagado
+          // justamente en el caso para el que existía.
+          //
+          // Si el texto guardado dice que se ofreció el video, se ofreció:
+          // eso es un hecho observable, no una deducción.
+          // Lo que el bot ofrecio, venga de la metadata que dejo la ficha o
+          // leido de su propio texto -- porque el modelo redacta libre y sus
+          // frases no estan en ninguna lista. Ver queOfrecioElBot.
+          const ofrecidoEnTexto = queOfrecioElBot(ultimaDelBot);
+          const ofrecimosVideo = ofrecioAntes === "video" || ofrecidoEnTexto === "video";
+          const ofrecimosContenido = ofrecioAntes === "contenido"
+            || ofrecidoEnTexto === "contenido" || ofrecidoEnTexto === "precio";
+          // Un "si" a "¿Te paso el precio?" pide el PRECIO. Antes esa oferta
+          // se clasificaba como "otro", el "si" caia en `confirmation` y salia
+          // el checkout entero: al que pregunta cuanto vale se le tiraban los
+          // tres medios de pago y el numero de Nequi.
+          const ofrecimosPrecio = ofrecioAntes === "precio" || ofrecidoEnTexto === "precio";
+          // ⚠️ Esto era una frase y un dominio: `/🎬 Mira cómo son las clases|
+          // drive.google.com\/file/`. El video que acompaña a la ficha se manda
+          // con otras TRES redacciones y, en el negocio que está vendiendo hoy,
+          // con un enlace de Terabox -- así que la guarda no reconocía el video
+          // que el propio sistema acababa de enviar, y el bot lo ofrecía de
+          // nuevo y lo remandaba. Ahora se pregunta por el ENLACE de este
+          // producto, que es el hecho. Ver `elVideoYaSalio`.
+          const urlVideoDeEsteProducto = videoDeProductoSeguro(
+            (productList as any[]).find((pr: any) => pr.id === resolvedId),
+          );
+          const videoYaEnviado = elVideoYaSalio(delAgente as any, urlVideoDeEsteProducto);
+
+          // ¿Ya se dijo cuánto cuesta? El cierre del video lo necesita para no
+          // ofrecerle el precio a quien acaba de preguntarlo.
+          const yaSabeElPrecio = (memory.history as any[]).some(
+            (m) => m.role !== "customer" && /💰/.test(String(m.content || "")),
+          );
+
+          const seccion = seccionQueCorresponde({
+            mensaje: lastText,
+            intent: decision.intent,
+            fichaYaEnviada: memory.sentProductIds.has(resolvedId),
+            ofrecimosVideo,
+            ofrecimosContenido,
+            ofrecimosPrecio,
+            videoYaEnviado,
+            yaVioContenido: memory.sentProductIds.has(resolvedId),
+            tieneVideo: !!videoDeProductoSeguro((productList as any[]).find((pr: any) => pr.id === resolvedId)),
+          });
+          // ── Un "sí" contesta la pregunta ANTERIOR, no pide el checkout ─────
+          //
+          // Conversación real (2026-08-30):
+          //
+          //   bot:  "💰 $60.000 COP — ¿Te cuento qué incluye? 👀"
+          //   cliente: "Sí"
+          //   bot:  [los tres medios de pago con el número de Nequi]
+          //
+          // Le prometió el contenido y le mandó el checkout. `detectIntent`
+          // lee un "sí" suelto como confirmación de compra, y `isPaymentFlow`
+          // pisaba la sección que `seccionQueCorresponde` ya había elegido
+          // bien.
+          //
+          // Pedirle plata a quien todavía está averiguando es de las pocas
+          // formas de perder una venta que venía encaminada. Si el mensaje
+          // anterior del bot OFRECIÓ algo, el "sí" es para eso.
+          const contestaLaOferta = elSiContestaLaOferta({
+            mensaje: String(lastText || ""),
+            ofrecimosContenido,
+            ofrecimosVideo,
+          });
+          if (contestaLaOferta && isPaymentFlow) {
+            console.log(`🛡️ [FICHA] "${String(lastText).trim()}" contesta lo que el bot ofreció, no pide pagar. No se manda el checkout - ${ts()}`);
+          }
+          // Se clasifica con la MISMA función que arma el cierre al enviar, así
+          // no pueden separarse. `tieneVideo` se resuelve igual que allá: del
+          // metadata del producto.
+          const productoDeLaFicha = (productList as any[]).find((pr: any) => pr.id === resolvedId);
+          // ⚠️ Los CUATRO argumentos tienen que ser los mismos que usa el
+          // render en whatsapp.ts, o la metadata miente sobre lo que el
+          // cliente leyó -- y miente en la dirección peor, porque un
+          // `ofreceLaFicha` equivocado APAGA el respaldo por expresión regular
+          // de más arriba (`!ofrecioAntes && /te muestro el video/`). O sea:
+          // el dato malo es peor que no tener dato.
+          //
+          // Medido en la conversación del 2026-09-01:
+          //
+          //   bot:     "¿Te muestro el video? 🎬"
+          //   cliente: "Si"
+          //   bot:     [los tres medios de pago]
+          //
+          // `videoDeProductoSeguro` recibe el PRODUCTO y adentro lee
+          // `p.metadata`. Acá se le pasaba `productoDeLaFicha.metadata`, así
+          // que hacía `metadata.metadata` -> undefined -> "" -> `tieneVideo`
+          // era SIEMPRE false. Con eso, `invitacionesDe` tomaba el atajo de
+          // "sin video" y clasificaba el cierre como "otro", mientras el
+          // render -- que sí leía el video bien -- ofrecía verlo.
+          //
+          // `yaVioContenido` se calcula igual que allá: whatsapp.ts le suma
+          // `seccion === "completa" || seccion === "info"`, porque esas dos
+          // secciones muestran el contenido en el mismo mensaje.
+          // El tercer argumento NO es "el producto tiene video": es "el cierre
+          // PUEDE ofrecerlo", que además exige que no haya salido ya y que no
+          // vaya a salir en este mismo mensaje. whatsapp.ts usa esta misma
+          // función para armarlo, así que los dos lados no pueden separarse.
+          ofrecimientoDeLaFicha = elCierreOfrece(
+            seccion as any,
+            String(productoDeLaFicha?.kind || "digital") === "physical",
+            sePuedeOfrecerElVideo({
+              seccion: seccion as any,
+              tieneVideo: !!videoDeProductoSeguro(productoDeLaFicha),
+              videoYaEnviado,
+            }),
+            memory.sentProductIds.has(resolvedId) || seccion === "completa" || seccion === "info",
+            yaSabeElPrecio,
+          );
+          console.log(`🎯 [FICHA] Sección elegida: ${seccion}, el cierre ofrece: ${ofrecimientoDeLaFicha} (intent: ${decision.intent}) - ${ts()}`);
+          // ── La etapa decide si corresponde cobrar ───────────────────────────
+          //
+          // `calcularEtapa` ya sabía en qué punto va el trato, y lo sabía
+          // BIEN. Lo que faltaba era que eso mandara: su resultado viajaba al
+          // prompt como texto, o sea como sugerencia al modelo. Y una
+          // sugerencia no es una garantía -- es la misma lección que ya costó
+          // el producto equivocado y el objetivo del anuncio.
+          //
+          // Ahora la etapa es una regla del servidor. En `explorando` o
+          // `interesado` no sale el checkout, salvo que el cliente lo haya
+          // pedido con todas las letras.
+          const permiso = etapaDelTrato
+            ? puedeMandarPago({ etapa: etapaDelTrato, mensaje: String(lastText || "") })
+            : { puede: true, porQue: "sin etapa calculada, se deja pasar" };
+          if (isPaymentFlow && !permiso.puede) {
+            console.log(`🧭 [ETAPA] No se manda el pago: ${permiso.porQue} - ${ts()}`);
+          }
+          // ── EL EMBUDO TAMBIÉN FRENA LA FICHA ──────────────────────────────
+          //
+          // Vale la misma lección que el comentario de arriba: "una sugerencia
+          // no es una garantía". El embudo escribía su instrucción en el prompt
+          // y la ficha salía igual, porque la empuja el servidor por su cuenta.
+          //
+          // Visto en vivo el 2026-09-01 05:17, con el embudo ya desplegado:
+          //
+          //   cliente: "Me interesa el curso de piano"
+          //   bot:     "¡Buenísimo que preguntes por el de piano! 🎹 Te paso la
+          //             ficha completa así lo miras con calma."
+          //
+          // El modelo hasta ANUNCIÓ la ficha, y hacía bien: iba a salir sí o
+          // sí. Pedirle que primero pregunte mientras el servidor manda el
+          // producto entero debajo es pedirle algo imposible.
+          //
+          // Con `calificar` la ficha espera UN turno: el cliente dice para qué
+          // lo quiere y recién ahí se presenta, conectando con eso. Es el único
+          // movimiento que la frena; los demás (presentar, cerrar, destrabar)
+          // la necesitan.
+          if (pasoDelEmbudo?.movimiento === "calificar") {
+            const pr = (productList as any[]).find((x: any) => x.id === resolvedId);
+            fichaRetenida = {
+              id: resolvedId,
+              nombre: String(pr?.name || ""),
+              esFisico: String(pr?.kind || "digital") === "physical",
+            };
+            console.log(`🎯 [EMBUDO] Ficha retenida un turno: primero se pregunta para qué lo quiere - ${ts()}`);
+          } else {
+          parts.push({
+            kind: "card",
+            productId: resolvedId,
+            // Si lo PIDIÓ, se le da aunque el clasificador no lo haya marcado
+            // como intención de pago. Visto en vivo (2026-08-30): "como pago?"
+            // NO recibía los medios de pago porque `detectIntent` no lo
+            // clasificaba como `payment_intent`. Negarle los datos a quien
+            // quiere pagar pierde la venta en el último paso -- es el error
+            // opuesto al de cobrarle al que está averiguando, y sale igual de
+            // caro.
+            paymentOnly: (isPaymentFlow || pidePagar(String(lastText || ""))) && !contestaLaOferta && permiso.puede,
+            // Si ya recibió la ficha de ESTE producto, ya vio la lista de
+            // características: el cierre no puede ofrecerle contárselas.
+            yaVioContenido: memory.sentProductIds.has(resolvedId),
+            sesionNueva: !!memory.isNewSession,
+            videoYaEnviado,
+            yaSabeElPrecio,
+            mensajeDelCliente: String(lastText || ""),
+            seccion,
+          });
           cardProductId = resolvedId;
           cardCount++;
+          }
         }
         lastIndex = m.index + m[0].length;
       }
@@ -1275,8 +3292,593 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
         parts.push({ kind: "text", content: textAfter });
       }
 
+      // ── Si la ficha se retuvo, el texto no puede prometerla ──────────────
+      //
+      // El embudo frena la ficha un turno para preguntar primero para qué lo
+      // quiere. Pero el modelo ya habia escrito su texto, y ese texto anuncia
+      // la ficha -- porque hasta ese momento iba a salir. Nadie lo corregia.
+      //
+      // Conversacion real (2026-09-01):
+      //
+      //   05:17 cliente: "Me interesa el curso de piano"
+      //   05:17 bot:     "Te paso la ficha completa asi lo miras con calma."
+      //   06:23 cliente: "?"          <-- una hora esperando algo que no venia
+      //
+      // Retener la ficha sin tocar el texto no es media solucion: es peor que
+      // no retenerla. El cliente queda esperando, y el unico que sabe que no
+      // va a llegar es el servidor. Si se retuvo, se pregunta -- y se pregunta
+      // de verdad, no se anuncia un envio.
+      const PROMETE_FICHA =
+        /te (paso|mando|env[ií]o|comparto|dejo)\b[^.!?]*\b(ficha|info|informaci[oó]n|detalles|todo)|aqu[ií] (abajo|te dejo)|ya te (la|lo) (paso|mando|env[ií]o)|mira 👇|mir[aá] 👇/i;
+      if (fichaRetenida && cardCount === 0) {
+        const conPromesa = parts.filter((p: any) => p.kind === "text" && PROMETE_FICHA.test(String(p.content || "")));
+        if (conPromesa.length) {
+          const nombre = fichaRetenida.nombre;
+          const pregunta = fichaRetenida.esFisico
+            ? `¡Buena elección! 🙌 Antes de pasarte todo, ¿para qué lo necesitas? Así te digo si de verdad te sirve.`
+            : `¡Buena elección! 🙌 Antes de pasarte todo, ¿qué te gustaría lograr con el ${nombre}? Así te cuento lo que a ti te sirve y no un folleto entero.`;
+          // Se reemplaza el PRIMER texto que promete y se descartan los demás:
+          // dos mensajes seguidos, uno preguntando y otro anunciando, se
+          // contradicen igual.
+          conPromesa[0].content = pregunta;
+          for (const extra of conPromesa.slice(1)) extra.content = "";
+          console.log(`🩹 [EMBUDO] El texto prometía la ficha retenida: se reemplazó por la pregunta de calificación - ${ts()}`);
+        }
+      }
+
       // Limpiar flag interno _beforeCard
-      const finalParts = parts.map((p: any) => { delete p._beforeCard; return p; });
+      const finalParts = parts
+        .filter((p: any) => !(p.kind === "text" && !String(p.content || "").trim()))
+        .map((p: any) => { delete p._beforeCard; return p; });
+
+
+      // -- SI EL CLIENTE LO PIDIO Y EL SERVIDOR LO TIENE, SALE ------------
+      //
+      // La ficha solo se adjuntaba si el MODELO escribia el marcador
+      // `[CARD: id]`. O sea que entregar un dato verificado dependia de que
+      // al modelo se le ocurriera pedirlo. Medido en produccion el
+      // 2026-09-01, con el video cargado en el producto:
+      //
+      //   cliente: "muestrame el video"
+      //   bot:     "no tengo uno disponible para enviar por aca"
+      //
+      //   cliente: "¿tienes pagina web?"
+      //   bot:     "si tenemos. ¿Queres que te pase el enlace?"
+      //
+      // Las dos cosas existian y estaban a una linea de distancia. El modelo
+      // improviso porque nadie le puso el dato en la mano.
+      //
+      // Es la misma leccion que este proyecto ya aprendio con el precio, con
+      // la cuenta de cobro, con la entrega y con el producto: lo que se puede
+      // decidir en el servidor, se decide en el servidor. Pedirselo al modelo
+      // no es una garantia.
+      if (!finalParts.some((p: any) => p.kind === "card") && pideAlgoEntregable(String(lastText || ""))) {
+        const idParaEntregar = decision.productoDelMensaje?.id ?? memory.currentProductId ?? null;
+        if (typeof idParaEntregar === "number") {
+          const prod = (productList as any[]).find((x: any) => x.id === idParaEntregar);
+          const seccionPedida = seccionQueCorresponde({
+            mensaje: String(lastText || ""),
+            intent: decision.intent,
+            fichaYaEnviada: memory.sentProductIds.has(idParaEntregar),
+            // Misma corrección que arriba: por el enlace del producto, no por
+            // una frase que solo cubre una de las cuatro redacciones.
+            videoYaEnviado: elVideoYaSalio(memory.history as any, videoDeProductoSeguro(prod)),
+          });
+          // Solo las secciones que ENTREGAN algo. "completa" e "info" no se
+          // fuerzan: si el cliente ya la vio, repetirla es el defecto opuesto.
+          const ENTREGAN = new Set(["video", "tienda", "precio", "pago", "pago_link", "pago_transferencia", "entrega"]);
+          if (ENTREGAN.has(String(seccionPedida))) {
+            finalParts.push({
+              kind: "card", productId: idParaEntregar, paymentOnly: false,
+              yaVioContenido: memory.sentProductIds.has(idParaEntregar),
+              sesionNueva: !!memory.isNewSession,
+              // Este camino tampoco puede remandar el video ni cerrar con una
+              // encuesta: es el mismo render.
+              videoYaEnviado: elVideoYaSalio(memory.history as any, videoDeProductoSeguro(prod)),
+              yaSabeElPrecio: (memory.history as any[]).some(
+                (m) => m.role !== "customer" && /💰/.test(String(m.content || "")),
+              ),
+              mensajeDelCliente: String(lastText || ""),
+              seccion: seccionPedida,
+            } as any);
+            cardProductId = idParaEntregar;
+            cardCount++;
+            console.log(`[SERVIDOR] "${String(lastText).trim().slice(0, 40)}" pide ${seccionPedida} y ${prod?.name ?? idParaEntregar} lo tiene: se entrega sin esperar al modelo - ${ts()}`);
+            // El modelo no sabia que esto existia y pudo haber escrito que
+            // NO lo tiene. Negarlo y entregarlo en el mismo mensaje deja al
+            // cliente sin saber cual de las dos cosas es cierta.
+            const entrega = loQueEntregaLaSeccion(String(seccionPedida));
+            if (entrega) {
+              for (const parte of finalParts as any[]) {
+                if (parte.kind !== "text" || !String(parte.content || "").trim()) continue;
+                if (!niegaLoQueSiSale(String(parte.content), entrega)) continue;
+                console.log(`[SERVIDOR] El texto negaba ${NOMBRE_DE_PROMESA[entrega]} que si sale: se reemplaza - ${ts()}`);
+                parte.content = "¡Claro que sí! Mira 👇";
+              }
+            }
+          }
+        }
+      }
+
+      // ── SUPERVISOR: nada sale sin pasar por acá ─────────────────────────────
+      //
+      // El prompt ya trae todas estas reglas escritas ("nunca escribas
+      // precios", "fijate si es físico o digital", "no muestres un producto
+      // que no tenga relación con lo que el cliente busca"). Son instrucciones
+      // BLANDAS y el modelo las ignora; el servidor sabía el dato exacto en
+      // los cuatro casos y lo dejaba pasar igual.
+      //
+      // Acá se revisa la respuesta YA REDACTADA contra el catálogo y contra lo
+      // que el cliente acaba de escribir. Lo corregible se corrige; lo que
+      // afirma algo falso no se envía. La IA redacta: no cotiza, no elige
+      // producto y no promete operaciones que nadie hace.
+      try {
+        // El candado de precios AFLOJA cuando esto viene vacio: pasa de "tiene
+        // que ser el precio de ESTE producto" a "de alguno del catalogo", y
+        // con 140 productos eso no filtra nada. Por eso entra tambien el
+        // producto en foco, que mira la ultima ficha enviada: asi la lista
+        // deja de quedar vacia en los mensajes que no nombran nada.
+        const enFocoAhora = productoEnFoco({
+          delMensaje: decision.productoDelMensaje as any,
+          aMostrar: decision.productToShow as any,
+          idActivo: memory.currentProductId,
+          historial: memory.history as any,
+          catalogo: productList as any[],
+        });
+        const idsEnContexto = [
+          ...finalParts.filter((p: any) => p.kind === "card").map((p: any) => p.productId),
+          decision.productToShow?.id,
+          decision.productoDelMensaje?.id,
+          memory.currentProductId,
+          enFocoAhora?.id,
+        ].filter((n: any): n is number => typeof n === "number");
+
+        const hayCard = finalParts.some((p: any) => p.kind === "card");
+
+        // ── Si la pregunta ya tiene respuesta escrita, gana esa ──────────────
+        //
+        // "¿Trae certificado?", "¿tiene garantía?", "¿dónde es la academia?" son
+        // preguntas que el negocio YA respondió. Dejarlas en manos del modelo es
+        // de donde salieron el certificado inventado y la academia con sede.
+        //
+        // Se reemplaza el texto del modelo, no se le suma: dos respuestas a la
+        // misma pregunta se contradicen tarde o temprano.
+        // Las cuentas de cobro reales de ESTE negocio, para que el supervisor
+        // pueda distinguir el número verdadero de uno inventado.
+        let cuentasDelNegocio: string[] = [];
+        try {
+          const { credencialesDe } = await import("./tenant-payment-credentials");
+          const tReal = await tenantManager.getTenantById(convo.tenantId);
+          cuentasDelNegocio = (credencialesDe(tReal as any)?.transfer?.accounts || [])
+            .map((c: any) => String(c?.number || ""))
+            .filter(Boolean);
+        } catch (e: any) {
+          logger.warn({ err: e?.message }, "[Supervisor] no se pudieron leer las cuentas del negocio");
+        }
+
+        let respondidoDeConocimiento = false;
+        try {
+          const idFoco = idsEnContexto[0] ?? null;
+          const conocida = responderPregunta(idFoco, lastText);
+          if (conocida) {
+            const primera = finalParts.find((p: any) => p.kind === "text");
+            if (primera) {
+              // La apertura va PEGADA cuando la respuesta es de una línea.
+              //
+              // Con el salto doble, un dato de un renglón ocupaba tres bloques
+              // ("Claro que sí 😊" / vacío / "Tienes 7 días de garantía…") y se
+              // leía como un mensaje largo para algo simple. El admin lo dijo
+              // así: "a veces se desborda al responder algo sencillo".
+              //
+              // Cuando la respuesta trae lista de viñetas, el bloque aparte sí
+              // se lee mejor y se conserva.
+              const apertura = aperturaPara(convo.contactPhone || "");
+              primera.content = conocida.texto.includes("\n")
+                ? `${apertura}\n\n${conocida.texto}`
+                : `${apertura} ${conocida.texto}`;
+              respondidoDeConocimiento = true;
+              console.log(
+                `📖 [CONOCIMIENTO] "${conocida.id}"${conocida.sinResponder ? " (sin respuesta cargada)" : ""} - ${ts()}`,
+              );
+            }
+          }
+        } catch (e: any) {
+          logger.warn({ err: e?.message }, "[Conocimiento] no se pudo resolver la pregunta");
+        }
+
+        for (const parte of finalParts) {
+          if (parte.kind !== "text" || !parte.content) continue;
+          // ⚠️ Acá decía `if (respondidoDeConocimiento) continue;` -- se
+          // saltaba el supervisor ENTERO. El razonamiento era correcto a
+          // medias: la RESPUESTA está verificada, sí. Pero dos cosas no.
+          //
+          // La primera es la apertura: no sale del conocimiento, la elige
+          // `aperturaPara()`, y una de las que puede tocar es "Claro que sí".
+          // Medido en la ronda 4 (2026-08-27) con el mismo mensaje que ya
+          // había fallado en la ronda 3:
+          //
+          //   cliente: "me lo dejas en 30 mil? ... me devuelves la plata?
+          //             ... tienes algo físico con envío a Quibdó?"
+          //   bot:     "Claro que sí 😊 Tienes 7 días de garantía ✅"
+          //
+          // La regla que existe para eso (R10) estaba escrita y desplegada, y
+          // no se ejecutó nunca porque este `continue` la saltaba.
+          //
+          // La segunda es que "verificado" habla de si el texto es CIERTO, no
+          // de si viene al caso: acá contestó una de tres preguntas.
+          //
+          // Ahora se supervisa igual, avisando que el texto está verificado
+          // para que no se revise su veracidad -- solo su pertinencia.
+          const revision = supervisarRespuesta({
+            respuesta: parte.content,
+            respuestaVerificada: respondidoDeConocimiento,
+            mensajeCliente: lastText,
+            productos: productList as any,
+            idsEnContexto,
+            // La verdad del servidor: si no hay ficha, no se mandó nada, por
+            // más que el texto diga "ya te lo mandé".
+            llevaCard: hayCard,
+            // Las cuentas de cobro REALES. Todo lo que el modelo escriba como
+            // número de cuenta y no esté acá, es plata a una cuenta ajena.
+            cuentasReales: cuentasDelNegocio,
+            // Hay rubros donde regatear es como se vende. El default es no.
+            negociaPrecio: negocio?.negociaPrecio === true,
+            // Lo que YA se le mandó a este cliente. Sin esto el agente no
+            // compara lo que va a decir contra lo que ya dijo -- y le ofrece
+            // contarle el contenido que acaba de enviarle.
+            yaEnviado: (memory.history as any[])
+              .filter((m) => m.role !== "customer")
+              .map((m) => String(m.content || "")),
+          });
+
+          if (revision.hallazgos.length === 0) continue;
+
+          logger.warn(
+            { conversationId, hallazgos: revision.hallazgos, bloquear: revision.bloquear, idsEnContexto },
+            "[Supervisor] La respuesta no pasó la revisión",
+          );
+          console.log(
+            `🔍 [SUPERVISOR] ${revision.hallazgos.map((h) => h.regla).join(", ")}` +
+            `${revision.bloquear ? " (BLOQUEADA)" : ""} - ${ts()}`,
+          );
+
+          if (!revision.bloquear) {
+            // Corregible: sale el texto ya saneado.
+            parte.content = revision.texto;
+            continue;
+          }
+
+          // Bloqueada: la respuesta afirma algo que el servidor sabe que no
+          // corresponde -- otro producto, o una fórmula en vez de contestar.
+          // Enviarla igual es lo que costó clientes, así que NO sale.
+          //
+          // No se regenera acá a propósito: otra llamada al modelo duplica la
+          // latencia de CADA mensaje que falle y puede volver a equivocarse.
+          // Sale un texto que no afirma nada, y la verdad la lleva la ficha,
+          // que la elige el servidor. Sin ficha, se pregunta en vez de
+          // inventar: preguntar una cosa concreta no pierde la venta;
+          // contestar sobre el producto equivocado, sí.
+          // Si la regla sabe cuál era la respuesta correcta, se usa esa: un
+          // texto genérico a veces deja al cliente peor que antes.
+          // ── Nunca dos veces la misma salida ────────────────────────────
+          //
+          // Medido el 2026-08-27: el supervisor bloqueó tres turnos seguidos y
+          // las tres veces salió EXACTAMENTE el mismo texto. El cliente nombró
+          // el producto, después pegó el nombre completo de la ficha, y recibió
+          // la misma frase palabra por palabra. Se destrabó con un "hola".
+          //
+          // Cambiar una alucinación por un bucle no es arreglar: es mover el
+          // problema. Un bucle además es peor, porque el cliente entiende que
+          // del otro lado no hay nadie.
+          //
+          // Si la salida anterior ya fue un bloqueo, se escala: se le muestra
+          // lo que sí se puede ofrecer en vez de repetir la pregunta.
+          const ultimaDelAgente = [...(memory.history as any[])]
+            .reverse()
+            .find((m) => m.role !== "customer")?.content ?? "";
+          const yaVeniaBloqueado = /dato equivocado|ficha aquí abajo con todos los detalles|Dejame verificarlo/i.test(
+            String(ultimaDelAgente),
+          );
+
+          if (yaVeniaBloqueado) {
+            const cercanos = (productList as any[]).slice(0, 5).map((p) => `• ${p.name}`).join("\n");
+            parte.content = cercanos
+              ? `Perdona, no te estoy entendiendo bien 🙏\n\nEstos son algunos de los cursos que tenemos:\n\n${cercanos}\n\n¿Alguno de estos, o buscas otra cosa?`
+              : `Perdona, no te estoy entendiendo bien 🙏 ¿Me dices con otras palabras qué necesitas?`;
+            console.log(`🔁 [SUPERVISOR] Segundo bloqueo seguido: se escala a menú en vez de repetir - ${ts()}`);
+          } else {
+            // ⚠️ No preguntar lo que el servidor YA SABE.
+            //
+            // Ronda 3 de QA (2026-08-27), dos veces en trece minutos: el bot
+            // escribió "Para confirmarte el acceso AL CURSO DE PIANO…", el
+            // cliente mandó el comprobante, y el turno siguiente salió con
+            // "¿me confirmas de cuál producto quieres que te cuente?".
+            //
+            // El producto no se había perdido -- está en `idsEnContexto`, que
+            // es lo mismo que acaba de usar el supervisor para revisar. Lo que
+            // fallaba era el texto de salida: preguntaba de cuál producto se
+            // hablaba teniéndolo en la mano. Para el cliente eso se lee como
+            // que del otro lado no lo están escuchando, y es lo que hacía
+            // parecer que el bot "arranca de cero en cada mensaje".
+            // Se resuelve más abajo, cuando ya se eligió `idEnFoco`: antes
+            // miraba `idsEnContexto[0]`, que podía ser otro producto distinto
+            // del que se termina mandando -- el texto nombraba uno y la ficha
+            // era de otro.
+            // ── NO PROMETAS LO QUE NADIE VA A CUMPLIR ─────────────────────
+            //
+            // Acá decía "Déjame confirmarte ese dato del X y te respondo
+            // enseguida 🙏". Visto en vivo el 2026-08-31: el cliente preguntó
+            // "¿tienes curso de inteligencia artificial?", recibió esa frase,
+            // y la conversación se murió ahí. No hay ningún mecanismo que
+            // responda después -- no existe un trabajo pendiente, nadie avisa
+            // al admin, nadie vuelve. Es una promesa rota por construcción, y
+            // encima sobre una pregunta que el servidor SÍ podía contestar:
+            // el producto estaba identificado, tenía su nombre en la mano.
+            //
+            // Cuando el supervisor bloquea lo que escribió el modelo, lo que
+            // corresponde no es prometer: es mandar la FICHA, que la arma el
+            // servidor con datos verificados y contesta "¿lo tenés?" mejor que
+            // cualquier frase.
+            // ── CUÁL ficha se manda: la que el cliente pidió ──────────────
+            //
+            // Acá estaba `idsEnContexto[0]`, y ese arreglo empieza por
+            // `decision.productToShow` -- una elección del MODELO. Para un
+            // mensaje sin producto nombrado ("?", "y eso", "cuánto") el modelo
+            // igual elige alguno, y esa corazonada le ganaba al producto que
+            // la conversación venía tratando.
+            //
+            // Conversación real (2026-09-01):
+            //
+            //   cliente: "Me interesa el curso de piano"
+            //   bot:     "Te paso la ficha completa así lo miras con calma."   (y no mandó ninguna)
+            //   cliente: "?"
+            //   bot:     "¡Sí! Mira 👇" + [ficha de INTELIGENCIA ARTIFICIAL 2026]
+            //
+            // Preguntó por piano dos veces y recibió otro curso, anunciado con
+            // un "¡Sí!" que da a entender que es lo que pidió. Peor que no
+            // contestar: contradice al cliente con confianza.
+            //
+            // El orden correcto es el de la evidencia, de más fuerte a más
+            // débil: lo que el cliente NOMBRÓ en este mensaje, después el
+            // producto que la conversación viene tratando, y sólo al final la
+            // elección del modelo.
+            const idEnFoco =
+              decision.productoDelMensaje?.id
+              ?? memory.currentProductId
+              ?? decision.productToShow?.id
+              ?? idsEnContexto[0];
+            // ¿Lo eligió el cliente, o lo estamos deduciendo? Si nadie lo
+            // nombró y no es el producto en curso, mandarlo con un "¡Sí!" es
+            // afirmar algo que no consta.
+            const loPidioElCliente =
+              typeof idEnFoco === "number"
+              && (decision.productoDelMensaje?.id === idEnFoco || memory.currentProductId === idEnFoco);
+            const yaLaVio = typeof idEnFoco === "number" && memory.sentProductIds?.has(idEnFoco);
+
+            const nombreEnFoco = (productList as any[]).find((pr: any) => pr.id === idEnFoco)?.name;
+
+            if (revision.reemplazoSugerido) {
+              parte.content = revision.reemplazoSugerido;
+            } else if (hayCard) {
+              parte.content = "Te paso la ficha aquí abajo con todos los detalles 👇";
+            } else if (nombreEnFoco && typeof idEnFoco === "number" && !yaLaVio && loPidioElCliente) {
+              finalParts.push({ kind: "card", productId: idEnFoco, paymentOnly: false } as any);
+              parte.content = `¡Sí! Mirá 👇`;
+              console.log(`🧯 [SUPERVISOR] Bloqueó el texto: se manda la ficha de ${idEnFoco} (${nombreEnFoco}) en vez de prometer - ${ts()}`);
+            } else if (nombreEnFoco && typeof idEnFoco === "number" && !yaLaVio) {
+              // Hay un candidato, pero nadie lo nombró: se ofrece, no se afirma.
+              finalParts.push({ kind: "card", productId: idEnFoco, paymentOnly: false } as any);
+              parte.content = `¿Te referís al ${nombreEnFoco}? Te dejo la ficha 👇`;
+              console.log(`🧯 [SUPERVISOR] Ficha de ${idEnFoco} (${nombreEnFoco}) ofrecida sin afirmar: el cliente no lo nombró - ${ts()}`);
+            } else if (nombreEnFoco) {
+              // Ya tiene la ficha delante: repetirla es el defecto que el admin
+              // ya reportó ("me ofrece lo que acaba de mandarme"). Se pregunta
+              // algo concreto, que sí lleva a alguna parte.
+              parte.content = `Sí, tenemos el ${nombreEnFoco} 🙌 ¿Qué te gustaría saber puntualmente?`;
+            } else {
+              parte.content = "Para no darte un dato equivocado, ¿me confirmas de cuál producto quieres que te cuente?";
+            }
+          }
+        }
+      } catch (e: any) {
+        // Un fallo del candado no puede dejar al cliente sin respuesta.
+        logger.error({ err: e?.message }, "[Precios] fallo el verificador");
+      }
+
+      // ── Último filtro: el cliente lee colombiano ──────────────────────────
+      //
+      // El voseo lleva CUATRO rondas de QA sin caer, con la regla escrita en
+      // mayúsculas en el prompt y con el prompt ya corregido. Medido después
+      // de ese arreglo: "Si DECIDÍS comprar, te envío el link de pago".
+      //
+      // Pedirle al modelo no alcanza. Se traduce acá, que es lo único que en
+      // este sistema funcionó siempre: lo que se puede decidir en el servidor,
+      // se decide en el servidor.
+      for (const parte of finalParts) {
+        if (parte.kind === "text" && (parte as any).content) {
+          // El voseo y los emojis se arreglan en el MISMO punto y por el mismo
+          // motivo: las dos reglas estaban escritas en el prompt y el modelo
+          // las cumple casi siempre -- casi. Medido sobre 109 mensajes: 11
+          // llevaban 5 emojis o mas y 5 repetian el mismo tres veces.
+          //
+          // Solo se mide el texto que redacta el modelo. La ficha NO pasa por
+          // aca: ahi un emoji por linea es el formato correcto y lo escribio
+          // el dueño en la descripcion de cada producto.
+          const medido = medirEmojis(hablarColombiano(String((parte as any).content)));
+          if (medido.quitados > 0) {
+            console.log(`[EMOJIS] Se quitaron ${medido.quitados} que sobraban - ${ts()}`);
+          }
+          (parte as any).content = medido.texto;
+        }
+      }
+
+      // ── La ficha ya lo dice: el texto no lo repite ────────────────────────
+      //
+      // Reportado por el admin (2026-08-27): "le pregunté por el precio y
+      // mandó una cantidad de cosas y repitió el precio".
+      //
+      // Es literal: el mensaje sale con DOS partes. El modelo redacta un texto
+      // y el servidor adjunta la sección de la ficha -- y las dos traen el
+      // precio. El cliente lee $60.000, después un párrafo, y otra vez
+      // $60.000. A una pregunta de tres palabras.
+      //
+      // Ninguna de las dos partes está mal por separado; el problema es que
+      // nadie miraba el mensaje COMPLETO. Así que acá se mira: si va una
+      // sección corta -- de esas que ya se bastan solas -- el texto se recorta
+      // a su primera frase y se le quitan los montos, que los pone la ficha.
+      const seccionAdjunta = (finalParts.find((p: any) => p.kind === "card") as any)?.seccion;
+      const SE_BASTA_SOLA = new Set(["precio", "pago", "pago_link", "pago_transferencia", "entrega", "video", "tienda"]);
+      if (seccionAdjunta && SE_BASTA_SOLA.has(String(seccionAdjunta))) {
+        for (const parte of finalParts) {
+          if (parte.kind !== "text" || !(parte as any).content) continue;
+          const original = String((parte as any).content);
+          // Solo la primera frase: lo demás es el desborde.
+          let corto = original.split(/(?<=[.!?])\s+/)[0] ?? original;
+          // Y sin montos: el número lo pone la ficha, una sola vez.
+          // Si al quitarlo la frase queda anunciando un precio que ya no dice
+          // ("tiene un valor de , pago único"), se descarta entera.
+          (parte as any).content = sinElMontoQueVaEnLaFicha(corto);
+        }
+        const antes = finalParts.length;
+        for (let i = finalParts.length - 1; i >= 0; i--) {
+          if (finalParts[i].kind === "text" && !(finalParts[i] as any).content) finalParts.splice(i, 1);
+        }
+        if (antes !== finalParts.length || true) {
+          console.log(`✂️ [DESBORDE] Sección "${seccionAdjunta}": el texto se recortó para no repetir la ficha - ${ts()}`);
+        }
+      }
+
+      // NOTA DE ORDEN: esto corre DESPUES del supervisor a proposito.
+      //
+      // Estaba antes, y no servia de nada: el supervisor, cuando bloquea el
+      // texto del modelo, adjunta la ficha de `productoDelMensaje` -- que es
+      // justo el producto mal casado-- y pisaba la correccion. Medido tres
+      // veces contra produccion: la correccion se aplicaba y el resultado
+      // seguia siendo el producto equivocado.
+      //
+      // Cualquier cosa que corrija la SALIDA tiene que correr despues de todo
+      // lo que puede cambiarla.
+      // -- UNA PREGUNTA SOBRE EL NEGOCIO NO CAMBIA DE PRODUCTO -----------
+      //
+      // Medido en produccion el 2026-09-01, hablando del curso de piano:
+      //
+      //   cliente: "¿tienes pagina web?"
+      //   bot:     "Si, tenemos pagina web" + [ficha de DESARROLLO WEB]
+      //
+      // El modelo caso las palabras "pagina web" con el NOMBRE de otro curso
+      // del catalogo y emitio su tarjeta. "¿tienes pagina web?", "¿cuanto
+      // vale?" y "¿como pago?" son preguntas sobre lo que se viene hablando,
+      // no pedidos de un producto nuevo.
+      //
+      // La regla: si el cliente NO nombro un producto y hay uno en foco, la
+      // tarjeta es la del que esta en foco. Un cambio de producto de verdad
+      // ('contame del de ingles') si llena `productoDelMensaje`, asi que
+      // esos no entran aca.
+      if (
+        pideAlgoEntregable(String(lastText || ""))
+        // El cliente no lo nombro, o lo que se creyo nombrado sale de las
+        // palabras de la pregunta misma ("pagina web" -> el curso DESARROLLO
+        // WEB). Las dos cosas significan lo mismo: no eligio otro producto.
+        && (
+          !decision.productoDelMensaje?.id
+          || elProductoSaleDeLaPreguntaMisma(String(decision.productoDelMensaje?.name || ""), String(lastText || ""))
+        )
+        && typeof memory.currentProductId === "number"
+      ) {
+        for (const parte of finalParts as any[]) {
+          if (parte.kind !== "card") continue;
+          if (parte.productId === memory.currentProductId) continue;
+          const traido = (productList as any[]).find((x: any) => x.id === parte.productId);
+          const enFoco = (productList as any[]).find((x: any) => x.id === memory.currentProductId);
+          console.log(`[FOCO] El modelo trajo "${traido?.name ?? parte.productId}" para una pregunta sobre "${enFoco?.name ?? memory.currentProductId}": se corrige - ${ts()}`);
+          parte.productId = memory.currentProductId;
+          cardProductId = memory.currentProductId;
+        }
+      }
+
+      // -- LO DE ADENTRO NO SALE --------------------------------------------
+      //
+      // Pedido del admin: "seguridad para que no diga nada interno de la
+      // aplicacion... son del dueño y nadie debe saber. Veo que a veces le
+      // preguntan y dice cosas que no debe."
+      //
+      // Medido contra produccion antes de escribir esto:
+      //   "¿eres un bot o una persona?"      -> "Soy Camila, una persona real"
+      //   "¿que inteligencia artificial usas?" -> empezaba a contarlo
+      //   "¿como esta hecha esta aplicacion?"  -> la describia
+      //
+      // Dos capas, porque cubren cosas distintas: la PREGUNTA (el cliente
+      // pidio lo de adentro) y la RESPUESTA (el modelo lo solto sin que se lo
+      // pidieran, contando de que esta hecho para justificar algo).
+      {
+        // El catalogo de ESTE negocio. Sin el, el guardia asume que nadie
+        // vende tecnologia y le corta la conversacion a la academia de
+        // programacion, al hosting y al curso de IA: medido el 2026-09-02,
+        // 5 de 19 preguntas normales de cliente y 2 de 9 mensajes de venta.
+        // Con el catalogo delante, el negocio siempre puede hablar de lo que
+        // vende, y ningun dueño tiene que configurar nada en Atlas.
+        const vocabNegocio = vocabularioDelNegocio(productList as any[]);
+        const loQuePregunta = preguntaPorLoInterno(String(lastText || ""), vocabNegocio);
+        const nombreDelBot = String((activeAgent as any)?.name || "").trim() || "el asistente";
+
+        if (loQuePregunta) {
+          // UNA respuesta, no una por cada parte. Antes este bucle le ponia la
+          // misma frase a TODAS las partes de texto, asi que si el turno traia
+          // dos o tres, al cliente le llegaba la misma linea repetida.
+          console.log(`[INTERNO] Preguntaron por ${loQuePregunta}: se contesta sin delatar nada - ${ts()}`);
+          const partes = finalParts as any[];
+          const textos = partes.filter((p) => p.kind === "text" && String(p.content || "").trim());
+          if (textos.length > 0) {
+            textos[0].content = respuestaSegura(loQuePregunta, nombreDelBot);
+            for (let i = partes.length - 1; i >= 0; i--) {
+              if (partes[i].kind === "text" && partes[i] !== textos[0]) partes.splice(i, 1);
+            }
+          }
+        } else {
+          for (const parte of finalParts as any[]) {
+            if (parte.kind !== "text" || !String(parte.content || "").trim()) continue;
+            if (delataLoInterno(String(parte.content), vocabNegocio)) {
+              console.log(`[INTERNO] La respuesta mencionaba algo de adentro: se reemplaza - ${ts()}`);
+              parte.content = respuestaSegura("tripas", nombreDelBot);
+            }
+          }
+        }
+      }
+
+      // -- ULTIMO CANDADO: no prometas lo que no va a salir -----------------
+      //
+      // Los cuatro defectos del 2026-09-01 eran el mismo defecto visto desde
+      // cuatro lados: el texto anuncia una cosa y sale otra. Cada uno se
+      // arreglo en su sitio, y esta bien. Pero haber arreglado cuatro veces lo
+      // mismo en cuatro lugares distintos significa que faltaba el candado que
+      // los cubre a todos -- nadie comparaba lo que el mensaje DICE contra lo
+      // que el mensaje LLEVA.
+      //
+      // Corre al final, sobre lo que ya quedo decidido, porque la unica prueba
+      // de que algo se entrega es que este en la salida.
+      {
+        const seccionQueSale = (finalParts.find((p: any) => p.kind === "card") as any)?.seccion ?? null;
+        const hayFicha = finalParts.some((p: any) => p.kind === "card");
+        const textos = finalParts
+          .filter((p: any) => p.kind === "text")
+          .map((p: any) => String(p.content || ""));
+
+        for (const parte of finalParts as any[]) {
+          if (parte.kind !== "text" || !String(parte.content || "").trim()) continue;
+          const incumplidas = promesasIncumplidas(String(parte.content), {
+            hayFicha, seccion: seccionQueSale, mensajes: textos,
+          });
+          if (!incumplidas.length) continue;
+
+          const limpio = sinLaPromesa(String(parte.content), incumplidas);
+          console.log(
+            `[PROMESAS] El texto prometia ${incumplidas.map((x) => NOMBRE_DE_PROMESA[x]).join(", ")} y no sale en este turno: se quita la frase - ${ts()}`,
+          );
+          // Si al sacar la promesa no queda nada, mejor una pregunta honesta
+          // que un mensaje mocho: el turno tiene que seguir la conversacion.
+          parte.content = limpio || "¿Qué te gustaría saber puntualmente? 🙌";
+        }
+      }
 
       console.log(`📋 [PARSER] partes:${finalParts.length} cards:${cardCount} - ${ts()}`);
 
@@ -1285,14 +3887,214 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
         intent: decision.intent,
         aiProvider: usedProvider,
         cardSent: cardCount > 0,
-        productId: cardProductId || decision.productToShow?.id,
+        // El producto en foco NO es solo el de la tarjeta enviada. Si el bot
+        // respondió con texto sin tarjeta ("¿quieres que te pase la info?"), el
+        // producto que el cliente NOMBRÓ en este mensaje (productoDelMensaje)
+        // es lo que debe quedar en foco. Antes esto solo miraba la tarjeta o
+        // productToShow, así que una respuesta sin tarjeta dejaba el foco vacío
+        // y el "Si" de confirmación volvía al producto viejo del historial.
+        productId: cardProductId || decision.productToShow?.id || decision.productoDelMensaje?.id,
         productName: cardProductId
           ? productList.find(p => p.id === cardProductId)?.name
-          : decision.productToShow?.name,
+          : decision.productToShow?.name || decision.productoDelMensaje?.name,
         isHardcoded: false,
+        // ── QUÉ OFRECIÓ ESTA FICHA ────────────────────────────────────────
+        //
+        // El "¿Te muestro el video? 🎬" no viaja en una parte de texto: lo
+        // arma la FICHA al enviarse. Y `textoGuardado` (más abajo) solo guarda
+        // las partes de texto, así que en el historial quedaba nada más
+        // "¡Claro que sí! Te paso la ficha…" y la oferta desaparecía.
+        //
+        // Consecuencia medida el 2026-08-31, con el mecanismo anti-checkout ya
+        // escrito y sin poder actuar:
+        //
+        //   bot:     "💰 $60.000 COP — ¿Te muestro el video? 🎬"
+        //   cliente: "Si"
+        //   bot:     [los tres medios de pago]
+        //
+        // El detector busca la oferta con una expresión sobre el último
+        // mensaje guardado del bot, y ahí no estaba. Guardarla en los metadatos
+        // la vuelve un HECHO en vez de algo a adivinar sobre un texto que
+        // además puede cambiar de redacción en cualquier momento.
+        ofreceLaFicha: cardCount > 0 ? ofrecimientoDeLaFicha : undefined,
       };
 
-      await saveAgentMessage(conversationId, raw, decision.stage, agentMeta);
+      // Se guarda lo que el cliente REALMENTE recibió, sin el marcador interno.
+      //
+      // Dos motivos. Uno: `[CARD: 123]` se veía literal en la pantalla de
+      // Conversaciones, como si el bot hubiera mandado ese texto. Dos, y más
+      // grave: al reconstruir la memoria, `sentProductIds` se llena también
+      // buscando `[CARD: N]` dentro del texto guardado -- así que una tarjeta
+      // RECHAZADA por el parser (id inválido, o ya enviada antes) quedaba
+      // igualmente registrada como enviada, y el producto no se le mostraba
+      // nunca al cliente. La verdad de qué se envió está en `agentMeta`
+      // (cardSent + productId), que sale de las partes ya resueltas.
+      // ── Se guarda lo que SE ENVIÓ, no lo que el modelo escribió ───────────
+      //
+      // Acá se guardaba `raw`: el texto crudo, ANTES del supervisor. O sea que
+      // la base conservaba justo la versión que se habia decidido no mandar.
+      //
+      // Y eso no es un problema de registro, es un problema que se retroalimenta:
+      // el modelo lee los últimos 12 mensajes de la conversación para armar su
+      // contexto. Si ahí está su propio texto SIN corregir, aprende del error
+      // que el supervisor le tapó.
+      //
+      // Medido el 2026-08-26: el cliente vio "$60.000 COP" (corregido), pero en
+      // la base quedó "💰 $149.000 COP" -- un precio que no existe en el
+      // catálogo. En el turno siguiente el modelo lo lee como si fuera suyo y
+      // bueno. Lo mismo con el voseo y con el número de Nequi inventado: se
+      // bloqueaban al salir y volvían por la memoria.
+      // ── EL PRECIO, VERIFICADO CONTRA LA FICHA QUE DE VERDAD SALE ─────────
+      //
+      // El candado de precios ya corre en el supervisor, pero ahí el producto
+      // todavía puede no estar identificado -- y cuando `idsEnContexto` viene
+      // vacío afloja el criterio de "tiene que ser el precio de ESTE producto"
+      // a "de ALGÚN producto del catálogo". Con 140 productos eso no filtra
+      // nada: casi toda cifra redonda es el precio de alguno.
+      //
+      // Medido contra producción el 2026-09-02. A "¿cuánto vale y cómo me
+      // llega?" el bot contestó "💰 El valor es de $45.000 COP" sobre el curso
+      // de $60.000. Los $45.000 son el precio de OTRO producto, y por eso
+      // pasaron: quince mil pesos regalados.
+      //
+      // Acá abajo el dato ya no falta. La ficha está resuelta y corregida, así
+      // que se sabe EXACTAMENTE de qué producto habla el mensaje, y el mismo
+      // candado se puede aplicar en su versión estricta.
+      //
+      // Va acá y no antes por la regla que este proyecto ya pagó tres veces:
+      // cualquier cosa que corrija la salida tiene que correr después de todo
+      // lo que puede cambiarla. Y solo actúa cuando HAY ficha -- sin ficha no
+      // se toca nada, porque borrar un precio que era correcto es el otro bug,
+      // el de "💰 — pago único" sin el número.
+      try {
+        const idsDeLaFicha = finalParts
+          .filter((p: any) => p.kind === "card")
+          .map((p: any) => p.productId)
+          .filter((n: any): n is number => typeof n === "number");
+
+        if (idsDeLaFicha.length > 0) {
+          for (const parte of finalParts as any[]) {
+            if (parte.kind !== "text" || !String(parte.content || "").trim()) continue;
+            const rev = verificarPrecios(String(parte.content), productList as any[], idsDeLaFicha);
+            if (rev.inventados.length > 0) {
+              console.log(
+                `💰 [PRECIO] Monto que no es el de la ficha (${idsDeLaFicha.join(",")}): ${rev.inventados.join(", ")} - se saca la frase - ${ts()}`,
+              );
+              parte.content = rev.texto;
+            }
+          }
+        }
+      } catch (e) {
+        console.log(`⚠️ [PRECIO] No se pudo verificar contra la ficha: ${String(e)} - ${ts()}`);
+      }
+
+      // ── DEL PRODUCTO SOLO SE AFIRMA LO QUE DICE SU FICHA ─────────────────
+      //
+      // Conversacion real del 2026-09-02, 09:45, sobre el curso de IA
+      // (digital, con enlace de entrega):
+      //
+      //   "Modulo 1 - Fundamentos de IA / Modulo 2 - Herramientas esenciales
+      //    Modulo 3 - Agentes autonomos / Modulo 4 - Proyectos practicos
+      //    Pago contra entrega: pagas cuando recibes el material"
+      //
+      // Ese temario NO EXISTE: el curso real es "MASTER EN AGENTES IA, 39
+      // modulos", "CLAUDE AI, 13 modulos", n8n, OpenClaw. Se invento un plan
+      // de estudios y se lo describio al cliente como si fuera el producto. Y
+      // un mensaje despues mando la ficha de verdad, contradiciendose solo.
+      //
+      // El "contra entrega" no venia del codigo: el agente activo lo tiene
+      // escrito en SU PROMPT, en la base --"PAGO CONTRA ENTREGA... datos
+      // FIJOS, nunca los cambies"--, una plantilla de dropshipping puesta
+      // sobre un negocio de cursos. Ningun arreglo del camino de envios lo
+      // podia tapar.
+      //
+      // Y ese es el punto: la personalidad del agente es un dato que escribe
+      // el dueño, y puede estar mal. El servidor tiene que poder desmentirla
+      // cuando contradice al producto. Un curso que llega por enlace no se
+      // paga contra entrega, lo diga quien lo diga.
+      try {
+        const prodFicha = productoEnFoco({
+          delMensaje: decision.productoDelMensaje as any,
+          aMostrar: decision.productToShow as any,
+          idActivo: memory.currentProductId,
+          historial: memory.history as any,
+          catalogo: productList as any[],
+        });
+        if (prodFicha) {
+          for (const parte of finalParts as any[]) {
+            if (parte.kind !== "text" || !String(parte.content || "").trim()) continue;
+            let txt = String(parte.content);
+
+            const inventadas = lineasDeTemarioInventadas(txt, prodFicha as any);
+            if (inventadas.length > 0) {
+              console.log(`📋 [FICHA] ${inventadas.length} linea(s) de temario que no estan en la ficha del producto ${(prodFicha as any).id}: se sacan - ${ts()}`);
+              txt = sinElTemarioInventado(txt, prodFicha as any);
+            }
+
+            if (prometeEntregaFisica(txt, prodFicha as any)) {
+              console.log(`🚚 [FICHA] Prometia entrega fisica de un producto digital (${(prodFicha as any).id}): se corrige - ${ts()}`);
+              const limpio = sinLaPromesaFisica(txt);
+              txt = limpio ? `${limpio}
+
+${comoSeEntregaDeVerdad(prodFicha as any)}` : comoSeEntregaDeVerdad(prodFicha as any);
+            }
+
+            if (txt.trim()) parte.content = txt;
+          }
+        }
+      } catch (e: any) {
+        console.log(`⚠️ [FICHA] No se pudo revisar contra la ficha: ${e?.message} - ${ts()}`);
+      }
+
+      // ── NADA DE LO QUE YA LEYO SE VUELVE A MANDAR ────────────────────────
+      //
+      // Medido el 2026-09-02: el cliente pidio "mas informacion" y recibio la
+      // MISMA ficha que le habian mandado dos minutos antes, seguida del mismo
+      // "Te paso el precio?" palabra por palabra.
+      //
+      // El guardia que ya existia tenia una excepcion para el cliente que pide
+      // el video o el precio --cosas que todavia no vio-- y "tienes mas
+      // informacion?" entraba por ahi. La excepcion se comia la regla.
+      //
+      // Va acá, sobre lo que esta por salir, porque la repeticion no llega por
+      // un solo camino: la ficha viene del parser, el cierre de `invitacionDe`,
+      // el saludo de su propia funcion. Cada uno con su regla y su hueco.
+      try {
+        const revisado = sinLoQueYaLeyo(finalParts as any[], memory.history as any);
+        if (revisado.quitadas > 0) {
+          console.log(`🔁 [REPETIDO] Se quitaron ${revisado.quitadas} parte(s) que el cliente ya habia leido - ${ts()}`);
+          finalParts.length = 0;
+          (finalParts as any[]).push(...revisado.partes);
+        }
+
+        // Y la ficha: si ya se envio y ademas hay texto nuevo, no se repite.
+        // Sola si se deja -- un mensaje vacio es peor que una ficha repetida.
+        const hayTexto = (finalParts as any[]).some((p: any) => p.kind === "text" && String(p.content || "").trim());
+        if (hayTexto) {
+          const repetidas = (finalParts as any[]).filter(
+            (p: any) => p.kind === "card" && memory.sentProductIds?.has(p.productId),
+          );
+          if (repetidas.length > 0 && decision.intent !== "payment_intent" && decision.intent !== "confirmation" && !decision.pidioReenvio) {
+            console.log(`🔁 [REPETIDO] La ficha de ${repetidas.map((p: any) => p.productId).join(",")} ya la tenia: no se reenvia - ${ts()}`);
+            const quedan = (finalParts as any[]).filter((p: any) => !repetidas.includes(p));
+            finalParts.length = 0;
+            (finalParts as any[]).push(...quedan);
+          }
+        }
+      } catch (e: any) {
+        console.log(`⚠️ [REPETIDO] No se pudo revisar: ${e?.message} - ${ts()}`);
+      }
+
+      const textoEnviado = finalParts
+        .filter((p: any) => p.kind === "text" && p.content)
+        .map((p: any) => p.content)
+        .join("\n\n");
+      const textoGuardado = (textoEnviado || raw)
+        .replace(/\[CARD:\s*[^\]]*\]/gi, "").replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+      // Si el mensaje era SOLO la tarjeta, queda vacío al quitar el marcador:
+      // se deja constancia legible de qué ficha se envió.
+      const soloFicha = agentMeta.productName ? `📦 Ficha enviada: ${agentMeta.productName}` : "📦 Ficha del producto enviada";
+      await saveAgentMessage(conversationId, textoGuardado || soloFicha, decision.stage, agentMeta);
       await persistStage(conversationId, decision.stage);
 
       // ── 11c. PROCESAR CONFIRMACIÓN DE PAGO ───────────────────────────────────
@@ -1335,7 +4137,9 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
             customerId: customer?.contactPhone || 'desconocido',
             customerEmail,
             customerPhone: customer?.contactPhone || 'sin_telefono',
-            timestamp: new Date().toISOString(),
+            // La firma pide un Date, no su texto. Con `@ts-nocheck` esto pasaba
+            // y del otro lado quedaba una fecha inservible.
+            timestamp: new Date(),
           });
           // Marcar conversación como estado pagado
           await db.update(conversations)
@@ -1381,8 +4185,15 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
         .set({
           lastMessage: raw.substring(0, 200),
           lastMessageAt: dbNow(),
-          currentProductId: agentMeta.productId ?? null,
-          currentProductName: agentMeta.productName ?? null,
+          // No se puede BORRAR el producto en foco con una respuesta que no
+          // trae tarjeta. Antes `agentMeta.productId ?? null` ponía currentProductId
+          // en null cada vez que el bot respondía con texto suelto (un saludo,
+          // un "te paso la info"), así que el producto que se venía conversando
+          // desaparecía y la confirmación siguiente ("Si") caía en el producto
+          // viejo del historial. Si este turno no definió un producto nuevo,
+          // se conserva el que ya estaba en contexto.
+          currentProductId: agentMeta.productId ?? memory.currentProductId ?? null,
+          currentProductName: agentMeta.productName ?? memory.currentProductName ?? null,
         })
         .where(eq(conversations.id, conversationId));
 
@@ -1395,6 +4206,12 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
         content: raw,
         stage: decision.stage,
         parts: finalParts,
+        // Qué modelo contestó de verdad. No es lo mismo que el elegido en el
+        // panel: la cadena rota cuando uno falla, y sin esto no hay forma de
+        // saber desde afuera si respondió el modelo bueno o el de respaldo.
+        // Justo la pregunta que hubo que responder para entender por qué el
+        // bot "hace lo que quiere" con un formato ya escrito.
+        aiProvider: usedProvider,
         cardProductIds: finalParts.filter((p: any) => p.kind === "card").map((p: any) => p.productId),
       };
     },
@@ -1411,7 +4228,10 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
         content: fallbackText,
         stage: memory.currentStage,
         parts: [{ kind: "text", content: fallbackText }],
-        cardProductIds: [],
+        // El camino normal informa qué modelo contestó; el de emergencia
+        // tiene que decir que NO contestó ninguno, no omitir el dato.
+        aiProvider: "fallback",
+        cardProductIds: [] as any[],
       };
     },
     { conversationId, customerMessage: lastText, customerInfo }

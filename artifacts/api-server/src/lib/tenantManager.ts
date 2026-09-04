@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { eq, and, sql } from "drizzle-orm";
 import { db, tenants, conversations, leads, products, productCategories } from "@workspace/db";
 import { logger } from "./logger";
@@ -56,6 +55,16 @@ export interface TenantContext {
   };
   facebook?: {
     accessToken?: string;
+    /**
+     * Token de USUARIO de larga duración (scope ads_management), obtenido en
+     * el OAuth de conexión pero antes se descartaba después de listar
+     * páginas. `accessToken` de arriba es un token de PÁGINA -- sirve para
+     * publicar posts/Messenger, pero Meta rechaza con el error #17 "User
+     * access token required" si se lo usa para crear/publicar campañas y
+     * anuncios pagados. Ver ad-strategist.ts, que prioriza este campo para
+     * esas operaciones.
+     */
+    userAccessToken?: string;
     pixelId?: string;
     catalogId?: string;
     pageId?: string;
@@ -68,6 +77,15 @@ export interface TenantContext {
     /** Permisos de Facebook sobre la página (CREATE_CONTENT = puede publicar) */
     tasks?: string[];
     connectedAt?: string;
+  };
+  emailCredentials?: {
+    host?: string;
+    port?: number;
+    secure?: boolean;
+    user?: string;
+    pass?: string;
+    from?: string;
+    enabled?: boolean;
   };
   limits: {
     maxConversations: number;
@@ -129,16 +147,25 @@ const DEFAULT_TENANT: TenantContext = {
       accounts: [
         {
           type: "Nequi",
-          number: process.env.TRANSFER_NUMBER || "3136174267",
-          name: process.env.TRANSFER_NAME || "Duvier Mena"
+          number: process.env.TRANSFER_NUMBER || "",
+          name: process.env.TRANSFER_NAME || ""
         },
         {
           type: "Daviplata", 
-          number: process.env.TRANSFER_NUMBER || "3136174267",
-          name: process.env.TRANSFER_NAME || "Duvier Mena"
+          number: process.env.TRANSFER_NUMBER || "",
+          name: process.env.TRANSFER_NAME || ""
         }
       ]
     }
+  },
+  emailCredentials: {
+    host: process.env.SMTP_HOST || "smtp.gmail.com",
+    port: Number(process.env.SMTP_PORT || "587"),
+    secure: process.env.SMTP_SECURE === "true",
+    user: process.env.SMTP_USER || "",
+    pass: process.env.SMTP_PASS || "",
+    from: `"VentasPro" <${process.env.SMTP_USER || "noreply@ventaspro.com"}>`,
+    enabled: !!(process.env.SMTP_USER && process.env.SMTP_PASS),
   },
   limits: {
     maxConversations: 10000,
@@ -175,8 +202,45 @@ function parseFacebookMeta(metadata: unknown): TenantContext["facebook"] {
     return {
       ...fb,
       accessToken: decryptSecret(fb.accessToken),
+      userAccessToken: decryptSecret(fb.userAccessToken),
       appSecret: decryptSecret(fb.appSecret),
       messengerPageToken: decryptSecret(fb.messengerPageToken),
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Extrae las credenciales SMTP de tenants.metadata.email.
+ *
+ * OJO con el nombre de la clave: la pantalla de Configuracion -> Email guarda
+ * en `metadata.email` (construirMetaCorreo, lib/tenant-email.ts), que es
+ * ademas lo que documenta tenant-email-credentials.ts. Esta funcion leia
+ * `metadata.emailCredentials`, una clave que NADIE escribe nunca.
+ *
+ * Consecuencia real, medida el 2026-08-25: el admin cargaba su SMTP, la
+ * pantalla de estado lo daba por configurado y el boton de probar conexion
+ * funcionaba -- porque ESOS dos leen `metadata.email` por configCorreoDe().
+ * Pero el correo de recuperacion de clave resuelve por credencialesEmailDe()
+ * -> tenant.emailCredentials -> esta funcion, asi que recibia user y pass
+ * vacios, crearTransporter() devolvia null y el envio se abortaba en
+ * silencio. El usuario veia "revisa tu correo" y no llegaba nada, ni a el ni
+ * a ningun cliente suyo.
+ * Misma regla que parseFacebookMeta: metadata puede venir como string JSON
+ * según el motor de BD y la password puede estar cifrada con credentials-vault.
+ */
+export function parseEmailMeta(metadata: unknown): TenantContext["emailCredentials"] {
+  if (!metadata) return undefined;
+  try {
+    const meta = typeof metadata === "string" ? JSON.parse(metadata) : (metadata as any);
+    // `emailCredentials` se mantiene como respaldo por si quedo algun dato
+    // guardado con la forma vieja, pero la fuente real es `email`.
+    const em = meta?.email || meta?.emailCredentials;
+    if (!em) return undefined;
+    return {
+      ...em,
+      pass: decryptSecret(em.pass),
     };
   } catch {
     return undefined;
@@ -189,52 +253,53 @@ export class TenantManager {
   private cacheExpiry: Map<string, number> = new Map();
   private readonly CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
-  /**
-   * Gets tenant by slug with caching
-   */
-  async getTenantBySlug(slug: string): Promise<TenantContext | null> {
-    try {
-      // Check cache first
-      const cached = this.tenantCache.get(slug);
-      const expiry = this.cacheExpiry.get(slug);
-      
-      if (cached && expiry && Date.now() < expiry) {
-        return cached;
-      }
+/**
+    * Gets tenant by slug with caching
+    */
+    async getTenantBySlug(slug: string): Promise<TenantContext | null> {
+      try {
+        // Check cache first
+        const cached = this.tenantCache.get(slug);
+        const expiry = this.cacheExpiry.get(slug);
+        
+        if (cached && expiry && Date.now() < expiry) {
+          return cached;
+        }
 
-      // Query database
-      const [tenant] = await db
-        .select()
-        .from(tenants)
-        .where(eq(tenants.slug, slug))
-        .limit(1);
+        // Query database
+        const [tenant] = await db
+          .select()
+          .from(tenants)
+          .where(eq(tenants.slug, slug))
+          .limit(1);
 
-      if (!tenant) {
-        return null;
-      }
+        if (!tenant) {
+          return null;
+        }
 
-      // Convert to TenantContext
-      const tenantContext: TenantContext = {
-        id: tenant.id,
-        slug: tenant.slug,
-        name: tenant.name,
-        email: tenant.email,
-        isAdmin: !!tenant.isAdmin,
-        brandName: tenant.brandName,
-        agentPersonality: tenant.agentPersonality,
-        agentPrompt: tenant.agentPrompt,
-        agentName: tenant.agentName,
-        settings: tenant.settings || DEFAULT_TENANT.settings,
-        paymentMethods: tenant.paymentMethods || DEFAULT_TENANT.paymentMethods,
-        limits: tenant.limits || DEFAULT_TENANT.limits,
-        brandColors: tenant.brandColors || DEFAULT_TENANT.brandColors,
-        plan: tenant.plan || "basic",
-        // Credenciales de Facebook guardadas por tenant. Estaban declaradas en
-        // TenantContext pero nunca se leían de metadata, así que facebook
-        // quedaba undefined y TODO caía al .env global: en multi-cuenta eso
-        // significaba que cada tenant usaba la página del dueño del servidor.
-        facebook: parseFacebookMeta(tenant.metadata),
-      };
+        // Convert to TenantContext
+        const tenantContext: TenantContext = {
+          id: tenant.id,
+          slug: tenant.slug,
+          name: tenant.name,
+          email: tenant.email,
+          isAdmin: !!tenant.isAdmin,
+          brandName: tenant.brandName,
+          agentPersonality: tenant.agentPersonality,
+          agentPrompt: tenant.agentPrompt,
+          agentName: tenant.agentName,
+          settings: tenant.settings || DEFAULT_TENANT.settings,
+          paymentMethods: tenant.paymentMethods || DEFAULT_TENANT.paymentMethods,
+          limits: tenant.limits || DEFAULT_TENANT.limits,
+          brandColors: tenant.brandColors || DEFAULT_TENANT.brandColors,
+          plan: tenant.plan || "basic",
+          // Credenciales de Facebook guardadas por tenant. Estaban declaradas en
+          // TenantContext pero nunca se leían de metadata, así que facebook
+          // quedaba undefined y TODO caía al .env global: en multi-cuenta eso
+          // significaba que cada tenant usaba la página del dueño del servidor.
+          facebook: parseFacebookMeta(tenant.metadata),
+          emailCredentials: parseEmailMeta(tenant.metadata),
+        };
 
       // Cache the result
       this.tenantCache.set(slug, tenantContext);
@@ -294,6 +359,7 @@ export class TenantManager {
         // quedaba undefined y TODO caía al .env global: en multi-cuenta eso
         // significaba que cada tenant usaba la página del dueño del servidor.
         facebook: parseFacebookMeta(tenant.metadata),
+        emailCredentials: parseEmailMeta(tenant.metadata),
       };
 
       // Cache the result
@@ -546,10 +612,35 @@ export function resolveTenant() {
     try {
       let tenant: TenantContext | null = null;
 
-      // Method 1: Check for tenant slug in headers (for API calls)
+      // La sesión se resuelve PRIMERO, porque es la única prueba de identidad
+      // que tiene el sistema (cookie firmada; ver Method 4). Lo que venga en
+      // un header no prueba nada: lo escribe quien hace la llamada.
+      const idDeSesion = req.signedCookies?.tenant_id;
+      const sesion = idDeSesion ? await tenantManager.getTenantById(Number(idDeSesion)) : null;
+
+      // Method 1: x-tenant-slug -- SOLO respaldado por una sesión.
+      //
+      // Agujero real, verificado en producción el 2026-08-19: este bloque
+      // estaba ANTES de la sesión y aceptaba el header sin pedir nada. Con solo
+      // acertar el slug -- que es público y adivinable -- y SIN iniciar sesión,
+      // cualquiera obtenía `/api/products` entero y, peor,
+      // `/api/conversations` con los nombres y teléfonos de los clientes.
+      // Probado contra el tenant real: devolvía datos.
+      //
+      // El header no autentica: como mucho ELIGE entre los tenants a los que la
+      // sesión ya tiene derecho. Un admin de plataforma puede mirar cualquiera
+      // (es su trabajo); un cliente, solo el suyo.
       const tenantSlug = req.headers['x-tenant-slug'] as string;
-      if (tenantSlug) {
-        tenant = await tenantManager.getTenantBySlug(tenantSlug);
+      if (tenantSlug && sesion) {
+        const pedido = await tenantManager.getTenantBySlug(tenantSlug);
+        if (pedido && (sesion.isAdmin || pedido.id === sesion.id)) {
+          tenant = pedido;
+        } else if (pedido) {
+          logger.warn(
+            { sesion: sesion.id, pidio: pedido.id, path: req.path },
+            "[TenantManager] Se pidió actuar como otro cliente sin permiso -- se ignora el header",
+          );
+        }
       }
 
       // Method 2: Check for tenant in subdomain (e.g., tenant1.app.com)
@@ -577,10 +668,7 @@ export function resolveTenant() {
       // COOKIE_SECRET), cualquiera podría forjar `tenant_id=<numero>` y
       // autenticarse como cualquier tenant sin contraseña.
       if (!tenant) {
-        const tenantId = req.signedCookies?.tenant_id;
-        if (tenantId) {
-          tenant = await tenantManager.getTenantById(Number(tenantId));
-        }
+        tenant = sesion;
       }
 
       // EXCEPCIÓN TOTAL: No bloquear rutas de autenticación, login o registro

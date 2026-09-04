@@ -1,9 +1,40 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap');
 @import "tailwindcss";
 
+/* ── Paleta de la tienda ──────────────────────────────────────────────────
+   Sacada del kit de referencia (premiumm/URBANisty), de su `global.json`, no
+   a ojo de las capturas: son los valores exactos que usa el diseno.
+   Es una paleta FIJA para todas las tiendas: decision del dueno del producto
+   el 2026-08-22, por encima del color por cliente que habia antes. */
 @theme {
-  --color-brand-600: #4f46e5;
-  --color-brand-700: #4338ca;
+  --color-brand-600: #4D31B9;   /* acento: botones, header, badges */
+  --color-brand-700: #3d2794;   /* el acento, mas oscuro (hover) */
+
+  --color-uv-navy: #1A1E5D;     /* barra de anuncios, bloques oscuros */
+  --color-uv-ink: #090909;      /* titulos y footer */
+  --color-uv-text: #5E5C5C;     /* texto corrido */
+  --color-uv-lav: #EBEFFC;      /* fondo de las tarjetas de producto */
+  --color-uv-blue: #3357D9;     /* tarjeta grande del hero */
+  --color-uv-yellow: #FFC931;   /* bloques promocionales */
+  --color-uv-orange: #FE4327;   /* tarjeta chica del hero, ofertas */
+  --color-uv-green: #69D23B;    /* banda "oferta del dia" */
+  --color-uv-grey: #CAC7C7;     /* bloques neutros */
+
+  --font-sans: 'DM Sans', ui-sans-serif, system-ui, sans-serif;
+}
+
+/* El kit usa esquinas MUY redondeadas: es lo que mas define su caracter.
+   Se nombran para no repetir el numero magico en cada componente. */
+@utility rounded-uv {
+  border-radius: 24px;
+}
+@utility rounded-uv-lg {
+  border-radius: 40px;
+}
+
+body {
+  font-family: 'DM Sans', ui-sans-serif, system-ui, sans-serif;
+  color: #5E5C5C;
 }
 
 @utility bg-300% {

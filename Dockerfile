@@ -14,6 +14,12 @@ RUN apt-get update && apt-get install -y \
     git \
     && rm -rf /var/lib/apt/lists/*
 
+# Puppeteer NO descarga su propio Chrome (~180 MB): en la etapa final se
+# instala el `chromium` de Debian y se apunta ahí con PUPPETEER_EXECUTABLE_PATH.
+# Sin esto, el `pnpm install` se descarga un navegador entero que después no se
+# usa, engordando el build para nada.
+ENV PUPPETEER_SKIP_DOWNLOAD=true
+
 # Copiar archivos de configuración del monorepo
 COPY pnpm-lock.yaml pnpm-workspace.yaml package.json .npmrc .pnpmrc* ./
 
@@ -50,7 +56,19 @@ FROM node:22-slim
 
 WORKDIR /app
 RUN corepack enable
-RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
+# chromium + fuentes: necesarios para el scraping con navegador real (ver la
+# herramienta fb_ad_library en app-operator.ts). Facebook devuelve 403 a
+# clientes HTTP simples como curl -- verificado en vivo -- así que la única
+# forma de leer la Biblioteca de Anuncios pública es renderizando la página.
+# Las fuentes evitan que el texto salga en cuadraditos al capturar.
+RUN apt-get update && apt-get install -y \
+    curl \
+    chromium \
+    fonts-liberation \
+    fonts-noto-color-emoji \
+    && rm -rf /var/lib/apt/lists/*
+ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
+ENV PUPPETEER_SKIP_DOWNLOAD=true
 
 # Copiar solo lo necesario desde el build
 COPY --from=base /app /app

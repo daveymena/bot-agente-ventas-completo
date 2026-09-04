@@ -17,6 +17,7 @@ export const tenants = pgTable("tenants", {
   // tenant autenticado podía ver y controlar las sesiones de WhatsApp de
   // TODOS los demás tenants con solo llamar a la API directamente.
   isAdmin: boolean("is_admin").notNull().default(false),
+  isActive: boolean("is_active").notNull().default(true),
   brandName: text("brand_name").notNull(),
   brandLogo: text("brand_logo"),
   brandColors: jsonb("brand_colors").$type<{
@@ -33,9 +34,37 @@ export const tenants = pgTable("tenants", {
   contactPhone: text("contact_phone"),
   supportEmail: text("support_email"),
   paymentMethods: jsonb("payment_methods").$type<{
-    mercadopago?: { accessToken: string; enabled: boolean };
+    mercadopago?: { accessToken: string; publicKey?: string; enabled: boolean };
     paypal?: { clientId: string; clientSecret: string; mode: "sandbox" | "live"; enabled: boolean };
     transfer?: { enabled: boolean; accounts: Array<{ type: string; number: string; name: string }> };
+  }>(),
+  facebookIntegration: jsonb("facebook_integration").$type<{
+    appId?: string;
+    appSecret?: string;
+    pageId?: string;
+    pageAccessToken?: string;
+    adAccountId?: string;
+    webhookVerifyToken?: string;
+    messengerVerifyToken?: string;
+    enabled: boolean;
+  }>(),
+  emailConfig: jsonb("email_config").$type<{
+    smtpHost?: string;
+    smtpPort?: number;
+    smtpUser?: string;
+    smtpPassword?: string;
+    emailFrom?: string;
+    emailTo?: string;
+    enabled: boolean;
+  }>(),
+  apiKeys: jsonb("api_keys").$type<{
+    openai?: string;
+    groq?: string;
+    nvidia?: string;
+    opencode?: string;
+    opencodeZen?: string;
+    github?: string;
+    pexels?: string;
   }>(),
   woocommerceIntegration: jsonb("woocommerce_integration").$type<{
     url?: string;

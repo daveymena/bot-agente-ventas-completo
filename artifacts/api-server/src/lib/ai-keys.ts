@@ -22,12 +22,19 @@ const PREFIJO = "enc:v1:";
 /** Variable de entorno que espera cada proveedor. */
 export const ENV_POR_PROVEEDOR: Record<string, string> = {
   opencode: "OPENCODE_API_KEY",
+  // Nivel PAGO de OpenCode, separado del gratuito a propósito: el free se
+  // queda sin cuota a mitad del día (FreeUsageLimitError) y deja al bot sin
+  // responder. Teniéndolos como proveedores distintos, el admin puede poner
+  // Go de respaldo y que el corte de cuota no lo saque de servicio.
+  opencode_go: "OPENCODE_GO_API_KEY",
   groq: "GROQ_API_KEY",
   openrouter: "OPENROUTER_API_KEY",
   google_ai_studio: "GOOGLE_API_KEY",
   cerebras: "CEREBRAS_API_KEY",
   cohere: "COHERE_API_KEY",
   nvidia_nim: "NVIDIA_API_KEY",
+  // Ollama en la NUBE, no el local: los modelos corren del lado de ellos.
+  ollama_cloud: "OLLAMA_CLOUD_API_KEY",
   github: "GITHUB_TOKEN",
   mimo: "MIMO_API_KEY",
   openai: "OPENAI_API_KEY",
@@ -49,8 +56,14 @@ export const ENV_POR_PROVEEDOR: Record<string, string> = {
 /** Variable del MODELO de cada proveedor (para que la elección también aplique). */
 export const ENV_MODELO_POR_PROVEEDOR: Record<string, string> = {
   opencode: "OPENCODE_MODEL",
+  // Faltaba: opencode_go tenía mapeada su CLAVE pero no su MODELO, así que
+  // elegir el modelo desde el panel no tenía ningún efecto -- se guardaba en
+  // la base y nunca llegaba al entorno. Es el proveedor de pago y hoy es el
+  // primero de la cadena, o sea el que responde casi todos los mensajes.
+  opencode_go: "OPENCODE_GO_MODEL",
   groq: "GROQ_MODEL",
   openrouter: "OPENROUTER_MODEL",
+  ollama_cloud: "OLLAMA_CLOUD_MODEL",
   google_ai_studio: "GOOGLE_MODEL",
   cerebras: "CEREBRAS_MODEL",
   cohere: "COHERE_MODEL",
@@ -143,8 +156,18 @@ export async function cargarClavesEnEntorno(): Promise<number> {
       const envKey = ENV_POR_PROVEEDOR[proveedor];
       if (envKey && datos?.apiKey) {
         const plana = descifrar(datos.apiKey);
-        // El entorno manda: si el .env ya trae la clave, no se pisa.
-        if (plana && !process.env[envKey]) {
+        // La clave guardada desde Configuración GANA sobre la del .env, no al
+        // revés. Antes era "si el .env ya trae la clave, no se pisa": para
+        // opencode/groq/github -- los únicos tres proveedores que además
+        // vienen con clave puesta de fábrica en el .env de este deploy -- eso
+        // hacía que la pantalla de "Modelos de pago" guardara la clave nueva
+        // en la base (cifrada, con éxito aparente) pero NUNCA se usara en
+        // ningún lado: ni el Arquitecto, ni el botón "Probar conexión" (que
+        // también resuelve vía getProviderConfig(), o sea vía process.env).
+        // settings es una fila única de este deploy, no algo compartido entre
+        // negocios -- no hay ninguna razón real para que el admin no pueda
+        // reemplazar la clave que trae el servidor por una propia.
+        if (plana) {
           process.env[envKey] = plana;
           aplicadas++;
         }
@@ -152,6 +175,71 @@ export async function cargarClavesEnEntorno(): Promise<number> {
       const envModelo = ENV_MODELO_POR_PROVEEDOR[proveedor];
       if (envModelo && datos?.model) process.env[envModelo] = datos.model;
     }
+    // ── El token de GitHub vive en DOS lugares y solo uno llegaba al entorno ──
+    // `settings.githubToken` es donde escribe la conexión de Copilot (el flujo
+    // de código de dispositivo, routes/settings.ts), mientras que el bucle de
+    // arriba solo mira `businessConfig.aiProviders`, que es donde escribe la
+    // pantalla de "Modelos de pago". Son dos pantallas distintas guardando en
+    // dos campos distintos.
+    //
+    // Consecuencia real, medida el 2026-08-19: el admin volvió a conectar su
+    // cuenta de Copilot, el intercambio de token funcionó y quedó guardado con
+    // 24h de vigencia... y aun así toda llamada a Copilot fallaba, porque
+    // `getProviderConfig("github_copilot_internal")` lee
+    // `process.env.GITHUB_TOKEN` y ahí seguía el token VIEJO. Autenticarse de
+    // nuevo no arreglaba nada y no había forma de darse cuenta.
+    //
+    // Gana el de la conexión de Copilot, y no al revés: el otro consumidor de
+    // GITHUB_TOKEN era GitHub Models, que GitHub está RETIRANDO (verificado el
+    // 2026-08-19: 404 en el endpoint viejo y 410 "retirement brownout" en el
+    // nuevo). O sea que el token de "Modelos de pago" ya no sirve para nada,
+    // mientras que el de Copilot es el que el admin acaba de autorizar a mano.
+    if ((row as any).githubToken) {
+      process.env.GITHUB_TOKEN = String((row as any).githubToken);
+      logger.info("[AIKeys] token de GitHub tomado de la conexión de Copilot");
+
+      // Y se le pasa a OpenCode, que es de donde Atlas saca sus modelos.
+      //
+      // Va acá además de en el momento de vincular, y no es redundante: el
+      // admin ya tiene su cuenta vinculada desde antes de que esto existiera, y
+      // sin este empujón al arrancar habría que pedirle que la vuelva a
+      // vincular para nada. También cubre que OpenCode se reinicie y pierda su
+      // configuración, que ya pasó antes con las otras claves.
+      const expira = (row as any).copilotSessionExpiresAt;
+      void import("./opencode-provider-sync")
+        .then(({ sincronizarCopilotConOpencode }) =>
+          sincronizarCopilotConOpencode({
+            refresh: String((row as any).githubToken),
+            access: (row as any).copilotSessionToken || null,
+            expiraEnMs: expira ? new Date(expira).getTime() : null,
+          }),
+        )
+        .catch(() => {});
+    }
+
+    // VARIAS cuentas de Copilot. El admin tiene varias propias y activas, y la
+    // idea es que cuando una se queda sin cuota siga la siguiente: la rotación
+    // ya aparta 1 hora al que devuelve "cuota agotada", solo faltaba que
+    // hubiera más de un candidato que rotar (ver copilot-cuentas.ts).
+    //
+    // Va al entorno, como el resto de las claves, porque la cadena se arma en
+    // un contexto sincrónico y una consulta a la base por turno para leer algo
+    // que ya está en memoria sería puro costo.
+    const cuentas = (row as any).copilotTokens;
+    if (cuentas) {
+      try {
+        const { normalizarTokensDeCopilot } = await import("./copilot-cuentas");
+        const lista = normalizarTokensDeCopilot(cuentas);
+        if (lista.length > 0) {
+          process.env.COPILOT_TOKENS = JSON.stringify(lista);
+          // Cuántas, nunca cuáles: son credenciales.
+          logger.info({ cuentas: lista.length }, "[AIKeys] cuentas de Copilot cargadas");
+        }
+      } catch (e: any) {
+        logger.warn({ err: e?.message }, "[AIKeys] no se pudieron leer las cuentas de Copilot");
+      }
+    }
+
     if (aplicadas > 0) logger.info({ aplicadas }, "[AIKeys] claves guardadas cargadas al entorno");
     return aplicadas;
   } catch (e: any) {

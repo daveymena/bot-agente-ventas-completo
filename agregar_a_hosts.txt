@@ -1,0 +1,5 @@
+# FIX TEMPORAL EasyPanel - anadido el 1/8/2026
+144.91.112.79  tecnoia-bot-agenwhatsapp.2xs2bu.easypanel.host
+144.91.112.79  2xs2bu.easypanel.host
+
+# (quitar estas 3 lineas cuando EasyPanel arregle su proxy)

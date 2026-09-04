@@ -4,7 +4,8 @@ import { eq, desc } from "drizzle-orm";
 import { runAgentReply } from "./agent";
 import { tenantManager, type TenantContext } from "./tenantManager";
 
-const FB_GRAPH_URL = "https://graph.facebook.com/v21.0";
+import { FB_GRAPH_BASE } from "./meta-api-version";
+const FB_GRAPH_URL = FB_GRAPH_BASE;
 
 export interface CommentData {
   id: string;

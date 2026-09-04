@@ -1,3 +1,4 @@
+import { placeholderImage, placeholderBanner } from "../lib/placeholder-image";
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 
@@ -97,7 +98,7 @@ export const useStore = create<StoreState>()(
           name: 'Curso de React Avanzado',
           description: 'Aprende React desde cero hasta experto con proyectos reales.',
           price: 49.99,
-          image: 'https://images.unsplash.com/photo-1633356122544-f134324a6cee?w=800&auto=format&fit=crop&q=60',
+          image: placeholderImage("Curso de React Avanzado"),
           category: 'Cursos',
           type: 'digital',
           stock: 999
@@ -107,7 +108,7 @@ export const useStore = create<StoreState>()(
           name: 'Teclado Mecánico RGB',
           description: 'Teclado mecánico premium para gaming y productividad.',
           price: 129.99,
-          image: 'https://images.unsplash.com/photo-1511467687858-23d96c32e4ae?w=800&auto=format&fit=crop&q=60',
+          image: placeholderImage("Teclado Mecánico RGB"),
           category: 'Periféricos',
           type: 'physical',
           stock: 15
@@ -117,7 +118,7 @@ export const useStore = create<StoreState>()(
           name: 'Audífonos Inalámbricos',
           description: 'Cancelación de ruido activa y sonido de alta fidelidad.',
           price: 199.99,
-          image: 'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=800&auto=format&fit=crop&q=60',
+          image: placeholderImage("Audífonos Inalámbricos"),
           category: 'Audio',
           type: 'dropshipping',
           stock: 50
@@ -161,6 +162,9 @@ export const useStore = create<StoreState>()(
       addToCart: (product) => set((state) => {
         const existing = state.cart.find(item => item.id === product.id);
         if (existing) {
+          // Un producto digital NO suma cantidad: es un acceso, no una caja.
+          // Agregarlo dos veces cobraba el doble por el mismo enlace.
+          if (product.type === 'digital') return { cart: state.cart };
           return {
             cart: state.cart.map(item =>
               item.id === product.id ? { ...item, quantity: item.quantity + 1 } : item
@@ -174,7 +178,13 @@ export const useStore = create<StoreState>()(
       })),
       updateCartQuantity: (id, quantity) => set((state) => ({
         cart: state.cart.map(item =>
-          item.id === id ? { ...item, quantity: Math.max(0, quantity) } : item
+          // El tope de 1 para lo digital se aplica acá tambien, no solo en la
+          // pantalla: el estado se guarda en localStorage, asi que un carrito
+          // viejo con "Cant: 3" seguiria cobrando el triple aunque la interfaz
+          // ya no deje subirlo.
+          item.id === id
+            ? { ...item, quantity: item.type === 'digital' ? 1 : Math.max(0, quantity) }
+            : item
         ).filter(item => item.quantity > 0)
       })),
       clearCart: () => set({ cart: [] }),
@@ -182,7 +192,7 @@ export const useStore = create<StoreState>()(
       config: {
         storeName: 'ProStore MultiTenant',
         logoUrl: '',
-        heroImage: 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=800&auto=format&fit=crop&q=80',
+        heroImage: placeholderBanner("Tu tienda"),
         primaryColor: '#4f46e5',
         secondaryColor: '#9333ea',
         fontFamily: 'Inter',

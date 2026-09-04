@@ -37,6 +37,7 @@ export default function AdminTenantsPage() {
   const [error, setError] = useState<string | null>(null);
   // Guarda qué tenant tiene una acción en curso, para deshabilitar solo esos botones
   const [actingOn, setActingOn] = useState<number | null>(null);
+  const [bootstrapping, setBootstrapping] = useState(false);
 
   const isAdmin = !!sessionTenant?.isAdmin;
 
@@ -48,7 +49,24 @@ export default function AdminTenantsPage() {
   const loadTenants = async () => {
     try {
       const res = await fetch("/api/tenants/admin/list", { credentials: "include" });
-      if (!res.ok) throw new Error("No autorizado");
+      // El mensaje tiene que decir QUÉ pasó.
+      //
+      // Acá había un `throw new Error("No autorizado")` para cualquier
+      // respuesta que no fuera 200, así que un 500 del servidor se mostraba
+      // como un problema de permisos. Visto en vivo el 2026-08-19: el admin
+      // entraba a la página (o sea que SÍ tenía permiso) y leía "No
+      // autorizado", que lo mandaba a buscar el problema exactamente donde no
+      // estaba. Un error que miente cuesta más que no tener mensaje.
+      if (!res.ok) {
+        const crudo = await res.text().catch(() => "");
+        let detalle = "";
+        try { const j = JSON.parse(crudo); detalle = j.error || j.message || ""; } catch { detalle = crudo.slice(0, 200); }
+        throw new Error(
+          res.status === 403
+            ? (detalle || "No tenés permisos de administrador de la plataforma.")
+            : `El servidor respondió ${res.status}${detalle ? `: ${detalle}` : ""}`,
+        );
+      }
       const data = await res.json();
       setTenants(data.tenants || []);
     } catch (err: any) {
@@ -111,6 +129,54 @@ export default function AdminTenantsPage() {
             <AlertCircle className="h-12 w-12 text-destructive mx-auto mb-4" />
             <h2 className="text-xl font-bold mb-2">Acceso Denegado</h2>
             <p className="text-sm text-muted-foreground">No tienes permisos para ver esta página.</p>
+
+            {/*
+              Salida para el PRIMER administrador.
+
+              El backend permite promoverte a vos mismo mientras no exista
+              ningún admin en la plataforma, y esa ventana se cierra sola apenas
+              haya uno. Pero el frontend escondía el link "Administrador" detrás
+              de isAdmin y esta página solo cargaba si ya lo eras: el primer
+              admin no se podía crear desde ninguna pantalla. Cualquiera que
+              instale este sistema desde cero quedaba trabado igual, y la única
+              salida era pegar un fetch en la consola del navegador.
+
+              Si ya existe un admin, el backend responde 403 y acá se muestra
+              tal cual: hay que pedírselo a esa persona.
+            */}
+            <div className="mt-6 border-t pt-6">
+              <p className="text-xs text-muted-foreground mb-3">
+                ¿Sos quien instaló esta plataforma y todavía no hay ningún administrador?
+                Podés activarte una sola vez.
+              </p>
+              <Button
+                variant="outline"
+                disabled={bootstrapping}
+                onClick={async () => {
+                  if (!sessionTenant?.id) return;
+                  setBootstrapping(true);
+                  try {
+                    const res = await fetch(`/api/tenants/admin/${sessionTenant.id}/action`, {
+                      method: "POST",
+                      credentials: "include",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ action: "make_admin" }),
+                    });
+                    const data = await res.json().catch(() => ({}));
+                    if (!res.ok) throw new Error(data?.error || "No se pudo activar");
+                    toast.success("Listo, ya sos administrador. Recargando…");
+                    setTimeout(() => window.location.reload(), 1200);
+                  } catch (err: any) {
+                    toast.error(err.message || "No se pudo activar el acceso de administrador");
+                  } finally {
+                    setBootstrapping(false);
+                  }
+                }}
+              >
+                <Crown className="mr-2 h-4 w-4" />
+                {bootstrapping ? "Activando…" : "Activar mi acceso de administrador"}
+              </Button>
+            </div>
           </Card>
         </div>
       </Layout>

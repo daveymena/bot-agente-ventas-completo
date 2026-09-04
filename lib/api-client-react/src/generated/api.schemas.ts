@@ -22,6 +22,7 @@ export interface DashboardSummary {
   messagesLast24h: number;
   newLeadsToday: number;
   closedDeals: number;
+  whatsappConnected: boolean;
 }
 
 export interface ActivityEvent {
@@ -246,20 +247,26 @@ export interface Category {
   id: number;
   name: string;
   description?: string | null;
-  emoji?: string | null;
+  icon?: string | null;
+  color?: string;
+  kind: ProductKind;
   createdAt: string;
 }
 
 export interface CreateCategoryBody {
   name: string;
   description?: string;
-  emoji?: string;
+  icon?: string;
+  color?: string;
+  kind?: ProductKind;
 }
 
 export interface UpdateCategoryBody {
   name?: string;
   description?: string;
-  emoji?: string;
+  icon?: string;
+  color?: string;
+  kind?: ProductKind;
 }
 
 export type WhatsAppStatusState =

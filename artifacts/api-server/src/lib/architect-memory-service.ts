@@ -10,7 +10,14 @@ import { db, architectMemory } from "@workspace/db";
 import { eq, and, desc, like } from "drizzle-orm";
 import { logger } from "./logger";
 
-export type MemoryType = "fact" | "preference" | "decision" | "observation" | "instruction" | "reflection";
+export type MemoryType =
+  | "fact"
+  | "preference"
+  | "decision"
+  | "observation"
+  | "instruction"
+  | "reflection"
+  | "marketing_learning";
 
 export interface Memory {
   id: number;

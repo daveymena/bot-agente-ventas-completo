@@ -1,8 +1,10 @@
+import { placeholderImage, placeholderBanner } from "../lib/placeholder-image";
 import { motion } from 'framer-motion';
 import { useStore } from '../store/useStore';
 import { ArrowRight, Star, ShieldCheck, Zap, Globe, MapPin } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import ProductWizard from '../components/ProductWizard';
+import { htmlToPlainText } from '../lib/rich-text';
 
 const Hero = () => {
   const { config } = useStore();
@@ -53,7 +55,7 @@ const Hero = () => {
           >
             <div className="relative z-10 rounded-[3rem] overflow-hidden border-8 border-white/10 shadow-2xl">
               <img 
-                src={config.heroImage || "https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=800&auto=format&fit=crop&q=80"} 
+                src={config.heroImage || placeholderBanner("Tu tienda")} 
                 alt="Hero Product"
                 className="w-full h-[600px] object-cover"
               />
@@ -101,7 +103,7 @@ const ProductCard = ({ product }: { product: any }) => {
           {product.name}
         </h3>
         <p className="text-gray-500 text-xs line-clamp-2 mb-4">
-          {product.description}
+          {htmlToPlainText(product.description || '')}
         </p>
         <div className="flex items-center justify-between">
           <span className="text-xl font-bold text-gray-900">${product.price}</span>
@@ -153,19 +155,19 @@ const Home = () => {
                 title="Digital Pro" 
                 type="digital" 
                 count="24"
-                img="https://images.unsplash.com/photo-1614332287897-cdc485fa562d?w=800&auto=format&fit=crop&q=60" 
+                img={placeholderImage("Digital Pro")} 
               />
               <CategoryCard 
                 title="Equipamiento" 
                 type="physical" 
                 count="150+"
-                img="https://images.unsplash.com/photo-1542496658-e33a6d0d50f6?w=800&auto=format&fit=crop&q=60" 
+                img={placeholderImage("Equipamiento")} 
               />
               <CategoryCard 
                 title="Gadgets" 
                 type="dropshipping" 
                 count="89"
-                img="https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=800&auto=format&fit=crop&q=60" 
+                img={placeholderImage("Gadgets")} 
               />
             </div>
           </div>

@@ -72,6 +72,18 @@ Configure one or more in `.env`. Fallback chain: `opencode` → `groq` → `gith
 - Phone pairing: `POST /api/whatsapp/pair-phone` with `{"phoneNumber":"..."}`
 - Auth session saved in `artifacts/api-server/.baileys-auth/`
 
+## Agent Behavior Guidelines
+
+For the WhatsApp AI sales agent, follow these guidelines to ensure progressive, conversational sales rather than catalog dumping:
+
+- **Never send all product information in a single message** unless the customer explicitly requests it. First identify the customer's need and deliver only the relevant information.
+- **Start with the benefit, not the features.** Briefly describe what the course/program helps the customer achieve, then ask about their specific situation.
+- **Ask about the customer's specific problem before presenting solutions.** Example: "¿Qué te gustaría corregir principalmente en tu perrito?" before talking about modules.
+- **Limit consecutive messages to 1–2** unless the customer asks for more information. Wait for their response before continuing.
+- **Present price and payment methods only after the customer shows purchase intent.** Phrases like "quiero comprar", "sí", "qué hago para pagar" should trigger the price/payment flow.
+- **Use the free sample/class as a strategic conversion tool**, not as an initial handout. Offer it after identifying the customer's need: "¿Querés una clase de muestra para conoceros cómo se explica?".
+- **Focus the conversation on benefit → need → solution → price → close**, in that order. Avoid enumerating all features upfront.
+
 ## Commands
 
 ```bash

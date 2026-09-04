@@ -26,6 +26,7 @@ export const GetDashboardSummaryResponse = zod.object({
   messagesLast24h: zod.number(),
   newLeadsToday: zod.number(),
   closedDeals: zod.number(),
+  whatsappConnected: zod.boolean(),
 });
 
 /**
@@ -484,6 +485,7 @@ export const ListCategoriesResponseItem = zod.object({
   description: zod.string().nullish(),
   icon: zod.string().nullish(),
   color: zod.string(),
+  kind: zod.enum(["digital", "physical", "service"]),
   createdAt: zod.string(),
 });
 export const ListCategoriesResponse = zod.array(ListCategoriesResponseItem);
@@ -494,7 +496,9 @@ export const ListCategoriesResponse = zod.array(ListCategoriesResponseItem);
 export const CreateCategoryBody = zod.object({
   name: zod.string(),
   description: zod.string().optional(),
-  emoji: zod.string().optional(),
+  icon: zod.string().optional(),
+  color: zod.string().optional(),
+  kind: zod.enum(["digital", "physical", "service"]).optional(),
 });
 
 /**
@@ -507,7 +511,9 @@ export const UpdateCategoryParams = zod.object({
 export const UpdateCategoryBody = zod.object({
   name: zod.string().optional(),
   description: zod.string().optional(),
-  emoji: zod.string().optional(),
+  icon: zod.string().optional(),
+  color: zod.string().optional(),
+  kind: zod.enum(["digital", "physical", "service"]).optional(),
 });
 
 export const UpdateCategoryResponse = zod.object({
@@ -516,6 +522,7 @@ export const UpdateCategoryResponse = zod.object({
   description: zod.string().nullish(),
   icon: zod.string().nullish(),
   color: zod.string(),
+  kind: zod.enum(["digital", "physical", "service"]),
   createdAt: zod.string(),
 });
 

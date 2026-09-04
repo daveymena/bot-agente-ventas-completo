@@ -38,7 +38,7 @@ const Cart = () => {
         <div className="lg:col-span-2 space-y-6">
           {cart.map((item) => (
             <div key={item.id} className="bg-white p-6 rounded-2xl border border-gray-100 flex items-center gap-6">
-              <img src={item.image} alt={item.name} className="w-24 h-24 rounded-xl object-cover" />
+              <img src={item.image} alt={item.name} className="w-24 h-24 rounded-xl object-contain bg-gray-50 p-1" />
               <div className="flex-grow">
                 <div className="flex justify-between mb-1">
                   <h3 className="font-bold text-gray-900">{item.name}</h3>
@@ -51,6 +51,17 @@ const Cart = () => {
                 </div>
                 <p className="text-gray-500 text-sm mb-4">{item.category || 'Producto'}</p>
                 <div className="flex items-center justify-between">
+                  {/* Un curso digital no se compra "de a 3": es un acceso, no
+                      una caja. Se veía en vivo un carrito con "Cant: 3" del
+                      curso de piano por $180.000 -- el cliente paga el triple
+                      por exactamente el mismo enlace de acceso, y después
+                      reclama con razón. Peor: si igual paga, hay que
+                      devolverle plata. Para lo físico el selector sigue igual. */}
+                  {item.type === 'digital' ? (
+                    <span className="text-sm text-gray-500 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2">
+                      Acceso digital · 1 licencia
+                    </span>
+                  ) : (
                   <div className="flex items-center border border-gray-200 rounded-lg overflow-hidden">
                     <button
                       onClick={() => updateCartQuantity(item.id, Math.max(1, item.quantity - 1))}
@@ -66,6 +77,7 @@ const Cart = () => {
                       <Plus className="w-4 h-4" />
                     </button>
                   </div>
+                  )}
                   <span className="font-bold text-lg text-gray-900">
                     ${Math.round(item.price * item.quantity).toLocaleString()}
                   </span>

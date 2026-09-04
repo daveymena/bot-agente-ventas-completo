@@ -22,6 +22,9 @@ import { Plus, MoreVertical, Edit, Trash2, Save, Package, Tag, Filter, Check, X,
 import { toast } from "sonner";
 import { format, parseISO } from "date-fns";
 import { es } from "date-fns/locale";
+import { HelpTourButton } from "@/components/HelpTourButton";
+import { useAutoTour } from "@/hooks/use-auto-tour";
+import { getHelpGuide } from "@/data/help-guides";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -81,8 +84,9 @@ function SmartImportButton({ onComplete }: { onComplete: () => void }) {
         onChange={handleFileUpload}
         disabled={isUploading}
       />
-      <Button 
-        variant="outline" 
+      <Button
+        data-tour="products-import-button"
+        variant="outline"
         className="glass-panel border-primary/30 hover:border-primary/50 text-primary"
         onClick={() => document.getElementById('smart-import')?.click()}
         disabled={isUploading}
@@ -134,7 +138,10 @@ function ProductImage({ product, cat }: { product: any, cat: any }) {
   );
 }
 
+const HELP_GUIDE = getHelpGuide("products")!;
+
 export default function Products() {
+  useAutoTour(HELP_GUIDE);
   const queryClient = useQueryClient();
   const [activeCategoryId, setActiveCategoryId] = useState<number | "all">("all");
   const [activeKind, setActiveKind] = useState<ProductKind | "all">("all");
@@ -203,7 +210,10 @@ export default function Products() {
       <div className="flex flex-col gap-8 animate-enter">
         <div className="flex flex-col gap-2 md:flex-row md:justify-between md:items-end">
           <div>
-            <h1 className="text-2xl font-semibold tracking-tight">Catálogo de Productos</h1>
+            <div className="flex items-start gap-1.5">
+              <h1 className="text-2xl font-semibold tracking-tight">Catálogo de Productos</h1>
+              <HelpTourButton guide={HELP_GUIDE} />
+            </div>
             <p className="text-muted-foreground mt-1">Organiza tus ofertas para que los agentes IA puedan recomendarlas.</p>
           </div>
           {/* flex-wrap: sin esto, en pantallas angostas las 3 acciones no
@@ -226,7 +236,7 @@ export default function Products() {
               categories={categories || []}
               initialData={templateSelected}
             >
-              <Button className="shadow-lg shadow-primary/20"><Plus className="h-4 w-4 mr-2"/> Nuevo Producto</Button>
+              <Button data-tour="products-new-button" className="shadow-lg shadow-primary/20"><Plus className="h-4 w-4 mr-2"/> Nuevo Producto</Button>
             </ProductModal>
           </div>
         </div>
@@ -270,7 +280,7 @@ export default function Products() {
                   </Button>
                 );
               })}
-              <CategoryModal mode="create" onCreated={(id) => setActiveCategoryId(id)}>
+              <CategoryModal mode="create" onCreated={(id) => setActiveCategoryId(id)} defaultKind={activeKind !== "all" ? activeKind : "digital"}>
                 <Button variant="ghost" className="rounded-full h-8 px-4 text-xs font-medium text-muted-foreground hover:text-foreground border border-dashed hover:border-solid hover:bg-muted/50">
                   <Plus className="h-3 w-3 mr-1"/> Categoría
                 </Button>
@@ -414,9 +424,10 @@ export default function Products() {
                       <span className={`text-[9px] font-black uppercase tracking-widest ${product.isActive ? 'text-emerald-500' : 'text-muted-foreground'}`}>
                         {product.isActive ? 'Activo' : 'Inactivo'}
                       </span>
-                      <Switch 
+                      <Switch
+                        data-tour="products-active-toggle"
                         id={`active-${product.id}`}
-                        checked={product.isActive} 
+                        checked={product.isActive}
                         onCheckedChange={(checked) => handleToggleActive(product.id, checked)}
                         className="scale-75 origin-right"
                       />
@@ -449,8 +460,13 @@ export default function Products() {
                         <span className="text-lg">{cat.icon || '🏷️'}</span>
                       </div>
                       <div>
-                        <p className="font-semibold leading-none mb-1">{cat.name}</p>
-                        {cat.description && <p className="text-xs text-muted-foreground">{cat.description}</p>}
+                        <div className="flex items-center gap-2">
+                          <p className="font-semibold leading-none">{cat.name}</p>
+                          <Badge variant="outline" className="text-[10px] px-1.5 py-0 font-normal">
+                            {cat.kind === "physical" ? "📦 Físico" : "⚡ Digital"}
+                          </Badge>
+                        </div>
+                        {cat.description && <p className="text-xs text-muted-foreground mt-1">{cat.description}</p>}
                       </div>
                     </div>
                     <div className="flex gap-1">
@@ -469,7 +485,7 @@ export default function Products() {
   );
 }
 
-function CategoryModal({ mode, category, children, onCreated }: { mode: 'create'|'edit', category?: any, children?: React.ReactNode, onCreated?: (id: number) => void }) {
+function CategoryModal({ mode, category, children, onCreated, defaultKind }: { mode: 'create'|'edit', category?: any, children?: React.ReactNode, onCreated?: (id: number) => void, defaultKind?: ProductKind }) {
   const [open, setOpen] = useState(false);
   const queryClient = useQueryClient();
   const createCat = useCreateCategory();
@@ -480,7 +496,8 @@ function CategoryModal({ mode, category, children, onCreated }: { mode: 'create'
     name: category?.name || "",
     description: category?.description || "",
     icon: category?.icon || "",
-    color: category?.color || "#0ea5e9"
+    color: category?.color || "#0ea5e9",
+    kind: (category?.kind || defaultKind || "digital") as ProductKind,
   });
 
   const handleSubmit = () => {
@@ -522,8 +539,8 @@ function CategoryModal({ mode, category, children, onCreated }: { mode: 'create'
 
   return (
     <Dialog open={open} onOpenChange={(o) => {
-      if(o && mode === 'create') setFormData({ name: "", description: "", icon: "", color: "#0ea5e9" });
-      if(o && mode === 'edit') setFormData({ name: category.name, description: category.description||"", icon: category.icon||"", color: category.color });
+      if(o && mode === 'create') setFormData({ name: "", description: "", icon: "", color: "#0ea5e9", kind: defaultKind || "digital" });
+      if(o && mode === 'edit') setFormData({ name: category.name, description: category.description||"", icon: category.icon||"", color: category.color, kind: category.kind || "digital" });
       setOpen(o);
     }}>
       <DialogTrigger asChild>{children}</DialogTrigger>
@@ -561,6 +578,14 @@ function CategoryModal({ mode, category, children, onCreated }: { mode: 'create'
                 <input type="color" className="absolute -top-2 -left-2 w-16 h-16 cursor-pointer" value={formData.color} onChange={e => setFormData({...formData, color: e.target.value})} />
               </div>
             </div>
+          </div>
+          <div className="space-y-2">
+            <Label>Tipo de productos *</Label>
+            <ToggleGroup type="single" value={formData.kind} onValueChange={(v) => v && setFormData({...formData, kind: v as ProductKind})} className="justify-start">
+              <ToggleGroupItem value="digital" className="w-full flex-1 border data-[state=on]:bg-primary/10 data-[state=on]:text-primary data-[state=on]:border-primary/30">⚡ Digital</ToggleGroupItem>
+              <ToggleGroupItem value="physical" className="w-full flex-1 border data-[state=on]:bg-primary/10 data-[state=on]:text-primary data-[state=on]:border-primary/30">📦 Físico</ToggleGroupItem>
+            </ToggleGroup>
+            <p className="text-xs text-muted-foreground">Solo va a aparecer para productos de ese tipo.</p>
           </div>
         </div>
         <DialogFooter className="flex-row justify-between sm:justify-between items-center">
@@ -604,14 +629,29 @@ function ProductModal({ mode, product, categories, initialData, children, open: 
   const [aiImagePrompt, setAiImagePrompt] = useState("");
   const [isGeneratingImage, setIsGeneratingImage] = useState(false);
 
+  // Si el admin no escribe nada, se arma el prompt con el nombre y la
+  // descripción del producto -- antes el botón quedaba deshabilitado hasta
+  // que escribiera una descripción de la imagen en texto libre, algo que un
+  // dueño de negocio no tiene por qué saber hacer.
   const handleGenerateImage = useCallback(async () => {
-    if (!aiImagePrompt.trim()) return;
+    const nombre = (formData.name || "").trim();
+    const escrito = aiImagePrompt.trim();
+    if (!escrito && !nombre) {
+      toast.error("Escribí primero el nombre del producto");
+      return;
+    }
+    const prompt = escrito || [
+      `Foto profesional de producto para "${nombre}".`,
+      (formData.description || "").trim().slice(0, 200),
+      "Estilo fotografía realista de marketing, sin texto ni logos encima, apta para publicar en redes.",
+    ].filter(Boolean).join(" ");
+
     setIsGeneratingImage(true);
     try {
       const res = await fetch("/api/public/generate-image", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt: aiImagePrompt }),
+        body: JSON.stringify({ prompt }),
       });
       if (!res.ok) throw new Error("Error al generar imagen");
       const data = await res.json();
@@ -619,11 +659,11 @@ function ProductModal({ mode, product, categories, initialData, children, open: 
       setAiImagePrompt("");
       toast.success("Imagen generada correctamente");
     } catch (err) {
-      toast.error("No se pudo generar la imagen");
+      toast.error("No se pudo generar la imagen. Probá de nuevo en unos segundos.");
     } finally {
       setIsGeneratingImage(false);
     }
-  }, [aiImagePrompt]);
+  }, [aiImagePrompt, formData.name, formData.description]);
 
   // Sync state on open
   useMemo(() => {
@@ -777,10 +817,11 @@ function ProductModal({ mode, product, categories, initialData, children, open: 
                   <SelectTrigger><SelectValue placeholder="Sin categoría" /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="none">Sin categoría</SelectItem>
-                    {(Array.isArray(categories) ? categories : []).map(c => (
+                    {/* Solo categorías del mismo Tipo (Digital/Físico) que este producto -- si no filtramos acá, nada impide guardar un producto físico con una categoría pensada para lo digital (o al revés). */}
+                    {(Array.isArray(categories) ? categories : []).filter(c => (c.kind || "digital") === formData.kind).map(c => (
                       <SelectItem key={c.id} value={c.id.toString()}>
                         <span className="flex items-center gap-2">
-                          <span className="w-2 h-2 rounded-full" style={{ backgroundColor: c.color }}/> 
+                          <span className="w-2 h-2 rounded-full" style={{ backgroundColor: c.color }}/>
                           {c.icon} {c.name}
                         </span>
                       </SelectItem>
@@ -790,7 +831,20 @@ function ProductModal({ mode, product, categories, initialData, children, open: 
               </div>
               <div className="space-y-2">
                 <Label>Tipo de producto</Label>
-                <ToggleGroup type="single" value={formData.kind} onValueChange={(v) => v && setFormData({...formData, kind: v as any})} className="justify-start">
+                <ToggleGroup
+                  type="single"
+                  value={formData.kind}
+                  onValueChange={(v) => {
+                    if (!v) return;
+                    // Si la categoría elegida no existe para el nuevo Tipo, se
+                    // limpia -- sin esto quedaba guardado un categoryId de
+                    // Digital en un producto que se acaba de pasar a Físico.
+                    const stillValid = formData.categoryId === "none" ||
+                      (Array.isArray(categories) ? categories : []).some(c => c.id.toString() === formData.categoryId && (c.kind || "digital") === v);
+                    setFormData({ ...formData, kind: v as any, categoryId: stillValid ? formData.categoryId : "none" });
+                  }}
+                  className="justify-start"
+                >
                   <ToggleGroupItem value="digital" className="w-full flex-1 border data-[state=on]:bg-primary/10 data-[state=on]:text-primary data-[state=on]:border-primary/30">⚡ Digital</ToggleGroupItem>
                   <ToggleGroupItem value="physical" className="w-full flex-1 border data-[state=on]:bg-primary/10 data-[state=on]:text-primary data-[state=on]:border-primary/30">📦 Físico</ToggleGroupItem>
                 </ToggleGroup>
@@ -834,8 +888,8 @@ function ProductModal({ mode, product, categories, initialData, children, open: 
                 <div className="flex-1 space-y-2">
                   <Input value={formData.imageUrl} onChange={e => setFormData({...formData, imageUrl: e.target.value})} placeholder="https://ejemplo.com/imagen.jpg" />
                   <div className="flex gap-2 items-center">
-                    <Input value={aiImagePrompt} onChange={e => setAiImagePrompt(e.target.value)} placeholder="Describe la imagen para generar con IA..." className="text-xs" />
-                    <Button type="button" variant="secondary" size="sm" onClick={handleGenerateImage} disabled={isGeneratingImage || !aiImagePrompt.trim()}>
+                    <Input value={aiImagePrompt} onChange={e => setAiImagePrompt(e.target.value)} placeholder="Opcional: describí la imagen que querés" className="text-xs" />
+                    <Button type="button" variant="secondary" size="sm" onClick={handleGenerateImage} disabled={isGeneratingImage || (!aiImagePrompt.trim() && !formData.name.trim())} title="Si lo dejás vacío, se genera a partir del nombre y la descripción del producto">
                       <Sparkles className="h-3 w-3 mr-1" /> {isGeneratingImage ? "..." : "Generar"}
                     </Button>
                   </div>

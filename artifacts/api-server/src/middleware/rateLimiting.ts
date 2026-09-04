@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { Request, Response, NextFunction } from "express";
 import { logger } from "../lib/logger";
 import { tenantManager, type TenantRequest } from "../lib/tenantManager";
@@ -367,6 +366,12 @@ export const passwordResetRateLimit = rateLimitingMiddleware.createRateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutos
   maxRequests: 5,
   keyGenerator: (req: TenantRequest) => `pwreset_${req.ip}_${(req.body as any)?.email || ""}`
+});
+
+export const authRateLimit = rateLimitingMiddleware.createRateLimit({
+  windowMs: 15 * 60 * 1000,
+  maxRequests: 12,
+  keyGenerator: (req: TenantRequest) => `auth_${req.ip}_${(req.body as any)?.email || ""}`,
 });
 
 // Utility functions

@@ -39,7 +39,7 @@ export class ApplicationError extends Error implements AppError {
 export function sendError(
   res: Response,
   code: ErrorCode,
-  details?: Record<string, any>,
+  details?: Record<string, any> | number | string,
   customMessage?: string
 ) {
   const statusCode = ERROR_HTTP_STATUS[code];
@@ -50,7 +50,9 @@ export function sendError(
     code,
   };
 
-  if (details) {
+  // Varios callers pasan el status HTTP numérico donde va `details`
+  // (sendError(res, CODE, 401)). Ese número no es metadata útil: se ignora.
+  if (details && typeof details === "object") {
     response.details = details;
   }
 
@@ -100,13 +102,25 @@ export function errorHandler(
 
   // Errores genéricos
   if (err instanceof Error) {
-    // req.log?.error({ err }, "Unhandled error");
+    // El STACK va al log del servidor, nunca al cliente.
+    //
+    // Antes se devolvia `stack` completo en el JSON de cualquier 500: rutas
+    // absolutas del servidor (/app/node_modules/.pnpm/drizzle-orm@0.45.2/...),
+    // nombres de archivos internos y la estructura del proyecto. Eso le regala
+    // a cualquiera el mapa para buscar vulnerabilidades conocidas de cada
+    // version, y no le sirve de nada al usuario. Visto en vivo el 2026-08-19:
+    // el chat de Marketing devolvia el stack de Drizzle entero.
+    //
+    // El `message` SI se conserva: es lo unico accionable, y el escudo de
+    // seguridad (security-shield.ts) ya ofusca los que contienen datos
+    // sensibles antes de llegar aca.
     console.error("Unhandled error:", err);
     return res.status(500).json({
       error: ERROR_MESSAGES[ERROR_CODES.INTERNAL_SERVER_ERROR],
       code: ERROR_CODES.INTERNAL_SERVER_ERROR,
       message: err.message,
-      stack: err.stack,
+      // En desarrollo si conviene tenerlo a mano.
+      ...(process.env.NODE_ENV !== "production" ? { stack: err.stack } : {}),
     });
   }
 

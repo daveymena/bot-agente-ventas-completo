@@ -109,6 +109,89 @@ router.post("/admin/fix-images", async (req: Request, res: Response, next: NextF
   }
 });
 
+// POST /store/admin/fix-physical-images -- Re-descargar imágenes de productos físicos
+// Las imágenes de productos físicos se perdían porque IMAGE_STORE_DIR no estaba
+// configurado. Este endpoint re-descarga desde las URLs originales (Dropi/WooCommerce)
+// y las guarda en el volumen persistente.
+router.post("/admin/fix-physical-images", async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const tenant = (req as any).tenant;
+    if (!tenant) return res.status(401).json({ message: "No session found. Please login." });
+
+    // Traer todos los productos físicos del tenant
+    const allProducts = await db
+      .select()
+      .from(products)
+      .where(eq(products.tenantId, tenant.id));
+
+    const physicalProducts = allProducts.filter((p: any) => p.kind === "physical");
+    const { saveProductImage } = await import("../lib/image-store");
+    const { existsSync } = await import("node:fs");
+    const path = await import("node:path");
+
+    let fixed = 0;
+    let skipped = 0;
+    let failed = 0;
+    const errors: string[] = [];
+
+    for (const product of physicalProducts) {
+      // Verificar si ya tiene imagen válida en disco
+      const imgPath = path.resolve(process.env.IMAGE_STORE_DIR || "data/images", "products", `${product.id}.jpg`);
+      if (existsSync(imgPath)) {
+        skipped++;
+        continue;
+      }
+
+      // Intentar obtener URL original del metadata (Dropi/WooCommerce)
+      let originalUrl: string | null = null;
+      try {
+        const meta = JSON.parse(product.metadata || "{}");
+        if (meta.imageUrls && Array.isArray(meta.imageUrls) && meta.imageUrls.length > 0) {
+          originalUrl = meta.imageUrls[0];
+        } else if (meta.source === "dropi" && meta.dropiProductId) {
+          // Si no tiene imageUrls en metadata, intentar traer de Dropi
+          const { dropiGetProduct, dropiProductImages } = await import("../lib/dropi");
+          const dropiResult = await dropiGetProduct(meta.dropiProductId);
+          if (dropiResult.ok && dropiResult.data) {
+            const urls = dropiProductImages(dropiResult.data);
+            if (urls.length > 0) originalUrl = urls[0];
+          }
+        }
+      } catch (e) {
+        // Metadata inválido, ignorar
+      }
+
+      if (!originalUrl) {
+        failed++;
+        errors.push(`ID ${product.id}: sin URL original en metadata`);
+        continue;
+      }
+
+      // Descargar y guardar
+      const saved = await saveProductImage(originalUrl, product.id);
+      if (saved) {
+        await db.update(products).set({ imageUrl: saved }).where(eq(products.id, product.id));
+        fixed++;
+        console.log(`✅ ID ${product.id}: imagen re-descargada`);
+      } else {
+        failed++;
+        errors.push(`ID ${product.id}: no se pudo descargar desde ${originalUrl.substring(0, 50)}`);
+      }
+    }
+
+    return res.json({
+      ok: true,
+      message: `📦 Imágenes físicas: ${fixed} corregidas, ${skipped} ya ok, ${failed} fallidas`,
+      fixed,
+      skipped,
+      failed,
+      errors: errors.slice(0, 10),
+    });
+  } catch (err) {
+    return next(err);
+  }
+});
+
 // POST /store/admin/bootstrap -- crea la tienda del tenant logueado si
 // todavía no tiene una. Los tenants nuevos ya la reciben automáticamente al
 // registrarse (ver routes/auth.ts), pero los que existían ANTES de ese fix
@@ -148,11 +231,20 @@ router.use("/admin/:slug", (req: Request, res: Response, next: NextFunction) => 
   if (!tenant.isAdmin && tenant.id !== store?.tenantId) {
     return res.status(403).json({ message: "No sos el dueño de esta tienda" });
   }
-  next();
+  return next();
 });
 
 router.get("/admin/:slug", async (req: Request, res: Response, next: NextFunction) => {
   try {
+    // Mismo motivo que en el PUT de abajo: el slug es publico, asi que sin
+    // esto se podia leer la configuracion de administracion de otra tienda.
+    const tenantLector = (req as any).tenant;
+    const tiendaLeida = (req as any).store;
+    if (!tenantLector?.id) return res.status(401).json({ message: "No autorizado" });
+    if (tiendaLeida?.tenantId && tiendaLeida.tenantId !== tenantLector.id) {
+      return res.status(403).json({ message: "Esa tienda no es tuya." });
+    }
+
     const store = (req as any).store;
     return res.json({ store });
   } catch (err) {
@@ -163,6 +255,15 @@ router.get("/admin/:slug", async (req: Request, res: Response, next: NextFunctio
 // Get store layout
 router.get("/admin/:slug/layout", async (req: Request, res: Response, next: NextFunction) => {
   try {
+    // Mismo motivo que en el PUT de abajo: el slug es publico, asi que sin
+    // esto se podia leer la configuracion de administracion de otra tienda.
+    const tenantLector = (req as any).tenant;
+    const tiendaLeida = (req as any).store;
+    if (!tenantLector?.id) return res.status(401).json({ message: "No autorizado" });
+    if (tiendaLeida?.tenantId && tiendaLeida.tenantId !== tenantLector.id) {
+      return res.status(403).json({ message: "Esa tienda no es tuya." });
+    }
+
     const store = (req as any).store;
     const layout = await db.select().from(store_layouts).where(eq(store_layouts.storeId, store.id)).then((r: any) => r[0]);
     return res.json({ layout: layout?.layoutData ?? null });
@@ -175,6 +276,24 @@ router.get("/admin/:slug/layout", async (req: Request, res: Response, next: Next
 router.put("/admin/:slug/layout", async (req: Request, res: Response, next: NextFunction) => {
   try {
     const store = (req as any).store;
+
+    // ── La tienda tiene que ser DE QUIEN la edita ─────────────────────────
+    // El middleware de arriba resuelve la tienda por SLUG y nada mas, y los
+    // slugs son publicos: estan en la URL de cada tienda
+    // (/tienda/sofia-premium). Sin esta comprobacion, cualquier usuario con
+    // sesion podia reescribir el diseno de la tienda de OTRO negocio con solo
+    // poner su slug en la URL. Encontrado en la auditoria previa al
+    // lanzamiento (2026-08-22).
+    //
+    // Las rutas publicas de /:slug (ver la tienda, un producto, el layout) NO
+    // llevan esta comprobacion a proposito: esas son la tienda de cara al
+    // cliente y tienen que ser visibles para cualquiera.
+    const tenant = (req as any).tenant;
+    if (!tenant?.id) return res.status(401).json({ message: "No autorizado" });
+    if (store?.tenantId && store.tenantId !== tenant.id) {
+      return res.status(403).json({ message: "Esa tienda no es tuya." });
+    }
+
     const { layoutData } = req.body;
     if (!layoutData) return res.status(400).json({ message: "layoutData is required" });
 

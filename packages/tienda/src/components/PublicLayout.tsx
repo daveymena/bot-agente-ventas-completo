@@ -1,11 +1,16 @@
 import { Link, useParams } from 'react-router-dom';
-import { ShoppingCart, MessageCircle, Menu, X, Store, Heart, User, LayoutDashboard, Pencil } from 'lucide-react';
+import { ShoppingCart, MessageCircle, Store, Heart, User, LayoutDashboard } from 'lucide-react';
 import { useState, useEffect, useMemo } from 'react';
 import { useStore } from '../store/useStore';
 import { initPixel } from '../lib/pixel';
 import { FacebookIcon, InstagramIcon, TikTokIcon, XIcon, LinkedInIcon } from './SocialIcons';
 import { MercadoPagoBadge, NequiBadge, PSEBadge } from './PaymentIcons';
-import { darken, readableTextColor } from '../lib/color';
+import Encabezado, { CategoriaDelMenu } from './market/Encabezado';
+import { skinDeLaTienda } from '../lib/skin';
+// darken()/tint()/readableTextColor() ya no se usan acá: la paleta pasó a ser
+// fija (ver themeVars abajo) en vez de derivarse del color del dueño. Los
+// helpers siguen en lib/color.ts porque LandingPage y LandingPageNicho SÍ los
+// usan para su propio tema.
 
 const PublicLayout = ({ children }: { children: React.ReactNode }) => {
   const { cart, wishlist, config, updateConfig, isAdmin } = useStore();
@@ -13,7 +18,6 @@ const PublicLayout = ({ children }: { children: React.ReactNode }) => {
   const effectiveSlug = slug || 'sofia-premium';
   const cartCount = cart.reduce((acc, item) => acc + item.quantity, 0);
   const base = slug ? `/tienda/${slug}` : '/tienda';
-  const [mobileMenu, setMobileMenu] = useState(false);
 
   // El usuario logueado solo ve los botones de administración cuando la
   // tienda que está viendo es LA SUYA -- isAdmin por sí solo solo dice "hay
@@ -21,19 +25,18 @@ const PublicLayout = ({ children }: { children: React.ReactNode }) => {
   // vería el botón de "Panel Admin" en la tienda pública de OTRO negocio.
   const isOwner = isAdmin && config.slug === effectiveSlug;
 
-  // El color de marca de la tienda (config.primaryColor, editable desde el
-  // panel admin) se expone como variables CSS para que todo el layout -- y
-  // las páginas hijas (Shop, ProductDetail, Cart, Checkout) -- lo lean con
-  // clases Tailwind tipo bg-[var(--store-primary)] en vez de tener el rojo
-  // de la demo hardcodeado.
-  const themeVars = useMemo(() => {
-    const primary = config.primaryColor || '#dc2626';
-    return {
-      '--store-primary': primary,
-      '--store-primary-hover': darken(primary, 0.15),
-      '--store-on-primary': readableTextColor(primary),
-    } as React.CSSProperties;
-  }, [config.primaryColor]);
+  const [categorias, setCategorias] = useState<CategoriaDelMenu[]>([]);
+
+  // ── El skin de la tienda ──────────────────────────────────────────────
+  //
+  // Acá vivían quince colores escritos a mano, copiados del kit URBANisty e
+  // IGUALES para todos los negocios del SaaS. Se mudaron a lib/skin.ts, que
+  // arma la estructura de Market con el color que cada dueño ya eligió en su
+  // panel -- que es como Market se vende: una sola maqueta, cinco skins.
+  const themeVars = useMemo(
+    () => skinDeLaTienda(config.primaryColor),
+    [config.primaryColor],
+  );
 
   // El número de WhatsApp se resuelve aquí (no en cada página) porque el layout
   // envuelve toda la tienda. Viene del teléfono realmente conectado al bot por
@@ -53,11 +56,41 @@ const PublicLayout = ({ children }: { children: React.ReactNode }) => {
     fetch(`/api/public/products/${effectiveSlug}`)
       .then(r => (r.ok ? r.json() : null))
       .then(d => {
+        // ¿Esta tienda despacha algo físico? La barra superior prometía
+        // "Envíos a todo el país" SIEMPRE, aunque el catálogo fuera 100%
+        // digital -- en TecnoVariedades, 54 de 54 productos. Prometer un envío
+        // que no existe trae reclamos y disputas de pago, y es justo lo que
+        // hace que una tienda se lea como plantilla sin terminar.
+        // Las categorías REALES del catálogo alimentan el menú vertical y el
+        // selector del buscador. La clave es `nombre__tipo`: la MISMA que usa
+        // el filtro de Shop.tsx. Si las dos no coincidieran, tocar una
+        // categoría en el encabezado no filtraría nada.
+        if (Array.isArray(d?.products)) {
+          const porCategoria: Record<string, CategoriaDelMenu> = {};
+          for (const p of d.products as any[]) {
+            const tipo = (p.kind || p.type) === 'physical' ? 'physical' : 'digital';
+            const nombre = p.category || 'General';
+            const key = `${nombre}__${tipo}`;
+            if (!porCategoria[key]) porCategoria[key] = { key, name: nombre, count: 0 };
+            porCategoria[key].count++;
+          }
+          setCategorias(Object.values(porCategoria).sort((a, b) => b.count - a.count));
+        }
         if (!d?.store) return;
         if (d.store.pixelId) initPixel(d.store.pixelId);
         updateConfig({
           socialLinks: d.store.socialLinks || {},
           ...(d.store.colors?.primary ? { primaryColor: d.store.colors.primary } : {}),
+          // El NOMBRE y el LOGO del negocio también se resuelven acá, no solo
+          // en Shop.
+          //
+          // Antes solo los guardaba Shop.tsx al cargar el catálogo, así que
+          // quien entraba DIRECTO a una ficha de producto, al carrito o al
+          // checkout veía en el encabezado el nombre de la tienda de demo en
+          // vez del suyo. Y entrar directo a un producto es el caso normal:
+          // es exactamente el enlace que manda el bot por WhatsApp.
+          ...(d.store.name ? { storeName: d.store.name } : {}),
+          ...(d.store.logo ? { logoUrl: d.store.logo } : {}),
         });
       })
       .catch(() => {});
@@ -66,107 +99,24 @@ const PublicLayout = ({ children }: { children: React.ReactNode }) => {
   const waHref = config.whatsappPhone ? `https://wa.me/${config.whatsappPhone}` : null;
 
   return (
-    <div className="min-h-screen flex flex-col bg-gray-50 text-slate-900" style={themeVars}>
-      <nav className="sticky top-0 z-50 bg-zinc-900 text-white">
-        {/* Barra de administración -- SOLO visible para el dueño logueado de
-            esta tienda, nunca para el público. El cliente que compra jamás
-            debería ver botones de "editar" o "panel admin" en su checkout. */}
-        {isOwner && (
-          <div className="bg-[var(--store-primary)] text-[var(--store-on-primary)]">
-            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-9 flex items-center justify-between text-xs font-semibold">
-              <span className="hidden sm:inline">Estás viendo tu tienda como dueño</span>
-              <div className="flex items-center gap-4 ml-auto">
-                <Link to="/editor" className="flex items-center gap-1.5 hover:opacity-80 transition-opacity">
-                  <Pencil className="w-3.5 h-3.5" /> Editar página
-                </Link>
-                <Link to="/admin" className="flex items-center gap-1.5 hover:opacity-80 transition-opacity">
-                  <LayoutDashboard className="w-3.5 h-3.5" /> Panel Admin
-                </Link>
-              </div>
-            </div>
-          </div>
-        )}
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between h-16 items-center">
-            <Link to={base} className="flex items-center gap-2 group">
-              <div className="w-9 h-9 rounded-lg bg-[var(--store-primary)] flex items-center justify-center group-hover:scale-105 transition-transform">
-                <Store className="w-5 h-5 text-[var(--store-on-primary)]" />
-              </div>
-              <span className="text-lg font-black tracking-tight uppercase">{config.storeName || 'Tienda'}</span>
-            </Link>
-
-            <div className="hidden md:flex items-center gap-6">
-              <Link to={base} className="text-sm font-semibold text-gray-300 hover:text-white transition-colors">
-                Productos
-              </Link>
-              <a href={waHref || "#"} target="_blank" rel="noopener noreferrer"
-                className="flex items-center gap-1.5 text-sm font-semibold text-gray-300 hover:text-[var(--store-primary)] transition-colors group">
-                <MessageCircle className="w-4 h-4" /> WhatsApp
-              </a>
-              <Link to={`${base}/wishlist`} className="relative p-2 text-gray-300 hover:text-white transition-colors">
-                <Heart className="w-5 h-5" />
-                {wishlist.length > 0 && (
-                  <span className="absolute -top-1 -right-1 bg-[var(--store-primary)] text-[var(--store-on-primary)] text-[10px] font-bold px-1.5 py-0.5 rounded-full">
-                    {wishlist.length}
-                  </span>
-                )}
-              </Link>
-              <Link to={`${base}/carrito`} className="relative p-2 text-gray-300 hover:text-white transition-colors">
-                <ShoppingCart className="w-5 h-5" />
-                {cartCount > 0 && (
-                  <span className="absolute -top-1 -right-1 bg-[var(--store-primary)] text-[var(--store-on-primary)] text-[10px] font-bold px-1.5 py-0.5 rounded-full">
-                    {cartCount}
-                  </span>
-                )}
-              </Link>
-            </div>
-
-            <div className="flex md:hidden items-center gap-2">
-              <Link to={`${base}/carrito`} className="relative p-2 text-gray-300 hover:text-white">
-                <ShoppingCart className="w-5 h-5" />
-                {cartCount > 0 && (
-                  <span className="absolute -top-1 -right-1 bg-[var(--store-primary)] text-[var(--store-on-primary)] text-[10px] font-bold px-1.5 py-0.5 rounded-full">
-                    {cartCount}
-                  </span>
-                )}
-              </Link>
-              <button onClick={() => setMobileMenu(!mobileMenu)} className="p-2 text-gray-300 hover:text-white transition-colors">
-                {mobileMenu ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
-              </button>
-            </div>
-          </div>
-
-          {mobileMenu && (
-            <div className="md:hidden border-t border-gray-800 py-4 space-y-1">
-              <Link to={base} onClick={() => setMobileMenu(false)}
-                className="block px-4 py-3 text-sm font-semibold text-gray-200 rounded-lg hover:bg-gray-900 transition-colors">
-                Productos
-              </Link>
-              <a href={waHref || "#"} target="_blank" rel="noopener noreferrer"
-                onClick={() => setMobileMenu(false)}
-                className="flex items-center gap-2 px-4 py-3 text-sm font-semibold text-[var(--store-primary)] rounded-lg hover:bg-gray-900 transition-colors">
-                <MessageCircle className="w-4 h-4" /> Línea WhatsApp
-              </a>
-              <Link to={`${base}/wishlist`} onClick={() => setMobileMenu(false)}
-                className="flex items-center gap-2 px-4 py-3 text-sm font-semibold text-gray-200 rounded-lg hover:bg-gray-900 transition-colors">
-                <Heart className="w-4 h-4" /> Lista de deseos
-              </Link>
-              {isOwner && (
-                <>
-                  <Link to="/editor" onClick={() => setMobileMenu(false)}
-                    className="flex items-center gap-2 px-4 py-3 text-sm font-semibold text-gray-200 rounded-lg hover:bg-gray-900 transition-colors">
-                    <Pencil className="w-4 h-4" /> Editar página
-                  </Link>
-                  <Link to="/admin" onClick={() => setMobileMenu(false)}
-                    className="flex items-center gap-2 px-4 py-3 text-sm font-semibold text-gray-200 rounded-lg hover:bg-gray-900 transition-colors">
-                    <LayoutDashboard className="w-4 h-4" /> Panel Admin
-                  </Link>
-                </>
-              )}
-            </div>
-          )}
-        </div>
-      </nav>
+    <div className="min-h-screen flex flex-col bg-white text-slate-900" style={themeVars}>
+      {/* ── El encabezado de tres pisos de Market ─────────────────────────
+          Reemplaza al anterior, que era una sola barra de color con el logo y
+          dos iconos. El cambio que más pesa no es el color: es que el BUSCADOR
+          pasó a vivir en el encabezado, o sea en TODAS las páginas. Antes
+          estaba dentro del catálogo, así que quien entraba por el enlace de un
+          producto --el caso normal, es el enlace que manda el bot por
+          WhatsApp-- no tenía forma de buscar otra cosa sin volver atrás. */}
+      <Encabezado
+        base={base}
+        storeName={config.storeName || 'Tienda'}
+        logoUrl={config.logoUrl}
+        whatsappPhone={config.whatsappPhone}
+        cartCount={cartCount}
+        wishlistCount={wishlist.length}
+        isOwner={isOwner}
+        categorias={categorias}
+      />
 
       <main className="flex-grow">
         {children}
@@ -234,17 +184,17 @@ const PublicLayout = ({ children }: { children: React.ReactNode }) => {
         <MessageCircle className="w-7 h-7" />
       </a>
 
-      <footer className="bg-zinc-900 pb-20 md:pb-0">
+      <footer className="bg-[var(--store-ink)] pb-20 md:pb-0">
         <div className="max-w-7xl mx-auto px-4 py-12">
           <div className="grid grid-cols-1 md:grid-cols-4 gap-10">
             <div>
               <div className="flex items-center gap-2.5 mb-3">
-                <div className="w-8 h-8 rounded-lg bg-[var(--store-primary)] flex items-center justify-center">
-                  <Store className="w-4 h-4 text-[var(--store-on-primary)]" />
+                <div className="w-8 h-8 rounded-full bg-[var(--store-primary)] flex items-center justify-center">
+                  <Store className="w-4 h-4 text-white" />
                 </div>
                 <span className="text-base font-bold text-white">{config.storeName || 'Tienda'}</span>
               </div>
-              <p className="text-sm text-gray-400 leading-relaxed mb-5">Tu tienda de confianza con los mejores productos digitales y físicos.</p>
+              <p className="text-sm text-gray-400 leading-relaxed mb-5">{`Comprá en ${config.storeName || "nuestra tienda"} y escribinos por WhatsApp si necesitás ayuda.`}</p>
 
               {/* Redes sociales -- solo se listan las que la tienda configuró
                   de verdad; sin URL no hay ícono, para no mostrar enlaces rotos */}
@@ -252,31 +202,31 @@ const PublicLayout = ({ children }: { children: React.ReactNode }) => {
                 <div className="flex items-center gap-2">
                   {config.socialLinks?.facebook && (
                     <a href={config.socialLinks.facebook} target="_blank" rel="noopener noreferrer" aria-label="Facebook"
-                      className="w-9 h-9 rounded-full bg-white/10 hover:bg-[var(--store-primary)] text-gray-300 hover:text-[var(--store-on-primary)] flex items-center justify-center transition-colors">
+                      className="w-9 h-9 rounded-full bg-white/5 text-[var(--store-yellow)] hover:bg-[var(--store-yellow)] hover:text-[var(--store-ink)] flex items-center justify-center transition-colors">
                       <FacebookIcon className="w-4 h-4" />
                     </a>
                   )}
                   {config.socialLinks?.instagram && (
                     <a href={config.socialLinks.instagram} target="_blank" rel="noopener noreferrer" aria-label="Instagram"
-                      className="w-9 h-9 rounded-full bg-white/10 hover:bg-[var(--store-primary)] text-gray-300 hover:text-[var(--store-on-primary)] flex items-center justify-center transition-colors">
+                      className="w-9 h-9 rounded-full bg-white/5 text-[var(--store-yellow)] hover:bg-[var(--store-yellow)] hover:text-[var(--store-ink)] flex items-center justify-center transition-colors">
                       <InstagramIcon className="w-4 h-4" />
                     </a>
                   )}
                   {config.socialLinks?.tiktok && (
                     <a href={config.socialLinks.tiktok} target="_blank" rel="noopener noreferrer" aria-label="TikTok"
-                      className="w-9 h-9 rounded-full bg-white/10 hover:bg-[var(--store-primary)] text-gray-300 hover:text-[var(--store-on-primary)] flex items-center justify-center transition-colors">
+                      className="w-9 h-9 rounded-full bg-white/5 text-[var(--store-yellow)] hover:bg-[var(--store-yellow)] hover:text-[var(--store-ink)] flex items-center justify-center transition-colors">
                       <TikTokIcon className="w-4 h-4" />
                     </a>
                   )}
                   {config.socialLinks?.twitter && (
                     <a href={config.socialLinks.twitter} target="_blank" rel="noopener noreferrer" aria-label="X (Twitter)"
-                      className="w-9 h-9 rounded-full bg-white/10 hover:bg-[var(--store-primary)] text-gray-300 hover:text-[var(--store-on-primary)] flex items-center justify-center transition-colors">
+                      className="w-9 h-9 rounded-full bg-white/5 text-[var(--store-yellow)] hover:bg-[var(--store-yellow)] hover:text-[var(--store-ink)] flex items-center justify-center transition-colors">
                       <XIcon className="w-4 h-4" />
                     </a>
                   )}
                   {config.socialLinks?.linkedin && (
                     <a href={config.socialLinks.linkedin} target="_blank" rel="noopener noreferrer" aria-label="LinkedIn"
-                      className="w-9 h-9 rounded-full bg-white/10 hover:bg-[var(--store-primary)] text-gray-300 hover:text-[var(--store-on-primary)] flex items-center justify-center transition-colors">
+                      className="w-9 h-9 rounded-full bg-white/5 text-[var(--store-yellow)] hover:bg-[var(--store-yellow)] hover:text-[var(--store-ink)] flex items-center justify-center transition-colors">
                       <LinkedInIcon className="w-4 h-4" />
                     </a>
                   )}
@@ -285,9 +235,9 @@ const PublicLayout = ({ children }: { children: React.ReactNode }) => {
             </div>
 
             <div>
-              <h4 className="text-xs font-bold uppercase tracking-wider text-gray-500 mb-3">Enlaces</h4>
+              <h4 className="text-sm font-bold text-[var(--store-yellow)] mb-3">Enlaces</h4>
               <div className="space-y-2">
-                <Link to={base} className="block text-sm text-gray-400 hover:text-white transition-colors">Productos</Link>
+                <Link to={`${base}#catalogo`} className="block text-sm text-gray-400 hover:text-white transition-colors">Productos</Link>
                 <a href={waHref || "#"} target="_blank" rel="noopener noreferrer"
                   className="block text-sm text-gray-400 hover:text-white transition-colors">WhatsApp</a>
                 <Link to={`${base}/carrito`} className="block text-sm text-gray-400 hover:text-white transition-colors">Carrito</Link>
@@ -295,7 +245,7 @@ const PublicLayout = ({ children }: { children: React.ReactNode }) => {
             </div>
 
             <div>
-              <h4 className="text-xs font-bold uppercase tracking-wider text-gray-500 mb-3">Contacto</h4>
+              <h4 className="text-sm font-bold text-[var(--store-yellow)] mb-3">Contacto</h4>
               <div className="space-y-2.5">
                 {config.whatsappPhone && (
                   <a href={waHref || '#'} target="_blank" rel="noopener noreferrer"
@@ -308,7 +258,7 @@ const PublicLayout = ({ children }: { children: React.ReactNode }) => {
             </div>
 
             <div>
-              <h4 className="text-xs font-bold uppercase tracking-wider text-gray-500 mb-3">Pagos seguros</h4>
+              <h4 className="text-sm font-bold text-[var(--store-yellow)] mb-3">Pagos seguros</h4>
               <div className="flex flex-wrap gap-2">
                 <MercadoPagoBadge />
                 <NequiBadge />
@@ -316,9 +266,11 @@ const PublicLayout = ({ children }: { children: React.ReactNode }) => {
               </div>
             </div>
           </div>
-          <div className="mt-10 pt-8 border-t border-white/10 text-center text-xs text-gray-600">
-            &copy; {new Date().getFullYear()} {config.storeName || 'Tienda'} &mdash; Todos los derechos reservados
-          </div>
+        </div>
+        {/* Barra de cierre púrpura a todo el ancho: es como termina cada
+            página del kit, y lo que separa el footer del borde del navegador. */}
+        <div className="bg-[var(--store-primary)] py-3 text-center text-xs text-white/90">
+          &copy; {new Date().getFullYear()} {config.storeName || 'Tienda'} &mdash; Todos los derechos reservados
         </div>
       </footer>
     </div>

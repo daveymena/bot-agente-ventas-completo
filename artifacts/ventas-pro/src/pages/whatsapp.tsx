@@ -14,8 +14,14 @@ import { useQueryClient } from "@tanstack/react-query";
 import { format, parseISO } from "date-fns";
 import { es } from "date-fns/locale";
 import { useState } from "react";
+import { HelpTourButton } from "@/components/HelpTourButton";
+import { useAutoTour } from "@/hooks/use-auto-tour";
+import { getHelpGuide } from "@/data/help-guides";
+
+const HELP_GUIDE = getHelpGuide("whatsapp-connect")!;
 
 export default function WhatsAppConnection() {
+  useAutoTour(HELP_GUIDE);
   const queryClient = useQueryClient();
   const [isResetting, setIsResetting] = useState(false);
   const [showPairForm, setShowPairForm] = useState(false);
@@ -129,11 +135,11 @@ export default function WhatsAppConnection() {
             )}
             {!showPairForm ? (
               <div className="w-full flex flex-col gap-3">
-                <Button size="lg" className="w-full text-base h-14 rounded-xl shadow-lg shadow-primary/20 transition-transform active:scale-[0.98]" onClick={handleConnect} disabled={connectMutation.isPending}>
+                <Button data-tour="whatsapp-qr-button" size="lg" className="w-full text-base h-14 rounded-xl shadow-lg shadow-primary/20 transition-transform active:scale-[0.98]" onClick={handleConnect} disabled={connectMutation.isPending}>
                   {connectMutation.isPending ? <RefreshCw className="mr-2 h-5 w-5 animate-spin" /> : <QrCode className="mr-2 h-5 w-5" />}
                   Generar código QR
                 </Button>
-                <Button variant="ghost" className="w-full text-muted-foreground rounded-xl" onClick={() => setShowPairForm(true)}>
+                <Button data-tour="whatsapp-pin-toggle" variant="ghost" className="w-full text-muted-foreground rounded-xl" onClick={() => setShowPairForm(true)}>
                   <KeyRound className="h-4 w-4 mr-2" /> ¿El QR no carga? Usar código PIN
                 </Button>
               </div>
@@ -170,7 +176,9 @@ export default function WhatsAppConnection() {
       );
     }
 
-    if (status.state === 'connecting') {
+    const qrCode = status.qrCode || (status as any).qrDataUrl || null;
+
+    if (status.state === 'connecting' && !qrCode) {
       // If we have a pairing code, we shouldn't hide it with the connecting spinner!
       if (pairingCode) {
         return (
@@ -215,7 +223,7 @@ export default function WhatsAppConnection() {
       );
     }
 
-    if (status.state === 'qr') {
+    if (status.state === 'qr' || qrCode) {
       return (
         <Card key="qr" className="max-w-md mx-auto w-full mt-10 rounded-3xl overflow-hidden glass-panel border-0 shadow-lg">
           <CardHeader className="text-center pt-10">
@@ -230,8 +238,8 @@ export default function WhatsAppConnection() {
             {!showPairForm ? (
               <div className="w-full flex flex-col items-center">
                 <div className="bg-white p-5 rounded-3xl shadow-[0_0_40px_rgba(var(--primary),0.15)] border border-primary/10 mb-8 transition-transform hover:scale-105 duration-500">
-                  {status.qrCode ? (
-                    <img src={status.qrCode} alt="WhatsApp QR Code" className="w-64 h-64" />
+                  {qrCode ? (
+                    <img src={qrCode} alt="WhatsApp QR Code" className="w-64 h-64" />
                   ) : (
                     <Skeleton className="w-64 h-64 rounded-xl" />
                   )}
@@ -286,7 +294,7 @@ export default function WhatsAppConnection() {
 
     if (status.state === 'connected') {
       return (
-        <Card key="connected" className="max-w-md mx-auto w-full mt-10 rounded-3xl overflow-hidden glass-panel border-0 shadow-lg relative">
+        <Card key="connected" data-tour="whatsapp-connected-card" className="max-w-md mx-auto w-full mt-10 rounded-3xl overflow-hidden glass-panel border-0 shadow-lg relative">
           <div className="absolute top-0 right-0 w-full h-full bg-gradient-to-b from-green-500/10 to-transparent pointer-events-none" />
           <div className="px-6 pt-12 pb-8 text-center relative z-10">
             <div className="mx-auto bg-gradient-to-br from-green-400 to-green-600 text-white rounded-full w-24 h-24 flex items-center justify-center mb-6 shadow-lg shadow-green-500/30 ring-8 ring-green-500/10">
@@ -320,7 +328,7 @@ export default function WhatsAppConnection() {
           </div>
 
           <CardFooter className="p-6 pt-0 relative z-10 flex flex-col gap-3">
-            <Button variant="destructive" className="w-full h-12 rounded-xl text-base shadow-lg shadow-destructive/20 font-medium transition-transform active:scale-[0.98]" onClick={handleDisconnect} disabled={disconnectMutation.isPending}>
+            <Button data-tour="whatsapp-disconnect-button" variant="destructive" className="w-full h-12 rounded-xl text-base shadow-lg shadow-destructive/20 font-medium transition-transform active:scale-[0.98]" onClick={handleDisconnect} disabled={disconnectMutation.isPending}>
               <PowerOff className="h-5 w-5 mr-2" /> Desconectar línea
             </Button>
             <Button variant="outline" className="w-full h-10 rounded-xl text-sm text-orange-600 border-orange-300 hover:bg-orange-50" onClick={handleResetSession} disabled={isResetting}>
@@ -367,7 +375,10 @@ export default function WhatsAppConnection() {
       <div className="flex flex-col gap-6 animate-enter">
         <div className="flex items-start justify-between">
           <div>
-            <h1 className="text-3xl font-bold tracking-tight">Conexión de WhatsApp</h1>
+            <div className="flex items-start gap-1.5">
+              <h1 className="text-3xl font-bold tracking-tight">Conexión de WhatsApp</h1>
+              <HelpTourButton guide={HELP_GUIDE} />
+            </div>
             <p className="text-muted-foreground mt-1">
               Gestiona el dispositivo vinculado a tus agentes IA. Cada sesión es independiente: puedes abrir el bot en otro lugar sin afectar esta conexión.
             </p>

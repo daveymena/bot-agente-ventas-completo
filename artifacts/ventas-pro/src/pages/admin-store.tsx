@@ -141,7 +141,11 @@ export default function AdminStorePage() {
                 <Button
                   variant="outline"
                   className="flex-1 gap-2"
-                  onClick={() => window.open(`/mi-tienda`, "_blank")}
+                  // /mi-tienda es un redirect interno que a su vez abre OTRA
+                  // pestaña nueva -- pasar por ahí abría 2 pestañas por click
+                  // (una fantasma que solo rebota de vuelta al panel). Yendo
+                  // directo a la URL real de la tienda, es una sola pestaña.
+                  onClick={() => window.open(tenant?.slug ? `/tienda/${tenant.slug}` : "/tienda", "_blank", "noopener,noreferrer")}
                 >
                   <Eye className="h-4 w-4" />
                   Ver Tienda

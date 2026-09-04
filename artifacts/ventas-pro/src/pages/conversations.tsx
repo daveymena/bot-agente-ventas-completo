@@ -13,6 +13,8 @@ import {
 } from "@workspace/api-client-react";
 import { Layout } from "@/components/layout";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { useCajaQueCrece } from "@/hooks/use-caja-que-crece";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -21,8 +23,14 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Send, User, Bot, Search, Phone, ArrowLeft, MessageSquare, Check, X, Tag } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { HelpTourButton } from "@/components/HelpTourButton";
+import { useAutoTour } from "@/hooks/use-auto-tour";
+import { getHelpGuide } from "@/data/help-guides";
+
+const HELP_GUIDE = getHelpGuide("conversations")!;
 
 export default function Conversations() {
+  useAutoTour(HELP_GUIDE);
   const [location, setLocation] = useLocation();
   const searchParams = new URLSearchParams(window.location.search);
   const selectedId = searchParams.get("id") ? parseInt(searchParams.get("id")!) : null;
@@ -30,6 +38,10 @@ export default function Conversations() {
   const queryClient = useQueryClient();
   const scrollRef = useRef<HTMLDivElement>(null);
   const [messageText, setMessageText] = useState("");
+  // La caja de respuesta crece con lo que se escribe. Tope mas bajo que el de
+  // Atlas (max-h-40): aca el historial del cliente es lo que hay que tener a la
+  // vista para poder contestarle.
+  const cajaDeRespuesta = useCajaQueCrece(messageText, 160);
 
   const { data: conversations, isLoading: loadingConversations } = useListConversations(
     { search: search || undefined },
@@ -238,25 +250,41 @@ export default function Conversations() {
     return <p className="whitespace-pre-wrap break-words [overflow-wrap:anywhere]">{content}</p>;
   };
 
-  // Fallback image map for products without imageUrl
+  /**
+   * Imagen de respaldo para un producto sin foto cargada.
+   *
+   * Antes esto era un mapa fijo de fotos de Unsplash (una por palabra clave:
+   * piano, guitarra, trading...). Dos problemas: son fotos de terceros
+   * incrustadas desde su servidor -- material ajeno dentro de un producto que
+   * se vende -- y encima ni siquiera correspondían al producto real del
+   * cliente, solo al tema. Ahora se dibuja una tarjeta propia, con la inicial
+   * y el nombre del producto sobre un color derivado de su propio nombre
+   * (mismo nombre = siempre el mismo color, no parpadea entre recargas).
+   *
+   * Para una imagen REAL del producto está la generación con IA del formulario
+   * de Productos (ver handleGenerateImage en products.tsx), que la crea a
+   * partir del nombre y la descripción y la guarda como imagen propia.
+   */
   function getProductImageFallback(name: string): string {
-    const n = name.toLowerCase();
-    const map: Record<string, string> = {
-      piano: "https://images.unsplash.com/photo-1520522118901-447bb5c67039?w=800",
-      guitarra: "https://images.unsplash.com/photo-1510915361894-db8b60106cb1?w=800",
-      excel: "https://images.unsplash.com/photo-1460925895917-afdab827c52f?w=800",
-      diseño: "https://images.unsplash.com/photo-1561070791-2526d30994b5?w=800",
-      trading: "https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?w=800",
-      hacking: "https://images.unsplash.com/photo-1550751827-4bd374c3f58b?w=800",
-      marketing: "https://images.unsplash.com/photo-1432888622747-4eb9a8f2b1c5?w=800",
-      fitness: "https://images.unsplash.com/photo-1517836357463-d25dfeac3438?w=800",
-      idiomas: "https://images.unsplash.com/photo-1546410531-bb4caa6b424d?w=800",
-      programacion: "https://images.unsplash.com/photo-1461749280684-dccba630e2f6?w=800",
-    };
-    for (const [key, url] of Object.entries(map)) {
-      if (n.includes(key)) return url;
-    }
-    return "https://images.unsplash.com/photo-1434031211128-095490e7e7e9?w=800";
+    const limpio = (name || "Producto").trim() || "Producto";
+    // Hash estable del nombre -> tono fijo. Sin Math.random(): con una
+    // aleatoria, la misma tarjeta cambiaba de color en cada render.
+    let hash = 0;
+    for (let i = 0; i < limpio.length; i++) hash = (hash * 31 + limpio.charCodeAt(i)) >>> 0;
+    const hue = hash % 360;
+    const inicial = limpio[0].toUpperCase();
+    const corto = limpio.length > 22 ? `${limpio.slice(0, 21)}…` : limpio;
+    const escapar = (s: string) => s.replace(/[<>&"]/g, (c) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", '"': "&quot;" }[c] || c));
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="800" height="800" viewBox="0 0 800 800">
+<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+<stop offset="0%" stop-color="hsl(${hue} 70% 55%)"/><stop offset="100%" stop-color="hsl(${(hue + 40) % 360} 70% 40%)"/>
+</linearGradient></defs>
+<rect width="800" height="800" fill="url(#g)"/>
+<text x="400" y="380" font-family="system-ui,-apple-system,sans-serif" font-size="260" font-weight="700" fill="rgba(255,255,255,.92)" text-anchor="middle">${escapar(inicial)}</text>
+<text x="400" y="510" font-family="system-ui,-apple-system,sans-serif" font-size="44" fill="rgba(255,255,255,.85)" text-anchor="middle">${escapar(corto)}</text>
+</svg>`;
+    // encodeURIComponent (no btoa): btoa rompe con acentos y eñes, comunes acá.
+    return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
   }
 
   const getStageGradient = (stage?: string | null) => {
@@ -272,22 +300,42 @@ export default function Conversations() {
 
   return (
     <Layout>
-      <div className="flex flex-col h-full animate-enter gap-4">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">Bandeja de Entrada</h1>
+      <div className="flex flex-col h-full min-h-0 animate-enter gap-4">
+        {/* En móvil, dentro de una conversación el encabezado se oculta: son
+            ~90px de alto que le robaba a los mensajes en una pantalla donde
+            cada píxel cuenta, y el título "Bandeja de Entrada" no aporta nada
+            cuando ya estás leyendo un chat puntual. */}
+        <div className={selectedId ? "hidden md:block" : ""}>
+          <div className="flex items-start gap-1.5">
+            <h1 className="text-3xl font-bold tracking-tight">Bandeja de Entrada</h1>
+            <HelpTourButton guide={HELP_GUIDE} />
+          </div>
           <p className="text-muted-foreground">Monitorea a tus agentes y toma el control cuando sea necesario.</p>
         </div>
 
-        <div className="flex flex-col md:flex-row h-auto md:h-[calc(100vh-12rem)] min-h-[500px] glass-panel rounded-2xl border overflow-hidden shadow-lg shadow-black/5 dark:shadow-black/20 relative">
+        {/* Altura ACOTADA también en móvil.
+            Antes era `h-auto ... overflow-hidden` bajo el breakpoint md: sin
+            techo de altura, el contenedor crecía a la altura natural de todos
+            los mensajes (medido: 1854px de contenido dentro de 498px visibles)
+            y, con overflow-hidden, recortaba el resto SIN dar scroll. El campo
+            para escribir quedaba en y:1963px — o sea, en el celular no se
+            podía ni leer el historial ni responder.
+            100dvh y no 100vh: en móvil la barra del navegador aparece y
+            desaparece, y vh no la contempla — el input terminaba tapado.
+            min-h-0 es imprescindible: sin él, un hijo flex nunca se encoge por
+            debajo de su contenido y el overflow-y-auto de adentro no llega a
+            activarse nunca. */}
+        <div className="flex flex-col md:flex-row flex-1 min-h-0 h-[calc(100dvh-11rem)] md:h-[calc(100vh-12rem)] md:min-h-[500px] glass-panel rounded-2xl border overflow-hidden shadow-lg shadow-black/5 dark:shadow-black/20 relative">
           
           {/* Left Pane - List */}
-          <div className={`w-full md:w-[340px] flex-col border-r bg-card/50 ${selectedId ? 'hidden md:flex' : 'flex'}`}>
+          <div className={`w-full md:w-[340px] min-h-0 flex-col border-r bg-card/50 ${selectedId ? 'hidden md:flex' : 'flex'}`}>
             <div className="p-4 border-b space-y-4 bg-background/50 backdrop-blur-md sticky top-0 z-10">
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input 
-                  placeholder="Buscar conversaciones..." 
-                  className="pl-9 bg-background border-muted-foreground/20 rounded-full h-10" 
+                <Input
+                  data-tour="conversations-search"
+                  placeholder="Buscar conversaciones..."
+                  className="pl-9 bg-background border-muted-foreground/20 rounded-full h-10"
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                 />
@@ -370,7 +418,7 @@ export default function Conversations() {
           </div>
 
           {/* Right Pane - Chat */}
-          <div className={`flex-1 flex-col bg-background/50 relative ${!selectedId ? 'hidden md:flex' : 'flex'}`}>
+          <div className={`flex-1 min-h-0 flex-col bg-background/50 relative ${!selectedId ? 'hidden md:flex' : 'flex'}`}>
             {/* Background Pattern */}
             <div className="absolute inset-0 pointer-events-none opacity-5 dark:opacity-[0.02]" style={{ backgroundImage: 'radial-gradient(circle at 2px 2px, currentColor 1px, transparent 0)', backgroundSize: '24px 24px' }}></div>
 
@@ -405,7 +453,7 @@ export default function Conversations() {
                   
                   <div className="flex items-center gap-2 w-full md:w-auto">
                     {activeConv.status === "ai" ? (
-                      <Button variant="default" size="sm" className="rounded-full shadow-md shadow-primary/20 transition-all hover:scale-105 text-xs md:text-sm flex-1 md:flex-none" onClick={() => handleHandoff("human")} disabled={handoff.isPending}>
+                      <Button data-tour="conversations-take-control" variant="default" size="sm" className="rounded-full shadow-md shadow-primary/20 transition-all hover:scale-105 text-xs md:text-sm flex-1 md:flex-none" onClick={() => handleHandoff("human")} disabled={handoff.isPending}>
                         <User className="h-4 w-4 mr-2" /> Tomar Control
                       </Button>
                     ) : activeConv.status === "human" ? (
@@ -420,7 +468,7 @@ export default function Conversations() {
                 </div>
 
                 {/* Chat Messages */}
-                <div className="flex-1 overflow-y-auto p-4 md:p-6 relative z-10 scroll-smooth" ref={scrollRef}>
+                <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-4 md:p-6 relative z-10 scroll-smooth" ref={scrollRef}>
                   {loadingMessages ? (
                     <div className="space-y-6">
                       <Skeleton className="h-16 w-2/3 ml-auto rounded-2xl rounded-tr-sm" />
@@ -521,11 +569,33 @@ export default function Conversations() {
                         onSubmit={(e) => { e.preventDefault(); handleSend(); }}
                       >
                         <div className="flex-1 relative min-w-0">
-                          <Input 
-                            placeholder="Escribe un mensaje..." 
-                            className="w-full rounded-full bg-card border-border/50 shadow-sm pl-4 sm:pl-6 pr-4 h-12 sm:h-14 text-sm sm:text-base focus-visible:ring-primary/30"
+                          {/* Acá había un <Input> de UNA línea, y es el peor
+                              lugar de la app para tenerlo: es donde una persona
+                              le escribe a un cliente de verdad. Una respuesta
+                              de tres renglones se iba de costado y no se podía
+                              releer antes de mandarla.
+
+                              Ahora crece con el texto (hasta ~5 renglones y
+                              después scrollea). El radio pasa de `rounded-full`
+                              a `rounded-3xl`: una cápsula perfecta solo se ve
+                              bien con una línea; con tres, las esquinas se
+                              comen el texto.
+
+                              Enter manda, Shift+Enter hace salto de línea:
+                              antes no había forma de escribir dos párrafos. */}
+                          <Textarea
+                            ref={cajaDeRespuesta}
+                            placeholder="Escribe un mensaje..."
+                            rows={1}
+                            className="w-full resize-none overflow-y-auto rounded-3xl bg-card border-border/50 shadow-sm pl-4 sm:pl-6 pr-4 py-3 sm:py-4 min-h-[48px] sm:min-h-[56px] max-h-40 text-sm sm:text-base leading-relaxed focus-visible:ring-primary/30"
                             value={messageText}
                             onChange={(e) => setMessageText(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter" && !e.shiftKey) {
+                                e.preventDefault();
+                                if (messageText.trim() && activeConv.status !== "ai" && !sendMessage.isPending) handleSend();
+                              }
+                            }}
                             disabled={activeConv.status === "ai" || sendMessage.isPending}
                           />
                         </div>

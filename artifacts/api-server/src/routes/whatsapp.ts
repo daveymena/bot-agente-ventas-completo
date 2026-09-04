@@ -2,9 +2,11 @@ import { Router, type IRouter } from "express";
 import { GetWhatsAppStatusResponse } from "@workspace/api-zod";
 import { getWhatsAppForTenant, listWhatsAppInstances, disposeWhatsAppForTenant } from "../lib/whatsapp-factory";
 import { getMetricsForAll, healthSummary, cleanupInactiveInstances } from "../lib/whatsapp-monitor";
-import { requireAdmin, tenantManager } from "../lib/tenantManager";
+import { requireAdmin, tenantManager, type TenantRequest } from "../lib/tenantManager";
 import { runAgentReply } from "../lib/agent";
 import { db, conversations, messages } from "@workspace/db";
+import { and, eq, desc, inArray } from "drizzle-orm";
+import { logger } from "../lib/logger";
 import { existsSync, rmSync } from "node:fs";
 import path from "node:path";
 
@@ -26,7 +28,9 @@ router.post("/connect", async (req, res, next) => {
   try {
     const tid = tenantIdFromReq(req);
     const mgr = getWhatsAppForTenant(tid, (req as any).tenant);
-    const status = await mgr.start();
+    // Usar pairing-code por defecto (más confiable que QR en redes restringidas)
+    await mgr.startWithPairing();
+    const status = mgr.getStatus();
     return res.json(GetWhatsAppStatusResponse.parse(status));
   } catch (e) {
     return next(e);
@@ -52,12 +56,29 @@ router.post("/test-ia", async (req, res, next) => {
     const tenantId = tenantIdFromReq(req);
     const { addTenantToInsert } = await import("../lib/tenantManager");
 
-    const [convo] = await db.insert(conversations).values(addTenantToInsert({
+    // Se REUSA la conversación de ese teléfono si ya existe, igual que hace
+    // WhatsApp real. Antes hacía un insert incondicional: cada llamada creaba
+    // una conversación nueva, así que el agente contestaba siempre sin
+    // historia. Probando con esta ruta parecía que el bot "perdía el hilo"
+    // (mostraba un producto y al mensaje siguiente ya no sabía cuál era),
+    // cuando en realidad era la ruta la que le borraba la memoria en cada
+    // mensaje. Una herramienta de diagnóstico que miente sobre el sistema es
+    // peor que no tenerla.
+    const telefono = req.body.phone || "test-ia";
+    const { variantesDeTelefono } = await import("../lib/customer-profile");
+    const [existente] = await db
+      .select()
+      .from(conversations)
+      .where(and(eq(conversations.tenantId, tenantId), inArray(conversations.contactPhone, variantesDeTelefono(telefono))))
+      .orderBy(desc(conversations.id))
+      .limit(1);
+
+    const convo = existente ?? (await db.insert(conversations).values(addTenantToInsert({
       contactName: "Test",
-      contactPhone: req.body.phone || "test-ia",
+      contactPhone: telefono,
       status: "ai",
       currentStage: "greeting"
-    }, tenantId)).returning();
+    }, tenantId)).returning())[0];
 
     await db.insert(messages).values({
       conversationId: convo.id,
@@ -71,11 +92,105 @@ router.post("/test-ia", async (req, res, next) => {
       ok: true,
       message: msg,
       stage: reply?.stage,
+      proveedor: (reply as any)?.aiProvider ?? null,
       response: reply?.content?.substring(0, 500),
       parts: reply?.parts?.map(p => p.kind === "card" ? { card: p.productId } : { text: (p as any).content?.substring(0, 100) }),
     });
   } catch (e: any) {
     res.status(500).json({ error: e.message });
+  }
+});
+
+/**
+ * POST /api/whatsapp/comparar-modelos
+ *
+ * Le hace las MISMAS preguntas de venta a todos los modelos disponibles y
+ * devuelve las respuestas con sus señales medidas. Existe porque la elección
+ * del modelo se venía haciendo a ojo, y medirla explicó de una cuatro rondas
+ * de QA: el que contestaba era `laguna-s-2.1-free`, no el que decía el panel.
+ *
+ * Body opcional: { modelos?: string[], pregunta?: string }
+ */
+router.post("/comparar-modelos", async (req: TenantRequest, res, next) => {
+  try {
+    const {
+      ESTILO_DE_PRUEBA, FICHA_DE_PRUEBA, PREGUNTAS_DE_PRUEBA, medirSenales,
+    } = await import("../lib/comparar-modelos-venta");
+    const {
+      getProviderConfig, getProviderRotation, getOpenCodeRotation, createAIClient,
+    } = await import("@workspace/integrations-openai-ai-server");
+
+    const preguntas: string[] = Array.isArray(req.body?.preguntas) && req.body.preguntas.length
+      ? req.body.preguntas.slice(0, 4)
+      : PREGUNTAS_DE_PRUEBA;
+
+    // Los candidatos: la rotación de OpenCode (que es la que hoy atiende) más
+    // un modelo por cada proveedor que tenga clave. Sin repetir.
+    const vistos = new Set<string>();
+    const candidatos: Array<{ etiqueta: string; cfg: any }> = [];
+    const sumar = (etiqueta: string, cfg: any) => {
+      if (!cfg?.model) return;
+      const k = cfg.baseUrl + "|" + cfg.model;
+      if (vistos.has(k)) return;
+      vistos.add(k);
+      candidatos.push({ etiqueta, cfg });
+    };
+    for (const cfg of getOpenCodeRotation()) sumar(`opencode/${cfg.model}`, cfg);
+    for (const prov of ["groq", "openrouter", "nvidia", "nvidia_nim", "github", "mimo", "cerebras", "google_ai_studio"]) {
+      for (const cfg of getProviderRotation(prov).slice(0, 2)) sumar(`${prov}/${cfg.model}`, cfg);
+      sumar(prov, getProviderConfig(prov));
+    }
+    // Los de pago van solo si se piden por nombre: cuestan plata real.
+    for (const prov of (req.body?.dePago || [])) sumar(prov, getProviderConfig(String(prov)));
+
+    const tope = Math.min(Number(req.body?.limite) || 12, candidatos.length);
+    const elegidos = candidatos.slice(0, tope);
+
+    const resultados = await Promise.all(elegidos.map(async ({ etiqueta, cfg }) => {
+      const respuestas: any[] = [];
+      for (const pregunta of preguntas) {
+        const t0 = Date.now();
+        try {
+          const client = createAIClient({ ...cfg, timeout: 25_000, maxRetries: 0 } as any);
+          const r = await client.chat.completions.create({
+            model: cfg.model,
+            max_tokens: 400,
+            temperature: 0.6,
+            messages: [
+              { role: "system", content: `${ESTILO_DE_PRUEBA}\n\n${FICHA_DE_PRUEBA}` },
+              { role: "user", content: pregunta },
+            ],
+          } as any);
+          const texto = String((r as any)?.choices?.[0]?.message?.content || "").trim();
+          respuestas.push({
+            pregunta, ms: Date.now() - t0, texto,
+            senales: medirSenales(texto, FICHA_DE_PRUEBA),
+          });
+        } catch (e: any) {
+          respuestas.push({ pregunta, ms: Date.now() - t0, texto: "", error: String(e?.message || e).slice(0, 90) });
+        }
+      }
+      const ok = respuestas.filter((x) => x.texto);
+      return {
+        modelo: etiqueta,
+        respondio: `${ok.length}/${preguntas.length}`,
+        // El resumen que permite ordenar sin leer los 40 textos.
+        voseo: ok.reduce((a, x) => a + (x.senales?.voseo?.length || 0), 0),
+        invento: ok.reduce((a, x) => a + (x.senales?.invento?.length || 0), 0),
+        largoPromedio: ok.length ? Math.round(ok.reduce((a, x) => a + x.texto.length, 0) / ok.length) : 0,
+        msPromedio: ok.length ? Math.round(ok.reduce((a, x) => a + x.ms, 0) / ok.length) : 0,
+        respuestas,
+      };
+    }));
+
+    // Primero los que respondieron todo, sin voseo y sin inventar.
+    resultados.sort((a, b) =>
+      (b.respondio.localeCompare(a.respondio)) ||
+      (a.invento - b.invento) || (a.voseo - b.voseo) || (a.msPromedio - b.msPromedio));
+
+    res.json({ ok: true, probados: resultados.length, resultados });
+  } catch (e: any) {
+    next(e);
   }
 });
 
@@ -184,7 +299,6 @@ router.get("/session-info", (req, res) => {
   const hasFiles = existsSync(dir);
   const status = mgr.getStatus();
   return res.json({
-    state: status.state,
     authFilesExist: hasFiles,
     authDir: dir,
     tenantId: tid,
@@ -260,6 +374,161 @@ router.post("/instances/:tenantId/start", requireAdmin(), async (req, res, next)
     const mgr = getWhatsAppForTenant(tid, targetTenant ?? undefined);
     const status = await mgr.start();
     return res.json({ ok: true, tenantId: tid, status: GetWhatsAppStatusResponse.parse(status) });
+  } catch (e) {
+    return next(e);
+  }
+});
+
+// ────────────────────────────────────────────────────────────────────────────
+// 🤖 ENDPOINTS PARA APP ANDROID + ARQUITECTO IA
+// ────────────────────────────────────────────────────────────────────────────
+
+// POST /api/whatsapp/capture
+// Recibe notificación de app Android, el Arquitecto IA analiza si responder
+router.post("/capture", async (req, res, next) => {
+  try {
+    const { phone, message, timestamp } = req.body;
+    if (!phone || !message) {
+      return res.status(400).json({ error: "phone y message requeridos" });
+    }
+
+    const tid = tenantIdFromReq(req);
+    const { analyzeWhatsAppMessage } = await import("../lib/whatsapp-brain");
+
+    // Buscar o crear conversación.
+    // Por acá el número entra como lo escribió una persona ("+57 304 274
+    // 8687"); por Baileys entra en dígitos. Comparando exacto, el mismo
+    // cliente quedaba con dos conversaciones y el bot le arrancaba de cero.
+    const { variantesDeTelefono, normalizarTelefono } = await import("../lib/customer-profile");
+    const convos = await db.select().from(conversations)
+      .where(and(
+        inArray(conversations.contactPhone, variantesDeTelefono(phone)),
+        eq(conversations.tenantId, tid)
+      ));
+    let convo = convos[0];
+
+    if (!convo) {
+      [convo] = await db.insert(conversations).values({
+        tenantId: tid,
+        contactName: `Cliente ${phone}`,
+        contactPhone: normalizarTelefono(phone) || phone,
+        channel: "whatsapp",
+        status: "ai"
+      }).returning();
+    }
+
+    // Guardar mensaje del cliente
+    await db.insert(messages).values({
+      conversationId: convo.id,
+      role: "customer",
+      content: message,
+    });
+
+    // Analizar con WhatsApp Brain (Arquitecto IA)
+    const analysis = await analyzeWhatsAppMessage(convo.id, tid);
+
+    // Respuesta al app Android
+    res.json({
+      ok: true,
+      conversationId: convo.id,
+      debe_responder: analysis.debe_responder,
+      respuesta: analysis.respuesta,
+      confianza: analysis.confianza,
+      tipo_mensaje: analysis.tipo_mensaje,
+      razonamiento: analysis.razonamiento,
+      timestamp: new Date().toISOString()
+    });
+  } catch (e) {
+    return next(e);
+  }
+});
+
+// POST /api/whatsapp/execute
+// App Android confirma y envía la respuesta automática
+router.post("/execute", async (req, res, next) => {
+  try {
+    const { conversationId, mensaje, phone } = req.body;
+    if (!conversationId || !mensaje) {
+      return res.status(400).json({ error: "conversationId y mensaje requeridos" });
+    }
+
+    const tid = tenantIdFromReq(req);
+
+    // Guardar respuesta en BD
+    await db.insert(messages).values({
+      conversationId,
+      role: "assistant",
+      content: mensaje,
+      metadata: {
+        es_automatico: true,
+        enviado_via: "app_android",
+        timestamp: new Date().toISOString()
+      }
+    });
+
+    // Envío REAL por WhatsApp.
+    //
+    // Antes esto era un TODO comentado y la respuesta devolvía
+    // `mensaje_enviado: true` igual, SIEMPRE: el mensaje quedaba guardado en
+    // la base y quien llamara (la app Android) recibía "enviado" aunque no
+    // hubiera salido nada. Un "listo" que no es cierto es peor que un error:
+    // el negocio cree que le contestó al cliente y en realidad lo dejó
+    // esperando. Ahora se intenta enviar de verdad y se informa exactamente
+    // lo que pasó.
+    let enviado = false;
+    let detalle = "";
+    if (!phone) {
+      detalle = "No se indicó a qué número enviar el mensaje.";
+    } else {
+      try {
+        const mgr = getWhatsAppForTenant(tid, (req as any).tenant);
+        if (!mgr.isConnected()) {
+          detalle = "WhatsApp no está conectado en este momento. El mensaje quedó guardado, pero no salió.";
+        } else {
+          await mgr.sendText(String(phone), String(mensaje));
+          enviado = true;
+        }
+      } catch (err: any) {
+        logger.error({ err, conversationId }, "[WhatsApp] Falló el envío desde /execute");
+        detalle = "No se pudo entregar el mensaje por WhatsApp.";
+      }
+    }
+
+    res.json({
+      ok: enviado,
+      conversationId,
+      mensaje_enviado: enviado,
+      ...(enviado ? {} : { motivo: detalle }),
+      timestamp: new Date().toISOString()
+    });
+  } catch (e) {
+    return next(e);
+  }
+});
+
+// GET /api/whatsapp/context
+// App Android obtiene contexto del negocio
+router.get("/context", async (req, res, next) => {
+  try {
+    const tid = tenantIdFromReq(req);
+    const { products: productsTable } = await import("@workspace/db");
+
+    // Obtener productos del negocio
+    const prods = await db.select().from(productsTable)
+      .where(eq(productsTable.tenantId, tid))
+      .limit(10);
+
+    res.json({
+      ok: true,
+      tenantId: tid,
+      productos: prods.map((p: any) => ({
+        id: p.id,
+        nombre: p.name,
+        precio: p.price,
+        descripcion: p.description?.substring(0, 200)
+      })),
+      timestamp: new Date().toISOString()
+    });
   } catch (e) {
     return next(e);
   }

@@ -1,9 +1,10 @@
-// @ts-nocheck
 import { logger } from "./logger";
+import { getAppUrl } from "./app-url";
 import { dbNow } from "./date-utils";
 import { db, paymentLinks } from "@workspace/db";
 import { eq, and, gte, lte } from "drizzle-orm";
 import { tenantManager, type TenantContext } from "./tenantManager";
+import { credencialesDe, probarMercadoPago, probarPayPal } from "./tenant-payment-credentials";
 
 // Payment Validation and Enhancement Types
 export interface PaymentServiceHealth {
@@ -201,8 +202,44 @@ class URLShortener {
 
   static async createShortLink(originalUrl: string, method: string, productId: number, clientPhone: string): Promise<string> {
     try {
+      const baseUrl = getAppUrl();
+
+      // ── Un solo link por (producto, cliente, medio) ──────────────────────
+      //
+      // Antes esto generaba un código aleatorio NUEVO en cada llamada, y la
+      // ficha se muestra varias veces por conversación. Medido el 2026-08-25:
+      // el cliente pidió el acceso tres veces y recibió cuatro URLs distintas
+      // (/p/DBFblS, /p/IXPU69, /p/xdczZc, /p/PeB513) para la misma compra.
+      //
+      // Para el cliente son cuatro links y ninguna certeza de cuál pagar; para
+      // el negocio, órdenes huérfanas en la pasarela y una conciliación que no
+      // cuadra. Reusar el que ya existe es lo correcto: la orden es la misma.
+      const [existente] = await db
+        .select({ shortCode: paymentLinks.shortCode })
+        .from(paymentLinks)
+        .where(
+          and(
+            eq(paymentLinks.productId, productId),
+            eq(paymentLinks.clientPhone, clientPhone),
+            eq(paymentLinks.method, method),
+            eq(paymentLinks.isActive, true),
+          ),
+        )
+        .limit(1);
+
+      if (existente?.shortCode) {
+        // Se refresca el destino y se conserva el código. La pasarela genera
+        // una preferencia nueva en cada llamada, así que el destino puede
+        // haber cambiado; el LINK que ve el cliente, no. Así tiene una sola
+        // URL, y siempre lleva a un pago válido.
+        await db
+          .update(paymentLinks)
+          .set({ originalUrl })
+          .where(eq(paymentLinks.shortCode, existente.shortCode));
+        return `${baseUrl}/p/${existente.shortCode}`;
+      }
+
       const shortCode = this.generateShortCode();
-      const baseUrl = process.env.APP_URL || "https://tecnovariedades.easypanel.host";
       const shortUrl = `${baseUrl}/p/${shortCode}`;
 
       // Store in database for redirection
@@ -259,22 +296,17 @@ export class PaymentGateway {
     this.tenant = tenant || tenantManager.getDefaultTenant();
     this.healthMonitor = new PaymentHealthMonitor();
     
-    // Use tenant-specific payment configuration
-    const tenantPayments = this.tenant.paymentMethods;
-    
+    // Resolve/decrypt the tenant credentials. Reading paymentMethods directly
+    // returns encrypted objects and creates invalid payment links.
+    const tenantPayments = credencialesDe(this.tenant);
+
     this.config = {
-      mercadoPagoAccessToken: tenantPayments.mercadopago?.accessToken || process.env.MERCADO_PAGO_ACCESS_TOKEN,
-      paypalClientId: tenantPayments.paypal?.clientId || process.env.PAYPAL_CLIENT_ID,
-      paypalClientSecret: tenantPayments.paypal?.clientSecret || process.env.PAYPAL_CLIENT_SECRET,
-      paypalMode: tenantPayments.paypal?.mode || process.env.PAYPAL_MODE || "live",
-      transferAccounts: tenantPayments.transfer?.accounts || [
-        {
-          type: "Nequi",
-          number: process.env.TRANSFER_NUMBER || "",
-          name: process.env.TRANSFER_NAME || process.env.TRANSFER_OWNER || ""
-        }
-      ],
-      appUrl: process.env.APP_URL || "https://tecnovariedades.easypanel.host",
+      mercadoPagoAccessToken: tenantPayments.mercadopago.accessToken,
+      paypalClientId: tenantPayments.paypal.clientId,
+      paypalClientSecret: tenantPayments.paypal.clientSecret,
+      paypalMode: tenantPayments.paypal.mode,
+      transferAccounts: tenantPayments.transfer.accounts,
+      appUrl: getAppUrl(),
       ...config,
     };
   }
@@ -287,16 +319,30 @@ export class PaymentGateway {
 
     // Validate MercadoPago
     if (this.config.mercadoPagoAccessToken) {
-      const mpHealth = this.healthMonitor.getServiceHealth('mercadopago');
-      const mpValidation = await this.validateMercadoPagoService(mpHealth);
-      results.push(mpValidation);
+      const check = await probarMercadoPago(this.config.mercadoPagoAccessToken);
+      results.push({
+        isValid: check.ok,
+        service: "mercadopago",
+        errors: check.ok ? [] : [check.detalle],
+        warnings: [],
+        estimatedSuccess: check.ok ? 95 : 0,
+      });
     }
 
     // Validate PayPal
     if (this.config.paypalClientId && this.config.paypalClientSecret) {
-      const paypalHealth = this.healthMonitor.getServiceHealth('paypal');
-      const paypalValidation = await this.validatePayPalService(paypalHealth);
-      results.push(paypalValidation);
+      const check = await probarPayPal(
+        this.config.paypalClientId,
+        this.config.paypalClientSecret,
+        this.config.paypalMode,
+      );
+      results.push({
+        isValid: check.ok,
+        service: "paypal",
+        errors: check.ok ? [] : [check.detalle],
+        warnings: [],
+        estimatedSuccess: check.ok ? 90 : 0,
+      });
     }
 
     // Validate Transfer (always available)
@@ -410,9 +456,15 @@ export class PaymentGateway {
 
   async createMercadoPagoLink(product: any, client: any): Promise<PaymentMethodResult | null> {
     // Validate service before attempting to create link
-    const validation = await this.validateMercadoPagoService(
-      this.healthMonitor.getServiceHealth('mercadopago')
-    );
+    const token = this.config.mercadoPagoAccessToken;
+    const check = await probarMercadoPago(token);
+    const validation: PaymentValidationResult = {
+      isValid: check.ok,
+      service: "mercadopago",
+      errors: check.ok ? [] : [check.detalle],
+      warnings: [],
+      estimatedSuccess: check.ok ? 95 : 0,
+    };
 
     if (!validation.isValid) {
       logger.warn({ 
@@ -426,7 +478,7 @@ export class PaymentGateway {
       logger.warn({ warnings: validation.warnings }, "[Payment] MercadoPago warnings detected");
     }
 
-    const mpAccessToken = this.config.mercadoPagoAccessToken;
+    const mpAccessToken = token;
     if (!mpAccessToken) return null;
 
     try {
@@ -502,9 +554,16 @@ export class PaymentGateway {
 
   async createPayPalLink(product: any, client: any): Promise<PaymentMethodResult | null> {
     // Validate service before attempting to create link
-    const validation = await this.validatePayPalService(
-      this.healthMonitor.getServiceHealth('paypal')
-    );
+    const clientId = this.config.paypalClientId;
+    const clientSecret = this.config.paypalClientSecret;
+    const check = await probarPayPal(clientId, clientSecret, this.config.paypalMode);
+    const validation: PaymentValidationResult = {
+      isValid: check.ok,
+      service: "paypal",
+      errors: check.ok ? [] : [check.detalle],
+      warnings: [],
+      estimatedSuccess: check.ok ? 90 : 0,
+    };
 
     if (!validation.isValid) {
       logger.warn({ 
@@ -518,7 +577,7 @@ export class PaymentGateway {
       logger.warn({ warnings: validation.warnings }, "[Payment] PayPal warnings detected");
     }
 
-    const paypalClientId = this.config.paypalClientId;
+    const paypalClientId = clientId;
     if (!paypalClientId) return null;
 
     try {

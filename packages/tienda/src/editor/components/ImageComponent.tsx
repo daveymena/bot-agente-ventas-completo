@@ -1,3 +1,4 @@
+import { placeholderImage } from "../../lib/placeholder-image";
 import React from 'react';
 import { useNode } from '@craftjs/core';
 
@@ -13,7 +14,7 @@ export interface ImageProps {
 }
 
 const defaultProps: ImageProps = {
-  src: 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=800',
+  src: placeholderImage("Imagen"),
   alt: 'Imagen',
   width: '100%',
   height: '300px',

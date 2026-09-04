@@ -11,6 +11,7 @@ import healthRouter from "./health";
 import woocommerceRouter from "./routes/woocommerce";
 import subscriptionWebhooksRouter from "./routes/subscription-webhooks";
 import activationRouter from "./routes/activation";
+import aiCatalogRouter from "./routes/ai-catalog";
 import { logger } from "./lib/logger";
 import { securityShield } from "./lib/security-shield";
 import { imageUrlFixer } from "./lib/image-url-fixer";
@@ -34,6 +35,16 @@ import { getImageStoreDir } from "./lib/image-store";
     // reales desde el arranque, no el placeholder.
     const realTenant = await tenantManager.getTenantById(1);
     const defaultTenant = realTenant ?? tenantManager.getDefaultTenant();
+
+    // Si no hay tenant resuelto (BD vacía o schema viejo), no intentar
+    // arrancar WhatsApp -- antes esto lanzaba un TypeError inesperado
+    // ("Cannot read properties of undefined (reading 'id')") que rompía el
+    // arranque del servidor en loop.
+    if (!defaultTenant?.id) {
+      logger.warn("[WhatsApp] No hay tenant disponible, omitiendo auto-start del bot");
+      return;
+    }
+
     const mgr = getWhatsAppForTenant(defaultTenant.id, defaultTenant);
     await mgr.start();
     logger.info({ tenantId: defaultTenant.id }, "[WhatsApp] Instancia auto-iniciada");
@@ -50,6 +61,36 @@ startWhatsAppMonitor(5 * 60 * 1000);
 // sugiere por WhatsApp, nunca ejecuta sin aprobación -- ver ad-growth-agent.ts)
 import { startAdGrowthAgent } from "./lib/ad-growth-agent";
 startAdGrowthAgent();
+
+// El reloj del sistema: lo que hay que hacer A UNA HORA determinada.
+//
+// `setInterval` sirve para "cada 30 minutos" pero no para "el martes a las
+// 19:00", y además cada despliegue lo reinicia -- por eso el guardián de gasto
+// llegó a marcar "0 revisiones" en su historial. Acá la hora vive en la base,
+// así que un reinicio no pierde nada: ver lib/programador.ts.
+//
+// Los manejadores se registran solos cuando el agente que los usa se activa;
+// un trabajo cuyo tipo todavía no registró nadie queda PENDIENTE y corre en la
+// vuelta siguiente, nunca se marca "hecho" en falso.
+import { iniciarProgramador } from "./lib/programador";
+import { registrarOrganico } from "./lib/agente-organico";
+import { registrarGuardia } from "./lib/agente-horario";
+registrarOrganico();
+registrarGuardia();
+iniciarProgramador();
+
+// Reporte diario del equipo de marketing. Los 13 agentes existian pero no
+// corria ninguno solo: habia que ir a despertarlos entrando a la pagina. Un
+// equipo que hay que despertar no hace seguimiento. Solo MIRA y avisa por
+// WhatsApp; no cambia nada, y si no hay novedades no escribe.
+import { startMarketingDailyReport } from "./lib/marketing-team/daily-report";
+startMarketingDailyReport();
+
+// Auto-start del scheduler de remarketing: procesa en tandas chicas las
+// campañas de email/WhatsApp que Atlas encoló (nunca manda nada por su
+// cuenta -- solo drena lo que el admin ya confirmó, ver remarketing.ts).
+import { remarketingScheduler } from "./lib/remarketing-scheduler";
+remarketingScheduler.start();
 
 // Auto-start AI Processor (Orchestrator) on boot
 import { getAgentOrchestrator } from "./lib/services/agent-orchestrator";
@@ -74,7 +115,17 @@ logger.info("[MessageHandler] Message receiver configured for default tenant");
     // aquí: un valor fijo en el código es la misma cuenta admin conocida en
     // CUALQUIER despliegue fresco de este repo. Fallback solo para no romper
     // instalaciones locales sin .env; en producción hay que setear ambas vars.
-    const existingTenants = await db.select().from(tenants).limit(1);
+    let existingTenants = [];
+    try {
+      existingTenants = await db.select().from(tenants).limit(1);
+    } catch (e: any) {
+      // Si falla por schema mismatch (columnas faltantes), ignorar auto-seed
+      if (e.message?.includes("does not exist") || e.code === "42703") {
+        console.warn("[AutoSeed] Schema mismatch detectado, omitiendo auto-seed");
+        return;
+      }
+      throw e;
+    }
     if (existingTenants.length === 0) {
       const crypto = await import("crypto");
       const adminEmail = process.env.ADMIN_EMAIL || "admin@example.com";
@@ -141,10 +192,16 @@ logger.info("[MessageHandler] Message receiver configured for default tenant");
       console.log("📦 No hay productos, sembrando desde products-full.json...");
       // El archivo vive en la raíz del monorepo, no en cwd (que varía según
       // cómo se lance el proceso) — probar varias rutas cubre local y Docker.
+      // `__dirname` se declara MÁS ABAJO (línea ~356). Leerlo acá lanzaba
+      // ReferenceError por zona muerta temporal. No se notaba porque este
+      // bloque solo corre cuando el catálogo está VACÍO: o sea que reventaba
+      // exactamente en la instalación de un cliente nuevo, que es el peor
+      // momento para fallar. Se resuelve local, sin depender del orden.
+      const aqui = path.dirname(fileURLToPath(import.meta.url));
       const possiblePaths = [
         path.resolve(process.cwd(), "products-full.json"),
-        path.resolve(__dirname, "../../products-full.json"),
-        path.resolve(__dirname, "../../../products-full.json"),
+        path.resolve(aqui, "../../products-full.json"),
+        path.resolve(aqui, "../../../products-full.json"),
         "/app/products-full.json",
       ];
       const jsonPath = possiblePaths.find(p => existsSync(p));
@@ -190,22 +247,41 @@ logger.info("[MessageHandler] Message receiver configured for default tenant");
     }
 
     // Auto-fix product image URLs (convert to /images/products/{id}.jpg format)
+    // AND download missing physical product images from metadata
     (async () => {
       try {
         const allProducts = await db.select().from(products).limit(1);
         if (allProducts.length > 0) {
-          const result = await imageUrlFixer.fixAllProductImages(1);
+          // Sin argumento: todos los negocios. Con el 1 escrito a mano, en un
+          // SaaS solo se atendía al primero.
+          const result = await imageUrlFixer.fixAllProductImages();
           if (result.fixed > 0) {
             console.log(
               `✅ ${result.fixed} product image URLs fixed (was ${result.withoutImages} without images)`
+            );
+          }
+          // ── Las fotos rotas, de TODOS los negocios ──────────────────────
+          //
+          // Acá decía `downloadPhysicalImages(1)`, con el 1 escrito a mano. En
+          // un SaaS eso significa que solo se reparan las imágenes del primer
+          // negocio: los productos de Dropi de cualquier otro cliente quedan
+          // rotos para siempre, y nadie se entera porque el arranque igual
+          // dice que todo salió bien.
+          //
+          // Sin argumento, va por todos.
+          const downloadResult = await imageUrlFixer.downloadPhysicalImages();
+          if (downloadResult.downloaded > 0 || downloadResult.limpiados > 0) {
+            console.log(
+              `✅ Fotos de productos físicos: ${downloadResult.downloaded} recuperadas, ` +
+              `${downloadResult.limpiados} enlaces muertos limpiados, ${downloadResult.failed} sin arreglar`
             );
           }
         }
       } catch (err) {
         console.warn("⚠️ Could not auto-fix product images on startup:", err);
       }
-    })();
-  } catch (error) {
+})();
+   } catch (error) {
     console.error("❌ Error en auto-seed:", error);
   }
 })();
@@ -348,18 +424,50 @@ const frontendPath = findFrontendPath();
 const IMAGES_DIR = getImageStoreDir();
 mkdirSync(IMAGES_DIR, { recursive: true });
 
+// ── El video del producto, servido por la app ────────────────────────────
+//
+// Pedido del admin: "descargalo y alojalo en la app". El enlace de Terabox
+// funciona pero le pide al cliente instalar la app o registrarse, y poner una
+// barrera de registro justo cuando esta decidiendo comprar es perder la venta.
+//
+// `sendFile` responde peticiones de rango solo, asi que el cliente puede
+// adelantar el video sin bajarlo entero.
+//
+// ⚠️ Esto NO reproduce dentro del chat de WhatsApp: para eso el video tiene
+// que ir como archivo adjunto y pesar menos de 16 MB. Lo que da es una URL
+// propia que abre el video sin apps ni cuentas de por medio.
+app.get("/videos/products/:filename", (req, res) => {
+  const filename = req.params.filename;
+  if (path.basename(filename) !== filename || !/^\d+\.(?:mp4|webm|mov|m4v)$/i.test(filename)) {
+    return res.status(404).end();
+  }
+  const filePath = path.resolve(IMAGES_DIR, "videos", filename);
+  if (!existsSync(filePath)) return res.status(404).json({ message: "Video no disponible" });
+  return res.sendFile(filePath);
+});
+
 // Servir imágenes de productos desde el volumen persistente primero
 app.get("/images/products/:filename", (req, res, next) => {
-  const filePath = path.resolve(IMAGES_DIR, "products", req.params.filename);
+  const filename = req.params.filename;
+  // Never let a public image URL escape the product image directory.
+  if (path.basename(filename) !== filename || !/^\d+\.(?:jpe?g|png|webp)$/i.test(filename)) {
+    return res.status(404).end();
+  }
+  const filePath = path.resolve(IMAGES_DIR, "products", filename);
   if (existsSync(filePath)) {
     return res.sendFile(filePath);
   }
   // Fallback al archivo estático del repositorio
-  const staticPath = path.resolve(frontendPath, "images/products", req.params.filename);
-  if (existsSync(staticPath)) {
+  const staticPath = frontendPath ? path.resolve(frontendPath, "images/products", filename) : "";
+  if (staticPath && existsSync(staticPath)) {
     return res.sendFile(staticPath);
   }
-  next();
+  // Legacy catalog rows can reference an image that was removed from the
+  // volume. Return a neutral placeholder instead of a noisy 404 and broken
+  // cards; the product can still be edited to attach a real image later.
+  res.type("svg").send(
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 450"><defs><linearGradient id="g" x1="0" x2="1"><stop stop-color="#e2e8f0"/><stop offset="1" stop-color="#cbd5e1"/></linearGradient></defs><rect width="800" height="450" fill="url(#g)"/><text x="400" y="235" text-anchor="middle" font-family="Arial,sans-serif" font-size="28" fill="#475569">Imagen no disponible</text></svg>`,
+  );
 });
 
 // Upload de imagen (base64) para un producto
@@ -496,6 +604,12 @@ const publicRoutes = [
   "/facebook/marketplace/webhook", // Facebook Marketplace webhook
   "/facebook/comments/webhook", // Facebook Comments webhook
   "/p", // Short URLs para productos
+  // Puente MCP que llama el contenedor OpenCode (cerebro de Atlas), no un
+  // navegador con sesión -- tiene su PROPIA autenticación (token de turno
+  // HMAC firmado, ver opencode-turn-token.ts), igual que los webhooks de
+  // arriba. Sin esto, resolveTenant() exigiría una cookie de sesión que
+  // OpenCode nunca va a tener.
+  "/internal/mcp",
 ];
 
 const isPublicRoute = (path: string) => {
@@ -517,6 +631,16 @@ const isPublicRoute = (path: string) => {
   // de CUALQUIER tenant. Se excluye acá para que resolveTenant() corra y
   // store.ts pueda validar que el tenant logueado sea el dueño de esa tienda.
   if (path === "/store/admin" || path.startsWith("/store/admin/")) {
+    return false;
+  }
+
+  // POST /public/fb-connect guarda el token/página de Facebook DENTRO del
+  // tenant -- si queda cubierto por el "/public" público de arriba, cualquiera
+  // en internet puede mandar {tenantId, userToken} sin sesión y secuestrar la
+  // conexión de Facebook de OTRO negocio (o la del dueño de la plataforma,
+  // ya que tenantId caía a 1 por defecto). Se excluye para que resolveTenant()
+  // corra y el handler use el tenant de la sesión real, no el que manda el cliente.
+  if (path === "/public/fb-connect") {
     return false;
   }
 
@@ -548,12 +672,24 @@ const validateSaasMiddleware = (req: Request, res: Response, next: NextFunction)
   if (isPublicRoute(req.path)) {
     return next();
   }
-  
+
   // Rutas de autenticación (como check-email) deben pasar sin validación SaaS
   if (req.path.includes("/auth") || req.path.includes("/login") || req.path.includes("/register")) {
     return next();
   }
-  
+
+  // /pricing (incluye POST /pricing/upgrade) NUNCA debe bloquearse acá: es
+  // justo la ruta que un tenant con trial vencido o plan inválido necesita
+  // para pagar y arreglarlo. Antes este middleware corría igual que para
+  // cualquier otra ruta protegida, así que "Trial expired -- action:
+  // upgrade_plan" (línea de abajo) le devolvía 403 al cliente EN LA MISMA
+  // ruta que el propio error le decía que usara para solucionarlo -- un
+  // candado sin salida. resolveTenantMiddleware sigue corriendo antes que
+  // esto, así que /pricing/upgrade igual recibe req.tenant real.
+  if (req.path.includes("/pricing")) {
+    return next();
+  }
+
   const tenant = (req as any).tenant;
   if (!tenant) {
     logger.warn({ path: req.path }, `[validateSaaS] No tenant found`);
@@ -568,12 +704,18 @@ const validateLimitsMiddleware = (req: Request, res: Response, next: NextFunctio
   if (isPublicRoute(req.path)) {
     return next();
   }
-  
+
   // Rutas de autenticación deben pasar sin validación de límites
   if (req.path.includes("/auth") || req.path.includes("/login") || req.path.includes("/register")) {
     return next();
   }
-  
+
+  // Mismo motivo que en validateSaasMiddleware: pagar/actualizar el plan no
+  // puede quedar bloqueado por haber superado los límites del plan actual.
+  if (req.path.includes("/pricing")) {
+    return next();
+  }
+
   validateUsageLimits()(req, res, next);
 };
 
@@ -636,17 +778,78 @@ app.use("/api", (req: Request, res: Response, next: NextFunction) => {
   next();
 });
 
+// Bloquear acceso a archivos sensibles (.env, .git, terraform, AWS, etc.)
+app.use((req: Request, res: Response, next: NextFunction) => {
+  const blockedPatterns = [
+    /^\/\.env/,
+    /^\/\.git/,
+    /^\/\.aws/,
+    /^\/\.secrets/,
+    /^\/secrets\./,
+    /^\/terraform\./,
+    /^\/config\/secrets/,
+    /^\/config\/master\.key/,
+    /^\/wp-config\.php/,
+    /^\/application\.(properties|yml|yaml)$/,
+    /^\/appsettings\.(json|Development\.json|Production\.json)$/,
+    /^\/root\//,
+    /^\/home\//,
+    /docker-compose/,
+  ];
+
+  if (blockedPatterns.some(pattern => pattern.test(req.path))) {
+    logger.warn({ path: req.path }, "🚨 Intento de acceso a archivo sensible bloqueado");
+    return res.status(403).json({ error: "Acceso denegado" });
+  }
+
+  next();
+});
+
 app.use("/api/woocommerce", woocommerceRouter);
 app.use("/api/webhooks/subscription", subscriptionWebhooksRouter);
 app.use("/api/activation", activationRouter);
+// El catálogo de IA por proveedor (claves, modelos disponibles, prueba de
+// conexión) existía completo en routes/ai-catalog.ts pero NUNCA se montó: cada
+// una de sus rutas devolvía 404. Por eso en el panel "los modelos de algunos
+// proveedores no aparecen" -- no es que falten en la lista, es que la ruta que
+// los trae no existía. Un archivo de rutas sin montar es código muerto que
+// parece funcionalidad.
+app.use("/api/ai", aiCatalogRouter);
 app.use("/api", router);
 
 // Short URL redirect: /p/:productId → /tienda/:slug/producto/:productId
 app.get("/p/:productId", async (req, res, next) => {
   try {
-    const { db, products, tenants } = await import("@workspace/db");
-    const { eq } = await import("drizzle-orm");
-    const productId = parseInt(req.params.productId, 10);
+    const { db, products, tenants, paymentLinks } = await import("@workspace/db");
+    const { eq, sql: sqlRaw } = await import("drizzle-orm");
+    const codigo = String(req.params.productId || "");
+
+    // Los ENLACES DE PAGO también viven en /p/, con un código alfanumérico
+    // (ver URLShortener en payments.ts: `${baseUrl}/p/${shortCode}`). Esta
+    // ruta solo resolvía ids NUMÉRICOS de producto y devolvía 404 para todo lo
+    // demás, así que TODOS los enlaces de pago acortados estaban rotos: el
+    // cliente recibía por WhatsApp "Tarjeta / PSE: .../p/nvZ22t", hacía clic y
+    // le salía "no encontrado". Es el último paso antes de pagar -- ahí se
+    // pierde la venta entera.
+    if (!/^\d+$/.test(codigo)) {
+      const [enlace] = await db
+        .select()
+        .from(paymentLinks)
+        .where(eq(paymentLinks.shortCode, codigo))
+        .limit(1);
+      if (!enlace?.originalUrl) return res.status(404).send("Enlace no encontrado o vencido");
+      // Se cuenta el clic para saber cuántos llegan hasta la pasarela; que
+      // falle el conteo NUNCA puede impedir el pago.
+      db.update(paymentLinks)
+        .set({ clicks: sqlRaw`${paymentLinks.clicks} + 1` })
+        .where(eq(paymentLinks.id, enlace.id))
+        .catch(() => {});
+      // 302 y no 301: un enlace de pago puede regenerarse, y un 301 queda
+      // cacheado en el navegador del cliente apuntando a un checkout viejo.
+      return res.redirect(302, enlace.originalUrl);
+    }
+
+    const productId = parseInt(codigo, 10);
     if (isNaN(productId)) return res.status(404).send("Producto no válido");
     const [p] = await db.select().from(products).where(eq(products.id, productId)).limit(1);
     if (!p) return res.status(404).send("Producto no encontrado");
@@ -660,15 +863,177 @@ app.get("/p/:productId", async (req, res, next) => {
   }
 });
 
-// SPA fallback para la tienda pública en /tienda/*
+// SPA fallback para la tienda pública en /tienda/* y sus dos rutas de
+// administración propias, que su router (packages/tienda) define SIN el
+// prefijo /tienda -- BrowserRouter ahí no tiene basename, así que /editor y
+// /admin están pensadas para pegarle directo a la raíz del dominio (ej.
+// ventasproia.com/editor), no a ventasproia.com/tienda/editor.
+//
+// Antes esta condición SOLO reconocía /tienda/*, así que /editor y /admin
+// caían al fallback general de más abajo, que sirve el index.html de
+// ventas-pro (la app de administración) -- un SPA completamente distinto
+// que no tiene ninguna ruta "/editor" en SU router, así que no renderizaba
+// nada: la página quedaba en blanco, sin ningún error visible.
+//
+// EXACTO, no por prefijo: ventas-pro SÍ tiene rutas reales bajo /admin/*
+// (/admin/store, /admin/tenants) -- matchear por prefijo redirigiría esas
+// páginas reales al SPA equivocado. La tienda solo navega a "/admin" a
+// secas (nunca a una subruta), así que el match exacto no le falta nada.
+/**
+ * Inyecta el título y las etiquetas Open Graph del producto en el HTML de la
+ * tienda, para las URLs que apuntan a un producto concreto.
+ *
+ * Por qué hace falta: la tienda es un SPA. WhatsApp, Facebook e Instagram NO
+ * ejecutan JavaScript cuando arman la vista previa de un enlace -- leen el
+ * HTML tal como sale del servidor. Ese HTML es el mismo para todas las rutas,
+ * así que hasta ahora TODO enlace compartido mostraba el título de la
+ * plantilla ("ProStore | Solución E-commerce Profesional") y ninguna imagen.
+ *
+ * Reportado por el admin (2026-08-16) y verificado: cero etiquetas og:* en
+ * /tienda/<slug>/producto/<id> y en /p/<id>. Importa el doble acá porque los
+ * anuncios pagos llevan a esas URLs y el agente de WhatsApp las manda en cada
+ * conversación: el cliente ve un enlace sin foto ni nombre y desconfía.
+ *
+ * Devuelve null si la ruta no es de producto (para no pagar una consulta a la
+ * base en cada carga de la tienda), o una promesa del HTML ya modificado.
+ */
+/**
+ * Título y metadatos de la PORTADA de una tienda (/tienda/:slug).
+ *
+ * La plantilla trae un título fijo -- "ProStore | Solución E-commerce
+ * Profesional" -- que se veía en la pestaña de todas las tiendas. Para un
+ * cliente que llega desde un anuncio de "VentasPro" y aterriza en una página
+ * que dice "TecnoVariedades" con la pestaña en "ProStore", son tres marcas
+ * distintas en la misma pantalla: se lee como estafa antes del primer mensaje.
+ * Acá se pone el nombre REAL de esa tienda.
+ */
+function metaDeTienda(rutaUrl: string): Promise<string | null> | null {
+  const m = rutaUrl.match(/^\/tienda\/([^/]+)\/?$/);
+  if (!m || !tiendaPath) return null;
+  const slug = m[1]!;
+
+  return (async () => {
+    try {
+      const { db, stores } = await import("@workspace/db");
+      const { eq } = await import("drizzle-orm");
+      const [tienda] = await db.select().from(stores).where(eq(stores.slug, slug)).limit(1);
+      if (!tienda) return null;
+
+      const indexPath = path.join(tiendaPath!, "index.html");
+      let html = readFileSync(indexPath, "utf8");
+      const esc = (s: string) =>
+        String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+      const appUrl = (process.env.APP_URL || "https://ventasproia.com").replace(/\/+$/, "");
+      const nombre = String(tienda.name || "Tienda");
+      const desc = `Cursos y productos digitales de ${nombre}. Acceso inmediato después de la compra.`;
+
+      const tags = [
+        `<title>${esc(nombre)}</title>`,
+        `<meta name="description" content="${esc(desc)}">`,
+        `<meta property="og:type" content="website">`,
+        `<meta property="og:site_name" content="${esc(nombre)}">`,
+        `<meta property="og:title" content="${esc(nombre)}">`,
+        `<meta property="og:description" content="${esc(desc)}">`,
+        `<meta property="og:url" content="${esc(`${appUrl}${rutaUrl}`)}">`,
+      ].join("\n    ");
+
+      html = html.replace(/<title>[\s\S]*?<\/title>/i, "");
+      html = html.replace(/<head([^>]*)>/i, `<head$1>\n    ${tags}`);
+      return html;
+    } catch (e: any) {
+      logger.warn({ err: e?.message, slug }, "[Tienda] No se pudieron armar los metadatos de la portada");
+      return null;
+    }
+  })();
+}
+
+function metaDeProducto(rutaUrl: string): Promise<string | null> | null {
+  const m = rutaUrl.match(/^\/tienda\/[^/]+\/producto\/(\d+)\/?$/) || rutaUrl.match(/^\/p\/(\d+)\/?$/);
+  if (!m) return null;
+  const productId = Number(m[1]);
+  if (!Number.isFinite(productId)) return null;
+
+  return (async () => {
+    try {
+      const { db, products } = await import("@workspace/db");
+      const { eq } = await import("drizzle-orm");
+      const [p] = await db.select().from(products).where(eq(products.id, productId)).limit(1);
+      if (!p || !tiendaPath) return null;
+
+      const indexPath = path.join(tiendaPath, "index.html");
+      let html = readFileSync(indexPath, "utf8");
+
+      const appUrl = (process.env.APP_URL || "https://ventasproia.com").replace(/\/+$/, "");
+      const abs = (u: string) => (!u ? "" : /^https?:\/\//i.test(u) ? u : `${appUrl}/${String(u).replace(/^\/+/, "")}`);
+
+      const esc = (s: string) =>
+        String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+
+      const nombre = String(p.name || "Producto");
+      const precio = p.price ? `$${Number(p.price).toLocaleString("es-CO")} ${p.currency || "COP"}` : "";
+      // La primera línea de la descripción es el resumen del curso; el resto
+      // son los beneficios, que no aportan a una vista previa.
+      const resumen = String(p.description || "").split(/\r?\n/)[0].replace(/^[^\p{L}\p{N}]+/u, "").trim();
+      const titulo = precio ? `${nombre} — ${precio}` : nombre;
+      const descripcion = (resumen || nombre).slice(0, 200);
+      const imagen = abs(String(p.imageUrl || ""));
+      const url = `${appUrl}${rutaUrl}`;
+
+      const tags = [
+        `<title>${esc(titulo)}</title>`,
+        `<meta name="description" content="${esc(descripcion)}">`,
+        `<meta property="og:type" content="product">`,
+        `<meta property="og:title" content="${esc(titulo)}">`,
+        `<meta property="og:description" content="${esc(descripcion)}">`,
+        `<meta property="og:url" content="${esc(url)}">`,
+        imagen ? `<meta property="og:image" content="${esc(imagen)}">` : "",
+        imagen ? `<meta property="og:image:width" content="1200">` : "",
+        imagen ? `<meta property="og:image:height" content="630">` : "",
+        `<meta name="twitter:card" content="${imagen ? "summary_large_image" : "summary"}">`,
+        `<meta name="twitter:title" content="${esc(titulo)}">`,
+        `<meta name="twitter:description" content="${esc(descripcion)}">`,
+        imagen ? `<meta name="twitter:image" content="${esc(imagen)}">` : "",
+      ].filter(Boolean).join("\n    ");
+
+      // Se reemplaza el <title> de la plantilla en vez de sumar otro: dos
+      // títulos dejan que el rastreador elija, y suele quedarse con el
+      // primero -- el genérico.
+      html = html.replace(/<title>[\s\S]*?<\/title>/i, "");
+      html = html.replace(/<head([^>]*)>/i, `<head$1>\n    ${tags}`);
+      return html;
+    } catch (e: any) {
+      logger.warn({ err: e?.message, productId }, "[Tienda] No se pudieron armar los metadatos del producto");
+      return null;
+    }
+  })();
+}
+
+const TIENDA_OWN_ROUTES = new Set(["/editor", "/admin"]);
 app.use((req, res, next) => {
-  if (tiendaPath && (req.path === "/tienda" || req.path.startsWith("/tienda/"))) {
+  const isPublicStorePath =
+    req.path === "/tienda" ||
+    req.path.startsWith("/tienda/") ||
+    TIENDA_OWN_ROUTES.has(req.path);
+  if (isPublicStorePath && tiendaPath) {
     const indexPath = path.join(tiendaPath, "index.html");
     if (existsSync(indexPath)) {
       res.setHeader("Content-Type", "text/html");
       res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+      // Metadatos por producto: sin esto, compartir el enlace de un producto
+      // no muestra NADA (ver metaDeProducto). Se resuelve antes de responder.
+      const meta = metaDeProducto(req.path) || metaDeTienda(req.path);
+      if (meta) {
+        return meta
+          .then((html) => (html ? res.send(html) : res.sendFile(indexPath)))
+          .catch(() => res.sendFile(indexPath));
+      }
       return res.sendFile(indexPath);
     }
+  }
+  // Never fall through to the admin SPA. A missing public-store build must be
+  // visible as an operational error, not as a dashboard rendered at /tienda.
+  if (isPublicStorePath) {
+    return res.status(503).send("La tienda pública no está disponible temporalmente.");
   }
   next();
 });

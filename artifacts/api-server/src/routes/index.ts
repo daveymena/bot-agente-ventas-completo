@@ -11,6 +11,7 @@ import dashboardRouter from "./dashboard";
 import settingsRouter from "./settings";
 import brandingRouter from "./branding";
 import codeAgentRouter from "./code-agent";
+import operatorOpencodeRouter from "./operator-opencode";
 import aiCatalogRouter from "./ai-catalog";
 import webhooksRouter from "./webhooks";
 import syncRouter from "./sync";
@@ -19,17 +20,23 @@ import tenantsRouter from "./tenants";
 import usageRouter from "./usage";
 import analyticsRouter from "./analytics";
 import paymentsRouter from "./payments";
+import paymentCredentialsRouter from "./payment-credentials";
+import emailCredentialsRouter from "./email-credentials";
 import cleanRouter from "./clean";
 import authRouter from "./auth";
 import storeRouter from "./store";
 import publicRouter from "./public";
 import facebookRouter from "./facebook";
+import facebookCredentialsRouter from "./facebook-credentials";
+import businessProfileRouter from "./business-profile";
 import personalityProfilesRouter from "./personality-profiles";
 import architectMemoryRouter from "./architect-memory";
 import responseAnalyticsRouter from "./response-analytics";
 import architectToolsRouter from "./architect-tools";
 import architectRouter from "./architect";
 import pricingRouter from "./pricing";
+import mcpBridgeRouter from "./mcp-bridge";
+import marketingRouter from "./marketing";
 
 const router: IRouter = Router();
 
@@ -44,6 +51,9 @@ router.use("/dashboard", dashboardRouter);
 router.use("/settings", settingsRouter);
 router.use("/branding", brandingRouter);
 router.use("/code-agent", codeAgentRouter);
+// Fase A del plan "Reemplazar el cerebro de Atlas por OpenCode" -- ruta
+// nueva y separada, no toca /operator. Ver operator-opencode.ts.
+router.use("/code-agent", operatorOpencodeRouter);
 router.use("/ai", aiCatalogRouter);
 router.use("/webhooks", webhooksRouter);
 router.use("/sync", syncRouter);
@@ -51,12 +61,20 @@ router.use("/p", paymentRedirectRouter);
 router.use("/tenants", tenantsRouter);
 router.use("/usage", usageRouter);
 router.use("/analytics", analyticsRouter);
+router.use("/payments", paymentCredentialsRouter);
+router.use("/email-config", emailCredentialsRouter);
 router.use("/payments", paymentsRouter);
 router.use("/clean", cleanRouter);
 router.use("/auth", authRouter);
 router.use("/store", storeRouter);
 router.use("/public", publicRouter);
 router.use("/facebook", facebookRouter);
+// Credenciales por tenant: debe montarse explícitamente; el router general de
+// Facebook no contiene /credentials y antes el frontend recibía 404.
+router.use("/facebook", facebookCredentialsRouter);
+// Lo que el agente de ventas sabe del negocio (y lo que tiene prohibido
+// afirmar porque el dueño no lo cargó). Por tenant, no global.
+router.use("/business-profile", businessProfileRouter);
 router.use("/personality-profiles", personalityProfilesRouter);
 router.use("/architect-memory", architectMemoryRouter);
 router.use("/response-analytics", responseAnalyticsRouter);
@@ -71,6 +89,12 @@ router.use("/architect", architectRouter);
 // públicos (listado de planes), pero /upgrade y /current/info sí reciben
 // req.tenant real.
 router.use("/pricing", pricingRouter);
+// Puente MCP para el cerebro OpenCode de Atlas -- tiene su propia
+// autenticación por token de turno (ver app.ts, allowlist "/internal/mcp").
+router.use("/internal/mcp", mcpBridgeRouter);
+// Equipo de Marketing & Growth -- dominio nuevo (MASTER PLAN). Todo pasa por
+// la cadena de middlewares de tenant/SaaS/limites montada en app.ts.
+router.use("/marketing", marketingRouter);
 
 // Usar el manejador de errores centralizado
 router.use(errorHandler);

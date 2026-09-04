@@ -6,22 +6,51 @@ import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
 
-router.get("/", async (_req, res, next) => {
+/**
+ * Aislamiento entre negocios.
+ *
+ * Todas estas rutas resolvían el perfil SOLO por su id, y tomaban el tenant
+ * del query/body en vez de la sesión: cualquier negocio logueado podía leer,
+ * editar o borrar los perfiles de personalidad de OTRO negocio con solo
+ * probar ids, y `materialize` caía por defecto al tenant 1. Es el mismo
+ * patrón del bug de fb-connect.
+ *
+ * Un perfil con `tenantId: null` es una plantilla global del sistema: se
+ * puede LEER y usar desde cualquier negocio, pero no editar ni borrar.
+ */
+const tenantDe = (req: any): number | null => req?.tenant?.id ?? null;
+
+/** El negocio de la sesión puede tocar este perfil (no vale el de otro). */
+function puedeEditar(profile: { tenantId: number | null }, tenantId: number | null): boolean {
+  return tenantId !== null && profile.tenantId === tenantId;
+}
+
+/** Además de los propios, deja leer las plantillas globales (tenantId null). */
+function puedeLeer(profile: { tenantId: number | null }, tenantId: number | null): boolean {
+  return profile.tenantId === null || puedeEditar(profile, tenantId);
+}
+
+router.get("/", async (req, res, next) => {
   try {
-    const tenantId = _req.query.tenantId
-      ? Number(_req.query.tenantId)
-      : undefined;
-    const profiles = await personalityEngine.listProfiles(tenantId);
-    res.json({ ok: true, profiles });
+    // El tenant sale de la sesión, nunca del query -- antes `?tenantId=N`
+    // listaba los perfiles de cualquier otro negocio.
+    const tenantId = tenantDe(req);
+    if (!tenantId) return res.status(401).json({ error: "Sesión requerida" });
+    const propios = await personalityEngine.listProfiles(tenantId);
+    const globales = (await personalityEngine.listProfiles()).filter(p => p.tenantId === null);
+    return res.json({ ok: true, profiles: [...propios, ...globales] });
   } catch (e) {
-    next(e);
+    return next(e);
   }
 });
 
 router.get("/:id", async (req, res, next) => {
   try {
+    const tenantId = tenantDe(req);
+    if (!tenantId) return res.status(401).json({ error: "Sesión requerida" });
     const profile = await personalityEngine.getProfile(Number(req.params.id));
-    if (!profile) return res.status(404).json({ error: "Profile not found" });
+    // Mismo 404 si no existe o si es de otro negocio: no confirma su existencia.
+    if (!profile || !puedeLeer(profile, tenantId)) return res.status(404).json({ error: "Profile not found" });
     return res.json({ ok: true, profile });
   } catch (e) {
     return next(e);
@@ -30,6 +59,8 @@ router.get("/:id", async (req, res, next) => {
 
 router.post("/", async (req, res, next) => {
   try {
+    const tenantId = tenantDe(req);
+    if (!tenantId) return res.status(401).json({ error: "Sesión requerida" });
     const profile = await personalityEngine.createProfile({
       name: req.body.name,
       description: req.body.description,
@@ -42,7 +73,9 @@ router.post("/", async (req, res, next) => {
       systemPromptCore: req.body.systemPromptCore,
       keywords: req.body.keywords || [],
       brandVoiceOverrides: req.body.brandVoiceOverrides || null,
-      tenantId: req.body.tenantId || null,
+      // Siempre el de la sesión: aceptar req.body.tenantId dejaba crear
+      // perfiles dentro de otro negocio.
+      tenantId,
       isActive: req.body.isActive ?? true,
     });
     return res.status(201).json({ ok: true, profile });
@@ -53,10 +86,16 @@ router.post("/", async (req, res, next) => {
 
 router.patch("/:id", async (req, res, next) => {
   try {
-    const profile = await personalityEngine.updateProfile(
-      Number(req.params.id),
-      req.body
-    );
+    const tenantId = tenantDe(req);
+    if (!tenantId) return res.status(401).json({ error: "Sesión requerida" });
+    const existente = await personalityEngine.getProfile(Number(req.params.id));
+    if (!existente || !puedeLeer(existente, tenantId)) return res.status(404).json({ error: "Profile not found" });
+    if (!puedeEditar(existente, tenantId)) {
+      return res.status(403).json({ error: "Las plantillas del sistema no se pueden editar" });
+    }
+    // tenantId nunca se deja cambiar por body: sería mover el perfil a otro negocio.
+    const { tenantId: _ignorado, ...cambios } = req.body || {};
+    const profile = await personalityEngine.updateProfile(Number(req.params.id), cambios);
     if (!profile) return res.status(404).json({ error: "Profile not found" });
     return res.json({ ok: true, profile });
   } catch (e) {
@@ -66,9 +105,14 @@ router.patch("/:id", async (req, res, next) => {
 
 router.delete("/:id", async (req, res, next) => {
   try {
-    const deleted = await personalityEngine.deleteProfile(
-      Number(req.params.id)
-    );
+    const tenantId = tenantDe(req);
+    if (!tenantId) return res.status(401).json({ error: "Sesión requerida" });
+    const existente = await personalityEngine.getProfile(Number(req.params.id));
+    if (!existente || !puedeLeer(existente, tenantId)) return res.status(404).json({ error: "Profile not found" });
+    if (!puedeEditar(existente, tenantId)) {
+      return res.status(403).json({ error: "Las plantillas del sistema no se pueden eliminar" });
+    }
+    const deleted = await personalityEngine.deleteProfile(Number(req.params.id));
     if (!deleted)
       return res.status(404).json({ error: "Profile not found" });
     return res.json({ ok: true, message: "Profile deleted" });
@@ -79,7 +123,13 @@ router.delete("/:id", async (req, res, next) => {
 
 router.post("/:id/materialize", async (req, res, next) => {
   try {
-    const tenantId = req.body.tenantId || 1;
+    // Antes: `req.body.tenantId || 1` -- sin sesión creaba el agente dentro
+    // del tenant 1 (el dueño de la plataforma), y con body arbitrario dentro
+    // de cualquier otro negocio.
+    const tenantId = tenantDe(req);
+    if (!tenantId) return res.status(401).json({ error: "Sesión requerida" });
+    const existente = await personalityEngine.getProfile(Number(req.params.id));
+    if (!existente || !puedeLeer(existente, tenantId)) return res.status(404).json({ error: "Profile not found" });
     const agent = await personalityEngine.materializeAgent(
       Number(req.params.id),
       tenantId

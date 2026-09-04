@@ -1,6 +1,6 @@
 import { safeISO } from "../lib/date-utils";
 import { Router, type IRouter } from "express";
-import { and, desc, eq, gte, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNull, ne, or, sql } from "drizzle-orm";
 import {
   GetDashboardSummaryResponse,
   GetFunnelResponse,
@@ -14,7 +14,7 @@ import {
   leads,
   messages,
 } from "@workspace/db";
-import { whatsapp } from "../lib/whatsapp-singleton";
+import { getWhatsAppForTenant } from "../lib/whatsapp-factory";
 
 const router: IRouter = Router();
 const STAGES = ["new", "contacted", "qualified", "proposal", "won", "lost"] as const;
@@ -67,16 +67,65 @@ router.get("/summary", async (req, res, next) => {
           .where(and(gte(messages.createdAt, toDbDate(startOfDay) as any), inArray(messages.conversationId, convoIds)))
       : [{ count: 0 }];
 
+    // Estado real de WhatsApp para ESTE tenant (antes se usaba un badge sin
+    // fuente real: el campo whatsappConnected no existía en la respuesta,
+    // así que el frontend siempre mostraba "Desconectado" sin importar el
+    // estado real de la conexión).
+    const whatsappConnected = getWhatsAppForTenant(tenantId, (req as any).tenant).isConnected();
+
+    // Tiempo de respuesta real: promedio de los últimos 50 pares mensaje del
+    // cliente → respuesta del asistente, en esta cuenta (antes era un 45
+    // fijo, igual para todas las cuentas todo el tiempo).
+    const recentMsgs = convoIds.length
+      ? await db
+          .select({ conversationId: messages.conversationId, role: messages.role, createdAt: messages.createdAt })
+          .from(messages)
+          .where(inArray(messages.conversationId, convoIds))
+          .orderBy(desc(messages.createdAt))
+          .limit(400)
+      : [];
+    const byConvoAsc = [...recentMsgs].reverse(); // orderBy desc + limit trae los más recientes; procesar en orden cronológico
+    const responseTimesSec: number[] = [];
+    let pendingAt: Date | null = null;
+    let pendingConvo: number | null = null;
+    for (const m of byConvoAsc) {
+      if (m.conversationId !== pendingConvo) {
+        pendingAt = null;
+        pendingConvo = m.conversationId;
+      }
+      if (m.role === "customer") {
+        pendingAt = m.createdAt as any;
+        // El rol guardado es "agent" (ver conversation-engine.ts:1840). Acá se
+        // comparaba con "assistant", que NO lo escribe nadie en esta tabla: la
+        // rama no entraba nunca, el arreglo quedaba vacío y el panel mostraba
+        // "Tiempo de Respuesta: 0s" siempre. No es que fuera rápido — es que
+        // nunca se midió. Por eso pasó inadvertida una primera respuesta de
+        // 85 minutos (conversación 2, 2026-08-17) que costó la venta.
+      } else if (m.role === "agent" && pendingAt) {
+        const diff = (new Date(m.createdAt as any).getTime() - new Date(pendingAt).getTime()) / 1000;
+        // Antes se descartaba todo lo que pasara de 30 minutos, que es
+        // justamente el caso que hay que ver: filtrar los peores tiempos y
+        // promediar el resto convierte la métrica en un adorno. Se corta en 6h
+        // porque más allá de eso ya no es una respuesta sino un follow-up.
+        if (diff > 0 && diff < 6 * 3600) responseTimesSec.push(diff);
+        pendingAt = null;
+      }
+    }
+    const avgResponseTime = responseTimesSec.length > 0
+      ? Math.round(responseTimesSec.reduce((a, b) => a + b, 0) / responseTimesSec.length)
+      : 0;
+
     return res.json(
       GetDashboardSummaryResponse.parse({
         totalLeads,
         activeConversations: allConvos.filter((c) => c.status !== "closed").length,
         conversionRate,
         totalRevenue: revenueThisMonth,
-        avgResponseTime: 45,
+        avgResponseTime,
         messagesLast24h: Number(todayMsgs[0]?.count ?? 0),
         newLeadsToday: allLeads.filter((l) => new Date(l.createdAt as any) >= startOfDay).length,
         closedDeals: wonDeals,
+        whatsappConnected,
       }),
     );
   } catch (e) {
@@ -89,10 +138,25 @@ router.get("/activity", async (req, res, next) => {
     const tenantId = tenantIdOf(req);
     if (!tenantId) return res.status(401).json({ message: "No autorizado" });
 
-    // activity_events no tiene columna tenant_id en el esquema actual — todavía
-    // se comparte entre cuentas. Requiere una migración de esquema (agregar la
-    // columna y backfill) que queda pendiente; no se resuelve con un filtro aquí.
-    const rows = await db.select().from(activityEvents).orderBy(desc(activityEvents.createdAt)).limit(20);
+    // Ya existe tenant_id (se agrega en autoMigrate): cada negocio ve LO SUYO.
+    // Las filas viejas quedaron sin dueño y se muestran igual, para no vaciarle
+    // el panel a nadie de un día para otro -- las nuevas ya vienen marcadas.
+    //
+    // Y se excluyen las alertas técnicas: "CIRCUIT_BREAKER_AI_GROQ - 413
+    // Request too large" es un log de servidor, no actividad de ventas. Al
+    // cliente que paga la herramienta no le dice nada bueno, y encima no puede
+    // hacer nada al respecto. El detalle sigue en el log del servidor.
+    const rows = await db
+      .select()
+      .from(activityEvents)
+      .where(
+        and(
+          or(isNull(activityEvents.tenantId), eq(activityEvents.tenantId, tenantId)),
+          ne(activityEvents.type, "system_alert"),
+        ),
+      )
+      .orderBy(desc(activityEvents.createdAt))
+      .limit(20);
     return res.json(
       GetRecentActivityResponse.parse(
         rows.map((r) => ({

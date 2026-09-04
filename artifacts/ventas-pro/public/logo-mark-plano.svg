@@ -1,0 +1,6 @@
+<svg width="64" height="64" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="VentasPro">
+  <title>VentasPro</title>
+  <!-- La burbuja sola, sin el cuadrado de fondo: para documentos y fondos claros. -->
+  <path d="M20 15 H44 A9 9 0 0 1 53 24 V37 A9 9 0 0 1 44 46 H36 L32 54 L28 46 H20 A9 9 0 0 1 11 37 V24 A9 9 0 0 1 20 15 Z" fill="#173A6D"/>
+  <path d="M23.5 25 L32 40.5 L40.5 25" fill="none" stroke="#FFFFFF" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

@@ -3,6 +3,7 @@ import { Switch, Route, Router as WouterRouter, useLocation } from "wouter";
 import { AnimatePresence, motion } from "framer-motion";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
+import { Toaster as SonnerToaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/not-found";
 import { useAuth } from "@/hooks/useAuth";
@@ -24,6 +25,7 @@ import ActivatePage from "@/pages/activate";
 import OnboardingPage from "@/pages/onboarding";
 import WooCommercePage from "@/pages/woocommerce";
 import FacebookAdsPage from "@/pages/facebook";
+import MarketingPage from "@/pages/marketing";
 import CodeAgentPage from "@/pages/code-agent";
 import ArchitectPage from "@/pages/architect";
 import AdminStorePage from "@/pages/admin-store";
@@ -31,6 +33,7 @@ import ArenaPage from "@/pages/arena";
 import AdminTenantsPage from "@/pages/admin-tenants";
 import PrivacyPolicyPage from "@/pages/privacy-policy";
 import LandingPage from "@/pages/landing";
+import HelpCenterPage from "@/pages/help";
 
 // Context para la sesión
 interface SessionContextType {
@@ -52,20 +55,23 @@ const SessionContext = createContext<SessionContextType>({
 export const useSession = () => useContext(SessionContext);
 
 // /mi-tienda ya no es una página propia: manda a la tienda pública real
-// (packages/tienda, servida por express en /tienda/*). Es una navegación de
-// navegador completa, no de wouter, porque son dos SPAs distintas.
+// (packages/tienda, servida por express en /tienda/*), que es una SPA
+// completamente distinta. Antes usaba window.location.replace() en la
+// MISMA pestaña -- el panel de administración se perdía por completo cada
+// vez que alguien quería ver su tienda. Abre en pestaña nueva y devuelve
+// esta pestaña al panel, para poder tener las dos cosas a la vista.
 function TiendaRedirect() {
   const { tenant, isLoading } = useSession();
+  const [, setLocation] = useLocation();
   useEffect(() => {
     // Sin esperar a que cargue la sesión, el primer render tiene tenant=null
     // y mandaba a /tienda sin slug -- o sea a la tienda por defecto, no a la
     // del dueño que hizo click.
     if (isLoading) return;
     const slug = tenant?.slug || '';
-    // replace() y no href: con href, el botón "atrás" volvía a /mi-tienda y
-    // el efecto disparaba el redirect otra vez, dejando al usuario atrapado.
-    window.location.replace(slug ? `/tienda/${slug}` : "/tienda");
-  }, [tenant, isLoading]);
+    window.open(slug ? `/tienda/${slug}` : "/tienda", "_blank", "noopener,noreferrer");
+    setLocation("/");
+  }, [tenant, isLoading, setLocation]);
   return null;
 }
 
@@ -129,6 +135,8 @@ function Router() {
       <Route path="/activate" component={ActivatePage} />
       <Route path="/onboarding" component={OnboardingPage} />
       <Route path="/facebook" component={FacebookAdsPage} />
+      <Route path="/marketing" component={MarketingPage} />
+      <Route path="/ayuda" component={HelpCenterPage} />
       <Route path="/code-agent" component={CodeAgentPage} />
       <Route path="/architect" component={ArchitectPage} />
       <Route path="/admin/store" component={AdminStorePage} />
@@ -192,6 +200,16 @@ function App() {
           <AppContent />
         </WouterRouter>
         <Toaster />
+        {/* El contenedor de sonner NUNCA estaba montado, y 27 archivos de la
+            app llaman a `toast` de sonner: TODOS esos avisos se dibujaban en
+            la nada. El admin lo describió como "le doy a guardar y no muestra
+            si guardó, es como estar a ciegas" -- y no era solo guardar: los
+            errores tampoco se veían, así que un fallo real parecía que no
+            pasaba nada.
+
+            Se montan los dos: el de shadcn lo usan 2 archivos (useToast) y
+            sacarlo los dejaría mudos a ellos. Conviven sin problema. */}
+        <SonnerToaster />
       </TooltipProvider>
     </QueryClientProvider>
   );

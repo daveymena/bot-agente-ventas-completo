@@ -2,7 +2,7 @@ import { logger } from "./logger";
 import { db, tenants, conversations, messages } from "@workspace/db";
 import { eq, desc } from "drizzle-orm";
 import { runAgentReply } from "./agent";
-import { whatsapp } from "./whatsapp";
+import { getWhatsAppForTenant } from "./whatsapp-factory";
 import { facebookMessengerService } from "./facebook-messenger";
 import { facebookCommentsService } from "./facebook-comments";
 import { tenantManager } from "./tenantManager";
@@ -33,9 +33,17 @@ export class ChannelManager {
 
     switch (msg.channel) {
       case "whatsapp": {
+        // sendText() devuelve void (lanza excepción si falla) -- no un valor
+        // verificable, a diferencia del proxy de whatsapp-singleton.ts que sí
+        // devolvía la respuesta cruda de sock.sendMessage().
         const phone = msg.contactId.startsWith("57") ? msg.contactId : `57${msg.contactId}`;
-        const reply = await whatsapp.sendText(phone, msg.text);
-        return reply ? msg.text : null;
+        try {
+          await getWhatsAppForTenant(tenantId).sendText(phone, msg.text);
+          return msg.text;
+        } catch (err) {
+          logger.warn({ err }, "[ChannelManager] Error enviando por WhatsApp");
+          return null;
+        }
       }
 
       case "facebook_messenger": {
@@ -71,7 +79,13 @@ export class ChannelManager {
     switch (channel) {
       case "whatsapp": {
         const phone = contactId.startsWith("57") ? contactId : `57${contactId.replace("whatsapp:", "")}`;
-        return !!(await whatsapp.sendText(phone, text));
+        try {
+          await getWhatsAppForTenant(tenantId).sendText(phone, text);
+          return true;
+        } catch (err) {
+          logger.warn({ err }, "[ChannelManager] Error enviando por WhatsApp");
+          return false;
+        }
       }
       case "facebook_messenger": {
         return await facebookMessengerService.sendText(contactId, text);
@@ -91,12 +105,12 @@ export class ChannelManager {
     return false;
   }
 
-  async getStatus(): Promise<ChannelStatus[]> {
+  async getStatus(tenantId: number = 1): Promise<ChannelStatus[]> {
     const statuses: ChannelStatus[] = [];
 
     statuses.push({
       channel: "whatsapp",
-      connected: whatsapp.isConnected(),
+      connected: getWhatsAppForTenant(tenantId).isConnected(),
       label: "WhatsApp",
     });
 

@@ -1,4 +1,5 @@
 import * as nodemailer from "nodemailer";
+import { getAppUrl } from "./app-url";
 import { logger } from "./logger";
 
 const smtpConfigured = !!(process.env.SMTP_USER && process.env.SMTP_PASS);
@@ -17,6 +18,26 @@ const transporter = smtpConfigured
     })
   : null;
 
+/**
+ * Crea un transporter nodemailer a partir de credenciales SMTP.
+ * Devuelve null si faltan usuario o contraseña.
+ */
+export function crearTransporter(creds: {
+  host: string;
+  port: number;
+  secure: boolean;
+  user: string;
+  pass: string;
+}) {
+  if (!creds.user || !creds.pass) return null;
+  return nodemailer.createTransport({
+    host: creds.host,
+    port: creds.port,
+    secure: creds.secure,
+    auth: { user: creds.user, pass: creds.pass },
+  });
+}
+
 if (smtpConfigured && transporter) {
   transporter.verify((error, success) => {
     if (error) {
@@ -32,6 +53,44 @@ if (smtpConfigured && transporter) {
 /**
  * Genera un código de 6 dígitos
  */
+/**
+ * Un correo de texto plano, con adjuntos opcionales.
+ *
+ * Los correos de esta casa son todos plantillas cerradas (verificación,
+ * recuperación, confirmación de compra). Hacía falta uno genérico para avisar
+ * al admin de un comprobante de pago, con la foto adjunta.
+ *
+ * Devuelve false en vez de tirar: un aviso que no sale no puede tumbar el
+ * flujo de WhatsApp que lo disparó.
+ */
+export async function enviarCorreoSimple(
+  para: string,
+  asunto: string,
+  texto: string,
+  smtp?: { host: string; port: number; secure: boolean; user: string; pass: string; from?: string },
+  adjuntos?: Array<{ filename: string; content: Buffer }>,
+): Promise<boolean> {
+  const tr = smtp ? crearTransporter(smtp) : transporter;
+  if (!tr) {
+    logger.warn({ para, asunto }, "[Email] SMTP no configurado: no se pudo enviar el aviso");
+    return false;
+  }
+  try {
+    await tr.sendMail({
+      from: smtp?.from || process.env.SMTP_USER,
+      to: para,
+      subject: asunto,
+      text: texto,
+      attachments: adjuntos,
+    });
+    logger.info({ para, asunto }, "[Email] Aviso enviado");
+    return true;
+  } catch (err: any) {
+    logger.error({ err: err?.message, para }, "[Email] No se pudo enviar el aviso");
+    return false;
+  }
+}
+
 export function generateVerificationCode(): string {
   return Math.floor(100000 + Math.random() * 900000).toString();
 }
@@ -42,15 +101,17 @@ export function generateVerificationCode(): string {
 export async function sendVerificationEmail(
   email: string,
   code: string,
-  name: string
+  name: string,
+  smtp?: { host: string; port: number; secure: boolean; user: string; pass: string; from?: string }
 ): Promise<boolean> {
-  if (!transporter) {
+  const tr = smtp ? crearTransporter(smtp) : transporter;
+  if (!tr) {
     logger.warn({ email }, "[Email] SMTP no configurado, no se puede enviar email de verificación");
     return false;
   }
   try {
     const mailOptions = {
-      from: `"VentasPro" <${process.env.SMTP_USER}>`,
+      from: smtp?.from || `"VentasPro" <${process.env.SMTP_USER}>`,
       to: email,
       subject: "🔐 Código de Verificación - VentasPro",
       html: `
@@ -194,7 +255,7 @@ export async function sendVerificationEmail(
       `,
     };
 
-    await transporter.sendMail(mailOptions);
+    await tr.sendMail(mailOptions);
     logger.info({ email }, "[Email] Código de verificación enviado");
     return true;
   } catch (error) {
@@ -209,9 +270,11 @@ export async function sendVerificationEmail(
 export async function sendPasswordResetEmail(
   email: string,
   code: string,
-  name: string
+  name: string,
+  smtp?: { host: string; port: number; secure: boolean; user: string; pass: string; from?: string }
 ): Promise<boolean> {
-  if (!transporter) {
+  const tr = smtp ? crearTransporter(smtp) : transporter;
+  if (!tr) {
     logger.warn({ email }, "[Email] SMTP no configurado, no se puede enviar email de recuperación");
     return false;
   }
@@ -219,7 +282,7 @@ export async function sendPasswordResetEmail(
     logger.info({ email, code }, "[Email] 📧 Intentando enviar código de recuperación...");
     
     const mailOptions = {
-      from: `"VentasPro" <${process.env.SMTP_USER}>`,
+      from: smtp?.from || `"VentasPro" <${process.env.SMTP_USER}>`,
       to: email,
       subject: "🔑 Recuperación de Contraseña - VentasPro",
       html: `
@@ -353,7 +416,7 @@ export async function sendPasswordResetEmail(
       `,
     };
 
-    const result = await transporter.sendMail(mailOptions);
+    const result = await tr.sendMail(mailOptions);
     logger.info({ email, messageId: result.messageId }, "[Email] ✅ Código de recuperación enviado exitosamente");
     return true;
   } catch (error) {
@@ -370,19 +433,21 @@ export async function sendActivationTokenEmail(
   email: string,
   token: string,
   plan: string,
-  name: string
+  name: string,
+  smtp?: { host: string; port: number; secure: boolean; user: string; pass: string; from?: string }
 ): Promise<boolean> {
-  if (!transporter) {
+  const tr = smtp ? crearTransporter(smtp) : transporter;
+  if (!tr) {
     logger.warn({ email }, "[Email] SMTP no configurado, no se puede enviar token de activación");
     return false;
   }
   try {
     logger.info({ email, plan }, "[Email] 📧 Enviando token de activación de suscripción...");
     
-    const activationUrl = `${process.env.APP_URL || "https://tecnovariedades.easypanel.host"}/activate?token=${token}`;
+    const activationUrl = `${getAppUrl()}/activate?token=${token}`;
     
     const mailOptions = {
-      from: `"VentasPro" <${process.env.SMTP_USER}>`,
+      from: smtp?.from || `"VentasPro" <${process.env.SMTP_USER}>`,
       to: email,
       subject: `🎉 ¡Pago Confirmado! Activa tu Plan ${plan}`,
       html: `
@@ -540,7 +605,7 @@ export async function sendActivationTokenEmail(
       `,
     };
 
-    const result = await transporter.sendMail(mailOptions);
+    const result = await tr.sendMail(mailOptions);
     logger.info({ email, messageId: result.messageId }, "[Email] ✅ Token de activación enviado exitosamente");
     return true;
   } catch (error) {
@@ -553,8 +618,9 @@ export async function sendActivationTokenEmail(
 /**
  * Verifica la configuración del servicio de email
  */
-export async function verifyEmailService(): Promise<boolean> {
-  if (!transporter) {
+export async function verifyEmailService(smtp?: { host: string; port: number; secure: boolean; user: string; pass: string }): Promise<boolean> {
+  const tr = smtp ? crearTransporter(smtp) : transporter;
+  if (!tr) {
     logger.warn("[Email] SMTP no configurado, no se puede verificar servicio");
     return false;
   }
@@ -573,9 +639,11 @@ export async function verifyEmailService(): Promise<boolean> {
  */
 export async function sendPasswordChangeConfirmationEmail(
   email: string,
-  name: string
+  name: string,
+  smtp?: { host: string; port: number; secure: boolean; user: string; pass: string; from?: string }
 ): Promise<boolean> {
-  if (!transporter) {
+  const tr = smtp ? crearTransporter(smtp) : transporter;
+  if (!tr) {
     logger.warn({ email }, "[Email] SMTP no configurado, no se puede enviar confirmación de cambio");
     return false;
   }
@@ -583,7 +651,7 @@ export async function sendPasswordChangeConfirmationEmail(
     logger.info({ email }, "[Email] 📧 Enviando confirmación de cambio de contraseña...");
     
     const mailOptions = {
-      from: `"VentasPro" <${process.env.SMTP_USER}>`,
+      from: smtp?.from || `"VentasPro" <${process.env.SMTP_USER}>`,
       to: email,
       subject: "✅ Contraseña Cambiada - VentasPro",
       html: `
@@ -710,7 +778,7 @@ export async function sendPasswordChangeConfirmationEmail(
       `,
     };
 
-    const result = await transporter.sendMail(mailOptions);
+    const result = await tr.sendMail(mailOptions);
     logger.info({ email, messageId: result.messageId }, "[Email] ✅ Confirmación de cambio de contraseña enviada");
     return true;
   } catch (error) {
@@ -731,9 +799,17 @@ export async function sendOrderConfirmationEmail(
   amount: number,
   currency: string = "COP",
   paymentId: string,
-  paymentMethod: string
+  paymentMethod: string,
+  // Este correo va del NEGOCIO a SU comprador, no de la plataforma. Con el
+  // tenantId sale del correo del negocio y firmado con su marca; sin él
+  // (llamadas viejas) cae al SMTP del servidor como antes.
+  //
+  // Que llegue de "VentasPro" -- una marca que el comprador no reconoce --
+  // es media entrega a spam y la otra media leída como estafa.
+  tenantId?: number
 ): Promise<boolean> {
-  if (!transporter) {
+  // El transporter global solo hace falta para el camino de respaldo.
+  if (!transporter && !tenantId) {
     logger.warn({ email }, "[Email] SMTP no configurado, no se puede enviar email de confirmación de orden");
     return false;
   }
@@ -745,6 +821,12 @@ export async function sendOrderConfirmationEmail(
     }).format(amount);
 
     const mailOptions = {
+      // Acá decía `smtp?.from || ...`, y `smtp` NO EXISTE en esta función --
+      // se coló copiando de otra de más arriba que sí lo recibe. El `?.` no
+      // protege: sobre un identificador no declarado, JavaScript lanza
+      // ReferenceError igual. O sea que el correo de PAGO CONFIRMADO se caía
+      // justo en el último paso de la entrega. Cuando hay tenantId, el
+      // remitente del negocio se resuelve más abajo y pisa a este.
       from: `"VentasPro" <${process.env.SMTP_USER}>`,
       to: email,
       subject: `✅ ¡Pago Confirmado! - ${productName}`,
@@ -974,7 +1056,24 @@ export async function sendOrderConfirmationEmail(
       `,
     };
 
-    const result = await transporter.sendMail(mailOptions);
+    // Si el negocio tiene su propio correo, sale de ahí y con su marca.
+    // enviarComoNegocio cae solo al SMTP del servidor si no lo configuró.
+    if (tenantId) {
+      const { enviarComoNegocio } = await import("./tenant-email");
+      const enviado = await enviarComoNegocio(tenantId, {
+        to: email,
+        subject: mailOptions.subject,
+        html: mailOptions.html,
+      });
+      if (enviado) return true;
+      // Si falla el correo del negocio se reintenta por el del servidor: es
+      // preferible que el comprador reciba la confirmación desde una marca
+      // rara a que no reciba nada después de haber pagado.
+      logger.warn({ tenantId, email }, "[Email] Falló el correo del negocio; se reintenta por el del servidor");
+      if (!transporter) return false;
+    }
+
+    const result = await transporter!.sendMail(mailOptions);
     logger.info({ email, productName, paymentId, messageId: result.messageId }, "[Email] ✅ Confirmación de orden enviada exitosamente");
     return true;
   } catch (error) {

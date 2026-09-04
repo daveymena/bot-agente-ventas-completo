@@ -346,6 +346,23 @@ router.post("/track/behavior", async (req: TenantRequest, res) => {
  * Get system health status
  * GET /api/analytics/health
  */
+/**
+ * GET /api/analytics/salud-ia — por qué el bot está contestando raro.
+ *
+ * La pregunta que el admin hace de verdad, respondida en castellano y sin
+ * abrir logs -- que además en este EasyPanel no son accesibles por API.
+ *
+ * Existe porque todo lo que se rompió el 2026-08-29 lo hizo EN SILENCIO:
+ * modelos dados de baja, un filtro anulado por un spread, Advantage+ apagado,
+ * el bot cayendo al modelo chico. Ninguno devolvió un error; todos devolvieron
+ * una respuesta peor. Esto convierte "anda raro" en "hace 40 minutos que
+ * contesta el respaldo porque Groq está apartado".
+ */
+router.get("/salud-ia", async (_req: TenantRequest, res) => {
+  const { saludDeLaCadena } = await import("../lib/monitoring");
+  return res.json(saludDeLaCadena());
+});
+
 router.get("/health", async (req: TenantRequest, res) => {
   try {
     if (!req.tenant) {

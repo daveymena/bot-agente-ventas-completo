@@ -1,20 +1,25 @@
 import { Router } from "express";
+import { getAppUrl } from "../lib/app-url";
 import { SAAS_PLANS, SaasPlan, getPlanInfo, getMonthlyPrice } from "../middleware/saasValidation";
 import { logger } from "../lib/logger";
 import { SubscriptionPaymentService } from "../lib/subscription-payments";
 import { paymentRateLimit } from "../middleware/rateLimiting";
 import { db, tenants } from "@workspace/db";
 import { eq } from "drizzle-orm";
+import { getExchangeRate } from "../lib/exchange-rate";
 
 const router = Router();
 
 // CSRF validation middleware for payment routes
 function validateCsrfToken(req: any, res: any, next: any) {
-  const token = req.headers['x-csrf-token'] || req.body?.csrfToken;
-  const sessionToken = req.session?.csrfToken;
-
-  if (!token || token !== sessionToken) {
-    logger.warn({ userId: req.user?.id }, "[CSRF] Invalid or missing CSRF token");
+  // Authentication uses a signed SameSite cookie, not express-session. The old
+  // check always saw req.session.csrfToken as undefined and rejected every
+  // subscription button before creating its payment link.
+  const origin = req.get("origin");
+  const appOrigin = getAppUrl().replace(/\/+$/, "");
+  const requestOrigin = `${req.protocol}://${req.get("host")}`;
+  if (origin && origin !== appOrigin && origin !== requestOrigin) {
+    logger.warn({ origin, requestOrigin }, "[CSRF] Cross-origin payment request blocked");
     return res.status(403).json({ error: "CSRF validation failed", message: "Token inválido o expirado" });
   }
   next();
@@ -23,7 +28,7 @@ function validateCsrfToken(req: any, res: any, next: any) {
 // GET /api/pricing - Obtener los planes que se ofrecen públicamente
 // (visible !== false) -- los planes legado (free/enterprise) siguen
 // existiendo para cuentas que ya los tengan asignados, pero no se listan acá.
-router.get("/", (req, res) => {
+router.get("/", async (req, res) => {
   try {
     const plans = Object.entries(SAAS_PLANS)
       .filter(([, plan]) => plan.visible !== false)
@@ -35,14 +40,20 @@ router.get("/", (req, res) => {
         annualPrice: plan.price * 12 * 0.8, // 20% descuento anual
       }));
 
+    // Tasa real (misma fuente que usa el cobro por MercadoPago) para que el
+    // frontend pueda mostrar el equivalente en pesos junto al precio en USD,
+    // sin importar el método de pago elegido.
+    const usdToCop = await getExchangeRate();
+
     res.json({
       plans,
       currency: "USD",
+      usdToCop,
       billingCycles: ["monthly", "quarterly", "annual"],
     });
   } catch (error) {
     logger.error({ error }, "Error fetching pricing");
-    res.status(500).json({ error: "Internal server error" });
+    return res.status(500).json({ error: "Internal server error" });
   }
 });
 
@@ -64,7 +75,7 @@ router.get("/:plan", (req, res) => {
     });
   } catch (error) {
     logger.error({ error }, "Error fetching plan details");
-    res.status(500).json({ error: "Internal server error" });
+    return res.status(500).json({ error: "Internal server error" });
   }
 });
 
@@ -135,8 +146,8 @@ router.post("/upgrade", paymentRateLimit, validateCsrfToken, async (req, res, ne
         plan: newPlan as SaasPlan,
         billingCycle: billingCycle as "monthly" | "quarterly" | "annual",
         paymentMethod: paymentMethod as "mercadopago" | "paypal",
-        returnUrl: `${process.env.APP_URL || "https://tecnovariedades.easypanel.host"}/subscription-success?email=${encodeURIComponent(tenant.email)}`,
-        cancelUrl: `${process.env.APP_URL || "https://tecnovariedades.easypanel.host"}/subscription-failure`,
+        returnUrl: `${getAppUrl()}/subscription-success?email=${encodeURIComponent(tenant.email)}`,
+        cancelUrl: `${getAppUrl()}/subscription-failure`,
       });
 
       logger.info({ paymentLink, tenantId: tenant.id }, "[Pricing] Payment link created successfully");
@@ -152,18 +163,26 @@ router.post("/upgrade", paymentRateLimit, validateCsrfToken, async (req, res, ne
         subscriptionId: paymentLink.subscriptionId,
         amount: paymentLink.amount,
         currency: paymentLink.currency,
+        chargedAmount: paymentLink.chargedAmount,
+        chargedCurrency: paymentLink.chargedCurrency,
+        copEquivalent: paymentLink.copEquivalent,
       });
     } catch (paymentError: any) {
       logger.error({ error: paymentError.message, stack: paymentError.stack }, "[Pricing] Error creating payment link");
 
+      // El mensaje crudo del gateway (MercadoPago/PayPal) NO se devuelve al
+      // cliente: son excepciones técnicas en inglés ("Invalid preference
+      // payer email", errores de red, etc.) que a quien está intentando
+      // pagar solo lo asustan. Queda completo en el log de arriba, que es
+      // donde sirve para diagnosticar.
       return res.status(500).json({
         error: "Payment service error",
-        message: paymentError.message || "No se pudo crear el enlace de pago. Por favor intenta nuevamente."
+        message: "No se pudo crear el enlace de pago. Por favor intenta nuevamente en unos minutos."
       });
     }
   } catch (error: any) {
     logger.error({ error: error.message, stack: error.stack }, "[Pricing] Unexpected error in upgrade endpoint");
-    res.status(500).json({
+    return res.status(500).json({
       error: "Internal server error",
       message: "Error inesperado. Por favor contacta al soporte."
     });
@@ -227,7 +246,7 @@ router.get("/current/info", async (req, res, next) => {
     });
   } catch (error) {
     logger.error({ error }, "Error fetching current plan");
-    res.status(500).json({ error: "Internal server error" });
+    return res.status(500).json({ error: "Internal server error" });
   }
 });
 

@@ -41,9 +41,16 @@ export const MODELOS_LIBRES: ModeloLibre[] = [
   { proveedor: "opencode", modelo: "laguna-s-2.1-free", especialidad: "general", estado: "verificado", nota: "~6,4 s, el más lento" },
 
   // ── Groq (clave GROQ_API_KEY, ya configurada) ── 14.400 req/día ────────────
-  { proveedor: "groq", modelo: "llama-3.1-8b-instant", especialidad: "rapido", estado: "verificado", contexto: 131072 },
-  { proveedor: "groq", modelo: "llama-3.3-70b-versatile", especialidad: "razonar", estado: "sin probar", contexto: 131072 },
-  { proveedor: "groq", modelo: "gemma2-9b-it", especialidad: "rapido", estado: "sin probar" },
+  // ⚠️ Catalogo contrastado contra su API el 2026-08-27: los llama-3.x y
+  // gemma2 que habia aca YA NO EXISTEN en Groq. Apuntar ahi era un 404
+  // silencioso -- el proveedor "estaba configurado" y no respondia nunca.
+  //
+  // El 120b y el qwen se probaron con una pregunta trampa de venta: los dos
+  // contestaron en colombiano y ninguno invento capacidades del producto.
+  { proveedor: "groq", modelo: "openai/gpt-oss-120b", especialidad: "razonar", estado: "verificado", nota: "el mayor de Groq" },
+  { proveedor: "groq", modelo: "qwen/qwen3.8-27b", especialidad: "general", estado: "verificado" },
+  { proveedor: "groq", modelo: "openai/gpt-oss-20b", especialidad: "rapido", estado: "verificado" },
+  { proveedor: "groq", modelo: "groq/compound-mini", especialidad: "rapido", estado: "sin probar" },
 
   // ── OpenRouter (falta OPENROUTER_API_KEY real) ── 20 req/min · 50 req/día ──
   { proveedor: "openrouter", modelo: "nvidia/nemotron-3-ultra-550b-a55b:free", especialidad: "razonar", estado: "sin probar", contexto: 1000000 },
@@ -66,6 +73,30 @@ export const MODELOS_LIBRES: ModeloLibre[] = [
 
   // ── NVIDIA NIM (clave NVIDIA_API_KEY) ── 40 req/min ───────────────────────
   { proveedor: "nvidia_nim", modelo: "meta/llama-3.1-70b-instruct", especialidad: "razonar", estado: "sin probar" },
+
+  // ── Ollama Cloud ── modelos grandes con cuota diaria gratis ───────────────
+  // Los nombres llevan el sufijo "-cloud": es como los expone su API, y sin el
+  // sufijo responde 404.
+  //
+  // ⚠️ ESTE CATÁLOGO ROTA. La primera versión de esta lista se escribió con los
+  // nombres de la documentación (gpt-oss:120b-cloud, deepseek-v3.1:671b-cloud,
+  // qwen3-coder:480b-cloud) y al contrastarla contra el servidor el 2026-08-26
+  // NINGUNO existía ya: el sufijo "-cloud" desapareció de los ids, y deepseek
+  // v3.1 y qwen3-coder salieron de la nube (ahora hay v4 y qwen3.5).
+  //
+  // Por eso acá se prefieren los nombres SIN etiqueta de versión: los que
+  // llevan fecha (":0813") o ":preview" caducan antes. Y por eso la pantalla
+  // de Configuración pregunta la lista en vivo -- ver GET /api/ai/models.
+  //
+  // Ids verificados contra https://ollama.com/v1/models el 2026-08-26.
+  // "sin probar" porque responder requiere clave, y todavía no hay una: lo
+  // confirmado es que el modelo EXISTE, no cómo responde.
+  { proveedor: "ollama_cloud", modelo: "nemotron-3-ultra", especialidad: "razonar", estado: "sin probar" },
+  { proveedor: "ollama_cloud", modelo: "gpt-oss:120b", especialidad: "razonar", estado: "sin probar" },
+  { proveedor: "ollama_cloud", modelo: "glm-5.3-flash", especialidad: "rapido", estado: "sin probar" },
+  { proveedor: "ollama_cloud", modelo: "gpt-oss:20b", especialidad: "rapido", estado: "sin probar" },
+  { proveedor: "ollama_cloud", modelo: "kimi-k2.7-code", especialidad: "codigo", estado: "sin probar" },
+  { proveedor: "ollama_cloud", modelo: "minimax-m3", especialidad: "general", estado: "sin probar" },
 
   // ── Xiaomi MiMo (falta MIMO_API_KEY, de pago) ─────────────────────────────
   { proveedor: "mimo", modelo: "mimo-v2.5-pro", especialidad: "codigo", estado: "sin probar", contexto: 1050000 },

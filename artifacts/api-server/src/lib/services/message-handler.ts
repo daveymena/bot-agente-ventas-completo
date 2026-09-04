@@ -12,7 +12,7 @@
 import { getMessageQueue, QueuedMessage } from '../message-queue';
 import { db } from "@workspace/db";
 import { messages, conversations, leads } from "@workspace/db";
-import { eq, and } from "drizzle-orm";
+import { eq, and, gt, inArray } from "drizzle-orm";
 import { addTenantToInsert, type TenantContext } from '../tenantManager';
 import { logger } from '../logger';
 import { dbNow } from '../date-utils';
@@ -49,11 +49,14 @@ export class MessageHandler {
   async handleIncomingMessage(params: {
     tenantId: string;
     remoteJid: string;
+    phone?: string;
     fromMe: boolean;
     messageId: string;
     body: string;
     timestamp: Date;
     pushName?: string;
+    /** Anuncio de Facebook/Instagram del que llegó este contacto, si llegó de uno. */
+    anuncio?: { titulo: string; cuerpo: string; url: string; anuncioId: string };
   }): Promise<void> {
     // El mensaje solo llega acá si vino por el socket de Baileys de ESE
     // tenant (whatsapp-factory.ts aísla un socket por tenant) -- eso YA es
@@ -76,13 +79,19 @@ export class MessageHandler {
 
     try {
       // 1. Obtener o crear conversación
-      // Limpiar el teléfono para evitar duplicados por formato (ej: +57 vs 57)
-      const phone = params.remoteJid.split('@')[0].replace(/\D/g, ''); 
+      // Preferir el número ya resuelto (params.phone) -- para JIDs @lid,
+      // remoteJid NO es un teléfono real (ver whatsapp.ts). Solo si no
+      // llega resuelto, se cae al parseo directo del JID (compatibilidad).
+      // La misma función que usan la ruta de la API y el orquestador: tres
+      // formas distintas de limpiar el número es como el mismo cliente
+      // terminaba con dos conversaciones.
+      const { normalizarTelefono, variantesDeTelefono } = await import("../customer-profile");
+      const phone = normalizarTelefono(params.phone || params.remoteJid.split('@')[0]);
       const tenantIdNum = tenantId;
       
       let convo = (await db.select().from(conversations)
         .where(and(
-          eq(conversations.contactPhone, phone),
+          inArray(conversations.contactPhone, variantesDeTelefono(phone)),
           eq(conversations.tenantId, tenantIdNum)
         ))
         .limit(1))[0];
@@ -98,6 +107,20 @@ export class MessageHandler {
           value: "0", 
           source: "whatsapp" 
         }, tenantIdNum)).returning();
+
+        // ── ATRIBUCIÓN (GAP-1 / Fase 5) ────────────────────────────────────
+        // Si el contacto llegó desde un anuncio de Meta/Instagram, se copia el
+        // contexto al lead (adContext + source) para poder cruzar después con
+        // payments y medir CAC/ROAS reales. Sin esto, el dato se quedaba
+        // muerto en messages.metadata.
+        if (lead?.id && params.anuncio) {
+          try {
+            const { attachAdContextToLead } = await import("../marketing-team/attribution");
+            await attachAdContextToLead(lead.id, params.anuncio);
+          } catch (err) {
+            logger.error({ err }, '[MessageHandler] No se pudo adjuntar adContext al lead');
+          }
+        }
         
         const [created] = await db.insert(conversations).values(addTenantToInsert({ 
           contactName: pushName, 
@@ -112,13 +135,77 @@ export class MessageHandler {
         logger.info(`[MessageHandler] New conversation created: ${convo.id} for phone ${phone}`);
       }
 
+      // ¿Este mismo mensaje ya se guardó? (reenvío de WhatsApp tras reconectar)
+      //
+      // Al aceptar los mensajes tipo "append" —los que WhatsApp reenvía cuando
+      // el bot vuelve— puede llegar uno que ya se había procesado antes del
+      // reinicio. La deduplicación por id vive en memoria, así que un reinicio
+      // la borra y no sirve para este caso. Se comprueba contra la base, que
+      // es lo único que sobrevive.
+      //
+      // Ventana de 10 minutos: si el cliente escribe lo mismo dos veces con
+      // horas de diferencia ("hola" hoy y mañana), son dos mensajes reales y
+      // hay que contestar los dos.
+      const hace10min = new Date(Date.now() - 10 * 60 * 1000);
+      const [repetido] = await db
+        .select({ id: messages.id })
+        .from(messages)
+        .where(and(
+          eq(messages.conversationId, convo.id),
+          eq(messages.role, "customer"),
+          eq(messages.content, params.body),
+          gt(messages.createdAt, hace10min),
+        ))
+        .limit(1);
+      if (repetido) {
+        logger.info({ conversationId: convo.id }, "[MessageHandler] Mensaje ya recibido antes del reinicio — no se procesa de nuevo");
+        return;
+      }
+
       // 2. Guardar mensaje en base de datos
+      // El anuncio del que vino se guarda con el mensaje: el agente lo lee para
+      // saber qué producto le interesó al cliente, porque el texto que manda
+      // Meta ("¡Hola! Quiero más información") es idéntico para todos.
       await db.insert(messages).values({
         conversationId: convo.id,
         role: "customer",
         content: params.body,
         stage: convo.currentStage,
+        metadata: params.anuncio
+          ? {
+              adTitle: params.anuncio.titulo,
+              adBody: params.anuncio.cuerpo,
+              adUrl: params.anuncio.url,
+              adId: params.anuncio.anuncioId,
+            }
+          : {},
       });
+
+      if (params.anuncio) {
+        logger.info({
+          conversationId: convo.id,
+          adTitle: params.anuncio.titulo,
+          adUrl: params.anuncio.url,
+        }, '[MessageHandler] Contacto llegó desde un anuncio');
+
+        // Lead ya existente (conversación previa) sin contexto de anuncio:
+        // adjuntarlo ahora para no perder la atribución.
+        if (convo.leadId) {
+          try {
+            const existing = (await db
+              .select({ id: leads.id, adContext: leads.adContext })
+              .from(leads)
+              .where(eq(leads.id, convo.leadId))
+              .limit(1))[0];
+            if (existing && !existing.adContext) {
+              const { attachAdContextToLead } = await import("../marketing-team/attribution");
+              await attachAdContextToLead(existing.id, params.anuncio);
+            }
+          } catch (err) {
+            logger.error({ err }, '[MessageHandler] No se pudo adjuntar adContext a lead existente');
+          }
+        }
+      }
 
       // dbNow(): en Postgres lastMessageAt exige un objeto Date, no un
       // string (ver date-utils.ts) — esto corre en CADA mensaje entrante
@@ -138,6 +225,10 @@ export class MessageHandler {
         timestamp: params.timestamp,
         messageId: params.messageId,
         isGroup: params.remoteJid.endsWith('@g.us'),
+        // La conversación ya está resuelta acá: se pasa para que el
+        // orquestador NO la vuelva a deducir del JID y termine en otra.
+        conversationId: convo.id,
+        phone,
       });
 
       logger.info({

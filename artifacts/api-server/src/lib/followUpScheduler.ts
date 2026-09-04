@@ -1,8 +1,8 @@
-import { eq, and, lte, asc } from "drizzle-orm";
+import { eq, and, lte, asc, inArray } from "drizzle-orm";
 import { db, conversations, messages, activityEvents, followUps, type FollowUp, type InsertFollowUp } from "@workspace/db";
 import { logger } from "./logger";
 import { leadScoringEngine, type LeadStage } from "./leadScoring";
-import { whatsapp } from "./whatsapp";
+import { getWhatsAppForTenant } from "./whatsapp-factory";
 import { toDbDate } from "./date-utils";
 import { facebookMessengerService } from "./facebook-messenger";
 
@@ -49,13 +49,68 @@ export class FollowUpScheduler {
       const [conversation] = await db.select().from(conversations).where(eq(conversations.id, conversationId)).limit(1);
       if (!conversation) return null;
 
+      // Un solo seguimiento pendiente por conversación.
+      //
+      // Esto se llama desde el scoring en CADA mensaje entrante y no
+      // comprobaba nada: cada mensaje del cliente agregaba una fila más. Con
+      // un contacto que escribió unas pocas veces se juntaron 46 seguimientos
+      // pendientes para él solo (medido el 17-08-2026). Aunque el candado de
+      // `debeEnviarse` ya impide que salgan, no tiene sentido acumularlos.
+      const [pendiente] = await db.select({ id: followUps.id })
+        .from(followUps)
+        .where(and(eq(followUps.conversationId, conversationId), eq(followUps.completed, false)))
+        .limit(1);
+      if (pendiente) {
+        logger.info({ conversationId, followUpId: pendiente.id }, "[FollowUpScheduler] Ya hay un seguimiento pendiente para esta conversación; no se agrega otro");
+        return null;
+      }
+
       if (!scheduledFor) {
         scheduledFor = this.calculateFollowUpDate(stage);
       }
 
       const followUpType = this.determineFollowUpType(stage, score);
       const priority = this.determinePriority(stage, score);
-      const message = leadScoringEngine.generateFollowUpMessage(stage as LeadStage, conversation.lastMessage || "");
+      // El teléfono va como semilla para que dos contactos distintos no reciban
+      // el mismo texto: mandar mensajes casi idénticos a muchos números es lo
+      // que hace que WhatsApp bloquee la línea del negocio.
+      const semilla = String(conversation.contactPhone || conversationId);
+
+      // ── Si es una venta ABANDONADA, el mensaje sabe de qué habla ──────────
+      //
+      // El seguimiento por etapa es genérico por diseño: sirve para cualquiera.
+      // Pero a alguien que llegó de un anuncio pago, pidió el precio y no
+      // compró, mandarle "¿cómo va el proceso?" es desperdiciar el clic que ya
+      // se cobró. Con el producto que estaba mirando (que ahora vive en el
+      // perfil comercial del lead) se puede nombrar lo que quedó a medias.
+      //
+      // Si no se sabe qué producto era, `mensajeDeRecuperacion` devuelve null y
+      // se cae al mensaje por etapa: es preferible el genérico a inventar.
+      let message: string | null = null;
+      try {
+        const { cargarPerfil } = await import("./customer-profile");
+        const { mensajeDeRecuperacion } = await import("./recuperacion");
+        const perfil = await cargarPerfil(conversation.leadId);
+        const ultimoProducto = perfil.productosVistos?.[0]?.nombre || null;
+        const ultimaObjecion = perfil.objeciones?.[0]?.tipo || null;
+        if (ultimoProducto && ["closing", "negotiating", "qualified"].includes(String(stage))) {
+          message = mensajeDeRecuperacion({
+            producto: ultimoProducto,
+            objecion: ultimaObjecion,
+            semilla,
+          });
+        }
+      } catch (err) {
+        logger.warn({ err, conversationId }, "[FollowUpScheduler] No se pudo armar el mensaje de recuperación; se usa el de la etapa");
+      }
+
+      if (!message) {
+        message = leadScoringEngine.generateFollowUpMessage(
+          stage as LeadStage,
+          conversation.lastMessage || "",
+          semilla,
+        );
+      }
 
       const [followUp] = await db.insert(followUps).values({
         conversationId,
@@ -93,9 +148,46 @@ export class FollowUpScheduler {
 
       if (dueFollowUps.length === 0) return;
 
-      logger.info({ count: dueFollowUps.length }, "[FollowUpScheduler] Processing due follow-ups from DB");
+      // UNO por conversación y por pasada.
+      //
+      // `debeEnviarse()` decide bien, pero decide sobre CADA fila por
+      // separado: si una conversación acumuló varias, las seis pasan el
+      // control y las seis se mandan, una cada 2 segundos. Fue lo que le pasó
+      // a Chuy Fernando el 2026-08-22: seis "check_in" idénticos a las 20:09.
+      // Para el cliente eso es acoso, y WhatsApp castiga al número que manda
+      // mensajes repetidos en serie.
+      //
+      // Se manda el más viejo (ya vienen ordenados por `scheduledFor`) y el
+      // resto se cierra como superado: si más adelante corresponde otro
+      // seguimiento, se agenda uno nuevo.
+      const porConversacion = new Map<number, typeof dueFollowUps>();
+      for (const f of dueFollowUps) {
+        const lista = porConversacion.get(f.conversationId) || [];
+        lista.push(f);
+        porConversacion.set(f.conversationId, lista);
+      }
 
-      for (const followUp of dueFollowUps) {
+      const aEnviar: typeof dueFollowUps = [];
+      for (const [conversationId, lista] of porConversacion) {
+        aEnviar.push(lista[0]!);
+        if (lista.length > 1) {
+          const superados = lista.slice(1).map((f) => f.id);
+          await db.update(followUps)
+            .set({ completed: true })
+            .where(inArray(followUps.id, superados));
+          logger.warn(
+            { conversationId, enviado: lista[0]!.id, superados },
+            "[FollowUpScheduler] Varios seguimientos vencidos para la misma conversación — se manda uno y se cierran los demás",
+          );
+        }
+      }
+
+      logger.info(
+        { vencidos: dueFollowUps.length, aEnviar: aEnviar.length },
+        "[FollowUpScheduler] Processing due follow-ups from DB",
+      );
+
+      for (const followUp of aEnviar) {
         await this.processFollowUp(followUp);
         await new Promise(resolve => setTimeout(resolve, 2000));
       }
@@ -104,8 +196,93 @@ export class FollowUpScheduler {
     }
   }
 
+  /**
+   * ¿Corresponde mandarle ESTE seguimiento a ESTA persona?
+   *
+   * Es el único candado real: se pregunta justo antes de enviar, así que vale
+   * tanto para lo que se encole de ahora en adelante como para lo que ya está
+   * encolado. `scheduleFollowUp` no comprobaba absolutamente nada y se llama
+   * en CADA mensaje entrante -- el 17-08-2026 había 55 seguimientos en cola,
+   * 46 de ellos para un solo contacto que había llegado de un anuncio, con
+   * apenas 3 textos distintos entre todos. Esa persona iba a recibir 46
+   * mensajes casi idénticos: exactamente el patrón por el que WhatsApp
+   * bloquea un número.
+   *
+   * Las reglas salen de una instrucción explícita del dueño de la cuenta:
+   * si se le escribió una vez y no respondió, NO se le vuelve a escribir a
+   * menos que muestre interés.
+   */
+  private async debeEnviarse(followUp: FollowUp): Promise<{ ok: boolean; motivo?: string }> {
+    const convoId = followUp.conversationId;
+    if (!convoId) return { ok: false, motivo: "el seguimiento no tiene conversación asociada" };
+
+    const historial = await db.select({
+      role: messages.role,
+      createdAt: messages.createdAt,
+    }).from(messages).where(eq(messages.conversationId, convoId)).orderBy(asc(messages.createdAt));
+
+    if (historial.length === 0) return { ok: false, motivo: "la conversación no tiene mensajes" };
+
+    // 1. Un seguimiento por conversación mientras el cliente no vuelva a
+    //    escribir. Si ya se le mandó uno y sigue callado, se acabó: insistir
+    //    es lo que quema la cuenta.
+    const [yaEnviado] = await db.select({ id: followUps.id })
+      .from(followUps)
+      .where(and(eq(followUps.conversationId, convoId), eq(followUps.completed, true)))
+      .limit(1);
+
+    const ultimoDelCliente = [...historial].reverse().find((m) => m.role === "customer");
+    const ultimoNuestro = [...historial].reverse().find((m) => m.role !== "customer");
+
+    if (yaEnviado) {
+      // Solo se permite otro si el cliente HABLÓ después del anterior: eso es
+      // interés, y entonces ya no es insistir sino continuar la charla.
+      const hablóDespués = ultimoDelCliente && ultimoNuestro &&
+        new Date(ultimoDelCliente.createdAt).getTime() > new Date(ultimoNuestro.createdAt).getTime();
+      if (!hablóDespués) {
+        return { ok: false, motivo: "ya se le mandó un seguimiento y no volvió a escribir" };
+      }
+    }
+
+    // 2. Si el ÚLTIMO mensaje de la conversación es del cliente, está esperando
+    //    respuesta nuestra -- eso no es un seguimiento, es una respuesta
+    //    pendiente, y de eso se encarga el orquestador.
+    if (historial[historial.length - 1]!.role === "customer") {
+      return { ok: false, motivo: "el cliente escribió último: le debemos una respuesta, no un seguimiento" };
+    }
+
+    // 3. El cliente tiene que haber dicho algo alguna vez. Alguien que llegó de
+    //    un anuncio, recibió el saludo automático y nunca contestó no mostró
+    //    ningún interés: escribirle de nuevo es mensaje no solicitado.
+    const mensajesDelCliente = historial.filter((m) => m.role === "customer").length;
+    if (mensajesDelCliente < 2) {
+      return { ok: false, motivo: "el cliente nunca respondió (no mostró interés)" };
+    }
+
+    // 4. Nada de escribir de madrugada: hora local de Colombia (UTC-5).
+    const horaLocal = new Date(Date.now() - 5 * 60 * 60 * 1000).getUTCHours();
+    if (horaLocal < 8 || horaLocal >= 21) {
+      return { ok: false, motivo: `son las ${horaLocal}:00 en Colombia, fuera del horario para escribir` };
+    }
+
+    return { ok: true };
+  }
+
   private async processFollowUp(followUp: FollowUp): Promise<void> {
     try {
+      const permiso = await this.debeEnviarse(followUp);
+      if (!permiso.ok) {
+        // Se marca como resuelto para que no vuelva a evaluarse en cada pasada.
+        await db.update(followUps)
+          .set({ completed: true })
+          .where(eq(followUps.id, followUp.id));
+        logger.info(
+          { followUpId: followUp.id, phone: followUp.contactPhone, motivo: permiso.motivo },
+          "[FollowUpScheduler] Seguimiento DESCARTADO (no se envía)",
+        );
+        return;
+      }
+
       // Los leads de Facebook Messenger se guardan como contactPhone=`fb:<psid>`
       // (ver facebook-messenger.ts). Antes esto se ignoraba y SOLO se enviaba
       // por WhatsApp, dejando a todos los leads de Facebook sin seguimiento.
@@ -123,11 +300,21 @@ export class FollowUpScheduler {
           return;
         }
       } else {
-        if (!whatsapp.isConnected()) {
+        // Antes usaba el singleton "./whatsapp" (instancia standalone que
+        // nunca se inicia) -- isConnected() daba SIEMPRE false, así que
+        // NINGÚN follow-up por WhatsApp se enviaba jamás, sin ningún error
+        // visible (solo el warning de "not connected" en el log).
+        // followUps no tiene columna tenantId propia (ver comentario en
+        // getDueFollowUpsFromDB), así que se usa el tenant por defecto --
+        // correcto para un negocio de un solo tenant; si en el futuro hay
+        // varios negocios activos con follow-ups propios, esto necesita
+        // resolver el tenant real via conversations.tenantId.
+        const wa = getWhatsAppForTenant();
+        if (!wa.isConnected()) {
           logger.warn({ followUpId: followUp.id }, "[FollowUpScheduler] WhatsApp not connected");
           return;
         }
-        await whatsapp.sendText(followUp.contactPhone, followUp.message);
+        await wa.sendText(followUp.contactPhone, followUp.message);
       }
 
       await db.update(followUps)
