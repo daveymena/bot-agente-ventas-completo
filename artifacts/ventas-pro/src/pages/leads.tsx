@@ -97,22 +97,22 @@ export default function Leads() {
 
   return (
     <Layout>
-      <div className="flex flex-col gap-6">
+      <div className="flex flex-col gap-6 animate-enter">
         <div className="flex flex-col md:flex-row md:justify-between md:items-end gap-4">
           <div>
             <div className="flex items-start gap-1.5">
-              <h1 className="text-xl md:text-2xl font-semibold text-slate-900 tracking-tight">Prospectos (CRM)</h1>
+              <h1 className="text-3xl font-bold tracking-tight">Prospectos (CRM)</h1>
               <HelpTourButton guide={HELP_GUIDE} />
             </div>
-            <p className="text-sm text-slate-500 mt-1">Gestiona tus contactos y oportunidades de venta.</p>
+            <p className="text-muted-foreground mt-1">Gestiona tus contactos y oportunidades de venta.</p>
           </div>
           <LeadModal mode="create" open={isNewModalOpen} onOpenChange={setIsNewModalOpen}>
-            <Button data-tour="leads-new-button" className="shadow-sm"><Plus className="h-4 w-4 mr-2"/> Nuevo Prospecto</Button>
+            <Button data-tour="leads-new-button" className="shadow-lg shadow-primary/20"><Plus className="h-4 w-4 mr-2"/> Nuevo Prospecto</Button>
           </LeadModal>
         </div>
 
         {/* Filter Bar */}
-        <div data-tour="leads-stage-filter" className="bg-white border border-slate-200 p-2 rounded-xl flex gap-4 items-center sticky top-[80px] z-10 overflow-hidden">
+        <div data-tour="leads-stage-filter" className="glass-panel p-2 rounded-2xl flex gap-4 items-center sticky top-[80px] z-10 overflow-hidden">
           {/* Móvil: desplegable de una línea. Las 7 etapas en fila se salían
               del ancho del teléfono y quedaban ocultas a la derecha. */}
           <div className="md:hidden w-full px-1">
@@ -133,7 +133,7 @@ export default function Leads() {
             <div className="flex gap-2 pb-2 md:pb-0 px-2 items-center min-w-max">
               <Button
                 variant={filterStage === "all" ? "default" : "ghost"}
-                className={`rounded-full h-8 px-4 text-xs font-medium transition-all ${filterStage === 'all' ? 'shadow-sm' : 'hover:bg-muted'}`}
+                className={`rounded-full h-8 px-4 text-xs font-medium transition-all ${filterStage === 'all' ? 'shadow-md shadow-primary/20' : 'hover:bg-muted'}`}
                 onClick={() => setFilterStage("all")}
               >
                 Todas las etapas
@@ -142,7 +142,7 @@ export default function Leads() {
                 <Button
                   key={k}
                   variant={filterStage === k ? "default" : "ghost"}
-                  className={`rounded-full h-8 px-4 text-xs font-medium transition-all ${filterStage === k ? 'shadow-sm' : 'hover:bg-muted'}`}
+                  className={`rounded-full h-8 px-4 text-xs font-medium transition-all ${filterStage === k ? 'shadow-md shadow-primary/20' : 'hover:bg-muted'}`}
                   onClick={() => setFilterStage(k as LeadStage)}
                 >
                   {v}
@@ -155,15 +155,15 @@ export default function Leads() {
 
         {isLoading ? (
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-            {Array(8).fill(0).map((_, i) => <Skeleton key={i} className="h-48 w-full rounded-xl" />)}
+            {Array(8).fill(0).map((_, i) => <Skeleton key={i} className="h-48 w-full rounded-2xl" />)}
           </div>
         ) : leads?.length === 0 ? (
-          <div className="text-center py-20 text-slate-500 bg-white border border-dashed border-slate-300 rounded-xl">
+          <div className="text-center py-20 text-muted-foreground border rounded-2xl border-dashed glass-panel">
             <div className="w-20 h-20 rounded-full bg-primary/10 flex items-center justify-center mx-auto mb-4">
               <Users className="h-10 w-10 text-primary opacity-80" />
             </div>
-            <h3 className="text-xl font-semibold text-slate-900 mb-2">No hay prospectos</h3>
-            <p className="max-w-md mx-auto mb-6 text-sm text-slate-500">
+            <h3 className="text-2xl font-bold text-foreground mb-2">No hay prospectos</h3>
+            <p className="max-w-md mx-auto mb-6">
               {filterStage === 'all' 
                 ? 'Añade tu primer prospecto o espera a que los agentes IA generen leads automáticamente.'
                 : 'No hay prospectos en esta etapa. Ajusta los filtros para ver más resultados.'}
@@ -177,14 +177,14 @@ export default function Leads() {
         ) : (
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
             {(Array.isArray(leads) ? leads : []).map(lead => (
-              <Card key={lead.id} className={`flex flex-col relative overflow-hidden bg-white border border-slate-200 rounded-xl hover:shadow-sm transition-shadow border-l-[6px] ${stageColors[lead.stage].split(' ')[0]}`}>
+              <Card key={lead.id} className={`flex flex-col relative overflow-hidden transition-all duration-300 hover:-translate-y-1 hover:shadow-xl border-l-[6px] ${stageColors[lead.stage].split(' ')[0]} bg-card`}>
                 <CardHeader className="pb-3 flex-row justify-between items-start gap-2 pt-5">
                   <div className="flex gap-3 items-start min-w-0">
                     <div className={`w-10 h-10 rounded-full flex shrink-0 items-center justify-center font-bold text-sm ${stageColors[lead.stage].replace('border-', 'bg-').split(' ')[1]} ${stageColors[lead.stage].split(' ')[2]}`}>
                       {lead.name.substring(0, 2).toUpperCase()}
                     </div>
                     <div className="min-w-0 pt-0.5">
-                      <CardTitle className="text-base truncate leading-none mb-1 text-slate-900" title={lead.name}>{lead.name}</CardTitle>
+                      <CardTitle className="text-base truncate leading-none mb-1" title={lead.name}>{lead.name}</CardTitle>
                       <Badge variant="outline" className={`border-transparent text-[10px] px-1.5 py-0 font-medium ${stageColors[lead.stage].replace('border-', '')}`}>
                         {stageNames[lead.stage].split(' ')[0]}
                       </Badge>
@@ -192,11 +192,11 @@ export default function Leads() {
                   </div>
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
-                      <Button variant="ghost" size="icon" className="-mr-2 -mt-2 h-8 w-8 hover:bg-slate-100 rounded-full shrink-0"><MoreVertical className="h-4 w-4 text-slate-500"/></Button>
+                      <Button variant="ghost" size="icon" className="-mr-2 -mt-2 h-8 w-8 hover:bg-muted/50 rounded-full shrink-0"><MoreVertical className="h-4 w-4"/></Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
                       <LeadModal mode="edit" lead={lead}>
-                        <DropdownMenuItem onSelect={(e) => e.preventDefault()}><Edit className="h-4 w-4 mr-2 text-slate-500"/> Editar</DropdownMenuItem>
+                        <DropdownMenuItem onSelect={(e) => e.preventDefault()}><Edit className="h-4 w-4 mr-2 text-muted-foreground"/> Editar</DropdownMenuItem>
                       </LeadModal>
                       <DropdownMenuItem className="text-destructive focus:text-destructive focus:bg-destructive/10" onClick={() => handleDelete(lead.id)}>
                         <Trash2 className="h-4 w-4 mr-2"/> Eliminar
@@ -206,37 +206,37 @@ export default function Leads() {
                 </CardHeader>
                 <CardContent className="flex-1 text-sm space-y-3 pb-2">
                   <div className="space-y-2">
-                    <div className="flex items-center text-slate-500">
-                      <Phone className="h-3.5 w-3.5 mr-2 shrink-0 text-slate-400" />
-                      <span className="truncate font-medium text-slate-700">{lead.phone}</span>
+                    <div className="flex items-center text-muted-foreground">
+                      <Phone className="h-3.5 w-3.5 mr-2 shrink-0" />
+                      <span className="truncate font-medium">{lead.phone}</span>
                     </div>
                     {lead.email && (
-                      <div className="flex items-center text-slate-500">
-                        <Mail className="h-3.5 w-3.5 mr-2 shrink-0 text-slate-400" />
-                        <span className="truncate text-xs text-slate-600">{lead.email}</span>
+                      <div className="flex items-center text-muted-foreground">
+                        <Mail className="h-3.5 w-3.5 mr-2 shrink-0" />
+                        <span className="truncate text-xs">{lead.email}</span>
                       </div>
                     )}
                   </div>
                   
                   {lead.notes && (
-                    <div className="bg-slate-50 p-2.5 rounded-lg border border-slate-100 text-xs text-slate-500 line-clamp-2 italic">
+                    <div className="bg-muted/30 p-2.5 rounded-lg border text-xs text-muted-foreground line-clamp-2 italic">
                       "{lead.notes}"
                     </div>
                   )}
                   
                   <div className="flex items-center justify-between pt-1">
-                    <div className="flex items-center gap-1.5 text-xs text-slate-500">
-                      <Tag className="h-3 w-3 text-slate-400" />
+                    <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                      <Tag className="h-3 w-3" />
                       <span className="truncate max-w-[100px]">{lead.source || 'Sin origen'}</span>
                     </div>
                     {lead.value > 0 && (
-                      <span className="font-bold text-slate-900 tabular-nums-all bg-slate-50 px-2 py-0.5 rounded-md border border-slate-200">
+                      <span className="font-bold text-foreground tabular-nums-all bg-muted/50 px-2 py-0.5 rounded-md border">
                         ${lead.value.toLocaleString()}
                       </span>
                     )}
                   </div>
                 </CardContent>
-                <CardFooter className="py-3 border-t border-slate-100 bg-slate-50/50 text-xs text-slate-500 font-medium">
+                <CardFooter className="py-3 border-t bg-muted/10 text-xs text-muted-foreground font-medium">
                   Actualizado {format(parseISO(lead.createdAt), "d MMM", { locale: es })}
                 </CardFooter>
               </Card>

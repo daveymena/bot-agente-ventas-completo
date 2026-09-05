@@ -87,7 +87,7 @@ function SmartImportButton({ onComplete }: { onComplete: () => void }) {
       <Button
         data-tour="products-import-button"
         variant="outline"
-        className="bg-white border-primary/30 hover:border-primary/50 text-primary"
+        className="glass-panel border-primary/30 hover:border-primary/50 text-primary"
         onClick={() => document.getElementById('smart-import')?.click()}
         disabled={isUploading}
       >
@@ -207,14 +207,14 @@ export default function Products() {
 
   return (
     <Layout>
-      <div className="flex flex-col gap-6">
+      <div className="flex flex-col gap-8 animate-enter">
         <div className="flex flex-col gap-2 md:flex-row md:justify-between md:items-end">
           <div>
             <div className="flex items-start gap-1.5">
-              <h1 className="text-xl md:text-2xl font-semibold text-slate-900 tracking-tight">Catálogo de Productos</h1>
+              <h1 className="text-2xl font-semibold tracking-tight">Catálogo de Productos</h1>
               <HelpTourButton guide={HELP_GUIDE} />
             </div>
-            <p className="text-sm text-slate-500 mt-1">Organiza tus ofertas para que los agentes IA puedan recomendarlas.</p>
+            <p className="text-muted-foreground mt-1">Organiza tus ofertas para que los agentes IA puedan recomendarlas.</p>
           </div>
           {/* flex-wrap: sin esto, en pantallas angostas las 3 acciones no
               entraban en una sola fila y "Nuevo Producto" (la última)
@@ -222,7 +222,7 @@ export default function Products() {
               scrollear horizontal -- mismo bug que ya se había corregido en
               facebook.tsx, acá faltaba aplicarlo. */}
           <div className="flex items-center gap-3 flex-wrap">
-            <Button variant="outline" onClick={() => setIsCategoryModalOpen(true)}>
+            <Button variant="outline" className="glass-panel" onClick={() => setIsCategoryModalOpen(true)}>
               <Tag className="h-4 w-4 mr-2 text-primary" /> Gestionar categorías
             </Button>
             <SmartImportButton onComplete={() => queryClient.invalidateQueries({ queryKey: getListProductsQueryKey() })} />
@@ -236,13 +236,13 @@ export default function Products() {
               categories={categories || []}
               initialData={templateSelected}
             >
-              <Button data-tour="products-new-button"><Plus className="h-4 w-4 mr-2"/> Nuevo Producto</Button>
+              <Button data-tour="products-new-button" className="shadow-lg shadow-primary/20"><Plus className="h-4 w-4 mr-2"/> Nuevo Producto</Button>
             </ProductModal>
           </div>
         </div>
 
         {/* Filters */}
-        <div className="bg-white border border-slate-200 p-2 rounded-xl flex flex-col md:flex-row gap-3 items-center justify-between sticky top-[72px] z-10">
+        <div className="glass-panel p-2 rounded-xl flex flex-col md:flex-row gap-3 items-center justify-between sticky top-[72px] z-10">
           <div className="flex items-center gap-3 w-full md:w-auto px-2">
             <div className="relative w-full md:w-56">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -329,10 +329,10 @@ export default function Products() {
             </div>
           </div>
         ) : filteredProducts.length === 0 ? (
-           <div className="text-center py-20 text-slate-500 border rounded-xl border-dashed border-slate-300 bg-white">
+           <div className="text-center py-20 text-muted-foreground border rounded-2xl border-dashed glass-panel">
             <Filter className="h-12 w-12 mx-auto mb-4 opacity-20" />
-            <h3 className="text-lg font-semibold text-slate-900 mb-1">Sin resultados</h3>
-            <p className="mb-4 text-sm">No hay productos que coincidan con los filtros actuales.</p>
+            <h3 className="text-lg font-medium text-foreground mb-1">Sin resultados</h3>
+            <p className="mb-4">No hay productos que coincidan con los filtros actuales.</p>
             <Button variant="outline" onClick={() => { setActiveCategoryId("all"); setActiveKind("all"); }}>Limpiar filtros</Button>
           </div>
         ) : (
@@ -342,7 +342,7 @@ export default function Products() {
               const catColor = cat?.color || "hsl(var(--primary))";
               
               return (
-                <Card key={product.id} className={`group flex flex-col overflow-hidden transition-shadow hover:shadow-sm bg-white border-slate-200 shadow-sm ${!product.isActive ? 'opacity-60' : ''}`}>
+                <Card key={product.id} className={`group flex flex-col overflow-hidden transition-shadow hover:shadow-md ${!product.isActive ? 'opacity-60' : ''}`}>
                   {/* Image Header */}
                   <div className="relative aspect-video w-full overflow-hidden bg-muted">
                     <ProductImage product={product} cat={cat} />
