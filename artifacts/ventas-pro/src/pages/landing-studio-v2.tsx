@@ -11,16 +11,42 @@ import ReactMarkdown from "react-markdown";
 type Product = { id: number; name: string; description?: string; price?: string; currency?: string };
 type Landing = { id: number; name: string; productId?: number | null; design?: any; sections?: any[]; strategy?: any };
 type Msg = { role: "user" | "assistant"; content: string; loading?: boolean };
-type Familia = "elegante" | "startup" | "corp" | "bold" | "minimalista" | "dark_premium" | "warm";
+/**
+ * Las familias visuales, tal como las conoce el renderer.
+ *
+ * ⚠️ Acá había SIETE nombres inventados --elegante, startup, corp, bold,
+ * minimalista, dark_premium, warm-- y NINGUNO existía del lado del servidor.
+ * `tokensDe()` no los reconocía y caía al respaldo, así que los siete botones
+ * producían EXACTAMENTE la misma landing. El selector de estilo era
+ * decoración: se podía apretar "Dark Premium" o "Bold" y salía la misma
+ * página.
+ *
+ * Es un fallo que no se ve mirando la pantalla --los botones responden, el
+ * color cambia, la vista previa se recarga-- y solo aparece comparando las dos
+ * listas. Por eso `value` tiene que salir de `FamiliaVisual` en
+ * lib/landing/design-system.ts y no de la imaginación: si alguien agrega una
+ * familia allá, la agrega acá con el MISMO identificador o vuelve a pasar.
+ *
+ * `label` y `color` son los del propio design system (`nombre` y
+ * `color.acento`), para que la pastilla se vea del color real de la familia.
+ */
+type Familia =
+  | "premium" | "respuesta-directa" | "minimal" | "editorial" | "ecommerce" | "belleza"
+  | "fitness" | "educacion" | "tecnologia" | "familiar" | "creativa" | "oscura";
 
 const FAMILIAS: { value: Familia; label: string; color: string }[] = [
-  { value: "elegante", label: "Elegante", color: "#8B6F47" },
-  { value: "startup", label: "Startup", color: "#6366F1" },
-  { value: "corp", label: "Corporativo", color: "#1D4ED8" },
-  { value: "bold", label: "Bold", color: "#DC2626" },
-  { value: "minimalista", label: "Minimalista", color: "#111827" },
-  { value: "dark_premium", label: "Dark Premium", color: "#F59E0B" },
-  { value: "warm", label: "Calido", color: "#EA580C" },
+  { value: "premium", label: "Premium", color: "#8C7A5B" },
+  { value: "respuesta-directa", label: "Respuesta directa", color: "#E5342A" },
+  { value: "minimal", label: "Minimal", color: "#111111" },
+  { value: "editorial", label: "Editorial", color: "#1F4E42" },
+  { value: "ecommerce", label: "Ecommerce", color: "#1B6EF3" },
+  { value: "belleza", label: "Belleza", color: "#C08573" },
+  { value: "fitness", label: "Fitness", color: "#C8FF3D" },
+  { value: "educacion", label: "Educación", color: "#2A5BD7" },
+  { value: "tecnologia", label: "Tecnología", color: "#5B4BE8" },
+  { value: "familiar", label: "Familiar", color: "#E8792B" },
+  { value: "creativa", label: "Creativa", color: "#3B1FD9" },
+  { value: "oscura", label: "Oscura", color: "#00D3A7" },
 ];
 
 const SALUDO = `Soy tu **Constructor de Landing Pages** powered by OpenCode 
@@ -45,8 +71,27 @@ export default function LandingStudioV2() {
   const [landings, setLandings] = useState<Landing[]>([]);
   const [productId, setProductId] = useState<number | "">("");
   const [landingId, setLandingId] = useState<number | null>(null);
-  const [familia, setFamilia] = useState<Familia>("elegante");
+  // "ecommerce" es el mismo respaldo que usa tokensDe() en el servidor: así el
+  // valor por defecto es explícito y coincide con lo que se renderiza.
+  const [familia, setFamilia] = useState<Familia>("ecommerce");
   const [previewMode, setPreviewMode] = useState<"desktop" | "mobile">("desktop");
+  /**
+   * Qué panel se ve cuando la pantalla es chica.
+   *
+   * ⚠️ El editor no tenía NADA de esto. El panel de chat era `width: 340` fijo
+   * con `minWidth: 280`, sin una sola regla responsive, y los dos paneles
+   * vivían en un `flex` horizontal. En un teléfono de 390px eso deja 280 para
+   * el chat y ~110 para la vista previa: técnicamente el botón de móvil
+   * existía, pero no había dónde mostrar nada.
+   *
+   * El dueño lo dijo así: *"la landing page studio no tiene modo móvil"*.
+   * Tenía razón en el efecto aunque el botón estuviera cableado.
+   *
+   * En pantalla chica se muestra UNO a la vez y a ancho completo, que es la
+   * única forma de que ambos sean usables; en escritorio conviven como
+   * siempre y este estado no hace nada.
+   */
+  const [panelMovil, setPanelMovil] = useState<"chat" | "preview">("chat");
   const [msgs, setMsgs] = useState<Msg[]>([{ role: "assistant", content: SALUDO }]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
@@ -199,19 +244,47 @@ export default function LandingStudioV2() {
             Generar
           </Button>
           <div className="ml-auto flex gap-1">
-            <Button size="sm" variant="ghost" onClick={() => landingId && cargarPreview(landingId)} disabled={!landingId || previewBusy} className="h-8 w-8 p-0">
+            <Button size="sm" variant="ghost" onClick={() => landingId && cargarPreview(landingId)} disabled={!landingId || previewBusy} className="h-8 w-8 p-0"
+              title="Actualizar la vista previa" aria-label="Actualizar la vista previa">
               <RefreshCw className={`h-3.5 w-3.5 ${previewBusy ? "animate-spin" : ""}`} />
             </Button>
-            <Button size="sm" variant="ghost" onClick={() => setPreviewMode(m => m === "desktop" ? "mobile" : "desktop")} className="h-8 w-8 p-0">
+            <Button size="sm" variant="ghost" onClick={() => setPreviewMode(m => m === "desktop" ? "mobile" : "desktop")} className="h-8 w-8 p-0"
+              title={previewMode === "desktop" ? "Ver como se ve en un celular" : "Ver como se ve en pantalla grande"}
+              aria-label={previewMode === "desktop" ? "Ver como se ve en un celular" : "Ver como se ve en pantalla grande"}>
               {previewMode === "desktop" ? <Smartphone className="h-3.5 w-3.5" /> : <Monitor className="h-3.5 w-3.5" />}
             </Button>
-            <Button size="sm" variant="ghost" onClick={exportar} disabled={!landingId} className="h-8 w-8 p-0">
+            <Button size="sm" variant="ghost" onClick={exportar} disabled={!landingId} className="h-8 w-8 p-0"
+              title="Descargar la landing en HTML" aria-label="Descargar la landing en HTML">
               <Download className="h-3.5 w-3.5" />
             </Button>
           </div>
         </div>
+        {/* El selector de panel, SOLO en pantalla chica (lg:hidden). En
+            escritorio los dos se ven a la vez y este control estorbaría. */}
+        <div className="flex lg:hidden shrink-0 border-b bg-muted/30 p-1 gap-1">
+          {([["chat", "💬 Chat"], ["preview", "👁️ Vista previa"]] as const).map(([valor, etiqueta]) => (
+            <button
+              key={valor}
+              onClick={() => setPanelMovil(valor)}
+              aria-pressed={panelMovil === valor}
+              className={`flex-1 h-9 rounded-md text-xs font-semibold transition-colors ${
+                panelMovil === valor ? "bg-background shadow-sm" : "text-muted-foreground"
+              }`}
+            >
+              {etiqueta}
+            </button>
+          ))}
+        </div>
+
         <div className="flex flex-1 overflow-hidden">
-          <div className="flex flex-col border-r bg-background" style={{ width: 340, minWidth: 280 }}>
+          {/* Ancho completo en móvil; los 340px fijos recién a partir de lg.
+              El `hidden` es lo que evita que los dos paneles se repartan una
+              pantalla donde no entran. */}
+          <div
+            className={`flex-col border-r bg-background w-full lg:w-[340px] xl:w-[400px] lg:min-w-[280px] lg:flex ${
+              panelMovil === "chat" ? "flex" : "hidden"
+            }`}
+          >
             <div className="px-3 py-2 border-b bg-muted/20 shrink-0">
               <p className="text-[10px] font-semibold uppercase text-muted-foreground mb-1.5">Estilo visual</p>
               <div className="flex flex-wrap gap-1">
@@ -271,7 +344,11 @@ export default function LandingStudioV2() {
               </div>
             </div>
           </div>
-          <div className="flex-1 flex flex-col bg-slate-950 overflow-hidden">
+          <div
+            className={`flex-1 flex-col bg-slate-950 overflow-hidden lg:flex ${
+              panelMovil === "preview" ? "flex" : "hidden"
+            }`}
+          >
             <div className="flex items-center gap-2 px-3 py-2 bg-slate-900 border-b border-slate-800 shrink-0">
               <div className="flex gap-1">
                 <span className="h-2.5 w-2.5 rounded-full bg-red-500/70" />
@@ -286,14 +363,27 @@ export default function LandingStudioV2() {
               </Badge>
             </div>
             <div className={`flex-1 overflow-auto flex ${previewMode === "mobile" ? "items-start justify-center py-8" : ""}`}>
-              <div className={`relative transition-all ${previewMode === "mobile" ? "w-[390px] rounded-[40px] overflow-hidden border-8 border-slate-700 shadow-2xl" : "w-full h-full"}`}>
+              {/* El marco de teléfono medía 390px EXACTOS -- justo el ancho de
+                  un teléfono real, así que dentro de uno se salía de la
+                  pantalla junto con sus 8px de borde. `w-full max-w-[390px]`
+                  lo deja igual en escritorio y lo hace caber en el celular. */}
+              <div className={`relative transition-all ${previewMode === "mobile" ? "w-full max-w-[390px] rounded-[40px] overflow-hidden border-8 border-slate-700 shadow-2xl" : "w-full h-full"}`}>
                 {previewBusy && (
                   <div className="absolute inset-0 flex items-center justify-center bg-slate-950/70 z-10">
                     <Loader2 className="h-8 w-8 animate-spin text-violet-400" />
                   </div>
                 )}
-                <iframe ref={iframeRef} title="Landing Preview" className="w-full block"
-                  style={{ height: previewMode === "mobile" ? 844 : "calc(100vh - 8.5rem)", border: "none" }}
+                {/* El alto va por clase y no por `style` porque tiene que
+                    cambiar con el tamaño de pantalla, y un estilo en línea no
+                    admite media queries. En móvil la barra de paneles se come
+                    unos 3rem más, así que el `calc` de escritorio dejaba la
+                    vista previa desbordando por abajo. */}
+                <iframe ref={iframeRef} title="Vista previa de la landing"
+                  className={`w-full block border-0 ${
+                    previewMode === "mobile"
+                      ? "h-[70vh] max-h-[844px] lg:h-[844px] lg:max-h-none"
+                      : "h-[calc(100vh-12rem)] lg:h-[calc(100vh-8.5rem)]"
+                  }`}
                   sandbox="allow-same-origin allow-scripts" />
               </div>
             </div>
