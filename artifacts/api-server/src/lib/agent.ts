@@ -1915,6 +1915,21 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
     });
     bloqueEstado = renderEstado(estado);
 
+    // §14 del playbook: que no repita lo que el cliente ya sabe.
+    //
+    // `no-repetir.ts` ya atrapaba el mensaje IDENTICO, pero se le escapaba lo
+    // que de verdad molesta: decir el mismo dato con otras palabras ("cuesta
+    // $60.000" y dos turnos despues "la inversion es de sesenta mil"). Para el
+    // cliente es la misma informacion dos veces.
+    //
+    // Se INFORMA, no se prohibe: el bloque incluye cuando si conviene repetir
+    // (si lo pregunta de nuevo, si el dato cambio). Una prohibicion seca hace
+    // que el bot se niegue a contestar "cuanto era?".
+    try {
+      const { bloqueDeLoYaDicho } = await import("./datos-ya-dichos");
+      bloqueEstado += bloqueDeLoYaDicho(memory.history as any);
+    } catch { /* sin esto el turno sigue igual: es una ayuda, no un requisito */ }
+
     // ── Y QUÉ HACER con ese estado ────────────────────────────────────────
     //
     // `renderEstado` dice DÓNDE está la conversación; esto dice qué
