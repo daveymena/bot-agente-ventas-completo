@@ -2124,10 +2124,18 @@ export class WhatsAppManager {
                     }
                   } else {
                     const visto = await describirImagen(buf, mime);
-                    text = visto
-                      ? `[el cliente mandó una foto: ${visto}]`
-                      : "[el cliente mandó una foto que no se pudo ver]";
-                    console.log(`🖼️ [IMAGEN] ${visto ? "descrita" : "sin modelo que la vea"}`);
+                    // ── La descripción NO se le pasa al agente como hecho ──
+                    //
+                    // Un modelo de visión describe una imagen, no la VERIFICA.
+                    // Pasarla como texto del cliente convertía esa descripción
+                    // en "lo que el cliente mandó", y el agente la repetía y
+                    // elaboraba: caso real 2026-09-05, un Excel descrito como
+                    // "comprobante con valor, fecha y banco" que el bot le
+                    // confirmó al cliente como si lo hubiera visto. La
+                    // descripción real se guarda en `comprobanteVisto` SOLO
+                    // para la detección interna y el aviso al admin.
+                    text = "[el cliente mandó una imagen]";
+                    console.log(`🖼️ [IMAGEN] ${visto ? "descrita (solo interno)" : "sin modelo que la vea"}`);
 
                     // Si es un comprobante de pago hay que GUARDARLO y avisarle
                     // al admin. Antes la foto se describía y se tiraba: no

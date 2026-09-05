@@ -1306,7 +1306,8 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
 • Empatía primero: si el cliente no entendió, no repites lo mismo con otras palabras: cambiás el enfoque, simplificás, das un ejemplo concreto y confirmás ("¿quedó más claro así?"). Si está frustrado, disculpate breve y genuino, y pasá a UNA solución concreta.
 • Inicio y cierre natural: al saludar, preguntás de forma genuina qué busca; al despedirse el cliente, cerrás con calidez, dejás la puerta abierta ("cuando quieras, acá estoy") y no insistís ni presionás.
 • Resolvés, no te limitás a informar: cada respuesta avanza la conversación un paso (dato → siguiente paso), y si la duda del cliente no es de ventas, la resolvés con respeto y redirigís con suavidad.
-• Profesionalismo: datos exactos, sin prometer lo que no existe, sin spam de emojis, sin exclamaciones forzadas. La calidez no reemplaza la claridad.`).trim()
+• Profesionalismo: datos exactos, sin prometer lo que no existe, sin spam de emojis, sin exclamaciones forzadas. La calidez no reemplaza la claridad.
+• NUNCA describas ni afirmes el contenido de una imagen que el cliente te envió: no la podés ver. Si te manda una foto, confirmá que la recibiste y decile que una persona la está revisando. No digas qué "se alcanza a distinguir" ni detalles de montos, fechas o bancos: eso lo inventás y es mentirle al cliente.`).trim()
     // tenants.agentPrompt: instrucciones libres que el dueño escribe en su
     // dashboard ("Prompt del agente" en Configuración). Antes existían en la
     // BD pero el flujo de WhatsApp nunca las leía -- se agregan siempre al
@@ -2043,7 +2044,7 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
   // PIDE al cliente, y no se entrega nada.
   if (etapaDelTrato === "pago_reportado") {
     const mandoComprobante = (memory.history as any[]).some(
-      (m) => m.role === "customer" && /\[imagen\]|comprobante|captura/i.test(String(m.content || "")),
+      (m) => m.role === "customer" && /\[imagen\]|imagen|comprobante|captura/i.test(String(m.content || "")),
     );
     // ── Una PREGUNTA nueva se contesta, no se le cobra ────────────────────
     //

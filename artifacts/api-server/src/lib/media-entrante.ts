@@ -135,11 +135,16 @@ export async function transcribirAudio(audio: Buffer, mime = "audio/ogg"): Promi
  */
 export async function describirImagen(imagen: Buffer, mime = "image/jpeg"): Promise<string | null> {
   const b64 = imagen.toString("base64");
+  // El prompt le pide CAUTELA, no precisión. Un modelo de visión que afirma
+  // montos y fechas es justo el que termina describiendo un Excel como "un
+  // comprobante de transferencia con valor, fecha y banco" (caso real
+  // 2026-09-05). Para detectar un comprobante alcanza con saber el TIPO de
+  // imagen; los datos exactos los confirma una persona, no un modelo.
   const instruccion =
-    "Describi esta imagen en 1-2 frases, en espanol, para un vendedor por WhatsApp. "
-    + "Si es un comprobante o pantallazo de pago, deci que es un comprobante e incluí el monto y la fecha si se leen. "
-    + "Si es un producto, deci que producto parece. Si tiene texto legible, transcribí lo importante. "
-    + "No inventes nada que no se vea.";
+    "Describí en 1-2 frases, en español, QUÉ TIPO de imagen es esta "
+    + "(por ejemplo: comprobante de pago, hoja de cálculo de Excel, captura de pantalla, foto de un producto, etc.). "
+    + "NO afirmes montos, fechas, nombres de bancos ni números salvo que los leas con total claridad. "
+    + "Si no estás seguro de qué es, decí 'no está claro'. No inventes nada que no se vea con claridad.";
 
   for (const { proveedor, modelo } of modelosDeVision()) {
     const cfg = getProviderConfig(proveedor);
