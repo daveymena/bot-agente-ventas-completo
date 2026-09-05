@@ -1359,3 +1359,22 @@ export function catalogoDeCapacidades(habilitadas: Set<string>): string {
     "",
   ].join("\n");
 }
+
+/**
+ * Cómo se le cuenta a Atlas el resultado de una herramienta.
+ *
+ * ⚠️ Vive acá, y no dentro de la ruta del puente, porque ahora hay DOS caminos
+ * que ejecutan herramientas: el puente MCP (cuando el turno pasa por OpenCode)
+ * y `atlas-directo` (cuando habla con el modelo sin intermediarios).
+ *
+ * Si cada uno formateara el resultado a su manera, Atlas vería datos distintos
+ * según el camino y se comportaría distinto -- exactamente lo que el dueño
+ * pidió evitar: *"que todo quede en perfecta sincronía"*. Una sola función, un
+ * solo formato, y una prueba que verifica que los dos la usan.
+ */
+export function textoDelResultado(result: { ok: boolean; summary: string; data?: any }): string {
+  if (!result.ok) return `❌ ${result.summary}`;
+  return typeof result.data !== "undefined"
+    ? `${result.summary}\n\n${JSON.stringify(result.data)}`
+    : result.summary;
+}

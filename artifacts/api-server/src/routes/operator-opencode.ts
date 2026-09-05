@@ -30,6 +30,7 @@ import { randomUUID } from "node:crypto";
 import type { TenantRequest } from "../lib/tenantManager";
 import { logger } from "../lib/logger";
 import { esUnSiParaEstePlan } from "../lib/es-un-si";
+import { correrTurnoDirecto, directoDisponible } from "../lib/atlas-directo";
 import { promptDeAtlas, executeAction, verifyMutation, investigacionRapida, mensajeParaAdmin, type OperatorContext } from "../lib/app-operator";
 import {
   loadArchitectHistory, saveArchitectTurn, getPendingPlan, setPendingPlan,
@@ -1383,6 +1384,51 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
       let modeloUsado: { providerID: string; modelID: string } | null = null;
 
       const { text: finalReply, error: opencodeError } = await conCandado(async () => {
+        // ── El camino DIRECTO, sin intermediarios ──────────────────────────
+        //
+        // Hasta acá el turno hacía: Atlas → OpenCode → puente MCP → DE VUELTA
+        // a este mismo servidor. Una vuelta por un contenedor ajeno para
+        // terminar llamando funciones que ya viven acá.
+        //
+        // Medido el 2026-09-05 --mismo prompt, mismas herramientas, mismo
+        // modelo deepseek-v4-flash--:
+        //
+        //     directo      7.725 tokens   1,7s · 2,0s · 2,6s
+        //     por OpenCode 20.674 tokens  13s … +175s
+        //
+        // OpenCode agrega ~13.000 tokens suyos y su propio bucle de agente.
+        //
+        // Se enciende con ATLAS_DIRECTO=true y queda OpenCode detrás como
+        // respaldo: si el directo falla por algo que no sea el admin
+        // deteniéndolo, el turno sigue por el camino viejo en vez de dejarlo
+        // sin respuesta. Cambiar de camino es una variable de entorno.
+        if (directoDisponible()) {
+          progreso("Pensando...");
+          const r = await correrTurnoDirecto({
+            system,
+            herramientas: toolRegistry,
+            mensaje: text,
+            // EL MISMO contexto que arma el puente MCP para sus llamadas.
+            // `?? undefined` porque el puente MCP lo recibe por query string y ahi un
+            // valor ausente es undefined, no null: igualar los dos caminos hasta en
+            // esto es lo que evita que una herramienta se comporte distinto segun
+            // por donde vino la llamada.
+            ctx: { tenantId, sessionId, turnId, turnDeadline, objetivoDelAdmin: objetivoDelAdmin ?? undefined },
+            apiKey: String(process.env.DEEPSEEK_API_KEY || ""),
+            modelo: process.env.ATLAS_DIRECTO_MODELO || "deepseek-v4-flash",
+            presupuestoMs: Math.max(turnDeadline - Date.now(), 10_000),
+            cancelSignal: senalDeCorte,
+            onProgreso: progreso,
+          });
+          marcar(`directo:${r.vueltas}v`, Date.now() - r.ms);
+          logger.info(
+            { tenantId, vueltas: r.vueltas, ms: r.ms, herramientas: r.herramientasUsadas, error: r.error },
+            "[AtlasDirecto] turno terminado",
+          );
+          if (r.texto || r.error === "detenido") return { text: r.texto, error: r.error };
+          logger.warn({ tenantId, err: r.error }, "[AtlasDirecto] sin respuesta: se cae a OpenCode");
+        }
+
         await registerMcpBridge(cfg.host, cfg.authHeader, mcpUrl);
         const opencodeSessionId = await createOpencodeSession(cfg.host, cfg.authHeader);
         sesionOpencode = opencodeSessionId;

@@ -20,7 +20,7 @@
  */
 import { Router, type Request, type Response } from "express";
 import { verifyTurnToken } from "../lib/opencode-turn-token";
-import { buildMcpToolRegistry } from "../lib/opencode-mcp-tools";
+import { buildMcpToolRegistry, textoDelResultado } from "../lib/opencode-mcp-tools";
 import { logger } from "../lib/logger";
 import type { OperatorContext } from "../lib/app-operator";
 
@@ -128,9 +128,10 @@ router.post("/atlas", async (req: Request, res: Response) => {
 
       logger.info({ tenantId: auth.tenantId, turnId: auth.turnId, tool: toolName }, "[AtlasMCP] tools/call");
       const result = await def.handler(toolArgs, ctx);
-      const text = result.ok
-        ? (typeof result.data !== "undefined" ? `${result.summary}\n\n${JSON.stringify(result.data)}` : result.summary)
-        : `❌ ${result.summary}`;
+      // El formato lo decide `textoDelResultado`, compartido con atlas-directo:
+      // dos formatos distintos harían que Atlas se comporte distinto según el
+      // camino que tomó el turno.
+      const text = textoDelResultado(result);
       return res.json(rpcResult(id, { content: [{ type: "text", text }], isError: !result.ok }));
     }
 
