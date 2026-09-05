@@ -4515,7 +4515,32 @@ Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vincu
       };
 
       let copy = await pedirCopy();
-      if (!copy?.primaryText) return { ok: false, summary: "El modelo no devolvió un copy utilizable. Probá de nuevo en un momento." };
+
+      // ── Si el modelo no escribe, el anuncio sale igual ───────────────────
+      //
+      // Acá se devolvía `{ ok: false, "El modelo no devolvió un copy
+      // utilizable" }` y el admin se quedaba sin nada. Ese fallo está MEDIDO en
+      // vivo (2026-08-19): 388 ms, instantáneo --ni siquiera un timeout-- y con
+      // la clave paga ya cargada. Y volvió el 04-09: "Atlas duró más de un
+      // minuto para generar un copy y nunca lo entregó".
+      //
+      // La idea es del Landing Agent que otra IA construyó en este repo: su
+      // `normalizeSections(result, product)` cae a `fallbackSections(product)`
+      // y SIEMPRE devuelve algo usable armado con datos reales. Se le trae ese
+      // patrón a Atlas: un respaldo determinístico que no llama a nadie, no
+      // puede fallar y no inventa nada -- solo ordena lo que ya está en la fila
+      // del producto. Sigue pasando por el validador, igual que el del modelo.
+      let salioDelRespaldo = false;
+      const { avisoDeCopyDeRespaldo } = await import("./copy-de-respaldo");
+      if (!copy?.primaryText) {
+        const { copyDeRespaldo } = await import("./copy-de-respaldo");
+        copy = copyDeRespaldo(prod as any);
+        salioDelRespaldo = true;
+        logger.warn(
+          { tenantId: ctx.tenantId, producto: (prod as any)?.name },
+          "[CrearAnuncio] El modelo no devolvió copy: se arma el borrador base con los datos reales del producto",
+        );
+      }
 
       // ── 4. Validar, y si algo no cierra, pedirle UNA corrección ──────────
       // El reintento vive acá adentro: al admin no le cuesta un turno ni una
@@ -4570,6 +4595,12 @@ Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vincu
       return {
         ok: true,
         summary: [
+          // El aviso del respaldo va ARRIBA: el admin lee de arriba hacia abajo
+          // y se queda con lo primero, así que un "borrador base" anunciado al
+          // final se leería como un anuncio terminado. Mismo criterio que el
+          // aviso de "todavía no se guardó nada" en operator-opencode.
+          salioDelRespaldo ? avisoDeCopyDeRespaldo() : "",
+          salioDelRespaldo ? `\n---\n` : "",
           `✅ Anuncio creado para "${prod.name}" (id ${prod.id})${draftId ? ` — borrador ${draftId}` : ""}`,
           ``,
           `🎯 ${copy.headline}`,
