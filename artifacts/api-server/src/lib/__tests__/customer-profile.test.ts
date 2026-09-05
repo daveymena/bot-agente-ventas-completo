@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { variantesDeTelefono,
   agregarProductoVisto, agregarObjecion, guardarUbicacion,
   diasDesdeLaUltimaVez, tieneAlgoQueRecordar, PERFIL_VACIO,
+  vioLaFichaHacePoco,
 } from "../customer-profile";
 
 /**
@@ -140,5 +141,53 @@ describe("el mismo teléfono escrito de varias formas es el mismo cliente", () =
     expect(variantesDeTelefono("test-ia")).toEqual(["test-ia"]);
     expect(variantesDeTelefono("")).toEqual([]);
     expect(variantesDeTelefono(null)).toEqual([]);
+  });
+});
+
+/**
+ * ============================================================
+ * LA FICHA QUE VOLVIA A SALIR EN CADA CHAT NUEVO
+ * ============================================================
+ *
+ * El caso de la cabecera de este archivo: el mismo cliente pidio el curso de
+ * piano el 16, el 17 y tres veces el 23, y recibio cinco fichas identicas.
+ */
+describe("vioLaFichaHacePoco", () => {
+  const hoy = new Date("2026-09-05T12:00:00.000Z");
+  const perfilCon = (id: number, fecha: string) => ({
+    productosVistos: [{ id, nombre: "Curso de Piano", fecha }],
+  });
+
+  it("la vio ayer: no se la repite", () => {
+    expect(vioLaFichaHacePoco(perfilCon(7, "2026-09-04T12:00:00.000Z"), 7, hoy)).toBe(true);
+  });
+
+  it("la vio hace un mes: se la vuelve a presentar", () => {
+    // A esa altura no es repetir, es retomar. Es lo correcto.
+    expect(vioLaFichaHacePoco(perfilCon(7, "2026-08-05T12:00:00.000Z"), 7, hoy)).toBe(false);
+  });
+
+  it("justo en el limite de los 7 dias todavia cuenta", () => {
+    expect(vioLaFichaHacePoco(perfilCon(7, "2026-08-29T12:00:00.000Z"), 7, hoy)).toBe(true);
+  });
+
+  it("otro producto no cuenta", () => {
+    expect(vioLaFichaHacePoco(perfilCon(7, "2026-09-04T12:00:00.000Z"), 99, hoy)).toBe(false);
+  });
+
+  it("nada rompe cuando no hay datos", () => {
+    expect(vioLaFichaHacePoco(null, 7, hoy)).toBe(false);
+    expect(vioLaFichaHacePoco({}, 7, hoy)).toBe(false);
+    expect(vioLaFichaHacePoco(perfilCon(7, "2026-09-04T12:00:00.000Z"), null, hoy)).toBe(false);
+  });
+
+  it("una fecha ilegible NO deja al cliente sin la ficha", () => {
+    // Ante la duda, se manda: quedarse sin informacion es peor que repetirla.
+    expect(vioLaFichaHacePoco(perfilCon(7, "no-es-fecha"), 7, hoy)).toBe(false);
+    expect(vioLaFichaHacePoco({ productosVistos: [{ id: 7, nombre: "x", fecha: "" }] } as any, 7, hoy)).toBe(false);
+  });
+
+  it("una fecha futura (relojes desfasados) cuenta como reciente", () => {
+    expect(vioLaFichaHacePoco(perfilCon(7, "2026-09-06T12:00:00.000Z"), 7, hoy)).toBe(true);
   });
 });

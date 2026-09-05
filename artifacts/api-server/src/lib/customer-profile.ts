@@ -77,6 +77,52 @@ export function agregarProductoVisto(
 }
 
 /**
+ * Cuántos días una ficha sigue contando como "ya la vio".
+ *
+ * Dentro de una semana el cliente se acuerda de lo que le mandaron, y
+ * remandárselo es lo que hace que el bot parezca un folleto. Pasado ese plazo
+ * ya no: volver a presentar el producto a alguien que no lo mira hace un mes es
+ * lo correcto, no una repetición.
+ *
+ * Es un plazo elegido, no medido. Se deja acá con nombre para poder moverlo con
+ * datos cuando los haya, en vez de que quede escondido en un `if`.
+ */
+export const DIAS_QUE_RECUERDA_LA_FICHA = 7;
+
+/**
+ * ¿Ya le mandamos la ficha de este producto hace poco, en CUALQUIER chat?
+ *
+ * ── Por qué hace falta ────────────────────────────────────────────────────
+ *
+ * Este archivo nació para arreglar que el cliente recibiera la misma ficha una
+ * y otra vez, y el perfil se conectó al prompt. Pero la ficha no la escribe el
+ * modelo: la arma el servidor, y esa decisión --`yaVioContenido`-- se seguía
+ * tomando con `memory.sentProductIds`, que se construye leyendo SOLO la
+ * conversación actual y arranca vacío en un chat nuevo.
+ *
+ * O sea: al modelo se le decía "ya la vio" y la plantilla se la mandaba igual.
+ * El arreglo estaba hecho a medias, en el lado que menos se ve.
+ */
+export function vioLaFichaHacePoco(
+  perfil: CommercialProfile | null | undefined,
+  productoId: number | null | undefined,
+  ahora: Date = new Date(),
+  dias: number = DIAS_QUE_RECUERDA_LA_FICHA,
+): boolean {
+  if (!perfil || !productoId) return false;
+  const visto = (perfil.productosVistos || []).find((p) => p.id === productoId);
+  if (!visto?.fecha) return false;
+
+  const cuando = new Date(visto.fecha).getTime();
+  // Una fecha ilegible no puede hacer que el cliente se quede sin la ficha.
+  if (!Number.isFinite(cuando)) return false;
+
+  const transcurridos = (ahora.getTime() - cuando) / 86_400_000;
+  // Un perfil con fecha futura (relojes desincronizados) cuenta como reciente.
+  return transcurridos <= dias;
+}
+
+/**
  * Registra una objeción. No se deduplica por tipo a propósito: que alguien
  * diga DOS veces que está caro es información distinta a decirlo una vez.
  */

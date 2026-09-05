@@ -33,6 +33,7 @@ import { entenderAlCliente, type Entendimiento } from "./entender-al-cliente";
 import { sinLoQueYaLeyo, yaLoDijo } from "./no-repetir";
 import { sinPreguntarLoQueYaVa } from "./no-pedir-lo-que-ya-va";
 import { nombreDePila } from "./nombre-de-pila";
+import { vioLaFichaHacePoco } from "./customer-profile";
 import { negarloSeriaMentira, productosNombrados } from "./nombra-productos-reales";
 import { prometeEntregaFisica, sinLaPromesaFisica, sinElTemarioInventado, lineasDeTemarioInventadas, comoSeEntregaDeVerdad } from "./solo-lo-que-dice-la-ficha";
 
@@ -1576,11 +1577,14 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
   // Sin esto el bot le manda la misma ficha cada vez que vuelve: pasó cinco
   // veces con el mismo cliente y el mismo curso (conversación 1, 2026-08-23).
   let perfilCliente: any = null;
+  /** El perfil sin recortar, para las decisiones del servidor (no del prompt). */
+  let perfilCrudo: any = null;
   const leadIdDelCliente = convo.leadId ?? null;
   if (leadIdDelCliente) {
     try {
       const { cargarPerfil, diasDesdeLaUltimaVez } = await import("./customer-profile");
       const p = await cargarPerfil(leadIdDelCliente);
+      perfilCrudo = p;
       perfilCliente = {
         productosVistos: p.productosVistos,
         objeciones: p.objeciones,
@@ -1591,6 +1595,21 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
       logger.warn({ err: e?.message }, "[Agent] No se pudo cargar el perfil comercial del cliente");
     }
   }
+
+  // ── "YA LA VIO" MIRA LAS DOS MEMORIAS ──────────────────────────────────
+  //
+  // `memory.sentProductIds` se arma leyendo SOLO esta conversacion, asi que en
+  // un chat nuevo arranca vacio y el cliente que vuelve recibe la misma ficha
+  // otra vez. Es exactamente lo que `customer-profile.ts` vino a arreglar --y
+  // lo arreglo para el prompt, no para la plantilla, que es la que la manda--.
+  //
+  // Medido: el mismo cliente pidio el curso de piano el 16, el 17 y tres veces
+  // el 23. Cinco fichas identicas.
+  const yaVioLaFicha = (id: number | null | undefined): boolean => {
+    if (!id) return false;
+    if (memory.sentProductIds.has(id)) return true;
+    return vioLaFichaHacePoco(perfilCrudo, id);
+  };
 
   const playbook = construirPlaybook({
     mensaje: lastText,
@@ -3224,7 +3243,7 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
             ofrecimosContenido,
             ofrecimosPrecio,
             videoYaEnviado,
-            yaVioContenido: memory.sentProductIds.has(resolvedId),
+            yaVioContenido: yaVioLaFicha(resolvedId),
             tieneVideo: !!videoDeProductoSeguro((productList as any[]).find((pr: any) => pr.id === resolvedId)),
           });
           // ── Un "sí" contesta la pregunta ANTERIOR, no pide el checkout ─────
@@ -3353,7 +3372,7 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
             paymentOnly: (isPaymentFlow || pidePagar(String(lastText || ""))) && !contestaLaOferta && permiso.puede,
             // Si ya recibió la ficha de ESTE producto, ya vio la lista de
             // características: el cierre no puede ofrecerle contárselas.
-            yaVioContenido: memory.sentProductIds.has(resolvedId),
+            yaVioContenido: yaVioLaFicha(resolvedId),
             sesionNueva: !!memory.isNewSession,
             videoYaEnviado,
             yaSabeElPrecio,
@@ -3451,7 +3470,7 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
           if (ENTREGAN.has(String(seccionPedida))) {
             finalParts.push({
               kind: "card", productId: idParaEntregar, paymentOnly: false,
-              yaVioContenido: memory.sentProductIds.has(idParaEntregar),
+              yaVioContenido: yaVioLaFicha(idParaEntregar),
               sesionNueva: !!memory.isNewSession,
               // Este camino tampoco puede remandar el video ni cerrar con una
               // encuesta: es el mismo render.
