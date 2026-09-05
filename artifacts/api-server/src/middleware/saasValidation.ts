@@ -10,7 +10,51 @@ import { logger } from "../lib/logger";
 // getPlanInfo()/validateSaasPlan() para ellos. `visible: false` es lo que la
 // controla la grilla pública de /pricing (ver GET /api/pricing en
 // routes/pricing.ts) -- las que quedan visibles son los 3 planes reales que
-// se venden ($15/$45/$65) más el gratuito.
+// se venden ($19/$49/$99) más el gratuito. Los precios salen del costo REAL
+// medido de la API -- ver el comentario largo debajo.
+/**
+ * ============================================================
+ * LOS PLANES, CALCULADOS CON EL COSTO REAL DE LA API
+ * ============================================================
+ *
+ * Medido sobre la factura REAL de DeepSeek del dueno (2026-09-05):
+ *
+ *     $13,03 USD  ·  3.915 pedidos  ·  748.346.644 tokens
+ *     => $0,0033 por mensaje
+ *
+ * Con ese numero, los precios de antes daban esto:
+ *
+ *     Starter     $15   1.500 msg   cuesta $4,95    margen 67%
+ *     Growth      $45   6.000 msg   cuesta $19,80   margen 56%
+ *     Pro         $65  15.000 msg   cuesta $49,50   margen 24%  ⚠️
+ *     Enterprise $299 100.000 msg   cuesta $330     PIERDE $31  🚨
+ *
+ * ⚠️ Enterprise hacia PERDER plata en cada venta, y el margen se derrumbaba a
+ * medida que el plan subia -- al reves de lo que tiene que pasar. El dueno lo
+ * dijo asi: "si el basico gasta eso, al duplicarlo a un plan mas alto debe ser
+ * mas caro para ganarle".
+ *
+ * Ahora el margen es ~70% PAREJO en todos: el limite de mensajes se calcula
+ * desde el precio, no al reves.
+ *
+ *     precio x 0,30 / 0,0033 = mensajes que entran sin perder margen
+ *
+ * ── Los limites bajaron, y es a proposito ─────────────────────────────────
+ *
+ * Un limite alto que no se puede sostener no es generosidad: es una promesa
+ * que se paga con el margen. Y el panel del dueno muestra 89 conversaciones
+ * activas -- los 15.000 mensajes de Pro no los usaba nadie, pero habia que
+ * poder pagarlos si alguien lo hacia.
+ *
+ * ── Y esto se puede volver a subir ────────────────────────────────────────
+ *
+ * El costo de hoy incluye un desperdicio medido: 191.000 tokens por pedido
+ * cuando la carga real son 21.500, porque en CADA vuelta de herramientas se
+ * reenvia todo el contexto. Cuando eso baje, el costo por mensaje cae a ~1/3
+ * y estos mismos precios admiten el triple de mensajes.
+ *
+ * 👉 Recalcular estos numeros cuando cambie el costo real, no antes.
+ */
 export const SAAS_PLANS: Record<string, { name: string; price: number; monthlyMessages: number; maxConversations: number; maxProducts: number; maxAgents: number; features: string[]; trialDays: number; visible?: boolean; }> = {
   basic: {
     // Prueba de 7 días, no gratis para siempre -- si el plan gratuito no
@@ -28,7 +72,7 @@ export const SAAS_PLANS: Record<string, { name: string; price: number; monthlyMe
   },
   starter: {
     name: "Starter",
-    price: 15,
+    price: 19,          // cuesta $4,95 -> margen 74%
     monthlyMessages: 1500,
     maxConversations: 150,
     maxProducts: 75,
@@ -39,9 +83,9 @@ export const SAAS_PLANS: Record<string, { name: string; price: number; monthlyMe
   },
   premium: {
     name: "Growth",
-    price: 45,
-    monthlyMessages: 6000,
-    maxConversations: 600,
+    price: 49,          // cuesta $13,20 -> margen 73%
+    monthlyMessages: 4000,
+    maxConversations: 400,
     maxProducts: 300,
     maxAgents: 5,
     features: ["IA avanzada", "Integración con WhatsApp", "Analítica completa", "Soporte prioritario", "Marca personalizada"],
@@ -50,9 +94,9 @@ export const SAAS_PLANS: Record<string, { name: string; price: number; monthlyMe
   },
   professional: {
     name: "Pro",
-    price: 65,
-    monthlyMessages: 15000,
-    maxConversations: 1500,
+    price: 99,          // cuesta $29,70 -> margen 70%
+    monthlyMessages: 9000,
+    maxConversations: 900,
     maxProducts: 750,
     maxAgents: 8,
     features: [
@@ -81,9 +125,9 @@ export const SAAS_PLANS: Record<string, { name: string; price: number; monthlyMe
   },
   enterprise: {
     name: "Enterprise",
-    price: 299,
-    monthlyMessages: 100000,
-    maxConversations: 10000,
+    price: 299,         // cuesta $89,10 -> margen 70% (antes PERDIA $31)
+    monthlyMessages: 27000,
+    maxConversations: 2700,
     maxProducts: 5000,
     maxAgents: 10,
     features: [

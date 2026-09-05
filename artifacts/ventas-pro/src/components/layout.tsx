@@ -18,8 +18,10 @@ import {
   HelpCircle,
   Megaphone,
   LayoutTemplate,
+  ChevronDown,
+  LogOut
 } from "lucide-react";
-import { Sidebar, SidebarContent, SidebarHeader, SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarProvider, SidebarTrigger, SidebarGroup, SidebarGroupContent } from "./ui/sidebar";
+import { Sidebar, SidebarContent, SidebarHeader, SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarProvider, SidebarTrigger, SidebarGroup, SidebarGroupContent, SidebarGroupLabel } from "./ui/sidebar";
 import { Badge as UiBadge } from "@/components/ui/badge";
 import { useGetWhatsAppStatus, getGetWhatsAppStatusQueryKey } from "@workspace/api-client-react";
 import { useSaasStatus } from "@/hooks/useSaasStatus";
@@ -41,87 +43,156 @@ export function AppSidebar() {
   const isPremium = currentPlan && currentPlan !== 'free' && currentPlan !== 'basic';
   const isAdmin = !!sessionTenant?.isAdmin;
 
-  const allNavItems = [
-    { label: "Panel", href: "/", icon: LayoutDashboard },
-    { label: "Conversaciones", href: "/conversations", icon: MessageSquare },
-    { label: "Agentes IA", href: "/agents", icon: Bot },
-    { label: "Prospectos", href: "/leads", icon: Users },
-    { label: "Productos", href: "/products", icon: Package },
-    { label: "WhatsApp", href: "/whatsapp", icon: Phone },
-    ...(isAdmin ? [
-      { label: "Monitor WA", href: "/whatsapp-monitor", icon: Activity },
-      { label: "Administrador", href: "/admin/tenants", icon: Crown },
-    ] : []),
-    { label: "WooCommerce", href: "/woocommerce", icon: ShoppingCart },
-    { label: "Atlas VentasPro", href: "/code-agent", icon: Wand2 },
-    { label: "Personalización", href: "/branding", icon: Palette },
-    { label: "Facebook", href: "/facebook", icon: Facebook },
-    { label: "Marketing", href: "/marketing", icon: Megaphone },
-    { label: "Landing Studio", href: "/landing-studio", icon: LayoutTemplate },
-    { label: "Configuración", href: "/settings", icon: Settings },
-    { label: "Ayuda", href: "/ayuda", icon: HelpCircle },
-    { label: "Planes", href: "/pricing", icon: Badge },
-    ...(sessionTenant?.slug ? [{ label: "Ver Tienda", href: `/tienda/${sessionTenant.slug}?from=panel`, icon: Eye, external: true }] : []),
+  const groupedNavItems = [
+    {
+      label: "Operación",
+      items: [
+        { label: "Inicio", href: "/", icon: LayoutDashboard },
+        { label: "Conversaciones", href: "/conversations", icon: MessageSquare },
+        { label: "Prospectos", href: "/leads", icon: Users },
+        { label: "Productos", href: "/products", icon: Package },
+        ...(sessionTenant?.slug ? [{ label: "Pedidos", href: "/woocommerce", icon: ShoppingCart }] : []), // O WooCommerce según aplique
+      ]
+    },
+    {
+      label: "Automatización",
+      items: [
+        { label: "Agentes IA", href: "/agents", icon: Bot },
+        { label: "WhatsApp", href: "/whatsapp", icon: Phone },
+      ]
+    },
+    {
+      label: "Crecimiento",
+      items: [
+        { label: "Marketing", href: "/marketing", icon: Megaphone },
+        { label: "Facebook", href: "/facebook", icon: Facebook },
+        { label: "Landing Studio", href: "/landing-studio", icon: LayoutTemplate },
+      ]
+    },
+    {
+      label: "Sistema",
+      items: [
+        { label: "Configuración", href: "/settings", icon: Settings },
+        { label: "Personalización", href: "/branding", icon: Palette },
+        { label: "Plan", href: "/pricing", icon: Badge },
+        { label: "Ayuda", href: "/ayuda", icon: HelpCircle },
+      ]
+    }
   ];
 
+  const adminItems = isAdmin ? [
+    { label: "Monitor WA", href: "/whatsapp-monitor", icon: Activity },
+    { label: "Administrador", href: "/admin/tenants", icon: Crown },
+  ] : [];
+
   return (
-    <Sidebar className="border-r border-sidebar-border bg-sidebar/80 backdrop-blur-xl text-sidebar-foreground">
-      <SidebarHeader className="flex h-16 items-center border-b border-sidebar-border px-5">
-        <Link href="/" className="flex items-center transition-all duration-300 hover:scale-[1.02] group">
-          <img src="/logo-sidebar.svg" alt="VentasPro" className="h-10 w-auto transition-all duration-300 group-hover:brightness-110" />
+    <Sidebar className="border-r border-slate-200 bg-slate-50 text-slate-800">
+      <SidebarHeader className="flex flex-col gap-4 px-4 py-5 border-b border-slate-200">
+        <div className="flex items-center justify-between">
+          <Link href="/" className="flex items-center transition-opacity hover:opacity-80">
+            {/* Se usa el logo principal oscuro, si hay uno. Aquí asumo que logo.svg o similar existe, o reutilizamos texto/logo */}
+            <span className="font-bold text-xl text-slate-900 tracking-tight flex items-center gap-2">
+              <div className="w-6 h-6 bg-indigo-600 rounded-md flex items-center justify-center">
+                <span className="text-white text-xs">V</span>
+              </div>
+              VentasPro
+            </span>
+          </Link>
+          {isPremium && (
+            <UiBadge className="bg-amber-100 text-amber-700 border-none text-[10px] font-bold tracking-tight">
+              PRO
+            </UiBadge>
+          )}
+        </div>
+        
+        {/* Atlas VentasPro destacado */}
+        <Link href="/code-agent" className="group">
+          <div className={`flex items-center gap-3 px-3 py-2 rounded-lg border transition-all ${location === '/code-agent' ? 'bg-indigo-600 border-indigo-600 text-white shadow-sm' : 'bg-white border-slate-200 text-slate-700 hover:border-indigo-300 hover:bg-indigo-50'}`}>
+            <Wand2 className={`w-4 h-4 ${location === '/code-agent' ? 'text-indigo-200' : 'text-indigo-600 group-hover:text-indigo-700'}`} />
+            <span className="text-sm font-medium">Atlas Operator</span>
+          </div>
         </Link>
-        {isPremium && (
-          <UiBadge className="ml-2 bg-gradient-to-r from-amber-400 to-orange-600 border-none text-[10px] font-black tracking-tighter animate-pulse shadow-[0_0_15px_rgba(245,158,11,0.5)]">
-            PREMIUM
-          </UiBadge>
-        )}
       </SidebarHeader>
-      <SidebarContent className="px-3 py-4">
-        <SidebarGroup>
-          <SidebarGroupContent>
-            <SidebarMenu className="gap-2">
-              {allNavItems.map((item) => {
-                const isActive = location === item.href;
-                const linkClassName = "flex items-center gap-3 px-3 w-full";
-                const linkContent = (
-                  <>
-                    <item.icon className={`h-[18px] w-[18px] shrink-0 ${isActive ? 'text-white' : 'text-sidebar-foreground group-hover:text-white'}`} />
-                    <span>{item.label}</span>
-                  </>
-                );
-                return (
-                  <SidebarMenuItem key={item.href}>
-                    <SidebarMenuButton
-                      asChild
-                      isActive={isActive}
-                      tooltip={item.label}
-                      className={`group flex items-center h-11 rounded-lg transition-colors ${isActive ? 'bg-sidebar-primary text-white font-medium' : 'text-sidebar-foreground font-medium hover:text-white hover:bg-sidebar-accent'}`}
-                    >
-                      {(item as any).external ? (
-                        <a href={item.href} target="_blank" rel="noopener noreferrer" className={linkClassName}>{linkContent}</a>
-                      ) : (
-                        <Link href={item.href} className={linkClassName}>{linkContent}</Link>
-                      )}
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                );
-              })}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
+      
+      <SidebarContent className="px-3 py-4 gap-6 scrollbar-none">
+        {groupedNavItems.map((group, idx) => (
+          <SidebarGroup key={idx} className="pt-0">
+            <SidebarGroupLabel className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2 px-3">
+              {group.label}
+            </SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu className="gap-1">
+                {group.items.map((item) => {
+                  const isActive = location === item.href;
+                  return (
+                    <SidebarMenuItem key={item.href}>
+                      <SidebarMenuButton
+                        asChild
+                        isActive={isActive}
+                        tooltip={item.label}
+                        className={`group flex items-center h-9 rounded-md transition-colors ${isActive ? 'bg-indigo-50 text-indigo-700 font-semibold' : 'text-slate-600 font-medium hover:text-indigo-700 hover:bg-slate-100'}`}
+                      >
+                        <Link href={item.href} className="flex items-center gap-3 px-3 w-full">
+                          <item.icon className={`h-4 w-4 shrink-0 ${isActive ? 'text-indigo-600' : 'text-slate-400 group-hover:text-indigo-500'}`} />
+                          <span className="text-[13px]">{item.label}</span>
+                        </Link>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  );
+                })}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        ))}
+
+        {isAdmin && (
+          <SidebarGroup className="pt-0">
+            <SidebarGroupLabel className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2 px-3">
+              Administración
+            </SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu className="gap-1">
+                {adminItems.map((item) => {
+                  const isActive = location === item.href;
+                  return (
+                    <SidebarMenuItem key={item.href}>
+                      <SidebarMenuButton
+                        asChild
+                        isActive={isActive}
+                        className={`group flex items-center h-9 rounded-md transition-colors ${isActive ? 'bg-indigo-50 text-indigo-700 font-semibold' : 'text-slate-600 font-medium hover:text-indigo-700 hover:bg-slate-100'}`}
+                      >
+                        <Link href={item.href} className="flex items-center gap-3 px-3 w-full">
+                          <item.icon className={`h-4 w-4 shrink-0 ${isActive ? 'text-indigo-600' : 'text-slate-400 group-hover:text-indigo-500'}`} />
+                          <span className="text-[13px]">{item.label}</span>
+                        </Link>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  );
+                })}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        )}
       </SidebarContent>
-      <div className="mt-auto p-4 space-y-2 relative z-10">
-        <button onClick={async () => { await fetch("/api/auth/logout", { method: "POST" }); window.location.href = "/auth"; }} className="flex w-full items-center gap-3 text-sm font-medium px-4 py-3 rounded-xl bg-red-500/10 text-red-500 border border-red-500/20 hover:bg-red-500/20 transition-all mb-2">
-          <div className="flex h-3.5 w-3.5 items-center justify-center"><span className="relative inline-flex rounded-full h-2 w-2 bg-red-500"></span></div>
+
+      <div className="mt-auto p-4 border-t border-slate-200 bg-white">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2">
+            <div className="relative flex h-2 w-2">
+              {wsStatus?.state === 'connected' && <span className="absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75 animate-ping"></span>}
+              <span className={`relative inline-flex rounded-full h-2 w-2 ${wsStatus?.state === 'connected' ? 'bg-emerald-500' : 'bg-red-500'}`}></span>
+            </div>
+            <span className="text-xs font-medium text-slate-600">{wsStatus?.state === 'connected' ? 'WhatsApp Online' : 'Desconectado'}</span>
+          </div>
+        </div>
+
+        <button 
+          onClick={async () => { await fetch("/api/auth/logout", { method: "POST" }); window.location.href = "/auth"; }} 
+          className="flex w-full items-center gap-2 text-xs font-medium px-3 py-2 rounded-md bg-slate-50 text-slate-600 border border-slate-200 hover:bg-slate-100 transition-colors"
+        >
+          <LogOut className="w-3.5 h-3.5" />
           <span>Cerrar Sesión</span>
         </button>
-        <div className="flex items-center gap-3 text-sm font-medium px-4 py-3 rounded-lg bg-sidebar-accent border border-sidebar-border transition-colors">
-          <div className="relative flex h-3.5 w-3.5 items-center justify-center">
-            {wsStatus?.state === 'connected' && <span className="absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-30 animate-ping"></span>}
-            <span className={`relative inline-flex rounded-full h-2.5 w-2.5 ${wsStatus?.state === 'connected' ? 'bg-green-500 shadow-[0_0_10px_rgba(34,197,94,0.8)]' : 'bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.8)]'}`}></span>
-          </div>
-          <span className="text-white/90 tracking-wide">{wsStatus?.state === 'connected' ? 'WhatsApp Online' : 'Desconectado'}</span>
-        </div>
       </div>
     </Sidebar>
   );
@@ -129,19 +200,40 @@ export function AppSidebar() {
 
 export function Layout({ children, chatCompleto = false }: { children: React.ReactNode; chatCompleto?: boolean }) {
   const isMobile = useIsMobile();
+  const { tenant } = useSession();
 
   return (
     <SidebarProvider>
-      <div className="flex h-screen w-full bg-background relative overflow-x-hidden text-foreground">
+      <div className="flex h-screen w-full bg-[#f8fafc] relative overflow-x-hidden text-slate-900 font-sans">
         {!isMobile && <AppSidebar />}
         <div className="flex flex-1 flex-col w-full min-w-0 relative z-10">
-          <header className="flex h-14 sm:h-16 items-center gap-4 border-b border-border/50 bg-card/60 backdrop-blur-xl px-3 sm:px-4 md:px-6 sticky top-0 z-20 shadow-sm">
-            {!isMobile && <SidebarTrigger className="hover:bg-primary/10 rounded-xl w-9 h-9 sm:w-10 sm:h-10 flex items-center justify-center transition-all text-primary shrink-0" />}
-            <div className="flex-1 min-w-0" />
-            <div className="flex items-center gap-2"><UiBadge variant="outline" className="bg-primary/5 text-primary border-primary/20 hidden sm:flex text-xs">V1.5 PREMIUM</UiBadge></div>
+          <header className="flex h-14 items-center gap-4 border-b border-slate-200 bg-white px-4 md:px-6 sticky top-0 z-20">
+            {!isMobile && (
+              <SidebarTrigger className="text-slate-500 hover:bg-slate-100 rounded-md w-8 h-8 flex items-center justify-center transition-colors" />
+            )}
+            <div className="flex-1 min-w-0 flex items-center gap-4">
+              {/* Command Palette Trigger (visual mockup for now) */}
+              <div className="hidden md:flex items-center gap-2 px-3 py-1.5 bg-slate-100 border border-slate-200 rounded-md text-slate-400 text-sm w-64">
+                <span className="flex-1">Buscar...</span>
+                <kbd className="hidden sm:inline-flex h-5 items-center gap-1 rounded border border-slate-300 bg-slate-50 px-1.5 font-mono text-[10px] font-medium text-slate-500">
+                  <span className="text-xs">⌘</span>K
+                </kbd>
+              </div>
+            </div>
+            <div className="flex items-center gap-3">
+              {tenant?.slug && (
+                <a href={`/tienda/${tenant.slug}?from=panel`} target="_blank" rel="noopener noreferrer" className="hidden sm:flex items-center gap-1.5 text-sm font-medium text-slate-600 hover:text-indigo-600">
+                  <Eye className="w-4 h-4" />
+                  Ver Tienda
+                </a>
+              )}
+              <div className="w-8 h-8 rounded-full bg-indigo-100 border border-indigo-200 flex items-center justify-center text-indigo-700 font-semibold text-sm">
+                {tenant?.name?.charAt(0)?.toUpperCase() || 'U'}
+              </div>
+            </div>
           </header>
-          <main className={`flex-1 ${chatCompleto ? "p-0 md:p-8 overflow-hidden md:overflow-y-auto" : "p-3 sm:p-4 md:p-8 overflow-y-auto"} overflow-x-hidden animate-enter scroll-smooth flex flex-col h-full min-h-0`}>
-            <div className={`max-w-7xl mx-auto w-full md:flex-1 md:flex md:flex-col md:min-h-0 ${chatCompleto ? "flex-1 flex flex-col min-h-0 pb-[calc(80px+env(safe-area-inset-bottom))] md:pb-4" : "pb-[calc(184px+env(safe-area-inset-bottom))] md:pb-4"}`}>
+          <main className={`flex-1 ${chatCompleto ? "p-0 overflow-hidden" : "p-4 md:p-8 overflow-y-auto"} overflow-x-hidden scroll-smooth flex flex-col h-full min-h-0`}>
+            <div className={`max-w-[1440px] mx-auto w-full md:flex-1 md:flex md:flex-col md:min-h-0 ${chatCompleto ? "flex-1 flex flex-col min-h-0 pb-[calc(80px+env(safe-area-inset-bottom))] md:pb-0" : "pb-[calc(100px+env(safe-area-inset-bottom))] md:pb-8"}`}>
               {children}
             </div>
           </main>
@@ -152,3 +244,4 @@ export function Layout({ children, chatCompleto = false }: { children: React.Rea
     </SidebarProvider>
   );
 }
+
