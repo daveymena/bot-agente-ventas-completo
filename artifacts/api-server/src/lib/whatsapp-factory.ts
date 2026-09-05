@@ -16,6 +16,7 @@ import { existsSync, mkdirSync } from "node:fs";
 import { tenantManager, type TenantContext } from "./tenantManager";
 import { WhatsAppByTenant } from "./whatsappManagerByTenant";
 import { logger } from "./logger";
+import { prepararSalidaFinal, prepararTextoWhatsApp } from "./salida-segura-whatsapp";
 
 // Raíz de credenciales por tenant — cada tenant tiene su subcarpeta.
 const AUTH_BASE =
@@ -28,6 +29,57 @@ export function tenantAuthDir(tenantId: number): string {
 }
 
 const instances = new Map<number, WhatsAppByTenant>();
+const salidaInstalada = new WeakSet<object>();
+
+/**
+ * Última barrera antes de WhatsApp.
+ *
+ * El agente puede producir partes por IA, reglas o tarjetas. Todos terminan
+ * llamando a sendAgentParts/sendText/sendImage. Envolvemos la instancia una
+ * sola vez para que el mismo candado proteja los tres caminos, sin duplicar
+ * lógica dentro de cada proveedor o agente.
+ */
+function instalarSalidaSegura(instance: WhatsAppByTenant, tenantId: number): void {
+  if (salidaInstalada.has(instance)) return;
+  salidaInstalada.add(instance);
+
+  const originalSendAgentParts = instance.sendAgentParts.bind(instance);
+  const originalSendText = instance.sendText.bind(instance);
+  const originalSendImage = instance.sendImage.bind(instance);
+
+  instance.sendAgentParts = async function (phone: string, pushName: string, parts: any[], originalJid?: string) {
+    const preparado = prepararSalidaFinal(parts as any);
+
+    if (preparado.blockedPlaceholders.length > 0) {
+      logger.error({
+        tenantId,
+        blockedPlaceholders: preparado.blockedPlaceholders,
+      }, "[FINAL-RESPONSE] Se bloquearon placeholders antes de WhatsApp");
+    }
+
+    if (preparado.removedClaims.length > 0) {
+      logger.info({
+        tenantId,
+        removedClaims: preparado.removedClaims,
+      }, "[FINAL-RESPONSE] Se reconciliaron promesas con lo que realmente viaja");
+    }
+
+    if (!preparado.parts.length) {
+      logger.warn({ tenantId, phone }, "[FINAL-RESPONSE] No quedó contenido seguro para enviar");
+      return;
+    }
+
+    return originalSendAgentParts(phone, pushName, preparado.parts as any, originalJid);
+  } as any;
+
+  instance.sendText = async function (phone: string, text: string, originalJid?: string) {
+    return originalSendText(phone, prepararTextoWhatsApp(text), originalJid);
+  } as any;
+
+  instance.sendImage = async function (phone: string, imageUrl: string, caption: string, originalJid?: string) {
+    return originalSendImage(phone, imageUrl, prepararTextoWhatsApp(caption), originalJid);
+  } as any;
+}
 
 /**
  * Devuelve (o crea) la instancia de WhatsApp asociada al tenant.
@@ -55,6 +107,7 @@ export function getWhatsAppForTenant(tenantId?: number, tenantCtx?: TenantContex
     // parciales) -- si ahora tenemos el contexto real, se actualiza para que
     // no se quede pegada a datos viejos/por defecto.
     if (tenantCtx) instance.setTenant(tenantCtx);
+    instalarSalidaSegura(instance, tid);
     return instance;
   }
 
@@ -67,6 +120,7 @@ export function getWhatsAppForTenant(tenantId?: number, tenantCtx?: TenantContex
   instance = new WhatsAppByTenant(tenant, dir);
 
   instances.set(tid, instance);
+  instalarSalidaSegura(instance, tid);
   logger.info({ tenantId: tid, authDir: dir }, "[WhatsApp-Factory] Instancia creada");
   return instance;
 }
