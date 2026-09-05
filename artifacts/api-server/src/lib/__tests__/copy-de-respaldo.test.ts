@@ -101,7 +101,7 @@ describe("no se rompe con datos sucios, que es de donde viene", () => {
     [{ name: "X", features: "no soy un array" }, "features que no es lista"],
     [{ name: "X", features: [null, "", "  ", "Real"] }, "features con basura"],
     [{ name: "X", price: "no es un numero" }, "precio no numérico"],
-  ])("%#: %s", (prod) => {
+  ])("%#: %s", (prod, _descripcion: string) => {
     const c = copyDeRespaldo(prod as any);
     expect(c.primaryText.length).toBeGreaterThan(20);
     expect(c.headline.length).toBeGreaterThan(0);

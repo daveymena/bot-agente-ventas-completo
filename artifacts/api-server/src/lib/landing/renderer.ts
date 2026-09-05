@@ -1,0 +1,560 @@
+/**
+ * ============================================================
+ * EL RENDERER — de datos a una landing que se ve profesional
+ * ============================================================
+ *
+ * El dueño lo dijo mirando el resultado: *"esas landings son solo HTML, no
+ * tienen diseño, no adjunta la imagen ni nada"*. Tenía razón, y el código lo
+ * confirmaba: el exportador viejo escribía la MISMA caja para las once
+ * secciones --`<h2>`, `<p>`, un botón, todo centrado-- con quince líneas de
+ * CSS, y `imageUrl` aparecía una sola vez en todo el archivo: en la
+ * declaración del tipo. Nunca se usaba. La foto del producto no llegaba nunca
+ * a la página.
+ *
+ * ── Qué hace distinto este módulo ─────────────────────────────────────────
+ *
+ * 1. TODO sale de los tokens. Colores, aire, ancho, tipografía, radios y
+ *    sombras se emiten como variables CSS desde `TokensDeDiseno`. Cambiar de
+ *    familia cambia la página entera sin tocar una sola plantilla.
+ *
+ * 2. Cada sección tiene layouts REALES y distintos entre sí: `hero_split` es
+ *    una grilla de dos columnas con la foto al lado; `hero_center` es una
+ *    columna angosta; `hero_full_visual` pone la imagen de fondo con el texto
+ *    encima. No son el mismo bloque con otro color.
+ *
+ * 3. La foto del producto se coloca según el tratamiento de la familia
+ *    (enmarcada, a sangre, recorte alto, flotante, en contexto), que es lo
+ *    que hace que la misma foto se vea premium en una y comercial en otra.
+ *
+ * 4. Es responsive de verdad: las grillas colapsan a una columna, la escala
+ *    tipográfica usa `clamp()` y el aire vertical se reduce en móvil. No es un
+ *    desktop encogido.
+ *
+ * ── Lo que NO hace ────────────────────────────────────────────────────────
+ *
+ * No llama a ningún modelo y no inventa contenido. Recibe secciones ya
+ * escritas y las compone. Si una sección no trae imagen, el layout se adapta
+ * en vez de dejar un hueco -- y si no trae dato, no se dibuja el bloque:
+ * ningún "Testimonios" vacío con texto de relleno.
+ *
+ * ── Seguridad ─────────────────────────────────────────────────────────────
+ *
+ * Todo lo que viene de afuera --texto del modelo, nombre del producto, URLs--
+ * pasa por `esc()` o por `urlSegura()`. El contenido lo escribe un modelo y lo
+ * lee un cliente del negocio en una página pública: inyectar HTML acá sería
+ * inyectarlo en el sitio del dueño.
+ */
+
+import { tokensDe, type FamiliaVisual, type TokensDeDiseno } from "./design-system";
+
+export interface SeccionParaRenderizar {
+  id: string;
+  type: string;
+  /** Layout elegido. Si no viene o no existe, se usa el de la familia. */
+  layout?: string | null;
+  title?: string | null;
+  subtitle?: string | null;
+  body?: string | null;
+  cta?: string | null;
+  /** Imagen propia de la sección. Si no hay, se usa la del producto. */
+  image?: string | null;
+}
+
+export interface ProductoParaRenderizar {
+  name?: string | null;
+  description?: string | null;
+  imageUrl?: string | null;
+  price?: number | string | null;
+  currency?: string | null;
+  /** A dónde va el botón. Sin esto los CTA no llevan a ningún lado. */
+  paymentLink?: string | null;
+  whatsapp?: string | null;
+}
+
+export interface OpcionesDeRender {
+  nombre: string;
+  secciones: SeccionParaRenderizar[];
+  familia: FamiliaVisual | string | null;
+  producto?: ProductoParaRenderizar | null;
+}
+
+// ─── Seguridad ───────────────────────────────────────────────────────────────
+
+/** Escapa para HTML. Incluye la comilla simple: los atributos también se rompen. */
+export function esc(valor: unknown): string {
+  return String(valor ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+/**
+ * Solo http(s) y rutas propias.
+ *
+ * Sin esto, un `javascript:` en el enlace de pago --que puede venir de un campo
+ * editable-- se convierte en ejecución de código en la página pública del
+ * negocio. Devuelve cadena vacía cuando no confía, y quien llama decide.
+ */
+export function urlSegura(valor: unknown): string {
+  const v = String(valor ?? "").trim();
+  if (!v) return "";
+  if (/^https?:\/\//i.test(v) || v.startsWith("/") || v.startsWith("#")) return v;
+  return "";
+}
+
+// ─── Utilidades de contenido ─────────────────────────────────────────────────
+
+/**
+ * Parte un cuerpo en ítems.
+ *
+ * El copy llega con los puntos separados por " · " o por saltos de línea, que
+ * es como los escriben tanto el modelo como el respaldo determinístico.
+ */
+function items(body: unknown): string[] {
+  return String(body ?? "")
+    .split(/\n+|\s+·\s+/)
+    .map((s) => s.replace(/^[-•]\s*/, "").trim())
+    .filter(Boolean);
+}
+
+/** ¿El ítem ya trae su emoji del catálogo? Si sí, no se le agrega viñeta. */
+function conVineta(item: string): string {
+  return /^\p{Extended_Pictographic}/u.test(item) ? esc(item) : `<span class="tick" aria-hidden="true"></span>${esc(item)}`;
+}
+
+function precio(p?: ProductoParaRenderizar | null): string {
+  const n = Number(p?.price ?? 0);
+  if (!Number.isFinite(n) || n <= 0) return "";
+  return `$${n.toLocaleString("es-CO")} ${String(p?.currency || "").trim()}`.trim();
+}
+
+/** A dónde apunta un CTA. El enlace de pago manda; si no hay, WhatsApp. */
+function destino(p?: ProductoParaRenderizar | null): string {
+  const pago = urlSegura(p?.paymentLink);
+  if (pago) return pago;
+  const wa = String(p?.whatsapp || "").replace(/\D/g, "");
+  return wa ? `https://wa.me/${wa}` : "#comprar";
+}
+
+function boton(texto: unknown, p?: ProductoParaRenderizar | null): string {
+  const t = String(texto ?? "").trim();
+  if (!t) return "";
+  return `<a class="cta" href="${esc(destino(p))}">${esc(t)}</a>`;
+}
+
+/**
+ * La imagen de la sección, o la del producto como respaldo.
+ *
+ * `alt` describe el producto porque es lo que se ve: una landing sin alt es
+ * inaccesible, y Meta penaliza las páginas de destino mal armadas.
+ */
+function figura(sec: SeccionParaRenderizar, p?: ProductoParaRenderizar | null, clase = "fig"): string {
+  const src = urlSegura(sec.image) || urlSegura(p?.imageUrl);
+  if (!src) return "";
+  return `<figure class="${clase}"><img src="${esc(src)}" alt="${esc(p?.name || sec.title || "")}" loading="lazy" decoding="async"></figure>`;
+}
+
+// ─── Layouts ─────────────────────────────────────────────────────────────────
+
+type Renderizador = (s: SeccionParaRenderizar, p: ProductoParaRenderizar | null | undefined, t: TokensDeDiseno) => string;
+
+const eyebrow = (s: SeccionParaRenderizar) => (s.type ? `<p class="eyebrow">${esc(s.type.replace(/[-_]/g, " "))}</p>` : "");
+const titulo = (s: SeccionParaRenderizar) => (s.title ? `<h2>${esc(s.title)}</h2>` : "");
+const bajada = (s: SeccionParaRenderizar) => (s.subtitle ? `<p class="lead">${esc(s.subtitle)}</p>` : "");
+
+/**
+ * El catálogo. Cada entrada compone DISTINTO -- distinta grilla, distinto lugar
+ * para la foto, distinta jerarquía-- que es lo que pedía el punto 3 del plan.
+ */
+const LAYOUTS: Record<string, Renderizador> = {
+  // ── HERO ────────────────────────────────────────────────────────────────
+  hero_center: (s, p) => `<div class="wrap center narrow">
+    ${eyebrow(s)}<h1>${esc(s.title || "")}</h1>${bajada(s)}${boton(s.cta, p)}
+    ${figura(s, p, "fig fig--below")}
+  </div>`,
+
+  hero_left: (s, p) => `<div class="wrap left">
+    ${eyebrow(s)}<h1>${esc(s.title || "")}</h1>${bajada(s)}${boton(s.cta, p)}
+  </div>`,
+
+  hero_split: (s, p) => `<div class="wrap grid-2 middle">
+    <div>${eyebrow(s)}<h1>${esc(s.title || "")}</h1>${bajada(s)}${boton(s.cta, p)}</div>
+    ${figura(s, p) || '<div class="ghost"></div>'}
+  </div>`,
+
+  hero_product_focus: (s, p) => `<div class="wrap grid-2 middle reverse">
+    ${figura(s, p, "fig fig--hero")}
+    <div>${eyebrow(s)}<h1>${esc(s.title || "")}</h1>${bajada(s)}
+      ${precio(p) ? `<p class="price">${esc(precio(p))}</p>` : ""}${boton(s.cta, p)}</div>
+  </div>`,
+
+  hero_editorial: (s, p) => `<div class="wrap narrow center">
+    ${eyebrow(s)}<h1 class="serif">${esc(s.title || "")}</h1>
+  </div>${figura(s, p, "fig fig--bleed")}<div class="wrap narrow center">${bajada(s)}${boton(s.cta, p)}</div>`,
+
+  hero_dark: (s, p) => `<div class="wrap grid-2 middle">
+    <div>${eyebrow(s)}<h1>${esc(s.title || "")}</h1>${bajada(s)}${boton(s.cta, p)}</div>
+    ${figura(s, p, "fig fig--glow")}
+  </div>`,
+
+  /**
+   * La foto va SI O SI.
+   *
+   * Sin ella, una landing de respuesta directa renderizaba cero imagenes:
+   * hero_offer, benefits_numbered y offer_urgency --sus tres layouts
+   * favoritos-- no ponian ninguna. Medido generando la pagina de muestra, y es
+   * exactamente lo que el dueno reporto: "no adjunta la imagen ni nada". En
+   * venta directa, no ver el producto es la peor version del problema.
+   */
+  hero_offer: (s, p) => `<div class="wrap center narrow">
+    ${eyebrow(s)}<h1>${esc(s.title || "")}</h1>${bajada(s)}
+    ${figura(s, p, "fig fig--below")}
+    ${precio(p) ? `<p class="price price--big">${esc(precio(p))}</p>` : ""}${boton(s.cta, p)}
+  </div>`,
+
+  hero_full_visual: (s, p) => {
+    const src = urlSegura(s.image) || urlSegura(p?.imageUrl);
+    const fondo = src ? ` style="background-image:linear-gradient(rgba(0,0,0,.55),rgba(0,0,0,.55)),url('${esc(src)}')"` : "";
+    return `<div class="hero-visual${src ? " has-bg" : ""}"${fondo}><div class="wrap center narrow">
+      ${eyebrow(s)}<h1>${esc(s.title || "")}</h1>${bajada(s)}${boton(s.cta, p)}
+    </div></div>`;
+  },
+
+  // ── BENEFICIOS ──────────────────────────────────────────────────────────
+  benefits_cards: (s, p) => `<div class="wrap">
+    <div class="head">${eyebrow(s)}${titulo(s)}${bajada(s)}</div>
+    <ul class="cards">${items(s.body).map((i) => `<li class="card">${conVineta(i)}</li>`).join("")}</ul>
+  </div>`,
+
+  benefits_icon_grid: (s) => `<div class="wrap">
+    <div class="head">${eyebrow(s)}${titulo(s)}${bajada(s)}</div>
+    <ul class="icons">${items(s.body).map((i) => `<li>${conVineta(i)}</li>`).join("")}</ul>
+  </div>`,
+
+  benefits_split: (s, p) => `<div class="wrap grid-2 middle">
+    <div>${eyebrow(s)}${titulo(s)}${bajada(s)}
+      <ul class="plain">${items(s.body).map((i) => `<li>${conVineta(i)}</li>`).join("")}</ul></div>
+    ${figura(s, p) || '<div class="ghost"></div>'}
+  </div>`,
+
+  benefits_numbered: (s) => `<div class="wrap narrow">
+    <div class="head left">${eyebrow(s)}${titulo(s)}${bajada(s)}</div>
+    <ol class="numbered">${items(s.body).map((i) => `<li>${esc(i)}</li>`).join("")}</ol>
+  </div>`,
+
+  benefits_editorial: (s) => `<div class="wrap narrow">
+    <div class="head">${eyebrow(s)}<h2 class="serif">${esc(s.title || "")}</h2>${bajada(s)}</div>
+    <div class="columns">${items(s.body).map((i) => `<p>${esc(i)}</p>`).join("")}</div>
+  </div>`,
+
+  benefits_visual: (s, p) => `<div class="wrap">
+    <div class="head">${eyebrow(s)}${titulo(s)}${bajada(s)}</div>
+    ${figura(s, p, "fig fig--bleed")}
+    <ul class="icons">${items(s.body).map((i) => `<li>${conVineta(i)}</li>`).join("")}</ul>
+  </div>`,
+
+  // ── OFERTA ──────────────────────────────────────────────────────────────
+  offer_card: (s, p) => `<div class="wrap center narrow">
+    <div class="panel">${eyebrow(s)}${titulo(s)}${bajada(s)}
+      ${precio(p) ? `<p class="price price--big">${esc(precio(p))}</p>` : ""}
+      ${s.body ? `<ul class="plain center-list">${items(s.body).map((i) => `<li>${conVineta(i)}</li>`).join("")}</ul>` : ""}
+      ${boton(s.cta, p)}</div>
+  </div>`,
+
+  offer_split: (s, p) => `<div class="wrap grid-2 middle">
+    ${figura(s, p) || '<div class="ghost"></div>'}
+    <div>${eyebrow(s)}${titulo(s)}${bajada(s)}
+      ${precio(p) ? `<p class="price price--big">${esc(precio(p))}</p>` : ""}${boton(s.cta, p)}</div>
+  </div>`,
+
+  offer_product: (s, p) => `<div class="wrap grid-2 middle">
+    <div>${eyebrow(s)}${titulo(s)}${bajada(s)}
+      ${s.body ? `<ul class="plain">${items(s.body).map((i) => `<li>${conVineta(i)}</li>`).join("")}</ul>` : ""}
+      ${precio(p) ? `<p class="price price--big">${esc(precio(p))}</p>` : ""}${boton(s.cta, p)}</div>
+    ${figura(s, p, "fig fig--float") || '<div class="ghost"></div>'}
+  </div>`,
+
+  offer_minimal: (s, p) => `<div class="wrap narrow left">
+    ${titulo(s)}${bajada(s)}${precio(p) ? `<p class="price">${esc(precio(p))}</p>` : ""}${boton(s.cta, p)}
+  </div>`,
+
+  offer_dark: (s, p) => `<div class="wrap center narrow">
+    <div class="panel panel--glow">${eyebrow(s)}${titulo(s)}${bajada(s)}
+      ${precio(p) ? `<p class="price price--big">${esc(precio(p))}</p>` : ""}${boton(s.cta, p)}</div>
+  </div>`,
+
+  /**
+   * Urgencia SIN inventarla: se destaca la oferta que ya existe, no se agrega
+   * un contador ni "quedan 3 cupos". El punto 18 del plan es absoluto, y esta
+   * es justo la sección donde sería más fácil romperlo.
+   */
+  offer_urgency: (s, p) => `<div class="wrap center narrow">
+    <div class="panel panel--accent">${titulo(s)}${bajada(s)}
+      ${figura(s, p, "fig fig--below")}
+      ${precio(p) ? `<p class="price price--big">${esc(precio(p))}</p>` : ""}${boton(s.cta, p)}</div>
+  </div>`,
+
+  // ── TESTIMONIOS ─────────────────────────────────────────────────────────
+  testimonial_cards: (s) => `<div class="wrap">
+    <div class="head">${titulo(s)}${bajada(s)}</div>
+    <ul class="cards">${items(s.body).map((i) => `<li class="card quote">${esc(i)}</li>`).join("")}</ul>
+  </div>`,
+
+  testimonial_quote: (s) => `<div class="wrap narrow center">
+    <blockquote>${esc(s.body || s.subtitle || "")}</blockquote>${s.title ? `<p class="who">${esc(s.title)}</p>` : ""}
+  </div>`,
+
+  testimonial_large: (s) => `<div class="wrap narrow center">
+    ${titulo(s)}<blockquote class="big">${esc(s.body || s.subtitle || "")}</blockquote>
+  </div>`,
+
+  testimonial_editorial: (s) => `<div class="wrap narrow">
+    ${titulo(s)}<div class="columns">${items(s.body).map((i) => `<p>${esc(i)}</p>`).join("")}</div>
+  </div>`,
+
+  testimonial_slider: (s) => `<div class="wrap">
+    <div class="head">${titulo(s)}${bajada(s)}</div>
+    <ul class="rail">${items(s.body).map((i) => `<li class="card quote">${esc(i)}</li>`).join("")}</ul>
+  </div>`,
+
+  // ── FAQ ─────────────────────────────────────────────────────────────────
+  faq_accordion: (s) => `<div class="wrap narrow">
+    <div class="head left">${titulo(s)}${bajada(s)}</div>
+    <div class="faq">${items(s.body).map((i) => `<details><summary>${esc(i)}</summary></details>`).join("")}</div>
+  </div>`,
+
+  faq_minimal: (s) => `<div class="wrap narrow left">
+    ${titulo(s)}<ul class="plain">${items(s.body).map((i) => `<li>${esc(i)}</li>`).join("")}</ul>
+  </div>`,
+
+  faq_cards: (s) => `<div class="wrap">
+    <div class="head">${titulo(s)}${bajada(s)}</div>
+    <ul class="cards">${items(s.body).map((i) => `<li class="card">${esc(i)}</li>`).join("")}</ul>
+  </div>`,
+
+  faq_split: (s) => `<div class="wrap grid-2">
+    <div>${titulo(s)}${bajada(s)}</div>
+    <div class="faq">${items(s.body).map((i) => `<details><summary>${esc(i)}</summary></details>`).join("")}</div>
+  </div>`,
+
+  // ── CIERRE y genérico ───────────────────────────────────────────────────
+  cta_final: (s, p) => `<div class="wrap center narrow">
+    <h2>${esc(s.title || "")}</h2>${bajada(s)}${boton(s.cta, p)}
+  </div>`,
+};
+
+/** Cuando el layout pedido no existe, se compone algo correcto igual. */
+const GENERICO: Renderizador = (s, p) => `<div class="wrap narrow">
+  <div class="head">${eyebrow(s)}${titulo(s)}${bajada(s)}</div>
+  ${s.body ? `<ul class="plain">${items(s.body).map((i) => `<li>${conVineta(i)}</li>`).join("")}</ul>` : ""}
+  ${figura(s, p, "fig fig--below")}${boton(s.cta, p)}
+</div>`;
+
+/** Los nombres de layout que este renderer sabe dibujar. */
+export const LAYOUTS_DISPONIBLES = Object.keys(LAYOUTS);
+
+/**
+ * Elige el renderizador de una sección.
+ *
+ * Orden: el layout que pide la sección → el favorito de la familia para ese
+ * tipo → el genérico. Nunca devuelve undefined: una sección sin dibujar es un
+ * hueco en la página del dueño.
+ */
+function renderizadorDe(sec: SeccionParaRenderizar, t: TokensDeDiseno): Renderizador {
+  const pedido = String(sec.layout || "").trim();
+  if (pedido && LAYOUTS[pedido]) return LAYOUTS[pedido];
+
+  const preferido = t.layoutsPreferidos[sec.type]?.find((l) => LAYOUTS[l]);
+  if (preferido) return LAYOUTS[preferido];
+
+  if (sec.type === "cta" && LAYOUTS.cta_final) return LAYOUTS.cta_final;
+  return GENERICO;
+}
+
+// ─── CSS ─────────────────────────────────────────────────────────────────────
+
+/**
+ * El CSS sale ENTERO de los tokens.
+ *
+ * Es lo que hace que cambiar de familia cambie la página y no solo la paleta:
+ * el ancho, el aire, la escala tipográfica, la alineación por defecto, la
+ * forma del CTA y el tratamiento de la imagen son todos variables.
+ */
+function css(t: TokensDeDiseno): string {
+  const escala = t.tipografia.escala;
+  const alinear = t.alineacion === "izquierda" ? "left" : "center";
+
+  // El CTA cambia de FORMA, no de color: es lo que distingue a las familias.
+  const ctaPorEstilo: Record<string, string> = {
+    solido: `background:var(--acento);color:var(--sobre-acento);border:none;`,
+    contorno: `background:transparent;color:var(--texto);border:1px solid var(--texto);`,
+    pastilla: `background:var(--acento);color:var(--sobre-acento);border:none;border-radius:999px;`,
+    bloque: `background:var(--acento);color:var(--sobre-acento);border:none;display:block;width:100%;max-width:420px;text-align:center;`,
+    subrayado: `background:transparent;color:var(--texto);border:none;border-bottom:2px solid var(--acento);border-radius:0;padding-left:0;padding-right:0;`,
+  };
+
+  // Y la imagen cambia de ENCUADRE, que es lo que hace que la misma foto se
+  // vea premium en una familia y comercial en otra.
+  const imgPorTrato: Record<string, string> = {
+    enmarcada: `border-radius:var(--radio);border:var(--borde);box-shadow:var(--sombra);`,
+    "a-sangre": `border-radius:0;width:100%;`,
+    "recorte-alto": `border-radius:var(--radio);aspect-ratio:3/4;object-fit:cover;`,
+    flotante: `border-radius:var(--radio);box-shadow:0 24px 48px rgba(0,0,0,.18);`,
+    "en-contexto": `border-radius:var(--radio);aspect-ratio:4/3;object-fit:cover;`,
+  };
+
+  return `
+*,*::before,*::after{box-sizing:border-box}
+:root{
+  --fondo:${t.color.fondo}; --superficie:${t.color.superficie}; --texto:${t.color.texto};
+  --suave:${t.color.textoSuave}; --acento:${t.color.acento}; --sobre-acento:${t.color.sobreAcento};
+  --linea:${t.color.borde}; --radio:${t.forma.radio}; --sombra:${t.forma.sombra}; --borde:${t.forma.borde};
+  --ancho:${t.ritmo.anchoContenido}; --pad-y:${t.ritmo.padSeccionY}; --pad-x:${t.ritmo.padSeccionX};
+  --sep:${t.ritmo.separacion};
+}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--fondo);color:var(--texto);font-family:${t.tipografia.texto};
+  line-height:${t.tipografia.interlineado};-webkit-font-smoothing:antialiased}
+img{max-width:100%;height:auto;display:block}
+
+.sec{padding:var(--pad-y) var(--pad-x)}
+${t.fondos === "alterno" ? `.sec:nth-child(even){background:var(--superficie)}` : ""}
+${t.fondos === "degradado-sutil" ? `.sec:nth-child(even){background:linear-gradient(180deg,var(--superficie),var(--fondo))}` : ""}
+.wrap{max-width:var(--ancho);margin-inline:auto;display:flex;flex-direction:column;gap:var(--sep);text-align:${alinear}}
+.wrap.narrow{max-width:min(720px,var(--ancho))}
+.wrap.center{text-align:center;align-items:center}
+.wrap.left{text-align:left;align-items:flex-start}
+.head{display:flex;flex-direction:column;gap:12px}
+.head.left{text-align:left;align-items:flex-start}
+
+h1,h2{font-family:${t.tipografia.display};font-weight:${t.tipografia.pesoDisplay};
+  letter-spacing:${t.tipografia.espaciadoTitulo};line-height:1.08;margin:0;text-wrap:balance}
+h1{font-size:clamp(${(1.9 * escala).toFixed(2)}rem,${(4.4 * escala).toFixed(1)}vw,${(3.5 * escala).toFixed(2)}rem)}
+h2{font-size:clamp(${(1.5 * escala).toFixed(2)}rem,${(3.2 * escala).toFixed(1)}vw,${(2.4 * escala).toFixed(2)}rem)}
+.serif{font-family:${t.tipografia.display}}
+p{margin:0}
+.lead{color:var(--suave);font-size:clamp(1rem,1.8vw,1.15rem);max-width:62ch;${alinear === "center" ? "margin-inline:auto;" : ""}}
+.eyebrow{margin:0;font-size:.72rem;text-transform:uppercase;letter-spacing:.18em;color:var(--suave)}
+.price{font-size:1.4rem;font-weight:700;margin:0}
+.price--big{font-size:clamp(1.8rem,4vw,2.6rem)}
+.who{color:var(--suave);font-size:.9rem;margin:0}
+
+.cta{display:inline-block;padding:15px 30px;border-radius:var(--radio);font-weight:700;
+  text-decoration:none;font-size:1rem;transition:transform .15s ease,opacity .15s ease;
+  align-self:${alinear === "center" ? "center" : "flex-start"};${ctaPorEstilo[t.cta] || ctaPorEstilo.solido}}
+.cta:hover{transform:translateY(-1px);opacity:.92}
+.cta:focus-visible{outline:3px solid var(--acento);outline-offset:3px}
+
+.grid-2{display:grid;grid-template-columns:1fr 1fr;gap:clamp(24px,4vw,56px);text-align:left;align-items:start}
+.grid-2.middle{align-items:center}
+.grid-2>div{display:flex;flex-direction:column;gap:var(--sep);align-items:flex-start}
+.ghost{display:none}
+
+.fig{margin:0}
+.fig img{${imgPorTrato[t.imagen] || imgPorTrato.enmarcada}width:100%}
+.fig--below{margin-top:12px;max-width:760px;width:100%}
+.fig--bleed{margin-inline:calc(var(--pad-x) * -1);width:calc(100% + var(--pad-x) * 2)}
+.fig--bleed img{border-radius:0;max-height:520px;object-fit:cover}
+.fig--float img{box-shadow:0 30px 60px rgba(0,0,0,.22)}
+.fig--glow img{box-shadow:0 0 80px color-mix(in srgb,var(--acento) 30%,transparent)}
+.hero-visual{min-height:clamp(380px,58vh,560px);display:flex;align-items:center;
+  background-size:cover;background-position:center}
+.hero-visual.has-bg{color:#fff}
+.hero-visual.has-bg h1,.hero-visual.has-bg .lead,.hero-visual.has-bg .eyebrow{color:#fff}
+
+.cards{list-style:none;padding:0;margin:0;display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:16px;text-align:left}
+.card{background:var(--fondo);border:var(--borde);border-radius:var(--radio);
+  box-shadow:var(--sombra);padding:22px}
+.quote{font-style:italic;color:var(--suave)}
+.rail{list-style:none;padding:0 0 8px;margin:0;display:flex;gap:16px;overflow-x:auto;
+  scroll-snap-type:x mandatory;text-align:left}
+.rail .card{min-width:min(300px,80vw);scroll-snap-align:start}
+.icons{list-style:none;padding:0;margin:0;display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;text-align:left}
+.icons li,.plain li{display:flex;gap:10px;align-items:flex-start}
+.plain{list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:10px;text-align:left}
+.center-list{align-items:center}
+.numbered{margin:0;padding-left:1.2em;display:flex;flex-direction:column;gap:12px;text-align:left}
+.numbered li::marker{font-weight:700;color:var(--acento)}
+.columns{columns:2;column-gap:40px;text-align:left}
+.columns p{margin:0 0 14px;break-inside:avoid}
+.tick{width:18px;height:18px;flex:0 0 18px;margin-top:4px;border-radius:50%;
+  background:var(--acento);position:relative}
+.tick::after{content:"";position:absolute;inset:0;margin:auto;width:5px;height:9px;
+  border:solid var(--sobre-acento);border-width:0 2px 2px 0;transform:rotate(45deg) translate(-1px,-1px)}
+
+.panel{background:var(--superficie);border:var(--borde);border-radius:var(--radio);
+  box-shadow:var(--sombra);padding:clamp(28px,5vw,52px);display:flex;flex-direction:column;
+  gap:var(--sep);align-items:center;width:100%}
+.panel--accent{border:2px solid var(--acento)}
+.panel--glow{box-shadow:0 0 60px color-mix(in srgb,var(--acento) 22%,transparent)}
+
+.faq{display:flex;flex-direction:column;gap:8px;text-align:left}
+details{border-bottom:1px solid var(--linea);padding:16px 0}
+summary{cursor:pointer;font-weight:600;list-style:none}
+summary::-webkit-details-marker{display:none}
+blockquote{margin:0;font-size:clamp(1.15rem,2.6vw,1.5rem);line-height:1.5}
+blockquote.big{font-size:clamp(1.4rem,3.4vw,2rem)}
+
+/* ── Móvil: no es el desktop encogido ────────────────────────────────── */
+@media (max-width:860px){
+  .sec{padding:clamp(44px,9vw,72px) var(--pad-x)}
+  .grid-2{grid-template-columns:1fr;gap:28px}
+  /* La foto sube: en un teléfono, ver el producto antes de leer decide el scroll. */
+  .grid-2.reverse .fig{order:-1}
+  .columns{columns:1}
+  .cta{width:100%;max-width:none;text-align:center}
+  .wrap{text-align:${alinear};gap:20px}
+}
+@media (prefers-reduced-motion:reduce){
+  *{animation:none!important;transition:none!important}
+}
+`.trim();
+}
+
+// ─── Documento ───────────────────────────────────────────────────────────────
+
+/**
+ * Compone la landing completa.
+ *
+ * Devuelve un documento HTML autónomo: sin CDNs, sin fuentes externas
+ * obligatorias y sin JavaScript. Una landing que depende de una red ajena para
+ * verse bien es una landing que a veces no se ve bien -- y esta la va a abrir
+ * gente que llegó de un anuncio pago.
+ */
+export function renderizarLanding(opts: OpcionesDeRender): string {
+  const t = tokensDe(opts.familia);
+  const p = opts.producto || null;
+  const secciones = Array.isArray(opts.secciones) ? opts.secciones : [];
+
+  const cuerpo = secciones
+    .map((s) => {
+      const html = renderizadorDe(s, t)(s, p, t);
+      return `<section class="sec sec--${esc(s.type || "generica")}" id="${esc(s.id || "")}">${html}</section>`;
+    })
+    .join("\n");
+
+  const titulo = esc(opts.nombre || p?.name || "Landing");
+  const desc = esc(String(p?.description || secciones[0]?.subtitle || "").replace(/\s+/g, " ").slice(0, 155));
+
+  return `<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${titulo}</title>
+<meta name="description" content="${desc}">
+<meta property="og:title" content="${titulo}">
+<meta property="og:description" content="${desc}">
+${urlSegura(p?.imageUrl) ? `<meta property="og:image" content="${esc(urlSegura(p?.imageUrl))}">` : ""}
+<meta name="color-scheme" content="${t.fondos === "oscuro" ? "dark" : "light"}">
+<style>${css(t)}</style>
+</head>
+<body>
+${cuerpo}
+</body>
+</html>`;
+}
