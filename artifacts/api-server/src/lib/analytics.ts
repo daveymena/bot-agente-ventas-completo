@@ -33,6 +33,18 @@ export interface ConversionMetrics {
 
 export interface PerformanceMetrics {
   averageResponseTime: number; // in milliseconds
+  /**
+   * Los casos que el promedio esconde.
+   *
+   * Un promedio solo miente por omision: descartar como "outlier" todo lo que
+   * pasa de 30 minutos hacia que el numero saliera lindo justo porque los
+   * peores casos --los que pierden la venta-- eran los unicos que no entraban.
+   * Ahora se cuentan y se muestran.
+   */
+  respuestasLentas: number;
+  peorRespuestaMs: number;
+  /** El cliente escribio y nadie contesto nunca. Es la peor metrica de todas. */
+  sinResponder: number;
   messageVolume: {
     total: number;
     incoming: number;
@@ -313,22 +325,53 @@ export class AnalyticsEngine {
         )
         .orderBy(asc(messages.conversationId), asc(messages.createdAt));
 
+      // ── ESTA MÉTRICA NUNCA MIDIÓ NADA ────────────────────────────────────
+      //
+      // ⚠️ Comparaba `msg.role === "assistant"`, pero el bot guarda sus
+      // respuestas con `role: "agent"` (ver saveAgentMessage en
+      // conversation-engine.ts). Nunca coincidió con UNA sola respuesta, así
+      // que `averageResponseTime` fue siempre 0 -- y un 0 en el panel se lee
+      // como "contestamos al instante", que es lo contrario de la verdad.
+      //
+      // Se aceptan los dos nombres porque conviven de verdad en la tabla:
+      // WhatsApp guarda "agent" y otros canales guardaron "assistant".
+      const RESPUESTAS_DEL_BOT = new Set(["agent", "assistant"]);
+
       const responseTimesMs: number[] = [];
+      // Las respuestas que tardaron DEMASIADO se cuentan aparte en vez de
+      // tirarse. Descartarlas como "outliers" es lo que oculto una respuesta
+      // de 85 minutos: el promedio salia lindo justo porque los peores casos
+      // --los que pierden la venta-- eran los unicos que no entraban.
+      const LENTA_MS = 30 * 60 * 1000;
+      let respuestasLentas = 0;
+      let peorRespuestaMs = 0;
+      let sinResponder = 0;
+
       let pendingCustomerMsgAt: Date | null = null;
       let pendingConvoId: number | null = null;
       for (const msg of orderedMessages) {
         if (msg.conversationId !== pendingConvoId) {
+          // El cliente escribio y la conversacion se acabo sin respuesta.
+          if (pendingCustomerMsgAt) sinResponder++;
           pendingCustomerMsgAt = null;
           pendingConvoId = msg.conversationId;
         }
         if (msg.role === "customer") {
-          pendingCustomerMsgAt = msg.createdAt;
-        } else if (msg.role === "assistant" && pendingCustomerMsgAt) {
+          // Dos mensajes seguidos del cliente: se mide desde el PRIMERO, que
+          // es cuando empezo a esperar.
+          if (!pendingCustomerMsgAt) pendingCustomerMsgAt = msg.createdAt;
+        } else if (RESPUESTAS_DEL_BOT.has(String(msg.role)) && pendingCustomerMsgAt) {
           const diff = msg.createdAt.getTime() - pendingCustomerMsgAt.getTime();
-          if (diff > 0 && diff < 30 * 60 * 1000) responseTimesMs.push(diff); // discard outliers >30min (human handoff, etc.)
+          if (diff > 0) {
+            if (diff >= LENTA_MS) respuestasLentas++;
+            else responseTimesMs.push(diff);
+            if (diff > peorRespuestaMs) peorRespuestaMs = diff;
+          }
           pendingCustomerMsgAt = null;
         }
       }
+      if (pendingCustomerMsgAt) sinResponder++;
+
       const averageResponseTime = responseTimesMs.length > 0
         ? Math.round(responseTimesMs.reduce((a, b) => a + b, 0) / responseTimesMs.length)
         : 0;
@@ -345,6 +388,9 @@ export class AnalyticsEngine {
 
       return {
         averageResponseTime,
+        respuestasLentas,
+        peorRespuestaMs,
+        sinResponder,
         messageVolume: {
           total: totalMessages,
           incoming: incomingMessages,

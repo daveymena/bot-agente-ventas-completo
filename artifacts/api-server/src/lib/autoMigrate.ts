@@ -261,20 +261,92 @@ const MIGRATIONS = [
   `CREATE UNIQUE INDEX IF NOT EXISTS landing_pages_tenant_slug_idx ON landing_pages (tenant_id, slug)`,
 ];
 
+/**
+ * Las tablas que este archivo se compromete a crear.
+ *
+ * Se derivan del propio SQL en vez de escribirse a mano: una lista paralela se
+ * desactualiza el dia que alguien agrega una tabla y se olvida de la lista, y
+ * ahi el chequeo del /health dejaria de cubrir justo lo nuevo -- que es lo que
+ * mas probabilidades tiene de estar roto.
+ */
+export const TABLAS_ESPERADAS: string[] = Array.from(
+  new Set(
+    MIGRATIONS.flatMap((sql) => {
+      const m = /CREATE TABLE IF NOT EXISTS\s+([a-z_][a-z0-9_]*)/i.exec(sql);
+      return m ? [m[1].toLowerCase()] : [];
+    }),
+  ),
+);
+
+/**
+ * Que paso la ultima vez que corrieron las migraciones.
+ *
+ * ⚠️ Esto existe porque `runAutoMigrations` SE TRAGA los errores: loguea y
+ * sigue. Es la decision correcta --una migracion fallida no puede impedir que
+ * el servidor levante y atienda clientes-- pero deja un agujero grave: si un
+ * CREATE TABLE falla, el servidor arranca normal, el /health dice "ok" y la
+ * funcionalidad que usa esa tabla revienta en runtime sin que nadie se entere.
+ *
+ * Paso de verdad con `landing_pages` el 2026-09-04: Landing Studio entero no
+ * ejecutaba y todo se veia bien.
+ *
+ * Ahora el resultado queda registrado y el /health lo publica.
+ */
+export const ultimasMigraciones: {
+  cuando: string | null;
+  fallos: Array<{ sql: string; error: string }>;
+} = { cuando: null, fallos: [] };
+
 export async function runAutoMigrations(): Promise<void> {
   if (!pool) {
     logger.warn("[AutoMigrate] Pool no disponible, omitiendo migraciones");
     return;
   }
   logger.info("[AutoMigrate] Verificando columnas de la base de datos...");
+  ultimasMigraciones.fallos = [];
   for (const sql of MIGRATIONS) {
     try {
       await pool.query(`SET lock_timeout = '5s'`);
       await pool.query(`SET statement_timeout = '10s'`);
       await pool.query(sql);
-    } catch (err) {
+    } catch (err: any) {
+      // Se sigue adelante --una migracion caida no puede dejar sin servicio a
+      // los clientes-- pero el fallo YA NO desaparece: queda anotado y sale
+      // por el /health, que es donde se puede ver desde afuera.
+      ultimasMigraciones.fallos.push({ sql: String(sql).slice(0, 120), error: String(err?.message || err) });
       logger.error({ err, sql }, "[AutoMigrate] Error ejecutando migración");
     }
   }
+  ultimasMigraciones.cuando = new Date().toISOString();
+  if (ultimasMigraciones.fallos.length > 0) {
+    logger.error(
+      { fallos: ultimasMigraciones.fallos.length },
+      "[AutoMigrate] TERMINO CON FALLOS -- hay funcionalidad que va a reventar en runtime",
+    );
+  }
   logger.info("[AutoMigrate] Migraciones completadas");
+}
+
+/**
+ * Cuales de las tablas esperadas NO existen en la base.
+ *
+ * Una sola consulta a information_schema, con timeout: esto lo llama el
+ * /health, que tiene que contestar rapido o no sirve como sonda.
+ */
+export async function tablasFaltantes(): Promise<string[] | null> {
+  if (!pool || TABLAS_ESPERADAS.length === 0) return null;
+  try {
+    await pool.query(`SET statement_timeout = '3s'`);
+    const { rows } = await pool.query(
+      `SELECT table_name FROM information_schema.tables
+       WHERE table_schema = 'public' AND table_name = ANY($1::text[])`,
+      [TABLAS_ESPERADAS],
+    );
+    const existentes = new Set(rows.map((r: any) => String(r.table_name).toLowerCase()));
+    return TABLAS_ESPERADAS.filter((t) => !existentes.has(t));
+  } catch {
+    // No se pudo preguntar. Devolver [] diria "no falta ninguna", que es una
+    // afirmacion que no se puede sostener: null significa "no se sabe".
+    return null;
+  }
 }
