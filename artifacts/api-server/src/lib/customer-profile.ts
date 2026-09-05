@@ -76,6 +76,52 @@ export function agregarProductoVisto(
   };
 }
 
+/** Cuántos datos comerciales se recuerdan. Son siete en total, no hay tope real. */
+const TOPE_DATOS = 12;
+
+/**
+ * Registra qué datos comerciales se le dijeron.
+ *
+ * No se duplica: saber el precio dos veces es saberlo. Se conserva la fecha
+ * MÁS RECIENTE de cada dato, porque lo que importa para decidir si repetirlo es
+ * cuándo fue la última vez que lo escuchó.
+ */
+export function agregarDatosDichos(
+  perfil: CommercialProfile,
+  datos: readonly string[],
+  ahora: string,
+): CommercialProfile {
+  if (!datos || datos.length === 0) return perfil;
+  const nuevos = new Set(datos.filter(Boolean));
+  if (nuevos.size === 0) return perfil;
+
+  const previos = (perfil.datosDichos || []).filter((d) => !nuevos.has(d.dato));
+  return {
+    ...perfil,
+    datosDichos: [...[...nuevos].map((dato) => ({ dato, fecha: ahora })), ...previos].slice(0, TOPE_DATOS),
+  };
+}
+
+/**
+ * ¿Ya le dijimos este dato, en CUALQUIER chat y hace poco?
+ *
+ * Misma ventana que la ficha y por la misma razón: dentro de una semana se
+ * acuerda; pasado el mes, recordárselo es servicio y no repetición.
+ */
+export function yaLeDijimos(
+  perfil: CommercialProfile | null | undefined,
+  dato: string,
+  ahora: Date = new Date(),
+  dias: number = DIAS_QUE_RECUERDA_LA_FICHA,
+): boolean {
+  if (!perfil || !dato) return false;
+  const visto = (perfil.datosDichos || []).find((d) => d.dato === dato);
+  if (!visto?.fecha) return false;
+  const cuando = new Date(visto.fecha).getTime();
+  if (!Number.isFinite(cuando)) return false;
+  return (ahora.getTime() - cuando) / 86_400_000 <= dias;
+}
+
 /**
  * Cuántos días una ficha sigue contando como "ya la vio".
  *

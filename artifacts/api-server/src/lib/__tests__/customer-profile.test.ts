@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { variantesDeTelefono,
   agregarProductoVisto, agregarObjecion, guardarUbicacion,
   diasDesdeLaUltimaVez, tieneAlgoQueRecordar, PERFIL_VACIO,
-  vioLaFichaHacePoco,
+  vioLaFichaHacePoco, agregarDatosDichos, yaLeDijimos,
 } from "../customer-profile";
 
 /**
@@ -189,5 +189,57 @@ describe("vioLaFichaHacePoco", () => {
 
   it("una fecha futura (relojes desfasados) cuenta como reciente", () => {
     expect(vioLaFichaHacePoco(perfilCon(7, "2026-09-06T12:00:00.000Z"), 7, hoy)).toBe(true);
+  });
+});
+
+/**
+ * ============================================================
+ * QUE YA SABE EL CLIENTE, ENTRE CHATS
+ * ============================================================
+ *
+ * Punto 5 del dueno: "si ya recibio precio + contenido + garantia, no debe
+ * volver a mandarle la ficha completa".
+ */
+describe("datos ya dichos (conoce_precio / conoce_contenido / conoce_garantia)", () => {
+  const hoy = new Date("2026-09-05T12:00:00.000Z");
+  const ayer = "2026-09-04T12:00:00.000Z";
+
+  it("anota lo que se le dijo", () => {
+    const p = agregarDatosDichos({}, ["precio", "garantia"], ayer);
+    expect(yaLeDijimos(p, "precio", hoy)).toBe(true);
+    expect(yaLeDijimos(p, "garantia", hoy)).toBe(true);
+    expect(yaLeDijimos(p, "envio", hoy)).toBe(false);
+  });
+
+  it("no duplica: saberlo dos veces es saberlo", () => {
+    let p = agregarDatosDichos({}, ["precio"], ayer);
+    p = agregarDatosDichos(p, ["precio"], hoy.toISOString());
+    expect((p.datosDichos || []).filter((d) => d.dato === "precio")).toHaveLength(1);
+  });
+
+  it("se queda con la fecha MAS reciente", () => {
+    // Lo que decide si repetirlo es cuando fue la ultima vez que lo escucho.
+    let p = agregarDatosDichos({}, ["precio"], "2026-01-01T00:00:00.000Z");
+    p = agregarDatosDichos(p, ["precio"], ayer);
+    expect(yaLeDijimos(p, "precio", hoy)).toBe(true);
+  });
+
+  it("pasado el plazo, recordarselo es servicio y no repeticion", () => {
+    const p = agregarDatosDichos({}, ["precio"], "2026-08-01T12:00:00.000Z");
+    expect(yaLeDijimos(p, "precio", hoy)).toBe(false);
+  });
+
+  it("no rompe con datos vacios ni perfil nulo", () => {
+    expect(agregarDatosDichos({}, [], ayer)).toEqual({});
+    expect(yaLeDijimos(null, "precio", hoy)).toBe(false);
+    expect(yaLeDijimos({}, "precio", hoy)).toBe(false);
+    expect(yaLeDijimos({ datosDichos: [{ dato: "precio", fecha: "roto" }] }, "precio", hoy)).toBe(false);
+  });
+
+  it("no pisa lo que ya habia de otros datos", () => {
+    let p = agregarDatosDichos({}, ["precio"], ayer);
+    p = agregarDatosDichos(p, ["garantia"], ayer);
+    expect(yaLeDijimos(p, "precio", hoy)).toBe(true);
+    expect(yaLeDijimos(p, "garantia", hoy)).toBe(true);
   });
 });

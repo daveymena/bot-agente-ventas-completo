@@ -31,6 +31,23 @@ export interface CommercialProfile {
   /** Para envío. Sale de los datos de contraentrega, no de una suposición. */
   ciudad?: string | null;
   departamento?: string | null;
+  /**
+   * Qué datos comerciales ya se le dijeron, en cualquier conversación.
+   *
+   * Los valores son los de `DatoComercial` en `datos-ya-dichos.ts`: "precio",
+   * "que-incluye", "duracion", "como-se-entrega", "como-se-paga", "garantia",
+   * "envio".
+   *
+   * Es lo que el dueño pidió como `conoce_precio` / `conoce_contenido` /
+   * `conoce_garantia`: que el vendedor no vuelva a contar lo que ya contó,
+   * aunque el cliente escriba desde un chat nuevo tres días después.
+   *
+   * ⚠️ Se guarda el dato, NO la frase. `no-repetir.ts` compara textos y se le
+   * escapa que "cuesta $60.000" y "la inversión es de sesenta mil" son la misma
+   * información dicha distinto -- que para el cliente es la repetición que
+   * molesta.
+   */
+  datosDichos?: Array<{ dato: string; fecha: string }>;
   /** ISO de la última vez que escribió. Permite decir "hace tres semanas". */
   ultimaInteraccion?: string | null;
   /** ISO de la última escritura de este perfil. */

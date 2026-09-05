@@ -2712,8 +2712,55 @@ export async function saveAgentMessage(
     await db.update(conversations)
       .set({ lastMessage: content.substring(0, 200), lastMessageAt: dbNow() })
       .where(eq(conversations.id, conversationId));
+
+    void recordarLoQueSeDijo(conversationId, content);
   } catch (err) {
     console.error(`[ConversationEngine] Error guardando mensaje del agente:`, err);
+  }
+}
+
+/**
+ * Anota en el perfil del LEAD qué datos comerciales acaba de recibir.
+ *
+ * ── Por qué va acá y no en el agente ──────────────────────────────────────
+ *
+ * El agente tiene NUEVE salidas distintas --saludo, detalle hardcodeado,
+ * handoff, pago, objeción, la ruta del modelo...-- y todas terminan llamando a
+ * `saveAgentMessage`. Engancharlo en cada una era garantizar que la próxima
+ * salida que alguien agregue nazca sin memoria. Acá no hay forma de escaparse.
+ *
+ * ── Por qué el LEAD y no la conversación ──────────────────────────────────
+ *
+ * Porque es justo lo que falla: `memory.history` se arma leyendo ESTA
+ * conversación, así que el cliente que vuelve en un chat nuevo recibe otra vez
+ * el precio, la ficha y la garantía. El perfil sobrevive entre chats.
+ *
+ * ── Que falle no puede costar una respuesta ───────────────────────────────
+ *
+ * Va sin `await` y con su propio try/catch: es memoria de apoyo. Un fallo
+ * escribiendo el perfil no puede demorar ni romper el mensaje al cliente, que
+ * ya está guardado y en camino.
+ */
+async function recordarLoQueSeDijo(conversationId: number, content: string): Promise<void> {
+  try {
+    const { datosQueTrae } = await import("./datos-ya-dichos");
+    const datos = datosQueTrae(content);
+    // Sin datos comerciales no hay nada que anotar: un "¡Hola!" no gasta una
+    // consulta a la base.
+    if (datos.length === 0) return;
+
+    const [convo] = await db
+      .select({ leadId: conversations.leadId })
+      .from(conversations)
+      .where(eq(conversations.id, conversationId))
+      .limit(1);
+    if (!convo?.leadId) return;
+
+    const cp = await import("./customer-profile");
+    const perfil = await cp.cargarPerfil(convo.leadId);
+    await cp.guardarPerfil(convo.leadId, cp.agregarDatosDichos(perfil, datos, new Date().toISOString()));
+  } catch (err: any) {
+    console.warn(`[ConversationEngine] No se pudo anotar lo dicho: ${err?.message}`);
   }
 }
 

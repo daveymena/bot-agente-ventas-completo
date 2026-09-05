@@ -33,7 +33,8 @@ import { entenderAlCliente, type Entendimiento } from "./entender-al-cliente";
 import { sinLoQueYaLeyo, yaLoDijo } from "./no-repetir";
 import { sinPreguntarLoQueYaVa } from "./no-pedir-lo-que-ya-va";
 import { nombreDePila } from "./nombre-de-pila";
-import { vioLaFichaHacePoco } from "./customer-profile";
+import { vioLaFichaHacePoco, yaLeDijimos } from "./customer-profile";
+import { datosYaDichos } from "./datos-ya-dichos";
 import { negarloSeriaMentira, productosNombrados } from "./nombra-productos-reales";
 import { prometeEntregaFisica, sinLaPromesaFisica, sinElTemarioInventado, lineasDeTemarioInventadas, comoSeEntregaDeVerdad } from "./solo-lo-que-dice-la-ficha";
 
@@ -1609,6 +1610,28 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
     if (!id) return false;
     if (memory.sentProductIds.has(id)) return true;
     return vioLaFichaHacePoco(perfilCrudo, id);
+  };
+
+  /**
+   * ¿Ya sabe cuánto cuesta?
+   *
+   * Antes esto era `history.some(m => /💰/.test(m.content))`: buscaba el EMOJI,
+   * no el precio. Si el bot escribió "está en $60.000" sin la moneda --que es
+   * lo normal cuando lo redacta el modelo-- el sistema creía que no lo sabía y
+   * le volvía a ofrecer el precio que acababa de dar.
+   *
+   * Ahora mira lo mismo que el resto del motor: el DATO, en esta conversación
+   * y en el perfil del lead, que sobrevive a los chats nuevos.
+   */
+  const yaSabeCuantoCuesta = (): boolean => {
+    if (yaLeDijimos(perfilCrudo, "precio")) return true;
+    try {
+      return datosYaDichos(memory.history as any).has("precio");
+    } catch {
+      // Ante la duda, que NO lo sabe: ofrecerle el precio de más es molesto,
+      // pero dejarlo sin precio cuesta la venta.
+      return false;
+    }
   };
 
   const playbook = construirPlaybook({
@@ -3475,9 +3498,7 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
               // Este camino tampoco puede remandar el video ni cerrar con una
               // encuesta: es el mismo render.
               videoYaEnviado: elVideoYaSalio(memory.history as any, videoDeProductoSeguro(prod)),
-              yaSabeElPrecio: (memory.history as any[]).some(
-                (m) => m.role !== "customer" && /💰/.test(String(m.content || "")),
-              ),
+              yaSabeElPrecio: yaSabeCuantoCuesta(),
               mensajeDelCliente: String(lastText || ""),
               seccion: seccionPedida,
             } as any);
