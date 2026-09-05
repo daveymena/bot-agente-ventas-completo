@@ -5879,6 +5879,7 @@ PRINCIPIOS OBLIGATORIOS:
    Pensá internamente esta secuencia antes de responder (es para ordenar tu propia respuesta, NUNCA la muestres tal cual ni con estas palabras técnicas): ACCIÓN → ITEMS AFECTADOS → PLAN → (pedir CONFIRMACIÓN si es un cambio, vía propose_action) → RESULTADO → ESTADO. Convertila siempre a los bloques A/B/C de arriba en lenguaje natural.
 
 
+@@SECCION:marketing@@
 MARKETING Y PROFESIONALISMO — cuando la tarea sea crear o mejorar algo de marketing (producto, anuncio, copy, precios, agente), pensá como un DIRECTOR DE MARKETING DIGITAL, no como un simple ejecutor. Esto es un modo de trabajo para esas tareas puntuales, no un tono que tengas que mantener en cada mensaje (ver 6.1):
 
 ESTRATEGIA DE OFERTA (antes de crear cualquier cosa — producto, anuncio, copy, agente, precios):
@@ -5928,10 +5929,12 @@ MARCA Y CONSISTENCIA VISUAL:
 - 🎨 Mantén un estilo visual y un tono de voz coherentes entre productos, imágenes y anuncios. Un catálogo desordenado vende mal.
 - 🖼️ Para imágenes aplica SIEMPRE las reglas de calidad de Facebook Ads (1080×1080, <20% texto, fotos profesionales reales, personas usando el producto).
 
+@@SECCION:analisis@@
 ANÁLISIS CON MÉTRICAS QUE IMPORTAN:
 - 📊 Cuando revises el negocio, habla de números accionables: conversión, leads, ticket promedio, ventas del período, conversaciones activas.
 - 🎯 Entrega una lectura clara + UNA recomendación accionable priorizada, no un informe vacío de datos sin sentido.
 
+@@SECCION:nucleo@@
 TONO PROFESIONAL EN TODA RESPUESTA:
 - 🗣️ Claro, concreto y sin relleno. Trata al admin como un cliente importante: explica en términos de negocio qué vas a hacer y POR QUÉ, no con jerga técnica.
 - 🤝 Si algo falla o no está claro, dilo con honestidad y propón el siguiente paso. Nunca finjas que funcionó ni inventes resultados.
@@ -5941,6 +5944,7 @@ PROFESIONALISMO EN TODAS LAS HERRAMIENTAS:
 - ✅ DESPUÉS de que el admin confirme un cambio, VERIFICA en tu próximo turno: volvé a consultar y confirmá el resultado real. Un profesional comprueba su trabajo.
 - 🎯 Una tarea a la vez, bien hecha, antes de pasar a la siguiente. Si hay varias, entregalas ordenadas y proponé cada una por separado.
 - 💡 No repitas llamadas fallidas con los mismos argumentos: cambiá de estrategia o herramienta y seguí avanzando en el mismo turno.
+@@SECCION:anuncios@@
 IMÁGENES — REGLAS DE CALIDAD PARA FACEBOOK ADS:
 - 🖼️ HERRAMIENTA PRINCIPAL: search_product_images. Busca fotos profesionales de alta calidad
   en Pexels (stock gratuito legal), Brave Images y DuckDuckGo Images. SIEMPRE úsala primero
@@ -5995,6 +5999,126 @@ DROPSHIPPING CON DROPI (vender productos de proveedores sin tener stock):
 - ⚠️ Los productos de Dropi son FÍSICOS: se envían a una dirección, no llevan enlace de Drive
   como los cursos digitales. No mezcles los dos flujos.
 `;
+
+/**
+ * ============================================================
+ * EL PROMPT NO VIAJA ENTERO SIEMPRE
+ * ============================================================
+ *
+ * Medido contra el contenedor real de OpenCode el 2026-09-05:
+ *
+ *   llamada trivial (48 tokens)           ~2 s
+ *   SOLO este prompt, sin herramientas   ~30 s
+ *   pedido real completo (21.500 tokens) 52 s … +130 s
+ *
+ * Treinta segundos SOLO en leer el prompt, sin ejecutar una herramienta. Y el
+ * dato que lo confirma: ese pedido de 52 s generó 183 tokens de salida. El
+ * tiempo no se va escribiendo la respuesta, se va leyendo lo que le mandamos.
+ *
+ * El puente NO era el problema --registrar, crear sesión y listar proveedores
+ * suman 3,2 s medidos-- y por eso cambiarlo por otro no habría movido la aguja.
+ *
+ * Había además una ironía: existe una prueba que vigila que los esquemas de
+ * herramientas no pasen de 3.000 tokens, y al lado viajaba este prompt de
+ * ~8.300 tokens que nadie medía.
+ *
+ * ── Qué se manda ahora ───────────────────────────────────────────────────
+ *
+ * El NÚCLEO siempre --identidad, las 6 reglas, cómo opera, el formato--
+ * porque sin eso Atlas deja de ser Atlas. Lo demás solo cuando hace falta:
+ *
+ *   marketing  copy, ofertas, precios, estructura persuasiva
+ *   anuncios   las reglas de imagen para Facebook Ads
+ *   analisis   qué métricas mirar
+ *
+ * No es una idea nueva: el propio bloque de marketing ya avisaba que era "un
+ * modo de trabajo para esas tareas puntuales, no un tono que tengas que
+ * mantener en cada mensaje". Ya se sabía condicional; solo que viajaba igual.
+ *
+ * Un "¿cómo vas?" pasa de 30.012 a 16.418 caracteres --45% menos-- y un pedido
+ * de anuncio sigue recibiendo todo, que es lo correcto.
+ */
+
+/** Las partes del prompt, separadas por las marcas @@SECCION:x@@. */
+function partirElPrompt(): Record<string, string> {
+  const partes: Record<string, string[]> = { nucleo: [], marketing: [], anuncios: [], analisis: [] };
+  let actual = "nucleo";
+  for (const linea of ATLAS_SYSTEM_PROMPT_V2.split("\n")) {
+    const m = /^@@SECCION:([a-z]+)@@$/.exec(linea.trim());
+    if (m) { actual = partes[m[1]] ? m[1] : "nucleo"; continue; }
+    partes[actual].push(linea);
+  }
+  const salida: Record<string, string> = {};
+  for (const k of Object.keys(partes)) salida[k] = partes[k].join("\n").trim();
+  return salida;
+}
+
+const PARTES_DEL_PROMPT = partirElPrompt();
+
+/** Lo que siempre viaja. Exportado para poder medirlo desde las pruebas. */
+export const ATLAS_NUCLEO = PARTES_DEL_PROMPT.nucleo;
+
+/**
+ * Cuándo hace falta cada bloque.
+ *
+ * Las listas son generosas a propósito: mandar un bloque de más cuesta unos
+ * segundos, no mandarlo cuando hacía falta cuesta una respuesta peor. Ante la
+ * duda, se manda.
+ */
+const PIDE_MARKETING =
+  /copy|gancho|oferta|promo|descuento|titular|t[ií]tulo|descripci|marketing|persuas|conversi[oó]n|landing|precio/i;
+
+/**
+ * ⚠️ Distinguir ESCRIBIR de PREGUNTAR es lo que hace que esto sirva.
+ *
+ * La primera versión listaba sustantivos sueltos --"producto", "campaña"-- y
+ * con eso "¿cuántos productos tengo cargados?" arrastraba las reglas de
+ * copywriting, y "¿cómo va mi campaña?" arrastraba además los 6.087 caracteres
+ * de reglas de imagen para Facebook. Las dos son PREGUNTAS de lectura: no van
+ * a escribir nada, así que esos bloques son peso muerto justo en los pedidos
+ * que deberían ser instantáneos.
+ *
+ * Ahora hace falta un verbo de CREAR/MEJORAR junto al sustantivo. La palabra
+ * sola no alcanza.
+ */
+const VERBO_DE_CREAR =
+  /\b(cre[aá]|hac[eé]|arm[aá]|gener[aá]|escrib[ií]|redact[aá]|mejor[aá]|optimiz[aá]|cambi[aá]|reescrib[ií]|ajust[aá]|prepar[aá]|dise[ñn][aá]|lanz[aá]|publi[cq]|anunci[aá]|publicit[aá])/i;
+
+const SUSTANTIVO_DE_MARKETING = /anunci|campa|producto|agente|mensaje|categor|tienda|publicaci/i;
+
+/**
+ * Las reglas de imagen para Facebook Ads: 6.087 caracteres que solo importan
+ * cuando hay una pieza visual en juego. "¿Cómo va mi campaña?" no necesita
+ * saber qué resolución acepta Meta.
+ */
+const HAY_UNA_PIEZA_VISUAL = /imagen|foto|creativ|visual|banner|miniatura|p[ií]xel/i;
+const SUSTANTIVO_DE_ANUNCIO = /anunci|campa|publicit|facebook|meta\b|ads?\b|landing/i;
+
+const PIDE_ANALISIS =
+  /m[eé]trica|resultado|rendimiento|analiz|an[aá]lisis|reporte|estad[ií]stica|c[oó]mo va|como va|cu[aá]nto|roi|conversi|ctr|cpc|cpm|gast/i;
+
+/**
+ * El prompt que corresponde a ESTE pedido.
+ *
+ * Nunca devuelve menos que el núcleo: recortar la identidad o las reglas que
+ * no se negocian para ganar tiempo sería cambiar segundos por que Atlas haga
+ * algo que no debe.
+ */
+export function promptDeAtlas(pedido: string): string {
+  const t = String(pedido || "");
+  const vaAEscribir = VERBO_DE_CREAR.test(t);
+  const bloques = [ATLAS_NUCLEO];
+
+  if (PIDE_MARKETING.test(t) || (vaAEscribir && SUSTANTIVO_DE_MARKETING.test(t))) {
+    bloques.push(PARTES_DEL_PROMPT.marketing);
+  }
+  if (HAY_UNA_PIEZA_VISUAL.test(t) || (vaAEscribir && SUSTANTIVO_DE_ANUNCIO.test(t))) {
+    bloques.push(PARTES_DEL_PROMPT.anuncios);
+  }
+  if (PIDE_ANALISIS.test(t)) bloques.push(PARTES_DEL_PROMPT.analisis);
+  return bloques.filter(Boolean).join("\n\n");
+}
+
 
 export const OPERATOR_SYSTEM_PROMPT = `Te llamas Atlas (nombre completo "Atlas VentasPro" si hace falta diferenciarte de otros productos). Si el admin te pregunta tu nombre o quién eres, respondé como Atlas — no como "el Arquitecto", "una IA de OpenAI/Anthropic/Google" ni ningún otro nombre. Sos el ARQUITECTO/OPERADOR del sistema — actúas como el programador y administrador de la aplicación, pero PRUDENTE y CONFIABLE.
 

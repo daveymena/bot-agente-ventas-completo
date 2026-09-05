@@ -35,10 +35,19 @@ function normalizeSections(input: unknown, product: any): LandingSection[] {
   if (!Array.isArray(input)) return fallbackSections(product);
   const valid = input.filter((s: any) => s && typeof s === "object" && typeof s.id === "string" && SECTION_TYPES.includes(s.type));
   if (!valid.length) return fallbackSections(product);
-  return valid.map((s: any) => ({
-    id: String(s.id), type: String(s.type), title: String(s.title || ""), subtitle: s.subtitle ? String(s.subtitle) : undefined,
-    body: s.body ? String(s.body) : undefined, cta: s.cta ? String(s.cta) : undefined,
-  }));
+  return valid.map((s: any) => {
+    let image = s.image ? String(s.image) : undefined;
+    if (!image && s.imagePrompt) {
+      // Usar IA gratuita (Pollinations) para generar las imágenes on-the-fly al estilo Magic
+      const enc = encodeURIComponent(String(s.imagePrompt) + ", high-end SaaS aesthetic, neon dark mode e-commerce magic style, professional photorealistic 3d render, 8k");
+      image = `https://image.pollinations.ai/prompt/${enc}?width=1080&height=720&nologo=true`;
+    }
+    return {
+      id: String(s.id), type: String(s.type), title: String(s.title || ""), subtitle: s.subtitle ? String(s.subtitle) : undefined,
+      body: s.body ? String(s.body) : undefined, cta: s.cta ? String(s.cta) : undefined,
+      image,
+    };
+  });
 }
 
 function normalizeStrategy(strategy: any, product: any, sourceAd: any) {
@@ -92,7 +101,7 @@ router.post("/generate", async (req: TenantRequest, res, next) => {
         formato: {
           name: "string",
           strategy: { avatar: "string", awareness: "string", pain: "string", desire: "string", mechanism: "string", promise: "string", objections: ["string"], angle: "string", objective, language, country, currency: product.currency },
-          sections: [{ id: "string", type: "hero|benefits|offer|before-after|comparison|authority|testimonials|how-it-works|logistics|faq|cta", title: "string", subtitle: "string", body: "string", cta: "string" }],
+          sections: [{ id: "string", type: "hero|benefits|offer|before-after|comparison|authority|testimonials|how-it-works|logistics|faq|cta", title: "string", subtitle: "string", body: "string", cta: "string", imagePrompt: "descripción en inglés (max 20 palabras) para generar una imagen 3D premium o mockup de SaaS relacionado a esta sección, si aplica" }],
           design: { tone: "string", primary: "string", background: "string", radius: "string" },
           source: { type: sourceAd ? "facebook-ad" : "product", reference: sourceAd || null }
         }
@@ -127,7 +136,7 @@ router.post("/:id/command", async (req: TenantRequest, res, next) => {
       tenantId,
       json: true,
       maxTokens: 1800,
-      systemPrompt: `Eres un editor de landing pages. Analiza la instrucción del usuario y el estado actual. Devuelve SOLO JSON con {message, operations}. No escribas prosa fuera del JSON. Las operaciones deben ser seguras y pequeñas. No inventes claims. Operaciones permitidas: update_section {sectionId,patch}, add_section {section}, remove_section {sectionId}, move_section {sectionId,direction}, update_design {patch}, set_seo {patch}, set_cta {sectionId,cta}.`,
+      systemPrompt: `Eres un editor de landing pages. Analiza la instrucción del usuario y el estado actual. Devuelve SOLO JSON con {message, operations}. No escribas prosa fuera del JSON. Las operaciones deben ser seguras y pequeñas. No inventes claims. Operaciones permitidas: update_section {sectionId,patch} (puedes parchear imagePrompt con un prompt en inglés para cambiar imagen), add_section {section} (con imagePrompt opcional), remove_section {sectionId}, move_section {sectionId,direction}, update_design {patch}, set_seo {patch}, set_cta {sectionId,cta}.`,
       userPrompt: JSON.stringify({ instruction, selectedSectionId: req.body?.selectedSectionId || null, current }),
     });
 

@@ -30,7 +30,7 @@ import { randomUUID } from "node:crypto";
 import type { TenantRequest } from "../lib/tenantManager";
 import { logger } from "../lib/logger";
 import { esUnSiParaEstePlan } from "../lib/es-un-si";
-import { ATLAS_SYSTEM_PROMPT_V2, executeAction, verifyMutation, investigacionRapida, mensajeParaAdmin, type OperatorContext } from "../lib/app-operator";
+import { promptDeAtlas, executeAction, verifyMutation, investigacionRapida, mensajeParaAdmin, type OperatorContext } from "../lib/app-operator";
 import {
   loadArchitectHistory, saveArchitectTurn, getPendingPlan, setPendingPlan,
   clearPendingPlan, isApproval, isRejection, loadRecentLessons,
@@ -1154,7 +1154,11 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
       //
       // Con las acciones de CAMBIO esto ya estaba resuelto desde el 2026-08-16
       // por el mismo fallo; las de lectura quedaron sin ese tratamiento.
-      const system = ATLAS_SYSTEM_PROMPT_V2
+      // El prompt se arma SEGUN el pedido: el nucleo siempre, y los bloques
+      // de marketing / anuncios / analisis solo cuando hacen falta. Medido:
+      // este prompt entero cuesta ~30s de lectura antes de que el modelo
+      // empiece a responder. Ver promptDeAtlas() en app-operator.
+      const system = promptDeAtlas(text)
         + catalogoDeCapacidades(new Set(toolRegistry.map((t) => t.name)))
         + lessonsBlock + moduloBlock;
 
