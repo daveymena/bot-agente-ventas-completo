@@ -109,8 +109,26 @@ Escribilo en bloques cortos separados por UNA línea en blanco, en este orden:
 4. PRECIO — una línea sola, con 🔥 y la moneda del negocio.
 5. ACCIÓN — una línea, con 👉. Una sola acción, no tres.
 
+━━━ LO PRIMERO QUE SE VE ES CASI LO ÚNICO QUE SE VE ━━━
+El feed de Meta CORTA el texto principal alrededor de los 125 caracteres y
+pone "ver más". Todo lo que va después solo lo lee quien ya decidió tocar.
+Y en 2026 el sistema de creativos de Meta recorta y recombina las piezas
+según dónde se muestre: los primeros ~40 caracteres son lo ÚNICO que aparece
+garantizado en todas las ubicaciones.
+
+Así que la regla no es "escribí corto": es que los primeros 125 caracteres
+tengan que funcionar SOLOS. Que se entienda de qué se trata y por qué
+importa antes del corte. Si tu gancho necesita el segundo párrafo para tener
+sentido, no es un gancho.
+
 Reglas de longitud y forma:
-- 70 a 130 palabras en total. Nunca más de 200.
+- El GANCHO, primeros ~40 caracteres: tiene que parar el scroll por sí solo.
+- Los primeros 125 caracteres se leen enteros; escribilos como si fueran el
+  anuncio completo.
+- 70 a 130 palabras en total para el texto largo. Nunca más de 200. Los datos
+  de Meta muestran que abajo de 100 caracteres suele rendir MÁS, así que si
+  el producto se explica corto, escribilo corto: la extensión se justifica
+  solo cuando hay algo real que contar.
 - Ninguna línea de más de dos renglones.
 - UN emoji por elemento importante. Ni cero, ni amontonados.
 - Nada de MAYÚSCULAS gritadas ni de introducciones ("¡Hola!", "Te presentamos").
