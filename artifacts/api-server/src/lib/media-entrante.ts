@@ -22,21 +22,21 @@
 import { getProviderConfig } from "@workspace/integrations-openai-ai-server";
 import { logger } from "./logger";
 
+/**
+ * El unico modelo con vision que este proyecto tiene realmente pagado.
+ *
+ * Medido contra la API el 2026-09-05: describe una imagen correctamente. Ya
+ * habia sido descartado por "contesta vacio", y el sintoma era cierto pero la
+ * causa era otra: es un modelo de razonamiento, y con poco `max_tokens` gasta
+ * todo el presupuesto en `reasoning_content` y devuelve `content` vacio. Con
+ * espacio suficiente responde bien (43 tokens de razonamiento + 6 de
+ * respuesta). Por eso este archivo pide un `max_tokens` holgado.
+ */
+const VISION_DE_RESERVA = { proveedor: "deepseek", modelo: "deepseek-v4-flash-vision-exp" };
+
 /** Modelos con vision, en orden. "proveedor|modelo" separados por coma. */
 function modelosDeVision(): Array<{ proveedor: string; modelo: string }> {
-  const crudo = process.env.VISION_MODELS
-    // Ninguno de los proveedores que ya estan en el entorno (Go, Groq) ve
-    // imagenes, asi que el defecto apunta a OpenRouter, que si tiene modelos
-    // multimodales gratuitos. Si no hay clave de OpenRouter, esto no resuelve
-    // y el flujo cae al plan B sin romperse.
-    //
-    // Estos IDs estan verificados contra el catalogo publico de OpenRouter
-    // (/api/v1/models, campo input_modalities incluye "image"). No es un
-    // detalle menor: la primera version de esta lista traia dos modelos que
-    // NO existen, y un ID inexistente falla igual de silencioso que un modelo
-    // sin vision.
-    || "openrouter|nvidia/nemotron-nano-12b-v2-vl:free,openrouter|google/gemma-4-31b-it:free";
-  return crudo
+  const configurados = String(process.env.VISION_MODELS || "")
     .split(",")
     .map((par) => par.trim())
     .filter(Boolean)
@@ -45,6 +45,17 @@ function modelosDeVision(): Array<{ proveedor: string; modelo: string }> {
       return { proveedor: par.slice(0, i).trim(), modelo: par.slice(i + 1).trim() };
     })
     .filter((p) => p.proveedor && p.modelo);
+
+  // El respaldo va SIEMPRE al final, aunque `VISION_MODELS` traiga algo.
+  // Durante semanas esa variable apunto en produccion a tres candidatos de
+  // OpenRouter y NVIDIA sin que existiera clave de ninguno de los dos (y uno
+  // de los modelos ni siquiera existia en el catalogo), asi que la lista se
+  // agotaba entera y el bot no veia una sola imagen. Una lista configurable
+  // que se puede quedar sin ninguna opcion valida necesita piso.
+  const yaEsta = configurados.some(
+    (p) => p.proveedor === VISION_DE_RESERVA.proveedor && p.modelo === VISION_DE_RESERVA.modelo,
+  );
+  return yaEsta ? configurados : [...configurados, VISION_DE_RESERVA];
 }
 
 /**
@@ -139,7 +150,7 @@ export async function describirImagen(imagen: Buffer, mime = "image/jpeg"): Prom
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${cfg.apiKey}` },
         body: JSON.stringify({
           model: modelo,
-          max_tokens: 180,
+          max_tokens: 500,
           messages: [{
             role: "user",
             content: [
