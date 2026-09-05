@@ -280,19 +280,15 @@
    ============================================================ */
 @layer utilities {
   .glass-card {
-    background: hsl(var(--card) / 0.7);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
-    border: 1px solid hsl(var(--card-border) / 0.5);
-    box-shadow: var(--shadow-md);
+    background: hsl(var(--card));
+    border: 1px solid hsl(var(--card-border));
+    box-shadow: var(--shadow-xs);
   }
 
   .glass-panel {
-    background: hsl(var(--card) / 0.6);
-    backdrop-filter: blur(16px);
-    -webkit-backdrop-filter: blur(16px);
-    border: 1px solid hsl(var(--border) / 0.4);
-    box-shadow: var(--shadow-lg);
+    background: hsl(var(--card));
+    border: 1px solid hsl(var(--border));
+    box-shadow: var(--shadow-xs);
   }
 
   .animate-enter {
