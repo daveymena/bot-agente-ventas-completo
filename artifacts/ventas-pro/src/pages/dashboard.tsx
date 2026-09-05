@@ -7,37 +7,18 @@ import {
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, Cell } from 'recharts';
 import { Layout } from "@/components/layout";
-import { Users, MessageSquare, CheckCircle, DollarSign, Activity, Percent, Clock, Smartphone, Bot, Plus, ArrowRight, Zap } from "lucide-react";
+import { Users, MessageSquare, CheckCircle, DollarSign, Activity, Percent, Clock, Smartphone, Bot, Plus, ArrowRight, Zap, AlertTriangle, TrendingUp, Phone } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { format, parseISO } from "date-fns";
 import { es } from "date-fns/locale";
 import { Link } from "wouter";
-import { Button } from "@/components/ui/button";
 import { SaasStatusBanner } from "@/components/saas-status-banner";
-import { MobileDashboard } from "@/components/mobile-dashboard";
-import { motion } from "framer-motion";
 import { HelpTourButton } from "@/components/HelpTourButton";
 import { useAutoTour } from "@/hooks/use-auto-tour";
 import { getHelpGuide } from "@/data/help-guides";
+import { useGetWhatsAppStatus, getGetWhatsAppStatusQueryKey } from "@workspace/api-client-react";
 
 const HELP_GUIDE = getHelpGuide("panel")!;
-
-function MetricCard({ title, value, icon: Icon, description, className = "" }: { title: string, value: string | number, icon: any, description?: string, className?: string }) {
-  return (
-    <Card className={`transition-shadow hover:shadow-md ${className}`}>
-      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-        <CardTitle className="text-sm font-medium text-muted-foreground">{title}</CardTitle>
-        <div className="h-9 w-9 rounded-lg bg-primary/10 text-primary flex items-center justify-center">
-          <Icon className="h-[18px] w-[18px]" />
-        </div>
-      </CardHeader>
-      <CardContent>
-        <div className="text-3xl font-semibold tracking-tight tabular-nums-all">{value}</div>
-        {description && <p className="text-xs text-muted-foreground mt-1.5 font-medium">{description}</p>}
-      </CardContent>
-    </Card>
-  );
-}
 
 export default function Dashboard() {
   const { data: summary, isLoading: loadingSummary } = useGetDashboardSummary({
@@ -56,206 +37,187 @@ export default function Dashboard() {
     query: { queryKey: getGetMessagesTimelineQueryKey(), refetchInterval: 5000 }
   });
 
+  const { data: wsStatus } = useGetWhatsAppStatus({
+    query: { refetchInterval: 5000, queryKey: getGetWhatsAppStatusQueryKey() }
+  });
+
   useAutoTour(HELP_GUIDE);
 
-const containerVariants = {
-  hidden: { opacity: 0 },
-  show: { opacity: 1, transition: { staggerChildren: 0.1 } }
-};
+  const isWhatsAppConnected = wsStatus?.state === 'connected';
 
-const itemVariants = {
-  hidden: { opacity: 0, y: 15 },
-  show: { opacity: 1, y: 0, transition: { duration: 0.4, ease: "easeOut" } }
-};
+  // Build attention items dynamically from real data
+  const attentionItems: { label: string; value: string; href: string; variant: 'warning' | 'danger' | 'info' }[] = [];
+  if (!isWhatsAppConnected) {
+    attentionItems.push({ label: "WhatsApp desconectado", value: "Reconectar", href: "/whatsapp", variant: "danger" });
+  }
+  if (summary && (summary.activeConversations ?? 0) > 0) {
+    attentionItems.push({ label: "Conversaciones activas", value: `${summary.activeConversations}`, href: "/conversations", variant: "warning" });
+  }
+  if (summary && (summary.totalLeads ?? 0) > 0) {
+    const newLeads = Array.isArray(funnel) ? funnel.find(f => f.stage === 'new')?.count : 0;
+    if (newLeads && newLeads > 0) {
+      attentionItems.push({ label: "Leads nuevos sin contactar", value: `${newLeads}`, href: "/leads", variant: "info" });
+    }
+  }
+
+  const getGreeting = () => {
+    const hour = new Date().getHours();
+    if (hour < 12) return "Buenos días";
+    if (hour < 18) return "Buenas tardes";
+    return "Buenas noches";
+  };
 
   return (
     <Layout>
-      <motion.div variants={containerVariants} initial="hidden" animate="show" className="flex flex-col gap-8">
-        
+      <div className="flex flex-col gap-6 md:gap-8">
+
         {/* SaaS Status Banner */}
-        <motion.div variants={itemVariants}><SaasStatusBanner /></motion.div>
-        
-        {/* Hero Section */}
-        <motion.div variants={itemVariants} className="flex flex-col md:flex-row gap-6 md:items-end justify-between glass-panel p-6 md:p-7 rounded-xl shadow-md border-0">
-          <div>
-            <div className="flex items-start gap-1.5">
-              <h1 className="text-2xl font-semibold tracking-tight">Hola, bienvenido de nuevo</h1>
-              <HelpTourButton guide={HELP_GUIDE} />
-            </div>
-            <p className="text-muted-foreground mt-1.5 mb-5">Aquí está el resumen de tu operación en WhatsApp.</p>
+        <SaasStatusBanner />
 
-            <div className="flex flex-wrap items-center gap-3" data-tour="dashboard-whatsapp-status">
-              {summary?.whatsappConnected ? (
-                <div className="flex items-center gap-2 bg-green-500/10 text-green-600 dark:text-green-400 px-4 py-2 rounded-full text-sm font-semibold border border-green-500/20">
-                  <span className="relative flex h-2 w-2">
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
-                    <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
+        {/* Zona 1: Greeting + North Star */}
+        <div className="flex flex-col gap-1">
+          <div className="flex items-center gap-2">
+            <h1 className="text-xl md:text-2xl font-semibold text-slate-900 tracking-tight">{getGreeting()}</h1>
+            <HelpTourButton guide={HELP_GUIDE} />
+          </div>
+          <p className="text-sm text-slate-500">Resumen de tu operación comercial</p>
+        </div>
+
+        {/* North Star: Revenue */}
+        {loadingSummary ? (
+          <Skeleton className="h-28 w-full rounded-xl" />
+        ) : summary ? (
+          <div className="bg-white border border-slate-200 rounded-xl p-5 md:p-6" data-tour="dashboard-whatsapp-status">
+            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+              <div>
+                <p className="text-sm font-medium text-slate-500 mb-1">Ingresos del mes</p>
+                <div className="flex items-baseline gap-3">
+                  <span className="text-3xl md:text-4xl font-bold text-slate-900 tracking-tight tabular-nums">
+                    ${(summary.totalRevenue ?? 0).toLocaleString()}
                   </span>
-                  WhatsApp Conectado
-                </div>
-              ) : (
-                <div className="flex items-center gap-2 bg-red-500/10 text-red-600 dark:text-red-400 px-4 py-2 rounded-full text-sm font-semibold border border-red-500/20">
-                  <span className="relative flex h-2 w-2">
-                    <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500"></span>
+                  <span className="text-sm font-medium text-slate-400">
+                    {summary.closedDeals ?? 0} tratos ganados
                   </span>
-                  WhatsApp Desconectado
                 </div>
-              )}
+              </div>
+              <div className="flex items-center gap-3" data-tour="dashboard-quick-actions">
+                <Link href="/conversations" className="inline-flex h-9 items-center justify-center rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 font-medium px-4 transition-colors gap-2 text-sm">
+                  <MessageSquare className="h-4 w-4" /> Conversaciones
+                </Link>
+                <Link href="/products" className="inline-flex h-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 font-medium px-4 transition-colors gap-2 text-sm">
+                  <Plus className="h-4 w-4" /> Crear producto
+                </Link>
+              </div>
             </div>
           </div>
-          
-          <div className="flex flex-col sm:flex-row gap-3" data-tour="dashboard-quick-actions">
-            <Link href="/agents" className="inline-flex h-10 items-center justify-center rounded-lg border border-border bg-secondary text-secondary-foreground hover:bg-muted font-medium px-5 transition-colors gap-2 text-sm">
-              <Bot className="h-4 w-4" /> Nuevo Agente
-            </Link>
-            <Link href="/products" className="inline-flex h-10 items-center justify-center rounded-lg border border-border bg-secondary text-secondary-foreground hover:bg-muted font-medium px-5 transition-colors gap-2 text-sm">
-              <Plus className="h-4 w-4" /> Crear Producto
-            </Link>
-            <Link href="/whatsapp" className="inline-flex h-10 items-center justify-center rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 font-medium px-5 transition-colors gap-2 text-sm">
-              <Smartphone className="h-4 w-4" /> Conectar WhatsApp
-            </Link>
+        ) : null}
+
+        {/* Zona 2: Requiere atención */}
+        {attentionItems.length > 0 && (
+          <div className="bg-white border border-slate-200 rounded-xl p-4 md:p-5">
+            <h2 className="text-sm font-semibold text-slate-700 mb-3 flex items-center gap-2">
+              <AlertTriangle className="h-4 w-4 text-amber-500" />
+              Requiere atención
+            </h2>
+            <div className="flex flex-col gap-2">
+              {attentionItems.map((item, idx) => (
+                <Link key={idx} href={item.href} className="group flex items-center justify-between p-3 rounded-lg hover:bg-slate-50 transition-colors">
+                  <div className="flex items-center gap-3">
+                    <div className={`w-2 h-2 rounded-full ${item.variant === 'danger' ? 'bg-red-500' : item.variant === 'warning' ? 'bg-amber-500' : 'bg-blue-500'}`} />
+                    <span className="text-sm text-slate-700">{item.label}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className={`text-sm font-semibold ${item.variant === 'danger' ? 'text-red-600' : item.variant === 'warning' ? 'text-amber-600' : 'text-blue-600'}`}>
+                      {item.value}
+                    </span>
+                    <ArrowRight className="h-4 w-4 text-slate-400 group-hover:text-slate-600 transition-colors" />
+                  </div>
+                </Link>
+              ))}
+            </div>
           </div>
-        </motion.div>
+        )}
 
-        {/* Mobile Dashboard */}
-        <motion.div variants={itemVariants}>
-          <MobileDashboard summary={summary ?? undefined} />
-        </motion.div>
-
-        {/* Main KPIs */}
+        {/* Zona 3: KPIs - Max 4 */}
         {loadingSummary ? (
-          <motion.div variants={itemVariants} className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-            {Array(4).fill(0).map((_, i) => <Skeleton key={i} className="h-36 w-full rounded-2xl glass-card border-0" />)}
-          </motion.div>
+          <div className="grid gap-3 grid-cols-2 lg:grid-cols-4">
+            {Array(4).fill(0).map((_, i) => <Skeleton key={i} className="h-24 w-full rounded-xl" />)}
+          </div>
         ) : summary ? (
-          <motion.div variants={itemVariants} className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-            <MetricCard
-              title="Ingresos del Mes"
-              value={`$${(summary?.totalRevenue ?? 0).toLocaleString()}`}
-              icon={DollarSign}
-              description="Basado en tratos ganados"
-              className="glass-card border-0"
-            />
-            <MetricCard title="Total Prospectos" value={summary?.totalLeads ?? 0} icon={Users} className="glass-card border-0" />
-            <MetricCard title="Conversaciones Activas" value={summary?.activeConversations ?? 0} icon={MessageSquare} className="glass-card border-0" />
-            <MetricCard
-              title="Tratos Ganados"
-              value={summary?.closedDeals ?? 0}
-              icon={CheckCircle}
-              className="glass-card border-0"
-            />
-          </motion.div>
+          <div className="grid gap-3 grid-cols-2 lg:grid-cols-4">
+            <KPICard title="Prospectos" value={summary.totalLeads ?? 0} icon={Users} tint="indigo" />
+            <KPICard title="Chats activos" value={summary.activeConversations ?? 0} icon={MessageSquare} tint="sky" />
+            <KPICard title="Conversión" value={`${(summary.conversionRate ?? 0).toFixed(1)}%`} icon={Percent} tint="emerald" />
+            <KPICard title="Resp. promedio" value={`${summary.avgResponseTime ?? 0}s`} icon={Clock} tint="amber" />
+          </div>
         ) : null}
 
-        {/* Secondary KPIs */}
-        {loadingSummary ? (
-          <motion.div variants={itemVariants} className="grid gap-4 md:grid-cols-3">
-            {Array(3).fill(0).map((_, i) => <Skeleton key={i} className="h-24 w-full rounded-2xl glass-panel border-0" />)}
-          </motion.div>
-        ) : summary ? (
-          <motion.div variants={itemVariants} className="grid gap-4 md:grid-cols-3">
-            <Card className="glass-panel">
-              <CardContent className="p-4 flex items-center gap-4">
-                <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center text-primary">
-                  <Percent className="h-6 w-6" />
-                </div>
-                <div>
-                  <p className="text-sm text-muted-foreground font-medium">Tasa de Conversión</p>
-                  <p className="text-2xl font-bold tabular-nums-all">{(summary?.conversionRate ?? 0).toFixed(1)}%</p>
-                </div>
-              </CardContent>
-            </Card>
-            <Card className="glass-panel">
-              <CardContent className="p-4 flex items-center gap-4">
-                <div className="w-12 h-12 rounded-full bg-accent/10 flex items-center justify-center text-accent">
-                  <Clock className="h-6 w-6" />
-                </div>
-                <div>
-                  <p className="text-sm text-muted-foreground font-medium">Tiempo de Respuesta</p>
-                  <p className="text-2xl font-bold tabular-nums-all">{summary?.avgResponseTime ?? 0}s</p>
-                </div>
-              </CardContent>
-            </Card>
-            <Card className="glass-panel">
-              <CardContent className="p-4 flex items-center gap-4">
-                <div className="w-12 h-12 rounded-full bg-blue-500/10 flex items-center justify-center text-blue-500">
-                  <Activity className="h-6 w-6" />
-                </div>
-                <div>
-                  <p className="text-sm text-muted-foreground font-medium">Mensajes Hoy</p>
-                  <p className="text-2xl font-bold tabular-nums-all">{summary?.messagesLast24h ?? 0}</p>
-                </div>
-              </CardContent>
-            </Card>
-          </motion.div>
-        ) : null}
-
-        {/* Charts Section */}
-        <motion.div variants={itemVariants} className="grid gap-6 md:grid-cols-2 lg:grid-cols-7">
-          <Card className="col-span-4 glass-panel border-0 shadow-md">
+        {/* Zona 4: Charts - Tendencia + Embudo */}
+        <div className="grid gap-4 md:gap-6 lg:grid-cols-7">
+          <Card className="lg:col-span-4 bg-white border-slate-200 shadow-none">
             <CardHeader className="pb-2">
-              <CardTitle className="text-lg">Volumen de Mensajes</CardTitle>
-              <CardDescription>Actividad entrante vs saliente en los últimos días</CardDescription>
+              <CardTitle className="text-base font-semibold text-slate-800">Volumen de mensajes</CardTitle>
+              <CardDescription className="text-slate-500">Actividad entrante vs saliente</CardDescription>
             </CardHeader>
-            <CardContent className="h-[300px]">
-              {loadingTimeline ? <Skeleton className="w-full h-full rounded-xl" /> : (
+            <CardContent className="h-[260px] md:h-[300px]">
+              {loadingTimeline ? <Skeleton className="w-full h-full rounded-lg" /> : (
                 <ResponsiveContainer width="100%" height="100%">
                   <AreaChart data={Array.isArray(timeline) ? timeline : []} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                     <defs>
                       <linearGradient id="colorIncoming" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="hsl(var(--chart-1))" stopOpacity={0.4}/>
-                        <stop offset="95%" stopColor="hsl(var(--chart-1))" stopOpacity={0}/>
+                        <stop offset="5%" stopColor="#4f46e5" stopOpacity={0.15}/>
+                        <stop offset="95%" stopColor="#4f46e5" stopOpacity={0}/>
                       </linearGradient>
                       <linearGradient id="colorOutgoing" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="hsl(var(--chart-2))" stopOpacity={0.4}/>
-                        <stop offset="95%" stopColor="hsl(var(--chart-2))" stopOpacity={0}/>
+                        <stop offset="5%" stopColor="#8b5cf6" stopOpacity={0.15}/>
+                        <stop offset="95%" stopColor="#8b5cf6" stopOpacity={0}/>
                       </linearGradient>
                     </defs>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" opacity={0.5} />
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
                     <XAxis 
                       dataKey="date" 
                       tickFormatter={(val) => format(parseISO(val), "d MMM", { locale: es })}
-                      stroke="hsl(var(--muted-foreground))"
+                      stroke="#94a3b8"
                       fontSize={12}
                       tickLine={false}
                       axisLine={false}
                       dy={10}
                     />
                     <YAxis 
-                      stroke="hsl(var(--muted-foreground))"
+                      stroke="#94a3b8"
                       fontSize={12}
                       tickLine={false}
                       axisLine={false}
                       tickFormatter={(val) => `${val}`}
                     />
                     <Tooltip 
-                      contentStyle={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))', borderRadius: '12px', boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)' }}
+                      contentStyle={{ backgroundColor: '#fff', borderColor: '#e2e8f0', borderRadius: '8px', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)' }}
                       labelFormatter={(val) => format(parseISO(val as string), "d MMM yyyy", { locale: es })}
-                      itemStyle={{ fontWeight: 600 }}
+                      itemStyle={{ fontWeight: 600, fontSize: 13 }}
                     />
-                    <Area type="monotone" dataKey="incoming" name="Entrantes" stroke="hsl(var(--chart-1))" strokeWidth={3} fillOpacity={1} fill="url(#colorIncoming)" />
-                    <Area type="monotone" dataKey="outgoing" name="Salientes" stroke="hsl(var(--chart-2))" strokeWidth={3} fillOpacity={1} fill="url(#colorOutgoing)" />
+                    <Area type="monotone" dataKey="incoming" name="Entrantes" stroke="#4f46e5" strokeWidth={2} fillOpacity={1} fill="url(#colorIncoming)" />
+                    <Area type="monotone" dataKey="outgoing" name="Salientes" stroke="#8b5cf6" strokeWidth={2} fillOpacity={1} fill="url(#colorOutgoing)" />
                   </AreaChart>
                 </ResponsiveContainer>
               )}
             </CardContent>
           </Card>
 
-          <Card className="col-span-3 glass-panel border-0 shadow-md">
+          <Card className="lg:col-span-3 bg-white border-slate-200 shadow-none">
             <CardHeader className="pb-2">
-              <CardTitle className="text-lg">Embudo de Ventas</CardTitle>
-              <CardDescription>Conversión actual por etapas</CardDescription>
+              <CardTitle className="text-base font-semibold text-slate-800">Embudo de ventas</CardTitle>
+              <CardDescription className="text-slate-500">Conversión por etapa</CardDescription>
             </CardHeader>
-            <CardContent className="h-[300px]">
-              {loadingFunnel ? <Skeleton className="w-full h-full rounded-xl" /> : (
+            <CardContent className="h-[260px] md:h-[300px]">
+              {loadingFunnel ? <Skeleton className="w-full h-full rounded-lg" /> : (
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={Array.isArray(funnel) ? funnel : []} layout="vertical" margin={{ top: 0, right: 30, left: 10, bottom: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="hsl(var(--border))" opacity={0.5} />
-                    <XAxis type="number" stroke="hsl(var(--muted-foreground))" fontSize={12} tickLine={false} axisLine={false} />
+                    <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#e2e8f0" />
+                    <XAxis type="number" stroke="#94a3b8" fontSize={12} tickLine={false} axisLine={false} />
                     <YAxis 
                       dataKey="stage" 
                       type="category" 
-                      stroke="hsl(var(--muted-foreground))" 
+                      stroke="#94a3b8" 
                       fontSize={12} 
                       tickLine={false} 
                       axisLine={false} 
@@ -268,16 +230,16 @@ const itemVariants = {
                       }}
                     />
                     <Tooltip 
-                      cursor={{fill: 'hsl(var(--muted)/0.5)'}}
-                      contentStyle={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))', borderRadius: '12px', boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)' }}
+                      cursor={{fill: '#f1f5f9'}}
+                      contentStyle={{ backgroundColor: '#fff', borderColor: '#e2e8f0', borderRadius: '8px', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)' }}
                       formatter={(value: number) => [<span className="font-bold">{value}</span>, 'Prospectos']}
                     />
-                    <Bar dataKey="count" name="Prospectos" fill="hsl(var(--primary))" radius={[0, 4, 4, 0]} barSize={24}>
+                    <Bar dataKey="count" name="Prospectos" fill="#4f46e5" radius={[0, 4, 4, 0]} barSize={20}>
                       {(Array.isArray(funnel) ? funnel : []).map((entry, index) => (
                         <Cell key={`cell-${index}`} fill={
-                          entry.stage === 'won' ? 'hsl(var(--coral))' :
-                          entry.stage === 'lost' ? 'hsl(var(--destructive)/0.5)' :
-                          `hsl(var(--primary))`
+                          entry.stage === 'won' ? '#10b981' :
+                          entry.stage === 'lost' ? '#ef4444' :
+                          '#4f46e5'
                         } />
                       ))}
                     </Bar>
@@ -286,56 +248,55 @@ const itemVariants = {
               )}
             </CardContent>
           </Card>
-        </motion.div>
+        </div>
 
-        {/* Recent Activity */}
-        <motion.div variants={itemVariants}>
-        <Card className="glass-panel border-0 shadow-md">
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
+        {/* Zona 5: Actividad reciente */}
+        <Card className="bg-white border-slate-200 shadow-none">
+          <CardHeader className="flex flex-row items-center justify-between pb-3">
             <div>
-              <CardTitle className="text-lg">Actividad Reciente</CardTitle>
-              <CardDescription>Lo que está sucediendo ahora mismo</CardDescription>
+              <CardTitle className="text-base font-semibold text-slate-800">Actividad reciente</CardTitle>
+              <CardDescription className="text-slate-500">Lo que está sucediendo ahora</CardDescription>
             </div>
-            <Link href="/conversations" className="text-sm text-primary hover:underline font-medium flex items-center gap-1" data-tour="dashboard-recent-activity">
-              Ver todas <ArrowRight className="h-4 w-4" />
+            <Link href="/conversations" className="text-sm text-indigo-600 hover:text-indigo-800 font-medium flex items-center gap-1" data-tour="dashboard-recent-activity">
+              Ver todas <ArrowRight className="h-3.5 w-3.5" />
             </Link>
           </CardHeader>
           <CardContent>
             {loadingActivity ? (
-              <div className="space-y-4">
-                {Array(4).fill(0).map((_, i) => <Skeleton key={i} className="h-16 w-full rounded-xl" />)}
+              <div className="space-y-3">
+                {Array(4).fill(0).map((_, i) => <Skeleton key={i} className="h-12 w-full rounded-lg" />)}
               </div>
-            ) : activity?.length === 0 ? (
-              <div className="text-center py-12 text-muted-foreground border rounded-xl border-dashed">
-                <Zap className="h-8 w-8 mx-auto mb-3 opacity-20" />
-                <p>No hay actividad reciente.</p>
+            ) : !activity || activity.length === 0 ? (
+              <div className="text-center py-10 text-slate-400 border rounded-lg border-dashed border-slate-200">
+                <Zap className="h-6 w-6 mx-auto mb-2 opacity-40" />
+                <p className="text-sm">No hay actividad reciente</p>
               </div>
             ) : (
-              <div className="space-y-3">
+              <div className="space-y-1">
                 {(Array.isArray(activity) ? activity : []).map((event) => {
                   let Icon = Zap;
-                  let tint = 'bg-muted text-muted-foreground';
+                  let tint = 'bg-slate-100 text-slate-500';
 
                   switch(event.type) {
-                    case 'lead_created': Icon = Users; tint = 'bg-emerald-500/10 text-emerald-600'; break;
-                    case 'deal_won': Icon = CheckCircle; tint = 'bg-primary/10 text-primary'; break;
-                    case 'deal_lost': Icon = Activity; tint = 'bg-red-500/10 text-red-600'; break;
-                    case 'message_received': Icon = MessageSquare; tint = 'bg-sky-500/10 text-sky-600'; break;
-                    case 'agent_action': Icon = Bot; tint = 'bg-primary/10 text-primary'; break;
-                    case 'handoff': Icon = ArrowRight; tint = 'bg-accent/10 text-accent'; break;
+                    case 'lead_created': Icon = Users; tint = 'bg-emerald-50 text-emerald-600'; break;
+                    case 'deal_won': Icon = CheckCircle; tint = 'bg-emerald-50 text-emerald-600'; break;
+                    case 'deal_lost': Icon = Activity; tint = 'bg-red-50 text-red-500'; break;
+                    case 'message_received': Icon = MessageSquare; tint = 'bg-sky-50 text-sky-600'; break;
+                    case 'agent_action': Icon = Bot; tint = 'bg-indigo-50 text-indigo-600'; break;
+                    case 'handoff': Icon = ArrowRight; tint = 'bg-amber-50 text-amber-600'; break;
                   }
 
                   return (
-                    <div key={event.id} className="flex items-center gap-3 p-3 rounded-lg hover:bg-muted/60 transition-colors">
-                      <div className={`shrink-0 w-9 h-9 rounded-lg flex items-center justify-center ${tint}`}>
-                        <Icon className="h-[18px] w-[18px]" />
+                    <div key={event.id} className="flex items-center gap-3 p-2.5 rounded-lg hover:bg-slate-50 transition-colors">
+                      <div className={`shrink-0 w-8 h-8 rounded-lg flex items-center justify-center ${tint}`}>
+                        <Icon className="h-4 w-4" />
                       </div>
                       <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium leading-snug truncate text-foreground">{event.description}</p>
+                        <p className="text-sm text-slate-700 leading-snug truncate">{event.description}</p>
                       </div>
-                      <div className="text-xs font-medium text-muted-foreground whitespace-nowrap">
+                      <span className="text-xs text-slate-400 whitespace-nowrap tabular-nums">
                         {format(parseISO(event.createdAt), "HH:mm", { locale: es })}
-                      </div>
+                      </span>
                     </div>
                   );
                 })}
@@ -343,8 +304,30 @@ const itemVariants = {
             )}
           </CardContent>
         </Card>
-        </motion.div>
-      </motion.div>
+      </div>
     </Layout>
+  );
+}
+
+/* KPI Card component — clean, compact */
+function KPICard({ title, value, icon: Icon, tint }: { title: string; value: string | number; icon: any; tint: string }) {
+  const colorMap: Record<string, { bg: string; text: string }> = {
+    indigo: { bg: 'bg-indigo-50', text: 'text-indigo-600' },
+    sky: { bg: 'bg-sky-50', text: 'text-sky-600' },
+    emerald: { bg: 'bg-emerald-50', text: 'text-emerald-600' },
+    amber: { bg: 'bg-amber-50', text: 'text-amber-600' },
+  };
+  const colors = colorMap[tint] || colorMap.indigo;
+  
+  return (
+    <div className="bg-white border border-slate-200 rounded-xl p-4">
+      <div className="flex items-center justify-between mb-2">
+        <span className="text-xs font-medium text-slate-500">{title}</span>
+        <div className={`w-8 h-8 rounded-lg ${colors.bg} flex items-center justify-center`}>
+          <Icon className={`w-4 h-4 ${colors.text}`} />
+        </div>
+      </div>
+      <div className="text-2xl font-bold text-slate-900 tabular-nums tracking-tight">{value}</div>
+    </div>
   );
 }

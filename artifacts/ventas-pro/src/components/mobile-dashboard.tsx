@@ -1,4 +1,4 @@
-import { Users, MessageSquare, CheckCircle, Timer, TrendingUp } from "lucide-react";
+import { Users, MessageSquare, CheckCircle, Clock } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 
 interface MobileDashboardProps {
@@ -13,88 +13,70 @@ interface MobileDashboardProps {
   };
 }
 
+/**
+ * MobileDashboard — compact view for mobile breakpoints.
+ * The main dashboard.tsx now handles both desktop + mobile layout using
+ * responsive grid, so this component only provides the revenue hero card
+ * and the 2x2 stats grid specifically for screens < md.
+ * 
+ * It's intentionally simpler than the desktop view — no charts, no
+ * activity feed on the mobile-specific component (those are shown
+ * in the unified dashboard below the fold on mobile).
+ */
 export function MobileDashboard({ summary }: MobileDashboardProps) {
   const isLoading = !summary;
 
   return (
-    <div className="flex flex-col gap-4 md:hidden">
-      {/* Income Card */}
-      <div className="bg-gradient-to-br from-indigo-600 to-indigo-700 rounded-[20px] p-5 text-white shadow-lg shadow-indigo-200">
+    <div className="flex flex-col gap-3 md:hidden">
+      {/* Income Card - clean indigo, no gradient excess */}
+      <div className="bg-indigo-600 rounded-2xl p-5 text-white">
         <div className="flex items-center justify-between mb-1">
-          <span className="text-sm font-medium text-indigo-200">Ingresos del Mes</span>
-          {isLoading ? (
-            <Skeleton className="h-5 w-12 bg-white/20 rounded-full" />
-          ) : (
-            <span className="text-[10px] font-semibold bg-white/20 px-2.5 py-1 rounded-full">+12.5%</span>
-          )}
+          <span className="text-sm font-medium text-indigo-200">Ingresos del mes</span>
         </div>
-        <div className="text-3xl font-bold tracking-tight mb-3">
-          {isLoading ? <Skeleton className="h-9 w-32 bg-white/20" /> : `$${(summary.totalRevenue || 0).toLocaleString()}`}
+        <div className="text-3xl font-bold tracking-tight mb-1">
+          {isLoading ? <Skeleton className="h-9 w-32 bg-white/20 rounded-lg" /> : `$${(summary.totalRevenue || 0).toLocaleString()}`}
         </div>
-        <div className="flex items-end justify-between">
-          <div className="flex items-center gap-1.5 text-indigo-200 text-xs font-medium">
-            <TrendingUp className="w-3.5 h-3.5" />
-            <span>+8% vs mes anterior</span>
-          </div>
-          <svg width="80" height="32" viewBox="0 0 80 32" className="opacity-70">
-            <path d="M0,24 L10,20 L20,22 L30,14 L40,16 L50,8 L60,10 L70,4 L80,6" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-            <path d="M0,24 L10,20 L20,22 L30,14 L40,16 L50,8 L60,10 L70,4 L80,6 L80,32 L0,32 Z" fill="url(#mobileSparkline)" opacity="0.2"/>
-            <defs>
-              <linearGradient id="mobileSparkline" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="white" stopOpacity="0.4"/>
-                <stop offset="100%" stopColor="white" stopOpacity="0"/>
-              </linearGradient>
-            </defs>
-          </svg>
-        </div>
+        <p className="text-xs text-indigo-200">
+          {isLoading ? null : `${summary.closedDeals || 0} tratos ganados`}
+        </p>
       </div>
 
       {/* Stats Grid */}
       <div className="grid grid-cols-2 gap-3">
-        <div className="bg-white rounded-[20px] p-4 shadow-sm border border-gray-100">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-medium text-gray-500">Prospectos</span>
-            <div className="w-8 h-8 rounded-xl bg-indigo-50 flex items-center justify-center">
-              <Users className="w-4 h-4 text-indigo-600" />
-            </div>
-          </div>
-          <div className="text-2xl font-bold text-gray-900">
-            {isLoading ? <Skeleton className="h-8 w-16" /> : summary.totalLeads}
-          </div>
+        <MiniStatCard title="Prospectos" value={isLoading ? undefined : summary.totalLeads} icon={Users} tint="indigo" isLoading={isLoading} />
+        <MiniStatCard title="Chats activos" value={isLoading ? undefined : summary.activeConversations} icon={MessageSquare} tint="sky" isLoading={isLoading} />
+        <MiniStatCard title="Tratos ganados" value={isLoading ? undefined : summary.closedDeals} icon={CheckCircle} tint="emerald" isLoading={isLoading} />
+        <MiniStatCard title="Resp. promedio" value={isLoading ? undefined : `${summary.avgResponseTime}s`} icon={Clock} tint="amber" isLoading={isLoading} />
+      </div>
+    </div>
+  );
+}
+
+function MiniStatCard({ title, value, icon: Icon, tint, isLoading }: {
+  title: string;
+  value: string | number | undefined;
+  icon: any;
+  tint: string;
+  isLoading: boolean;
+}) {
+  const tintMap: Record<string, { bg: string; icon: string }> = {
+    indigo: { bg: 'bg-indigo-50', icon: 'text-indigo-600' },
+    sky: { bg: 'bg-sky-50', icon: 'text-sky-600' },
+    emerald: { bg: 'bg-emerald-50', icon: 'text-emerald-600' },
+    amber: { bg: 'bg-amber-50', icon: 'text-amber-600' },
+  };
+  const c = tintMap[tint] || tintMap.indigo;
+
+  return (
+    <div className="bg-white rounded-xl p-4 border border-slate-200">
+      <div className="flex items-center justify-between mb-2">
+        <span className="text-xs font-medium text-slate-500">{title}</span>
+        <div className={`w-7 h-7 rounded-lg ${c.bg} flex items-center justify-center`}>
+          <Icon className={`w-3.5 h-3.5 ${c.icon}`} />
         </div>
-        <div className="bg-white rounded-[20px] p-4 shadow-sm border border-gray-100">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-medium text-gray-500">Chats activos</span>
-            <div className="w-8 h-8 rounded-xl bg-indigo-50 flex items-center justify-center">
-              <MessageSquare className="w-4 h-4 text-indigo-600" />
-            </div>
-          </div>
-          <div className="text-2xl font-bold text-gray-900">
-            {isLoading ? <Skeleton className="h-8 w-16" /> : summary.activeConversations}
-          </div>
-        </div>
-        <div className="bg-white rounded-[20px] p-4 shadow-sm border border-gray-100">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-medium text-gray-500">Tratos ganados</span>
-            <div className="w-8 h-8 rounded-xl bg-green-50 flex items-center justify-center">
-              <CheckCircle className="w-4 h-4 text-green-600" />
-            </div>
-          </div>
-          <div className="text-2xl font-bold text-gray-900">
-            {isLoading ? <Skeleton className="h-8 w-16" /> : summary.closedDeals}
-          </div>
-        </div>
-        <div className="bg-white rounded-[20px] p-4 shadow-sm border border-gray-100">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-medium text-gray-500">Respuesta</span>
-            <div className="w-8 h-8 rounded-xl bg-amber-50 flex items-center justify-center">
-              <Timer className="w-4 h-4 text-amber-600" />
-            </div>
-          </div>
-          <div className="text-2xl font-bold text-gray-900">
-            {isLoading ? <Skeleton className="h-8 w-16" /> : `${summary.avgResponseTime}s`}
-          </div>
-        </div>
+      </div>
+      <div className="text-xl font-bold text-slate-900 tabular-nums">
+        {isLoading ? <Skeleton className="h-7 w-14 rounded" /> : value}
       </div>
     </div>
   );

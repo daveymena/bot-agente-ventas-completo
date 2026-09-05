@@ -10,7 +10,16 @@ const mainNavItems = [
   { label: "Productos", href: "/products", icon: Package },
 ];
 
-const categoryGroups = [
+interface CategoryItem {
+  label: string;
+  href: string;
+  icon: any;
+  highlight?: boolean;
+  external?: boolean;
+  requiresSlug?: boolean;
+}
+
+const categoryGroups: { title: string; items: CategoryItem[] }[] = [
   {
     title: "Inteligencia",
     items: [
