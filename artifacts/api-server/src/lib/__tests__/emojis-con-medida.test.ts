@@ -82,3 +82,60 @@ describe("No rompe el texto al recortar", () => {
     expect(conEmojisMedidos(t)).toBe(t);
   });
 });
+
+/**
+ * ============================================================
+ * LA LISTA QUE LLEGO COJA A UN CLIENTE
+ * ============================================================
+ *
+ * Produccion, 2026-09-05 11:58. El dueno lo reenvio desde su WhatsApp.
+ */
+describe("una lista no es prosa: la viñeta se respeta", () => {
+  // TEXTUAL del mensaje que salio, con los ✅ que todavia tenia.
+  const LISTA = [
+    "✅ Clases paso a paso para principiantes absolutos",
+    "✅ Técnica, lectura de partituras y teoría musical",
+    "✅ Ejercicios prácticos para ambas manos",
+    "✅ Repertorio de canciones de distintos géneros",
+    "✅ Acceso de por vida al material",
+  ].join("\n");
+
+  it("los cinco ítems conservan su viñeta", () => {
+    // Antes caian el 3o, 4o y 5o por MAX_REPETIDO y por el techo de 4.
+    const r = medirEmojis(LISTA);
+    expect(r.texto.split("\n").filter((l) => l.startsWith("✅"))).toHaveLength(5);
+  });
+
+  it("ningún renglón arranca con un espacio huérfano", () => {
+    // Es lo que el cliente veia: " Ejercicios prácticos".
+    for (const linea of medirEmojis(LISTA).texto.split("\n")) {
+      expect(linea).not.toMatch(/^[ \t]/);
+    }
+  });
+
+  it("no se pierde el texto de ningún ítem", () => {
+    const r = medirEmojis(LISTA);
+    for (const t of ["Clases paso a paso", "Técnica", "Ejercicios", "Repertorio", "Acceso de por vida"]) {
+      expect(r.texto).toContain(t);
+    }
+  });
+
+  it("dentro del renglón lo que sobra se sigue quitando", () => {
+    // La exención es SOLO para la viñeta que abre; el adorno del final no.
+    // La viñeta ocupa el único cupo del renglón (MAX_POR_LINEA = 1), así que
+    // el adorno de adentro cae entero. La exención es solo para la viñeta.
+    const r = medirEmojis("✅ Clases 🎹🎹🎹 desde cero\n✅ Técnica\n✅ Repertorio");
+    expect(r.texto.split("\n")[0]).toBe("✅ Clases desde cero");
+  });
+
+  it("dos renglones NO son una lista: sigue midiéndose como prosa", () => {
+    // Con dos, el patron no esta establecido y el tope de prosa debe mandar.
+    const r = medirEmojis("🎹 Hola 🎹 qué tal 🎹 mirá 🎹 esto 🎹 acá 🎹 más");
+    expect((r.texto.match(/🎹/gu) || []).length).toBeLessThanOrEqual(2);
+  });
+
+  it("la prosa suelta no cambió de comportamiento", () => {
+    const r = medirEmojis("¡Hola! 😊 Te cuento que el curso es completo 😊 y bueno 😊 de verdad 😊");
+    expect((r.texto.match(/😊/gu) || []).length).toBeLessThanOrEqual(2);
+  });
+});

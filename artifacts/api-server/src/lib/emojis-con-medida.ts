@@ -26,7 +26,20 @@
  */
 
 /** Un emoji, incluidos los que llevan modificadores de tono o secuencias ZWJ. */
-const EMOJI = /\p{Extended_Pictographic}(️|‍\p{Extended_Pictographic}|[\u{1F3FB}-\u{1F3FF}])*/gu;
+// ⚠️ El grupo va SIN captura. Con `( )` el callback de `replace` recibe
+// (coincidencia, grupo, posición) y el tercer argumento se corre un lugar: la
+// posición llegaba como el grupo capturado, y la exención de la viñeta --que
+// necesita saber si el emoji abre el renglón-- no se activaba nunca.
+const EMOJI = /\p{Extended_Pictographic}(?:️|‍\p{Extended_Pictographic}|[\u{1F3FB}-\u{1F3FF}])*/gu;
+
+/**
+ * El emoji que ABRE un renglón, con lo que tenga delante en blanco.
+ *
+ * Es la viñeta de una lista. Se mira con su propia expresión y no con `EMOJI`
+ * porque esa es global: `test()` sobre una regex con la bandera `g` arrastra
+ * `lastIndex` entre llamadas y falla una de cada dos.
+ */
+const ANCLA = /^[ \t]*\p{Extended_Pictographic}/u;
 
 /** Cuántas veces puede aparecer el MISMO emoji en un mensaje. */
 const MAX_REPETIDO = 2;
@@ -65,13 +78,46 @@ export function medirEmojis(texto: string): Medida {
   const conTexto = lineas.filter((l) => l.trim()).length;
   const techo = techoDelMensaje(conTexto);
 
+  // ── UNA LISTA NO ES PROSA ────────────────────────────────────────────────
+  //
+  // La cabecera de este archivo ya lo dice: en una ficha "un emoji por línea es
+  // el formato correcto" y por eso no se la toca. Pero el modelo TAMBIÉN
+  // escribe listas, y a esas se les estaba aplicando el tope de la prosa.
+  //
+  // Lo que recibió un cliente el 2026-09-05 a las 11:58:
+  //
+  //   ✅ Clases paso a paso para principiantes absolutos
+  //   ✅ Técnica, lectura de partituras y teoría musical
+  //    Ejercicios prácticos para ambas manos      ← se comió la viñeta
+  //    Repertorio de canciones de distintos géneros
+  //    Acceso de por vida al material
+  //
+  // El ✅ tercero, cuarto y quinto caían por `MAX_REPETIDO`, y encima el techo
+  // del mensaje son 4 emojis. La lista quedó coja: dos ítems con viñeta y tres
+  // sin ella, cada uno arrancando con un espacio huérfano.
+  //
+  // La viñeta que abre un renglón no es adorno --es la que alinea la lista y la
+  // hace legible de un vistazo--, así que en una lista queda exenta. Lo que
+  // sobre DENTRO del renglón se sigue quitando igual.
+  const conViñeta = lineas.filter((l) => ANCLA.test(l)).length;
+  const esLista = conViñeta >= 3;
+
   const vistos = new Map<string, number>();
   let total = 0;
   let quitados = 0;
 
   const salida = lineas.map((linea) => {
     let enEstaLinea = 0;
-    return linea.replace(EMOJI, (emoji) => {
+    return linea.replace(EMOJI, (emoji, offset: number) => {
+      // ¿Es la viñeta que abre el renglón? Solo lo es si delante no hay texto.
+      const abreRenglon = enEstaLinea === 0 && !linea.slice(0, offset).trim();
+      if (esLista && abreRenglon) {
+        enEstaLinea++;
+        total++;
+        vistos.set(emoji, (vistos.get(emoji) ?? 0) + 1);
+        return emoji;
+      }
+
       const repetidas = vistos.get(emoji) ?? 0;
 
       const sobra =
@@ -108,6 +154,12 @@ export function medirEmojis(texto: string): Medida {
     .replace(/[ \t]{2,}/g, " ")
     .replace(/ +([,.;:!?])/g, "$1")
     .replace(/([¡¿])[ \t]+/g, "$1")
+    // ⚠️ Y el que queda al PRINCIPIO del renglón, que era el hueco que faltaba
+    // tapar. Al quitar el emoji de "✅ Ejercicios" queda " Ejercicios", con UN
+    // solo espacio: `[ \t]{2,}` necesita dos y `[ \t]+$` solo mira el final.
+    // Ese espacio suelto es lo que el cliente ve como renglones desalineados,
+    // y es el mismo defecto del "¡ Hola" de acá arriba en otra posición.
+    .replace(/^[ \t]+/gm, "")
     .replace(/[ \t]+$/gm, "");
 
   return { texto: limpio, quitados };

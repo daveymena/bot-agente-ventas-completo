@@ -94,3 +94,68 @@ describe("no molesta cuando el precio es correcto", () => {
     expect(verificarPrecios(t, []).texto).toBe(t);
   });
 });
+
+/**
+ * ============================================================
+ * EL HUECO DE PLANTILLA QUE LLEGO A UN CLIENTE
+ * ============================================================
+ *
+ * Produccion, 2026-09-05 11:58. El dueno lo reenvio desde su propio WhatsApp.
+ */
+describe("un marcador sin llenar no puede salir", () => {
+  it("el $X.XXX que recibio un cliente real", () => {
+    // El texto es TEXTUAL del mensaje que salio.
+    const r = verificarPrecios("💰 El valor es de $X.XXX COP (pago único)", CATALOGO);
+    expect(r.inventados.length).toBeGreaterThan(0);
+    expect(r.texto).not.toContain("X.XXX");
+  });
+
+  it("se cae solo la linea del hueco, no el mensaje entero", () => {
+    // Lo que importa: el cliente igual recibe la informacion buena.
+    const r = verificarPrecios(
+      "El Curso de Piano te lleva de cero a avanzado.\n💰 El valor es de $X.XXX COP\nAcceso de por vida.",
+      CATALOGO,
+    );
+    expect(r.texto).toContain("de cero a avanzado");
+    expect(r.texto).toContain("Acceso de por vida");
+    expect(r.texto).not.toContain("X.XXX");
+  });
+
+  it.each([
+    "El valor es de $XXX COP",
+    "Cuesta $XX.XXX pesos",
+    "El precio es [PRECIO] COP",
+    "Sale {{precio}} pesos",
+    "El valor es <PRECIO> COP",
+    "Cuesta $___ COP",
+  ])("tambien atrapa: %s", (t) => {
+    expect(verificarPrecios(t, CATALOGO).inventados.length).toBeGreaterThan(0);
+  });
+
+  it("si NO queda nada, se le promete la ficha en vez de dejarlo sin precio", () => {
+    const r = verificarPrecios("El valor es de $X.XXX COP", CATALOGO);
+    expect(r.texto).toContain("precio exacto");
+  });
+
+  it("un precio REAL sigue pasando: el candado no puede volverse paranoico", () => {
+    const r = verificarPrecios("El Curso de Piano está en $20.000 COP.", CATALOGO);
+    expect(r.inventados).toHaveLength(0);
+    expect(r.texto).toContain("$20.000");
+  });
+
+  it("la ficha real del piano pasa entera", () => {
+    // Texto TEXTUAL de la ficha que manda el servidor. Si el detector de
+    // marcadores mordiera acá, el cliente se quedaria sin la ficha.
+    const ficha = `🎹 CURSO DE PIANO COMPLETO: DE CERO A NIVEL AVANZADO
+
+Aprende a tocar piano paso a paso, desde los fundamentos hasta las técnicas avanzadas, a tu propio ritmo. Ideal para principiantes, intermedios y avanzados, para todas las edades.
+
+🎬 19 módulos en video con teoría y lenguaje musical, lectura rítmica, fraseo y expresión.
+🎵 Repertorio: 5 valses de Alberto Martínez, baladas, pop, blues y jazz.
+📱 Estudia desde tu celular o computador, donde quieras.`;
+    const r = verificarPrecios(ficha, CATALOGO);
+    expect(r.inventados).toHaveLength(0);
+    expect(r.texto).toContain("19 módulos");
+    expect(r.texto).toContain("Alberto Martínez");
+  });
+});

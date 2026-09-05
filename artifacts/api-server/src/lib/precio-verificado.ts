@@ -48,6 +48,36 @@ export interface RevisionDePrecios {
  */
 const MONTO = /\$\s?\d[\d.,]*|\b\d{1,3}(?:[.,]\d{3})+\s?(?:COP|pesos)\b/gi;
 
+/**
+ * El hueco de una plantilla que el modelo no supo llenar.
+ *
+ * ── Por qué hace falta, además de MONTO ───────────────────────────────────
+ *
+ * Producción, 2026-09-05 11:58, a un cliente real:
+ *
+ *   "💰 El valor es de $X.XXX COP (pago único)"
+ *
+ * `MONTO` exige un dígito justo detrás del `$`, y acá hay una equis. Así que el
+ * candado de precios --que verifica que el número coincida con el catálogo-- no
+ * vio NADA que verificar y dejó pasar la frase entera.
+ *
+ * Esa es la falla de fondo: el guardia buscaba números EQUIVOCADOS y un
+ * marcador no es un número equivocado, es la ausencia de número. El modelo
+ * escribe el hueco cuando no tiene el dato, y el hueco viaja hasta el cliente.
+ *
+ * Se trata igual que un precio inventado --se cae la oración-- porque para el
+ * cliente es peor: un precio falso al menos parece un precio; "$X.XXX" dice
+ * "esto lo escribió una máquina rota".
+ *
+ * ⚠️ El detector YA existía en `app-operator.ts` (para los anuncios de Atlas) y
+ * no del lado del vendedor. Mismo patrón que el diccionario de emojis y el
+ * nombre de pila: arreglado en una copia, intacto en la gemela. Va acá, dentro
+ * de la función que ya llaman `agent.ts` y `supervisor.ts`, para que las dos lo
+ * hereden sin cablear nada nuevo.
+ */
+const MARCADOR =
+  /\$\s?[Xx]+(?:[.,\s][Xx]+)*|\$\s?_{2,}|\[[^\]\n]{2,40}\]|\{\{[^}\n]{2,40}\}\}|<[A-ZÁÉÍÓÚÑ\s_]{3,30}>|\bXXX+\b/;
+
 /** "$20.000" | "20,000 COP" -> 20000. Devuelve NaN si no se puede leer. */
 export function montoANumero(txt: string): number {
   const limpio = String(txt).replace(/\$|\s|COP|pesos/gi, "").trim();
@@ -155,6 +185,14 @@ export function verificarPrecios(
   const quedan: string[] = [];
 
   for (const trozo of trozos) {
+    // El hueco de plantilla se juzga ANTES que el monto: no hay número que
+    // comparar, así que el candado de abajo lo dejaría pasar entero.
+    const hueco = trozo.match(MARCADOR);
+    if (hueco) {
+      inventados.push(hueco[0]);
+      continue; // la oracion entera no sale
+    }
+
     const montos = trozo.match(MONTO) || [];
     const malos = montos.filter((m) => {
       const n = montoANumero(m);
