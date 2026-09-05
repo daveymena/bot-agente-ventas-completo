@@ -70,7 +70,7 @@ const VINETAS = ["✅", "✅", "✅", "✅", "✅"];
  * publicidad-persuasiva.ts): el emoji que el dueño eligió para representar un
  * ítem se respeta; ✅ es solo para los que no traen ninguno.
  */
-function yaTraeEmoji(texto: string): boolean {
+export function yaTraeEmoji(texto: string): boolean {
   return /^\s*\p{Extended_Pictographic}/u.test(texto);
 }
 

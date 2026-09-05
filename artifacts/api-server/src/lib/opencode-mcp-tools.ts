@@ -1051,7 +1051,27 @@ const GRUPOS: { patron: RegExp; herramientas: string[] }[] = [
     // viajan siempre. Eso cubre el caso que reportó el admin en su momento,
     // cuando un pedido de anuncio moría con "todavía no investigaste nada".
     patron: /facebook|anuncio|campa|meta|ads?\b|publicit|p[uú]blico|audiencia|creativ/i,
-    herramientas: ["fb_status", "fb_pixel_status", "fb_suggest_audience", "fb_list_drafts", "fb_page_can_post", "fb_page_preview", "propuesta_campana"],
+    herramientas: ["fb_status", "fb_pixel_status", "fb_suggest_audience", "fb_list_drafts", "fb_page_can_post", "fb_page_preview"],
+  },
+  {
+    // ── Anuncios: VER LA PROPUESTA ANTES DE GASTAR ───────────────────────
+    //
+    // Grupo propio, y no dentro del de arriba, por una razón medida: metida en
+    // el grupo genérico de "anuncio", `propuesta_campana` viajaba TAMBIÉN en
+    // pedidos como "publicá un anuncio con presupuesto 20000 al día" -- donde
+    // el admin ya decidió y no está pidiendo ninguna propuesta.
+    //
+    // Eso llevó el pedido de crear de 2.867 a 3.208 tokens. El techo de 3.000
+    // no es un número elegido: sale de corridas medidas contra producción, y a
+    // 3.474 Atlas deja de entregar --contestó que "las imágenes eran demasiado
+    // grandes" sin que hubiera ninguna imagen, que es lo que dice un modelo al
+    // que le truncaron el contexto--. O sea que la herramienta que existe para
+    // que Atlas responda MEJOR lo estaba acercando al tamaño donde no responde.
+    //
+    // Acá viaja solo cuando de verdad se está pidiendo ver algo antes de
+    // gastar: "mostrame la estrategia", "qué propondrías", "antes de invertir".
+    patron: /propuesta|propon|estrategia|[aá]ngulo|antes de (gastar|invertir|pagar|publicar|crear)|mostr[aá](me)?|ense[ñn][aá](me)?|c[oó]mo lo ver[ií]as|qu[eé] har[ií]as/i,
+    herramientas: ["propuesta_campana", "list_products"],
   },
   {
     // ── Anuncios: ANALIZAR ───────────────────────────────────────────────
