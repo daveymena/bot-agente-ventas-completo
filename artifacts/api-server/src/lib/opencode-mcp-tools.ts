@@ -167,6 +167,15 @@ const TOOL_SCHEMAS: Record<string, object> = {
     required: ["productId"],
     additionalProperties: false,
   },
+  propuesta_campana: {
+    type: "object",
+    properties: {
+      productId: { type: "number", description: "Id real del producto, sacado de list_products" },
+      objetivo: { type: "string", enum: ["trafico", "ventas", "mensajes", "reconocimiento"], description: "Destino de la propuesta; por defecto trafico" },
+    },
+    required: ["productId"],
+    additionalProperties: false,
+  },
   fb_pixel_status: { type: "object", properties: {}, additionalProperties: false },
   // Faltaba, y caía al esquema genérico. Ese genérico es `additionalProperties:
   // true` pero SIN `properties`, así que Atlas no tenía cómo saber que existe
@@ -1042,7 +1051,7 @@ const GRUPOS: { patron: RegExp; herramientas: string[] }[] = [
     // viajan siempre. Eso cubre el caso que reportó el admin en su momento,
     // cuando un pedido de anuncio moría con "todavía no investigaste nada".
     patron: /facebook|anuncio|campa|meta|ads?\b|publicit|p[uú]blico|audiencia|creativ/i,
-    herramientas: ["fb_status", "fb_pixel_status", "fb_suggest_audience", "fb_list_drafts", "fb_page_can_post", "fb_page_preview"],
+    herramientas: ["fb_status", "fb_pixel_status", "fb_suggest_audience", "fb_list_drafts", "fb_page_can_post", "fb_page_preview", "propuesta_campana"],
   },
   {
     // ── Anuncios: ANALIZAR ───────────────────────────────────────────────
@@ -1076,14 +1085,14 @@ const GRUPOS: { patron: RegExp; herramientas: string[] }[] = [
   },
   {
     patron: /copy|texto|redact|descripci|t[ií]tulo/i,
-    herramientas: ["ad_brief", "optimize_copy", "reason_business_decision"],
+    herramientas: ["ad_brief", "propuesta_campana", "optimize_copy", "reason_business_decision"],
   },
   {
     // Contenido organico y estrategia. Va aparte del grupo de anuncios porque
     // un plan de publicaciones no toca Meta ni gasta: es lo que una agencia
     // entrega ANTES de pautar.
     patron: /contenido|publicacion|publicar|org[aá]nic|calendario|estrategia|agencia|redes|instagram|posteo|postear/i,
-    herramientas: ["plan_de_contenido", "list_products", "marketing_aprendizajes"],
+    herramientas: ["plan_de_contenido", "propuesta_campana", "list_products", "marketing_aprendizajes"],
   },
 ];
 

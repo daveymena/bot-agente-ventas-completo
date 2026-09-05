@@ -2747,6 +2747,31 @@ Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vincu
     },
   },
   {
+    name: "propuesta_campana",
+    description: "VISTA PREVIA PROFESIONAL DE CAMPAÑA. Úsala cuando el admin pida ver primero la estrategia, el copy, el plan, la segmentación o cómo quedaría un anuncio ANTES de confirmar o definir presupuesto. Es lectura pura: no crea borradores, no toca Meta y no gasta. Devuelve una propuesta ordenada basada SOLO en los datos reales del producto: estrategia, público inicial, tres copys distintos, idea visual, plan de prueba y lo que falta para poder publicar. Nunca reemplaces esta herramienta por texto improvisado.",
+    args: '{ "productId": number (req), "objetivo"?: "trafico"|"ventas"|"mensajes"|"reconocimiento" (por defecto "trafico") }',
+    run: async (args, ctx) => {
+      const id = num(args.productId);
+      if (!Number.isInteger(id) || (id as number) <= 0 || (id as number) > 2_147_483_647) {
+        return { ok: false, summary: "Falta un 'productId' real (un entero positivo del catálogo). Sacalo con list_products." };
+      }
+      const [prod] = await db.select().from(products).where(and(eq(products.id, id!), eq(products.tenantId, ctx.tenantId))).limit(1);
+      if (!prod) return { ok: false, summary: `No encontré el producto ${id} en esta tienda.` };
+
+      const pedido = String(args.objetivo || "trafico").toLowerCase();
+      const objetivo = /mensaje|whatsapp/.test(pedido)
+        ? "mensajes"
+        : /venta|compr/.test(pedido)
+          ? "ventas"
+          : /reconoc|alcance/.test(pedido)
+            ? "reconocimiento"
+            : "trafico";
+      const { generarPropuestaDeCampana } = await import("./propuesta-campana");
+      const propuesta = generarPropuestaDeCampana(prod as any, objetivo);
+      return { ok: true, summary: propuesta.texto, data: propuesta };
+    },
+  },
+  {
     name: "ad_brief",
     description: "EL PRIMER PASO OBLIGATORIO ANTES DE ESCRIBIR CUALQUIER ANUNCIO. Lectura pura, no cambia nada, no gasta nada, tarda milisegundos. " +
       "Te devuelve el brief profesional del producto armado con sus datos REALES: qué podés afirmar (características, precio, destacado), " +
@@ -5476,6 +5501,9 @@ export const READ_ONLY_TOOLS = new Set([
   // -- si tuviera que pasar por una confirmación, no lo usaría antes de
   // escribir y volveríamos al escribir-y-rebotar.
   "ad_brief",
+  // Permite ver una propuesta completa antes de definir presupuesto o tocar
+  // Meta. Es información, no una campaña ni un borrador persistido.
+  "propuesta_campana",
   // Agente de anuncios: leer logs y métricas no cambia nada (solo consulta)
   "fb_agent_logs", "fb_campaign_metrics",
   // Atribución real (CAC/ROAS cruzando anuncios con pagos cobrados): es una
@@ -5780,6 +5808,13 @@ Cada una de estas se rompió de verdad en pruebas reales. No son teoría.
    Y si preguntás, PREGUNTÁ SOLO: no propongas un plan en el mismo mensaje
    donde estás pidiendo el dato que te falta -- es contradictorio y el admin
    no sabe si le estás preguntando o pidiéndole que confirme algo.
+
+   EXCEPCIÓN IMPORTANTE: si el admin pide VER primero la estrategia, el copy,
+   el plan, la segmentación o cómo quedaría el anuncio, NO necesitás presupuesto
+   ni confirmación para darle una propuesta. Primero llamá list_products y luego
+   propuesta_campana. Entregá su resultado completo y ordenado; solo al final
+   pedí el presupuesto diario y la variante elegida. No redactes esa propuesta a
+   mano ni afirmes que investigaste si no hubo investigación real.
 
 6️⃣ Cuando no tenés algo, decilo. Sin adornos.
    "No encontré resultados", "esto no lo verifiqué", "no tengo ese dato" son
