@@ -304,9 +304,27 @@ export default function LandingStudioV2() {
                     <button key={f.value}
                       onClick={async () => { setFamilia(f.value); if (landingId) await cargarPreview(landingId, f.value); }}
                       aria-pressed={activa}
-                      className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium transition-all ${activa ? "border-transparent text-white shadow-sm" : "border-border bg-background text-muted-foreground hover:border-primary/40 hover:text-foreground"}`}
-                      style={activa ? { backgroundColor: f.color } : {}}>
-                      <span className="h-2 w-2 rounded-full ring-1 ring-black/5" style={{ backgroundColor: f.color }} />
+                      /* ⚠️ Antes la pastilla ACTIVA se rellenaba entera con el color de
+                         la familia y TODAS mostraban su punto de color. Con doce
+                         familias eso son doce colores compitiendo en una fila --
+                         incluido un lima #C8FF3D y un rojo #E5342A-- y el resultado
+                         es una barra que grita. El dueno lo dijo asi: "quedo igual de
+                         feo, todo contrastado".
+
+                         Va contra la direccion que el propio repo fijo en CLAUDE.md
+                         ("Calm Sales OS: menos ruido, jerarquia fuerte"): el color
+                         tiene que senalar UNA cosa --cual esta elegida-- no pintar
+                         las doce.
+
+                         Ahora la activa usa el fondo neutro del sistema y el color
+                         aparece SOLO en su punto. Se lee de un vistazo cual esta
+                         puesta, sin que la barra pelee con la vista previa que esta
+                         al lado, que es lo que el admin de verdad tiene que mirar. */
+                      className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] transition-colors ${activa ? "border-foreground/15 bg-muted font-semibold text-foreground" : "border-transparent text-muted-foreground hover:bg-muted/60 hover:text-foreground"}`}>
+                      <span
+                        className={`h-1.5 w-1.5 rounded-full transition-opacity ${activa ? "opacity-100" : "opacity-0"}`}
+                        style={{ backgroundColor: f.color }}
+                      />
                       {f.label}
                     </button>
                   );
@@ -368,21 +386,21 @@ export default function LandingStudioV2() {
 
           {/* Panel derecho: escenario de vista previa */}
           <main
-            className={`min-h-0 min-w-0 flex-1 flex-col bg-slate-950 lg:flex ${
+            className={`min-h-0 min-w-0 flex-1 flex-col bg-muted/40 lg:flex ${
               panelMovil === "preview" ? "flex" : "hidden"
             }`}
           >
             {/* Barra tipo navegador */}
-            <div className="flex shrink-0 items-center gap-2 border-b border-slate-800 bg-slate-900 px-3 py-2">
+            <div className="flex shrink-0 items-center gap-2 border-b border-border bg-background px-3 py-2">
               <div className="flex gap-1.5">
-                <span className="h-2.5 w-2.5 rounded-full bg-red-500/70" />
-                <span className="h-2.5 w-2.5 rounded-full bg-yellow-500/70" />
-                <span className="h-2.5 w-2.5 rounded-full bg-green-500/70" />
+                <span className="h-2.5 w-2.5 rounded-full bg-muted-foreground/25" />
+                <span className="h-2.5 w-2.5 rounded-full bg-muted-foreground/25" />
+                <span className="h-2.5 w-2.5 rounded-full bg-muted-foreground/25" />
               </div>
-              <div className="flex-1 truncate rounded-md bg-slate-800 px-2.5 py-1 text-[10px] text-slate-400">
+              <div className="flex-1 truncate rounded-md bg-muted px-2.5 py-1 text-[10px] text-muted-foreground">
                 {landingId ? `ventasproia.com/landing/${landingId}` : "vista previa — genera una landing para comenzar"}
               </div>
-              <Badge variant="outline" className="hidden h-5 border-slate-700 bg-slate-800/50 text-[10px] text-slate-300 sm:flex">
+              <Badge variant="outline" className="hidden h-5 text-[10px] text-muted-foreground sm:flex">
                 {FAMILIAS.find(f => f.value === familia)?.label}
               </Badge>
               <span className="hidden items-center gap-1 text-[10px] text-slate-500 md:flex">
@@ -393,7 +411,7 @@ export default function LandingStudioV2() {
             {/* Escenario */}
             <div className={`relative min-h-0 flex-1 overflow-auto ${previewMode === "mobile" ? "flex items-start justify-center p-4 sm:p-8" : ""}`}>
               {previewBusy && (
-                <div className="absolute inset-0 z-10 flex items-center justify-center bg-slate-950/70 backdrop-blur-sm">
+                <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/70 backdrop-blur-sm">
                   <div className="flex flex-col items-center gap-2 text-slate-300">
                     <Loader2 className="h-7 w-7 animate-spin text-indigo-400" />
                     <span className="text-xs">Renderizando…</span>
@@ -406,7 +424,7 @@ export default function LandingStudioV2() {
                   perdería el HTML ya escrito (el efecto solo reescribe cuando
                   cambia previewHtml, no previewMode). */}
               <div className={previewMode === "mobile"
-                ? "relative h-full max-h-[820px] w-full max-w-[380px] overflow-hidden rounded-[2.25rem] border-[6px] border-slate-800 bg-black shadow-2xl"
+                ? "relative h-full max-h-[820px] w-full max-w-[380px] overflow-hidden rounded-[2.25rem] border-[6px] border-foreground/15 bg-black shadow-2xl"
                 : "h-full w-full"}>
                 <iframe ref={iframeRef} title="Vista previa de la landing"
                   className="block h-full w-full border-0 bg-white"
