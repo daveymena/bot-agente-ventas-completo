@@ -118,7 +118,7 @@ export default function LandingStudioPage() {
   };
 
   const removeSelected = () => {
-    if (sections.length <= 1) return toast.error("La landing necesita al menos una sección.");
+    if (sections.length <= 1) { toast.error("La landing necesita al menos una sección."); return; }
     const index = sections.findIndex((section) => section.id === selected.id);
     const next = sections.filter((section) => section.id !== selected.id);
     setSections(next);

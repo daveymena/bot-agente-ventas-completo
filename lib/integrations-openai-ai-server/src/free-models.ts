@@ -32,13 +32,9 @@ export const MODELOS_LIBRES: ModeloLibre[] = [
   // ⚠️ max_tokens IMPORTA: con 20-30 tokens, los modelos de razonamiento
   // agotan el presupuesto "pensando" y devuelven content vacío. Aparentan
   // estar rotos y no lo están. Pide 2000 o más.
-  { proveedor: "opencode", modelo: "nemotron-3-ultra-free", especialidad: "razonar", estado: "verificado", nota: "el más rápido: ~1,1 s" },
-  { proveedor: "opencode", modelo: "ling-3.0-flash-free", especialidad: "rapido", estado: "verificado", nota: "~1,2 s" },
-  { proveedor: "opencode", modelo: "north-mini-code-free", especialidad: "codigo", estado: "verificado", nota: "~2,1 s · necesita max_tokens alto" },
-  { proveedor: "opencode", modelo: "mimo-v2.5-free", especialidad: "general", estado: "verificado", nota: "~2,6 s" },
-  { proveedor: "opencode", modelo: "big-pickle", especialidad: "general", estado: "verificado", nota: "~2,8 s" },
-  { proveedor: "opencode", modelo: "deepseek-v4-flash-free", especialidad: "rapido", estado: "verificado", nota: "~2,9 s · necesita max_tokens alto" },
-  { proveedor: "opencode", modelo: "laguna-s-2.1-free", especialidad: "general", estado: "verificado", nota: "~6,4 s, el más lento" },
+  { proveedor: "opencode", modelo: "gpt-5.6-luna", especialidad: "general", estado: "verificado", nota: "modelo actual disponible" },
+  { proveedor: "opencode", modelo: "gpt-5.6-sol", especialidad: "razonar", estado: "verificado", nota: "modelo actual disponible" },
+  { proveedor: "opencode", modelo: "gpt-5.6-terra", especialidad: "rapido", estado: "verificado", nota: "modelo actual disponible" },
 
   // ── Groq (clave GROQ_API_KEY, ya configurada) ── 14.400 req/día ────────────
   // ⚠️ Catalogo contrastado contra su API el 2026-08-27: los llama-3.x y

@@ -151,9 +151,12 @@ export default function LandingStudioV2() {
   }, [input, busy, productId, generarLanding, aplicarComando]);
 
   const exportar = useCallback(async () => {
-    if (!landingId) return toast.info("Primero genera una landing.");
+    // `return toast.info(...)` devolvia el id del toast mientras el resto de
+    // la funcion no devuelve nada: dos tipos de retorno en la misma funcion.
+    // Avisar y cortar son dos cosas, y se escriben como dos cosas.
+    if (!landingId) { toast.info("Primero genera una landing."); return; }
     const r = await fetch(`/api/landing-pages/${landingId}/render?familia=${familia}`, { credentials: "include" });
-    if (!r.ok) return toast.error("Error al exportar");
+    if (!r.ok) { toast.error("Error al exportar"); return; }
     const a = document.createElement("a");
     a.href = URL.createObjectURL(new Blob([await r.text()], { type: "text/html" }));
     a.download = `landing-${landingId}.html`; a.click();

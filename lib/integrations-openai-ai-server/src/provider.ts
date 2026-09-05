@@ -7,8 +7,8 @@ export interface AIProviderConfig {
   defaultHeaders?: Record<string, string>;
 }
 
-const ZEN_DIRECT_BASE_URL = "https://opencode.ai/zen/v1";
-const ZEN_DEFAULT_FREE_MODEL = "nemotron-3-ultra-free";
+const ZEN_DIRECT_BASE_URL = "https://api.freemodel.dev/v1";
+const ZEN_DEFAULT_FREE_MODEL = "gpt-5.6-luna";
 
 /**
  * Orden de rotación de los modelos gratuitos de OpenCode Zen.
@@ -26,13 +26,9 @@ const ZEN_DEFAULT_FREE_MODEL = "nemotron-3-ultra-free";
  * y devuelven content vacío. Con 2000+ responden bien.
  */
 const ZEN_ROTATION = [
-  "nemotron-3-ultra-free",   // ~1,1 s
-  "ling-3.0-flash-free",     // ~1,2 s
-  "north-mini-code-free",    // ~2,1 s
-  "mimo-v2.5-free",          // ~2,6 s
-  "big-pickle",              // ~2,8 s
-  "deepseek-v4-flash-free",  // ~2,9 s
-  "laguna-s-2.1-free",       // ~6,4 s
+  "gpt-5.6-luna",
+  "gpt-5.6-sol",
+  "gpt-5.6-terra"
 ];
 
 /** Modelos de Zen a probar, en orden: primero el configurado, luego el resto. */
