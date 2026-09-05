@@ -140,13 +140,6 @@ export function getBrandVoice(agentMetadata?: Record<string, any> | null, settin
     : voice;
 }
 
-/**
- * Formato visual HUMANO para WhatsApp.
- *
- * No agrega decoraciones a la fuerza. Lee el contenido que ya produjo el
- * agente y le da ritmo: aperturas menos mecánicas, aire entre ideas y
- * presentación natural de respuestas de precio/datos puntuales.
- */
 function hashTexto(texto: string): number {
   let h = 2166136261;
   for (let i = 0; i < texto.length; i++) {
@@ -156,11 +149,14 @@ function hashTexto(texto: string): number {
   return h >>> 0;
 }
 
+/**
+ * Postprocesamiento conversacional. No inventa datos: solo mejora ritmo,
+ * espacios y presentación de información que ya fue redactada.
+ */
 function humanizarWhatsApp(content: string, voice: BrandVoice): string {
   let result = content.trim();
   if (!result) return result;
 
-  // Elimina aperturas de plantilla sin alterar el significado posterior.
   const aperturas = [
     "Claro que sí!", "Claro que sí.", "Claro que sí 😊", "¡Claro que sí!",
     "Perfecto!", "Perfecto.", "¡Perfecto!", "Genial!", "Genial.", "¡Genial!",
@@ -174,21 +170,43 @@ function humanizarWhatsApp(content: string, voice: BrandVoice): string {
     }
   }
 
-  // Si el modelo entregó varias ideas en un solo párrafo, dales aire sin
-  // convertir todo en una lista artificial.
   result = result.replace(/\n{3,}/g, "\n\n");
   result = result.replace(/[ \t]+([,.;!?])/g, "$1");
   result = result.replace(/([¡¿])[ \t]+/g, "$1");
 
-  // Precio puntual: se mantiene conversacional; no se envuelve siempre en
-  // encabezados ni separadores. El emoji solo aparece si ya lo puso el agente.
-  const soloPrecio = /^(?:💰\s*)?(?:\*?\$[\d.,]+\s*(?:COP|USD|EUR)?\*?)(?:\s*[.!])?$/i.test(result);
-  if (soloPrecio && !result.startsWith("💰")) {
-    const formas = ["💰 ", ""];
+  // Si la IA entregó dos o más oraciones en una sola línea, damos aire sin
+  // convertir la respuesta en una lista. Esto hace que WhatsApp se sienta
+  // escrito en el momento, especialmente para precio + condición de acceso.
+  if (!result.includes("\n") && (result.match(/[.!?](?:\s|$)/g) || []).length >= 2 && result.length > 70) {
+    const cortes = result.split(/(?<=[.!?])\s+(?=[A-ZÁÉÍÓÚÑ¿¡])/u);
+    if (cortes.length >= 2 && cortes.length <= 4) {
+      result = cortes.join("\n\n");
+    }
+  }
+
+  // Anclas visuales solo cuando el texto ya contiene el concepto. Nunca se
+  // inventa una promesa ni se transforma un producto físico en digital.
+  const tieneEmoji = /\p{Extended_Pictographic}/u.test(result);
+  if (!tieneEmoji) {
+    if (/\$\s*[\d.,]+\s*(?:COP|USD|EUR)?/i.test(result)) {
+      result = `${voice.emojis.price} ${result}`;
+    } else if (/\bgarant[ií]a\b|\breembolso\b|\bdevoluci[oó]n\b/i.test(result)) {
+      result = `${voice.emojis.guarantee} ${result}`;
+    } else if (/\bpagar\b|\bpago\b|\btransferencia\b|\bnequi\b|\bdaviplata\b/i.test(result)) {
+      result = `${voice.emojis.payment} ${result}`;
+    } else if (/\b100%\s*digital\b|\bacceso inmediato\b|\brecibes el acceso\b/i.test(result)) {
+      result = `${voice.emojis.delivery} ${result}`;
+    }
+  }
+
+  const soloPrecio = /^(?:💰\s*|🏷️\s*)?(?:\*?\$[\d.,]+\s*(?:COP|USD|EUR)?\*?)(?:\s*[.!])?$/i.test(result);
+  if (soloPrecio && !/^[💰🏷️]/u.test(result)) {
+    const formas = ["💰 ", "🏷️ ", ""];
     result = formas[hashTexto(result) % formas.length] + result;
   }
 
-  // Evita cierres robóticos repetidos cuando la respuesta ya entregó el dato.
+  // Evita cierres que fuerzan al cliente a responder cuando ya recibió el
+  // dato solicitado. El siguiente turno lo decide el cliente.
   result = result.replace(/\n?¿(?:te|quieres) (?:paso|muestro) (?:el )?precio\?\s*$/i, "");
   result = result.replace(/\n?¿(?:te|quieres) (?:que )?te muestro cómo es por dentro\?\s*$/i, "");
 
@@ -198,7 +216,6 @@ function humanizarWhatsApp(content: string, voice: BrandVoice): string {
 export function formatWithBrandVoice(content: string, voice: BrandVoice, options: { addSeparator?: boolean; addSignature?: boolean; isImportant?: boolean } = {}): string {
   let result = humanizarWhatsApp(content, voice);
 
-  // Los separadores/firma quedan bajo control explícito del llamador.
   if (options.isImportant && options.addSeparator) {
     const sep = voice.separatorChar.repeat(voice.separatorLength);
     result = `${sep}\n${result}\n${sep}`;
