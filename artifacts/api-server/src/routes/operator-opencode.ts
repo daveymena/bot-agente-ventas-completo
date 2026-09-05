@@ -1346,7 +1346,20 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
         // consulta de competencia, de mercado, de tendencias): ahí el hallazgo
         // ES la respuesta, y sin él no hay nada que contestar.
         const investigar = !PIDE_EJECUTAR;
-        const PRESUPUESTO_INVESTIGACION_MS = 70_000;
+        // ── El tope de la investigación, medido ────────────────────────────
+        //
+        // Eran 70.000 ms. Medido el 2026-09-05 contra la red real, la búsqueda
+        // web tarda 2.703 ms y devuelve 8 resultados. El tope era 25 VECES lo
+        // que el trabajo cuesta.
+        //
+        // Un tope no cuesta tiempo mientras todo ande: solo se paga cuando algo
+        // se cuelga. Pero ahí es donde importa -- si la Biblioteca de Anuncios
+        // de Facebook deja de responder, Atlas esperaba 70 segundos antes de
+        // rendirse, y el admin veía un turno muerto sin saber por qué.
+        //
+        // 25s deja 9 veces el margen de lo medido: alcanza de sobra para un día
+        // lento y corta rápido cuando de verdad no hay respuesta.
+        const PRESUPUESTO_INVESTIGACION_MS = 25_000;
         if (!investigar) {
           // Se le dice al modelo, para que no prometa una investigación que no
           // va a llegar ni afirme haberla hecho -- el guardián de más abajo lo

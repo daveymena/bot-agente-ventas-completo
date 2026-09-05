@@ -1124,8 +1124,40 @@ const GRUPOS: { patron: RegExp; herramientas: string[] }[] = [
 // específico, el admin lo va a nombrar y ahí sí matchea su grupo.
 const GENERAL_EXTRA = ["whatsapp_status", "payment_status", "fb_status", "list_recent_conversations"];
 
+/**
+ * Charla pura: un saludo, un "dale", un "gracias".
+ *
+ * ⚠️ Medido el 2026-09-05: un "hola" viajaba con 14 herramientas y ~2.688
+ * tokens de esquemas --el catálogo, el estado de Facebook, el de WhatsApp, el
+ * buscador web-- para contestar "¡hola! ¿en qué te ayudo?". Nada de eso se usa
+ * para saludar, y es texto que el modelo lee antes de poder responder.
+ *
+ * Pasaba porque cuando ningún grupo matchea se asume "no sé qué quiere, le
+ * mando de todo por si acaso" (GENERAL_EXTRA). Para una pregunta rara eso está
+ * bien; para un saludo es puro peso.
+ *
+ * Los criterios son deliberadamente ESTRECHOS: corto, sin signo de pregunta y
+ * sin ningún verbo de pedido. "Hola" entra; "hola, cuántos productos tengo?"
+ * no, porque trae una pregunta de verdad. Ante la menor duda se manda todo,
+ * que es el comportamiento de siempre -- quedarse sin una herramienta que
+ * hacía falta cuesta mucho más que unos tokens de más.
+ */
+const SOLO_SALUDO =
+  /^(hola|holi|buenas|buen[oa]s? (d[ií]as|tardes|noches)|q(ue|é) tal|como (va|est[aá]s)|c[oó]mo (va|est[aá]s)|hey|ey|gracias|mil gracias|dale|ok|oka|okey|listo|perfecto|genial|barbaro|b[aá]rbaro|(?:ja|je|ha|je){2,}|hasta luego|chau|adios|adi[oó]s|buenas noches)[\s!.,¡]*$/i;
+
+export function esCharlaPura(pedido?: string): boolean {
+  const t = String(pedido || "").trim();
+  if (!t || t.length > 30) return false;
+  if (/[?¿]/.test(t)) return false;
+  return SOLO_SALUDO.test(t);
+}
+
+/** Lo mínimo para conversar: saludar y, si hace falta, proponer algo. */
+const PARA_CHARLAR = ["dashboard_summary", "propose_action"];
+
 function herramientasRelevantes(pedido?: string): Set<string> | null {
   if (!pedido || pedido.trim().length < 3) return null; // sin pista real: mandar todas
+  if (esCharlaPura(pedido)) return new Set(PARA_CHARLAR);
   const activos = GRUPOS.filter((g) => g.patron.test(pedido));
   const set = new Set(NUCLEO);
   if (activos.length === 0) {
