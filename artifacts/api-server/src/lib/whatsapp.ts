@@ -2456,18 +2456,31 @@ export class WhatsAppManager {
 
     // Y por correo, que es el respaldo cuando el admin no tiene el WhatsApp a
     // mano. Si el SMTP no está configurado, esto no rompe nada.
+    //
+    // El destinatario se resuelve en cascada: el email del NEGOCIO primero, y
+    // si el negocio no cargó uno, el EMAIL_TO del entorno. Antes esto solo
+    // miraba `t.email`, así que un negocio sin email en su ficha NO recibía el
+    // comprobante por correo aunque el dueño hubiera cargado EMAIL_TO en el
+    // entorno -- el aviso quedaba solo en WhatsApp y, si el admin no lo tenía a
+    // mano, el comprobante se pudría sin revisar.
     try {
       const { credencialesEmailDe } = await import("./tenant-email-credentials");
       const { enviarCorreoSimple } = await import("./email");
       const [t] = await db.select().from(tenants).where(eq(tenants.id, this.currentTenant.id)).limit(1);
-      if (t?.email) {
+      const destinatario =
+        String((t as any)?.email || "").trim() ||
+        String(process.env.EMAIL_TO || "").trim() ||
+        String(process.env.EMAIL_FROM || "").trim();
+      if (destinatario) {
         await enviarCorreoSimple(
-          t.email,
+          destinatario,
           `💸 Comprobante para revisar — ${pushName || phone}`,
           aviso.replace(/\*/g, ""),
           credencialesEmailDe(this.currentTenant as any),
           proofUrl ? [{ filename: `comprobante-${pagoId}.jpg`, content: buf }] : undefined,
         );
+      } else {
+        console.warn("[Pago] Sin email de admin configurado: el comprobante solo quedó en WhatsApp");
       }
     } catch (e: any) {
       console.error(`[Pago] no se pudo avisar al admin por correo: ${e?.message}`);
