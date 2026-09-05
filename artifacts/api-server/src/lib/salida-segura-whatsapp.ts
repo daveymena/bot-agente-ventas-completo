@@ -1,17 +1,8 @@
 /**
  * Última barrera antes de que una respuesta llegue al cliente.
  *
- * El vendedor tiene caminos deterministas y caminos de IA. No importa de dónde
- * venga una parte: antes de salir por WhatsApp debe cumplir las mismas reglas.
- *
- * Esta capa NO decide la estrategia comercial. Solo evita que lleguen:
- * - placeholders de plantilla
- * - promesas de recursos que no viajan en el mismo envío
- * - mensajes vacíos o bullets huérfanos
- * - duplicados exactos dentro de una misma respuesta
- *
- * La información exacta (precio, enlaces, cuentas, producto) sigue viniendo
- * de las fuentes de verdad existentes; este módulo nunca inventa datos.
+ * Esta capa no decide la estrategia comercial. Solo evita que una respuesta
+ * insegura llegue a WhatsApp cuando otra capa se haya equivocado.
  */
 
 export type SalidaPart = {
@@ -33,8 +24,50 @@ const CLAIMS: Array<{ pattern: RegExp; key: string }> = [
   { pattern: /(?:te\s+)?(?:paso|dejo|mando).*\b(?:tienda|enlace de la tienda)\b/i, key: "tienda" },
 ];
 
+// Frases que describen entrega física. Se conservan para productos físicos,
+// pero si el propio texto habla de un curso/acceso digital, son incompatibles.
+const ENTREGA_FISICA = /\b(?:pago\s+contra\s*entrega|contra\s*entrega|pagas?\s+(?:en\s+)?efectivo\s+(?:al|cuando)\s+(?:recib\w+|lleg\w+)|pago\s+en\s+efectivo\s+al\s+recibir|paquete\s+(?:a\s+tu\s+)?puerta|transportadora|mensajero|3\s+a\s+5\s+d[ií]as\s+h[aá]biles)\b/i;
+const CONTEXTO_DIGITAL = /\b(?:curso|formaci[oó]n|m[oó]dulo|clase|acceso|digital|online|video|enlace|descargable|contenido)\b/i;
+
 function normalize(s: string): string {
   return String(s || "").replace(/\r\n/g, "\n").trim();
+}
+
+function corregirEntregaFisicaEnDigital(texto: string): { text: string; removed: string[] } {
+  const original = normalize(texto);
+  if (!original || !ENTREGA_FISICA.test(original) || !CONTEXTO_DIGITAL.test(original)) {
+    return { text: original, removed: [] };
+  }
+
+  const removed: string[] = [];
+  const lineas = original.split("\n");
+  const quedan: string[] = [];
+  for (const linea of lineas) {
+    if (ENTREGA_FISICA.test(linea)) {
+      removed.push(linea.trim());
+      continue;
+    }
+    quedan.push(linea);
+  }
+
+  let text = quedan.join("\n");
+  // Si la frase física está mezclada dentro de un párrafo, quítala sin borrar
+  // el resto del argumento comercial.
+  text = text
+    .replace(/(?:pago\s+contra\s*entrega|contra\s*entrega|pagas?\s+(?:en\s+)?efectivo\s+(?:al|cuando)\s+(?:recib\w+|lleg\w+)|pago\s+en\s+efectivo\s+al\s+recibir)/gi, "")
+    .replace(/(?:pago\s+contra\s*entrega|contra\s*entrega)[^.!?]*(?:[.!?]|$)/gi, "")
+    .replace(/[ \t]{2,}/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+
+  // Nunca dejamos un texto mutilado que siga prometiendo recibir un paquete.
+  if (!text || /\b(?:paquete|transportadora|mensajero)\b/i.test(text)) {
+    return {
+      text: "Es un producto digital 📩 No requiere envío físico; recibes el acceso de forma digital.",
+      removed,
+    };
+  }
+  return { text, removed };
 }
 
 function hasDelivery(parts: SalidaPart[], key: string): boolean {
@@ -53,71 +86,46 @@ function hasDelivery(parts: SalidaPart[], key: string): boolean {
 export function bloquearPlaceholders(texto: string): { text: string; blocked: string[] } {
   const original = normalize(texto);
   if (!original) return { text: "", blocked: [] };
-
   const blocked: string[] = [];
   const lines = original.split("\n");
   const kept: string[] = [];
-
   for (const line of lines) {
-    if (!line.trim()) {
-      kept.push("");
-      continue;
-    }
-    if (PLACEHOLDER.test(line)) {
-      blocked.push(line.trim());
-      continue;
-    }
+    if (!line.trim()) { kept.push(""); continue; }
+    if (PLACEHOLDER.test(line)) { blocked.push(line.trim()); continue; }
     kept.push(line);
   }
-
   let text = kept.join("\n");
   const sentences = text.split(/(?<=[.!?])\s+/);
   const safeSentences = sentences.filter((s) => {
-    if (PLACEHOLDER.test(s)) {
-      blocked.push(s.trim());
-      return false;
-    }
+    if (PLACEHOLDER.test(s)) { blocked.push(s.trim()); return false; }
     return true;
   });
   text = safeSentences.join(" ");
-
   return { text: limpiarFormato(text), blocked };
 }
 
 export function reconciliarPromesas(parts: SalidaPart[]): { parts: SalidaPart[]; removed: string[] } {
   const removed: string[] = [];
   const out: SalidaPart[] = [];
-
   for (const part of parts) {
-    if (part.kind !== "text" || !part.content) {
-      out.push(part);
-      continue;
-    }
-
-    const safe = bloquearPlaceholders(part.content).text;
+    if (part.kind !== "text" || !part.content) { out.push(part); continue; }
+    let safe = bloquearPlaceholders(part.content).text;
+    const entrega = corregirEntregaFisicaEnDigital(safe);
+    if (entrega.removed.length) removed.push(...entrega.removed);
+    safe = entrega.text;
     const lines = safe.split("\n");
     const kept: string[] = [];
-
     for (const line of lines) {
       const trimmed = line.trim();
-      if (!trimmed) {
-        kept.push(line);
-        continue;
-      }
-
+      if (!trimmed) { kept.push(line); continue; }
       const claim = CLAIMS.find((c) => c.pattern.test(trimmed));
-      if (claim && hasDelivery(parts, claim.key)) {
-        removed.push(trimmed);
-        continue;
-      }
+      if (claim && hasDelivery(parts, claim.key)) { removed.push(trimmed); continue; }
       kept.push(line);
     }
-
     const content = limpiarFormato(kept.join("\n"));
     if (content) out.push({ ...part, content });
     else removed.push("[texto vacío después de reconciliación]");
   }
-
   return { parts: eliminarDuplicadosExactos(out), removed };
 }
 
@@ -152,24 +160,24 @@ export function prepararSalidaFinal(parts: SalidaPart[]): {
 } {
   const reconciliada = reconciliarPromesas(Array.isArray(parts) ? parts : []);
   const blockedPlaceholders: string[] = [];
-
   const finalParts = reconciliada.parts
     .map((part) => {
       if (part.kind !== "text" || !part.content) return part;
       const result = bloquearPlaceholders(part.content);
       blockedPlaceholders.push(...result.blocked);
-      return result.text ? { ...part, content: result.text } : null;
+      const entrega = corregirEntregaFisicaEnDigital(result.text);
+      return entrega.text ? { ...part, content: entrega.text } : null;
     })
     .filter(Boolean) as SalidaPart[];
-
   return {
     parts: eliminarDuplicadosExactos(finalParts),
     blockedPlaceholders,
-    removedClaims: reconciliada.removed,
+    removedClaims: [...reconciliada.removed, ...blockedPlaceholders],
   };
 }
 
 export function prepararTextoWhatsApp(texto: string): string {
   const result = bloquearPlaceholders(texto);
-  return result.text || "Déjame confirmarte ese dato exacto y te respondo enseguida. 🙏";
+  const entrega = corregirEntregaFisicaEnDigital(result.text);
+  return entrega.text || "Déjame confirmarte ese dato exacto y te respondo enseguida. 🙏";
 }
