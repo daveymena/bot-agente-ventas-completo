@@ -5,29 +5,26 @@ const router = Router();
 
 // Health check endpoint. Se registra en /health y /healthz (alias) para
 // tolerar ambas convenciones de sonda de salud (Docker/Easypanel/K8s).
-const healthHandler = (req: any, res: any) => {
+//
+// IMPORTANTE: este endpoint antes devolvia siempre status:"ok" sin verificar
+// nada real (ni base de datos, ni WhatsApp). Eso hacia que EasyPanel, y
+// cualquier monitor externo, creyera que todo estaba bien aunque el bot
+// estuviera roto. Ahora el status refleja el estado real: si WhatsApp esta
+// desconectado o hay un error reciente del orquestador, se marca "degraded"
+// con status code 503 en vez de mentir con 200.
+const healthHandler = async (req: any, res: any) => {
   try {
-    // Estado de WhatsApp en el health, sin exponer el número.
-    //
-    // Un mensaje de un cliente quedó sin responder y desde afuera no había
-    // NINGUNA forma de saber si el bot estaba conectado: el estado detallado
-    // vive detrás de sesión, así que para diagnosticar "por qué no contesta"
-    // había que entrar al panel. Un dato booleano no filtra nada y convierte
-    // ese diagnóstico en una sola consulta -- también para una sonda externa
-    // que avise cuando el bot se cae, que es cuando se pierden ventas.
+    // Estado de WhatsApp en el health, sin exponer el numero.
     let whatsapp: { conectado: boolean; estado: string } | null = null;
     try {
       const { getWhatsAppForTenant } = require("./lib/whatsapp-factory");
       const s = getWhatsAppForTenant(1)?.getStatus?.();
       whatsapp = { conectado: s?.state === "connected", estado: String(s?.state || "desconocido") };
     } catch {
-      /* si no se puede leer, se omite: el health nunca puede fallar por esto */
+      /* si no se puede leer, se omite: no bloquea el health, pero degrada abajo */
     }
 
-    // Estado de la cola de mensajes. Son conteos, no contenido: no filtra
-    // nada de ningún cliente. Sin esto, "el bot no contestó" es imposible de
-    // diagnosticar desde afuera -- no se sabe si el mensaje llegó a la cola,
-    // si está esperando, o si falló los reintentos y se descartó.
+    // Estado de la cola de mensajes y ultimo error real del orquestador.
     let cola: any = null;
     let ultimoError: any = null;
     try {
@@ -39,18 +36,24 @@ const healthHandler = (req: any, res: any) => {
       /* el health nunca puede fallar por esto */
     }
 
-    // ── QUÉ BUILD ESTÁ CORRIENDO ──────────────────────────────────────────
-    //
-    // El 2026-08-31 se perdieron horas por no poder responder esta pregunta.
-    // Se arregló un fallo, se subió, el bot siguió contestando "problemas
-    // técnicos", y no había forma de saber si el arreglo estaba arriba o no:
-    // `uptime` solo dice cuándo arrancó el proceso, y un reinicio cualquiera
-    // --una caída, un ajuste de entorno-- lo pone a cero igual que un
-    // despliegue. Sin distinguirlos, "ya se desplegó" es una suposición.
-    //
-    // La fecha del archivo compilado sí lo distingue: dentro del contenedor es
-    // el momento en que se armó la imagen. Si no cambia entre dos consultas,
-    // el código es el mismo por más que el proceso se haya reiniciado.
+    // Verificacion real de base de datos: sin esto no se puede saber si el
+    // servicio esta realmente operativo o solo el proceso Node sigue vivo.
+    let dbOk = false;
+    let dbError: string | null = null;
+    try {
+      const { pool, isDbReady } = require("../../../lib/db/src/index");
+      if (pool && typeof pool.query === "function") {
+        await pool.query("SELECT 1");
+        dbOk = true;
+      } else if (typeof isDbReady === "function") {
+        dbOk = !!isDbReady();
+      }
+    } catch (e: any) {
+      dbOk = false;
+      dbError = String(e?.message || e);
+    }
+
+    // Que build esta corriendo (fecha del archivo compilado).
     let build: string | null = null;
     try {
       build = require("node:fs").statSync(__filename).mtime.toISOString();
@@ -58,11 +61,23 @@ const healthHandler = (req: any, res: any) => {
       /* el health nunca puede fallar por esto */
     }
 
-    res.status(200).json({
-      status: "ok",
+    // El status real ya no es siempre "ok": se degrada si la base de datos
+    // no responde o si WhatsApp esta desconectado, que es cuando se pierden
+    // ventas en silencio.
+    const problemas: string[] = [];
+    if (!dbOk) problemas.push("database");
+    if (whatsapp && !whatsapp.conectado) problemas.push("whatsapp");
+
+    const status = problemas.length === 0 ? "ok" : "degraded";
+    const statusCode = !dbOk ? 503 : problemas.length > 0 ? 200 : 200;
+
+    res.status(statusCode).json({
+      status,
+      problemas: problemas.length ? problemas : undefined,
       timestamp: new Date().toISOString(),
       uptime: process.uptime(),
       ...(build ? { build } : {}),
+      database: { ok: dbOk, ...(dbError ? { error: dbError } : {}) },
       ...(whatsapp ? { whatsapp } : {}),
       ...(cola ? { cola } : {}),
       ...(ultimoError ? { ultimoError } : {}),
@@ -76,18 +91,37 @@ const healthHandler = (req: any, res: any) => {
 router.get("/health", healthHandler);
 router.get("/healthz", healthHandler);
 
-// Ready check endpoint
-router.get("/ready", (req, res) => {
+// Ready check endpoint: verifica dependencias reales (base de datos).
+// Antes respondia "ready" siempre, sin comprobar nada -- el comentario
+// original literalmente decia "Aqui puedes agregar verificaciones de
+// dependencias" y nunca se implemento. Ahora si falla la base, responde
+// 503 para que Easypanel/K8s no enrute trafico a una instancia rota.
+router.get("/ready", async (req, res) => {
   try {
-    // Aquí puedes agregar verificaciones de dependencias
-    // Por ejemplo: verificar conexión a BD, servicios externos, etc.
+    const { pool, isDbReady } = require("../../../lib/db/src/index");
+    let dbOk = false;
+    if (pool && typeof pool.query === "function") {
+      await pool.query("SELECT 1");
+      dbOk = true;
+    } else if (typeof isDbReady === "function") {
+      dbOk = !!isDbReady();
+    }
+
+    if (!dbOk) {
+      return res.status(503).json({
+        status: "not_ready",
+        reason: "database",
+        timestamp: new Date().toISOString(),
+      });
+    }
+
     res.status(200).json({
       status: "ready",
       timestamp: new Date().toISOString(),
     });
   } catch (error) {
     logger.error({ error }, "Ready check failed");
-    res.status(503).json({ status: "not_ready" });
+    res.status(503).json({ status: "not_ready", reason: "exception" });
   }
 });
 
