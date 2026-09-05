@@ -2,17 +2,25 @@
 
 WhatsApp AI sales bot + SaaS platform. Express backend, React dashboard, SQLite/PostgreSQL dual-mode DB, Baileys WhatsApp integration, 10 AI agent personas.
 
+## Documentación obligatoria antes de implementar cambios
+
+- `CLAUDE.md` — reglas maestras para la fase actual y separación Atlas/WhatsApp.
+- `WHATSAPP_SALES_PLAYBOOK_RESEARCH_2026.md` — investigación y especificación del comportamiento comercial del vendedor WhatsApp.
+- `REDESENO_FRONTEND_UX_UI_2026.md` — auditoría y rediseño visual/responsive 2026.
+- `ESTADO_MOTOR_VENTAS.md` — auditoría del motor comercial.
+- `ESTADO_WHATSAPP_24AGO.md` — estado operativo de WhatsApp, incidentes reales y precauciones.
+
+## Separación crítica de agentes
+
+- **Atlas / Operator** administra el negocio y puede usar OpenCode/MCP para sus tareas administrativas/estratégicas.
+- **Agente vendedor de WhatsApp** es independiente y atiende al cliente final. Su camino crítico no debe pasar por Atlas ni usar OpenCode como intermediario.
+- `AgentOrchestrator` consume la cola de WhatsApp y llama a `runAgentReply(conversationId)` para generar las respuestas del vendedor.
+
 ## Quick Start
 
 ```bash
-# 1. Install dependencies
 pnpm install
-
-# 2. Copy environment config
 cp .env.example .env
-# Edit .env with your AI provider key (at minimum OPENCODE_API_KEY)
-
-# 3. Start development servers
 pnpm run dev
 ```
 
@@ -20,93 +28,70 @@ The backend runs on http://localhost:3002 and the frontend dev server on http://
 
 ### Default login (auto-seeded on first run)
 
-Set `ADMIN_EMAIL` and `ADMIN_PASSWORD` in `.env` before the first run to control
-the seeded admin account. If unset, `app.ts` falls back to a fixed placeholder
-that is **not safe for a real deployment** — always set these explicitly in
-production and rotate the password if a placeholder value was ever used live.
+Set `ADMIN_EMAIL` and `ADMIN_PASSWORD` in `.env` before the first run to control the seeded admin account. If unset, `app.ts` falls back to a fixed placeholder that is not safe for real deployment.
 
 ## Project Structure
 
 ```
 artifacts/
-  api-server/     → Express backend (port 3002), ESM, esbuild bundle
-  ventas-pro/     → Admin dashboard (React 19 + Vite + Tailwind + shadcn/ui)
+  api-server/       → Express backend
+  ventas-pro/       → Admin dashboard (React + Vite + Tailwind + shadcn/ui)
 lib/
-  db/             → Drizzle ORM, dual SQLite/PG schema (24 tables)
-  api-zod/        → Zod validation schemas
-  api-client-react/ → React Query hooks (auto-generated)
-  integrations-openai-ai-server/ → 30+ AI provider abstraction
+  db/               → Drizzle ORM, dual SQLite/PG schema
+  api-zod/           → Zod validation schemas
+  api-client-react/  → React Query hooks
+  integrations-openai-ai-server/ → AI provider abstraction
 packages/
-  tienda/         → Public storefront (React + Vite, separate app)
-scripts/
-  migrate.mjs     → PostgreSQL schema creation
-  migrate-to-pg.mjs → Full SQLite → PostgreSQL data migration
+  tienda/            → Public storefront
 ```
 
-## Database: SQLite (Dev) vs PostgreSQL (Production)
+## WhatsApp behavior
 
-Set `USE_SQLITE=true` in `.env` for local development (no database server needed).
+The seller must behave progressively and contextually, not as a catalog dump or rigid questionnaire:
 
-To migrate from SQLite to PostgreSQL:
+- Answer the current customer question first.
+- Ask at most one strategic question when the answer changes recommendation or reveals an objection.
+- Do not repeat information already delivered unless requested.
+- Current-message product intent overrides stale historical product context.
+- Do not invent prices, discounts, warranties, stock, testimonials, delivery times, or features.
+- Use commercial tools for facts/actions and the model for natural language.
+- When buying intent is strong, stop explaining and advance the purchase.
+- Interpret confirmations such as `sí`, `dale`, `ese`, `me sirve`, `lo quiero` using context, not naive substring matching.
+- `gracias` is not automatically a goodbye when another question/intention exists.
+- `lo voy a pensar` should diagnose the real blocker before giving up.
+- Responses must be readable on WhatsApp: short paragraphs, visual spacing, varied semantic emoji use, and no repetitive canned openings.
 
-```bash
-# 1. Set DATABASE_URL in .env
-# 2. Run the migration script
-DATABASE_URL=postgres://user:pass@host:5432/db node scripts/migrate-to-pg.mjs
-```
+See `WHATSAPP_SALES_PLAYBOOK_RESEARCH_2026.md` for the complete examples and evidence-backed rules.
 
-This will create all 24 tables in PostgreSQL and copy all data from SQLite.
+## Frontend behavior
 
-## AI Providers
+Use `REDESENO_FRONTEND_UX_UI_2026.md` as the visual source of truth for the current redesign:
 
-Configure one or more in `.env`. Fallback chain: `opencode` → `groq` → `github` → `openrouter`.
+- Calm Sales OS
+- retain Inter + indigo/slate foundation
+- reduce global glassmorphism and visual noise
+- progressive disclosure
+- action-oriented dashboard
+- inbox as a core workflow
+- mobile as a first-class experience, not compressed desktop
 
-- **OpenCode** (free): `OPENCODE_API_KEY=sk-...` via `api.freemodel.dev`
-- **Groq** (free tier): `GROQ_API_KEY=gsk_...`
-- **GitHub Models**: `GITHUB_TOKEN=ghp_...`
+## Existing architecture to preserve
 
-## WhatsApp
+- Monorepo managed with pnpm workspaces.
+- ESM throughout (Node 22+).
+- Dual database: SQLite locally, PostgreSQL in production.
+- Baileys for WhatsApp Web integration.
+- SaaS multi-tenant isolation.
+- Existing fallback and WhatsApp reliability safeguards.
+- Do not rebuild working transport/infrastructure while fixing conversation or UX behavior.
 
-- Connect via the admin dashboard at `/whatsapp`
-- Or use the API: `POST /api/whatsapp/connect`
-- Phone pairing: `POST /api/whatsapp/pair-phone` with `{"phoneNumber":"..."}`
-- Auth session saved in `artifacts/api-server/.baileys-auth/`
+## Verification rule
 
-## Agent Behavior Guidelines
+Before shipping any change:
 
-For the WhatsApp AI sales agent, follow these guidelines to ensure progressive, conversational sales rather than catalog dumping:
-
-- **Never send all product information in a single message** unless the customer explicitly requests it. First identify the customer's need and deliver only the relevant information.
-- **Start with the benefit, not the features.** Briefly describe what the course/program helps the customer achieve, then ask about their specific situation.
-- **Ask about the customer's specific problem before presenting solutions.** Example: "¿Qué te gustaría corregir principalmente en tu perrito?" before talking about modules.
-- **Limit consecutive messages to 1–2** unless the customer asks for more information. Wait for their response before continuing.
-- **Present price and payment methods only after the customer shows purchase intent.** Phrases like "quiero comprar", "sí", "qué hago para pagar" should trigger the price/payment flow.
-- **Use the free sample/class as a strategic conversion tool**, not as an initial handout. Offer it after identifying the customer's need: "¿Querés una clase de muestra para conoceros cómo se explica?".
-- **Focus the conversation on benefit → need → solution → price → close**, in that order. Avoid enumerating all features upfront.
-
-## Commands
-
-```bash
-pnpm install          # Install all dependencies
-pnpm run dev           # Start backend + frontend dev servers
-pnpm run build         # Typecheck + build for production
-pnpm run test          # Run tests
-```
-
-## Architecture
-
-- Monorepo managed with pnpm workspaces
-- ESM throughout (Node 22+)
-- Dual database: SQLite (sql.js WASM) locally, PostgreSQL in production
-- AI fallback chain with 30+ provider support
-- Baileys for WhatsApp Web integration
-- SaaS multi-tenant with subscription management
-- Mercado Pago, PayPal, and bank transfer payments
-
-## Environment Variables (minimum)
-
-```
-USE_SQLITE=true
-PORT=3002
-OPENCODE_API_KEY=...   # or another AI provider key
-```
+1. Inspect what code is actually consumed; do not trust dead modules/comments.
+2. Reuse existing tests and scripts.
+3. Add a regression case for the behavior changed.
+4. Run build/tests relevant to the affected area.
+5. Verify the real behavior in WhatsApp or UI where possible.
+6. Update documentation when architecture or behavioral rules change.
