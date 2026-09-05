@@ -49,14 +49,16 @@ const FAMILIAS: { value: Familia; label: string; color: string }[] = [
   { value: "oscura", label: "Oscura", color: "#00D3A7" },
 ];
 
-const SALUDO = `Soy tu **Constructor de Landing Pages** powered by OpenCode 
+const SUGERENCIAS = ["Hero más impactante", "CTA urgente", "Más premium", "Agrega FAQ", "Más beneficios", "Prueba social"];
 
-Creo paginas de ventas profesionales con frameworks de alta conversion (AIDA, PAS, Before-After).
+const SALUDO = `Soy tu **Constructor de Landing Pages** con IA.
+
+Creo páginas de ventas profesionales con frameworks de alta conversión (AIDA, PAS, Antes-Después).
 
 **Para empezar:**
 1. Selecciona un **producto** arriba
 2. Elige un **estilo visual**
-3. Presiona **Generar** — o escribeme que quieres
+3. Presiona **Generar** — o escríbeme qué quieres
 
 *"Crea una landing impactante para mi curso de piano"*`;
 
@@ -77,15 +79,6 @@ export default function LandingStudioV2() {
   const [previewMode, setPreviewMode] = useState<"desktop" | "mobile">("desktop");
   /**
    * Qué panel se ve cuando la pantalla es chica.
-   *
-   * ⚠️ El editor no tenía NADA de esto. El panel de chat era `width: 340` fijo
-   * con `minWidth: 280`, sin una sola regla responsive, y los dos paneles
-   * vivían en un `flex` horizontal. En un teléfono de 390px eso deja 280 para
-   * el chat y ~110 para la vista previa: técnicamente el botón de móvil
-   * existía, pero no había dónde mostrar nada.
-   *
-   * El dueño lo dijo así: *"la landing page studio no tiene modo móvil"*.
-   * Tenía razón en el efecto aunque el botón estuviera cableado.
    *
    * En pantalla chica se muestra UNO a la vez y a ancho completo, que es la
    * única forma de que ambos sean usables; en escritorio conviven como
@@ -118,7 +111,7 @@ export default function LandingStudioV2() {
       doc.open(); doc.write(previewHtml); doc.close();
     } else {
       doc.open();
-      doc.write(`<!doctype html><html><body style="display:flex;align-items:center;justify-content:center;min-height:100vh;font-family:system-ui,sans-serif;color:#64748b;background:#0f172a;margin:0;flex-direction:column;gap:16px;text-align:center;padding:40px"><svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="#6366f1" stroke-width="1.2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg><p style="font-size:16px;max-width:300px">Selecciona un producto y presiona <strong style="color:#a5b4fc">Generar</strong></p></body></html>`);
+      doc.write(`<!doctype html><html><body style="display:flex;align-items:center;justify-content:center;min-height:100vh;font-family:system-ui,sans-serif;color:#94a3b8;background:#0f172a;margin:0;flex-direction:column;gap:16px;text-align:center;padding:40px"><svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="#818cf8" stroke-width="1.2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg><p style="font-size:15px;max-width:300px;line-height:1.6">Selecciona un producto y presiona <strong style="color:#a5b4fc">Generar</strong> para ver tu landing aquí</p></body></html>`);
       doc.close();
     }
   }, [previewHtml]);
@@ -136,7 +129,7 @@ export default function LandingStudioV2() {
   const generarLanding = useCallback(async (pid: number) => {
     const product = products.find(p => p.id === pid);
     setBusy(true);
-    setMsgs(m => [...m, { role: "assistant", content: `Generando landing para **${product?.name}** con estilo *${familia}* via OpenCode...`, loading: true }]);
+    setMsgs(m => [...m, { role: "assistant", content: `Generando landing para **${product?.name}** con estilo *${familia}*...`, loading: true }]);
     try {
       const gen = await apiFetch<any>("/api/landing-pages/generate", {
         method: "POST",
@@ -150,11 +143,12 @@ export default function LandingStudioV2() {
       setLandings(prev => [saved, ...prev.filter(l => l.id !== saved.id)]);
       const renderResp = await fetch(`/api/landing-pages/${saved.id}/render?familia=${familia}`, { credentials: "include" });
       if (renderResp.ok) setPreviewHtml(await renderResp.text());
+      setPanelMovil("preview");
       setMsgs(m => [
         ...m.filter(x => !(x as any).loading),
-        { role: "assistant", content: `**Landing generada y guardada**\n\n**Nombre:** ${gen.name}\n**Estilo:** ${familia}\n**Motor:** ${gen.generatedBy === "ai" ? "OpenCode (IA)" : "Fallback determinístico"}\n\n**Secciones creadas:**\n${(gen.sections as any[]).map((s: any) => `- **${s.type}** — ${s.title}`).join("\n")}\n\nPuedes pedirme ajustes:\n> *"Haz el hero mas agresivo"*\n> *"Cambia el CTA a urgencia"*\n> *"Agrega mas beneficios"*` },
+        { role: "assistant", content: `**Landing generada y guardada**\n\n**Nombre:** ${gen.name}\n**Estilo:** ${familia}\n**Motor:** ${gen.generatedBy === "ai" ? "IA" : "Fallback determinístico"}\n\n**Secciones creadas:**\n${(gen.sections as any[]).map((s: any) => `- **${s.type}** — ${s.title}`).join("\n")}\n\nPuedes pedirme ajustes:\n> *"Haz el hero más agresivo"*\n> *"Cambia el CTA a urgencia"*\n> *"Agrega más beneficios"*` },
       ]);
-      toast.success("Landing generada con OpenCode!");
+      toast.success("¡Landing generada!");
     } catch (e: any) {
       setMsgs(m => [...m.filter(x => !(x as any).loading), { role: "assistant", content: `Error: ${e.message || "Error al generar."}` }]);
     } finally { setBusy(false); }
@@ -172,10 +166,10 @@ export default function LandingStudioV2() {
         method: "POST",
         body: JSON.stringify({ instruction: instruccion }),
       });
-      if (r.operations?.length) await cargarPreview(landingId);
+      if (r.operations?.length) { await cargarPreview(landingId); setPanelMovil("preview"); }
       setMsgs(m => [
         ...m.filter(x => !(x as any).loading),
-        { role: "assistant", content: `${r.message || "Cambio aplicado."}\n\nPreview actualizada. Que mas ajustamos?` },
+        { role: "assistant", content: `${r.message || "Cambio aplicado."}\n\nPreview actualizada. ¿Qué más ajustamos?` },
       ]);
     } catch (e: any) {
       setMsgs(m => [...m.filter(x => !(x as any).loading), { role: "assistant", content: `Error: ${e.message}` }]);
@@ -196,15 +190,13 @@ export default function LandingStudioV2() {
   }, [input, busy, productId, generarLanding, aplicarComando]);
 
   const exportar = useCallback(async () => {
-    // `return toast.info(...)` devolvia el id del toast mientras el resto de
-    // la funcion no devuelve nada: dos tipos de retorno en la misma funcion.
-    // Avisar y cortar son dos cosas, y se escriben como dos cosas.
     if (!landingId) { toast.info("Primero genera una landing."); return; }
     const r = await fetch(`/api/landing-pages/${landingId}/render?familia=${familia}`, { credentials: "include" });
     if (!r.ok) { toast.error("Error al exportar"); return; }
     const a = document.createElement("a");
     a.href = URL.createObjectURL(new Blob([await r.text()], { type: "text/html" }));
     a.download = `landing-${landingId}.html`; a.click();
+    toast.success("HTML exportado");
   }, [landingId, familia]);
 
   const cargarLanding = useCallback(async (id: number) => {
@@ -214,180 +206,214 @@ export default function LandingStudioV2() {
     if (l.productId) setProductId(l.productId);
     if ((l.design as any)?.familia) setFamilia((l.design as any).familia as Familia);
     await cargarPreview(id, (l.design as any)?.familia as Familia);
-    setMsgs(m => [...m, { role: "assistant", content: `Landing **"${l.name}"** cargada. Que quieres modificar?` }]);
+    setPanelMovil("preview");
+    setMsgs(m => [...m, { role: "assistant", content: `Landing **"${l.name}"** cargada. ¿Qué quieres modificar?` }]);
   }, [landings, cargarPreview]);
+
+  const selectCls = "h-9 rounded-lg border border-input bg-background px-2.5 text-xs font-medium text-foreground outline-none transition focus:ring-2 focus:ring-ring/40 focus:border-ring disabled:opacity-50";
 
   return (
     <Layout>
-      <div className="flex flex-col" style={{ height: "calc(100vh - 4rem)" }}>
-        <div className="flex items-center gap-2 px-3 py-2 border-b bg-background shrink-0 flex-wrap">
-          <div className="flex items-center gap-2 mr-1">
-            <div className="p-1.5 rounded-lg bg-violet-500/10 border border-violet-500/20">
-              <LayoutTemplate className="h-4 w-4 text-violet-500" />
+      <div className="flex h-[calc(100vh-4rem)] flex-col bg-background">
+        {/* ── Toolbar ─────────────────────────────────────────── */}
+        <header className="z-10 shrink-0 border-b border-border bg-card">
+          <div className="flex flex-wrap items-center gap-2 px-3 py-2.5 sm:px-4">
+            <div className="mr-1 flex items-center gap-2.5">
+              <div className="grid h-9 w-9 place-items-center rounded-xl bg-primary/10 text-primary ring-1 ring-inset ring-primary/20">
+                <LayoutTemplate className="h-5 w-5" />
+              </div>
+              <div className="leading-tight">
+                <div className="flex items-center gap-1.5">
+                  <h1 className="text-sm font-bold tracking-tight text-foreground">Landing Studio</h1>
+                  <Badge variant="secondary" className="hidden h-4 gap-0.5 px-1.5 text-[10px] font-semibold sm:inline-flex"><Sparkles className="h-2.5 w-2.5" />IA</Badge>
+                </div>
+                <p className="hidden text-[11px] text-muted-foreground md:block">Páginas de venta con IA, conectadas a tus productos</p>
+              </div>
             </div>
-            <span className="text-sm font-bold hidden sm:block">Landing AI Studio</span>
-            <Badge variant="secondary" className="text-[10px] hidden sm:flex">OpenCode</Badge>
+
+            {/* Controles principales */}
+            <div className="flex flex-1 flex-wrap items-center gap-2">
+              <select value={productId} onChange={e => setProductId(e.target.value ? Number(e.target.value) : "")}
+                aria-label="Producto" className={`${selectCls} min-w-[140px] max-w-[220px] flex-1 sm:flex-none`}>
+                <option value="">Producto…</option>
+                {products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
+              <select value={landingId || ""} onChange={e => e.target.value && cargarLanding(Number(e.target.value))}
+                aria-label="Landing existente" className={`${selectCls} min-w-[130px] max-w-[190px] flex-1 sm:flex-none`}>
+                <option value="">Nueva landing…</option>
+                {landings.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
+              </select>
+              <Button size="sm" disabled={busy || !productId} onClick={() => productId && generarLanding(Number(productId))}
+                className="h-9 shrink-0 gap-1.5 bg-primary px-3.5 text-xs font-semibold text-primary-foreground shadow-sm hover:bg-primary/90">
+                {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Wand2 className="h-3.5 w-3.5" />}
+                Generar
+              </Button>
+            </div>
+
+            {/* Acciones de preview */}
+            <div className="ml-auto flex items-center gap-0.5 rounded-lg border border-border bg-muted/50 p-0.5">
+              <Button size="sm" variant="ghost" onClick={() => landingId && cargarPreview(landingId)} disabled={!landingId || previewBusy} className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground"
+                title="Actualizar la vista previa" aria-label="Actualizar la vista previa">
+                <RefreshCw className={`h-3.5 w-3.5 ${previewBusy ? "animate-spin" : ""}`} />
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => setPreviewMode(m => m === "desktop" ? "mobile" : "desktop")} className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground"
+                title={previewMode === "desktop" ? "Ver como se ve en un celular" : "Ver como se ve en pantalla grande"}
+                aria-label={previewMode === "desktop" ? "Ver como se ve en un celular" : "Ver como se ve en pantalla grande"}>
+                {previewMode === "desktop" ? <Smartphone className="h-3.5 w-3.5" /> : <Monitor className="h-3.5 w-3.5" />}
+              </Button>
+              <Button size="sm" variant="ghost" onClick={exportar} disabled={!landingId} className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground"
+                title="Descargar la landing en HTML" aria-label="Descargar la landing en HTML">
+                <Download className="h-3.5 w-3.5" />
+              </Button>
+            </div>
           </div>
-          <select value={productId} onChange={e => setProductId(e.target.value ? Number(e.target.value) : "")}
-            className="h-8 rounded-md border bg-background px-2 text-xs min-w-[140px] max-w-[200px]">
-            <option value="">Producto...</option>
-            {products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-          </select>
-          <select value={landingId || ""} onChange={e => e.target.value && cargarLanding(Number(e.target.value))}
-            className="h-8 rounded-md border bg-background px-2 text-xs min-w-[120px] max-w-[180px]">
-            <option value="">Nueva landing...</option>
-            {landings.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
-          </select>
-          <Button size="sm" disabled={busy || !productId} onClick={() => productId && generarLanding(Number(productId))}
-            className="bg-violet-600 hover:bg-violet-700 text-white h-8 px-3 text-xs">
-            {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : <Wand2 className="h-3.5 w-3.5 mr-1" />}
-            Generar
-          </Button>
-          <div className="ml-auto flex gap-1">
-            <Button size="sm" variant="ghost" onClick={() => landingId && cargarPreview(landingId)} disabled={!landingId || previewBusy} className="h-8 w-8 p-0"
-              title="Actualizar la vista previa" aria-label="Actualizar la vista previa">
-              <RefreshCw className={`h-3.5 w-3.5 ${previewBusy ? "animate-spin" : ""}`} />
-            </Button>
-            <Button size="sm" variant="ghost" onClick={() => setPreviewMode(m => m === "desktop" ? "mobile" : "desktop")} className="h-8 w-8 p-0"
-              title={previewMode === "desktop" ? "Ver como se ve en un celular" : "Ver como se ve en pantalla grande"}
-              aria-label={previewMode === "desktop" ? "Ver como se ve en un celular" : "Ver como se ve en pantalla grande"}>
-              {previewMode === "desktop" ? <Smartphone className="h-3.5 w-3.5" /> : <Monitor className="h-3.5 w-3.5" />}
-            </Button>
-            <Button size="sm" variant="ghost" onClick={exportar} disabled={!landingId} className="h-8 w-8 p-0"
-              title="Descargar la landing en HTML" aria-label="Descargar la landing en HTML">
-              <Download className="h-3.5 w-3.5" />
-            </Button>
-          </div>
-        </div>
-        {/* El selector de panel, SOLO en pantalla chica (lg:hidden). En
-            escritorio los dos se ven a la vez y este control estorbaría. */}
-        <div className="flex lg:hidden shrink-0 border-b bg-muted/30 p-1 gap-1">
-          {([["chat", "💬 Chat"], ["preview", "👁️ Vista previa"]] as const).map(([valor, etiqueta]) => (
+        </header>
+
+        {/* ── Selector de panel (solo móvil) ──────────────────── */}
+        <div className="flex shrink-0 gap-1 border-b border-border bg-muted/30 p-1 lg:hidden">
+          {([["chat", "Editor", Sparkles], ["preview", "Vista previa", Monitor]] as const).map(([valor, etiqueta, Icon]) => (
             <button
               key={valor}
               onClick={() => setPanelMovil(valor)}
               aria-pressed={panelMovil === valor}
-              className={`flex-1 h-9 rounded-md text-xs font-semibold transition-colors ${
-                panelMovil === valor ? "bg-background shadow-sm" : "text-muted-foreground"
+              className={`flex flex-1 items-center justify-center gap-1.5 rounded-md py-2 text-xs font-semibold transition-colors ${
+                panelMovil === valor ? "bg-card text-foreground shadow-sm" : "text-muted-foreground"
               }`}
             >
+              <Icon className="h-3.5 w-3.5" />
               {etiqueta}
             </button>
           ))}
         </div>
 
-        <div className="flex flex-1 overflow-hidden">
-          {/* Ancho completo en móvil; los 340px fijos recién a partir de lg.
-              El `hidden` es lo que evita que los dos paneles se repartan una
-              pantalla donde no entran. */}
-          <div
-            className={`flex-col border-r bg-background w-full lg:w-[340px] xl:w-[400px] lg:min-w-[280px] lg:flex ${
+        {/* ── Split principal ─────────────────────────────────── */}
+        <div className="flex min-h-0 flex-1">
+          {/* Panel izquierdo: estilo + chat + input */}
+          <aside
+            className={`min-h-0 w-full flex-col border-r border-border bg-card lg:flex lg:w-[360px] lg:min-w-[300px] xl:w-[400px] ${
               panelMovil === "chat" ? "flex" : "hidden"
             }`}
           >
-            <div className="px-3 py-2 border-b bg-muted/20 shrink-0">
-              <p className="text-[10px] font-semibold uppercase text-muted-foreground mb-1.5">Estilo visual</p>
-              <div className="flex flex-wrap gap-1">
-                {FAMILIAS.map(f => (
-                  <button key={f.value}
-                    onClick={async () => { setFamilia(f.value); if (landingId) await cargarPreview(landingId, f.value); }}
-                    className={`px-2 py-0.5 rounded text-[10px] font-medium border transition-all ${familia === f.value ? "text-white border-transparent" : "border-border bg-background text-muted-foreground hover:border-primary/40"}`}
-                    style={familia === f.value ? { backgroundColor: f.color } : {}}>
-                    {f.label}
-                  </button>
-                ))}
+            {/* Estilo visual */}
+            <div className="shrink-0 border-b border-border px-3 py-2.5">
+              <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Estilo visual</p>
+              <div className="flex flex-wrap gap-1.5">
+                {FAMILIAS.map(f => {
+                  const activa = familia === f.value;
+                  return (
+                    <button key={f.value}
+                      onClick={async () => { setFamilia(f.value); if (landingId) await cargarPreview(landingId, f.value); }}
+                      aria-pressed={activa}
+                      className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium transition-all ${activa ? "border-transparent text-white shadow-sm" : "border-border bg-background text-muted-foreground hover:border-primary/40 hover:text-foreground"}`}
+                      style={activa ? { backgroundColor: f.color } : {}}>
+                      <span className="h-2 w-2 rounded-full ring-1 ring-black/5" style={{ backgroundColor: f.color }} />
+                      {f.label}
+                    </button>
+                  );
+                })}
               </div>
             </div>
-            <ScrollArea className="flex-1 px-3 py-3">
+
+            {/* Conversación */}
+            <ScrollArea className="min-h-0 flex-1 px-3 py-3">
               <div className="space-y-3">
                 {msgs.map((msg, i) => (
                   <div key={i} className={`flex gap-2 ${msg.role === "user" ? "flex-row-reverse" : ""}`}>
-                    <div className={`shrink-0 h-6 w-6 rounded-full flex items-center justify-center ${msg.role === "assistant" ? "bg-violet-100 text-violet-700" : "bg-blue-100 text-blue-700"}`}>
+                    <div className={`mt-0.5 grid h-6 w-6 shrink-0 place-items-center rounded-full ${msg.role === "assistant" ? "bg-primary/10 text-primary" : "bg-accent/15 text-accent"}`}>
                       {msg.role === "assistant" ? <Sparkles className="h-3 w-3" /> : <User className="h-3 w-3" />}
                     </div>
-                    <div className={`max-w-[260px] rounded-xl px-3 py-2 text-xs leading-relaxed ${msg.role === "assistant" ? "bg-muted" : "bg-blue-600 text-white"} ${(msg as any).loading ? "opacity-70" : ""}`}>
+                    <div className={`max-w-[86%] rounded-2xl px-3 py-2 text-xs leading-relaxed ${msg.role === "assistant" ? "rounded-tl-sm bg-muted text-foreground" : "rounded-tr-sm bg-primary text-primary-foreground"} ${(msg as any).loading ? "opacity-70" : ""}`}>
                       {msg.role === "assistant" ? (
-                        <ReactMarkdown components={{
-                          p: ({ children }) => <p className="mb-1 last:mb-0">{children}</p>,
-                          strong: ({ children }) => <strong className="font-semibold">{children}</strong>,
-                          ul: ({ children }) => <ul className="list-disc list-inside space-y-0.5 mt-1">{children}</ul>,
-                          li: ({ children }) => <li>{children}</li>,
-                          blockquote: ({ children }) => <blockquote className="border-l-2 border-violet-400 pl-2 italic opacity-80 mt-1">{children}</blockquote>,
-                        }}>{msg.content}</ReactMarkdown>
+                        <div className="prose-chat">
+                          <ReactMarkdown components={{
+                            p: ({ children }) => <p className="mb-1.5 last:mb-0">{children}</p>,
+                            strong: ({ children }) => <strong className="font-semibold text-foreground">{children}</strong>,
+                            ul: ({ children }) => <ul className="mt-1 list-disc space-y-0.5 pl-4">{children}</ul>,
+                            li: ({ children }) => <li>{children}</li>,
+                            blockquote: ({ children }) => <blockquote className="mt-1.5 border-l-2 border-primary/40 pl-2 italic opacity-80">{children}</blockquote>,
+                          }}>{msg.content}</ReactMarkdown>
+                        </div>
                       ) : msg.content}
-                      {(msg as any).loading && <Loader2 className="h-3 w-3 animate-spin inline ml-1" />}
+                      {(msg as any).loading && <Loader2 className="ml-1 inline h-3 w-3 animate-spin" />}
                     </div>
                   </div>
                 ))}
                 <div ref={bottomRef} />
               </div>
             </ScrollArea>
-            <div className="px-3 py-2 border-t bg-muted/10 shrink-0">
-              <div className="flex flex-wrap gap-1 mb-2">
-                {["Hero mas impactante", "CTA urgente", "Mas premium", "Agrega FAQ"].map(s => (
+
+            {/* Entrada */}
+            <div className="shrink-0 border-t border-border bg-muted/20 px-3 py-2.5">
+              <div className="mb-2 flex flex-wrap gap-1.5">
+                {SUGERENCIAS.map(s => (
                   <button key={s} onClick={() => { setInput(s); inputRef.current?.focus(); }}
-                    className="text-[10px] px-2 py-0.5 rounded-full border bg-background hover:bg-muted transition-colors">
+                    className="rounded-full border border-border bg-background px-2.5 py-0.5 text-[10px] font-medium text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground">
                     {s}
                   </button>
                 ))}
               </div>
-              <div className="flex gap-2">
+              <div className="flex items-end gap-2">
                 <Input ref={inputRef} value={input}
                   onChange={e => setInput(e.target.value)}
                   onKeyDown={e => e.key === "Enter" && !e.shiftKey && (e.preventDefault(), enviar())}
-                  placeholder="Pide un cambio o genera..."
-                  className="h-8 text-xs" disabled={busy} />
+                  placeholder="Pide un cambio o genera una landing…"
+                  className="h-9 rounded-lg text-xs" disabled={busy} />
                 <Button size="sm" onClick={enviar} disabled={busy || !input.trim()}
-                  className="h-8 w-8 p-0 bg-violet-600 hover:bg-violet-700 text-white shrink-0">
-                  {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Send className="h-3 w-3" />}
+                  className="h-9 w-9 shrink-0 p-0 bg-primary text-primary-foreground shadow-sm hover:bg-primary/90">
+                  {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
                 </Button>
               </div>
             </div>
-          </div>
-          <div
-            className={`flex-1 flex-col bg-slate-950 overflow-hidden lg:flex ${
+          </aside>
+
+          {/* Panel derecho: escenario de vista previa */}
+          <main
+            className={`min-h-0 min-w-0 flex-1 flex-col bg-slate-950 lg:flex ${
               panelMovil === "preview" ? "flex" : "hidden"
             }`}
           >
-            <div className="flex items-center gap-2 px-3 py-2 bg-slate-900 border-b border-slate-800 shrink-0">
-              <div className="flex gap-1">
+            {/* Barra tipo navegador */}
+            <div className="flex shrink-0 items-center gap-2 border-b border-slate-800 bg-slate-900 px-3 py-2">
+              <div className="flex gap-1.5">
                 <span className="h-2.5 w-2.5 rounded-full bg-red-500/70" />
                 <span className="h-2.5 w-2.5 rounded-full bg-yellow-500/70" />
                 <span className="h-2.5 w-2.5 rounded-full bg-green-500/70" />
               </div>
-              <div className="flex-1 bg-slate-800 rounded px-2 py-0.5 text-[10px] text-slate-400 truncate">
-                {landingId ? `/api/landing-pages/${landingId}/render?familia=${familia}` : "preview - genera una landing para comenzar"}
+              <div className="flex-1 truncate rounded-md bg-slate-800 px-2.5 py-1 text-[10px] text-slate-400">
+                {landingId ? `ventasproia.com/landing/${landingId}` : "vista previa — genera una landing para comenzar"}
               </div>
-              <Badge variant="outline" className="text-[10px] border-slate-700 text-slate-400 hidden sm:flex">
+              <Badge variant="outline" className="hidden h-5 border-slate-700 bg-slate-800/50 text-[10px] text-slate-300 sm:flex">
                 {FAMILIAS.find(f => f.value === familia)?.label}
               </Badge>
+              <span className="hidden items-center gap-1 text-[10px] text-slate-500 md:flex">
+                {previewMode === "desktop" ? <><Monitor className="h-3 w-3" />Escritorio</> : <><Smartphone className="h-3 w-3" />Móvil</>}
+              </span>
             </div>
-            <div className={`flex-1 overflow-auto flex ${previewMode === "mobile" ? "items-start justify-center py-8" : ""}`}>
-              {/* El marco de teléfono medía 390px EXACTOS -- justo el ancho de
-                  un teléfono real, así que dentro de uno se salía de la
-                  pantalla junto con sus 8px de borde. `w-full max-w-[390px]`
-                  lo deja igual en escritorio y lo hace caber en el celular. */}
-              <div className={`relative transition-all ${previewMode === "mobile" ? "w-full max-w-[390px] rounded-[40px] overflow-hidden border-8 border-slate-700 shadow-2xl" : "w-full h-full"}`}>
-                {previewBusy && (
-                  <div className="absolute inset-0 flex items-center justify-center bg-slate-950/70 z-10">
-                    <Loader2 className="h-8 w-8 animate-spin text-violet-400" />
+
+            {/* Escenario */}
+            <div className={`relative min-h-0 flex-1 overflow-auto ${previewMode === "mobile" ? "flex items-start justify-center p-4 sm:p-8" : ""}`}>
+              {previewBusy && (
+                <div className="absolute inset-0 z-10 flex items-center justify-center bg-slate-950/70 backdrop-blur-sm">
+                  <div className="flex flex-col items-center gap-2 text-slate-300">
+                    <Loader2 className="h-7 w-7 animate-spin text-indigo-400" />
+                    <span className="text-xs">Renderizando…</span>
                   </div>
-                )}
-                {/* El alto va por clase y no por `style` porque tiene que
-                    cambiar con el tamaño de pantalla, y un estilo en línea no
-                    admite media queries. En móvil la barra de paneles se come
-                    unos 3rem más, así que el `calc` de escritorio dejaba la
-                    vista previa desbordando por abajo. */}
+                </div>
+              )}
+              {/* Un ÚNICO iframe siempre montado: solo cambian las clases del
+                  contenedor entre escritorio y el marco de teléfono. Si fueran
+                  dos <iframe> distintos, cambiar de modo remontaría el nodo y
+                  perdería el HTML ya escrito (el efecto solo reescribe cuando
+                  cambia previewHtml, no previewMode). */}
+              <div className={previewMode === "mobile"
+                ? "relative h-full max-h-[820px] w-full max-w-[380px] overflow-hidden rounded-[2.25rem] border-[6px] border-slate-800 bg-black shadow-2xl"
+                : "h-full w-full"}>
                 <iframe ref={iframeRef} title="Vista previa de la landing"
-                  className={`w-full block border-0 ${
-                    previewMode === "mobile"
-                      ? "h-[70vh] max-h-[844px] lg:h-[844px] lg:max-h-none"
-                      : "h-[calc(100vh-12rem)] lg:h-[calc(100vh-8.5rem)]"
-                  }`}
+                  className="block h-full w-full border-0 bg-white"
                   sandbox="allow-same-origin allow-scripts" />
               </div>
             </div>
-          </div>
+          </main>
         </div>
       </div>
     </Layout>
