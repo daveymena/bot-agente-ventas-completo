@@ -70,7 +70,7 @@ const NOMBRE_DE_DIGITAL =
  * ni "curso" ni "clase" aparecen por ningún lado.
  */
 const DESCRIPCION_DE_DIGITAL =
-  /\b(modulos en video|modulos de video|acceso de por vida|acceso inmediato|enlace de acceso|link de acceso|descarga inmediata|clases grabadas|100% online|totalmente online)\b/;
+  /\b(modulos en video|modulos de video|acceso de por vida|acceso inmediato|enlace de acceso|link de acceso|descarga inmediata|clases grabadas|100% online|totalmente online|\d+\s*modulos|curso completo|masterclass|mentoria|diplomado)\b/;
 
 export type ProductoParaEntrega = {
   kind?: string | null;

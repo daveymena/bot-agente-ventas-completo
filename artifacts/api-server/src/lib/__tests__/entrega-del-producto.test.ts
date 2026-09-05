@@ -29,6 +29,21 @@ describe("No se le pide la cédula a quien compra un curso", () => {
     expect(seDespachaPorTransportadora(sinEnlace)).toBe(false);
   });
 
+  it("y lo detecta con la descripción REAL del catálogo (sin 'en video' ni 'acceso de por vida')", () => {
+    // La descripción que está en producción dice "39 módulos" a secas, sin
+    // "en video", y no menciona "acceso de por vida". El test anterior usaba
+    // una descripción idealizada que sí matcheaba las regex viejas, por eso
+    // pasaba mientras el bot en vivo ofrecía contraentrega.
+    const real = {
+      ...CURSO_IA_MAL_MARCADO,
+      deliveryLink: null,
+      description:
+        "3 cursos de IA en uno: domina Claude, automatiza sin código. ⚙️ MASTER EN AGENTES IA — 39 módulos. 🎨 CURSO COMPLETO DE CLAUDE AI — 13 módulos.",
+    };
+    expect(pareceDigital(real)).toBe(true);
+    expect(seDespachaPorTransportadora(real)).toBe(false);
+  });
+
   it("cualquier cosa que se llame curso tampoco se despacha", () => {
     for (const name of [
       "Curso de piano desde cero",

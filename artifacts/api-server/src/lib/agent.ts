@@ -964,9 +964,16 @@ export async function runAgentReply(conversationId: number) {
       const negocioParaCatalogo = await getBusinessContext(convo.tenantId).catch(() => null);
       const modoNegocio = negocioParaCatalogo?.modoCatalogo ?? "mixto";
       if (modoNegocio !== "mixto") {
-        const quiere = modoNegocio === "digital" ? "digital" : "physical";
+        const esDigital = modoNegocio === "digital";
         const antesModo = productList.length;
-        const soloDelModo = productList.filter((p: any) => String(p.kind || "digital") === quiere);
+        // Un producto es FÍSICO solo cuando se despacha por transportadora
+        // (kind físico Y sin evidencia de digital). Todo lo demás es digital,
+        // incluidos los cursos mal marcados `physical` por el importador de
+        // WooCommerce: un curso de IA con "39 módulos" en la descripción no
+        // puede filtrarse del catálogo digital por una bandera equivocada.
+        const soloDelModo = productList.filter((p: any) =>
+          esDigital ? !seDespachaPorTransportadora(p) : seDespachaPorTransportadora(p),
+        );
         if (soloDelModo.length > 0) {
           productList = soloDelModo;
           console.log(`🏷️ [MODO] El negocio vende solo ${modoNegocio}: ${soloDelModo.length} de ${antesModo} productos - ${ts()}`);
@@ -977,9 +984,13 @@ export async function runAgentReply(conversationId: number) {
 
       const especialidad = String((activeAgent as any).especialidad || "").toLowerCase();
       if (especialidad === "digital" || especialidad === "dropshipping") {
-        const tipoQueVende = especialidad === "digital" ? "digital" : "physical";
+        const esDigital = especialidad === "digital";
         const antes = productList.length;
-        const filtrado = productList.filter((p: any) => (p.kind || "digital") === tipoQueVende);
+        // Mismo criterio que el modo de negocio: se clasifica por si se
+        // despacha de verdad, no por la bandera `kind` suelta.
+        const filtrado = productList.filter((p: any) =>
+          esDigital ? !seDespachaPorTransportadora(p) : seDespachaPorTransportadora(p),
+        );
         // Si el filtro deja el catálogo vacío, el negocio no tiene productos
         // de ese tipo: se deja el catálogo completo antes que dejar al agente
         // sin nada que ofrecer.
@@ -1146,9 +1157,14 @@ export async function runAgentReply(conversationId: number) {
     // Producto en foco: el que la decisión eligió o el último con card enviada
     const focusId = decision.productToShow?.id ?? memory.currentProductId ?? null;
 
-    // Limitar catálogo a 20 productos para no exceder tokens de proveedores free-tier.
+    // Limitar catálogo a 100 productos (una línea por producto, ~50 chars) para
+    // que la IA vea TODOS los IDs válidos. Antes MAX_CATALOG era 10 por miedo a
+    // los proveedores free-tier, pero el catálogo compacto es barato (100
+    // productos ≈ 5.000 chars) y con 10 la IA no podía recomendar productos
+    // fuera de los primeros: "tenes el curso de mantenimiento de pc" no
+    // encontraba el producto y el bot contestaba otra cosa.
     // El producto en foco siempre se incluye; el resto se llena desde el inicio de la lista.
-    const MAX_CATALOG = 10;
+    const MAX_CATALOG = 100;
     let catalogSlice = productList;
     if (productList.length > MAX_CATALOG) {
       const focusProduct = focusId ? productList.find(p => p.id === focusId) : null;
