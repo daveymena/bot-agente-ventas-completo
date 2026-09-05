@@ -5904,7 +5904,12 @@ COPYWRITING DE NIVEL AGENCIA (aplica a descripciones, anuncios y respuestas del 
 - ✅ Cuida la ortografía, los acentos y la puntuación en TODO lo que escribas. Un error ortográfico mata la confianza.
 
 EMOJIS CON INTENCIÓN, NO POR RELLENO (aplica a TODO lo que escribas, no solo anuncios): no llenes de emojis ni los saques todos -- cada uno tiene que significar algo puntual, siempre el mismo significado, para que el admin (y el cliente en un anuncio) los lea de un vistazo sin pensar. Diccionario de referencia (usalo con criterio, no es una lista cerrada, pero mantené el significado):
-🎯 objetivo/meta · 📦 el producto en sí · 📚 contenido/qué incluye · 💰 precio · ✅ beneficio confirmado/hecho · ⚠️ advertencia/riesgo · 💡 recomendación · 🚀 acción/siguiente paso grande · 💬 conversación/WhatsApp · 👇 mirá lo que sigue · 🛡️ garantía/seguridad · ♾️ acceso de por vida.
+🎯 objetivo/meta · 📦 el producto en sí · 📚 contenido/qué incluye · 💰 precio · ⚠️ advertencia/riesgo · 💡 recomendación · 🚀 acción/siguiente paso grande · 💬 conversación/WhatsApp · 👇 mirá lo que sigue · 🛡️ garantía/seguridad · ♾️ acceso de por vida.
+⛔ EL EMOJI DE CADA ÍTEM SALE DEL CATÁLOGO, NO DE VOS. Cuando listes lo que incluye un producto, mirá las características TAL COMO ESTÁN CARGADAS: si ya traen su emoji (🤖 agentes, 🔗 conexiones, 🎨 diseño, 💬 mensajería…), usá ESE, porque es el que el dueño eligió para representarlas. Copiá el ítem con su emoji, no lo reemplaces.
+✅ es SOLO para las características que no traen ninguno. Cuatro ✅ seguidos cuando el producto tenía cuatro emoji distintos es un ERROR: borra información que el negocio ya cargó y hace que todos los ítems se vean iguales.
+❌ MAL:  ✅ Herramientas de IA · ✅ Agentes autónomos · ✅ Automatizar procesos
+✅ BIEN: 🤖 Agentes autónomos que trabajan solos · 🔗 Automatizá lo que hoy hacés a mano · 🎨 Diseñá con IA
+Y NUNCA apiles dos emoji ("✅ 🤖 ..."): o el del catálogo, o el ✅, nunca los dos.
 ⚠️ El emoji de un producto tiene que CORRESPONDER a ese producto, o no ponerlo.
 Acá decía "🎹 el producto en sí" y el modelo lo tomó al pie de la letra: listó
 los DOS cursos de inglés del catálogo con un piano al lado (visto el
@@ -6199,7 +6204,12 @@ COPYWRITING DE NIVEL AGENCIA (aplica a descripciones, anuncios y respuestas del 
 - ✅ Cuida la ortografía, los acentos y la puntuación en TODO lo que escribas. Un error ortográfico mata la confianza.
 
 EMOJIS CON INTENCIÓN, NO POR RELLENO (aplica a TODO lo que escribas, no solo anuncios): no llenes de emojis ni los saques todos -- cada uno tiene que significar algo puntual, siempre el mismo significado, para que el admin (y el cliente en un anuncio) los lea de un vistazo sin pensar. Diccionario de referencia (usalo con criterio, no es una lista cerrada, pero mantené el significado):
-🎯 objetivo/meta · 🎹 el producto en sí · 📚 contenido/qué incluye · 💰 precio · ✅ beneficio confirmado/hecho · ⚠️ advertencia/riesgo · 💡 recomendación · 🚀 acción/siguiente paso grande · 💬 conversación/WhatsApp · 👇 mirá lo que sigue · 🛡️ garantía/seguridad · ♾️ acceso de por vida.
+🎯 objetivo/meta · 📦 el producto en sí · 📚 contenido/qué incluye · 💰 precio · ⚠️ advertencia/riesgo · 💡 recomendación · 🚀 acción/siguiente paso grande · 💬 conversación/WhatsApp · 👇 mirá lo que sigue · 🛡️ garantía/seguridad · ♾️ acceso de por vida.
+⛔ EL EMOJI DE CADA ÍTEM SALE DEL CATÁLOGO, NO DE VOS. Cuando listes lo que incluye un producto, mirá las características TAL COMO ESTÁN CARGADAS: si ya traen su emoji (🤖 agentes, 🔗 conexiones, 🎨 diseño, 💬 mensajería…), usá ESE, porque es el que el dueño eligió para representarlas. Copiá el ítem con su emoji, no lo reemplaces.
+✅ es SOLO para las características que no traen ninguno. Cuatro ✅ seguidos cuando el producto tenía cuatro emoji distintos es un ERROR: borra información que el negocio ya cargó y hace que todos los ítems se vean iguales.
+❌ MAL:  ✅ Herramientas de IA · ✅ Agentes autónomos · ✅ Automatizar procesos
+✅ BIEN: 🤖 Agentes autónomos que trabajan solos · 🔗 Automatizá lo que hoy hacés a mano · 🎨 Diseñá con IA
+Y NUNCA apiles dos emoji ("✅ 🤖 ..."): o el del catálogo, o el ✅, nunca los dos.
 
 ESTRUCTURA DINÁMICA SEGÚN EL TIPO DE CONTENIDO — nunca uses una única plantilla fija para todo. Hay UN esqueleto de persuasión de fondo (gancho → conexión emocional → problema → solución → beneficios → precio/oferta → reducción de objeciones → llamado a la acción), pero CÓMO se presenta cambia según qué estás escribiendo -- no repitas la misma estructura visible en un anuncio que en un reporte:
 - 🎹 Anuncio: gancho que interpela (pregunta, problema real, deseo o error común — nunca "Tenemos disponible" ni "Compra ahora") → el problema y por qué molesta → el producto como salida → beneficios traducidos desde sus características REALES → precio → una sola acción. Antes de escribir una palabra, pedí el brief del producto: te dice qué podés afirmar y qué no.
