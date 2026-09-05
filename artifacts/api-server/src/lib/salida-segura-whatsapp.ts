@@ -16,12 +16,18 @@ export type SalidaPart = {
 
 const PLACEHOLDER = /(?:\$\s?[Xx]+(?:[.,\s][Xx]+)*|\$\s?_{2,}|\bXXX+\b|\[\s*(?:PRECIO|PRICE|LINK|URL|NOMBRE|NAME|PRODUCTO|PRODUCT|MONTO|AMOUNT)\s*\]|<\s*(?:PRECIO|PRICE|LINK|URL|NOMBRE|NAME|PRODUCTO|PRODUCT|MONTO|AMOUNT)\s*>)/i;
 
+// Verbos con los que el agente anuncia que va a entregar algo. Van conjugados
+// de varias formas ("te paso", "que te pase", "te voy a mandar") porque el
+// modelo redacta libre: un solo tiempo verbal dejaba pasar la mitad de los
+// casos.
+const VERBO_ENTREGA = String.raw`(?:pas(?:o|e|ar[eé]?|amos)|dej(?:o|e|ar[eé]?)|env[ií](?:o|e|ar[eé]?)|mand(?:o|e|ar[eé]?)|muestro|mostrar[eé]?|comparto|compartir[eé]?)`;
+
 const CLAIMS: Array<{ pattern: RegExp; key: string }> = [
-  { pattern: /(?:te\s+)?(?:paso|dejo|env[ií]o|mando|muestro).*\b(?:video|v[ií]deo)\b/i, key: "video" },
-  { pattern: /(?:te\s+)?(?:paso|dejo|env[ií]o|mando|muestro).*\b(?:precio|valor)\b/i, key: "precio" },
-  { pattern: /(?:\b(?:medios?|formas?|opciones?)\s+de\s+pago\b).*\b(?:paso|dejo|env[ií]o|mando|muestro)\b|(?:te\s+)?(?:paso|dejo|env[ií]o|mando|muestro).*\b(?:medios?|formas?|opciones?)\s+de\s+pago\b/i, key: "pago" },
-  { pattern: /(?:te\s+)?(?:paso|dejo|mando|muestro).*\b(?:informaci[oó]n|detalles?|contenido)\b/i, key: "contenido" },
-  { pattern: /(?:te\s+)?(?:paso|dejo|mando|muestro).*\b(?:tienda|enlace de la tienda)\b/i, key: "tienda" },
+  { pattern: new RegExp(`${VERBO_ENTREGA}.*\\b(?:video|v[ií]deo)\\b`, "i"), key: "video" },
+  { pattern: new RegExp(`${VERBO_ENTREGA}.*\\b(?:precio|valor)\\b`, "i"), key: "precio" },
+  { pattern: new RegExp(`(?:\\b(?:medios?|formas?|opciones?)\\s+de\\s+pago\\b).*\\b${VERBO_ENTREGA}\\b|${VERBO_ENTREGA}.*\\b(?:medios?|formas?|opciones?)\\s+de\\s+pago\\b`, "i"), key: "pago" },
+  { pattern: new RegExp(`${VERBO_ENTREGA}.*\\b(?:informaci[oó]n|info|detalles?|contenido)\\b`, "i"), key: "contenido" },
+  { pattern: new RegExp(`${VERBO_ENTREGA}.*\\b(?:tienda|enlace de la tienda)\\b`, "i"), key: "tienda" },
 ];
 
 // Estas preguntas no deben aparecer cuando el dato ya se está entregando.
@@ -128,8 +134,18 @@ export function reconciliarPromesas(parts: SalidaPart[]): { parts: SalidaPart[];
         removed.push(trimmed);
         continue;
       }
+      // Una promesa de entrega sobra en los dos escenarios posibles:
+      //  · el dato viaja en este mismo envío -> anunciarlo es redundante;
+      //  · el dato no viaja -> es una promesa que el envío no cumple, y el
+      //    cliente se queda esperando algo que nunca llega (le pasó a un
+      //    cliente real con "los medios de pago te los dejo acá abajo").
+      // Antes solo se cubría el primer caso, así que las promesas incumplidas
+      // salían intactas.
       const claim = CLAIMS.find((c) => c.pattern.test(trimmed));
-      if (claim && hasDelivery(parts, claim.key)) { removed.push(trimmed); continue; }
+      if (claim) {
+        removed.push(hasDelivery(parts, claim.key) ? trimmed : `${trimmed} [prometido sin enviar]`);
+        continue;
+      }
       kept.push(line);
     }
     const content = limpiarFormato(kept.join("\n"));
@@ -143,6 +159,9 @@ export function limpiarFormato(texto: string): string {
   return normalize(texto)
     .replace(/[ \t]{2,}/g, " ")
     .replace(/[ \t]+([,.;:!?])/g, "$1")
+    // Un emoji justo después de la apertura ("¿ 🚀 Listo?") se lee como un
+    // error de tipeo. Se quita el emoji y el espacio que arrastra.
+    .replace(/([¡¿])[ \t]*(?:\p{Extended_Pictographic}️?[ \t]*)+/gu, "$1")
     .replace(/([¡¿])[ \t]+/g, "$1")
     .replace(/^\s*[•●▪▫✅☑️🔹🔸]\s*$/gm, "")
     .replace(/^\s*[-*]\s*$/gm, "")

@@ -35,12 +35,24 @@ describe("salida final de WhatsApp", () => {
     expect(r.parts[0].kind).toBe("card");
   });
 
-  it("conserva la pregunta del precio si el precio todavía no viaja", () => {
+  // Decisión de 782e115: pedir permiso para dar el precio no entrega nada y
+  // obliga al cliente a contestar "sí" para recibir un dato que ya tenemos.
+  it("elimina la pregunta del precio aunque el precio todavía no viaje", () => {
     const r = reconciliarPromesas([
       { kind: "text", content: "¿Te paso el precio? 💰" },
       { kind: "card", productId: 123, seccion: "info" },
     ]);
-    expect(r.parts[0].content).toContain("¿Te paso el precio?");
+    expect(r.parts).toHaveLength(1);
+    expect(r.parts[0].kind).toBe("card");
+  });
+
+  it("no deja al cliente esperando un dato que el envío no trae", () => {
+    const r = reconciliarPromesas([
+      { kind: "text", content: "💰 El valor es de $60.000 COP (pago único)\n\nLos medios de pago te los dejo acá abajo para que elijas." },
+    ]);
+    expect(r.parts[0].content).toContain("$60.000");
+    expect(r.parts[0].content).not.toMatch(/medios de pago/i);
+    expect(r.removed.join(" ")).toContain("prometido sin enviar");
   });
 
   it("quita una promesa de pago si no hay parte de pago", () => {
