@@ -5,6 +5,15 @@ import { sendError } from "../lib/error-handler";
 import { ERROR_CODES } from "../lib/error-codes";
 import type { TenantRequest } from "../lib/tenantManager";
 import { callMarketingAI } from "../lib/marketing-team/ai";
+import {
+  bloqueDePlantilla,
+  casillasQueAplican,
+  elegirPlantilla,
+  PLANTILLAS,
+  tipoDeProducto,
+  type Casilla,
+  type Plantilla,
+} from "../lib/landing/plantillas";
 
 const router = Router();
 
@@ -17,25 +26,68 @@ type LandingSection = {
   cta?: string;
 };
 
-const SECTION_TYPES = ["hero", "benefits", "offer", "before-after", "comparison", "authority", "testimonials", "how-it-works", "logistics", "faq", "cta"] as const;
+/**
+ * Lo mínimo aceptable para una casilla que el modelo no escribió.
+ *
+ * No es una landing de respaldo: es el relleno de UN hueco. Sale solo de datos
+ * del producto, sin adjetivos ni promesas, porque una sección obligatoria
+ * vacía deja un agujero en la página publicada del dueño.
+ */
+function rellenoDe(casilla: Casilla, product: any): LandingSection {
+  const nombre = product?.name || "el producto";
+  const rasgos = Array.isArray(product?.features) && product.features.length
+    ? product.features.join(" · ")
+    : "";
 
-function fallbackSections(product: any): LandingSection[] {
-  const name = product?.name || "tu producto";
-  return [
-    { id: "hero", type: "hero", title: `${name}: una solución pensada para ti`, subtitle: product?.description || "Descubre una forma clara y sencilla de conseguir el resultado que buscas.", cta: "Quiero conocer la oferta" },
-    { id: "benefits", type: "benefits", title: "Lo que puedes conseguir", subtitle: "Beneficios concretos, explicados sin promesas inventadas.", body: Array.isArray(product?.features) && product.features.length ? product.features.join(" · ") : "Más claridad, una experiencia sencilla y una propuesta enfocada en el resultado." },
-    { id: "offer", type: "offer", title: "Conoce la oferta", subtitle: `Disponible por ${product?.price ?? "el precio indicado"} ${product?.currency ?? ""}`.trim(), body: "Revisa las condiciones reales de compra antes de confirmar." , cta: "Comprar ahora" },
-    { id: "how-it-works", type: "how-it-works", title: "Así funciona", subtitle: "Un proceso simple para empezar.", body: "1. Elige la solución · 2. Completa tu compra · 3. Recibe las instrucciones o entrega correspondiente." },
-    { id: "faq", type: "faq", title: "Preguntas frecuentes", subtitle: "Resolvemos las dudas que pueden frenar la decisión.", body: "¿Cómo recibo mi compra? · ¿Qué medios de pago están disponibles? · ¿Qué incluye exactamente?" },
-    { id: "cta", type: "cta", title: "Da el siguiente paso", subtitle: "Si esta solución encaja contigo, puedes continuar con tu compra.", cta: "Comprar ahora" },
-  ];
+  const base: Record<string, Partial<LandingSection>> = {
+    hero: { title: String(nombre), subtitle: product?.description || "", cta: "Quiero saber más" },
+    benefits: { title: "Para qué sirve", body: rasgos || product?.description || "" },
+    "how-it-works": { title: "Qué incluye", body: rasgos },
+    offer: {
+      title: "La oferta",
+      subtitle: product?.price ? `${product.price} ${product.currency || ""}`.trim() : "",
+      cta: "Comprar ahora",
+    },
+    logistics: { title: "Envío y pago", body: "" },
+    faq: { title: "Preguntas frecuentes", body: "" },
+    cta: { title: "Da el siguiente paso", cta: "Comprar ahora" },
+  };
+
+  return { id: casilla.type, type: casilla.type, title: "", ...base[casilla.type] } as LandingSection;
 }
 
-function normalizeSections(input: unknown, product: any): LandingSection[] {
-  if (!Array.isArray(input)) return fallbackSections(product);
-  const valid = input.filter((s: any) => s && typeof s === "object" && typeof s.id === "string" && SECTION_TYPES.includes(s.type));
-  if (!valid.length) return fallbackSections(product);
-  return valid.map((s: any) => {
+/**
+ * Encaja lo que devolvió el modelo en la plantilla.
+ *
+ * ── Por qué no se toma la lista del modelo tal cual ───────────────────────
+ *
+ * Antes se filtraban las secciones por `type` válido y se devolvían en el orden
+ * en que el modelo las hubiera escrito. Eso dejaba pasar los tres fallos que
+ * arruinaban la página: faltaba una sección obligatoria, sobraba una que el
+ * producto no puede sostener, o el precio aparecía antes que los beneficios.
+ *
+ * Acá se recorre la PLANTILLA, no la respuesta. Cada casilla busca su sección
+ * por `type`; si el modelo la escribió, se usa su texto; si no, se rellena con
+ * datos del producto. El orden y el conjunto salen de la plantilla siempre, así
+ * que la página no puede quedar coja ni desordenada por más raro que conteste
+ * el modelo.
+ *
+ * Lo que el modelo trajo de más se descarta: si no está en la plantilla, es una
+ * sección que este producto no tiene con qué llenar.
+ */
+function normalizeSections(input: unknown, product: any, casillas: Casilla[]): LandingSection[] {
+  const delModelo = Array.isArray(input)
+    ? input.filter((s: any) => s && typeof s === "object" && typeof s.type === "string")
+    : [];
+  const usadas = new Set<number>();
+
+  return casillas.map((casilla, i) => {
+    const idx = delModelo.findIndex((s: any, j: number) => !usadas.has(j) && String(s.type) === casilla.type);
+    if (idx === -1) return rellenoDe(casilla, product);
+    usadas.add(idx);
+    const s: any = delModelo[idx];
+    const relleno = rellenoDe(casilla, product);
+
     let image = s.image ? String(s.image) : undefined;
     if (!image && s.imagePrompt) {
       // Usar IA gratuita (Pollinations) para generar las imágenes on-the-fly al estilo Magic
@@ -43,8 +95,14 @@ function normalizeSections(input: unknown, product: any): LandingSection[] {
       image = `https://image.pollinations.ai/prompt/${enc}?width=1080&height=720&nologo=true`;
     }
     return {
-      id: String(s.id), type: String(s.type), title: String(s.title || ""), subtitle: s.subtitle ? String(s.subtitle) : undefined,
-      body: s.body ? String(s.body) : undefined, cta: s.cta ? String(s.cta) : undefined,
+      // El id sale de la casilla, no del modelo: el editor los usa como clave y
+      // dos secciones con el mismo id se pisan al guardar.
+      id: `${casilla.type}-${i + 1}`,
+      type: casilla.type,
+      title: String(s.title || relleno.title || ""),
+      subtitle: s.subtitle ? String(s.subtitle) : relleno.subtitle,
+      body: s.body ? String(s.body) : relleno.body,
+      cta: s.cta ? String(s.cta) : relleno.cta,
       image,
     };
   });
@@ -88,11 +146,20 @@ router.post("/generate", async (req: TenantRequest, res, next) => {
       features: product.features, paymentLink: product.paymentLink, deliveryLink: product.deliveryLink,
     };
 
+    // ── La estructura se decide ACÁ, antes de hablar con el modelo ──────────
+    //
+    // Es el cambio de fondo: qué secciones lleva la página y en qué orden ya no
+    // sale de lo que se le ocurra al modelo, sino de una plantilla elegida por
+    // el tipo de producto. El modelo escribe el texto de cada casilla.
+    const negocio = { brandName: req.tenant?.brandName };
+    const plantilla = elegirPlantilla(product as any, req.body?.plantilla, negocio);
+    const casillas = casillasQueAplican(plantilla, product as any, negocio);
+
     const result = await callMarketingAI<any>({
       tenantId,
       json: true,
       maxTokens: 2200,
-      systemPrompt: `Eres el Landing Agent de VentasPro. Construyes landing pages de respuesta directa que continúan la promesa del anuncio y convierten sin inventar datos. Devuelve SOLO JSON válido. Usa únicamente hechos presentes en PRODUCTO o ANUNCIO FUENTE; si falta un dato, no lo inventes. Nunca fabriques testimonios, garantías, descuentos, urgencia, certificaciones ni resultados cuantificados. Escribe en ${language} para ${country}. La salida debe ser utilizable por un editor visual.`,
+      systemPrompt: `${bloqueDePlantilla(plantilla, product as any, negocio)}\nEres el Landing Agent de VentasPro. Construyes landing pages de respuesta directa que continúan la promesa del anuncio y convierten sin inventar datos. Devuelve SOLO JSON válido. Usa únicamente hechos presentes en PRODUCTO o ANUNCIO FUENTE; si falta un dato, no lo inventes. Nunca fabriques testimonios, garantías, descuentos, urgencia, certificaciones ni resultados cuantificados. Escribe en ${language} para ${country}. La salida debe ser utilizable por un editor visual.`,
       userPrompt: JSON.stringify({
         tarea: "crear_landing",
         objetivo: objective,
@@ -109,11 +176,12 @@ router.post("/generate", async (req: TenantRequest, res, next) => {
     });
 
     const strategy = normalizeStrategy(result?.strategy, product, sourceAd);
-    const sections = normalizeSections(result?.sections, product);
+    const sections = normalizeSections(result?.sections, product, casillas);
     const design = result?.design || { tone: "direct-response premium", primary: "#111827", background: "#ffffff", radius: "14px" };
     const name = String(result?.name || `Landing · ${product.name}`);
 
-    return res.json({ ok: true, generatedBy: result ? "ai" : "fallback", name, productId, strategy, sections, design, source: sourceAd ? { type: "facebook-ad", data: sourceAd } : { type: "product", productId } });
+    return res.json({ ok: true, generatedBy: result ? "ai" : "fallback", name, productId, strategy, sections, design,
+      plantilla: { id: plantilla.id, nombre: plantilla.nombre, para: plantilla.para, cuando: plantilla.cuando }, source: sourceAd ? { type: "facebook-ad", data: sourceAd } : { type: "product", productId } });
   } catch (e) {
     return next(e);
   }
@@ -144,6 +212,42 @@ router.post("/:id/command", async (req: TenantRequest, res, next) => {
       return res.status(422).json({ ok: false, message: "El motor IA no pudo convertir la instrucción en una operación segura.", operations: [] });
     }
     return res.json({ ok: true, message: result.message || "Cambio preparado.", operations: result.operations });
+  } catch (e) {
+    return next(e);
+  }
+});
+
+/**
+ * Las plantillas que le sirven a un producto.
+ *
+ * El panel las usa para dejar que el dueño elija otra estructura; se le manda
+ * `?productId=` para no ofrecerle una plantilla con logística para un curso.
+ * Sin producto, van todas.
+ */
+router.get("/plantillas", async (req: TenantRequest, res, next) => {
+  try {
+    const tenantId = req.tenant?.id;
+    if (!tenantId) return sendError(res, ERROR_CODES.UNAUTHORIZED);
+
+    const productId = Number(req.query?.productId);
+    let para: string | null = null;
+    let sugerida: string | null = null;
+
+    if (Number.isFinite(productId)) {
+      const [product] = await db.select().from(products)
+        .where(and(eq(products.id, productId), eq(products.tenantId, tenantId))).limit(1);
+      if (product) {
+        para = tipoDeProducto(product.kind);
+        sugerida = elegirPlantilla(product as any, null, { brandName: req.tenant?.brandName }).id;
+      }
+    }
+
+    const lista = PLANTILLAS.filter((p) => !para || p.para === para).map((p: Plantilla) => ({
+      id: p.id, nombre: p.nombre, para: p.para, cuando: p.cuando,
+      secciones: p.casillas.map((c) => c.type),
+    }));
+
+    return res.json({ ok: true, sugerida, plantillas: lista });
   } catch (e) {
     return next(e);
   }
