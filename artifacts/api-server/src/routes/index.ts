@@ -18,6 +18,7 @@ import syncRouter from "./sync";
 import paymentRedirectRouter from "./paymentRedirect";
 import tenantsRouter from "./tenants";
 import usageRouter from "./usage";
+import paymentApprovalsRouter from "./payment-approvals";
 import analyticsRouter from "./analytics";
 import paymentsRouter from "./payments";
 import paymentCredentialsRouter from "./payment-credentials";
@@ -81,6 +82,7 @@ router.use("/internal/mcp", mcpBridgeRouter);
 router.use("/marketing", marketingRouter);
 router.use("/landing-pages", landingPagesAiRouter);
 router.use("/landing-pages", landingPagesRouter);
+router.use("/payment-approvals", paymentApprovalsRouter);
 router.use(errorHandler);
 
 export default router;
