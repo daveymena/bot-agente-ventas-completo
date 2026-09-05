@@ -68,53 +68,84 @@ export default function Settings() {
     userCode: "",
     deviceCode: "",
     verificationUri: "",
-    status: "idle"
+    status: "idle",
+    // Segundos que GitHub exige entre pregunta y pregunta. Viene en la
+    // respuesta del código de dispositivo y puede SUBIR mientras se espera.
+    intervalS: 5
   });
 
-  // Polling for Copilot token
+  // Espera de la autorización de GitHub (device flow).
+  //
+  // Antes esto era un setInterval de 5000 ms fijos. GitHub responde
+  // `slow_down` si se pregunta más seguido que su `interval`, y con CADA
+  // `slow_down` sube el intervalo exigido. Medido contra github.com el
+  // 2026-09-05: pregunta 2 -> interval 10, pregunta 3 -> interval 15.
+  // Preguntando siempre cada 5 s no se sale nunca de ese estado, y como el
+  // servidor lo traducía a "pending", la tarjeta se quedaba en
+  // "Sincronizando con GitHub..." PARA SIEMPRE, incluso después de autorizar.
+  //
+  // Ahora cada vuelta se agenda sola respetando lo que pide el servidor.
   useEffect(() => {
-    let interval: any;
-    if (deviceFlow.active && deviceFlow.status === "pending") {
-      interval = setInterval(async () => {
-        try {
-          const res = await fetch("/api/settings/copilot-device-token", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ device_code: deviceFlow.deviceCode })
-          });
-          const data = await res.json();
-          // El backend, al autorizar, responde { status: "authorized",
-          // success: true } y NO devuelve `token`: ya lo guardó él en la base
-          // y lo puso en el entorno. Acá se exigía `data.token`, así que la
-          // rama de éxito NO entraba nunca... y la de error tampoco, porque
-          // exige `!data.success`. Ninguna de las dos corría: el polling
-          // giraba para siempre y el admin veía "esperando autorización"
-          // cuando en el servidor ya estaba todo hecho.
-          //
-          // Reportado en vivo: "lo autentico y se queda ahí sin confirmar si
-          // fue autenticado, cuando el proceso con Copilot ya se realizó".
-          if (data.success || data.status === "authorized") {
-            setDeviceFlow(prev => ({ ...prev, active: false, status: "success" }));
-            // El token ya está guardado del lado del servidor: se relee la
-            // configuración para mostrarlo (enmascarado) en vez de meterlo a
-            // mano en el formulario, que además obligaba a darle "Guardar"
-            // para no perderlo.
-            queryClient.invalidateQueries({ queryKey: getGetSettingsQueryKey() });
-            toast.success("¡Cuenta de GitHub vinculada exitosamente!");
-            clearInterval(interval);
-          } else if (data.status !== "pending") {
-            // Un error real ocurrió (ej: expiró o fue denegado)
-            setDeviceFlow(prev => ({ ...prev, active: false, status: "error" }));
-            toast.error(data.error || "La autorización falló o expiró.");
-            clearInterval(interval);
-          }
-        } catch (e) {
-          console.error("Polling error", e);
+    if (!deviceFlow.active || deviceFlow.status !== "pending") return;
+
+    let cancelado = false;
+    let temporizador: any;
+    // +1 s de margen para no caer justo en el borde del intervalo, que es
+    // exactamente lo que dispara el primer `slow_down`.
+    let esperaMs = Math.max(deviceFlow.intervalS || 5, 5) * 1000 + 1000;
+
+    const preguntar = async () => {
+      if (cancelado) return;
+      try {
+        const res = await fetch("/api/settings/copilot-device-token", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ device_code: deviceFlow.deviceCode })
+        });
+        // Un 502 del proxy devuelve HTML, no JSON. Antes eso reventaba el
+        // await, caía al catch y la vuelta se perdía en silencio.
+        const data = await res.json().catch(() => ({} as any));
+
+        // El backend, al autorizar, responde { status: "authorized",
+        // success: true } y NO devuelve `token`: ya lo guardó él en la base
+        // y lo puso en el entorno.
+        if (res.ok && (data.success || data.status === "authorized")) {
+          setDeviceFlow(prev => ({ ...prev, active: false, status: "success" }));
+          // El token ya está guardado del lado del servidor: se relee la
+          // configuración para mostrarlo (enmascarado) en vez de meterlo a
+          // mano en el formulario.
+          queryClient.invalidateQueries({ queryKey: getGetSettingsQueryKey() });
+          toast.success("¡Cuenta de GitHub vinculada exitosamente!");
+          return;
         }
-      }, 5000);
-    }
-    return () => clearInterval(interval);
-  }, [deviceFlow.active, deviceFlow.status, deviceFlow.deviceCode]);
+
+        if (res.status === 202 || data.status === "pending") {
+          // GitHub puede haber pedido esperar más. Obedecerlo es la única
+          // forma de salir de `slow_down`.
+          if (typeof data.interval === "number" && data.interval > 0) {
+            esperaMs = data.interval * 1000 + 1000;
+          }
+        } else if (res.status === 400 || res.status === 401 || res.status === 403) {
+          // Error definitivo: código vencido, rechazado, o sin permiso.
+          // Reintentar no lo arregla y dejar la rueda girando engaña.
+          setDeviceFlow(prev => ({ ...prev, active: false, status: "error" }));
+          toast.error(data.error || data.message || "La autorización falló o expiró.");
+          return;
+        }
+        // Cualquier otra cosa (5xx, corte de red) se trata como pasajera y se
+        // vuelve a intentar: el código sigue siendo válido 15 minutos.
+      } catch (e) {
+        console.error("Polling error", e);
+      }
+      if (!cancelado) temporizador = setTimeout(preguntar, esperaMs);
+    };
+
+    temporizador = setTimeout(preguntar, esperaMs);
+    return () => {
+      cancelado = true;
+      clearTimeout(temporizador);
+    };
+  }, [deviceFlow.active, deviceFlow.status, deviceFlow.deviceCode, deviceFlow.intervalS]);
 
   useEffect(() => {
     if (settings) {
@@ -514,7 +545,7 @@ export default function Settings() {
                               </div>
                               <button
                                 type="button"
-                                onClick={() => setDeviceFlow({ active: false, userCode: "", deviceCode: "", verificationUri: "", status: "idle" })}
+                                onClick={() => setDeviceFlow({ active: false, userCode: "", deviceCode: "", verificationUri: "", status: "idle", intervalS: 5 })}
                                 className="text-[10px] font-black uppercase text-muted-foreground hover:text-foreground"
                               >
                                 Vincular otra cuenta
@@ -545,7 +576,12 @@ export default function Settings() {
                                         userCode: data.user_code,
                                         deviceCode: data.device_code,
                                         verificationUri: data.verification_uri,
-                                        status: "pending"
+                                        status: "pending",
+                                        // GitHub dice cada cuánto se le puede
+                                        // preguntar. Ignorarlo era lo que
+                                        // disparaba el `slow_down` del que no
+                                        // se salía más.
+                                        intervalS: Number(data.interval) > 0 ? Number(data.interval) : 5
                                       });
                                       toast.success("¡Código listo! Sigue las instrucciones.", { id: loadingToast });
                                     } else {
@@ -610,7 +646,7 @@ export default function Settings() {
                                     Abrir Web ↗
                                   </button>
                                   <button 
-                                    onClick={() => setDeviceFlow({ ...deviceFlow, active: false })} 
+                                    onClick={() => setDeviceFlow({ active: false, userCode: "", deviceCode: "", verificationUri: "", status: "idle", intervalS: 5 })} 
                                     className="text-[10px] font-black uppercase text-muted-foreground hover:text-foreground"
                                   >
                                     Cancelar

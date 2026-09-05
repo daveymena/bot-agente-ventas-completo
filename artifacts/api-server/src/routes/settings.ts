@@ -230,13 +230,27 @@ router.post("/copilot-device-token", requirePlatformOwner(), async (req, res, ne
     const result = await pollCopilotToken(device_code);
 
     if (result.status === "pending") {
-      // Aún no autorizado: el frontend debe reintentar según el interval
-      return res.status(202).json({ status: "pending" });
+      // El `interval` viaja al panel: si GitHub pidió esperar más (slow_down),
+      // el panel tiene que obedecerlo. Sin este dato seguía preguntando cada
+      // 5 s, GitHub seguía respondiendo `slow_down`, y la pantalla no salía
+      // nunca de "Sincronizando con GitHub...".
+      return res.status(202).json({ status: "pending", interval: result.intervalS });
     }
     if (result.status === "error" || !result.accessToken) {
+      // Los códigos de GitHub en crudo ("expired_token") no le dicen nada al
+      // que está mirando la pantalla, y este flujo se hace una sola vez: si
+      // falla, el mensaje tiene que decir qué hacer.
+      const EXPLICACIONES: Record<string, string> = {
+        expired_token: "El código venció (dura 15 minutos). Generá uno nuevo y pegalo en github.com/login/device.",
+        access_denied: "La autorización fue rechazada en GitHub. Generá un código nuevo y aceptala para continuar.",
+        incorrect_device_code: "El código ya no es válido. Generá uno nuevo desde el botón de arriba.",
+      };
       return res.status(400).json({
         status: "error",
-        error: result.error || "No se pudo obtener el token (código expirado o denegado).",
+        error:
+          EXPLICACIONES[String(result.error)] ||
+          result.error ||
+          "No se pudo obtener el token (código expirado o denegado).",
       });
     }
 

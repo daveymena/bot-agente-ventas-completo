@@ -67,7 +67,13 @@ export async function getCopilotDeviceCode(): Promise<DeviceCodeResponse | null>
  */
 export async function pollCopilotToken(
   deviceCode: string
-): Promise<{ status: "authorized" | "pending" | "error"; accessToken?: string; error?: string }> {
+): Promise<{
+  status: "authorized" | "pending" | "error";
+  accessToken?: string;
+  error?: string;
+  /** Segundos que GitHub exige esperar antes de volver a preguntar. */
+  intervalS?: number;
+}> {
   try {
     const resp = await fetch("https://github.com/login/oauth/access_token", {
       method: "POST",
@@ -87,8 +93,26 @@ export async function pollCopilotToken(
     if (data.access_token) {
       return { status: "authorized", accessToken: data.access_token };
     }
-    if (data.error === "authorization_pending" || data.error === "slow_down") {
+    if (data.error === "authorization_pending") {
       return { status: "pending" };
+    }
+    // `slow_down` NO es lo mismo que `authorization_pending`, y tratarlos
+    // igual es lo que dejaba la pantalla girando para siempre.
+    //
+    // GitHub responde `slow_down` cuando se pregunta más seguido que su
+    // `interval`, y con cada uno SUBE el intervalo que exige. Medido contra
+    // github.com el 2026-09-05 con un código real: pregunta 1 ->
+    // authorization_pending; pregunta 2 -> slow_down con interval 10;
+    // pregunta 3 -> slow_down con interval 15.
+    //
+    // Acá se devolvía "pending" descartando ese `interval`, y el panel seguía
+    // preguntando cada 5 s fijos. Una vez que se entra en `slow_down` nunca se
+    // sale: cada respuesta vuelve a ser `slow_down`, o sea "pending", así que
+    // "Sincronizando con GitHub..." no terminaba NUNCA -- ni siquiera después
+    // de que el admin autorizara de verdad en github.com/login/device.
+    if (data.error === "slow_down") {
+      const intervalS = Number(data.interval);
+      return { status: "pending", intervalS: Number.isFinite(intervalS) && intervalS > 0 ? intervalS : undefined };
     }
     return { status: "error", error: data.error || "unknown_error" };
   } catch (err: any) {
