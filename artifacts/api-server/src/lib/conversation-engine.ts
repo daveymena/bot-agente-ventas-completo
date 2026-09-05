@@ -455,6 +455,60 @@ const PAYMENT_INSTRUCTION_PATTERNS = [
   "número de cuenta", "numero de cuenta",
   "datos para pagar", "datos del pago", "datos de pago",
   "a quién le pago", "a quien le pago", "a nombre de quién", "a nombre de quien",
+
+  // ── Lo que faltaba, y era la mayoría ────────────────────────────────────
+  //
+  // Medido el 2026-09-05 probando esta función contra frases reales de
+  // cliente: 19 de 34 no la disparaban. La lista de arriba cubría solo la
+  // familia literal de "cómo pago" --el arreglo de agosto-- y dejaba afuera
+  // TODO lo demás, incluidas las frases de mayor intención de compra que
+  // existen.
+  //
+  // Importa porque este es el camino rápido que entrega los datos de
+  // consignación al instante. Si no coincide, el cliente queda a merced de que
+  // el modelo clasifique bien -- y el prompt del clasificador le dice qué NO
+  // es `payment_intent`, pero nunca qué SÍ es.
+
+  // DECIDIÓ COMPRAR. El momento de mayor intención de la conversación:
+  // responderle otra cosa acá es donde más caro sale equivocarse.
+  "quiero comprar", "lo quiero comprar", "la quiero comprar", "quiero comprarlo",
+  "quiero comprarla", "cómo lo compro", "como lo compro", "cómo la compro", "como la compro",
+  "hago para comprar", "hago para adquirir", "quiero adquirir",
+  "dónde lo compro", "donde lo compro", "dónde la compro", "donde la compro",
+  "me lo llevo", "me la llevo", "quiero uno", "quiero una", "quiero dos",
+
+  // YA DECIDIÓ Y ESPERA LOS DATOS. Acá cada minuto de demora enfría la venta.
+  "me pasas los datos", "pásame los datos", "pasame los datos", "me pasa los datos",
+  "pásame la cuenta", "pasame la cuenta", "me pasas la cuenta",
+  "mándame el link", "mandame el link", "pásame el link", "pasame el link",
+  "envíame el link", "enviame el link", "el link de pago", "link para pagar",
+  "por dónde te pago", "por donde te pago", "por dónde te consigno", "por donde te consigno",
+  "dónde consigno", "donde consigno", "dónde te consigno", "donde te consigno",
+
+  // PREGUNTA EL SIGUIENTE PASO. No nombra el pago, pero es un sí con otra
+  // forma: "listo, ¿qué hago?" es alguien que ya decidió.
+  "qué hago", "que hago", "qué sigue", "que sigue", "cómo procedo", "como procedo",
+  "cómo seguimos", "como seguimos", "cuál es el paso", "cual es el paso",
+];
+
+/**
+ * Lo que apaga la detección aunque la frase coincida.
+ *
+ * ⚠️ Sin esto, "no quiero comprarlo" dispara el cierre igual que "quiero
+ * comprarlo": la lista busca subcadenas y "quiero comprar" está adentro de las
+ * dos. Mandarle los datos de consignación a alguien que acaba de decir que NO
+ * es la peor forma de perder una venta que todavía estaba viva.
+ *
+ * `ya te pagué` y familia van acá por otra razón: quien YA pagó no pregunta
+ * cómo pagar, está esperando su compra. Confundirlos produce el bot que
+ * insiste con "¿cómo vas a pagar?" a alguien que ya transfirió, que es la queja
+ * más vergonzosa que reportó el dueño.
+ */
+const NO_ES_PEDIR_PAGAR = [
+  "no quiero", "no lo quiero", "no la quiero", "todavía no", "todavia no",
+  "aún no", "aun no", "más adelante", "mas adelante", "después", "despues",
+  "ya te pagué", "ya te pague", "ya pagué", "ya pague", "ya hice", "ya consigné",
+  "ya consigne", "acabo de pagar", "acabo de consignar", "acabo de transferir",
 ];
 
 /**
@@ -530,6 +584,9 @@ export function isPaymentProofIntent(text: string): boolean {
  */
 export function isPaymentInstructionIntent(text: string): boolean {
   const t = text.toLowerCase();
+  // La negación gana siempre: ante la duda se sigue conversando, que es lo
+  // que hacía antes de esta regla. Ver NO_ES_PEDIR_PAGAR.
+  if (NO_ES_PEDIR_PAGAR.some(p => t.includes(p))) return false;
   return PAYMENT_INSTRUCTION_PATTERNS.some(p => t.includes(p));
 }
 
