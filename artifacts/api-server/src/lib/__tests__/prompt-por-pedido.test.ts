@@ -128,3 +128,48 @@ describe("las cuatro partes suman el prompt entero", () => {
     expect(promptDeAtlas("crea un anuncio con imagen, mejora el copy y mostrame las métricas")).toContain(marca);
   });
 });
+
+/**
+ * ⚠️ LA OPTIMIZACIÓN ROMPIÓ EL ARREGLO DEL EMOJI. Mismo día, dos horas.
+ *
+ * Se armó el prompt por pedido para ahorrar 45% de lectura, y el filtro de
+ * marketing buscaba la palabra `copy`. El admin escribe **"copi"** --su forma
+ * habitual, en todos sus mensajes-- así que el bloque de marketing NO viajaba,
+ * y con él se quedaba afuera la regla de "usá el emoji del catálogo".
+ *
+ * Resultado: el arreglo del emoji, que había costado cuatro intentos, dejó de
+ * aplicarse justo en los pedidos de copy. El admin lo vio enseguida: "siguió
+ * respondiendo igual".
+ *
+ * Medido antes del arreglo:
+ *
+ *     "dame el copy"  →  24.396 car, CON la regla
+ *     "dame el copi"  →  16.363 car, SIN la regla
+ *
+ * La lección es más grande que el typo: este admin escribe rápido y con
+ * errores --"emgi", "ledmgible", "anucio"-- y una lista de palabras exactas le
+ * falla JUSTO cuando está apurado. Por eso los mensajes de acá abajo son
+ * TEXTUALES, con sus errores incluidos: son los que de verdad llegan.
+ */
+describe("los mensajes REALES del admin, con sus typos", () => {
+  const REGLA = "EL EMOJI DE CADA ÍTEM SALE DEL CATÁLOGO";
+
+  it.each([
+    "Primero dame el copi q es lo que re pregunte sin tata cosa",
+    "Vuelve a generar me otro copi mas bonito y profundo y real",
+    "Créame el copi basado en la información real buscado el dolor y la solución buen uso de emgi",
+    "dame el copy",
+    "necesito un anucio para el curso",
+    "mejorá los emgi del anuncio",
+  ])("trae las reglas de escritura: %s", (pedido) => {
+    expect(promptDeAtlas(pedido)).toContain(REGLA);
+  });
+
+  /** Y el ahorro sigue: una consulta no arrastra las reglas de escribir. */
+  it.each(["hola", "cuantos productos tengo?", "por que no responde el bot"])(
+    "pero una consulta sigue liviana: %s",
+    (pedido) => {
+      expect(promptDeAtlas(pedido)).not.toContain(REGLA);
+    },
+  );
+});

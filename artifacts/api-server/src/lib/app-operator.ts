@@ -6071,7 +6071,19 @@ export const ATLAS_NUCLEO = PARTES_DEL_PROMPT.nucleo;
  * duda, se manda.
  */
 const PIDE_MARKETING =
-  /copy|gancho|oferta|promo|descuento|titular|t[ií]tulo|descripci|marketing|persuas|conversi[oó]n|landing|precio/i;
+  // ⚠️ `cop[iy]` y no `copy`, y esto costó caro. El admin escribe "copi" --su
+  // forma habitual, aparece así en todos sus mensajes-- y con `copy` a secas
+  // este bloque NO viajaba: la regla de "usá el emoji del catálogo" se quedaba
+  // afuera justo en los pedidos de copy, que es donde importa.
+  //
+  // O sea que la optimización del prompt de esta misma mañana ROMPIÓ el
+  // arreglo del emoji, y el admin lo vio de inmediato ("siguió respondiendo
+  // igual"). Medido: "dame el copy" traía la regla, "dame el copi" no.
+  //
+  // La lección es más general que este typo: el admin escribe rápido y con
+  // errores ("emgi", "ledmgible", "anucio"), y una lista de palabras exactas
+  // le falla JUSTO cuando está apurado. Todo patrón acá tiene que tolerarlo.
+  /cop[iy]|gancho|oferta|promo|descuento|titular|t[ií]tulo|descripci|marketing|persuas|conversi[oó]n|landing|precio|emo[gj]i|anun?ci/i;
 
 /**
  * ⚠️ Distinguir ESCRIBIR de PREGUNTAR es lo que hace que esto sirva.
@@ -6089,7 +6101,7 @@ const PIDE_MARKETING =
 const VERBO_DE_CREAR =
   /\b(cre[aá]|hac[eé]|arm[aá]|gener[aá]|escrib[ií]|redact[aá]|mejor[aá]|optimiz[aá]|cambi[aá]|reescrib[ií]|ajust[aá]|prepar[aá]|dise[ñn][aá]|lanz[aá]|publi[cq]|anunci[aá]|publicit[aá])/i;
 
-const SUSTANTIVO_DE_MARKETING = /anunci|campa|producto|agente|mensaje|categor|tienda|publicaci/i;
+const SUSTANTIVO_DE_MARKETING = /anun?ci|campa|producto|agente|mensaje|categor|tienda|publicaci/i;
 
 /**
  * Las reglas de imagen para Facebook Ads: 6.087 caracteres que solo importan
@@ -6097,7 +6109,7 @@ const SUSTANTIVO_DE_MARKETING = /anunci|campa|producto|agente|mensaje|categor|ti
  * saber qué resolución acepta Meta.
  */
 const HAY_UNA_PIEZA_VISUAL = /imagen|foto|creativ|visual|banner|miniatura|p[ií]xel/i;
-const SUSTANTIVO_DE_ANUNCIO = /anunci|campa|publicit|facebook|meta\b|ads?\b|landing/i;
+const SUSTANTIVO_DE_ANUNCIO = /anun?ci|campa|publicit|facebook|meta\b|ads?\b|landing/i;
 
 const PIDE_ANALISIS =
   /m[eé]trica|resultado|rendimiento|analiz|an[aá]lisis|reporte|estad[ií]stica|c[oó]mo va|como va|cu[aá]nto|roi|conversi|ctr|cpc|cpm|gast/i;
