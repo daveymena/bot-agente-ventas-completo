@@ -28,7 +28,7 @@ const PLACEHOLDER = /(?:\$\s?[Xx]+(?:[.,\s][Xx]+)*|\$\s?_{2,}|\bXXX+\b|\[\s*(?:P
 const CLAIMS: Array<{ pattern: RegExp; key: string }> = [
   { pattern: /(?:te\s+)?(?:paso|dejo|env[ií]o|mando|muestro).*\b(?:video|v[ií]deo)\b/i, key: "video" },
   { pattern: /(?:te\s+)?(?:paso|dejo|env[ií]o|mando|muestro).*\b(?:precio|valor)\b/i, key: "precio" },
-  { pattern: /(?:te\s+)?(?:paso|dejo|env[ií]o|mando).*\b(?:medios? de pago|formas? de pago|opciones? de pago)\b/i, key: "pago" },
+  { pattern: /(?:\b(?:medios?|formas?|opciones?)\s+de\s+pago\b).*\b(?:paso|dejo|env[ií]o|mando|muestro)\b|(?:te\s+)?(?:paso|dejo|env[ií]o|mando|muestro).*\b(?:medios?|formas?|opciones?)\s+de\s+pago\b/i, key: "pago" },
   { pattern: /(?:te\s+)?(?:paso|dejo|mando|muestro).*\b(?:informaci[oó]n|detalles?|contenido)\b/i, key: "contenido" },
   { pattern: /(?:te\s+)?(?:paso|dejo|mando).*\b(?:tienda|enlace de la tienda)\b/i, key: "tienda" },
 ];
@@ -50,7 +50,6 @@ function hasDelivery(parts: SalidaPart[], key: string): boolean {
   });
 }
 
-/** Quita una oración que solo contiene un hueco de plantilla. Nunca inventa el dato. */
 export function bloquearPlaceholders(texto: string): { text: string; blocked: string[] } {
   const original = normalize(texto);
   if (!original) return { text: "", blocked: [] };
@@ -71,8 +70,6 @@ export function bloquearPlaceholders(texto: string): { text: string; blocked: st
     kept.push(line);
   }
 
-  // Un placeholder puede estar en medio de un párrafo. En ese caso elimina la
-  // oración completa para no dejar "El valor es de ..." sin valor.
   let text = kept.join("\n");
   const sentences = text.split(/(?<=[.!?])\s+/);
   const safeSentences = sentences.filter((s) => {
@@ -87,10 +84,6 @@ export function bloquearPlaceholders(texto: string): { text: string; blocked: st
   return { text: limpiarFormato(text), blocked };
 }
 
-/**
- * Elimina preguntas/promesas sobre algo que YA viaja en las mismas partes.
- * La pregunta por el paso siguiente se conserva si ese dato no viaja.
- */
 export function reconciliarPromesas(parts: SalidaPart[]): { parts: SalidaPart[]; removed: string[] } {
   const removed: string[] = [];
   const out: SalidaPart[] = [];
@@ -128,7 +121,6 @@ export function reconciliarPromesas(parts: SalidaPart[]): { parts: SalidaPart[];
   return { parts: eliminarDuplicadosExactos(out), removed };
 }
 
-/** Limpieza final: no deja "¡ Hola", bullets vacíos ni líneas huérfanas. */
 export function limpiarFormato(texto: string): string {
   return normalize(texto)
     .replace(/[ \t]{2,}/g, " ")
@@ -153,7 +145,6 @@ function eliminarDuplicadosExactos(parts: SalidaPart[]): SalidaPart[] {
   });
 }
 
-/** Punto único para las partes que realmente van a salir por WhatsApp. */
 export function prepararSalidaFinal(parts: SalidaPart[]): {
   parts: SalidaPart[];
   blockedPlaceholders: string[];
@@ -178,7 +169,6 @@ export function prepararSalidaFinal(parts: SalidaPart[]): {
   };
 }
 
-/** Sanitiza también captions generados por tarjetas/fichas. */
 export function prepararTextoWhatsApp(texto: string): string {
   const result = bloquearPlaceholders(texto);
   return result.text || "Déjame confirmarte ese dato exacto y te respondo enseguida. 🙏";
