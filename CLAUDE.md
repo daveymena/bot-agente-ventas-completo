@@ -7,7 +7,7 @@ Antes de modificar código relacionado con el frontend o el vendedor de WhatsApp
 1. `WHATSAPP_SALES_PLAYBOOK_RESEARCH_2026.md` — comportamiento comercial del agente vendedor de WhatsApp.
 2. `REDESENO_FRONTEND_UX_UI_2026.md` — auditoría y rediseño responsive de VentasPro.
 3. `AGENTS.md` — arquitectura general y reglas del repositorio.
-4. `ESTADO_DEL_MOTOR_DE_VENTAS.md` — auditoría previa del motor comercial y trabajo pendiente.
+4. `ESTADO_MOTOR_VENTAS.md` — auditoría previa del motor comercial y trabajo pendiente.
 5. `ESTADO_WHATSAPP_24AGO.md` — estado operativo, incidentes reales y precauciones del canal WhatsApp.
 
 ## Separación de agentes — NO mezclar
