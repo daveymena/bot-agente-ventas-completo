@@ -1,47 +1,302 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Layout } from "@/components/layout";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { toast } from "sonner";
-import { ArrowDown, ArrowUp, Download, Eye, GripVertical, LayoutTemplate, Monitor, Plus, Save, Sparkles, Smartphone, Trash2, Wand2 } from "lucide-react";
+import { Sparkles, Send, User, Loader2, Monitor, Smartphone, Download, RefreshCw, LayoutTemplate, Wand2 } from "lucide-react";
+import ReactMarkdown from "react-markdown";
 
-type SectionType = "hero" | "benefits" | "offer" | "before-after" | "comparison" | "authority" | "testimonials" | "how-it-works" | "logistics" | "faq" | "cta";
-type LandingSection = { id: string; type: SectionType; title: string; subtitle?: string; body?: string; cta?: string };
-type Product = { id: number; name: string; description?: string; price?: string; currency?: string; kind?: string; imageUrl?: string; features?: string[] };
-type Landing = { id: number; name: string; productId?: number | null; strategy?: any; sections?: LandingSection[]; design?: any; source?: any; status?: string };
-const LIBRARY: Array<{ type: SectionType; label: string; description: string }> = [
-  {type:"hero",label:"Hero / Hook",description:"Promesa principal + CTA"},{type:"benefits",label:"Beneficios",description:"Resultados y ventajas"},{type:"offer",label:"Oferta",description:"Precio y condiciones reales"},{type:"before-after",label:"Antes / Después",description:"Transformación"},{type:"comparison",label:"Comparación",description:"Alternativas"},{type:"authority",label:"Autoridad",description:"Prueba y respaldo"},{type:"testimonials",label:"Testimonios",description:"Prueba social"},{type:"how-it-works",label:"Cómo funciona",description:"Proceso en pasos"},{type:"logistics",label:"Logística",description:"Pago y entrega"},{type:"faq",label:"FAQ",description:"Objeciones"},{type:"cta",label:"CTA final",description:"Cierre"}
+type Product = { id: number; name: string; description?: string; price?: string; currency?: string };
+type Landing = { id: number; name: string; productId?: number | null; design?: any; sections?: any[]; strategy?: any };
+type Msg = { role: "user" | "assistant"; content: string; loading?: boolean };
+type Familia = "elegante" | "startup" | "corp" | "bold" | "minimalista" | "dark_premium" | "warm";
+
+const FAMILIAS: { value: Familia; label: string; color: string }[] = [
+  { value: "elegante", label: "Elegante", color: "#8B6F47" },
+  { value: "startup", label: "Startup", color: "#6366F1" },
+  { value: "corp", label: "Corporativo", color: "#1D4ED8" },
+  { value: "bold", label: "Bold", color: "#DC2626" },
+  { value: "minimalista", label: "Minimalista", color: "#111827" },
+  { value: "dark_premium", label: "Dark Premium", color: "#F59E0B" },
+  { value: "warm", label: "Calido", color: "#EA580C" },
 ];
-const DEFAULT: LandingSection[] = [
-  {id:"hero",type:"hero",title:"Tu próxima gran decisión empieza aquí",subtitle:"Una landing construida para continuar la promesa del anuncio.",cta:"Quiero empezar"},
-  {id:"benefits",type:"benefits",title:"¿Qué consigues con esta solución?",subtitle:"Beneficios claros y orientados al resultado."},
-  {id:"offer",type:"offer",title:"Conoce la oferta",subtitle:"Precio y condiciones reales del producto.",cta:"Comprar ahora"},
-  {id:"faq",type:"faq",title:"Preguntas frecuentes",subtitle:"Resolvemos las dudas antes de comprar."},
-  {id:"cta",type:"cta",title:"Da el siguiente paso",subtitle:"Si encaja contigo, continúa aquí.",cta:"Comprar ahora"}
-];
-async function api<T>(url:string, options?:RequestInit):Promise<T>{const r=await fetch(url,{credentials:"include",headers:{"Content-Type":"application/json",...(options?.headers||{})},...options});if(!r.ok)throw new Error((await r.json().catch(()=>null))?.message||`Error ${r.status}`);return r.status===204?undefined as T:r.json();}
-function esc(v:string){return v.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/\"/g,"&quot;");}
-function fileSlug(v:string){return v.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"");}
-function exportHtml(name:string,sections:LandingSection[],product?:Product){const blocks=sections.map(s=>`<section class="s"><div class="c"><small>${s.type.replace(/-/g," ")}</small><h2>${esc(s.title)}</h2>${s.subtitle?`<p>${esc(s.subtitle)}</p>`:""}${s.body?`<div>${esc(s.body)}</div>`:""}${s.cta?`<a href="#comprar">${esc(s.cta)}</a>`:""}</div></section>`).join("");return `<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(name)}</title><meta name="description" content="${esc(product?.description||name)}"><style>*{box-sizing:border-box}body{margin:0;font-family:Inter,Arial,sans-serif;color:#111827}.s{padding:80px 20px;border-bottom:1px solid #e5e7eb}.c{max-width:1050px;margin:auto;text-align:center}small{text-transform:uppercase;letter-spacing:.15em;color:#6b7280}h2{font-size:clamp(32px,5vw,64px);line-height:1.05;margin:15px 0}p,.c>div{max-width:760px;margin:15px auto;line-height:1.7;color:#4b5563;font-size:18px}a{display:inline-block;margin-top:18px;padding:15px 25px;border-radius:12px;background:#111827;color:#fff;text-decoration:none;font-weight:700}</style></head><body>${blocks}</body></html>`;}
-export default function LandingStudioV2(){
- const [products,setProducts]=useState<Product[]>([]),[landings,setLandings]=useState<Landing[]>([]),[productId,setProductId]=useState<number|"">(""),[landingId,setLandingId]=useState<number|null>(null),[name,setName]=useState("Mi Landing de Venta"),[sections,setSections]=useState(DEFAULT),[strategy,setStrategy]=useState<any>({}),[design,setDesign]=useState<any>({tone:"premium directo",primary:"#111827",background:"#ffffff"}),[instruction,setInstruction]=useState(""),[busy,setBusy]=useState(false),[preview,setPreview]=useState<"desktop"|"mobile">("desktop"),[selectedId,setSelectedId]=useState("hero");
- const selected=sections.find(s=>s.id===selectedId)||sections[0],product=products.find(p=>p.id===Number(productId)),html=useMemo(()=>exportHtml(name,sections,product),[name,sections,product]);
- useEffect(()=>{Promise.all([api<Product[]>('/api/products'),api<Landing[]>('/api/landing-pages')]).then(([p,l])=>{setProducts(p);setLandings(l);}).catch(e=>toast.error(e.message));},[]);
- const updateSelected=(patch:Partial<LandingSection>)=>setSections(cur=>cur.map(s=>s.id===selected.id?{...s,...patch}:s));
- const addSection=(type:SectionType)=>{const m=LIBRARY.find(x=>x.type===type)!;const s:LandingSection={id:`${type}-${Date.now()}`,type,title:m.label,subtitle:m.description};setSections(cur=>[...cur,s]);setSelectedId(s.id);};
- const move=(d:-1|1)=>{const i=sections.findIndex(s=>s.id===selected.id),t=i+d;if(i<0||t<0||t>=sections.length)return;const n=[...sections];[n[i],n[t]]=[n[t],n[i]];setSections(n);};
- const remove=()=>{if(sections.length<=1)return toast.error("La landing necesita al menos una sección.");const i=sections.findIndex(s=>s.id===selected.id),n=sections.filter(s=>s.id!==selected.id);setSections(n);setSelectedId(n[Math.max(0,i-1)].id);};
- const generate=async()=>{if(!productId)return toast.error("Selecciona un producto primero.");setBusy(true);try{const r=await api<any>('/api/landing-pages/generate',{method:'POST',body:JSON.stringify({productId:Number(productId),language:'es',country:'CO',objective:'sales'})});setLandingId(null);setName(r.name);setSections(r.sections);setStrategy(r.strategy);setDesign(r.design);setSelectedId(r.sections?.[0]?.id||'hero');toast.success(r.generatedBy==='ai'?'Landing generada por IA.':'Landing generada con respaldo determinístico.');}catch(e:any){toast.error(e.message);}finally{setBusy(false);}};
- const save=async()=>{if(!productId)return toast.error("Selecciona un producto.");setBusy(true);try{const payload={name,productId:Number(productId),strategy,sections,design,source:{type:'product',productId:Number(productId)},status:'draft'};const r=landingId?await api<Landing>(`/api/landing-pages/${landingId}`,{method:'PATCH',body:JSON.stringify(payload)}):await api<Landing>('/api/landing-pages',{method:'POST',body:JSON.stringify(payload)});setLandingId(r.id);setLandings(cur=>[r,...cur.filter(x=>x.id!==r.id)]);toast.success('Landing guardada en VentasPro.');}catch(e:any){toast.error(e.message);}finally{setBusy(false);}};
- const load=async(id:number)=>{setBusy(true);try{const r=await api<Landing>(`/api/landing-pages/${id}`);setLandingId(r.id);setName(r.name);setProductId(r.productId||"");setSections((r.sections as LandingSection[])||DEFAULT);setStrategy(r.strategy||{});setDesign(r.design||{});setSelectedId((r.sections as LandingSection[])?.[0]?.id||'hero');}catch(e:any){toast.error(e.message);}finally{setBusy(false);}};
- const command=async()=>{if(!landingId)return toast.info('Guarda la landing una vez para que el agente tenga una versión persistida que editar.');if(!instruction.trim())return;setBusy(true);try{const r=await api<any>(`/api/landing-pages/${landingId}/command`,{method:'POST',body:JSON.stringify({instruction,selectedSectionId:selectedId})});for(const op of r.operations||[]){if(op.op==='update_section')setSections(cur=>cur.map(s=>s.id===op.sectionId?{...s,...op.patch}:s));else if(op.op==='add_section'&&op.section)setSections(cur=>[...cur,op.section]);else if(op.op==='remove_section')setSections(cur=>cur.filter(s=>s.id!==op.sectionId));else if(op.op==='update_design')setDesign((d:any)=>({...d,...op.patch}));else if(op.op==='move_section')setSections(cur=>{const i=cur.findIndex(s=>s.id===op.sectionId),d=op.direction==='up'?-1:1,t=i+d;if(i<0||t<0||t>=cur.length)return cur;const n=[...cur];[n[i],n[t]]=[n[t],n[i]];return n;});}setInstruction('');toast.success(r.message||'Cambio aplicado.');}catch(e:any){toast.error(e.message);}finally{setBusy(false);}};
- const download=()=>{const a=document.createElement('a'),u=URL.createObjectURL(new Blob([html],{type:'text/html'}));a.href=u;a.download=`${fileSlug(name)||'landing'}.html`;a.click();URL.revokeObjectURL(u);};
- return <Layout><div className="space-y-5 p-3 sm:p-5"><div className="flex flex-col xl:flex-row justify-between gap-4"><div><div className="flex gap-2 mb-2"><Badge variant="secondary"><Sparkles className="h-3.5 w-3.5 mr-1"/>Landing AI Studio</Badge><Badge variant="outline">Agente IA conectado</Badge></div><h1 className="text-2xl sm:text-3xl font-black">Crea, edita y guarda tu landing con IA</h1><p className="text-sm text-muted-foreground mt-1 max-w-3xl">Producto → estrategia → copy → diseño → landing. El agente modifica la estructura real, no solo te responde con texto.</p></div><div className="flex flex-wrap gap-2"><Button variant="outline" disabled={busy} onClick={save}><Save className="h-4 w-4 mr-2"/>Guardar</Button><Button variant="outline" onClick={download}><Download className="h-4 w-4 mr-2"/>Exportar HTML</Button><Button onClick={()=>toast.info('La publicación pública se conecta en la siguiente fase.')}><Eye className="h-4 w-4 mr-2"/>Vista previa</Button></div></div>
- <Card><CardContent className="p-4"><div className="grid grid-cols-1 md:grid-cols-[1fr_1fr_auto] gap-3 items-end"><div><label className="text-xs font-semibold">Producto</label><select value={productId} onChange={e=>setProductId(e.target.value?Number(e.target.value):"")} className="mt-1 w-full h-10 rounded-md border bg-background px-3 text-sm"><option value="">Selecciona un producto...</option>{products.map(p=><option key={p.id} value={p.id}>{p.name} · {p.price} {p.currency}</option>)}</select></div><div><label className="text-xs font-semibold">Landing existente</label><select value={landingId||""} onChange={e=>e.target.value&&load(Number(e.target.value))} className="mt-1 w-full h-10 rounded-md border bg-background px-3 text-sm"><option value="">Nueva landing...</option>{landings.map(l=><option key={l.id} value={l.id}>{l.name}</option>)}</select></div><Button disabled={busy||!productId} onClick={generate}><Wand2 className="h-4 w-4 mr-2"/>{busy?'Trabajando...':'Crear con IA'}</Button></div></CardContent></Card>
- <div className="grid grid-cols-1 lg:grid-cols-[250px_minmax(0,1fr)_310px] gap-4 items-start"><Card className="lg:sticky lg:top-20"><CardHeader className="pb-3"><CardTitle className="text-sm flex gap-2"><LayoutTemplate className="h-4 w-4"/>Estructura</CardTitle><CardDescription>Orden del recorrido.</CardDescription></CardHeader><CardContent className="space-y-1.5">{sections.map((s,i)=><button key={s.id} onClick={()=>setSelectedId(s.id)} className={`w-full text-left rounded-lg border p-2 flex items-center gap-2 ${selectedId===s.id?'border-primary bg-primary/5':''}`}><GripVertical className="h-4 w-4 text-muted-foreground"/><span className="text-xs text-muted-foreground">{i+1}</span><span className="text-sm truncate">{s.title}</span></button>)}<div className="pt-3 border-t mt-3"><p className="text-[11px] font-semibold uppercase text-muted-foreground mb-1">Añadir sección</p>{LIBRARY.map(m=><Button key={m.type} variant="ghost" size="sm" className="w-full justify-start h-8" onClick={()=>addSection(m.type)}><Plus className="h-3.5 w-3.5 mr-2"/>{m.label}</Button>)}</div></CardContent></Card>
- <Card className="overflow-hidden"><CardHeader className="border-b"><div className="flex justify-between items-center"><div><CardTitle className="text-sm">Canvas de landing</CardTitle><CardDescription>{product?`Producto: ${product.name}`:'Selecciona un producto para empezar'}</CardDescription></div><div className="flex gap-1"><Button size="sm" variant={preview==='desktop'?'default':'outline'} onClick={()=>setPreview('desktop')}><Monitor className="h-4 w-4"/></Button><Button size="sm" variant={preview==='mobile'?'default':'outline'} onClick={()=>setPreview('mobile')}><Smartphone className="h-4 w-4"/></Button></div></div></CardHeader><CardContent className="p-4 bg-muted/30"><div className={`mx-auto bg-white rounded-xl shadow-sm overflow-hidden ${preview==='mobile'?'max-w-[390px]':'max-w-[900px]'}`}>{sections.map(s=><button key={s.id} onClick={()=>setSelectedId(s.id)} className={`block w-full text-left p-8 sm:p-12 border-b transition ${selectedId===s.id?'ring-2 ring-inset ring-primary':''} ${s.type==='hero'?'bg-slate-50 py-16':''} ${s.type==='offer'||s.type==='cta'?'bg-slate-100':''}`}><div className="max-w-2xl mx-auto text-center"><div className="text-[10px] uppercase tracking-[.18em] text-muted-foreground mb-3">{s.type.replace(/-/g,' ')}</div><h2 className="text-2xl sm:text-4xl font-black leading-tight">{s.title}</h2>{s.subtitle&&<p className="mt-3 text-sm sm:text-base text-muted-foreground leading-relaxed">{s.subtitle}</p>}{s.body&&<p className="mt-4 text-sm leading-relaxed">{s.body}</p>}{s.cta&&<span className="inline-flex mt-6 rounded-lg bg-primary text-primary-foreground px-5 py-3 font-bold text-sm">{s.cta}</span>}</div></button>)}</div></CardContent></Card>
- <div className="space-y-4 lg:sticky lg:top-20"><Card><CardHeader className="pb-3"><CardTitle className="text-sm">Agente IA</CardTitle><CardDescription>Escribe lo que quieres cambiar.</CardDescription></CardHeader><CardContent className="space-y-3"><Textarea value={instruction} onChange={e=>setInstruction(e.target.value)} placeholder="Ej.: Haz el hero más potente y orientado al deseo principal del cliente." rows={5}/><Button className="w-full" disabled={busy||!instruction.trim()} onClick={command}><Sparkles className="h-4 w-4 mr-2"/>Aplicar con IA</Button><div className="text-xs text-muted-foreground space-y-1"><p>Ejemplos:</p><button className="block text-left hover:underline" onClick={()=>setInstruction('Haz el titular más directo y específico.')}>• Mejorar titular</button><button className="block text-left hover:underline" onClick={()=>setInstruction('Haz el diseño más premium sin cambiar datos reales.')}>• Hacerla más premium</button><button className="block text-left hover:underline" onClick={()=>setInstruction('Agrega una sección de cómo funciona después de beneficios.')}>• Agregar sección</button></div></CardContent></Card><Card><CardHeader className="pb-3"><CardTitle className="text-sm">Editar sección</CardTitle></CardHeader><CardContent className="space-y-3">{selected&&<><Input value={name} onChange={e=>setName(e.target.value)} placeholder="Nombre de landing"/><Input value={selected.title} onChange={e=>updateSelected({title:e.target.value})} placeholder="Título"/><Textarea value={selected.subtitle||''} onChange={e=>updateSelected({subtitle:e.target.value})} placeholder="Subtítulo" rows={3}/><Textarea value={selected.body||''} onChange={e=>updateSelected({body:e.target.value})} placeholder="Contenido" rows={4}/><Input value={selected.cta||''} onChange={e=>updateSelected({cta:e.target.value})} placeholder="CTA"/><div className="flex gap-1"><Button size="sm" variant="outline" onClick={()=>move(-1)}><ArrowUp className="h-4 w-4"/></Button><Button size="sm" variant="outline" onClick={()=>move(1)}><ArrowDown className="h-4 w-4"/></Button><Button size="sm" variant="outline" className="ml-auto" onClick={remove}><Trash2 className="h-4 w-4"/></Button></div></>}</CardContent></Card></div></div></div></Layout>;
+
+const SALUDO = `Soy tu **Constructor de Landing Pages** powered by OpenCode 
+
+Creo paginas de ventas profesionales con frameworks de alta conversion (AIDA, PAS, Before-After).
+
+**Para empezar:**
+1. Selecciona un **producto** arriba
+2. Elige un **estilo visual**
+3. Presiona **Generar** — o escribeme que quieres
+
+*"Crea una landing impactante para mi curso de piano"*`;
+
+async function apiFetch<T>(url: string, opts?: RequestInit): Promise<T> {
+  const r = await fetch(url, { credentials: "include", headers: { "Content-Type": "application/json", ...(opts?.headers || {}) }, ...opts });
+  if (!r.ok) throw new Error((await r.json().catch(() => null))?.message || `Error ${r.status}`);
+  return r.status === 204 ? (undefined as T) : r.json();
+}
+
+export default function LandingStudioV2() {
+  const [products, setProducts] = useState<Product[]>([]);
+  const [landings, setLandings] = useState<Landing[]>([]);
+  const [productId, setProductId] = useState<number | "">("");
+  const [landingId, setLandingId] = useState<number | null>(null);
+  const [familia, setFamilia] = useState<Familia>("elegante");
+  const [previewMode, setPreviewMode] = useState<"desktop" | "mobile">("desktop");
+  const [msgs, setMsgs] = useState<Msg[]>([{ role: "assistant", content: SALUDO }]);
+  const [input, setInput] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [previewHtml, setPreviewHtml] = useState<string | null>(null);
+  const [previewBusy, setPreviewBusy] = useState(false);
+  const iframeRef = useRef<HTMLIFrameElement>(null);
+  const bottomRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    Promise.all([apiFetch<Product[]>("/api/products"), apiFetch<Landing[]>("/api/landing-pages")])
+      .then(([p, l]) => { setProducts(p); setLandings(l); })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [msgs]);
+
+  useEffect(() => {
+    const iframe = iframeRef.current;
+    if (!iframe) return;
+    const doc = iframe.contentDocument;
+    if (!doc) return;
+    if (previewHtml) {
+      doc.open(); doc.write(previewHtml); doc.close();
+    } else {
+      doc.open();
+      doc.write(`<!doctype html><html><body style="display:flex;align-items:center;justify-content:center;min-height:100vh;font-family:system-ui,sans-serif;color:#64748b;background:#0f172a;margin:0;flex-direction:column;gap:16px;text-align:center;padding:40px"><svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="#6366f1" stroke-width="1.2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg><p style="font-size:16px;max-width:300px">Selecciona un producto y presiona <strong style="color:#a5b4fc">Generar</strong></p></body></html>`);
+      doc.close();
+    }
+  }, [previewHtml]);
+
+  const cargarPreview = useCallback(async (id: number, fam?: Familia) => {
+    setPreviewBusy(true);
+    try {
+      const r = await fetch(`/api/landing-pages/${id}/render?familia=${fam || familia}`, { credentials: "include" });
+      if (!r.ok) throw new Error("Error al renderizar");
+      setPreviewHtml(await r.text());
+    } catch { toast.error("No se pudo cargar la preview"); }
+    finally { setPreviewBusy(false); }
+  }, [familia]);
+
+  const generarLanding = useCallback(async (pid: number) => {
+    const product = products.find(p => p.id === pid);
+    setBusy(true);
+    setMsgs(m => [...m, { role: "assistant", content: `Generando landing para **${product?.name}** con estilo *${familia}* via OpenCode...`, loading: true }]);
+    try {
+      const gen = await apiFetch<any>("/api/landing-pages/generate", {
+        method: "POST",
+        body: JSON.stringify({ productId: pid, language: "es", country: "CO", objective: "sales" }),
+      });
+      const saved = await apiFetch<Landing>("/api/landing-pages", {
+        method: "POST",
+        body: JSON.stringify({ name: gen.name, productId: pid, strategy: gen.strategy, sections: gen.sections, design: { ...gen.design, familia }, source: gen.source, status: "draft" }),
+      });
+      setLandingId(saved.id);
+      setLandings(prev => [saved, ...prev.filter(l => l.id !== saved.id)]);
+      const renderResp = await fetch(`/api/landing-pages/${saved.id}/render?familia=${familia}`, { credentials: "include" });
+      if (renderResp.ok) setPreviewHtml(await renderResp.text());
+      setMsgs(m => [
+        ...m.filter(x => !(x as any).loading),
+        { role: "assistant", content: `**Landing generada y guardada**\n\n**Nombre:** ${gen.name}\n**Estilo:** ${familia}\n**Motor:** ${gen.generatedBy === "ai" ? "OpenCode (IA)" : "Fallback determinístico"}\n\n**Secciones creadas:**\n${(gen.sections as any[]).map((s: any) => `- **${s.type}** — ${s.title}`).join("\n")}\n\nPuedes pedirme ajustes:\n> *"Haz el hero mas agresivo"*\n> *"Cambia el CTA a urgencia"*\n> *"Agrega mas beneficios"*` },
+      ]);
+      toast.success("Landing generada con OpenCode!");
+    } catch (e: any) {
+      setMsgs(m => [...m.filter(x => !(x as any).loading), { role: "assistant", content: `Error: ${e.message || "Error al generar."}` }]);
+    } finally { setBusy(false); }
+  }, [products, familia]);
+
+  const aplicarComando = useCallback(async (instruccion: string) => {
+    if (!landingId) {
+      setMsgs(m => [...m, { role: "assistant", content: "Primero genera o carga una landing para editarla." }]);
+      return;
+    }
+    setBusy(true);
+    setMsgs(m => [...m, { role: "assistant", content: "Aplicando cambios con IA...", loading: true }]);
+    try {
+      const r = await apiFetch<any>(`/api/landing-pages/${landingId}/command`, {
+        method: "POST",
+        body: JSON.stringify({ instruction: instruccion }),
+      });
+      if (r.operations?.length) await cargarPreview(landingId);
+      setMsgs(m => [
+        ...m.filter(x => !(x as any).loading),
+        { role: "assistant", content: `${r.message || "Cambio aplicado."}\n\nPreview actualizada. Que mas ajustamos?` },
+      ]);
+    } catch (e: any) {
+      setMsgs(m => [...m.filter(x => !(x as any).loading), { role: "assistant", content: `Error: ${e.message}` }]);
+    } finally { setBusy(false); }
+  }, [landingId, cargarPreview]);
+
+  const enviar = useCallback(async () => {
+    const text = input.trim();
+    if (!text || busy) return;
+    setInput("");
+    setMsgs(m => [...m, { role: "user", content: text }]);
+    const querGenerar = /genera|crea|construye|haz una landing|nueva landing/i.test(text);
+    const pid = typeof productId === "number" ? productId : null;
+    if (querGenerar && pid) await generarLanding(pid);
+    else if (querGenerar && !pid) setMsgs(m => [...m, { role: "assistant", content: "Selecciona primero un **producto** en el selector de arriba." }]);
+    else await aplicarComando(text);
+    inputRef.current?.focus();
+  }, [input, busy, productId, generarLanding, aplicarComando]);
+
+  const exportar = useCallback(async () => {
+    if (!landingId) return toast.info("Primero genera una landing.");
+    const r = await fetch(`/api/landing-pages/${landingId}/render?familia=${familia}`, { credentials: "include" });
+    if (!r.ok) return toast.error("Error al exportar");
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([await r.text()], { type: "text/html" }));
+    a.download = `landing-${landingId}.html`; a.click();
+  }, [landingId, familia]);
+
+  const cargarLanding = useCallback(async (id: number) => {
+    const l = landings.find(x => x.id === id);
+    if (!l) return;
+    setLandingId(id);
+    if (l.productId) setProductId(l.productId);
+    if ((l.design as any)?.familia) setFamilia((l.design as any).familia as Familia);
+    await cargarPreview(id, (l.design as any)?.familia as Familia);
+    setMsgs(m => [...m, { role: "assistant", content: `Landing **"${l.name}"** cargada. Que quieres modificar?` }]);
+  }, [landings, cargarPreview]);
+
+  return (
+    <Layout>
+      <div className="flex flex-col" style={{ height: "calc(100vh - 4rem)" }}>
+        <div className="flex items-center gap-2 px-3 py-2 border-b bg-background shrink-0 flex-wrap">
+          <div className="flex items-center gap-2 mr-1">
+            <div className="p-1.5 rounded-lg bg-violet-500/10 border border-violet-500/20">
+              <LayoutTemplate className="h-4 w-4 text-violet-500" />
+            </div>
+            <span className="text-sm font-bold hidden sm:block">Landing AI Studio</span>
+            <Badge variant="secondary" className="text-[10px] hidden sm:flex">OpenCode</Badge>
+          </div>
+          <select value={productId} onChange={e => setProductId(e.target.value ? Number(e.target.value) : "")}
+            className="h-8 rounded-md border bg-background px-2 text-xs min-w-[140px] max-w-[200px]">
+            <option value="">Producto...</option>
+            {products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </select>
+          <select value={landingId || ""} onChange={e => e.target.value && cargarLanding(Number(e.target.value))}
+            className="h-8 rounded-md border bg-background px-2 text-xs min-w-[120px] max-w-[180px]">
+            <option value="">Nueva landing...</option>
+            {landings.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
+          </select>
+          <Button size="sm" disabled={busy || !productId} onClick={() => productId && generarLanding(Number(productId))}
+            className="bg-violet-600 hover:bg-violet-700 text-white h-8 px-3 text-xs">
+            {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : <Wand2 className="h-3.5 w-3.5 mr-1" />}
+            Generar
+          </Button>
+          <div className="ml-auto flex gap-1">
+            <Button size="sm" variant="ghost" onClick={() => landingId && cargarPreview(landingId)} disabled={!landingId || previewBusy} className="h-8 w-8 p-0">
+              <RefreshCw className={`h-3.5 w-3.5 ${previewBusy ? "animate-spin" : ""}`} />
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => setPreviewMode(m => m === "desktop" ? "mobile" : "desktop")} className="h-8 w-8 p-0">
+              {previewMode === "desktop" ? <Smartphone className="h-3.5 w-3.5" /> : <Monitor className="h-3.5 w-3.5" />}
+            </Button>
+            <Button size="sm" variant="ghost" onClick={exportar} disabled={!landingId} className="h-8 w-8 p-0">
+              <Download className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+        </div>
+        <div className="flex flex-1 overflow-hidden">
+          <div className="flex flex-col border-r bg-background" style={{ width: 340, minWidth: 280 }}>
+            <div className="px-3 py-2 border-b bg-muted/20 shrink-0">
+              <p className="text-[10px] font-semibold uppercase text-muted-foreground mb-1.5">Estilo visual</p>
+              <div className="flex flex-wrap gap-1">
+                {FAMILIAS.map(f => (
+                  <button key={f.value}
+                    onClick={async () => { setFamilia(f.value); if (landingId) await cargarPreview(landingId, f.value); }}
+                    className={`px-2 py-0.5 rounded text-[10px] font-medium border transition-all ${familia === f.value ? "text-white border-transparent" : "border-border bg-background text-muted-foreground hover:border-primary/40"}`}
+                    style={familia === f.value ? { backgroundColor: f.color } : {}}>
+                    {f.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <ScrollArea className="flex-1 px-3 py-3">
+              <div className="space-y-3">
+                {msgs.map((msg, i) => (
+                  <div key={i} className={`flex gap-2 ${msg.role === "user" ? "flex-row-reverse" : ""}`}>
+                    <div className={`shrink-0 h-6 w-6 rounded-full flex items-center justify-center ${msg.role === "assistant" ? "bg-violet-100 text-violet-700" : "bg-blue-100 text-blue-700"}`}>
+                      {msg.role === "assistant" ? <Sparkles className="h-3 w-3" /> : <User className="h-3 w-3" />}
+                    </div>
+                    <div className={`max-w-[260px] rounded-xl px-3 py-2 text-xs leading-relaxed ${msg.role === "assistant" ? "bg-muted" : "bg-blue-600 text-white"} ${(msg as any).loading ? "opacity-70" : ""}`}>
+                      {msg.role === "assistant" ? (
+                        <ReactMarkdown components={{
+                          p: ({ children }) => <p className="mb-1 last:mb-0">{children}</p>,
+                          strong: ({ children }) => <strong className="font-semibold">{children}</strong>,
+                          ul: ({ children }) => <ul className="list-disc list-inside space-y-0.5 mt-1">{children}</ul>,
+                          li: ({ children }) => <li>{children}</li>,
+                          blockquote: ({ children }) => <blockquote className="border-l-2 border-violet-400 pl-2 italic opacity-80 mt-1">{children}</blockquote>,
+                        }}>{msg.content}</ReactMarkdown>
+                      ) : msg.content}
+                      {(msg as any).loading && <Loader2 className="h-3 w-3 animate-spin inline ml-1" />}
+                    </div>
+                  </div>
+                ))}
+                <div ref={bottomRef} />
+              </div>
+            </ScrollArea>
+            <div className="px-3 py-2 border-t bg-muted/10 shrink-0">
+              <div className="flex flex-wrap gap-1 mb-2">
+                {["Hero mas impactante", "CTA urgente", "Mas premium", "Agrega FAQ"].map(s => (
+                  <button key={s} onClick={() => { setInput(s); inputRef.current?.focus(); }}
+                    className="text-[10px] px-2 py-0.5 rounded-full border bg-background hover:bg-muted transition-colors">
+                    {s}
+                  </button>
+                ))}
+              </div>
+              <div className="flex gap-2">
+                <Input ref={inputRef} value={input}
+                  onChange={e => setInput(e.target.value)}
+                  onKeyDown={e => e.key === "Enter" && !e.shiftKey && (e.preventDefault(), enviar())}
+                  placeholder="Pide un cambio o genera..."
+                  className="h-8 text-xs" disabled={busy} />
+                <Button size="sm" onClick={enviar} disabled={busy || !input.trim()}
+                  className="h-8 w-8 p-0 bg-violet-600 hover:bg-violet-700 text-white shrink-0">
+                  {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Send className="h-3 w-3" />}
+                </Button>
+              </div>
+            </div>
+          </div>
+          <div className="flex-1 flex flex-col bg-slate-950 overflow-hidden">
+            <div className="flex items-center gap-2 px-3 py-2 bg-slate-900 border-b border-slate-800 shrink-0">
+              <div className="flex gap-1">
+                <span className="h-2.5 w-2.5 rounded-full bg-red-500/70" />
+                <span className="h-2.5 w-2.5 rounded-full bg-yellow-500/70" />
+                <span className="h-2.5 w-2.5 rounded-full bg-green-500/70" />
+              </div>
+              <div className="flex-1 bg-slate-800 rounded px-2 py-0.5 text-[10px] text-slate-400 truncate">
+                {landingId ? `/api/landing-pages/${landingId}/render?familia=${familia}` : "preview - genera una landing para comenzar"}
+              </div>
+              <Badge variant="outline" className="text-[10px] border-slate-700 text-slate-400 hidden sm:flex">
+                {FAMILIAS.find(f => f.value === familia)?.label}
+              </Badge>
+            </div>
+            <div className={`flex-1 overflow-auto flex ${previewMode === "mobile" ? "items-start justify-center py-8" : ""}`}>
+              <div className={`relative transition-all ${previewMode === "mobile" ? "w-[390px] rounded-[40px] overflow-hidden border-8 border-slate-700 shadow-2xl" : "w-full h-full"}`}>
+                {previewBusy && (
+                  <div className="absolute inset-0 flex items-center justify-center bg-slate-950/70 z-10">
+                    <Loader2 className="h-8 w-8 animate-spin text-violet-400" />
+                  </div>
+                )}
+                <iframe ref={iframeRef} title="Landing Preview" className="w-full block"
+                  style={{ height: previewMode === "mobile" ? 844 : "calc(100vh - 8.5rem)", border: "none" }}
+                  sandbox="allow-same-origin allow-scripts" />
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </Layout>
+  );
 }
