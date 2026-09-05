@@ -2,7 +2,7 @@
  * Última barrera antes de que una respuesta llegue al cliente.
  *
  * Esta capa no decide la estrategia comercial. Solo evita que una respuesta
- * insegura llegue a WhatsApp cuando otra capa se haya equivocado.
+ * insegura o redundante llegue a WhatsApp cuando otra capa se haya equivocado.
  */
 
 export type SalidaPart = {
@@ -21,8 +21,14 @@ const CLAIMS: Array<{ pattern: RegExp; key: string }> = [
   { pattern: /(?:te\s+)?(?:paso|dejo|env[ií]o|mando|muestro).*\b(?:precio|valor)\b/i, key: "precio" },
   { pattern: /(?:\b(?:medios?|formas?|opciones?)\s+de\s+pago\b).*\b(?:paso|dejo|env[ií]o|mando|muestro)\b|(?:te\s+)?(?:paso|dejo|env[ií]o|mando|muestro).*\b(?:medios?|formas?|opciones?)\s+de\s+pago\b/i, key: "pago" },
   { pattern: /(?:te\s+)?(?:paso|dejo|mando|muestro).*\b(?:informaci[oó]n|detalles?|contenido)\b/i, key: "contenido" },
-  { pattern: /(?:te\s+)?(?:paso|dejo|mando).*\b(?:tienda|enlace de la tienda)\b/i, key: "tienda" },
+  { pattern: /(?:te\s+)?(?:paso|dejo|mando|muestro).*\b(?:tienda|enlace de la tienda)\b/i, key: "tienda" },
 ];
+
+// Estas preguntas no deben aparecer cuando el dato ya se está entregando.
+// La de precio es especial: preguntar "¿Te paso el precio?" no entrega ningún
+// valor y obliga al cliente a contestar "sí" para recibir un dato que el
+// servidor ya puede mostrar. Por eso se elimina siempre del texto final.
+const OFERTA_PRECIO_SIN_DATO = /^\s*[¿?]?(?:te\s+)?(?:paso|mando|dejo|digo|muestro)\s+(?:el\s+)?(?:precio|valor)\s*[?؟]?\s*(?:💰)?\s*$/i;
 
 // Frases que describen entrega física. Se conservan para productos físicos,
 // pero si el propio texto habla de un curso/acceso digital, son incompatibles.
@@ -51,8 +57,6 @@ function corregirEntregaFisicaEnDigital(texto: string): { text: string; removed:
   }
 
   let text = quedan.join("\n");
-  // Si la frase física está mezclada dentro de un párrafo, quítala sin borrar
-  // el resto del argumento comercial.
   text = text
     .replace(/(?:pago\s+contra\s*entrega|contra\s*entrega|pagas?\s+(?:en\s+)?efectivo\s+(?:al|cuando)\s+(?:recib\w+|lleg\w+)|pago\s+en\s+efectivo\s+al\s+recibir)/gi, "")
     .replace(/(?:pago\s+contra\s*entrega|contra\s*entrega)[^.!?]*(?:[.!?]|$)/gi, "")
@@ -60,7 +64,6 @@ function corregirEntregaFisicaEnDigital(texto: string): { text: string; removed:
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 
-  // Nunca dejamos un texto mutilado que siga prometiendo recibir un paquete.
   if (!text || /\b(?:paquete|transportadora|mensajero)\b/i.test(text)) {
     return {
       text: "Es un producto digital 📩 No requiere envío físico; recibes el acceso de forma digital.",
@@ -118,6 +121,13 @@ export function reconciliarPromesas(parts: SalidaPart[]): { parts: SalidaPart[];
     for (const line of lines) {
       const trimmed = line.trim();
       if (!trimmed) { kept.push(line); continue; }
+      // No hacemos que el cliente confirme un dato que el sistema puede
+      // entregar directamente. El precio debe mostrarse cuando corresponde,
+      // no ofrecerse como una promesa vacía.
+      if (OFERTA_PRECIO_SIN_DATO.test(trimmed)) {
+        removed.push(trimmed);
+        continue;
+      }
       const claim = CLAIMS.find((c) => c.pattern.test(trimmed));
       if (claim && hasDelivery(parts, claim.key)) { removed.push(trimmed); continue; }
       kept.push(line);
