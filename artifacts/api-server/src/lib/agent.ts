@@ -31,6 +31,8 @@ import { verificarPrecios } from "./precio-verificado";
 import { productoEnFoco } from "./producto-en-foco";
 import { entenderAlCliente, type Entendimiento } from "./entender-al-cliente";
 import { sinLoQueYaLeyo, yaLoDijo } from "./no-repetir";
+import { sinPreguntarLoQueYaVa } from "./no-pedir-lo-que-ya-va";
+import { nombreDePila } from "./nombre-de-pila";
 import { negarloSeriaMentira, productosNombrados } from "./nombra-productos-reales";
 import { prometeEntregaFisica, sinLaPromesaFisica, sinElTemarioInventado, lineasDeTemarioInventadas, comoSeEntregaDeVerdad } from "./solo-lo-que-dice-la-ficha";
 
@@ -831,6 +833,10 @@ export async function runAgentReply(conversationId: number) {
   
   const lastText = memory.lastCustomerMessage;
   const customerName = convo.contactName || "cliente";
+  // Con el que se le HABLA. El pushName de WhatsApp trae nombre y apellido
+  // ("Duvier Mena"), y saludar con apellido delata la maquina en el primer
+  // mensaje. Ver `nombre-de-pila.ts`.
+  const nombreCorto = nombreDePila(customerName);
 
   // ¿Llegó de un anuncio? El titular del anuncio dice qué producto vino a
   // buscar; el texto que escribió no (Meta lo autocompleta igual para todos).
@@ -1184,7 +1190,7 @@ export async function runAgentReply(conversationId: number) {
   const isPaymentIntent = (decision.intent === "payment_intent" || decision.intent === "confirmation");
 
   const systemPrompt = (activeAgent.systemPrompt || `Eres **${voice.agentName}**, ${voice.agentRole} de ${voice.businessName}.
-Estás conversando con **${customerName}** en WhatsApp.
+Estás conversando con **${nombreCorto || customerName}** en WhatsApp.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 🧠 IDENTIDAD Y PERSONALIDAD
@@ -1678,7 +1684,7 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
       const business = voice.businessName || "nuestra tienda";
       // Varía entre clientes: el mismo texto de bienvenida repetido a cientos
       // de contactos distintos es el patrón que WhatsApp penaliza.
-      const quien = esNombreReal(customerName) ? ` ${customerName}` : "";
+      const quien = nombreCorto && esNombreReal(nombreCorto) ? ` ${nombreCorto}` : "";
       const raw = variante([
         `¡Hola${quien}! 👋 Bienvenido a *${business}*. ¿Qué estás buscando hoy?`,
         `¡Hola${quien}! 😊 Soy de *${business}*. Cuéntame qué necesitas y te ayudo.`,
@@ -1696,7 +1702,7 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
     // Saludo de retorno — adaptado al estado emocional
     console.log(`⚡ [FAST-TRACK] Saludo de retorno hardcodeado - ${ts()}`);
     const emocion = brain.emotionalState;
-    const nm = (customerName && customerName !== "cliente") ? ` ${customerName}` : "";
+    const nm = nombreCorto ? ` ${nombreCorto}` : "";
     // El saludo de retorno era UNA sola frase fija: el mismo cliente que
     // vuelve tres veces recibía tres veces el mismo texto palabra por palabra
     // (medido el 17-08-2026: idéntico a las 13:40 y a las 15:51), que es
@@ -4134,6 +4140,28 @@ ${comoSeEntregaDeVerdad(prodFicha as any)}` : comoSeEntregaDeVerdad(prodFicha as
       // Va acá, sobre lo que esta por salir, porque la repeticion no llega por
       // un solo camino: la ficha viene del parser, el cierre de `invitacionDe`,
       // el saludo de su propia funcion. Cada uno con su regla y su hueco.
+      // ── NI PIDAS PERMISO PARA LO QUE YA VA EN ESTE MISMO ENVIO ──────────
+      //
+      // Medido en produccion el 2026-09-05 a las 11:02: cuatro mensajes en el
+      // mismo minuto, dos de ellos pidiendo permiso para algo que salio igual
+      // dos renglones despues. El dueno: "se esta autorrespondiendo el mismo,
+      // no espera".
+      //
+      // Va ANTES del guardia de lo repetido a proposito: si primero se quita la
+      // pregunta sobrante, lo que queda es el texto que de verdad se compara
+      // contra el historial. Al reves, una pregunta condenada podria salvar del
+      // filtro a un mensaje que ya no aporta nada.
+      try {
+        const revisadoPermiso = sinPreguntarLoQueYaVa(finalParts as any[]);
+        if (revisadoPermiso.quitadas > 0) {
+          console.log(`[PERMISO] Se quitaron ${revisadoPermiso.quitadas} pregunta(s) que ofrecian lo que ya iba en el envio - ${ts()}`);
+          finalParts.length = 0;
+          (finalParts as any[]).push(...(revisadoPermiso.partes as any[]));
+        }
+      } catch (e: any) {
+        console.log(`[PERMISO] No se pudo revisar: ${e?.message} - ${ts()}`);
+      }
+
       try {
         const revisado = sinLoQueYaLeyo(finalParts as any[], memory.history as any);
         if (revisado.quitadas > 0) {

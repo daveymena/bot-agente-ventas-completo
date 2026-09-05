@@ -23,6 +23,7 @@ import type { MessageMetadata } from "@workspace/db";
 import { dbNow } from "./date-utils";
 import { preguntasSueltas } from "./estado-cognitivo";
 import { renderBloqueNegocio, type BusinessContext } from "./business-context";
+import { nombreDePila } from "./nombre-de-pila";
 
 // ─── Tipos públicos ────────────────────────────────────────────────────────────
 
@@ -627,7 +628,7 @@ export function tryPaymentSubIntentAnswer(
   // genérico: "transferencia" funciona en todos lados aunque no diga la marca.
   // Ver `nombreDeTransferencia` abajo.
   const billeteras = nombreDeTransferencia(transferInfo?.billeteras);
-  const name = (customerName && customerName !== "cliente") ? customerName.split(" ")[0] : null;
+  const name = nombreDePila(customerName);
   const greet = name ? `${name}` : "";
   const prod = productName ? ` por *${productName}*` : "";
 
