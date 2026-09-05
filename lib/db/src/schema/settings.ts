@@ -20,6 +20,23 @@ export const settings = pgTable("settings", {
   // AI Provider Configuration
   aiProvider: text("ai_provider").notNull().default("github_copilot_internal"), // github_copilot_internal, github, ollama_local, openai_default
   githubToken: text("github_token"),
+  /**
+   * VARIAS cuentas de Copilot, en cola.
+   *
+   * `githubToken` (arriba) guarda UNA sola: conectar una segunda pisaba la
+   * primera, o sea reemplazo, no cola. Esta columna guarda la lista, y con eso
+   * la rotacion que ya existe --aparta 1 hora al candidato sin cuota y sigue
+   * con el siguiente-- por fin tiene mas de un candidato que rotar.
+   *
+   * ⚠️ `ai-keys.ts` YA LEIA `row.copilotTokens` desde el 2026-08-24, pero la
+   * columna no existia: leia `undefined` en silencio y el sistema se quedaba
+   * con un solo token. La rotacion estaba escrita y probada; lo que nunca se
+   * construyo fue la forma de cargar la segunda cuenta.
+   *
+   * Formato: [{ token, cuenta }] -- la cuenta es el correo, para que el admin
+   * sepa cual esta sin cuota sin tener que mirar el token.
+   */
+  copilotTokens: jsonb("copilot_tokens").$type<Array<{ token: string; cuenta?: string }>>(),
   githubModel: text("github_model").notNull().default("gpt-4o-mini"),
   copilotSessionToken: text("copilot_session_token"),
   copilotSessionExpiresAt: text("copilot_session_expires_at"),

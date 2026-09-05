@@ -233,6 +233,18 @@ const MIGRATIONS = [
   `CREATE UNIQUE INDEX IF NOT EXISTS trabajos_programados_clave_idx ON trabajos_programados (clave)`,
   // El índice que usa el buscador de trabajos vencidos en cada vuelta.
   `CREATE INDEX IF NOT EXISTS trabajos_programados_pendientes_idx ON trabajos_programados (estado, corre_at)`,
+  // ── Varias cuentas de Copilot, en cola ──────────────────────────────────
+  //
+  // ⚠️ `ai-keys.ts` YA LEIA `row.copilotTokens` desde el 2026-08-24, pero esta
+  // columna NUNCA se creo: leia `undefined` en silencio, `COPILOT_TOKENS` no
+  // se poblaba nunca, y `cuentasDeCopilot()` caia al token unico. La rotacion
+  // --que aparta 1 hora al candidato sin cuota y sigue con el siguiente--
+  // estaba escrita y probada, pero no tenia mas de un candidato que rotar.
+  //
+  // Es el mismo patron que dejo a Landing Studio sin ejecutar: codigo correcto
+  // leyendo algo que nadie creo. Por eso el /health ahora verifica las tablas.
+  `ALTER TABLE settings ADD COLUMN IF NOT EXISTS copilot_tokens JSONB`,
+
   // ── Landing AI Studio ───────────────────────────────────────────────────
   // Sin esto la tabla no existe en produccion y TODA la API de landings
   // revienta en runtime: guardar, cargar, listar y el comando de IA --que

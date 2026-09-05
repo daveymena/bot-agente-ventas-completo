@@ -52,6 +52,111 @@ router.patch("/", requirePlatformOwner(), async (req, res, next) => {
   }
 });
 
+/**
+ * ============================================================
+ * VARIAS CUENTAS DE COPILOT, EN COLA
+ * ============================================================
+ *
+ * El admin lo pidió el 2026-08-24: tiene varias cuentas propias y quiere que
+ * cuando una se queda sin cuota el sistema siga con la siguiente.
+ *
+ * ⚠️ Y esto es lo que faltaba para que funcionara. La rotación ya estaba
+ * escrita y probada (`copilot-cuentas.ts` + `cadena-modelos.ts`: aparta 1 hora
+ * al candidato que devuelve "cuota agotada" y sigue con el próximo).
+ * `ai-keys.ts` YA LEÍA `row.copilotTokens` desde ese mismo día.
+ *
+ * Pero la columna no existía, no había endpoint que la escribiera y no había
+ * campo en el panel. O sea: `ai-keys` leía `undefined` en silencio,
+ * `COPILOT_TOKENS` no se poblaba nunca, y `cuentasDeCopilot()` caía al token
+ * único. Había UN candidato, así que no había nada que rotar.
+ *
+ * Es el mismo patrón que dejó a Landing Studio sin ejecutar: código correcto
+ * leyendo algo que nadie creó. El admin lo resumió como "eso está implementado
+ * pero no lo ejecutamos" -- y tenía razón, faltaba el último tramo.
+ *
+ * ── Por qué endpoint propio y no un campo más en PATCH /settings ──────────
+ *
+ * Porque `UpdateSettingsBody` es un esquema GENERADO desde la especificación
+ * OpenAPI: un campo agregado a mano ahí se pierde en la próxima regeneración.
+ * Y además esto tiene semántica propia -- agregar una cuenta, ver cuántas hay,
+ * sacar una -- que no entra bien en un PATCH genérico.
+ */
+router.get("/copilot-accounts", requirePlatformOwner(), async (_req, res, next) => {
+  try {
+    const row = await getOrCreate();
+    const lista = Array.isArray((row as any).copilotTokens) ? (row as any).copilotTokens : [];
+    // NUNCA vuelve el token. Solo cuántas hay y de qué cuenta es cada una,
+    // que es lo que el admin necesita para saber cuál recargar.
+    return res.json({
+      total: lista.length,
+      cuentas: lista.map((c: any, i: number) => ({
+        posicion: i + 1,
+        cuenta: c?.cuenta || "(sin correo)",
+        // Los últimos 4 alcanzan para distinguir una de otra sin exponerla.
+        final: String(c?.token || "").slice(-4),
+      })),
+    });
+  } catch (e) {
+    return next(e);
+  }
+});
+
+router.post("/copilot-accounts", requirePlatformOwner(), async (req, res, next) => {
+  try {
+    const { token, cuenta } = req.body || {};
+    const t = String(token || "").trim();
+    if (!t) return res.status(400).json({ error: "Falta el token de la cuenta" });
+
+    // Se valida ANTES de guardarla: una cuenta que no sirve en la cola es un
+    // intento fallido garantizado en cada turno, y se paga en segundos de
+    // espera del cliente.
+    const sesion = await getCopilotSessionToken(t);
+    if (!sesion) {
+      return res.status(401).json({
+        error: "GitHub rechazó ese token para Copilot. Tiene que ser el que entrega la Autorización Inteligente, no un token personal (PAT).",
+      });
+    }
+
+    const row = await getOrCreate();
+    const actuales = Array.isArray((row as any).copilotTokens) ? (row as any).copilotTokens : [];
+    // Sin duplicados: dos veces la misma cuenta no es más cuota, es el mismo
+    // límite pegándole dos veces al mismo lugar.
+    if (actuales.some((c: any) => c?.token === t)) {
+      return res.status(409).json({ error: "Esa cuenta ya está en la cola" });
+    }
+
+    const lista = [...actuales, { token: t, cuenta: String(cuenta || "").trim() || undefined }];
+    await db.update(settings).set({ copilotTokens: lista } as any).where(eq(settings.id, row.id));
+
+    // Al entorno YA: si no, la cuenta nueva no se usa hasta el próximo
+    // reinicio -- mismo motivo que en /copilot-token.
+    process.env.COPILOT_TOKENS = JSON.stringify(lista.map((c: any) => c.token));
+
+    logger.info({ total: lista.length }, "[Copilot] cuenta agregada a la cola");
+    return res.json({ ok: true, total: lista.length });
+  } catch (e) {
+    return next(e);
+  }
+});
+
+router.delete("/copilot-accounts/:posicion", requirePlatformOwner(), async (req, res, next) => {
+  try {
+    const i = Number(req.params.posicion) - 1;
+    const row = await getOrCreate();
+    const actuales = Array.isArray((row as any).copilotTokens) ? (row as any).copilotTokens : [];
+    if (!Number.isInteger(i) || i < 0 || i >= actuales.length) {
+      return res.status(404).json({ error: "No hay una cuenta en esa posición" });
+    }
+    const lista = actuales.filter((_: any, j: number) => j !== i);
+    await db.update(settings).set({ copilotTokens: lista } as any).where(eq(settings.id, row.id));
+    process.env.COPILOT_TOKENS = JSON.stringify(lista.map((c: any) => c.token));
+    logger.info({ total: lista.length }, "[Copilot] cuenta sacada de la cola");
+    return res.json({ ok: true, total: lista.length });
+  } catch (e) {
+    return next(e);
+  }
+});
+
 router.post("/copilot-token", requirePlatformOwner(), async (req, res, next) => {
   try {
     const { githubToken } = req.body;

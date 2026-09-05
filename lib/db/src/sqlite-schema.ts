@@ -170,6 +170,9 @@ export const settings = sqliteTable("settings", {
   escalationKeywords: text("escalation_keywords", { mode: "json" }).notNull().default("[]"),
   aiProvider: text("ai_provider").notNull().default("github_copilot_internal"),
   githubToken: text("github_token"),
+  // Espejo de schema/settings.ts: varias cuentas de Copilot en cola. Los jsonb
+  // de Postgres son text(mode json) aca, como el resto de las columnas JSON.
+  copilotTokens: text("copilot_tokens", { mode: "json" }).$type<Array<{ token: string; cuenta?: string }>>(),
   githubModel: text("github_model").notNull().default("gpt-4o-mini"),
   copilotSessionToken: text("copilot_session_token"),
   copilotSessionExpiresAt: text("copilot_session_expires_at"),

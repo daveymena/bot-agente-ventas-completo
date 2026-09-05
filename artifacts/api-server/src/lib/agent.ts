@@ -1213,6 +1213,28 @@ La lista de emojis es la EXCEPCIÓN, y sirve para una sola cosa: enumerar lo
 que trae un producto cuando te lo preguntan ("¿qué incluye?"). Ahí sí:
 un emoji por línea, texto corto, sin asteriscos ni guiones.
 
+CUÁNTOS EMOJIS SEGÚN EL MOMENTO (§11 del playbook de ventas):
+· Saludo o entrada .......... 0 a 2
+· Respuesta de 1-2 frases ... 0 a 1
+· Presentar un producto ..... 1 a 3
+· Lista de características .. 1 por punto, nunca dos
+· Pago o cierre ............. 0 a 2
+· Objeción o desconfianza ... 0 a 1  (acá el emoji resta: el cliente
+                                      está midiendo si confiar)
+· Postventa ................. 0 a 2
+
+Y QUE SIGNIFIQUEN ALGO. El emoji es un marcador de tono y de escaneo, no
+decoración obligatoria: 🎹 formación · 🤖 IA · 📚 contenido · 🚚 entrega ·
+💳 pago · 🔗 enlace · ⏱️ tiempo · 🛡️ garantía · 🙌 entusiasmo ·
+👍 confirmación · 😊 cercanía · 👋 cierre · ✨ detalle · 🎁 bonus.
+
+⛔ NO abras siempre igual. "¡Perfecto! 😊" en cada respuesta se nota, y lo que
+se nota como fórmula deja de sonar a persona. Variá la apertura y no repitas
+la misma combinación de emojis dos mensajes seguidos.
+
+⛔ Y si la característica del producto YA TRAE su emoji en el catálogo, usá
+ESE. No lo reemplaces por ✅ ni le pongas uno adelante.
+
 ⚠️ La ficha del producto la manda el sistema aparte, con foto, precio y
 enlaces. Tu texto es lo que la ACOMPAÑA: nunca repitas lo que ya va en la
 ficha, y no la anuncies con un "acá tienes" pelado.
@@ -1859,10 +1881,29 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
   // donde se arma la tarjeta.
   let pasoDelEmbudo: Paso | null = null;
   try {
-    const productoEstado = decision.productToShow
-      ?? (decision.productoDelMensaje
-        ? { id: decision.productoDelMensaje.id, name: decision.productoDelMensaje.name }
-        : null);
+    // ── El producto del MENSAJE manda, también acá ────────────────────────
+    //
+    // ⚠️ Esto tenía el orden INVERTIDO: `productToShow ?? productoDelMensaje`.
+    // O sea que el producto de la conversación le ganaba al que el cliente
+    // acababa de nombrar, justo para calcular EN QUÉ PASO DEL EMBUDO está.
+    //
+    // El síntoma es el que reportó el dueño y que el playbook describe en su
+    // §8: el cliente venía de un anuncio de IA, preguntaba por diseño gráfico,
+    // y el agente seguía en el embudo del primero -- incluido pedirle el
+    // comprobante de pago de un producto que nunca compró.
+    //
+    // `productoEnFoco` ya resuelve esto con el orden correcto (mensaje →
+    // a mostrar → activo → última ficha) y se usa en los otros dos lugares
+    // donde hace falta. Acá había una tercera resolución escrita a mano, con
+    // el orden al revés: tres formas de decidir lo mismo es como se llega a
+    // que dos digan una cosa y la tercera otra.
+    const productoEstado = productoEnFoco({
+      delMensaje: decision.productoDelMensaje as any,
+      aMostrar: decision.productToShow as any,
+      idActivo: memory.currentProductId,
+      historial: memory.history as any,
+      catalogo: productList as any[],
+    });
     const estado = calcularEstado({
       historial: memory.history as any,
       producto: productoEstado as any,
