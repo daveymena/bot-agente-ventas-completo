@@ -425,7 +425,18 @@ export default function Settings() {
                           variant="default" 
                           className="w-full bg-primary hover:bg-primary/90 text-white font-bold h-11 rounded-xl"
                           onClick={async () => {
-                            if (!formData.githubToken) return toast.error("Ingresa un Token de GitHub primero");
+                            if (!formData.githubToken) { toast.error("Ingresa un Token de GitHub primero"); return; }
+                            // El campo se rellena con el token ENMASCARADO
+                            // ("••••1234") cuando ya había uno guardado. Mandar
+                            // eso a GitHub da un rechazo garantizado, y el
+                            // mensaje que vuelve ("GitHub rechazó ese token")
+                            // hace pensar que el token bueno está mal. Es el
+                            // mismo cuidado que ya tiene PATCH /settings al
+                            // guardar: máscara = no lo toques.
+                            if (formData.githubToken.includes("•")) {
+                              toast.error("Borrá el campo y pegá el token completo: lo que se ve son solo los últimos dígitos del que ya está guardado.");
+                              return;
+                            }
                             const loadingToast = toast.loading("Verificando token...");
                             try {
                               const res = await fetch("/api/settings/copilot-token", {
@@ -435,7 +446,26 @@ export default function Settings() {
                               });
                               const data = await res.json();
                               if (data.success) {
-                                toast.success("¡Token verificado correctamente!", { id: loadingToast });
+                                // ⚠️ Acá SOLO se mostraba el aviso. El servidor
+                                // guardaba el token y la sesión, pero la pantalla
+                                // seguía mostrando "no conectado": la tarjeta de
+                                // estado mira `formData.copilotSessionToken`, que
+                                // nadie actualizaba.
+                                //
+                                // El admin lo reportó así: "cada vez que ingreso
+                                // un token y trato de autorizar, el frente nunca
+                                // muestra que ya está completado y autorizado, se
+                                // queda pensando".
+                                //
+                                // Es el MISMO fallo que ya se había arreglado en
+                                // la Autorización Inteligente (ver el polling
+                                // arriba) y que en este botón quedó sin corregir.
+                                // Se relee la configuración, igual que allá: el
+                                // token ya está guardado del lado del servidor,
+                                // así que la pantalla solo tiene que ir a buscarlo
+                                // en vez de que se lo metan a mano.
+                                queryClient.invalidateQueries({ queryKey: getGetSettingsQueryKey() });
+                                toast.success("¡Token verificado y cuenta vinculada!", { id: loadingToast });
                               } else {
                                 toast.error(data.error || "Token inválido", { id: loadingToast });
                               }
