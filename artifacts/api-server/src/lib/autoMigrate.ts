@@ -244,6 +244,14 @@ const MIGRATIONS = [
   // Es el mismo patron que dejo a Landing Studio sin ejecutar: codigo correcto
   // leyendo algo que nadie creo. Por eso el /health ahora verifica las tablas.
   `ALTER TABLE settings ADD COLUMN IF NOT EXISTS copilot_tokens JSONB`,
+  // ⚠️ Y la MISMA columna en tenants, que es donde de verdad va.
+  //
+  // La de `settings` quedo (es una tabla de UNA fila para toda la plataforma)
+  // pero ya no se usa para decidir: con el token del dueno ahi, TODOS los
+  // clientes gastaban su cuota sin saberlo, y una cuenta agotada los dejaba a
+  // todos sin IA al mismo tiempo. Decision del dueno: cada cliente conecta la
+  // suya y no hay respaldo a la del dueno.
+  `ALTER TABLE tenants ADD COLUMN IF NOT EXISTS copilot_tokens JSONB`,
 
   // ── Landing AI Studio ───────────────────────────────────────────────────
   // Sin esto la tabla no existe en produccion y TODA la API de landings

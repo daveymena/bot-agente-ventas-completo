@@ -5,7 +5,7 @@ import {
   UpdateSettingsBody,
   UpdateSettingsResponse,
 } from "@workspace/api-zod";
-import { db, settings } from "@workspace/db";
+import { db, settings, tenants } from "@workspace/db";
 import { getCopilotSessionToken, getCopilotDeviceCode, pollCopilotToken } from "../lib/copilot";
 import { encryptionService } from "../lib/encryption-service";
 import { providerValidator } from "../lib/provider-validator";
@@ -81,10 +81,42 @@ router.patch("/", requirePlatformOwner(), async (req, res, next) => {
  * Y además esto tiene semántica propia -- agregar una cuenta, ver cuántas hay,
  * sacar una -- que no entra bien en un PATCH genérico.
  */
-router.get("/copilot-accounts", requirePlatformOwner(), async (_req, res, next) => {
+/**
+ * Las cuentas de Copilot DEL INQUILINO que hace el pedido.
+ *
+ * ⚠️ Antes esto salía de `settings`, que es UNA fila para toda la plataforma:
+ * todos los clientes compartían las cuentas del dueño y gastaban su cuota sin
+ * saberlo. Ahora cada uno administra las suyas.
+ *
+ * Por eso además se sacó `requirePlatformOwner()` de estos tres endpoints: un
+ * cliente TIENE que poder conectar su propia cuenta, que era justo lo que el
+ * guard le impedía.
+ */
+async function cuentasDelInquilino(req: any): Promise<Array<{ token: string; cuenta?: string }>> {
+  const tenantId = Number(req?.tenant?.id) || 0;
+  if (!tenantId) return [];
+  const [fila] = await db.select().from(tenants).where(eq(tenants.id, tenantId)).limit(1);
+  const lista = (fila as any)?.copilotTokens;
+  return Array.isArray(lista) ? lista : [];
+}
+
+/**
+ * Guarda la cola del inquilino.
+ *
+ * NO toca `process.env`: el entorno es global al proceso y escribir ahí las
+ * cuentas de UN cliente se las daría a todos -- exactamente el problema que
+ * este cambio resuelve. El agente las lee de la base por turno
+ * (`cuentasDeCopilotDelCliente`), que es una consulta y siempre está al día.
+ */
+async function guardarCuentas(req: any, lista: Array<{ token: string; cuenta?: string }>): Promise<void> {
+  const tenantId = Number(req?.tenant?.id) || 0;
+  if (!tenantId) throw new Error("Sin inquilino en el pedido");
+  await db.update(tenants).set({ copilotTokens: lista } as any).where(eq(tenants.id, tenantId));
+}
+
+router.get("/copilot-accounts", async (req: any, res, next) => {
   try {
-    const row = await getOrCreate();
-    const lista = Array.isArray((row as any).copilotTokens) ? (row as any).copilotTokens : [];
+    const lista = await cuentasDelInquilino(req);
     // NUNCA vuelve el token. Solo cuántas hay y de qué cuenta es cada una,
     // que es lo que el admin necesita para saber cuál recargar.
     return res.json({
@@ -101,7 +133,7 @@ router.get("/copilot-accounts", requirePlatformOwner(), async (_req, res, next) 
   }
 });
 
-router.post("/copilot-accounts", requirePlatformOwner(), async (req, res, next) => {
+router.post("/copilot-accounts", async (req: any, res, next) => {
   try {
     const { token, cuenta } = req.body || {};
     const t = String(token || "").trim();
@@ -117,8 +149,7 @@ router.post("/copilot-accounts", requirePlatformOwner(), async (req, res, next) 
       });
     }
 
-    const row = await getOrCreate();
-    const actuales = Array.isArray((row as any).copilotTokens) ? (row as any).copilotTokens : [];
+    const actuales = await cuentasDelInquilino(req);
     // Sin duplicados: dos veces la misma cuenta no es más cuota, es el mismo
     // límite pegándole dos veces al mismo lugar.
     if (actuales.some((c: any) => c?.token === t)) {
@@ -126,11 +157,7 @@ router.post("/copilot-accounts", requirePlatformOwner(), async (req, res, next) 
     }
 
     const lista = [...actuales, { token: t, cuenta: String(cuenta || "").trim() || undefined }];
-    await db.update(settings).set({ copilotTokens: lista } as any).where(eq(settings.id, row.id));
-
-    // Al entorno YA: si no, la cuenta nueva no se usa hasta el próximo
-    // reinicio -- mismo motivo que en /copilot-token.
-    process.env.COPILOT_TOKENS = JSON.stringify(lista.map((c: any) => c.token));
+    await guardarCuentas(req, lista);
 
     logger.info({ total: lista.length }, "[Copilot] cuenta agregada a la cola");
     return res.json({ ok: true, total: lista.length });
@@ -139,17 +166,15 @@ router.post("/copilot-accounts", requirePlatformOwner(), async (req, res, next) 
   }
 });
 
-router.delete("/copilot-accounts/:posicion", requirePlatformOwner(), async (req, res, next) => {
+router.delete("/copilot-accounts/:posicion", async (req: any, res, next) => {
   try {
     const i = Number(req.params.posicion) - 1;
-    const row = await getOrCreate();
-    const actuales = Array.isArray((row as any).copilotTokens) ? (row as any).copilotTokens : [];
+    const actuales = await cuentasDelInquilino(req);
     if (!Number.isInteger(i) || i < 0 || i >= actuales.length) {
       return res.status(404).json({ error: "No hay una cuenta en esa posición" });
     }
     const lista = actuales.filter((_: any, j: number) => j !== i);
-    await db.update(settings).set({ copilotTokens: lista } as any).where(eq(settings.id, row.id));
-    process.env.COPILOT_TOKENS = JSON.stringify(lista.map((c: any) => c.token));
+    await guardarCuentas(req, lista);
     logger.info({ total: lista.length }, "[Copilot] cuenta sacada de la cola");
     return res.json({ ok: true, total: lista.length });
   } catch (e) {

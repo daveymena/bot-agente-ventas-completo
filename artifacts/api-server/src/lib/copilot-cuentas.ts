@@ -94,3 +94,46 @@ export function cuentasDeCopilot(): string[] {
   const lista = normalizarTokensDeCopilot(deLaLista);
   return lista.length > 0 ? lista : normalizarTokensDeCopilot(process.env.GITHUB_TOKEN);
 }
+
+/**
+ * ============================================================
+ * LAS CUENTAS DE COPILOT SON DE CADA CLIENTE
+ * ============================================================
+ *
+ * ⚠️ `cuentasDeCopilot()` (arriba) lee del ENTORNO, que es global al proceso.
+ * O sea que devolvía las cuentas del DUEÑO para todos los clientes: cada
+ * respuesta que el bot de cualquier cliente le daba a cualquier comprador
+ * gastaba la cuota del dueño, y una sola cuenta agotada los dejaba a TODOS sin
+ * IA al mismo tiempo.
+ *
+ * Y hay un riesgo más grande que la cuota: los términos de Copilot son para
+ * asientos individuales o de empresa, no para dar servicio de IA a terceros
+ * que pagan. Si GitHub lo lee como reventa, suspende la cuenta -- y con ella
+ * caen todos los clientes de golpe.
+ *
+ * ── SIN RESPALDO A LA CUENTA DEL DUEÑO ────────────────────────────────────
+ *
+ * Decisión explícita del dueño (2026-09-05), y va contra la costumbre del
+ * resto del archivo: los demás proveedores SÍ caen a la clave de la
+ * plataforma cuando el cliente no puso la suya (ver ai-keys-tenant.ts). Acá
+ * no. Un cliente que no conectó Copilot simplemente no lo tiene disponible y
+ * usa otro proveedor -- DeepSeek responde en 1,7s medidos.
+ *
+ * El motivo es que el respaldo silencioso es justamente el problema: el dueño
+ * termina pagando por quien no conecta, sin que nadie decida nada.
+ */
+export async function cuentasDeCopilotDelCliente(tenantId: number): Promise<string[]> {
+  if (!Number.isInteger(tenantId) || tenantId <= 0) return [];
+  try {
+    const { db, tenants } = await import("@workspace/db");
+    const { eq } = await import("drizzle-orm");
+    const [fila] = await db.select().from(tenants).where(eq(tenants.id, tenantId)).limit(1);
+    return normalizarTokensDeCopilot((fila as any)?.copilotTokens);
+  } catch (e: any) {
+    // Sin cuentas es el resultado correcto ante un error de lectura: es lo
+    // mismo que "este cliente no conectó Copilot", y la cadena de modelos ya
+    // sabe seguir con otro proveedor. Devolver las del dueño para "no dejarlo
+    // sin IA" sería reintroducir en el catch justo lo que se quiso sacar.
+    return [];
+  }
+}

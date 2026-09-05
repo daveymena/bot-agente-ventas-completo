@@ -100,7 +100,7 @@ import { registrarTurnoAtendido } from "./monitoring";
  */
 export const MODELO_DE_RAZONAMIENTO = /reasoner|thinking|-r1\b|reasoning/i;
 import { getBusinessContext, renderBloqueNegocio, resumenContexto, datosQueFaltan } from "./business-context";
-import { cuentasDeCopilot, expandirPorCuenta } from "./copilot-cuentas";
+import { expandirPorCuenta } from "./copilot-cuentas";
 import { construirPlaybook, quitarInventos, quitarMuletillaDeApertura, extraerApertura } from "./sales-playbook";
 import { analyzeBrain, buildFinalPrompt, type ResponseStrategy, type EmotionalState } from "./response-brain";
 import { learnFromLastExchange, retrieveLessons, formatLessonsForPrompt } from "./conversation-learning";
@@ -2323,8 +2323,16 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
   // process.env: dos clientes distintos corren en el MISMO proceso, así que
   // volcar una clave al entorno la haría atender conversaciones ajenas.
   const clavesPropias: { proveedor: string; config: any }[] = [];
+  // Las cuentas de Copilot de ESTE cliente. Se leen aca --el unico lugar del
+  // turno que ya resuelve a que inquilino pertenece el chat-- y una sola vez:
+  // son varias cuentas pero una sola consulta.
+  let cuentasCopilotDelCliente: string[] = [];
   try {
     const tenantIdDelChat = Number((convo as any)?.tenantId) || 0;
+    if (tenantIdDelChat) {
+      const { cuentasDeCopilotDelCliente } = await import("./copilot-cuentas");
+      cuentasCopilotDelCliente = await cuentasDeCopilotDelCliente(tenantIdDelChat);
+    }
     if (tenantIdDelChat) {
       const { clavesDelTenant } = await import("./ai-keys-tenant");
       const { getProviderConfigConClave } = await import("@workspace/integrations-openai-ai-server");
@@ -2383,7 +2391,18 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
         // Ahora cada modelo es un candidato propio y la cola sigue de largo.
         // Se lee UNA vez por turno, no por candidato: son varias cuentas pero
         // una sola consulta. Si falla, cae a lista vacía y todo sigue como antes.
-        const cuentasCopilot = cuentasDeCopilot();
+        // ⚠️ Las cuentas de Copilot son DE ESTE CLIENTE, no de la plataforma.
+        //
+        // Antes esto leia del entorno, o sea las cuentas del DUENO: cada
+        // respuesta que el bot de cualquier cliente le daba a cualquier
+        // comprador gastaba SU cuota, y una cuenta agotada los dejaba a todos
+        // sin IA a la vez. Ademas de que los terminos de Copilot no cubren dar
+        // servicio de IA a terceros que pagan.
+        //
+        // SIN respaldo a la cuenta del dueno, a diferencia del resto de los
+        // proveedores: quien no conecto Copilot usa otro (DeepSeek responde en
+        // 1,7s). El respaldo silencioso es justo el problema que se saco.
+        const cuentasCopilot = cuentasCopilotDelCliente;
         const conModelos = (proveedor: string, salud: string) => {
           if (activeProvider === proveedor || !healthMonitor.isServiceHealthy(salud)) return [];
           return getProviderRotation(proveedor).map((config) => ({

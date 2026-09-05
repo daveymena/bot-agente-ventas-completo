@@ -57,6 +57,27 @@ export const tenants = pgTable("tenants", {
     emailTo?: string;
     enabled: boolean;
   }>(),
+  /**
+   * Cuentas de GitHub Copilot DE ESTE CLIENTE, en cola.
+   *
+   * ⚠️ Vive en el inquilino y NO en `settings` a proposito. `settings` es una
+   * tabla de UNA sola fila para toda la plataforma: con el token de Copilot
+   * ahi, todos los clientes gastaban la cuota del DUENO sin saberlo, y una
+   * sola cuenta agotada los dejaba a todos sin IA al mismo tiempo.
+   *
+   * Ademas de la cuota, hay un riesgo de negocio: los terminos de Copilot son
+   * para asientos individuales o de empresa, no para dar servicio de IA a
+   * terceros que pagan. Si GitHub lo lee como reventa, suspende la cuenta y
+   * caen TODOS los clientes de golpe.
+   *
+   * Decision del dueno (2026-09-05): cada cliente conecta la suya y NO hay
+   * respaldo a la del dueno. Quien no conecte Copilot usa otro proveedor --
+   * DeepSeek responde en 1,7s-- en vez de gastar cuota ajena en silencio.
+   *
+   * Mismo formato que la cola global que reemplaza: [{ token, cuenta }], con
+   * el correo para que el cliente sepa cual recargar.
+   */
+  copilotTokens: jsonb("copilot_tokens").$type<Array<{ token: string; cuenta?: string }>>(),
   apiKeys: jsonb("api_keys").$type<{
     openai?: string;
     groq?: string;
