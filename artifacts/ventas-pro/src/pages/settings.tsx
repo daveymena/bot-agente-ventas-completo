@@ -71,8 +71,53 @@ export default function Settings() {
     status: "idle",
     // Segundos que GitHub exige entre pregunta y pregunta. Viene en la
     // respuesta del código de dispositivo y puede SUBIR mientras se espera.
-    intervalS: 5
+    intervalS: 5,
+    /**
+     * Cuándo deja de servir este código (marca de tiempo).
+     *
+     * ⚠️ Los códigos de GitHub duran 15 minutos y la pantalla no lo decía en
+     * ningún lado: se quedaba en "SINCRONIZANDO CON GITHUB…" para siempre. Si
+     * el admin se demoraba, o abría la pestaña y volvía después, veía una
+     * rueda girando sobre un código que ya estaba muerto -- indistinguible de
+     * "todavía no autorizaste".
+     *
+     * Con esto la cuenta regresiva se ve, y al llegar a cero la tarjeta lo
+     * dice y ofrece generar otro, en vez de seguir girando.
+     */
+    expiraEn: 0
   });
+
+  /** Segundos que le quedan al código. 0 = vencido o no hay ninguno. */
+  const [segundosRestantes, setSegundosRestantes] = useState(0);
+
+  /**
+   * La cuenta regresiva del código, y el corte cuando llega a cero.
+   *
+   * Sin esto la única forma de enterarse de que el código venció era que
+   * GitHub devolviera `expired_token` en la siguiente vuelta del polling --
+   * que puede tardar hasta 20 segundos-- y solo si el polling seguía vivo. Si
+   * el admin dejaba la pestaña abierta y volvía, veía una rueda girando sobre
+   * un código muerto sin ninguna pista de que ya no servía.
+   *
+   * Corta acá, del lado de la pantalla, en cuanto se agota: es información que
+   * el navegador ya tiene y no hace falta ir a preguntarla.
+   */
+  useEffect(() => {
+    if (!deviceFlow.active || !deviceFlow.expiraEn) {
+      setSegundosRestantes(0);
+      return;
+    }
+    const tic = () => {
+      const quedan = Math.max(0, Math.ceil((deviceFlow.expiraEn - Date.now()) / 1000));
+      setSegundosRestantes(quedan);
+      if (quedan === 0) {
+        setDeviceFlow(prev => ({ ...prev, active: false, status: "expirado" }));
+      }
+    };
+    tic();
+    const reloj = setInterval(tic, 1000);
+    return () => clearInterval(reloj);
+  }, [deviceFlow.active, deviceFlow.expiraEn]);
 
   // Espera de la autorización de GitHub (device flow).
   //
@@ -432,83 +477,25 @@ export default function Settings() {
                   {/* Configuración GitHub Copilot */}
                   {(formData.aiProvider === "github" || formData.aiProvider === "github_copilot_internal") && (
                     <div className="space-y-6 animate-in fade-in slide-in-from-left-4">
-                      {/* Opción 1: Token Directo */}
-                      <div className="p-5 rounded-2xl border border-primary/20 bg-primary/5 space-y-4">
-                        <div className="flex items-center gap-3">
-                          <div className="p-2 bg-primary/20 rounded-lg text-primary">
-                            <ShieldCheck className="h-5 w-5" />
-                          </div>
-                          <div>
-                            <h4 className="text-sm font-bold">Conexión rápida con tu token</h4>
-                            <p className="text-[10px] text-muted-foreground uppercase font-semibold">Usa el Personal Access Token (PAT) que ya tienes.</p>
-                          </div>
-                        </div>
-                        <div className="space-y-2">
-                          <Input 
-                            type="password"
-                            value={formData.githubToken || ""} 
-                            onChange={e => setFormData({...formData, githubToken: e.target.value})} 
-                            placeholder="ghp_..."
-                            className="bg-background/50 border-primary/10"
-                          />
-                        </div>
-                        <Button 
-                          variant="default" 
-                          className="w-full bg-primary hover:bg-primary/90 text-white font-bold h-11 rounded-xl"
-                          onClick={async () => {
-                            if (!formData.githubToken) { toast.error("Ingresa un Token de GitHub primero"); return; }
-                            // El campo se rellena con el token ENMASCARADO
-                            // ("••••1234") cuando ya había uno guardado. Mandar
-                            // eso a GitHub da un rechazo garantizado, y el
-                            // mensaje que vuelve ("GitHub rechazó ese token")
-                            // hace pensar que el token bueno está mal. Es el
-                            // mismo cuidado que ya tiene PATCH /settings al
-                            // guardar: máscara = no lo toques.
-                            if (formData.githubToken.includes("•")) {
-                              toast.error("Borrá el campo y pegá el token completo: lo que se ve son solo los últimos dígitos del que ya está guardado.");
-                              return;
-                            }
-                            const loadingToast = toast.loading("Verificando token...");
-                            try {
-                              const res = await fetch("/api/settings/copilot-token", {
-                                method: "POST",
-                                headers: { "Content-Type": "application/json" },
-                                body: JSON.stringify({ githubToken: formData.githubToken })
-                              });
-                              const data = await res.json();
-                              if (data.success) {
-                                // ⚠️ Acá SOLO se mostraba el aviso. El servidor
-                                // guardaba el token y la sesión, pero la pantalla
-                                // seguía mostrando "no conectado": la tarjeta de
-                                // estado mira `formData.copilotSessionToken`, que
-                                // nadie actualizaba.
-                                //
-                                // El admin lo reportó así: "cada vez que ingreso
-                                // un token y trato de autorizar, el frente nunca
-                                // muestra que ya está completado y autorizado, se
-                                // queda pensando".
-                                //
-                                // Es el MISMO fallo que ya se había arreglado en
-                                // la Autorización Inteligente (ver el polling
-                                // arriba) y que en este botón quedó sin corregir.
-                                // Se relee la configuración, igual que allá: el
-                                // token ya está guardado del lado del servidor,
-                                // así que la pantalla solo tiene que ir a buscarlo
-                                // en vez de que se lo metan a mano.
-                                queryClient.invalidateQueries({ queryKey: getGetSettingsQueryKey() });
-                                toast.success("¡Token verificado y cuenta vinculada!", { id: loadingToast });
-                              } else {
-                                toast.error(data.error || "Token inválido", { id: loadingToast });
-                              }
-                            } catch (e) {
-                              toast.error("Error de conexión", { id: loadingToast });
-                            }
-                          }}
-                        >
-                          <Plus className="h-4 w-4 mr-2" /> Conectar con mi token de GitHub
-                        </Button>
-                      </div>
-
+                      {/* ⚠️ ACA HABIA UNA CAJA PARA PEGAR UN TOKEN A MANO, Y SE SACO.
+                          
+                          No estaba rota: estaba pidiendo algo que NO PUEDE
+                          funcionar. El intercambio va contra
+                          api.github.com/copilot_internal/v2/token, el endpoint
+                          INTERNO de Copilot, que solo acepta el token OAuth
+                          emitido al cliente autorizado (el de VS Code). Un
+                          ghp_... se rechaza SIEMPRE, con los permisos que le
+                          pongas.
+                          
+                          O sea que la caja invitaba al error, el admin pegaba
+                          un token bueno, GitHub lo rechazaba, y el mensaje
+                          --por correcto que fuera-- lo dejaba pensando que su
+                          token estaba mal. Lo reporto asi: "dejaste la caja y
+                          el boton para ingresar el token que tampoco funciona".
+                          
+                          La unica via que funciona es la Autorizacion
+                          Inteligente de abajo. Una opcion que no puede andar no
+                          se explica mejor: se saca. */}
                       {/* Opción 2: Código de Dispositivo (NUEVO) */}
                       <div className="p-6 rounded-3xl border border-white/10 bg-black/20 backdrop-blur-md shadow-2xl relative overflow-hidden group">
                         <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
@@ -545,10 +532,40 @@ export default function Settings() {
                               </div>
                               <button
                                 type="button"
-                                onClick={() => setDeviceFlow({ active: false, userCode: "", deviceCode: "", verificationUri: "", status: "idle", intervalS: 5 })}
+                                onClick={() => setDeviceFlow({ active: false, userCode: "", deviceCode: "", verificationUri: "", status: "idle", intervalS: 5, expiraEn: 0 })}
                                 className="text-[10px] font-black uppercase text-muted-foreground hover:text-foreground"
                               >
                                 Vincular otra cuenta
+                              </button>
+                            </div>
+                          ) : deviceFlow.status === "expirado" ? (
+                            /* ⚠️ Esta rama NO existía, y es la que el admin vio
+                               fallar. Cuando el código se agotaba, la tarjeta
+                               simplemente volvía al botón de "Generar código"
+                               como si nunca hubiera pasado nada -- o peor, se
+                               quedaba con la rueda girando sobre un código
+                               muerto. Para quien mira la pantalla, eso es
+                               indistinguible de "todavía no autorizaste", así
+                               que se queda esperando algo que ya no va a pasar.
+
+                               Decirlo y ofrecer el siguiente paso concreto es
+                               la diferencia entre un error y un callejón. */
+                            <div className="space-y-3 animate-in fade-in duration-500">
+                              <div className="flex items-start gap-3 rounded-2xl border border-amber-500/30 bg-amber-500/5 p-4">
+                                <div className="h-2 w-2 mt-1.5 shrink-0 rounded-full bg-amber-500" />
+                                <div>
+                                  <p className="text-sm font-bold">El código venció</p>
+                                  <p className="text-[11px] text-muted-foreground">
+                                    Los códigos de GitHub duran 15 minutos. Generá uno nuevo y pegalo en github.com/login/device.
+                                  </p>
+                                </div>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => setDeviceFlow({ active: false, userCode: "", deviceCode: "", verificationUri: "", status: "idle", intervalS: 5, expiraEn: 0 })}
+                                className="text-[10px] font-black uppercase text-primary hover:underline"
+                              >
+                                Generar otro código
                               </button>
                             </div>
                           ) : !deviceFlow.active ? (
@@ -581,7 +598,9 @@ export default function Settings() {
                                         // preguntar. Ignorarlo era lo que
                                         // disparaba el `slow_down` del que no
                                         // se salía más.
-                                        intervalS: Number(data.interval) > 0 ? Number(data.interval) : 5
+                                        intervalS: Number(data.interval) > 0 ? Number(data.interval) : 5,
+                                        // GitHub manda `expires_in` en segundos (900 = 15 min).
+                                        expiraEn: Date.now() + (Number(data.expires_in) > 0 ? Number(data.expires_in) : 900) * 1000
                                       });
                                       toast.success("¡Código listo! Sigue las instrucciones.", { id: loadingToast });
                                     } else {
@@ -636,7 +655,20 @@ export default function Settings() {
                                     <div className="h-3 w-3 rounded-full bg-primary animate-ping absolute" />
                                     <div className="h-3 w-3 rounded-full bg-primary relative" />
                                   </div>
-                                  <span className="text-[10px] font-bold uppercase tracking-tight">Sincronizando con GitHub...</span>
+                                  {/* El texto dice qué se está esperando, no solo
+                                      que "algo pasa". "Sincronizando" a secas no
+                                      le decía al admin que la pelota estaba de su
+                                      lado -- que tenía que ir a github.com y pegar
+                                      el código-- así que se quedaba mirando la
+                                      rueda esperando que terminara sola. */}
+                                  <span className="text-[10px] font-bold uppercase tracking-tight">
+                                    Esperando que autorices en GitHub
+                                    {segundosRestantes > 0 && (
+                                      <span className="ml-2 font-mono text-muted-foreground normal-case">
+                                        · el código vence en {Math.floor(segundosRestantes / 60)}:{String(segundosRestantes % 60).padStart(2, "0")}
+                                      </span>
+                                    )}
+                                  </span>
                                 </div>
                                 <div className="flex gap-4">
                                   <button 
@@ -646,7 +678,7 @@ export default function Settings() {
                                     Abrir Web ↗
                                   </button>
                                   <button 
-                                    onClick={() => setDeviceFlow({ active: false, userCode: "", deviceCode: "", verificationUri: "", status: "idle", intervalS: 5 })} 
+                                    onClick={() => setDeviceFlow({ active: false, userCode: "", deviceCode: "", verificationUri: "", status: "idle", intervalS: 5, expiraEn: 0 })} 
                                     className="text-[10px] font-black uppercase text-muted-foreground hover:text-foreground"
                                   >
                                     Cancelar
