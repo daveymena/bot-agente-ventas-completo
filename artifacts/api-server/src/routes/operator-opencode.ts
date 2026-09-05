@@ -1832,10 +1832,28 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
       const AFIRMA_HABER_INVESTIGADO = /\b(busqu[ée]|investigu[ée]|seg[uú]n (?:mi|la) (?:b[uú]squeda|investigaci[oó]n)|us[ée] (?:la herramienta )?(?:websearch|web_search)|resultados reales|encontr[ée] en internet|fuentes? (?:reales?|encontradas?))/i;
       if (!huboInvestigacionReal && AFIRMA_HABER_INVESTIGADO.test(finalReplyVerificado || "")) {
         logger.warn({ tenantId, sessionId }, "[AtlasOpenCode] El modelo afirmó haber investigado sin que hubiera búsqueda real -- se corrige la respuesta");
+        // ── La corrección va ARRIBA, no al final ──────────────────────────
+        //
+        // ⚠️ Esto se agregaba DESPUÉS del texto, y con eso el mensaje se
+        // contradecía solo: arriba decía "busqué en la Biblioteca de Anuncios
+        // hoy mismo" y treinta líneas después "NO se hizo ninguna búsqueda
+        // web real". El admin lo describió así: *"nunca debe afirmar que
+        // ejecutó una consulta y luego desmentirse dentro del mismo mensaje"*.
+        //
+        // Y el repo YA había aprendido esto: el aviso de "todavía no se guardó
+        // nada" se mueve arriba por este mismo motivo, con un comentario que
+        // dice "el admin lee de arriba hacia abajo y se queda con lo primero".
+        // Se arregló ese camino y este quedó igual -- el mismo patrón de
+        // arreglar un gemelo y dejar el otro.
+        //
+        // Puesto ARRIBA, lo primero que se lee es qué NO pasó, y todo lo de
+        // abajo se lee ya sabiendo que es propuesta y no observación.
         finalReplyVerificado =
-          `${finalReplyVerificado}\n\n⚠️ Aviso automático: en este mensaje NO se hizo ninguna búsqueda web real, ` +
-          `así que lo de arriba sale del conocimiento general del modelo y no de fuentes verificadas hoy. ` +
-          `No lo tomes como dato comprobado. Pedime que lo verifique y busco de verdad antes de que decidas nada con esto.`;
+          `⚠️ **Antes de leer lo de abajo:** en este turno NO consulté la Biblioteca de Anuncios ni busqué en la web. ` +
+          `Lo que sigue sale del conocimiento general del modelo y de los datos de tu producto, NO de anuncios que estén al aire hoy. ` +
+          `Tomalo como propuesta, no como observación verificada.\n\n` +
+          `Si querés que compare con lo que de verdad está corriendo en Meta, pedímelo y lo consulto antes de que decidas nada.\n\n---\n\n` +
+          `${finalReplyVerificado}`;
       }
 
       // ── Números del negocio que NO se leyeron ────────────────────────────
