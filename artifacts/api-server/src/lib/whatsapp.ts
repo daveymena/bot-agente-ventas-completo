@@ -2248,28 +2248,52 @@ export class WhatsAppManager {
                  const { atenderDecisionDelAdmin } = await import("./verificacion-pago");
                  const r = await atenderDecisionDelAdmin(phone, text.trim());
                  if (r) {
-                   await this.sendText(phone, r.paraElAdmin, originalJid);
+                   // ── Primero el cliente, y despues se le cuenta al admin ───
+                   //
+                   // Estaba al reves: se le mandaba al admin "Le aviso al
+                   // cliente con tacto" ANTES de intentar avisarle, y si el
+                   // aviso no salía —porque no había conversacion, o porque el
+                   // envio fallaba— nadie se enteraba nunca. El admin se
+                   // quedaba tranquilo con un acuse que no era cierto.
+                   //
+                   // Reportado el 2026-09-06: "lo rechace pero nunca le
+                   // entrego el mensaje al cliente diciendole que la
+                   // transferencia no era correcta".
+                   let avisoAlCliente = "";
                    if (r.paraElCliente) {
                      const [c] = await db
                        .select({ phone: conversations.contactPhone })
                        .from(conversations)
                        .where(eq(conversations.id, r.paraElCliente.conversationId))
                        .limit(1);
-                     if (c?.phone) {
-                       await this.sendText(c.phone, r.paraElCliente.texto);
-                       // Queda en el historial: si no, el agente no sabe que ya
-                       // entregó y en el turno siguiente vuelve a cobrar o se
-                       // contradice sobre si hubo compra.
-                       const { saveAgentMessage } = await import("./conversation-engine");
-                       await saveAgentMessage(
-                         r.paraElCliente.conversationId,
-                         r.paraElCliente.texto,
-                         (r.paraElCliente.entregar ? "converted" : "closing") as any,
-                         { intent: "payment_verified", verificadoPor: phone } as any,
-                       );
-                       console.log(`💬 [PAGO] Cliente ${c.phone} avisado: ${r.paraElCliente.entregar ? "aprobado y entregado" : "rechazado"}`);
+                     if (!c?.phone) {
+                       avisoAlCliente = `\n\n⚠️ No pude avisarle al cliente: la conversacion ${r.paraElCliente.conversationId} no tiene telefono. Escribile vos.`;
+                       console.error(`❌ [PAGO] Sin telefono para la conversacion ${r.paraElCliente.conversationId}: el cliente NO fue avisado`);
+                     } else {
+                       try {
+                         await this.sendText(c.phone, r.paraElCliente.texto);
+                         // Queda en el historial: si no, el agente no sabe que ya
+                         // entregó y en el turno siguiente vuelve a cobrar o se
+                         // contradice sobre si hubo compra.
+                         const { saveAgentMessage } = await import("./conversation-engine");
+                         await saveAgentMessage(
+                           r.paraElCliente.conversationId,
+                           r.paraElCliente.texto,
+                           (r.paraElCliente.entregar ? "converted" : "closing") as any,
+                           { intent: "payment_verified", verificadoPor: phone } as any,
+                         );
+                         console.log(`💬 [PAGO] Cliente ${c.phone} avisado: ${r.paraElCliente.entregar ? "aprobado y entregado" : "rechazado"}`);
+                       } catch (errCliente: any) {
+                         avisoAlCliente = `\n\n⚠️ NO pude avisarle al cliente (${errCliente?.message || "fallo el envio"}). Escribile vos.`;
+                         console.error(`❌ [PAGO] No se le pudo avisar al cliente ${c.phone}: ${errCliente?.message}`);
+                       }
                      }
+                   } else {
+                     avisoAlCliente = `\n\n⚠️ Ese comprobante no tiene una conversacion asociada: al cliente no se le avisó nada.`;
+                     console.error(`❌ [PAGO] Decision aplicada sin conversacion asociada: el cliente NO fue avisado`);
                    }
+
+                   await this.sendText(phone, r.paraElAdmin + avisoAlCliente, originalJid);
                    continue;
                  }
                } catch (e: any) {

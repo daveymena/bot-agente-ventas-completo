@@ -192,10 +192,46 @@ export function avisoParaElAdmin(p: {
  * entre mensajes. Si el admin lo sabe, lo escribe y el cliente lo recibe por
  * los dos lados.
  */
+/**
+ * El sistema imprimía una instrucción que él mismo no sabía leer.
+ *
+ * `avisoParaElAdmin` le dice al admin, con todas las letras:
+ *
+ *     ✅ *APROBAR 47*
+ *     ❌ *RECHAZAR 47*
+ *
+ * Y en el celular lo natural es dejar pulsada esa línea y copiarla. WhatsApp
+ * copia el texto CRUDO, o sea con los asteriscos y con el emoji adelante. El
+ * parser estaba anclado con `^` a la palabra, así que "*RECHAZAR 47*" y
+ * "❌ RECHAZAR 47" no casaban con nada.
+ *
+ * Reportado por el admin el 2026-09-06: "recibí el mensaje para aceptar o
+ * rechazar el comprobante, lo rechacé, pero nunca le entregó el mensaje al
+ * cliente diciendole que la transferencia no era correcta".
+ *
+ * Y el daño no termina ahí: al no parsear, el mensaje del admin sigue de
+ * largo hasta el agente de VENTAS, el pago queda en `pending` para siempre y
+ * el cliente no se entera de nada.
+ *
+ * Se limpian los adornos antes de leer: formato de WhatsApp (* _ ~ `),
+ * comillas, viñetas y todo lo que no sea letra al principio de la línea.
+ */
+function sinAdornos(texto: string): string {
+  return String(texto || "")
+    .replace(/[*_~`]/g, "")
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    // Todo lo que no sea letra al principio: emojis, viñetas, comillas, guiones.
+    .replace(/^[^a-z0-9]+/i, "")
+    .trim();
+}
+
 export function leerDecisionDelAdmin(
   texto: string,
 ): { accion: "aprobar" | "rechazar"; pagoId: number; correo?: string } | null {
-  const t = String(texto || "").trim().toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+  const t = sinAdornos(texto);
   const m = t.match(
     /^(aprobar|aprobado|apruebo|ok|confirmar|confirmo|rechazar|rechazo|rechazado|no)\s*#?\s*(\d{1,9})\b\s*([^\s@]+@[^\s@]+\.[^\s@]+)?/,
   );

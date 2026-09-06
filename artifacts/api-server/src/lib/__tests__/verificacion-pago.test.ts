@@ -185,3 +185,85 @@ describe("un admin solo aprueba pagos de SU negocio", () => {
     }
   });
 });
+
+/**
+ * ── Lo que el aviso IMPRIME, el parser tiene que saber LEERLO ──────────────
+ *
+ * El sistema le decía al admin, con todas las letras:
+ *
+ *     ✅ *APROBAR 47*
+ *     ❌ *RECHAZAR 47*
+ *
+ * y no sabía leer ninguna de las dos. En el celular lo natural es dejar
+ * pulsada esa línea y copiarla; WhatsApp copia el texto CRUDO, con los
+ * asteriscos y con el emoji adelante, y el parser estaba anclado con `^` a la
+ * palabra.
+ *
+ * Reportado el 2026-09-06: el admin rechazó un comprobante y el cliente nunca
+ * recibió el aviso. No parseaba → el pago quedaba `pending` para siempre y el
+ * mensaje del admin seguía de largo hasta el agente de ventas.
+ *
+ * Este test no comprueba una lista de formatos: recorre el aviso REAL y exige
+ * que cada línea de acción se pueda leer de vuelta. Si alguien cambia el
+ * texto del aviso, el test cae acá y no en producción.
+ */
+describe("El aviso al admin y el parser hablan el mismo idioma", () => {
+  const aviso = avisoParaElAdmin({
+    pagoId: 47,
+    cliente: "Leonel",
+    telefono: "573001112233",
+    producto: "Curso de Piano",
+    monto: 60000,
+    moneda: "COP",
+  });
+
+  // Las lineas que SON el comando (las que el admin deja pulsadas y copia), no
+  // la prosa que habla de el. El filtro tolera el emoji y los asteriscos
+  // justamente porque ese es el texto crudo que WhatsApp pone en el
+  // portapapeles.
+  const lineasDeAccion = aviso
+    .split("\n")
+    .filter((l) => /^[^A-Za-z]*\*?(aprobar|rechazar)\b/i.test(l));
+
+  it("el aviso trae al menos las dos acciones", () => {
+    expect(lineasDeAccion.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("TODA línea de acción del aviso se puede leer de vuelta", () => {
+    for (const linea of lineasDeAccion) {
+      const leido = leerDecisionDelAdmin(linea);
+      expect(leido, `no se pudo leer: ${JSON.stringify(linea)}`).not.toBe(null);
+      expect(leido!.pagoId).toBe(47);
+    }
+  });
+
+  it("y cada una hace lo que dice", () => {
+    for (const linea of lineasDeAccion) {
+      const esperado = /rechazar/i.test(linea) ? "rechazar" : "aprobar";
+      expect(leerDecisionDelAdmin(linea)!.accion).toBe(esperado);
+    }
+  });
+
+  it("el caso exacto del reporte, copiado del celular", () => {
+    const r = leerDecisionDelAdmin("❌ *RECHAZAR 47*");
+    expect(r).toEqual({ accion: "rechazar", pagoId: 47, correo: undefined });
+  });
+
+  it("con adornos de todo tipo alrededor", () => {
+    for (const t of ["*RECHAZAR 47*", "❌ RECHAZAR 47", "- rechazar 47", "«RECHAZAR 47»", "_rechazo 47_"]) {
+      expect(leerDecisionDelAdmin(t)?.accion, t).toBe("rechazar");
+    }
+  });
+
+  it("el correo opcional sobrevive a los asteriscos", () => {
+    const r = leerDecisionDelAdmin("*APROBAR 47 juan@correo.com*");
+    expect(r?.accion).toBe("aprobar");
+    expect(r?.correo).toBe("juan@correo.com");
+  });
+
+  it("y una charla normal sigue sin ser una decisión", () => {
+    for (const t of ["hola como estas", "no tengo el comprobante todavia", "ok gracias"]) {
+      expect(leerDecisionDelAdmin(t), t).toBe(null);
+    }
+  });
+});
