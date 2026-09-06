@@ -458,6 +458,7 @@ export class TenantManager {
   async updateTenant(tenantId: number, updates: Partial<{
     name: string;
     brandName: string;
+    contactPhone: string;
     agentPersonality: string;
     agentPrompt: string;
     agentName: string;

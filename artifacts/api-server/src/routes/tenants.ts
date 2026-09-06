@@ -50,6 +50,7 @@ const createTenantSchema = z.object({
 const updateTenantSchema = z.object({
   name: z.string().min(1).optional(),
   brandName: z.string().min(1).optional(),
+  contactPhone: z.string().optional(),
   agentPersonality: z.enum(["professional", "casual", "enthusiastic", "consultative"]).optional(),
   agentPrompt: z.string().optional(),
   agentName: z.string().optional(),
