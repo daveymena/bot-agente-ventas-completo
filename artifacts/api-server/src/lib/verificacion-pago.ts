@@ -166,6 +166,8 @@ export function avisoParaElAdmin(p: {
   descripcion?: string | null;
   /** Lo que la vision leyo del comprobante, ya cotejado (`leer-comprobante.ts`). */
   lectura?: string | null;
+  /** Lo que dice la bandeja del dueño (`pagos-por-correo.ts`). */
+  correo?: string | null;
 }): string {
   const monto = p.monto > 0 ? `$${p.monto.toLocaleString("es-CO")} ${p.moneda}` : "monto sin confirmar";
   const l = [
@@ -183,6 +185,14 @@ export function avisoParaElAdmin(p: {
   if (p.lectura) {
     l.push(``);
     l.push(String(p.lectura));
+  }
+
+  // El cruce con el correo del banco va después de la lectura de la captura:
+  // primero lo que el cliente manda (falsificable), después lo que el banco
+  // avisa (no falsificable). Ese orden le da al dueño la jerarquía correcta.
+  if (p.correo) {
+    l.push(``);
+    l.push(String(p.correo));
   }
 
   l.push(``);

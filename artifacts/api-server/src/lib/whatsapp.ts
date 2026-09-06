@@ -2524,6 +2524,38 @@ export class WhatsAppManager {
       console.error(`[Pago] no se pudo leer el comprobante: ${e?.message}`);
     }
 
+    // ── Cruce con el correo del banco ──────────────────────────────────────
+    //
+    // La captura la manda el cliente y se puede falsificar; el correo lo manda
+    // el banco a la bandeja del dueño. Si ahí hay un aviso que cuadre (monto +
+    // ventana de tiempo), el dueño ve "confirmé un pago de $X a nombre de Y"
+    // en vez de tener que adivinar sobre una foto. La decisión sigue siendo
+    // suya: el correo dice cuánto y de quién, pero no QUÉ compró esa persona.
+    //
+    // Va DESPUÉS de leer la captura y ANTES del aviso, y nunca bloquea: si el
+    // IMAP falla, el aviso normal (con la captura) sale igual.
+    let bloqueCorreo = "";
+    try {
+      const { credencialesEmailDe } = await import("./tenant-email-credentials");
+      const { leerAvisosDeBanco } = await import("./leer-correo");
+      const { cruzarConElComprobante, loQueSeLeDiceAlDueno } = await import("./pagos-por-correo");
+
+      const creds = credencialesEmailDe(this.currentTenant as any);
+      if (creds.user && creds.pass) {
+        const desde = new Date(Date.now() - 90 * 60_000);
+        const avisos = await leerAvisosDeBanco({ user: creds.user, pass: creds.pass, desde });
+        const cruces = cruzarConElComprobante(avisos, {
+          llegoElComprobante: new Date(),
+          montoEsperado: producto ? Number(producto.price) : null,
+        });
+        bloqueCorreo = loQueSeLeDiceAlDueno(cruces, pushName || convo.contactName || phone);
+      }
+    } catch (e: any) {
+      // Sin cruce el aviso igual sale con la captura: no se bloquea un pago por
+      // no poder leer el correo.
+      console.error(`[Pago] no se pudo cruzar con el correo: ${e?.message}`);
+    }
+
     const aviso = avisoParaElAdmin({
       pagoId,
       cliente: pushName || convo.contactName || phone,
@@ -2533,6 +2565,7 @@ export class WhatsAppManager {
       moneda: producto?.currency || "COP",
       descripcion: visto,
       lectura: bloqueLeido,
+      correo: bloqueCorreo,
     });
 
     try {
