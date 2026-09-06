@@ -127,3 +127,48 @@ describe("Una frase que anuncia un precio y no lo dice, se descarta", () => {
     expect(sinElMontoQueVaEnLaFicha(t)).toBe(t);
   });
 });
+
+/**
+ * ── La tercera variante del mismo hueco, en seis días ─────────────────────
+ *
+ * Copiado de una conversación REAL de producción (2026-09-06):
+ *
+ *   cliente: "Por q medio puedo pagar."
+ *   bot:     "💰 El curso de IA está en, pago único."
+ *
+ * Y no tiene NINGUNA palabra de precio adentro. Por eso la lista de
+ * sustantivos —que ya había fallado con "valor" el 01-09 y con "costo" el
+ * 06-09— tampoco lo iba a agarrar: la señal no es la palabra, es la frase
+ * que se corta justo antes del número.
+ */
+describe("Una frase que se corta antes del precio, con o sin palabra de precio", () => {
+  it("el caso de producción: 'está en, pago único'", () => {
+    expect(sinElMontoQueVaEnLaFicha("El curso de IA está en, pago único.")).toBe("");
+  });
+
+  it("las otras formas de cortarse a mitad", () => {
+    for (const t of [
+      "El curso queda en.",
+      "Te sale por,",
+      "El curso de piano vale de,",
+      "Eso está en.",
+    ]) {
+      expect(sinElMontoQueVaEnLaFicha(t), t).toBe("");
+    }
+  });
+
+  it("pero NO se lleva por delante una frase sana", () => {
+    for (const t of [
+      "El curso está en Colombia y el acceso es inmediato",
+      "Eso queda en tu cuenta para siempre",
+      "El acceso va por WhatsApp",
+    ]) {
+      expect(sinElMontoQueVaEnLaFicha(t), t).toBe(t);
+    }
+  });
+
+  it("y una frase con el número sí puesto sobrevive al filtro", () => {
+    // Se descarta igual, pero por la razón vieja: el monto lo pone la ficha.
+    expect(sinElMontoQueVaEnLaFicha("Son 19 módulos y 283 clases")).toBe("Son 19 módulos y 283 clases");
+  });
+});

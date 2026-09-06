@@ -50,16 +50,39 @@ describe("El recibo", () => {
     });
     expect(t).toContain("202608-00042");
     expect(t).toContain("$60.000 COP");
-    expect(t).toMatch(/Pago confirmado/);
     expect(t).toContain("30/08/2026");
+    expect(t).toContain("Duvier Mena");
+    expect(t).toContain("IA 2026");
+    // Que quede dicho que ya se pagó: es el dato por el que el cliente lo guarda.
+    expect(t).toMatch(/PAGADO/);
   });
 
-  it("no se llama factura, porque no lo es", () => {
+  it("las columnas quedan derechas en el celular", () => {
+    // El recibo va en un bloque monoespaciado de ancho fijo. Si una línea se
+    // pasa, el teléfono la parte y la caja entera se ve rota.
+    const t = reciboDeVenta({
+      numero: "202608-00042",
+      cliente: "Un Cliente Con Nombre Larguísimo De Verdad",
+      producto: "Curso de Inteligencia Artificial 2026 con agentes autónomos",
+      monto: 1234567, moneda: "COP", metodo: "Transferencia bancaria",
+      negocio: "Un Negocio De Nombre Muy Largo También",
+    });
+    const dentro = t.split("```")[1]!.split("\n").filter((l) => l.trim());
+    for (const l of dentro) expect(l.length, l).toBeLessThanOrEqual(34);
+  });
+
+  it("no se presenta como factura, porque no lo es", () => {
     // El sistema no emite facturación electrónica ni tiene resolución de la
-    // DIAN. Llamarla factura le crearía un problema al negocio.
+    // DIAN. Presentarlo como factura le crearía un problema al negocio.
+    //
+    // Lo que se prohíbe es TITULARLO factura. La advertencia "no válido como
+    // factura de venta" dice justamente lo contrario y tiene que poder estar:
+    // es la línea que protege al negocio.
     const t = reciboDeVenta({ numero: 1, cliente: "X" });
-    expect(t).toMatch(/COMPROBANTE/);
-    expect(t).not.toMatch(/factura/i);
+    expect(t).toMatch(/RECIBO DE CAJA/);
+    // La palabra puede aparecer UNA sola vez, y solo dentro de la advertencia.
+    expect(t.match(/factura/gi) || []).toHaveLength(1);
+    expect(t).toMatch(/no válido como factura de venta/i);
   });
 
   it("el número es reproducible: el mismo pago da el mismo número", () => {

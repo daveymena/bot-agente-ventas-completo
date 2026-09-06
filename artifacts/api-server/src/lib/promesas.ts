@@ -212,8 +212,23 @@ export function sinLaPromesa(texto: string, incumplidas: Promesa[]): string {
  * 2026-09-06 dijo "costo", que no estaba escrito. Lo que no cambia es la
  * FORMA: se anuncia un precio y no hay ningun digito detras.
  */
-const ANUNCIA_PRECIO_SIN_DECIRLO =
-  /\b(valor|precio|costo|vale|cuesta|sale|queda|cobr\w+)\b\s*(de|en|es|:)?\s*(?=[,.;!?]|$)/i;
+const ANUNCIA_PRECIO_SIN_DECIRLO = [
+  // (a) Sustantivo de precio y se corta: "tiene un costo de." / "un valor de ,"
+  /\b(valor|precio|costo|vale|cuesta|sale|queda|cobr\w+)\b\s*(de|en|es|:)?\s*(?=[,.;!?]|$)/i,
+  // (b) Verbo + preposicion y se corta: "esta en," / "queda en." / "sale por,"
+  //
+  // Este segundo caso NO tiene ninguna palabra de precio adentro, y por eso la
+  // lista de sustantivos nunca lo iba a agarrar. Medido en produccion el
+  // 2026-09-06, tercera variante del mismo hueco en seis dias:
+  //
+  //   01-09  "El curso tiene un valor de , pago unico."
+  //   06-09  "El curso de piano completo tiene un costo de."
+  //   06-09  "El curso de IA esta en, pago unico."     <- este
+  //
+  // Se exige que la preposicion quede pegada a la puntuacion: "esta en," si,
+  // "esta en Colombia" no. Sin eso se comeria frases sanas.
+  /\b(vale|cuesta|sale|queda|est[a\u00e1]|va)\s+(de|en|a|por)\s*(?=[,.;!?]|$)/i,
+];
 
 export function sinElMontoQueVaEnLaFicha(texto: string): string {
   const original = String(texto || "");
@@ -233,7 +248,7 @@ export function sinElMontoQueVaEnLaFicha(texto: string): string {
   // Ahi no habia monto que quitar: el modelo escribio la frase ya rota, asi
   // que `sinMonto === original` y salia intacta. Una frase que anuncia un
   // precio y no lo dice no se sostiene, la haya roto quien la haya roto.
-  if (!/\d/.test(sinMonto) && ANUNCIA_PRECIO_SIN_DECIRLO.test(sinMonto)) return "";
+  if (!/\d/.test(sinMonto) && ANUNCIA_PRECIO_SIN_DECIRLO.some((re) => re.test(sinMonto))) return "";
 
   if (sinMonto === original) return original;
 

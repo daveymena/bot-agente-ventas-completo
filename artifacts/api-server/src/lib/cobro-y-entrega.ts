@@ -62,29 +62,86 @@ export function reciboDeVenta(d: {
   moneda?: string | null;
   metodo?: string | null;
   fecha?: Date;
+  /** El nombre del negocio que cobra. Encabeza el recibo. */
+  negocio?: string | null;
 }): string {
   const f = d.fecha instanceof Date ? d.fecha : new Date();
   const fecha = f.toLocaleDateString("es-CO", { day: "2-digit", month: "2-digit", year: "numeric" });
+  const hora = f.toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit", hour12: true });
   const n = Number(d.monto);
   const monto =
     Number.isFinite(n) && n > 0
       ? `$${Math.round(n).toLocaleString("es-CO")}${d.moneda ? ` ${String(d.moneda).toUpperCase()}` : ""}`
-      : "";
+      : null;
+
+  // ── Por qué monoespaciado y no viñetas con emojis ───────────────────
+  //
+  // WhatsApp solo da negrita, cursiva, tachado y monoespaciado. De esos, el
+  // único que ALINEA es el monoespaciado (```): dentro del bloque todos los
+  // caracteres miden lo mismo, así que las columnas quedan derechas en
+  // cualquier teléfono. Una lista de emojis se ve informal y se desalinea sola
+  // cuando un nombre es largo.
+  //
+  // El ancho es 34: entra sin cortarse en un teléfono angosto. Todo lo que se
+  // escribe adentro se recorta a ese ancho, porque una línea que se parte
+  // arruina la caja entera y el recibo pasa de prolijo a roto.
+  const W = 34;
+  const linea = (c = "\u2500") => c.repeat(W);
+  const centrar = (t: string) => {
+    const s2 = t.length > W ? t.slice(0, W) : t;
+    const izq = Math.floor((W - s2.length) / 2);
+    return " ".repeat(izq) + s2;
+  };
+  // Etiqueta a la izquierda, valor a la derecha. Si no entran juntos, el valor
+  // baja a la línea siguiente en vez de empujar la caja.
+  const par = (k: string, v: string): string[] => {
+    const val = String(v);
+    if (k.length + val.length + 1 <= W) {
+      return [k + " ".repeat(W - k.length - val.length) + val];
+    }
+    return [k, val.length > W ? val.slice(0, W) : " ".repeat(Math.max(0, W - val.length)) + val];
+  };
+
+  const cuerpo: string[] = [];
+  cuerpo.push(centrar((d.negocio || "").toUpperCase().slice(0, W)));
+  cuerpo.push(centrar("RECIBO DE CAJA"));
+  cuerpo.push(linea("\u2550"));
+  cuerpo.push(...par("N\u00b0", String(d.numero)));
+  cuerpo.push(...par("Fecha", `${fecha} ${hora}`));
+  cuerpo.push(linea());
+  cuerpo.push(...par("Recibido de", String(d.cliente).slice(0, 22)));
+  if (d.producto) {
+    cuerpo.push("Por concepto de");
+    // El nombre del producto va entero, partido en renglones de ancho fijo.
+    const palabras = String(d.producto).split(/\s+/);
+    let r = "";
+    for (const w of palabras) {
+      if ((r + " " + w).trim().length > W - 2) {
+        cuerpo.push("  " + r.trim());
+        r = w;
+      } else {
+        r = (r + " " + w).trim();
+      }
+    }
+    if (r) cuerpo.push("  " + r);
+  }
+  if (d.metodo) cuerpo.push(...par("Forma de pago", String(d.metodo).slice(0, 18)));
+  cuerpo.push(linea());
+  if (monto) cuerpo.push(...par("TOTAL PAGADO", monto));
+  cuerpo.push(linea("\u2550"));
+  cuerpo.push(centrar("*** PAGADO ***"));
+
   return [
-    `🧾 *COMPROBANTE DE COMPRA*`,
-    `N° ${d.numero} · ${fecha}`,
-    ``,
-    `👤 ${d.cliente}`,
-    d.producto ? `📦 ${d.producto}` : null,
-    monto ? `💰 ${monto}` : null,
-    d.metodo ? `💳 ${d.metodo}` : null,
-    ``,
-    `✅ *Pago confirmado*`,
-    ``,
-    `Gracias por tu compra 🙏 Guardá este comprobante por si necesitás referenciarlo.`,
-  ]
-    .filter((l) => l !== null)
-    .join("\n");
+    "\ud83e\uddfe *RECIBO DE CAJA*",
+    "```",
+    ...cuerpo,
+    "```",
+    // Esto NO es adorno legal: es lo que evita que el negocio quede afirmando
+    // que emitió una factura. Ver el comentario de arriba.
+    "_Documento no válido como factura de venta._",
+    "",
+    "\u00a1Gracias por tu compra! \ud83d\ude4c Guard\u00e1 este recibo por si necesit\u00e1s referenciar la compra.",
+  ].join("\n");
 }
 
 /**

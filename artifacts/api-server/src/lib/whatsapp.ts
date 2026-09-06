@@ -2517,6 +2517,15 @@ export class WhatsAppManager {
         moneda: producto?.currency || "COP",
       });
       bloqueLeido = bloqueDeLectura(cotejos);
+
+      // Lo que NO cuadra queda guardado con el pago para poder explicarselo al
+      // cliente si se rechaza. Solo los ⚠️: un ✅ no es motivo de rechazo, y un
+      // ❓ ("no se pudo leer") tampoco — no saber no es lo mismo que estar mal.
+      const { anotarMotivos } = await import("./verificacion-pago");
+      await anotarMotivos(
+        pagoId,
+        cotejos.filter((c: any) => c.marca === "⚠️").map((c: any) => c.linea),
+      );
     } catch (e: any) {
       // Sin lectura el aviso igual sale: es preferible que el admin revise su
       // cuenta a mano, a que nadie se entere del pago.

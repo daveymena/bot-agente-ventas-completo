@@ -155,6 +155,33 @@ export async function registrarComprobante(c: ComprobanteEntrante): Promise<numb
   }
 }
 
+/**
+ * Deja anotado, junto al pago, lo que el cotejo de la vision marco como NO
+ * cuadrado.
+ *
+ * Va aparte de `registrarComprobante` porque el cotejo corre DESPUES de
+ * registrar (necesita la imagen ya guardada y el producto resuelto). Pasarlo
+ * como argumento de registro seria un campo que nunca llega — el patron de
+ * "codigo correcto que nadie llama" que ya aparecio varias veces en este repo.
+ *
+ * Esto es lo que despues le explica al cliente por que se le rechazo: "todavia
+ * no veo el pago reflejado" es cierto pero inutil, y el cliente vuelve a
+ * mandar la misma captura sin saber que corregir.
+ */
+export async function anotarMotivos(pagoId: number, motivos: string[]): Promise<void> {
+  if (!pagoId || !motivos?.length) return;
+  try {
+    await db
+      .update(payments)
+      .set({ metadata: JSON.stringify({ cotejo: motivos.slice(0, 6) }).slice(0, 2000) })
+      .where(eq(payments.id, pagoId));
+  } catch (e: any) {
+    // Sin motivos anotados el rechazo sale con el texto general: se pierde el
+    // detalle, no la venta.
+    logger.warn({ err: e?.message, pagoId }, "[Pago] no se pudieron anotar los motivos del cotejo");
+  }
+}
+
 /** El mensaje que le llega al admin. Corto: se lee en el celular. */
 export function avisoParaElAdmin(p: {
   pagoId: number;
@@ -197,6 +224,13 @@ export function avisoParaElAdmin(p: {
 
   l.push(``);
   l.push(`Revisa que el dinero esté en tu cuenta y responde:`);
+  // Ojo con la redacción de esta línea: es una LEYENDA, no un comando.
+  // Escrita como "*1* = aprobar" el test de ida y vuelta la tomaba por una
+  // línea de acción y pedía poder leerla de vuelta, cosa que no tiene sentido.
+  // Empezando con un verbo queda claro para el admin y para el test.
+  l.push(`Respondeme *1* para aprobar, o *2* para rechazar.`);
+  l.push(``);
+  l.push(`_O si preferís:_`);
   l.push(`✅ *APROBAR ${p.pagoId}*`);
   l.push(`❌ *RECHAZAR ${p.pagoId}*`);
   l.push(``);
@@ -261,6 +295,32 @@ export function leerDecisionDelAdmin(
   return { accion, pagoId: Number(m[2]), correo: m[3] || undefined };
 }
 
+/**
+ * La respuesta corta: "1" es aprobar, "2" es rechazar.
+ *
+ * El admin lo pidio asi el 2026-09-06: "necesito que sea facil el envio de la
+ * informacion, en vez de escribir la palabra literal yo mando 1 o 2".
+ *
+ * Tiene razon: escribir "RECHAZAR 47" en el celular, con el numero correcto,
+ * es justo el tipo de friccion que hace que un comprobante se quede sin
+ * revisar. Y el numero del pago ya lo sabe el servidor.
+ *
+ * ⚠️ Un "1" suelto es ambiguo por naturaleza, asi que NO decide por si solo:
+ * quien llama tiene que comprobar que haya EXACTAMENTE UN comprobante
+ * pendiente de ese negocio. Con dos pendientes se le pregunta cual, y con
+ * ninguno el mensaje sigue su camino normal como cualquier otro texto.
+ *
+ * Por eso tampoco se aceptan "si" ni "no": el admin le escribe al bot como
+ * cualquier persona, y esas dos palabras aparecen solas todo el tiempo. Un
+ * "1" o un "2" sueltos, en cambio, no son conversacion.
+ */
+export function decisionCorta(texto: string): "aprobar" | "rechazar" | null {
+  const t = sinAdornos(texto).replace(/[.,;:!?)\]]+$/, "").trim();
+  if (t === "1") return "aprobar";
+  if (t === "2") return "rechazar";
+  return null;
+}
+
 export interface ResultadoDecision {
   ok: boolean;
   mensajeParaElAdmin: string;
@@ -279,6 +339,47 @@ export interface ResultadoDecision {
  * puede entregar dos veces, y rechazar uno ya confirmado no puede
  * "desentregarlo" en silencio.
  */
+/**
+ * El rechazo, con el motivo concreto.
+ *
+ * "todavia no veo el pago reflejado" es cierto pero inutil: el cliente no sabe
+ * que corregir y vuelve a mandar la misma captura. `leer-comprobante.ts` ya
+ * dejo anotado QUE no cuadraba (la cuenta no era la del negocio, el monto no
+ * alcanzaba, la imagen no era un comprobante), asi que se le dice.
+ *
+ * Pedido del admin el 2026-09-06: "que mande la informacion diciendo aprobado
+ * o pago incorrecto por esto y esto al WhatsApp del cliente".
+ *
+ * Se dicen los HECHOS, no acusaciones: casi siempre es un error honesto
+ * --transfirio a otra cuenta, mando la captura equivocada, le falto plata--.
+ * Tratar de estafador a quien se equivoco de captura pierde una venta buena.
+ */
+export function motivoDelRechazo(pago: any): string {
+  let motivos: string[] = [];
+  try {
+    const meta = typeof pago?.metadata === "string" ? JSON.parse(pago.metadata) : pago?.metadata;
+    const c = meta?.cotejo;
+    if (Array.isArray(c)) motivos = c.filter((x: any) => typeof x === "string" && x.trim()).slice(0, 4);
+  } catch {
+    /* sin motivos anotados se manda el texto general */
+  }
+
+  if (motivos.length === 0) {
+    return (
+      "Revisé el comprobante y todavía no veo el pago reflejado 🤔 " +
+      "¿Puedes verificar que la transferencia haya salido y mandarme el soporte de nuevo?"
+    );
+  }
+
+  return [
+    "Revisé el comprobante y hay algo que no me cuadra 🤔",
+    "",
+    ...motivos.map((m) => `• ${m}`),
+    "",
+    "¿Puedes revisarlo y mandarme el soporte de nuevo? Si ya lo enviaste bien, avísame y lo verifico otra vez 🙌",
+  ].join("\n");
+}
+
 export async function aplicarDecision(
   pagoId: number,
   accion: "aprobar" | "rechazar",
@@ -327,7 +428,7 @@ export async function aplicarDecision(
         : `❌ Comprobante ${pagoId} rechazado. Le aviso al cliente con tacto.`,
       mensajeParaElCliente: aprobado
         ? `¡Confirmado tu pago! 🎉 Te paso el acceso enseguida.`
-        : `Revisé el comprobante y todavía no veo el pago reflejado 🤔 ¿Puedes verificar que la transferencia haya salido y mandarme el soporte de nuevo?`,
+        : motivoDelRechazo(pago),
       conversationId: pago.conversationId ?? null,
       productId: pago.productId ?? null,
       tenantId: pago.tenantId ?? null,
@@ -476,11 +577,45 @@ export async function atenderDecisionDelAdmin(
   phone: string,
   texto: string,
 ): Promise<RespuestaAdmin | null> {
-  const decision = leerDecisionDelAdmin(texto);
-  if (!decision) return null;
+  let decision = leerDecisionDelAdmin(texto);
 
+  // ── El "1" o "2" suelto ──────────────────────────────────────
+  //
+  // No trae el numero del pago, asi que solo se puede resolver mirando que
+  // hay pendiente. Se pide EXACTAMENTE UNO: con dos, aprobar el que no era
+  // entrega un producto sin cobrar y deja al que si pago esperando.
+  const corta = decision ? null : decisionCorta(texto);
   const suyos = await tenantsQueAdministra(phone);
   if (suyos.length === 0) return null;
+
+  if (!decision && corta) {
+    const pendientes = await db
+      .select({ id: payments.id, payerName: payments.payerName, amount: payments.amount })
+      .from(payments)
+      .where(and(inArray(payments.tenantId, suyos), eq(payments.status, "pending")))
+      .orderBy(desc(payments.id))
+      .limit(6);
+
+    if (pendientes.length === 0) return null; // no era una decision: sigue su camino
+
+    if (pendientes.length > 1) {
+      const l = [
+        `Tenés ${pendientes.length} comprobantes esperando, así que no sé a cuál le decis "${texto.trim()}":`,
+        ``,
+        ...pendientes.map((x: any) =>
+          `• *${x.id}* — ${x.payerName || "sin nombre"} · $${Number(x.amount || 0).toLocaleString("es-CO")}`,
+        ),
+        ``,
+        `Respondeme con el numero: *1 ${pendientes[0]!.id}* para aprobar ese, o *2 ${pendientes[0]!.id}* para rechazarlo.`,
+      ];
+      return { paraElAdmin: l.join("\n"), paraElCliente: null };
+    }
+
+    decision = { accion: corta, pagoId: Number(pendientes[0]!.id) };
+    logger.info({ phone, pagoId: decision.pagoId, accion: corta }, "[Pago] decision corta resuelta contra el unico pendiente");
+  }
+
+  if (!decision) return null;
 
   // Solo se toma si HAY un comprobante pendiente con ese número Y ES DE UN
   // NEGOCIO SUYO. El filtro por tenant faltaba: sin él, cualquier admin del
@@ -555,6 +690,9 @@ export async function atenderDecisionDelAdmin(
         monto: (fila as any)?.amount ?? null,
         moneda: (fila as any)?.currency ?? null,
         metodo: (fila as any)?.method || "Transferencia",
+        // El recibo lo emite el NEGOCIO, no la plataforma: encabezarlo con
+        // "VentasPro" seria decirle al cliente que le cobro otra empresa.
+        negocio: await nombreDelNegocio(r.tenantId),
       });
       paraCliente = `${paraCliente}
 
@@ -579,6 +717,26 @@ ${recibo}`;
     paraElAdmin: r.mensajeParaElAdmin + avisoExtra,
     paraElCliente: { conversationId: r.conversationId, texto: paraCliente, entregar: r.aprobado },
   };
+}
+
+/**
+ * El nombre comercial del negocio, para encabezar el recibo.
+ *
+ * Devuelve null si no se puede leer: el recibo sale igual sin encabezado,
+ * antes que no salir.
+ */
+async function nombreDelNegocio(tenantId: number | null): Promise<string | null> {
+  if (!tenantId) return null;
+  try {
+    const [t] = await db
+      .select({ brandName: tenants.brandName })
+      .from(tenants)
+      .where(eq(tenants.id, tenantId))
+      .limit(1);
+    return String((t as any)?.brandName || "").trim() || null;
+  } catch {
+    return null;
+  }
 }
 
 /** Manda el acceso por correo. Devuelve false en vez de tirar. */
