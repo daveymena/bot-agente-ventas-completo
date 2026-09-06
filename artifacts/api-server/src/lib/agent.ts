@@ -1051,33 +1051,30 @@ export async function runAgentReply(conversationId: number) {
   logTime(`4b. Contexto de negocio: ${Date.now() - t1}ms`);
   console.log(`🏢 [NEGOCIO] ${resumenContexto(negocio)} - ${ts()}`);
 
-  t1 = Date.now();
-  const decision = await computeDecision(memory, textoDecision, productList, categoryMap, negocio);
-  logTime(`5. Motor de decisión: ${Date.now() - t1}ms`);
-  
-  console.log(`🎯 [ENGINE-DECISION] ${decision.debugReason} - ${ts()}`);
-
-  // ── 5-bis. QUE LO ENTIENDA LA IA, NO UNA LISTA DE PALABRAS ──────────────
+  // ── 5-bis. QUE ENTIENDA LA IA, Y QUE ESO MANDE DESDE EL PRINCIPIO ────────
   //
-  // El admin: "esto no solo depende de frases, es que no parece que estemos
-  // usando la IA para eso". Tenia razon, y los numeros tambien: `detectIntent`
-  // --122 lineas de patrones, cero llamadas al modelo-- acierta el 45% sobre
-  // 20 mensajes reales de cliente; el mismo modelo que ya esta pagado y
-  // corriendo acierta el 80%, y acierta JUSTO los que cuestan plata ("ya te
-  // hice la transferencia", "no me ha llegado nada", "me lo deja en 40?").
+  // Esto vivía DESPUÉS de `computeDecision`, y por eso agregar comprensión no
+  // cambiaba el comportamiento. `computeDecision` deriva `stage`,
+  // `shouldSendCard` y sobre todo `contextBlock` —el párrafo que de verdad
+  // entra al prompt del redactor— a partir del intent de las listas de
+  // palabras. Parchear `decision.intent` después corrige la ETIQUETA y deja
+  // intacto el PÁRRAFO: el sistema entendía una cosa y le pedía otra al
+  // modelo. Medido el 2026-09-06 leyendo conversation-engine.ts:2111.
   //
-  // Esto NO le da al modelo el mando sobre los hechos: el precio, el enlace,
-  // la ficha y la cuenta los sigue poniendo el servidor, y todos los candados
-  // de salida siguen corriendo despues. Reemplaza la ADIVINANZA de que quiere
-  // el cliente, que es lo unico que las listas hacian mal.
+  // Ahora se entiende PRIMERO y el intent entendido entra al motor, así que
+  // todo lo que el motor deriva sale de una sola lectura coherente.
   //
-  // Si no contesta, tarda o devuelve basura, `entenderAlCliente` da null y
-  // todo sigue como hoy. No puede quedar peor: solo puede quedar mejor.
+  // El servidor no cede nada de lo que importa: el precio, el enlace, la
+  // ficha y la cuenta los sigue poniendo él, y los candados de salida siguen
+  // corriendo después. Si el modelo no contesta, tarda o devuelve basura,
+  // `entenderAlCliente` da null y el motor decide con los patrones de siempre.
   let entendimiento: Entendimiento | null = null;
   try {
+    // El foco previo se arma con lo que YA es dato duro en este punto: el
+    // producto del anuncio (resuelto por adId o link) y el que la conversación
+    // arrastra. No depende de `decision`, que todavía no existe.
     const focoPrevio = productoEnFoco({
-      delMensaje: decision.productoDelMensaje as any,
-      aMostrar: decision.productToShow as any,
+      aMostrar: delAnuncio ? ({ id: delAnuncio.id, name: delAnuncio.name } as any) : null,
       idActivo: memory.currentProductId,
       historial: memory.history as any,
       catalogo: productList as any[],
@@ -1087,24 +1084,40 @@ export async function runAgentReply(conversationId: number) {
       historial: memory.history as any,
       catalogo: (productList as any[]).map((p: any) => ({ id: p.id, name: p.name })),
       productoEnFocoId: focoPrevio?.id ?? null,
+      tenantId: convo.tenantId,
     });
   } catch (e: any) {
     console.log(`[ENTENDER] no se pudo, se sigue con los patrones: ${e?.message} - ${ts()}`);
   }
 
-  if (entendimiento && entendimiento.confianza >= 0.5) {
-    if (entendimiento.intencion !== decision.intent) {
-      console.log(`🧠 [ENTENDER] los patrones leyeron "${decision.intent}" y el cliente pedia "${entendimiento.intencion}": ${entendimiento.esperando} - ${ts()}`);
-      (decision as any).intent = entendimiento.intencion;
-    }
+  // Por debajo de 0.5 el motor sigue con sus patrones, que es exactamente lo
+  // que hacía antes de que existiera esta capa.
+  const mandaElEntendimiento = !!entendimiento && entendimiento.confianza >= 0.5;
+  const intentEntendido = mandaElEntendimiento ? entendimiento!.intencion : null;
+
+  t1 = Date.now();
+  const decision = await computeDecision(
+    memory, textoDecision, productList, categoryMap, negocio, intentEntendido,
+  );
+  logTime(`5. Motor de decisión: ${Date.now() - t1}ms`);
+
+  console.log(`🎯 [ENGINE-DECISION] ${decision.debugReason} - ${ts()}`);
+
+  if (mandaElEntendimiento) {
+    const en = entendimiento!;
+    console.log(
+      `🧠 [ENTENDER] ${en.intencion}/${en.subintencion ?? "-"} conf:${en.confianza} ` +
+      `directo:${en.responderDirectamente} reformula:${en.reformulaPregunta} ` +
+      `fallóAnterior:${en.respuestaAnteriorFallida} — ${en.esperando} - ${ts()}`,
+    );
     // El producto SOLO se rellena si los patrones no encontraron ninguno.
     // Cuando ya hay uno resuelto por el servidor, ese manda: el modelo elige
-    // mal el id seguido (visto hoy: escribio 115 y 101 para el producto 124).
-    if (!decision.productToShow && !decision.productoDelMensaje && entendimiento.productoId) {
-      const p = (productList as any[]).find((x: any) => x.id === entendimiento!.productoId);
+    // mal el id seguido (visto: escribió 115 y 101 para el producto 124).
+    if (!decision.productToShow && !decision.productoDelMensaje && en.productoId) {
+      const p = (productList as any[]).find((x: any) => x.id === en.productoId);
       if (p) {
         (decision as any).productToShow = p;
-        console.log(`🧠 [ENTENDER] el mensaje no nombra producto pero la conversacion iba del ${p.id}: ${p.name} - ${ts()}`);
+        console.log(`🧠 [ENTENDER] el mensaje no nombra producto pero la conversación iba del ${p.id}: ${p.name} - ${ts()}`);
       }
     }
   }
@@ -1691,11 +1704,38 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
   }
   console.log(`🎯 [VENTA] Jugada: ${playbook.jugada} - ${ts()}`);
 
+  // ── Lo que se entendió del cliente, dicho en el prompt ───────────────
+  //
+  // `entenderAlCliente` ya calculaba `esperando`, `preguntas`, `evitar` y
+  // `responderDirectamente`, y no los leía NADIE: se calculaban, se validaban,
+  // se logueaban y se tiraban. Acá entran al prompt como límites, no como
+  // hechos: no traen precio, enlace, ficha ni cuenta — eso lo sigue poniendo
+  // el servidor más abajo y los candados de salida siguen corriendo igual.
+  //
+  // Va al FINAL del bloque a propósito: cuando dos instrucciones se pelean en
+  // el mismo prompt gana la primera, y ésta no debe pisar la voz del negocio;
+  // pero tampoco puede faltar, que es lo que pasaba hasta hoy.
+  let bloqueEntendido = "";
+  if (mandaElEntendimiento) {
+    const en = entendimiento!;
+    const l: string[] = ["", "LO QUE EL CLIENTE ESTÁ PIDIENDO EN ESTE MENSAJE:"];
+    if (en.esperando) l.push(`- Espera: ${en.esperando}`);
+    if (en.preguntas.length) l.push(`- Preguntas suyas SIN responder todavía: ${en.preguntas.join(" | ")}`);
+    if (en.responderDirectamente) {
+      l.push("- Pidió información. Respondé eso y nada más: no cierres, no ofrezcas video, no repitas la ficha completa.");
+    }
+    if (en.reformulaPregunta || en.respuestaAnteriorFallida) {
+      l.push("- Ya preguntó esto antes y NO se le respondió. Contestá lo que preguntó, con otras palabras que la vez pasada, y no vuelvas a vender en este turno.");
+    }
+    if (en.evitar.length) l.push(`- NO hagas en este turno: ${en.evitar.join(", ")}`);
+    bloqueEntendido = l.join("\n") + "\n";
+  }
+
   const engineContextBlock = `${decision.contextBlock}${playbook.bloque}\n\n${AdvancedIntelligence.generateIntelligentContext(
     lastText,
     memory.history,
     aiProductContext.length > 0 ? aiProductContext : null
-  )}${bloqueAnuncio}${bloqueMoneda}${bloqueDropshipping}${bloqueLecciones}`;
+  )}${bloqueAnuncio}${bloqueMoneda}${bloqueDropshipping}${bloqueLecciones}${bloqueEntendido}`;
 
   // ── LO DE ADENTRO SE DECIDE ANTES QUE NADA ───────────────────────────────
   //
@@ -1815,7 +1855,25 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
       console.log(`🧩 [MULTI] El cliente preguntó ${cuantasPregunto} cosas: no se toma el atajo, se contestan todas - ${ts()}`);
     }
 
-    if (!needsReasoning && cuantasPregunto < 2) {
+    // ── Si el cliente está REPITIENDO la pregunta, el atajo es el problema ──
+    //
+    // `tryHardcodedAnswer` es determinista: la misma gaveta devuelve la misma
+    // cadena byte por byte. Cuando el cliente reformula ("te estoy
+    // preguntando por el precio") es porque esa cadena ya no le sirvió, y
+    // volver a tomar el atajo se la manda otra vez con otras comillas.
+    //
+    // `yaLoDijo` de más abajo solo agarra el caso en que el texto sale
+    // idéntico; esto agarra el caso en que el cliente dice que no le
+    // respondieron aunque el texto sea distinto. Es el único lugar donde la
+    // comprensión contextual puede evitar el bucle, porque de acá para abajo
+    // hay un `return`.
+    const insiste = mandaElEntendimiento
+      && (entendimiento!.reformulaPregunta || entendimiento!.respuestaAnteriorFallida);
+    if (insiste) {
+      console.log(`🔁 [ENTENDER] el cliente está reformulando: no se toma el atajo, lee la conversación la IA - ${ts()}`);
+    }
+
+    if (!needsReasoning && cuantasPregunto < 2 && !insiste) {
       const hardcoded = tryHardcodedAnswer(
         lastText,
         decision.productToShow?.name || memory.currentProductName,

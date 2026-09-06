@@ -93,6 +93,13 @@ export interface EntradaEntender {
   historial: Array<{ role: string; content: string }>;
   catalogo: Array<{ id: number; name?: string | null }>;
   productoEnFocoId?: number | null;
+  /**
+   * El cliente dueño de la conversación. Con él se usan SUS claves de IA
+   * (`ai-keys-tenant`), que es lo que hace el resto del sistema. Sin él se cae
+   * a las claves globales de `process.env`, que es lo que hacía esta capa
+   * hasta hoy — y por eso ignoraba el DeepSeek que el cliente sí había pagado.
+   */
+  tenantId?: number | null;
 }
 
 function construirPrompt(e: EntradaEntender): string {
@@ -124,6 +131,8 @@ function construirPrompt(e: EntradaEntender): string {
     "8. Si solo pidió información, responderDirectamente=true y evitar cerrar, ofrecer video o repetir la ficha completa.",
     "9. Si dice 'te estoy preguntando por el precio' o equivalente, es frustración por respuesta fallida: NO vuelvas a vender.",
     "10. Si pide rebaja o propone otro precio, es objection + discount_request.",
+    "11. Si el mensaje no nombra ningún producto pero la conversación venía de uno, ESE sigue siendo el productoId. No lo pongas en null por no estar nombrado.",
+    "12. No inventes ids: solo pueden salir ids que estén en el catálogo de arriba.",
     "",
     "CATÁLOGO REAL (solo estos ids existen):",
     catalogo || "(vacío)",
@@ -167,7 +176,21 @@ export function extraerJson(bruto: string): any | null {
   }
 }
 
-export function normalizar(crudo: any, idsValidos: Set<number>): Entendimiento | null {
+/**
+ * Subintenciones que NO son ejecutar un pago. Si el modelo etiqueta
+ * `payment_intent` pero él mismo eligió una de estas, se contradijo.
+ */
+const SUB_QUE_NO_ES_PAGO = new Set<string>([
+  "price_question", "content_question", "delivery_question", "access_question",
+  "guarantee_question", "duration_question", "support_question",
+  "objection_price", "objection_trust", "objection_time", "discount_request",
+]);
+
+export function normalizar(
+  crudo: any,
+  idsValidos: Set<number>,
+  focoPrevioId?: number | null,
+): Entendimiento | null {
   if (!crudo || typeof crudo !== "object") return null;
 
   const intencion = INTENCIONES.includes(crudo.intencion) ? crudo.intencion : null;
@@ -175,20 +198,44 @@ export function normalizar(crudo: any, idsValidos: Set<number>): Entendimiento |
 
   const sub = SUBINTENCIONES.includes(crudo.subintencion) ? crudo.subintencion : null;
   const idBruto = Number(crudo.productoId);
-  const productoId = Number.isFinite(idBruto) && idsValidos.has(idBruto) ? idBruto : null;
   const conf = Number(crudo.confianza);
+
+  // ── El producto que venía en foco no se pierde por omisión ─────────────
+  //
+  // A "y cuánto vale?" el modelo suele devolver productoId null porque el
+  // mensaje no nombra nada. Antes eso borraba el producto de la conversación
+  // y el agente contestaba en el aire. Se hereda el foco previo, que ya viene
+  // resuelto por dato duro del lado del servidor.
+  const delModelo = Number.isFinite(idBruto) && idsValidos.has(idBruto) ? idBruto : null;
+  const heredado = Number.isFinite(Number(focoPrevioId)) && idsValidos.has(Number(focoPrevioId))
+    ? Number(focoPrevioId)
+    : null;
+  const productoId = delModelo ?? heredado;
 
   const esperando = String(crudo.esperando || "").slice(0, 240);
   const preguntas = Array.isArray(crudo.preguntas)
     ? crudo.preguntas.filter((p: any) => typeof p === "string" && p.trim()).slice(0, 5)
     : [];
 
-  // Salvaguarda semántica adicional: aunque el modelo se equivoque de etiqueta,
-  // nunca tratamos una consulta inequívoca de precio como ejecución de pago.
-  const mensaje = String(crudo._mensajeOriginal || "").toLowerCase();
-  const precioInequivoco = /(^|\s)(precio|valor|vale|cuesta|cuánto|cuanto|cuánto cuesta|cuanto cuesta|en cuánto|en cuanto|a cuánto|a cuanto)(\s|\?|$)/i.test(mensaje);
-  const subintencion = precioInequivoco ? "price_question" : sub;
-  const intencionFinal = precioInequivoco ? "details_query" : intencion;
+  // ── Candado de pago: solo baja, y solo cuando el modelo se contradice ───
+  //
+  // Acá hubo una regex de palabras de precio que forzaba `details_query`.
+  // Medida el 2026-09-06 contra mensajes reales, se comía pagos legítimos:
+  //
+  //   "¿a cuánto te hago la transferencia?"  -> lo mandaba a consulta de precio
+  //   "cuánto pago"                          -> lo mandaba a consulta de precio
+  //   "vale la pena?"                         -> lo leía como pregunta de precio
+  //   "¿Cuánto?"                             -> NO lo detectaba (la "¿" pegada)
+  //
+  // Volver a una lista de palabras era repetir el error que esta capa vino a
+  // corregir. El candado ahora no lee el texto: compara al modelo consigo
+  // mismo. Si dijo "quiere pagar" pero la subintención que él mismo eligió es
+  // una pregunta de precio o de contenido, gana la subintención. Nunca sube a
+  // `payment_intent`: solo puede bajar, así que no puede entregar datos de
+  // cobro a quien no los pidió.
+  const seContradice = intencion === "payment_intent" && !!sub && SUB_QUE_NO_ES_PAGO.has(sub);
+  const subintencion = sub;
+  const intencionFinal = seContradice ? "details_query" : intencion;
 
   return {
     intencion: intencionFinal,
@@ -225,14 +272,37 @@ export async function entenderAlCliente(
   e: EntradaEntender,
   opciones: { timeoutMs?: number } = {},
 ): Promise<Entendimiento | null> {
-  const timeout = opciones.timeoutMs ?? 2200;
+  // 2200ms era demasiado justo. Medido el 2026-09-06 contra Groq con un prompt
+  // del tamaño real (10.427 chars): 1011 / 1213 / 1543 ms. Un turno lento se
+  // pasaba del corte, `entenderAlCliente` devolvía null y el bot volvía a los
+  // patrones — o sea que a veces entendía y a veces no, que se siente peor que
+  // ser siempre robot. 4s deja margen sin que el cliente lo note.
+  const timeout = opciones.timeoutMs ?? 4000;
   const idsValidos = new Set((e.catalogo || []).map((p) => p.id));
   const prompt = construirPrompt(e);
+
+  // Las claves del cliente, no las globales. El resto del sistema ya trabaja
+  // así; esta capa leía `process.env` y por eso ignoraba el DeepSeek de pago
+  // que el cliente tenía cargado en su panel.
+  let clavesDelCliente: Record<string, any> | null = null;
+  if (e.tenantId) {
+    try {
+      const { clavesDelTenant } = await import("./ai-keys-tenant");
+      clavesDelCliente = await clavesDelTenant(e.tenantId);
+    } catch (err: any) {
+      logger.warn({ tenantId: e.tenantId, err: err?.message }, "[Entender] no se pudieron leer las claves del cliente, se usan las globales");
+    }
+  }
 
   for (const proveedor of PROVEEDORES_RAPIDOS) {
     let config: any = null;
     try {
-      config = getProviderConfig(proveedor as any);
+      if (e.tenantId) {
+        const { configDelTenant } = await import("./ai-keys-tenant");
+        config = (await configDelTenant(e.tenantId, proveedor, clavesDelCliente || undefined))?.config || null;
+      } else {
+        config = getProviderConfig(proveedor as any);
+      }
     } catch {
       continue;
     }
@@ -260,11 +330,7 @@ export async function entenderAlCliente(
       );
       const bruto = completion.choices?.[0]?.message?.content?.trim() || "";
 
-      // Pasamos el mensaje original solo durante normalización; no forma parte
-      // del contrato JSON que ve el modelo.
-      const crudo = extraerJson(bruto);
-      if (crudo && typeof crudo === "object") crudo._mensajeOriginal = e.mensaje;
-      const entendido = normalizar(crudo, idsValidos);
+      const entendido = normalizar(extraerJson(bruto), idsValidos, e.productoEnFocoId ?? null);
 
       if (entendido) {
         logger.info(

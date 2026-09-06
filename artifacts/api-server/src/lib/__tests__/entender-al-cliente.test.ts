@@ -76,3 +76,81 @@ describe("Nada del modelo entra sin revisar", () => {
     expect(r?.preguntas).toEqual(["¿cuánto vale?", "¿cómo llega?"]);
   });
 });
+
+/**
+ * ── El candado de pago ────────────────────────────────────────────────────
+ *
+ * Acá vivió una regex de palabras de precio que forzaba `details_query`.
+ * Medida el 2026-09-06 contra mensajes reales, se comía pagos legítimos
+ * ("¿a cuánto te hago la transferencia?", "cuánto pago") y NO agarraba el
+ * caso que venía a arreglar ("¿Cuánto?", con la "¿" pegada).
+ *
+ * El candado de ahora no lee el texto: compara al modelo consigo mismo, y
+ * SOLO puede bajar de payment_intent. Nunca puede entregar datos de cobro a
+ * quien no los pidió, que es lo único que no se puede equivocar acá.
+ */
+describe("El candado de pago solo baja, y solo si el modelo se contradice", () => {
+  it("payment_intent con subintención de precio: gana la subintención", () => {
+    const r = normalizar(
+      { intencion: "payment_intent", subintencion: "price_question", confianza: 0.9 },
+      CATALOGO,
+    );
+    expect(r?.intencion).toBe("details_query");
+  });
+
+  it("payment_intent coherente consigo mismo NO se toca", () => {
+    for (const sub of ["payment_method_question", "payment_execution", null]) {
+      const r = normalizar(
+        { intencion: "payment_intent", subintencion: sub, confianza: 0.9 },
+        CATALOGO,
+      );
+      expect(r?.intencion).toBe("payment_intent");
+    }
+  });
+
+  it("nunca SUBE a payment_intent: una consulta sigue siendo consulta", () => {
+    const r = normalizar(
+      { intencion: "details_query", subintencion: "payment_execution", confianza: 0.9 },
+      CATALOGO,
+    );
+    expect(r?.intencion).toBe("details_query");
+  });
+
+  it("una objeción de confianza no se convierte en pregunta de precio", () => {
+    // "vale la pena?" caía en la regex vieja por la palabra "vale".
+    const r = normalizar(
+      { intencion: "objection", subintencion: "objection_trust", confianza: 0.8 },
+      CATALOGO,
+    );
+    expect(r?.intencion).toBe("objection");
+    expect(r?.subintencion).toBe("objection_trust");
+  });
+});
+
+/**
+ * ── El producto en foco no se pierde por omisión ──────────────────────────
+ *
+ * A "y cuánto vale?" el modelo devuelve productoId null porque el mensaje no
+ * nombra nada. Antes eso borraba el producto de la conversación y el agente
+ * contestaba en el aire.
+ */
+describe("El producto que venía en foco se hereda", () => {
+  it("si el modelo no nombró producto, se queda el de la conversación", () => {
+    const r = normalizar({ intencion: "details_query", productoId: null }, CATALOGO, 124);
+    expect(r?.productoId).toBe(124);
+  });
+
+  it("pero el que eligió el modelo manda sobre el heredado", () => {
+    const r = normalizar({ intencion: "product_query", productoId: 55 }, CATALOGO, 124);
+    expect(r?.productoId).toBe(55);
+  });
+
+  it("y un foco previo que no está en el catálogo no se hereda", () => {
+    const r = normalizar({ intencion: "details_query", productoId: null }, CATALOGO, 999);
+    expect(r?.productoId).toBe(null);
+  });
+
+  it("sin foco previo sigue siendo null, como siempre", () => {
+    expect(normalizar({ intencion: "general", productoId: null }, CATALOGO)?.productoId).toBe(null);
+  });
+});

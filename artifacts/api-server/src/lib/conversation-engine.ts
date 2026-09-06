@@ -1846,9 +1846,20 @@ export async function computeDecision(
   // acceso. Antes ese hueco se rellenaba con los datos de TecnoVariedades,
   // escritos a mano acá abajo, y el agente los afirmaba con total seguridad
   // aunque el cliente fuera un gimnasio o un restaurante.
-  negocio?: BusinessContext | null
+  negocio?: BusinessContext | null,
+  // El intent que ya entendió el modelo leyendo la conversación entera
+  // (`entender-al-cliente.ts`), o null si no se pudo. Entra acá y no después
+  // a propósito: `stage`, `shouldSendCard` y `contextBlock` se derivan del
+  // intent, y `contextBlock` es el párrafo que entra al prompt del redactor.
+  // Corregir la etiqueta después dejaba ese párrafo escrito con la lectura
+  // vieja, y el agente terminaba haciendo lo que decía el párrafo.
+  intentEntendido?: Intent | null,
 ): Promise<EngineDecision> {
-  const intent = detectIntent(incomingText);
+  const porPatrones = detectIntent(incomingText);
+  const intent: Intent = intentEntendido || porPatrones;
+  if (intentEntendido && intentEntendido !== porPatrones) {
+    console.log(`🧠 [ENTENDER] los patrones leyeron "${porPatrones}" y el cliente pedía "${intentEntendido}"`);
+  }
   const t = incomingText.toLowerCase();
 
   // ── Determinar etapa siguiente ──────────────────────────────────────────────
