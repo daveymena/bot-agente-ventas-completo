@@ -39,7 +39,26 @@ const COMUNES: PreguntaConocida[] = [
   },
   {
     id: "envio_digital",
-    patrones: /\b(env[ií]o|env[ií]os|envi[oó]s|despacho|transportadora|mensajero|paquete|domicilio)\b|\b(envi\w*)\s+(a|hasta)\s+[a-záéíóúñ]+/i,
+    // ⚠️ "envío" es sustantivo Y es verbo, y aca solo interesa el sustantivo.
+    //
+    // Medido en una conversacion real (2026-09-06):
+    //
+    //   cliente: "Ya te envio el comprobante"
+    //   bot:     "No hacemos envio fisico 😊 ... no importa si estas en Cali"
+    //
+    // El cliente estaba por pagar y recibio una explicacion de logistica que
+    // nadie pidio. Es el mismo agujero que ya documentado con `llama`, que se
+    // comia "se llama" y "una llamada": una palabra que en espanol hace dos
+    // trabajos distintos.
+    //
+    // Se descarta el uso VERBAL por dos senales, no por una lista de frases:
+    //   · un pronombre delante  -> "te envio", "le envio", "se lo envio"
+    //   · un objeto de pago detras -> "envio el comprobante", "envio la captura"
+    //
+    // El sustantivo sigue entrando entero: "hacen envios?", "cuanto vale el
+    // envio", "envian a Cali".
+    patrones:
+      /(?<!\b(?:te|le|les|me|se|lo|la)\s)\b(env[ií]os?|envi[oó]s|despacho|transportadora|mensajero|paquete|domicilio)\b(?!\s+(?:el\s+|la\s+|los\s+|las\s+|un\s+|mi\s+)?(?:comprobante|soporte|captura|pantallazo|screenshot|pago|foto|imagen|recibo))|\b(envi\w*)\s+(a|hasta)\s+[a-záéíóúñ]+/i,
     respuesta: "No hacemos envío físico 😊 Es un producto digital: recibes el acceso por aquí, así que no importa si estás en Cali o en otra ciudad.",
   },
   {

@@ -2726,6 +2726,30 @@ export class WhatsAppManager {
 
   async sendAgentParts(phone: string, pushName: string, parts: AgentReplyPart[], originalJid?: string) {
     const timestamp = new Date().toISOString();
+
+    // ── Una idea, una burbuja ──────────────────────────────────
+    //
+    // Cada parte era un mensaje de WhatsApp, asi que tres pedazos de texto
+    // seguidos llegaban como tres burbujas en el mismo minuto. Conversacion
+    // real del 2026-09-06:
+    //
+    //   [13:23] 💰 $60.000 COP  ¿Te muestro como es por dentro? 🎬
+    //   [13:23] Entonces te comparto los datos del curso de IA...
+    //   [13:23] Son 3 cursos, 52 modulos en video 🤖 ...
+    //
+    // Se juntan aca --en el borde donde "un mensaje" significa algo-- y no en
+    // el agente: asi la base y el panel siguen guardando las partes como las
+    // penso el agente, y lo que cambia es solo como se entregan.
+    //
+    // Las fichas NO se absorben: la foto es su propia burbuja y un mensaje de
+    // 30 lineas tapa la pantalla del celular.
+    const { unirTextosSeguidos, unirElRestoDeLaFicha } = await import("./una-sola-burbuja");
+    const antesDeUnir = parts.length;
+    parts = unirTextosSeguidos(parts as any) as AgentReplyPart[];
+    if (parts.length !== antesDeUnir) {
+      console.log(`🧵 [WA-PARTS] ${antesDeUnir} partes -> ${parts.length}: los textos seguidos van en un solo mensaje`);
+    }
+
     console.log(`📤 [WA-PARTS] Iniciando envío de partes - Teléfono: ${phone}, Partes: ${parts.length} - ${timestamp}`);
     
     const cardIds = parts.flatMap((p) => (p.kind === "card" ? [p.productId] : []));
@@ -2808,14 +2832,18 @@ export class WhatsAppManager {
               !!(part as any).yaSabeElPrecio,
             );
             console.log(`🎯 [WA-CARD] Sección "${seccion}" — ${mensajes.length} mensaje(s), foto: ${conFoto} - ${timestamp}`);
+            // El pie de foto va con la foto; TODO lo demas en un solo
+            // mensaje. Antes salia uno cada 900ms, asi que una ficha de cuatro
+            // pedazos eran cuatro burbujas seguidas -- una ametralladora.
+            const juntos = unirElRestoDeLaFicha(mensajes);
             if (conFoto) {
-              await this.sendImage(phone, imageToUse, mensajes[0] || product.name, originalJid);
-              for (const m of mensajes.slice(1)) {
+              await this.sendImage(phone, imageToUse, juntos[0] || product.name, originalJid);
+              if (juntos[1]) {
                 await sleep(900);
-                await this.sendText(phone, m, originalJid);
+                await this.sendText(phone, juntos[1], originalJid);
               }
             } else {
-              for (const [i, m] of mensajes.entries()) {
+              for (const [i, m] of juntos.entries()) {
                 if (i > 0) await sleep(900);
                 await this.sendText(phone, m, originalJid);
               }

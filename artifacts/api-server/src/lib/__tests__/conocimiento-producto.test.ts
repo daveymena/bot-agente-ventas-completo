@@ -433,3 +433,51 @@ describe("dos preguntas en un mismo mensaje", () => {
     expect(responderPregunta(124, MENSAJE)?.id).toBe("ia_incluye");
   });
 });
+
+/**
+ * ── "envío" es sustantivo Y es verbo ──────────────────────────────────────
+ *
+ * Medido en una conversación real de producción (2026-09-06):
+ *
+ *   cliente: "Ya te envio el comprobante"
+ *   bot:     "No hacemos envío físico 😊 ... no importa si estás en Cali"
+ *
+ * El cliente estaba por pagar y recibió una explicación de logística que
+ * nadie pidió. Mismo agujero que el ya documentado con `llama`, que se comía
+ * "se llama" y "una llamada": una palabra que en español hace dos trabajos.
+ *
+ * Se prueba por la vía pública (`responderPregunta`), que es la que de verdad
+ * decide qué le llega al cliente.
+ */
+describe("El cliente que va a mandar el comprobante no pregunta por envíos", () => {
+  const hablaDeEnvios = (t: string) =>
+    /env[íi]o f[íi]sico|otra ciudad|transportadora/i.test(responderPregunta(null, t)?.texto || "");
+
+  it("el caso de producción", () => {
+    expect(hablaDeEnvios("Ya te envio el comprobante")).toBe(false);
+    expect(hablaDeEnvios("Ya te envío el comprobante")).toBe(false);
+  });
+
+  it("las otras formas de decir lo mismo", () => {
+    for (const t of [
+      "te envio la captura",
+      "ahorita le envio el soporte",
+      "ya te envío el pantallazo",
+      "envio el comprobante en un rato",
+    ]) {
+      expect(hablaDeEnvios(t), t).toBe(false);
+    }
+  });
+
+  it("pero la pregunta REAL por envíos sigue entrando", () => {
+    for (const t of [
+      "Hacen envios?",
+      "cuanto vale el envio",
+      "hacen envío a Cali?",
+      "me llega por transportadora?",
+      "envian a Medellin",
+    ]) {
+      expect(hablaDeEnvios(t), t).toBe(true);
+    }
+  });
+});
