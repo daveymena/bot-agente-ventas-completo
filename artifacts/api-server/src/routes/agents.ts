@@ -250,6 +250,8 @@ function serialize(row: typeof agents.$inferSelect) {
     model: row.model,
     systemPrompt: row.systemPrompt,
     stages: row.stages ?? [],
+    especialidad: (row as any).especialidad ?? undefined,
+    metadata: (row as any).metadata ?? {},
     isActive: row.isActive,
     createdAt: safeISO(row.createdAt),
   };

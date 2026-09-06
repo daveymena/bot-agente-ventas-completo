@@ -123,6 +123,8 @@ export const UpdateConversationParams = zod.object({
 export const UpdateConversationBody = zod.object({
   status: zod.string().optional(),
   currentStage: zod.string().optional(),
+  agentId: zod.number().nullish().optional(),
+  currentProductId: zod.number().nullish().optional(),
 });
 
 export const UpdateConversationResponse = zod.object({
@@ -246,6 +248,11 @@ export const UpdateAgentBody = zod.object({
   personality: zod.string().optional(),
   systemPrompt: zod.string().optional(),
   isActive: zod.boolean().optional(),
+  role: zod.string().optional(),
+  tone: zod.string().optional(),
+  model: zod.string().optional(),
+  especialidad: zod.string().optional(),
+  metadata: zod.unknown().optional(),
   stages: zod
     .array(
       zod.object({
