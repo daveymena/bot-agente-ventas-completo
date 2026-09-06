@@ -2124,6 +2124,7 @@ export class WhatsAppManager {
                     }
                   } else {
                     const visto = await describirImagen(buf, mime);
+                    const { pareceComprobante } = await import("./verificacion-pago");
                     // ── La descripción NO se le pasa al agente como hecho ──
                     //
                     // Un modelo de visión describe una imagen, no la VERIFICA.
@@ -2149,9 +2150,30 @@ export class WhatsAppManager {
                     // visión con clave —que fue el estado de producción durante
                     // semanas— `describirImagen` devuelve null SIEMPRE, o sea
                     // que TODAS las imágenes caen acá.
-                    text = visto
-                      ? "[el cliente mandó una imagen]"
-                      : "[el cliente mandó una imagen que NO se pudo ver: no digas qué contiene, no la des por comprobante y no confirmes ningún pago]";
+                    // Tres estados distintos, y el agente tiene que poder
+                    // distinguirlos. Con un solo marcador para los tres,
+                    // rellenaba el hueco: medido en produccion el 2026-09-06,
+                    // el cliente mando la foto de un PAISAJE y el bot contesto
+                    // "Recibi tu comprobante".
+                    //
+                    // Ese caso NO era ceguera --el health dice que hay 4
+                    // modelos de vision con clave--: la imagen se vio bien, se
+                    // describio bien, y el agente igual invento que era un
+                    // comprobante porque nadie le dijo que no lo era.
+                    //
+                    // `pareceComprobante(visto, false)` es la lectura ESTRICTA:
+                    // sin apoyarse en la etapa, solo pasa con senales duras
+                    // (comprobante, transferencia, Nequi, Daviplata...). Se usa
+                    // asi a proposito: aca no se decide si registrar el pago
+                    // --eso se decide despues y con la etapa incluida-- sino
+                    // que se le prohibe al agente AFIRMAR algo que la imagen no
+                    // respalda.
+                    const pareceUnPago = visto ? pareceComprobante(visto, false) : false;
+                    text = !visto
+                      ? "[el cliente mandó una imagen que NO se pudo ver: no digas qué contiene, no la des por comprobante y no confirmes ningún pago]"
+                      : pareceUnPago
+                        ? "[el cliente mandó una imagen]"
+                        : "[el cliente mandó una imagen que NO es un comprobante de pago: no digas que recibiste ningún comprobante ni confirmes ningún pago]";
                     console.log(`🖼️ [IMAGEN] ${visto ? "descrita (solo interno)" : "SIN MODELO QUE LA VEA: no hay ninguna vision con clave"}`);
 
                     // Si es un comprobante de pago hay que GUARDARLO y avisarle
