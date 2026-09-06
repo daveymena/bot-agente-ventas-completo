@@ -152,6 +152,39 @@ export function extraerJsonDelComprobante(bruto: string): any | null {
 }
 
 /**
+ * ⚠️ DeepSeek NO sirve para esta tarea, aunque SÍ vea imágenes.
+ *
+ * Medido contra la API el 2026-09-06, mismo comprobante, mismo prompt:
+ *
+ *   pregunta suelta ("¿qué dice esta imagen?")  → lo describe perfecto, 813ms
+ *   este prompt (JSON de 9 campos), max_tokens 900  → finish=length,
+ *                                                     reasoning_tokens=900,
+ *                                                     content VACÍO
+ *   lo mismo con max_tokens 2000                    → finish=length,
+ *                                                     reasoning_tokens=2000,
+ *                                                     content VACÍO
+ *   el mismo prompt sobre un PAISAJE                → responde bien, 87 tokens
+ *                                                     de razonamiento
+ *
+ * O sea: es un modelo de razonamiento y se le va el presupuesto entero
+ * pensando justo cuando el comprobante es real. Falla en el caso difícil y
+ * acierta en el fácil, que es el peor respaldo posible — el que parece que
+ * funciona hasta el día que lo necesitás. Subirle `max_tokens` no lo arregla:
+ * se probó al doble y gastó el doble.
+ *
+ * No se lo excluye por código porque devolver vacío ya se maneja bien (se
+ * loguea y se pasa al siguiente, sin inventar nada). Pero que quede escrito:
+ * si algún día `VISION_MODELS` queda solo con DeepSeek, esta función va a
+ * devolver null en todos los comprobantes de verdad.
+ *
+ * `deepseek-chat` directamente no ve imágenes: contesta "no puedo ver la
+ * imagen porque el formato no es compatible".
+ *
+ * Lo que SÍ funciona, medido el mismo día con este prompt exacto:
+ * `gemma4:31b-cloud` vía `ollama_local` — comprobante leído entero en 1835ms
+ * (fecha, monto, destinatario, cuenta, remitente, banco, referencia) y
+ * `esComprobante:false` con todo en null sobre un paisaje, en 1096ms.
+ *
  * Lee el comprobante con el primer modelo de visión que conteste.
  *
  * Devuelve null si ninguno pudo verlo — y eso NO es "no hay datos en el
