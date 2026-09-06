@@ -117,3 +117,34 @@ describe("el equipo de marketing tiene reloj propio", () => {
     expect(t).toContain(TIPO_PLAN_SEMANAL);
   });
 });
+
+describe("Atlas tiene control del agente de WhatsApp", () => {
+  it("las cinco herramientas de agente existen", () => {
+    for (const n of ["agente_inspectar", "agente_configurar", "agente_perfil_negocio", "agente_conocimiento", "agente_mensaje"]) {
+      expect(nombres(), n).toContain(n);
+    }
+  });
+
+  it("agente_inspectar es solo lectura", () => {
+    expect(READ_ONLY_TOOLS.has("agente_inspectar")).toBe(true);
+  });
+
+  it("las herramientas de escritura NO son solo lectura", () => {
+    for (const n of ["agente_configurar", "agente_perfil_negocio", "agente_conocimiento", "agente_mensaje"]) {
+      expect(READ_ONLY_TOOLS.has(n), n).toBe(false);
+    }
+  });
+
+  it("ninguna de las cinco es destructiva", () => {
+    for (const n of ["agente_inspectar", "agente_configurar", "agente_perfil_negocio", "agente_conocimiento", "agente_mensaje"]) {
+      expect(DESTRUCTIVE_TOOLS.has(n), n).toBe(false);
+    }
+  });
+
+  it("cada una explica cuándo usarla", () => {
+    for (const n of ["agente_inspectar", "agente_configurar", "agente_perfil_negocio", "agente_conocimiento", "agente_mensaje"]) {
+      const t = TOOLS.find((x) => x.name === n)!;
+      expect(t.description.length, n).toBeGreaterThan(80);
+    }
+  });
+});

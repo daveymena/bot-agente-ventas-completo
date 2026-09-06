@@ -5402,6 +5402,299 @@ Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vincu
       return { ok: r.ok, summary: r.summary, data: r };
     },
   },
+
+  // ── Control del agente de WhatsApp ──────────────────────────────────────────
+  // Tools que le dan a Atlas control total sobre cómo se comporta el agente
+  // que atiende a los clientes. Lee y escribe directamente sobre las tablas
+  // `tenants` y `agents`, invalidando los caches correspondientes.
+
+  {
+    name: "agente_inspectar",
+    description:
+      "Muestra el estado COMPLETO del agente de WhatsApp: quién es, qué personalidad tiene, qué sabe, qué NO puede hacer, " +
+      "cómo vende, y qué falta configurar. Solo LEE. " +
+      "Úsalo SIEMPRE ANTES de hacer cualquier cambio: no podés calibrar algo que no estás viendo. " +
+      "Devuelve un resumen legible para mostrarle al admin.",
+    args: "{}",
+    run: async (_args, ctx) => {
+      const [t] = await db.select().from(tenants).where(eq(tenants.id, ctx.tenantId)).limit(1);
+      if (!t) return { ok: false, summary: "No se encontró el negocio." };
+
+      const [a] = await agenteDelTenant(ctx.tenantId);
+      const meta = ((t as any).metadata || {}) as Record<string, any>;
+      const bp = (meta.businessProfile || {}) as Record<string, any>;
+      const settings_ = ((t as any).settings || {}) as Record<string, any>;
+
+      // Contar productos para saber si el catálogo está vacío
+      const prods = await db.select({ kind: products.kind }).from(products).where(eq(products.tenantId, ctx.tenantId));
+      const digitales = prods.filter((p: any) => String(p.kind || "digital") === "digital").length;
+      const fisicos = prods.filter((p: any) => String(p.kind) === "physical").length;
+
+      // Detectar qué falta configurar
+      const faltantes: string[] = [];
+      if (!bp.descripcion) faltantes.push("descripción del negocio");
+      if (!bp.nicho) faltantes.push("nicho");
+      if (!bp.entrega) faltantes.push("información de entrega");
+      if (!bp.garantia) faltantes.push("garantía");
+      if (!bp.acceso) faltantes.push("acceso (duración de productos digitales)");
+      if (!bp.tono) faltantes.push("tono de comunicación");
+      if (bp.negociaPrecio === undefined) faltantes.push("política de descuentos");
+      if (!bp.noPuede?.length) faltantes.push("qué NO puede hacer el negocio");
+      if (!bp.loQueDebeSaber?.length) faltantes.push("datos clave que el agente debe conocer");
+      if (!bp.estiloDeVenta) faltantes.push("estilo de venta");
+
+      const estilo = bp.estiloDeVenta || {};
+      const wh = settings_.workingHours;
+
+      const lines = [
+        `🤖 AGENTE: ${a ? `${a.name} (${a.role}) — modelo ${a.model}` : "NO HAY AGENTE CREADO"}`,
+        `激活: ${a?.isActive ? "SÍ" : "NO"}`,
+        ``,
+        `📋 IDENTIDAD`,
+        `  Marca: ${t.brandName || "(sin nombre)"}`,
+        `  Nombre del agente: ${t.agentName || "(sin nombre)"}`,
+        `  Personalidad: ${t.agentPersonality || "professional"}`,
+        ``,
+        `🎭 PERFIL DEL NEGOCIO`,
+        `  Descripción: ${bp.descripcion || "❌ NO CONFIGURADO"}`,
+        `  Nicho: ${bp.nicho || "❌ NO CONFIGURADO"}`,
+        `  Cobertura: ${bp.cobertura || "No especificada"}`,
+        `  Horario: ${bp.horario || (wh?.enabled ? `${wh.start}-${wh.end}` : "No especificado")}`,
+        ``,
+        `📦 PRODUCTOS: ${digitales} digitales, ${fisicos} físicos`,
+        ``,
+        `🚚 ENTREGA: ${bp.entrega ? `${bp.entrega.metodo} — ${bp.entrega.plazo}` : "❌ NO CONFIGURADO"}`,
+        `🛡️ GARANTÍA: ${bp.garantia ? `${bp.garantia.dias} días — ${bp.garantia.descripcion || ""}` : "❌ NO CONFIGURADO"}`,
+        `🔑 ACCESO: ${bp.acceso ? `${bp.acceso.tipo} — ${bp.acceso.descripcion || ""}` : "❌ NO CONFIGURADO"}`,
+        ``,
+        `💰 VENTA`,
+        `  Estilo: ${estilo.calificacion || "salvo_si_pidio_dato"} | Video: ${estilo.ganchoVideo !== false ? "sí" : "no"} | Ante la duda: ${estilo.anteLaDuda || "algo_concreto"}`,
+        `  Negocia precio: ${bp.negociaPrecio === true ? "SÍ" : "NO"}`,
+        ``,
+        `🚫 NO PUEDE: ${bp.noPuede?.length ? bp.noPuede.join(", ") : "❌ NO CONFIGURADO"}`,
+        `📖 SABER: ${bp.loQueDebeSaber?.length ? bp.loQueDebeSaber.join("; ") : "❌ NO CONFIGURADO"}`,
+        `🎭 TONO: ${bp.tono || "No especificado"}`,
+        `📝 PROMPT LIBRE: ${t.agentPrompt ? `"${t.agentPrompt.slice(0, 100)}${t.agentPrompt.length > 100 ? "..." : ""}"` : "(vacío)"}`,
+      ];
+
+      if (faltantes.length > 0) {
+        lines.push(``, `⚠️ FALTA CONFIGURAR: ${faltantes.join(", ")}`);
+      }
+
+      return {
+        ok: true,
+        summary: lines.join("\n"),
+        data: {
+          agente: a ? { id: a.id, name: a.name, role: a.role, tone: a.tone, model: a.model, isActive: a.isActive } : null,
+          marca: { brandName: t.brandName, agentName: t.agentName, agentPersonality: t.agentPersonality },
+          perfilDelNegocio: bp,
+          promptLibre: t.agentPrompt || "",
+          faltantes,
+          catalogo: { digitales, fisicos },
+        },
+      };
+    },
+  },
+
+  {
+    name: "agente_configurar",
+    description:
+      "Modifica la configuración del agente de WhatsApp: nombre, personalidad, tono, prompt libre, modelo, " +
+      "estilo de venta, o si negocia precios. MANDÁ solo los campos que querés cambiar; lo que no mandes NO se toca. " +
+      "⚠️ Va por propose_action: cambia cómo el bot le habla a TODOS los clientes. " +
+      "Mostrá primero el estado con agente_inspectar ANTES de proponer un cambio, para que el admin vea qué tiene y qué cambia.",
+    args: '{ "agentName"?: string, "brandName"?: string, "agentPersonality"?: "professional"|"casual"|"enthusiastic"|"consultative", "prompt"?: string, "tono"?: string, "negociaPrecio"?: boolean, "estiloDeVenta"?: { "calificacion"?: "siempre"|"salvo_si_pidio_dato"|"nunca", "ganchoVideo"?: boolean, "anteLaDuda"?: "dar_espacio"|"algo_concreto"|"preguntar_que_frena" } }',
+    run: async (args, ctx) => {
+      const [t] = await db.select().from(tenants).where(eq(tenants.id, ctx.tenantId)).limit(1);
+      if (!t) return { ok: false, summary: "No se encontró el negocio." };
+
+      const patch: Record<string, any> = {};
+      if (args.agentName !== undefined) patch.agentName = String(args.agentName);
+      if (args.brandName !== undefined) patch.brandName = String(args.brandName);
+      if (args.agentPersonality !== undefined) {
+        const validos = ["professional", "casual", "enthusiastic", "consultative"];
+        if (!validos.includes(args.agentPersonality)) {
+          return { ok: false, summary: `Personalidad inválida. Las válidas son: ${validos.join(", ")}` };
+        }
+        patch.agentPersonality = args.agentPersonality;
+      }
+      if (args.prompt !== undefined) patch.agentPrompt = String(args.prompt);
+
+      // Estilo de venta: se mezcla con el existente
+      if (args.estiloDeVenta !== undefined || args.negociaPrecio !== undefined || args.tono !== undefined) {
+        const meta = ((t as any).metadata || {}) as Record<string, any>;
+        const bp = (meta.businessProfile || {}) as Record<string, any>;
+        const nuevoBp: Record<string, any> = { ...bp };
+
+        if (args.estiloDeVenta) {
+          nuevoBp.estiloDeVenta = { ...(bp.estiloDeVenta || {}), ...args.estiloDeVenta };
+        }
+        if (args.negociaPrecio !== undefined) {
+          nuevoBp.negociaPrecio = !!args.negociaPrecio;
+        }
+        if (args.tono !== undefined) {
+          nuevoBp.tono = String(args.tono);
+        }
+
+        patch.metadata = { ...meta, businessProfile: nuevoBp };
+      }
+
+      if (Object.keys(patch).length === 0) {
+        return { ok: false, summary: "No mandaste ningún campo para cambiar. Campos disponibles: agentName, brandName, agentPersonality, prompt, tono, negociaPrecio, estiloDeVenta." };
+      }
+
+      patch.updatedAt = dbNow();
+      await db.update(tenants).set(patch).where(eq(tenants.id, ctx.tenantId));
+
+      // Invalidar caches
+      const { invalidarContextoDeNegocio } = await import("./business-context");
+      invalidarContextoDeNegocio(ctx.tenantId);
+
+      return {
+        ok: true,
+        summary: `Agente configurado: ${Object.keys(patch).filter(k => k !== "updatedAt").join(", ")}. El cambio ya está activo en la próxima conversación.`,
+        data: { camposModificados: Object.keys(patch).filter(k => k !== "updatedAt") },
+      };
+    },
+  },
+
+  {
+    name: "agente_perfil_negocio",
+    description:
+      "Actualiza el perfil del negocio que el agente usa para responder: descripción, nicho, cobertura, horario, " +
+      "entrega, garantía, acceso, qué NO puede hacer, qué debe saber, y tono. " +
+      "Mandá solo los campos que querés cambiar; lo que no mandes NO se toca. " +
+      "⚠️ Va por propose_action: cambia lo que el bot le dice a TODOS los clientes. " +
+      "Un dato inventado acá se convierte en una promesa falsa repetida en cada conversación. " +
+      "Mostrá primero el estado con agente_inspectar ANTES de proponer cambios.",
+    args: '{ "descripcion"?: string, "nicho"?: string, "cobertura"?: string, "horario"?: string, "entrega"?: { "metodo": string, "plazo": string, "detalle"?: string }, "garantia"?: { "dias": number, "descripcion"?: string }, "acceso"?: { "tipo": string, "descripcion"?: string }, "noPuede"?: string[], "loQueDebeSaber"?: string[], "tono"?: string }',
+    run: async (args, ctx) => {
+      const [t] = await db.select().from(tenants).where(eq(tenants.id, ctx.tenantId)).limit(1);
+      if (!t) return { ok: false, summary: "No se encontró el negocio." };
+
+      const meta = ((t as any).metadata || {}) as Record<string, any>;
+      const bp = (meta.businessProfile || {}) as Record<string, any>;
+      const cambios: Record<string, any> = {};
+
+      for (const campo of ["descripcion", "nicho", "cobertura", "horario", "tono"]) {
+        if (args[campo] !== undefined) cambios[campo] = String(args[campo]);
+      }
+      for (const campo of ["entrega", "garantia", "acceso"]) {
+        if (args[campo] !== undefined) cambios[campo] = args[campo];
+      }
+      if (args.noPuede !== undefined) cambios.noPuede = Array.isArray(args.noPuede) ? args.noPuede : [args.noPuede];
+      if (args.loQueDebeSaber !== undefined) cambios.loQueDebeSaber = Array.isArray(args.loQueDebeSaber) ? args.loQueDebeSaber : [args.loQueDebeSaber];
+
+      if (Object.keys(cambios).length === 0) {
+        return { ok: false, summary: "No mandaste ningún campo para guardar." };
+      }
+
+      await db
+        .update(tenants)
+        .set({ metadata: { ...meta, businessProfile: { ...bp, ...cambios } } })
+        .where(eq(tenants.id, ctx.tenantId));
+
+      const { invalidarContextoDeNegocio } = await import("./business-context");
+      invalidarContextoDeNegocio(ctx.tenantId);
+
+      return {
+        ok: true,
+        summary: `Perfil del negocio actualizado: ${Object.keys(cambios).join(", ")}. El agente ya lo usa en la próxima conversación.`,
+        data: { camposModificados: Object.keys(cambios) },
+      };
+    },
+  },
+
+  {
+    name: "agente_conocimiento",
+    description:
+      "Agrega o quita cosas que el agente debe saber (loQueDebeSaber) y cosas que NO puede hacer (noPuede). " +
+      "Estas son las reglas BLANDURAS del agente: se inyectan en el prompt del sistema y definen sus límites. " +
+      "⚠️ Va por propose_action: cambia cómo el bot responde a TODOS los clientes. " +
+      "No los inventes: pedile al admin que te diga qué quiere que el agente sepa o qué NO quiera que prometa.",
+    args: '{ "agregar"?: { "debeSaber"?: string[], "noPuede"?: string[] }, "quitar"?: { "debeSaber"?: string[], "noPuede"?: string[] } }',
+    run: async (args, ctx) => {
+      const [t] = await db.select().from(tenants).where(eq(tenants.id, ctx.tenantId)).limit(1);
+      if (!t) return { ok: false, summary: "No se encontró el negocio." };
+
+      const meta = ((t as any).metadata || {}) as Record<string, any>;
+      const bp = (meta.businessProfile || {}) as Record<string, any>;
+      let debeSaber: string[] = Array.isArray(bp.loQueDebeSaber) ? [...bp.loQueDebeSaber] : [];
+      let noPuede: string[] = Array.isArray(bp.noPuede) ? [...bp.noPuede] : [];
+
+      if (args.agregar?.debeSaber) {
+        for (const item of args.agregar.debeSaber) {
+          const txt = String(item).trim();
+          if (txt && !debeSaber.some((x) => x.toLowerCase() === txt.toLowerCase())) {
+            debeSaber.push(txt);
+          }
+        }
+      }
+      if (args.agregar?.noPuede) {
+        for (const item of args.agregar.noPuede) {
+          const txt = String(item).trim();
+          if (txt && !noPuede.some((x) => x.toLowerCase() === txt.toLowerCase())) {
+            noPuede.push(txt);
+          }
+        }
+      }
+      if (args.quitar?.debeSaber) {
+        const bajar = args.quitar.debeSaber.map((s: string) => s.toLowerCase());
+        debeSaber = debeSaber.filter((x) => !bajar.includes(x.toLowerCase()));
+      }
+      if (args.quitar?.noPuede) {
+        const bajar = args.quitar.noPuede.map((s: string) => s.toLowerCase());
+        noPuede = noPuede.filter((x) => !bajar.includes(x.toLowerCase()));
+      }
+
+      await db
+        .update(tenants)
+        .set({ metadata: { ...meta, businessProfile: { ...bp, loQueDebeSaber: debeSaber, noPuede } } })
+        .where(eq(tenants.id, ctx.tenantId));
+
+      const { invalidarContextoDeNegocio } = await import("./business-context");
+      invalidarContextoDeNegocio(ctx.tenantId);
+
+      return {
+        ok: true,
+        summary: `Conocimiento actualizado: ${debeSaber.length} cosas que debe saber, ${noPuede.length} restricciones.`,
+        data: { loQueDebeSaber: debeSaber, noPuede },
+      };
+    },
+  },
+
+  {
+    name: "agente_mensaje",
+    description:
+      "Envía un mensaje de WhatsApp directo a un cliente específico desde el número del negocio. " +
+      "Úsalo cuando el admin quiera saludar a un lead, enviar un recordatorio, o darle seguimiento manual a alguien. " +
+      "⚠️ Acción REAL e irreversible: el mensaje se envía de verdad. " +
+      "Requiere confirmación del admin mostrando EXACTAMENTE qué mensaje se envía y a quién ANTES de enviarlo.",
+    args: '{ "telefono": string (req, número con código de país, ej: "573136174267"), "mensaje": string (req) }',
+    run: async (args, ctx) => {
+      if (!args.telefono || !args.mensaje) return { ok: false, summary: "Faltan 'telefono' y/o 'mensaje'" };
+
+      const telefono = String(args.telefono).replace(/[^0-9+]/g, "");
+      const mensaje = String(args.mensaje);
+
+      try {
+        const { getWhatsAppForTenant } = await import("./whatsapp-factory");
+        const mgr = getWhatsAppForTenant(ctx.tenantId);
+        const sock = (mgr as any).sock;
+        if (!sock) {
+          return { ok: false, summary: "WhatsApp no está conectado para este negocio. Conectalo desde el panel." };
+        }
+        await sock.sendMessage(`${telefono}@s.whatsapp.net`, { text: mensaje });
+        return {
+          ok: true,
+          summary: `Mensaje enviado a ${telefono}: "${mensaje.slice(0, 60)}${mensaje.length > 60 ? "..." : ""}"`,
+          data: { telefono, mensajeEnviado: mensaje },
+        };
+      } catch (e: any) {
+        return { ok: false, summary: `Error al enviar: ${e?.message || "error desconocido"}` };
+      }
+    },
+  },
 ];
 
 /**
@@ -5594,6 +5887,8 @@ export const READ_ONLY_TOOLS = new Set([
   "negocio_que_falta",
   // Solo dice qué decisión sigue. Pedir permiso para preguntar sería absurdo.
   "configurar_mi_agente",
+  // Inspección del agente: solo lee configuración, no cambia nada.
+  "agente_inspectar",
 ]);
 export const DESTRUCTIVE_TOOLS = new Set([
   "delete_product",
