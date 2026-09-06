@@ -3708,7 +3708,7 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
               //
               // Cuando la respuesta trae lista de viñetas, el bloque aparte sí
               // se lee mejor y se conserva.
-              const apertura = aperturaPara(convo.contactPhone || "");
+            const apertura = aperturaPara(`${convo.contactPhone || ""}:${conocida.id}:${Date.now()}`);
               primera.content = conocida.texto.includes("\n")
                 ? `${apertura}\n\n${conocida.texto}`
                 : `${apertura} ${conocida.texto}`;
