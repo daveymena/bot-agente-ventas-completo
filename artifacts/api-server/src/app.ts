@@ -74,8 +74,12 @@ startAdGrowthAgent();
 // vuelta siguiente, nunca se marca "hecho" en falso.
 import { iniciarProgramador } from "./lib/programador";
 import { registrarOrganico } from "./lib/agente-organico";
+import { registrarAgencia } from "./lib/agencia-ritmo";
 import { registrarGuardia } from "./lib/agente-horario";
 registrarOrganico();
+// El equipo de marketing tambien necesita reloj: sin esto, sus catorce
+// especialistas solo trabajan cuando el admin abre el chat y pregunta.
+registrarAgencia();
 registrarGuardia();
 iniciarProgramador();
 

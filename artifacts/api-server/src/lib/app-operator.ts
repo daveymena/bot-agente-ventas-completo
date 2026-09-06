@@ -4817,6 +4817,8 @@ Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vincu
       const publicaciones = pendientes.filter((t: any) => t.tipo === "organico:publicar");
       const guardia = pendientes.find((t: any) => t.tipo === "franjas:guardia");
       const bajoGuardia: string[] = (guardia?.datos as any)?.campaignIds || [];
+      const diagnosticoAgencia = pendientes.find((t: any) => t.tipo === "agencia:diagnostico");
+      const planAgencia = pendientes.find((t: any) => t.tipo === "agencia:plan-semanal");
 
       // Qué haría la guardia ahora, SIN aplicar nada. Un admin que no puede ver
       // qué va a hacer la automatización antes de encenderla, no la enciende.
@@ -4844,9 +4846,10 @@ Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vincu
         ok: true,
         summary:
           `${publicaciones.length} publicación${publicaciones.length === 1 ? "" : "es"} agendada${publicaciones.length === 1 ? "" : "s"}, ` +
-          `${bajoGuardia.length} campaña${bajoGuardia.length === 1 ? "" : "s"} bajo guardia horaria` +
-          (publicaciones.length === 0 && bajoGuardia.length === 0
-            ? " -- o sea: NO hay nada automatizado todavía. Se enciende con automatizacion_organica y automatizacion_franjas."
+          `${bajoGuardia.length} campaña${bajoGuardia.length === 1 ? "" : "s"} bajo guardia horaria, ` +
+          `${diagnosticoAgencia || planAgencia ? "equipo de marketing autónomo ENCENDIDO" : "equipo de marketing esperando"}` +
+          (publicaciones.length === 0 && bajoGuardia.length === 0 && !diagnosticoAgencia && !planAgencia
+            ? " -- o sea: NO hay nada automatizado todavía. Se enciende con automatizacion_organica, automatizacion_franjas y automatizacion_agencia."
             : ""),
         data: {
           publicacionesAgendadas: publicaciones.map((t: any) => ({
@@ -4857,6 +4860,11 @@ Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vincu
             producto: t.datos?.productName,
           })),
           guardiaHoraria: { activa: bajoGuardia.length > 0, campanas: bajoGuardia, proximaRevision: guardia?.correAt ?? null },
+          agenciaAutonoma: {
+            activa: !!(diagnosticoAgencia || planAgencia),
+            diagnosticoDiario: diagnosticoAgencia?.correAt ?? null,
+            planSemanal: planAgencia?.correAt ?? null,
+          },
           queHariaLaGuardiaAhora: simulaciones,
         },
       };
@@ -4913,6 +4921,29 @@ Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vincu
           ? `Guardia horaria activa sobre ${ids.length} campaña${ids.length === 1 ? "" : "s"}. Revisa cada 30 minutos.`
           : "Guardia horaria APAGADA: ninguna campaña se va a pausar ni reactivar por horario.",
         data: { campanas: ids },
+      };
+    },
+  },
+  {
+    name: "automatizacion_agencia",
+    description:
+      "Enciende el EQUIPO de marketing autónomo: los especialistas (investigación, estrategia, copy, " +
+      "audiencias, análisis de performance) dejan de esperar a que el admin pregunte y trabajan solos con un " +
+      "ritmo: un diagnóstico diario de la cuenta que avisa SOLO si hay algo que ajustar, y un plan semanal " +
+      "con la propuesta del producto en venta. ⚠️ NUNCA publica ni pauta solo: deja el trabajo escrito sobre la " +
+      "mesa y encenderlo lo sigue decidiendo una persona. No gasta plata. Va por propose_action. " +
+      "Úsalo cuando el admin quiera que el equipo trabaje solo, sin que él tenga que estar preguntando. " +
+      "Antes de encenderlo, corré automatizacion_estado para mostrarle qué va a hacer.",
+    args: '{ "productId": number? }',
+    run: async (args, ctx) => {
+      const { activarAgencia } = await import("./agencia-ritmo");
+      const r = await activarAgencia(ctx.tenantId, { productId: args?.productId ?? undefined });
+      return {
+        ok: true,
+        summary:
+          "Equipo de marketing ENCENDIDO. Corre un diagnóstico diario y arma un plan semanal; " +
+          "te avisa por WhatsApp solo cuando encuentre algo que ajustar. Nada se publica ni se pauta solo.",
+        data: r,
       };
     },
   },

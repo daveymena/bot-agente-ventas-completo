@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { TOOLS, READ_ONLY_TOOLS, DESTRUCTIVE_TOOLS } from "../app-operator";
 import { TIPO_PUBLICAR, TIPO_PROGRAMAR_SEMANA, registrarOrganico } from "../agente-organico";
 import { TIPO_GUARDIA, registrarGuardia } from "../agente-horario";
+import { TIPO_DIAGNOSTICO, TIPO_PLAN_SEMANAL, registrarAgencia } from "../agencia-ritmo";
 import { tiposRegistrados, _limpiarManejadores } from "../programador";
 
 /**
@@ -99,5 +100,20 @@ describe("el programador sabe quién atiende cada trabajo", () => {
     registrarGuardia();
     registrarGuardia();
     expect(tiposRegistrados()).toContain(TIPO_PUBLICAR);
+  });
+});
+
+describe("el equipo de marketing tiene reloj propio", () => {
+  // Los catorce especialistas de marketing-team ya existían y funcionaban,
+  // pero solo se despertaban si el admin abría el chat y preguntaba:
+  // `planGrowth` y `runDiagnosticCycle` se llamaban desde app-operator y desde
+  // ningún otro lado. Una agencia que solo trabaja cuando le tocan el hombro
+  // no es autónoma.
+  it("el programador atiende el diagnóstico y el plan", () => {
+    _limpiarManejadores();
+    registrarAgencia();
+    const t = tiposRegistrados();
+    expect(t).toContain(TIPO_DIAGNOSTICO);
+    expect(t).toContain(TIPO_PLAN_SEMANAL);
   });
 });
