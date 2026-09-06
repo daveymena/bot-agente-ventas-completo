@@ -518,22 +518,17 @@ async function buildProductCaption(p: typeof products.$inferSelect, categoryName
     // Nequi/Daviplata directamente no existen para él: son billeteras
     // colombianas. Mostrarle esas opciones es hacerle perder el tiempo y
     // pedirle que confíe en algo que no puede usar. Afuera cobra PayPal.
-    if (mon.aceptaPagosLocales && corto(dynamicLinks.mercadopago)) {
-      lines.push(`🔹 *Tarjeta / PSE:*`);
-      lines.push(corto(dynamicLinks.mercadopago));
-      lines.push("");
-    }
-    if (corto(dynamicLinks.paypal)) {
-      lines.push(mon.esColombia ? `🔹 *PayPal (Internacional):*` : `🔹 *Tarjeta o PayPal:*`);
-      lines.push(corto(dynamicLinks.paypal));
-      lines.push("");
-    }
-    if (mon.aceptaPagosLocales && dynamicLinks.transfer?.options?.[0]) {
-      lines.push(`🔹 *${etiquetaDeTransferencia(dynamicLinks.transfer)}:*`);
-      lines.push(`📱 ${dynamicLinks.transfer.options[0].number}`);
-      lines.push(`👤 ${dynamicLinks.transfer.options[0].name}`);
-      lines.push("");
-    }
+    // Una linea por medio, con el enlace adentro. La regla vive en
+    // `medios-de-pago-en-linea.ts` y tiene su propio test: aca no se podia
+    // probar (funcion async y privada), y por eso se rompio sin que nadie lo
+    // notara hasta leer una conversacion real.
+    const { lineasDeMediosDePago } = await import("./medios-de-pago-en-linea");
+    lines.push(...lineasDeMediosDePago(dynamicLinks, {
+      aceptaPagosLocales: !!mon.aceptaPagosLocales,
+      esColombia: !!mon.esColombia,
+      etiquetaTransferencia: etiquetaDeTransferencia(dynamicLinks.transfer),
+    }));
+    lines.push("");
   }
 
   // Comprar desde la tienda: pedido del admin (2026-08-16). Es la salida
