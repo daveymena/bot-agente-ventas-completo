@@ -258,25 +258,68 @@ export interface Respuesta {
   sinResponder: boolean;
 }
 
-export function responderPregunta(productId: number | null, mensaje: string): Respuesta | null {
+/**
+ * Todas las preguntas conocidas que trae el mensaje, no solo la primera.
+ *
+ * Un cliente rara vez pregunta una cosa sola: "¿Qué características tiene?
+ * ¿Trae garantía?" son dos, y devolver una sola dejaba la otra sin contestar.
+ * Medido con ese mensaje real (2026-09-05): el bot respondió la garantía y de
+ * las características dijo "déjame confirmártelo y te digo" -- un dato que sí
+ * tenía cargado. El cliente nunca lo recibió.
+ *
+ * Las que tienen respuesta van primero: si el mensaje mezcla algo conocido con
+ * algo que no, conviene entregar el dato antes que la disculpa.
+ */
+export function responderPreguntas(
+  productId: number | null,
+  mensaje: string,
+  maximo = 2,
+): Respuesta[] {
   const texto = String(mensaje || "");
-  if (!texto.trim()) return null;
+  if (!texto.trim()) return [];
 
   const delProducto = productId ? CATALOGO.find((c) => c.productId === productId) : null;
+  // El orden importa y no se toca: lo específico del producto le gana a lo
+  // común. "¿en cuánto tiempo veo resultados?" cae en `acceso_tiempo` ("el
+  // acceso es de por vida") si se mira primero la lista común, y eso NO es lo
+  // que preguntó el cliente.
   const candidatas = [...(delProducto?.preguntas ?? []), ...COMUNES];
 
-  for (const p of candidatas) {
-    if (!p.patrones.test(texto)) continue;
-    if (p.respuesta === null) {
-      return {
-        id: p.id,
-        sinResponder: true,
-        texto: "Déjame confirmarte ese dato exacto y te respondo enseguida 🙏",
-      };
+  const resolver = (fragmento: string): Respuesta | null => {
+    for (const p of candidatas) {
+      if (!p.patrones.test(fragmento)) continue;
+      return p.respuesta === null
+        ? { id: p.id, sinResponder: true, texto: "Déjame confirmarte ese dato exacto y te respondo enseguida 🙏" }
+        : { id: p.id, texto: p.respuesta, sinResponder: false };
     }
-    return { id: p.id, texto: p.respuesta, sinResponder: false };
+    return null;
+  };
+
+  // Se resuelve UNA respuesta por PREGUNTA, no una por patrón que enganche.
+  // La diferencia es la que rompía el caso de arriba: "¿en cuánto tiempo veo
+  // resultados?" es una sola pregunta aunque active dos patrones, mientras que
+  // "¿Qué características tiene? ¿Trae garantía?" son dos y merecen dos.
+  const preguntas = texto
+    .split(/(?<=[?？])\s+/)
+    .map((s) => s.trim())
+    .filter((s) => s.length > 2);
+  const fragmentos = preguntas.length > 1 ? preguntas : [texto];
+
+  const vistas = new Set<string>();
+  const out: Respuesta[] = [];
+  for (const f of fragmentos) {
+    if (out.length >= Math.max(1, maximo)) break;
+    const r = resolver(f);
+    if (r && !vistas.has(r.id)) {
+      vistas.add(r.id);
+      out.push(r);
+    }
   }
-  return null;
+  return out;
+}
+
+export function responderPregunta(productId: number | null, mensaje: string): Respuesta | null {
+  return responderPreguntas(productId, mensaje, 1)[0] ?? null;
 }
 
 export function preguntasSinResponder(): Array<{ producto: string; pregunta: string }> {

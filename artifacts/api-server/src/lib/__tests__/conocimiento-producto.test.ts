@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
-  responderPregunta, preguntasSinResponder, tieneConocimiento, aperturaPara,
+  responderPregunta, responderPreguntas, preguntasSinResponder, tieneConocimiento, aperturaPara,
 } from "../conocimiento-producto";
 
 /**
@@ -402,5 +402,34 @@ describe("curso de IA: las respuestas nuevas cumplen la forma acordada", () => {
     for (const m of [...nuevas, "me sirve para conseguir trabajo?", "sirve para mi negocio?"]) {
       expect(responderPregunta(IA, m)!.texto, m).not.toMatch(prohibido);
     }
+  });
+});
+
+describe("dos preguntas en un mismo mensaje", () => {
+  // Mensaje literal de un cliente (2026-09-05). El bot contestó la garantía y
+  // de las características dijo "déjame confirmártelo y te digo", un dato que
+  // sí tenía cargado. El cliente nunca lo recibió.
+  const MENSAJE = "¿Qué características tiene? ¿Trae garantía?";
+
+  it("responde las dos, no solo la primera", () => {
+    const r = responderPreguntas(124, MENSAJE);
+    expect(r.map((x) => x.id).sort()).toEqual(["garantia", "ia_incluye"]);
+  });
+
+  it("una pregunta que activa dos patrones sigue dando UNA respuesta, la del producto", () => {
+    // "¿en cuánto tiempo veo resultados?" también engancha `acceso_tiempo`
+    // ("el acceso es de por vida"), que no es lo que se preguntó.
+    const r = responderPreguntas(124, "en cuanto tiempo veo resultados?");
+    expect(r).toHaveLength(1);
+    expect(r[0].id).toBe("ia_resultados");
+    expect(r[0].sinResponder).toBe(true);
+  });
+
+  it("una sola pregunta sigue devolviendo una sola respuesta", () => {
+    expect(responderPreguntas(124, "¿Tienen disponible en stock ahora mismo?")).toHaveLength(1);
+  });
+
+  it("responderPregunta (singular) se mantiene igual para quien la use", () => {
+    expect(responderPregunta(124, MENSAJE)?.id).toBe("ia_incluye");
   });
 });

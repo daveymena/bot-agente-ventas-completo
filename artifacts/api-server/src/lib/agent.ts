@@ -58,7 +58,7 @@ function videoDeProductoSeguro(p: any): string {
   }
   try { return videoDeProducto(p?.metadata); } catch { return ""; }
 }
-import { responderPregunta, aperturaPara } from "./conocimiento-producto";
+import { responderPreguntas, aperturaPara } from "./conocimiento-producto";
 import { PaymentGateway } from "./payments";
 import { 
   healthMonitor,
@@ -3616,7 +3616,16 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
         let respondidoDeConocimiento = false;
         try {
           const idFoco = idsEnContexto[0] ?? null;
-          const conocida = responderPregunta(idFoco, lastText);
+          // Plural a propósito: el cliente suele encadenar dos preguntas en un
+          // mismo mensaje y antes solo se contestaba la primera.
+          const conocidas = responderPreguntas(idFoco, lastText);
+          const conocida = conocidas.length
+            ? {
+                id: conocidas.map((c) => c.id).join("+"),
+                texto: conocidas.map((c) => c.texto).join("\n\n"),
+                sinResponder: conocidas.every((c) => c.sinResponder),
+              }
+            : null;
           if (conocida) {
             const primera = finalParts.find((p: any) => p.kind === "text");
             if (primera) {
