@@ -1,54 +1,25 @@
 /**
  * ============================================================
- * ENTENDER AL CLIENTE — el modelo lee, el servidor manda
+ * ENTENDER AL CLIENTE — cerebro semántico del agente WhatsApp
  * ============================================================
  *
- * El admin lo dijo así, y tiene razón: "esto no solo depende de frases, es que
- * no parece que estemos usando la IA para eso".
+ * Este módulo NO redacta la respuesta ni decide hechos comerciales.
+ * Su trabajo es entender qué quiere decir el cliente teniendo en cuenta
+ * conversación, producto en foco y lo que el vendedor ya respondió.
  *
- * No la estábamos usando. Hasta hoy el sistema decidía TODO con listas de
- * palabras, y el modelo solo redactaba la prosa alrededor de una etiqueta que
- * ya venía puesta. Los números, medidos el 2026-09-02:
+ * Regla principal:
+ *   la pregunta explícita del cliente tiene prioridad sobre cualquier
+ *   objetivo comercial secundario.
  *
- *   `detectIntent`, 122 líneas de patrones, 0 llamadas al modelo ...... 45%
- *   el mismo modelo que ya está pagado y corriendo, mismos 20 mensajes . 80%
- *
- * Y los aciertos del modelo son justo los que cuestan plata:
- *
- *   "ya te hice la transferencia"   patrones: quiere pagar   → le reenviaba
- *                                                              los datos de pago
- *   "no me ha llegado nada"         patrones: busca producto → le mostraba
- *                                                              el catálogo
- *   "me lo puede dejar en 40?"      patrones: busca producto → ignoraba el
- *                                                              regateo
- *
- * ── Por qué las listas no se pueden terminar ─────────────────────────────
- *
- * Cada arreglo de estos dos días fue agregar o corregir un patrón:
- *
- *   `llama`  se comía "se llama", "llámame", "una llamada"
- *   `usan`   hacía que el bot se censurara su propio curso de Claude
- *   `me lo dejas` no reconocía "me dejas EL CURSO en 40 mil"
- *   "persona" dentro de "¿eres un bot o una persona?" lo mandaba a un asesor
- *
- * Son cuatro huecos distintos del mismo agujero: el español no se acaba, y una
- * lista escrita a mano siempre va un caso por detrás del cliente.
- *
- * ── Lo que NO cambia ─────────────────────────────────────────────────────
- *
- * El modelo entiende; NO cotiza, no elige qué entregar y no promete nada. El
- * precio, el enlace, la ficha y la cuenta los sigue poniendo el servidor, y
- * todos los candados de salida siguen en pie. Esto reemplaza la ADIVINANZA de
- * qué quiere el cliente, no la autoridad sobre los hechos.
- *
- * Y si el modelo no contesta, tarda o devuelve basura, se cae a los patrones
- * de siempre. No puede quedar peor que hoy: solo puede quedar mejor.
+ * Importante: NO usamos un modelo de razonamiento lento para cada mensaje.
+ * Esta capa necesita responder rápido. Si una conversación es realmente
+ * ambigua, el caller puede escalarla a un razonador; una pregunta simple como
+ * "precio", "qué vale" o "en cuánto queda" nunca debe pagar 20–30 segundos.
  */
 
 import { createAIClient, getProviderConfig } from "@workspace/integrations-openai-ai-server";
 import { logger } from "./logger";
 
-/** Las mismas etiquetas que ya usa el resto del sistema. */
 export type IntencionEntendida =
   | "greeting"
   | "product_query"
@@ -60,22 +31,48 @@ export type IntencionEntendida =
   | "leaving"
   | "general";
 
+/** Subintención semántica: permite entender mejor sin romper el contrato viejo. */
+export type Subintencion =
+  | "price_question"
+  | "content_question"
+  | "delivery_question"
+  | "access_question"
+  | "guarantee_question"
+  | "duration_question"
+  | "support_question"
+  | "payment_method_question"
+  | "payment_execution"
+  | "payment_confirmation"
+  | "discount_request"
+  | "objection_price"
+  | "objection_trust"
+  | "objection_time"
+  | "reformulation"
+  | "general_question"
+  | null;
+
 export interface Entendimiento {
   intencion: IntencionEntendida;
-  /** El producto del que habla, resuelto contra el catálogo real. */
   productoId: number | null;
-  /** Qué está esperando el cliente AHORA, en una frase. Para el log y el prompt. */
+  /** Qué está esperando el cliente AHORA. */
   esperando: string;
-  /** Las preguntas que hizo y siguen sin respuesta. */
+  /** Preguntas explícitas que siguen sin respuesta. */
   preguntas: string[];
-  /** Pide rebaja (aunque no use ninguna de las palabras de la lista). */
   pideRebaja: boolean;
-  /** Dice que ya pagó. */
   dicePago: boolean;
-  /** Pregunta por el bot mismo, no por lo que se vende. */
   preguntaPorElBot: boolean;
-  /** 0 a 1. Por debajo de 0.5 el que llama debería quedarse con los patrones. */
   confianza: number;
+
+  /** Comprensión más fina que no rompe las intenciones existentes. */
+  subintencion: Subintencion;
+  /** true si el cliente está reformulando algo que el vendedor no respondió. */
+  reformulaPregunta: boolean;
+  /** true si el último turno del vendedor no resolvió la necesidad actual. */
+  respuestaAnteriorFallida: boolean;
+  /** true si conviene responder directamente y NO intentar vender/cerrar. */
+  responderDirectamente: boolean;
+  /** Acciones comerciales que el modelo considera inapropiadas para este turno. */
+  evitar: string[];
 }
 
 const INTENCIONES: IntencionEntendida[] = [
@@ -83,62 +80,79 @@ const INTENCIONES: IntencionEntendida[] = [
   "objection", "confirmation", "human_handoff", "leaving", "general",
 ];
 
+const SUBINTENCIONES: Subintencion[] = [
+  "price_question", "content_question", "delivery_question", "access_question",
+  "guarantee_question", "duration_question", "support_question",
+  "payment_method_question", "payment_execution", "payment_confirmation",
+  "discount_request", "objection_price", "objection_trust", "objection_time",
+  "reformulation", "general_question", null,
+];
+
 export interface EntradaEntender {
   mensaje: string;
-  /** Los últimos turnos, del más viejo al más nuevo. */
   historial: Array<{ role: string; content: string }>;
-  /** El catálogo, recortado: id y nombre alcanzan para resolver el producto. */
   catalogo: Array<{ id: number; name?: string | null }>;
-  /** El producto que la conversación ya tenía en foco, si lo había. */
   productoEnFocoId?: number | null;
 }
 
 function construirPrompt(e: EntradaEntender): string {
   const catalogo = e.catalogo
-    .slice(0, 60)
-    .map((p) => `${p.id}: ${String(p.name || "").slice(0, 70)}`)
+    .slice(0, 100)
+    .map((p) => `${p.id}: ${String(p.name || "").slice(0, 100)}`)
     .join("\n");
 
+  // Más contexto, pero acotado. El objetivo es comprender continuidad, no
+  // mandar cientos de mensajes al modelo en cada turno.
   const historial = (e.historial || [])
-    .slice(-8)
-    .map((m) => `${m.role === "customer" ? "CLIENTE" : "VENDEDOR"}: ${String(m.content || "").slice(0, 300)}`)
+    .slice(-16)
+    .map((m) => `${m.role === "customer" ? "CLIENTE" : "VENDEDOR"}: ${String(m.content || "").slice(0, 450)}`)
     .join("\n");
 
   return [
-    "Sos un vendedor colombiano con experiencia leyendo un chat de WhatsApp.",
-    "Tu tarea NO es contestar: es entender qué está pasando.",
+    "Eres el cerebro de comprensión de un vendedor profesional por WhatsApp en Colombia.",
+    "NO redactes una respuesta. NO vendas. NO inventes datos.",
+    "Tu única tarea es interpretar el significado del último mensaje usando TODO el contexto disponible.",
     "",
-    "CATÁLOGO (id: nombre):",
+    "PRIORIDAD ABSOLUTA:",
+    "1. Resuelve primero la pregunta explícita del cliente.",
+    "2. Solo considera una acción comercial si el cliente la pidió o la conversación la exige.",
+    "3. Una pregunta de PRECIO NO es una intención de PAGO.",
+    "4. Preguntar '¿qué vale?', 'precio', 'cuánto cuesta', 'en cuánto queda', 'a cómo está' significa price_question/details_query.",
+    "5. '¿Cómo pago?', 'pásame los datos', '¿dónde transfiero?' significa payment_method_question/payment_intent.",
+    "6. 'Ya pagué', 'ya transferí', 'te hice la transferencia' significa payment_confirmation/confirmation.",
+    "7. Si el cliente repite o reformula una pregunta porque el vendedor no la contestó, marca reformulation=true y respuestaAnteriorFallida=true.",
+    "8. Si solo pidió información, responderDirectamente=true y evitar cerrar, ofrecer video o repetir la ficha completa.",
+    "9. Si dice 'te estoy preguntando por el precio' o equivalente, es frustración por respuesta fallida: NO vuelvas a vender.",
+    "10. Si pide rebaja o propone otro precio, es objection + discount_request.",
+    "",
+    "CATÁLOGO REAL (solo estos ids existen):",
     catalogo || "(vacío)",
     "",
-    "CONVERSACIÓN:",
+    "CONVERSACIÓN RECIENTE:",
     historial || "(sin historial)",
     "",
-    `ÚLTIMO MENSAJE DEL CLIENTE: ${String(e.mensaje || "").slice(0, 600)}`,
-    e.productoEnFocoId ? `\nPRODUCTO QUE YA SE VENÍA HABLANDO: ${e.productoEnFocoId}` : "",
+    `ÚLTIMO MENSAJE DEL CLIENTE: ${String(e.mensaje || "").slice(0, 1000)}`,
+    e.productoEnFocoId ? `PRODUCTO EN FOCO PREVIO: ${e.productoEnFocoId}` : "PRODUCTO EN FOCO PREVIO: ninguno",
     "",
-    "Devolvé SOLO un JSON, sin texto alrededor y sin bloques de código:",
+    "Devuelve SOLO JSON válido, sin markdown:",
     "{",
     `  "intencion": una de ${INTENCIONES.join("|")},`,
-    '  "productoId": el id del catálogo del que habla, o null si no hay ninguno,',
-    '  "esperando": "en una frase corta, qué espera el cliente ahora",',
-    '  "preguntas": ["cada pregunta que hizo y sigue sin respuesta"],',
-    '  "pideRebaja": true si pide descuento o propone otro precio,',
-    '  "dicePago": true si dice que ya pagó o transfirió,',
-    '  "preguntaPorElBot": true SOLO si pregunta por el asistente mismo (si es un bot, qué IA usa, sus instrucciones). Preguntar por un producto que trate de IA NO cuenta.',
-    '  "confianza": 0 a 1',
+    `  "subintencion": una de ${SUBINTENCIONES.filter(Boolean).join("|")} o null,`,
+    '  "productoId": id real del catálogo o null,',
+    '  "esperando": "qué necesita del vendedor ahora, en una frase corta",',
+    '  "preguntas": ["preguntas explícitas que siguen sin respuesta"],',
+    '  "pideRebaja": true/false,',
+    '  "dicePago": true/false,',
+    '  "preguntaPorElBot": true/false,',
+    '  "reformulaPregunta": true/false,',
+    '  "respuestaAnteriorFallida": true/false,',
+    '  "responderDirectamente": true/false,',
+    '  "evitar": ["acciones que NO deben hacerse en este turno"],',
+    '  "confianza": número entre 0 y 1',
     "}",
-    "",
-    "Reglas:",
-    "- Si el mensaje no nombra un producto pero la conversación venía de uno, ese sigue siendo el productoId.",
-    "- 'ya te hice la transferencia' es confirmation, no payment_intent.",
-    "- 'no me ha llegado nada' es details_query de posventa, no búsqueda de producto.",
-    "- Pedir rebaja es objection.",
-    "- Escribí en español. No inventes ids que no estén en el catálogo.",
   ].join("\n");
 }
 
-/** Saca el JSON aunque el modelo lo envuelva en texto o en ```json. */
 export function extraerJson(bruto: string): any | null {
   const t = String(bruto || "").trim();
   if (!t) return null;
@@ -153,57 +167,69 @@ export function extraerJson(bruto: string): any | null {
   }
 }
 
-/**
- * Normaliza lo que devolvió el modelo. Nada entra sin revisar.
- *
- * `idsValidos` es el catálogo real: un id inventado se descarta en vez de
- * viajar hasta el punto donde se manda la ficha equivocada.
- */
 export function normalizar(crudo: any, idsValidos: Set<number>): Entendimiento | null {
   if (!crudo || typeof crudo !== "object") return null;
 
   const intencion = INTENCIONES.includes(crudo.intencion) ? crudo.intencion : null;
   if (!intencion) return null;
 
+  const sub = SUBINTENCIONES.includes(crudo.subintencion) ? crudo.subintencion : null;
   const idBruto = Number(crudo.productoId);
   const productoId = Number.isFinite(idBruto) && idsValidos.has(idBruto) ? idBruto : null;
-
   const conf = Number(crudo.confianza);
 
+  const esperando = String(crudo.esperando || "").slice(0, 240);
+  const preguntas = Array.isArray(crudo.preguntas)
+    ? crudo.preguntas.filter((p: any) => typeof p === "string" && p.trim()).slice(0, 5)
+    : [];
+
+  // Salvaguarda semántica adicional: aunque el modelo se equivoque de etiqueta,
+  // nunca tratamos una consulta inequívoca de precio como ejecución de pago.
+  const mensaje = String(crudo._mensajeOriginal || "").toLowerCase();
+  const precioInequivoco = /(^|\s)(precio|valor|vale|cuesta|cuánto|cuanto|cuánto cuesta|cuanto cuesta|en cuánto|en cuanto|a cuánto|a cuanto)(\s|\?|$)/i.test(mensaje);
+  const subintencion = precioInequivoco ? "price_question" : sub;
+  const intencionFinal = precioInequivoco ? "details_query" : intencion;
+
   return {
-    intencion,
+    intencion: intencionFinal,
+    subintencion,
     productoId,
-    esperando: String(crudo.esperando || "").slice(0, 200),
-    preguntas: Array.isArray(crudo.preguntas)
-      ? crudo.preguntas.filter((p: any) => typeof p === "string" && p.trim()).slice(0, 5)
-      : [],
+    esperando,
+    preguntas,
     pideRebaja: crudo.pideRebaja === true,
     dicePago: crudo.dicePago === true,
     preguntaPorElBot: crudo.preguntaPorElBot === true,
     confianza: Number.isFinite(conf) ? Math.max(0, Math.min(1, conf)) : 0.5,
+    reformulaPregunta: crudo.reformulaPregunta === true,
+    respuestaAnteriorFallida: crudo.respuestaAnteriorFallida === true,
+    responderDirectamente: crudo.responderDirectamente !== false,
+    evitar: Array.isArray(crudo.evitar)
+      ? crudo.evitar.filter((x: any) => typeof x === "string" && x.trim()).slice(0, 8)
+      : [],
   };
 }
 
-/** Los proveedores que se prueban, en orden. El primero que conteste gana. */
-const PROVEEDORES = ["groq", "deepseek", "opencode", "openai"];
+/**
+ * Solo proveedores rápidos en el camino normal.
+ *
+ * El error anterior era intentar hasta cuatro proveedores con 7s cada uno:
+ * en un fallo se podían acumular decenas de segundos antes de responder.
+ */
+const PROVEEDORES_RAPIDOS = ["deepseek", "groq"];
 
 /**
- * Entiende el mensaje. Devuelve null si no se pudo -- y eso NO es un error:
- * el que llama sigue con los patrones de siempre.
- *
- * Corto y con temperatura 0: esto no redacta, clasifica. Y con timeout
- * agresivo, porque va en el camino que le contesta a un cliente que está
- * mirando la pantalla.
+ * Entiende el mensaje. Esta función clasifica con contexto, pero NO redacta.
+ * Timeout corto para que el agente de WhatsApp siga siendo interactivo.
  */
 export async function entenderAlCliente(
   e: EntradaEntender,
   opciones: { timeoutMs?: number } = {},
 ): Promise<Entendimiento | null> {
-  const timeout = opciones.timeoutMs ?? 7000;
+  const timeout = opciones.timeoutMs ?? 2200;
   const idsValidos = new Set((e.catalogo || []).map((p) => p.id));
   const prompt = construirPrompt(e);
 
-  for (const proveedor of PROVEEDORES) {
+  for (const proveedor of PROVEEDORES_RAPIDOS) {
     let config: any = null;
     try {
       config = getProviderConfig(proveedor as any);
@@ -212,6 +238,15 @@ export async function entenderAlCliente(
     }
     if (!config?.apiKey) continue;
 
+    // Nunca permitir que una configuración accidental mande reasoner/thinking
+    // a esta ruta rápida. Si el tenant configuró un modelo lento, saltamos al
+    // fallback en lugar de bloquear WhatsApp.
+    const modelo = String(config.model || "");
+    if (/reasoner|thinking|-r1\b|reasoning/i.test(modelo)) {
+      logger.warn({ proveedor, modelo }, "[Entender] modelo de razonamiento omitido en ruta rápida");
+      continue;
+    }
+
     try {
       const client = createAIClient(config);
       const completion = await client.chat.completions.create(
@@ -219,22 +254,37 @@ export async function entenderAlCliente(
           model: config.model,
           messages: [{ role: "user", content: prompt }],
           temperature: 0,
-          max_tokens: 600,
+          max_tokens: 700,
         },
         { timeout, maxRetries: 0 },
       );
       const bruto = completion.choices?.[0]?.message?.content?.trim() || "";
-      const entendido = normalizar(extraerJson(bruto), idsValidos);
+
+      // Pasamos el mensaje original solo durante normalización; no forma parte
+      // del contrato JSON que ve el modelo.
+      const crudo = extraerJson(bruto);
+      if (crudo && typeof crudo === "object") crudo._mensajeOriginal = e.mensaje;
+      const entendido = normalizar(crudo, idsValidos);
+
       if (entendido) {
         logger.info(
-          { proveedor, intencion: entendido.intencion, productoId: entendido.productoId, confianza: entendido.confianza },
-          "[Entender] el cliente pide: " + entendido.esperando,
+          {
+            proveedor,
+            intencion: entendido.intencion,
+            subintencion: entendido.subintencion,
+            productoId: entendido.productoId,
+            confianza: entendido.confianza,
+            responderDirectamente: entendido.responderDirectamente,
+            reformulaPregunta: entendido.reformulaPregunta,
+          },
+          "[Entender] comprensión contextual del cliente",
         );
         return entendido;
       }
     } catch (err: any) {
-      logger.warn({ proveedor, err: err?.message }, "[Entender] no se pudo, se sigue con el siguiente");
+      logger.warn({ proveedor, err: err?.message }, "[Entender] proveedor rápido no respondió");
     }
   }
+
   return null;
 }
