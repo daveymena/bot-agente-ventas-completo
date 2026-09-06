@@ -612,12 +612,25 @@ function invitacionesDe(
  * con una afirmación suelta, ese "sí" es para la oferta. Un "sí, lo compro" o
  * un "dale, mándame el link de pago" traen más palabras y no entran acá.
  */
-const AFIRMACION_SUELTA =
-  // Sin `\b` al final: es ASCII, y después de una vocal acentuada ("sí",
-  // "cuéntame") NO hay borde de palabra, así que el patrón no casaba
-  // justamente con la forma más común de decir que sí en español. Es la
-  // tercera vez que este proyecto tropieza con lo mismo.
-  /^\s*(s[ií]|sip|sii+|dale|listo|ok|okey|okay|claro|obvio|de una|por supuesto|bueno|va|hazlo|hacelo|mu[eé]strame|mostrame|cu[eé]ntame|contame|perfecto|genial|por favor|porfa|porfis)(?![a-zA-ZáéíóúñÁÉÍÓÚÑ])[\s.!¡👍😊🙌]*$/i;
+// Sin `\b` al final: es ASCII, y después de una vocal acentuada ("sí",
+// "cuéntame") NO hay borde de palabra, así que el patrón no casaba justamente
+// con la forma más común de decir que sí en español. Es la tercera vez que
+// este proyecto tropieza con lo mismo.
+const PALABRA_DE_SI =
+  String.raw`(?:claro que s[ií]|s[ií]|sip|sii+|dale|listo|ok|okey|okay|claro|obvio|de una|por supuesto|bueno|va|hazlo|hacelo|mu[eé]strame|mostrame|cu[eé]ntame|contame|perfecto|genial|por favor|porfa|porfis)`;
+
+// Cortesías que acompañan al sí sin cambiar lo que quiere decir.
+const CORTESIA = String.raw`(?:gracias|grac[ií]as|please|plis|amigo|amiga|se[ñn]or|se[ñn]ora|bro|parce)`;
+
+// Nadie contesta con una sola palabra. "Si porfa" -- dos palabras, la forma
+// más común de aceptar en Colombia -- no entraba, y el bot que acababa de
+// ofrecer la ficha respondía "¿qué te gustaría saber puntualmente?", como si
+// no lo hubiera escuchado (medido el 2026-09-05). Ahora se acepta una cadena
+// de afirmaciones y cortesías: "si porfa", "dale gracias", "listo, perfecto".
+const AFIRMACION_SUELTA = new RegExp(
+  String.raw`^\s*${PALABRA_DE_SI}(?:[\s,]+(?:${PALABRA_DE_SI}|${CORTESIA}))*(?![a-zA-ZáéíóúñÁÉÍÓÚÑ])[\s.!¡👍😊🙌]*$`,
+  "i",
+);
 
 /** Es SOLO una afirmacion, sin nada mas pegado? */
 export function esAfirmacionSuelta(mensaje: string): boolean {

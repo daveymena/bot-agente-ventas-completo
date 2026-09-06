@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { seccionQueCorresponde, invitacionDe } from "../ficha-parcial";
+import { seccionQueCorresponde, invitacionDe, esAfirmacionSuelta, elSiContestaLaOferta } from "../ficha-parcial";
 
 /**
  * Los mensajes de abajo son REALES, sacados de las conversaciones 1 y 19 de
@@ -238,5 +238,28 @@ describe("el cierre no repite lo que ya se mostró", () => {
 
   it("si TODAVÍA no las vio, sí se las ofrece", () => {
     expect(invitacionDe("precio", false, "sem", true, false)).toMatch(/incluye|trae|adentro/i);
+  });
+});
+
+describe("el si que trae una cortesia pegada", () => {
+  // Medido el 2026-09-05:
+  //   bot:     "¿Quieres que te pase la ficha con todo lo que incluye?"
+  //   cliente: "Si porfa"
+  //   bot:     "¿Qué te gustaría saber puntualmente? 🙌"
+  // El patrón aceptaba UNA sola palabra, y "si porfa" son dos.
+  it("acepta las formas naturales de decir que sí", () => {
+    for (const m of ["Si porfa", "sí porfa", "si por favor", "dale gracias", "ok gracias", "listo, perfecto", "claro que si"]) {
+      expect(esAfirmacionSuelta(m), m).toBe(true);
+    }
+  });
+
+  it("no confunde un sí con más intención pegada", () => {
+    for (const m of ["si lo compro", "dale mandame el link", "si cuanto cuesta", "si pero cuanto vale", "claro, pero tiene garantia?"]) {
+      expect(esAfirmacionSuelta(m), m).toBe(false);
+    }
+  });
+
+  it("contesta la oferta de la ficha", () => {
+    expect(elSiContestaLaOferta({ mensaje: "Si porfa", ofrecimosContenido: true })).toBe(true);
   });
 });
