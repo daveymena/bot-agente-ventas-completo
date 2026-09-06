@@ -134,11 +134,22 @@ const healthHandler = async (req: any, res: any) => {
     //
     // Solo el conteo, no los nombres de los proveedores: el endpoint es
     // publico y para saber si el bot esta ciego alcanza con un numero.
-    let vision: { ok: boolean; modelos: number } | null = null;
+    // Se publican los DOS numeros, no solo el bueno. Con solo `modelos` el
+    // 2026-09-06 se leyo "4 modelos con clave" en un bot cuyos 3 modelos de
+    // vision configurados apuntaban a OpenRouter y NVIDIA sin que ninguna de
+    // esas dos claves existiera en EasyPanel (verificado por dos endpoints
+    // distintos y a nivel proyecto). Un contador que solo cuenta aciertos no
+    // se puede auditar: si `sinClave` es 0 cuando deberia ser 3, el que esta
+    // roto es el contador, y eso ahora se ve desde afuera.
+    let vision: { ok: boolean; modelos: number; sinClave: number } | null = null;
     try {
       const { visionDisponible } = require("./lib/media-entrante");
       const v = visionDisponible();
-      vision = { ok: !!v?.hay, modelos: (v?.conClave || []).length };
+      vision = {
+        ok: !!v?.hay,
+        modelos: (v?.conClave || []).length,
+        sinClave: (v?.sinClave || []).length,
+      };
     } catch {
       /* el health nunca puede fallar por esto */
     }
