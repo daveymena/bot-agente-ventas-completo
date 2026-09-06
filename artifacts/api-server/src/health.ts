@@ -120,11 +120,37 @@ const healthHandler = async (req: any, res: any) => {
       /* el health nunca puede fallar por esto */
     }
 
+    // ── ¿El bot puede VER? ───────────────────────────────────
+    //
+    // Esta es la falla mas cara de diagnosticar del sistema, porque no se ve
+    // desde ningun lado: `VISION_MODELS` apunto durante semanas en produccion
+    // a proveedores sin clave, `describirImagen` devolvia null en TODAS las
+    // imagenes, y el sintoma que llegaba al admin era otro completamente --un
+    // cliente pagaba, mandaba el comprobante, y el bot le contestaba "recibi
+    // tu comprobante" sin haber visto nada--.
+    //
+    // Va aca, y no solo en el log, porque el log hay que ir a buscarlo dentro
+    // del contenedor y esto se tiene que poder preguntar desde afuera.
+    //
+    // Solo el conteo, no los nombres de los proveedores: el endpoint es
+    // publico y para saber si el bot esta ciego alcanza con un numero.
+    let vision: { ok: boolean; modelos: number } | null = null;
+    try {
+      const { visionDisponible } = require("./lib/media-entrante");
+      const v = visionDisponible();
+      vision = { ok: !!v?.hay, modelos: (v?.conClave || []).length };
+    } catch {
+      /* el health nunca puede fallar por esto */
+    }
+
     const problemas: string[] = [];
     if (!dbOk) problemas.push("base-de-datos");
     if (faltanTablas) problemas.push("faltan-tablas");
     if (migracionesFallaron) problemas.push("migraciones-fallidas");
     if (whatsapp && !whatsapp.conectado) problemas.push("whatsapp");
+    // Ciego no es "roto", pero tampoco es "ok": sin vision no hay verificacion
+    // de comprobantes, que es el paso donde se decide entregar un producto.
+    if (vision && !vision.ok) problemas.push("sin-vision");
 
     // ── Por qué SIEMPRE 200, incluso degradado ────────────────────────────
     //
@@ -157,6 +183,7 @@ const healthHandler = async (req: any, res: any) => {
       ...(build ? { build } : {}),
       base,
       ...(whatsapp ? { whatsapp } : {}),
+      ...(vision ? { vision } : {}),
       ...(cola ? { cola } : {}),
       ...(ultimoError ? { ultimoError } : {}),
     });
