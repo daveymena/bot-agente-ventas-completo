@@ -57,6 +57,11 @@ export const agents = sqliteTable("agents", {
   language: text("language").notNull().default("es"),
   model: text("model").notNull().default("gpt-4o-mini"),
   systemPrompt: text("system_prompt").notNull(),
+  // Filtra qué productos ve el agente ("digital", "dropshipping", o vacío para
+  // ver todo). Tiene que estar acá y no solo en el schema de Postgres: si
+  // falta, el enrutador por tipo de producto se comporta distinto en local que
+  // en producción, que es peor que no tenerlo.
+  especialidad: text("especialidad"),
   stages: text("stages", { mode: "json" }).notNull().default("[]"),
   metadata: text("metadata", { mode: "json" }),
   isActive: integer("is_active", { mode: "boolean" }).notNull().default(false),

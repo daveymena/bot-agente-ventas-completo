@@ -2893,6 +2893,14 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
         }
       }
 
+      // Los ids que existen de verdad en el catálogo. Se declara acá arriba
+      // porque el primer uso es el bloque de abajo; cuando vivía junto al
+      // parser de partes, 130 líneas más adelante, ese bloque la leía dentro
+      // de su zona muerta temporal y lanzaba ReferenceError -- justo en el
+      // único caso que venía a arreglar, cuando el modelo escribe el
+      // placeholder literal.
+      const validIds = new Set(productList.map((p: any) => p.id));
+
       // El modelo escribe "[CARD: ID]" (literal) cuando el prompt le dice que
       // use [CARD: ID]. "ID" es un placeholder: hay que reemplazarlo por el
       // id numérico real del producto que corresponde.
@@ -3001,7 +3009,7 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
       // El system prompt ya le indica que puede usar [CARD: ID] si es natural.
       // No forzamos ni eliminamos cards — confiamos en el criterio de la IA.
       // (El refuerzo 2b-bis que fuerza la card cuando la IA escribe la ficha a
-      // mano vive más abajo, tras declarar `validIds`.)
+      // mano vive más abajo, en el parser de partes.)
 
       // 3. Solo eliminar cards en intents donde claramente no corresponde (saludo, despedida, humano)
       if (esChatSocial && raw.match(/\[CARD:\s*\d+\s*\]/i)) {
@@ -3030,7 +3038,7 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
       });
 
       // ── Parser de partes ──────────────────────────────────────────────────
-      const validIds = new Set(productList.map(p => p.id));
+      // (`validIds` ya está declarada más arriba, junto a su primer uso.)
 
       // 2b-bis. FORZAR LA CARD en consultas de producto cuando la IA escribió
       // la ficha a mano en texto plano sin el marcador [CARD: ID].
