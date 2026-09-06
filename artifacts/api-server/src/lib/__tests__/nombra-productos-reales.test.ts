@@ -14,7 +14,7 @@
  * resolver UN producto" -- y nombrar DOS para compararlos también falla.
  */
 import { describe, it, expect } from "vitest";
-import { productosNombrados, negarloSeriaMentira, elegirPorNombre } from "../nombra-productos-reales";
+import { productosNombrados, negarloSeriaMentira, elegirPorNombre, afirmaTenerlo } from "../nombra-productos-reales";
 
 /** El catálogo real del negocio que se sondeó. */
 const CATALOGO = [
@@ -125,5 +125,44 @@ describe("cuando varios encajan, gana el del nombre", () => {
 
   it("no rompe con lista vacía", () => {
     expect(elegirPorNombre("lo que sea", [])).toBeNull();
+  });
+});
+
+/**
+ * ── Afirmar tener algo que no existe ──────────────────────────────────────
+ *
+ * Medido en producción el 2026-09-06 (corrida 2):
+ *
+ *   cliente: "¿tienes curso de soldadura?"   (no está en el catálogo)
+ *   bot:     "Sí, claro que tenemos curso de soldadura."
+ *
+ * La lista pedía "sí" pegado a "tenemos"; en el medio había un "claro que".
+ */
+describe("Afirmar que se tiene el producto", () => {
+  it("el caso de producción, con 'claro que' en el medio", () => {
+    expect(afirmaTenerlo("Sí, claro que tenemos curso de soldadura.")).toBe(true);
+  });
+
+  it("otras formas de decir lo mismo", () => {
+    for (const t of [
+      "Claro que sí, lo manejamos",
+      "Por supuesto, tenemos ese curso",
+      "Sí lo tenemos",
+      "Tenés el curso disponible",
+      "Sí, contamos con ese producto",
+      "Obvio que sí, lo trabajamos",
+    ]) {
+      expect(afirmaTenerlo(t)).toBe(true);
+    }
+  });
+
+  it("no se dispara con una negación ni con charla normal", () => {
+    for (const t of [
+      "No manejo ese producto, pero te muestro lo que sí tengo",
+      "Contame qué estás buscando",
+      "El curso de piano dura 19 horas",
+    ]) {
+      expect(afirmaTenerlo(t)).toBe(false);
+    }
   });
 });

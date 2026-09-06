@@ -450,9 +450,43 @@ export function puedeMandarPago(e: {
   etapa: EtapaTrato;
   /** Lo que escribió el cliente en este mensaje. */
   mensaje: string;
+  /**
+   * Lo que entendió el modelo leyendo la conversación
+   * (`entender-al-cliente.ts`), si es que contestó.
+   *
+   * `PIDE_PAGAR` es una lista escrita a mano, y acá abajo está el último
+   * candádo antes del dinero: lo que la lista no reconoce se convierte en una
+   * venta perdida en el último paso. Medido el 2026-09-06 corriendo el agente
+   * entero:
+   *
+   *   cliente: "¿a cuánto te hago la transferencia?"
+   *   sistema: "no se manda el pago: está interesado y no pidió pagar"
+   *
+   * Pidió pagar con todas las letras. La lista no tiene "te hago la
+   * transferencia" y nunca la va a tener completa: el español no se acaba.
+   *
+   * El modelo NO puede negar un pago — solo puede reconocer uno que la lista
+   * no vio. Es la misma dirección que ya tenía `pidePagar`: agrega permisos,
+   * nunca los quita.
+   */
+  entendido?: {
+    subintencion?: string | null;
+    dicePago?: boolean;
+    intencion?: string;
+  } | null;
 }): { puede: boolean; porQue: string } {
   if (PIDE_PAGAR.test(String(e.mensaje || ""))) {
     return { puede: true, porQue: "el cliente pidió los datos de pago" };
+  }
+
+  const en = e.entendido;
+  if (en) {
+    if (en.subintencion === "payment_method_question" || en.subintencion === "payment_execution") {
+      return { puede: true, porQue: `lo entendió el modelo: ${en.subintencion}` };
+    }
+    if (en.dicePago === true) {
+      return { puede: true, porQue: "el modelo leyó que ya pagó o está pagando" };
+    }
   }
   switch (e.etapa) {
     case "decidido":

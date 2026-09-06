@@ -63,3 +63,52 @@ describe("Cuando ya decidió, el pago es lo que corresponde", () => {
     expect(puedeMandarPago({ etapa: "decidido", mensaje: "ok" }).porQue).toMatch(/ya dijo que lo quiere/);
   });
 });
+
+/**
+ * ── El candado de pago no puede depender solo de una lista ────────────────
+ *
+ * Medido el 2026-09-06 corriendo runAgentReply entero contra la sqlite local:
+ *
+ *   cliente: "¿a cuánto te hago la transferencia?"
+ *   sistema: "no se manda el pago: está interesado y no pidió pagar"
+ *
+ * Pidió pagar con todas las letras. PIDE_PAGAR no tiene "te hago la
+ * transferencia" y nunca la va a tener completa. Lo que el modelo entendió
+ * SOLO puede abrir el candado, nunca cerrarlo.
+ */
+describe("Lo que entendió el modelo abre el candado que la lista no vio", () => {
+  const mensaje = "¿a cuánto te hago la transferencia?";
+
+  it("sin comprensión, la lista lo deja afuera (el bug medido)", () => {
+    expect(puedeMandarPago({ etapa: "interesado", mensaje }).puede).toBe(false);
+  });
+
+  it("con comprensión de pago, pasa", () => {
+    for (const sub of ["payment_method_question", "payment_execution"]) {
+      const r = puedeMandarPago({ etapa: "interesado", mensaje, entendido: { subintencion: sub } });
+      expect(r.puede).toBe(true);
+    }
+  });
+
+  it("si el modelo leyó que ya pagó, pasa", () => {
+    const r = puedeMandarPago({
+      etapa: "interesado", mensaje: "ya te transferí", entendido: { dicePago: true },
+    });
+    expect(r.puede).toBe(true);
+  });
+
+  it("pero NUNCA cierra lo que la etapa ya había abierto", () => {
+    // Una consulta de precio no puede quitarle el pago a quien ya está decidido.
+    const r = puedeMandarPago({
+      etapa: "decidido", mensaje: "y cuánto vale?", entendido: { subintencion: "price_question" },
+    });
+    expect(r.puede).toBe(true);
+  });
+
+  it("y una consulta de precio en etapa temprana sigue sin abrirlo", () => {
+    const r = puedeMandarPago({
+      etapa: "interesado", mensaje: "y cuánto vale?", entendido: { subintencion: "price_question" },
+    });
+    expect(r.puede).toBe(false);
+  });
+});

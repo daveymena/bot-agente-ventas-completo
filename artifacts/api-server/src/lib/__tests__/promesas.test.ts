@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { promesasDe, promesasIncumplidas, sinLaPromesa } from "../promesas";
+import { promesasDe, promesasIncumplidas, sinLaPromesa, sinElMontoQueVaEnLaFicha } from "../promesas";
 
 /**
  * El candado que cubre los cuatro defectos del 2026-09-01 de una sola vez:
@@ -82,5 +82,48 @@ describe("Quitar la promesa sin arruinar el mensaje", () => {
   it("sin promesas incumplidas no toca nada", () => {
     const t = "El curso cuesta $60.000 COP y el acceso es de por vida.";
     expect(sinLaPromesa(t, [])).toBe(t);
+  });
+});
+
+/**
+ * ── El hueco de precio no siempre lo deja la limpieza ─────────────────────
+ *
+ * Medido en producción el 2026-09-06 (corrida 2 contra el bot real):
+ *
+ *   cliente: "¿cuánto vale?"
+ *   bot:     "El curso de piano completo tiene un costo de."
+ *
+ * Ahí no había monto que quitar: el modelo escribió la frase ya rota. Y la
+ * lista decía "valor", no "costo" — segunda vez que la lista va un caso por
+ * detrás (la primera fue el 2026-09-01, con "valor").
+ */
+describe("Una frase que anuncia un precio y no lo dice, se descarta", () => {
+  it("el caso de producción: 'tiene un costo de.'", () => {
+    expect(sinElMontoQueVaEnLaFicha("El curso de piano completo tiene un costo de.")).toBe("");
+  });
+
+  it("y el de septiembre 1: 'tiene un valor de , pago único'", () => {
+    expect(sinElMontoQueVaEnLaFicha("El curso tiene un valor de , pago único.")).toBe("");
+  });
+
+  it("da igual la palabra que use para anunciar", () => {
+    for (const p of ["costo", "valor", "precio"]) {
+      expect(sinElMontoQueVaEnLaFicha(`El curso tiene un ${p} de.`)).toBe("");
+    }
+  });
+
+  it("una frase que repite el monto de la ficha se descarta, como siempre", () => {
+    // No es un caso nuevo: el numero va UNA vez, y lo pone la ficha.
+    expect(sinElMontoQueVaEnLaFicha("El curso tiene un valor de $89.000")).toBe("");
+  });
+
+  it("y una frase con un numero que NO es el precio sobrevive", () => {
+    const t = "Son 19 modulos y 283 clases en video";
+    expect(sinElMontoQueVaEnLaFicha(t)).toBe(t);
+  });
+
+  it("y no se lleva por delante una frase que solo habla de precio", () => {
+    const t = "El precio es súper accesible para todo lo que incluye";
+    expect(sinElMontoQueVaEnLaFicha(t)).toBe(t);
   });
 });

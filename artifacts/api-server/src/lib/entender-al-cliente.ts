@@ -103,16 +103,28 @@ export interface EntradaEntender {
 }
 
 function construirPrompt(e: EntradaEntender): string {
+  // ── Esto clasifica, no redacta: el prompt tiene que ser barato ────────
+  //
+  // Con 100 productos a 100 chars y 16 mensajes a 450 el prompt pesaba ~5,5k
+  // tokens POR MENSAJE. Corriendo el agente entero el 2026-09-06 se vio lo
+  // que eso provoca: la comprensión y el redactor comparten la cuota del
+  // proveedor, y a partir del cuarto turno era la comprensión la que se
+  // quedaba sin aire — justo en los turnos de pago, que son los que importan.
+  //
+  //   429 TPM: Limit 8000, Used 7068, Requested 1608
+  //
+  // Para resolver un id alcanza con el nombre corto, y para leer continuidad
+  // alcanzan los últimos turnos. Se recorta a la mitad sin perder el trabajo.
   const catalogo = e.catalogo
     .slice(0, 100)
-    .map((p) => `${p.id}: ${String(p.name || "").slice(0, 100)}`)
+    .map((p) => `${p.id}: ${String(p.name || "").slice(0, 60)}`)
     .join("\n");
 
   // Más contexto, pero acotado. El objetivo es comprender continuidad, no
   // mandar cientos de mensajes al modelo en cada turno.
   const historial = (e.historial || [])
-    .slice(-16)
-    .map((m) => `${m.role === "customer" ? "CLIENTE" : "VENDEDOR"}: ${String(m.content || "").slice(0, 450)}`)
+    .slice(-12)
+    .map((m) => `${m.role === "customer" ? "CLIENTE" : "VENDEDOR"}: ${String(m.content || "").slice(0, 240)}`)
     .join("\n");
 
   return [
@@ -140,7 +152,7 @@ function construirPrompt(e: EntradaEntender): string {
     "CONVERSACIÓN RECIENTE:",
     historial || "(sin historial)",
     "",
-    `ÚLTIMO MENSAJE DEL CLIENTE: ${String(e.mensaje || "").slice(0, 1000)}`,
+    `ÚLTIMO MENSAJE DEL CLIENTE: ${String(e.mensaje || "").slice(0, 600)}`,
     e.productoEnFocoId ? `PRODUCTO EN FOCO PREVIO: ${e.productoEnFocoId}` : "PRODUCTO EN FOCO PREVIO: ninguno",
     "",
     "Devuelve SOLO JSON válido, sin markdown:",
@@ -294,6 +306,8 @@ export async function entenderAlCliente(
     }
   }
 
+  const sinClave: string[] = [];
+
   for (const proveedor of PROVEEDORES_RAPIDOS) {
     let config: any = null;
     try {
@@ -306,7 +320,10 @@ export async function entenderAlCliente(
     } catch {
       continue;
     }
-    if (!config?.apiKey) continue;
+    if (!config?.apiKey) {
+      sinClave.push(proveedor);
+      continue;
+    }
 
     // Nunca permitir que una configuración accidental mande reasoner/thinking
     // a esta ruta rápida. Si el tenant configuró un modelo lento, saltamos al
@@ -324,7 +341,7 @@ export async function entenderAlCliente(
           model: config.model,
           messages: [{ role: "user", content: prompt }],
           temperature: 0,
-          max_tokens: 700,
+          max_tokens: 450,
         },
         { timeout, maxRetries: 0 },
       );
@@ -352,5 +369,23 @@ export async function entenderAlCliente(
     }
   }
 
+  // ── Que no se muera en silencio ─────────────────────────────────
+  //
+  // Devolver null era mudo: el agente seguía con los patrones y en el log no
+  // quedaba ni una línea. Corriendo el agente entero el 2026-09-06, dos turnos
+  // seguidos se resolvieron sin comprensión y no había forma de saberlo — se
+  // veía como si la capa no sirviera, cuando lo que pasaba es que no corría.
+  //
+  // El caso de `sinClave` es el peor de todos porque no lanza ninguna
+  // excepción: si la rotación aparta un proveedor por un 429, esta capa se
+  // apaga con él y nadie se entera.
+  if (sinClave.length === PROVEEDORES_RAPIDOS.length) {
+    logger.warn(
+      { proveedores: sinClave, tenantId: e.tenantId ?? null },
+      "[Entender] NINGUN proveedor rápido tiene clave: el agente decide con los patrones",
+    );
+  } else {
+    logger.warn({ timeout }, "[Entender] no se pudo entender el mensaje: el agente decide con los patrones");
+  }
   return null;
 }

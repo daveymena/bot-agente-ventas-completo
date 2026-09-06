@@ -201,6 +201,20 @@ export function sinLaPromesa(texto: string, incumplidas: Promesa[]): string {
  *
  * Devuelve "" cuando hay que descartarla.
  */
+/**
+ * Una frase que ANUNCIA un precio y se corta antes de decirlo.
+ *
+ * "tiene un valor de , pago unico" / "tiene un costo de." La marca es el
+ * anuncio segido de puntuacion o de nada: el numero nunca llego.
+ *
+ * Se mira asi, y no por la lista de palabras, porque la lista ya fallo dos
+ * veces por la misma razon: en produccion el 2026-09-01 decia "valor" y el
+ * 2026-09-06 dijo "costo", que no estaba escrito. Lo que no cambia es la
+ * FORMA: se anuncia un precio y no hay ningun digito detras.
+ */
+const ANUNCIA_PRECIO_SIN_DECIRLO =
+  /\b(valor|precio|costo|vale|cuesta|sale|queda|cobr\w+)\b\s*(de|en|es|:)?\s*(?=[,.;!?]|$)/i;
+
 export function sinElMontoQueVaEnLaFicha(texto: string): string {
   const original = String(texto || "");
   const sinMonto = original
@@ -208,11 +222,24 @@ export function sinElMontoQueVaEnLaFicha(texto: string): string {
     .replace(/\s{2,}/g, " ")
     .trim();
 
+  // ── El hueco puede venir de fabrica, sin que nadie quite nada ───────────
+  //
+  // Esto solo miraba el caso "se quito un monto y quedo la frase colgada".
+  // Medido en produccion el 2026-09-06 con el agente entero:
+  //
+  //   cliente: "¿cuanto vale?"
+  //   bot:     "El curso de piano completo tiene un costo de."
+  //
+  // Ahi no habia monto que quitar: el modelo escribio la frase ya rota, asi
+  // que `sinMonto === original` y salia intacta. Una frase que anuncia un
+  // precio y no lo dice no se sostiene, la haya roto quien la haya roto.
+  if (!/\d/.test(sinMonto) && ANUNCIA_PRECIO_SIN_DECIRLO.test(sinMonto)) return "";
+
   if (sinMonto === original) return original;
 
   // Se quito un monto. Si la frase todavia anuncia un precio, le falta el dato
   // que la sostenia.
-  if (/\b(valor|precio|vale|cuesta|sale|queda|cobr\w+)\b/i.test(sinMonto)) return "";
+  if (/\b(valor|precio|costo|vale|cuesta|sale|queda|cobr\w+)\b/i.test(sinMonto)) return "";
 
   return sinMonto.replace(/[\s,:;.-]+$/, "").length >= 6 ? sinMonto : "";
 }

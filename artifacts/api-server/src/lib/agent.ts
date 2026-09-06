@@ -35,7 +35,7 @@ import { sinPreguntarLoQueYaVa } from "./no-pedir-lo-que-ya-va";
 import { nombreDePila } from "./nombre-de-pila";
 import { vioLaFichaHacePoco, yaLeDijimos } from "./customer-profile";
 import { datosYaDichos } from "./datos-ya-dichos";
-import { negarloSeriaMentira, productosNombrados } from "./nombra-productos-reales";
+import { afirmaTenerlo, negarloSeriaMentira, productosNombrados } from "./nombra-productos-reales";
 import { prometeEntregaFisica, sinLaPromesaFisica, sinElTemarioInventado, lineasDeTemarioInventadas, comoSeEntregaDeVerdad } from "./solo-lo-que-dice-la-ficha";
 
 /**
@@ -3007,7 +3007,7 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
       const emojiComidaInvento = /🍝|🍕|🥘|🌮|🍜|🍔|🍰/.test(raw);
       const inventoPorFrase = /(te ense[ñn]a|es otro nivel|es un producto f[ií]sico|lo maneja otra persona|te paso con mi compa[ñn]ero)/i.test(raw);
       const cardReal = /\[CARD:\s*[\d\w][^\]]*\]/i.test(raw); // card con contenido (número o nombre)
-      const inventoConfirmado = emojiComidaInvento || inventoPorFrase || (decision.productSearchFailed && /(te ense[ñn]a|incluye|te paso la ficha|lo tenemos|s[ií] (lo )?(tenemos|manejamos|tenés)|tenés (un|el|el curso))/i.test(raw));
+      const inventoConfirmado = emojiComidaInvento || inventoPorFrase || (decision.productSearchFailed && afirmaTenerlo(raw));
       // Para emojis de comida: la señal es tan fuerte que manda incluso con
       // un [CARD: ...] inválido delante. Solo se respeta si la card es REAL
       // (resuelve a un producto) -- pero ninguna card real acompaña a un 🍝.
@@ -3033,7 +3033,7 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
       // Se comprueba contra el catálogo, no contra una intuición: si el cliente
       // nombró algo que existe, negarlo es demostrablemente falso.
       const nombroAlgoReal = negarloSeriaMentira(String(lastText || ""), productList as any);
-      if (emojiComidaInvento || (inventoPorFrase && !cardReal) || (decision.productSearchFailed && !cardReal && /(te ense[ñn]a|incluye|te paso la ficha|lo tenemos|s[ií] (lo )?(tenemos|manejamos|tenés)|tenés (un|el|el curso))/i.test(raw))) {
+      if (emojiComidaInvento || (inventoPorFrase && !cardReal) || (decision.productSearchFailed && !cardReal && afirmaTenerlo(raw))) {
         if (nombroAlgoReal && !emojiComidaInvento) {
           // El emoji de comida sigue mandando: esa señal es tan fuerte que
           // gana igual (ver el comentario de arriba). Lo demás, no.
@@ -3441,8 +3441,20 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
           // Ahora la etapa es una regla del servidor. En `explorando` o
           // `interesado` no sale el checkout, salvo que el cliente lo haya
           // pedido con todas las letras.
+          // La misma lectura que abre el candádo, para que el flujo de pago no
+          // dependa otra vez de la lista de palabras.
+          const pidePagarSegunModelo = mandaElEntendimiento && (
+            entendimiento!.subintencion === "payment_method_question" ||
+            entendimiento!.subintencion === "payment_execution" ||
+            entendimiento!.dicePago === true
+          );
+
           const permiso = etapaDelTrato
-            ? puedeMandarPago({ etapa: etapaDelTrato, mensaje: String(lastText || "") })
+            ? puedeMandarPago({
+                etapa: etapaDelTrato,
+                mensaje: String(lastText || ""),
+                entendido: mandaElEntendimiento ? entendimiento : null,
+              })
             : { puede: true, porQue: "sin etapa calculada, se deja pasar" };
           if (isPaymentFlow && !permiso.puede) {
             console.log(`🧭 [ETAPA] No se manda el pago: ${permiso.porQue} - ${ts()}`);
@@ -3486,7 +3498,7 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
             // quiere pagar pierde la venta en el último paso -- es el error
             // opuesto al de cobrarle al que está averiguando, y sale igual de
             // caro.
-            paymentOnly: (isPaymentFlow || pidePagar(String(lastText || ""))) && !contestaLaOferta && permiso.puede,
+            paymentOnly: (isPaymentFlow || pidePagar(String(lastText || "")) || pidePagarSegunModelo) && !contestaLaOferta && permiso.puede,
             // Si ya recibió la ficha de ESTE producto, ya vio la lista de
             // características: el cierre no puede ofrecerle contárselas.
             yaVioContenido: yaVioLaFicha(resolvedId),

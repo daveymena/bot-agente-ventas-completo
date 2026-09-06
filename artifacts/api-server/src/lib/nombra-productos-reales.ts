@@ -110,6 +110,56 @@ export function productosNombrados(
  * si el cliente nombró algo del catálogo, negarlo es falso y además queda en
  * evidencia, porque el propio mensaje de negación lista los productos.
  */
+/**
+ * El texto AFIRMA tener el producto.
+ *
+ * Esto se comprobaba con una lista de frases escritas a mano
+ * ("lo tenemos", "sí lo manejamos", "tenés el curso"...). Medido contra
+ * producción el 2026-09-06, con el agente entero:
+ *
+ *   cliente: "¿tienes curso de soldadura?"   (no existe en el catálogo)
+ *   bot:     "Sí, claro que tenemos curso de soldadura."
+ *
+ * La lista pedía "sí" pegado a "tenemos"; en el medio había un "claro que" y
+ * el invento pasó derecho. Es el mismo agujero de siempre: el español no se
+ * acaba y la lista siempre va un caso por detrás del cliente.
+ *
+ * Acá no se enumeran frases: se busca la FORMA de afirmar posesión — una
+ * afirmación seguida, cerca, de un verbo de tener. Y no decide sola: quien la
+ * llama ya comprobó que el producto NO está en el catálogo.
+ */
+const AFIRMA_TENER = [
+  // "sí, claro que tenemos", "claro que sí, lo manejamos", "por supuesto tenemos"
+  //
+  // OJO con `\b` y las vocales acentuadas: en JavaScript `\b` se calcula sobre
+  // [A-Za-z0-9_], así que la "í" NO es caracter de palabra y `\bsí\b` no casa
+  // nunca. "Sí, contamos con ese producto" se escapaba por eso. Se delimita a
+  // mano con espacios y puntuación en vez de con `\b`.
+  /(^|[\s,.;:¡!¿?"'])(s[ií]|claro|por supuesto|obvio|dale)(?=[\s,.;:!?]|$)[^.!?\n]{0,40}\b(tenemos|tengo|manejamos|manejo|contamos con|disponemos de|lo trabajamos)\b/i,
+  // "lo tenemos", "sí lo manejamos", "tenés el curso"
+  /\b(lo|la|los|las) (tenemos|tengo|manejamos|manejo)\b/i,
+  /\bten[eé]s (un|el|la|el curso)\b/i,
+  // lo que ya se atajaba y sigue valiendo
+  /\b(te ense[ñn]a|incluye|te paso la ficha)\b/i,
+];
+
+/**
+ * El texto NIEGA tenerlo. Manda sobre cualquier afirmación posterior.
+ *
+ * "No manejo ese producto, pero te muestro lo que sí tengo" es exactamente la
+ * respuesta CORRECTA cuando el cliente pidió algo que no existe — y lleva un
+ * "sí tengo" adentro. Sin este freno, el candado contra inventos se comería la
+ * única respuesta honesta que hay.
+ */
+const NIEGA_TENER =
+  /\bno\s+(lo\s+|la\s+|los\s+|las\s+)?(tengo|tenemos|manejo|manejamos|contamos|dispongo|disponemos|trabajo|trabajamos)\b/i;
+
+export function afirmaTenerlo(texto: string): boolean {
+  const t = String(texto || "");
+  if (NIEGA_TENER.test(t)) return false;
+  return AFIRMA_TENER.some((re) => re.test(t));
+}
+
 export function negarloSeriaMentira(
   mensaje: string,
   productos: Array<{ name?: string | null } | null | undefined>,
