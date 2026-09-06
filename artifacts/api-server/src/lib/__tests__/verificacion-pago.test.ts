@@ -30,9 +30,20 @@ describe("reconocer un comprobante sin confundirlo con cualquier foto", () => {
     expect(pareceComprobante("una persona sonriendo frente a una cámara", true)).toBe(false);
   });
 
-  it("sin descripción no se inventa nada", () => {
-    expect(pareceComprobante(null, true)).toBe(false);
-    expect(pareceComprobante("", true)).toBe(false);
+  // Este test decía lo contrario ("sin descripción no se inventa nada") y la
+  // política se invirtió a propósito el 2026-09-05. El motivo: `VISION_MODELS`
+  // apuntaba en producción a tres candidatos de OpenRouter y NVIDIA sin clave
+  // de ninguno de los dos, así que `describirImagen` devolvía null SIEMPRE y
+  // este `false` hacía que el pago no se registrara ni se avisara a nadie.
+  // Silencio total sobre plata ya transferida.
+  //
+  // Se prefiere el falso positivo: el admin recibe la foto y decide en dos
+  // segundos. La etapa de cobro acota bastante -- una foto suelta en una
+  // charla de exploración sigue sin molestar a nadie.
+  it("sin descripción, la etapa decide", () => {
+    expect(pareceComprobante(null, true)).toBe(true);
+    expect(pareceComprobante("", true)).toBe(true);
+    expect(pareceComprobante(null, false)).toBe(false);
   });
 });
 

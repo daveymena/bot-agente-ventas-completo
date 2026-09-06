@@ -76,7 +76,21 @@ export function pareceComprobante(
   etapaDeCobro: boolean,
 ): boolean {
   const d = String(descripcion || "");
-  if (!d.trim()) return false;
+
+  // ── Sin descripción NO se descarta: se mira la etapa ────────────────────
+  //
+  // Devolver `false` acá dejaba todo el aviso colgando de que el modelo de
+  // visión contestara. Y durante semanas no contestó: `VISION_MODELS` apuntaba
+  // en producción a tres candidatos de OpenRouter y NVIDIA sin clave de
+  // ninguno de los dos, así que `describirImagen` devolvía `null` siempre.
+  // Resultado: el cliente pagaba, mandaba la foto, y no se registraba el pago
+  // ni se avisaba a nadie. Silencio total sobre plata ya transferida.
+  //
+  // Si el cliente estaba pagando y manda una imagen, se avisa aunque no se
+  // sepa qué tiene: el admin recibe la foto y decide. Un aviso de más cuesta
+  // una mirada; uno de menos cuesta la venta y la confianza.
+  if (!d.trim()) return etapaDeCobro;
+
   if (SENALES_FUERTES.test(d)) return true;
   return etapaDeCobro && SENALES_DEBILES.test(d);
 }
