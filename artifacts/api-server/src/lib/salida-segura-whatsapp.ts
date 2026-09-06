@@ -22,10 +22,17 @@ const PLACEHOLDER = /(?:\$\s?[Xx]+(?:[.,\s][Xx]+)*|\$\s?_{2,}|\bXXX+\b|\[\s*(?:P
 // casos.
 const VERBO_ENTREGA = String.raw`(?:pas(?:o|e|ar[eé]?|amos)|dej(?:o|e|ar[eé]?)|env[ií](?:o|e|ar[eé]?)|mand(?:o|e|ar[eé]?)|muestro|mostrar[eé]?|comparto|compartir[eé]?)`;
 
+// Cómo nombra el modelo lo que va a mandar para cobrar. Empezó siendo solo
+// "medios de pago" y por eso el cierre se escapaba: al cliente que dijo
+// "quiero comprarlo, ¿cómo hago el pedido?" le contestó "te dejo los enlaces
+// de pago listos abajo" y no llegó nada. "enlaces", "datos" y "links" son las
+// otras tres formas que aparecieron en conversaciones reales.
+const COSA_DE_PAGO = String.raw`(?:medios?|formas?|opciones?|m[eé]todos?|enlaces?|links?|datos?|botones?)\s+de\s+pago`;
+
 const CLAIMS: Array<{ pattern: RegExp; key: string }> = [
   { pattern: new RegExp(`${VERBO_ENTREGA}.*\\b(?:video|v[ií]deo)\\b`, "i"), key: "video" },
   { pattern: new RegExp(`${VERBO_ENTREGA}.*\\b(?:precio|valor)\\b`, "i"), key: "precio" },
-  { pattern: new RegExp(`(?:\\b(?:medios?|formas?|opciones?)\\s+de\\s+pago\\b).*\\b${VERBO_ENTREGA}\\b|${VERBO_ENTREGA}.*\\b(?:medios?|formas?|opciones?)\\s+de\\s+pago\\b`, "i"), key: "pago" },
+  { pattern: new RegExp(`(?:\\b${COSA_DE_PAGO}\\b).*\\b${VERBO_ENTREGA}\\b|${VERBO_ENTREGA}.*\\b${COSA_DE_PAGO}\\b`, "i"), key: "pago" },
   { pattern: new RegExp(`${VERBO_ENTREGA}.*\\b(?:informaci[oó]n|info|detalles?|contenido)\\b`, "i"), key: "contenido" },
   { pattern: new RegExp(`${VERBO_ENTREGA}.*\\b(?:tienda|enlace de la tienda)\\b`, "i"), key: "tienda" },
 ];
@@ -144,6 +151,16 @@ export function reconciliarPromesas(parts: SalidaPart[]): { parts: SalidaPart[];
       const claim = CLAIMS.find((c) => c.pattern.test(trimmed));
       if (claim) {
         removed.push(hasDelivery(parts, claim.key) ? trimmed : `${trimmed} [prometido sin enviar]`);
+        // La promesa casi nunca viene sola: viaja dentro de un párrafo con
+        // argumento de venta que sí sirve. Borrar la línea entera dejaba sin
+        // respuesta al cliente que acababa de decir "quiero comprarlo", que es
+        // el peor momento posible para quedarse callado. Se quita solo la
+        // oración que promete y se conserva el resto.
+        const oraciones = trimmed.split(/(?<=[.!?…])\s+/);
+        if (oraciones.length > 1) {
+          const sobreviven = oraciones.filter((o) => !CLAIMS.some((c) => c.pattern.test(o)));
+          if (sobreviven.length) kept.push(sobreviven.join(" "));
+        }
         continue;
       }
       kept.push(line);

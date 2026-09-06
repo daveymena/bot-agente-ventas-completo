@@ -425,7 +425,7 @@ export function renderEstado(s: EstadoCognitivo): string {
  * el último paso, no el primero.
  */
 const PIDE_PAGAR =
-  /\b(c[oó]mo (pago|puedo pagar|hago para pagar)|d[oó]nde (pago|consigno|transfiero)|formas? de pago|m[eé]todos? de pago|medios? de pago|datos? (de|para) (pago|transferencia)|mand[aá]me? (el|los) (link|enlace|datos)|link de pago|quiero (pagar|comprarlo|llevarlo)|lo (compro|llevo)|d[oó]nde (le )?consigno|n[uú]mero de (nequi|cuenta))/i;
+  /\b(c[oó]mo (pago|puedo pagar|hago para pagar)|c[oó]mo (hago|realizo|hago el|genero) (el |mi )?pedido|c[oó]mo (lo )?(compro|adquiero|pido)|d[oó]nde (lo )?compro|d[oó]nde (pago|consigno|transfiero)|formas? de pago|m[eé]todos? de pago|medios? de pago|enlaces? de pago|datos? (de|para) (pago|transferencia)|m[aá]nd[aá]me? (el|los) (link|enlace|datos)|link de pago|quiero (pagar|comprarlo|llevarlo)|lo (compro|llevo)|d[oó]nde (le )?consigno|n[uú]mero de (nequi|cuenta))/i;
 
 /**
  * ¿El cliente PIDIÓ los datos de pago, con todas las letras?

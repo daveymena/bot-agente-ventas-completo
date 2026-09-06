@@ -83,3 +83,32 @@ describe("salida final de WhatsApp", () => {
     expect(texto).toContain("confirmarte ese dato exacto");
   });
 });
+
+describe("el cierre que no mandaba nada", () => {
+  // Mensaje literal del bot (2026-09-05) cuando el cliente dijo "Listo, quiero
+  // comprarlo, ¿cómo hago el pedido?". Los enlaces nunca llegaron. Se repitió
+  // en dos rondas de prueba distintas.
+  const CIERRE =
+    "¡Excelente decisión! 🎉 El acceso se envía por Google Drive apenas confirmes el pago. " +
+    "Te dejo los enlaces de pago listos abajo, elige el que te quede más cómodo. " +
+    "En cuanto se confirme, te mando el curso al instante 📦";
+
+  it("quita la promesa de enlaces de pago cuando no viaja ninguno", () => {
+    const r = reconciliarPromesas([{ kind: "text", content: CIERRE }]);
+    expect(r.parts[0].content).not.toMatch(/enlaces de pago/i);
+    expect(r.removed.join(" ")).toContain("prometido sin enviar");
+  });
+
+  it("pero NO deja mudo al cliente que acaba de decir que compra", () => {
+    const r = reconciliarPromesas([{ kind: "text", content: CIERRE }]);
+    expect(r.parts[0].content).toContain("Excelente decisión");
+    expect(r.parts[0].content).toContain("Google Drive");
+  });
+
+  it("cubre las otras formas de nombrar el pago", () => {
+    for (const t of ["Te paso los datos de pago.", "Te dejo los enlaces de pago listos abajo."]) {
+      const r = reconciliarPromesas([{ kind: "text", content: t }]);
+      expect(r.removed.length, t).toBeGreaterThan(0);
+    }
+  });
+});
