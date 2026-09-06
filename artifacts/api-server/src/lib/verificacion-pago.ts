@@ -164,6 +164,8 @@ export function avisoParaElAdmin(p: {
   monto: number;
   moneda: string;
   descripcion?: string | null;
+  /** Lo que la vision leyo del comprobante, ya cotejado (`leer-comprobante.ts`). */
+  lectura?: string | null;
 }): string {
   const monto = p.monto > 0 ? `$${p.monto.toLocaleString("es-CO")} ${p.moneda}` : "monto sin confirmar";
   const l = [
@@ -174,6 +176,15 @@ export function avisoParaElAdmin(p: {
     `💰 ${monto}`,
   ];
   if (p.descripcion) l.push(`🔎 ${String(p.descripcion).slice(0, 200)}`);
+
+  // Lo que se leyó del comprobante va ANTES de los botones: es lo que hace
+  // falta para decidir, y en el celular lo de abajo es lo que se ve primero
+  // pero lo de arriba es lo que se lee.
+  if (p.lectura) {
+    l.push(``);
+    l.push(String(p.lectura));
+  }
+
   l.push(``);
   l.push(`Revisa que el dinero esté en tu cuenta y responde:`);
   l.push(`✅ *APROBAR ${p.pagoId}*`);
@@ -369,6 +380,43 @@ export async function esTelefonoDeAdmin(phone: string): Promise<boolean> {
  * ese mismo número. Si un negocio cargó su teléfono, el del entorno ya no
  * recibe sus avisos y tampoco puede aprobar sus pagos.
  */
+/**
+ * ¿Son el mismo teléfono, aunque uno traiga el indicativo del país y el otro no?
+ *
+ * WhatsApp entrega el número SIEMPRE con indicativo ("573136174267"), pero el
+ * dueño del negocio escribe su teléfono en el panel como lo escribe todo el
+ * mundo en Colombia: "3136174267". El propio bot lo muestra así en su bloque
+ * de pago ("Nequi 3136174267 Duvier Mena").
+ *
+ * La comparación era EXACTA, así que esos dos no casaban: el dueño de un
+ * negocio nuevo no podía aprobar NINGUNO de sus pagos, y su "APROBAR 47" se
+ * iba de largo hasta el agente de ventas, que le contestaba como si fuera un
+ * cliente. Falla en silencio y en el peor lugar: el cobro.
+ *
+ * No se vuelve a `includes()` —que es lo que hace `isAdminPhone` y por lo que
+ * un número que contenga al del admin aprobaría dinero ajeno—. La regla es
+ * estrecha a propósito:
+ *
+ *   · los dos tienen que tener al menos 8 dígitos,
+ *   · el corto tiene que tener al menos 9 (un número de móvil entero),
+ *   · la diferencia no puede pasar de 3 dígitos (cabe un indicativo, no más),
+ *   · y el largo tiene que TERMINAR en el corto.
+ *
+ * "3136174267" vs "573136174267" casa. "6174267" vs "573136174267" no.
+ */
+export function mismoTelefono(a: string, b: string): boolean {
+  const A = String(a || "").replace(/[^0-9]/g, "");
+  const B = String(b || "").replace(/[^0-9]/g, "");
+  if (A.length < 8 || B.length < 8) return false;
+  if (A === B) return true;
+
+  const largo = A.length >= B.length ? A : B;
+  const corto = A.length >= B.length ? B : A;
+  if (corto.length < 9) return false;
+  if (largo.length - corto.length > 3) return false;
+  return largo.endsWith(corto);
+}
+
 export async function tenantsQueAdministra(phone: string): Promise<number[]> {
   const quien = String(phone || "").replace(/[^0-9]/g, "");
   if (quien.length < 8) return [];
@@ -383,12 +431,12 @@ export async function tenantsQueAdministra(phone: string): Promise<number[]> {
     // al del admin como subcadena pasaría el chequeo -- y este chequeo aprueba
     // dinero.
     const propios = filas
-      .filter((t: any) => String(t.contactPhone || "").replace(/[^0-9]/g, "") === quien)
+      .filter((t: any) => mismoTelefono(t.contactPhone, quien))
       .map((t: any) => Number(t.id));
     if (propios.length > 0) return propios;
 
     const delEntorno = String(process.env.ADMIN_PHONE || "").replace(/[^0-9]/g, "");
-    if (delEntorno && quien === delEntorno) {
+    if (delEntorno && mismoTelefono(delEntorno, quien)) {
       return filas
         .filter((t: any) => String(t.contactPhone || "").replace(/[^0-9]/g, "").length < 8)
         .map((t: any) => Number(t.id));

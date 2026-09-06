@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { pareceComprobante, leerDecisionDelAdmin, avisoParaElAdmin, codigoDe, tenantsQueAdministra } from "../verificacion-pago";
+import { pareceComprobante, leerDecisionDelAdmin, avisoParaElAdmin, codigoDe, tenantsQueAdministra, mismoTelefono } from "../verificacion-pago";
 
 /**
  * Los pagos por Nequi/Daviplata no tienen webhook: nadie le avisa al sistema
@@ -265,5 +265,49 @@ describe("El aviso al admin y el parser hablan el mismo idioma", () => {
     for (const t of ["hola como estas", "no tengo el comprobante todavia", "ok gracias"]) {
       expect(leerDecisionDelAdmin(t), t).toBe(null);
     }
+  });
+});
+
+/**
+ * ── El indicativo del país ────────────────────────────────────────────────
+ *
+ * WhatsApp entrega el número con indicativo ("573136174267"); el dueño del
+ * negocio escribe el suyo en el panel como se escribe en Colombia
+ * ("3136174267"). Con comparación exacta, el dueño de un negocio nuevo NO
+ * podía aprobar ninguno de sus pagos — y su "APROBAR 47" se iba de largo
+ * hasta el agente de ventas.
+ *
+ * Pero esto aprueba dinero, así que la tolerancia es estrecha: nada de
+ * `includes()`.
+ */
+describe("Reconocer el teléfono del admin con o sin indicativo", () => {
+  it("el mismo número, con y sin indicativo", () => {
+    expect(mismoTelefono("3136174267", "573136174267")).toBe(true);
+    expect(mismoTelefono("573136174267", "3136174267")).toBe(true);
+    expect(mismoTelefono("+57 313 617 4267", "573136174267")).toBe(true);
+  });
+
+  it("idéntico, obvio", () => {
+    expect(mismoTelefono("573136174267", "573136174267")).toBe(true);
+  });
+
+  it("NO acepta un sufijo corto: eso aprobaría plata ajena", () => {
+    expect(mismoTelefono("6174267", "573136174267")).toBe(false);
+    expect(mismoTelefono("4267", "573136174267")).toBe(false);
+  });
+
+  it("NO acepta una diferencia mayor que un indicativo", () => {
+    expect(mismoTelefono("136174267", "99999573136174267")).toBe(false);
+  });
+
+  it("números distintos siguen siendo distintos", () => {
+    expect(mismoTelefono("3136174267", "573001112233")).toBe(false);
+    expect(mismoTelefono("573136174267", "573136174268")).toBe(false);
+  });
+
+  it("vacío o basura no es nadie", () => {
+    expect(mismoTelefono("", "573136174267")).toBe(false);
+    expect(mismoTelefono("123", "573136174267")).toBe(false);
+    expect(mismoTelefono("", "")).toBe(false);
   });
 });

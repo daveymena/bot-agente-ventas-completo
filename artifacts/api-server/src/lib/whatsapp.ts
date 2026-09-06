@@ -2134,8 +2134,25 @@ export class WhatsAppManager {
                     // confirmó al cliente como si lo hubiera visto. La
                     // descripción real se guarda en `comprobanteVisto` SOLO
                     // para la detección interna y el aviso al admin.
-                    text = "[el cliente mandó una imagen]";
-                    console.log(`🖼️ [IMAGEN] ${visto ? "descrita (solo interno)" : "sin modelo que la vea"}`);
+                    // ── Y si NO se pudo ver, el agente tiene que saberlo ─────
+                    //
+                    // Con "[el cliente mandó una imagen]" a secas, el agente no
+                    // distingue una imagen VISTA de una que nadie miró, y
+                    // rellena el hueco. Medido contra producción el 2026-09-06:
+                    // el cliente mandó la foto de un paisaje y el bot contestó
+                    // "Recibí tu comprobante".
+                    //
+                    // El admin lo dijo así: "echa mentira diciendo que los datos
+                    // son tales cuando ni siquiera los lee".
+                    //
+                    // Y no es un caso raro: cuando no hay ningún modelo de
+                    // visión con clave —que fue el estado de producción durante
+                    // semanas— `describirImagen` devuelve null SIEMPRE, o sea
+                    // que TODAS las imágenes caen acá.
+                    text = visto
+                      ? "[el cliente mandó una imagen]"
+                      : "[el cliente mandó una imagen que NO se pudo ver: no digas qué contiene, no la des por comprobante y no confirmes ningún pago]";
+                    console.log(`🖼️ [IMAGEN] ${visto ? "descrita (solo interno)" : "SIN MODELO QUE LA VEA: no hay ninguna vision con clave"}`);
 
                     // Si es un comprobante de pago hay que GUARDARLO y avisarle
                     // al admin. Antes la foto se describía y se tiraba: no
@@ -2449,6 +2466,42 @@ export class WhatsAppManager {
       return;
     }
 
+    // ── Leer el comprobante de verdad, no solo mirarlo ────────────────
+    //
+    // Pedido del admin el 2026-09-06: "el bot debería poder ver la fecha, el
+    // monto, y si la transferencia dice mi nombre y mis datos". Y en la misma
+    // frase el límite: "además echa mentira diciendo que los datos son tales
+    // cuando ni siquiera los lee".
+    //
+    // `describirImagen` (que ya corrió y produjo `visto`) contesta QUÉ TIPO de
+    // imagen es y tiene prohibido afirmar montos — por el Excel que el
+    // 2026-09-05 describió como "comprobante con valor, fecha y banco". Esto
+    // es la otra pregunta: QUÉ DICE, campo por campo, y qué NO se pudo leer.
+    //
+    // El cotejo contra la cuenta real del negocio lo hace el servidor, no el
+    // modelo. Y nada de esto aprueba nada: sigue decidiendo el admin.
+    let bloqueLeido = "";
+    try {
+      const { leerComprobante, cotejarComprobante, bloqueDeLectura } = await import("./leer-comprobante");
+      const { credencialesDe } = await import("./tenant-payment-credentials");
+      const { tenantManager } = await import("./tenantManager");
+
+      const leido = await leerComprobante(buf, mime);
+      const tenant = await tenantManager.getTenantById(this.currentTenant.id);
+      const cuentas = credencialesDe(tenant as any)?.transfer?.accounts || [];
+      const cotejos = cotejarComprobante(leido, {
+        cuentas,
+        monto: producto ? Number(producto.price) : null,
+        moneda: producto?.currency || "COP",
+      });
+      bloqueLeido = bloqueDeLectura(cotejos);
+    } catch (e: any) {
+      // Sin lectura el aviso igual sale: es preferible que el admin revise su
+      // cuenta a mano, a que nadie se entere del pago.
+      bloqueLeido = "🔍 No pude leer el comprobante (falló la revisión automática): revisalo vos.";
+      console.error(`[Pago] no se pudo leer el comprobante: ${e?.message}`);
+    }
+
     const aviso = avisoParaElAdmin({
       pagoId,
       cliente: pushName || convo.contactName || phone,
@@ -2457,6 +2510,7 @@ export class WhatsAppManager {
       monto: producto ? Number(producto.price) : 0,
       moneda: producto?.currency || "COP",
       descripcion: visto,
+      lectura: bloqueLeido,
     });
 
     try {

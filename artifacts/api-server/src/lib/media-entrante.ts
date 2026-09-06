@@ -35,7 +35,7 @@ import { logger } from "./logger";
 const VISION_DE_RESERVA = { proveedor: "deepseek", modelo: "deepseek-v4-flash-vision-exp" };
 
 /** Modelos con vision, en orden. "proveedor|modelo" separados por coma. */
-function modelosDeVision(): Array<{ proveedor: string; modelo: string }> {
+export function modelosDeVision(): Array<{ proveedor: string; modelo: string }> {
   const configurados = String(process.env.VISION_MODELS || "")
     .split(",")
     .map((par) => par.trim())
@@ -56,6 +56,34 @@ function modelosDeVision(): Array<{ proveedor: string; modelo: string }> {
     (p) => p.proveedor === VISION_DE_RESERVA.proveedor && p.modelo === VISION_DE_RESERVA.modelo,
   );
   return yaEsta ? configurados : [...configurados, VISION_DE_RESERVA];
+}
+
+/**
+ * ¿Hay algún modelo de visión con clave, o el bot está ciego?
+ *
+ * Existe porque la ceguera de este sistema es SILENCIOSA y ya costó caro:
+ * `VISION_MODELS` apuntó durante semanas en producción a tres candidatos de
+ * OpenRouter y NVIDIA sin clave de ninguno de los dos, y `describirImagen`
+ * devolvía null en todas las imágenes sin que nadie se enterara. El efecto no
+ * era "no describe fotos": era que un cliente pagaba, mandaba el comprobante,
+ * y el bot le contestaba "Recibí tu comprobante" sin haber visto nada.
+ *
+ * Se exporta para poder preguntarlo desde afuera (diagnóstico, salud) y no
+ * tener que deducirlo de la ausencia de descripciones.
+ */
+export function visionDisponible(): { hay: boolean; conClave: string[]; sinClave: string[] } {
+  const conClave: string[] = [];
+  const sinClave: string[] = [];
+  for (const { proveedor, modelo } of modelosDeVision()) {
+    let tiene = false;
+    try {
+      tiene = !!getProviderConfig(proveedor)?.apiKey;
+    } catch {
+      tiene = false;
+    }
+    (tiene ? conClave : sinClave).push(`${proveedor}|${modelo}`);
+  }
+  return { hay: conClave.length > 0, conClave, sinClave };
 }
 
 /**
@@ -145,6 +173,17 @@ export async function describirImagen(imagen: Buffer, mime = "image/jpeg"): Prom
     + "(por ejemplo: comprobante de pago, hoja de cálculo de Excel, captura de pantalla, foto de un producto, etc.). "
     + "NO afirmes montos, fechas, nombres de bancos ni números salvo que los leas con total claridad. "
     + "Si no estás seguro de qué es, decí 'no está claro'. No inventes nada que no se vea con claridad.";
+
+  const disponible = visionDisponible();
+  if (!disponible.hay) {
+    // Un `return null` mudo acá es lo que dejó al bot ciego durante semanas
+    // sin que nadie lo notara. Que quede escrito qué se intentó y con qué.
+    logger.error(
+      { sinClave: disponible.sinClave, VISION_MODELS: process.env.VISION_MODELS || "(sin configurar)" },
+      "[Media] NINGUN modelo de vision tiene clave: el bot NO puede ver ninguna imagen",
+    );
+    return null;
+  }
 
   for (const { proveedor, modelo } of modelosDeVision()) {
     const cfg = getProviderConfig(proveedor);
