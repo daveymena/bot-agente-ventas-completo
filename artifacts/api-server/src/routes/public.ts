@@ -375,7 +375,31 @@ router.post("/fb-connect", rateLimitPublico(10, 10 * 60 * 1000, "fb-connect"), a
       const lista: any[] = cuentas?.data || [];
       // account_status 1 = activa. Si hay varias se toma la primera activa;
       // el admin puede cambiarla después desde la pantalla de Facebook.
-      const elegida = lista.find((c) => c.account_status === 1) || lista[0];
+      // ── LA CUENTA QUE YA ESTABA EN USO MANDA ────────────────────────
+      //
+      // Esto elegia "la primera activa" SIEMPRE, incluso al reconectar. Con
+      // dos cuentas publicitarias eso te cambia de cuenta sin avisar, y las
+      // campañas desaparecen de la pantalla porque se estan pidiendo de otro
+      // lado.
+      //
+      // Medido con el dueño el 2026-09-07: tiene "Duvier Davey Mena Mosquera"
+      // (COP, con 4 campañas y $30.579 gastados) y "VentasPro - Cursos
+      // Digitales" (USD, vacia). Reconecto y quedo apuntando a la vacia. Le
+      // costo dos dias de "pero si ayer funcionaba".
+      //
+      // Reconectar sirve para renovar el TOKEN; no es una orden de cambiar de
+      // cuenta. Si ya habia una elegida y sigue estando disponible, se
+      // respeta: la eleccion del dueño vale mas que un orden de lista que
+      // decide Meta.
+      const yaElegida = String((meta.facebook as any)?.adAccountId || "");
+      const seguiaDisponible = yaElegida && lista.some((c) => String(c.account_id) === yaElegida);
+      const elegida = seguiaDisponible
+        ? lista.find((c) => String(c.account_id) === yaElegida)
+        : lista.find((c) => c.account_status === 1) || lista[0];
+      if (seguiaDisponible) {
+        logger.info({ tenantId, adAccountId: yaElegida },
+          "[FB-Connect] Se conserva la cuenta publicitaria que ya estaba en uso");
+      }
       if (elegida?.account_id) {
         (meta.facebook as any).adAccountId = String(elegida.account_id);
         (meta.facebook as any).adAccountName = elegida.name || "";

@@ -963,15 +963,32 @@ router.get("/config", async (req, res, next) => {
     const meta = tenant?.metadata ? (typeof tenant.metadata === "string" ? JSON.parse(tenant.metadata) : tenant.metadata) : {};
     const cfg = meta.facebook || {};
 
-    // Si no hay configuración en la BD, usar valores de entorno
-    const pageId = cfg.pageId || process.env.FB_PAGE_ID || "";
-    const adAccountId = cfg.adAccountId || process.env.FB_AD_ACCOUNT_ID || "";
-    const pixelId = cfg.pixelId || process.env.FB_PIXEL_ID || "";
+    // ── EL RESPALDO DEL .env ES SOLO PARA EL DUEÑO DEL SERVIDOR ───────────
+    //
+    // Esto caia al entorno para CUALQUIER negocio. Consecuencia medida el
+    // 2026-09-07 con la sesion de otro inquilino: la pantalla de Facebook le
+    // mostraba `hasToken: true` con el ID de cuenta publicitaria, la pagina y
+    // el pixel DEL DUEÑO DE LA PLATAFORMA.
+    //
+    // Son dos daños a la vez: al cliente le dice que ya tiene Facebook
+    // conectado cuando no conecto nada --asi que nunca lo conecta-- y de paso
+    // le expone datos que no son suyos.
+    //
+    // `FacebookService` ya lo hacia bien (ver `esDuenoDelServidor` en
+    // lib/facebook.ts): el respaldo vale solo para el tenant dueño. Por eso
+    // esta pantalla decia "conectado" y /validate decia "sin token" -- uno
+    // usaba el respaldo y el otro no. Se aplica aca la misma regla.
+    const esDuenoDelServidor = tenantId === tenantManager.getDefaultTenant().id;
+    const env = (v: string | undefined) => (esDuenoDelServidor ? v || "" : "");
+
+    const pageId = cfg.pageId || env(process.env.FB_PAGE_ID);
+    const adAccountId = cfg.adAccountId || env(process.env.FB_AD_ACCOUNT_ID);
+    const pixelId = cfg.pixelId || env(process.env.FB_PIXEL_ID);
     const catalogId = cfg.catalogId || "";
     // cfg.accessToken está encriptado en la BD -- desencriptar antes de armar
     // el "•••••1234" de vista previa, si no se enmascaraban los últimos 4
     // caracteres del texto cifrado (ilegibles) en vez del token real.
-    const accessToken = decryptSecret(cfg.accessToken) || process.env.FB_ACCESS_TOKEN || "";
+    const accessToken = decryptSecret(cfg.accessToken) || env(process.env.FB_ACCESS_TOKEN);
     
     return res.json({
       accessToken: accessToken ? "•••••" + accessToken.slice(-4) : "",
