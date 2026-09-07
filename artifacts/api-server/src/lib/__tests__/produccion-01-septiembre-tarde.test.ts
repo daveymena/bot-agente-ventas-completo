@@ -144,6 +144,16 @@ describe("Sacar el monto no puede dejar la frase con un hueco", () => {
     expect(limpiar("El curso cuesta $60.000 y viene con acceso de por vida.")).not.toMatch(/cuesta\s*y/);
   });
 
+  // Medido con el agente entero el 2026-09-06: el cliente preguntó "cuanto
+  // vale?" y recibió "💰 pago único." -- sin un solo número. El monto era el
+  // sujeto de la frase, y al sacarlo quedó una coletilla. Los filtros de
+  // arriba no lo veían porque "pago único" no es "valor" ni "costo": el hueco
+  // no siempre deja una palabra que lo delate.
+  it("descarta el resto cuando el monto ERA la frase", () => {
+    expect(limpiar("💰 $60.000, pago único.")).toBe("");
+    expect(limpiar("$60.000 COP")).toBe("");
+  });
+
   it("no toca las frases que no hablaban de precio", () => {
     const t = "Claro que sí 😊 Te cuento cómo funciona.";
     expect(limpiar(t)).toBe(t);

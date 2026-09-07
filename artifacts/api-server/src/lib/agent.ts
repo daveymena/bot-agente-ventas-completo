@@ -2086,6 +2086,13 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
         // un formulario, y a un formulario por WhatsApp la gente no contesta.
         return { nombre: pendientes[0].nombre, pregunta: preguntaPorLaOpcion(pendientes[0]) };
       })(),
+      // ¿Nombró un producto en ESTE mensaje? Elegir ya es una respuesta: al
+      // que dice "me interesa el curso de diseño gráfico" no hay que
+      // preguntarle para qué lo quiere antes de mostrárselo.
+      //
+      // Se usa `productoEstado`, que es el producto que el servidor resolvió
+      // para este turno, no una corazonada del modelo.
+      nombroProducto: !!productoEstado,
       // Cómo eligió vender ESTE negocio. Si no eligió nada viene el defecto,
       // que es exactamente el comportamiento que había antes de esta perilla.
       estilo: (negocio as any)?.estiloDeVenta,

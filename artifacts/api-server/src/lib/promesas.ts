@@ -256,6 +256,34 @@ export function sinElMontoQueVaEnLaFicha(texto: string): string {
   // que la sostenia.
   if (/\b(valor|precio|costo|vale|cuesta|sale|queda|cobr\w+)\b/i.test(sinMonto)) return "";
 
+  // ── Sacar el monto del medio de una frase la rompe ─────────────────────
+  //
+  // Acá se recortaba el número y se mandaba lo que quedara. Con el monto al
+  // final a veces salía bien, pero en el medio nunca:
+  //
+  //   "💰 $60.000, pago único."            ->  "💰 pago único."
+  //   "Son $60.000 y lo recibís por Drive" ->  "Son y lo recibís por Drive"
+  //   "Te lo dejo en $60.000 e incluye…"   ->  "Te lo dejo en e incluye…"
+  //
+  // El primero es real, medido el 2026-09-06 con el agente entero: el cliente
+  // preguntó cuánto vale y recibió "💰 pago único.", sin un solo número. Los
+  // filtros de arriba no lo veían porque "pago único" no es "valor" ni
+  // "costo": el hueco no siempre deja una palabra que lo delate.
+  //
+  // Se cuentan las palabras con contenido de lo que sobrevivió: si quedan
+  // menos de tres, el monto ERA la frase y lo que queda es relleno. Con tres
+  // o más la frase se sostiene sola y se conserva --esa decisión ya estaba
+  // tomada y tiene su prueba ("Te dejo la info completa acá abajo, son … en
+  // total"), así que no se toca.
+  //
+  // El precio le llega igual cuando se descarta: esto solo corre con la
+  // sección de precio adjunta, y ahí está el número bien puesto, una vez.
+  const conContenido = sinMonto
+    .replace(/[^a-záéíóúñü0-9\s]/gi, " ")
+    .split(/\s+/)
+    .filter((p) => p.length >= 3);
+  if (conContenido.length < 3) return "";
+
   return sinMonto.replace(/[\s,:;.-]+$/, "").length >= 6 ? sinMonto : "";
 }
 

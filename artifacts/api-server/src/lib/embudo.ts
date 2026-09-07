@@ -66,6 +66,15 @@ export interface EntradaEmbudo {
   /** Lo que el cliente dijo que necesita, si ya se sabe. */
   necesidad?: string | null;
   /**
+   * El cliente nombró un producto concreto en ESTE mensaje.
+   *
+   * Elegir ya es una respuesta: quien dice "me interesa el curso de diseño
+   * gráfico" no necesita que le pregunten para qué lo quiere antes de ver de
+   * qué se trata. Sin este dato el embudo lo mandaba a calificar y el cliente
+   * recibía "¿qué te gustaría lograr?" en vez del curso que pidió.
+   */
+  nombroProducto?: boolean;
+  /**
    * La opción obligatoria que el cliente todavía no eligió: talla, color,
    * para cuántas personas. Ya viene con su pregunta armada.
    *
@@ -264,6 +273,39 @@ export function proximoPaso(e: EntradaEmbudo): Paso {
       movimiento: "presentar",
       porQue: "preguntó un dato concreto del producto",
       instruccion: "Dale el dato que pidió, directo y completo. No lo cambies por una pregunta tuya.",
+    };
+  }
+
+  // ── 3b. Nombró el producto: elegir YA es una respuesta ──────────────────
+  //
+  // Medido en local el 2026-09-06, con el agente entero:
+  //
+  //   cliente: "me interesa el curso de diseño grafico"
+  //   bot:     "¡Buena elección! 🙌 Antes de pasarte todo, ¿qué te gustaría
+  //             lograr con el DISEÑO GRÁFICO?"
+  //
+  // El cliente eligió, y lo que recibió fue un interrogatorio. El modelo había
+  // escrito la respuesta correcta --presentar el curso con su ficha-- y el
+  // embudo la reemplazó por una pregunta.
+  //
+  // La regla de calificar de más abajo existe por una razón buena: preguntar
+  // para qué lo quiere permite hablarle de lo que a ÉL le importa. Pero eso
+  // aplica a quien todavía no eligió. Al que ya nombró el producto, calificarlo
+  // es hacerle repetir lo que acaba de decir.
+  //
+  // Es además lo que ya pedía el prompt del sistema, y no se estaba cumpliendo:
+  // "si el cliente ya nombró un producto, entregale la info y la card
+  // DIRECTAMENTE; solo pregunta UNA cosa concreta cuando el mensaje sea tan
+  // ambiguo que mostrar la opción equivocada arruinaría la venta".
+  //
+  // Con "siempre" el negocio pidió calificar igual, y eso se respeta.
+  if (e.nombroProducto && estilo.calificacion !== "siempre") {
+    return {
+      movimiento: "presentar",
+      porQue: "el cliente nombró un producto concreto: ya eligió",
+      instruccion:
+        "Presentale ESE producto con su ficha. No le preguntes para qué lo quiere: ya te dijo cuál. " +
+        "Explicale en pocas líneas qué es y qué se lleva, y dejale abierta la puerta a preguntar.",
     };
   }
 
