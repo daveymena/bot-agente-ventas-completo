@@ -492,6 +492,11 @@ function EnVivoTab() {
   // para siempre, sin forma de mirar mas atras.
   const [dias, setDias] = useState(7);
   const [cuentas, setCuentas] = useState<any[]>([]);
+  // ⚠️ El error de esta consulta se MUESTRA. La primera version escondia la
+  // fila entera cuando fallaba, que es el mismo defecto que se venia
+  // corrigiendo en esta pantalla: desaparecer en silencio deja al dueño sin
+  // saber si no tiene cuentas o si no se pudo preguntar.
+  const [errorCuentas, setErrorCuentas] = useState("");
 
   const cargar = useCallback(async () => {
     try {
@@ -521,8 +526,8 @@ function EnVivoTab() {
   useEffect(() => {
     fetch("/api/facebook/adaccounts", { credentials: "include" })
       .then((r) => r.json())
-      .then((j) => setCuentas(j.cuentas || []))
-      .catch(() => setCuentas([]));
+      .then((j) => { setCuentas(j.cuentas || []); setErrorCuentas(j.error || ""); })
+      .catch((e) => setErrorCuentas(e?.message || "No se pudo consultar las cuentas"));
   }, []);
 
   // Refresco automático: es una pantalla en vivo, no un informe. 60 s es el
@@ -617,6 +622,17 @@ function EnVivoTab() {
       {/* En que cuenta se esta mirando. Al reconectar Facebook la cuenta se
           elige sola (la primera activa), asi que con varias cuentas las
           campañas pueden "desaparecer" sin que nadie sepa por que. */}
+      {errorCuentas && (
+        <div className="rounded border border-destructive/30 bg-destructive/5 p-3 text-xs">
+          <p className="font-medium">No se pudieron leer tus cuentas publicitarias.</p>
+          <p className="mt-1 font-mono text-muted-foreground break-all">{errorCuentas}</p>
+          <p className="mt-1 text-muted-foreground">
+            Si dice que falta el token, es que la conexión con Facebook se
+            perdió: hay que reconectarla en Facebook.
+          </p>
+        </div>
+      )}
+
       {cuentas.length > 0 && (
         <div className="flex flex-wrap items-center gap-2 text-xs">
           <span className="text-muted-foreground">Cuenta publicitaria:</span>

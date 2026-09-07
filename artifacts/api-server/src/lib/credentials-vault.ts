@@ -55,6 +55,25 @@ function getEncryptionKey(): Buffer {
   return encryptionKey;
 }
 
+/**
+ * ¿Hay una clave FIJA configurada, o se esta usando una aleatoria?
+ *
+ * Con la aleatoria, todo lo encriptado antes de un reinicio queda ilegible
+ * despues. En produccion eso significa que el dueño conecta Facebook, funciona,
+ * y al siguiente despliegue "se desconecta solo" -- sin ningun error visible,
+ * porque `decryptSecret` devuelve cadena vacia y el sistema lo lee como
+ * "nunca configuro nada".
+ *
+ * Se expone para que `/api/health` lo diga: es un fallo silencioso que
+ * solo aparece horas despues y en otra pantalla, y sin esto la unica pista
+ * queda en un log de arranque que nadie mira.
+ *
+ * ⚠️ Devuelve un booleano, NUNCA la clave.
+ */
+export function tieneClaveFija(): boolean {
+  return !!process.env.CREDENTIALS_ENCRYPTION_KEY;
+}
+
 /** Encripta un valor para guardarlo en la BD. Vacío/null pasa tal cual. */
 export function encryptSecret(plain: string | null | undefined): string {
   if (!plain) return "";

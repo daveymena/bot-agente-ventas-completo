@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { logger } from "./lib/logger";
+import { tieneClaveFija } from "./lib/credentials-vault";
 
 const router = Router();
 
@@ -162,6 +163,18 @@ const healthHandler = async (req: any, res: any) => {
     // Ciego no es "roto", pero tampoco es "ok": sin vision no hay verificacion
     // de comprobantes, que es el paso donde se decide entregar un producto.
     if (vision && !vision.ok) problemas.push("sin-vision");
+    // ── LA CLAVE DEL BAUL ──────────────────────────────────────────────────
+    //
+    // Sin `CREDENTIALS_ENCRYPTION_KEY` fija, cada reinicio genera una clave
+    // aleatoria y TODO lo encriptado antes queda ilegible: el dueño conecta
+    // Facebook, funciona, y al siguiente despliegue "se desconecta solo".
+    //
+    // No tira ningun error -- `decryptSecret` devuelve cadena vacia y el
+    // sistema lo lee como "nunca configuro nada". La unica pista era un aviso
+    // en el log de arranque, que nadie mira. Costo una tarde entera de
+    // diagnostico el 2026-09-07.
+    const claveFija = tieneClaveFija();
+    if (!claveFija) problemas.push("sin-clave-de-credenciales");
 
     // ── Por qué SIEMPRE 200, incluso degradado ────────────────────────────
     //
@@ -188,6 +201,13 @@ const healthHandler = async (req: any, res: any) => {
     // devuelve 503.
     res.status(200).json({
       status: problemas.length === 0 ? "ok" : "degradado",
+      credenciales: {
+        claveFija,
+        // ⚠️ NUNCA la clave, solo si existe.
+        nota: claveFija
+          ? undefined
+          : "Sin CREDENTIALS_ENCRYPTION_KEY: los tokens guardados (Facebook, GitHub, correo) dejan de servir en cada reinicio.",
+      },
       ...(problemas.length ? { problemas } : {}),
       timestamp: new Date().toISOString(),
       uptime: process.uptime(),
