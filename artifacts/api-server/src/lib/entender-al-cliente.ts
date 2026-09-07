@@ -277,6 +277,37 @@ export function normalizar(
 const PROVEEDORES_RAPIDOS = ["deepseek", "groq"];
 
 /**
+ * El modelo de ENTENDER no es el de REDACTAR, y mezclarlos rompe uno de los dos.
+ *
+ * Esta ruta usaba `config.model`, o sea la misma variable que redacta las
+ * respuestas (`DEEPSEEK_MODEL`). Mientras ahí hubo un modelo veloz no se notó.
+ * Pero el modelo que mejor OBEDECE las reglas es de razonamiento y tarda 4 a 9
+ * segundos (medido 2026-09-06: `deepseek-v4-pro` acierta 3 de 3 en el cierre
+ * contra 1 de 3 de `deepseek-chat`), y acá el timeout es de 4 segundos.
+ *
+ * O sea: mejorar la redacción habría apagado el cerebro semántico sin que
+ * nadie se enterara. Daría timeout en cada mensaje y el agente volvería a
+ * decidir con los patrones, que es justo lo que esta capa vino a reemplazar.
+ * El filtro de abajo no lo atajaba: `deepseek-v4-pro` no dice "reasoner" ni
+ * "thinking" en el nombre.
+ *
+ * Son dos trabajos distintos y cada uno quiere lo suyo:
+ *   · entender qué quiso decir el cliente  -> rápido, decisión simple
+ *   · redactar lo que se le contesta       -> lento, tiene que obedecer reglas
+ *
+ * `ENTENDER_MODEL` permite fijarlo a mano; si no, se usa el rápido conocido de
+ * cada proveedor y recién después lo que haya configurado el negocio.
+ */
+const MODELO_RAPIDO: Record<string, string> = {
+  deepseek: "deepseek-v4-flash",
+  groq: "openai/gpt-oss-20b",
+};
+
+function modeloParaEntender(proveedor: string, config: any): string {
+  return String(process.env.ENTENDER_MODEL || MODELO_RAPIDO[proveedor] || config?.model || "");
+}
+
+/**
  * Entiende el mensaje. Esta función clasifica con contexto, pero NO redacta.
  * Timeout corto para que el agente de WhatsApp siga siendo interactivo.
  */
@@ -289,7 +320,25 @@ export async function entenderAlCliente(
   // pasaba del corte, `entenderAlCliente` devolvía null y el bot volvía a los
   // patrones — o sea que a veces entendía y a veces no, que se siente peor que
   // ser siempre robot. 4s deja margen sin que el cliente lo note.
-  const timeout = opciones.timeoutMs ?? 4000;
+  // ── 4 segundos dejaban afuera a uno de cada tres mensajes ──────────────
+  //
+  // Medido contra la API real el 2026-09-06, con diez mensajes de clientes de
+  // verdad y `deepseek-v4-flash` (el rápido):
+  //
+  //   "si porfa"            2,0s      "que incluye"          1,9s
+  //   "mandame el link"     2,0s      "precio"               2,8s
+  //   "lo quiero"           3,9s      "Si que vale ?"        4,7s  ❌
+  //   "quiero inscribirme"  5,0s ❌   "ya me decidi"         5,6s  ❌
+  //
+  // Tres de diez pasaban de 4s. Y cuando pasa, esta capa devuelve null EN
+  // SILENCIO y el agente decide con los patrones -- justo lo que esta capa
+  // vino a reemplazar. Es la explicación más probable de por qué el agente a
+  // veces entiende bien y a veces no: no es el modelo, es el reloj.
+  //
+  // 8s cubre todo lo medido con margen. El cliente ya espera al bot; que
+  // entienda mal es peor que que tarde dos segundos más. Si el proveedor se
+  // cae de verdad, el fallback a patrones sigue estando.
+  const timeout = opciones.timeoutMs ?? Number(process.env.ENTENDER_TIMEOUT_MS || 8000);
   const idsValidos = new Set((e.catalogo || []).map((p) => p.id));
   const prompt = construirPrompt(e);
 
@@ -328,9 +377,13 @@ export async function entenderAlCliente(
     // Nunca permitir que una configuración accidental mande reasoner/thinking
     // a esta ruta rápida. Si el tenant configuró un modelo lento, saltamos al
     // fallback en lugar de bloquear WhatsApp.
-    const modelo = String(config.model || "");
-    if (/reasoner|thinking|-r1\b|reasoning/i.test(modelo)) {
-      logger.warn({ proveedor, modelo }, "[Entender] modelo de razonamiento omitido en ruta rápida");
+    // Se decide sobre el modelo que ESTA ruta va a usar, no sobre el que el
+    // negocio configuró para redactar: son dos trabajos distintos (ver
+    // `modeloParaEntender`). Se agrega `-pro` a los lentos porque así nombra
+    // DeepSeek a su modelo de razonamiento, y no dice "reasoner".
+    const modelo = modeloParaEntender(proveedor, config);
+    if (!modelo || /reasoner|thinking|-r1\b|reasoning|-pro\b/i.test(modelo)) {
+      logger.warn({ proveedor, modelo }, "[Entender] modelo lento omitido en ruta rápida");
       continue;
     }
 
@@ -338,7 +391,7 @@ export async function entenderAlCliente(
       const client = createAIClient(config);
       const completion = await client.chat.completions.create(
         {
-          model: config.model,
+          model: modelo,
           messages: [{ role: "user", content: prompt }],
           temperature: 0,
           max_tokens: 450,
