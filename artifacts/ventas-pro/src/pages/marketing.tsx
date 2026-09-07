@@ -487,10 +487,14 @@ function EnVivoTab() {
   const [conectado, setConectado] = useState(true);
   const [sinCuenta, setSinCuenta] = useState(false);
   const [errorConsulta, setErrorConsulta] = useState("");
+  // ⚠️ La API acepta `days` de 1 a 30 y el panel NUNCA lo mandaba: se quedaba
+  // en el default de 7. Una campaña que gasto hace tres semanas mostraba cero
+  // para siempre, sin forma de mirar mas atras.
+  const [dias, setDias] = useState(7);
 
   const cargar = useCallback(async () => {
     try {
-      const r = await fetch("/api/facebook/campaigns", { credentials: "include" });
+      const r = await fetch(`/api/facebook/campaigns?days=${dias}`, { credentials: "include" });
       const j = await r.json();
       if (!r.ok) throw new Error(j?.message || "No se pudieron leer las campañas");
       setCampanas(j.campaigns || []);
@@ -508,7 +512,7 @@ function EnVivoTab() {
     } finally {
       setCargando(false);
     }
-  }, []);
+  }, [dias]);
 
   // Refresco automático: es una pantalla en vivo, no un informe. 60 s es el
   // ritmo al que Meta actualiza sus métricas; pedirlas más seguido no trae
@@ -579,6 +583,25 @@ function EnVivoTab() {
           habia forma de distinguir "reviso y esta todo bien" de "no esta
           corriendo". Esto lo hace visible. */}
       <ActividadDelAgente />
+
+      {/* La ventana de tiempo. Sin esto solo se veian los ultimos 7 dias y una
+          campaña que gasto antes mostraba cero sin explicacion posible. */}
+      <div className="flex items-center gap-2 text-xs">
+        <span className="text-muted-foreground">Ventana:</span>
+        {[7, 14, 30].map((d) => (
+          <button
+            key={d}
+            onClick={() => { setCargando(true); setDias(d); }}
+            className={`rounded-full border px-2.5 py-1 transition-colors ${
+              dias === d
+                ? "border-foreground/15 bg-muted font-semibold text-foreground"
+                : "border-transparent text-muted-foreground hover:bg-muted/60"
+            }`}
+          >
+            {d} días
+          </button>
+        ))}
+      </div>
 
       {!conectado ? (
         <Card><CardContent className="p-6 space-y-3">
@@ -655,6 +678,18 @@ function EnVivoTab() {
                 <p className="flex items-center gap-1.5 rounded bg-destructive/10 p-2 text-xs text-destructive">
                   <AlertTriangle className="h-3.5 w-3.5" />
                   Lleva {money(c.spend)} gastados y ningún resultado. Revisala o pausala.
+                </p>
+              )}
+
+              {/* Un cero sin motivo se lee como "esto no carga". Casi siempre
+                  es correcto: una campaña en pausa no gasta, y una activa
+                  recien creada todavia no entrego. Decirlo evita que el dueño
+                  salga a buscar una falla que no existe. */}
+              {Number(c.spend || 0) === 0 && Number(c.impressions || 0) === 0 && (
+                <p className="rounded bg-muted/60 p-2 text-xs text-muted-foreground">
+                  {activa
+                    ? `Sin gasto ni impresiones en los últimos ${dias} días. Si la activaste recién, Meta tarda un rato en empezar a entregar.`
+                    : `En pausa: no gasta ni entrega, por eso está todo en cero. Activala para que empiece a correr.`}
                 </p>
               )}
 
