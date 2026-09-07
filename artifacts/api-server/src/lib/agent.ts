@@ -3144,6 +3144,41 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
         }
       }
 
+      // ── 2b-ter. EL QUE YA DIJO QUE COMPRA SE VA CON LOS DATOS DE PAGO ────
+      //
+      // Reproducido en local el 2026-09-06, y es el cierre que se venía
+      // perdiendo en producción:
+      //
+      //   cliente: "quiero inscribirme"
+      //   estado:  decidido — el cliente dijo que lo quiere
+      //   modelo:  "Te dejo el enlace de pago para que completes tu inscripción"
+      //   parser:  partes:1 cards:0
+      //   cliente recibe: "Cuando confirmes el pago, quedas dentro."
+      //
+      // Todo el sistema hizo bien su parte menos la última: entendió que el
+      // cliente decidió, y el candado de promesas quitó unos datos de pago que
+      // no viajaban. Faltaba adjuntarlos.
+      //
+      // El forzado de arriba no alcanza porque exige `productoDelMensaje` o
+      // `productToShow`, y "quiero inscribirme" no nombra ningún producto: el
+      // que corresponde es el que se venía hablando, que el servidor tiene en
+      // `memory.currentProductId`.
+      //
+      // La etapa `decidido` la calcula el servidor leyendo el historial, no el
+      // modelo, así que no se puede inventar. Y no toca a quien está
+      // averiguando: `explorando` e `interesado` no entran acá.
+      const enFocoParaCerrar = memory.currentProductId ?? null;
+      if (
+        etapaDelTrato === "decidido"
+        && !esChatSocial
+        && enFocoParaCerrar
+        && validIds.has(enFocoParaCerrar)
+        && !raw.includes("[CARD:")
+      ) {
+        raw = `${raw.trim()}\n\n[CARD: ${enFocoParaCerrar}]`;
+        console.log(`🔧 [POST] El cliente ya decidió y no había card → se adjunta el pago de ${enFocoParaCerrar} - ${ts()}`);
+      }
+
       // Captura CUALQUIER cosa dentro de [CARD: ...], no solo un id.
       //
       // Antes el patrón era `[\w-]+`, que no admite espacios ni comillas. Si
@@ -3278,7 +3313,19 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
         // tarjeta lleva los enlaces de pago vigentes), o si la IA no escribió
         // nada más que la tarjeta -- en ese caso quitarla dejaría un mensaje
         // vacío y es preferible repetirla.
-        const esFlujoDePago = (decision.intent === "payment_intent" || decision.intent === "confirmation");
+        // La etapa cuenta como flujo de pago, igual que el intent.
+        //
+        // `decision.intent` lo pone el clasificador y con "quiero inscribirme"
+        // devuelve `product_query`. Pero el servidor YA calculó, leyendo el
+        // historial, que la etapa del trato es `decidido`. Sin esto, el
+        // anti-repetición se llevaba la tarjeta de pago del cliente que
+        // acababa de decir que compra --tratándola como una ficha repetida--
+        // y el mensaje quedaba en nada (reproducido en local, 2026-09-06).
+        const esFlujoDePago = (
+          decision.intent === "payment_intent"
+          || decision.intent === "confirmation"
+          || etapaDelTrato === "decidido"
+        );
         const yaEnviada = resolvedId !== -1 && memory.sentProductIds.has(resolvedId);
         // Que la ficha ya se haya enviado no bloquea lo que el cliente pide
         // ahora: el video, la tienda, el precio y los medios de pago no son
@@ -3498,7 +3545,37 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
             // quiere pagar pierde la venta en el último paso -- es el error
             // opuesto al de cobrarle al que está averiguando, y sale igual de
             // caro.
-            paymentOnly: (isPaymentFlow || pidePagar(String(lastText || "")) || pidePagarSegunModelo) && !contestaLaOferta && permiso.puede,
+            // ── La etapa "decidido" DISPARA el pago, no solo lo permite ────
+            //
+            // `permiso.puede` estaba únicamente del lado del freno. El
+            // resultado, reproducido en local el 2026-09-06:
+            //
+            //   cliente: "quiero inscribirme"
+            //   estado:  decidido — el cliente dijo que lo quiere
+            //   modelo:  "¡Anotado! Te dejo los datos de pago aquí abajo"
+            //   parser:  partes:1 cards:0
+            //   cliente recibe: "¡Anotado!"
+            //
+            // Los tres primeros pasos están BIEN: el servidor entendió que
+            // decidió comprar y el candado de promesas hizo lo suyo al quitar
+            // unos datos que no viajaban. Lo que faltaba era adjuntarlos. El
+            // cliente dice que compra y se queda con una palmada en la espalda.
+            //
+            // `isPaymentFlow` mira el intent del clasificador, que acá dio
+            // `product_query`; y `pidePagar` mira el texto, que dice
+            // "inscribirme" y no "pagar". Ninguno de los dos ve lo que el
+            // servidor YA calculó: que la etapa del trato es `decidido`.
+            //
+            // Va con `permiso.puede` igual al lado: la etapa entra como
+            // disparador, pero el freno de "no le cobres a quien averigua"
+            // sigue teniendo la última palabra.
+            paymentOnly:
+              (isPaymentFlow
+                || pidePagar(String(lastText || ""))
+                || pidePagarSegunModelo
+                || etapaDelTrato === "decidido")
+              && !contestaLaOferta
+              && permiso.puede,
             // Si ya recibió la ficha de ESTE producto, ya vio la lista de
             // características: el cierre no puede ofrecerle contárselas.
             yaVioContenido: yaVioLaFicha(resolvedId),
