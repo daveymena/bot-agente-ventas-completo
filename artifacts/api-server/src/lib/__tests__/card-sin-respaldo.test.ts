@@ -79,3 +79,33 @@ describe("Una ficha necesita algo que la respalde", () => {
     expect(cardConRespaldo({ ...base, nombreElegido: "KEYNOTE PRO", textoDelCliente: "key" })).toBe(false);
   });
 });
+
+describe("pedir el catálogo SÍ respalda mostrar un producto", () => {
+  // El candado mide el respaldo por "¿nombró ESTE producto?", y el que
+  // pregunta "¿qué cursos tienen?" no nombra ninguno: quiere ver todos.
+  //
+  // Medido con el agente entero el 2026-09-06:
+  //   cliente: "que cursos tienen?"
+  //   motor:   📚 "El cliente pide ver el catálogo - mostrar opciones"
+  //   modelo:  "¡Claro, te muestro lo que tenemos! 👇 [CARD: 1]"
+  //   cliente recibe: "¡Claro, te muestro lo que tenemos!"   <- sin nada
+  //
+  // Le anunciaban un catálogo que nunca llegaba, y es de los primeros
+  // mensajes que manda cualquier cliente.
+  const base = {
+    nombreElegido: "DISEÑO GRÁFICO",
+    textoDelCliente: "que cursos tienen?",
+    productoDelMensajeId: null,
+    currentProductId: null,
+    esFlujoDePago: false,
+  };
+
+  it("con pidioVerCatalogo la ficha viaja", () => {
+    expect(cardConRespaldo({ ...base, pidioVerCatalogo: true })).toBe(true);
+  });
+
+  it("sin él sigue descartándose, que es lo que evita el producto al azar", () => {
+    expect(cardConRespaldo({ ...base, pidioVerCatalogo: false })).toBe(false);
+    expect(cardConRespaldo(base as any)).toBe(false);
+  });
+});

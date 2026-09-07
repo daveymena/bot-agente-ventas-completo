@@ -1497,11 +1497,36 @@ export function cardConRespaldo(args: {
   currentProductId: number | null;
   /** El cliente está pagando: ahí el producto ya se decidió antes. */
   esFlujoDePago: boolean;
+  /**
+   * El cliente pidió ver qué hay ("¿qué cursos tienen?", "¿qué venden?").
+   *
+   * Mostrarle un producto ahí no es adivinar: es contestar lo que preguntó.
+   */
+  pidioVerCatalogo?: boolean;
 }): boolean {
   // En el flujo de pago el producto ya quedó fijado en pasos anteriores, y
   // quitarle la ficha a alguien que está por transferir le saca los medios de
   // pago de las manos. No se toca.
   if (args.esFlujoDePago) return true;
+
+  // ── Pedir el catálogo ES respaldo ───────────────────────────────────────
+  //
+  // Este candado existe para que nadie reciba un producto al azar --de ahí
+  // salió el Cojín Moto Viajero-- y esa parte está bien. Pero medía el
+  // respaldo por "¿nombró ESTE producto?", y el que pregunta "¿qué cursos
+  // tienen?" no nombra ninguno: quiere ver todos.
+  //
+  // Medido con el agente entero el 2026-09-06:
+  //
+  //   cliente: "que cursos tienen?"
+  //   motor:   📚 "El cliente pide ver el catálogo - mostrar opciones"
+  //   modelo:  "¡Claro, te muestro lo que tenemos! 👇 [CARD: 1]"
+  //   cliente recibe: "¡Claro, te muestro lo que tenemos!"   <- sin nada
+  //
+  // El motor había decidido mostrar, y el candado lo descartaba. Al cliente
+  // le anunciaban un catálogo que nunca llegaba, y es de los primeros
+  // mensajes que manda cualquiera.
+  if (args.pidioVerCatalogo) return true;
 
   // El servidor identificó el producto de este mensaje: el parser ya lo
   // impone por encima del que eligió el modelo. Hay respaldo de sobra.

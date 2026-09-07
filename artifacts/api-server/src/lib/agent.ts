@@ -3389,6 +3389,9 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
             productoDelMensajeId: decision.productoDelMensaje?.id ?? null,
             currentProductId: memory.currentProductId ?? null,
             esFlujoDePago: decision.intent === "payment_intent" || decision.intent === "confirmation",
+            // El motor ya decidió que corresponde mostrar opciones; sin esto
+            // el candado descartaba la ficha del que pidió ver el catálogo.
+            pidioVerCatalogo: (decision as any).pidioVerCatalogo === true,
           });
           if (!respaldada) {
             console.log(`🛡️ [PARSER] La IA eligió "${elegido?.name}" (ID ${resolvedId}) pero nada lo respalda: el cliente no lo nombró y no hay producto en la conversación. Card descartada -- se manda solo el texto.`);
