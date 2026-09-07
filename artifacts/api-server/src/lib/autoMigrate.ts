@@ -46,6 +46,20 @@ const MIGRATIONS = [
   // solo campo de direccion, y no existia tabla de pedidos. El agente podia
   // cerrar la venta y los datos se perdian.
   `ALTER TABLE agents ADD COLUMN IF NOT EXISTS especialidad TEXT`,
+  // El conocimiento por producto que carga el dueño desde Atlas. Sin esta
+  // migración la tabla no existe en producción y la herramienta falla al
+  // primer uso, que es cuando el cliente nuevo intenta configurar su agente.
+  `CREATE TABLE IF NOT EXISTS product_knowledge (
+     id SERIAL PRIMARY KEY,
+     tenant_id INTEGER NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+     product_id INTEGER REFERENCES products(id) ON DELETE CASCADE,
+     pregunta TEXT NOT NULL,
+     disparadores TEXT NOT NULL,
+     respuesta TEXT,
+     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+     updated_at TIMESTAMPTZ DEFAULT NOW()
+   )`,
+  `CREATE INDEX IF NOT EXISTS idx_product_knowledge_tenant ON product_knowledge(tenant_id, product_id)`,
   `CREATE TABLE IF NOT EXISTS dropshipping_orders (
     id SERIAL PRIMARY KEY,
     tenant_id INTEGER NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,

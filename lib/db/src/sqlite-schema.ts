@@ -663,3 +663,18 @@ export const landingPages = sqliteTable("landing_pages", {
   createdAt: text("created_at").notNull().default(sql`(datetime('now'))`),
   updatedAt: text("updated_at").notNull().default(sql`(datetime('now'))`),
 });
+
+// ── product_knowledge ────────────────────────────────────────────────────────
+// Lo que el dueño le enseña al agente sobre un producto. Tiene que estar acá y
+// no solo en el schema de Postgres: si falta, el conocimiento cargado por
+// Atlas se lee distinto en local que en producción.
+export const productKnowledge = sqliteTable("product_knowledge", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  tenantId: integer("tenant_id").references(() => tenants.id, { onDelete: "cascade" }).notNull(),
+  productId: integer("product_id").references(() => products.id, { onDelete: "cascade" }),
+  pregunta: text("pregunta").notNull(),
+  disparadores: text("disparadores").notNull(),
+  respuesta: text("respuesta"),
+  createdAt: text("created_at").notNull().default(sql`(datetime('now'))`),
+  updatedAt: text("updated_at").default(sql`(datetime('now'))`),
+});

@@ -2,6 +2,7 @@ export * from "./tenants";
 export * from "./agents";
 export * from "./leads";
 export * from "./products";
+export * from "./product-knowledge";
 export * from "./categories";
 export * from "./conversations";
 export * from "./messages";

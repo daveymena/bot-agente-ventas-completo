@@ -293,6 +293,8 @@ export function responderPreguntas(
   productId: number | null,
   mensaje: string,
   maximo = 2,
+  /** Lo que el dueño cargó desde Atlas (`conocimiento-cargado.ts`). */
+  cargadas: PreguntaConocida[] = [],
 ): Respuesta[] {
   const texto = String(mensaje || "");
   if (!texto.trim()) return [];
@@ -302,7 +304,11 @@ export function responderPreguntas(
   // común. "¿en cuánto tiempo veo resultados?" cae en `acceso_tiempo` ("el
   // acceso es de por vida") si se mira primero la lista común, y eso NO es lo
   // que preguntó el cliente.
-  const candidatas = [...(delProducto?.preguntas ?? []), ...COMUNES];
+  //
+  // Y lo que el DUEÑO cargó desde Atlas va antes que todo: él conoce su
+  // producto mejor que una tabla escrita a mano hace meses. Las de fábrica
+  // quedan de respaldo para el negocio que todavía no configuró nada.
+  const candidatas = [...cargadas, ...(delProducto?.preguntas ?? []), ...COMUNES];
 
   const resolver = (fragmento: string): Respuesta | null => {
     for (const p of candidatas) {
@@ -337,8 +343,12 @@ export function responderPreguntas(
   return out;
 }
 
-export function responderPregunta(productId: number | null, mensaje: string): Respuesta | null {
-  return responderPreguntas(productId, mensaje, 1)[0] ?? null;
+export function responderPregunta(
+  productId: number | null,
+  mensaje: string,
+  cargadas: PreguntaConocida[] = [],
+): Respuesta | null {
+  return responderPreguntas(productId, mensaje, 1, cargadas)[0] ?? null;
 }
 
 export function preguntasSinResponder(): Array<{ producto: string; pregunta: string }> {

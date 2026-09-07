@@ -148,3 +148,16 @@ describe("Atlas tiene control del agente de WhatsApp", () => {
     }
   });
 });
+
+describe("el dueño puede enseñarle al agente sin programar", () => {
+  // La tabla de respuestas verificadas vivía en un .ts con tres productos
+  // adentro: el cuarto cliente del SaaS necesitaba un programador y un
+  // despliegue para que su bot supiera qué incluye su propio curso.
+  it("Atlas ve la herramienta para cargar conocimiento por producto", () => {
+    expect(nombres()).toContain("agente_saber_producto");
+  });
+
+  it("y NO es de solo lectura: cambia lo que el bot le responde a todos", () => {
+    expect(READ_ONLY_TOOLS.has("agente_saber_producto")).toBe(false);
+  });
+});

@@ -3686,9 +3686,14 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
         let respondidoDeConocimiento = false;
         try {
           const idFoco = idsEnContexto[0] ?? null;
+          // Lo que el dueño cargó desde Atlas para ESTE producto. Va primero:
+          // él conoce su catálogo mejor que la tabla de fábrica, y sin esto un
+          // cliente nuevo del SaaS no tiene ninguna respuesta propia.
+          const { conocimientoCargado } = await import("./conocimiento-cargado");
+          const cargadas = await conocimientoCargado(convo.tenantId, idFoco);
           // Plural a propósito: el cliente suele encadenar dos preguntas en un
           // mismo mensaje y antes solo se contestaba la primera.
-          const conocidas = responderPreguntas(idFoco, lastText);
+          const conocidas = responderPreguntas(idFoco, lastText, 2, cargadas);
           const conocida = conocidas.length
             ? {
                 id: conocidas.map((c) => c.id).join("+"),

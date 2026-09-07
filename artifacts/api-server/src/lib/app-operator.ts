@@ -5606,6 +5606,93 @@ Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vincu
   },
 
   {
+    name: "agente_saber_producto",
+    description:
+      "Le enseña al agente qué responder sobre un producto (qué incluye, cuánto dura, para quién sirve). " +
+      "Se guarda en la base: no hace falta programar ni desplegar. " +
+      "'disparadores' son las palabras con que el cliente lo pregunta, separadas por coma; nunca regex. " +
+      "Respuesta vacía = el agente dice que lo confirma en vez de inventarlo. " +
+      "No inventes las respuestas: preguntáselas al dueño.",
+    args: '{ "accion": "listar"|"guardar"|"borrar", "productId"?: number, "pregunta"?: string, "disparadores"?: string, "respuesta"?: string, "id"?: number }',
+    run: async (args, ctx) => {
+      const { productKnowledge } = await import("@workspace/db");
+      const accion = String(args?.accion || "listar");
+
+      if (accion === "listar") {
+        const filas = await db
+          .select()
+          .from(productKnowledge)
+          .where(eq(productKnowledge.tenantId, ctx.tenantId));
+        return {
+          ok: true,
+          summary: filas.length
+            ? `El agente tiene ${filas.length} respuesta${filas.length === 1 ? "" : "s"} cargada${filas.length === 1 ? "" : "s"} por vos.`
+            : "Todavía no le cargaste ninguna respuesta propia al agente. Responde solo con lo genérico (garantía, envío, stock).",
+          data: filas.map((f: any) => ({
+            id: f.id,
+            productId: f.productId,
+            pregunta: f.pregunta,
+            disparadores: f.disparadores,
+            respuesta: f.respuesta ?? "(sin dato: dice que lo confirma)",
+          })),
+        };
+      }
+
+      if (accion === "borrar") {
+        const id = Number(args?.id);
+        if (!Number.isInteger(id) || id <= 0) {
+          return { ok: false, summary: "Para borrar necesito el id de la respuesta. Listalas primero." };
+        }
+        // El tenantId va en el WHERE a propósito: sin eso, un id de otro
+        // negocio se borraría igual. Es el mismo aislamiento que falta en
+        // Nova y que acá no se repite.
+        await db
+          .delete(productKnowledge)
+          .where(and(eq(productKnowledge.id, id), eq(productKnowledge.tenantId, ctx.tenantId)));
+        return { ok: true, summary: `Respuesta ${id} eliminada.`, data: { id } };
+      }
+
+      // guardar
+      const pregunta = String(args?.pregunta || "").trim();
+      const disparadores = String(args?.disparadores || "").trim();
+      if (!pregunta) return { ok: false, summary: "Falta 'pregunta': para qué es esta respuesta (ej: 'qué incluye')." };
+      if (!disparadores) {
+        return { ok: false, summary: "Faltan 'disparadores': las palabras con que el cliente lo pregunta, separadas por coma." };
+      }
+      // Un disparador de una o dos letras coincidiría con todo. Se corta acá y
+      // no en la lectura: es mejor que el dueño se entere ahora y no cuando el
+      // bot conteste cualquier cosa.
+      const utiles = disparadores.split(",").map((d: string) => d.trim()).filter((d: string) => d.length >= 3);
+      if (utiles.length === 0) {
+        return { ok: false, summary: "Los disparadores tienen que tener al menos 3 letras cada uno. Ej: 'que incluye, temario, modulos'." };
+      }
+
+      const respuesta = String(args?.respuesta || "").trim();
+      const productId = args?.productId ? Number(args.productId) : null;
+
+      const [fila] = await db
+        .insert(productKnowledge)
+        .values({
+          tenantId: ctx.tenantId,
+          productId,
+          pregunta,
+          disparadores: utiles.join(", "),
+          respuesta: respuesta || null,
+        })
+        .returning();
+
+      return {
+        ok: true,
+        summary:
+          `Listo: el agente ya sabe responder "${pregunta}"` +
+          (productId ? " para ese producto." : " en todo el catálogo.") +
+          (respuesta ? "" : " Como no diste respuesta, va a decir que lo confirma en vez de inventarlo."),
+        data: { id: fila?.id, pregunta, disparadores: utiles, productId },
+      };
+    },
+  },
+
+  {
     name: "agente_conocimiento",
     description:
       "Agrega o quita cosas que el agente debe saber (loQueDebeSaber) y cosas que NO puede hacer (noPuede). " +
