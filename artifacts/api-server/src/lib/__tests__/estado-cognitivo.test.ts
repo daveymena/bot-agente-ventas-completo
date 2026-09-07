@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   calcularEstado, calcularEtapa, preguntaSinResponder, contienePregunta, renderEstado,
+  pidePagar, puedeMandarPago,
 } from "../estado-cognitivo";
 
 /**
@@ -142,5 +143,44 @@ describe("el bloque que lee el modelo", () => {
       fichasEnviadas: [201],
     });
     expect(e.prohibido.join(" ")).toMatch(/NO repitas la ficha/i);
+  });
+});
+
+describe("las formas de decir que compra", () => {
+  // Auditoría 2026-09-06: de 18 formas naturales de cerrar, SIETE no se
+  // reconocían. El cliente decía que compraba y el bot le seguía explicando en
+  // vez de mandarle cómo pagar. "quiero inscribirme" y "cómo me inscribo" son
+  // la manera normal de cerrar cuando lo que se vende es un curso.
+  const cierra = (m: string) => {
+    const est = calcularEstado({
+      historial: [{ role: "customer", content: m }],
+      producto: { id: 1, name: "Curso" },
+    } as any);
+    return pidePagar(m) || puedeMandarPago({ etapa: est.etapa, mensaje: m }).puede;
+  };
+
+  it("reconoce las que faltaban", () => {
+    for (const m of [
+      "ya me decidí", "ya me decidi", "lo voy a comprar", "me interesa comprarlo",
+      "dame los datos para pagar", "dame el link", "me lo vendes?",
+      "quiero inscribirme", "quiero anotarme", "como me inscribo",
+    ]) {
+      expect(cierra(m), m).toBe(true);
+    }
+  });
+
+  it("y sigue reconociendo las de siempre", () => {
+    for (const m of ["lo quiero", "me lo llevo", "dale lo compro", "como pago", "mandame el link"]) {
+      expect(cierra(m), m).toBe(true);
+    }
+  });
+
+  it("pero NO le cobra a quien todavía averigua", () => {
+    for (const m of [
+      "cuanto cuesta", "me interesa", "que incluye", "tienes garantia", "hola",
+      "lo voy a pensar", "me interesa saber mas", "esta muy caro", "que tal es el curso",
+    ]) {
+      expect(cierra(m), m).toBe(false);
+    }
   });
 });

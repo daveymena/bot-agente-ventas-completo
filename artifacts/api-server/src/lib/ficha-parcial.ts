@@ -617,7 +617,7 @@ function invitacionesDe(
 // con la forma más común de decir que sí en español. Es la tercera vez que
 // este proyecto tropieza con lo mismo.
 const PALABRA_DE_SI =
-  String.raw`(?:claro que s[ií]|s[ií]|sip|sii+|dale|listo|ok|okey|okay|claro|obvio|de una|por supuesto|bueno|va|hazlo|hacelo|mu[eé]strame|mostrame|cu[eé]ntame|contame|perfecto|genial|por favor|porfa|porfis)`;
+  String.raw`(?:claro que s[ií]|s[ií]|sip|sipi|sipis|sii+|dale|listo|ok|okey|okay|claro|obvio|de una|por supuesto|bueno|va|hazlo|hacelo|mu[eé]strame|mostrame|cu[eé]ntame|contame|perfecto|genial|por favor|porfa|porfis)`;
 
 // Cortesías que acompañan al sí sin cambiar lo que quiere decir.
 const CORTESIA = String.raw`(?:gracias|grac[ií]as|please|plis|amigo|amiga|se[ñn]or|se[ñn]ora|bro|parce)`;

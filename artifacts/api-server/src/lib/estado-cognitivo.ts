@@ -78,8 +78,13 @@ export interface EstadoCognitivo {
 const DICE_QUE_PAGO =
   /\bya\s+(te\s+)?(pagu[eé]|pag[uo]|hice\s+(el\s+pago|la\s+transferencia|la\s+consignaci[oó]n)|transfer[ií]|realic[eé]\s+el\s+pago)|\b(hice|mand[eé])\s+la\s+transferencia|\bpago\s+(hecho|realizado|listo)|\bte\s+(mand[eé]|env[ií]o|paso)\s+el\s+comprobante/i;
 
+// ⚠️ Este patrón decide si el cliente YA COMPRÓ en su cabeza. Si no lo
+// reconoce, el bot le sigue explicando a alguien que ya dijo que sí, y no le
+// manda cómo pagar. Medido: de dieciocho formas naturales de decirlo, siete no
+// entraban -- entre ellas "quiero inscribirme" y "cómo me inscribo", que en
+// cursos son la manera normal de cerrar.
 const DICE_QUE_LO_QUIERE =
-  /\b(lo\s+quiero|la\s+quiero|me\s+lo\s+llevo|dale\s+lo\s+compro|quiero\s+comprarlo|lo\s+compro|listo\s+lo\s+quiero|c[oó]mo\s+(lo\s+)?(compro|pago)|d[oó]nde\s+(lo\s+)?pago)/i;
+  /\b(lo\s+quiero|la\s+quiero|me\s+lo\s+llevo|dale\s+lo\s+compro|quiero\s+comprarlo|lo\s+compro|listo\s+lo\s+quiero|c[oó]mo\s+(lo\s+)?(compro|pago)|d[oó]nde\s+(lo\s+)?pago|ya\s+me\s+decid[ií]|lo\s+voy\s+a\s+(comprar|llevar|tomar)|me\s+interesa\s+(comprar|llevar|adquirir)|quiero\s+(inscribirme|anotarme|apuntarme|matricularme|tomarlo|adquirirlo)|c[oó]mo\s+(me\s+)?(inscribo|me\s+anoto|me\s+apunto|me\s+matriculo)|me\s+lo\s+vend[eé]s?)/i;
 
 function normalizar(s: string): string {
   return String(s || "")
@@ -425,7 +430,7 @@ export function renderEstado(s: EstadoCognitivo): string {
  * el último paso, no el primero.
  */
 const PIDE_PAGAR =
-  /\b(c[oó]mo (pago|puedo pagar|hago para pagar)|c[oó]mo (hago|realizo|hago el|genero) (el |mi )?pedido|c[oó]mo (lo )?(compro|adquiero|pido)|d[oó]nde (lo )?compro|d[oó]nde (pago|consigno|transfiero)|formas? de pago|m[eé]todos? de pago|medios? de pago|enlaces? de pago|datos? (de|para) (pago|transferencia)|m[aá]nd[aá]me? (el|los) (link|enlace|datos)|link de pago|quiero (pagar|comprarlo|llevarlo)|lo (compro|llevo)|d[oó]nde (le )?consigno|n[uú]mero de (nequi|cuenta))/i;
+  /\b(c[oó]mo (pago|puedo pagar|hago para pagar)|c[oó]mo (hago|realizo|hago el|genero) (el |mi )?pedido|c[oó]mo (lo )?(compro|adquiero|pido)|d[oó]nde (lo )?compro|d[oó]nde (pago|consigno|transfiero)|formas? de pago|m[eé]todos? de pago|medios? de pago|enlaces? de pago|datos? (de|para) (pago|transferencia)|m[aá]nd[aá]me? (el|los) (link|enlace|datos)|d[aá]me (los )?(datos|el link|el enlace)( para (pagar|la transferencia))?|link de pago|quiero (pagar|comprarlo|llevarlo)|lo (compro|llevo)|d[oó]nde (le )?consigno|n[uú]mero de (nequi|cuenta))/i;
 
 /**
  * ¿El cliente PIDIÓ los datos de pago, con todas las letras?
