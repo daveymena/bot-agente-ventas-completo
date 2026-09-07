@@ -1266,13 +1266,43 @@ export function buildMcpToolRegistry(pedido?: string): McpToolDef[] {
     // nombre, que es lo que evita el otro fallo ya conocido -- Atlas diciendo
     // "no tengo cómo" sobre algo que sí puede (caso del 16-08-2026).
     .map((t) => {
-      const resumen = String(t.description || "").split(/\.\s|\. /)[0].slice(0, 110);
       // `herramientasDeLaFamilia` es el mismo criterio que usa buildToolsDoc,
       // compartido a propósito: cubre las de CAMBIO (que no están en los
       // GRUPOS de este archivo, porque esos solo listan lecturas). Devuelve
       // null cuando no hay pista y ahí van todos los contratos.
       const enFamilia = !familiaDelPedido || familiaDelPedido.has(t.name);
-      if (!enFamilia || !t.args || !CONTRATO_COMPLETO.has(t.name)) return `${t.name}: ${resumen}`;
+
+      // ── El resumen largo se paga UNA VEZ POR HERRAMIENTA, en cada pedido ──
+      //
+      // Las 42 acciones de cambio se listan siempre --eso NO cambia, es lo que
+      // evita que Atlas diga "no tengo cómo" sobre algo que sí puede-- pero el
+      // resumen de 110 caracteres se cobraba también para las que el pedido no
+      // va a usar: 4.192 caracteres, 1.048 tokens, más de un tercio del
+      // presupuesto del minuto.
+      //
+      // Y ese costo crecía con cada herramienta nueva: las seis que se
+      // agregaron para configurar el agente de WhatsApp encarecieron TODOS los
+      // pedidos de Atlas, hasta pasarse del tope y romper este test.
+      //
+      // Fuera de la familia va SOLO EL NOMBRE, sin resumen.
+      //
+      // Listar las 42 acciones con su resumen costaba 1.048 tokens --más de un
+      // tercio del presupuesto del minuto-- y crecía con cada herramienta
+      // nueva: las seis que se agregaron para configurar el agente de WhatsApp
+      // encarecieron TODOS los pedidos de Atlas hasta pasarse del tope.
+      // Recortar el resumen no alcanzaba (110 -> 3.176 tk; 60 -> 3.100;
+      // 45 -> 3.060): el problema no era el largo, era pagar 42 descripciones
+      // en cada pedido.
+      //
+      // Lo que hay que preservar es que Atlas SEPA QUE PUEDE, para no decir
+      // "no tengo cómo" sobre algo que sí hace (caso del 16-08-2026), y para
+      // eso alcanza el nombre: son verbos en inglés y se leen solos
+      // ("delete_product" no necesita que le expliquen). Las de la familia
+      // --las que el pedido va a usar de verdad-- conservan resumen completo Y
+      // contrato; ahí no se recorta nada.
+      if (!enFamilia) return t.name;
+      const resumen = String(t.description || "").split(/\.\s|\. /)[0].slice(0, 110);
+      if (!t.args || !CONTRATO_COMPLETO.has(t.name)) return `${t.name}: ${resumen}`;
       // El contrato se acorta a 200 caracteres. Lo que hace falta para no
       // inventar --los NOMBRES de los campos, cuáles son obligatorios y los
       // valores válidos de los enums-- va al principio de cada `args`; lo que
