@@ -11,8 +11,8 @@
  * que confirmar el plan (destinatarios + mensaje exactos) antes de que esto
  * cree la campaña. No hay ningún camino que la dispare sin esa confirmación.
  */
-import { db, leads, remarketingCampaigns } from "@workspace/db";
-import { eq, and, notInArray } from "drizzle-orm";
+import { db, leads, remarketingCampaigns, conversations, messages } from "@workspace/db";
+import { eq, and, notInArray, inArray } from "drizzle-orm";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { logger } from "./logger";
 
@@ -64,6 +64,45 @@ async function targetLeads(tenantId: number, stage?: string) {
   return db.select().from(leads).where(and(...conditions));
 }
 
+/**
+ * De esos leads, los que ALGUNA VEZ escribieron por WhatsApp.
+ *
+ * Es el filtro que más protege el número, y faltaba. Escribirle a alguien que
+ * nunca te escribió es la causa numero uno de bloqueo -- muy por encima del
+ * volumen: el que no esperaba tu mensaje toca "Bloquear y reportar", y con
+ * pocos reportes Meta baja el numero. No hay espaciado ni tope que compense
+ * eso.
+ *
+ * Un lead puede haber entrado de cualquier lado: importado de una planilla,
+ * cargado a mano, de un formulario web. `targetLeads` solo miraba etapa y
+ * opt-out, asi que todos esos entraban en la campaña sin haber iniciado nunca
+ * una conversación.
+ *
+ * Se exige un mensaje ENTRANTE (`role: "customer"`), no que exista la
+ * conversación: el propio bot puede haber creado el hilo al escribir primero,
+ * y eso no es permiso de nadie.
+ */
+async function losQueEscribieron(tenantId: number, ids: number[]): Promise<Set<number>> {
+  if (ids.length === 0) return new Set();
+  try {
+    const filas = await db
+      .select({ leadId: conversations.leadId })
+      .from(conversations)
+      .innerJoin(messages, eq(messages.conversationId, conversations.id))
+      .where(and(
+        eq(conversations.tenantId, tenantId),
+        inArray(conversations.leadId, ids),
+        eq(messages.role, "customer"),
+      ));
+    return new Set(filas.map((f: any) => Number(f.leadId)).filter(Boolean));
+  } catch (err: any) {
+    // Ante la duda, NO se manda. Un fallo de consulta no puede convertirse en
+    // permiso para escribirle a gente que nunca escribió.
+    logger.error({ err: err?.message, tenantId }, "[Remarketing] no se pudo verificar quién escribió: no se envía a nadie");
+    return new Set();
+  }
+}
+
 export interface QueueResult {
   ok: boolean;
   summary: string;
@@ -109,9 +148,27 @@ export async function queueWhatsappBroadcast(
   tenantId: number,
   opts: { message: string; stage?: string },
 ): Promise<QueueResult> {
-  const targets = await targetLeads(tenantId, opts.stage);
-  if (targets.length === 0) {
+  const candidatos = await targetLeads(tenantId, opts.stage);
+  if (candidatos.length === 0) {
     return { ok: false, summary: "No hay leads en ese segmento (potenciales, sin contar ya convertidos/perdidos salvo que pidas un stage puntual).", totalTargeted: 0 };
+  }
+
+  // Solo a quien ya escribió por WhatsApp. Ver `losQueEscribieron`: es la
+  // proteccion que mas cuida el numero, y no aplica al email --ahi escribirle
+  // a un lead que dejo su correo es normal--, por eso va solo en este canal.
+  const escribieron = await losQueEscribieron(tenantId, candidatos.map((l) => l.id));
+  const targets = candidatos.filter((l) => escribieron.has(l.id));
+  const descartados = candidatos.length - targets.length;
+
+  if (targets.length === 0) {
+    return {
+      ok: false,
+      summary:
+        `Ninguno de los ${candidatos.length} leads del segmento escribió antes por WhatsApp. ` +
+        `No se envía: escribirle a quien no inició la conversación es lo que hace que reporten el número. ` +
+        `Para estos, usá email o esperá a que escriban.`,
+      totalTargeted: 0,
+    };
   }
   if (targets.length > MAX_WHATSAPP_RECIPIENTS_PER_CAMPAIGN) {
     return {
@@ -134,6 +191,11 @@ export async function queueWhatsappBroadcast(
     ok: true,
     campaignId: campaign.id,
     totalTargeted: targets.length,
-    summary: `📲 Broadcast encolado para ${targets.length} leads. Se va a ir mandando en tandas chicas espaciadas durante el día (no en ráfaga) para no arriesgar el número -- podés revisar el avance en remarketing_campaigns #${campaign.id}.`,
+    summary:
+      `📲 Broadcast encolado para ${targets.length} leads` +
+      (descartados > 0
+        ? ` (se dejaron fuera ${descartados} que nunca escribieron por WhatsApp: mandarles a ellos es lo que hace que reporten el número)`
+        : "") +
+      `. Se va a ir mandando en tandas chicas espaciadas durante el día (no en ráfaga) para no arriesgar el número -- podés revisar el avance en remarketing_campaigns #${campaign.id}.`,
   };
 }
