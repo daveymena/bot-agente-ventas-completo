@@ -59,3 +59,7 @@ respaldo-ventaspro-*.json
 
 # Bases SQLite por worker de vitest (ver artifacts/api-server/vitest.setup.js)
 data/.test/
+
+# Repos clonados adentro por error: no son parte de este proyecto
+exnova-trader2/
+copilot-worktrees/
