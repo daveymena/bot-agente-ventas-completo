@@ -342,12 +342,12 @@ export function supervisarRespuesta(e: EntradaSupervisor): RevisionSupervisor {
   //  b) Decir "ya te lo mande" solo puede ser cierto si ESTE mensaje lleva la
   //     ficha adjunta. Si no la lleva, no se mando nada: es mentira, y el
   //     servidor lo sabe sin tener que interpretar el texto.
-  if (AFIRMA_PAGO_CONFIRMADO.test(texto)) {
+  if (AFIRMA_PAGO_CONFIRMADO.test(texto) || AFIRMA_VER_O_RECIBIR_EL_PAGO.test(texto)) {
     bloquear = true;
     hallazgos.push({
       regla: "confirmacion-de-pago-inventada",
       gravedad: "bloquea",
-      detalle: "Afirmaba que un pago está confirmado. Eso no lo decide el modelo: lo confirma la pasarela o una persona.",
+      detalle: "Afirmaba que un pago está confirmado, que vio el comprobante o que la plata llegó. Nada de eso lo decide el modelo: lo confirma la pasarela o una persona que lo vio en la cuenta.",
     });
     return {
       texto,
@@ -750,6 +750,47 @@ export function supervisarRespuesta(e: EntradaSupervisor): RevisionSupervisor {
  */
 const AFIRMA_PAGO_CONFIRMADO =
   /\b(ya\s+)?(confirm[eé]|verifiqu[eé]|valid[eé]|registr[eé])\s+(tu|el|su)\s+pago\b|\b(tu|el|su)\s+pago\s+(ya\s+)?(est[aá]|qued[oó])\s+(confirmado|verificado|registrado|acreditado)\b|\bpago\s+confirmado\b|\b(ya\s+)?(est[aá]|qued[oó])\s+(pago|pagado|pagada|abonado|abonada|cancelado|cancelada)\b|\bconfirmada\s+la\s+compra\b/i;
+
+/**
+ * Afirmar que VIO el comprobante, o que la plata llegó.
+ *
+ * Es la misma mentira que la de arriba dicha de otra manera, y es peor todavía
+ * cuando hay una imagen de por medio: el modelo NO ve el comprobante. La
+ * descripción que saca la visión se guarda para el aviso al admin y nunca se
+ * le pasa al agente como hecho, justamente porque describir no es verificar
+ * (un Excel descrito como "comprobante con valor, fecha y banco", 2026-09-05).
+ *
+ * Se probó el candado viejo con ocho formas de decirlo y dejaba pasar SIETE:
+ *
+ *   ❌ "Recibí tu comprobante, ya veo la transferencia por $60.000"
+ *   ❌ "Veo tu comprobante de Nequi por $60.000 del día de hoy"
+ *   ❌ "Confirmo que llegó el pago"
+ *   ❌ "Ya me llegó tu pago, gracias"
+ *   ❌ "Tu comprobante está correcto, procedo con la entrega"
+ *   ❌ "Veo que transferiste $60.000 a Nequi"
+ *   ✅ "Listo, verifiqué el pago y todo está en orden"   <- la única
+ *
+ * Con un comprobante falso, cualquiera de esas siete entrega el producto.
+ *
+ * NO entra "acceso activado/liberado": eso habla del acceso, no del dinero, y
+ * bloquearlo rompería la entrega legítima después de que una persona sí
+ * verificó. Ese caso ya lo cubre la regla de "ya te lo mandé".
+ */
+const AFIRMA_VER_O_RECIBIR_EL_PAGO = new RegExp(
+  [
+    // "veo tu comprobante", "vi la transferencia", "revisé el soporte"
+    String.raw`\b(veo|vi|estuve\s+viendo|revis[eé]|chequ[eé]|mir[eé])\b[^.!?]{0,25}\b(comprobante|transferencia|soporte|recibo|dep[oó]sito|consignaci[oó]n)\b`,
+    // "veo que transferiste", "vi que pagaste"
+    String.raw`\b(veo|vi)\b[^.!?]{0,15}\bque\s+(transferiste|pagaste|consignaste|depositaste|enviaste)\b`,
+    // "me llegó tu pago", "entró la transferencia", "recibí el pago"
+    String.raw`\b(me\s+|nos\s+)?(lleg[oó]|entr[oó]|ingres[oó]|acredit[oó]|recib[ií])(?![a-záéíóúñ])[^.!?]{0,20}\b(tu|el|su|la)\s+(pago|transferencia|dep[oó]sito|plata|dinero)\b`,
+    // "confirmo que llegó el pago"
+    String.raw`\bconfirmo\b[^.!?]{0,20}\b(lleg[oó]|pago|transferencia)(?![a-záéíóúñ])`,
+    // "tu comprobante está correcto", "el soporte se ve bien"
+    String.raw`\b(tu|el|su)\s+(comprobante|soporte|recibo|pago)\b[^.!?]{0,20}\b(est[aá]|se\s+ve|figura|aparece)(?![a-záéíóúñ])[^.!?]{0,15}\b(correcto|bien|ok|en\s+orden|v[aá]lido|aprobado)(?![a-záéíóúñ])`,
+  ].join("|"),
+  "i",
+);
 
 /**
  * Afirmar que YA se entrego algo. Solo puede ser cierto si el mensaje lleva
