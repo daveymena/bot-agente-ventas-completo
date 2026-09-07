@@ -2096,6 +2096,63 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
 
     etapaDelTrato = estado.etapa;
     console.log(`🧭 [ESTADO] ${estado.etapa} — ${estado.porQue}${estado.preguntaPendiente ? " | pregunta pendiente" : ""} - ${ts()}`);
+
+    // ── Los datos verificados van ANTES, como hechos, no después como texto ─
+    //
+    // Esto se aplicaba en el post-proceso pisando lo que el modelo había
+    // escrito: `primera.content = apertura + texto enlatado`. El modelo leía
+    // toda la conversación, pensaba una respuesta, y se la tiraban para poner
+    // un párrafo fijo. De ahí la sensación que describió el dueño:
+    //
+    //   "siento como si fuera un bot que tiene respuesta escrita, y si no las
+    //    tiene entrega lo mismo o dice que no sabe"
+    //
+    // Tenía razón, y era literal. Un dato verificado no es una respuesta: es
+    // MATERIA PRIMA para responder. Si el cliente pide "más información", lo
+    // que corresponde no es volcarle la ficha otra vez, sino explicarle en qué
+    // consiste lo que va a recibir -- y eso exige razonar sobre lo que quiere,
+    // que es justo lo que un texto fijo no puede hacer.
+    //
+    // Ahora los hechos entran en el prompt y el modelo redacta con ellos. Lo
+    // que NO se afloja es el límite: el precio, la cuenta y el enlace los
+    // sigue poniendo el servidor, y el supervisor sigue bloqueando lo que se
+    // invente. Se le da libertad para PENSAR, no para inventar datos.
+    try {
+      const idFocoPrompt = productoEnFoco({
+        aMostrar: delAnuncio ? ({ id: delAnuncio.id, name: delAnuncio.name } as any) : null,
+        idActivo: memory.currentProductId,
+        historial: memory.history as any,
+        catalogo: productList as any[],
+      })?.id ?? null;
+
+      const { conocimientoCargado } = await import("./conocimiento-cargado");
+      const cargadasPrompt = await conocimientoCargado(convo.tenantId, idFocoPrompt);
+      const hechos = responderPreguntas(idFocoPrompt, String(lastText || ""), 2, cargadasPrompt);
+
+      const conDato = hechos.filter((h) => !h.sinResponder);
+      const sinDato = hechos.filter((h) => h.sinResponder);
+
+      if (conDato.length > 0) {
+        bloqueEstado +=
+          `\n\n📗 DATOS VERIFICADOS POR EL NEGOCIO (son ciertos; usalos para responder ` +
+          `con TUS palabras, no los copies tal cual ni los pegues como lista si la ` +
+          `pregunta pide otra cosa):\n` +
+          conDato.map((h) => `  • ${h.texto.replace(/\n/g, " ")}`).join("\n");
+      }
+      if (sinDato.length > 0) {
+        // Que el negocio no lo tenga confirmado NO es lo mismo que "no sé":
+        // el agente puede decir que lo confirma, o preguntar qué necesita
+        // saber exactamente. Lo que no puede es inventarlo.
+        bloqueEstado +=
+          `\n\n📕 ESTO TE LO PREGUNTAN Y EL NEGOCIO NO LO TIENE CONFIRMADO: no lo ` +
+          `inventes. Decí que lo confirmás, o preguntá qué necesita saber exactamente.`;
+      }
+      if (hechos.length > 0) {
+        console.log(`📗 [HECHOS] ${conDato.length} verificados + ${sinDato.length} sin confirmar → al prompt - ${ts()}`);
+      }
+    } catch (e: any) {
+      console.log(`[HECHOS] no se pudieron cargar: ${e?.message} - ${ts()}`);
+    }
   } catch (e: any) {
     // Sin estado el agente sigue respondiendo como antes: es una mejora, no
     // una dependencia.
@@ -3778,7 +3835,40 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
                 sinResponder: conocidas.every((c) => c.sinResponder),
               }
             : null;
-          if (conocida) {
+          // ── Solo se pisa al modelo si NO usó el dato ────────────────────
+          //
+          // El dato verificado ya viaja en el prompt (bloque 📗), así que lo
+          // normal es que el modelo conteste con él, en sus palabras y atado a
+          // lo que el cliente preguntó. Reemplazar SIEMPRE por el texto fijo
+          // era lo que hacía sonar al agente como un contestador: la respuesta
+          // pensada se descartaba aunque fuera mejor.
+          //
+          // El reemplazo queda como RED, no como regla: si el modelo ignoró el
+          // dato --o improvisó uno propio-- se pone el verificado. Se compara
+          // por las palabras con contenido del dato, no por el texto entero:
+          // el modelo lo va a decir distinto, y eso es exactamente lo que se
+          // busca.
+          const yaLoDijo = (() => {
+            if (!conocida || conocida.sinResponder) return false;
+            const primeraParte = finalParts.find((p: any) => p.kind === "text");
+            const dicho = String(primeraParte?.content || "").toLowerCase();
+            if (!dicho) return false;
+            const claves = conocida.texto
+              .toLowerCase()
+              .replace(/[^a-záéíóúñü0-9\s]/g, " ")
+              .split(/\s+/)
+              .filter((p) => p.length > 4);
+            if (claves.length === 0) return false;
+            const acertadas = claves.filter((c) => dicho.includes(c)).length;
+            // La mitad de las palabras con contenido alcanza: si dice "7 días
+            // de garantía" con otras palabras alrededor, contestó lo mismo.
+            return acertadas / claves.length >= 0.5;
+          })();
+
+          if (conocida && yaLoDijo) {
+            respondidoDeConocimiento = true;
+            console.log(`📗 [CONOCIMIENTO] "${conocida.id}" — el modelo ya lo respondió con sus palabras, no se pisa - ${ts()}`);
+          } else if (conocida) {
             const primera = finalParts.find((p: any) => p.kind === "text");
             if (primera) {
               // La apertura va PEGADA cuando la respuesta es de una línea.
