@@ -217,3 +217,36 @@ describe("Publicar un anuncio pasa por la herramienta que acepta el objetivo", (
     expect(r.summary).toContain("objetivo");
   });
 });
+
+/**
+ * El presupuesto se vigilaba SOLO para el pedido de anuncios, y ese resultó
+ * ser el barato.
+ *
+ * Medido el 2026-09-06: "cómo van las ventas hoy" pesaba 3.895 tokens contra
+ * los 2.493 de crear un anuncio. La consulta más simple era la más cara, y
+ * quedaba por encima de los 3.474 con los que el modelo alucinó en producción
+ * ("las imágenes que compartiste eran demasiado grandes" -- no había ninguna).
+ *
+ * La causa: no existía familia de métricas, así que caía en "no reconozco de
+ * qué habla, mandá todo". Nadie lo vio porque ningún test lo miraba.
+ */
+describe("ningún tipo de pedido se pasa del presupuesto", () => {
+  const PEDIDOS: Array<[string, string]> = [
+    ["ventas del día", "cómo van las ventas hoy"],
+    ["facturación", "cuánto facturé este mes"],
+    ["resumen del negocio", "dame un resumen del negocio"],
+    ["producto", "subí el precio del curso de piano"],
+    ["configurar el bot", "cambiá el tono del agente de whatsapp"],
+    ["saludo suelto", "hola"],
+    // El caso "no reconozco de qué habla": manda todo a propósito, y aun así
+    // tiene que entrar. Si esto se pasa, el problema es el tamaño de base.
+    ["sin familia", "xyzabc qwerty"],
+  ];
+
+  for (const [nombre, pedido] of PEDIDOS) {
+    it(`"${nombre}" entra en el minuto de Groq`, () => {
+      const t = tokens(buildMcpToolRegistry(pedido));
+      expect(t, `"${pedido}" pesa ~${t} tokens`).toBeLessThan(3000);
+    });
+  }
+});

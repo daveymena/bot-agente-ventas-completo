@@ -6093,6 +6093,18 @@ const FAMILIAS: Array<{ cuando: RegExp; prefijos: string[] }> = [
     prefijos: ["agent", "conversa", "lead", "whatsapp", "seguimiento", "followup"] },
   { cuando: /pago|cobr|nequi|transferen|suscripci|plan|factur/i, prefijos: ["payment", "pago", "subscription", "plan"] },
   { cuando: /modelo|ia\b|proveedor|clave|api key/i, prefijos: ["ai_", "test_ai", "model"] },
+  // ── Métricas y plata: la pregunta más común no tenía familia ───────────
+  //
+  // "cómo van las ventas hoy" no caía en ninguna de las de arriba, así que
+  // se iba por el camino de "no reconozco de qué habla, mandá todo". Medido:
+  // ese pedido pesaba 3.895 tokens contra los 2.493 de crear un anuncio. O
+  // sea, la consulta MÁS SIMPLE era la MÁS CARA, y por encima de los 3.474
+  // con los que el modelo empezó a alucinar en producción.
+  //
+  // Nadie lo veía porque el único presupuesto vigilado era el del pedido de
+  // anuncios, que resultó ser el barato.
+  { cuando: /venta|vend|ingres|factur[ao]|ganancia|m[eé]trica|dashboard|resumen|reporte|informe|c[oó]mo va|c[oó]mo vamos|estad[ií]stica|balance|cu[aá]nto llev|conversi[oó]n/i,
+    prefijos: ["dashboard", "metric", "report", "analytic", "payment", "lead", "conversa"] },
 ];
 
 /**
