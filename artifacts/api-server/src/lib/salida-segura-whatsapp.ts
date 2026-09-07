@@ -187,11 +187,43 @@ export function limpiarFormato(texto: string): string {
     .trim();
 }
 
+/**
+ * ¿Este texto dice algo, o son solo emojis y signos?
+ *
+ * Un mensaje sin una sola letra ni número no comunica nada: ocupa una burbuja
+ * y deja al cliente esperando. Se pide contenido de verdad, no que "no esté
+ * vacío".
+ */
+function diceAlgo(texto: string): boolean {
+  return /[a-záéíóúñü0-9]/i.test(String(texto || ""));
+}
+
 function eliminarDuplicadosExactos(parts: SalidaPart[]): SalidaPart[] {
   const vistos = new Set<string>();
   return parts.filter((p) => {
     if (p.kind !== "text") return true;
-    const key = normalize(String(p.content || "")).toLowerCase();
+    const contenido = String(p.content || "");
+
+    // ── Una burbuja con un emoji solo no es un mensaje ────────────────────
+    //
+    // Medido en producción (2026-09-06 20:22):
+    //
+    //   cliente: "Si que vale ?"
+    //   bot:     "💰"
+    //   cliente: "?"
+    //   bot:     "😊"
+    //
+    // El modelo había mandado el texto y el emoji en partes SEPARADAS
+    // ("¿Te paso el precio?" y "💰"). Al quitar la frase --que es correcto,
+    // preguntar si mandar el precio no entrega nada-- quedaba el emoji
+    // huérfano, y eso se envió tal cual. El cliente preguntó el precio dos
+    // veces y recibió dos caritas.
+    //
+    // Vale para cualquier parte que quede sin contenido, no solo para este
+    // caso: si al filtrar no sobra ni una letra, no hay mensaje que mandar.
+    if (!diceAlgo(contenido)) return false;
+
+    const key = normalize(contenido).toLowerCase();
     if (!key) return false;
     if (vistos.has(key)) return false;
     vistos.add(key);
@@ -246,5 +278,9 @@ export function prepararTextoWhatsApp(texto: string): string {
     .join("\n")
     .trim();
 
-  return limpiarFormato(limpio) || "Déjame confirmarte ese dato exacto y te respondo enseguida. 🙏";
+  // `diceAlgo` y no solo "no vacío": si tras filtrar queda "💰" suelto, eso no
+  // es una respuesta. Es la misma burbuja huérfana que recibió un cliente que
+  // preguntó el precio dos veces.
+  const final = limpiarFormato(limpio);
+  return diceAlgo(final) ? final : "Déjame confirmarte ese dato exacto y te respondo enseguida. 🙏";
 }

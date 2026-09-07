@@ -140,3 +140,50 @@ describe("los dos caminos de salida limpian lo mismo", () => {
     expect(r).not.toMatch(/te paso el precio/i);
   });
 });
+
+describe("nunca una burbuja con un emoji solo", () => {
+  // Medido en producción (2026-09-06 20:22), y causado por el propio arreglo
+  // que sacaba "¿Te paso el precio?":
+  //
+  //   cliente: "Si que vale ?"   ->  bot: "💰"
+  //   cliente: "?"               ->  bot: "😊"
+  //
+  // El modelo mandó el texto y el emoji en partes SEPARADAS. Quitar la frase
+  // es correcto --preguntar si mandar el precio no entrega nada-- pero dejaba
+  // el emoji huérfano, y eso se envió tal cual. El cliente preguntó el precio
+  // dos veces y recibió dos caritas.
+  it("no manda la parte que queda sin contenido", () => {
+    const r = prepararSalidaFinal([
+      { kind: "text", content: "¿Te paso el precio?" },
+      { kind: "text", content: "💰" },
+    ]);
+    expect(r.parts).toHaveLength(0);
+  });
+
+  it("descarta cualquier texto sin una sola letra o número", () => {
+    for (const t of ["💰", "😊", "  🙌  ", "..."]) {
+      expect(prepararSalidaFinal([{ kind: "text", content: t }]).parts, t).toHaveLength(0);
+    }
+  });
+
+  it("pero la ficha sigue viajando: el cliente recibe algo útil", () => {
+    const r = prepararSalidaFinal([
+      { kind: "text", content: "💰" },
+      { kind: "card", productId: 1, seccion: "info" },
+    ]);
+    expect(r.parts).toHaveLength(1);
+    expect(r.parts[0].kind).toBe("card");
+  });
+
+  it("y un texto de verdad con emoji no se toca", () => {
+    const r = prepararSalidaFinal([{ kind: "text", content: "El curso cuesta $60.000 COP 💰" }]);
+    expect(r.parts[0].content).toContain("$60.000");
+    expect(prepararTextoWhatsApp("Claro 😊")).toBe("Claro 😊");
+  });
+
+  it("en texto suelto devuelve el respaldo, no el emoji", () => {
+    for (const t of ["💰", "😊"]) {
+      expect(prepararTextoWhatsApp(t), t).toContain("confirmarte ese dato exacto");
+    }
+  });
+});
