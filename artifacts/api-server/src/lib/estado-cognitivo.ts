@@ -219,6 +219,31 @@ export function preguntaSinResponder(
     const respuesta = historial.slice(i + 1).find((x) => x.role !== "customer");
     if (!respuesta) return m.content; // todavía sin responder
 
+    // ── "Te lo confirmo" ES atender la pregunta ────────────────────────────
+    //
+    // No la responde, pero la reconoce, y arrastrarla igual sale peor. Medido
+    // con el agente entero el 2026-09-06, cuando el catálogo no tenía la
+    // duración cargada:
+    //
+    //   cliente: "cuanto dura?"     bot: "déjame confirmarte la duración"
+    //   cliente: "tiene garantia?"  bot: "...Y sobre la duración, te confirmo"
+    //   cliente: "es en vivo?"      bot: "...y de una vez la duración"
+    //   cliente: "sirve si no sé?"  bot: "...en cuanto me confirmen lo de en
+    //                                     vivo y la duración exacta, te aviso"
+    //
+    // Cuatro mensajes seguidos arrastrando lo mismo. El cliente pregunta otra
+    // cosa y recibe el recordatorio de una deuda que no puede cobrar. Se lee
+    // como alguien que no resuelve.
+    //
+    // Pasaba porque la comparación es por palabra exacta: "dura" y "duración"
+    // no coinciden, así que la promesa nunca contaba como haber tocado el
+    // tema. Atendida una vez, se deja de arrastrar; el dato que falta le queda
+    // igual al dueño en `preguntasSinResponder()` del panel, que es quien
+    // puede cargarlo.
+    if (/\b(te\s+(lo\s+)?confirm|d[eé]jame\s+confirm|lo\s+confirmo|te\s+(lo\s+)?averigu|te\s+(lo\s+)?aviso|te\s+respondo\s+enseguida)/i.test(respuesta.content)) {
+      return null;
+    }
+
     const enRespuesta = new Set(contenido(respuesta.content));
     // Cada pregunta se juzga por separado: si vinieron tres y la respuesta
     // tocó una, las otras dos siguen sin contestar. Antes se miraba el

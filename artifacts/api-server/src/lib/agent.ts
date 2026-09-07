@@ -2157,6 +2157,36 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
       if (hechos.length > 0) {
         console.log(`📗 [HECHOS] ${conDato.length} verificados + ${sinDato.length} sin confirmar → al prompt - ${ts()}`);
       }
+
+      // ── La promesa de confirmar se dice UNA vez ─────────────────────────
+      //
+      // Medido con el agente entero el 2026-09-06, con la duración sin cargar
+      // en el catálogo:
+      //
+      //   "cuanto dura?"      -> "déjame confirmarte la duración"
+      //   "tiene garantia?"   -> "...Y sobre la duración, te confirmo"
+      //   "es en vivo?"       -> "...y de una vez la duración"
+      //   "sirve si no sé?"   -> "...en cuanto me confirmen lo de en vivo y
+      //                           la duración exacta, te aviso"
+      //
+      // Cuatro mensajes arrastrando la misma deuda. El cliente pregunta otra
+      // cosa y recibe el recordatorio de algo que el bot no puede resolver: se
+      // lee como alguien que no avanza.
+      //
+      // Ya se cortó el lado del servidor --`preguntaSinResponder` deja de
+      // marcarla pendiente cuando se dijo que se confirma-- pero el modelo la
+      // repite igual, porque la ve en el historial y le parece cortés. Hay que
+      // decírselo.
+      const yaProminioConfirmar = (memory.history as any[])
+        .slice(-6)
+        .some((m: any) => m?.role !== "customer"
+          && /\b(te\s+(lo\s+)?confirm|d[eé]jame\s+confirm|lo\s+confirmo|te\s+(lo\s+)?aviso)/i.test(String(m?.content || "")));
+      if (yaProminioConfirmar) {
+        bloqueEstado +=
+          `\n\n⛔ Ya le dijiste que ibas a confirmar un dato. NO lo repitas en este mensaje: ` +
+          `contestá solo lo que preguntó ahora. Repetir la promesa en cada respuesta se lee ` +
+          `como que no avanzás.`;
+      }
     } catch (e: any) {
       console.log(`[HECHOS] no se pudieron cargar: ${e?.message} - ${ts()}`);
     }
@@ -4147,12 +4177,32 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
         for (const parte of finalParts) {
           if (parte.kind !== "text" || !(parte as any).content) continue;
           const original = String((parte as any).content);
-          // Solo la primera frase: lo demás es el desborde.
-          let corto = original.split(/(?<=[.!?])\s+/)[0] ?? original;
-          // Y sin montos: el número lo pone la ficha, una sola vez.
-          // Si al quitarlo la frase queda anunciando un precio que ya no dice
-          // ("tiene un valor de , pago único"), se descarta entera.
-          (parte as any).content = sinElMontoQueVaEnLaFicha(corto);
+          // ── Se descartan las frases del monto, no todo lo que venga después ─
+          //
+          // Antes esto se quedaba con la PRIMERA frase y tiraba el resto. Si
+          // justo esa era la del precio --que es lo normal cuando el cliente
+          // pregunta cuánto vale-- se descartaba, y como el resto ya se había
+          // perdido, el mensaje quedaba vacío. Medido con el agente entero el
+          // 2026-09-06:
+          //
+          //   cliente: "cuanto vale?"
+          //   modelo:  "El curso vale *$60.000*, en un solo pago. 💰
+          //             ¿Te queda alguna otra duda o lista para separar tu cupo?"
+          //   cliente recibe: [solo la ficha, sin una palabra]
+          //
+          // La ficha traía el precio, así que el dato llegaba; lo que se perdía
+          // era la conversación. Un mensaje que es solo una tarjeta se lee como
+          // un folleto automático, que es justo lo que el dueño viene pidiendo
+          // que no pase.
+          //
+          // Ahora se filtra frase por frase: la del monto se va (la ficha lo
+          // dice) y lo demás se queda. El tope de dos mantiene el mensaje corto,
+          // que era el objetivo original de este bloque.
+          const frases = original.split(/(?<=[.!?])\s+/);
+          const sobreviven = frases
+            .map((f) => sinElMontoQueVaEnLaFicha(f).trim())
+            .filter(Boolean);
+          (parte as any).content = sobreviven.slice(0, 2).join(" ");
         }
         const antes = finalParts.length;
         for (let i = finalParts.length - 1; i >= 0; i--) {
