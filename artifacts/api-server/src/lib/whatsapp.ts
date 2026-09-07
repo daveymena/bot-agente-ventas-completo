@@ -3,6 +3,7 @@ import { getAppUrl } from "./app-url";
 import { transcribirAudio, describirImagen } from "./media-entrante";
 import { contextoDeMoneda } from "./moneda-por-pais";
 import { invitacionDe, sePuedeOfrecerElVideo, pidioElVideo, type SeccionFicha } from "./ficha-parcial";
+import { anotarMensajePropio, loMandamosNosotros } from "./mensajes-propios";
 import { videoDeProducto } from "./video-de-producto";
 import { leerFicha, repartirPuntos, PRESUPUESTO_PIE_DE_FOTO } from "./ficha-del-producto";
 import { hablarColombiano } from "./hablar-colombiano";
@@ -1907,8 +1908,56 @@ export class WhatsAppManager {
               continue;
             }
             
+            // ── LO QUE SALE DEL NUMERO, PERO NO LO ESCRIBIMOS NOSOTROS ──────
+            //
+            // WhatsApp marca `fromMe` en TODO lo que sale de la cuenta: este
+            // bot, el dueno desde su celular, o la IA de Meta atendiendo. Antes
+            // se tiraba todo, y funcionaba mientras el bot fuera el unico que
+            // hablaba.
+            //
+            // Deja de funcionar apenas contesta alguien mas: esas respuestas
+            // existen para el cliente y NO existian para la app. Si Meta ya le
+            // dijo el precio, este bot no tenia forma de enterarse.
+            //
+            // Nuestro propio eco se sigue descartando; lo demas se GUARDA (sin
+            // responder) para que el historial este completo.
             if (msg.key.fromMe) {
-              console.log("⏭️ Ignorando: mensaje enviado por nosotros (fromMe=true)");
+              if (loMandamosNosotros(msg.key.id)) {
+                console.log("⏭️ Ignorando: eco de un mensaje que mandamos nosotros");
+                continue;
+              }
+              try {
+                // Lo esencial: el texto plano. No hace falta el extractor
+                // completo --que resuelve botones, listas y efimeros-- porque
+                // acá solo se observa, y una respuesta de la IA de Meta o del
+                // dueño es texto.
+                const mo: any = msg.message || {};
+                const textoAjeno = String(
+                  mo.conversation ||
+                  mo.extendedTextMessage?.text ||
+                  mo.imageMessage?.caption ||
+                  mo.videoMessage?.caption ||
+                  "",
+                );
+                if (textoAjeno && textoAjeno.trim() && this.currentTenant?.id) {
+                  const jidDestino = msg.key.remoteJid || "";
+                  await getMessageHandler().handleIncomingMessage({
+                    tenantId: String(this.currentTenant.id),
+                    remoteJid: jidDestino,
+                    phone: soloNumero(jidDestino),
+                    fromMe: true,
+                    messageId: msg.key.id || `otro_${Date.now()}`,
+                    body: textoAjeno.trim(),
+                    timestamp: new Date(msg.messageTimestamp ? Number(msg.messageTimestamp) * 1000 : Date.now()),
+                    pushName: "",
+                  });
+                  console.log(`👀 [OBSERVADO] Respuesta que NO salio de este bot, guardada: "${textoAjeno.slice(0, 60)}"`);
+                }
+              } catch (e: any) {
+                // Observar no puede romper la atencion: si falla, se pierde
+                // una linea de historial, no una conversacion.
+                console.log(`⚠️ [OBSERVADO] No se pudo guardar: ${e?.message}`);
+              }
               continue;
             }
             
@@ -2394,7 +2443,11 @@ export class WhatsAppManager {
     await this.sock.sendPresenceUpdate("paused", targetJid);
 
     try {
-      await this.sock.sendMessage(targetJid, { text });
+      // Se anota el id para poder distinguir despues nuestro propio eco de lo
+      // que conteste otro --el dueno desde su celular, o la IA de Meta--, que
+      // llega con el mismo `fromMe: true`. Ver `mensajes-propios.ts`.
+      const enviado = await this.sock.sendMessage(targetJid, { text });
+      anotarMensajePropio(enviado?.key?.id);
     } catch (e) {
       this.recordSendFailure();
       throw e;
@@ -2695,7 +2748,8 @@ export class WhatsAppManager {
         mimetype = "image/jpeg";
       }
 
-      await this.sock.sendMessage(jid, { image: buffer, caption, mimetype });
+      const enviadoImg = await this.sock.sendMessage(jid, { image: buffer, caption, mimetype });
+      anotarMensajePropio(enviadoImg?.key?.id);
       sentSomething = true;
     } catch (e: any) {
       // NO se manda una imagen "parecida" cuando falla la real.
@@ -2709,7 +2763,8 @@ export class WhatsAppManager {
         `[WhatsApp] Imagen no disponible (${imageUrl}): ${e.message}. Se envía solo el texto para no mostrar una foto que no es del producto.`,
       );
       try {
-        await this.sock.sendMessage(jid, { text: caption });
+        const enviadoAlt = await this.sock.sendMessage(jid, { text: caption });
+        anotarMensajePropio(enviadoAlt?.key?.id);
         sentSomething = true;
       } catch (err: any) {
         console.error(`[WhatsApp] Error fatal enviando texto: ${err.message}`);

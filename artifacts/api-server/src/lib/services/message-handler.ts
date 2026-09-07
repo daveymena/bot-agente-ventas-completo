@@ -72,8 +72,18 @@ export class MessageHandler {
       return;
     }
 
-    // Ignorar mensajes enviados por nosotros
+    // ── LO QUE CONTESTÓ OTRO SE GUARDA, PERO NO SE RESPONDE ────────────────
+    //
+    // `fromMe` llega acá solo cuando el mensaje salió del número y NO lo mandó
+    // este bot (whatsapp.ts ya descartó nuestro propio eco): o el dueño desde
+    // su celular, o la IA de Meta atendiendo.
+    //
+    // Se guarda para que el historial esté completo --si Meta ya le dijo el
+    // precio, este bot tiene que saberlo-- y se corta acá: NO se encola
+    // respuesta. Observar no es contestar; dos IAs escribiéndole al mismo
+    // cliente es peor que una sola.
     if (params.fromMe) {
+      await this.registrarRespuestaAjena(params, tenantId);
       return;
     }
 
@@ -244,6 +254,73 @@ export class MessageHandler {
         tenantId: params.tenantId,
         messageId: params.messageId,
       }, '[MessageHandler] Failed to handle incoming message');
+    }
+  }
+
+  /**
+   * Guarda una respuesta que salió del número pero no la escribió este bot.
+   *
+   * ── Por qué se guarda con rol "agent" ─────────────────────────────────
+   *
+   * Porque para el cliente ES la respuesta del negocio, no importa quién la
+   * haya tecleado. Y guardarla así hace que TODO lo que ya sabe leer el motor
+   * la tome en cuenta sin tocar una línea más: `datosYaDichos` deja de creer
+   * que falta contar el precio si Meta ya lo dijo, `no-repetir` no vuelve a
+   * mandar lo mismo, y la métrica de tiempo de respuesta la cuenta como
+   * atendida.
+   *
+   * Queda `metadata.origen: "externo"` para poder separarlas después --en el
+   * panel, o para medir cuánto atendió Meta y cuánto este bot--, pero el rol
+   * es el que hace que el sistema la entienda.
+   *
+   * ── Y NO se crea conversación si no existe ────────────────────────────
+   *
+   * Si no hay conversación, es un chat que el dueño arrancó él y del que no
+   * sabemos nada. Crear una fila con un solo mensaje suelto ensucia el inbox
+   * y el conteo de leads con contactos que nunca escribieron.
+   */
+  private async registrarRespuestaAjena(
+    params: { remoteJid: string; phone?: string; messageId: string; body: string; timestamp: Date },
+    tenantId: number,
+  ): Promise<void> {
+    try {
+      const { normalizarTelefono, variantesDeTelefono } = await import("../customer-profile");
+      const phone = normalizarTelefono(params.phone || params.remoteJid.split("@")[0]);
+      if (!phone) return;
+
+      const [convo] = await db.select().from(conversations)
+        .where(and(
+          inArray(conversations.contactPhone, variantesDeTelefono(phone)),
+          eq(conversations.tenantId, tenantId),
+        ))
+        .limit(1);
+      if (!convo) return;
+
+      // Mismo mensaje dos veces: WhatsApp reenvía al reconectar.
+      const [yaEsta] = await db.select({ id: messages.id }).from(messages)
+        .where(and(
+          eq(messages.conversationId, convo.id),
+          eq(messages.content, params.body),
+        ))
+        .limit(1);
+      if (yaEsta) return;
+
+      await db.insert(messages).values({
+        conversationId: convo.id,
+        role: "agent",
+        content: params.body,
+        stage: convo.currentStage || "greeting",
+        metadata: { origen: "externo", messageId: params.messageId } as any,
+      });
+
+      await db.update(conversations)
+        .set({ lastMessage: params.body.substring(0, 200), lastMessageAt: dbNow() })
+        .where(eq(conversations.id, convo.id));
+
+      logger.info(`[MessageHandler] Respuesta externa observada en la conversación ${convo.id}`);
+    } catch (err: any) {
+      // Observar nunca puede romper la atención al cliente.
+      logger.warn({ err: err?.message }, "[MessageHandler] No se pudo registrar la respuesta externa");
     }
   }
 

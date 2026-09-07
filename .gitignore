@@ -63,3 +63,7 @@ data/.test/
 # Repos clonados adentro por error: no son parte de este proyecto
 exnova-trader2/
 copilot-worktrees/
+
+# Catalogo con enlaces de entrega (Drive): cada enlace ES un curso.
+# Es material privado del negocio, no codigo. Fuera del repo.
+entrenamiento-meta/
