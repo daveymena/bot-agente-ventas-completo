@@ -338,6 +338,54 @@ router.post("/marketplace/webhook", verifyFacebookSignature, async (req: Request
 });
 
 // ─── Facebook Comments Webhook ─────────────────────────────────────────────
+
+/**
+ * Verificación del webhook de comentarios.
+ *
+ * ⚠️ Esto FALTABA, y por eso el webhook de comentarios nunca pudo funcionar.
+ *
+ * Meta no suscribe un webhook sin antes pedirlo por GET con
+ * `hub.mode=subscribe`, `hub.verify_token` y `hub.challenge`, y esperar que le
+ * devuelvan el challenge. Acá solo existía el POST, así que ese GET daba 404 y
+ * Meta rechazaba la suscripción.
+ *
+ * Medido el 2026-09-07 contra producción:
+ *
+ *   GET /api/facebook/comments/webhook   -> 404   (sin verificación posible)
+ *   GET /api/facebook/lead-ads/webhook   -> 403   (verifica y rechaza, correcto)
+ *   GET /api/facebook/messenger/webhook  -> 403   (correcto)
+ *
+ * Consecuencia con plata: alguien comenta en un anuncio pago y no llega nada.
+ * El código que contesta esos comentarios y manda el privado ya existía
+ * (`facebook-comments.ts`) y nunca se pudo ejecutar, porque el evento jamás
+ * entró.
+ *
+ * Se copia el mismo criterio del webhook de Lead Ads --incluido negarse a
+ * verificar si no hay token configurado-- en vez de escribir una variante: dos
+ * verificaciones distintas para el mismo Meta es otra cosa que se desincroniza.
+ */
+router.get("/comments/webhook", (req: Request, res: Response) => {
+  const mode = req.query["hub.mode"] as string;
+  const token = req.query["hub.verify_token"] as string;
+  const challenge = req.query["hub.challenge"] as string;
+
+  // Sin token configurado NO se verifica nada: un valor por defecto conocido
+  // dejaría que cualquiera suscriba su propio webhook e inyecte eventos.
+  const verifyToken = process.env.FB_WEBHOOK_VERIFY_TOKEN || "";
+  if (!verifyToken) {
+    logger.error("[Facebook] FB_WEBHOOK_VERIFY_TOKEN sin configurar — no se puede verificar el webhook de comentarios");
+    return res.status(503).json({ error: "Webhook verify token not configured" });
+  }
+
+  if (mode === "subscribe" && token === verifyToken) {
+    logger.info("[Facebook] Webhook de comentarios verificado exitosamente");
+    return res.status(200).send(challenge);
+  }
+
+  logger.warn({ mode }, "[Facebook] Intento de verificación del webhook de comentarios fallido");
+  return res.status(403).json({ error: "Verification failed" });
+});
+
 router.post("/comments/webhook", verifyFacebookSignature, async (req: Request, res: Response) => {
   try {
     const body = req.body;

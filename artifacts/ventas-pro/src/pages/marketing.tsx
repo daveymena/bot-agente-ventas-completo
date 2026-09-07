@@ -484,6 +484,7 @@ function EnVivoTab() {
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState("");
   const [ocupada, setOcupada] = useState<string>("");
+  const [conectado, setConectado] = useState(true);
 
   const cargar = useCallback(async () => {
     try {
@@ -492,6 +493,11 @@ function EnVivoTab() {
       if (!r.ok) throw new Error(j?.message || "No se pudieron leer las campañas");
       setCampanas(j.campaigns || []);
       setTotales(j.totals || null);
+      // El endpoint YA mandaba `connected` y nadie lo leia: sin cuenta
+      // conectada devuelve 200 con lista vacia, y la pantalla mostraba
+      // "no hay campañas" -- culpando a la falta de anuncios de un problema
+      // que era de conexion.
+      setConectado(j.connected !== false);
       setError("");
     } catch (e: any) {
       setError(e.message || "Error leyendo las campañas");
@@ -570,7 +576,18 @@ function EnVivoTab() {
           corriendo". Esto lo hace visible. */}
       <ActividadDelAgente />
 
-      {campanas.length === 0 ? (
+      {!conectado ? (
+        <Card><CardContent className="p-6 space-y-3">
+          <p className="text-sm font-medium">Facebook no está conectado.</p>
+          <p className="text-sm text-muted-foreground">
+            Esta pantalla lee las métricas directo de Meta, así que hasta que no
+            conectes la cuenta publicitaria no puede mostrar nada.
+          </p>
+          <Button size="sm" variant="outline" asChild>
+            <a href="/facebook">Conectar Facebook</a>
+          </Button>
+        </CardContent></Card>
+      ) : campanas.length === 0 ? (
         <Card><CardContent className="p-6 text-sm text-muted-foreground">
           No hay campañas en la cuenta publicitaria. Creá un anuncio desde Atlas y va a aparecer acá.
         </CardContent></Card>
