@@ -491,6 +491,7 @@ function EnVivoTab() {
   // en el default de 7. Una campaña que gasto hace tres semanas mostraba cero
   // para siempre, sin forma de mirar mas atras.
   const [dias, setDias] = useState(7);
+  const [cuentas, setCuentas] = useState<any[]>([]);
 
   const cargar = useCallback(async () => {
     try {
@@ -513,6 +514,16 @@ function EnVivoTab() {
       setCargando(false);
     }
   }, [dias]);
+
+  // Las cuentas publicitarias del negocio. Se piden una sola vez: no cambian
+  // solas, y sirven para responder la pregunta que antes no tenía respuesta --
+  // "¿en qué cuenta está buscando mis campañas?".
+  useEffect(() => {
+    fetch("/api/facebook/adaccounts", { credentials: "include" })
+      .then((r) => r.json())
+      .then((j) => setCuentas(j.cuentas || []))
+      .catch(() => setCuentas([]));
+  }, []);
 
   // Refresco automático: es una pantalla en vivo, no un informe. 60 s es el
   // ritmo al que Meta actualiza sus métricas; pedirlas más seguido no trae
@@ -602,6 +613,33 @@ function EnVivoTab() {
           </button>
         ))}
       </div>
+
+      {/* En que cuenta se esta mirando. Al reconectar Facebook la cuenta se
+          elige sola (la primera activa), asi que con varias cuentas las
+          campañas pueden "desaparecer" sin que nadie sepa por que. */}
+      {cuentas.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2 text-xs">
+          <span className="text-muted-foreground">Cuenta publicitaria:</span>
+          {cuentas.map((c) => (
+            <span
+              key={c.id}
+              className={`rounded-full border px-2.5 py-1 ${
+                c.enUso
+                  ? "border-foreground/15 bg-muted font-semibold text-foreground"
+                  : "border-transparent text-muted-foreground"
+              }`}
+              title={`ID ${c.id}${c.activa ? "" : " · esta cuenta no está activa en Meta"}`}
+            >
+              {c.enUso ? "✓ " : ""}{c.nombre}{c.activa ? "" : " ⚠️"}
+            </span>
+          ))}
+          {cuentas.length > 1 && (
+            <a href="/facebook" className="underline underline-offset-2 text-muted-foreground">
+              cambiar
+            </a>
+          )}
+        </div>
+      )}
 
       {!conectado ? (
         <Card><CardContent className="p-6 space-y-3">

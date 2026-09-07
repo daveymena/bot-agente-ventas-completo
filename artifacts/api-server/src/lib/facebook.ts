@@ -271,6 +271,52 @@ export class FacebookService {
   }
 
   /**
+   * Las cuentas publicitarias a las que llega este token, con cual esta en uso.
+   *
+   * ── Por que hacia falta ───────────────────────────────────────────────
+   *
+   * Al conectar Facebook, la cuenta se elige SOLA: `lista.find(c =>
+   * c.account_status === 1) || lista[0]`, o sea la primera activa. Con una
+   * sola cuenta no hay problema; con varias, reconectar puede cambiarte de
+   * cuenta sin avisar -- y de golpe las campañas "desaparecen" porque se estan
+   * pidiendo de otra cuenta.
+   *
+   * El panel dejaba ESCRIBIR el id a mano pero no habia forma de ver cuales
+   * existen: habia que ir a Meta a buscarlo. El comentario del propio flujo de
+   * conexion dice que eso "rompe la promesa del producto".
+   */
+  async listarCuentasPublicitarias(): Promise<{
+    cuentas: Array<{ id: string; nombre: string; moneda: string; activa: boolean; enUso: boolean }>;
+    error: string | null;
+  }> {
+    const token = this.config.userAccessToken || this.config.accessToken;
+    if (!token) return { cuentas: [], error: "Sin token de Facebook" };
+    try {
+      const res = await this.fbGet("me/adaccounts", {
+        fields: "account_id,name,account_status,currency",
+        limit: "25",
+      }, token);
+      const enUso = String(this.config.adAccountId || "");
+      return {
+        cuentas: (res.data || []).map((c: any) => ({
+          id: String(c.account_id),
+          nombre: c.name || `Cuenta ${c.account_id}`,
+          moneda: c.currency || "",
+          // 1 = activa. Las demas (deshabilitada, en revision, con deuda) no
+          // pueden entregar anuncios, y eso explica un cero mejor que nada.
+          activa: c.account_status === 1,
+          enUso: String(c.account_id) === enUso,
+        })),
+        error: null,
+      };
+    } catch (e: any) {
+      // Devolver [] a secas haria que "no tenes cuentas" y "no pude preguntar"
+      // fueran lo mismo. Ese error ya costo caro dos veces en este archivo.
+      return { cuentas: [], error: e?.message || "error consultando las cuentas" };
+    }
+  }
+
+  /**
    * Si hay cuenta publicitaria cargada.
    *
    * ⚠️ Es DISTINTO de `isConfigured()`, que solo mira el token. Sin este id,

@@ -1063,6 +1063,22 @@ router.put("/config", async (req, res, next) => {
 // `new FacebookService(tenant)` por request (ver app-operator.ts); acá se
 // hace exactamente lo mismo, igual que ya se hizo para Marketplace y
 // AdStrategist más arriba en este archivo.
+/**
+ * GET /api/facebook/adaccounts
+ *
+ * Las cuentas publicitarias del negocio, con cual esta en uso. Sin esto el
+ * dueño no tenia forma de saber en que cuenta se estan buscando sus campañas
+ * -- y al reconectar Facebook la cuenta se elige sola, asi que puede cambiar
+ * sin que nadie se entere.
+ */
+router.get("/adaccounts", async (req, res, next) => {
+  try {
+    const { FacebookService } = await import("../lib/facebook");
+    const svc = new FacebookService((req as any).tenant || undefined);
+    return res.json(await svc.listarCuentasPublicitarias());
+  } catch (e) { return next(e); }
+});
+
 router.get("/validate", async (req, res, next) => {
   try {
     const tenant = (req as any).tenant;
