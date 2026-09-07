@@ -112,3 +112,31 @@ describe("el cierre que no mandaba nada", () => {
     }
   });
 });
+
+describe("los dos caminos de salida limpian lo mismo", () => {
+  // 782e115 sacó "¿Te paso el precio?" del camino de las PARTES, pero no del
+  // texto suelto que envuelve sendText. Por ahí siguió saliendo: un cliente
+  // pidió el curso de diseño gráfico, recibió la ficha y después una burbuja
+  // sola con "¿Te paso el precio? 💰" (2026-09-06 19:34, en producción y con
+  // el fix ya desplegado).
+  it("sendText tampoco deja pasar la oferta de precio vacía", () => {
+    for (const t of ["¿Te paso el precio? 💰", "Te paso el precio", "¿Te digo el valor?"]) {
+      expect(prepararTextoWhatsApp(t), t).not.toMatch(/te (paso|digo) el (precio|valor)/i);
+    }
+  });
+
+  it("no se lleva puesto lo que sí entrega algo", () => {
+    expect(prepararTextoWhatsApp("El curso cuesta $60.000 COP")).toContain("$60.000");
+    // Ofrecer el video SÍ entrega algo distinto: no es la misma frase vacía.
+    expect(prepararTextoWhatsApp("¿Te muestro cómo es por dentro? 🎬")).toContain("por dentro");
+  });
+
+  it("dentro de un mensaje largo quita solo esa línea", () => {
+    const r = prepararTextoWhatsApp(
+      ["🎨 DISEÑO GRÁFICO", "", "¿Te paso el precio? 💰", "", "Incluye proyectos prácticos."].join("\n"),
+    );
+    expect(r).toContain("DISEÑO GRÁFICO");
+    expect(r).toContain("proyectos prácticos");
+    expect(r).not.toMatch(/te paso el precio/i);
+  });
+});

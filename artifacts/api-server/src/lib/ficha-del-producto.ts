@@ -108,7 +108,32 @@ function esElTitulo(bloque: string, nombre: string): boolean {
 function esEncabezado(texto: string): boolean {
   const limpio = texto.replace(EMPIEZA_CON_EMOJI, "").trim();
   if (!limpio || limpio.length > 40) return false;
-  // Sin signos de puntuación de frase y en mayúsculas: es un rótulo.
+
+  // ── Un rótulo que TERMINA en dos puntos, aunque no esté en mayúsculas ──
+  //
+  // La regla de abajo pedía las dos cosas a la vez: sin puntuación Y todo en
+  // mayúsculas. Un encabezado normal no cumple ninguna: se escribe
+  // "✨ Beneficios:", con dos puntos al final y en minúsculas.
+  //
+  // Consecuencia medida en producción (2026-09-06): al cliente que pidió el
+  // curso de diseño gráfico le llegó
+  //
+  //   🎨 DISEÑO GRÁFICO
+  //   - Contenido en Alta Definición (HD)
+  //   ✨ Beneficios:            <- el rótulo, contado como si fuera un punto
+  //   🎨 Herramientas de diseño
+  //   🎨 Proyectos prácticos
+  //
+  // El pie de foto tiene un presupuesto de caracteres, así que ese rótulo no
+  // solo no dice nada: OCUPA el lugar de un beneficio de verdad. La ficha se
+  // veía pobre en todo el catálogo, porque casi todas las descripciones usan
+  // encabezados escritos así.
+  //
+  // Se exige que no haya nada después de los dos puntos: "Incluye: 19 módulos"
+  // sí trae contenido y tiene que quedarse.
+  if (/:$/.test(limpio)) return true;
+
+  // Sin signos de puntuación de frase y en mayúsculas: también es un rótulo.
   return !/[.,;:]/.test(limpio) && limpio === limpio.toUpperCase();
 }
 

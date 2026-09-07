@@ -225,5 +225,26 @@ export function prepararSalidaFinal(parts: SalidaPart[]): {
 export function prepararTextoWhatsApp(texto: string): string {
   const result = bloquearPlaceholders(texto);
   const entrega = corregirEntregaFisicaEnDigital(result.text);
-  return entrega.text || "Déjame confirmarte ese dato exacto y te respondo enseguida. 🙏";
+
+  // ── Los dos caminos de salida tienen que limpiar lo mismo ───────────────
+  //
+  // `prepararSalidaFinal` (el de las partes) ya sacaba "¿Te paso el precio?"
+  // desde 782e115. Esta función --la que envuelve `sendText`, o sea el texto
+  // que se manda suelto-- no lo hacía, y por ahí siguió saliendo: un cliente
+  // pidió el curso de diseño gráfico, recibió la ficha y después una burbuja
+  // con "¿Te paso el precio? 💰" y nada más (2026-09-06 19:34).
+  //
+  // Preguntar si mandar el precio no entrega ningún valor: obliga al cliente
+  // a contestar "sí" para recibir un dato que ya tenemos. Se saca acá también.
+  //
+  // Solo esa frase, no todas las promesas: en un texto suelto no se sabe si el
+  // dato viaja en otro mensaje, y borrar promesas a ciegas dejaría al cliente
+  // sin respuesta. Esta es la única que no entrega nada por definición.
+  const limpio = entrega.text
+    .split("\n")
+    .filter((l) => !OFERTA_PRECIO_SIN_DATO.test(l.trim()))
+    .join("\n")
+    .trim();
+
+  return limpiarFormato(limpio) || "Déjame confirmarte ese dato exacto y te respondo enseguida. 🙏";
 }

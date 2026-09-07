@@ -105,3 +105,51 @@ describe("Otros formatos de descripción", () => {
     expect(f.emoji).toBe("");
   });
 });
+
+describe("los encabezados no roban lugar a los beneficios", () => {
+  // Medido en producción (2026-09-06). Al cliente que pidió el curso de diseño
+  // gráfico le llegó una ficha con DOS beneficios y un rótulo en el medio:
+  //
+  //   🎨 DISEÑO GRÁFICO
+  //   - Contenido en Alta Definición (HD)
+  //   ✨ Beneficios:              <- contado como si fuera un punto
+  //   🎨 Herramientas de diseño
+  //   🎨 Proyectos prácticos
+  //
+  // El pie de foto tiene presupuesto de caracteres: ese rótulo no dice nada y
+  // encima ocupa el lugar de un beneficio real. Pasaba en todo el catálogo,
+  // porque `esEncabezado` exigía mayúsculas Y sin puntuación, y un encabezado
+  // normal se escribe "Beneficios:" -- ni una cosa ni la otra.
+  const DESC = [
+    "🎨 DISEÑO GRÁFICO",
+    "",
+    "- Contenido en Alta Definición (HD)",
+    "",
+    "✨ Beneficios:",
+    "🎨 Herramientas de diseño",
+    "🎨 Proyectos prácticos",
+    "",
+    "📚 Qué vas a aprender:",
+    "🖌️ Composición y color",
+  ].join("\n");
+
+  it("descarta los rótulos que terminan en dos puntos", () => {
+    const f = leerFicha(DESC, "DISEÑO GRÁFICO");
+    const textos = f.puntos.map((p) => p.texto);
+    expect(textos).not.toContain("Beneficios:");
+    expect(textos).not.toContain("Qué vas a aprender:");
+  });
+
+  it("y deja pasar los beneficios de verdad", () => {
+    const f = leerFicha(DESC, "DISEÑO GRÁFICO");
+    const textos = f.puntos.map((p) => p.texto);
+    expect(textos).toContain("Herramientas de diseño");
+    expect(textos).toContain("Composición y color");
+    expect(f.puntos).toHaveLength(3);
+  });
+
+  it("pero un encabezado CON contenido detrás se queda entero", () => {
+    const f = leerFicha(["🎁 PACK", "", "📚 Incluye: 19 módulos en video"].join("\n"), "PACK");
+    expect(f.puntos.map((p) => p.texto)).toContain("Incluye: 19 módulos en video");
+  });
+});
