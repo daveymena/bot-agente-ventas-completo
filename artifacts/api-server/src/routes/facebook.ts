@@ -574,7 +574,22 @@ router.get("/campaigns", async (req, res, next) => {
     if (!svc.isConfigured()) return res.json({ campaigns: [], totals: null, connected: false });
     const days = Math.min(Math.max(Number(req.query.days) || 7, 1), 30);
     const data = await svc.getCampaignMetrics({ days });
-    return res.json({ ...(data || { campaigns: [], totals: null }), connected: true, days });
+    // ── "No hay campañas" y "no pude preguntar" NO son lo mismo ────────────
+    //
+    // Sin esto, la pantalla En vivo decia "No hay campañas, creá un anuncio
+    // desde Atlas" tanto cuando de verdad no habia ninguna como cuando faltaba
+    // la cuenta publicitaria o Meta rechazaba la consulta. El dueño podia
+    // crear anuncios toda la tarde sin que la pantalla cambiara.
+    //
+    // `lastCampaignListError` YA existia y YA se leia... solo desde Atlas
+    // (`app-operator.ts`). El endpoint que alimenta el panel lo ignoraba.
+    return res.json({
+      ...(data || { campaigns: [], totals: null }),
+      connected: true,
+      days,
+      sinCuentaPublicitaria: !svc.tieneCuentaPublicitaria(),
+      errorDeConsulta: svc.lastCampaignListError || null,
+    });
   } catch (e) { return next(e); }
 });
 

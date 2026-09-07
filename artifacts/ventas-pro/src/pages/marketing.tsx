@@ -485,6 +485,8 @@ function EnVivoTab() {
   const [error, setError] = useState("");
   const [ocupada, setOcupada] = useState<string>("");
   const [conectado, setConectado] = useState(true);
+  const [sinCuenta, setSinCuenta] = useState(false);
+  const [errorConsulta, setErrorConsulta] = useState("");
 
   const cargar = useCallback(async () => {
     try {
@@ -498,6 +500,8 @@ function EnVivoTab() {
       // "no hay campañas" -- culpando a la falta de anuncios de un problema
       // que era de conexion.
       setConectado(j.connected !== false);
+      setSinCuenta(!!j.sinCuentaPublicitaria);
+      setErrorConsulta(j.errorDeConsulta || "");
       setError("");
     } catch (e: any) {
       setError(e.message || "Error leyendo las campañas");
@@ -585,6 +589,29 @@ function EnVivoTab() {
           </p>
           <Button size="sm" variant="outline" asChild>
             <a href="/facebook">Conectar Facebook</a>
+          </Button>
+        </CardContent></Card>
+      ) : sinCuenta ? (
+        <Card><CardContent className="p-6 space-y-3">
+          <p className="text-sm font-medium">Falta la cuenta publicitaria.</p>
+          <p className="text-sm text-muted-foreground">
+            El token de Facebook está cargado, pero no el ID de la cuenta de
+            anuncios, y sin eso no se puede preguntar por las campañas.
+          </p>
+          <Button size="sm" variant="outline" asChild>
+            <a href="/facebook">Cargar la cuenta publicitaria</a>
+          </Button>
+        </CardContent></Card>
+      ) : errorConsulta ? (
+        <Card><CardContent className="p-6 space-y-2">
+          <p className="text-sm font-medium">Meta rechazó la consulta.</p>
+          <p className="text-sm text-muted-foreground">
+            No se puede afirmar que no tengas campañas: la consulta falló, que es
+            distinto. Suele ser el token vencido.
+          </p>
+          <p className="text-xs font-mono text-muted-foreground break-all">{errorConsulta}</p>
+          <Button size="sm" variant="outline" asChild>
+            <a href="/facebook">Revisar la conexión</a>
           </Button>
         </CardContent></Card>
       ) : campanas.length === 0 ? (

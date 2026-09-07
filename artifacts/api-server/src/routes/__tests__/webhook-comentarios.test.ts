@@ -70,3 +70,46 @@ describe("la verificación de comentarios es tan estricta como las otras", () =>
     expect(bloque).not.toMatch(/salesbot_verify|FB_WEBHOOK_VERIFY_TOKEN\s*\|\|\s*["'][a-z0-9_]{6,}/i);
   });
 });
+
+/**
+ * ============================================================
+ * "NO HAY CAMPAÑAS" NO ES LO MISMO QUE "NO PUDE PREGUNTAR"
+ * ============================================================
+ *
+ * El dueno: "donde muestra los activos dice: No hay campañas en la cuenta
+ * publicitaria. Creá un anuncio desde Atlas y va a aparecer acá" -- teniendo
+ * campañas creadas por Atlas.
+ *
+ * `listActiveCampaigns()` devuelve [] en tres casos distintos: no hay
+ * campañas, falta el id de la cuenta publicitaria, o Meta rechazo la consulta.
+ * El endpoint los aplastaba en uno solo.
+ *
+ * Ya estaba resuelto para Atlas (`app-operator.ts` lee
+ * `lastCampaignListError`); el endpoint del panel lo ignoraba. Gemelo otra vez.
+ */
+describe("el endpoint de campañas dice POR QUE no hay nada", () => {
+  const RUTA = (() => {
+    const i = CODIGO.indexOf('router.get("/campaigns"');
+    return i === -1 ? "" : CODIGO.slice(i, i + 1200);
+  })();
+
+  it("existe el endpoint", () => {
+    expect(RUTA).not.toBe("");
+  });
+
+  it("avisa cuando falta la cuenta publicitaria", () => {
+    // El token puede estar y la cuenta no: `isConfigured()` solo mira el token,
+    // asi que `connected` daba true y la pantalla culpaba a la falta de anuncios.
+    expect(RUTA).toContain("sinCuentaPublicitaria");
+    expect(RUTA).toContain("tieneCuentaPublicitaria()");
+  });
+
+  it("expone el error real de Meta en vez de tragarselo", () => {
+    expect(RUTA).toContain("errorDeConsulta");
+    expect(RUTA).toContain("lastCampaignListError");
+  });
+
+  it("sigue informando si la cuenta esta conectada", () => {
+    expect(RUTA).toContain("connected: true");
+  });
+});

@@ -271,6 +271,19 @@ export class FacebookService {
   }
 
   /**
+   * Si hay cuenta publicitaria cargada.
+   *
+   * ⚠️ Es DISTINTO de `isConfigured()`, que solo mira el token. Sin este id,
+   * `listActiveCampaigns()` devuelve [] en la primera linea y quien pregunta
+   * recibe "no hay campañas" -- cuando lo que falta es la cuenta. Es el mismo
+   * error que ya se corrigio para Atlas: una consulta que no se pudo hacer no
+   * es un hecho sobre el mundo.
+   */
+  tieneCuentaPublicitaria(): boolean {
+    return !!this.config.adAccountId;
+  }
+
+  /**
    * Moneda de la cuenta publicitaria ("COP", "USD", ...), cacheada por
    * instancia. Meta guarda los presupuestos en la MONEDA DE LA CUENTA, no en
    * la del negocio.
