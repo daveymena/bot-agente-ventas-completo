@@ -1169,6 +1169,14 @@ export class WhatsAppManager {
   protected sock: any = null;
   protected starting = false;
   protected hadQrInThisSession = false;
+  /**
+   * Si esta sesion llego a estar conectada alguna vez.
+   *
+   * Es lo que distingue "nunca pude conectarme" de "estaba andando y se
+   * cayo". Sin esto no se puede decidir si vale la pena reintentar, y por eso
+   * el bot se quedaba muerto despues de cada deploy (ver mas abajo).
+   */
+  protected yaEstuvoConectado = false;
   protected _usePairingCode = false;
   protected currentTenant: TenantContext;
 
@@ -1541,6 +1549,7 @@ export class WhatsAppManager {
     this.starting = false;
     this.lastError = null;
     this.hadQrInThisSession = false;
+    this.yaEstuvoConectado = false;
     logger.info({ keepAuth }, "[WhatsApp] Stopped");
     return this.getStatus();
   }
@@ -1753,6 +1762,7 @@ export class WhatsAppManager {
            this.phoneNumber = sock.user?.id?.split(":")[0]?.split("@")[0] ?? null;
            this.starting = false;
            this.reconnectAttempts = 0; // Reset on successful connection
+           this.yaEstuvoConectado = true;
            this.lastError = null;
            logger.info({ phone: this.phoneNumber }, "[WhatsApp] Connected");
            console.log(`✅ [CONNECTED] WhatsApp conectado exitosamente - Teléfono: ${this.phoneNumber}`);
@@ -1775,7 +1785,22 @@ export class WhatsAppManager {
               this.lastError = "Sesión cerrada (LoggedOut)";
               logger.info("[WhatsApp] Logged out");
               console.log("❌ [AUTH] Usuario deslogueado - Se requiere nuevo QR");
-            } else if (!this.hadQrInThisSession) {
+            } else if (!this.hadQrInThisSession && !this.yaEstuvoConectado) {
+              // ⚠️ Acá faltaba `&& !this.yaEstuvoConectado`, y esa omision
+              // dejaba el numero mudo despues de CADA despliegue.
+              //
+              // `hadQrInThisSession` solo se pone en true cuando se dibuja un
+              // QR. Al reiniciar el contenedor, la sesion vuelve sola con las
+              // credenciales guardadas y NO se muestra ningun QR -- asi que la
+              // bandera queda en false. En la primera caida del socket se
+              // entraba por esta rama, que no reintenta NADA, y se culpaba a
+              // la red de un problema que no era de red.
+              //
+              // Medido el 2026-09-07: desplegado 06:43, conectado; a las 07:19
+              // "disconnected" sin un solo intento en el log.
+              //
+              // Esta rama es para el caso de verdad: nunca hubo QR y nunca
+              // hubo conexion, o sea que el servidor no alcanza WhatsApp.
               this.reconnectAttempts = 0;
               this.state = "disconnected";
               this.lastError = "No se pudo conectar con WhatsApp. Revisa que el servidor tenga acceso a web.whatsapp.com (WebSocket).";
@@ -1789,6 +1814,24 @@ export class WhatsAppManager {
              logger.warn({ attempt: this.reconnectAttempts, delay, error: errorMessage }, "[WhatsApp] Connection closed, reconnecting...");
              console.log(`🔄 [RECONNECT] Reintentando en ${delay}ms - Intento ${this.reconnectAttempts}/${this.MAX_RECONNECT_ATTEMPTS}`);
              setTimeout(() => this.start(), delay);
+           } else if (this.yaEstuvoConectado) {
+             // ── NI SE RINDE PARA SIEMPRE ──────────────────────────────────
+             //
+             // Antes, al quinto intento fallido quedaba muerto hasta que
+             // alguien entrara al panel. Cinco intentos con espera creciente
+             // son ~90 segundos: un corte de red mas largo que eso dejaba el
+             // numero mudo por horas, sin que nadie se enterara. Ya paso.
+             //
+             // Como las credenciales siguen guardadas, se sigue intentando
+             // cada 5 minutos. Es lento a proposito: reconectar a lo bruto
+             // contra WhatsApp es de las cosas que hacen que bloqueen el
+             // numero, y el negocio no puede permitirse eso.
+             this.state = "error";
+             this.reconnectAttempts = 0;
+             this.lastError = "Reconectando cada 5 minutos";
+             logger.warn("[WhatsApp] Max fast attempts reached, switching to slow retry (5 min)");
+             console.log("🐢 [RECONNECT] Agotados los intentos rapidos: se reintenta cada 5 minutos");
+             setTimeout(() => this.start(), 5 * 60 * 1000);
            } else {
              this.state = "disconnected";
              this.reconnectAttempts = 0;
