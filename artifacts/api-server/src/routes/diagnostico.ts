@@ -159,6 +159,60 @@ router.get("/", async (req, res, next) => {
       revisiones.push({ que: "Facebook", estado: "falla", detalle: "no se pudo revisar", motivo: e?.message });
     }
 
+    // ── Automatizaciones ───────────────────────────────────────────────────
+    //
+    // Lo que el dueño pregunto el 2026-09-08: "los agentes autonomos de
+    // programar publicacion quedaron bien configurados?". No habia forma de
+    // saberlo: los trabajos programados viven en la base y SOLO los podia ver
+    // Atlas con `automatizacion_estado`. Ninguna pantalla los mostraba.
+    //
+    // Un agente que corre solo y no se puede ver es indistinguible de uno que
+    // no corre. Lo mismo que paso con el guardian de gasto, que llego a marcar
+    // "0 revisiones" sin que nadie se enterara.
+    try {
+      const { db, trabajosProgramados } = await import("@workspace/db");
+      const { and, eq, asc } = await import("drizzle-orm");
+      const tid = tenant?.id;
+
+      if (!tid) {
+        revisiones.push({
+          que: "Automatizaciones",
+          estado: "falla",
+          detalle: "no se pudo identificar el negocio",
+        });
+      } else {
+        const pendientes = await db
+          .select()
+          .from(trabajosProgramados)
+          .where(and(eq(trabajosProgramados.tenantId, tid), eq(trabajosProgramados.estado, "pendiente")))
+          .orderBy(asc(trabajosProgramados.correAt))
+          .limit(50);
+
+        const cuenta = (t: string) => pendientes.filter((x: any) => String(x.tipo || "").startsWith(t)).length;
+        const publicaciones = cuenta("organico:");
+        const guardia = cuenta("franjas:");
+        const agencia = cuenta("agencia:");
+        const proxima = pendientes[0] as any;
+
+        const nada = pendientes.length === 0;
+        revisiones.push({
+          que: "Automatizaciones",
+          // No es "falla": no tener nada agendado es una decision valida.
+          estado: nada ? "sin-configurar" : "ok",
+          detalle: nada
+            ? "no hay nada agendado"
+            : `${pendientes.length} tarea(s): ${publicaciones} publicacion(es), ` +
+              `${guardia} de guardia horaria, ${agencia} de la agencia` +
+              (proxima?.correAt ? ` · la proxima: ${new Date(proxima.correAt).toLocaleString("es-CO")}` : ""),
+          queHacer: nada
+            ? "Pedile a Atlas que active la publicacion automatica; te muestra el plan de la semana antes de agendar."
+            : undefined,
+        });
+      }
+    } catch (e: any) {
+      revisiones.push({ que: "Automatizaciones", estado: "falla", detalle: "no se pudo revisar", motivo: e?.message });
+    }
+
     // ── Base de datos ──────────────────────────────────────────────────────
     try {
       const { tablasFaltantes, ultimasMigraciones } = await import("../lib/autoMigrate");
