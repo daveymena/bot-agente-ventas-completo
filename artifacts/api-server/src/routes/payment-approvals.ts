@@ -99,7 +99,7 @@ router.post("/:id/decision", async (req: TenantRequest, res) => {
       return sendError(res, ERROR_CODES.NOT_FOUND, 404);
     }
 
-    const r = await aplicarDecision(pagoId, accion, `panel:tenant:${tenantId}`);
+    const r = await aplicarDecision(pagoId, accion, `panel:tenant:${tenantId}`, req.body?.razon);
     if (!r.ok) {
       return res.json({ ok: false, mensaje: r.mensajeParaElAdmin });
     }

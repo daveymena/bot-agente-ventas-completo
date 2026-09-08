@@ -1630,8 +1630,8 @@ export const TOOLS: ToolDef[] = [
   // ── Agente ──
   {
     name: "update_agent",
-    description: "Actualizar el agente de ventas (nombre, rol, tono, prompt, activo). Crea uno si no existe.",
-    args: '{ "name"?, "role"?, "tone"?, "systemPrompt"?, "isActive"?: boolean }',
+    description: "Actualizar el agente de ventas (nombre, rol, tono, prompt, especialidad, metadata, activo). Crea uno si no existe.",
+    args: '{ "name"?, "role"?, "tone"?, "systemPrompt"?, "especialidad"?: "digital"|"dropshipping", "metadata"?: object, "isActive"?: boolean }',
     run: async (args, ctx) => {
       const [existing] = await agenteDelTenant(ctx.tenantId);
       // Campos que esta tool realmente soporta. Si el modelo pasa cualquier
@@ -1640,11 +1640,13 @@ export const TOOLS: ToolDef[] = [
       // y responder "Nada que actualizar" es engañoso: el admin pidió algo
       // que esta herramienta no puede hacer, no que no haya nada que cambiar.
       // Se dice qué llegó y qué SÍ se puede editar con esta herramienta.
-      const SOPORTADOS = ["name", "role", "tone", "systemPrompt", "isActive"] as const;
+      const SOPORTADOS = ["name", "role", "tone", "systemPrompt", "especialidad", "metadata", "isActive"] as const;
       const recibidos = Object.keys(args || {}).filter((k) => args[k] !== undefined && args[k] !== null);
       const noSoportados = recibidos.filter((k) => !(SOPORTADOS as readonly string[]).includes(k));
       const patch: Record<string, any> = {};
       for (const k of ["name", "role", "tone", "systemPrompt"]) if (args[k] !== undefined) patch[k] = args[k];
+      if (args.especialidad !== undefined) patch.especialidad = args.especialidad;
+      if (args.metadata !== undefined) patch.metadata = args.metadata;
       if (args.isActive !== undefined) patch.isActive = !!args.isActive;
       if (Object.keys(patch).length === 0) {
         const hayNoSoportados = noSoportados.length > 0;

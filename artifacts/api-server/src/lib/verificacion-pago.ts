@@ -285,14 +285,18 @@ function sinAdornos(texto: string): string {
 
 export function leerDecisionDelAdmin(
   texto: string,
-): { accion: "aprobar" | "rechazar"; pagoId: number; correo?: string } | null {
+): { accion: "aprobar" | "rechazar"; pagoId: number; correo?: string; razon?: string } | null {
   const t = sinAdornos(texto);
   const m = t.match(
-    /^(aprobar|aprobado|apruebo|ok|confirmar|confirmo|rechazar|rechazo|rechazado|no)\s*#?\s*(\d{1,9})\b\s*([^\s@]+@[^\s@]+\.[^\s@]+)?/,
+    /^(aprobar|aprobado|apruebo|ok|confirmar|confirmo|rechazar|rechazo|rechazado|no)\s*#?\s*(\d{1,9})\b\s*(.*)/,
   );
   if (!m) return null;
   const accion = /^(rechaz|no)/.test(m[1]!) ? "rechazar" : "aprobar";
-  return { accion, pagoId: Number(m[2]), correo: m[3] || undefined };
+  const resto = (m[3] || "").trim();
+  // La razón es todo lo que queda después del número, excluyendo el correo
+  const razon = resto.replace(/[^\s@]+@[^\s@]+\.[^\s@]+/, "").trim() || undefined;
+  const correoMatch = resto.match(/([^\s@]+@[^\s@]+\.[^\s@]+)/);
+  return { accion, pagoId: Number(m[2]), correo: correoMatch?.[1] || undefined, razon };
 }
 
 /**
@@ -384,6 +388,7 @@ export async function aplicarDecision(
   pagoId: number,
   accion: "aprobar" | "rechazar",
   quien: string,
+  razon?: string,
 ): Promise<ResultadoDecision> {
   const noExiste: ResultadoDecision = {
     ok: false,
@@ -409,23 +414,84 @@ export async function aplicarDecision(
     }
 
     const aprobado = accion === "aprobar";
+
+    // ── Si el admin rechaza, construir mensaje específico ────────────────
+    let mensajeClienteRechazo: string | null = null;
+    if (!aprobado) {
+      // Buscar datos del producto para comparar
+      let productoNombre: string | null = null;
+      let montoEsperado: number | null = null;
+      if (pago.productId) {
+        try {
+          const [prod] = await db.select({ name: products.name, price: products.price })
+            .from(products).where(eq(products.id, pago.productId)).limit(1);
+          if (prod) {
+            productoNombre = prod.name;
+            montoEsperado = Number(prod.price);
+          }
+        } catch {}
+      }
+
+      const montoPagado = Number(pago.amount);
+      const pagador = pago.payerName || "el cliente";
+      const cuentaOrigen = pago.payerAccount || null;
+
+      // Detectar qué está mal
+      const problemas: string[] = [];
+      if (razon) {
+        problemas.push(razon);
+      }
+      if (montoEsperado && montoPagado && Math.abs(montoPagado - montoEsperado) > 1) {
+        problemas.push(`el monto de $${Math.round(montoPagado).toLocaleString("es-CO")} no coincide con el precio de $${Math.round(montoEsperado).toLocaleString("es-CO")}`);
+      }
+
+      if (problemas.length > 0) {
+        const listaProblemas = problemas.map(p => `  • ${p}`).join("\n");
+        mensajeClienteRechazo = [
+          `Hola ${pagador}, revisé tu comprobante y encontré estos problemas:`,
+          ``,
+          listaProblemas,
+          ``,
+          cuentaOrigen ? `En tu comprobante aparece la cuenta: *${cuentaOrigen}*` : null,
+          productoNombre ? `Producto: *${productoNombre}*` : null,
+          `¿Puedes verificar los datos y mandarme el comprobante correcto? 🙏`,
+        ].filter(Boolean).join("\n");
+      } else {
+        // Sin razón específica, mensaje genérico pero más informativo
+        mensajeClienteRechazo = [
+          `Hola ${pagador}, revisé tu comprobante del pago`,
+          productoNombre ? `del producto *${productoNombre}*` : "",
+          `y no pude confirmarlo 🤔`,
+          ``,
+          cuentaOrigen ? `En el comprobante aparece la cuenta: *${cuentaOrigen}*` : null,
+          `¿Puedes verificar que:`,
+          `  • El monto sea el correcto`,
+          `  • La cuenta de destino sea la nuestra`,
+          `  • La fecha sea reciente`,
+          ``,
+          `Mándame el comprobante de nuevo y lo reviso 👍`,
+        ].filter(Boolean).join("\n");
+      }
+    }
+
     await db
       .update(payments)
       .set({
         status: aprobado ? "confirmed" : "rejected",
         verifiedAt: new Date(),
         verifiedBy: quien,
+        notes: razon || pago.notes,
         updatedAt: new Date(),
       })
       .where(eq(payments.id, pagoId));
 
-    logger.info({ pagoId, accion, quien }, "[Pago] Decisión del admin aplicada");
+    logger.info({ pagoId, accion, quien, razon }, "[Pago] Decisión del admin aplicada");
 
     return {
       ok: true,
       mensajeParaElAdmin: aprobado
         ? `✅ Listo, comprobante ${pagoId} aprobado. Le aviso al cliente.`
-        : `❌ Comprobante ${pagoId} rechazado. Le aviso al cliente con tacto.`,
+        : `❌ Comprobante ${pagoId} rechazado${razon ? `: ${razon}` : ""}. Le aviso al cliente.`,
       mensajeParaElCliente: aprobado
         ? `¡Confirmado tu pago! 🎉 Te paso el acceso enseguida.`
         : motivoDelRechazo(pago),
@@ -628,7 +694,7 @@ export async function atenderDecisionDelAdmin(
     .limit(1);
   if (!pago || pago.status !== "pending") return null;
 
-  const r = await aplicarDecision(decision.pagoId, decision.accion, `whatsapp:${phone}`);
+  const r = await aplicarDecision(decision.pagoId, decision.accion, `whatsapp:${phone}`, decision.razon);
   if (!r.conversationId || !r.mensajeParaElCliente) {
     return { paraElAdmin: r.mensajeParaElAdmin, paraElCliente: null };
   }
