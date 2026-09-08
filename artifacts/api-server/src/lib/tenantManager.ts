@@ -285,6 +285,7 @@ export class TenantManager {
           email: tenant.email,
           isAdmin: !!tenant.isAdmin,
           brandName: tenant.brandName,
+          contactPhone: (tenant as any).contactPhone || null,
           agentPersonality: tenant.agentPersonality,
           agentPrompt: tenant.agentPrompt,
           agentName: tenant.agentName,
