@@ -457,6 +457,18 @@ export const promptVersions = sqliteTable("prompt_versions", {
 // Espejo sqlite de schema/trabajos-programados.ts. Las pruebas corren sobre
 // sqlite, y un reloj sin pruebas es justo el componente que uno NO quiere
 // descubrir roto en producción a las 3 de la mañana.
+// ── consumo_mensual: cuantos mensajes lleva cada negocio este mes ───────────
+// Espejo sqlite de schema/consumo-mensual.ts. El limite del plan se prueba
+// contra esto, asi que sin el espejo las pruebas medirian otra cosa que
+// produccion.
+export const consumoMensual = sqliteTable("consumo_mensual", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  tenantId: integer("tenant_id").references(() => tenants.id, { onDelete: "cascade" }).notNull(),
+  periodo: text("periodo").notNull(),
+  mensajes: integer("mensajes").notNull().default(0),
+  actualizadoAt: text("actualizado_at").notNull(),
+});
+
 export const trabajosProgramados = sqliteTable("trabajos_programados", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   tenantId: integer("tenant_id").references(() => tenants.id, { onDelete: "cascade" }).notNull(),

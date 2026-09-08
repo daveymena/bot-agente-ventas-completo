@@ -4,6 +4,7 @@ import { transcribirAudio, describirImagen } from "./media-entrante";
 import { contextoDeMoneda } from "./moneda-por-pais";
 import { invitacionDe, sePuedeOfrecerElVideo, pidioElVideo, type SeccionFicha } from "./ficha-parcial";
 import { anotarMensajePropio, loMandamosNosotros } from "./mensajes-propios";
+import { sumarMensaje } from "./consumo-del-plan";
 import { videoDeProducto } from "./video-de-producto";
 import { leerFicha, repartirPuntos, PRESUPUESTO_PIE_DE_FOTO } from "./ficha-del-producto";
 import { hablarColombiano } from "./hablar-colombiano";
@@ -2497,6 +2498,10 @@ export class WhatsAppManager {
     }
     this.recordSendSuccess();
     trackWhatsAppCost(this.currentTenant.id.toString());
+    // Y en la base, que es lo que sobrevive a un reinicio. El de arriba vive en
+    // un Map del proceso y alimenta el panel de costos; el limite del plan se
+    // mide contra este. Sin await: contar no puede demorar el mensaje.
+    void sumarMensaje(this.currentTenant.id);
   }
 
   /**
@@ -2820,6 +2825,10 @@ export class WhatsAppManager {
     if (sentSomething) this.recordSendSuccess();
     else this.recordSendFailure();
     trackWhatsAppCost(this.currentTenant.id.toString());
+    // Y en la base, que es lo que sobrevive a un reinicio. El de arriba vive en
+    // un Map del proceso y alimenta el panel de costos; el limite del plan se
+    // mide contra este. Sin await: contar no puede demorar el mensaje.
+    void sumarMensaje(this.currentTenant.id);
   }
 
   async sendAgentParts(phone: string, pushName: string, parts: AgentReplyPart[], originalJid?: string) {

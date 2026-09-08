@@ -91,8 +91,21 @@ export function validateFeatureLimits(feature: "products" | "agents" | "conversa
 export async function checkMessageLimit(tenantId: number, plan: string): Promise<{ allowed: boolean; current: number; limit: number; planName: string }> {
   const planDetails = SAAS_PLANS[plan as SaasPlan] || SAAS_PLANS.basic;
   const monthlyLimit = planDetails.monthlyMessages;
-  const usage = getUsageAnalytics(String(tenantId)) as { whatsappMessages: number } | null;
-  const current = usage?.whatsappMessages ?? 0;
+
+  // ── El consumo sale de la BASE, no de la memoria ────────────────────────
+  //
+  // Antes salia de `getUsageAnalytics`, que lee un Map del proceso. Cada
+  // reinicio lo pone en cero y un despliegue es un reinicio: este limite
+  // estaba bien escrito y NUNCA se alcanzaba. Ver `consumo-del-plan.ts`.
+  //
+  // Se toma el MAYOR de los dos: si por lo que sea la fila del mes todavia no
+  // refleja los envios recientes, el contador en memoria de esta instancia si.
+  // Quedarse con el mas alto es lo prudente cuando lo que se protege es plata.
+  const { mensajesDelMes } = await import("../lib/consumo-del-plan");
+  const enBase = await mensajesDelMes(tenantId);
+  const enMemoria = (getUsageAnalytics(String(tenantId)) as { whatsappMessages: number } | null)?.whatsappMessages ?? 0;
+  const current = Math.max(enBase, enMemoria);
+
   return { allowed: current < monthlyLimit, current, limit: monthlyLimit, planName: planDetails.name };
 }
 

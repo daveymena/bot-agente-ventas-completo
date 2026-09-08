@@ -31,4 +31,5 @@ export * from "./marketing-campaigns";
 export * from "./marketing-budgets";
 export * from "./marketing-audit-logs";
 export * from "./trabajos-programados";
+export * from "./consumo-mensual";
 export * from "./landing-pages";

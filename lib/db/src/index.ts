@@ -83,6 +83,7 @@ export const marketingCampaigns = schema.marketingCampaigns;
 export const marketingBudgets = schema.marketingBudgets;
 export const marketingAuditLogs = schema.marketingAuditLogs;
 export const trabajosProgramados = schema.trabajosProgramados;
+export const consumoMensual = schema.consumoMensual;
 export const opencodeSkills = schema.opencodeSkills;
 export const opencodeMcpServers = schema.opencodeMcpServers;
 export const opencodeCommands = schema.opencodeCommands;
@@ -349,6 +350,7 @@ async function ensureSqliteTables(sqliteDb: import("sql.js").Database, saveDb: (
     `CREATE TABLE IF NOT EXISTS marketing_budgets (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER REFERENCES tenants(id) ON DELETE CASCADE NOT NULL UNIQUE, max_daily_spend REAL DEFAULT 50000, max_budget_change_percent REAL DEFAULT 25, max_scale_percent REAL DEFAULT 30, approval_required INTEGER DEFAULT 1, currency TEXT DEFAULT 'COP', today_spend REAL DEFAULT 0, today_date TEXT, period_spend REAL DEFAULT 0, period_start TEXT, created_at TEXT DEFAULT (datetime('now')), updated_at TEXT DEFAULT (datetime('now')))`,
     `CREATE TABLE IF NOT EXISTS marketing_audit_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER REFERENCES tenants(id) ON DELETE CASCADE NOT NULL, agent TEXT NOT NULL, task_id INTEGER, action TEXT NOT NULL, resource TEXT, before TEXT, after TEXT, approval TEXT, reason TEXT, result TEXT DEFAULT 'PENDING', error TEXT, request_id TEXT, created_at TEXT DEFAULT (datetime('now')))`,
     `CREATE TABLE IF NOT EXISTS trabajos_programados (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER REFERENCES tenants(id) ON DELETE CASCADE NOT NULL, tipo TEXT NOT NULL, clave TEXT NOT NULL UNIQUE, corre_at TEXT NOT NULL, estado TEXT NOT NULL DEFAULT 'pendiente', datos TEXT NOT NULL DEFAULT '{}', resultado TEXT, intentos INTEGER NOT NULL DEFAULT 0, error TEXT, repite_cada_min INTEGER, creado_at TEXT DEFAULT (datetime('now')), actualizado_at TEXT DEFAULT (datetime('now')))`,
+    `CREATE TABLE IF NOT EXISTS consumo_mensual (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER REFERENCES tenants(id) ON DELETE CASCADE NOT NULL, periodo TEXT NOT NULL, mensajes INTEGER NOT NULL DEFAULT 0, actualizado_at TEXT DEFAULT (datetime('now')), UNIQUE(tenant_id, periodo))`,
   ];
 
   for (const sql of tables) {

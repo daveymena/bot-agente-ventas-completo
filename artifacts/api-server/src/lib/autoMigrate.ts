@@ -247,6 +247,24 @@ const MIGRATIONS = [
   `CREATE UNIQUE INDEX IF NOT EXISTS trabajos_programados_clave_idx ON trabajos_programados (clave)`,
   // El índice que usa el buscador de trabajos vencidos en cada vuelta.
   `CREATE INDEX IF NOT EXISTS trabajos_programados_pendientes_idx ON trabajos_programados (estado, corre_at)`,
+
+  // ── El consumo del mes, que antes vivia en memoria ──────────────────────
+  //
+  // El limite del plan YA se aplicaba y el contador YA se incrementaba, pero
+  // vivia en un Map del proceso: cada reinicio lo ponia en cero. Un despliegue
+  // es un reinicio, y el 2026-09-07 hubo doce. El limite existia y nadie lo
+  // alcanzaba nunca.
+  `CREATE TABLE IF NOT EXISTS consumo_mensual (
+    id SERIAL PRIMARY KEY,
+    tenant_id INTEGER NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    periodo TEXT NOT NULL,
+    mensajes INTEGER NOT NULL DEFAULT 0,
+    actualizado_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now()
+  )`,
+  // Una sola fila por negocio y mes. Sin esto, dos envios simultaneos crean dos
+  // filas y el conteo queda partido -- la forma silenciosa de que un limite
+  // deje de aplicarse.
+  `CREATE UNIQUE INDEX IF NOT EXISTS consumo_mensual_tenant_periodo ON consumo_mensual (tenant_id, periodo)`,
   // ── Varias cuentas de Copilot, en cola ──────────────────────────────────
   //
   // ⚠️ `ai-keys.ts` YA LEIA `row.copilotTokens` desde el 2026-08-24, pero esta
