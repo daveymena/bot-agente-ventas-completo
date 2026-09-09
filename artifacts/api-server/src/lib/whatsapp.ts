@@ -910,8 +910,11 @@ async function construirSeccion(
   const mensajes: string[] = [];
   if (!esDetallePosterior) {
     L.push(`${emojiTitulo} *${nameUpper}*`);
+    L.push("━━━━━━━━━━━━━━━━━━━━");
     L.push("");
-    L.push(resumen || "Formación práctica para llevar tus habilidades al siguiente nivel.");
+    L.push(`✨ ${resumen || "Formación práctica para llevar tus habilidades al siguiente nivel."}`);
+    L.push("");
+    L.push("━━━━━━━━━━━━━━━━━━━━");
     mensajes.push(hablarColombiano(L.join("\n").trim()));
   }
 
