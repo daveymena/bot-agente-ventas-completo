@@ -2579,6 +2579,7 @@ export class WhatsAppManager {
     // El cotejo contra la cuenta real del negocio lo hace el servidor, no el
     // modelo. Y nada de esto aprueba nada: sigue decidiendo el admin.
     let bloqueLeido = "";
+    let cotejos: Array<{ marca: "✅" | "⚠️" | "❔"; linea: string }> = [];
     try {
       const { leerComprobante, cotejarComprobante, bloqueDeLectura } = await import("./leer-comprobante");
       const { credencialesDe } = await import("./tenant-payment-credentials");
@@ -2587,7 +2588,7 @@ export class WhatsAppManager {
       const leido = await leerComprobante(buf, mime);
       const tenant = await tenantManager.getTenantById(this.currentTenant.id);
       const cuentas = credencialesDe(tenant as any)?.transfer?.accounts || [];
-      const cotejos = cotejarComprobante(leido, {
+      cotejos = cotejarComprobante(leido, {
         cuentas,
         monto: producto ? Number(producto.price) : null,
         moneda: producto?.currency || "COP",
@@ -2620,6 +2621,7 @@ export class WhatsAppManager {
     // Va DESPUÉS de leer la captura y ANTES del aviso, y nunca bloquea: si el
     // IMAP falla, el aviso normal (con la captura) sale igual.
     let bloqueCorreo = "";
+    let correoConfirmaMonto = false;
     try {
       const { credencialesEmailDe } = await import("./tenant-email-credentials");
       const { leerAvisosDeBanco } = await import("./leer-correo");
@@ -2633,12 +2635,49 @@ export class WhatsAppManager {
           llegoElComprobante: new Date(),
           montoEsperado: producto ? Number(producto.price) : null,
         });
+        correoConfirmaMonto = cruces.some((c: any) => c.montoExacto);
         bloqueCorreo = loQueSeLeDiceAlDueno(cruces, pushName || convo.contactName || phone);
       }
     } catch (e: any) {
       // Sin cruce el aviso igual sale con la captura: no se bloquea un pago por
       // no poder leer el correo.
       console.error(`[Pago] no se pudo cruzar con el correo: ${e?.message}`);
+    }
+
+    // La captura y el correo deben coincidir antes de automatizar una decisión.
+    // Una alerta comprobable se rechaza de inmediato; un dato incierto nunca
+    // se interpreta como aprobación.
+    const alertas = cotejos.filter((c) => c.marca === "⚠️").map((c) => c.linea);
+    const datosInciertos = cotejos.some((c) => c.marca === "❔");
+    const puedeAutomatizar = cotejos.length > 0 && !alertas.length && !datosInciertos;
+
+    if (alertas.length || (puedeAutomatizar && correoConfirmaMonto)) {
+      try {
+        const { atenderDecisionDelAdmin } = await import("./verificacion-pago");
+        const accion = alertas.length ? "RECHAZAR" : "APROBAR";
+        const razon = alertas.length ? ` ${alertas.join(" ").slice(0, 500)}` : "";
+        const resultado = await atenderDecisionDelAdmin(adminPhone, `${accion} ${pagoId}${razon}`);
+
+        if (resultado?.paraElCliente) {
+          await this.sendText(phone, resultado.paraElCliente.texto);
+          const { saveAgentMessage } = await import("./conversation-engine");
+          await saveAgentMessage(
+            resultado.paraElCliente.conversationId,
+            resultado.paraElCliente.texto,
+            (resultado.paraElCliente.entregar ? "converted" : "closing") as any,
+            { intent: "payment_verified", verificadoPor: "automatico" } as any,
+          );
+          console.log(`💬 [PAGO] Cliente ${phone} avisado: ${accion.toLowerCase()}`);
+        }
+
+        if (resultado?.paraElAdmin) {
+          await this.sendText(adminPhone, `🤖 Decisión automática del comprobante ${pagoId}:\n${resultado.paraElAdmin}`);
+        }
+        return;
+      } catch (e: any) {
+        // Si falla la decisión automática, no se entrega ni se pierde el aviso.
+        console.error(`[Pago] fallo en decisión automática: ${e?.message}`);
+      }
     }
 
     const aviso = avisoParaElAdmin({
