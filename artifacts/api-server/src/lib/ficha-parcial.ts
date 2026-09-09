@@ -481,23 +481,6 @@ function invitacionesDe(
   // Sin video cargado, el cierre apunta a otra cosa real. Nunca se ofrece lo
   // que no se puede entregar.
   if (!tieneVideo && (s === "info" || s === "completa")) {
-    // ⚠️ Acá "completa" ofrecía "¿Te cuento qué incluye? 👀" -- en la MISMA
-    // ficha que acaba de listar las características. El admin lo marcó dos
-    // veces: "sigue diciendo qué incluye cuando en la información principal ya
-    // lo dijo".
-    //
-    // Y este atajo corre ANTES que la lógica de `yaVioContenido` de más abajo,
-    // así que el arreglo del 2026-09-01 no lo alcanzaba: se seguía viendo en
-    // todo producto sin video cargado.
-    //
-    // Las dos secciones muestran el contenido, así que las dos cierran igual:
-    // ofreciendo el precio, que es lo único que todavía no se dijo.
-    // Las dos variantes llevan al MISMO paso siguiente, con distinta
-    // redacción. Antes una de las de "completa" era "¿Hay algo puntual que
-    // quieras saber?", que no avanza a ningún lado: deja al cliente eligiendo
-    // en el vacío justo después de la presentación. Ahora que la ficha ya no
-    // trae el precio, el paso siguiente es ése -- y las dos personas que
-    // reciban una u otra terminan en el mismo lugar.
     return s === "info"
       ? ["¿Te paso el precio? 💰", "¿Quieres saber cuánto está?"]
       : ["¿Te paso el precio? 💰", "¿Te digo cuánto está? 💰"];
@@ -506,16 +489,6 @@ function invitacionesDe(
   switch (s) {
     case "precio":
       // Ya sabe cuánto cuesta. Lo que falta es qué se lleva por eso.
-      //
-      // Salvo que YA se lo hayan contado. Conversación real (2026-08-30): la
-      // ficha completa listó las características y el mensaje siguiente
-      // preguntó "¿Te cuento qué incluye? 👀" -- ofreciéndole algo que acababa
-      // de recibir. Eso le dice al cliente que del otro lado no hay nadie
-      // leyendo, y es justo lo que el admin señaló: "no está manejando las
-      // etapas, responde de una y no se siente humano".
-      //
-      // Si ya vio el contenido, el paso siguiente es el video -- que es lo
-      // único que todavía no tiene.
       return yaVioContenido
         ? (tieneVideo
             ? (esFisico
@@ -529,14 +502,11 @@ function invitacionesDe(
           ];
 
     case "info":
-      // Quiso detalle: acá es donde el video amplía mejor que cualquier texto.
-      // Ofrecerlo justo en este punto es lo que engancha; mandarlo antes lo
-      // gasta, y mandarlo después llega tarde.
+      // Quiso detalle. El video ya se manda automáticamente en construirSeccion.
+      // El cierre apunta al precio, que es lo siguiente.
       return [
-        "Si quieres ampliar, te muestro el video 🎬",
-        esFisico
-          ? "¿Te muestro el video para que lo veas en uso? 🎬"
-          : "¿Te muestro el video para que veas cómo es por dentro? 🎬",
+        "¿Te paso el precio? 💰",
+        "¿Quieres saber cuánto está? 💰",
       ];
 
     case "entrega":
@@ -547,40 +517,24 @@ function invitacionesDe(
     case "pago_transferencia":
     case "pago_link":
     case "pago":
-      // Acá no se genera curiosidad: se cierra. Y se dice el paso exacto,
-      // porque un pago sin comprobante queda en el limbo.
       return [
         "Apenas transfieras, mándame el comprobante por aquí y te activo el acceso 🙌",
         "Cuando lo hagas, pásame el soporte por aquí y te lo dejo listo 🙌",
       ];
 
     case "video":
-      // Ya vio la clase. Ahí es donde más cerca está de decidir -- y por eso
-      // mismo el cierre tiene que llevar a algún lado.
-      //
-      // Acá había un "¿Qué te pareció?" y nada más. Es una encuesta: el
-      // cliente contesta "bien" y la conversación queda en el mismo punto.
-      // Se vio el 2026-09-02: el cliente había preguntado el precio, había
-      // dicho que sí dos veces, y el chat terminó ahí, sin que nadie le
-      // dijera nunca cómo pagar.
-      //
-      // El paso siguiente real depende de lo único que falta. Si todavía no
-      // sabe cuánto cuesta, eso es lo que falta. Si ya lo sabe, lo que queda
-      // es lo que lo esté frenando -- y esa pregunta el bot SÍ la puede
-      // contestar, mientras que ofrecerle el checkout no: el servidor lo
-      // bloquea mientras la etapa sea "interesado" (ver puedeMandarPago), así
-      // que prometerlo sería ofrecer algo que no va a llegar.
+      // Ya vio la clase. El paso siguiente es el precio si no lo sabe, o una
+      // duda si ya lo sabe.
       return yaSabeElPrecio
         ? ["¿Te resuelvo alguna duda antes de decidir?", "¿Hay algo que te esté frenando?"]
         : ["¿Te paso el precio? 💰", "¿Te digo cuánto está? 💰"];
 
     case "completa":
-      // Recién lo conoce. Se le ofrece lo que más tira: ver el curso por dentro.
+      // Recién lo conoce. El video se manda automáticamente, así que el cierre
+      // apunta al precio.
       return [
-        "¿Te muestro el video? 🎬",
-        esFisico
-          ? "¿Quieres verlo en video antes de decidir? 🎬"
-          : "¿Quieres ver cómo es por dentro? 🎬",
+        "¿Te paso el precio? 💰",
+        "¿Te digo cuánto está? 💰",
       ];
   }
 
