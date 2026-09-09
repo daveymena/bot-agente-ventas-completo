@@ -97,7 +97,7 @@ export async function callMarketingAI<T = unknown>(
     try {
       const client = createAIClient(cfg);
       const completion = await client.chat.completions.create({
-        model: cfg.model || "gpt-4o-mini",
+        model: cfg.model || "gpt-5.6-luna",
         temperature: 0.7,
         max_tokens: opts.maxTokens ?? 900,
         messages: [

@@ -423,7 +423,7 @@ router.get("/providers", async (req, res, next) => {
         id: "default",
         provider: currentSettings.aiProvider,
         apiKey: "***CONFIGURED***",
-        model: "gpt-4o-mini",
+        model: process.env.OPENAI_MODEL || "gpt-5.6-luna",
         isActive: true,
       });
     }

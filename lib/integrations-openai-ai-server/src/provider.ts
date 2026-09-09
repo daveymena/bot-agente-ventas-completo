@@ -174,6 +174,7 @@ const MODELOS_DE_RESERVA: Record<string, string[]> = {
   // porque gastan el presupuesto de tokens en `reasoning_content` y devuelven
   // `content` vacío. Sin reserva es mejor que con una reserva que no responde.
   deepseek: ["deepseek-chat"],
+  openai: ["gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.6-sol"],
   // ── Rotación escalonada de Groq ────────────────────────────────────────
   //
   // Groq limita por TOKENS POR MINUTO, no por día: se agota en un pico de
@@ -248,7 +249,7 @@ export function getProviderConfigConClave(
     case "deepseek":
       return { baseUrl: "https://api.deepseek.com/v1", apiKey, model: m("deepseek-chat") };
     case "openai":
-      return { baseUrl: "https://api.openai.com/v1", apiKey, model: m("gpt-4o-mini") };
+      return { baseUrl: "https://api.openai.com/v1", apiKey, model: m("gpt-5.6-luna") };
     case "anthropic":
       return { baseUrl: "https://api.anthropic.com/v1", apiKey, model: m("claude-sonnet-5") };
     case "groq":
@@ -453,7 +454,7 @@ export function getProviderConfig(provider: string): AIProviderConfig | null {
       return {
         baseUrl: process.env.OPENAI_BASE_URL || "https://api.openai.com/v1",
         apiKey: process.env.OPENAI_API_KEY,
-        model: process.env.OPENAI_MODEL || "gpt-4o-mini",
+        model: process.env.OPENAI_MODEL || "gpt-5.6-luna",
       };
 
     // ── Anthropic (Claude) ── capa compatible con OpenAI

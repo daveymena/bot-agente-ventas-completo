@@ -239,11 +239,10 @@ export class ProviderValidator {
   getAvailableModels(provider: string): string[] {
     const models: Record<string, string[]> = {
       openai: [
-        "gpt-4-turbo",
-        "gpt-4",
-        "gpt-4o",
-        "gpt-4o-mini",
-        "gpt-3.5-turbo",
+        "gpt-6-astra",
+        "gpt-5.6-sol",
+        "gpt-5.6-terra",
+        "gpt-5.6-luna",
       ],
       claude: [
         "claude-3-opus-20240229",
@@ -272,11 +271,10 @@ export class ProviderValidator {
     // Precios en USD por millón de tokens (2024)
     const costs: Record<string, Record<string, { input: number; output: number }>> = {
       openai: {
-        "gpt-4-turbo": { input: 10, output: 30 },
-        "gpt-4": { input: 30, output: 60 },
-        "gpt-4o": { input: 5, output: 15 },
-        "gpt-4o-mini": { input: 0.15, output: 0.6 },
-        "gpt-3.5-turbo": { input: 0.5, output: 1.5 },
+        "gpt-6-astra": { input: 10, output: 50 },
+        "gpt-5.6-sol": { input: 4, output: 20 },
+        "gpt-5.6-terra": { input: 2, output: 12 },
+        "gpt-5.6-luna": { input: 0.2, output: 1.2 },
       },
       claude: {
         "claude-3-opus-20240229": { input: 15, output: 75 },

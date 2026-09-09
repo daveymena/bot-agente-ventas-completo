@@ -83,7 +83,7 @@ router.post("/", async (req, res, next) => {
       role: body.personality || "sales_agent",
       tone: body.personality || "professional",
       language: "es",
-      model: "gpt-4o-mini",
+      model: "gpt-5.6-luna",
       systemPrompt: body.systemPrompt || "Eres un agente de ventas profesional",
       stages: [],
       // Mismo motivo que en PATCH: nada sin nombre queda atendiendo clientes.

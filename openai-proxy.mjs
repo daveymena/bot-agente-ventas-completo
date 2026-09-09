@@ -11,7 +11,7 @@
  * Variables de entorno:
  *   OPENAI_API_KEY     — Tu API key de OpenAI (requerida)
  *   OPENAI_BASE_URL    — URL base de OpenAI (default: https://api.openai.com/v1)
- *   OPENAI_MODEL       — Modelo por defecto (default: gpt-4o-mini)
+ *   OPENAI_MODEL       — Modelo por defecto (default: gpt-5.6-luna)
  *   PROXY_PORT         — Puerto del proxy (default: 4000)
  *   PROXY_SECRET       — Secret para autenticar requests (opcional)
  */
@@ -22,7 +22,7 @@ import { URL } from "node:url";
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const OPENAI_BASE_URL = process.env.OPENAI_BASE_URL || "https://api.openai.com/v1";
-const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-4o-mini";
+const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-5.6-luna";
 const PROXY_PORT = parseInt(process.env.PROXY_PORT || "4000", 10);
 const PROXY_SECRET = process.env.PROXY_SECRET || "";
 

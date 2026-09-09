@@ -216,7 +216,7 @@ function AgentModal({ mode, agent, children, open: controlledOpen, onOpenChange 
     role: agent?.role || "",
     tone: agent?.tone || "profesional y persuasivo",
     language: agent?.language || "es",
-    model: agent?.model || "gpt-4o-mini",
+    model: agent?.model || "gpt-5.6-luna",
     systemPrompt: agent?.systemPrompt || "",
     stages: agent?.stages || defaultStages
   });
@@ -227,7 +227,7 @@ function AgentModal({ mode, agent, children, open: controlledOpen, onOpenChange 
         name: agent.name, role: agent.role, tone: agent.tone, language: agent.language, model: agent.model, systemPrompt: agent.systemPrompt, stages: agent.stages || []
       });
     } else if (isOpen && mode === 'create') {
-      setFormData({ name: "", role: "", tone: "profesional y persuasivo", language: "es", model: "gpt-4o-mini", systemPrompt: "", stages: defaultStages });
+      setFormData({ name: "", role: "", tone: "profesional y persuasivo", language: "es", model: "gpt-5.6-luna", systemPrompt: "", stages: defaultStages });
     }
   }, [isOpen, agent, mode]);
 
@@ -320,7 +320,7 @@ function AgentModal({ mode, agent, children, open: controlledOpen, onOpenChange 
                 </div>
                 <div className="space-y-2">
                   <Label>Modelo de IA</Label>
-                  <Input value={formData.model} onChange={e => setFormData({...formData, model: e.target.value})} placeholder="gpt-4o-mini" />
+                  <Input value={formData.model} onChange={e => setFormData({...formData, model: e.target.value})} placeholder="gpt-5.6-luna" />
                 </div>
               </div>
             </div>

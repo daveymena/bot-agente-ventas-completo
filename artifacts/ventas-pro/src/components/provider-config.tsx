@@ -49,7 +49,7 @@ export default function ProviderConfig() {
   const [formData, setFormData] = useState({
     provider: "openai" as string,
     apiKey: "",
-    model: "gpt-4o-mini",
+    model: "gpt-5.6-luna",
     resourceName: "",
   });
 
@@ -148,7 +148,7 @@ export default function ProviderConfig() {
         setFormData({
           provider: "openai",
           apiKey: "",
-          model: "gpt-4o-mini",
+          model: "gpt-5.6-luna",
           resourceName: "",
         });
         loadProviders();

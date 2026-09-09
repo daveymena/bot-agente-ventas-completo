@@ -133,7 +133,7 @@ export class PersonalityEngine {
         role: generated.role,
         tone: generated.tone,
         language: profile.language || "es",
-        model: "gpt-4o-mini",
+        model: "gpt-5.6-luna",
         systemPrompt: generated.systemPrompt,
         stages: stages as any,
         metadata: {

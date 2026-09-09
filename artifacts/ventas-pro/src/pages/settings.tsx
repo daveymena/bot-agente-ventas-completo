@@ -699,7 +699,7 @@ export default function Settings() {
                           <Input
                             value={formData.githubModel}
                             onChange={e => setFormData({...formData, githubModel: e.target.value})}
-                            placeholder={formData.aiProvider === "github_copilot_internal" ? "gpt-4o" : "gpt-4o-mini"}
+                            placeholder={formData.aiProvider === "github_copilot_internal" ? "gpt-4o" : "gpt-5.6-luna"}
                             className="bg-muted/30 font-mono"
                           />
                           {/* Autenticarse NO garantiza que el modelo responda: el

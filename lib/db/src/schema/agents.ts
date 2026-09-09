@@ -14,7 +14,7 @@ export const agents = pgTable("agents", {
   role: text("role").notNull(),
   tone: text("tone").notNull(),
   language: text("language").notNull().default("es"),
-  model: text("model").notNull().default("gpt-4o-mini"),
+  model: text("model").notNull().default("gpt-5.6-luna"),
   especialidad: text("especialidad"),
   systemPrompt: text("system_prompt").notNull(),
   stages: jsonb("stages").$type<AgentStage[]>().notNull().default([]),

@@ -141,7 +141,7 @@ async function setup() {
       role: template.role,
       tone: template.tone,
       language: "es",
-      model: "gpt-4o-mini",
+      model: "gpt-5.6-luna",
       systemPrompt: template.systemPrompt,
       stages: template.stages,
       isActive: template.name === "Sofía", // Solo Sofía activa por defecto

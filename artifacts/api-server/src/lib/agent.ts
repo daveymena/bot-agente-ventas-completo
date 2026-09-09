@@ -2673,6 +2673,8 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
         }
         // Groq: respaldo rápido y gratuito (antes estaba configurado pero nunca se usaba)
         queue.push(...conModelos("groq", "groq"));
+        // OpenAI: pago, con gpt-5.6-terra como modelo principal económico
+        queue.push(...conModelos("openai", "openai"));
         queue.push(...conModelos("nvidia", "nvidia_70b"));
         // GitHub Models ya NO va en la cadena: GitHub lo está retirando.
         // Verificado el 2026-08-19 contra los dos endpoints -- el viejo

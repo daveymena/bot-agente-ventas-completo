@@ -103,10 +103,10 @@ export const MODELOS_LIBRES: ModeloLibre[] = [
   // pantalla se queda con los ids reales del proveedor.
 
   // ── OpenAI (ChatGPT) ──
-  { proveedor: "openai", modelo: "gpt-4o", especialidad: "general", estado: "sin probar", contexto: 128000 },
-  { proveedor: "openai", modelo: "gpt-4o-mini", especialidad: "rapido", estado: "sin probar", contexto: 128000 },
-  { proveedor: "openai", modelo: "gpt-4o", especialidad: "vision", estado: "sin probar", nota: "multimodal" },
-  { proveedor: "openai", modelo: "o3-mini", especialidad: "razonar", estado: "sin probar" },
+  { proveedor: "openai", modelo: "gpt-6-astra", especialidad: "razonar", estado: "sin probar", contexto: 1050000 },
+  { proveedor: "openai", modelo: "gpt-5.6-sol", especialidad: "general", estado: "sin probar", contexto: 1050000 },
+  { proveedor: "openai", modelo: "gpt-5.6-terra", especialidad: "general", estado: "sin probar", contexto: 1050000 },
+  { proveedor: "openai", modelo: "gpt-5.6-luna", especialidad: "rapido", estado: "sin probar", contexto: 1050000, nota: "multimodal" },
 
   // ── Anthropic (Claude) ──
   { proveedor: "anthropic", modelo: "claude-sonnet-4-20250514", especialidad: "razonar", estado: "sin probar", contexto: 200000 },
