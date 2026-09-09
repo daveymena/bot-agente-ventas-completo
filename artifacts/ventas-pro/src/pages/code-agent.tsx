@@ -852,6 +852,46 @@ export default function CodeAgent() {
     return false;
   };
 
+  // En móviles, volver desde otra app no desmonta esta pantalla: el navegador
+  // puede suspender el fetch/SSE mientras el backend sigue trabajando. Al
+  // recuperar visibilidad reconciliamos contra la base para mostrar el
+  // resultado o retomar el turno, sin pedirle al admin que repita el pedido.
+  useEffect(() => {
+    let consultando = false;
+    const alVolver = async () => {
+      if (document.visibilityState !== "visible" || consultando || detenidoRef.current) return;
+      consultando = true;
+      try {
+        const data: any = await leerHistorial();
+        const history = Array.isArray(data?.history) ? data.history : [];
+        if (history.length === 0) return;
+        if (data?.hayAlgoPendiente) {
+          pintarHistorial(history);
+          setLoading(true);
+          setProgreso("Retomando tu pedido donde había quedado");
+          await seguirPendiente(history);
+          return;
+        }
+        if (history[history.length - 1]?.role === "assistant") {
+          pintarHistorial(history);
+          setLoading(false);
+          setProgreso("");
+        } else if (history[history.length - 1]?.role === "user") {
+          setLoading(true);
+          setProgreso("Atlas siguió trabajando. Esperando el resultado…");
+          await recuperarDelCorte();
+        }
+      } catch {
+        // Un fallo de red al volver no invalida el turno; el próximo cambio de
+        // visibilidad o la carga normal de la pantalla volverá a consultarlo.
+      } finally {
+        consultando = false;
+      }
+    };
+    document.addEventListener("visibilitychange", alVolver);
+    return () => document.removeEventListener("visibilitychange", alVolver);
+  }, [sessionId]);
+
   /**
    * El botón de parar.
    *
