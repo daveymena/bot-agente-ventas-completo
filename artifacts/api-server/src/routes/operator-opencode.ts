@@ -966,6 +966,11 @@ router.post("/operator-opencode", requireAdmin(), async (req: TenantRequest, res
     }
 
     progreso("Pensando...");
+    // El primer hito sale al chat, no solo al indicador de carga. En pedidos
+    // complejos evita que una espera legítima parezca un bloqueo.
+    sse("avance", {
+      reply: "🧭 Ya entendí el pedido. Lo voy a resolver por etapas y te iré entregando cada parte terminada.",
+    });
     const heartbeat = setInterval(() => progreso("Sigo trabajando en tu pedido..."), 15_000);
 
     try {
@@ -1383,6 +1388,9 @@ router.post("/operator-opencode", requireAdmin(), async (req: TenantRequest, res
           progreso(`Ya investigué (${((Date.now() - tInv) / 1000).toFixed(0)}s). Ahora escribo la propuesta...`);
           if (r.ok) {
             huboInvestigacionReal = true;
+            sse("avance", {
+              reply: "✅ Primera parte lista: terminé la investigación y ya tengo los datos reales. Ahora los convierto en una propuesta accionable.",
+            });
             text += `\n\n[SISTEMA] Investigación REAL ya hecha para este pedido (hallazgos con sus fuentes). Respondé al admin USANDO ESTO, no prometas investigar después ni digas que vas a averiguar -- ya está hecho:\n${r.texto.slice(0, 6000)}`;
           } else {
             // Que el modelo sepa que NO hay datos, para que lo diga en vez de
