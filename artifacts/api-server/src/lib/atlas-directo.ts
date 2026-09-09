@@ -81,11 +81,12 @@ export interface ResultadoDirecto {
  * Cuántas veces puede pedir herramientas antes de tener que contestar.
  *
  * No es un número al azar: una tarea real encadena leer producto → armar
- * borrador → validar, que son tres. Ocho deja margen para pedidos compuestos
- * sin permitir que un modelo confundido se quede dando vueltas hasta consumir
+ * borrador → validar, que son tres. Doce deja margen para pedidos compuestos
+ * más complejos (investigar → crear producto → generar copy → validar) sin
+ * permitir que un modelo confundido se quede dando vueltas hasta consumir
  * el turno entero -- que es justo lo que pasaba con el bucle de OpenCode.
  */
-const VUELTAS_MAX = 8;
+const VUELTAS_MAX = 12;
 
 /** Un esquema vacío es válido, pero `undefined` rompe la API. */
 const SIN_PARAMETROS = { type: "object", properties: {} };
