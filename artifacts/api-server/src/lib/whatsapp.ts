@@ -2425,13 +2425,22 @@ export class WhatsAppManager {
                });
                console.log(`📤 [WA-QUEUE] Mensaje encolado exitosamente a MessageHandler: ${text.substring(0, 30)}...`);
 
-               // Un comprobante no se contesta con IA: se guarda y se le pasa
-               // a una persona. Va DESPUÉS de encolar para que la conversación
-               // ya exista cuando se busque por teléfono.
-               if (comprobanteBuf) {
-                 this.procesarComprobante(phone, pushName, comprobanteBuf, comprobanteMime, comprobanteVisto)
-                   .catch((e) => console.error("[Pago] fallo procesando el comprobante:", e?.message));
-               }
+                // Un comprobante no se contesta con IA: se guarda y se le pasa
+                // a una persona. Va DESPUÉS de encolar para que la conversación
+                // ya exista cuando se busque por teléfono.
+                //
+                // Si el comprobante lo manda EL ADMIN, no se procesa: el admin
+                // no puede aprobar su propio comprobante, y el aviso le llegaría
+                // de vuelta a él mismo (reportado 2026-09-09).
+                if (comprobanteBuf) {
+                  const { esTelefonoDeAdmin } = await import("./verificacion-pago");
+                  if (!(await esTelefonoDeAdmin(phone))) {
+                    this.procesarComprobante(phone, pushName, comprobanteBuf, comprobanteMime, comprobanteVisto)
+                      .catch((e) => console.error("[Pago] fallo procesando el comprobante:", e?.message));
+                  } else {
+                    console.log(`ℹ️ [PAGO] Comprobante ignorado: enviado por el admin (${phone})`);
+                  }
+                }
              } catch (error) {
                console.error(`❌ [WA-QUEUE] Error encolando mensaje en MessageHandler:`, error);
              }
