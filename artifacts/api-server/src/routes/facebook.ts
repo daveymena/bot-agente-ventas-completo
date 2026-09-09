@@ -462,7 +462,8 @@ router.post("/messenger/save-token", async (req, res, next) => {
     if (!pageToken) {
       return res.status(400).json({ error: "pageToken es requerido" });
     }
-    const tenantId = (req as any).tenant?.id || 1;
+    const tenantId = Number((req as any).tenant?.id);
+    if (!tenantId) return res.status(401).json({ error: "Tenant no autenticado" });
     const [tenant] = await db.select({ metadata: tenants.metadata }).from(tenants).where(eq(tenants.id, tenantId)).limit(1);
     const meta = tenant?.metadata ? (typeof tenant.metadata === "string" ? JSON.parse(tenant.metadata) : tenant.metadata) : {};
     const encryptedToken = encryptSecret(pageToken);
@@ -705,7 +706,8 @@ router.post("/strategist/upload-image", async (req, res, next) => {
 
 router.get("/strategist/drafts", async (req, res, next) => {
   try {
-    const tenantId = (req as any).tenant?.id || 1;
+    const tenantId = Number((req as any).tenant?.id);
+    if (!tenantId) return res.status(401).json({ error: "Tenant no autenticado" });
     const drafts = await adStrategist.getDrafts(tenantId);
     return res.json({ drafts });
   } catch (e) { return next(e); }
@@ -718,7 +720,8 @@ router.get("/strategist/drafts", async (req, res, next) => {
  */
 router.get("/strategist/drafts/:id", async (req, res, next) => {
   try {
-    const tenantId = (req as any).tenant?.id || 1;
+    const tenantId = Number((req as any).tenant?.id);
+    if (!tenantId) return res.status(401).json({ error: "Tenant no autenticado" });
     const id = Number(req.params.id);
     if (!Number.isFinite(id)) return res.status(400).json({ message: "Id inválido" });
 
@@ -914,7 +917,8 @@ router.get("/strategist/strategy/:productId", async (req, res, next) => {
 
 router.get("/channels/status", async (req, res, next) => {
   try {
-    const tenantId = (req as any).tenant?.id || 1;
+    const tenantId = Number((req as any).tenant?.id);
+    if (!tenantId) return res.status(401).json({ error: "Tenant no autenticado" });
     const status = await channelManager.getStatus(tenantId);
     return res.json({ channels: status });
   } catch (e) { return next(e); }
@@ -958,7 +962,8 @@ router.get("/debug-pixels", async (req, res, next) => {
 // GET /facebook/config — leer configuración actual (desde metadata o entorno)
 router.get("/config", async (req, res, next) => {
   try {
-    const tenantId = (req as any).tenant?.id || 1;
+    const tenantId = Number((req as any).tenant?.id);
+    if (!tenantId) return res.status(401).json({ error: "Tenant no autenticado" });
     const [tenant] = await db.select({ metadata: tenants.metadata }).from(tenants).where(eq(tenants.id, tenantId)).limit(1);
     const meta = tenant?.metadata ? (typeof tenant.metadata === "string" ? JSON.parse(tenant.metadata) : tenant.metadata) : {};
     const cfg = meta.facebook || {};
@@ -1017,7 +1022,8 @@ router.get("/config", async (req, res, next) => {
 // PUT /facebook/config — guardar configuración (en metadata)
 router.put("/config", async (req, res, next) => {
   try {
-    const tenantId = (req as any).tenant?.id || 1;
+    const tenantId = Number((req as any).tenant?.id);
+    if (!tenantId) return res.status(401).json({ error: "Tenant no autenticado" });
     const [tenant] = await db.select({ metadata: tenants.metadata }).from(tenants).where(eq(tenants.id, tenantId)).limit(1);
     const meta = tenant?.metadata ? (typeof tenant.metadata === "string" ? JSON.parse(tenant.metadata) : tenant.metadata) : {};
     const current = meta.facebook || {};

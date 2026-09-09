@@ -5,6 +5,8 @@ import { existsSync, readdirSync, readFileSync, mkdirSync, writeFileSync } from 
 import cors from "cors";
 import cookieParser from "cookie-parser";
 import { randomBytes } from "node:crypto";
+import { lookup } from "node:dns/promises";
+import { isIP } from "node:net";
 import pinoHttp from "pino-http";
 import router from "./routes";
 import healthRouter from "./health";
@@ -23,7 +25,7 @@ import { tenantManager } from "./lib/tenantManager";
 import { getAllTemplates } from "./lib/agent-templates";
 import { db, agents, tenants, settings, products, productCategories } from "@workspace/db";
 import { ensureDbReady } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { getImageStoreDir } from "./lib/image-store";
 
 // Auto-start WhatsApp bot on boot (multi-tenant: una instancia por tenant)
@@ -474,54 +476,6 @@ app.get("/images/products/:filename", (req, res, next) => {
   );
 });
 
-// Upload de imagen (base64) para un producto
-app.post("/api/upload-product-image/:productId", express.json({ limit: "10mb" }), async (req, res, next) => {
-  try {
-    const productId = Number(req.params.productId);
-    if (!productId) return res.status(400).json({ message: "productId inválido" });
-
-    const { image } = req.body;
-    if (!image || typeof image !== "string") return res.status(400).json({ message: "Campo 'image' requerido (base64 o URL)" });
-
-    let buffer: Buffer;
-    let ext = "jpg";
-
-    if (image.startsWith("data:")) {
-      const matches = image.match(/^data:image\/(\w+);base64,(.+)$/);
-      if (!matches) return res.status(400).json({ message: "Formato base64 inválido" });
-      ext = matches[1] === "jpeg" ? "jpg" : matches[1];
-      buffer = Buffer.from(matches[2], "base64");
-    } else if (image.startsWith("http")) {
-      const resp = await fetch(image, { signal: AbortSignal.timeout(15000) });
-      if (!resp.ok) return res.status(502).json({ message: "No se pudo descargar la imagen" });
-      const contentType = resp.headers.get("content-type") || "";
-      if (contentType.includes("jpeg")) ext = "jpg";
-      else if (contentType.includes("png")) ext = "png";
-      else if (contentType.includes("webp")) ext = "webp";
-      buffer = Buffer.from(await resp.arrayBuffer());
-    } else {
-      return res.status(400).json({ message: "Formato no soportado. Envía data:image/... base64 o una URL http" });
-    }
-
-    const destDir = path.resolve(IMAGES_DIR, "products");
-    mkdirSync(destDir, { recursive: true });
-    const filename = `${productId}.${ext}`;
-    writeFileSync(path.resolve(destDir, filename), buffer);
-
-    const imageUrl = `/images/products/${filename}`;
-
-    // Actualizar en BD
-    try {
-      await db.update(products).set({ imageUrl }).where(eq(products.id, productId));
-    } catch {
-      logger.warn({ productId }, "[UploadImage] No se pudo actualizar imageUrl en BD");
-    }
-
-    return res.json({ imageUrl, message: "Imagen guardada en volumen persistente ✓" });
-  } catch (err) {
-    next(err);
-  }
-});
 
 // Función para encontrar el path de la tienda pública
 function findTiendaPath(): string | null {
@@ -727,6 +681,79 @@ const validateLimitsMiddleware = (req: Request, res: Response, next: NextFunctio
 app.use("/api", resolveTenantMiddleware);
 app.use("/api", validateSaasMiddleware);
 app.use("/api", validateLimitsMiddleware);
+
+// Upload de imagen para un producto. Esta ruta debe quedar detrás de tenant
+// auth y ownership: antes era pública, aceptaba SSRF y podía cambiar la imagen
+// de un producto de otro negocio si se conocía su id.
+app.post("/api/upload-product-image/:productId", express.json({ limit: "10mb" }), async (req, res, next) => {
+  try {
+    const productId = Number(req.params.productId);
+    const tenantId = Number((req as any).tenant?.id);
+    if (!Number.isInteger(productId) || productId <= 0) return res.status(400).json({ message: "productId inválido" });
+    if (!Number.isInteger(tenantId) || tenantId <= 0) return res.status(401).json({ message: "No autenticado" });
+
+    const [owned] = await db.select({ id: products.id }).from(products).where(and(
+      eq(products.id, productId),
+      eq(products.tenantId, tenantId),
+    )).limit(1);
+    if (!owned) return res.status(404).json({ message: "Producto no encontrado" });
+
+    const { image } = req.body;
+    if (!image || typeof image !== "string") return res.status(400).json({ message: "Campo 'image' requerido" });
+
+    const maxBytes = 8 * 1024 * 1024;
+    let buffer: Buffer;
+    if (image.startsWith("data:")) {
+      const matches = image.match(/^data:image\/(jpeg|jpg|png|webp);base64,([A-Za-z0-9+/=]+)$/i);
+      if (!matches) return res.status(400).json({ message: "Solo se aceptan imágenes JPEG, PNG o WebP" });
+      buffer = Buffer.from(matches[2], "base64");
+    } else {
+      let remote: URL;
+      try { remote = new URL(image); } catch { return res.status(400).json({ message: "URL inválida" }); }
+      if (remote.protocol !== "https:") return res.status(400).json({ message: "La URL debe usar HTTPS" });
+      const addresses = isIP(remote.hostname) ? [remote.hostname] : (await lookup(remote.hostname, { all: true })).map((x) => x.address);
+      const privada = addresses.some((address) => {
+        const normalized = address.toLowerCase();
+        return normalized === "::1" || normalized.startsWith("127.") || normalized.startsWith("10.") || normalized.startsWith("192.168.") || normalized.startsWith("169.254.") || normalized.startsWith("172.") && Number(normalized.split(".")[1]) >= 16 && Number(normalized.split(".")[1]) <= 31 || normalized.startsWith("fc") || normalized.startsWith("fd");
+      });
+      if (privada) return res.status(400).json({ message: "La URL apunta a una red privada" });
+      const resp = await fetch(remote, { redirect: "manual", signal: AbortSignal.timeout(15_000) });
+      if (resp.status >= 300 && resp.status < 400) return res.status(400).json({ message: "No se permiten redirecciones de imágenes" });
+      if (!resp.ok) return res.status(502).json({ message: "No se pudo descargar la imagen" });
+      const declared = Number(resp.headers.get("content-length") || 0);
+      if (declared > maxBytes) return res.status(413).json({ message: "La imagen es demasiado grande" });
+      const reader = resp.body?.getReader();
+      if (!reader) return res.status(502).json({ message: "Respuesta de imagen inválida" });
+      const chunks: Buffer[] = [];
+      let total = 0;
+      while (true) {
+        const part = await reader.read();
+        if (part.done) break;
+        total += part.value.byteLength;
+        if (total > maxBytes) { await reader.cancel(); return res.status(413).json({ message: "La imagen es demasiado grande" }); }
+        chunks.push(Buffer.from(part.value));
+      }
+      buffer = Buffer.concat(chunks);
+    }
+    if (buffer.length === 0 || buffer.length > maxBytes) return res.status(413).json({ message: "Imagen inválida o demasiado grande" });
+
+    const esJpeg = buffer[0] === 0xff && buffer[1] === 0xd8;
+    const esPng = buffer.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
+    const esWebp = buffer.subarray(0, 4).toString() === "RIFF" && buffer.subarray(8, 12).toString() === "WEBP";
+    if (!esJpeg && !esPng && !esWebp) return res.status(400).json({ message: "El contenido no es una imagen JPEG, PNG o WebP válida" });
+    const ext = esJpeg ? "jpg" : esPng ? "png" : "webp";
+
+    const destDir = path.resolve(IMAGES_DIR, "products");
+    mkdirSync(destDir, { recursive: true });
+    const filename = `${productId}.${ext}`;
+    writeFileSync(path.resolve(destDir, filename), buffer, { mode: 0o640 });
+    const imageUrl = `/images/products/${filename}`;
+    await db.update(products).set({ imageUrl }).where(and(eq(products.id, productId), eq(products.tenantId, tenantId)));
+    return res.json({ imageUrl, message: "Imagen guardada en volumen persistente ✓" });
+  } catch (err) {
+    next(err);
+  }
+});
 
 // Validar límites de características específicas
 app.use("/api/products", (req, res, next) => {

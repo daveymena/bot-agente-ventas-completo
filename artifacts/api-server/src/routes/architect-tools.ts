@@ -161,7 +161,7 @@ router.post("/products", async (req, res, next) => {
   try {
     const product = await architectTools.createProduct({
       ...req.body,
-      tenantId: (req as any).tenant?.id || 1,
+      tenantId: Number((req as any).tenant?.id),
     });
 
     await architectTools.logAction(
@@ -199,7 +199,7 @@ router.post("/services", async (req, res, next) => {
   try {
     const service = await architectTools.createService({
       ...req.body,
-      tenantId: (req as any).tenant?.id || 1,
+      tenantId: Number((req as any).tenant?.id),
     });
 
     await architectTools.logAction(

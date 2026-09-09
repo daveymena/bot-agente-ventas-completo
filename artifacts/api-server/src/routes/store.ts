@@ -7,6 +7,17 @@ import { imageUrlFixer } from "../lib/image-url-fixer";
 
 const router = Router();
 
+function publicStore(store: any) {
+  return {
+    id: store.id,
+    name: store.name,
+    slug: store.slug,
+    description: store.description,
+    logo: store.logo || store.logoUrl,
+    primaryColor: store.primaryColor,
+  };
+}
+
 // Middleware to load store by slug
 router.param("slug", async (req: Request, res: Response, next: NextFunction, slug: string) => {
   try {
@@ -36,10 +47,19 @@ router.get("/:slug", async (req: Request, res: Response, next: NextFunction) => 
       const categories = await db.select().from(store_categories).where(eq(store_categories.storeId, store.id));
       // Arreglar URLs de imágenes antes de retornar
       const productsWithImages = curated.map((p: any) => ({
-        ...p,
+        id: p.id,
+        name: p.name,
+        description: p.description,
+        price: p.price,
+        currency: p.currency,
+        category: p.category,
+        kind: p.kind,
+        sku: p.sku,
+        features: p.features,
+        paymentLink: p.paymentLink,
         imageUrl: p.imageUrl || imageUrlFixer.getImagePath(p.id),
       }));
-      return res.json({ store, categories, products: productsWithImages });
+      return res.json({ store: publicStore(store), categories, products: productsWithImages });
     }
 
     const [realProducts, realCategories] = await Promise.all([
@@ -49,12 +69,21 @@ router.get("/:slug", async (req: Request, res: Response, next: NextFunction) => 
 
     // Arreglar URLs de imágenes antes de retornar
     const activeProducts = realProducts.filter((p: any) => p.isActive !== false).map((p: any) => ({
-      ...p,
+      id: p.id,
+      name: p.name,
+      description: p.description,
+      price: p.price,
+      currency: p.currency,
+      category: p.category,
+      kind: p.kind,
+      sku: p.sku,
+      features: p.features,
+      paymentLink: p.paymentLink,
       imageUrl: p.imageUrl || imageUrlFixer.getImagePath(p.id),
     }));
 
     return res.json({
-      store,
+      store: publicStore(store),
       categories: realCategories,
       products: activeProducts,
     });
@@ -75,7 +104,23 @@ router.get("/:slug/product/:productId", async (req: Request, res: Response, next
       product = await db.select().from(products).where(eq(products.id, Number(productId))).then((r: any) => r[0]);
     }
     if (!product) return res.status(404).json({ message: "Product not found" });
-    return res.json({ store, product });
+    if (product.tenantId !== store.tenantId && product.storeId !== store.id) return res.status(404).json({ message: "Product not found" });
+    return res.json({
+      store: publicStore(store),
+      product: {
+        id: product.id,
+        name: product.name,
+        description: product.description,
+        price: product.price,
+        currency: product.currency,
+        category: product.category,
+        kind: product.kind,
+        sku: product.sku,
+        features: product.features,
+        paymentLink: product.paymentLink,
+        imageUrl: product.imageUrl || imageUrlFixer.getImagePath(product.id),
+      },
+    });
   } catch (err) {
     return next(err);
   }

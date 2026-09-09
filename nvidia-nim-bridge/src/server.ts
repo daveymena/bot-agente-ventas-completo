@@ -5,8 +5,19 @@ import { config } from './config';
 
 export function createServer(nvidia: NvidiaClient) {
   const app = express();
-  app.use(cors());
+  const origins = (process.env.ALLOWED_ORIGINS || '').split(',').map((x) => x.trim()).filter(Boolean);
+  app.use(cors({ origin: origins.length ? origins : false }));
   app.use(express.json());
+
+  app.use((req, res, next) => {
+    if (req.path === '/v1/health' && req.method === 'GET') return next();
+    const expected = config.bridgeToken;
+    const authorization = String(req.headers.authorization || '');
+    if (!expected || authorization !== `Bearer ${expected}`) {
+      return res.status(401).json({ error: { message: 'No autorizado' } });
+    }
+    next();
+  });
 
   let modelsCache: { models: NvidiaModel[]; timestamp: number } | null = null;
   let healthCache: { health: ModelHealth[]; timestamp: number } | null = null;
@@ -34,7 +45,7 @@ export function createServer(nvidia: NvidiaClient) {
       const models = await getModels();
       res.json({ object: 'list', data: models });
     } catch (err: any) {
-      res.status(500).json({ error: { message: err.message } });
+      res.status(500).json({ error: { message: 'Error interno del bridge' } });
     }
   });
 
@@ -48,7 +59,7 @@ export function createServer(nvidia: NvidiaClient) {
       healthCache = { health, timestamp: Date.now() };
       res.json({ object: 'list', data: health });
     } catch (err: any) {
-      res.status(500).json({ error: { message: err.message } });
+      res.status(500).json({ error: { message: 'Error interno del bridge' } });
     }
   });
 
@@ -110,7 +121,7 @@ export function createServer(nvidia: NvidiaClient) {
       }
     } catch (err: any) {
       if (!res.headersSent) {
-        res.status(500).json({ error: { message: err.message } });
+        res.status(500).json({ error: { message: 'Error interno del bridge' } });
       }
     }
   });
@@ -128,7 +139,7 @@ export function createServer(nvidia: NvidiaClient) {
         })),
       });
     } catch (err: any) {
-      res.status(500).json({ error: { message: err.message } });
+      res.status(500).json({ error: { message: 'Error interno del bridge' } });
     }
   });
 

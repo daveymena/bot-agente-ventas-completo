@@ -107,7 +107,8 @@ router.get("/products/:slug", async (req, res, next) => {
       sku: p.sku,
       features: p.features,
       paymentLink: p.paymentLink,
-      deliveryLink: p.deliveryLink,
+      // Nunca exponer el enlace de entrega en un catálogo público: equivale a
+      // regalar el producto digital sin una compra verificada.
     }));
 
     return res.json({

@@ -59,7 +59,8 @@ router.get("/status", (req: Request, res: Response) => {
  */
 router.post("/analyze", async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { tenantId, productId, customerId, conversationId } = req.body;
+    const { productId, customerId, conversationId } = req.body;
+    const tenantId = Number((req as any).tenant?.id);
 
     if (!tenantId || !productId) {
       return res.status(400).json({
@@ -214,7 +215,8 @@ router.post("/reason", async (req: Request, res: Response, next: NextFunction) =
  */
 router.post("/multichannel", async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { productName, productId, tenantId, targetAudience, budget } = req.body;
+    const { productName, productId, targetAudience, budget } = req.body;
+    const tenantId = Number((req as any).tenant?.id);
 
     if (!productName || !productId || !tenantId) {
       return res.status(400).json({
@@ -258,7 +260,7 @@ router.post("/memory", async (req: Request, res: Response, next: NextFunction) =
     }
 
     const result = await architectAI.memory.recordLearning(
-      (req as any).tenant?.id || 1,
+      Number((req as any).tenant?.id),
       type,
       lesson,
       description,
@@ -294,7 +296,7 @@ router.get("/memory/search", async (req: Request, res: Response, next: NextFunct
     }
 
     const results = await architectAI.memory.retrieveRelevantMemories(
-      (req as any).tenant?.id || 1,
+      Number((req as any).tenant?.id),
       String(query)
     );
 

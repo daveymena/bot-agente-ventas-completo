@@ -1,10 +1,11 @@
 import { Router } from "express";
 import { spawn } from "child_process";
 import { logger } from "../lib/logger";
+import { requireAdmin } from "../lib/tenantManager";
 
 const router = Router();
 
-router.post("/push", async (req, res) => {
+router.post("/push", requireAdmin(), async (req, res) => {
   try {
     const { message = "Auto-sync from VentasPro Dashboard" } = req.body;
     
@@ -12,7 +13,7 @@ router.post("/push", async (req, res) => {
 
     const execute = (cmd: string, args: string[]) => {
       return new Promise<{ code: number; stdout: string; stderr: string }>((resolve) => {
-        const proc = spawn(cmd, args, { shell: true, cwd: process.cwd() });
+        const proc = spawn(cmd, args, { shell: false, cwd: process.cwd() });
         let stdout = "";
         let stderr = "";
         proc.stdout.on("data", (d) => stdout += d.toString());
@@ -25,7 +26,7 @@ router.post("/push", async (req, res) => {
     await execute("git", ["add", "."]);
     
     // 2. Git Commit
-    const commit = await execute("git", ["commit", "-m", `"${message}"`]);
+    const commit = await execute("git", ["commit", "-m", String(message).slice(0, 200)]);
     
     // 3. Git Push
     const push = await execute("git", ["push", "origin", "main"]);
@@ -45,17 +46,17 @@ router.post("/push", async (req, res) => {
     }
   } catch (e: any) {
     logger.error(e, "[Sync] Error en Git Push");
-    res.status(500).json({ error: e.message });
+    res.status(500).json({ error: "No se pudo completar la sincronización" });
   }
 });
 
-router.post("/pull", async (req, res) => {
+router.post("/pull", requireAdmin(), async (req, res) => {
   try {
     logger.info("[Sync] Iniciando proceso de GIT PULL (Update)...");
 
     const execute = (cmd: string, args: string[]) => {
       return new Promise<{ code: number; stdout: string; stderr: string }>((resolve) => {
-        const proc = spawn(cmd, args, { shell: true, cwd: process.cwd() });
+        const proc = spawn(cmd, args, { shell: false, cwd: process.cwd() });
         let stdout = "";
         let stderr = "";
         proc.stdout.on("data", (d) => stdout += d.toString());
@@ -85,7 +86,7 @@ router.post("/pull", async (req, res) => {
     }
   } catch (e: any) {
     logger.error(e, "[Sync] Error en Git Pull");
-    res.status(500).json({ error: e.message });
+    res.status(500).json({ error: "No se pudo actualizar la aplicación" });
   }
 });
 

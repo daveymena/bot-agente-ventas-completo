@@ -115,10 +115,11 @@ export function errorHandler(
     // seguridad (security-shield.ts) ya ofusca los que contienen datos
     // sensibles antes de llegar aca.
     console.error("Unhandled error:", err);
+    const requestId = req.id || req.headers?.["x-request-id"];
     return res.status(500).json({
       error: ERROR_MESSAGES[ERROR_CODES.INTERNAL_SERVER_ERROR],
       code: ERROR_CODES.INTERNAL_SERVER_ERROR,
-      message: err.message,
+      requestId,
       // En desarrollo si conviene tenerlo a mano.
       ...(process.env.NODE_ENV !== "production" ? { stack: err.stack } : {}),
     });
