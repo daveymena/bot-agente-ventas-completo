@@ -14,6 +14,15 @@ import {
   type Casilla,
   type Plantilla,
 } from "../lib/landing/plantillas";
+import {
+  createProduct as lfCreateProduct,
+  generateBrief as lfGenerateBrief,
+  createLanding as lfCreateLanding,
+  generateLandingSections as lfGenerateSections,
+  publishLanding as lfPublishLanding,
+  getJobStatus as lfGetJobStatus,
+  listProducts as lfListProducts,
+} from "../lib/landingforge-client";
 
 const router = Router();
 
@@ -140,17 +149,41 @@ router.post("/generate", async (req: TenantRequest, res, next) => {
     const language = String(req.body?.language || "es");
     const country = String(req.body?.country || "CO");
     const objective = String(req.body?.objective || "sales");
+
+    // ── Intentar LandingForge primero (generación profesional estilo Magic) ──
+    const LF_ENABLED = !!process.env.LANDINGFORGE_URL;
+    if (LF_ENABLED) {
+      try {
+        const lfResult = await generateLandingViaForge(product, { language, country, objective });
+        if (lfResult.ok) {
+          return res.json({
+            ok: true,
+            generatedBy: "landingforge",
+            name: lfResult.name,
+            productId,
+            landingforgeUrl: lfResult.url,
+            landingforgeLandingId: lfResult.landingId,
+            strategy: lfResult.strategy,
+            sections: lfResult.sections,
+            design: lfResult.design,
+            plantilla: { id: "landingforge", nombre: "LandingForge Professional", para: product.kind === "digital" ? "digital" : "fisico", cuando: "Generación profesional con IA" },
+            source: sourceAd ? { type: "facebook-ad", data: sourceAd } : { type: "product", productId },
+          });
+        }
+        // Si LandingForge falló, continuar con el generador local
+        console.log(`[LandingForge] Falló para producto ${productId}, usando generador local: ${lfResult.error}`);
+      } catch (lfErr) {
+        console.log(`[LandingForge] Error para producto ${productId}, usando generador local: ${(lfErr as Error).message}`);
+      }
+    }
+
+    // ── Fallback: generador local existente ──────────────────────────────────
     const promptProduct = {
       id: product.id, name: product.name, description: product.description, price: product.price,
       currency: product.currency, kind: product.kind, imageUrl: product.imageUrl, highlight: product.highlight,
       features: product.features, paymentLink: product.paymentLink, deliveryLink: product.deliveryLink,
     };
 
-    // ── La estructura se decide ACÁ, antes de hablar con el modelo ──────────
-    //
-    // Es el cambio de fondo: qué secciones lleva la página y en qué orden ya no
-    // sale de lo que se le ocurra al modelo, sino de una plantilla elegida por
-    // el tipo de producto. El modelo escribe el texto de cada casilla.
     const negocio = { brandName: req.tenant?.brandName };
     const plantilla = elegirPlantilla(product as any, req.body?.plantilla, negocio);
     const casillas = casillasQueAplican(plantilla, product as any, negocio);
@@ -186,6 +219,115 @@ router.post("/generate", async (req: TenantRequest, res, next) => {
     return next(e);
   }
 });
+
+/**
+ * Genera una landing profesional via LandingForge (estilo Magic/eCom Magic).
+ *
+ * Flujo:
+ *   1. Crear producto en LandingForge desde los datos del catálogo local
+ *   2. Generar brief estratégico con IA
+ *   3. Crear landing con maqueta automática
+ *   4. Generar todas las secciones (copy + imágenes IA en 2K)
+ *   5. Publicar → URL lista para enviar al cliente
+ */
+async function generateLandingViaForge(
+  product: any,
+  opts: { language: string; country: string; objective: string },
+): Promise<{
+  ok: boolean; name: string; url: string; landingId: string;
+  strategy: any; sections: any[]; design: any; error?: string;
+}> {
+  // 1. Crear producto en LandingForge
+  const { product: lfProduct } = await lfCreateProduct({
+    name: product.name,
+    description: product.description || "",
+    price: product.price ? String(product.price) : undefined,
+    currency: product.currency || "COP",
+    kind: (product.kind === "physical" ? "physical" : "digital") as "physical" | "digital",
+    category: product.category || undefined,
+    checkoutUrl: product.paymentLink || undefined,
+  });
+  console.log(`[LandingForge] Producto creado: ${lfProduct.id} (${lfProduct.name})`);
+
+  // 2. Generar brief
+  const { brief } = await lfGenerateBrief(lfProduct.id);
+  console.log(`[LandingForge] Brief generado: ${brief.id}`);
+
+  // 3. Crear landing
+  const skeleton = lfProduct.kind === "digital" ? "digital_completa" : "fisica_completa";
+  const { landing } = await lfCreateLanding({
+    productId: lfProduct.id,
+    skeletonKey: skeleton,
+    briefId: brief.id,
+    title: product.name,
+  });
+  console.log(`[LandingForge] Landing creada: ${landing.id}`);
+
+  // 4. Generar secciones
+  const { jobId } = await lfGenerateSections(landing.id, { size: "section" });
+  console.log(`[LandingForge] Job de generación: ${jobId}`);
+
+  // 5. Esperar resultado (polling cada 3s, max 5 min)
+  let status;
+  for (let i = 0; i < 100; i++) {
+    await new Promise((r) => setTimeout(r, 3000));
+    status = await lfGetJobStatus(jobId);
+    if (status.status === "done" || status.status === "error") break;
+  }
+
+  if (status?.status === "error") {
+    return { ok: false, name: product.name, url: "", landingId: landing.id, strategy: null, sections: [], design: null, error: status.error };
+  }
+
+  // 6. Publicar
+  const published = await lfPublishLanding(landing.id);
+  console.log(`[LandingForge] Publicada: ${published.url}`);
+
+  // Construir strategy y design desde el brief
+  const strategy = {
+    objective: opts.objective,
+    language: opts.language,
+    country: opts.country,
+    currency: product.currency || "COP",
+    avatar: brief.data?.avatar || "",
+    awareness: brief.data?.awareness_level || "problem-aware",
+    pain: brief.data?.specific_problem || "",
+    desire: brief.data?.desired_outcome || "",
+    mechanism: brief.data?.unique_mechanism || "",
+    promise: brief.data?.product_as_solution || "",
+    objections: [],
+    angle: brief.data?.selling_angle || "",
+    sourceAd: null,
+  };
+
+  const design = {
+    tone: "professional",
+    primary: "#111827",
+    background: "#ffffff",
+    radius: "14px",
+  };
+
+  // Mapear secciones del formato LandingForge al formato del bot
+  const sections = (status?.sections || []).map((s: any, i: number) => ({
+    id: s.id || `section-${i + 1}`,
+    type: s.sectionType || "hero",
+    title: s.copy?.title || "",
+    subtitle: s.copy?.subtitle || "",
+    body: s.copy?.body || "",
+    cta: s.copy?.cta || "",
+    image: s.imageUrl || undefined,
+  }));
+
+  return {
+    ok: true,
+    name: product.name,
+    url: published.url,
+    landingId: landing.id,
+    strategy,
+    sections,
+    design,
+  };
+}
 
 router.post("/:id/command", async (req: TenantRequest, res, next) => {
   try {

@@ -98,6 +98,17 @@ router.get("/:id/render", async (req: TenantRequest, res, next) => {
     const [row] = await db.select().from(landingPages).where(and(eq(landingPages.id, id), eq(landingPages.tenantId, tenantId))).limit(1);
     if (!row) return res.status(404).json({ error: "Landing no encontrada" });
 
+    // Si la landing fue generada por LandingForge, redirigir a su URL pública
+    const source = row.source as any;
+    if (source?.landingforgeUrl) {
+      return res.redirect(302, source.landingforgeUrl);
+    }
+
+    // Si tiene publishedUrl, redirigir ahí
+    if (row.publishedUrl) {
+      return res.redirect(302, row.publishedUrl);
+    }
+
     // El producto se lee ACA y no se confia al cliente: la foto, el precio y
     // el enlace de pago son datos del negocio, y una landing que muestra un
     // precio que el cliente mando seria una landing falsificable.
