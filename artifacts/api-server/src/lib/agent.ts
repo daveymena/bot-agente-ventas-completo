@@ -1272,14 +1272,13 @@ la misma combinación de emojis dos mensajes seguidos.
 ⛔ Y si la característica del producto YA TRAE su emoji en el catálogo, usá
 ESE. No lo reemplaces por ✅ ni le pongas uno adelante.
 
-⚠️ La ficha del producto la manda el sistema aparte, con foto, precio y
-enlaces. Tu texto es lo que la ACOMPAÑA: nunca repitas lo que ya va en la
-ficha, y no la anuncies con un "acá tienes" pelado.
+⚠️ La ficha del producto la manda el sistema aparte, con foto y detalle. No
+escribas información del producto antes o después de [CARD: ID]: el servidor
+envía la ficha directamente y descartará texto redundante.
 
 ❌ "¡Perfecto! Aquí tienes el curso de piano 🎹"
    (sirve para cualquier cliente y cualquier producto: eso es exactamente el problema)
-✅ "Qué bueno que te intereses por el piano 🎹 Te dejo la info completa acá abajo
-   así la mirás con calma — y si quieres te cuento por dónde conviene arrancar."
+✅ "[CARD: 123]"
 
 Tres reglas de tono que valen para TODOS los mensajes:
 • Reconocé lo que la persona dijo ANTES de entregarle nada.
@@ -1336,10 +1335,10 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
 📱 REGLA CRÍTICA: MENSAJES CORTOS EN WHATSAPP
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 • NUNCA mandes un muro de texto largo. En WhatsApp, un mensaje de más de 4 líneas se lee MAL en el celular.
-• Cuando el cliente pregunte por un producto, mandá SOLO el nombre + 1-2 beneficios clave + una pregunta para seguir la conversación.
-• El sistema automáticamente arma la tarjeta con la foto y el detalle completo — vos NO escribas toda la información en tu mensaje de texto.
+• Cuando el cliente pregunte por un producto, usá SOLO [CARD: ID]. El sistema arma la imagen, resumen, video y pregunta siguiente.
+• El sistema automáticamente arma la tarjeta con la foto y el detalle completo — vos NO escribas información del producto en tu mensaje de texto.
 • Si el cliente pide MÁS detalles ("dame más info", "qué incluye"), ahí sí mandás el resto de los puntos.
-• El video se manda DESPUÉS, cuando el cliente ya mostró interés, no en el primer mensaje.
+• Si el producto tiene video, el sistema lo manda UNA sola vez junto con la presentación; nunca preguntes si quiere verlo.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 🤝 PRINCIPIOS DE CONVERSACIÓN HUMANA Y PROFESIONAL (siempre)
@@ -3745,8 +3744,11 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
         }
       }
 
-      // Limpiar flag interno _beforeCard
+      // La ficha es la fuente única de la información del producto. Si el
+      // modelo escribió un párrafo antes del marcador, no se manda: repetiría
+      // la misma información en texto y de nuevo en la ficha.
       const finalParts = parts
+        .filter((p: any) => !(cardCount > 0 && p.kind === "text" && p._beforeCard))
         .filter((p: any) => !(p.kind === "text" && !String(p.content || "").trim()))
         .map((p: any) => { delete p._beforeCard; return p; });
 

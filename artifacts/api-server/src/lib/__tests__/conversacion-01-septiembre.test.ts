@@ -39,22 +39,22 @@ const PIANO = {
   metadata: { videoIntro: "https://drive.google.com/file/d/piano/view" },
 };
 
-describe("Fallo 3: el 'Si' que acepto el video recibio el checkout", () => {
-  it("la ficha completa de un curso CON video ofrece el video", () => {
+describe("Fallo 3: el video se comparte sin pedir autorización", () => {
+  it("la ficha completa de un curso CON video avanza al precio", () => {
     const tieneVideo = !!videoDeProducto(PIANO.metadata);
     const cierre = invitacionDe("completa", false, "573042748687", tieneVideo, true);
-    expect(cierre).toMatch(/video|c[oó]mo es por dentro/i);
+    expect(cierre).toMatch(/precio|cu[aá]nto/i);
   });
 
-  it("y esa oferta se guarda como 'video', no como otra cosa", () => {
+  it("y esa oferta se guarda como 'precio'", () => {
     // Aca estaba el bug: agent.ts pasaba `producto.metadata` a una funcion que
     // espera el PRODUCTO, asi que tieneVideo era siempre false y la metadata
     // guardada decia "otro".
     const tieneVideo = !!videoDeProducto(PIANO.metadata);
-    expect(elCierreOfrece("completa", false, tieneVideo, true)).toBe("video");
+    expect(elCierreOfrece("completa", false, tieneVideo, true)).toBe("precio");
   });
 
-  it("con esa metadata correcta, el 'Si' pide el VIDEO y no el pago", () => {
+  it("un sí solo sigue llevando al video si el cliente lo pidió explícitamente", () => {
     const seccion = seccionQueCorresponde({
       mensaje: "Si",
       intent: "confirmation", // detectIntent lee un "si" suelto como compra
@@ -65,7 +65,7 @@ describe("Fallo 3: el 'Si' que acepto el video recibio el checkout", () => {
     expect(seccion).toBe("video");
   });
 
-  it("y el guardia anti-checkout coincide con esa lectura", () => {
+  it("y el guardia anti-checkout conserva la lectura de una oferta de video", () => {
     expect(elSiContestaLaOferta({ mensaje: "Si", ofrecimosVideo: true })).toBe(true);
   });
 

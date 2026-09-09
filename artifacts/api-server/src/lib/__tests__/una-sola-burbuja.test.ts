@@ -87,4 +87,17 @@ describe("La ficha: pie de foto aparte, el resto junto", () => {
     expect(unirElRestoDeLaFicha(["A", "", "  ", "B"])).toEqual(["A", "B"]);
     expect(unirElRestoDeLaFicha([])).toEqual([]);
   });
+
+  it("mantiene el video y el cierre en burbujas separadas", () => {
+    const r = unirElRestoDeLaFicha([
+      "🤖 CURSO DE IA",
+      "🎬 Te dejo este video para que veas el contenido por dentro:\nhttps://ejemplo.com/video",
+      "¿Te paso el precio? 💰",
+    ]);
+    expect(r).toEqual([
+      "🤖 CURSO DE IA",
+      "🎬 Te dejo este video para que veas el contenido por dentro:\nhttps://ejemplo.com/video",
+      "¿Te paso el precio? 💰",
+    ]);
+  });
 });

@@ -30,17 +30,17 @@ const cursoConVideo = {
 };
 
 describe("El cierre de la ficha no puede mentir sobre lo que ofreció", () => {
-  it("si la ficha completa ofrece el video, se clasifica como video", () => {
+  it("si la ficha completa comparte el video, el cierre ofrece el precio", () => {
     const tieneVideo = !!videoDeProducto(cursoConVideo.metadata);
     expect(tieneVideo).toBe(true);
 
     // Así lo arma el render en whatsapp.ts: para "completa", `yaVioContenido`
     // llega en true porque esa misma ficha muestra el contenido.
     const texto = invitacionDe("completa", false, "573042748687", tieneVideo, true);
-    expect(texto).toMatch(/video|c[oó]mo es por dentro/i);
+    expect(texto).toMatch(/precio|cu[aá]nto/i);
 
     // Y así tiene que clasificarlo agent.ts, con LOS MISMOS argumentos.
-    expect(elCierreOfrece("completa", false, tieneVideo, true)).toBe("video");
+    expect(elCierreOfrece("completa", false, tieneVideo, true)).toBe("precio");
   });
 
   it("pasarle el metadata en vez del producto deja tieneVideo en false", () => {

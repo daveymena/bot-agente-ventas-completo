@@ -86,5 +86,22 @@ export function unirTextosSeguidos<T extends ParteDeRespuesta>(partes: T[]): T[]
 export function unirElRestoDeLaFicha(mensajes: string[]): string[] {
   const limpios = (mensajes || []).map((m) => String(m ?? "").trim()).filter(Boolean);
   if (limpios.length <= 1) return limpios;
-  return [limpios[0]!, limpios.slice(1).join("\n\n")];
+  const out = [limpios[0]!];
+  let textos: string[] = [];
+  const soltarTextos = () => {
+    if (textos.length) out.push(textos.join("\n\n"));
+    textos = [];
+  };
+  for (const mensaje of limpios.slice(1)) {
+    // El enlace de video merece su propia burbuja y su vista previa. Nunca se
+    // lo mezcla con el cierre comercial.
+    if (/https?:\/\/\S+/i.test(mensaje)) {
+      soltarTextos();
+      out.push(mensaje);
+    } else {
+      textos.push(mensaje);
+    }
+  }
+  soltarTextos();
+  return out;
 }

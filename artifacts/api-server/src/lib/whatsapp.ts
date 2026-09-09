@@ -896,33 +896,29 @@ async function construirSeccion(
   // El emoji sale del titulo que el dueño escribio; si no puso, se adivina.
   const emojiTitulo = suFicha.emoji || emojiDelProducto(p.name, (p as any).category);
 
-  // ── MENSAJE CORTO: solo nombre + resumen + 2 beneficios clave ────────────
+  // ── MENSAJE CORTO: solo nombre + resumen ─────────────────────────────────
   //
   // El admin pidio (2026-09-09): "necesito q me ayude con la logica de
   // respuesta y con la linea para eso ya que yo no seria capaz de leer esa
   // informacion tan extensa y desordenada". El bot mandaba TODA la descripcion
   // del producto en un solo mensaje masivo -- ilegible en WhatsApp.
   //
-  // La solucion: el primer mensaje es CORTO (nombre + resumen + 2 puntos
-  // maximo). El video NO se manda aca. El cliente pregunta mas si le interesa.
-  const maxPuntosIniciales = 2;
-  const puntosIniciales = suFicha.puntos.slice(0, maxPuntosIniciales);
-
-  L.push(`${emojiTitulo} *${nameUpper}*`);
-  L.push("");
-  L.push(resumen || "Formación práctica para llevar tus habilidades al siguiente nivel.");
-
-  if (puntosIniciales.length > 0) {
+  // La ficha inicial no es un temario. La imagen lleva solo el resumen y el
+  // video se comparte una vez enseguida si existe. El detalle queda para una
+  // pregunta concreta del cliente.
+  const esDetallePosterior = seccion === "info" && yaVioContenido;
+  const mensajes: string[] = [];
+  if (!esDetallePosterior) {
+    L.push(`${emojiTitulo} *${nameUpper}*`);
     L.push("");
-    for (const punto of puntosIniciales) L.push(`${punto.emoji} ${punto.texto}`);
+    L.push(resumen || "Formación práctica para llevar tus habilidades al siguiente nivel.");
+    mensajes.push(hablarColombiano(L.join("\n").trim()));
   }
 
   // El voseo llega por la descripcion del producto ("Aprende", "Estudia"),
   // no solo por el modelo. El filtro se aplicaba unicamente al texto que
   // escribe la IA, asi que la ficha --que es lo que mas se lee-- salia sin
   // traducir.
-  const mensajes = [hablarColombiano(L.join("\n").trim())];
-
   // ── El precio NO va acá ──────────────────────────────────────────────────
   //
   // Antes "completa" lo agregaba, contradiciendo el comentario que encabeza
@@ -938,22 +934,12 @@ async function construirSeccion(
   // Quien quiera el precio lo pide, y ahí sale entero: PIDE_PRECIO lleva a la
   // sección "precio" (ver seccionQueCorresponde). Eso no cambia -- el arreglo
   // de "preguntaba el precio y no se lo daban" sigue en pie.
-  mensajes.push(cierre);
-
-  // ── EL VIDEO NO SE MANDA EN EL PRIMER MENSAJE ────────────────────────────
-  //
-  // El admin pidio (2026-09-09): el bot mandaba un muro de texto con video
-  // incluido. El video es la carnada mas fuerte, pero si se manda de una el
-  // cliente no tiene razon para preguntar mas. Se guarda para despues, cuando
-  // el cliente muestre interes.
-
   // ── SI PIDE MAS INFO: mostrar el resto de los puntos ──────────────────────
   //
   // Cuando el cliente pregunta "dame mas info" o "que incluye", se le muestran
-  // TODOS los puntos que no entraron en el mensaje inicial. El video se manda
-  // AHI, cuando ya tiene interes.
-  if (seccion === "info" && yaVioContenido && suFicha.puntos.length > maxPuntosIniciales) {
-    const puntosRestantes = suFicha.puntos.slice(maxPuntosIniciales);
+  // los detalles que no se incluyeron en la presentación corta.
+  if (esDetallePosterior && suFicha.puntos.length > 0) {
+    const puntosRestantes = suFicha.puntos;
     const infoExtra: string[] = [];
     infoExtra.push(`📋 *MÁS DETALLES DE ${nameUpper}:*`);
     infoExtra.push("");
@@ -967,20 +953,14 @@ async function construirSeccion(
 
     mensajes.push(hablarColombiano(infoExtra.join("\n").trim()));
 
-    // El video se manda AHI, cuando el cliente ya mostro interes
-    if (urlVideo && !videoYaEnviado) {
-      mensajes.push(
-        variante(
-          [
-            `🎬 Mirá este video antes de decidir: te muestra por dentro TODO lo que vas a ver.\n${urlVideo}`,
-            `🎬 Te dejo el video para que veas de qué se trata, así no compras a ciegas 👇\n${urlVideo}`,
-            `🎬 Acá lo ves por dentro: el video recorre todo lo que trae.\n${urlVideo}`,
-          ],
-          `${semilla}|video-con-contenido`,
-        ),
-      );
-    }
   }
+
+  // Si el producto tiene video, se comparte UNA vez al presentarlo. No se
+  // pregunta si quiere verlo: está ahí para que pueda revisarlo cuando quiera.
+  if (urlVideo && !videoYaEnviado && (seccion === "completa" || esDetallePosterior)) {
+    mensajes.push(`🎬 Te dejo este video para que veas el contenido por dentro:\n${urlVideo}`);
+  }
+  if (cierre) mensajes.push(cierre);
 
   // -- La foto va con la PRESENTACION, y una sola vez ------------------
   //

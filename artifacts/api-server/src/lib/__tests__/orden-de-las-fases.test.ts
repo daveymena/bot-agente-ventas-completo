@@ -60,9 +60,9 @@ describe("1. cada pregunta cae en su fase", () => {
 });
 
 describe("2. la presentación no se adelanta al precio", () => {
-  it("el cierre de 'completa' nunca ofrece el precio como si fuera lo único", () => {
-    // Con video, lo que sigue es el video: es la carnada más fuerte.
-    expect(invitacionDe("completa", false, "sem", true)).toMatch(/video|por dentro|en uso/i);
+  it("el cierre de 'completa' avanza al precio", () => {
+    // El video se comparte automáticamente una vez con la presentación.
+    expect(invitacionDe("completa", false, "sem", true)).toMatch(/precio|cu[aá]nto/i);
   });
 
   it("sin video cargado, ofrece el precio y NO promete un video que no existe", () => {

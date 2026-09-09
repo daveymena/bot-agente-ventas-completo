@@ -88,10 +88,10 @@ describe("cada respuesta apunta a algo que el cliente todavía no vio", () => {
     expect(invitacionDe("precio", false)).toMatch(/incluye|trae|adentro/i);
   });
 
-  it("tras la info, ofrece el video para ampliar", () => {
-    // Antes invitaba a preguntar el precio. Ahora el video: es lo que de
-    // verdad amplia, y es el momento en que el cliente pidio mas detalle.
-    expect(invitacionDe("info", false)).toMatch(/video/i);
+  it("tras la info, ofrece el precio", () => {
+    // El video se manda automáticamente una sola vez con la ficha; no se
+    // pregunta permiso para verlo.
+    expect(invitacionDe("info", false)).toMatch(/precio|cu[aá]nto/i);
   });
 
   it("tras dar el medio de pago, pide el comprobante", () => {
@@ -162,12 +162,12 @@ describe("el video se manda en el momento preciso, no en cualquiera", () => {
     expect(secV("dale", { ofrecimosVideo: true, videoYaEnviado: true })).not.toBe("video");
   });
 
-  it("la presentacion OFRECE el video, no lo da por hecho", () => {
-    expect(invitacionDe("completa", false)).toMatch(/video|clases/i);
+  it("la presentacion no ofrece el video", () => {
+    expect(invitacionDe("completa", false)).not.toMatch(/video|clases/i);
   });
 
-  it("pedir detalle lleva al video, que es lo que amplia", () => {
-    expect(invitacionDe("info", false)).toMatch(/video/i);
+  it("pedir detalle no vuelve a ofrecer el video", () => {
+    expect(invitacionDe("info", false)).not.toMatch(/video/i);
   });
 
   it("despues de verlo, el cierre lleva a algun lado", () => {
@@ -187,9 +187,9 @@ describe("el video se manda en el momento preciso, no en cualquiera", () => {
 });
 
 describe("no ofrece video en los cursos que no lo tienen", () => {
-  it("con video, el cierre lo ofrece", () => {
-    expect(invitacionDe("completa", false, "", true)).toMatch(/video|clases/i);
-    expect(invitacionDe("info", false, "", true)).toMatch(/video/i);
+  it("con video, el cierre no lo vuelve a ofrecer", () => {
+    expect(invitacionDe("completa", false, "", true)).not.toMatch(/video|clases/i);
+    expect(invitacionDe("info", false, "", true)).not.toMatch(/video/i);
   });
 
   it("SIN video, el cierre apunta a otra cosa real", () => {
@@ -225,8 +225,8 @@ describe("el cierre no repite lo que ya se mostró", () => {
     expect(c).not.toMatch(/qu[eé] (incluye|trae|viene)/i);
   });
 
-  it("y en su lugar ofrece el video, que es lo único que le falta", () => {
-    expect(invitacionDe("precio", false, "sem", true, true)).toMatch(/video|por dentro|pedacito/i);
+  it("y en su lugar ofrece resolver dudas", () => {
+    expect(invitacionDe("precio", false, "sem", true, true)).toMatch(/duda|puntual/i);
   });
 
   it("sin video cargado, ofrece resolver dudas en vez de prometer uno", () => {
