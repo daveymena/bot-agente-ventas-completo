@@ -48,8 +48,8 @@ export async function analyzeWhatsAppMessage(
     const prods = await db
       .select()
       .from(products)
-      .where(eq(products.tenantId, tenantId))
-      .limit(5);
+      .where(and(eq(products.tenantId, tenantId), eq(products.isActive, true)))
+      .limit(200);
 
     // 1. DETECCIÓN DE TIPO DE MENSAJE
     const tipología = detectarTipo(messageText);
@@ -61,16 +61,34 @@ export async function analyzeWhatsAppMessage(
     let respuesta: string | null = null;
     let debe_responder = false;
 
+    let productoEncontrado: any = null;
+    try {
+      const { findBestProductMatch } = await import("./conversation-engine");
+      const match = await findBestProductMatch(lastMessage.content, prods as any, new Map());
+      if (match?.product && match.score >= 45) productoEncontrado = match.product;
+    } catch (err: any) {
+      logger.warn({ err: err?.message, conversationId }, "[WhatsAppBrain] no se pudo resolver el producto semánticamente");
+    }
+
     if (tipología === "precio") {
       confianza += 20;
-      const primerProducto = prods[0];
-      if (primerProducto) {
-        respuesta = generarRespuestaPrecio(primerProducto);
+      if (productoEncontrado) {
+        respuesta = generarRespuestaPrecio(productoEncontrado);
         debe_responder = confianza >= 75;
+      } else if (prods.length === 1) {
+        respuesta = generarRespuestaPrecio(prods[0]);
+        debe_responder = confianza >= 75;
+      } else {
+        // Nunca adivinar el producto preguntado por el precio.
+        respuesta = "¿De cuál producto querés saber el precio? Decime el nombre y te lo confirmo con el valor real. 😊";
+        debe_responder = true;
       }
     } else if (tipología === "producto") {
       confianza += 15;
-      if (prods.length > 0) {
+      if (productoEncontrado) {
+        respuesta = generarRespuestaProducto([productoEncontrado]);
+        debe_responder = confianza >= 75;
+      } else if (prods.length > 0) {
         respuesta = generarRespuestaProducto(prods);
         debe_responder = confianza >= 75;
       }
@@ -79,9 +97,11 @@ export async function analyzeWhatsAppMessage(
       respuesta = generarRespuestaCompra();
       debe_responder = confianza >= 75;
     } else if (tipología === "horario") {
-      confianza += 20;
-      respuesta = generarRespuestaHorario();
-      debe_responder = confianza >= 75;
+      // No hay horario verificable en este módulo. Es mejor reconocerlo y
+      // derivar que inventar un horario de atención.
+      confianza = 20;
+      respuesta = null;
+      debe_responder = false;
     } else {
       confianza = 40; // Mensajes genéricos
       debe_responder = false;
@@ -134,19 +154,18 @@ function detectarTipo(
  * Genera respuesta para preguntas de precio
  */
 function generarRespuestaPrecio(producto: any): string {
-  const precio = producto.price || 60000;
-  const moneda = "COP";
+  const precio = Number(producto.price);
+  const moneda = String(producto.currency || "COP");
+  if (!Number.isFinite(precio) || precio <= 0) {
+    return `Puedo confirmarte el precio de *${producto.name}*, pero ahora mismo no aparece cargado. Lo reviso y te confirmo. 😊`;
+  }
 
   return `
 💰 *Precio del ${producto.name}*
 
-El curso cuesta *$${precio.toLocaleString()} ${moneda}*
+El valor es *$${precio.toLocaleString("es-CO")} ${moneda}*.
 
-✅ Pago único — Nada de suscripciones
-♾️ Acceso de por vida
-⚡ Entrega inmediata
-
-¿Quieres inscribirte? Escribe *COMPRAR* 📲
+¿Querés que te muestre cómo comprarlo? 📲
   `.trim();
 }
 
@@ -155,18 +174,19 @@ El curso cuesta *$${precio.toLocaleString()} ${moneda}*
  */
 function generarRespuestaProducto(productos: any[]): string {
   const listaProductos = productos
-    .map((p) => `• *${p.name}* — $${p.price?.toLocaleString()} COP`)
+    .map((p) => {
+      const precio = Number(p.price);
+      const valor = Number.isFinite(precio) && precio > 0
+        ? `$${precio.toLocaleString("es-CO")} ${p.currency || "COP"}`
+        : "precio por confirmar";
+      return `• *${p.name}* — ${valor}`;
+    })
     .join("\n");
 
   return `
 🎓 *Nuestros Cursos*
 
 ${listaProductos}
-
-Todos con:
-✅ Acceso de por vida
-✅ Pago único
-✅ Descarga inmediata
 
 ¿Cuál te interesa? 💬
   `.trim();
@@ -193,14 +213,3 @@ Para completar tu compra:
 /**
  * Genera respuesta para horarios
  */
-function generarRespuestaHorario(): string {
-  return `
-⏰ *Horario de Atención*
-
-Lunes a Viernes: 9:00 AM - 6:00 PM
-Sábados: 10:00 AM - 2:00 PM
-Domingos: Cerrado
-
-¿En qué más podemos ayudarte? 🤝
-  `.trim();
-}

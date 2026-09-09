@@ -169,6 +169,8 @@ export default function CodeAgent() {
   const [transcribiendo, setTranscribiendo] = useState(false);
   const grabadorRef = useRef<MediaRecorder | null>(null);
   const pedazosRef = useRef<Blob[]>([]);
+  const silencioFrameRef = useRef<number | null>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
   /**
    * Que Atlas conteste HABLADO.
    *
@@ -447,6 +449,10 @@ export default function CodeAgent() {
       pedazosRef.current = [];
       rec.ondataavailable = (e) => { if (e.data.size > 0) pedazosRef.current.push(e.data); };
       rec.onstop = async () => {
+        if (silencioFrameRef.current !== null) cancelAnimationFrame(silencioFrameRef.current);
+        silencioFrameRef.current = null;
+        void audioContextRef.current?.close().catch(() => {});
+        audioContextRef.current = null;
         // El micrófono se apaga SIEMPRE, aunque la transcripción falle: si no,
         // queda la luz del micro prendida y el navegador diciendo que la
         // página te está escuchando.
@@ -458,6 +464,39 @@ export default function CodeAgent() {
       rec.start();
       grabadorRef.current = rec;
       setGrabando(true);
+
+      // Detección simple de voz: una pausa sostenida termina el turno sin
+      // obligarte a buscar otro botón. El máximo evita dejar el micrófono
+      // abierto si el navegador pierde una señal de silencio.
+      try {
+        const contexto = new AudioContext();
+        const fuente = contexto.createMediaStreamSource(stream);
+        const analizador = contexto.createAnalyser();
+        analizador.fftSize = 512;
+        fuente.connect(analizador);
+        const datos = new Uint8Array(analizador.fftSize);
+        const inicio = Date.now();
+        let ultimoSonido = inicio;
+        const revisar = () => {
+          if (grabadorRef.current !== rec || rec.state !== "recording") return;
+          analizador.getByteTimeDomainData(datos);
+          let energia = 0;
+          for (const muestra of datos) {
+            const amplitud = (muestra - 128) / 128;
+            energia += amplitud * amplitud;
+          }
+          if (Math.sqrt(energia / datos.length) > 0.025) ultimoSonido = Date.now();
+          if ((Date.now() - ultimoSonido > 1_800 && Date.now() - inicio > 700) || Date.now() - inicio > 60_000) {
+            pararDeGrabar();
+            return;
+          }
+          silencioFrameRef.current = requestAnimationFrame(revisar);
+        };
+        audioContextRef.current = contexto;
+        silencioFrameRef.current = requestAnimationFrame(revisar);
+      } catch {
+        // Si AudioContext no está disponible, sigue funcionando el botón manual.
+      }
     } catch {
       // El navegador dice "NotAllowedError" y eso no le sirve a nadie: lo que
       // hay que decir es qué hacer.
@@ -470,6 +509,10 @@ export default function CodeAgent() {
     if (!rec) return;
     grabadorRef.current = null;
     setGrabando(false);
+    if (silencioFrameRef.current !== null) cancelAnimationFrame(silencioFrameRef.current);
+    silencioFrameRef.current = null;
+    void audioContextRef.current?.close().catch(() => {});
+    audioContextRef.current = null;
     try { rec.stop(); } catch { /* ya estaba parado */ }
   };
 
@@ -507,6 +550,10 @@ export default function CodeAgent() {
     return () => {
       const rec = grabadorRef.current;
       grabadorRef.current = null;
+      if (silencioFrameRef.current !== null) cancelAnimationFrame(silencioFrameRef.current);
+      silencioFrameRef.current = null;
+      void audioContextRef.current?.close().catch(() => {});
+      audioContextRef.current = null;
       try { rec?.stop(); } catch { /* noop */ }
     };
   }, []);

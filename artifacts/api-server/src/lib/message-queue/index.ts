@@ -114,6 +114,17 @@ export class MessageQueue extends EventEmitter {
     return pending || null;
   }
 
+  /** Mensajes del mismo hilo que llegaron mientras se esperaba el turno. */
+  pendingForConversation(conversationId: number, exceptId?: string): QueuedMessage[] {
+    return this.queue.filter((m) =>
+      m.conversationId === conversationId &&
+      m.id !== exceptId &&
+      !m.processed &&
+      !m.processing &&
+      m.retryCount < this.maxRetries,
+    );
+  }
+
   /**
    * Guarda la respuesta ya redactada para que el reintento la ENVÍE en vez de
    * volver a pedírsela al agente (que la guardaría de nuevo en la base).

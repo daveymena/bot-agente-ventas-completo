@@ -241,6 +241,16 @@ export class AgentOrchestrator {
         return;
       }
 
+      // Una persona suele mandar varios mensajes seguidos. Esperar un instante
+      // de silencio permite que Atlas lea el hilo completo y responda una sola
+      // vez, en vez de interrumpir al cliente con una respuesta prematura.
+      // El mensaje ya está guardado en DB, así que esta espera no pierde nada.
+      const agrupados = [message];
+      if (!message.parts && message.body && message.conversationId) {
+        await new Promise((resolve) => setTimeout(resolve, 1_200));
+        agrupados.push(...this.queue.pendingForConversation(message.conversationId, message.id));
+      }
+
       // ── Redactar ────────────────────────────────────────────────────────
       // Si un intento anterior ya obtuvo la respuesta y solo falló el envío,
       // se reusa. Volver a llamar al agente lo haria guardar OTRA respuesta en
@@ -277,7 +287,7 @@ export class AgentOrchestrator {
       // cliente duplicada en la BD, y como el historial alimenta el contexto de
       // la IA, el agente se veía a sí mismo repitiéndose turno tras turno.
       // Marcar como procesado solo si se envió respuesta exitosamente
-      this.queue.markProcessed(message.id);
+      for (const recibido of agrupados) this.queue.markProcessed(recibido.id);
 
       logger.info({
         queueId: message.id,
