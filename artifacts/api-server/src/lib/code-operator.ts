@@ -4,6 +4,7 @@ import { db, architectMemory } from "@workspace/db";
 import { logger } from "./logger";
 
 const PROJECT_ROOT = path.resolve(process.cwd());
+const BACKUP_ROOT = path.join(PROJECT_ROOT, ".atlas-backups");
 
 interface ChangeRecord {
   id: string;
@@ -21,6 +22,26 @@ interface ChangeRecord {
 export class CodeOperator {
   private changes: ChangeRecord[] = [];
   private changeIdCounter = 0;
+
+  private saveSnapshot(changeId: string, target: string, existed: boolean, content: string): void {
+    fs.mkdirSync(BACKUP_ROOT, { recursive: true, mode: 0o700 });
+    fs.writeFileSync(
+      path.join(BACKUP_ROOT, `${changeId}.json`),
+      JSON.stringify({ target, existed, content }),
+      { encoding: "utf-8", mode: 0o600 },
+    );
+  }
+
+  private loadSnapshot(changeId: string): { target: string; existed: boolean; content: string } | null {
+    try {
+      const raw = fs.readFileSync(path.join(BACKUP_ROOT, `${changeId}.json`), "utf-8");
+      const snapshot = JSON.parse(raw);
+      if (typeof snapshot.target !== "string" || typeof snapshot.existed !== "boolean" || typeof snapshot.content !== "string") return null;
+      return snapshot;
+    } catch {
+      return null;
+    }
+  }
 
   isPathAllowed(absolutePath: string): { allowed: boolean; reason?: string } {
     const resolved = path.resolve(absolutePath);
@@ -60,6 +81,8 @@ export class CodeOperator {
       const oldContent = exists ? fs.readFileSync(absPath, "utf-8") : "";
       const dir = path.dirname(absPath);
       if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+      const changeId = this.newChangeId();
+      this.saveSnapshot(changeId, filePath, exists, oldContent);
 
       fs.writeFileSync(absPath, content, "utf-8");
 
@@ -69,7 +92,7 @@ export class CodeOperator {
         summary: exists ? `Modificado: ${filePath}` : `Creado: ${filePath}`,
         diff: exists ? this.generateDiff(oldContent, content) : undefined,
         appliedBy: "architect-ai",
-      });
+      }, changeId);
 
       return { success: true, change };
     } catch (e: any) {
@@ -85,6 +108,8 @@ export class CodeOperator {
       if (!fs.existsSync(absPath)) return { success: false, error: "Archivo no encontrado" };
 
       const content = fs.readFileSync(absPath, "utf-8");
+      const changeId = this.newChangeId();
+      this.saveSnapshot(changeId, filePath, true, content);
       fs.unlinkSync(absPath);
 
       const change = this.recordChange({
@@ -93,7 +118,7 @@ export class CodeOperator {
         summary: `Eliminado: ${filePath}`,
         diff: content.substring(0, 500),
         appliedBy: "architect-ai",
-      });
+      }, changeId);
 
       return { success: true, change };
     } catch (e: any) {
@@ -221,8 +246,25 @@ export class CodeOperator {
     const change = this.changes.find(c => c.id === changeId);
     if (!change) return { success: false, error: "Cambio no encontrado" };
     if (change.reverted) return { success: false, error: "Cambio ya revertido" };
-    change.reverted = true;
-    return { success: true };
+    const snapshot = this.loadSnapshot(changeId);
+    if (!snapshot || snapshot.target !== change.target) {
+      return { success: false, error: "No existe un snapshot íntegro para este cambio" };
+    }
+    try {
+      const absPath = path.resolve(PROJECT_ROOT, snapshot.target);
+      const check = this.isPathAllowed(absPath);
+      if (!check.allowed) return { success: false, error: check.reason };
+      if (snapshot.existed) {
+        fs.mkdirSync(path.dirname(absPath), { recursive: true });
+        fs.writeFileSync(absPath, snapshot.content, "utf-8");
+      } else if (fs.existsSync(absPath)) {
+        fs.unlinkSync(absPath);
+      }
+      change.reverted = true;
+      return { success: true };
+    } catch (e: any) {
+      return { success: false, error: `No se pudo restaurar el archivo: ${e?.message || e}` };
+    }
   }
 
   private getRelativeFiles(dir: string, ext: string): string[] {
@@ -241,8 +283,12 @@ export class CodeOperator {
     return results;
   }
 
-  private recordChange(data: Omit<ChangeRecord, "id" | "timestamp" | "hash">): ChangeRecord {
-    const id = `chg_${++this.changeIdCounter}_${Date.now()}`;
+  private newChangeId(): string {
+    return `chg_${++this.changeIdCounter}_${Date.now()}`;
+  }
+
+  private recordChange(data: Omit<ChangeRecord, "id" | "timestamp" | "hash">, reservedId?: string): ChangeRecord {
+    const id = reservedId || this.newChangeId();
     const change: ChangeRecord = {
       ...data,
       id,
