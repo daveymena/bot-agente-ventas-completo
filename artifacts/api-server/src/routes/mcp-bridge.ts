@@ -87,10 +87,10 @@ router.post("/atlas", async (req: Request, res: Response) => {
       // Habilitar/deshabilitar del lado de OpenCode no alcanza: los esquemas
       // ya viajaron. Sin el parámetro se devuelven todas (comportamiento
       // anterior), así nada se rompe si alguien llama al puente sin filtro.
-      const permitidas = String(req.query.tools || "").split(",").map((s) => s.trim()).filter(Boolean);
-      const lista = permitidas.length
-        ? TOOL_REGISTRY.filter((t) => permitidas.includes(t.name) || t.name === "propose_action")
-        : TOOL_REGISTRY;
+       // El query param solo sirve para reducir la lista. La autorización real
+       // está firmada dentro del token y también se verifica en tools/call.
+       const permitidas = new Set(auth.allowedTools);
+       const lista = TOOL_REGISTRY.filter((t) => permitidas.has(t.name));
       const tools = lista.map((t) => ({ name: t.name, description: t.description, inputSchema: t.inputSchema }));
       logger.info({ turnId: auth.turnId, expuestas: tools.length, total: TOOL_REGISTRY.length }, "[AtlasMCP] tools/list");
       return res.json(rpcResult(id, { tools }));
@@ -102,6 +102,10 @@ router.post("/atlas", async (req: Request, res: Response) => {
       const def = TOOL_BY_NAME.get(toolName);
       if (!def) {
         return res.json(rpcResult(id, { content: [{ type: "text", text: `Herramienta desconocida: ${toolName}` }], isError: true }));
+      }
+      if (!auth.allowedTools.includes(toolName)) {
+        logger.warn({ tenantId: auth.tenantId, turnId: auth.turnId, tool: toolName }, "[AtlasMCP] herramienta fuera del alcance firmado");
+        return res.json(rpcResult(id, { content: [{ type: "text", text: "Herramienta no autorizada para este turno" }], isError: true }));
       }
 
       // `turnDeadline` es lo que hace que una herramienta lenta (deep_research

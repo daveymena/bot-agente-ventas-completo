@@ -27,7 +27,7 @@
  */
 import { Router } from "express";
 import { randomUUID } from "node:crypto";
-import type { TenantRequest } from "../lib/tenantManager";
+import { requireAdmin, type TenantRequest } from "../lib/tenantManager";
 import { logger } from "../lib/logger";
 import { esUnSiParaEstePlan } from "../lib/es-un-si";
 import { correrTurnoDirecto, directoDisponible } from "../lib/atlas-directo";
@@ -628,7 +628,7 @@ async function sendOpencodeMessage(
   return { text };
 }
 
-router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
+router.post("/operator-opencode", requireAdmin(), async (req: TenantRequest, res, next) => {
   try {
     const tenantId = req.tenant?.id;
     if (!tenantId) return res.status(401).json({ message: "Tenant not resolved" });
@@ -1059,7 +1059,6 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
       // La TTL del token = lo que dura el turno. Además de acotar el token,
       // su `exp` es lo que el puente MCP usa como turnDeadline para que una
       // herramienta lenta (deep_research) sepa cuánto tiempo le queda real.
-      const token = mintTurnToken({ tenantId, sessionId, turnId }, TURNO_TOTAL_MS);
       const toolRegistry = buildMcpToolRegistry(String(prompt));
       // El subconjunto viaja en la URL del puente: es lo que hace que el
       // modelo reciba solo los esquemas que puede llegar a usar en ESTE
@@ -1067,6 +1066,12 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
       // opencode-mcp-tools.ts sobre por qué esto importa tanto (69s → objetivo
       // de segundos para un pedido simple).
       const nombresPermitidos = toolRegistry.map((t) => t.name).join(",");
+      const token = mintTurnToken({
+        tenantId,
+        sessionId,
+        turnId,
+        allowedTools: toolRegistry.map((t) => t.name),
+      }, TURNO_TOTAL_MS);
       // El tipo de campaña se resuelve ACÁ, del mensaje del admin, y viaja al
       // puente. No se le pregunta al modelo: "WhatsApp" está escrito en el
       // pedido, en castellano, y leerlo con una regex es determinista.
@@ -2338,7 +2343,7 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
  * pregunta de una línea -- terminó cinco minutos después en "No pude terminar
  * de responder", sin ningún rastro de por qué.
  */
-router.get("/atlas-diagnostico", async (req: TenantRequest, res, next) => {
+router.get("/atlas-diagnostico", requireAdmin(), async (req: TenantRequest, res, next) => {
   try {
     const tenantId = req.tenant?.id;
     if (!tenantId) return res.status(401).json({ message: "Tenant not resolved" });
@@ -2360,7 +2365,7 @@ router.get("/atlas-diagnostico", async (req: TenantRequest, res, next) => {
  * "listo" a ciegas: si el turno ya había terminado justo antes, la pantalla
  * tiene que poder decir eso y no fingir que cortó algo.
  */
-router.post("/operator-opencode/detener", async (req: TenantRequest, res) => {
+router.post("/operator-opencode/detener", requireAdmin(), async (req: TenantRequest, res) => {
   const tenantId = req.tenant?.id;
   if (!tenantId) return res.status(401).json({ message: "Tenant not resolved" });
   const sessionId: string = (req.body?.sessionId as string) || "default";
