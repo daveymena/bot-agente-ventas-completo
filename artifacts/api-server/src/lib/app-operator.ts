@@ -22,6 +22,7 @@ import { tenantManager } from "./tenantManager";
 import { dbNow } from "./date-utils";
 import { getAppUrl } from "./app-url";
 import { videoDeProducto, leerMetadata, normalizarEnlaceDeVideo } from "./video-de-producto";
+import { recordControlPlaneAudit } from "./control-plane-audit";
 
 export interface OperatorContext {
   tenantId: number;
@@ -5875,21 +5876,48 @@ function esErrorDeBaseDeDatos(e: any): boolean {
 export async function executeAction(tool: string, args: any, ctx: OperatorContext): Promise<ToolResult> {
   const def = TOOL_MAP.get(tool);
   if (!def) return { ok: false, summary: `Herramienta desconocida: ${tool}` };
+  const mutating = !READ_ONLY_TOOLS.has(tool);
+  const auditBase = {
+    tenantId: ctx.tenantId,
+    sessionId: ctx.sessionId,
+    turnId: (ctx as OperatorContext & { turnId?: string }).turnId,
+    actor: "atlas",
+    tool,
+    arguments: args || {},
+  };
   try {
-    return await def.run(args || {}, ctx);
+    await recordControlPlaneAudit({ ...auditBase, phase: "started", status: "allowed" }, mutating);
+  } catch (e: any) {
+    logger.error({ tool, err: e?.message }, "[AppOperator] Acción bloqueada: auditoría no disponible");
+    return { ok: false, summary: "La acción no se ejecutó porque la auditoría de seguridad no está disponible." };
+  }
+  try {
+    const result = await def.run(args || {}, ctx);
+    await recordControlPlaneAudit({
+      ...auditBase,
+      phase: "finished",
+      status: result.ok ? "success" : "failed",
+      result,
+    }, false);
+    return result;
   } catch (e: any) {
     const detalle = e?.message || e?.detail || "";
     const codigoError = String(e?.code || "");
     logger.error({ tool, err: detalle, code: e?.code, stack: e?.stack }, "[AppOperator] Tool error");
-    if (esErrorDeBaseDeDatos(e)) {
-      return {
+    const result: ToolResult = esErrorDeBaseDeDatos(e) ? {
         ok: false,
         summary:
           `La operación falló por un error de base de datos (código ${codigoError || "desconocido"}). ` +
           `El cambio NO se aplicó y no se expusieron datos internos. Revisá la bitácora del sistema para el detalle técnico.`,
-      };
-    }
-    return { ok: false, summary: `Error ejecutando ${tool}: ${detalle}` };
+      } : { ok: false, summary: `Error ejecutando ${tool}: ${detalle}` };
+    await recordControlPlaneAudit({
+      ...auditBase,
+      phase: "finished",
+      status: "failed",
+      result,
+      error: detalle,
+    }, false);
+    return result;
   }
 }
 

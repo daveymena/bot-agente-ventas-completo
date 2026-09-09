@@ -188,7 +188,27 @@ const MIGRATIONS = [
     error TEXT,
     request_id TEXT,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now()
+   )`,
+  // Bitácora transversal de Atlas. Es append-only desde la aplicación: cada
+  // fila enlaza su hash con la anterior del tenant para detectar alteraciones.
+  `CREATE TABLE IF NOT EXISTS control_plane_audit (
+    id BIGSERIAL PRIMARY KEY,
+    tenant_id INTEGER NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    session_id TEXT,
+    turn_id TEXT,
+    request_id TEXT NOT NULL,
+    actor TEXT NOT NULL,
+    tool TEXT NOT NULL,
+    phase TEXT NOT NULL,
+    status TEXT NOT NULL,
+    arguments JSONB NOT NULL DEFAULT '{}'::jsonb,
+    result JSONB,
+    error TEXT,
+    previous_hash TEXT,
+    entry_hash TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
   )`,
+  `CREATE INDEX IF NOT EXISTS control_plane_audit_tenant_idx ON control_plane_audit (tenant_id, created_at)`,
   `CREATE INDEX IF NOT EXISTS marketing_audit_logs_tenant_idx ON marketing_audit_logs (tenant_id, created_at)`,
   `CREATE INDEX IF NOT EXISTS dropshipping_orders_conv_idx ON dropshipping_orders (conversation_id)`,
   `CREATE INDEX IF NOT EXISTS dropshipping_orders_estado_idx ON dropshipping_orders (tenant_id, estado)`,
