@@ -909,12 +909,9 @@ async function construirSeccion(
   const esDetallePosterior = seccion === "info" && yaVioContenido;
   const mensajes: string[] = [];
   if (!esDetallePosterior) {
-    L.push(`${emojiTitulo} *${nameUpper}*`);
-    L.push("━━━━━━━━━━━━━━━━━━━━");
+    L.push(`${emojiTitulo} *${p.name}*`);
     L.push("");
-    L.push(`✨ ${resumen || "Formación práctica para llevar tus habilidades al siguiente nivel."}`);
-    L.push("");
-    L.push("━━━━━━━━━━━━━━━━━━━━");
+    L.push(`• ${resumen || "Formación práctica para llevar tus habilidades al siguiente nivel."}`);
     mensajes.push(hablarColombiano(L.join("\n").trim()));
   }
 
