@@ -895,47 +895,26 @@ async function construirSeccion(
 
   // El emoji sale del titulo que el dueño escribio; si no puso, se adivina.
   const emojiTitulo = suFicha.emoji || emojiDelProducto(p.name, (p as any).category);
+
+  // ── MENSAJE CORTO: solo nombre + resumen + 2 beneficios clave ────────────
+  //
+  // El admin pidio (2026-09-09): "necesito q me ayude con la logica de
+  // respuesta y con la linea para eso ya que yo no seria capaz de leer esa
+  // informacion tan extensa y desordenada". El bot mandaba TODA la descripcion
+  // del producto en un solo mensaje masivo -- ilegible en WhatsApp.
+  //
+  // La solucion: el primer mensaje es CORTO (nombre + resumen + 2 puntos
+  // maximo). El video NO se manda aca. El cliente pregunta mas si le interesa.
+  const maxPuntosIniciales = 2;
+  const puntosIniciales = suFicha.puntos.slice(0, maxPuntosIniciales);
+
   L.push(`${emojiTitulo} *${nameUpper}*`);
   L.push("");
   L.push(resumen || "Formación práctica para llevar tus habilidades al siguiente nivel.");
 
-  // Los puntos que el dueño escribio, con SUS emojis, ganan siempre: dicen
-  // mas que una caracteristica suelta ("19 modulos en video con teoria y
-  // lenguaje musical" contra "Clases en video HD") y no dependen de que una
-  // tabla de palabras adivine bien.
-  if (suFicha.puntos.length > 0) {
+  if (puntosIniciales.length > 0) {
     L.push("");
-    // Se sintetiza: entran los puntos COMPLETOS que caben en el pie de foto.
-    // Nunca se parte uno por la mitad ni se anuncia "y N cosas mas" -- eso es
-    // justo lo que se lee como informacion a medias. Lo que falta se cuenta
-    // cuando el cliente pregunta (seccion "info", mas abajo).
-    const yaMostrados = presupuestoUsadoPorElEncabezado(L);
-    const yaMostradosLargo = presupuestoUsadoPorElEncabezado(L);
-    const reparto = repartirPuntos(suFicha.puntos, PRESUPUESTO_PIE_DE_FOTO - yaMostradosLargo);
-
-    // -- Si vuelve a preguntar, se le cuenta LO QUE FALTA -----------------
-    //
-    // Pedido del admin: "si el cliente pide mas informacion ya no le responde
-    // con eso, debe entender que busca el cliente". Repetirle el mismo bloque
-    // es tratarlo como si no hubiera leido el anterior.
-    //
-    // La ficha completa sintetiza; esta seccion cuenta el resto. Si ya lo vio
-    // todo, no hay resto y se muestra igual la sintesis, que es mejor que un
-    // mensaje vacio.
-    const pideMas = seccion === "info" && yaVioContenido && reparto.resto.length > 0;
-    const aMostrar = pideMas ? reparto.resto.slice(0, 6) : reparto.entran;
-    for (const punto of aMostrar) L.push(`${punto.emoji} ${punto.texto}`);
-    // Cuatro, no ocho: lo que sigue es la razón para preguntar más.
-    //
-    // Pero si sobra UNA sola, se muestra. Esconder la quinta detrás de "y 1
-    // cosas más" no genera curiosidad -- genera la sensación de que le están
-    // escondiendo algo, y encima con una falta de ortografía. Visto en una
-    // conversación real (2026-08-30): el curso tiene 5 características, el
-    // cliente vio 4 y "➕ Y 1 cosas más".
-    const cuantasMostrar = propias.length === 5 ? 5 : 4;
-    for (const f of propias.slice(0, cuantasMostrar)) L.push(`${emojiDeCaracteristica(f, p.name)} ${f}`);
-    const restantes = propias.length - cuantasMostrar;
-    if (restantes > 0) L.push(`➕ Y ${restantes} ${restantes === 1 ? "cosa más" : "cosas más"}`);
+    for (const punto of puntosIniciales) L.push(`${punto.emoji} ${punto.texto}`);
   }
 
   // El voseo llega por la descripcion del producto ("Aprende", "Estudia"),
@@ -943,10 +922,6 @@ async function construirSeccion(
   // escribe la IA, asi que la ficha --que es lo que mas se lee-- salia sin
   // traducir.
   const mensajes = [hablarColombiano(L.join("\n").trim())];
-
-  // El video YA NO se manda acá. Se OFRECE en el cierre y se manda en la
-  // sección "video", cuando el cliente dice que sí. Ver el comentario de esa
-  // sección más arriba.
 
   // ── El precio NO va acá ──────────────────────────────────────────────────
   //
@@ -965,31 +940,46 @@ async function construirSeccion(
   // de "preguntaba el precio y no se lo daban" sigue en pie.
   mensajes.push(cierre);
 
-  // ── EL VIDEO CIERRA LA ENTREGA DEL CONTENIDO ─────────────────────────
+  // ── EL VIDEO NO SE MANDA EN EL PRIMER MENSAJE ────────────────────────────
   //
-  // Pedido del admin (2026-09-02): "cuando se entrega el contenido añádele el
-  // video al final con un mensaje que les enganche, ya que el video habla de
-  // todo lo que se va a tratar".
+  // El admin pidio (2026-09-09): el bot mandaba un muro de texto con video
+  // incluido. El video es la carnada mas fuerte, pero si se manda de una el
+  // cliente no tiene razon para preguntar mas. Se guarda para despues, cuando
+  // el cliente muestre interes.
+
+  // ── SI PIDE MAS INFO: mostrar el resto de los puntos ──────────────────────
   //
-  // Tiene razón comercial: el video es lo que más convence y es lo único que
-  // el cliente todavía no vio. Antes solo salía si lo pedía o si aceptaba un
-  // ofrecimiento -- o sea, casi nunca, porque el cierre tenía que acordarse de
-  // ofrecerlo y el cliente de decir que sí.
-  //
-  // Va en su propio mensaje y DESPUÉS del cierre: pegado al texto se pierde
-  // entre las líneas, y solo. Y una vez: si ya se mandó no se repite, que es
-  // la misma regla de todo lo demás.
-  if (estaFichaMuestraContenido && urlVideo && !videoYaEnviado) {
-    mensajes.push(
-      variante(
-        [
-          `🎬 Mirá este video antes de decidir: te muestra por dentro TODO lo que vas a ver.\n${urlVideo}`,
-          `🎬 Te dejo el video para que veas de qué se trata, así no compras a ciegas 👇\n${urlVideo}`,
-          `🎬 Acá lo ves por dentro: el video recorre todo lo que trae.\n${urlVideo}`,
-        ],
-        `${semilla}|video-con-contenido`,
-      ),
-    );
+  // Cuando el cliente pregunta "dame mas info" o "que incluye", se le muestran
+  // TODOS los puntos que no entraron en el mensaje inicial. El video se manda
+  // AHI, cuando ya tiene interes.
+  if (seccion === "info" && yaVioContenido && suFicha.puntos.length > maxPuntosIniciales) {
+    const puntosRestantes = suFicha.puntos.slice(maxPuntosIniciales);
+    const infoExtra: string[] = [];
+    infoExtra.push(`📋 *MÁS DETALLES DE ${nameUpper}:*`);
+    infoExtra.push("");
+    for (const punto of puntosRestantes) infoExtra.push(`${punto.emoji} ${punto.texto}`);
+
+    // Agregar features propias que no estan en los puntos
+    if (propias.length > 0) {
+      infoExtra.push("");
+      for (const f of propias.slice(0, 4)) infoExtra.push(`${emojiDeCaracteristica(f, p.name)} ${f}`);
+    }
+
+    mensajes.push(hablarColombiano(infoExtra.join("\n").trim()));
+
+    // El video se manda AHI, cuando el cliente ya mostro interes
+    if (urlVideo && !videoYaEnviado) {
+      mensajes.push(
+        variante(
+          [
+            `🎬 Mirá este video antes de decidir: te muestra por dentro TODO lo que vas a ver.\n${urlVideo}`,
+            `🎬 Te dejo el video para que veas de qué se trata, así no compras a ciegas 👇\n${urlVideo}`,
+            `🎬 Acá lo ves por dentro: el video recorre todo lo que trae.\n${urlVideo}`,
+          ],
+          `${semilla}|video-con-contenido`,
+        ),
+      );
+    }
   }
 
   // -- La foto va con la PRESENTACION, y una sola vez ------------------
