@@ -1499,7 +1499,7 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: "get_agent",
-    description: "Ver la configuración del agente de ventas actual.",
+    description: "Ver la configuración heredada del agente y el motor que realmente responde WhatsApp.",
     args: "{}",
     run: async (_args, ctx) => {
       // El tenant puede tener VARIOS agentes (el 1 tiene 4 activos a la vez).
@@ -1509,7 +1509,20 @@ export const TOOLS: ToolDef[] = [
       // más viejo (el principal). Ver agenteDelTenant.
       const [a] = await agenteDelTenant(ctx.tenantId);
       if (!a) return { ok: true, summary: "No hay agente configurado", data: null };
-      return { ok: true, summary: `Agente: ${a.name} (${a.role})`, data: { id: a.id, name: a.name, role: a.role, tone: a.tone, isActive: a.isActive } };
+      const atlasVentasActivo = process.env.ATLAS_WHATSAPP_ENABLED !== "false";
+      const motor = atlasVentasActivo ? "Atlas Ventas" : a.name;
+      return {
+        ok: true,
+        summary: `Motor que responde WhatsApp: ${motor}. Configuración heredada: ${a.name} (${a.role}).`,
+        data: {
+          id: a.id,
+          name: a.name,
+          role: a.role,
+          tone: a.tone,
+          isActive: a.isActive,
+          whatsappReplyEngine: atlasVentasActivo ? "atlas_ventas" : "agent_template",
+        },
+      };
     },
   },
   {
