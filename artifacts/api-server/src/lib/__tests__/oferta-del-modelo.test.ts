@@ -130,8 +130,10 @@ describe("Un 'si' al ofrecimiento del precio pide el precio", () => {
     })).toBe("precio");
   });
 
-  it("con video cargado el cierre sigue ofreciendo el video", () => {
-    expect(elCierreOfrece("completa", false, true, true)).toBe("video");
+  it("con video cargado el cierre sigue ofreciendo el precio", () => {
+    // La ficha completa ya manda el video automáticamente, así que el cierre
+    // no lo vuelve a ofrecer: apunta al precio.
+    expect(elCierreOfrece("completa", false, true, true)).toBe("precio");
   });
 
   it("un 'si, como pago?' sigue yendo al pago", () => {

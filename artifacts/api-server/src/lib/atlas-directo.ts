@@ -86,7 +86,7 @@ export interface ResultadoDirecto {
  * permitir que un modelo confundido se quede dando vueltas hasta consumir
  * el turno entero -- que es justo lo que pasaba con el bucle de OpenCode.
  */
-const VUELTAS_MAX = 12;
+const VUELTAS_MAX = 8;
 
 /** Un esquema vacío es válido, pero `undefined` rompe la API. */
 const SIN_PARAMETROS = { type: "object", properties: {} };

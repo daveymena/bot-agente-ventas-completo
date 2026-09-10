@@ -530,8 +530,8 @@ function invitacionesDe(
         : ["¿Te paso el precio? 💰", "¿Te digo cuánto está? 💰"];
 
     case "completa":
-      // Recién lo conoce. El video se manda automáticamente, así que el cierre
-      // apunta al precio.
+      // Recién lo conoce. El video se manda automáticamente en la ficha, así
+      // que el cierre no lo vuelve a ofrecer: apunta al precio.
       return [
         "¿Te paso el precio? 💰",
         "¿Te digo cuánto está? 💰",
