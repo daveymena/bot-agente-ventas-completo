@@ -11,8 +11,8 @@
  */
 
 const BASE = process.env.LANDINGFORGE_URL || "https://landingforge.2xs2bu.easypanel.host";
-const EMAIL = process.env.LANDINGFORGE_EMAIL || "daveymena162@gmail.com";
-const PASSWORD = process.env.LANDINGFORGE_PASSWORD || "6715320D.";
+const EMAIL = process.env.LANDINGFORGE_EMAIL;
+const PASSWORD = process.env.LANDINGFORGE_PASSWORD;
 
 let cachedCookie: string | null = null;
 let cookieExpiry = 0;
@@ -21,6 +21,7 @@ let cookieExpiry = 0;
 
 async function login(): Promise<string> {
   if (cachedCookie && Date.now() < cookieExpiry) return cachedCookie;
+  if (!EMAIL || !PASSWORD) throw new Error("LandingForge: LANDINGFORGE_EMAIL y LANDINGFORGE_PASSWORD no configurados");
 
   const res = await fetch(`${BASE}/api/auth/login`, {
     method: "POST",
@@ -180,11 +181,20 @@ export async function getJobStatus(jobId: string): Promise<{
   const res = await fetch(`${BASE}/api/jobs/${jobId}/stream`);
   if (!res.ok) throw new Error(`LandingForge job status: ${res.status}`);
   const text = await res.text();
-  // Parse SSE events, get last one
-  const events = text.split("\n\n").filter(Boolean);
-  const last = events[events.length - 1];
-  const dataLine = last?.match(/data: (.+)/)?.[1];
-  return dataLine ? JSON.parse(dataLine) : { status: "done", progress: 0, total: 0 };
+  // Parse SSE: find ALL data: lines, parse each, return last valid JSON
+  const lines = text.split("\n");
+  let lastParsed: any = null;
+  for (const line of lines) {
+    const match = line.match(/^data:\s*(.+)/);
+    if (match) {
+      try {
+        lastParsed = JSON.parse(match[1]);
+      } catch {
+        // skip malformed lines
+      }
+    }
+  }
+  return lastParsed || { status: "done", progress: 0, total: 0 };
 }
 
 /** Publicar landing → devuelve URL pública. */
@@ -233,16 +243,21 @@ export async function generateMagicLanding(
     const { product, images } = await importProduct(productUrl);
     console.log(`[LandingForge] Producto importado: ${product.name} (${images} imágenes)`);
 
-    // 2. Generar brief
-    const { brief } = await generateBrief(product.id);
-    console.log(`[LandingForge] Brief generado: ${brief.id}`);
+    // 2. Generar brief (no bloqueante: si falla, creamos landing sin brief)
+    let briefId: string | undefined;
+    try {
+      const { brief } = await generateBrief(product.id);
+      briefId = brief.id;
+      console.log(`[LandingForge] Brief generado: ${brief.id}`);
+    } catch (briefErr) {
+      console.log(`[LandingForge] Brief no generado, continuando sin brief: ${(briefErr as Error).message}`);
+    }
 
-    // 3. Crear landing (elegir skeleton según tipo)
-    const skeleton = product.kind === "digital" ? "digital_completa" : "fisica_completa";
+    // 3. Crear landing (usar physical_cod_standard que es el único skeleton disponible)
     const { landing } = await createLanding({
       productId: product.id,
-      skeletonKey: skeleton,
-      briefId: brief.id,
+      skeletonKey: "physical_cod_standard",
+      briefId,
       title: opts?.title,
     });
     console.log(`[LandingForge] Landing creada: ${landing.id}`);
@@ -251,10 +266,10 @@ export async function generateMagicLanding(
     const { jobId } = await generateLandingSections(landing.id, { size: opts?.size });
     console.log(`[LandingForge] Job de generación: ${jobId}`);
 
-    // 5. Esperar resultado (polling cada 3s, max 5 min)
+    // 5. Esperar resultado (polling cada 2s, max 90s — no bloquear 5 minutos)
     let status;
-    for (let i = 0; i < 100; i++) {
-      await new Promise((r) => setTimeout(r, 3000));
+    for (let i = 0; i < 45; i++) {
+      await new Promise((r) => setTimeout(r, 2000));
       status = await getJobStatus(jobId);
       if (status.status === "done" || status.status === "error") break;
     }
@@ -285,11 +300,13 @@ export async function generateMagicLanding(
 /**
  * Genera landing bajo demanda para un producto del catálogo local.
  * Si ya existe una landing publicada para ese producto, la reutiliza.
+ * Crea el producto directamente en LandingForge (sin scraping de URL).
  */
 export async function getOrCreateLanding(
   productName: string,
   productUrl: string,
   productKind: "physical" | "digital",
+  productData?: { description?: string; price?: string; currency?: string; category?: string; checkoutUrl?: string },
 ): Promise<MagicLandingResult> {
   // Buscar si ya existe
   try {
@@ -311,5 +328,69 @@ export async function getOrCreateLanding(
     // Si falla la list, simplemente crear nueva
   }
 
-  return generateMagicLanding(productUrl);
+  // Crear producto directamente en LandingForge (más confiable que scraping)
+  try {
+    const { product: lfProduct } = await createProduct({
+      name: productName,
+      description: productData?.description || "",
+      price: productData?.price,
+      currency: productData?.currency || "COP",
+      kind: productKind,
+      category: productData?.category,
+      checkoutUrl: productData?.checkoutUrl || productUrl || undefined,
+    });
+    console.log(`[LandingForge] Producto creado: ${lfProduct.id} (${lfProduct.name})`);
+
+    // Generar brief (no bloqueante)
+    let briefId: string | undefined;
+    try {
+      const { brief } = await generateBrief(lfProduct.id);
+      briefId = brief.id;
+      console.log(`[LandingForge] Brief generado: ${brief.id}`);
+    } catch (briefErr) {
+      console.log(`[LandingForge] Brief no generado: ${(briefErr as Error).message}`);
+    }
+
+    // Crear landing
+    const { landing } = await createLanding({
+      productId: lfProduct.id,
+      skeletonKey: "physical_cod_standard",
+      briefId,
+      title: productName,
+    });
+    console.log(`[LandingForge] Landing creada: ${landing.id}`);
+
+    // Generar secciones
+    const { jobId } = await generateLandingSections(landing.id, { size: "section" });
+    console.log(`[LandingForge] Job de generación: ${jobId}`);
+
+    // Polling cada 2s, max 90s
+    let status;
+    for (let i = 0; i < 45; i++) {
+      await new Promise((r) => setTimeout(r, 2000));
+      status = await getJobStatus(jobId);
+      if (status.status === "done" || status.status === "error") break;
+    }
+
+    if (status?.status === "error") {
+      return { ok: false, landingId: landing.id, url: "", slug: "", productName, sectionsGenerated: 0, error: status.error };
+    }
+
+    // Publicar
+    const published = await publishLanding(landing.id);
+    console.log(`[LandingForge] Publicada: ${published.url}`);
+
+    return {
+      ok: true,
+      landingId: landing.id,
+      url: published.url,
+      slug: published.landing.slug,
+      productName,
+      sectionsGenerated: status?.progress ?? 0,
+    };
+  } catch (e) {
+    const msg = (e as Error).message;
+    console.error(`[LandingForge] Error creando landing: ${msg}`);
+    return { ok: false, landingId: "", url: "", slug: "", productName, sectionsGenerated: 0, error: msg };
+  }
 }

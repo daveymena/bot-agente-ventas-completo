@@ -15,13 +15,7 @@ import {
   type Plantilla,
 } from "../lib/landing/plantillas";
 import {
-  createProduct as lfCreateProduct,
-  generateBrief as lfGenerateBrief,
-  createLanding as lfCreateLanding,
-  generateLandingSections as lfGenerateSections,
-  publishLanding as lfPublishLanding,
-  getJobStatus as lfGetJobStatus,
-  listProducts as lfListProducts,
+  getOrCreateLanding,
 } from "../lib/landingforge-client";
 
 const router = Router();
@@ -156,6 +150,25 @@ router.post("/generate", async (req: TenantRequest, res, next) => {
       try {
         const lfResult = await generateLandingViaForge(product, { language, country, objective });
         if (lfResult.ok) {
+          // Mapear section types de LandingForge a tipos del bot para el editor
+          const lfToBotType: Record<string, string> = {
+            hero_hook: "hero", hero: "hero", trust_bar: "benefits",
+            problem_agitation: "benefits", before_after: "before-after",
+            benefits_grid: "benefits", unique_mechanism: "benefits",
+            how_to_use: "how-it-works", specs_included: "how-it-works",
+            comparison_table: "benefits", testimonials: "testimonials",
+            offer_cod: "offer", shipping_guarantee: "logistics",
+            faq: "faq", final_cta: "cta",
+          };
+          const mappedSections = lfResult.sections.map((s: any) => ({
+            ...s,
+            type: lfToBotType[s.type] || s.type,
+          }));
+          // Normalizar con la plantilla local para que el editor pueda usarlo
+          const plantilla = elegirPlantilla(product as any, null, { brandName: req.tenant?.brandName });
+          const casillas = casillasQueAplican(plantilla, product as any, { brandName: req.tenant?.brandName });
+          const normalizedSections = normalizeSections(mappedSections, product, casillas);
+
           return res.json({
             ok: true,
             generatedBy: "landingforge",
@@ -164,9 +177,9 @@ router.post("/generate", async (req: TenantRequest, res, next) => {
             landingforgeUrl: lfResult.url,
             landingforgeLandingId: lfResult.landingId,
             strategy: lfResult.strategy,
-            sections: lfResult.sections,
+            sections: normalizedSections,
             design: lfResult.design,
-            plantilla: { id: "landingforge", nombre: "LandingForge Professional", para: product.kind === "digital" ? "digital" : "fisico", cuando: "Generación profesional con IA" },
+            plantilla: { id: plantilla.id, nombre: plantilla.nombre, para: plantilla.para, cuando: plantilla.cuando },
             source: sourceAd ? { type: "facebook-ad", data: sourceAd } : { type: "product", productId },
           });
         }
@@ -223,12 +236,12 @@ router.post("/generate", async (req: TenantRequest, res, next) => {
 /**
  * Genera una landing profesional via LandingForge (estilo Magic/eCom Magic).
  *
- * Flujo:
- *   1. Crear producto en LandingForge desde los datos del catálogo local
- *   2. Generar brief estratégico con IA
- *   3. Crear landing con maqueta automática
- *   4. Generar todas las secciones (copy + imágenes IA en 2K)
- *   5. Publicar → URL lista para enviar al cliente
+ * Usa el pipeline completo del cliente: crear producto → brief → landing →
+ * generar secciones → publicar. Si LandingForge falla en cualquier paso,
+ * devuelve ok:false para que el caller use el generador local.
+ *
+ * Las secciones se normalizan con normalizeSections() para que coincidan
+ * con la plantilla del bot (hero, benefits, offer, etc.).
  */
 async function generateLandingViaForge(
   product: any,
@@ -237,66 +250,50 @@ async function generateLandingViaForge(
   ok: boolean; name: string; url: string; landingId: string;
   strategy: any; sections: any[]; design: any; error?: string;
 }> {
-  // 1. Crear producto en LandingForge
-  const { product: lfProduct } = await lfCreateProduct({
-    name: product.name,
-    description: product.description || "",
-    price: product.price ? String(product.price) : undefined,
-    currency: product.currency || "COP",
-    kind: (product.kind === "physical" ? "physical" : "digital") as "physical" | "digital",
-    category: product.category || undefined,
-    checkoutUrl: product.paymentLink || undefined,
-  });
-  console.log(`[LandingForge] Producto creado: ${lfProduct.id} (${lfProduct.name})`);
+  // Construir URL del producto para LandingForge
+  const productUrl = product.paymentLink || product.checkoutUrl || `https://ventasproia.com/tienda/producto/${product.id}`;
 
-  // 2. Generar brief
-  const { brief } = await lfGenerateBrief(lfProduct.id);
-  console.log(`[LandingForge] Brief generado: ${brief.id}`);
+  // Usar el pipeline completo del cliente (incluye dedup de landings existentes)
+  const result = await getOrCreateLanding(
+    product.name,
+    productUrl,
+    (product.kind === "physical" ? "physical" : "digital") as "physical" | "digital",
+    {
+      description: product.description || "",
+      price: product.price ? String(product.price) : undefined,
+      currency: product.currency || "COP",
+      category: product.category || undefined,
+      checkoutUrl: product.paymentLink || undefined,
+    },
+  );
 
-  // 3. Crear landing
-  const skeleton = lfProduct.kind === "digital" ? "digital_completa" : "fisica_completa";
-  const { landing } = await lfCreateLanding({
-    productId: lfProduct.id,
-    skeletonKey: skeleton,
-    briefId: brief.id,
-    title: product.name,
-  });
-  console.log(`[LandingForge] Landing creada: ${landing.id}`);
-
-  // 4. Generar secciones
-  const { jobId } = await lfGenerateSections(landing.id, { size: "section" });
-  console.log(`[LandingForge] Job de generación: ${jobId}`);
-
-  // 5. Esperar resultado (polling cada 3s, max 5 min)
-  let status;
-  for (let i = 0; i < 100; i++) {
-    await new Promise((r) => setTimeout(r, 3000));
-    status = await lfGetJobStatus(jobId);
-    if (status.status === "done" || status.status === "error") break;
+  if (!result.ok) {
+    return {
+      ok: false,
+      name: product.name,
+      url: "",
+      landingId: result.landingId,
+      strategy: null,
+      sections: [],
+      design: null,
+      error: result.error,
+    };
   }
 
-  if (status?.status === "error") {
-    return { ok: false, name: product.name, url: "", landingId: landing.id, strategy: null, sections: [], design: null, error: status.error };
-  }
-
-  // 6. Publicar
-  const published = await lfPublishLanding(landing.id);
-  console.log(`[LandingForge] Publicada: ${published.url}`);
-
-  // Construir strategy y design desde el brief
+  // Construir strategy y design genéricos (LandingForge genera su propio contenido)
   const strategy = {
     objective: opts.objective,
     language: opts.language,
     country: opts.country,
     currency: product.currency || "COP",
-    avatar: brief.data?.avatar || "",
-    awareness: brief.data?.awareness_level || "problem-aware",
-    pain: brief.data?.specific_problem || "",
-    desire: brief.data?.desired_outcome || "",
-    mechanism: brief.data?.unique_mechanism || "",
-    promise: brief.data?.product_as_solution || "",
+    avatar: "",
+    awareness: "problem-aware",
+    pain: "",
+    desire: "",
+    mechanism: "",
+    promise: "",
     objections: [],
-    angle: brief.data?.selling_angle || "",
+    angle: "",
     sourceAd: null,
   };
 
@@ -308,7 +305,7 @@ async function generateLandingViaForge(
   };
 
   // Mapear secciones del formato LandingForge al formato del bot
-  const sections = (status?.sections || []).map((s: any, i: number) => ({
+  const sections = (result as any).sections?.map((s: any, i: number) => ({
     id: s.id || `section-${i + 1}`,
     type: s.sectionType || "hero",
     title: s.copy?.title || "",
@@ -316,13 +313,13 @@ async function generateLandingViaForge(
     body: s.copy?.body || "",
     cta: s.copy?.cta || "",
     image: s.imageUrl || undefined,
-  }));
+  })) || [];
 
   return {
     ok: true,
     name: product.name,
-    url: published.url,
-    landingId: landing.id,
+    url: result.url,
+    landingId: result.landingId,
     strategy,
     sections,
     design,
