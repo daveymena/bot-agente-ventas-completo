@@ -225,8 +225,11 @@ describe("el cierre no repite lo que ya se mostró", () => {
     expect(c).not.toMatch(/qu[eé] (incluye|trae|viene)/i);
   });
 
-  it("y en su lugar ofrece resolver dudas", () => {
-    expect(invitacionDe("precio", false, "sem", true, true)).toMatch(/duda|puntual/i);
+  it("y en su lugar ofrece algo que no vio: el video, si el curso lo tiene", () => {
+    // Con video cargado, el cierre no repite el contenido: ofrece el video,
+    // que es otra cosa. El caso "sin video" (donde sí se ofrecen dudas) lo
+    // cubre la prueba siguiente.
+    expect(invitacionDe("precio", false, "sem", true, true)).toMatch(/video|por dentro|pedacito/i);
   });
 
   it("sin video cargado, ofrece resolver dudas en vez de prometer uno", () => {
