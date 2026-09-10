@@ -1776,8 +1776,7 @@ router.post("/operator-opencode", requireAdmin(), async (req: TenantRequest, res
       const MARGEN_POR_PARTE_MS = 45_000;
       while (
         partesPendientes.length > 0 &&
-        sesionOpencode &&
-        modeloUsado &&
+        (directoDisponible() || (sesionOpencode && modeloUsado)) &&
         !opencodeError &&
         // Detenido: no se arranca otra parte. Es el tramo que más se nota,
         // porque cada parte pendiente se lleva sus propios ~45s.
@@ -1788,18 +1787,31 @@ router.post("/operator-opencode", requireAdmin(), async (req: TenantRequest, res
         logger.info({ tenantId, parte: siguiente.slice(0, 60) }, "[AtlasOpenCode] Sigo solo con la parte siguiente");
         progreso(`Sigo con: ${siguiente.slice(0, 40)}...`);
         try {
-          const r = await sendOpencodeMessage(cfg.host, cfg.authHeader, sesionOpencode, {
-            system,
-            model: modeloUsado,
-            tools,
-            text:
-              `[SISTEMA] Seguí vos solo con la parte siguiente del mismo pedido: "${siguiente}". ` +
-              `Usá lo que ya averiguaste recién, no vuelvas a investigar lo mismo. ` +
-              `No le pidas permiso al admin para continuar: resolvela y, si hay que crear o cambiar algo, ` +
-              `proponelo con propose_action.`,
-            timeoutMs: Math.max(turnDeadline - Date.now() - 10_000, 20_000),
-            cancelSignal: senalDeCorte,
-          });
+          const instruccionParte =
+            `[SISTEMA] Seguí vos solo con la parte siguiente del mismo pedido: "${siguiente}". ` +
+            `Usá lo que ya averiguaste recién, no vuelvas a investigar lo mismo. ` +
+            `No le pidas permiso al admin para continuar: resolvela y, si hay que crear o cambiar algo, ` +
+            `proponelo con propose_action.`;
+          const r = directoDisponible()
+            ? await correrTurnoDirecto({
+                system,
+                herramientas: toolRegistry,
+                mensaje: `${text}\n\n${instruccionParte}\n\nTrabajo ya completado en este turno:\n${finalReplyVerificado.slice(-6_000)}`,
+                ctx: { tenantId, sessionId, turnId, turnDeadline, objetivoDelAdmin: objetivoDelAdmin ?? undefined },
+                apiKey: String(process.env.DEEPSEEK_API_KEY || ""),
+                modelo: process.env.ATLAS_DIRECTO_MODELO || "deepseek-v4-flash",
+                presupuestoMs: Math.max(turnDeadline - Date.now() - 10_000, 10_000),
+                cancelSignal: senalDeCorte,
+                onProgreso: progreso,
+              }).then((resultado) => ({ text: resultado.texto, error: resultado.error }))
+            : await sendOpencodeMessage(cfg.host, cfg.authHeader, sesionOpencode, {
+                system,
+                model: modeloUsado!,
+                tools,
+                text: instruccionParte,
+                timeoutMs: Math.max(turnDeadline - Date.now() - 10_000, 20_000),
+                cancelSignal: senalDeCorte,
+              });
           if (r.error) {
             logger.warn({ tenantId, err: r.error }, "[AtlasOpenCode] La parte siguiente falló, corto acá");
             partesPendientes.unshift(siguiente);
@@ -1822,7 +1834,10 @@ router.post("/operator-opencode", requireAdmin(), async (req: TenantRequest, res
             const textoParte = r.text.trim();
             finalReplyVerificado = `${finalReplyVerificado}\n\n${textoParte}`.trim();
             const paraMostrar = paraMarkdown(toEmojiStyle(textoParte));
-            partesEntregadas.push(paraMostrar);
+            // El texto completo acumula la versión cruda. Guardar la versión
+            // formateada hacía que el cierre no pudiera encontrarla y la
+            // repitiera completa al final (también volvía a leerla por voz).
+            partesEntregadas.push(textoParte);
             sse("avance", { reply: paraMostrar });
             await saveArchitectTurn(tenantId, sessionId, "assistant", paraMostrar);
             logger.info({ tenantId, largo: paraMostrar.length }, "[AtlasOpenCode] Parte entregada en el momento");
@@ -2314,7 +2329,13 @@ router.post("/operator-opencode", requireAdmin(), async (req: TenantRequest, res
         // consultó algo o no?": se mira, no se discute.
         lecturas,
       });
-      return finish({ reply, status: "info", needsContinuation: false, tramos, totalMs: Date.now() - t0 });
+      return finish({
+        reply,
+        status: partesPendientes.length > 0 ? "partial" : "info",
+        needsContinuation: partesPendientes.length > 0,
+        tramos,
+        totalMs: Date.now() - t0,
+      });
     } finally {
       clearInterval(heartbeat);
       // El turno dejó de estar en vuelo pase lo que pase: si esto no corre, el

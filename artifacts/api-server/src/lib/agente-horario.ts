@@ -1,6 +1,7 @@
 import { and, desc, eq } from "drizzle-orm";
-import { db, adAgentLogs, settings } from "@workspace/db";
-import { facebookService } from "./facebook";
+import { db, adAgentLogs, tenants } from "@workspace/db";
+import { FacebookService } from "./facebook";
+import { tenantManager } from "./tenantManager";
 import { agruparPorHora, analizarFranjas, deberiaEstarEncendido, type Veredicto } from "./franjas-horarias";
 import { programar, registrarManejador } from "./programador";
 import { horaLocal, instanteEnZona, zonaValida } from "./zona-horaria";
@@ -96,10 +97,10 @@ async function anotar(
   });
 }
 
-async function zonaDeLaCuenta(): Promise<string> {
+async function zonaDeLaCuenta(tenantId: number): Promise<string> {
   try {
-    const [s] = await db.select().from(settings).limit(1);
-    return zonaValida((s as any)?.timezone);
+    const [tenant] = await db.select({ settings: tenants.settings }).from(tenants).where(eq(tenants.id, tenantId)).limit(1);
+    return zonaValida((tenant?.settings as any)?.timezone);
   } catch {
     return zonaValida(null);
   }
@@ -118,8 +119,11 @@ export async function revisarCampana(
   campaignId: string,
   opciones: { simular?: boolean; ahora?: Date } = {},
 ): Promise<EstadoDeFranja & { veredicto: Veredicto }> {
-  const zona = await zonaDeLaCuenta();
+  const zona = await zonaDeLaCuenta(tenantId);
   const { hora } = horaLocal(zona, opciones.ahora || new Date());
+  const tenant = await tenantManager.getTenantById(tenantId);
+  if (!tenant) throw new Error("No se encontró el negocio de esta campaña");
+  const facebookService = new FacebookService(tenant);
 
   const filas = await facebookService.getHourlyInsights(campaignId, VENTANA);
   if (filas === null) {
@@ -213,7 +217,7 @@ export function registrarGuardia(): void {
 export async function activarGuardiaHoraria(tenantId: number, campaignIds: string[]): Promise<void> {
   registrarGuardia();
 
-  const zona = await zonaDeLaCuenta();
+  const zona = await zonaDeLaCuenta(tenantId);
   const h = horaLocal(zona);
   // Arranca en el próximo cambio de hora en punto: la franja es de una hora, y
   // empezar a mitad de una no adelanta nada.
@@ -230,4 +234,3 @@ export async function activarGuardiaHoraria(tenantId: number, campaignIds: strin
 
   logger.info({ tenantId, campanas: campaignIds.length }, "[Guardia] Activada");
 }
-

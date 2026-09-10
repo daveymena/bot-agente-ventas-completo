@@ -1356,7 +1356,6 @@ export const TOOLS: ToolDef[] = [
       const prods = await db.select().from(products).where(eq(products.tenantId, ctx.tenantId));
       const cats = await db.select().from(productCategories).where(eq(productCategories.tenantId, ctx.tenantId));
       const ags = await db.select().from(agents).where(eq(agents.tenantId, ctx.tenantId));
-      const [st] = await db.select().from(settings).limit(1);
       const stors = await db.select().from(stores).where(eq(stores.tenantId, ctx.tenantId));
       // La tienda pública real (GET /api/public/products/:slug, la que usa
       // PublicLayout.tsx) se resuelve por tenants.slug, no por una fila en
@@ -1365,7 +1364,11 @@ export const TOOLS: ToolDef[] = [
       // ya estuviera viva y vendiendo. stors.length sigue siendo real (fila
       // de personalización curada), pero "hay tienda pública" se decide con
       // el slug, que es lo que de verdad determina si /tienda/<slug> responde.
-      const [tenantRow] = await db.select({ slug: tenants.slug }).from(tenants).where(eq(tenants.id, ctx.tenantId)).limit(1);
+      const [tenantRow] = await db.select({
+        slug: tenants.slug,
+        brandName: tenants.brandName,
+        settings: tenants.settings,
+      }).from(tenants).where(eq(tenants.id, ctx.tenantId)).limit(1);
       const publicStoreUrl = tenantRow?.slug ? `/tienda/${tenantRow.slug}` : null;
       const noImg = prods.filter((p) => !p.imageUrl).length;
       // ── CUANTOS ESTAN ACTIVOS, dicho y no deducido ────────────────────────
@@ -1399,7 +1402,9 @@ export const TOOLS: ToolDef[] = [
           products: prods.length, activeProducts: activos, inactiveProducts: inactivos,
           productsWithoutImage: noImg, productsWithoutVideo: sinVideo, categories: cats.length,
           agents: ags.length, stores: stors.length, publicStoreUrl,
-          businessName: st?.businessName, aiProvider: st?.aiProvider,
+          businessName: tenantRow?.brandName,
+          timezone: (tenantRow?.settings as any)?.timezone,
+          autoReplyEnabled: (tenantRow?.settings as any)?.autoRespond,
         },
       };
     },
@@ -1527,12 +1532,27 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: "get_settings",
-    description: "Ver la configuración del negocio (nombre, descripción, proveedor de IA, etc.).",
+    description: "Ver la configuración propia del negocio (nombre, zona horaria, moneda y respuesta automática).",
     args: "{}",
-    run: async () => {
-      const [s] = await db.select().from(settings).limit(1);
-      if (!s) return { ok: true, summary: "Sin settings", data: null };
-      return { ok: true, summary: "Settings del negocio", data: { businessName: s.businessName, businessDescription: s.businessDescription, timezone: s.timezone, aiProvider: s.aiProvider, autoReplyEnabled: s.autoReplyEnabled } };
+    run: async (_args, ctx) => {
+      const [tenant] = await db.select({
+        brandName: tenants.brandName,
+        settings: tenants.settings,
+      }).from(tenants).where(eq(tenants.id, ctx.tenantId)).limit(1);
+      if (!tenant) return { ok: true, summary: "Sin configuración", data: null };
+      const own = (tenant.settings || {}) as Record<string, any>;
+      return {
+        ok: true,
+        summary: "Configuración propia del negocio",
+        data: {
+          businessName: tenant.brandName,
+          timezone: own.timezone,
+          language: own.language,
+          currency: own.currency,
+          autoReplyEnabled: own.autoRespond,
+          workingHours: own.workingHours,
+        },
+      };
     },
   },
 
@@ -1735,17 +1755,23 @@ export const TOOLS: ToolDef[] = [
   // ── Settings ──
   {
     name: "update_settings",
-    description: "Actualizar la configuración del negocio.",
-    args: '{ "businessName"?, "businessDescription"?, "timezone"?, "aiProvider"?, "autoReplyEnabled"?: boolean, "offHoursMessage"? }',
-    run: async (args) => {
-      const [s] = await db.select().from(settings).limit(1);
-      if (!s) return { ok: false, summary: "No hay settings para actualizar" };
+    description: "Actualizar la configuración propia del negocio. Nunca modifica la configuración global de la plataforma.",
+    args: '{ "businessName"?, "timezone"?, "language"?, "currency"?, "autoReplyEnabled"?: boolean, "workingHours"?: { "enabled": boolean, "start": string, "end": string, "days": number[] } }',
+    run: async (args, ctx) => {
+      const [tenant] = await db.select({ settings: tenants.settings }).from(tenants).where(eq(tenants.id, ctx.tenantId)).limit(1);
+      if (!tenant) return { ok: false, summary: "No se encontró el negocio" };
+      const previo = (tenant.settings || {}) as Record<string, any>;
+      const settingsPatch: Record<string, any> = {};
+      for (const k of ["timezone", "language", "currency", "workingHours"]) {
+        if (args[k] !== undefined) settingsPatch[k] = args[k];
+      }
+      if (args.autoReplyEnabled !== undefined) settingsPatch.autoRespond = !!args.autoReplyEnabled;
       const patch: Record<string, any> = {};
-      for (const k of ["businessName", "businessDescription", "timezone", "aiProvider", "offHoursMessage"]) if (args[k] !== undefined) patch[k] = args[k];
-      if (args.autoReplyEnabled !== undefined) patch.autoReplyEnabled = !!args.autoReplyEnabled;
+      if (args.businessName !== undefined) patch.brandName = String(args.businessName).trim();
+      if (Object.keys(settingsPatch).length > 0) patch.settings = { ...previo, ...settingsPatch };
       if (Object.keys(patch).length === 0) return { ok: false, summary: "Nada que actualizar" };
-      await db.update(settings).set(patch).where(eq(settings.id, s.id));
-      return { ok: true, summary: `Settings actualizados (${Object.keys(patch).join(", ")})` };
+      await db.update(tenants).set(patch).where(eq(tenants.id, ctx.tenantId));
+      return { ok: true, summary: `Configuración del negocio actualizada (${Object.keys(args).join(", ")})` };
     },
   },
 

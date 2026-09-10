@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Bot, Send, User, Loader2, Sparkles, Check, X, Wrench, MessageSquare, Paperclip, RotateCcw, History, Trash2, Copy, Square, Mic, Volume2, VolumeX } from "lucide-react";
+import { Bot, Send, User, Loader2, Sparkles, Check, X, Wrench, MessageSquare, Paperclip, RotateCcw, History, Trash2, Copy, Square, Mic, Volume2, VolumeX, Pause, Play } from "lucide-react";
 import { toast } from "sonner";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -182,6 +182,11 @@ export default function CodeAgent() {
     try { return localStorage.getItem("atlas_voz") === "1"; } catch { return false; }
   });
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const audioUrlRef = useRef<string | null>(null);
+  const ttsAbortRef = useRef<AbortController | null>(null);
+  const ttsGeneracionRef = useRef(0);
+  const vozActivaRef = useRef(vozActiva);
+  const [audioReproduciendo, setAudioReproduciendo] = useState(false);
   // La caja de escribir crece con lo que se escribe. Ver el hook: acá
   // había un comentario prometiéndolo y ni una línea que lo hiciera.
   const textareaRef = useCajaQueCrece(input);
@@ -361,10 +366,15 @@ export default function CodeAgent() {
    * en UNO de esos lugares es justo el defecto que se nota.
    */
   const callarAtlas = () => {
+    ttsGeneracionRef.current++;
+    ttsAbortRef.current?.abort();
+    ttsAbortRef.current = null;
     const a = audioRef.current;
-    if (!a) return;
     audioRef.current = null;
-    try { a.pause(); a.src = ""; } catch { /* ya estaba cortado */ }
+    setAudioReproduciendo(false);
+    if (a) try { a.pause(); a.src = ""; } catch { /* ya estaba cortado */ }
+    if (audioUrlRef.current) URL.revokeObjectURL(audioUrlRef.current);
+    audioUrlRef.current = null;
   };
 
   /**
@@ -378,35 +388,58 @@ export default function CodeAgent() {
    * hace nada. La respuesta escrita ya está en pantalla, que es lo que importa.
    */
   const decirEnVozAlta = async (texto: string) => {
-    if (!vozActiva || !texto.trim()) return;
+    if (!vozActivaRef.current || !texto.trim()) return;
     callarAtlas();
+    const generacion = ttsGeneracionRef.current;
+    const controller = new AbortController();
+    ttsAbortRef.current = controller;
     try {
       const r = await fetch("/api/code-agent/voz", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ texto }),
         credentials: "include",
+        signal: controller.signal,
       });
       if (!r.ok || r.status === 204) return;
       const blob = await r.blob();
       // Si mientras se generaba el audio el admin empezó a hablar o apretó
       // Detener, ya no se reproduce: llegó tarde a una conversación que
       // siguió sin él.
-      if (!vozActiva || grabadorRef.current) return;
-      const a = new Audio(URL.createObjectURL(blob));
+      if (generacion !== ttsGeneracionRef.current || !vozActivaRef.current || grabadorRef.current) return;
+      const url = URL.createObjectURL(blob);
+      const a = new Audio(url);
+      audioUrlRef.current = url;
       audioRef.current = a;
       // La URL del blob se libera al terminar: sin esto cada respuesta hablada
       // deja un objeto en memoria hasta que se recargue la página.
-      a.onended = () => { URL.revokeObjectURL(a.src); if (audioRef.current === a) audioRef.current = null; };
-      await a.play().catch(() => { /* el navegador puede exigir un toque previo */ });
+      a.onplay = () => setAudioReproduciendo(true);
+      a.onpause = () => setAudioReproduciendo(false);
+      a.onended = () => {
+        URL.revokeObjectURL(url);
+        if (audioUrlRef.current === url) audioUrlRef.current = null;
+        if (audioRef.current === a) audioRef.current = null;
+        setAudioReproduciendo(false);
+      };
+      await a.play().catch(() => { setAudioReproduciendo(false); });
     } catch {
       // Sin voz se sigue igual. No se le avisa al admin: no perdió nada.
+    } finally {
+      if (ttsAbortRef.current === controller) ttsAbortRef.current = null;
     }
+  };
+
+  const pausarOReanudarAtlas = () => {
+    const a = audioRef.current;
+    if (!a) return;
+    if (a.paused) void a.play().catch(() => {});
+    else a.pause();
   };
 
   // Al apagar la voz, lo que esté sonando se calla en el acto. Dejar terminar
   // la frase después de apretar "silenciar" es no obedecer.
   useEffect(() => {
+    vozActivaRef.current = vozActiva;
     try { localStorage.setItem("atlas_voz", vozActiva ? "1" : "0"); } catch { /* modo privado */ }
     if (!vozActiva) callarAtlas();
   }, [vozActiva]);
@@ -548,6 +581,13 @@ export default function CodeAgent() {
   // apagarse igual. Sin esto queda escuchando después de salir de la sección.
   useEffect(() => {
     return () => {
+      ttsGeneracionRef.current++;
+      ttsAbortRef.current?.abort();
+      const respuesta = audioRef.current;
+      audioRef.current = null;
+      try { respuesta?.pause(); } catch { /* noop */ }
+      if (audioUrlRef.current) URL.revokeObjectURL(audioUrlRef.current);
+      audioUrlRef.current = null;
       const rec = grabadorRef.current;
       grabadorRef.current = null;
       if (silencioFrameRef.current !== null) cancelAnimationFrame(silencioFrameRef.current);
@@ -771,10 +811,6 @@ export default function CodeAgent() {
             ...prev,
             { role: "assistant", content: String(payload.reply), at: Date.now() },
           ]);
-          // Cada parte se dice al llegar, igual que se muestra: esperar al
-          // final para hablar desharía justamente lo que la entrega por partes
-          // vino a arreglar.
-          void decirEnVozAlta(String(payload.reply));
         }
         else if (evento === "result") resultado = payload;
         else if (evento === "error") throw new Error(payload?.error || "turno interrumpido");
@@ -1433,6 +1469,19 @@ export default function CodeAgent() {
                   >
                     {vozActiva ? <Volume2 className="h-[18px] w-[18px]" /> : <VolumeX className="h-[18px] w-[18px]" />}
                   </Button>
+                  {audioRef.current && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      onClick={pausarOReanudarAtlas}
+                      title={audioReproduciendo ? "Pausar respuesta de Atlas" : "Continuar respuesta de Atlas"}
+                      aria-label={audioReproduciendo ? "Pausar respuesta de Atlas" : "Continuar respuesta de Atlas"}
+                      className="h-9 w-9 shrink-0 rounded-full text-primary hover:text-primary"
+                    >
+                      {audioReproduciendo ? <Pause className="h-[18px] w-[18px]" /> : <Play className="h-[18px] w-[18px]" />}
+                    </Button>
+                  )}
 
                   {/* El campo pierde su propio marco: el marco ahora es la
                       capsula. Dos bordes anidados es lo que hacia que se viera
@@ -1486,7 +1535,7 @@ export default function CodeAgent() {
                     >
                       <Send className="h-4 w-4" />
                     </Button>
-                  ) : (
+                  ) : mode === "operator" ? (
                     <Button
                       type="button"
                       variant={grabando ? "destructive" : "ghost"}
@@ -1500,6 +1549,18 @@ export default function CodeAgent() {
                       {transcribiendo
                         ? <Loader2 className="h-[18px] w-[18px] animate-spin" />
                         : <Mic className={`h-[18px] w-[18px] ${grabando ? "animate-pulse" : ""}`} />}
+                    </Button>
+                  ) : (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      disabled
+                      title="Escribe una instrucción para diseñar el agente"
+                      aria-label="Escribe una instrucción para diseñar el agente"
+                      className="h-9 w-9 shrink-0 rounded-full text-muted-foreground"
+                    >
+                      <Send className="h-4 w-4" />
                     </Button>
                   )}
                 </div>
