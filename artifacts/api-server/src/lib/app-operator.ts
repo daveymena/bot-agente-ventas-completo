@@ -1555,12 +1555,28 @@ export const TOOLS: ToolDef[] = [
       const atlasVentasActivo = process.env.ATLAS_WHATSAPP_ENABLED !== "false";
       const motor = atlasVentasActivo ? "Atlas Ventas" : a?.name;
       if (!a) return { ok: true, summary: "No hay agente configurado", data: { todosLosAgentes: todos } };
+      // Cómo se reparte WhatsApp entre varios agentes es un dato del servidor
+      // (agent-router.ts), no una opinión. Sin decirlo acá, Atlas contestaba
+      // "no verifiqué si hay ruteo automático" y el dueño creía que solo
+      // atendía el principal (11-09-2026).
+      const activos = todos.filter((x: any) => x.isActive);
+      const porEspecialidad = activos.filter((x: any) => ["digital", "dropshipping"].includes(String(x.especialidad || "").toLowerCase()));
+      const reparto = activos.length <= 1
+        ? `Atiende ${activos[0]?.name ?? a.name} solo.`
+        : porEspecialidad.length >= 2
+          ? `Cada mensaje de WhatsApp lo atiende el agente cuya especialidad coincide con el producto que pide el cliente ` +
+            `(físico que se despacha → ${porEspecialidad.find((x: any) => String(x.especialidad).toLowerCase() === "dropshipping")?.name ?? "dropshipping"}, ` +
+            `digital → ${porEspecialidad.find((x: any) => String(x.especialidad).toLowerCase() === "digital")?.name ?? "digital"}); ` +
+            `si no nombra producto, sigue el que venía atendiendo esa conversación. Es automático: no hay que asignar un número por agente.`
+          : `Hay ${activos.length} agentes activos pero sin especialidad distinta: atiende el principal.`;
       return {
         ok: true,
         summary:
-          `Motor que responde WhatsApp: ${motor}. Agentes del negocio: ${todos.length} ` +
-          `(${todos.filter((x: any) => x.isActive).length} activos). Principal: ${a.name} (${a.role}).`,
+          `Motor que responde WhatsApp: ${motor} (usa el nombre, rol e instrucciones del agente elegido). ` +
+          `Reparto: ${reparto} Agentes del negocio: ${todos.length} ` +
+          `(${activos.length} activos). Principal: ${a.name} (${a.role}).`,
         data: {
+          repartoWhatsApp: reparto,
           id: a.id,
           name: a.name,
           role: a.role,
