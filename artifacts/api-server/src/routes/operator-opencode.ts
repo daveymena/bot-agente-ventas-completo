@@ -2225,10 +2225,10 @@ router.post("/operator-opencode", requireAdmin(), async (req: TenantRequest, res
       // lee de arriba hacia abajo y se queda con lo primero.
       if (avisarQueNoEjecuto) {
         finalReplyVerificado = (plannedActions.length > 0
-          ? `⚠️ **Todavía no se guardó nada.** Lo de abajo es una PROPUESTA: se ejecuta recién cuando la confirmes.`
-          : `⚠️ **Todavía no se guardó nada, y no quedó ninguna acción pendiente de confirmar.** `
-            + `Lo de abajo es solo texto: no se creó ni se modificó nada en el sistema. `
-            + `Pedímelo de nuevo para que lo registre de verdad.`)
+          // Una línea cada uno: el aviso salía en TRES renglones arriba de
+          // cada respuesta y el admin lo leía diez veces por sesión (11-09-2026).
+          ? `⚠️ **Todavía no se guardó nada.** Es una propuesta: se ejecuta cuando confirmés.`
+          : `⚠️ **Todavía no se guardó nada.** Esto es solo texto; si querés que lo haga, pedímelo.`)
           + `\n\n---\n\n${finalReplyVerificado}`;
       }
 
