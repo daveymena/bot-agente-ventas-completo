@@ -85,6 +85,20 @@ const guardarSchema = z.object({
    * siempre y el valor por defecto: nadie cambia de catálogo sin pedirlo.
    */
   modoCatalogo: z.enum(["digital", "fisico", "mixto"]).optional(),
+  /**
+   * Condiciones del negocio que antes vivían fijas en el código (y solo
+   * valían para el dueño): país, y cómo se despacha y cobra lo físico.
+   * Ver `modelo-de-negocio.ts`.
+   */
+  pais: z.string().max(60).nullable().optional(),
+  envio: z.object({
+    plazo: z.string().max(120).optional(),
+    pago: z.enum(["contraentrega", "anticipado", "ambos"]).optional(),
+    costo: z.string().max(120).optional(),
+    cobertura: z.string().max(200).optional(),
+  }).nullable().optional(),
+  /** Cómo se agenda un servicio ("por este chat, lunes a viernes 8-18"). */
+  agenda: z.string().max(300).nullable().optional(),
 });
 
 router.get("/", async (req, res, next) => {

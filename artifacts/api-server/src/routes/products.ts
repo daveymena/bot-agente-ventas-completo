@@ -422,7 +422,9 @@ router.post("/bulk-smart", async (req: TenantRequest, res, next) => {
 });
 
 function serialize(row: typeof products.$inferSelect) {
-  const kind = row.kind === "physical" ? "physical" : "digital";
+  // Seis modelos (ver lib/modelo-de-negocio.ts); lo desconocido cae a digital.
+  const CONOCIDOS = ["digital", "physical", "service", "subscription", "quote", "lead"];
+  const kind = CONOCIDOS.includes(String(row.kind)) ? String(row.kind) : "digital";
   return {
     id: row.id,
     name: row.name,
@@ -432,7 +434,7 @@ function serialize(row: typeof products.$inferSelect) {
     sku: row.sku ?? null,
     categoryId: row.categoryId ?? null,
     category: row.category ?? null,
-    kind: kind as "digital" | "physical",
+    kind: kind as "digital" | "physical" | "service" | "subscription" | "quote" | "lead",
     imageUrl: row.imageUrl ?? null,
     highlight: row.highlight ?? null,
     features: row.features ?? [],

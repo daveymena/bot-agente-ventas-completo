@@ -12,4 +12,7 @@ export const ProductKind = {
   digital: "digital",
   physical: "physical",
   service: "service",
+  subscription: "subscription",
+  quote: "quote",
+  lead: "lead",
 } as const;

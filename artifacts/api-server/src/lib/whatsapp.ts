@@ -342,6 +342,25 @@ async function loadProductImage(imageUrl: string): Promise<Buffer | null> {
  * líneas cortaría una lista de módulos por la mitad y quedaría peor que el
  * muro. Cada bloque es una idea completa.
  */
+/**
+ * Las condiciones de envío/cobro del NEGOCIO dueño del producto.
+ *
+ * `getBusinessContext` está cacheado 60s por tenant, así que pedirlo desde la
+ * ficha no agrega consultas. Si falla, el respaldo son las condiciones del
+ * dueño de la plataforma (las de siempre), para no dejar la ficha sin datos.
+ */
+async function condicionesDelProducto(p: { tenantId?: number | null }) {
+  const { CONDICIONES_DE_RESPALDO } = await import("./modelo-de-negocio");
+  if (!p?.tenantId) return CONDICIONES_DE_RESPALDO;
+  try {
+    const { getBusinessContext } = await import("./business-context");
+    const ctx = await getBusinessContext(p.tenantId);
+    return ctx?.condiciones ?? CONDICIONES_DE_RESPALDO;
+  } catch {
+    return CONDICIONES_DE_RESPALDO;
+  }
+}
+
 async function buildProductBlocks(p: typeof products.$inferSelect, dynamicLinks?: any, semilla = ""): Promise<string[]> {
   const completo = await buildProductCaption(p, null, dynamicLinks, semilla);
   // El separador es la línea en blanco doble que deja cada sección; se agrupan
@@ -458,18 +477,35 @@ async function buildProductCaption(p: typeof products.$inferSelect, categoryName
   // vida". Este respaldo estaba fijo para TODO el catalogo, asi que una
   // rodillera termica se ofrecia como descargable -- reportado por el admin.
   // Se ramifica por el tipo real del producto.
-  const esDigital = String((p as any).kind || "digital") !== "physical";
-  lines.push(esDigital
-    ? variante([`💻 *Modalidad:*`, `💻 *Cómo funciona:*`, `💻 *Acceso:*`, `💻 *Cómo lo recibís:*`], sem)
-    : variante([`📦 *Cómo lo recibís:*`, `📦 *Entrega:*`, `📦 *Envío:*`], sem));
+  // Ahora por MODELO (físico, digital, servicio, suscripción, a cotizar,
+  // captación): una consulta nutricional no es "descargable" ni "de por vida".
+  const { modeloDelProducto: modeloDe } = await import("./modelo-de-negocio");
+  const modeloFicha = modeloDe(p as any);
+  const esDigital = modeloFicha === "digital";
+  lines.push(
+    modeloFicha === "fisico" ? variante([`📦 *Cómo lo recibís:*`, `📦 *Entrega:*`, `📦 *Envío:*`], sem)
+    : modeloFicha === "servicio" ? variante([`🗓️ *Cómo funciona:*`, `🗓️ *Modalidad:*`], sem)
+    : modeloFicha === "suscripcion" ? `🔁 *Cómo funciona:*`
+    : modeloFicha === "cotizacion" ? `🧾 *Cómo funciona:*`
+    : modeloFicha === "captacion" ? `🤝 *Cómo funciona:*`
+    : variante([`💻 *Modalidad:*`, `💻 *Cómo funciona:*`, `💻 *Acceso:*`, `💻 *Cómo lo recibís:*`], sem),
+  );
   if (estandar.length > 0) {
     for (const f of estandar.slice(0, 4)) lines.push(`${emojiDeCaracteristica(f, p.name)} ${f}`);
   } else if (esDigital) {
     lines.push(`💻 100% online y descargable`);
     lines.push(`♾️ Acceso de por vida`);
-  } else {
+  } else if (modeloFicha === "fisico") {
     lines.push(`📦 Te lo enviamos a tu dirección`);
     lines.push(`📲 Coordinamos la entrega por aquí`);
+  } else if (modeloFicha === "servicio") {
+    lines.push(`🗓️ Se agenda por aquí y te confirmamos la hora`);
+  } else if (modeloFicha === "suscripcion") {
+    lines.push(`🔁 Acceso por período, se renueva`);
+  } else if (modeloFicha === "cotizacion") {
+    lines.push(`🧾 Precio según lo que necesités: te cotizamos por aquí`);
+  } else {
+    lines.push(`🤝 Un asesor te contacta por este número`);
   }
   lines.push("");
 
@@ -515,19 +551,25 @@ async function buildProductCaption(p: typeof products.$inferSelect, categoryName
   // enlaces ni cuentas: hay envío incluido, plazo fijo y pago al recibir.
   const { seDespachaPorTransportadora } = await import("./entrega-del-producto");
   if (seDespachaPorTransportadora(p as any)) {
-    const { HECHOS_DROPSHIPPING } = await import("./dropshipping");
+    // Las condiciones son del NEGOCIO dueño del producto, no de la plataforma.
+    const c = await condicionesDelProducto(p);
+    const { fraseCostoEnvio, frasePagoEnvio } = await import("./modelo-de-negocio");
     lines.push(variante([`🚚 *ENVÍO Y PAGO*`, `🚚 *Cómo lo recibís*`, `🚚 *Entrega y pago*`], sem));
     lines.push("");
-    lines.push(`📦 Envío incluido en el precio, a todo Colombia`);
-    lines.push(`⏱️ Llega en ${HECHOS_DROPSHIPPING.diasDeEntrega}`);
-    lines.push(`💵 Pagás contraentrega, cuando lo recibís en tu casa`);
+    lines.push(`📦 ${fraseCostoEnvio(c)}, ${c.envio.cobertura}`);
+    lines.push(`⏱️ Llega en ${c.envio.plazo}`);
+    lines.push(`💵 ${frasePagoEnvio(c)}`);
     lines.push("");
-    lines.push(variante([
-      `🚀 *¿Te tomo el pedido? Me pasás tus datos de envío y lo dejamos listo.*`,
-      `🚀 *¿Lo pedimos? Solo necesito tus datos de envío.*`,
-      `🚀 *¿Te lo envío? Decime y te pido los datos para el despacho.*`,
-    ], sem));
-    return lines.join("\n");
+    // Contraentrega: no hay nada que cobrar ahora, la ficha termina acá.
+    // Pago anticipado: siguen los medios de pago normales.
+    if (c.envio.pago === "contraentrega") {
+      lines.push(variante([
+        `🚀 *¿Te tomo el pedido? Me pasás tus datos de envío y lo dejamos listo.*`,
+        `🚀 *¿Lo pedimos? Solo necesito tus datos de envío.*`,
+        `🚀 *¿Te lo envío? Decime y te pido los datos para el despacho.*`,
+      ], sem));
+      return lines.join("\n");
+    }
   }
 
   if (dynamicLinks) {
@@ -845,10 +887,18 @@ async function construirSeccion(
 
   // ── Cómo se entrega ───────────────────────────────────────────────────────
   if (seccion === "entrega") {
-    const { HECHOS_DROPSHIPPING } = await import("./dropshipping");
-    const texto = esFisico
-      ? `📦 Te lo enviamos a tu dirección por transportadora, con el envío incluido en el precio.\n⏱️ Llega en ${HECHOS_DROPSHIPPING.diasDeEntrega} y pagás contraentrega, cuando lo recibís.\n\n${cierre}`
-      : `💻 Es digital: apenas confirmamos el pago te llega el acceso por aquí, y te queda de por vida ♾️\n\n${cierre}`;
+    const { modeloDelProducto, fraseCostoEnvio, frasePagoEnvio } = await import("./modelo-de-negocio");
+    const modelo = modeloDelProducto(p as any);
+    const c = await condicionesDelProducto(p);
+    const texto = modelo === "fisico"
+      ? `📦 Te lo enviamos a tu dirección por transportadora. ${fraseCostoEnvio(c)}.\n⏱️ Llega en ${c.envio.plazo}. ${frasePagoEnvio(c)}.\n\n${cierre}`
+      : modelo === "servicio"
+        ? `🗓️ Es un servicio: se agenda por acá${c.agenda ? ` (${c.agenda})` : ""} y el negocio te confirma la hora.\n\n${cierre}`
+        : modelo === "cotizacion"
+          ? `🧾 Este se cotiza según lo que necesités: contame qué buscás y el negocio te manda la cotización por acá.\n\n${cierre}`
+          : modelo === "captacion"
+            ? `🤝 Un asesor te contacta por este mismo número para acompañarte.\n\n${cierre}`
+            : `💻 Es digital: apenas confirmamos el pago te llega el acceso por aquí, y te queda de por vida ♾️\n\n${cierre}`;
     return { conFoto: false, mensajes: [texto] };
   }
 
@@ -857,12 +907,15 @@ async function construirSeccion(
   // licuadora es cobrarle por adelantado algo que el negocio cobra al recibir.
   if (esFisico && (seccion === "pago" || seccion === "pago_transferencia" || seccion === "pago_link")) {
     const { seDespachaPorTransportadora } = await import("./entrega-del-producto");
-    if (seDespachaPorTransportadora(p as any)) {
-      const { HECHOS_DROPSHIPPING } = await import("./dropshipping");
+    const c = await condicionesDelProducto(p);
+    // Con pago anticipado el negocio SÍ cobra antes: se muestran los medios
+    // de pago normales (sigue abajo). Solo contraentrega corta acá.
+    if (seDespachaPorTransportadora(p as any) && c.envio.pago === "contraentrega") {
+      const { fraseCostoEnvio } = await import("./modelo-de-negocio");
       return {
         conFoto: false,
         mensajes: [
-          `💵 Este producto se paga contraentrega: no pagás nada ahora, pagás en efectivo cuando la transportadora te lo entrega en tu dirección.\n📦 El envío ya va incluido en los ${mon.precioTexto} y llega en ${HECHOS_DROPSHIPPING.diasDeEntrega}.\n\n¿Te tomo el pedido? Solo necesito tus datos de envío.`,
+          `💵 Este producto se paga contraentrega: no pagás nada ahora, pagás cuando la transportadora te lo entrega en tu dirección.\n📦 ${fraseCostoEnvio(c)} (${mon.precioTexto}) y llega en ${c.envio.plazo}.\n\n¿Te tomo el pedido? Solo necesito tus datos de envío.`,
         ],
       };
     }

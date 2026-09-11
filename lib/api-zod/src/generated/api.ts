@@ -384,7 +384,7 @@ export const DeleteLeadResponse = zod.object({
  */
 export const ListProductsQueryParams = zod.object({
   categoryId: zod.coerce.number().optional(),
-  kind: zod.enum(["digital", "physical", "service"]).optional(),
+  kind: zod.enum(["digital", "physical", "service", "subscription", "quote", "lead"]).optional(),
 });
 
 export const ListProductsResponseItem = zod.object({
@@ -394,7 +394,7 @@ export const ListProductsResponseItem = zod.object({
   price: zod.string(),
   currency: zod.string(),
   sku: zod.string().nullish(),
-  kind: zod.enum(["digital", "physical", "service"]),
+  kind: zod.enum(["digital", "physical", "service", "subscription", "quote", "lead"]),
   categoryId: zod.number().nullish(),
   category: zod.string().nullish(),
   imageUrl: zod.string().nullish(),
@@ -417,7 +417,7 @@ export const CreateProductBody = zod.object({
   price: zod.string(),
   currency: zod.string(),
   sku: zod.string().nullish(),
-  kind: zod.enum(["digital", "physical", "service"]),
+  kind: zod.enum(["digital", "physical", "service", "subscription", "quote", "lead"]),
   categoryId: zod.number().nullish(),
   imageUrl: zod.string().nullish(),
   paymentLink: zod.string().nullish(),
@@ -441,7 +441,7 @@ export const UpdateProductBody = zod.object({
   price: zod.string().optional(),
   currency: zod.string().optional(),
   sku: zod.string().nullish(),
-  kind: zod.enum(["digital", "physical", "service"]).optional(),
+  kind: zod.enum(["digital", "physical", "service", "subscription", "quote", "lead"]).optional(),
   categoryId: zod.number().nullish(),
   imageUrl: zod.string().nullish(),
   paymentLink: zod.string().nullish(),
@@ -459,7 +459,7 @@ export const UpdateProductResponse = zod.object({
   price: zod.string(),
   currency: zod.string(),
   sku: zod.string().nullish(),
-  kind: zod.enum(["digital", "physical", "service"]),
+  kind: zod.enum(["digital", "physical", "service", "subscription", "quote", "lead"]),
   categoryId: zod.number().nullish(),
   category: zod.string().nullish(),
   imageUrl: zod.string().nullish(),
@@ -492,7 +492,7 @@ export const ListCategoriesResponseItem = zod.object({
   description: zod.string().nullish(),
   icon: zod.string().nullish(),
   color: zod.string(),
-  kind: zod.enum(["digital", "physical", "service"]),
+  kind: zod.enum(["digital", "physical", "service", "subscription", "quote", "lead"]),
   createdAt: zod.string(),
 });
 export const ListCategoriesResponse = zod.array(ListCategoriesResponseItem);
@@ -505,7 +505,7 @@ export const CreateCategoryBody = zod.object({
   description: zod.string().optional(),
   icon: zod.string().optional(),
   color: zod.string().optional(),
-  kind: zod.enum(["digital", "physical", "service"]).optional(),
+  kind: zod.enum(["digital", "physical", "service", "subscription", "quote", "lead"]).optional(),
 });
 
 /**
@@ -520,7 +520,7 @@ export const UpdateCategoryBody = zod.object({
   description: zod.string().optional(),
   icon: zod.string().optional(),
   color: zod.string().optional(),
-  kind: zod.enum(["digital", "physical", "service"]).optional(),
+  kind: zod.enum(["digital", "physical", "service", "subscription", "quote", "lead"]).optional(),
 });
 
 export const UpdateCategoryResponse = zod.object({
@@ -529,7 +529,7 @@ export const UpdateCategoryResponse = zod.object({
   description: zod.string().nullish(),
   icon: zod.string().nullish(),
   color: zod.string(),
-  kind: zod.enum(["digital", "physical", "service"]),
+  kind: zod.enum(["digital", "physical", "service", "subscription", "quote", "lead"]),
   createdAt: zod.string(),
 });
 

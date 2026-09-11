@@ -27,6 +27,7 @@ import { medirEmojis } from "./emojis-con-medida";
 import { preguntaPorLoInterno, delataLoInterno, respuestaSegura, vocabularioDelNegocio } from "./nada-interno";
 import { videoDeProducto } from "./video-de-producto";
 import { seDespachaPorTransportadora } from "./entrega-del-producto";
+import { CONDICIONES_DE_RESPALDO, bloqueTrasElSi, marcaDeModelo, modeloDelProducto } from "./modelo-de-negocio";
 import { verificarPrecios } from "./precio-verificado";
 import { productoEnFoco } from "./producto-en-foco";
 import { entenderAlCliente, type Entendimiento } from "./entender-al-cliente";
@@ -1190,7 +1191,10 @@ export async function runAgentReply(conversationId: number) {
     const compact = catalogSlice.map(p => {
       const cat = categoryMap.get(p.categoryId) || p.category || "";
       const catStr = cat ? ` (${cat})` : "";
-      return `[ID: ${p.id}] ${p.name} — ${formatPrice(Number(p.price), p.currency)}${catStr}`;
+      // La marca de modelo (· físico, · servicio, · a cotizar) es un dato del
+      // servidor: sin ella el modelo deducía por el nombre y ofrecía Google
+      // Drive de un renovador de plásticos (25-08) o de una consulta.
+      return `[ID: ${p.id}] ${p.name} — ${formatPrice(Number(p.price), p.currency)}${catStr}${marcaDeModelo(p as any)}`;
     }).join("\n");
 
     // Detalle ampliado solo del producto en foco (si existe)
@@ -1542,6 +1546,8 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
 
     if (!soloDigital && corresponde) {
       const ds = await import("./dropshipping");
+      // Las condiciones del NEGOCIO (perfil), no las del dueño de la plataforma.
+      const cond = negocio?.condiciones ?? CONDICIONES_DE_RESPALDO;
       let pedido = await ds.pedidoEnCurso(conversationId);
 
       // Se abre el pedido recién cuando el cliente muestra intención de
@@ -1558,6 +1564,7 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
           productName: (productoEnJuego as any).name,
           unitPrice: Number((productoEnJuego as any).price) || 0,
           telefono: convo.contactPhone || null,
+          metodoPago: cond.envio.pago === "anticipado" ? "transferencia" : "contraentrega",
         });
       }
 
@@ -1577,7 +1584,7 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
           const r = await ds.despacharPedido(pedido);
           bloqueDropshipping = r.ok
             ? `\n\n✅ PEDIDO REGISTRADO (#${r.wooOrderId}). Ya quedó creado y se despacha.\n`
-              + `Confirmáselo al cliente, ordenado y en líneas cortas: producto, total con envío incluido, pago contraentrega al recibir, la dirección exacta a la que llega (${pedido.direccion}${pedido.barrio ? `, barrio ${pedido.barrio}` : ""} — ${pedido.ciudad}, ${pedido.departamento}), que la entrega es en ${ds.HECHOS_DROPSHIPPING.diasDeEntrega} y que le compartís el número de guía por este chat apenas la transportadora lo genere.\n`
+              + `Confirmáselo al cliente, ordenado y en líneas cortas: producto, total (${cond.envio.costo === "incluido" ? "envío incluido" : `envío ${cond.envio.costo}`}), ${cond.envio.pago === "contraentrega" ? "pago contraentrega al recibir" : "pago ya acordado"}, la dirección exacta a la que llega (${pedido.direccion}${pedido.barrio ? `, barrio ${pedido.barrio}` : ""} — ${pedido.ciudad}, ${pedido.departamento}), que la entrega es en ${cond.envio.plazo} y que le compartís el número de guía por este chat apenas la transportadora lo genere.\n`
               + `NO le pidas más datos: ya están todos. NO inventes número de guía.`
             : `\n\n⚠️ El cliente confirmó pero el pedido NO se pudo registrar (${r.error}).\n`
               + `Decile que ya tomaste sus datos y que en un momento le confirmás el despacho. NO inventes número de pedido ni de guía.`;
@@ -1595,7 +1602,7 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
           }
 
           const faltan = ds.datosQueFaltan(pedido);
-          const zona = faltan.length === 0 ? ds.verificarZona(pedido) : { ok: false as const };
+          const zona = faltan.length === 0 ? ds.verificarZona(pedido, cond.pais) : { ok: false as const };
 
           if (faltan.length === 0 && zona.ok) {
             // Datos completos y zona verificada: resumen + pedir el sí.
@@ -1606,7 +1613,7 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
             bloqueDropshipping =
               `\n\n📦 PEDIDO LISTO PARA CONFIRMAR — ${pedido.productName}\n`
               + `Verificaste los datos y hay despacho a ${pedido.ciudad}, ${pedido.departamento}. Decíselo en una línea y mostrale ESTE resumen tal cual, línea por línea:\n`
-              + `${ds.resumenDelPedido(pedido)}\n`
+              + `${ds.resumenDelPedido(pedido, cond)}\n`
               + `Cerrá preguntando si confirma el pedido y el envío a esa dirección. TODAVÍA NO está registrado: no digas que quedó registrado ni inventes número de pedido. Si él corrige un dato, tomalo y volvé a mostrar el resumen.`;
           } else if (faltan.length === 0 && !zona.ok) {
             // Todo vino, pero la ciudad y el departamento no cierran entre sí.
@@ -1630,7 +1637,21 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
 
       // Los hechos fijos (entrega 3 a 5 días, contraentrega) van siempre que
       // haya un físico de por medio, haya pedido abierto o no.
-      bloqueDropshipping = `\n\n${ds.contextoDeDropshipping()}${bloqueDropshipping}`;
+      bloqueDropshipping = `\n\n${ds.contextoDeDropshipping(cond)}${bloqueDropshipping}`;
+    }
+
+    // ── Los modelos que no son ni físico ni digital ──────────────────────
+    //
+    // Servicio, suscripción, cotización y captación: el bot les ofrecía
+    // "acceso por Google Drive" (caían como digital). Acá se le dice qué
+    // pasa después del sí para ESTE modelo. Ver modelo-de-negocio.ts.
+    if (productoEnJuego && !esFisico) {
+      const modelo = modeloDelProducto(productoEnJuego as any);
+      const bloque = bloqueTrasElSi(modelo, negocio?.condiciones ?? CONDICIONES_DE_RESPALDO);
+      if (bloque) {
+        bloqueDropshipping = `\n\n${bloque}${bloqueDropshipping}`;
+        console.log(`🧭 [MODELO] ${(productoEnJuego as any).name}: ${modelo} - ${ts()}`);
+      }
     }
   } catch (e: any) {
     // Un fallo acá no puede dejar al cliente sin respuesta: se pierde el

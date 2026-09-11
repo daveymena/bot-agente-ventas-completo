@@ -24,6 +24,7 @@
 import { db, pool, products } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { logger } from "./logger";
+import { CONDICIONES_DE_RESPALDO, esColombia, type CondicionesDelNegocio } from "./modelo-de-negocio";
 
 /** Los datos mínimos para que una transportadora entregue en Colombia. */
 export interface DatosDeEnvio {
@@ -139,16 +140,30 @@ export const HECHOS_DROPSHIPPING = {
   pagoPorDefecto: "contraentrega",
 } as const;
 
-/** Bloque que se le inyecta al agente para que no invente estos datos. */
-export function contextoDeDropshipping(): string {
+/**
+ * Bloque que se le inyecta al agente para que no invente estos datos.
+ *
+ * Las condiciones vienen del NEGOCIO (perfil); sin perfil se usan las del
+ * dueño de la plataforma como respaldo. Antes eran constantes: cualquier
+ * otro negocio heredaba "3 a 5 días, contraentrega, envío incluido".
+ */
+export function contextoDeDropshipping(c: CondicionesDelNegocio = CONDICIONES_DE_RESPALDO): string {
+  const pago = c.envio.pago === "contraentrega"
+    ? "• Pago CONTRA ENTREGA: el cliente paga cuando recibe el paquete. No se cobra por adelantado."
+    : c.envio.pago === "anticipado"
+      ? "• El envío se paga ANTES del despacho (enlace o transferencia). No ofrezcas contraentrega."
+      : "• Se puede pagar antes del despacho o contraentrega: preguntale cuál prefiere.";
+  const costo = c.envio.costo === "incluido"
+    ? "• El envío va INCLUIDO en el precio: no se cobra aparte ni se cotiza por ciudad."
+    : `• Costo de envío: ${c.envio.costo}. Decilo tal cual; no lo estimes por ciudad.`;
   return [
     "🚚 PRODUCTO FÍSICO — ENTREGA A DOMICILIO",
-    `• Tiempo de entrega: ${HECHOS_DROPSHIPPING.diasDeEntrega}. SIEMPRE ese, para toda Colombia.`,
-    "  Es un dato FIJO del negocio: decilo con seguridad y NUNCA lo cambies según la ciudad ni lo estimes.",
-    "• El envío va INCLUIDO en el precio: no se cobra aparte ni se cotiza por ciudad.",
-    "• Pago CONTRA ENTREGA: el cliente paga en efectivo cuando recibe el paquete. No se cobra por adelantado.",
+    `• Tiempo de entrega: ${c.envio.plazo}, cobertura: ${c.envio.cobertura}.`,
+    `  Es un dato ${c.fuente === "perfil" ? "confirmado por el negocio" : "FIJO del negocio"}: decilo con seguridad y NUNCA lo cambies según la ciudad ni lo estimes.`,
+    costo,
+    pago,
     "• NO se entrega por Google Drive ni por link: esto se despacha físicamente.",
-    "• Para despacharlo necesitas: nombre completo, cédula, celular, dirección con barrio, ciudad, departamento y un punto de referencia.",
+    `• Para despacharlo necesitas: nombre completo, ${esColombia(c.pais) ? "cédula" : "documento de identidad"}, celular, dirección con barrio, ciudad, ${esColombia(c.pais) ? "departamento" : "estado o provincia"} y un punto de referencia.`,
     "  Cuando el cliente quiera comprar, pedíselos TODOS JUNTOS en una lista numerada (el sistema te dice cuáles faltan).",
     "  Después se verifican, se le muestra el resumen y se registra SOLO cuando él confirma con un sí.",
     "• Nunca inventes número de guía ni fecha exacta de llegada: solo el rango de arriba.",
@@ -191,10 +206,14 @@ export function listaDeDatosQueFaltan(d: DatosDeEnvio): string {
  * con el departamento que escribió. Un "Medellín, Cundinamarca" se frena acá
  * antes de convertirse en un envío devuelto.
  */
-export function verificarZona(d: DatosDeEnvio): { ok: boolean; motivo?: string } {
+export function verificarZona(d: DatosDeEnvio, pais?: string | null): { ok: boolean; motivo?: string } {
   const dep = sinTildes(String(d.departamento || ""));
   const ciu = sinTildes(String(d.ciudad || ""));
   if (!dep) return { ok: false, motivo: "falta el departamento" };
+  // La lista de departamentos y ciudades es de Colombia. Para otro país lo
+  // único verificable es que el dato exista: no se frena a un cliente de
+  // Guadalajara porque "Jalisco" no está en una lista colombiana.
+  if (!esColombia(pais)) return { ok: true };
   const depConocido = DEPARTAMENTOS.some((x) => x === dep || dep.startsWith(x));
   if (!depConocido) return { ok: false, motivo: `"${d.departamento}" no es un departamento de Colombia` };
   const esperado = CIUDAD_A_DEPARTAMENTO[ciu];
@@ -212,11 +231,11 @@ export function verificarZona(d: DatosDeEnvio): { ok: boolean; motivo?: string }
 }
 
 /** El resumen que se le muestra al cliente antes de pedirle el sí. */
-export function resumenDelPedido(p: PedidoDropshipping): string {
+export function resumenDelPedido(p: PedidoDropshipping, c: CondicionesDelNegocio = CONDICIONES_DE_RESPALDO): string {
   const precio = Number(p.total ?? p.unitPrice ?? 0);
   const lineas = [
     `📦 ${p.productName} × ${p.quantity}`,
-    precio > 0 ? `💰 Total: $${precio.toLocaleString("es-CO")} COP (envío incluido)` : "",
+    precio > 0 ? `💰 Total: $${precio.toLocaleString("es-CO")} COP (${c.envio.costo === "incluido" ? "envío incluido" : `envío ${c.envio.costo}`})` : "",
     `💵 Pago: ${p.metodoPago === "contraentrega" ? "contraentrega, al recibir" : p.metodoPago}`,
     `👤 ${p.nombre}`,
     `🪪 Cédula ${p.documento}`,
@@ -224,7 +243,7 @@ export function resumenDelPedido(p: PedidoDropshipping): string {
     `🏠 ${p.direccion}${p.barrio ? `, barrio ${p.barrio}` : ""}`,
     `🏙️ ${p.ciudad}, ${p.departamento}`,
     p.notas ? `📍 ${p.notas}` : "",
-    `🚚 Entrega: ${HECHOS_DROPSHIPPING.diasDeEntrega}`,
+    `🚚 Entrega: ${c.envio.plazo}`,
   ];
   return lineas.filter(Boolean).join("\n");
 }
@@ -475,17 +494,19 @@ export async function abrirPedido(datos: {
   unitPrice: number;
   quantity?: number;
   telefono?: string | null;
+  /** "contraentrega" (default) o "transferencia": sale de las condiciones del negocio. */
+  metodoPago?: string | null;
 }): Promise<PedidoDropshipping> {
   const cantidad = datos.quantity || 1;
   const { rows } = await pool.query(
     `INSERT INTO dropshipping_orders
        (tenant_id, conversation_id, lead_id, product_id, product_name,
-        quantity, unit_price, total, telefono, estado)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'borrador')
+        quantity, unit_price, total, telefono, estado, metodo_pago)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'borrador',$10)
      RETURNING *`,
     [datos.tenantId, datos.conversationId, datos.leadId ?? null, datos.productId,
      datos.productName, cantidad, datos.unitPrice, datos.unitPrice * cantidad,
-     datos.telefono ?? null],
+     datos.telefono ?? null, datos.metodoPago || "contraentrega"],
   );
   logger.info({ pedidoId: rows[0].id, productId: datos.productId }, "[Dropshipping] Pedido abierto");
   return aPedido(rows[0]);

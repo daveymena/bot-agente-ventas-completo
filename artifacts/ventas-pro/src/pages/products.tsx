@@ -199,7 +199,7 @@ export default function Products() {
     const templates = {
       digital: { name: "Servicio Digital", kind: "digital" as ProductKind, description: "Asesoría o servicio en línea.", price: "500", features: ["1 hora de consulta", "Material en PDF"] },
       physical: { name: "Producto Físico", kind: "physical" as ProductKind, description: "Producto enviado a domicilio.", price: "1500", features: ["Envío incluido", "Garantía de 30 días"] },
-      subscription: { name: "Suscripción Mensual", kind: "digital" as ProductKind, description: "Acceso mensual a plataforma o servicios.", price: "299", features: ["Acceso 24/7", "Soporte prioritario", "Actualizaciones"] }
+      subscription: { name: "Suscripción Mensual", kind: "subscription" as ProductKind, description: "Acceso mensual a plataforma o servicios.", price: "299", features: ["Acceso 24/7", "Soporte prioritario", "Actualizaciones"] }
     };
     setTemplateSelected(templates[type]);
     setIsNewModalOpen(true);

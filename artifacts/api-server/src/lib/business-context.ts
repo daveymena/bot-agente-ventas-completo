@@ -49,6 +49,10 @@ import { db, tenants, settings as settingsTable, products } from "@workspace/db"
 import { eq, and } from "drizzle-orm";
 import { logger } from "./logger";
 import { ESTILO_POR_DEFECTO, estiloDelNegocio, type EstiloDeVenta } from "./estilo-de-venta";
+import {
+  CONDICIONES_DE_RESPALDO, condicionesDesdePerfil, fraseCostoEnvio, frasePagoEnvio,
+  type CondicionesDelNegocio,
+} from "./modelo-de-negocio";
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -121,6 +125,14 @@ export interface BusinessContext {
    * catálogo a nadie sin que lo pida.
    */
   modoCatalogo: "digital" | "fisico" | "mixto";
+
+  /**
+   * País, y cómo se despacha y cobra lo físico. Antes eran constantes de
+   * código válidas solo para el dueño (`HECHOS_DROPSHIPPING`); otro negocio
+   * heredaba "3 a 5 días, contraentrega, envío incluido" aunque cobrara el
+   * envío aparte. Ahora salen del perfil; lo de código es solo el respaldo.
+   */
+  condiciones: CondicionesDelNegocio;
 
   /** Lo que el negocio NO hace. Se renderiza como prohibición dura. */
   noPuede: string[];
@@ -293,6 +305,7 @@ export async function getBusinessContext(
     // desde el panel. Con varios negocios hay que usar el perfil, porque una
     // variable de entorno les cambiaría el catálogo a todos por igual.
     modoCatalogo: modoDelEntorno(),
+    condiciones: CONDICIONES_DE_RESPALDO,
     noPuede: [],
     loQueDebeSaber: [],
     fuentes: [],
@@ -349,6 +362,7 @@ export async function getBusinessContext(
       // devolvía 200 y el catálogo seguía escondiendo 56 productos (11-09-2026).
       const modo = String(perfil.modoCatalogo || "").toLowerCase();
       if (modo === "digital" || modo === "fisico" || modo === "mixto") ctx.modoCatalogo = modo;
+      ctx.condiciones = condicionesDesdePerfil(perfil);
       if (perfil.horario) ctx.horario = textoLimpio(perfil.horario) || ctx.horario;
 
       const algo =
@@ -496,13 +510,26 @@ export function renderBloqueNegocio(ctx: BusinessContext): string {
 
   if (ctx.garantia) {
     l.push(`• Garantía: ${ctx.garantia.descripcion}`);
+  } else {
+    // Estaba colgado del `else` del TONO: con tono cargado nunca se avisaba
+    // que faltaba la garantía, y sin tono se avisaba aunque estuviera.
+    sinConfirmar.push("si hay garantía o devolución");
   }
   if (ctx.tono) {
     // El tono va en el bloque del negocio, no en el prompt fijo: es lo que
     // cambia entre una funeraria y una tienda de zapatillas.
     l.push(`• Tono: ${ctx.tono}`);
-  } else {
-    sinConfirmar.push("si hay garantía o devolución");
+  }
+
+  // Condiciones de lo que se despacha: solo cuando el negocio las confirmó.
+  // Con el respaldo no se escriben acá (el bloque de dropshipping ya las
+  // inyecta cuando hay un físico en juego) para no afirmar "contraentrega"
+  // a un negocio de servicios que nunca lo dijo.
+  if (ctx.condiciones?.fuente === "perfil") {
+    const c = ctx.condiciones;
+    l.push(`• País: ${c.pais}`);
+    l.push(`• Lo que se despacha: ${c.envio.plazo}, ${c.envio.cobertura}. ${fraseCostoEnvio(c)}. ${frasePagoEnvio(c)}.`);
+    if (c.agenda) l.push(`• Cómo se agenda un servicio: ${c.agenda}`);
   }
 
   if (ctx.acceso) {

@@ -1625,7 +1625,7 @@ export const TOOLS: ToolDef[] = [
   {
     name: "create_product",
     description: "Crear un producto o servicio nuevo. Si das 'category' (texto) y no un 'categoryId' puntual, se resuelve/crea automáticamente la categoría real -- nunca queda un producto con la etiqueta de texto desconectada de la categoría real (eso es lo que rompía el filtrado por categoría antes).",
-    args: '{ "name": string (req), "price"?: number, "currency"?: string, "description"?: string, "category"?: string, "categoryId"?: number, "kind"?: "digital"|"service"|"physical", "imageUrl"?: string, "features"?: string[], "deliveryLink"?: string, "paymentLink"?: string, "isActive"?: boolean }',
+    args: '{ "name": string (req), "price"?: number, "currency"?: string, "description"?: string, "category"?: string, "categoryId"?: number, "kind"?: "digital"|"physical"|"service" (cita/asesoría/atención personal: se agenda)|"subscription" (cobro recurrente)|"quote" (sin precio cerrado: se cotiza)|"lead" (el cierre lo hace un asesor humano), "imageUrl"?: string, "features"?: string[], "deliveryLink"?: string, "paymentLink"?: string, "isActive"?: boolean }',
     run: async (args, ctx) => {
       if (!args.name) return { ok: false, summary: "Falta 'name'" };
       const { resolveCategoryId } = await import("./product-categories");
@@ -5749,7 +5749,7 @@ Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vincu
       "⚠️ Va por propose_action: cambia lo que el bot le dice a TODOS los clientes. " +
       "Un dato inventado acá se convierte en una promesa falsa repetida en cada conversación. " +
       "Mostrá primero el estado con agente_inspectar ANTES de proponer cambios.",
-    args: '{ "descripcion"?: string, "nicho"?: string, "cobertura"?: string, "horario"?: string, "entrega"?: { "metodo": string, "plazo": string, "detalle"?: string }, "garantia"?: { "dias": number, "descripcion"?: string }, "acceso"?: { "tipo": string, "descripcion"?: string }, "noPuede"?: string[], "loQueDebeSaber"?: string[], "tono"?: string, "modoCatalogo"?: "digital" | "fisico" | "mixto" (qué ve el agente en el catálogo: "digital" y "fisico" ESCONDEN el otro tipo de producto; "mixto" muestra todo) }',
+    args: '{ "descripcion"?: string, "nicho"?: string, "cobertura"?: string, "horario"?: string, "entrega"?: { "metodo": string, "plazo": string, "detalle"?: string }, "garantia"?: { "dias": number, "descripcion"?: string }, "acceso"?: { "tipo": string, "descripcion"?: string }, "noPuede"?: string[], "loQueDebeSaber"?: string[], "tono"?: string, "modoCatalogo"?: "digital" | "fisico" | "mixto" (qué ve el agente en el catálogo: "digital" y "fisico" ESCONDEN el otro tipo de producto; "mixto" muestra todo), "pais"?: string (ISO-2, ej "CO", "MX"), "envio"?: { "plazo"?: string, "pago"?: "contraentrega"|"anticipado"|"ambos", "costo"?: string ("incluido" o el valor), "cobertura"?: string } (cómo despacha y cobra lo FÍSICO este negocio; sin esto el bot usa 3-5 días/contraentrega/envío incluido, que son las condiciones del dueño de la plataforma, no las del negocio), "agenda"?: string (cómo se agenda un servicio) }',
     run: async (args, ctx) => {
       const [t] = await db.select().from(tenants).where(eq(tenants.id, ctx.tenantId)).limit(1);
       if (!t) return { ok: false, summary: "No se encontró el negocio." };
@@ -5777,6 +5777,19 @@ Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vincu
       if (args.modoCatalogo !== undefined) {
         const modo = String(args.modoCatalogo).toLowerCase();
         if (modo === "digital" || modo === "fisico" || modo === "mixto") cambios.modoCatalogo = modo;
+      }
+      // Condiciones que antes estaban fijas en código (ver modelo-de-negocio.ts).
+      if (args.pais !== undefined) cambios.pais = String(args.pais).trim();
+      if (args.agenda !== undefined) cambios.agenda = String(args.agenda).trim();
+      if (args.envio !== undefined) {
+        const e = args.envio && typeof args.envio === "object" ? args.envio : { plazo: String(args.envio) };
+        const pagoTxt = String(e.pago ?? "").toLowerCase();
+        cambios.envio = {
+          ...(e.plazo ? { plazo: String(e.plazo) } : {}),
+          ...(pagoTxt ? { pago: /contra|recib/.test(pagoTxt) ? "contraentrega" : /ambos|los dos|cualquiera/.test(pagoTxt) ? "ambos" : /anticip|antes|adelant|previo/.test(pagoTxt) ? "anticipado" : undefined } : {}),
+          ...(e.costo ? { costo: String(e.costo) } : {}),
+          ...(e.cobertura ? { cobertura: String(e.cobertura) } : {}),
+        };
       }
 
       if (Object.keys(cambios).length === 0) {

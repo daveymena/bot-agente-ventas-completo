@@ -714,7 +714,7 @@ components:
 
     ProductKind:
       type: string
-      enum: [digital, physical, service]
+      enum: [digital, physical, service, subscription, quote, lead]
 
     ConversationSummary:
       type: object
