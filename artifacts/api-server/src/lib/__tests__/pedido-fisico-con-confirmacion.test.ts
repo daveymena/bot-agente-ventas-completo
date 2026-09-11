@@ -107,7 +107,7 @@ describe("todos los datos de una vez (decisión del dueño)", () => {
     expect(d.telefono).toBe("3001234567");
     expect(d.direccion).toMatch(/^Calle 45 #12-30/);
     expect(d.barrio).toBe("La Floresta");
-    expect(d.ciudad).toBe("Medellin");
+    expect(d.ciudad).toBe("Medellín");
     expect(d.departamento).toBe("Antioquia");
     expect(d.notas).toMatch(/panadería El Trigal/);
   });
@@ -118,7 +118,7 @@ describe("todos los datos de una vez (decisión del dueño)", () => {
     );
     expect(d.nombre).toBe("Ana Ruiz");
     expect(d.telefono).toBe("3105558899");
-    expect(d.ciudad).toBe("Bogota");
+    expect(d.ciudad).toBe("Bogotá");
     expect(d.notas).toMatch(/estación Calle 26/);
   });
 

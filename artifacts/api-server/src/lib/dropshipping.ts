@@ -314,10 +314,19 @@ export function extraerDatosDeEnvio(
   // Ciudad conocida primero: resuelve tambien el departamento sin preguntarlo.
   // Va ANTES que el departamento porque "bogota" figura en las dos listas y
   // la ciudad es el dato mas especifico.
+  // Se copia como lo ESCRIBIÓ el cliente ("Medellín", no "Medellin"): la
+  // clave sin tildes sirve para buscar, no para mostrar en el resumen. Como
+  // `plano` conserva el largo del original, el mismo índice sirve en los dos.
+  const comoLoEscribio = (clave: string): string => {
+    const i = plano.indexOf(clave);
+    const original = i >= 0 && plano.length === t.length ? t.slice(i, i + clave.length) : clave;
+    return original.replace(/(^|\s)(\p{L})/gu, (_, sp, ch) => sp + ch.toUpperCase());
+  };
+
   if (!yaTengo.ciudad) {
     const ciu = Object.keys(CIUDAD_A_DEPARTAMENTO).find((c) => contienePalabra(plano, c));
     if (ciu) {
-      encontrado.ciudad = ciu.replace(/\b\w/g, (c) => c.toUpperCase());
+      encontrado.ciudad = comoLoEscribio(ciu);
       if (!yaTengo.departamento) encontrado.departamento = CIUDAD_A_DEPARTAMENTO[ciu]!;
     }
   }
@@ -325,7 +334,7 @@ export function extraerDatosDeEnvio(
   // Departamento explícito, solo si la ciudad no lo resolvió.
   if (!yaTengo.departamento && !encontrado.departamento) {
     const dep = DEPARTAMENTOS.find((d) => contienePalabra(plano, d));
-    if (dep) encontrado.departamento = dep.replace(/\b\w/g, (c) => c.toUpperCase());
+    if (dep) encontrado.departamento = comoLoEscribio(dep);
   }
 
   // Dirección.
