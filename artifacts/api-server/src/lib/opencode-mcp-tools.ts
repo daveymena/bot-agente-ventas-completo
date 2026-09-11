@@ -73,11 +73,12 @@ const CONTRATO_COMPLETO = new Set<string>([
   "crear_anuncio",
   "fb_upload_draft_to_meta",
   "fb_create_ad",
-  // Productos y agente: los otros dos lugares donde un campo mal nombrado
+  // Productos y agente: los otros lugares donde un campo mal nombrado
   // termina en un plan que el admin aprueba y falla después.
   "create_product",
   "update_product",
   "update_agent",
+  "agente_crear",
 ]);
 
 /** JSON Schema mínimo por herramienta, a mano -- son datos sensibles
@@ -414,6 +415,8 @@ export function describePlannedAction(a: { tool: string; args: any }): string {
       return `Crear categoría "${g.name ?? "?"}"`;
     case "update_agent":
       return `Actualizar el agente: ${Object.entries(g).map(([k, v]) => `${k}=${valorLegible(v)}`).join(", ")}`;
+    case "agente_crear":
+      return `Crear agente nuevo "${g.name ?? "?"}" — especialidad ${g.especialidad ?? "?"}${g.role ? ` (${g.role})` : ""}`;
     case "update_settings":
       return `Actualizar configuración: ${Object.entries(g).map(([k, v]) => `${k}=${valorLegible(v)}`).join(", ")}`;
     case "create_store":

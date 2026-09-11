@@ -1504,7 +1504,7 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: "get_agent",
-    description: "Ver la configuración heredada del agente y el motor que realmente responde WhatsApp.",
+    description: "Ver la configuración heredada del agente, el motor que responde WhatsApp y TODOS los agentes del negocio con su especialidad.",
     args: "{}",
     run: async (_args, ctx) => {
       // El tenant puede tener VARIOS agentes (el 1 tiene 4 activos a la vez).
@@ -1513,19 +1513,31 @@ export const TOOLS: ToolDef[] = [
       // Se fija el mismo criterio en los tres: activo primero, y entre esos el
       // más viejo (el principal). Ver agenteDelTenant.
       const [a] = await agenteDelTenant(ctx.tenantId);
-      if (!a) return { ok: true, summary: "No hay agente configurado", data: null };
+      const todos = await db.select().from(agents).where(eq(agents.tenantId, ctx.tenantId))
+        .orderBy(desc(agents.isActive), asc(agents.id));
       const atlasVentasActivo = process.env.ATLAS_WHATSAPP_ENABLED !== "false";
-      const motor = atlasVentasActivo ? "Atlas Ventas" : a.name;
+      const motor = atlasVentasActivo ? "Atlas Ventas" : a?.name;
+      if (!a) return { ok: true, summary: "No hay agente configurado", data: { todosLosAgentes: todos } };
       return {
         ok: true,
-        summary: `Motor que responde WhatsApp: ${motor}. Configuración heredada: ${a.name} (${a.role}).`,
+        summary:
+          `Motor que responde WhatsApp: ${motor}. Agentes del negocio: ${todos.length} ` +
+          `(${todos.filter((x: any) => x.isActive).length} activos). Principal: ${a.name} (${a.role}).`,
         data: {
           id: a.id,
           name: a.name,
           role: a.role,
           tone: a.tone,
           isActive: a.isActive,
+          especialidad: a.especialidad,
           whatsappReplyEngine: atlasVentasActivo ? "atlas_ventas" : "agent_template",
+          todosLosAgentes: todos.map((x: any) => ({
+            id: x.id,
+            name: x.name,
+            role: x.role,
+            especialidad: x.especialidad,
+            isActive: x.isActive,
+          })),
         },
       };
     },
@@ -1664,7 +1676,7 @@ export const TOOLS: ToolDef[] = [
   // ── Agente ──
   {
     name: "update_agent",
-    description: "Actualizar el agente de ventas (nombre, rol, tono, prompt, especialidad, metadata, activo). Crea uno si no existe.",
+    description: "Actualizar el agente de ventas PRINCIPAL (nombre, rol, tono, prompt, especialidad, metadata, activo). Crea uno si no existe. Para crear un agente NUEVO y ESPECIALIZADO adicional (por ejemplo, uno de dropshipping aparte del de digitales), usá agente_crear.",
     args: '{ "name"?, "role"?, "tone"?, "systemPrompt"?, "especialidad"?: "digital"|"dropshipping", "metadata"?: object, "isActive"?: boolean }',
     run: async (args, ctx) => {
       const [existing] = await agenteDelTenant(ctx.tenantId);
@@ -1748,6 +1760,81 @@ export const TOOLS: ToolDef[] = [
           `${args.systemPrompt ? "con el prompt que dictaste" : `basado en la plantilla experta "${plantilla.name}"`}, ` +
           `con ${plantilla.stages.length} etapas de venta configuradas.`,
         data: { id: row.id, plantilla: plantilla.agentType },
+      };
+    },
+  },
+
+  // ── Crear agente especializado adicional ──
+  //
+  // `update_agent` solo toca el agente PRINCIPAL (agenteDelTenant). Para que el
+  // admin pueda tener, por ejemplo, un agente de cursos digitales Y otro de
+  // dropshipping atendiendo WhatsApp por separado, hace falta una herramienta
+  // que cree agentes NUEVOS. Sin esto, Atlas decía "no puedo dar de alta un
+  // agente nuevo desde cero" -- y tenía razón: no existía la herramienta.
+  //
+  // La separación real la hace agent-router.ts: cada agente queda con su
+  // `especialidad` (digital | dropshipping) y el router lo elige según el tipo
+  // de producto que pide el cliente. Acá solo se crea la fila con la identidad
+  // y el prompt; el enrutado ya vive en otro lado y no se duplica.
+  {
+    name: "agente_crear",
+    description:
+      "Crea un agente de ventas NUEVO y ESPECIALIZADO, separado del que ya existe. " +
+      "Úsalo cuando el admin quiera un agente aparte para atender una línea de negocio distinta " +
+      "(por ejemplo, uno de dropshipping para producto físico además del de cursos digitales). " +
+      "'especialidad' es obligatoria y es lo que decide el flujo: 'dropshipping' pide dirección y cédula " +
+      "para despachar por transportadora; 'digital' entrega con enlace sin pedir envío. " +
+      "Cada agente ve SOLO los productos de su especialidad y el sistema lo enruta automáticamente " +
+      "cuando un cliente pide un producto de ese tipo. " +
+      "Si no dictás 'systemPrompt', se usa una plantilla experta acorde al rol y la especialidad. " +
+      "⚠️ Va por propose_action: crear un agente es una acción real.",
+    args: '{ "name": string (req), "role"?: string, "especialidad": "digital"|"dropshipping" (req), "tone"?: string, "systemPrompt"?: string, "isActive"?: boolean }',
+    run: async (args, ctx) => {
+      if (!args.name || !String(args.name).trim()) {
+        return { ok: false, summary: "Falta 'name' (el nombre del agente nuevo)" };
+      }
+      const especialidad = String(args.especialidad || "").toLowerCase();
+      if (!["digital", "dropshipping"].includes(especialidad)) {
+        return {
+          ok: false,
+          summary:
+            "Falta 'especialidad' (obligatoria): debe ser 'digital' o 'dropshipping'. " +
+            "Es lo que decide qué productos ve el agente y qué flujo usa (envío físico vs enlace digital).",
+        };
+      }
+
+      // El límite del plan se comprueba ACA, no solo en la ruta HTTP. Igual que
+      // en update_agent: el middleware de límites no cubre este camino.
+      const { puedeCrear } = await import("./limites-plan");
+      const tenantDelLimite = await tenantManager.getTenantById(ctx.tenantId);
+      const permiso = await puedeCrear(ctx.tenantId, "agents", (tenantDelLimite as any)?.plan);
+      if (!permiso.permitido) return { ok: false, summary: permiso.motivo };
+
+      const { plantillaMasParecida } = await import("./agent-templates");
+      const plantilla = plantillaMasParecida(
+        [args.name, args.role, especialidad, args.descripcion].filter(Boolean).join(" "),
+      );
+
+      const [row] = await db.insert(agents).values({
+        tenantId: ctx.tenantId,
+        name: String(args.name).trim(),
+        role: args.role || plantilla.role,
+        tone: args.tone || plantilla.tone,
+        language: "es",
+        especialidad,
+        systemPrompt: args.systemPrompt || plantilla.systemPrompt,
+        stages: plantilla.stages,
+        isActive: args.isActive !== false,
+      } as any).returning();
+
+      return {
+        ok: true,
+        summary:
+          `Agente nuevo creado: #${row.id} ${row.name} (${row.role}) — especialidad ${especialidad}. ` +
+          `${args.systemPrompt ? "con el prompt que dictaste" : `basado en la plantilla experta "${plantilla.name}"`}, ` +
+          `con ${plantilla.stages.length} etapas de venta. ` +
+          `El sistema ya lo enruta automáticamente cuando un cliente pide un producto ${especialidad === "dropshipping" ? "físico (con envío)" : "digital (con enlace)"}.`,
+        data: { id: row.id, especialidad, plantilla: plantilla.agentType },
       };
     },
   },
@@ -6158,8 +6245,8 @@ const FAMILIAS: Array<{ cuando: RegExp; prefijos: string[] }> = [
   { cuando: /producto|precio|cat[aá]logo|curso|pack|stock|categor[ií]a|imagen/i,
     prefijos: ["product", "categor", "create_product", "update_product", "delete_product", "generate_image", "optimize_copy", "terabox"] },
   { cuando: /tienda|store|dominio|landing|web/i, prefijos: ["store", "domain", "landing"] },
-  { cuando: /agente|prompt|personalidad|bot|whatsapp|conversaci[oó]n|chat|lead|cliente/i,
-    prefijos: ["agent", "conversa", "lead", "whatsapp", "seguimiento", "followup"] },
+  { cuando: /agente|prompt|personalidad|bot|conversaci[oó]n|chat|lead|cliente/i,
+    prefijos: ["agent", "agente", "conversa", "lead", "whatsapp", "seguimiento", "followup"] },
   { cuando: /pago|cobr|nequi|transferen|suscripci|plan|factur/i, prefijos: ["payment", "pago", "subscription", "plan"] },
   { cuando: /modelo|ia\b|proveedor|clave|api key/i, prefijos: ["ai_", "test_ai", "model"] },
   // ── Métricas y plata: la pregunta más común no tenía familia ───────────

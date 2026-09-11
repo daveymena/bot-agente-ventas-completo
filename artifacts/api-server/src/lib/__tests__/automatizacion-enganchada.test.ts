@@ -161,3 +161,40 @@ describe("el dueño puede enseñarle al agente sin programar", () => {
     expect(READ_ONLY_TOOLS.has("agente_saber_producto")).toBe(false);
   });
 });
+
+describe("Atlas puede crear agentes especializados nuevos", () => {
+  // `update_agent` solo toca el agente PRINCIPAL. Para separar un negocio en
+  // dos líneas (cursos digitales + dropshipping físico), Atlas necesita poder
+  // dar de alta agentes NUEVOS. Sin esta herramienta, decía "no puedo dar de
+  // alta un agente nuevo desde cero" -- y tenía razón.
+  it("la herramienta para crear agentes existe", () => {
+    expect(nombres()).toContain("agente_crear");
+  });
+
+  it("crear un agente NO es de solo lectura", () => {
+    expect(READ_ONLY_TOOLS.has("agente_crear")).toBe(false);
+  });
+
+  it("crear un agente NO es destructivo", () => {
+    expect(DESTRUCTIVE_TOOLS.has("agente_crear")).toBe(false);
+  });
+
+  it("el contrato exige la especialidad, que es lo que separa las líneas", () => {
+    const t = TOOLS.find((x) => x.name === "agente_crear")!;
+    expect(t.args).toMatch(/especialidad/);
+    expect(t.args).toMatch(/dropshipping/);
+    expect(t.args).toMatch(/digital/);
+    expect(t.description.length).toBeGreaterThan(80);
+  });
+
+  it("el router le ofrece la herramienta cuando piden un agente de dropshipping", async () => {
+    // El bug real: la herramienta existía solo en el código, pero el recorte
+    // por familia no la alcanzaba, así que Atlas decía "no puedo crear un
+    // agente nuevo". Acá se comprueba que el pedido "crea un agente de
+    // dropshipping" de verdad la deja a la vista.
+    const { buildMcpToolRegistry } = await import("../opencode-mcp-tools");
+    const reg = buildMcpToolRegistry("crea un agente de dropshipping para producto fisico");
+    const propose = reg.find((t: any) => t.name === "propose_action") as any;
+    expect(String(propose?.description || "")).toContain("agente_crear");
+  });
+});
