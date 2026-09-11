@@ -31,7 +31,7 @@ import { requireAdmin, type TenantRequest } from "../lib/tenantManager";
 import { logger } from "../lib/logger";
 import { esUnSiParaEstePlan } from "../lib/es-un-si";
 import { correrTurnoDirecto, directoDisponible } from "../lib/atlas-directo";
-import { promptDeAtlas, executeAction, verifyMutation, investigacionRapida, mensajeParaAdmin, type OperatorContext } from "../lib/app-operator";
+import { promptDeAtlas, executeAction, verifyMutation, investigacionRapida, mensajeParaAdmin, isReadOnlyTool, type OperatorContext } from "../lib/app-operator";
 import {
   loadArchitectHistory, saveArchitectTurn, getPendingPlan, setPendingPlan,
   clearPendingPlan, isApproval, isRejection, loadRecentLessons,
@@ -1909,18 +1909,13 @@ router.post("/operator-opencode", requireAdmin(), async (req: TenantRequest, res
       // sí lo estuviera. Un aviso que se dispara sobre trabajo bien hecho es
       // peor que ninguno: enseña a ignorarlo.
       //
-      // Ahora la lista sale de las herramientas de lectura que EXISTEN de
-      // verdad (ver opencode-mcp-tools.ts).
-      const LEE_DATOS_DEL_NEGOCIO = [
-        "dashboard_summary",
-        "list_recent_conversations",
-        "list_products",
-        "list_categories",
-        "get_agent",
-        "get_settings",
-        "get_store",
-      ];
-      const leyoMetricas = lecturas.some((t) => LEE_DATOS_DEL_NEGOCIO.includes(t));
+      // Segunda vuelta (2026-09-11): la lista corregida seguía siendo una
+      // lista a mano de 7 nombres, y volvió a disparar sobre trabajo bien
+      // hecho -- `marketing_diagnostico` trajo "7 leads, 330 mensajes, 0
+      // pagos" de la base y el aviso dijo que no se habían consultado. Ya no
+      // se enumera: cualquier herramienta de LECTURA registrada cuenta como
+      // consulta (READ_ONLY_TOOLS es la fuente de verdad de cuáles leen).
+      const leyoMetricas = lecturas.some((t) => isReadOnlyTool(t));
       if (!leyoMetricas && AFIRMA_NUMEROS.test(finalReplyVerificado || "")) {
         logger.warn({ tenantId, sessionId, lecturas }, "[AtlasOpenCode] Dio números del negocio sin consultarlos -- se corrige la respuesta");
         finalReplyVerificado =
