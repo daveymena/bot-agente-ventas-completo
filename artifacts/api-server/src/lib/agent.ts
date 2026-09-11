@@ -1224,10 +1224,18 @@ export async function runAgentReply(conversationId: number) {
   // Se habilita por defecto para sustituir el agente basado en plantillas; el
   // dueño puede volver temporalmente al flujo anterior con =false.
   const atlasWhatsAppEnabled = process.env.ATLAS_WHATSAPP_ENABLED !== "false";
-  const atlasSalesPrompt = `Te llamas Atlas Ventas. Atiendes por WhatsApp como el asesor comercial experto de este negocio.
+  // El motor es uno ("Atlas Ventas"), pero la IDENTIDAD y las instrucciones
+  // son las del agente que eligió el enrutador (agent-router.ts manda al de
+  // digitales o al de dropshipping según el producto que pidió el cliente).
+  // Antes este prompt decía "Te llamas Atlas Ventas" a secas e ignoraba
+  // `activeAgent.systemPrompt`: el dueño configuraba rol, tono y reglas en el
+  // panel y nada de eso llegaba al modelo -- y encima el bloque del negocio,
+  // tres párrafos más abajo, decía "Vos sos: Sofía". Gana lo primero que lee.
+  const instruccionesDelAgente = String(activeAgent.systemPrompt || "").trim();
+  const atlasSalesPrompt = `Te llamas ${voice.agentName}${voice.agentRole ? `, ${voice.agentRole}` : ""} de ${voice.businessName}. Atiendes por WhatsApp como el asesor comercial experto de este negocio.
 
 Estás conversando con ${nombreCorto || customerName}. Entiende la conversación completa, responde a la necesidad real del cliente y guía la venta con naturalidad. No eres un bot de menú ni repites plantillas.
-
+${instruccionesDelAgente ? `\nINSTRUCCIONES DEL DUEÑO PARA VOS (mandan sobre el estilo genérico de abajo, nunca sobre los datos del negocio ni del catálogo):\n${instruccionesDelAgente}\n` : ""}
 TU ALCANCE ES SOLO COMERCIAL:
 - Puedes explicar productos, resolver dudas, comparar opciones y acompañar una compra.
 - No puedes cambiar precios, inventario, configuraciones, productos, descuentos, enlaces, números de cuenta ni políticas.
@@ -1554,37 +1562,69 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
       }
 
       if (pedido) {
-        // Lo que el cliente acaba de escribir puede traer datos de envío:
-        // se leen y se guardan sin pedirle que llene ningún formulario.
-        const nuevos = ds.extraerDatosDeEnvio(lastText, pedido);
-        if (Object.keys(nuevos).length > 0) {
-          pedido = (await ds.guardarDatos(pedido.id, nuevos)) || pedido;
-          console.log(`📋 [DROPSHIPPING] Datos capturados: ${Object.keys(nuevos).join(", ")} - ${ts()}`);
+        // ── El "sí" al resumen: recién acá se registra ──────────────────
+        //
+        // Va ANTES de leer datos del mensaje: un "sí, confirmo" no trae datos
+        // y no tiene que pasar por el extractor. Y se exige que el pedido
+        // esté en `por_confirmar`, o sea que el resumen YA se mostró: el
+        // mismo "sí" en cualquier otro momento contesta otra cosa.
+        if (ds.confirmaElPedido(lastText, pedido)) {
+          await ds.marcarEstado(pedido.id, "confirmado");
+          pedido.estado = "confirmado";
         }
 
-        const faltan = ds.datosQueFaltan(pedido);
-        if (faltan.length === 0 && pedido.estado === "completo") {
+        if (pedido.estado === "confirmado") {
           const r = await ds.despacharPedido(pedido);
           bloqueDropshipping = r.ok
-            ? `\n\n✅ PEDIDO CONFIRMADO (#${r.wooOrderId}). Ya quedó registrado y se despacha.\n`
-              + `Confirmáselo al cliente con entusiasmo, repetile la dirección a la que llega y decile que la entrega es en ${ds.HECHOS_DROPSHIPPING.diasDeEntrega} y que paga al recibir.\n`
-              + `NO le pidas más datos: ya están todos.`
-            : `\n\n⚠️ Los datos están completos pero el pedido NO se pudo registrar (${r.error}).\n`
+            ? `\n\n✅ PEDIDO REGISTRADO (#${r.wooOrderId}). Ya quedó creado y se despacha.\n`
+              + `Confirmáselo al cliente, ordenado y en líneas cortas: producto, total con envío incluido, pago contraentrega al recibir, la dirección exacta a la que llega (${pedido.direccion}${pedido.barrio ? `, barrio ${pedido.barrio}` : ""} — ${pedido.ciudad}, ${pedido.departamento}), que la entrega es en ${ds.HECHOS_DROPSHIPPING.diasDeEntrega} y que le compartís el número de guía por este chat apenas la transportadora lo genere.\n`
+              + `NO le pidas más datos: ya están todos. NO inventes número de guía.`
+            : `\n\n⚠️ El cliente confirmó pero el pedido NO se pudo registrar (${r.error}).\n`
               + `Decile que ya tomaste sus datos y que en un momento le confirmás el despacho. NO inventes número de pedido ni de guía.`;
           console.log(`📦 [DROPSHIPPING] Despacho: ${r.ok ? `orden Woo #${r.wooOrderId}` : `FALLÓ (${r.error})`} - ${ts()}`);
         } else {
-          const ya = ds.CAMPOS_DE_ENVIO
-            .filter((c) => String((pedido as any)[c.campo] ?? "").trim())
-            .map((c) => `${c.campo}: ${(pedido as any)[c.campo]}`);
-          const siguiente = ds.CAMPOS_DE_ENVIO.find((c) => c.campo === faltan[0]);
-          bloqueDropshipping =
-            `\n\n📦 PEDIDO EN CURSO — ${pedido.productName}\n`
-            + (ya.length ? `Datos que YA tienes (no los vuelvas a pedir): ${ya.join(" · ")}\n` : "")
-            + `Todavía falta: ${faltan.join(", ")}.\n`
-            + (siguiente
-              ? `Pedí SOLO esto ahora, con tus palabras y en una línea: ${variante(siguiente.pregunta, `${conversationId}|${siguiente.campo}`)}\n`
-              : "")
-            + `Una cosa a la vez. Nunca mandes la lista entera de datos de golpe.`;
+          // Lo que el cliente acaba de escribir puede traer datos de envío:
+          // se leen y se guardan sin pedirle que llene ningún formulario.
+          // Si estaba esperando el sí y en vez de eso manda un dato, es una
+          // corrección: se pisa lo que había y se vuelve a mostrar el resumen.
+          const corrigiendo = pedido.estado === "por_confirmar";
+          const nuevos = ds.extraerDatosDeEnvio(lastText, corrigiendo ? {} : pedido);
+          if (Object.keys(nuevos).length > 0) {
+            pedido = (await ds.guardarDatos(pedido.id, nuevos)) || pedido;
+            console.log(`📋 [DROPSHIPPING] Datos ${corrigiendo ? "corregidos" : "capturados"}: ${Object.keys(nuevos).join(", ")} - ${ts()}`);
+          }
+
+          const faltan = ds.datosQueFaltan(pedido);
+          const zona = faltan.length === 0 ? ds.verificarZona(pedido) : { ok: false as const };
+
+          if (faltan.length === 0 && zona.ok) {
+            // Datos completos y zona verificada: resumen + pedir el sí.
+            if (pedido.estado !== "por_confirmar") {
+              await ds.marcarEstado(pedido.id, "por_confirmar");
+              pedido.estado = "por_confirmar";
+            }
+            bloqueDropshipping =
+              `\n\n📦 PEDIDO LISTO PARA CONFIRMAR — ${pedido.productName}\n`
+              + `Verificaste los datos y hay despacho a ${pedido.ciudad}, ${pedido.departamento}. Decíselo en una línea y mostrale ESTE resumen tal cual, línea por línea:\n`
+              + `${ds.resumenDelPedido(pedido)}\n`
+              + `Cerrá preguntando si confirma el pedido y el envío a esa dirección. TODAVÍA NO está registrado: no digas que quedó registrado ni inventes número de pedido. Si él corrige un dato, tomalo y volvé a mostrar el resumen.`;
+          } else if (faltan.length === 0 && !zona.ok) {
+            // Todo vino, pero la ciudad y el departamento no cierran entre sí.
+            bloqueDropshipping =
+              `\n\n📦 PEDIDO EN CURSO — ${pedido.productName}\n`
+              + `Los datos están completos pero la zona no verifica: ${zona.motivo}.\n`
+              + `Pedile que te confirme la ciudad y el departamento correctos antes de seguir. NO registres nada ni prometas despacho todavía.`;
+          } else {
+            const ya = ds.CAMPOS_DE_ENVIO
+              .filter((c) => String((pedido as any)[c.campo] ?? "").trim())
+              .map((c) => `${c.campo}: ${(pedido as any)[c.campo]}`);
+            bloqueDropshipping =
+              `\n\n📦 PEDIDO EN CURSO — ${pedido.productName}\n`
+              + (ya.length ? `Datos que YA tienes (no los vuelvas a pedir): ${ya.join(" · ")}\n` : "")
+              + `Pedile TODOS los que faltan de una sola vez, con una frase corta tuya y después esta lista numerada tal cual:\n`
+              + `${ds.listaDeDatosQueFaltan(pedido)}\n`
+              + `Decile que apenas los mande verificás la ciudad y la disponibilidad de despacho y le mostrás el resumen para confirmar. No registres nada todavía.`;
+          }
         }
       }
 

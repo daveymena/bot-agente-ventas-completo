@@ -1345,6 +1345,43 @@ async function agenteDelTenant(tenantId: number) {
     .orderBy(desc(agents.isActive), asc(agents.id)).limit(1);
 }
 
+/**
+ * Acepta las formas con que el modelo llama a `agente_conocimiento` y las
+ * lleva todas a `{ agregar: { debeSaber, noPuede }, quitar: {...} }`.
+ *
+ * Formas vistas: `{ agregar: {...} }` (la del contrato), `{ loQueDebeSaber,
+ * noPuede }` (la del perfil), `{ debeSaber, restricciones }`, y cualquiera
+ * de ellas con un `agenteId` de más. Un string suelto cuenta como lista de
+ * uno.
+ */
+export function normalizarArgsDeConocimiento(args: any): {
+  agregar?: { debeSaber?: string[]; noPuede?: string[] };
+  quitar?: { debeSaber?: string[]; noPuede?: string[] };
+} {
+  const a = args && typeof args === "object" ? args : {};
+  const lista = (v: unknown): string[] | undefined => {
+    if (v === undefined || v === null) return undefined;
+    const arr = Array.isArray(v) ? v : [v];
+    const limpia = arr.map((x) => String(x ?? "").trim()).filter(Boolean);
+    return limpia.length ? limpia : undefined;
+  };
+  const agregar = { ...(a.agregar && typeof a.agregar === "object" ? a.agregar : {}) };
+  const quitar = { ...(a.quitar && typeof a.quitar === "object" ? a.quitar : {}) };
+
+  const planoSaber = lista(a.loQueDebeSaber ?? a.debeSaber ?? a.saber ?? a.mustKnow);
+  const planoNoPuede = lista(a.noPuede ?? a.restricciones ?? a.limites ?? a.cannotDo);
+  if (planoSaber) agregar.debeSaber = [...(lista(agregar.debeSaber) ?? []), ...planoSaber];
+  if (planoNoPuede) agregar.noPuede = [...(lista(agregar.noPuede) ?? []), ...planoNoPuede];
+  // `agregar: { loQueDebeSaber }` también se ha visto.
+  if (agregar.loQueDebeSaber) { agregar.debeSaber = [...(lista(agregar.debeSaber) ?? []), ...lista(agregar.loQueDebeSaber)!]; delete agregar.loQueDebeSaber; }
+  if (agregar.restricciones) { agregar.noPuede = [...(lista(agregar.noPuede) ?? []), ...lista(agregar.restricciones)!]; delete agregar.restricciones; }
+
+  const out: ReturnType<typeof normalizarArgsDeConocimiento> = {};
+  if (lista(agregar.debeSaber) || lista(agregar.noPuede)) out.agregar = { debeSaber: lista(agregar.debeSaber), noPuede: lista(agregar.noPuede) };
+  if (lista(quitar.debeSaber) || lista(quitar.noPuede)) out.quitar = { debeSaber: lista(quitar.debeSaber), noPuede: lista(quitar.noPuede) };
+  return out;
+}
+
 // ─── Registro de herramientas ────────────────────────────────────────────────
 export const TOOLS: ToolDef[] = [
   // ── Lectura / diagnóstico ──
@@ -5696,7 +5733,7 @@ Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vincu
       "⚠️ Va por propose_action: cambia lo que el bot le dice a TODOS los clientes. " +
       "Un dato inventado acá se convierte en una promesa falsa repetida en cada conversación. " +
       "Mostrá primero el estado con agente_inspectar ANTES de proponer cambios.",
-    args: '{ "descripcion"?: string, "nicho"?: string, "cobertura"?: string, "horario"?: string, "entrega"?: { "metodo": string, "plazo": string, "detalle"?: string }, "garantia"?: { "dias": number, "descripcion"?: string }, "acceso"?: { "tipo": string, "descripcion"?: string }, "noPuede"?: string[], "loQueDebeSaber"?: string[], "tono"?: string }',
+    args: '{ "descripcion"?: string, "nicho"?: string, "cobertura"?: string, "horario"?: string, "entrega"?: { "metodo": string, "plazo": string, "detalle"?: string }, "garantia"?: { "dias": number, "descripcion"?: string }, "acceso"?: { "tipo": string, "descripcion"?: string }, "noPuede"?: string[], "loQueDebeSaber"?: string[], "tono"?: string, "modoCatalogo"?: "digital" | "fisico" | "mixto" (qué ve el agente en el catálogo: "digital" y "fisico" ESCONDEN el otro tipo de producto; "mixto" muestra todo) }',
     run: async (args, ctx) => {
       const [t] = await db.select().from(tenants).where(eq(tenants.id, ctx.tenantId)).limit(1);
       if (!t) return { ok: false, summary: "No se encontró el negocio." };
@@ -5708,11 +5745,23 @@ Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vincu
       for (const campo of ["descripcion", "nicho", "cobertura", "horario", "tono"]) {
         if (args[campo] !== undefined) cambios[campo] = String(args[campo]);
       }
-      for (const campo of ["entrega", "garantia", "acceso"]) {
-        if (args[campo] !== undefined) cambios[campo] = args[campo];
-      }
+      // `entrega`, `garantia` y `acceso` son OBJETOS para quien los lee
+      // (business-context.ts: `leerEntrega` exige `metodo`). El modelo los
+      // manda seguido como texto ("3 a 5 días hábiles, envío incluido"): se
+      // guardaba el string, el lector devolvía null y el resumen decía
+      // "actualizado: entrega" mientras el agente seguía sin saber cómo se
+      // entrega (pasó el 11-09-2026). Se convierten acá, y abajo se verifica
+      // contra el lector real qué quedó vivo.
+      const { entregaDesdeTexto, garantiaDesdeTexto, accesoDesdeTexto } = await import("./perfil-negocio-desde-texto");
+      if (args.entrega !== undefined) cambios.entrega = entregaDesdeTexto(args.entrega);
+      if (args.garantia !== undefined) cambios.garantia = garantiaDesdeTexto(args.garantia);
+      if (args.acceso !== undefined) cambios.acceso = accesoDesdeTexto(args.acceso);
       if (args.noPuede !== undefined) cambios.noPuede = Array.isArray(args.noPuede) ? args.noPuede : [args.noPuede];
       if (args.loQueDebeSaber !== undefined) cambios.loQueDebeSaber = Array.isArray(args.loQueDebeSaber) ? args.loQueDebeSaber : [args.loQueDebeSaber];
+      if (args.modoCatalogo !== undefined) {
+        const modo = String(args.modoCatalogo).toLowerCase();
+        if (modo === "digital" || modo === "fisico" || modo === "mixto") cambios.modoCatalogo = modo;
+      }
 
       if (Object.keys(cambios).length === 0) {
         return { ok: false, summary: "No mandaste ningún campo para guardar." };
@@ -5723,13 +5772,29 @@ Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vincu
         .set({ metadata: { ...meta, businessProfile: { ...bp, ...cambios } } })
         .where(eq(tenants.id, ctx.tenantId));
 
-      const { invalidarContextoDeNegocio } = await import("./business-context");
+      const { invalidarContextoDeNegocio, getBusinessContext } = await import("./business-context");
       invalidarContextoDeNegocio(ctx.tenantId);
 
+      // Se reporta lo que el agente VE, no lo que se escribió: si un campo
+      // no sobrevivió al lector, el admin tiene que enterarse ahora y no en
+      // la próxima conversación con un cliente.
+      const visto = await getBusinessContext(ctx.tenantId).catch(() => null);
+      const perdidos = (["entrega", "garantia", "acceso"] as const)
+        .filter((c) => c in cambios && visto && !(visto as any)[c]);
+      const guardados = Object.keys(cambios).filter((c) => !perdidos.includes(c as any));
+
       return {
-        ok: true,
-        summary: `Perfil del negocio actualizado: ${Object.keys(cambios).join(", ")}. El agente ya lo usa en la próxima conversación.`,
-        data: { camposModificados: Object.keys(cambios) },
+        ok: perdidos.length === 0,
+        summary: perdidos.length === 0
+          ? `Perfil del negocio actualizado: ${guardados.join(", ")}. El agente ya lo usa en la próxima conversación.`
+          : `Perfil actualizado: ${guardados.join(", ") || "nada"}. ⚠️ NO quedaron: ${perdidos.join(", ")} — el agente no los ve. Mandalos así: entrega {metodo, plazo, detalle}, garantia {dias, descripcion}, acceso {tipo, descripcion}.`,
+        data: {
+          camposModificados: guardados,
+          camposPerdidos: perdidos,
+          modoCatalogo: visto?.modoCatalogo ?? null,
+          entrega: visto?.entrega ?? null,
+          garantia: visto?.garantia ?? null,
+        },
       };
     },
   },
@@ -5837,6 +5902,16 @@ Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vincu
       const bp = (meta.businessProfile || {}) as Record<string, any>;
       let debeSaber: string[] = Array.isArray(bp.loQueDebeSaber) ? [...bp.loQueDebeSaber] : [];
       let noPuede: string[] = Array.isArray(bp.noPuede) ? [...bp.noPuede] : [];
+      const antes = { debeSaber: debeSaber.length, noPuede: noPuede.length };
+
+      // El modelo manda seguido la forma PLANA: `{ loQueDebeSaber: [...],
+      // noPuede: [...] }` o `{ debeSaber, restricciones }`, con o sin un
+      // `agenteId` que acá no aplica (el conocimiento es del negocio, lo
+      // comparten todos sus agentes). Con la forma plana esta función no
+      // agregaba nada y respondía "✅ Conocimiento actualizado: 3 cosas" -- el
+      // conteo de lo que ya había (pasó el 11-09-2026 con el flujo de
+      // dropshipping entero). Se acepta la forma plana como `agregar`.
+      args = normalizarArgsDeConocimiento(args);
 
       if (args.agregar?.debeSaber) {
         for (const item of args.agregar.debeSaber) {
@@ -5863,6 +5938,18 @@ Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vincu
         noPuede = noPuede.filter((x) => !bajar.includes(x.toLowerCase()));
       }
 
+      const cambio = debeSaber.length !== antes.debeSaber || noPuede.length !== antes.noPuede;
+      if (!cambio) {
+        // Decir "actualizado" sin haber cambiado nada es peor que fallar:
+        // el admin da por hecho que el agente ya lo sabe.
+        return {
+          ok: false,
+          summary: `No se agregó ni se quitó nada (sigue en ${debeSaber.length} cosas que debe saber y ${noPuede.length} restricciones). `
+            + `Mandá { "agregar": { "debeSaber": [...], "noPuede": [...] } } o { "quitar": {...} } con textos que no estén ya cargados.`,
+          data: { loQueDebeSaber: debeSaber, noPuede, argumentosRecibidos: Object.keys(args || {}) },
+        };
+      }
+
       await db
         .update(tenants)
         .set({ metadata: { ...meta, businessProfile: { ...bp, loQueDebeSaber: debeSaber, noPuede } } })
@@ -5871,9 +5958,10 @@ Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vincu
       const { invalidarContextoDeNegocio } = await import("./business-context");
       invalidarContextoDeNegocio(ctx.tenantId);
 
+      const agregadas = (debeSaber.length - antes.debeSaber) + (noPuede.length - antes.noPuede);
       return {
         ok: true,
-        summary: `Conocimiento actualizado: ${debeSaber.length} cosas que debe saber, ${noPuede.length} restricciones.`,
+        summary: `Conocimiento actualizado (${agregadas >= 0 ? `+${agregadas}` : agregadas}): ${debeSaber.length} cosas que debe saber, ${noPuede.length} restricciones.`,
         data: { loQueDebeSaber: debeSaber, noPuede },
       };
     },

@@ -7,12 +7,19 @@
  * no había tabla de pedidos. El agente podía cerrar la venta y los datos se
  * perdían en el aire.
  *
- * Este módulo hace tres cosas:
+ * Este módulo hace cuatro cosas:
  *   1. Leer los datos de envío de lo que el cliente escribe, sin formulario.
- *   2. Saber qué falta y pedir UNA cosa a la vez.
- *   3. Cuando está completo, crear el pedido en WooCommerce (que es quien lo
+ *   2. Saber qué falta y pedirlo TODO junto en una lista (decisión del dueño,
+ *      11-09-2026: "mejor es pedirle todos los datos y luego verificamos").
+ *   3. Con los datos completos, verificar la zona, mostrar el resumen y pedir
+ *      una confirmación EXPLÍCITA. Nada se despacha con un dato a medias ni
+ *      sin un "sí": en contraentrega un pedido mal creado lo paga el negocio.
+ *   4. Recién con el "sí", crear el pedido en WooCommerce (que es quien lo
  *      empuja a Dropi — la API de Dropi rechaza nuestros tokens por diseño,
  *      ver dropi.ts).
+ *
+ * Estados: borrador → completo (faltan 0 datos) → por_confirmar (se mostró el
+ * resumen) → confirmado (el cliente dijo que sí) → enviado (orden en Woo).
  */
 import { db, pool, products } from "@workspace/db";
 import { eq } from "drizzle-orm";
@@ -138,12 +145,88 @@ export function contextoDeDropshipping(): string {
     "🚚 PRODUCTO FÍSICO — ENTREGA A DOMICILIO",
     `• Tiempo de entrega: ${HECHOS_DROPSHIPPING.diasDeEntrega}. SIEMPRE ese, para toda Colombia.`,
     "  Es un dato FIJO del negocio: decilo con seguridad y NUNCA lo cambies según la ciudad ni lo estimes.",
+    "• El envío va INCLUIDO en el precio: no se cobra aparte ni se cotiza por ciudad.",
     "• Pago CONTRA ENTREGA: el cliente paga en efectivo cuando recibe el paquete. No se cobra por adelantado.",
     "• NO se entrega por Google Drive ni por link: esto se despacha físicamente.",
-    "• Para despacharlo necesitas: nombre completo, ciudad, departamento, dirección, celular y cédula.",
-    "  Pedí UNO a la vez, con naturalidad. Nunca mandes la lista completa de golpe.",
+    "• Para despacharlo necesitas: nombre completo, cédula, celular, dirección con barrio, ciudad, departamento y un punto de referencia.",
+    "  Cuando el cliente quiera comprar, pedíselos TODOS JUNTOS en una lista numerada (el sistema te dice cuáles faltan).",
+    "  Después se verifican, se le muestra el resumen y se registra SOLO cuando él confirma con un sí.",
     "• Nunca inventes número de guía ni fecha exacta de llegada: solo el rango de arriba.",
+    "• Nunca digas que el pedido quedó registrado si el sistema no te lo confirma abajo.",
   ].join("\n");
+}
+
+/** Cómo se le pide cada dato en la lista numerada (una línea por dato). */
+const ETIQUETA_DEL_DATO: Record<keyof DatosDeEnvio, string> = {
+  nombre: "Nombre y apellido completos",
+  documento: "Cédula (la pide la transportadora)",
+  telefono: "Celular de contacto",
+  direccion: "Dirección completa: calle o carrera, número, torre o apto",
+  barrio: "Barrio",
+  ciudad: "Ciudad",
+  departamento: "Departamento",
+  notas: "Un punto de referencia cerca (panadería, parque, tienda)",
+};
+
+/**
+ * La lista numerada con los datos que FALTAN, lista para que el agente la
+ * pegue. Solo los que faltan: si el cliente ya mandó la mitad, no se le
+ * vuelve a pedir lo que ya dio.
+ */
+export function listaDeDatosQueFaltan(d: DatosDeEnvio): string {
+  const orden: Array<keyof DatosDeEnvio> = [
+    "nombre", "documento", "telefono", "direccion", "barrio", "ciudad", "departamento", "notas",
+  ];
+  const faltan = orden.filter((c) => !String(d[c] ?? "").trim());
+  return faltan.map((c, i) => `${i + 1}. ${ETIQUETA_DEL_DATO[c]}`).join("\n");
+}
+
+/**
+ * ¿La zona tiene despacho?
+ *
+ * El dueño dijo (11-09-2026) que envía a TODO el país y que "la ciudad es
+ * verificable cuando el cliente envía los datos". No tenemos la cobertura
+ * de la transportadora en vivo, así que lo verificable es esto: que el
+ * departamento sea uno de Colombia y que, si la ciudad es conocida, coincida
+ * con el departamento que escribió. Un "Medellín, Cundinamarca" se frena acá
+ * antes de convertirse en un envío devuelto.
+ */
+export function verificarZona(d: DatosDeEnvio): { ok: boolean; motivo?: string } {
+  const dep = sinTildes(String(d.departamento || ""));
+  const ciu = sinTildes(String(d.ciudad || ""));
+  if (!dep) return { ok: false, motivo: "falta el departamento" };
+  const depConocido = DEPARTAMENTOS.some((x) => x === dep || dep.startsWith(x));
+  if (!depConocido) return { ok: false, motivo: `"${d.departamento}" no es un departamento de Colombia` };
+  const esperado = CIUDAD_A_DEPARTAMENTO[ciu];
+  if (esperado) {
+    // "Bogotá" y "Bogotá D.C." son el mismo departamento: se compara por
+    // prefijo en los dos sentidos, no por igualdad exacta.
+    const limpio = (t: string) => sinTildes(t).replace(/[^a-z ]/g, " ").replace(/\s+/g, " ").trim();
+    const a = limpio(esperado);
+    const b = limpio(dep);
+    if (!(a === b || a.startsWith(b) || b.startsWith(a))) {
+      return { ok: false, motivo: `${d.ciudad} queda en ${esperado}, no en ${d.departamento}` };
+    }
+  }
+  return { ok: true };
+}
+
+/** El resumen que se le muestra al cliente antes de pedirle el sí. */
+export function resumenDelPedido(p: PedidoDropshipping): string {
+  const precio = Number(p.total ?? p.unitPrice ?? 0);
+  const lineas = [
+    `📦 ${p.productName} × ${p.quantity}`,
+    precio > 0 ? `💰 Total: $${precio.toLocaleString("es-CO")} COP (envío incluido)` : "",
+    `💵 Pago: ${p.metodoPago === "contraentrega" ? "contraentrega, al recibir" : p.metodoPago}`,
+    `👤 ${p.nombre}`,
+    `🪪 Cédula ${p.documento}`,
+    `📱 ${p.telefono}`,
+    `🏠 ${p.direccion}${p.barrio ? `, barrio ${p.barrio}` : ""}`,
+    `🏙️ ${p.ciudad}, ${p.departamento}`,
+    p.notas ? `📍 ${p.notas}` : "",
+    `🚚 Entrega: ${HECHOS_DROPSHIPPING.diasDeEntrega}`,
+  ];
+  return lineas.filter(Boolean).join("\n");
 }
 
 // ─── Lectura de datos desde texto libre ──────────────────────────────────────
@@ -284,6 +367,28 @@ export function extraerDatosDeEnvio(
     }
   }
 
+  // Nombre en un mensaje ESTRUCTURADO (la lista que le pedimos). Cuando el
+  // cliente manda "Juan Pérez Gómez, cc 1020304050, cel 300..." el nombre va
+  // primero y sin anunciar. Solo se acepta si en el mismo mensaje vinieron al
+  // menos dos datos más: así una frase suelta sigue sin convertirse en nombre.
+  if (!yaTengo.nombre && !encontrado.nombre) {
+    const otrosDatos = ["documento", "telefono", "direccion", "ciudad"]
+      .filter((k) => (encontrado as any)[k]).length;
+    if (otrosDatos >= 2) {
+      const primerTramo = t.split(/[\n,;]/)[0]!.replace(/^\s*(?:1[.)-]?\s*)?(?:nombre\s*:?\s*)?/i, "").trim();
+      const nom2 = primerTramo.match(/^([A-Za-zÁÉÍÓÚÑáéíóúñ]{2,20}(?:\s+[A-Za-zÁÉÍÓÚÑáéíóúñ]{2,20}){1,3})$/);
+      if (nom2 && !/^(hola|buenas|quiero|si|sí|dale|listo|claro|ok|bueno)\b/i.test(nom2[1]!)) {
+        encontrado.nombre = nom2[1]!.replace(/\s+/g, " ");
+      }
+    }
+  }
+
+  // Punto de referencia: es lo que más evita envíos devueltos, y va anunciado.
+  if (!yaTengo.notas) {
+    const ref = t.match(/(?:punto de referencia|referencia|frente a|al lado de|cerca de|diagonal a|junto a)\s*:?\s*([^\n,;]{4,80})/i);
+    if (ref) encontrado.notas = ref[0]!.replace(/^(?:punto de referencia|referencia)\s*:?\s*/i, "").trim();
+  }
+
   return encontrado;
 }
 
@@ -316,11 +421,37 @@ function aPedido(r: any): PedidoDropshipping {
 export async function pedidoEnCurso(conversationId: number): Promise<PedidoDropshipping | null> {
   const { rows } = await pool.query(
     `SELECT * FROM dropshipping_orders
-     WHERE conversation_id = $1 AND estado IN ('borrador', 'completo')
+     WHERE conversation_id = $1 AND estado IN ('borrador', 'completo', 'por_confirmar', 'confirmado')
      ORDER BY id DESC LIMIT 1`,
     [conversationId],
   );
   return rows[0] ? aPedido(rows[0]) : null;
+}
+
+/** Cambia el estado del pedido (por_confirmar / confirmado / cancelado). */
+export async function marcarEstado(
+  pedidoId: number,
+  estado: "borrador" | "completo" | "por_confirmar" | "confirmado" | "cancelado",
+): Promise<void> {
+  await pool.query(`UPDATE dropshipping_orders SET estado = $2, updated_at = now() WHERE id = $1`, [pedidoId, estado]);
+  logger.info({ pedidoId, estado }, "[Dropshipping] Estado del pedido");
+}
+
+/**
+ * ¿Este mensaje es el "sí" al resumen del pedido?
+ *
+ * Solo cuenta cuando el pedido está esperando confirmación: el mismo "sí" en
+ * otro momento es la respuesta a otra cosa. Acepta las formas cortas con que
+ * se confirma en Colombia y también "confirmo", "confirmado", "correcto".
+ */
+export function confirmaElPedido(mensaje: string, pedido: PedidoDropshipping | null): boolean {
+  if (!pedido || pedido.estado !== "por_confirmar") return false;
+  const t = sinTildes(mensaje).replace(/[¡!¿?.]/g, " ").replace(/\s+/g, " ").trim();
+  if (!t) return false;
+  // Una corrección no es una confirmación, aunque empiece con "sí".
+  if (/\b(no|pero|cambia|cambio|corrige|corrijo|mal|error|equivoc|en vez|mejor)\b/.test(t)) return false;
+  return /^(si|sii+|claro|dale|listo|ok|okey|okay|de una|confirmo|confirmado|correcto|perfecto|exacto|asi es|todo bien|todo correcto|hagale|hagamosle|va|vale)(\b|$)/.test(t)
+    || /\b(confirmo|confirmado|todo correcto|esta correcto|esta bien asi|si confirmo|si esta bien|si es correcto)\b/.test(t);
 }
 
 export async function abrirPedido(datos: {

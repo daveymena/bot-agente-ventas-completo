@@ -342,8 +342,13 @@ export async function getBusinessContext(
       ctx.acceso = leerAcceso(perfil.acceso ?? perfil.accessInfo);
       ctx.noPuede = listaLimpia(perfil.noPuede ?? perfil.cannotDo);
       ctx.loQueDebeSaber = listaLimpia(perfil.loQueDebeSaber ?? perfil.mustKnow);
+      // "mixto" TAMBIÉN cuenta: el perfil manda sobre `MODO_CATALOGO`, y si
+      // el dueño guarda "mixto" para volver a ver los físicos, tiene que
+      // ganarle al "digital" del entorno. Antes solo se aceptaban los dos
+      // restrictivos y "mixto" caía en silencio al valor del env: el PUT
+      // devolvía 200 y el catálogo seguía escondiendo 56 productos (11-09-2026).
       const modo = String(perfil.modoCatalogo || "").toLowerCase();
-      if (modo === "digital" || modo === "fisico") ctx.modoCatalogo = modo;
+      if (modo === "digital" || modo === "fisico" || modo === "mixto") ctx.modoCatalogo = modo;
       if (perfil.horario) ctx.horario = textoLimpio(perfil.horario) || ctx.horario;
 
       const algo =
