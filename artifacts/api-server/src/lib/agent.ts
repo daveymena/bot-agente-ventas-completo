@@ -1259,8 +1259,8 @@ EL NEGOCIO:
 ${renderBloqueNegocio(negocio)}
 
 PROCESO DE PAGO:
-- Con enlace de pago, el sistema crea el enlace y confirma el pago.
-- Con transferencia, el cliente envía el comprobante por este chat para validación.
+- Producto DIGITAL: con enlace de pago el sistema crea el enlace y confirma el pago; con transferencia el cliente envía el comprobante por este chat para validación.
+- Producto FÍSICO (se despacha): se paga CONTRAENTREGA, al recibirlo. No le ofrezcas enlaces de pago ni cuentas, no le digas "cuando tengas el pago listo": lo que sigue es tomarle los datos de envío (el sistema te indica cuáles, más abajo).
 
 CATÁLOGO DISPONIBLE:
 ${productList.length > 0 ? productsBlock : "No hay productos disponibles en este momento."}

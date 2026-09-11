@@ -173,6 +173,15 @@ const PAYMENT_PATTERNS = [
   // y el bot volvía a preguntar qué buscaba a alguien que acababa de decidir.
   "ese quiero", "esa quiero", "quiero ese", "quiero esa",
   "ese me llevo", "me llevo ese", "ese mismo quiero",
+  // `contieneFrase` compara raíces por palabra: "comprar" NO casa con
+  // "comprarla", así que "¿cómo hago para comprarla?" no era compra. Y un
+  // producto FÍSICO no se "compra" por WhatsApp, se "pide": medido el
+  // 11-09-2026, "si la quiero, como hago para pedirla" no abría el pedido y
+  // el bot le decía "cuando tengas el pago listo me avisás" a alguien que
+  // paga contraentrega. ("pedido" a secas NO va: "mi pedido no llega" es
+  // postventa, no una compra nueva.)
+  "la quiero", "comprarla", "comprarlo", "pedirla", "pedirlo", "la pido", "lo pido",
+  "hacer el pedido", "hacer mi pedido", "hago el pedido", "tomame el pedido", "tómame el pedido",
 ];
 
 const OBJECTION_PATTERNS = [
@@ -477,6 +486,11 @@ const PAYMENT_INSTRUCTION_PATTERNS = [
   "hago para comprar", "hago para adquirir", "quiero adquirir",
   "dónde lo compro", "donde lo compro", "dónde la compro", "donde la compro",
   "me lo llevo", "me la llevo", "quiero uno", "quiero una", "quiero dos",
+  // Producto FÍSICO: nadie "compra" una licuadora por WhatsApp, la "pide".
+  // (La clasificación de intención vive en PAYMENT_PATTERNS; acá va la
+  // familia "¿cómo hago?" que este detector ya cubría para el pago.)
+  "hago para pedir", "cómo lo pido", "como lo pido", "cómo la pido", "como la pido",
+  "para que me lo envíen", "para que me lo envien", "para que me la envíen", "para que me la envien",
 
   // YA DECIDIÓ Y ESPERA LOS DATOS. Acá cada minuto de demora enfría la venta.
   "me pasas los datos", "pásame los datos", "pasame los datos", "me pasa los datos",

@@ -349,7 +349,7 @@ async function buildProductBlocks(p: typeof products.$inferSelect, dynamicLinks?
   // 🎬 incluido: el video de muestra va en su PROPIO mensaje, para que
   // WhatsApp le arme la vista previa con miniatura. Pegado a otro texto, el
   // enlace queda perdido en el medio y pierde todo su efecto.
-  const secciones = completo.split(/\n(?=📚 |💻 |🎬 |💰 |━|💳 |🛒 |🚀 )/);
+  const secciones = completo.split(/\n(?=📚 |💻 |🎬 |💰 |━|💳 |🚚 |🛒 |🚀 )/);
   const bloques: string[] = [];
   let actual = "";
   for (const s of secciones) {
@@ -505,6 +505,30 @@ async function buildProductCaption(p: typeof products.$inferSelect, categoryName
   lines.push("");
   lines.push("━━━━━━━━━━━━━━━━━━");
   lines.push("");
+
+  // ── Un producto que se DESPACHA se paga al recibir ──────────────────────
+  //
+  // La ficha mostraba MercadoPago, PayPal y Nequi para una licuadora que va
+  // por transportadora contraentrega, y cerraba con "¿Te lo activo ahora?".
+  // El agente, en el mismo turno, decía "pagás cuando la recibís": dos
+  // mensajes seguidos que se contradicen (medido el 11-09-2026). Acá no hay
+  // enlaces ni cuentas: hay envío incluido, plazo fijo y pago al recibir.
+  const { seDespachaPorTransportadora } = await import("./entrega-del-producto");
+  if (seDespachaPorTransportadora(p as any)) {
+    const { HECHOS_DROPSHIPPING } = await import("./dropshipping");
+    lines.push(variante([`🚚 *ENVÍO Y PAGO*`, `🚚 *Cómo lo recibís*`, `🚚 *Entrega y pago*`], sem));
+    lines.push("");
+    lines.push(`📦 Envío incluido en el precio, a todo Colombia`);
+    lines.push(`⏱️ Llega en ${HECHOS_DROPSHIPPING.diasDeEntrega}`);
+    lines.push(`💵 Pagás contraentrega, cuando lo recibís en tu casa`);
+    lines.push("");
+    lines.push(variante([
+      `🚀 *¿Te tomo el pedido? Me pasás tus datos de envío y lo dejamos listo.*`,
+      `🚀 *¿Lo pedimos? Solo necesito tus datos de envío.*`,
+      `🚀 *¿Te lo envío? Decime y te pido los datos para el despacho.*`,
+    ], sem));
+    return lines.join("\n");
+  }
 
   if (dynamicLinks) {
     lines.push(variante([`💳 *FORMAS DE PAGO*`, `💳 *Puedes pagar así*`, `💳 *Medios de pago*`, `💳 *Cómo pagar*`], sem));
@@ -821,10 +845,27 @@ async function construirSeccion(
 
   // ── Cómo se entrega ───────────────────────────────────────────────────────
   if (seccion === "entrega") {
+    const { HECHOS_DROPSHIPPING } = await import("./dropshipping");
     const texto = esFisico
-      ? `📦 Te lo enviamos a tu dirección y coordinamos la entrega por aquí.\n\n${cierre}`
+      ? `📦 Te lo enviamos a tu dirección por transportadora, con el envío incluido en el precio.\n⏱️ Llega en ${HECHOS_DROPSHIPPING.diasDeEntrega} y pagás contraentrega, cuando lo recibís.\n\n${cierre}`
       : `💻 Es digital: apenas confirmamos el pago te llega el acceso por aquí, y te queda de por vida ♾️\n\n${cierre}`;
     return { conFoto: false, mensajes: [texto] };
+  }
+
+  // Un físico contraentrega no tiene "medios de pago": se paga al recibir.
+  // Mandarle Nequi y MercadoPago a quien pregunta "¿cómo pago?" por una
+  // licuadora es cobrarle por adelantado algo que el negocio cobra al recibir.
+  if (esFisico && (seccion === "pago" || seccion === "pago_transferencia" || seccion === "pago_link")) {
+    const { seDespachaPorTransportadora } = await import("./entrega-del-producto");
+    if (seDespachaPorTransportadora(p as any)) {
+      const { HECHOS_DROPSHIPPING } = await import("./dropshipping");
+      return {
+        conFoto: false,
+        mensajes: [
+          `💵 Este producto se paga contraentrega: no pagás nada ahora, pagás en efectivo cuando la transportadora te lo entrega en tu dirección.\n📦 El envío ya va incluido en los ${mon.precioTexto} y llega en ${HECHOS_DROPSHIPPING.diasDeEntrega}.\n\n¿Te tomo el pedido? Solo necesito tus datos de envío.`,
+        ],
+      };
+    }
   }
 
   // ── LOS MEDIOS DE PAGO SALEN DE LA HOJA DE HECHOS ────────────────────────

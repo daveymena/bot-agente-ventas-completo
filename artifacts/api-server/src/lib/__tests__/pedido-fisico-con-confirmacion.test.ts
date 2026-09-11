@@ -179,3 +179,21 @@ describe("agente_perfil_negocio no pierde la entrega cuando viene como texto", (
     expect(garantiaDesdeTexto("30 días por defecto de fábrica")).toEqual({ dias: 30, descripcion: "30 días por defecto de fábrica" });
   });
 });
+
+describe("un físico se PIDE, no se compra: la intención de compra lo entiende", async () => {
+  const { detectIntent } = await import("../conversation-engine");
+  it("las formas de pedir un producto físico abren el pedido", () => {
+    for (const m of [
+      "si la quiero, como hago para pedirla",
+      "cómo la pido?",
+      "quiero pedirla",
+      "quiero hacer el pedido",
+      "tómame el pedido",
+    ]) {
+      expect(detectIntent(m), m).toBe("payment_intent");
+    }
+  });
+  it("preguntar cómo lo envían NO es pedirlo", () => {
+    expect(detectIntent("¿cómo me lo envían?")).not.toBe("payment_intent");
+  });
+});
