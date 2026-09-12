@@ -46,6 +46,24 @@ async function telefonoDe(tenantId: number): Promise<string | null> {
 /**
  * El resumen de UN negocio. Devuelve null si no hay nada que valga un mensaje.
  */
+async function ultimoEnvio(tenantId: number): Promise<string | null> {
+  try {
+    const [fila] = await db.select({ metadata: tenants.metadata }).from(tenants).where(eq(tenants.id, tenantId)).limit(1);
+    const meta: any = typeof (fila as any)?.metadata === "string" ? JSON.parse((fila as any).metadata) : ((fila as any)?.metadata || {});
+    return meta?.marketingDiario?.ultimoEnvio ?? null;
+  } catch { return null; }
+}
+
+async function marcarEnvio(tenantId: number, dia: string): Promise<void> {
+  try {
+    const [fila] = await db.select({ metadata: tenants.metadata }).from(tenants).where(eq(tenants.id, tenantId)).limit(1);
+    const meta: any = typeof (fila as any)?.metadata === "string" ? JSON.parse((fila as any).metadata) : ((fila as any)?.metadata || {});
+    await db.update(tenants).set({ metadata: { ...meta, marketingDiario: { ...(meta.marketingDiario || {}), ultimoEnvio: dia } } } as any).where(eq(tenants.id, tenantId));
+  } catch (err) {
+    logger.warn({ err, tenantId }, "[MarketingDiario] no se pudo registrar el envío");
+  }
+}
+
 async function resumenDelDia(tenantId: number): Promise<string | null> {
   const { runDiagnosticCycle } = await import("./orchestrator");
   const { performance, diagnostic } = await runDiagnosticCycle({ tenantId, days: 7 });
@@ -92,6 +110,16 @@ async function correrParaTodos(): Promise<void> {
       const telefono = await telefonoDe(tenantId);
       if (!telefono) continue; // sin teléfono no hay a quién avisarle
 
+      // UNO POR DÍA. El temporizador vive en memoria y arranca 10 min después
+      // de CADA reinicio: con diez despliegues en un día, el dueño recibió
+      // "Tu marketing, hoy" repetido en su WhatsApp (12-09-2026). La fecha
+      // del último envío se guarda en el negocio, que sobrevive al reinicio.
+      const hoy = new Date().toISOString().slice(0, 10);
+      if ((await ultimoEnvio(tenantId)) === hoy) {
+        logger.info({ tenantId }, "[MarketingDiario] ya se mandó hoy: no se repite");
+        continue;
+      }
+
       const texto = await resumenDelDia(tenantId);
       if (!texto) {
         logger.info({ tenantId }, "[MarketingDiario] sin novedades: no se manda nada");
@@ -104,6 +132,7 @@ async function correrParaTodos(): Promise<void> {
         continue;
       }
       await wa.sendText(telefono, texto);
+      await marcarEnvio(tenantId, hoy);
       logger.info({ tenantId }, "[MarketingDiario] resumen enviado");
     } catch (err) {
       // El fallo de un negocio no puede dejar sin reporte a los demás.
