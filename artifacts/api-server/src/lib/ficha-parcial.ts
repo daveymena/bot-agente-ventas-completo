@@ -407,7 +407,7 @@ export function elCierreOfrece(
   // `intent: confirmation` -> checkout completo. Medido en produccion el
   // 2026-09-01: el cierre pregunto el precio y salieron los tres medios de
   // pago. Al que pregunta cuanto vale se le dice cuanto vale.
-  if (/precio|cu[aá]nto est[aá]|cu[aá]nto sale/.test(t)) return "precio";
+  if (/precio|cu[aá]nto est[aá]|cu[aá]nto sale|cu[aá]nto vale|c[oó]mo (te llega|se paga)/.test(t)) return "precio";
   return "otro";
 }
 
@@ -471,7 +471,7 @@ export function invitacionDe(
  * "te va a encantar" o "es el más vendido" son cosas que el bot no puede
  * saber, y ya hubo que sacar inventos de ese tipo (ver supervisor.ts).
  */
-function invitacionesDe(
+export function invitacionesDe(
   s: SeccionFicha,
   esFisico: boolean,
   tieneVideo = true,
@@ -480,10 +480,15 @@ function invitacionesDe(
 ): string[] {
   // Sin video cargado, el cierre apunta a otra cosa real. Nunca se ofrece lo
   // que no se puede entregar.
+  // ⚠️ Nunca "¿Te paso el precio?": la aduana de salida (salida-segura,
+  // OFERTA_PRECIO_SIN_DATO) borra esa pregunta a propósito, y la ficha
+  // salía cerrando con "💰" suelto → "Déjame confirmarte ese dato exacto"
+  // (visto en producción el 12-09-2026 con el bolso antirrobo). El test de
+  // ficha-parcial verifica que cada cierre sobreviva a la aduana.
   if (!tieneVideo && (s === "info" || s === "completa")) {
-    return s === "info"
-      ? ["¿Te paso el precio? 💰", "¿Quieres saber cuánto está?"]
-      : ["¿Te paso el precio? 💰", "¿Te digo cuánto está? 💰"];
+    return esFisico
+      ? ["¿Quieres saber cuánto está y cómo te llega? 💰", "¿Te cuento cuánto vale y cómo se paga? 💰"]
+      : ["¿Quieres saber cuánto está? 💰", "¿Te cuento cuánto vale? 💰"];
   }
 
   switch (s) {
@@ -495,19 +500,22 @@ function invitacionesDe(
                 ? ["¿Te muestro cómo se ve en uso? 🎬", "¿Querés verlo en video antes de decidir? 🎬"]
                 : ["¿Te muestro cómo es por dentro? 🎬", "¿Querés ver un pedacito antes de decidir? 🎬"])
             : ["¿Te resuelvo alguna duda antes de decidir?", "¿Hay algo puntual que quieras saber?"])
-        : [
-            "¿Te muestro todo lo que trae? 👀",
-            "¿Quieres ver qué incluye?",
-            "¿Te cuento qué viene adentro? 👀",
-          ];
+        : (esFisico
+            ? ["¿Te cuento cómo te llega y cómo se paga? 📦", "¿Lo pedimos? Solo necesito tus datos de envío 📦"]
+            : [
+                "¿Te muestro todo lo que trae? 👀",
+                "¿Quieres ver qué incluye?",
+                "¿Te cuento qué viene adentro? 👀",
+              ]);
 
     case "info":
       // Quiso detalle. El video ya se manda automáticamente en construirSeccion.
-      // El cierre apunta al precio, que es lo siguiente.
-      return [
-        "¿Te paso el precio? 💰",
-        "¿Quieres saber cuánto está? 💰",
-      ];
+      // El cierre apunta al precio, que es lo siguiente. En un físico, al
+      // precio Y a cómo llega: eso es lo que decide la compra de algo que se
+      // despacha, no "qué incluye".
+      return esFisico
+        ? ["¿Quieres saber cuánto está y cómo te llega? 💰", "¿Te cuento cuánto vale y cómo se paga? 💰"]
+        : ["¿Quieres saber cuánto está? 💰", "¿Te cuento cuánto vale? 💰"];
 
     case "entrega":
       return esFisico
@@ -527,15 +535,15 @@ function invitacionesDe(
       // duda si ya lo sabe.
       return yaSabeElPrecio
         ? ["¿Te resuelvo alguna duda antes de decidir?", "¿Hay algo que te esté frenando?"]
-        : ["¿Te paso el precio? 💰", "¿Te digo cuánto está? 💰"];
+        : ["¿Quieres saber cuánto está? 💰", "¿Te cuento cuánto vale? 💰"];
 
     case "completa":
       // Recién lo conoce. El video se manda automáticamente en la ficha, así
-      // que el cierre no lo vuelve a ofrecer: apunta al precio.
-      return [
-        "¿Te paso el precio? 💰",
-        "¿Te digo cuánto está? 💰",
-      ];
+      // que el cierre no lo vuelve a ofrecer: apunta al precio (y en un
+      // físico, a cómo llega y se paga).
+      return esFisico
+        ? ["¿Quieres saber cuánto está y cómo te llega? 💰", "¿Te cuento cuánto vale y cómo se paga? 💰"]
+        : ["¿Quieres saber cuánto está? 💰", "¿Te cuento cuánto vale? 💰"];
   }
 
   // Una sección nueva que nadie contempló acá NO puede hacer que el mensaje

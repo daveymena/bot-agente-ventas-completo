@@ -118,7 +118,7 @@ describe("Con la oferta bien leida, el 'Si' ya no cobra", () => {
 describe("Un 'si' al ofrecimiento del precio pide el precio", () => {
   it("la ficha sin video ofrece el precio, y se clasifica como tal", () => {
     expect(elCierreOfrece("completa", false, false, true)).toBe("precio");
-    expect(invitacionDe("completa", false, "semilla", false, true)).toMatch(/precio|cu[aá]nto est[aá]/i);
+    expect(invitacionDe("completa", false, "semilla", false, true)).toMatch(/precio|cu[aá]nto (est[aá]|vale)/i);
   });
 
   it("y ese 'Si' devuelve el precio, no el checkout", () => {

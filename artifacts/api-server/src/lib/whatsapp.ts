@@ -349,6 +349,30 @@ async function loadProductImage(imageUrl: string): Promise<Buffer | null> {
  * ficha no agrega consultas. Si falla, el respaldo son las condiciones del
  * dueño de la plataforma (las de siempre), para no dejar la ficha sin datos.
  */
+/**
+ * Qué decir de un producto que NO tiene descripción ni características.
+ *
+ * Antes era una frase fija de curso ("Formación práctica para llevar tus
+ * habilidades al siguiente nivel") para TODO el catálogo: le salió a un bolso
+ * antirrobo (12-09-2026). Ahora depende del modelo del producto, y nunca
+ * inventa un beneficio: dice cómo se recibe, que es lo único que se sabe.
+ */
+async function resumenDeRespaldo(p: { name?: string | null; kind?: string | null; category?: string | null; deliveryLink?: string | null; description?: string | null; tenantId?: number | null }): Promise<string> {
+  const { modeloDelProducto, frasePagoEnvio } = await import("./modelo-de-negocio");
+  switch (modeloDelProducto(p as any)) {
+    case "fisico": {
+      // Cómo se paga sale de las condiciones del negocio, no de una frase fija.
+      const c = await condicionesDelProducto(p);
+      return `Producto físico: te lo enviamos a tu dirección. ${frasePagoEnvio(c)}.`;
+    }
+    case "servicio": return "Atención personalizada: se agenda por este chat.";
+    case "suscripcion": return "Acceso por período, con renovación.";
+    case "cotizacion": return "Se cotiza según lo que necesités.";
+    case "captacion": return "Un asesor te acompaña por este mismo número.";
+    default: return "Formación práctica para llevar tus habilidades al siguiente nivel.";
+  }
+}
+
 async function condicionesDelProducto(p: { tenantId?: number | null }) {
   const { CONDICIONES_DE_RESPALDO } = await import("./modelo-de-negocio");
   if (!p?.tenantId) return CONDICIONES_DE_RESPALDO;
@@ -437,7 +461,7 @@ async function buildProductCaption(p: typeof products.$inferSelect, categoryName
       resumen = crudo.slice(0, corteEspacio > 60 ? corteEspacio : 180).trimEnd() + "…";
     }
   }
-  lines.push(resumen || "Formación práctica para llevar tus habilidades al siguiente nivel.");
+  lines.push(resumen || (await resumenDeRespaldo(p)));
   lines.push("");
 
   // Lo ESPECÍFICO de este curso va en "Incluye"; lo estándar (que es igual en
@@ -1006,7 +1030,7 @@ async function construirSeccion(
   if (!esDetallePosterior) {
     L.push(`${emojiTitulo} *${p.name}*`);
     L.push("");
-    L.push(`• ${resumen || "Formación práctica para llevar tus habilidades al siguiente nivel."}`);
+    L.push(`• ${resumen || (await resumenDeRespaldo(p))}`);
     mensajes.push(hablarColombiano(L.join("\n").trim()));
   }
 
