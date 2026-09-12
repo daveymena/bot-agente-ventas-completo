@@ -205,3 +205,12 @@ describe("woocommerce_estado existe y es solo lectura (12-09-2026: Atlas dijo 'n
     expect(READ_ONLY_TOOLS.has("woocommerce_estado")).toBe(true);
   });
 });
+
+describe("ficha desde imágenes: ver es lectura, guardar no", () => {
+  it("registradas con el permiso correcto", () => {
+    expect(TOOLS.some((t) => t.name === "producto_ficha_desde_imagenes_ver")).toBe(true);
+    expect(TOOLS.some((t) => t.name === "producto_ficha_desde_imagenes_guardar")).toBe(true);
+    expect(READ_ONLY_TOOLS.has("producto_ficha_desde_imagenes_ver")).toBe(true);
+    expect(READ_ONLY_TOOLS.has("producto_ficha_desde_imagenes_guardar")).toBe(false);
+  });
+});

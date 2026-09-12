@@ -4034,6 +4034,85 @@ Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vincu
   },
 
   {
+    name: "producto_ficha_desde_imagenes_ver",
+    description:
+      "Lee las IMÁGENES REALES de un producto (las del proveedor, Dropi) con visión y propone descripción y características " +
+      "con SOLO lo que se ve o está escrito en ellas; lista aparte lo que no se pudo confirmar. Lectura pura: no guarda nada. " +
+      "Úsala cuando un producto tenga la descripción vacía o igual al título (pasa con todo lo importado de Dropify). " +
+      "Sin productId, revisa los productos activos con descripción vacía y devuelve cuáles son (hasta 'limite').",
+    args: '{ "productId"?: number, "limite"?: number (por defecto 5) }',
+    run: async (args, ctx) => {
+      const { fichaDesdeImagenes, descripcionVacia } = await import("./ficha-desde-imagenes");
+      const id = num(args?.productId);
+      if (!id) {
+        const filas = await db.select().from(products).where(and(eq(products.tenantId, ctx.tenantId), eq(products.isActive, true)));
+        const vacios = filas.filter((p: any) => descripcionVacia(p));
+        const lim = Math.max(1, Math.min(50, num(args?.limite) ?? 5));
+        return {
+          ok: true,
+          summary: vacios.length
+            ? `${vacios.length} productos activos con la descripción vacía o igual al título: ${vacios.slice(0, lim).map((p: any) => `[${p.id}] ${p.name}`).join(" · ")}${vacios.length > lim ? ` · y ${vacios.length - lim} más` : ""}. Pedime la ficha de uno con productId para verla antes de guardarla.`
+            : "Ningún producto activo tiene la descripción vacía.",
+          data: { vacios: vacios.map((p: any) => ({ id: p.id, name: p.name })) },
+        };
+      }
+      const [prod] = await db.select().from(products).where(and(eq(products.id, id), eq(products.tenantId, ctx.tenantId))).limit(1);
+      if (!prod) return { ok: false, summary: `No encontré el producto ${id}.` };
+      const r = await fichaDesdeImagenes(prod as any, getAppUrl());
+      if ("error" in r) return { ok: false, summary: r.error };
+      return {
+        ok: true,
+        summary:
+          `Ficha propuesta para [${prod.id}] ${prod.name} (leída de ${r.imagenesLeidas} imagen(es) con ${r.modelo}):
+` +
+          `Descripción: ${r.descripcion}
+` +
+          `Características: ${r.caracteristicas.join(" · ") || "(ninguna legible)"}
+` +
+          `No se pudo confirmar: ${r.noSePudoConfirmar.join(" · ") || "(nada)"}
+` +
+          `Para guardarla: producto_ficha_desde_imagenes_guardar con productId ${prod.id} (va por propose_action).`,
+        data: { productId: prod.id, ...r },
+      };
+    },
+  },
+  {
+    name: "producto_ficha_desde_imagenes_guardar",
+    description:
+      "Guarda en el producto la descripción y características leídas de sus imágenes reales (vuelve a leerlas al momento de guardar). " +
+      "⚠️ Cambia el catálogo: va por propose_action. Mostrá primero la ficha con producto_ficha_desde_imagenes_ver. " +
+      "No pisa una descripción que el dueño haya escrito: solo aplica si está vacía o igual al título, salvo 'forzar': true.",
+    args: '{ "productId": number (req), "forzar"?: boolean }',
+    run: async (args, ctx) => {
+      const { fichaDesdeImagenes, descripcionVacia } = await import("./ficha-desde-imagenes");
+      const id = num(args?.productId);
+      if (!id) return { ok: false, summary: "Falta 'productId'." };
+      const [prod] = await db.select().from(products).where(and(eq(products.id, id), eq(products.tenantId, ctx.tenantId))).limit(1);
+      if (!prod) return { ok: false, summary: `No encontré el producto ${id}.` };
+      if (!descripcionVacia(prod as any) && !args?.forzar) {
+        return { ok: false, summary: `[${prod.id}] ${prod.name} ya tiene una descripción escrita; no la piso. Si querés reemplazarla igual, mandá "forzar": true.` };
+      }
+      const r = await fichaDesdeImagenes(prod as any, getAppUrl());
+      if ("error" in r) return { ok: false, summary: r.error };
+      const meta: any = typeof (prod as any).metadata === "string" ? (() => { try { return JSON.parse((prod as any).metadata); } catch { return {}; } })() : ((prod as any).metadata || {});
+      const featuresPrevias: string[] = Array.isArray((prod as any).features) ? (prod as any).features : [];
+      // Las variantes que trajo Dropify ("COLOR: AZUL, NEGRO") se conservan.
+      const features = [...featuresPrevias.filter((f) => /^(color|talla|tamaño|medida)\s*:/i.test(String(f))), ...r.caracteristicas].slice(0, 8);
+      await db.update(products)
+        .set({
+          description: r.descripcion,
+          features,
+          metadata: { ...meta, fichaDesdeImagenes: { fecha: new Date().toISOString(), modelo: r.modelo, imagenes: r.imagenesLeidas, noSePudoConfirmar: r.noSePudoConfirmar } },
+        } as any)
+        .where(eq(products.id, prod.id));
+      return {
+        ok: true,
+        summary: `Guardado en [${prod.id}] ${prod.name}: descripción (${r.descripcion.length} caracteres) y ${features.length} características, leídas de ${r.imagenesLeidas} imágenes. Sin confirmar (no va en la ficha): ${r.noSePudoConfirmar.join(" · ") || "nada"}.`,
+        data: { productId: prod.id, descripcion: r.descripcion, features },
+      };
+    },
+  },
+  {
     name: "woocommerce_estado",
     description:
       "Estado REAL de WooCommerce: si está configurado, si responde, los últimos pedidos que tiene WooCommerce y los pedidos " +
@@ -6231,7 +6310,7 @@ export const READ_ONLY_TOOLS = new Set([
   // propósito: mueven dinero real y tienen que pasar por confirmación.
   "fb_list_adsets",
   // Dropi de solo lectura: consultar el catálogo del proveedor no crea nada.
-  "dropi_status", "dropi_search_products", "woocommerce_estado",
+  "dropi_status", "dropi_search_products", "woocommerce_estado", "producto_ficha_desde_imagenes_ver",
   // Terabox: listar carpetas es lectura pura, no cambia nada.
   //
   // terabox_create_share_link NO va acá, aunque estuvo un rato. Se justificaba

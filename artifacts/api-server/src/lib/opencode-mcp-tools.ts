@@ -1104,8 +1104,8 @@ const GRUPOS: { patron: RegExp; herramientas: string[] }[] = [
     herramientas: ["generate_image", "search_product_images", "web_scrape_images"],
   },
   {
-    patron: /dropi|proveedor|dropshipping|stock|woo\s?commerce|wordpress|dropify|pedidos? (llega|recib)/i,
-    herramientas: ["dropi_status", "dropi_search_products", "woocommerce_estado"],
+    patron: /dropi|proveedor|dropshipping|stock|woo\s?commerce|wordpress|dropify|pedidos? (llega|recib)|descripci[oó]n|ficha/i,
+    herramientas: ["dropi_status", "dropi_search_products", "woocommerce_estado", "producto_ficha_desde_imagenes_ver", "producto_ficha_desde_imagenes_guardar"],
   },
   {
     patron: /copy|texto|redact|descripci|t[ií]tulo/i,
