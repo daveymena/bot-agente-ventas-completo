@@ -7,6 +7,7 @@ import type { TenantRequest } from "../lib/tenantManager";
 import { callMarketingAI } from "../lib/marketing-team/ai";
 import { CONDICIONES_DE_RESPALDO, fraseCostoEnvio, frasePagoEnvio, type CondicionesDelNegocio } from "../lib/modelo-de-negocio";
 import { getBusinessContext } from "../lib/business-context";
+import { aTextoPlano } from "../lib/texto-plano";
 import {
   bloqueDePlantilla,
   casillasQueAplican,
@@ -140,7 +141,7 @@ export function normalizeSections(input: unknown, product: any, casillas: Casill
     // La logística NO la escribe el modelo: no conoce las condiciones y
     // deja huecos ("[El negocio debe completar aquí los detalles de envío]",
     // 12-09-2026). Sale del perfil del negocio, que sí las tiene.
-    let body = s.body ? String(s.body) : relleno.body;
+    let body = s.body ? aTextoPlano(s.body) : relleno.body;
     if (casilla.type === "logistics" && esFisico) {
       const c = condiciones ?? CONDICIONES_DE_RESPALDO;
       body = [
@@ -155,8 +156,8 @@ export function normalizeSections(input: unknown, product: any, casillas: Casill
       // dos secciones con el mismo id se pisan al guardar.
       id: `${casilla.type}-${i + 1}`,
       type: casilla.type,
-      title: String(s.title || relleno.title || ""),
-      subtitle: s.subtitle ? String(s.subtitle) : relleno.subtitle,
+      title: aTextoPlano(s.title || relleno.title || ""),
+      subtitle: s.subtitle ? aTextoPlano(s.subtitle) : relleno.subtitle,
       body,
       cta: s.cta ? String(s.cta) : relleno.cta,
       image,

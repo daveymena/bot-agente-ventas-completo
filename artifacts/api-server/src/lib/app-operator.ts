@@ -848,6 +848,15 @@ export async function validarContenidoAnuncio(
   args: { productId?: any; primaryText?: any; headline?: any; description?: any; hook?: any; message?: any },
   ctx: OperatorContext,
 ): Promise<string | null> {
+  // Lo que se publica tiene que ser texto: un JSON de editor pegado desde
+  // otra herramienta salió tal cual en un anuncio ("type doc content type
+  // paragraph attrs align null…", 12-09-2026). Se desarma acá, en la puerta.
+  {
+    const { aTextoPlano, pareceDocumentoDeEditor } = await import("./texto-plano");
+    for (const k of ["primaryText", "headline", "description", "hook", "message"] as const) {
+      if (args[k] != null && pareceDocumentoDeEditor(args[k])) args[k] = aTextoPlano(args[k]);
+    }
+  }
   const id = num(args.productId);
   // Acá antes decía `if (!id) return null` ("el id lo validan los llamadores,
   // cada uno a su manera"). No era cierto: proposeAction solo miraba que el

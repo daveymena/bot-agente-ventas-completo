@@ -1154,7 +1154,9 @@ router.post("/sync-catalog", async (req, res, next) => {
 router.post("/publish-post", async (req, res, next) => {
   try {
     const tenant = (req as any).tenant;
-    const { message, imageUrl, link } = req.body || {};
+    const { imageUrl, link } = req.body || {};
+    const { aTextoPlano } = await import("../lib/texto-plano");
+    const message = aTextoPlano(req.body?.message);
     if (!message) {
       return res.status(400).json({ error: "El campo 'message' es requerido" });
     }
