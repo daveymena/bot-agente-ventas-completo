@@ -1,5 +1,5 @@
 import { useLocation } from "wouter";
-import { LayoutDashboard, MessageSquare, Users, Package, MoreHorizontal, Bot, Phone, Settings, ShoppingCart, Palette, Facebook, Wand2, Store, Activity, Crown, Megaphone, HelpCircle, BadgeCheck, LayoutTemplate } from "lucide-react";
+import { LayoutDashboard, MessageSquare, Users, Package, MoreHorizontal, Bot, Phone, Settings, ShoppingCart, Palette, Facebook, Wand2, Store, Activity, Crown, Megaphone, HelpCircle, BadgeCheck, LayoutTemplate, LogOut } from "lucide-react";
 import { useState } from "react";
 import { useSession } from "@/App";
 
@@ -63,6 +63,16 @@ export function MobileNav() {
               return <a key={item.href} href={item.href} target={isExternal ? "_blank" : undefined} rel={isExternal ? "noopener noreferrer" : undefined} onClick={(e) => { if (isExternal) { setShowMore(false); return; } e.preventDefault(); setShowMore(false); setLocation(item.href); }} className={`flex flex-col items-center gap-1.5 rounded-2xl p-3 transition-all ${isActive ? "bg-indigo-50 text-indigo-600" : "text-gray-600 hover:bg-gray-50"}`}><div className={`w-10 h-10 rounded-xl flex items-center justify-center ${isActive ? "bg-indigo-100" : "bg-gray-100"}`}><item.icon className={`w-5 h-5 ${isActive ? "text-indigo-600" : "text-gray-500"}`} /></div><span className="text-[10px] font-semibold text-center leading-tight">{item.label}</span></a>;
             })}
           </div>
+          {/* En el celular no había forma de cerrar sesión: el botón vivía
+              solo en la barra lateral de escritorio (12-09-2026). Mismo
+              cierre que usa layout.tsx. */}
+          <button
+            onClick={async () => { await fetch("/api/auth/logout", { method: "POST" }); window.location.href = "/auth"; }}
+            className="mt-4 flex w-full items-center justify-center gap-2 rounded-2xl px-4 py-3 text-sm font-semibold text-red-600 bg-red-50 border border-red-100 active:bg-red-100"
+          >
+            <LogOut className="w-4 h-4" />
+            Cerrar sesión
+          </button>
         </div>
       </>}
     </>
