@@ -9,6 +9,7 @@ import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
 import pinoHttp from "pino-http";
 import router from "./routes";
+import { landingPublicaRouter } from "./routes/landing-publica";
 import healthRouter from "./health";
 import woocommerceRouter from "./routes/woocommerce";
 import subscriptionWebhooksRouter from "./routes/subscription-webhooks";
@@ -849,6 +850,10 @@ app.use("/api/ai", aiCatalogRouter);
 app.use("/api", router);
 
 // Short URL redirect: /p/:productId → /tienda/:slug/producto/:productId
+// Landing pública (/l/:slug) y su formulario de pedido: sin sesión, con el
+// dominio de la app. Va ANTES del /api con middlewares de tenant y del SPA.
+app.use(landingPublicaRouter);
+
 app.get("/p/:productId", async (req, res, next) => {
   try {
     const { db, products, tenants, paymentLinks } = await import("@workspace/db");

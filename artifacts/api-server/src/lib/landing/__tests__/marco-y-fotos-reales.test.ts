@@ -55,3 +55,31 @@ describe("la página tiene marco: encabezado, franja de confianza, pie y CTA fij
     expect(html).toMatch(/<summary>¿Cuánto tarda\?<\/summary><p>Entre 3 y 5 días hábiles<\/p>/);
   });
 });
+
+describe("el cierre depende del modelo del producto", () => {
+  const base = { nombre: "x", familia: "ecommerce", producto, negocio, secciones: [{ id: "hero-1", type: "hero", title: "T", cta: "Pedir" }] } as const;
+
+  it("físico: formulario contraentrega que POSTea al pedido, y WhatsApp como alternativa", () => {
+    const html = renderizarLanding({ ...base, cierre: { tipo: "contraentrega", accion: "/api/landing-publica/faja-x/pedido", pais: "CO", pago: "contraentrega" } });
+    expect(html).toMatch(/<form class="pedido" method="post" action="\/api\/landing-publica\/faja-x\/pedido"/);
+    for (const campo of ["nombre", "telefono", "documento", "direccion", "ciudad", "departamento", "referencia"]) expect(html).toMatch(new RegExp(`name="${campo}"`));
+    expect(html).toMatch(/Cédula/);
+    expect(html).toMatch(/wa\.me\/573042748687\?text=/);
+    // todos los CTA de la página apuntan al bloque de pedido
+    expect(html).toMatch(/<header class="top">.*href="#pedido"/s);
+  });
+
+  it("fuera de Colombia pide documento y estado/provincia", () => {
+    const html = renderizarLanding({ ...base, cierre: { tipo: "contraentrega", accion: "/x", pais: "MX", pago: "contraentrega" } });
+    expect(html).toMatch(/Documento de identidad/);
+    expect(html).toMatch(/Estado o provincia/);
+  });
+
+  it("digital: MercadoPago, PayPal y WhatsApp; sin formulario", () => {
+    const html = renderizarLanding({ ...base, negocio: { ...negocio, modelo: "digital" }, cierre: { tipo: "pago", mercadopago: "https://mp/1", paypal: "https://pp/1" } });
+    expect(html).toMatch(/href="https:\/\/mp\/1">Pagar con MercadoPago/);
+    expect(html).toMatch(/href="https:\/\/pp\/1">Pagar con PayPal/);
+    expect(html).toMatch(/Comprar por WhatsApp/);
+    expect(html).not.toMatch(/<form class="pedido"/);
+  });
+});

@@ -88,12 +88,28 @@ export interface NegocioParaRenderizar {
   confianza?: string[] | null;
 }
 
+/**
+ * Cómo cierra la página: depende del MODELO del producto.
+ *   contraentrega → formulario de datos de envío (POST a `accion`) o WhatsApp
+ *   pago          → MercadoPago / PayPal (mismos enlaces que la tienda) o WhatsApp
+ *   whatsapp      → solo WhatsApp (servicios, cotización, captación)
+ */
+export interface CierreDeLanding {
+  tipo: "contraentrega" | "pago" | "whatsapp";
+  accion?: string;
+  pais?: string;
+  pago?: string;
+  mercadopago?: string;
+  paypal?: string;
+}
+
 export interface OpcionesDeRender {
   nombre: string;
   secciones: SeccionParaRenderizar[];
   familia: FamiliaVisual | string | null;
   producto?: ProductoParaRenderizar | null;
   negocio?: NegocioParaRenderizar | null;
+  cierre?: CierreDeLanding | null;
 }
 
 // ─── Seguridad ───────────────────────────────────────────────────────────────
@@ -161,11 +177,73 @@ function precio(p?: ProductoParaRenderizar | null): string {
 }
 
 /** A dónde apunta un CTA. El enlace de pago manda; si no hay, WhatsApp. */
+let destinoDelCierre: string | null = null;
+
 function destino(p?: ProductoParaRenderizar | null): string {
+  // Con un bloque de cierre en la página (formulario o botones de pago),
+  // todos los CTA llevan ahí: es el paso siguiente real.
+  if (destinoDelCierre) return destinoDelCierre;
   const pago = urlSegura(p?.paymentLink);
   if (pago) return pago;
   const wa = String(p?.whatsapp || "").replace(/\D/g, "");
   return wa ? `https://wa.me/${wa}` : "#comprar";
+}
+
+function enlaceWhatsApp(p?: ProductoParaRenderizar | null, n?: NegocioParaRenderizar | null): string {
+  const wa = String(n?.whatsapp || p?.whatsapp || "").replace(/\D/g, "");
+  if (!wa) return "";
+  const texto = encodeURIComponent(`Hola, me interesa ${p?.name || "este producto"}`);
+  return `https://wa.me/${wa}?text=${texto}`;
+}
+
+/** El bloque de cierre, según el modelo. */
+function bloqueDeCierre(c: CierreDeLanding | null | undefined, p: ProductoParaRenderizar | null | undefined, n: NegocioParaRenderizar | null | undefined): string {
+  if (!c) return "";
+  const wa = enlaceWhatsApp(p, n);
+  const precioTxt = precio(p);
+  const esCol = !c.pais || /^(co|col|colombia)$/i.test(String(c.pais));
+  if (c.tipo === "contraentrega" && c.accion) {
+    const campo = (name: string, label: string, extra = "") => `<label>${esc(label)}<input name="${name}" required ${extra}></label>`;
+    return `<section class="sec sec--cierre" id="pedido"><div class="wrap narrow">
+    <div class="head"><p class="eyebrow">Pedido</p><h2>Pedí ${esc(p?.name || "tu producto")}${precioTxt ? ` por ${esc(precioTxt)}` : ""}</h2>
+    <p class="lead">${c.pago === "anticipado" ? "Te contactamos por WhatsApp para coordinar el pago y el envío." : "Pagás cuando lo recibís. Completá tus datos y lo despachamos."}</p></div>
+    <form class="pedido" method="post" action="${esc(c.accion)}" data-json>
+      ${campo("nombre", "Nombre y apellido")}
+      ${campo("telefono", "Celular", 'inputmode="tel"')}
+      ${campo("documento", esCol ? "Cédula" : "Documento de identidad", 'inputmode="numeric"')}
+      ${campo("direccion", "Dirección (calle, número, apto)")}
+      <label>Barrio<input name="barrio"></label>
+      ${campo("ciudad", "Ciudad")}
+      ${campo("departamento", esCol ? "Departamento" : "Estado o provincia")}
+      <label>Punto de referencia<input name="referencia" placeholder="Frente a la panadería, al lado del parque…"></label>
+      <button class="cta" type="submit">${c.pago === "anticipado" ? "Quiero pedirlo" : "Pedir y pagar al recibir"}</button>
+      <p class="pedido__estado" aria-live="polite"></p>
+    </form>
+    ${wa ? `<p class="o-bien">¿Preferís pedirlo por chat? <a href="${esc(wa)}">Escribinos por WhatsApp</a></p>` : ""}
+  </div></section>
+  <script>
+  (function(){var f=document.querySelector('form.pedido');if(!f)return;f.addEventListener('submit',async function(e){e.preventDefault();var b=f.querySelector('button');var est=f.querySelector('.pedido__estado');b.disabled=true;est.textContent='Registrando tu pedido…';try{var d={};new FormData(f).forEach(function(v,k){d[k]=v});var r=await fetch(f.action,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(d)});var j=await r.json();if(j.ok){f.innerHTML='<p class="lead">✅ ¡Pedido recibido! Te contactamos por WhatsApp para confirmar el despacho. Llega en '+(j.plazo||'unos días')+'.</p>';}else{est.textContent=j.error||'No se pudo registrar. Intentá de nuevo o escribinos por WhatsApp.';b.disabled=false;}}catch(x){est.textContent='No se pudo registrar. Escribinos por WhatsApp.';b.disabled=false;}});})();
+  </script>`;
+  }
+  if (c.tipo === "pago") {
+    const botones = [
+      c.mercadopago ? `<a class="cta" href="${esc(c.mercadopago)}">Pagar con MercadoPago</a>` : "",
+      c.paypal ? `<a class="cta cta--alt" href="${esc(c.paypal)}">Pagar con PayPal</a>` : "",
+      wa ? `<a class="cta cta--alt" href="${esc(wa)}">Comprar por WhatsApp</a>` : "",
+    ].filter(Boolean).join("");
+    if (!botones) return "";
+    return `<section class="sec sec--cierre" id="pedido"><div class="wrap narrow center">
+    <p class="eyebrow">Compra</p><h2>${esc(p?.name || "")}${precioTxt ? ` · ${esc(precioTxt)}` : ""}</h2>
+    <p class="lead">Elegí cómo pagar. Apenas se confirma el pago recibís el acceso.</p>
+    <div class="botones">${botones}</div>
+  </div></section>`;
+  }
+  if (wa) {
+    return `<section class="sec sec--cierre" id="pedido"><div class="wrap narrow center">
+    <h2>${esc(p?.name || "")}</h2><div class="botones"><a class="cta" href="${esc(wa)}">Escribinos por WhatsApp</a></div>
+  </div></section>`;
+  }
+  return "";
 }
 
 function boton(texto: unknown, p?: ProductoParaRenderizar | null): string {
@@ -461,6 +539,15 @@ const CSS_MARCO = `
 .faq details p{margin:10px 0 0;color:var(--suave)}
 .franja{list-style:none;margin:0 0 20px;padding:0;display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,200px),1fr));gap:12px}
 .franja li{display:flex;align-items:flex-start;gap:10px;padding:14px 16px;border:1px solid var(--linea);border-radius:var(--radio);background:var(--superficie)}
+.pedido{display:grid;gap:12px;max-width:520px;margin:0 auto}
+.pedido label{display:grid;gap:6px;font-size:.92em;color:var(--suave)}
+.pedido input{font:inherit;padding:12px 14px;border:1px solid var(--linea);border-radius:var(--radio);background:var(--superficie);color:var(--texto)}
+.pedido input:focus{outline:2px solid var(--acento);outline-offset:1px}
+.pedido button{margin-top:6px;font:inherit;cursor:pointer}
+.pedido__estado{margin:0;color:var(--suave);font-size:.92em;min-height:1.4em}
+.o-bien{text-align:center;margin-top:18px;color:var(--suave)}.o-bien a{color:var(--texto)}
+.botones{display:flex;flex-wrap:wrap;gap:12px;justify-content:center}
+.cta--alt{background:transparent;color:var(--texto);border:1px solid var(--texto)}
 .pie{padding:32px var(--pad-x) 96px;border-top:1px solid var(--linea);color:var(--suave);font-size:.9em;text-align:center}
 .pie p{margin:4px 0}.pie a{color:inherit}
 .pie__nota{opacity:.8}
@@ -618,6 +705,9 @@ export function renderizarLanding(opts: OpcionesDeRender): string {
   const secciones = Array.isArray(opts.secciones) ? opts.secciones : [];
 
   const n = opts.negocio || null;
+  // Con cierre en la página, los CTA van al ancla del cierre.
+  destinoDelCierre = opts.cierre && (opts.cierre.tipo !== "pago" || opts.cierre.mercadopago || opts.cierre.paypal || n?.whatsapp) ? "#pedido" : null;
+  const cierreHtml = bloqueDeCierre(opts.cierre, p, n);
   const marca = esc(n?.nombre || "");
   const ctaTexto = esc(String(secciones.find((x) => x.type === "hero")?.cta || (n?.modelo === "fisico" ? "Pedir por WhatsApp" : "Lo quiero")).trim());
   const irA = esc(destino(p));
@@ -662,6 +752,7 @@ ${urlSegura(p?.imageUrl) ? `<meta property="og:image" content="${esc(urlSegura(p
 <body>
 ${cabecera}
 ${cuerpo}
+${cierreHtml}
 ${pie}
 ${fijo}
 </body>

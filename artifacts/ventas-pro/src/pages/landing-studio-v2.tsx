@@ -49,7 +49,7 @@ const FAMILIAS: { value: Familia; label: string; color: string }[] = [
   { value: "oscura", label: "Oscura", color: "#00D3A7" },
 ];
 
-const SALUDO = `Soy tu **Constructor de Landing Pages** powered by OpenCode 
+const SALUDO = `Soy tu **Constructor de Landing Pages** de VentasPro 
 
 Creo paginas de ventas profesionales con frameworks de alta conversion (AIDA, PAS, Before-After).
 
@@ -136,7 +136,7 @@ export default function LandingStudioV2() {
   const generarLanding = useCallback(async (pid: number) => {
     const product = products.find(p => p.id === pid);
     setBusy(true);
-    setMsgs(m => [...m, { role: "assistant", content: `Generando landing para **${product?.name}** con estilo *${familia}* via OpenCode...`, loading: true }]);
+    setMsgs(m => [...m, { role: "assistant", content: `Generando landing para **${product?.name}** con estilo *${familia}*...`, loading: true }]);
     try {
       const gen = await apiFetch<any>("/api/landing-pages/generate", {
         method: "POST",
@@ -152,9 +152,9 @@ export default function LandingStudioV2() {
       if (renderResp.ok) setPreviewHtml(await renderResp.text());
       setMsgs(m => [
         ...m.filter(x => !(x as any).loading),
-        { role: "assistant", content: `**Landing generada y guardada**\n\n**Nombre:** ${gen.name}\n**Estilo:** ${familia}\n**Motor:** ${gen.generatedBy === "ai" ? "OpenCode (IA)" : "Fallback determinístico"}\n\n**Secciones creadas:**\n${(gen.sections as any[]).map((s: any) => `- **${s.type}** — ${s.title}`).join("\n")}\n\nPuedes pedirme ajustes:\n> *"Haz el hero mas agresivo"*\n> *"Cambia el CTA a urgencia"*\n> *"Agrega mas beneficios"*` },
+        { role: "assistant", content: `**Landing generada y guardada**\n\n**Nombre:** ${gen.name}\n**Estilo:** ${familia}\n**Motor:** ${gen.generatedBy === "ai" ? "VentasPro IA" : "Plantilla con los datos del producto"}\n\n**Secciones creadas:**\n${(gen.sections as any[]).map((s: any) => `- **${s.type}** — ${s.title}`).join("\n")}\n\nPuedes pedirme ajustes:\n> *"Haz el hero mas agresivo"*\n> *"Cambia el CTA a urgencia"*\n> *"Agrega mas beneficios"*` },
       ]);
-      toast.success("Landing generada con OpenCode!");
+      toast.success("¡Landing generada!");
     } catch (e: any) {
       setMsgs(m => [...m.filter(x => !(x as any).loading), { role: "assistant", content: `Error: ${e.message || "Error al generar."}` }]);
     } finally { setBusy(false); }
@@ -226,7 +226,7 @@ export default function LandingStudioV2() {
               <LayoutTemplate className="h-4 w-4 text-violet-500" />
             </div>
             <span className="text-sm font-bold hidden sm:block">Landing AI Studio</span>
-            <Badge variant="secondary" className="text-[10px] hidden sm:flex">OpenCode</Badge>
+            <Badge variant="secondary" className="text-[10px] hidden sm:flex">IA</Badge>
           </div>
           <select value={productId} onChange={e => setProductId(e.target.value ? Number(e.target.value) : "")}
             className="h-8 rounded-md border bg-background px-2 text-xs min-w-[140px] max-w-[200px]">

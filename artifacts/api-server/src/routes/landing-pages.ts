@@ -4,6 +4,7 @@ import { db, landingPages, products } from "@workspace/db";
 import type { TenantRequest } from "../lib/tenantManager";
 import { sendError } from "../lib/error-handler";
 import { ERROR_CODES } from "../lib/error-codes";
+import { logger } from "../lib/logger";
 
 const router = Router();
 
@@ -104,8 +105,9 @@ router.get("/:id/render", async (req: TenantRequest, res, next) => {
       return res.redirect(302, source.landingforgeUrl);
     }
 
-    // Si tiene publishedUrl, redirigir ahí
-    if (row.publishedUrl) {
+    // Si tiene publishedUrl EXTERNA, redirigir ahí. La propia (/l/:slug) no:
+    // el editor quiere ver la versión guardada acá, con sesión.
+    if (row.publishedUrl && !/\/l\//.test(String(row.publishedUrl))) {
       return res.redirect(302, row.publishedUrl);
     }
 
@@ -135,6 +137,31 @@ router.get("/:id/render", async (req: TenantRequest, res, next) => {
     });
     res.setHeader("Content-Type", "text/html; charset=utf-8");
     return res.send(html);
+  } catch (e) { return next(e); }
+});
+
+/**
+ * Publicar: la landing queda visible en /l/:slug con el dominio de la app,
+ * sin login y sin hosting aparte. Esa es la URL que va en el anuncio.
+ * Despublicar (`publicada: false`) la vuelve a borrador y /l/:slug da 404.
+ */
+router.post("/:id/publish", async (req: TenantRequest, res, next) => {
+  try {
+    const tenantId = req.tenant?.id;
+    if (!tenantId) return sendError(res, ERROR_CODES.UNAUTHORIZED);
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) return sendError(res, ERROR_CODES.VALIDATION_INVALID_DATA);
+    const [row] = await db.select().from(landingPages).where(and(eq(landingPages.id, id), eq(landingPages.tenantId, tenantId))).limit(1);
+    if (!row) return res.status(404).json({ error: "Landing no encontrada" });
+
+    const publicar = req.body?.publicada !== false;
+    const { urlPublicaDe } = await import("./landing-publica");
+    const publishedUrl = publicar ? urlPublicaDe(row.slug) : null;
+    await db.update(landingPages)
+      .set({ status: publicar ? "published" : "draft", publishedUrl, updatedAt: new Date() } as any)
+      .where(eq(landingPages.id, id));
+    logger.info({ tenantId, id, publishedUrl }, "[LandingPages] publicación cambiada");
+    return res.json({ ok: true, id, status: publicar ? "published" : "draft", url: publishedUrl });
   } catch (e) { return next(e); }
 });
 
