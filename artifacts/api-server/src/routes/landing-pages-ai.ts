@@ -445,22 +445,12 @@ router.post("/:id/command", async (req: TenantRequest, res, next) => {
     const instruction = String(req.body?.instruction || "").trim();
     if (!instruction) return res.status(400).json({ message: "La instrucción está vacía." });
 
-    const [landing] = await db.select().from(landingPages).where(and(eq(landingPages.id, id), eq(landingPages.tenantId, tenantId))).limit(1);
-    if (!landing) return res.status(404).json({ message: "Landing no encontrada" });
-
-    const current = { name: landing.name, strategy: landing.strategy, sections: landing.sections, design: landing.design, source: landing.source };
-    const result = await callMarketingAI<any>({
-      tenantId,
-      json: true,
-      maxTokens: 1800,
-      systemPrompt: `Eres un editor de landing pages. Analiza la instrucción del usuario y el estado actual. Devuelve SOLO JSON con {message, operations}. No escribas prosa fuera del JSON. Las operaciones deben ser seguras y pequeñas. No inventes claims. Operaciones permitidas: update_section {sectionId,patch} (puedes parchear imagePrompt con un prompt en inglés para cambiar imagen), add_section {section} (con imagePrompt opcional), remove_section {sectionId}, move_section {sectionId,direction}, update_design {patch}, set_seo {patch}, set_cta {sectionId,cta}.`,
-      userPrompt: JSON.stringify({ instruction, selectedSectionId: req.body?.selectedSectionId || null, current }),
-    });
-
-    if (!result?.operations || !Array.isArray(result.operations)) {
-      return res.status(422).json({ ok: false, message: "El motor IA no pudo convertir la instrucción en una operación segura.", operations: [] });
-    }
-    return res.json({ ok: true, message: result.message || "Cambio preparado.", operations: result.operations });
+    // Calcula, APLICA y GUARDA (antes solo devolvía operaciones que nadie
+    // aplicaba y la pantalla decía "Cambio aplicado").
+    const { editarLanding } = await import("../lib/landing/editar");
+    const r = await editarLanding(tenantId, id, instruction, req.body?.selectedSectionId || null);
+    if (!r.ok) return res.status(422).json({ ok: false, message: r.message, operations: [] });
+    return res.json({ ok: true, message: `${r.message} (${r.aplicadas.join(", ")})`, operations: r.aplicadas });
   } catch (e) {
     return next(e);
   }

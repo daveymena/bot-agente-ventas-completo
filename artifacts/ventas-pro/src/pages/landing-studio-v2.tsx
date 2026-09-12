@@ -207,6 +207,27 @@ export default function LandingStudioV2() {
     a.download = `landing-${landingId}.html`; a.click();
   }, [landingId, familia]);
 
+  // Publicar: la landing queda en /l/<slug> con el dominio de la app, sin
+  // login. Esa es la URL que va en el anuncio. Hasta hoy no había forma de
+  // publicar desde la pantalla (solo por API o por Atlas).
+  const [urlPublica, setUrlPublica] = useState<string | null>(null);
+  const publicar = useCallback(async () => {
+    if (!landingId) { toast.info("Primero genera una landing."); return; }
+    try {
+      const r = await apiFetch<any>(`/api/landing-pages/${landingId}/publish`, { method: "POST", body: JSON.stringify({}) });
+      setUrlPublica(r.url || null);
+      try { await navigator.clipboard.writeText(r.url); } catch { /* sin portapapeles */ }
+      toast.success(`Publicada: ${r.url} (copiada al portapapeles)`);
+      setMsgs(m => [...m, { role: "assistant", content: `**Landing publicada.**
+
+URL para el anuncio: ${r.url}
+
+Cualquier cambio que me pidas se ve ahí al instante.` }]);
+    } catch (e: any) {
+      toast.error(`No se pudo publicar: ${e.message}`);
+    }
+  }, [landingId]);
+
   const cargarLanding = useCallback(async (id: number) => {
     const l = landings.find(x => x.id === id);
     if (!l) return;
@@ -244,6 +265,10 @@ export default function LandingStudioV2() {
             Generar
           </Button>
           <div className="ml-auto flex gap-1">
+            <Button size="sm" onClick={publicar} disabled={!landingId} className="h-8 px-3 text-xs bg-emerald-600 hover:bg-emerald-700 text-white"
+              title="Publicar en ventasproia.com/l/… (la URL para el anuncio)">
+              {urlPublica ? "Publicada ✓" : "Publicar"}
+            </Button>
             <Button size="sm" variant="ghost" onClick={() => landingId && cargarPreview(landingId)} disabled={!landingId || previewBusy} className="h-8 w-8 p-0"
               title="Actualizar la vista previa" aria-label="Actualizar la vista previa">
               <RefreshCw className={`h-3.5 w-3.5 ${previewBusy ? "animate-spin" : ""}`} />

@@ -4174,6 +4174,28 @@ Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vincu
     },
   },
   {
+    name: "landing_editar",
+    description:
+      "Edita una landing YA creada con una instrucción en lenguaje natural del admin ('hacé el hero más directo', 'agregá una FAQ sobre tallas', " +
+      "'cambiá el botón a Pedir ahora', 'quitá la comparación', 'poné estilo belleza'). Calcula el cambio, lo aplica y lo guarda; si estaba publicada, " +
+      "se ve en la URL pública al instante. No inventa datos ni toca las fotos (son las reales del producto). ⚠️ Va por propose_action.",
+    args: '{ "id": number (req), "instruccion": string (req, con las palabras del admin) }',
+    run: async (args, ctx) => {
+      const id = num(args?.id);
+      const instruccion = String(args?.instruccion || "").trim();
+      if (!id || !instruccion) return { ok: false, summary: "Faltan 'id' de la landing y/o la 'instruccion'." };
+      const { editarLanding } = await import("./landing/editar");
+      const r = await editarLanding(ctx.tenantId, id, instruccion);
+      return {
+        ok: r.ok,
+        summary: r.ok
+          ? `Landing [${id}] editada: ${r.message} — cambios: ${r.aplicadas.join(", ")}${r.ignoradas.length ? ` (no se aplicó: ${r.ignoradas.join(", ")})` : ""}.`
+          : `No se pudo editar la landing [${id}]: ${r.message}`,
+        data: r,
+      };
+    },
+  },
+  {
     name: "landing_publicar",
     description:
       "Publica (o despublica con publicada:false) una landing: queda visible en /l/<slug> con el dominio de la app, sin login y sin hosting aparte. " +
