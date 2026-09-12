@@ -85,7 +85,10 @@ export async function callMarketingAI<T = unknown>(
   }
 
   // 3. Último recurso: los gratis por env.
-  for (const p of ["opencode", "groq", "github", "openrouter", "nvidia"]) sumar(p, getProviderConfig(p));
+  // `ollama_cloud` va antes que los gratuitos de Zen (medidos muertos el
+  // 03-09): corre en la nube de Ollama con la clave ya cargada, sin RAM del
+  // VPS, y es el mismo que hoy lee las imágenes de los productos.
+  for (const p of ["ollama_cloud", "opencode", "groq", "github", "openrouter", "nvidia"]) sumar(p, getProviderConfig(p));
 
   if (candidatos.length === 0) {
     logger.warn("[MarketingAI] No hay ningún proveedor de IA configurado");
