@@ -119,6 +119,8 @@ router.get("/:id/render", async (req: TenantRequest, res, next) => {
     }
 
     const { renderizarLanding } = await import("../lib/landing/renderer");
+    const { negocioParaRender } = await import("../lib/landing/negocio-para-render");
+    const negocio = await negocioParaRender(tenantId, producto);
     const html = renderizarLanding({
       nombre: row.name,
       secciones: (row.sections as any[]) || [],
@@ -126,12 +128,10 @@ router.get("/:id/render", async (req: TenantRequest, res, next) => {
       producto: producto && {
         name: producto.name, description: producto.description, imageUrl: producto.imageUrl,
         price: producto.price, currency: producto.currency, paymentLink: producto.paymentLink,
-        // El numero de WhatsApp NO sale de aca: TenantContext no lo expone.
-        // Se dejo el campo en el renderer para cuando exista una fuente real;
-        // inventar `req.tenant.whatsappNumber` habria compilado como `any` y
-        // dado `undefined` en silencio -- de hecho app-operator ya tiene ese
-        // mismo error preexistente en la linea 930.
+        // El WhatsApp sale del tenant real (contactPhone), via negocioParaRender.
+        whatsapp: negocio.whatsapp,
       },
+      negocio,
     });
     res.setHeader("Content-Type", "text/html; charset=utf-8");
     return res.send(html);
@@ -158,6 +158,8 @@ router.post("/preview", async (req: TenantRequest, res, next) => {
     }
 
     const { renderizarLanding } = await import("../lib/landing/renderer");
+    const { negocioParaRender } = await import("../lib/landing/negocio-para-render");
+    const negocio = await negocioParaRender(tenantId, producto);
     const html = renderizarLanding({
       nombre: String(req.body?.name || "Vista previa"),
       secciones: Array.isArray(req.body?.sections) ? req.body.sections : [],
@@ -165,12 +167,10 @@ router.post("/preview", async (req: TenantRequest, res, next) => {
       producto: producto && {
         name: producto.name, description: producto.description, imageUrl: producto.imageUrl,
         price: producto.price, currency: producto.currency, paymentLink: producto.paymentLink,
-        // El numero de WhatsApp NO sale de aca: TenantContext no lo expone.
-        // Se dejo el campo en el renderer para cuando exista una fuente real;
-        // inventar `req.tenant.whatsappNumber` habria compilado como `any` y
-        // dado `undefined` en silencio -- de hecho app-operator ya tiene ese
-        // mismo error preexistente en la linea 930.
+        // El WhatsApp sale del tenant real (contactPhone), via negocioParaRender.
+        whatsapp: negocio.whatsapp,
       },
+      negocio,
     });
     res.setHeader("Content-Type", "text/html; charset=utf-8");
     return res.send(html);

@@ -58,6 +58,8 @@ export interface SeccionParaRenderizar {
   cta?: string | null;
   /** Imagen propia de la sección. Si no hay, se usa la del producto. */
   image?: string | null;
+  /** Galería: las fotos reales del producto. */
+  images?: string[] | null;
 }
 
 export interface ProductoParaRenderizar {
@@ -71,11 +73,27 @@ export interface ProductoParaRenderizar {
   whatsapp?: string | null;
 }
 
+/**
+ * El negocio dueño de la página: nombre para el encabezado y el pie, WhatsApp
+ * para el CTA, y las condiciones reales para la franja de confianza (envío
+ * incluido, contraentrega, plazo). Sin esto la página arrancaba en el H1
+ * pelado, sin marca y sin a dónde ir.
+ */
+export interface NegocioParaRenderizar {
+  nombre?: string | null;
+  whatsapp?: string | null;
+  /** "fisico" | "digital" | ... (ver modelo-de-negocio.ts). */
+  modelo?: string | null;
+  /** Frases ya resueltas para la franja de confianza. */
+  confianza?: string[] | null;
+}
+
 export interface OpcionesDeRender {
   nombre: string;
   secciones: SeccionParaRenderizar[];
   familia: FamiliaVisual | string | null;
   producto?: ProductoParaRenderizar | null;
+  negocio?: NegocioParaRenderizar | null;
 }
 
 // ─── Seguridad ───────────────────────────────────────────────────────────────
@@ -113,10 +131,22 @@ export function urlSegura(valor: unknown): string {
  * es como los escriben tanto el modelo como el respaldo determinístico.
  */
 function items(body: unknown): string[] {
-  return String(body ?? "")
+  const lineas = String(body ?? "")
     .split(/\n+|\s+·\s+/)
     .map((s) => s.replace(/^[-•]\s*/, "").trim())
     .filter(Boolean);
+  // Un solo párrafo largo no es una lista: se parte en frases (hasta 6). Es
+  // lo que pasaba con los beneficios de la faja: cuatro ideas en un renglón.
+  if (lineas.length === 1 && (lineas[0].match(/[.!?]\s+[A-ZÁÉÍÓÚÑ¿¡]/g)?.length ?? 0) >= 2) {
+    return lineas[0].split(/(?<=[.!?])\s+(?=[A-ZÁÉÍÓÚÑ¿¡])/).map((x) => x.trim()).filter(Boolean).slice(0, 6);
+  }
+  return lineas;
+}
+
+/** "¿Pregunta? | Respuesta" → las dos partes; sin " | ", solo la pregunta. */
+function preguntaYRespuesta(item: string): { q: string; a: string } {
+  const [q, ...resto] = item.split(/\s*\|\s*/);
+  return { q: (q || "").trim(), a: resto.join(" | ").trim() };
 }
 
 /** ¿El ítem ya trae su emoji del catálogo? Si sí, no se le agrega viñeta. */
@@ -160,7 +190,14 @@ function figura(sec: SeccionParaRenderizar, p?: ProductoParaRenderizar | null, c
 
 type Renderizador = (s: SeccionParaRenderizar, p: ProductoParaRenderizar | null | undefined, t: TokensDeDiseno) => string;
 
-const eyebrow = (s: SeccionParaRenderizar) => (s.type ? `<p class="eyebrow">${esc(s.type.replace(/[-_]/g, " "))}</p>` : "");
+// Antes imprimía el nombre INTERNO de la sección ("hero", "how it works"):
+// salía "HERO" y "BENEFITS" arriba de cada bloque en la página del cliente.
+const ETIQUETA: Record<string, string> = {
+  benefits: "Beneficios", "how-it-works": "Cómo funciona", offer: "Oferta", logistics: "Envío y pago",
+  faq: "Preguntas frecuentes", testimonials: "Opiniones", authority: "Quién está detrás", comparison: "Comparación",
+  "before-after": "Antes y después", gallery: "Fotos reales",
+};
+const eyebrow = (s: SeccionParaRenderizar) => (s.type && ETIQUETA[s.type] ? `<p class="eyebrow">${esc(ETIQUETA[s.type])}</p>` : "");
 const titulo = (s: SeccionParaRenderizar) => (s.title ? `<h2>${esc(s.title)}</h2>` : "");
 const bajada = (s: SeccionParaRenderizar) => (s.subtitle ? `<p class="lead">${esc(s.subtitle)}</p>` : "");
 
@@ -343,6 +380,29 @@ const LAYOUTS: Record<string, Renderizador> = {
   cta_final: (s, p) => `<div class="wrap center narrow">
     <h2>${esc(s.title || "")}</h2>${bajada(s)}${boton(s.cta, p)}
   </div>`,
+
+  // ── GALERÍA: las fotos reales del producto ──────────────────────────────
+  gallery_grid: (s, p) => {
+    const fotos = (Array.isArray(s.images) ? s.images : []).map(urlSegura).filter(Boolean);
+    if (fotos.length === 0) return "";
+    return `<div class="wrap">
+    <div class="head">${eyebrow(s)}${titulo(s)}${bajada(s)}</div>
+    <ul class="galeria">${fotos.map((u) => `<li><img src="${esc(u)}" alt="${esc(p?.name || "")}" loading="lazy" decoding="async"></li>`).join("")}</ul>
+  </div>`;
+  },
+
+  // ── FAQ con respuesta ("¿Pregunta? | Respuesta") ────────────────────────
+  faq_respuestas: (s) => `<div class="wrap narrow">
+    <div class="head left">${eyebrow(s)}${titulo(s)}${bajada(s)}</div>
+    <div class="faq">${items(s.body).map((i) => { const { q, a } = preguntaYRespuesta(i); return `<details><summary>${esc(q)}</summary>${a ? `<p>${esc(a)}</p>` : ""}</details>`; }).join("")}</div>
+  </div>`,
+
+  // ── LOGÍSTICA: tres datos que se leen de un vistazo ─────────────────────
+  logistics_strip: (s, p) => `<div class="wrap narrow">
+    <div class="head">${eyebrow(s)}${titulo(s)}${bajada(s)}</div>
+    <ul class="franja">${items(s.body).map((i) => `<li>${conVineta(i)}</li>`).join("")}</ul>
+    ${boton(s.cta, p)}
+  </div>`,
 };
 
 /** Cuando el layout pedido no existe, se compone algo correcto igual. */
@@ -363,6 +423,11 @@ export const LAYOUTS_DISPONIBLES = Object.keys(LAYOUTS);
  * hueco en la página del dueño.
  */
 function renderizadorDe(sec: SeccionParaRenderizar, t: TokensDeDiseno): Renderizador {
+  // Los tipos nuevos (o los que tienen un layout claramente mejor) no
+  // dependen de que la familia los conozca.
+  if (sec.type === "gallery") return LAYOUTS.gallery_grid;
+  if (sec.type === "faq" && items(sec.body).some((i) => i.includes("|"))) return LAYOUTS.faq_respuestas;
+  if (sec.type === "logistics") return LAYOUTS.logistics_strip;
   const pedido = String(sec.layout || "").trim();
   if (pedido && LAYOUTS[pedido]) return LAYOUTS[pedido];
 
@@ -382,6 +447,28 @@ function renderizadorDe(sec: SeccionParaRenderizar, t: TokensDeDiseno): Renderiz
  * el ancho, el aire, la escala tipográfica, la alineación por defecto, la
  * forma del CTA y el tratamiento de la imagen son todos variables.
  */
+const CSS_MARCO = `
+.top{position:sticky;top:0;z-index:20;background:var(--fondo);border-bottom:1px solid var(--linea);backdrop-filter:blur(8px)}
+.top__in{display:flex;align-items:center;justify-content:space-between;gap:16px;padding-block:12px}
+.marca{font-weight:700;letter-spacing:-.01em}
+.cta--chica{padding:10px 16px;font-size:.92em}
+.sec--confianza{padding-block:0 !important}
+.confianza{list-style:none;margin:0 auto;padding:14px var(--pad-x);max-width:var(--ancho);display:flex;flex-wrap:wrap;gap:10px 28px;justify-content:center;border-top:1px solid var(--linea);border-bottom:1px solid var(--linea);font-size:.95em}
+.confianza li{display:flex;align-items:center;gap:8px}
+.galeria{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr));gap:12px}
+.galeria li{margin:0;aspect-ratio:1;overflow:hidden;border-radius:var(--radio);background:var(--superficie)}
+.galeria img{width:100%;height:100%;object-fit:cover;display:block}
+.faq details p{margin:10px 0 0;color:var(--suave)}
+.franja{list-style:none;margin:0 0 20px;padding:0;display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,200px),1fr));gap:12px}
+.franja li{display:flex;align-items:flex-start;gap:10px;padding:14px 16px;border:1px solid var(--linea);border-radius:var(--radio);background:var(--superficie)}
+.pie{padding:32px var(--pad-x) 96px;border-top:1px solid var(--linea);color:var(--suave);font-size:.9em;text-align:center}
+.pie p{margin:4px 0}.pie a{color:inherit}
+.pie__nota{opacity:.8}
+.fijo{position:fixed;left:0;right:0;bottom:0;z-index:30;padding:10px 16px calc(10px + env(safe-area-inset-bottom));background:var(--fondo);border-top:1px solid var(--linea);display:none}
+.fijo .cta{display:block;text-align:center;width:100%}
+@media (max-width:720px){.fijo{display:block}.top .cta--chica{display:none}}
+`;
+
 function css(t: TokensDeDiseno): string {
   const escala = t.tipografia.escala;
   const alinear = t.alineacion === "izquierda" ? "left" : "center";
@@ -530,12 +617,31 @@ export function renderizarLanding(opts: OpcionesDeRender): string {
   const p = opts.producto || null;
   const secciones = Array.isArray(opts.secciones) ? opts.secciones : [];
 
+  const n = opts.negocio || null;
+  const marca = esc(n?.nombre || "");
+  const ctaTexto = esc(String(secciones.find((x) => x.type === "hero")?.cta || (n?.modelo === "fisico" ? "Pedir por WhatsApp" : "Lo quiero")).trim());
+  const irA = esc(destino(p));
+
+  // Una sección sin título, sin ítems y sin foto es un hueco con un rótulo
+  // arriba ("HOW IT WORKS" y nada más, medido en la landing 4). No se dibuja.
+  const conContenido = (s: SeccionParaRenderizar) =>
+    !!(String(s.title || "").trim() || items(s.body).length || urlSegura(s.image) || (Array.isArray(s.images) && s.images.length));
+
   const cuerpo = secciones
+    .filter(conContenido)
     .map((s) => {
       const html = renderizadorDe(s, t)(s, p, t);
-      return `<section class="sec sec--${esc(s.type || "generica")}" id="${esc(s.id || "")}">${html}</section>`;
+      if (!html.trim()) return "";
+      const confianza = s.type === "hero" && n?.confianza?.length
+        ? `<section class="sec sec--confianza"><ul class="confianza">${n.confianza.map((c) => `<li>${conVineta(c)}</li>`).join("")}</ul></section>`
+        : "";
+      return `<section class="sec sec--${esc(s.type || "generica")}" id="${esc(s.id || "")}">${html}</section>${confianza}`;
     })
     .join("\n");
+
+  const cabecera = `<header class="top"><div class="wrap top__in"><span class="marca">${marca || esc(p?.name || "")}</span><a class="cta cta--chica" href="${irA}">${ctaTexto}</a></div></header>`;
+  const pie = `<footer class="pie"><div class="wrap">${marca ? `<p>${marca}</p>` : ""}${n?.whatsapp ? `<p><a href="https://wa.me/${esc(String(n.whatsapp).replace(/\D/g, ""))}">Escribinos por WhatsApp</a></p>` : ""}<p class="pie__nota">Precios en ${esc(String(p?.currency || "COP"))}. ${n?.modelo === "fisico" ? "Pago contraentrega según condiciones del negocio." : ""}</p></div></footer>`;
+  const fijo = `<div class="fijo"><a class="cta" href="${irA}">${ctaTexto}</a></div>`;
 
   const titulo = esc(opts.nombre || p?.name || "Landing");
   const desc = esc(String(p?.description || secciones[0]?.subtitle || "").replace(/\s+/g, " ").slice(0, 155));
@@ -551,10 +657,13 @@ export function renderizarLanding(opts: OpcionesDeRender): string {
 <meta property="og:description" content="${desc}">
 ${urlSegura(p?.imageUrl) ? `<meta property="og:image" content="${esc(urlSegura(p?.imageUrl))}">` : ""}
 <meta name="color-scheme" content="${t.fondos === "oscuro" ? "dark" : "light"}">
-<style>${css(t)}</style>
+<style>${css(t)}${CSS_MARCO}</style>
 </head>
 <body>
+${cabecera}
 ${cuerpo}
+${pie}
+${fijo}
 </body>
 </html>`;
 }

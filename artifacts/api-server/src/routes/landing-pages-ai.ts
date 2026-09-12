@@ -27,6 +27,9 @@ type LandingSection = {
   subtitle?: string;
   body?: string;
   cta?: string;
+  image?: string;
+  /** Galería: las fotos REALES del producto (las del proveedor). */
+  images?: string[];
 };
 
 /**
@@ -78,23 +81,58 @@ function rellenoDe(casilla: Casilla, product: any): LandingSection {
  * Lo que el modelo trajo de más se descarta: si no está en la plantilla, es una
  * sección que este producto no tiene con qué llenar.
  */
-function normalizeSections(input: unknown, product: any, casillas: Casilla[]): LandingSection[] {
+/**
+ * Las fotos REALES del producto, en orden: la principal y las del proveedor.
+ *
+ * Hasta hoy cada sección mandaba un "imagePrompt" a Pollinations con estilo
+ * "neon dark mode SaaS 3D render": una faja salía como una mujer en bikini
+ * generada, el antes/después era la misma imagen duplicada con marca de agua,
+ * y las cinco fotos reales que Dropi trae de cada producto no se usaban
+ * (medido el 12-09-2026 en la landing 4). Una landing de un producto físico
+ * se hace con las fotos del producto. La IA queda solo como respaldo cuando
+ * no hay ninguna foto real.
+ */
+export function imagenesRealesDe(product: any): string[] {
+  const meta: any = typeof product?.metadata === "string" ? (() => { try { return JSON.parse(product.metadata); } catch { return null; } })() : product?.metadata;
+  const base = (process.env.APP_URL || "https://ventasproia.com").replace(/\/+$/, "");
+  const propia = String(product?.imageUrl || "").trim();
+  const absoluta = propia ? (propia.startsWith("http") ? propia : `${base}${propia.startsWith("/") ? "" : "/"}${propia}`) : "";
+  const deWoo: string[] = Array.isArray(meta?.woocommerce?.imageUrls) ? meta.woocommerce.imageUrls.map(String) : [];
+  const todas = [absoluta, ...deWoo].filter(Boolean);
+  return [...new Set(todas)].filter((u) => /\.(jpe?g|png|webp)(\?|$)/i.test(u) || u.includes("/images/products/")).slice(0, 8);
+}
+
+export function normalizeSections(input: unknown, product: any, casillas: Casilla[]): LandingSection[] {
+  const reales = imagenesRealesDe(product);
+  const esFisico = String(product?.kind || "digital") === "physical";
+  // Un "antes/después" sin fotos reales de antes y después es una imagen
+  // inventada con una persona inventada: en un físico no va. (En digital la
+  // plantilla lo usa solo como texto.)
+  const casillasUtiles = esFisico ? casillas.filter((c) => c.type !== "before-after") : casillas;
+  // La foto que le toca a cada sección, rotando las reales: hero la principal.
+  const realPara: Record<string, string | undefined> = {
+    hero: reales[0], benefits: reales[1] ?? reales[0], "how-it-works": reales[2] ?? reales[1], offer: reales[0],
+    comparison: reales[1], authority: undefined, testimonials: undefined, logistics: undefined, faq: undefined, cta: reales[0],
+  };
   const delModelo = Array.isArray(input)
     ? input.filter((s: any) => s && typeof s === "object" && typeof s.type === "string")
     : [];
   const usadas = new Set<number>();
 
-  return casillas.map((casilla, i) => {
+  const salida: LandingSection[] = casillasUtiles.map((casilla, i) => {
     const idx = delModelo.findIndex((s: any, j: number) => !usadas.has(j) && String(s.type) === casilla.type);
-    if (idx === -1) return rellenoDe(casilla, product);
-    usadas.add(idx);
-    const s: any = delModelo[idx];
     const relleno = rellenoDe(casilla, product);
+    const s: any = idx === -1 ? {} : delModelo[idx];
+    if (idx !== -1) usadas.add(idx);
 
-    let image = s.image ? String(s.image) : undefined;
-    if (!image && s.imagePrompt) {
-      // Usar IA gratuita (Pollinations) para generar las imágenes on-the-fly al estilo Magic
-      const enc = encodeURIComponent(String(s.imagePrompt) + ", high-end SaaS aesthetic, neon dark mode e-commerce magic style, professional photorealistic 3d render, 8k");
+    // Foto real primero. Una URL que trajo el modelo solo vale si es una
+    // imagen real (http y no un generador). Pollinations queda como último
+    // respaldo, con estilo de FOTO DE PRODUCTO, no de render 3D neón.
+    let image: string | undefined = realPara[casilla.type];
+    const delModeloUrl = typeof s.image === "string" && /^https?:\/\//.test(s.image) && !/pollinations/i.test(s.image) ? s.image : undefined;
+    if (!image && delModeloUrl) image = delModeloUrl;
+    if (!image && reales.length === 0 && s.imagePrompt && ["hero", "benefits", "offer"].includes(casilla.type)) {
+      const enc = encodeURIComponent(`${String(s.imagePrompt)}, clean product photography, studio light, white background, no people, no text`);
       image = `https://image.pollinations.ai/prompt/${enc}?width=1080&height=720&nologo=true`;
     }
     return {
@@ -109,6 +147,16 @@ function normalizeSections(input: unknown, product: any, casillas: Casilla[]): L
       image,
     };
   });
+
+  // Galería con las fotos reales, después de los beneficios: en un físico es
+  // lo que más se mira, y hasta hoy esas fotos no aparecían en ningún lado.
+  if (esFisico && reales.length >= 2) {
+    const pos = salida.findIndex((x) => x.type === "benefits");
+    salida.splice(pos === -1 ? 1 : pos + 1, 0, {
+      id: "gallery-1", type: "gallery", title: "Así es", subtitle: "Fotos reales del producto", images: reales.slice(0, 6),
+    });
+  }
+  return salida;
 }
 
 function normalizeStrategy(strategy: any, product: any, sourceAd: any) {
@@ -214,7 +262,7 @@ router.post("/generate", async (req: TenantRequest, res, next) => {
         formato: {
           name: "string",
           strategy: { avatar: "string", awareness: "string", pain: "string", desire: "string", mechanism: "string", promise: "string", objections: ["string"], angle: "string", objective, language, country, currency: product.currency },
-          sections: [{ id: "string", type: "hero|benefits|offer|before-after|comparison|authority|testimonials|how-it-works|logistics|faq|cta", title: "string", subtitle: "string", body: "string", cta: "string", imagePrompt: "descripción en inglés (max 20 palabras) para generar una imagen 3D premium o mockup de SaaS relacionado a esta sección, si aplica" }],
+          sections: [{ id: "string", type: "hero|benefits|offer|before-after|comparison|authority|testimonials|how-it-works|logistics|faq|cta", title: "string", subtitle: "string", body: "string: en benefits, how-it-works, comparison y offer va UNA LÍNEA POR ÍTEM (3 a 6 ítems cortos y concretos, sin adjetivos de relleno); en faq va UNA LÍNEA POR PREGUNTA con la respuesta después de ' | ' (ej: '¿Cuánto tarda en llegar? | Entre 3 y 5 días hábiles'); en hero y cta, un párrafo corto", cta: "string: el mismo verbo en hero, offer y cta", imagePrompt: "SOLO si el producto no tiene foto: descripción en inglés (max 15 palabras) de una FOTO DE PRODUCTO limpia, sin personas ni texto" }],
           design: { tone: "string", primary: "string", background: "string", radius: "string" },
           source: { type: sourceAd ? "facebook-ad" : "product", reference: sourceAd || null }
         }
