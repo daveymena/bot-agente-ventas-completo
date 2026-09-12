@@ -153,6 +153,22 @@ export class WooCommerceService {
   }
 
   /**
+   * Últimos pedidos de WooCommerce: es la única forma de saber si lo que el
+   * bot mandó de verdad llegó (y en qué estado lo dejó Dropify).
+   */
+  async getOrders(params: { per_page?: number; status?: string } = {}): Promise<any[]> {
+    try {
+      const response = await this.client.get("/orders", {
+        params: { per_page: params.per_page || 10, orderby: "date", order: "desc", ...(params.status ? { status: params.status } : {}) },
+      });
+      return response.data;
+    } catch (error: any) {
+      logger.error({ tenantId: this.tenantId, error: error.message }, "[WooCommerce] Error obteniendo pedidos");
+      throw new Error(`Error obteniendo pedidos de WooCommerce: ${error.message}`);
+    }
+  }
+
+  /**
    * Obtener un producto específico por ID
    */
   async getProduct(productId: number): Promise<WooCommerceProduct> {

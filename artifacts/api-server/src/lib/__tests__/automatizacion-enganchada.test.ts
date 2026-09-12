@@ -198,3 +198,10 @@ describe("Atlas puede crear agentes especializados nuevos", () => {
     expect(String(propose?.description || "")).toContain("agente_crear");
   });
 });
+
+describe("woocommerce_estado existe y es solo lectura (12-09-2026: Atlas dijo 'no hay conexión' sin poder mirar)", () => {
+  it("está registrada y en READ_ONLY_TOOLS", () => {
+    expect(TOOLS.some((t) => t.name === "woocommerce_estado")).toBe(true);
+    expect(READ_ONLY_TOOLS.has("woocommerce_estado")).toBe(true);
+  });
+});

@@ -4033,6 +4033,20 @@ Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vincu
     },
   },
 
+  {
+    name: "woocommerce_estado",
+    description:
+      "Estado REAL de WooCommerce: si está configurado, si responde, los últimos pedidos que tiene WooCommerce y los pedidos " +
+      "que el bot tomó por WhatsApp con su resultado (registrado en Woo / falló y por qué / sin confirmar por el cliente). " +
+      "Lectura pura. Úsala SIEMPRE que el admin pregunte por WooCommerce, WordPress, la tienda externa, Dropify o si 'los pedidos llegan': " +
+      "sin llamarla no sabés nada de eso, y afirmar que 'no existe conexión' sin mirar es inventar (pasó el 12-09-2026).",
+    args: "{}",
+    run: async (_args, ctx) => {
+      const { estadoWooCommerce } = await import("./woocommerce-estado");
+      const r = await estadoWooCommerce(ctx.tenantId);
+      return { ok: r.configurada && r.conexion.ok, summary: r.resumen, data: r };
+    },
+  },
   // ── 📦 DROPI (dropshipping) ────────────────────────────────────────────────
   {
     name: "dropi_status",
@@ -6217,7 +6231,7 @@ export const READ_ONLY_TOOLS = new Set([
   // propósito: mueven dinero real y tienen que pasar por confirmación.
   "fb_list_adsets",
   // Dropi de solo lectura: consultar el catálogo del proveedor no crea nada.
-  "dropi_status", "dropi_search_products",
+  "dropi_status", "dropi_search_products", "woocommerce_estado",
   // Terabox: listar carpetas es lectura pura, no cambia nada.
   //
   // terabox_create_share_link NO va acá, aunque estuvo un rato. Se justificaba

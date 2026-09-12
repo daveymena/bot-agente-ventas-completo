@@ -231,6 +231,23 @@ router.get("/products", async (req, res) => {
 });
 
 /**
+ * GET /api/woocommerce/estado
+ * Conexión, últimos pedidos en WooCommerce y pedidos que tomó el bot con su
+ * resultado. Misma fuente que la herramienta `woocommerce_estado` de Atlas.
+ */
+router.get("/estado", async (req, res) => {
+  try {
+    const tenantId = req.tenant?.id;
+    if (!tenantId) return res.status(401).json({ error: "No autenticado" });
+    const { estadoWooCommerce } = await import("../lib/woocommerce-estado");
+    res.json(await estadoWooCommerce(tenantId));
+  } catch (error: any) {
+    logger.error({ error: error.message }, "[WooCommerce] Error leyendo el estado");
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
  * POST /api/woocommerce/create-order
  * Crear orden en WooCommerce
  */

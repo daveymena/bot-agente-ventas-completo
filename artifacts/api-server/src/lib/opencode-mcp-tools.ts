@@ -296,6 +296,7 @@ const TOOL_SCHEMAS: Record<string, object> = {
     additionalProperties: false,
   },
   dropi_status: { type: "object", properties: {}, additionalProperties: false },
+  woocommerce_estado: { type: "object", properties: {}, additionalProperties: false },
   dropi_search_products: {
     type: "object",
     properties: { query: { type: "string" }, limit: { type: "number", description: "Por defecto 10" } },
@@ -1103,8 +1104,8 @@ const GRUPOS: { patron: RegExp; herramientas: string[] }[] = [
     herramientas: ["generate_image", "search_product_images", "web_scrape_images"],
   },
   {
-    patron: /dropi|proveedor|dropshipping|stock/i,
-    herramientas: ["dropi_status", "dropi_search_products"],
+    patron: /dropi|proveedor|dropshipping|stock|woo\s?commerce|wordpress|dropify|pedidos? (llega|recib)/i,
+    herramientas: ["dropi_status", "dropi_search_products", "woocommerce_estado"],
   },
   {
     patron: /copy|texto|redact|descripci|t[ií]tulo/i,
@@ -1393,7 +1394,7 @@ const FAMILIAS_DE_CONSULTA: Array<{ tema: string; herramientas: string[] }> = [
   { tema: "Facebook Ads", herramientas: ["fb_status", "fb_list_campaigns", "fb_list_adsets", "fb_list_drafts", "fb_campaign_metrics", "fb_why_not_delivering", "fb_page_can_post", "fb_page_preview", "fb_suggest_audience", "fb_pixel_status", "fb_ad_library", "fb_agent_logs", "que_hago_con_la_campana", "ad_brief"] },
   { tema: "Marketing y contenido", herramientas: ["marketing_diagnostico", "marketing_aprendizajes", "marketing_attribution", "plan_de_contenido", "generate_image", "web_scrape_images"] },
   { tema: "Investigacion en internet", herramientas: ["web_search", "web_fetch", "deep_research", "research_start", "research_check"] },
-  { tema: "Entrega y proveedores", herramientas: ["dropi_status", "dropi_search_products", "terabox_list_folder", "verificar_link_entrega", "payment_status"] },
+  { tema: "Entrega y proveedores", herramientas: ["dropi_status", "dropi_search_products", "woocommerce_estado", "terabox_list_folder", "verificar_link_entrega", "payment_status"] },
   { tema: "Estado del sistema", herramientas: ["analyze_system", "system_diagnose", "automatizacion_estado", "negocio_que_falta", "plataforma_info", "test_ai_models", "reason_business_decision"] },
 ];
 
