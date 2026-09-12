@@ -47,6 +47,13 @@ const MAX_HISTORY = 40;
 export async function loadArchitectHistory(
   tenantId: number,
   sessionId: string,
+  /**
+   * Cuántos mensajes traer. MAX_HISTORY (40) es lo que LEE EL MODELO; la
+   * pantalla que muestra la charla al admin tiene que pedir más: con 40, una
+   * conversación de 248 mensajes se abría mostrando solo el final y el admin
+   * creía que el historial se estaba borrando (12-09-2026).
+   */
+  limite: number = MAX_HISTORY,
 ): Promise<ChatTurn[]> {
   const rows = await db
     .select()
@@ -85,7 +92,7 @@ export async function loadArchitectHistory(
     // `id` es autoincremental, así que es el orden real en que se dijeron las
     // cosas, y no depende de la precisión del reloj.
     .orderBy(desc(architectMemory.createdAt), desc(architectMemory.id))
-    .limit(MAX_HISTORY);
+    .limit(limite);
 
   rows.reverse();
 

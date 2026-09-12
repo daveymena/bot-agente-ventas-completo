@@ -2213,7 +2213,8 @@ router.get("/history", async (req: TenantRequest, res, next) => {
     const sessionId = String(req.query.sessionId || "default");
 
     const [history, pending] = await Promise.all([
-      loadArchitectHistory(tenantId, sessionId),
+      // Para MOSTRAR: la charla entera (tope alto), no los 40 del modelo.
+      loadArchitectHistory(tenantId, sessionId, 1000),
       getPendingPlan(tenantId, sessionId),
     ]);
     // `hayAlgoPendiente`: el último turno guardado quedó a medio hacer. La
