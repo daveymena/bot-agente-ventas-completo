@@ -47,8 +47,32 @@ export async function operacionesDeEdicion(
       "'message' es una frase corta para el admin diciendo QUÉ cambiaste.",
     userPrompt: JSON.stringify({ instruction, selectedSectionId: selectedSectionId || null, current }),
   });
-  const operations = Array.isArray(result?.operations) ? result.operations.filter((o: any) => o && typeof o.op === "string") : [];
-  return { message: String(result?.message || (operations.length ? "Cambio preparado." : "No pude convertir la instrucción en un cambio seguro.")), operations };
+  // El modelo escribe la lista con distintos nombres, y a veces devuelve
+  // las `sections` enteras en vez de operaciones. Se aceptan todas las formas:
+  // sin esto contestaba "Actualicé la sección…" con cero operaciones
+  // reconocidas y nada cambiaba (12-09-2026).
+  let crudas: any[] = [];
+  for (const k of ["operations", "ops", "operaciones", "cambios", "changes"]) {
+    if (Array.isArray(result?.[k])) { crudas = result[k]; break; }
+  }
+  if (crudas.length === 0 && Array.isArray(result?.sections)) {
+    const actuales: any[] = Array.isArray(landing.sections) ? (landing.sections as any[]) : [];
+    for (const sec of result.sections) {
+      if (!sec || typeof sec !== "object") continue;
+      const existe = actuales.find((a) => String(a.id) === String(sec.id)) || actuales.find((a) => a.type === sec.type);
+      crudas.push(existe
+        ? { op: "update_section", sectionId: existe.id, patch: { title: sec.title, subtitle: sec.subtitle, body: sec.body, cta: sec.cta } }
+        : { op: "add_section", section: sec });
+    }
+  }
+  const operations: OperacionDeEdicion[] = crudas
+    .map((o: any) => (o && typeof o === "object" ? { ...o, op: String(o.op || o.type || o.action || "") } : null))
+    .filter((o: any): o is OperacionDeEdicion => !!o && !!o.op);
+  const claves = result && typeof result === "object" ? Object.keys(result).join(", ") : typeof result;
+  return {
+    message: String(result?.message || (operations.length ? "Cambio preparado." : `No pude convertir la instrucción en un cambio seguro (el modelo devolvió: ${claves}).`)),
+    operations,
+  };
 }
 
 /** Aplica las operaciones sobre una copia y devuelve lo que hay que guardar. */
@@ -124,7 +148,7 @@ export async function editarLanding(tenantId: number, landingId: number, instruc
   const [landing] = await db.select().from(landingPages).where(eq(landingPages.id, landingId)).limit(1);
   if (!landing || landing.tenantId !== tenantId) return { ok: false as const, message: "Landing no encontrada", aplicadas: [] as string[], ignoradas: [] as string[] };
   const { message, operations } = await operacionesDeEdicion(tenantId, landing as any, instruction, selectedSectionId);
-  if (operations.length === 0) return { ok: false as const, message, aplicadas: [], ignoradas: [] };
+  if (operations.length === 0) return { ok: false as const, message: message.startsWith("No pude") ? message : `El modelo no devolvió operaciones aplicables (dijo: "${message}").`, aplicadas: [], ignoradas: [] };
   const r = aplicarOperaciones({ name: landing.name, sections: (landing.sections as any[]) || [], design: landing.design }, operations);
   if (r.aplicadas.length === 0) return { ok: false as const, message: `No se aplicó nada (${r.ignoradas.join(", ") || "sin operaciones válidas"}).`, aplicadas: [], ignoradas: r.ignoradas };
   await db.update(landingPages).set({ sections: r.sections, design: r.design, updatedAt: new Date() } as any).where(eq(landingPages.id, landingId));
