@@ -628,7 +628,12 @@ async function sendOpencodeMessage(
   return { text };
 }
 
-router.post("/operator-opencode", requireAdmin(), async (req: TenantRequest, res, next) => {
+// Atlas es de CADA negocio, no solo del dueño de la plataforma: sus
+// herramientas ya trabajan por `ctx.tenantId`. El `requireAdmin()` que entró
+// con 79225c2 ("blindar autonomía") dejaba a todo cliente del SaaS con un 403
+// que la pantalla mostraba como "se cayó la conexión" (12-09-2026). El
+// diagnóstico técnico (atlas-diagnostico) sí sigue siendo solo del admin.
+router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
   try {
     const tenantId = req.tenant?.id;
     if (!tenantId) return res.status(401).json({ message: "Tenant not resolved" });
@@ -2389,7 +2394,7 @@ router.get("/atlas-diagnostico", requireAdmin(), async (req: TenantRequest, res,
  * "listo" a ciegas: si el turno ya había terminado justo antes, la pantalla
  * tiene que poder decir eso y no fingir que cortó algo.
  */
-router.post("/operator-opencode/detener", requireAdmin(), async (req: TenantRequest, res) => {
+router.post("/operator-opencode/detener", async (req: TenantRequest, res) => {
   const tenantId = req.tenant?.id;
   if (!tenantId) return res.status(401).json({ message: "Tenant not resolved" });
   const sessionId: string = (req.body?.sessionId as string) || "default";

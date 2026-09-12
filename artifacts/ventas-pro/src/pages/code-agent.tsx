@@ -1073,7 +1073,24 @@ export default function CodeAgent() {
       } else if (data?.configApplied) {
         toast.success("Agente configurado");
       }
-    } catch {
+    } catch (e: any) {
+      // Un 401/403 NO es una caída de conexión: es que este usuario no tiene
+      // acceso. Un cliente del SaaS lo vio como "Se cayó la conexión, pero
+      // Atlas sigue trabajando. Recuperando…" (12-09-2026) cuando el servidor
+      // le había contestado 403. Se dice lo que es y no se intenta recuperar.
+      const sinAcceso = /status (401|403)/.test(String(e?.message || ""));
+      if (sinAcceso) {
+        setMessages((prev) => [
+          ...prev,
+          {
+            role: "assistant",
+            at: Date.now(),
+            content: String(e?.message || "").includes("401")
+              ? "Tu sesión venció. Volvé a iniciar sesión para seguir con Atlas."
+              : "Tu usuario no tiene acceso a Atlas. Si creés que debería, avisale al administrador de la plataforma.",
+          },
+        ]);
+      } else
       // Detenerlo no es un fallo. Abortar el fetch tira `AbortError` y caía
       // acá, así que apretar el botón contestaba "no pude responder,
       // ¿intentamos de nuevo?" -- un mensaje de error para algo que salió
