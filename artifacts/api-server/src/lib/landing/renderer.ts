@@ -449,7 +449,7 @@ function renderizadorDe(sec: SeccionParaRenderizar, t: TokensDeDiseno): Renderiz
  */
 const CSS_MARCO = `
 .top{position:sticky;top:0;z-index:20;background:var(--fondo);border-bottom:1px solid var(--linea);backdrop-filter:blur(8px)}
-.top__in{display:flex;align-items:center;justify-content:space-between;gap:16px;padding-block:12px}
+.top__in{max-width:var(--ancho);margin:0 auto;padding:12px var(--pad-x);display:flex;align-items:center;justify-content:space-between;gap:16px;text-align:left}
 .marca{font-weight:700;letter-spacing:-.01em}
 .cta--chica{padding:10px 16px;font-size:.92em}
 .sec--confianza{padding-block:0 !important}
@@ -639,7 +639,7 @@ export function renderizarLanding(opts: OpcionesDeRender): string {
     })
     .join("\n");
 
-  const cabecera = `<header class="top"><div class="wrap top__in"><span class="marca">${marca || esc(p?.name || "")}</span><a class="cta cta--chica" href="${irA}">${ctaTexto}</a></div></header>`;
+  const cabecera = `<header class="top"><div class="top__in"><span class="marca">${marca || esc(p?.name || "")}</span><a class="cta cta--chica" href="${irA}">${ctaTexto}</a></div></header>`;
   const pie = `<footer class="pie"><div class="wrap">${marca ? `<p>${marca}</p>` : ""}${n?.whatsapp ? `<p><a href="https://wa.me/${esc(String(n.whatsapp).replace(/\D/g, ""))}">Escribinos por WhatsApp</a></p>` : ""}<p class="pie__nota">Precios en ${esc(String(p?.currency || "COP"))}. ${n?.modelo === "fisico" ? "Pago contraentrega según condiciones del negocio." : ""}</p></div></footer>`;
   const fijo = `<div class="fijo"><a class="cta" href="${irA}">${ctaTexto}</a></div>`;
 

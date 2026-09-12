@@ -249,10 +249,15 @@ router.post("/generate", async (req: TenantRequest, res, next) => {
     const plantilla = elegirPlantilla(product as any, req.body?.plantilla, negocio);
     const casillas = casillasQueAplican(plantilla, product as any, negocio);
 
-    const result = await callMarketingAI<any>({
+    // 2.200 tokens no alcanzaban para 7 secciones con ítems y una FAQ con
+    // respuestas: el JSON llegaba cortado, `tryParseJson` rescataba un objeto
+    // parcial sin `sections`, y la landing salía entera de relleno con
+    // generatedBy="ai" (12-09-2026, faja). Más tope, y abajo se verifica que
+    // de verdad haya secciones antes de llamarlo "ai".
+    const llamar = () => callMarketingAI<any>({
       tenantId,
       json: true,
-      maxTokens: 2200,
+      maxTokens: 4000,
       systemPrompt: `${bloqueDePlantilla(plantilla, product as any, negocio)}\nEres el Landing Agent de VentasPro. Construyes landing pages de respuesta directa que continúan la promesa del anuncio y convierten sin inventar datos. Devuelve SOLO JSON válido. Usa únicamente hechos presentes en PRODUCTO o ANUNCIO FUENTE; si falta un dato, no lo inventes. Nunca fabriques testimonios, garantías, descuentos, urgencia, certificaciones ni resultados cuantificados. Escribe en ${language} para ${country}. La salida debe ser utilizable por un editor visual.`,
       userPrompt: JSON.stringify({
         tarea: "crear_landing",
@@ -269,12 +274,26 @@ router.post("/generate", async (req: TenantRequest, res, next) => {
       }),
     });
 
+    // El modelo a veces envuelve la respuesta ({ landing: {...} }, { data: {...} }).
+    const desenvolver = (r: any): any => {
+      if (!r || typeof r !== "object") return null;
+      if (Array.isArray(r.sections)) return r;
+      for (const k of ["landing", "data", "result", "output"]) if (r[k] && Array.isArray(r[k].sections)) return r[k];
+      return null;
+    };
+    let result = desenvolver(await llamar());
+    if (!result) {
+      console.log(`[Landing] el modelo no devolvió secciones para el producto ${productId}: se reintenta una vez`);
+      result = desenvolver(await llamar());
+    }
+    const conSecciones = !!result && Array.isArray(result.sections) && result.sections.length > 0;
+
     const strategy = normalizeStrategy(result?.strategy, product, sourceAd);
     const sections = normalizeSections(result?.sections, product, casillas);
     const design = result?.design || { tone: "direct-response premium", primary: "#111827", background: "#ffffff", radius: "14px" };
     const name = String(result?.name || `Landing · ${product.name}`);
 
-    return res.json({ ok: true, generatedBy: result ? "ai" : "fallback", name, productId, strategy, sections, design,
+    return res.json({ ok: true, generatedBy: conSecciones ? "ai" : "fallback", name, productId, strategy, sections, design,
       plantilla: { id: plantilla.id, nombre: plantilla.nombre, para: plantilla.para, cuando: plantilla.cuando }, source: sourceAd ? { type: "facebook-ad", data: sourceAd } : { type: "product", productId } });
   } catch (e) {
     return next(e);
