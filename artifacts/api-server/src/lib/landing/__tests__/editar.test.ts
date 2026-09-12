@@ -55,3 +55,12 @@ describe("límites del editor (rueda abdominal, 12-09-2026)", () => {
     expect(r.ignoradas.length).toBe(3);
   });
 });
+
+describe("una sección nueva va antes del cierre y con id único", () => {
+  it("no repite ids ni queda después del CTA", () => {
+    const con = { ...base, sections: [...base.sections.slice(0, 2), { id: "benefits-2", type: "benefits", title: "Otra" }, base.sections[2]] };
+    const r = aplicarOperaciones(con as any, [{ op: "add_section", section: { type: "faq", title: "FAQ", body: "¿a? | b" } }]);
+    expect(r.sections[r.sections.length - 1].type).toBe("cta");
+    expect(new Set(r.sections.map((x) => x.id)).size).toBe(r.sections.length);
+  });
+});

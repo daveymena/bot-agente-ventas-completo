@@ -118,7 +118,12 @@ export function aplicarOperaciones(
         // Una sección más del mismo tipo como mucho: cuatro "benefits" seguidas
         // es un folleto, no una página.
         if (n > 2) { ignoradas.push(`ya hay ${n - 1} de ${s.type}`); break; }
-        sections.push({ id: `${s.type}-${n}`, type: s.type, title: aTextoPlano(s.title || ""), subtitle: s.subtitle ? aTextoPlano(s.subtitle) : undefined, body: s.body ? aTextoPlano(s.body) : undefined, cta: s.cta ? aTextoPlano(s.cta) : undefined });
+        // Id único de verdad (contar por tipo repetía "benefits-2") y la
+        // sección nueva va ANTES del cierre, no después del botón final.
+        let k = n; while (sections.some((x) => String(x.id) === `${s.type}-${k}`)) k++;
+        const nueva = { id: `${s.type}-${k}`, type: s.type, title: aTextoPlano(s.title || ""), subtitle: s.subtitle ? aTextoPlano(s.subtitle) : undefined, body: s.body ? aTextoPlano(s.body) : undefined, cta: s.cta ? aTextoPlano(s.cta) : undefined };
+        const cierre = sections.findIndex((x) => x.type === "cta");
+        if (cierre === -1) sections.push(nueva); else sections.splice(cierre, 0, nueva);
         aplicadas.push(`agregada ${s.type}`);
         break;
       }
