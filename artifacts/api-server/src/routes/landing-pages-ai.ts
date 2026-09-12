@@ -5,6 +5,8 @@ import { sendError } from "../lib/error-handler";
 import { ERROR_CODES } from "../lib/error-codes";
 import type { TenantRequest } from "../lib/tenantManager";
 import { callMarketingAI } from "../lib/marketing-team/ai";
+import { CONDICIONES_DE_RESPALDO, fraseCostoEnvio, frasePagoEnvio, type CondicionesDelNegocio } from "../lib/modelo-de-negocio";
+import { getBusinessContext } from "../lib/business-context";
 import {
   bloqueDePlantilla,
   casillasQueAplican,
@@ -102,7 +104,7 @@ export function imagenesRealesDe(product: any): string[] {
   return [...new Set(todas)].filter((u) => /\.(jpe?g|png|webp)(\?|$)/i.test(u) || u.includes("/images/products/")).slice(0, 8);
 }
 
-export function normalizeSections(input: unknown, product: any, casillas: Casilla[]): LandingSection[] {
+export function normalizeSections(input: unknown, product: any, casillas: Casilla[], condiciones?: CondicionesDelNegocio | null): LandingSection[] {
   const reales = imagenesRealesDe(product);
   const esFisico = String(product?.kind || "digital") === "physical";
   // Un "antes/después" sin fotos reales de antes y después es una imagen
@@ -135,6 +137,19 @@ export function normalizeSections(input: unknown, product: any, casillas: Casill
       const enc = encodeURIComponent(`${String(s.imagePrompt)}, clean product photography, studio light, white background, no people, no text`);
       image = `https://image.pollinations.ai/prompt/${enc}?width=1080&height=720&nologo=true`;
     }
+    // La logística NO la escribe el modelo: no conoce las condiciones y
+    // deja huecos ("[El negocio debe completar aquí los detalles de envío]",
+    // 12-09-2026). Sale del perfil del negocio, que sí las tiene.
+    let body = s.body ? String(s.body) : relleno.body;
+    if (casilla.type === "logistics" && esFisico) {
+      const c = condiciones ?? CONDICIONES_DE_RESPALDO;
+      body = [
+        `${fraseCostoEnvio(c)}.`,
+        `${frasePagoEnvio(c)}.`,
+        `Llega en ${c.envio.plazo}, ${c.envio.cobertura}.`,
+        "Antes de despachar te confirmamos los datos de envío por WhatsApp.",
+      ].join("\n");
+    }
     return {
       // El id sale de la casilla, no del modelo: el editor los usa como clave y
       // dos secciones con el mismo id se pisan al guardar.
@@ -142,7 +157,7 @@ export function normalizeSections(input: unknown, product: any, casillas: Casill
       type: casilla.type,
       title: String(s.title || relleno.title || ""),
       subtitle: s.subtitle ? String(s.subtitle) : relleno.subtitle,
-      body: s.body ? String(s.body) : relleno.body,
+      body,
       cta: s.cta ? String(s.cta) : relleno.cta,
       image,
     };
@@ -215,7 +230,7 @@ router.post("/generate", async (req: TenantRequest, res, next) => {
           // Normalizar con la plantilla local para que el editor pueda usarlo
           const plantilla = elegirPlantilla(product as any, null, { brandName: req.tenant?.brandName });
           const casillas = casillasQueAplican(plantilla, product as any, { brandName: req.tenant?.brandName });
-          const normalizedSections = normalizeSections(mappedSections, product, casillas);
+          const normalizedSections = normalizeSections(mappedSections, product, casillas, (await getBusinessContext(tenantId).catch(() => null))?.condiciones);
 
           return res.json({
             ok: true,
@@ -289,7 +304,7 @@ router.post("/generate", async (req: TenantRequest, res, next) => {
     const conSecciones = !!result && Array.isArray(result.sections) && result.sections.length > 0;
 
     const strategy = normalizeStrategy(result?.strategy, product, sourceAd);
-    const sections = normalizeSections(result?.sections, product, casillas);
+    const sections = normalizeSections(result?.sections, product, casillas, (await getBusinessContext(tenantId).catch(() => null))?.condiciones);
     const design = result?.design || { tone: "direct-response premium", primary: "#111827", background: "#ffffff", radius: "14px" };
     const name = String(result?.name || `Landing · ${product.name}`);
 
