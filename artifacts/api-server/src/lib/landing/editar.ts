@@ -42,7 +42,9 @@ export async function operacionesDeEdicion(
       "Eres el editor de landing pages de VentasPro. Analiza la instrucción del usuario y el estado actual y devuelve SOLO JSON con {message, operations}. " +
       "Operaciones permitidas: update_section {sectionId, patch:{title?,subtitle?,body?,cta?,layout?}}, add_section {section:{type,title,subtitle?,body?,cta?}}, " +
       "remove_section {sectionId}, move_section {sectionId, direction:'up'|'down'}, update_design {patch:{familia?}}, set_cta {sectionId, cta}. " +
-      "Las operaciones deben ser pequeñas y seguras. No inventes datos, testimonios, garantías, descuentos ni urgencia. " +
+      "Las operaciones deben ser pequeñas y seguras. No inventes datos, testimonios, garantías, descuentos ni urgencia; NUNCA agregues testimonials ni before-after (no hay datos reales). " +
+      "No agregues dos secciones del mismo tipo: si ya existe, editala con update_section. " +
+      "EL ASPECTO VISUAL (colores, tipografía, 'frontend', 'diseño', 'estilo') SÍ se cambia: update_design {patch:{familia}} con familia una de premium, respuesta-directa, minimal, editorial, ecommerce, belleza, fitness, educacion, tecnologia, familiar, creativa, oscura. Nunca digas que no podés cambiar el diseño. " +
       "En body: una línea por ítem en beneficios/cómo funciona/oferta; en faq 'Pregunta | Respuesta'. Escribe en español. " +
       "'message' es una frase corta para el admin diciendo QUÉ cambiaste.",
     userPrompt: JSON.stringify({ instruction, selectedSectionId: selectedSectionId || null, current }),
@@ -109,7 +111,13 @@ export function aplicarOperaciones(
       case "add_section": {
         const s: any = o.section;
         if (!s || typeof s.type !== "string") { ignoradas.push("add_section sin type"); break; }
+        // Sin datos reales no hay prueba social: agregarla es inventarla
+        // (el modelo metió "prueba social" en la rueda abdominal, 12-09-2026).
+        if (["testimonials", "before-after", "authority"].includes(s.type)) { ignoradas.push(`no se inventa ${s.type}`); break; }
         const n = sections.filter((x) => x.type === s.type).length + 1;
+        // Una sección más del mismo tipo como mucho: cuatro "benefits" seguidas
+        // es un folleto, no una página.
+        if (n > 2) { ignoradas.push(`ya hay ${n - 1} de ${s.type}`); break; }
         sections.push({ id: `${s.type}-${n}`, type: s.type, title: aTextoPlano(s.title || ""), subtitle: s.subtitle ? aTextoPlano(s.subtitle) : undefined, body: s.body ? aTextoPlano(s.body) : undefined, cta: s.cta ? aTextoPlano(s.cta) : undefined });
         aplicadas.push(`agregada ${s.type}`);
         break;

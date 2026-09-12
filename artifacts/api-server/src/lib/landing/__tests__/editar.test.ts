@@ -41,3 +41,17 @@ describe("aplicarOperaciones", () => {
     expect(r.sections.find((s) => s.id === "hero-1")!.title).toBe("Hola");
   });
 });
+
+describe("límites del editor (rueda abdominal, 12-09-2026)", () => {
+  it("no agrega prueba social inventada ni cuatro secciones iguales", () => {
+    const r = aplicarOperaciones(base, [
+      { op: "add_section", section: { type: "testimonials", title: "Lo que dicen", body: "Increíble | Juan" } },
+      { op: "add_section", section: { type: "benefits", title: "Dolor", body: "a" } },
+      { op: "add_section", section: { type: "benefits", title: "Cómo funciona", body: "b" } },
+      { op: "add_section", section: { type: "benefits", title: "Más", body: "c" } },
+    ]);
+    expect(r.sections.some((s) => s.type === "testimonials")).toBe(false);
+    expect(r.sections.filter((s) => s.type === "benefits")).toHaveLength(2);
+    expect(r.ignoradas.length).toBe(3);
+  });
+});
