@@ -554,7 +554,53 @@ const CSS_MARCO = `
 .fijo{position:fixed;left:0;right:0;bottom:0;z-index:30;padding:10px 16px calc(10px + env(safe-area-inset-bottom));background:var(--fondo);border-top:1px solid var(--linea);display:none}
 .fijo .cta{display:block;text-align:center;width:100%}
 @media (max-width:720px){.fijo{display:block}.top .cta--chica{display:none}}
+/* ── Movimiento (pedido del dueño: "cosas que se mueven, sensaciones") ──
+   Todo parte VISIBLE: solo con JS y IntersectionObserver se ocultan las
+   secciones para revelarlas; sin script o con "reducir movimiento", la
+   página es estática y completa. */
+html{scroll-behavior:smooth}
+.js .sec[data-reveal]{opacity:0;transform:translateY(22px);transition:opacity .7s cubic-bezier(.2,.7,.2,1),transform .7s cubic-bezier(.2,.7,.2,1)}
+.js .sec[data-reveal].visto{opacity:1;transform:none}
+.js .sec--hero{opacity:1;transform:none}
+.sec--hero h1{animation:entra .8s cubic-bezier(.2,.7,.2,1) both}
+.sec--hero .lead,.sec--hero .price{animation:entra .8s .12s cubic-bezier(.2,.7,.2,1) both}
+.sec--hero .cta{animation:entra .8s .22s cubic-bezier(.2,.7,.2,1) both}
+.sec--hero .fig img{animation:flota 6s ease-in-out infinite}
+@keyframes entra{from{opacity:0;transform:translateY(18px)}to{opacity:1;transform:none}}
+@keyframes flota{0%,100%{transform:translateY(0)}50%{transform:translateY(-8px)}}
+.confianza li{animation:entra .6s cubic-bezier(.2,.7,.2,1) both}
+.confianza li:nth-child(2){animation-delay:.1s}.confianza li:nth-child(3){animation-delay:.2s}
+.cta{transition:transform .18s ease,box-shadow .18s ease,filter .18s ease}
+.cta:hover{transform:translateY(-2px);box-shadow:0 12px 28px rgba(0,0,0,.18);filter:brightness(1.04)}
+.cta:active{transform:translateY(0)}
+.card,.franja li,.icons li{transition:transform .22s ease,box-shadow .22s ease}
+.card:hover,.franja li:hover{transform:translateY(-3px);box-shadow:0 14px 30px rgba(0,0,0,.10)}
+.galeria img{transition:transform .5s cubic-bezier(.2,.7,.2,1)}
+.galeria li:hover img{transform:scale(1.06)}
+.fijo .cta{animation:latido 2.6s ease-in-out infinite}
+@keyframes latido{0%,100%{box-shadow:0 0 0 0 rgba(0,0,0,0)}50%{box-shadow:0 0 0 8px rgba(0,0,0,.06)}}
+.faq details{transition:background .2s ease}
+.faq details[open]{background:var(--superficie)}
+@media (prefers-reduced-motion:reduce){
+  html{scroll-behavior:auto}
+  .js .sec[data-reveal]{opacity:1;transform:none;transition:none}
+  .sec--hero h1,.sec--hero .lead,.sec--hero .price,.sec--hero .cta,.sec--hero .fig img,.confianza li,.fijo .cta{animation:none}
+  .cta,.card,.franja li,.galeria img{transition:none}
+}
 `;
+
+const JS_MOVIMIENTO = `<script>
+(function(){
+  if(!('IntersectionObserver' in window)||matchMedia('(prefers-reduced-motion: reduce)').matches)return;
+  document.documentElement.classList.add('js');
+  var secs=[].slice.call(document.querySelectorAll('.sec:not(.sec--hero):not(.sec--confianza)'));
+  secs.forEach(function(s){s.setAttribute('data-reveal','')});
+  var io=new IntersectionObserver(function(es){es.forEach(function(e){if(e.isIntersecting){e.target.classList.add('visto');io.unobserve(e.target);}})},{rootMargin:'0px 0px -10% 0px',threshold:.12});
+  secs.forEach(function(s){io.observe(s)});
+  // Lo que ya está en pantalla al cargar no espera al scroll.
+  secs.forEach(function(s){var r=s.getBoundingClientRect();if(r.top<innerHeight*.9)s.classList.add('visto');});
+})();
+</script>`;
 
 function css(t: TokensDeDiseno): string {
   const escala = t.tipografia.escala;
@@ -755,6 +801,7 @@ ${cuerpo}
 ${cierreHtml}
 ${pie}
 ${fijo}
+${JS_MOVIMIENTO}
 </body>
 </html>`;
 }

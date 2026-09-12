@@ -100,7 +100,9 @@ describe("es una página de verdad, no un documento", () => {
   });
 
   it("no depende de ninguna red ajena para verse bien", () => {
-    expect(html).not.toMatch(/<script/i);
+    // Script INLINE sí (el revelado al hacer scroll y el formulario de
+    // pedido); lo que no puede haber es nada que se cargue de otro dominio.
+    expect(html).not.toMatch(/<script[^>]+src=/i);
     expect(html).not.toMatch(/<link[^>]+href=["']https?:/i);
   });
 

@@ -83,3 +83,19 @@ describe("el cierre depende del modelo del producto", () => {
     expect(html).not.toMatch(/<form class="pedido"/);
   });
 });
+
+describe("movimiento sin dejar nada invisible", () => {
+  it("las secciones parten visibles: la clase que las oculta solo existe bajo .js, y hay reduced-motion", () => {
+    const html = renderizarLanding({ nombre: "x", familia: "ecommerce", producto, negocio, secciones: [{ id: "hero-1", type: "hero", title: "T", cta: "Pedir" }, { id: "benefits-1", type: "benefits", title: "B", body: "a\nb\nc" }] });
+    expect(html).toMatch(/\.js \.sec\[data-reveal\]\{opacity:0/);
+    // Todas las reglas que ocultan van bajo .js: sin script, nada se oculta.
+    const ocultan = (html.match(/\.sec\[data-reveal\]\{opacity:0/g) || []).length;
+    const bajoJs = (html.match(/\.js \.sec\[data-reveal\]\{opacity:0/g) || []).length;
+    expect(ocultan).toBeGreaterThan(0);
+    expect(ocultan).toBe(bajoJs);
+    expect(html).toMatch(/prefers-reduced-motion:reduce/);
+    expect(html).toMatch(/IntersectionObserver/);
+    // El HTML NO trae data-reveal de fábrica: lo pone el script.
+    expect(html).not.toMatch(/<section[^>]*data-reveal/);
+  });
+});
