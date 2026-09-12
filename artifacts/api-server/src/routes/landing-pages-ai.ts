@@ -192,6 +192,86 @@ function normalizeStrategy(strategy: any, product: any, sourceAd: any) {
   };
 }
 
+/**
+ * Genera la landing con el generador local (sin LandingForge). Es lo que usa
+ * la ruta /generate y también Atlas (`landing_crear`): antes la lógica vivía
+ * adentro del handler y Atlas no podía crear landings.
+ */
+export async function generarLandingLocal(opts: {
+  tenantId: number; product: any; brandName?: string | null; plantillaId?: string | null;
+  sourceAd?: any; language?: string; country?: string; objective?: string;
+}) {
+  const { tenantId, product } = opts;
+  const productId = Number(product.id);
+  const sourceAd = opts.sourceAd || null;
+  const language = String(opts.language || "es");
+  const country = String(opts.country || "CO");
+  const objective = String(opts.objective || "sales");
+    const promptProduct = {
+      id: product.id, name: product.name, description: product.description, price: product.price,
+      currency: product.currency, kind: product.kind, imageUrl: product.imageUrl, highlight: product.highlight,
+      features: product.features, paymentLink: product.paymentLink, deliveryLink: product.deliveryLink,
+    };
+
+    const negocio = { brandName: opts.brandName };
+    const plantilla = elegirPlantilla(product as any, opts.plantillaId, negocio);
+    const casillas = casillasQueAplican(plantilla, product as any, negocio);
+
+    // 2.200 tokens no alcanzaban para 7 secciones con ítems y una FAQ con
+    // respuestas: el JSON llegaba cortado, `tryParseJson` rescataba un objeto
+    // parcial sin `sections`, y la landing salía entera de relleno con
+    // generatedBy="ai" (12-09-2026, faja). Más tope, y abajo se verifica que
+    // de verdad haya secciones antes de llamarlo "ai".
+    const llamar = () => callMarketingAI<any>({
+      tenantId,
+      json: true,
+      maxTokens: 4000,
+      systemPrompt: `${bloqueDePlantilla(plantilla, product as any, negocio)}\nEres el Landing Agent de VentasPro. Construyes landing pages de respuesta directa que continúan la promesa del anuncio y convierten sin inventar datos. Devuelve SOLO JSON válido. Usa únicamente hechos presentes en PRODUCTO o ANUNCIO FUENTE; si falta un dato, no lo inventes. Nunca fabriques testimonios, garantías, descuentos, urgencia, certificaciones ni resultados cuantificados. Escribe en ${language} para ${country}. La salida debe ser utilizable por un editor visual.
+
+ESTRUCTURA DEL TEXTO (AIDA, pedido del dueño): la página NO describe el producto, guía al que llega.
+1. ATENCIÓN — el hero abre con el PROBLEMA o dolor real de quien busca esto (una pregunta o una situación reconocible), no con el nombre del producto. El título es el dolor o el deseo; el subtítulo, la promesa concreta.
+2. INTERÉS — los beneficios cuentan qué cambia para la persona (resultado), no la característica en frío. Característica → qué significa → qué gana.
+3. DESEO — recién ahí el producto como la solución: qué es, qué trae, cómo se usa o se recibe. Con los datos reales del catálogo.
+4. ACCIÓN — el cierre repite la promesa del hero y pide UNA cosa con el mismo verbo del botón (físico: pedir y pagar al recibir; digital: acceder ahora).
+Frases cortas. Una idea por línea. Sin adjetivos de relleno ("increíble", "premium", "de alta calidad") salvo que estén en el producto.`,
+      userPrompt: JSON.stringify({
+        tarea: "crear_landing",
+        objetivo: objective,
+        producto: promptProduct,
+        anuncio_fuente: sourceAd,
+        formato: {
+          name: "string",
+          strategy: { avatar: "string", awareness: "string", pain: "string", desire: "string", mechanism: "string", promise: "string", objections: ["string"], angle: "string", objective, language, country, currency: product.currency },
+          sections: [{ id: "string", type: "hero|benefits|offer|before-after|comparison|authority|testimonials|how-it-works|logistics|faq|cta", title: "string", subtitle: "string", body: "string: en benefits, how-it-works, comparison y offer va UNA LÍNEA POR ÍTEM (3 a 6 ítems cortos y concretos, sin adjetivos de relleno); en faq va UNA LÍNEA POR PREGUNTA con la respuesta después de ' | ' (ej: '¿Cuánto tarda en llegar? | Entre 3 y 5 días hábiles'); en hero y cta, un párrafo corto", cta: "string: el mismo verbo en hero, offer y cta", imagePrompt: "SOLO si el producto no tiene foto: descripción en inglés (max 15 palabras) de una FOTO DE PRODUCTO limpia, sin personas ni texto" }],
+          design: { tone: "string", primary: "string", background: "string", radius: "string" },
+          source: { type: sourceAd ? "facebook-ad" : "product", reference: sourceAd || null }
+        }
+      }),
+    });
+
+    // El modelo a veces envuelve la respuesta ({ landing: {...} }, { data: {...} }).
+    const desenvolver = (r: any): any => {
+      if (!r || typeof r !== "object") return null;
+      if (Array.isArray(r.sections)) return r;
+      for (const k of ["landing", "data", "result", "output"]) if (r[k] && Array.isArray(r[k].sections)) return r[k];
+      return null;
+    };
+    let result = desenvolver(await llamar());
+    if (!result) {
+      console.log(`[Landing] el modelo no devolvió secciones para el producto ${productId}: se reintenta una vez`);
+      result = desenvolver(await llamar());
+    }
+    const conSecciones = !!result && Array.isArray(result.sections) && result.sections.length > 0;
+
+    const strategy = normalizeStrategy(result?.strategy, product, sourceAd);
+    const sections = normalizeSections(result?.sections, product, casillas, (await getBusinessContext(tenantId).catch(() => null))?.condiciones);
+    const design = result?.design || { tone: "direct-response premium", primary: "#111827", background: "#ffffff", radius: "14px" };
+    const name = String(result?.name || `Landing · ${product.name}`);
+
+    return { ok: true as const, generatedBy: conSecciones ? "ai" : "fallback", name, productId, strategy, sections, design,
+      plantilla: { id: plantilla.id, nombre: plantilla.nombre, para: plantilla.para, cuando: plantilla.cuando }, source: sourceAd ? { type: "facebook-ad", data: sourceAd } : { type: "product", productId } };
+}
+
 router.post("/generate", async (req: TenantRequest, res, next) => {
   try {
     const tenantId = req.tenant?.id;
@@ -254,69 +334,9 @@ router.post("/generate", async (req: TenantRequest, res, next) => {
     }
 
     // ── Fallback: generador local existente ──────────────────────────────────
-    const promptProduct = {
-      id: product.id, name: product.name, description: product.description, price: product.price,
-      currency: product.currency, kind: product.kind, imageUrl: product.imageUrl, highlight: product.highlight,
-      features: product.features, paymentLink: product.paymentLink, deliveryLink: product.deliveryLink,
-    };
-
-    const negocio = { brandName: req.tenant?.brandName };
-    const plantilla = elegirPlantilla(product as any, req.body?.plantilla, negocio);
-    const casillas = casillasQueAplican(plantilla, product as any, negocio);
-
-    // 2.200 tokens no alcanzaban para 7 secciones con ítems y una FAQ con
-    // respuestas: el JSON llegaba cortado, `tryParseJson` rescataba un objeto
-    // parcial sin `sections`, y la landing salía entera de relleno con
-    // generatedBy="ai" (12-09-2026, faja). Más tope, y abajo se verifica que
-    // de verdad haya secciones antes de llamarlo "ai".
-    const llamar = () => callMarketingAI<any>({
-      tenantId,
-      json: true,
-      maxTokens: 4000,
-      systemPrompt: `${bloqueDePlantilla(plantilla, product as any, negocio)}\nEres el Landing Agent de VentasPro. Construyes landing pages de respuesta directa que continúan la promesa del anuncio y convierten sin inventar datos. Devuelve SOLO JSON válido. Usa únicamente hechos presentes en PRODUCTO o ANUNCIO FUENTE; si falta un dato, no lo inventes. Nunca fabriques testimonios, garantías, descuentos, urgencia, certificaciones ni resultados cuantificados. Escribe en ${language} para ${country}. La salida debe ser utilizable por un editor visual.
-
-ESTRUCTURA DEL TEXTO (AIDA, pedido del dueño): la página NO describe el producto, guía al que llega.
-1. ATENCIÓN — el hero abre con el PROBLEMA o dolor real de quien busca esto (una pregunta o una situación reconocible), no con el nombre del producto. El título es el dolor o el deseo; el subtítulo, la promesa concreta.
-2. INTERÉS — los beneficios cuentan qué cambia para la persona (resultado), no la característica en frío. Característica → qué significa → qué gana.
-3. DESEO — recién ahí el producto como la solución: qué es, qué trae, cómo se usa o se recibe. Con los datos reales del catálogo.
-4. ACCIÓN — el cierre repite la promesa del hero y pide UNA cosa con el mismo verbo del botón (físico: pedir y pagar al recibir; digital: acceder ahora).
-Frases cortas. Una idea por línea. Sin adjetivos de relleno ("increíble", "premium", "de alta calidad") salvo que estén en el producto.`,
-      userPrompt: JSON.stringify({
-        tarea: "crear_landing",
-        objetivo: objective,
-        producto: promptProduct,
-        anuncio_fuente: sourceAd,
-        formato: {
-          name: "string",
-          strategy: { avatar: "string", awareness: "string", pain: "string", desire: "string", mechanism: "string", promise: "string", objections: ["string"], angle: "string", objective, language, country, currency: product.currency },
-          sections: [{ id: "string", type: "hero|benefits|offer|before-after|comparison|authority|testimonials|how-it-works|logistics|faq|cta", title: "string", subtitle: "string", body: "string: en benefits, how-it-works, comparison y offer va UNA LÍNEA POR ÍTEM (3 a 6 ítems cortos y concretos, sin adjetivos de relleno); en faq va UNA LÍNEA POR PREGUNTA con la respuesta después de ' | ' (ej: '¿Cuánto tarda en llegar? | Entre 3 y 5 días hábiles'); en hero y cta, un párrafo corto", cta: "string: el mismo verbo en hero, offer y cta", imagePrompt: "SOLO si el producto no tiene foto: descripción en inglés (max 15 palabras) de una FOTO DE PRODUCTO limpia, sin personas ni texto" }],
-          design: { tone: "string", primary: "string", background: "string", radius: "string" },
-          source: { type: sourceAd ? "facebook-ad" : "product", reference: sourceAd || null }
-        }
-      }),
-    });
-
-    // El modelo a veces envuelve la respuesta ({ landing: {...} }, { data: {...} }).
-    const desenvolver = (r: any): any => {
-      if (!r || typeof r !== "object") return null;
-      if (Array.isArray(r.sections)) return r;
-      for (const k of ["landing", "data", "result", "output"]) if (r[k] && Array.isArray(r[k].sections)) return r[k];
-      return null;
-    };
-    let result = desenvolver(await llamar());
-    if (!result) {
-      console.log(`[Landing] el modelo no devolvió secciones para el producto ${productId}: se reintenta una vez`);
-      result = desenvolver(await llamar());
-    }
-    const conSecciones = !!result && Array.isArray(result.sections) && result.sections.length > 0;
-
-    const strategy = normalizeStrategy(result?.strategy, product, sourceAd);
-    const sections = normalizeSections(result?.sections, product, casillas, (await getBusinessContext(tenantId).catch(() => null))?.condiciones);
-    const design = result?.design || { tone: "direct-response premium", primary: "#111827", background: "#ffffff", radius: "14px" };
-    const name = String(result?.name || `Landing · ${product.name}`);
-
-    return res.json({ ok: true, generatedBy: conSecciones ? "ai" : "fallback", name, productId, strategy, sections, design,
-      plantilla: { id: plantilla.id, nombre: plantilla.nombre, para: plantilla.para, cuando: plantilla.cuando }, source: sourceAd ? { type: "facebook-ad", data: sourceAd } : { type: "product", productId } });
+    return res.json(await generarLandingLocal({
+      tenantId, product, brandName: req.tenant?.brandName, plantillaId: req.body?.plantilla, sourceAd, language, country, objective,
+    }));
   } catch (e) {
     return next(e);
   }

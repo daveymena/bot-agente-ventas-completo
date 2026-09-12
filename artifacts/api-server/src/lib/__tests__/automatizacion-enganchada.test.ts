@@ -214,3 +214,12 @@ describe("ficha desde imágenes: ver es lectura, guardar no", () => {
     expect(READ_ONLY_TOOLS.has("producto_ficha_desde_imagenes_guardar")).toBe(false);
   });
 });
+
+describe("Atlas puede crear, listar y publicar landings", () => {
+  it("las tres herramientas existen y solo listar es de lectura", () => {
+    for (const n of ["landing_listar", "landing_crear", "landing_publicar"]) expect(TOOLS.some((t) => t.name === n), n).toBe(true);
+    expect(READ_ONLY_TOOLS.has("landing_listar")).toBe(true);
+    expect(READ_ONLY_TOOLS.has("landing_crear")).toBe(false);
+    expect(READ_ONLY_TOOLS.has("landing_publicar")).toBe(false);
+  });
+});

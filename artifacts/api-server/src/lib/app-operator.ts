@@ -4113,6 +4113,77 @@ Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vincu
     },
   },
   {
+    name: "landing_listar",
+    description: "Lista las landing pages del negocio: id, nombre, producto, estado (borrador/publicada) y la URL pública si está publicada. Lectura pura.",
+    args: "{}",
+    run: async (_args, ctx) => {
+      const { landingPages } = await import("@workspace/db");
+      const filas = await db.select().from(landingPages).where(eq(landingPages.tenantId, ctx.tenantId));
+      const lista = filas.map((l: any) => ({ id: l.id, nombre: l.name, productId: l.productId, estado: l.status, url: l.publishedUrl || null, actualizada: l.updatedAt }));
+      return {
+        ok: true,
+        summary: lista.length
+          ? lista.map((l: any) => `[${l.id}] ${l.nombre} · ${l.estado === "published" ? `PUBLICADA ${l.url}` : "borrador"}`).join(" · ")
+          : "No hay landing pages todavía.",
+        data: { landings: lista },
+      };
+    },
+  },
+  {
+    name: "landing_crear",
+    description:
+      "Crea y GUARDA una landing page para un producto con el generador de VentasPro: texto en AIDA (dolor → solución → producto → acción), " +
+      "fotos reales del producto, cierre según el modelo (físico: formulario contraentrega o WhatsApp; digital: MercadoPago/PayPal o WhatsApp) " +
+      "y las condiciones reales del negocio. Queda como BORRADOR: para que exista la URL pública hay que llamar landing_publicar. " +
+      "⚠️ Cambia el sistema: va por propose_action. 'familia' es el estilo visual (premium, respuesta-directa, minimal, editorial, ecommerce, belleza, fitness, educacion, tecnologia, familiar, creativa, oscura).",
+    args: '{ "productId": number (req), "familia"?: string, "objetivo"?: "ventas"|"mensajes"|"trafico" }',
+    run: async (args, ctx) => {
+      const id = num(args?.productId);
+      if (!id) return { ok: false, summary: "Falta 'productId'." };
+      const [prod] = await db.select().from(products).where(and(eq(products.id, id), eq(products.tenantId, ctx.tenantId))).limit(1);
+      if (!prod) return { ok: false, summary: `No encontré el producto ${id}.` };
+      const { generarLandingLocal } = await import("../routes/landing-pages-ai");
+      const tenant = await tenantManager.getTenantById(ctx.tenantId);
+      const gen = await generarLandingLocal({
+        tenantId: ctx.tenantId, product: prod, brandName: (tenant as any)?.brandName,
+        objective: /mensaje/.test(String(args?.objetivo || "")) ? "messages" : /trafico|tráfico/.test(String(args?.objetivo || "")) ? "traffic" : "sales",
+      });
+      const { landingPages } = await import("@workspace/db");
+      const familia = String(args?.familia || "").trim() || null;
+      const slug = `${String(gen.name).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 60) || "landing"}-${Date.now().toString(36)}`;
+      const [creada] = await db.insert(landingPages).values({
+        tenantId: ctx.tenantId, productId: prod.id, name: String(gen.name).slice(0, 200), slug,
+        strategy: gen.strategy, sections: gen.sections, design: { ...(gen.design || {}), ...(familia ? { familia } : {}) }, source: gen.source,
+      } as any).returning();
+      const tipos = (gen.sections as any[]).map((x) => x.type).join(" → ");
+      return {
+        ok: true,
+        summary: `Landing creada como borrador: [${creada.id}] ${gen.name} (${gen.generatedBy === "ai" ? "texto generado" : "texto de plantilla"}; plantilla ${gen.plantilla?.id}; secciones: ${tipos}). ` +
+          `Para verla publicada y tener la URL para el anuncio: landing_publicar con id ${creada.id}.`,
+        data: { id: creada.id, slug, generatedBy: gen.generatedBy, plantilla: gen.plantilla?.id, secciones: tipos },
+      };
+    },
+  },
+  {
+    name: "landing_publicar",
+    description:
+      "Publica (o despublica con publicada:false) una landing: queda visible en /l/<slug> con el dominio de la app, sin login y sin hosting aparte. " +
+      "Devuelve la URL pública, que es la que va en el anuncio de Facebook. ⚠️ Va por propose_action.",
+    args: '{ "id": number (req), "publicada"?: boolean }',
+    run: async (args, ctx) => {
+      const id = num(args?.id);
+      if (!id) return { ok: false, summary: "Falta 'id' de la landing." };
+      const { landingPages } = await import("@workspace/db");
+      const [row] = await db.select().from(landingPages).where(and(eq(landingPages.id, id), eq(landingPages.tenantId, ctx.tenantId))).limit(1);
+      if (!row) return { ok: false, summary: `No encontré la landing ${id}.` };
+      const publicar = args?.publicada !== false;
+      const { urlPublicaDe } = await import("../routes/landing-publica");
+      const url = publicar ? urlPublicaDe(row.slug) : null;
+      await db.update(landingPages).set({ status: publicar ? "published" : "draft", publishedUrl: url, updatedAt: new Date() } as any).where(eq(landingPages.id, id));
+      return { ok: true, summary: publicar ? `Landing [${id}] publicada: ${url}` : `Landing [${id}] despublicada (vuelve a borrador).`, data: { id, url, status: publicar ? "published" : "draft" } };
+    },
+  },
+  {
     name: "woocommerce_estado",
     description:
       "Estado REAL de WooCommerce: si está configurado, si responde, los últimos pedidos que tiene WooCommerce y los pedidos " +
@@ -6310,7 +6381,7 @@ export const READ_ONLY_TOOLS = new Set([
   // propósito: mueven dinero real y tienen que pasar por confirmación.
   "fb_list_adsets",
   // Dropi de solo lectura: consultar el catálogo del proveedor no crea nada.
-  "dropi_status", "dropi_search_products", "woocommerce_estado", "producto_ficha_desde_imagenes_ver",
+  "dropi_status", "dropi_search_products", "woocommerce_estado", "producto_ficha_desde_imagenes_ver", "landing_listar",
   // Terabox: listar carpetas es lectura pura, no cambia nada.
   //
   // terabox_create_share_link NO va acá, aunque estuvo un rato. Se justificaba
