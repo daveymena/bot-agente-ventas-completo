@@ -4181,8 +4181,10 @@ Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vincu
       "se ve en la URL pública al instante. No inventa datos ni toca las fotos (son las reales del producto). ⚠️ Va por propose_action.",
     args: '{ "id": number (req), "instruccion": string (req, con las palabras del admin) }',
     run: async (args, ctx) => {
-      const id = num(args?.id);
-      const instruccion = String(args?.instruccion || "").trim();
+      // El modelo escribe `id`, `landingId` o `landing`; y la instrucción como
+      // `instruccion`, `instruction` o `cambio`. Se aceptan todas.
+      const id = num(args?.id ?? args?.landingId ?? args?.landing);
+      const instruccion = String(args?.instruccion || args?.instruction || args?.cambio || "").trim();
       if (!id || !instruccion) return { ok: false, summary: "Faltan 'id' de la landing y/o la 'instruccion'." };
       const { editarLanding } = await import("./landing/editar");
       const r = await editarLanding(ctx.tenantId, id, instruccion);
@@ -4202,7 +4204,7 @@ Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vincu
       "Devuelve la URL pública, que es la que va en el anuncio de Facebook. ⚠️ Va por propose_action.",
     args: '{ "id": number (req), "publicada"?: boolean }',
     run: async (args, ctx) => {
-      const id = num(args?.id);
+      const id = num(args?.id ?? args?.landingId ?? args?.landing);
       if (!id) return { ok: false, summary: "Falta 'id' de la landing." };
       const { landingPages } = await import("@workspace/db");
       const [row] = await db.select().from(landingPages).where(and(eq(landingPages.id, id), eq(landingPages.tenantId, ctx.tenantId))).limit(1);
