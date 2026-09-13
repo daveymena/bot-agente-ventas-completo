@@ -67,7 +67,7 @@ export default function Portada({
             <p className="px-5 h-11 flex items-center text-[12px] font-bold uppercase tracking-wide text-[var(--mk-ink)] border-b border-[var(--mk-border)] bg-[var(--mk-panel)]">
               Categorías
             </p>
-            <div className="max-h-[420px] overflow-y-auto">
+            <div className="max-h-[300px] overflow-y-auto">
               {categorias.map((c) => (
                 <button
                   key={c.key}
@@ -86,7 +86,7 @@ export default function Portada({
           {/* Banner principal. La foto de portada del negocio y, si no la
               cargó, la de un producto real: nunca una imagen de banco. Se
               muestra algo que el visitante puede comprar. */}
-          <div className="relative overflow-hidden bg-[var(--mk-nav)] text-white min-h-[240px] md:min-h-[300px] flex items-center">
+          <div className="relative overflow-hidden bg-[var(--mk-nav)] text-white min-h-[220px] md:min-h-[260px] flex items-center">
             {heroImagen && (
               <img
                 src={heroImagen}
@@ -141,7 +141,7 @@ export default function Portada({
                 <button
                   key={c.key}
                   onClick={() => onCategoria(c.key)}
-                  className="group relative overflow-hidden min-h-[120px] md:min-h-[142px] flex flex-col justify-center text-left px-5 py-4 text-white"
+                  className="group relative overflow-hidden min-h-[110px] md:min-h-[120px] flex flex-col justify-center text-left px-5 py-4 text-white"
                   style={{ backgroundColor: i === 0 ? 'var(--store-primary)' : 'var(--mk-nav)' }}
                 >
                   {c.image && (
