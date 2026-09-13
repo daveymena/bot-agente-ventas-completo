@@ -2901,6 +2901,10 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
               reportProviderResult(providerName, true, elapsed);
               registrarTurnoAtendido(providerName, source.split("/").slice(1).join("/") || source, posicion > 1);
               console.log(`✅ [AI] Respuesta de ${source} - ${result.length}chars (${elapsed}ms) - ${ts()}`);
+              // Lo que escribió el modelo, textual, para el diagnóstico: sin
+              // esto solo se veía el largo y había que adivinar qué candado
+              // lo cambió (12-09-2026).
+              console.log(`📝 [AI-CRUDO] ${String(result).replace(/\s+/g, " ").slice(0, 700)}`);
               return { raw: result, usedProvider: source };
             }
             // Un 200 con el contenido VACÍO es un fallo, aunque no tire error.

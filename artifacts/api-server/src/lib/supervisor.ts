@@ -214,7 +214,9 @@ export function supervisarRespuesta(e: EntradaSupervisor): RevisionSupervisor {
   // Medido (conversacion 1, mensajes 258-264): Excel cotizado a $45.000
   // valiendo $20.000, y un combo de los 3 a $85.000 que no existe como
   // producto -- sin link de pago ni forma de entregarlo.
-  const precios = verificarPrecios(texto, e.productos, e.idsEnContexto);
+  // Si el cliente pidió varios JUNTOS, la suma de esos es un monto real.
+  const pedidosJuntos = e.productos.filter((p) => nombraProducto(e.mensajeCliente, p.name));
+  const precios = verificarPrecios(texto, e.productos, e.idsEnContexto, pedidosJuntos.length >= 2 ? pedidosJuntos : []);
   if (precios.inventados.length > 0) {
     texto = precios.texto;
     hallazgos.push({
@@ -343,20 +345,44 @@ export function supervisarRespuesta(e: EntradaSupervisor): RevisionSupervisor {
   //     ficha adjunta. Si no la lleva, no se mando nada: es mentira, y el
   //     servidor lo sabe sin tener que interpretar el texto.
   if (AFIRMA_PAGO_CONFIRMADO.test(texto) || AFIRMA_VER_O_RECIBIR_EL_PAGO.test(texto)) {
-    bloquear = true;
-    hallazgos.push({
-      regla: "confirmacion-de-pago-inventada",
-      gravedad: "bloquea",
-      detalle: "Afirmaba que un pago está confirmado, que vio el comprobante o que la plata llegó. Nada de eso lo decide el modelo: lo confirma la pasarela o una persona que lo vio en la cuenta.",
-    });
-    return {
-      texto,
-      hallazgos,
-      bloquear,
-      reemplazoSugerido:
-        "Para activarte el acceso necesito el comprobante de la transferencia 🙏 " +
-        "Mándamelo por aquí y apenas lo revisemos te confirmo.",
-    };
+    // ── Si el cliente NO habló de pagar, se quita la frase, no el mensaje ──
+    //
+    // Chat real del dueño (12-09-2026): preguntó "piano, contabilidad e
+    // idiomas juntos, ¿cuánto sería en total?", el modelo contestó la suma
+    // y de paso escribió una frase con "queda pago"; esta regla bloqueó TODO
+    // y el cliente recibió "necesito el comprobante de la transferencia" a
+    // una pregunta de precio. La mentira es la frase: se saca esa y se deja
+    // la respuesta. Solo se reemplaza el mensaje entero si no queda nada o
+    // si el cliente sí está hablando de un pago.
+    // Sin tildes antes de mirar: `\b` no reconoce "pagué" como palabra.
+    const mensajePlano = String(e.mensajeCliente || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    const hablaDePago = /\b(pague|pago|pagar|transferi|transferencia|comprobante|consigne|deposite|captura|soporte)\b/.test(mensajePlano);
+    const frases = texto.split(/(?<=[.!?])\s+|\n+/);
+    const limpias = frases.filter((f) => !AFIRMA_PAGO_CONFIRMADO.test(f) && !AFIRMA_VER_O_RECIBIR_EL_PAGO.test(f));
+    const quedaAlgo = limpias.join(" ").replace(/\s+/g, " ").trim();
+    if (!hablaDePago && quedaAlgo.length >= 20) {
+      texto = quedaAlgo;
+      hallazgos.push({
+        regla: "confirmacion-de-pago-inventada",
+        gravedad: "corrige",
+        detalle: "Una frase afirmaba un pago confirmado sin que el cliente hablara de pagar: se quitó esa frase.",
+      });
+    } else {
+      bloquear = true;
+      hallazgos.push({
+        regla: "confirmacion-de-pago-inventada",
+        gravedad: "bloquea",
+        detalle: "Afirmaba que un pago está confirmado, que vio el comprobante o que la plata llegó. Nada de eso lo decide el modelo: lo confirma la pasarela o una persona que lo vio en la cuenta.",
+      });
+      return {
+        texto,
+        hallazgos,
+        bloquear,
+        reemplazoSugerido:
+          "Para activarte el acceso necesito el comprobante de la transferencia 🙏 " +
+          "Mándamelo por aquí y apenas lo revisemos te confirmo.",
+      };
+    }
   }
 
   // ── R8 · Un numero de cuenta que no es del negocio NO puede salir ──────────

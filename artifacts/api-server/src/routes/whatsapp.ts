@@ -92,9 +92,9 @@ router.post("/test-ia", async (req, res, next) => {
     // (12-09-2026: cuatro turnos del chat real explicados solo por la base).
     const log: string[] = [];
     const logOriginal = console.log;
-    const ETIQUETAS = /\[(DECISION|PARSER|SERVIDOR|SUPERVISOR|FAST-TRACK|ENTENDER|MULTI|EMBUDO|PROMESA|ETAPA|AI|IA|CARD|FICHA|PAGO)\]/;
+    const ETIQUETAS = /\[[A-Z][A-Z-]{1,14}\]/;
     console.log = (...a: any[]) => {
-      try { const t = a.map((x) => (typeof x === "string" ? x : JSON.stringify(x))).join(" "); if (ETIQUETAS.test(t)) log.push(t.slice(0, 400)); } catch { /* nada */ }
+      try { const t = a.map((x) => (typeof x === "string" ? x : JSON.stringify(x))).join(" "); if (ETIQUETAS.test(t) && log.length < 80) log.push(t.slice(0, 700)); } catch { /* nada */ }
       logOriginal(...a);
     };
     let reply: Awaited<ReturnType<typeof runAgentReply>>;

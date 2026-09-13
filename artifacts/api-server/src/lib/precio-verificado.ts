@@ -114,6 +114,25 @@ export function montoANumero(txt: string): number {
   return Number(limpio.replace(/[.,]/g, ""));
 }
 
+/**
+ * Los precios de cada uno y todas las sumas posibles de 2 a 4 de ellos.
+ * Es lo único que puede contestar con verdad "¿cuánto me salen juntos?".
+ */
+export function sumasDe(productos: ProductoParaPrecio[]): Set<number> {
+  const precios = productos
+    .map((p) => Math.round(Number(p?.price)))
+    .filter((n) => Number.isFinite(n) && n > 0)
+    .slice(0, 6);
+  const out = new Set<number>(precios);
+  const total = 1 << precios.length;
+  for (let mask = 1; mask < total; mask++) {
+    let suma = 0; let k = 0;
+    for (let i = 0; i < precios.length; i++) if (mask & (1 << i)) { suma += precios[i]; k++; }
+    if (k >= 2 && k <= 4) out.add(suma);
+  }
+  return out;
+}
+
 /** Los precios reales, como numeros. */
 function preciosReales(productos: ProductoParaPrecio[]): Set<number> {
   const s = new Set<number>();
@@ -141,6 +160,14 @@ export function verificarPrecios(
   textoEntrante: string,
   productos: ProductoParaPrecio[],
   enContexto: number[] = [],
+  /**
+   * Productos que el cliente pidió JUNTOS ("piano, contabilidad e idiomas,
+   * ¿cuánto sería en total?"). La suma de sus precios es un monto real
+   * aunque no sea el precio de ningún producto: sin esto, el "$180.000" que
+   * escribió el modelo se borraba como inventado y al cliente le llegaba
+   * "te hago la cuenta clara:" seguido de nada (chat real, 12-09-2026).
+   */
+  pedidosJuntos: ProductoParaPrecio[] = [],
 ): RevisionDePrecios {
   if (!textoEntrante) return { texto: textoEntrante, inventados: [] };
   let texto = textoEntrante;
@@ -149,6 +176,7 @@ export function verificarPrecios(
     ? preciosReales(productos.filter((p) => enContexto.includes(p.id)))
     : null;
   const permitidos = delContexto && delContexto.size > 0 ? delContexto : preciosReales(productos);
+  for (const n of sumasDe(pedidosJuntos)) permitidos.add(n);
   if (permitidos.size === 0) return { texto, inventados: [] };
 
   const inventados: string[] = [];

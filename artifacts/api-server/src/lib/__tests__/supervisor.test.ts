@@ -297,3 +297,28 @@ describe("R8 · un número de cuenta que no es del negocio NO sale", () => {
     expect(r.reemplazoSugerido).toMatch(/confirmar/i);
   });
 });
+
+/**
+ * Chat real del dueño, 12-09-2026: preguntó el total de tres cursos, el
+ * modelo contestó la suma y una frase suelta sonó a "pago confirmado". R6
+ * bloqueaba TODO y al cliente le llegaba "necesito el comprobante" a una
+ * pregunta de precio. La mentira es la frase: se quita esa y se deja la suma.
+ */
+describe("R6 · si el cliente no habló de pagar, se quita la frase, no el mensaje", () => {
+  const pregunta = "si me llevo piano, idiomas y programación juntos cuanto seria en total?";
+  it("la suma se queda y la frase de pago confirmado se va", () => {
+    const r = revCard(
+      "Los tres te salen en $100.000 COP, pago único. Con eso tu pago ya está confirmado. ¿Te armo el pedido?",
+      pregunta,
+      false,
+    );
+    expect(r.bloquear).toBe(false);
+    expect(r.texto).toContain("$100.000");
+    expect(r.texto).not.toMatch(/confirmado/);
+    expect(r.hallazgos.find((h) => h.regla === "confirmacion-de-pago-inventada")?.gravedad).toBe("corrige");
+  });
+  it("pero si el cliente dice que pagó, sigue bloqueando", () => {
+    const r = revCard("Tu pago ya está confirmado, quedás activo. Cualquier duda me escribís por acá.", "ya te pagué", false);
+    expect(r.bloquear).toBe(true);
+  });
+});

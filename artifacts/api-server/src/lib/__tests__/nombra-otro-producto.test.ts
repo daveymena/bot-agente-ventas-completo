@@ -68,3 +68,33 @@ describe("el parser descarta la tarjeta del foco en los tres casos del chat real
     expect(src).toMatch(/pideAlgoEntregable\(String\(lastText \|\| ""\)\)\n\s*&& !preguntaPorVarios\(/);
   });
 });
+
+import { verificarPrecios, sumasDe } from "../precio-verificado";
+
+describe("la suma de los que pidió juntos es un monto real", () => {
+  const P = [
+    { id: 123, name: "Curso de Piano Completo", price: 60000 },
+    { id: 130, name: "Pack Contabilidad", price: 60000 },
+    { id: 117, name: "Pack Idiomas", price: 60000 },
+    { id: 124, name: "Inteligencia Artificial 2026", price: 34900 },
+  ];
+  it("$180.000 por los tres no se borra", () => {
+    const texto = "Los tres te salen en $180.000 COP, Duvier — son $60.000 cada uno, pago único.";
+    const sin = verificarPrecios(texto, P as any, [123]);
+    expect(sin.inventados).toContain("$180.000");
+    const con = verificarPrecios(texto, P as any, [123], P.slice(0, 3) as any);
+    expect(con.inventados).toEqual([]);
+    expect(con.texto).toContain("$180.000");
+  });
+  it("pero un combo inventado sigue sin pasar", () => {
+    const r = verificarPrecios("Los tres a $85.000 en combo.", P as any, [123], P.slice(0, 3) as any);
+    expect(r.inventados).toContain("$85.000");
+  });
+  it("sumasDe: de 2 a 4 productos", () => {
+    const s = sumasDe(P as any);
+    expect(s.has(120000)).toBe(true);
+    expect(s.has(180000)).toBe(true);
+    expect(s.has(94900)).toBe(true);
+    expect(s.has(85000)).toBe(false);
+  });
+});
