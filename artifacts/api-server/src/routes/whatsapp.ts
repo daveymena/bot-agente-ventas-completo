@@ -115,6 +115,77 @@ router.post("/test-ia", async (req, res, next) => {
 });
 
 /**
+ * POST /api/whatsapp/evaluar-chat
+ *
+ * Reproduce un chat real (solo los turnos del CLIENTE) sobre una conversación
+ * nueva y califica cada respuesta con reglas de hechos (lib/evaluador-de-chats).
+ * Body: { turnos: string[], phone?: string, conversationId?: number }.
+ * Con `conversationId` toma los turnos del cliente de esa conversación real.
+ *
+ * Existe porque los nueve fallos corregidos el 12/13-09-2026 solo se vieron
+ * leyendo chats a mano. Esto los lee por nosotros, antes de cada deploy.
+ */
+router.post("/evaluar-chat", async (req, res) => {
+  try {
+    const tenantId = tenantIdFromReq(req);
+    const { addTenantToInsert } = await import("../lib/tenantManager");
+    const { evaluarChat } = await import("../lib/evaluador-de-chats");
+    const { products } = await import("@workspace/db");
+
+    let turnos: string[] = Array.isArray(req.body?.turnos) ? req.body.turnos.map((t: any) => String(t || "")).filter(Boolean) : [];
+    const origen = Number(req.body?.conversationId);
+    if (turnos.length === 0 && Number.isFinite(origen)) {
+      const [c] = await db.select().from(conversations).where(and(eq(conversations.id, origen), eq(conversations.tenantId, tenantId))).limit(1);
+      if (!c) return res.status(404).json({ error: "Conversación no encontrada" });
+      const filas = await db.select().from(messages).where(eq(messages.conversationId, origen)).orderBy(messages.createdAt);
+      turnos = filas.filter((m: any) => m.role === "customer").map((m: any) => String(m.content || "")).filter(Boolean).slice(0, 25);
+    }
+    if (turnos.length === 0) return res.status(400).json({ error: "turnos vacío" });
+
+    const telefono = String(req.body?.phone || `eval-${Date.now()}`);
+    const [convo] = await db.insert(conversations).values(addTenantToInsert({
+      contactName: "Evaluación", contactPhone: telefono, status: "ai", currentStage: "greeting",
+    }, tenantId)).returning();
+
+    const catalogo = await db.select({ id: products.id, name: products.name, price: products.price, kind: products.kind })
+      .from(products).where(and(eq(products.tenantId, tenantId), eq(products.isActive, true)));
+
+    const evaluados: any[] = [];
+    for (const mensaje of turnos) {
+      await db.insert(messages).values({ conversationId: convo.id, role: "customer", content: mensaje });
+      const log: string[] = [];
+      const logOriginal = console.log;
+      console.log = (...a: any[]) => {
+        try { const t = a.map((x) => (typeof x === "string" ? x : JSON.stringify(x))).join(" "); if (/\[[A-Z][A-Z-]{1,20}\]/.test(t) && log.length < 120) log.push(t.slice(0, 500)); } catch { /* nada */ }
+        logOriginal(...a);
+      };
+      let reply: any = null;
+      try { reply = await runAgentReply(convo.id); } catch (e: any) { log.push(`[ERROR] ${e?.message}`); } finally { console.log = logOriginal; }
+      const partes: any[] = reply?.parts || [];
+      const agente = log.find((l) => l.includes("[AGENT-INFO] Agente activo:"))?.split("Agente activo:")[1]?.split(" - ")[0]?.trim() || null;
+      const nombraOtro = log.some((l) => l.includes("[DECISION] El mensaje nombra algo que NO es"));
+      const idDelMensaje = (() => {
+        const l = log.find((x) => /\[DECISION\] Producto identificado para la IA: .* \(ID (\d+)/.test(x));
+        const m = l?.match(/\(ID (\d+)/); return m ? Number(m[1]) : null;
+      })();
+      evaluados.push({
+        mensaje,
+        texto: partes.filter((p) => p.kind === "text").map((p) => String(p.content || "")).join("\n\n"),
+        tarjetas: partes.filter((p) => p.kind === "card").map((p) => ({ productId: p.productId, seccion: p.seccion ?? null })),
+        agente,
+        productoDelMensajeId: idDelMensaje,
+        nombraOtroProducto: nombraOtro,
+        crudo: log.find((l) => l.includes("[AI-CRUDO]"))?.replace(/^.*\[AI-CRUDO\] /, "") || null,
+      });
+    }
+    const hallazgos = evaluarChat(evaluados, catalogo as any);
+    res.json({ ok: true, conversationId: convo.id, turnos: evaluados.length, hallazgos, limpio: hallazgos.length === 0, detalle: evaluados });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/**
  * POST /api/whatsapp/comparar-modelos
  *
  * Le hace las MISMAS preguntas de venta a todos los modelos disponibles y
