@@ -5,11 +5,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { toast } from "sonner";
-import { Sparkles, Send, User, Loader2, Monitor, Smartphone, Download, RefreshCw, LayoutTemplate, Wand2 } from "lucide-react";
+import { Sparkles, Send, User, Loader2, Monitor, Smartphone, Download, RefreshCw, LayoutTemplate, Wand2, Copy, Trash2, ExternalLink, EyeOff } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 
 type Product = { id: number; name: string; description?: string; price?: string; currency?: string };
-type Landing = { id: number; name: string; productId?: number | null; design?: any; sections?: any[]; strategy?: any };
+type Landing = { id: number; name: string; productId?: number | null; design?: any; sections?: any[]; strategy?: any; status?: string; publishedUrl?: string | null };
 type Msg = { role: "user" | "assistant"; content: string; loading?: boolean };
 /**
  * Las familias visuales, tal como las conoce el renderer.
@@ -49,7 +49,7 @@ const FAMILIAS: { value: Familia; label: string; color: string }[] = [
   { value: "oscura", label: "Oscura", color: "#00D3A7" },
 ];
 
-const SALUDO = `Soy tu **Constructor de Landing Pages** de VentasPro 
+const SALUDO = `Soy **Atlas Landing**, el diseñador de páginas de venta de VentasPro 
 
 Creo paginas de ventas profesionales con frameworks de alta conversion (AIDA, PAS, Before-After).
 
@@ -228,14 +228,65 @@ Cualquier cambio que me pidas se ve ahí al instante.` }]);
     }
   }, [landingId]);
 
+  // Despublicar: la URL /l/<slug> deja de responder; la landing sigue en borrador.
+  const despublicar = useCallback(async () => {
+    if (!landingId) return;
+    try {
+      await apiFetch<any>(`/api/landing-pages/${landingId}/publish`, { method: "POST", body: JSON.stringify({ publicada: false }) });
+      setUrlPublica(null);
+      setLandings(ls => ls.map(l => l.id === landingId ? { ...l, status: "draft", publishedUrl: null } as any : l));
+      toast.success("Despublicada: la URL ya no responde. Sigue guardada como borrador.");
+    } catch (e: any) { toast.error(`No se pudo despublicar: ${e.message}`); }
+  }, [landingId]);
+
+  // Clonar: sin producto distinto → copia; con otro producto → clona el ESTILO
+  // (mismo diseño, contenido nuevo para ese producto). Queda en borrador.
+  const [clonarAbierto, setClonarAbierto] = useState(false);
+  const [clonarProducto, setClonarProducto] = useState<number | "">("");
+  const clonar = useCallback(async () => {
+    if (!landingId) return;
+    setClonarAbierto(false);
+    try {
+      const r = await apiFetch<any>(`/api/landing-pages/${landingId}/clonar`, {
+        method: "POST", body: JSON.stringify({ productId: clonarProducto || null }),
+      });
+      const nueva = r.landing;
+      setLandings(ls => [nueva, ...ls]);
+      setUrlPublica(null);
+      setLandingId(nueva.id);
+      if (nueva.productId) setProductId(nueva.productId);
+      await cargarPreview(nueva.id, (nueva.design as any)?.familia as Familia);
+      toast.success(r.modo === "estilo" ? "Estilo clonado para el otro producto (borrador)." : "Copia creada (borrador).");
+      setMsgs(m => [...m, { role: "assistant", content: r.modo === "estilo"
+        ? `**Estilo clonado.** Nueva landing **"${nueva.name}"** en borrador, con el mismo diseño y el contenido del producto elegido. ¿Qué ajustamos?`
+        : `**Copia creada.** Estás editando **"${nueva.name}"** (borrador). La original sigue igual.` }]);
+    } catch (e: any) { toast.error(`No se pudo clonar: ${e.message}`); }
+  }, [landingId, clonarProducto, cargarPreview]);
+
+  // Eliminar: irreversible, con confirmación.
+  const eliminar = useCallback(async () => {
+    if (!landingId) return;
+    const l = landings.find(x => x.id === landingId);
+    if (!window.confirm(`¿Eliminar la landing "${l?.name ?? landingId}"? Si está publicada, su URL deja de existir. No se puede deshacer.`)) return;
+    try {
+      const r = await fetch(`/api/landing-pages/${landingId}`, { method: "DELETE", credentials: "include" });
+      if (!r.ok && r.status !== 204) throw new Error(`HTTP ${r.status}`);
+      setLandings(ls => ls.filter(x => x.id !== landingId));
+      setLandingId(null); setUrlPublica(null); setPreviewHtml(null);
+      toast.success("Landing eliminada.");
+      setMsgs(m => [...m, { role: "assistant", content: "Landing eliminada. Elegí un producto y generá otra cuando quieras." }]);
+    } catch (e: any) { toast.error(`No se pudo eliminar: ${e.message}`); }
+  }, [landingId, landings]);
+
   const cargarLanding = useCallback(async (id: number) => {
     const l = landings.find(x => x.id === id);
     if (!l) return;
     setLandingId(id);
     if (l.productId) setProductId(l.productId);
     if ((l.design as any)?.familia) setFamilia((l.design as any).familia as Familia);
+    setUrlPublica((l as any).status === "published" ? ((l as any).publishedUrl || null) : null);
     await cargarPreview(id, (l.design as any)?.familia as Familia);
-    setMsgs(m => [...m, { role: "assistant", content: `Landing **"${l.name}"** cargada. Que quieres modificar?` }]);
+    setMsgs(m => [...m, { role: "assistant", content: `Landing **"${l.name}"** cargada${(l as any).status === "published" ? ` — publicada en ${(l as any).publishedUrl}` : " (borrador)"}. ¿Qué querés modificar?` }]);
   }, [landings, cargarPreview]);
 
   return (
@@ -246,7 +297,7 @@ Cualquier cambio que me pidas se ve ahí al instante.` }]);
             <div className="p-1.5 rounded-lg bg-violet-500/10 border border-violet-500/20">
               <LayoutTemplate className="h-4 w-4 text-violet-500" />
             </div>
-            <span className="text-sm font-bold hidden sm:block">Landing AI Studio</span>
+            <span className="text-sm font-bold hidden sm:block">Atlas Landing</span>
             <Badge variant="secondary" className="text-[10px] hidden sm:flex">IA</Badge>
           </div>
           <select value={productId} onChange={e => setProductId(e.target.value ? Number(e.target.value) : "")}
@@ -264,10 +315,47 @@ Cualquier cambio que me pidas se ve ahí al instante.` }]);
             {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : <Wand2 className="h-3.5 w-3.5 mr-1" />}
             Generar
           </Button>
-          <div className="ml-auto flex gap-1">
-            <Button size="sm" onClick={publicar} disabled={!landingId} className="h-8 px-3 text-xs bg-emerald-600 hover:bg-emerald-700 text-white"
-              title="Publicar en ventasproia.com/l/… (la URL para el anuncio)">
-              {urlPublica ? "Publicada ✓" : "Publicar"}
+          <div className="ml-auto flex gap-1 items-center">
+            {urlPublica ? (
+              <>
+                <a href={urlPublica} target="_blank" rel="noreferrer" className="h-8 px-2 inline-flex items-center gap-1 rounded-md border text-xs text-emerald-700 border-emerald-300 bg-emerald-50 hover:bg-emerald-100 max-w-[220px] truncate"
+                  title={`Abrir ${urlPublica}`}>
+                  <ExternalLink className="h-3.5 w-3.5 shrink-0" /><span className="truncate">{urlPublica.replace(/^https?:\/\//, "")}</span>
+                </a>
+                <Button size="sm" variant="ghost" onClick={despublicar} className="h-8 px-2 text-xs" title="Despublicar: la URL deja de responder">
+                  <EyeOff className="h-3.5 w-3.5 mr-1" />Despublicar
+                </Button>
+              </>
+            ) : (
+              <Button size="sm" onClick={publicar} disabled={!landingId} className="h-8 px-3 text-xs bg-emerald-600 hover:bg-emerald-700 text-white"
+                title="Publicar en ventasproia.com/l/… (la URL para el anuncio)">
+                Publicar
+              </Button>
+            )}
+            <div className="relative">
+              <Button size="sm" variant="ghost" onClick={() => setClonarAbierto(v => !v)} disabled={!landingId} className="h-8 px-2 text-xs"
+                title="Clonar: copia exacta, o el estilo para otro producto">
+                <Copy className="h-3.5 w-3.5 mr-1" />Clonar
+              </Button>
+              {clonarAbierto && (
+                <div className="absolute right-0 top-9 z-20 w-64 rounded-md border bg-background p-3 shadow-lg space-y-2">
+                  <p className="text-xs font-semibold">Clonar esta landing</p>
+                  <p className="text-[11px] text-muted-foreground">Sin producto: copia exacta. Con otro producto: mismo estilo, contenido nuevo.</p>
+                  <select value={clonarProducto} onChange={e => setClonarProducto(e.target.value ? Number(e.target.value) : "")}
+                    className="h-8 w-full rounded-md border bg-background px-2 text-xs">
+                    <option value="">Copia exacta (mismo producto)</option>
+                    {products.map(p => <option key={p.id} value={p.id}>Estilo para: {p.name}</option>)}
+                  </select>
+                  <div className="flex gap-1 justify-end">
+                    <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => setClonarAbierto(false)}>Cancelar</Button>
+                    <Button size="sm" className="h-7 text-xs" onClick={clonar}>Clonar</Button>
+                  </div>
+                </div>
+              )}
+            </div>
+            <Button size="sm" variant="ghost" onClick={eliminar} disabled={!landingId} className="h-8 w-8 p-0 text-red-600 hover:text-red-700"
+              title="Eliminar esta landing" aria-label="Eliminar esta landing">
+              <Trash2 className="h-3.5 w-3.5" />
             </Button>
             <Button size="sm" variant="ghost" onClick={() => landingId && cargarPreview(landingId)} disabled={!landingId || previewBusy} className="h-8 w-8 p-0"
               title="Actualizar la vista previa" aria-label="Actualizar la vista previa">

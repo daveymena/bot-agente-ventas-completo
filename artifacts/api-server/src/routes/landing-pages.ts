@@ -204,6 +204,20 @@ router.post("/preview", async (req: TenantRequest, res, next) => {
   } catch (e) { return next(e); }
 });
 
+// Clonar: misma landing (copia) o su ESTILO para otro producto. Queda en borrador.
+router.post("/:id/clonar", async (req: TenantRequest, res, next) => {
+  try {
+    const tenantId = req.tenant?.id;
+    if (!tenantId) return sendError(res, ERROR_CODES.UNAUTHORIZED);
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) return sendError(res, ERROR_CODES.VALIDATION_INVALID_DATA);
+    const { clonarLanding } = await import("../lib/landing/clonar");
+    const r = await clonarLanding({ tenantId, landingId: id, productId: req.body?.productId ?? null, nombre: req.body?.nombre ?? null });
+    if (!r.ok) return res.status(404).json({ error: r.error });
+    return res.status(201).json({ ok: true, modo: r.modo, landing: r.landing });
+  } catch (e) { return next(e); }
+});
+
 router.delete("/:id", async (req: TenantRequest, res, next) => {
   try {
     const tenantId = req.tenant?.id;

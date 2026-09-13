@@ -4228,6 +4228,41 @@ Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vincu
     },
   },
   {
+    name: "landing_clonar",
+    description:
+      "Clona una landing. Sin 'productId' (o con el mismo producto) hace una COPIA exacta en borrador. Con otro 'productId' clona el ESTILO: " +
+      "genera el contenido para ese producto (fotos reales, AIDA, condiciones) y le aplica el diseño (familia, colores, tipografía) de la landing origen. " +
+      "Queda en borrador: para la URL pública, landing_publicar. ⚠️ Cambia el sistema: va por propose_action.",
+    args: '{ "id": number (req, landing origen), "productId"?: number (producto destino), "nombre"?: string }',
+    run: async (args, ctx) => {
+      const id = num(args?.id ?? args?.landingId ?? args?.landing);
+      if (!id) return { ok: false, summary: "Falta 'id' de la landing origen." };
+      const { clonarLanding } = await import("./landing/clonar");
+      const r = await clonarLanding({ tenantId: ctx.tenantId, landingId: id, productId: num(args?.productId) || null, nombre: args?.nombre ? String(args.nombre) : null });
+      if (!r.ok) return { ok: false, summary: r.error };
+      return {
+        ok: true,
+        summary: r.modo === "copia"
+          ? `Copia creada en borrador: [${r.landing.id}] ${r.landing.name}.`
+          : `Estilo clonado: nueva landing [${r.landing.id}] ${r.landing.name} para el producto ${r.landing.productId}, en borrador, con el diseño de la ${id}.`,
+        data: { id: r.landing.id, nombre: r.landing.name, productId: r.landing.productId, modo: r.modo },
+      };
+    },
+  },
+  {
+    name: "landing_eliminar",
+    description: "Elimina una landing page del negocio (si estaba publicada, su URL deja de existir). ⚠️ Irreversible: va por propose_action.",
+    args: '{ "id": number (req) }',
+    run: async (args, ctx) => {
+      const id = num(args?.id ?? args?.landingId ?? args?.landing);
+      if (!id) return { ok: false, summary: "Falta 'id' de la landing." };
+      const { landingPages } = await import("@workspace/db");
+      const [borrada] = await db.delete(landingPages).where(and(eq(landingPages.id, id), eq(landingPages.tenantId, ctx.tenantId))).returning({ id: landingPages.id, name: landingPages.name });
+      if (!borrada) return { ok: false, summary: `No encontré la landing ${id}.` };
+      return { ok: true, summary: `Landing [${borrada.id}] "${borrada.name}" eliminada.`, data: { id: borrada.id } };
+    },
+  },
+  {
     name: "landing_publicar",
     description:
       "Publica (o despublica con publicada:false) una landing: queda visible en /l/<slug> con el dominio de la app, sin login y sin hosting aparte. " +
