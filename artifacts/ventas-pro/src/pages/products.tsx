@@ -627,6 +627,65 @@ function ProductModal({ mode, product, categories, initialData, children, open: 
 
   const [featureInput, setFeatureInput] = useState("");
   const [aiImagePrompt, setAiImagePrompt] = useState("");
+
+  // ── Galería y videos (pedido del dueño 13-09-2026) ─────────────────────
+  // Varias fotos por producto (subidas o por URL) en metadata.imagenes; el
+  // video principal (el que manda el vendedor) en metadata.videoIntro y los
+  // demás en metadata.videos. Se guardan junto con el producto (metadata).
+  const [galeria, setGaleria] = useState<string[]>([]);
+  const [urlNueva, setUrlNueva] = useState("");
+  const [videoPrincipal, setVideoPrincipal] = useState("");
+  const [videos, setVideos] = useState<string[]>([]);
+  const [videoNuevo, setVideoNuevo] = useState("");
+  const [subiendo, setSubiendo] = useState(false);
+  const leerMeta = (p: any): any => { const m = p?.metadata; if (!m) return {}; if (typeof m === "string") { try { return JSON.parse(m) || {}; } catch { return {}; } } return m; };
+
+  const subirArchivos = async (files: FileList | null) => {
+    if (!files || !files.length) return;
+    setSubiendo(true);
+    try {
+      for (const f of Array.from(files).slice(0, 8)) {
+        if (!/^image\//.test(f.type)) { toast.error(`${f.name} no es una imagen`); continue; }
+        if (f.size > 6 * 1024 * 1024) { toast.error(`${f.name} pesa más de 6 MB`); continue; }
+        const dataUrl: string = await new Promise((ok, no) => { const r = new FileReader(); r.onload = () => ok(String(r.result)); r.onerror = no; r.readAsDataURL(f); });
+        if (mode === "edit" && product) {
+          const res = await fetch(`/api/products/${product.id}/galeria`, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ file: dataUrl }) });
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          const d = await res.json();
+          setGaleria(g => g.includes(d.url) ? g : [...g, d.url]);
+          if (!formData.imageUrl && d.imageUrl) setFormData(prev => ({ ...prev, imageUrl: d.imageUrl }));
+        } else {
+          // Producto nuevo: la foto viaja como data URL y se guarda con el producto.
+          setGaleria(g => [...g, dataUrl]);
+        }
+      }
+      toast.success("Fotos agregadas");
+    } catch (e: any) {
+      toast.error(`No se pudo subir: ${e.message}`);
+    } finally { setSubiendo(false); }
+  };
+  const agregarUrl = () => {
+    const u = urlNueva.trim();
+    if (!/^https?:\/\//i.test(u) && !u.startsWith("/")) { toast.error("Pegá una URL de imagen"); return; }
+    setGaleria(g => g.includes(u) ? g : [...g, u]);
+    setUrlNueva("");
+  };
+  const quitarFoto = async (u: string) => {
+    setGaleria(g => g.filter(x => x !== u));
+    if (mode === "edit" && product && !u.startsWith("data:")) {
+      try { await fetch(`/api/products/${product.id}/galeria?url=${encodeURIComponent(u)}`, { method: "DELETE", credentials: "include" }); } catch { /* se quita igual al guardar */ }
+    }
+  };
+  const hacerPrincipal = (u: string) => {
+    setGaleria(g => { const sin = g.filter(x => x !== u); return formData.imageUrl && !sin.includes(formData.imageUrl) ? [formData.imageUrl, ...sin] : sin; });
+    setFormData(prev => ({ ...prev, imageUrl: u }));
+  };
+  const agregarVideo = () => {
+    const u = videoNuevo.trim();
+    if (!/^https?:\/\//i.test(u)) { toast.error("Pegá la URL del video (YouTube, Drive, Terabox, .mp4)"); return; }
+    if (!videoPrincipal) setVideoPrincipal(u); else setVideos(v => v.includes(u) ? v : [...v, u]);
+    setVideoNuevo("");
+  };
   const [isGeneratingImage, setIsGeneratingImage] = useState(false);
 
   // Si el admin no escribe nada, se arma el prompt con el nombre y la
@@ -684,7 +743,14 @@ function ProductModal({ mode, product, categories, initialData, children, open: 
         paymentLink: (product as any).paymentLink || "",
         deliveryLink: (product as any).deliveryLink || ""
       });
+      const m = leerMeta(product);
+      const propias: string[] = Array.isArray(m.imagenes) ? m.imagenes.map(String) : [];
+      const deWoo: string[] = Array.isArray(m?.woocommerce?.imageUrls) ? m.woocommerce.imageUrls.map(String) : [];
+      setGaleria([...new Set([...propias, ...deWoo])].filter(u => u && u !== product.imageUrl));
+      setVideoPrincipal(String(m.videoIntro || m.videoUrl || ""));
+      setVideos(Array.isArray(m.videos) ? m.videos.map(String) : []);
     } else if (mode === 'create') {
+      setGaleria([]); setVideoPrincipal(""); setVideos([]);
       setFormData({
         name: initialData?.name || "",
         description: initialData?.description || "",
@@ -722,7 +788,14 @@ function ProductModal({ mode, product, categories, initialData, children, open: 
       features: formData.features,
       isActive: formData.isActive,
       paymentLink: formData.paymentLink || null,
-      deliveryLink: formData.deliveryLink || null
+      deliveryLink: formData.deliveryLink || null,
+      // Galería y videos, sobre la metadata que ya tenía (Dropi, Terabox, etc.).
+      metadata: (() => {
+        const m = mode === "edit" && product ? leerMeta(product) : {};
+        const out: any = { ...m, imagenes: galeria.filter(u => u && u !== formData.imageUrl), videos };
+        if (videoPrincipal) out.videoIntro = videoPrincipal; else delete out.videoIntro;
+        return JSON.stringify(out);
+      })(),
     };
 
     if (mode === 'create') {
@@ -894,6 +967,59 @@ function ProductModal({ mode, product, categories, initialData, children, open: 
                     </Button>
                   </div>
                 </div>
+              </div>
+
+              {/* ── Más fotos ─────────────────────────────────────────── */}
+              <div className="space-y-2 pt-1">
+                <div className="flex items-center justify-between">
+                  <Label className="text-xs">Más fotos ({galeria.length})</Label>
+                  <label className="text-xs cursor-pointer inline-flex items-center gap-1 rounded-md border px-2 py-1 hover:bg-muted">
+                    <Plus className="h-3 w-3" /> {subiendo ? "Subiendo…" : "Subir fotos"}
+                    <input type="file" accept="image/*" multiple className="hidden" disabled={subiendo} onChange={e => { void subirArchivos(e.target.files); e.currentTarget.value = ""; }} />
+                  </label>
+                </div>
+                <div className="flex gap-2">
+                  <Input value={urlNueva} onChange={e => setUrlNueva(e.target.value)} placeholder="o pegá la URL de una foto" className="text-xs" onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); agregarUrl(); } }} />
+                  <Button type="button" variant="secondary" size="sm" onClick={agregarUrl}>Agregar</Button>
+                </div>
+                {galeria.length > 0 && (
+                  <div className="grid grid-cols-4 sm:grid-cols-6 gap-2">
+                    {galeria.map(u => (
+                      <div key={u} className="relative group aspect-square rounded-lg overflow-hidden border bg-muted">
+                        <img src={u} alt="" className="w-full h-full object-cover" />
+                        <div className="absolute inset-x-0 bottom-0 flex justify-between p-1 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <button type="button" className="text-[10px] text-white underline" onClick={() => hacerPrincipal(u)} title="Usar como foto principal">Principal</button>
+                          <button type="button" className="text-[10px] text-red-200" onClick={() => void quitarFoto(u)} title="Quitar"><X className="h-3 w-3" /></button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <p className="text-[11px] text-muted-foreground">La principal va en la ficha del vendedor; todas se usan en la landing, la tienda y los anuncios.</p>
+              </div>
+
+              {/* ── Videos ────────────────────────────────────────────── */}
+              <div className="space-y-2 pt-1">
+                <Label className="text-xs">Videos (URL de YouTube, Drive, Terabox o .mp4)</Label>
+                <div className="flex gap-2">
+                  <Input value={videoNuevo} onChange={e => setVideoNuevo(e.target.value)} placeholder="https://…" className="text-xs" onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); agregarVideo(); } }} />
+                  <Button type="button" variant="secondary" size="sm" onClick={agregarVideo}>Agregar</Button>
+                </div>
+                {videoPrincipal && (
+                  <div className="flex items-center justify-between rounded-md border px-2 py-1 text-xs">
+                    <span className="truncate"><span className="font-semibold">Principal</span> (lo manda el vendedor): {videoPrincipal}</span>
+                    <button type="button" className="text-red-500 ml-2" onClick={() => { const [sig, ...resto] = videos; setVideoPrincipal(sig || ""); setVideos(resto); }} title="Quitar"><X className="h-3 w-3" /></button>
+                  </div>
+                )}
+                {videos.map(u => (
+                  <div key={u} className="flex items-center justify-between rounded-md border px-2 py-1 text-xs">
+                    <span className="truncate">{u}</span>
+                    <div className="flex gap-2 ml-2">
+                      <button type="button" className="underline" onClick={() => { setVideos(v => [videoPrincipal, ...v.filter(x => x !== u)].filter(Boolean)); setVideoPrincipal(u); }}>Principal</button>
+                      <button type="button" className="text-red-500" onClick={() => setVideos(v => v.filter(x => x !== u))}><X className="h-3 w-3" /></button>
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
             <div className="grid md:grid-cols-2 gap-4">

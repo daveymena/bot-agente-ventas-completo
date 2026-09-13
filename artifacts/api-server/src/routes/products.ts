@@ -148,6 +148,42 @@ router.get("/:id", async (req: TenantRequest, res, next) => {
 });
 
 // Create a product for the current tenant
+/**
+ * La galería (metadata.imagenes) puede llegar del editor con fotos en data
+ * URL (producto nuevo: todavía no hay id para subirlas). Acá se pasan a
+ * archivo, igual que la principal, para no hinchar la tabla con base64.
+ */
+async function materializarGaleria(metadata: unknown, productId: number): Promise<string | undefined> {
+  if (metadata === undefined || metadata === null) return undefined;
+  let m: any;
+  try { m = typeof metadata === "string" ? (JSON.parse(metadata) || {}) : metadata; } catch { return typeof metadata === "string" ? metadata : JSON.stringify(metadata); }
+  if (Array.isArray(m?.imagenes)) {
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const { getImageStoreDir } = await import("../lib/image-store");
+    const out: string[] = [];
+    for (const u of m.imagenes.map(String)) {
+      if (!u.startsWith("data:")) { out.push(u); continue; }
+      try {
+        const coma = u.indexOf(",");
+        const mime = u.slice(5, u.indexOf(";")).toLowerCase();
+        const ext = mime.includes("png") ? "png" : mime.includes("webp") ? "webp" : "jpg";
+        const buffer = Buffer.from(u.slice(coma + 1), "base64");
+        if (buffer.length > 6 * 1024 * 1024) continue;
+        const dir = path.resolve(getImageStoreDir(), "products");
+        fs.mkdirSync(dir, { recursive: true });
+        const nombre = `${productId}-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}.${ext}`;
+        fs.writeFileSync(path.resolve(dir, nombre), buffer);
+        out.push(`/uploads/products/${nombre}`);
+      } catch (e) {
+        logger.warn({ productId, err: String(e) }, "[Products] No se pudo guardar una foto de la galería");
+      }
+    }
+    m.imagenes = [...new Set(out)].slice(0, 12);
+  }
+  return JSON.stringify(m);
+}
+
 router.post("/", async (req: TenantRequest, res, next) => {
   try {
      const tenantId = req.tenant?.id;
@@ -158,6 +194,7 @@ router.post("/", async (req: TenantRequest, res, next) => {
      if (req.body.price !== undefined) {
        req.body.price = String(req.body.price);
      }
+     if (req.body?.metadata && typeof req.body.metadata === "object") req.body.metadata = JSON.stringify(req.body.metadata);
      const body = CreateProductBody.parse(req.body);
      const rawImageUrl = (body as any).imageUrl ?? null;
      const [created] = await db
@@ -189,6 +226,10 @@ router.post("/", async (req: TenantRequest, res, next) => {
        .returning();
 
      let finalProduct = created!;
+     if ((body as any).metadata) {
+       const meta = await materializarGaleria((body as any).metadata, created!.id);
+       if (meta) [finalProduct] = await db.update(products).set({ metadata: meta }).where(eq(products.id, created!.id)).returning();
+     }
      if (rawImageUrl && rawImageUrl.startsWith("data:")) {
        const savedPath = await saveProductImage(rawImageUrl, created!.id);
        if (savedPath) {
@@ -268,6 +309,94 @@ router.post("/:id/video-desde-terabox", async (req: TenantRequest, res, next) =>
   }
 });
 
+// ── GALERÍA: varias fotos por producto (subidas o por URL) y videos ──────────
+//
+// Pedido del dueño (13-09-2026). La foto principal sigue en `imageUrl`; las
+// demás en `metadata.imagenes`; el video principal en `metadata.videoIntro`
+// y los demás en `metadata.videos`. Ver lib/fotos-de-producto.ts.
+function leerMeta(prod: any): any {
+  try { return typeof prod.metadata === "string" ? (JSON.parse(prod.metadata) || {}) : (prod.metadata || {}); } catch { return {}; }
+}
+
+/** Sube UNA imagen (data URL base64) a la galería y devuelve su URL pública. */
+router.post("/:id/galeria", async (req: TenantRequest, res, next) => {
+  try {
+    const tenantId = req.tenant?.id;
+    if (!tenantId) return sendError(res, ERROR_CODES.UNAUTHORIZED);
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) return sendError(res, ERROR_CODES.VALIDATION_INVALID_DATA);
+    const [prod] = await db.select().from(products).where(and(eq(products.id, id), eq(products.tenantId, tenantId))).limit(1);
+    if (!prod) return res.status(404).json({ message: "Producto no encontrado" });
+
+    const m = leerMeta(prod);
+    const imagenes: string[] = Array.isArray(m.imagenes) ? m.imagenes.map(String) : [];
+    let url = String(req.body?.url || "").trim();
+    const file = String(req.body?.file || "");
+    if (!url && file.startsWith("data:")) {
+      const coma = file.indexOf(",");
+      const mime = file.slice(5, file.indexOf(";")).toLowerCase();
+      const ext = mime.includes("png") ? "png" : mime.includes("webp") ? "webp" : "jpg";
+      const buffer = Buffer.from(file.slice(coma + 1), "base64");
+      if (buffer.length > 6 * 1024 * 1024) return res.status(400).json({ message: "La imagen pesa más de 6 MB" });
+      const { getImageStoreDir } = await import("../lib/image-store");
+      const fs = await import("node:fs");
+      const path = await import("node:path");
+      const dir = path.resolve(getImageStoreDir(), "products");
+      fs.mkdirSync(dir, { recursive: true });
+      const nombre = `${id}-${Date.now().toString(36)}.${ext}`;
+      fs.writeFileSync(path.resolve(dir, nombre), buffer);
+      url = `/uploads/products/${nombre}`;
+    }
+    if (!url) return res.status(400).json({ message: "Mandá 'url' o 'file' (data URL base64)" });
+    if (!imagenes.includes(url) && url !== prod.imageUrl) imagenes.push(url);
+    m.imagenes = imagenes.slice(0, 12);
+    const patch: any = { metadata: JSON.stringify(m) };
+    // Sin foto principal, la primera que entra pasa a serlo.
+    if (!prod.imageUrl) patch.imageUrl = url;
+    await db.update(products).set(patch).where(eq(products.id, id));
+    return res.json({ ok: true, url, imagenes: m.imagenes, imageUrl: patch.imageUrl || prod.imageUrl });
+  } catch (e) { return next(e); }
+});
+
+/** Quita una imagen de la galería (no borra la principal: para eso se edita imageUrl). */
+router.delete("/:id/galeria", async (req: TenantRequest, res, next) => {
+  try {
+    const tenantId = req.tenant?.id;
+    if (!tenantId) return sendError(res, ERROR_CODES.UNAUTHORIZED);
+    const id = Number(req.params.id);
+    const url = String(req.query.url || req.body?.url || "").trim();
+    if (!Number.isInteger(id) || id <= 0 || !url) return sendError(res, ERROR_CODES.VALIDATION_INVALID_DATA);
+    const [prod] = await db.select().from(products).where(and(eq(products.id, id), eq(products.tenantId, tenantId))).limit(1);
+    if (!prod) return res.status(404).json({ message: "Producto no encontrado" });
+    const m = leerMeta(prod);
+    m.imagenes = (Array.isArray(m.imagenes) ? m.imagenes : []).filter((u: string) => String(u) !== url);
+    if (Array.isArray(m?.woocommerce?.imageUrls)) m.woocommerce.imageUrls = m.woocommerce.imageUrls.filter((u: string) => String(u) !== url);
+    await db.update(products).set({ metadata: JSON.stringify(m) }).where(eq(products.id, id));
+    return res.json({ ok: true, imagenes: m.imagenes });
+  } catch (e) { return next(e); }
+});
+
+/** Videos: el principal (videoIntro, el que manda el vendedor) y los demás. */
+router.put("/:id/videos", async (req: TenantRequest, res, next) => {
+  try {
+    const tenantId = req.tenant?.id;
+    if (!tenantId) return sendError(res, ERROR_CODES.UNAUTHORIZED);
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) return sendError(res, ERROR_CODES.VALIDATION_INVALID_DATA);
+    const [prod] = await db.select().from(products).where(and(eq(products.id, id), eq(products.tenantId, tenantId))).limit(1);
+    if (!prod) return res.status(404).json({ message: "Producto no encontrado" });
+    const m = leerMeta(prod);
+    const principal = String(req.body?.principal ?? "").trim();
+    const otros: string[] = Array.isArray(req.body?.otros) ? req.body.otros.map((u: any) => String(u || "").trim()).filter(Boolean) : [];
+    const esUrl = (u: string) => /^https?:\/\//i.test(u) || u.startsWith("/videos/");
+    if (principal && !esUrl(principal)) return res.status(400).json({ message: "El video principal tiene que ser una URL" });
+    if (principal) m.videoIntro = principal; else delete m.videoIntro;
+    m.videos = [...new Set(otros.filter(esUrl))].slice(0, 10);
+    await db.update(products).set({ metadata: JSON.stringify(m) }).where(eq(products.id, id));
+    return res.json({ ok: true, principal: m.videoIntro || null, otros: m.videos });
+  } catch (e) { return next(e); }
+});
+
 router.patch("/:id", async (req: TenantRequest, res, next) => {
   try {
     const tenantId = req.tenant?.id;
@@ -279,10 +408,15 @@ router.patch("/:id", async (req: TenantRequest, res, next) => {
     if (req.body.price !== undefined) {
       req.body.price = String(req.body.price);
     }
+    if (req.body?.metadata && typeof req.body.metadata === "object") req.body.metadata = JSON.stringify(req.body.metadata);
     const body = UpdateProductBody.parse(req.body);
 
     const update: Record<string, unknown> = { ...body };
     if (body.price !== undefined) update.price = String(body.price);
+    if ((body as any).metadata !== undefined) {
+      const meta = await materializarGaleria((body as any).metadata, id);
+      if (meta !== undefined) update.metadata = meta;
+    }
     // Misma conversión que en POST /: un data: URI (imagen recién generada
     // con IA) se persiste a disco y se reemplaza por la ruta real antes de
     // guardar -- ver el comentario en el create de arriba.

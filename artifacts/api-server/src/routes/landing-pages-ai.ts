@@ -5,6 +5,7 @@ import { sendError } from "../lib/error-handler";
 import { ERROR_CODES } from "../lib/error-codes";
 import type { TenantRequest } from "../lib/tenantManager";
 import { callMarketingAI } from "../lib/marketing-team/ai";
+import { fotosDelProducto } from "../lib/fotos-de-producto";
 import { CONDICIONES_DE_RESPALDO, fraseCostoEnvio, frasePagoEnvio, type CondicionesDelNegocio } from "../lib/modelo-de-negocio";
 import { getBusinessContext } from "../lib/business-context";
 import { aTextoPlano } from "../lib/texto-plano";
@@ -96,13 +97,8 @@ function rellenoDe(casilla: Casilla, product: any): LandingSection {
  * no hay ninguna foto real.
  */
 export function imagenesRealesDe(product: any): string[] {
-  const meta: any = typeof product?.metadata === "string" ? (() => { try { return JSON.parse(product.metadata); } catch { return null; } })() : product?.metadata;
-  const base = (process.env.APP_URL || "https://ventasproia.com").replace(/\/+$/, "");
-  const propia = String(product?.imageUrl || "").trim();
-  const absoluta = propia ? (propia.startsWith("http") ? propia : `${base}${propia.startsWith("/") ? "" : "/"}${propia}`) : "";
-  const deWoo: string[] = Array.isArray(meta?.woocommerce?.imageUrls) ? meta.woocommerce.imageUrls.map(String) : [];
-  const todas = [absoluta, ...deWoo].filter(Boolean);
-  return [...new Set(todas)].filter((u) => /\.(jpe?g|png|webp)(\?|$)/i.test(u) || u.includes("/images/products/")).slice(0, 8);
+  // Galería del dueño + Dropi/Woo + principal, en una sola lista (lib/fotos-de-producto).
+  return fotosDelProducto(product, process.env.APP_URL || "https://ventasproia.com", 8);
 }
 
 export function normalizeSections(input: unknown, product: any, casillas: Casilla[], condiciones?: CondicionesDelNegocio | null): LandingSection[] {

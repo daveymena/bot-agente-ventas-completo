@@ -29,18 +29,15 @@ export interface FichaDesdeImagenes {
   modelo: string;
 }
 
+import { fotosDelProducto } from "./fotos-de-producto";
+
 const MAX_IMAGENES = 5;
 const MAX_BYTES = 4 * 1024 * 1024;
 
 /** URLs de imagen que este producto tiene de verdad (las del proveedor primero). */
 export function imagenesDelProducto(p: { imageUrl?: string | null; metadata?: unknown }, appUrl: string): string[] {
-  const meta: any = typeof p.metadata === "string" ? safeJson(p.metadata) : p.metadata;
-  const deWoo: string[] = Array.isArray(meta?.woocommerce?.imageUrls) ? meta.woocommerce.imageUrls : [];
-  const propia = String(p.imageUrl || "").trim();
-  const absoluta = propia ? (propia.startsWith("http") ? propia : `${appUrl.replace(/\/+$/, "")}${propia.startsWith("/") ? "" : "/"}${propia}`) : "";
-  const todas = [...deWoo, absoluta].filter(Boolean);
-  // Sin repetidas y sin las que no son imagen.
-  return [...new Set(todas)].filter((u) => /\.(jpe?g|png|webp)(\?|$)/i.test(u)).slice(0, MAX_IMAGENES);
+  // Una sola lista para todo el sistema (galería del dueño + Dropi/Woo + principal).
+  return fotosDelProducto(p, appUrl, MAX_IMAGENES);
 }
 
 function safeJson(s: string): any { try { return JSON.parse(s); } catch { return null; } }

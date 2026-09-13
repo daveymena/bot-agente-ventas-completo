@@ -231,10 +231,8 @@ export async function adaptarHtmlAlProducto(opts: {
   html = html.replace(/<(footer)\b[\s\S]*?<\/\1>/gi, (m) => (/cookie|privacy|privacidad|terms|t[eé]rminos|all rights reserved|derechos reservados|licens/i.test(m) ? "" : m));
 
   // 2) Imágenes: las del producto, rotando. Si no hay, se dejan las originales y se avisa.
-  const fotos: string[] = [];
-  if (p?.imageUrl) fotos.push(String(p.imageUrl));
-  const extra = (p?.metadata as any)?.woocommerce?.imageUrls;
-  if (Array.isArray(extra)) for (const u of extra) if (typeof u === "string" && u && !fotos.includes(u)) fotos.push(u);
+  const { fotosDelProducto } = await import("../fotos-de-producto");
+  const fotos: string[] = fotosDelProducto(p);
   let imagenes = 0;
   if (fotos.length) {
     let i = 0;

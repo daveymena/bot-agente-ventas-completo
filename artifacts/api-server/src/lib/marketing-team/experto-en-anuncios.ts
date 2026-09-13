@@ -166,10 +166,8 @@ export async function datosExpertosParaAnuncio(opts: { tenantId: number; product
     try { const r = await opts.fb.campanaMasReciente(); plantilla = r ? await opts.fb.plantillaDesdeCampana(r.id) : null; } catch { plantilla = null; }
   }
 
-  const fotos: string[] = [];
-  if ((p as any).imageUrl) fotos.push(String((p as any).imageUrl));
-  const extra = ((p as any).metadata as any)?.woocommerce?.imageUrls;
-  if (Array.isArray(extra)) for (const u of extra) if (typeof u === "string" && !fotos.includes(u)) fotos.push(u);
+  const { fotosDelProducto } = await import("../fotos-de-producto");
+  const fotos: string[] = fotosDelProducto(p);
 
   const precio = (p as any).price != null ? `$${Number((p as any).price).toLocaleString("es-CO")} ${(p as any).currency || "COP"}` : "sin precio cargado";
   const sugerenciasCreativas = modelo === "digital"

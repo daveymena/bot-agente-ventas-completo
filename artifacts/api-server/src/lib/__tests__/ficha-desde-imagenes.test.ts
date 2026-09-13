@@ -11,12 +11,15 @@ describe("qué descripción cuenta como vacía", () => {
 });
 
 describe("de dónde salen las imágenes", () => {
-  it("las del proveedor primero, la propia al final, sin repetidas ni más de 5", () => {
+  // Desde 13-09-2026 la lista sale de lib/fotos-de-producto: la principal
+  // primero (es la que el dueño eligió), después la galería y las de Dropi/Woo.
+  it("la principal primero, luego las del proveedor, sin repetidas ni más de 5", () => {
     const urls = imagenesDelProducto({
       imageUrl: "/images/products/178.jpg",
       metadata: JSON.stringify({ woocommerce: { imageUrls: ["https://cdn/a.jpg", "https://cdn/b.png", "https://cdn/a.jpg", "https://cdn/c.WEBP", "https://cdn/d.jpg", "https://cdn/e.jpg", "https://cdn/f.jpg"] } }),
     }, "https://ventasproia.com/");
-    expect(urls[0]).toBe("https://cdn/a.jpg");
+    expect(urls[0]).toBe("https://ventasproia.com/images/products/178.jpg");
+    expect(urls[1]).toBe("https://cdn/a.jpg");
     expect(urls).toHaveLength(5);
     expect(new Set(urls).size).toBe(5);
   });
