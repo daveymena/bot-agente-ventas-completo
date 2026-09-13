@@ -73,22 +73,7 @@ router.patch("/:id", async (req: TenantRequest, res, next) => {
   } catch (e) { return next(e); }
 });
 
-/**
- * La landing, renderizada como HTML de verdad.
- *
- * Existe porque el exportador viejo --que vivia en el frontend-- escribia la
- * MISMA caja para las once secciones, con quince lineas de CSS y sin usar
- * nunca la foto del producto. El dueno lo dijo mirandolo: "esas landings son
- * solo HTML, no tienen diseno, no adjunta la imagen ni nada".
- *
- * Se renderiza en el SERVIDOR y no en la pantalla por dos razones: el
- * renderer necesita los datos reales del producto (foto, precio, enlace de
- * pago), y el mismo HTML tiene que servir para la vista previa, para la
- * exportacion y para publicar. Tres copias del renderer serian tres diseños
- * distintos con el tiempo.
- *
- * `familia` puede venir por query para previsualizar un estilo sin guardarlo.
- */
+/** Render guardado para el editor. El mismo renderer se usa en preview y público. */
 router.get("/:id/render", async (req: TenantRequest, res, next) => {
   try {
     const tenantId = req.tenant?.id;
@@ -99,37 +84,34 @@ router.get("/:id/render", async (req: TenantRequest, res, next) => {
     const [row] = await db.select().from(landingPages).where(and(eq(landingPages.id, id), eq(landingPages.tenantId, tenantId))).limit(1);
     if (!row) return res.status(404).json({ error: "Landing no encontrada" });
 
-    // Si la landing fue generada por LandingForge, redirigir a su URL pública
     const source = row.source as any;
-    if (source?.landingforgeUrl) {
-      return res.redirect(302, source.landingforgeUrl);
-    }
+    if (source?.landingforgeUrl) return res.redirect(302, source.landingforgeUrl);
+    if (row.publishedUrl && !/\/l\//.test(String(row.publishedUrl))) return res.redirect(302, row.publishedUrl);
 
-    // Si tiene publishedUrl EXTERNA, redirigir ahí. La propia (/l/:slug) no:
-    // el editor quiere ver la versión guardada acá, con sesión.
-    if (row.publishedUrl && !/\/l\//.test(String(row.publishedUrl))) {
-      return res.redirect(302, row.publishedUrl);
-    }
-
-    // El producto se lee ACA y no se confia al cliente: la foto, el precio y
-    // el enlace de pago son datos del negocio, y una landing que muestra un
-    // precio que el cliente mando seria una landing falsificable.
     let producto: any = null;
     if (row.productId) {
       const [p] = await db.select().from(products).where(and(eq(products.id, row.productId), eq(products.tenantId, tenantId))).limit(1);
       producto = p || null;
     }
 
-    // Una copia HTML se sirve tal cual: no pasa por el renderer de secciones.
     const { htmlDeCopia } = await import("../lib/landing/clonar-html");
     const copia = htmlDeCopia(row);
     if (copia) {
       res.setHeader("Content-Type", "text/html; charset=utf-8");
       return res.send(copia);
     }
-    const { renderizarLanding } = await import("../lib/landing/renderer");
+
+    const { renderizarLanding } = await import("../lib/landing/renderer-v3");
     const { negocioParaRender } = await import("../lib/landing/negocio-para-render");
     const negocio = await negocioParaRender(tenantId, producto);
+    const modelo = producto ? (await import("../lib/modelo-de-negocio")).modeloDelProducto(producto as any) : "digital";
+    const ctx = await import("../lib/business-context").then((m) => m.getBusinessContext(tenantId)).catch(() => null);
+    const c = ctx?.condiciones ?? (await import("../lib/modelo-de-negocio")).CONDICIONES_DE_RESPALDO;
+    const cierre = modelo === "fisico"
+      ? { tipo: "contraentrega" as const, accion: `/api/landing-publica/${encodeURIComponent(row.slug)}/pedido`, pais: c.pais, pago: c.envio.pago }
+      : modelo === "digital"
+        ? { tipo: "pago" as const, mercadopago: producto ? (await enlacesDePagoLocal(tenantId, producto)).mercadopago : undefined, paypal: producto ? (await enlacesDePagoLocal(tenantId, producto)).paypal : undefined }
+        : { tipo: "whatsapp" as const };
     const html = renderizarLanding({
       nombre: row.name,
       secciones: (row.sections as any[]) || [],
@@ -137,21 +119,17 @@ router.get("/:id/render", async (req: TenantRequest, res, next) => {
       producto: producto && {
         name: producto.name, description: producto.description, imageUrl: producto.imageUrl,
         price: producto.price, currency: producto.currency, paymentLink: producto.paymentLink,
-        // El WhatsApp sale del tenant real (contactPhone), via negocioParaRender.
         whatsapp: negocio.whatsapp,
+        opciones: Array.isArray(producto.opciones) ? producto.opciones : null,
       },
       negocio,
+      cierre,
     });
     res.setHeader("Content-Type", "text/html; charset=utf-8");
     return res.send(html);
   } catch (e) { return next(e); }
 });
 
-/**
- * Publicar: la landing queda visible en /l/:slug con el dominio de la app,
- * sin login y sin hosting aparte. Esa es la URL que va en el anuncio.
- * Despublicar (`publicada: false`) la vuelve a borrador y /l/:slug da 404.
- */
 router.post("/:id/publish", async (req: TenantRequest, res, next) => {
   try {
     const tenantId = req.tenant?.id;
@@ -172,13 +150,7 @@ router.post("/:id/publish", async (req: TenantRequest, res, next) => {
   } catch (e) { return next(e); }
 });
 
-/**
- * Vista previa de algo que TODAVIA no se guardo.
- *
- * El editor cambia secciones y estilo antes de guardar; sin esto habria que
- * guardar para poder mirar, o mantener un segundo renderer en el frontend
- * --que es justo lo que se acaba de sacar--.
- */
+/** Genera HTML de vista previa sin guardar. */
 router.post("/preview", async (req: TenantRequest, res, next) => {
   try {
     const tenantId = req.tenant?.id;
@@ -191,9 +163,18 @@ router.post("/preview", async (req: TenantRequest, res, next) => {
       producto = p || null;
     }
 
-    const { renderizarLanding } = await import("../lib/landing/renderer");
+    const { renderizarLanding } = await import("../lib/landing/renderer-v3");
     const { negocioParaRender } = await import("../lib/landing/negocio-para-render");
     const negocio = await negocioParaRender(tenantId, producto);
+    const modelo = producto ? (await import("../lib/modelo-de-negocio")).modeloDelProducto(producto as any) : "digital";
+    const ctx = await import("../lib/business-context").then((m) => m.getBusinessContext(tenantId)).catch(() => null);
+    const c = ctx?.condiciones ?? (await import("../lib/modelo-de-negocio")).CONDICIONES_DE_RESPALDO;
+    const cierre = modelo === "fisico"
+      ? { tipo: "contraentrega" as const, accion: `/api/landing-publica/preview/pedido`, pais: c.pais, pago: c.envio.pago }
+      : modelo === "digital"
+        ? { tipo: "pago" as const, mercadopago: producto ? (await enlacesDePagoLocal(tenantId, producto)).mercadopago : undefined, paypal: producto ? (await enlacesDePagoLocal(tenantId, producto)).paypal : undefined }
+        : { tipo: "whatsapp" as const };
+
     const html = renderizarLanding({
       nombre: String(req.body?.name || "Vista previa"),
       secciones: Array.isArray(req.body?.sections) ? req.body.sections : [],
@@ -201,17 +182,33 @@ router.post("/preview", async (req: TenantRequest, res, next) => {
       producto: producto && {
         name: producto.name, description: producto.description, imageUrl: producto.imageUrl,
         price: producto.price, currency: producto.currency, paymentLink: producto.paymentLink,
-        // El WhatsApp sale del tenant real (contactPhone), via negocioParaRender.
         whatsapp: negocio.whatsapp,
+        opciones: Array.isArray(producto.opciones) ? producto.opciones : null,
       },
       negocio,
+      cierre,
     });
     res.setHeader("Content-Type", "text/html; charset=utf-8");
     return res.send(html);
   } catch (e) { return next(e); }
 });
 
-// Clonar una landing REAL (HTML + CSS) desde una URL. Queda en borrador, sin adaptar.
+async function enlacesDePagoLocal(tenantId: number, producto: any): Promise<{ mercadopago?: string; paypal?: string }> {
+  try {
+    const { PaymentGateway } = await import("../lib/payments");
+    const { tenantManager } = await import("../lib/tenantManager");
+    const tenant = await tenantManager.getTenantById(tenantId);
+    const pg = new PaymentGateway(tenant || undefined);
+    const links: any = await pg.getAllLinks(producto, { phone: "", name: "Landing" });
+    return {
+      mercadopago: links?.mercadopago?.shortUrl || links?.mercadopago?.url || undefined,
+      paypal: links?.paypal?.shortUrl || links?.paypal?.url || undefined,
+    };
+  } catch {
+    return {};
+  }
+}
+
 router.post("/importar-url", async (req: TenantRequest, res, next) => {
   try {
     const tenantId = req.tenant?.id;
@@ -226,7 +223,6 @@ router.post("/importar-url", async (req: TenantRequest, res, next) => {
   }
 });
 
-// Adaptar una copia HTML al producto del negocio (textos, fotos y botones).
 router.post("/:id/adaptar", async (req: TenantRequest, res, next) => {
   try {
     const tenantId = req.tenant?.id;
@@ -241,7 +237,6 @@ router.post("/:id/adaptar", async (req: TenantRequest, res, next) => {
   }
 });
 
-// Clonar: misma landing (copia) o su ESTILO para otro producto. Queda en borrador.
 router.post("/:id/clonar", async (req: TenantRequest, res, next) => {
   try {
     const tenantId = req.tenant?.id;
