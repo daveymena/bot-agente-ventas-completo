@@ -129,7 +129,7 @@ export function evaluarChat(turnos: TurnoEvaluado[], catalogo: ProductoParaEvalu
     }
 
     // ── Pide comprobante a quien nunca dijo que pagó ───────────────────────
-    if (PIDE_COMPROBANTE.test(texto) && !clienteDijoQuePago && !/\b(comprobante|pago|pague|transfer)/i.test(t.mensaje)) {
+    if (PIDE_COMPROBANTE.test(texto) && !clienteDijoQuePago && !/\b(comprobante|pago|pague|transfer|nequi|daviplata|tarjeta|paypal|efectivo|bancolombia)/i.test(t.mensaje)) {
       out.push({ turno: n, regla: "comprobante-sin-pago", detalle: "Pide el comprobante y el cliente nunca dijo que pagó" });
     }
 

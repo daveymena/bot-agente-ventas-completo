@@ -170,3 +170,14 @@ describe("13-09 evaluador sobre chats de agosto: 'no tengo ese producto' a quien
     for (const m of ["tienes saxofón?", "Deseo aprender teclado", "el renovador negro"]) expect(nombraAlgoConcreto(m), m).toBe(true);
   });
 });
+
+describe("13-09: sin producto nombrado atiende la especialidad con más productos", () => {
+  it("el router elige por tamaño del catálogo cuando la conversación no tiene agente", () => {
+    const src = readFileSync(join(__dirname, "..", "agent-router.ts"), "utf8");
+    expect(src).toMatch(/const tipo = digitales >= fisicos \? "digital" : "dropshipping";/);
+  });
+  it("'key' no nombra nada", () => {
+    expect(nombraAlgoConcreto("key")).toBe(false);
+    expect(nombraAlgoConcreto("ok")).toBe(false);
+  });
+});

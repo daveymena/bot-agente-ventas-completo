@@ -1518,6 +1518,9 @@ export function nombraOtraCosaQueElFoco(nombreEnFoco: string, text: string): boo
 export function nombraAlgoConcreto(text: string): boolean {
   // Un identificador largo ("215814204608627@lid") no es un producto.
   if (/\d{8,}/.test(text)) return false;
+  // "key" (3 letras, mensaje real de un lead) no nombra nada: hace falta una
+  // palabra de 4+ letras o un número.
+  if (!/[a-zñáéíóú]{4,}|\d/i.test(text)) return false;
   return nombraOtraCosaQueElFoco("", text);
 }
 

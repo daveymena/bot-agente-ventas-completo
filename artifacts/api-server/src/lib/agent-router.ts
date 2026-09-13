@@ -127,6 +127,28 @@ async function scoreAgents(
       // producto… lo que sí manejo es: Corrector de Postura, RUEDAS…".
       // Un cambio de agente exige un motivo duro, no una palabra suelta.
       const match = mensajeNombraProducto(messageText) ? await findBestProductMatch(messageText, catalogo as any, new Map()) : null;
+      // ── Sin producto nombrado y sin agente todavía: manda el catálogo ──
+      //
+      // "¡Hola! Quiero más información" lo atendía AtlasDrops (6 productos
+      // físicos) en un negocio con 84 cursos digitales: le preguntaba "¿hogar,
+      // tecnología o cuidado personal?" a gente que venía por un curso, y a
+      // "entrenamiento para cachorro" le decía que no manejaba adiestramiento
+      // (EDUCANINO existe). Medido con el evaluador sobre 10 chats de agosto.
+      // El agente por defecto es el de la especialidad con MÁS productos:
+      // es lo más probable que el cliente busque, y no exige configurar nada.
+      if (!match?.product) {
+        const [convoActual] = await base.select({ agentId: conversations.agentId }).from(conversations).where(eq(conversations.id, conversationId)).limit(1);
+        if (!convoActual?.agentId) {
+          const fisicos = catalogo.filter((p: any) => String(p.kind || "digital") === "physical").length;
+          const digitales = catalogo.length - fisicos;
+          const tipo = digitales >= fisicos ? "digital" : "dropshipping";
+          const porDefecto = conEspecialidad.find((a: any) => String(a.especialidad).toLowerCase() === tipo);
+          if (porDefecto) {
+            logger.info({ tenantId, agente: porDefecto.name, digitales, fisicos }, "[AgentRouter] Sin producto nombrado: atiende la especialidad con más productos");
+            return [{ agentId: porDefecto.id, agentName: porDefecto.name, score: 90, reason: `Sin producto nombrado: la especialidad con más productos (${tipo}: ${Math.max(digitales, fisicos)})` }];
+          }
+        }
+      }
       if (match?.product && match.score >= 50) {
         const tipo = String((match.product as any).kind || "digital") === "physical" ? "dropshipping" : "digital";
         const elegido = conEspecialidad.find((a: any) => String(a.especialidad).toLowerCase() === tipo);
