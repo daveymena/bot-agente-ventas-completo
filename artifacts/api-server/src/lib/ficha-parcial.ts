@@ -204,6 +204,26 @@ const PIDE_ENTREGA =
  * Ninguna de esas tres las contesto el servidor: las improviso el modelo,
  * porque el dato verificado no llego a salir.
  */
+/**
+ * Pregunta por VARIOS productos a la vez ("piano, contabilidad e idiomas
+ * juntos, ¿cuánto sería en total?"). La sección de precio de la ficha es de
+ * UN producto: mandarla ahí contesta "$60.000" a quien preguntó por tres
+ * (chat real del dueño, 12-09-2026: la suma que escribió el modelo se tiró
+ * y salió el precio del piano). Nombres del catálogo que aparezcan en el
+ * mensaje, o palabras de suma.
+ */
+export function preguntaPorVarios(mensaje: string, nombres: string[] = []): boolean {
+  const m = N(mensaje);
+  if (/\b(en\s+total|el\s+total|juntos|juntas|ambos|ambas|los\s+(dos|tres|cuatro|cinco)|las\s+(dos|tres|cuatro|cinco)|todos\s+esos|todas\s+esas)\b/.test(m)) return true;
+  const enMensaje = new Set(m.match(/[a-zñ0-9]{4,}/g) ?? []);
+  let nombrados = 0;
+  for (const n of nombres) {
+    const propias = (N(n).match(/[a-zñ0-9]{4,}/g) ?? []).filter((w) => !PALABRAS_DE_LA_PREGUNTA.has(w) && !/^(completo|online|desde|cero|nivel|avanzado|basico|pack|mega|curso|cursos)$/.test(w));
+    if (propias.length && propias.some((w) => enMensaje.has(w))) nombrados++;
+  }
+  return nombrados >= 2;
+}
+
 export function pideAlgoEntregable(mensaje: string): boolean {
   const m = N(mensaje);
   return (

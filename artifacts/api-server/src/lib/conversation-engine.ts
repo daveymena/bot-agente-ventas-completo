@@ -134,6 +134,17 @@ export interface EngineDecision {
   productoDelMensaje: { id: number; name: string; score: number } | null;
 
   /**
+   * El cliente nombró OTRA cosa, que no es el producto en foco y que el
+   * catálogo no tiene. Medido en el chat real del 12-09-2026: con el piano
+   * en foco, "¿cuánto vale el curso de Excel?" salió con el precio del
+   * piano. El modelo contestó bien ("no lo tengo") pero el servidor, al ver
+   * que pedía "precio" y no había ficha, cayó al producto en foco, forzó su
+   * sección de precio y reemplazó el "no lo tengo" por "¡Claro que sí! Mira 👇".
+   * Con esta bandera el fallback al foco NO se toma.
+   */
+  nombraOtroProducto: boolean;
+
+  /**
    * El cliente pidió explícitamente que le reenvíen la ficha ("mandámela de
    * nuevo", "no me llegó"). Sin esto, una tarjeta ya enviada no se repite:
    * se contesta solo lo que preguntó.
@@ -1471,6 +1482,40 @@ export function pidePlantillaDeCatalogo(text: string): boolean {
  * volvía a preguntarle qué buscaba. "lo quiero" y "dale ese" sí funcionaban;
  * se escapaba justo el orden con demostrativo.
  */
+/**
+ * ¿Nombró algo específico que no es el producto en foco?
+ *
+ * "¿cuánto vale el curso de Excel?" con el piano en foco: "excel" es una
+ * palabra específica y lo único que comparte con "Curso de Piano" es
+ * "curso", que es palabra de la pregunta. Nombró otra cosa.
+ * "¿cuánto vale?" / "¿y ese?" / "¿el de piano?" → false.
+ */
+export function nombraOtraCosaQueElFoco(nombreEnFoco: string, text: string): boolean {
+  // "cuánto está" no es el demostrativo "esta": se quita antes de mirar.
+  const t = quitarSaludoYCortesias(normalizeText(text)).replace(/\b(cuanto|como|donde|cuando)\s+esta\b/g, "$1");
+  if (/\b(ese|esa|eso|esos|esas|este|esta|esto|aquel|aquella)\b/.test(t)) return false;
+  const delNombre = new Set(normalizeText(nombreEnFoco).match(/[a-zñ0-9]{3,}/g) ?? []);
+  const palabras = t.match(/[a-zñ0-9]{3,}/g) ?? [];
+  let especificas = 0;
+  for (const w of palabras) {
+    if (STOP_WORDS.has(w) || GENERIC_WORDS.has(w) || GENERIC_HEADERS.has(w) || VOCABULARIO_DE_PREGUNTA.has(w)) continue;
+    // Una palabra del nombre en foco: lo está nombrando a él.
+    if (delNombre.has(w)) return false;
+    especificas++;
+  }
+  return especificas > 0;
+}
+
+/** Palabras con las que se pregunta, no con las que se nombra un producto. */
+const VOCABULARIO_DE_PREGUNTA = new Set([
+  "web", "pagina", "paginas", "sitio", "tienda", "tiendas", "catalogo", "precio", "precios",
+  "valor", "costo", "cuesta", "vale", "sale", "cobran", "cobras", "esta", "estan",
+  "pago", "pagos", "envio", "envios", "entrega", "video", "videos", "producto", "productos",
+  "info", "informacion", "saber", "dame", "pasame", "mandame", "envia", "muestrame", "cuentame",
+  "puedo", "puede", "pueden", "quisiera", "seria", "total", "suma", "ambos", "juntos", "cada",
+  "uno", "dos", "tres", "gracias", "hola", "buenas", "porfa", "favor", "aun", "todavia",
+]);
+
 function señalaAlProductoEnFoco(text: string): boolean {
   const t = normalizeText(text);
   return /\b(ese|esa|eso|esos|esas|este|esta|esto|aquel|aquella)\b/.test(t);
@@ -1937,6 +1982,7 @@ export async function computeDecision(
   // si a la IA se le ordena contestar sobre ese producto o solo ofrecerlo.
   let coincidenciaFiel = false;
   let productoDelMensaje: EngineDecision["productoDelMensaje"] = null;
+  let nombraOtroProducto = false;
 
   // "mándamela de nuevo", "no me llegó", "reenviame la ficha"
   // Sin \b al final a propósito: "reenviame", "llegó", "mandámela" siguen con
@@ -2124,6 +2170,10 @@ export async function computeDecision(
             intent !== "details_query" &&
             !mensajeNombraProducto(incomingText) &&
             !señalaAlProductoEnFoco(incomingText);
+          nombraOtroProducto = nombraOtraCosaQueElFoco(currentProduct.name, incomingText);
+          if (nombraOtroProducto) {
+            console.log(`🙅 [DECISION] El mensaje nombra algo que NO es ${currentProduct.name} ni está en el catálogo: no se contesta con el producto en foco`);
+          }
           console.log(
             `🤖 [DECISION] Producto en contexto delegado a IA: ${currentProduct?.name} (ID: ${memory.currentProductId})` +
             (mensajeSinProducto ? " — ⚠️ el mensaje NO nombra producto: no darlo por supuesto" : "")
@@ -2186,6 +2236,7 @@ export async function computeDecision(
     mensajeSinProducto,
     pidioVerCatalogo,
     productoDelMensaje,
+    nombraOtroProducto,
     pidioReenvio,
     paymentStatus: memory.paymentStatus,
     paymentMethod: memory.paymentMethod,

@@ -21,7 +21,7 @@ import { processPurchaseConfirmation } from "./payment-confirmation";
 import { proximoPaso, renderPaso, necesidadDeclarada, type Paso } from "./embudo";
 import { opcionesPendientes, preguntaPorLaOpcion } from "./opciones-del-producto";
 import { preguntasSueltas } from "./estado-cognitivo";
-import { seccionQueCorresponde, elSiContestaLaOferta, elCierreOfrece, pideAlgoEntregable, elProductoSaleDeLaPreguntaMisma, queOfrecioElBot, elVideoYaSalio, sePuedeOfrecerElVideo } from "./ficha-parcial";
+import { seccionQueCorresponde, elSiContestaLaOferta, elCierreOfrece, pideAlgoEntregable, preguntaPorVarios, elProductoSaleDeLaPreguntaMisma, queOfrecioElBot, elVideoYaSalio, sePuedeOfrecerElVideo } from "./ficha-parcial";
 import { promesasDe, promesasIncumplidas, sinLaPromesa, sinElMontoQueVaEnLaFicha, niegaLoQueSiSale, loQueEntregaLaSeccion, NOMBRE_DE_PROMESA } from "./promesas";
 import { medirEmojis } from "./emojis-con-medida";
 import { preguntaPorLoInterno, delataLoInterno, respuestaSegura, vocabularioDelNegocio } from "./nada-interno";
@@ -80,6 +80,7 @@ import {
   buildChatHistory,
   detectIntent,
   tryHardcodedAnswer,
+  isPaymentProofIntent,
   sanitizeResponse,
   detectHardcodedIntent,
   hasHardcodedAnswerBeenGiven,
@@ -3515,6 +3516,26 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
           }
         }
 
+        // ── TRES CASOS DEL CHAT REAL DEL DUEÑO (12-09-2026) ─────────────────
+        //
+        // En los tres el modelo contestó BIEN y la tarjeta lo tapó: el texto
+        // que va antes del marcador se descarta, y la sección de la tarjeta
+        // era la del producto en foco (el piano).
+        //   "¿cuánto vale el curso de Excel?"  → salió el precio del piano.
+        //   "piano, contabilidad e idiomas, ¿total?" → salió $60.000 (uno solo).
+        //   "ya te pagué, mandame el acceso"   → salieron los links de pago.
+        if (resolvedId !== -1) {
+          const nombres = (productList as any[]).map((p: any) => String(p.name || ""));
+          let motivo = "";
+          if (decision.nombraOtroProducto && resolvedId === memory.currentProductId) motivo = "nombró otra cosa que no está en el catálogo: la ficha del producto en foco no es la respuesta";
+          else if (preguntaPorVarios(String(lastText || ""), nombres)) motivo = "preguntó por varios productos: la sección de UNO no contesta la suma";
+          else if (isPaymentProofIntent(String(lastText || ""))) motivo = "dice que YA pagó: no se le mandan medios de pago";
+          if (motivo) {
+            console.log(`🛡️ [PARSER] Tarjeta ${resolvedId} descartada: ${motivo}. Se manda solo el texto - ${ts()}`);
+            resolvedId = -1;
+          }
+        }
+
         // ── NO REPETIR UNA FICHA YA ENVIADA ──────────────────────────────────
         // Si al cliente ya se le mandó la tarjeta de ESE producto, volver a
         // mandarla completa es lo que lo hace sonar a robot: repite precio,
@@ -3874,8 +3895,15 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
       // la cuenta de cobro, con la entrega y con el producto: lo que se puede
       // decidir en el servidor, se decide en el servidor. Pedirselo al modelo
       // no es una garantia.
-      if (!finalParts.some((p: any) => p.kind === "card") && pideAlgoEntregable(String(lastText || ""))) {
-        const idParaEntregar = decision.productoDelMensaje?.id ?? memory.currentProductId ?? null;
+      if (
+        !finalParts.some((p: any) => p.kind === "card") && pideAlgoEntregable(String(lastText || ""))
+        && !preguntaPorVarios(String(lastText || ""), (productList as any[]).map((p: any) => String(p.name || "")))
+        && !isPaymentProofIntent(String(lastText || ""))
+      ) {
+        // Si nombró OTRA cosa que no tenemos (Excel con el piano en foco), el
+        // producto en foco NO es la respuesta: se le mandaba su precio y se
+        // pisaba el "no lo tengo" del modelo (chat real, 12-09-2026).
+        const idParaEntregar = decision.productoDelMensaje?.id ?? (decision.nombraOtroProducto ? null : memory.currentProductId) ?? null;
         if (typeof idParaEntregar === "number") {
           const prod = (productList as any[]).find((x: any) => x.id === idParaEntregar);
           const seccionPedida = seccionQueCorresponde({
@@ -4371,6 +4399,7 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
           || elProductoSaleDeLaPreguntaMisma(String(decision.productoDelMensaje?.name || ""), String(lastText || ""))
         )
         && typeof memory.currentProductId === "number"
+        && !decision.nombraOtroProducto
       ) {
         for (const parte of finalParts as any[]) {
           if (parte.kind !== "card") continue;
