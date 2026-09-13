@@ -1192,7 +1192,12 @@ export async function loadConversationMemory(conversationId: number): Promise<Co
   // tarjeta además lleva los enlaces de pago vigentes. Se usa el mismo corte
   // de 4h que define `isNewSession`: dentro de la sesión no se repite, en una
   // visita nueva sí.
-  const VENTANA_SESION_MS = 4 * 60 * 60 * 1000;
+  // Era 4 horas: al día siguiente "¿disponible el curso de piano?" recibía
+  // la ficha ENTERA y el video otra vez (chat real del dueño, 13-09 07:11).
+  // Pedido textual: "NO vuelve a mandar toda la ficha / el video". La ficha
+  // cuenta como enviada mientras siga en el historial que se carga (30
+  // mensajes); si el cliente la pide de nuevo, `pidioReenvio` la manda igual.
+  const VENTANA_SESION_MS = 30 * 24 * 60 * 60 * 1000;
   const ultimoMensaje = history[history.length - 1]?.createdAt;
   const corteSesion = ultimoMensaje ? new Date(ultimoMensaje).getTime() - VENTANA_SESION_MS : 0;
   const enEstaSesion = (msg: { createdAt: Date }) =>

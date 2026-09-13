@@ -374,12 +374,15 @@ export function seccionQueCorresponde(e: EntradaSeccion): SeccionFicha {
  * de respaldo para el historial viejo, donde el enlace puede haber sido otro.
  */
 export function elVideoYaSalio(
-  historial: { role?: string; content?: string }[] | null | undefined,
+  historial: { role?: string; content?: string; metadata?: any }[] | null | undefined,
   urlVideo?: string | null,
 ): boolean {
   const delBot = (historial || []).filter((m) => m.role !== "customer");
   const url = String(urlVideo || "").trim();
   return delBot.some((m) => {
+    // El hecho registrado por el turno que lo mandó (ver agentMeta.videoEnviado).
+    const enMeta = String((m as any)?.metadata?.videoEnviado || "");
+    if (enMeta && (!url || enMeta === url)) return true;
     const t = String(m.content || "");
     if (url && t.includes(url)) return true;
     // Respaldo: un mensaje del bot que abre con 🎬 y lleva un enlace es un

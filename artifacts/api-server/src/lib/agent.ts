@@ -1256,6 +1256,16 @@ export async function runAgentReply(conversationId: number) {
   // El dueño (13-09-2026): "no está entendiendo un sí cuando anteriormente
   // dejó un interrogante, y reenvía la información más formateada". El modelo
   // ve el historial, pero ante un "sí" suelto volvía a presentar el producto.
+  // ── El cliente VUELVE: se retoma, no se arranca de cero ───────────────
+  // Escenario del dueño (13-09): "Hola" al día siguiente → "¡Hola! 👋
+  // ¿Seguimos con el curso de piano?" — no otra ficha, no otro video.
+  const notaDeRegreso = (() => {
+    if (!memory.isNewSession || typeof memory.currentProductId !== "number") return "";
+    const enFoco = (productList as any[]).find((p: any) => p.id === memory.currentProductId);
+    if (!enFoco) return "";
+    const yaVio = memory.sentProductIds.has(enFoco.id);
+    return `\n\n[NOTA] Este cliente ya venía hablando de "${enFoco.name}"${yaVio ? " y YA recibió su ficha y el video" : ""}. Si saluda o pregunta algo general, retomá en una línea ("¿Seguimos con ${enFoco.name}?") sin volver a presentar el producto. Si pregunta un dato puntual, contestá solo ese dato en 1-2 frases.`;
+  })();
   const notaDelSi = (() => {
     const t = String(lastText || "").trim();
     if (!/^(s[ií]+|dale|ok(ey)?|claro|listo|bueno|va|de una|perfecto|obvio|por supuesto)[\s!.👍😊🙌]*$/i.test(t)) return "";
@@ -1298,7 +1308,7 @@ CATÁLOGO DISPONIBLE:
 ${productList.length > 0 ? productsBlock : "No hay productos disponibles en este momento."}
 
 HISTORIAL RECIENTE:
-${memory.history.slice(-12).map((m: any) => `${m.role === "customer" ? "Cliente" : "Asesor"}: ${m.content}`).join("\n") || "Sin mensajes anteriores."}${notaDelSi}`;
+${memory.history.slice(-12).map((m: any) => `${m.role === "customer" ? "Cliente" : "Asesor"}: ${m.content}`).join("\n") || "Sin mensajes anteriores."}${notaDeRegreso}${notaDelSi}`;
 
   const systemPrompt = (atlasWhatsAppEnabled ? atlasSalesPrompt : activeAgent.systemPrompt || `Eres **${voice.agentName}**, ${voice.agentRole} de ${voice.businessName}.
 Estás conversando con **${nombreCorto || customerName}** en WhatsApp.
@@ -4625,6 +4635,23 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
         // la vuelve un HECHO en vez de algo a adivinar sobre un texto que
         // además puede cambiar de redacción en cualquier momento.
         ofreceLaFicha: cardCount > 0 ? ofrecimientoDeLaFicha : undefined,
+        // ── QUÉ VIDEO SALIÓ CON LA FICHA ─────────────────────────────────
+        //
+        // El video lo manda el render de la ficha, no una parte de texto, así
+        // que en el historial no quedaba rastro: `elVideoYaSalio` nunca lo
+        // encontraba y el cliente lo recibía en CADA ficha (chat real del
+        // dueño, 13-09 07:11: video dos veces en el mismo minuto). Misma
+        // condición que usa el render (whatsapp.ts): completa, o info cuando
+        // ya vio el contenido, y solo si no salió antes.
+        videoEnviado: (() => {
+          const c = (finalParts as any[]).find((p: any) => p.kind === "card");
+          if (!c) return undefined;
+          const pr = (productList as any[]).find((x: any) => x.id === c.productId);
+          const url = videoDeProductoSeguro(pr);
+          if (!url || c.videoYaEnviado) return undefined;
+          const sale = c.seccion === "completa" || c.seccion === "video" || (c.seccion === "info" && c.yaVioContenido);
+          return sale ? url : undefined;
+        })(),
       };
 
       // Se guarda lo que el cliente REALMENTE recibió, sin el marcador interno.
