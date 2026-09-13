@@ -595,6 +595,16 @@ router.get("/campaigns", async (req, res, next) => {
 });
 
 /** Conjuntos de una campaña: el presupuesto se fija acá, no en la campaña. */
+// Radiografía completa (objetivo, segmentación, ubicaciones, creativos) de una campaña.
+router.get("/campaigns/:id/radiografia", async (req, res, next) => {
+  try {
+    const { FacebookService } = await import("../lib/facebook");
+    const svc = new FacebookService((req as any).tenant || undefined);
+    const r = await svc.radiografiaDeCampana(String(req.params.id));
+    return res.json(r || { error: "No se pudo leer la campaña" });
+  } catch (e) { return next(e); }
+});
+
 router.get("/campaigns/:id/adsets", async (req, res, next) => {
   try {
     const { FacebookService } = await import("../lib/facebook");

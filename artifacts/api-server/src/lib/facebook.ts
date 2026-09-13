@@ -1384,6 +1384,108 @@ Responde SOLO con este JSON exacto:
     }
   }
 
+  /**
+   * Radiografía COMPLETA de una campaña, tal como está configurada en Meta:
+   * objetivo y estrategia de puja de la campaña; por conjunto: destino
+   * (WhatsApp / web / Messenger), objetivo de optimización, evento de cobro,
+   * presupuesto, segmentación (países, ciudades, edades, sexo, intereses,
+   * Advantage+) y ubicaciones; por anuncio: formato, texto principal, título,
+   * descripción, llamado a la acción, enlace/número de WhatsApp e imagen o
+   * video. Es lo que Atlas necesita para replicar lo que ya funciona en la
+   * cuenta en vez de inventar la configuración (pedido del dueño 13-09-2026).
+   */
+  async radiografiaDeCampana(campaignId: string): Promise<any | null> {
+    try {
+      const tok = this.config.userAccessToken;
+      const camp = await this.fbGet(campaignId, {
+        fields: "id,name,status,effective_status,objective,buying_type,bid_strategy,special_ad_categories,daily_budget,lifetime_budget,start_time,stop_time,created_time",
+      }, tok);
+      const cs = await this.fbGet(`${campaignId}/adsets`, {
+        fields: "id,name,status,effective_status,daily_budget,lifetime_budget,optimization_goal,billing_event,bid_amount,bid_strategy,destination_type,promoted_object,targeting,start_time,end_time,attribution_spec,is_dynamic_creative",
+        limit: "50",
+      }, tok);
+      const ads = await this.fbGet(`${campaignId}/ads`, {
+        fields: "id,name,status,effective_status,adset_id,creative{id,name,object_story_spec,asset_feed_spec,call_to_action_type,image_url,thumbnail_url,video_id,body,title,link_url,effective_object_story_id,url_tags,degrees_of_freedom_spec}",
+        limit: "100",
+      }, tok);
+
+      const resumirTargeting = (t: any) => {
+        if (!t || typeof t !== "object") return null;
+        const geo = t.geo_locations || {};
+        return {
+          paises: geo.countries || [],
+          ciudades: (geo.cities || []).map((c: any) => `${c.name || c.key}${c.radius ? ` +${c.radius}${c.distance_unit || "km"}` : ""}`),
+          regiones: (geo.regions || []).map((r: any) => r.name || r.key),
+          tiposDeUbicacion: geo.location_types || [],
+          edad: [t.age_min ?? null, t.age_max ?? null],
+          sexo: t.genders ? (t.genders.includes(1) && t.genders.includes(2) ? "todos" : t.genders.includes(1) ? "hombres" : "mujeres") : "todos",
+          intereses: ((t.flexible_spec || []).flatMap((f: any) => f.interests || [])).concat(t.interests || []).map((i: any) => i.name || i.id),
+          comportamientos: ((t.flexible_spec || []).flatMap((f: any) => f.behaviors || [])).map((b: any) => b.name || b.id),
+          excluidos: (t.exclusions?.interests || []).map((i: any) => i.name || i.id),
+          audienciasPersonalizadas: (t.custom_audiences || []).map((a: any) => a.name || a.id),
+          idiomas: t.locales || [],
+          ubicaciones: {
+            automaticas: !t.publisher_platforms,
+            plataformas: t.publisher_platforms || [],
+            facebook: t.facebook_positions || [],
+            instagram: t.instagram_positions || [],
+            messenger: t.messenger_positions || [],
+            audienceNetwork: t.audience_network_positions || [],
+          },
+          advantagePlus: t.targeting_automation?.advantage_audience === 1 || !!t.targeting_optimization,
+          dispositivos: t.device_platforms || [],
+        };
+      };
+      const resumirCreativo = (c: any) => {
+        if (!c) return null;
+        const oss = c.object_story_spec || {};
+        const link = oss.link_data || {};
+        const video = oss.video_data || {};
+        const afs = c.asset_feed_spec || {};
+        const cta = link.call_to_action || video.call_to_action || (afs.call_to_action_types?.[0] ? { type: afs.call_to_action_types[0] } : null);
+        const formato = video.video_id || c.video_id ? "video" : (link.child_attachments?.length ? "carrusel" : (afs.images?.length || afs.videos?.length ? "dinamico" : "imagen"));
+        return {
+          id: c.id,
+          formato,
+          textoPrincipal: link.message || video.message || afs.bodies?.[0]?.text || c.body || null,
+          titulo: link.name || video.title || afs.titles?.[0]?.text || c.title || null,
+          descripcion: link.description || afs.descriptions?.[0]?.text || null,
+          cta: cta?.type || c.call_to_action_type || null,
+          destino: cta?.value?.link || link.link || cta?.value?.app_destination || c.link_url || null,
+          whatsapp: cta?.value?.whatsapp_number || null,
+          imagen: link.picture || c.image_url || c.thumbnail_url || null,
+          videoId: video.video_id || c.video_id || null,
+          paginaId: oss.page_id || null,
+          instagramId: oss.instagram_actor_id || oss.instagram_user_id || null,
+          variantes: { textos: afs.bodies?.length || 0, titulos: afs.titles?.length || 0, imagenes: afs.images?.length || 0, videos: afs.videos?.length || 0 },
+          mejorasAutomaticas: c.degrees_of_freedom_spec?.creative_features_spec ? Object.keys(c.degrees_of_freedom_spec.creative_features_spec) : [],
+        };
+      };
+
+      return {
+        campana: {
+          id: camp.id, nombre: camp.name, estado: camp.effective_status || camp.status, objetivo: camp.objective,
+          tipoDeCompra: camp.buying_type, estrategiaDePuja: camp.bid_strategy || null, categoriasEspeciales: camp.special_ad_categories || [],
+          presupuestoDiarioCampana: camp.daily_budget ? Number(camp.daily_budget) : null, inicio: camp.start_time || null, fin: camp.stop_time || null,
+        },
+        conjuntos: (cs.data || []).map((c: any) => ({
+          id: c.id, nombre: c.name, estado: c.effective_status || c.status,
+          presupuestoDiario: c.daily_budget ? Number(c.daily_budget) : null, presupuestoTotal: c.lifetime_budget ? Number(c.lifetime_budget) : null,
+          optimizacion: c.optimization_goal, cobroPor: c.billing_event, puja: c.bid_amount ? Number(c.bid_amount) : null, estrategiaDePuja: c.bid_strategy || null,
+          destino: c.destination_type || null, objetoPromocionado: c.promoted_object || null,
+          creativoDinamico: !!c.is_dynamic_creative, inicio: c.start_time || null, fin: c.end_time || null,
+          segmentacion: resumirTargeting(c.targeting),
+          anuncios: (ads.data || []).filter((a: any) => a.adset_id === c.id).map((a: any) => ({
+            id: a.id, nombre: a.name, estado: a.effective_status || a.status, creativo: resumirCreativo(a.creative),
+          })),
+        })),
+      };
+    } catch (err: any) {
+      logger.warn({ err: err?.message, campaignId }, "[Facebook] No se pudo leer la radiografía de la campaña");
+      return null;
+    }
+  }
+
   /** Enciende o apaga UN anuncio puntual, sin tocar su conjunto ni la campaña. */
   async setAdStatus(adId: string, activo: boolean): Promise<{ ok: boolean; message?: string }> {
     try {
