@@ -952,7 +952,12 @@ export function sanitizeResponse(text: string, intent: Intent): string {
   // El markdown se limpia SIEMPRE, incluso en pago y confirmación: son
   // justamente los mensajes donde el cliente está por transferir plata, y
   // donde un "**$60.000**" mal formateado hace dudar.
-  const enFormatoWhatsapp = markdownAWhatsapp(text);
+  // Los IDs del catálogo son internos: "el Pack Contabilidad (ID 87)" le
+  // salió a un cliente el 13-09-2026. Se quitan SIEMPRE, en cualquier intent.
+  const enFormatoWhatsapp = markdownAWhatsapp(text)
+    .replace(/\s*\(\s*ID:?\s*\d+\s*\)/gi, "")
+    .replace(/\bID:?\s*\d{2,}\b/g, "")
+    .replace(/[ \t]{2,}/g, " ");
   if (intent === "payment_intent" || intent === "confirmation") return enFormatoWhatsapp;
 
   // Eliminar URLs (http/https)

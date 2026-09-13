@@ -118,3 +118,13 @@ describe("13-09: el conocimiento del producto en foco no contesta por otro", () 
     expect(src).toMatch(/const conocidas = decision\.nombraOtroProducto \? \[\] : responderPreguntas\(/);
   });
 });
+
+import { sanitizeResponse } from "../conversation-engine";
+
+describe("los IDs del catálogo no salen al cliente", () => {
+  it("(ID 87) y ID 42 se quitan", () => {
+    const t = sanitizeResponse("es el *Pack Contabilidad* (ID 87), y el de idiomas es el *Pack Idiomas* (ID: 42). Piano ID 123 igual.", "product_query" as any);
+    expect(t).not.toMatch(/ID/);
+    expect(t).toContain("*Pack Contabilidad*,");
+  });
+});
