@@ -3235,7 +3235,8 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
       const emojiComidaInvento = /🍝|🍕|🥘|🌮|🍜|🍔|🍰/.test(raw);
       const inventoPorFrase = /(te ense[ñn]a|es otro nivel|es un producto f[ií]sico|lo maneja otra persona|te paso con mi compa[ñn]ero)/i.test(raw);
       const cardReal = /\[CARD:\s*[\d\w][^\]]*\]/i.test(raw); // card con contenido (número o nombre)
-      const inventoConfirmado = emojiComidaInvento || inventoPorFrase || (decision.productSearchFailed && afirmaTenerlo(raw));
+      const noLoTenemos = decision.productSearchFailed || decision.nombraOtroProducto === true;
+      const inventoConfirmado = emojiComidaInvento || inventoPorFrase || (noLoTenemos && afirmaTenerlo(raw));
       // Para emojis de comida: la señal es tan fuerte que manda incluso con
       // un [CARD: ...] inválido delante. Solo se respeta si la card es REAL
       // (resuelve a un producto) -- pero ninguna card real acompaña a un 🍝.
@@ -3261,7 +3262,7 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
       // Se comprueba contra el catálogo, no contra una intuición: si el cliente
       // nombró algo que existe, negarlo es demostrablemente falso.
       const nombroAlgoReal = negarloSeriaMentira(String(lastText || ""), productList as any);
-      if (emojiComidaInvento || (inventoPorFrase && !cardReal) || (decision.productSearchFailed && !cardReal && afirmaTenerlo(raw))) {
+      if (emojiComidaInvento || (inventoPorFrase && !cardReal) || (noLoTenemos && !cardReal && afirmaTenerlo(raw))) {
         if (nombroAlgoReal && !emojiComidaInvento) {
           // El emoji de comida sigue mandando: esa señal es tan fuerte que
           // gana igual (ver el comentario de arriba). Lo demás, no.
@@ -3920,7 +3921,11 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
         // Si nombró OTRA cosa que no tenemos (Excel con el piano en foco), el
         // producto en foco NO es la respuesta: se le mandaba su precio y se
         // pisaba el "no lo tengo" del modelo (chat real, 12-09-2026).
-        const idParaEntregar = decision.productoDelMensaje?.id ?? (decision.nombraOtroProducto ? null : memory.currentProductId) ?? null;
+        // Y si el motor ya eligió un producto para este mensaje (productToShow:
+        // "¿cuánto vale el curso de Excel?" → EXCEL), ese va antes que el foco.
+        // Medido en producción el 13-09: productToShow=EXCEL y salió el precio
+        // del PIANO, porque acá solo se miraba productoDelMensaje.
+        const idParaEntregar = decision.productoDelMensaje?.id ?? decision.productToShow?.id ?? (decision.nombraOtroProducto ? null : memory.currentProductId) ?? null;
         if (typeof idParaEntregar === "number") {
           const prod = (productList as any[]).find((x: any) => x.id === idParaEntregar);
           const seccionPedida = seccionQueCorresponde({
@@ -4509,7 +4514,13 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
           );
           // Si al sacar la promesa no queda nada, mejor una pregunta honesta
           // que un mensaje mocho: el turno tiene que seguir la conversacion.
-          parte.content = limpio || "¿Qué te gustaría saber puntualmente? 🙌";
+          // Si el cliente nombró algo que NO tenemos y el texto quedó vacío,
+          // la pregunta genérica lo deja peor: le preguntó por el Renovador y
+          // recibió "¿qué te gustaría saber?" (medido 13-09). Se le dice la verdad.
+          parte.content = limpio
+            || (decision.nombraOtroProducto
+              ? "Ese producto no lo tengo en el catálogo 😕 Si querés, te cuento qué sí manejo o me decís qué buscás y te oriento."
+              : "¿Qué te gustaría saber puntualmente? 🙌");
         }
       }
 

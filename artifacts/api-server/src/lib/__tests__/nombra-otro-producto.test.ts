@@ -33,7 +33,7 @@ describe("nombraOtraCosaQueElFoco", () => {
 describe("agent.ts no cae al producto en foco si nombró otro", () => {
   const src = readFileSync(join(__dirname, "..", "agent.ts"), "utf8");
   it("la sección forzada respeta nombraOtroProducto", () => {
-    expect(src).toMatch(/decision\.productoDelMensaje\?\.id \?\? \(decision\.nombraOtroProducto \? null : memory\.currentProductId\)/);
+    expect(src).toMatch(/decision\.productoDelMensaje\?\.id \?\? decision\.productToShow\?\.id \?\? \(decision\.nombraOtroProducto \? null : memory\.currentProductId\)/);
   });
   it("la corrección de tarjeta al foco también", () => {
     expect(src).toMatch(/&& !decision\.nombraOtroProducto\n\s*\) \{/);
@@ -96,5 +96,18 @@ describe("la suma de los que pidió juntos es un monto real", () => {
     expect(s.has(180000)).toBe(true);
     expect(s.has(94900)).toBe(true);
     expect(s.has(85000)).toBe(false);
+  });
+});
+
+describe("13-09: lo medido en producción con el diagnóstico", () => {
+  const src = readFileSync(join(__dirname, "..", "agent.ts"), "utf8");
+  it("la sección forzada prefiere productToShow (EXCEL) antes que el foco (piano)", () => {
+    expect(src).toMatch(/decision\.productoDelMensaje\?\.id \?\? decision\.productToShow\?\.id \?\? \(decision\.nombraOtroProducto \? null : memory\.currentProductId\)/);
+  });
+  it("nombrar algo que no tenemos cuenta como búsqueda fallida para el candado de invento", () => {
+    expect(src).toMatch(/const noLoTenemos = decision\.productSearchFailed \|\| decision\.nombraOtroProducto === true;/);
+  });
+  it("si el texto queda vacío y nombró otra cosa, se le dice que no está", () => {
+    expect(src).toMatch(/Ese producto no lo tengo en el catálogo/);
   });
 });
