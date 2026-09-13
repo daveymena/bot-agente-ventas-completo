@@ -1569,6 +1569,7 @@ const VOCABULARIO_DE_PREGUNTA = new Set([
   "metodologia", "contenido", "temario", "requisitos", "beneficios", "ventajas", "detalles", "caracteristicas",
   // "¿con qué viene?" contaba "viene" como otro producto (13-09).
   "viene", "vienen", "exactamente", "grabado", "grabadas", "vivo", "puntualmente", "realmente",
+  "cuantas", "cuantos", "cuanta", "cuales", "trae", "traen",
 ]);
 
 function señalaAlProductoEnFoco(text: string): boolean {

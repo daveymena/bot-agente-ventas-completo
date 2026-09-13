@@ -82,6 +82,7 @@ import {
   tryHardcodedAnswer,
   isPaymentProofIntent,
   nombraAlgoConcreto,
+  preguntaSobreLoQueSeHabla,
   sanitizeResponse,
   detectHardcodedIntent,
   hasHardcodedAnswerBeenGiven,
@@ -2479,7 +2480,14 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
       // campo. Exigir dos pruebas para un hecho que ya está probado es perder
       // el caso bueno por cuidar el malo.
       const nombrados = productosNombrados(String(lastText || ""), productList as any);
+      // "y ESO me sirve si no sé nada de programación?" nombra "programación"
+      // (PACK PROGRAMACIÓN) pero pregunta por el producto en foco (el "eso").
+      // Una pregunta sobre lo que se viene hablando se contesta con eso
+      // (medido 13-09: "te digo si PACK PROGRAMACIÓN te sirve" con IA en foco).
+      const preguntaPorElFoco = typeof memory.currentProductId === "number"
+        && (preguntaSobreLoQueSeHabla(String(lastText || "")) || /\b(eso|ese|esa|este|esta)\b/i.test(String(lastText || "")));
       const productoConRespaldo =
+        (preguntaPorElFoco ? productList.find((p: any) => p.id === memory.currentProductId) ?? null : null) ??
         (nombrados.length > 0
           ? productList.find((p: any) => p.name === nombrados[0]) ?? null
           : null) ??
@@ -3569,7 +3577,7 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
         // (115) en foco salió con la ficha de CURSOS DISEÑO GRÁFICO (121),
         // un producto casi gemelo que el modelo eligió por su cuenta (13-09).
         const noNombraProducto = esAfirmacionSuelta(String(lastText || ""))
-          || (!decision.productoDelMensaje?.id && !nombraAlgoConcreto(String(lastText || "")));
+          || (!decision.productoDelMensaje?.id && (!nombraAlgoConcreto(String(lastText || "")) || preguntaSobreLoQueSeHabla(String(lastText || ""))));
         if (resolvedId !== -1 && noNombraProducto && typeof memory.currentProductId === "number"
             && validIds.has(memory.currentProductId) && resolvedId !== memory.currentProductId) {
           console.log(`🔧 [PARSER] "${String(lastText).trim()}" no nombra producto: la ficha es la del foco (${memory.currentProductId}), no la ${resolvedId} que escribió el modelo - ${ts()}`);
