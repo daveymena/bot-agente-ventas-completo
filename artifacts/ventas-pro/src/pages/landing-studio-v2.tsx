@@ -9,7 +9,7 @@ import { Sparkles, Send, User, Loader2, Monitor, Smartphone, Download, RefreshCw
 import ReactMarkdown from "react-markdown";
 
 type Product = { id: number; name: string; description?: string; price?: string; currency?: string };
-type Landing = { id: number; name: string; productId?: number | null; design?: any; sections?: any[]; strategy?: any; status?: string; publishedUrl?: string | null };
+type Landing = { id: number; name: string; productId?: number | null; design?: any; sections?: any[]; strategy?: any; status?: string; publishedUrl?: string | null; source?: any };
 type Msg = { role: "user" | "assistant"; content: string; loading?: boolean };
 /**
  * Las familias visuales, tal como las conoce el renderer.
@@ -263,6 +263,51 @@ Cualquier cambio que me pidas se ve ahí al instante.` }]);
     } catch (e: any) { toast.error(`No se pudo clonar: ${e.message}`); }
   }, [landingId, clonarProducto, cargarPreview]);
 
+  // Clonar una landing REAL desde una URL (HTML + CSS), y adaptarla al producto.
+  const [urlAbierto, setUrlAbierto] = useState(false);
+  const [urlClonar, setUrlClonar] = useState("");
+  const [adaptando, setAdaptando] = useState(false);
+  const esCopiaHtml = (l?: Landing | null) => !!(l as any)?.source && (l as any).source.tipo === "html";
+  const landingActual = landings.find(x => x.id === landingId) || null;
+
+  const clonarDesdeUrl = useCallback(async () => {
+    const url = urlClonar.trim();
+    if (!/^https?:\/\//i.test(url)) { toast.error("Pegá una URL completa (https://…)."); return; }
+    setUrlAbierto(false);
+    setMsgs(m => [...m, { role: "user", content: `Clonar: ${url}` }, { role: "assistant", content: "Descargando el HTML y el CSS…", loading: true }]);
+    try {
+      const r = await apiFetch<any>(`/api/landing-pages/importar-url`, { method: "POST", body: JSON.stringify({ url, productId: productId || null }) });
+      const nueva = r.landing;
+      setLandings(ls => [nueva, ...ls]);
+      setUrlPublica(null);
+      setLandingId(nueva.id);
+      await cargarPreview(nueva.id);
+      setMsgs(m => [...m.filter(x => !(x as any).loading), { role: "assistant", content:
+        `**Copia lista** (${r.hojas} hojas de estilo embebidas, ${r.imagenes} imágenes).\n\n` +
+        `⚠️ Todavía tiene los textos, fotos y marca del sitio original. Elegí tu producto arriba y presioná **Adaptar al producto** para que quede tuya.` +
+        (r.advertencias?.length ? `\n\n${r.advertencias.map((a: string) => `• ${a}`).join("\n")}` : "") }]);
+    } catch (e: any) {
+      setMsgs(m => [...m.filter(x => !(x as any).loading), { role: "assistant", content: `No pude clonar esa URL: ${e.message}` }]);
+    }
+  }, [urlClonar, productId, cargarPreview]);
+
+  const adaptar = useCallback(async () => {
+    if (!landingId) return;
+    if (!productId) { toast.info("Elegí el producto al que adaptarla."); return; }
+    setAdaptando(true);
+    setMsgs(m => [...m, { role: "assistant", content: "Reescribiendo textos, cambiando fotos y botones…", loading: true }]);
+    try {
+      const r = await apiFetch<any>(`/api/landing-pages/${landingId}/adaptar`, { method: "POST", body: JSON.stringify({ productId }) });
+      await cargarPreview(landingId);
+      setLandings(ls => ls.map(l => l.id === landingId ? { ...l, productId: Number(productId), source: { ...((l as any).source || {}), adaptada: true } } as any : l));
+      setMsgs(m => [...m.filter(x => !(x as any).loading), { role: "assistant", content:
+        `**Adaptada a tu producto:** ${r.reemplazos} textos reescritos, ${r.imagenes} imágenes reemplazadas, botones apuntando a tu WhatsApp.` +
+        (r.advertencias?.length ? `\n\n${r.advertencias.map((a: string) => `• ${a}`).join("\n")}` : "") + `\n\nRevisala y, si te gusta, **Publicar**.` }]);
+    } catch (e: any) {
+      setMsgs(m => [...m.filter(x => !(x as any).loading), { role: "assistant", content: `No pude adaptarla: ${e.message}` }]);
+    } finally { setAdaptando(false); }
+  }, [landingId, productId, cargarPreview]);
+
   // Eliminar: irreversible, con confirmación.
   const eliminar = useCallback(async () => {
     if (!landingId) return;
@@ -332,6 +377,29 @@ Cualquier cambio que me pidas se ve ahí al instante.` }]);
                 Publicar
               </Button>
             )}
+            {esCopiaHtml(landingActual) && (
+              <Button size="sm" onClick={adaptar} disabled={adaptando || !productId} className="h-8 px-3 text-xs bg-violet-600 hover:bg-violet-700 text-white"
+                title="Reescribir textos, fotos y botones para el producto elegido">
+                {adaptando ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : <Wand2 className="h-3.5 w-3.5 mr-1" />}Adaptar al producto
+              </Button>
+            )}
+            <div className="relative">
+              <Button size="sm" variant="ghost" onClick={() => setUrlAbierto(v => !v)} className="h-8 px-2 text-xs"
+                title="Clonar una landing real de internet (HTML + CSS)">
+                <ExternalLink className="h-3.5 w-3.5 mr-1" />Desde URL
+              </Button>
+              {urlAbierto && (
+                <div className="absolute right-0 top-9 z-20 w-80 rounded-md border bg-background p-3 shadow-lg space-y-2">
+                  <p className="text-xs font-semibold">Clonar una landing real</p>
+                  <p className="text-[11px] text-muted-foreground">Pegá la URL. Se copia el HTML y el CSS tal cual; después la adaptás a tu producto (textos, fotos y botones).</p>
+                  <Input value={urlClonar} onChange={e => setUrlClonar(e.target.value)} placeholder="https://…" className="h-8 text-xs" />
+                  <div className="flex gap-1 justify-end">
+                    <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => setUrlAbierto(false)}>Cancelar</Button>
+                    <Button size="sm" className="h-7 text-xs" onClick={clonarDesdeUrl}>Clonar</Button>
+                  </div>
+                </div>
+              )}
+            </div>
             <div className="relative">
               <Button size="sm" variant="ghost" onClick={() => setClonarAbierto(v => !v)} disabled={!landingId} className="h-8 px-2 text-xs"
                 title="Clonar: copia exacta, o el estilo para otro producto">

@@ -120,6 +120,13 @@ router.get("/:id/render", async (req: TenantRequest, res, next) => {
       producto = p || null;
     }
 
+    // Una copia HTML se sirve tal cual: no pasa por el renderer de secciones.
+    const { htmlDeCopia } = await import("../lib/landing/clonar-html");
+    const copia = htmlDeCopia(row);
+    if (copia) {
+      res.setHeader("Content-Type", "text/html; charset=utf-8");
+      return res.send(copia);
+    }
     const { renderizarLanding } = await import("../lib/landing/renderer");
     const { negocioParaRender } = await import("../lib/landing/negocio-para-render");
     const negocio = await negocioParaRender(tenantId, producto);
@@ -202,6 +209,36 @@ router.post("/preview", async (req: TenantRequest, res, next) => {
     res.setHeader("Content-Type", "text/html; charset=utf-8");
     return res.send(html);
   } catch (e) { return next(e); }
+});
+
+// Clonar una landing REAL (HTML + CSS) desde una URL. Queda en borrador, sin adaptar.
+router.post("/importar-url", async (req: TenantRequest, res, next) => {
+  try {
+    const tenantId = req.tenant?.id;
+    if (!tenantId) return sendError(res, ERROR_CODES.UNAUTHORIZED);
+    const url = String(req.body?.url || "").trim();
+    if (!url) return res.status(400).json({ error: "Falta 'url'." });
+    const { importarLandingDesdeUrl } = await import("../lib/landing/clonar-html");
+    const r = await importarLandingDesdeUrl({ tenantId, url, productId: req.body?.productId ?? null, nombre: req.body?.nombre ?? null });
+    return res.status(201).json({ ok: true, landing: r.landing, hojas: r.hojas, imagenes: r.imagenes, advertencias: r.advertencias });
+  } catch (e: any) {
+    return res.status(400).json({ error: e?.message || "No se pudo clonar la URL." });
+  }
+});
+
+// Adaptar una copia HTML al producto del negocio (textos, fotos y botones).
+router.post("/:id/adaptar", async (req: TenantRequest, res, next) => {
+  try {
+    const tenantId = req.tenant?.id;
+    if (!tenantId) return sendError(res, ERROR_CODES.UNAUTHORIZED);
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) return sendError(res, ERROR_CODES.VALIDATION_INVALID_DATA);
+    const { adaptarLandingHtml } = await import("../lib/landing/clonar-html");
+    const r = await adaptarLandingHtml({ tenantId, landingId: id, productId: req.body?.productId ?? null });
+    return res.json({ ok: true, ...r });
+  } catch (e: any) {
+    return res.status(400).json({ error: e?.message || "No se pudo adaptar." });
+  }
 });
 
 // Clonar: misma landing (copia) o su ESTILO para otro producto. Queda en borrador.

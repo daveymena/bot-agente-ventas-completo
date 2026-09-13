@@ -4250,6 +4250,56 @@ Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vincu
     },
   },
   {
+    name: "landing_clonar_url",
+    description:
+      "Clona una landing REAL de internet: descarga el HTML y el CSS de la URL, embebe los estilos, pasa las imágenes y enlaces a absolutos y " +
+      "quita scripts y formularios ajenos. Queda como borrador SIN adaptar (con textos, fotos y marca del sitio original). " +
+      "Después hay que llamar landing_adaptar para que quede con el producto del negocio. ⚠️ Cambia el sistema: va por propose_action.",
+    args: '{ "url": string (req), "productId"?: number, "nombre"?: string }',
+    run: async (args, ctx) => {
+      const url = String(args?.url || "").trim();
+      if (!url) return { ok: false, summary: "Falta 'url'." };
+      const { importarLandingDesdeUrl } = await import("./landing/clonar-html");
+      try {
+        const r = await importarLandingDesdeUrl({ tenantId: ctx.tenantId, url, productId: num(args?.productId) || null, nombre: args?.nombre ? String(args.nombre) : null });
+        return {
+          ok: true,
+          summary: `Copia creada en borrador: [${r.landing.id}] ${r.landing.name} (${r.hojas} hojas de estilo embebidas, ${r.imagenes} imágenes). ` +
+            `Todavía tiene los textos y fotos del sitio original: adaptala con landing_adaptar {id: ${r.landing.id}, productId}.` +
+            (r.advertencias.length ? ` Avisos: ${r.advertencias.join(" ")}` : ""),
+          data: { id: r.landing.id, nombre: r.landing.name },
+        };
+      } catch (e: any) {
+        return { ok: false, summary: `No se pudo clonar: ${e?.message || e}` };
+      }
+    },
+  },
+  {
+    name: "landing_adaptar",
+    description:
+      "Adapta una copia HTML (hecha con landing_clonar_url) al producto del negocio: reescribe los textos visibles para ese producto con sus " +
+      "datos reales (sin inventar), reemplaza las imágenes por las fotos del producto y apunta botones y formularios al WhatsApp del negocio " +
+      "(o a la página del producto). ⚠️ Cambia el sistema: va por propose_action.",
+    args: '{ "id": number (req, la copia), "productId": number (req) }',
+    run: async (args, ctx) => {
+      const id = num(args?.id ?? args?.landingId ?? args?.landing);
+      const productId = num(args?.productId);
+      if (!id || !productId) return { ok: false, summary: "Faltan 'id' de la copia y 'productId'." };
+      const { adaptarLandingHtml } = await import("./landing/clonar-html");
+      try {
+        const r = await adaptarLandingHtml({ tenantId: ctx.tenantId, landingId: id, productId });
+        return {
+          ok: true,
+          summary: `Adaptada: ${r.reemplazos} textos reescritos, ${r.imagenes} imágenes reemplazadas por las del producto, botones al cierre del negocio.` +
+            (r.advertencias.length ? ` Avisos: ${r.advertencias.join(" ")}` : ""),
+          data: r,
+        };
+      } catch (e: any) {
+        return { ok: false, summary: `No se pudo adaptar: ${e?.message || e}` };
+      }
+    },
+  },
+  {
     name: "landing_eliminar",
     description: "Elimina una landing page del negocio (si estaba publicada, su URL deja de existir). ⚠️ Irreversible: va por propose_action.",
     args: '{ "id": number (req) }',

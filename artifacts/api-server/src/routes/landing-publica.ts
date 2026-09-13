@@ -69,6 +69,15 @@ landingPublicaRouter.get("/l/:slug", async (req: Request, res: Response) => {
     const { row, producto } = encontrada;
     const tenantId = row.tenantId;
 
+    // Copia HTML de una URL: se sirve tal cual.
+    const { htmlDeCopia } = await import("../lib/landing/clonar-html");
+    const copia = htmlDeCopia(row);
+    if (copia) {
+      res.setHeader("Content-Type", "text/html; charset=utf-8");
+      res.setHeader("Cache-Control", "public, max-age=60");
+      return res.send(copia);
+    }
+
     const { renderizarLanding } = await import("../lib/landing/renderer");
     const { negocioParaRender } = await import("../lib/landing/negocio-para-render");
     const negocio = await negocioParaRender(tenantId, producto);
