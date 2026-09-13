@@ -1182,11 +1182,24 @@ export async function runAgentReply(conversationId: number) {
     const MAX_CATALOG = 100;
     let catalogSlice = productList;
     if (productList.length > MAX_CATALOG) {
-      const focusProduct = focusId ? productList.find(p => p.id === focusId) : null;
-      catalogSlice = productList.slice(0, MAX_CATALOG);
-      if (focusProduct && !catalogSlice.find(p => p.id === focusProduct.id)) {
-        catalogSlice[MAX_CATALOG - 1] = focusProduct;
-      }
+      // Con más de 100, los que el cliente NOMBRÓ en este mensaje van
+      // primero: EXCEL (id 118) existía, activo, y el modelo contestó "de
+      // Excel no manejamos curso" porque quedó fuera de los 100 primeros
+      // (chat real, 12-09-2026). El servidor lo tenía identificado
+      // (productoDelMensaje) y no se lo estaba mostrando.
+      const palabras = new Set(String(lastText || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").match(/[a-zñ0-9]{4,}/g) ?? []);
+      const nombrado = (p: any) => (String(p.name || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").match(/[a-zñ0-9]{4,}/g) ?? []).some((w) => palabras.has(w) && !/^(curso|cursos|pack|mega|megapack|completo|online|para|desde|hasta|nivel|todo|todos|combo)$/.test(w));
+      const prioritarios: any[] = [];
+      const meter = (id: number | null | undefined) => {
+        if (typeof id !== "number") return;
+        const p = productList.find((x) => x.id === id);
+        if (p && !prioritarios.includes(p)) prioritarios.push(p);
+      };
+      meter(focusId);
+      meter(decision.productoDelMensaje?.id);
+      meter(decision.productToShow?.id);
+      for (const p of productList) if (prioritarios.length < 12 && !prioritarios.includes(p) && nombrado(p)) prioritarios.push(p);
+      catalogSlice = [...prioritarios, ...productList.filter((p) => !prioritarios.includes(p))].slice(0, MAX_CATALOG);
     }
 
     const compact = catalogSlice.map(p => {
