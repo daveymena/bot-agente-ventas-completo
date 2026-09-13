@@ -4122,6 +4122,36 @@ Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vincu
     },
   },
   {
+    name: "agente_probar_chat",
+    description:
+      "PRUEBA REAL del vendedor de WhatsApp de este negocio: reproduce una conversación (los mensajes del cliente, en orden) contra el " +
+      "agente real y devuelve, por turno, lo que el cliente RECIBIRÍA (texto y tarjetas de ficha/precio/pago), lo que escribió el modelo " +
+      "y los HALLAZGOS automáticos (ficha equivocada, precio de otro producto, niega un producto que existe, cobra a quien ya pagó, " +
+      "respuesta genérica, silencio, cambio de agente sin motivo…). Lectura pura: crea una conversación de prueba, no le escribe a nadie. " +
+      "Usala ANTES de decir cómo responde el agente y DESPUÉS de cada cambio (conocimiento, perfil, prompt) para verificar que hizo caso. " +
+      "Podés pasar `conversationId` de una conversación real para repetir exactamente lo que ese cliente escribió.",
+    args: '{ "turnos"?: string[] (mensajes del cliente en orden), "conversationId"?: number (o reproducir una conversación real) }',
+    run: async (args, ctx) => {
+      const turnos: string[] = Array.isArray(args?.turnos) ? args.turnos.map((t: any) => String(t || "")).filter(Boolean) : [];
+      const conversationId = num(args?.conversationId) || undefined;
+      if (turnos.length === 0 && !conversationId) return { ok: false, summary: "Pasame 'turnos' (los mensajes del cliente) o 'conversationId'." };
+      const { reproducirYEvaluar } = await import("./evaluador-de-chats");
+      const r = await reproducirYEvaluar(ctx.tenantId, turnos, { conversationId, maxTurnos: 12 });
+      const lineas = r.turnos.map((t, i) => {
+        const tarjetas = t.tarjetas.map((c) => `[ficha ${c.productId}${c.seccion ? ` · ${c.seccion}` : ""}]`).join(" ");
+        return `${i + 1}. Cliente: "${t.mensaje}"\n   Recibe: ${[t.texto, tarjetas].filter(Boolean).join(" ") || "(nada)"}`;
+      });
+      const hallazgos = r.hallazgos.length
+        ? r.hallazgos.map((h) => `turno ${h.turno} · ${h.regla}: ${h.detalle}`).join("\n")
+        : "Sin hallazgos: la conversación quedó limpia.";
+      return {
+        ok: true,
+        summary: `Reproducida (conversación de prueba #${r.conversationId}, ${r.turnos.length} turnos).\n${lineas.join("\n")}\n\nHALLAZGOS:\n${hallazgos}`,
+        data: { conversationId: r.conversationId, turnos: r.turnos, hallazgos: r.hallazgos },
+      };
+    },
+  },
+  {
     name: "landing_listar",
     description: "Lista las landing pages del negocio: id, nombre, producto, estado (borrador/publicada) y la URL pública si está publicada. Lectura pura.",
     args: "{}",
@@ -6415,6 +6445,8 @@ export const READ_ONLY_TOOLS = new Set([
   "fb_list_adsets",
   // Dropi de solo lectura: consultar el catálogo del proveedor no crea nada.
   "dropi_status", "dropi_search_products", "woocommerce_estado", "producto_ficha_desde_imagenes_ver", "landing_listar",
+  // Probar al vendedor crea una conversación de PRUEBA y no le escribe a nadie: es lectura.
+  "agente_probar_chat",
   // Terabox: listar carpetas es lectura pura, no cambia nada.
   //
   // terabox_create_share_link NO va acá, aunque estuvo un rato. Se justificaba
@@ -6741,6 +6773,7 @@ PRINCIPIOS OBLIGATORIOS:
 5.7. "ACTIVÁ EL ANUNCIO / LA CAMPAÑA" = fb_make_campaign_deliver, UNA SOLA VEZ. No encadenes fb_why_not_delivering + fb_set_ad_status + confirmaciones sueltas: esa herramienta ya diagnostica sola y enciende lo mínimo necesario (si hay un anuncio apagado en un conjunto que ya corre, lo enciende sin sumar presupuesto). Solo necesitás el id de la CAMPAÑA. NUNCA escribas un id de conjunto o de anuncio que no hayas leído de una herramienta en este mismo mensaje: si no lo tenés, pedí la campaña y dejá que la herramienta encuentre el resto. Un id inventado hace fallar la acción después de que el admin ya confirmó, que es la peor forma de fallar.
 5.5. LEER NO SE PIDE PERMISO. Nunca preguntes "¿confirmás que reviso?" ni "¿querés que consulte?": las herramientas de lectura no cambian nada, no gastan un peso y no se deshacen. Corrélas y CONTESTÁ CON EL RESULTADO. El admin te pidió algo, no te pidió un presupuesto de trabajo. Pedir confirmación se reserva EXCLUSIVAMENTE para lo que cambia algo real (crear, editar, borrar, publicar, gastar, enviar) -- eso va por propose_action y ahí sí espera su "sí".
 5.6. SI TE PIDEN UNA ACCIÓN, HACÉ EL CAMINO COMPLETO EN EL MISMO TURNO. Ejemplo real: ante "activá el anuncio del piano" NO contestes "te propongo diagnosticar primero, ¿confirmás?". Encadenalo vos: buscá la campaña, revisá por qué no entrega (lectura, sin preguntar), identificá el anuncio apagado y recién ahí proponé el ÚNICO cambio real que hace falta, ya con el id concreto y diciendo cuánto va a gastar por día. Una sola confirmación, sobre la acción de verdad.
+5.8. PARA ENTRENAR AL VENDEDOR DE WHATSAPP, MEDÍ, NO OPINES. El ciclo es siempre el mismo: (1) reproducí el caso con agente_probar_chat (los mensajes del cliente en orden, o el conversationId real) y leé lo que el cliente RECIBIRÍA y los HALLAZGOS; (2) si hay algo mal, corregí la CAUSA con la herramienta que corresponde: un dato del negocio o del producto → agente_perfil_negocio / update_product; una regla o un dato que el vendedor debe saber o no puede decir → agente_conocimiento; identidad, tono o instrucciones → update_agent (todas pasan por confirmación del admin); (3) volvé a correr agente_probar_chat con los MISMOS mensajes y mostrá el antes/después. Nunca digas "no puedo simular un chat": sí podés. Nunca afirmes que el agente "ya responde bien" sin haberlo reproducido en este turno. Esto vale para cualquier negocio de la plataforma, no solo para uno.
 5.4. SI ALGO NO FUNCIONA, DIAGNOSTICALO VOS. Ante un "esto no anda", "por qué no responde" o "algo está roto", llamá system_diagnose: prueba cada conexión de verdad (Facebook, WhatsApp, IA, cobros) y devuelve qué falla, por qué y cómo se arregla. No le pidas al admin que averigüe él lo que vos podés ver.
 6. LARGO Y ORDEN (el admin lee en el celular; medido el 11-09-2026: respuestas de 40 líneas con la acción al final, tres avisos repetidos y dos preguntas de cierre):
    a) La PRIMERA línea es la respuesta o la acción. Nunca arranques con "Revisé tu sistema y…", "Antes de nada…" ni con el resumen de lo que hiciste.

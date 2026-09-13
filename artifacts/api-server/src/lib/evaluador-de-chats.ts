@@ -148,3 +148,74 @@ export function evaluarChat(turnos: TurnoEvaluado[], catalogo: ProductoParaEvalu
   });
   return out;
 }
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * REPRODUCIR Y EVALUAR
+ *
+ * Corre los turnos del cliente por el vendedor real (runAgentReply) en una
+ * conversación nueva del negocio y devuelve, por turno, lo que el cliente
+ * RECIBIRÍA (texto + tarjetas), lo que escribió el modelo y los hallazgos.
+ * Es lo que usa `POST /api/whatsapp/evaluar-chat` y la herramienta de Atlas
+ * `agente_probar_chat`: la misma vara para el admin y para el operador.
+ * ──────────────────────────────────────────────────────────────────────────── */
+export interface TurnoReproducido extends TurnoEvaluado {
+  crudo: string | null;
+  ms: number;
+}
+
+export async function reproducirYEvaluar(
+  tenantId: number,
+  turnos: string[],
+  opts: { conversationId?: number; maxTurnos?: number } = {},
+): Promise<{ conversationId: number; turnos: TurnoReproducido[]; hallazgos: Hallazgo[] }> {
+  const { db, conversations, messages, products } = await import("@workspace/db");
+  const { and, eq } = await import("drizzle-orm");
+  const { addTenantToInsert } = await import("./tenantManager");
+  const { runAgentReply } = await import("./agent");
+
+  let lista = turnos.map((t) => String(t || "")).filter(Boolean);
+  if (lista.length === 0 && opts.conversationId) {
+    const filas = await db.select().from(messages).where(eq(messages.conversationId, opts.conversationId)).orderBy(messages.createdAt);
+    lista = filas.filter((m: any) => m.role === "customer").map((m: any) => String(m.content || "")).filter(Boolean);
+  }
+  lista = lista.slice(0, opts.maxTurnos ?? 25);
+  if (lista.length === 0) throw new Error("No hay turnos del cliente para reproducir");
+
+  // Teléfono con pinta colombiana: sin país el motor trata al cliente como extranjero.
+  const telefono = `573009${String(Date.now()).slice(-6)}`;
+  const [convo] = await db.insert(conversations).values(addTenantToInsert({
+    contactName: "Evaluación", contactPhone: telefono, status: "ai", currentStage: "greeting",
+  }, tenantId)).returning();
+  const catalogo = await db.select({ id: products.id, name: products.name, price: products.price, kind: products.kind })
+    .from(products).where(and(eq(products.tenantId, tenantId), eq(products.isActive, true)));
+
+  const evaluados: TurnoReproducido[] = [];
+  for (const mensaje of lista) {
+    await db.insert(messages).values({ conversationId: convo.id, role: "customer", content: mensaje });
+    const log: string[] = [];
+    const logOriginal = console.log;
+    console.log = (...a: any[]) => {
+      try { const t = a.map((x) => (typeof x === "string" ? x : JSON.stringify(x))).join(" "); if (/\[[A-Z][A-Z-]{1,20}\]/.test(t) && log.length < 120) log.push(t.slice(0, 500)); } catch { /* nada */ }
+      logOriginal(...a);
+    };
+    const t0 = Date.now();
+    let reply: any = null;
+    try { reply = await runAgentReply(convo.id); } catch (e: any) { log.push(`[ERROR] ${e?.message}`); } finally { console.log = logOriginal; }
+    const partes: any[] = reply?.parts || [];
+    const idDelMensaje = (() => {
+      const l = log.find((x) => /\[DECISION\] Producto identificado para la IA: .* \(ID (\d+)/.test(x));
+      const m = l?.match(/\(ID (\d+)/); return m ? Number(m[1]) : null;
+    })();
+    evaluados.push({
+      mensaje,
+      ms: Date.now() - t0,
+      texto: partes.filter((p) => p.kind === "text").map((p) => String(p.content || "")).join("\n\n"),
+      tarjetas: partes.filter((p) => p.kind === "card").map((p) => ({ productId: p.productId, seccion: p.seccion ?? null })),
+      agente: log.find((l) => l.includes("[AGENT-INFO] Agente activo:"))?.split("Agente activo:")[1]?.split(" - ")[0]?.trim() || null,
+      productoDelMensajeId: idDelMensaje,
+      nombraOtroProducto: log.some((l) => l.includes("[DECISION] El mensaje nombra algo que NO es")),
+      crudo: log.find((l) => l.includes("[AI-CRUDO]"))?.replace(/^.*\[AI-CRUDO\] /, "") || null,
+    });
+  }
+  return { conversationId: convo.id, turnos: evaluados, hallazgos: evaluarChat(evaluados, catalogo as any) };
+}

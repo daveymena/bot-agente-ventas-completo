@@ -136,6 +136,14 @@ const TOOL_SCHEMAS: Record<string, object> = {
   },
   list_categories: { type: "object", properties: {}, additionalProperties: false },
   get_agent: { type: "object", properties: {}, additionalProperties: false },
+  agente_probar_chat: {
+    type: "object",
+    properties: {
+      turnos: { type: "array", items: { type: "string" }, description: "Mensajes del cliente, en orden" },
+      conversationId: { type: "number", description: "O una conversación real para repetir lo que ese cliente escribió" },
+    },
+    additionalProperties: false,
+  },
   get_settings: { type: "object", properties: {}, additionalProperties: false },
   get_store: { type: "object", properties: {}, additionalProperties: false },
   payment_status: { type: "object", properties: {}, additionalProperties: false },
@@ -1090,6 +1098,11 @@ const GRUPOS: { patron: RegExp; herramientas: string[] }[] = [
     herramientas: ["whatsapp_status", "list_recent_conversations", "predict_customer"],
   },
   {
+    // Entrenar / corregir / probar al vendedor: la prueba real va con el agente.
+    patron: /vendedor|\bagente\b|\bbot\b|entren|prob[aá]|corr[ie]g|c[oó]mo (responde|contesta)|responde mal|contesta mal/i,
+    herramientas: ["agente_probar_chat", "get_agent"],
+  },
+  {
     // "busc"/"búsqueda" y "competidor" faltaban: pedirle literalmente que
     // buscara algo no matcheaba este grupo. Ver el comentario del NÚCLEO.
     patron: /investig|averigu|indag|research|busc|b[uú]squeda|tendencia|competencia|competidor|mercado|benchmark|qu[eé] funciona/i,
@@ -1398,7 +1411,7 @@ export function buildMcpToolRegistry(pedido?: string): McpToolDef[] {
 const FAMILIAS_DE_CONSULTA: Array<{ tema: string; herramientas: string[] }> = [
   { tema: "Catalogo y tienda", herramientas: ["list_products", "list_categories", "get_store", "search_product_images", "optimize_price", "optimize_copy"] },
   { tema: "Ventas y clientes", herramientas: ["dashboard_summary", "list_recent_conversations", "list_pending_transfers", "list_duplicate_contacts", "predict_customer", "analyze_channel_performance"] },
-  { tema: "WhatsApp y agente", herramientas: ["whatsapp_status", "get_agent", "configurar_mi_agente", "get_settings", "agente_inspectar", "agente_configurar", "agente_perfil_negocio", "agente_conocimiento", "agente_mensaje"] },
+  { tema: "WhatsApp y agente", herramientas: ["whatsapp_status", "get_agent", "configurar_mi_agente", "get_settings", "agente_inspectar", "agente_configurar", "agente_perfil_negocio", "agente_conocimiento", "agente_mensaje", "agente_probar_chat"] },
   { tema: "Facebook Ads", herramientas: ["fb_status", "fb_list_campaigns", "fb_list_adsets", "fb_list_drafts", "fb_campaign_metrics", "fb_why_not_delivering", "fb_page_can_post", "fb_page_preview", "fb_suggest_audience", "fb_pixel_status", "fb_ad_library", "fb_agent_logs", "que_hago_con_la_campana", "ad_brief"] },
   { tema: "Marketing y contenido", herramientas: ["marketing_diagnostico", "marketing_aprendizajes", "marketing_attribution", "plan_de_contenido", "generate_image", "web_scrape_images"] },
   { tema: "Investigacion en internet", herramientas: ["web_search", "web_fetch", "deep_research", "research_start", "research_check"] },
