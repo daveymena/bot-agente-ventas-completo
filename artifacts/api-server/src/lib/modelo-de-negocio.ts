@@ -143,6 +143,26 @@ export function esColombia(pais: string | null | undefined): boolean {
   return !p || p === "co" || p === "col" || p === "colombia";
 }
 
+/**
+ * Código ISO-2 del país del negocio, para Meta y para la moneda. Sin país
+ * cargado, Colombia (el negocio original). Pedido del dueño (13-09-2026):
+ * un cliente de otro país no puede quedar atado a publicar solo en Colombia.
+ */
+export function codigoDePais(pais: string | null | undefined): string {
+  const p = N(pais);
+  if (!p) return "CO";
+  const MAPA: Record<string, string> = {
+    colombia: "CO", co: "CO", col: "CO", mexico: "MX", mx: "MX", peru: "PE", pe: "PE", chile: "CL", cl: "CL",
+    argentina: "AR", ar: "AR", ecuador: "EC", ec: "EC", espana: "ES", es: "ES", "estados unidos": "US", usa: "US", us: "US", eeuu: "US",
+    venezuela: "VE", ve: "VE", bolivia: "BO", bo: "BO", uruguay: "UY", uy: "UY", paraguay: "PY", py: "PY", guatemala: "GT", gt: "GT",
+    "costa rica": "CR", cr: "CR", panama: "PA", pa: "PA", "republica dominicana": "DO", do: "DO", honduras: "HN", hn: "HN",
+    "el salvador": "SV", sv: "SV", nicaragua: "NI", ni: "NI", brasil: "BR", br: "BR", "puerto rico": "PR", pr: "PR", canada: "CA", ca: "CA",
+  };
+  if (MAPA[p]) return MAPA[p];
+  if (/^[a-z]{2}$/.test(p)) return p.toUpperCase();
+  return "CO";
+}
+
 const PAGO_VALIDO = new Set<PagoDeEnvio>(["contraentrega", "anticipado", "ambos"]);
 
 /**

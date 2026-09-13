@@ -137,6 +137,7 @@ const TOOL_SCHEMAS: Record<string, object> = {
   list_categories: { type: "object", properties: {}, additionalProperties: false },
   get_agent: { type: "object", properties: {}, additionalProperties: false },
   fb_radiografia_campana: { type: "object", properties: { campaignId: { type: "string" } }, additionalProperties: false },
+  anuncio_datos_expertos: { type: "object", properties: { productId: { type: "number" }, objetivo: { type: "string" } }, required: ["productId"], additionalProperties: false },
   agente_probar_chat: {
     type: "object",
     properties: {
@@ -1064,7 +1065,7 @@ const GRUPOS: { patron: RegExp; herramientas: string[] }[] = [
     // viajan siempre. Eso cubre el caso que reportó el admin en su momento,
     // cuando un pedido de anuncio moría con "todavía no investigaste nada".
     patron: /facebook|anuncio|campa|meta|ads?\b|publicit|p[uú]blico|audiencia|creativ/i,
-    herramientas: ["fb_status", "fb_pixel_status", "fb_suggest_audience", "fb_list_drafts", "fb_page_can_post", "fb_page_preview"],
+    herramientas: ["fb_status", "fb_pixel_status", "fb_suggest_audience", "fb_list_drafts", "fb_page_can_post", "fb_page_preview", "anuncio_datos_expertos"],
   },
   {
     // ── Anuncios: VER LA PROPUESTA ANTES DE GASTAR ───────────────────────
@@ -1084,7 +1085,7 @@ const GRUPOS: { patron: RegExp; herramientas: string[] }[] = [
     // Acá viaja solo cuando de verdad se está pidiendo ver algo antes de
     // gastar: "mostrame la estrategia", "qué propondrías", "antes de invertir".
     patron: /propuesta|propon|estrategia|[aá]ngulo|antes de (gastar|invertir|pagar|publicar|crear)|mostr[aá](me)?|ense[ñn][aá](me)?|c[oó]mo lo ver[ií]as|qu[eé] har[ií]as/i,
-    herramientas: ["propuesta_campana", "list_products"],
+    herramientas: ["propuesta_campana", "list_products", "anuncio_datos_expertos"],
   },
   {
     // ── Anuncios: ANALIZAR ───────────────────────────────────────────────

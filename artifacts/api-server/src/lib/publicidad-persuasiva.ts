@@ -155,6 +155,15 @@ Aprendé paso a paso y avanzá a tu ritmo, desde cero.
 `.trim();
 
 export const FORMATO_ANUNCIO = `
+CÓMO SE ESCRIBE EL TEXTO PRINCIPAL (así son los anuncios que ya convirtieron en la cuenta):
+- Línea 1: gancho con emoji (pregunta o problema real del cliente). Línea en blanco.
+- 1-2 líneas que agitan el problema o describen el deseo. Línea en blanco.
+- "✨ ¡Buenas noticias!" o equivalente: la solución en una línea. Línea en blanco.
+- 3-5 beneficios, UNO por línea, cada uno con su emoji y un beneficio concreto sacado de la ficha (no características sueltas).
+- Precio exacto y cómo llega en una línea (📲/♾️): "Acceso de por vida, pago único de $60.000 COP" o "Envío a todo Colombia, pagás al recibir".
+- Cierre con UNA acción (📲 Escríbenos por WhatsApp / Pedir ahora). 8-12 líneas en total.
+- Nada genérico: cada frase sale del producto, del cliente o de un dato real. Si no tenés el dato, no lo inventes.
+
 Entregá el anuncio así:
 🎯 ÁNGULO — en una línea, qué enfoque tomaste y por qué.
 🔥 GANCHO — la frase de apertura.

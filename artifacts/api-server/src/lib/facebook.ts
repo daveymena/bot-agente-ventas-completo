@@ -824,10 +824,20 @@ Responde SOLO con este JSON exacto:
       try {
 
       // Construir targeting desde parámetros o usar defaults
+      // El país por defecto es el del NEGOCIO (perfil), no Colombia fijo: un
+      // cliente de México publica en México (pedido del dueño 13-09-2026).
+      let paisDelNegocio = "CO";
+      try {
+        const { getBusinessContext } = await import("./business-context");
+        const { codigoDePais } = await import("./modelo-de-negocio");
+        const tid = Number((this.tenant as any)?.id);
+        const ctxNeg = Number.isFinite(tid) ? await getBusinessContext(tid).catch(() => null) : null;
+        paisDelNegocio = codigoDePais(ctxNeg?.condiciones?.pais || null);
+      } catch { paisDelNegocio = "CO"; }
       const fbTargeting: Record<string, any> = {
         geo_locations: targeting?.geoLocations?.countries
           ? { countries: targeting.geoLocations.countries }
-          : { countries: ["CO"] },
+          : { countries: [paisDelNegocio] },
         age_min: targeting?.ageMin || 18,
         age_max: targeting?.ageMax || 65,
       };
@@ -1126,7 +1136,7 @@ Responde SOLO con este JSON exacto:
           const presuCj = cj.presupuestoDiario ? await this.presupuestoDiarioParaMeta(cj.presupuestoDiario) : presu;
           if (!presuCj.ok) { logger.warn({ conjunto: cj.nombre }, "[Facebook] presupuesto del conjunto extra inválido: se salta"); continue; }
           const targetingCj: Record<string, any> = {
-            geo_locations: { countries: cj.paises?.length ? cj.paises : ["CO"], ...(cj.tiposDeUbicacion?.length ? { location_types: cj.tiposDeUbicacion } : {}) },
+            geo_locations: { countries: cj.paises?.length ? cj.paises : [paisDelNegocio], ...(cj.tiposDeUbicacion?.length ? { location_types: cj.tiposDeUbicacion } : {}) },
             age_min: cj.edadMin || fbTargeting.age_min || 18,
             age_max: cj.edadMax || fbTargeting.age_max || 65,
             targeting_automation: { advantage_audience: cj.advantagePlus === false ? 0 : 1 },
