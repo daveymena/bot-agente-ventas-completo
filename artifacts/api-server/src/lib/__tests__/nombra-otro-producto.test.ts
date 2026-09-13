@@ -128,3 +128,20 @@ describe("los IDs del catálogo no salen al cliente", () => {
     expect(t).toContain("*Pack Contabilidad*,");
   });
 });
+
+import { mensajeNombraProducto } from "../conversation-engine";
+
+describe("lead de Instagram 12-09 21:19: 'Para mi' no cambia de agente ni inventa", () => {
+  it("'Para mi' / 'Listo' no nombran producto: el router no los mira", () => {
+    for (const m of ["Para mi", "Listo", "si", "para mí"]) expect(mensajeNombraProducto(m), m).toBe(false);
+    expect(mensajeNombraProducto("me interesa la rodillera")).toBe(true);
+  });
+  it("el router solo enruta por producto si el mensaje lo nombra", () => {
+    const src = readFileSync(join(__dirname, "..", "agent-router.ts"), "utf8");
+    expect(src).toMatch(/mensajeNombraProducto\(messageText\) \? await findBestProductMatch\(/);
+  });
+  it("'te enseña' con un producto real en foco no es un invento", () => {
+    const src = readFileSync(join(__dirname, "..", "agent.ts"), "utf8");
+    expect(src).toMatch(/const inventoPorFrase = !hayProductoRealEnJuego\n\s*&& \//);
+  });
+});

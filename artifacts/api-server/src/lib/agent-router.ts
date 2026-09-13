@@ -118,10 +118,15 @@ async function scoreAgents(
   if (conEspecialidad.length > 0) {
     try {
       const { db: base, products } = await import("@workspace/db");
-      const { findBestProductMatch } = await import("./conversation-engine");
+      const { findBestProductMatch, mensajeNombraProducto } = await import("./conversation-engine");
       const catalogo = await base.select().from(products)
         .where(and(eq(products.isActive, true), eq(products.tenantId, tenantId))).limit(200);
-      const match = await findBestProductMatch(messageText, catalogo as any, new Map());
+      // Solo si el mensaje NOMBRA un producto. "Para mi" (lead de Instagram
+      // del piano, 12-09-2026 21:19) casó con "RUEDAS PARA MUEBLES", pasó la
+      // conversación a AtlasDrops y el cliente recibió "no tengo ese
+      // producto… lo que sí manejo es: Corrector de Postura, RUEDAS…".
+      // Un cambio de agente exige un motivo duro, no una palabra suelta.
+      const match = mensajeNombraProducto(messageText) ? await findBestProductMatch(messageText, catalogo as any, new Map()) : null;
       if (match?.product && match.score >= 50) {
         const tipo = String((match.product as any).kind || "digital") === "physical" ? "dropshipping" : "digital";
         const elegido = conEspecialidad.find((a: any) => String(a.especialidad).toLowerCase() === tipo);

@@ -3233,7 +3233,14 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
       // inválido]", eso NO es una card real: el parser la rechaza y al
       // cliente le llega el invento sin ficha.
       const emojiComidaInvento = /🍝|🍕|🥘|🌮|🍜|🍔|🍰/.test(raw);
-      const inventoPorFrase = /(te ense[ñn]a|es otro nivel|es un producto f[ií]sico|lo maneja otra persona|te paso con mi compa[ñn]ero)/i.test(raw);
+      // Estas frases delatan un producto inventado SOLO si no hay ninguno
+      // real en juego: "te enseña desde cero" hablando del piano en foco es
+      // una descripción legítima, no un invento. Con un producto en foco y
+      // sin que el cliente haya nombrado otra cosa, no se toca.
+      const hayProductoRealEnJuego = !decision.nombraOtroProducto
+        && (typeof memory.currentProductId === "number" || !!decision.productToShow || !!decision.productoDelMensaje);
+      const inventoPorFrase = !hayProductoRealEnJuego
+        && /(te ense[ñn]a|es otro nivel|es un producto f[ií]sico|lo maneja otra persona|te paso con mi compa[ñn]ero)/i.test(raw);
       const cardReal = /\[CARD:\s*[\d\w][^\]]*\]/i.test(raw); // card con contenido (número o nombre)
       const noLoTenemos = decision.productSearchFailed || decision.nombraOtroProducto === true;
       const inventoConfirmado = emojiComidaInvento || inventoPorFrase || (noLoTenemos && afirmaTenerlo(raw));

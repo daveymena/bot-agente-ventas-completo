@@ -309,7 +309,7 @@ const GENERIC_WORDS = new Set([
   "cual", "cuál", "transfiere",
   "quiero", "necesito", "funciona", "clases", "lecciones", "modulos",
   "comprar", "adquirir", "pago", "pagar", "link", "enlace", "nequi",
-  "daviplata", "transferencia", "dale", "vamos", "adelante",
+  "daviplata", "transferencia", "dale", "vamos", "adelante", "listo", "ohh",
   "horas", "video", "hora", "cómo", "como", "están", "estan",
   "estado", "estas", "estás", "información", "informacion", "info",
   "detalles", "más", "mas", "saber", "conocer", "ver",
