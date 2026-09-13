@@ -1,20 +1,11 @@
 /**
- * La landing PÚBLICA: la URL que va en el anuncio.
+ * Landing pública: la URL que va en el anuncio.
  *
- * Hasta hoy la única forma de ver una landing era `/api/landing-pages/:id/render`
- * con sesión de admin: no existía una URL que un cliente pudiera abrir ni que
- * Facebook pudiera tomar como destino (12-09-2026). Acá vive:
+ * GET  /l/:slug
+ * POST /api/landing-publica/:slug/pedido
  *
- *   GET  /l/:slug                      la página, sin login, con el dominio de la app
- *   POST /api/landing-publica/:slug/pedido   el formulario contraentrega (físico)
- *
- * Y el cierre según el modelo del producto (ver modelo-de-negocio.ts):
- *   · físico  → formulario contraentrega (datos de envío → pedido → WooCommerce
- *               → Dropi, igual que el bot) o WhatsApp
- *   · digital → MercadoPago / PayPal (los mismos enlaces que la tienda) o WhatsApp
- *
- * El pedido del formulario se crea CONFIRMADO: mandar el formulario ES el "sí"
- * explícito. Y se le avisa al dueño por WhatsApp, como con los comprobantes.
+ * La página pública usa el renderer V3. El cierre físico sigue el camino
+ * real de pedidos del negocio: pedido -> validación -> WooCommerce.
  */
 import { Router, type Request, type Response } from "express";
 import { and, eq } from "drizzle-orm";
@@ -27,7 +18,6 @@ import { getAppUrl } from "../lib/app-url";
 
 export const landingPublicaRouter = Router();
 
-/** La landing publicada con ese slug, y su producto y negocio. */
 async function landingPorSlug(slug: string) {
   const [row] = await db.select().from(landingPages).where(eq(landingPages.slug, slug)).limit(1);
   if (!row || row.status !== "published") return null;
@@ -37,15 +27,10 @@ async function landingPorSlug(slug: string) {
   return { row, producto: producto || null };
 }
 
-/** URL pública de una landing, con el dominio de la app. */
 export function urlPublicaDe(slug: string): string {
   return `${getAppUrl().replace(/\/+$/, "")}/l/${encodeURIComponent(slug)}`;
 }
 
-/**
- * Los enlaces de cobro de un DIGITAL, los mismos que usa la tienda y el bot.
- * Sin teléfono: el comprador todavía no escribió a nadie.
- */
 async function enlacesDePago(tenantId: number, producto: any): Promise<{ mercadopago?: string; paypal?: string }> {
   try {
     const { PaymentGateway } = await import("../lib/payments");
@@ -69,7 +54,6 @@ landingPublicaRouter.get("/l/:slug", async (req: Request, res: Response) => {
     const { row, producto } = encontrada;
     const tenantId = row.tenantId;
 
-    // Copia HTML de una URL: se sirve tal cual.
     const { htmlDeCopia } = await import("../lib/landing/clonar-html");
     const copia = htmlDeCopia(row);
     if (copia) {
@@ -78,7 +62,7 @@ landingPublicaRouter.get("/l/:slug", async (req: Request, res: Response) => {
       return res.send(copia);
     }
 
-    const { renderizarLanding } = await import("../lib/landing/renderer");
+    const { renderizarLanding } = await import("../lib/landing/renderer-v3");
     const { negocioParaRender } = await import("../lib/landing/negocio-para-render");
     const negocio = await negocioParaRender(tenantId, producto);
     const modelo = producto ? modeloDelProducto(producto as any) : "digital";
@@ -96,9 +80,14 @@ landingPublicaRouter.get("/l/:slug", async (req: Request, res: Response) => {
       secciones: (row.sections as any[]) || [],
       familia: (row.design as any)?.familia ?? null,
       producto: producto && {
-        name: producto.name, description: producto.description, imageUrl: producto.imageUrl,
-        price: producto.price, currency: producto.currency, paymentLink: producto.paymentLink,
+        name: producto.name,
+        description: producto.description,
+        imageUrl: producto.imageUrl,
+        price: producto.price,
+        currency: producto.currency,
+        paymentLink: producto.paymentLink,
         whatsapp: negocio.whatsapp,
+        opciones: Array.isArray((producto as any).opciones) ? (producto as any).opciones : null,
       },
       negocio,
       cierre,
@@ -112,10 +101,6 @@ landingPublicaRouter.get("/l/:slug", async (req: Request, res: Response) => {
   }
 });
 
-/**
- * El formulario contraentrega. Mismo camino que el pedido por WhatsApp:
- * abrirPedido → guardarDatos → confirmado → despacharPedido (WooCommerce).
- */
 landingPublicaRouter.post("/api/landing-publica/:slug/pedido", async (req: Request, res: Response) => {
   try {
     const encontrada = await landingPorSlug(String(req.params.slug || ""));
@@ -126,14 +111,33 @@ landingPublicaRouter.post("/api/landing-publica/:slug/pedido", async (req: Reque
     const b = req.body || {};
     const limpio = (v: unknown, max = 120) => String(v ?? "").replace(/\s+/g, " ").trim().slice(0, max);
     const datos = {
-      nombre: limpio(b.nombre), telefono: limpio(b.telefono, 20).replace(/\D/g, ""), documento: limpio(b.documento, 20).replace(/\D/g, ""),
-      direccion: limpio(b.direccion, 160), barrio: limpio(b.barrio, 60), ciudad: limpio(b.ciudad, 60), departamento: limpio(b.departamento, 60),
+      nombre: limpio(b.nombre),
+      telefono: limpio(b.telefono, 20).replace(/\D/g, ""),
+      documento: limpio(b.documento, 20).replace(/\D/g, ""),
+      direccion: limpio(b.direccion, 160),
+      barrio: limpio(b.barrio, 60),
+      ciudad: limpio(b.ciudad, 60),
+      departamento: limpio(b.departamento, 60),
       notas: limpio(b.referencia, 120),
     };
     const faltan = (["nombre", "telefono", "documento", "direccion", "ciudad", "departamento"] as const).filter((k) => !datos[k]);
     if (faltan.length) return res.status(400).json({ ok: false, error: `Faltan: ${faltan.join(", ")}` });
     if (datos.telefono.length < 10) return res.status(400).json({ ok: false, error: "El celular no parece válido" });
     if (datos.documento.length < 6) return res.status(400).json({ ok: false, error: "El documento no parece válido" });
+
+    const opcionesDefinidas = Array.isArray((producto as any).opciones) ? (producto as any).opciones : [];
+    const opciones: Record<string, string> = {};
+    for (const o of opcionesDefinidas) {
+      const nombre = limpio(o?.nombre, 60);
+      if (!nombre) continue;
+      const raw = limpio(b[`opcion_${nombre}`], 80);
+      if (o?.obligatoria && !raw) return res.status(400).json({ ok: false, error: `Seleccioná ${nombre}` });
+      if (raw) {
+        const permitidos = Array.isArray(o?.valores) ? o.valores.map((x: unknown) => limpio(x, 80)) : [];
+        if (permitidos.length && !permitidos.includes(raw)) return res.status(400).json({ ok: false, error: `Valor no válido para ${nombre}` });
+        opciones[nombre] = raw;
+      }
+    }
 
     const ds = await import("../lib/dropshipping");
     const ctx = await getBusinessContext(row.tenantId).catch(() => null);
@@ -142,19 +146,23 @@ landingPublicaRouter.post("/api/landing-publica/:slug/pedido", async (req: Reque
     if (!zona.ok) return res.status(400).json({ ok: false, error: `Revisá la ciudad y el departamento: ${zona.motivo}` });
 
     const cantidad = Math.max(1, Math.min(10, Number(b.cantidad) || 1));
+    const detalleOpciones = Object.entries(opciones).map(([k, v]) => `${k}: ${v}`).join(" · ");
     let pedido = await ds.abrirPedido({
-      tenantId: row.tenantId, conversationId: null, productId: producto.id, productName: producto.name,
-      unitPrice: Number(producto.price) || 0, quantity: cantidad, telefono: datos.telefono,
+      tenantId: row.tenantId,
+      conversationId: null,
+      productId: producto.id,
+      productName: producto.name,
+      unitPrice: Number(producto.price) || 0,
+      quantity: cantidad,
+      telefono: datos.telefono,
       metodoPago: c.envio.pago === "anticipado" ? "transferencia" : "contraentrega",
     });
-    pedido = (await ds.guardarDatos(pedido.id, { ...datos, notas: `${datos.notas ? datos.notas + " · " : ""}Pedido desde la landing ${row.slug}` })) || pedido;
-    // Mandar el formulario ES la confirmación explícita.
+    const notas = [detalleOpciones, datos.notas, `Pedido desde la landing ${row.slug}`].filter(Boolean).join(" · ");
+    pedido = (await ds.guardarDatos(pedido.id, { ...datos, notas })) || pedido;
     await ds.marcarEstado(pedido.id, "confirmado");
     pedido.estado = "confirmado";
     const r = await ds.despacharPedido(pedido);
 
-    // Aviso al dueño por WhatsApp, como con los comprobantes: un pedido que
-    // entra y nadie ve es un envío que sale tarde.
     try {
       const { telefonoDelAdmin } = await import("../lib/verificacion-pago");
       const { getWhatsAppForTenant } = await import("../lib/whatsapp-factory");
@@ -164,6 +172,7 @@ landingPublicaRouter.post("/api/landing-publica/:slug/pedido", async (req: Reque
         const texto = [
           `🛒 *Pedido nuevo desde la landing* (${row.name})`,
           `📦 ${producto.name} × ${cantidad} · $${Number(producto.price || 0).toLocaleString("es-CO")}`,
+          detalleOpciones ? `🎨 ${detalleOpciones}` : "",
           `👤 ${datos.nombre} · 📱 ${datos.telefono} · 🪪 ${datos.documento}`,
           `🏠 ${datos.direccion}${datos.barrio ? `, ${datos.barrio}` : ""} — ${datos.ciudad}, ${datos.departamento}`,
           datos.notas ? `📍 ${datos.notas}` : "",
