@@ -2120,7 +2120,14 @@ export async function computeDecision(
     // foco. "¿cómo pago?" y "¿qué incluye?" siguen sin moverlo, que era el
     // punto original.
     const preguntaSobreElFoco = preguntaComoPagar || preguntaDeDetalleSobreFoco;
-    const match = preguntaSobreElFoco && !encontrado?.fiel ? null : encontrado;
+    // "y eso me sirve si no sé nada de programación?" casa PACK PROGRAMACIÓN
+    // de forma FIEL (la palabra está en el nombre) y aun así no es un cambio
+    // de producto: es una pregunta sobre el que está en foco (medido 13-09).
+    const preguntaSobreElFocoConTodasLasLetras =
+      !!memory.currentProductId && (preguntaSobreLoQueSeHabla(incomingText) || señalaAlProductoEnFoco(incomingText));
+    const match = preguntaSobreElFocoConTodasLasLetras
+      ? null
+      : (preguntaSobreElFoco && !encontrado?.fiel ? null : encontrado);
 
     // Razonamiento de búsqueda (para inyectar en el prompt)
     searchReasoning = match?.reasoning || null;

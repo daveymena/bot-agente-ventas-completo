@@ -3564,7 +3564,13 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
         // Excel → precio → "si" → el modelo escribió [CARD: 119] (inglés) y
         // salió la ficha de inglés (medido 13-09-2026). Si el cliente no nombró
         // nada, la tarjeta es la del producto del que se viene hablando.
-        if (resolvedId !== -1 && esAfirmacionSuelta(String(lastText || "")) && typeof memory.currentProductId === "number"
+        // Lo mismo vale para cualquier mensaje que NO nombre un producto:
+        // "¿qué incluye exactamente? ¿cuántas clases…?" con DISEÑO GRÁFICO
+        // (115) en foco salió con la ficha de CURSOS DISEÑO GRÁFICO (121),
+        // un producto casi gemelo que el modelo eligió por su cuenta (13-09).
+        const noNombraProducto = esAfirmacionSuelta(String(lastText || ""))
+          || (!decision.productoDelMensaje?.id && !nombraAlgoConcreto(String(lastText || "")));
+        if (resolvedId !== -1 && noNombraProducto && typeof memory.currentProductId === "number"
             && validIds.has(memory.currentProductId) && resolvedId !== memory.currentProductId) {
           console.log(`🔧 [PARSER] "${String(lastText).trim()}" no nombra producto: la ficha es la del foco (${memory.currentProductId}), no la ${resolvedId} que escribió el modelo - ${ts()}`);
           resolvedId = memory.currentProductId;
