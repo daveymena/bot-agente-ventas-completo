@@ -221,7 +221,8 @@ export async function adaptarHtmlAlProducto(opts: {
     const candidatas = [dominio, dominio.charAt(0).toUpperCase() + dominio.slice(1)].filter((x) => x && x.length >= 4);
     for (const marca of candidatas) {
       const re = new RegExp(`(?<![a-z0-9/._-])${marca.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![a-z0-9._-])`, "g");
-      html = html.replace(/>([^<]*)</g, (m, t) => (re.test(t) ? `>${t.replace(re, marcaNegocio)}<` : m));
+      // Sin `re.test` previo: con /g arrastra lastIndex y salta coincidencias.
+      html = html.replace(/>([^<]*)</g, (_m, t) => `>${String(t).replace(re, marcaNegocio)}<`);
     }
     // Título de la página: el producto y el negocio.
     html = html.replace(/<title[^>]*>[\s\S]*?<\/title>/i, `<title>${String(p?.name || "").replace(/</g, "")} | ${marcaNegocio.replace(/</g, "")}</title>`);
