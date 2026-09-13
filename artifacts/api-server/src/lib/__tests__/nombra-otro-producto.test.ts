@@ -223,3 +223,9 @@ describe("13-09 13:14 chat real: preguntas sobre el producto en foco no cambian 
     expect(nombraOtraCosaQueElFoco("INTELIGENCIA ARTIFICIAL 2026", "oye y manejan cursos de diseño grafico?")).toBe(true);
   });
 });
+
+describe("'¿con qué viene?' es sobre el foco", () => {
+  it("no nombra otra cosa", () => {
+    expect(nombraOtraCosaQueElFoco("Curso de Piano Completo", "Con que viene?")).toBe(false);
+  });
+});

@@ -1500,7 +1500,7 @@ export function pidePlantillaDeCatalogo(text: string): boolean {
  * también son nombres ("programación", "digital", "certificado").
  */
 const PREGUNTA_SOBRE_LO_QUE_SE_HABLA =
-  /\b(me sirve|sirve (si|para|aunque)|no se nada|necesito saber|es grabado|grabado o en vivo|en vivo|dan certificado|certificad[oa]|cuant[ao]s? (clases|horas|modulos|videos|lecciones)|que incluye|que trae|incluye exactamente|es digital|es fisico|cuanto dura|como funciona|como se usa|para principiantes|desde cero|tiene garantia|es para (mi|niños|ninos|adultos))\b/;
+  /\b(con que viene|que viene|que contiene|me sirve|sirve (si|para|aunque)|no se nada|necesito saber|es grabado|grabado o en vivo|en vivo|dan certificado|certificad[oa]|cuant[ao]s? (clases|horas|modulos|videos|lecciones)|que incluye|que trae|incluye exactamente|es digital|es fisico|cuanto dura|como funciona|como se usa|para principiantes|desde cero|tiene garantia|es para (mi|niños|ninos|adultos))\b/;
 export function preguntaSobreLoQueSeHabla(text: string): boolean {
   return PREGUNTA_SOBRE_LO_QUE_SE_HABLA.test(normalizeText(text));
 }
@@ -1567,6 +1567,8 @@ const VOCABULARIO_DE_PREGUNTA = new Set([
   "despues", "manana", "hoy", "listo", "dale", "bueno", "vale", "okey", "claro", "perfecto", "genial",
   "donde", "cuando", "cuales", "quien", "quienes", "porque", "para", "sobre", "esto", "aquello",
   "metodologia", "contenido", "temario", "requisitos", "beneficios", "ventajas", "detalles", "caracteristicas",
+  // "¿con qué viene?" contaba "viene" como otro producto (13-09).
+  "viene", "vienen", "exactamente", "grabado", "grabadas", "vivo", "puntualmente", "realmente",
 ]);
 
 function señalaAlProductoEnFoco(text: string): boolean {
