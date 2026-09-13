@@ -21,7 +21,7 @@ import { processPurchaseConfirmation } from "./payment-confirmation";
 import { proximoPaso, renderPaso, necesidadDeclarada, type Paso } from "./embudo";
 import { opcionesPendientes, preguntaPorLaOpcion } from "./opciones-del-producto";
 import { preguntasSueltas } from "./estado-cognitivo";
-import { seccionQueCorresponde, elSiContestaLaOferta, elCierreOfrece, pideAlgoEntregable, preguntaPorVarios, elProductoSaleDeLaPreguntaMisma, queOfrecioElBot, elVideoYaSalio, sePuedeOfrecerElVideo } from "./ficha-parcial";
+import { seccionQueCorresponde, elSiContestaLaOferta, elCierreOfrece, pideAlgoEntregable, preguntaPorVarios, esAfirmacionSuelta, elProductoSaleDeLaPreguntaMisma, queOfrecioElBot, elVideoYaSalio, sePuedeOfrecerElVideo } from "./ficha-parcial";
 import { promesasDe, promesasIncumplidas, sinLaPromesa, sinElMontoQueVaEnLaFicha, niegaLoQueSiSale, loQueEntregaLaSeccion, NOMBRE_DE_PROMESA } from "./promesas";
 import { medirEmojis } from "./emojis-con-medida";
 import { preguntaPorLoInterno, delataLoInterno, respuestaSegura, vocabularioDelNegocio } from "./nada-interno";
@@ -3548,6 +3548,16 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
             console.log(`🔧 [PARSER] El modelo trajo "${elegido?.name ?? resolvedId}" y el cliente nombró "${correcto?.name ?? delServidor}": se corrige la ficha - ${ts()}`);
             resolvedId = delServidor;
           }
+        }
+
+        // ── UN "SÍ" SUELTO ES SOBRE EL PRODUCTO EN FOCO ──────────────────────
+        // Excel → precio → "si" → el modelo escribió [CARD: 119] (inglés) y
+        // salió la ficha de inglés (medido 13-09-2026). Si el cliente no nombró
+        // nada, la tarjeta es la del producto del que se viene hablando.
+        if (resolvedId !== -1 && esAfirmacionSuelta(String(lastText || "")) && typeof memory.currentProductId === "number"
+            && validIds.has(memory.currentProductId) && resolvedId !== memory.currentProductId) {
+          console.log(`🔧 [PARSER] "${String(lastText).trim()}" no nombra producto: la ficha es la del foco (${memory.currentProductId}), no la ${resolvedId} que escribió el modelo - ${ts()}`);
+          resolvedId = memory.currentProductId;
         }
 
         // ── ¿ALGO RESPALDA ESTA FICHA? ───────────────────────────────────────

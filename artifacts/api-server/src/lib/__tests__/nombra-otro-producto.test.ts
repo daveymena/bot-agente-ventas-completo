@@ -202,3 +202,11 @@ describe("13-09: un 'sí' a una pregunta que no ofrecía nada no manda ficha ni 
     expect(src).toMatch(/const notaDelSi = /);
   });
 });
+
+describe("13-09 tarde: 'curso de inglés' no es 'varios productos'; $60.000 no se parte", () => {
+  it("dos productos que casan por la misma palabra son uno", () => {
+    expect(preguntaPorVarios("Hola, tienen curso de ingles?", ["INGLES", "CURSO INGLES OXFORD", "PACK IDIOMAS"])).toBe(false);
+    expect(preguntaPorVarios("el renovador negro cuanto vale", ["Renovador Negro Perfecto"])).toBe(false);
+    expect(preguntaPorVarios("ingles y piano juntos", ["INGLES", "Curso de Piano"])).toBe(true);
+  });
+});

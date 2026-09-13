@@ -166,7 +166,9 @@ export function sinLaPromesa(texto: string, incumplidas: Promesa[]): string {
   // Medido en producción el 2026-09-04. Es el mismo defecto que ya se había
   // corregido en `emojis-con-medida.ts` -- "un bot que escribe '¡ Hola' parece
   // roto, y es lo primero que el cliente lee" -- reaparecido por otra puerta.
-  const frases = String(texto).split(/(?<=[.!?])\s*|\n+/);
+  // El corte exige que tras el punto NO venga un dígito: "$60.000" se partía
+  // en "$60." + "000" y salía "$60. 000" (medido 13-09-2026, curso de inglés).
+  const frases = String(texto).split(/(?<=[.!?])(?!\d)\s*|\n+/);
   const quedan = frases.filter((f) => {
     if (!f || !f.trim()) return false;
     const p = promesasDe(f);

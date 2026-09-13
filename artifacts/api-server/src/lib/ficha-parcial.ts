@@ -224,12 +224,22 @@ export function preguntaPorVarios(mensaje: string, nombres: string[] = []): bool
   const m = N(mensaje);
   if (/\b(en\s+total|el\s+total|juntos|juntas|ambos|ambas|los\s+(dos|tres|cuatro|cinco)|las\s+(dos|tres|cuatro|cinco)|todos\s+esos|todas\s+esas)\b/.test(m)) return true;
   const enMensaje = new Set(m.match(/[a-zñ0-9]{4,}/g) ?? []);
-  let nombrados = 0;
+  // Se cuentan PALABRAS distintas del mensaje que nombran productos, no
+  // productos: "curso de inglés" casa INGLES y CURSO INGLES OXFORD por la
+  // misma palabra y eso es UN producto nombrado, no dos (medido 13-09-2026:
+  // la ficha se descartaba por "preguntó por varios").
+  const palabrasQueNombran = new Set<string>();
   for (const n of nombres) {
     const propias = (N(n).match(/[a-zñ0-9]{4,}/g) ?? []).filter((w) => !PALABRAS_DE_LA_PREGUNTA.has(w) && !/^(completo|online|desde|cero|nivel|avanzado|basico|pack|mega|curso|cursos)$/.test(w));
-    if (propias.length && propias.some((w) => enMensaje.has(w))) nombrados++;
+    for (const w of propias) if (enMensaje.has(w)) palabrasQueNombran.add(w);
   }
-  return nombrados >= 2;
+  if (palabrasQueNombran.size < 2) return false;
+  // Dos palabras del MISMO producto ("renovador negro") tampoco son dos.
+  const cubiertasPorUno = nombres.some((n) => {
+    const propias = new Set(N(n).match(/[a-zñ0-9]{4,}/g) ?? []);
+    return [...palabrasQueNombran].every((w) => propias.has(w));
+  });
+  return !cubiertasPorUno;
 }
 
 export function pideAlgoEntregable(mensaje: string): boolean {
