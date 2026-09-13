@@ -179,9 +179,105 @@ router.post("/evaluar-chat", async (req, res) => {
       });
     }
     const hallazgos = evaluarChat(evaluados, catalogo as any);
-    res.json({ ok: true, conversationId: convo.id, turnos: evaluados.length, hallazgos, limpio: hallazgos.length === 0, detalle: evaluados });
+    return res.json({ ok: true, conversationId: convo.id, turnos: evaluados.length, hallazgos, limpio: hallazgos.length === 0, detalle: evaluados });
   } catch (e: any) {
-    res.status(500).json({ error: e.message });
+    return res.status(500).json({ error: e.message });
+  }
+});
+
+/**
+ * POST /api/whatsapp/sombra
+ *
+ * Corre los MISMOS turnos del cliente por el motor actual (runAgentReply, en
+ * una conversación nueva) y por el motor nuevo (lib/motor-nuevo, en sombra,
+ * estado en memoria) y devuelve las dos salidas lado a lado, con latencia y
+ * con los hallazgos del evaluador para cada una. Nada de esto llega a ningún
+ * cliente. Body: { turnos: string[] } o { conversationId } (toma los turnos
+ * del cliente de esa conversación real).
+ */
+router.post("/sombra", async (req, res) => {
+  try {
+    const tenantId = tenantIdFromReq(req);
+    const { addTenantToInsert } = await import("../lib/tenantManager");
+    const { evaluarChat } = await import("../lib/evaluador-de-chats");
+    const { responder } = await import("../lib/motor-nuevo/motor");
+    const { clienteDeepSeek, cargarCatalogoDelNegocio, cargarVozDelNegocio, RepositorioEnMemoria } = await import("../lib/motor-nuevo/adaptador");
+    const { estadoInicial } = await import("../lib/motor-nuevo/estado-conversacion");
+    const { products } = await import("@workspace/db");
+
+    let turnos: string[] = Array.isArray(req.body?.turnos) ? req.body.turnos.map((t: any) => String(t || "")).filter(Boolean) : [];
+    const origen = Number(req.body?.conversationId);
+    if (turnos.length === 0 && Number.isFinite(origen)) {
+      const filas = await db.select().from(messages).where(eq(messages.conversationId, origen)).orderBy(messages.createdAt);
+      turnos = filas.filter((m: any) => m.role === "customer").map((m: any) => String(m.content || "")).filter(Boolean).slice(0, 20);
+    }
+    if (turnos.length === 0) return res.status(400).json({ error: "turnos vacío" });
+
+    // ── Motor actual: conversación nueva, como en evaluar-chat ──────────────
+    const [convo] = await db.insert(conversations).values(addTenantToInsert({
+      contactName: "Sombra", contactPhone: `sombra-${Date.now()}`, status: "ai", currentStage: "greeting",
+    }, tenantId)).returning();
+    const catalogoEval = await db.select({ id: products.id, name: products.name, price: products.price, kind: products.kind })
+      .from(products).where(and(eq(products.tenantId, tenantId), eq(products.isActive, true)));
+
+    // ── Motor nuevo: estado en memoria + su propio historial ────────────────
+    const llm = clienteDeepSeek();
+    const repo = new RepositorioEnMemoria();
+    const catalogoNuevo = await cargarCatalogoDelNegocio(tenantId, "digital");
+    const voz = await cargarVozDelNegocio(tenantId);
+    let estado = estadoInicial(convo.id);
+    const historialNuevo: { role: "customer" | "agent"; content: string; createdAt: Date }[] = [];
+
+    const actual: any[] = [];
+    const nuevo: any[] = [];
+    for (const mensaje of turnos) {
+      // Actual
+      await db.insert(messages).values({ conversationId: convo.id, role: "customer", content: mensaje });
+      const t0 = Date.now();
+      let reply: any = null;
+      try { reply = await runAgentReply(convo.id); } catch (e: any) { reply = { parts: [{ kind: "text", content: `[ERROR] ${e?.message}` }] }; }
+      const partesA: any[] = reply?.parts || [];
+      actual.push({
+        mensaje,
+        ms: Date.now() - t0,
+        texto: partesA.filter((p) => p.kind === "text").map((p) => String(p.content || "")).join("\n\n"),
+        tarjetas: partesA.filter((p) => p.kind === "card").map((p) => ({ productId: p.productId, seccion: p.seccion ?? null })),
+      });
+
+      // Nuevo
+      historialNuevo.push({ role: "customer", content: mensaje, createdAt: new Date() });
+      const t1 = Date.now();
+      let partesN: any[] = []; let traza: any[] = []; let error: string | null = null;
+      try {
+        // El historial va entero: el último mensaje es el del cliente que se contesta.
+        const r = await responder({ llm, estado, historial: historialNuevo, catalogo: catalogoNuevo, voz });
+        partesN = r.partes; traza = r.traza; estado = r.estado;
+      } catch (e: any) { error = String(e?.message || e); }
+      const textoN = partesN.filter((p) => p.kind === "text").map((p) => String(p.content || "")).join("\n\n");
+      historialNuevo.push({ role: "agent", content: textoN || "[ficha/video/pago]", createdAt: new Date() });
+      await repo.guardar(estado);
+      nuevo.push({
+        mensaje,
+        ms: Date.now() - t1,
+        texto: textoN,
+        tarjetas: partesN.filter((p) => p.kind === "card").map((p) => ({ productId: p.productId, seccion: p.seccion ?? null })),
+        otras: partesN.filter((p) => p.kind !== "text" && p.kind !== "card"),
+        herramientas: traza.map((t: any) => `${t.herramienta}(${JSON.stringify(t.args)}) → ${String(t.resultado).slice(0, 80)}`),
+        error,
+      });
+    }
+
+    const hallazgosActual = evaluarChat(actual.map((t) => ({ mensaje: t.mensaje, texto: t.texto, tarjetas: t.tarjetas })), catalogoEval as any);
+    const hallazgosNuevo = evaluarChat(nuevo.map((t) => ({ mensaje: t.mensaje, texto: t.texto, tarjetas: t.tarjetas })), catalogoEval as any);
+    const msProm = (xs: any[]) => Math.round(xs.reduce((a, b) => a + (b.ms || 0), 0) / Math.max(1, xs.length));
+    return res.json({
+      ok: true,
+      turnos: turnos.length,
+      actual: { msPromedio: msProm(actual), hallazgos: hallazgosActual, turnos: actual },
+      nuevo: { msPromedio: msProm(nuevo), hallazgos: hallazgosNuevo, turnos: nuevo, estadoFinal: estado },
+    });
+  } catch (e: any) {
+    return res.status(500).json({ error: e.message });
   }
 });
 
