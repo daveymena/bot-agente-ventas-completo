@@ -68,6 +68,8 @@ const NO_AFIRMAN = new Set([
   "deshabilitado", "deshabilitada", "verificado", "verificada", "verificados", "verificadas",
   "revisado", "revisada", "revisados", "revisadas", "consultado", "consultada", "leido", "leida",
   "encendido", "encendida", "apagado", "apagada", "pausado", "pausada", "enganchado", "enganchada",
+  // "hay varias repetidas del mismo producto" (listado de landings, 13-09).
+  "repetido", "repetida", "repetidos", "repetidas", "duplicado", "duplicada", "duplicados", "duplicadas",
   // Los que aparecieron de verdad en producción.
   "estado", "estados", "pedido", "pedidos", "resultado", "resultados",
   "contenido", "contenidos", "identificado", "identificados",

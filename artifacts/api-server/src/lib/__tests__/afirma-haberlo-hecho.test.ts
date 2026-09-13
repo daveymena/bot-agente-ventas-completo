@@ -111,6 +111,7 @@ describe("13-09: leer un estado o negar no es afirmar trabajo hecho", () => {
   it("estados leídos con herramientas", () => {
     expect(afirmaHaberloHecho("📱 WhatsApp: conectado, número 573042748687.\n❌ Instagram: NO autorizado.\n🤖 Sofía: sigue figura como activa.")).toBe(false);
     expect(afirmaHaberloHecho("Así que si lo que hiciste fue dejarla apagada, no quedó guardado: desde el sistema me sigue apareciendo activa.")).toBe(false);
+    expect(afirmaHaberloHecho("📋 Las otras 17 están en borrador, y hay varias repetidas del mismo producto.")).toBe(false);
   });
   it("pero un trabajo afirmado sigue detectándose", () => {
     expect(afirmaHaberloHecho("✅ Listo, el anuncio quedó creado y guardado como borrador.")).toBe(true);
