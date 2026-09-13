@@ -1495,6 +1495,17 @@ export function pidePlantillaDeCatalogo(text: string): boolean {
  * se escapaba justo el orden con demostrativo.
  */
 /**
+ * Preguntas sobre el uso, el contenido o la forma del producto del que se
+ * viene hablando. No nombran otro producto aunque traigan palabras que
+ * también son nombres ("programación", "digital", "certificado").
+ */
+const PREGUNTA_SOBRE_LO_QUE_SE_HABLA =
+  /\b(me sirve|sirve (si|para|aunque)|no se nada|necesito saber|es grabado|grabado o en vivo|en vivo|dan certificado|certificad[oa]|cuant[ao]s? (clases|horas|modulos|videos|lecciones)|que incluye|que trae|incluye exactamente|es digital|es fisico|cuanto dura|como funciona|como se usa|para principiantes|desde cero|tiene garantia|es para (mi|niños|ninos|adultos))\b/;
+export function preguntaSobreLoQueSeHabla(text: string): boolean {
+  return PREGUNTA_SOBRE_LO_QUE_SE_HABLA.test(normalizeText(text));
+}
+
+/**
  * ¿Nombró algo específico que no es el producto en foco?
  *
  * "¿cuánto vale el curso de Excel?" con el piano en foco: "excel" es una
@@ -1503,6 +1514,8 @@ export function pidePlantillaDeCatalogo(text: string): boolean {
  * "¿cuánto vale?" / "¿y ese?" / "¿el de piano?" → false.
  */
 export function nombraOtraCosaQueElFoco(nombreEnFoco: string, text: string): boolean {
+  // Una pregunta sobre lo que se viene hablando no nombra otra cosa.
+  if (nombreEnFoco && preguntaSobreLoQueSeHabla(text)) return false;
   // "cuánto está" no es el demostrativo "esta": se quita antes de mirar.
   const t = quitarSaludoYCortesias(normalizeText(text)).replace(/\b(cuanto|como|donde|cuando)\s+esta\b/g, "$1");
   if (/\b(ese|esa|eso|esos|esas|este|esta|esto|aquel|aquella)\b/.test(t)) return false;
@@ -2067,8 +2080,19 @@ export async function computeDecision(
   // el bot respondió con el curso de EXCEL. El cliente dijo "no sé de qué me
   // hablas". Mismo patrón que el bug de "¿cómo pago?": una pregunta sobre el
   // producto actual no es una búsqueda de producto nuevo.
+  // Chat real del dueño (13-09 13:14), con el curso de IA en foco:
+  //   "y eso me sirve si no sé nada de programación?" → el bot saltó al
+  //   PACK PROGRAMACIÓN. Y con DISEÑO GRÁFICO en foco:
+  //   "¿qué incluye exactamente? ¿cuántas clases trae, es grabado o en
+  //    vivo, y dan certificado?" → "no tengo ese producto en el catálogo".
+  // Una pregunta sobre el uso, el contenido o la forma del producto que se
+  // viene hablando es sobre ESE producto, diga la palabra que diga. Y "eso",
+  // "ese", "este" señalan al foco con todas las letras.
   const preguntaDeDetalleSobreFoco =
-    (intent === "details_query" || intent === "objection") && !!memory.currentProductId;
+    !!memory.currentProductId
+    && ((intent === "details_query" || intent === "objection")
+      || preguntaSobreLoQueSeHabla(incomingText)
+      || señalaAlProductoEnFoco(incomingText));
 
   if (!shouldGreet && intent !== "leaving") {
     // Buscar producto mencionado en el mensaje actual

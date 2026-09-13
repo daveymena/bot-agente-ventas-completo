@@ -210,3 +210,16 @@ describe("13-09 tarde: 'curso de inglés' no es 'varios productos'; $60.000 no s
     expect(preguntaPorVarios("ingles y piano juntos", ["INGLES", "Curso de Piano"])).toBe(true);
   });
 });
+
+import { preguntaSobreLoQueSeHabla } from "../conversation-engine";
+
+describe("13-09 13:14 chat real: preguntas sobre el producto en foco no cambian de producto", () => {
+  it("'me sirve si no sé nada de programación' es sobre el foco", () => {
+    expect(preguntaSobreLoQueSeHabla("y eso me sirve si no se nada de programacion?")).toBe(true);
+    expect(nombraOtraCosaQueElFoco("INTELIGENCIA ARTIFICIAL 2026", "y eso me sirve si no sé nada de programación?")).toBe(false);
+    expect(nombraOtraCosaQueElFoco("DISEÑO GRÁFICO", "y que incluye exactamente? cuantas clases trae, es grabado o en vivo, y dan certificado?")).toBe(false);
+  });
+  it("nombrar otro producto sigue contando", () => {
+    expect(nombraOtraCosaQueElFoco("INTELIGENCIA ARTIFICIAL 2026", "oye y manejan cursos de diseño grafico?")).toBe(true);
+  });
+});

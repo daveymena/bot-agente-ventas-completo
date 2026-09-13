@@ -4818,7 +4818,13 @@ ${comoSeEntregaDeVerdad(prodFicha as any)}` : comoSeEntregaDeVerdad(prodFicha as
 
       try {
         const revisado = sinLoQueYaLeyo(finalParts as any[], memory.history as any);
-        if (revisado.quitadas > 0) {
+        const quedaAlgo = (revisado.partes as any[]).some((p: any) => p.kind === "card" || String(p.content || "").trim());
+        if (revisado.quitadas > 0 && !quedaAlgo) {
+          // El cliente repitió la pregunta porque NO le contestaron (chat
+          // real 13-09 13:19-13:20): quitarlo todo lo dejaba en silencio,
+          // que es peor que repetir. Se manda igual.
+          console.log(`🔁 [REPETIDO] Todo era repetido, pero callarse es peor: se manda igual - ${ts()}`);
+        } else if (revisado.quitadas > 0) {
           console.log(`🔁 [REPETIDO] Se quitaron ${revisado.quitadas} parte(s) que el cliente ya habia leido - ${ts()}`);
           finalParts.length = 0;
           (finalParts as any[]).push(...revisado.partes);
