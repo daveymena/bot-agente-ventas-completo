@@ -142,7 +142,9 @@ router.post("/evaluar-chat", async (req, res) => {
     }
     if (turnos.length === 0) return res.status(400).json({ error: "turnos vacío" });
 
-    const telefono = String(req.body?.phone || `eval-${Date.now()}`);
+    // Un teléfono con pinta colombiana: "eval-123" no tiene país y el motor
+    // trataba al cliente como extranjero ("como estás en Estados Unidos…").
+    const telefono = String(req.body?.phone || `573009${String(Date.now()).slice(-6)}`);
     const [convo] = await db.insert(conversations).values(addTenantToInsert({
       contactName: "Evaluación", contactPhone: telefono, status: "ai", currentStage: "greeting",
     }, tenantId)).returning();
@@ -215,7 +217,7 @@ router.post("/sombra", async (req, res) => {
 
     // ── Motor actual: conversación nueva, como en evaluar-chat ──────────────
     const [convo] = await db.insert(conversations).values(addTenantToInsert({
-      contactName: "Sombra", contactPhone: `sombra-${Date.now()}`, status: "ai", currentStage: "greeting",
+      contactName: "Sombra", contactPhone: `573008${String(Date.now()).slice(-6)}`, status: "ai", currentStage: "greeting",
     }, tenantId)).returning();
     const catalogoEval = await db.select({ id: products.id, name: products.name, price: products.price, kind: products.kind })
       .from(products).where(and(eq(products.tenantId, tenantId), eq(products.isActive, true)));
@@ -224,7 +226,7 @@ router.post("/sombra", async (req, res) => {
     const llm = clienteDeepSeek();
     const repo = new RepositorioEnMemoria();
     const catalogoNuevo = await cargarCatalogoDelNegocio(tenantId, "digital");
-    const voz = await cargarVozDelNegocio(tenantId);
+    const voz = await cargarVozDelNegocio(tenantId, { especialidad: "digital" });
     let estado = estadoInicial(convo.id);
     const historialNuevo: { role: "customer" | "agent"; content: string; createdAt: Date }[] = [];
 

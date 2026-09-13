@@ -254,6 +254,10 @@ export function sinElMontoQueVaEnLaFicha(texto: string): string {
 
   if (sinMonto === original) return original;
 
+  // "Son $60.000, o sea unos 15 USD" → "Son , o sea unos 15 USD": la frase
+  // arrancaba con el monto y quedó decapitada (sombra, 13-09). Se va entera.
+  if (/^\s*(son|es|vale|cuesta|sale|esta|está|serian|serían|seria|sería|queda)\s*[,.;:]/i.test(sinMonto)) return "";
+
   // Se quito un monto. Si la frase todavia anuncia un precio, le falta el dato
   // que la sostenia.
   if (/\b(valor|precio|costo|vale|cuesta|sale|queda|cobr\w+)\b/i.test(sinMonto)) return "";

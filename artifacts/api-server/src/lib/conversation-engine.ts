@@ -310,6 +310,8 @@ const GENERIC_WORDS = new Set([
   "quiero", "necesito", "funciona", "clases", "lecciones", "modulos",
   "comprar", "adquirir", "pago", "pagar", "link", "enlace", "nequi",
   "daviplata", "transferencia", "dale", "vamos", "adelante", "listo", "ohh",
+  // "¿Es digital?" (sobre el piano) casaba MARKETING DIGITAL y salía esa ficha (sombra, 13-09).
+  "digital", "digitales", "fisico", "físico", "fisica", "física", "online", "virtual", "presencial", "presenciales",
   "horas", "video", "hora", "cómo", "como", "están", "estan",
   "estado", "estas", "estás", "información", "informacion", "info",
   "detalles", "más", "mas", "saber", "conocer", "ver",

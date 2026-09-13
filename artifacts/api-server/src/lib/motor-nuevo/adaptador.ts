@@ -85,14 +85,21 @@ export async function cargarCatalogoDelNegocio(tenantId: number, soloKind?: "dig
 }
 
 /** La voz: nombre y rol del agente activo del negocio, y su prompt como indicaciones. */
-export async function cargarVozDelNegocio(tenantId: number, agentId?: number | null): Promise<VozDelNegocio> {
+export async function cargarVozDelNegocio(tenantId: number, opts: { agentId?: number | null; especialidad?: "digital" | "dropshipping" } = {}): Promise<VozDelNegocio> {
   const filas = await db.select().from(agents).where(and(eq(agents.tenantId, tenantId), eq(agents.isActive, true)));
-  const a: any = (agentId ? filas.find((x: any) => x.id === agentId) : null) || filas[0] || {};
+  // En la primera corrida en sombra tomó el primer agente activo (AtlasDrops,
+  // físicos) para un catálogo digital y contestó "los cursos no los veo yo"
+  // a todo. La voz tiene que ser la del agente de la especialidad del catálogo.
+  const a: any = (opts.agentId ? filas.find((x: any) => x.id === opts.agentId) : null)
+    || (opts.especialidad ? filas.find((x: any) => String(x.especialidad || "").toLowerCase() === opts.especialidad) : null)
+    || filas[0] || {};
   return {
     nombreAgente: String(a.name || "Asesor"),
     rolAgente: String(a.role || "asesor comercial"),
     nombreNegocio: String(process.env.BUSINESS_NAME || "el negocio"),
-    instruccionesExtra: a.systemPrompt ? String(a.systemPrompt).slice(0, 1500) : undefined,
+    // El systemPrompt del agente NO se pasa en sombra: el motor nuevo trae su
+    // propio estilo y el prompt cargado hoy trae reglas del motor viejo.
+    instruccionesExtra: undefined,
   };
 }
 
