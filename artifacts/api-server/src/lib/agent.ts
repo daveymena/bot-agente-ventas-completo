@@ -4036,7 +4036,12 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
           const cargadas = await conocimientoCargado(convo.tenantId, idFoco);
           // Plural a propósito: el cliente suele encadenar dos preguntas en un
           // mismo mensaje y antes solo se contestaba la primera.
-          const conocidas = responderPreguntas(idFoco, lastText, 2, cargadas);
+          // La respuesta escrita es la del producto EN FOCO. Si el cliente
+          // preguntó por otra cosa que no tenemos ("el Renovador, ¿cómo me
+          // llega?" con el Pack Idiomas en foco), contestarle "por un enlace
+          // de acceso" es hablarle del producto equivocado (medido 13-09).
+          const conocidas = decision.nombraOtroProducto ? [] : responderPreguntas(idFoco, lastText, 2, cargadas);
+          if (decision.nombraOtroProducto) console.log(`📗 [CONOCIMIENTO] no aplica: la pregunta es sobre algo que no es el producto en foco - ${ts()}`);
           const conocida = conocidas.length
             ? {
                 id: conocidas.map((c) => c.id).join("+"),

@@ -111,3 +111,10 @@ describe("13-09: lo medido en producción con el diagnóstico", () => {
     expect(src).toMatch(/Ese producto no lo tengo en el catálogo/);
   });
 });
+
+describe("13-09: el conocimiento del producto en foco no contesta por otro", () => {
+  const src = readFileSync(join(__dirname, "..", "agent.ts"), "utf8");
+  it("con nombraOtroProducto no se usa la respuesta escrita del foco", () => {
+    expect(src).toMatch(/const conocidas = decision\.nombraOtroProducto \? \[\] : responderPreguntas\(/);
+  });
+});
