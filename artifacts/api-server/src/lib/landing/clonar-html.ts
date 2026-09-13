@@ -151,7 +151,7 @@ function textosVisibles(html: string): string[] {
     if (vistos.has(t)) continue;
     vistos.add(t);
     out.push(t);
-    if (out.length >= 160) break;
+    if (out.length >= 600) break;
   }
   return out;
 }
@@ -169,10 +169,14 @@ export async function adaptarHtmlAlProducto(opts: {
   const p = opts.producto;
 
   // 1) Textos: el modelo devuelve un mapa viejo→nuevo, se sustituye tal cual.
+  //    En tandas de 150: la primera prueba (landingfolio, 13-09) traía 400+
+  //    textos y solo se reescribieron los primeros 160.
   const textos = textosVisibles(html);
   let reemplazos = 0;
-  if (textos.length) {
-    const precio = p?.price != null ? `${p.currency || "COP"} $${Number(p.price).toLocaleString("es-CO")}` : "sin precio cargado";
+  const precio = p?.price != null ? `${p.currency || "COP"} $${Number(p.price).toLocaleString("es-CO")}` : "sin precio cargado";
+  const mapa: Record<string, string> = {};
+  for (let i = 0; i < textos.length && i < 600; i += 150) {
+    const tanda = textos.slice(i, i + 150);
     const resultado = await callMarketingAI<any>({
       tenantId: opts.tenantId,
       json: true,
@@ -183,26 +187,47 @@ export async function adaptarHtmlAlProducto(opts: {
         "con el MISMO largo aproximado y la misma función (título sigue siendo título, botón sigue siendo botón), en español de Colombia. " +
         "Reglas: no inventes cifras, testimonios, garantías, descuentos ni plazos que no estén en los datos; el precio es exactamente el dado; " +
         "quitá cualquier nombre de marca o empresa ajena y usá el nombre del negocio propio; los botones deben invitar a pedir/comprar/escribir por WhatsApp. " +
-        "Si un texto es puro relleno legal o de navegación ajena (menús, políticas), reemplazalo por una cadena vacía.",
+        "Si un texto es puro relleno legal o de navegación ajena (menús, políticas, cookies, términos, copyright, fechas, contadores), reemplazalo por una cadena vacía.",
       userPrompt: JSON.stringify({
         negocio: opts.negocio?.nombre || "el negocio",
         producto: { nombre: p?.name, descripcion: String(p?.description || "").slice(0, 1500), caracteristicas: p?.features || [], precio },
-        textos,
+        textos: tanda,
       }),
     });
-    const mapa: Record<string, string> = resultado?.mapa && typeof resultado.mapa === "object" ? resultado.mapa : {};
-    // Del más largo al más corto, para que un texto corto no pise a uno largo que lo contiene.
-    for (const viejo of Object.keys(mapa).sort((a, b) => b.length - a.length)) {
-      const nuevo = String(mapa[viejo] ?? "");
-      if (!viejo || nuevo === viejo) continue;
-      const esc = viejo.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\s+/g, "\\s+");
-      const re = new RegExp(`>(\\s*)${esc}(\\s*)<`, "g");
-      const antes = html;
-      html = html.replace(re, (_m, a, b) => `>${a}${nuevo.replace(/</g, "&lt;")}${b}<`);
-      if (html !== antes) reemplazos++;
-    }
-    if (!Object.keys(mapa).length) advertencias.push("El modelo no devolvió textos nuevos: la copia conserva los textos originales.");
+    const parcial = resultado?.mapa && typeof resultado.mapa === "object" ? resultado.mapa : null;
+    if (!parcial) { advertencias.push(`El modelo no devolvió textos para la tanda ${i / 150 + 1}.`); continue; }
+    Object.assign(mapa, parcial);
   }
+  // Del más largo al más corto, para que un texto corto no pise a uno largo que lo contiene.
+  for (const viejo of Object.keys(mapa).sort((a, b) => b.length - a.length)) {
+    const nuevo = String(mapa[viejo] ?? "");
+    if (!viejo || nuevo === viejo) continue;
+    const esc = viejo.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\s+/g, "\\s+");
+    const re = new RegExp(`>(\\s*)${esc}(\\s*)<`, "g");
+    const antes = html;
+    html = html.replace(re, (_m, a, b) => `>${a}${nuevo.replace(/</g, "&lt;")}${b}<`);
+    if (html !== antes) reemplazos++;
+  }
+  if (textos.length && !Object.keys(mapa).length) advertencias.push("El modelo no devolvió textos nuevos: la copia conserva los textos originales.");
+
+  // 1b) Marca ajena que haya quedado (título, pie, menús): se cambia por el negocio.
+  //     La marca sale del <title> original y del dominio, que es lo que el
+  //     sitio repite en todos lados.
+  const marcaNegocio = String(opts.negocio?.nombre || "").trim();
+  if (marcaNegocio) {
+    const tituloOriginal = (html.match(/<!-- Copia de (https?:\/\/[^\s]+)/)?.[1] || "");
+    let dominio = "";
+    try { dominio = new URL(tituloOriginal).hostname.replace(/^www\./, "").split(".")[0]; } catch { dominio = ""; }
+    const candidatas = [dominio, dominio.charAt(0).toUpperCase() + dominio.slice(1)].filter((x) => x && x.length >= 4);
+    for (const marca of candidatas) {
+      const re = new RegExp(`(?<![a-z0-9/._-])${marca.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![a-z0-9._-])`, "g");
+      html = html.replace(/>([^<]*)</g, (m, t) => (re.test(t) ? `>${t.replace(re, marcaNegocio)}<` : m));
+    }
+    // Título de la página: el producto y el negocio.
+    html = html.replace(/<title[^>]*>[\s\S]*?<\/title>/i, `<title>${String(p?.name || "").replace(/</g, "")} | ${marcaNegocio.replace(/</g, "")}</title>`);
+  }
+  // 1c) Bloques legales ajenos: pie con políticas/cookies/copyright → fuera.
+  html = html.replace(/<(footer)\b[\s\S]*?<\/\1>/gi, (m) => (/cookie|privacy|privacidad|terms|t[eé]rminos|all rights reserved|derechos reservados|licens/i.test(m) ? "" : m));
 
   // 2) Imágenes: las del producto, rotando. Si no hay, se dejan las originales y se avisa.
   const fotos: string[] = [];
