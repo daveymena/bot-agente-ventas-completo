@@ -322,3 +322,13 @@ describe("R6 · si el cliente no habló de pagar, se quita la frase, no el mensa
     expect(r.bloquear).toBe(true);
   });
 });
+
+describe("13-09: 'apenas se confirme el pago' es una condición, no un pago confirmado", () => {
+  it("no bloquea", () => {
+    const r = revCard("Listo, es 100% digital: te llega por Google Drive apenas se confirme el pago. 💰 $20.000 COP, pago único.", "dale", false);
+    expect(r.hallazgos.map((h) => h.regla)).not.toContain("confirmacion-de-pago-inventada");
+  });
+  it("'ya confirmé tu pago' sigue bloqueando", () => {
+    expect(revCard("Perfecto, ya confirmé tu pago y te activo el acceso.", "listo", false).bloquear).toBe(true);
+  });
+});

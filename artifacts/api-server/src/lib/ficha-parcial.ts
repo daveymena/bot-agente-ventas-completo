@@ -302,8 +302,11 @@ export function seccionQueCorresponde(e: EntradaSeccion): SeccionFicha {
   // pago?" es un sí que ya dice qué quiere y manda él; un "sí" pelado no dice
   // nada por sí mismo, y ahí el servidor SABE qué ofreció, en vez de dejar
   // que el modelo lo adivine como `confirmation` (= "sí, quiero comprar").
-  if (e.ofrecimosContenido && esAfirmacionSuelta(e.mensaje)) return "info";
+  // El precio va PRIMERO: `ofrecimosContenido` incluye la oferta de precio
+  // (ver agent.ts) y con el orden inverso "¿querés saber cuánto está?" → "sí"
+  // devolvía la ficha otra vez en vez del precio (medido 13-09-2026).
   if (e.ofrecimosPrecio && esAfirmacionSuelta(e.mensaje)) return "precio";
+  if (e.ofrecimosContenido && esAfirmacionSuelta(e.mensaje)) return "info";
 
   // ── Un "sí"/"dale" pelado a una pregunta que NO ofrecía nada ─────────────
   //

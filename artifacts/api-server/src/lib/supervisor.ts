@@ -779,8 +779,12 @@ export function supervisarRespuesta(e: EntradaSupervisor): RevisionSupervisor {
  * lo cubre la regla de "ya te lo mande". Meterlo aca bloquearia la entrega
  * legitima despues de que una persona SI verifico el pago.
  */
+// "apenas se confirme el pago", "cuando confirmes el pago" son CONDICIONES
+// futuras, no afirmaciones: sin esta exclusión, "dale" → "te llega apenas se
+// confirme el pago" se bloqueaba y el cliente recibía "necesito el
+// comprobante" (medido 13-09-2026).
 const AFIRMA_PAGO_CONFIRMADO =
-  /\b(ya\s+)?(confirm[eé]|verifiqu[eé]|valid[eé]|registr[eé])\s+(tu|el|su)\s+pago\b|\b(tu|el|su)\s+pago\s+(ya\s+)?(est[aá]|qued[oó])\s+(confirmado|verificado|registrado|acreditado)\b|\bpago\s+confirmado\b|\b(ya\s+)?(est[aá]|qued[oó])\s+(pago|pagado|pagada|abonado|abonada|cancelado|cancelada)\b|\bconfirmada\s+la\s+compra\b/i;
+  /(?<!\b(?:se|cuando|apenas|una vez|ni bien|en cuanto|si|hasta que|luego que|despu[eé]s de que)\s)\b(ya\s+)?(confirm[eé]|verifiqu[eé]|valid[eé]|registr[eé])\s+(tu|el|su)\s+pago\b|\b(tu|el|su)\s+pago\s+(ya\s+)?(est[aá]|qued[oó])\s+(confirmado|verificado|registrado|acreditado)\b|\bpago\s+confirmado\b|\b(ya\s+)?(est[aá]|qued[oó])\s+(pago|pagado|pagada|abonado|abonada|cancelado|cancelada)\b|\bconfirmada\s+la\s+compra\b/i;
 
 /**
  * Afirmar que VIO el comprobante, o que la plata llegó.
