@@ -360,7 +360,12 @@ export function supervisarRespuesta(e: EntradaSupervisor): RevisionSupervisor {
     const frases = texto.split(/(?<=[.!?])\s+|\n+/);
     const limpias = frases.filter((f) => !AFIRMA_PAGO_CONFIRMADO.test(f) && !AFIRMA_VER_O_RECIBIR_EL_PAGO.test(f));
     const quedaAlgo = limpias.join(" ").replace(/\s+/g, " ").trim();
-    if (!hablaDePago && quedaAlgo.length >= 20) {
+    // Solo cuando lo que queda es la respuesta de PRECIO que pidió y no
+    // sigue hablando de acceso/activación/comprobante: "Te activo el
+    // acceso" sin la frase del pago sigue siendo la misma mentira.
+    const quedaLaRespuestaDePrecio = /\$\s?\d/.test(quedaAlgo)
+      && !/\b(acceso|activ\w*|comprobante|liber\w*|soporte|captura)\b/i.test(quedaAlgo);
+    if (!hablaDePago && quedaAlgo.length >= 20 && quedaLaRespuestaDePrecio) {
       texto = quedaAlgo;
       hallazgos.push({
         regla: "confirmacion-de-pago-inventada",
