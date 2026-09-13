@@ -6225,6 +6225,292 @@ Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vincu
       }
     },
   },
+
+  // ── Inteligencia del agente de WhatsApp ─────────────────────────────────────
+  // Tools que mejoran la capacidad de razonamiento y análisis del agente
+
+  {
+    name: "analyze_customer_intent",
+    description: "Analiza la intención REAL del cliente basándose en su mensaje, historial y contexto. Devuelve un análisis estructurado con recomendación de acción. Úsala cuando necesites entender qué quiere realmente el cliente antes de responder.",
+    args: '{ "message": string (req, mensaje del cliente), "currentProduct"?: string (producto que se está discutiendo), "buyingSignals"?: string[] (señales de compra detectadas) }',
+    run: async (args, ctx) => {
+      const msg = String(args.message || "").toLowerCase();
+      const history = args.buyingSignals || [];
+
+      // Scores de intención
+      const intents: Record<string, number> = {
+        comprar: 0,
+        informarse: 0,
+        comparar: 0,
+        dudar: 0,
+        objecion: 0,
+        agradecer: 0,
+        abandonar: 0,
+      };
+
+      // Detectar compra
+      const buySignals = ['comprar', 'pago', 'link', 'nequi', 'daviplata', 'cuenta', 'transferir', 'enviar', 'mándame', 'lo quiero', 'me sirve', 'dale', 'de una', 'listo', 'cuánto es', 'cuánto vale', 'cuánto cuesta'];
+      for (const signal of buySignals) {
+        if (msg.includes(signal)) intents.comprar += 0.15;
+      }
+
+      // Detectar información
+      const infoSignals = ['cuánto', 'qué incluye', 'cómo', 'cuándo', 'dónde', 'qué es', 'cuál', 'información', 'detalles'];
+      for (const signal of infoSignals) {
+        if (msg.includes(signal)) intents.informarse += 0.12;
+      }
+
+      // Detectar comparación
+      const compareSignals = ['comparar', 'diferencia', 'mejor', 'peor', 'vs', 'versus', 'otra opción', 'alternativa'];
+      for (const signal of compareSignals) {
+        if (msg.includes(signal)) intents.comparar += 0.15;
+      }
+
+      // Detectar duda
+      const doubtSignals = ['no sé', 'dudo', 'creo que', 'tal vez', 'puede ser', 'no estoy seguro'];
+      for (const signal of doubtSignals) {
+        if (msg.includes(signal)) intents.dudar += 0.12;
+      }
+
+      // Detectar objeción
+      const objectionSignals = ['caro', 'pensar', 'después', 'luego', 'no tengo dinero', 'no puedo', 'muy costoso', 'no me convence'];
+      for (const signal of objectionSignals) {
+        if (msg.includes(signal)) intents.objecion += 0.15;
+      }
+
+      // Detectar agradecimiento
+      const thanksSignals = ['gracias', 'genial', 'perfecto', 'excelente', 'buenísimo'];
+      for (const signal of thanksSignals) {
+        if (msg.includes(signal)) intents.agradecer += 0.1;
+      }
+
+      // Detectar abandono
+      const abandonSignals = ['no gracias', 'no quiero', 'adiós', 'chao', 'después hablamos', 'ya vengo', 'no me interesa'];
+      for (const signal of abandonSignals) {
+        if (msg.includes(signal)) intents.abandonar += 0.2;
+      }
+
+      // Normalizar scores (0-1)
+      const maxScore = Math.max(...Object.values(intents), 0.01);
+      for (const key of Object.keys(intents)) {
+        intents[key] = Math.min(1, intents[key] / maxScore);
+      }
+
+      // Determinar intención principal
+      const mainIntent = Object.entries(intents).reduce((a, b) => a[1] > b[1] ? a : b)[0];
+
+      // Determinar acción recomendada
+      let recommendedAction = 'INFORMAR';
+      let confidence = intents[mainIntent];
+
+      if (intents.comprar > 0.6) {
+        recommendedAction = 'CERRAR_VENTA';
+      } else if (intents.objecion > 0.5) {
+        recommendedAction = 'RESOLVER_OBJECION';
+      } else if (intents.comparar > 0.5) {
+        recommendedAction = 'COMPARAR_OPCIONES';
+      } else if (intents.dudar > 0.5) {
+        recommendedAction = 'DIAGNOSTICAR_DUDA';
+      } else if (intents.abandonar > 0.5) {
+        recommendedAction = 'DIAGNOSTICAR_SALIDA';
+      } else if (intents.informarse > 0.5) {
+        recommendedAction = 'ENTREGAR_INFORMACION';
+      }
+
+      return {
+        ok: true,
+        summary: `Análisis: Intención principal = ${mainIntent.toUpperCase()} (${(confidence * 100).toFixed(0)}%) → Acción: ${recommendedAction}`,
+        data: {
+          mainIntent,
+          confidence,
+          intents,
+          recommendedAction,
+          suggestion: recommendedAction === 'CERRAR_VENTA'
+            ? 'El cliente está listo para comprar. Ejecutar proceso de pago inmediatamente.'
+            : recommendedAction === 'RESOLVER_OBJECION'
+            ? 'El cliente tiene una objeción. Diagnosticar qué le frena antes de continuar.'
+            : recommendedAction === 'COMPARAR_OPCIONES'
+            ? 'El cliente quiere comparar. Ofrecer comparación objetiva sin atacar competidores.'
+            : recommendedAction === 'DIAGNOSTICAR_DUDA'
+            ? 'El cliente tiene dudas. Responder con claridad y ofrecer garantía/confianza.'
+            : recommendedAction === 'DIAGNOSTICAR_SALIDA'
+            ? 'El cliente está por irse. Hacer una última pregunta diagnóstica antes de despedir.'
+            : 'Continuar con el flujo natural de la conversación.',
+        },
+      };
+    },
+  },
+
+  {
+    name: "detect_buying_moment",
+    description: "Detecta si el cliente está en el momento exacto para comprar. Evalúa señales de alta intención de compra y sugiere la mejor acción. Úsala cuando quieras saber si es momento de cerrar o seguir conversando.",
+    args: '{ "message": string (req, mensaje del cliente), "previousMessages"?: number (cantidad de mensajes previos), "productPrice"?: number (precio del producto considerado) }',
+    run: async (args, ctx) => {
+      const msg = String(args.message || "").toLowerCase();
+
+      // Señales de ALTA intención de compra (score alto)
+      const highIntentSignals = [
+        'comprar', 'pago', 'link', 'nequi', 'daviplata',
+        'cuenta bancaria', 'transferir', 'enviar', 'mándame',
+        'lo quiero', 'me sirve', 'dale', 'de una', 'listo',
+        'cuánto es', 'cuánto vale', 'cuánto cuesta', 'quiero comprarlo',
+        'dame el link', 'envíame el link', 'cómo pago', 'dónde pago'
+      ];
+
+      // Señales de intención media (interesado pero no listo)
+      const mediumIntentSignals = [
+        'interesa', 'me gusta', 'quiero saber más', 'cuéntame más',
+        'qué más incluye', 'cuánto dura', 'cómo funciona', 'garantía',
+        'seguro', 'confiable', 'recomendado'
+      ];
+
+      // Señales de objeción (reducir score)
+      const objectionSignals = [
+        'caro', 'pensar', 'no sé', 'después', 'luego',
+        'no tengo dinero', 'no puedo', 'muy costoso', 'no me convence',
+        'dudo', 'tal vez', 'puede ser', 'no estoy seguro'
+      ];
+
+      // Señales de abandono (reducir score mucho)
+      const abandonmentSignals = [
+        'no gracias', 'no quiero', 'adiós', 'chao',
+        'después hablamos', 'ya vengo', 'no me interesa'
+      ];
+
+      // Calcular score de compra
+      let buyingScore = 0;
+      let signalsDetected: string[] = [];
+
+      // Alta intención (+0.2 cada una)
+      for (const signal of highIntentSignals) {
+        if (msg.includes(signal)) {
+          buyingScore += 0.2;
+          signalsDetected.push(`🟢 ${signal}`);
+        }
+      }
+
+      // Intención media (+0.1 cada una)
+      for (const signal of mediumIntentSignals) {
+        if (msg.includes(signal)) {
+          buyingScore += 0.1;
+          signalsDetected.push(`🟡 ${signal}`);
+        }
+      }
+
+      // Objeciones (-0.15 cada una)
+      for (const signal of objectionSignals) {
+        if (msg.includes(signal)) {
+          buyingScore -= 0.15;
+          signalsDetected.push(`🔴 ${signal} (objeción)`);
+        }
+      }
+
+      // Abandono (-0.3 cada una)
+      for (const signal of abandonmentSignals) {
+        if (msg.includes(signal)) {
+          buyingScore -= 0.3;
+          signalsDetected.push(`⛔ ${signal} (abandono)`);
+        }
+      }
+
+      // Normalizar entre 0 y 1
+      buyingScore = Math.max(0, Math.min(1, buyingScore));
+
+      // Determinar nivel
+      let level = 'BAJO';
+      let emoji = '🔴';
+      if (buyingScore > 0.7) { level = 'ALTO'; emoji = '🟢'; }
+      else if (buyingScore > 0.4) { level = 'MEDIO'; emoji = '🟡'; }
+
+      const isBuyingMoment = buyingScore > 0.6;
+
+      return {
+        ok: true,
+        summary: `${emoji} Score de compra: ${(buyingScore * 100).toFixed(0)}% (${level}) — ${isBuyingMoment ? 'MOMENTO DE CERRAR' : 'Seguir conversación'}`,
+        data: {
+          buyingScore,
+          level,
+          isBuyingMoment,
+          signalsDetected,
+          recommendation: isBuyingMoment
+            ? '🟢 MOMENTO DE COMPRA detectado. Ejecutar proceso de pago inmediatamente. No seguir vendiendo de más.'
+            : level === 'MEDIO'
+            ? '🟡 Interés medio. Continuar construyendo valor y resolviendo dudas antes de cerrar.'
+            : '🔴 Interés bajo. Enfocarse en generar interés y resolver objeciones.',
+        },
+      };
+    },
+  },
+
+  {
+    name: "generate_smart_response",
+    description: "Genera una respuesta estructurada y inteligente con gancho, cuerpo de valor, inciso estratégico y CTA. Úsala cuando necesites armar una respuesta profesional que mantenga la conversación abierta.",
+    args: '{ "intent": string (req: INFORMAR|CERRAR_VENTA|RESOLVER_OBJECION|COMPARAR|SALUDAR|DESPEDIR), "productName"?: string, "productPrice"?: string, "productFeatures"?: string[], "customerName"?: string }',
+    run: async (args, ctx) => {
+      const { intent, productName, productPrice, productFeatures, customerName } = args;
+
+      // Plantillas de respuesta por intención
+      const templates: Record<string, { hook: string; body: string; cta: string }> = {
+        SALUDAR: {
+          hook: `¡Hola${customerName ? ` ${customerName}` : ""}! 👋`,
+          body: `Bienvenido(a). ¿En qué te puedo ayudar hoy?`,
+          cta: ``,
+        },
+        INFORMAR: {
+          hook: `Claro, te cuento.`,
+          body: productName
+            ? `**${productName}** ${productPrice ? `— ${productPrice}` : ""}${productFeatures?.length ? `\n\nIncluye:\n${productFeatures.map(f => `• ${f}`).join("\n")}` : ""}`
+            : `Aquí tienes la información que necesitas.`,
+          cta: `¿Te gustaría saber más detalles o tienes alguna pregunta específica?`,
+        },
+        CERRAR_VENTA: {
+          hook: `¡Perfecto! 🙌`,
+          body: productName
+            ? `Para adquirir **${productName}** solo tienes que realizar el pago y te enviamos el acceso.`
+            : `Para adquirir solo tienes que realizar el pago y te enviamos el acceso.`,
+          cta: `¿Prefieres Nequi o enlace de pago?`,
+        },
+        RESOLVER_OBJECION: {
+          hook: `Te entiendo 👍`,
+          body: `Más que el precio, lo importante es que tengas un producto que te dé el valor que necesitas.`,
+          cta: `¿Qué es lo que más te hace pensarlo: el precio o no estar seguro de que sea para ti?`,
+        },
+        COMPARAR: {
+          hook: `Déjame comparar para que tomes la mejor decisión.`,
+          body: `Cada opción tiene sus ventajas. Lo importante es cuál se ajusta mejor a lo que necesitas.`,
+          cta: `¿Qué es lo más importante para ti: precio, contenido o duración?`,
+        },
+        DESPEDIR: {
+          hook: `¡Ha sido un gusto! 🙌`,
+          body: `Si en algún momento necesitas algo más, por aquí estaré.`,
+          cta: `¡Éxitos! 👋`,
+        },
+      };
+
+      const template = templates[intent] || templates.INFORMAR;
+
+      // Construir respuesta completa
+      const response = [
+        template.hook,
+        template.body,
+        template.cta,
+      ].filter(Boolean).join("\n\n");
+
+      return {
+        ok: true,
+        summary: `Respuesta generada para intención: ${intent}`,
+        data: {
+          response,
+          structure: {
+            hook: template.hook,
+            body: template.body,
+            cta: template.cta,
+          },
+          intent,
+        },
+      };
+    },
+  },
 ];
 
 /**
@@ -6558,7 +6844,7 @@ const FAMILIAS: Array<{ cuando: RegExp; prefijos: string[] }> = [
     prefijos: ["fb_", "ad_", "crear_anuncio", "optimize_copy", "generate_image"] },
   { cuando: /producto|precio|cat[aá]logo|curso|pack|stock|categor[ií]a|imagen/i,
     prefijos: ["product", "categor", "create_product", "update_product", "delete_product", "generate_image", "optimize_copy", "terabox"] },
-  { cuando: /tienda|store|dominio|landing|web/i, prefijos: ["store", "domain", "landing"] },
+  { cuando: /tienda|store|dominio|landi|landing|web|studio/i, prefijos: ["store", "domain", "landing"] },
   { cuando: /agente|prompt|personalidad|bot|conversaci[oó]n|chat|lead|cliente/i,
     prefijos: ["agent", "agente", "conversa", "lead", "whatsapp", "seguimiento", "followup"] },
   { cuando: /pago|cobr|nequi|transferen|suscripci|plan|factur/i, prefijos: ["payment", "pago", "subscription", "plan"] },
@@ -6754,6 +7040,7 @@ PRINCIPIOS OBLIGATORIOS:
    Español siempre, sin mezclar caracteres de otro idioma/alfabeto por error.
 6.1. REGISTRO SEGÚN EL CONTENIDO, NO SEGÚN CÓMO PREGUNTÓ: el emoji por línea (regla 8) sigue siendo el formato normal para cualquier respuesta con contenido real -- datos, hallazgos, varios puntos, un diagnóstico, una lista, un plan -- AUNQUE la pregunta haya sido casual ("che, ¿cómo ves las ventas?", "¿y eso por qué pasa?"). El admin prefiere ese formato, ayuda a leer rápido; no lo elimines. Lo único que cambia a prosa corta y natural, sin emoji por línea, es cuando la respuesta NO tiene contenido informativo real: un saludo, un "dale", un "jaja", un agradecimiento, charla pura sin datos que transmitir -- ahí un menú o una lista no tiene nada que organizar, así que no la fuerces.
 6.2. Sea cual sea el registro: NUNCA uses encabezados markdown (##, ###) ni te firmes con una etiqueta de personaje tipo "Análisis de Situación:", "Diagnóstico:" o "Recomendación como Director de Marketing:" -- eso suena a informe de consultora, no a alguien que te está ayudando. Decí el hallazgo o la recomendación directo, con una línea de emoji si hace falta (ej: "🎯 Para cerrar esa venta, yo le mandaría...").
+6.4. UN "SÍ" A TU PREGUNTA ES UNA ORDEN, NO UN PIE PARA REPETIR. Si tu mensaje anterior terminó preguntando "¿querés que X?" y el admin contesta "sí", "dale", "ok", "listo", "hacelo": hacé X en este turno (llamá la herramienta o proponé la acción) y entregá SOLO el resultado. Nunca vuelvas a explicar el contexto, nunca reenvíes la misma información con otro formato, nunca vuelvas a preguntar lo mismo. Si tu pregunta ofrecía opciones ("¿A o B?") y contesta "sí", tomá la primera. Y no digas que una herramienta "no está cargada en este turno" ni le pidas al admin que la nombre: si no la tenés, decí qué no pudiste mirar, en una línea, y seguí.
 6.3. NUNCA muestres al admin los nombres técnicos de las herramientas (list_products, propose_action, fb_ad_draft, etc.) en tu respuesta -- describí lo que hacés en lenguaje llano ("reviso tu catálogo", "preparo un borrador de anuncio"), esos nombres son para vos, no para el admin.
 7. NO ANUNCIES, HACÉ: nunca digas "voy a…", "déjame…", "a continuación…", "en seguida…" ni "siguiente paso:" y ahí termines el turno sin llamar la herramienta. Si necesitás datos, llamalos YA en este mismo turno (podés encadenar varias herramientas antes de responder). El admin no debería tener que escribir "segui" o "dale" para que avances con algo que ya podías hacer vos mismo.
    ❌ MAL: "Ya tengo la info del producto. Ahora voy a revisar la campaña de Facebook…" (y no llama la herramienta)

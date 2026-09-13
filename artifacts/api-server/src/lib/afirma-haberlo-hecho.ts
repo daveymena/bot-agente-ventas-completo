@@ -57,6 +57,17 @@
  * Va sin acentos y en minúscula: se compara contra la palabra normalizada.
  */
 const NO_AFIRMAN = new Set([
+  // Estados que Atlas LEE con sus herramientas, no trabajos que hizo:
+  // "WhatsApp: conectado", "Instagram: NO autorizado", "sigue activada".
+  // Medido el 13-09-2026: el aviso salía en TODAS las respuestas de la
+  // sesión s-1789094170354, incluidas las de solo lectura, y el dueño lo
+  // describió como "texto desbordado y desorganizado".
+  "conectado", "conectada", "conectados", "conectadas", "desconectado", "desconectada",
+  "autorizado", "autorizada", "autorizados", "autorizadas", "vinculado", "vinculada", "vinculados", "vinculadas",
+  "configurado", "configurada", "configurados", "configuradas", "habilitado", "habilitada", "habilitados", "habilitadas",
+  "deshabilitado", "deshabilitada", "verificado", "verificada", "verificados", "verificadas",
+  "revisado", "revisada", "revisados", "revisadas", "consultado", "consultada", "leido", "leida",
+  "encendido", "encendida", "apagado", "apagada", "pausado", "pausada", "enganchado", "enganchada",
   // Los que aparecieron de verdad en producción.
   "estado", "estados", "pedido", "pedidos", "resultado", "resultados",
   "contenido", "contenidos", "identificado", "identificados",
@@ -145,6 +156,11 @@ export function afirmaHaberloHecho(texto: string): boolean {
     let m: RegExpExecArray | null;
     while ((m = patron.exec(t)) !== null) {
       const palabra = m[1];
+      // "no quedó guardado", "todavía no está creado", "sin guardar": una
+      // negación no afirma nada hecho.
+      const antes = t.slice(Math.max(0, m.index - 16), m.index);
+      const negado = /\b(no|nada|sin|tampoco|nunca|todav[ií]a no|a[uú]n no)\s*$/i.test(antes) || /\bno\s+(qued|fue|est)/i.test(m[0]);
+      if (negado) { if (m.index === patron.lastIndex) patron.lastIndex++; continue; }
       if (palabra && !NO_AFIRMAN.has(normalizar(palabra))) return true;
       // Una coincidencia de ancho cero colgaría el bucle. No debería pasar con
       // estos patrones, pero es una línea contra un cuelgue en producción.

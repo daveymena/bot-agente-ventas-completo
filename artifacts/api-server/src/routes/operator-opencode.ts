@@ -1069,7 +1069,20 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
       // La TTL del token = lo que dura el turno. Además de acotar el token,
       // su `exp` es lo que el puente MCP usa como turnDeadline para que una
       // herramienta lenta (deep_research) sepa cuánto tiempo le queda real.
-      const toolRegistry = buildMcpToolRegistry(String(prompt));
+      // ── Las herramientas se eligen por lo que se está HABLANDO, no solo
+      // por el último mensaje ──────────────────────────────────────────────
+      //
+      // Medido el 13-09-2026 (sesión s-1789094170354): Atlas preguntó
+      // "¿querés que revise…?", el admin contestó "pe srevisa" / "dale" / "sí",
+      // y el turno corrió con el paquete de "charla pura" (dashboard +
+      // propose_action): sin ninguna herramienta para hacer lo que él mismo
+      // había ofrecido. Un "sí" solo significa algo junto a la pregunta que
+      // contesta, así que la elección mira también los últimos turnos.
+      const esSeguimientoCorto = String(prompt).trim().length <= 40 || /^(s[ií]|dale|ok|okey|listo|claro|hacelo|hazlo|revisa|revis[aá]lo|ve|mira|adelante|perfecto|bueno|va|de una|por favor)\b/i.test(String(prompt).trim());
+      const pedidoParaHerramientas = esSeguimientoCorto
+        ? [...convo.slice(-4).map((m: any) => String(m.content || "")), String(prompt)].join("\n")
+        : String(prompt);
+      const toolRegistry = buildMcpToolRegistry(pedidoParaHerramientas);
       // El subconjunto viaja en la URL del puente: es lo que hace que el
       // modelo reciba solo los esquemas que puede llegar a usar en ESTE
       // pedido, en vez de los 34 completos. Ver el comentario en
@@ -1137,6 +1150,20 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
         .map((m: any) => `${m.role === "user" ? "Admin" : "Atlas"}: ${m.content}`)
         .join("\n\n");
       let text = historyText ? `${historyText}\n\nAdmin: ${prompt}` : `Admin: ${prompt}`;
+      // ── Un "sí" contesta la pregunta anterior: se lo decimos con todas las
+      // letras ────────────────────────────────────────────────────────────
+      //
+      // El dueño (13-09-2026): "no está entendiendo un sí cuando anteriormente
+      // dejó un interrogante que apunta a sí o a no, y está reenviando la
+      // información más formateada y desorganizada". El modelo veía el
+      // historial, pero ante un "sí" volvía a explicar en vez de hacer.
+      const ultimoDeAtlas = [...convo].reverse().find((m: any) => m.role !== "user");
+      const preguntaAnterior = String(ultimoDeAtlas?.content || "").split(/\n+/).map((l: string) => l.trim()).filter((l: string) => /[?¿]/.test(l)).pop() || "";
+      const esUnSi = /^(s[ií]+|sí\s+(por\s+favor|dale|claro)|dale|ok(ey)?|claro( que s[ií])?|hacelo|hazlo|adelante|de una|listo|va|perfecto|bueno)[\s!.]*$/i.test(String(prompt).trim());
+      if (esUnSi && preguntaAnterior) {
+        text += `\n\n[NOTA DEL SISTEMA] El admin acaba de contestar que SÍ a tu pregunta anterior: «${preguntaAnterior.slice(0, 300)}». Hacé exactamente eso ahora. No repitas lo que ya le dijiste ni vuelvas a explicar el contexto: entregá el resultado o ejecutá la acción. Si tu pregunta ofrecía varias opciones, tomá la primera que propusiste.`;
+        logger.info({ tenantId, pregunta: preguntaAnterior.slice(0, 80) }, "[AtlasOpenCode] 'sí' a la pregunta anterior: se le indica al modelo");
+      }
 
       // ── El módulo de publicidad, SOLO cuando se está hablando de anuncios ─
       //

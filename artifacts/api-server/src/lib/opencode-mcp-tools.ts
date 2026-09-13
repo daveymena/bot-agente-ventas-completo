@@ -1115,6 +1115,14 @@ const GRUPOS: { patron: RegExp; herramientas: string[] }[] = [
     // Contenido organico y estrategia. Va aparte del grupo de anuncios porque
     // un plan de publicaciones no toca Meta ni gasta: es lo que una agencia
     // entrega ANTES de pautar.
+    // Landings: "que landipage tenemos publicada" (13-09-2026) no caía en
+    // ningún grupo y `landing_listar` no estaba en ninguno: Atlas contestó
+    // "no tengo una consulta que devuelva la lista de landings" teniéndola.
+    // El patrón tolera "landipage"/"landing page"/"lp"/"Landing Studio".
+    patron: /landi|landing|\bl\/|p[aá]gina de venta|\blp\b|studio/i,
+    herramientas: ["landing_listar", "list_products"],
+  },
+  {
     patron: /contenido|publicacion|publicar|org[aá]nic|calendario|estrategia|agencia|redes|instagram|posteo|postear/i,
     herramientas: ["plan_de_contenido", "propuesta_campana", "list_products", "marketing_aprendizajes"],
   },
