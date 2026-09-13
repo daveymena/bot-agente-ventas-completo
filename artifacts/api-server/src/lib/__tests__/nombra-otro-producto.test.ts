@@ -181,3 +181,24 @@ describe("13-09: sin producto nombrado atiende la especialidad con más producto
     expect(nombraAlgoConcreto("ok")).toBe(false);
   });
 });
+
+import { seccionQueCorresponde } from "../ficha-parcial";
+
+describe("13-09: un 'sí' a una pregunta que no ofrecía nada no manda ficha ni pago", () => {
+  it("'dale' con intent payment_intent y sin oferta previa → ninguna", () => {
+    expect(seccionQueCorresponde({ mensaje: "dale", intent: "payment_intent", fichaYaEnviada: true } as any)).toBe("ninguna");
+    expect(seccionQueCorresponde({ mensaje: "si", intent: "confirmation", fichaYaEnviada: true } as any)).toBe("ninguna");
+  });
+  it("pero si el bot ofreció contenido o precio, el sí es para eso", () => {
+    expect(seccionQueCorresponde({ mensaje: "si", intent: "confirmation", fichaYaEnviada: true, ofrecimosContenido: true } as any)).toBe("info");
+    expect(seccionQueCorresponde({ mensaje: "dale", intent: "confirmation", fichaYaEnviada: true, ofrecimosPrecio: true } as any)).toBe("precio");
+  });
+  it("y '¿cómo pago?' sigue siendo pago", () => {
+    expect(seccionQueCorresponde({ mensaje: "sí, cómo pago?", intent: "payment_intent", fichaYaEnviada: true } as any)).toBe("pago");
+  });
+  it("el parser corrige la ficha al producto que el cliente nombró", () => {
+    const src = readFileSync(join(__dirname, "..", "agent.ts"), "utf8");
+    expect(src).toMatch(/y el cliente nombró .*: se corrige la ficha/);
+    expect(src).toMatch(/const notaDelSi = /);
+  });
+});

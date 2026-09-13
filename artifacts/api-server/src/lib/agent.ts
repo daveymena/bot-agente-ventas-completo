@@ -81,6 +81,7 @@ import {
   detectIntent,
   tryHardcodedAnswer,
   isPaymentProofIntent,
+  nombraAlgoConcreto,
   sanitizeResponse,
   detectHardcodedIntent,
   hasHardcodedAnswerBeenGiven,
@@ -1250,6 +1251,19 @@ export async function runAgentReply(conversationId: number) {
   // panel y nada de eso llegaba al modelo -- y encima el bloque del negocio,
   // tres párrafos más abajo, decía "Vos sos: Sofía". Gana lo primero que lee.
   const instruccionesDelAgente = String(activeAgent.systemPrompt || "").trim();
+  // ── Un "sí" contesta la ÚLTIMA pregunta del asesor: se le dice al modelo ──
+  //
+  // El dueño (13-09-2026): "no está entendiendo un sí cuando anteriormente
+  // dejó un interrogante, y reenvía la información más formateada". El modelo
+  // ve el historial, pero ante un "sí" suelto volvía a presentar el producto.
+  const notaDelSi = (() => {
+    const t = String(lastText || "").trim();
+    if (!/^(s[ií]+|dale|ok(ey)?|claro|listo|bueno|va|de una|perfecto|obvio|por supuesto)[\s!.👍😊🙌]*$/i.test(t)) return "";
+    const ultimoDelAsesor = [...memory.history].reverse().find((m: any) => m.role !== "customer");
+    const pregunta = String(ultimoDelAsesor?.content || "").split(/\n+/).map((l: string) => l.trim()).filter((l: string) => /[?¿]/.test(l)).pop();
+    if (!pregunta) return "";
+    return `\n\n[NOTA] El cliente acaba de contestar "${t}" a tu última pregunta: «${pregunta.slice(0, 240)}». Respondé a ESO, en 1-3 frases, sin volver a presentar el producto ni repetir lo que ya le dijiste. Si tu pregunta ofrecía dos opciones, asumí la primera y seguí.`;
+  })();
   const atlasSalesPrompt = `Te llamas ${voice.agentName}${voice.agentRole ? `, ${voice.agentRole}` : ""} de ${voice.businessName}. Atiendes por WhatsApp como el asesor comercial experto de este negocio.
 
 Estás conversando con ${nombreCorto || customerName}. Entiende la conversación completa, responde a la necesidad real del cliente y guía la venta con naturalidad. No eres un bot de menú ni repites plantillas.
@@ -1284,7 +1298,7 @@ CATÁLOGO DISPONIBLE:
 ${productList.length > 0 ? productsBlock : "No hay productos disponibles en este momento."}
 
 HISTORIAL RECIENTE:
-${memory.history.slice(-12).map((m: any) => `${m.role === "customer" ? "Cliente" : "Asesor"}: ${m.content}`).join("\n") || "Sin mensajes anteriores."}`;
+${memory.history.slice(-12).map((m: any) => `${m.role === "customer" ? "Cliente" : "Asesor"}: ${m.content}`).join("\n") || "Sin mensajes anteriores."}${notaDelSi}`;
 
   const systemPrompt = (atlasWhatsAppEnabled ? atlasSalesPrompt : activeAgent.systemPrompt || `Eres **${voice.agentName}**, ${voice.agentRole} de ${voice.businessName}.
 Estás conversando con **${nombreCorto || customerName}** en WhatsApp.
@@ -3516,6 +3530,26 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
           resolvedId = -1;
         }
 
+        // ── EL PRODUCTO QUE EL CLIENTE NOMBRÓ MANDA SOBRE EL ID DEL MODELO ──
+        //
+        // Medido el 13-09-2026: "¿cuánto vale el curso de Excel?" → el motor
+        // resolvió EXCEL (118) y el modelo escribió [CARD: 119] (INGLÉS). El
+        // id era válido y, como el intent era de pago, `cardConRespaldo` lo
+        // dejó pasar: el cliente recibió el precio de inglés. Si el servidor
+        // identificó el producto del mensaje, la ficha es de ese.
+        {
+          const delServidor = decision.productoDelMensaje?.id
+            ?? ((decision.productToShow && !elProductoSaleDeLaPreguntaMisma(String(decision.productToShow.name || ""), String(lastText || "")) && nombraAlgoConcreto(String(lastText || "")))
+              ? decision.productToShow.id
+              : null);
+          if (resolvedId !== -1 && typeof delServidor === "number" && delServidor !== resolvedId && validIds.has(delServidor)) {
+            const elegido = productList.find((p: any) => p.id === resolvedId);
+            const correcto = productList.find((p: any) => p.id === delServidor);
+            console.log(`🔧 [PARSER] El modelo trajo "${elegido?.name ?? resolvedId}" y el cliente nombró "${correcto?.name ?? delServidor}": se corrige la ficha - ${ts()}`);
+            resolvedId = delServidor;
+          }
+        }
+
         // ── ¿ALGO RESPALDA ESTA FICHA? ───────────────────────────────────────
         // Cuando el servidor no identificó producto y la conversación no
         // traía ninguno, el id que escribió el modelo no lo respalda nada:
@@ -3633,6 +3667,7 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
           // frases no estan en ninguna lista. Ver queOfrecioElBot.
           const ofrecidoEnTexto = queOfrecioElBot(ultimaDelBot);
           const ofrecimosVideo = ofrecioAntes === "video" || ofrecidoEnTexto === "video";
+          const ofrecimosPago = ofrecioAntes === "pago" || ofrecidoEnTexto === "pago";
           const ofrecimosContenido = ofrecioAntes === "contenido"
             || ofrecidoEnTexto === "contenido" || ofrecidoEnTexto === "precio";
           // Un "si" a "¿Te paso el precio?" pide el PRECIO. Antes esa oferta
@@ -3665,6 +3700,7 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
             ofrecimosVideo,
             ofrecimosContenido,
             ofrecimosPrecio,
+            ofrecimosPago,
             videoYaEnviado,
             yaVioContenido: yaVioLaFicha(resolvedId),
             tieneVideo: !!videoDeProductoSeguro((productList as any[]).find((pr: any) => pr.id === resolvedId)),
@@ -3736,6 +3772,10 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
             yaSabeElPrecio,
           );
           console.log(`🎯 [FICHA] Sección elegida: ${seccion}, el cierre ofrece: ${ofrecimientoDeLaFicha} (intent: ${decision.intent}) - ${ts()}`);
+          if (seccion === "ninguna") {
+            console.log(`🛡️ [FICHA] "${String(lastText).trim()}" contesta una pregunta que no ofrecía nada de la ficha: sin tarjeta, contesta el texto - ${ts()}`);
+            resolvedId = -1;
+          }
           // ── La etapa decide si corresponde cobrar ───────────────────────────
           //
           // `calcularEtapa` ya sabía en qué punto va el trato, y lo sabía
@@ -3785,7 +3825,9 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
           // lo quiere y recién ahí se presenta, conectando con eso. Es el único
           // movimiento que la frena; los demás (presentar, cerrar, destrabar)
           // la necesitan.
-          if (pasoDelEmbudo?.movimiento === "calificar") {
+          if (resolvedId === -1) {
+            // Sección "ninguna": ya se decidió arriba que no va tarjeta.
+          } else if (pasoDelEmbudo?.movimiento === "calificar") {
             const pr = (productList as any[]).find((x: any) => x.id === resolvedId);
             fichaRetenida = {
               id: resolvedId,

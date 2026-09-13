@@ -50,7 +50,9 @@ describe("preguntó cómo pagar, sin nombrar medio → los medios", () => {
 
   it("por intención, cuando el texto no lo dice", () => {
     expect(sec("listo lo quiero", "payment_intent")).toBe("pago");
-    expect(sec("dale", "confirmation")).toBe("pago");
+    // "dale" pelado sin oferta previa ya NO es pago (13-09-2026): contesta a
+    // la pregunta anterior del bot, que acá no ofreció nada.
+    expect(sec("dale", "confirmation")).toBe("ninguna");
   });
 });
 

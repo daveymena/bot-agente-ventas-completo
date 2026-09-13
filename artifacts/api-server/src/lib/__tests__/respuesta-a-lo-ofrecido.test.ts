@@ -39,12 +39,12 @@ describe("un 'sí' contesta lo último que se ofreció, no lo que el modelo supo
     }
   });
 
-  it("si NO se ofreció contenido, un 'sí' sigue leyéndose como antes", () => {
-    // Acá el "sí" sí contesta a otra cosa (una intención de pago detectada), y
-    // ese camino no se toca.
+  it("si NO se ofreció nada, un 'sí' no manda sección (13-09-2026)", () => {
+    // Antes: "pago" por la intención detectada. Medido en producción: "dale"
+    // a "¿desde cero o para reforzar?" mandaba el checkout.
     expect(
       seccionQueCorresponde({ mensaje: "Si", intent: "payment_intent", fichaYaEnviada: true }),
-    ).toBe("pago");
+    ).toBe("ninguna");
   });
 
   it("un pedido explícito de pago gana, aunque se haya ofrecido contenido", () => {

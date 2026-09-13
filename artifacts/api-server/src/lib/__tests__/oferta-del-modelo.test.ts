@@ -102,6 +102,7 @@ describe("Con la oferta bien leida, el 'Si' ya no cobra", () => {
       fichaYaEnviada: true,
       ofrecimosContenido: ofrecio === "contenido",
       ofrecimosVideo: ofrecio === "video",
+      ofrecimosPago: ofrecio === "pago",
     });
     expect(seccion).toBe("pago");
   });

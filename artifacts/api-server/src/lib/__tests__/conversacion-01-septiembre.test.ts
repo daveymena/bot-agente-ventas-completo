@@ -112,9 +112,15 @@ describe("Fallo 3 bis: el checkout no puede salir por un 'si' a otra cosa", () =
     ).toBe("pago");
   });
 
-  it("y un 'si' sin nada ofrecido antes sigue siendo intencion de compra", () => {
+  // Cambiado el 13-09-2026: un "sí" suelto a una pregunta que no ofrecía
+  // nada mandaba el checkout ("¿desde cero o para reforzar?" → "dale" →
+  // medios de pago, medido en producción). Sin oferta, no hay sección.
+  it("y un 'si' sin nada ofrecido antes NO es intencion de compra: no hay seccion", () => {
     expect(
       seccionQueCorresponde({ mensaje: "Si", intent: "confirmation", fichaYaEnviada: true }),
+    ).toBe("ninguna");
+    expect(
+      seccionQueCorresponde({ mensaje: "Si", intent: "confirmation", fichaYaEnviada: true, ofrecimosPago: true }),
     ).toBe("pago");
   });
 });

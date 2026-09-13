@@ -43,7 +43,13 @@ export type SeccionFicha =
   /** El video de muestra, porque lo pidió o aceptó verlo. */
   | "video"
   /** La ficha entera. Solo cuando de verdad corresponde. */
-  | "completa";
+  | "completa"
+  /**
+   * Ninguna sección: el cliente dijo "sí"/"dale" a una pregunta del bot que
+   * NO ofrecía nada de la ficha ("¿arrancás desde cero o ya tenés base?").
+   * Ahí la respuesta es conversación, no una tarjeta.
+   */
+  | "ninguna";
 
 export interface EntradaSeccion {
   /** Lo último que escribió el cliente. */
@@ -54,6 +60,8 @@ export interface EntradaSeccion {
   fichaYaEnviada?: boolean;
   /** true si en el turno anterior se le ofreció ver el video. */
   ofrecimosVideo?: boolean;
+  /** true si el turno anterior ofreció los medios de pago ("¿te paso los datos de pago?"). */
+  ofrecimosPago?: boolean;
   /**
    * El mensaje anterior del bot terminó ofreciendo contar QUÉ INCLUYE.
    *
@@ -296,6 +304,23 @@ export function seccionQueCorresponde(e: EntradaSeccion): SeccionFicha {
   // que el modelo lo adivine como `confirmation` (= "sí, quiero comprar").
   if (e.ofrecimosContenido && esAfirmacionSuelta(e.mensaje)) return "info";
   if (e.ofrecimosPrecio && esAfirmacionSuelta(e.mensaje)) return "precio";
+
+  // ── Un "sí"/"dale" pelado a una pregunta que NO ofrecía nada ─────────────
+  //
+  // Medido en producción el 13-09-2026:
+  //   bot:     "¿lo querés para aprender desde cero o para reforzar?"
+  //   cliente: "dale"
+  //   bot:     [💰 precio + Tarjeta + PayPal + Nequi]     ← intent payment_intent
+  //   bot:     "¿Arrancarías desde cero o ya tenés práctica?"
+  //   cliente: "si"
+  //   bot:     [la ficha otra vez]                          ← intent confirmation
+  //
+  // El clasificador lee un "sí" suelto como "sí, quiero comprar" y acá se
+  // convertía en la sección de pago o en la ficha repetida. Un "sí" solo
+  // significa algo junto a la pregunta que contesta; si esa pregunta no
+  // ofrecía precio, contenido ni video, no hay sección que mandar: contesta
+  // el texto del modelo, que sí leyó la pregunta.
+  if (esAfirmacionSuelta(e.mensaje)) return e.ofrecimosPago ? "pago" : "ninguna";
 
   // ── Por intención, cuando el texto no lo dice de forma literal ────────────
   if (intent === "payment_intent" || intent === "confirmation") return "pago";
