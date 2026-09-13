@@ -77,10 +77,10 @@ export function AppSidebar() {
           </UiBadge>
         )}
       </SidebarHeader>
-      <SidebarContent className="px-3 py-4">
+      <SidebarContent className="px-3 py-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         <SidebarGroup>
           <SidebarGroupContent>
-            <SidebarMenu className="gap-2">
+            <SidebarMenu className="gap-1">
               {allNavItems.map((item) => {
                 const isActive = location === item.href;
                 const linkClassName = "flex items-center gap-3 px-3 w-full";
@@ -96,7 +96,7 @@ export function AppSidebar() {
                       asChild
                       isActive={isActive}
                       tooltip={item.label}
-                      className={`group flex items-center h-11 rounded-lg transition-colors ${isActive ? 'bg-sidebar-primary text-white font-medium' : 'text-sidebar-foreground font-medium hover:text-white hover:bg-sidebar-accent'}`}
+                      className={`group flex items-center h-10 rounded-lg transition-colors ${isActive ? 'bg-sidebar-primary text-white font-medium' : 'text-sidebar-foreground font-medium hover:text-white hover:bg-sidebar-accent'}`}
                     >
                       {(item as any).external ? (
                         <a href={item.href} target="_blank" rel="noopener noreferrer" className={linkClassName}>{linkContent}</a>
@@ -111,12 +111,12 @@ export function AppSidebar() {
           </SidebarGroupContent>
         </SidebarGroup>
       </SidebarContent>
-      <div className="mt-auto p-4 space-y-2 relative z-10">
-        <button onClick={async () => { await fetch("/api/auth/logout", { method: "POST" }); window.location.href = "/auth"; }} className="flex w-full items-center gap-3 text-sm font-medium px-4 py-3 rounded-xl bg-red-500/10 text-red-500 border border-red-500/20 hover:bg-red-500/20 transition-all mb-2">
+      <div className="mt-auto px-3 py-3 space-y-2 relative z-10">
+        <button onClick={async () => { await fetch("/api/auth/logout", { method: "POST" }); window.location.href = "/auth"; }} className="flex w-full items-center gap-3 text-sm font-medium px-4 py-2.5 rounded-xl bg-red-500/10 text-red-500 border border-red-500/20 hover:bg-red-500/20 transition-all mb-2">
           <div className="flex h-3.5 w-3.5 items-center justify-center"><span className="relative inline-flex rounded-full h-2 w-2 bg-red-500"></span></div>
           <span>Cerrar Sesión</span>
         </button>
-        <div className="flex items-center gap-3 text-sm font-medium px-4 py-3 rounded-lg bg-sidebar-accent border border-sidebar-border transition-colors">
+        <div className="flex items-center gap-3 text-sm font-medium px-4 py-2.5 rounded-lg bg-sidebar-accent border border-sidebar-border transition-colors">
           <div className="relative flex h-3.5 w-3.5 items-center justify-center">
             {wsStatus?.state === 'connected' && <span className="absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-30 animate-ping"></span>}
             <span className={`relative inline-flex rounded-full h-2.5 w-2.5 ${wsStatus?.state === 'connected' ? 'bg-green-500 shadow-[0_0_10px_rgba(34,197,94,0.8)]' : 'bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.8)]'}`}></span>

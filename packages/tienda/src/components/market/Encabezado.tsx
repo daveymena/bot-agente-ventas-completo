@@ -107,7 +107,7 @@ export default function Encabezado({
     <header className="sticky top-0 z-50 bg-white">
       {/* ── 1. BARRA SUPERIOR ─────────────────────────────────────────── */}
       <div className="hidden md:block bg-[var(--mk-topbar)] border-b border-[var(--mk-border)]">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-9 flex items-center justify-between text-[12px] text-[var(--mk-muted)]">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 h-9 flex items-center justify-between text-[12px] text-[var(--mk-muted)]">
           <div className="flex items-center gap-5">
             {/* Solo se muestra el contacto que EXISTE. Una dirección o un
                 horario inventados para "verse profesional" es justo lo que
@@ -139,7 +139,7 @@ export default function Encabezado({
 
       {/* ── 2. ENCABEZADO: LOGO · BUSCADOR · CARRITO ──────────────────── */}
       <div className="border-b border-[var(--mk-border)]">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3 md:py-5">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-3 md:py-5">
           <div className="flex items-center gap-4 md:gap-8">
             <Link to={base} className="flex items-center gap-2.5 shrink-0">
               {logoUrl ? (
@@ -243,7 +243,7 @@ export default function Encabezado({
 
       {/* ── 3. NAVEGACIÓN OSCURA ──────────────────────────────────────── */}
       <div className="hidden md:block bg-[var(--mk-nav)]">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-stretch h-[46px]">
             {/* El bloque de categorías: la firma de Market. Si la tienda
                 todavía no tiene categorías cargadas no se dibuja, porque un

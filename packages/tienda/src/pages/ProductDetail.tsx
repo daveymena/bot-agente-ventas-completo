@@ -8,6 +8,9 @@ import { sanitizeRichHtml, plainTextToHtml } from '../lib/rich-text';
 import TrustBar from '../components/TrustBar';
 
 interface DetailProduct {
+  /** Galería completa (principal primero) y video principal, si el dueño los cargó. */
+  images?: string[];
+  video?: string | null;
   id: number;
   name: string;
   description: string | null;
@@ -43,6 +46,7 @@ const ProductDetail = () => {
   const [related, setRelated] = useState<RelatedProduct[]>([]);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
+  const [fotoActiva, setFotoActiva] = useState(0);
   const [imgError, setImgError] = useState(false);
 
   useEffect(() => {
@@ -120,6 +124,13 @@ const ProductDetail = () => {
       )}`
     : null;
 
+  // Galería: la principal primero (la que eligió el dueño) y las demás.
+  const fotos: string[] = (() => {
+    const lista = Array.isArray(product.images) && product.images.length ? product.images : (product.image ? [product.image] : []);
+    return Array.from(new Set(lista.filter(Boolean)));
+  })();
+  const videoEmbed = embedDeVideo(product.video || null);
+
   return (
     <div className="max-w-6xl mx-auto px-4 py-8">
       <div className="mb-8 flex items-center gap-2 text-sm text-gray-500 font-medium">
@@ -137,9 +148,9 @@ const ProductDetail = () => {
               tono de la marca, no sobre un gris con borde. Es lo que hace que
               la foto "flote" -- y sigue al color que elija el dueño. */}
           <div className="aspect-square bg-[var(--store-primary-soft)] rounded-uv overflow-hidden relative">
-            {product.image && !imgError ? (
+            {(fotos[fotoActiva] || product.image) && !imgError ? (
               <img
-                src={product.image || `/images/products/${product.id}.jpg`}
+                src={fotos[fotoActiva] || product.image || `/images/products/${product.id}.jpg`}
                 alt={product.name}
                 /* ver nota abajo */
                 className="w-full h-full object-contain p-4 group-hover:scale-105 transition-transform duration-700"
@@ -158,13 +169,37 @@ const ProductDetail = () => {
               </div>
             )}
           </div>
+          {fotos.length > 1 && (
+            <div className="mt-3 grid grid-cols-5 sm:grid-cols-6 gap-2">
+              {fotos.map((u, i) => (
+                <button
+                  key={u}
+                  type="button"
+                  onClick={() => { setFotoActiva(i); setImgError(false); }}
+                  className={`aspect-square rounded-lg overflow-hidden border-2 bg-white transition-colors ${i === fotoActiva ? 'border-[var(--store-primary)]' : 'border-transparent hover:border-gray-300'}`}
+                  aria-label={`Foto ${i + 1}`}
+                >
+                  <img src={u} alt="" className="w-full h-full object-cover" loading="lazy" />
+                </button>
+              ))}
+            </div>
+          )}
+          {videoEmbed && (
+            <div className="mt-4 rounded-uv overflow-hidden bg-black aspect-video">
+              {videoEmbed.tipo === 'iframe' ? (
+                <iframe src={videoEmbed.src} title="Video del producto" className="w-full h-full" allow="accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture" allowFullScreen />
+              ) : (
+                <video src={videoEmbed.src} controls playsInline className="w-full h-full" />
+              )}
+            </div>
+          )}
         </div>
 
         <div className="flex flex-col">
           <p className="text-[11px] font-bold text-[var(--store-primary)] uppercase tracking-widest mb-3">
             {product.category}
           </p>
-          <h1 className="text-3xl sm:text-4xl font-extrabold text-gray-900 leading-tight mb-3 tracking-tight">
+          <h1 className="text-2xl sm:text-3xl font-extrabold text-gray-900 leading-tight mb-3 tracking-tight">
             {product.name}
           </h1>
 
@@ -198,7 +233,7 @@ const ProductDetail = () => {
             <div className="flex items-baseline gap-2">
               {/* En celular text-5xl desborda con precios de siete cifras
                   ($1.899.000): el numero se sale de la columna. */}
-              <span className="text-4xl sm:text-5xl font-black text-gray-900">{formatear(price)}</span>
+              <span className="text-3xl sm:text-4xl font-black text-gray-900">{formatear(price)}</span>
               <span className="text-base font-semibold text-gray-500">{product.currency || 'COP'}</span>
             </div>
             <p className="text-sm text-emerald-600 font-bold mt-1">
@@ -311,7 +346,7 @@ const ProductDetail = () => {
       {descriptionHtml && (
         <div className="mt-14 border-t border-gray-200 pt-10">
           <p className="text-xs font-bold uppercase tracking-[0.2em] text-[var(--store-primary)] mb-1">Detalles</p>
-          <h2 className="text-2xl sm:text-3xl font-black text-gray-900 tracking-tight mb-5">Descripción</h2>
+          <h2 className="text-xl sm:text-2xl font-black text-gray-900 tracking-tight mb-5">Descripción</h2>
           <div
             className="max-w-3xl text-[15px] text-gray-600 leading-relaxed whitespace-pre-line space-y-3 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_strong]:font-bold"
             dangerouslySetInnerHTML={{ __html: descriptionHtml }}
@@ -329,7 +364,7 @@ const ProductDetail = () => {
       {related.length > 0 && (
         <div className="mt-16 border-t border-gray-200 pt-10">
           <p className="text-xs font-bold uppercase tracking-[0.2em] text-[var(--store-primary)] mb-1">Más productos</p>
-          <h2 className="text-2xl sm:text-3xl font-black text-gray-900 tracking-tight mb-6">También te puede interesar</h2>
+          <h2 className="text-xl sm:text-2xl font-black text-gray-900 tracking-tight mb-6">También te puede interesar</h2>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-6">
             {related.map(r => (
               <Link
@@ -377,3 +412,16 @@ const ProductDetail = () => {
 };
 
 export default ProductDetail;
+
+/**
+ * Convierte la URL que cargó el dueño en algo que se pueda mostrar dentro
+ * de la tienda: YouTube → iframe embed, .mp4/.webm → <video>, otro → nada
+ * (Drive/Terabox piden cuenta y no se pueden incrustar sin permiso).
+ */
+function embedDeVideo(url: string | null): { tipo: 'iframe' | 'video'; src: string } | null {
+  if (!url) return null;
+  const yt = url.match(/(?:youtube\.com\/(?:watch\?v=|shorts\/|embed\/)|youtu\.be\/)([A-Za-z0-9_-]{6,})/);
+  if (yt) return { tipo: 'iframe', src: `https://www.youtube.com/embed/${yt[1]}` };
+  if (/\.(mp4|webm|ogg)(\?|$)/i.test(url) || url.startsWith('/videos/')) return { tipo: 'video', src: url };
+  return null;
+}

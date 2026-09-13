@@ -86,7 +86,7 @@ export default function Portada({
           {/* Banner principal. La foto de portada del negocio y, si no la
               cargó, la de un producto real: nunca una imagen de banco. Se
               muestra algo que el visitante puede comprar. */}
-          <div className="relative overflow-hidden bg-[var(--mk-nav)] text-white min-h-[280px] md:min-h-[360px] flex items-center">
+          <div className="relative overflow-hidden bg-[var(--mk-nav)] text-white min-h-[240px] md:min-h-[300px] flex items-center">
             {heroImagen && (
               <img
                 src={heroImagen}
@@ -110,11 +110,11 @@ export default function Portada({
                 style={{ backgroundImage: 'linear-gradient(to right, var(--mk-nav) 0%, var(--mk-nav) 45%, transparent 85%)' }}
               />
             )}
-            <div className="relative z-10 px-7 md:px-12 py-10 max-w-lg">
+            <div className="relative z-10 px-6 md:px-10 py-8 max-w-lg">
               <p className="inline-block text-[11px] font-bold uppercase tracking-[0.25em] text-white/70 mb-3">
                 {totalProductos} producto{totalProductos === 1 ? '' : 's'} disponibles
               </p>
-              <h1 className="text-3xl md:text-[42px] font-black leading-[1.08] tracking-tight mb-4">
+              <h1 className="text-2xl md:text-[34px] font-black leading-[1.1] tracking-tight mb-4">
                 {storeName}
               </h1>
               <p className="text-sm md:text-base text-white/85 mb-7 leading-relaxed">
@@ -141,7 +141,7 @@ export default function Portada({
                 <button
                   key={c.key}
                   onClick={() => onCategoria(c.key)}
-                  className="group relative overflow-hidden min-h-[130px] md:min-h-[170px] flex flex-col justify-center text-left px-5 py-4 text-white"
+                  className="group relative overflow-hidden min-h-[120px] md:min-h-[142px] flex flex-col justify-center text-left px-5 py-4 text-white"
                   style={{ backgroundColor: i === 0 ? 'var(--store-primary)' : 'var(--mk-nav)' }}
                 >
                   {c.image && (

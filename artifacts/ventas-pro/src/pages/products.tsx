@@ -387,7 +387,7 @@ export default function Products() {
                     {product.highlight && (
                       <p className="text-[11px] font-bold mb-1 uppercase tracking-wider" style={{ color: catColor }}>{product.highlight}</p>
                     )}
-                    <CardTitle className="text-xl font-bold line-clamp-1 pr-8 leading-tight text-foreground" title={product.name}>{product.name}</CardTitle>
+                    <CardTitle className="text-base font-bold line-clamp-2 pr-20 leading-snug text-foreground min-h-[2.5rem]" title={product.name}>{product.name}</CardTitle>
                     <div className="mt-1.5 flex items-baseline gap-1.5">
                       <span className="text-2xl font-black tracking-tighter text-foreground">${Number(product.price).toLocaleString()}</span>
                       <span className="text-[10px] text-muted-foreground font-bold uppercase">{product.currency}</span>

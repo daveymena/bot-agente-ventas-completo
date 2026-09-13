@@ -19,7 +19,7 @@ const Header = () => {
   return (
     <header className="bg-white border-b border-gray-100 sticky top-0 z-50">
       <div className="bg-slate-950 text-white">
-        <div className="max-w-7xl mx-auto px-4 h-10 flex items-center justify-between">
+        <div className="max-w-6xl mx-auto px-4 h-10 flex items-center justify-between">
           <div className="flex items-center gap-2 text-xs">
             <span className="w-5 h-5 rounded-md bg-emerald-700 flex items-center justify-center">
               <Store className="w-3 h-3" />
@@ -44,7 +44,7 @@ const Header = () => {
       </div>
 
       <div className="border-b border-gray-100">
-        <div className="max-w-7xl mx-auto px-4 h-16 flex items-center gap-5">
+        <div className="max-w-6xl mx-auto px-4 h-16 flex items-center gap-5">
           <div className="flex items-center gap-2 flex-shrink-0">
             <img src="/store-logo.svg" alt={config.storeName} className="h-8 w-auto" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
           </div>
@@ -125,7 +125,7 @@ const Header = () => {
       </div>
 
       <div className="border-b border-gray-100 hidden md:block">
-        <div className="max-w-7xl mx-auto px-4 flex items-center gap-0.5 h-11">
+        <div className="max-w-6xl mx-auto px-4 flex items-center gap-0.5 h-11">
           <span className="flex items-center gap-2 h-11 px-4 pr-5 mr-3 border-r border-gray-100 text-sm font-bold text-indigo-600">
             <Menu className="w-4 h-4" /> Categorías
           </span>
@@ -167,7 +167,7 @@ const Breadcrumbs = () => {
   if (paths.length === 0) return null;
   return (
     <div className="bg-slate-50 border-b border-gray-100">
-      <div className="max-w-7xl mx-auto px-4 py-3 flex items-center gap-2 text-xs text-slate-400">
+      <div className="max-w-6xl mx-auto px-4 py-3 flex items-center gap-2 text-xs text-slate-400">
         <Link to="/" className="text-slate-400 hover:text-indigo-600 font-medium">Inicio</Link>
         {paths.map((p, i) => (
           <span key={i} className="flex items-center gap-2">
@@ -187,7 +187,7 @@ const Footer = () => {
   return (
     <>
       <div className="bg-white border-t border-gray-100">
-        <div className="max-w-7xl mx-auto px-4 py-8 grid grid-cols-2 md:grid-cols-4 gap-6">
+        <div className="max-w-6xl mx-auto px-4 py-8 grid grid-cols-2 md:grid-cols-4 gap-6">
           {[
             { icon: Search, title: 'Envío a todo el país', desc: 'Gratis desde $150.000' },
             { icon: ArrowRight, title: 'Digital inmediato', desc: 'Enlace al confirmar el pago' },
@@ -208,7 +208,7 @@ const Footer = () => {
       </div>
 
       <footer className="bg-slate-950 text-slate-400">
-        <div className="max-w-7xl mx-auto px-4 py-12 grid grid-cols-1 md:grid-cols-4 gap-10">
+        <div className="max-w-6xl mx-auto px-4 py-12 grid grid-cols-1 md:grid-cols-4 gap-10">
           <div>
             <img src="/store-logo-white.svg" alt={config.storeName} className="h-8 w-auto mb-4" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
             <p className="text-sm leading-relaxed max-w-[34ch]">Tecnología, hogar y formación digital en un solo lugar. Atención automatizada 24/7 con Sofía IA.</p>
@@ -238,7 +238,7 @@ const Footer = () => {
             </div>
           </div>
         </div>
-        <div className="max-w-7xl mx-auto px-4 py-5 border-t border-white/10 text-xs text-center">
+        <div className="max-w-6xl mx-auto px-4 py-5 border-t border-white/10 text-xs text-center">
           © {new Date().getFullYear()} {config.storeName} — Todos los derechos reservados
         </div>
       </footer>

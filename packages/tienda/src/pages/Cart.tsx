@@ -12,7 +12,7 @@ const Cart = () => {
 
   if (cart.length === 0) {
     return (
-      <div className="max-w-7xl mx-auto px-4 py-20 text-center">
+      <div className="max-w-6xl mx-auto px-4 py-20 text-center">
         <div className="w-24 h-24 bg-[var(--store-primary)]/10 rounded-full flex items-center justify-center mx-auto mb-6">
           <Trash2 className="w-10 h-10 text-[var(--store-primary)]/60" />
         </div>
@@ -26,7 +26,7 @@ const Cart = () => {
   }
 
   return (
-    <div className="max-w-7xl mx-auto px-4 py-12">
+    <div className="max-w-6xl mx-auto px-4 py-12">
       <div className="flex items-center gap-2 mb-8">
         <Link to={`/tienda/${slug}`} className="text-gray-400 hover:text-[var(--store-primary)]">
            <ChevronLeft className="w-6 h-6" />

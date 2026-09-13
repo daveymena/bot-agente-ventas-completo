@@ -186,7 +186,13 @@ const Shop = () => {
       counts[key].count++;
       if (!counts[key].image && p.image) counts[key].image = p.image;
     });
-    return Object.values(counts).sort((a, b) => b.count - a.count);
+    const lista = Object.values(counts);
+    // Misma categoría en digital y en físico (p. ej. dos "General"): se
+    // distinguen en el rótulo, si no el cliente ve dos entradas iguales.
+    const porNombre: Record<string, number> = {};
+    lista.forEach(c => { porNombre[c.name.toLowerCase()] = (porNombre[c.name.toLowerCase()] || 0) + 1; });
+    lista.forEach(c => { if (porNombre[c.name.toLowerCase()] > 1) c.name = `${c.name} (${c.type === 'physical' ? 'físico' : 'digital'})`; });
+    return lista.sort((a, b) => b.count - a.count);
   }, [products]);
 
 
@@ -209,7 +215,7 @@ const Shop = () => {
   const displayedProducts = filteredProducts.slice(0, visibleCount);
 
   return (
-    <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-8 pb-24 md:pb-8">
+    <div className="max-w-6xl mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-8 pb-24 md:pb-8">
       {/* ── PORTADA ────────────────────────────────────────────────────
           La fila de apertura de Market --columna de categorías, banner grande,
           dos banners chicos-- más la tira de garantías.

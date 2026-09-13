@@ -18,7 +18,7 @@ const Hero = () => {
         <div className="absolute -bottom-8 left-20 w-96 h-96 rounded-full mix-blend-multiply filter blur-3xl animate-blob animation-delay-4000" style={{ backgroundColor: config.secondaryColor }}></div>
       </div>
       
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10 py-20">
+      <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10 py-20">
         <div className="grid lg:grid-cols-2 gap-12 items-center">
           <motion.div
             initial={{ opacity: 0, x: -50 }}
@@ -140,7 +140,7 @@ const Home = () => {
       {/* Categories Grid */}
       {config.showCategories && (
         <section className="py-24 bg-white">
-          <div className="max-w-7xl mx-auto px-4">
+          <div className="max-w-6xl mx-auto px-4">
             <div className="flex flex-col md:flex-row items-end justify-between mb-12 gap-6">
               <div>
                 <h2 className="text-4xl font-black text-slate-950 mb-4 tracking-tighter">EXPLORA CATEGORÍAS</h2>
@@ -176,7 +176,7 @@ const Home = () => {
 
       {/* Features */}
       <section className="py-24 bg-slate-50 border-y border-slate-100">
-        <div className="max-w-7xl mx-auto px-4">
+        <div className="max-w-6xl mx-auto px-4">
           <div className="grid grid-cols-1 md:grid-cols-4 gap-12">
             {[
               { icon: ShieldCheck, title: "Pagos 100% Seguros", desc: "Certificado SSL y pasarelas oficiales" },
@@ -198,7 +198,7 @@ const Home = () => {
 
       {/* Branch Selector & Search Highlight */}
       <section className="py-12 bg-white">
-        <div className="max-w-7xl mx-auto px-4">
+        <div className="max-w-6xl mx-auto px-4">
           <div className="bg-slate-50 rounded-3xl p-6 flex flex-col md:flex-row items-center justify-between gap-6 border border-slate-100">
             <div className="flex items-center gap-4">
               <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center shadow-sm">
@@ -228,7 +228,7 @@ const Home = () => {
       {/* Product Wizard Section */}
       {config.showWizard && (
         <section className="py-24 bg-white">
-          <div className="max-w-7xl mx-auto px-4">
+          <div className="max-w-6xl mx-auto px-4">
             <ProductWizard />
           </div>
         </section>
@@ -236,7 +236,7 @@ const Home = () => {
 
       {/* Featured Products */}
       <section className="py-24 bg-white">
-        <div className="max-w-7xl mx-auto px-4">
+        <div className="max-w-6xl mx-auto px-4">
           <div className="flex items-end justify-between mb-12">
             <div>
               <h2 className="text-4xl font-black text-slate-950 mb-4 tracking-tighter uppercase">Productos Destacados</h2>
@@ -257,7 +257,7 @@ const Home = () => {
 
       {/* Dropshipping/CTA Section */}
       <section className="py-20">
-        <div className="max-w-7xl mx-auto px-4">
+        <div className="max-w-6xl mx-auto px-4">
           <div className="bg-indigo-900 rounded-[2rem] p-8 md:p-16 relative overflow-hidden">
              <div className="absolute top-0 left-0 w-full h-full opacity-10">
                 <svg className="w-full h-full" viewBox="0 0 100 100" preserveAspectRatio="none">

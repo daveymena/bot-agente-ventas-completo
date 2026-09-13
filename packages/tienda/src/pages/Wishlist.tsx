@@ -54,7 +54,7 @@ const Wishlist = () => {
   const saved = catalog.filter(p => wishlist.includes(p.id));
 
   return (
-    <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-6 sm:py-10 pb-24 md:pb-10">
+    <div className="max-w-6xl mx-auto px-3 sm:px-6 lg:px-8 py-6 sm:py-10 pb-24 md:pb-10">
       <div className="flex items-center gap-2 mb-8">
         <Link to={`/tienda/${slug}`} className="text-gray-400 hover:text-[var(--store-primary)]">
           <ChevronLeft className="w-6 h-6" />
