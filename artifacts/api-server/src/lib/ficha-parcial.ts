@@ -302,6 +302,11 @@ export function seccionQueCorresponde(e: EntradaSeccion): SeccionFicha {
   // los puntos que NO entraron la primera vez (ver construirSeccion).
   if (PIDE_INFO.test(m)) {
     if (e.yaVioContenido && e.tieneVideo && !e.videoYaEnviado) return "video";
+    // Pedido del dueño (13-09): si la ficha ya se envió y el cliente quiere
+    // ampliar, NO se le manda otro bloque de ficha: la IA le explica a
+    // detalle lo que pregunta, en texto. Repetir la ficha "haría ver que es
+    // un bot y no un ser inteligente capaz de responder".
+    if (e.yaVioContenido) return "ninguna";
     return "info";
   }
 
@@ -342,7 +347,9 @@ export function seccionQueCorresponde(e: EntradaSeccion): SeccionFicha {
   // Si llegó hasta acá con la ficha ya enviada, preguntó algo que no encaja en
   // ningún patrón. Repetir el muro es lo que hace ver al bot como un folleto
   // en bucle; el texto que escribe la IA responde eso mejor.
-  if (e.fichaYaEnviada) return "info";
+  // Ya vio el contenido y preguntó otra cosa: contesta el texto, no la ficha.
+  // Si solo vio el precio (ficha enviada sin contenido), "info" sigue valiendo.
+  if (e.fichaYaEnviada) return e.yaVioContenido ? "ninguna" : "info";
 
   // Primer contacto con este producto: ahí sí va la presentación. Pero la
   // "completa" tampoco lo vuelca todo -- ver whatsapp.ts.

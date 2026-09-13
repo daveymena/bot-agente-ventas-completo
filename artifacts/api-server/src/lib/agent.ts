@@ -1219,8 +1219,15 @@ export async function runAgentReply(conversationId: number) {
     if (focus) {
       const features = (focus.features as string[]) || [];
       const featStr = features.length > 0 ? `\nCaracterísticas: ${features.join(", ")}` : "";
-      const descStr = focus.description ? `\n${focus.description.substring(0, 300)}` : "";
-      focusDetail = `\n\nPRODUCTO EN FOCO:\n[ID: ${focus.id}] *${focus.name}* — ${formatPrice(Number(focus.price), focus.currency)}${descStr}${featStr}`;
+      // La descripción va casi entera (era 300 caracteres): cuando la ficha ya
+      // salió, la IA tiene que poder explicar a detalle lo que le pregunten
+      // con estos datos, en vez de mandar otra ficha (pedido del dueño 13-09).
+      const descStr = focus.description ? `\n${focus.description.substring(0, 1500)}` : "";
+      const yaTieneLaFicha = memory.sentProductIds.has(focus.id);
+      const notaFicha = yaTieneLaFicha
+        ? `\n(El cliente YA recibió la ficha de este producto: no la repitas ni la resumas entera. Si pide más detalle, explicale con tus palabras el punto concreto que pregunta, usando la descripción y características de arriba. No escribas [CARD] salvo que pida la ficha de nuevo.)`
+        : "";
+      focusDetail = `\n\nPRODUCTO EN FOCO:\n[ID: ${focus.id}] *${focus.name}* — ${formatPrice(Number(focus.price), focus.currency)}${descStr}${featStr}${notaFicha}`;
     }
 
     productsBlock = compact + focusDetail;
@@ -3808,6 +3815,13 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
           console.log(`🎯 [FICHA] Sección elegida: ${seccion}, el cierre ofrece: ${ofrecimientoDeLaFicha} (intent: ${decision.intent}) - ${ts()}`);
           if (seccion === "ninguna") {
             console.log(`🛡️ [FICHA] "${String(lastText).trim()}" contesta una pregunta que no ofrecía nada de la ficha: sin tarjeta, contesta el texto - ${ts()}`);
+            resolvedId = -1;
+          } else if ((seccion === "info" || seccion === "completa") && memory.sentProductIds.has(resolvedId) && !decision.pidioReenvio
+              && (parts as any[]).some((p: any) => p.kind === "text" && String(p.content || "").trim())) {
+            // La ficha ya salió y el modelo escribió texto: va el texto, no
+            // otra ficha (pedido del dueño 13-09). Si el modelo no escribió
+            // nada, se deja la sección antes que un mensaje vacío.
+            console.log(`🛡️ [FICHA] La ficha de ${resolvedId} ya se envió: no se repite, contesta el texto - ${ts()}`);
             resolvedId = -1;
           }
           // ── La etapa decide si corresponde cobrar ───────────────────────────

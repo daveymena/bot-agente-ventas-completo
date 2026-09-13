@@ -38,17 +38,19 @@ describe("Cada turno entrega algo nuevo", () => {
     }
   });
 
-  it("si el video ya salió, «más información» no lo repite", () => {
+  // Cambiado el 13-09-2026 por pedido del dueño: con el contenido ya visto,
+  // "cuéntame más" NO manda otro bloque de ficha ("MÁS DETALLES DE…"): la IA
+  // explica a detalle en texto. "Repetir la ficha haría ver que es un bot".
+  it("si el video ya salió, «más información» no repite la ficha: contesta el texto", () => {
     expect(seccionQueCorresponde({
       mensaje: "cuéntame más", ...PIANO, videoYaEnviado: true,
-    })).toBe("info");
+    })).toBe("ninguna");
   });
 
-  it("si el producto NO tiene video, se queda en info", () => {
-    // Y ahí construirSeccion muestra los puntos que no entraron la primera vez.
+  it("si el producto NO tiene video y ya vio el contenido, tampoco hay ficha", () => {
     expect(seccionQueCorresponde({
       mensaje: "cuéntame más", fichaYaEnviada: true, yaVioContenido: true, tieneVideo: false,
-    })).toBe("info");
+    })).toBe("ninguna");
   });
 
   it("la primera vez que pregunta qué incluye SÍ recibe el contenido", () => {
@@ -80,7 +82,7 @@ describe("El recorrido completo, turno por turno", () => {
     const recorrido = [
       { dice: "me interesa el curso de piano", estado: {}, espera: "completa" },
       { dice: "cuéntame más", estado: { ...PIANO }, espera: "video" },
-      { dice: "cuéntame más", estado: { ...PIANO, videoYaEnviado: true }, espera: "info" },
+      { dice: "cuéntame más", estado: { ...PIANO, videoYaEnviado: true }, espera: "ninguna" },
       { dice: "¿cuánto vale?", estado: { ...PIANO, videoYaEnviado: true }, espera: "precio" },
       { dice: "¿cómo pago?", estado: { ...PIANO, videoYaEnviado: true }, espera: "pago" },
       { dice: "por nequi", estado: { ...PIANO, videoYaEnviado: true }, espera: "pago_transferencia" },
