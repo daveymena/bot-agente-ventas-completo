@@ -1519,6 +1519,16 @@ const VOCABULARIO_DE_PREGUNTA = new Set([
   "info", "informacion", "saber", "dame", "pasame", "mandame", "envia", "muestrame", "cuentame",
   "puedo", "puede", "pueden", "quisiera", "seria", "total", "suma", "ambos", "juntos", "cada",
   "uno", "dos", "tres", "gracias", "hola", "buenas", "porfa", "favor", "aun", "todavia",
+  // "¿Tienes disponible?" contaba "disponible" como OTRO producto y el agente
+  // dejaba de hablar del que estaba en foco (medido 13-09, conversación 90).
+  "disponible", "disponibles", "disponibilidad", "stock", "existencia", "existe", "existen",
+  "tienen", "venden", "manejan", "ofrecen", "sirve", "sirven", "funciona", "incluye", "incluido",
+  "trae", "traen", "garantia", "certificado", "certificacion", "duracion", "dura", "horas",
+  "modulos", "acceso", "drive", "descarga", "descargar", "demora", "tarda", "llega", "llegan",
+  "pagar", "comprar", "compra", "adquirir", "reservar", "apartar", "separar", "activar", "activo",
+  "digital", "fisico", "fisica", "online", "virtual", "presencial", "cuenta", "banco", "nequi", "daviplata",
+  "tarjeta", "paypal", "efectivo", "contraentrega", "domicilio", "ciudad", "direccion", "nombre", "telefono",
+  "celular", "correo", "email", "whatsapp", "mensaje", "foto", "imagen", "video", "audio", "link", "enlace",
 ]);
 
 function señalaAlProductoEnFoco(text: string): boolean {

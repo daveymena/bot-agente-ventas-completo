@@ -4749,8 +4749,16 @@ ${comoSeEntregaDeVerdad(prodFicha as any)}` : comoSeEntregaDeVerdad(prodFicha as
         // Sola si se deja -- un mensaje vacio es peor que una ficha repetida.
         const hayTexto = (finalParts as any[]).some((p: any) => p.kind === "text" && String(p.content || "").trim());
         if (hayTexto) {
+          // Solo la ficha COMPLETA cuenta como repetida. Una sección que
+          // ENTREGA algo (precio, pago, entrega, video, tienda) no es la ficha
+          // otra vez: es lo que el cliente acaba de pedir. Medido el 13-09 con
+          // la conversación 90 (cliente en EE.UU.): "¿qué cuesta?" → el texto
+          // perdió el monto porque iba en la sección de precio, y acá la
+          // sección se quitó por "repetida" → le llegó "Son ** (pesos
+          // colombianos)". El cliente nunca supo el precio.
+          const ENTREGA_ALGO = new Set(["precio", "pago", "pago_link", "pago_transferencia", "entrega", "video", "tienda"]);
           const repetidas = (finalParts as any[]).filter(
-            (p: any) => p.kind === "card" && memory.sentProductIds?.has(p.productId),
+            (p: any) => p.kind === "card" && memory.sentProductIds?.has(p.productId) && !ENTREGA_ALGO.has(String(p.seccion || "")),
           );
           if (repetidas.length > 0 && decision.intent !== "payment_intent" && decision.intent !== "confirmation" && !decision.pidioReenvio) {
             console.log(`🔁 [REPETIDO] La ficha de ${repetidas.map((p: any) => p.productId).join(",")} ya la tenia: no se reenvia - ${ts()}`);

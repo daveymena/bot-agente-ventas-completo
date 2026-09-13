@@ -145,3 +145,15 @@ describe("lead de Instagram 12-09 21:19: 'Para mi' no cambia de agente ni invent
     expect(src).toMatch(/const inventoPorFrase = !hayProductoRealEnJuego\n\s*&& \//);
   });
 });
+
+describe("13-09 conversación 90 (cliente en EE.UU.)", () => {
+  it("'¿Tienes disponible?' no es otro producto", () => {
+    expect(nombraOtraCosaQueElFoco("INTELIGENCIA ARTIFICIAL 2026", "Tienes disponible")).toBe(false);
+    expect(nombraOtraCosaQueElFoco("INTELIGENCIA ARTIFICIAL 2026", "tiene garantía?")).toBe(false);
+    expect(nombraOtraCosaQueElFoco("INTELIGENCIA ARTIFICIAL 2026", "y el de piano?")).toBe(true);
+  });
+  it("una sección que entrega algo nunca cuenta como ficha repetida", () => {
+    const src = readFileSync(join(__dirname, "..", "agent.ts"), "utf8");
+    expect(src).toMatch(/memory\.sentProductIds\?\.has\(p\.productId\) && !ENTREGA_ALGO\.has\(String\(p\.seccion \|\| ""\)\)/);
+  });
+});

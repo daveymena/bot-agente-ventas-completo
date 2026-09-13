@@ -73,9 +73,11 @@ export function evaluarChat(turnos: TurnoEvaluado[], catalogo: ProductoParaEvalu
 
     // ── Cambio de agente sin motivo ────────────────────────────────────────
     if (t.agente && agenteAnterior && t.agente !== agenteAnterior) {
+      // Nombrar un producto de otro tipo justifica el cambio; y si no había
+      // foco todavía, nombrar cualquiera lo justifica también.
       const cambioDeTipo = nombrados.some((p) => {
         const foco = focoAnterior != null ? porId.get(focoAnterior) : null;
-        return foco && String(p.kind || "digital") !== String(foco.kind || "digital");
+        return !foco || String(p.kind || "digital") !== String(foco.kind || "digital");
       });
       if (!cambioDeTipo) out.push({ turno: n, regla: "cambio-de-agente", detalle: `Pasó de ${agenteAnterior} a ${t.agente} sin que el cliente nombrara un producto de otro tipo` });
     }
