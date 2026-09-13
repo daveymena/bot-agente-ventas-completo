@@ -86,15 +86,28 @@ router.post("/test-ia", async (req, res, next) => {
       content: msg,
     });
 
-    const reply = await runAgentReply(convo.id);
+    // Se captura el razonamiento del servidor ([DECISION], [PARSER],
+    // [SERVIDOR]...) mientras corre este turno: sin los logs del contenedor a
+    // mano, era imposible saber POR QUÉ salió una ficha en vez del texto
+    // (12-09-2026: cuatro turnos del chat real explicados solo por la base).
+    const log: string[] = [];
+    const logOriginal = console.log;
+    const ETIQUETAS = /\[(DECISION|PARSER|SERVIDOR|SUPERVISOR|FAST-TRACK|ENTENDER|MULTI|EMBUDO|PROMESA|ETAPA|AI|IA|CARD|FICHA|PAGO)\]/;
+    console.log = (...a: any[]) => {
+      try { const t = a.map((x) => (typeof x === "string" ? x : JSON.stringify(x))).join(" "); if (ETIQUETAS.test(t)) log.push(t.slice(0, 400)); } catch { /* nada */ }
+      logOriginal(...a);
+    };
+    let reply: Awaited<ReturnType<typeof runAgentReply>>;
+    try { reply = await runAgentReply(convo.id); } finally { console.log = logOriginal; }
 
     res.json({
       ok: true,
       message: msg,
       stage: reply?.stage,
       proveedor: (reply as any)?.aiProvider ?? null,
-      response: reply?.content?.substring(0, 500),
-      parts: reply?.parts?.map(p => p.kind === "card" ? { card: p.productId } : { text: (p as any).content?.substring(0, 100) }),
+      response: reply?.content?.substring(0, 1500),
+      parts: reply?.parts?.map(p => p.kind === "card" ? { card: p.productId, seccion: (p as any).seccion ?? null } : { text: (p as any).content?.substring(0, 600) }),
+      log,
     });
   } catch (e: any) {
     res.status(500).json({ error: e.message });
