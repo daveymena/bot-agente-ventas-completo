@@ -204,6 +204,37 @@ export interface FbTargeting {
   };
 }
 
+/**
+ * Plantilla de campaña: la ESTRUCTURA que ya funciona en la cuenta, sacada de
+ * una campaña real (`plantillaDesdeCampana`) o escrita a mano. Pedido del
+ * dueño (13-09-2026): "que lo que publique sea como lo que está activo o en
+ * pausa en Meta". Medido en su cuenta: una campaña OUTCOME_ENGAGEMENT con DOS
+ * conjuntos (Colombia optimizado a CONVERSATIONS por WhatsApp; Internacional
+ * US/MX/ES optimizado a LINK_CLICKS), Advantage+ audiencia, ubicaciones
+ * automáticas, cuenta de Instagram vinculada y TODAS las mejoras automáticas
+ * del creativo encendidas.
+ */
+export interface PlantillaDeCampana {
+  /** De qué campaña se sacó (para el log y para el admin). */
+  origen?: { id: string; nombre: string } | null;
+  conjuntos: Array<{
+    nombre: string;
+    paises: string[];
+    /** CONVERSATIONS (WhatsApp) o LINK_CLICKS. Si falta, el del objetivo. */
+    optimizacion?: string | null;
+    presupuestoDiario?: number | null;
+    edadMin?: number | null;
+    edadMax?: number | null;
+    /** home/recent/frequently_in */
+    tiposDeUbicacion?: string[] | null;
+    advantagePlus?: boolean;
+  }>;
+  /** Encender todas las mejoras automáticas del creativo (como en la cuenta). */
+  mejorasCompletas?: boolean;
+  /** Publicar también con la cuenta de Instagram vinculada a la página. */
+  instagram?: boolean;
+}
+
 export interface FbAudienceSuggestion {
   description: string;
   targeting: FbTargeting;
@@ -669,6 +700,8 @@ Responde SOLO con este JSON exacto:
      * equivocado. Por defecto sigue siendo ventas, que es lo que hacia antes.
      */
     objetivo: import("./objetivos-campana").ObjetivoCampana = "ventas",
+    /** Estructura a replicar (varios conjuntos, mejoras, Instagram). Ver PlantillaDeCampana. */
+    plantilla?: PlantillaDeCampana | null,
   ): Promise<FbCampaignResult | null> {
     if (!this.config.adAccountId || !this.config.accessToken) return null;
 
@@ -939,8 +972,16 @@ Responde SOLO con este JSON exacto:
       const presu = await this.presupuestoDiarioParaMeta(dailyBudget);
       if (!presu.ok) throw new Error(presu.message);
 
+      const primero = plantilla?.conjuntos?.[0] || null;
+      if (primero) {
+        if (primero.paises?.length && !targeting?.geoLocations?.countries) fbTargeting.geo_locations = { ...(fbTargeting.geo_locations || {}), countries: primero.paises };
+        if (primero.tiposDeUbicacion?.length) fbTargeting.geo_locations = { ...(fbTargeting.geo_locations || {}), location_types: primero.tiposDeUbicacion };
+        if (primero.edadMin) fbTargeting.age_min = primero.edadMin;
+        if (primero.edadMax) fbTargeting.age_max = primero.edadMax;
+        if (primero.advantagePlus !== undefined) fbTargeting.targeting_automation = { advantage_audience: primero.advantagePlus ? 1 : 0 };
+      }
       const adSetBody: Record<string, any> = {
-        name: `${campaignName} - Conjunto`,
+        name: `${campaignName} - ${primero?.nombre || "Conjunto"}`,
         campaign_id: campaign.id,
         daily_budget: presu.valor,
         targeting: fbTargeting,
@@ -960,6 +1001,7 @@ Responde SOLO con este JSON exacto:
           adSetBody.destination_type = "WHATSAPP";
           if (this.config.pageId) adSetBody.promoted_object = { page_id: this.config.pageId };
         }
+        if (primero?.optimizacion) adSetBody.optimization_goal = primero.optimizacion;
       } else if (hasUsablePixel) {
         adSetBody.billing_event = "IMPRESSIONS";
         // "CONVERSIONS" no es un valor válido de optimization_goal en la API
@@ -1017,6 +1059,21 @@ Responde SOLO con este JSON exacto:
         creativeFeaturesSpec.image_brightness_and_contrast = { enroll_status: "OPT_IN" };
         creativeFeaturesSpec.image_uncrop = { enroll_status: "OPT_IN" };
       }
+      // Como en las campañas reales de la cuenta: TODAS las mejoras encendidas.
+      if (plantilla?.mejorasCompletas) {
+        for (const f of ["advantage_plus_creative", "standard_enhancements", "image_templates", "image_animation", "cv_transformation", "inline_comment", "pac_relaxation", "product_extensions", "show_destination_blurbs", "site_extensions", "product_browsing"]) {
+          creativeFeaturesSpec[f] = { enroll_status: "OPT_IN" };
+        }
+      }
+      // Instagram: la cuenta vinculada a la página, para que el anuncio salga
+      // también ahí con identidad propia (las reales la traen).
+      let instagramUserId: string | null = null;
+      if (plantilla?.instagram !== false && this.config.pageId) {
+        try {
+          const pg = await this.fbGet(String(this.config.pageId), { fields: "instagram_business_account" }, this.config.userAccessToken);
+          instagramUserId = pg?.instagram_business_account?.id || null;
+        } catch { instagramUserId = null; }
+      }
       const creativePayload: Record<string, any> = {
         name: `${product.name} - Creativo`,
         object_story_spec: {
@@ -1043,6 +1100,7 @@ Responde SOLO con este JSON exacto:
         },
         degrees_of_freedom_spec: { creative_features_spec: creativeFeaturesSpec },
       };
+      if (instagramUserId) creativePayload.object_story_spec.instagram_user_id = instagramUserId;
       if (creativeImageUrl) {
         creativePayload.object_story_spec.link_data.picture = creativeImageUrl;
       }
@@ -1056,9 +1114,51 @@ Responde SOLO con este JSON exacto:
         status: "PAUSED",
       }, "anuncio final", this.config.userAccessToken);
 
-      const previewUrl = `https://www.facebook.com/adsmanager/manage/ads?act=${this.config.adAccountId}&ad_id=${ad.id}`;
+      // ── Conjuntos extra de la plantilla (ej. "Internacional" US/MX/ES) ──
+      //
+      // El primer conjunto ya salió arriba con la segmentación pedida; acá
+      // van los DEMÁS que trae la plantilla, cada uno con sus países, su
+      // optimización y su presupuesto, y el MISMO creativo ya aprobado.
+      const conjuntosExtra: Array<{ id: string; adId: string; nombre: string }> = [];
+      const extras = (plantilla?.conjuntos || []).slice(1);
+      for (const cj of extras) {
+        try {
+          const presuCj = cj.presupuestoDiario ? await this.presupuestoDiarioParaMeta(cj.presupuestoDiario) : presu;
+          if (!presuCj.ok) { logger.warn({ conjunto: cj.nombre }, "[Facebook] presupuesto del conjunto extra inválido: se salta"); continue; }
+          const targetingCj: Record<string, any> = {
+            geo_locations: { countries: cj.paises?.length ? cj.paises : ["CO"], ...(cj.tiposDeUbicacion?.length ? { location_types: cj.tiposDeUbicacion } : {}) },
+            age_min: cj.edadMin || fbTargeting.age_min || 18,
+            age_max: cj.edadMax || fbTargeting.age_max || 65,
+            targeting_automation: { advantage_audience: cj.advantagePlus === false ? 0 : 1 },
+          };
+          const bodyCj: Record<string, any> = {
+            name: `${campaignName} - ${cj.nombre}`,
+            campaign_id: campaign.id,
+            daily_budget: presuCj.valor,
+            targeting: targetingCj,
+            status: "PAUSED",
+            start_time: adSetBody.start_time,
+            billing_event: "IMPRESSIONS",
+            bid_strategy: "LOWEST_COST_WITHOUT_CAP",
+            optimization_goal: cj.optimizacion || adSetBody.optimization_goal || "LINK_CLICKS",
+          };
+          if (adSetBody.destination_type) bodyCj.destination_type = adSetBody.destination_type;
+          if (adSetBody.promoted_object) bodyCj.promoted_object = adSetBody.promoted_object;
+          const setCj = await this.fbPost(`${adAccount}/adsets`, bodyCj, `conjunto ${cj.nombre}`, this.config.userAccessToken);
+          const adCj = await this.fbPost(`${adAccount}/ads`, {
+            name: `${campaignName} - ${cj.nombre}`,
+            adset_id: setCj.id,
+            creative: { creative_id: creative.id },
+            status: "PAUSED",
+          }, `anuncio ${cj.nombre}`, this.config.userAccessToken);
+          conjuntosExtra.push({ id: setCj.id, adId: adCj.id, nombre: cj.nombre });
+        } catch (e: any) {
+          logger.warn({ err: e?.message, conjunto: cj.nombre }, "[Facebook] no se pudo crear un conjunto extra de la plantilla");
+        }
+      }
 
-      logger.info({ campaignId: campaign.id, adId: ad.id, product: product.name, targeting: fbTargeting }, "[Facebook] Anuncio creado");
+      const previewUrl = `https://www.facebook.com/adsmanager/manage/ads?act=${this.config.adAccountId}&ad_id=${ad.id}`;
+      logger.info({ campaignId: campaign.id, adId: ad.id, product: product.name, targeting: fbTargeting, conjuntosExtra: conjuntosExtra.length }, "[Facebook] Anuncio creado");
 
       return {
         campaignId: campaign.id,
@@ -1068,7 +1168,8 @@ Responde SOLO con este JSON exacto:
         adCopy,
         status: "PAUSED",
         previewUrl,
-      };
+        ...(conjuntosExtra.length ? { conjuntosExtra } : {}),
+      } as FbCampaignResult;
       } catch (innerErr: any) {
         // El conjunto/creativo/anuncio no llegaron a existir todos -- borrar
         // la campaña se lleva en cascada lo que sí se alcanzó a crear, no
@@ -1484,6 +1585,42 @@ Responde SOLO con este JSON exacto:
       logger.warn({ err: err?.message, campaignId }, "[Facebook] No se pudo leer la radiografía de la campaña");
       return null;
     }
+  }
+
+  /** La plantilla reutilizable de una campaña real (ver PlantillaDeCampana). */
+  async plantillaDesdeCampana(campaignId: string): Promise<PlantillaDeCampana | null> {
+    const r = await this.radiografiaDeCampana(campaignId);
+    if (!r?.conjuntos?.length) return null;
+    const mejoras = r.conjuntos.some((c: any) => c.anuncios?.some((a: any) => (a.creativo?.mejorasAutomaticas || []).includes("advantage_plus_creative")));
+    const instagram = r.conjuntos.some((c: any) => c.anuncios?.some((a: any) => !!a.creativo?.instagramId));
+    return {
+      origen: { id: r.campana.id, nombre: r.campana.nombre },
+      conjuntos: r.conjuntos.map((c: any) => ({
+        nombre: String(c.nombre || "").replace(/^.*?-\s*/, "").trim() || c.nombre,
+        paises: c.segmentacion?.paises || ["CO"],
+        optimizacion: c.optimizacion || null,
+        presupuestoDiario: c.presupuestoDiario || null,
+        edadMin: c.segmentacion?.edad?.[0] || null,
+        edadMax: c.segmentacion?.edad?.[1] || null,
+        tiposDeUbicacion: c.segmentacion?.tiposDeUbicacion || null,
+        advantagePlus: c.segmentacion?.advantagePlus !== false,
+      })),
+      mejorasCompletas: mejoras,
+      instagram,
+    };
+  }
+
+  /** La campaña más reciente de la cuenta (activa o en pausa), para usarla de plantilla. */
+  async campanaMasReciente(): Promise<{ id: string; name: string; status: string } | null> {
+    try {
+      const r = await this.fbGet(`act_${this.config.adAccountId}/campaigns`, {
+        fields: "id,name,effective_status,created_time", limit: "10",
+        filtering: JSON.stringify([{ field: "effective_status", operator: "IN", value: ["ACTIVE", "PAUSED", "CAMPAIGN_PAUSED"] }]),
+      }, this.config.userAccessToken);
+      const lista = (r?.data || []).sort((a: any, b: any) => String(b.created_time).localeCompare(String(a.created_time)));
+      const c = lista[0];
+      return c ? { id: c.id, name: c.name, status: c.effective_status } : null;
+    } catch { return null; }
   }
 
   /** Enciende o apaga UN anuncio puntual, sin tocar su conjunto ni la campaña. */

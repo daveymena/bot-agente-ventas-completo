@@ -136,6 +136,7 @@ const TOOL_SCHEMAS: Record<string, object> = {
   },
   list_categories: { type: "object", properties: {}, additionalProperties: false },
   get_agent: { type: "object", properties: {}, additionalProperties: false },
+  fb_radiografia_campana: { type: "object", properties: { campaignId: { type: "string" } }, additionalProperties: false },
   agente_probar_chat: {
     type: "object",
     properties: {
@@ -1090,8 +1091,8 @@ const GRUPOS: { patron: RegExp; herramientas: string[] }[] = [
     // Se activa cuando el pedido pregunta CÓMO VA algo, no cuando pide crear.
     // Un "¿cómo va mi campaña de Facebook?" matchea los dos grupos y recibe la
     // unión, que es lo correcto: ahí sí hacen falta las dos mitades.
-    patron: /m[eé]trica|rendimiento|resultado|c[oó]mo va|c[oó]mo est[aá]|gast|roas|cpa|cpc|conversion|analiz|diagn[oó]stic|atribuci|aprendiz|optimiz|competencia|competidor/i,
-    herramientas: ["fb_campaign_metrics", "fb_list_adsets", "fb_agent_logs", "fb_ad_library", "marketing_attribution", "marketing_diagnostico", "marketing_aprendizajes", "ad_brief"],
+    patron: /m[eé]trica|rendimiento|resultado|c[oó]mo va|c[oó]mo est[aá]|gast|roas|cpa|cpc|conversion|analiz|diagn[oó]stic|atribuci|aprendiz|optimiz|competencia|competidor|estructura|configur|armad|replic|como (las|los) (que|activ)|en pausa|pausad/i,
+    herramientas: ["fb_campaign_metrics", "fb_list_adsets", "fb_agent_logs", "fb_ad_library", "marketing_attribution", "marketing_diagnostico", "marketing_aprendizajes", "ad_brief", "fb_radiografia_campana"],
   },
   {
     patron: /whatsapp|wasap|conversaci|chat|mensaje|cliente|lead/i,

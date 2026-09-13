@@ -674,7 +674,15 @@ Este contenido digital es tu atajo directo a resultados profesionales.
   async subirBorradorAMeta(
     draftId: number,
     objetivo: import("./objetivos-campana").ObjetivoCampana = "ventas",
-  ): Promise<{ ok: boolean; message?: string; campaignId?: string }> {
+    /**
+     * Estructura a replicar. Pedido del dueño (13-09-2026): que lo que se
+     * publique sea como las campañas que ya tiene en Meta (dos conjuntos
+     * CO + Internacional, Instagram, mejoras completas). Si no viene, se usa
+     * la campaña más reciente de la cuenta como plantilla; `null` explícito
+     * = sin plantilla (un solo conjunto, como antes).
+     */
+    plantilla?: import("./facebook").PlantillaDeCampana | null,
+  ): Promise<{ ok: boolean; message?: string; campaignId?: string; plantilla?: string | null }> {
     try {
       const [draft] = await db.select().from(facebookDrafts).where(eq(facebookDrafts.id, draftId)).limit(1);
       if (!draft) return { ok: false, message: "No encontré ese borrador." };
@@ -687,6 +695,12 @@ Este contenido digital es tu atajo directo a resultados profesionales.
       const fb = new FacebookService(this.tenant);
       if (!fb.isConfigured()) return { ok: false, message: "Facebook no está conectado." };
 
+      // Plantilla: la última campaña real de la cuenta, salvo que se pida otra o ninguna.
+      let plantillaUsada: import("./facebook").PlantillaDeCampana | null = plantilla ?? null;
+      if (plantilla === undefined) {
+        const reciente = await fb.campanaMasReciente();
+        if (reciente) plantillaUsada = await fb.plantillaDesdeCampana(reciente.id);
+      }
       const creado = await fb.createAdForProduct(
         draft.productId,
         Number(draft.budget) || 5000,
@@ -699,6 +713,7 @@ Este contenido digital es tu atajo directo a resultados profesionales.
           description: String(draft.description || ""),
         },
         objetivo,
+        plantillaUsada,
       );
       // El motivo REAL, no "no aceptó".
       //
@@ -726,7 +741,7 @@ Este contenido digital es tu atajo directo a resultados profesionales.
         .where(eq(facebookDrafts.id, draftId));
 
       logger.info({ draftId, campaignId: creado.campaignId }, "[AdStrategist] Borrador subido a Meta en PAUSA");
-      return { ok: true, campaignId: creado.campaignId };
+      return { ok: true, campaignId: creado.campaignId, plantilla: plantillaUsada?.origen?.nombre || null };
     } catch (err: any) {
       logger.error({ err, draftId }, "[AdStrategist] Error subiendo el borrador a Meta");
       return { ok: false, message: err?.message || "Error subiendo el borrador a Meta" };

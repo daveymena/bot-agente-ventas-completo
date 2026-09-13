@@ -3209,7 +3209,7 @@ Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vincu
   {
     name: "fb_upload_draft_to_meta",
     description: "Sube a Meta un borrador que hoy solo existe local, CON SU PROPIO TEXTO, y lo deja en PAUSA (no gasta un peso). Es el paso intermedio entre 'borrador guardado acá' y 'campaña gastando': después de esto el admin puede verlo en Ads Manager y activarlo cuando quiera. Usá fb_list_drafts para conseguir el draftId. NO confundir con publicar/activar: esto NO enciende la campaña.",
-    args: '{ "draftId": number (req, id del borrador -- lo da fb_list_drafts), "objetivo": "ventas"|"trafico"|"mensajes"|"reconocimiento" (opcional pero IMPORTANTE — decide A DÓNDE va la gente: "mensajes" abre WhatsApp, "trafico" y "ventas" llevan a la web. Si el admin dijo WhatsApp o tráfico, PASALO; sin ese dato sube como campaña de ventas a la web) }',
+    args: '{ "draftId": number (req, id del borrador -- lo da fb_list_drafts), "objetivo": "ventas"|"trafico"|"mensajes"|"reconocimiento" (opcional pero IMPORTANTE — decide A DÓNDE va la gente: "mensajes" abre WhatsApp, "trafico" y "ventas" llevan a la web. Si el admin dijo WhatsApp o tráfico, PASALO; sin ese dato sube como campaña de ventas a la web) , "comoCampana"?: string (campaña cuya estructura se replica; por defecto la más reciente), "sinPlantilla"?: boolean }',
     run: async (args, ctx) => {
       const draftId = Number(args.draftId);
       if (!draftId) return { ok: false, summary: "Falta el id del borrador (usá fb_list_drafts para obtenerlo)." };
@@ -3248,7 +3248,14 @@ Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vincu
       const objetivo = interpretarObjetivo(String(args.objetivo || ""))
         || interpretarObjetivo(String(ctx.objetivoDelAdmin || ""))
         || "ventas";
-      const r = await new AdStrategist(tenant || undefined).subirBorradorAMeta(draftId, objetivo);
+      // Estructura como las campañas reales de la cuenta (dos conjuntos,
+      // Instagram, mejoras): la última campaña por defecto, otra con
+      // `comoCampana`, o ninguna con `sinPlantilla: true`.
+      const { FacebookService } = await import("./facebook");
+      let plantilla: any = undefined;
+      if (args?.sinPlantilla === true) plantilla = null;
+      else if (args?.comoCampana) plantilla = await new FacebookService(tenant || undefined).plantillaDesdeCampana(String(args.comoCampana));
+      const r = await new AdStrategist(tenant || undefined).subirBorradorAMeta(draftId, objetivo, plantilla);
       const OBJ = OBJETIVOS[objetivo];
       const aDonde = OBJ.destino === "whatsapp" ? "abre WhatsApp" : "lleva a la web";
       return {
@@ -4717,6 +4724,32 @@ Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vincu
           (campañas.length > 25 ? `\n…y ${campañas.length - 25} más.` : ""),
         data: { campañas },
       };
+    },
+  },
+  {
+    name: "fb_radiografia_campana",
+    description:
+      "Configuración completa de una campaña real de Meta (objetivo; por conjunto destino, optimización, presupuesto, países, edad, Advantage+, ubicaciones; " +
+      "por anuncio formato, textos, CTA, Instagram, mejoras). Lectura. Sirve para explicarla o replicarla (fb_upload_draft_to_meta `comoCampana`). Sin id, la más reciente.",
+    args: '{ "campaignId"?: string }',
+    run: async (args, ctx) => {
+      const tenant = await tenantManager.getTenantById(ctx.tenantId);
+      const { FacebookService } = await import("./facebook");
+      const fb = new FacebookService(tenant || undefined);
+      if (!fb.isConfigured()) return { ok: false, summary: "Facebook no configurado (falta token)." };
+      let id = String(args?.campaignId || "").trim();
+      if (!id) { const r = await fb.campanaMasReciente(); if (!r) return { ok: false, summary: "La cuenta no tiene campañas." }; id = r.id; }
+      const r = await fb.radiografiaDeCampana(id);
+      if (!r) return { ok: false, summary: `No pude leer la campaña ${id}.` };
+      const lineas = [
+        `Campaña "${r.campana.nombre}" (${r.campana.estado}) · objetivo ${r.campana.objetivo} · ${r.campana.tipoDeCompra}`,
+        ...r.conjuntos.map((c: any) => {
+          const sg = c.segmentacion || {};
+          const ads = (c.anuncios || []).map((a: any) => `${a.nombre}: ${a.creativo?.formato || "?"} · CTA ${a.creativo?.cta || "?"} · título "${a.creativo?.titulo || ""}"${a.creativo?.instagramId ? " · Instagram" : ""}${(a.creativo?.mejorasAutomaticas || []).length ? ` · ${a.creativo.mejorasAutomaticas.length} mejoras automáticas` : ""}`).join(" | ");
+          return `Conjunto "${c.nombre}" (${c.estado}): ${c.presupuestoDiario ?? "?"}/día · optimiza ${c.optimizacion} · destino ${c.destino || "web"} · países ${(sg.paises || []).join(",") || "?"} · edad ${(sg.edad || []).join("-")} · ${sg.advantagePlus ? "Advantage+" : "segmentación manual"} · ubicaciones ${sg.ubicaciones?.automaticas ? "automáticas" : (sg.ubicaciones?.plataformas || []).join("/")}${sg.intereses?.length ? ` · intereses ${sg.intereses.join(", ")}` : ""} → ${ads || "sin anuncios"}`;
+        }),
+      ];
+      return { ok: true, summary: lineas.join("\n"), data: r };
     },
   },
   {
@@ -6527,7 +6560,7 @@ export const READ_ONLY_TOOLS = new Set([
   "research_start", "research_check",
   // Listar conjuntos es lectura pura. pause/resume/set_budget NO van acá a
   // propósito: mueven dinero real y tienen que pasar por confirmación.
-  "fb_list_adsets",
+  "fb_list_adsets", "fb_radiografia_campana",
   // Dropi de solo lectura: consultar el catálogo del proveedor no crea nada.
   "dropi_status", "dropi_search_products", "woocommerce_estado", "producto_ficha_desde_imagenes_ver", "landing_listar",
   // Probar al vendedor crea una conversación de PRUEBA y no le escribe a nadie: es lectura.
