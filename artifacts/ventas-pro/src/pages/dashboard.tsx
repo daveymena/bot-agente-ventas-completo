@@ -70,23 +70,24 @@ const itemVariants = {
 
   return (
     <Layout>
-      <motion.div variants={containerVariants} initial="hidden" animate="show" className="flex flex-col gap-8">
+      <motion.div variants={containerVariants} initial="hidden" animate="show" className="flex flex-col gap-5">
         
         {/* SaaS Status Banner */}
         <motion.div variants={itemVariants}><SaasStatusBanner /></motion.div>
         
         {/* Hero Section */}
-        <motion.div variants={itemVariants} className="flex flex-col md:flex-row gap-6 md:items-end justify-between glass-panel p-6 md:p-7 rounded-xl shadow-md border-0">
+        <motion.div variants={itemVariants} className="flex flex-col md:flex-row gap-4 md:items-center justify-between glass-panel p-4 md:p-5 rounded-xl shadow-md border-0">
           <div>
-            <div className="flex items-start gap-1.5">
-              <h1 className="text-2xl font-semibold tracking-tight">Hola, bienvenido de nuevo</h1>
-              <HelpTourButton guide={HELP_GUIDE} />
-            </div>
-            <p className="text-muted-foreground mt-1.5 mb-5">Aquí está el resumen de tu operación en WhatsApp.</p>
-
-            <div className="flex flex-wrap items-center gap-3" data-tour="dashboard-whatsapp-status">
+            {/* En 1360x768 el encabezado + esta tarjeta se comían 250px antes
+                del primer número: título, ayuda y estado de WhatsApp en una
+                sola fila, sin subtítulo que repita lo obvio. */}
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-2" data-tour="dashboard-whatsapp-status">
+              <div className="flex items-start gap-1.5">
+                <h1 className="text-xl font-semibold tracking-tight">Hola, bienvenido de nuevo</h1>
+                <HelpTourButton guide={HELP_GUIDE} />
+              </div>
               {summary?.whatsappConnected ? (
-                <div className="flex items-center gap-2 bg-green-500/10 text-green-600 dark:text-green-400 px-4 py-2 rounded-full text-sm font-semibold border border-green-500/20">
+                <div className="flex items-center gap-2 bg-green-500/10 text-green-600 dark:text-green-400 px-3 py-1 rounded-full text-xs font-semibold border border-green-500/20">
                   <span className="relative flex h-2 w-2">
                     <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
                     <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
@@ -94,7 +95,7 @@ const itemVariants = {
                   WhatsApp Conectado
                 </div>
               ) : (
-                <div className="flex items-center gap-2 bg-red-500/10 text-red-600 dark:text-red-400 px-4 py-2 rounded-full text-sm font-semibold border border-red-500/20">
+                <div className="flex items-center gap-2 bg-red-500/10 text-red-600 dark:text-red-400 px-3 py-1 rounded-full text-xs font-semibold border border-red-500/20">
                   <span className="relative flex h-2 w-2">
                     <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500"></span>
                   </span>
@@ -105,13 +106,13 @@ const itemVariants = {
           </div>
           
           <div className="flex flex-col sm:flex-row gap-3" data-tour="dashboard-quick-actions">
-            <Link href="/agents" className="inline-flex h-10 items-center justify-center rounded-lg border border-border bg-secondary text-secondary-foreground hover:bg-muted font-medium px-5 transition-colors gap-2 text-sm">
+            <Link href="/agents" className="inline-flex h-9 items-center justify-center rounded-lg border border-border bg-secondary text-secondary-foreground hover:bg-muted font-medium px-5 transition-colors gap-2 text-sm">
               <Bot className="h-4 w-4" /> Nuevo Agente
             </Link>
-            <Link href="/products" className="inline-flex h-10 items-center justify-center rounded-lg border border-border bg-secondary text-secondary-foreground hover:bg-muted font-medium px-5 transition-colors gap-2 text-sm">
+            <Link href="/products" className="inline-flex h-9 items-center justify-center rounded-lg border border-border bg-secondary text-secondary-foreground hover:bg-muted font-medium px-5 transition-colors gap-2 text-sm">
               <Plus className="h-4 w-4" /> Crear Producto
             </Link>
-            <Link href="/whatsapp" className="inline-flex h-10 items-center justify-center rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 font-medium px-5 transition-colors gap-2 text-sm">
+            <Link href="/whatsapp" className="inline-flex h-9 items-center justify-center rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 font-medium px-5 transition-colors gap-2 text-sm">
               <Smartphone className="h-4 w-4" /> Conectar WhatsApp
             </Link>
           </div>

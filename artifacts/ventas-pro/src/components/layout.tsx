@@ -136,12 +136,12 @@ export function Layout({ children, chatCompleto = false }: { children: React.Rea
       <div className="flex h-screen w-full bg-background relative overflow-x-hidden text-foreground">
         {!isMobile && <AppSidebar />}
         <div className="flex flex-1 flex-col w-full min-w-0 relative z-10">
-          <header className="flex h-14 sm:h-16 items-center gap-4 border-b border-border bg-card px-3 sm:px-4 md:px-6 sticky top-0 z-20">
-            {!isMobile && <SidebarTrigger className="hover:bg-primary/10 rounded-xl w-9 h-9 sm:w-10 sm:h-10 flex items-center justify-center transition-all text-primary shrink-0" />}
+          <header className="flex h-12 items-center gap-4 border-b border-border bg-card px-3 sm:px-4 md:px-6 sticky top-0 z-20">
+            {!isMobile && <SidebarTrigger className="hover:bg-primary/10 rounded-xl w-9 h-9 flex items-center justify-center transition-all text-primary shrink-0" />}
             <div className="flex-1 min-w-0" />
             <div className="flex items-center gap-2"><UiBadge variant="outline" className="bg-primary/5 text-primary border-primary/20 hidden sm:flex text-xs">V1.5 PREMIUM</UiBadge></div>
           </header>
-          <main className={`flex-1 ${chatCompleto ? "p-0 md:p-8 overflow-hidden md:overflow-y-auto" : "p-3 sm:p-4 md:p-8 overflow-y-auto"} overflow-x-hidden animate-enter scroll-smooth flex flex-col h-full min-h-0`}>
+          <main className={`flex-1 ${chatCompleto ? "p-0 md:p-6 overflow-hidden md:overflow-y-auto" : "p-3 sm:p-4 md:p-6 overflow-y-auto"} overflow-x-hidden animate-enter scroll-smooth flex flex-col h-full min-h-0`}>
             <div className={`max-w-7xl mx-auto w-full md:flex-1 md:flex md:flex-col md:min-h-0 ${chatCompleto ? "flex-1 flex flex-col min-h-0 pb-[calc(80px+env(safe-area-inset-bottom))] md:pb-4" : "pb-[calc(184px+env(safe-area-inset-bottom))] md:pb-4"}`}>
               {children}
             </div>
