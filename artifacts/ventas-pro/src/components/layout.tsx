@@ -77,7 +77,7 @@ export function AppSidebar() {
           </UiBadge>
         )}
       </SidebarHeader>
-      <SidebarContent className="px-3 py-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+      <SidebarContent className="px-3 py-3 [scrollbar-width:thin] [scrollbar-color:rgba(255,255,255,0.25)_transparent] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:bg-white/25 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-track]:bg-transparent">
         <SidebarGroup>
           <SidebarGroupContent>
             <SidebarMenu className="gap-1">
