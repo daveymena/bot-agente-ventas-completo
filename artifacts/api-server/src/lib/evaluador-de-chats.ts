@@ -36,7 +36,8 @@ export interface Hallazgo {
 export interface ProductoParaEvaluar { id: number; name: string; price: number | string; kind?: string | null }
 
 const GENERICO = /¿Qué te gustaría saber puntualmente\?/;
-const NIEGA_TENERLO = /\b(no\s+(lo\s+)?(tengo|tenemos|manejo|manejamos)|no\s+(está|esta|aparece)\s+en\s+el\s+cat[aá]logo|no\s+tengo\s+ese\s+producto)\b/i;
+// "no manejamos stock/envíos/contraentrega" no es negar el producto.
+const NIEGA_TENERLO = /\b(no\s+(lo\s+)?(tengo|tenemos|manejo|manejamos)(?!\s+(stock|inventario|env[ií]os?|contraentrega|sede|local|tienda\s+f[ií]sica))|no\s+(está|esta|aparece)\s+en\s+el\s+cat[aá]logo|no\s+tengo\s+ese\s+producto)\b/i;
 const PIDE_COMPROBANTE = /\bcomprobante\b/i;
 // Se evalúa sobre el texto SIN tildes: `\b` no reconoce "pagué" como palabra.
 const DICE_QUE_PAGO = /\b(ya\s+(te\s+)?pague|ya\s+transferi|acabo\s+de\s+(pagar|transferir)|hice\s+(el\s+pago|la\s+transferencia))\b/;
@@ -107,7 +108,8 @@ export function evaluarChat(turnos: TurnoEvaluado[], catalogo: ProductoParaEvalu
     }
 
     // ── Precio que no es de ningún producto nombrado ni en foco ────────────
-    const montos = texto.match(/\$\s?\d[\d.]*/g) ?? [];
+    // Montos en dólares ("unos $15 USD") no se comparan con el catálogo en COP.
+    const montos = (texto.match(/\$\s?\d[\d.]*(?:\s?(?:USD|d[oó]lares|usd))?/g) ?? []).filter((m) => !/USD|d[oó]lares|usd/i.test(m));
     if (montos.length > 0) {
       const permitidos = new Set<number>();
       const base = nombrados.length > 0 ? nombrados : (focoAnterior != null && porId.get(focoAnterior) ? [porId.get(focoAnterior)!] : []);

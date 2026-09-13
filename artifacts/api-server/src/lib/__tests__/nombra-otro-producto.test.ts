@@ -157,3 +157,16 @@ describe("13-09 conversación 90 (cliente en EE.UU.)", () => {
     expect(src).toMatch(/memory\.sentProductIds\?\.has\(p\.productId\) && !ENTREGA_ALGO\.has\(String\(p\.seccion \|\| ""\)\)/);
   });
 });
+
+import { nombraAlgoConcreto } from "../conversation-engine";
+
+describe("13-09 evaluador sobre chats de agosto: 'no tengo ese producto' a quien no nombró ninguno", () => {
+  it("preguntas sin producto no son 'búsqueda fallida'", () => {
+    for (const m of ["como lo puedo adquirir.\nGracias.", "Hay clases presenciales?", "215814204608627@lid", "Donde es la academia.\nGracias.", "Metodología y precio por favor"]) {
+      expect(nombraAlgoConcreto(m), m).toBe(false);
+    }
+  });
+  it("nombrar algo sí cuenta", () => {
+    for (const m of ["tienes saxofón?", "Deseo aprender teclado", "el renovador negro"]) expect(nombraAlgoConcreto(m), m).toBe(true);
+  });
+});

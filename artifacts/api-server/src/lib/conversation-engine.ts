@@ -1511,6 +1511,16 @@ export function nombraOtraCosaQueElFoco(nombreEnFoco: string, text: string): boo
   return especificas > 0;
 }
 
+/**
+ * ¿Nombró algo concreto (un producto, una cosa), y no solo palabras de
+ * preguntar? Es `nombraOtraCosaQueElFoco` sin foco: misma vara.
+ */
+export function nombraAlgoConcreto(text: string): boolean {
+  // Un identificador largo ("215814204608627@lid") no es un producto.
+  if (/\d{8,}/.test(text)) return false;
+  return nombraOtraCosaQueElFoco("", text);
+}
+
 /** Palabras con las que se pregunta, no con las que se nombra un producto. */
 const VOCABULARIO_DE_PREGUNTA = new Set([
   "web", "pagina", "paginas", "sitio", "tienda", "tiendas", "catalogo", "precio", "precios",
@@ -1529,6 +1539,11 @@ const VOCABULARIO_DE_PREGUNTA = new Set([
   "digital", "fisico", "fisica", "online", "virtual", "presencial", "cuenta", "banco", "nequi", "daviplata",
   "tarjeta", "paypal", "efectivo", "contraentrega", "domicilio", "ciudad", "direccion", "nombre", "telefono",
   "celular", "correo", "email", "whatsapp", "mensaje", "foto", "imagen", "video", "audio", "link", "enlace",
+  "puedo", "puede", "pueden", "podria", "podrian", "quiero", "quisiera", "necesito", "busco", "interesa",
+  "academia", "sede", "clases", "clase", "presencial", "presenciales", "virtuales", "gracias", "ahora", "luego",
+  "despues", "manana", "hoy", "listo", "dale", "bueno", "vale", "okey", "claro", "perfecto", "genial",
+  "donde", "cuando", "cuales", "quien", "quienes", "porque", "para", "sobre", "esto", "aquello",
+  "metodologia", "contenido", "temario", "requisitos", "beneficios", "ventajas", "detalles", "caracteristicas",
 ]);
 
 function señalaAlProductoEnFoco(text: string): boolean {
@@ -2209,7 +2224,13 @@ export async function computeDecision(
         // dijo algo concreto y la respuesta correcta es mostrarle qué hay.
         pidioVerCatalogo = true;
         console.log(`📚 [DECISION] El cliente pide ver el catálogo - mostrar opciones, no negar`);
-      } else if (!mensajeNombraProducto(incomingText)) {
+      } else if (!nombraAlgoConcreto(incomingText)) {
+        // `mensajeNombraProducto` es laxa a propósito para el buscador; acá
+        // decide si se le va a decir "no lo tengo", y para eso hace falta que
+        // haya nombrado ALGO concreto. Medido con el evaluador (13-09):
+        // "¿cómo lo puedo adquirir?", "¿hay clases presenciales?" y un id
+        // "215814204608627@lid" terminaban en "no tengo ese producto… lo que
+        // sí manejo es: Corrector de Postura, RUEDAS…".
         mensajeSinProducto = true;
         console.log(`🤷 [DECISION] El mensaje no nombra ningún producto - la IA debe preguntar, no suponer`);
       } else if (intent !== "payment_intent" && intent !== "confirmation") {
