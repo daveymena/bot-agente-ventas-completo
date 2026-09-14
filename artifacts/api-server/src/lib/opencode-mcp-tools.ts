@@ -1439,14 +1439,82 @@ export function catalogoDeCapacidades(habilitadas: Set<string>): string {
   return [
     "",
     "═══ TODO LO QUE PODES CONSULTAR ═══",
-    "Tus herramientas de lectura. Con * = activas en este turno; el resto existe igual.",
+    "Lecturas. * = activas en este turno; el resto existe igual.",
     "",
     ...lineas,
     "",
-    "⛔ NUNCA digas que NO PODES algo de esta lista. Si te falta una sin *,",
-    "NOMBRALA tal cual: nombrarla la habilita para tu siguiente mensaje.",
+    "⛔ NUNCA digas que NO PODES algo de esta lista. Si te falta una sin *, pedila",
+    "al final así: [[herramientas: a, b]] y seguís en el mismo turno. Al admin (NO es",
+    "técnico) NO le expliques esto ni le nombres herramientas o 'lecturas':",
+    "decile 'un momento, reviso tus datos'.",
     "",
   ].join("\n");
+}
+
+/**
+ * ── Herramientas que Atlas pidió en su respuesta ─────────────────────────
+ *
+ * El catálogo de arriba le dice al modelo que, si le falta una lectura, la
+ * pida con un marcador `[[herramientas: a, b]]`. Antes le decía que la
+ * "nombrara" y el modelo lo hacía en el texto para el admin: "me faltan dos
+ * lecturas, anuncio_datos_expertos y propuesta_campana, las dejo nombradas
+ * para que queden habilitadas en tu próximo mensaje". Visto en producción el
+ * 14-09-2026: una clienta que no programa no entiende nada de eso.
+ *
+ * Esto saca del texto visible el marcador (y, por si el modelo no respetó el
+ * formato, cualquier nombre de herramienta real que haya escrito suelto) y
+ * devuelve qué pidió, para que el turno se lo habilite y siga solo.
+ */
+const MARCADOR_HERRAMIENTAS = /\[\[\s*herramientas?\s*:\s*([^\]]+)\]\]/gi;
+
+export function herramientasQuePide(texto: string, habilitadas: Iterable<string>): { nombres: string[]; textoLimpio: string } {
+  const ya = new Set(habilitadas);
+  const pedidas = new Set<string>();
+  const esPedible = (n: string) => READ_ONLY_TOOLS.has(n) && !EXCLUDED_FROM_MCP.has(n) && !ya.has(n);
+
+  let limpio = String(texto || "").replace(MARCADOR_HERRAMIENTAS, (_m, lista: string) => {
+    for (const n of lista.split(/[,\s]+/).map((x) => x.trim()).filter(Boolean)) if (esPedible(n)) pedidas.add(n);
+    return "";
+  });
+
+  // Nombres sueltos en el texto (formato no respetado). Solo herramientas
+  // reales: no hay forma de escribir `anuncio_datos_expertos` por casualidad.
+  for (const n of READ_ONLY_TOOLS) {
+    if (!esPedible(n)) continue;
+    const re = new RegExp(`(^|[^a-z0-9_])${n}(?![a-z0-9_])`, "i");
+    if (re.test(limpio)) {
+      pedidas.add(n);
+      // Se quita el nombre técnico de lo que ve el admin; la frase que lo
+      // rodeaba queda coja, pero el texto final igual se reemplaza por la
+      // segunda vuelta o por un aviso en lenguaje normal.
+      limpio = limpio.replace(new RegExp(`\\b${n}\\b`, "gi"), "");
+    }
+  }
+
+  limpio = limpio.replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+  return { nombres: [...pedidas], textoLimpio: limpio };
+}
+
+/**
+ * Cuando no queda tiempo en el turno para la segunda vuelta (o el camino es
+ * OpenCode, donde el puente ya se registró con la lista cerrada), lo pedido
+ * se guarda para el siguiente turno de esa sesión. Memoria de proceso: el
+ * server corre en un solo contenedor y esto vive minutos, no días.
+ */
+const PEDIDAS_PARA_DESPUES = new Map<string, { nombres: string[]; hasta: number }>();
+const PEDIDAS_TTL_MS = 15 * 60_000;
+
+export function recordarHerramientasPedidas(tenantId: number, sessionId: string, nombres: string[]): void {
+  if (!nombres.length) return;
+  PEDIDAS_PARA_DESPUES.set(`${tenantId}:${sessionId}`, { nombres, hasta: Date.now() + PEDIDAS_TTL_MS });
+}
+
+/** Devuelve (y olvida) lo pedido en el turno anterior de esa sesión. */
+export function herramientasPedidasAntes(tenantId: number, sessionId: string): string[] {
+  const k = `${tenantId}:${sessionId}`;
+  const v = PEDIDAS_PARA_DESPUES.get(k);
+  PEDIDAS_PARA_DESPUES.delete(k);
+  return v && v.hasta > Date.now() ? v.nombres : [];
 }
 
 /**

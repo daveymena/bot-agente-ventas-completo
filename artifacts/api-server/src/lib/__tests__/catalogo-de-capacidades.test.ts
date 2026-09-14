@@ -11,7 +11,7 @@
  * acceso" sobre cosas implementadas y funcionando.
  */
 import { describe, it, expect } from "vitest";
-import { catalogoDeCapacidades } from "../opencode-mcp-tools";
+import { catalogoDeCapacidades, herramientasQuePide, recordarHerramientasPedidas, herramientasPedidasAntes } from "../opencode-mcp-tools";
 import { READ_ONLY_TOOLS } from "../app-operator";
 
 const SIN_NADA = new Set<string>();
@@ -51,10 +51,11 @@ describe("el catálogo de lo que Atlas puede consultar", () => {
    * El punto entero del bloque: prohibir el "no puedo" sobre algo que sí sabe
    * hacer, y decirle cómo pedir la herramienta que le falta.
    */
-  it("le prohíbe decir que no puede, y le dice cómo habilitarla", () => {
+  it("le prohíbe decir que no puede, y le dice cómo pedirla SIN contárselo al admin", () => {
     const texto = catalogoDeCapacidades(SIN_NADA);
     expect(texto).toContain("NUNCA digas que NO PODES");
-    expect(texto).toContain("NOMBRALA");
+    expect(texto).toContain("[[herramientas:");
+    expect(texto).toMatch(/NO le expliques/);
   });
 
   /**
@@ -62,8 +63,11 @@ describe("el catálogo de lo que Atlas puede consultar", () => {
    * colgaba en producción. Este bloque no puede comerse una porción seria de
    * eso, y por eso va agrupado y sin descripciones.
    */
-  it("es barato: entra en menos de 1.500 caracteres", () => {
-    expect(catalogoDeCapacidades(SIN_NADA).length).toBeLessThan(1500);
+  it("es barato: entra en menos de 1.600 caracteres", () => {
+    // 1.500 → 1.600 el 14-09-2026: las ~100 letras de más son la regla de que
+    // pida herramientas con el marcador en vez de contárselo al admin. Son
+    // ~25 tokens; el techo que importa (4.197) sigue lejísimos.
+    expect(catalogoDeCapacidades(SIN_NADA).length).toBeLessThan(1600);
   });
 
   it("cubre los terrenos grandes del sistema", () => {
@@ -71,5 +75,54 @@ describe("el catálogo de lo que Atlas puede consultar", () => {
     for (const tema of ["Catalogo", "Ventas", "WhatsApp", "Facebook", "Investigacion"]) {
       expect(texto).toContain(tema);
     }
+  });
+});
+
+/**
+ * Lo que Atlas pide se le da y sigue solo. Antes le decía a la clienta:
+ * "me faltan dos lecturas que hoy no están cargadas: anuncio_datos_expertos y
+ * propuesta_campana. Las dejo nombradas para que queden habilitadas en tu
+ * próximo mensaje. Escribime una línea y en el siguiente turno te entrego el
+ * plan" (producción, 14-09-2026). Nada de eso puede llegar a alguien que no
+ * programa.
+ */
+describe("herramientas que Atlas pide en su respuesta", () => {
+  it("lee el marcador, lo saca del texto y devuelve solo las que no tenía", () => {
+    const r = herramientasQuePide(
+      "Encontré el producto. Un momento, estoy revisando tus datos.\n\n[[herramientas: anuncio_datos_expertos, propuesta_campana, list_products]]",
+      ["list_products"],
+    );
+    expect(r.nombres.sort()).toEqual(["anuncio_datos_expertos", "propuesta_campana"]);
+    expect(r.textoLimpio).toBe("Encontré el producto. Un momento, estoy revisando tus datos.");
+    expect(r.textoLimpio).not.toContain("[[");
+  });
+
+  it("si el modelo no respetó el formato, igual detecta los nombres sueltos y los quita del texto", () => {
+    const r = herramientasQuePide(
+      "me faltan dos lecturas que hoy no están cargadas: anuncio_datos_expertos y propuesta_campana. Las dejo nombradas.",
+      [],
+    );
+    expect(r.nombres.sort()).toEqual(["anuncio_datos_expertos", "propuesta_campana"]);
+    expect(r.textoLimpio).not.toMatch(/anuncio_datos_expertos|propuesta_campana/);
+  });
+
+  it("ignora nombres inventados y las que ya estaban activas", () => {
+    const r = herramientasQuePide("[[herramientas: sales_report, list_products]]", ["list_products"]);
+    expect(r.nombres).toEqual([]);
+    expect(r.textoLimpio).toBe("");
+  });
+
+  it("un texto normal queda intacto", () => {
+    const texto = "Tu plan: 1) gancho de dolor de espalda, 2) video de 15s, 3) $20.000/día.";
+    const r = herramientasQuePide(texto, []);
+    expect(r.nombres).toEqual([]);
+    expect(r.textoLimpio).toBe(texto);
+  });
+
+  it("lo que no alcanzó a usar queda para el siguiente turno de ESA sesión, una sola vez", () => {
+    recordarHerramientasPedidas(7, "s-1", ["propuesta_campana"]);
+    expect(herramientasPedidasAntes(7, "s-2")).toEqual([]);
+    expect(herramientasPedidasAntes(7, "s-1")).toEqual(["propuesta_campana"]);
+    expect(herramientasPedidasAntes(7, "s-1")).toEqual([]);
   });
 });

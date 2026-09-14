@@ -39,7 +39,7 @@ import {
 import { toEmojiStyle } from "../lib/conversation-engine";
 import { esResumenInterno, pareceIngles, avisoDeTurnoIncompleto, avisoDeCierreVacio } from "../lib/respuesta-al-admin";
 import { paraMarkdown } from "./code-agent";
-import { describePlannedAction, buildMcpToolRegistry, drainDraftPlan, lecturasDelTurno, catalogoDeCapacidades } from "../lib/opencode-mcp-tools";
+import { describePlannedAction, buildMcpToolRegistry, drainDraftPlan, lecturasDelTurno, catalogoDeCapacidades, herramientasQuePide, recordarHerramientasPedidas, herramientasPedidasAntes } from "../lib/opencode-mcp-tools";
 import { MODULO_PUBLICIDAD, FORMATO_ANUNCIO } from "../lib/publicidad-persuasiva";
 import { mintTurnToken } from "../lib/opencode-turn-token";
 import { getAppUrl } from "../lib/app-url";
@@ -1082,7 +1082,10 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
       const pedidoParaHerramientas = esSeguimientoCorto
         ? [...convo.slice(-4).map((m: any) => String(m.content || "")), String(prompt)].join("\n")
         : String(prompt);
-      const toolRegistry = buildMcpToolRegistry(pedidoParaHerramientas);
+      // Lo que Atlas pidió en el turno anterior y no alcanzó a usar (ver
+      // herramientasQuePide) entra acá: nombrar una herramienta la habilita.
+      const pedidasAntes = herramientasPedidasAntes(tenantId, sessionId);
+      let toolRegistry = buildMcpToolRegistry(pedidasAntes.length ? `${pedidoParaHerramientas}\n${pedidasAntes.join(" ")}` : pedidoParaHerramientas);
       // El subconjunto viaja en la URL del puente: es lo que hace que el
       // modelo reciba solo los esquemas que puede llegar a usar en ESTE
       // pedido, en vez de los 34 completos. Ver el comentario en
@@ -1789,6 +1792,69 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
       // Como el prompt no alcanza, el sistema lo desmiente: solo hay
       // investigación real si LA HIZO EL SERVIDOR en este turno.
       let finalReplyVerificado = finalReply;
+
+      // ── Pidió herramientas que no tenía: se le dan y sigue solo ──────────
+      //
+      // El catálogo le dice al modelo que pida lo que le falte con un
+      // marcador `[[herramientas: …]]` (antes le decía que lo "nombrara", y
+      // lo nombraba EN EL TEXTO PARA EL ADMIN: "me faltan dos lecturas,
+      // anuncio_datos_expertos y propuesta_campana, las dejo nombradas para
+      // que queden habilitadas en tu próximo mensaje" -- visto el 14-09-2026
+      // con una clienta que no programa). Acá el marcador sale del texto, las
+      // herramientas se habilitan y, si queda tiempo, el turno continúa solo
+      // en vez de pedirle a la clienta que escriba "una línea".
+      {
+        const pedidas = herramientasQuePide(String(finalReplyVerificado || ""), toolRegistry.map((t) => t.name));
+        if (pedidas.nombres.length) {
+          finalReplyVerificado = pedidas.textoLimpio;
+          const MARGEN_SEGUNDA_VUELTA_MS = 40_000;
+          // Solo por el camino directo: ahí las herramientas viajan en la
+          // llamada. Por OpenCode el puente ya quedó registrado con la lista
+          // cerrada del token, y volver a montarlo no cabe en el turno.
+          const puedeSeguir = directoDisponible() && !opencodeError && !fueDetenido(senalDeCorte) && turnDeadline - Date.now() > MARGEN_SEGUNDA_VUELTA_MS;
+          logger.info({ tenantId, pedidas: pedidas.nombres, puedeSeguir }, "[AtlasOpenCode] Atlas pidió herramientas que no tenía");
+          let resuelto = false;
+          if (puedeSeguir) {
+            toolRegistry = buildMcpToolRegistry(`${pedidoParaHerramientas}\n${pedidas.nombres.join(" ")}`);
+            progreso("Revisando los datos de tu cuenta...");
+            try {
+              const r = await correrTurnoDirecto({
+                system,
+                herramientas: toolRegistry,
+                mensaje:
+                  `${text}\n\n[SISTEMA] Ya tenés habilitadas las herramientas que pediste (${pedidas.nombres.join(", ")}). ` +
+                  `Usalas AHORA y entregá la respuesta completa y definitiva al mismo pedido. ` +
+                  `No menciones herramientas, "lecturas", "turnos" ni nada interno: el admin no es técnico. ` +
+                  `No le pidas que escriba nada para continuar.` +
+                  (pedidas.textoLimpio ? `\n\nLo que alcanzaste a responder antes (no lo repitas, completalo):\n${pedidas.textoLimpio.slice(-4_000)}` : ""),
+                ctx: { tenantId, sessionId, turnId, turnDeadline, objetivoDelAdmin: objetivoDelAdmin ?? undefined },
+                apiKey: String(process.env.DEEPSEEK_API_KEY || ""),
+                modelo: process.env.ATLAS_DIRECTO_MODELO || "deepseek-v4-flash",
+                presupuestoMs: Math.max(turnDeadline - Date.now() - 10_000, 10_000),
+                cancelSignal: senalDeCorte,
+                onProgreso: progreso,
+              });
+              if (!r.error && r.texto && r.texto.trim()) {
+                // Por si volvió a pedir algo: el marcador nunca llega al admin.
+                finalReplyVerificado = herramientasQuePide(r.texto.trim(), toolRegistry.map((t) => t.name)).textoLimpio;
+                resuelto = true;
+              } else {
+                logger.warn({ tenantId, err: r.error }, "[AtlasOpenCode] La segunda vuelta con herramientas falló");
+              }
+            } catch (e: any) {
+              logger.warn({ tenantId, err: e?.message }, "[AtlasOpenCode] Excepción en la segunda vuelta con herramientas");
+            }
+          }
+          if (!resuelto) {
+            // Quedan listas para el próximo turno, y al admin se le dice en
+            // lenguaje normal qué hacer -- sin nombres técnicos.
+            recordarHerramientasPedidas(tenantId, sessionId, pedidas.nombres);
+            finalReplyVerificado =
+              `${finalReplyVerificado ? finalReplyVerificado + "\n\n" : ""}` +
+              `Necesito revisar un par de datos más de tu cuenta para terminar esto. Respondé *dale* y te lo entrego completo.`;
+          }
+        }
+      }
 
 
       // ── Seguir solo con las partes que falten, mientras quede tiempo ─────
