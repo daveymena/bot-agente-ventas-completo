@@ -1496,6 +1496,30 @@ export function herramientasQuePide(texto: string, habilitadas: Iterable<string>
 }
 
 /**
+ * ── Partes que el propio Atlas declara pendientes ────────────────────────
+ *
+ * partirElPedido() parte lo que el ADMIN enumera ("el copy, la estrategia y
+ * el presupuesto"). Pero cuando el trabajo grande lo descubre Atlas -- "hay
+ * 16 productos físicos, investigo cada uno en la Biblioteca de Anuncios" --
+ * nadie lo partía y lo intentaba todo en un turno (14-09-2026: se colgó).
+ * Ahora el modelo cierra con `[[partes: a; b; c]]` y el servidor las encadena
+ * con la misma maquinaria de "una por turno". El marcador nunca llega al
+ * admin.
+ */
+const MARCADOR_PARTES = /\[\[\s*partes?\s*:\s*([^\]]+)\]\]/gi;
+
+export function partesQueDeclara(texto: string): { partes: string[]; textoLimpio: string } {
+  const partes: string[] = [];
+  const limpio = String(texto || "").replace(MARCADOR_PARTES, (_m, lista: string) => {
+    for (const p of lista.split(/;|\n/).map((x) => x.trim().replace(/^[-•*\d.)]+\s*/, "")).filter(Boolean)) {
+      if (p.length >= 3 && p.length <= 200 && !partes.includes(p)) partes.push(p);
+    }
+    return "";
+  }).replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+  return { partes: partes.slice(0, 8), textoLimpio: limpio };
+}
+
+/**
  * Cuando no queda tiempo en el turno para la segunda vuelta (o el camino es
  * OpenCode, donde el puente ya se registró con la lista cerrada), lo pedido
  * se guarda para el siguiente turno de esa sesión. Memoria de proceso: el

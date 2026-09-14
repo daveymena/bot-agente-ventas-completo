@@ -39,7 +39,7 @@ import {
 import { toEmojiStyle } from "../lib/conversation-engine";
 import { esResumenInterno, pareceIngles, avisoDeTurnoIncompleto, avisoDeCierreVacio } from "../lib/respuesta-al-admin";
 import { paraMarkdown } from "./code-agent";
-import { describePlannedAction, buildMcpToolRegistry, drainDraftPlan, lecturasDelTurno, catalogoDeCapacidades, herramientasQuePide, recordarHerramientasPedidas, herramientasPedidasAntes } from "../lib/opencode-mcp-tools";
+import { describePlannedAction, buildMcpToolRegistry, drainDraftPlan, lecturasDelTurno, catalogoDeCapacidades, herramientasQuePide, recordarHerramientasPedidas, herramientasPedidasAntes, partesQueDeclara } from "../lib/opencode-mcp-tools";
 import { MODULO_PUBLICIDAD, FORMATO_ANUNCIO } from "../lib/publicidad-persuasiva";
 import { mintTurnToken } from "../lib/opencode-turn-token";
 import { getAppUrl } from "../lib/app-url";
@@ -1325,7 +1325,24 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
       // única fuente de verdad para desmentir al modelo más abajo si dice
       // que investigó cuando no lo hizo.
       let huboInvestigacionReal = false;
-      const PEDIDO_DE_INVESTIGACION = /\b(investig|averigu|indag|research|analiz[aá] el mercado|qu[eé] funciona|tendencia|competencia|benchmark)/i;
+      // Ampliado el 14-09-2026: "vamos a buscar cuál se está vendiendo y
+      // promocionando", "en la web", "en la biblioteca de anuncios" no
+      // enganchaban, y Atlas se iba a las ventas internas del admin (que eran
+      // cero) en vez de a internet.
+      const PEDIDO_DE_INVESTIGACION = /\b(investig|averigu|indag|research|analiz[aá] el mercado|qu[eé] funciona|tendencia|competencia|benchmark|busc[aá]\w*\s+(en\s+)?(la\s+)?(web|internet|google)|biblioteca de anuncios|ad library|(m[aá]s|mejor)\s+(\w+\s+){0,2}(vend|promocion)|qu[eé]\s+se\s+est[aá]\s+(vendiendo|promocionando|pautando)|en la web|en internet|afuera)\b/i;
+      // El admin pidió datos DE AFUERA, no los suyos: "no con mis datos",
+      // "en la web", "en la biblioteca de anuncios". Sin esto el modelo
+      // rankeaba con las ventas internas y contestaba "tenés 0 ventas".
+      const PIDE_FUENTES_EXTERNAS = /\b(no\s+(con\s+)?(mis|los)\s+datos|datos\s+(de\s+)?(la\s+)?(web|internet)|en\s+la\s+web|en\s+internet|bibliotecas?\s+de\s+anuncios|ad library|afuera|del mercado)\b/i;
+      if (PIDE_FUENTES_EXTERNAS.test(String(prompt))) {
+        text += `\n\n[SISTEMA] El admin quiere datos EXTERNOS (web y Biblioteca de Anuncios de Meta), NO los de su cuenta: no rankees con sus ventas ni le digas que no tiene ventas. Usá web_search / fb_ad_library sobre el nicho o producto que se está hablando.`;
+      }
+      // Investigar varios productos o nichos no entra en un turno: se hace
+      // UNO por turno y el modelo declara qué falta. El servidor encadena
+      // las partes (misma maquinaria que partirElPedido).
+      if (PEDIDO_DE_INVESTIGACION.test(String(prompt)) || PIDE_FUENTES_EXTERNAS.test(String(prompt))) {
+        text += `\n\n[SISTEMA] Trabajá POR PARTES: si la investigación abarca varios productos, nichos o fuentes, en esta respuesta resolvé UNA sola (la más prometedora o la primera) con datos reales y sus fuentes, y entregala completa. Al final, en una línea aparte, declará lo que falta EXACTAMENTE así: [[partes: siguiente producto o consulta; otra; otra]] -- el sistema te va a llamar por cada una. No intentes todo junto: no entra en el tiempo y termina sin entregar nada. No le pidas al admin que espere ni que te escriba.`;
+      }
       // Crear un anuncio TAMBIÉN dispara la investigación, aunque el admin no
       // use la palabra "investigá". Motivo real (reportado en vivo por el
       // admin, 2026-08-12): `fb_ad_draft` exige investigación reciente -- un
@@ -1863,6 +1880,16 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
       }
 
 
+      // ── Partes que Atlas declaró pendientes ([[partes: …]]) ──────────────
+      {
+        const declaradas = partesQueDeclara(String(finalReplyVerificado || ""));
+        if (declaradas.partes.length) {
+          finalReplyVerificado = declaradas.textoLimpio;
+          if (partesPendientes.length === 0) partesPendientes = declaradas.partes;
+          logger.info({ tenantId, partes: declaradas.partes }, "[AtlasOpenCode] Atlas declaró partes pendientes");
+        }
+      }
+
       // ── Seguir solo con las partes que falten, mientras quede tiempo ─────
       // Antes, un pedido de varias partes resolvía la primera y le pedía al
       // admin que escribiera "seguí" por cada una. Pedido explícito del admin
@@ -1935,7 +1962,11 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
             // lo que se dijo en el turno y no solo el último pedazo. Al cerrar
             // se resta lo ya entregado para no repetirlo en pantalla.
             // Ver lib/entrega-por-partes.ts.
-            const textoParte = r.text.trim();
+            // Los marcadores internos no llegan al admin; si esta parte
+            // declaró más partes, se encolan (sin repetir).
+            const decl = partesQueDeclara(herramientasQuePide(r.text.trim(), toolRegistry.map((t) => t.name)).textoLimpio);
+            const textoParte = decl.textoLimpio;
+            for (const p of decl.partes) if (!partesPendientes.includes(p) && p !== siguiente) partesPendientes.push(p);
             finalReplyVerificado = `${finalReplyVerificado}\n\n${textoParte}`.trim();
             const paraMostrar = paraMarkdown(toEmojiStyle(textoParte));
             // El texto completo acumula la versión cruda. Guardar la versión

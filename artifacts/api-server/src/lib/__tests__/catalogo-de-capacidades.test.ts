@@ -11,7 +11,7 @@
  * acceso" sobre cosas implementadas y funcionando.
  */
 import { describe, it, expect } from "vitest";
-import { catalogoDeCapacidades, herramientasQuePide, recordarHerramientasPedidas, herramientasPedidasAntes } from "../opencode-mcp-tools";
+import { catalogoDeCapacidades, herramientasQuePide, recordarHerramientasPedidas, herramientasPedidasAntes, partesQueDeclara } from "../opencode-mcp-tools";
 import { READ_ONLY_TOOLS } from "../app-operator";
 
 const SIN_NADA = new Set<string>();
@@ -124,5 +124,28 @@ describe("herramientas que Atlas pide en su respuesta", () => {
     expect(herramientasPedidasAntes(7, "s-2")).toEqual([]);
     expect(herramientasPedidasAntes(7, "s-1")).toEqual(["propuesta_campana"]);
     expect(herramientasPedidasAntes(7, "s-1")).toEqual([]);
+  });
+});
+
+/**
+ * Cuando el trabajo grande lo descubre Atlas (16 productos que investigar),
+ * él declara las partes y el servidor las encadena una por turno. Antes lo
+ * intentaba todo junto y el turno se colgaba (14-09-2026).
+ */
+describe("partes que Atlas declara pendientes", () => {
+  it("lee el marcador, lo saca del texto y devuelve las partes en orden", () => {
+    const r = partesQueDeclara("Canguro para mascotas: 6 anuncios activos en CO, gancho 'manos libres'.\n\n[[partes: Organizador de bolsos; Luz LED solar; Prunex 1]]");
+    expect(r.partes).toEqual(["Organizador de bolsos", "Luz LED solar", "Prunex 1"]);
+    expect(r.textoLimpio).toBe("Canguro para mascotas: 6 anuncios activos en CO, gancho 'manos libres'.");
+  });
+
+  it("tolera viñetas y saltos de línea dentro del marcador, y no repite", () => {
+    const r = partesQueDeclara("ok [[partes:\n- a b c\n- a b c\n2) d e f]]");
+    expect(r.partes).toEqual(["a b c", "d e f"]);
+  });
+
+  it("sin marcador no toca el texto", () => {
+    const texto = "Plan listo: gancho, formato y presupuesto.";
+    expect(partesQueDeclara(texto)).toEqual({ partes: [], textoLimpio: texto });
   });
 });
