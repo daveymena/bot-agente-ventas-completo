@@ -1329,11 +1329,11 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
       // promocionando", "en la web", "en la biblioteca de anuncios" no
       // enganchaban, y Atlas se iba a las ventas internas del admin (que eran
       // cero) en vez de a internet.
-      const PEDIDO_DE_INVESTIGACION = /\b(investig|averigu|indag|research|analiz[aá] el mercado|qu[eé] funciona|tendencia|competencia|benchmark|busc[aá]\w*\s+(en\s+)?(la\s+)?(web|internet|google)|biblioteca de anuncios|ad library|(m[aá]s|mejor)\s+(\w+\s+){0,2}(vend|promocion)|qu[eé]\s+se\s+est[aá]\s+(vendiendo|promocionando|pautando)|en la web|en internet|afuera\b)/i;
+      const PEDIDO_DE_INVESTIGACION = /\b(investig|averigu|indag|research|analiz[aá] el mercado|qu[eé] funciona|tendencia|competencia|benchmark|busc[aá]\w*\s+(en\s+)?(la\s+)?(web|internet|google)|biblioteca de anuncios|ad library|(m[aá]s|mejor)\s+(\w+\s+){0,2}(vend|promocion)|qu[eé]\s+se\s+est[aá]\s+(vendiendo|promocionando|pautando)|en la web|en internet)/i;
       // El admin pidió datos DE AFUERA, no los suyos: "no con mis datos",
       // "en la web", "en la biblioteca de anuncios". Sin esto el modelo
       // rankeaba con las ventas internas y contestaba "tenés 0 ventas".
-      const PIDE_FUENTES_EXTERNAS = /\b(no\s+(con\s+)?(mis|los)\s+datos|datos\s+(de\s+)?(la\s+)?(web|internet)|en\s+la\s+web|en\s+internet|bibliotecas?\s+de\s+anuncios|ad library|afuera|del mercado)\b/i;
+      const PIDE_FUENTES_EXTERNAS = /\b(no\s+(con\s+)?(mis|los)\s+datos|datos\s+(de\s+)?(la\s+)?(web|internet)|en\s+la\s+web|en\s+internet|bibliotecas?\s+de\s+anuncios|ad library|del mercado)\b/i;
       if (PIDE_FUENTES_EXTERNAS.test(String(prompt))) {
         text += `\n\n[SISTEMA] El admin quiere datos EXTERNOS (web y Biblioteca de Anuncios de Meta), NO los de su cuenta: no rankees con sus ventas ni le digas que no tiene ventas. Usá web_search / fb_ad_library sobre el nicho o producto que se está hablando.`;
       }
