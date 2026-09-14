@@ -246,17 +246,35 @@ Frases cortas. Una idea por línea. Sin adjetivos de relleno ("increíble", "pre
       }),
     });
 
-    // El modelo a veces envuelve la respuesta ({ landing: {...} }, { data: {...} }).
-    const desenvolver = (r: any): any => {
-      if (!r || typeof r !== "object") return null;
-      if (Array.isArray(r.sections)) return r;
-      for (const k of ["landing", "data", "result", "output"]) if (r[k] && Array.isArray(r[k].sections)) return r[k];
+    // El modelo a veces envuelve la respuesta: { landing: {...} }, { data: {...} }
+    // o -- medido el 14-09-2026 con gemma4, 1 de cada 3 veces -- devuelve el
+    // MISMO sobre que recibió: { tarea, objetivo, formato: { name, strategy,
+    // sections… } }. Con la lista fija de claves eso caía a la landing de
+    // relleno sin aviso. Se busca `sections` en cualquier nivel (hasta 4).
+    const desenvolver = (r: any, nivel = 0): any => {
+      if (!r || typeof r !== "object" || Array.isArray(r) || nivel > 4) return null;
+      if (Array.isArray(r.sections) && r.sections.length) return r;
+      for (const v of Object.values(r)) {
+        const hallado = desenvolver(v, nivel + 1);
+        if (hallado) return hallado;
+      }
       return null;
     };
-    let result = desenvolver(await llamar());
+    const describir = (r: any): string => {
+      if (!r || typeof r !== "object") return String(r);
+      const claves = Object.keys(r).slice(0, 12).join(",");
+      return `claves=[${claves}] ${JSON.stringify(r).slice(0, 300)}`;
+    };
+    let crudo = await llamar();
+    let result = desenvolver(crudo);
     if (!result) {
-      console.log(`[Landing] el modelo no devolvió secciones para el producto ${productId}: se reintenta una vez`);
-      result = desenvolver(await llamar());
+      // Se deja constancia de QUÉ llegó: sin esto la landing salía de relleno
+      // con generatedBy="fallback" y nadie sabía si el modelo contestó en otro
+      // formato, se cortó, o no contestó (14-09-2026).
+      console.log(`[Landing] el modelo no devolvió secciones para el producto ${productId}: se reintenta una vez. Llegó: ${describir(crudo)}`);
+      crudo = await llamar();
+      result = desenvolver(crudo);
+      if (!result) console.log(`[Landing] segundo intento sin secciones para el producto ${productId}. Llegó: ${describir(crudo)}`);
     }
     const conSecciones = !!result && Array.isArray(result.sections) && result.sections.length > 0;
 

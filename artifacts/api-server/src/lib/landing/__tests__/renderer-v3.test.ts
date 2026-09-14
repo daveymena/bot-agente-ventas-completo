@@ -125,13 +125,54 @@ describe("renderer-v3 — lo que hacía que las landings salieran 'feas'", () =>
     expect(html).not.toContain("Por qué confiar");
   });
 
-  it("los bloques laterales rotan por la galería en vez de repetir la foto del hero", () => {
+  /**
+   * Cada foto lateral se usa UNA vez y nunca la del hero. Antes "rotaban" en
+   * círculo: con 1-2 fotos la misma imagen salía en el hero, la oferta, el
+   * envío y el cierre (14-09-2026). El cierre y el envío ya no llevan foto:
+   * son texto centrado y tarjetas cortas.
+   */
+  it("los bloques laterales usan cada foto una vez y nunca repiten la del hero", () => {
     const html = renderizarLanding({ ...base, producto: { ...product, images: [product.imageUrl, "https://cdn.example.com/2.webp", "https://cdn.example.com/3.webp"] }, secciones: [
       { id: "o", type: "offer", title: "Oferta", body: "x" },
-      { id: "c", type: "cta", title: "Cierre", body: "y" },
+      { id: "a", type: "authority", title: "Por qué confiar", body: "y" },
+      { id: "c", type: "cta", title: "Cierre", body: "z" },
     ] });
     expect(html).toContain("https://cdn.example.com/2.webp");
     expect(html).toContain("https://cdn.example.com/3.webp");
+    // La del hero aparece en el hero (y og:image), no en los laterales.
+    expect(html.split(product.imageUrl).length - 1).toBeLessThanOrEqual(2);
+    expect(html).toContain('class="cierre"');
+  });
+
+  it("con una sola foto, la oferta va sin foto lateral en vez de repetir la del hero", () => {
+    const html = renderizarLanding({ ...base, producto: { ...product, images: [product.imageUrl] }, secciones: [
+      { id: "o", type: "offer", title: "Oferta", body: "x" },
+    ] });
+    expect(html).toContain("offer--solo");
+    expect(html).not.toContain('class="offer-side"');
+  });
+
+  it("el precio real sale una vez en la oferta, sin el '45999 COP' crudo del modelo", () => {
+    const html = renderizarLanding({ ...base, secciones: [
+      { id: "h", type: "hero", title: "Dolor de espalda", subtitle: "Corrige tu postura", cta: "Pedir" },
+      { id: "o", type: "offer", title: "Oferta", subtitle: "45999 COP", body: "Precio: 45.999 COP\nPago contra entrega: no pagas hasta tenerlo" },
+    ] });
+    expect(html).not.toContain("45999 COP");
+    expect(html).not.toContain("Precio: 45.999");
+    expect(html).toContain("Pago contra entrega: no pagas hasta tenerlo");
+  });
+
+  it("un párrafo corrido en beneficios se parte en tarjetas y cada una se acota", () => {
+    const largo = "Alivia el dolor de espalda desde el primer día de uso continuo. Corrige la postura al sentarte frente al computador durante horas. Se mantiene discreto debajo de la ropa sin que nadie lo note. Permite la ventilación gracias a su material transpirable de alta densidad y costuras reforzadas que aguantan el uso diario intenso sin deformarse ni perder la tensión original.";
+    const html = renderizarLanding({ ...base, secciones: [{ id: "b", type: "benefits", title: "Beneficios", body: largo }] });
+    expect(html.split('class="bento-card"').length - 1).toBe(4);
+    expect(html).toContain("…");
+  });
+
+  it("envío y pago es una tarjeta por condición, no el bloque de la oferta", () => {
+    const html = renderizarLanding({ ...base, secciones: [{ id: "l", type: "logistics", title: "Envío", body: "Envío gratis.\nPagás al recibir.\nLlega en 3 a 5 días." }] });
+    expect(html.split("<article>").length - 1).toBe(3);
+    expect(html).not.toContain('class="offer-main"');
   });
 });
 
