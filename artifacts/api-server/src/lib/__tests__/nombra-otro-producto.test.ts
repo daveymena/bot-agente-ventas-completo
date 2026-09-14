@@ -36,7 +36,7 @@ describe("agent.ts no cae al producto en foco si nombró otro", () => {
     expect(src).toMatch(/decision\.productoDelMensaje\?\.id \?\? decision\.productToShow\?\.id \?\? \(decision\.nombraOtroProducto \? null : memory\.currentProductId\)/);
   });
   it("la corrección de tarjeta al foco también", () => {
-    expect(src).toMatch(/&& !decision\.nombraOtroProducto\n\s*\) \{/);
+    expect(src).toMatch(/&& !decision\.nombraOtroProducto\r?\n\s*\) \{/);
   });
 });
 
@@ -61,11 +61,11 @@ describe("el parser descarta la tarjeta del foco en los tres casos del chat real
   const src = readFileSync(join(__dirname, "..", "agent.ts"), "utf8");
   it("nombró otra cosa / varios / ya pagó", () => {
     expect(src).toMatch(/decision\.nombraOtroProducto && resolvedId === memory\.currentProductId/);
-    expect(src).toMatch(/else if \(preguntaPorVarios\(String\(lastText \|\| ""\), nombres\)\)/);
+    expect(src).toMatch(/else if \(preguntaPorVariosProductos\(entendimiento, String\(lastText \|\| ""\), nombres\)\)/);
     expect(src).toMatch(/else if \(isPaymentProofIntent\(String\(lastText \|\| ""\)\)\)/);
   });
   it("la sección forzada tampoco sale con varios ni tras 'ya pagué'", () => {
-    expect(src).toMatch(/pideAlgoEntregable\(String\(lastText \|\| ""\)\)\n\s*&& !preguntaPorVarios\(/);
+    expect(src).toMatch(/pideEntregable\(entendimiento, String\(lastText \|\| ""\)\)\r?\n\s*&& !preguntaPorVariosProductos\(/);
   });
 });
 
@@ -142,7 +142,7 @@ describe("lead de Instagram 12-09 21:19: 'Para mi' no cambia de agente ni invent
   });
   it("'te enseña' con un producto real en foco no es un invento", () => {
     const src = readFileSync(join(__dirname, "..", "agent.ts"), "utf8");
-    expect(src).toMatch(/const inventoPorFrase = !hayProductoRealEnJuego\n\s*&& \//);
+    expect(src).toMatch(/const inventoPorFrase = !hayProductoRealEnJuego\r?\n\s*&& \//);
   });
 });
 

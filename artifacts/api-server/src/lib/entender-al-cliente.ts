@@ -51,9 +51,57 @@ export type Subintencion =
   | "general_question"
   | null;
 
+/**
+ * Qué cosa ENTREGABLE pide el cliente en este mensaje. Es lo que hasta hoy
+ * decidían `PIDE_PRECIO`, `PIDE_VIDEO`, `pideAlgoEntregable()`… por regex,
+ * y cada frase nueva del cliente ("y en cuánto me queda?", "muéstrame cómo
+ * son las clases") era un hueco que tapar. El modelo lo lee; las listas
+ * quedan de respaldo.
+ */
+export type Pedido =
+  | "precio"
+  | "pago"
+  | "transferencia"
+  | "link_pago"
+  | "tienda"
+  | "video"
+  | "contenido"
+  | "entrega"
+  | "acceso"
+  | "garantia"
+  | "duracion"
+  | "soporte"
+  | "humano"
+  | "catalogo";
+
+export const PEDIDOS: Pedido[] = [
+  "precio", "pago", "transferencia", "link_pago", "tienda", "video", "contenido",
+  "entrega", "acceso", "garantia", "duracion", "soporte", "humano", "catalogo",
+];
+
 export interface Entendimiento {
   intencion: IntencionEntendida;
   productoId: number | null;
+  /**
+   * Los ids del catálogo que el cliente NOMBRÓ en este mensaje (0, 1 o
+   * varios). Distinto de `productoId`, que hereda el foco: acá solo va lo
+   * que el mensaje dice con todas las letras. "piano, contabilidad e idiomas,
+   * ¿total?" → tres ids; "¿y cuánto vale?" → ninguno.
+   */
+  productosNombrados: number[];
+  /**
+   * El mensaje es sobre el producto que se viene hablando aunque no lo
+   * nombre ("¿y eso me sirve si no sé programar?", "¿es grabado?").
+   */
+  sobreElFoco: boolean;
+  /**
+   * Pide algo concreto que NO está en el catálogo ("¿tienes curso de
+   * soldadura?"). Es la base del "no lo tengo, pero…". Una pregunta sobre
+   * modalidad, uso o contenido del producto en foco NO es esto.
+   */
+  pideAlgoQueNoHay: boolean;
+  /** Qué entregable pide. Vacío si solo conversa. */
+  pide: Pedido[];
   /** Qué está esperando el cliente AHORA. */
   esperando: string;
   /** Preguntas explícitas que siguen sin respuesta. */
@@ -146,6 +194,12 @@ function construirPrompt(e: EntradaEntender): string {
     "11. Si el mensaje no nombra ningún producto pero la conversación venía de uno, ESE sigue siendo el productoId. No lo pongas en null por no estar nombrado.",
     "12. No inventes ids: solo pueden salir ids que estén en el catálogo de arriba.",
     "",
+    "LECTURA DEL PRODUCTO (el servidor decide con esto, sé preciso):",
+    "- productosNombrados: SOLO los ids que el mensaje nombra con sus palabras. Varios si nombró varios ('piano, contabilidad e idiomas juntos' → tres ids). Vacío si no nombró ninguno ('¿y cuánto vale?', 'dale', '¿es grabado?').",
+    "- sobreElFoco: true si el mensaje habla del producto en foco aunque no lo nombre ('¿y eso me sirve si no sé nada?', '¿cuántas clases trae?', '¿es grabado o en vivo?', 'ese quiero'). false si nombró OTRO producto o pide algo que no es ese.",
+    "- pideAlgoQueNoHay: true SOLO si pide un producto o servicio concreto que NO está en el catálogo ('¿tienes curso de soldadura?', '¿venden laptops?'). Una pregunta sobre modalidad, uso, contenido o entrega del producto en foco NO es esto. Un saludo o '¿cómo lo adquiero?' tampoco.",
+    "- pide: qué cosa entregable quiere AHORA, en orden de importancia. Valores: precio (cuánto vale, en cuánto queda, a cómo está), pago (cómo pagar, medios de pago), transferencia (Nequi, Daviplata, Bancolombia, consignación), link_pago (link de pago, tarjeta, PSE), tienda (ver la tienda o página del producto), video (ver un video, cómo son las clases, una muestra), contenido (qué incluye, qué trae, más información), entrega (cómo lo recibe, cuándo llega, envío), acceso (cómo entra, dónde lo ve), garantia, duracion, soporte, humano (hablar con una persona), catalogo (ver qué hay, qué venden). Vacío si solo conversa, saluda, objeta o dice sí/no.",
+    "",
     "CATÁLOGO REAL (solo estos ids existen):",
     catalogo || "(vacío)",
     "",
@@ -160,6 +214,10 @@ function construirPrompt(e: EntradaEntender): string {
     `  "intencion": una de ${INTENCIONES.join("|")},`,
     `  "subintencion": una de ${SUBINTENCIONES.filter(Boolean).join("|")} o null,`,
     '  "productoId": id real del catálogo o null,',
+    '  "productosNombrados": [ids que el mensaje nombra con sus palabras],',
+    '  "sobreElFoco": true/false,',
+    '  "pideAlgoQueNoHay": true/false,',
+    `  "pide": [cero o más de ${PEDIDOS.join("|")}],`,
     '  "esperando": "qué necesita del vendedor ahora, en una frase corta",',
     '  "preguntas": ["preguntas explícitas que siguen sin respuesta"],',
     '  "pideRebaja": true/false,',
@@ -218,11 +276,41 @@ export function normalizar(
   // mensaje no nombra nada. Antes eso borraba el producto de la conversación
   // y el agente contestaba en el aire. Se hereda el foco previo, que ya viene
   // resuelto por dato duro del lado del servidor.
+  // ── Los productos NOMBRADOS: solo ids reales, sin repetir, máximo 5 ────
+  //
+  // Es la lista que reemplaza a `preguntaPorVarios` y a `nombraOtraCosaQueEl
+  // Foco` cuando el modelo está seguro. Un id que no existe se cae acá, igual
+  // que `productoId`: el modelo lee, el catálogo verifica.
+  const nombradosBruto: unknown[] = Array.isArray(crudo.productosNombrados) ? crudo.productosNombrados : [];
+  const productosNombrados: number[] = [];
+  for (const x of nombradosBruto) {
+    const id = Number(x);
+    if (Number.isFinite(id) && idsValidos.has(id) && !productosNombrados.includes(id)) productosNombrados.push(id);
+    if (productosNombrados.length >= 5) break;
+  }
+
   const delModelo = Number.isFinite(idBruto) && idsValidos.has(idBruto) ? idBruto : null;
   const heredado = Number.isFinite(Number(focoPrevioId)) && idsValidos.has(Number(focoPrevioId))
     ? Number(focoPrevioId)
     : null;
-  const productoId = delModelo ?? heredado;
+  // Si nombró exactamente uno, ese es el producto del mensaje aunque el
+  // campo `productoId` diga otra cosa: lo nombrado con todas las letras vale
+  // más que la corazonada.
+  const productoId = (productosNombrados.length === 1 ? productosNombrados[0] : null) ?? delModelo ?? heredado;
+
+  // Nombró algo → no es "sobre el foco" salvo que lo nombrado SEA el foco.
+  const focoNum = Number(focoPrevioId);
+  const sobreElFoco = crudo.sobreElFoco === true
+    && (productosNombrados.length === 0 || (productosNombrados.length === 1 && productosNombrados[0] === focoNum));
+  // Y si nombró algo que SÍ existe, no está pidiendo algo que no hay.
+  const pideAlgoQueNoHay = crudo.pideAlgoQueNoHay === true && productosNombrados.length === 0;
+
+  const pide: Pedido[] = [];
+  if (Array.isArray(crudo.pide)) {
+    for (const x of crudo.pide) {
+      if (typeof x === "string" && (PEDIDOS as string[]).includes(x) && !pide.includes(x as Pedido)) pide.push(x as Pedido);
+    }
+  }
 
   const esperando = String(crudo.esperando || "").slice(0, 240);
   const preguntas = Array.isArray(crudo.preguntas)
@@ -253,6 +341,10 @@ export function normalizar(
     intencion: intencionFinal,
     subintencion,
     productoId,
+    productosNombrados,
+    sobreElFoco,
+    pideAlgoQueNoHay,
+    pide,
     esperando,
     preguntas,
     pideRebaja: crudo.pideRebaja === true,

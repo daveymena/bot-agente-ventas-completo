@@ -51,6 +51,8 @@ export type SeccionFicha =
    */
   | "ninguna";
 
+import type { Pedido } from "./entender-al-cliente";
+
 export interface EntradaSeccion {
   /** Lo último que escribió el cliente. */
   mensaje: string;
@@ -89,6 +91,13 @@ export interface EntradaSeccion {
   yaVioContenido?: boolean;
   /** Si ESTE producto tiene video cargado. Solo 9 de 84 lo tienen. */
   tieneVideo?: boolean;
+  /**
+   * Lo que el MODELO leyo que pide el cliente (`entender-al-cliente.ts`,
+   * campo `pide`). Se suma a las regex de abajo, no las reemplaza: las listas
+   * ya no dan falsos positivos y el modelo cierra los huecos que ellas no ven
+   * ("y en cuanto me queda?", "muestrame como son las clases").
+   */
+  pide?: Pedido[];
 }
 
 const N = (s: string) =>
@@ -254,6 +263,17 @@ export function pideAlgoEntregable(mensaje: string): boolean {
 export function seccionQueCorresponde(e: EntradaSeccion): SeccionFicha {
   const m = N(e.mensaje);
   const intent = String(e.intent || "");
+  // La lectura del modelo, sumada a la lista. Cada `pide*` es "lo dijo la
+  // regex O lo leyo el modelo"; el arbol de decision de abajo es el mismo.
+  const leido = new Set<Pedido>(e.pide || []);
+  const pideVideo = PIDE_VIDEO.test(m) || leido.has("video");
+  const pideTienda = PIDE_TIENDA.test(m) || leido.has("tienda");
+  const pideTransferencia = PIDE_TRANSFERENCIA.test(m) || leido.has("transferencia");
+  const pideLink = PIDE_LINK.test(m) || leido.has("link_pago");
+  const pidePrecio = PIDE_PRECIO.test(m) || leido.has("precio");
+  const pidePago = PIDE_PAGO.test(m) || leido.has("pago");
+  const pideEntrega = PIDE_ENTREGA.test(m) || leido.has("entrega");
+  const pideInfo = PIDE_INFO.test(m) || leido.has("contenido");
 
   // ── El video ──────────────────────────────────────────────────────────────
   // Va primero porque "muéstrame cómo son las clases" también huele a info, y
@@ -261,7 +281,7 @@ export function seccionQueCorresponde(e: EntradaSeccion): SeccionFicha {
   //
   // Si ya se lo mandamos, NO se repite: pedirlo de nuevo suele significar que
   // no lo abrió, y remandarlo no ayuda. Se sigue por el camino normal.
-  if (!e.videoYaEnviado && (PIDE_VIDEO.test(m) || (e.ofrecimosVideo && esAfirmacionSuelta(e.mensaje)))) {
+  if (!e.videoYaEnviado && (pideVideo || (e.ofrecimosVideo && esAfirmacionSuelta(e.mensaje)))) {
     return "video";
   }
 
@@ -271,22 +291,22 @@ export function seccionQueCorresponde(e: EntradaSeccion): SeccionFicha {
   // Va arriba porque "el link de la tienda" también matchea PIDE_LINK, que es
   // el link de PAGO: mandarle a pagar a quien pidió ver la tienda es cobrarle
   // antes de tiempo.
-  if (PIDE_TIENDA.test(m)) return "tienda";
+  if (pideTienda) return "tienda";
 
   // ── Medio de pago concreto: lo más específico que puede pedir ─────────────
-  if (PIDE_TRANSFERENCIA.test(m)) return "pago_transferencia";
-  if (PIDE_LINK.test(m)) return "pago_link";
+  if (pideTransferencia) return "pago_transferencia";
+  if (pideLink) return "pago_link";
 
   // ── Precio a secas ────────────────────────────────────────────────────────
   // Va ANTES de "cómo pago": "cuánto vale" no es una pregunta de método.
   // Pero si preguntó las dos cosas ("cuánto vale y cómo pago"), gana el pago,
   // que ya incluye el precio.
-  if (PIDE_PRECIO.test(m)) {
-    return PIDE_PAGO.test(m) ? "pago" : "precio";
+  if (pidePrecio) {
+    return pidePago ? "pago" : "precio";
   }
 
-  if (PIDE_PAGO.test(m)) return "pago";
-  if (PIDE_ENTREGA.test(m)) return "entrega";
+  if (pidePago) return "pago";
+  if (pideEntrega) return "entrega";
   // -- "Mas informacion" no puede ser lo mismo otra vez -----------------
   //
   // Pedido del admin: "cuando pregunte por mas informacion le mandas el
@@ -300,7 +320,7 @@ export function seccionQueCorresponde(e: EntradaSeccion): SeccionFicha {
   //
   // Si el producto no tiene video, `info` igual no repite: whatsapp.ts manda
   // los puntos que NO entraron la primera vez (ver construirSeccion).
-  if (PIDE_INFO.test(m)) {
+  if (pideInfo) {
     if (e.yaVioContenido && e.tieneVideo && !e.videoYaEnviado) return "video";
     // Pedido del dueño (13-09): si la ficha ya se envió y el cliente quiere
     // ampliar, NO se le manda otro bloque de ficha: la IA le explica a

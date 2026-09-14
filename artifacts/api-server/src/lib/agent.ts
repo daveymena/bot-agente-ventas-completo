@@ -31,6 +31,7 @@ import { CONDICIONES_DE_RESPALDO, bloqueTrasElSi, marcaDeModelo, modeloDelProduc
 import { verificarPrecios } from "./precio-verificado";
 import { productoEnFoco } from "./producto-en-foco";
 import { entenderAlCliente, type Entendimiento } from "./entender-al-cliente";
+import { pideEntregable, preguntaPorVariosProductos, pedidosLeidos } from "./lectura-del-cliente";
 import { sinLoQueYaLeyo, yaLoDijo } from "./no-repetir";
 import { sinPreguntarLoQueYaVa } from "./no-pedir-lo-que-ya-va";
 import { nombreDePila } from "./nombre-de-pila";
@@ -1102,6 +1103,7 @@ export async function runAgentReply(conversationId: number) {
   t1 = Date.now();
   const decision = await computeDecision(
     memory, textoDecision, productList, categoryMap, negocio, intentEntendido,
+    mandaElEntendimiento ? entendimiento : null,
   );
   logTime(`5. Motor de decisión: ${Date.now() - t1}ms`);
 
@@ -1113,6 +1115,10 @@ export async function runAgentReply(conversationId: number) {
       `🧠 [ENTENDER] ${en.intencion}/${en.subintencion ?? "-"} conf:${en.confianza} ` +
       `directo:${en.responderDirectamente} reformula:${en.reformulaPregunta} ` +
       `fallóAnterior:${en.respuestaAnteriorFallida} — ${en.esperando} - ${ts()}`,
+    );
+    console.log(
+      `🧠 [LECTURA] nombró:[${en.productosNombrados.join(",")}] sobreElFoco:${en.sobreElFoco} ` +
+      `noHay:${en.pideAlgoQueNoHay} pide:[${en.pide.join(",")}] - ${ts()}`,
     );
     // El producto SOLO se rellena si los patrones no encontraron ninguno.
     // Cuando ya hay uno resuelto por el servidor, ese manda: el modelo elige
@@ -3628,7 +3634,7 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
           const nombres = (productList as any[]).map((p: any) => String(p.name || ""));
           let motivo = "";
           if (decision.nombraOtroProducto && resolvedId === memory.currentProductId) motivo = "nombró otra cosa que no está en el catálogo: la ficha del producto en foco no es la respuesta";
-          else if (preguntaPorVarios(String(lastText || ""), nombres)) motivo = "preguntó por varios productos: la sección de UNO no contesta la suma";
+          else if (preguntaPorVariosProductos(entendimiento, String(lastText || ""), nombres)) motivo = "preguntó por varios productos: la sección de UNO no contesta la suma";
           else if (isPaymentProofIntent(String(lastText || ""))) motivo = "dice que YA pagó: no se le mandan medios de pago";
           if (motivo) {
             console.log(`🛡️ [PARSER] Tarjeta ${resolvedId} descartada: ${motivo}. Se manda solo el texto - ${ts()}`);
@@ -3665,7 +3671,7 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
         // ahora: el video, la tienda, el precio y los medios de pago no son
         // repeticiones de la ficha, son cosas que todavia no vio. Bloquearlas
         // dejaba al modelo improvisando sobre datos que el servidor tenia.
-        const pideOtraCosa = pideAlgoEntregable(String(lastText || ""));
+        const pideOtraCosa = pideEntregable(entendimiento, String(lastText || ""));
         if (yaEnviada && !esFlujoDePago && !decision.pidioReenvio && !pideOtraCosa && textBefore) {
           console.log(`🔁 [PARSER] La ficha de ${resolvedId} ya se envió antes: no se repite, se contesta solo lo que preguntó.`);
           resolvedId = -1;
@@ -3737,6 +3743,7 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
           const seccion = seccionQueCorresponde({
             mensaje: lastText,
             intent: decision.intent,
+            pide: pedidosLeidos(entendimiento),
             fichaYaEnviada: memory.sentProductIds.has(resolvedId),
             ofrecimosVideo,
             ofrecimosContenido,
@@ -4011,8 +4018,8 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
       // decidir en el servidor, se decide en el servidor. Pedirselo al modelo
       // no es una garantia.
       if (
-        !finalParts.some((p: any) => p.kind === "card") && pideAlgoEntregable(String(lastText || ""))
-        && !preguntaPorVarios(String(lastText || ""), (productList as any[]).map((p: any) => String(p.name || "")))
+        !finalParts.some((p: any) => p.kind === "card") && pideEntregable(entendimiento, String(lastText || ""))
+        && !preguntaPorVariosProductos(entendimiento, String(lastText || ""), (productList as any[]).map((p: any) => String(p.name || "")))
         && !isPaymentProofIntent(String(lastText || ""))
       ) {
         // Si nombró OTRA cosa que no tenemos (Excel con el piano en foco), el
@@ -4028,6 +4035,7 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
           const seccionPedida = seccionQueCorresponde({
             mensaje: String(lastText || ""),
             intent: decision.intent,
+            pide: pedidosLeidos(entendimiento),
             fichaYaEnviada: memory.sentProductIds.has(idParaEntregar),
             // Misma corrección que arriba: por el enlace del producto, no por
             // una frase que solo cubre una de las cuatro redacciones.
@@ -4514,7 +4522,7 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
       // ('contame del de ingles') si llena `productoDelMensaje`, asi que
       // esos no entran aca.
       if (
-        pideAlgoEntregable(String(lastText || ""))
+        pideEntregable(entendimiento, String(lastText || ""))
         // El cliente no lo nombro, o lo que se creyo nombrado sale de las
         // palabras de la pregunta misma ("pagina web" -> el curso DESARROLLO
         // WEB). Las dos cosas significan lo mismo: no eligio otro producto.

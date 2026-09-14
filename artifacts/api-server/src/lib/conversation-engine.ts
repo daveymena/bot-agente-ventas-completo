@@ -24,6 +24,8 @@ import { dbNow } from "./date-utils";
 import { preguntasSueltas } from "./estado-cognitivo";
 import { renderBloqueNegocio, type BusinessContext } from "./business-context";
 import { nombreDePila } from "./nombre-de-pila";
+import type { Entendimiento } from "./entender-al-cliente";
+import { preguntaSobreElFoco as preguntaSobreElFocoSegunLectura, productoNombradoVerificado, nombraOtraCosa, nombraAlgoConcretoSegunLectura } from "./lectura-del-cliente";
 
 // ─── Tipos públicos ────────────────────────────────────────────────────────────
 
@@ -1994,6 +1996,11 @@ export async function computeDecision(
   // Corregir la etiqueta después dejaba ese párrafo escrito con la lectura
   // vieja, y el agente terminaba haciendo lo que decía el párrafo.
   intentEntendido?: Intent | null,
+  // La lectura COMPLETA del modelo (productos nombrados, si habla del foco,
+  // si pide algo que no hay). Con ella el producto del mensaje deja de
+  // depender solo del parecido de texto y de las listas de palabras; sin
+  // ella, todo sigue decidiéndose como antes. Ver `lectura-del-cliente.ts`.
+  lectura?: Entendimiento | null,
 ): Promise<EngineDecision> {
   const porPatrones = detectIntent(incomingText);
   const intent: Intent = intentEntendido || porPatrones;
@@ -2124,11 +2131,28 @@ export async function computeDecision(
     // "y eso me sirve si no sé nada de programación?" casa PACK PROGRAMACIÓN
     // de forma FIEL (la palabra está en el nombre) y aun así no es un cambio
     // de producto: es una pregunta sobre el que está en foco (medido 13-09).
+    // El modelo leyó lo mismo que las dos regex de arriba, pero sin depender
+    // de que la frase esté en la lista ("¿y eso me sirve si no sé nada?").
     const preguntaSobreElFocoConTodasLasLetras =
-      !!memory.currentProductId && (preguntaSobreLoQueSeHabla(incomingText) || señalaAlProductoEnFoco(incomingText));
-    const match = preguntaSobreElFocoConTodasLasLetras
+      !!memory.currentProductId
+      && preguntaSobreElFocoSegunLectura(lectura, preguntaSobreLoQueSeHabla(incomingText) || señalaAlProductoEnFoco(incomingText));
+    // Y si el modelo dice que NOMBRÓ un producto y el nombre está en el
+    // mensaje, eso es una coincidencia fiel aunque el buscador no la haya
+    // visto (o la haya visto con menos puntaje). Gana a las guardas de foco:
+    // quien nombra otro producto está cambiando de producto.
+    const nombradoPorElModelo = productoNombradoVerificado(lectura, incomingText, productList as any[]);
+    let match = preguntaSobreElFocoConTodasLasLetras
       ? null
       : (preguntaSobreElFoco && !encontrado?.fiel ? null : encontrado);
+    if (nombradoPorElModelo && (!match?.fiel || match.product?.id !== nombradoPorElModelo.id)) {
+      console.log(`🧠 [ENTENDER] el cliente nombró "${nombradoPorElModelo.name}" (ID ${nombradoPorElModelo.id}); el buscador ${match ? `daba ${match.product?.name} (fiel=${match.fiel})` : "no daba nada"}`);
+      match = {
+        product: nombradoPorElModelo,
+        score: 100,
+        fiel: true,
+        reasoning: `El modelo leyó que el cliente nombra "${nombradoPorElModelo.name}" y el nombre aparece en el mensaje.`,
+      } as any;
+    }
 
     // Razonamiento de búsqueda (para inyectar en el prompt)
     searchReasoning = match?.reasoning || null;
@@ -2244,7 +2268,9 @@ export async function computeDecision(
             intent !== "details_query" &&
             !mensajeNombraProducto(incomingText) &&
             !señalaAlProductoEnFoco(incomingText);
-          nombraOtroProducto = nombraOtraCosaQueElFoco(currentProduct.name, incomingText);
+          // El modelo decide si esto es sobre el foco o sobre algo que no hay;
+          // la lista queda de respaldo (`lectura-del-cliente.ts`).
+          nombraOtroProducto = nombraOtraCosa(lectura, nombraOtraCosaQueElFoco(currentProduct.name, incomingText), currentProduct.id);
           if (nombraOtroProducto) {
             console.log(`🙅 [DECISION] El mensaje nombra algo que NO es ${currentProduct.name} ni está en el catálogo: no se contesta con el producto en foco`);
           }
@@ -2268,7 +2294,7 @@ export async function computeDecision(
         // dijo algo concreto y la respuesta correcta es mostrarle qué hay.
         pidioVerCatalogo = true;
         console.log(`📚 [DECISION] El cliente pide ver el catálogo - mostrar opciones, no negar`);
-      } else if (!nombraAlgoConcreto(incomingText)) {
+      } else if (!nombraAlgoConcretoSegunLectura(lectura, nombraAlgoConcreto(incomingText))) {
         // `mensajeNombraProducto` es laxa a propósito para el buscador; acá
         // decide si se le va a decir "no lo tengo", y para eso hace falta que
         // haya nombrado ALGO concreto. Medido con el evaluador (13-09):
