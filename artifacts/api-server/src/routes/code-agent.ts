@@ -2373,5 +2373,25 @@ router.post("/upload", async (req: TenantRequest, res, next) => {
   }
 });
 
+/**
+ * GET /api/code-agent/diagnostico — Diagnóstico del negocio para el saludo.
+ *
+ * Devuelve el estado del negocio (productos, WhatsApp, Facebook, campañas) y
+ * el siguiente paso recomendado. El frontend lo usa en vez del saludo fijo
+ * para que Atlas abra proponiendo, no saludando.
+ */
+router.get("/diagnostico", async (req: TenantRequest, res, next) => {
+  try {
+    const tenantId = req.tenant?.id;
+    if (!tenantId) return res.status(401).json({ message: "Tenant not resolved" });
+    const { diagnosticoDelNegocio } = await import("../lib/diagnostico-de-inicio");
+    const ctx: OperatorContext = { tenantId };
+    const d = await diagnosticoDelNegocio(ctx);
+    return res.json({ ok: true, ...d });
+  } catch (e) {
+    return next(e);
+  }
+});
+
 export default router;
 
