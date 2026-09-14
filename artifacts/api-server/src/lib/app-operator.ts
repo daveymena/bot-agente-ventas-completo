@@ -4181,7 +4181,7 @@ Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vincu
       "Crea y GUARDA una landing page para un producto con el generador de VentasPro: texto en AIDA (dolor → solución → producto → acción), " +
       "fotos reales del producto, cierre según el modelo (físico: formulario contraentrega o WhatsApp; digital: MercadoPago/PayPal o WhatsApp) " +
       "y las condiciones reales del negocio. Queda como BORRADOR: para que exista la URL pública hay que llamar landing_publicar. " +
-      "⚠️ Cambia el sistema: va por propose_action. 'familia' es el estilo visual (premium, respuesta-directa, minimal, editorial, ecommerce, belleza, fitness, educacion, tecnologia, familiar, creativa, oscura).",
+      "⚠️ Cambia el sistema: va por propose_action. 'familia' es el estilo visual (premium, respuesta-directa, minimal, editorial, ecommerce, belleza, fitness, educacion, tecnologia, familiar, creativa, oscura, launch — este último es el estilo 'lanzamiento de app': oscuro, con halo de marca y cristal, tipo Launch UI).",
     args: '{ "productId": number (req), "familia"?: string, "objetivo"?: "ventas"|"mensajes"|"trafico" }',
     run: async (args, ctx) => {
       const id = num(args?.productId);

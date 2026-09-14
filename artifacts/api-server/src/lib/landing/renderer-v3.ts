@@ -130,8 +130,78 @@ function cssBase(familia: string): string {
 @media(max-width:520px){.bento-card,.bento-card:nth-child(4n){grid-column:1/-1}.gallery{grid-template-columns:1fr}.gallery img:first-child{grid-column:auto}.hero-copy .actions{display:grid}.hero-copy .actions .btn{width:100%}.hero h1{font-size:clamp(2.5rem,12vw,4.1rem)}.sec{padding:56px 0}}
 @media(prefers-reduced-motion:no-preference){.hero-media img{animation:landingFloat 7s ease-in-out infinite}@keyframes landingFloat{0%,100%{transform:translateY(0)}50%{transform:translateY(-7px)}}}
 @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}.btn{transition:none}.hero-media img{animation:none}}
+${cssFamilia(familia)}
 `.trim();
 }
+
+/**
+ * CSS propio de una familia, encima del base. Solo lo tienen las familias
+ * cuya identidad no se explica con tokens (colores, aire, radios): acá van
+ * halos, cristal, degradados y animaciones. Devuelve "" para el resto.
+ */
+function cssFamilia(familia: string): string {
+  if (familia === "launch") return CSS_LAUNCH;
+  return "";
+}
+
+/**
+ * Familia "launch": port del lenguaje visual de Launch UI (MIT).
+ *
+ * Trabaja SOLO sobre las clases que ya emite el renderer, así el editor, el
+ * preview y la publicación no cambian de HTML. Lo que aporta:
+ *   · halo radial del color de marca detrás del hero (Glow)
+ *   · h1/h2 con degradado de texto y rótulo tipo badge
+ *   · foto del hero con marco tipo "mockup" y fundido inferior
+ *   · tarjetas, FAQ, oferta y checkout en cristal (glass)
+ *   · botón principal con degradado vertical y anillo de marca
+ *   · entradas animadas (appear / appear-zoom) respetando reduced-motion
+ */
+const CSS_LAUNCH = `
+.top{background:color-mix(in srgb,var(--bg) 35%,transparent);backdrop-filter:blur(18px);border-bottom:1px solid color-mix(in srgb,#fff 6%,transparent)}
+.btn{border-radius:10px;font-weight:600;min-height:44px}
+.btn--primary{background:linear-gradient(180deg,var(--accent),color-mix(in srgb,var(--accent) 72%,#000));color:var(--on-accent);box-shadow:inset 0 1px 0 color-mix(in srgb,#fff 25%,transparent),0 0 0 1px color-mix(in srgb,var(--accent) 55%,transparent),0 12px 28px color-mix(in srgb,var(--accent) 28%,transparent)}
+.btn--primary:hover{filter:brightness(1.08)}
+.btn--soft,.trust span,.bento-card,.faq details,.offer-main,.offer-side,.checkout,.summary{background:linear-gradient(180deg,color-mix(in srgb,var(--surface) 75%,transparent),color-mix(in srgb,var(--surface) 35%,transparent));border:1px solid color-mix(in srgb,#fff 9%,transparent);border-top-color:color-mix(in srgb,#fff 16%,transparent);box-shadow:0 20px 40px -20px rgba(0,0,0,.6)}
+.trust{border:0;justify-content:center}
+.trust span{font-weight:600}
+.eyebrow{display:inline-flex;align-items:center;gap:8px;padding:6px 12px;border-radius:999px;border:1px solid color-mix(in srgb,var(--accent) 35%,transparent);background:color-mix(in srgb,var(--accent) 10%,transparent);color:var(--accent);font-size:.72rem;font-weight:600;letter-spacing:.02em;text-transform:none}
+.hero{position:relative;isolation:isolate;padding-top:calc(var(--section) * .75)}
+html,body{overflow-x:clip}
+.hero:before{content:"";position:absolute;left:50%;top:-8%;width:72%;height:70%;transform:translateX(-50%);background:radial-gradient(closest-side,color-mix(in srgb,var(--accent) 42%,transparent),transparent 72%);filter:blur(48px);z-index:-1;pointer-events:none}
+.hero-media:before{display:none}
+.hero h1,.head h2{background:linear-gradient(90deg,var(--text) 0%,color-mix(in srgb,var(--text) 55%,var(--muted)) 100%);-webkit-background-clip:text;background-clip:text;color:transparent;text-wrap:balance}
+.hero h1{font-size:clamp(2.6rem,6.4vw,5.4rem);line-height:1.05}
+.lead{margin-inline:auto;text-wrap:balance}
+.hero-price{color:var(--text)}
+.hero--center .hero-media{margin-top:56px;-webkit-mask-image:linear-gradient(to top,transparent 0%,#000 32%);mask-image:linear-gradient(to top,transparent 0%,#000 32%)}
+.hero-media figure{padding:8px;border-radius:20px;background:color-mix(in srgb,var(--line) 45%,transparent);border:1px solid color-mix(in srgb,#fff 8%,transparent);border-top-color:color-mix(in srgb,#fff 14%,transparent);max-width:1040px;margin-inline:auto}
+.hero-media img{border-radius:12px;border:1px solid color-mix(in srgb,#fff 8%,transparent);box-shadow:0 25px 50px -12px rgba(0,0,0,.65)}
+.sec{border-top:1px solid color-mix(in srgb,#fff 6%,transparent)}
+.head{margin-inline:auto;text-align:center}
+.bento-card{border-radius:16px}
+.num{color:var(--accent)}
+.bento-card strong{font-weight:600}
+.faq details{border-radius:14px}
+.faq summary{font-weight:600}
+.offer-main{position:relative;overflow:hidden;border-radius:20px}
+.offer-main:before{content:"";position:absolute;left:50%;top:-140px;width:100%;max-width:960px;height:140px;transform:translateX(-50%);border-radius:50%;background:color-mix(in srgb,var(--accent) 55%,transparent);filter:blur(72px);pointer-events:none}
+.offer-main:after{content:"";position:absolute;top:0;left:10%;width:80%;height:1px;background:linear-gradient(90deg,transparent,var(--accent),transparent)}
+.offer-main>*{position:relative}
+.offer-price{background:linear-gradient(90deg,var(--text),color-mix(in srgb,var(--text) 60%,var(--accent)));-webkit-background-clip:text;background-clip:text;color:transparent}
+.field input,.field select{background:color-mix(in srgb,var(--surface) 60%,transparent);border-color:color-mix(in srgb,#fff 10%,transparent)}
+.footer{border-top-color:color-mix(in srgb,#fff 6%,transparent)}
+.sticky{background:color-mix(in srgb,var(--bg) 70%,transparent)}
+@media(prefers-reduced-motion:no-preference){
+.hero-copy>*{opacity:0;animation:launchAppear .6s ease-out forwards}
+.hero-copy>*:nth-child(2){animation-delay:.1s}.hero-copy>*:nth-child(3){animation-delay:.2s}.hero-copy>*:nth-child(4){animation-delay:.3s}.hero-copy>*:nth-child(5){animation-delay:.4s}
+.hero-media{opacity:0;animation:launchAppear .7s ease-out .5s forwards}
+.hero:before{opacity:0;animation:launchZoom .8s ease-out .7s forwards}
+.hero-media img{animation:none}
+@keyframes launchAppear{0%{opacity:0;transform:translateY(1rem);filter:blur(.5rem)}50%{filter:blur(0)}100%{opacity:1;transform:none;filter:blur(0)}}
+@keyframes launchZoom{from{opacity:0;transform:translateX(-50%) scale(.5)}to{opacity:1;transform:translateX(-50%) scale(1)}}
+}
+@media(max-width:820px){.hero:before{width:100%;top:0}.hero--center .hero-media{margin-top:32px}}
+`.trim();
 
 /** Rótulo pequeño sobre el título: en español, nunca el tipo interno. */
 const ROTULOS: Record<string, string> = {

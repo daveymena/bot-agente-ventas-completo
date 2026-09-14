@@ -47,11 +47,12 @@ export type FamiliaVisual =
   | "tecnologia"
   | "familiar"
   | "creativa"
-  | "oscura";
+  | "oscura"
+  | "launch";
 
 export const FAMILIAS: readonly FamiliaVisual[] = [
   "premium", "respuesta-directa", "minimal", "editorial", "ecommerce", "belleza",
-  "fitness", "educacion", "tecnologia", "familiar", "creativa", "oscura",
+  "fitness", "educacion", "tecnologia", "familiar", "creativa", "oscura", "launch",
 ] as const;
 
 /** Cómo se integran las fotos. Cambia la composición, no un filtro. */
@@ -138,7 +139,7 @@ export interface TokensDeDiseno {
 }
 
 /**
- * Las 12 familias.
+ * Las 13 familias.
  *
  * Cada una se escribió mirando qué la distingue COMPOSITIVAMENTE de las otras.
  * Si dos familias terminaran con el mismo ritmo, alineación y layouts, una de
@@ -396,6 +397,35 @@ export const TOKENS: Record<FamiliaVisual, TokensDeDiseno> = {
       faq: ["faq_minimal", "faq_accordion"],
     },
   },
+
+  /**
+   * Port del lenguaje visual de Launch UI (launchuicomponents.com, MIT): la
+   * estética "lanzamiento de producto" de las landings de SaaS y apps. Fondo
+   * casi negro con un halo radial del color de marca detrás del hero, título
+   * con degradado, tarjetas de cristal, marco tipo mockup en la foto y
+   * entradas animadas. La composición (halo, cristal, marco) vive en el CSS
+   * propio de esta familia en renderer-v3; acá solo van los tokens.
+   */
+  launch: {
+    familia: "launch",
+    nombre: "Launch",
+    cuando: "Apps, software y productos digitales que quieren verse como un lanzamiento: oscuro, con brillo de marca y cristal.",
+    tipografia: { display: "'Inter', system-ui, sans-serif", texto: "'Inter', system-ui, sans-serif", escala: 1.25, pesoDisplay: 600, espaciadoTitulo: "-0.035em", interlineado: 1.65 },
+    color: { fondo: "#131316", superficie: "#1B1B1F", texto: "#FAFAFA", textoSuave: "#A1A1AA", acento: "#F59E4B", sobreAcento: "#131316", borde: "#2A2A30" },
+    ritmo: { anchoContenido: "1280px", padSeccionY: "128px", padSeccionX: "16px", separacion: "24px" },
+    forma: { radio: "12px", sombra: "0 25px 50px -12px rgba(0,0,0,.55)", borde: "1px solid #2A2A30" },
+    alineacion: "centrado",
+    fondos: "oscuro",
+    imagen: "enmarcada",
+    cta: "solido",
+    layoutsPreferidos: {
+      hero: ["hero_center", "hero_product_focus", "hero_dark"],
+      benefits: ["benefits_icon_grid", "benefits_cards"],
+      offer: ["offer_card", "offer_dark"],
+      testimonials: ["testimonial_cards", "testimonial_slider"],
+      faq: ["faq_accordion", "faq_cards"],
+    },
+  },
 };
 
 /** ¿Es una familia conocida? Sirve para no confiar en lo que mande el modelo. */
@@ -434,6 +464,7 @@ const SENALES: Array<{ familia: FamiliaVisual; palabras: string[] }> = [
   { familia: "belleza", palabras: ["belleza", "beauty", "piel", "skin", "cabello", "pelo", "maquillaje", "cosmetic", "crema", "serum", "facial", "perfume", "unas"] },
   { familia: "fitness", palabras: ["fitness", "gym", "gimnasio", "entrenamiento", "workout", "musculo", "adelgazar", "proteina", "deporte", "yoga", "rutina"] },
   { familia: "educacion", palabras: ["curso", "clase", "taller", "masterclass", "capacitacion", "diplomado", "aprende", "aprender", "ensena", "tutorial", "academia", "leccion"] },
+  { familia: "launch", palabras: ["lanzamiento", "launch", "startup", "preventa", "early access", "beta", "waitlist", "lista de espera"] },
   { familia: "tecnologia", palabras: ["software", "app", "saas", "plataforma", "automatizacion", "inteligencia artificial", "ia ", "bot", "api", "digital tool", "sistema"] },
   { familia: "familiar", palabras: ["hogar", "cocina", "familia", "bebe", "nino", "mascota", "casa", "limpieza", "organizador"] },
   { familia: "oscura", palabras: ["gaming", "gamer", "premium tech", "audio", "auricular", "reloj inteligente", "smartwatch", "drone"] },

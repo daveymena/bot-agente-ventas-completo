@@ -32,7 +32,7 @@ type Msg = { role: "user" | "assistant"; content: string; loading?: boolean };
  */
 type Familia =
   | "premium" | "respuesta-directa" | "minimal" | "editorial" | "ecommerce" | "belleza"
-  | "fitness" | "educacion" | "tecnologia" | "familiar" | "creativa" | "oscura";
+  | "fitness" | "educacion" | "tecnologia" | "familiar" | "creativa" | "oscura" | "launch";
 
 const FAMILIAS: { value: Familia; label: string; color: string }[] = [
   { value: "premium", label: "Premium", color: "#8C7A5B" },
@@ -47,6 +47,7 @@ const FAMILIAS: { value: Familia; label: string; color: string }[] = [
   { value: "familiar", label: "Familiar", color: "#E8792B" },
   { value: "creativa", label: "Creativa", color: "#3B1FD9" },
   { value: "oscura", label: "Oscura", color: "#00D3A7" },
+  { value: "launch", label: "Launch", color: "#F59E4B" },
 ];
 
 const SALUDO = `Soy **Atlas Landing**, el diseñador de páginas de venta de VentasPro 

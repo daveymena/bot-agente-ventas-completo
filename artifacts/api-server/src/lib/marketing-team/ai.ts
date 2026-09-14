@@ -133,7 +133,11 @@ export async function callMarketingAI<T = unknown>(
   return null;
 }
 
-export function tryParseJson(text: string): unknown {
+export function tryParseJson(raw: string): unknown {
+  // Los modelos de razonamiento (nemotron, deepseek-r1, qwen-think) a veces
+  // meten el razonamiento en el content: como <think>…</think> o como prosa
+  // antes del JSON, con llaves sueltas en medio ("el formato es {...}").
+  const text = raw.replace(/<think>[\s\S]*?<\/think>/gi, "").replace(/<\/?think>/gi, "").trim();
   try {
     return JSON.parse(text);
   } catch {
@@ -144,13 +148,28 @@ export function tryParseJson(text: string): unknown {
         return JSON.parse(m[1]!.trim());
       } catch { /* sigue abajo */ }
     }
-    // O agrega texto antes/después del primer { ... último }.
-    const first = text.indexOf("{");
-    const last = text.lastIndexOf("}");
-    if (first >= 0 && last > first) {
-      try {
-        return JSON.parse(text.slice(first, last + 1));
-      } catch { /* nada */ }
+    // O agrega texto antes/después. Se toma el ÚLTIMO objeto balanceado (la
+    // respuesta final) y, si no parsea, se prueban los anteriores. Buscar el
+    // primer "{" no sirve: puede estar dentro del razonamiento.
+    const limpio = text.replace(/```(?:json)?/gi, "");
+    let end = limpio.lastIndexOf("}");
+    while (end >= 0) {
+      let depth = 0;
+      let inStr = false;
+      let start = -1;
+      for (let i = end; i >= 0; i--) {
+        const ch = limpio[i];
+        if (ch === '"' && limpio[i - 1] !== "\\") inStr = !inStr;
+        if (inStr) continue;
+        if (ch === "}") depth++;
+        else if (ch === "{" && --depth === 0) { start = i; break; }
+      }
+      if (start >= 0) {
+        try {
+          return JSON.parse(limpio.slice(start, end + 1));
+        } catch { /* objeto no válido, probar con el "}" anterior */ }
+      }
+      end = limpio.lastIndexOf("}", end - 1);
     }
     return null;
   }
