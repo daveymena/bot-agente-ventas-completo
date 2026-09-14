@@ -94,3 +94,43 @@ describe("renderer-v3", () => {
     expect(urlSegura("https://example.com/a")).toBe("https://example.com/a");
   });
 });
+
+describe("renderer-v3 — lo que hacía que las landings salieran 'feas'", () => {
+  const base = { nombre: "Demo", familia: "premium", producto: product, negocio: { nombre: "Tienda", modelo: "fisico", whatsapp: "+57 300 123 4567" } };
+
+  it("el <style> queda fuera del atributo (faltaba la comilla de color-scheme y se tragaba TODO el CSS)", () => {
+    const html = renderizarLanding({ ...base, secciones: sections });
+    expect(html).toMatch(/<meta name="color-scheme" content="(light|dark)"><style>/);
+    // Y el CSS realmente aplica: el body toma el fondo de la familia.
+    expect(html).toContain("body{margin:0;background:var(--bg)");
+  });
+
+  it("los rótulos van en español, nunca el tipo interno", () => {
+    const html = renderizarLanding({ ...base, secciones: [
+      { id: "b", type: "benefits", title: "Para qué sirve", body: "Ligero\nResistente" },
+      { id: "l", type: "logistics", title: "Envío y pago", body: "Contraentrega." },
+      { id: "c", type: "cta", title: "Da el paso", cta: "Comprar" },
+    ] });
+    expect(html).not.toMatch(/class="eyebrow">(benefits|logistics|cta|offer)</);
+    expect(html).toContain('class="eyebrow">Beneficios<');
+    expect(html).toContain('class="eyebrow">Envío y pago<');
+  });
+
+  it("FAQ vacío y secciones sin contenido no se dibujan", () => {
+    const html = renderizarLanding({ ...base, secciones: [
+      { id: "f", type: "faq", title: "Preguntas", body: "" },
+      { id: "x", type: "authority", title: null, body: null },
+    ] });
+    expect(html).not.toContain("Preguntas frecuentes");
+    expect(html).not.toContain("Por qué confiar");
+  });
+
+  it("los bloques laterales rotan por la galería en vez de repetir la foto del hero", () => {
+    const html = renderizarLanding({ ...base, producto: { ...product, images: [product.imageUrl, "https://cdn.example.com/2.webp", "https://cdn.example.com/3.webp"] }, secciones: [
+      { id: "o", type: "offer", title: "Oferta", body: "x" },
+      { id: "c", type: "cta", title: "Cierre", body: "y" },
+    ] });
+    expect(html).toContain("https://cdn.example.com/2.webp");
+    expect(html).toContain("https://cdn.example.com/3.webp");
+  });
+});

@@ -8,6 +8,7 @@
  * real de pedidos del negocio: pedido -> validación -> WooCommerce.
  */
 import { Router, type Request, type Response } from "express";
+import { fotosDelProducto } from "../lib/fotos-de-producto";
 import { and, eq } from "drizzle-orm";
 import { db, landingPages, products } from "@workspace/db";
 import { logger } from "../lib/logger";
@@ -83,6 +84,7 @@ landingPublicaRouter.get("/l/:slug", async (req: Request, res: Response) => {
         name: producto.name,
         description: producto.description,
         imageUrl: producto.imageUrl,
+        images: fotosDelProducto(producto),
         price: producto.price,
         currency: producto.currency,
         paymentLink: producto.paymentLink,

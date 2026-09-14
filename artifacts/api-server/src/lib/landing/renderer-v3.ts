@@ -28,6 +28,8 @@ export interface ProductoParaRenderizar {
   name?: string | null;
   description?: string | null;
   imageUrl?: string | null;
+  /** Galería completa (principal primero). Ver lib/fotos-de-producto. */
+  images?: string[] | null;
   price?: number | string | null;
   currency?: string | null;
   paymentLink?: string | null;
@@ -131,9 +133,23 @@ function cssBase(familia: string): string {
 `.trim();
 }
 
+/** Rótulo pequeño sobre el título: en español, nunca el tipo interno. */
+const ROTULOS: Record<string, string> = {
+  benefits: "Beneficios", features: "Lo que incluye", logistics: "Envío y pago", offer: "La oferta", cta: "Siguiente paso",
+  authority: "Por qué confiar", bundle: "Incluye", guarantee: "Garantía", testimonials: "Opiniones", "social-proof": "Opiniones",
+  "how-it-works": "Cómo funciona", steps: "Paso a paso", comparison: "Comparación", "before-after": "Antes y después", problem: "El problema", solution: "La solución",
+};
+function rotulo(type: string | null | undefined): string {
+  const t = String(type || "").toLowerCase();
+  if (ROTULOS[t]) return ROTULOS[t];
+  for (const k of Object.keys(ROTULOS)) if (t.includes(k)) return ROTULOS[k];
+  return "Detalle";
+}
+
 function renderBenefits(section: SeccionParaRenderizar): string {
   const rows = items(section.body);
-  return `<div class="head"><p class="eyebrow">${esc(section.type)}</p><h2>${esc(section.title || "Lo que cambia para ti")}</h2>${section.subtitle ? `<p class="lead">${esc(section.subtitle)}</p>` : ""}</div><div class="bento">${rows.map((row, i) => `<article class="bento-card"><span class="num">${String(i + 1).padStart(2, "0")}</span><strong>${esc(row)}</strong></article>`).join("")}</div>`;
+  if (!rows.length && !section.subtitle) return "";
+  return `<div class="head"><p class="eyebrow">${rotulo(section.type)}</p><h2>${esc(section.title || "Lo que cambia para ti")}</h2>${section.subtitle ? `<p class="lead">${esc(section.subtitle)}</p>` : ""}</div><div class="bento">${rows.map((row, i) => `<article class="bento-card"><span class="num">${String(i + 1).padStart(2, "0")}</span><strong>${esc(row)}</strong></article>`).join("")}</div>`;
 }
 
 function renderFeature(section: SeccionParaRenderizar, producto: ProductoParaRenderizar | null | undefined, idx: number): string {
@@ -146,13 +162,15 @@ function renderFaq(section: SeccionParaRenderizar): string {
   const rows = items(section.body).map((row) => {
     const [q, ...a] = row.split(/\s*\|\s*/);
     return { q: q.trim(), a: a.join(" | ").trim() };
-  });
+  }).filter((r) => r.q);
+  if (!rows.length) return "";
   return `<div class="head"><p class="eyebrow">Preguntas frecuentes</p><h2>${esc(section.title || "Antes de comprar")}</h2>${section.subtitle ? `<p class="lead">${esc(section.subtitle)}</p>` : ""}</div><div class="faq">${rows.map((row) => `<details><summary>${esc(row.q)}</summary><p class="muted">${esc(row.a || "Escribinos y te ayudamos.")}</p></details>`).join("")}</div>`;
 }
 
 function renderGallery(section: SeccionParaRenderizar, producto: ProductoParaRenderizar | null | undefined): string {
   const urls = (Array.isArray(section.images) ? section.images : []).map(safeImage).filter(Boolean).slice(0, 5);
   if (!urls.length && section.image) urls.push(safeImage(section.image));
+  if (!urls.length && producto?.images?.length) urls.push(...producto.images.map(safeImage).filter(Boolean).slice(0, 5));
   if (!urls.length && producto?.imageUrl) urls.push(safeImage(producto.imageUrl));
   if (!urls.length) return "";
   return `<div class="head"><p class="eyebrow">Galería</p><h2>${esc(section.title || "Míralo de cerca")}</h2>${section.subtitle ? `<p class="lead">${esc(section.subtitle)}</p>` : ""}</div><div class="gallery">${urls.map((url, i) => `<img src="${esc(url)}" alt="${esc(producto?.name || "Producto")} · vista ${i + 1}" loading="lazy" decoding="async">`).join("")}</div>`;
@@ -195,14 +213,21 @@ export function renderizarLanding(opts: OpcionesDeRender): string {
   const heroHtml = `<section class="shell hero ${tokens.alineacion === "centrado" ? "hero--center" : ""}"><div class="hero-copy"><p class="eyebrow">${fisico ? "Compra directa" : "Acceso digital"}</p><h1>${esc(heroTitle)}</h1>${heroSubtitle ? `<p class="lead">${esc(heroSubtitle)}</p>` : ""}${precio(producto) ? `<div class="hero-price">${esc(precio(producto))}</div>` : ""}<div class="actions">${btn(heroCta, destino)}${wa ? btn("Resolver dudas", wa, "soft") : ""}</div></div><div class="hero-media">${figure(heroImage, producto?.name || heroTitle, "media-frame", "eager")}</div></section>`;
   const trustHtml = trust.length ? `<section class="shell"><div class="trust">${trust.map((x) => `<span>✓ ${esc(x)}</span>`).join("")}</div></section>` : "";
 
+  // Fotos del producto para no repetir la del hero en cada bloque lateral.
+  const fotos = [...new Set([...(producto?.images || []), heroImage].map(safeImage).filter(Boolean))];
+  let fotoIdx = 0;
+  const fotoRotativa = () => fotos.length ? fotos[(++fotoIdx) % fotos.length] : "";
+
   const sectionHtml = secciones.filter((s) => s.type !== "hero").map((section) => {
     const type = String(section.type || "").toLowerCase();
+    const vacia = !section.title && !section.subtitle && !section.body && !(Array.isArray(section.images) && section.images.length);
+    if (vacia && !type.includes("gallery")) return "";
     if (type.includes("faq")) return `<section class="sec"><div class="shell narrow">${renderFaq(section)}</div></section>`;
     if (type.includes("gallery") || type.includes("visual")) return `<section class="sec"><div class="shell">${renderGallery(section, producto)}</div></section>`;
     if (type.includes("benefit") || type.includes("feature")) return `<section class="sec"><div class="shell">${renderBenefits(section)}</div></section>`;
     if (["how-it-works", "how_it_works", "steps", "como-funciona", "comparison", "before-after"].some((k) => type.includes(k))) return `<section class="sec"><div class="shell">${renderFeature(section, producto, featureIndex++)}</div></section>`;
-    if (["offer", "cta", "logistics", "authority", "bundle", "guarantee"].some((k) => type.includes(k))) return `<section class="sec"><div class="shell offer"><div class="offer-main"><p class="eyebrow">${esc(type)}</p><h2>${esc(section.title || "Listo para avanzar")}</h2>${section.subtitle ? `<p class="lead">${esc(section.subtitle)}</p>` : ""}${section.body ? `<p>${esc(section.body)}</p>` : ""}${section.cta ? btn(section.cta, destino) : ""}</div><div class="offer-side">${figure(heroImage, producto?.name || heroTitle)}</div></div></section>`;
-    return `<section class="sec"><div class="shell narrow"><div class="head"><p class="eyebrow">${esc(type || "detalle")}</p><h2>${esc(section.title || "Más información")}</h2>${section.subtitle ? `<p class="lead">${esc(section.subtitle)}</p>` : ""}${section.body ? `<p>${esc(section.body)}</p>` : ""}</div></div></section>`;
+    if (["offer", "cta", "logistics", "authority", "bundle", "guarantee"].some((k) => type.includes(k))) return `<section class="sec"><div class="shell offer"><div class="offer-main"><p class="eyebrow">${rotulo(type)}</p><h2>${esc(section.title || "Listo para avanzar")}</h2>${section.subtitle ? `<p class="lead">${esc(section.subtitle)}</p>` : ""}${section.body ? `<p>${esc(section.body)}</p>` : ""}${section.cta ? btn(section.cta, destino) : ""}</div><div class="offer-side">${figure(safeImage(section.image) || fotoRotativa(), producto?.name || heroTitle)}</div></div></section>`;
+    return `<section class="sec"><div class="shell narrow"><div class="head"><p class="eyebrow">${rotulo(type)}</p><h2>${esc(section.title || "Más información")}</h2>${section.subtitle ? `<p class="lead">${esc(section.subtitle)}</p>` : ""}${section.body ? `<p>${esc(section.body)}</p>` : ""}</div></div></section>`;
   }).join("");
 
   const checkoutHtml = opts.cierre ? `<section class="sec"><div class="shell narrow">${renderCheckout(opts.cierre, producto, negocio)}</div></section>` : "";
@@ -210,5 +235,5 @@ export function renderizarLanding(opts: OpcionesDeRender): string {
   const sticky = destino ? `<div class="sticky">${btn(heroCta + (precio(producto) ? ` · ${precio(producto)}` : ""), destino)}</div>` : "";
   const description = esc(String(producto?.description || heroSubtitle || heroTitle).replace(/\s+/g, " ").slice(0, 155));
 
-  return `<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(opts.nombre || heroTitle || "Landing")}</title><meta name="description" content="${description}"><meta property="og:title" content="${esc(opts.nombre || heroTitle || "Landing")}"><meta property="og:description" content="${description}">${heroImage ? `<meta property="og:image" content="${esc(heroImage)}">` : ""}<meta name="color-scheme" content="${tokens.fondos === "oscuro" ? "dark" : "light"}><style>${cssBase(familia)}</style></head><body>${header}<main>${heroHtml}${trustHtml}${sectionHtml}${checkoutHtml}</main>${footer}${sticky}</body></html>`;
+  return `<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(opts.nombre || heroTitle || "Landing")}</title><meta name="description" content="${description}"><meta property="og:title" content="${esc(opts.nombre || heroTitle || "Landing")}"><meta property="og:description" content="${description}">${heroImage ? `<meta property="og:image" content="${esc(heroImage)}">` : ""}<meta name="color-scheme" content="${tokens.fondos === "oscuro" ? "dark" : "light"}"><style>${cssBase(familia)}</style></head><body>${header}<main>${heroHtml}${trustHtml}${sectionHtml}${checkoutHtml}</main>${footer}${sticky}</body></html>`;
 }

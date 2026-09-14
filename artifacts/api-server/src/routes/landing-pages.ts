@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { fotosDelProducto } from "../lib/fotos-de-producto";
 import { and, desc, eq } from "drizzle-orm";
 import { db, landingPages, products } from "@workspace/db";
 import type { TenantRequest } from "../lib/tenantManager";
@@ -117,7 +118,7 @@ router.get("/:id/render", async (req: TenantRequest, res, next) => {
       secciones: (row.sections as any[]) || [],
       familia: (row.design as any)?.familia ?? (req.query.familia as string) ?? null,
       producto: producto && {
-        name: producto.name, description: producto.description, imageUrl: producto.imageUrl,
+        name: producto.name, description: producto.description, imageUrl: producto.imageUrl, images: fotosDelProducto(producto),
         price: producto.price, currency: producto.currency, paymentLink: producto.paymentLink,
         whatsapp: negocio.whatsapp,
         opciones: Array.isArray(producto.opciones) ? producto.opciones : null,
@@ -180,7 +181,7 @@ router.post("/preview", async (req: TenantRequest, res, next) => {
       secciones: Array.isArray(req.body?.sections) ? req.body.sections : [],
       familia: req.body?.familia ?? req.body?.design?.familia ?? null,
       producto: producto && {
-        name: producto.name, description: producto.description, imageUrl: producto.imageUrl,
+        name: producto.name, description: producto.description, imageUrl: producto.imageUrl, images: fotosDelProducto(producto),
         price: producto.price, currency: producto.currency, paymentLink: producto.paymentLink,
         whatsapp: negocio.whatsapp,
         opciones: Array.isArray(producto.opciones) ? producto.opciones : null,

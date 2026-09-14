@@ -383,23 +383,21 @@ Cualquier cambio que me pidas se ve ahí al instante.` }]);
                 {adaptando ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : <Wand2 className="h-3.5 w-3.5 mr-1" />}Adaptar al producto
               </Button>
             )}
-            <div className="relative">
-              <Button size="sm" variant="ghost" onClick={() => setUrlAbierto(v => !v)} className="h-8 px-2 text-xs"
+            {/* Pedido del dueño (13-09): el campo de la URL se extiende a los
+                lados dentro de la misma barra, no cae en un cuadro debajo. */}
+            {urlAbierto ? (
+              <div className="flex items-center gap-1 flex-1 min-w-[280px]">
+                <Input autoFocus value={urlClonar} onChange={e => setUrlClonar(e.target.value)} placeholder="Pegá la URL de la landing a clonar (HTML + CSS)…" className="h-8 text-xs flex-1"
+                  onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); clonarDesdeUrl(); } if (e.key === "Escape") setUrlAbierto(false); }} />
+                <Button size="sm" className="h-8 px-3 text-xs" onClick={clonarDesdeUrl} disabled={!urlClonar.trim()}>Clonar</Button>
+                <Button size="sm" variant="ghost" className="h-8 px-2 text-xs" onClick={() => setUrlAbierto(false)}>Cancelar</Button>
+              </div>
+            ) : (
+              <Button size="sm" variant="ghost" onClick={() => setUrlAbierto(true)} className="h-8 px-2 text-xs"
                 title="Clonar una landing real de internet (HTML + CSS)">
                 <ExternalLink className="h-3.5 w-3.5 mr-1" />Desde URL
               </Button>
-              {urlAbierto && (
-                <div className="absolute right-0 top-9 z-20 w-80 rounded-md border bg-background p-3 shadow-lg space-y-2">
-                  <p className="text-xs font-semibold">Clonar una landing real</p>
-                  <p className="text-[11px] text-muted-foreground">Pegá la URL. Se copia el HTML y el CSS tal cual; después la adaptás a tu producto (textos, fotos y botones).</p>
-                  <Input value={urlClonar} onChange={e => setUrlClonar(e.target.value)} placeholder="https://…" className="h-8 text-xs" />
-                  <div className="flex gap-1 justify-end">
-                    <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => setUrlAbierto(false)}>Cancelar</Button>
-                    <Button size="sm" className="h-7 text-xs" onClick={clonarDesdeUrl}>Clonar</Button>
-                  </div>
-                </div>
-              )}
-            </div>
+            )}
             <div className="relative">
               <Button size="sm" variant="ghost" onClick={() => setClonarAbierto(v => !v)} disabled={!landingId} className="h-8 px-2 text-xs"
                 title="Clonar: copia exacta, o el estilo para otro producto">
