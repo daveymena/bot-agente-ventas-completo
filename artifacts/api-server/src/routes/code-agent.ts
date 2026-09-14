@@ -238,7 +238,7 @@ router.post("/architect", async (req: TenantRequest, res, next) => {
     // así que usar su `.length` como "productos activos" tapaba el número real
     // en cualquier negocio con más de 20 -- este tiene 84.
     const [{ activosReales }] = await db
-      .select({ activosReales: sql<number>`count(*)::int` })
+      .select({ activosReales: sql<number>`cast(count(*) as integer)` })
       .from(products)
       .where(and(eq(products.tenantId, tenantId), eq(products.isActive, true)));
 
@@ -1544,8 +1544,8 @@ router.post("/operator", async (req: TenantRequest, res, next) => {
     // y cierra la clase entera, no el caso.
     let estadoBlock = "";
     try {
-      const [{ tot }] = await db.select({ tot: sql<number>`count(*)::int` }).from(products).where(eq(products.tenantId, tenantId));
-      const [{ act }] = await db.select({ act: sql<number>`count(*)::int` }).from(products)
+      const [{ tot }] = await db.select({ tot: sql<number>`cast(count(*) as integer)` }).from(products).where(eq(products.tenantId, tenantId));
+      const [{ act }] = await db.select({ act: sql<number>`cast(count(*) as integer)` }).from(products)
         .where(and(eq(products.tenantId, tenantId), eq(products.isActive, true)));
       estadoBlock =
         `

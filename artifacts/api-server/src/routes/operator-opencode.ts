@@ -45,6 +45,7 @@ import { mintTurnToken } from "../lib/opencode-turn-token";
 import { getAppUrl } from "../lib/app-url";
 import { ENV_POR_PROVEEDOR } from "../lib/ai-keys";
 import { claveDeTurno, empezarTurno, terminarTurno, pedirDetener, hayTurnoEnVuelo, fueDetenido } from "../lib/turnos-en-vuelo";
+import { prepararRuta, cerrarTurnoDeRuta } from "../lib/ruta-guiada";
 import { afirmaHaberloHecho } from "../lib/afirma-haberlo-hecho";
 import { mensajeDeCierre } from "../lib/entrega-por-partes";
 import { partirElPedido } from "../lib/partir-el-pedido";
@@ -1078,10 +1079,19 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
       // propose_action): sin ninguna herramienta para hacer lo que él mismo
       // había ofrecido. Un "sí" solo significa algo junto a la pregunta que
       // contesta, así que la elección mira también los últimos turnos.
+      // ── Ruta guiada: Atlas lleva la conversación ─────────────────────────
+      // Si el admin está dentro de una ruta ("Vender un producto nuevo"), el
+      // servidor decide el paso, ejecuta lo que le toca (investigar, crear la
+      // landing, escribir el anuncio) y le da al modelo la instrucción del
+      // paso. Ver lib/ruta-guiada.ts.
+      const rutaActiva = await prepararRuta({ tenantId, sessionId, prompt: String(prompt), ctx, avisar: progreso }).catch((e: any) => {
+        logger.warn({ tenantId, err: e?.message }, "[Ruta] No se pudo preparar la ruta; el turno sigue sin ella");
+        return null;
+      });
       const esSeguimientoCorto = String(prompt).trim().length <= 40 || /^(s[ií]|dale|ok|okey|listo|claro|hacelo|hazlo|revisa|revis[aá]lo|ve|mira|adelante|perfecto|bueno|va|de una|por favor)\b/i.test(String(prompt).trim());
-      const pedidoParaHerramientas = esSeguimientoCorto
+      const pedidoParaHerramientas = (esSeguimientoCorto
         ? [...convo.slice(-4).map((m: any) => String(m.content || "")), String(prompt)].join("\n")
-        : String(prompt);
+        : String(prompt)) + (rutaActiva ? `\n${rutaActiva.pedidoExtra}` : "");
       // Lo que Atlas pidió en el turno anterior y no alcanzó a usar (ver
       // herramientasQuePide) entra acá: nombrar una herramienta la habilita.
       const pedidasAntes = herramientasPedidasAntes(tenantId, sessionId);
@@ -1153,6 +1163,7 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
         .map((m: any) => `${m.role === "user" ? "Admin" : "Atlas"}: ${m.content}`)
         .join("\n\n");
       let text = historyText ? `${historyText}\n\nAdmin: ${prompt}` : `Admin: ${prompt}`;
+      if (rutaActiva) text += rutaActiva.instruccion;
       // ── Un "sí" contesta la pregunta anterior: se lo decimos con todas las
       // letras ────────────────────────────────────────────────────────────
       //
@@ -1325,6 +1336,8 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
       // única fuente de verdad para desmentir al modelo más abajo si dice
       // que investigó cuando no lo hizo.
       let huboInvestigacionReal = false;
+      // En la ruta, la investigación la hizo el servidor al entrar al paso.
+      if (rutaActiva?.investigo) huboInvestigacionReal = true;
       // Ampliado el 14-09-2026: "vamos a buscar cuál se está vendiendo y
       // promocionando", "en la web", "en la biblioteca de anuncios" no
       // enganchaban, y Atlas se iba a las ventas internas del admin (que eran
@@ -1352,7 +1365,7 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
       // "Todavía no investigaste nada en esta sesión". El candado hacía bien
       // su trabajo y aun así el admin quedaba trabado. Si el anuncio necesita
       // investigación, se investiga y punto.
-      if (PEDIDO_DE_INVESTIGACION.test(String(prompt)) || PEDIDO_DE_ANUNCIO.test(String(prompt))) {
+      if (!rutaActiva && (PEDIDO_DE_INVESTIGACION.test(String(prompt)) || PEDIDO_DE_ANUNCIO.test(String(prompt)))) {
         progreso("Investigando en internet...");
         // Sincrónica y corta a propósito (ver investigacionRapida): el
         // resultado real llega en ESTA respuesta, sin trabajos en segundo
@@ -1492,7 +1505,8 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
             // esto es lo que evita que una herramienta se comporte distinto segun
             // por donde vino la llamada.
             ctx: { tenantId, sessionId, turnId, turnDeadline, objetivoDelAdmin: objetivoDelAdmin ?? undefined },
-            apiKey: String(process.env.DEEPSEEK_API_KEY || ""),
+            baseUrl: process.env.ATLAS_DIRECTO_URL || undefined,
+                apiKey: String(process.env.DEEPSEEK_API_KEY || ""),
             modelo: process.env.ATLAS_DIRECTO_MODELO || "deepseek-v4-flash",
             presupuestoMs: Math.max(turnDeadline - Date.now(), 10_000),
             cancelSignal: senalDeCorte,
@@ -1845,6 +1859,7 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
                   `No le pidas que escriba nada para continuar.` +
                   (pedidas.textoLimpio ? `\n\nLo que alcanzaste a responder antes (no lo repitas, completalo):\n${pedidas.textoLimpio.slice(-4_000)}` : ""),
                 ctx: { tenantId, sessionId, turnId, turnDeadline, objetivoDelAdmin: objetivoDelAdmin ?? undefined },
+                baseUrl: process.env.ATLAS_DIRECTO_URL || undefined,
                 apiKey: String(process.env.DEEPSEEK_API_KEY || ""),
                 modelo: process.env.ATLAS_DIRECTO_MODELO || "deepseek-v4-flash",
                 presupuestoMs: Math.max(turnDeadline - Date.now() - 10_000, 10_000),
@@ -1890,6 +1905,15 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
         }
       }
 
+      // ── Cierre del paso de la ruta guiada ────────────────────────────────
+      if (rutaActiva) {
+        try {
+          finalReplyVerificado = await cerrarTurnoDeRuta({ tenantId, sessionId, ruta: rutaActiva, texto: String(finalReplyVerificado || "") });
+        } catch (e: any) {
+          logger.warn({ tenantId, err: e?.message }, "[Ruta] No se pudo cerrar el paso; se entrega el texto tal cual");
+        }
+      }
+
       // ── Seguir solo con las partes que falten, mientras quede tiempo ─────
       // Antes, un pedido de varias partes resolvía la primera y le pedía al
       // admin que escribiera "seguí" por cada una. Pedido explícito del admin
@@ -1929,6 +1953,7 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
                 herramientas: toolRegistry,
                 mensaje: `${text}\n\n${instruccionParte}\n\nTrabajo ya completado en este turno:\n${finalReplyVerificado.slice(-6_000)}`,
                 ctx: { tenantId, sessionId, turnId, turnDeadline, objetivoDelAdmin: objetivoDelAdmin ?? undefined },
+                baseUrl: process.env.ATLAS_DIRECTO_URL || undefined,
                 apiKey: String(process.env.DEEPSEEK_API_KEY || ""),
                 modelo: process.env.ATLAS_DIRECTO_MODELO || "deepseek-v4-flash",
                 presupuestoMs: Math.max(turnDeadline - Date.now() - 10_000, 10_000),
@@ -2346,6 +2371,12 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
       // Se compara sin acentos ni mayúsculas a propósito: el modelo escribe el
       // mismo nombre de producto de las dos formas y son la MISMA acción.
       plannedActions = sinAccionesRepetidas(plannedActions);
+      // En un paso de la ruta guiada que el servidor ya ejecutó, el modelo no
+      // tiene nada que proponer: lo que proponga es un duplicado.
+      if (rutaActiva?.paso.sinAcciones && plannedActions.length) {
+        logger.info({ tenantId, paso: rutaActiva.estado.paso, descartadas: plannedActions.length }, "[Ruta] Acciones propuestas en un paso ya ejecutado por el servidor: se descartan");
+        plannedActions = [];
+      }
 
       // ── Recién ahora se sabe si quedó algo pendiente ─────────────────────
       // `plannedActions` ya es definitivo: pasó el drenaje inicial, el reseteo

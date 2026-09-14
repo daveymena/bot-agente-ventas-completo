@@ -1516,7 +1516,7 @@ export const TOOLS: ToolDef[] = [
       // COUNT(*) aparte con el mismo filtro deja el summary inequívoco para
       // CUALQUIER modelo que rote en este turno, sin depender de que siga
       // bien la advertencia del prompt del sistema.
-      const [{ total }] = await db.select({ total: sql<number>`count(*)::int` }).from(products).where(filtro);
+      const [{ total }] = await db.select({ total: sql<number>`cast(count(*) as integer)` }).from(products).where(filtro);
       // ── El conteo de ACTIVOS, dicho y no deducido ─────────────────────────
       //
       // Visto en vivo (2026-08-30): Atlas contestó "104 productos activos (de
@@ -1528,7 +1528,7 @@ export const TOOLS: ToolDef[] = [
       // al modelo que NO hiciera algo -- y eso nunca funciona tan bien como
       // darle el número hecho.
       const [{ activos }] = await db
-        .select({ activos: sql<number>`count(*)::int` })
+        .select({ activos: sql<number>`cast(count(*) as integer)` })
         .from(products)
         .where(and(eq(products.tenantId, ctx.tenantId), eq(products.isActive, true)));
       const truncado = total > rows.length;
@@ -4847,11 +4847,11 @@ Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vincu
         if (totales.clics > 0) {
           const desde = new Date(Date.now() - days * 86_400_000);
           const [conv] = await db
-            .select({ n: sql<number>`count(*)::int` })
+            .select({ n: sql<number>`cast(count(*) as integer)` })
             .from(conversations)
             .where(and(eq(conversations.tenantId, ctx.tenantId), gte(conversations.createdAt, desde as any)));
           const [vent] = await db
-            .select({ n: sql<number>`count(*)::int` })
+            .select({ n: sql<number>`cast(count(*) as integer)` })
             .from(payments)
             .where(and(eq(payments.tenantId, ctx.tenantId), eq(payments.status, "confirmed"), gte(payments.createdAt, desde as any)));
 

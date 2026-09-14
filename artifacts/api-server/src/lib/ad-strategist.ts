@@ -69,6 +69,8 @@ export interface AdStrategy {
 }
 
 export interface DraftAd {
+  /** Id de la fila en facebook_drafts, una vez guardado. */
+  id?: number;
   productId: number;
   productName: string;
   strategy: AdStrategy;
@@ -931,9 +933,14 @@ Este contenido digital es tu atajo directo a resultados profesionales.
         adId: null,
         status: "draft",
       };
-      await this.saveDraftToDb(localDraft);
+      // El id del borrador VIAJA con el resultado. Antes se descartaba lo que
+      // devolvía saveDraftToDb, así que `crear_anuncio` nunca sabía el
+      // draftId: no lo mostraba ("— borrador N"), y con subirAMeta=true la
+      // subida se saltaba en silencio porque `draftId` era null.
+      const guardado = await this.saveDraftToDb(localDraft);
+      if (guardado?.id) localDraft.id = Number(guardado.id);
       logger.info(
-        { productId: product.id, strategy: strategy.niche },
+        { productId: product.id, strategy: strategy.niche, draftId: localDraft.id },
         "[AdStrategist] Borrador local creado (sin tocar la cuenta publicitaria)"
       );
       return localDraft;
