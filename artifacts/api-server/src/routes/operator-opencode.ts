@@ -45,7 +45,7 @@ import { mintTurnToken } from "../lib/opencode-turn-token";
 import { getAppUrl } from "../lib/app-url";
 import { ENV_POR_PROVEEDOR } from "../lib/ai-keys";
 import { claveDeTurno, empezarTurno, terminarTurno, pedirDetener, hayTurnoEnVuelo, fueDetenido } from "../lib/turnos-en-vuelo";
-import { prepararRuta, cerrarTurnoDeRuta } from "../lib/ruta-guiada";
+import { prepararRuta, cerrarTurnoDeRuta, cargarRuta, detectarInicioDeRuta } from "../lib/ruta-guiada";
 import { afirmaHaberloHecho } from "../lib/afirma-haberlo-hecho";
 import { mensajeDeCierre } from "../lib/entrega-por-partes";
 import { partirElPedido } from "../lib/partir-el-pedido";
@@ -974,9 +974,15 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
     progreso("Pensando...");
     // El primer hito sale al chat, no solo al indicador de carga. En pedidos
     // complejos evita que una espera legítima parezca un bloqueo.
-    sse("avance", {
-      reply: "🧭 Ya entendí el pedido. Lo voy a resolver por etapas y te iré entregando cada parte terminada.",
-    });
+    // En la ruta guiada no: ahí el paso ya dice qué está haciendo
+    // ("Investigando qué hace la competencia con…") y esta burbuja prometía
+    // "por etapas" a quien acababa de nombrar un producto (visto el 14-09).
+    const enRuta = !!detectarInicioDeRuta(String(prompt)) || !!(await cargarRuta(tenantId, sessionId).catch(() => null));
+    if (!enRuta) {
+      sse("avance", {
+        reply: "🧭 Ya entendí el pedido. Lo voy a resolver por etapas y te iré entregando cada parte terminada.",
+      });
+    }
     const heartbeat = setInterval(() => progreso("Sigo trabajando en tu pedido..."), 15_000);
 
     try {
