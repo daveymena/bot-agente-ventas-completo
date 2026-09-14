@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { renderizarLanding, esc, urlSegura } from "../renderer-v3";
+import { renderizarLanding, esc, urlSegura, tituloLegible } from "../renderer-v3";
 
 const product = {
   name: "Audífonos Bluetooth Pro",
@@ -132,5 +132,13 @@ describe("renderer-v3 — lo que hacía que las landings salieran 'feas'", () =>
     ] });
     expect(html).toContain("https://cdn.example.com/2.webp");
     expect(html).toContain("https://cdn.example.com/3.webp");
+  });
+});
+
+describe("tituloLegible", () => {
+  it("baja a tipo oración los nombres en MAYÚSCULAS de Dropi/Woo y deja el resto igual", () => {
+    expect(tituloLegible("BOLSO VIAJERO TIPO MORRAL EQUIPAJE MANO")).toBe("Bolso viajero tipo morral equipaje mano");
+    expect(tituloLegible("Curso de Piano Completo")).toBe("Curso de Piano Completo");
+    expect(tituloLegible("GH07")).toBe("GH07");
   });
 });
