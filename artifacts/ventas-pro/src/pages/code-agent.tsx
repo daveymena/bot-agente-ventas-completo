@@ -97,6 +97,9 @@ const METAS_DE_INICIO = [
   { texto: "🚀 Vender un producto nuevo", mensaje: "Quiero vender un producto nuevo" },
   { texto: "📈 Vender más de lo que ya tengo", mensaje: "Ayúdame a vender más de un producto que ya tengo" },
   { texto: "🧭 No sé por dónde empezar", mensaje: "No sé por dónde empezar" },
+  // Copia de lib/ruta-guiada.ts (METAS_DE_INICIO). El experto entra por acá
+  // y Atlas deja de explicarle y de preguntarle de más.
+  { texto: "⚡ Ya sé pautar: solo ejecutá", mensaje: "Ya sé pautar, quiero vender un producto nuevo: solo ejecutá" },
 ];
 
 export default function CodeAgent() {

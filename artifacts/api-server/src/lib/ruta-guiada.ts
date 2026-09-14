@@ -19,17 +19,26 @@
  * texto, `[[ruta: productoId=168; angulo=…]]`, que nunca llega al admin.
  */
 import { and, desc, eq } from "drizzle-orm";
-import { db, architectMemory } from "@workspace/db";
+import { db, architectMemory, products } from "@workspace/db";
 import { logger } from "./logger";
 import { isApproval, isRejection } from "./architect-store";
 import { executeAction, investigacionRapida, type OperatorContext } from "./app-operator";
 
 export type RutaId = "producto-nuevo";
 
+/**
+ * Con quién habla Atlas. Pedido del dueño (14-09-2026) después de leer una
+ * sesión entera: "el principiante quiere que le resuelvan; el experto quiere
+ * que no lo estorben". Hoy se trataba igual a los dos: se le preguntaba todo
+ * al principiante y se le explicaba todo al experto.
+ */
+export type Nivel = "principiante" | "experto";
+
 export interface EstadoDeRuta {
   ruta: RutaId;
   /** 1..N. */
   paso: number;
+  nivel?: Nivel;
   /** true cuando Atlas ya propuso el paso y espera el sí/no del admin. */
   esperando: boolean;
   productoId?: number;
@@ -80,7 +89,7 @@ const PRODUCTO_NUEVO: Paso[] = [
       `un físico con foto y precio, sin campaña activa; si el admin ya nombró uno, ese. Explicá en 2 líneas por qué ese ` +
       `(sin tecnicismos). No le des la lista entera ni le pidas que elija entre 16: proponé uno y, como mucho, una alternativa. ` +
       `Al final escribí el marcador con tu recomendación: [[ruta: productoId=ID; producto=NOMBRE]]. ` +
-      `Cerrá con la pregunta "¿Arrancamos con ese?".` +
+      `Cerrá con la pregunta "¿Arrancamos con ese?". Si el admin dice que él elige, pedile SOLO el nombre, en una línea, sin volver a proponer.` +
       (e.producto ? ` El admin ya tenía propuesto "${e.producto}" (id ${e.productoId}); si no lo quiere, proponé otro distinto.` : ""),
   },
   {
@@ -234,6 +243,64 @@ export function pideSalirDeRuta(prompt: string): boolean {
   return SALIDA.test(String(prompt || ""));
 }
 
+// ── Nivel: principiante o experto ────────────────────────────────────────
+//
+// Se deduce de cómo escribe (vocabulario de pauta) o de lo que dice de sí
+// mismo. No se pregunta con un formulario: se lee, y queda guardado en la
+// ruta. Si no hay señal, principiante: es más barato explicarle de más a un
+// experto que dejar colgado a alguien que no sabe qué es un "ángulo".
+const DICE_EXPERTO = /\b(ya\s+s[eé]\s+pautar|s[eé]\s+pautar|ya\s+(he\s+)?paut[eé]|soy\s+experto|solo\s+ejecut[aá]|sin\s+explicar|no\s+me\s+expliques)\b/i;
+const DICE_PRINCIPIANTE = /\b(soy\s+nuevo|nunca\s+(he\s+)?paut[eé]|no\s+s[eé]\s+(nada\s+de\s+)?(esto|pautar|anunciar)|no\s+entiendo\s+(nada|de\s+esto)|expl[ií]came|desde\s+cero|primera\s+vez)\b/i;
+const HABLA_COMO_EXPERTO = /\b(cpm|ctr|cpc|cpa|roas|ads\s*manager|conjuntos?\s+de\s+anuncios|p[ií]xel|lookalike|retargeting|creativos?|copy|segmentaci[oó]n|presupuesto\s+diario|abo|cbo)\b/i;
+
+export function detectarNivel(prompt: string): Nivel | null {
+  const t = String(prompt || "");
+  if (DICE_PRINCIPIANTE.test(t)) return "principiante";
+  if (DICE_EXPERTO.test(t)) return "experto";
+  if (HABLA_COMO_EXPERTO.test(t)) return "experto";
+  return null;
+}
+
+// ── El producto que el admin nombró ──────────────────────────────────────
+//
+// "FAJA HOT TRIMMER" escrito por el admin ES la elección. En la sesión del
+// 14-09 Atlas contestó con la ficha del producto y volvió a preguntar
+// "¿Arrancamos con ese?" -- cuarta vez en el mismo paso. Si lo nombró, el
+// paso 1 terminó y el servidor sigue solo.
+const N = (x: string) =>
+  String(x || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9ñ\s]/g, " ");
+const GENERICAS = new Set(["para", "unisex", "mujer", "hombre", "original", "nuevo", "nueva", "producto", "curso", "pack", "kit", "mega", "completo", "completa", "digital", "online", "desde", "cero", "nivel", "basico", "avanzado", "acero", "mango", "color", "negro", "blanco", "talla", "unidad", "unidades"]);
+
+export function productoNombrado<T extends { id: number; name: string }>(prompt: string, catalogo: T[]): T | null {
+  const enPrompt = new Set(N(prompt).match(/[a-z0-9ñ]{3,}/g) ?? []);
+  if (enPrompt.size === 0) return null;
+  let mejor: { p: T; puntos: number } | null = null;
+  let empate = false;
+  for (const p of catalogo) {
+    const propias = (N(p.name).match(/[a-z0-9ñ]{3,}/g) ?? []).filter((w) => !GENERICAS.has(w));
+    if (propias.length === 0) continue;
+    const casan = propias.filter((w) => enPrompt.has(w)).length;
+    // Un nombre de una sola palabra propia se acepta con ella; los demás
+    // piden al menos dos, o la mitad, para que "faja" sola no elija entre
+    // dos fajas.
+    const minimo = propias.length === 1 ? 1 : Math.max(2, Math.ceil(propias.length / 2));
+    if (casan < minimo) continue;
+    if (!mejor || casan > mejor.puntos) { mejor = { p, puntos: casan }; empate = false; }
+    else if (casan === mejor.puntos) empate = true;
+  }
+  return mejor && !empate ? mejor.p : null;
+}
+
+async function catalogoDelTenant(tenantId: number): Promise<Array<{ id: number; name: string }>> {
+  try {
+    const rows = await db.select({ id: products.id, name: products.name }).from(products).where(eq(products.tenantId, tenantId));
+    return rows.map((r) => ({ id: Number(r.id), name: String(r.name || "") }));
+  } catch (err) {
+    logger.warn({ err, tenantId }, "[Ruta] No se pudo leer el catálogo para reconocer el producto nombrado");
+    return [];
+  }
+}
+
 // ── Marcador del modelo ──────────────────────────────────────────────────
 
 const MARCADOR_RUTA = /\[\[\s*ruta\s*:\s*([^\]]*)\]\]/gi;
@@ -268,6 +335,20 @@ export interface RutaEnTurno {
   investigo: boolean;
 }
 
+function instruccionPorNivel(nivel: Nivel | undefined): string {
+  if (nivel === "experto") {
+    return (
+      `El admin YA SABE pautar: dale los datos y el control. Máximo 4 líneas, sin explicar términos, sin justificar lo obvio, ` +
+      `sin motivarlo. Mostrá la decisión tomada y qué se puede cambiar; puede saltar pasos o corregir cualquier cosa y vos lo aplicás. `
+    );
+  }
+  return (
+    `El admin es PRINCIPIANTE: decidí vos y resolvele; solo preguntale lo que no podés decidir por él (qué producto, cuánta plata, ` +
+    `y el sí antes de gastar). Si usás una palabra del oficio ("ángulo", "conjunto de anuncios"), explicala en la misma línea, en cinco palabras. ` +
+    `Una decisión por paso, con tu respuesta ya puesta: un "ok" avanza. `
+  );
+}
+
 /**
  * Antes de hablarle al modelo: arranca, avanza o sigue la ruta según lo que
  * dijo el admin, y ejecuta lo que le toca al servidor en el paso nuevo.
@@ -299,21 +380,43 @@ export async function prepararRuta(o: {
   let entrada = "";
   let investigo = false;
 
-  if (estado.esperando && isApproval(prompt) && estado.paso < def.pasos.length) {
-    // El admin dijo que sí: el SERVIDOR hace el paso siguiente.
-    estado.paso += 1;
-    estado.esperando = false;
-    const paso = def.pasos[estado.paso - 1];
+  const nivelLeido = detectarNivel(prompt);
+  if (nivelLeido && nivelLeido !== estado.nivel) {
+    estado.nivel = nivelLeido;
+    await guardarRuta(o.tenantId, o.sessionId, estado);
+  }
+
+  // El servidor entra al paso siguiente: ejecuta lo suyo y guarda.
+  const avanzar = async () => {
+    const e = estado!;
+    e.paso += 1;
+    e.esperando = false;
+    const paso = def.pasos[e.paso - 1];
     if (paso.alEntrar) {
       try {
-        entrada = await paso.alEntrar(estado, o.ctx, o.avisar);
-        investigo = estado.paso === 2 && /Investigación REAL/.test(entrada);
-      } catch (e: any) {
-        logger.warn({ err: e?.message, paso: estado.paso }, "[Ruta] Falló lo que el servidor hace al entrar al paso");
-        entrada = `[SISTEMA] Este paso no se pudo preparar (${e?.message || e}). Decíselo al admin con honestidad y ofrecé reintentar.`;
+        entrada = await paso.alEntrar(e, o.ctx, o.avisar);
+        investigo = e.paso === 2 && /Investigación REAL/.test(entrada);
+      } catch (err: any) {
+        logger.warn({ err: err?.message, paso: e.paso }, "[Ruta] Falló lo que el servidor hace al entrar al paso");
+        entrada = `[SISTEMA] Este paso no se pudo preparar (${err?.message || err}). Decíselo al admin con honestidad y ofrecé reintentar.`;
       }
     }
-    await guardarRuta(o.tenantId, o.sessionId, estado);
+    await guardarRuta(o.tenantId, o.sessionId, e);
+  };
+
+  // En el paso 1, nombrar el producto ES elegirlo: no se vuelve a preguntar.
+  const nombrado = estado.paso === 1 && !isApproval(prompt) && !isRejection(prompt)
+    ? productoNombrado(prompt, await catalogoDelTenant(o.tenantId))
+    : null;
+
+  if (nombrado && estado.paso < def.pasos.length) {
+    estado.productoId = nombrado.id;
+    estado.producto = nombrado.name;
+    logger.info({ tenantId: o.tenantId, productoId: nombrado.id }, "[Ruta] El admin nombró el producto: paso 1 listo");
+    await avanzar();
+  } else if (estado.esperando && isApproval(prompt) && estado.paso < def.pasos.length) {
+    // El admin dijo que sí: el SERVIDOR hace el paso siguiente.
+    await avanzar();
   } else if (estado.esperando && isRejection(prompt)) {
     entrada = "[SISTEMA] El admin NO quiere esa propuesta. Proponé otra distinta para este mismo paso, sin repetir la anterior.";
   }
@@ -323,7 +426,13 @@ export async function prepararRuta(o: {
     `\n\n[SISTEMA] RUTA GUIADA "${def.nombre}" — paso ${estado.paso} de ${def.pasos.length}: ${paso.nombre}. ` +
     `Vos llevás la conversación: entregá este paso completo y cerrá SIEMPRE con UNA pregunta de sí/no ofreciendo el siguiente. ` +
     `No escribas el encabezado "Paso N de N" (lo pone el sistema). ` +
-    `Nada de "decime qué querés": decidí vos y proponé. Lenguaje de dueño de negocio, sin tecnicismos. ` +
+    `Nada de "decime qué querés": decidí vos y proponé. ` +
+    instruccionPorNivel(estado.nivel) +
+    `CÓMO ESCRIBIR: como una persona que sabe, no como un folleto. Párrafos cortos, nada de una viñeta con emoji en cada línea, ` +
+    `máximo un emoji por respuesta, y sin frases hechas ("compra por impulso", "se entiende en 3 segundos"). ` +
+    `NUNCA hables de tu mecánica: ni herramientas, ni "me pidió iniciar sesión", ni "no me alcanzó el tiempo", ni "no te invento"; ` +
+    `si algo no se pudo saber, no lo menciones salvo que cambie la decisión. Una sola respuesta: no repitas nada que ya dijiste en esta ruta. ` +
+    (nombrado ? `El admin acaba de nombrar el producto (${nombrado.name}): ya está elegido, NO vuelvas a preguntar si arrancamos con ese. ` : "") +
     paso.instruccion(estado, entrada) +
     (entrada ? `\n\n${entrada}` : "");
 
@@ -331,6 +440,21 @@ export async function prepararRuta(o: {
 }
 
 const TERMINA_PREGUNTANDO = /\?\s*(\*+)?\s*$/;
+
+/**
+ * Párrafos que hablan de la cocina de Atlas y no del negocio. En la sesión
+ * del 14-09 le contó al admin que "la búsqueda me pidió iniciar sesión", que
+ * "no te las describo de memoria ni te las invento" y que "no me alcanzó el
+ * tiempo del turno". Nada de eso le sirve para decidir; se quita entero.
+ */
+const MECANICA_INTERNA = /(me pidi[oó] iniciar sesi[oó]n|no me dej[oó] abrir|tiempo del turno|no te (?:las |los |lo |la )?(?:invento|describo de memoria)|no te invento|me devolvi[oó] (?:los textos|solo)|no pude leer|no me alcanz[oó]|con las im[aá]genes no te puedo|herramienta)/i;
+
+export function sinMecanicaInterna(texto: string): string {
+  const parrafos = String(texto || "").split(/\n{2,}/);
+  const limpios = parrafos.filter((p) => !MECANICA_INTERNA.test(p));
+  // Si se fuera todo, mejor el texto original que un mensaje vacío.
+  return limpios.length ? limpios.join("\n\n").trim() : String(texto || "").trim();
+}
 /** El encabezado que pone el sistema; si el modelo lo copió del historial, se quita para no duplicarlo. */
 const ENCABEZADO_DE_PASO = /^\s*\**\s*Paso\s+\d+\s+de\s+\d+\s*[·:\-–]\s*[^\n]*\**\s*\n+/i;
 
@@ -352,7 +476,7 @@ export async function cerrarTurnoDeRuta(o: {
   if (c.angulo) estado.angulo = c.angulo;
   if (c.landingid && Number(c.landingid) > 0) estado.landingId = Number(c.landingid);
 
-  let texto = decl.textoLimpio.replace(ENCABEZADO_DE_PASO, "").replace(ENCABEZADO_DE_PASO, "");
+  let texto = sinMecanicaInterna(decl.textoLimpio.replace(ENCABEZADO_DE_PASO, "").replace(ENCABEZADO_DE_PASO, ""));
   // Basta con que el cierre (últimas líneas) tenga una pregunta: el modelo a
   // veces la escribe y remata con una frase ("…hasta que lo actives.").
   const cierre = texto.slice(-240);
@@ -376,4 +500,5 @@ export const METAS_DE_INICIO = [
   { id: "producto-nuevo", texto: "🚀 Vender un producto nuevo", mensaje: "Quiero vender un producto nuevo" },
   { id: "vender-mas", texto: "📈 Vender más de lo que ya tengo", mensaje: "Ayúdame a vender más de un producto que ya tengo" },
   { id: "empezar", texto: "🧭 No sé por dónde empezar", mensaje: "No sé por dónde empezar" },
+  { id: "experto", texto: "⚡ Ya sé pautar: solo ejecutá", mensaje: "Ya sé pautar, quiero vender un producto nuevo: solo ejecutá" },
 ];

@@ -1310,7 +1310,11 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
       // cubiertas y con prueba: los parámetros de una sola tarea ("con ángulo
       // de fe, destino WhatsApp, presupuesto 10000") no son tres tareas, y un
       // fragmento con paréntesis sin cerrar frena todo el partido.
-      const partido = partirElPedido(String(prompt));
+      // Dentro de una ruta guiada NO se parte el pedido: el servidor ya sabe
+      // qué toca en este paso y la entrega por partes producía DOS respuestas
+      // al mismo turno (sesión del 14-09, dos mensajes a las 05:25 con la
+      // misma investigación).
+      const partido = rutaActiva ? null : partirElPedido(String(prompt));
       if (partido) {
         partesPendientes = partido.pendientes;
         text +=
@@ -1900,7 +1904,9 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
         const declaradas = partesQueDeclara(String(finalReplyVerificado || ""));
         if (declaradas.partes.length) {
           finalReplyVerificado = declaradas.textoLimpio;
-          if (partesPendientes.length === 0) partesPendientes = declaradas.partes;
+          // En la ruta, lo que el modelo "deja pendiente" no se persigue: el
+          // paso lo cierra el servidor y el admin no quiere leer "falta X".
+          if (partesPendientes.length === 0 && !rutaActiva) partesPendientes = declaradas.partes;
           logger.info({ tenantId, partes: declaradas.partes }, "[AtlasOpenCode] Atlas declaró partes pendientes");
         }
       }
@@ -2011,7 +2017,7 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
 
       // Lo que NO alcanzó a entrar en el turno se dice tal cual. Sin esto
       // parecería que Atlas ignoró la mitad de lo que pidió.
-      if (partesPendientes.length && finalReplyVerificado) {
+      if (partesPendientes.length && finalReplyVerificado && !rutaActiva) {
         finalReplyVerificado +=
           `\n\n📋 No me alcanzó el tiempo del turno para todo. Falta:\n` +
           partesPendientes.map((p, i) => `${i + 1}. ${p}`).join("\n") +
@@ -2384,7 +2390,10 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
       // no al final porque puesta abajo el mensaje se contradecía solo -- decía
       // "Borrador guardado:" y dos líneas después "NO se guardó", y el admin
       // lee de arriba hacia abajo y se queda con lo primero.
-      if (avisarQueNoEjecuto) {
+      // En la ruta guiada los pasos los ejecuta el SERVIDOR, así que el aviso
+      // "no se guardó nada" es falso o irrelevante: el admin lo leía arriba de
+      // cada paso (sesión del 14-09) y solo mete ruido.
+      if (avisarQueNoEjecuto && !rutaActiva) {
         finalReplyVerificado = (plannedActions.length > 0
           // Una línea cada uno: el aviso salía en TRES renglones arriba de
           // cada respuesta y el admin lo leía diez veces por sesión (11-09-2026).

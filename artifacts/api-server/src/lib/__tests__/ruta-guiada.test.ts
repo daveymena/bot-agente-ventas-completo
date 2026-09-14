@@ -49,3 +49,83 @@ describe("lo que el modelo declara", () => {
     expect(avanceQueDeclara(t)).toEqual({ campos: {}, fin: false, textoLimpio: t });
   });
 });
+
+import { detectarNivel, productoNombrado, sinMecanicaInterna, METAS_DE_INICIO } from "../ruta-guiada";
+
+/**
+ * Lo que falló en la sesión del dueño del 14-09-2026, turno por turno:
+ * cuatro "¿Arrancamos con ese?" en el paso 1, la cocina de Atlas contada al
+ * admin, y el mismo trato para principiante y experto.
+ */
+const CATALOGO = [
+  { id: 172, name: "FAJA HOT TRIMMER" },
+  { id: 175, name: "Faja Miss Belt Cintura Delgada" },
+  { id: 168, name: "Corrector De Postura Espalda Unisex" },
+  { id: 160, name: "Afilador De Cuchillos Tijera Acero Mango" },
+  { id: 123, name: "Curso de Piano Completo: De Cero a Nivel Avanzado" },
+];
+
+describe("nombrar el producto es elegirlo", () => {
+  it("'FAJA HOT TRIMMER' tal cual lo escribió el dueño", () => {
+    expect(productoNombrado("FAJA HOT TRIMMER", CATALOGO)?.id).toBe(172);
+    expect(productoNombrado("dale con la hot trimmer", CATALOGO)?.id).toBe(172);
+  });
+
+  it("'faja' sola no elige entre dos fajas", () => {
+    expect(productoNombrado("quiero vender una faja", CATALOGO)).toBeNull();
+  });
+
+  it("'yo te digo cuál' / 'quiero hacerlo con otro producto' no nombran nada", () => {
+    expect(productoNombrado("Yo te digo cual", CATALOGO)).toBeNull();
+    expect(productoNombrado("Quiero hacerlo con otro producto", CATALOGO)).toBeNull();
+    expect(productoNombrado("Q propones", CATALOGO)).toBeNull();
+  });
+
+  it("nombres largos con la mitad de las palabras propias", () => {
+    expect(productoNombrado("el corrector de postura", CATALOGO)?.id).toBe(168);
+    expect(productoNombrado("el afilador de cuchillos", CATALOGO)?.id).toBe(160);
+    expect(productoNombrado("el curso de piano", CATALOGO)?.id).toBe(123);
+  });
+});
+
+describe("principiante o experto", () => {
+  it("lo dice con todas las letras", () => {
+    expect(detectarNivel("Ya sé pautar, quiero vender un producto nuevo: solo ejecutá")).toBe("experto");
+    expect(detectarNivel("soy nuevo en esto, nunca he pautado")).toBe("principiante");
+    expect(detectarNivel("No sé por dónde empezar")).toBeNull();
+  });
+
+  it("o habla como quien ya pautó", () => {
+    expect(detectarNivel("dejá el CPM y subí el presupuesto diario a 30k")).toBe("experto");
+    expect(detectarNivel("hacé un conjunto de anuncios con lookalike")).toBe("experto");
+  });
+
+  it("si dice que no sabe, gana eso aunque use una palabra técnica", () => {
+    expect(detectarNivel("no sé nada de esto, qué es el copy?")).toBe("principiante");
+  });
+
+  it("la pantalla de inicio ofrece el atajo del experto", () => {
+    expect(METAS_DE_INICIO.some((m) => m.id === "experto" && detectarNivel(m.mensaje) === "experto")).toBe(true);
+  });
+});
+
+describe("la cocina de Atlas no le llega al admin", () => {
+  it("quita los párrafos que hablan de herramientas, sesiones y tiempo", () => {
+    const texto = [
+      "Los que pelean por cintura delgada hoy: 3 anuncios activos de Anturio.",
+      "🖼️ Con las imágenes no te puedo ayudar todavía: la búsqueda me pidió iniciar sesión. No te las describo de memoria ni te las invento.",
+      "A $45.000 la Hot Trimmer entra más barata que la competencia.",
+      "📋 No me alcanzó el tiempo del turno para todo.",
+      "¿Arrancamos con ese?",
+    ].join("\n\n");
+    const limpio = sinMecanicaInterna(texto);
+    expect(limpio).not.toMatch(/iniciar sesión|invento|tiempo del turno/);
+    expect(limpio).toMatch(/Anturio/);
+    expect(limpio).toMatch(/45\.000/);
+    expect(limpio).toMatch(/¿Arrancamos con ese\?$/);
+  });
+
+  it("si todo el texto era cocina, no devuelve vacío", () => {
+    expect(sinMecanicaInterna("No me alcanzó el tiempo del turno.")).toBe("No me alcanzó el tiempo del turno.");
+  });
+});
