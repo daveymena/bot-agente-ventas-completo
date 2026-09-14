@@ -1099,6 +1099,10 @@ export async function runAgentReply(conversationId: number) {
   // que hacía antes de que existiera esta capa.
   const mandaElEntendimiento = !!entendimiento && entendimiento.confianza >= 0.5;
   const intentEntendido = mandaElEntendimiento ? entendimiento!.intencion : null;
+  if (!mandaElEntendimiento) {
+    // Que se vea en test-ia: un turno sin lectura se decide con las listas.
+    console.log(`🧠 [ENTENDER] sin lectura confiable (${entendimiento ? `confianza ${entendimiento.confianza}` : "null"}): deciden los patrones - ${ts()}`);
+  }
 
   t1 = Date.now();
   const decision = await computeDecision(

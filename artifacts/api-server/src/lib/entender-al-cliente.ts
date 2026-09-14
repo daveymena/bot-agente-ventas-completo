@@ -486,13 +486,25 @@ export async function entenderAlCliente(
           model: modelo,
           messages: [{ role: "user", content: prompt }],
           temperature: 0,
-          max_tokens: 450,
+          // 450 alcanzaba para el JSON viejo. Con `productosNombrados`, `pide`
+          // y los textos libres (`esperando`, `preguntas`, `evitar`) un JSON
+          // cortado se descarta entero y la capa se apaga en silencio.
+          max_tokens: 800,
         },
         { timeout, maxRetries: 0 },
       );
       const bruto = completion.choices?.[0]?.message?.content?.trim() || "";
 
-      const entendido = normalizar(extraerJson(bruto), idsValidos, e.productoEnFocoId ?? null);
+      const json = extraerJson(bruto);
+      const entendido = normalizar(json, idsValidos, e.productoEnFocoId ?? null);
+
+      // Se imprime con console.log a propósito: es lo que captura test-ia.
+      // Un null mudo acá se vio en producción el 14-09 como "la capa no
+      // corre", cuando sí corría y devolvía algo que no se podía leer.
+      if (!entendido) {
+        const fin = String(completion.choices?.[0]?.finish_reason || "");
+        console.log(`🧠 [ENTENDER] ${proveedor}/${modelo} devolvió algo ilegible (finish:${fin || "?"}, json:${json ? "sí" : "no"}, ${bruto.length} chars): ${bruto.slice(0, 220).replace(/\s+/g, " ")}`);
+      }
 
       if (entendido) {
         logger.info(
@@ -511,6 +523,7 @@ export async function entenderAlCliente(
       }
     } catch (err: any) {
       logger.warn({ proveedor, err: err?.message }, "[Entender] proveedor rápido no respondió");
+      console.log(`🧠 [ENTENDER] ${proveedor} no respondió: ${String(err?.message || err).slice(0, 200)}`);
     }
   }
 
