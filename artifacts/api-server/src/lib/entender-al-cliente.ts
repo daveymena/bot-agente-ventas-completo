@@ -366,7 +366,14 @@ export function normalizar(
  * El error anterior era intentar hasta cuatro proveedores con 7s cada uno:
  * en un fallo se podían acumular decenas de segundos antes de responder.
  */
-const PROVEEDORES_RAPIDOS = ["deepseek", "groq"];
+// Groq PRIMERO. Medido en producción el 14-09-2026 con test-ia:
+// `deepseek-v4-flash` devolvía `finish:length` con 0 chars de contenido en
+// cada turno --se gastaba los 800 tokens razonando y no escribía el JSON--
+// y recién después Groq contestaba en ~1s. O sea: 4s perdidos por mensaje y
+// la comprensión dependiendo del segundo de la fila. Groq fue el que de
+// verdad entendió en todas las pruebas; DeepSeek queda de respaldo con el
+// razonamiento apagado (abajo).
+const PROVEEDORES_RAPIDOS = ["groq", "deepseek"];
 
 /**
  * El modelo de ENTENDER no es el de REDACTAR, y mezclarlos rompe uno de los dos.
@@ -489,7 +496,11 @@ export async function entenderAlCliente(
           // 450 tokens era poco para el JSON con campos nuevos (producción, etc.).
           // Con JSON cortado el normalizar devuelve null y la capa se apaga muda.
           max_tokens: 800,
-        },
+          // DeepSeek V4 piensa antes de contestar y el pensamiento consume el
+          // tope de tokens: contenido vacío, `finish:length`. Para clasificar
+          // no hace falta pensar. Los demás proveedores ignoran el campo.
+          ...(proveedor === "deepseek" ? { thinking: { type: "disabled" } } : {}),
+        } as any,
         { timeout, maxRetries: 0 },
       );
       const bruto = completion.choices?.[0]?.message?.content?.trim() || "";
