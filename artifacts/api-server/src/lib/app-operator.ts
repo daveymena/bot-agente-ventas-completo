@@ -2325,15 +2325,32 @@ export const TOOLS: ToolDef[] = [
         `&sort_data[mode]=total_impressions&sort_data[direction]=desc`;
 
       let navegador: any = null;
-      try {
+      // Tope duro de toda la lectura. Visto el 14-09-2026: el turno quedó en
+      // "Consultando fb ad library…" durante horas. Chromium en el contenedor
+      // puede no arrancar, o la página nunca llegar a "networkidle2"
+      // (Facebook no deja de cargar cosas), y sin esto no había salida.
+      const TOPE_MS = 75_000;
+      let vencido: NodeJS.Timeout | undefined;
+      const seVencio = new Promise<never>((_, reject) => {
+        vencido = setTimeout(() => {
+          reject(new Error(`la Biblioteca de Anuncios tardó más de ${TOPE_MS / 1000}s`));
+          // El navegador se cierra acá mismo: si no, sigue vivo de fondo
+          // comiéndose la RAM del contenedor después de que el turno siguió.
+          navegador?.close().catch(() => {});
+        }, TOPE_MS);
+      });
+      const leer = async () => {
         const puppeteer: any = (await import("puppeteer")).default;
         navegador = await puppeteer.launch({
           headless: true,
           executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
           // --no-sandbox es necesario dentro del contenedor (corre como root).
           args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage", "--lang=es-CO"],
+          timeout: 20_000,
+          protocolTimeout: 60_000,
         });
         const pagina = await navegador.newPage();
+        pagina.setDefaultTimeout(30_000);
         await pagina.setUserAgent(
           "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
         );
@@ -2343,9 +2360,11 @@ export const TOOLS: ToolDef[] = [
         // encabezado de la página, sin un solo anuncio. Con `networkidle2` +
         // espera + un scroll (que dispara la carga diferida) aparecen los
         // ~120 resultados reales con su texto completo.
-        await pagina.goto(url, { waitUntil: "networkidle2", timeout: 45_000 });
+        // Si la red nunca queda "idle" (Facebook sigue cargando), se sigue
+        // igual con lo que haya: peor es no devolver nada.
+        await pagina.goto(url, { waitUntil: "networkidle2", timeout: 35_000 }).catch(() => {});
         await new Promise((r) => setTimeout(r, 7000));
-        await pagina.evaluate("window.scrollBy(0, 2500)");
+        await pagina.evaluate("window.scrollBy(0, 2500)").catch(() => {});
         await new Promise((r) => setTimeout(r, 4000));
 
         // Se pasa como STRING a propósito: este código corre dentro del
@@ -2411,9 +2430,13 @@ export const TOOLS: ToolDef[] = [
           summary: `📢 ${anuncios.length} anuncios ACTIVOS de la competencia para "${query}" en ${pais} (Biblioteca de Anuncios de Meta, datos reales de hoy)`,
           data: { query, pais, url, anuncios },
         };
+      };
+      try {
+        return await Promise.race([leer(), seVencio]);
       } catch (e: any) {
-        return { ok: false, summary: `No se pudo leer la Biblioteca de Anuncios: ${e?.message || e}. No inventes anuncios.` };
+        return { ok: false, summary: `No se pudo leer la Biblioteca de Anuncios: ${e?.message || e}. No inventes anuncios: decile al admin que esa consulta no respondió y seguí con lo demás.` };
       } finally {
+        if (vencido) clearTimeout(vencido);
         try { await navegador?.close(); } catch { /* el navegador ya se cerró solo */ }
       }
     },

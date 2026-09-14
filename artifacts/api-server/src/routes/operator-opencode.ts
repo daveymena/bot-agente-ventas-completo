@@ -1847,11 +1847,17 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
           }
           if (!resuelto) {
             // Quedan listas para el próximo turno, y al admin se le dice en
-            // lenguaje normal qué hacer -- sin nombres técnicos.
+            // lenguaje normal qué hacer -- sin nombres técnicos. Salvo que el
+            // texto YA le pida algo ("escribime en un minuto", "decime cuál"):
+            // ahí sumar otra instrucción confunde (visto el 14-09-2026, dos
+            // pedidos distintos en el mismo mensaje).
             recordarHerramientasPedidas(tenantId, sessionId, pedidas.nombres);
-            finalReplyVerificado =
-              `${finalReplyVerificado ? finalReplyVerificado + "\n\n" : ""}` +
-              `Necesito revisar un par de datos más de tu cuenta para terminar esto. Respondé *dale* y te lo entrego completo.`;
+            const yaLePide = /\b(escrib[ií]me|respond[eé]|dec[ií]me|avis[aá]me|contame|elegí|eleg[ií]|confirm[aá])\b|\?\s*$/i.test(finalReplyVerificado || "");
+            if (!yaLePide) {
+              finalReplyVerificado =
+                `${finalReplyVerificado ? finalReplyVerificado + "\n\n" : ""}` +
+                `Necesito revisar un par de datos más de tu cuenta para terminar esto. Respondé *dale* y te lo entrego completo.`;
+            }
           }
         }
       }

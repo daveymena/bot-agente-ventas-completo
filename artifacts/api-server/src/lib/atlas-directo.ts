@@ -88,6 +88,49 @@ export interface ResultadoDirecto {
  */
 const VUELTAS_MAX = 8;
 
+/**
+ * Tope por herramienta. Visto en producción el 14-09-2026: `fb_ad_library`
+ * se quedó colgada (Chromium dentro del contenedor) y el turno entero quedó
+ * en "Consultando fb ad library…" durante horas, porque el presupuesto del
+ * turno solo acotaba las llamadas al MODELO, no a las herramientas. Ninguna
+ * lectura legítima necesita más que esto; las de investigación larga
+ * (deep_research) tienen su propio camino asíncrono.
+ */
+const TOPE_HERRAMIENTA_MS = 90_000;
+/** Lo que se reserva después de una herramienta para que el modelo alcance a contestar. */
+const RESERVA_PARA_RESPONDER_MS = 8_000;
+
+class HerramientaVencida extends Error {
+  constructor(nombre: string, ms: number) {
+    super(`${nombre} tardó más de ${Math.round(ms / 1000)}s y se canceló`);
+    this.name = "HerramientaVencida";
+  }
+}
+
+/**
+ * Corre el handler con límite. Si se vence, el turno sigue (el modelo recibe
+ * el error y decide); el handler queda corriendo de fondo hasta que termine
+ * solo -- las herramientas de navegador cierran el suyo por su cuenta.
+ */
+async function conLimite<T>(nombre: string, ms: number, fn: () => Promise<T>, cancel?: AbortSignal): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  let onAbort: (() => void) | undefined;
+  const limite = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new HerramientaVencida(nombre, ms)), ms);
+    if (cancel) {
+      onAbort = () => reject(new Error("detenido"));
+      if (cancel.aborted) onAbort();
+      else cancel.addEventListener("abort", onAbort, { once: true });
+    }
+  });
+  try {
+    return await Promise.race([fn(), limite]);
+  } finally {
+    if (timer) clearTimeout(timer);
+    if (cancel && onAbort) cancel.removeEventListener("abort", onAbort);
+  }
+}
+
 /** Un esquema vacío es válido, pero `undefined` rompe la API. */
 const SIN_PARAMETROS = { type: "object", properties: {} };
 
@@ -230,16 +273,25 @@ export async function correrTurnoDirecto(o: OpcionesDeTurnoDirecto): Promise<Res
         } else {
           herramientasUsadas.push(nombre);
           o.onProgreso?.(`Consultando ${nombre.replace(/_/g, " ")}…`);
+          // Lo que le queda al turno, menos lo que hace falta para que el
+          // modelo escriba la respuesta con el resultado.
+          const disponible = limite - Date.now() - RESERVA_PARA_RESPONDER_MS;
+          const tope = Math.max(1_000, Math.min(TOPE_HERRAMIENTA_MS, disponible));
           try {
             // EL MISMO handler y EL MISMO ctx que usa el puente MCP.
-            const resultado = await def.handler(leidos.args, o.ctx);
+            const resultado = await conLimite(nombre, tope, () => def.handler(leidos.args, o.ctx), o.cancelSignal);
             texto = textoDelResultado(resultado);
           } catch (e: any) {
-            // Una herramienta que se cae no puede tumbar el turno: el modelo
-            // recibe el error y decide -- reintentar con otros argumentos,
-            // buscar por otro lado, o decirle al admin qué pasó.
-            logger.warn({ tool: nombre, err: e?.message }, "[AtlasDirecto] La herramienta falló");
-            texto = `❌ ${nombre} falló: ${e?.message || e}`;
+            if (o.cancelSignal?.aborted) {
+              return { texto: ultimoTexto, error: "detenido", vueltas, herramientasUsadas, ms: Date.now() - t0 };
+            }
+            // Una herramienta que se cae (o se vence) no puede tumbar el
+            // turno: el modelo recibe el error y decide -- reintentar con
+            // otros argumentos, buscar por otro lado, o decirle al admin.
+            logger.warn({ tool: nombre, err: e?.message, tope }, "[AtlasDirecto] La herramienta falló");
+            texto = e instanceof HerramientaVencida
+              ? `❌ ${e.message}. No la vuelvas a llamar en este turno: seguí con lo que tenés o decile al admin que esa consulta no respondió.`
+              : `❌ ${nombre} falló: ${e?.message || e}`;
           }
         }
       }

@@ -133,6 +133,34 @@ describe("nada de lo que salga mal puede tumbar el turno", () => {
     expect(r.texto).toBe("sigo");
   });
 
+  /**
+   * Visto en producción el 14-09-2026: `fb_ad_library` se quedó colgada
+   * (Chromium en el contenedor) y el turno entero quedó en "Consultando fb
+   * ad library…" durante horas. El presupuesto acotaba las llamadas al
+   * modelo, no a las herramientas.
+   */
+  it("una herramienta que nunca responde se vence y el turno sigue", async () => {
+    conFetch(
+      respuesta({ tool_calls: [{ id: "1", function: { name: "lenta", arguments: "{}" } }] }),
+      respuesta({ content: "seguí sin eso" }),
+    );
+    const fetchMock = globalThis.fetch as any;
+    const t0 = Date.now();
+    const r = await correrTurnoDirecto({
+      ...base,
+      // 9.5s de presupuesto - 8s de reserva = tope de ~1,5s para la herramienta.
+      presupuestoMs: 9_500,
+      herramientas: [{ name: "lenta", description: "d", inputSchema: {}, handler: () => new Promise(() => {}) } as any],
+    });
+    expect(Date.now() - t0).toBeLessThan(5_000);
+    expect(r.texto).toBe("seguí sin eso");
+    // El modelo recibió el vencimiento como error de herramienta, con la instrucción de no insistir.
+    const segundaLlamada = JSON.parse(fetchMock.mock.calls[1][1].body);
+    const resultadoHerramienta = segundaLlamada.messages.find((m: any) => m.role === "tool");
+    expect(resultadoHerramienta.content).toMatch(/lenta tardó más de/);
+    expect(resultadoHerramienta.content).toMatch(/No la vuelvas a llamar/);
+  });
+
   it("una herramienta que el modelo inventó", async () => {
     conFetch(
       respuesta({ tool_calls: [{ id: "1", function: { name: "no_existe", arguments: "{}" } }] }),
