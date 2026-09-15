@@ -40,7 +40,7 @@ function conCandado<T>(fn: () => Promise<T>): Promise<T> {
   queue = run.then(() => undefined, () => undefined);
   return Promise.race([
     run,
-    new Promise<never>((_, reject) => setTimeout(() => reject(new Error("Timeout de cola: 130s")), 130_000)),
+    new Promise<never>((_, reject) => setTimeout(() => reject(new Error("Timeout de cola: 200s")), 200_000)),
   ]);
 }
 
@@ -59,30 +59,58 @@ async function createSession(host: string, authHeader: string): Promise<string> 
 
 interface OpencodePart { type: string; text?: string; [k: string]: any }
 
+// Cadena de modelos medida en operator-opencode.ts (2026-09-03):
+//   deepseek/deepseek-v4-flash    1,68s  ✅
+//   deepseek/deepseek-v4-pro      2,47s  ✅
+//   mistral/mistral-small-latest  1,53s  ✅
+//   opencode/big-pickle           respaldo (gratis, lento)
+const MODELOS_RAPIDOS: { providerID: string; modelID: string }[] = [
+  { providerID: "deepseek", modelID: "deepseek-v4-flash" },
+  { providerID: "deepseek", modelID: "deepseek-v4-pro" },
+  { providerID: "mistral", modelID: "mistral-small-latest" },
+  { providerID: "opencode", modelID: "big-pickle" },
+];
+
 async function sendMessage(
   host: string, authHeader: string, sessionId: string,
   opts: { system: string; text: string; timeoutMs: number },
-): Promise<{ text: string; error?: string }> {
-  const res = await fetch(`${host}/session/${sessionId}/message`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: authHeader },
-    body: JSON.stringify({
-      agent: "general",
-      model: { providerID: "opencode", modelID: "big-pickle" },
-      system: opts.system,
-      tools: {},
-      parts: [{ type: "text", text: opts.text }],
-    }),
-    signal: AbortSignal.timeout(opts.timeoutMs),
-  });
-  if (!res.ok) throw new Error(`OpenCode respondio ${res.status}`);
-  const data = (await res.json()) as any;
-  if (data?.info?.error) {
-    return { text: "", error: data.info.error.data?.message || data.info.error.name || "Error de OpenCode" };
+): Promise<{ text: string; error?: string; model?: string }> {
+  let ultimoError = "";
+  for (const model of MODELOS_RAPIDOS) {
+    try {
+      const res = await fetch(`${host}/session/${sessionId}/message`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: authHeader },
+        body: JSON.stringify({
+          agent: "general",
+          model: { providerID: model.providerID, modelID: model.modelID },
+          system: opts.system,
+          tools: {},
+          parts: [{ type: "text", text: opts.text }],
+        }),
+        signal: AbortSignal.timeout(opts.timeoutMs),
+      });
+      if (!res.ok) {
+        ultimoError = `OpenCode respondio ${res.status} con ${model.modelID}`;
+        continue;
+      }
+      const data = (await res.json()) as any;
+      if (data?.info?.error) {
+        ultimoError = data.info.error.data?.message || data.info.error.name || "Error de OpenCode";
+        continue;
+      }
+      const parts: OpencodePart[] = Array.isArray(data?.parts) ? data.parts : [];
+      const text = parts.filter(p => p.type === "text" && p.text).map(p => p.text!.trim()).join("\n\n").trim();
+      if (!text) {
+        ultimoError = `Respuesta vacía de ${model.modelID}`;
+        continue;
+      }
+      return { text, model: model.modelID };
+    } catch (e: any) {
+      ultimoError = e?.message || "Error desconocido";
+    }
   }
-  const parts: OpencodePart[] = Array.isArray(data?.parts) ? data.parts : [];
-  const text = parts.filter(p => p.type === "text" && p.text).map(p => p.text!.trim()).join("\n\n").trim();
-  return { text };
+  return { text: "", error: ultimoError || "Sin modelos disponibles" };
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -299,7 +327,7 @@ router.post("/test", async (req, res) => {
       return await sendMessage(config.host, config.authHeader, sessionId, {
         system: getSystemPrompt(tipo),
         text: userPrompt,
-        timeoutMs: 120_000,
+        timeoutMs: 45_000,
       });
     });
     const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
@@ -312,7 +340,7 @@ router.post("/test", async (req, res) => {
     const codeBlockMatch = html.match(/```(?:html)?\s*\n?([\s\S]*?)\n?```/);
     if (codeBlockMatch) html = codeBlockMatch[1].trim();
 
-    return res.json({ html, elapsed: `${elapsed}s`, length: html.length, tipo });
+    return res.json({ html, elapsed: `${elapsed}s`, length: html.length, tipo, model: result.model });
   } catch (e: any) {
     logger.error({ err: e?.message }, "[LandingStudio/test] error");
     return res.status(500).json({ error: e?.message || "Error interno" });
@@ -365,7 +393,7 @@ router.post("/chat", async (req, res) => {
       return await sendMessage(config.host, config.authHeader, sessionId, {
         system: getSystemPrompt(tipo),
         text: userPrompt,
-        timeoutMs: 120_000,
+        timeoutMs: 45_000,
       });
     });
     const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);

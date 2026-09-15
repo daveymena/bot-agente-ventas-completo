@@ -156,7 +156,7 @@ export default function LandingStudioV2() {
 
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 120000);
+      const timeoutId = setTimeout(() => controller.abort(), 180000);
       const r = await fetch("/api/landing-studio/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -184,7 +184,7 @@ export default function LandingStudioV2() {
       ]);
       toast.success(esNueva ? "¡Landing generada!" : "¡Landing actualizada!");
     } catch (e: any) {
-      const msg = e.name === "AbortError" ? "Tiempo de espera agotado (2 min). Intenta con un producto más simple." : (e.message || "Error al procesar.");
+      const msg = e.name === "AbortError" ? "Tiempo de espera agotado (3 min). Intenta con un producto más simple." : (e.message || "Error al procesar.");
       setMsgs(m => [...m.filter(x => !(x as any).loading), { role: "assistant", content: `Error: ${msg}` }]);
     } finally {
       setBusy(false);
