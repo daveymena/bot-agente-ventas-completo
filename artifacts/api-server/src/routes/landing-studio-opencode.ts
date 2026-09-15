@@ -285,6 +285,15 @@ REGLAS DE IMAGENES (OBLIGATORIAS):
 6. Usa <img loading="lazy"> en las imagenes que NO estan en el hero (carga mas rapido).
 7. Si una imagen falla, el <img> debe tener alt descriptivo.
 
+REGLAS DE VIDEO (OBLIGATORIAS - si el producto tiene video):
+1. El video va en su PROPIA seccion, con titulo propio (ej: "Mira como funciona") y espacio de fondo y padding generoso (padding: 48px 16px o mas).
+2. El <video> ocupa el ANCHO COMPLETO de su contenedor: width:100%, max-width 900px, centrado. NUNCA un ancho fijo chico que lo recorte.
+3. Relacion de aspecto: aspect-ratio: 16/9. Usa object-fit: contain para que el video se vea ENTERO sin cortarse los lados.
+4. Usa controls, preload="metadata" y playsinline. Si hay foto del producto, usala como poster.
+5. Dale borde redondeado (border-radius 12-16px) y una sombra suave para que no parezca pegado.
+6. Rodealo de fondo: una seccion con fondo suave (blanco o el tono claro del color primario) para que respire y no quede recortado contra los bordes de la pagina.
+7. En movil el video tambien va a ancho completo y se ve entero (no recortado).
+
 REGLAS DE TIPOGRAFIA RESPONSIVE (OBLIGATORIAS):
 1. Titulo principal (hero H1): 28px en movil, 48-56px en desktop. Usa font-size con media queries.
 2. Subtitulos/secciones (H2): 22px en movil, 34-38px en desktop.
@@ -476,7 +485,7 @@ ${cuentasTxt}
 
 IMAGENES DEL PRODUCTO (${fotos.length} disponibles - USALAS TODAS):
 ${imagenesTxt}
-${videos.principal ? `\nVIDEO PRINCIPAL DEL PRODUCTO: ${videos.principal}\n(Colocalo con un <video> en la seccion de demo/prueba si aplica)` : ""}
+${videos.principal ? `\nVIDEO PRINCIPAL DEL PRODUCTO: ${videos.principal}\n(Incluilo con un <video> en una seccion propia de "Mira como funciona" o demo. Usa controls, preload="metadata" y poster si hay foto. Ancho completo, NO recortado.)` : ""}
 
 CONTEXTO DEL NEGOCIO:
 - Moneda: ${product.currency || "USD"}
