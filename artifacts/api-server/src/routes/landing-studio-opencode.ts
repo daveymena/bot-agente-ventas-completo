@@ -174,10 +174,10 @@ router.post("/test", async (req, res) => {
 });
 
 // ── POST /api/landing-studio/chat ──────────────────────────────────────────
-router.post("/chat", requireAdmin, async (req: TenantRequest, res) => {
+router.post("/chat", async (req: TenantRequest, res) => {
   try {
     const tenantId = req.tenant?.id;
-    if (!tenantId) return res.status(401).json({ message: "Tenant not resolved" });
+    if (!tenantId) return res.status(401).json({ message: "No autenticado" });
 
     const { message, landingId, productId } = req.body as {
       message?: string; landingId?: number; productId?: number;
