@@ -7,6 +7,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { toast } from "sonner";
 import { Sparkles, Send, User, Loader2, Monitor, Smartphone, Download, RefreshCw, LayoutTemplate, Wand2, Copy, Trash2, ExternalLink, EyeOff } from "lucide-react";
 import ReactMarkdown from "react-markdown";
+import { BloquesEditor } from "@/components/landing/bloques-editor";
 
 type Product = { id: number; name: string; description?: string; price?: string; currency?: string };
 type Landing = { id: number; name: string; productId?: number | null; design?: any; sections?: any[]; strategy?: any; status?: string; publishedUrl?: string | null; source?: any };
@@ -93,6 +94,8 @@ export default function LandingStudioV2() {
    * siempre y este estado no hace nada.
    */
   const [panelMovil, setPanelMovil] = useState<"chat" | "preview">("chat");
+  // Chat (pedirle cambios al modelo) o Bloques (tocar la landing con las manos).
+  const [modoPanel, setModoPanel] = useState<"chat" | "bloques">("chat");
   const [msgs, setMsgs] = useState<Msg[]>([{ role: "assistant", content: SALUDO }]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
@@ -478,6 +481,17 @@ Cualquier cambio que me pidas se ve ahí al instante.` }]);
                 ))}
               </div>
             </div>
+            <div className="flex shrink-0 border-b bg-muted/20 p-1 gap-1">
+              {([["chat", "💬 Chat"], ["bloques", "🧱 Bloques"]] as const).map(([valor, etiqueta]) => (
+                <button key={valor} onClick={() => setModoPanel(valor)} aria-pressed={modoPanel === valor}
+                  className={`flex-1 h-7 rounded-md text-[11px] font-semibold transition-colors ${modoPanel === valor ? "bg-background shadow-sm" : "text-muted-foreground"}`}>
+                  {etiqueta}
+                </button>
+              ))}
+            </div>
+            {modoPanel === "bloques" ? (
+              <BloquesEditor landingId={landingId} onGuardado={() => { if (landingId) cargarPreview(landingId); }} />
+            ) : (<>
             <ScrollArea className="flex-1 px-3 py-3">
               <div className="space-y-3">
                 {msgs.map((msg, i) => (
@@ -523,6 +537,7 @@ Cualquier cambio que me pidas se ve ahí al instante.` }]);
                 </Button>
               </div>
             </div>
+            </>)}
           </div>
           <div
             className={`flex-1 flex-col bg-slate-950 overflow-hidden lg:flex ${

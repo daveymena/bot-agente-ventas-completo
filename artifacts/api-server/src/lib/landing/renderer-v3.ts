@@ -16,6 +16,8 @@ export interface SeccionParaRenderizar {
   cta?: string | null;
   image?: string | null;
   images?: string[] | null;
+  /** Oculta por el editor de bloques; se conserva para poder mostrarla de nuevo. */
+  hidden?: boolean | null;
 }
 
 export interface OpcionRender {
@@ -342,7 +344,9 @@ export function renderizarLanding(opts: OpcionesDeRender): string {
   const negocio = opts.negocio || null;
   const modelo = String(negocio?.modelo || "").toLowerCase();
   const fisico = /fisic|physical|dropshipping/.test(modelo);
-  const secciones = (Array.isArray(opts.secciones) ? opts.secciones : []).filter(Boolean);
+  // `hidden` lo pone el editor de bloques del Landing Studio: la seccion
+  // sigue guardada (se puede volver a mostrar) pero no se renderiza.
+  const secciones = (Array.isArray(opts.secciones) ? opts.secciones : []).filter((s) => s && !(s as any).hidden);
   const hero = secciones.find((s) => s.type === "hero") || secciones[0] || { id: "hero", type: "hero", title: producto?.name || "Tu próximo paso", subtitle: producto?.description || "", cta: fisico ? "Pedir ahora" : "Empezar ahora" };
   const heroImage = safeImage(hero.image) || safeImage(producto?.imageUrl);
   const wa = whatsapp(producto, negocio);
