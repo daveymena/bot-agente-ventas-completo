@@ -105,6 +105,23 @@ const METAS_DE_INICIO = [
 export default function CodeAgent() {
   useAutoTour(HELP_GUIDE);
   const [mode, setMode] = useState<Mode>("operator");
+  // Diagnóstico de inicio: cómo está el negocio hoy y el siguiente paso, con
+  // su botón. Lo arma el servidor (GET /api/code-agent/diagnostico); si no
+  // llega, quedan las metas fijas.
+  const [diagnostico, setDiagnostico] = useState<{ texto: string; metas: { texto: string; mensaje: string }[] } | null>(null);
+  useEffect(() => {
+    let vivo = true;
+    fetch("/api/code-agent/diagnostico", { credentials: "include" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (!vivo || !d || !d.texto) return;
+        // El endpoint devuelve UN siguiente paso ({ texto, mensaje }); va primero entre los botones.
+        const metas = d.siguiente?.mensaje ? [{ texto: String(d.siguiente.texto), mensaje: String(d.siguiente.mensaje) }] : [];
+        setDiagnostico({ texto: d.texto, metas });
+      })
+      .catch(() => {});
+    return () => { vivo = false; };
+  }, []);
   const [messages, setMessages] = useState<Message[]>([{ role: "assistant", content: GREETING.operator, at: Date.now() }]);
   // ── Conversaciones separadas ──────────────────────────────────────────
   // El historial SIEMPRE se guardo por sessionId, pero esta pantalla usaba
@@ -1400,9 +1417,17 @@ export default function CodeAgent() {
                 {/* Metas de inicio: una charla nueva arranca con Atlas
                     proponiendo, no con una caja vacía. Un clic manda el
                     mensaje que abre la ruta guiada en el servidor. */}
+                {mode === "operator" && messages.length === 1 && !loading && diagnostico?.texto && (
+                  <div className="mb-3 whitespace-pre-line pl-11 text-sm text-muted-foreground md:pl-12">
+                    {diagnostico.texto}
+                  </div>
+                )}
                 {mode === "operator" && messages.length === 1 && !loading && (
                   <div className="mb-2 flex flex-wrap gap-2 pl-11 md:pl-12">
-                    {METAS_DE_INICIO.map((m) => (
+                    {[
+                      ...(diagnostico?.metas ?? []),
+                      ...METAS_DE_INICIO.filter((m) => !(diagnostico?.metas ?? []).some((d) => d.mensaje === m.mensaje)),
+                    ].map((m) => (
                       <button
                         key={m.mensaje}
                         type="button"

@@ -46,6 +46,7 @@ import { getAppUrl } from "../lib/app-url";
 import { ENV_POR_PROVEEDOR } from "../lib/ai-keys";
 import { claveDeTurno, empezarTurno, terminarTurno, pedirDetener, hayTurnoEnVuelo, fueDetenido } from "../lib/turnos-en-vuelo";
 import { prepararRuta, cerrarTurnoDeRuta, cargarRuta, detectarInicioDeRuta } from "../lib/ruta-guiada";
+import { enLenguajeDeDueno } from "../lib/lenguaje-de-dueno";
 import { afirmaHaberloHecho } from "../lib/afirma-haberlo-hecho";
 import { mensajeDeCierre } from "../lib/entrega-por-partes";
 import { partirElPedido } from "../lib/partir-el-pedido";
@@ -1905,6 +1906,9 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
       }
 
 
+      // ── Sin tecnicismos: lo que lee el admin va en lenguaje de dueño ─────
+      finalReplyVerificado = enLenguajeDeDueno(String(finalReplyVerificado || ""));
+
       // ── Partes que Atlas declaró pendientes ([[partes: …]]) ──────────────
       {
         const declaradas = partesQueDeclara(String(finalReplyVerificado || ""));
@@ -2002,7 +2006,7 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
             // Los marcadores internos no llegan al admin; si esta parte
             // declaró más partes, se encolan (sin repetir).
             const decl = partesQueDeclara(herramientasQuePide(r.text.trim(), toolRegistry.map((t) => t.name)).textoLimpio);
-            const textoParte = decl.textoLimpio;
+            const textoParte = enLenguajeDeDueno(decl.textoLimpio);
             for (const p of decl.partes) if (!partesPendientes.includes(p) && p !== siguiente) partesPendientes.push(p);
             finalReplyVerificado = `${finalReplyVerificado}\n\n${textoParte}`.trim();
             const paraMostrar = paraMarkdown(toEmojiStyle(textoParte));

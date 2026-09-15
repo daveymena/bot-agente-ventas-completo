@@ -72,8 +72,9 @@ export async function diagnosticoDelNegocio(ctx: OperatorContext): Promise<Diagn
 
   // list_products devuelve data.products o un arreglo; se toleran las dos.
   const lista: any[] = Array.isArray(prod?.data) ? prod.data : Array.isArray(prod?.data?.products) ? prod.data.products : Array.isArray(prod?.data?.items) ? prod.data.items : [];
-  const fisicos = lista.filter((p) => String(p?.kind || "").toLowerCase() === "physical").length;
-  const sinFoto = lista.filter((p) => !p?.imageUrl && !p?.image).length;
+  // list_products devuelve `hasImage` y `kind`; se toleran también las filas crudas.
+  const fisicos = lista.filter((p) => /physical|fisico|físico/i.test(String(p?.kind || ""))).length;
+  const sinFoto = lista.filter((p) => (typeof p?.hasImage === "boolean" ? !p.hasImage : !p?.imageUrl && !p?.image)).length;
   const productos = { total: lista.length, fisicos, digitales: lista.length - fisicos, sinFoto };
 
   const whatsappConectado = wa ? String(wa.data?.state || "") === "connected" : null;

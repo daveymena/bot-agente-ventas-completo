@@ -23,8 +23,9 @@ import { db, architectMemory, products } from "@workspace/db";
 import { logger } from "./logger";
 import { isApproval, isRejection } from "./architect-store";
 import { executeAction, investigacionRapida, type OperatorContext } from "./app-operator";
+import { diagnosticoDelNegocio, GUIAS, SIGUIENTES, type SiguientePasoId } from "./diagnostico-de-inicio";
 
-export type RutaId = "producto-nuevo";
+export type RutaId = "producto-nuevo" | "empezar";
 
 /**
  * Con quién habla Atlas. Pedido del dueño (14-09-2026) después de leer una
@@ -48,6 +49,8 @@ export interface EstadoDeRuta {
   landingUrl?: string;
   draftId?: number;
   campaignId?: string;
+  /** Ruta "empezar": lo que el diagnóstico propuso hacer primero. */
+  siguiente?: SiguientePasoId;
   iniciadaEn: string;
 }
 
@@ -186,8 +189,50 @@ const PRODUCTO_NUEVO: Paso[] = [
   },
 ];
 
+/**
+ * Ruta "No sé por dónde empezar": el servidor mira el negocio y propone UNA
+ * cosa. Si es "vender un producto", se salta a esa ruta; si es algo que el
+ * cliente tiene que hacer con sus manos (conectar WhatsApp, poner el pago de
+ * Meta), se le explica en pasos numerados.
+ */
+const EMPEZAR: Paso[] = [
+  {
+    nombre: "Revisar tu negocio",
+    sinAcciones: true,
+    pedido: "productos whatsapp facebook campañas",
+    pregunta: (e) => {
+      const id = e.siguiente || "producto-nuevo";
+      return id === "producto-nuevo" ? "¿Empezamos eligiendo qué producto vender?" : `¿Te explico cómo hacerlo? (${SIGUIENTES[id].texto.replace(/^\S+\s/, "")})`;
+    },
+    instruccion: (e) =>
+      `Objetivo del paso: contarle cómo está su negocio HOY con los datos reales de abajo (3 líneas, sin tecnicismos, sin listar todo) ` +
+      `y proponerle UNA sola cosa para empezar: la que dice el diagnóstico (${e.siguiente || "producto-nuevo"}). No le des un menú. ` +
+      `Cerrá con la pregunta de sí/no correspondiente. Escribí el marcador [[ruta: siguiente=${e.siguiente || "producto-nuevo"}]].`,
+    alEntrar: async (e, ctx, avisar) => {
+      avisar("Revisando cómo está tu negocio...");
+      const d = await diagnosticoDelNegocio(ctx);
+      e.siguiente = d.siguiente.id;
+      return `[SISTEMA] Diagnóstico REAL del negocio (hecho por el servidor):\n${d.texto}\nPropuesta: ${d.siguiente.texto} — ${d.siguiente.porque}`;
+    },
+  },
+  {
+    nombre: "Cómo hacerlo",
+    sinAcciones: true,
+    pedido: "configuración whatsapp facebook productos",
+    pregunta: () => "¿Seguimos cuando lo tengas listo?",
+    instruccion: (e) => {
+      const id = e.siguiente && e.siguiente !== "producto-nuevo" ? e.siguiente : null;
+      return id
+        ? `Objetivo del paso: explicarle cómo hacer esto con sus manos. Usá EXACTAMENTE esta guía (podés acomodar el tono, no el contenido):\n${GUIAS[id]}\n` +
+          `Sin tecnicismos. Terminá diciéndole que cuando lo tenga, toque "Vender un producto nuevo" o te escriba "listo", y escribí el marcador [[ruta: fin]].`
+        : `Objetivo del paso: decirle que ya puede empezar a vender y que toque "Vender un producto nuevo". Escribí el marcador [[ruta: fin]].`;
+    },
+  },
+];
+
 const RUTAS: Record<RutaId, { nombre: string; pasos: Paso[] }> = {
   "producto-nuevo": { nombre: "Vender un producto nuevo", pasos: PRODUCTO_NUEVO },
+  empezar: { nombre: "Empezar", pasos: EMPEZAR },
 };
 
 // ── Estado por sesión ────────────────────────────────────────────────────
@@ -232,11 +277,26 @@ export async function cerrarRuta(tenantId: number, sessionId: string): Promise<v
 
 // ── Detección ────────────────────────────────────────────────────────────
 
-const INICIO_PRODUCTO_NUEVO = /\b(vender\s+(un\s+)?(producto\s+)?nuevo|producto\s+nuevo|nuevo\s+producto|quiero\s+(empezar\s+a\s+)?vender|empezar\s+a\s+vender|lanzar\s+(un\s+)?producto|no\s+s[eé]\s+por\s+d[oó]nde\s+empezar|por\s+d[oó]nde\s+empiezo|ay[uú]dame\s+a\s+vender)\b/i;
+const INICIO_PRODUCTO_NUEVO = /\b(vender\s+(un\s+)?(producto\s+)?nuevo|producto\s+nuevo|nuevo\s+producto|quiero\s+(empezar\s+a\s+)?vender|empezar\s+a\s+vender|lanzar\s+(un\s+)?producto|ay[uú]dame\s+a\s+vender)\b/i;
+const INICIO_EMPEZAR = /\b(no\s+s[eé]\s+por\s+d[oó]nde\s+empezar|por\s+d[oó]nde\s+empiezo|qu[eé]\s+hago\s+primero|c[oó]mo\s+empiezo|revis[aá]\s+(mi|el)\s+negocio)\b/i;
+/** Los botones del diagnóstico mandan estos mensajes: van directo a la guía. */
+const GUIA_DIRECTA: Array<{ patron: RegExp; id: Exclude<SiguientePasoId, "producto-nuevo"> }> = [
+  { patron: /conectar\s+whatsapp/i, id: "whatsapp" },
+  { patron: /cargar\s+mi\s+primer\s+producto|primer\s+producto/i, id: "productos" },
+  { patron: /arreglar\s+el\s+pago|pago\s+de\s+(la\s+cuenta\s+de\s+)?facebook|m[eé]todo\s+de\s+pago/i, id: "meta-pago" },
+  { patron: /conectar\s+facebook/i, id: "meta-conectar" },
+];
 const SALIDA = /\b(sal[ií]\s+de\s+la\s+ruta|cancel[aá]\s+(la\s+)?ruta|dejemos\s+(esto|la\s+ruta)|olvid[aá]lo|par[aá]\s+la\s+ruta|no\s+sigamos)\b/i;
 
 export function detectarInicioDeRuta(prompt: string): RutaId | null {
-  return INICIO_PRODUCTO_NUEVO.test(String(prompt || "")) ? "producto-nuevo" : null;
+  const t = String(prompt || "");
+  if (INICIO_EMPEZAR.test(t) || GUIA_DIRECTA.some((g) => g.patron.test(t))) return "empezar";
+  return INICIO_PRODUCTO_NUEVO.test(t) ? "producto-nuevo" : null;
+}
+
+export function guiaDirectaPedida(prompt: string): Exclude<SiguientePasoId, "producto-nuevo"> | null {
+  const t = String(prompt || "");
+  return GUIA_DIRECTA.find((g) => g.patron.test(t))?.id ?? null;
 }
 
 export function pideSalirDeRuta(prompt: string): boolean {
@@ -369,16 +429,29 @@ export async function prepararRuta(o: {
   }
 
   const inicio = detectarInicioDeRuta(prompt);
-  if (inicio && (!estado || estado.ruta !== inicio)) {
-    estado = { ruta: inicio, paso: 1, esperando: false, iniciadaEn: new Date().toISOString() };
+  let entrada = "";
+  let investigo = false;
+  let recienIniciada = false;
+  if (inicio && (!estado || estado.ruta !== inicio || guiaDirectaPedida(prompt))) {
+    const guia = inicio === "empezar" ? guiaDirectaPedida(prompt) : null;
+    estado = { ruta: inicio, paso: guia ? 2 : 1, esperando: false, iniciadaEn: new Date().toISOString(), ...(guia ? { siguiente: guia } : {}) };
+    recienIniciada = true;
+    logger.info({ tenantId: o.tenantId, sessionId: o.sessionId, ruta: inicio, guia }, "[Ruta] Ruta iniciada");
+    // Lo que el servidor hace al entrar al PRIMER paso (ej. el diagnóstico).
+    const primero = RUTAS[inicio].pasos[estado.paso - 1];
+    if (primero.alEntrar) {
+      try {
+        entrada = await primero.alEntrar(estado, o.ctx, o.avisar);
+      } catch (e: any) {
+        logger.warn({ err: e?.message }, "[Ruta] Falló lo que el servidor hace al iniciar la ruta");
+        entrada = `[SISTEMA] No se pudo revisar el negocio (${e?.message || e}). Decíselo con honestidad y proponé empezar eligiendo un producto.`;
+      }
+    }
     await guardarRuta(o.tenantId, o.sessionId, estado);
-    logger.info({ tenantId: o.tenantId, sessionId: o.sessionId, ruta: inicio }, "[Ruta] Ruta iniciada");
   }
   if (!estado) return null;
 
-  const def = RUTAS[estado.ruta];
-  let entrada = "";
-  let investigo = false;
+  let def = RUTAS[estado.ruta];
 
   const nivelLeido = detectarNivel(prompt);
   if (nivelLeido && nivelLeido !== estado.nivel) {
@@ -405,11 +478,20 @@ export async function prepararRuta(o: {
   };
 
   // En el paso 1, nombrar el producto ES elegirlo: no se vuelve a preguntar.
-  const nombrado = estado.paso === 1 && !isApproval(prompt) && !isRejection(prompt)
+  const nombrado = estado.ruta === "producto-nuevo" && estado.paso === 1 && !recienIniciada && !isApproval(prompt) && !isRejection(prompt)
     ? productoNombrado(prompt, await catalogoDelTenant(o.tenantId))
     : null;
 
-  if (nombrado && estado.paso < def.pasos.length) {
+  if (recienIniciada) {
+    // La ruta arrancó en este mismo turno: no hay nada que aprobar todavía.
+  } else if (estado.ruta === "empezar" && estado.paso === 1 && estado.esperando && isApproval(prompt) && (estado.siguiente || "producto-nuevo") === "producto-nuevo") {
+    // "Empezar" → el sí a "¿empezamos eligiendo qué producto vender?" cambia
+    // a la ruta de producto, sin pedirle que toque otro botón.
+    estado = { ruta: "producto-nuevo", paso: 1, esperando: false, iniciadaEn: new Date().toISOString(), nivel: estado.nivel };
+    def = RUTAS[estado.ruta];
+    await guardarRuta(o.tenantId, o.sessionId, estado);
+    logger.info({ tenantId: o.tenantId, sessionId: o.sessionId }, "[Ruta] De 'empezar' a 'producto-nuevo'");
+  } else if (nombrado && estado.paso < def.pasos.length) {
     estado.productoId = nombrado.id;
     estado.producto = nombrado.name;
     logger.info({ tenantId: o.tenantId, productoId: nombrado.id }, "[Ruta] El admin nombró el producto: paso 1 listo");
@@ -475,6 +557,7 @@ export async function cerrarTurnoDeRuta(o: {
   if (c.producto) estado.producto = c.producto;
   if (c.angulo) estado.angulo = c.angulo;
   if (c.landingid && Number(c.landingid) > 0) estado.landingId = Number(c.landingid);
+  if (c.siguiente && (c.siguiente in SIGUIENTES)) estado.siguiente = c.siguiente as SiguientePasoId;
 
   let texto = sinMecanicaInterna(decl.textoLimpio.replace(ENCABEZADO_DE_PASO, "").replace(ENCABEZADO_DE_PASO, ""));
   // Basta con que el cierre (últimas líneas) tenga una pregunta: el modelo a

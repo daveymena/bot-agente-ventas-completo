@@ -4,17 +4,25 @@
  * lo que el modelo declara, y que el marcador nunca llega al admin.
  */
 import { describe, it, expect } from "vitest";
-import { detectarInicioDeRuta, pideSalirDeRuta, avanceQueDeclara } from "../ruta-guiada";
+import { detectarInicioDeRuta, pideSalirDeRuta, avanceQueDeclara, guiaDirectaPedida } from "../ruta-guiada";
 
 describe("cuándo arranca la ruta", () => {
   it("con las metas del saludo y con formas naturales", () => {
     for (const t of [
       "Quiero vender un producto nuevo",
-      "No sé por dónde empezar",
       "Ayúdame a vender más de un producto que ya tengo",
       "quiero empezar a vender",
       "voy a lanzar un producto",
     ]) expect(detectarInicioDeRuta(t), t).toBe("producto-nuevo");
+  });
+
+  it("'no sé por dónde empezar' y los botones del diagnóstico van a la ruta de inicio", () => {
+    for (const t of ["No sé por dónde empezar", "qué hago primero", "Ayúdame a conectar WhatsApp", "Ayúdame a arreglar el pago de la cuenta de Facebook"]) {
+      expect(detectarInicioDeRuta(t), t).toBe("empezar");
+    }
+    expect(guiaDirectaPedida("Ayúdame a conectar WhatsApp")).toBe("whatsapp");
+    expect(guiaDirectaPedida("Ayúdame a arreglar el pago de la cuenta de Facebook")).toBe("meta-pago");
+    expect(guiaDirectaPedida("No sé por dónde empezar")).toBeNull();
   });
 
   it("no arranca con pedidos normales", () => {
